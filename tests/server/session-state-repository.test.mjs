@@ -107,10 +107,10 @@ describe('session state repository and schema v11', () => {
   const tableNames = (db) => db.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all().map((row) => row.name)
 
   it('creates the v11 schema: new session tables live, old session tables renamed to *_v10_backup', () => {
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(11)
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(12)
     expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all().at(-1)).toEqual({
-      version: 11,
-      name: 'session_state_v2_storage',
+      version: 12,
+      name: 'remove_share_lan_record_digests',
     })
     const tables = tableNames(database)
     for (const name of ['sessions', 'session_messages', 'session_tombstones', 'session_state_maintenance_lock']) {
@@ -142,7 +142,7 @@ describe('session state repository and schema v11', () => {
       (scope, project_id, session_id, revision, state_version, state_json, state_digest, metadata_json, metadata_digest, created_at, updated_at)
       VALUES ('global', '', 'legacy', 1, 0, '{}', '${'a'.repeat(64)}', '{}', '${'b'.repeat(64)}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`).run()
     applySqliteMigrations(database)
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(11)
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(12)
     expect(database.prepare('SELECT session_id FROM session_states_v10_backup').all()).toEqual([{ session_id: 'legacy' }])
     expect(database.prepare('SELECT COUNT(*) AS count FROM sessions').get().count).toBe(0)
     const v10Repository = createSessionStateRepository(createHandle(database), { now: () => '2026-01-01T00:00:02.000Z' })

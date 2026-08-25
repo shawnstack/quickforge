@@ -1,5 +1,7 @@
 # 分享令牌与分享记录 SQLite 权威存储迁移（F10）
 
+> 本文保留 Phase 1/2/3 的历史演进；其中 v8 的在线 `record_digest` 与 pending/authoritative 启动全表校验描述已被 migration 12 和当前启动策略取代，现状以各节的“当前”说明为准。
+
 ## 1. 背景与决策
 
 `share-store.mjs` 目前以 `shares/conversation-shares.json`（顶层对象 key=shareId）为唯一权威，单内存写队列非事务；令牌只存 sha256 哈希（secret=randomToken(32) b64url，token=`shareId.secret`），每分享 ≤50 条、7 天过期、`authVersion` 变更即整体失效。分享不存消息快照，动态读原会话（已走 F8 facade `readSessionValue` + F9 组装）。
@@ -24,13 +26,13 @@ Phase 1 **不接线**：share-store.mjs 仍为 JSON 唯一权威；不接入 `se
 
 | 表 | 用途 |
 | --- | --- |
-| `share_sessions` | 分享记录：share_id PK、session_id、permission、title_snapshot、scope/project_id、password_hash/salt/version、auth_version、allow_cloud_usage、created/updated、expires/revoked/superseded_at、access_count、last_accessed_at、created_from_host、last_updated_from_host、revision（CAS）、record_digest（64 hex）、deleted_at（tombstone 标记）、extra_json（未知字段） |
+| `share_sessions` | 分享记录：share_id PK、session_id、permission、title_snapshot、scope/project_id、password_hash/salt/version、auth_version、allow_cloud_usage、created/updated、expires/revoked/superseded_at、access_count、last_accessed_at、created_from_host、last_updated_from_host、revision（CAS）、deleted_at（tombstone 标记）、extra_json（未知字段）。历史 v8 曾创建 `record_digest`；migration 12 已物理删除，当前表不保存在线行派生哈希 |
 | `share_tokens` | share_id FK（ON DELETE CASCADE）、token_hash、issued_at、expires_at、auth_version；`UNIQUE(share_id, token_hash)`；≤50 条由写入方在事务内裁剪 |
 | `share_storage_state` | 独立域 phase 状态机（`json_authoritative`/`cutover_running`/`sqlite_authoritative_json_pending`/`authoritative`）、share_count、digest、backup_file、diagnostic_json |
 | `share_maintenance_lock` | 独立维护锁（owner/owner_pid/fencing/acquired/heartbeat/expires） |
 | `share_json_mirror_queue` | share_id PK、operation（upsert/delete）、share_json、attempts、last_error、updated_at |
 
-`project_id` 约束与 F8 一致：global 必须空，project 必须非空。v7→v8 整体在一个 `BEGIN IMMEDIATE` 事务内，失败全回滚（测试证明 F5 scheduled runs / F7 session index / F9 session messages 数据保留），新库 `user_version` 为 8。
+`project_id` 约束与 F8 一致：global 必须空，project 必须非空。历史 v7→v8 整体在一个 `BEGIN IMMEDIATE` 事务内，失败全回滚（测试证明 F5 scheduled runs / F7 session index / F9 session messages 数据保留），当时新库 `user_version` 为 8；当前 schema 已由 migration 12 删除上述 `record_digest` 列。
 
 ## 4. share repository
 
@@ -38,13 +40,13 @@ Phase 1 **不接线**：share-store.mjs 仍为 JSON 唯一权威；不接入 `se
 
 - 已知字段（`id`/`sessionId`/`permission`/`titleSnapshot`/`scope`/`projectId`/密码三件套/`authVersion`/`allowCloudUsage`/`createdAt`/`updatedAt`/`expiresAt`/`revokedAt`/`supersededAt`/`accessCount`/`lastAccessedAt`/`createdFromHost`/`lastUpdatedFromHost`/`tokens` + 旧版单令牌字段）映射到列；其余字段进 `extra_json`，读/导出时恢复（roundtrip 测试覆盖 `customField`/`futureFlag`）。
 - `normalizeShareRecord` 同时供 cutover JSON 快照使用，保证两侧校验与 digest 一致。
-- 快照 digest：每记录 `sha256(canonicalize(record))`（含 tokens、排除 revision/deletedAt），整仓为排序后的 `shareId\0recordDigest` 行聚合；`shareRecordDigest`/`shareSnapshotDigest` 导出供 cutover/backup 复用。
-- `create`：单事务内 ① supersede 同 session 其他记录（置 superseded/revoked、清令牌、bump revision）② 更新当前活跃记录（无活跃则生成 `qfs_` 新 id 插入）③ 可选 `tokens` 同事务签发；幂等（重复 create 只更新当前记录）。
+- 快照 digest：每记录 `sha256(canonicalize(record))`（含 tokens、排除 revision/deletedAt），整仓为排序后的 `shareId\0recordDigest` 行聚合；`shareRecordDigest`/`shareSnapshotDigest` 仅供首次 cutover 提交校验、backup/restore/export 与离线维护边界使用，不是在线行权威，也不参与日常启动。
+- `create`：单事务内 ① supersede 同 session 的其他记录（置 superseded/revoked、清令牌、`authVersion+1`、bump revision）② 更新当前记录（无记录则生成 `qfs_` 新 id 插入）。更新现有记录时，未提供密码字段则保留 tokens；提供密码字段则 `authVersion+1` 并清 tokens；显式提供 `tokens` 时按输入替换。
 - CAS：所有变更（create/update/revoke/restore/delete/issueToken/pruneTokens）支持 `expectedRevision`，冲突 409 `SHARE_STATE_CONFLICT`。
 - read/list：`get(shareId)` 排除 tombstone；`list({ sessionId, includeRevoked })` 默认排除 superseded 与 revoked（`includeRevoked` 供 Phase 2 restore 使用）。
 - delete 走 tombstone（`deleted_at`），防 stale 写入复活；重复 delete 404。
-- token：`issueToken`（活跃校验 404/410，生成 secret、事务内过期清理 + ≤50 裁剪 + access_count/last_accessed_at）、`verifyToken`（纯函数，authVersion + 过期过滤 + 恒定时间比较）、`pruneTokens`（过期清理，同时刷新 record_digest 与 mirror）。
-- `replaceAll`/`exportSnapshot`/`verifyIntegrity`/`count`/`digest`/`listMirrorQueue`/`acknowledgeMirror`/`failMirror`；verifyIntegrity 校验每行 record_digest（含 tokens）、permission/scope、≤50 条、孤儿令牌、令牌 authVersion 与行一致。
+- token：`issueToken` 仅对未删除、未 supersede/revoke/过期的记录签发；事务内先删除过期 token，再追加新 token、保留最新 ≤50 条，并同步 `updatedAt`、`accessCount+1`、`lastAccessedAt`、revision 与 mirror。`verifyToken` 为纯校验（shareId + authVersion + 过期过滤 + 恒定时间比较）。`pruneTokens` 仅在确有过期 token 被删除时同步 `updatedAt`、revision 与 mirror，不改访问计数。
+- `replaceAll`/`exportSnapshot`/`verifyIntegrity`/`count`/`digest`/`listMirrorQueue`/`acknowledgeMirror`/`failMirror`；`verifyIntegrity` 校验记录结构、permission/scope、≤50 条、孤儿令牌、令牌 authVersion 与记录一致，不再校验在线 `record_digest`。
 
 ## 5. share service
 
@@ -60,8 +62,8 @@ Phase 1 **不接线**：share-store.mjs 仍为 JSON 唯一权威；不接入 `se
 
 - `buildShareJsonSnapshot`：整包校验——shareId/sessionId 必填、permission/scope 合法、`tokens` 数组结构（每项 token_hash 非空、authVersion 正整数）、password 哈希字段一致性（hash 与 salt 成对）、key 与 record.id 一致、**重复 shareId blocker**（与已见 id 重复直接拒绝）。
 - `initializeShareCutover`：`json_authoritative`→`cutover_running`→`sqlite_authoritative_json_pending`→`authoritative`。双快照（count+digest 一致）→ v1 backup（临时文件重读 count/digest 校验后 rename）→ 三读稳定性 → `replaceAll`（与 pending phase 同事务）→ verifyIntegrity+count/digest 对拍 → drain mirror → authoritative。
-- pending/authoritative 启动恢复：pending 先 verifyIntegrity（失败 fail closed 保持 pending）再 drain；authoritative 校验 + drain；`cutover_running` 安全回 JSON 后重跑。
-- 失败语义：pending 之前任何失败回 `json_authoritative`；**进入 pending 后失败保持 pending，不回 JSON 权威**（mirror 失败即此态，后续启动可恢复）。
+- pending/authoritative 常规启动恢复：只 drain 事务性 `share_json_mirror_queue`；pending 队列清空后 promote authoritative。该路径不全表扫描、不执行 `verifyIntegrity`，也不绑定共享 `quick_check`；严格快照/关系校验只保留在首次 cutover、backup/restore/export 与离线维护等显式边界。历史“pending/authoritative 每次启动完整性校验”描述已被此策略取代。
+- 失败语义：pending 之前任何失败回 `json_authoritative`；**进入 pending 后失败保持 pending，不回 JSON 权威**（mirror 失败即此态，后续启动继续 drain）。
 - 维护锁：独立 `share_maintenance_lock`，复用 PID+expiry+fencing+heartbeat 模式（`runShareMaintenance`）。
 
 ## 7. 已知边界（Phase 1）
@@ -76,7 +78,7 @@ Phase 1 **不接线**：share-store.mjs 仍为 JSON 唯一权威；不接入 `se
 - JSON 文件降级为 best-effort mirror：repository 每次写后入 `share_json_mirror_queue`，`requestShareJsonMirrorDrain()` 调度 drain（默认 mirror 物化回 `conversation-shares.json`，文件保持可读）。
 - 保留：`onConversationShareInvalidated` 事件（superseded/updated/revoked/deleted）、`assertShareActive` 404/410 状态机、operate 需密码、7 天 / ≤50 / authVersion 语义、`shareCookieName`/`parseCookies`、API shape 不变。
 - 维护锁：authoritative 下若 `share_maintenance_lock` 被持有，share-store 写路径返回 423 `SHARE_MAINTENANCE_ACTIVE`（cutover 期间 JSON 路径照常）。
-- 生命周期（`server/index.mjs`）：session state cutover 之后按序 `initializeShareCutover()` → `initializeShareService()` → `drainShareJsonMirror()`；pending/authoritative 完整性失败 fail-closed 阻止启动，json_authoritative 失败安全保留旧 JSON 路径；`shutdownRuntime` finally 调 `stopShareService()`（清 mirror timer）。
+- 生命周期（`server/index.mjs`）：session state 初始化之后按序 `initializeShareCutover()` → `initializeShareService()` → `recoverShareRestorePlan()` → `drainShareJsonMirror()`；pending/authoritative 的常规路径只恢复/排空事务性 mirror outbox，不做全表完整性扫描或 `quick_check`。`shutdownRuntime` finally 调 `stopShareService()`（清 mirror timer）。
 - routes：`routes/shares.mjs` restore 改用 `readConversationShare`（get，含 revoked 记录）；`routes/shared-conversation.mjs` `verifyShareToken`/`readConversationShare` 消费 repository 记录；CAS 409 / 维护锁 423 由 `sendError` 稳定映射。
 - `share-service.mjs` 补回 `json` 配置项与 `requireShareJsonAdapter`（按 session-state-service 模式，作为 JSON 权威读路径扩展点）+ `getShareRepository()`。
 - 测试：新增 `tests/server/share-store.authoritative.test.mjs`（4 项：authoritative 全生命周期走 repository、CAS 409 + 维护锁 423、json_authoritative 回退、mirror drain 后文件可读）与 `tests/server/share-lifecycle.test.mjs`（5 项：启动顺序、authoritative fail-closed、json 回退、mirror 队列跨启动恢复、shutdown 释放）。
@@ -98,7 +100,7 @@ Phase 1 **不接线**：share-store.mjs 仍为 JSON 唯一权威；不接入 `se
 ### 9.3 digest 稳定性
 
 - `normalizeShareRecord` 将缺失 issuedAt 的令牌归一化为确定性哨兵 `1970-01-01T00:00:00.000Z`（与 `share_tokens.issued_at NOT NULL` 的存储表示一致），保证遗留 v1 导入在 cutover 与 backup/restore 两侧 digest 1:1 对拍。
-- 修复 `repository.create` 新记录路径：行 `created_at` 与 record_digest 使用同一输入值（此前用当前时间导致输入 createdAt ≠ now 时 verifyIntegrity invalidDigests）。
+- 修复 `repository.create` 新记录路径：行 `created_at` 与快照 digest 使用同一输入值，保证 cutover/backup/restore 边界的快照对拍稳定；migration 12 后不存在在线 `record_digest` 列。
 
 ### 9.4 已知限制
 

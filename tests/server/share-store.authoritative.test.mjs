@@ -21,7 +21,7 @@ describe('share-store authoritative lifecycle', () => {
     process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
     vi.resetModules()
     databaseModule = await import('../../server/sqlite/database.mjs')
-    const { createShareRepository, shareRecordDigest } = await import('../../server/sqlite/share-repository.mjs')
+    const { createShareRepository } = await import('../../server/sqlite/share-repository.mjs')
     await databaseModule.closeSqliteStorage()
     database = await databaseModule.initializeSqliteStorage({ databasePath: path.join(tmpDir, 'state.sqlite3') })
     repository = createShareRepository(database)
@@ -41,7 +41,6 @@ describe('share-store authoritative lifecycle', () => {
   })
 
   it('runs the full lifecycle through the repository: supersede, token invalidation, revoke/restore/update/delete', async () => {
-    const { shareRecordDigest } = await import('../../server/sqlite/share-repository.mjs')
     const events = []
     const removeListener = shareStore.onConversationShareInvalidated((event) => events.push(event))
 
@@ -86,11 +85,10 @@ describe('share-store authoritative lifecycle', () => {
     database.prepare(`INSERT INTO share_sessions (
       share_id, session_id, permission, title_snapshot, scope, project_id, password_hash, password_salt, password_version,
       auth_version, allow_cloud_usage, created_at, updated_at, expires_at, revoked_at, superseded_at,
-      access_count, last_accessed_at, created_from_host, last_updated_from_host, revision, record_digest, extra_json
-    ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, NULL, 1, ?, '{}')`)
+      access_count, last_accessed_at, created_from_host, last_updated_from_host, revision, extra_json
+    ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, NULL, 1, '{}')`)
       .run(legacy.id, legacy.sessionId, legacy.permission, legacy.titleSnapshot, legacy.scope,
-        legacy.authVersion, legacy.allowCloudUsage ? 1 : 0, legacy.createdAt, legacy.updatedAt, legacy.accessCount,
-        shareRecordDigest(legacy))
+        legacy.authVersion, legacy.allowCloudUsage ? 1 : 0, legacy.createdAt, legacy.updatedAt, legacy.accessCount)
 
     const promoted = await shareStore.createConversationShare({
       sessionId: 'session-a',
@@ -107,7 +105,11 @@ describe('share-store authoritative lifecycle', () => {
     // Password change invalidates previously issued tokens.
     expect(shareStore.verifyShareToken(repository.get(share.id), firstToken.token)).toBe(false)
 
-    // Re-share without a password keeps the existing password (JSON semantics).
+    // Re-share without a password keeps the existing password and newly issued
+    // tokens (JSON semantics); inherited password fields are not a password change.
+    const postPasswordToken = await shareStore.issueConversationShareToken(share.id)
+    expect(shareStore.verifyShareToken(await shareStore.readConversationShare(share.id), postPasswordToken.token)).toBe(true)
+    const authVersionBeforeReshare = repository.get(share.id).authVersion
     const reshared = await shareStore.createConversationShare({
       sessionId: 'session-a',
       permission: 'read',
@@ -115,6 +117,8 @@ describe('share-store authoritative lifecycle', () => {
     })
     expect(reshared.id).toBe(share.id)
     expect(reshared.hasPassword).toBe(true)
+    expect(repository.get(share.id).authVersion).toBe(authVersionBeforeReshare)
+    expect(shareStore.verifyShareToken(await shareStore.readConversationShare(share.id), postPasswordToken.token)).toBe(true)
 
     // list includes revoked-but-not-superseded shares and excludes superseded ones.
     await shareStore.revokeConversationShare(share.id)

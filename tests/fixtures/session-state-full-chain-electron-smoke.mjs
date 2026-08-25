@@ -108,7 +108,7 @@ try {
   await writeFile(path.join(globalDir, 'sessions-metadata.json'), `${JSON.stringify({ seed: seedMetadata })}\n`, 'utf8')
 
   const storage = await initializeSqliteStorage({ dataDir: directory })
-  if (storage.health().schemaVersion !== 11) throw new Error(`unexpected schema version ${storage.health().schemaVersion}`)
+  if (storage.health().schemaVersion !== 12) throw new Error(`unexpected schema version ${storage.health().schemaVersion}`)
   const repository = createSessionStateRepository(storage)
   // Storage v2: SQLite is authoritative by construction; only the repository
   // override remains testable (mirror/phase are ignored).
@@ -393,7 +393,7 @@ try {
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    schemaVersion: 11,
+    schemaVersion: 12,
     phase: phaseBeforeDowngrade,
     count: exported.count,
     downgrade: { dryRunOk: true, materialized: 210 },

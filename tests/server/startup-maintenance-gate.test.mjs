@@ -50,12 +50,19 @@ describe('startup maintenance state machine', () => {
 })
 
 describe('startup recovery guidance', () => {
-  it('keeps the original error text and appends actionable recovery steps', () => {
+  it('keeps the original error text and appends safe domain-neutral recovery steps', () => {
     const message = withStartupRecoveryGuidance('cutover integrity failure')
     expect(message.startsWith('cutover integrity failure')).toBe(true)
-    expect(message).toContain('node server/maintenance/downgrade-session-state-v1.mjs --dry-run')
-    expect(message).toContain('node server/maintenance/export-session-state-v1.mjs')
-    expect(message).toContain('docs/architecture/session-storage-recovery-runbook.zh-CN.md')
+    expect(message).toContain('Stop all QuickForge processes')
+    expect(message).toContain('complete copy of the entire QuickForge dataDir')
+    expect(message).toContain('SQLite database and any -wal/-shm files')
+    expect(message).toContain('GET /api/migration-status')
+    expect(message).toContain('server logs')
+    expect(message).toContain('specific error domain')
+    expect(message).toContain('do not delete the database')
+    expect(message).toContain('do not delete the database or blindly run a session-state downgrade command')
+    expect(message).not.toContain('downgrade-session-state-v1.mjs')
+    expect(message).not.toContain('export-session-state-v1.mjs')
     // Multi-line: the original message and the guidance stay separate paragraphs.
     expect(message.split('\n').length).toBeGreaterThan(3)
   })

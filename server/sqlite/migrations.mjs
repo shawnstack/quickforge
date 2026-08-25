@@ -569,6 +569,19 @@ export const SQLITE_MIGRATIONS = Object.freeze([
       `)
     },
   }),
+  Object.freeze({
+    // Share/LAN record digests were online-derived compatibility columns. Their
+    // authoritative integrity remains snapshot-based, so remove the redundant
+    // per-row columns without rewriting the original v8/v9 migrations.
+    version: 12,
+    name: 'remove_share_lan_record_digests',
+    up(database) {
+      database.exec(`
+        ALTER TABLE share_sessions DROP COLUMN record_digest;
+        ALTER TABLE lan_access_state DROP COLUMN record_digest;
+      `)
+    },
+  }),
 ])
 
 function readUserVersion(database) {

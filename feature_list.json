@@ -770,14 +770,31 @@
       "id": "fix-cutover-startup-bugs",
       "name": "修复 cutover 启动链 4 项缺陷（锁 TTL/retained 泄漏/fail-closed 扩大化/可观测性）",
       "status": "done",
-      "approach": "① scheduled-runs 维护锁偷锁补 expires_at 双条件（对齐 session 域）；② retainedMaintenance 在锁正常释放分支复位（retain 语义保留，DB 锁行兜底）；③ authoritative 分支细分：JSON mirror 损坏降级不阻止启动、SQLite health 失败保持 fail-closed；④ 3 个 cutover 模块补关键日志（开始/完成/回退/fail-closed/fallback），启动链失败 logger.error + flushLogger 落盘",
+      "approach": "① scheduled-runs 维护锁偷锁补 expires_at 双条件（对齐 session 域）；② retainedMaintenance 在锁正常释放分支复位（retain 语义保留，DB 锁行兜底）；③ authoritative 分支细分：JSON mirror 损坏降级不阻止启动、SQLite health 失败保持 fail-closed；④ 3 个 cutover 模块补关键日志（开始/完成/回退/fail-closed/fallback），启动链失败 logger.error + flushLogger 落盘。最终完整性收口：migration 12 物理删除 Share/LAN 在线 record_digest；Share/LAN pending/authoritative 常规启动只 drain 事务性 mirror outbox，Scheduled Runs authoritative 不重复绑定 quick_check；首次 cutover、backup/restore/export 等显式边界继续严格快照对拍，SQLite 打开/schema/migration 全局门禁保持不变",
+      "verification": "完整 npm run test：253 files / 2219 tests 通过；npm run lint：0 errors / 1 既有 warning；npm run build：成功；git diff --check：通过。",
       "files": [
         "server/scheduled-runs-cutover.mjs",
         "server/session-state-cutover.mjs",
         "server/share-cutover.mjs",
         "server/lan-access-cutover.mjs",
+        "server/sqlite/migrations.mjs",
+        "server/sqlite/share-repository.mjs",
+        "server/share-store.mjs",
+        "server/sqlite/lan-access-repository.mjs",
+        "server/startup-state.mjs",
         "server/index.mjs",
-        "tests/server/scheduled-runs-cutover.test.mjs"
+        "tests/server/scheduled-runs-cutover.test.mjs",
+        "tests/server/sqlite-storage-foundation.test.mjs",
+        "tests/server/share-repository.test.mjs",
+        "tests/server/lan-access-repository.test.mjs",
+        "tests/server/startup-maintenance-gate.test.mjs",
+        "docs/architecture/sqlite-storage-foundation.zh-CN.md",
+        "docs/architecture/share-token-storage-migration.zh-CN.md",
+        "docs/architecture/lan-access-storage-migration.zh-CN.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
       ]
     },
     {

@@ -431,21 +431,14 @@ export async function initializeScheduledRunsCutover(options = {}) {
     if (state.phase === SCHEDULED_RUNS_PHASES.AUTHORITATIVE) {
       // The JSON file is only a non-authoritative mirror in this phase: a
       // corrupt or unslimmable mirror degrades (diagnostic + warn) without
-      // blocking startup, while the authoritative SQLite health check stays
-      // fail-closed.
+      // blocking startup. Database open/schema/migration gates are owned by
+      // initializeSqliteStorage, not repeated by this domain on routine starts.
       try {
         const snapshot = splitScheduledTasksRuns(await readTasks())
         if (snapshot.count > 0) await slimJson(readTasks, writeTasks, snapshot.metadata)
       } catch (error) {
         recordScheduledRunsDiagnostic('authoritative_validation', error, {}, storage)
         log.warn('Scheduled runs authoritative JSON mirror is invalid; continuing startup', { errorName: error?.name || 'Error' })
-      }
-      try {
-        storage.health({ quickCheck: true })
-      } catch (error) {
-        recordScheduledRunsDiagnostic('authoritative_validation', error, {}, storage)
-        const blocked = new Error('Scheduled runs authoritative startup validation failed', { cause: error })
-        throw blocked
       }
       return readState(storage)
     }

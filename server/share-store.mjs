@@ -296,7 +296,7 @@ export async function createConversationShare({
         createdFromHost,
         lastUpdatedFromHost: createdFromHost,
         ...(passwordProvided ? passwordInfo : existingPassword),
-      })
+      }, { passwordChanged: passwordProvided })
 
       for (const record of existingShares) {
         if (record.id !== current?.id && !record.supersededAt) emitConversationShareInvalidated(record.id, 'superseded')

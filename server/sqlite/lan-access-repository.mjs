@@ -14,7 +14,7 @@ export const DEFAULT_SESSION_TTL_HOURS = 12
 
 const CONFIG_COLUMNS = `
   singleton, enabled, password_hash, password_salt, password_version, auth_version,
-  session_ttl_hours, updated_at, revision, record_digest, extra_json
+  session_ttl_hours, updated_at, revision, extra_json
 `
 
 const TOKEN_COLUMNS = `
@@ -251,9 +251,8 @@ function insertConfigRow(database, record, revision, updatedAt) {
   for (const [key, value] of Object.entries(record)) {
     if (!KNOWN_CONFIG_FIELDS.has(key) && key !== 'revision') extra[key] = value
   }
-  const digest = lanAccessConfigDigest(record)
   database.prepare(`
-    INSERT INTO lan_access_state (${CONFIG_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO lan_access_state (${CONFIG_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(singleton) DO UPDATE SET
       enabled = excluded.enabled,
       password_hash = excluded.password_hash,
@@ -263,15 +262,13 @@ function insertConfigRow(database, record, revision, updatedAt) {
       session_ttl_hours = excluded.session_ttl_hours,
       updated_at = excluded.updated_at,
       revision = excluded.revision,
-      record_digest = excluded.record_digest,
       extra_json = excluded.extra_json
   `).run(
     1, record.enabled === true ? 1 : 0,
     record.passwordHash ?? null, record.passwordSalt ?? null, record.passwordVersion ?? null,
     record.authVersion, record.sessionTtlHours, updatedAt,
-    revision, digest, JSON.stringify(extra),
+    revision, JSON.stringify(extra),
   )
-  return digest
 }
 
 function insertTokenRow(database, token, seq) {
@@ -553,7 +550,6 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
     }
     const row = currentConfigRow(storage)
     let invalidRecords = 0
-    let invalidDigests = 0
     let invalidPasswordPairs = 0
     let missingConfig = 0
     if (!row) {
@@ -562,7 +558,6 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
       try {
         const config = attachTokens(mapConfigRow(row), tokenRowsFor(storage))
         normalizeLanAccessConfig({ ...config, revision: undefined }, { now })
-        if (row.record_digest !== lanAccessConfigDigest(config)) invalidDigests += 1
         if (Boolean(config.passwordHash) !== Boolean(config.passwordSalt)) invalidPasswordPairs += 1
         if (config.enabled === true && !config.passwordHash) invalidPasswordPairs += 1
       } catch {
@@ -576,12 +571,11 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
       ? Number(storage.prepare('SELECT COUNT(*) AS count FROM lan_access_tokens WHERE auth_version != ?').get(Number(row.auth_version)).count)
       : 0
     return {
-      ok: invalidRecords === 0 && invalidDigests === 0 && invalidPasswordPairs === 0 && missingConfig === 0
+      ok: invalidRecords === 0 && invalidPasswordPairs === 0 && missingConfig === 0
         && overLimitTokens === 0 && orphanTokens === 0 && tokenAuthVersionMismatch === 0,
       count: count(),
       digest: row ? digest() : '',
       invalidRecords,
-      invalidDigests,
       invalidPasswordPairs,
       missingConfig,
       overLimitTokens,

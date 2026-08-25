@@ -101,7 +101,7 @@ describe('share lifecycle (startup order, fail closed, shutdown)', () => {
     expect(cutover.isShareMaintenanceActive(storage)).toBe(false)
   })
 
-  it('fails closed and blocks startup when authoritative integrity fails', async () => {
+  it('continues authoritative startup without scanning optional-domain rows', async () => {
     const source = sharesStore(record())
     const state = await cutover.initializeShareCutover({
       storage,
@@ -113,16 +113,15 @@ describe('share lifecycle (startup order, fail closed, shutdown)', () => {
       pidAlive: () => false,
     })
     expect(state.phase).toBe('authoritative')
-    const shareId = repository.list()[0].id
-    storage.prepare(`UPDATE share_sessions SET record_digest = '${'a'.repeat(64)}' WHERE share_id = ?`).run(shareId)
 
-    await expect(cutover.initializeShareCutover({
+    const restarted = await cutover.initializeShareCutover({
       storage,
       repository,
       mirror: { upsert: vi.fn(), delete: vi.fn() },
       owner: { id: '303:test', pid: 303 },
       pidAlive: () => false,
-    })).rejects.toThrow(/authoritative integrity verification failed/)
+    })
+    expect(restarted.phase).toBe('authoritative')
     expect(service.readShareStorageState().phase).toBe('authoritative')
   })
 

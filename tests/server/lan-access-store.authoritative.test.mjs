@@ -174,7 +174,7 @@ describe('lan-access-store authoritative lifecycle', () => {
     expect(reopened.prepare('SELECT phase FROM lan_access_storage_state WHERE singleton = 1').get()).toMatchObject({ phase: 'authoritative' })
   })
 
-  it('blocks startup fail-closed when pending integrity is broken', async () => {
+  it('keeps pending startup non-scanning while verifyIntegrity remains the relationship maintenance boundary', async () => {
     const mirror = { upsert: vi.fn(async () => { throw new Error('mirror failed') }), delete: vi.fn() }
     const pending = await cutover.initializeLanAccessCutover({ storage: database, repository, mirror })
     expect(pending.phase).toBe('sqlite_authoritative_json_pending')
@@ -184,11 +184,11 @@ describe('lan-access-store authoritative lifecycle', () => {
     expect(created.enabled).toBe(true)
     expect(repository.getConfig()).toMatchObject({ enabled: true })
 
-    // Breaking the pending integrity makes the next startup throw: fail-closed,
-    // the phase stays pending (never silently reverts to the JSON path).
-    database.prepare(`UPDATE lan_access_state SET record_digest = ? WHERE singleton = 1`).run('b'.repeat(64))
-    await expect(cutover.initializeLanAccessCutover({ storage: database, repository, mirror })).rejects.toThrow(/pending integrity/)
-    expect(service.readLanAccessStorageState().phase).toBe('sqlite_authoritative_json_pending')
+    await store.issueLanAccessToken('password123')
+    database.prepare('UPDATE lan_access_tokens SET auth_version = auth_version + 1').run()
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, tokenAuthVersionMismatch: 1 })
+    await expect(cutover.initializeLanAccessCutover({ storage: database, repository, mirror }))
+      .resolves.toMatchObject({ phase: 'sqlite_authoritative_json_pending' })
   })
 
   it('enforces the ≤100 token cap through the store', async () => {

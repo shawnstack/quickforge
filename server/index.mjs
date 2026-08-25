@@ -896,19 +896,21 @@ async function runStartupInitialization() {
   })
   await timedStartupStep('session-state-restore-plan', () => recoverSessionStateRestorePlan())
   // Share storage cutover: share-store writes become SQLite-authoritative once
-  // pending/authoritative; integrity failures fail closed and block startup,
-  // json_authoritative failures keep the legacy JSON path. The JSON file stays
-  // as the best-effort mirror drained through the share mirror queue.
+  // pending/authoritative. First cutover validates the normalized snapshot and
+  // relationships strictly; routine pending/authoritative startup only drains
+  // the transactional JSON mirror outbox and preserves cutover state metadata.
+  // json_authoritative failures keep the legacy JSON path.
   await timedStartupStep('share-cutover', () => initializeShareCutover())
   await timedStartupStep('share-service', () => initializeShareService())
   await timedStartupStep('share-restore-plan', () => recoverShareRestorePlan())
   await timedStartupStep('share-json-mirror-drain', () => drainShareJsonMirror())
   // LAN access storage cutover: JSON → SQLite with the same phase machine as
-  // share storage. Integrity failures while pending/authoritative fail closed
-  // and block startup; json_authoritative failures keep the legacy JSON store
-  // path. The JSON file stays as the best-effort mirror drained through the
-  // lan-access mirror queue. Interrupted lan-access restore plans are recovered
-  // (roll-forward/rollback) before the mirror drain.
+  // share storage. First cutover validates the normalized snapshot and
+  // relationships strictly; routine pending/authoritative startup only drains
+  // the transactional JSON mirror outbox and preserves cutover state metadata.
+  // json_authoritative failures keep the legacy JSON store path. Interrupted
+  // lan-access restore plans are recovered (roll-forward/rollback) before the
+  // mirror drain.
   await timedStartupStep('lan-access-cutover', () => initializeLanAccessCutover())
   await timedStartupStep('lan-access-service', () => initializeLanAccessService())
   await timedStartupStep('lan-access-restore-plan', () => recoverLanAccessRestorePlan())

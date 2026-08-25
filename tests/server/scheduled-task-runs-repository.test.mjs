@@ -58,7 +58,7 @@ describe('scheduled task runs repository schema v3', () => {
   })
 
   it('creates the composite-key table, state/lock tables, and global stable indexes', () => {
-    expect(storage.health()).toMatchObject({ schemaVersion: 11, latestSchemaVersion: 11, migrationCount: 11 })
+    expect(storage.health()).toMatchObject({ schemaVersion: 12, latestSchemaVersion: 12, migrationCount: 12 })
     expect(storage.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all()).toEqual([
       { version: 1, name: 'create_schema_migrations' },
       { version: 2, name: 'create_scheduled_task_runs' },
@@ -71,6 +71,7 @@ describe('scheduled task runs repository schema v3', () => {
       { version: 9, name: 'lan_access_storage_migration' },
       { version: 10, name: 'session_states_metadata_covering_index' },
       { version: 11, name: 'session_state_v2_storage' },
+      { version: 12, name: 'remove_share_lan_record_digests' },
     ])
     const columns = storage.prepare('PRAGMA table_info(scheduled_task_runs)').all()
     expect(columns.find((column) => column.name === 'task_id')).toMatchObject({ pk: 1, notnull: 1 })
@@ -225,11 +226,11 @@ describe('scheduled task runs repository schema v3', () => {
       spawnInitializationWorker(concurrentPath),
       spawnInitializationWorker(concurrentPath),
     ])
-    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 11 && summary.migrationCount === 11)).toBe(true)
+    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 12 && summary.migrationCount === 12)).toBe(true)
     const raw = new DatabaseSync(concurrentPath)
     try {
-      expect(raw.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(11)
-      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(11)
+      expect(raw.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(12)
+      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(12)
     } finally {
       raw.close()
     }

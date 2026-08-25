@@ -1,5 +1,7 @@
 # LAN 访问存储 SQLite 权威迁移（F11）
 
+> 本文保留 Phase 1/2/3 的历史演进；其中 v9 的在线 `record_digest` 与 pending/authoritative 启动全表校验描述已被 migration 12 和当前启动策略取代。
+
 ## 1. 背景与决策
 
 `lan-access-store.mjs` 目前以 `security/lan-access.json`（单配置对象：`enabled`/`passwordHash`(scrypt)/`passwordSalt`/`passwordVersion`/`authVersion`/`sessionTtlHours`(1-168)/`updatedAt`/`tokens`≤100）为唯一权威，内存写队列 + 非原子 `fs.writeFile`。token=`createRandomToken(32)` b64url，仅存 sha256 哈希；签发返回 `authVersion.secret`；`verifyLanAccessToken` 先做版本号比较再做常数时间哈希比较（安全闸门）。暴力破解防护（5 次/5 分钟 attempts Map）在 `routes/lan-access.mjs` 内存层，与存储无关，F11 不触碰。消费方：`routes/lan-access.mjs`（status/settings/unlock/logout/revoke/revoke-all）、`server/index.mjs` `isAuthorizedRemoteRequest`（cookie `qf_lan_access` → `verifyLanAccessToken`）。
@@ -26,13 +28,13 @@ Phase 1 **不接线**：`lan-access-store.mjs` 仍为 JSON 唯一权威；不接
 
 | 表 | 用途 |
 | --- | --- |
-| `lan_access_state` | 单配置行（`singleton = 1` PK）：enabled(0/1)、password_hash/password_salt/password_version、auth_version(≥1)、session_ttl_hours(1-168)、updated_at、revision（CAS）、record_digest（64 hex，含 tokens）、extra_json（未知字段 roundtrip）；`CHECK ((enabled=0) OR (password_hash/salt 均非空))` |
+| `lan_access_state` | 单配置行（`singleton = 1` PK）：enabled(0/1)、password_hash/password_salt/password_version、auth_version(≥1)、session_ttl_hours(1-168)、updated_at、revision（CAS）、extra_json（未知字段 roundtrip）；`CHECK ((enabled=0) OR (password_hash/salt 均非空))`。历史 v9 曾创建含 tokens 的 `record_digest`；migration 12 已物理删除，当前表不保存在线行派生哈希 |
 | `lan_access_tokens` | token_id PK、seq（插入序，供 `slice(-100)` 语义裁剪）、token_hash（sha256 b64url，非明文）、issued_at、expires_at、auth_version、remote_address、user_agent；≤100 条由写入方在事务内按 seq 裁剪 |
 | `lan_access_storage_state` | 独立域 phase 状态机（`json_authoritative`/`cutover_running`/`sqlite_authoritative_json_pending`/`authoritative`）、lan_token_count、digest、backup_file、diagnostic_json |
 | `lan_access_maintenance_lock` | 独立维护锁（owner/owner_pid/fencing/acquired/heartbeat/expires） |
 | `lan_access_json_mirror_queue` | singleton=1（整文件镜像）、operation（upsert/delete）、config_json、attempts、last_error、updated_at |
 
-v8→v9 整体在一个 `BEGIN IMMEDIATE` 事务内，失败全回滚（测试证明 F5 scheduled runs / F7 session index / F9 session messages / F10 share 数据保留），新库 `user_version` 为 9。
+历史 v8→v9 整体在一个 `BEGIN IMMEDIATE` 事务内，失败全回滚（测试证明 F5 scheduled runs / F7 session index / F9 session messages / F10 share 数据保留），当时新库 `user_version` 为 9；当前 schema 已由 migration 12 删除上述 `record_digest` 列。
 
 ## 4. lan-access repository
 
@@ -40,13 +42,13 @@ v8→v9 整体在一个 `BEGIN IMMEDIATE` 事务内，失败全回滚（测试�
 
 - 已知配置字段（`enabled`/`passwordHash`/`passwordSalt`/`passwordVersion`/`authVersion`/`sessionTtlHours`/`updatedAt`/`tokens`）映射到列；其余字段进 `extra_json`，读/导出时恢复（roundtrip 测试覆盖 `custom` 对象）。
 - `normalizeLanAccessConfig` 同时供 cutover JSON 快照使用，保证两侧校验与 digest 一致：password 哈希/salt 成对、enabled 必须有密码、tokens 数组结构与每项 token_hash 非空、authVersion 正整数；过期 token 按 `pruneTokens` 语义裁剪，≤100 保留最新（`slice(-100)` 语义，SQL 侧以 seq 保持插入序）。
-- 快照 digest：`lanAccessConfigDigest(config)` = `sha256(canonicalize({...config, tokens: sortedTokens}))`（含 tokens 与未知字段、排除 revision），JSON 侧与 SQLite 侧 1:1；`count` 为活跃 token 数。
+- 快照 digest：`lanAccessConfigDigest(config)` = `sha256(canonicalize({...config, tokens: sortedTokens}))`（含 tokens 与未知字段、排除 revision），JSON 与 SQLite 快照可 1:1 对拍；`count` 为活跃 token 数。digest 仅用于首次 cutover 提交、backup/restore/export 与离线维护边界，不是在线行权威，也不参与日常启动。
 - `updateSettings`：单事务内 ① settings 变更（enabled/password/sessionTtlHours）② 若密码变更或 enabled 切换则 `authVersion+1` 并**清空全部 tokens**（与 JSON `authChanged` 语义一致）③ 配置行 + tokens + mirror 入队一起提交。
 - `issueToken`：单事务内校验 enabled+passwordHash（403）、生成 secret/tokenHash/expiresAt、删除过期 token、按 seq 裁剪 ≤100、配置行 revision+1 与 mirror 入队；返回 `{ token, expiresAt, maxAge, config, revision }`。
 - CAS：`updateSettings`/`issueToken`/`revokeAll` 支持 `expectedRevision`，冲突 409 `LAN_ACCESS_STATE_CONFLICT`。
 - 单条 revoke：`revokeTokenById`（按 token_id，404 `LAN_ACCESS_NOT_FOUND`）、`revokeToken`（logout，解析 `version.secret`，版本不匹配或哈希不存在返回 false）、`revokeAll`（authVersion+1 + 清空 tokens）。
 - `verifyToken(token)`：读当前配置走导出纯函数 `verifyLanAccessTokenRecord(config, token)`——enabled/passwordHash 缺失、版本号不匹配、secret 为空均 false；对未过期且 authVersion 一致的 token 做常数时间哈希比较（`safeHashEqual`）。
-- `replaceAll`/`exportSnapshot`/`verifyIntegrity`/`count`/`digest`/`listMirrorQueue`/`acknowledgeMirror`/`failMirror`；verifyIntegrity 校验 record_digest（含 tokens）、password 成对/enabled 有密码、≤100、孤儿 token、token authVersion 与配置一致。
+- `replaceAll`/`exportSnapshot`/`verifyIntegrity`/`count`/`digest`/`listMirrorQueue`/`acknowledgeMirror`/`failMirror`；`verifyIntegrity` 校验配置结构、password 成对/enabled 有密码、≤100、孤儿 token、token authVersion 与配置一致，不再校验在线 `record_digest`。
 
 ## 5. lan-access service
 
@@ -63,8 +65,8 @@ v8→v9 整体在一个 `BEGIN IMMEDIATE` 事务内，失败全回滚（测试�
 - `buildLanAccessJsonSnapshot`：整包校验——配置必须是对象、password 哈希/salt 成对、enabled 必须有密码哈希、`tokens` 数组结构（每项对象、token_hash 非空、authVersion 正整数）；过期裁剪与 ≤100 与 repository 一致；输出 `{ config, tokenCount, digest }`。
 - `readLanAccessJsonSource`（默认 cutover 读源）：文件缺失（ENOENT）与损坏/不可解析统一回退**默认禁用配置**（与 lan-access-store 对缺文件的兜底语义一致，fail-closed 默认禁用），并物化稳定副本保证双快照稳定。
 - `initializeLanAccessCutover`：`json_authoritative`→`cutover_running`→`sqlite_authoritative_json_pending`→`authoritative`。双快照（tokenCount+digest 一致）→ v1 backup（`quickforge-lan-access-cutover-<stamp>.json`，临时文件重读 tokenCount/digest 校验后 rename）→ 三读稳定性 → `replaceAll`（与 pending phase 同事务）→ verifyIntegrity+count/digest 对拍 → drain mirror → authoritative。
-- pending/authoritative 启动恢复：pending 先 verifyIntegrity（失败 fail closed 保持 pending）再 drain；authoritative 校验 + drain；`cutover_running` 安全回 JSON 后重跑。
-- 失败语义：pending 之前任何失败回 `json_authoritative`；**进入 pending 后失败保持 pending，不回 JSON 权威**（mirror 失败即此态，后续启动可恢复）。
+- pending/authoritative 常规启动恢复：只 drain 事务性 `lan_access_json_mirror_queue`；pending 队列清空后 promote authoritative。该路径不全表扫描、不执行 `verifyIntegrity`，也不绑定共享 `quick_check`；严格快照/关系校验只保留在首次 cutover、backup/restore/export 与离线维护等显式边界。历史“pending/authoritative 每次启动完整性校验”描述已被此策略取代。
+- 失败语义：pending 之前任何失败回 `json_authoritative`；**进入 pending 后失败保持 pending，不回 JSON 权威**（mirror 失败即此态，后续启动继续 drain）。
 - 维护锁：独立 `lan_access_maintenance_lock`，复用 PID+expiry+fencing+heartbeat 模式（`runLanAccessMaintenance`）。
 
 ## 7. lan-access-json-file
@@ -81,7 +83,7 @@ v8→v9 整体在一个 `BEGIN IMMEDIATE` 事务内，失败全回滚（测试�
 
 ## 9. Phase 2 / Phase 3 完成状态
 
-- **Phase 2（lan-access-store 接入 + 生命周期 + routes）**（已完成，见 `progress.md`）：`lan-access-store.mjs` 全部读写路径按 phase 路由；`server/index.mjs` 启动链 `initializeLanAccessCutover() → initializeLanAccessService() → drainLanAccessJsonMirror()`，shutdown `stopLanAccessService()`；`routes/lan-access.mjs` 无需改动；`isAuthorizedRemoteRequest` 消费 repository `verifyToken`。
+- **Phase 2（lan-access-store 接入 + 生命周期 + routes）**（已完成，见 `progress.md`）：`lan-access-store.mjs` 全部读写路径按 phase 路由；`server/index.mjs` 启动链 `initializeLanAccessCutover() → initializeLanAccessService() → recoverLanAccessRestorePlan() → drainLanAccessJsonMirror()`，pending/authoritative 常规启动只恢复/排空事务性 mirror outbox，不做全表完整性扫描或 `quick_check`；shutdown `stopLanAccessService()`；`routes/lan-access.mjs` 无需改动；`isAuthorizedRemoteRequest` 消费 repository `verifyToken`。
 - **Phase 3（backup/restore + 离线工具 + 全量门禁）**：见 §10。
 
 ## 10. Phase 3（backup/restore + 离线工具 + 全量门禁）

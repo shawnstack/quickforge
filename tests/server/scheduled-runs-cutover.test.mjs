@@ -137,13 +137,13 @@ describe('scheduled runs cutover coordinator', () => {
     expect(getScheduledRunsPhase()).toBe('authoritative')
   })
 
-  it('fails closed in authoritative startup when the SQLite health check fails', async () => {
+  it('does not repeat SQLite health scans during authoritative startup', async () => {
     await initializeScheduledRunsCutover(options())
-    const failingHealth = vi.fn(() => { throw new Error('sqlite health failed') })
-    const failingStorage = { ...storage, health: failingHealth }
-    await expect(initializeScheduledRunsCutover(options({ storage: failingStorage })))
-      .rejects.toThrow(/authoritative startup validation failed/)
-    expect(failingHealth).toHaveBeenCalledWith({ quickCheck: true })
+    const health = vi.fn(() => { throw new Error('routine health scan must not run') })
+    const routineStorage = { ...storage, health }
+    await expect(initializeScheduledRunsCutover(options({ storage: routineStorage })))
+      .resolves.toMatchObject({ phase: 'authoritative' })
+    expect(health).not.toHaveBeenCalled()
     expect(getScheduledRunsPhase()).toBe('authoritative')
   })
 

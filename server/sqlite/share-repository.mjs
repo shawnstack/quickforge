@@ -15,7 +15,7 @@ const SHARE_COLUMNS = `
   password_hash, password_salt, password_version, auth_version, allow_cloud_usage,
   created_at, updated_at, expires_at, revoked_at, superseded_at,
   access_count, last_accessed_at, created_from_host, last_updated_from_host,
-  revision, record_digest, deleted_at, extra_json
+  revision, deleted_at, extra_json
 `
 
 // Fields modeled as columns; anything else on the JSON record is preserved
@@ -302,7 +302,7 @@ function attachTokens(records, tokenRows) {
 }
 
 const SHARE_SESSION_UPSERT_SQL = `
-  INSERT INTO share_sessions (${SHARE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO share_sessions (${SHARE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(share_id) DO UPDATE SET
     session_id = excluded.session_id,
     permission = excluded.permission,
@@ -324,7 +324,6 @@ const SHARE_SESSION_UPSERT_SQL = `
     created_from_host = excluded.created_from_host,
     last_updated_from_host = excluded.last_updated_from_host,
     revision = excluded.revision,
-    record_digest = excluded.record_digest,
     deleted_at = excluded.deleted_at,
     extra_json = excluded.extra_json
 `
@@ -344,7 +343,7 @@ function insertShareRow(database, record, revision, createdAt, updatedAt, statem
     record.expiresAt ?? null, record.revokedAt ?? null, record.supersededAt ?? null,
     record.accessCount || 0, record.lastAccessedAt ?? null,
     record.createdFromHost ?? null, record.lastUpdatedFromHost ?? null,
-    revision, shareRecordDigest(record), record.deletedAt ?? null, JSON.stringify(extra),
+    revision, record.deletedAt ?? null, JSON.stringify(extra),
   ]
   const insert = statement ?? database.prepare(SHARE_SESSION_UPSERT_SQL)
   insert.run(...values)
@@ -438,12 +437,13 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
     return attachTokens(rows.map(mapShareRow), tokenRowsFor(storage, rows.map((row) => row.share_id)))
   }
 
-  function create(input, { expectedRevision = null, beforeCommit } = {}) {
+  function create(input, { expectedRevision = null, beforeCommit, passwordChanged } = {}) {
     const record = normalizeShareRecord(input)
     const timestamp = now()
-    const passwordProvided = Object.prototype.hasOwnProperty.call(input, 'passwordHash')
+    const hasPasswordFields = Object.prototype.hasOwnProperty.call(input, 'passwordHash')
       || Object.prototype.hasOwnProperty.call(input, 'passwordSalt')
       || Object.prototype.hasOwnProperty.call(input, 'passwordVersion')
+    const passwordProvided = passwordChanged ?? hasPasswordFields
     const tokensProvided = Object.prototype.hasOwnProperty.call(input, 'tokens')
 
     return storage.transaction((database) => {
@@ -453,10 +453,11 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const targetId = current ? current.share_id : (input.id ?? null)
 
       // Supersede every other share record for the same session in this same
-      // transaction (their tokens are cleared; later records are revoked too).
+      // transaction (their tokens are physically cleared; later records are
+      // revoked too).
       for (const row of sessionRows) {
         if (row.share_id === targetId) continue
-        const stale = mapShareRow(row)
+        const stale = attachTokens([mapShareRow(row)], tokenRowsFor(database, [row.share_id]))[0]
         const superseded = {
           ...stale,
           supersededAt: stale.supersededAt || timestamp,
@@ -467,14 +468,19 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
         }
         assertCas(database, row.share_id, null)
         insertShareRow(database, superseded, Number(row.revision) + 1, stale.createdAt, timestamp)
+        replaceTokens(database, row.share_id, [])
         enqueueShareMirror(database, { ...superseded, revision: undefined }, 'upsert', timestamp)
       }
 
       if (current) {
         assertCas(database, current.share_id, expectedRevision)
-        const existing = mapShareRow(current)
+        const existing = attachTokens([mapShareRow(current)], tokenRowsFor(database, [current.share_id]))[0]
         const willHavePassword = passwordProvided ? Boolean(record.passwordHash) : Boolean(existing.passwordHash)
         if (record.permission === 'operate' && !willHavePassword) throw invalid('Editable shares require a non-empty password')
+        const nextAuthVersion = passwordProvided ? (existing.authVersion || 1) + 1 : (existing.authVersion || 1)
+        const nextTokens = tokensProvided
+          ? record.tokens.map((token) => ({ ...token, authVersion: nextAuthVersion }))
+          : (passwordProvided ? [] : existing.tokens)
         const merged = {
           ...existing,
           ...record,
@@ -483,8 +489,8 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
           updatedAt: timestamp,
           createdFromHost: existing.createdFromHost || record.createdFromHost,
           lastUpdatedFromHost: record.lastUpdatedFromHost || timestamp,
-          authVersion: passwordProvided ? (existing.authVersion || 1) + 1 : (existing.authVersion || 1),
-          tokens: tokensProvided ? record.tokens : (passwordProvided ? [] : existing.tokens),
+          authVersion: nextAuthVersion,
+          tokens: nextTokens,
           allowCloudUsage: record.permission === 'operate' && record.allowCloudUsage === true,
           supersededAt: undefined,
           revokedAt: undefined,
@@ -503,8 +509,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       assertCas(database, id, expectedRevision)
       if (record.permission === 'operate' && !record.passwordHash) throw invalid('Editable shares require a non-empty password')
       const created = { ...record, id, updatedAt: timestamp, tokens: record.tokens }
-      // The row's created_at must match the createdAt used for record_digest
-      // (the input value) so verifyIntegrity's digest check stays consistent.
       insertShareRow(database, created, 1, created.createdAt || timestamp, timestamp)
       replaceTokens(database, id, created.tokens)
       enqueueShareMirror(database, { ...created, revision: 1 }, 'upsert', timestamp)
@@ -521,7 +525,7 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const row = currentRow(database, shareId)
       if (!row || row.deleted_at !== null) throw notFound(shareId)
       assertCas(database, shareId, expectedRevision)
-      const existing = mapShareRow(row)
+      const existing = attachTokens([mapShareRow(row)], tokenRowsFor(database, [shareId]))[0]
       if (existing.supersededAt) {
         const error = new Error('Superseded shares cannot be updated')
         error.statusCode = 409
@@ -603,7 +607,7 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const row = currentRow(database, shareId)
       if (!row || row.deleted_at !== null) throw notFound(shareId)
       assertCas(database, shareId, expectedRevision)
-      const existing = mapShareRow(row)
+      const existing = attachTokens([mapShareRow(row)], tokenRowsFor(database, [shareId]))[0]
       if (existing.supersededAt) {
         const error = new Error('Superseded shares cannot be restored')
         error.statusCode = 409
@@ -633,7 +637,7 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const row = currentRow(database, shareId)
       if (!row || row.deleted_at !== null) throw notFound(shareId)
       assertCas(database, shareId, expectedRevision)
-      const existing = mapShareRow(row)
+      const existing = attachTokens([mapShareRow(row)], tokenRowsFor(database, [shareId]))[0]
       const nextRevision = Number(row.revision) + 1
       database.prepare('UPDATE share_sessions SET deleted_at = ?, updated_at = ?, revision = ? WHERE share_id = ?')
         .run(timestamp, timestamp, nextRevision, shareId)
@@ -654,7 +658,11 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
         .run(shareId, timestamp).changes)
       if (removed === 0) return 0
       const existing = mapShareRow(row)
-      const merged = { ...existing, tokens: attachTokens([existing], tokenRowsFor(database, [shareId]))[0].tokens }
+      const merged = {
+        ...existing,
+        updatedAt: timestamp,
+        tokens: attachTokens([existing], tokenRowsFor(database, [shareId]))[0].tokens,
+      }
       const nextRevision = Number(row.revision) + 1
       insertShareRow(database, merged, nextRevision, existing.createdAt, timestamp)
       enqueueShareMirror(database, { ...merged, revision: nextRevision }, 'upsert', timestamp)
@@ -673,7 +681,7 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const row = currentRow(database, shareId)
       if (!row || row.deleted_at !== null) throw notFound(shareId)
       assertCas(database, shareId, expectedRevision)
-      const existing = mapShareRow(row)
+      const existing = attachTokens([mapShareRow(row)], tokenRowsFor(database, [shareId]))[0]
       if (existing.supersededAt) throw notActive(shareId, 'superseded')
       if (existing.revokedAt) throw notActive(shareId, 'revoked')
       if (existing.expiresAt && Date.parse(existing.expiresAt) <= Date.now()) throw notActive(shareId, 'expired')
@@ -684,6 +692,7 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const kept = activeTokens.slice(-MAX_SHARE_TOKENS)
       const merged = {
         ...existing,
+        updatedAt: timestamp,
         accessCount: existing.accessCount + 1,
         lastAccessedAt: timestamp,
         tokens: kept,
@@ -768,7 +777,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
     }
     const rows = storage.prepare(`SELECT ${SHARE_COLUMNS} FROM share_sessions`).all()
     let invalidRecords = 0
-    let invalidDigests = 0
     let invalidPermissions = 0
     let invalidScopes = 0
     for (const row of rows) {
@@ -776,7 +784,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       try {
         const record = attachTokens([mapShareRow(row)], tokenRowsFor(storage, [row.share_id]))[0]
         normalizeShareRecord({ ...record, revision: undefined, deletedAt: undefined })
-        if (row.record_digest !== shareRecordDigest(record)) invalidDigests += 1
         if (row.permission !== 'read' && row.permission !== 'operate') invalidPermissions += 1
         if (row.scope !== 'global' && row.scope !== 'project') invalidScopes += 1
       } catch {
@@ -796,12 +803,11 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       WHERE t.auth_version != s.auth_version AND s.deleted_at IS NULL
     `).get().count)
     return {
-      ok: invalidRecords === 0 && invalidDigests === 0 && invalidPermissions === 0 && invalidScopes === 0
+      ok: invalidRecords === 0 && invalidPermissions === 0 && invalidScopes === 0
         && overLimitTokens === 0 && orphanTokens === 0 && tokenAuthVersionMismatch === 0,
       count: Number(storage.prepare('SELECT COUNT(*) AS count FROM share_sessions WHERE deleted_at IS NULL').get().count),
       digest: digest(),
       invalidRecords,
-      invalidDigests,
       invalidPermissions,
       invalidScopes,
       overLimitTokens,

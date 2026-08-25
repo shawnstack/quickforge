@@ -218,20 +218,24 @@ export async function initializeShareCutover(options = {}) {
   const migrate = async () => {
     const current = readShareStorageState()
     if (current.phase === SHARE_STORAGE_PHASES.JSON_PENDING) {
-      const integrity = repository.verifyIntegrity({ quickCheck: true })
-      if (!integrity.ok) throw new Error('Share state pending integrity verification failed')
       const drained = await drainShareJsonMirror()
       if (drained.pending === 0) {
-        setShareStoragePhase(SHARE_STORAGE_PHASES.AUTHORITATIVE, { shareCount: integrity.count, digest: integrity.digest, backupFile: current.backupFile })
-        log.info('Share storage cutover promoted to authoritative', { domain: 'share', phase: 'authoritative', count: integrity.count })
+        setShareStoragePhase(SHARE_STORAGE_PHASES.AUTHORITATIVE, {
+          shareCount: current.shareCount,
+          digest: current.digest,
+          backupFile: current.backupFile,
+          diagnostic: current.diagnostic,
+        })
+        log.info('Share storage cutover promoted to authoritative', { domain: 'share', phase: 'authoritative', count: current.shareCount })
       }
       return readShareStorageState()
     }
     if (current.phase === SHARE_STORAGE_PHASES.AUTHORITATIVE) {
-      const integrity = repository.verifyIntegrity({ quickCheck: true })
-      if (!integrity.ok) throw new Error('Share state authoritative integrity verification failed')
+      // Routine pending/authoritative startup only drains the transactional
+      // JSON mirror outbox. Strict snapshot and relationship verification stays
+      // at first cutover or explicit maintenance boundaries.
       await drainShareJsonMirror()
-      log.info('Share storage cutover startup check passed', { domain: 'share', phase: 'authoritative' })
+      log.info('Share storage authoritative startup mirror drain complete', { domain: 'share', phase: 'authoritative' })
       return readShareStorageState()
     }
 

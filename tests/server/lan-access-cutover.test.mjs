@@ -95,7 +95,7 @@ describe('LAN access storage cutover', () => {
     expect(readLanAccessStorageState().phase).toBe('sqlite_authoritative_json_pending')
   })
 
-  it('returns to JSON before pending on an unstable source and completes pending recovery after mirror succeeds', async () => {
+  it('returns to JSON before pending on an unstable source', async () => {
     let reads = 0
     const unstable = await initializeLanAccessCutover({
       storage,
@@ -111,7 +111,9 @@ describe('LAN access storage cutover', () => {
     })
     expect(unstable.phase).toBe('json_authoritative')
     expect(repository.getConfig()).toBeNull()
+  })
 
+  it('drains pending mirror without rescanning business rows and preserves cutover metadata', async () => {
     let failMirror = true
     const mirror = {
       upsert: vi.fn(async () => { if (failMirror) throw new Error('mirror failed') }),
@@ -128,6 +130,11 @@ describe('LAN access storage cutover', () => {
       pidAlive: () => false,
     })
     expect(pending.phase).toBe('sqlite_authoritative_json_pending')
+    storage.prepare(`UPDATE lan_access_storage_state SET lan_token_count = 77, digest = ?, backup_file = ?, diagnostic_json = ? WHERE singleton = 1`)
+      .run('legacy-state-digest', 'kept-backup.json', JSON.stringify({ legacy: true }))
+    storage.prepare('UPDATE lan_access_state SET session_ttl_hours = 24 WHERE singleton = 1').run()
+    storage.prepare('UPDATE lan_access_tokens SET auth_version = auth_version + 1').run()
+
     failMirror = false
     const recovered = await initializeLanAccessCutover({
       storage,
@@ -136,20 +143,15 @@ describe('LAN access storage cutover', () => {
       owner: { id: '103:test', pid: 103 },
       pidAlive: () => false,
     })
-    expect(recovered.phase).toBe('authoritative')
+    expect(recovered).toMatchObject({
+      phase: 'authoritative',
+      lanTokenCount: 77,
+      digest: 'legacy-state-digest',
+      backupFile: 'kept-backup.json',
+      diagnostic: { legacy: true },
+    })
     expect(repository.listMirrorQueue()).toEqual([])
-
-    // Pending integrity failure fails closed and keeps the phase pending.
-    storage.prepare("UPDATE lan_access_storage_state SET phase = 'sqlite_authoritative_json_pending' WHERE singleton = 1").run()
-    storage.prepare(`UPDATE lan_access_state SET record_digest = '${'a'.repeat(64)}' WHERE singleton = 1`).run()
-    await expect(initializeLanAccessCutover({
-      storage,
-      repository,
-      mirror,
-      owner: { id: '104:test', pid: 104 },
-      pidAlive: () => false,
-    })).rejects.toThrow(/pending integrity/)
-    expect(readLanAccessStorageState().phase).toBe('sqlite_authoritative_json_pending')
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: false, tokenAuthVersionMismatch: 1 })
   })
 
   it('recovers cutover_running by safely rerunning JSON cutover and preserves the authoritative row', async () => {
@@ -166,6 +168,33 @@ describe('LAN access storage cutover', () => {
     })
     expect(result.phase).toBe('authoritative')
     expect(repository.getConfig()).toMatchObject({ enabled: true, authVersion: 1 })
+  })
+
+  it('authoritative restart succeeds again after issuing a token', async () => {
+    const source = enabledConfig()
+    const mirror = { upsert: vi.fn(async () => {}), delete: vi.fn() }
+    const first = await initializeLanAccessCutover({
+      storage,
+      repository,
+      backupDirectory,
+      readJson: vi.fn(async () => structuredClone(source)),
+      mirror,
+      owner: { id: '107:test', pid: 107 },
+      pidAlive: () => false,
+    })
+    expect(first.phase).toBe('authoritative')
+
+    repository.issueToken({ remoteAddress: '192.168.1.20' })
+
+    const restarted = await initializeLanAccessCutover({
+      storage,
+      repository,
+      mirror,
+      owner: { id: '108:test', pid: 108 },
+      pidAlive: () => false,
+    })
+    expect(restarted.phase).toBe('authoritative')
+    expect(repository.getConfig().tokens).toHaveLength(1)
   })
 
   it('roundtrips exportSnapshot records through replaceAll with exact digests after cutover', async () => {

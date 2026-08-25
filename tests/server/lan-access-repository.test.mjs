@@ -4,8 +4,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
-import { createLanAccessRepository, LAN_TOKEN_MAX_COUNT, lanAccessConfigDigest, normalizeLanAccessConfig } from '../../server/sqlite/lan-access-repository.mjs'
-import { createShareRepository } from '../../server/sqlite/share-repository.mjs'
+import {
+  createLanAccessRepository,
+  LAN_TOKEN_MAX_COUNT,
+  lanAccessConfigDigest,
+  normalizeLanAccessConfig,
+} from '../../server/sqlite/lan-access-repository.mjs'
 
 function createHandle(database) {
   return {
@@ -74,10 +78,10 @@ describe('lan-access repository and schema v9', () => {
   })
 
   it('creates schema v9 lan-access tables and rolls a failing v8→v9 migration back without losing F5/F7/F9/F10 data', () => {
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(11)
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(12)
     expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all().at(-1)).toEqual({
-      version: 11,
-      name: 'session_state_v2_storage',
+      version: 12,
+      name: 'remove_share_lan_record_digests',
     })
     for (const table of ['lan_access_state', 'lan_access_tokens', 'lan_access_storage_state', 'lan_access_maintenance_lock', 'lan_access_json_mirror_queue']) {
       expect(database.prepare(`SELECT name FROM sqlite_schema WHERE type='table' AND name=?`).get(table)).toBeDefined()
@@ -109,8 +113,11 @@ describe('lan-access repository and schema v9', () => {
       )
     database.prepare(`INSERT INTO session_index (scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at)
       VALUES ('global', '', 'legacy-session', 0, 0, '{}', ?, '2026-01-01T00:00:00.000Z')`).run('c'.repeat(64))
-    const shareRepository = createShareRepository(createHandle(database), { now })
-    shareRepository.create(share(), { expectedRevision: 0 })
+    database.prepare(`INSERT INTO share_sessions (
+      share_id, session_id, permission, scope, auth_version, allow_cloud_usage,
+      created_at, updated_at, access_count, revision, record_digest, extra_json
+    ) VALUES (?, ?, 'read', 'global', 1, 0, ?, ?, 0, 1, ?, '{}')`)
+      .run(shareId(), 'share-session', now(), now(), 'd'.repeat(64))
 
     const failing = SQLITE_MIGRATIONS.map((migration) => migration.version === 9
       ? { ...migration, up(db) { migration.up(db); throw new Error('after-v9') } }
@@ -250,11 +257,13 @@ describe('lan-access repository and schema v9', () => {
     expect(repository.verifyToken(issued.token)).toBe(false)
   })
 
-  it('roundtrips exportSnapshot through replaceAll with exact digests and keeps hashes opaque', () => {
+  it('roundtrips exportSnapshot through replaceAll with exact digests and opaque hashes', () => {
     repository.updateSettings(
       { enabled: true, passwordHash: 'hash', passwordSalt: 'salt', passwordVersion: 1, sessionTtlHours: 12 },
       { expectedRevision: 0 },
     )
+    expect(database.prepare('PRAGMA table_info(lan_access_state)').all().map((column) => column.name)).not.toContain('record_digest')
+
     const issued = repository.issueToken({ remoteAddress: '192.168.1.9', userAgent: 'Roundtrip' })
     const secret = issued.token.split('.')[1]
 
@@ -268,6 +277,7 @@ describe('lan-access repository and schema v9', () => {
     expect(after.digest).toBe(snapshot.digest)
     expect(after.config.tokens).toHaveLength(1)
     expect(repository.verifyToken(issued.token)).toBe(true)
+    expect(repository.verifyIntegrity()).not.toHaveProperty('invalidDigests')
   })
 
   it('roundtrips unknown config fields and rejects mismatched replace counts/digests', () => {
@@ -323,7 +333,8 @@ describe('lan-access repository and schema v9', () => {
     const second = repository.issueToken({}, { expectedRevision: first.revision })
     expect(repository.digest()).not.toBe(before)
     expect(repository.digest()).toBe(lanAccessConfigDigest(repository.getConfig()))
-    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 2, invalidDigests: 0, overLimitTokens: 0 })
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 2, overLimitTokens: 0 })
+    expect(repository.verifyIntegrity()).not.toHaveProperty('invalidDigests')
     expect(repository.verifyIntegrity().digest).toBe(repository.digest())
   })
 

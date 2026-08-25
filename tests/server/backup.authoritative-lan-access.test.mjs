@@ -174,9 +174,9 @@ describe('backup route — authoritative lan-access state', () => {
         state: { id: 'sess-anchor', scope: 'global', stateVersion: 1, title: 'Anchor', messages: [{ role: 'user', content: 'hi' }] },
         metadata: { id: 'sess-anchor', scope: 'global', stateVersion: 1, title: 'Anchor', messageCount: 1 },
       })
-      sqliteStorage.prepare(`INSERT INTO share_sessions (share_id, session_id, permission, scope, auth_version, allow_cloud_usage, created_at, updated_at, access_count, revision, record_digest, extra_json)
-        VALUES (?, ?, 'read', 'global', 1, 0, ?, ?, 0, 1, ?, '{}')`)
-        .run('qfs_test000000000000001', 'share-sess', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'c'.repeat(64))
+      sqliteStorage.prepare(`INSERT INTO share_sessions (share_id, session_id, permission, scope, auth_version, allow_cloud_usage, created_at, updated_at, access_count, revision, extra_json)
+        VALUES (?, ?, 'read', 'global', 1, 0, ?, ?, 0, 1, '{}')`)
+        .run('qfs_test000000000000001', 'share-sess', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
 
       const payload = {
         backup: {

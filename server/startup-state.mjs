@@ -47,10 +47,10 @@ export function setStartupState(state, errorMessage = null) {
 // frontend failed page (whitespace-pre-wrap).
 export const STARTUP_RECOVERY_GUIDANCE = [
   'Recovery guidance:',
-  '1. Stop all QuickForge processes so the data files are not locked.',
-  '2. Diagnose offline: node server/maintenance/downgrade-session-state-v1.mjs --dry-run',
-  '3. Export a backup: node server/maintenance/export-session-state-v1.mjs <output-path>',
-  '4. Follow the recovery runbook: docs/architecture/session-storage-recovery-runbook.zh-CN.md',
+  '1. Stop all QuickForge processes so no data files are being changed or locked.',
+  '2. Before recovery, make a complete copy of the entire QuickForge dataDir, including the SQLite database and any -wal/-shm files.',
+  '3. Review GET /api/migration-status and the server logs to identify the failing storage domain and operation.',
+  '4. Use the runbook or maintenance tool for that specific error domain; do not delete the database or blindly run a session-state downgrade command.',
 ].join('\n')
 
 export function withStartupRecoveryGuidance(errorMessage) {

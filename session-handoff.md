@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：fix-cutover-startup-bugs（已完成，Share/LAN/Scheduled Runs 启动完整性收口）
+
+- 目标：避免 Share、LAN Access、Scheduled Runs 可选存储域在日常启动中执行整库/全域完整性扫描并把整机置为 `FAILED`，同时保留 SQLite/schema/migration 和首次 cutover、backup/restore/export 等正确边界的严格门禁。
+- 实现：新增 migration 12，在同一 `BEGIN IMMEDIATE` migration 事务中物理删除 `share_sessions.record_digest` 与 `lan_access_state.record_digest`；Share/LAN repository 移除在线逐行 digest 读写和 `invalidDigests` 校验。Share/LAN pending/authoritative 常规启动只 drain 事务性 mirror outbox，outbox 清空后提升 authoritative 并保留已有 storage state count/digest/backup/diagnostic 元数据；Scheduled Runs authoritative 不再调用 health quick check。首次 JSON→SQLite cutover 仍执行双读、备份重读、replace、快照 count/digest 与关系校验。Share 写入路径同步修复普通更新/重复 create 的 token 保留、密码变化 token 失效或替代 token 新 authVersion、supersede 物理清 token，以及 issue/prune 时间戳一致性。通用启动恢复指引已改为先停进程并完整复制整个 dataDir（含 SQLite/WAL/SHM），再按实际错误域处理，明确禁止删库和盲跑 session downgrade。
+- 文件：核心为 `server/sqlite/migrations.mjs`、`server/share-store.mjs`、Share/LAN repositories 与 cutover、`server/scheduled-runs-cutover.mjs`、`server/startup-state.mjs`、`server/index.mjs`；覆盖 migration、repository、cutover、authoritative store、backup、startup gate、full-chain smoke 等测试；同步三份架构文档、server Wiki 与三个状态文件。
+- 验证：定向 17 files / 135 tests 与 Share 聚焦 5 files / 34 tests 全通过；完整 `npm run test` → 253 files / 2219 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；`git diff --check` 与 feature JSON 解析通过。
+- 边界：未新增依赖，未手工修改生成产物，未 commit/tag/push；两个无关未跟踪 design-mockups 文件未触碰。未实现域级 degraded readiness、统一离线 restore CLI 或明确 Electron CI script，均不属于本轮范围。
+- 下一步：无 blocker。
+
+---
+
 ## 当前状态：sidebar-five-item-display-shared-scroll（已完成）
 
 - 目标：左侧 Projects/Tasks 采用默认 5 条、每次增加 5 条的显式展示控件，并让 Pinned/Projects/Tasks 共用侧栏中部唯一滚动容器，同时保持项目 DnD 可见边界与自动滚动正确。

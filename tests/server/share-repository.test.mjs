@@ -4,7 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
-import { createShareRepository, shareRecordDigest, shareSnapshotDigest } from '../../server/sqlite/share-repository.mjs'
+import {
+  createShareRepository,
+  shareSnapshotDigest,
+} from '../../server/sqlite/share-repository.mjs'
 
 function createHandle(database) {
   return {
@@ -73,10 +76,10 @@ describe('share repository and schema v8', () => {
   })
 
   it('creates schema v8 share tables and rolls a failing v7 to v8 migration back without losing F5/F7/F9 data', () => {
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(11)
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(12)
     expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all().at(-1)).toEqual({
-      version: 11,
-      name: 'session_state_v2_storage',
+      version: 12,
+      name: 'remove_share_lan_record_digests',
     })
     for (const table of ['share_sessions', 'share_tokens', 'share_storage_state', 'share_maintenance_lock', 'share_json_mirror_queue']) {
       expect(database.prepare(`SELECT name FROM sqlite_schema WHERE type='table' AND name=?`).get(table)).toBeDefined()
@@ -133,11 +136,10 @@ describe('share repository and schema v8', () => {
     database.prepare(`INSERT INTO share_sessions (
       share_id, session_id, permission, title_snapshot, scope, project_id, password_hash, password_salt, password_version,
       auth_version, allow_cloud_usage, created_at, updated_at, expires_at, revoked_at, superseded_at,
-      access_count, last_accessed_at, created_from_host, last_updated_from_host, revision, record_digest, extra_json
-    ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, NULL, 1, ?, '{}')`)
+      access_count, last_accessed_at, created_from_host, last_updated_from_host, revision, extra_json
+    ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, NULL, 1, '{}')`)
       .run(older.id, older.sessionId, older.permission, older.titleSnapshot, older.scope,
-        older.authVersion, older.allowCloudUsage ? 1 : 0, older.createdAt, older.updatedAt, older.accessCount,
-        shareRecordDigest(older))
+        older.authVersion, older.allowCloudUsage ? 1 : 0, older.createdAt, older.updatedAt, older.accessCount)
 
     // A later create for the same session updates the current share, supersedes
     // the other active record and issues new tokens in the same transaction.
@@ -150,7 +152,9 @@ describe('share repository and schema v8', () => {
     }), { expectedRevision: firstToken.share.revision })
     expect(second.id).toBe(first.id)
     expect(second.permission).toBe('operate')
-    expect(second.tokens).toEqual([{ tokenHash: 'issued-in-create', issuedAt: now(), expiresAt: '2100-01-01T00:00:00.000Z', authVersion: 1 }])
+    expect(second.tokens).toEqual([{ tokenHash: 'issued-in-create', issuedAt: now(), expiresAt: '2100-01-01T00:00:00.000Z', authVersion: second.authVersion }])
+    expect(second.authVersion).toBe(2)
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, tokenAuthVersionMismatch: 0 })
 
     const superseded = repository.get(older.id)
     expect(superseded.supersededAt).toBe(now())
@@ -162,6 +166,61 @@ describe('share repository and schema v8', () => {
     const third = repository.create(share({ permission: 'operate', passwordHash: 'hash', passwordSalt: 'salt', passwordVersion: 1 }), { expectedRevision: second.revision })
     expect(third.id).toBe(first.id)
     expect(repository.list({ sessionId: 'session-a' })).toHaveLength(1)
+  })
+
+  it('preserves current tokens on ordinary update/idempotent create and physically clears superseded tokens', () => {
+    const current = repository.create(share({ sessionId: 'token-preserve' }), { expectedRevision: 0 })
+    const issued = repository.issueToken(current.id, { expectedRevision: current.revision })
+
+    const updated = repository.update(current.id, { titleSnapshot: 'Updated title' }, { expectedRevision: issued.share.revision })
+    expect(updated.tokens).toEqual(issued.share.tokens)
+    expect(repository.get(current.id).tokens).toEqual(issued.share.tokens)
+
+    const repeatedInput = share({ sessionId: 'token-preserve', titleSnapshot: 'Repeated create' })
+    delete repeatedInput.tokens
+    const repeated = repository.create(repeatedInput, { expectedRevision: updated.revision })
+    expect(repeated.id).toBe(current.id)
+    expect(repeated.tokens).toEqual(issued.share.tokens)
+    expect(repository.verifyToken(repository.get(current.id), issued.token)).toBe(true)
+
+    const stale = share({ id: shareId('stale'), sessionId: 'token-preserve', updatedAt: '2098-01-01T00:00:00.000Z' })
+    database.prepare(`INSERT INTO share_sessions (
+      share_id, session_id, permission, title_snapshot, scope, auth_version, allow_cloud_usage,
+      created_at, updated_at, access_count, revision, extra_json
+    ) VALUES (?, ?, 'read', 'Stale', 'global', 1, 0, ?, ?, 0, 1, '{}')`)
+      .run(stale.id, stale.sessionId, stale.createdAt, stale.updatedAt)
+    database.prepare(`INSERT INTO share_tokens (share_id, token_hash, issued_at, expires_at, auth_version)
+      VALUES (?, 'stale-token-hash', ?, '2100-01-01T00:00:00.000Z', 1)`).run(stale.id, now())
+
+    repository.create(share({ sessionId: 'token-preserve', titleSnapshot: 'Supersede stale' }), { expectedRevision: repeated.revision })
+    expect(database.prepare('SELECT COUNT(*) AS count FROM share_tokens WHERE share_id = ?').get(stale.id).count).toBe(0)
+    expect(repository.get(stale.id)).toMatchObject({ supersededAt: now(), revokedAt: now(), tokens: [] })
+    expect(repository.verifyIntegrity()).toMatchObject({ ok: true, tokenAuthVersionMismatch: 0 })
+  })
+
+  it('keeps token mutation timestamps aligned across return values, rows, and mirror records', () => {
+    const timestamps = [
+      '2099-01-01T00:00:00.000Z',
+      '2099-01-02T00:00:00.000Z',
+      '2099-01-03T00:00:00.000Z',
+    ]
+    const timedRepository = createShareRepository(createHandle(database), { now: () => timestamps.shift() })
+    const created = timedRepository.create(share({ sessionId: 'timestamp-sync' }), { expectedRevision: 0 })
+    timedRepository.acknowledgeMirror(timedRepository.listMirrorQueue()[0])
+
+    const issued = timedRepository.issueToken(created.id, { expectedRevision: created.revision })
+    expect(issued.share.updatedAt).toBe('2099-01-02T00:00:00.000Z')
+    expect(database.prepare('SELECT updated_at FROM share_sessions WHERE share_id = ?').get(created.id).updated_at).toBe(issued.share.updatedAt)
+    expect(timedRepository.listMirrorQueue()[0].record.updatedAt).toBe(issued.share.updatedAt)
+    timedRepository.acknowledgeMirror(timedRepository.listMirrorQueue()[0])
+
+    database.prepare('UPDATE share_tokens SET expires_at = ? WHERE share_id = ?').run('2099-01-02T12:00:00.000Z', created.id)
+    expect(timedRepository.pruneTokens(created.id, { expectedRevision: issued.share.revision })).toBe(1)
+    const pruned = timedRepository.get(created.id)
+    expect(pruned.updatedAt).toBe('2099-01-03T00:00:00.000Z')
+    expect(database.prepare('SELECT updated_at FROM share_sessions WHERE share_id = ?').get(created.id).updated_at).toBe(pruned.updatedAt)
+    expect(timedRepository.listMirrorQueue()[0].record.updatedAt).toBe(pruned.updatedAt)
+    expect(timedRepository.verifyIntegrity()).toMatchObject({ ok: true })
   })
 
   it('enforces CAS on every mutation and blocks stale writers with 409', () => {
@@ -188,11 +247,10 @@ describe('share repository and schema v8', () => {
     database.prepare(`INSERT INTO share_sessions (
       share_id, session_id, permission, title_snapshot, scope, project_id, password_hash, password_salt, password_version,
       auth_version, allow_cloud_usage, created_at, updated_at, expires_at, revoked_at, superseded_at,
-      access_count, last_accessed_at, created_from_host, last_updated_from_host, revision, record_digest, extra_json
-    ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, NULL, 1, ?, '{}')`)
+      access_count, last_accessed_at, created_from_host, last_updated_from_host, revision, extra_json
+    ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, NULL, 1, '{}')`)
       .run(legacy.id, legacy.sessionId, legacy.permission, legacy.titleSnapshot, legacy.scope,
-        legacy.authVersion, legacy.allowCloudUsage ? 1 : 0, legacy.createdAt, legacy.updatedAt, legacy.accessCount,
-        shareRecordDigest(legacy))
+        legacy.authVersion, legacy.allowCloudUsage ? 1 : 0, legacy.createdAt, legacy.updatedAt, legacy.accessCount)
     repository.create(share({ sessionId: 'list-b' }), { expectedRevision: 0 })
     const listBId = repository.list({ sessionId: 'list-b' })[0].id
 
@@ -304,28 +362,22 @@ describe('share repository and schema v8', () => {
     expect(() => repository.issueToken(superseded.id)).toThrow(/superseded/)
   })
 
-  it('roundtrips opaque fields, snapshots, and integrity checks with exact digests', () => {
+  it('roundtrips opaque fields and snapshots with exact snapshot digests', () => {
     const record = share({ customField: { nested: ['kept'] }, futureFlag: true })
     repository.create(record, { expectedRevision: 0 })
+    expect(database.prepare('PRAGMA table_info(share_sessions)').all().map((column) => column.name)).not.toContain('record_digest')
+
     const snapshot = repository.exportSnapshot()
     expect(snapshot.count).toBe(1)
     expect(snapshot.digest).toBe(repository.digest())
     expect(snapshot.digest).toBe(shareSnapshotDigest(snapshot.records))
     expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 1 })
+    expect(repository.verifyIntegrity()).not.toHaveProperty('invalidDigests')
 
     repository.replaceAll(snapshot.records, { expectedCount: snapshot.count, expectedDigest: snapshot.digest })
     const after = repository.exportSnapshot()
     expect(after.digest).toBe(snapshot.digest)
     expect(after.records[0]).toMatchObject({ customField: { nested: ['kept'] }, futureFlag: true, titleSnapshot: record.titleSnapshot })
-
-    // Tampering breaks integrity.
-    database.prepare("UPDATE share_sessions SET title_snapshot = 'Tampered' WHERE share_id = ?").run(after.records[0].id)
-    const integrity = repository.verifyIntegrity()
-    expect(integrity.ok).toBe(false)
-    expect(integrity.invalidDigests).toBe(1)
-    // Oversized token set is rejected by integrity.
-    repository.replaceAll(after.records, { expectedCount: after.count, expectedDigest: after.digest })
-    expect(repository.verifyIntegrity().ok).toBe(true)
   })
 
   it('enqueues mirror upserts/deletes and rolls the whole transaction back on failure', () => {

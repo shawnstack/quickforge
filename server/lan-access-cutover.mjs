@@ -228,20 +228,24 @@ export async function initializeLanAccessCutover(options = {}) {
   const migrate = async () => {
     const current = readLanAccessStorageState()
     if (current.phase === LAN_ACCESS_STORAGE_PHASES.JSON_PENDING) {
-      const integrity = repository.verifyIntegrity({ quickCheck: true })
-      if (!integrity.ok) throw new Error('LAN access state pending integrity verification failed')
       const drained = await drainLanAccessJsonMirror()
       if (drained.pending === 0) {
-        setLanAccessStoragePhase(LAN_ACCESS_STORAGE_PHASES.AUTHORITATIVE, { lanTokenCount: integrity.count, digest: integrity.digest, backupFile: current.backupFile })
-        log.info('LAN access cutover promoted to authoritative', { domain: 'lan-access', phase: 'authoritative', tokenCount: integrity.count })
+        setLanAccessStoragePhase(LAN_ACCESS_STORAGE_PHASES.AUTHORITATIVE, {
+          lanTokenCount: current.lanTokenCount,
+          digest: current.digest,
+          backupFile: current.backupFile,
+          diagnostic: current.diagnostic,
+        })
+        log.info('LAN access cutover promoted to authoritative', { domain: 'lan-access', phase: 'authoritative', tokenCount: current.lanTokenCount })
       }
       return readLanAccessStorageState()
     }
     if (current.phase === LAN_ACCESS_STORAGE_PHASES.AUTHORITATIVE) {
-      const integrity = repository.verifyIntegrity({ quickCheck: true })
-      if (!integrity.ok) throw new Error('LAN access state authoritative integrity verification failed')
+      // Routine pending/authoritative startup only drains the transactional
+      // JSON mirror outbox. Strict snapshot and relationship verification stays
+      // at first cutover or explicit maintenance boundaries.
       await drainLanAccessJsonMirror()
-      log.info('LAN access cutover startup check passed', { domain: 'lan-access', phase: 'authoritative' })
+      log.info('LAN access authoritative startup mirror drain complete', { domain: 'lan-access', phase: 'authoritative' })
       return readLanAccessStorageState()
     }
 

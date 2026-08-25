@@ -1,5 +1,14 @@
 # Progress
 
+## Completed Feature：fix-cutover-startup-bugs
+
+- Feature: 修复 cutover 启动链缺陷（fix-cutover-startup-bugs，**已完成；本轮完成 Share/LAN/Scheduled Runs 启动完整性收口**）
+- Status: done — migration 12 原子物理删除 Share/LAN 在线 `record_digest`；repository 不再逐行维护或验证派生哈希。Share/LAN 的 `sqlite_authoritative_json_pending` 与 `authoritative` 常规启动只 drain 事务性 JSON mirror outbox，清空后保留已有 storage state 元数据并提升 authoritative，不做全表扫描或域内 `quick_check`。Scheduled Runs authoritative 常规启动不再调用 health quick check；SQLite 打开、schema 与 migration 等真正整库门禁仍由 `initializeSqliteStorage()` 负责。首次 cutover 的双读/备份/replace/快照 count-digest/关系校验及 backup/restore/export 边界保持严格。
+- Share consistency: 普通 update 和未显式 tokens 的重复 create 保留现有 tokens；密码变化时清 token，若显式提供替代 tokens 则统一绑定新的 `authVersion`；supersede 物理删除旧 token；issue/prune 的返回值、数据库 `updated_at` 和 mirror 时间一致。启动恢复指引改为停进程、完整复制整个 dataDir（含 SQLite/WAL/SHM）、按实际错误域诊断，禁止删库或盲跑 session downgrade。
+- Verification: 定向回归 17 files / 135 tests 通过；Share 修复聚焦回归 5 files / 34 tests 通过；完整 `npm run test` → 253 files / 2219 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；`git diff --check` 通过。
+- Boundaries: 已同步 Share/LAN/SQLite 架构文档及 server Wiki；未新增依赖，未手工修改 `dist/`、`package-dist/`、`package-offline/`，未 commit/tag/push；两个无关未跟踪 design-mockups 文件未触碰。当前未实现域级 `READY_DEGRADED` 或统一离线 restore CLI，这些不属于本轮最小收口。
+- Next step: 无 blocker。
+
 ## Completed Feature：sidebar-five-item-display-shared-scroll
 
 - Feature: 侧栏会话五条递增展示与统一中部滚动（**已完成**）

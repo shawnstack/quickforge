@@ -81,13 +81,15 @@ CREATE TABLE schema_migrations (
 
 F2 当时不创建任何业务表，应用版本使用 `PRAGMA user_version`。F3 后续以 migration 2 增加空的非权威 `scheduled_task_runs` 表，但未改变 F2 的基础层结论、生命周期或事务协议。
 
-后续 migration 沿同一 append-only 协议追加至 v10。其中 migration 10（`session_states_metadata_covering_index`）在 `session_states` 上创建覆盖索引 `(scope, project_id, session_id, metadata_json, metadata_digest)`：该表 WITHOUT ROWID 且 GB 级 `state_json` 内联在记录前部，读靠后的元数据列必须遍历前者的溢出页链（隐式读全库，2.93GB 冷库实测一次元数据投影 ≈45s）；覆盖索引使元数据读取 index-only（EXPLAIN QUERY PLAN 显示 `USING COVERING INDEX session_states_metadata_cover_idx`），查询零改动由规划器自动命中。代价是首次升级时 `CREATE INDEX` 一次性全表扫描，发生在 `initializeSqliteStorage` 的 migration 事务内、listen 之前。
+后续 migration 沿同一 append-only 协议追加至 v12。其中 migration 10（`session_states_metadata_covering_index`）在 `session_states` 上创建覆盖索引 `(scope, project_id, session_id, metadata_json, metadata_digest)`：该表 WITHOUT ROWID 且 GB 级 `state_json` 内联在记录前部，读靠后的元数据列必须遍历前者的溢出页链（隐式读全库，2.93GB 冷库实测一次元数据投影 ≈45s）；覆盖索引使元数据读取 index-only（EXPLAIN QUERY PLAN 显示 `USING COVERING INDEX session_states_metadata_cover_idx`），查询零改动由规划器自动命中。代价是首次升级时 `CREATE INDEX` 一次性全表扫描，发生在 `initializeSqliteStorage` 的 migration 事务内、listen 之前。
 
 会话域存储 v2（migration 11，`session_state_v2_storage`）以上文新三表（`sessions`/`session_messages`/`session_tombstones`）取代了旧会话域表——包括 migration 10 覆盖索引所服务的 `session_states`（连同其余 5 张旧表 RENAME 为 `*_v10_backup` 保留）；连接 PRAGMA 追加 `auto_vacuum = INCREMENTAL`（仅新库生效）。现状与取舍见 [`session-storage-v2.zh-CN.md`](./session-storage-v2.zh-CN.md)。
 
+migration 12（`remove_share_lan_record_digests`）物理删除历史 v8 `share_sessions.record_digest` 与 v9 `lan_access_state.record_digest`。Share/LAN 的 count/digest 仍按快照即时计算，只用于首次 cutover 提交、backup/restore/export 和离线维护边界；它们不是在线行权威。v11→v12 的两次 `ALTER TABLE ... DROP COLUMN`、migration 记录与 `PRAGMA user_version=12` 均在同一个 `BEGIN IMMEDIATE` 事务内，任一步失败整体回滚。
+
 初始化执行 `BEGIN IMMEDIATE` 获取写锁后重新读取并验证数据库状态。每个 migration 的 schema 变更、`schema_migrations` 记录与 `user_version` 更新都在同一事务内。以下情况会明确失败并回滚：
 
-- 数据库版本高于当前代码支持版本；
+- 数据库版本高于当前代码支持版本；该检查在 migration 或业务写入前完成，因此旧版打开 v12 数据库会在写入前拒绝；
 - `user_version`、migration 表和已应用行不一致；
 - migration SQL 或记录写入失败；
 - migration 列表不连续或名称重复。
@@ -115,15 +117,17 @@ health 执行轻量 `SELECT 1`、SQLite 版本、PRAGMA、`user_version` 与 mig
 
 摘要不包含绝对数据库路径、SQL、参数或业务数据。
 
-### 6.1 启动 quick_check 策略（进程内去重 + 7 天 marker）
+### 6.1 `quick_check` 使用边界
 
-四个存储域（session/share/lan-access/scheduled-runs）共用同一个 `quickforge.sqlite3`，而 `PRAGMA quick_check` 扫描的是整个库文件、不分域——authoritative 相位每次启动的 4 个域级启动检查等于对同一文件全量扫描 4 次（2.93GB 生产库实测约 30s 启动检查税）。`server/sqlite/database.mjs` 的 `runSharedSqliteQuickCheck()` 统一了所有调用点（三个 repository 的 `verifyIntegrity({quickCheck:true})` 与 `storage.health({quickCheck:true})`）：
+四个存储域（session/share/lan-access/scheduled-runs）共用同一个 `quickforge.sqlite3`，而 `PRAGMA quick_check` 扫描整个库文件、不分域。因此它**不是四域常规启动扫描**：
 
-- **进程内去重**：同一数据库文件路径的一次成功 `quick_check` 在本进程内复用（按 `PRAGMA database_list` 解析主库路径作为缓存键；`:memory:` 无路径，始终真扫）。
-- **跨启动降频**：成功扫描后在数据库同目录原子写 marker 文件 `quickforge-quick-check.marker.json`（记 `lastOkAt`/`sqliteVersion`/`databaseBytes`）；7 天内（`SQLITE_QUICK_CHECK_MAX_AGE_MS`）跳过真扫。marker 缺失/损坏/不可读一律视为不存在，退回真扫；marker 写失败仅 warn，不影响判定。
-- **失败语义不变**：quick_check 失败照旧抛错且 fail closed；失败不写 marker、不进进程缓存，下次调用重新真扫。
-- **逃生口**：`verifyIntegrity({quickCheck:true, forceQuickCheck:true})` 强制真扫（手动维护端点 `POST /api/storage/maintenance/verify-session-integrity` 已接线）；环境变量 `QUICKFORGE_SQLITE_QUICK_CHECK=force` 使所有调用每次真扫。
-- **安全性论证**：WAL + `synchronous=FULL` 下已提交事务不存在 torn-write（崩溃时 WAL 重放或回滚），`quick_check` 防的是磁盘 bit-rot / 文件系统级损坏——这类损坏按磁盘时间尺度演化而非按启动次数，7 天周期 + 手动 force 入口足够把盲区变成有界窗口；跳过 quick_check 时其余 SQL 级 counts/join 对账照常执行，逻辑层损坏不受影响。
+- `initializeSqliteStorage()` 统一负责数据库打开、PRAGMA、schema/migration 一致性与版本门禁；scheduled-runs authoritative 常规启动不再额外调用 health/`quick_check`。
+- Share/LAN pending/authoritative 常规启动只 drain 各自事务性 JSON mirror outbox，不全表扫描、不调用 `verifyIntegrity({ quickCheck: true })`。
+- shared `quick_check` 只在首次 cutover 提交后的严格验证、权威 backup/export、显式完整性维护与离线工具等边界使用；restore 的关系/count/digest 校验按各域恢复流程执行，日常启动不复算快照 digest。
+- `server/sqlite/database.mjs` 的 `runSharedSqliteQuickCheck()` 仍为这些显式调用点提供进程内按数据库路径去重与 7 天 marker 降频；`:memory:` 始终真扫，marker 缺失/损坏/不可读则退回真扫。
+- `verifyIntegrity({quickCheck:true, forceQuickCheck:true})` 与 `QUICKFORGE_SQLITE_QUICK_CHECK=force` 可强制真扫；失败照旧 fail closed，且不写 marker、不进入缓存。
+
+历史“authoritative 启动时四域各扫一次，再由 shared quick_check 去重”的描述已被上述边界策略取代。WAL + `synchronous=FULL` 降低 torn-write 风险；`quick_check` 主要发现磁盘 bit-rot / 文件系统级损坏，逻辑关系与快照一致性由 cutover、backup/restore/export 和维护边界各自校验。
 
 ## 7. 备份与数据边界
 
@@ -133,7 +137,7 @@ F5 若要让 SQLite 成为权威业务存储，必须先设计并实现 SQLite *
 
 ## 8. 已知风险
 
-- 多个 QuickForge 版本共用同一 dataDir 时，旧版本遇到更高 `user_version` 会拒绝启动；这是防止旧代码破坏新 schema 的硬保护。
+- 多个 QuickForge 版本共用同一 dataDir 时，旧版本遇到更高 `user_version` 会在任何业务写入前拒绝打开；这是防止旧代码破坏新 schema 的硬保护。
 - WAL 不适合所有网络盘、同步盘或不完整文件锁实现；默认数据库应位于本机文件系统。
 - F1/F2 已在 Windows 的 Node 24 与 Electron Run-as-Node（内置 Node 22）验证；macOS、Linux、网络文件系统及最终 Electron 安装包环境仍需单独验证。
 - `node:sqlite` 在当前运行时仍可能输出 ExperimentalWarning；该警告不改变上述一致性和失败策略。

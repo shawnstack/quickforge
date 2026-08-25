@@ -102,7 +102,7 @@
 
 **关键功能**:
 - SSE 事件流管理（`GlobalAgentSseClient`）
-- 消息发送/接收
+- 消息发送/接收；prompt HTTP 请求失败时先回滚未被服务端接收的乐观 user message，再追加符合消息契约的 assistant error message（具体 `errorMessage`、`stopReason:'error'`、当前模型字段、零 usage 与 timestamp），并以 `agent_end` 的 `status:'error'` / `errorMessage` 结束本地运行，让聊天区直接显示服务端返回的具体原因
 - Agent 状态管理（创建、单次恢复、销毁）；`ServerAgent.restore()` 支持 `AbortSignal`，从 `/api/agents/:sessionId/restore` 一次取得完整权威快照，取消的旧会话请求不会创建 SSE；页面刷新或 SSE 重连时会从服务端 state 恢复运行中工具的临时 `toolResult`（含 subagent `details.messages`）和 `pendingToolCalls`
 - OpenCode `acpSession` 快照（configOptions/modes/usage）随 state 事件与 refresh 同步；`setConfigOption`/`setMode` 调用 harness API 并以响应刷新本地；`forkSession` 触发整会话 ACP fork；`acp_session_usage_update` 轻量事件即时更新 usage
 - ask_user 提问流：`ask_user_required`/`ask_user_answered` SSE 事件维护 `state.pendingAsk`（随 state 快照与 SSE state 帧恢复），`answerAsk(askId, {answers, skipped})` POST `/api/agents/:id/answer-ask` 回传后清空 pending；回答以纯文本作为 ask_user 工具结果回给模型

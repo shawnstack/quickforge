@@ -1,6 +1,21 @@
 {
   "features": [
     {
+      "id": "prompt-http-error-message",
+      "name": "Prompt HTTP 失败时在聊天区显示具体错误原因",
+      "status": "done",
+      "approach": "ServerAgent 的 prompt HTTP 请求失败时保留乐观 user message 精确回滚，并以当前模型字段、空 text block、完整零 usage/cost、stopReason:'error'、具体 errorMessage 和 timestamp 追加唯一 assistant error message；同步结束本地 streaming 状态，继续发 error 事件，并让 agent_end 携带 status:'error'、errorMessage 与最终 messages。覆盖 400 model_not_configured JSON 的具体原因、回滚、消息契约、事件与终态；同步 src/lib Wiki。",
+      "files": [
+        "src/lib/server-agent.ts",
+        "tests/frontend/server-agent.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/server-agent.test.ts → 1 file / 38 tests 全通过；目标 ESLint 0 error；npx tsc -b --pretty false 通过；git diff --check 通过。未创建 commit/tag/push。"
+    },
+    {
       "id": "main-chat-model-selector-settings-entry",
       "name": "主聊天模型选择器底部打开自定义模型设置",
       "status": "done",

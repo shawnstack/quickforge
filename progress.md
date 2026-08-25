@@ -2,6 +2,11 @@
 
 ## Current State
 
+- Feature: Prompt HTTP 失败时在聊天区显示具体错误原因（prompt-http-error-message，**已完成**）
+- Status: done — `ServerAgent.prompt()` 的 HTTP fetch 失败分支继续仅在乐观 user message 仍是尾部时精确回滚，随后追加唯一合法 assistant error message：空 text block、当前模型 `api/provider/id`、完整零 usage/cost、`stopReason:'error'`、服务端具体 `errorMessage` 与 timestamp。同步清理 streaming 状态，保留 error 事件，并让本地 `agent_end` 携带 `status:'error'`、`errorMessage` 和最终 messages，因此 Chat 消息区可直接显示如 `Selected model is not configured in QuickForge.` 的具体原因。
+- Verification: `npx vitest run tests/frontend/server-agent.test.ts` → 1 file / 38 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；`git diff --check` 通过。
+- Next step: 无 blocker；已同步 src/lib Wiki。未创建 commit/tag/push，未新增依赖，未修改生成产物或架构/设计语言文档。
+
 - Feature: 拆分侧栏默认新建与 Tasks 显式全局新建（tasks-new-chat-inherits-current-task-project，**已完成**）
 - Status: done — `ChatSidebar` 顶部“发起新对话”与 Tasks 标题 MessageSquarePlus 已拆为 `onStartNewDefaultChat` / `onStartNewGlobalChat`。顶部继续调用 `startNewDefaultSession`，有 `activeProject` 时按默认规则新建该项目对话，否则新建 global。Tasks 标题 desktop/mobile 调用独立 `startNewExplicitGlobalSession`：先 `setEmptyStateProjectDismissed(true)`，再 `startNewGlobalSession()`；标记只在离开当前新对话空状态后复位，因此 active-project 自动项目 effect 不会把显式 global 切回项目。global 使用默认 Workspace（`~/.quickforge/workspace`），不读取 `activeProject`、当前任务、`chatScope` 或 `currentToolProject`。移动包装保持先关闭侧栏；项目行 `onStartNewProjectChat(item)` 未改。上一轮错误 helper、测试与 lib Wiki 条目已移除。
 - Verification: `npx vitest run tests/frontend/sidebar-new-chat-routing.test.ts tests/frontend/sidebar-section-order.test.ts` → 2 files / 19 tests 全通过；目标 `npx eslint` → 0 error；`npx tsc -b --pretty false` → exit 0；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`feature_list.json` 解析与 `git diff --check` 通过。

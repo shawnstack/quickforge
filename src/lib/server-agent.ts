@@ -60,6 +60,37 @@ function serverErrorMessage(payload: ServerErrorPayload | null, fallback: string
   return translationKey ? t(translationKey) : payload?.error || fallback
 }
 
+function assistantErrorMessage(errorMessage: string, model: Model<Api>): AgentMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text: '' }],
+    api: model?.api ?? 'openai-completions',
+    provider: model?.provider ?? 'unknown',
+    model: model?.id ?? 'unknown',
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: 'error',
+    errorMessage,
+    timestamp: Date.now(),
+  }
+}
+
+function appendAssistantErrorMessageOnce(messages: AgentMessage[], errorMessage: string, model: Model<Api>): AgentMessage[] {
+  const lastMessage = messages.at(-1)
+  if (lastMessage?.role === 'assistant'
+    && lastMessage.stopReason === 'error'
+    && lastMessage.errorMessage === errorMessage) {
+    return messages
+  }
+  return [...messages, assistantErrorMessage(errorMessage, model)]
+}
+
 async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number, init: RequestInit = {}): Promise<{ response: Response; body?: T }> {
   const controller = new AbortController()
   const externalSignal = init.signal
@@ -838,12 +869,18 @@ export class ServerAgent {
       if (this.state.messages.length === msgCountBeforeOptimistic + 1 && this.state.messages[this.state.messages.length - 1] === agentMessage) {
         this.state.messages = this.state.messages.slice(0, -1)
       }
+      this.state.messages = appendAssistantErrorMessageOnce(this.state.messages, message, this.state.model)
       this.state.errorMessage = message
       this.state.isStreaming = false
       this.state.streamingMessage = undefined
       this.stopStateWatchdog()
       this.emitToListeners({ type: 'error', error: message } as unknown as AgentEvent)
-      this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+      this.emitToListeners({
+        type: 'agent_end',
+        messages: this.state.messages,
+        errorMessage: message,
+        status: 'error',
+      } as unknown as AgentEvent)
     })
     this.startStateWatchdog()
   }

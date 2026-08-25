@@ -485,18 +485,24 @@ describe('ServerAgent', () => {
     }
   })
 
-  it('rolls back the optimistic user message when sending fails', async () => {
+  it('shows the concrete prompt HTTP error after rolling back the optimistic user message', async () => {
+    const errorMessage = 'Selected model is not configured in QuickForge.'
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
-      status: 409,
-      json: async () => null,
+      status: 400,
+      json: async () => ({ error: errorMessage, code: 'model_not_configured' }),
     })
     vi.stubGlobal('fetch', fetchMock)
 
     const agent = await createServerAgent({
       sessionId: 'session-1',
-      initialState: { messages: [{ role: 'assistant', content: 'ready' }] as AgentMessage[] },
+      initialState: {
+        model: { api: 'openai-completions', provider: 'mock', id: 'mock-model' },
+        messages: [{ role: 'assistant', content: 'ready' }] as AgentMessage[],
+      },
     })
+    const events: Array<Record<string, unknown>> = []
+    agent.subscribe((event) => events.push(event as unknown as Record<string, unknown>))
 
     try {
       await agent.prompt('hello')
@@ -506,11 +512,39 @@ describe('ServerAgent', () => {
       ])
 
       await vi.waitFor(() => {
-        expect(agent.state.messages).toEqual([{ role: 'assistant', content: 'ready' }])
+        expect(agent.state.messages).toHaveLength(2)
+        expect(agent.state.messages.at(-1)).toMatchObject({
+          role: 'assistant',
+          content: [{ type: 'text', text: '' }],
+          api: 'openai-completions',
+          provider: 'mock',
+          model: 'mock-model',
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: 'error',
+          errorMessage,
+          timestamp: expect.any(Number),
+        })
       })
 
+      expect(agent.state.messages).not.toContainEqual(expect.objectContaining({ role: 'user', content: 'hello' }))
+      expect(agent.state.messages.filter((message) => message.role === 'assistant' && message.stopReason === 'error')).toHaveLength(1)
       expect(agent.state.isStreaming).toBe(false)
-      expect(agent.state.errorMessage).toBe('Failed to send prompt: HTTP 409')
+      expect(agent.state.streamingMessage).toBeUndefined()
+      expect(agent.state.errorMessage).toBe(errorMessage)
+      expect(events).toContainEqual(expect.objectContaining({ type: 'error', error: errorMessage }))
+      expect(events).toContainEqual(expect.objectContaining({
+        type: 'agent_end',
+        status: 'error',
+        errorMessage,
+        messages: agent.state.messages,
+      }))
     } finally {
       agent.dispose()
       vi.clearAllTimers()

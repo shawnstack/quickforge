@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：prompt-http-error-message（已完成）
+
+- 目标：Prompt HTTP 请求失败时，不只保留全局错误状态，还要在聊天区显示服务端返回的具体原因。
+- 实现：`src/lib/server-agent.ts` 复用项目 assistant error 消息契约，新增最小构造/去重 helper。fetch catch 先按既有身份与长度条件回滚乐观 user message，再追加空 text block、当前模型字段、完整零 usage/cost、`stopReason:'error'`、具体 `errorMessage`、timestamp 的 assistant 消息；清理 streaming/watchdog；继续发 error 事件；`agent_end` 现携带 `status:'error'`、`errorMessage` 与最终 messages。
+- 测试：`tests/frontend/server-agent.test.ts` 模拟 400 `{error:'Selected model is not configured in QuickForge.', code:'model_not_configured'}`，覆盖具体原因、乐观回滚、assistant error 消息完整契约、无重复、error/agent_end 事件和结束状态。
+- 验证：定向 Vitest 1 file / 38 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 与 `git diff --check` 通过。
+- 文档与边界：`docs/wiki/src/lib/README.md` 已同步；不改架构/设计语言文档。未新增依赖，未修改生成产物，未 commit/tag/push；工作区其他未提交改动保持不动。
+- 下一步：无 blocker。
+
+---
+
 ## 当前状态：tasks-new-chat-inherits-current-task-project（已完成，已纠正语义）
 
 - 目标：拆分侧栏三个新建入口，避免 Tasks 标题 MessageSquarePlus 错误跟随当前任务或 `activeProject`。顶部“发起新对话”继续按默认项目规则；Tasks 标题始终显式新建 global；项目行继续绑定对应项目。

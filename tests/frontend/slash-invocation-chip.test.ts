@@ -47,6 +47,7 @@ type FakeNode = {
   clientWidth?: number
   clientHeight?: number
   scrollTop?: number
+  getBoundingClientRect?: () => { left: number; top: number }
   listeners: Record<string, Array<(event: unknown) => void>>
   focus: ReturnType<typeof vi.fn>
   classList: FakeClassList
@@ -208,6 +209,7 @@ type Harness = {
   slashChip: () => FakeNode | null
   slashChipIcon: () => FakeNode | null
   setText: (text: string) => void
+  setGeometry: (geometry: { shellLeft?: number; shellTop?: number; textareaLeft?: number; textareaTop?: number }) => void
 }
 
 function createHarness(envOverrides: Partial<SlashChipEnv> = {}): Harness {
@@ -223,6 +225,14 @@ function createHarness(envOverrides: Partial<SlashChipEnv> = {}): Harness {
   const shell = createFakeElement('div')
   shell.className = 'quickforge-composer-shell'
   shell.append(editor)
+  let shellLeft = 0
+  let shellTop = 0
+  let textareaLeft = 0
+  let textareaTop = 0
+  shell.getBoundingClientRect = () => ({ left: shellLeft, top: shellTop })
+  textarea.getBoundingClientRect = () => ({ left: textareaLeft, top: textareaTop })
+  textarea.clientWidth = 320
+  textarea.clientHeight = 48
 
   const panel = createFakeElement('div')
   panel.append(shell)
@@ -288,6 +298,12 @@ function createHarness(envOverrides: Partial<SlashChipEnv> = {}): Harness {
       textarea.value = text
       textarea.selectionStart = text.length
       textarea.selectionEnd = text.length
+    },
+    setGeometry(geometry) {
+      if (geometry.shellLeft !== undefined) shellLeft = geometry.shellLeft
+      if (geometry.shellTop !== undefined) shellTop = geometry.shellTop
+      if (geometry.textareaLeft !== undefined) textareaLeft = geometry.textareaLeft
+      if (geometry.textareaTop !== undefined) textareaTop = geometry.textareaTop
     },
   }
 }
@@ -616,6 +632,48 @@ describe('slash invocation chip controller', () => {
     expect(h.chip.isActive()).toBe(true)
     expect(h.overlay()).not.toBeNull()
     expect(h.ghostText()).toBe(' reborn')
+  })
+
+  it('observes textarea and shell resize, recomputes overlay geometry, and cleans both observers', () => {
+    const resizeCallbacks = new Map<FakeNode, () => void>()
+    const cleanupByNode = new Map<FakeNode, ReturnType<typeof vi.fn>>()
+    const observeResize = vi.fn((element: HTMLElement, callback: () => void) => {
+      const node = element as unknown as FakeNode
+      resizeCallbacks.set(node, callback)
+      const cleanup = vi.fn(() => resizeCallbacks.delete(node))
+      cleanupByNode.set(node, cleanup)
+      return cleanup
+    })
+    const h = createHarness({ observeResize })
+    vi.stubGlobal('document', h.documentStub)
+    h.setGeometry({ shellLeft: 10, shellTop: 20, textareaLeft: 34, textareaTop: 72 })
+    h.setText('/agent explore task')
+    h.chip.engage(agentInvocation)
+
+    expect(observeResize).toHaveBeenCalledTimes(2)
+    expect(observeResize).toHaveBeenNthCalledWith(1, h.textarea, expect.any(Function))
+    expect(observeResize).toHaveBeenNthCalledWith(2, h.shell, expect.any(Function))
+    expect(h.overlay()?.style.top).toBe('52px')
+    expect(h.overlay()?.style.left).toBe('24px')
+
+    // A normal-flow Todo summary insertion/expansion changes shell layout while
+    // the textarea itself can keep the same size; the shell observer repositions.
+    h.setGeometry({ textareaTop: 116 })
+    resizeCallbacks.get(h.shell)?.()
+    expect(h.overlay()?.style.top).toBe('96px')
+
+    const firstTextareaCleanup = cleanupByNode.get(h.textarea)
+    const firstShellCleanup = cleanupByNode.get(h.shell)
+    h.chip.engage(agentInvocation)
+    expect(firstTextareaCleanup).toHaveBeenCalledTimes(1)
+    expect(firstShellCleanup).toHaveBeenCalledTimes(1)
+    expect(observeResize).toHaveBeenCalledTimes(4)
+    expect(resizeCallbacks.size).toBe(2)
+
+    h.chip.cleanup()
+    expect(cleanupByNode.get(h.textarea)).toHaveBeenCalledTimes(1)
+    expect(cleanupByNode.get(h.shell)).toHaveBeenCalledTimes(1)
+    expect(resizeCallbacks.size).toBe(0)
   })
 
   it('cleanup: removes the overlay, the textarea class, and the document listener', () => {

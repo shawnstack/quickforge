@@ -8,7 +8,7 @@ import {
   handleInternalCommand,
   parseInternalCommandInvocation,
 } from '../../server/custom-commands.mjs'
-import { commandToolPermissionError } from '../../server/approval-store.mjs'
+import { commandToolPermissionError, safeReadTools } from '../../server/approval-store.mjs'
 
 describe('internal slash commands', () => {
   it('parses /init without arguments', () => {
@@ -217,6 +217,8 @@ describe('internal slash commands', () => {
     expect(commandToolPermissionError(session, 'activate_skill')).toBeNull()
     expect(commandToolPermissionError(session, 'read_skill_resource')).toBeNull()
     expect(commandToolPermissionError(session, 'run_subagent')).toBeNull()
+    expect(safeReadTools.has('todo_write')).toBe(false)
+    expect(commandToolPermissionError(session, 'todo_write')).toBe('Command /plan is read-only and cannot use todo_write.')
     expect(commandToolPermissionError(session, 'run_command')).toBe('Command /plan is read-only and cannot use run_command.')
     expect(commandToolPermissionError(session, 'edit_file')).toBe('Command /plan is read-only and cannot use edit_file.')
     expect(commandToolPermissionError(session, 'write_file')).toBe('Command /plan is read-only and cannot use write_file.')

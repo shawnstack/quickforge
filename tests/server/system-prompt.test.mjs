@@ -10,6 +10,21 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('Make minimal, focused changes')
   })
 
+  it('describes todo_write as a brief current plan for non-trivial work', () => {
+    const prompt = composeSystemPrompt()
+
+    expect(prompt).toContain('When todo_write is available')
+    expect(prompt).toContain('non-trivial multi-step work')
+    expect(prompt).toContain('keep a short current plan')
+    expect(prompt).toContain('skip it for simple tasks')
+    expect(prompt).not.toContain('For multi-step work, use a brief plan.')
+  })
+
+  it('agent approval hook explicitly exempts todo_write without classifying it as a safe read', async () => {
+    const source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../../server/agent-manager.mjs', import.meta.url), 'utf8'))
+    expect(source).toContain("if (toolName === 'ask_user' || toolName === 'todo_write') return undefined")
+  })
+
   it('prioritizes Explore for repository discovery in base instructions and subagent catalog', () => {
     const prompt = composeSystemPrompt({
       subagents: [

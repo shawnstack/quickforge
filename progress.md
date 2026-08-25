@@ -1,6 +1,22 @@
 # Progress
 
+## Current Feature：todo-write-sticky-summary
+
+- Feature: TodoWrite 输入框上方任务摘要与专用历史渲染（todo-write-sticky-summary，**已完成**）
+- Status: done（位置调整、审查 major 修复、定向验证与完整门禁均已完成）
+- Scope: 服务端完整快照型 `todo_write` 协议与持久化语义不变。前端最新成功快照现位于 Composer Dock 内、`message-editor` 前的正常流任务摘要：展开时自然压缩消息区，不覆盖消息或输入框；长列表在摘要内部滚动，桌面约显示 4 项、移动端约显示 3 项。Composer sibling 顺序为任务摘要 → command/file 临时建议菜单 → `message-editor` → stats，菜单紧邻输入框；历史工具调用仍在既有过程折叠中，并由专用 renderer 提供 running/error/success/clear/neutral 历史事件摘要。
+- Behavior: 无有效 Todo 不显示；首次未完成自动展开；后续未完成快照保留用户手动展开/收起状态，相同内容的新 toolCall 仍提示“已更新”；全完成自动收起但允许重开；成功空数组或回滚到无快照时移除；editor/shell 重建时按当前快照自愈；`readOnly` 无 Composer Dock 时不显示。QuickForge/OpenCode 提取继续按成功快照与 `toolCallId` 配对，错误、畸形或未完成结果不覆盖已有有效快照。
+- Review fixes: 两个 major 已修复：①任务摘要从聊天消息区顶部调整为 Composer Dock 正常流 sibling，并补齐 sibling 顺序、内部滚动、readOnly、重建自愈与移除边界；② Slash invocation overlay 同时观察 textarea 与 composer shell，摘要插入/展开/收起导致布局变化时重算几何，observer 在重建和卸载路径成对 cleanup。历史 renderer 文案只陈述“更新任务清单 / 清空任务清单”，不再声称同步当前 UI；running/error/neutral 与 `detailed` JSON 语义保持准确。
+- Verification: 定向 `npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts tests/frontend/slash-invocation-chip.test.ts tests/server/tools/definitions.test.mjs tests/server/tools/index.test.mjs tests/server/routes/tools.todo-write.test.mjs` → 6 files / 89 tests passed；`npx tsc -b --pretty false` → exit 0。最终完整门禁：`npm run test -- --reporter=dot` → 242 files / 2112 tests passed；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → passed，仅既有 KaTeX 字体解析与 chunk size warning。
+- Verification process: 首次完整 `test/lint/build` 链通过；为了提取数量二次运行全量 test 时，`tests/server/cloud/qf-agent-process.test.mjs` 的 “does not double start while a restart timer is pending” 出现一次无关定时器波动（1 failed / 2111 passed）。该单文件复跑 28/28 通过，随后全量 242 files / 2112 tests 通过；未为此修改代码。
+- Boundaries: 未新增或升级依赖；未新增存储表；未手工修改 `dist/`、`package-dist/`、`package-offline/` 等生成物；`DESIGN_LANGUAGE.md` 未更新，因为复用既有轻盈内嵌工具模式。
+- Existing workspace noise: 任务开始前 `package-lock.json` 已有 43 行 npm peer 元数据噪音（当前 diff 14 增/29 删），本功能未修改、还原或纳入正式功能；`artifacts/todo-write-interaction-prototype.html` 为保留的 HTML 设计原型，正式实现不依赖，未归入功能 files/交付范围；无关未跟踪 `').Groups[1].Value` 未触碰、不纳入本功能。
+- Next step: 仅可选真机目视输入框上方任务摘要、长列表、`/` 与 `@` 菜单、slash chip、深浅主题及窄屏。未创建 commit/tag/push。
+
 ## Current State
+
+- Current feature: `todo-write-sticky-summary` 已完成，feature 保持 done；定向验证、TypeScript 与完整 `test/lint/build` 门禁均通过。
+- Blocker: 无。
 
 - Feature: 准备 v1.8.0 minor release（release-v1.8.0，**已完成**）
 - Status: done — 本次为 minor 发布：先以功能提交 `56d435d`（feat: 增加 /commit 与自定义模型设置入口）纳入当前全部工作区改动（20 条目），并以 `--ff-only` 将 `master` 快进，无 merge commit。package 双文件 1.7.12→1.8.0；CHANGELOG 已按 `v1.7.12..HEAD` 的 17 个提交新增 `[1.8.0]` 条目；README 无固定版本引用，未修改。完整 `npm run test`（239 files / 2068 tests）全通过，`npm run lint` 为 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`），`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；runtime/offline 包及 tarball 已生成并完成元数据、依赖处理与清单校验。生成目录均被 Git 忽略，release commit 范围为 6 个预期发布文件。

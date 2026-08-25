@@ -1,6 +1,25 @@
 # Session Handoff
 
-## 当前状态：release-v1.8.0（已完成，发布记录）
+## 当前状态：todo-write-sticky-summary（已完成，完整门禁通过）
+
+- 目标：为非简单多步骤任务提供 QuickForge 原生 `todo_write` 完整快照工具，并把最新成功快照显示为 Composer Dock 内、`message-editor` 前的正常流任务摘要；同时兼容 OpenCode `todowrite` 当前消息与历史工具展示。
+- 服务端实现：`server/tools/definitions.mjs` 定义 `todo_write` 严格 schema（完整最新 `todos` 快照、最多 20、每项仅 `content/status`、三态 `pending/in_progress/completed`、空数组清空、`executionMode: sequential`）；`server/tools/index.mjs` 的 `toolTodoWrite` 防御校验并返回 `todo_write_result`；`server/agent-manager.mjs` 默认免审批但不归入安全读取；`server/custom-commands.mjs` 既有 `/plan` 权限链明确拒绝；`server/routes/tools.mjs` 禁止 direct REST；`server/system-prompt.mjs` 指导仅在非简单多步骤任务维护简短当前计划。
+- 数据语义：没有新增独立 todo store、SQLite 表或其他持久化权威源。成功快照随普通 `toolResult` 消息写入现有会话消息；空数组是显式清空。错误、畸形或未成功工具结果不覆盖上一有效快照。
+- UI 实现：`src/components/chat/panel-decoration/todo-write-summary.ts` 负责严格规范化、QuickForge/OpenCode 消息提取与任务摘要 controller；`ChatPanelHost.tsx` 创建 controller、每轮装饰更新并在卸载 cleanup；`panel-decoration.ts` 只做兼容导出；`src/index.css` 与 `src/lib/i18n.ts` 提供轻盈内嵌样式和双语。摘要位于 Composer Dock 正常流，展开时自然压缩上方消息区，不覆盖消息或输入框；长列表内部滚动，桌面约显示 4 项、移动约显示 3 项。
+- Composer 顺序与生命周期：sibling 顺序为任务摘要 → command/file 临时建议菜单 → `message-editor` → stats，菜单紧邻输入框。无有效 Todo 不显示；首次未完成自动展开；用户手动展开/收起状态在后续未完成快照保留；新 toolCall 即使内容相同也短暂显示“已更新”；全完成自动收起且可重开；成功空数组或回滚到无快照移除并重置；editor/shell 重建时按当前快照自愈；`readOnly` 页面无 Composer Dock 时不显示。
+- Slash overlay：`slash-invocation-chip.ts` 的 invocation overlay 同时观察 textarea 与 `.quickforge-composer-shell`。任务摘要插入、展开或收起改变 Composer 几何时会重算 overlay；editor/shell 自愈重建时重新绑定，两路 observer 在重建与卸载路径成对 disconnect/cleanup。
+- QuickForge/OpenCode：QuickForge 从成功 `todo_write` 的 `toolResult.details.todos` 读取；OpenCode 当前消息分支识别 `opencode_tool` 的 `todowrite` ACP metadata，按 `toolCallId` 向前配对 assistant tool call，从顶层 `arguments.todos` 或 `rawInput.todos` 取快照。历史工具消息仍留在既有过程折叠中，不被 Composer Dock 摘要替代。
+- 历史 renderer：`src/lib/todo-write-history.ts` 提供纯视图模型；`src/lib/local-tools.ts` 注册原生 `todo_write` renderer，并只对 OpenCode `todowrite` metadata 走专用分支。状态准确区分 running、error、success、clear、neutral；历史文案只陈述“更新任务清单 / 清空任务清单”，不声称同步当前 UI；`detailed` 才显示 input/details JSON。
+- 审查修复：两个 major 已修复：①摘要从聊天消息区顶部调整到 Composer Dock 正常流，并补齐 sibling 顺序、内部滚动、readOnly、重建自愈与清空/回滚移除；② Slash overlay 增加 composer shell 观察与 observer 成对 cleanup。`DESIGN_LANGUAGE.md` 无需更新，复用既有轻盈内嵌工具模式。
+- 测试与最终门禁：定向 `npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts tests/frontend/slash-invocation-chip.test.ts tests/server/tools/definitions.test.mjs tests/server/tools/index.test.mjs tests/server/routes/tools.todo-write.test.mjs` → 6 files / 89 tests passed；`npx tsc -b --pretty false` → exit 0。完整 `npm run test -- --reporter=dot` → 242 files / 2112 tests passed；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → passed，仅既有 KaTeX 字体解析与 chunk size warning。
+- 验证过程：首次完整 `test/lint/build` 链通过；为了提取数量二次运行全量 test 时，`tests/server/cloud/qf-agent-process.test.mjs` 的 “does not double start while a restart timer is pending” 出现一次无关定时器波动（1 failed / 2111 passed），单文件复跑 28/28 通过，随后全量 242 files / 2112 tests 通过；未为此修改代码。
+- Blocker / 下一步：无 blocker；下一步仅可选真机目视输入框上方任务摘要、长列表、`/` 与 `@` 菜单、slash chip、深浅主题及窄屏。
+- 边界：不要把任务前 `package-lock.json` 的 43 行 peer 元数据噪音纳入功能；`artifacts/todo-write-interaction-prototype.html` 是保留原型，正式实现不依赖、未归入正式功能；无关未跟踪 `').Groups[1].Value` 未触碰、不纳入功能。未新增依赖/存储表，未手工修改生成产物。
+- Git：未创建 commit、tag 或 push；本会话也未执行这些操作。
+
+---
+
+## 前轮状态：release-v1.8.0（已完成，发布记录）
 
 - 本会话目标：完成 v1.8.0（minor）发布：整合当前功能改动、提升版本、准备 CHANGELOG、完整门禁、runtime/offline 打包、release commit/tag/push 与用户执行 npm publish 的发布顺序。
 - 前置与版本：起始 `dev` 带全部当前改动（`/commit`、自定义模型入口、文档与簿记等 20 条目），已作为功能提交 `56d435d` 纳入；`master` 以 `--ff-only` 快进，无 merge commit。package 双文件已 1.7.12→1.8.0；CHANGELOG 已按 `v1.7.12..HEAD` 的 17 个提交准备；README 无固定版本引用，未修改。

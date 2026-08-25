@@ -252,7 +252,8 @@ export function createSlashInvocationChip(options: { panel: HTMLElement; env?: P
   let spacer: HTMLElement | null = null
   let textNode: Text | null = null
   let preeditEl: HTMLElement | null = null
-  let stopResizeObserve: (() => void) | null = null
+  let stopTextareaResizeObserve: (() => void) | null = null
+  let stopShellResizeObserve: (() => void) | null = null
 
   const readText = () => {
     const currentEditor = panel.querySelector<MessageEditorElement>('message-editor')
@@ -333,10 +334,17 @@ export function createSlashInvocationChip(options: { panel: HTMLElement; env?: P
     textarea.addEventListener('compositionend', handleCompositionEnd)
     textarea.addEventListener('scroll', handleScroll)
     globalThis.document?.addEventListener?.('selectionchange', handleSelectionChange)
-    stopResizeObserve = env.observeResize(textarea, () => {
+    stopTextareaResizeObserve = env.observeResize(textarea, () => {
       syncGeometry()
       syncSpacer()
     })
+    const currentShell = shell
+    if (currentShell && currentShell !== textarea) {
+      stopShellResizeObserve = env.observeResize(currentShell, () => {
+        syncGeometry()
+        syncSpacer()
+      })
+    }
   }
 
   const detachListeners = () => {
@@ -345,8 +353,10 @@ export function createSlashInvocationChip(options: { panel: HTMLElement; env?: P
     textarea?.removeEventListener?.('compositionend', handleCompositionEnd)
     textarea?.removeEventListener?.('scroll', handleScroll)
     globalThis.document?.removeEventListener?.('selectionchange', handleSelectionChange)
-    stopResizeObserve?.()
-    stopResizeObserve = null
+    stopTextareaResizeObserve?.()
+    stopTextareaResizeObserve = null
+    stopShellResizeObserve?.()
+    stopShellResizeObserve = null
   }
 
   const teardown = () => {

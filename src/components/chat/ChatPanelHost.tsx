@@ -40,6 +40,7 @@ import {
   syncContextCompactionNotice,
   syncPersistDegradedNotice,
   createScrollToBottomButton,
+  createTodoWriteSummaryController,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
 import { t } from '@/lib/i18n'
@@ -631,6 +632,10 @@ export function ChatPanelHost({
         if (distance <= 120) scrollSync.enable()
       },
     })
+    const todoWriteSummary = createTodoWriteSummaryController({
+      panel,
+      getMessages: () => agent.state.messages as import('./panel-decoration').TodoWriteMessage[],
+    })
 
     let turnNavigation: ReturnType<typeof createTurnNavigation> | null = null
 
@@ -924,7 +929,13 @@ export function ChatPanelHost({
             })
           },
         })
-      } catch { /* continue to approval card */ }
+      } catch { /* continue to todo summary */ }
+
+      try {
+        todoWriteSummary.update()
+      } catch (error) {
+        logger.warn('Failed to update TodoWrite summary:', error)
+      }
 
       // Render or remove approval card based on pending state.
       // Must match the current session — otherwise a pending approval from a
@@ -1406,6 +1417,7 @@ export function ChatPanelHost({
       scrollSync.cleanup()
       scrollSyncRef.current = null
       scrollBottomButton.cleanup()
+      todoWriteSummary.cleanup()
       uninstallMessageListWindow(windowLayer)
       unsubscribeScrollEvents()
       observer?.disconnect()

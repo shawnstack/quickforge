@@ -1152,6 +1152,43 @@
       "approach": "minor 发布：先以功能提交 56d435d 纳入 /commit、主聊天自定义模型设置入口等全部当前改动（20 条目），master --ff-only 快进无 merge commit；package 双文件 1.7.12→1.8.0；CHANGELOG 按 v1.7.12..HEAD 的 17 个提交新增 [1.8.0] 条目；完整 test/lint/build 门禁通过后生成 runtime/offline 包与 tarball，release commit、创建 tag v1.8.0、dev 快进并原子推送 master/dev/tag；npm publish 由用户执行。",
       "files": ["package.json", "package-lock.json", "CHANGELOG.md", "feature_list.json", "progress.md", "session-handoff.md"],
       "verification": "npm run test → 239 files / 2068 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；prepare-runtime-package / prepare-offline-package / npm pack 成功，tarball 25,273,416 bytes / 326 files；package-dist 与 package-offline 均 @shawnstack/quickforge@1.8.0 且无 devDependencies/scripts；JSON 解析与 git diff --check 通过。"
+    },
+    {
+      "id": "todo-write-sticky-summary",
+      "name": "TodoWrite 输入框上方任务摘要与专用历史渲染",
+      "status": "done",
+      "approach": "新增 QuickForge 原生 todo_write 工具：完整最新快照协议，todos 最多 20 项，每项仅含 content 与 pending/in_progress/completed 三态 status，空数组显式清空，sequential；普通 Agent 默认免审批但不归类为安全读取，/plan 明确禁止，direct REST 禁止。handler 只返回规范化 todo_write_result，沿既有 toolResult 消息持久化，不新增 todo store 或存储表。ChatPanelHost 接入 todo-write-summary controller，把最新成功快照作为 Composer Dock 内、message-editor 前的正常流任务摘要：展开时自然压缩消息区，不覆盖消息或输入框；长列表内部滚动（桌面约 4 项、移动约 3 项）。Composer sibling 顺序为任务摘要 → command/file 临时建议菜单 → message-editor → stats，菜单紧邻输入框。无 Todo 不显示；首次未完成自动展开；后续未完成快照保留用户手动状态并提示已更新；全完成自动收起且可重开；清空或回滚到无快照移除；editor/shell 重建时自愈；readOnly 无 Composer 时不显示。当前消息提取兼容 QuickForge toolResult 与 OpenCode todowrite ACP 参数配对，历史工具调用仍留在过程折叠。Slash invocation overlay 同时观察 textarea 与 composer shell，摘要插入/展开/收起导致布局变化时重算几何，observer 在重建与卸载时成对 cleanup。local-tools 注册原生 todo_write renderer，并为 OpenCode todowrite 增加专用分支；todo-write-history.ts 严格区分 running/error/success/clear/neutral，历史文案只陈述更新任务清单/清空任务清单，不声称同步当前 UI，detailed 才显示 input/details JSON。审查修复两个 major 已收口：摘要从消息区顶部调整到 Composer 正常流并完善 sibling/自愈/readOnly/内部滚动边界；Slash overlay 补 composer shell 观察与成对 cleanup。UI 复用既有轻盈内嵌工具模式，未更新 DESIGN_LANGUAGE.md。",
+      "files": [
+        "server/tools/definitions.mjs",
+        "server/tools/index.mjs",
+        "server/agent-manager.mjs",
+        "server/routes/tools.mjs",
+        "server/system-prompt.mjs",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/panel-decoration/todo-write-summary.ts",
+        "src/components/chat/slash-invocation-chip.ts",
+        "src/lib/todo-write-history.ts",
+        "src/lib/local-tools.ts",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/server/tools/definitions.test.mjs",
+        "tests/server/tools/index.test.mjs",
+        "tests/server/routes/tools.todo-write.test.mjs",
+        "tests/server/system-prompt.test.mjs",
+        "tests/server/custom-commands.test.mjs",
+        "tests/frontend/todo-write-summary.test.ts",
+        "tests/frontend/todo-write-renderer.test.ts",
+        "tests/frontend/slash-invocation-chip.test.ts",
+        "tests/server/opencode-acp-agent.test.mjs",
+        "docs/wiki/server/tools/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts tests/frontend/slash-invocation-chip.test.ts tests/server/tools/definitions.test.mjs tests/server/tools/index.test.mjs tests/server/routes/tools.todo-write.test.mjs → 6 files / 89 tests passed；npx tsc -b --pretty false → exit 0；npm run build → passed（仅既有 KaTeX 字体解析与 chunk size warning）。最终完整门禁：npm run test -- --reporter=dot → 242 files / 2112 tests passed；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → passed，仅既有 KaTeX 字体解析与 chunk size warning。验证过程：首次完整 test/lint/build 链通过；为提取数量二次运行全量 test 时，tests/server/cloud/qf-agent-process.test.mjs 的“does not double start while a restart timer is pending”出现一次无关定时器波动（1 failed / 2111 passed），单文件复跑 28/28 通过，随后全量 242 files / 2112 tests 通过，未为此修改代码。feature_list.json JSON 解析与三文件 git diff --check 通过。package-lock.json 既有 peer 元数据噪音、artifacts/todo-write-interaction-prototype.html 原型及无关未跟踪 ').Groups[1].Value 均未触碰、不纳入本功能；未 commit/tag/push。"
     }
   ]
 }

@@ -8,7 +8,7 @@ import { callPluginTool, createPluginToolDefinitions, isPluginToolName } from '.
 import { safeReadTools } from '../approval-store.mjs'
 import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
 
-const directRouteDisabledTools = new Set(['run_subagent', 'manage_global_memory', 'generate_image'])
+const directRouteDisabledTools = new Set(['run_subagent', 'manage_global_memory', 'generate_image', 'todo_write'])
 
 /**
  * GET /api/tools — returns canonical tool definitions (no project context needed).

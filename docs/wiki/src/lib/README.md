@@ -16,7 +16,8 @@
 | `workspace-cache.ts` | Workspace 只读缓存 store（F13）：目录条目（SWR+30s TTL 新鲜判定）、展开路径、文件内容（size+mtimeMs 失效戳、>1MB 跳写）；复用 `IndexedDbCache` 与 `resolveServerCacheKey`，坏条目删除、不可用全程 no-op |
 | `app-settings-cache.ts` | 启动 Settings 快照 store（F14）：追踪键白名单（language/外观/字号/工具展示）、结构校验读取（坏条目删除）、>4KB 跳写；`HttpStorageBackend.set` 经 `updateAppSettingSnapshotFromStorageSet` 写通，IndexedDB 不可用全程 no-op |
 | `shared-server-agent.ts` | 488 | 共享会话 Agent 客户端 |
-| `local-tools.ts` | 247 | 前端本地工具渲染器注册 |
+| `local-tools.ts` | 1352 | 前端本地工具渲染器注册；含原生 `todo_write` 与 OpenCode `todowrite` 专用历史 renderer |
+| `todo-write-history.ts` | 90 | TodoWrite 历史工具消息视图模型：区分 running/error/success/clear/neutral，并按 QuickForge/OpenCode 来源提取已应用快照 |
 | `share-client.ts` | 148 | 分享功能客户端 API |
 | `slash-catalog.ts` | 102 | 斜杠菜单目录客户端：并行拉取 `/api/skills?available=true`（可带 projectId）与 `/api/agent-profiles`（可带 projectId），agents 过滤 `enabledAsSubagent === true`；任一失败/非 200/形状异常整体返回 null 静默降级；按 projectId 模块级缓存成功结果 |
 | `composer-drafts.ts` | 241 | Composer 本地草稿：正文、结构化文件 `contextReferences` 与结构化能力 `selectedCapabilities` 按 session/project key 写入 localStorage；能力选择防御规范化、按 `type+pluginName+name` 去重且最多 4 个；正文为空但有 refs/capabilities 仍保留草稿，附件不持久化 |
@@ -150,7 +151,17 @@
 
 **用途**: 在 `pi-web-ui` 中注册本地工具渲染器；`run_command` 运行中会显示图标按钮，通过 `/api/agents/:sessionId/abort-tool` 手动结束当前命令；`run_subagent` 在聊天中只展示名称、状态和耗时摘要，运行期间在状态标签与 spinner/耗时之间渲染 `quickforge-tool-marquee` 自定义元素（attribute 驱动，仿 `quickforge-elapsed-time` 模式），以跑马灯滚动显示子代理当前正在执行的工具（`工具名 · 参数摘要`，多个 pending 用 ` · ` 连接，见 `currentSubagentToolSummariesWithMemory`：工具间隙——上一个工具已结束、下一个尚未开始时 pending 为空，回放该 run 最近一次非空摘要，避免工作过程显示闪空，直至下一个工具摘要出现或运行结束；工具摘要切换时双视图纵向滚动——旧摘要向上滚出、新摘要自下滚入 260ms，横向滚动与纵向滚动两轴独立互不打断；溢出自动循环滚动、不溢出静态、reduced-motion 降级为省略号，动画逻辑在 `tool-marquee.ts`），跑马灯只占用剩余弹性空间不遮挡标签与状态；点击整个摘要通过 `window` CustomEvent（`OPEN_SUBAGENT_RUN_EVENT`，事件名 `quickforge:open-subagent-run`）在 `WorkspaceInspector` 中打开或激活该次运行的独立 Tab，不再内联展开完整过程；renderer 会把 toolResult 顶层 `toolCallId` 显式传给 `buildSubagentRunPayload()`，确保临时/最终消息都使用父工具调用 canonical ID；缺少 canonical ID 的 `called/running` 摘要禁用、不打开且不进入全局 store，已完成历史消息仍可用 `sessionId/name:task` fallback 直接打开，但不会发布到 store；运行详情由 `renderSubagentRunBody` 渲染并通过 Lit 宿主元素 `subagent-run-detail-body` 嵌入工作区 Tab，遵循工具显示配置（`concise / compact` 简洁显示，`detailed` 额外展示工具统计、允许工具和 input/details）；详情顶部任务说明块（task/context/expectedOutput）复用用户消息气泡视觉（同边框/圆角/阴影/文字规格，见 `input-clamp.ts`），三个值节点分别保留任务文本中的原始换行（不对外层 Lit 模板启用 pre-wrap，避免模板缩进形成额外空白），长内容做定高收起——超出约 6 行裁掉不滚动、底部渐隐 + 居中「展开/收起」按钮，并用仅 overflowing 内容显示的 30px 流内安全区避免按钮覆盖正文，宿主每次渲染后经 `syncInputClampBoxes` 幂等度量，状态走 data 属性可跨实时更新存活；宿主每次渲染后调度 `decorateSubagentProcessBlocks`（`panel-decoration/message-actions.ts`），对内部过程 message-list 应用与聊天一致的 process folding / 过程分组装饰与交互（幂等、不重复叠加、卸载随 DOM 回收）；`run_subagent` renderer 仅回填 canonical 安全快照：首次可发布，或以恢复出的 done/error 修正 store 中已有 called/running，其他已有快照仍以 `ServerAgent` 的 `tool_execution_*` SSE 为权威；canonical 摘要点击时可取 store 最新同 ID 载荷，非 canonical 历史摘要始终使用当前 renderer 载荷；聊天摘要按钮具备 hover / focus-visible 反馈与 `aria-label`/`title` 可访问语义；`generate_image` 的 renderer 仅为历史会话兼容，以独立结果块展示既有会话图片资产，并根据普通页或 `/share/:shareId` 自动构造同源资源 URL；`write_file`/`edit_file` 的 diff 正文（`details.diff.text`，`OpenCodeToolRenderer` 复用同一渲染）为结构化视图：`diff-view.ts` 解析 unified 文本后按行渲染 old/new 双行号列（删行只占 old 号、加行只占 new 号），剥离 +/- 前缀，`---`/`+++` 文件头上提为标题行路径并带新文件标记，hunk 间隙显示「省略 N 行」分隔（i18n），配对的删/加行做 token 级对比、真正变化的字符段加重底色（`<mark>`）；增/删文字色在 `html.dark` 下覆盖为亮绿/亮红（含徽章与里程计），修复暗色对比度；`ask_user` 由 `AskUserToolRenderer` 渲染（summary「N 问 · 首问」，问号图标；pending/旧消息非 detailed 展开时列出问题清单），已回答/跳过的历史消息展开复用回执确认步样式——`askUserReviewRowsFromDetails(details)` 从持久化 toolResult.details 提取规范化 questions/answers/skipped/skipReason，按 `.quickforge-ask-review` 只读行渲染（复用 `buildAskAnswerText` 合并答案、未答显示占位、无「修改」按钮，跳过态行区顶部带跳过原因行，reason→i18n 四映射 timeout/aborted/no-questions/用户跳过），非 detailed 模式省略 output 文本块；`detailed` 模式一律维持 input JSON + output 原文视图。
 
-**支持的工具渲染**: `run_subagent`, `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command`, `present_files`, `activate_skill`, `read_skill_resource`, `ask_user`；另保留 `generate_image` renderer，仅用于历史会话兼容。
+`todo_write` 使用专用 `TodoWriteToolRenderer`；OpenCode 的 `opencode_tool` 仅在 ACP metadata 规范化后为 `todowrite` 时委托给同一 renderer，并使用 OpenCode 参数快照语义。历史摘要只陈述历史事件：运行中（running）、失败/中止/超时（error）、成功更新任务清单（success，显示完成数）、成功清空任务清单（clear），以及只有调用、成功结果缺少有效快照或旧数据形状不完整（neutral，不宣称已更新）。它不声称与当前 Composer Dock 摘要同步，因为当前 UI 由当前消息分支独立恢复。成功历史在非 `detailed` 模式默认只显示事件摘要，不重复渲染完整 Todo 列表；`detailed` 才显示 input/details JSON。
+
+**支持的工具渲染**: `run_subagent`, `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command`, `present_files`, `activate_skill`, `read_skill_resource`, `ask_user`, `todo_write`；`opencode_tool` 对 `todowrite` 提供专用历史 renderer 分支；另保留 `generate_image` renderer，仅用于历史会话兼容。
+
+### todo-write-history.ts
+
+**用途**: 为 TodoWrite 历史工具消息构建不依赖 DOM/Lit/i18n 的视图模型，供 QuickForge 原生 `todo_write` 与 OpenCode `todowrite` 共用。
+
+- 状态先按工具生命周期判定：`isStreaming` 为 running；`isError`、`details.aborted` 或 `details.timedOut` 为 error；存在终态 result 为 success 候选；只有调用无结果为 neutral。
+- QuickForge 仅信任成功 `toolResult.details.todos` 作为已应用快照；OpenCode 成功终态从 tool call 参数的顶层 `todos` 或 `rawInput.todos` 提取，顶层优先。两侧都复用严格三态、最多 20 项、非空内容的规范化边界。
+- 有效非空快照生成 success“更新任务清单”历史事件，有效空数组生成 clear“清空任务清单”历史事件；无效/缺失快照生成 neutral 摘要。renderer 不根据历史事件宣称当前 Composer Dock 摘要已同步或移除。
 
 ### subagent-run-detail.ts
 

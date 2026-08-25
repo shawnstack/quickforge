@@ -4,8 +4,8 @@
 
 - Feature: patch 发布 v1.8.1（**已完成**）
 - Verification: `npm run test` → 252 files / 2194 tests 全通过；`npm run lint` → 0 errors / 1 existing warning；`npm run build` → 通过；runtime/offline/tarball 已生成，包含 `shawnstack-quickforge-1.8.1.tgz`。
-- Boundaries: 两个 `design-mockups` 未跟踪文件未包含在本次发布中；未修改 `dist/`、`package-dist/`、`package-offline/`，未执行 Git 操作。
-- Next step: 合并 master、创建 tag 并 push。
+- Boundaries: 两个 `design-mockups` 未跟踪文件未包含在本次发布中；未修改 `dist/`、`package-dist/`、`package-offline/`。release commit `28c6bcc5`、tag `v1.8.1` 已创建，`master`、`dev` 与 tag 已推送并确认指向该 commit。
+- Next step: 发布代码已合并、tag 已创建并完成 push；仍待用户手动执行 `npm publish ./package-offline/shawnstack-quickforge-1.8.1.tgz --access public`。
 
 
 ## Completed Feature：remove-side-chat-title-entry-global-inspector-access

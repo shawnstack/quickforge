@@ -4,8 +4,9 @@
 
 - 目标：完成 patch v1.8.1 发布准备，当前分支为 `dev`。
 - 状态：`package.json`、`package-lock.json`、`CHANGELOG.md`、`README.md` 版本文件与发布说明已更新；test 252 files / 2194 tests 全通过，lint 0 errors / 1 existing warning，build 与 runtime/offline/tarball 打包通过，已生成 `shawnstack-quickforge-1.8.1.tgz`。
-- 边界：两个 design-mockups 设计稿保持未跟踪，不纳入发布；未修改 `dist/`、`package-dist/`、`package-offline/`，本次未执行 Git 操作。
-- 下一步：合并 master，创建 commit/tag 并 push。
+- 边界：两个 design-mockups 设计稿保持未跟踪，不纳入发布；未修改 `dist/`、`package-dist/`、`package-offline/`。
+- 发布收尾：release commit 为 `28c6bcc5`，tag 为 `v1.8.1`；远端 `master`、`dev` 与 tag 已推送并确认指向 `28c6bcc5`。
+- 下一步：仅待用户手动执行 `npm publish ./package-offline/shawnstack-quickforge-1.8.1.tgz --access public`。
 
 
 ## 当前状态：remove-side-chat-title-entry-global-inspector-access（已完成）

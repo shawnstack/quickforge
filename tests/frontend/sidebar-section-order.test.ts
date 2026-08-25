@@ -173,7 +173,18 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(sidebarSource).toContain('aria-expanded={!conversationsVisuallyCollapsed}')
     expect(sidebarSource).toContain("!conversationsVisuallyCollapsed && 'rotate-90'")
     expect(sidebarSource).toContain('conversationsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass')
-    expect(sidebarSource.match(/isSectionDragging && 'transition-none'/g)).toHaveLength(2)
+    expect(sidebarSource.match(/isSectionDragging && 'transition-none'/g)).toHaveLength(1)
+  })
+
+  it('closes the Tasks content panel without a transition while preserving its expand animation', () => {
+    const collapsePanelClass = sidebarSource.match(/const collapsePanelClass = '([^']+)'/)?.[1]
+    const tasksPanelClassLine = sidebarSource
+      .split('\n')
+      .find((line) => line.includes('conversationsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass'))
+
+    expect(collapsePanelClass).toContain('transition-[grid-template-rows,opacity] duration-200')
+    expect(tasksPanelClassLine).toContain("conversationsVisuallyCollapsed && 'transition-none'")
+    expect(tasksPanelClassLine).not.toContain("isSectionDragging && 'transition-none'")
   })
 
   it('completes start, cancel, and end state while locking horizontal section movement', () => {

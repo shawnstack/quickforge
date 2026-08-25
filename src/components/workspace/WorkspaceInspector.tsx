@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, MessageCircle, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareActivity, SquareTerminal, X } from 'lucide-react'
+import { Bot, Check, ChevronDown, ChevronRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, MessageCircle, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import {
   DndContext,
@@ -1856,7 +1856,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
                             role="menuitem"
                             title={title}
                           >
-                            {filePath ? <FileIcon path={filePath} className="size-4 shrink-0" /> : tab.kind === 'subagent' ? <SquareActivity className="size-4 shrink-0 text-muted-foreground/80" /> : Icon ? <Icon className="size-4 shrink-0 text-muted-foreground/80" /> : <Code2 className="size-4 shrink-0 text-muted-foreground/80" />}
+                            {filePath ? <FileIcon path={filePath} className="size-4 shrink-0" /> : tab.kind === 'subagent' ? <Bot className="size-4 shrink-0 text-muted-foreground/80" /> : Icon ? <Icon className="size-4 shrink-0 text-muted-foreground/80" /> : <Code2 className="size-4 shrink-0 text-muted-foreground/80" />}
                             <span className="min-w-0 flex-1 truncate">{label}</span>
                           </button>
                           <button
@@ -1938,7 +1938,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
                             {filePath ? (
                               <FileIcon path={filePath} className={cn('size-4 shrink-0 transition-opacity', active ? 'opacity-100' : 'opacity-55 group-hover:opacity-85')} />
                             ) : tab.kind === 'subagent' ? (
-                              <SquareActivity className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
+                              <Bot className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
                             ) : Icon ? (
                               <Icon className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
                             ) : (

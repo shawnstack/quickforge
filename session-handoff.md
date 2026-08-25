@@ -1,16 +1,15 @@
 # Session Handoff
 
-## 当前状态：context-usage-skills-mcp-breakdown（已完成）
+## 当前状态：prompt-http-error-message（已完成）
 
-- 目标：在现有上下文用量 Tooltip 构成区的系统提示词、工具定义、消息之后增加 `Skills`、`MCP` 两行；仅显示数字，字段缺失或 `<=0` 隐藏，总量与圆环不变。
-- 实现：`server/context-usage.mjs` 新增 `skillsTokens` / `mcpTokens` 来源统计。最终审查收口后，Skills 以 `activate_skill` / `read_skill_resource` definition 参数枚举证明会话存在 enabled Skills，只选择系统提示词中最后一个带固定系统介绍且包含全部启用名称的真实 `<available_skills>` catalog，并统计 Skills definitions 与已关联调用/结果；无 enabled Skills 时指令伪标签与伪调用均不计。MCP definition 仅接受非数组对象 `mcp` 且 `serverName` / `toolName` 为非空字符串；名称回退通过共享 `server/mcp/tool-name.mjs` 复用 registry 的真实 server canonical 与 tool sanitize/encode 规则，解析后重建并要求原字符串完全一致，拒绝三处带空格、空 segment、非法 server 及未编码 tool 名，同时接受 helper 真实生成的 canonical 名称；未改变 `registry.isMcpToolName()` / `callMcpTool()` 公共行为。toolResult 有非空 `toolCallId` 时只按已识别 MCP call ID 关联，错误/孤立 ID 不再降级到名称；ID 缺失/空时才按已识别 canonical `toolName` 关联；ID/name 都缺失时才接受完整 `details: {mcp:true,server,tool}`。两项复用 `estimateTokens`，不进入 `estimatedInputTokens`、provider usage、`inputTokens` 或 percent 加总。前端类型均为可选字段，Tooltip 严格在现有三行后按正数追加 `Skills` / `MCP`。
-- 文件：最终审查新增/修改 `server/context-usage.mjs`、`server/mcp/tool-name.mjs`、`server/mcp/config.mjs`、`server/mcp/registry.mjs`、`tests/server/context-usage.test.mjs`、`docs/wiki/server/README.md` 与状态文件；此前功能文件 `src/lib/server-agent.ts`、`src/components/chat/chat-utils.ts`、`src/components/chat/context-usage.ts`、`src/lib/i18n.ts`、`tests/frontend/context-usage.test.ts`、`docs/wiki/src/components/README.md` 保持现有实现不动。已确认原型 `docs/prototypes/context-usage-source-attribution.html` 保留且未移入业务演示控件。
-- 验证：最终审查定向 Vitest 3 files / 40 tests 全通过；MCP registry 额外回归 1 file / 6 tests 全通过；完整 `npm run test` → 247 files / 2119 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；`git diff --check` 通过。
-- 文档与边界：server/components Wiki 已同步；架构、模块职责和公共入口未改变，无需更大文档更新。未新增依赖，未手工修改 `dist/`、`package-dist/`、`package-offline/`，未创建 commit/tag/push。
-- 下一步：无 blocker；可选真机查看有 Skills/MCP 和无来源数据两种 Tooltip。
+- 目标：Prompt HTTP 请求失败时，不只保留全局错误状态，还要在聊天区显示服务端返回的具体原因。
+- 实现：`src/lib/server-agent.ts` 复用项目 assistant error 消息契约，新增最小构造/去重 helper。fetch catch 先按既有身份与长度条件回滚乐观 user message，再追加空 text block、当前模型字段、完整零 usage/cost、`stopReason:'error'`、具体 `errorMessage`、timestamp 的 assistant 消息；清理 streaming/watchdog；继续发 error 事件；`agent_end` 现携带 `status:'error'`、`errorMessage` 与最终 messages。
+- 测试：`tests/frontend/server-agent.test.ts` 模拟 400 `{error:'Selected model is not configured in QuickForge.', code:'model_not_configured'}`，覆盖具体原因、乐观回滚、assistant error 消息完整契约、无重复、error/agent_end 事件和结束状态。
+- 验证：定向 Vitest 1 file / 38 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 与 `git diff --check` 通过。
+- 文档与边界：`docs/wiki/src/lib/README.md` 已同步；不改架构/设计语言文档。未新增依赖，未修改生成产物，未 commit/tag/push；工作区其他未提交改动保持不动。
+- 下一步：无 blocker。
 
 ---
-
 
 ## 当前状态：side-chat-workspace-tab（已完成，最终收敛）
 
@@ -22,18 +21,82 @@
 
 ---
 
+## 当前状态：fix-side-chat-assistant-usage-contract（已完成）
 
+- 目标：最小修复 Side Chat 调用 pi-ai 时 assistant 上下文缺失 `usage.totalTokens` 导致的运行时异常。
+- 实现：`server/routes/side-chat.mjs` 新增小 helper，仅在最终服务端模型解析后，将既有 `mainConversationMessages + normalizeSideMessages` 的纯文本结果物化为 pi-ai 消息。user 保持纯文本与 timestamp；assistant 为 `content:[{type:'text',text}]`，使用最终模型的 `api/provider/id`，完整零 usage/cost、`stopReason:'stop'`、timestamp。客户端 usage/details/tool/thinking 不进入模型上下文；字符预算、compact summary、权限、工具安全和 `tools: []` 不变。
+- 测试：服务端首轮主上下文 assistant、第二轮侧聊历史 assistant 均断言完整模型字段、text block、`usage.totalTokens=0`、`cost.total=0`；另有全 assistant 完整 usage 契约与 `tools: []` 断言。前端 SideChatAgent 补 local stream update/final 的完整零 usage 断言。
+- 验证：定向 Vitest 2 files / 13 tests 全通过；目标 ESLint 0 error；MJS `node --check` 通过；`npx tsc -b --pretty false` 通过；`git diff --check` 通过。
+- 文档与边界：routes Wiki 补一句服务端 pi-ai 消息物化契约；无架构/公共入口变化。未 commit/push，未修改生成产物，未触碰其他并行文件。
+- 下一步：无 blocker。
 
 ---
 
-## 当前状态：prompt-http-error-message（已完成）
+## 当前状态：side-chat-shared-conversation-surface（已完成）
 
-- 目标：Prompt HTTP 请求失败时，不只保留全局错误状态，还要在聊天区显示服务端返回的具体原因。
-- 实现：`src/lib/server-agent.ts` 复用项目 assistant error 消息契约，新增最小构造/去重 helper。fetch catch 先按既有身份与长度条件回滚乐观 user message，再追加空 text block、当前模型字段、完整零 usage/cost、`stopReason:'error'`、具体 `errorMessage`、timestamp 的 assistant 消息；清理 streaming/watchdog；继续发 error 事件；`agent_end` 现携带 `status:'error'`、`errorMessage` 与最终 messages。
-- 测试：`tests/frontend/server-agent.test.ts` 模拟 400 `{error:'Selected model is not configured in QuickForge.', code:'model_not_configured'}`，覆盖具体原因、乐观回滚、assistant error 消息完整契约、无重复、error/agent_end 事件和结束状态。
-- 验证：定向 Vitest 1 file / 38 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 与 `git diff --check` 通过。
-- 文档与边界：`docs/wiki/src/lib/README.md` 已同步；不改架构/设计语言文档。未新增依赖，未修改生成产物，未 commit/tag/push；工作区其他未提交改动保持不动。
-- 下一步：无 blocker。
+- 目标：Side Chat 不只复用 `ChatPanelHost` 内部，还与主聊天复用完整 conversation 显示壳；最终背景、布局、overflow、消息、Composer、轮次导航和装饰链一致，Side Chat 空状态仍保持普通空白。
+- 实现：新增 16 行 `ChatConversationSurface.tsx`，只提供 `relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--quickforge-main-bg)]`。App 主聊天改用该组件，既有 empty/enter class、Hero、项目选择器、ErrorBoundary/Suspense 和首次引导层级不变；`SideChatTabContent` 用同一 surface 包住同一 `ChatPanelHost mode="side-chat"`，明确 `newChatEmptyState={false}`，删除 `showTurnNavigation={false}`，无自绘 textarea/messages/button 和 side-chat 视觉 class。`ChatPanelHost` 的 DOM 插入统一为无 mode 视觉分支的 `host.replaceChildren(panel)`；mode 仅继续控制安全能力、tools 为空、附件/模型/thinking 关闭、内存输入与副作用隔离。
+- 文件：`src/components/chat/ChatConversationSurface.tsx`、`src/App.tsx`、`src/components/chat/ChatPanelHost.tsx`、`src/components/workspace/SideChatTabContent.tsx`、`tests/frontend/side-chat-workspace-tab.test.ts`、`docs/wiki/src/components/README.md`、状态文件。
+- 验证：定向 Vitest 5 files / 38 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；完整 `npm run test` → 247 files / 2108 tests 全通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；`git diff --check` 通过。
+- 边界：安全策略 `SIDE_CHAT_CAPABILITIES` 仍全 false，`toolsFactory` 仍返回 `[]`；生命周期、无模型入口、非持久化与服务端路由未改。未触碰并行 `ChatSidebar.tsx` / `sidebar-section-order.test.ts`，未触碰无关原型和 `docs/prototypes/`，禁止 commit/push。
+- 下一步：无 blocker；可选真机目视主聊天和不同 Inspector 宽度下的深浅主题、轮次导航与 Composer。合理可见差异仅为主聊天与 Inspector 实际容器宽度不同，同一响应式规则自然适配。
+
+---
+
+## 当前状态：context-usage-skills-mcp-breakdown（已完成）
+
+- 目标：在现有上下文用量 Tooltip 构成区的系统提示词、工具定义、消息之后增加 `Skills`、`MCP` 两行；仅显示数字，字段缺失或 `<=0` 隐藏，总量与圆环不变。
+- 实现：`server/context-usage.mjs` 新增 `skillsTokens` / `mcpTokens` 来源统计。最终审查收口后，Skills 以 `activate_skill` / `read_skill_resource` definition 参数枚举证明会话存在 enabled Skills，只选择系统提示词中最后一个带固定系统介绍且包含全部启用名称的真实 `<available_skills>` catalog，并统计 Skills definitions 与已关联调用/结果；无 enabled Skills 时指令伪标签与伪调用均不计。MCP definition 仅接受非数组对象 `mcp` 且 `serverName` / `toolName` 为非空字符串；名称回退通过共享 `server/mcp/tool-name.mjs` 复用 registry 的真实 server canonical 与 tool sanitize/encode 规则，解析后重建并要求原字符串完全一致，拒绝三处带空格、空 segment、非法 server 及未编码 tool 名，同时接受 helper 真实生成的 canonical 名称；未改变 `registry.isMcpToolName()` / `callMcpTool()` 公共行为。toolResult 有非空 `toolCallId` 时只按已识别 MCP call ID 关联，错误/孤立 ID 不再降级到名称；ID 缺失/空时才按已识别 canonical `toolName` 关联；ID/name 都缺失时才接受完整 `details: {mcp:true,server,tool}`。两项复用 `estimateTokens`，不进入 `estimatedInputTokens`、provider usage、`inputTokens` 或 percent 加总。前端类型均为可选字段，Tooltip 严格在现有三行后按正数追加 `Skills` / `MCP`。
+- 文件：最终审查新增/修改 `server/context-usage.mjs`、`server/mcp/tool-name.mjs`、`server/mcp/config.mjs`、`server/mcp/registry.mjs`、`tests/server/context-usage.test.mjs`、`docs/wiki/server/README.md` 与状态文件；此前功能文件 `src/lib/server-agent.ts`、`src/components/chat/chat-utils.ts`、`src/components/chat/context-usage.ts`、`src/lib/i18n.ts`、`tests/frontend/context-usage.test.ts`、`docs/wiki/src/components/README.md` 保持现有实现不动。已确认原型 `docs/prototypes/context-usage-source-attribution.html` 保留且未移入业务演示控件。
+- 验证：最终审查定向 Vitest 3 files / 40 tests 全通过；MCP registry 额外回归 1 file / 6 tests 全通过；完整 `npm run test` → 247 files / 2119 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；`git diff --check` 通过。
+- 文档与边界：server/components Wiki 已同步；架构、模块职责和公共入口未改变，无需更大文档更新。未新增依赖，未手工修改 `dist/`、`package-dist/`、`package-offline/`，未创建 commit/tag/push。
+- 下一步：无 blocker；可选真机查看有 Skills/MCP 和无来源数据两种 Tooltip。
+
+---
+
+## 当前状态：tool-call-running-title-sweep（已完成）
+
+- 目标：为普通工具调用的标题与参数增加克制的运行态扫光，同时移除同一区域重复的 spinner/耗时反馈。
+- 实现：普通 `LocalWorkspaceToolRenderer` 仅在 running 时为 `quickforge-tool-label` 追加 `quickforge-tool-running-sweep`，标题与参数摘要低强度从左到右循环；运行态隐藏 `renderStatus` 的 spinner/耗时，done/error/called 原状态不变。保留 `aria-busy` 语义；reduced motion 关闭扫光且不增加静态运行状态；`run_command` 输出与终止按钮保持不变；共享 `renderStatus` 未修改。
+- 文件：`src/lib/local-tools.ts`、`src/index.css`、`tests/frontend/local-tool-running-sweep.test.ts`；设计探索稿 `design-mockups/tool-call-running-light-sweep.html`。
+- 验证：目标 Vitest 4 files / 31 tests 全通过；目标 ESLint 通过；`npm run build` 成功（仅既有 KaTeX 字体与 chunk size warnings）；`feature_list.json` JSON 可解析；`git diff --check` 通过。
+- 文档与边界：局部视觉状态反馈不改架构、模块职责或公共入口，docs/wiki 无需更新；符合现有 DESIGN_LANGUAGE，未修改规范。未创建 commit/tag/push，未手工修改生成产物。
+- 下一步：无 blocker；可选真机目视普通工具 running/done/error/called、reduced motion 与 `run_command` 终止按钮。
+
+---
+
+## 当前状态：subagent-tab-bot-icon（已完成）
+
+- 目标：用户要求把右侧 Workspace Inspector 中显示 subagent 过程的 Tab 图标改为复用 subagent 设计里的 icon。
+- 调研：设计稿 `design-mockups/subagent-tool-marquee-impl.html`、`subagent-marquee-roll-switch.html` 的 subagent 工具类型图标为 Lucide `Bot`（天线+方头+双耳+双眼 SVG），与聊天 run_subagent 摘要卡（`src/lib/local-tools.ts:537`）及 Slash agent 图标（`src/components/chat/slash-icons.ts` agent=Bot）完全一致；Inspector 现状为 `WorkspaceInspector.tsx` 两处内联 `SquareActivity`（顶部 Tab 栏、ChevronDown Tab 下拉列表），`panelTabMeta` 对 subagent 返回 undefined。
+- 实现：`WorkspaceInspector.tsx` 两处 `SquareActivity` → `Bot`，import 同步替换（Bot 按字母序置于 Check 前，SquareActivity 移除；全仓库无其他使用处）。`tests/frontend/workspace-inspector-tabs.test.ts` 新增源码契约测试：两处 subagent 分支渲染 `<Bot …>`、源码不含 `SquareActivity`、import 含 `Bot, Check, ChevronDown`。
+- 验证：`npx vitest run` inspector 相关 5 files / 37 tests 全通过；`npx eslint` 两改动文件 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。未跑全量 test/lint。
+- 文档与边界：纯图标替换，不改架构、模块职责或公共入口，docs/wiki 无需更新；复用既有 Lucide 图标体系，无新视觉模式，DESIGN_LANGUAGE 无需修改。未新增依赖，未创建 commit/tag/push，未手工修改生成目录。
+- 下一步：无 blocker；可选真机目视深浅主题下 subagent Tab 的 Bot 图标。
+
+---
+
+## 当前状态：side-chat-workspace-tab（已完成）
+
+- 目标与结果：已完成“侧边聊天 Workspace Tab”完整闭环并真实复用主对话核心 UI。Tab 单实例、非持久化；主标题栏、Workspace `+` 和空状态入口重复打开只激活已有 Tab，无可用模型时三类入口均不可打开。App 稳定持有 SideChatAgent 与输入内存，切换其他 Workspace Tab 保留；关闭自身、关闭全部、在其他 Tab 执行 close others、切换主会话 runtime scope 时 abort/reset、清空并恢复主标题入口。
+- 前端：新增内存态 `side-chat-agent.ts` 与 NDJSON `side-chat-client.ts`；`SideChatTabContent.tsx` 现在只是 `ChatPanelHost mode="side-chat"` 的薄包装，不再自绘消息、textarea 或按钮。Side Chat 复用主对话同一个 `ChatPanel` / `AgentInterface` / `MessageList` / `MessageEditor`、消息装饰、Markdown/代码块、滚动、Composer 键盘、复制和发送/停止；`SIDE_CHAT_CAPABILITIES` 全 false，Host 在首帧关闭附件/模型/thinking，并跳过草稿 localStorage、Slash、插件、文件引用、Git、context/compaction、artifacts、通知、审批/ask、workspace tools、历史操作、终端执行、Plan/Access。Agent tools setter 与 Host toolsFactory 均 fail closed 为空。`serializePanelTabs` 剔除 `side-chat`，刷新不恢复。i18n 和组件/lib Wiki 已同步。
+- 服务端：新增并注册 `POST /api/side-chat/stream`。当前活动会话通过 `getSessionState` 权威读取主消息、模型、thinking 与 `contextCompaction`；主上下文复用压缩语义后仅投影 user/assistant 纯文本，忽略 system/tool/toolCall/thinking/details/非文本块，按 120,000 字符从最新向前确定性裁剪，并在预算内尽量保留 compact summary；主线与侧聊合计不超过 200,000 字符。QuickForge 会话使用服务端权威模型；OpenCode 使用请求中的已配置 QuickForge `modelRef`，不走 ACP。固定 `tools: []`；任何 `toolcall_*` / `toolUse` fail closed；不调用 `runPrompt`，不写 Session/主 Agent；断连 abort；响应 `no-store + nosniff`。
+- 测试：服务端覆盖权威上下文、纯文本投影、长上下文裁剪、最新消息与 compact summary 保留、`tools: []`、OpenCode QuickForge 模型、安全角色拒绝和 tool-call fail closed；前端新增 SideChatAgent 事件顺序、delta、error、abort、可重发、tools fail closed 与 40 条上限，并锁定 SideChatTabContent 真实复用 ChatPanelHost、无自绘 textarea、复制可用、无模型入口一致、Tab presence 与清理生命周期。
+- 验证：定向 Vitest 11 files / 76 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；完整 `npm run test` → 245 files / 2095 tests 全通过；完整 `npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 通过。
+- 边界：未新增依赖，未创建 commit/tag/push，未手工修改 `dist/`、`package-dist/`、`package-offline/`；build 只重建被忽略的 `dist/`。未跟踪原型 `design-mockups/side-chat-tab.html` 未修改。工作区另有 `src/components/sidebar/ChatSidebar.tsx` 与 `tests/frontend/sidebar-section-order.test.ts` 的并行改动，本功能未触碰或覆盖。
+- 下一步：无 blocker；可选真机确认深浅主题、入口/Tab 单实例、切换其他 Tab 保留、四种清理生命周期、OpenCode 主会话及流式停止。
+
+---
+
+## 当前状态：fix-tasks-collapse-flicker（已完成）
+
+- 目标：最小修复左侧 Tasks 普通收起闪烁；只关闭收起动画，保留展开动画。
+- 根因：Tasks 外层 `SortableSidebarSection` 在普通收起的同一次更新中从 `flex-1` 切为 `shrink-0`，内层内容面板却继续执行 200ms `grid-template-rows` / `opacity` transition；`h-full`、flex 与滚动容器组合产生中间绘制帧。
+- 实现：`ChatSidebar.tsx` 的 Tasks 内容面板将 `transition-none` 条件从仅 `isSectionDragging` 改为 `conversationsVisuallyCollapsed`。因此普通收起和拖拽临时收起都瞬时关闭；展开时条件为 false，既有 `collapsePanelClass` 的 200ms 动画继续生效。Projects 路径未修改。
+- 测试：`sidebar-section-order.test.ts` 新增聚焦源码契约，从 Tasks 面板单行锁定关闭态使用 `conversationsVisuallyCollapsed && 'transition-none'`，并确认共享面板基类仍含 200ms transition；同步修正拖拽路径计数断言，避免大范围脆弱匹配。
+- 验证：`npx vitest run tests/frontend/sidebar-section-order.test.ts` → 1 file / 15 tests 全通过；`npx eslint src/components/sidebar/ChatSidebar.tsx tests/frontend/sidebar-section-order.test.ts` → 0 error；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。
+- 文档与边界：局部视觉 bugfix 不改变架构、模块职责或公共入口，未更新 docs/wiki；复用现有 `transition-none`，未引入视觉模式，未修改 DESIGN_LANGUAGE。未新增依赖、未创建 commit/tag/push、未手工修改生成目录；build 只重建被忽略的 `dist/`，`design-mockups/side-chat-tab.html` 未触碰。
+- 下一步：无 blocker；可选真机确认桌面/移动 Tasks 普通收起无闪烁、展开仍有动画。
 
 ---
 

@@ -1,6 +1,21 @@
 {
   "features": [
     {
+      "id": "prompt-http-error-message",
+      "name": "Prompt HTTP 失败时在聊天区显示具体错误原因",
+      "status": "done",
+      "approach": "ServerAgent 的 prompt HTTP 请求失败时保留乐观 user message 精确回滚，并以当前模型字段、空 text block、完整零 usage/cost、stopReason:'error'、具体 errorMessage 和 timestamp 追加唯一 assistant error message；同步结束本地 streaming 状态，继续发 error 事件，并让 agent_end 携带 status:'error'、errorMessage 与最终 messages。覆盖 400 model_not_configured JSON 的具体原因、回滚、消息契约、事件与终态；同步 src/lib Wiki。",
+      "files": [
+        "src/lib/server-agent.ts",
+        "tests/frontend/server-agent.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/server-agent.test.ts → 1 file / 38 tests 全通过；目标 ESLint 0 error；npx tsc -b --pretty false 通过；git diff --check 通过。未创建 commit/tag/push。"
+    },
+    {
       "id": "fix-side-chat-assistant-usage-contract",
       "name": "修复 Side Chat assistant 上下文缺失 usage",
       "status": "done",
@@ -60,6 +75,36 @@
       "verification": "最终审查定向 Vitest 3 files / 40 tests 全通过；MCP registry 额外回归 1 file / 6 tests 全通过；完整 npm run test → 247 files / 2119 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92）；npm run build 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；git diff --check 通过。"
     },
     {
+      "id": "tool-call-running-title-sweep",
+      "name": "工具调用标题与参数运行态扫光",
+      "status": "done",
+      "approach": "仅为普通 LocalWorkspaceToolRenderer 的 running 状态在 quickforge-tool-label 上追加 quickforge-tool-running-sweep，使标题与参数摘要呈现低强度、从左到右循环扫光；运行态隐藏 renderStatus 提供的 spinner/耗时，done/error/called 继续保持原状态展示。aria-busy 语义保留；prefers-reduced-motion 下关闭扫光且不增加静态运行状态。run_command 输出与终止按钮保持不变，共享 renderStatus 未修改。局部视觉状态反馈不改变架构、模块职责或公共入口，docs/wiki 无需更新；实现符合现有 DESIGN_LANGUAGE，未修改设计规范。",
+      "files": [
+        "src/lib/local-tools.ts",
+        "src/index.css",
+        "tests/frontend/local-tool-running-sweep.test.ts",
+        "design-mockups/tool-call-running-light-sweep.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "目标 Vitest 4 files / 31 tests 全通过；目标 ESLint 通过；npm run build 成功（仅既有 KaTeX 字体与 chunk size warnings）；feature_list.json JSON 可解析；git diff --check 通过。未创建 commit/tag/push，未手工修改生成产物。"
+    },
+    {
+      "id": "subagent-tab-bot-icon",
+      "name": "右侧 Inspector subagent Tab 图标复用设计稿 Bot",
+      "status": "done",
+      "approach": "最小视觉统一：WorkspaceInspector 中 subagent 运行详情 Tab 的图标由 Lucide SquareActivity 换为 Lucide Bot，与 subagent 设计稿（design-mockups/subagent-tool-marquee-impl.html、subagent-marquee-roll-switch.html 的工具类型图标）、聊天内 run_subagent 摘要卡（local-tools.ts renderToolIcon）和 Slash agent 类别（slash-icons.ts agent=Bot）保持一致。改动共两处渲染分支（顶部 Tab 栏与 ChevronDown Tab 下拉列表）+ import 替换；SquareActivity 全仓库仅此文件使用，删除无副作用。workspace-inspector-tabs.test.ts 新增源码契约测试锁定两处分支渲染 Bot 且 SquareActivity 不再出现。纯图标替换不改架构、模块职责或公共入口，docs/wiki 无需更新；复用既有图标体系，无新视觉模式，DESIGN_LANGUAGE 无需修改。",
+      "files": [
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "tests/frontend/workspace-inspector-tabs.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/workspace-inspector-tabs.test.ts tests/frontend/workspace-inspector-on-demand-source.test.ts tests/frontend/workspace-inspector-tab-list-scroll.test.ts tests/frontend/workspace-inspector-request.test.ts tests/frontend/side-chat-workspace-tab.test.ts → 5 files / 37 tests 全通过；npx eslint 两个改动文件 → 0 error；npx tsc -b --pretty false → 通过；npm run build 成功（仅既有 KaTeX 字体解析与 chunk size warning）。未重复全量 test/lint。"
+    },
+    {
       "id": "side-chat-workspace-tab",
       "name": "侧边聊天 Workspace Tab",
       "status": "done",
@@ -101,19 +146,18 @@
       "verification": "定向 Vitest 11 files / 97 tests 与隔离修复聚焦 9 files / 71 tests 全通过；npx tsc -b --pretty false、MJS syntax、git diff --check 通过；完整 npm run test → 249 files / 2148 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92）；npm run build 成功（仅既有 KaTeX 字体解析与 chunk size warnings）。本次提交仅包含 Side Chat；未 tag/push。"
     },
     {
-      "id": "prompt-http-error-message",
-      "name": "Prompt HTTP 失败时在聊天区显示具体错误原因",
+      "id": "fix-tasks-collapse-flicker",
+      "name": "修复左侧 Tasks 普通收起闪烁",
       "status": "done",
-      "approach": "ServerAgent 的 prompt HTTP 请求失败时保留乐观 user message 精确回滚，并以当前模型字段、空 text block、完整零 usage/cost、stopReason:'error'、具体 errorMessage 和 timestamp 追加唯一 assistant error message；同步结束本地 streaming 状态，继续发 error 事件，并让 agent_end 携带 status:'error'、errorMessage 与最终 messages。覆盖 400 model_not_configured JSON 的具体原因、回滚、消息契约、事件与终态；同步 src/lib Wiki。",
+      "approach": "仅调整 ChatSidebar 的 Tasks 内容面板：conversationsVisuallyCollapsed 为 true 时追加现有 transition-none，使普通收起与区块拖拽临时收起均跳过 grid-template-rows/opacity 的 200ms 关闭动画，避免外层 flex-1→shrink-0 与内层动画产生中间绘制帧；展开时不含 transition-none，继续保留既有 200ms 动画。Projects 路径未改。局部视觉 bugfix 不改变架构、职责或公共入口，因此不更新 docs/wiki 与 DESIGN_LANGUAGE。",
       "files": [
-        "src/lib/server-agent.ts",
-        "tests/frontend/server-agent.test.ts",
-        "docs/wiki/src/lib/README.md",
+        "src/components/sidebar/ChatSidebar.tsx",
+        "tests/frontend/sidebar-section-order.test.ts",
         "feature_list.json",
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "npx vitest run tests/frontend/server-agent.test.ts → 1 file / 38 tests 全通过；目标 ESLint 0 error；npx tsc -b --pretty false 通过；git diff --check 通过。未创建 commit/tag/push。"
+      "verification": "npx vitest run tests/frontend/sidebar-section-order.test.ts → 1 file / 15 tests 全通过；npx eslint src/components/sidebar/ChatSidebar.tsx tests/frontend/sidebar-section-order.test.ts → 0 error；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）。未创建 commit/tag/push。"
     },
     {
       "id": "main-chat-model-selector-settings-entry",
@@ -1265,7 +1309,14 @@
       "name": "发布 v1.8.0 minor 版本",
       "status": "done",
       "approach": "minor 发布：先以功能提交 56d435d 纳入 /commit、主聊天自定义模型设置入口等全部当前改动（20 条目），master --ff-only 快进无 merge commit；package 双文件 1.7.12→1.8.0；CHANGELOG 按 v1.7.12..HEAD 的 17 个提交新增 [1.8.0] 条目；完整 test/lint/build 门禁通过后生成 runtime/offline 包与 tarball，release commit、创建 tag v1.8.0、dev 快进并原子推送 master/dev/tag；npm publish 由用户执行。",
-      "files": ["package.json", "package-lock.json", "CHANGELOG.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
       "verification": "npm run test → 239 files / 2068 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；prepare-runtime-package / prepare-offline-package / npm pack 成功，tarball 25,273,416 bytes / 326 files；package-dist 与 package-offline 均 @shawnstack/quickforge@1.8.0 且无 devDependencies/scripts；JSON 解析与 git diff --check 通过。"
     },
     {

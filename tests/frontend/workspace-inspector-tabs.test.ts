@@ -267,6 +267,16 @@ describe('workspace inspector tabs persistence', () => {
     expect(next[1]?.subagentRun).toBe(updated)
   })
 
+  it('renders subagent run tabs with the Bot icon reused from the subagent design', () => {
+    const inspectorSource = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+
+    expect(inspectorSource).toContain("tab.kind === 'subagent' ? <Bot className=\"size-4 shrink-0 text-muted-foreground/80\" />")
+    expect(inspectorSource).toContain("tab.kind === 'subagent' ? (")
+    expect(inspectorSource).toContain('<Bot className={cn(\'size-4 shrink-0\'')
+    expect(inspectorSource).not.toContain('SquareActivity')
+    expect(inspectorSource).toContain("Bot, Check, ChevronDown")
+  })
+
   it('reorders tabs by id without changing their contents', () => {
     const tabs: WorkspacePanelTab[] = [
       { id: 'files-1', kind: 'files' },

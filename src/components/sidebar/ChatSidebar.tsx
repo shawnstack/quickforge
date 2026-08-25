@@ -1538,7 +1538,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               </Button>
             </div>
 
-            <div className={cn(collapsePanelClass, 'flex-1 min-h-0', isSectionDragging && 'transition-none', conversationsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
+            <div className={cn(collapsePanelClass, 'flex-1 min-h-0', conversationsVisuallyCollapsed && 'transition-none', conversationsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
               <div className={collapseInnerClass}>
                 <div className="h-full overflow-y-auto pb-2">
                   {globalSessions.length === 0 && !globalHasMore ? (

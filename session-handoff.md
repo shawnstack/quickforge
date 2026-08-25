@@ -1,5 +1,15 @@
 # Session Handoff
 
+## 当前状态：remove-todo-summary-bottom-border（已完成）
+
+- 目标：仅移除输入框上方 TodoWrite 任务摘要的底部分隔横线。
+- 实现：删除 `src/index.css` 中 `.quickforge-todo-summary` 的 `border-bottom: 1px solid color-mix(...)`；其余任务摘要样式、交互和业务代码保持不变。
+- 验证：`npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/slash-invocation-chip.test.ts` → 2 files / 44 tests 全通过；`npm run build` 成功，仅有既有 KaTeX 字体解析与 chunk size warning。
+- 文档与边界：纯局部样式调整，不改变架构、模块职责或公共入口，因此 docs/wiki 与 `DESIGN_LANGUAGE.md` 无需更新。未新增依赖，未手工修改生成产物，未创建 commit/tag/push；既有未跟踪设计稿保持不动。
+- 下一步：无 blocker；可选真机目视确认底部横线已消失。
+
+---
+
 ## 当前状态：prompt-http-error-message（已完成）
 
 - 目标：Prompt HTTP 请求失败时，不只保留全局错误状态，还要在聊天区显示服务端返回的具体原因。

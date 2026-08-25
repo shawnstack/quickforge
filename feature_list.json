@@ -1371,6 +1371,19 @@
         "session-handoff.md"
       ],
       "verification": "定向 npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts tests/frontend/slash-invocation-chip.test.ts tests/server/tools/definitions.test.mjs tests/server/tools/index.test.mjs tests/server/routes/tools.todo-write.test.mjs → 6 files / 89 tests passed；npx tsc -b --pretty false → exit 0；npm run build → passed（仅既有 KaTeX 字体解析与 chunk size warning）。最终完整门禁：npm run test -- --reporter=dot → 242 files / 2112 tests passed；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build → passed，仅既有 KaTeX 字体解析与 chunk size warning。验证过程：首次完整 test/lint/build 链通过；为提取数量二次运行全量 test 时，tests/server/cloud/qf-agent-process.test.mjs 的“does not double start while a restart timer is pending”出现一次无关定时器波动（1 failed / 2111 passed），单文件复跑 28/28 通过，随后全量 242 files / 2112 tests 通过，未为此修改代码。feature_list.json JSON 解析与三文件 git diff --check 通过。package-lock.json 既有 peer 元数据噪音、artifacts/todo-write-interaction-prototype.html 原型及无关未跟踪 ').Groups[1].Value 均未触碰、不纳入本功能；未 commit/tag/push。"
+    },
+    {
+      "id": "remove-todo-summary-bottom-border",
+      "name": "移除 TodoWrite 任务摘要底部横线",
+      "status": "done",
+      "approach": "仅删除 src/index.css 中 .quickforge-todo-summary 的 border-bottom 声明，使输入框上方任务摘要不再显示底部分隔横线；其余任务摘要布局、背景、交互、业务代码与无关样式保持不变。纯局部样式调整不改变架构、模块职责或公共入口，docs/wiki 与 DESIGN_LANGUAGE.md 无需更新。",
+      "files": [
+        "src/index.css",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/slash-invocation-chip.test.ts → 2 files / 44 tests 全通过；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）。未创建 commit/tag/push，未手工修改生成产物。"
     }
   ]
 }

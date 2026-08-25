@@ -1,5 +1,13 @@
 # Progress
 
+## Completed Feature：remove-todo-summary-bottom-border
+
+- Feature: 移除 TodoWrite 任务摘要底部横线（remove-todo-summary-bottom-border，**已完成**）
+- Status: done — 仅删除 `src/index.css` 中 `.quickforge-todo-summary` 的 `border-bottom` 声明；任务摘要的布局、背景、交互及其他业务代码/样式均未改。
+- Verification: `npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/slash-invocation-chip.test.ts` → 2 files / 44 tests 全通过；`npm run build` → 成功（仅既有 KaTeX 字体解析与 chunk size warning）。
+- Boundaries: 局部样式调整不改变架构、模块职责或公共入口，docs/wiki 与 `DESIGN_LANGUAGE.md` 无需更新；未新增依赖，未手工修改生成产物，未创建 commit/tag/push；既有未跟踪设计稿未触碰。
+- Next step: 无 blocker；可选真机目视确认输入框上方任务摘要底部横线已消失。
+
 ## Completed Feature：todo-write-sticky-summary
 
 - Feature: TodoWrite 输入框上方任务摘要与专用历史渲染（todo-write-sticky-summary，**已完成**）

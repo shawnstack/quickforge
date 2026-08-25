@@ -5464,7 +5464,6 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   width: 100%;
   flex: none;
   padding: 0.25rem 0.75rem 0.375rem;
-  border-bottom: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
   background: var(--background);
 }
 

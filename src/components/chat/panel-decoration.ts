@@ -43,6 +43,20 @@ export type { MessageDecorationDeps } from './panel-decoration/message-actions'
 export { decorateMessages, decorateSubagentProcessBlocks } from './panel-decoration/message-actions'
 export { syncAssistantWaitingBubble } from './panel-decoration/assistant-waiting-bubble'
 export { createScrollToBottomButton } from './panel-decoration/scroll-to-bottom-button'
+export {
+  createTodoWriteSummaryController,
+  extractLatestTodoWriteSnapshot,
+  isTodoWriteAcpMetadata,
+  normalizeTodoWriteTodos,
+  todoWriteCounts,
+} from './panel-decoration/todo-write-summary'
+export type {
+  TodoWriteItem,
+  TodoWriteMessage,
+  TodoWriteSnapshot,
+  TodoWriteStatus,
+  TodoWriteSummaryController,
+} from './panel-decoration/todo-write-summary'
 
 // Inline local file path link decoration lives in ./panel-decoration/local-file-path-links.
 

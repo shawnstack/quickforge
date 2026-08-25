@@ -71,9 +71,27 @@ export const askUserTool = {
   }),
 }
 
+export const todoWriteTool = {
+  name: 'todo_write',
+  label: 'Update todos',
+  description: 'Keep a short current plan for non-trivial multi-step tasks. Send the complete latest todo snapshot on every call, including completed items; use an empty array to clear it. Skip this tool for simple tasks. This records task state only and must not be used to hide reasoning.',
+  parameters: Type.Object({
+    todos: Type.Array(Type.Object({
+      content: Type.String({ minLength: 1, maxLength: 200, description: 'Concise todo item text.' }),
+      status: Type.Union([
+        Type.Literal('pending'),
+        Type.Literal('in_progress'),
+        Type.Literal('completed'),
+      ], { description: 'Current todo status.' }),
+    }, { additionalProperties: false }), { maxItems: 20, description: 'Complete latest todo snapshot. May be empty to clear the list.' }),
+  }, { additionalProperties: false }),
+  executionMode: 'sequential',
+}
+
 export const workspaceTools = [
   subagentTool,
   askUserTool,
+  todoWriteTool,
   {
     name: 'read_file',
     label: 'Read file',

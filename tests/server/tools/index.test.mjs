@@ -70,6 +70,60 @@ describe('skills name normalization', () => {
   })
 })
 
+describe('toolTodoWrite', () => {
+  it('trims content and returns the normalized snapshot with summary counts', async () => {
+    const result = await toolHandlers.todo_write({
+      todos: [
+        { content: '  Inspect implementation  ', status: 'completed' },
+        { content: 'Add handler', status: 'in_progress' },
+        { content: 'Run tests', status: 'pending' },
+      ],
+    })
+
+    expect(result).toEqual({
+      content: 'Updated 3 todos.',
+      details: {
+        type: 'todo_write_result',
+        todos: [
+          { content: 'Inspect implementation', status: 'completed' },
+          { content: 'Add handler', status: 'in_progress' },
+          { content: 'Run tests', status: 'pending' },
+        ],
+        summary: { total: 3, pending: 1, inProgress: 1, completed: 1 },
+      },
+    })
+  })
+
+  it('returns cleared semantics for an empty snapshot', async () => {
+    await expect(toolHandlers.todo_write({ todos: [] })).resolves.toEqual({
+      content: 'Todo list cleared.',
+      details: {
+        type: 'todo_write_result',
+        todos: [],
+        summary: { total: 0, pending: 0, inProgress: 0, completed: 0 },
+      },
+    })
+  })
+
+  it.each([
+    [{}, 'must contain only the todos field'],
+    [{ todos: 'nope' }, 'todos must be an array'],
+    [{ todos: Array.from({ length: 21 }, () => ({ content: 'x', status: 'pending' })) }, 'at most 20 todos'],
+    [{ todos: [{ content: 'x', status: 'pending', extra: true }] }, 'must contain only content and status'],
+    [{ todos: [{ content: '   ', status: 'pending' }] }, 'content must not be empty'],
+    [{ todos: [{ content: 'x'.repeat(201), status: 'pending' }] }, 'content must be at most 200 characters'],
+    [{ todos: [{ content: 'x', status: 'blocked' }] }, 'status must be pending, in_progress, or completed'],
+  ])('rejects invalid direct-call input %# with a clear 400 error', async (params, message) => {
+    try {
+      await toolHandlers.todo_write(params)
+      throw new Error('Expected todo_write to reject')
+    } catch (error) {
+      expect(error.statusCode).toBe(400)
+      expect(error.message).toContain(message)
+    }
+  })
+})
+
 describe('toolReadFile', () => {
   let tmpDir
   let context

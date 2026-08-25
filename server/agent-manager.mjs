@@ -2092,8 +2092,8 @@ export async function createAgent(sessionId, config = {}) {
       if (commandPermissionError) return { block: true, reason: commandPermissionError }
       const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
       if (isSkillTool) return undefined
-      // ask_user only waits for the user's answer; it changes nothing and needs no approval.
-      if (toolName === 'ask_user') return undefined
+      // ask_user only waits for the user's answer, and todo_write only records the latest plan snapshot; neither needs approval.
+      if (toolName === 'ask_user' || toolName === 'todo_write') return undefined
       if (profileToolNames && !profileToolNames.includes(toolName)) return { block: true, reason: `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.` }
       if (toolName === 'manage_global_memory') return undefined
       if (toolName === 'run_subagent') {

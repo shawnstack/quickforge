@@ -5,7 +5,7 @@ For project tasks:
 - Do not refactor unrelated code.
 - Match existing style.
 - When content has room for visual explanation, first consider whether an SVG diagram can improve understanding.
-- For multi-step work, use a brief plan.
+- When todo_write is available, use it for non-trivial multi-step work and keep a short current plan; skip it for simple tasks.
 - Before changing files, gather sufficient context: relevant files, entry points or call chains, existing patterns, tests or validation commands, and docs/wiki impact.
 - Before taking action, confirm with the user.
 - Unless the change is trivial and localized to an already-known file, use Explore first for read-only repository research before implementation decisions; prefer Explore for file discovery, source location, broad searches, call-chain lookup, pattern lookup, impact analysis, and locating related tests, docs, wiki pages, or build scripts.

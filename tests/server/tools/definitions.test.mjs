@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { subagentTool, globalMemoryTool, workspaceTools, createSkillTools } from '../../../server/tools/definitions.mjs'
+import { subagentTool, globalMemoryTool, todoWriteTool, workspaceTools, createSkillTools } from '../../../server/tools/definitions.mjs'
 
 describe('definitions', () => {
   describe('subagentTool', () => {
@@ -64,10 +64,34 @@ describe('definitions', () => {
       expect(names).not.toContain('generate_image')
       expect(names).toContain('present_files')
       expect(names).toContain('ask_user')
+      expect(names).toContain('todo_write')
     })
 
-    it('has exactly 8 tools', () => {
-      expect(workspaceTools).toHaveLength(8)
+    it('has exactly 9 tools', () => {
+      expect(workspaceTools).toHaveLength(9)
+    })
+
+    it('todo_write uses a strict bounded snapshot schema and sequential execution', () => {
+      expect(todoWriteTool.name).toBe('todo_write')
+      expect(todoWriteTool.executionMode).toBe('sequential')
+      expect(todoWriteTool.description).toContain('non-trivial multi-step tasks')
+      expect(todoWriteTool.description).toContain('complete latest todo snapshot')
+      expect(todoWriteTool.description).toContain('Skip this tool for simple tasks')
+      expect(todoWriteTool.description).toContain('must not be used to hide reasoning')
+      expect(todoWriteTool.parameters.additionalProperties).toBe(false)
+      expect(Object.keys(todoWriteTool.parameters.properties)).toEqual(['todos'])
+
+      const todosSchema = todoWriteTool.parameters.properties.todos
+      expect(todosSchema.maxItems).toBe(20)
+      expect(todosSchema.minItems).toBeUndefined()
+      expect(todosSchema.items.additionalProperties).toBe(false)
+      expect(Object.keys(todosSchema.items.properties)).toEqual(['content', 'status'])
+      expect(todosSchema.items.properties.content).toMatchObject({ minLength: 1, maxLength: 200 })
+      expect(todosSchema.items.properties.status.anyOf.map((schema) => schema.const)).toEqual([
+        'pending',
+        'in_progress',
+        'completed',
+      ])
     })
 
     it('ask_user takes 1-4 questions with bounded options', () => {

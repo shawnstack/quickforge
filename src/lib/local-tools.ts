@@ -29,6 +29,8 @@ import {
 } from '@/lib/subagent-run-detail'
 import { decorateSubagentProcessBlocks } from '@/components/chat/panel-decoration'
 import { buildAskAnswerText } from '@/components/chat/panel-decoration/ask-user-card'
+import { isTodoWriteAcpMetadata } from '@/components/chat/panel-decoration/todo-write-summary'
+import { buildTodoWriteHistoryViewModel, type TodoWriteHistorySource } from '@/lib/todo-write-history'
 
 type ToolResultLike = {
   toolCallId?: string
@@ -536,6 +538,7 @@ function renderToolIcon(toolName: string) {
   if (toolName === 'run_command') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>`
   if (toolName === 'run_subagent') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>`
   if (toolName === 'ask_user') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>`
+  if (toolName === 'todo_write') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`
   if (toolName === 'activate_skill') return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 2.1 8.5 8.5 2.1 9.9l6.4 1.4 1.4 6.4 1.4-6.4 6.4-1.4-6.4-1.4Z"/><path d="M19 15v4"/><path d="M21 17h-4"/></svg>`
   return html`<svg class=${className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9Z"/></svg>`
 }
@@ -1113,11 +1116,64 @@ class AskUserToolRenderer {
   }
 }
 
+class TodoWriteToolRenderer {
+  render(
+    params: Record<string, unknown> | undefined,
+    result: ToolResultLike | undefined,
+    isStreaming?: boolean,
+    source: TodoWriteHistorySource = 'quickforge',
+  ) {
+    const viewModel = buildTodoWriteHistoryViewModel({ source, params, result, isStreaming })
+    const status = viewModel.status
+    const timing = extractQuickForgeTiming(result?.details)
+    const visibleParams = paramsWithoutInternalMetadata(params)
+    const visibleDetails = detailsWithoutInternalMetadata(result?.details)
+    const toolDisplaySettings = getCachedToolDisplaySettings()
+    const detailed = toolDisplaySettings.toolDisplayMode === 'detailed'
+    const input = detailed ? stringifyValue(visibleParams) : ''
+    const details = detailed ? stringifyValue(visibleDetails) : ''
+    const detailsKey = toolDetailsStateKey('todo_write', visibleParams, result?.details)
+    const detailsOpen = toolDetailsOpen.get(detailsKey) ?? detailed
+
+    return {
+      isCustom: true,
+      content: html`
+        <div class="quickforge-local-tool-shell quickforge-todo-history-tool-shell">
+          <details class="group/tool quickforge-local-tool quickforge-todo-history-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
+            if (event.isTrusted) rememberToolDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
+          }}>
+            <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
+              ${renderToolIcon('todo_write')}
+              <span class="quickforge-tool-title min-w-0">
+                <span class="quickforge-tool-label">${t(viewModel.summaryKey, viewModel.summaryParams)}</span>
+                <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                ${renderStatus(status, timing)}
+              </span>
+            </summary>
+            <div class="mt-3 space-y-3">
+              ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
+              ${details ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${details} language="json"></code-block></div>` : nothing}
+            </div>
+          </details>
+        </div>
+      `,
+    }
+  }
+}
+
+const todoWriteToolRenderer = new TodoWriteToolRenderer()
+
 class OpenCodeToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
+    const metadataFromParams = isRecord(params?.__quickforgeAcp) ? params.__quickforgeAcp : undefined
+    const resultRecord = isRecord(result?.details) ? result.details : undefined
+    const metadataFromDetails = resultRecord?.__quickforgeAcp
+    if (isTodoWriteAcpMetadata(metadataFromParams) || isTodoWriteAcpMetadata(metadataFromDetails)) {
+      return todoWriteToolRenderer.render(params, result, isStreaming, 'opencode')
+    }
+    const metadata = acpDisplayMetadata(params, result?.details)
     const status = toolStatus(result, isStreaming)
     const timing = extractQuickForgeTiming(result?.details)
-    const metadata = acpDisplayMetadata(params, result?.details)
     const title = typeof metadata?.title === 'string' && metadata.title
       ? metadata.title
       : typeof metadata?.kind === 'string' && metadata.kind
@@ -1283,6 +1339,7 @@ for (const [name, label] of [
 
 registerToolRenderer('run_subagent', new SubagentToolRenderer())
 registerToolRenderer('generate_image', new GenerateImageToolRenderer())
+registerToolRenderer('todo_write', todoWriteToolRenderer)
 registerToolRenderer('opencode_tool', new OpenCodeToolRenderer())
 registerToolRenderer('ask_user', new AskUserToolRenderer())
 

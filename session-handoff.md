@@ -1,5 +1,13 @@
 # Session Handoff
 
+## 当前状态：release-v1.8.1（已完成发布准备）
+
+- 目标：完成 patch v1.8.1 发布准备，当前分支为 `dev`。
+- 状态：`package.json`、`package-lock.json`、`CHANGELOG.md`、`README.md` 版本文件与发布说明已更新；test 252 files / 2194 tests 全通过，lint 0 errors / 1 existing warning，build 与 runtime/offline/tarball 打包通过，已生成 `shawnstack-quickforge-1.8.1.tgz`。
+- 边界：两个 design-mockups 设计稿保持未跟踪，不纳入发布；未修改 `dist/`、`package-dist/`、`package-offline/`，本次未执行 Git 操作。
+- 下一步：合并 master，创建 commit/tag 并 push。
+
+
 ## 当前状态：remove-side-chat-title-entry-global-inspector-access（已完成）
 
 - 目标：彻底移除主对话顶部 Side Chat 入口；桌面端 Workspace Inspector 在 global/无项目会话仍可从主工具栏右侧栏按钮打开；移动端不新增入口。

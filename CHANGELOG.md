@@ -2,6 +2,36 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.8.1] - 2026-08-25
+
+### Added
+
+- Added Skills and MCP source rows to the context usage breakdown.
+- Added a read-only workspace Side Chat with a shared conversation surface and isolated tool capabilities.
+- Added the TodoWrite task summary above the composer for active task tracking.
+- Added a running-state light sweep for tool call titles and parameter summaries.
+
+### Changed
+
+- Polished Tasks collapse behavior and subagent tab presentation.
+
+### Fixed
+
+- Prompt model configuration errors now display their specific cause in chat.
+- Corrected sidebar new-chat Workspace routing.
+- Removed the duplicate Side Chat title entry.
+- Removed the TodoWrite summary bottom border.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.8.1` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.8.1.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.8.1.tgz
+  ```
+
 ## [1.8.0] - 2026-08-24
 
 ### Added

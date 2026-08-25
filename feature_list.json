@@ -1,6 +1,19 @@
 {
   "features": [
     {
+      "id": "release-v1.8.1",
+      "name": "发布 patch v1.8.1",
+      "status": "done",
+      "approach": "完成 patch 版本 1.8.1 的发布准备/发布目标，更新版本与发布说明相关文件，生成 runtime/offline/tarball 包。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md"
+      ],
+      "verification": "npm run test → 252 files / 2194 tests 全通过；npm run lint → 0 errors / 1 existing warning；npm run build → 通过；runtime/offline/tarball 已生成。"
+    },
+    {
       "id": "remove-side-chat-title-entry-global-inspector-access",
       "name": "移除对话顶部 Side Chat 入口并保持全局 Inspector 可达",
       "status": "done",

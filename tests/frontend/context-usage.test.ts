@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createContextUsageIndicator, isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '../../src/components/chat/context-usage'
+import { contextUsageBreakdownRows, createContextUsageIndicator, isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '../../src/components/chat/context-usage'
 import { getContextUsage, type MessageWithUsage } from '../../src/components/chat/chat-utils'
 
 vi.mock('@/lib/i18n', () => ({
@@ -148,6 +148,35 @@ describe('context usage indicator', () => {
     expect(isSameContextUsageDisplayInfo(info, { ...info, context: { ...info.context! } })).toBe(true)
     expect(isSameContextUsageDisplayInfo(info, { ...info, gitBranch: 'feature' })).toBe(false)
     expect(isSameContextUsageDisplayInfo(info, { ...info, context: { ...info.context!, percent: 26 } })).toBe(false)
+  })
+
+  it('appends Skills and MCP after the existing three breakdown rows', () => {
+    expect(contextUsageBreakdownRows({
+      systemPromptTokens: 100,
+      toolsTokens: 200,
+      messagesTokens: 300,
+      skillsTokens: 40,
+      mcpTokens: 50,
+    })).toEqual([
+      ['contextUsageSystemPromptLabel', '100'],
+      ['contextUsageToolsSchemaLabel', '200'],
+      ['contextUsageMessagesLabel', '300'],
+      ['contextUsageSkillsLabel', '40'],
+      ['contextUsageMcpLabel', '50'],
+    ])
+  })
+
+  it('hides Skills and MCP rows when their fields are missing or zero', () => {
+    expect(contextUsageBreakdownRows({
+      systemPromptTokens: 100,
+      toolsTokens: 200,
+      messagesTokens: 300,
+      skillsTokens: 0,
+    })).toEqual([
+      ['contextUsageSystemPromptLabel', '100'],
+      ['contextUsageToolsSchemaLabel', '200'],
+      ['contextUsageMessagesLabel', '300'],
+    ])
   })
 })
 

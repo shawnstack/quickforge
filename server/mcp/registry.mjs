@@ -3,9 +3,13 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { readMcpServers } from './config.mjs'
+import {
+  createMcpToolName,
+  parseMcpToolName,
+  sanitizeMcpToolName,
+} from './tool-name.mjs'
 import { logger } from '../utils/logger.mjs'
 
-const TOOL_PREFIX = 'mcp__'
 const CONNECT_TIMEOUT_MS = 15_000
 const CALL_TIMEOUT_MS = 120_000
 const MAX_TEXT_LENGTH = 60_000
@@ -18,27 +22,8 @@ function isPlainObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
-function sanitizeToolName(value) {
-  return String(value || '')
-    .trim()
-    .replace(/[^A-Za-z0-9_-]/g, '_')
-    .replace(/^_+|_+$/g, '') || 'tool'
-}
-
-function quickForgeToolName(serverName, toolName) {
-  return `${TOOL_PREFIX}${serverName}__${sanitizeToolName(toolName)}`
-}
-
 function parseQuickForgeToolName(value) {
-  const name = String(value || '')
-  if (!name.startsWith(TOOL_PREFIX)) return null
-  const rest = name.slice(TOOL_PREFIX.length)
-  const index = rest.indexOf('__')
-  if (index <= 0 || index >= rest.length - 2) return null
-  return {
-    serverName: rest.slice(0, index),
-    toolName: rest.slice(index + 2),
-  }
+  return parseMcpToolName(value)
 }
 
 function withTimeout(promise, timeoutMs, message, onTimeout) {
@@ -313,7 +298,7 @@ export async function getMcpStatus() {
       toolCount: connection?.tools?.length || 0,
       tools: (connection?.tools || []).map((tool) => ({
         name: tool.name,
-        quickForgeName: quickForgeToolName(server.name, tool.name),
+        quickForgeName: createMcpToolName(server.name, tool.name),
         description: tool.description || '',
       })),
       stderr: connection?.status === 'error' ? connection?.stderr || '' : '',
@@ -328,7 +313,7 @@ export async function createMcpToolDefinitions() {
     if (connection.status !== 'connected') continue
     for (const tool of connection.tools || []) {
       definitions.push({
-        name: quickForgeToolName(serverName, tool.name),
+        name: createMcpToolName(serverName, tool.name),
         label: tool.title || tool.name,
         description: `[MCP:${serverName}] ${tool.description || tool.name}`,
         parameters: isPlainObject(tool.inputSchema) ? tool.inputSchema : { type: 'object', properties: {} },
@@ -357,7 +342,7 @@ export async function callMcpTool(toolName, params = {}) {
     error.statusCode = 503
     throw error
   }
-  const tool = (connection.tools || []).find((item) => sanitizeToolName(item.name) === parsed.toolName || item.name === parsed.toolName)
+  const tool = (connection.tools || []).find((item) => sanitizeMcpToolName(item.name) === parsed.toolName || item.name === parsed.toolName)
   if (!tool) {
     const error = new Error(`Unknown MCP tool: ${toolName}`)
     error.statusCode = 404

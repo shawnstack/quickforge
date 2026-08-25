@@ -1,8 +1,8 @@
 import path from 'node:path'
 import { atomicUpdate, readStore } from '../storage.mjs'
+import { isCanonicalMcpServerName } from './tool-name.mjs'
 
 const MCP_CONFIG_KEY = 'mcpServers'
-const VALID_NAME_RE = /^(?!.*--)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 const MAX_SERVERS = 50
 const MAX_ARGS = 100
 const MAX_ENV_KEYS = 100
@@ -13,7 +13,7 @@ function isPlainObject(value) {
 
 function normalizeName(value) {
   const name = String(value || '').trim().toLowerCase()
-  if (!VALID_NAME_RE.test(name) || name.length > 64) {
+  if (!isCanonicalMcpServerName(name)) {
     const error = new Error('MCP server name must be lowercase letters, numbers, and hyphens only.')
     error.statusCode = 400
     throw error

@@ -1,5 +1,17 @@
 # Session Handoff
 
+## 当前状态：context-usage-skills-mcp-breakdown（已完成）
+
+- 目标：在现有上下文用量 Tooltip 构成区的系统提示词、工具定义、消息之后增加 `Skills`、`MCP` 两行；仅显示数字，字段缺失或 `<=0` 隐藏，总量与圆环不变。
+- 实现：`server/context-usage.mjs` 新增 `skillsTokens` / `mcpTokens` 来源统计。最终审查收口后，Skills 以 `activate_skill` / `read_skill_resource` definition 参数枚举证明会话存在 enabled Skills，只选择系统提示词中最后一个带固定系统介绍且包含全部启用名称的真实 `<available_skills>` catalog，并统计 Skills definitions 与已关联调用/结果；无 enabled Skills 时指令伪标签与伪调用均不计。MCP definition 仅接受非数组对象 `mcp` 且 `serverName` / `toolName` 为非空字符串；名称回退通过共享 `server/mcp/tool-name.mjs` 复用 registry 的真实 server canonical 与 tool sanitize/encode 规则，解析后重建并要求原字符串完全一致，拒绝三处带空格、空 segment、非法 server 及未编码 tool 名，同时接受 helper 真实生成的 canonical 名称；未改变 `registry.isMcpToolName()` / `callMcpTool()` 公共行为。toolResult 有非空 `toolCallId` 时只按已识别 MCP call ID 关联，错误/孤立 ID 不再降级到名称；ID 缺失/空时才按已识别 canonical `toolName` 关联；ID/name 都缺失时才接受完整 `details: {mcp:true,server,tool}`。两项复用 `estimateTokens`，不进入 `estimatedInputTokens`、provider usage、`inputTokens` 或 percent 加总。前端类型均为可选字段，Tooltip 严格在现有三行后按正数追加 `Skills` / `MCP`。
+- 文件：最终审查新增/修改 `server/context-usage.mjs`、`server/mcp/tool-name.mjs`、`server/mcp/config.mjs`、`server/mcp/registry.mjs`、`tests/server/context-usage.test.mjs`、`docs/wiki/server/README.md` 与状态文件；此前功能文件 `src/lib/server-agent.ts`、`src/components/chat/chat-utils.ts`、`src/components/chat/context-usage.ts`、`src/lib/i18n.ts`、`tests/frontend/context-usage.test.ts`、`docs/wiki/src/components/README.md` 保持现有实现不动。已确认原型 `docs/prototypes/context-usage-source-attribution.html` 保留且未移入业务演示控件。
+- 验证：最终审查定向 Vitest 3 files / 40 tests 全通过；MCP registry 额外回归 1 file / 6 tests 全通过；完整 `npm run test` → 247 files / 2119 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；`git diff --check` 通过。
+- 文档与边界：server/components Wiki 已同步；架构、模块职责和公共入口未改变，无需更大文档更新。未新增依赖，未手工修改 `dist/`、`package-dist/`、`package-offline/`，未创建 commit/tag/push。
+- 下一步：无 blocker；可选真机查看有 Skills/MCP 和无来源数据两种 Tooltip。
+
+---
+
+
 ## 当前状态：side-chat-workspace-tab（已完成，最终收敛）
 
 - 目标：Side Chat 直接复用主聊天完整界面和核心交互，不为不适用功能重做一套实现；不支持控件原位禁用，服务端硬只读。

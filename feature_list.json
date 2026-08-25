@@ -35,6 +35,31 @@
       "verification": "定向 Vitest 5 files / 38 tests 全通过；目标 ESLint 0 error；npx tsc -b --pretty false 通过；完整 npm run test → 247 files / 2108 tests 全通过；npm run build 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；git diff --check 通过。未创建 commit/tag/push。"
     },
     {
+      "id": "context-usage-skills-mcp-breakdown",
+      "name": "上下文统计增加 Skills/MCP 来源行",
+      "status": "done",
+      "approach": "在既有 contextUsage breakdown 上新增 skillsTokens / mcpTokens 两个可选来源字段。最终审查收口后，Skills 以 activate_skill/read_skill_resource definition 的参数枚举作为会话确有 enabled skills 的结构化证据，只选择系统提示词中最后一个带固定系统介绍且包含全部启用名称的真实 <available_skills> catalog，并统计 Skills definitions 及已关联调用/结果；无 enabled skills 时伪标签和伪调用均为 0。MCP definition 仅接受非数组对象 mcp 且 serverName/toolName 为非空字符串；名称兼容回退通过共享 mcp/tool-name helper 复用 registry 的真实 server canonical 规则与 tool sanitize/encode 规则，解析后重新编码并要求和原字符串完全一致，带空格、空 segment、非法 server 与未编码 tool 名均拒绝，registry 既有 isMcpToolName/callMcpTool 公共行为保持不变。toolResult 有非空 toolCallId 时仅按已识别 MCP call ID 关联，错误/孤立 ID 不再降级到名称；ID 缺失/空时才按已识别 canonical toolName 关联；ID/name 都缺失时才接受真实 details {mcp:true,server,tool} 完整结构。两项复用 pi-agent-core estimateTokens，只作为跨 systemPrompt/tools/messages 三类的来源归因，不参与 estimatedInputTokens/inputTokens/percent 二次相加。前端 Tooltip 在现有系统提示词、工具定义、消息之后按有值追加 Skills、MCP，字段缺失或 <=0 隐藏；总量与圆环不变。同步 server/components Wiki；未改变架构、模块职责或公共入口，无需更大文档更新。保留已确认原型 docs/prototypes/context-usage-source-attribution.html，不迁移演示控件。",
+      "files": [
+        "server/context-usage.mjs",
+        "server/mcp/tool-name.mjs",
+        "server/mcp/config.mjs",
+        "server/mcp/registry.mjs",
+        "src/lib/server-agent.ts",
+        "src/components/chat/chat-utils.ts",
+        "src/components/chat/context-usage.ts",
+        "src/lib/i18n.ts",
+        "tests/server/context-usage.test.mjs",
+        "tests/frontend/context-usage.test.ts",
+        "docs/wiki/server/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/prototypes/context-usage-source-attribution.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "最终审查定向 Vitest 3 files / 40 tests 全通过；MCP registry 额外回归 1 file / 6 tests 全通过；完整 npm run test → 247 files / 2119 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92）；npm run build 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；git diff --check 通过。"
+    },
+    {
       "id": "side-chat-workspace-tab",
       "name": "侧边聊天 Workspace Tab",
       "status": "done",

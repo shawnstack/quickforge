@@ -312,6 +312,8 @@ export type ServerAgentContextUsageBreakdown = {
   systemPromptTokens?: number
   messagesTokens?: number
   toolsTokens?: number
+  skillsTokens?: number
+  mcpTokens?: number
   providerUsageTokens?: number
   trailingTokens?: number
   lastUsageIndex?: number | null

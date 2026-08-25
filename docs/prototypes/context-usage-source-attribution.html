@@ -1,0 +1,866 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuickForge · 上下文用量分类内细分原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --background: oklch(1 0 0);
+      --foreground: oklch(.205 0 0);
+      --muted: oklch(.97 0 0);
+      --muted-foreground: oklch(.556 0 0);
+      --popover: #fff;
+      --popover-foreground: oklch(.205 0 0);
+      --border: oklch(.922 0 0);
+      --input: oklch(.922 0 0);
+      --accent: oklch(.97 0 0);
+      --ring: oklch(.708 0 0);
+      --sidebar: #f3f4f6;
+      --sidebar-hover: #e5e7eb;
+      --composer: color-mix(in oklab, var(--background) 97%, var(--muted));
+      --shadow: 0 10px 26px -18px rgb(15 23 42 / .48);
+      --popover-shadow: 0 18px 46px -28px rgb(15 23 42 / .42);
+      --usage-color: hsl(95 72% 42%);
+      --usage-track: color-mix(in oklab, var(--muted-foreground) 19%, transparent);
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --background: oklch(.205 0 0);
+      --foreground: oklch(.985 0 0);
+      --muted: oklch(.269 0 0);
+      --muted-foreground: oklch(.708 0 0);
+      --popover: oklch(.269 0 0);
+      --popover-foreground: oklch(.985 0 0);
+      --border: oklch(.371 0 0);
+      --input: oklch(.371 0 0);
+      --accent: oklch(.31 0 0);
+      --ring: oklch(.556 0 0);
+      --sidebar: color-mix(in oklab, var(--background) 94%, var(--muted));
+      --sidebar-hover: color-mix(in oklab, var(--muted) 74%, transparent);
+      --composer: color-mix(in oklab, var(--background) 91%, var(--muted));
+      --shadow: 0 12px 30px -18px rgb(0 0 0 / .72);
+      --popover-shadow: 0 20px 48px -24px rgb(0 0 0 / .72);
+      --usage-track: color-mix(in oklab, var(--muted-foreground) 25%, transparent);
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      height: 100%;
+      font-size: 13px;
+    }
+
+    body {
+      min-width: 0;
+      min-height: 100%;
+      margin: 0;
+      overflow-x: hidden;
+      background: var(--background);
+      color: var(--foreground);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+        sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, textarea { font: inherit; }
+    button { color: inherit; }
+
+    .prototype-bar {
+      position: relative;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      min-height: 5.1rem;
+      padding: .8rem clamp(.9rem, 2.5vw, 2rem);
+      border-bottom: 1px solid color-mix(in oklab, var(--border) 76%, transparent);
+      background: color-mix(in oklab, var(--background) 96%, transparent);
+    }
+
+    .prototype-copy { min-width: 0; }
+
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: .55rem;
+      margin-bottom: .28rem;
+      font-size: .82rem;
+      font-weight: 600;
+    }
+
+    .prototype-badge {
+      padding: .16rem .42rem;
+      border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+      border-radius: .38rem;
+      background: var(--muted);
+      color: var(--muted-foreground);
+      font-size: .68rem;
+      font-weight: 600;
+      letter-spacing: .03em;
+    }
+
+    .prototype-copy p {
+      max-width: 66rem;
+      margin: 0;
+      color: var(--muted-foreground);
+      font-size: .76rem;
+      line-height: 1.5;
+    }
+
+    .prototype-copy strong {
+      color: color-mix(in oklab, var(--foreground) 88%, transparent);
+      font-weight: 600;
+    }
+
+    .controls {
+      display: flex;
+      flex: 0 0 auto;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: .48rem;
+    }
+
+    .control-group {
+      display: inline-flex;
+      align-items: center;
+      padding: .18rem;
+      border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+      border-radius: .58rem;
+      background: color-mix(in oklab, var(--muted) 58%, transparent);
+    }
+
+    .control-button {
+      min-height: 2rem;
+      padding: .36rem .62rem;
+      border: 0;
+      border-radius: .42rem;
+      background: transparent;
+      color: var(--muted-foreground);
+      cursor: pointer;
+      font-size: .75rem;
+      line-height: 1;
+      transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+    }
+
+    .control-button:hover { color: var(--foreground); }
+
+    .control-button[aria-pressed="true"] {
+      background: var(--background);
+      color: var(--foreground);
+      box-shadow: 0 1px 3px rgb(15 23 42 / .09);
+    }
+
+    html[data-theme="dark"] .control-button[aria-pressed="true"] {
+      background: var(--accent);
+      box-shadow: 0 1px 4px rgb(0 0 0 / .28);
+    }
+
+    .control-button:focus-visible,
+    .icon-button:focus-visible,
+    .model-trigger:focus-visible,
+    .send-button:focus-visible,
+    .context-trigger:focus-visible {
+      outline: 2px solid color-mix(in oklab, var(--ring) 75%, transparent);
+      outline-offset: 2px;
+    }
+
+    .app-shell {
+      display: grid;
+      min-height: calc(100dvh - 5.1rem);
+      grid-template-columns: 16.5rem minmax(0, 1fr);
+    }
+
+    .sidebar {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      border-right: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+      background: var(--sidebar);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      height: 3.55rem;
+      padding: 0 1rem;
+      border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+      font-weight: 620;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 1.75rem;
+      height: 1.75rem;
+      place-items: center;
+      border-radius: .48rem;
+      background: var(--foreground);
+      color: var(--background);
+    }
+
+    .brand-mark svg { width: 1rem; height: 1rem; }
+
+    .sidebar-content { padding: 1rem .65rem; }
+
+    .sidebar-label {
+      padding: .25rem .55rem .5rem;
+      color: var(--muted-foreground);
+      font-size: .72rem;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: .65rem;
+      width: 100%;
+      padding: .56rem .62rem;
+      border: 0;
+      border-radius: .55rem;
+      background: transparent;
+      color: color-mix(in oklab, var(--foreground) 78%, transparent);
+      text-align: left;
+    }
+
+    .nav-item.active {
+      background: color-mix(in oklab, var(--background) 68%, transparent);
+      color: var(--foreground);
+      box-shadow: 0 4px 14px -13px rgb(15 23 42 / .5);
+    }
+
+    .nav-icon {
+      width: .55rem;
+      height: .55rem;
+      border: 1.5px solid currentColor;
+      border-radius: 50%;
+      opacity: .7;
+    }
+
+    .main {
+      position: relative;
+      display: grid;
+      min-width: 0;
+      min-height: 0;
+      grid-template-rows: 3.55rem minmax(0, 1fr);
+      background: var(--background);
+    }
+
+    .titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 1.2rem;
+      border-bottom: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+    }
+
+    .titlebar-title { font-size: .88rem; font-weight: 580; }
+    .titlebar-meta { color: var(--muted-foreground); font-size: .72rem; }
+
+    .conversation {
+      display: flex;
+      min-width: 0;
+      min-height: 0;
+      flex-direction: column;
+    }
+
+    .messages {
+      width: min(100%, 56rem);
+      margin: 0 auto;
+      padding: clamp(2.2rem, 8vh, 5.5rem) 1.2rem 2rem;
+    }
+
+    .message-heading {
+      margin: 0 0 .7rem;
+      font-size: 1.18rem;
+      font-weight: 610;
+      letter-spacing: -.015em;
+    }
+
+    .message-copy {
+      max-width: 43rem;
+      margin: 0;
+      color: color-mix(in oklab, var(--foreground) 74%, transparent);
+      font-size: .9rem;
+      line-height: 1.72;
+    }
+
+    .message-note {
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+      margin-top: 1.1rem;
+      padding: .42rem .62rem;
+      border-radius: .48rem;
+      background: var(--muted);
+      color: var(--muted-foreground);
+      font-size: .74rem;
+    }
+
+    .message-note-dot {
+      width: .38rem;
+      height: .38rem;
+      border-radius: 50%;
+      background: var(--usage-color);
+    }
+
+    .composer-dock {
+      position: relative;
+      z-index: 5;
+      width: min(100%, 58rem);
+      margin: auto auto 1.15rem;
+      padding: 0 1rem;
+    }
+
+    .composer {
+      padding: .72rem;
+      border: 1px solid color-mix(in oklab, var(--input) 88%, transparent);
+      border-radius: 1rem;
+      background: var(--composer);
+      box-shadow: var(--shadow);
+    }
+
+    .composer textarea {
+      display: block;
+      width: 100%;
+      min-height: 4.2rem;
+      resize: none;
+      padding: .25rem .3rem .65rem;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--foreground);
+      line-height: 1.55;
+    }
+
+    .composer textarea::placeholder { color: color-mix(in oklab, var(--muted-foreground) 78%, transparent); }
+
+    .composer-actions {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: .45rem;
+    }
+
+    .icon-button,
+    .model-trigger,
+    .send-button,
+    .context-trigger {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      cursor: pointer;
+    }
+
+    .icon-button {
+      width: 2.1rem;
+      height: 2.1rem;
+      border-radius: .58rem;
+      background: transparent;
+      color: var(--muted-foreground);
+    }
+
+    .icon-button:hover { background: var(--sidebar-hover); color: var(--foreground); }
+    .icon-button svg { width: 1rem; height: 1rem; }
+
+    .composer-spacer { flex: 1 1 auto; min-width: .3rem; }
+
+    .model-cluster {
+      position: relative;
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: .24rem;
+    }
+
+    .context-trigger {
+      width: 1.8rem;
+      height: 1.8rem;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: transparent;
+    }
+
+    .context-trigger:hover { background: color-mix(in oklab, var(--muted) 72%, transparent); }
+
+    .context-ring {
+      position: relative;
+      display: block;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: conic-gradient(var(--usage-color) calc(var(--usage-percent) * 1%), var(--usage-track) 0);
+      box-shadow: 0 0 0 .25px color-mix(in oklab, var(--border) 72%, transparent);
+    }
+
+    .context-ring::after {
+      position: absolute;
+      inset: 2px;
+      border-radius: inherit;
+      background: var(--composer);
+      content: "";
+    }
+
+    .model-trigger {
+      min-width: 0;
+      max-width: min(14rem, 38vw);
+      height: 2.1rem;
+      gap: .48rem;
+      padding: 0 .68rem;
+      border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+      border-radius: .62rem;
+      background: color-mix(in oklab, var(--muted) 34%, transparent);
+      color: color-mix(in oklab, var(--foreground) 82%, transparent);
+    }
+
+    .model-trigger:hover { background: var(--sidebar-hover); color: var(--foreground); }
+    .model-trigger svg { width: .95rem; height: .95rem; flex: 0 0 auto; }
+
+    .model-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: .78rem;
+    }
+
+    .thinking-level { color: var(--muted-foreground); font-size: .72rem; }
+
+    .send-button {
+      width: 2.1rem;
+      height: 2.1rem;
+      flex: 0 0 auto;
+      border-radius: .62rem;
+      background: var(--foreground);
+      color: var(--background);
+    }
+
+    .send-button:hover { opacity: .86; }
+    .send-button svg { width: 1rem; height: 1rem; }
+
+    .context-tip {
+      position: fixed;
+      z-index: 100;
+      width: min(19rem, calc(100vw - 1.5rem));
+      padding: .75rem;
+      border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+      border-radius: .75rem;
+      background: color-mix(in oklab, var(--popover) 96%, transparent);
+      box-shadow: var(--popover-shadow);
+      color: var(--popover-foreground);
+      font-variant-numeric: tabular-nums;
+      pointer-events: none;
+      animation: tip-in 130ms ease-out;
+    }
+
+    .context-tip[hidden] { display: none; }
+
+    .tip-header,
+    .tip-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .tip-header {
+      color: color-mix(in oklab, var(--foreground) 92%, transparent);
+      font-size: .84rem;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+
+    .tip-percent {
+      flex: 0 0 auto;
+      color: var(--usage-color);
+      font-weight: 700;
+    }
+
+    .tip-section {
+      display: grid;
+      gap: .45rem;
+      margin-top: .7rem;
+      padding-top: .7rem;
+      border-top: 1px solid color-mix(in oklab, var(--border) 58%, transparent);
+    }
+
+    .tip-row {
+      color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
+      font-size: .78rem;
+      line-height: 1.35;
+    }
+
+    .tip-row > span:last-child {
+      flex: 0 0 auto;
+      color: color-mix(in oklab, var(--foreground) 88%, transparent);
+    }
+
+    .tip-details .tip-row {
+      color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+      font-size: .75rem;
+    }
+
+    .tip-details .tip-row > span:last-child {
+      color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
+    }
+
+    .tip-source-row {
+      color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+      font-size: .73rem;
+    }
+
+    .tip-source-row > span:last-child {
+      color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    }
+
+    .breakdown-detail[hidden] { display: none; }
+
+    .tip-subitem-note {
+      margin-top: .7rem;
+      color: color-mix(in oklab, var(--muted-foreground) 68%, transparent);
+      font-size: .68rem;
+      line-height: 1.35;
+    }
+
+    .tip-meta {
+      margin-top: .7rem;
+      padding-top: .65rem;
+      border-top: 1px solid color-mix(in oklab, var(--border) 58%, transparent);
+      color: color-mix(in oklab, var(--muted-foreground) 76%, transparent);
+      font-size: .72rem;
+      line-height: 1.35;
+    }
+
+    .screen-reader-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @keyframes tip-in {
+      from { opacity: 0; transform: translateY(2px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 760px) {
+      .prototype-bar { align-items: flex-start; flex-direction: column; }
+      .controls { width: 100%; justify-content: flex-start; }
+      .app-shell { grid-template-columns: 1fr; min-height: calc(100dvh - 8.8rem); }
+      .sidebar { display: none; }
+      .messages { padding-top: 3rem; }
+      .composer-dock { margin-bottom: .7rem; padding: 0 .65rem; }
+    }
+
+    @media (max-width: 480px) {
+      .prototype-bar { padding: .72rem; }
+      .prototype-copy p { font-size: .72rem; }
+      .control-button { padding-inline: .52rem; }
+      .titlebar { padding: 0 .85rem; }
+      .titlebar-meta { display: none; }
+      .messages { padding-inline: 1rem; }
+      .composer { padding: .62rem; }
+      .model-trigger { width: 2.1rem; padding: 0; }
+      .model-label, .thinking-level { display: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="prototype-bar">
+    <div class="prototype-copy">
+      <div class="eyebrow">
+        <span>上下文用量 · 分类内细分</span>
+        <span class="prototype-badge">交互原型</span>
+      </div>
+      <p>在现有上下文构成后竖排显示 Skills 与 MCP。</p>
+    </div>
+    <div class="controls" aria-label="原型状态切换">
+      <div class="control-group" aria-label="主题">
+        <button class="control-button" id="light-theme" type="button" aria-pressed="true">浅色</button>
+        <button class="control-button" id="dark-theme" type="button" aria-pressed="false">深色</button>
+      </div>
+      <div class="control-group">
+        <button class="control-button" id="high-usage" type="button" aria-pressed="false">高占用</button>
+      </div>
+      <div class="control-group">
+        <button class="control-button" id="hide-breakdown" type="button" aria-pressed="false">隐藏 Skills / MCP</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="侧边栏示意">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 2-9 12h8l-1 8 9-12h-8z"/></svg>
+        </span>
+        <span>QuickForge</span>
+      </div>
+      <div class="sidebar-content">
+        <div class="sidebar-label">最近会话</div>
+        <button class="nav-item active" type="button"><span class="nav-icon" aria-hidden="true"></span><span>上下文分类细分设计</span></button>
+        <button class="nav-item" type="button"><span class="nav-icon" aria-hidden="true"></span><span>模型配置检查</span></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="titlebar">
+        <span class="titlebar-title">上下文分类细分设计</span>
+        <span class="titlebar-meta">原型预览 · 未连接真实数据</span>
+      </div>
+
+      <section class="conversation" aria-label="对话区示意">
+        <div class="messages">
+          <h1 class="message-heading">让上下文占用更容易解释</h1>
+          <p class="message-copy">保留现有上下文总量与三类构成，在其后将 Skills 与 MCP 各以一行竖排展示。</p>
+          <div class="message-note"><span class="message-note-dot" aria-hidden="true"></span><span>悬停、聚焦或点击模型选择器前的圆环查看详情</span></div>
+        </div>
+
+        <div class="composer-dock">
+          <div class="composer">
+            <label class="screen-reader-only" for="composer-input">消息输入</label>
+            <textarea id="composer-input" placeholder="向 QuickForge 发送消息…"></textarea>
+            <div class="composer-actions">
+              <button class="icon-button" type="button" aria-label="添加内容">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+              <div class="composer-spacer"></div>
+              <div class="model-cluster">
+                <button class="context-trigger" id="context-trigger" type="button" aria-haspopup="true" aria-expanded="true" aria-describedby="context-tip" aria-label="上下文用量 33%，打开详情">
+                  <span class="context-ring" id="context-ring" style="--usage-percent:33" aria-hidden="true"></span>
+                </button>
+                <button class="model-trigger" type="button" aria-label="选择模型：Claude Sonnet 4">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 0 0-6-.1 4 4 0 0 0-2.5 5.7 4 4 0 0 0 .5 6.6A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 0 1 6-.1 4 4 0 0 1 2.5 5.7 4 4 0 0 1-.5 6.6A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>
+                  <span class="model-label">Claude Sonnet 4</span>
+                  <span class="thinking-level">中</span>
+                </button>
+              </div>
+              <button class="send-button" type="button" aria-label="发送">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7M12 19V5"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="context-tip" id="context-tip" role="tooltip">
+    <div class="tip-header">
+      <span>上下文用量</span>
+      <span class="tip-percent" id="tip-percent">33%</span>
+    </div>
+    <div class="tip-section">
+      <div class="tip-row"><span>输入 / 上下文</span><span id="tip-total">42,360 / 128,000</span></div>
+    </div>
+    <div class="tip-section tip-details">
+      <div class="tip-row"><span>系统提示词</span><span id="system-value">8,120</span></div>
+      <div class="tip-row"><span>工具定义</span><span id="tools-value">10,440</span></div>
+      <div class="tip-row"><span>消息</span><span id="messages-value">23,800</span></div>
+      <div class="tip-row tip-source-row breakdown-detail"><span>Skills</span><span id="skills-value">5,260</span></div>
+      <div class="tip-row tip-source-row breakdown-detail"><span>MCP</span><span id="mcp-value">7,180</span></div>
+    </div>
+    <div class="tip-meta">服务端计算 · 完整模型上下文</div>
+  </div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const normalData = {
+        limit: 128000,
+        used: 42360,
+        system: 8120,
+        tools: 10440,
+        messages: 23800,
+        skills: 5260,
+        mcp: 7180,
+        color: 'hsl(95 72% 42%)'
+      };
+
+      const highData = {
+        limit: 128000,
+        used: 112640,
+        system: 13900,
+        tools: 18740,
+        messages: 80000,
+        skills: 11980,
+        mcp: 16240,
+        color: 'hsl(14 78% 53%)'
+      };
+
+      const root = document.documentElement;
+      const trigger = document.getElementById('context-trigger');
+      const tip = document.getElementById('context-tip');
+      const lightButton = document.getElementById('light-theme');
+      const darkButton = document.getElementById('dark-theme');
+      const highButton = document.getElementById('high-usage');
+      const hideBreakdownButton = document.getElementById('hide-breakdown');
+      const breakdownDetails = document.querySelectorAll('.breakdown-detail');
+
+      let highUsage = false;
+      let hideBreakdown = false;
+      let tipOpen = true;
+      let pinned = true;
+      let suppressHoverUntilLeave = false;
+      let closeTimer = 0;
+
+      const formatNumber = (value) => new Intl.NumberFormat('zh-CN').format(value);
+
+      function currentData() {
+        return highUsage ? highData : normalData;
+      }
+
+      function positionTip() {
+        if (!tipOpen) return;
+        const rect = trigger.getBoundingClientRect();
+        const margin = 12;
+        const gap = 8;
+        const tipRect = tip.getBoundingClientRect();
+        let left = rect.right - tipRect.width;
+        left = Math.min(Math.max(margin, left), window.innerWidth - tipRect.width - margin);
+        let top = rect.top - gap - tipRect.height;
+        if (top < margin) top = rect.bottom + gap;
+        tip.style.left = `${Math.round(left)}px`;
+        tip.style.top = `${Math.round(top)}px`;
+      }
+
+      function setTipOpen(open) {
+        tipOpen = open;
+        tip.hidden = !open;
+        trigger.setAttribute('aria-expanded', String(open));
+        if (open) {
+          trigger.setAttribute('aria-describedby', 'context-tip');
+          requestAnimationFrame(positionTip);
+        } else {
+          trigger.removeAttribute('aria-describedby');
+        }
+      }
+
+      function render() {
+        const data = currentData();
+        const percent = Math.round((data.used / data.limit) * 100);
+        root.style.setProperty('--usage-color', data.color);
+        document.getElementById('context-ring').style.setProperty('--usage-percent', percent);
+        document.getElementById('tip-percent').textContent = `${percent}%`;
+        document.getElementById('tip-total').textContent = `${formatNumber(data.used)} / ${formatNumber(data.limit)}`;
+        document.getElementById('system-value').textContent = formatNumber(data.system);
+        document.getElementById('tools-value').textContent = formatNumber(data.tools);
+        document.getElementById('messages-value').textContent = formatNumber(data.messages);
+        document.getElementById('skills-value').textContent = formatNumber(data.skills);
+        document.getElementById('mcp-value').textContent = formatNumber(data.mcp);
+        breakdownDetails.forEach((element) => { element.hidden = hideBreakdown; });
+        trigger.setAttribute('aria-label', `上下文用量 ${percent}%，${tipOpen ? '关闭' : '打开'}详情`);
+        highButton.setAttribute('aria-pressed', String(highUsage));
+        hideBreakdownButton.setAttribute('aria-pressed', String(hideBreakdown));
+        requestAnimationFrame(positionTip);
+      }
+
+      function setTheme(theme) {
+        root.dataset.theme = theme;
+        const isLight = theme === 'light';
+        lightButton.setAttribute('aria-pressed', String(isLight));
+        darkButton.setAttribute('aria-pressed', String(!isLight));
+        requestAnimationFrame(positionTip);
+      }
+
+      function cancelClose() {
+        window.clearTimeout(closeTimer);
+      }
+
+      function scheduleClose() {
+        cancelClose();
+        if (pinned) return;
+        closeTimer = window.setTimeout(() => setTipOpen(false), 120);
+      }
+
+      lightButton.addEventListener('click', () => setTheme('light'));
+      darkButton.addEventListener('click', () => setTheme('dark'));
+
+      highButton.addEventListener('click', () => {
+        highUsage = !highUsage;
+        render();
+      });
+
+      hideBreakdownButton.addEventListener('click', () => {
+        hideBreakdown = !hideBreakdown;
+        render();
+      });
+
+      trigger.addEventListener('mouseenter', () => {
+        cancelClose();
+        if (!suppressHoverUntilLeave) setTipOpen(true);
+      });
+
+      trigger.addEventListener('mouseleave', () => {
+        suppressHoverUntilLeave = false;
+        scheduleClose();
+      });
+
+      trigger.addEventListener('focus', () => {
+        cancelClose();
+        setTipOpen(true);
+      });
+
+      trigger.addEventListener('blur', scheduleClose);
+
+      trigger.addEventListener('click', (event) => {
+        event.stopPropagation();
+        cancelClose();
+        if (tipOpen) {
+          pinned = false;
+          suppressHoverUntilLeave = true;
+          setTipOpen(false);
+        } else {
+          pinned = true;
+          suppressHoverUntilLeave = false;
+          setTipOpen(true);
+        }
+        render();
+      });
+
+      document.addEventListener('pointerdown', (event) => {
+        if (!tipOpen || trigger.contains(event.target)) return;
+        pinned = false;
+        setTipOpen(false);
+        render();
+      }, true);
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape' || !tipOpen) return;
+        event.preventDefault();
+        pinned = false;
+        suppressHoverUntilLeave = true;
+        setTipOpen(false);
+        trigger.focus();
+        render();
+      });
+
+      window.addEventListener('resize', positionTip);
+      window.addEventListener('scroll', positionTip, true);
+
+      setTheme('light');
+      setTipOpen(true);
+      render();
+    })();
+  </script>
+</body>
+</html>

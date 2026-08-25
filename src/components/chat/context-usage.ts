@@ -19,6 +19,8 @@ type ServerContextUsageBreakdown = {
   systemPromptTokens?: number
   messagesTokens?: number
   toolsTokens?: number
+  skillsTokens?: number
+  mcpTokens?: number
   providerUsageTokens?: number
   trailingTokens?: number
   lastUsageIndex?: number | null
@@ -130,6 +132,16 @@ function escapeHtml(text: string): string {
 function formatOptionalTokens(value: unknown): string | null {
   const tokens = Math.max(0, Number(value) || 0)
   return tokens > 0 ? formatTokens(tokens) : null
+}
+
+export function contextUsageBreakdownRows(breakdown?: ServerContextUsageBreakdown): Array<[string, string]> {
+  return [
+    [t('contextUsageSystemPromptLabel'), formatOptionalTokens(breakdown?.systemPromptTokens)],
+    [t('contextUsageToolsSchemaLabel'), formatOptionalTokens(breakdown?.toolsTokens)],
+    [t('contextUsageMessagesLabel'), formatOptionalTokens(breakdown?.messagesTokens)],
+    [t('contextUsageSkillsLabel'), formatOptionalTokens(breakdown?.skillsTokens)],
+    [t('contextUsageMcpLabel'), formatOptionalTokens(breakdown?.mcpTokens)],
+  ].filter((row): row is [string, string] => Boolean(row[1]))
 }
 
 function buildContextUsageTitle({ usage, contextWindow, serverCalculated, compacted }: {
@@ -282,11 +294,7 @@ function createContextUsageTipController() {
     popover.append(header, coreRows)
 
     const breakdown = usage.breakdown
-    const breakdownRows = [
-      [t('contextUsageSystemPromptLabel'), formatOptionalTokens(breakdown?.systemPromptTokens)],
-      [t('contextUsageToolsSchemaLabel'), formatOptionalTokens(breakdown?.toolsTokens)],
-      [t('contextUsageMessagesLabel'), formatOptionalTokens(breakdown?.messagesTokens)],
-    ].filter((row): row is [string, string] => Boolean(row[1]))
+    const breakdownRows = contextUsageBreakdownRows(breakdown)
     if (breakdownRows.length > 0) {
       const details = document.createElement('div')
       details.className = 'quickforge-context-usage-tip-section quickforge-context-usage-tip-details'

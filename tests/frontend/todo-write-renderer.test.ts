@@ -149,6 +149,13 @@ describe('TodoWrite history renderer', () => {
     expect(block).not.toMatch(/linear-gradient|radial-gradient/)
   })
 
+  it('colors the fully-completed summary check with the shared emerald tone in both themes', () => {
+    const block = css.slice(css.indexOf('/* TodoWrite task summary'))
+    expect(block).toMatch(/\.quickforge-todo-summary-ring-check\s*\{[\s\S]*?color:\s*rgb\(4 143 101\)/)
+    expect(block).toMatch(/html\.dark \.quickforge-todo-summary-ring-check\s*\{[\s\S]*?color:\s*rgb\(110 231 183\)/)
+    expect(block).toMatch(/\.quickforge-todo-summary\[data-complete="true"\][\s\S]*?\.quickforge-todo-summary-ring-check\s*\{\s*opacity:\s*1/)
+  })
+
   it('updates the TodoWrite summary only after decorateEditor finishes', () => {
     const decorateBlock = host.slice(host.indexOf('const decorate = () =>'), host.indexOf('// Render or remove approval card'))
     const editorIndex = decorateBlock.indexOf('decorateEditor({')

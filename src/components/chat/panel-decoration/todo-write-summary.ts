@@ -32,6 +32,9 @@ export type TodoWriteSummaryController = {
 
 const TODO_WRITE_STATUSES = new Set<TodoWriteStatus>(['pending', 'in_progress', 'completed'])
 const UPDATED_MARKER_DURATION_MS = 1800
+// Progress ring uses the same r=9 geometry as the 24px status icons; the arc
+// length drives the capsule ring and stays in sync with todoWriteCounts().
+const RING_CIRCUMFERENCE = 2 * Math.PI * 9
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
@@ -150,6 +153,9 @@ export function createTodoWriteSummaryController({
 }): TodoWriteSummaryController {
   let root: HTMLElement | null = null
   let toggle: HTMLButtonElement | null = null
+  let ring: HTMLElement | null = null
+  let statsSpan: HTMLElement | null = null
+  let compactStats: HTMLElement | null = null
   let body: HTMLElement | null = null
   let updatedMarker: HTMLElement | null = null
   let updatedTimer: unknown
@@ -169,6 +175,9 @@ export function createTodoWriteSummaryController({
     root?.remove()
     root = null
     toggle = null
+    ring = null
+    statsSpan = null
+    compactStats = null
     body = null
     updatedMarker = null
   }
@@ -202,7 +211,13 @@ export function createTodoWriteSummaryController({
       toggle.type = 'button'
       toggle.className = 'quickforge-todo-summary-toggle'
       toggle.addEventListener('click', handleToggle)
-      root.append(toggle)
+
+      // The row wrapper lets the toggle animate its width between the centered
+      // capsule (flex-grow 0) and the full-width expanded header (flex-grow 1).
+      const toggleRow = document.createElement('div')
+      toggleRow.className = 'quickforge-todo-summary-toggle-row'
+      toggleRow.append(toggle)
+      root.append(toggleRow)
 
       body = document.createElement('div')
       body.className = 'quickforge-todo-summary-body'
@@ -223,30 +238,53 @@ export function createTodoWriteSummaryController({
   const render = (todos: readonly TodoWriteItem[]) => {
     if (!root || !toggle || !body) return
     const counts = todoWriteCounts(todos)
-    toggle.replaceChildren()
 
-    const heading = document.createElement('span')
-    heading.className = 'quickforge-todo-summary-heading'
-    heading.textContent = t('todoWriteTitle')
-    toggle.append(heading)
+    // The toggle children persist across renders so CSS transitions (capsule
+    // morph, progress arc) animate between snapshots instead of restarting.
+    if (!ring || !statsSpan || !compactStats || !updatedMarker) {
+      ring = document.createElement('span')
+      ring.className = 'quickforge-todo-summary-ring'
+      ring.setAttribute('aria-hidden', 'true')
+      ring.innerHTML = '<svg viewBox="0 0 24 24"><circle class="quickforge-todo-summary-ring-track" cx="12" cy="12" r="9"/><circle class="quickforge-todo-summary-ring-bar" cx="12" cy="12" r="9" transform="rotate(-90 12 12)"/></svg>'
+        + '<svg class="quickforge-todo-summary-ring-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.4 12.4 2.3 2.3 4.9-5.6"/></svg>'
 
-    const stats = document.createElement('span')
-    stats.className = 'quickforge-todo-summary-stats'
-    stats.textContent = t('todoWriteStats', counts)
-    toggle.append(stats)
+      const heading = document.createElement('span')
+      heading.className = 'quickforge-todo-summary-heading'
+      heading.textContent = t('todoWriteTitle')
 
-    updatedMarker = document.createElement('span')
-    updatedMarker.className = 'quickforge-todo-summary-updated'
-    updatedMarker.textContent = t('todoWriteUpdated')
+      statsSpan = document.createElement('span')
+      statsSpan.className = 'quickforge-todo-summary-stats'
+
+      compactStats = document.createElement('span')
+      compactStats.className = 'quickforge-todo-summary-stats-compact'
+      compactStats.setAttribute('aria-hidden', 'true')
+
+      updatedMarker = document.createElement('span')
+      updatedMarker.className = 'quickforge-todo-summary-updated'
+      updatedMarker.textContent = t('todoWriteUpdated')
+      updatedMarker.setAttribute('aria-live', 'polite')
+
+      const spacer = document.createElement('span')
+      spacer.className = 'quickforge-todo-summary-spacer'
+      spacer.setAttribute('aria-hidden', 'true')
+
+      const chevron = document.createElement('span')
+      chevron.className = 'quickforge-todo-summary-chevron'
+      chevron.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>'
+
+      toggle.append(ring, heading, statsSpan, compactStats, updatedMarker, spacer, chevron)
+    }
+
+    const progress = counts.total > 0 ? counts.completed / counts.total : 0
+    ring.setAttribute('style', `--quickforge-todo-ring-offset: ${(RING_CIRCUMFERENCE * (1 - progress)).toFixed(2)}`)
+    statsSpan.textContent = t('todoWriteStats', counts)
+    compactStats.textContent = `${counts.completed}/${counts.total}`
     updatedMarker.hidden = true
-    updatedMarker.setAttribute('aria-live', 'polite')
-    toggle.append(updatedMarker)
+    root.dataset.complete = String(counts.completed === counts.total)
+    root.dataset.running = String(counts.inProgress > 0)
 
-    const chevron = document.createElement('span')
-    chevron.className = 'quickforge-todo-summary-chevron'
-    chevron.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>'
-    toggle.append(chevron)
-
+    const inner = document.createElement('div')
+    inner.className = 'quickforge-todo-summary-body-inner'
     const list = document.createElement('ul')
     list.className = 'quickforge-todo-summary-list'
     for (const todo of todos) {
@@ -269,7 +307,8 @@ export function createTodoWriteSummaryController({
       item.append(label)
       list.append(item)
     }
-    body.replaceChildren(list)
+    inner.append(list)
+    body.replaceChildren(inner)
     syncExpanded()
   }
 

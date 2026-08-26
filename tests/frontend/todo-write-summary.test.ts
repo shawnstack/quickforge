@@ -250,7 +250,9 @@ function createHarness(initialMessages: unknown[], {
     },
     root() { return panel.querySelector('.quickforge-todo-summary') },
     toggle() { return panel.querySelector('.quickforge-todo-summary-toggle') },
+    ring() { return panel.querySelector('.quickforge-todo-summary-ring') },
     body() { return panel.querySelector('.quickforge-todo-summary-body') },
+    statsCompact() { return panel.querySelector('.quickforge-todo-summary-stats-compact') },
     updated() { return panel.querySelector('.quickforge-todo-summary-updated') },
   }
 }
@@ -438,5 +440,75 @@ describe('TodoWrite composer summary controller', () => {
     expect(harness.root()).toBeNull()
     expect(harness.timers[0]?.cleared).toBe(true)
     expect(toggle?.listeners.get('click')?.size ?? 0).toBe(0)
+  })
+})
+
+describe('TodoWrite capsule structure', () => {
+  it('wraps the toggle in a row and renders ring, dual stats, spacer, and chevron in order', () => {
+    const harness = createHarness([quickForgeResult([todo('One', 'in_progress'), todo('Two', 'pending')])])
+    harness.controller.update()
+
+    expect(harness.root()?.children.map((child) => child.className)).toEqual([
+      'quickforge-todo-summary-toggle-row',
+      'quickforge-todo-summary-body',
+    ])
+    expect(harness.toggle()?.children.map((child) => child.className)).toEqual([
+      'quickforge-todo-summary-ring',
+      'quickforge-todo-summary-heading',
+      'quickforge-todo-summary-stats',
+      'quickforge-todo-summary-stats-compact',
+      'quickforge-todo-summary-updated',
+      'quickforge-todo-summary-spacer',
+      'quickforge-todo-summary-chevron',
+    ])
+    expect(harness.ring()?.getAttribute('aria-hidden')).toBe('true')
+    expect(harness.root()?.querySelector('.quickforge-todo-summary-spacer')?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('shows the aria-hidden compact count and drives the progress arc from completion', () => {
+    const harness = createHarness([quickForgeResult([todo('One', 'completed'), todo('Two', 'in_progress')])])
+    harness.controller.update()
+
+    expect(harness.statsCompact()?.textContent).toBe('1/2')
+    expect(harness.statsCompact()?.getAttribute('aria-hidden')).toBe('true')
+    expect(harness.ring()?.getAttribute('style')).toBe('--quickforge-todo-ring-offset: 28.27')
+    expect(harness.root()?.dataset.complete).toBe('false')
+    expect(harness.root()?.dataset.running).toBe('true')
+  })
+
+  it('marks completion and zeroes the arc when every todo is completed', () => {
+    const harness = createHarness([quickForgeResult([todo('One', 'completed')])])
+    harness.controller.update()
+
+    expect(harness.root()?.dataset.complete).toBe('true')
+    expect(harness.root()?.dataset.running).toBe('false')
+    expect(harness.ring()?.getAttribute('style')).toBe('--quickforge-todo-ring-offset: 0.00')
+    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('wraps the list in the collapsible body inner container', () => {
+    const harness = createHarness([quickForgeResult([todo('One', 'in_progress')])])
+    harness.controller.update()
+
+    expect(harness.body()?.children.map((child) => child.className)).toEqual(['quickforge-todo-summary-body-inner'])
+    expect(harness.root()?.querySelectorAll('.quickforge-todo-summary-item')).toHaveLength(1)
+  })
+
+  it('keeps the persistent toggle structure and advances the arc across snapshot updates', () => {
+    const harness = createHarness([quickForgeResult([todo('One', 'in_progress')])])
+    harness.controller.update()
+    const firstRing = harness.ring()
+    const firstToggle = harness.toggle()
+    expect(firstRing?.getAttribute('style')).toBe('--quickforge-todo-ring-offset: 56.55')
+
+    harness.setMessages([
+      quickForgeResult([todo('One', 'in_progress')]),
+      quickForgeResult([todo('One', 'completed')]),
+    ])
+    harness.controller.update()
+
+    expect(harness.ring()).toBe(firstRing)
+    expect(harness.toggle()).toBe(firstToggle)
+    expect(firstRing?.getAttribute('style')).toBe('--quickforge-todo-ring-offset: 0.00')
   })
 })

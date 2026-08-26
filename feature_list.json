@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "cloud-settings-url-row-redesign",
+      "name": "云服务设置页移除启用开关/登录说明 + Cloud API 地址行样式重设计（方案 A 已实现）",
+      "status": "done",
+      "approach": "用户要求：①删除「登录或注册」下安全说明文字；②删除「启用云服务」开关行及描述；③Cloud API 地址行调整样式，先出 HTML 设计稿，用户选定方案 A。①②已实现：CloudAccountSettingsPage.tsx 移除开关行（.quickforge-settings-switch 样式保留，skills/plugins/agent-profiles 页仍用）与登录说明行，i18n.ts 中英文成对删 5 个 key（cloudLoginOrRegisterDescription、cloudServiceEnabled/Description/Saved、cloudServiceDisabledSaved），cloud-i18n.test.ts 同步删 cloudServiceEnabled 断言。③设计稿 design-mockups/cloud-url-row-redesign.html（现状对比 + A/B/C 三方案、深浅主题与交互演示）获用户选型 A 后实现：URL 行改为 quickforge-settings-row-form 紧凑表单组——「Cloud API 地址」标签上置（quickforge-settings-row-form-label，.8125rem/520），「来源: xxx」caption 移至标签行右端（items-baseline justify-between），输入框通栏（flex-1）与「测试连接」「保存修改」按钮同排，错误提示/重建身份入口保持在下方；index.css 新增 row-form 三条规则（min-height 0、纵向堆叠、悬停不高亮），行高约 5rem→4.5rem。tests/frontend/cloud-account-settings-page.test.ts 新增源码契约 describe（form 类、标签 htmlFor、通栏输入、caption 位置、旧左标签列 h-9 whitespace-nowrap 不存在）。边界：服务端默认 enabled=false 且开关原是唯一 UI 启用入口——已装实例（saved enabled=true）不受影响（PUT /api/cloud/config 合并语义），新装实例默认关闭暂无 UI 开关；用户未要求改默认值，server/cloud/service-config.mjs 未动。",
+      "files": [
+        "src/components/cloud/CloudAccountSettingsPage.tsx",
+        "src/lib/i18n.ts",
+        "tests/frontend/cloud-i18n.test.ts",
+        "src/index.css",
+        "design-mockups/cloud-url-row-redesign.html",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/cloud-account-settings-page.test.ts tests/frontend/cloud-i18n.test.ts tests/frontend/cloud-client.test.ts → 3 files / 23 tests 全通过（含新增 2 条方案 A 布局契约）；npx eslint 改动 ts/tsx 文件 0 error（index.css 不在 eslint 配置内）；npx tsc -b --pretty false 通过；npm run build 成功（仅既有 chunk size warning）。未跑全量 test/lint。"
+    },
+    {
       "id": "update-check-npm-registry-config",
       "name": "检查更新遵循 npm registry 配置（环境变量 > 用户 .npmrc > 官方源）",
       "status": "done",

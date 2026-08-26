@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cloud API 地址 · 样式设计稿 — QuickForge</title>
+<style>
+  /* ===== 应用语义 token（与 pi-web-ui :root / .dark 一致）===== */
+  :root {
+    color-scheme: light;
+    --background: oklch(100% 0 0);
+    --foreground: oklch(14.5% 0 0);
+    --primary: oklch(20.5% 0 0);
+    --primary-foreground: oklch(98.5% 0 0);
+    --muted: oklch(97% 0 0);
+    --muted-foreground: oklch(55.6% 0 0);
+    --ring: oklch(70.8% 0 0);
+    --accent: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+    --line: color-mix(in oklab, var(--foreground) 9%, transparent);
+    --success: oklch(58% 0.13 152);
+    --danger: oklch(55% 0.19 27);
+    --shadow-quickforge: 0 1px 2px oklch(0% 0 0 / 5%), 0 0 0 3px color-mix(in oklab, var(--primary) 9%, transparent);
+  }
+  html.dark {
+    color-scheme: dark;
+    --background: oklch(14.5% 0 0);
+    --foreground: oklch(98.5% 0 0);
+    --primary: oklch(92.2% 0 0);
+    --primary-foreground: oklch(14.5% 0 0);
+    --muted: oklch(26.9% 0 0);
+    --muted-foreground: oklch(70.8% 0 0);
+    --ring: oklch(55.6% 0 0);
+    --success: oklch(74% 0.15 155);
+    --danger: oklch(70% 0.16 25);
+  }
+  * { box-sizing: border-box; }
+  html { font-size: 13px; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color .25s ease, color .25s ease;
+  }
+
+  /* ===== 设计稿控件条（非应用 UI）===== */
+  .mock-bar {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem;
+    padding: .7rem 1.25rem;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in oklab, var(--background) 88%, var(--muted));
+    backdrop-filter: blur(6px);
+  }
+  .mock-bar .tag {
+    font-size: .75rem; font-weight: 600; letter-spacing: .08em;
+    color: var(--muted-foreground); text-transform: uppercase;
+  }
+  .seg { display: inline-flex; gap: .25rem; padding: .2rem; border: 1px solid var(--line); border-radius: .625rem; }
+  .seg button {
+    border: 0; border-radius: .5rem; padding: .3rem .7rem;
+    background: transparent; color: var(--muted-foreground);
+    font: inherit; font-size: .8125rem; cursor: pointer;
+    transition: background-color .15s ease, color .15s ease;
+  }
+  .seg button:hover { color: var(--foreground); }
+  .seg button.on { background: var(--primary); color: var(--primary-foreground); }
+  .mock-theme {
+    margin-left: auto;
+    border: 1px solid var(--line); border-radius: .625rem; padding: .35rem .7rem;
+    background: transparent; color: var(--foreground); font: inherit; font-size: .8125rem; cursor: pointer;
+  }
+  .mock-theme:hover { background: var(--muted); }
+
+  /* ===== 设置页舞台 ===== */
+  .stage { max-width: 42rem; margin: 2.25rem auto 3.5rem; padding: 0 1.25rem; }
+  .stack { display: flex; flex-direction: column; gap: 1rem; }
+
+  .heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .title { display: inline-flex; align-items: center; gap: .375rem; margin: 0; font-size: 1.125rem; font-weight: 600; letter-spacing: -.01em; }
+  .title svg { width: 1.25rem; height: 1.25rem; }
+
+  /* —— 设置卡片（复刻 .quickforge-settings-section/row）—— */
+  .section {
+    overflow: hidden;
+    border: 1px solid color-mix(in oklab, var(--line) 86%, transparent);
+    border-radius: 1rem;
+    background: color-mix(in oklab, var(--background) 96%, var(--muted));
+  }
+  .row {
+    display: flex; min-height: 5rem; align-items: center; justify-content: space-between; gap: 1.5rem;
+    border-bottom: 1px solid color-mix(in oklab, var(--line) 78%, transparent);
+    padding: 1rem 1.25rem;
+    transition: background-color .16s ease-out;
+  }
+  .row:last-child, .section .row:last-of-type { border-bottom: 0; }
+  .row:hover { background: color-mix(in oklab, var(--muted) 26%, transparent); }
+  .row-main { min-width: 0; flex: 1 1 auto; }
+  .row-title { display: inline-flex; align-items: center; gap: .375rem; font-size: .9375rem; font-weight: 520; line-height: 1.4; color: color-mix(in oklab, var(--foreground) 92%, transparent); }
+  .row-title svg { width: 1rem; height: 1rem; }
+  .list-header {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+    padding: 1rem 1.25rem .875rem;
+    border-bottom: 1px solid color-mix(in oklab, var(--line) 78%, transparent);
+  }
+  .list-header .row-title { font-size: .9375rem; font-weight: 600; }
+  .badge {
+    display: inline-flex; align-items: center; flex-shrink: 0;
+    border-radius: 999px; padding: .125rem .5625rem;
+    background: color-mix(in oklab, var(--primary) 8%, transparent);
+    color: color-mix(in oklab, var(--foreground) 85%, transparent);
+    font-size: .75rem; font-weight: 500;
+  }
+
+  /* —— 输入框（复刻 .quickforge-settings-input）—— */
+  .settings-input {
+    width: 100%; min-height: 2.5rem; padding: .5rem .875rem;
+    border: 1px solid transparent; border-radius: .875rem;
+    background: color-mix(in oklab, var(--muted) 48%, transparent);
+    color: var(--foreground); font: inherit; font-size: .9375rem; line-height: 1.25rem;
+    outline: none; transition: border-color .16s ease-out, background-color .16s ease-out, box-shadow .16s ease-out;
+  }
+  .settings-input:hover { background: color-mix(in oklab, var(--muted) 62%, transparent); }
+  .settings-input:focus { border-color: color-mix(in oklab, var(--primary) 42%, var(--line)); background: var(--background); box-shadow: var(--shadow-quickforge); }
+  .settings-input.err { border-color: color-mix(in oklab, var(--danger) 55%, transparent); }
+
+  /* —— 按钮（复刻 Button size=sm）—— */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: .375rem; white-space: nowrap;
+    height: 2rem; padding: 0 .75rem; border-radius: .625rem;
+    font: inherit; font-size: .8125rem; font-weight: 500; cursor: pointer;
+    transition: background-color .15s ease, opacity .15s ease, color .15s ease;
+  }
+  .btn svg { width: .875rem; height: .875rem; }
+  .btn.primary { border: 0; background: var(--primary); color: var(--primary-foreground); }
+  .btn.primary:hover:not(:disabled) { background: color-mix(in oklab, var(--primary) 90%, transparent); }
+  .btn.outline { border: 1px solid var(--line); background: var(--background); color: var(--foreground); }
+  .btn.outline:hover:not(:disabled) { background: color-mix(in oklab, var(--muted) 70%, transparent); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.heading-action { height: 2rem; }
+
+  .caption { color: color-mix(in oklab, var(--muted-foreground) 86%, transparent); font-size: .75rem; line-height: 1.4; }
+  .caption.ok { color: var(--success); }
+  .caption.bad { color: var(--danger); }
+
+  .spinner {
+    width: .8rem; height: .8rem; border-radius: 50%;
+    border: 2px solid color-mix(in oklab, var(--foreground) 22%, transparent);
+    border-top-color: var(--foreground);
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ===== 方案区块切换 ===== */
+  .variant { display: none; }
+  .variant.on { display: block; }
+
+  /* —— 现状（对比参照）：左标签 + 右控件 —— */
+  .ref-row { align-items: flex-start; }
+  .ref-row .row-main { display: flex; align-items: center; }
+  .ref-row .row-title { height: 2.25rem; white-space: nowrap; }
+  .ref-control { width: 100%; max-width: 36rem; display: flex; flex-direction: column; align-items: stretch; gap: .5rem; }
+  .ref-flex { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+  .ref-flex .settings-input { flex: 1 1 12rem; min-width: 0; }
+  .ref-btns { display: flex; flex-shrink: 0; align-items: center; gap: .5rem; }
+
+  /* —— 方案 A：标签上置 + 通栏输入 + 并排按钮 —— */
+  .compact { min-height: 0; flex-direction: column; align-items: stretch; gap: .5rem; padding: .875rem 1.25rem; }
+  .compact:hover { background: transparent; }
+  .head-line { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+  .head-label { font-size: .8125rem; font-weight: 520; color: color-mix(in oklab, var(--foreground) 88%, transparent); }
+  .line { display: flex; align-items: center; gap: .5rem; }
+  .line .settings-input { flex: 1 1 auto; min-width: 0; }
+
+  /* —— 方案 B：无标签 + 内嵌「测试」+ 外部保存 —— */
+  .b-wrap { position: relative; flex: 1 1 auto; min-width: 0; }
+  .b-wrap .settings-input { padding-right: 5.25rem; }
+  .b-inner {
+    position: absolute; top: 50%; right: .375rem; transform: translateY(-50%);
+    display: inline-flex; align-items: center; gap: .25rem;
+    height: 1.75rem; padding: 0 .625rem; border: 0; border-radius: .625rem;
+    background: transparent; color: var(--muted-foreground);
+    font: inherit; font-size: .75rem; font-weight: 500; cursor: pointer;
+    opacity: .6; transition: opacity .15s ease, background-color .15s ease, color .15s ease;
+  }
+  .b-wrap:hover .b-inner, .b-wrap:focus-within .b-inner { opacity: 1; }
+  .b-inner:hover { background: color-mix(in oklab, var(--muted) 75%, transparent); color: var(--foreground); }
+
+  /* —— 方案 C：保存并验证（单主操作）—— */
+  .c-status { display: flex; align-items: center; gap: .375rem; min-height: 1.1rem; }
+  .c-fake {
+    border: 0; padding: 0; background: none; color: var(--muted-foreground);
+    font: inherit; font-size: .75rem; text-decoration: underline dotted; cursor: pointer;
+  }
+  .c-fake:hover { color: var(--foreground); }
+
+  /* ===== 方案注解 ===== */
+  .notes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .3rem; }
+  .notes li { display: flex; gap: .5rem; font-size: .8125rem; line-height: 1.55; color: var(--muted-foreground); }
+  .notes b { color: var(--foreground); font-weight: 600; }
+  .note-card {
+    border: 1px dashed color-mix(in oklab, var(--line) 90%, transparent);
+    border-radius: 1rem; padding: .875rem 1.125rem;
+  }
+  .removed-note { color: var(--muted-foreground); font-size: .8125rem; line-height: 1.6; }
+  .removed-note code {
+    font-family: ui-monospace, Consolas, monospace; font-size: .75rem;
+    background: color-mix(in oklab, var(--muted) 55%, transparent);
+    border-radius: .375rem; padding: .0625rem .3125rem;
+  }
+</style>
+</head>
+<body>
+
+  <!-- 设计稿控件条（仅预览用，不属于应用 UI） -->
+  <div class="mock-bar">
+    <span class="tag">设计稿 · 方案</span>
+    <div class="seg" id="variantSeg">
+      <button data-v="ref">现状（对比）</button>
+      <button data-v="a" class="on">A · 标签上置</button>
+      <button data-v="b">B · 内嵌测试</button>
+      <button data-v="c">C · 保存并验证</button>
+    </div>
+    <button class="mock-theme" id="themeBtn">切换深浅主题</button>
+  </div>
+
+  <div class="stage">
+    <div class="stack">
+
+      <!-- 页面标题（与现状一致） -->
+      <div class="heading">
+        <h2 class="title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+          QuickForge Cloud
+        </h2>
+        <button class="btn outline heading-action">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          刷新
+        </button>
+      </div>
+
+      <!-- 云服务连接卡片（已应用本轮删除：无「启用云服务」开关行） -->
+      <div class="section">
+        <div class="list-header">
+          <div class="row-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>
+            连接
+          </div>
+          <span class="badge">QuickForge Cloud</span>
+        </div>
+
+        <!-- ======= 现状（对比参照）======= -->
+        <div class="row ref-row variant on" data-variant="ref">
+          <div class="row-main">
+            <span class="row-title">Cloud API 地址</span>
+          </div>
+          <div class="ref-control">
+            <div class="ref-flex">
+              <input class="settings-input" spellcheck="false" value="https://qf.shawnstack.com/">
+              <div class="ref-btns">
+                <button class="btn outline" data-test>测试连接</button>
+                <button class="btn primary" data-save disabled>保存修改</button>
+              </div>
+            </div>
+            <div class="caption">来源: 产品默认值</div>
+          </div>
+        </div>
+
+        <!-- ======= 方案 A：标签上置 + 通栏输入 + 并排按钮 ======= -->
+        <div class="row compact variant" data-variant="a">
+          <div class="head-line">
+            <span class="head-label">Cloud API 地址</span>
+            <span class="caption">来源 · 产品默认值</span>
+          </div>
+          <div class="line">
+            <input class="settings-input" spellcheck="false" value="https://qf.shawnstack.com/">
+            <button class="btn outline" data-test>测试连接</button>
+            <button class="btn primary" data-save disabled>保存</button>
+          </div>
+        </div>
+
+        <!-- ======= 方案 B：无标签 + 输入框内嵌测试 + 外部保存 ======= -->
+        <div class="row compact variant" data-variant="b">
+          <div class="line">
+            <div class="b-wrap">
+              <input class="settings-input" spellcheck="false" title="Cloud API 地址 · 来源：产品默认值" value="https://qf.shawnstack.com/">
+              <button class="b-inner" data-test-inner>测试连接</button>
+            </div>
+            <button class="btn primary" data-save disabled>保存</button>
+          </div>
+        </div>
+
+        <!-- ======= 方案 C：保存并验证（合并操作）======= -->
+        <div class="row compact variant" data-variant="c">
+          <div class="head-line">
+            <span class="head-label">Cloud API 地址</span>
+            <button class="c-fake" data-c-fail>模拟连接失败</button>
+          </div>
+          <div class="line">
+            <input class="settings-input" spellcheck="false" value="https://qf.shawnstack.com/">
+            <button class="btn primary" data-cta>保存并验证</button>
+          </div>
+          <div class="c-status caption" data-c-status>未修改 · 来源：产品默认值</div>
+        </div>
+      </div>
+
+      <!-- 登录卡片（已应用本轮删除：无安全说明描述行） -->
+      <div class="section">
+        <div class="row">
+          <div class="row-main">
+            <span class="row-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 19 4"/><path d="m18 5 2-2"/><path d="m15 8 2-2"/></svg>
+              登录或注册
+            </span>
+          </div>
+          <button class="btn primary" style="height: 2.25rem;">
+            登录或注册
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 方案说明 -->
+      <div class="note-card">
+        <ul class="notes">
+          <li><b>现状</b>：左标签占一列、行高 5rem；按钮与「来源」挤在右侧，视觉密度高 —— 仅作对比。</li>
+          <li><b>方案 A（推荐）</b>：标签上置、输入通栏，按钮与输入框同行；信息完整（保留「来源」），行高从 5rem 收到约 4.5rem，改动最小、只调这一行的布局。</li>
+          <li><b>方案 B（最紧凑）</b>：借分区标题「连接 · QuickForge Cloud」作语境，省去行内标签；「测试连接」收进输入框内（悬停/聚焦显现）；整卡只剩一行高度。代价：标签与来源信息退化为 tooltip。</li>
+          <li><b>方案 C（操作合并）</b>：去掉独立「测试连接」，保存时自动验证，成功后状态行打勾；失败则红字提示（点「模拟连接失败」预览）。操作最少，但少了「只测不存」的能力。</li>
+        </ul>
+        <p class="removed-note" style="margin: .75rem 0 0;">
+          本稿已反映本轮两项删除：<code>启用云服务</code> 开关行与描述、<code>登录或注册</code> 的安全说明文字。上方所有方案均基于删除后的精简卡片。
+        </p>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+  const DEFAULT_URL = 'https://qf.shawnstack.com/'
+
+  /* 主题切换 */
+  const themeBtn = document.getElementById('themeBtn')
+  themeBtn.addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark')
+  })
+
+  /* 方案切换 */
+  const seg = document.getElementById('variantSeg')
+  seg.addEventListener('click', (event) => {
+    const btn = event.target.closest('button[data-v]')
+    if (!btn) return
+    seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn))
+    document.querySelectorAll('.variant').forEach(v => v.classList.toggle('on', v.dataset.variant === btn.dataset.v))
+  })
+
+  /* 输入变化 → 启用/禁用保存按钮（保存修改仅在有改动时可用，与现状一致） */
+  document.querySelectorAll('.settings-input').forEach(input => {
+    input.addEventListener('input', () => {
+      const row = input.closest('.row')
+      const save = row.querySelector('[data-save], [data-cta]')
+      if (!save) return
+      save.disabled = input.value.trim() === DEFAULT_URL || !input.value.trim()
+      input.classList.remove('err')
+      const status = row.querySelector('[data-c-status]')
+      if (status) { status.textContent = '未保存的修改'; status.className = 'c-status caption' }
+    })
+  })
+
+  /* 测试连接：spinner → 成功对勾 */
+  async function runTest(btn) {
+    if (btn.dataset.busy) return
+    btn.dataset.busy = '1'
+    const original = btn.innerHTML
+    btn.innerHTML = '<span class="spinner"></span>'
+    await new Promise(r => setTimeout(r, 800))
+    btn.innerHTML = '✓ 已连接'
+    btn.style.color = 'var(--success)'
+    await new Promise(r => setTimeout(r, 1600))
+    btn.style.color = ''
+    btn.innerHTML = original
+    delete btn.dataset.busy
+  }
+  document.querySelectorAll('[data-test], [data-test-inner]').forEach(btn => {
+    btn.addEventListener('click', () => { void runTest(btn) })
+  })
+
+  /* 方案 C：保存并验证（成功态 / 模拟失败态） */
+  document.querySelectorAll('[data-cta]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (btn.disabled || btn.dataset.busy) return
+      btn.dataset.busy = '1'
+      const row = btn.closest('.row')
+      const input = row.querySelector('.settings-input')
+      const status = row.querySelector('[data-c-status]')
+      const original = btn.textContent
+      btn.innerHTML = '<span class="spinner"></span> 验证中'
+      await new Promise(r => setTimeout(r, 1000))
+      btn.textContent = original
+      delete btn.dataset.busy
+      input.classList.remove('err')
+      status.textContent = '✓ 已连接 · 已保存 · 来源：产品默认值'
+      status.className = 'c-status caption ok'
+    })
+  })
+  document.querySelectorAll('[data-c-fail]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.row')
+      const input = row.querySelector('.settings-input')
+      const status = row.querySelector('[data-c-status]')
+      input.classList.add('err')
+      status.textContent = '✕ 无法连接该地址（示例）· 修改后重试'
+      status.className = 'c-status caption bad'
+    })
+  })
+</script>
+</body>
+</html>

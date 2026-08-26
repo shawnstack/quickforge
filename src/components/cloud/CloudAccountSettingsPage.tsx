@@ -282,28 +282,6 @@ export function CloudAccountSettingsPage() {
     }
   }
 
-  const setCloudServiceEnabled = async (enabled: boolean) => {
-    if (busy || !config || config.enabled === enabled) return
-    setBusy('cloud-toggle')
-    setMessage('')
-    setError('')
-    setSwitchWarning('')
-    try {
-      const nextConfig = await updateCloudConfig({ enabled })
-      setConfig(nextConfig)
-      setCloudUrl(nextConfig.cloudUrl)
-      setConnectionTest(undefined)
-      if (!nextConfig.enabled) clearDetails()
-      dispatchCloudChanged()
-      setMessage(t(nextConfig.enabled ? 'cloudServiceEnabledSaved' : 'cloudServiceDisabledSaved'))
-      await load(false)
-    } catch (toggleError) {
-      setError(cloudErrorMessage(toggleError))
-    } finally {
-      setBusy('')
-    }
-  }
-
   const forceResetAndSwitch = async () => {
     const targetCloudUrl = cloudUrl.trim() || config?.cloudUrl || ''
     if (validateCloudUrl(targetCloudUrl)) {
@@ -458,68 +436,49 @@ export function CloudAccountSettingsPage() {
           <div className="quickforge-settings-row-title"><Server className="size-4" />{t('cloudServiceConnection')}</div>
           <span className="quickforge-settings-badge quickforge-settings-badge-info shrink-0">QuickForge Cloud</span>
         </div>
-        <div className="quickforge-settings-row">
-          <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('cloudServiceEnabled')}</div>
-            <div className="quickforge-settings-row-description">{t('cloudServiceEnabledDescription')}</div>
+        <div className="quickforge-settings-row quickforge-settings-row-form">
+          <div className="flex items-baseline justify-between gap-4">
+            <label className="quickforge-settings-row-form-label" htmlFor="quickforge-cloud-url">{t('cloudUrl')}</label>
+            <span className="text-xs text-muted-foreground">{t('cloudConfigSource')}: {configSourceLabel(config?.source)}</span>
           </div>
-          <div className="quickforge-settings-row-control">
-            <label className="quickforge-settings-switch" aria-label={t('cloudServiceEnabled')}>
-              <input
-                type="checkbox"
-                checked={cloudEnabled}
-                disabled={!config || Boolean(busy)}
-                onChange={(event) => { void setCloudServiceEnabled(event.target.checked) }}
-              />
-              <span aria-hidden="true" />
-            </label>
-          </div>
-        </div>
-        <div className="quickforge-settings-row items-start">
-          <div className="quickforge-settings-row-main">
-            <label className="quickforge-settings-row-title h-9 whitespace-nowrap" htmlFor="quickforge-cloud-url">{t('cloudUrl')}</label>
-          </div>
-          <div className="quickforge-settings-row-control w-full max-w-xl flex-col items-stretch gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Input
-                id="quickforge-cloud-url"
-                value={cloudUrl}
-                onChange={(event) => setCloudUrl(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && cloudUrl.trim() && changedUrl && !busy) {
-                    event.preventDefault()
-                    void saveConnection()
-                  }
-                }}
-                placeholder={t('cloudUrlPlaceholder')}
-                inputMode="url"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                onBlur={() => setUrlTouched(true)}
-                aria-invalid={showUrlError}
-                className={cn('min-w-0 flex-1', showUrlError ? 'border-destructive' : undefined)}
-                disabled={Boolean(busy)}
-              />
-              <div className="flex shrink-0 items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => void testConnection()} disabled={!cloudUrl.trim() || Boolean(urlError) || Boolean(busy)}>
-                  {busy === 'test' ? <RefreshCw className="mr-2 size-4 animate-spin" /> : <TestTube2 className="mr-2 size-4" />}
-                  {t('cloudTestConnection')}
-                </Button>
-                <Button size="sm" onClick={() => void saveConnection()} disabled={!cloudUrl.trim() || !changedUrl || Boolean(urlError) || Boolean(busy)}>
-                  {busy === 'save' ? <RefreshCw className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
-                  {t('saveChanges')}
-                </Button>
-              </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              id="quickforge-cloud-url"
+              value={cloudUrl}
+              onChange={(event) => setCloudUrl(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && cloudUrl.trim() && changedUrl && !busy) {
+                  event.preventDefault()
+                  void saveConnection()
+                }
+              }}
+              placeholder={t('cloudUrlPlaceholder')}
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              onBlur={() => setUrlTouched(true)}
+              aria-invalid={showUrlError}
+              className={cn('min-w-0 flex-1', showUrlError ? 'border-destructive' : undefined)}
+              disabled={Boolean(busy)}
+            />
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => void testConnection()} disabled={!cloudUrl.trim() || Boolean(urlError) || Boolean(busy)}>
+                {busy === 'test' ? <RefreshCw className="mr-2 size-4 animate-spin" /> : <TestTube2 className="mr-2 size-4" />}
+                {t('cloudTestConnection')}
+              </Button>
+              <Button size="sm" onClick={() => void saveConnection()} disabled={!cloudUrl.trim() || !changedUrl || Boolean(urlError) || Boolean(busy)}>
+                {busy === 'save' ? <RefreshCw className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
+                {t('saveChanges')}
+              </Button>
             </div>
-            {showUrlError ? <div className="text-xs text-destructive">{urlError}</div> : null}
-            <div className="text-xs text-muted-foreground">{t('cloudConfigSource')}: {configSourceLabel(config?.source)}</div>
-            {canRebuildCloudIdentity(status, changedUrl) && !urlError ? (
-              <div className="quickforge-settings-cloud-force-switch flex justify-end">
-                <Button variant="destructive" size="sm" onClick={() => void forceResetAndSwitch()} disabled={Boolean(busy)} title={t('cloudForceSwitchDescription')}><RotateCcw className="mr-2 size-4" />{t('cloudForceSwitch')}</Button>
-              </div>
-            ) : null}
           </div>
+          {showUrlError ? <div className="text-xs text-destructive">{urlError}</div> : null}
+          {canRebuildCloudIdentity(status, changedUrl) && !urlError ? (
+            <div className="quickforge-settings-cloud-force-switch flex justify-end">
+              <Button variant="destructive" size="sm" onClick={() => void forceResetAndSwitch()} disabled={Boolean(busy)} title={t('cloudForceSwitchDescription')}><RotateCcw className="mr-2 size-4" />{t('cloudForceSwitch')}</Button>
+            </div>
+          ) : null}
         </div>
         {config?.configurationError ? <div className="quickforge-settings-error m-3">{t('cloudConfigurationError')}</div> : null}
         {connectionTest ? (
@@ -596,7 +555,7 @@ export function CloudAccountSettingsPage() {
       ) : contentVisibility.showDisconnectedActions ? (
         <div className="quickforge-settings-section">
           <div className="quickforge-settings-row">
-            <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title"><UserRound className="size-4" />{t('cloudLoginOrRegister')}</div><div className="quickforge-settings-row-description">{t('cloudLoginOrRegisterDescription')}</div></div>
+            <div className="quickforge-settings-row-main"><div className="quickforge-settings-row-title"><UserRound className="size-4" />{t('cloudLoginOrRegister')}</div></div>
             <div className="quickforge-settings-row-control"><Button onClick={() => void startDeviceFlow()} disabled={loading || Boolean(busy)}><LogIn className="mr-2 size-4" />{t('cloudLoginOrRegister')}</Button></div>
           </div>
         </div>

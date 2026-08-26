@@ -30,8 +30,6 @@ describe('QuickForge Cloud internationalization', () => {
     expect(i18nSource).toContain("cloudModelsLoadFailed: '加载云模型目录失败，请重试刷新。'")
     expect(i18nSource).toContain("cloudUrl: 'Cloud API URL'")
     expect(i18nSource).toContain("cloudUrl: 'Cloud API 地址'")
-    expect(i18nSource).toContain("cloudServiceEnabled: 'Enable cloud service'")
-    expect(i18nSource).toContain("cloudServiceEnabled: '启用云服务'")
     expect(i18nSource).toContain("cloudDisabledError: 'QuickForge Cloud is turned off. Enable it in Cloud settings to continue.'")
     expect(i18nSource).toContain("cloudDisabledError: 'QuickForge Cloud 已关闭，请先在云服务设置中启用。'")
   })

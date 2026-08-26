@@ -629,6 +629,27 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
   align-items: flex-start;
 }
 
+/* 表单组行（方案 A，design-mockups/cloud-url-row-redesign.html）：标签上置、
+   控件通栏的紧凑布局，替代「左标签 + 右控件」两栏行；悬停不高亮。 */
+.quickforge-settings-row-form {
+  min-height: 0;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  padding: 0.875rem 1.25rem;
+}
+
+.quickforge-settings-row-form:hover {
+  background: transparent;
+}
+
+.quickforge-settings-row-form-label {
+  font-size: 0.8125rem;
+  font-weight: 520;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+}
+
 .quickforge-settings-row-main {
   min-width: 0;
   flex: 1 1 auto;

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { CloudServiceConfig, CloudUsage } from '../../src/lib/cloud-client'
@@ -132,5 +133,21 @@ describe('Cloud account settings state', () => {
     })
 
     expect(result).toEqual({ status: 'success', config })
+  })
+})
+
+describe('Cloud API URL row layout (design option A)', () => {
+  const pageSource = readFileSync(new URL('../../src/components/cloud/CloudAccountSettingsPage.tsx', import.meta.url), 'utf8')
+
+  it('renders the URL row as a compact top-labelled form group with a full-width input', () => {
+    expect(pageSource).toContain('quickforge-settings-row quickforge-settings-row-form')
+    expect(pageSource).toContain('quickforge-settings-row-form-label" htmlFor="quickforge-cloud-url"')
+    expect(pageSource).toContain("className={cn('min-w-0 flex-1'")
+  })
+
+  it('keeps the source caption on the label line and drops the old left-label column', () => {
+    expect(pageSource).toContain('items-baseline justify-between')
+    expect(pageSource).toContain("{t('cloudConfigSource')}: {configSourceLabel(config?.source)}")
+    expect(pageSource).not.toContain('quickforge-settings-row-title h-9 whitespace-nowrap')
   })
 })

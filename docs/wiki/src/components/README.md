@@ -67,7 +67,7 @@ components/
 
 ### CloudAccountSettingsPage.tsx
 
-- 位于「设置 → 账户与云服务」，顶部配置独立受管 QuickForge Cloud 服务连接（只读服务类型、Cloud URL、来源、health/ready 测试和保存），不展示 Provider Key，也不写入自定义 Provider。
+- 位于「设置 → 账户与云服务」，顶部配置独立受管 QuickForge Cloud 服务连接（只读服务类型、Cloud URL、来源、health/ready 测试和保存），不展示 Provider Key，也不写入自定义 Provider。「启用云服务」开关行与「登录或注册」安全说明文字已移除：enabled 状态沿用已保存配置（服务端 `PUT /api/cloud/config` 的合并语义保留，仅保存 URL 不会重置 enabled），新装实例默认 `enabled=false` 且暂无 UI 开关（如需默认开启须改 `server/cloud/service-config.mjs` 的 candidateFrom 默认值）。Cloud API 地址行已按方案 A 实现（design-mockups/cloud-url-row-redesign.html）：`quickforge-settings-row-form` 紧凑表单组——标签上置、来源 caption 同行右对齐、输入框通栏与按钮同排，悬停不高亮。
 - 同页展示剩余额度、重置/到期时间和公开模型目录；一次刷新同步请求 config/status/usage/models，其中 usage/models 独立提交结果：单项失败会清除该项旧数据并在对应区块提供重试，其余成功内容继续展示。远程访问状态/授权 UI、云身份状态行与已连接设备管理 UI 均已下线（不再轮询 remote-status、不请求 installations；服务端 `/api/cloud/remote-status`、`/api/cloud/installations` 端点保留），连接后仅保留邮箱/套餐、额度与退出登录行。
 - 旧 Session URL 不匹配时不请求详情、不自动创建游客，只在连接区展示显式「重建身份并切换」入口。
 - 用户仍需明确确认数据发送说明后才创建游客，页面挂载和刷新不会自动注册。

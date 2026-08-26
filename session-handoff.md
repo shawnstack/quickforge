@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：cloud-settings-url-row-redesign（已完成，方案 A 已实现）
+
+- 目标：删除「登录或注册」安全说明文字与「启用云服务」开关行；Cloud API 地址行调整样式（先设计稿，用户选 A）。
+- 实现：两项删除 + 方案 A 均已落地——`CloudAccountSettingsPage.tsx` URL 行改为 `quickforge-settings-row-form` 紧凑表单组（标签上置、「来源」caption 移至标签行右端、输入框通栏与「测试连接」「保存修改」同排，错误提示/重建身份入口保持下方）；`src/index.css` 新增 row-form 三条规则（纵向堆叠 / min-height 0 / 悬停不高亮）；`tests/frontend/cloud-account-settings-page.test.ts` 新增方案 A 布局源码契约 describe；设计稿 `design-mockups/cloud-url-row-redesign.html` 保留。
+- 验证：定向 vitest 3 files / 23 tests 全通过（含 2 条新契约）；eslint 改动文件 0 error；tsc -b 通过；npm run build 成功（仅既有 chunk size warning）。未跑全量 test/lint。
+- 文件：src/components/cloud/CloudAccountSettingsPage.tsx、src/index.css、src/lib/i18n.ts、tests/frontend/cloud-i18n.test.ts、tests/frontend/cloud-account-settings-page.test.ts、design-mockups/cloud-url-row-redesign.html（新）、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无。遗留决策（用户未答）：新装实例云服务默认 enabled=false 且无 UI 开关，是否改 `server/cloud/service-config.mjs` candidateFrom 默认值。下方另有并行会话条目（update-check-npm-registry-config、todo-summary-capsule-redesign），未触碰。
+
+---
+
 ## 当前状态：update-check-npm-registry-config（已完成）
 
 - 目标：用户询问「检查更新 npm 包更新是哪种方式、是否走接口、npm 命令检查是否更好」，调研确认当前为直接 fetch registry packument 取 `dist-tags.latest`（`server/utils/package-update.mjs`，仅读 `npm_config_registry` 环境变量、不读 `.npmrc`）；用户确认按「读取当前 npm 配置的源」落地（明确不采用 `npm view` 命令方案——更慢、依赖本机 npm、底层请求同一接口）。

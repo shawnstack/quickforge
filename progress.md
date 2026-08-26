@@ -1,5 +1,13 @@
 # Progress
 
+## Completed Feature：cloud-settings-url-row-redesign
+
+- Feature: 云服务设置页移除「启用云服务」开关行与登录安全说明 + Cloud API 地址行样式重设计·方案 A（cloud-settings-url-row-redesign，**已完成**）
+- Status: done — ①「登录或注册」安全说明文字已删；②「启用云服务」开关行及描述已删（连带 setCloudServiceEnabled 与 4 个 i18n key；.quickforge-settings-switch 样式保留给其他设置页）；③设计稿 `design-mockups/cloud-url-row-redesign.html`（现状对比 + A/B/C、深浅主题、交互演示）经用户选型 **A** 后实现：URL 行改为 `quickforge-settings-row-form` 紧凑表单组——标签上置、「来源」caption 移至标签行右端、输入框通栏与「测试连接」「保存修改」同排、错误提示与「重建身份并切换」保持在下方；index.css 新增三条规则（纵向堆叠 / min-height 0 / 悬停不高亮），tests 新增源码契约 describe 锁定布局。**边界**：服务端默认 enabled=false，开关原是唯一 UI 启用入口——已装实例 saved enabled=true 不受影响（PUT config 合并语义），新装实例默认关闭暂无 UI 开关；用户未要求改默认值，server/cloud/service-config.mjs 未动。
+- Verification: 定向 vitest 3 files / 23 tests 全通过；eslint 改动文件 0 error；tsc -b 通过；npm run build 成功（仅既有 chunk size warning）。未跑全量 test/lint。
+- Boundaries: 未新增依赖；docs/wiki/src/components/README.md 已同步；未 commit/tag/push；设计稿保留。
+- Next step: 无 blocker。遗留决策（用户未答）：新装实例云服务默认关闭是否改为默认开启（改 candidateFrom 默认值，一行）。
+
 ## Completed Feature：update-check-npm-registry-config
 
 - Feature: 检查更新遵循 npm registry 配置（update-check-npm-registry-config，**已完成**）

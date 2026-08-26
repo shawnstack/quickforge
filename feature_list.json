@@ -1,6 +1,76 @@
 {
   "features": [
     {
+      "id": "update-check-npm-registry-config",
+      "name": "检查更新遵循 npm registry 配置（环境变量 > 用户 .npmrc > 官方源）",
+      "status": "done",
+      "approach": "调研确认更新检查原为直接 fetch registry packument（仅读 npm_config_registry 环境变量，默认官方源），用户配置的 .npmrc 镜像不生效，国内网络下 5 秒超时易失败；经用户确认按「读取当前 npm 配置的源」落地（不改为 npm view 命令方案）。server/utils/package-update.mjs 新增导出 resolveRegistry(packageName, options)：环境变量 npm_config_registry / NPM_CONFIG_REGISTRY > 用户级 .npmrc（路径取 NPM_CONFIG_USERCONFIG / npm_config_userconfig 或 ~/.npmrc，包名带 scope 时 @scope:registry 覆盖通用 registry 键，支持注释/空行/引号值，URL 去尾部斜杠）> 默认 https://registry.npmjs.org/；只读取 registry 相关键，不读取也不发送 .npmrc 凭据；.npmrc 不存在/不可读/值为空时静默回退默认源；项目级/全局 .npmrc 不参与（更新检查面向全局安装场景）。getRegistryPackageUrl 改 async 使用 resolveRegistry，fetchLatestVersion 直接生效，checkForUpdates（服务端 /api/system/update/check）与 5 分钟冷却缓存行为不变。bin/quickforge.mjs 删除本地复制的 getRegistryPackageUrl/fetchLatestVersion，改为初始化网络代理后委托 server/utils/package-update.mjs 的 fetchLatestVersion，消除 registry 逻辑双份副本。",
+      "files": [
+        "server/utils/package-update.mjs",
+        "bin/quickforge.mjs",
+        "tests/server/utils/package-update.test.mjs",
+        "docs/wiki/server/utils/README.md",
+        "docs/wiki/bin/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/server/utils/package-update.test.mjs → 1 file / 11 tests 全通过（新增 resolveRegistry 7 用例：默认源/环境变量大小写与优先级/用户 npmrc 读取/scope 覆盖/空值与非法行回退/NPM_CONFIG_USERCONFIG，及 fetchLatestVersion 按 npm 配置构造请求 URL）；npx eslint 3 个改动文件 0 error；node --check bin/服务端模块通过；真实冒烟 node bin/quickforge.mjs check-update 走共享模块与本机 npm 配置成功返回 1.9.0。未跑全量。"
+    },
+    {
+      "id": "cloud-settings-remove-remote-identity-sections",
+      "name": "云服务设置页下线「远程访问」与「云身份」状态区块",
+      "status": "done",
+      "approach": "用户确认远程访问/云身份状态展示均不需要，要求下线。CloudAccountSettingsPage.tsx 整块移除远程访问 section（标题/描述/Agent 状态徽标/授权中提示/错误警告）及 remoteStatus state、refreshRemoteStatus、1.75s 轮询与 visibilitychange 刷新、retryRemoteAuthorization、remoteStatusLabel 等全部关联逻辑，不再请求 /api/cloud/remote-status；「云身份」section 移除头部状态行（标题/identityDescription/modeLabel 徽标）与 cloud-unavailable、session-mismatch 警告行，连接后仅保留邮箱/套餐、剩余额度、重置时间和退出登录功能行（未连接时该 section 完全不渲染，未连接用户页面只剩连接配置）。cloud-account-settings-state.ts 移除 shouldPollCloudRemoteStatus、getCloudRemoteAuthorizationUi、CloudRemoteAuthorizationUi 与失去消费者的 getCloudAccountViewState/CloudAccountViewState。i18n.ts 中英文成对删除 31 个 key（cloudRemoteAccess/Description、cloudRemoteAuthorization、cloudRemoteOpenAuthorization、cloudRemoteAutoApproval×6、cloudRemoteStatus×9、cloudIdentityStatus、cloudNotConfigured/Connected/LocalOnly/ServiceDisabled/UnavailableDescription、cloudSessionMismatchLabel、cloudFormalAccount、cloudNotConnected）；cloudSessionServiceMismatch 保留（cloud-error-message.ts 按 cloud_session_service_mismatch 错误码映射使用）。cloud-client.ts 的 getCloudRemoteStatus/retryCloudRemoteAuthorization API 绑定与服务端端点保留（cloud-client.test.ts 仍覆盖）。",
+      "files": [
+        "src/components/cloud/CloudAccountSettingsPage.tsx",
+        "src/components/cloud/cloud-account-settings-state.ts",
+        "src/lib/i18n.ts",
+        "tests/frontend/cloud-account-settings-page.test.ts",
+        "tests/frontend/cloud-i18n.test.ts",
+        "docs/wiki/src/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/cloud-account-settings-page.test.ts tests/frontend/cloud-i18n.test.ts tests/frontend/cloud-client.test.ts → 3 files / 21 tests 全通过；npx eslint 5 个改动文件 0 error；npx tsc -b --pretty false 通过；grep 确认删除的标识符与 i18n key 在 src/tests 无残留（cloudSessionServiceMismatch 为有意保留）。未跑全量。"
+    },
+    {
+      "id": "todo-summary-capsule-redesign",
+      "name": "Todo 任务摘要胶囊化：未展开收缩为进度胶囊 + 展开/收起动画过渡",
+      "status": "done",
+      "approach": "用户要求优化 TodoWrite 任务摘要 UI：未展开时收缩成一个显示进度的胶囊、展开/收起带动画过渡，先出 HTML 设计稿（design-mockups/todo-capsule-summary.html，用户确认并要求胶囊水平居中）后实现。控制器 todo-write-summary.ts（311→360 行）：toggle 外新增 toggle-row 包装（居中 flex 行，flex-grow 0→1 数值插值驱动胶囊⇄整行宽度动画）；toggle 子元素改为一次性创建并跨快照持久的「ring(SVG 环+对勾，单色 token，r=9 与 24px 图标同几何，dasharray 56.55，进度经内联 --quickforge-todo-ring-offset CSS 变量驱动 450ms 弧动画) + heading + stats(完整统计) + stats-compact(紧凑 X/Y，aria-hidden) + updated + spacer(弹性间隔) + chevron」；root 新增 data-complete/data-running 标记（完成→环交叉淡化为对勾，收起态有进行中任务→进度弧 2.4s 呼吸）；body 内新增 body-inner（grid 0fr 收缩项 + overflow hidden）。body 的 hidden 属性仍即时赋值，display:none 由 CSS transition-behavior: allow-discrete 延迟到收起动画结束，展开用 @starting-style 从 0fr 进入，无需 JS 两帧协调。index.css 整段替换 .quickforge-todo-summary 系列：胶囊（999px 圆角、muted/55%、1.5rem、居中）⇄ 展开整行（8px、透明背景、min-height 2.25rem）；标题/双统计 max-width+opacity 交叉淡化；列表 grid-template-rows 0fr→1fr + 列表项 25ms 阶梯上移淡入；箭头旋转 90° 被 spacer 推到右缘；移动端与 prefers-reduced-motion 分支同步全关；环双 SVG 用 grid 同格叠放，无 absolute/gradient，满足 todo-write-renderer.test 的正常流契约；用户后续追加：全部完成态的对勾 icon 改为绿色，复用 slash agent chip 既有 emerald 语义色（浅色 rgb(4 143 101)、深色 rgb(110 231 183)，html.dark 覆盖），整体仍单色克制、绿色仅在完成刻出现，设计稿同步。DESIGN_LANGUAGE 无需更新（复用既有语义色，无新视觉范式）。docs/wiki/src/components/README.md 两处同步（行为段 + 模块 360 行）。",
+      "files": [
+        "design-mockups/todo-capsule-summary.html",
+        "src/components/chat/panel-decoration/todo-write-summary.ts",
+        "src/index.css",
+        "tests/frontend/todo-write-summary.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts tests/frontend/slash-invocation-chip.test.ts → 3 files / 58 tests 全通过（新增 5 个胶囊结构契约用例：toggle-row 包装与子元素顺序、紧凑计数 aria-hidden 与环 offset 28.27、complete 标记与 offset 0.00、body-inner 包装、持久结构跨快照弧更新）；npx eslint 两个改动 TS 文件 0 error；npx tsc -b --pretty false 通过；npm run build 成功（仅既有 chunk size warnings），dist CSS 确认保留 @starting-style/allow-discrete/--quickforge-todo-ring-offset。设计稿阶段另经临时 HTTP 服务 + IAB 浏览器 DOM/交互断言验证。未跑全量 test/lint。"
+    },
+    {
+      "id": "cloud-settings-remove-devices-simplify",
+      "name": "云服务设置页精简：移除「绑定服务」URL/Agent PID 行与设备管理区块",
+      "status": "done",
+      "approach": "用户要求移除远程访问区的「绑定服务 http://127.0.0.1:5176/」展示、不再需要设备管理并精简界面。CloudAccountSettingsPage.tsx 删除 cloudRemoteServerUrl（绑定服务 URL）与 cloudRemotePid（Agent PID）两行（远程访问区保留标题/描述/状态徽标/授权与错误提示），整块移除「已连接设备」管理区块及 revoke/installation 辅助函数、重名统计；cloud-account-settings-state.ts 的 CloudDetailsState/loadCloudAccountDetails 移除 installations 加载（详情只剩 usage+models），getCloudAccountViewState 的 cloud-unavailable 判定由三加载器全失败改为两加载器全失败；i18n.ts 中英文成对删除 13 个仅设备 UI 使用的 key（cloudRemoteServerUrl/cloudRemotePid/cloudDevicesLoadFailed/cloudDevices/cloudCurrentDevice/cloudUnnamedDevice/cloudRegisteredAt/cloudLastSeenAt/cloudDuplicateDevicesHint/cloudNoDevices/cloudRevokeDevice/cloudRevokeDeviceConfirm/cloudDeviceRevoked）。cloud-client.ts 的 getCloudInstallations/revokeCloudInstallation/CloudInstallation API 绑定与服务端 /api/cloud/installations 端点保留（移动端 CloudRemotePage 仍走独立 remote-client 链路，不受影响）。",
+      "files": [
+        "src/components/cloud/CloudAccountSettingsPage.tsx",
+        "src/components/cloud/cloud-account-settings-state.ts",
+        "src/lib/i18n.ts",
+        "tests/frontend/cloud-account-settings-page.test.ts",
+        "tests/frontend/cloud-i18n.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/cloud-account-settings-page.test.ts tests/frontend/cloud-i18n.test.ts tests/frontend/cloud-client.test.ts → 3 files / 27 tests 全通过；npx eslint 5 个改动文件 0 error；npx tsc -b --pretty false 通过；grep 确认删除的 i18n key 在 src/tests/docs 无残留引用。未跑全量。"
+    },
+    {
       "id": "sidebar-show-more-muted-color",
       "name": "侧边栏「显示更多」弱化为分区标题同款灰色（muted-foreground /60→/50）",
       "status": "done",

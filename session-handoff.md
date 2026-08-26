@@ -1,5 +1,50 @@
 # Session Handoff
 
+## 当前状态：update-check-npm-registry-config（已完成）
+
+- 目标：用户询问「检查更新 npm 包更新是哪种方式、是否走接口、npm 命令检查是否更好」，调研确认当前为直接 fetch registry packument 取 `dist-tags.latest`（`server/utils/package-update.mjs`，仅读 `npm_config_registry` 环境变量、不读 `.npmrc`）；用户确认按「读取当前 npm 配置的源」落地（明确不采用 `npm view` 命令方案——更慢、依赖本机 npm、底层请求同一接口）。
+- 实现：`server/utils/package-update.mjs` 新增导出 `resolveRegistry(packageName, options)`——环境变量 `npm_config_registry`/`NPM_CONFIG_REGISTRY` > 用户级 `.npmrc`（路径取 `NPM_CONFIG_USERCONFIG` 或 `~/.npmrc`；`@scope:registry` 覆盖通用 `registry` 键；容忍注释/空行/引号值；只读 registry 相关键、不触碰凭据）> 默认官方源，缺文件/空值/非法内容静默回退；`getRegistryPackageUrl` 改 async 接入，`fetchLatestVersion`/`checkForUpdates`（`/api/system/update/check`）生效，5 分钟冷却缓存不变。`bin/quickforge.mjs` 删除本地复制的 registry/fetch 副本，初始化网络代理后委托 server 模块 `fetchLatestVersion`。
+- 验证：定向 vitest 1 file / 11 tests 全通过（resolveRegistry 7 用例 + fetchLatestVersion 按 npm 配置构造 URL）；eslint 3 文件 0 error；node --check 通过；真实冒烟 `node bin/quickforge.mjs check-update` 走共享模块与本机 npm 配置成功返回 latest 1.9.0。未跑全量。
+- 文件：server/utils/package-update.mjs、bin/quickforge.mjs、tests/server/utils/package-update.test.mjs、docs/wiki/server/utils/README.md、docs/wiki/bin/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无（可选后续见 progress.md：packument → 轻量 `/-/package/<name>/dist-tags` 端点；bin 与 server 模块仍各有一份相同的 compareVersions 复制，本轮未动）。
+
+---
+
+## 当前状态：cloud-settings-remove-remote-identity-sections（已完成）
+
+- 目标：用户确认「远程访问」「云身份」状态展示均不需要，要求下线（用户贴文中还含上一轮已删除的「绑定服务 http://127.0.0.1:5176/」，属旧构建/未刷新界面）。
+- 实现：`CloudAccountSettingsPage.tsx` 整块移除远程访问 section（标题/描述/Agent 状态徽标/授权提示/错误警告）及 remoteStatus 轮询等全部关联逻辑，不再请求 `/api/cloud/remote-status`；「云身份」section 去掉头部状态行与警告，连接后仅保留邮箱/套餐、额度、退出登录行，未连接时不渲染。`cloud-account-settings-state.ts` 移除 shouldPollCloudRemoteStatus/getCloudRemoteAuthorizationUi/getCloudAccountViewState；`i18n.ts` 中英文成对删 31 个 key（cloudSessionServiceMismatch 保留供错误码映射）；两个测试文件同步；docs/wiki src/README.md 与 components/README.md 已同步。cloud-client.ts API 绑定与服务端 remote-status/installations 端点保留。
+- 验证：定向 vitest 3 files / 21 tests 全通过；eslint 5 文件 0 error；tsc -b 通过；删除标识符/key 无残留。未跑全量。
+- 文件：src/components/cloud/CloudAccountSettingsPage.tsx、src/components/cloud/cloud-account-settings-state.ts、src/lib/i18n.ts、tests/frontend/cloud-account-settings-page.test.ts、tests/frontend/cloud-i18n.test.ts、docs/wiki/src/README.md、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无。注意本文件下方另有并行会话的 todo-summary-capsule-redesign（设计稿待用户确认）条目，未触碰。
+
+---
+
+## 当前状态：todo-summary-capsule-redesign（已完成）
+
+- 目标：优化输入框上方 TodoWrite 任务摘要 UI——未展开时收缩成一个显示进度的胶囊（水平居中），展开/收起带动画过渡；先设计稿确认后实现。
+- 实现：`todo-write-summary.ts`（311→360 行）toggle 外加居中 `.quickforge-todo-summary-toggle-row`，toggle 子元素一次性持久（ring + heading + stats + stats-compact(aria-hidden) + updated + spacer + chevron），弧进度经内联 `--quickforge-todo-ring-offset` CSS 变量驱动，root 增 data-complete/data-running；`index.css` 整段替换 todo 摘要样式——胶囊⇄整行形态过渡（flex-grow 0→1 插值、圆角/背景/文字交叉淡化、grid-rows 0fr→1fr、列表项阶梯淡入、箭头旋转），body hidden 即时赋值 + `allow-discrete` display 延迟 + `@starting-style` 进入动画，环双 SVG grid 同格叠放（无 absolute，保住 renderer 测试的正常流契约），reduced-motion/移动端同步。wiki 两处同步。
+- 验证：定向 vitest 3 files / 58 tests 全通过（todo-write-summary 新增 5 个胶囊结构用例）；eslint 0 error；tsc -b 通过；npm run build 成功，dist CSS 保留 @starting-style/allow-discrete/ring-offset。设计稿阶段经临时 HTTP 服务 + IAB 交互断言。未跑全量 test/lint。用户追加完成态绿色对勾（复用 slash agent chip emerald：浅 rgb(4 143 101)/深 rgb(110 231 183)）后复跑 todo-write-summary + todo-write-renderer 2 files / 36 tests 全通过（renderer 新增绿色双主题契约用例）、eslint 0 error。
+- 文件：design-mockups/todo-capsule-summary.html、src/components/chat/panel-decoration/todo-write-summary.ts、src/index.css、tests/frontend/todo-write-summary.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无 blocker；可选真机目视深浅主题动画效果。未 commit/tag/push。
+
+---
+
+
+## 当前状态：cloud-settings-remove-devices-simplify（已完成）
+
+- 目标：用户要求云服务设置页移除「绑定服务 http://127.0.0.1:5176/」展示、去掉设备管理并精简界面。
+- 实现：`CloudAccountSettingsPage.tsx` 删除远程访问区的绑定服务 URL 行与 Agent PID 行（保留标题/描述/状态徽标/授权提示/错误警告），整块移除「已连接设备」管理区块及 revoke/installation 辅助逻辑；`cloud-account-settings-state.ts` 详情加载与状态移除 installations（cloud-unavailable 判定 3→2 全失败）；`i18n.ts` 中英文成对删除 13 个设备 UI 专属 key；两个测试文件同步更新。cloud-client.ts API 绑定、服务端 /api/cloud/installations 端点、移动端 CloudRemotePage 设备列表均保留（远程连接功能仍需）。
+- 验证：定向 vitest 3 files / 27 tests 全通过；eslint 5 文件 0 error；tsc -b 通过；删除 key 无残留引用。未跑全量。
+- 文件：src/components/cloud/CloudAccountSettingsPage.tsx、src/components/cloud/cloud-account-settings-state.ts、src/lib/i18n.ts、tests/frontend/cloud-account-settings-page.test.ts、tests/frontend/cloud-i18n.test.ts、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无。
+
+---
+
 ## 当前状态：sidebar-show-more-muted-color（已完成）
 
 - 目标：用户反馈项目会话列表「显示更多」颜色太深、与会话标题区分不开，应对齐「项目」分区标题的灰色。

@@ -2,6 +2,38 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.9.0] - 2026-08-26
+
+### Added
+
+- Added read-only workspace document preview for PDF, DOCX, XLS, and XLSX files: a top-level document tab in the Workspace Inspector with file tree and `present_files` entries, lazy PDF page rendering, isolated DOCX rendering, and multi-sheet Excel pagination with a 5000-row cap.
+- Added mobile H5 fullscreen adaptation: the session sidebar now spans the full screen, the Workspace Inspector opens as a fullscreen overlay, and its toggle is visible on all breakpoints.
+- Added locally bundled Monaco editors: code and diff viewers load Monaco from the bundled build instead of the jsdelivr CDN, and slimmer read-only viewers drop the json/css/html/ts language workers.
+- Added a vendored node-pty runtime: the npm package now ships four-platform prebuilds (win32/darwin × x64/arm64) so terminals work out of the box and offline; Linux without a self-installed node-pty degrades gracefully.
+- Changed the TodoWrite pending status icon to a hollow circle to complete the three-state icon language.
+
+### Changed
+
+- Slimmed the published package: qf-agent binaries are no longer bundled (Cloud remote access reports unavailable unless `QUICKFORGE_QF_AGENT_PATH` points to an external binary) and frontend-only build dependencies moved back to devDependencies, cutting consumer installs by roughly 93 MB.
+- Large session persists now use a single-pass canonical JSON encoder with chunked yielding between batches, and the slow-persist log threshold moved from 1000 ms to 200 ms.
+- Switched SQLite `synchronous` from FULL to NORMAL (user-approved tradeoff): commits no longer fsync per transaction; process crashes remain safe, with a bounded loss window on OS crash or power loss since the last checkpoint.
+
+### Fixed
+
+- Background `git status` requests now abort on unmount or scope change and time out after 20 seconds, so slow repositories can no longer exhaust the browser's HTTP/1.1 connection pool and stall every other request.
+- The global agent event stream flushes SSE headers immediately, removing up to 15 seconds of first-byte latency.
+- Cloud model catalog endpoints no longer block the UI on slow upstreams: fetch timeouts map to 504/502 responses, the catalog degrades to local and custom models after a 2-second wait, and failures are negatively cached for 30 seconds.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.9.0` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.9.0.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.9.0.tgz
+  ```
+
 ## [1.8.1] - 2026-08-25
 
 ### Added

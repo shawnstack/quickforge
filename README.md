@@ -11,7 +11,7 @@ QuickForge 将 AI 对话、项目上下文、本地工具、代码审查、Git�
 
 [下载桌面版](https://github.com/shawnstack/quickforge/releases/latest) · [npm 安装](#快速开始) · [核心能力](#核心能力) · [更新记录](./CHANGELOG.md)
 
-[![npm version](https://img.shields.io/npm/v/%40shawnstack%2Fquickforge?color=2563eb&label=npm)](https://www.npmjs.com/package/@shawnstack/quickforge) · 当前版本 **1.8.1**
+[![npm version](https://img.shields.io/npm/v/%40shawnstack%2Fquickforge?color=2563eb&label=npm)](https://www.npmjs.com/package/@shawnstack/quickforge) · 当前版本 **1.9.0**
 [![npm downloads](https://img.shields.io/npm/dm/%40shawnstack%2Fquickforge?color=0f766e&label=downloads)](https://www.npmjs.com/package/@shawnstack/quickforge)
 [![GitHub release](https://img.shields.io/github/v/release/shawnstack/quickforge?color=7c3aed&label=release)](https://github.com/shawnstack/quickforge/releases/latest)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.19-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)

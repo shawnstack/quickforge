@@ -179,10 +179,10 @@
       "verification": "局部收口后，定向 Vitest 5 files / 48 tests 全通过，覆盖每次+5、按需 loadMore、失败重试、快速点击去重、折叠/视图切换重置与 generation 竞态保护，以及显示更多与普通 session 行尺寸/布局一致、muted 灰色、无可见收起控件/无 show-less i18n；目标 ESLint 0 error；完整 npm run test → 253 files / 2210 tests 全通过；npm run lint → 0 errors / 1 existing warning（server/cloud/identity.mjs:92）；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；git diff --check 与 feature JSON 解析通过。未提交、未触碰生成目录或无关 design-mockups。"
     },
     {
-      "id": "release-v1.8.1",
-      "name": "发布 patch v1.8.1",
-      "status": "in_progress",
-      "approach": "以当前 HEAD b81effaa 为最终 1.8.1 基线完成完整 patch 发布：同步最终发布说明与状态，重新运行完整 test/lint/build 门禁，重新生成并校验 runtime/offline/tarball 包；全部门禁通过后再完成 master/dev 同步、release commit、v1.8.1 tag、远端推送，并由用户完成 GitHub Desktop Release 与 npm publish。",
+      "id": "release-v1.9.0",
+      "name": "发布 minor v1.9.0",
+      "status": "done",
+      "approach": "v1.8.1 tag（35e0863）之后 dev 累计 11 个提交：PDF/DOCX/XLSX 文档预览与移动端 H5 全屏、Monaco 本地打包与瘦身查看器、SSE 首字节与 Cloud 模型目录响应性修复、git/status 20s 超时与中止防护、SQLite 单遍 canonical 编码 + 分批 yield、synchronous FULL→NORMAL、vendor node-pty 四平台运行时、qf-agent 下线与前端构建依赖归位、todo pending 空心圆图标。因含新功能与分发行为变化，经用户确认按 minor 发布；npm 1.8.1 从未发布，用户决策跳过、由 1.9.0 直接取代（latest 从 1.8.0 跳到 1.9.0）。执行：npm version minor 1.8.1→1.9.0；CHANGELOG 新增 [1.9.0] 章节（Added/Changed/Fixed/Released）；README 版本徽章更新为 1.9.0（安装命令本就使用 @latest 无需改动）；完整 test/lint/build 门禁通过后生成 runtime/offline 包并 npm pack 出 tarball；本条目随 release commit 提交，随后 master 快进到发布提交、tag v1.9.0、原子推送 master/dev/tag，GitHub Desktop Release 与 npm publish 由用户执行。",
       "files": [
         "package.json",
         "package-lock.json",
@@ -192,7 +192,23 @@
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "进行中：package.json 已是 1.8.1；当前发布基线为 b81effaa，v1.8.1 tag 与 npm 1.8.1 均不存在。此前针对旧基线的 test/lint/build 与打包结果不能视为当前 HEAD 的最终发布门禁，需重新完整执行并全部通过后才能 commit/tag/push/publish。"
+      "verification": "npm run test → 259 files / 2340 tests 全部通过（硬门禁 100%）；npm run lint → 0 errors / 1 既有 warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；prepare-runtime/offline-package 后 npm pack → package-offline/shawnstack-quickforge-1.9.0.tgz（7.4MB / unpacked 24.2MB / 453 files，含 vendor/node-pty 四平台）；打包 package.json 校验 version 1.9.0、8 个运行时 dependencies + @vscode/ripgrep optionalDependencies。"
+    },
+    {
+      "id": "release-v1.8.1",
+      "name": "发布 patch v1.8.1",
+      "status": "done",
+      "approach": "patch 发布 v1.8.1 已完成：最终基线为 35e0863（b81effaa + 发布说明文档刷新），v1.8.1 tag 已创建并推送远端，master/dev 均已同步到该提交。npm 上 1.8.1 从未发布（npm latest 停留在 1.8.0）；经用户决策跳过补发，由后续 v1.9.0 直接取代。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "已完成：v1.8.1 tag 指向 master HEAD 35e0863 并已推送；master 与 origin/master 同步。npm 未发布 1.8.1（用户决策跳过，见 release-v1.9.0）。"
     },
     {
       "id": "remove-side-chat-title-entry-global-inspector-access",

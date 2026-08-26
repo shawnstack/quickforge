@@ -1,5 +1,18 @@
 # Session Handoff
 
+## 当前状态：release-v1.9.0（已完成）
+
+- 目标：按用户指令「发布一个版本」，在 `v1.8.1` tag 之后以 dev HEAD（2dd87cb，11 个新提交）为基线发布 **v1.9.0（minor，用户确认）**；npm 1.8.1 从未发布，用户决策跳过、由 1.9.0 直接取代。
+- 已完成：`npm version minor` 1.8.1→1.9.0；CHANGELOG.md 顶部新增 `[1.9.0] - 2026-08-26` 章节（基于 v1.8.1..HEAD 11 个提交：文档预览+移动端 H5、Monaco 本地打包、SSE/Cloud/git 状态修复、SQLite persist 优化与 synchronous=NORMAL、vendor node-pty、包体裁剪、todo 图标）；README.md 版本徽章 → 1.9.0。
+- 门禁：完整 `npm run test` → **259 files / 2340 tests 全部通过**（硬门禁）；`npm run lint` → 0 errors / 1 既有 warning（identity.mjs:92）；`npm run build` 成功（仅既有 KaTeX/chunk size warnings）。
+- 打包：runtime/offline 包已生成，`package-offline/shawnstack-quickforge-1.9.0.tgz`（7.4MB / unpacked 24.2MB / 453 files）；元数据校验 version 1.9.0、8 运行时 deps + @vscode/ripgrep optional。
+- 文件：package.json、package-lock.json、CHANGELOG.md、README.md、feature_list.json、progress.md、session-handoff.md。
+- 发布序列：本变更构成 release commit（在 dev 上），随后 master `--ff-only` 快进、`v1.9.0` tag、原子推送 `master`/`dev`/tag。
+- Blocker：无。剩余人工步骤：GitHub Desktop Release 与 `npm publish ./package-offline/shawnstack-quickforge-1.9.0.tgz --access public`（用户执行，需 npm 登录）。
+- 下一步：发布完成后新会话从 `feature_list.json` 选择下一个非 done feature。
+
+---
+
 ## 当前状态：git-status-connection-pool-guard（已完成）
 
 - 目标：用户反馈 `GET http://localhost:5176/api/git/status?projectId=e14ed8a7-…` 「导致后续请求全部被阻止」。
@@ -145,15 +158,12 @@
 
 ---
 
-## 当前状态：release-v1.8.1（进行中）
+## 当前状态：release-v1.8.1（已完成）
 
-- 当前目标：以 `master` HEAD `b81effaa` 为最终 1.8.1 基线完成完整发布；范围仍仅是 `release-v1.8.1`。该基线包含 `7686b790` 的侧栏会话展开优化，以及 `b81effaa` 的启动时跳过 Share/LAN Access/Scheduled Runs 可选存储重复完整性扫描。
-- 当前事实：`package.json` 已是 `1.8.1`；CHANGELOG 已补充当前 HEAD 的两个新增提交。`v1.8.1` tag 不存在，npm 尚无 1.8.1；远端 `master` 仍未包含当前本地 HEAD，`dev` 也尚未同步到最终发布提交。此前关于 release commit `28c6bcc5` 已成为最终发布提交、tag 已创建并推送、发布只差 npm publish 的记录不准确。
-- 门禁状态：旧基线曾通过 test/lint/build 并生成 runtime/offline/tarball，但这些结果早于 `7686b790` 与 `b81effaa`，不能作为当前 HEAD 的最终发布验证。本轮只修正文档/状态，没有运行测试、lint、build 或打包。
-- 本轮文件：`CHANGELOG.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
-- 边界：未修改 `package.json` 版本，未手工修改 `dist/`、`package-dist/`、`package-offline/`；未执行 Git 暂存/提交/tag/push，未 npm publish。
-- Blocker：发布前必须在 `b81effaa` 基线上完整运行 `npm run test`、`npm run lint`、`npm run build` 并全部通过；任何失败都不得创建 release commit、tag 或 push。
-- 下一步：门禁全部通过后重新生成并校验 runtime/offline/tarball，创建最终 release commit 与 `v1.8.1` tag，将 `dev` 同步到最终提交，推送 `master`/`dev`/tag，再按用户确认完成 GitHub Desktop Release 与 npm publish。
+- 事实：最终基线为 `35e0863`（b81effaa + 发布说明文档刷新），`v1.8.1` tag 已创建并推送远端，master/dev 已同步到该提交；npm 1.8.1 从未发布（latest 停留在 1.8.0），经用户决策跳过补发，由 v1.9.0 直接取代（见文首 release-v1.9.0）。
+- 下一步：无；后续发布见 release-v1.9.0。
+
+---
 
 
 ## 当前状态：remove-side-chat-title-entry-global-inspector-access（已完成）

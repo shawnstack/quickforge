@@ -1,5 +1,13 @@
 # Progress
 
+## Completed Feature：release-v1.9.0
+
+- Feature: minor 发布 v1.9.0（release-v1.9.0，**已完成**）
+- Status: done — v1.8.1 tag（35e0863）之后 dev 累计 11 个提交（文档预览+移动端 H5、Monaco 本地打包、SSE/Cloud/git 状态修复、SQLite persist 优化与 synchronous=NORMAL、vendor node-pty、包体裁剪、todo 图标），含新功能与分发行为变化，经用户确认按 **minor** 发布 v1.9.0；npm 1.8.1 从未发布，用户决策跳过、由 1.9.0 直接取代。
+- Release changes: `npm version minor` 1.8.1→1.9.0（package.json + package-lock.json）；CHANGELOG.md 顶部新增 `[1.9.0] - 2026-08-26` 章节（Added/Changed/Fixed/Released，基于 v1.8.1..HEAD 11 个提交整理）；README.md 版本徽章更新为 1.9.0（安装命令使用 @latest，无其他版本引用）。
+- Verification: 完整 `npm run test` → **259 files / 2340 tests 全部通过**（发布硬门禁 100%）；`npm run lint` → 0 errors / 1 既有 warning（server/cloud/identity.mjs:92）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；`prepare-runtime-package` + `prepare-offline-package` + `npm pack` → `package-offline/shawnstack-quickforge-1.9.0.tgz`（7.4MB / unpacked 24.2MB / 453 files，含 vendor/node-pty 四平台）；打包元数据校验 version 1.9.0、8 个运行时 dependencies + @vscode/ripgrep optionalDependencies。
+- Release sequence: 本轮变更构成 release commit（7 个预期发布文件），随后 master 快进到发布提交、创建 `v1.9.0` tag、原子推送 `master`/`dev`/tag；GitHub Desktop Release 与 `npm publish` 由用户执行。
+
 ## Completed Feature：git-status-connection-pool-guard
 
 - Feature: git/status 慢请求钉死浏览器连接池的防护（git-status-connection-pool-guard，**已完成**）
@@ -101,14 +109,12 @@
 - Verification: 局部收口后，定向 `npx vitest run tests/frontend/sidebar-session-display-limit.test.ts tests/frontend/sidebar-section-order.test.ts tests/frontend/sidebar-new-chat-routing.test.ts tests/frontend/session-pagination-bootstrap.test.ts tests/frontend/project-drag-boundary.test.ts` → 5 files / 48 tests 全通过；新增契约锁定显示更多与普通 session 共用行/标题基类、muted 灰色、无 `onCollapse`/show-less key，并继续覆盖共享 `sessionViewMode`、折叠重置与 generation 竞态保护。目标 ESLint 0 error；完整 `npm run test` → 253 files / 2210 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；`git diff --check` 与 feature JSON 解析通过。
 - Boundaries: 已同步 `docs/wiki/src/components/README.md`；未新增依赖，未手工修改生成产物，未 commit/tag/push；两个无关未跟踪 design-mockups 文件未触碰。
 
-## Current Feature：release-v1.8.1
+## Current Feature：release-v1.8.1（已完成）
 
-- Feature: patch 发布 v1.8.1（**进行中**）
-- Status: in_progress — 当前发布基线为 `master` HEAD `b81effaa`，包含 `7686b790` 的侧栏会话展开优化，以及 `b81effaa` 的启动时跳过 Share/LAN Access/Scheduled Runs 可选存储重复完整性扫描。`package.json` 已是 `1.8.1`；CHANGELOG 已补充这两个已提交改动。
-- Previous verification: 旧发布基线曾完成 `npm run test`（252 files / 2194 tests）、`npm run lint`（0 errors / 1 existing warning）、`npm run build` 及 runtime/offline/tarball 打包；这些结果早于当前 HEAD，不能作为 `b81effaa` 的最终发布门禁。本轮仅做发布前文档/状态修正，未运行测试、lint、build 或打包。
-- Release facts: `v1.8.1` tag 尚不存在，npm 尚未发布 1.8.1；此前关于 release commit `28c6bcc5` 已作为最终发布提交、tag 已创建、`master`/`dev`/tag 已推送的记录与当前事实不符。最终发布需以 `b81effaa` 为基础，并让 `dev` 同步到最终发布提交。
-- Boundaries: 本轮未修改 `package.json` 版本，未手工修改 `dist/`、`package-dist/`、`package-offline/`，未运行测试或生成产物，未执行 Git 暂存/提交/tag/push，也未 npm publish。
-- Next step: 按发布 runbook 在当前基线上重新完整运行 `npm run test`、`npm run lint`、`npm run build`；三项全部通过后重新生成并校验 runtime/offline 包，再完成 release commit、`v1.8.1` tag、`master`/`dev`/tag 推送，以及用户确认的 GitHub Desktop Release 与 npm publish。任何门禁失败都不得继续发布。
+- Feature: patch 发布 v1.8.1（release-v1.8.1，**已完成**）
+- Status: done — 最终基线为 `35e0863`（b81effaa + 发布说明文档刷新），`v1.8.1` tag 已创建并推送远端，master/dev 均已同步到该提交。
+- Release facts: npm 上 1.8.1 从未发布（latest 停留在 1.8.0）；经用户决策跳过补发，由 v1.9.0 直接取代（见上方 release-v1.9.0）。
+- Next step: 无。后续发布流程见 release-v1.9.0。
 
 
 ## Completed Feature：remove-side-chat-title-entry-global-inspector-access

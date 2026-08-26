@@ -1,5 +1,29 @@
 # Progress
 
+## Completed Feature：switch-sqlite-synchronous-normal
+
+- Feature: SQLite synchronous FULL→NORMAL（switch-sqlite-synchronous-normal，**已完成**）
+- Status: done — 用户知情决策（已向用户完整解释权衡后拍板"改一下"）：接受 OS 崩溃/断电回滚「最后一次 checkpoint 以来已提交事务」的有界窗口，消除大 persist COMMIT 段的逐事务 fsync（含杀毒扫描/机械盘/网络盘下的延迟尖刺）。`server/sqlite/database.mjs`：`SQLITE_SYNCHRONOUS` 2→1（注释含决策历史链）、`configurePragmas` 以常量注入 `PRAGMA synchronous`、`publicHealth` 摘要从硬编码 `'full'` 改为 `SQLITE_SYNCHRONOUS_NAMES` 按常量派生、safety argument 注释改写为 NORMAL 语义（WAL 帧校验和保证任意崩溃模式下事务原子性/文件不撕裂；NORMAL 仅放弃逐 COMMIT fsync，进程崩溃安全；quick_check 7 天节奏不变，仍管 bit-rot）。文档按 §3.1 预设的回退条款格式显式记录：`sqlite-storage-foundation.zh-CN.md` §3.1 追加 2026-08-26 修订段（明确会话域存储 v2 无 mirror JSON 兜底、窗口内丢失即真实丢失）、`session-storage-current-architecture.zh-CN.md` 已定案条目更新为现况、wiki pragma 校验行同步。测试：foundation 断言 `.toBe(2)`→`.toBe(1)`、health `'full'`→`'normal'`。
+- Verification: 定向 vitest 8 文件（sqlite-storage-foundation/lifecycle、quick-check-gate、compatibility-spike、session-state-repository/service/phase3、agent-manager.persist-session-state）→ 8 files / 66 tests 全通过；eslint 改动文件 0 error。
+- Boundaries: 只动 pragma 值与派生逻辑，未改事务协议/连接管理；唯一 DB 打开点 database.mjs:301 每次都经 configurePragmas，全连接生效；未新增依赖；未 commit/tag/push。
+- Next step: 无 blocker。与 optimize-persist-encoding-yield 叠加后，大 persist 的事件循环占用 = 分批编码微停顿 + 单段同步写（无逐事务 fsync）；观察 200ms 慢日志确认分布。release-v1.8.1 发布门禁需含本改动全量重跑。
+
+## Completed Feature：optimize-persist-encoding-yield
+
+- Feature: 大会话持久化优化——单遍 canonical 序列化 + 编码分批让出事件循环 + 慢日志阈值 200ms（optimize-persist-encoding-yield，**已完成**）
+- Status: done — 背景：Node 单线程事件循环上，大会话 persist 的「每条消息 3 遍 JSON 序列化 + 同步 SQLite 事务」会独占线程，卡住所有在途请求（代码注释自认，SLOW_PERSIST_LOG_MS 慢日志可观测）。按用户拍板实施评估项 ①+③ 与阈值调整，synchronous=NORMAL 与 worker 线程不动。① 新增 `server/sqlite/canonical-json.mjs`：单遍 canonical 序列化器，与旧 `JSON.stringify(canonicalize(JSON.parse(JSON.stringify(x))))` 流水线**字节级等价**（toJSON 一次语义、undefined/function/symbol 对象值丢弃/数组位补 null、bigint 抛 TypeError、数字/字符串委托 JSON.stringify 格式化、键 UTF-16 码元排序），`tests/server/canonical-json.test.mjs` 差分测试 54 用例钉死等价（含 Date/toJSON 变体/null-proto/稀疏数组/lone surrogate/200 层嵌套/500 条消息）；repository 的 encodeMessage/messageDigest 切换至新序列化器，消息编码 CPU ≈ 原 1/3，digest 与既有库行完全兼容（jsonAndDigest 保留 round-trip——其调用方消费规范化 value 副本且仅处理小 body）。③ repository 新增 `encodeMessagesChunked`（默认 50 条/批，批间 setImmediate 让出事件循环）+ `normalizeRecord` 接受对齐的内部 `messagesEncoded` 预编码旁路；service 层 `savePair` 拆出 `savePairWithPlan` + 新增 `savePairChunked`：仅当 `saveSessionStatePair` 带 expectedRevision（CAS）时走「先 plan → 分批编码（yield）→ 同步事务」，yield 间隙并发提交由前置 revision CAS 转为 conflict 重试（saveInTransaction 先查 revision 再写行，无撕裂写窗口）；无 CAS 调用方保持全同步路径，`saveSessionBody`/`atomicSessionRecordUpdate` 等同步 facade 零波及。**评估并否决**「跨 yield 持事务分批 INSERT」：事务跨 await 期间其他同步写者会经 savepoint 加入该事务，中途失败 ROLLBACK 连带回滚其已确认写入（换独立连接则 busy_timeout 同步阻塞重造全局停顿），故事务内 INSERT+COMMIT 保持单段同步——残余的同步写突刺（INSERT+fsync）由慢日志量化后决定是否升级 worker 线程方案。观测：`SLOW_PERSIST_LOG_MS` 1000→200（注释同步更新），`persistAuthoritativeSessionState` 对异步化后的 saveSessionStatePair 补 await（phase3 测试同步调用点同步补 await）。
+- Verification: 定向 vitest 13 文件（canonical-json、session-state-repository/service/messages/backup/import/lifecycle/phase3/offline-export、storage facade、auto-archive、session-index-sqlite-source、agent-manager.persist-session-state）→ 13 files / 166 tests 全通过；新增用例：差分 54、encodeMessagesChunked 的 FIFO immediates 有序性证明（events ['external','done']）、预编码旁路与同步路径落库逐行字节一致、messagesEncoded 错位抛 TypeError；eslint 7 个改动文件 0 error。早期一轮并行全量出现 1 例时序抖动，随后两轮全量均绿。未跑完整 test/lint/build（服务端聚焦改动；release-v1.8.1 发布门禁时全量重跑）。
+- Boundaries: SQLite 事务语义/事务包装器/WAL+synchronous=FULL 未动；digest 算法不变（差分测试保证跨版本兼容）；未新增依赖；docs/wiki/server/README.md 已同步 repository/service 两条描述；未 commit/tag/push。
+- Next step: 无 blocker。建议跑一段时间 200ms 慢日志观察真实分布：若同步写突刺（INSERT+COMMIT 段）仍显著，后续候选为 worker 线程承载 SQLite（根治）或 replace 模式按 digest 差异只重写变更行（缩事务）；synchronous=NORMAL 属产品权衡待用户单独拍板。
+
+## Completed Feature：vendor-node-pty-runtime
+
+- Feature: 终端 node-pty 运行时 vendor 化——npm 包自带四平台预编译（vendor-node-pty-runtime，**已完成**）
+- Status: done — 背景：node-pty 1.1.0 npm 包全平台一锅端（tarball 15MB / 解压 61MB，约 48MB .pdb 死重），作为 optionalDependencies 使消费端安装沉重且离线包终端不可用；经调研（功能层面无可替代、@lydell/node-pty 为 beta、上游 npm 包已内置四平台 prebuilds 且运行时经 lib/utils.js `loadNativeModule` 按 build/Release→prebuilds/<platform>-<arch> 相对路径自解析、N-API ABI 跨 Node 稳定、MIT 允许再分发）实施本地挑运行集方案：新增 `vendor/node-pty/`（5.3MB：lib/*.js 13 文件 + win32-x64/arm64、darwin-x64/arm64 prebuilds 全部去 pdb + LICENSE + licenses/ 第三方文本），目录内 `{"type":"commonjs"}` package.json 标记解决仓库根 ESM 与 CJS lib 冲突（否则 require 报 exports is not defined），`VENDOR.json` 记录来源 node-pty@1.1.0 与平台清单，winpty/conpty MIT 许可文本从 rprichard/winpty 与 microsoft/terminal 官方仓库补齐（上游 npm 包未携带）。`scripts/vendor-node-pty.mjs` 一键重新同步（升级 node-pty devDependency 后 `npm install && node scripts/vendor-node-pty.mjs`，保留 licenses/ 与 README）。`server/terminal/terminal-manager.mjs` loadPty() 改 vendor 优先 → `require('node-pty')` 回退 → 双失败 503（PTY_UNAVAILABLE_MESSAGE 更新为平台运行时缺失语义），导出 vendoredPtyEntryPath()，darwin 加载成功后 ensureVendoredSpawnHelperExecutable() 自愈 spawn-helper 执行位（macOS posix_spawn 直接执行该二进制、Windows 打包 tarball 丢失执行位，git index 对两个 darwin spawn-helper 标记 100755，Windows 重新生成后需重设）；node-pty 自 optionalDependencies 移至 devDependencies（仅作同步源），npm 消费端不再安装 15MB 依赖、win/mac 终端开箱即用且离线可用，Linux 无上游预编译、终端需自装 node-pty 否则优雅降级。package.json files、prepare-runtime/offline-package copyEntries、electron-builder files+asarUnpack 均纳入 vendor。
+- Verification: node 冒烟：vendor 入口 require + cmd.exe spawn 收到 200 字节输出 + onExit 正常（kill 阶段 `AttachConsole failed` 为上游 1.1.0 已知噪音，官方 node_modules 副本同样存在，与 vendor 无关）；定向 vitest `tests/server/terminal-vendor-runtime.test.mjs` → 5 tests 全通过（布局/许可/排除 pdb 契约 + terminalCapabilities() enabled 且 require.cache 断言真实从 vendor 加载）；eslint 3 个改动文件 0 error；`npm install --package-lock-only` 同步 lock；`npm pack --dry-run` → 7.4MB / 452 files（vendor 前 4.8MB，+2.6MB）；完整 `npm run test` → 257 files / 2275 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（identity.mjs:92）；`npm run build` 成功（仅既有 KaTeX/chunk size warnings）。
+- Boundaries: 已同步 docs/wiki/server/README.md（terminal/ 节新增「PTY 运行时加载」）、docs/wiki/root-config.md（发布包含 vendor/）、docs/architecture/patch-release-runbook.zh-CN.md（3.6 与注意事项改为 vendor 语义）；docs/bug/server-bugs.md 的 node-pty 提及为 API/生命周期议题、与分发无关未动；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 commit/tag/push。desktop 安装包会随 vendor 带入全部四平台二进制（各平台安装器多 ~2.6MB 压缩前），如需按目标平台裁剪 electron files 可作后续优化。
+- Next step: 无 blocker；发布门禁（release-v1.8.1 或其后版本）需纳入本改动重新完整验证；可选真机验证 npm 消费端安装后终端开箱即用、macOS arm64 实测 vendor 加载、Electron 桌面包终端可用（asarUnpack 生效）。升级 node-pty 时记得跑同步脚本并核对 licenses/。
+
 ## Completed Feature：package-size-trim
 
 - Feature: 包体裁剪——qf-agent 暂时下线 + 前端依赖归位 + Monaco 语言 worker 移除（package-size-trim，**已完成**）
@@ -16,6 +40,14 @@
 - Boundaries: 未新增依赖（monaco-editor@0.55.1 本就是 devDependency 且已安装）；未手工修改 `dist/`、`package-dist/`、`package-offline/`（build 仅重建被忽略的 dist/）；未 commit/tag/push；cloud-models-timeout-nonblocking 并行改动未触碰。已同步 `docs/wiki/src/components/README.md`。
 - Next step: 无 blocker；可选真机（含断网 offline 包/Electron）验证代码/Diff 查看器加载与语法高亮；`release-v1.8.1` 发布门禁需纳入本改动重新完整验证。
 
+## Completed Feature：cloud-models-timeout-nonblocking
+
+- Feature: Cloud 模型超时正确映射与非阻塞加载（cloud-models-timeout-nonblocking，**已完成**）
+- 根因: 用户反馈 `GET /api/cloud/models` 500。日志证实为 dev server 重启后冷缓存回源 `https://qf.shawnstack.com/v1/models`，上游偶发慢响应超过默认 10s 超时（`TimeoutError` 非 `CloudApiError`）被全局 `sendError` 兜底成 500；且 `/api/models/catalog` 在 `server/model-catalog.mjs` 串行 await Cloud 目录导致主目录接口同步挂 ~10s（日志中与失败同一毫秒返回）。
+- Status: done — 服务端：`server/cloud/client.mjs` 将 fetch `TimeoutError` → `CloudApiError(504, cloud_timeout, retryable)`、网络 `TypeError` → `502 cloud_unreachable`，外部 AbortError 原样抛出；`server/model-catalog.mjs` 新增 2s 短截止（`CLOUD_MODELS_CATALOG_WAIT_MS`，可注入 `cloudWaitMs`），超时先降级仅本地/自定义模型，底层请求继续暖 60s identity 缓存，raced promise 挂 catch 防 unhandled rejection。前端：`useCloudModels` 失败后 30s 负缓存（非 refresh 直接返回 `[]`）；`resolveNewSessionModel` 与 `useAppBootstrap` 持久化 Cloud 模型恢复最多等 5s（`CLOUD_MODEL_RESOLUTION_TIMEOUT_MS`），超时走既有本地 configured 回退；`default-options-settings-tab` 首屏不再 await Cloud 目录，Cloud 到达后带 `loadSettingsGeneration` 代数守卫增量合并并按 defaults 重新解析自动选中（手动改选不覆盖），类加 `export` 供测试实例化。
+- Verification: 定向 `npx vitest run` 10 files / 98 tests 全通过（client 504/502/AbortError 分类、catalog 短截止与后台失败、负缓存与 refresh 绕过、5s 回退、设置页增量合并，含 routes/cloud、cloud identity/models、cloud-client 回归）；`npx eslint` 12 个改动文件 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体与 chunk size warnings）。未跑全量 test/lint。
+- Boundaries: 已同步 `docs/architecture/quickforge-cloud-client.zh-CN.md`、`docs/wiki/server/routes/README.md`、`docs/wiki/src/hooks/README.md`、`docs/wiki/src/lib/README.md`；未新增依赖，未手工修改生成产物，未 commit/tag/push；工作区 Monaco 相关并行改动（`MonacoCodeViewer/MonacoDiffViewer/monaco-local.*`、`docs/wiki/src/components/README.md`）未触碰。慢而正常的上游（>2s）下 catalog 该次响应不含 Cloud 模型，下一次请求命中缓存即恢复，属可接受降级。
+- Next step: 无 blocker；可选真机验证：断网/慢代理下模型选择器、新建会话与 Defaults 设置页不再长时间阻塞，网络恢复后 Cloud 模型自动回来。
 
 ## Completed Feature：mobile-h5-fullscreen-sidebar-and-inspector
 
@@ -287,6 +319,8 @@
 
 ## Notes
 
+- 全局 SSE 流首字节延迟修复（本轮）：用户反馈 `/api/agents/events`、`/api/channels/events` "请求时间长、易挂起"。诊断结论：两接口均为 SSE 长连接，DevTools 永久 Pending + Time 增长属正常表象；但 `handleGlobalStream`（server/routes/agent.mjs）`writeHead` 后无任何 body 写入，Node 会把响应头缓到第一次 `res.write`（15s ping 或首条事件）才发出，客户端 `onopen`/TTFB 最长延迟 15 秒——`handleChannelEvents` 因立即写 snapshot 无此问题。修复：`writeHead` 后加 `res.flushHeaders()` 立即刷头。新增针对性测试（tests/server/routes/agent.test.mjs：立即 flush 头 + close 时移除监听并 end），mock 的 `agentEvents` 补 `removeListener`。验证：定向 vitest 14 tests 全过，lint 仅既有 identity.mjs warning。剩余"挂起"因素（范围外，未改）：dev 下 server/Vite 重启断流后 EventSource 指数退避重连在 Network 面板呈现为新 Pending 请求；HTTP/1.1 同源 6 连接上限下每 tab 占 2-4 条 SSE（channels/events + agents/events + 会话级 stream + 设置页再开一条 channels/events），多 tab 会挤占连接池使普通 API 排队。
+
 - 侧栏项目拖拽边界（本轮）：实际依赖为 `@dnd-kit/core@6.3.1`；其 `Modifier` 参数含 `draggingNodeRect`，`autoScroll.canScroll` 签名为 `(element: Element) => boolean`。非 DragOverlay 路径会在 modifier 后把滚动增量加回活动项 transform，因此边界纯函数显式接收拖拽开始后的 Projects `scrollTop` 增量进行抵消，避免自动滚动后预览突破底部。未新增依赖，未修改样式或生成产物。
 
 - generate_image 暂时下线（本轮）：单一暴露源 `server/tools/definitions.mjs` 已移除定义，未删除 `server/tools/index.mjs` handler、`server/image-generation.mjs`、`server/routes/tools.mjs` 的 `directRouteDisabledTools`、session assets、前端 renderer/i18n/process-folding 等兼容代码；历史会话中的既有图片仍可查看/下载。未修改 CHANGELOG、依赖或生成产物。
@@ -369,7 +403,7 @@
 ## 历史笔记
 
 - 持久化锁修复（前轮）：`withSessionPersistenceLock` 从全局单链改为 keyed 队列（`session-persistence-lock.mjs`），默认 key（''）保持全局串行；`persistSession` 在 SQLite 权威模式下用 `session:${sessionId}` key，JSON 镜像模式保留全局 key（bucket 级 read-modify-write 需要）。正确性依据：authoritative 模式下正确性由 per-row revision CAS 独立保证，全局互斥是 JSON 时代遗留；SQLite 单连接 + DatabaseSync 同步 API + Node 单线程保证任意时刻至多一个事务执行。auto-archive 仍用全局 key；其与 per-session persist 的交错由 CAS + 写前重校验保证。锁 drain 后 Map 条目自动清理。
-- 慢 persist 观测：`persistSession` 记录耗时（排队+写），≥1s 打 warn（含 messageCount），便于定位"大会话同步事务阻塞事件循环"。注意同步 SQLite 大事务本身的事件循环阻塞是 node:sqlite 固有行为，分锁只消除排队放大，单事务耗时需靠拆事务/消息 split（已有 F9 split 机制）缓解。
+- 慢 persist 观测：`persistSession` 记录耗时（排队+编码+同步写），阈值已由 1s 降至 200ms（optimize-persist-encoding-yield）打 warn（含 messageCount），便于定位"大会话同步事务阻塞事件循环"。注意同步 SQLite 大事务本身的事件循环阻塞是 node:sqlite 固有行为，分锁只消除排队放大；编码段已由单遍序列化器+分批 yield 优化，残余同步写突刺（INSERT+COMMIT）需慢日志量化后再决定是否升级 worker 线程方案。
 - `runTaskkill` 超时兜底（`server/utils/process-tree.mjs`）：taskkill.exe 挂起时 10s 后 resolve(false)，不再让 dispose()/destroyAgent 永久悬挂（Windows 上 OpenCode 子进程清理路径）。
 - `/api/agents/:id/restore` 挂起+内存增长根因分析：① 前端切到一个 session 时并发发 POST /restore + GET /state + GET /messages + GET /status + SSE，这些路由在内存无 session 时都隐式回落 restoreAgent，而旧实现是 check-then-act，并发时各自 createAgent、最后一次 set 覆盖前面的——被覆盖的 session 永不销毁，形成孤儿泄漏。② 前端切 session 只 abort fetch，服务端 handler 照常建 session。③ agentSessions Map 唯一删除点是 destroyAgent。④ 全局 withSessionPersistenceLock 是无超时单链 promise 队列，persist 积压时阻塞事件循环 → 请求挂起。
 - restore 修复（前轮）：`restoreAgent` 拆为外层去重 + `restoreAgentUnlocked`，`pendingRestores` Map 按 sessionId 共享 in-flight Promise，finally 清理。所有并发调用点收敛到模块内单个函数。

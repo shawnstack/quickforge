@@ -1,6 +1,67 @@
 {
   "features": [
     {
+      "id": "switch-sqlite-synchronous-normal",
+      "name": "SQLite synchronous FULL→NORMAL（用户决策，消除 COMMIT fsync 延迟尖刺）",
+      "status": "done",
+      "approach": "继 optimize-persist-encoding-yield 之后的用户知情决策：接受 OS 崩溃/断电下回滚「最后一次 checkpoint 以来已提交事务」的有界丢失窗口（≈ checkpoint 间隔），换取大 persist COMMIT 段免逐事务 fsync（杀毒实时扫描/机械盘/网络盘下延迟尖刺尤为明显）。server/sqlite/database.mjs SQLITE_SYNCHRONOUS 2→1，configurePragmas 改用常量注入，publicHealth 的 synchronous 摘要从硬编码 'full' 改为按常量派生（'normal'）；safety argument 注释改写为 NORMAL 语义（WAL 帧校验和保证任意崩溃模式下事务原子性/库文件不撕裂，NORMAL 仅放弃逐 COMMIT fsync，进程崩溃安全，quick_check 节奏不变）。该决策有完整历史链：NORMAL → 设计评审标记未论证 → 实测 0.46ms/op 定案 FULL（sqlite-storage-foundation §3.1）→ 本次按 §3.1 预设的回退条款显式切回 NORMAL；会话域存储 v2 恒 SQLite 权威、无 mirror JSON 兜底，窗口内丢失即真实丢失，已在文档中如实记录。同步更新 docs/architecture/sqlite-storage-foundation.zh-CN.md（§3.1 追加修订记录 + pragma 表）、session-storage-current-architecture.zh-CN.md（已定案条目改为现况）、docs/wiki/server/README.md（pragma 校验行）；tests/server/sqlite-storage-foundation.test.mjs 断言 .toBe(2)→.toBe(1)、health 'full'→'normal'。",
+      "files": [
+        "server/sqlite/database.mjs",
+        "tests/server/sqlite-storage-foundation.test.mjs",
+        "docs/architecture/sqlite-storage-foundation.zh-CN.md",
+        "docs/architecture/session-storage-current-architecture.zh-CN.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 8 个 SQLite 相关文件（sqlite-storage-foundation/lifecycle、sqlite-quick-check-gate、sqlite-compatibility-spike、session-state-repository/service/phase3、agent-manager.persist-session-state）→ 8 files / 66 tests 全通过（含更新后的 pragma=1 与 health 'normal' 断言；所有经 initializeSqliteStorage 的测试均通过 verifyPragmas 校验）；npx eslint 改动文件 0 error。"
+    },
+    {
+      "id": "optimize-persist-encoding-yield",
+      "name": "大会话持久化优化：单遍 canonical 序列化 + 分批让出事件循环 + 慢日志阈值 200ms",
+      "status": "done",
+      "approach": "针对「大 session 同步 SQLite 事务/大 JSON 序列化独占事件循环导致全局接口卡顿」的三项低风险优化（评估结论中 ①+③ 与观测阈值，synchronous=FULL→NORMAL 与 worker 线程按用户决策暂不动）。① 单遍序列化器：新增 server/sqlite/canonical-json.mjs canonicalJsonStringify()，与旧 encodeMessage 的 JSON.stringify(canonicalize(JSON.parse(JSON.stringify(x)))) 三遍流水线字节级等价（toJSON 一次语义、undefined/function/symbol 对象值丢弃数组位补 null、bigint 抛错、数字/字符串格式委托 JSON.stringify、键按 UTF-16 码元排序），由 tests/server/canonical-json.test.mjs 差分测试钉死（54 用例，语料含 Date/toJSON 变体/null-proto/稀疏数组/代理项/500 条消息数组等）；session-state-repository.mjs 的 encodeMessage/messageDigest 切换至新序列化器（jsonAndDigest 保留 round-trip：其调用方消费规范化 value 副本，且仅用于小 body），消息编码 CPU 约降至原 1/3 且 digest 与旧库行完全兼容。③ 分批让出（事务保持同步原子的安全子集）：repository 新增 encodeMessagesChunked()（默认 50 条/批，批间 setImmediate）+ normalizeRecord 接受与 messages 对齐的内部 messagesEncoded 预编码行旁路；service 层 savePair 拆出 savePairWithPlan，新增 savePairChunked：仅当 saveSessionStatePair 带 expectedRevision（CAS 保护）时启用——先算 plan、分批编码（yield 间隙的并发提交使 revision 前置 CAS 检查转为 SESSION_STATE_CONFLICT 重试而非撕裂写）、再跑同步事务；无 CAS 调用方保持全同步 savePair 路径，saveSessionBody/atomic* 等同步 facade 零波及。评估过「事务跨 yield 分批 INSERT」方案并否决：跨 await 持事务期间其他同步写者会经 savepoint 加入该事务，中途失败 ROLLBACK 会连带回滚其已确认写入（换连接则 busy_timeout 阻塞重造全局停顿），故事务内 INSERT+COMMIT 仍为单段同步。观测：agent-manager SLOW_PERSIST_LOG_MS 1000→200（慢日志频段从极端尾部放宽到真实分布），persistAuthoritativeSessionState 对 saveSessionStatePair 补 await。",
+      "files": [
+        "server/sqlite/canonical-json.mjs",
+        "server/sqlite/session-state-repository.mjs",
+        "server/session-state-service.mjs",
+        "server/agent-manager.mjs",
+        "tests/server/canonical-json.test.mjs",
+        "tests/server/session-state-repository.test.mjs",
+        "tests/server/session-state-phase3.test.mjs",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 13 个相关文件（canonical-json、session-state-repository/service/messages/backup/import/lifecycle/phase3/offline-export、storage.session-state-facade、auto-archive、session-index-sqlite-source、agent-manager.persist-session-state）→ 13 files / 166 tests 全通过（含新增：差分 54 用例、encodeMessagesChunked yield 有序性证明、预编码旁路与同步路径落库字节一致、messagesEncoded 错位抛 TypeError；session-state-phase3 对 saveSessionStatePair 异步化补 await）；npx eslint 7 个改动文件 0 error。早期一轮并行全量跑出现过 1 例时序抖动（并行 worker 定时器敏感用例），复跑两轮全量均绿。未跑完整 npm run test/build（本次为服务端聚焦改动，发布门禁时按 runbook 全量重跑）。"
+    },
+    {
+      "id": "vendor-node-pty-runtime",
+      "name": "终端 node-pty 运行时 vendor 化（npm 包自带四平台预编译）",
+      "status": "done",
+      "approach": "上游 node-pty 1.1.0 npm 包全平台一锅端（tarball 15MB / 解压 61MB，约 48MB 为 .pdb 调试符号），作为 optionalDependencies 分发导致消费端安装重且离线体验差。经评估（功能无替代、@lydell/node-pty 处于 beta、上游 1.1.0 npm 包已内置四平台 prebuilds 且运行时按 lib/utils.js loadNativeModule 的 build/Release→prebuilds/<platform>-<arch> 相对路径自解析），选择本地挑出最小运行集直接随 qf 分发：新增 vendor/node-pty/（约 5MB，win32-x64/arm64 + darwin-x64/arm64 四平台 lib/*.js 运行时 JS + prebuilds 去 pdb，布局与上游一致），目录内放 {\"type\":\"commonjs\"} package.json 标记解决仓库根 ESM 与 CJS lib 冲突，VENDOR.json 记录来源版本与平台清单，LICENSE + licenses/（winpty/conpty MIT 文本，上游 npm 包未携带、从各自官方仓库补齐）满足再分发合规。scripts/vendor-node-pty.mjs 负责从 node-pty devDependency 重新同步（保留 licenses/ 与 README）。server/terminal/terminal-manager.mjs loadPty() 改为 vendor 优先、require('node-pty') 回退、双失败 503 降级（PTY_UNAVAILABLE_MESSAGE 更新）；导出 vendoredPtyEntryPath() 供测试；darwin 加载成功后 ensureVendoredSpawnHelperExecutable() 自愈 spawn-helper 执行位（macOS posix_spawn 直接执行该二进制，Windows 打包 tarball 会丢失执行位），git index 对两个 darwin spawn-helper 标记 100755。node-pty 从 optionalDependencies 移到 devDependencies（npm 消费端不再安装 15MB 依赖；Linux 无预编译，终端降级为需自装 node-pty）。package.json files、prepare-runtime/offline-package copyEntries、electron-builder files+asarUnpack 均加入 vendor。",
+      "files": [
+        "vendor/node-pty/",
+        "scripts/vendor-node-pty.mjs",
+        "server/terminal/terminal-manager.mjs",
+        "tests/server/terminal-vendor-runtime.test.mjs",
+        "package.json",
+        "package-lock.json",
+        "scripts/prepare-runtime-package.cjs",
+        "scripts/prepare-offline-package.cjs",
+        "desktop/electron-builder.config.cjs",
+        "docs/wiki/server/README.md",
+        "docs/wiki/root-config.md",
+        "docs/architecture/patch-release-runbook.zh-CN.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "node 冒烟：vendor 入口加载 + cmd.exe pty spawn/收到输出/exit 正常（AttachConsole failed 为上游 1.1.0 kill 阶段已知噪音，node_modules 官方副本同样存在）；定向 vitest tests/server/terminal-vendor-runtime.test.mjs → 5 tests 全通过（结构契约 + terminalCapabilities() 经 require.cache 断言 vendor-first 真实加载）；npx eslint 3 个改动文件 0 error；npm install --package-lock-only 同步 lock（node-pty 转 dev）；npm pack --dry-run → 7.4MB / 452 files（原 4.8MB，+2.6MB 四平台运行时）；完整 npm run test → 257 files / 2275 tests 全通过；npm run lint → 0 errors / 1 既有 warning（server/cloud/identity.mjs:92）；npm run build 成功（仅既有 KaTeX/chunk size warnings）。未创建 commit/tag/push。"
+    },
+    {
       "id": "package-size-trim",
       "name": "包体裁剪：qf-agent 暂时下线 + 前端依赖归位 + Monaco 语言 worker 移除",
       "status": "done",
@@ -1570,6 +1631,34 @@
         "session-handoff.md"
       ],
       "verification": "定向 npx vitest run（tool-artifacts/artifact-preview-utils/workspace-inspector-tabs/server tools index+definitions/workspace-preview）→ 6 files / 169 tests 全通过；完整 npm run test → 253 files / 2247 tests 全通过；npm run lint → 0 errors / 1 既有 warning（identity.mjs）；npm run build → 成功（仅既有 KaTeX/chunk warnings）；确认 pdfjs/docx-preview/xlsx 未重复打包（动态 import 复用既有 pi-web-ui chunk 模块）。未创建 commit/tag/push，未手工修改生成产物。"
+    },
+    {
+      "id": "cloud-models-timeout-nonblocking",
+      "name": "Cloud 模型超时正确映射与非阻塞加载",
+      "status": "done",
+      "approach": "修复 GET /api/cloud/models 上游超时被全局兜底为 500：server/cloud/client.mjs 将 fetch TimeoutError 包装为 CloudApiError(504, cloud_timeout, retryable)、网络 TypeError 包装为 502 cloud_unreachable，外部 AbortError 原样抛出。/api/models/catalog 对 Cloud 目录改用 2 秒短截止等待（server/model-catalog.mjs CLOUD_MODELS_CATALOG_WAIT_MS，可注入 cloudWaitMs），超时先降级仅本地/自定义模型，底层请求继续并暖 60 秒 identity 缓存，后台失败挂 catch 防 unhandled rejection。前端非阻塞化：useCloudModels 失败后 30 秒负缓存（非 refresh 调用直接返回 []，成功清除，refresh 绕过）；resolveNewSessionModel 与 useAppBootstrap 恢复持久化 Cloud 模型时最多等待 5 秒，超时走既有本地 configured 回退（不改变失败语义）；default-options-settings-tab 首屏不再 await Cloud 目录，先用 catalog/local 渲染，Cloud 到达后带 loadSettings 代数守卫增量合并并按 defaults 重新解析自动选中（手动改选不覆盖），类加 export 供测试实例化。",
+      "files": [
+        "server/cloud/client.mjs",
+        "server/model-catalog.mjs",
+        "src/hooks/useAppBootstrap.ts",
+        "src/hooks/useCloudModels.ts",
+        "src/lib/default-options-settings-tab.ts",
+        "src/lib/pi-chat.ts",
+        "tests/server/cloud/client.test.mjs",
+        "tests/server/model-catalog.test.mjs",
+        "tests/frontend/use-cloud-models.test.ts",
+        "tests/frontend/pi-chat-cloud-models.test.ts",
+        "tests/frontend/use-app-bootstrap-cloud.test.ts",
+        "tests/frontend/default-options-settings-tab.test.ts",
+        "docs/architecture/quickforge-cloud-client.zh-CN.md",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/src/hooks/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 10 files / 98 tests 全通过（含 routes/cloud、cloud identity/models、cloud-client 回归）；npx eslint 12 个改动文件 0 error；npx tsc -b --pretty false 通过；npm run build 成功（仅既有 KaTeX 字体与 chunk size warnings）。未跑全量 test/lint；未新增依赖；未手工修改生成产物；未 commit/tag/push。工作区另有 Monaco 相关并行改动未触碰。"
     }
   ]
 }

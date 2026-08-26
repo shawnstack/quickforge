@@ -1,5 +1,39 @@
 # Session Handoff
 
+## 当前状态：switch-sqlite-synchronous-normal（已完成）
+
+- 目标：按用户知情决策把 SQLite `synchronous` 从 FULL 切回 NORMAL，消除大 persist COMMIT 段逐事务 fsync（及其在杀毒扫描/机械盘/网络盘上的延迟尖刺）；接受 OS 崩溃/断电回滚「最后一次 checkpoint 以来已提交事务」的有界窗口（进程崩溃安全）。
+- 实现：`server/sqlite/database.mjs` `SQLITE_SYNCHRONOUS` 2→1；`configurePragmas` 用常量注入；`publicHealth` synchronous 摘要改为 `SQLITE_SYNCHRONOUS_NAMES` 派生（原硬编码 'full'）；safety argument 注释改写为 NORMAL 语义（WAL 帧校验和 → 任意崩溃事务原子/不撕裂，仅放弃逐 COMMIT fsync）。文档：`sqlite-storage-foundation.zh-CN.md` §3.1 追加 2026-08-26 修订段（按其预设回退条款格式；明确存储 v2 无 mirror 兜底、窗口内丢失即真实丢失）、`session-storage-current-architecture.zh-CN.md`、wiki pragma 行。测试：foundation pragma 断言 2→1、health 'full'→'normal'。
+- 验证：定向 vitest 8 SQLite 相关文件 / 66 tests 全通过；eslint 0 error。
+- 文件：server/sqlite/database.mjs、tests/server/sqlite-storage-foundation.test.mjs、docs/architecture/sqlite-storage-foundation.zh-CN.md、docs/architecture/session-storage-current-architecture.zh-CN.md、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：与同会话完成的 optimize-persist-encoding-yield（单遍序列化 + 分批 yield + 慢日志 200ms，见下节）叠加后观察慢日志分布；release-v1.8.1（in_progress）发布门禁需含两项改动全量重跑 test/lint/build。工作区另有 cloud-models-timeout-nonblocking 等未提交改动，无冲突。
+
+---
+
+## 当前状态：optimize-persist-encoding-yield（已完成）
+
+- 目标：消除「大 session 持久化时消息 3 遍 JSON 序列化 + 同步编码独占事件循环 → 全局接口卡顿」，按用户决策实施评估项 ①单遍序列化器 + ③分批让出（安全子集）+ 慢日志阈值 1000→200ms；synchronous=NORMAL 与 SQLite worker 线程暂不动（NORMAL 已向用户解释为崩溃持久性权衡，待单独拍板）。
+- 实现：新增 `server/sqlite/canonical-json.mjs`（canonicalJsonStringify，与旧三遍流水线字节级等价，差分测试 `tests/server/canonical-json.test.mjs` 54 用例钉死）；`session-state-repository.mjs` encodeMessage/messageDigest 切换新序列化器（digest 与既有库行兼容）、新增 `encodeMessagesChunked`（50 条/批 + 批间 setImmediate）与 normalizeRecord 的 `messagesEncoded` 预编码旁路；`session-state-service.mjs` savePair 拆 savePairWithPlan + savePairChunked（仅 expectedRevision/CAS 调用方走 yield 编码路径，其余同步路径零波及），`saveSessionStatePair` 变 async（唯一调用方 agent-manager:2424 已补 await）；`agent-manager.mjs` SLOW_PERSIST_LOG_MS=200。**否决项备忘**：跨 yield 持 SQLite 事务分批 INSERT 不可行——事务挂起期间其他同步写者经 savepoint 加入同一事务，中途失败 ROLLBACK 会回滚其已确认写入；独立连接则 busy_timeout 同步阻塞重造全局停顿。
+- 验证：定向 vitest 13 文件 / 166 tests 全通过（含新增 yield 有序性、预编码旁路字节一致、错位抛 TypeError 用例）；eslint 改动文件 0 error；feature_list.json/progress.md/本文件已同步，docs/wiki/server/README.md 的 repository/service 两条已更新。
+- 文件：server/sqlite/canonical-json.mjs（新）、server/sqlite/session-state-repository.mjs、server/session-state-service.mjs、server/agent-manager.mjs、tests/server/canonical-json.test.mjs（新）、tests/server/session-state-repository.test.mjs、tests/server/session-state-phase3.test.mjs、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：跑一段时间观察 200ms 慢日志分布——若同步写突刺（INSERT+COMMIT 段）仍显著，候选升级路径：SQLite 移 worker 线程（根治）/ replace 按 digest 差异只重写变更行（缩事务）；synchronous=FULL→NORMAL 需用户拍板（会削弱断电/OS 崩溃下的已提交事务持久性，与 7 天 quick_check 节奏的安全论证绑定）。注意 `release-v1.8.1` 仍 in_progress，发布门禁需含本改动全量重跑 test/lint/build。工作区另有 cloud-models-timeout-nonblocking 等未提交改动，与本改动无冲突。
+
+---
+
+## 当前状态：vendor-node-pty-runtime（已完成）
+
+- 目标：把终端所需的 node-pty 运行时从 15MB/61MB 的上游 npm 包裁剪为最小运行集，直接随 `@shawnstack/quickforge` npm 包分发（用户要求四平台齐全）。
+- 实现：新增 `vendor/node-pty/`（5.3MB，win32-x64/arm64 + darwin-x64/arm64，lib JS + prebuilds 去 pdb + 许可文本），内嵌 `{"type":"commonjs"}` package.json 标记规避仓库根 ESM 冲突，`VENDOR.json` 记录来源 node-pty@1.1.0；`scripts/vendor-node-pty.mjs` 负责从 devDependency 重新同步（保留 licenses/ 与 README）；`server/terminal/terminal-manager.mjs` loadPty() vendor 优先 → node-pty 回退 → 503 降级，导出 vendoredPtyEntryPath()，darwin 上 ensureVendoredSpawnHelperExecutable() 自愈 spawn-helper 执行位（git index 已标 100755，Windows 重新生成后需 `git update-index --chmod=+x` 重设）；node-pty 移 optionalDependencies → devDependencies；package.json files、两个 prepare 脚本 copyEntries、electron-builder files+asarUnpack 纳入 vendor。
+- 验证：定向 vitest 5 tests（含 require.cache 断言 vendor-first）+ node 冒烟 spawn 通过；完整 `npm run test` 257 files / 2275 tests 全通过；`npm run lint` 0 errors / 1 既有 warning；`npm run build` 成功；`npm pack --dry-run` 7.4MB / 452 files（原 4.8MB）。
+- 文件：vendor/node-pty/**（新）、scripts/vendor-node-pty.mjs（新）、tests/server/terminal-vendor-runtime.test.mjs（新）、server/terminal/terminal-manager.mjs、package.json、package-lock.json、scripts/prepare-runtime-package.cjs、scripts/prepare-offline-package.cjs、desktop/electron-builder.config.cjs、docs/wiki/server/README.md、docs/wiki/root-config.md、docs/architecture/patch-release-runbook.zh-CN.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：可选真机验证（npm 消费端终端开箱即用、macOS arm64、Electron asarUnpack）；升级 node-pty 时跑 `npm install && node scripts/vendor-node-pty.mjs`；`release-v1.8.1` 仍 in_progress，发布门禁需纳入本改动重新完整验证（tarball 现为 7.4MB）。
+- Notes（与本次 feature 无关）：node-pty 1.1.0 Windows kill 阶段 conpty_console_list_agent 有 `AttachConsole failed` stderr 噪音（官方副本同样存在，疑似上游 bug，与 vendor 化无关）。
+
+---
+
 ## 当前状态：global-sse-flush-headers（已完成）
 
 - 目标：用户反馈 `http://localhost:5176/api/agents/events`、`/api/channels/events` 请求时间长、易挂起；诊断后修复 `/api/agents/events` 首字节延迟问题。
@@ -22,6 +56,27 @@
 - 边界：vite.config.ts 未动（并行 Monaco 会话刚移除 monaco manual chunk，为 rolldown 首屏刻意决策，本轮构建沿用）；qf-agent-process.mjs / public-api.mjs 未动（测试全用注入 fake，无需改）；并行会话的 monaco-local-bundled-loading 改动完整保留，本轮 worker 裁剪叠加其上并同步了其 wiki 描述。未 commit/tag/push。
 - 下一步：无 blocker。Cloud 远程访问暂不可用（unavailable），恢复=还原二进制与四处打包引用；release-v1.8.1 发布门禁需在含本轮改动的基线重跑完整 test/lint/build。
 
+## 当前状态：monaco-local-bundled-loading（已完成）
+
+- 目标：消除 Monaco 编辑器对 `cdn.jsdelivr.net` 的运行时依赖（Edge Tracking Prevention 提示 + package-offline 离线场景编辑器加载不出），并保证不拖慢首屏。
+- 实现：`src/components/workspace/monaco-local.ts`（新）提供 `ensureLocalMonaco()` 模块级单例——函数内 `Promise.all` 动态 import `monaco-editor` 与 editor/json/css/html/ts 五个 `?worker`，设置 `self.MonacoEnvironment.getWorker` 按 label 分发，经 `@monaco-editor/react` 的 `loader.config({ monaco })` 注册本地实例；顶层只 import `loader`（Environment 为 type-only，编译期擦除）。`MonacoCodeViewer.tsx` / `MonacoDiffViewer.tsx` 增加 `monacoReady` gate（useEffect + cancelled 清理；config 先于 `loader.init()`，杜绝默认 CDN 注入；未 ready 返回 null，其余 props/options 不变）。`vite.config.ts` 删除 monaco manualChunks 分支并留注释说明：monaco 本体仅被 monaco-local 动态 import 引用，默认分包隔离为异步 chunk；若设 manual chunk，rolldown 会把共享 preload-helper 收编进 monaco chunk 并经 modulepreload 拖回首屏（已实测复现并修复）。
+- 文件：`src/components/workspace/monaco-local.ts`（新）、`src/components/workspace/MonacoCodeViewer.tsx`、`src/components/workspace/MonacoDiffViewer.tsx`、`vite.config.ts`、`tests/frontend/monaco-local.test.ts`（新，源码契约）、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 4 files / 29 tests 全通过；eslint 改动文件 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（monaco 异步 chunk：editor.api2 3.63MB/gzip 926KB + 5 个独立 worker，与既存大 chunk 共同触发既有 size warning）；dist 只读检查：index.html modulepreload 11 项与入口静态闭包均不含 monaco；全 dist 仅 1 处 `cdn.jsdelivr.net` 死字符串（`@monaco-editor/loader` 默认 config，运行时被短路，无网络请求）。
+- 边界：未新增依赖（monaco-editor 本就在 devDependencies）；未手工修改生成产物；未 commit/tag/push；cloud-models-timeout-nonblocking 并行改动未触碰。
+- 下一步：无 blocker；可选真机断网验证代码/Diff 查看器。注意 `release-v1.8.1` 仍 in_progress，本改动需纳入其发布门禁完整 test/lint/build 重新验证。
+
+---
+
+## 当前状态：cloud-models-timeout-nonblocking（已完成）
+
+- 背景与根因：用户报告 `http://localhost:5176/api/cloud/models` 500。`~/.quickforge/logs/server-2026-08-26.log` 证实：10:25:45 dev server 重启 → Cloud identity/模型内存缓存清空 → 首次回源 `https://qf.shawnstack.com/v1/models` 超时（默认 10s，`TimeoutError`）→ 非 `CloudApiError` 被全局 `sendError` 兜底为 500；同时 `/api/models/catalog` 在 `server/model-catalog.mjs` 串行 await 同一 in-flight promise，主模型目录同步挂 ~10s（阻塞功能使用）。
+- 实现：`server/cloud/client.mjs` fetch 异常分类（TimeoutError→504 `cloud_timeout`、TypeError→502 `cloud_unreachable`、均 retryable，外部 AbortError 原样抛）；`server/model-catalog.mjs` 2s 短截止 + 底层请求继续暖缓存 + 防 unhandled rejection；`useCloudModels` 失败 30s 负缓存；`pi-chat.ts resolveNewSessionModel` 与 `useAppBootstrap` 5s 上限走既有本地回退；`default-options-settings-tab.ts` 设置页先渲染 catalog/local、Cloud 后台增量合并（loadSettings 代数守卫 + 手动改选保护），类加 export 供测试。
+- 文件：`server/cloud/client.mjs`、`server/model-catalog.mjs`、`src/hooks/useAppBootstrap.ts`、`src/hooks/useCloudModels.ts`、`src/lib/pi-chat.ts`、`src/lib/default-options-settings-tab.ts`、5 个测试文件（新建 `tests/frontend/default-options-settings-tab.test.ts`）、`docs/architecture/quickforge-cloud-client.zh-CN.md`、`docs/wiki/server/routes/README.md`、`docs/wiki/src/hooks/README.md`、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 10 files / 98 tests 全通过；eslint 12 文件 0 error；`npx tsc -b` 通过；`npm run build` 成功（仅既有 KaTeX/chunk warnings）。未跑全量 test/lint。
+- 边界：未新增依赖，未手工修改生成产物，未 commit/tag/push；工作区 Monaco 相关并行改动（`MonacoCodeViewer.tsx`、`MonacoDiffViewer.tsx`、`monaco-local.ts`、`tests/frontend/monaco-local.test.ts`、`vite.config.ts` monaco chunk 策略、`docs/wiki/src/components/README.md`）为其他任务未提交内容，本轮未触碰。
+- 下一步：无 blocker。注意 `release-v1.8.1` feature 仍为 in_progress，本改动需纳入其发布门禁的完整 test/lint/build 重新验证。
+
+---
 
 ## 当前状态：mobile-h5-fullscreen-sidebar-and-inspector（已完成）
 

@@ -9,6 +9,7 @@ module.exports = {
     'server/**',
     'skills/**',
     'plugins/**',
+    'vendor/**',
     'dist/**',
     'package.json',
     'LICENSE',
@@ -17,6 +18,7 @@ module.exports = {
   npmRebuild: false,
   asarUnpack: [
     '**/*.node',
+    'vendor/node-pty/**',
     '**/node_modules/@vscode/os-proxy-resolver*/**',
     '**/node_modules/@vscode/windows-ca-certs/**',
   ],

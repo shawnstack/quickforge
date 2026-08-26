@@ -324,6 +324,12 @@ server/
 - `routes/terminal.mjs` — `/api/terminal/capabilities`、`/api/terminal/sessions`、`/api/terminal/sessions/:id/input` 和 `/api/terminal/sessions/:id/ws`。
 - `routes/system.mjs` — 系统状态、服务重启、关于信息和 QuickForge Runtime 更新 API；`GET /api/system/update/check` 检查 npm 分发的 Runtime 版本，`POST /api/system/update` 仅允许 localhost 请求并要求 `x-quickforge-action: update`，会启动外部 `update-supervisor.mjs`，让当前服务退出后再执行全局 npm 更新并自动重启；Desktop 客户端更新不走该 npm 更新入口，而是通过 GitHub Releases / 桌面包分发。
 
+**PTY 运行时加载**:
+- `loadPty()` 优先加载仓库自带的 vendored 运行时 `vendor/node-pty/lib/index.js`（约 5MB，含 win32-x64/arm64、darwin-x64/arm64 四平台预编译，由 `scripts/vendor-node-pty.mjs` 从 node-pty devDependency 同步生成，来源版本记录在 `vendor/node-pty/VENDOR.json`）；失败时回退 `require('node-pty')`（如用户自装），两者皆不可用时 capabilities 返回 503 降级，报错文案见 `PTY_UNAVAILABLE_MESSAGE`。
+- vendored 目录带 `{"type":"commonjs"}` package.json 标记（仓库根是 ESM），布局与上游一致（`lib/` 与 `prebuilds/<platform>-<arch>/` 为兄弟目录，`lib/utils.js` 的 `loadNativeModule` 按相对路径解析），二进制为 N-API 构建，跨 Node 版本 ABI 稳定，无需安装期编译。
+- 上游 node-pty 1.1.0 未提供 Linux 预编译：Linux 上终端依赖外部安装 node-pty（npm 包已不再自动安装该依赖），缺失时优雅降级；win32/darwin 开箱即用。macOS 上 node-pty 会直接 `posix_spawn` 执行 `prebuilds/darwin-*/spawn-helper`，因 Windows 打包的 tarball 会丢失可执行位，`loadPty()` 成功加载 vendor 后经 `ensureVendoredSpawnHelperExecutable()` 在 darwin 上自愈补执行位（git index 已对这两个文件标记 100755，Windows 重新生成后需重设，见 vendor README）。
+- 许可合规：上游 MIT `LICENSE` 与 `licenses/` 下的 winpty/conpty 第三方文本随 vendor 目录分发。
+
 **安全边界**:
 - 终端接口强制仅允许 localhost 访问；LAN 分享和共享会话页面不能访问。Windows Desktop 默认启用本地终端。
 - 终端运行在本机用户权限下，不是沙箱；默认 cwd 为当前项目目录。

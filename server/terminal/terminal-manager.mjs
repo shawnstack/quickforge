@@ -1,10 +1,15 @@
 import os from 'node:os'
+import fs from 'node:fs'
+import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { readTerminalShellConfig, resolveTerminalShellProfile } from '../project-config.mjs'
 import { logger } from '../utils/logger.mjs'
 
 const require = createRequire(import.meta.url)
+const VENDOR_PTY_ENTRY = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'vendor', 'node-pty', 'lib', 'index.js')
+const PTY_UNAVAILABLE_MESSAGE = 'Terminal runtime is unavailable for this platform. Install node-pty to enable it.'
 const MAX_SESSIONS = Math.max(1, Number(process.env.QUICKFORGE_MAX_TERMINALS || 6))
 const TERMINAL_DISABLED = process.env.QUICKFORGE_TERMINAL === '0'
 const RECONNECT_GRACE_MS = Number(process.env.QUICKFORGE_TERMINAL_RECONNECT_MS || 30 * 60 * 1000)
@@ -14,15 +19,43 @@ let cleanupTimer = null
 let pty = null
 let ptyLoadError = null
 
+export function vendoredPtyEntryPath() {
+  return VENDOR_PTY_ENTRY
+}
+
+// node-pty posix_spawns prebuilds/darwin-*/spawn-helper on macOS, and tarballs
+// packed on Windows lose the executable bit; restore it best-effort at load.
+function ensureVendoredSpawnHelperExecutable() {
+  if (process.platform !== 'darwin') return
+  const helper = path.join(path.dirname(VENDOR_PTY_ENTRY), '..', 'prebuilds', `darwin-${process.arch}`, 'spawn-helper')
+  try {
+    const stats = fs.statSync(helper)
+    if (!(stats.mode & 0o111)) fs.chmodSync(helper, 0o755)
+  } catch (error) {
+    logger.warn('Failed to ensure vendored spawn-helper is executable', { helper, error: error?.message })
+  }
+}
+
 function loadPty() {
   if (pty) return pty
   if (ptyLoadError) throw ptyLoadError
 
   try {
+    pty = require(VENDOR_PTY_ENTRY)
+    ensureVendoredSpawnHelperExecutable()
+    return pty
+  } catch (error) {
+    logger.warn('Failed to load vendored node-pty runtime, falling back to node-pty package', {
+      entry: VENDOR_PTY_ENTRY,
+      error: error?.message,
+    })
+  }
+
+  try {
     pty = require('node-pty')
     return pty
   } catch (error) {
-    ptyLoadError = createError('Terminal requires node-pty. Install optional terminal dependencies to enable it.', 503)
+    ptyLoadError = createError(PTY_UNAVAILABLE_MESSAGE, 503)
     ptyLoadError.cause = error
     throw ptyLoadError
   }
@@ -122,7 +155,7 @@ export async function terminalCapabilities() {
     terminalShellOverride: Boolean(process.env.QUICKFORGE_TERMINAL_SHELL),
     reason: TERMINAL_DISABLED
       ? 'Terminal is disabled by QUICKFORGE_TERMINAL=0.'
-      : (terminalAvailable ? null : 'Terminal requires node-pty. Install optional terminal dependencies to enable it.'),
+      : (terminalAvailable ? null : PTY_UNAVAILABLE_MESSAGE),
   }
 }
 

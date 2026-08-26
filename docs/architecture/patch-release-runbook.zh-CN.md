@@ -151,11 +151,11 @@ cd ..
 package-offline/shawnstack-quickforge-<version>.tgz
 ```
 
-该 tarball 保留 `package-offline` 发布路径和 QuickForge 运行时资源（`bin/`、`server/`、`skills/`、`dist/`、`README.md`、`LICENSE`），但不内置 `node_modules` / `bundledDependencies`，避免 npm/cnpm 因包版本体积过大拒绝同步；安装时由 npm 按当前平台解析并安装依赖。
+该 tarball 保留 `package-offline` 发布路径和 QuickForge 运行时资源（`bin/`、`server/`、`skills/`、`vendor/`、`dist/`、`README.md`、`LICENSE`），但不内置 `node_modules` / `bundledDependencies`，避免 npm/cnpm 因包版本体积过大拒绝同步；安装时由 npm 按当前平台解析并安装依赖。
 
 注意：`dist/`、`package-dist/`、`package-offline/` 通常被 `.gitignore` 忽略，不纳入 Git 提交。
 
-离线发布包会将 `@vscode/ripgrep` 保持为 `optionalDependencies` 且不加入常规依赖，避免把构建机平台绑定的 ripgrep 二进制（如 Windows `rg.exe`）作为必需依赖发布给其他平台。`node-pty` 也作为 optional dependency，用于避免强制安装大型平台 PTY 预构建二进制；安装后若无法联网安装 `node-pty`，内置终端面板会禁用，其余聊天、项目、工具和文件搜索功能仍可用。在线安装该包时，npm 会按用户平台安装对应的可选依赖；如果目标环境无法联网安装 ripgrep，安装不会因此失败，运行时会继续回退到系统 `rg` 或 Node 搜索实现。
+离线发布包会将 `@vscode/ripgrep` 保持为 `optionalDependencies` 且不加入常规依赖，避免把构建机平台绑定的 ripgrep 二进制（如 Windows `rg.exe`）作为必需依赖发布给其他平台。终端功能不再依赖 `node-pty` 可选依赖：`vendor/node-pty/` 随包分发四平台（win32/darwin × x64/arm64）最小运行时（约 5MB），win32/darwin 安装即用且离线可用；Linux 无预编译，终端在未自装 node-pty 时禁用，其余聊天、项目、工具和文件搜索功能不受影响。如果目标环境无法联网安装 ripgrep，安装不会因此失败，运行时会继续回退到系统 `rg` 或 Node 搜索实现。
 
 ### 3.7 Git 提交、打 tag、推送
 
@@ -224,7 +224,7 @@ npm view @shawnstack/quickforge dist-tags
 - `npm run build` 可能出现已知 warning，例如 Vite externalized module、KaTeX 字体未解析、大 chunk。只要 exit code 为 0，可记录 warning 后继续。
 - `npm pack` 可能输出较长的 tarball 文件清单。只要 exit code 为 0，可记录生成的 tarball 路径和大小后继续。
 - `package-offline` 不写入 `bundledDependencies`，也不在发布准备阶段安装 `node_modules`，避免 npm/cnpm 因版本体积超过限制拒绝同步。
-- 离线发布包将 `@vscode/ripgrep` 和 `node-pty` 作为 optionalDependencies；在线安装时 npm 会按用户平台安装对应可选依赖。若目标环境无法联网且没有系统 `rg`，文件搜索会自动回退到 Node 实现，功能可用但大仓库搜索性能可能下降；若无法安装 `node-pty`，内置终端面板会禁用，其余功能可用。
+- 离线发布包将 `@vscode/ripgrep` 作为 optionalDependencies；在线安装时 npm 会按用户平台安装对应可选依赖。若目标环境无法联网且没有系统 `rg`，文件搜索会自动回退到 Node 实现，功能可用但大仓库搜索性能可能下降。终端运行时由 `vendor/node-pty/` 随包提供（win32/darwin 开箱即用）；Linux 未带预编译，未自装 node-pty 时内置终端面板禁用，其余功能可用。
 - 如果 `git push origin <branch> --tags` 推送了历史本地 tag，需要在结果里说明。
 - 如果 tag 已存在，不要覆盖；先停止并提示用户确认处理方式。
 

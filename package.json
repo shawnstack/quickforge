@@ -41,6 +41,7 @@
     "server",
     "skills",
     "plugins",
+    "vendor",
     "dist",
     "README.md",
     "LICENSE",
@@ -126,9 +127,7 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10",
-    "vitest": "^4.1.8"
-  },
-  "optionalDependencies": {
+    "vitest": "^4.1.8",
     "node-pty": "^1.1.0"
   }
 }

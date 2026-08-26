@@ -1,6 +1,20 @@
 {
   "features": [
     {
+      "id": "sidebar-show-more-muted-color",
+      "name": "侧边栏「显示更多」弱化为分区标题同款灰色（muted-foreground /60→/50）",
+      "status": "done",
+      "approach": "用户反馈项目会话下「显示更多」颜色太深、与会话标题区分不开，应与「项目」分区标题同色。SessionDisplayControls（ChatSidebar.tsx，项目视图/时间线/全局对话三处共用）按钮 resting 色由 text-muted-foreground/60 改为 /50（与会话标题 /70 拉开 20% 差、与分区标题一致），hover /80 保留；tests/frontend/sidebar-section-order.test.ts:198 硬编码断言同步 /60→/50。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "tests/frontend/sidebar-section-order.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/sidebar-section-order.test.ts → 1 file / 18 tests 全通过；npx eslint 两个改动文件 0 error；grep 确认无其他测试引用旧颜色字符串。未跑全量。"
+    },
+    {
       "id": "git-status-connection-pool-guard",
       "name": "git/status 慢请求钉死浏览器连接池的防护（20s 超时 + 调用方中止）",
       "status": "done",

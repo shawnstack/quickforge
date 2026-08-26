@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：sidebar-show-more-muted-color（已完成）
+
+- 目标：用户反馈项目会话列表「显示更多」颜色太深、与会话标题区分不开，应对齐「项目」分区标题的灰色。
+- 实现：ChatSidebar.tsx 的 SessionDisplayControls（项目视图/时间线/全局对话三处共用）按钮 resting 色 `text-muted-foreground/60`→`/50`（与分区标题一致、与会话标题 `/70` 拉开差距），hover `/80` 保留；tests/frontend/sidebar-section-order.test.ts:198 硬编码断言同步更新。
+- 验证：定向 vitest sidebar-section-order → 1 file / 18 tests 全通过；eslint 两个改动文件 0 error。未跑全量。
+- 文件：src/components/sidebar/ChatSidebar.tsx、tests/frontend/sidebar-section-order.test.ts、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无。
+
+---
+
 ## 当前状态：release-v1.9.0（已完成）
 
 - 目标：按用户指令「发布一个版本」，在 `v1.8.1` tag 之后以 dev HEAD（2dd87cb，11 个新提交）为基线发布 **v1.9.0（minor，用户确认）**；npm 1.8.1 从未发布，用户决策跳过、由 1.9.0 直接取代。

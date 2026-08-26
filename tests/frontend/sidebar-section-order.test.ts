@@ -195,7 +195,7 @@ describe('ChatSidebar section reorder wiring', () => {
 
     expect(controlsSource).toContain("const sidebarSessionRowBaseClass = 'group relative flex items-center gap-2 overflow-hidden rounded-lg py-1.5 text-left")
     expect(controlsSource).toContain("const sidebarSessionTitleClass = 'truncate text-sm font-[350] leading-5'")
-    expect(controlsSource).toContain("'w-full px-2 text-muted-foreground/60")
+    expect(controlsSource).toContain("'w-full px-2 text-muted-foreground/50")
     expect(controlsSource).toContain("hover:text-muted-foreground/80")
     expect(controlsSource).not.toContain('text-xs')
     expect(controlsSource).not.toContain('onCollapse')

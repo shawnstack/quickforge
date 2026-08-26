@@ -1,5 +1,13 @@
 # Progress
 
+## Completed Feature：sidebar-show-more-muted-color
+
+- Feature: 侧边栏「显示更多」弱化至与分区标题一致的灰色（sidebar-show-more-muted-color，**已完成**）
+- Status: done — 用户反馈项目会话列表的「显示更多」颜色太深、与会话标题区分不开，应对齐「项目」分区标题的灰色。定位：`SessionDisplayControls`（ChatSidebar.tsx，三处共用——项目视图会话、时间线视图、全局对话）按钮为 `text-muted-foreground/60`，仅比会话标题 `text-muted-foreground/70` 浅 10% 肉眼难辨，而分区标题为 `text-muted-foreground/50`。修复：resting 色 `/60`→`/50` 与分区标题一致（与会话标题拉开 20% 差），hover `/80` 保留（悬停时有背景色，不影响区分度）；tests/frontend/sidebar-section-order.test.ts:198 硬编码断言同步 `/60`→`/50`。
+- Verification: 定向 `npx vitest run tests/frontend/sidebar-section-order.test.ts` → 1 file / 18 tests 全通过；`npx eslint` 两个改动文件 0 error；grep 确认无其他测试引用旧颜色字符串。
+- Boundaries: 仅调整透明度档位，`/50` 为该文件既有写法（分区标题、菜单标签），未引入新视觉模式，DESIGN_LANGUAGE.md 无具体档位约定、无需更新；未 commit/tag/push。
+- Next step: 无 blocker。
+
 ## Completed Feature：release-v1.9.0
 
 - Feature: minor 发布 v1.9.0（release-v1.9.0，**已完成**）

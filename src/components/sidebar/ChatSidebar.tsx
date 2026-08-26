@@ -242,7 +242,7 @@ function SessionDisplayControls({
       type="button"
       className={cn(
         sidebarSessionRowBaseClass,
-        'w-full px-2 text-muted-foreground/60 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-muted-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-45',
+        'w-full px-2 text-muted-foreground/50 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-muted-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-45',
       )}
       onClick={onShowMore}
       disabled={loading}

@@ -124,13 +124,30 @@ export function normalizeModelReference(value) {
   return null
 }
 
-async function listCloudModels(context, { refresh = false } = {}) {
+const CLOUD_MODELS_CATALOG_WAIT_MS = 2_000
+
+function resolveWithDeadline(promise, waitMs) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(undefined), waitMs)
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      () => { clearTimeout(timer); resolve(undefined) },
+    )
+  })
+}
+
+async function listCloudModels(context, { refresh = false, waitMs = CLOUD_MODELS_CATALOG_WAIT_MS } = {}) {
   if (!cloudAllowedForContext(context)) return []
   try {
     const runtime = await getCloudRuntime()
     if (!runtime?.enabled) return []
-    const models = await runtime.models.list(undefined, { refresh })
-    return models.filter((model) => model?.quickforgeCatalogId)
+    const cloudModels = runtime.models.list(undefined, { refresh })
+    // Do not block the catalog on a slow upstream: degrade to an empty Cloud
+    // list after the short deadline. The underlying promise keeps running and
+    // still refreshes the identity cache, so the next request hits it (60s TTL).
+    cloudModels.catch(() => undefined)
+    const models = await resolveWithDeadline(cloudModels, waitMs)
+    return (models ?? []).filter((model) => model?.quickforgeCatalogId)
   } catch {
     return []
   }
@@ -141,6 +158,7 @@ export async function listModelCatalog({
   includeHidden = false,
   currentModel = null,
   refreshCloud = false,
+  cloudWaitMs = CLOUD_MODELS_CATALOG_WAIT_MS,
 } = {}) {
   const providers = await configuredProviders()
   const custom = configuredEntries(providers)
@@ -157,7 +175,7 @@ export async function listModelCatalog({
       custom.unshift(custom.splice(currentIndex, 1)[0])
     }
   }
-  const cloud = (await listCloudModels(context, { refresh: refreshCloud }))
+  const cloud = (await listCloudModels(context, { refresh: refreshCloud, waitMs: cloudWaitMs }))
     .map((model) => publicModel(model, {
       version: MODEL_REFERENCE_VERSION,
       source: 'cloud',

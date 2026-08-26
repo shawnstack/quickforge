@@ -45,13 +45,28 @@ export class CloudClient {
     const requestHeaders = { Accept: 'application/json', ...headers }
     if (body !== undefined) requestHeaders['Content-Type'] = 'application/json'
     if (token) requestHeaders.Authorization = `Bearer ${token}`
-    const response = await this.fetch(cloudEndpoint(this.baseUrl, pathname), {
-      method,
-      headers: requestHeaders,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: timeout ? timeoutSignal(this.timeoutMs, signal) : signal,
-      redirect: 'error',
-    })
+    let response
+    try {
+      response = await this.fetch(cloudEndpoint(this.baseUrl, pathname), {
+        method,
+        headers: requestHeaders,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: timeout ? timeoutSignal(this.timeoutMs, signal) : signal,
+        redirect: 'error',
+      })
+    } catch (error) {
+      if (error?.name === 'TimeoutError') {
+        throw new CloudApiError(`QuickForge Cloud request timed out after ${this.timeoutMs}ms.`, {
+          status: 504, code: 'cloud_timeout', retryable: true,
+        })
+      }
+      if (error instanceof TypeError) {
+        throw new CloudApiError(`QuickForge Cloud is unreachable: ${error.message}`, {
+          status: 502, code: 'cloud_unreachable', retryable: true,
+        })
+      }
+      throw error
+    }
     if (!response.ok) throw await parseError(response)
     if (raw) return response
     if (response.status === 204) return undefined

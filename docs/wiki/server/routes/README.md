@@ -56,7 +56,7 @@
 - `GET /api/cloud/status` — 返回本地安全摘要，不自动注册；Session URL 不匹配或旧 Session 缺失绑定时带 `sessionServiceMismatch` 供 UI 提示重建身份。
 - Refresh、Logout、模型、额度和设备等 Token 操作发现 Session URL 不匹配或缺失时返回 HTTP 409 / `cloud_session_service_mismatch`，并在发送旧 Refresh Token 前拒绝。
 - `POST /api/cloud/device/start|poll|cancel` — 正式账户 Device Flow；local 的 start 直接 ensure installation 并 authorizeDevice。`deviceCode` 仅保存在 Node 私有凭据文件；页面刷新/本地重启后由 status 恢复公开 pending 摘要。pending/slow_down/network 保留流程，denied/expired/cancel 清 pending 并保留原 local/遗留 guest 状态，成功原子写入账户 Token、保留 installation 并清模型缓存。
-- `GET /api/cloud/models|usage|installations` — 返回公开模型、额度和设备列表。
+- `GET /api/cloud/models|usage|installations` — 返回公开模型、额度和设备列表。上游请求超时映射为 HTTP 504 / `cloud_timeout`，网络不可达映射为 HTTP 502 / `cloud_unreachable`，两者均带 `retryable: true`，不再落入全局 500 兜底。
 - `DELETE /api/cloud/installations/:id` — 撤销指定设备。
 - `POST /api/cloud/logout` — 先撤销云端当前 installation，再清理本地 Session；远端失败时请求失败且本地凭据保留。
 

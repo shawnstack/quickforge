@@ -91,6 +91,34 @@ describe('model catalog', () => {
     }
   })
 
+  it('still includes Cloud models when the catalog resolves within the short deadline', async () => {
+    const { listModelCatalog } = await import('../../server/model-catalog.mjs')
+    const models = await listModelCatalog({ context: { isLocalRequest: true }, cloudWaitMs: 2_000 })
+    expect(models.map((model) => model.id)).toEqual(['visible', 'cloud-fast'])
+  })
+
+  it('degrades to local models when the Cloud catalog stalls past the short deadline', async () => {
+    const { listModelCatalog } = await import('../../server/model-catalog.mjs')
+    cloudRuntime.models.list.mockImplementationOnce(() => new Promise(() => {}))
+    const startedAt = Date.now()
+    const models = await listModelCatalog({ context: { isLocalRequest: true }, cloudWaitMs: 20 })
+    expect(Date.now() - startedAt).toBeLessThan(1_000)
+    expect(models.map((model) => model.id)).toEqual(['visible'])
+  })
+
+  it('keeps a late Cloud catalog failure in the background instead of surfacing an unhandled rejection', async () => {
+    const { listModelCatalog } = await import('../../server/model-catalog.mjs')
+    let rejectModels
+    cloudRuntime.models.list.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectModels = reject
+    }))
+    const models = await listModelCatalog({ context: { isLocalRequest: true }, cloudWaitMs: 20 })
+    expect(models.map((model) => model.id)).toEqual(['visible'])
+
+    rejectModels(new Error('cloud catalog failed'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
   it('does not trust custom transport submitted with a canonical reference', async () => {
     const { resolveModelBinding } = await import('../../server/model-catalog.mjs')
     const binding = await resolveModelBinding({

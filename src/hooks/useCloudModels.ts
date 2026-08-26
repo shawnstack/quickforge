@@ -4,10 +4,15 @@ import { getCloudModels, getCloudStatus } from '@/lib/cloud-client'
 
 export const CLOUD_STATE_CHANGED_EVENT = 'quickforge:cloud-state-changed'
 
+// Failed catalog loads are negatively cached so a slow or unreachable Cloud
+// service does not trigger a request on every model-picker interaction.
+const CLOUD_MODELS_FAILURE_TTL_MS = 30_000
+
 export function useCloudModels(enabled = true) {
   const [configured, setConfigured] = useState(false)
   const modelsRef = useRef<Model<Api>[]>([])
   const loadedRef = useRef(false)
+  const lastFailedAtRef = useRef(0)
   const loadPromiseRef = useRef<Promise<Model<Api>[]> | null>(null)
   const loadAbortRef = useRef<AbortController | null>(null)
   const statusAbortRef = useRef<AbortController | null>(null)
@@ -26,6 +31,7 @@ export function useCloudModels(enabled = true) {
     loadPromiseRef.current = null
     modelsRef.current = []
     loadedRef.current = false
+    lastFailedAtRef.current = 0
   }, [])
 
   const loadCloudModels = useCallback(async (refresh = false): Promise<Model<Api>[]> => {
@@ -35,6 +41,7 @@ export function useCloudModels(enabled = true) {
       loadedRef.current = false
     }
     if (!refresh && loadedRef.current) return modelsRef.current
+    if (!refresh && lastFailedAtRef.current > 0 && Date.now() - lastFailedAtRef.current < CLOUD_MODELS_FAILURE_TTL_MS) return []
     if (loadPromiseRef.current) return loadPromiseRef.current
 
     const generation = generationRef.current
@@ -48,15 +55,18 @@ export function useCloudModels(enabled = true) {
         if (status.enabled === false || !status.configured || status.mode === 'local' || !status.hasSession) {
           modelsRef.current = []
           loadedRef.current = true
+          lastFailedAtRef.current = 0
           return []
         }
         const models = await getCloudModels(controller.signal)
         if (!mountedRef.current || generation !== generationRef.current || controller.signal.aborted) return []
         modelsRef.current = models
         loadedRef.current = true
+        lastFailedAtRef.current = 0
         return models
       } catch (error) {
         if (!mountedRef.current || generation !== generationRef.current || controller.signal.aborted) return []
+        lastFailedAtRef.current = Date.now()
         throw error
       }
     })().finally(() => {

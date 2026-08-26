@@ -221,6 +221,31 @@ describe('useAppBootstrap Cloud loading boundary', () => {
     expect(createAgent).not.toHaveBeenCalled()
   })
 
+  it('stops waiting for a stalled Cloud catalog after the deadline and falls back to local models', async () => {
+    vi.useFakeTimers()
+    try {
+      const loadCloudModels = vi.fn(() => new Promise<Model<Api>[]>(() => {}))
+      piMocks.getSelectableConfiguredModels.mockResolvedValue([localModel()])
+      piMocks.loadDefaultOptions.mockResolvedValue({
+        harness: 'quickforge',
+        model: cloudModel(),
+        thinkingLevel: 'off',
+      })
+
+      const { createAgent } = useBootstrapHarness(loadCloudModels)
+      await flushMicrotasks()
+      expect(reactHarness.states[0]).toBe(true)
+      expect(createAgent).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(5_000)
+      await flushMicrotasks()
+      expect(createAgent).toHaveBeenCalledTimes(1)
+      expect(createAgent.mock.calls[0][0].model).toMatchObject({ id: 'local', provider: 'custom' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('triggers one session refresh after the backend is ready without blocking Agent creation or ready', async () => {
     const sessionRefresh = deferred<void>()
     const backendRef = { current: null as unknown }

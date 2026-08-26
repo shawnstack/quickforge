@@ -29,6 +29,19 @@ import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { disposeAllAgentTasks } from '@/lib/agent-task-retention'
 
+// Restoring a persisted QuickForge Cloud model must not stall startup on a
+// slow or unreachable Cloud catalog: after this deadline the load degrades to
+// an empty catalog and the existing local fallback takes over.
+const CLOUD_MODEL_RESOLUTION_TIMEOUT_MS = 5_000
+
+function cloudModelsWithDeadline(cloudModelsPromise: Promise<Model<Api>[]>): Promise<Model<Api>[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<Model<Api>[]>((resolve) => {
+    timer = setTimeout(() => resolve([]), CLOUD_MODEL_RESOLUTION_TIMEOUT_MS)
+  })
+  return Promise.race([cloudModelsPromise, deadline]).finally(() => clearTimeout(timer))
+}
+
 type UseAppBootstrapOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
   backendRef: React.MutableRefObject<HttpStorageBackend | null>
@@ -221,7 +234,7 @@ export function useAppBootstrap({
               setModelSetup(true)
               setReady(true)
             }
-            cloudModels = await cloudModelsPromise
+            cloudModels = await cloudModelsWithDeadline(cloudModelsPromise)
             if (cancelled) return
           }
           initialModel = chooseStartupModel(

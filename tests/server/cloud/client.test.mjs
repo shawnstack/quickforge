@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CloudApiError, CloudClient } from '../../../server/cloud/client.mjs'
 
+function hangingFetch() {
+  // Hangs until the request signal aborts, mirroring a stalled upstream.
+  return vi.fn((_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => reject(init.signal.reason))
+  }))
+}
+
 describe('cloud client device flow', () => {
   it('uses the configured remote paths and OAuth device grant payloads', async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
@@ -52,5 +59,52 @@ describe('cloud client device flow', () => {
       code: 'slow_down',
       retryable: true,
     })
+  })
+})
+
+describe('cloud client transport error classification', () => {
+  it('maps a request that hits the timeout to a retryable 504 cloud_timeout', async () => {
+    const fetchImpl = hangingFetch()
+    const client = new CloudClient({ baseUrl: new URL('https://cloud.test/'), timeoutMs: 10, fetchImpl })
+
+    const error = await client.models('token').catch((value) => value)
+    expect(error).toBeInstanceOf(CloudApiError)
+    expect(error).toMatchObject({
+      status: 504,
+      code: 'cloud_timeout',
+      retryable: true,
+    })
+    expect(error.message).toContain('10ms')
+  })
+
+  it('maps a network TypeError to a retryable 502 cloud_unreachable', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('fetch failed')
+    })
+    const client = new CloudClient({ baseUrl: new URL('https://cloud.test/'), fetchImpl })
+
+    const error = await client.models('token').catch((value) => value)
+    expect(error).toBeInstanceOf(CloudApiError)
+    expect(error).toMatchObject({
+      status: 502,
+      code: 'cloud_unreachable',
+      retryable: true,
+    })
+    expect(error.message).toContain('QuickForge Cloud is unreachable: fetch failed')
+  })
+
+  it('rethrows external AbortError aborts without converting them to CloudApiError', async () => {
+    const fetchImpl = vi.fn((_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')))
+    }))
+    const client = new CloudClient({ baseUrl: new URL('https://cloud.test/'), timeoutMs: 10_000, fetchImpl })
+    const controller = new AbortController()
+
+    const pending = client.models('token', controller.signal)
+    controller.abort()
+    const error = await pending.catch((value) => value)
+    expect(error).not.toBeInstanceOf(CloudApiError)
+    expect(error).toBeInstanceOf(DOMException)
+    expect(error.name).toBe('AbortError')
   })
 })

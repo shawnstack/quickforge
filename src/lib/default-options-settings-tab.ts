@@ -130,9 +130,12 @@ const deleteIcon = html`
   </svg>
 `
 
-class DefaultOptionsSettingsTab extends SettingsTab {
+export class DefaultOptionsSettingsTab extends SettingsTab {
   private models: AnyModel[] = []
   private selectedModel?: AnyModel
+  private autoSelectedModelKey = ''
+  private loadSettingsGeneration = 0
+
   private harness: AgentHarness = 'quickforge'
   private savedHarness: AgentHarness = 'quickforge'
   private defaultOptionsSavePromise: Promise<void> = Promise.resolve()
@@ -196,27 +199,46 @@ class DefaultOptionsSettingsTab extends SettingsTab {
   }
 
   private async loadSettings() {
+    const generation = ++this.loadSettingsGeneration
     this.loading = true
     this.error = ''
     this.requestUpdate()
 
     try {
       const storage = getAppStorage()
-      const [localModels, catalogModels, cloudModels, defaults, toolDisplaySettings, autoCompactSettings, autoArchiveSettings] = await Promise.all([
+      const [localModels, catalogModels, defaults, toolDisplaySettings, autoCompactSettings, autoArchiveSettings] = await Promise.all([
         getSelectableConfiguredModels(storage),
         loadModelCatalog().catch(() => []),
-        this.loadCloudModels(),
         loadDefaultOptions(storage),
         loadToolDisplaySettings(storage),
         loadAutoCompactSettings(storage),
         loadAutoArchiveSettings(storage),
       ])
       const baseModels = catalogModels.length ? catalogModels : localModels
-      const models = mergeAvailableModels(baseModels, cloudModels)
+      const models = mergeAvailableModels(baseModels, [])
       this.models = models
       this.selectedModel = defaults.model
         ? models.find((model) => modelKey(model) === modelKey(defaults.model!)) ?? models[0]
         : models[0]
+      this.autoSelectedModelKey = this.selectedModel ? modelKey(this.selectedModel) : ''
+      // QuickForge Cloud models load in the background: render the catalog and
+      // local models first, then merge the Cloud catalog once it arrives. The
+      // generation guard keeps a superseded load (newer loadSettings run or a
+      // cloud-state reload) from overwriting newer state.
+      void this.loadCloudModels().then((cloudModels) => {
+        if (generation !== this.loadSettingsGeneration) return
+        const merged = mergeAvailableModels(baseModels, cloudModels)
+        this.models = merged
+        // Re-resolve the automatic selection against the merged catalog, but
+        // leave a manually changed selection untouched.
+        if (!this.selectedModel || modelKey(this.selectedModel) === this.autoSelectedModelKey) {
+          this.selectedModel = defaults.model
+            ? merged.find((model) => modelKey(model) === modelKey(defaults.model!)) ?? merged[0]
+            : merged[0]
+          this.autoSelectedModelKey = this.selectedModel ? modelKey(this.selectedModel) : ''
+        }
+        this.requestUpdate()
+      })
       this.thinkingLevel = defaults.thinkingLevel ?? defaultThinkingLevelForModel(this.selectedModel)
       this.harness = defaults.harness ?? 'quickforge'
       this.savedHarness = this.harness

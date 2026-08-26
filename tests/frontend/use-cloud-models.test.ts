@@ -202,4 +202,40 @@ describe('useCloudModels', () => {
     await expect(request).resolves.toEqual([])
     expect(reactHarness.stateUpdates).toHaveLength(updatesBeforeUnmount)
   })
+
+  it('negatively caches a failed catalog load and retries after the window expires', async () => {
+    vi.useFakeTimers()
+    try {
+      cloudMocks.getCloudStatus.mockResolvedValue({ configured: true, mode: 'account', hasSession: true })
+      cloudMocks.getCloudModels
+        .mockRejectedValueOnce(new Error('cloud unavailable'))
+        .mockResolvedValueOnce([model('recovered-model')])
+
+      const hook = useCloudModels()
+      await expect(hook.loadCloudModels()).rejects.toThrow('cloud unavailable')
+      expect(cloudMocks.getCloudModels).toHaveBeenCalledTimes(1)
+
+      await expect(hook.loadCloudModels()).resolves.toEqual([])
+      expect(cloudMocks.getCloudModels).toHaveBeenCalledTimes(1)
+
+      vi.advanceTimersByTime(30_000)
+      await expect(hook.loadCloudModels()).resolves.toEqual([model('recovered-model')])
+      expect(cloudMocks.getCloudModels).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ignores the failure negative cache for explicit refreshes', async () => {
+    cloudMocks.getCloudStatus.mockResolvedValue({ configured: true, mode: 'account', hasSession: true })
+    cloudMocks.getCloudModels
+      .mockRejectedValueOnce(new Error('cloud unavailable'))
+      .mockResolvedValueOnce([model('refreshed-model')])
+
+    const hook = useCloudModels()
+    await expect(hook.loadCloudModels()).rejects.toThrow('cloud unavailable')
+
+    await expect(hook.loadCloudModels(true)).resolves.toEqual([model('refreshed-model')])
+    expect(cloudMocks.getCloudModels).toHaveBeenCalledTimes(2)
+  })
 })

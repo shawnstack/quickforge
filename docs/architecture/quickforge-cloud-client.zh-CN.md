@@ -81,11 +81,13 @@ QuickForge Server 在 HTTP `listen` 成功后读取当前 Cloud 服务配置。C
 - 以上三个 Device Flow 端点均要求 action header 与 JSON Content-Type，响应绝不包含 `deviceCode`。
 - `POST /api/cloud/remote/authorize-retry`：仅本机可调用，且仅当自动批准意图处于 `failed` 时由 UI 显式发起重试；服务端复用内存中保留的 user_code 重新调用 `POST /v1/remote/agents/authorize`，返回新的意图状态（`pending/consumed/failed` 等）。不要求用户打开授权页或输入码，也不把 user_code 发送给浏览器。
 - `GET /api/cloud/remote/status`：返回 `autoApproval` 字段（`{status, error?}`，status ∈ `none/armed/pending/consumed/failed/expired`），供 UI 在 `authorizing` 期间区分自动批准进行中、失败或需要在本机重新启用；远程 Agent UI 不提供人工授权链接。
-- `GET /api/cloud/models`
+- `GET /api/cloud/models` — 上游超时返回 HTTP 504 / `cloud_timeout`，网络不可达返回 HTTP 502 / `cloud_unreachable`，均带 `retryable: true`；HTTP 语义由本地 BFF 映射，不再落入全局 500 兜底
 - `GET /api/cloud/usage`
 - `GET /api/cloud/installations`
 - `DELETE /api/cloud/installations/:id`
 - `POST /api/cloud/logout`
+
+`GET /api/models/catalog` 对 Cloud 模型采用 2 秒短截止等待：冷缓存回源超过 2 秒即先降级返回本地/自定义模型（Cloud 部分为空），底层请求继续并在成功后写入 60 秒目录缓存，下一次请求在软 TTL 内直接命中，不会长时间阻塞主目录接口。
 
 有本地 Session 时，保存配置会按凭据中持久化的 `sessionCloudUrl` 校验目标 URL；不同 URL 返回 HTTP 409 / `cloud_session_active`。相同规范化 URL 可重复保存。旧版本中没有 URL 绑定的 Session 也不会被自动信任，必须先重建身份。UI 引导先普通退出；也可在明确危险确认后执行“重建身份并切换”，流程是 reset 成功后再 save，不自动重试。
 

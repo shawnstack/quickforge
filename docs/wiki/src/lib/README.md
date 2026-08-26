@@ -31,7 +31,7 @@
 | `custom-model-selector.ts` | 590 | 自定义模型选择器；主聊天可通过可选无参回调在桌面浮层与移动抽屉底部显示“自定义模型”，点击先关闭选择器再打开设置，未传回调的共享对话/表单复用场景不显示 |
 | `custom-providers-only-tab.ts` | 565 | 自定义供应商设置选项卡 |
 | `backup-settings-tab.ts` | 备份与恢复设置选项卡：按设置数据项选择导出内容（不包含对话），上传后预览有效/异常数据项，并支持按项替换或合并恢复 |
-| `default-options-settings-tab.ts` | 257 | 常规设置选项卡（语言、默认模型、网络代理、上下文和终端 Shell） |
+| `default-options-settings-tab.ts` | 257 | 常规设置选项卡（语言、默认模型、网络代理、上下文和终端 Shell）；先用统一目录/本地模型渲染，Cloud 模型在后台加载后增量合并 |
 | `lan-access-settings-tab.ts` | 227 | LAN 共享设置选项卡 |
 | `patch-thinking-selector.ts` | 117 | 思考模式选择器修补 |
 | `clipboard-polyfill.ts` | 51 | 剪贴板 API polyfill |
@@ -75,7 +75,7 @@
 - `loadDefaultOptions()` / `saveDefaultOptions()` — 默认选项管理
 - `getConfiguredModels()` — 通过同源 `GET /api/models/catalog` 获取统一公开目录，包含当前可用的自定义模型和 QuickForge Cloud 模型；失败时仅为本机旧环境回退 Provider store。`getSelectableConfiguredModels()` 统一排除 `quickforgeHidden: true`。
 - `saveActiveModel()` / `saveDefaultOptions()` — 写入展示快照并附带版本化 `quickforgeModelRef`，执行 transport 仍由服务端解析。
-- `loadInitialConfiguredModel()` / `resolveNewSessionModel()` — QuickForge 新会话只从当前可选择目录解析默认、active 或请求模型；已隐藏、已删除或失效的模型不会成为新会话候选。OpenCode 新会话改用仅供前端 state/type 的本地占位模型，不要求 QuickForge Provider，且创建 POST 不发送该占位模型。
+- `loadInitialConfiguredModel()` / `resolveNewSessionModel()` — QuickForge 新会话只从当前可选择目录解析默认、active 或请求模型；已隐藏、已删除或失效的模型不会成为新会话候选。Cloud 目录加载以 5 秒为上限，超时降级为空目录并回退已配置模型。OpenCode 新会话改用仅供前端 state/type 的本地占位模型，不要求 QuickForge Provider，且创建 POST 不发送该占位模型。
 - `resolveConfiguredModel()` — 已有会话、分支等持久化绑定按完整模型身份恢复，可继续使用后来被隐藏的模型。
 - DeepSeek V4 推理兼容性处理
 

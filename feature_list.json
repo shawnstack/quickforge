@@ -1,6 +1,50 @@
 {
   "features": [
     {
+      "id": "package-size-trim",
+      "name": "包体裁剪：qf-agent 暂时下线 + 前端依赖归位 + Monaco 语言 worker 移除",
+      "status": "done",
+      "approach": "包体调研后按用户决定执行三项裁剪。1) qf-agent 暂时移除、不再随包分发：package.json files 与 scripts/prepare-runtime-package.cjs / prepare-offline-package.cjs 的 copyEntries 移除 runtime-assets；desktop/electron-builder.config.cjs 删除 agent extraResources 与平台归一化 helper；desktop/electron-main.mjs 删除 desktopAgentPath 与 qfAgentPath 传参；git rm 五平台二进制（52MB）。server/cloud/qf-agent-process.mjs 托管代码保持不变：二进制缺失时启动结果为 unavailable（仅反映到 /api/cloud/remote/status），QUICKFORGE_QF_AGENT_PATH 仍可指定外部二进制，dev win32 保留 ../quickforge-cloud/bin/agent.exe 回退，恢复分发只需还原二进制与四处打包引用。2) 纯前端构建期依赖移回 devDependencies：mermaid/react-markdown/remark-gfm/@dnd-kit×3/@capacitor×3（服务端运行时 import 核验仅需 @agentclientprotocol/sdk、pi-agent-core、pi-ai、@modelcontextprotocol/sdk、socks、undici、ws、@vscode/os-proxy-resolver、@vscode/ripgrep、node-pty），npm install --package-lock-only 同步 lock（仅 dev 标记与逗号变化，无版本/resolved/integrity 变更）；npm 消费端每次安装少下载约 93MB（mermaid 84MB 为大头），并消除 electron-builder production 依赖把 mermaid 收进 asar 的桌面安装包膨胀隐患。3) Monaco 只读查看器去掉 json/css/html/ts 语言 worker（叠加在 monaco-local-bundled-loading 之上）：monaco-local.ts 改为动态 import editor.api + editor.all + 新聚合模块 monaco-basic-languages.ts（静态注册全部 basic-languages Monarch 贡献，tokenizer 按需懒加载）+ 仅 editor.worker；MonacoEnvironment.getWorker 不再按 label 分发；不引入 vs/language/* 贡献因此不会为语言服务请求 worker。TS/JS/CSS/SCSS/LESS/HTML 等由 Monarch 着色，取舍：basic-languages 无 json Monarch，JSON 文件以纯文本呈现。新增 src/monaco-esm.d.ts 为深路径 ESM 导入补环境类型。vite.config.ts 保持并行会话最新状态（无 monaco manual chunk，rolldown 默认分包隔离首屏），本轮未改动。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "scripts/prepare-runtime-package.cjs",
+        "scripts/prepare-offline-package.cjs",
+        "desktop/electron-builder.config.cjs",
+        "desktop/electron-main.mjs",
+        "src/components/workspace/monaco-local.ts",
+        "src/components/workspace/monaco-basic-languages.ts",
+        "src/monaco-esm.d.ts",
+        "tests/frontend/monaco-local.test.ts",
+        "docs/architecture/quickforge-cloud-client.zh-CN.md",
+        "docs/design/remote-access-p2p.md",
+        "docs/wiki/server/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run monaco-local + qf-agent-process + public-api + electron-desktop-notifications-structure + workspace-inspector tabs/on-demand → 全通过；npx eslint 改动文件 0 error；node --check 两个打包脚本与 desktop 文件通过；npx tsc -b 通过；npm run build 成功（dist 26MB→17MB，ts/css/html/json worker chunk 全部消失，editor.worker 保留，monaco 家族默认分包为异步 chunk）；npm run lint → 0 errors / 1 既有 warning（server/cloud/identity.mjs:92）；完整 npm run test → 256 files / 2269 tests 全通过；prepare-runtime-package 重建后 package-dist 无 runtime-assets，npm pack --dry-run → 4.8MB / 414 files（对照 v1.7.10 的 24.1MB），打包 package.json dependencies 仅剩 9 个运行时依赖。未创建 commit/tag/push。"
+    },
+    {
+      "id": "monaco-local-bundled-loading",
+      "name": "Monaco 编辑器本地打包加载（去除 jsdelivr CDN 依赖）",
+      "status": "done",
+      "approach": "起因：Edge Tracking Prevention 提示 jsdelivr 存储访问，且 package-offline 断网时 Monaco 编辑器加载不出（@monaco-editor/react 默认经 @monaco-editor/loader 从 cdn.jsdelivr.net 运行时拉取 monaco-editor@0.55.1）。新增 src/components/workspace/monaco-local.ts：ensureLocalMonaco() 模块级单例，函数内 Promise.all 动态 import monaco-editor 与 editor/json/css/html/ts 五个 ?worker，设置 self.MonacoEnvironment.getWorker 按 label 分发，再经 @monaco-editor/react 的 loader.config({ monaco }) 注册本地实例；顶层只 import loader（Environment 为 type-only，编译期擦除），monaco 本体不进首屏静态图。MonacoCodeViewer/MonacoDiffViewer 增加 monacoReady gate（useEffect + cancelled 清理，保证 loader.config 先于 loader.init()，杜绝默认 CDN 注入；未 ready 返回 null，其余 props/options 完全不变）。vite.config.ts 删除 monaco manualChunks 分支：monaco-editor 仅被 monaco-local 动态 import 引用，默认分包沿动态边界隔离为异步 chunk；实测保留 manual chunk 时 rolldown 会把共享 vite/preload-helper 收编进 monaco chunk，导致 4MB chunk 被 index.html modulepreload 拖回首屏，删除后 preload 与入口静态闭包（各 11 项）均不含 monaco。@monaco-editor/loader 默认 config 中的 jsdelivr 字符串为死代码（运行时被本地实例短路，永不执行），dist 残留 1 处无任何网络请求。新增 tests/frontend/monaco-local.test.ts 源码契约测试；docs/wiki/src/components/README.md 同步目录树与描述。",
+      "files": [
+        "src/components/workspace/monaco-local.ts",
+        "src/components/workspace/MonacoCodeViewer.tsx",
+        "src/components/workspace/MonacoDiffViewer.tsx",
+        "vite.config.ts",
+        "tests/frontend/monaco-local.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/monaco-local.test.ts tests/frontend/markdown-reader.test.ts tests/frontend/workspace-inspector-tabs.test.ts tests/frontend/mobile-fullscreen-adaptation.test.ts → 4 files / 29 tests 全通过；npx eslint 5 个改动文件 → 0 error；npx tsc -b --pretty false → 通过；npm run build → 成功（monaco 家族默认分包为异步 chunk：editor.api2 约 3.63MB/gzip 926KB + 5 个独立 worker 文件，与既存 pi-web-ui/pi-ai/index 一并触发既有 chunk size warning）；dist 只读 python 检查：index.html modulepreload 11 项与入口静态闭包均不含任何 monaco chunk，monaco 唯一边界外引用来自 WorkspaceInspector chunk（monaco-local 所在）的 __vitePreload 动态依赖数组；全 dist .js 仅 1 处 cdn.jsdelivr.net 死字符串（@monaco-editor/loader 默认 config，运行时被本地实例覆盖）。未跑全量 test/lint；未创建 commit/tag/push。"
+    },
+    {
       "id": "mobile-h5-fullscreen-sidebar-and-inspector",
       "name": "移动端 H5 侧栏整屏与 Inspector 全屏覆盖",
       "status": "done",

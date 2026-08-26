@@ -1,5 +1,28 @@
 # Session Handoff
 
+## 当前状态：global-sse-flush-headers（已完成）
+
+- 目标：用户反馈 `http://localhost:5176/api/agents/events`、`/api/channels/events` 请求时间长、易挂起；诊断后修复 `/api/agents/events` 首字节延迟问题。
+- 根因：两接口均为 SSE 长连接（永久 Pending + Time 增长是正常表象）。但 `handleGlobalStream`（`server/routes/agent.mjs`）`writeHead` 后无 body 写入，Node 将响应头缓存到第一次 `res.write`（15s ping 或首条事件）才发出，客户端 TTFB/`onopen` 最长延迟 15 秒；`handleChannelEvents` 因立即写 snapshot 无此问题。
+- 实现：`handleGlobalStream` 在 `writeHead` 后加 `res.flushHeaders()` 立即刷出响应头（附一行注释说明缘由）。`tests/server/routes/agent.test.mjs` 新增 "agent global events stream" 用例：断言 200 + `text/event-stream` + `flushHeaders` 被调用 + 挂载 `agent_event` 监听，`req.emit('close')` 后移除监听并 end；mock 的 `agentEvents` 补 `removeListener: vi.fn()`（cleanup 路径需要）。
+- 验证：定向 `npx vitest run tests/server/routes/agent.test.mjs` → 1 file / 14 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（`server/cloud/identity.mjs:92`）。
+- 范围外未改（已向用户说明）：dev 下 server/Vite 重启断流后 EventSource 指数退避重连（Network 面板呈现为新 Pending 请求）；HTTP/1.1 同源 6 连接上限下多 SSE（channels/events + agents/events + 会话 stream + 设置页再开一条）多 tab 挤占连接池。
+- 文件：`server/routes/agent.mjs`、`tests/server/routes/agent.test.mjs`、`progress.md`、`session-handoff.md`。
+- 边界：无架构/公共入口变化，docs/wiki 无需更新；未新增依赖，未 commit/tag/push，未触碰生成产物。
+- 下一步：无 blocker；可选真机确认 `/api/agents/events` 在 DevTools 中 TTFB 即时（不再等 15s ping）。注意 `release-v1.8.1` 仍 in_progress，本改动需纳入其发布门禁重新完整验证。
+
+---
+
+## 当前状态：package-size-trim（已完成）
+
+- 目标：按用户决策裁剪包体：1) qf-agent 功能暂时移除、不再引用/分发二进制；2) mermaid 等纯前端依赖按推荐移回 devDependencies；3) Monaco 只读查看器去掉 4 个语言 worker。
+- 实现：①package.json files + prepare-runtime/offline copyEntries 去掉 runtime-assets；electron-builder.config.cjs 删 extraResources/平台 helper；electron-main.mjs 删 desktopAgentPath/qfAgentPath；git rm runtime-assets（52MB 五平台）。qf-agent-process.mjs 托管代码不动——缺二进制 → unavailable，QUICKFORGE_QF_AGENT_PATH 可外部指定，win32 dev 保留 ../quickforge-cloud/bin/agent.exe 回退。②mermaid/react-markdown/remark-gfm/@dnd-kit×3/@capacitor×3 → devDependencies，npm install --package-lock-only 同步（无版本变化）；消费端安装省 ~93MB。③monaco-local.ts 改 editor.api + editor.all + 新 monaco-basic-languages.ts（全部 Monarch 贡献聚合，按需懒加载）+ 仅 editor.worker，getWorker 不再按 label 分发；新增 src/monaco-esm.d.ts；已知取舍：JSON 无 Monarch 着色、纯文本呈现。
+- 文件：package.json、package-lock.json、scripts/prepare-runtime-package.cjs、scripts/prepare-offline-package.cjs、desktop/electron-builder.config.cjs、desktop/electron-main.mjs、src/components/workspace/monaco-local.ts、src/components/workspace/monaco-basic-languages.ts（新）、src/monaco-esm.d.ts（新）、tests/frontend/monaco-local.test.ts、docs/architecture/quickforge-cloud-client.zh-CN.md、docs/design/remote-access-p2p.md、docs/wiki/server/README.md、docs/wiki/src/components/README.md、状态文件；git rm runtime-assets/agent 五平台二进制。
+- 验证：定向 vitest 多组全通过；eslint/tsc/node --check/build 全通过（dist 26→17MB，四语言 worker 消失）；完整 npm run test 256 files / 2269 tests 全通过；npm run lint 0 errors / 1 既有 warning；package-dist 重建 npm pack --dry-run → 4.8MB / 414 files（v1.7.10 为 24.1MB），打包 dependencies 仅 9 个。
+- 边界：vite.config.ts 未动（并行 Monaco 会话刚移除 monaco manual chunk，为 rolldown 首屏刻意决策，本轮构建沿用）；qf-agent-process.mjs / public-api.mjs 未动（测试全用注入 fake，无需改）；并行会话的 monaco-local-bundled-loading 改动完整保留，本轮 worker 裁剪叠加其上并同步了其 wiki 描述。未 commit/tag/push。
+- 下一步：无 blocker。Cloud 远程访问暂不可用（unavailable），恢复=还原二进制与四处打包引用；release-v1.8.1 发布门禁需在含本轮改动的基线重跑完整 test/lint/build。
+
+
 ## 当前状态：mobile-h5-fullscreen-sidebar-and-inspector（已完成）
 
 - 目标：手机 H5 端左侧会话侧栏整屏展示（去掉 w-80 + max-w-[85vw] 两层限制），并让右侧 Workspace Inspector 的 PanelRight 开关在移动端可见、Inspector 以全屏覆盖可用。

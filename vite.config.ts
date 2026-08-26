@@ -34,6 +34,9 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // monaco-editor 本体仅由 src/components/workspace/monaco-local.ts 动态 import 引用，
+          // 不设 manual chunk：默认分包会沿动态边界将其隔离为异步 chunk；若设 manual chunk，
+          // rolldown 会把共享 preload-helper 收编进 monaco chunk，反而把它拖回首屏。
           // React core — stable, large, rarely updated
           if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') ||
               id.includes('node_modules/scheduler/')) {
@@ -49,9 +52,6 @@ export default defineConfig({
             return 'icons'
           }
           // Heavy optional UI/runtime dependencies
-          if (id.includes('node_modules/monaco-editor/') || id.includes('node_modules/@monaco-editor/')) {
-            return 'monaco'
-          }
           if (id.includes('node_modules/@xterm/')) {
             return 'xterm'
           }

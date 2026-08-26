@@ -1,5 +1,22 @@
 # Progress
 
+## Completed Feature：package-size-trim
+
+- Feature: 包体裁剪——qf-agent 暂时下线 + 前端依赖归位 + Monaco 语言 worker 移除（package-size-trim，**已完成**）
+- Status: done — 三项裁剪按用户决策落地：①qf-agent 不再随包分发：package.json files、prepare-runtime/offline 两个脚本 copyEntries 移除 runtime-assets，electron-builder 删除 agent extraResources 与平台 helper，electron-main 删除 desktopAgentPath/qfAgentPath，git rm 五平台二进制 52MB；server/cloud/qf-agent-process.mjs 不动，二进制缺失时状态 unavailable，QUICKFORGE_QF_AGENT_PATH 仍可外部指定，恢复分发只需还原二进制与四处打包引用。②mermaid/react-markdown/remark-gfm/@dnd-kit×3/@capacitor×3 移回 devDependencies（服务端运行时仅需 9 个真依赖），lock 仅 dev 标记变化；npm 消费端每次安装省约 93MB，并消除桌面 asar 吸入 mermaid 的隐患。③Monaco 只读查看器去掉 json/css/html/ts 语言 worker（叠加于 monaco-local-bundled-loading）：monaco-local.ts 改为 editor.api + editor.all + monaco-basic-languages.ts 聚合 Monarch + 仅 editor.worker，不引入 vs/language 贡献；TS/JS/CSS/SCSS/LESS/HTML 由 Monarch 着色，JSON 无 Monarch 以纯文本呈现（已知取舍）；新增 src/monaco-esm.d.ts 补深路径类型。
+- Verification: 定向 vitest（monaco-local、qf-agent-process、public-api、electron-desktop-notifications-structure、workspace-inspector tabs/on-demand）全通过；eslint 改动文件 0 error；node --check 打包/desktop 文件通过；tsc -b 通过；npm run build 成功（dist 26MB→17MB，四个语言 worker chunk 消失，editor.worker 保留）；npm run lint 0 errors / 1 既有 warning；完整 npm run test → 256 files / 2269 tests 全通过；prepare-runtime-package 重建 + npm pack --dry-run → 4.8MB / 414 files（对照 v1.7.10 24.1MB），打包 dependencies 仅 9 个运行时依赖。
+- Boundaries: vite.config.ts 保持并行会话最新状态未改动（monaco 无 manual chunk 为其刻意决策）；server/cloud/qf-agent-process.mjs 与 public-api.mjs qfAgentPath option 未动；已同步 docs/architecture/quickforge-cloud-client.zh-CN.md、docs/design/remote-access-p2p.md、docs/wiki/server/README.md、docs/wiki/src/components/README.md；未新增/升级依赖版本，未 commit/tag/push。
+- Next step: 无 blocker；发布时注意 v1.8.1 之后的版本 tarball 将从 ~24MB 降至 ~5MB；Cloud 远程访问功能处于不可用（unavailable）状态直到恢复 agent 分发（或用户经 QUICKFORGE_QF_AGENT_PATH 自备二进制）；可选真机目视 Reader/Diff 中 TS/CSS 着色正常、JSON 纯文本呈现。
+
+## Completed Feature：monaco-local-bundled-loading
+
+- Feature: Monaco 编辑器本地打包加载（monaco-local-bundled-loading，**已完成**）
+- Status: done — 起因：Edge Tracking Prevention 提示 jsdelivr 存储访问，且 package-offline 断网时 Monaco 编辑器加载不出（`@monaco-editor/react` 默认经 `@monaco-editor/loader` 从 `cdn.jsdelivr.net` 运行时拉取 monaco-editor@0.55.1）。现新增 `src/components/workspace/monaco-local.ts`：`ensureLocalMonaco()` 模块级单例，函数内 `Promise.all` 动态 import `monaco-editor` 与 editor/json/css/html/ts 五个 `?worker`，设置 `self.MonacoEnvironment.getWorker` 按 label 分发，再经 `loader.config({ monaco })` 注册本地实例；顶层只 import `loader`（Environment 为 type-only），monaco 本体不进首屏静态图。`MonacoCodeViewer.tsx` / `MonacoDiffViewer.tsx` 增加 `monacoReady` gate（useEffect + cancelled 清理，保证 config 先于 `loader.init()`；未 ready 返回 null，其余 props/options 不变）。`vite.config.ts` 删除 monaco manualChunks 分支：实测保留 manual chunk 时 rolldown 会把共享 vite/preload-helper 收编进 monaco chunk、经 modulepreload 把 4MB 拖回首屏；删除后 monaco 家族为纯异步 chunk（editor.api2 3.63MB/gzip 926KB + 5 个独立 worker），index.html preload 11 项与入口静态闭包均不含 monaco，首屏不变。`@monaco-editor/loader` 默认 config 的 jsdelivr 字符串为死代码（dist 残留 1 处、无运行时网络请求）。
+- Verification: 定向 vitest 4 files / 29 tests（monaco-local 5 + markdown-reader 2 + workspace-inspector-tabs 19 + mobile-fullscreen-adaptation 3）全通过；eslint 5 个改动文件 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体与 chunk size warnings）；dist 只读检查确认 preload/静态闭包无 monaco、worker 正常生成、jsdelivr 仅 1 处死字符串。未跑全量 test/lint。
+- Boundaries: 未新增依赖（monaco-editor@0.55.1 本就是 devDependency 且已安装）；未手工修改 `dist/`、`package-dist/`、`package-offline/`（build 仅重建被忽略的 dist/）；未 commit/tag/push；cloud-models-timeout-nonblocking 并行改动未触碰。已同步 `docs/wiki/src/components/README.md`。
+- Next step: 无 blocker；可选真机（含断网 offline 包/Electron）验证代码/Diff 查看器加载与语法高亮；`release-v1.8.1` 发布门禁需纳入本改动重新完整验证。
+
+
 ## Completed Feature：mobile-h5-fullscreen-sidebar-and-inspector
 
 - Feature: 移动端 H5 侧栏整屏与 Inspector 全屏覆盖（mobile-h5-fullscreen-sidebar-and-inspector，**已完成**）

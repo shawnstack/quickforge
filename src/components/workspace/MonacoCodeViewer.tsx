@@ -1,6 +1,8 @@
 import Editor from '@monaco-editor/react'
+import { useEffect, useState } from 'react'
 import { useAppTheme } from '@/hooks/useAppTheme'
 import { useCodeFontMetrics } from '@/hooks/useCodeFontMetrics'
+import { ensureLocalMonaco } from './monaco-local'
 
 type MonacoCodeViewerProps = {
   path: string
@@ -12,6 +14,23 @@ type MonacoCodeViewerProps = {
 export function MonacoCodeViewer({ path, content, language, wordWrap = false }: MonacoCodeViewerProps) {
   const theme = useAppTheme()
   const codeFontMetrics = useCodeFontMetrics()
+  const [monacoReady, setMonacoReady] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void ensureLocalMonaco().then(() => {
+      if (!cancelled) {
+        setMonacoReady(true)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (!monacoReady) {
+    return null
+  }
 
   return (
     <Editor

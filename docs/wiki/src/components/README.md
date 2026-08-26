@@ -43,6 +43,8 @@ components/
 │   ├── SubagentRunDetailContent.tsx # Workspace Inspector 中的 subagent 单次运行详情内容
 │   ├── WorkspaceFileTree.tsx       # 项目文件树
 │   ├── WorkspaceChangesList.tsx    # Git 工作区变更列表
+│   ├── monaco-basic-languages.ts   # Monaco Monarch 基础语言贡献聚合（静态注册全部着色器）
+│   ├── monaco-local.ts             # Monaco 本地打包运行时懒加载初始化（仅 editor worker，无 CDN）
 │   ├── MonacoCodeViewer.tsx        # Monaco 只读代码查看器
 │   └── MonacoDiffViewer.tsx        # Monaco 单文件 Diff 查看器
 ├── terminal/
@@ -229,6 +231,7 @@ components/
 - 标题栏 Git 分支 chip 通过 `/api/git/branches`、`/api/git/checkout`、`/api/git/create-branch` 和 `/api/git/log` 提供分支切换、创建并检出新分支和 Git 图谱弹窗；Workspace Inspector 仍聚焦文件浏览、产物预览和 diff review
 - AI 产物展示统一进入 Workspace Inspector：`present_files` 可用于 HTML、SVG/图片、Markdown、代码、配置、报告、PDF/DOCX/XLS/XLSX 文档和其他可读文本；Markdown/代码/文本打开项目级 Reader Tab，HTML/SVG/图片打开项目级 Browser Tab，PDF/DOCX/XLS/XLSX 打开项目级 Document Tab（`WorkspaceDocumentContent` 按格式动态加载 pdfjs-dist/docx-preview/xlsx 渲染，复用 `/api/workspace/preview` 二进制流与 50 MiB 上限，仅持久化 path/format），不支持直接展示的文件仍保留在产物列表。工具卡片的预览按钮使用相同分流规则，可在关闭后重新打开对应 Reader、Browser 或 Document Tab；Tab 恢复由项目级持久化状态负责。Browser 在加载工作区文件前通过预检接口统一识别文件不存在、不支持类型、文件过大、路径受限和服务异常等状态，以轻量空状态展示友好说明，并在可展开的“错误详情”中保留状态码、错误代码、文件路径和后端原始报错。
 - 重复预览同一文件时复用已有 tab 而非叠加新 tab：Reader 命中已打开的 file tab 时激活并置为 loading、清除 error，复用统一加载 effect 重新读取最新内容；Browser 按同一底层文件路径（`browserTabFilePath`/`panelTabFilePath` 归一化，兼容 Windows 路径分隔符）或精确 web URL 查找已有 browser tab，命中则激活并递增不持久化的 `reloadNonce`，经 `WebPreviewContent` 的 `externalReloadToken` 纳入 iframe key 强制重载，未命中才新建 tab。仅同 kind 去重，不做 Reader/Browser 跨类型合并，也不改变 tab 的 localStorage 序列化格式。
+- `MonacoCodeViewer.tsx` / `MonacoDiffViewer.tsx` 底层的 Monaco 编辑器为本地打包：`monaco-local.ts` 在首次打开查看器时懒加载初始化（editor 核心 + editor.all 特性 + 仅 editor worker，经 `@monaco-editor/react` 的 `loader.config` 注册本地实例），不再依赖 jsdelivr CDN 运行时加载，离线（package-offline）环境可用。只读查看器不引入 json / css / html / ts 语言服务 worker 与对应 vs/language 贡献：TS/JS/CSS/SCSS/LESS/HTML 等语言由 `monaco-basic-languages.ts` 聚合的 Monarch 着色器覆盖（按需懒加载），JSON 无 Monarch 着色器、以纯文本呈现。
 
 ### Terminal Dock (`terminal/`)
 

@@ -1,7 +1,9 @@
 import { DiffEditor } from '@monaco-editor/react'
+import { useEffect, useState } from 'react'
 import { useAppTheme } from '@/hooks/useAppTheme'
 import { useCodeFontMetrics } from '@/hooks/useCodeFontMetrics'
 import type { GitFileStatus } from './workspace-types'
+import { ensureLocalMonaco } from './monaco-local'
 
 type MonacoDiffViewerProps = {
   path: string
@@ -14,6 +16,23 @@ type MonacoDiffViewerProps = {
 export function MonacoDiffViewer({ path, oldContent, newContent, language, status }: MonacoDiffViewerProps) {
   const theme = useAppTheme()
   const codeFontMetrics = useCodeFontMetrics()
+  const [monacoReady, setMonacoReady] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void ensureLocalMonaco().then(() => {
+      if (!cancelled) {
+        setMonacoReady(true)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (!monacoReady) {
+    return null
+  }
 
   return (
     <DiffEditor

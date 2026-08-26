@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../server/agent-manager.mjs', () => ({
   abortRun: vi.fn(),
   abortToolCall: vi.fn(),
-  agentEvents: { on: vi.fn(), off: vi.fn() },
+  agentEvents: { on: vi.fn(), off: vi.fn(), removeListener: vi.fn() },
   approveAutoCompact: vi.fn(),
   approveToolCall: vi.fn(),
   continueSession: vi.fn(),
@@ -343,5 +343,37 @@ describe('agent Harness configuration routes', () => {
 
     expect(mocks.forkSession).toHaveBeenCalledWith('session-1')
     expect(JSON.parse(res.body)).toEqual(result)
+  })
+})
+
+describe('agent global events stream', () => {
+  it('flushes SSE headers immediately and detaches listeners on close', async () => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const { agentEvents } = await import('../../../server/agent-manager.mjs')
+    const req = new Readable({ read() {} })
+    req.method = 'GET'
+    req.headers = {}
+    const res = {
+      status: 0,
+      headers: null,
+      flushed: false,
+      writableEnded: false,
+      writeHead(status, headers) { this.status = status; this.headers = headers },
+      flushHeaders() { this.flushed = true },
+      write() {},
+      end() { this.writableEnded = true },
+      on() {},
+    }
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/events'), {})
+
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toBe('text/event-stream')
+    expect(res.flushed).toBe(true)
+    expect(agentEvents.on).toHaveBeenCalledWith('agent_event', expect.any(Function))
+
+    req.emit('close')
+    expect(agentEvents.removeListener).toHaveBeenCalledWith('agent_event', expect.any(Function))
+    expect(res.writableEnded).toBe(true)
   })
 })

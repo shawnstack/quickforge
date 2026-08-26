@@ -442,6 +442,9 @@ function handleGlobalStream(req, res) {
     'connection': 'keep-alive',
     'x-accel-buffering': 'no',
   })
+  // Flush headers immediately — without a body write they would otherwise sit
+  // in the socket buffer until the first 15s ping, delaying the client's onopen.
+  res.flushHeaders()
 
   const keepAlive = setInterval(() => {
     try {

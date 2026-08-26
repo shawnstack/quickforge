@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { logger } from '../utils/logger.mjs'
+import { canonicalJsonStringify } from './canonical-json.mjs'
 import { getSqliteStorage, runSharedSqliteQuickCheck } from './database.mjs'
 
 const SESSION_ROW_COLUMNS = `
@@ -60,7 +61,7 @@ function jsonAndDigest(value, field) {
 // Canonical SHA-256 digest of a single message object (identical algorithm to
 // the row-level `message_digest` written by the repository).
 export function messageDigest(message) {
-  return jsonAndDigest(message, 'message').digest
+  return encodeMessage(message).messageDigest
 }
 
 // Digest over an ordered message array (seq = array index). Mirrors the
@@ -101,17 +102,21 @@ export function splitStateForStorage(state) {
   return { storedState: copy, messages: undefined }
 }
 
+// Single-pass canonical serialization (see canonical-json.mjs): byte-identical
+// to the old round-trip + canonicalize + stringify pipeline but one walk
+// instead of four, so large-session message encoding stops monopolizing the
+// event loop. jsonAndDigest (state/metadata bodies) keeps the round-trip
+// because its callers consume the normalized value copy.
 function encodeMessage(message) {
   if (!isPlainObject(message)) throw new TypeError('message must be a plain object')
-  let parsed
+  let json
   try {
-    parsed = JSON.parse(JSON.stringify(message))
+    json = canonicalJsonStringify(message)
   } catch {
     throw new TypeError('message must be JSON-serializable')
   }
-  if (!isPlainObject(parsed)) throw new TypeError('message must be a JSON object')
-  const json = JSON.stringify(canonicalize(parsed))
-  const messageId = typeof parsed.id === 'string' && parsed.id.trim() ? parsed.id : null
+  if (typeof json !== 'string') throw new TypeError('message must be JSON-serializable')
+  const messageId = typeof message.id === 'string' && message.id.trim() ? message.id : null
   return {
     messageId,
     messageJson: json,
@@ -122,6 +127,25 @@ function encodeMessage(message) {
 function encodeMessages(messages) {
   if (!Array.isArray(messages)) throw new TypeError('messages must be an array')
   return messages.map((message) => encodeMessage(message))
+}
+
+// Batched encode for the agent persist path: same result as encodeMessages,
+// but yields to the event loop between batches so a multi-thousand-message
+// replace encode no longer stalls every in-flight request for its full CPU
+// duration. The SQLite transaction itself still runs synchronously — only
+// the encoding happens before it.
+const ENCODE_YIELD_BATCH_SIZE = 50
+
+export async function encodeMessagesChunked(messages, { batchSize = ENCODE_YIELD_BATCH_SIZE } = {}) {
+  if (!Array.isArray(messages)) throw new TypeError('messages must be an array')
+  if (!Number.isInteger(batchSize) || batchSize < 1) throw new TypeError('batchSize must be a positive integer')
+  const encoded = []
+  for (let start = 0; start < messages.length; start += batchSize) {
+    const end = Math.min(start + batchSize, messages.length)
+    for (let index = start; index < end; index += 1) encoded.push(encodeMessage(messages[index]))
+    if (end < messages.length) await new Promise((resolve) => setImmediate(resolve))
+  }
+  return encoded
 }
 
 function nonEmptyString(value, field) {
@@ -189,10 +213,22 @@ function normalizeRecord(input, timestamp) {
   // wholesale — the caller-selected mode ('replace' by default, 'append' for
   // incremental tails) writes the rows, and body_json never contains the
   // messages array. A body without messages (body-only save) leaves the
-  // stored message rows untouched.
+  // stored message rows untouched. `messagesEncoded` (internal contract:
+  // rows from encodeMessagesChunked, aligned 1:1 with the incoming array)
+  // skips the synchronous re-encode on the agent persist path.
   let incomingMessages = input.messages
   if (incomingMessages === undefined && Array.isArray(state.messages)) incomingMessages = state.messages
-  const messages = incomingMessages !== undefined ? encodeMessages(incomingMessages) : undefined
+  let messages
+  if (incomingMessages !== undefined) {
+    if (input.messagesEncoded !== undefined) {
+      if (!Array.isArray(input.messagesEncoded) || input.messagesEncoded.length !== incomingMessages.length) {
+        throw new TypeError('messagesEncoded must be an array aligned with messages')
+      }
+      messages = input.messagesEncoded
+    } else {
+      messages = encodeMessages(incomingMessages)
+    }
+  }
   if (messages !== undefined) {
     delete state.messages
     state.messageStorage = MESSAGES_SPLIT_VALUE

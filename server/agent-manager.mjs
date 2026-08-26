@@ -2421,7 +2421,7 @@ async function persistAuthoritativeSessionState(session, sessionData, metadata) 
       ...(mergedMetadata.pinnedAt ? { pinnedAt: mergedMetadata.pinnedAt } : {}),
     }
     try {
-      const saved = saveSessionStatePair({
+      const saved = await saveSessionStatePair({
         state: persistedState,
         metadata: mergedMetadata,
         expectedRevision: session.persistedStorageRevision ?? existing?.revision ?? 0,
@@ -2617,10 +2617,12 @@ async function persistSessionUnlocked(session) {
   return persistedMetadata || metadata
 }
 
-// Persist slower than this (queue wait + synchronous SQLite write) is worth a
-// warning: large sessions write big synchronous transactions that stall the
-// event loop and make every in-flight request (including /restore) wait.
-const SLOW_PERSIST_LOG_MS = 1_000
+// Persist slower than this (queue wait + encode + synchronous SQLite write)
+// is worth a warning: large sessions write big synchronous transactions that
+// stall the event loop and make every in-flight request (including /restore)
+// wait. The 200ms threshold surfaces the real-world distribution, not just
+// the extreme tail, so persist optimizations stay measurable.
+const SLOW_PERSIST_LOG_MS = 200
 
 async function persistSession(session) {
   const startedAt = performance.now()

@@ -1,4 +1,4 @@
-import { createSessionStateRepository, MESSAGES_PAGE_LIMIT_MAX, MESSAGES_SPLIT_VALUE, messageDigest } from './sqlite/session-state-repository.mjs'
+import { createSessionStateRepository, encodeMessagesChunked, MESSAGES_PAGE_LIMIT_MAX, MESSAGES_SPLIT_VALUE, messageDigest } from './sqlite/session-state-repository.mjs'
 import { getSqliteStorage } from './sqlite/database.mjs'
 
 // Storage v2 integration: SQLite is the single authoritative session store.
@@ -219,10 +219,8 @@ function messageStoragePlan(state, existing) {
   return { mode: 'append', messages: tail }
 }
 
-function savePair(state, metadata, options = {}) {
+function savePairWithPlan(state, metadata, options, plan, existing) {
   const sessionId = options.sessionId ?? state?.id ?? metadata?.id
-  const existing = options.fallback ?? (sessionId ? repository().findBySessionId(sessionId) : null)
-  const plan = messageStoragePlan(state, existing)
   const record = synchronize(state, metadata, sessionId, existing)
   const finalMetadata = { ...record.metadata }
   if (plan.mode === 'replace' || plan.mode === 'append') {
@@ -230,7 +228,12 @@ function savePair(state, metadata, options = {}) {
     finalMetadata.messageCount = plan.mode === 'append' ? fullMessages.length : plan.messages.length
     if (finalMetadata.preview === undefined) finalMetadata.preview = previewFromMessages(fullMessages)
   }
-  const finalRecord = { ...record, metadata: finalMetadata }
+  // Pre-encoded rows from savePairChunked skip the synchronous re-encode
+  // inside normalizeRecord (internal contract: aligned with plan.messages).
+  const carriesEncoded = options.messagesEncoded !== undefined && (plan.mode === 'replace' || plan.mode === 'append')
+  const finalRecord = carriesEncoded
+    ? { ...record, metadata: finalMetadata, messagesEncoded: options.messagesEncoded }
+    : { ...record, metadata: finalMetadata }
   let saved
   if (plan.mode === 'replace') {
     saved = repository().replaceMessages(finalRecord, plan.messages, {
@@ -253,6 +256,32 @@ function savePair(state, metadata, options = {}) {
   // re-reading the message table on every save.
   const totalMessageCount = repository().messageCount({ scope: saved.scope, projectId: saved.projectId, sessionId: saved.sessionId })
   return { ...saved, messageStoragePlan: plan.mode, messageCount: totalMessageCount }
+}
+
+function savePair(state, metadata, options = {}) {
+  const sessionId = options.sessionId ?? state?.id ?? metadata?.id
+  const existing = options.fallback ?? (sessionId ? repository().findBySessionId(sessionId) : null)
+  const plan = messageStoragePlan(state, existing)
+  return savePairWithPlan(state, metadata, options, plan, existing)
+}
+
+// Agent persist path: compute the storage plan, encode the messages the plan
+// will write in event-loop-yielding batches (encodeMessagesChunked), then run
+// the synchronous transaction on pre-encoded rows. Big replaces no longer
+// stall every in-flight request for the full encode duration. Requires a CAS
+// expectedRevision: a writer committing between the yields bumps the revision
+// and the pre-write CAS check turns that into a SESSION_STATE_CONFLICT retry
+// instead of writing rows against a stale plan. Callers without a revision
+// guard keep the fully synchronous savePair path.
+async function savePairChunked(state, metadata, options = {}) {
+  const sessionId = options.sessionId ?? state?.id ?? metadata?.id
+  const existing = options.fallback ?? (sessionId ? repository().findBySessionId(sessionId) : null)
+  const plan = messageStoragePlan(state, existing)
+  if (plan.mode !== 'replace' && plan.mode !== 'append') {
+    return savePairWithPlan(state, metadata, options, plan, existing)
+  }
+  const messagesEncoded = await encodeMessagesChunked(plan.messages)
+  return savePairWithPlan(state, metadata, { ...options, messagesEncoded }, plan, existing)
 }
 
 /**
@@ -400,8 +429,12 @@ export function readSessionMetadataBuckets() {
   return [...buckets.values()]
 }
 
-export function saveSessionStatePair({ state, metadata, expectedRevision = null, expectedStateVersion = null } = {}) {
-  return savePair(state, metadata ?? deriveMetadata(state), { expectedRevision, expectedStateVersion })
+export async function saveSessionStatePair({ state, metadata, expectedRevision = null, expectedStateVersion = null } = {}) {
+  const resolvedMetadata = metadata ?? deriveMetadata(state)
+  if (expectedRevision === null || expectedRevision === undefined) {
+    return savePair(state, resolvedMetadata, { expectedRevision, expectedStateVersion })
+  }
+  return savePairChunked(state, resolvedMetadata, { expectedRevision, expectedStateVersion })
 }
 
 export function saveSessionBody(sessionId, value, { expectedRevision = null } = {}) {

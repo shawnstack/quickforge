@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
-import { createSessionStateRepository, messageDigest } from '../../server/sqlite/session-state-repository.mjs'
+import { createSessionStateRepository, encodeMessagesChunked, messageDigest } from '../../server/sqlite/session-state-repository.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 const workerScript = path.join(projectRoot, 'tests', 'fixtures', 'session-state-cas-worker.mjs')
@@ -378,5 +378,50 @@ describe('session state repository and schema v11', () => {
     const page = repository.readMessagesPage({ scope: 'global', sessionId: 'digest-check', limit: 10 })
     expect(page.messages.map((row) => row.digest)).toEqual([messageDigest(record('digest-check').state.messages[0])])
     expect(saved.stateDigest).toBe(repository.findBySessionId('digest-check').stateDigest)
+  })
+
+  it('encodeMessagesChunked yields to the event loop between batches', async () => {
+    const messages = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+    const events = []
+    const encode = encodeMessagesChunked(messages, { batchSize: 1 })
+    // This immediate is queued after the first batch's inter-batch yield, so
+    // FIFO immediates run it BEFORE the remaining batches finish: proof the
+    // event loop got control mid-encode. A fully synchronous encode would
+    // settle the promise (microtask) before any immediate runs.
+    const external = new Promise((resolve) => setImmediate(() => {
+      events.push('external')
+      resolve()
+    }))
+    await encode
+    events.push('done')
+    await external
+    expect(events).toEqual(['external', 'done'])
+  })
+
+  it('pre-encoded chunked rows write byte-identical rows to the synchronous encode path', async () => {
+    const messages = []
+    for (let index = 0; index < 120; index += 1) {
+      messages.push({ id: `m${index}`, role: index % 2 ? 'assistant' : 'user', content: `message ${index}` })
+    }
+    const encoded = await encodeMessagesChunked(messages, { batchSize: 25 })
+    expect(encoded).toHaveLength(messages.length)
+
+    const syncSaved = repository.replaceMessages(record('sync-encode'), messages, { expectedRevision: 0 })
+    const bypassSaved = repository.replaceMessages({ ...record('bypass-encode'), messagesEncoded: encoded }, messages, { expectedRevision: 0 })
+    expect(bypassSaved.messageCount).toBe(syncSaved.messageCount)
+
+    const rows = (sessionId) => database
+      .prepare('SELECT seq, message_json, message_digest FROM session_messages WHERE session_id = ? ORDER BY seq')
+      .all(sessionId)
+    expect(rows('bypass-encode')).toEqual(rows('sync-encode'))
+    expect(rows('bypass-encode').map((row) => row.message_digest)).toEqual(encoded.map((row) => row.messageDigest))
+  })
+
+  it('rejects a misaligned messagesEncoded array', () => {
+    expect(() => repository.replaceMessages(
+      { ...record('misaligned'), messagesEncoded: [{ messageId: null, messageJson: '{}', messageDigest: '0'.repeat(64) }] },
+      [{ role: 'user', content: 'one' }, { role: 'user', content: 'two' }],
+      { expectedRevision: 0 },
+    )).toThrow(TypeError)
   })
 })

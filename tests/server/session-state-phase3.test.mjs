@@ -66,10 +66,10 @@ describe('F9 Phase 3 service integration (split session full chain, storage v2)'
     await rm(directory, { recursive: true, force: true })
   })
 
-  it('savePair reports the storage plan and exact persisted message count', () => {
+  it('savePair reports the storage plan and exact persisted message count', async () => {
     // Storage v2: every session splits on its first save — the inline
     // threshold is gone; the plan for a fresh session is 'replace'.
-    const first = saveSessionStatePair({ state: state('one', 5), metadata: metadata('one', 5) })
+    const first = await saveSessionStatePair({ state: state('one', 5), metadata: metadata('one', 5) })
     expect(first.messageStoragePlan).toBe('replace')
     expect(first.messageCount).toBe(5)
     expect(first.state.messageStorage).toBe('split')
@@ -77,7 +77,7 @@ describe('F9 Phase 3 service integration (split session full chain, storage v2)'
 
     // A growing split session appends only the tail.
     const grown = messages(20, 0)
-    const appended = saveSessionStatePair({
+    const appended = await saveSessionStatePair({
       state: state('one', grown.length),
       metadata: metadata('one', grown.length),
       expectedRevision: first.revision,
@@ -88,13 +88,13 @@ describe('F9 Phase 3 service integration (split session full chain, storage v2)'
     expect(readSessionStateValue('one').messages).toHaveLength(20)
 
     // Same-length in-place edits rewrite in full (replace), truncations too.
-    const edited = saveSessionStatePair({
+    const edited = await saveSessionStatePair({
       state: state('one', 20),
       metadata: metadata('one', 20),
       expectedRevision: appended.revision,
     })
     expect(edited.messageStoragePlan).toBe('body-only')
-    const truncated = saveSessionStatePair({
+    const truncated = await saveSessionStatePair({
       state: state('one', 10),
       metadata: metadata('one', 10),
       expectedRevision: edited.revision,

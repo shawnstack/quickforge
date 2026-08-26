@@ -113,6 +113,6 @@ cutover 备份定位：同步 cutover 链中 v1 备份是导入前置条件（F8
 - **同长度中部修改的增量检测盲区**：拆分会话按「行数 + 尾消息 digest」判定增量；同总数、同尾消息的中部原地修改不会被检测（不落库、无报错），需 `messages_replaced` 全量帧或显式全量刷新收敛；`verifyIntegrity` 可发现最终不一致。
 - **split 阈值边界**：拆分一旦生效永不降回 inline；恰好 199 条每次全量 body 重写，201 条进入增量，阈值两侧成本曲线突变（设计选择）。
 - **无 id 消息不去重**：仅带稳定 `message_id` 的消息受 UNIQUE 约束幂等；无 id 消息在客户端重试同一批 append 时可能产生重复行。
-- **`synchronous` 已切换为 `FULL`（已定案）**：原 `synchronous=NORMAL` 断电窗口经实测后定案切换为 FULL（高频小事务均次增量约 0.46ms），见 `sqlite-storage-foundation.zh-CN.md` §3.1。
+- **`synchronous` 现为 `NORMAL`（2026-08-26 用户决策）**：曾按 `sqlite-storage-foundation.zh-CN.md` §3.1 实测定案 FULL（高频小事务均次增量约 0.46ms）；持久化热路径完成单遍序列化 + 分批 yield 优化后，为消除 COMMIT fsync 的延迟尖刺（杀毒扫描/机械盘/网络盘下尤为明显）按用户决策切回 NORMAL。接受 OS 崩溃/断电回滚"最后一次 checkpoint 以来已提交事务"的有界丢失窗口（进程崩溃安全，WAL 校验和保证原子性）；会话域存储 v2 无 JSON 镜像兜底，窗口内丢失即真实丢失，用户知情接受。
 - **digest 持久化后不再定期重算**：启动链路全部为轻量校验（`quick_check` + SQL 对账），磁盘 bit-rot 或外部篡改只有手动跑离线全量校验才暴露（评审报告建议定期/手动触发逐行 digest 校验）。
 - **持久化冲突耗尽静默放弃**：CAS 三次重试耗尽后仅 warn 并返回 null，消息可能未落库且前端无感知（评审报告 §3.2，待改进）。

@@ -8,7 +8,10 @@ import { applySqliteMigrations, inspectSqliteMigrationState, SQLITE_MIGRATIONS }
 
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000
 export const SQLITE_JOURNAL_MODE = 'wal'
-export const SQLITE_SYNCHRONOUS = 2
+// 1 = NORMAL（2026-08-26 用户决策切回，历史与权衡见
+// docs/architecture/sqlite-storage-foundation.zh-CN.md §3.1 修订记录）。
+export const SQLITE_SYNCHRONOUS = 1
+const SQLITE_SYNCHRONOUS_NAMES = { 0: 'off', 1: 'normal', 2: 'full', 3: 'extra' }
 
 // Startup quick_check tax optimization. All four storage domains share one
 // quickforge.sqlite3 file, and `PRAGMA quick_check` scans the whole file, so
@@ -17,13 +20,18 @@ export const SQLITE_SYNCHRONOUS = 2
 // (sharedQuickCheckCache) plus a cross-restart marker file reduce it to at
 // most one real scan per database per 7 days.
 //
-// Safety argument: WAL + synchronous=FULL make committed transactions immune
-// to torn writes (a crash either replays or rolls back the WAL). quick_check
-// therefore only guards against bit-rot / filesystem-level corruption, which
-// evolves on disk timescales, not per startup; the 7-day cadence plus the
-// manual force entry points (maintenance verify-session-integrity endpoint,
-// QUICKFORGE_SQLITE_QUICK_CHECK=force) keep the blind window bounded. When a
-// quick_check is skipped, all other SQL-level count/join checks still run.
+// Safety argument: WAL frame checksums make every committed transaction
+// atomic under any crash mode — recovery either replays or rolls back whole
+// transactions and the database file never tears, including with
+// synchronous=NORMAL. NORMAL gives up only the per-COMMIT fsync: after an OS
+// crash / power loss, commits since the last WAL checkpoint may roll back
+// (bounded by the checkpoint interval); an application crash loses nothing.
+// quick_check therefore only guards against bit-rot / filesystem-level
+// corruption, which evolves on disk timescales, not per startup; the 7-day
+// cadence plus the manual force entry points (maintenance
+// verify-session-integrity endpoint, QUICKFORGE_SQLITE_QUICK_CHECK=force)
+// keep the blind window bounded. When quick_check is skipped, all other
+// SQL-level count/join checks still run.
 export const SQLITE_QUICK_CHECK_MARKER_FILENAME = 'quickforge-quick-check.marker.json'
 export const SQLITE_QUICK_CHECK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -97,10 +105,14 @@ function configurePragmas(database) {
   database.exec('PRAGMA auto_vacuum = INCREMENTAL')
   database.exec('PRAGMA foreign_keys = ON')
   database.exec('PRAGMA journal_mode = WAL')
-  // FULL (not NORMAL): decision finalized in docs/architecture/sqlite-storage-foundation.zh-CN.md §3.1
-  // — measured cost is ~0.46 ms/op on the save hot path, in exchange for zero committed-transaction
-  // loss on OS crash/power loss.
-  database.exec('PRAGMA synchronous = FULL')
+  // NORMAL (2026-08-26, user decision superseding the earlier FULL ruling in
+  // docs/architecture/sqlite-storage-foundation.zh-CN.md §3.1): after the
+  // persist hot path moved to single-pass encoding + chunked yields, the
+  // per-COMMIT fsync (and its latency spikes on AV-scanned / HDD / network
+  // volumes) is the dominant remaining event-loop stall on large persists.
+  // Accepted trade-off: OS crash / power loss may roll back commits since
+  // the last WAL checkpoint; application crashes stay safe.
+  database.exec(`PRAGMA synchronous = ${SQLITE_SYNCHRONOUS}`)
   return verifyPragmas(database)
 }
 
@@ -226,7 +238,7 @@ function publicHealth(state, { quickCheck = false } = {}) {
     journalMode: pragmas.journalMode,
     busyTimeout: pragmas.busyTimeout,
     foreignKeys: pragmas.foreignKeys,
-    synchronous: 'full',
+    synchronous: SQLITE_SYNCHRONOUS_NAMES[SQLITE_SYNCHRONOUS] ?? String(SQLITE_SYNCHRONOUS),
     ...(quickCheck ? { quickCheck: quickCheckResult[0] } : {}),
   }
 }

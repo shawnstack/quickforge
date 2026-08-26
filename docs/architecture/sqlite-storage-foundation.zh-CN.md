@@ -43,7 +43,7 @@ node:sqlite DatabaseSync
 | `busy_timeout` | `5000` ms |
 | `foreign_keys` | `ON` |
 | `journal_mode` | `WAL` |
-| `synchronous` | `FULL`（定案依据见下文 §3.1 实测与决策） |
+| `synchronous` | `NORMAL`（2026-08-26 决策切回，见 §3.1 修订记录） |
 
 初始化或 health 校验不一致时明确报错。
 
@@ -66,6 +66,8 @@ WAL 模式下两种取值的崩溃语义：
 **定案结论：切换为 `FULL`。** 高频小事务负载下 FULL 的均次增量约 0.46 ms（远低于 2 ms 的可接受阈值），对每条消息一次保存的热路径不可感知；批量导入为单事务，fsync 成本被摊薄，倍率约 1.0。倍率 1.86x 看似偏高，但绝对成本极小，且换来断电/OS 崩溃场景下已提交事务零丢失，消除了 NORMAL 的 checkpoint 窗口丢数风险（该窗口内 mirror JSON 虽可兜底，但恢复链路复杂，不值得为 0.46 ms 保留）。
 
 本任务只定案与记录，server 代码中的 PRAGMA 切换在后续独立小 feature 落地（含 health 摘要与测试同步）。若在 fsync 昂贵的环境（机械盘、部分网络盘）实测均次增量 ≥ 2 ms，应回退本决策并显式记录"接受 NORMAL 的丢失窗口"：丢失窗口有界（≈ checkpoint 间隔）、对话记录有 mirror JSON 兜底。日志只记录 `component=sqlite`、schema/migration 版本、journal mode、timeout 与错误摘要；禁止记录未来业务 SQL、参数或数据内容。
+
+**2026-08-26 修订：切回 `NORMAL`（用户决策，覆盖上述 FULL 定案）。** 按上文预设的回退条款显式记录"接受 NORMAL 的丢失窗口"。背景变化：①会话持久化热路径已落地单遍 canonical 序列化 + 分批让出事件循环（optimize-persist-encoding-yield），编码段不再独占事件循环后，COMMIT 时的 fsync——尤其杀毒软件实时扫描、机械盘、网络盘上的延迟尖刺——成为大事务同步突刺的主要残余来源；②高频小事务 0.46ms 的均次增量本身收益有限，当初定案 FULL 主要买的是断电零丢失。语义边界：WAL 帧校验和保证任意崩溃模式下事务原子性（恢复时整事务重放或回滚，库文件不撕裂）；NORMAL 仅放弃逐 COMMIT fsync——进程崩溃/正常重启已提交事务不丢，OS 崩溃/断电可能回滚最后一次 checkpoint 以来已提交的事务（窗口有界 ≈ checkpoint 间隔）。注意：会话域存储 v2 下 SQLite 恒权威、无 mirror JSON 兜底，窗口内丢失即真实丢失（早于本修订的"mirror 兜底"前提已不存在），用户知情接受。代码侧 `SQLITE_SYNCHRONOUS=1`，health 摘要同步派生为 `normal`，`verifyPragmas` 与测试断言随常量收紧。
 
 ## 4. Migration 协议
 

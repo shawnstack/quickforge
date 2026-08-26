@@ -1,5 +1,13 @@
 # Progress
 
+## Completed Feature：mobile-h5-fullscreen-sidebar-and-inspector
+
+- Feature: 移动端 H5 侧栏整屏与 Inspector 全屏覆盖（mobile-h5-fullscreen-sidebar-and-inspector，**已完成**）
+- Status: done — 左侧会话侧栏移动抽屉 100% 整屏：`ChatSidebar.tsx` 移动分支改为 `isMobile ? 'flex h-full w-full flex-col'`，`App.tsx` 抽屉包装 div 移除 `max-w-[85vw]`，桌面宽度/resize/inline style 不动。右上工具栏 PanelRight 开关由 `hidden ... lg:inline-flex` 改为全断点 `inline-flex`（disabled/onClick/aria-label 不变），移动端可打开 Inspector。`WorkspaceInspector.tsx` 新增 `narrowViewport`（`matchMedia('(min-width: 1024px)')`，对应 Tailwind lg 断点，防御式写法兼容 vitest node 无 matchMedia）与 `mobileOverlay = narrowViewport && mounted`：根 aside 在 mobileOverlay 时复用既有 `quickforge-workspace-inspector-fullscreen` 以 z-20 全屏覆盖（原首行 `hidden` 移入条件分支；不设 width style、隐藏 resize separator），header 继续走 `pr-[5.5rem]` 为右上工具栏预留、PanelRight 可点关闭；桌面 fullscreen z-40、Maximize2、Escape 逻辑不变。
+- Verification: `npx vitest run` 定向 7 files / 66 tests 全通过（含新建 `tests/frontend/mobile-fullscreen-adaptation.test.ts` 3 个源码契约用例与更新的 side-chat-workspace-tab 首用例）；`npx eslint`（App/ChatSidebar/WorkspaceInspector/两个测试文件）→ 0 error；`npx tsc -b --pretty false` → 通过；`npm run build` → 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；feature JSON 解析通过。未跑全量 test/lint。
+- Boundaries: 不动 `GitToolsPinnedSummary` 的 `hidden md:flex` 与小屏隐藏“更改”入口（Inspector 已提供移动覆盖布局，GitTools 更改入口维持现状）；不动 Inspector 内部桌面 fullscreen/Maximize2/Escape 逻辑；未新增依赖，未手工修改生成产物（`dist/` 为 build 命令自动生成），未 commit/tag/push；`docs/wiki/src/components/README.md` 已同步 ChatSidebar/WorkspaceInspector/GitToolsPinnedSummary 三处。
+- Next step: 无 blocker；可选真机（H5/Android WebView）目视验证整屏侧栏、PanelRight 开关与 Inspector 全屏覆盖的关闭交互。
+
 ## Completed Feature：todo-pending-status-icon-hollow-circle
 
 - Feature: Todo 未开始状态图标改为空心圆（todo-pending-status-icon-hollow-circle，**已完成**）
@@ -7,6 +15,16 @@
 - Verification: `npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts` → 2 files / 30 tests 全通过；`npx eslint src/components/chat/panel-decoration/todo-write-summary.ts` → 0 error；`npm run build` → 成功（仅既有 KaTeX 字体与 chunk size warnings）。未跑全量 test/lint。
 - Boundaries: 纯局部图标替换不改变架构、模块职责或公共入口，docs/wiki 无需更新；复用既有描边图标体系，无新视觉模式，DESIGN_LANGUAGE 无需修改。未新增依赖，未手工修改生成产物，未 commit/tag/push；设计稿保留作决策记录。
 - Next step: 无 blocker；可选真机目视深浅主题下任务摘要三态图标。
+
+## Completed Feature：workspace-document-preview
+
+- Feature: Workspace 文档预览 — PDF/DOCX/XLS/XLSX（**已完成**）
+- Status: done — WorkspaceInspector 新增顶层 `document` Tab，Files 文件树与 `present_files` 两条入口统一按 `artifactPreviewMode` 三路分流（Reader/Browser/Document）。服务端 `inferPresentedFileKind` 与前端 `tool-artifacts.ts` 识别 `pdf/docx/excel`（XLS/XLSX 合并为 excel），`preview:false` 仅禁止自动打开、仍可手动预览。二进制复用 `/api/workspace/preview` 路由：仅扩展允许扩展名与 MIME（pdf/docx/xls/xlsx），50 MiB 上限、路径安全校验、realpath 复查、敏感文件拦截、ETag/304 与 `__quickforge_check=1` 预检全部沿用；未新增 document API、HEAD 或 Range。
+- Renderer: `WorkspaceDocumentContent` 按格式动态 import 解析库（避免 Vitest Node 顶层 DOMMatrix 问题）：PDF 用 pdfjs-dist + 本地 Worker URL + IntersectionObserver 可见页懒渲染（DPR 上限 2、缩放 ≤2、render 按 canvas+viewport）；DOCX 用 docx-preview `renderAsync`（breakPages/页眉/页脚，独立 body/style 容器隔离样式）；Excel 用 xlsx 主线程解析、多 Sheet 切换 + 100 行/页分页 + 5000 行截断提示；数据重新加载后 sheet/页码自动重置。Tab 仅持久化 `{path, format}`，同路径复用并递增 `reloadNonce` 刷新；`revision` 由 `max(reloadNonce, manualNonce)` 派生，无 effect 内 setState。
+- Dependencies: `pdfjs-dist@5.4.394`、`docx-preview@0.3.7`、`xlsx@0.20.3`（SheetJS CDN tarball 源不变）由 pi-web-ui 传递依赖提升为 QuickForge 直接 devDependencies，版本与既有锁定完全一致；lock 仅新增 3 行直接依赖声明，无升级、无新库类别。构建确认动态 import 复用既有 pi-web-ui chunk 模块，未重复打包。
+- Verification: 定向 `npx vitest run`（tool-artifacts/artifact-preview-utils/workspace-inspector-tabs/server tools index+definitions/workspace-preview）→ 6 files / 169 tests 全通过；完整 `npm run test` → 253 files / 2247 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（`server/cloud/identity.mjs:92`）；`npm run build` → 成功（仅既有 KaTeX 字体与 chunk size warnings）。
+- Boundaries: 已同步 `docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`、`docs/wiki/server/tools/README.md`、`docs/wiki/server/routes/README.md`；未手工修改 `dist/`、`package-dist/`、`package-offline/`，未 commit/tag/push。PPT/PPTX/DOC/XLSM 不在本期范围，仍为 unsupported。
+- Next step: 无 blocker；可选后续为真机（Electron/Android 远程）目视验证大文件 PDF/Excel 渲染与内存表现。
 
 ## Completed Feature：fix-cutover-startup-bugs
 

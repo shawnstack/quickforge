@@ -33,7 +33,8 @@ import { findBrowserTabToReuse, panelTabFilePath } from './workspace-tab-file-pa
 import { getGitFileDiff, getGitStatus, getWorkspaceChildren, getWorkspaceFile, getWorkspaceFileMeta, openWorkspaceExternal, restoreAllGitChanges, restoreGitFile, searchWorkspace, stageAllGitChanges, stageGitFile, unstageAllGitChanges, unstageGitFile } from './workspace-api'
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
-import { artifactFileName, isBrowserPreviewablePath, presentArtifacts } from './artifact-preview-utils'
+import { WorkspaceDocumentContent } from './WorkspaceDocumentContent'
+import { artifactFileName, artifactPreviewMode, documentFormatFromPath, isBrowserPreviewablePath, isDocumentPreviewablePath, presentArtifacts } from './artifact-preview-utils'
 import { TerminalDock } from '@/components/terminal/TerminalDock'
 import { SubagentRunDetailContent } from './SubagentRunDetailContent'
 import { SideChatTabContent, type SideChatComposerDraftMemory } from './SideChatTabContent'
@@ -51,6 +52,7 @@ import {
   workspaceFileMatchesMeta,
 } from '@/lib/workspace-cache'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
+import type { DocumentFormat } from './artifact-preview-utils'
 import type { GitChangedFile, GitFileDiffResponse, WorkspaceFileResponse, WorkspaceInspectorOpenRequest, WorkspacePanelView, WorkspaceTreeNode } from './workspace-types'
 import {
   missingWorkspaceTreePaths,
@@ -178,7 +180,7 @@ function browserTabLabel(previewUrl: string) {
 }
 
 function panelTabMeta(tab: WorkspacePanelTab) {
-  if (tab.kind === 'reader' || tab.kind === 'subagent') return undefined
+  if (tab.kind === 'reader' || tab.kind === 'document' || tab.kind === 'subagent') return undefined
   return PANEL_TAB_BY_KIND[tab.kind]
 }
 
@@ -189,6 +191,7 @@ function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) 
   }
   if (tab.kind === 'terminal') return projectName || t('rightPanelTerminal')
   if (tab.kind === 'browser') return browserTabLabel(tab.url || '')
+  if (tab.kind === 'document') return artifactFileName(tab.document?.path || '')
   if (tab.kind === 'reader') {
     const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
     return reader ? artifactFileName(reader.path) : t('rightPanelFiles')
@@ -199,6 +202,7 @@ function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) 
 function panelTabTitle(tab: WorkspacePanelTab, fallbackLabel: string) {
   if (tab.kind === 'subagent') return tab.subagentRun?.statusLabel || fallbackLabel
   if (tab.kind === 'browser') return tab.url || fallbackLabel
+  if (tab.kind === 'document') return tab.document?.path || fallbackLabel
   if (tab.kind !== 'reader') return fallbackLabel
   const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
   return reader?.path || fallbackLabel
@@ -534,7 +538,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
                 <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{t('workspaceFiles')} {fileArtifacts.length}</div>
                 {fileArtifacts.slice(0, 8).map((artifact) => {
                   const path = artifact.path
-                  const canPreview = isBrowserPreviewablePath(path)
+                  const canPreview = isBrowserPreviewablePath(path) || isDocumentPreviewablePath(path)
                   const canViewDiff = changedPaths.has(path)
                   const hasDiff = typeof artifact.addedLines === 'number' || typeof artifact.removedLines === 'number'
                   return (
@@ -677,6 +681,8 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   const [isNavResizing, setIsNavResizing] = useState(false)
   const [mounted, setMounted] = useState(open)
   const [visible, setVisible] = useState(false)
+  const [narrowViewport, setNarrowViewport] = useState(false)
+  const mobileOverlay = narrowViewport && mounted
   const [width, setWidth] = useState(readPersistedInspectorWidth)
   const [isResizing, setIsResizing] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
@@ -696,6 +702,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   const openPanelTabRef = useRef<((kind: WorkspacePanelPrimaryTabKind, nextView?: WorkspacePanelView, options?: { url?: string; readerTab?: ReaderTab }) => WorkspacePanelTab) | undefined>(undefined)
   const openSubagentRunTabRef = useRef<((payload: SubagentRunPayload) => void) | undefined>(undefined)
   const openFileTabRef = useRef<((path: string) => void) | undefined>(undefined)
+  const openDocumentTabRef = useRef<((path: string, format: DocumentFormat) => void) | undefined>(undefined)
   const handledRequestIdRef = useRef<number | undefined>(undefined)
   const projectGuardRef = useRef(createWorkspaceInspectorProjectGuard())
   const loadingReaderKeysRef = useRef<Set<string>>(new Set())
@@ -710,6 +717,17 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   const searchControllerRef = useRef<AbortController | null>(null)
   const searchTimerRef = useRef<number | null>(null)
   const gitControllerRef = useRef<AbortController | null>(null)
+
+  // 窄视口检测：1024px 对应 Tailwind lg 断点，<lg 时 Inspector 以全屏覆盖展示。
+  // 防御式写法是为了兼容 vitest node 环境下无 matchMedia。
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined
+    const query = window.matchMedia('(min-width: 1024px)')
+    const update = () => setNarrowViewport(!query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
 
   useEffect(() => {
     const guard = projectGuardRef.current
@@ -951,6 +969,8 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
       openPanelTabRef.current?.('review', request.view)
     } else if (request.kind === 'reader') {
       openFileTabRef.current?.(request.path)
+    } else if (request.kind === 'document') {
+      openDocumentTabRef.current?.(request.path, request.format)
     } else if (request.kind === 'browser') {
       openPanelTabRef.current?.('browser', 'browser', { url: request.url })
     } else if (request.kind === 'subagent') {
@@ -975,10 +995,10 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     setWidth((current) => (current < WORKSPACE_INSPECTOR_MAX_WIDTH ? WORKSPACE_INSPECTOR_MAX_WIDTH : current))
   }, [])
 
-  // 打开文件、网页、终端或 subagent 运行详情时自动拉到当前允许的最宽范围。
+  // 打开文件、文档、网页、终端或 subagent 运行详情时自动拉到当前允许的最宽范围。
   useEffect(() => {
     if (!visible || fullscreen) return
-    const viewingContent = activePanelTab?.kind === 'browser' || activePanelTab?.kind === 'terminal' || activePanelTab?.kind === 'subagent' || Boolean(activeReaderTabId)
+    const viewingContent = activePanelTab?.kind === 'browser' || activePanelTab?.kind === 'document' || activePanelTab?.kind === 'terminal' || activePanelTab?.kind === 'subagent' || Boolean(activeReaderTabId)
     if (!viewingContent) return
     expandInspectorToMax()
   }, [activePanelTab?.kind, activeReaderTabId, visible, fullscreen, expandInspectorToMax])
@@ -1332,9 +1352,10 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     }
   }, [panelTabs, projectId, loadReaderFileFromCacheOrServer])
 
-  function createPanelTab(kind: WorkspacePanelTabKind, options?: { url?: string; readerTab?: ReaderTab; reviewView?: 'review' | 'changes' }): WorkspacePanelTab {
+  function createPanelTab(kind: WorkspacePanelTabKind, options?: { url?: string; readerTab?: ReaderTab; document?: { path: string; format: DocumentFormat }; reviewView?: 'review' | 'changes' }): WorkspacePanelTab {
     const id = `${kind}-${nextPanelTabIndexRef.current++}`
     if (kind === 'browser') return { id, kind, url: options?.url || '' }
+    if (kind === 'document') return { id, kind, document: options?.document }
     if (kind === 'reader') return { id, kind, readerTabs: options?.readerTab ? [options.readerTab] : [], activeReaderTabId: options?.readerTab?.id }
     if (kind === 'files' || kind === 'review') {
       return { id, kind, ...(kind === 'review' ? { reviewView: options?.reviewView || 'changes' } : {}), readerTabs: options?.readerTab ? [options.readerTab] : [], activeReaderTabId: options?.readerTab?.id }
@@ -1443,6 +1464,12 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   }
 
   function selectPreviewFile(path: string) {
+    const mode = artifactPreviewMode(path)
+    if (mode === 'document') {
+      const format = documentFormatFromPath(path)
+      if (format) openDocumentTab(path, format)
+      return
+    }
     if (onPreviewArtifact && projectId) {
       onPreviewArtifact(projectId, path)
       return
@@ -1479,6 +1506,24 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     }
   }
   openFileTabRef.current = openFileTab
+
+  function openDocumentTab(path: string, format: DocumentFormat) {
+    if (!projectId) return
+    const existing = panelTabs.find((tab) => tab.kind === 'document' && tab.document?.path.replace(/\\/g, '/') === path.replace(/\\/g, '/'))
+    if (existing) {
+      setActivePanelTabId(existing.id)
+      updatePanelTab(existing.id, (tab) => ({
+        ...tab,
+        document: { path, format },
+        reloadNonce: (tab.reloadNonce ?? 0) + 1,
+      }))
+      return
+    }
+    const targetTab = createPanelTab('document', { document: { path, format } })
+    setPanelTabs((prev) => [...prev, targetTab])
+    setActivePanelTabId(targetTab.id)
+  }
+  openDocumentTabRef.current = openDocumentTab
 
   async function openDiffTab(path: string, switchToChanges: boolean) {
     if (!projectId) return
@@ -1783,14 +1828,15 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
       <aside
         ref={asideRef}
         className={cn(
-          'relative hidden shrink-0 overflow-hidden flex-col bg-background transition-[width,min-width,max-width,opacity,transform] duration-200 ease-out will-change-[width,opacity,transform] lg:flex',
+          'relative shrink-0 overflow-hidden flex-col bg-background transition-[width,min-width,max-width,opacity,transform] duration-200 ease-out will-change-[width,opacity,transform] lg:flex',
+          mobileOverlay ? 'quickforge-workspace-inspector-fullscreen z-20 flex rounded-none border-l-0' : 'hidden',
           visible ? 'translate-x-0 opacity-100' : 'w-0 min-w-0 max-w-0 translate-x-4 opacity-0',
           isResizing ? 'transition-none' : '',
           fullscreen ? 'quickforge-workspace-inspector-fullscreen z-40 rounded-none border-l-0' : undefined,
         )}
-        style={visible ? fullscreen ? undefined : { width, minWidth: WORKSPACE_INSPECTOR_MIN_WIDTH, maxWidth: WORKSPACE_INSPECTOR_MAX_WIDTH } : undefined}
+        style={visible && !fullscreen && !mobileOverlay ? { width, minWidth: WORKSPACE_INSPECTOR_MIN_WIDTH, maxWidth: WORKSPACE_INSPECTOR_MAX_WIDTH } : undefined}
       >
-        {visible && !fullscreen ? (
+        {visible && !fullscreen && !mobileOverlay ? (
           <div
             role="separator"
             aria-orientation="vertical"
@@ -2104,6 +2150,13 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
               }}
               projectId={project?.id}
               externalReloadToken={activePanelTab.reloadNonce}
+            />
+          ) : activePanelTab.kind === 'document' && activePanelTab.document && projectId ? (
+            <WorkspaceDocumentContent
+              projectId={projectId}
+              path={activePanelTab.document.path}
+              format={activePanelTab.document.format}
+              reloadNonce={activePanelTab.reloadNonce}
             />
           ) : activePanelTab.kind === 'terminal' ? (
             <TerminalDock

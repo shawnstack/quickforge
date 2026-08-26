@@ -69,12 +69,27 @@ describe('workspace preview inspection', () => {
       .resolves.toMatchObject({ contentType: 'application/javascript; charset=utf-8' })
   })
 
+  it('returns metadata and MIME types for supported document files', async () => {
+    const context = await createWorkspace()
+    const cases = [
+      ['document.pdf', 'application/pdf'],
+      ['document.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+      ['legacy.xls', 'application/vnd.ms-excel'],
+      ['workbook.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+    ]
+    for (const [name, contentType] of cases) {
+      await writeFile(path.join(context.workspaceRoot, name), 'document')
+      await expect(inspectWorkspacePreviewFile(context, name)).resolves.toMatchObject({ contentType })
+    }
+  })
+
   it('rejects unsupported file types with a stable code', async () => {
     const context = await createWorkspace()
-    await writeFile(path.join(context.workspaceRoot, 'document.pdf'), 'pdf')
-
-    await expect(inspectWorkspacePreviewFile(context, 'document.pdf'))
-      .rejects.toMatchObject({ statusCode: 415, previewCode: 'PREVIEW_UNSUPPORTED_TYPE' })
+    for (const name of ['document.doc', 'slides.ppt', 'slides.pptx', 'macro.xlsm']) {
+      await writeFile(path.join(context.workspaceRoot, name), 'unsupported')
+      await expect(inspectWorkspacePreviewFile(context, name))
+        .rejects.toMatchObject({ statusCode: 415, previewCode: 'PREVIEW_UNSUPPORTED_TYPE' })
+    }
   })
 
   it('rejects oversized files with a stable code', async () => {
@@ -231,7 +246,7 @@ describe('workspace preview HTTP caching', () => {
     const context = await createWorkspace()
     setDefaultWorkspaceRoot(context.workspaceRoot)
     await writeFile(path.join(context.workspaceRoot, '.env'), 'SECRET=hidden')
-    await writeFile(path.join(context.workspaceRoot, 'document.pdf'), 'pdf')
+    await writeFile(path.join(context.workspaceRoot, 'slides.pptx'), 'pptx')
 
     const forbidden = await requestPreview('.env')
     expect(forbidden.status).toBe(403)
@@ -241,7 +256,7 @@ describe('workspace preview HTTP caching', () => {
     expect(missing.status).toBe(404)
     expect(missing.headers['cache-control']).toBe('no-store')
 
-    const unsupported = await requestPreview('document.pdf')
+    const unsupported = await requestPreview('slides.pptx')
     expect(unsupported.status).toBe(415)
     expect(unsupported.headers['cache-control']).toBe('no-store')
   })

@@ -1,6 +1,7 @@
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 
-export type ArtifactKind = 'html' | 'image' | 'markdown' | 'code' | 'unknown'
+export type ArtifactKind = 'html' | 'image' | 'markdown' | 'code' | 'pdf' | 'docx' | 'excel' | 'unknown'
+export type DocumentFormat = 'pdf' | 'docx' | 'excel'
 
 export type PresentedArtifact = {
   id: string
@@ -26,6 +27,9 @@ export function inferArtifactKind(path: string): ArtifactKind {
   const lower = path.toLowerCase()
   const fileName = lower.replace(/\\/g, '/').split('/').pop() || lower
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html'
+  if (lower.endsWith('.pdf')) return 'pdf'
+  if (lower.endsWith('.docx')) return 'docx'
+  if (/\.(xls|xlsx)$/i.test(lower)) return 'excel'
   if (/\.(svg|png|jpe?g|webp|gif|ico)$/i.test(lower)) return 'image'
   if (/\.(md|mdx|markdown)$/i.test(lower)) return 'markdown'
   if (fileName === 'dockerfile' || fileName.endsWith('.dockerfile') || fileName === 'makefile') return 'code'
@@ -33,8 +37,18 @@ export function inferArtifactKind(path: string): ArtifactKind {
   return 'unknown'
 }
 
-// 「可自动展示」的文件类型：所有已知 kind（html/image/markdown/code）。
-// Browser 与 Reader 的具体分流由 artifactPreviewMode 统一决定。
+export function documentFormatFromPath(path: string): DocumentFormat | undefined {
+  const kind = inferArtifactKind(path)
+  if (kind === 'pdf' || kind === 'docx' || kind === 'excel') return kind
+  return undefined
+}
+
+export function isDocumentPreviewablePath(path: string) {
+  return documentFormatFromPath(path) !== undefined
+}
+
+// 「可自动展示」的文件类型：所有已有 Browser/Reader 类型，以及本期支持的文档类型。
+// Browser、Reader 与 Document 的具体分流由 artifactPreviewMode 统一决定。
 export function isPreviewablePath(path: string) {
   const kind = inferArtifactKind(path)
   return kind !== 'unknown'
@@ -48,8 +62,9 @@ export function isBrowserPreviewablePath(path: string) {
   return inferArtifactKind(path) === 'html' || BROWSER_PREVIEWABLE_IMAGE_RE.test(path)
 }
 
-export function artifactPreviewMode(path: string, kind: ArtifactKind = inferArtifactKind(path)): 'browser' | 'reader' | undefined {
+export function artifactPreviewMode(path: string, kind: ArtifactKind = inferArtifactKind(path)): 'browser' | 'reader' | 'document' | undefined {
   if (kind === 'markdown' || kind === 'code') return 'reader'
+  if (kind === 'pdf' || kind === 'docx' || kind === 'excel') return 'document'
   if ((kind === 'html' || kind === 'image') && isBrowserPreviewablePath(path)) return 'browser'
   return undefined
 }
@@ -88,8 +103,9 @@ function artifactSortScore(artifact: PresentedArtifact) {
   if (fileName === 'index.html') return 3
   if (artifact.kind === 'html') return 4
   if (artifact.kind === 'image') return 5
-  if (artifact.kind === 'markdown') return 6
-  if (artifact.kind === 'code') return 7
+  if (artifact.kind === 'pdf' || artifact.kind === 'docx' || artifact.kind === 'excel') return 6
+  if (artifact.kind === 'markdown') return 7
+  if (artifact.kind === 'code') return 8
   return 20
 }
 
@@ -140,7 +156,7 @@ export function presentArtifacts(artifacts: AiTurnArtifact[]): PresentedArtifact
 // 自动预览候选：仅 present_files（explicit）来源且 preview=true 的 artifact 才自动打开。
 // write_file/edit_file（inferred）产物仍会进入侧栏产物列表（presentArtifacts）供手动查看，但不自动弹 tab。
 // 渲染路径由调用方（App.tsx 自动预览副作用）按 kind 决定：
-//   html/image → browser iframe；markdown/code → 侧栏 openFileTab（MarkdownReader / MonacoCodeViewer）。
+//   html/image → browser iframe；markdown/code → Reader；PDF/DOCX/XLS/XLSX → Document。
 // 注意：按「最近一次工具调用」选取 —— 原始 artifacts 数组按时序排列，取最后一个满足条件的，
 // 避免旧的同分 artifact（如 README.md）永远排在前面、挡住新 present 的文件。
 export function findBestPreviewableArtifact(artifacts: AiTurnArtifact[]): PresentedArtifact | undefined {

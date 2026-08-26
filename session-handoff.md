@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：mobile-h5-fullscreen-sidebar-and-inspector（已完成）
+
+- 目标：手机 H5 端左侧会话侧栏整屏展示（去掉 w-80 + max-w-[85vw] 两层限制），并让右侧 Workspace Inspector 的 PanelRight 开关在移动端可见、Inspector 以全屏覆盖可用。
+- 实现：`ChatSidebar.tsx` 移动分支改为 `'flex h-full w-full flex-col'`，`App.tsx` 移动抽屉 div 移除 `max-w-[85vw]`；`App.tsx` PanelRight 按钮由 `hidden ... lg:inline-flex` 改为全断点 `inline-flex`；`WorkspaceInspector.tsx` 新增 `narrowViewport`（matchMedia 1024px，防御式）+ `mobileOverlay`，根 aside mobileOverlay 时 `quickforge-workspace-inspector-fullscreen z-20 flex rounded-none border-l-0`、无 width style、separator 加 `!mobileOverlay` 条件；桌面 fullscreen z-40/Maximize2/Escape 与 GitToolsPinnedSummary `hidden md:flex` 均不动。
+- 文件：`src/App.tsx`、`src/components/sidebar/ChatSidebar.tsx`、`src/components/workspace/WorkspaceInspector.tsx`、`tests/frontend/side-chat-workspace-tab.test.ts`（首用例更新）、`tests/frontend/mobile-fullscreen-adaptation.test.ts`（新建）、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 7 files / 66 tests 全通过；eslint（5 个改动文件）0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；feature JSON 解析通过。未跑全量 test/lint。
+- 边界：未新增依赖，未手工修改生成产物，未 commit/tag/push；GitTools 更改入口维持现状（小屏仍隐藏）。
+- 下一步：无 blocker；可选真机目视验证移动侧栏整屏、PanelRight 开关与 Inspector 全屏覆盖关闭交互。注意 `release-v1.8.1` feature 仍为 in_progress，本轮改动需纳入其发布门禁重新验证。
+
+---
+
 ## 当前状态：todo-pending-status-icon-hollow-circle（已完成）
 
 - 目标：更换任务摘要面板中"未进行中（pending）"状态图标，先设计后选型。
@@ -7,6 +18,18 @@
 - 验证：定向 Vitest 2 files / 30 tests 全通过；目标 ESLint 0 error；`npm run build` 成功（仅既有 KaTeX/chunk size warnings）。未跑全量 test/lint。
 - 边界：纯局部图标替换，docs/wiki 与 DESIGN_LANGUAGE 无需更新；未新增依赖，未手工修改生成产物，未 commit/tag/push；设计稿保留。
 - 下一步：无 blocker；可选真机目视深浅主题下三态图标效果。
+
+---
+
+## 当前状态：workspace-document-preview（已完成）
+
+- 目标：把已有的 PDF.js、docx-preview、SheetJS 能力接入 Workspace 文件预览链路，支持 PDF/DOCX/XLS/XLSX 只读预览（用户已确认方案并要求不过度设计）。
+- 实现：WorkspaceInspector 新增顶层 `document` Tab（持久化仅 `{path, format}`，同路径复用 + `reloadNonce` 刷新）；Files 文件树与 `present_files`（自动+手动）统一按 `artifactPreviewMode` 三路分流；服务端 `inferPresentedFileKind` / 前端 `tool-artifacts` 识别 `pdf/docx/excel`；`/api/workspace/preview` 白名单与 MIME 扩展四种文档类型（沿用 50 MiB、安全校验、ETag、预检，未新增 API/HEAD/Range）；`WorkspaceDocumentContent` 按格式动态加载 pdfjs-dist（可见页懒渲染）、docx-preview（容器隔离）、xlsx（多 Sheet + 分页 + 5000 行上限）；三个解析库提升为直接 devDependencies（版本与既有锁定一致）。
+- 文件：见 `feature_list.json` 的 `workspace-document-preview.files`（共 27 个：核心代码 + 测试 + wiki + 状态文件）。
+- 验证：定向 6 files / 169 tests、完整 `npm run test`（253 files / 2247 tests）、`npm run lint`（0 errors / 1 既有 warning）、`npm run build` 全部通过；构建确认无重复打包。
+- 边界：未新增库类别/版本升级（仅把已用传递依赖变为直接依赖），未手工修改生成产物，未 commit/tag/push；PPT/PPTX/DOC/XLSM 明确不支持。
+- Blocker：无。可选下一步：Electron / Android 远程真机目视验证大文件 PDF/Excel；后续可考虑 Excel Worker 化与 PPTX 策略（不在本期）。
+- 注意：`release-v1.8.1` feature 仍为 in_progress（发布门禁任务，见下文），与本 feature 无冲突；发布前需在其基线上重新完整运行 test/lint/build（本轮文档预览改动已包含在当前工作区，需一并纳入发布验证）。
 
 ---
 

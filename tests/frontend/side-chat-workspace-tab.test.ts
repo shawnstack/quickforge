@@ -27,12 +27,12 @@ const allDisabledCapabilities = Object.fromEntries(
 )
 
 describe('Workspace side chat tab', () => {
-  it('keeps the desktop Inspector toolbar reachable without a project and does not add a mobile entry', () => {
+  it('keeps the Inspector toolbar reachable without a project on all viewport sizes', () => {
     expect(appSource).toContain('disabled={needsModelSetup}\n        aria-label={workspaceInspectorOpen')
     expect(appSource).not.toContain('disabled={!agentManager.currentToolProject?.id || needsModelSetup}\n        aria-label={workspaceInspectorOpen')
     expect(appSource).toContain('agentManager.currentToolProject?.id || agentManager.currentSessionId || workspaceInspectorOpen')
-    expect(appSource).toContain("'hidden rounded-[10px]")
-    expect(appSource).toContain('lg:inline-flex')
+    expect(appSource).toContain("'rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40 inline-flex'")
+    expect(appSource).not.toContain('lg:inline-flex')
   })
 
   it('is a single runtime-only tab excluded from persistence', () => {

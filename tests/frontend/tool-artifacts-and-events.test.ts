@@ -120,6 +120,27 @@ describe('tool artifacts', () => {
     ])
   })
 
+  it('recognizes document files (PDF/DOCX/Excel) presented explicitly', () => {
+    const artifacts = extractSessionArtifacts(messages([
+      {
+        role: 'toolResult',
+        toolName: 'present_files',
+        toolCallId: 'present-documents',
+        details: {
+          files: ['report.pdf', 'brief.docx', 'data.xlsx', { path: 'legacy.xls', preview: false }],
+          previewed: ['report.pdf', 'brief.docx', 'data.xlsx'],
+        },
+      },
+    ]))
+
+    expect(artifacts).toMatchObject([
+      { path: 'report.pdf', kind: 'pdf', preview: true },
+      { path: 'brief.docx', kind: 'docx', preview: true },
+      { path: 'data.xlsx', kind: 'excel', preview: true },
+      { path: 'legacy.xls', kind: 'excel', preview: false },
+    ])
+  })
+
   it('extracts low-confidence command artifacts and deduplicates repeated entries', () => {
     const artifacts = extractSessionArtifacts(messages([
       {

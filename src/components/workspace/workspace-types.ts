@@ -1,6 +1,6 @@
 import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
 
-export type WorkspacePanelView = 'review' | 'files' | 'browser' | 'changes' | 'terminal'
+export type WorkspacePanelView = 'review' | 'files' | 'browser' | 'changes' | 'terminal' | 'document'
 
 export type WorkspaceInspectorRuntimeScope = Readonly<{
   projectId: string
@@ -15,6 +15,7 @@ export type WorkspaceInspectorOpenRequest =
   | ({ id: number; projectId: string; kind: 'review'; view: 'review' | 'changes' } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'files' | 'terminal' | 'side-chat' } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'reader'; path: string } & WorkspaceInspectorRequestScope)
+  | ({ id: number; projectId: string; kind: 'document'; path: string; format: 'pdf' | 'docx' | 'excel' } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'browser'; url: string } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId?: string; kind: 'subagent'; payload: SubagentRunPayload } & Partial<WorkspaceInspectorRequestScope>)
 

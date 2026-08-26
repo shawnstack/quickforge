@@ -1,3 +1,4 @@
+import type { DocumentFormat } from './artifact-preview-utils'
 import type { GitFileDiffResponse, WorkspaceFileResponse } from './workspace-types'
 import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
 
@@ -14,7 +15,7 @@ export type ReaderTab = {
 }
 
 export type WorkspacePanelPrimaryTabKind = 'files' | 'review' | 'terminal' | 'browser' | 'side-chat'
-export type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader' | 'subagent'
+export type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader' | 'document' | 'subagent'
 
 export type WorkspacePanelTab = {
   id: string
@@ -24,12 +25,16 @@ export type WorkspacePanelTab = {
   readerTabs?: ReaderTab[]
   activeReaderTabId?: string
   terminalSessionId?: string
+  document?: {
+    path: string
+    format: DocumentFormat
+  }
   subagentRun?: SubagentRunPayload
   // 仅运行时使用、不持久化的刷新序号：同一 Browser tab 被重复预览时递增，触发 iframe 重新加载。
   reloadNonce?: number
 }
 
-export type PersistedWorkspacePanelTab = Pick<WorkspacePanelTab, 'id' | 'kind' | 'url' | 'reviewView' | 'terminalSessionId'> & {
+export type PersistedWorkspacePanelTab = Pick<WorkspacePanelTab, 'id' | 'kind' | 'url' | 'reviewView' | 'terminalSessionId' | 'document'> & {
   reader?: {
     mode: 'file'
     path: string
@@ -70,7 +75,11 @@ function readerTabId(mode: ReaderMode, path: string) {
 }
 
 function isWorkspacePanelTabKind(value: unknown): value is WorkspacePanelTabKind {
-  return value === 'files' || value === 'review' || value === 'terminal' || value === 'browser' || value === 'reader'
+  return value === 'files' || value === 'review' || value === 'terminal' || value === 'browser' || value === 'reader' || value === 'document'
+}
+
+function isDocumentFormat(value: unknown): value is DocumentFormat {
+  return value === 'pdf' || value === 'docx' || value === 'excel'
 }
 
 function defaultStorage(): WorkspaceInspectorTabsStorage | undefined {
@@ -103,6 +112,12 @@ export function normalizePersistedPanelTabs(value: unknown): WorkspacePanelTab[]
         readerTabs: [{ id: readerId, mode: reader.mode, path: reader.path, loading: true }],
         activeReaderTabId: readerId,
       })
+      continue
+    }
+    if (raw.kind === 'document') {
+      const document = raw.document
+      if (!document || typeof document.path !== 'string' || !document.path || !isDocumentFormat(document.format)) continue
+      tabs.push({ id: raw.id, kind: raw.kind, document: { path: document.path, format: document.format } })
       continue
     }
     tabs.push({
@@ -149,6 +164,10 @@ export function serializePanelTabs(
       const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
       if (!reader || reader.mode !== 'file') return []
       return [{ id: tab.id, kind: tab.kind, reader: { mode: reader.mode, path: reader.path } }]
+    }
+    if (tab.kind === 'document') {
+      if (!tab.document) return []
+      return [{ id: tab.id, kind: tab.kind, document: { path: tab.document.path, format: tab.document.format } }]
     }
     return [{
       id: tab.id,

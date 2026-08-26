@@ -15,6 +15,7 @@ export function browserTabFilePath(rawUrl: string | undefined) {
 
 export function panelTabFilePath(tab: WorkspacePanelTab) {
   if (tab.kind === 'browser') return browserTabFilePath(tab.url)
+  if (tab.kind === 'document') return tab.document?.path
   if (tab.kind !== 'reader') return undefined
   const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
   return reader?.path

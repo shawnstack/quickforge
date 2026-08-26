@@ -1,6 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 
-export type AiTurnArtifactKind = 'html' | 'image' | 'markdown' | 'code' | 'unknown'
+export type AiTurnArtifactKind = 'html' | 'image' | 'markdown' | 'code' | 'pdf' | 'docx' | 'excel' | 'unknown'
 
 export type AiTurnArtifact = {
   id: string
@@ -58,6 +58,9 @@ function inferArtifactKind(path = ''): AiTurnArtifactKind {
   const lower = path.toLowerCase()
   const fileName = lower.replace(/\\/g, '/').split('/').pop() || lower
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html'
+  if (lower.endsWith('.pdf')) return 'pdf'
+  if (lower.endsWith('.docx')) return 'docx'
+  if (/\.(xls|xlsx)$/.test(lower)) return 'excel'
   if (/\.(svg|png|jpe?g|webp|gif|ico)$/i.test(lower)) return 'image'
   if (/\.(md|mdx|markdown)$/i.test(lower)) return 'markdown'
   if (fileName === 'dockerfile' || fileName.endsWith('.dockerfile') || fileName === 'makefile') return 'code'
@@ -66,7 +69,7 @@ function inferArtifactKind(path = ''): AiTurnArtifactKind {
 }
 
 function isPreviewableKind(kind: AiTurnArtifactKind) {
-  return kind === 'html' || kind === 'image' || kind === 'markdown' || kind === 'code'
+  return kind === 'html' || kind === 'image' || kind === 'markdown' || kind === 'code' || kind === 'pdf' || kind === 'docx' || kind === 'excel'
 }
 
 function artifactKey(artifact: Omit<AiTurnArtifact, 'id'>) {

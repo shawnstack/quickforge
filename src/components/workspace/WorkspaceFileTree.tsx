@@ -2,7 +2,7 @@ import { ChevronRight, Eye, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { t } from '@/lib/i18n'
 import { DirectoryIcon, FileIcon } from './file-icon'
-import { inferArtifactKind, isBrowserPreviewablePath, workspacePreviewUrl } from './artifact-preview-utils'
+import { inferArtifactKind, isBrowserPreviewablePath, isDocumentPreviewablePath, workspacePreviewUrl } from './artifact-preview-utils'
 import {
   normalizeWorkspaceTreePath,
   workspaceTreeCanLoadMore,
@@ -71,7 +71,7 @@ function WorkspaceTreeRows({ entries, depth, props }: {
     const kind = isDirectory ? undefined : inferArtifactKind(node.path)
     const isImage = kind === 'image'
     const showThumbnail = Boolean(props.projectId) && isImage
-    const canPreview = Boolean(props.onPreviewFile) && isBrowserPreviewablePath(node.path)
+    const canPreview = Boolean(props.onPreviewFile) && (isBrowserPreviewablePath(node.path) || isDocumentPreviewablePath(node.path))
 
     return (
       <div key={node.path}>
@@ -84,7 +84,7 @@ function WorkspaceTreeRows({ entries, depth, props }: {
           onClick={() => {
             if (canExpandDirectory) props.onToggleDirectory(nodePath)
             else if (isDirectory) return
-            else if (isImage && props.onPreviewFile) props.onPreviewFile(node.path)
+            else if ((isImage || isDocumentPreviewablePath(node.path)) && props.onPreviewFile) props.onPreviewFile(node.path)
             else props.onSelectFile(node.path)
           }}
           title={node.path}

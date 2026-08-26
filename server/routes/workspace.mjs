@@ -23,7 +23,7 @@ const MAX_GIT_LINE_COUNT_FILES = 100
 const MAX_GIT_LINE_COUNT_FILE_BYTES = 1024 * 1024
 const MAX_GIT_LINE_COUNT_TOTAL_BYTES = 10 * 1024 * 1024
 const GIT_LINE_COUNT_CONCURRENCY = 6
-const PREVIEW_ALLOWED_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.txt', '.md'])
+const PREVIEW_ALLOWED_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.txt', '.md', '.pdf', '.docx', '.xls', '.xlsx'])
 const MAX_TREE_NODES = 50000
 const DEFAULT_CHILDREN_LIMIT = 200
 const MAX_CHILDREN_LIMIT = 500
@@ -71,6 +71,10 @@ function previewContentType(filePath) {
     '.ico': 'image/x-icon',
     '.txt': 'text/plain; charset=utf-8',
     '.md': 'text/markdown; charset=utf-8',
+    '.pdf': 'application/pdf',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   }
   return map[ext] || 'application/octet-stream'
 }

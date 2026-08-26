@@ -1143,7 +1143,7 @@ export const ChatSidebar = memo(function ChatSidebar({
       ref={asideRef}
       className={cn(
         'relative z-10 min-h-0 shrink-0 overflow-hidden border-r-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-[var(--quickforge-sidebar-bg)] transition-[width] duration-200 ease-out motion-reduce:transition-none',
-        isMobile ? 'flex h-full w-80 max-w-[85vw] flex-col' : 'hidden md:flex md:flex-col',
+        isMobile ? 'flex h-full w-full flex-col' : 'hidden md:flex md:flex-col',
         !isMobile && !sidebarOpen ? 'w-14' : undefined,
         isResizing && 'transition-none',
       )}

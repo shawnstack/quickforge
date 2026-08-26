@@ -638,6 +638,9 @@ function inferPresentedFileKind(relativePath) {
   const lower = String(relativePath || '').toLowerCase()
   const fileName = lower.replace(/\\/g, '/').split('/').pop() || lower
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html'
+  if (lower.endsWith('.pdf')) return 'pdf'
+  if (lower.endsWith('.docx')) return 'docx'
+  if (/\.(xls|xlsx)$/.test(lower)) return 'excel'
   if (/\.(svg|png|jpe?g|webp|gif|ico)$/.test(lower)) return 'image'
   if (/\.(md|mdx|markdown)$/.test(lower)) return 'markdown'
   if (fileName === 'dockerfile' || fileName.endsWith('.dockerfile') || fileName === 'makefile') return 'code'

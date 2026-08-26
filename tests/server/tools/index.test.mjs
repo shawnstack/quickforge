@@ -352,6 +352,8 @@ describe('toolPresentFiles', () => {
     await fs.writeFile(path.join(tmpDir, 'report.csv'), 'name,value\nalpha,1\n', 'utf8')
     await fs.writeFile(path.join(tmpDir, 'Dockerfile'), 'FROM node:22\n', 'utf8')
     await fs.writeFile(path.join(tmpDir, 'archive.bin'), 'binary-like', 'utf8')
+    await fs.writeFile(path.join(tmpDir, 'report.pdf'), '%PDF-1.4 sample', 'utf8')
+    await fs.writeFile(path.join(tmpDir, 'data.xlsx'), 'xlsx-bytes', 'utf8')
   })
 
   afterAll(async () => {
@@ -386,6 +388,18 @@ describe('toolPresentFiles', () => {
       { path: 'archive.bin', kind: 'unknown', preview: false },
     ])
     expect(result.details.previewed).toEqual(['README.markdown', 'report.csv', 'Dockerfile'])
+  })
+
+  it('recognizes PDF, DOCX, and Excel documents as document previews', async () => {
+    const result = await toolHandlers.present_files({
+      files: ['report.pdf', { path: 'data.xlsx', preview: false }],
+    }, context)
+
+    expect(result.details.files).toMatchObject([
+      { path: 'report.pdf', kind: 'pdf', preview: true },
+      { path: 'data.xlsx', kind: 'excel', preview: false },
+    ])
+    expect(result.details.previewed).toEqual(['report.pdf'])
   })
 
   it('throws for paths outside workspace', async () => {

@@ -109,7 +109,7 @@ import { SideChatAgent } from '@/components/workspace/side-chat-agent'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
-import { artifactPreviewMode, findBestPreviewableArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
+import { artifactPreviewMode, documentFormatFromPath, findBestPreviewableArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
 import { RemoteTunnelOverlay } from '@/components/mobile/RemoteTunnelOverlay'
 import { isCloudTunnelClient, isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
@@ -831,6 +831,11 @@ function MainApp() {
       requestWorkspaceInspector({ projectId, kind: 'reader', path })
       return
     }
+    if (mode === 'document') {
+      const format = documentFormatFromPath(path)
+      if (format) requestWorkspaceInspector({ projectId, kind: 'document', path, format })
+      return
+    }
     requestWorkspaceInspector({
       projectId,
       kind: 'browser',
@@ -864,6 +869,9 @@ function MainApp() {
       if (mode === 'reader') {
         // Markdown、代码、配置和文本走 Reader；Markdown 使用富文本预览，其余使用 Monaco 只读查看。
         requestWorkspaceInspector({ projectId, kind: 'reader', path: artifact.path })
+      } else if (mode === 'document') {
+        const format = documentFormatFromPath(artifact.path)
+        if (format) requestWorkspaceInspector({ projectId, kind: 'document', path: artifact.path, format })
       } else {
         // HTML 和支持的图片走 Browser iframe。
         requestWorkspaceInspector({
@@ -1759,7 +1767,7 @@ function MainApp() {
         aria-label={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         title={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         className={cn(
-          'hidden rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40 lg:inline-flex',
+          'rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40 inline-flex',
           workspaceInspectorOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
         )}
       >
@@ -1858,7 +1866,7 @@ function MainApp() {
             onClick={closeMobileSidebar}
             aria-label={t('toggleSidebar')}
           />
-          <div className="absolute inset-y-0 left-0 max-w-[85vw] shadow-quickforge">
+          <div className="absolute inset-y-0 left-0 shadow-quickforge">
             <ChatSidebar
               variant="mobile"
               sidebarOpen

@@ -25,7 +25,7 @@
 | `write_file` | 创建或覆写文件 |
 | `edit_file` | 替换文件中的文本 |
 | `run_command` | 在工作区目录执行 shell 命令，也用于查看目录内容 |
-| `present_files` | 仅在用户适合直接检查实际交付物时展示少量相关文件，例如视觉产物、报告、文档、生成资源，或用户明确要求查看/审阅的文件；普通实现改动、测试和辅助代码不应仅因被修改就批量展示。HTML/SVG/图片进入 Browser，Markdown、代码、配置与普通文本进入 Reader |
+| `present_files` | 仅在用户适合直接检查实际交付物时展示少量相关文件，例如视觉产物、报告、文档、生成资源，或用户明确要求查看/审阅的文件；普通实现改动、测试和辅助代码不应仅因被修改就批量展示。HTML/SVG/图片进入 Browser，Markdown、代码、配置与普通文本进入 Reader，PDF/DOCX/XLS/XLSX 进入 Document |
 | `activate_skill` | 加载 Agent Skill 指令 |
 | `read_skill_resource` | 读取 Skill 资源文件 |
 | `ask_user` | 向用户提出 1-4 个问题并等待回答：execute 阻塞在 `server/ask-store.mjs` 的 pendingAsks Promise 上，SSE `ask_user_required` 通知前端注入向导式提问卡，用户提交/跳过后经 `POST /api/agents/:id/answer-ask` resolve，回答以纯文本回给模型；30 分钟超时、跳过、abort 均按"用户未回答"继续而非中断；免审批（beforeToolCall 直接放行），`/plan` 白名单包含它；无 toolHandlers 入口，由 agent-manager 的 `wrapAskUserToolDefinition` 拦截并绑定会话 |
@@ -50,7 +50,7 @@
 | `toolRunCommand` | `run_command` | 执行 shell 命令，支持可控超时、流式 tail 输出和完整日志落盘 |
 | `toolTodoWrite` | `todo_write` | 严格校验并规范化完整 Todo 快照，返回 `todo_write_result`（含 `todos` 与 pending/inProgress/completed 汇总）；空数组返回清空语义。结果沿普通 `toolResult` 消息链随会话持久化，不建立独立 todo store 或存储表 |
 | `generateSessionImages` | `generate_image`（历史兼容） | 保留的 OpenRouter Images handler；当前不再由工具定义暴露，仅用于兼容历史会话与既有结果链路 |
-| `toolPresentFiles` | `present_files` | 校验并声明本轮需要展示的产物文件，推断 HTML、图片、Markdown、代码和可读文本类型，返回 `present_files_result` 供前端分流到 Browser 或 Reader |
+| `toolPresentFiles` | `present_files` | 校验并声明本轮需要展示的产物文件，推断 HTML、图片、Markdown、代码、可读文本以及 PDF/DOCX/XLS/XLSX 文档类型，返回 `present_files_result` 供前端分流到 Browser、Reader 或 Document |
 | `toolActivateSkill` | `activate_skill` | 激活 Agent Skill |
 | `toolReadSkillResource` | `read_skill_resource` | 读取技能资源 |
 | Agent-manager handler | `run_subagent` | 在父会话内创建短生命周期临时 Agent，使用受限工具执行专门子任务并返回建议性结果 |

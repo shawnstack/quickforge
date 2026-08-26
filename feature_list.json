@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "mobile-h5-fullscreen-sidebar-and-inspector",
+      "name": "移动端 H5 侧栏整屏与 Inspector 全屏覆盖",
+      "status": "done",
+      "approach": "手机 H5 适配最小改动三处：1) 左侧会话侧栏整屏——ChatSidebar 移动分支由 w-80 max-w-[85vw] 改为 w-full，App.tsx 移动抽屉包装 div 同步移除 max-w-[85vw]，桌面宽度/resize/inline style 全部不动；2) 右上工具栏 PanelRight Inspector 开关由 hidden lg:inline-flex 改为全断点 inline-flex（disabled/onClick/aria-label 不变）；3) WorkspaceInspector 新增 narrowViewport matchMedia('(min-width: 1024px)') 检测（防御式兼容 vitest node 无 matchMedia），<lg 且 mounted 时 mobileOverlay 复用既有 quickforge-workspace-inspector-fullscreen CSS 以 z-20 全屏覆盖展示，不设宽度 style、隐藏 resize separator，桌面 fullscreen z-40 与内部 Maximize2/Escape 逻辑不变；header 在 overlay 下沿用 pr-[5.5rem] 为右上工具栏预留、PanelRight 可点关闭。GitToolsPinnedSummary 的 hidden md:flex 与 Git 更改入口维持现状。新增 tests/frontend/mobile-fullscreen-adaptation.test.ts 源码契约测试并更新 side-chat-workspace-tab 首个用例为全断点可达；docs/wiki/src/components/README.md 同步 ChatSidebar/WorkspaceInspector/GitToolsPinnedSummary 三处描述。",
+      "files": [
+        "src/App.tsx",
+        "src/components/sidebar/ChatSidebar.tsx",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "tests/frontend/side-chat-workspace-tab.test.ts",
+        "tests/frontend/mobile-fullscreen-adaptation.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run 定向 7 files（side-chat-workspace-tab、mobile-fullscreen-adaptation、workspace-inspector-tabs、workspace-inspector-open-state、workspace-inspector-request、sidebar-section-order、sidebar-new-chat-routing）→ 7 files / 66 tests 全通过；npx eslint 5 个改动源码/测试文件 → 0 error 0 warning；npx tsc -b --pretty false → 通过；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；feature_list.json JSON.parse 校验通过。未跑全量 test/lint。未创建 commit/tag/push。"
+    },
+    {
       "id": "todo-pending-status-icon-hollow-circle",
       "name": "Todo 未开始状态图标改为空心圆",
       "status": "done",
@@ -1472,6 +1490,42 @@
         "session-handoff.md"
       ],
       "verification": "npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/slash-invocation-chip.test.ts → 2 files / 44 tests 全通过；npm run build → 成功（仅既有 KaTeX 字体解析与 chunk size warning）。未创建 commit/tag/push，未手工修改生成产物。"
+    },
+    {
+      "id": "workspace-document-preview",
+      "name": "Workspace 文档预览（PDF/DOCX/XLS/XLSX）",
+      "status": "done",
+      "approach": "WorkspaceInspector 新增顶层 document Tab（仅持久化 path/format，同路径复用并递增 reloadNonce 刷新）；Files 文件树与 present_files 两条入口统一按 artifactPreviewMode 分流，服务端 inferPresentedFileKind 与前端 tool-artifacts 识别 pdf/docx/excel（XLS/XLSX 合并为 excel），preview:false 仅禁自动打开仍可手动预览；复用 /api/workspace/preview 路由扩展允许扩展名与 MIME（50 MiB 上限、ETag、安全校验、预检全部沿用，未新增 document API/HEAD/Range）；WorkspaceDocumentContent 按格式动态 import pdfjs-dist（可见页 IntersectionObserver 懒渲染+DPR 限 2）、docx-preview（breakPages/页眉页脚，容器隔离）、xlsx（多 Sheet + 100 行分页 + 5000 行上限），不引入新 UI 模式，解析库提升为直接 devDependencies（版本与既有锁定一致，无升级、无新库类别）；不支持 PPT/PPTX/DOC/XLSM。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "server/routes/workspace.mjs",
+        "server/tools/index.mjs",
+        "server/tools/definitions.mjs",
+        "src/App.tsx",
+        "src/components/workspace/WorkspaceDocumentContent.tsx",
+        "src/components/workspace/WorkspaceFileTree.tsx",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "src/components/workspace/artifact-preview-utils.ts",
+        "src/components/workspace/workspace-inspector-tabs.ts",
+        "src/components/workspace/workspace-tab-file-path.ts",
+        "src/components/workspace/workspace-types.ts",
+        "src/lib/tool-artifacts.ts",
+        "src/lib/i18n.ts",
+        "tests/frontend/artifact-preview-utils.test.ts",
+        "tests/frontend/tool-artifacts-and-events.test.ts",
+        "tests/frontend/workspace-inspector-tabs.test.ts",
+        "tests/server/tools/index.test.mjs",
+        "tests/server/routes/workspace-preview.test.mjs",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/server/tools/README.md",
+        "docs/wiki/server/routes/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run（tool-artifacts/artifact-preview-utils/workspace-inspector-tabs/server tools index+definitions/workspace-preview）→ 6 files / 169 tests 全通过；完整 npm run test → 253 files / 2247 tests 全通过；npm run lint → 0 errors / 1 既有 warning（identity.mjs）；npm run build → 成功（仅既有 KaTeX/chunk warnings）；确认 pdfjs/docx-preview/xlsx 未重复打包（动态 import 复用既有 pi-web-ui chunk 模块）。未创建 commit/tag/push，未手工修改生成产物。"
     }
   ]
 }

@@ -174,7 +174,7 @@
 
 ### tool-artifacts.ts
 
-**用途**: 从当前 AI turn 的工具结果中提取产物文件；识别 `write_file`、`edit_file` 和 `present_files`，并将 HTML/图片分流到 Browser，将 Markdown、代码、配置及普通文本分流到 Reader；显式 `preview: false` 的文件仅保留在产物列表。
+**用途**: 从当前 AI turn 的工具结果中提取产物文件；识别 `write_file`、`edit_file` 和 `present_files`，并将 HTML/图片分流到 Browser，将 Markdown、代码、配置及普通文本分流到 Reader，将 PDF/DOCX/XLS/XLSX 分流到 Document；显式 `preview: false` 的文件仅保留在产物列表（仍可手动预览）。
 
 ### mermaid-renderer.ts
 

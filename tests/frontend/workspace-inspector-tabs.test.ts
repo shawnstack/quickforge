@@ -117,6 +117,8 @@ describe('workspace inspector tabs persistence', () => {
       { id: 'browser-1', kind: 'browser', url: 'http://localhost:5173' },
       { id: 'subagent-9', kind: 'subagent', subagentRun: { runId: 'run-1' } as WorkspacePanelTab['subagentRun'] },
       { id: 'terminal-2', kind: 'terminal', terminalSessionId: 'terminal-session' },
+      { id: 'document-5', kind: 'document', document: { path: 'docs/report.pdf', format: 'pdf' }, reloadNonce: 4 },
+      { id: 'side-chat-6', kind: 'side-chat' },
       {
         id: 'reader-3',
         kind: 'reader',
@@ -139,6 +141,7 @@ describe('workspace inspector tabs persistence', () => {
       tabs: [
         { id: 'browser-1', kind: 'browser', url: 'http://localhost:5173' },
         { id: 'terminal-2', kind: 'terminal', terminalSessionId: 'terminal-session' },
+        { id: 'document-5', kind: 'document', document: { path: 'docs/report.pdf', format: 'pdf' } },
         { id: 'reader-3', kind: 'reader', reader: { mode: 'file', path: 'src/active.ts' } },
       ],
       activePanelTabId: 'browser-1',
@@ -148,6 +151,7 @@ describe('workspace inspector tabs persistence', () => {
     expect(normalizePersistedPanelTabs(serialized.tabs)).toEqual([
       { id: 'browser-1', kind: 'browser', url: 'http://localhost:5173' },
       { id: 'terminal-2', kind: 'terminal', terminalSessionId: 'terminal-session' },
+      { id: 'document-5', kind: 'document', document: { path: 'docs/report.pdf', format: 'pdf' } },
       {
         id: 'reader-3',
         kind: 'reader',

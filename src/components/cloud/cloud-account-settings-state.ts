@@ -1,5 +1,5 @@
 import type { Api, Model } from '@earendil-works/pi-ai'
-import type { CloudInstallation, CloudRemoteStatus, CloudRemoteStatusValue, CloudServiceConfig, CloudStatus, CloudUsage } from '@/lib/cloud-client'
+import type { CloudServiceConfig, CloudStatus, CloudUsage } from '@/lib/cloud-client'
 
 export type CloudDetailError = {
   message: string
@@ -8,11 +8,9 @@ export type CloudDetailError = {
 
 export type CloudDetailsState = {
   usage?: CloudUsage
-  installations: CloudInstallation[]
   models: Model<Api>[]
   errors: {
     usage?: CloudDetailError
-    installations?: CloudDetailError
     models?: CloudDetailError
   }
   loading: boolean
@@ -25,7 +23,6 @@ export type CloudDetailsAction =
 
 export const emptyCloudDetailsState: CloudDetailsState = {
   usage: undefined,
-  installations: [],
   models: [],
   errors: {},
   loading: false,
@@ -41,7 +38,6 @@ export function cloudDetailsReducer(_state: CloudDetailsState, action: CloudDeta
 
 type CloudDetailsLoaders = {
   usage: () => Promise<CloudUsage>
-  installations: () => Promise<CloudInstallation[]>
   models: () => Promise<Model<Api>[]>
 }
 
@@ -49,59 +45,20 @@ export async function loadCloudAccountDetails(
   loaders: CloudDetailsLoaders,
   describeError: (kind: keyof CloudDetailsLoaders, error: unknown) => CloudDetailError,
 ): Promise<CloudDetailsState> {
-  const [usage, installations, models] = await Promise.allSettled([
+  const [usage, models] = await Promise.allSettled([
     loaders.usage(),
-    loaders.installations(),
     loaders.models(),
   ])
 
   return {
     usage: usage.status === 'fulfilled' ? usage.value : undefined,
-    installations: installations.status === 'fulfilled' ? installations.value : [],
     models: models.status === 'fulfilled' ? models.value : [],
     errors: {
       ...(usage.status === 'rejected' ? { usage: describeError('usage', usage.reason) } : {}),
-      ...(installations.status === 'rejected' ? { installations: describeError('installations', installations.reason) } : {}),
       ...(models.status === 'rejected' ? { models: describeError('models', models.reason) } : {}),
     },
     loading: false,
   }
-}
-
-export type CloudAccountViewState =
-  | 'loading'
-  | 'load-error'
-  | 'unconfigured'
-  | 'no-session'
-  | 'session-mismatch'
-  | 'cloud-unavailable'
-  | 'partial-details'
-  | 'connected'
-
-export function getCloudAccountViewState({
-  loading,
-  loadError,
-  status,
-  details,
-}: {
-  loading: boolean
-  loadError: string
-  status?: CloudStatus
-  details: CloudDetailsState
-}): CloudAccountViewState {
-  if (loading && !status) return 'loading'
-  if (loadError) return 'load-error'
-  if (!status?.configured) return 'unconfigured'
-  if (status.sessionServiceMismatch) return 'session-mismatch'
-  if (status.pendingDeviceFlow) return status.hasSession ? 'connected' : 'no-session'
-  if (!status.hasSession) return 'no-session'
-
-  const detailErrors = Object.values(details.errors)
-  if (status.cloudAvailable === false || (detailErrors.length === 3 && detailErrors.every((item) => item?.unavailable))) {
-    return 'cloud-unavailable'
-  }
-  if (detailErrors.length > 0) return 'partial-details'
-  return 'connected'
 }
 
 export type CloudAccountContentVisibility = {
@@ -119,30 +76,6 @@ export function getCloudAccountContentVisibility(status?: CloudStatus): CloudAcc
     showDisconnectedActions: configured && !status.pendingDeviceFlow && !hasSession,
     showDetails: usableSession,
   }
-}
-
-export function shouldPollCloudRemoteStatus(status: CloudRemoteStatusValue | undefined): boolean {
-  return status === 'starting' || status === 'authorizing'
-}
-
-export type CloudRemoteAuthorizationUi = {
-  pending: boolean
-  failed: boolean
-  failedError?: string
-  needsLocalEnable: boolean
-}
-
-// 远程 Agent 授权始终由本机显式启用动作自动完成，UI 不暴露人工授权链接或 user code。
-export function getCloudRemoteAuthorizationUi(status: CloudRemoteStatus | undefined): CloudRemoteAuthorizationUi {
-  if (status?.status !== 'authorizing') return { pending: false, failed: false, needsLocalEnable: false }
-  const auto = status.autoApproval
-  if (auto?.status === 'armed' || auto?.status === 'pending' || auto?.status === 'consumed') {
-    return { pending: true, failed: false, needsLocalEnable: false }
-  }
-  if (auto?.status === 'failed') {
-    return { pending: false, failed: true, failedError: auto.error || undefined, needsLocalEnable: false }
-  }
-  return { pending: false, failed: false, needsLocalEnable: true }
 }
 
 export function canRebuildCloudIdentity(status: CloudStatus | undefined, changedUrl: boolean) {

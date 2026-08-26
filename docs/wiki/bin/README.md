@@ -26,7 +26,7 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 | `cmdLogs()` | 查看当天服务日志，支持 JSON、level、grep 过滤 |
 | `cmdAcp()` | 以前台 stdio 方式运行 ACP AgentSideConnection，供 ACP Client/IDE 启动 |
 | `cmdVersion()` | 显示当前安装版本、包名和 Node.js 版本 |
-| `cmdCheckUpdate()` | 检查 npm registry 上是否有新的 Runtime 版本，并提示升级命令 |
+| `cmdCheckUpdate()` | 检查 npm registry 上是否有新的 Runtime 版本（registry 解析复用 `server/utils/package-update.mjs`：环境变量 > 用户 `~/.npmrc` > 官方源），并提示升级命令 |
 | `cmdUpdate()` | 不预先检测版本，直接通过 npm 全局安装 `<包名>@latest` |
 
 ### 常用命令

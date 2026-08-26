@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
 const QUICKFORGE_LATEST_RELEASE_API_URL = 'https://api.github.com/repos/shawnstack/quickforge/releases/latest'
+const DEFAULT_REGISTRY_URL = 'https://registry.npmjs.org/'
 
 // 外部更新检查（npm registry / GitHub Releases）是应用中最慢的调用。
 // 增加进程内冷却缓存：并发调用共享同一 Promise，TTL 内重复调用复用结果；
@@ -109,8 +111,56 @@ export function compareVersions(left, right) {
   return comparePrerelease(parsedLeft.prerelease, parsedRight.prerelease)
 }
 
-function getRegistryPackageUrl(packageName) {
-  const registry = (process.env.npm_config_registry || 'https://registry.npmjs.org/').replace(/\/+$/, '')
+// registry 解析遵循 npm 配置的优先级子集：环境变量 > 用户级 .npmrc > 官方源。
+// 项目级/全局 .npmrc 不参与（更新检查面向全局安装场景，用户级镜像配置是主要诉求）。
+// 只读取 registry 相关键，不读取也不发送 .npmrc 中的任何凭据。
+function normalizeRegistryUrl(value) {
+  return String(value || '').trim().replace(/\/+$/, '')
+}
+
+function registryFromEnv(env) {
+  return normalizeRegistryUrl(env.npm_config_registry || env.NPM_CONFIG_REGISTRY)
+}
+
+function userNpmrcPath(env) {
+  const configured = String(env.NPM_CONFIG_USERCONFIG || env.npm_config_userconfig || '').trim()
+  if (configured) return configured
+  return path.join(os.homedir(), '.npmrc')
+}
+
+function parseNpmrcKeys(text) {
+  const keys = new Map()
+  for (const rawLine of String(text).split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#') || line.startsWith(';')) continue
+    const eq = line.indexOf('=')
+    if (eq <= 0) continue
+    const key = line.slice(0, eq).trim()
+    const value = line.slice(eq + 1).trim().replace(/^["'](.*)["']$/, '$1')
+    if (key) keys.set(key, value)
+  }
+  return keys
+}
+
+export async function resolveRegistry(packageName, options = {}) {
+  const env = options.env || process.env
+  const fromEnv = registryFromEnv(env)
+  if (fromEnv) return fromEnv
+
+  try {
+    const keys = parseNpmrcKeys(await fs.readFile(options.npmrcPath || userNpmrcPath(env), 'utf8'))
+    const scopeSeparator = packageName.indexOf('/')
+    const scope = packageName.startsWith('@') && scopeSeparator > 0 ? packageName.slice(0, scopeSeparator) : ''
+    const fromNpmrc = normalizeRegistryUrl((scope && keys.get(`${scope}:registry`)) || keys.get('registry'))
+    if (fromNpmrc) return fromNpmrc
+  } catch {
+    // .npmrc 不存在或不可读时回退默认官方源
+  }
+  return DEFAULT_REGISTRY_URL
+}
+
+async function getRegistryPackageUrl(packageName) {
+  const registry = await resolveRegistry(packageName)
   return `${registry}/${encodeURIComponent(packageName)}`
 }
 
@@ -119,7 +169,7 @@ export async function fetchLatestVersion(packageName) {
   const timeout = setTimeout(() => controller.abort(), 5000)
 
   try {
-    const response = await fetch(getRegistryPackageUrl(packageName), {
+    const response = await fetch(await getRegistryPackageUrl(packageName), {
       headers: { accept: 'application/json' },
       signal: controller.signal,
     })

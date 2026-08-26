@@ -80,35 +80,11 @@ function compareVersions(left, right) {
   return comparePrerelease(parsedLeft.prerelease, parsedRight.prerelease)
 }
 
-function getRegistryPackageUrl(packageName) {
-  const registry = (process.env.npm_config_registry || 'https://registry.npmjs.org/').replace(/\/+$/, '')
-  return `${registry}/${encodeURIComponent(packageName)}`
-}
-
 async function fetchLatestVersion(packageName) {
   const { initializeNetworkProxy } = await import('../server/network-proxy.mjs')
   await initializeNetworkProxy()
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 5000)
-
-  try {
-    const response = await fetch(getRegistryPackageUrl(packageName), {
-      headers: { accept: 'application/json' },
-      signal: controller.signal,
-    })
-
-    if (!response.ok) throw new Error(`registry returned HTTP ${response.status}`)
-
-    const metadata = await response.json()
-    const latest = metadata?.['dist-tags']?.latest
-    if (!latest || typeof latest !== 'string') throw new Error('latest version not found in registry response')
-    return latest
-  } catch (err) {
-    if (err.name === 'AbortError') throw new Error('request timeout')
-    throw err
-  } finally {
-    clearTimeout(timeout)
-  }
+  const { fetchLatestVersion: fetchLatestRegistryVersion } = await import('../server/utils/package-update.mjs')
+  return fetchLatestRegistryVersion(packageName)
 }
 
 async function cmdVersion() {

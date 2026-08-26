@@ -1,5 +1,13 @@
 # Progress
 
+## Completed Feature：lan-access-remove-risk-warning
+
+- Feature: 局域网访问设置页移除高风险警告文案（lan-access-remove-risk-warning，**已完成**）
+- Status: done — 用户要求移除设置页顶部「高风险：通过密码的局域网设备可以访问你的对话、项目和可用工具。请只在可信网络中开启。」。`lan-access-settings-tab.ts` render 删除 `quickforge-settings-warning` 警告 div；`i18n.ts` 中英文成对删除 `lanAccessRiskWarning` key，grep 确认无残留引用。`.quickforge-settings-warning` 样式保留（cloud/backup/skills/plugins 页仍用）。
+- Verification: grep 删除 key 无残留；eslint 改动文件 0 error（server/cloud/identity.mjs 既有 warning 与本次无关）；npm run build 成功（仅既有 chunk size warning）。tests/ 无 lan-access-settings-tab 相关测试文件。未跑全量 test/lint。
+- Boundaries: 纯 UI 文案移除，不改局域网访问功能与密码逻辑；无新增依赖；未 commit/tag/push。
+- Next step: 无 blocker。
+
 ## Completed Feature：cloud-settings-url-row-redesign
 
 - Feature: 云服务设置页移除「启用云服务」开关行与登录安全说明 + Cloud API 地址行样式重设计·方案 A（cloud-settings-url-row-redesign，**已完成**）

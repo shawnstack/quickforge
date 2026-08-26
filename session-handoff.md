@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：lan-access-remove-risk-warning（已完成）
+
+- 目标：移除局域网访问设置页顶部「高风险：通过密码的局域网设备可以访问你的对话、项目和可用工具。请只在可信网络中开启。」警告文案。
+- 实现：`src/lib/lan-access-settings-tab.ts` render 删除 `quickforge-settings-warning` 警告 div；`src/lib/i18n.ts` 中英文成对删除 `lanAccessRiskWarning` key（grep 确认无残留）。`.quickforge-settings-warning` 样式保留（cloud/backup/skills/plugins 页仍用）。
+- 验证：eslint 改动文件 0 error；npm run build 成功（仅既有 chunk size warning）；tests/ 无 lan-access-settings-tab 相关测试，未跑全量 test/lint。
+- 文件：src/lib/lan-access-settings-tab.ts、src/lib/i18n.ts、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无。未 commit/tag/push。
+
+---
+
 ## 当前状态：cloud-settings-url-row-redesign（已完成，方案 A 已实现）
 
 - 目标：删除「登录或注册」安全说明文字与「启用云服务」开关行；Cloud API 地址行调整样式（先设计稿，用户选 A）。

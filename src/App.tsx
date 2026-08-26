@@ -347,6 +347,7 @@ function MainApp() {
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
   const [titleGitStatus, setTitleGitStatus] = useState<GitStatusResponse | undefined>()
   const titleGitRequestIdRef = useRef(0)
+  const titleGitAbortRef = useRef<AbortController | null>(null)
   const currentToolProjectIdRef = useRef<string | undefined>(undefined)
   const workspaceInspectorScopeRef = useRef<WorkspaceInspectorRuntimeScope>({
     projectId: 'global-workspace',
@@ -573,6 +574,8 @@ function MainApp() {
   useEffect(() => {
     currentToolProjectIdRef.current = agentManager.currentToolProject?.id
     titleGitRequestIdRef.current += 1
+    titleGitAbortRef.current?.abort()
+    titleGitAbortRef.current = null
     chatFileRequestIdRef.current += 1
   }, [agentManager.currentRuntimeScopeId, agentManager.currentToolProject?.id])
 
@@ -710,20 +713,26 @@ function MainApp() {
     const projectId = agentManager.currentToolProject?.id
     const requestId = titleGitRequestIdRef.current + 1
     titleGitRequestIdRef.current = requestId
+    titleGitAbortRef.current?.abort()
+    const controller = new AbortController()
+    titleGitAbortRef.current = controller
     if (!projectId) {
       setTitleGitStatus(undefined)
       return undefined
     }
     try {
-      const status = await getGitStatus(projectId)
+      const status = await getGitStatus(projectId, controller.signal)
       if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, titleGitRequestIdRef.current)) return undefined
       setTitleGitStatus(status)
       return status
     } catch (error) {
+      if (controller.signal.aborted) return undefined
       if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, titleGitRequestIdRef.current)) return undefined
       logger.warn('Failed to refresh title git status:', error)
       setTitleGitStatus(undefined)
       return undefined
+    } finally {
+      if (titleGitAbortRef.current === controller) titleGitAbortRef.current = null
     }
   }, [agentManager.currentToolProject?.id])
 

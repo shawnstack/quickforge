@@ -1,5 +1,17 @@
 # Session Handoff
 
+## 当前状态：git-status-connection-pool-guard（已完成）
+
+- 目标：用户反馈 `GET http://localhost:5176/api/git/status?projectId=e14ed8a7-…` 「导致后续请求全部被阻止」。
+- 诊断：日志 `~/.quickforge/logs/server-2026-08-26.log` 双结论——①用户所贴 e14ed8a7 请求三次 503/0ms（12:15:35×2、12:22:01），均命中 dev server 重启后的启动维护窗口（listen → startup initialization complete 之间，`resolveMaintenanceGate` 对非白名单 API fail-closed），~1 秒即过、非 bug；②真正的「后续请求全部被阻止」：12:28:46 页面刷新后 4 个无 signal/无超时的 git/status（default×2、97e168b3×2，来源 App.tsx 标题栏 + ChatPanelHost 分支探测）在大仓库各跑 141-146s，加 2 条常驻 SSE 占满 HTTP/1.1 同源 6 连接池；同期服务端其他请求 1ms 正常、慢请求结束后积压请求成串放出，证实浏览器侧连接耗尽。慢的根因是服务端 `listGitStatus`（`server/routes/workspace.mjs:433`，`--untracked-files=all` + numstat + 行数统计）在这两个仓库上极慢（73cb87e5 仅 ~500ms）。
+- 实现：`src/components/workspace/workspace-api.ts` `getGitStatus` 组合 20s 超时（`composeGitStatusSignal`：TimeoutError DOMException、成功后 `dispose` 清计时器、桥接外部 signal abort）；`src/App.tsx` `refreshTitleGitStatus` 增 `titleGitAbortRef`（新请求先 abort 上一条、catch 首行 `controller.signal.aborted` 静默、finally 清 ref），项目 scope 切换 effect 同步 abort；`src/components/chat/ChatPanelHost.tsx` 分支探测挂 AbortController，cleanup/`gitProjectId`/`revision` 变化即中止。WorkspaceInspector 不变（超时走既有 error+重试）。
+- 验证：定向 `npx vitest run tests/frontend/git-status-request-lifecycle.test.ts` → 1 file / 8 tests 全通过；相关回归 5 files / 29 tests；eslint 4 文件 0 error；`npx tsc -b` 通过。未跑全量。
+- 文件：src/components/workspace/workspace-api.ts、src/App.tsx、src/components/chat/ChatPanelHost.tsx、tests/frontend/git-status-request-lifecycle.test.ts（新）、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：可选真机复现验证（大仓库打开 Git 面板，20s 后超时出重试按钮、其余请求不再被钉死）。Notes：`listGitStatus` 大仓库 100-146s 性能问题与服务端轻量化（标题栏/分支徽标只需 branch/counts 却调全量端点）留作后续独立 feature；release-v1.8.1 发布门禁需含本改动全量重跑 test/lint/build。
+
+---
+
 ## 当前状态：switch-sqlite-synchronous-normal（已完成）
 
 - 目标：按用户知情决策把 SQLite `synchronous` 从 FULL 切回 NORMAL，消除大 persist COMMIT 段逐事务 fsync（及其在杀毒扫描/机械盘/网络盘上的延迟尖刺）；接受 OS 崩溃/断电回滚「最后一次 checkpoint 以来已提交事务」的有界窗口（进程崩溃安全）。

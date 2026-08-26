@@ -80,8 +80,39 @@ export function openWorkspaceExternal(projectId: string, path: string, target: W
   )
 }
 
-export function getGitStatus(projectId: string, signal?: AbortSignal) {
-  return fetchJson<GitStatusResponse>(`/api/git/status?${projectQuery(projectId)}`, signal)
+// 大仓库（海量未跟踪文件 + numstat）的 git status 可运行数分钟；HTTP/1.1 同源
+// 连接池只有 6 条，无超时的挂起请求会连同两条常驻 SSE 把后续请求全部阻塞。
+const GIT_STATUS_TIMEOUT_MS = 20_000
+
+function composeGitStatusSignal(external?: AbortSignal) {
+  const controller = new AbortController()
+  const abortWith = (reason: unknown) => {
+    if (!controller.signal.aborted) controller.abort(reason)
+  }
+  const timer = setTimeout(() => {
+    abortWith(new DOMException('Git status request timed out', 'TimeoutError'))
+  }, GIT_STATUS_TIMEOUT_MS)
+  const onExternalAbort = () => abortWith(external?.reason)
+  if (external) {
+    if (external.aborted) abortWith(external.reason)
+    else external.addEventListener('abort', onExternalAbort)
+  }
+  return {
+    signal: controller.signal,
+    dispose() {
+      clearTimeout(timer)
+      external?.removeEventListener('abort', onExternalAbort)
+    },
+  }
+}
+
+export async function getGitStatus(projectId: string, signal?: AbortSignal) {
+  const composed = composeGitStatusSignal(signal)
+  try {
+    return await fetchJson<GitStatusResponse>(`/api/git/status?${projectQuery(projectId)}`, composed.signal)
+  } finally {
+    composed.dispose()
+  }
 }
 
 export function getGitFileDiff(projectId: string, path: string) {

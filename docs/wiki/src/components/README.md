@@ -6,7 +6,7 @@
 components/
 ├── chat/
 │   ├── ChatConversationSurface.tsx # 主聊天与 Side Chat 共用的薄 conversation 布局/背景壳 (16 行)
-│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1552 行)
+│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1581 行)
 │   ├── ModelSetupEmptyState.tsx    # 模型未配置时的空状态引导 (43 行)
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (340 行)
 │   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(495 行)
@@ -76,7 +76,7 @@ components/
 - 退出后再次体验会创建新游客身份和额度，不宣称恢复旧游客。
 - 成功启用或退出后派发 `quickforge:cloud-state-changed`，清空 `useCloudModels` 的内存云模型缓存。
 
-### ChatConversationSurface.tsx / ChatPanelHost.tsx (16 / 1552 行)
+### ChatConversationSurface.tsx / ChatPanelHost.tsx (16 / 1581 行)
 
 - `ChatConversationSurface` 是主聊天与 Side Chat 共用的极薄 conversation 显示壳，只统一 `relative / flex / min-h-0 / flex-1 / flex-col / overflow-hidden` 和 `--quickforge-main-bg` 背景；不复制 `ChatPanelHost`，不包含业务逻辑或 Side Chat 专属 class/style。
 - App 主聊天在共享壳上继续叠加既有 `quickforge-empty-chat` 与 `quickforge-conversation-enter`，Hero、`NewChatProjectPicker`、`ErrorBoundary`、`Suspense` 和首次使用引导层级保持不变。Side Chat 使用同一壳包住同一 `ChatPanelHost`，普通空白空状态不显示 Hero、项目选择器或引导文案；两者仅因实际容器宽度不同而走同一响应式布局规则。
@@ -88,6 +88,7 @@ components/
 - 工具审批卡使用轻量语义容器和左侧 3px 状态线：普通工具为 warning，自动上下文压缩为 info；命令、路径、MCP/Plugin 服务与工具等关键参数始终可见，完整参数可展开查看；subagent 来源以徽标展示。提交期间禁用按钮，失败后保留卡片并允许重试；成功或拒绝后仍移除卡片，不保留持久历史。
 - `ChatPanelHost` 通过独立的 `approvalReadOnly` / `approvalReadOnlyMessage` 控制审批可操作性，不与消息发送 `readOnly` 混用。分享页即使具有 operate 权限也只读展示实时审批，并提示回到分享者原始对话处理；刷新无法恢复分享页既有 pending 审批是当前已知限制。
 - 消息回滚、分叉、复制功能
+- 顶部分支徽标的 git status 探测经 `workspace-api.ts` 的 `getGitStatus` 发起：请求带 20s 超时（TimeoutError 中止，防止大仓库慢查询钉死 HTTP/1.1 同源连接池），卸载或 `gitProjectId`/`revision` 变化时通过 AbortController 立即中止；被中止的请求静默处理，不写警告日志。App.tsx 标题栏刷新同样中止上一请求并在项目 scope 切换时立即取消。
 - TodoWrite 任务摘要由 `panel-decoration/todo-write-summary.ts` 的 controller 驱动：摘要是 Composer Dock 内、`message-editor` 前的正常流 sibling，不进入历史工具过程 DOM，也不覆盖消息或输入框；展开时自然占用 Dock 高度并压缩上方消息区。无有效 Todo 时不显示；首次取得含未完成项的有效快照时自动展开，用户手动展开/收起状态会在后续仍含未完成项的新快照中保留，并短暂显示“已更新”；任一新快照全完成时自动收起，但用户仍可手动重新打开；成功空数组清空或消息回滚到不存在有效快照时移除摘要并重置状态。长列表在摘要内部滚动，桌面约显示 4 项、移动端约显示 3 项。editor 或 Composer shell 被重建时 controller 会按当前快照自愈重挂；`readOnly` 页面没有 Composer Dock 时不显示。`ChatPanelHost` 在消息装饰刷新时调用 `update()`，卸载时调用 `cleanup()` 清计时器、观察器、点击监听和 DOM。
 - Composer Dock 的 sibling 顺序为：任务摘要 → command/file 临时建议菜单 → `message-editor` → stats；临时建议菜单始终紧邻输入框。任务摘要插入、展开或收起会改变 Composer 布局，因此 Slash invocation overlay 同时观察 textarea 与 `.quickforge-composer-shell` 的尺寸变化并重算几何；两路 observer 在重建与卸载时成对 cleanup。
 - 任务摘要的数据提取同时覆盖 QuickForge 原生 `todo_write` 成功 `toolResult.details.todos`，以及 OpenCode 当前消息分支中带 `todowrite` ACP metadata 的 `opencode_tool`：后者按 `toolCallId` 向前配对 assistant tool call，从顶层 `arguments.todos` 或 `rawInput.todos` 读取完整快照。错误、畸形或未完成工具结果不覆盖已有有效快照。每次 TodoWrite 工具调用本身仍作为普通历史工具消息留在既有过程折叠中；Composer Dock 摘要只反映最新成功快照。

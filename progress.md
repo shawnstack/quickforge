@@ -1,5 +1,13 @@
 # Progress
 
+## Completed Feature：git-status-connection-pool-guard
+
+- Feature: git/status 慢请求钉死浏览器连接池的防护（git-status-connection-pool-guard，**已完成**）
+- Status: done — 用户反馈 `GET /api/git/status` 请求「导致后续请求全部被阻止」。日志定位（`~/.quickforge/logs/server-2026-08-26.log`）：12:28:46 页面刷新后同时对 default 与 97e168b3 两项目发起 4 个无 signal、无超时的 git/status（App.tsx 标题栏 `refreshTitleGitStatus` 与 ChatPanelHost 分支探测各一），这两个仓库各需 141-146s（`listGitStatus` 的 `git status --porcelain=v1 -z --untracked-files=all` + numstat + 未跟踪文件行数统计在大仓库上极慢；73cb87e5 项目仅 ~500ms）；4 条慢连接 + 2 条常驻 SSE（channels/agents events）恰好占满 HTTP/1.1 同源 6 连接池，期间服务端其他请求全部 1ms 正常完成（非服务端阻塞），12:31:08 慢请求结束后积压的 default-options 请求立即成串放出，证实浏览器侧连接耗尽。修复（服务端不动）：`workspace-api.ts` `getGitStatus` 统一组合 20s 超时（TimeoutError DOMException 中止、成功结算后清理计时器、桥接外部 signal 的 abort）；`App.tsx` 新增 `titleGitAbortRef` 中止上一请求、abort/超时静默不写警告、项目 scope 切换 effect 立即中止在途请求；`ChatPanelHost.tsx` 分支探测挂 AbortController，卸载或 `gitProjectId`/`revision` 变化即中止。WorkspaceInspector 既有 force-abort 逻辑不变，超时落入既有 error+重试按钮路径。用户最初贴的 e14ed8a7 请求 503 为另一现象：命中 dev server 重启后 ~1s 启动维护窗口（`resolveMaintenanceGate` fail-closed），与连接池问题无关、无需修复。
+- Verification: 定向 `npx vitest run tests/frontend/git-status-request-lifecycle.test.ts` → 1 file / 8 tests 全通过（20s 超时边界 19999/20000、外部 abort 即时传播、预先 aborted signal、成功后计时器清零，及三个调用方源码契约）；相关回归 5 files / 29 tests 全通过；`npx eslint` 4 个改动文件 0 error；`npx tsc -b --pretty false` 通过。未跑全量 test/lint/build。
+- Boundaries: 未改服务端 git 路由与 `listGitStatus` 实现；未新增依赖；未 commit/tag/push；`docs/wiki/src/components/README.md` 已同步（ChatPanelHost 行数 1552→1581 + git status 请求生命周期一条）。
+- Next step: 无 blocker。Notes（后续独立事项）：①`listGitStatus` 在 default/97e168b3 仓库耗时 100-146s，候选方向为 `--untracked-files` 粒度/仓库级配置、轻量 status 端点（标题栏与分支徽标只需 branch/counts 却调用全量端点）、并发去重或 fsmonitor/untrackedCache；②release-v1.8.1 发布门禁需含本改动全量重跑 test/lint/build。
+
 ## Completed Feature：switch-sqlite-synchronous-normal
 
 - Feature: SQLite synchronous FULL→NORMAL（switch-sqlite-synchronous-normal，**已完成**）

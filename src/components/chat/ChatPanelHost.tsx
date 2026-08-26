@@ -444,6 +444,8 @@ export function ChatPanelHost({
       return () => { disposed = true }
     }
 
+    const controller = new AbortController()
+
     queueMicrotask(() => {
       if (disposed) return
       if (!gitProjectId) {
@@ -451,19 +453,22 @@ export function ChatPanelHost({
         return
       }
 
-      getGitStatus(gitProjectId)
+      getGitStatus(gitProjectId, controller.signal)
         .then((status) => {
           if (disposed) return
           setGitBranch(status.isGitRepository ? status.branch : undefined)
         })
         .catch((err: unknown) => {
-          if (disposed) return
+          if (disposed || controller.signal.aborted) return
           logger.warn('Failed to load git branch:', err)
           setGitBranch(undefined)
         })
     })
 
-    return () => { disposed = true }
+    return () => {
+      disposed = true
+      controller.abort()
+    }
   }, [sideChatMode, gitProjectId, revision])
 
   // --- Refs that let the decoration trigger effect call into the active panel ---

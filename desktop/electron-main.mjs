@@ -16,9 +16,6 @@ const maxNotificationTitleLength = 200
 const maxNotificationBodyLength = 2_000
 const maxNotificationSessionIdLength = 512
 const quitForUpdateArgument = '--quit-for-update'
-const desktopAgentPath = app.isPackaged
-  ? path.join(process.resourcesPath, 'agent', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'qf-agent.exe' : 'qf-agent')
-  : undefined
 const desktopTitleBarThemes = {
   light: {
     color: '#f3f4f6',
@@ -533,7 +530,6 @@ async function boot() {
       terminal: process.platform === 'win32'
         || process.env.QUICKFORGE_DESKTOP_TERMINAL === '1',
       runtimeKind: 'desktop',
-      qfAgentPath: process.env.QUICKFORGE_QF_AGENT_PATH ? undefined : desktopAgentPath,
       detached: false,
     })
 

@@ -3,7 +3,7 @@
 > 状态：Android 侧 P0/P1/P2/P3 已落地；P2/P3 需配套 `quickforge-cloud` 中的 qf-agent 与云信令更新
 > 范围：Android 原生层（`RemoteTunnel` 插件 + 前台服务）、前端远程客户端（WebView 隧道页）、本机服务端隧道信任
 > 引用：`src/lib/remote-tunnel.ts` 头注释引用本文档 **§3.1/§3.2**（插件方法契约与状态事件契约，勿改语义）；`android/app/build.gradle` 引用原生层报告说明
-> 平台：npm/runtime/offline 随包内置 `win32-x64`、`darwin-x64`、`darwin-arm64`、`linux-x64`、`linux-arm64` 五个平台的 qf-agent（`runtime-assets/agent/<平台>/qf-agent[.exe]`）；这些主机可注册为远程访问设备，不代表跨主机远程执行 AI 工具（模型推理仍由被访问主机上的 QuickForge 本机执行）
+> 平台：qf-agent 二进制当前不随 npm/runtime/offline/桌面包分发（包体裁剪临时下线，可用 `QUICKFORGE_QF_AGENT_PATH` 指定外部二进制）；历史支持矩阵为 `win32-x64`、`darwin-x64`、`darwin-arm64`、`linux-x64`、`linux-arm64`，这些主机可注册为远程访问设备，不代表跨主机远程执行 AI 工具（模型推理仍由被访问主机上的 QuickForge 本机执行）
 
 ---
 

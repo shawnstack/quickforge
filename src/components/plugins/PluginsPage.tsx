@@ -103,7 +103,6 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
               <Puzzle className="size-4 text-primary" />
               {t('plugins')}
             </div>
-            <div className="quickforge-settings-row-description">{t('pluginsDescription')}</div>
             <div className="quickforge-settings-meta">
               <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('pluginsCount', counts)}</span>
             </div>

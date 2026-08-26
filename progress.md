@@ -1,5 +1,13 @@
 # Progress
 
+## Completed Feature：plugins-remove-description
+
+- Feature: 插件设置页移除插件描述文案（plugins-remove-description，**已完成**）
+- Status: done — 用户要求移除「管理本地 QuickForge 插件。当前首版支持通过 manifest 声明并贡献 Agent 工具的插件。」。`PluginsPage.tsx` 删除标题下方描述行；`settings-tabs.ts` 插件项 `getDescription` 改为 `undefined`（与 mcp 项同先例；`SettingsWorkspacePage.tsx` 的 activeDescription/搜索文本均可选链消费，安全）；`i18n.ts` 中英文成对删除 `pluginsDescription` key，grep 确认无残留。
+- Verification: grep 删除 key 无残留；eslint 改动 3 文件 0 error；tsc -b 通过；npm run build 成功（仅既有 chunk size warning）。tests/ 无 PluginsPage/pluginsDescription 引用。未跑全量 test/lint。
+- Boundaries: 纯 UI 文案移除，不改插件发现与加载逻辑；无新增依赖；未 commit/tag/push。
+- Next step: 无 blocker。
+
 ## Completed Feature：lan-access-remove-risk-warning
 
 - Feature: 局域网访问设置页移除高风险警告文案（lan-access-remove-risk-warning，**已完成**）

@@ -198,8 +198,6 @@ class MemorySettingsTab extends SettingsTab {
               </div>
             </div>
           </div>
-
-          <div class="quickforge-settings-note">${t('memoryCurrentSessionNote')}</div>
         </section>
 
         ${this.message ? html`<div class="quickforge-settings-message">${this.message}</div>` : null}

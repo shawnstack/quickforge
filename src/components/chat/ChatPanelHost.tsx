@@ -42,6 +42,7 @@ import {
   syncPersistDegradedNotice,
   createScrollToBottomButton,
   createTodoWriteSummaryController,
+  createMessageQueuePanelController,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
 import { t } from '@/lib/i18n'
@@ -64,6 +65,11 @@ import {
   rememberConsumedRestoredDraftId,
   type ComposerDraftContext,
 } from '@/lib/composer-drafts'
+import {
+  loadStoredMessageQueueState,
+  saveStoredMessageQueueState,
+  type QueuedMessage,
+} from '@/lib/message-queue'
 
 type AgentLike = ServerAgent | SharedServerAgent | DeferredSessionAgent | SideChatAgent
 
@@ -702,6 +708,78 @@ export function ChatPanelHost({
       removePlusMenu: () => removeComposerPlusPopover(panel),
     })
 
+    // --- Queued composer messages (Enter during streaming enqueues) ---
+    const messageQueueActive = () => (
+      !sideChatMode
+      && !readOnly
+      && typeof (agent as ServerAgent).prompt === 'function'
+    )
+    const submitQueuedPrompt = (item: QueuedMessage) => {
+      if (disposed) return
+      if (agent.state.isStreaming) {
+        // Spurious early flush — put it back; the next settled turn retries.
+        messageQueue.restoreHead(item)
+        return
+      }
+      void Promise.resolve()
+        .then(() => (agent as ServerAgent).prompt(item.text))
+        .catch((error) => {
+          logger.warn('Failed to auto-send queued message:', error)
+          if (!disposed) {
+            messageQueue.restoreHead(item)
+            messageQueue.setPaused(true)
+          }
+        })
+    }
+    let messageQueuePersistTimer: number | undefined
+    const cancelMessageQueuePersist = () => {
+      if (messageQueuePersistTimer === undefined) return
+      window.clearTimeout(messageQueuePersistTimer)
+      messageQueuePersistTimer = undefined
+    }
+    const schedulePersistMessageQueue = () => {
+      if (!messageQueueActive()) return
+      cancelMessageQueuePersist()
+      messageQueuePersistTimer = window.setTimeout(() => {
+        messageQueuePersistTimer = undefined
+        saveStoredMessageQueueState(sessionId, messageQueue.getState())
+      }, 300)
+    }
+    const messageQueue = createMessageQueuePanelController({
+      panel,
+      enabled: messageQueueActive(),
+      isStreaming: () => agent.state.isStreaming,
+      steeringEnabled: () => propsRef.current.capabilities.messageSteering
+        && typeof (agent as ServerAgent).steer === 'function',
+      onChange: () => schedulePersistMessageQueue(),
+      onComposerCleared: () => {
+        cmdSuggestions.remove()
+        capabilitySuggestions.remove()
+        fileReferenceSuggestions.remove()
+        handleEditorInput('')
+      },
+      submitJump: async (item) => {
+        if (!propsRef.current.capabilities.messageSteering || typeof (agent as ServerAgent).steer !== 'function' || !agent.state.isStreaming) {
+          // Steering unavailable right now — send it as the next normal prompt.
+          messageQueue.moveItemToHead(item.id)
+          messageQueue.setPaused(false)
+          const head = messageQueue.consumeHead()
+          if (head) submitQueuedPrompt(head)
+          return
+        }
+        try {
+          await (agent as ServerAgent).steer({ role: 'user', content: item.text, timestamp: Date.now() })
+          if (!disposed) messageQueue.removeItem(item.id)
+        } catch (error) {
+          logger.warn('Failed to steer queued message:', error)
+        }
+      },
+      resumeQueue: () => {
+        const head = messageQueue.consumeHead()
+        if (head) submitQueuedPrompt(head)
+      },
+    })
+
     const restoreSideChatDraft = () => {
       if (!sideChatMode) return
       const text = sideChatInputMemory?.get() ?? ''
@@ -1011,6 +1089,12 @@ export function ChatPanelHost({
         logger.warn('Failed to update TodoWrite summary:', error)
       }
 
+      try {
+        messageQueue.update()
+      } catch (error) {
+        logger.warn('Failed to update queued messages panel:', error)
+      }
+
       if (sideChatMode) {
         removeApprovalCard(panel)
         removeAskUserCard(panel)
@@ -1260,6 +1344,12 @@ export function ChatPanelHost({
     void initializePanel.then(() => {
       if (disposed) return
 
+      // Restore queued messages persisted for this session (reload mid-turn).
+      const storedQueue = loadStoredMessageQueueState(sessionId)
+      if (storedQueue.items.length > 0 || storedQueue.paused) {
+        messageQueue.hydrate(storedQueue)
+      }
+
       // Restore draft
       const draft = restoredDraftRef.current
       const restoreVersion = draftRestoreGuard.version()
@@ -1447,6 +1537,18 @@ export function ChatPanelHost({
           pendingAutoCompactApprovalRef.current = null
           scheduleDecorateRef.current?.()
         }
+        // Queue drain: a settled turn auto-sends the next queued message;
+        // aborted / errored turns pause the queue so the user stays in control.
+        if (messageQueueActive()) {
+          const endedStatus = (event as { status?: string }).status
+          const queueSnapshot = messageQueue.getState()
+          if ((endedStatus === 'aborted' || endedStatus === 'error') && queueSnapshot.items.length > 0) {
+            if (!queueSnapshot.paused) messageQueue.setPaused(true)
+          } else if (!queueSnapshot.paused && queueSnapshot.items.length > 0) {
+            const head = messageQueue.consumeHead()
+            if (head) window.setTimeout(() => submitQueuedPrompt(head), 250)
+          }
+        }
       }
       if (eventType === 'auto_compact_completed' || eventType === 'auto_compact_failed') {
         if (pendingAutoCompactApprovalRef.current?.sessionId === agent.sessionId) {
@@ -1528,6 +1630,9 @@ export function ChatPanelHost({
       scrollSyncRef.current = null
       scrollBottomButton.cleanup()
       todoWriteSummary.cleanup()
+      cancelMessageQueuePersist()
+      if (messageQueueActive()) saveStoredMessageQueueState(sessionId, messageQueue.getState())
+      messageQueue.cleanup()
       uninstallMessageListWindow(windowLayer)
       unsubscribeScrollEvents()
       observer?.disconnect()

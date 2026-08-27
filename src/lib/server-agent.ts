@@ -894,15 +894,37 @@ export class ServerAgent {
     })
   }
 
-  steer(message: AgentMessage): void {
+  /**
+   * Queue a steering message and show it in the conversation immediately.
+   * The server injects the message at the next tool-round boundary and echoes
+   * the identical message (same role+timestamp) via message_end, which
+   * upsertMessage reconciles with this optimistic copy in place.
+   */
+  async steer(message: AgentMessage): Promise<void> {
+    if (this.disposed) return
+    this.state.messages = [...this.state.messages, message]
+    this.emitToListeners({ type: 'message_start', message } as unknown as AgentEvent)
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/steer`
-    fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message }),
-    }).catch((err) => {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message }),
+      })
+      if (!response.ok) {
+        throw new Error(`Failed to steer: HTTP ${response.status}`)
+      }
+    } catch (err) {
       logger.error('Failed to send steer:', err)
-    })
+      // Roll back the optimistic copy so the UI never shows a message the
+      // server never accepted.
+      const index = this.state.messages.indexOf(message)
+      if (index >= 0) {
+        this.state.messages = [...this.state.messages.slice(0, index), ...this.state.messages.slice(index + 1)]
+        this.emitToListeners({ type: 'message_start' } as unknown as AgentEvent)
+      }
+      throw err
+    }
   }
 
   followUp(message: AgentMessage): void {

@@ -230,7 +230,15 @@ export function createTodoWriteSummaryController({
       || element.classList.contains('quickforge-file-reference-suggestions')
     ))
     const insertionTarget = suggestionMenu ?? editor
-    if (root.parentElement !== composerShell || root.nextElementSibling !== insertionTarget) {
+    // The queued-messages panel (quickforge-msg-queue) may legally sit between
+    // this summary and the editor; both anchored siblings must tolerate each
+    // other or they would swap positions on every decorate pass.
+    const settledAfter = root.nextElementSibling
+    const isSettled = root.parentElement === composerShell && (
+      settledAfter === insertionTarget
+      || Boolean(settledAfter?.classList.contains('quickforge-msg-queue'))
+    )
+    if (!isSettled) {
       composerShell.insertBefore(root, insertionTarget)
     }
   }

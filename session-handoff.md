@@ -1,6 +1,22 @@
 # Session Handoff
 
-## 当前状态：release-v1.9.1（已完成）
+## 当前状态：chat-message-queue（已完成）
+
+- 目标：为聊天 Composer 增加「排队 + 插队」——AI 回合运行期间继续输入的消息进入队列、回合结束后按序自动发送；队列项可「立即」在当前工具轮结束后注入进行中回合。先出 `design-mockups/message-queue.html` 交互稿，用户手动验证通过后实现。
+- 实现：新增 `src/lib/message-queue.ts`（纯函数队列操作 + localStorage 持久化 + steer 客户端，175 行）与 `src/components/chat/panel-decoration/message-queue.ts`（面板 controller，385 行）；`ChatPanelHost.tsx` 接入 capture-phase Enter 入队、decorate 更新、`agent_end` 冲刷/暂停分支、会话恢复与卸载保存；`todo-write-summary.ts` 锚点容忍相邻队列面板防抖动交换；capabilities 新增 `messageSteering`（QuickForge true / Side Chat、OpenCode false）；i18n 双语 15 key；index.css 追加 `.quickforge-msg-queue*` 样式段；panel-decoration 桶文件导出。插队走既有 `POST /api/agents/:id/steer`（pi-agent-core steering 在轮间 drain，服务端零改动）；OpenCode/Side Chat 通过能力位降级。
+- 验证：定向 vitest message-queue(新) + todo 两件套 → 47 tests 全过；capabilities/side-chat/ChatPanelHost 引用族 6 files / 72 tests 全过；eslint 改动文件 0 error；tsc -b 通过；npm run build 成功（仅既有 warnings）。未跑全量 test/lint；未 commit/tag/push。
+- 复审修订（用户截图反馈）：队头排队项去掉特殊深边框（三参 color-mix 无效回退 currentColor 所致，现与其余项一致 var(--border)）；删除「AI 结束后按顺序自动发送」文案、messageQueueAutoHint 双语 key 及相关死 CSS/DOM 属性；复验 eslint/定向 vitest 37 tests/tsc/build 全过。
+- 拖拽排序设计稿轮次：应要求设计排队项拖动排序，`design-mockups/message-queue.html` 已扩展可操作演示（⠿ 手柄、幽灵跟随、占位换位、边缘自动滚动），浏览器自动化实测换位/序号刷新/无残留全过；修复 move/up 事件路由（改挂 window capture）与 ghost 清理两个 bug。mockup 内「自动发送」hint 文案已同步删除。
+- 拖拽排序组件落地（Revision 3）：`message-queue.ts` 新增 beginRowDragSession 指针 mini-sortable（window capture 三监听、6px 阈值、占位+幽灵换位、边缘自动滚动），lib 新增 moveQueuedMessage 纯函数，CSS/i18n（DragTitle 双语）同步；验证 4 files / 57 tests 全过、eslint/tsc/build 全过。未 commit。
+- 拖拽正确性评审修复（Revision 4，用户指出实际功能不正确）：修复 4 个真 bug——①流式期间 decorate 周期 render() 无条件取消进行中拖拽（队列恰在流式期使用，拖拽必被打断；静态稿无重渲染所以没测出）→ 拖拽会话存续期间挂起重渲染、会话结束统一从权威 items 重建；②取消的拖拽遗留脏行序不复位 → 同一重建路径修复；③拖拽会话为模块级全局、跨控制器实例误杀 → 改为每控制器持有（beginRowDragSession 工厂返回 {cancel}，onCommit/onEnd 回调）；④流式期间行内编辑被重渲染冲掉（重置为已提交文本+抢焦点）→ 编辑输入框跨重渲染保值/保焦点/保光标（dataset.queueItemId 同项判定）。复验 4 files / 59 tests、eslint/tsc/build 全过。未 commit。
+- 「立即」插队乐观显示（Revision 5，用户提出点击后马上显示）：`ServerAgent.steer(message)` 改 async——点击即乐观把 user 消息追加进 state.messages 并 emit message_start（面板立即渲染），POST 同一消息对象（客户端 timestamp）；服务端在工具轮边界注入同一消息经 message_end 回显，upsertMessage 按 role+timestamp 原位替换乐观副本不重复；HTTP 失败回滚乐观副本+二次 message_start+reject（队列项保留）。ChatPanelHost submitJump 改调 agent.steer，删除 steerSessionMessage 死代码及其测试。复验 vitest 2 files / 54 tests（server-agent 新增乐观/回滚两用例）、eslint/tsc/build 全过。未 commit。
+- 提交前完整门禁（Revision 6）：完整 npm run test 暴露 todo-write-renderer 无界切片契约被追加在后的队列 CSS 污染 → 队列 CSS 段移至 todo 摘要注释之前；期间 src/index.css 曾被脚本误截断，从 HEAD + 事故前 dist 编译产物（含 @supports color-mix 原值）重建并经 bundle 逐条比对确认等价。最终门禁：260 files / 2365 tests 全过、lint 0 error、build ✓；随后 chat-message-queue 全部改动作为 feature commit 提交。
+- Blocker：无。
+- 下一步：可选真机冒烟（多连发排队、点「立即」消息立即出现且轮边界后不重复、停止/出错后的暂停恢复、流式中拖拽排序与行内编辑）。
+
+---
+
+## 前一会话：release-v1.9.1（已完成）
 
 - 目标：按用户指令「发布版本」，以 `v1.9.0` tag 之后 dev 的 6 个提交为基线，经用户选型确认按 **patch** 发布 **v1.9.1**。
 - 基线提交：cdc97d0（云设置页 URL 行重设计+删开关）、b28a4ee（状态文件记录）、2b96c30（检查更新遵循 npm registry 配置）、5905e1c（Todo 胶囊摘要）、163e637（云设置页删远程/身份/设备区块）、1c39bd9（侧栏显示更多颜色）。

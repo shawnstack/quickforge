@@ -659,6 +659,76 @@ describe('ServerAgent', () => {
     }
   })
 
+  it('steer shows the message immediately and reconciles the server echo in place', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [
+          { role: 'user', content: 'first' },
+          { role: 'assistant', content: 'working' },
+        ] as AgentMessage[],
+        isStreaming: true,
+      },
+    })
+
+    try {
+      const seenEvents: string[] = []
+      agent.subscribe((event) => { seenEvents.push(event.type) })
+
+      const steered = { role: 'user', content: 'jump ahead', timestamp: 4242 } as unknown as AgentMessage
+      await agent.steer(steered)
+
+      // Optimistic: the message is appended and the panel is notified before
+      // the server has injected anything.
+      expect(agent.state.messages.at(-1)).toBe(steered)
+      expect(seenEvents).toContain('message_start')
+      expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/steer', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: steered }),
+      })
+
+      // The server drains the steering queue at the next tool-round boundary
+      // and echoes the identical message; the copy is replaced in place, not
+      // duplicated.
+      latestEventSource().emit('message_end', { sessionId: 'session-1', message: steered })
+      expect(agent.state.messages.filter((message) => (message as { timestamp?: number }).timestamp === 4242)).toHaveLength(1)
+      expect(agent.state.messages).toHaveLength(3)
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('steer rolls the optimistic message back when the server rejects it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 409 })
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [{ role: 'user', content: 'first' }] as AgentMessage[],
+        isStreaming: true,
+      },
+    })
+
+    try {
+      const seenEvents: string[] = []
+      agent.subscribe((event) => { seenEvents.push(event.type) })
+      const before = agent.state.messages
+
+      const steered = { role: 'user', content: 'jump ahead', timestamp: 99 } as unknown as AgentMessage
+      await expect(agent.steer(steered)).rejects.toThrow('Failed to steer: HTTP 409')
+
+      // The UI must never keep a message the server never accepted.
+      expect(agent.state.messages).toEqual(before)
+      // A second message_start nudges the panel to re-render without it.
+      expect(seenEvents.filter((type) => type === 'message_start')).toHaveLength(2)
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('ignores SSE events older than the latest server state version', async () => {
     const agent = await createServerAgent({
       sessionId: 'session-1',

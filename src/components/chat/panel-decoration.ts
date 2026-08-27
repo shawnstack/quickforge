@@ -57,6 +57,8 @@ export type {
   TodoWriteStatus,
   TodoWriteSummaryController,
 } from './panel-decoration/todo-write-summary'
+export { createMessageQueuePanelController } from './panel-decoration/message-queue'
+export type { MessageQueuePanelController, MessageQueuePanelState } from './panel-decoration/message-queue'
 
 // Inline local file path link decoration lives in ./panel-decoration/local-file-path-links.
 

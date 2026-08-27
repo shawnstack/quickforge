@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>消息队列与插队 · 交互设计稿 · QuickForge</title>
+<style>
+  /* ============ tokens ============ */
+  :root {
+    --bg: #f7f7f8;
+    --surface: #ffffff;
+    --surface-2: #fafafa;
+    --border: #e4e4e7;
+    --border-strong: #d4d4d8;
+    --fg: #18181b;
+    --fg-secondary: #52525b;
+    --muted: #a1a1aa;
+    --accent: #2563eb;
+    --accent-soft: rgba(37, 99, 235, 0.08);
+    --green: #16803c;
+    --danger: #dc2626;
+    --danger-soft: rgba(220, 38, 38, 0.06);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-md: 0 1px 3px rgba(0,0,0,0.07), 0 4px 12px rgba(0,0,0,0.05);
+    --radius: 10px;
+    color-scheme: light;
+  }
+  html.dark {
+    --bg: #131315;
+    --surface: #1c1c1f;
+    --surface-2: #232326;
+    --border: #303036;
+    --border-strong: #3f3f46;
+    --fg: #ececee;
+    --fg-secondary: #a6a6af;
+    --muted: #71717a;
+    --accent: #60a5fa;
+    --accent-soft: rgba(96, 165, 250, 0.12);
+    --green: #4ade80;
+    --danger: #f87171;
+    --danger-soft: rgba(248, 113, 113, 0.10);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md: 0 2px 6px rgba(0,0,0,0.35), 0 8px 20px rgba(0,0,0,0.25);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 14px;
+    line-height: 1.55;
+    padding: 28px clamp(16px, 4vw, 48px) 64px;
+    transition: background .25s ease, color .25s ease;
+  }
+
+  /* ============ header ============ */
+  .page-head { max-width: 1180px; margin: 0 auto 20px; display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .page-head h1 { font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+  .page-head h1 .tag {
+    font-size: 11px; font-weight: 500; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px;
+    margin-left: 10px; vertical-align: 2px;
+  }
+  .page-head p { font-size: 13px; color: var(--fg-secondary); max-width: 640px; margin-top: 5px; }
+  .head-actions { margin-left: auto; display: flex; gap: 8px; }
+  button { font-family: inherit; cursor: pointer; }
+  .ghost-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12.5px; color: var(--fg-secondary);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 12px; box-shadow: var(--shadow-sm); transition: background .15s, border-color .15s;
+  }
+  .ghost-btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
+  .ghost-btn svg { width: 14px; height: 14px; }
+
+  /* ============ layout ============ */
+  .layout { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: minmax(430px, 620px) minmax(320px, 1fr); gap: 28px; align-items: start; }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+
+  /* ============ demo window ============ */
+  .window {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    overflow: hidden; box-shadow: var(--shadow-md); position: sticky; top: 24px;
+  }
+  @media (max-width: 980px) { .window { position: static; } }
+  .win-titlebar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    font-size: 13px; color: var(--fg-secondary);
+  }
+  .win-titlebar .title { color: var(--fg); font-weight: 500; }
+  .status-pill {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); transition: all .2s;
+  }
+  .status-pill .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--muted); }
+  .status-pill.running { color: var(--accent); border-color: transparent; background: var(--accent-soft); }
+  .status-pill.running .dot { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  .messages {
+    height: 380px; overflow-y: auto; padding: 18px 18px 10px;
+    display: flex; flex-direction: column; gap: 14px; scroll-behavior: smooth;
+  }
+  .msg { max-width: 84%; font-size: 13.5px; }
+  .msg.user { align-self: flex-end; }
+  .msg .bubble-user {
+    background: var(--accent); color: #fff; border-radius: 14px 14px 4px 14px;
+    padding: 8px 12px; white-space: pre-wrap; word-break: break-word;
+  }
+  html.dark .msg .bubble-user { color: #0b1220; }
+  .msg .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10.5px; color: var(--muted); margin-top: 3px; justify-content: flex-end; width: 100%;
+  }
+  .msg .badge.zap { color: var(--accent); }
+  .assistant-block { align-self: flex-start; width: 92%; max-width: 92%; }
+  .process-card {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 9px 12px; font-size: 12.5px; color: var(--fg-secondary);
+    background: var(--surface-2); display: flex; align-items: center; gap: 8px;
+  }
+  .process-card svg { width: 13px; height: 13px; flex: none; opacity: .75; }
+  .process-card .spin { animation: rot 1s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .stream-text { font-size: 13.5px; color: var(--fg); white-space: pre-wrap; word-break: break-word; }
+  .caret { display: inline-block; width: 7px; height: 14px; vertical-align: -2px; background: var(--fg-secondary); border-radius: 2px; animation: blink 1s step-end infinite; margin-left: 1px; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .boundary-marker {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    font-size: 11.5px; color: var(--accent);
+  }
+  .boundary-marker::before, .boundary-marker::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .boundary-marker span { display: inline-flex; align-items: center; gap: 5px; }
+  .boundary-marker svg { width: 12px; height: 12px; }
+  .error-bubble {
+    border: 1px solid var(--border); border-left: 3px solid var(--danger);
+    border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: var(--fg-secondary); background: var(--danger-soft);
+    align-self: stretch;
+  }
+  .fade-in { animation: fadeUp .3s ease both; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  /* ============ composer dock ============ */
+  .composer-dock { padding: 10px 14px 14px; border-top: 1px solid var(--border); background: var(--surface); }
+
+  .queue-area:not(:empty) { margin-bottom: 10px; }
+  .queue-head {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 11.5px; color: var(--muted); padding: 0 4px 6px;
+  }
+  .queue-head b { font-weight: 500; color: var(--fg-secondary); }
+  .paused-banner {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px dashed var(--border-strong); border-radius: 9px;
+    padding: 7px 11px; font-size: 12px; color: var(--fg-secondary); margin-bottom: 8px;
+    background: var(--surface-2);
+  }
+  .paused-banner svg { width: 13px; height: 13px; flex: none; color: var(--muted); }
+  .paused-banner .resume-btn {
+    margin-left: auto; font-size: 12px; color: var(--accent); background: none; border: none; padding: 2px 4px; border-radius: 5px;
+  }
+  .paused-banner .resume-btn:hover { background: var(--accent-soft); }
+
+  .queue-list { display: flex; flex-direction: column; gap: 6px; }
+  .queue-item {
+    display: flex; align-items: center; gap: 9px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px;
+    padding: 7px 8px 7px 11px; min-height: 40px;
+    transition: opacity .25s ease, transform .25s ease, border-color .15s;
+  }
+  .queue-item.head { border-color: var(--border-strong); }
+  .queue-item.leaving { opacity: 0; transform: translateX(14px) scale(.98); }
+  .q-order {
+    flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
+    width: 20px; text-align: center; position: relative;
+  }
+  .q-order.next-tip { color: var(--accent); }
+  .q-handle {
+    flex: none; display: inline-flex; align-items: center;
+    width: 14px; height: 22px; margin-left: -4px; color: var(--muted);
+    opacity: .5; cursor: grab; touch-action: none; transition: opacity .15s;
+  }
+  .queue-item:hover .q-handle { opacity: 1; }
+  .q-handle svg { width: 13px; height: 13px; }
+  .queue-item.drag-placeholder { opacity: .38; border-style: dashed; }
+  .drag-ghost {
+    position: fixed; z-index: 60; margin: 0 !important; pointer-events: none;
+    cursor: grabbing !important; box-shadow: var(--shadow-md) !important;
+    border-color: var(--border-strong) !important;
+    background: var(--surface) !important;
+  }
+  .q-text { flex: 1; min-width: 0; font-size: 13px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-edit-input {
+    flex: 1; min-width: 0; font-size: 13px; font-family: inherit; color: var(--fg);
+    background: var(--surface); border: 1px solid var(--accent); border-radius: 6px; padding: 4px 8px; outline: none;
+  }
+  .q-actions { flex: none; display: inline-flex; align-items: center; gap: 2px; }
+  .jump-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; color: var(--fg-secondary);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 7px;
+    padding: 3.5px 9px; transition: all .15s;
+  }
+  .jump-btn svg { width: 12px; height: 12px; }
+  .jump-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .jump-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 6px; border: none; background: none; color: var(--muted);
+    transition: all .15s;
+  }
+  .icon-btn svg { width: 14px; height: 14px; }
+  .icon-btn:hover { background: var(--border); color: var(--fg-secondary); }
+  .icon-btn.danger:hover { background: var(--danger-soft); color: var(--danger); }
+
+  .editor-shell {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 12px 8px; box-shadow: var(--shadow-sm); transition: border-color .15s;
+  }
+  .editor-shell:focus-within { border-color: var(--border-strong); }
+  .editor-shell textarea {
+    width: 100%; border: none; resize: none; outline: none; background: transparent;
+    font-family: inherit; font-size: 13.5px; line-height: 1.5; color: var(--fg); min-height: 42px; max-height: 120px;
+  }
+  .editor-shell textarea::placeholder { color: var(--muted); }
+  .editor-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .hint { font-size: 11.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+  .hint kbd {
+    font-family: inherit; font-size: 10.5px; border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; padding: 0 5px; color: var(--fg-secondary); background: var(--surface-2);
+  }
+  .send-btn {
+    margin-left: auto; display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 999px; border: none;
+    background: var(--fg); color: var(--surface); transition: opacity .15s;
+  }
+  .send-btn:hover { opacity: .85; }
+  .send-btn.stop-mode { background: var(--surface-2); color: var(--danger); border: 1px solid var(--border-strong); animation: pulse 1.8s ease-in-out infinite; }
+  .send-btn:disabled { opacity: .45; cursor: default; }
+  .send-btn svg { width: 15px; height: 15px; }
+
+  .scenario-bar { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .scenario-bar .label { font-size: 11.5px; color: var(--muted); margin-right: 2px; }
+
+  /* ============ notes panel ============ */
+  .notes h2 { font-size: 15px; font-weight: 600; margin-bottom: 6px; letter-spacing: -.01em; }
+  .notes section { margin-bottom: 22px; }
+  .notes h3 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: none; letter-spacing: .02em; margin-bottom: 8px; display:flex; align-items:center; gap:8px;}
+  .notes h3::after { content:""; flex:1; height:1px; background: var(--border); }
+  .note-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 14px; box-shadow: var(--shadow-sm); }
+  .note-card + .note-card { margin-top: 8px; }
+  .note-card b { font-weight: 600; }
+  .note-card p, .note-card li { font-size: 12.5px; color: var(--fg-secondary); }
+  .note-card ul { padding-left: 17px; margin-top: 5px; display: flex; flex-direction: column; gap: 3px; }
+  .mono { font-family: ui-monospace, Consolas, "Cascadia Code", monospace; font-size: 11.5px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; color: var(--fg-secondary); }
+  table.rules { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.rules th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11.5px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  table.rules td { padding: 7px 8px; border-bottom: 1px solid var(--border); color: var(--fg-secondary); vertical-align: top; }
+  table.rules tr:last-child td { border-bottom: none; }
+  table.rules td:first-child { color: var(--fg); white-space: nowrap; }
+  .chip-yes { color: var(--green); }
+  ol.questions { padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; color: var(--fg-secondary); }
+  ol.questions li::marker { color: var(--muted); font-weight: 600; }
+  ol.questions b { color: var(--fg); font-weight: 600; }
+  .rec { color: var(--accent); }
+  i18n-grid, .i18n-table td:first-child { font-family: ui-monospace, monospace; font-size: 11.5px; }
+
+  footer.page-foot { max-width: 1180px; margin: 36px auto 0; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <div>
+    <h1>消息队列与插队<span class="tag">交互设计稿 · 待对齐</span></h1>
+    <p>AI 回合运行中，继续输入的消息进入「排队」；回合结束后自动逐条发送。队列中的任意一条可点「立即」插队——在当前工具轮 / 思考轮 / 回答结束后，于下一轮边界注入对话。本轮新增：按住行左侧 ⠿ 手柄可拖动调整顺序。下方为可操作演示。</p>
+  </div>
+  <div class="head-actions">
+    <button class="ghost-btn" id="themeBtn" aria-label="切换深浅主题">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      切换主题
+    </button>
+    <button class="ghost-btn" id="resetBtn" aria-label="重置演示">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      重置
+    </button>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- ======================= 演示窗口 ======================= -->
+  <div class="window">
+    <div class="win-titlebar">
+      <span class="title">调试 QuickForge 构建脚本</span>
+      <span class="mono" style="font-size:11px;">QuickForge runtime</span>
+      <span class="status-pill" id="statusPill"><span class="dot"></span><span id="statusText">空闲</span></span>
+    </div>
+
+    <div class="messages" id="messages"></div>
+
+    <div class="composer-dock">
+      <div class="queue-area" id="queueArea" aria-live="polite"></div>
+
+      <div class="editor-shell">
+        <textarea id="input" rows="2" placeholder="输入消息…"></textarea>
+        <div class="editor-row">
+          <span class="hint" id="enterHint"><kbd>Enter</kbd> 发送</span>
+          <button class="send-btn" id="sendBtn" aria-label="发送" title="发送">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="scenario-bar" id="scenarioBar">
+        <span class="label">场景：</span>
+        <button class="ghost-btn" data-scenario="start-long">开始一个长回合（多轮工具）</button>
+        <button class="ghost-btn" data-scenario="start-short">短回合</button>
+        <button class="ghost-btn" data-scenario="error" >中途出错</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= 设计说明 ======================= -->
+  <aside class="notes">
+
+    <section>
+      <h3>方案概览</h3>
+      <div class="note-card">
+        <p><b>普通排队</b>：流式期间按 <kbd style="font-family:inherit;font-size:10.5px;border:1px solid var(--border);border-radius:4px;padding:0 4px;">Enter</kbd> 不再被丢弃，消息进入本地队列；<b>回合结束（agent_end）后自动逐条 prompt()</b>，表现为用户消息依次出现在对话里、各自触发正常回合。</p>
+      </div>
+      <div class="note-card">
+        <p><b>立即插队</b>：点击队列项上的「↑ 立即」，调用已有的 <span class="mono">ServerAgent.steer()</span> —— pi-agent-core 会在<b>当前工具轮/思考/回答结束后、下一轮开始前</b>注入这条用户消息，剩余排队项保持原顺序继续等待自动发送。</p>
+      </div>
+      <div class="note-card">
+        <p><b>拖拽排序（新增）</b>：手柄触发（与按钮/文本选择零冲突）；按下后超过 6px 阈值才激活；原位半透明占位 + 克隆幽灵跟随，越过相邻行中线即换位实时预示落点；松手提交顺序、刷新序号并照常持久化。实现走 ~80 行指针事件 mini-sortable（支持触屏），不引入 React 版 @dnd-kit 依赖。</p>
+      </div>
+      <div class="note-card">
+        <p style="margin-bottom:4px;"><b>时序示意</b></p>
+        <ul>
+          <li>运行中 → 排队 [B, C]，当前正在跑工具轮 N</li>
+          <li>点 C「立即」→ 工具轮 N 结束 → C 注入对话（steer）→ 继续响应 C</li>
+          <li>整回合结束 → B 自动作为新回合发送</li>
+          <li>不点立即 → 整回合结束后 A→B→C 按提交顺序各自成为新回合</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h3>关键事实（调研结论）</h3>
+      <div class="note-card">
+        <ul>
+          <li>后端能力已存在：<span class="mono">server/agent-manager.mjs steerAgent/followUpAgent</span> 与路由 <span class="mono">POST …/steer | /follow-up</span>，前端 <span class="mono">src/lib/server-agent.ts</span> 已有 <span class="mono">steer()/followUp()</span> 方法，但全 UI 无调用点。</li>
+          <li>现状：流式期间第二次发送在 <span class="mono">AgentInterface.sendMessage</span> 被静默丢弃，服务端第二个 prompt 返回 <span class="mono">409 GENERATION_ALREADY_RUNNING</span>。</li>
+          <li>「停止」是显式 API（<span class="mono">POST …/abort</span>），本方案的插队<b>不使用 abort</b>，不打断正在执行的工具。</li>
+          <li>队列 UI 可复用 todo-write-summary 的挂载位（composer shell 内、message-editor 前），草稿持久化可复用 composer-drafts localStorage 通道。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h3>行为规则</h3>
+      <div class="note-card" style="padding:4px 6px;">
+        <table class="rules">
+          <tr><th style="width:34%;">状态 / 操作</th><th>行为</th></tr>
+          <tr><td>空闲 + Enter</td><td>与现状一致：直接发送</td></tr>
+          <tr><td>运行中 + Enter</td><td>加入队列尾部（占位文案变「继续输入以排队后续修改」）</td></tr>
+          <tr><td>队列项 · ↑立即</td><td>仅运行中可用；在最近的轮边界注入（不打断执行中的工具）</td></tr>
+          <tr><td>队列项 · 编辑</td><td>行内编辑，保存/取消；已发送的不可编辑</td></tr>
+          <tr><td>队列项 · 删除</td><td>从队列移除；hover 才变红</td></tr>
+          <tr><td>队列项 · 拖动 ⠿</td><td>按住左侧手柄上下拖动：幽灵跟随、占位行实时换位指示落点；超过约 4 条出现滚动后拖到边缘自动滚动；编辑中的行不可拖；松手提交新顺序并持久化</td></tr>
+          <tr><td>回合自然结束</td><td>队头自动发送，直到队列清空回到空闲</td></tr>
+          <tr><td>手动停止</td><td class="rec">建议：暂停队列并提示恢复（待确认 Q2）</td></tr>
+          <tr><td>回合出错</td><td class="rec">建议：暂停队列，避免连环失败（Q3）</td></tr>
+          <tr><td>OpenCode runtime</td><td class="rec">steer 不支持：隐藏「立即」并降级为纯排队（Q4）</td></tr>
+          <tr><td>刷新页面</td><td>队列持久化到本地（复用草稿存储通道）</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h3>文案草案（中 / EN）</h3>
+      <div class="note-card" style="padding:4px 6px;">
+        <table class="rules i18n-table">
+          <tr><th>key</th><th>中文 / English</th></tr>
+          <tr><td>queuedMessagesCount</td><td>排队消息 {n} 条 / Queued messages ({n})</td></tr>
+          <tr><td>queuePlaceholder</td><td>继续输入以排队后续修改 / Keep typing to queue follow-up edits</td></tr>
+          <tr><td>jumpQueueNow</td><td>立即 / Now</td></tr>
+          <tr><td>queuePausedBanner</td><td>队列已暂停… / Queue paused…</td></tr>
+          <tr><td>insertedAtBoundary</td><td>已在轮边界插入对话 / Inserted at turn boundary</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h3>待你确认的问题</h3>
+      <div class="note-card">
+        <ol class="questions">
+          <li><b>插队实现路线</b>：<span class="rec">推荐 steer()（真·轮边界注入，后端现成）</span>；备选是"立即=abort 当前回合+马上发"，更简单但会砍掉进行中的工具。<br>演示稿按 steer 语义做的。</li>
+          <li><b>手动停止后队列怎么办</b>：<span class="rec">推荐暂停并给「继续」按钮</span>（手动停止通常意味着想改方向）；也可以选择继续自动发。</li>
+          <li><b>出错的回合后是否继续队列</b>：<span class="rec">推荐暂停 + 重试/清空入口</span>。</li>
+          <li><b>OpenCode 会话</b>：<span class="rec">推荐只提供普通排队（回合结束后逐条发）</span>，隐藏「立即」按钮；或整个功能在该 harness 下禁用。</li>
+          <li><b>插队的可见性</b>：插入成功后在对话流里显示一条细的边界标记（如本演示的「⚡ 已在轮边界插入」），还是完全不加标记？</li>
+        </ol>
+      </div>
+    </section>
+
+  </aside>
+</div>
+
+<footer class="page-foot">
+  QuickForge · 设计稿 message-queue.html · 仅用于对齐，未接入任何业务代码。演示中的 AI 输出全部为脚本模拟。
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- icons ----------
+  var ICONS = {
+    up:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>',
+    pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+    send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>',
+    stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+    x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+    zap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>',
+    wrench: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
+    brain: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></svg>',
+    grip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6" r="0.8"/><circle cx="15" cy="6" r="0.8"/><circle cx="9" cy="12" r="0.8"/><circle cx="15" cy="12" r="0.8"/><circle cx="9" cy="18" r="0.8"/><circle cx="15" cy="18" r="0.8"/></svg>'
+  };
+
+  // ---------- dom ----------
+  var $messages = document.getElementById('messages');
+  var $input = document.getElementById('input');
+  var $sendBtn = document.getElementById('sendBtn');
+  var $sendIconWrap = null; // innerHTML swap
+  var $queueArea = document.getElementById('queueArea');
+  var $statusPill = document.getElementById('statusPill');
+  var $statusText = document.getElementById('statusText');
+  var $enterHint = document.getElementById('enterHint');
+
+  // ---------- state ----------
+  var state = {
+    running: false,
+    queue: [],       // [{id, text}]
+    paused: false,
+    jumpRequestedId: null,
+    seq: 0,
+    timer: null
+  };
+
+  function uid() { state.seq += 1; return 'q' + state.seq; }
+
+  // ---------- rendering ----------
+  function setStatus(text, running) {
+    $statusText.textContent = text;
+    $statusPill.classList.toggle('running', !!running);
+  }
+
+  function renderSendButton() {
+    if ($running()) {
+      $sendBtn.classList.add('stop-mode');
+      $sendBtn.setAttribute('aria-label', '停止');
+      $sendBtn.innerHTML = ICONS.stop;
+    } else {
+      $sendBtn.classList.remove('stop-mode');
+      $sendBtn.setAttribute('aria-label', '发送');
+      $sendBtn.innerHTML = ICONS.send;
+    }
+  }
+
+  function placeholder() {
+    if (!$running()) return '输入消息…';
+    return state.queue.length ? '继续输入以排队后续修改' : 'AI 正在回复…继续输入将加入队列';
+  }
+
+  function hint() {
+    if (!$running()) return '<kbd>Enter</kbd> 发送';
+    return '<kbd>Enter</kbd> 加入队列';
+  }
+
+  function renderComposerChrome() {
+    $input.placeholder = placeholder();
+    $enterHint.innerHTML = hint();
+    renderSendButton();
+    renderQueueArea();
+  }
+
+  function renderQueueArea() {
+    // 回合事件可能在拖拽中途触发重渲染（换位/自动发送），先安全取消进行中的拖拽。
+    if (activeDrag) activeDrag.cancel()
+    var hasItems = state.queue.length > 0;
+    var html = '';
+    if (hasItems) {
+      html += '<div class="queue-head"><b>排队消息 ' + state.queue.length + ' 条</b></div>';
+    }
+    if (state.paused && hasItems) {
+      html += '<div class="paused-banner">' + ICONS.pause +
+        '<span>回合已被停止' + (state.lastError ? '（出错）' : '') + '，队列暂停 · 剩余 ' + state.queue.length + ' 条</span>' +
+        '<button class="resume-btn" id="resumeBtn">继续依次发送</button></div>';
+    }
+    if (hasItems) {
+      html += '<div class="queue-list" id="queueListEl">';
+      state.queue.forEach(function (item, idx) {
+        var isHead = idx === 0;
+        var jumping = state.jumpRequestedId === item.id;
+        html +=
+          '<div class="queue-item' + (isHead ? ' head' : '') + (jumping ? ' leaving' : '') + '" data-id="' + item.id + '">' +
+            '<span class="q-handle" title="拖动调整顺序">' + ICONS.grip + '</span>' +
+            '<span class="q-order' + (isHead ? ' next-tip' : '') + '" title="' + (isHead ? '下一个发送' : '第 ' + (idx + 1) + ' 个') + '">' + (isHead ? ICONS.up.replace('<svg', '<svg style="width:12px;height:12px;display:inline-block;vertical-align:-2px;"') : (idx + 1)) + '</span>' +
+            '<span class="q-text" title="' + escapeAttr(item.text) + '">' + escapeHtml(item.text) + '</span>' +
+            '<span class="q-actions">' +
+              '<button class="jump-btn"' + (!$running() || jumping || state.paused ? ' disabled' : '') + ' title="在当前轮结束后立即插入对话">' + ICONS.up + '立即</button>' +
+              '<button class="icon-btn act-edit" title="编辑">' + ICONS.pencil + '</button>' +
+              '<button class="icon-btn danger act-del" title="删除">' + ICONS.trash + '</button>' +
+            '</span>' +
+          '</div>';
+      });
+      html += '</div>';
+    }
+    $queueArea.innerHTML = html;
+
+    // bind events
+    Array.prototype.forEach.call($queueArea.querySelectorAll('.queue-item'), bindItemEvents);
+    var resume = document.getElementById('resumeBtn');
+    if (resume) resume.addEventListener('click', function () {
+      state.paused = false; state.lastError = false;
+      renderComposerChrome();
+      if (!state.running) flushNextFromQueue(false);
+    });
+  }
+
+  function bindItemEvents(itemEl) {
+    var id = itemEl.getAttribute('data-id');
+    var item = findItem(id);
+    if (!item) return;
+
+    attachRowDrag(itemEl, id);
+
+    var jumpBtn = itemEl.querySelector('.jump-btn');
+    if (jumpBtn) jumpBtn.addEventListener('click', function () { requestJump(id); });
+
+    var editBtn = itemEl.querySelector('.act-edit');
+    if (editBtn) editBtn.addEventListener('click', function () { enterEditMode(itemEl, item); });
+
+    var delBtn = itemEl.querySelector('.act-del');
+    if (delBtn) delBtn.addEventListener('click', function () {
+      state.queue = state.queue.filter(function (i) { return i.id !== id; });
+      renderComposerChrome();
+    });
+  }
+
+  // ===== 拖拽排序：手柄触发 · 幽灵跟随 · 占位行实时换位 · 边缘自动滚动 =====
+  // 关键：move/up 监听挂在 window capture 上，不依赖 setPointerCapture 路由。
+  var DRAG_THRESHOLD = 6
+  var EDGE_SCROLL_ZONE = 26
+  var EDGE_SCROLL_STEP = 7
+  var activeDrag = null
+
+  function attachRowDrag(itemEl, id) {
+    var handle = itemEl.querySelector('.q-handle')
+    if (!handle) return
+
+    handle.addEventListener('pointerdown', function (ev) {
+      if (ev.button !== undefined && ev.button !== 0) return
+      if (activeDrag) return
+      var listEl = document.getElementById('queueListEl')
+      if (!listEl || itemEl.querySelector('.q-edit-input')) return
+
+      ev.preventDefault()
+
+      var startX = ev.clientX
+      var startY = ev.clientY
+      var rect = itemEl.getBoundingClientRect()
+      var ghost = null
+      var moved = false
+      var done = false
+      var scrollRaf = null
+      var lastClientY = ev.clientY
+
+      function buildGhost() {
+        itemEl.classList.add('drag-placeholder')
+        ghost = itemEl.cloneNode(true)
+        ghost.classList.remove('drag-placeholder', 'leaving', 'head')
+        ghost.classList.add('drag-ghost')
+        ghost.style.width = rect.width + 'px'
+        ghost.style.left = rect.left + 'px'
+        ghost.style.top = rect.top + 'px'
+        document.body.appendChild(ghost)
+        document.documentElement.style.userSelect = 'none'
+        document.body.style.cursor = 'grabbing'
+      }
+
+      function placeholderIndex() {
+        return Array.prototype.indexOf.call(listEl.children, itemEl)
+      }
+
+      function movePlaceholder(clientY) {
+        var siblings = Array.prototype.filter.call(listEl.children, function (child) {
+          return child !== itemEl
+        })
+        var targetIdx = siblings.length
+        for (var i = 0; i < siblings.length; i++) {
+          var box = siblings[i].getBoundingClientRect()
+          if (clientY < box.top + box.height / 2) { targetIdx = i; break }
+        }
+        if (targetIdx === placeholderIndex()) return
+        listEl.insertBefore(itemEl, siblings[targetIdx] || null)
+      }
+
+      function tick() {
+        scrollRaf = null
+        var lr = listEl.getBoundingClientRect()
+        if (lastClientY < lr.top + EDGE_SCROLL_ZONE) listEl.scrollTop -= EDGE_SCROLL_STEP
+        else if (lastClientY > lr.bottom - EDGE_SCROLL_ZONE) listEl.scrollTop += EDGE_SCROLL_STEP
+        movePlaceholder(lastClientY)
+        if (ghost) ghost.style.top = (rect.top + (lastClientY - startY)) + 'px'
+        if (moved && !done) scrollRaf = requestAnimationFrame(tick)
+      }
+
+      function cleanup() {
+        window.removeEventListener('pointermove', onMove, true)
+        window.removeEventListener('pointerup', onUp, true)
+        window.removeEventListener('pointercancel', onCancel, true)
+        if (scrollRaf !== null) { cancelAnimationFrame(scrollRaf); scrollRaf = null }
+        if (ghost) { ghost.remove(); ghost = null }
+        document.documentElement.style.userSelect = ''
+        document.body.style.cursor = ''
+        activeDrag = null
+        done = true
+      }
+
+      function onMove(moveEv) {
+        if (done) return
+        lastClientY = moveEv.clientY
+        if (!moved) {
+          if (Math.abs(moveEv.clientY - startY) < DRAG_THRESHOLD && Math.abs(moveEv.clientX - startX) < DRAG_THRESHOLD) return
+          moved = true
+          buildGhost()
+        }
+        ghost.style.top = (rect.top + (moveEv.clientY - startY)) + 'px'
+        movePlaceholder(moveEv.clientY)
+        if (scrollRaf === null) scrollRaf = requestAnimationFrame(tick)
+        moveEv.preventDefault()
+      }
+
+      function onUp() {
+        if (done || !moved) { cleanup(); return }
+        cleanup()
+        itemEl.classList.remove('drag-placeholder')
+        var toIdx = Array.prototype.indexOf.call(listEl.children, itemEl)
+        var fromIdx = state.queue.findIndex(function (i) { return i.id === id })
+        if (fromIdx >= 0 && toIdx >= 0 && fromIdx !== toIdx) {
+          var movedItem = state.queue.splice(fromIdx, 1)[0]
+          state.queue.splice(toIdx, 0, movedItem)
+        }
+        renderQueueArea()
+      }
+
+      function onCancel() {
+        if (done) return
+        cleanup()
+        itemEl.classList.remove('drag-placeholder')
+        renderQueueArea()
+      }
+
+      activeDrag = { cancel: onCancel }
+      window.addEventListener('pointermove', onMove, true)
+      window.addEventListener('pointerup', onUp, true)
+      window.addEventListener('pointercancel', onCancel, true)
+    })
+  }
+
+  function enterEditMode(itemEl, item) {    var wrap = itemEl.querySelector('.q-text');
+    var actions = itemEl.querySelector('.q-actions');
+    var input = document.createElement('input');
+    input.className = 'q-edit-input';
+    input.value = item.text;
+    wrap.replaceWith(input);
+    actions.innerHTML =
+      '<button class="icon-btn" title="保存">' + ICONS.check + '</button>' +
+      '<button class="icon-btn" title="取消">' + ICONS.x + '</button>';
+    var saveBtn = actions.children[0], cancelBtn = actions.children[1];
+    input.focus(); input.setSelectionRange(input.value.length, input.value.length);
+
+    function commit() {
+      var v = input.value.trim();
+      if (v) item.text = v;
+      renderComposerChrome();
+    }
+    saveBtn.addEventListener('click', commit);
+    cancelBtn.addEventListener('click', function () { renderComposerChrome(); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commit(); }
+      else if (e.key === 'Escape') { renderComposerChrome(); }
+    });
+  }
+
+  // ---------- helpers ----------
+  function $running() { return state.running; }
+  function findItem(id) {
+    for (var i = 0; i < state.queue.length; i++) if (state.queue[i].id === id) return state.queue[i];
+    return null;
+  }
+  function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function escapeAttr(s) { return escapeHtml(s); }
+  function scrollBottom() { $messages.scrollTop = $messages.scrollHeight; }
+
+  function addUserMsg(text, opts) {
+    opts = opts || {};
+    var el = document.createElement('div');
+    el.className = 'msg user fade-in';
+    el.innerHTML = '<div class="bubble-user">' + escapeHtml(text) + '</div>' +
+      (opts.jumped ? '<div class="badge zap">' + ICONS.zap + '已插队 · 在轮边界注入（steer）</div>' : (opts.auto ? '<div class="badge">队列自动发送</div>' : ''));
+    $messages.appendChild(el);
+    scrollBottom();
+    return el;
+  }
+
+  function addBoundaryMarker(afterText) {
+    var el = document.createElement('div');
+    el.className = 'boundary-marker fade-in';
+    el.innerHTML = '<span>' + ICONS.zap + (afterText || '轮边界：当前工具已执行完，注入插队消息') + '</span>';
+    $messages.appendChild(el);
+    scrollBottom();
+  }
+
+  function addAssistantText(text) {
+    var wrap = document.createElement('div');
+    wrap.className = 'assistant-block';
+    var p = document.createElement('div');
+    p.className = 'stream-text';
+    wrap.appendChild(p);
+    $messages.appendChild(wrap);
+    scrollBottom();
+    // typewriter
+    var i = 0;
+    var speed = Math.max(8, Math.min(28, 700 / Math.max(text.length,1) * 8));
+    return new Promise(function (resolve) {
+      var t = setInterval(function () {
+        i += 2;
+        p.textContent = text.slice(0, i) + (i < text.length ? '▍' : '');
+        scrollBottom();
+        if (i >= text.length) { clearInterval(t); p.textContent = text; resolve(wrap); }
+      }, speed);
+      state.timer = t;
+    });
+  }
+
+  function addProcessCard(icon, label) {
+    var el = document.createElement('div');
+    el.className = 'assistant-block fade-in';
+    el.innerHTML = '<div class="process-card"><span class="spin">' + icon + '</span><span>' + label + '</span></div>';
+    $messages.appendChild(el);
+    scrollBottom();
+    return el;
+  }
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  // ---------- simulated agent engine ----------
+  // steps: [{type:'tool'|'think'|'stream', label/text, ms}]
+  // Between every two steps we check `state.jumpRequestedId` — faithful to the
+  // real semantics where steering is drained at round boundaries only.
+  var turnToken = 0;
+
+  function startTurn(opts) {
+    opts = opts || {};
+    state.running = true;
+    state.jumpRequestedId = null;
+    renderComposerChrome();
+    var token = ++turnToken;
+    setStatus('运行中', true);
+
+    var toolNames = ['read_file src/scripts/build.mjs', 'run_command npm run test', 'grep TODO src/', 'edit_file build.mjs'];
+    var streams = [
+      '好的，我先看一下构建脚本的当前问题。',
+      '测试有一个用例失败了，我来修一下路径解析的部分。',
+      '修复完成，再跑一遍完整验证确认没有回归。'
+    ];
+
+    function makeSteps(long) {
+      var steps = [];
+      if (long) {
+        steps.push({ type: 'think', label: '思考中… 分析任务步骤', ms: 900 });
+        steps.push({ type: 'tool', label: toolNames[0], ms: 1200 });
+        steps.push({ type: 'tool', label: toolNames[1], ms: 1500 });
+        steps.push({ type: 'stream', text: streams[0], ms: 0 });
+        steps.push({ type: 'think', label: '思考中… 定位到一处路径错误', ms: 800 });
+        steps.push({ type: 'tool', label: toolNames[3], ms: 1100 });
+        steps.push({ type: 'stream', text: streams[1], ms: 0 });
+        steps.push({ type: 'tool', label: toolNames[1], ms: 1300 });
+        steps.push({ type: 'stream', text: streams[2], ms: 0 });
+      } else {
+        steps.push({ type: 'tool', label: toolNames[2], ms: 1000 });
+        steps.push({ type: 'stream', text: streams[0], ms: 0 });
+      }
+      return steps;
+    }
+
+    async function run() {
+      var steps = makeSteps(opts.long !== false);
+      try {
+        for (var i = 0; i < steps.length; i++) {
+          if (token !== turnToken) throw { aborted: true };
+          var st = steps[i];
+
+          if (st.type === 'stream') {
+            await addAssistantText(st.text);
+          } else {
+            var card = addProcessCard(st.type === 'think' ? ICONS.brain : ICONS.wrench, st.label + (st.type === 'tool' ? '  …' : ''));
+            await sleep(st.ms);
+            card.remove();
+          }
+          if (token !== turnToken) throw { aborted: true };
+
+          // ===== 轮边界：检查插队请求 =====
+          if (state.jumpRequestedId) {
+            var item = findItem(state.jumpRequestedId);
+            state.jumpRequestedId = null;
+            if (item) {
+              addBoundaryMarker();
+              addUserMsg(item.text, { jumped: true });
+              state.queue = state.queue.filter(function (q) { return q.id !== item.id; });
+              renderComposerChrome();
+              await sleep(350);
+              await addAssistantText('收到，优先处理你的这条补充：' + shorten(item.text));
+            }
+            if (token !== turnToken) throw { aborted: true };
+          }
+
+          // ===== 中途出错场景 =====
+          if (opts.failAt === i) {
+            finishTurn({ error: true });
+            return;
+          }
+        }
+        finishTurn({});
+      } catch (e) {
+        if (e && e.aborted) finishTurn({ stopped: true });
+        else finishTurn({ error: true });
+      }
+    }
+    run();
+
+    function shorten(s) { return s.length > 30 ? s.slice(0, 30) + '…' : s; }
+  }
+
+  function finishTurn(result) {
+    state.running = false;
+    state.jumpRequestedId = null;
+    if (result.error) {
+      var el = document.createElement('div');
+      el.className = 'error-bubble fade-in';
+      el.textContent = '工具执行出错：exit code 1（模拟）。';
+      $messages.appendChild(el);
+      scrollBottom();
+      state.lastError = true;
+      if (state.queue.length) {
+        state.paused = true;
+        showToast('回合出错，队列已暂停');
+      }
+    } else if (result.stopped) {
+      var el2 = document.createElement('div');
+      el2.className = 'error-bubble fade-in';
+      el2.style.borderLeftColor = 'var(--muted)';
+      el2.textContent = '回合已被手动停止。';
+      $messages.appendChild(el2);
+      scrollBottom();
+      if (state.queue.length) {
+        state.paused = true;
+        showToast('回合已停止，队列暂停等待确认');
+      }
+    }
+    setStatus(state.queue.length ? '空闲 · 队列待发' : '空闲', false);
+    renderComposerChrome();
+
+    // 自动冲刷队列（除非暂停）
+    if (!state.paused) flushNextFromQueue(true);
+  }
+
+  function flushNextFromQueue(didJustFinish) {
+    if (state.running || state.paused) return;
+    if (!state.queue.length) { setStatus('空闲', false); return; }
+    var head = state.queue.shift();
+    renderComposerChrome();
+    addUserMsg(head.text, { auto: true });
+    setTimeout(function () { startTurn({ long: false, _autoed: true }); }, 420);
+  }
+
+  function showToast(msg) {
+    var t = document.createElement('div');
+    t.className = 'toast-message';
+    t.textContent = msg;
+    Object.assign(t.style, {
+      position: 'fixed', left: '50%', bottom: '26px', transform: 'translateX(-50%)',
+      background: 'var(--fg)', color: 'var(--surface)', fontSize: '12.5px',
+      borderRadius: '999px', padding: '8px 16px', boxShadow: 'var(--shadow-md)',
+      zIndex: '50', opacity: '0', transition: 'opacity .25s'
+    });
+    document.body.appendChild(t);
+    requestAnimationFrame(function () { t.style.opacity = '1'; });
+    setTimeout(function () { t.style.opacity = '0'; setTimeout(function(){ t.remove(); }, 300); }, 2400);
+  }
+
+  function requestJump(id) {
+    var item = findItem(id);
+    if (!item || !state.running) return;
+    // 演示语义：本轮内只允许一次插队标记（服务端 one-at-a-time 同理）
+    state.jumpRequestedId = id;
+    renderComposerChrome(); // 按钮禁用 + 卡片高亮离场动画
+    showToast('将在当前工具轮结束后插入');
+  }
+
+  // ---------- composer events ----------
+  function submitCurrentInput() {
+    var text = $input.value.trim().replace(/\s+$/g, '');
+    if (!text) return;
+    $input.value = '';
+
+    if (!state.running) {
+      addUserMsg(text);
+      startTurn({ long: false });
+    } else {
+      state.queue.push({ id: uid(), text: text });
+      renderComposerChrome();
+    }
+  }
+
+  $input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      submitCurrentInput();
+    }
+  });
+
+  $sendBtn.addEventListener('click', function () {
+    if (state.running) {
+      // 手动停止
+      turnToken++;
+      finishTurn({ stopped: true });
+    } else {
+      submitCurrentInput();
+    }
+  });
+
+  // ---------- scenarios ----------
+  document.querySelectorAll('[data-scenario]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var s = btn.getAttribute('data-scenario');
+      if (s === 'start-long' && !state.running) startTurn({ long: true });
+      else if (s === 'start-short' && !state.running) startTurn({ long: false });
+      else if (s === 'error') {
+        if (!state.running) {
+          addUserMsg('跑一下完整回归测试');
+          startTurn({ long: true, failAt: 2 });
+        }
+      }
+    });
+  });
+
+  // ---------- theme & reset ----------
+  document.getElementById('themeBtn').addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', resetDemo);
+
+  function resetDemo() {
+    turnToken++;
+    state.running = false;
+    state.queue = [];
+    state.paused = false;
+    state.jumpRequestedId = null;
+    state.lastError = false;
+    $messages.innerHTML = '';
+    seedMessages();
+    renderComposerChrome();
+    setStatus('空闲', false);
+  }
+
+  // ---------- seed ----------
+  function seedMessages() {
+    var u = document.createElement('div');
+    u.className = 'msg user fade-in';
+    u.innerHTML = '<div class="bubble-user">帮我把测试跑一遍并修复失败的用例</div>';
+    $messages.appendChild(u);
+    var a = document.createElement('div');
+    a.className = 'assistant-block fade-in';
+    a.innerHTML = '<div class="stream-text">好的，我先查看项目结构和测试配置。</div>';
+    $messages.appendChild(a);
+    scrollBottom();
+  }
+
+  // ---------- init ----------
+  seedMessages();
+  renderComposerChrome();
+})();
+</script>
+</body>
+</html>

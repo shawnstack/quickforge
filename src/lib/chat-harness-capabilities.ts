@@ -16,6 +16,8 @@ export type ChatHarnessCapabilities = {
   forkSession: boolean
   harnessConfig: boolean
   attachments: boolean
+  /** Steer a queued message into the running turn (QuickForge only). */
+  messageSteering: boolean
 }
 
 export const QUICKFORGE_CHAT_HARNESS_CAPABILITIES: ChatHarnessCapabilities = Object.freeze({
@@ -34,6 +36,7 @@ export const QUICKFORGE_CHAT_HARNESS_CAPABILITIES: ChatHarnessCapabilities = Obj
   forkSession: false,
   harnessConfig: false,
   attachments: true,
+  messageSteering: true,
 })
 
 /**
@@ -57,6 +60,7 @@ export const SIDE_CHAT_UI_CAPABILITIES: ChatHarnessCapabilities = Object.freeze(
   forkSession: false,
   harnessConfig: false,
   attachments: false,
+  messageSteering: false,
 })
 
 // Backward-compatible name for callers/tests that still import the old policy.
@@ -78,6 +82,7 @@ export const OPENCODE_P0_CHAT_HARNESS_CAPABILITIES: ChatHarnessCapabilities = Ob
   forkSession: true,
   harnessConfig: true,
   attachments: true,
+  messageSteering: false,
 })
 
 export function resolveChatHarnessCapabilities(harness: AgentHarness | null | undefined): ChatHarnessCapabilities {

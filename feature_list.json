@@ -1,6 +1,30 @@
 {
   "features": [
     {
+      "id": "chat-message-queue",
+      "name": "Composer 消息队列：流式期排队自动发送与 steer 轮边界插队",
+      "status": "done",
+      "approach": "先出交互稿 design-mockups/message-queue.html（深浅主题可操作演示，用户手动验证通过），按稿内推荐方案实现；调研确认 pi-agent-core steering 队列与 QuickForge 既有但无 UI 的 POST /api/agents/:id/steer 可直接承载「插队」，服务端零改动。普通排队：流式期间 Composer Enter 不再被静默丢弃——新增 panel-decoration/message-queue.ts controller 在 textarea capture-phase keydown 拦截（IME/Shift 放行）入队并切占位符为「继续输入以排队后续修改」；agent_end 且非 aborted/error 时延迟 250ms 取队头作为普通 prompt 自动发送直至清空。插队：队列项「立即」按钮经 src/lib/message-queue.ts 的 steerSessionMessage 注入当前工具轮结束后的最早边界，不打断执行中的工具；能力位 messageSteering 仅 QuickForge 开启（OpenCode/Side Chat false），不可用或未流式时点击退化为置顶立即发送。aborted（停止按钮/Escape）与 error 结束且队列非空 → 暂停 +「继续依次发送」恢复入口；自动发送失败回退队头并暂停，steer 失败仅 warn 保留该项。状态 localStorage quickforge:message-queue:v1 per-session 持久化（50 会话/20 条/2000 字符），挂载恢复、卸载保存、清空删条目。面板挂 composer shell 内任务摘要后、建议菜单前；todo-write-summary 锚点规则容忍相邻 quickforge-msg-queue 防装饰周期交换位置。i18n 中英成对 15 key；样式复用既有 token、删除项 hover 才红、reduced-motion 关过渡；panel-decoration 桶文件导出新 controller。",
+      "files": [
+        "design-mockups/message-queue.html",
+        "src/lib/message-queue.ts",
+        "src/components/chat/panel-decoration/message-queue.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/panel-decoration/todo-write-summary.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/lib/chat-harness-capabilities.ts",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/frontend/message-queue.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run message-queue + todo-write-summary + todo-write-renderer → 3 files / 47 tests 全通过（新增 21 用例：入队上限/FIFO、编辑删除置顶、normalize 防御、无 localStorage 降级与 stub round-trip、steer 客户端契约与失败抛错、六组源码契约）；回归 chat-harness-capabilities + side-chat-workspace-tab + ChatPanelHost 引用族 6 files / 72 tests 全通过；npx eslint 改动 8 文件 0 error；npx tsc -b --pretty false 通过；npm run build 成功（仅既有 chunk size warnings）。未跑全量 test/lint。复审修订一（用户真机截图）：移除队头特殊深边框（三参 color-mix 无效回退 currentColor，改与其余项统一 var(--border)）并删除 queueAutoHint 文案与双语 key 及死 CSS/DOM 属性。复审修订二（拖拽排序落地）：mockup 演示稿先行并实测通过后移植进组件——lib 新增 moveQueuedMessage 纯函数（clamp/round、未知 id no-op）、controller 新增 beginRowDragSession 指针 mini-sortable（⠿ 手柄 hover 增强、6px 阈值、半透明占位 + body 克隆幽灵跟随、越中线换位、列表边缘自动滚动、编辑行不可拖、move/up/cancel 挂 window capture 规避指针捕获不生效导致拖不动）；i18n DragTitle 双语、CSS handle/placeholder/ghost 复用 token；定向 vitest message-queue(moveQueuedMessage 断言 + 拖拽契约) + todo-write-summary + capabilities + side-chat → 4 files / 57 tests 全过、eslint 0 error、tsc -b 通过、build ✓ 6.86s。复审修订三（拖拽正确性修复，用户指出实际功能不正确）：① 流式期间 decorate 周期重渲染会在 render() 开头无条件取消进行中拖拽——而队列恰在流式期使用，拖拽几乎必被打断；改为拖拽会话（每控制器持有，不再模块级全局）存续期间挂起重渲染、会话结束统一从权威 items 重建，顺带修复取消/中断的拖拽遗留脏行序。② 同根因修复行内编辑被 decorate 重建冲掉：编辑输入框跨重渲染保值/保焦点/保光标（仅同一编辑项）。复验 4 files / 59 tests 全过、eslint 0 error、tsc -b 通过、build ✓ 6.52s。复审修订四（立即插队乐观显示，用户提出）:「立即」原走 steerSessionMessage 裸 fetch，steer 消息要等当前工具轮结束被服务端注入后才出现在对话流；现改为 ServerAgent.steer(message) ——点击即把该 user 消息乐观追加进本地 state 并 emit message_start 让面板立即渲染，POST 携带同一消息对象（客户端 timestamp），服务端在下一工具轮边界注入时经 message_end 回显同一消息、upsertMessage 按 role+timestamp 原位替换乐观副本（不重复），HTTP 失败回滚乐观副本并再次通知面板、reject 交由队列侧保留该项；删除无调用方的 steerSessionMessage 及其测试 describe，新增 server-agent 两个行为用例（乐观追加+echo 原位去重、409 回滚+二次 message_start）。复验 vitest server-agent+message-queue 2 files / 54 tests、eslint 0 error、tsc -b 通过、build ✓ 7.30s。"
+    },
+    {
       "id": "release-v1.9.1",
       "name": "发布 patch v1.9.1",
       "status": "done",

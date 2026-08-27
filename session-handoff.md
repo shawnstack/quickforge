@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：browser-single-window-guard（已完成）
+
+- 目标：用户问「浏览器打开能否只允许开一个窗口？开多个 SSE 会堵塞的吧」。调研澄清：服务端 SSE 无互相阻塞（EventEmitter 广播），堵塞根因是浏览器 HTTP/1.1 同源 6 连接池被每窗口 2-4 条常驻长连接占满致普通 API 排队。用户决策：Web Locks 严格单窗口（无接管逃生门）、检测到第二窗口时尽力自动聚焦已有窗口（window.focus() 由已有窗口自行调用 + 标题闪烁兜底）。
+- 实现：新增 `src/lib/window-guard.ts`（acquireAppWindowGuard：ifAvailable 抢锁、acquiredPromise race 成功判定、刷新竞态 400ms×2 重试、降级 unsupported；startWindowFocusResponder 监听 quickforge-window-guard 频道 → focus + 标题闪烁 5s；requestExistingWindowFocus 广播）+ `src/components/WindowGuardNotice.tsx`（全屏拦截页，内联 SVG、t() 双语、复用既有 token、不 import App、零 /api）；`src/main.tsx` bootstrap 渲染前 await 守卫，blocked 先自动广播一次 focus 再渲染拦截页；i18n 中英成对 3 key；wiki 3 处同步。
+- 验证：定向 vitest window-guard 10 tests（主 Agent 复核重跑通过）；i18n 回归 3 文件 31 tests；eslint 5 文件 0 error；tsc -b ✓；npm run build ✓（仅既有警告）。未跑全量。
+- 文件：src/lib/window-guard.ts（新）、src/components/WindowGuardNotice.tsx（新）、src/main.tsx、src/lib/i18n.ts、tests/frontend/window-guard.test.ts（新）、docs/wiki/{src, src/lib, src/components}/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。Notes：① 拦截页语言用浏览器默认（i18n import 时同步初始化，零 /api 代价的小妥协）；② Electron/Android/隐身/不同 profile 为独立锁空间天然隔离；③ 同根因的设置页额外 channels/events SSE（channels-settings-tab.ts:179）记为潜在后续优化，未动；④ progress.md 顶部另有并行会话的 sse-health-probe-notice 条目，未触碰。
+- 下一步：真机冒烟（第二个窗口见拦截页 + 已有窗口自动跳前台；关掉第一个后刷新第二个可正常接管；旧浏览器降级放行）。
+
+---
+
 ## 当前状态：update-check-async-snapshot（已完成）
 
 - 目标：用户报告 `GET /api/system/update/check` 500（控制台 Failed to load resource）且指出更新检查应异步。根因：路由同步 await 外部 npm registry（5 秒超时），弱网失败抛 500。

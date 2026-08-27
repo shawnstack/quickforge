@@ -12,7 +12,10 @@ import {
  * Appends a lightweight centered row at the end of the message list
  * (design-mockups/reconnect-indicator.html · 方案 A) while the stream retries:
  * 「重新连接中… 8/10 · 4s 后重试」 → 「已重新连接」 (auto-dismissed) →
- * 「连接失败，已重试 10 次」+ manual retry. Idempotent across decorate
+ * 「连接失败，已重试 10 次」+ manual retry. Health-probe variants: while the
+ * backend is unreachable the row switches to 「后端服务不可达（健康检查失败）」
+ * (no n/10 count, retries without a cap); a changed server bootId on recovery
+ * upgrades the notice to 「已重新连接 · 服务已重启」. Idempotent across decorate
  * passes; re-appends itself when the message list is rebuilt.
  */
 
@@ -100,11 +103,16 @@ export function createReconnectNoticeController(deps: { panel: HTMLElement }): R
     notice.classList.remove('quickforge-reconnect-leaving')
     const text = document.createElement('span')
     text.className = 'quickforge-reconnect-text'
-    text.textContent = `${t('sseReconnectingLabel')} `
-    const count = document.createElement('span')
-    count.className = 'quickforge-reconnect-count'
-    count.textContent = `${status.attempt}/${status.maxAttempts}`
-    text.append(count)
+    if (status.unreachable) {
+      // 健康检查失败：后端整体不可达，此态下重连无上限，隐藏 n/10 计数只保留倒计时。
+      text.textContent = t('sseServerUnreachableLabel')
+    } else {
+      text.textContent = `${t('sseReconnectingLabel')} `
+      const count = document.createElement('span')
+      count.className = 'quickforge-reconnect-count'
+      count.textContent = `${status.attempt}/${status.maxAttempts}`
+      text.append(count)
+    }
 
     const countdown = document.createElement('span')
     countdown.className = 'quickforge-reconnect-countdown'
@@ -119,11 +127,11 @@ export function createReconnectNoticeController(deps: { panel: HTMLElement }): R
     countdownTimer = setInterval(tick, 1000)
   }
 
-  function renderReconnected(notice: HTMLElement) {
+  function renderReconnected(notice: HTMLElement, restarted = false) {
     notice.classList.remove('quickforge-reconnect-leaving')
     const text = document.createElement('span')
     text.className = 'quickforge-reconnect-text'
-    text.textContent = t('sseReconnectedLabel')
+    text.textContent = restarted ? t('sseReconnectedRestarted') : t('sseReconnectedLabel')
     notice.replaceChildren(iconSpan(CHECK_SVG), text)
     dismissTimer = setTimeout(() => {
       dismissTimer = null
@@ -159,9 +167,12 @@ export function createReconnectNoticeController(deps: { panel: HTMLElement }): R
   function onStatusChange(status: SseConnectionStatus) {
     if (disposed) return
     if (status.status === 'connected') {
+      // restarted 是恢复提示显示期间的一次补播：升级文案并重置淡出计时器；
+      // 若提示已被 dismiss 移除则忽略（可接受边界：重启提示只在恢复提示仍可见时升级）。
+      if (status.restarted && !findNotice()) return
       clearTimers()
       const notice = ensureNotice('reconnected')
-      if (notice) renderReconnected(notice)
+      if (notice) renderReconnected(notice, status.restarted === true)
       return
     }
     apply(status)

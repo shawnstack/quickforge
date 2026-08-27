@@ -100,8 +100,8 @@ class FakeElement {
 // --- Module mocks -----------------------------------------------------------
 
 type MockStatus =
-  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number }
-  | { status: 'connected'; recovered: boolean }
+  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number; unreachable?: boolean }
+  | { status: 'connected'; recovered: boolean; restarted?: boolean }
   | { status: 'failed'; maxAttempts: number }
 
 const connectionState = vi.hoisted(() => ({
@@ -135,7 +135,9 @@ vi.mock('@/lib/i18n', () => ({
     const map: Record<string, string> = {
       sseReconnectingLabel: 'Reconnecting…',
       sseReconnectNextRetry: `Retrying in ${params?.seconds}s`,
+      sseServerUnreachableLabel: 'Backend unreachable (health check failed)',
       sseReconnectedLabel: 'Reconnected',
+      sseReconnectedRestarted: 'Reconnected · server restarted',
       sseReconnectFailedLabel: `Connection failed after ${params?.maxAttempts} attempts`,
       sseReconnectRetryNow: 'Retry now',
     }
@@ -246,6 +248,62 @@ describe('reconnect notice controller', () => {
     controller.destroy()
   })
 
+  it('renders the unreachable label without the attempt count while the backend is down', async () => {
+    const { panel, messageList } = buildPanel()
+    const controller = await createController(panel)
+
+    connectionState.emit({ status: 'reconnecting', attempt: 4, maxAttempts: 10, nextRetryAt: Date.now() + 3000, unreachable: true })
+
+    const notice = messageList.querySelector('.quickforge-reconnect')!
+    expect(notice.dataset.state).toBe('reconnecting')
+    expect(notice.querySelector('.quickforge-reconnect-text')!.textContent).toBe('Backend unreachable (health check failed)')
+    expect(notice.querySelector('.quickforge-reconnect-count')).toBeNull()
+    // 「Xs 后重试」倒计时保留。
+    expect(notice.querySelector('.quickforge-reconnect-countdown')!.textContent).toBe('Retrying in 3s')
+
+    controller.destroy()
+  })
+
+  it('upgrades the recovery notice to the restarted label and resets the fade timer', async () => {
+    vi.useFakeTimers()
+    const { panel, messageList } = buildPanel()
+    const controller = await createController(panel)
+
+    connectionState.emit({ status: 'reconnecting', attempt: 2, maxAttempts: 10, nextRetryAt: Date.now() })
+    connectionState.emit({ status: 'connected', recovered: true })
+    const notice = messageList.querySelector('.quickforge-reconnect')!
+    expect(notice.querySelector('.quickforge-reconnect-text')!.textContent).toBe('Reconnected')
+
+    vi.advanceTimersByTime(1000)
+    connectionState.emit({ status: 'connected', recovered: true, restarted: true })
+    expect(notice.querySelector('.quickforge-reconnect-text')!.textContent).toBe('Reconnected · server restarted')
+
+    // 淡出计时器从 restarted 更新时刻重新起算（原计时器已于 1000ms 处作废）。
+    vi.advanceTimersByTime(2199)
+    expect(notice.classList.contains('quickforge-reconnect-leaving')).toBe(false)
+    vi.advanceTimersByTime(1)
+    expect(notice.classList.contains('quickforge-reconnect-leaving')).toBe(true)
+
+    controller.destroy()
+  })
+
+  it('ignores the restarted update after the notice was dismissed and removed', async () => {
+    vi.useFakeTimers()
+    const { panel, messageList } = buildPanel()
+    const controller = await createController(panel)
+
+    connectionState.emit({ status: 'reconnecting', attempt: 2, maxAttempts: 10, nextRetryAt: Date.now() })
+    connectionState.emit({ status: 'connected', recovered: true })
+    vi.advanceTimersByTime(2200 + 340)
+    expect(messageList.querySelector('.quickforge-reconnect')).toBeNull()
+
+    // 可接受边界：提示已被移除时迟到/滞后的 restarted 补播不再重建提示。
+    connectionState.emit({ status: 'connected', recovered: true, restarted: true })
+    expect(messageList.querySelector('.quickforge-reconnect')).toBeNull()
+
+    controller.destroy()
+  })
+
   it('renders the failed state as an alert with a working retry button', async () => {
     const { panel, messageList } = buildPanel()
     const controller = await createController(panel)
@@ -323,6 +381,7 @@ describe('reconnect notice source contracts', () => {
 
   it('server-agent exposes the connection-state API with a 10-attempt cap', () => {
     expect(agentSource).toContain('MAX_SSE_RECONNECT_ATTEMPTS = 10')
+    expect(agentSource).toContain('SSE_HEALTH_PROBE_TIMEOUT_MS')
     expect(agentSource).toContain('subscribeConnectionState')
     expect(agentSource).toContain('retryNow()')
   })
@@ -337,11 +396,23 @@ describe('reconnect notice source contracts', () => {
   })
 
   it('i18n carries paired zh/en keys for all reconnect strings', () => {
-    for (const key of ['sseReconnectingLabel', 'sseReconnectNextRetry', 'sseReconnectedLabel', 'sseReconnectFailedLabel', 'sseReconnectRetryNow']) {
+    for (const key of [
+      'sseReconnectingLabel',
+      'sseReconnectNextRetry',
+      'sseServerUnreachableLabel',
+      'sseReconnectedLabel',
+      'sseReconnectedRestarted',
+      'sseReconnectFailedLabel',
+      'sseReconnectRetryNow',
+    ]) {
       expect(i18nSource.match(new RegExp(`${key}: '`))).not.toBeNull()
     }
     expect((i18nSource.match(/sseReconnectingLabel: '/g) ?? []).length).toBe(2)
+    expect((i18nSource.match(/sseServerUnreachableLabel: '/g) ?? []).length).toBe(2)
+    expect((i18nSource.match(/sseReconnectedRestarted: '/g) ?? []).length).toBe(2)
     expect(i18nSource).toContain("sseReconnectingLabel: '重新连接中…'")
+    expect(i18nSource).toContain("sseServerUnreachableLabel: '后端服务不可达（健康检查失败）'")
+    expect(i18nSource).toContain("sseReconnectedRestarted: '已重新连接 · 服务已重启'")
     expect(i18nSource).toContain("sseReconnectFailedLabel: '连接失败，已重试 {maxAttempts} 次'")
   })
 

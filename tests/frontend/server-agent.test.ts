@@ -1680,5 +1680,179 @@ describe('ServerAgent', () => {
       vi.useRealTimers()
     }
   })
+
+  // --- 重连期间 /api/health 后台探测（unreachable 持续重试 + bootId 重启检测） ---
+
+  /** 冲刷微任务队列，让 fire-and-forget 的 health 探测链路（fetch → json → then）落定。 */
+  async function settleHealthProbe() {
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+  }
+
+  /** /api/health 可控 fetch mock；其余 URL 一律 200 空对象，避免误伤其它调用。 */
+  function stubHealthFetch(health: () => { ok: boolean; status: number; json: () => unknown }) {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/api/health')) return health()
+      return { ok: true, status: 200, json: async () => ({}) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('keeps retrying past the cap with an unreachable flag when the health probe fails', async () => {
+    vi.useFakeTimers()
+    const statuses: Array<Record<string, unknown>> = []
+    const { subscribeSseConnectionState, MAX_SSE_RECONNECT_ATTEMPTS } = await import('../../src/lib/server-agent')
+    stubHealthFetch(() => ({ ok: false, status: 503, json: async () => ({}) }))
+    const agent = await createServerAgent({ sessionId: 'sse-health-unreachable-1' })
+    const unsubscribe = subscribeSseConnectionState((status) => statuses.push(status as Record<string, unknown>))
+
+    try {
+      // 探测结果落地：仍处重连中 → 广播带 unreachable:true。
+      latestEventSource().onerror?.(new Event('error'))
+      await settleHealthProbe()
+      expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt: 1, unreachable: true })
+
+      // 走完退避梯子并超出 10 次上限：不可达时仍不进 failed、持续自动重连。
+      let delay = 1000
+      for (let attempt = 2; attempt <= MAX_SSE_RECONNECT_ATTEMPTS + 1; attempt++) {
+        vi.advanceTimersByTime(delay)
+        delay = Math.min(delay * 2, 30000)
+        latestEventSource().onerror?.(new Event('error'))
+        await settleHealthProbe()
+        expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt, unreachable: true })
+      }
+      expect(statuses.some((status) => status.status === 'failed')).toBe(false)
+
+      const instancesAtCap = MockEventSource.instances.length
+      vi.advanceTimersByTime(30000)
+      expect(MockEventSource.instances.length).toBe(instancesAtCap + 1)
+    } finally {
+      unsubscribe()
+      agent.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('still stops at the failed cap when the backend health check stays reachable', async () => {
+    vi.useFakeTimers()
+    const statuses: Array<Record<string, unknown>> = []
+    const { subscribeSseConnectionState, MAX_SSE_RECONNECT_ATTEMPTS } = await import('../../src/lib/server-agent')
+    stubHealthFetch(() => ({ ok: true, status: 200, json: async () => ({ ok: true, bootId: 'boot-green' }) }))
+    const agent = await createServerAgent({ sessionId: 'sse-health-reachable-1' })
+    const unsubscribe = subscribeSseConnectionState((status) => statuses.push(status as Record<string, unknown>))
+
+    try {
+      let delay = 1000
+      for (let attempt = 1; attempt <= MAX_SSE_RECONNECT_ATTEMPTS; attempt++) {
+        latestEventSource().onerror?.(new Event('error'))
+        await settleHealthProbe()
+        vi.advanceTimersByTime(delay)
+        delay = Math.min(delay * 2, 30000)
+      }
+      latestEventSource().onerror?.(new Event('error'))
+      expect(statuses.at(-1)).toEqual({ status: 'failed', maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS })
+      // health 可达时所有 reconnecting 广播都不携带 unreachable 字段。
+      for (const status of statuses) {
+        if (status.status === 'reconnecting') expect(status.unreachable).toBeUndefined()
+      }
+    } finally {
+      unsubscribe()
+      agent.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('notifies restarted on recovery when the server bootId changed', async () => {
+    vi.useFakeTimers()
+    const statuses: Array<Record<string, unknown>> = []
+    const { subscribeSseConnectionState } = await import('../../src/lib/server-agent')
+    let bootId = 'boot-1'
+    stubHealthFetch(() => ({ ok: true, status: 200, json: async () => ({ ok: true, bootId }) }))
+    const agent = await createServerAgent({ sessionId: 'sse-health-bootid-1' })
+    const unsubscribe = subscribeSseConnectionState((status) => statuses.push(status as Record<string, unknown>))
+
+    try {
+      // 首次连接：仅记录 bootId 基线，不广播。
+      latestEventSource().onopen?.(new Event('open'))
+      await settleHealthProbe()
+      expect(statuses).toHaveLength(0)
+
+      latestEventSource().onerror?.(new Event('error'))
+      await settleHealthProbe()
+      expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt: 1 })
+
+      vi.advanceTimersByTime(1000)
+      bootId = 'boot-2'
+      latestEventSource().onopen?.(new Event('open'))
+      expect(statuses.at(-1)).toEqual({ status: 'connected', recovered: true })
+      await settleHealthProbe()
+      // 基线 boot-1 ≠ 新 boot-2 → 补播一次 restarted。
+      expect(statuses.at(-1)).toEqual({ status: 'connected', recovered: true, restarted: true })
+    } finally {
+      unsubscribe()
+      agent.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not flag restarted when the bootId is unchanged on recovery', async () => {
+    vi.useFakeTimers()
+    const statuses: Array<Record<string, unknown>> = []
+    const { subscribeSseConnectionState } = await import('../../src/lib/server-agent')
+    stubHealthFetch(() => ({ ok: true, status: 200, json: async () => ({ ok: true, bootId: 'boot-same' }) }))
+    const agent = await createServerAgent({ sessionId: 'sse-health-bootid-2' })
+    const unsubscribe = subscribeSseConnectionState((status) => statuses.push(status as Record<string, unknown>))
+
+    try {
+      latestEventSource().onopen?.(new Event('open'))
+      await settleHealthProbe()
+
+      latestEventSource().onerror?.(new Event('error'))
+      await settleHealthProbe()
+      vi.advanceTimersByTime(1000)
+      latestEventSource().onopen?.(new Event('open'))
+      await settleHealthProbe()
+
+      expect(statuses.at(-1)).toEqual({ status: 'connected', recovered: true })
+      expect(statuses.some((status) => status.restarted === true)).toBe(false)
+    } finally {
+      unsubscribe()
+      agent.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('treats health probe fetch failures and timeouts as unreachable', async () => {
+    vi.useFakeTimers()
+    const statuses: Array<Record<string, unknown>> = []
+    const { subscribeSseConnectionState } = await import('../../src/lib/server-agent')
+    const agent = await createServerAgent({ sessionId: 'sse-health-error-1' })
+    const unsubscribe = subscribeSseConnectionState((status) => statuses.push(status as Record<string, unknown>))
+
+    try {
+      // fetch 直接抛错 → reachable:false。
+      vi.stubGlobal('fetch', vi.fn(async () => {
+        throw new TypeError('fetch failed')
+      }))
+      latestEventSource().onerror?.(new Event('error'))
+      await settleHealthProbe()
+      expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt: 1, unreachable: true })
+
+      // fetch 挂起直到 abort 超时（SSE_HEALTH_PROBE_TIMEOUT_MS=5000）→ reachable:false。
+      vi.advanceTimersByTime(1000)
+      vi.stubGlobal('fetch', vi.fn((_input: unknown, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+        })))
+      latestEventSource().onerror?.(new Event('error'))
+      vi.advanceTimersByTime(5000)
+      await settleHealthProbe()
+      expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt: 2, unreachable: true })
+    } finally {
+      unsubscribe()
+      agent.dispose()
+      vi.useRealTimers()
+    }
+  })
 })
 })

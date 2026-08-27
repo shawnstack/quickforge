@@ -1968,6 +1968,23 @@
         "session-handoff.md"
       ],
       "verification": "定向 npx vitest run 10 files / 98 tests 全通过（含 routes/cloud、cloud identity/models、cloud-client 回归）；npx eslint 12 个改动文件 0 error；npx tsc -b --pretty false 通过；npm run build 成功（仅既有 KaTeX 字体与 chunk size warnings）。未跑全量 test/lint；未新增依赖；未手工修改生成产物；未 commit/tag/push。工作区另有 Monaco 相关并行改动未触碰。"
+    },
+    {
+      "id": "sse-health-probe-notice",
+      "name": "SSE 重连健康探测与不可达/重启提示",
+      "status": "done",
+      "approach": "server-agent.ts GlobalAgentSseClient 重连期间每次调度失败后 fire-and-forget 探测 /api/health（新增 SSE_HEALTH_PROBE_TIMEOUT_MS=5000，AbortController 超时、single-flight 去重、baseUrl 跟随直连/同源代理当前值）：reachable = res.ok && json.ok，异常/超时一律 reachable:false；结果返回时若仍处 reconnecting 则更新 serverUnreachable 并重播当前 reconnecting 状态（不可达携带 unreachable:true，可达则不带该字段），否则仅无条件更新 bootId 基线（竞态防护：连上/failed/断开后不碰 unreachable）。serverUnreachable=true 时 noteReconnectAttempt 不再受 MAX_SSE_RECONNECT_ATTEMPTS=10 上限约束（退避仍封顶 30s 持续自动重试，翻回 false 且已超上限则下次失败照常进 failed），onopen 成功/重连恢复、retryNow、disconnect 均复位该标志。每次 onopen（含首次连接）再探测一次取 bootId：基线存在且变化则补播 {status:connected, recovered:true, restarted:true}（首连仅记录基线）。SseConnectionStatus 纯增量扩展 reconnecting.unreachable?/connected.restarted?（消费方仅 reconnect-notice.ts）。reconnect-notice.ts：unreachable 态切换文案为 sseServerUnreachableLabel、隐藏 n/10 计数、保留 Xs 后重试倒计时，样式复用 quickforge-reconnect 词汇无 CSS 改动；connected 补播 restarted:true 时升级文案为 sseReconnectedRestarted 并重置淡出计时器，提示已被 dismiss 移除则忽略（可接受边界）。i18n 中英成对新增 2 key。",
+      "files": [
+        "src/lib/server-agent.ts",
+        "src/lib/i18n.ts",
+        "src/components/chat/panel-decoration/reconnect-notice.ts",
+        "tests/frontend/server-agent.test.ts",
+        "tests/frontend/reconnect-notice.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/server-agent.test.ts tests/frontend/reconnect-notice.test.ts 2 files / 67 tests 全通过（server-agent 新增 5 例：unreachable 超上限持续重连、health 可达 10 次后照常 failed 回归、bootId 变化补播 restarted、bootId 相同无 restarted、fetch 抛错/挂起超时均 unreachable；reconnect-notice 新增 3 例：unreachable 文案无计数、restarted 升级并重置淡出计时器、移除后忽略 restarted，并同步更新源码契约断言）；npx eslint 5 个改动 src/tests 文件 0 error；npx tsc -b 通过。未跑全量 test/lint/build；未新增依赖；未触碰生成产物；未 commit。父 Agent 复验：vitest 同上 67 tests、model-retry-notice 相邻回归 12 tests、eslint 5 文件、tsc -b、npm run build（仅既有 KaTeX/chunk size 警告）均通过。"
     }
   ]
 }

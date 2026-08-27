@@ -44,14 +44,17 @@ const SSE_WATCHDOG_INTERVAL_MS = 5000
 const SSE_SILENCE_RECOVERY_MS = 15000
 const STATUS_REQUEST_TIMEOUT_MS = 10000
 const STATE_REQUEST_TIMEOUT_MS = 30000
+// 重连期间对 /api/health 的后台探测超时：后端整体是否可达（unreachable）与 bootId（重启检测）。
+const SSE_HEALTH_PROBE_TIMEOUT_MS = 5000
 
 // 自动重连上限：超过后停止退避重试并通知 UI（用户仍可手动重试）。
+// 例外：健康检查确认后端整体不可达（serverUnreachable）时不设上限，持续自动重试。
 export const MAX_SSE_RECONNECT_ATTEMPTS = 10
 
 // 连接状态广播：弱网断流期间 UI 据此显示「重新连接中… n/10」等提示。
 export type SseConnectionStatus =
-  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number }
-  | { status: 'connected'; recovered: boolean }
+  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number; unreachable?: boolean }
+  | { status: 'connected'; recovered: boolean; restarted?: boolean }
   | { status: 'failed'; maxAttempts: number }
 
 const SERVER_ERROR_TRANSLATIONS: Partial<Record<string, AppTextKey>> = {
@@ -124,6 +127,10 @@ class GlobalAgentSseClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 1000
   private reconnectAttempts = 0
+  // 健康检查探测：后端整体不可达标志（true 时重连无上限）与最近一次已知 bootId 基线。
+  private serverUnreachable = false
+  private lastKnownBootId: string | undefined
+  private healthProbeInFlight = false
   private connectionHandlers = new Set<(status: SseConnectionStatus) => void>()
   private lastConnectionStatus: SseConnectionStatus | null = null
   private directBaseUrl = getDirectBackendUrl()
@@ -184,10 +191,15 @@ class GlobalAgentSseClient {
 
     this.eventSource.onopen = () => {
       this.reconnectDelay = 1000
-      if (this.reconnectAttempts > 0) {
+      const recovered = this.reconnectAttempts > 0
+      if (recovered) {
         this.reconnectAttempts = 0
+        this.serverUnreachable = false
         this.setConnectionStatus({ status: 'connected', recovered: true })
       }
+      // 连上后取一次 bootId：与基线不同说明后端在断连期间重启过，补播 restarted 提示；
+      // 首次连接（无基线）只记录基线。连上后到达的探测结果不影响 unreachable 语义。
+      this.probeBootIdAfterConnect(recovered)
     }
 
     const eventTypes = [
@@ -233,10 +245,12 @@ class GlobalAgentSseClient {
     }
   }
 
-  /** 记录一次重连尝试；超过上限时通知失败并停止自动重试。 */
+  /** 记录一次重连尝试；超过上限时通知失败并停止自动重试。
+   *  例外：健康检查确认后端整体不可达（serverUnreachable）时不设上限，
+   *  持续退避重试（封顶 30s）直到后端恢复。 */
   private noteReconnectAttempt(waitMs: number): boolean {
     this.reconnectAttempts += 1
-    if (this.reconnectAttempts > MAX_SSE_RECONNECT_ATTEMPTS) {
+    if (this.reconnectAttempts > MAX_SSE_RECONNECT_ATTEMPTS && !this.serverUnreachable) {
       this.setConnectionStatus({ status: 'failed', maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS })
       return false
     }
@@ -245,6 +259,7 @@ class GlobalAgentSseClient {
       attempt: this.reconnectAttempts,
       maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS,
       nextRetryAt: Date.now() + waitMs,
+      ...(this.serverUnreachable ? { unreachable: true } : {}),
     })
     return true
   }
@@ -252,12 +267,76 @@ class GlobalAgentSseClient {
   private scheduleReconnect() {
     if (this.reconnectTimer || (this.handlersBySession.size === 0 && this.globalHandlers.size === 0)) return
     if (!this.noteReconnectAttempt(this.reconnectDelay)) return
+    // 进入重连流程后 fire-and-forget 探测一次 /api/health：后端不可达时 UI 切换提示并无上限重试。
+    this.probeHealthInBackground()
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       if (this.handlersBySession.size === 0 && this.globalHandlers.size === 0) return
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000)
       this.connect()
     }, this.reconnectDelay)
+  }
+
+  /** 探测 /api/health：后端整体是否可达（ok:true）及 bootId（重启检测）；异常/超时一律视为不可达。 */
+  private async probeHealth(): Promise<{ reachable: boolean; bootId?: string }> {
+    try {
+      const { response, body } = await fetchJsonWithTimeout<{ ok?: boolean; bootId?: unknown }>(
+        `${this.baseUrl}/api/health`,
+        SSE_HEALTH_PROBE_TIMEOUT_MS,
+        { cache: 'no-store' },
+      )
+      return {
+        reachable: response.ok && body?.ok === true,
+        bootId: typeof body?.bootId === 'string' ? body.bootId : undefined,
+      }
+    } catch {
+      return { reachable: false }
+    }
+  }
+
+  /** 重连期间的后台探测（single-flight：进行中就跳过）。 */
+  private probeHealthInBackground(): void {
+    if (this.healthProbeInFlight) return
+    this.healthProbeInFlight = true
+    void this.probeHealth().then(
+      (result) => {
+        this.healthProbeInFlight = false
+        if (result.bootId) this.lastKnownBootId = result.bootId
+        const current = this.lastConnectionStatus
+        // 竞态防护：结果返回时已不在重连中（已连上/进入 failed/已断开）则只保留 bootId 更新。
+        if (current?.status !== 'reconnecting') return
+        this.serverUnreachable = !result.reachable
+        this.setConnectionStatus({
+          status: 'reconnecting',
+          attempt: current.attempt,
+          maxAttempts: current.maxAttempts,
+          nextRetryAt: current.nextRetryAt,
+          ...(this.serverUnreachable ? { unreachable: true } : {}),
+        })
+      },
+      () => {
+        // probeHealth 自带兜底 catch，这里仅防御性复位 single-flight 标志。
+        this.healthProbeInFlight = false
+      },
+    )
+  }
+
+  /** 连上后的 bootId 探测：与已知基线不同则补播一次 restarted 提示（首次连接仅记录基线）。 */
+  private probeBootIdAfterConnect(recovered: boolean): void {
+    void this.probeHealth().then(
+      (result) => {
+        const bootId = result.bootId
+        if (!bootId) return
+        const previousBootId = this.lastKnownBootId
+        this.lastKnownBootId = bootId
+        if (recovered && previousBootId !== undefined && previousBootId !== bootId) {
+          this.setConnectionStatus({ status: 'connected', recovered: true, restarted: true })
+        }
+      },
+      () => {
+        // 同上：probeHealth 不会 reject，仅防御。
+      },
+    )
   }
 
   private setConnectionStatus(status: SseConnectionStatus) {
@@ -307,6 +386,7 @@ class GlobalAgentSseClient {
     this.eventSource = null
     this.reconnectAttempts = 0
     this.reconnectDelay = 1000
+    this.serverUnreachable = false
     this.lastConnectionStatus = null
   }
 }

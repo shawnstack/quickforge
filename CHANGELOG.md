@@ -2,6 +2,32 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.9.1] - 2026-08-27
+
+### Added
+
+- Collapsed the TodoWrite task summary into a centered progress capsule that expands back into the full checklist, with animated expand/collapse transitions and a green checkmark accent once all tasks complete.
+
+### Changed
+
+- Streamlined the cloud account settings page: removed the remote access status, cloud identity status, and connected devices sections; the Cloud API URL row is now a compact labeled form with its source caption, connection test, and save actions on one row.
+- Removed the "enable cloud service" toggle row (instances already enabled keep their saved setting); removed the sign-in security hint text.
+- Dimmed the sidebar "Show more" button to match the muted gray of section headers so it no longer competes with session titles.
+
+### Fixed
+
+- Checking for updates now honors the machine's npm configuration: it resolves the registry from `npm_config_registry` environment variables first, then the user-level `.npmrc` (including `@scope:registry` overrides), before falling back to the official registry.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.9.1` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.9.1.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.9.1.tgz
+  ```
+
 ## [1.9.0] - 2026-08-26
 
 ### Added

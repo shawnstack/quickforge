@@ -1,5 +1,19 @@
 # Session Handoff
 
+## 当前状态：release-v1.9.1（已完成）
+
+- 目标：按用户指令「发布版本」，以 `v1.9.0` tag 之后 dev 的 6 个提交为基线，经用户选型确认按 **patch** 发布 **v1.9.1**。
+- 基线提交：cdc97d0（云设置页 URL 行重设计+删开关）、b28a4ee（状态文件记录）、2b96c30（检查更新遵循 npm registry 配置）、5905e1c（Todo 胶囊摘要）、163e637（云设置页删远程/身份/设备区块）、1c39bd9（侧栏显示更多颜色）。
+- 已完成：`npm version patch` 1.9.0→1.9.1；CHANGELOG.md 新增 `[1.9.1] - 2026-08-27` 章节（Added/Changed/Fixed/Released）；README.md 当前版本徽章 → 1.9.1。
+- 门禁：完整 `npm run test` → **259 files / 2349 tests 全部通过**（硬门禁）；`npm run lint` → 0 errors / 1 既有 warning（identity.mjs:92）；`npm run build` 成功（仅既有 chunk size warnings）。
+- 打包：runtime/offline 包已生成，`package-offline/shawnstack-quickforge-1.9.1.tgz`（7.0MB / unpacked 约24MB / 453 files）；元数据校验 version 1.9.1、8 运行时 deps + @vscode/ripgrep optional、无 devDeps/scripts。
+- 文件：package.json、package-lock.json、CHANGELOG.md、README.md、feature_list.json、progress.md、session-handoff.md。
+- 发布序列：本变更构成 release commit（在 dev 上），随后 master `--ff-only` 快进、`v1.9.1` tag、原子推送 `master`/`dev`/tag。
+- Blocker：无。剩余人工步骤：GitHub Desktop Release 与 `npm publish ./package-offline/shawnstack-quickforge-1.9.1.tgz --access public`（用户执行，需 npm 登录）。
+- 下一步：无。可从 feature_list.json 选择下一个 feature；遗留决策（用户未答）：新装实例云服务默认 enabled=false 是否改为默认开启。
+
+---
+
 ## 当前状态：cloud-settings-url-row-redesign（已完成，方案 A 已实现）
 
 - 目标：删除「登录或注册」安全说明文字与「启用云服务」开关行；Cloud API 地址行调整样式（先设计稿，用户选 A）。

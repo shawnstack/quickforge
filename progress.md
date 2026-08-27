@@ -1,5 +1,13 @@
 # Progress
 
+## Completed Feature：release-v1.9.1
+
+- Feature: patch 发布 v1.9.1（release-v1.9.1，**已完成**）
+- Status: done — v1.9.0 tag 之后 dev 累计 6 个提交：云服务设置页精简与 Cloud API 地址行重设计、Todo 任务摘要胶囊化动画、检查更新遵循 npm registry 配置、侧栏「显示更多」颜色弱化及状态文件记录；无破坏性变化，经用户确认按 **patch** 发布 v1.9.1。
+- Release changes: `npm version patch` 1.9.0→1.9.1（package.json + package-lock.json）；CHANGELOG.md 顶部新增 `[1.9.1] - 2026-08-27` 章节（Added/Changed/Fixed/Released）；README.md 当前版本徽章更新为 1.9.1。
+- Verification: 完整 `npm run test` → **259 files / 2349 tests 全部通过**（发布硬门禁 100%）；`npm run lint` → 0 errors / 1 既有 warning（server/cloud/identity.mjs:92）；`npm run build` 成功（仅既有 chunk size warnings）；`prepare-runtime-package` + `prepare-offline-package` + `npm pack` → `package-offline/shawnstack-quickforge-1.9.1.tgz`（7.0MB / 453 files）；打包元数据校验 version 1.9.1、8 个运行时 dependencies + @vscode/ripgrep optionalDependencies、无 devDependencies/scripts。
+- Release sequence: 本轮变更构成 release commit（7 个发布文件），随后 master 快进到发布提交、创建 `v1.9.1` tag、原子推送 `master`/`dev`/tag；GitHub Desktop Release 与 `npm publish` 由用户执行。
+
 ## Completed Feature：cloud-settings-url-row-redesign
 
 - Feature: 云服务设置页移除「启用云服务」开关行与登录安全说明 + Cloud API 地址行样式重设计·方案 A（cloud-settings-url-row-redesign，**已完成**）

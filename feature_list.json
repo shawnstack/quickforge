@@ -1,6 +1,22 @@
 {
   "features": [
     {
+      "id": "release-v1.9.1",
+      "name": "发布 patch v1.9.1",
+      "status": "done",
+      "approach": "v1.9.0 tag 之后 dev 累计 6 个提交：云服务设置页精简（移除远程访问/云身份/设备区块与启用开关行）、Cloud API 地址行紧凑表单重设计、Todo 任务摘要胶囊化与展开/收起动画、检查更新遵循本机 npm registry 配置（环境变量 > 用户 .npmrc > 官方源）、侧栏「显示更多」颜色对齐分区标题灰、状态文件记录提交。无破坏性接口变化但含两个 feat 级 UI 增强，经用户选型确认按 patch 发布 v1.9.1。执行：npm version patch 1.9.0→1.9.1；CHANGELOG 新增 [1.9.1] - 2026-08-27 章节（Added/Changed/Fixed/Released）；README 当前版本徽章更新为 1.9.1；完整 test/lint/build 门禁通过后生成 runtime/offline 包并 npm pack 出 tarball；本条目随 release commit 提交，随后 master 快进到发布提交、创建 tag v1.9.1、原子推送 master/dev/tag，GitHub Desktop Release 与 npm publish 由用户执行。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test → 259 files / 2349 tests 全部通过（硬门禁 100%）；npm run lint → 0 errors / 1 既有 warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；prepare-runtime/offline-package 后 npm pack → package-offline/shawnstack-quickforge-1.9.1.tgz（7.0MB / 453 files）；打包 package.json 校验 version 1.9.1、8 个运行时 dependencies + @vscode/ripgrep optionalDependencies、无 devDependencies/scripts。"
+    },
+    {
       "id": "cloud-settings-url-row-redesign",
       "name": "云服务设置页移除启用开关/登录说明 + Cloud API 地址行样式重设计（方案 A 已实现）",
       "status": "done",

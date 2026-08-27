@@ -1549,4 +1549,136 @@ describe('ServerAgent', () => {
       agent.dispose()
     }
   })
+
+  describe('model_stream_retry forwarding', () => {
+    it('forwards retry progress and recovery events to subscribers', async () => {
+      const agent = await createServerAgent({ sessionId: 'model-retry-forward-1' })
+      const events: Array<Record<string, unknown>> = []
+      const unsubscribe = agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      try {
+        latestEventSource().emit('model_stream_retry', { sessionId: 'model-retry-forward-1', attempt: 3, maxAttempts: 10 })
+        expect(events.at(-1)).toMatchObject({ type: 'model_stream_retry', attempt: 3, maxAttempts: 10 })
+
+        latestEventSource().emit('model_stream_retry', { sessionId: 'model-retry-forward-1', recovered: true })
+        expect(events.at(-1)).toMatchObject({ type: 'model_stream_retry', recovered: true })
+      } finally {
+        unsubscribe()
+        agent.dispose()
+      }
+    })
+  })
+
+  describe('SSE reconnect connection state', () => {
+  it('counts attempts with backoff and notifies reconnecting progress', async () => {
+    vi.useFakeTimers()
+    const statuses: Array<Record<string, unknown>> = []
+    const { subscribeSseConnectionState } = await import('../../src/lib/server-agent')
+    const agent = await createServerAgent({ sessionId: 'sse-reconnect-1' })
+    const unsubscribe = subscribeSseConnectionState((status) => statuses.push(status as Record<string, unknown>))
+
+    try {
+      const first = latestEventSource()
+      first.onerror?.(new Event('error'))
+      expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt: 1, maxAttempts: 10 })
+      expect((statuses.at(-1)!.nextRetryAt as number) - Date.now()).toBeLessThanOrEqual(1000)
+
+      vi.advanceTimersByTime(1000)
+      const second = latestEventSource()
+      expect(second).not.toBe(first)
+      second.onerror?.(new Event('error'))
+      expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt: 2, maxAttempts: 10 })
+      expect((statuses.at(-1)!.nextRetryAt as number) - Date.now()).toBeLessThanOrEqual(2000)
+    } finally {
+      unsubscribe()
+      agent.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops auto-reconnecting with a failed status after the attempt cap', async () => {
+    vi.useFakeTimers()
+    const statuses: Array<Record<string, unknown>> = []
+    const { subscribeSseConnectionState, MAX_SSE_RECONNECT_ATTEMPTS } = await import('../../src/lib/server-agent')
+    const agent = await createServerAgent({ sessionId: 'sse-reconnect-2' })
+    const unsubscribe = subscribeSseConnectionState((status) => statuses.push(status as Record<string, unknown>))
+
+    try {
+      const instanceCount = () => MockEventSource.instances.length
+      // Backoff ladder: 1s, 2s, 4s, 8s, 16s, 30s… — advance by each delay before the next error.
+      let delay = 1000
+      for (let attempt = 1; attempt <= MAX_SSE_RECONNECT_ATTEMPTS; attempt++) {
+        latestEventSource().onerror?.(new Event('error'))
+        expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt })
+        vi.advanceTimersByTime(delay)
+        delay = Math.min(delay * 2, 30000)
+      }
+      const instancesAtCap = instanceCount()
+      latestEventSource().onerror?.(new Event('error'))
+      expect(statuses.at(-1)).toEqual({ status: 'failed', maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS })
+
+      vi.advanceTimersByTime(60000)
+      expect(instanceCount()).toBe(instancesAtCap)
+    } finally {
+      unsubscribe()
+      agent.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('reports a recovered connection on open and resets the attempt counter', async () => {
+    vi.useFakeTimers()
+    const statuses: Array<Record<string, unknown>> = []
+    const { subscribeSseConnectionState } = await import('../../src/lib/server-agent')
+    const agent = await createServerAgent({ sessionId: 'sse-reconnect-3' })
+    const unsubscribe = subscribeSseConnectionState((status) => statuses.push(status as Record<string, unknown>))
+
+    try {
+      latestEventSource().onerror?.(new Event('error'))
+      expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt: 1 })
+
+      vi.advanceTimersByTime(1000)
+      latestEventSource().onopen?.(new Event('open'))
+      expect(statuses.at(-1)).toEqual({ status: 'connected', recovered: true })
+
+      latestEventSource().onerror?.(new Event('error'))
+      expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt: 1 })
+    } finally {
+      unsubscribe()
+      agent.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('retries immediately from the failed state via requestSseReconnectNow', async () => {
+    vi.useFakeTimers()
+    const statuses: Array<Record<string, unknown>> = []
+    const { subscribeSseConnectionState, requestSseReconnectNow } = await import('../../src/lib/server-agent')
+    const agent = await createServerAgent({ sessionId: 'sse-reconnect-4' })
+    const unsubscribe = subscribeSseConnectionState((status) => statuses.push(status as Record<string, unknown>))
+
+    try {
+      let delay = 1000
+      for (let i = 0; i <= 10; i++) {
+        latestEventSource().onerror?.(new Event('error'))
+        if (i < 10) {
+          vi.advanceTimersByTime(delay)
+          delay = Math.min(delay * 2, 30000)
+        }
+      }
+      expect(statuses.at(-1)).toMatchObject({ status: 'failed' })
+
+      const instancesBeforeRetry = MockEventSource.instances.length
+      requestSseReconnectNow()
+      expect(MockEventSource.instances.length).toBe(instancesBeforeRetry + 1)
+      const reopened = latestEventSource()
+
+      reopened.onerror?.(new Event('error'))
+      expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt: 1 })
+    } finally {
+      unsubscribe()
+      agent.dispose()
+      vi.useRealTimers()
+    }
+  })
+})
 })

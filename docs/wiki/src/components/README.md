@@ -6,7 +6,7 @@
 components/
 ├── chat/
 │   ├── ChatConversationSurface.tsx # 主聊天与 Side Chat 共用的薄 conversation 布局/背景壳 (16 行)
-│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1581 行)
+│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1692 行)
 │   ├── ModelSetupEmptyState.tsx    # 模型未配置时的空状态引导 (43 行)
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (340 行)
 │   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(495 行)
@@ -16,7 +16,7 @@ components/
 │   ├── slash-icons.ts              # Slash 三类复用 Lucide 图标静态映射（SquareTerminal / BookOpen / Bot）
 │   ├── slash-invocation-chip.ts    # Slash 选中态 chip：输入框内联覆盖层控制器 + 消息流 chip 共享元素 (541 行)
 │   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
-│   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (286 行)
+│   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (343 行)
 │   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 (174 行)
 │   └── windowed-messages.ts        # 超长会话窗口化渲染（只渲染最近 3 轮，向上滚动逐页加载更早轮次）
 ├── cloud/
@@ -76,7 +76,7 @@ components/
 - 退出后再次体验会创建新游客身份和额度，不宣称恢复旧游客。
 - 成功启用或退出后派发 `quickforge:cloud-state-changed`，清空 `useCloudModels` 的内存云模型缓存。
 
-### ChatConversationSurface.tsx / ChatPanelHost.tsx (16 / 1687 行)
+### ChatConversationSurface.tsx / ChatPanelHost.tsx (16 / 1692 行)
 
 - `ChatConversationSurface` 是主聊天与 Side Chat 共用的极薄 conversation 显示壳，只统一 `relative / flex / min-h-0 / flex-1 / flex-col / overflow-hidden` 和 `--quickforge-main-bg` 背景；不复制 `ChatPanelHost`，不包含业务逻辑或 Side Chat 专属 class/style。
 - App 主聊天在共享壳上继续叠加既有 `quickforge-empty-chat` 与 `quickforge-conversation-enter`，Hero、`NewChatProjectPicker`、`ErrorBoundary`、`Suspense` 和首次使用引导层级保持不变。Side Chat 使用同一壳包住同一 `ChatPanelHost`，普通空白空状态不显示 Hero、项目选择器或引导文案；两者仅因实际容器宽度不同而走同一响应式布局规则。
@@ -193,10 +193,12 @@ components/
 - Tooltip 的构成区保持系统提示词、工具定义、消息三类总量，并在其后按有值才显示 `Skills` / `MCP` 两行；两项是跨前三类的来源归因，不参与输入总量二次相加
 - 在现有模型选择按钮左侧单独显示中心镂空的彩色环，指示当前对话所占模型上下文窗口比例；悬停、聚焦或点击后显示结构化 Token 明细、统计来源与上下文范围；该圆环及详情可在“设置 → 常规”中开启，默认关闭
 
-**panel-decoration.ts** (341 行)
+**panel-decoration.ts** (343 行)
 - 聊天面板 DOM 装饰的兼容入口，继续向 `ChatPanelHost.tsx` re-export 消息装饰、草稿、审批卡、上下文压缩提示、等待气泡和 TodoWrite 任务摘要 controller 等能力
 - `panel-decoration/todo-write-summary.ts`（360 行）负责 TodoWrite 最新快照的规范化、QuickForge/OpenCode 当前消息分支提取、计数与 Composer Dock 正常流摘要 controller；摘要位于 `message-editor` 前，收起为居中进度胶囊、展开为整行标题 + 列表（形态过渡与动效全部在 CSS），展开时自然压缩消息区、长列表内部滚动，复用既有轻盈内嵌工具视觉，不引入新的视觉范式，因此无需更新 `DESIGN_LANGUAGE.md`
 - `panel-decoration/message-queue.ts`（593 行）提供流式期 Composer 消息队列面板 controller：Enter capture 拦截入队、队列列表渲染（下一条标记、行内编辑、删除、「立即」插队按钮、⠿ 手柄拖拽排序）、暂停横幅与恢复按钮、占位符切换与清理；面板位于任务摘要之后、建议菜单之前，纯逻辑与持久化在 `src/lib/message-queue.ts`
+- `panel-decoration/model-retry-notice.ts`（115 行）为模型上游流重试提示 controller：ChatPanelHost 转发服务端 `model_stream_retry` SSE 事件（ai-http-logger 内部重建上游流时上报 attempt/maxAttempts，恢复上报 recovered），在 `message-list` 末尾显示居中轻量行「模型连接重试中… n/10」（复用 quickforge-reconnect 的 icon/count 样式词汇）；message_update/message_end/agent_end/error 到达即带退场动画移除，decorate 周期 sync 重挂、destroy 清理；仅主聊天挂载（Side Chat 不挂）
+- `panel-decoration/reconnect-notice.ts`（197 行）为全局 Agent SSE 弱网重连提示 controller（design-mockups/reconnect-indicator.html 方案 A）：订阅 `subscribeSseConnectionState`，在 `message-list` 末尾追加居中轻量行——重连中显示 spinner +「重新连接中… n/10」+ 每秒倒计时，恢复后短暂显示绿色「已重新连接」（约 2.2s 后带退场动画自动移除），重试上限后显示琥珀色「连接失败，已重试 10 次」+「立即重试」按钮（调 `requestSseReconnectNow`）；元素幂等复用、decorate 周期 `sync()` 在消息列表被 Lit 重建后重新挂回末尾，卸载 `destroy()` 退订并清理计时器/DOM。仅主聊天挂载（Side Chat 走独立 NDJSON 流不共享该连接）；文案全部 createElement/textContent，innerHTML 仅静态 SVG 常量
 - `decorateEditor` 仅保留 Composer/editor 编排：占位符、只读清理、model selector 开关、left/right controls 定位，以及调用各 focused helper
 - 细分实现位于 `panel-decoration/` 子目录：`message-actions.ts`（576 行；复制/回滚/重试/分叉；另在装饰纯文本用户消息时调用 `decorateUserMessageInputClamp`——给 `.user-message-container` 挂 `quickforge-input-clamp` 收起结构：长内容约 6 行定高、底部渐隐 + 居中「展开/收起」按钮，`user-with-attachments` 不参与，实现见 `src/lib/input-clamp.ts`；以及 `decorateUserSlashInvocationChip`——用户消息 `/skill <name>` / `/agent <name>` 前缀渲染为行内 chip（复用 slash-invocation-chip 的共享 chip 元素，消息流内 0.8rem 微调），首文本节点剥前缀、chip dataset 记录被剥字符实现幂等还原，复制仍走 draftTextFromUserMessage 原文不受影响）、`decorateUserContextChips`——只从用户消息 `details.selectedCapabilities` / `details.contextReferences` 读取本轮插件与文件，不从正文或 metadata 猜测；复用只读 `createCapabilityChip` / `createFileReferenceChip` 在 `.user-message-container` 顶部渲染同一 `.quickforge-message-context-references` 行，插件始终位于文件前，documents/spreadsheets/presentations 使用专用图标、未知插件回退通用图标，不传 onRemove 因而无 ×；仅插件/仅文件/混合 aria-label 分别复用现有三态文案，`replaceChildren` 保证重复 decorate 幂等，数据清空移除旧 DOM，复制仍只取原正文）、`composer-plus-menu.ts`（附件和插件菜单；插件项选择走 `selectPluginCapability` 产生结构化插件 chip，不再向正文插入 @mention，菜单打开时与 `/`、`@` 建议浮层互斥）、`agent-access-menu.ts`、`plan-mode-controls.ts`、`send-stop-button.ts`、`model-controls.ts`、`opencode-config-menu.ts`（OpenCode `configOptions` 配置菜单）、`opencode-mode-menu.ts`（OpenCode ACP modes 独立模式按钮/菜单）、`editor-bindings.ts`、`code-blocks.ts`、`process-folding.ts`、`context-compaction.ts`、`scroll-to-bottom-button.ts`（对话区上翻较深时居中悬浮于输入框上方的“回到底部”按钮：280px/120px 滞回显隐、未读徽标、点击平滑回底并恢复自动跟随；readOnly 会话无 composer dock 时自动移除）等；`process-folding.ts` 为每个用户回合维护唯一的“执行中/已执行 · 耗时”顶层状态与折叠入口，中间 Markdown、Thinking、工具和 Subagent 均位于该层级；每段中间 Markdown 后的过程片段继续显示内层阶段聚合标题（状态 + 工具调用数、命令数、编辑文件数），运行中和已完成阶段均默认收起并维护独立折叠状态，普通连续工具仍保留更内层的工具摘要，只有最终回答正文留在组外
 - Plan 按钮和 Shift+Tab 切换前端 Plan 模式；发送时复用 `/plan <任务>` 的单轮计划逻辑

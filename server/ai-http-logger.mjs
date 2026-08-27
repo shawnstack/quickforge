@@ -6,6 +6,7 @@ import { streamSimple } from '@earendil-works/pi-ai/compat'
 import { resolveManagedCloudProvider } from './cloud/runtime.mjs'
 import { ensureCloudChatIdempotencyKey } from './cloud/chat-idempotency-store.mjs'
 import {
+  DEFAULT_AI_STREAM_FIRST_EVENT_TIMEOUT_MS,
   DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS,
   DEFAULT_AI_STREAM_TOTAL_TIMEOUT_MS,
   withDefaultAiProviderOptions,
@@ -230,30 +231,41 @@ export function installAiHttpLogger() {
   globalThis[PATCH_MARKER] = true
 }
 
-function combineAbortSignals(parentSignal, deadlineSignal) {
-  if (!parentSignal) return deadlineSignal
-  if (typeof AbortSignal.any === 'function') return AbortSignal.any([parentSignal, deadlineSignal])
+function combineAbortSignals(...signals) {
+  const active = signals.filter(Boolean)
+  if (active.length === 0) return undefined
+  if (active.length === 1) return active[0]
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any(active)
 
   const controller = new AbortController()
   const abort = () => controller.abort()
-  if (parentSignal.aborted || deadlineSignal.aborted) {
-    controller.abort()
-  } else {
-    parentSignal.addEventListener('abort', abort, { once: true })
-    deadlineSignal.addEventListener('abort', abort, { once: true })
+  for (const signal of active) {
+    if (signal.aborted) {
+      controller.abort()
+      break
+    }
+    signal.addEventListener('abort', abort, { once: true })
   }
   return controller.signal
 }
 
-function wrapStreamWithTimeouts(stream, timeoutController, {
+// 流级透明重试上限：idle 超时（上游挂死）时内部重建底层流，吞掉重复 start、
+// 有已产出内容时新流从零重放（消息被新 partial 原位替换）。上限对齐前端
+// SSE 重连的 10 次语义；每次尝试的 idle 预算天然构成重试间隔。
+export const MAX_STREAM_RETRIES = 10
+
+function wrapStreamWithTimeouts(createStream, timeoutController, {
   idleTimeoutMs,
+  firstEventTimeoutMs,
   totalTimeoutMs,
+  maxStreamRetries = MAX_STREAM_RETRIES,
+  onStreamRetry = null,
+  parentSignal = null,
   provider,
   model,
   purpose,
 }) {
   const startedAt = Date.now()
-  const iterator = stream[Symbol.asyncIterator]()
   const queue = []
   const waiting = []
   let lastEventAt = null
@@ -265,12 +277,20 @@ function wrapStreamWithTimeouts(stream, timeoutController, {
   let iterationStopRequested = false
   let iterationError
   let rejectTimeout
+  let hasSubstantiveEvent = false
+  let startPublished = false
+  let streamRetries = 0
+  let recoveryReported = false
+  let pumpGeneration = 0
 
   const timeoutPromise = new Promise((_, reject) => {
     rejectTimeout = reject
   })
   // The timeout may win async iteration before result() is observed.
   timeoutPromise.catch(() => {})
+
+  let currentStream = createStream()
+  let iterator = currentStream[Symbol.asyncIterator]()
 
   const clearTimers = () => {
     clearTimeout(idleTimer)
@@ -296,6 +316,11 @@ function wrapStreamWithTimeouts(stream, timeoutController, {
     clearTimers()
     closeIteration(iterationFailure)
     return true
+  }
+
+  const markSettledFromResult = () => {
+    settled = true
+    clearTimers()
   }
 
   const failTimeout = (timeoutType, timeoutMs) => {
@@ -326,14 +351,70 @@ function wrapStreamWithTimeouts(stream, timeoutController, {
     rejectTimeout(error)
   }
 
+  // 首个实质事件（text/thinking/toolcall）之前用宽松的首事件档（容忍 prefill），
+  // 产出过实质内容后切换到紧凑的中断档（快速检出断流）。
+  const currentIdleDelay = () => (hasSubstantiveEvent ? idleTimeoutMs : firstEventTimeoutMs)
+
   const resetIdleTimer = () => {
     if (settled) return
     clearTimeout(idleTimer)
-    idleTimer = setTimeout(() => failTimeout('idle', idleTimeoutMs), idleTimeoutMs)
+    const delay = currentIdleDelay()
+    idleTimer = setTimeout(() => onIdleDeadline(delay), delay)
     idleTimer.unref?.()
   }
 
+  const onIdleDeadline = (delayMs) => {
+    if (settled) return
+    if (streamRetries < maxStreamRetries && !parentSignal?.aborted) {
+      swapStreamForRetry(delayMs)
+      return
+    }
+    failTimeout('idle', delayMs)
+  }
+
+  const swapStreamForRetry = (delayMs) => {
+    streamRetries += 1
+    logger.warn(`AI stream idle timeout after ${delayMs}ms; retrying stream (attempt ${streamRetries}/${maxStreamRetries})`, {
+      provider,
+      model,
+      purpose,
+      timeoutMs: delayMs,
+      retryAttempt: streamRetries,
+      hadContent: hasSubstantiveEvent,
+    })
+    // 旧 pump 靠 generation 守卫静默退出；挂起的 iterator.return() 唤醒它后不再
+    // 触发 closeIteration，外部 next() 的等待者跨重试存活，由新流继续喂。
+    pumpGeneration += 1
+    if (typeof iterator.return === 'function') {
+      Promise.resolve(iterator.return()).catch(() => {})
+    }
+    currentStream = createStream()
+    iterator = currentStream[Symbol.asyncIterator]()
+    lastEventAt = Date.now()
+    // 新流从零重放：重置实质内容标记（重试后的首事件等待回到首事件档）。
+    hasSubstantiveEvent = false
+    try {
+      onStreamRetry?.({ attempt: streamRetries, maxAttempts: maxStreamRetries, timeoutMs: delayMs })
+    } catch { /* 上报失败不影响重试本身 */ }
+    startPump()
+    resetIdleTimer()
+    followCurrentStreamResult()
+  }
+
   const publish = (value) => {
+    if (value?.type === 'start') {
+      // 重试产生的第二个 start 不外发（agent-loop 已为首个 start 发布过消息）。
+      if (startPublished) return
+      startPublished = true
+    } else {
+      if (streamRetries > 0 && !recoveryReported) {
+        recoveryReported = true
+        try {
+          onStreamRetry?.({ attempt: streamRetries, maxAttempts: maxStreamRetries, recovered: true })
+        } catch { /* ignore */ }
+      }
+      hasSubstantiveEvent = true
+    }
     eventCount += 1
     lastEventAt = Date.now()
     resetIdleTimer()
@@ -342,43 +423,65 @@ function wrapStreamWithTimeouts(stream, timeoutController, {
     else queue.push(value)
   }
 
+  // result() 的等待者跟随「当前」流：零内容重试换流后，旧流（会因 abort 以
+  // aborted 结果 settle）不再决定 result() 的归宿，等待者迁移到新流。
+  const resultWaiters = new Set()
+  const followCurrentStreamResult = () => {
+    if (resultWaiters.size === 0) return
+    const stream = currentStream
+    stream.result().then(
+      (value) => {
+        if (currentStream !== stream) return
+        markSettledFromResult()
+        for (const waiter of resultWaiters) waiter.resolve(value)
+        resultWaiters.clear()
+      },
+      (error) => {
+        if (currentStream !== stream) return
+        finish(error)
+        for (const waiter of resultWaiters) waiter.reject(error)
+        resultWaiters.clear()
+      },
+    )
+  }
+
   resetIdleTimer()
   totalTimer = setTimeout(() => failTimeout('total', totalTimeoutMs), totalTimeoutMs)
   totalTimer.unref?.()
 
-  const resultPromise = Promise.race([stream.result(), timeoutPromise])
-    .then(
-      (result) => {
-        settled = true
-        clearTimers()
-        return result
-      },
-      (error) => {
-        finish(error)
-        throw error
-      },
-    )
-  resultPromise.catch(() => {})
-
-  const pumpPromise = (async () => {
-    try {
-      while (!iterationStopRequested) {
-        const iteration = await iterator.next()
-        if (iterationStopRequested) return
-        if (iteration.done) {
-          closeIteration()
-          return
+  const startPump = () => {
+    const generation = ++pumpGeneration
+    const myIterator = iterator
+    const myStream = currentStream
+    ;(async () => {
+      try {
+        while (true) {
+          const iteration = await myIterator.next()
+          if (generation !== pumpGeneration || iterationStopRequested) return
+          if (iteration.done) {
+            closeIteration()
+            // 流正常结束但 result() 未被消费时也结算超时状态，避免残留计时器误触发。
+            void Promise.resolve(myStream.result()).then(markSettledFromResult, () => {})
+            return
+          }
+          publish(iteration.value)
         }
-        publish(iteration.value)
+      } catch (error) {
+        if (generation === pumpGeneration) closeIteration(error)
       }
-    } catch (error) {
-      closeIteration(error)
-    }
-  })()
-  pumpPromise.catch(() => {})
+    })().catch(() => {})
+  }
+
+  startPump()
 
   return {
-    result: () => resultPromise,
+    result: () => Promise.race([
+      new Promise((resolve, reject) => {
+        resultWaiters.add({ resolve, reject })
+        followCurrentStreamResult()
+      }),
+      timeoutPromise,
+    ]),
     [Symbol.asyncIterator]() {
       return {
         next: () => {
@@ -392,6 +495,7 @@ function wrapStreamWithTimeouts(stream, timeoutController, {
         },
         return: async () => {
           iterationStopRequested = true
+          pumpGeneration += 1
           closeIteration()
           if (typeof iterator.return === 'function') return iterator.return()
           return { value: undefined, done: true }
@@ -466,42 +570,68 @@ export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
   const idleTimeoutMs = Number.isFinite(providerOptions.idleTimeoutMs)
     ? Math.max(1, providerOptions.idleTimeoutMs)
     : legacyDeadlineMs ?? DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS
+  const explicitIdleConfigured = Number.isFinite(providerOptions.idleTimeoutMs) || legacyDeadlineMs !== undefined
+  // 显式配置 idle/deadline 时它就是唯一的静默预算（两档同值，保持既有调用方语义）；
+  // 默认路径下首事件档更宽松以容忍大上下文 prefill。
+  const firstEventTimeoutMs = Number.isFinite(providerOptions.firstEventTimeoutMs)
+    ? Math.max(1, providerOptions.firstEventTimeoutMs)
+    : explicitIdleConfigured ? idleTimeoutMs : Math.max(idleTimeoutMs, DEFAULT_AI_STREAM_FIRST_EVENT_TIMEOUT_MS)
   const totalTimeoutMs = Number.isFinite(providerOptions.totalTimeoutMs)
     ? Math.max(1, providerOptions.totalTimeoutMs)
     : DEFAULT_AI_STREAM_TOTAL_TIMEOUT_MS
   const timeoutController = new AbortController()
-  const effectiveOptions = {
-    ...providerOptions,
-    signal: combineAbortSignals(providerOptions.signal, timeoutController.signal),
+  const parentSignal = providerOptions.signal ?? null
+  const onStreamRetry = typeof providerOptions.onStreamRetry === 'function' ? providerOptions.onStreamRetry : null
+
+  const baseOptions = { ...providerOptions }
+  delete baseOptions.deadlineMs
+  delete baseOptions.idleTimeoutMs
+  delete baseOptions.firstEventTimeoutMs
+  delete baseOptions.totalTimeoutMs
+  delete baseOptions.onStreamRetry
+
+  // 每次尝试独立的 abort controller：零内容重试换流时打断上一次的挂起连接，
+  // 而 total timeout 的 timeoutController 跨尝试共享（总时长不因重试重置）。
+  let attemptController = null
+  let attemptCount = 0
+  const createStream = () => {
+    attemptController?.abort()
+    attemptController = new AbortController()
+    attemptCount += 1
+    const effectiveOptions = {
+      ...baseOptions,
+      signal: combineAbortSignals(parentSignal, timeoutController.signal, attemptController.signal),
+    }
+    const managedCloud = model?.provider === 'quickforge-cloud' && model?.quickforgeModelSource === 'cloud'
+    if (!managedCloud) return createProviderStream(model, context, effectiveOptions)
+    // 重试尝试换新的幂等键：同一 key 重放已中断的流，供应商语义不可控。
+    const keyPromise = attemptCount === 1
+      ? managedCloudIdempotencyKey(context, effectiveOptions)
+      : Promise.resolve(randomUUID())
+    return lazyStream(Promise.all([
+      resolveManagedCloudProvider(model, effectiveOptions.signal),
+      keyPromise,
+    ]).then(([resolved, idempotencyKey]) => createProviderStream(
+      {
+        ...resolved.model,
+        headers: {
+          ...(resolved.model.headers || {}),
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+      context,
+      {
+        ...effectiveOptions,
+        apiKey: resolved.apiKey,
+      },
+    )))
   }
-  delete effectiveOptions.deadlineMs
-  delete effectiveOptions.idleTimeoutMs
-  delete effectiveOptions.totalTimeoutMs
-
-  const managedCloud = model?.provider === 'quickforge-cloud' && model?.quickforgeModelSource === 'cloud'
-  const stream = managedCloud
-    ? lazyStream(Promise.all([
-        resolveManagedCloudProvider(model, effectiveOptions.signal),
-        managedCloudIdempotencyKey(context, effectiveOptions),
-      ]).then(([resolved, idempotencyKey]) => createProviderStream(
-        {
-          ...resolved.model,
-          headers: {
-            ...(resolved.model.headers || {}),
-            'Idempotency-Key': idempotencyKey,
-          },
-        },
-        context,
-        {
-          ...effectiveOptions,
-          apiKey: resolved.apiKey,
-        },
-      )))
-    : createProviderStream(model, context, effectiveOptions)
-
-  return wrapStreamWithTimeouts(stream, timeoutController, {
+  return wrapStreamWithTimeouts(createStream, timeoutController, {
     idleTimeoutMs,
+    firstEventTimeoutMs,
     totalTimeoutMs,
+    onStreamRetry,
+    parentSignal,
     provider: model?.provider,
     model: model?.id,
     purpose: providerOptions.metadata?.quickforgePurpose || 'chat',

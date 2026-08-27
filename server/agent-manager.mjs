@@ -1662,7 +1662,10 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
       messages: [],
       tools,
     },
-    streamFn: streamSimpleWithAiHttpLogging,
+    streamFn: (streamModel, streamContext, streamOptions) => streamSimpleWithAiHttpLogging(streamModel, streamContext, {
+      ...streamOptions,
+      onStreamRetry: (info) => emitSessionEvent(parentSession, { type: 'model_stream_retry', ...info }),
+    }),
     getApiKey: parentSession.getApiKey,
     sessionId: subagentSessionId,
     convertToLlm: serverConvertToLlm,
@@ -2076,7 +2079,10 @@ export async function createAgent(sessionId, config = {}) {
       messages,
       tools,
     },
-    streamFn: streamSimpleWithAiHttpLogging,
+    streamFn: (streamModel, streamContext, streamOptions) => streamSimpleWithAiHttpLogging(streamModel, streamContext, {
+      ...streamOptions,
+      onStreamRetry: (info) => emitSessionEvent(session, { type: 'model_stream_retry', ...info }),
+    }),
     getApiKey,
     sessionId,
     convertToLlm: serverConvertToLlm,

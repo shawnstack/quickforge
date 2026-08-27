@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>弱网重连提示 · 候选方案 · QuickForge</title>
+<style>
+  /* ============ tokens（与 src/index.css 语义一致） ============ */
+  :root {
+    --background: #ffffff;
+    --foreground: #18181b;
+    --card: #fafafa;
+    --muted: #f4f4f5;
+    --muted-foreground: #71717a;
+    --border: #e4e4e7;
+    --primary: #18181b;
+    --success: #048f65;           /* 复用 todo 完成对勾的 emerald 语义色 */
+    --warning: #d97706;           /* 复用 persist-degraded 警告色 */
+    --radius: 0.5rem;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    color-scheme: light;
+  }
+  html.dark {
+    --background: #101012;
+    --foreground: #f4f4f5;
+    --card: #17171a;
+    --muted: #1d1d21;
+    --muted-foreground: #a1a1aa;
+    --border: #2a2a30;
+    --primary: #fafafa;
+    --success: #6ee7b7;
+    --warning: #d97706;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--background); color: var(--foreground);
+    font: 13px/1.65 var(--font-sans);
+    display: flex; flex-direction: column; align-items: center; gap: 22px;
+    padding: 36px 16px 80px;
+  }
+  h1 { font-size: 15px; font-weight: 600; margin: 0; }
+  .hint { color: var(--muted-foreground); font-size: 12px; text-align: center; max-width: 680px; margin: 0; }
+  .hint code, .footnote code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; background: var(--muted); border-radius: 0.3rem; padding: 0 4px;
+  }
+  .toolbar { display: flex; gap: 8px; }
+  .toolbar button {
+    font: 12px var(--font-sans); color: var(--foreground);
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 0.5rem; padding: 4px 12px; cursor: pointer;
+  }
+  .toolbar button:hover { background: var(--muted); }
+
+  /* ============ 聊天上下文 mock（还原消息流 + Composer） ============ */
+  .chat-mock {
+    display: flex; flex-direction: column;
+    border: 1px solid var(--border); border-radius: 0.7rem;
+    background: var(--background); overflow: hidden;
+  }
+  .chat-mock .messages {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 14px 14px 10px; min-height: 210px; max-height: 300px;
+    overflow-y: auto;
+  }
+  .msg-user {
+    align-self: flex-end; max-width: 80%;
+    background: var(--primary); color: var(--background);
+    border-radius: 0.75rem 0.75rem 0.25rem 0.75rem;
+    padding: 6px 10px; font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
+  }
+  .msg-assistant {
+    align-self: flex-start; max-width: 88%;
+    color: color-mix(in oklab, var(--foreground) 90%, transparent);
+    font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
+  }
+  .caret {
+    display: inline-block; width: 6px; height: 12px; vertical-align: -1px;
+    background: var(--muted-foreground); border-radius: 1.5px;
+    animation: qf-blink 1s step-end infinite; margin-left: 2px;
+  }
+  @keyframes qf-blink { 50% { opacity: 0; } }
+  .waiting-dots { display: inline-flex; align-items: center; gap: 5px; padding: 2px 2px; }
+  .waiting-dots span {
+    width: 5px; height: 5px; border-radius: 9999px;
+    background: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+    animation: qf-waiting-dot 1.15s ease-in-out infinite;
+  }
+  .waiting-dots span:nth-child(2) { animation-delay: 0.14s; }
+  .waiting-dots span:nth-child(3) { animation-delay: 0.28s; }
+  @keyframes qf-waiting-dot { 0%, 100% { opacity: .25; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } }
+  .composer-hint {
+    margin: 0 10px 10px;
+    display: flex; align-items: center;
+    border: 1px solid var(--border); border-radius: 0.75rem;
+    background: var(--card); color: var(--muted-foreground);
+    font-size: 12px; padding: 8px 10px;
+  }
+
+  /* ================================================================
+     重连指示条 —— 本设计稿的核心
+     同一套内容（状态图标 + 文案 + 计数 + 倒计时/动作），三种挂载形态：
+     --inline  方案 A：消息流末尾、居中、无底色的轻量行
+     --banner  方案 B：Composer 上方的轻横幅（可带动作按钮）
+     --top     方案 C：消息列表顶部固定横幅（persist-degraded 同款位置）
+     三种状态：[data-state=reconnecting|reconnected|failed]
+     ================================================================ */
+  .qf-reconnect {
+    display: flex; align-items: center; gap: 0.45rem;
+    font-size: 0.75rem; line-height: 1.5;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+    animation: qf-reconnect-enter 180ms ease-out both;
+  }
+  @keyframes qf-reconnect-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .qf-reconnect.leaving { animation: qf-reconnect-leave 320ms ease-in both; }
+  @keyframes qf-reconnect-leave { to { opacity: 0; transform: translateY(-2px); } }
+
+  .qf-reconnect-icon { display: inline-flex; width: 0.875rem; height: 0.875rem; flex: none; }
+  .qf-reconnect-icon svg { width: 100%; height: 100%; }
+  /* 重连中：描边小 spinner（currentColor，随主题） */
+  .qf-reconnect[data-state="reconnecting"] .qf-reconnect-icon svg circle {
+    fill: none; stroke: currentColor; stroke-width: 2.6;
+    stroke-linecap: round;
+    stroke-dasharray: 40 21;   /* r=7.5 → 周长≈47，留约 1/3 缺口 */
+    transform-origin: center;
+    animation: qf-spin 0.9s linear infinite;
+  }
+  @keyframes qf-spin { to { transform: rotate(360deg); } }
+
+  .qf-reconnect-count { color: color-mix(in oklab, var(--foreground) 82%, transparent); }
+  .qf-reconnect-countdown { color: var(--muted-foreground); font-size: 0.6875rem; }
+
+  /* 已重连：对勾 + emerald 语义色（与 todo 完成态同源） */
+  .qf-reconnect[data-state="reconnected"] { color: var(--success); }
+  .qf-reconnect[data-state="reconnected"] .qf-reconnect-icon svg {
+    fill: none; stroke: currentColor; stroke-width: 2.4;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+
+  /* 失败：警告琥珀（与 persist-degraded 同源 #d97706）+ 重试动作 */
+  .qf-reconnect[data-state="failed"] {
+    color: color-mix(in oklab, var(--warning) 88%, var(--foreground));
+  }
+  .qf-reconnect[data-state="failed"] .qf-reconnect-icon svg {
+    fill: none; stroke: currentColor; stroke-width: 2.2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .qf-reconnect-retry {
+    font: inherit; font-size: 0.6875rem; cursor: pointer;
+    color: color-mix(in oklab, var(--foreground) 82%, transparent);
+    background: transparent; border: 1px solid var(--border);
+    border-radius: 0.4rem; padding: 1px 8px;
+    transition: background .12s ease, border-color .12s ease;
+  }
+  .qf-reconnect-retry:hover { background: var(--muted); border-color: color-mix(in oklab, var(--warning) 40%, var(--border)); }
+
+  /* 形态 A：消息流内联行 —— 居中、无底色、最轻 */
+  .qf-reconnect--inline { align-self: center; justify-content: center; padding: 0.2rem 0; text-align: center; }
+
+  /* 形态 B：Composer 上方轻横幅 —— 左对齐、细边框、muted 底 */
+  .qf-reconnect--banner {
+    align-self: stretch; justify-content: flex-start;
+    margin: 0 10px 8px; padding: 0.4rem 0.65rem;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: color-mix(in oklab, var(--muted) 45%, transparent);
+  }
+  .qf-reconnect--banner .qf-reconnect-spacer { flex: 1 1 auto; }
+
+  /* 形态 C：消息列表顶部固定 —— persist-degraded 同款横幅语言 */
+  .qf-reconnect--top {
+    align-self: stretch; justify-content: flex-start;
+    margin: 0 10px; padding: 0.45rem 0.65rem;
+    border: 1px solid color-mix(in oklab, var(--warning) 35%, var(--border));
+    border-radius: var(--radius);
+    background: color-mix(in oklab, var(--warning) 8%, var(--background));
+    color: color-mix(in oklab, var(--foreground) 86%, transparent);
+  }
+  .qf-reconnect--top[data-state="reconnecting"] .qf-reconnect-dot {
+    width: 0.375rem; height: 0.375rem; flex: none; border-radius: 9999px;
+    background: var(--warning);
+    animation: qf-dot-breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes qf-dot-breathe { 50% { opacity: .35; } }
+  .qf-reconnect--top[data-state="reconnecting"] .qf-reconnect-icon { display: none; }
+  .qf-reconnect--top[data-state="reconnected"] {
+    border-color: color-mix(in oklab, var(--success) 35%, var(--border));
+    background: color-mix(in oklab, var(--success) 8%, var(--background));
+    color: var(--success);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .qf-reconnect, .qf-reconnect.leaving { animation: none; }
+    .qf-reconnect-icon svg circle { animation: none !important; }
+    .qf-reconnect--top .qf-reconnect-dot { animation: none; }
+    .caret, .waiting-dots span { animation: none; }
+  }
+
+  /* ============ 页面布局 ============ */
+  .options {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 16px; width: 100%; max-width: 1120px;
+  }
+  .option-card {
+    border: 1px solid var(--border); border-radius: 0.9rem;
+    background: var(--background); padding: 14px 14px 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .option-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .option-key {
+    font-weight: 600; font-size: 13px;
+    background: var(--muted); border-radius: 0.4rem;
+    padding: 1px 8px;
+  }
+  .option-name { font-weight: 600; font-size: 13px; }
+  .option-desc { color: var(--muted-foreground); font-size: 11.5px; width: 100%; }
+  .state-switch { display: flex; gap: 6px; flex-wrap: wrap; }
+  .state-switch button {
+    font: 11.5px var(--font-sans); color: var(--muted-foreground);
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 999px; padding: 2px 10px; cursor: pointer;
+    transition: color .12s, border-color .12s;
+  }
+  .state-switch button:hover { color: var(--foreground); }
+  .state-switch button[aria-pressed="true"] {
+    color: var(--foreground); border-color: color-mix(in oklab, var(--foreground) 35%, var(--border));
+    background: var(--muted);
+  }
+
+  /* ============ 交互演示区 ============ */
+  .demo-wrap {
+    width: 100%; max-width: 680px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .demo-title { font-size: 13px; font-weight: 600; }
+  .demo-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .demo-controls button {
+    font: 12px var(--font-sans); color: var(--foreground);
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 0.5rem; padding: 4px 12px; cursor: pointer;
+  }
+  .demo-controls button:hover { background: var(--muted); }
+  .demo-controls button:disabled { opacity: .45; cursor: not-allowed; }
+  .demo-log {
+    color: var(--muted-foreground); font-size: 11px; min-height: 1.4em;
+    font-variant-numeric: tabular-nums;
+  }
+  .footnote {
+    color: var(--muted-foreground); font-size: 11.5px;
+    max-width: 680px; text-align: left;
+    border: 1px dashed var(--border); border-radius: 0.7rem;
+    padding: 10px 14px;
+  }
+  .footnote ul { margin: 6px 0 0; padding-left: 18px; }
+  .footnote li { margin: 2px 0; }
+</style>
+</head>
+<body>
+  <h1>弱网重连提示 ·「重新连接中… 8/10」候选方案</h1>
+  <p class="hint">
+    现状：Agent SSE 断连后前端静默指数退避重连（1s 起 ×2、封顶 30s、无限次），界面上完全无反馈——
+    弱网时用户只看到输出停住，不知道是在生成还是断线。本稿为重连过程引入可见的轻量指示：<b>重试进度 8/10</b>、下次重试倒计时、成功/失败终态。
+    三种状态：重连中（spinner）→ 已重连（绿色对勾，约 2s 后淡出）→ 失败（琥珀警告 + 重试按钮）。
+  </p>
+  <div class="toolbar">
+    <button id="themeBtn">切换深色 / 浅色主题</button>
+  </div>
+
+  <div class="options">
+    <!-- ============ 方案 A ============ -->
+    <section class="option-card" data-option="a">
+      <header class="option-head">
+        <span class="option-key">方案 A（推荐）</span>
+        <span class="option-name">消息流末尾 · 居中轻量行</span>
+        <span class="option-desc">
+          挂在最后一条消息 / 等待气泡之后、输入框上方，居中无底色。断连时用户视线正落在流末尾等 AI 输出，
+          指示出现在断掉的位置语义最自然；无卡片感，成功后原地变绿淡出，几乎不占空间。
+        </span>
+      </header>
+      <div class="state-switch" role="group" aria-label="方案 A 状态切换">
+        <button data-state="reconnecting" aria-pressed="true">重连中 8/10</button>
+        <button data-state="reconnected" aria-pressed="false">已重连</button>
+        <button data-state="failed" aria-pressed="false">失败 10/10</button>
+      </div>
+      <div class="chat-mock">
+        <div class="messages">
+          <div class="msg-user">帮我把登录模块的测试跑一遍</div>
+          <div class="msg-assistant">正在运行 <span style="font-family:ui-monospace,Consolas,monospace">vitest run tests/login</span>，已通过 12 个用例…<span class="caret"></span></div>
+          <div class="waiting-dots" aria-label="等待输出"><span></span><span></span><span></span></div>
+          <div class="qf-reconnect qf-reconnect--inline" data-state="reconnecting" role="status" aria-live="polite"></div>
+        </div>
+        <div class="composer-hint">发送消息…（输入框示意）</div>
+      </div>
+    </section>
+
+    <!-- ============ 方案 B ============ -->
+    <section class="option-card" data-option="b">
+      <header class="option-head">
+        <span class="option-key">方案 B</span>
+        <span class="option-name">Composer 上方 · 轻横幅</span>
+        <span class="option-desc">
+          与消息队列 / 任务摘要同一挂载区（composer shell 内、message-editor 前）。信息最全：
+          进度 + 倒计时 + 「立即重试」动作按钮；重连中视觉强度略高于 A，但仍在输入框近旁不滚动离开视野。
+        </span>
+      </header>
+      <div class="state-switch" role="group" aria-label="方案 B 状态切换">
+        <button data-state="reconnecting" aria-pressed="true">重连中 8/10</button>
+        <button data-state="reconnected" aria-pressed="false">已重连</button>
+        <button data-state="failed" aria-pressed="false">失败 10/10</button>
+      </div>
+      <div class="chat-mock">
+        <div class="messages">
+          <div class="msg-user">帮我把登录模块的测试跑一遍</div>
+          <div class="msg-assistant">正在运行 <span style="font-family:ui-monospace,Consolas,monospace">vitest run tests/login</span>，已通过 12 个用例…<span class="caret"></span></div>
+          <div class="waiting-dots" aria-label="等待输出"><span></span><span></span><span></span></div>
+        </div>
+        <div class="qf-reconnect qf-reconnect--banner" data-state="reconnecting" role="status" aria-live="polite"></div>
+        <div class="composer-hint">发送消息…（输入框示意）</div>
+      </div>
+    </section>
+
+    <!-- ============ 方案 C ============ -->
+    <section class="option-card" data-option="c">
+      <header class="option-head">
+        <span class="option-key">方案 C</span>
+        <span class="option-name">消息列表顶部 · 固定横幅</span>
+        <span class="option-desc">
+          persist-degraded 通知的同款位置与横幅语言（顶部固定、警告底色、dot + 文字）。
+          全局连接状态语义最正式，但离断连时用户注视的流末尾最远，长对话中需要抬头才能看到。
+        </span>
+      </header>
+      <div class="state-switch" role="group" aria-label="方案 C 状态切换">
+        <button data-state="reconnecting" aria-pressed="true">重连中 8/10</button>
+        <button data-state="reconnected" aria-pressed="false">已重连</button>
+        <button data-state="failed" aria-pressed="false">失败 10/10</button>
+      </div>
+      <div class="chat-mock">
+        <div class="messages">
+          <div class="qf-reconnect qf-reconnect--top" data-state="reconnecting" role="status" aria-live="polite"></div>
+          <div class="msg-user">帮我把登录模块的测试跑一遍</div>
+          <div class="msg-assistant">正在运行 <span style="font-family:ui-monospace,Consolas,monospace">vitest run tests/login</span>，已通过 12 个用例…<span class="caret"></span></div>
+          <div class="waiting-dots" aria-label="等待输出"><span></span><span></span><span></span></div>
+        </div>
+        <div class="composer-hint">发送消息…（输入框示意）</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ 交互演示 ============ -->
+  <div class="demo-wrap">
+    <div class="demo-title">交互演示（按推荐方案 A 渲染，演示节奏已加速）</div>
+    <div class="demo-controls">
+      <button id="demoDrop">模拟断连</button>
+      <button id="demoHeal">模拟网络恢复</button>
+      <button id="demoFail">直达重试上限</button>
+      <button id="demoReset">重置</button>
+    </div>
+    <div class="demo-log" id="demoLog">空闲。点击「模拟断连」开始。</div>
+    <div class="chat-mock">
+      <div class="messages">
+        <div class="msg-user">继续把失败的用例修一下</div>
+        <div class="msg-assistant">第 3 个用例失败原因是 mock 的 token 过期，我来更新 fixture…<span class="caret"></span></div>
+        <div class="waiting-dots" aria-label="等待输出"><span></span><span></span><span></span></div>
+        <div class="qf-reconnect qf-reconnect--inline" id="demoNotice" data-state="reconnecting" role="status" aria-live="polite" hidden></div>
+      </div>
+      <div class="composer-hint">发送消息…（输入框示意）</div>
+    </div>
+  </div>
+
+  <div class="footnote">
+    <b>实现要点（对应真实代码）：</b>
+    <ul>
+      <li>当前 <code>GlobalAgentSseClient</code>（src/lib/server-agent.ts）无限次退避重连且不向订阅者发事件；需引入 <code>MAX_RECONNECT_ATTEMPTS = 10</code>（对齐终端连接的有限次重连先例），并在 <code>onerror</code>/<code>onopen</code> 时向订阅者广播连接状态（可仿 <code>persist_degraded</code> 扩展事件模式）。</li>
+      <li>UI 侧新增 panel-decoration controller（幂等注入/更新/移除，参考 <code>syncPersistDegradedNotice</code>）；计数与倒计时仅更新文本节点，不重建 DOM。</li>
+      <li>倒计时真实节奏为退避间隔（1s→2s→4s→…→30s 封顶）；本演示压缩为约 3s/次。</li>
+      <li>达到上限后进入失败态并停止自动重连，「重试」按钮重新开始计数；正在 streaming 时仍由既有 15s 静默看门狗轮询 /status 兜底，两者互不替代。</li>
+      <li>成功态使用与 todo 完成对勾相同的 emerald 语义色，失败态使用与 persist-degraded 相同的 #d97706 琥珀；<code>prefers-reduced-motion</code> 下关闭全部动画。</li>
+      <li>i18n 双语 key（示意）：reconnectingLabel「重新连接中… {n}/{m}」/ reconnectNextRetry「{s} 秒后重试」/ reconnectedLabel「已重新连接」/ reconnectFailedLabel「连接失败，已重试 {m} 次」/ reconnectRetryNow「立即重试」。</li>
+    </ul>
+  </div>
+
+<script>
+  var MAX_ATTEMPTS = 10;
+  var DEMO_STEP_MS = 3000; // 演示压缩节奏；真实为指数退避 1s→30s 封顶
+
+  var SPINNER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5"/></svg>';
+  var CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg>';
+  var WARN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 21 19H3z"/><path d="M12 10v4"/><path d="M12 17.2v.1"/></svg>';
+
+  function render(el, state, attempt, seconds) {
+    el.dataset.state = state;
+    el.setAttribute('role', state === 'failed' ? 'alert' : 'status');
+    var html = '';
+    if (state === 'reconnecting') {
+      html = '<span class="qf-reconnect-icon">' + SPINNER_SVG + '</span>' +
+        (el.classList.contains('qf-reconnect--top') ? '<span class="qf-reconnect-dot" aria-hidden="true"></span>' : '') +
+        '<span class="qf-reconnect-text">重新连接中… <span class="qf-reconnect-count">' + attempt + '/' + MAX_ATTEMPTS + '</span></span>' +
+        (seconds != null ? '<span class="qf-reconnect-countdown">' + seconds + 's 后重试</span>' : '') +
+        (el.querySelector('.qf-reconnect-retry') ? '<span class="qf-reconnect-spacer"></span><button class="qf-reconnect-retry" type="button">立即重试</button>' : '');
+    } else if (state === 'reconnected') {
+      html = '<span class="qf-reconnect-icon">' + CHECK_SVG + '</span>' +
+        '<span class="qf-reconnect-text">已重新连接</span>';
+    } else {
+      html = '<span class="qf-reconnect-icon">' + WARN_SVG + '</span>' +
+        '<span class="qf-reconnect-text">连接失败，已重试 ' + MAX_ATTEMPTS + ' 次</span>' +
+        '<span class="qf-reconnect-spacer"></span>' +
+        '<button class="qf-reconnect-retry" type="button">重试</button>';
+    }
+    el.innerHTML = html;
+    var btn = el.querySelector('.qf-reconnect-retry');
+    if (btn) btn.addEventListener('click', function () {
+      if (el.id === 'demoNotice') startReconnecting(1);
+    });
+  }
+
+  // 方案卡片状态切换
+  document.querySelectorAll('.option-card').forEach(function (card) {
+    var notice = card.querySelector('.qf-reconnect');
+    var buttons = card.querySelectorAll('.state-switch button');
+    function apply(state) {
+      buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.state === state)); });
+      if (state === 'reconnecting') render(notice, 'reconnecting', 8, 4);
+      else render(notice, state, MAX_ATTEMPTS);
+    }
+    buttons.forEach(function (b) { b.addEventListener('click', function () { apply(b.dataset.state); }); });
+    apply('reconnecting');
+  });
+
+  // ===== 交互演示状态机 =====
+  var notice = document.getElementById('demoNotice');
+  var log = document.getElementById('demoLog');
+  var timer = null, tick = null, attempt = 0, remaining = 0;
+
+  function stopTimers() { clearInterval(tick); clearTimeout(timer); tick = timer = null; }
+  function say(msg) { log.textContent = msg; }
+
+  function startReconnecting(from) {
+    stopTimers();
+    attempt = from;
+    notice.hidden = false;
+    notice.classList.remove('leaving');
+    step();
+    say('连接断开，进入自动重连（第 ' + attempt + ' 次）');
+  }
+
+  function step() {
+    remaining = Math.round(DEMO_STEP_MS / 1000);
+    render(notice, 'reconnecting', attempt, remaining);
+    tick = setInterval(function () {
+      remaining -= 1;
+      if (remaining <= 0) { clearInterval(tick); tick = null; return; }
+      var cd = notice.querySelector('.qf-reconnect-countdown');
+      if (cd) cd.textContent = remaining + 's 后重试';
+    }, 1000);
+    timer = setTimeout(function () {
+      if (attempt >= MAX_ATTEMPTS) { fail(); return; }
+      attempt += 1;
+      say('第 ' + (attempt - 1) + ' 次重试失败，退避后进行第 ' + attempt + ' 次');
+      step();
+    }, DEMO_STEP_MS);
+  }
+
+  function succeed() {
+    stopTimers();
+    render(notice, 'reconnected', attempt);
+    say('SSE 重连成功（onopen 重置退避与计数）');
+    timer = setTimeout(function () {
+      notice.classList.add('leaving');
+      timer = setTimeout(function () { notice.hidden = true; notice.classList.remove('leaving'); say('成功提示已自动淡出'); }, 340);
+    }, 2200);
+  }
+
+  function fail() {
+    stopTimers();
+    render(notice, 'failed', MAX_ATTEMPTS);
+    say('已达重试上限 ' + MAX_ATTEMPTS + ' 次，停止自动重连');
+  }
+
+  document.getElementById('demoDrop').addEventListener('click', function () { startReconnecting(1); });
+  document.getElementById('demoHeal').addEventListener('click', function () {
+    if (notice.hidden) { say('当前没有进行中的重连，先「模拟断连」'); return; }
+    succeed();
+  });
+  document.getElementById('demoFail').addEventListener('click', function () {
+    stopTimers();
+    attempt = MAX_ATTEMPTS;
+    notice.hidden = false;
+    notice.classList.remove('leaving');
+    fail();
+  });
+  document.getElementById('demoReset').addEventListener('click', function () {
+    stopTimers();
+    notice.hidden = true;
+    notice.classList.remove('leaving');
+    say('空闲。点击「模拟断连」开始。');
+  });
+
+  // 主题切换
+  document.getElementById('themeBtn').addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+</script>
+</body>
+</html>

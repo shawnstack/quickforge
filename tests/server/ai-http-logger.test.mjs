@@ -189,26 +189,165 @@ describe('AI stream deadline', () => {
     expect(mocks.streamSimple.mock.calls[0][0].headers).toEqual({ 'X-Test': 'yes' })
   })
 
-  it('rejects a completely idle result and aborts the provider signal', async () => {
+  it('retries idle streams up to the cap, reports progress, then times out', async () => {
+    const retryEvents = []
+    mocks.streamSimple.mockImplementation(() => controlledStream().stream)
+    const { streamSimpleWithAiHttpLogging, MAX_STREAM_RETRIES } = await import('../../server/ai-http-logger.mjs')
+    const stream = streamSimpleWithAiHttpLogging(
+      { provider: 'mock', api: 'mock', id: 'mock-model' },
+      { systemPrompt: '', messages: [], tools: [] },
+      { deadlineMs: 1000, totalTimeoutMs: 60000, onStreamRetry: (info) => retryEvents.push(info) },
+    )
+    const result = stream.result()
+
+    for (let i = 0; i < MAX_STREAM_RETRIES; i++) {
+      await vi.advanceTimersByTimeAsync(1000)
+    }
+    expect(mocks.streamSimple).toHaveBeenCalledTimes(MAX_STREAM_RETRIES + 1)
+    expect(retryEvents).toHaveLength(MAX_STREAM_RETRIES)
+    expect(retryEvents[0]).toMatchObject({ attempt: 1, maxAttempts: MAX_STREAM_RETRIES })
+    expect(retryEvents[MAX_STREAM_RETRIES - 1]).toMatchObject({ attempt: MAX_STREAM_RETRIES })
+
+    const rejection = expect(result).rejects.toThrow('AI stream idle timeout after 1000ms')
+    await vi.advanceTimersByTimeAsync(1000)
+    await rejection
+    expect(retryEvents).toHaveLength(MAX_STREAM_RETRIES)
+  })
+
+  it('swallows the duplicate start from the retry and keeps publishing one stream', async () => {
+    const first = controlledStream()
+    const second = controlledStream()
+    mocks.streamSimple.mockReturnValueOnce(first.stream).mockReturnValueOnce(second.stream)
     const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
     const stream = streamSimpleWithAiHttpLogging(
       { provider: 'mock', api: 'mock', id: 'mock-model' },
       { systemPrompt: '', messages: [], tools: [] },
-      { deadlineMs: 1000, totalTimeoutMs: 10000 },
+      { idleTimeoutMs: 1000, totalTimeoutMs: 10000 },
     )
     const result = stream.result()
-    const providerSignal = mocks.streamSimple.mock.calls[0][2].signal
+    const iterator = stream[Symbol.asyncIterator]()
+
+    first.publish({ type: 'start' })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { type: 'start' }, done: false })
+
+    const firstSignal = mocks.streamSimple.mock.calls[0][2].signal
+    await vi.advanceTimersByTimeAsync(1000)
+    await Promise.resolve()
+    expect(mocks.streamSimple).toHaveBeenCalledTimes(2)
+    expect(firstSignal.aborted).toBe(true)
+    expect(mocks.streamSimple.mock.calls[1][2].signal.aborted).toBe(false)
+
+    // 重试流的 start 被吞掉，消费者从 text_delta 无缝续上。
+    second.publish({ type: 'start' })
+    second.publish({ type: 'text_delta', delta: 'hello' })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { type: 'text_delta', delta: 'hello' }, done: false })
+    second.finish({ stopReason: 'stop' })
+    await expect(result).resolves.toMatchObject({ stopReason: 'stop' })
+  })
+
+  it('retries after substantive content too and reports recovery on the new stream', async () => {
+    const retryEvents = []
+    const first = controlledStream()
+    const second = controlledStream()
+    mocks.streamSimple.mockReturnValueOnce(first.stream).mockReturnValueOnce(second.stream)
+    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
+    const stream = streamSimpleWithAiHttpLogging(
+      { provider: 'mock', api: 'mock', id: 'mock-model' },
+      { systemPrompt: '', messages: [], tools: [] },
+      { idleTimeoutMs: 1000, totalTimeoutMs: 10000, onStreamRetry: (info) => retryEvents.push(info) },
+    )
+    const iterator = stream[Symbol.asyncIterator]()
+    first.publish({ type: 'text_delta', delta: 'partial answer' })
+    await expect(iterator.next()).resolves.toMatchObject({ done: false })
+
+    // 中断（有内容后 idle）同样触发重试。
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(mocks.streamSimple).toHaveBeenCalledTimes(2)
+    expect(retryEvents[0]).toMatchObject({ attempt: 1 })
+
+    // 新流首个实质事件上报恢复，并继续对外发布。
+    second.publish({ type: 'text_delta', delta: 'rewritten' })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { type: 'text_delta', delta: 'rewritten' }, done: false })
+    expect(retryEvents[1]).toMatchObject({ attempt: 1, recovered: true })
+    second.finish({ stopReason: 'stop' })
+    await expect(stream.result()).resolves.toMatchObject({ stopReason: 'stop' })
+  })
+
+  it('skips the idle retry when the parent signal is aborted', async () => {
+    mocks.streamSimple.mockReturnValueOnce(controlledStream().stream)
+    const controller = new AbortController()
+    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
+    const stream = streamSimpleWithAiHttpLogging(
+      { provider: 'mock', api: 'mock', id: 'mock-model' },
+      { systemPrompt: '', messages: [], tools: [] },
+      { deadlineMs: 1000, totalTimeoutMs: 10000, signal: controller.signal },
+    )
+    const result = stream.result()
+    controller.abort()
 
     const rejection = expect(result).rejects.toThrow('AI stream idle timeout after 1000ms')
     await vi.advanceTimersByTimeAsync(1000)
-
     await rejection
-    expect(providerSignal.aborted).toBe(true)
+    expect(mocks.streamSimple).toHaveBeenCalledTimes(1)
   })
 
-  it('resets the idle timeout after each event and then times out when output stalls', async () => {
-    const controlled = controlledStream()
-    mocks.streamSimple.mockReturnValue(controlled.stream)
+  it('applies the 60s first-event budget on the default path', async () => {
+    mocks.streamSimple.mockImplementation(() => controlledStream().stream)
+    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
+    const stream = streamSimpleWithAiHttpLogging(
+      { provider: 'mock', api: 'mock', id: 'mock-model' },
+      { systemPrompt: '', messages: [], tools: [] },
+    )
+    stream.result()
+
+    // 默认路径零内容静默 60s 即触发首事件档的透明重试。
+    await vi.advanceTimersByTimeAsync(60 * 1000)
+    expect(mocks.streamSimple.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('uses a fresh idempotency key for the managed-cloud retry attempt', async () => {
+    mocks.resolveManagedCloudProvider.mockResolvedValue({
+      model: {
+        id: 'qf-fast',
+        provider: 'quickforge-cloud',
+        api: 'openai-completions',
+        baseUrl: 'https://cloud.example.com/v1',
+      },
+      apiKey: 'memory-access-token',
+    })
+    mocks.streamSimple.mockReturnValueOnce(controlledStream().stream).mockReturnValueOnce(controlledStream().stream)
+    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
+    const model = {
+      id: 'qf-fast',
+      provider: 'quickforge-cloud',
+      quickforgeModelSource: 'cloud',
+      quickforgeCatalogId: 'qf-fast',
+    }
+    // 不带 quickforgeClientMessageId：两次尝试都走随机幂等键路径，避免真实
+    // fs 持久化让第一次链的完成时序在 fake timers 下不可控。
+    const context = {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [],
+    }
+    const stream = streamSimpleWithAiHttpLogging(model, context, { sessionId: 'session-retry', idleTimeoutMs: 1000 })
+    stream.result()
+
+    await vi.advanceTimersByTimeAsync(1000)
+    // lazyStream 的多级 promise 链在微任务里才真正调用 streamSimple。
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(mocks.streamSimple).toHaveBeenCalledTimes(2)
+    const keys = mocks.streamSimple.mock.calls.map(([resolvedModel]) => resolvedModel.headers['Idempotency-Key'])
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(keys[1]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(keys[1]).not.toBe(keys[0])
+  })
+
+  it('resets the idle budget after each event; a stall triggers a retry, not a failure', async () => {
+    const first = controlledStream()
+    const second = controlledStream()
+    mocks.streamSimple.mockReturnValueOnce(first.stream).mockReturnValueOnce(second.stream)
     const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
     const stream = streamSimpleWithAiHttpLogging(
       { provider: 'mock', api: 'mock', id: 'mock-model' },
@@ -219,14 +358,16 @@ describe('AI stream deadline', () => {
     const iterator = stream[Symbol.asyncIterator]()
 
     await vi.advanceTimersByTimeAsync(900)
-    controlled.publish({ type: 'text_delta', delta: 'safe test event' })
+    first.publish({ type: 'text_delta', delta: 'safe test event' })
     await expect(iterator.next()).resolves.toMatchObject({ done: false })
     await vi.advanceTimersByTimeAsync(900)
     expect(mocks.streamSimple.mock.calls[0][2].signal.aborted).toBe(false)
 
-    const rejection = expect(result).rejects.toThrow('AI stream idle timeout after 1000ms')
+    // 停滞超过 idle 预算 → 透明重试（换流）而不是立刻失败。
     await vi.advanceTimersByTimeAsync(100)
-    await rejection
+    expect(mocks.streamSimple).toHaveBeenCalledTimes(2)
+    second.finish({ stopReason: 'stop' })
+    await expect(result).resolves.toMatchObject({ stopReason: 'stop' })
   })
 
   it('allows continuous output beyond the legacy five-minute deadline', async () => {
@@ -314,16 +455,19 @@ describe('AI stream deadline', () => {
   })
 
   it('rejects async iteration on idle timeout without requiring result()', async () => {
+    mocks.streamSimple.mockImplementation(() => controlledStream().stream)
     const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
     const stream = streamSimpleWithAiHttpLogging(
       { provider: 'mock', api: 'mock', id: 'mock-model' },
       { systemPrompt: '', messages: [], tools: [] },
-      { deadlineMs: 1000, totalTimeoutMs: 10000 },
+      { deadlineMs: 1000, totalTimeoutMs: 60000 },
     )
     const next = stream[Symbol.asyncIterator]().next()
 
     const rejection = expect(next).rejects.toThrow('AI stream idle timeout after 1000ms')
-    await vi.advanceTimersByTimeAsync(1000)
+    // 每次零内容超时触发透明重试，重试额度（10 次）用尽后才真正失败。
+    const { MAX_STREAM_RETRIES } = await import('../../server/ai-http-logger.mjs')
+    await vi.advanceTimersByTimeAsync((MAX_STREAM_RETRIES + 1) * 1000)
 
     await rejection
   })

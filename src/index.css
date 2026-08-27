@@ -5753,6 +5753,144 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   pointer-events: none;
 }
 
+/* SSE reconnect notice: lightweight centered row appended to the end of the
+   message list while the global agent event stream retries (weak network).
+   Progress states use muted tokens; success reuses the todo-complete emerald
+   and failure the persist-degraded amber so no new visual vocabulary appears. */
+.quickforge-reconnect,
+.quickforge-model-retry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 0.25rem 0;
+  padding: 0.2rem 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  animation: quickforge-reconnect-enter 180ms ease-out both;
+}
+
+.quickforge-model-retry {
+  animation: quickforge-reconnect-enter 180ms ease-out both;
+}
+
+@keyframes quickforge-reconnect-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.quickforge-reconnect.quickforge-reconnect-leaving {
+  animation: quickforge-reconnect-leave 320ms ease-in both;
+}
+
+.quickforge-model-retry.quickforge-model-retry-leaving {
+  animation: quickforge-reconnect-leave 320ms ease-in both;
+}
+
+@keyframes quickforge-reconnect-leave {
+  to { opacity: 0; transform: translateY(-2px); }
+}
+
+.quickforge-reconnect-icon {
+  display: inline-flex;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+}
+
+.quickforge-reconnect-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.quickforge-reconnect[data-state='reconnecting'] .quickforge-reconnect-icon svg circle,
+.quickforge-model-retry .quickforge-reconnect-icon svg circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  /* r=7.5 → 周长约 47，留约三分之一缺口形成旋转 spinner */
+  stroke-dasharray: 40 21;
+  transform-origin: center;
+  animation: quickforge-reconnect-spin 0.9s linear infinite;
+}
+
+@keyframes quickforge-reconnect-spin {
+  to { transform: rotate(360deg); }
+}
+
+.quickforge-reconnect-count {
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+}
+
+.quickforge-reconnect-countdown {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+.quickforge-reconnect[data-state='reconnected'] {
+  color: #048f65;
+}
+
+html.dark .quickforge-reconnect[data-state='reconnected'] {
+  color: #6ee7b7;
+}
+
+.quickforge-reconnect[data-state='reconnected'] .quickforge-reconnect-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-reconnect[data-state='failed'] {
+  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+}
+
+.quickforge-reconnect[data-state='failed'] .quickforge-reconnect-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-reconnect-retry {
+  font: inherit;
+  font-size: 0.6875rem;
+  cursor: pointer;
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 1px 8px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.quickforge-reconnect-retry:hover {
+  background: var(--muted);
+  border-color: color-mix(in oklab, #d97706 40%, var(--border));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-reconnect,
+  .quickforge-reconnect.quickforge-reconnect-leaving {
+    animation: none;
+  }
+
+  .quickforge-reconnect[data-state='reconnecting'] .quickforge-reconnect-icon svg circle,
+  .quickforge-model-retry .quickforge-reconnect-icon svg circle {
+    animation: none;
+  }
+
+  .quickforge-model-retry {
+    animation: none;
+  }
+}
+
 /* TodoWrite task summary: an in-flow sibling immediately above the composer.
    Collapsed it shrinks to a centered progress capsule; expanding morphs it
    into the header row of the full list. All animation timing lives in CSS —

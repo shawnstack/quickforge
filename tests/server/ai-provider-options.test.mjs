@@ -3,6 +3,7 @@ import {
   DEFAULT_AI_HTTP_TIMEOUT_MS,
   DEFAULT_AI_MAX_RETRIES,
   DEFAULT_AI_STREAM_DEADLINE_MS,
+  DEFAULT_AI_STREAM_FIRST_EVENT_TIMEOUT_MS,
   DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS,
   DEFAULT_AI_STREAM_TOTAL_TIMEOUT_MS,
   withDefaultAiProviderOptions,
@@ -19,8 +20,10 @@ describe('AI provider options', () => {
     })
   })
 
-  it('defines five-minute idle and twenty-minute total stream timeouts', () => {
-    expect(DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS).toBe(5 * 60 * 1000)
+  it('defines two-tier stream silence budgets and a twenty-minute total timeout', () => {
+    // 经用户决策两档统一 60s：中断档（出过内容后）与首事件档（prefill 观察期）。
+    expect(DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS).toBe(60 * 1000)
+    expect(DEFAULT_AI_STREAM_FIRST_EVENT_TIMEOUT_MS).toBe(60 * 1000)
     expect(DEFAULT_AI_STREAM_TOTAL_TIMEOUT_MS).toBe(20 * 60 * 1000)
     expect(DEFAULT_AI_STREAM_DEADLINE_MS).toBe(DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS)
   })

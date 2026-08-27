@@ -43,6 +43,8 @@ import {
   createScrollToBottomButton,
   createTodoWriteSummaryController,
   createMessageQueuePanelController,
+  createReconnectNoticeController,
+  createModelRetryNoticeController,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
 import { t } from '@/lib/i18n'
@@ -667,6 +669,11 @@ export function ChatPanelHost({
       panel,
       getMessages: () => agent.state.messages as import('./panel-decoration').TodoWriteMessage[],
     })
+    // 全局 Agent SSE 弱网重连提示（消息流末尾居中轻量行）；Side Chat 使用
+    // 独立的 NDJSON 流、不共享该连接，因此不挂此装饰。
+    const reconnectNotice = sideChatMode ? null : createReconnectNoticeController({ panel })
+    // 模型上游流重试提示（model_stream_retry SSE 事件驱动，与 SSE 连接层提示并列）。
+    const modelRetryNotice = sideChatMode ? null : createModelRetryNoticeController({ panel })
 
     let turnNavigation: ReturnType<typeof createTurnNavigation> | null = null
 
@@ -999,6 +1006,8 @@ export function ChatPanelHost({
           isStreaming: () => agent.state.isStreaming,
           isActive: assistantWaitingActive,
         })
+        reconnectNotice?.sync()
+        modelRetryNotice?.sync()
       } catch (error) {
         logger.warn('Failed to decorate chat messages:', error)
       }
@@ -1478,6 +1487,8 @@ export function ChatPanelHost({
         }
         if (event.type === 'message_update' || eventMessage?.role === 'assistant') {
           assistantWaitingActive = false
+          // 模型流重试后新流的第一个增量到达即视为恢复。
+          modelRetryNotice?.hide()
         }
         scheduleDecorateRef.current?.()
         if (event.type === 'message_end' && eventMessage?.role === 'assistant') {
@@ -1516,12 +1527,25 @@ export function ChatPanelHost({
         // and the usage badge without disturbing the conversation.
         scheduleDecorateRef.current?.()
       }
+      if (eventType === 'error') {
+        modelRetryNotice?.hide()
+      }
       if (eventType === 'persist_degraded') {
         // Persist degradation flag changed — show/hide the warning banner.
         scheduleDecorateRef.current?.()
       }
+      if (eventType === 'model_stream_retry') {
+        // 服务端正在内部重建模型上游流 — 显示/更新重试进度；恢复或回合
+        // 终止由 message_update / agent_end / error 分支移除。
+        const retryEvent = event as { attempt?: number; maxAttempts?: number; recovered?: boolean }
+        if (retryEvent.recovered === true) modelRetryNotice?.hide()
+        else if (typeof retryEvent.attempt === 'number' && typeof retryEvent.maxAttempts === 'number') {
+          modelRetryNotice?.show(retryEvent.attempt, retryEvent.maxAttempts)
+        }
+      }
       if (event.type === 'agent_end') {
         assistantWaitingActive = false
+        modelRetryNotice?.hide()
         syncProcessStreamingState()
         scheduleProcessHandoff()
         // Run finished (or aborted) — clear pending approval for this session
@@ -1630,6 +1654,8 @@ export function ChatPanelHost({
       scrollSyncRef.current = null
       scrollBottomButton.cleanup()
       todoWriteSummary.cleanup()
+      reconnectNotice?.destroy()
+      modelRetryNotice?.destroy()
       cancelMessageQueuePersist()
       if (messageQueueActive()) saveStoredMessageQueueState(sessionId, messageQueue.getState())
       messageQueue.cleanup()

@@ -45,6 +45,15 @@ const SSE_SILENCE_RECOVERY_MS = 15000
 const STATUS_REQUEST_TIMEOUT_MS = 10000
 const STATE_REQUEST_TIMEOUT_MS = 30000
 
+// 自动重连上限：超过后停止退避重试并通知 UI（用户仍可手动重试）。
+export const MAX_SSE_RECONNECT_ATTEMPTS = 10
+
+// 连接状态广播：弱网断流期间 UI 据此显示「重新连接中… n/10」等提示。
+export type SseConnectionStatus =
+  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number }
+  | { status: 'connected'; recovered: boolean }
+  | { status: 'failed'; maxAttempts: number }
+
 const SERVER_ERROR_TRANSLATIONS: Partial<Record<string, AppTextKey>> = {
   GENERATION_ALREADY_RUNNING: 'generationAlreadyRunning',
   GENERATION_STILL_RUNNING_BEFORE_ROLLBACK: 'generationStillRunning',
@@ -114,6 +123,9 @@ class GlobalAgentSseClient {
   private baseUrl = ''
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 1000
+  private reconnectAttempts = 0
+  private connectionHandlers = new Set<(status: SseConnectionStatus) => void>()
+  private lastConnectionStatus: SseConnectionStatus | null = null
   private directBaseUrl = getDirectBackendUrl()
   private fallbackBaseUrl = ''
 
@@ -172,6 +184,10 @@ class GlobalAgentSseClient {
 
     this.eventSource.onopen = () => {
       this.reconnectDelay = 1000
+      if (this.reconnectAttempts > 0) {
+        this.reconnectAttempts = 0
+        this.setConnectionStatus({ status: 'connected', recovered: true })
+      }
     }
 
     const eventTypes = [
@@ -180,7 +196,7 @@ class GlobalAgentSseClient {
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
       'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
       'tool_approval_required', 'ask_user_required', 'ask_user_answered', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
-      'acp_session_usage_update', 'acp_session_update', 'persist_degraded',
+      'acp_session_usage_update', 'acp_session_update', 'persist_degraded', 'model_stream_retry',
     ]
 
     const handleMessage = (eventType?: string) => (e: MessageEvent) => {
@@ -207,6 +223,8 @@ class GlobalAgentSseClient {
 
       if (this.baseUrl === this.directBaseUrl && this.fallbackBaseUrl !== this.directBaseUrl) {
         this.baseUrl = this.fallbackBaseUrl
+        // 直连后端失败切换到同源代理属于即时恢复，计一次尝试但不进入倒计时。
+        this.noteReconnectAttempt(0)
         this.connect()
         return
       }
@@ -215,14 +233,54 @@ class GlobalAgentSseClient {
     }
   }
 
+  /** 记录一次重连尝试；超过上限时通知失败并停止自动重试。 */
+  private noteReconnectAttempt(waitMs: number): boolean {
+    this.reconnectAttempts += 1
+    if (this.reconnectAttempts > MAX_SSE_RECONNECT_ATTEMPTS) {
+      this.setConnectionStatus({ status: 'failed', maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS })
+      return false
+    }
+    this.setConnectionStatus({
+      status: 'reconnecting',
+      attempt: this.reconnectAttempts,
+      maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS,
+      nextRetryAt: Date.now() + waitMs,
+    })
+    return true
+  }
+
   private scheduleReconnect() {
     if (this.reconnectTimer || (this.handlersBySession.size === 0 && this.globalHandlers.size === 0)) return
+    if (!this.noteReconnectAttempt(this.reconnectDelay)) return
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       if (this.handlersBySession.size === 0 && this.globalHandlers.size === 0) return
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000)
       this.connect()
     }, this.reconnectDelay)
+  }
+
+  private setConnectionStatus(status: SseConnectionStatus) {
+    this.lastConnectionStatus = status
+    for (const handler of this.connectionHandlers) {
+      try { handler(status) } catch { /* ignore */ }
+    }
+  }
+
+  subscribeConnectionState(handler: (status: SseConnectionStatus) => void): () => void {
+    this.connectionHandlers.add(handler)
+    return () => { this.connectionHandlers.delete(handler) }
+  }
+
+  getConnectionStatus(): SseConnectionStatus | null {
+    return this.lastConnectionStatus
+  }
+
+  /** 手动重试：清掉退避状态立即重连（UI「立即重试」按钮）。 */
+  retryNow(): void {
+    this.disconnect()
+    if (this.handlersBySession.size === 0 && this.globalHandlers.size === 0) return
+    this.connect()
   }
 
   private emitGlobal(event: Record<string, unknown>) {
@@ -247,6 +305,9 @@ class GlobalAgentSseClient {
     }
     this.eventSource?.close()
     this.eventSource = null
+    this.reconnectAttempts = 0
+    this.reconnectDelay = 1000
+    this.lastConnectionStatus = null
   }
 }
 
@@ -297,6 +358,21 @@ export function fetchActiveAgentStatuses(baseUrl = ''): Promise<ActiveAgentStatu
 
 export function subscribeToAgentEvents(handler: SseHandler, baseUrl = ''): () => void {
   return globalAgentSseClient.subscribeAll(baseUrl, handler)
+}
+
+/** 订阅全局 Agent SSE 的连接状态（断连重试进度、成功恢复、重试上限）。 */
+export function subscribeSseConnectionState(handler: (status: SseConnectionStatus) => void): () => void {
+  return globalAgentSseClient.subscribeConnectionState(handler)
+}
+
+/** 当前连接状态快照；无连接活动时为 null。 */
+export function getSseConnectionState(): SseConnectionStatus | null {
+  return globalAgentSseClient.getConnectionStatus()
+}
+
+/** 用户手动触发立即重连（重置退避与计数）。 */
+export function requestSseReconnectNow(): void {
+  globalAgentSseClient.retryNow()
 }
 
 export type ServerAgentContextCompaction = {

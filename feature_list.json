@@ -1,6 +1,72 @@
 {
   "features": [
     {
+      "id": "model-stream-retry-notice",
+      "name": "模型上游流重试可视化：任意 idle 超时重试（上限 10）+「模型连接重试中… n/10」提示",
+      "status": "done",
+      "approach": "用户实测 ai-stream-idle-fast-detect-retry 后反馈：本机弱网（浏览器↔服务器 SSE 走 localhost 不断）只看到「AI stream idle timeout」错误、没有重连文字。按用户期望把上游模型流故障做成可见恢复体验：① 服务端 ai-http-logger 重试条件从「零内容」放宽到任意 idle 超时（有已产出内容时新流从零重放，消息被新 partial 原位替换），上限 MAX_STREAM_RETRIES=10（导出；对齐前端 SSE 重连 10 次语义），每次尝试 idle 预算即天然重试间隔；重置 hasSubstantiveEvent 使重试后回到首事件档；onStreamRetry 回调上报进度（attempt/maxAttempts/timeoutMs/hadContent），重试后首个实质事件再上报一次 recovered:true（recoveryReported 防重）。② agent-manager 主 Agent 与 subagent 两处 streamFn 改闭包包装注入 onStreamRetry → emitSessionEvent({type:'model_stream_retry', ...info})（emitSessionEvent 自动带 sessionId/stateVersion）。③ 前端：GlobalAgentSseClient eventTypes 增 model_stream_retry（ServerAgent switch 未匹配自动落末尾 emitToListeners 透传）；新 panel-decoration/model-retry-notice.ts controller 在消息流末尾显示居中轻量行「模型连接重试中… n/10」（复用 quickforge-reconnect 的 icon/count 样式词汇，CSS 基础规则并列选择器复用），ChatPanelHost 事件驱动：model_stream_retry→show/恢复→hide，message_update（新流首个增量）/message_end/agent_end/error→hide，decorate 周期 sync 重挂、卸载 destroy；仅主聊天挂载。i18n 双语 1 key。total timeout 20min 仍不重试（超长回合直接失败）；有内容重试会丢弃半截内容重新生成（重新计费）——以恢复可用性为先。",
+      "files": [
+        "server/ai-http-logger.mjs",
+        "server/agent-manager.mjs",
+        "src/lib/server-agent.ts",
+        "src/components/chat/panel-decoration/model-retry-notice.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/server/ai-http-logger.test.mjs",
+        "tests/frontend/model-retry-notice.test.ts",
+        "tests/frontend/server-agent.test.ts",
+        "tests/frontend/reconnect-notice.test.ts",
+        "docs/wiki/server/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run ai-http-logger + ai-provider-options → 2 files / 19 tests 全过（重试上限 10 用例验证 11 次调用 + onStreamRetry 进度序列 + 用尽后 idle 报错；有内容后中断同样重试且新流首个实质事件上报 recovered；停滞触发重试而非立刻失败；total/parent-abort 语义保持；测试 total 预算放大到 60s 避免 10 次重试走满前 total 先触发——真实 20min≫10×60s）；前端 model-retry-notice（新）5 行为 + 7 组源码契约、server-agent 透传用例、reconnect-notice CSS 契约适配并列选择器 → 与 server-agent 2 files / 57 tests 全过；消费方回归 conversation-compaction/side-chat/agent-manager.abort/process-timing + message-queue 全过；eslint 改动 10 文件 0 error；tsc -b 通过；npm run build 成功（仅既有 warnings）。未跑全量 test/lint。"
+    },
+    {
+      "id": "ai-stream-idle-fast-detect-retry",
+      "name": "AI 流静默分档检测（首事件 120s / 中断 60s）+ 零内容透明重试",
+      "status": "done",
+      "approach": "用户报告弱网下回合以「AI stream idle timeout after 300000ms」失败（服务端→模型 API 上游流卡死，与前端 SSE 重连提示分属两层）。经深入链路分析（openai SDK timeout 只覆盖到响应头、fetch settle 后流挂死无任何层能提前发现、pi-ai 在 headers 后立即 push start）与方案对比（pi-ai 不透传自定义 fetch 注入、patch globalThis.fetch 侵入过大），按用户确认在 QuickForge 包装层简单落地：① ai-provider-options 常量 DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS 300s→60s（中断档），新增 DEFAULT_AI_STREAM_FIRST_EVENT_TIMEOUT_MS=60s（首实质事件前；初版 120s 容 prefill，经用户决策统一收紧到 60s 观察效果，若大上下文 prefill 误杀再回调）；显式 idleTimeoutMs/deadlineMs 时两档同值保持既有调用方语义。② ai-http-logger 的 wrapStreamWithTimeouts 改为流工厂模式：零内容阶段静默超时且未达 MAX_ZERO_CONTENT_STREAM_RETRIES=1 且用户 parent signal 未 abort 时内部重建底层流——每次尝试独立 AbortController（combineAbortSignals 改多参；换流打断上一次挂起连接，total timeout 跨尝试共享不重置）、托管云重试换新随机幂等键、对外吞掉重试流重复 start（agent-loop 的 message_update 会以新 partial 自然接管）、外部 next() 等待者跨重试存活、result() 等待者跟随当前流迁移（旧流 abort settle 不再决定 result 归宿）；pump 以 generation 守卫静默退出。已产出实质内容或重试耗尽则按原路径报错。",
+      "files": [
+        "server/ai-provider-options.mjs",
+        "server/ai-http-logger.mjs",
+        "tests/server/ai-provider-options.test.mjs",
+        "tests/server/ai-http-logger.test.mjs",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run ai-http-logger + ai-provider-options → 2 files / 19 tests 全通过（新增：零内容 idle 透明重试一次后仍失败才报错、重试流 start 被吞且消费者无缝续上 + 旧 attempt signal abort/新 signal 未 abort、有实质内容后不重试、parent abort 跳过重试、默认路径首事件 60s 档（60s 静默即触发透明重试、再 60s 失败）、托管云重试换新幂等键；更新：完全 idle 用例适配重试语义、异步迭代 idle 用例 advance 2000ms）；消费方回归 conversation-compaction + side-chat 路由 + agent-manager.persist/abort/process-timing + rollback-compaction + auto-compaction → 全通过；npx eslint 改动 4 文件 0 error；node --check 通过；npm run build 成功（仅既有 chunk size warnings）。调试期间发现并修复三个实现 bug：publish 误写 waiter(...) 应为 waiter.resolve(...)（沿用原版写法）、combineAbortSignals 只取两参致 attemptController.signal 被静默丢弃（改多参）、result() 早调用绑定旧流 promise（改等待者跟随当前流+swap 迁移）。未跑全量 test/lint。"
+    },
+    {
+      "id": "sse-reconnect-notice",
+      "name": "弱网重连提示：对话中显示「重新连接中… 8/10」",
+      "status": "done",
+      "approach": "先出交互稿 design-mockups/reconnect-indicator.html（三方案 × 三状态 × 深浅主题 + 可操作断连/恢复/失败演示，用户选定方案 A：消息流末尾居中轻量行）后实现。调研确认现状为 GlobalAgentSseClient 无限次指数退避（1s 起 ×2 封顶 30s）且断连对 UI 完全静默。链路：server-agent.ts 新增 MAX_SSE_RECONNECT_ATTEMPTS=10 与 SseConnectionStatus 类型——onerror 进入恢复（直连→同源代理切换计一次零等待尝试）经 noteReconnectAttempt 广播 reconnecting{attempt,maxAttempts,nextRetryAt}，onopen 成功且此前确有断连时广播 connected{recovered:true} 并重置计数/退避，第 10 次重试仍失败广播 failed 并停止自动重连；导出 subscribeSseConnectionState/getSseConnectionState/requestSseReconnectNow（手动重试清退避立即重连）；disconnect 统一重置计数/退避/状态快照。UI 为新 panel-decoration/reconnect-notice.ts controller：订阅连接状态，在 message-list 末尾追加居中行——重连中 spinner+「重新连接中… n/10」+每秒倒计时（interval 只更新文本节点），恢复后绿色「已重新连接」约 2.2s 带退场动画自动移除，上限后琥珀「连接失败，已重试 10 次」+「立即重试」按钮；元素幂等复用、decorate 周期 sync() 在消息列表被 Lit 重建后重挂回末尾，destroy 退订+清计时器+移除 DOM。ChatPanelHost 仅主聊天挂载（Side Chat 走独立 NDJSON 流不共享该 SSE）。i18n 中英成对 5 key；index.css 新增 .quickforge-reconnect* 段（复用 muted token、todo 完成态 emerald、persist-degraded 琥珀 #d97706，reduced-motion 关动画；置于 TodoWrite 摘要注释之前避免无界切片契约污染）。controller 文案全部 createElement/textContent，innerHTML 仅静态 SVG 常量。流式断连卡死仍由既有 15s 静默看门狗兜底，两者互补。",
+      "files": [
+        "design-mockups/reconnect-indicator.html",
+        "src/lib/server-agent.ts",
+        "src/components/chat/panel-decoration/reconnect-notice.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/frontend/reconnect-notice.test.ts",
+        "tests/frontend/server-agent.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run reconnect-notice + server-agent → 2 files / 58 tests 全通过（新增 server-agent 4 用例：退避计数与 reconnecting 广播、10 次上限后 failed 且不再新建连接、onopen recovered+计数重置、失败态 requestSseReconnectNow 立即重连且错误从 attempt 1 重新计；reconnect-notice 8 行为用例 + 6 组源码契约：挂载/计数/倒计时 tick/原地更新/成功自动淡出/失败重试按钮/destroy 退订/重建重挂/过期 connected 快照忽略，ChatPanelHost 接线与 side-chat 隔离、桶导出、上限 10、innerHTML 仅 SVG、i18n 双语、CSS 三态+reduced-motion+段位置先于 TodoWrite 注释）；回归 i18n-language-snapshot + todo-write-renderer/summary + message-queue + side-chat-workspace-tab + chat-harness-capabilities → 6 files / 70 tests 全通过；npx eslint 改动 7 文件 0 error；npx tsc -b --pretty false 通过；npm run build 成功（仅既有 chunk size warnings），dist CSS/JS 确认含 quickforge-reconnect 样式与 sseReconnectingLabel key。期间误改 SSE_SILENCE_RECOVERY_MS 15000→15015 导致两个既有 watchdog 用例失败，恢复原值后全绿。未跑全量 test/lint。"
+    },
+    {
       "id": "release-v1.10.0",
       "name": "发布 minor v1.10.0",
       "status": "done",

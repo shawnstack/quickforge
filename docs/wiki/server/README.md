@@ -364,6 +364,10 @@ server/
 
 **用途**: 对话历史压缩。使用 AI 将长对话压缩为精炼摘要。
 
+### ai-http-logger.mjs (623 行) / ai-provider-options.mjs
+
+**用途**: 服务端 → 模型供应商 API 的流包装层。`streamSimpleWithAiHttpLogging` 包装 pi-ai `streamSimple`：AI HTTP 日志（`QUICKFORGE_AI_HTTP_LOG`，AsyncLocalStorage trace + header 脱敏 jsonl）、quickforge-cloud 托管模型懒解析（忽略客户端可控 transport 字段、首尝试用持久化幂等键）、流超时治理。超时分两档 + 零内容透明重试：首个实质事件（text/thinking/toolcall delta）前与产出实质内容后均默认 60s（经用户决策统一收紧，prefill 若误杀再回调），显式 `idleTimeoutMs`/`deadlineMs` 时两档同值保持调用方语义；显式 `idleTimeoutMs`/`deadlineMs` 时两档同值保持调用方语义。任意 idle 静默超时（含已产出实质内容后，新流从零重放、消息被新 partial 原位替换）内部重建底层流（`MAX_STREAM_RETRIES=10`，对齐前端 SSE 重连语义）：每次尝试独立 AbortController（换流时打断上一次挂起连接，total timeout 跨尝试共享不重置）、托管云重试换新随机幂等键（同 key 重放已断流的语义不可控）、对外吞掉重试流的重复 `start` 事件且 `result()` 等待者跟随当前流迁移——消费方（agent-loop / SSE / 前端）完全无感；重试进度经 options.onStreamRetry 回调上报（agent-manager 注入后以 `model_stream_retry` SSE 事件广播 attempt/maxAttempts，重试流首个实质事件再上报 recovered:true，前端显示「模型连接重试中… n/10」）；用户 parent signal 已 abort 或重试额度用尽则按原路径报 `AI stream idle/total timeout after Xms`。另有 total 档 20 分钟兜底；openai SDK 层的 maxRetries=3 + 120s timeout 只覆盖「请求建立阶段」（headers 到达即清除计时器），流建立后的挂死由本层唯一负责。
+
 ### auto-compaction.mjs
 
 **用途**: 自动上下文压缩。读取 `settings['auto-compact-settings']`，在 Agent 每次请求模型前按压缩后的有效上下文估算占当前模型 `contextWindow` 的比例；token 统计复用 `@earendil-works/pi-agent-core.estimateContextTokens()` / `estimateTokens()`，模型 `contextWindow` 和 assistant `usage` 来自 `@earendil-works/pi-ai`，占用按纯输入口径（`inputTokens / contextWindow`）计算，真实请求的 max_tokens 由 pi-ai `clampMaxTokensToContext` 按窗口收缩，统计不再预留输出 token；阈值判断通过 QuickForge 百分比配置转换为 reserve tokens 后复用 `pi-agent-core.shouldCompact()`；超过阈值时生成滚动摘要。后端同时在 session state 中返回同一口径的权威 `contextUsage`，聊天底部上下文百分比优先展示该值；压缩完成后立即丢弃摘要前旧请求留下的 provider usage 基线，待压缩后新 assistant usage 到达再恢复 provider 统计，因此百分比会马上下降并保持后续准确。触发只发生在下一次模型请求前，并会受最小历史长度、最近拒绝、压缩间隔等保护条件限制；已有压缩后只要出现新消息即可再次检查，不再固定等待三条新增消息。自动压缩采用“双轨”模式：完整 `messages` 继续持久化并展示在 UI 中，后续 Agent loop 只使用最新 compact summary 与最近若干用户回合。

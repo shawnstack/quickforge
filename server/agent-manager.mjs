@@ -6,7 +6,7 @@ import { Agent } from '@earendil-works/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { loadSkillToolContext, abortRunningCommand } from './tools/index.mjs'
 import { createSkillTools, globalMemoryTool, workspaceTools } from './tools/definitions.mjs'
-import { createMcpToolDefinitions, isMcpToolName } from './mcp/registry.mjs'
+import { createMcpToolDefinitions, isMcpToolName, subscribeMcpToolsetChanged } from './mcp/registry.mjs'
 import { createPluginToolDefinitions, isPluginToolName } from './plugins/registry.mjs'
 import { createOpenCodeAcpAgent } from './opencode-acp-agent.mjs'
 import {
@@ -141,6 +141,7 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
     includeSubagentTool = true,
     includeMcpTools = true,
     includePluginTools = true,
+    mcpWaitForConnections = true,
     parentSessionId = null,
     sessionId = null,
     scope = 'global',
@@ -179,7 +180,7 @@ async function createServerTools(projectId, projectContext, skillsContext, inclu
   }
 
   if (includeMcpTools) {
-    const mcpTools = await createMcpToolDefinitions()
+    const mcpTools = await createMcpToolDefinitions({ waitForConnections: mcpWaitForConnections })
     tools.push(...mcpTools.filter(isAllowed).map((definition) => wrapMcpToolDefinition(definition, toolPermissions)))
   }
 
@@ -266,7 +267,7 @@ function hasFullAccess(session) {
 
 /** @typedef {{ agent: Agent, projectContext: object|null, projectId: string|null, accessMode: string, yoloMode: boolean, model: object, thinkingLevel: string, scope: string, title: string, createdAt: string, status: string, startedAt: string|null, finishedAt: string|null, listeners: Set<function>, idleTimer: NodeJS.Timeout|null, eventBus: EventEmitter }} AgentSession */
 
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
 const ABORT_IDLE_WAIT_TIMEOUT_MS = 3000
 const SUBAGENT_DEFAULT_TIMEOUT_MS = 60 * 60 * 1000
 const SUBAGENT_TRACE_THROTTLE_MS = 150
@@ -1942,10 +1943,15 @@ export async function createAgent(sessionId, config = {}) {
     agentProfile = null,
     idleRetention = null,
     stateVersion = 0,
+    mcpToolsMode = 'await',
   } = config
   const accessMode = normalizeAccessMode(rawAccessMode, yoloMode)
   const resolvedYoloMode = yoloModeFromAccessMode(accessMode)
   const harness = normalizeAgentHarness(rawHarness)
+  // 'cached' (restore path) builds MCP tools from the current connection
+  // snapshot without waiting for (re)connects; the background refresh and
+  // toolset-change subscription converge active sessions afterwards.
+  const mcpWaitForConnections = mcpToolsMode !== 'cached'
 
   // Resolve project context for tool calls. Project conversations resolve to
   // their directory; global conversations (no projectId) and any fallback fall
@@ -2035,11 +2041,13 @@ export async function createAgent(sessionId, config = {}) {
               allowedToolNames: profileToolNames,
               includeSubagentTool: false,
               includeMcpTools: false,
+              mcpWaitForConnections,
               parentSessionId: sessionId,
               sessionId,
               scope,
             }
           : {
+              mcpWaitForConnections,
               parentSessionId: sessionId,
               sessionId,
               scope,
@@ -3400,6 +3408,9 @@ async function restoreAgentUnlocked(sessionId) {
       model: sessionData.model,
       modelRef: sessionData.modelRef || null,
       resolvePersistedModel: true,
+      // Restore must not block on MCP (re)connects: build tools from the
+      // current snapshot; background refresh + toolset notification converge.
+      mcpToolsMode: 'cached',
       thinkingLevel: sessionData.thinkingLevel || 'off',
       messages: sessionData.messages || [],
       title: sessionData.title || 'New chat',
@@ -3541,6 +3552,20 @@ export async function refreshAllSessionTools() {
   }
   return result
 }
+
+// MCP toolset changes (background reconnects, startup warmup) rebuild tools
+// for all active sessions so restored sessions that took a cached MCP tool
+// snapshot converge without ever blocking POST /restore. refreshAllSessionTools
+// rebuilds via the default await path — with servers already connected it only
+// reuses connections, and an unchanged toolset signature does not notify
+// again, so this never loops. registry.mjs never imports agent-manager.mjs
+// (no circular dependency).
+subscribeMcpToolsetChanged(() => {
+  if (agentSessions.size === 0) return
+  refreshAllSessionTools().catch((error) => {
+    logger.warn(`Failed to refresh session tools after MCP toolset change: ${error?.message || error}`)
+  })
+})
 
 /**
  * Refresh the model binding of every active QuickForge session after model

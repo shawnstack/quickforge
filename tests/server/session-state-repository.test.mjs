@@ -424,4 +424,22 @@ describe('session state repository and schema v11', () => {
       { expectedRevision: 0 },
     )).toThrow(TypeError)
   })
+
+  it('skips the state.messages deep clone when pre-encoded rows are provided', async () => {
+    const message = { role: 'user', content: 'snapshot' }
+    const [encoded] = await encodeMessagesChunked([message])
+    // The messagesEncoded bypass never serializes state.messages (the encoded
+    // rows are the payload) — only its length is read for alignment. The
+    // uncloneable function property proves the deep clone is gone: cloning
+    // would throw DataCloneError, the bypass must not.
+    const messages = [{ ...message, fn: () => {} }]
+    const saved = repository.replaceMessages(
+      { ...record('no-deep-clone'), state: { ...record('no-deep-clone').state, messages }, messagesEncoded: [encoded] },
+      messages,
+      { expectedRevision: 0 },
+    )
+    expect(saved.messageCount).toBe(1)
+    expect(repository.readMessagesPage({ scope: 'global', sessionId: 'no-deep-clone', limit: 10 }).messages[0].message)
+      .toEqual(message)
+  })
 })

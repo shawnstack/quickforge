@@ -49,6 +49,7 @@ import { readCloudServiceConfig } from './cloud/service-config.mjs'
 import { startQfAgent, stopQfAgent, getQfAgentStatus } from './cloud/qf-agent-process.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
+import { installProcessErrorHandlers } from './utils/process-error-guards.mjs'
 import { getPackageInfo, checkForUpdates, getUpdateCheckState, checkDesktopRelease } from './utils/package-update.mjs'
 import { installAiHttpLogger } from './ai-http-logger.mjs'
 import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
@@ -56,7 +57,7 @@ import { parseCookies } from './share-store.mjs'
 import { lanAccessCookieName, verifyLanAccessToken } from './lan-access-store.mjs'
 import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
 import { initializeChannels, shutdownChannels } from './channels/registry.mjs'
-import { shutdownMcpConnections } from './mcp/registry.mjs'
+import { refreshMcpConnections, shutdownMcpConnections } from './mcp/registry.mjs'
 import { shutdownTerminalSessions } from './terminal/terminal-manager.mjs'
 import { closeSqliteStorage, getSqliteStorage, getSqliteStorageSummary, initializeSqliteStorage } from './sqlite/database.mjs'
 import { initializeScheduledRunsCutover } from './scheduled-runs-cutover.mjs'
@@ -90,6 +91,14 @@ let shutdownStarted = false
 let qfAgentStartPromise = null
 let boundServerPort = null
 let startupInitializationPromise = null
+
+// Register process-level error guards as early as possible so a crash during
+// module top-level evaluation or the awaited startup phase is still logged
+// before exit (this server runs detached with stdio ignored). stopQuickForgeServer
+// is a hoisted function declaration and shutdownRuntime is defensive about
+// services that never started (closeHttpServer is safe on a server that never
+// listened), so an early fatal error during startup is handled cleanly.
+installProcessErrorHandlers({ onFatalError: () => stopQuickForgeServer() })
 
 setDefaultWorkspaceRoot(process.env.QUICKFORGE_WORKSPACE_DIR || path.join(dataDir, 'workspace'))
 
@@ -969,6 +978,13 @@ server.listen(port, host, () => {
   }
   logger.info(`QuickForge data dir: ${dataDir}`)
   logger.info(`QuickForge project: ${getWorkspaceRoot()}`)
+
+  // MCP warmup: fire-and-forget so the first /restore or tool listing reuses
+  // warm connections instead of paying MCP connect latency. No MCP config
+  // makes the refresh a natural no-op; it never blocks startup.
+  refreshMcpConnections().catch((error) => {
+    logger.warn(`MCP connection warmup failed: ${error?.message || error}`)
+  })
 
   const pending = (async () => {
     // The remote agent talks to the local business API: hold it back until the

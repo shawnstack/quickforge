@@ -107,6 +107,11 @@ type AgentWithCapabilityPrompt = AgentLike & {
   setPlanMode?: (mode: boolean, onConsumed?: () => void) => void
 }
 
+// 对话区 icon-only 紧凑模式阈值：控件行极限宽度约 530px + 余量取 640px；
+// 释放阈值比进入阈值大 32px 形成滞回，避免拖动侧栏过程中反复切换。
+const CHAT_COMPACT_WIDTH_THRESHOLD = 640
+const CHAT_COMPACT_WIDTH_RELEASE = 672
+
 function effectiveContextMessages(agent: AgentLike): MessageWithUsage[] {
   const state = (agent as AgentWithContextCompaction).state
   const compaction = state.contextCompaction
@@ -1680,6 +1685,22 @@ export function ChatPanelHost({
     host.classList.toggle('quickforge-chat-panel-empty-host', newChatEmptyState)
     host.dataset.quickforgeEmptyChat = newChatEmptyState ? 'true' : 'false'
   }, [newChatEmptyState])
+
+  // 对话区被左右侧栏拖宽挤压变窄时（视口宽度不变，@media 视口查询不会触发），
+  // 由 ResizeObserver 监听宿主内容宽度并挂/摘 quickforge-chat-compact class，
+  // 让 index.css 中的紧凑段把 Composer 控件收成 icon-only 形态。
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? host.getBoundingClientRect().width
+      if (width > 0 && width < CHAT_COMPACT_WIDTH_THRESHOLD) host.classList.add('quickforge-chat-compact')
+      else if (width >= CHAT_COMPACT_WIDTH_RELEASE) host.classList.remove('quickforge-chat-compact')
+      // 介于两者之间时保持现状（滞回，避免拖动侧栏时抖动）
+    })
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [])
 
   // =========================================================================
   // Decoration trigger: re-run decoration when UI props change (without

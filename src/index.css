@@ -5317,6 +5317,74 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   }
 }
 
+/* 对话区 icon-only 紧凑模式：对话区被左右侧栏拖宽挤压变窄时（视口宽度不变，
+   @media 视口查询覆盖不到该场景），ChatPanelHost.tsx 用 ResizeObserver 监听宿主
+   内容宽度——<640px 挂 quickforge-chat-compact、≥672px 释放（32px 滞回防拖动
+   抖动）。本段复用移动端 icon-only 形态：带文字控件收成 2rem 只留 icon。 */
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-agent-access-inline {
+  width: 2rem;
+  gap: 0;
+  padding-inline: 0 !important;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-agent-access-inline :is(.quickforge-agent-access-label, .quickforge-agent-access-chevron) {
+  display: none;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-model-trigger {
+  width: 2rem;
+  min-width: 2rem;
+  gap: 0;
+  padding-inline: 0 !important;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-model-trigger > span.ml-1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  margin: -1px !important;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-model-trigger[data-quickforge-thinking-level]::after {
+  display: none;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-plan-inline {
+  width: 2rem;
+  gap: 0;
+  padding-inline: 0 !important;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-plan-inline > span {
+  display: none;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-opencode-config-inline {
+  width: 2rem;
+  gap: 0;
+  padding-inline: 0 !important;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-opencode-config-inline :is(.quickforge-opencode-config-label, .quickforge-agent-access-chevron) {
+  display: none;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-opencode-mode-inline {
+  width: 2rem;
+  min-width: 2rem;
+  gap: 0;
+  padding-inline: 0 !important;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-opencode-mode-inline .quickforge-opencode-mode-label {
+  display: none;
+}
+
 .quickforge-font-size-slider {
   height: 0.35rem;
   border-radius: 9999px;

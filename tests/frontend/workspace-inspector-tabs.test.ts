@@ -202,14 +202,12 @@ describe('workspace inspector tabs persistence', () => {
     const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
     const inspectorSource = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
     const managerSource = readFileSync(new URL('../../src/hooks/useAgentManager.ts', import.meta.url), 'utf8')
-    const openStateSource = readFileSync(new URL('../../src/hooks/useWorkspaceInspectorOpenState.ts', import.meta.url), 'utf8')
 
     expect(appSource).toContain('const workspaceInspectorRuntimeScopeId = agentManager.currentRuntimeScopeId')
     expect(appSource).toContain('key={`${workspaceInspectorProjectId}:${workspaceInspectorRuntimeScopeId}`}')
     expect(appSource).toContain('runtimeScopeId={workspaceInspectorRuntimeScopeId}')
     expect(managerSource).toContain('attachTaskToView(task, previousAgent.sessionId)')
     expect(managerSource).toContain('const runtimeScopeId = deferredAgent.sessionId')
-    expect(openStateSource).toContain('if (sessionId) writeWorkspaceInspectorOpen(projectId, sessionId, open)')
     expect(inspectorSource).toContain('writePersistedPanelTabs(projectId, sessionId, panelTabs, activePanelTabId, readerNavigationVisible)')
   })
 

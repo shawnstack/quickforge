@@ -139,7 +139,16 @@ function deriveMetadata(state, existing = {}) {
 
 function synchronize(stateValue, metadataValue, sessionId, fallback = null) {
   if (!isPlainObject(stateValue) || !isPlainObject(metadataValue)) throw new TypeError('Session state and metadata must be plain objects')
-  const state = structuredClone(stateValue)
+  // Persist-path CPU cut: deep-clone only the body and shallow-copy the
+  // messages array instead (fresh array, same element references). The fresh
+  // array freezes the length snapshot, and encodeMessage turns each message
+  // into an immutable JSON string the instant it runs, so a caller push or
+  // in-place edit during the async chunked encode can never alter what is
+  // written — byte-identical to the previous whole-state clone. The body
+  // mutations below still land on the clone, never on the caller's object.
+  const { messages: incomingMessages, ...stateBody } = stateValue
+  const state = structuredClone(stateBody)
+  if (incomingMessages !== undefined) state.messages = Array.isArray(incomingMessages) ? incomingMessages.slice() : incomingMessages
   const metadata = structuredClone(metadataValue)
   state.id = sessionId
   metadata.id = sessionId
@@ -276,12 +285,18 @@ function savePair(state, metadata, options = {}) {
 async function savePairChunked(state, metadata, options = {}) {
   const sessionId = options.sessionId ?? state?.id ?? metadata?.id
   const existing = options.fallback ?? (sessionId ? repository().findBySessionId(sessionId) : null)
-  const plan = messageStoragePlan(state, existing)
+  // Freeze the messages snapshot before the yielding encode: the plan and
+  // every encode batch read this fresh array, so a caller push during an
+  // inter-batch yield can neither extend a later batch nor change the
+  // persisted row count — the write stays at the call-time snapshot.
+  const messages = Array.isArray(state?.messages) ? state.messages.slice() : state?.messages
+  const snapshotState = messages === state?.messages ? state : { ...state, messages }
+  const plan = messageStoragePlan(snapshotState, existing)
   if (plan.mode !== 'replace' && plan.mode !== 'append') {
     return savePairWithPlan(state, metadata, options, plan, existing)
   }
   const messagesEncoded = await encodeMessagesChunked(plan.messages)
-  return savePairWithPlan(state, metadata, { ...options, messagesEncoded }, plan, existing)
+  return savePairWithPlan(snapshotState, metadata, { ...options, messagesEncoded }, plan, existing)
 }
 
 /**

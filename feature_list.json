@@ -1,6 +1,139 @@
 {
   "features": [
     {
+      "id": "chat-compact-composer-on-narrow-chat-area",
+      "name": "对话区被侧栏挤压变窄时 Composer 控件 icon-only 紧凑模式（ResizeObserver + 滞回，viewport 不变时 @media 覆盖不到的场景）",
+      "status": "done",
+      "approach": "用户需求：中间对话区被左右侧栏拖宽挤压变窄时（viewport 宽度不变，@media 视口查询不触发），Composer 输入框带文字控件应收起文字只留 icon。只读调研确认：index.css @media (max-width:768px) 已有 agent-access/model-trigger 的 icon-only 规则但不覆盖侧栏挤压场景；ChatPanelHost 宿主 div（quickforge-chat-panel-host）挂 light DOM pi-web-ui 元素，全局 CSS 后代选择器可命中，Side Chat 复用同一宿主；五个带文字控件为 agent-access（label+chevron）、model-trigger（span.ml-1+thinking 徽标）、plan（无 class 文字 span，icon 是 svg 专用 class）、opencode-config（label+chevron）、opencode-mode（label，icon 来自 model-trigger::before）。实现：① ChatPanelHost.tsx 模块级常量 CHAT_COMPACT_WIDTH_THRESHOLD=640（控件行极限约 530px+余量）/CHAT_COMPACT_WIDTH_RELEASE=672（32px 滞回防拖动抖动），新增 useEffect 用 ResizeObserver（typeof 防御式检查，vitest node 环境无 ResizeObserver）监听宿主 contentRect 宽度：<640 挂 quickforge-chat-compact、≥672 摘除、区间内保持现状。② index.css 在移动端 @media 块之后新增 .quickforge-chat-panel-host.quickforge-chat-compact 段：五控件统一收 2rem/gap 0/padding-inline 0 !important，agent-access 与 opencode-config 隐藏 label+chevron、model-trigger 的 span.ml-1 照抄移动端 sr-only 块并隐藏 thinking 徽标、plan 用 > span 只隐藏文字 span（不命中 svg icon）、opencode-mode 隐藏 label（::before icon 保留）；选择器三 class 特异性高于 @media 内两 class 规则，移动端两态同时命中时值一致零回归，未改动 @media 块内任何规则。③ 新增 tests/frontend/chat-compact-controls.test.ts 源码契约测试（readFileSync+正则，参照 composer-control-hover/workspace-inspector-width-range）：阈值常量、ResizeObserver 防御、classList add/remove 分支滞回、CSS 五控件覆盖、@media 既有规则回归守卫；ruleFor 匹配前剥 CSS 注释、:is() 含逗号规则改精确文本断言。④ wiki src/components/README.md 补紧凑模式条目。",
+      "files": [
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/index.css",
+        "tests/frontend/chat-compact-controls.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 8 files / 48 tests 全过（新增 chat-compact-controls 9 tests：3 ChatPanelHost 源码契约 + 5 CSS 契约 + 1 移动端 @media 回归守卫；回归 composer-control-hover 3、composer-plus-menu 9、send-stop-button 5、opencode-config-menu 10、custom-model-selector 7、side-chat-composer-menu-scope 2、mobile-fullscreen-adaptation 3）；npx eslint src/components/chat/ChatPanelHost.tsx tests/frontend/chat-compact-controls.test.ts 0 error；npx tsc -b 通过；npm run build 通过（仅既有 KaTeX 字体与 chunk size 警告）。未跑全量 test/lint。"
+    },
+    {
+      "id": "browser-single-window-guard",
+      "name": "浏览器严格单窗口守卫：Web Locks 抢锁，第二个窗口只显示拦截页并尽力聚焦已有窗口",
+      "status": "done",
+      "approach": "用户提问「浏览器打开时能否只允许开一个窗口，因为开多个 SSE 会堵塞」。先经双 explore 并行调研澄清根因：服务端 SSE（agents/events、channels/events）为单进程 EventEmitter 广播，无锁无队列、互不阻塞；真实堵塞是浏览器 HTTP/1.1 同源 6 连接池被每窗口 2-4 条常驻长连接（channels/events + agents/events（生产同源）+ Side Chat NDJSON fetch + 设置页额外一条 channels/events）占满，普通 API 请求排队，开 2-3 个窗口即池满（与 git-status-connection-pool-guard 诊断同机制）。用户决策：Web Locks 严格单窗口（无接管/让位逃生门）、检测到第二窗口时尽力自动把已有窗口带到前台（浏览器安全模型下无法 100% 强制聚焦，由已有窗口自行 window.focus() + 标题闪烁兜底）。实现：① 新增 src/lib/window-guard.ts（257 行）——acquireAppWindowGuard 以 navigator.locks.request(LOCK, {ifAvailable:true}) 抢锁：持锁成功时回调 await 永不结算的 promise、成功判定只依赖回调内 acquired 标志经 acquiredPromise 在 Promise.race 中胜出（request promise settled 即本轮失败），同窗口刷新竞态按 400ms×2 重试（共 3 次尝试）后才判 blocked；Web Locks/BroadcastChannel 任一不可用降级 unsupported 放行；持锁后 startWindowFocusResponder 监听专用 BroadcastChannel（quickforge-window-guard），收到 focus-request 调 window.focus() 并以「● 」前缀标题闪烁 5s 兜底（800ms 交替、重复请求重置截止计时、注入式计时器）；requestExistingWindowFocus 广播 {type:'focus-request'} 后立即 close，通道不可用静默 no-op；全部依赖（locks/BroadcastChannel/计时器/focus/document/retryDelayMs/maxRetries）可注入单测，计时器用 window.setTimeout 规避 @types/node 全局类型合并冲突（与 toast.tsx 惯例一致）。② 新增 src/components/WindowGuardNotice.tsx 全屏拦截页——内联 SVG（不依赖 LucideProvider）、t() 双语文案、复用 Button 与既有 token（bg-background/border-border/shadow-quickforge/rounded-xl），不 import App、不发任何 /api 请求。③ src/main.tsx 改 bootstrap 异步入口：渲染前 await acquireAppWindowGuard()，granted/unsupported 原样渲染 App（SW 注册/全局错误兜底/补丁全部原位），blocked 先自动广播一次 focus 请求再只渲染拦截页（不加载 App、不建立任何 SSE）。④ i18n 中英成对 3 key（windowGuardTitle/Description/SwitchButton，置于 sseReconnect* 相邻位置）；i18n import 时以 browserDefaultLanguage() 同步初始化，blocked 场景 t() 安全可用。⑤ wiki 3 处同步（src/README main.tsx 条目、lib/README window-guard 条目、components/README WindowGuardNotice 条目）。",
+      "files": [
+        "src/lib/window-guard.ts",
+        "src/components/WindowGuardNotice.tsx",
+        "src/main.tsx",
+        "src/lib/i18n.ts",
+        "tests/frontend/window-guard.test.ts",
+        "docs/wiki/src/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/window-guard.test.ts → 10 tests 全过（主 Agent 复核重跑通过；6 行为用例：unsupported 降级、立即 granted 且持锁不释放、ifAvailable 失败重试后 blocked、重试期间成功转 granted、focus 响应器 focus+标题闪烁/恢复/重复重置、requestExistingWindowFocus 广播+close；4 源码契约：main.tsx blocked 分支渲染拦截页不渲染 App、i18n 三 key 中英成对、拦截页不 import App 不 fetch、无新增依赖）；i18n 改动回归 i18n-language-snapshot + reconnect-notice + model-retry-notice → 31 tests 全过；npx eslint 5 个改动文件 0 error；npx tsc -b --pretty false 通过；npm run build 通过（仅既有 KaTeX 字体与 chunk size 警告）。未跑全量 test/lint（发布门禁时按 runbook 全量重跑）。Revision（用户真机反馈点击「切换到已有窗口」不跳转、旧窗口完全没反应）：根因双重浏览器限制——① message 回调无 user activation 的 window.focus() 被 Chrome 防焦点劫持策略忽略；② 后台标签 setTimeout 深度节流（低至 1 次/分钟）致 800ms 后的首个标题变化不可见。修复：收到请求立即置「● 」标题（不依赖计时器）；新增系统通知聚焦路径（permission granted + isSystemNotificationsEnabled 复用既有开关 + 10s 节流 + tag 去重，onclick close+focus——通知点击自带 user activation 聚焦可靠；不可用静默降级）；focus 事件兜底（切回窗口时超时闪烁立即恢复原标题）；拦截页点击后显示 windowGuardSwitchHint 引导。复验：window-guard 15 用例 + i18n-language-snapshot/system-notifications 回归 20/20 + eslint 0 error + tsc -b + build 全过。"
+    },
+    {
+      "id": "session-switch-no-auto-preview-tab",
+      "name": "切换 session 不再自动弹出预览 tab 与右面板",
+      "status": "done",
+      "approach": "用户反馈「切换项目内 session 时 tab 自动打开」。定位两条设计机制叠加：① WorkspaceInspector 面板开合状态按 (projectId, sessionId) 从 localStorage 恢复（useWorkspaceInspectorOpenState），切回曾展开面板的 session 会自动展开；② App.tsx 自动预览 effect 对恢复会话的全部历史 present_files 产物自动弹 tab 并 setWorkspaceInspectorOpen(true) 强制开面板，原 sessionStorage 签名去重只覆盖浏览器标签页生命周期，冷启动后首次切换仍会弹。按用户决策改造：① 删除 useWorkspaceInspectorOpenState hook 及其 localStorage 读写与测试，workspaceInspectorOpen 改为页面生命周期内 useState(false)（默认收起，仅用户手动或自动预览请求打开；tab 列表仍按 (projectId, sessionId) 持久化恢复，WorkspaceInspector 重建逻辑不变）；② 自动预览改「附着时刻快照门控」——agent/sessionId 附着时（restore 返回时消息已同步填充）用新增纯函数 collectToolResultToolCallIds 快照全部历史 toolResult 的 toolCallId 存入 autoPreviewHistoryRef，effect 中经 isNewlyPresentedArtifact 判定仅「附着后新发生」的 present_files 才自动弹（缓存命中后后台校准补尾的 toolResult 视为新产物，可接受）；删除 sessionStorage 去重机制，保留 autoPreviewSignatureRef 内存签名去重防同会话重复报告反复弹。新建 deferred 会话→首条消息晋升路径下快照为空集、后续 present 正常弹出，行为不变。",
+      "files": [
+        "src/App.tsx",
+        "src/components/workspace/artifact-preview-utils.ts",
+        "src/hooks/useWorkspaceInspectorOpenState.ts",
+        "tests/frontend/auto-preview-fresh-present.test.ts",
+        "tests/frontend/workspace-inspector-open-state.test.ts",
+        "tests/frontend/workspace-inspector-tabs.test.ts",
+        "docs/wiki/src/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run auto-preview-fresh-present（新，8 tests：两个纯函数用例 + App.tsx 源码契约——含门控调用/不含 hasSeenAutoPreviewSignature、useWorkspaceInspectorOpenState、auto-preview-seen-signatures）+ workspace-inspector-tabs（删 openStateSource 断言后 19 tests）+ tool-artifacts-and-events + side-chat-workspace-tab → 4 files / 50 tests 全过；eslint 改动 src 2 文件 0 error；npx tsc -b 通过；npm run build 通过（仅既有 KaTeX 字体与 chunk size 警告）；git grep 确认无 useWorkspaceInspectorOpenState / workspace-inspector-open-state / auto-preview-seen 残留。未跑全量 test/lint（发布门禁时按 runbook 全量重跑）。"
+    },
+    {
+      "id": "persist-skip-message-deep-clone",
+      "name": "持久化路径消除全量 messages 双重 structuredClone 深拷贝（CPU 削减，事务边界不变）",
+      "status": "done",
+      "approach": "restore 偶发慢根因之二：写路径每次 persist 对全量 messages 做两次 structuredClone 深拷贝（session-state-service.synchronize 的整 state 深拷贝 + repository.normalizeRecord 在已提供 messagesEncoded 预编码旁路时仍深拷贝），replace 模式下与消息量线性相关的纯 CPU 突刺。实现（字节级等价、不改事务边界/锁/CAS）：① server/session-state-service.mjs — synchronize() 改为「深拷贝 body（剔除 messages）+ messages 浅拷贝（新数组、元素保持引用）」重组，形状与原产物一致（messages:undefined 键经 JSON round-trip 本就丢弃）；savePairChunked() 入口对 state.messages 浅拷贝冻结调用时快照——plan 与每个编码批次读同一冻结数组，让出间隙调用方 push 既进不了后续批次也改不了行数（torn-read 防护；修复前 push 恰会被逐批重读 length 的循环读入）。② server/sqlite/session-state-repository.mjs — normalizeRecord() 在 messagesEncoded 已提供且 messages 为数组时同样只深拷贝 body + messages 浅拷贝（该旁路 messages 仅同步读长度对齐，写库内容为编码瞬间冻结的不可变字符串）；其余路径（verifyIntegrity/applyBatch/replaceAll/无预编码同步 savePair）保持全量深拷贝。安全论证：编码产物字符串在编码瞬间即不可变快照，单批次内编码同步无并发突变，已编码批次不受源对象后续原地突变影响；CAS 重试每次调用重建快照语义不变。",
+      "files": [
+        "server/session-state-service.mjs",
+        "server/sqlite/session-state-repository.mjs",
+        "tests/server/session-state-repository.test.mjs",
+        "tests/server/session-state-service.test.mjs",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run session-state-repository + session-state-service + session-state-phase3 + agent-manager.persist-session-state + canonical-json → 5 files / 95 tests 全过（新增 2 用例：不可克隆探针证明预编码旁路不再深拷贝 messages——深拷贝会抛 DataCloneError；torn-read 防护——120 条消息编码 yield 间隙 push 新消息+原地改已编码对象，断言行数/内容/首行 messageJson/messageCount 均为调用时快照，该用例在修复前失败）；eslint 改动 4 文件 0 error；node --check 通过；全量 npm run test 264 files / 2427 tests 全过、lint/build 通过。"
+    },
+    {
+      "id": "mcp-restore-nonblocking",
+      "name": "restore 非阻塞 MCP：连接快照构建工具 + 后台重连 + 工具集变更刷新会话 + 启动预热",
+      "status": "done",
+      "approach": "restore 偶发慢根因之一：createAgent → createServerTools → createMcpToolDefinitions 首行 await refreshMcpConnections()，error 且过 30s 冷却的 server 会让 restore 同步等待 connectServer（connect ≤15s + listTools ≤15s），且进程级 single-flight 把重连延迟扩散到所有并发 restore/工具调用；进程启动无预热、disconnected 连接不会被自动重连。实现：① server/mcp/registry.mjs — refreshMcpConnections(options) 增加 reconnectDisconnected（disconnected 也走 delete+close+重连）；createMcpToolDefinitions({waitForConnections:false}) 立即用当前连接快照（仅 connected）生成定义并 fire-and-forget 后台刷新（失败仅 warn）；新增 subscribeMcpToolsetChanged(callback) 返回退订函数，每次刷新完成后比较已连接 server 工具集签名（serverName::toolName 排序 join）变化才通知（无订阅者只更新基线；基线 null→首个签名视为变化，启动预热后让既有活跃会话拿到新工具）。② server/agent-manager.mjs — createServerTools 增加 mcpWaitForConnections、createAgent 增加 mcpToolsMode:'await'(默认)|'cached'，restoreAgentUnlocked 传 'cached'（restore/state/messages/status/SSE 回落全受益）；模块级订阅工具集变化 → agentSessions 非空时调现成 refreshAllSessionTools()（await 路径全连接时为快速复用、签名不变不再通知，无死循环；registry 不反向 import agent-manager）。③ server/index.mjs server.listen 回调 fire-and-forget refreshMcpConnections() 预热（经只读调研确认该 listen 回调是 CLI/SDK inline+spawn/Desktop/Android 全部入口的唯一 HTTP 启动点，无遗漏）。新会话创建、runSubagent、/api/tools、callMcpTool 保持 await 语义，工具调用 503 自愈路径不变；11 个 agent-manager 系测试文件的 mcp/registry mock 补 subscribeMcpToolsetChanged 导出。",
+      "files": [
+        "server/mcp/registry.mjs",
+        "server/agent-manager.mjs",
+        "server/index.mjs",
+        "tests/server/mcp-registry.test.mjs",
+        "tests/server/agent-manager.persist-session-state.test.mjs",
+        "tests/server/agent-manager.abort.test.mjs",
+        "tests/server/agent-manager.channel-events.test.mjs",
+        "tests/server/agent-manager.channel-source.test.mjs",
+        "tests/server/agent-manager.channel-sync.test.mjs",
+        "tests/server/agent-manager.context-references.test.mjs",
+        "tests/server/agent-manager.external-sync.test.mjs",
+        "tests/server/agent-manager.rollback-compaction.test.mjs",
+        "tests/server/agent-manager.subagents.test.mjs",
+        "tests/server/model-config-refresh.test.mjs",
+        "tests/server/slash-skill-agent.test.mjs",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run mcp-registry + 11 个 agent-manager 系/相关文件 → 12 files / 63 tests 全过（新增 4 用例：waitForConnections:false 在 error+过冷却时立即返回快照、后台刷新随后收敛连接；reconnectDisconnected 才重连 disconnected；工具集签名变化才通知订阅者；restore 路径以 {waitForConnections:false} 调 createMcpToolDefinitions 的行为断言）；eslint 改动文件 0 error；node --check 通过；全量 npm run test 264 files / 2427 tests 全过、lint/build 通过。"
+    },
+    {
+      "id": "agent-idle-timeout-10min",
+      "name": "Agent 空闲逐出时长 30 分钟收紧到 10 分钟",
+      "status": "done",
+      "approach": "用户指出「冷恢复：30 分钟 idle 被 destroyAgent 踢出内存」，内存会话缓存不必保留这么久，10 分钟足够。调研确认唯一改动点为 server/agent-manager.mjs:270 常量 IDLE_TIMEOUT_MS = 30*60*1000 → 10*60*1000（注释同步 10 minutes），硬编码、无环境变量覆盖点需同步；唯一消费点 resetIdleTimer()（L1864 逐出日志以 IDLE_TIMEOUT_MS/1000 派生自动跟随），idleRetention='always' 的 ACP 会话永不逐出、不受影响。tests/ 无任何断言该常量（grep 零匹配，agent-profiles 的 maxRuntimeMs:1800000 与 ask-user 的 ASK_TIMEOUT_MS 为独立语义未动）；docs/wiki 无文档写明 agent idle 时长（wiki 中「30 分钟」为终端 PTY RECONNECT_GRACE_MS 与 ask_user 超时，不涉及），故无需更新文档。",
+      "files": [
+        "server/agent-manager.mjs",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "node --check server/agent-manager.mjs 通过；npx eslint server/agent-manager.mjs 0 error 0 warning；动态 import 冒烟（48 个导出正常）；git diff 确认仅 1 行常量变更。无测试断言该值，未跑全量（工作区另有并行会话未提交的 agent-manager/MCP warmup 一族改动，避免误判归因）。"
+    },
+    {
+      "id": "server-process-error-guards",
+      "name": "服务器进程级异常兜底：uncaughtException 记录后优雅关闭退出、unhandledRejection 仅记录继续运行，后台不再无声死掉",
+      "status": "done",
+      "approach": "用户报告后台服务无声退出：8/27 23:10:29 日志断档，无错误、无优雅关闭标记，8.5 分钟后新实例才被拉起。根因：server/index.mjs 仅注册 SIGINT/SIGTERM，无 uncaughtException/unhandledRejection 处理器，且 CLI 以 detached + stdio:'ignore' 启动服务器，未捕获异常的默认堆栈输出无处可去，进程退出在 server-*.log 中零痕迹。实现：① 新增 server/utils/process-error-guards.mjs：createProcessErrorHandlers({onFatalError, exitProcess, shutdownTimeoutMs=5000}) 返回纯处理器（exitProcess 可注入供单测）。uncaughtException 走 fatal 路径：re-entrancy 守卫（fatal 关闭中二次异常只补记日志+flush+立即 exit(1)）→ logger.error 记录错误与 stack（附加 fatal:'uncaughtException' 字段）→ best-effort 优雅关闭（Promise.race，5s 上限，失败记 'Fatal shutdown failed:'）→ flushLogger() → exitProcess(1)，保证崩溃原因先落盘再退出。unhandledRejection 走非 fatal 路径：仅记录（Error 实例 logger 自动取 .stack，非 Error 经 util.inspect 转字符串），不 flushLogger（会关闭日志流）、不退出、不触发 onFatalError，进程继续服务。installProcessErrorHandlers(options) 负责向 process 注册两个监听。② server/index.mjs 在模块级状态声明之后、首个启动逻辑之前（:101）尽早 installProcessErrorHandlers({onFatalError: () => stopQuickForgeServer()})，覆盖模块顶层求值期与 await ensureStorage 启动期的异常窗口（stopQuickForgeServer 为 hoisted 声明、shutdownRuntime 对未启动服务防御、closeHttpServer 未 listen 安全）。③ 同步 docs/wiki/server/README.md（index.mjs 小节补 bullet + 行数更新 1031）、docs/wiki/server/utils/README.md（新模块条目）、docs/architecture/logging-design.zh-CN.md §5 埋点表追加兜底行。",
+      "files": [
+        "server/utils/process-error-guards.mjs",
+        "server/index.mjs",
+        "tests/server/utils/process-error-guards.test.mjs",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/utils/README.md",
+        "docs/architecture/logging-design.zh-CN.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/server/utils/process-error-guards.test.mjs 6/6 通过（fatal 正常路径含 flush-before-exit 顺序断言、onFatalError 抛错、20ms 超时、re-entrancy、rejection Error/非 Error 各路径）；回归 npx vitest run tests/server/utils/ 9 files / 157 tests 全过；npx eslint（server/index.mjs、新模块、新测试）0 error 0 warning；npm run build 通过（tsc -b + vite build，stderr 中 KaTeX 字体/chunk size 提示为既有第三方警告与本次无关）。按规范做定向验证 + build，未跑全量测试。"
+    },
+    {
       "id": "update-check-async-snapshot",
       "name": "检查更新接口异步化：GET /api/system/update/check 立即返回状态快照，后台刷新 registry，弱网不再 500",
       "status": "done",
@@ -1985,6 +2118,21 @@
         "feature_list.json"
       ],
       "verification": "定向 npx vitest run tests/frontend/server-agent.test.ts tests/frontend/reconnect-notice.test.ts 2 files / 67 tests 全通过（server-agent 新增 5 例：unreachable 超上限持续重连、health 可达 10 次后照常 failed 回归、bootId 变化补播 restarted、bootId 相同无 restarted、fetch 抛错/挂起超时均 unreachable；reconnect-notice 新增 3 例：unreachable 文案无计数、restarted 升级并重置淡出计时器、移除后忽略 restarted，并同步更新源码契约断言）；npx eslint 5 个改动 src/tests 文件 0 error；npx tsc -b 通过。未跑全量 test/lint/build；未新增依赖；未触碰生成产物；未 commit。父 Agent 复验：vitest 同上 67 tests、model-retry-notice 相邻回归 12 tests、eslint 5 文件、tsc -b、npm run build（仅既有 KaTeX/chunk size 警告）均通过。"
+    },
+    {
+      "id": "workspace-inspector-dynamic-width",
+      "name": "Workspace Inspector 拖动宽度动态上限（视口 75%、封顶 1200px、下限 340px）",
+      "status": "done",
+      "approach": "用户需求：右侧 Workspace Inspector 面板拖动范围更大。已确认方案：最小宽度 340 不变；拖动上限改为动态值 max(340, min(1200, 视口宽度*0.75))，超宽屏绝对封顶 1200px；自动展开（打开 browser/terminal/document/subagent/reader 时拉宽）保持拉到 640 不变。实现（参照 ChatSidebar.tsx 的 getSidebarMaxWidth/clampSidebarWidth 模式）：① WorkspaceInspector.tsx 常量区新增 WORKSPACE_INSPECTOR_MAX_VIEWPORT_RATIO=0.75 与 WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH=640，WORKSPACE_INSPECTOR_MAX_WIDTH 640→1200；新增模块级 getInspectorMaxWidth()/clampInspectorWidth()。② 消费点统一替换：readPersistedInspectorWidth 恢复、resize() 拖动 clamp 走 clampInspectorWidth；expandInspectorToMax 改用 AUTO_EXPAND_WIDTH（行为仍 640 不变）；全屏退出恢复的 style.maxWidth、aside 行内 style maxWidth（保持 visible && !fullscreen && !mobileOverlay 三元结构，mobile-fullscreen-adaptation.test.ts 契约）、separator aria-valuemax 均改 getInspectorMaxWidth()（aria-valuemin 保持 MIN 常量）。③ 新增 window resize 同步 effect：fullscreen/mobileOverlay 时跳过，否则把已存宽度重新夹到当前视口上限内（syncWidthToViewport）。④ 新增 tests/frontend/workspace-inspector-width-range.test.ts 源码契约测试（常量、双保险结构、clamp 消费点、AUTO_EXPAND 非 MAX、style/aria 值、resize 监听与跳过条件）。Storage key 沿用 quickforge_workspaceInspectorWidth_v2 不变，无需迁移。",
+      "files": [
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "tests/frontend/workspace-inspector-width-range.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run workspace-inspector-width-range（新 6 tests）+ mobile-fullscreen-adaptation（3 tests）→ 2 files / 9 tests 全过；workspace-inspector-tabs 回归 1 file / 19 tests 全过；npx eslint WorkspaceInspector.tsx + 新测试 0 error；npx tsc -b 通过；npm run build 成功（仅既有 KaTeX 字体与 chunk size warnings）。未跑全量 test/lint；未新增依赖；未手工修改生成产物；未 commit。"
     }
   ]
 }

@@ -69,7 +69,6 @@ import { useProjectActions } from '@/hooks/useProjectActions'
 import { useSessionActions } from '@/hooks/useSessionActions'
 import { useAgentAccessActions } from '@/hooks/useAgentAccessActions'
 import { useUIState } from '@/hooks/useUIState'
-import { useWorkspaceInspectorOpenState } from '@/hooks/useWorkspaceInspectorOpenState'
 import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ServerAgent } from '@/lib/server-agent'
@@ -109,7 +108,7 @@ import { SideChatAgent } from '@/components/workspace/side-chat-agent'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
-import { artifactPreviewMode, documentFormatFromPath, findBestPreviewableArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
+import { artifactPreviewMode, collectToolResultToolCallIds, documentFormatFromPath, findBestPreviewableArtifact, isNewlyPresentedArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
 import { RemoteTunnelOverlay } from '@/components/mobile/RemoteTunnelOverlay'
 import { isCloudTunnelClient, isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
@@ -135,38 +134,10 @@ const SettingsWorkspacePage = lazy(() =>
   import('@/components/settings/SettingsWorkspacePage').then((m) => ({ default: m.SettingsWorkspacePage })),
 )
 
-const AUTO_PREVIEW_SEEN_STORAGE_KEY = 'quickforge:auto-preview-seen-signatures'
-const MAX_AUTO_PREVIEW_SEEN_SIGNATURES = 200
 const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
 const STARTUP_SPLASH_MIN_DURATION_MS = 1350
 const STARTUP_SPLASH_EXIT_DURATION_MS = 280
 const CONVERSATION_TRANSITION_DURATION_MS = 280
-
-function readSeenAutoPreviewSignatures() {
-  if (typeof window === 'undefined') return new Set<string>()
-  try {
-    const raw = window.sessionStorage.getItem(AUTO_PREVIEW_SEEN_STORAGE_KEY)
-    const parsed = raw ? JSON.parse(raw) : undefined
-    if (!Array.isArray(parsed)) return new Set<string>()
-    return new Set(parsed.filter((value): value is string => typeof value === 'string' && value.length > 0))
-  } catch {
-    return new Set<string>()
-  }
-}
-
-function hasSeenAutoPreviewSignature(signature: string) {
-  return readSeenAutoPreviewSignatures().has(signature)
-}
-
-function rememberAutoPreviewSignature(signature: string) {
-  if (typeof window === 'undefined') return
-  try {
-    const signatures = [...readSeenAutoPreviewSignatures(), signature].slice(-MAX_AUTO_PREVIEW_SEEN_SIGNATURES)
-    window.sessionStorage.setItem(AUTO_PREVIEW_SEEN_STORAGE_KEY, JSON.stringify(signatures))
-  } catch {
-    // Ignore storage failures (private mode/quota/etc.); in-memory de-dupe still applies.
-  }
-}
 
 function LazyPanelFallback() {
   return <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">{t('loading')}</div>
@@ -344,6 +315,10 @@ function MainApp() {
   const [emptyStateProjectDismissed, setEmptyStateProjectDismissed] = useState(false)
   const wasNewChatEmptyStateRef = useRef(false)
   const autoPreviewSignatureRef = useRef('')
+  // 附着时刻的历史 toolResult 快照：恢复会话时（restore 返回时消息已同步填充）记录全部
+  // 历史 toolCallId，用于区分「历史 present_files」与「附着后新 present」；缓存命中后后台
+  // 校准补尾出现的 toolResult 会视为新产物（可接受）。
+  const autoPreviewHistoryRef = useRef<{ sessionId?: string; toolCallIds: Set<string> }>({ sessionId: undefined, toolCallIds: new Set() })
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
   const [titleGitStatus, setTitleGitStatus] = useState<GitStatusResponse | undefined>()
   const titleGitRequestIdRef = useRef(0)
@@ -516,11 +491,9 @@ function MainApp() {
   useLayoutEffect(() => {
     workspaceInspectorScopeRef.current = workspaceInspectorScope
   }, [workspaceInspectorScope])
-  const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useWorkspaceInspectorOpenState(
-    workspaceInspectorProjectId,
-    agentManager.currentSessionId,
-    workspaceInspectorRuntimeScopeId,
-  )
+  // 面板开合改为页面生命周期内的用户选择，默认收起，切换 session 不再自动展开；
+  // tab 列表仍按 (projectId, sessionId) 持久化恢复。
+  const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
 
   useEffect(() => {
     const loadingSessionId = agentManager.loadingSessionId
@@ -852,6 +825,18 @@ function MainApp() {
     })
   }, [agentManager.currentToolProject, requestWorkspaceInspector, setArtifactPreviewOpen])
 
+  // 附着时刻快照：agent/sessionId 变化时（restore 返回后消息已同步填充）记录全部历史
+  // toolResult 的 toolCallId；缓存命中后后台校准补尾出现的 toolResult 会视为新产物（可接受）。
+  // 此快照用于区分「历史 present_files」与「附着后新 present」。必须声明在自动预览 effect
+  // 之前，保证同一 commit 内先更新快照、后执行自动预览历史门控。
+  useEffect(() => {
+    const messages = agentManager.agent?.state.messages ?? []
+    autoPreviewHistoryRef.current = {
+      sessionId: agentManager.currentSessionId,
+      toolCallIds: collectToolResultToolCallIds(messages),
+    }
+  }, [agentManager.agent, agentManager.currentSessionId])
+
   useEffect(() => {
     const project = agentManager.currentToolProject
     const projectId = project?.id
@@ -859,18 +844,16 @@ function MainApp() {
     if (currentSessionArtifactsState.sessionId !== agentManager.currentSessionId) return
     const artifact = findBestPreviewableArtifact(currentSessionArtifactsState.artifacts)
     if (!artifact?.path) return
-    // 签名纳入最新 toolCallId：同一次 present_files 的重复更新（同 toolCallId）被去重，
-    // 并写入 sessionStorage，避免刷新浏览器后把历史 present_files 再自动弹一次。
-    // 新的工具调用（新 toolCallId）能正常触发，避免「再次 present 同一文件」被永远拦截。
+    // 历史门控：仅「附着后新发生」的 present 才自动弹，恢复会话的历史 present_files 不弹。
+    const history = autoPreviewHistoryRef.current
+    if (history.sessionId !== agentManager.currentSessionId) return
+    if (!isNewlyPresentedArtifact(artifact.toolCallIds, history.toolCallIds)) return
+    // 签名仅做同会话内重复报告去重，防止同一 live present 的重复 artifacts 报告反复弹；
+    // 历史/新产物的区分由 autoPreviewHistoryRef 快照门控完成。
     const lastToolCallId = artifact.toolCallIds[artifact.toolCallIds.length - 1]
     const signature = `${projectId}:${artifact.path}:${artifact.defaultPreview ? 'default' : artifact.explicit ? 'explicit' : 'inferred'}:${lastToolCallId ?? ''}`
     if (signature === autoPreviewSignatureRef.current) return
-    if (hasSeenAutoPreviewSignature(signature)) {
-      autoPreviewSignatureRef.current = signature
-      return
-    }
     autoPreviewSignatureRef.current = signature
-    rememberAutoPreviewSignature(signature)
     queueMicrotask(() => {
       const mode = artifactPreviewMode(artifact.path, artifact.kind)
       if (!mode) return

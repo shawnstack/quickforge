@@ -184,7 +184,21 @@ function epochMillis(timestamp) {
 
 function normalizeRecord(input, timestamp) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('session state record must be an object')
-  const state = structuredClone(input.state)
+  // Agent persist path (messagesEncoded provided): the messages array is only
+  // read here for length alignment — the payload is the pre-encoded immutable
+  // rows — so deep-cloning it is pure CPU waste. Clone the body without
+  // messages and reattach a fresh array (same element references); the write
+  // stays byte-identical because the encoded rows were already frozen as
+  // strings at encode time. Every other path keeps the full deep clone
+  // (synchronous, no yield, no torn-read surface).
+  const preEncoded = input.messagesEncoded !== undefined && Array.isArray(input.state?.messages)
+  let state
+  if (preEncoded) {
+    const { messages: stateMessages, ...stateBody } = input.state
+    state = { ...structuredClone(stateBody), messages: stateMessages.slice() }
+  } else {
+    state = structuredClone(input.state)
+  }
   const metadata = structuredClone(input.metadata)
   if (!isPlainObject(state) || !isPlainObject(metadata)) throw new TypeError('state and metadata must be plain objects')
   const sessionId = nonEmptyString(input.sessionId ?? state.id ?? metadata.id, 'sessionId')

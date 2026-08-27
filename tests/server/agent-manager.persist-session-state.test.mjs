@@ -32,6 +32,7 @@ vi.mock('../../server/ai-http-logger.mjs', () => ({ streamSimpleWithAiHttpLoggin
 vi.mock('../../server/mcp/registry.mjs', () => ({
   createMcpToolDefinitions: vi.fn(async () => []),
   isMcpToolName: vi.fn(() => false),
+  subscribeMcpToolsetChanged: vi.fn(() => () => {}),
 }))
 vi.mock('../../server/plugins/registry.mjs', () => ({
   callPluginTool: vi.fn(),
@@ -205,6 +206,35 @@ describe('agent persist in authoritative session state', () => {
       ])
       expect(missing).toEqual([null, null])
       expect(await agentManager.restoreAgent('agent-not-persisted')).toBeNull()
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('restores sessions with a cached MCP tool snapshot instead of waiting for MCP connects', async () => {
+    const sessionId = 'agent-mcp-cached-restore'
+    const session = await agentManager.createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', id: 'mock-model' },
+      systemPrompt: '',
+      messages: firstMessage(),
+      title: 'MCP cached restore',
+    })
+    await agentManager.persistSessionState(session)
+    await agentManager.destroyAgent(sessionId)
+
+    const registryMock = await import('../../server/mcp/registry.mjs')
+    registryMock.createMcpToolDefinitions.mockClear()
+
+    // The restore critical path (POST /restore, GET /state fallback, SSE)
+    // must not block on MCP (re)connects: it takes the current snapshot
+    // (waitForConnections:false) and converges via the background refresh.
+    const restored = await agentManager.restoreAgent(sessionId)
+    try {
+      expect(restored).not.toBeNull()
+      expect(restored.sessionId).toBe(sessionId)
+      expect(registryMock.createMcpToolDefinitions).toHaveBeenCalledTimes(1)
+      expect(registryMock.createMcpToolDefinitions).toHaveBeenCalledWith({ waitForConnections: false })
     } finally {
       await agentManager.destroyAgent(sessionId)
     }

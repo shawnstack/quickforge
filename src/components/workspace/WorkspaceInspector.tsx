@@ -235,11 +235,22 @@ function SortablePanelTab({ id, children }: {
 
 const WORKSPACE_INSPECTOR_MIN_WIDTH = 340
 const WORKSPACE_INSPECTOR_DEFAULT_WIDTH = 380
-const WORKSPACE_INSPECTOR_MAX_WIDTH = 640
+const WORKSPACE_INSPECTOR_MAX_WIDTH = 1200
+const WORKSPACE_INSPECTOR_MAX_VIEWPORT_RATIO = 0.75
+const WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH = 640
 const WORKSPACE_INSPECTOR_WIDTH_STORAGE_KEY = 'quickforge_workspaceInspectorWidth_v2'
 const NAV_PANEL_MIN_WIDTH = 140
 const NAV_PANEL_DEFAULT_WIDTH = 200
 const NAV_PANEL_MAX_WIDTH = 400
+
+function getInspectorMaxWidth() {
+  if (typeof window === 'undefined') return WORKSPACE_INSPECTOR_MAX_WIDTH
+  return Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, Math.min(WORKSPACE_INSPECTOR_MAX_WIDTH, window.innerWidth * WORKSPACE_INSPECTOR_MAX_VIEWPORT_RATIO))
+}
+
+function clampInspectorWidth(width: number) {
+  return Math.min(getInspectorMaxWidth(), Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, width))
+}
 
 function readPersistedInspectorWidth(): number {
   if (typeof window === 'undefined') return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
@@ -248,7 +259,7 @@ function readPersistedInspectorWidth(): number {
     if (!raw) return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
     const value = Number(raw)
     if (!Number.isFinite(value)) return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
-    return Math.min(WORKSPACE_INSPECTOR_MAX_WIDTH, Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, value))
+    return clampInspectorWidth(value)
   } catch {
     return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
   }
@@ -991,11 +1002,21 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     }
   }, [width])
 
+  // 窗口尺寸变化时把已存宽度重新夹到当前视口允许的上限内（全屏/窄视口覆盖模式下不动）。
+  useEffect(() => {
+    const syncWidthToViewport = () => {
+      if (fullscreen || mobileOverlay) return
+      setWidth((current) => clampInspectorWidth(current))
+    }
+    window.addEventListener('resize', syncWidthToViewport)
+    return () => window.removeEventListener('resize', syncWidthToViewport)
+  }, [fullscreen, mobileOverlay])
+
   const expandInspectorToMax = useCallback(() => {
-    setWidth((current) => (current < WORKSPACE_INSPECTOR_MAX_WIDTH ? WORKSPACE_INSPECTOR_MAX_WIDTH : current))
+    setWidth((current) => (current < WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH ? WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH : current))
   }, [])
 
-  // 打开文件、文档、网页、终端或 subagent 运行详情时自动拉到当前允许的最宽范围。
+  // 打开文件、文档、网页、终端或 subagent 运行详情时自动拉宽到固定宽度（手动拖动上限更高，见 getInspectorMaxWidth）。
   useEffect(() => {
     if (!visible || fullscreen) return
     const viewingContent = activePanelTab?.kind === 'browser' || activePanelTab?.kind === 'document' || activePanelTab?.kind === 'terminal' || activePanelTab?.kind === 'subagent' || Boolean(activeReaderTabId)
@@ -1606,10 +1627,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     const start = resizeDragRef.current
     const aside = asideRef.current
     if (!start || !aside) return
-    start.currentWidth = Math.min(
-      WORKSPACE_INSPECTOR_MAX_WIDTH,
-      Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, start.startWidth + start.startX - event.clientX),
-    )
+    start.currentWidth = clampInspectorWidth(start.startWidth + start.startX - event.clientX)
     if (resizeFrameRef.current !== null) return
     resizeFrameRef.current = window.requestAnimationFrame(() => {
       resizeFrameRef.current = null
@@ -1781,7 +1799,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
           currentAside.style.zIndex = ''
           currentAside.style.width = `${width}px`
           currentAside.style.minWidth = `${WORKSPACE_INSPECTOR_MIN_WIDTH}px`
-          currentAside.style.maxWidth = `${WORKSPACE_INSPECTOR_MAX_WIDTH}px`
+          currentAside.style.maxWidth = `${getInspectorMaxWidth()}px`
           window.requestAnimationFrame(() => {
             setFullscreenAnimating(false)
             exitAction?.()
@@ -1834,14 +1852,14 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
           isResizing ? 'transition-none' : '',
           fullscreen ? 'quickforge-workspace-inspector-fullscreen z-40 rounded-none border-l-0' : undefined,
         )}
-        style={visible && !fullscreen && !mobileOverlay ? { width, minWidth: WORKSPACE_INSPECTOR_MIN_WIDTH, maxWidth: WORKSPACE_INSPECTOR_MAX_WIDTH } : undefined}
+        style={visible && !fullscreen && !mobileOverlay ? { width, minWidth: WORKSPACE_INSPECTOR_MIN_WIDTH, maxWidth: getInspectorMaxWidth() } : undefined}
       >
         {visible && !fullscreen && !mobileOverlay ? (
           <div
             role="separator"
             aria-orientation="vertical"
             aria-valuemin={WORKSPACE_INSPECTOR_MIN_WIDTH}
-            aria-valuemax={WORKSPACE_INSPECTOR_MAX_WIDTH}
+            aria-valuemax={getInspectorMaxWidth()}
             aria-valuenow={width}
             className="absolute inset-y-0 -left-2 z-20 w-4 cursor-col-resize bg-transparent"
             onPointerDown={startResizing}

@@ -235,4 +235,79 @@ describe('MCP registry lifecycle', () => {
     await registry.refreshMcpConnections()
     await expect(registry.getMcpStatus()).resolves.toEqual([])
   })
+
+  it('returns a cached snapshot immediately when waitForConnections is false, then converges in the background', async () => {
+    // Date is faked here so the 30s error retry cooldown can elapse deterministically.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const registry = await import('../../server/mcp/registry.mjs')
+
+    // Seed an error connection past its retry cooldown.
+    mocks.connectBehavior = 'pending'
+    const seed = registry.refreshMcpConnections()
+    await vi.advanceTimersByTimeAsync(15_000)
+    await seed
+    await expect(registry.getMcpStatus()).resolves.toEqual([
+      expect.objectContaining({ name: 'demo', status: 'error' }),
+    ])
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    // Snapshot mode returns immediately without waiting for the retry connect.
+    mocks.connectBehavior = 'controlled'
+    const snapshot = await registry.createMcpToolDefinitions({ waitForConnections: false })
+    expect(snapshot).toEqual([])
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mocks.connectControls.has('mock-mcp-demo')).toBe(true)
+
+    // The fire-and-forget background refresh completes and exposes the tool.
+    mocks.connectControls.get('mock-mcp-demo').resolve()
+    await vi.advanceTimersByTimeAsync(0)
+    await expect(registry.getMcpStatus()).resolves.toEqual([
+      expect.objectContaining({ name: 'demo', status: 'connected', toolCount: 1 }),
+    ])
+    await expect(registry.createMcpToolDefinitions()).resolves.toEqual([
+      expect.objectContaining({ name: 'mcp__demo__echo' }),
+    ])
+  })
+
+  it('reconnects disconnected servers only when reconnectDisconnected is requested', async () => {
+    const registry = await import('../../server/mcp/registry.mjs')
+    await registry.refreshMcpConnections()
+    expect(mocks.clients).toHaveLength(1)
+
+    // Simulate a server-side transport close (no error status).
+    mocks.transports[0].onclose()
+    await expect(registry.getMcpStatus()).resolves.toEqual([
+      expect.objectContaining({ name: 'demo', status: 'disconnected' }),
+    ])
+    expect(mocks.clients).toHaveLength(1)
+
+    await registry.refreshMcpConnections({ reconnectDisconnected: true })
+    expect(mocks.transports[0].close).toHaveBeenCalledOnce()
+    expect(mocks.clients).toHaveLength(2)
+    await expect(registry.getMcpStatus()).resolves.toEqual([
+      expect.objectContaining({ name: 'demo', status: 'connected' }),
+    ])
+  })
+
+  it('notifies toolset subscribers only when the connected toolset changes', async () => {
+    const registry = await import('../../server/mcp/registry.mjs')
+    const listener = vi.fn()
+    const unsubscribe = registry.subscribeMcpToolsetChanged(listener)
+
+    await registry.refreshMcpConnections()
+    expect(listener).toHaveBeenCalledTimes(1) // baseline is null → first refresh notifies
+
+    await registry.refreshMcpConnections()
+    expect(listener).toHaveBeenCalledTimes(1) // unchanged toolset → no notify
+
+    mocks.servers = []
+    await registry.refreshMcpConnections()
+    expect(listener).toHaveBeenCalledTimes(2)
+
+    unsubscribe()
+    mocks.servers = [enabledServer()]
+    await registry.refreshMcpConnections()
+    expect(listener).toHaveBeenCalledTimes(2) // no subscribers → baseline-only update
+  })
 })

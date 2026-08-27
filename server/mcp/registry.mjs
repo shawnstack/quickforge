@@ -18,6 +18,9 @@ const RETRY_ERROR_AFTER_MS = 30_000
 const connections = new Map()
 let refreshPromise = null
 
+const toolsetChangeListeners = new Set()
+let lastToolsetSignature = null
+
 function isPlainObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
@@ -188,7 +191,8 @@ function isSameConfig(left, right) {
   })
 }
 
-async function refreshConnections() {
+async function refreshConnections(options = {}) {
+  const { reconnectDisconnected = false } = options
   const servers = await readMcpServers()
   const enabled = new Map(servers.filter((server) => server.enabled).map((server) => [server.name, server]))
 
@@ -203,7 +207,12 @@ async function refreshConnections() {
   const refreshed = await Promise.all([...enabled.values()].map(async (config) => {
     const existing = connections.get(config.name)
     if (existing) {
-      if (existing.status === 'error' && Date.now() - (existing.lastAttemptAt || 0) >= RETRY_ERROR_AFTER_MS) {
+      const retryError = existing.status === 'error' && Date.now() - (existing.lastAttemptAt || 0) >= RETRY_ERROR_AFTER_MS
+      // reconnectDisconnected also rebuilds 'disconnected' connections (same
+      // delete + close + reconnect path as retryable errors), so background
+      // refreshes can recover servers whose transport closed without an error.
+      const shouldReconnect = retryError || (reconnectDisconnected && existing.status === 'disconnected')
+      if (shouldReconnect) {
         connections.delete(config.name)
         await closeConnection(existing)
       } else {
@@ -230,15 +239,19 @@ async function refreshConnections() {
 
   connections.clear()
   for (const [name, connection] of refreshed) connections.set(name, connection)
+  notifyToolsetChanged()
   return connections
 }
 
-export async function refreshMcpConnections() {
+export async function refreshMcpConnections(options = {}) {
   if (!refreshPromise) {
-    refreshPromise = refreshConnections().finally(() => {
+    refreshPromise = refreshConnections(options).finally(() => {
       refreshPromise = null
     })
   }
+  // Single-flight: while a refresh is already in flight, the first caller's
+  // options stay in effect; options passed by later callers joining that
+  // in-flight refresh are ignored.
   return refreshPromise
 }
 
@@ -306,8 +319,19 @@ export async function getMcpStatus() {
   })
 }
 
-export async function createMcpToolDefinitions() {
-  await refreshMcpConnections()
+export async function createMcpToolDefinitions(options = {}) {
+  const { waitForConnections = true } = options
+  if (waitForConnections) {
+    await refreshMcpConnections()
+  } else {
+    // Snapshot mode (restore path): build definitions from the current
+    // connections immediately and converge in the background — the refresh
+    // also reconnects disconnected servers, and toolset-change subscribers
+    // pick up any resulting tool differences.
+    refreshMcpConnections({ reconnectDisconnected: true }).catch((error) => {
+      logger.warn(`Background MCP connection refresh failed: ${error?.message || error}`)
+    })
+  }
   const definitions = []
   for (const [serverName, connection] of connections) {
     if (connection.status !== 'connected') continue
@@ -326,6 +350,45 @@ export async function createMcpToolDefinitions() {
 
 export function isMcpToolName(name) {
   return Boolean(parseQuickForgeToolName(name))
+}
+
+function computeToolsetSignature() {
+  const entries = []
+  for (const [serverName, connection] of connections) {
+    if (connection.status !== 'connected') continue
+    for (const tool of connection.tools || []) entries.push(`${serverName}::${tool.name}`)
+  }
+  return entries.sort().join('|')
+}
+
+function notifyToolsetChanged() {
+  const signature = computeToolsetSignature()
+  const changed = signature !== lastToolsetSignature
+  // Always update the baseline (even with no subscribers) so the next real
+  // change is detected relative to the latest state. The first computation
+  // (baseline null) counts as a change: warmup after startup lets already
+  // active sessions pick up freshly connected MCP tools.
+  lastToolsetSignature = signature
+  if (!changed || toolsetChangeListeners.size === 0) return
+  for (const listener of toolsetChangeListeners) {
+    try {
+      listener()
+    } catch (error) {
+      logger.warn('MCP toolset change listener failed:', error)
+    }
+  }
+}
+
+/**
+ * Subscribe to MCP toolset changes. The callback is invoked (without
+ * arguments) after a refresh completes only when the set of connected
+ * server tools changed. Returns an unsubscribe function.
+ */
+export function subscribeMcpToolsetChanged(callback) {
+  toolsetChangeListeners.add(callback)
+  return () => {
+    toolsetChangeListeners.delete(callback)
+  }
 }
 
 export async function callMcpTool(toolName, params = {}) {

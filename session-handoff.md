@@ -1,13 +1,100 @@
 # Session Handoff
 
+## 当前状态：chat-compact-composer-on-narrow-chat-area（已完成）
+
+- 目标：用户需求中间对话区被左右侧栏拖宽挤压变窄时（viewport 宽度不变，`@media` 视口查询覆盖不到）Composer 输入框控件收起文字只留 icon，复用移动端 icon-only 紧凑形态。
+- 实现：`src/components/chat/ChatPanelHost.tsx` 新增模块常量 `CHAT_COMPACT_WIDTH_THRESHOLD=640` / `CHAT_COMPACT_WIDTH_RELEASE=672`（32px 滞回）与 useEffect——ResizeObserver（typeof 防御）监听宿主 contentRect 宽度，<640 挂 `quickforge-chat-compact`、≥672 摘除、区间内保持现状；`src/index.css` 在移动端 @media 块（:5318 `}`）之后新增 `.quickforge-chat-panel-host.quickforge-chat-compact` 段（+68 行）：agent-access/model-trigger 照抄移动端规则（收 2rem、label/chevron 隐藏、span.ml-1 sr-only、thinking 徽标隐藏），补齐 plan（`> span` 隐藏无 class 文字 span）、opencode-config（label+chevron 隐藏）、opencode-mode（label 隐藏）三控件收 2rem；@media 块内既有规则零改动，三 class 特异性保证双态值一致无回归。新测试 `tests/frontend/chat-compact-controls.test.ts`（9 用例源码契约，ruleFor 前剥 CSS 注释、`:is()` 规则用精确文本断言）；wiki `docs/wiki/src/components/README.md` panel-decoration 段补一条。
+- 验证：定向 npx vitest run 8 files / 48 tests 全过（新增 9：3 ChatPanelHost 契约 + 5 CSS 契约 + 1 移动端 @media 回归守卫；回归 composer-control-hover/composer-plus-menu/send-stop-button/opencode-config-menu/custom-model-selector/side-chat-composer-menu-scope/mobile-fullscreen-adaptation 共 39）；npx eslint 2 改动文件 0 error；npx tsc -b ✓；npm run build ✓（仅既有 KaTeX 字体与 chunk size warnings）。
+- 文件：src/components/chat/ChatPanelHost.tsx、src/index.css、tests/frontend/chat-compact-controls.test.ts（新）、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。Notes：+ 按钮、send/stop 本就 2rem 纯 icon 无需处理；side chat 复用同一宿主，窄 Inspector 面板下同样进入紧凑（合理）；640-672 区间保持现状是滞回设计；progress.md/session-handoff.md 顶部另有并行会话的 workspace-inspector-dynamic-width 条目，本条目插于其上，未触碰其内容；未跑全量 test/lint。
+- 下一步：真机冒烟（拖宽侧栏压对话区 <640px 控件收 icon-only、拖回 ≥672px 恢复；移动端窄视口行为不变）。
+
+---
+
+## 当前状态：workspace-inspector-dynamic-width（已完成）
+
+- 目标：用户需求右侧 Workspace Inspector 拖动范围更大。确认方案：最小宽度 340 不变；拖动上限改为动态 max(340, min(1200, 视口宽*0.75))，超宽屏绝对封顶 1200px；自动展开（打开 browser/terminal/document/subagent/reader 时拉宽）保持 640 不变。
+- 实现：`src/components/workspace/WorkspaceInspector.tsx`——常量区 WORKSPACE_INSPECTOR_MAX_WIDTH 640→1200，新增 WORKSPACE_INSPECTOR_MAX_VIEWPORT_RATIO=0.75、WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH=640；新增模块级 getInspectorMaxWidth()/clampInspectorWidth()（照抄 ChatSidebar 模式）；readPersistedInspectorWidth 与 resize() 拖动 clamp 统一走 clampInspectorWidth；expandInspectorToMax 改用 AUTO_EXPAND_WIDTH；全屏退出恢复 style.maxWidth、aside 行内 maxWidth（保持 `visible && !fullscreen && !mobileOverlay ? {` 三元结构，mobile-fullscreen-adaptation 契约）、separator aria-valuemax 均改 getInspectorMaxWidth()；新增 window resize 同步 effect（syncWidthToViewport，fullscreen/mobileOverlay 跳过）。新测试 `tests/frontend/workspace-inspector-width-range.test.ts`（6 用例源码契约）；`docs/wiki/src/components/README.md` 同步宽度描述。Storage key 沿用 quickforge_workspaceInspectorWidth_v2。
+- 验证：定向 npx vitest run workspace-inspector-width-range + mobile-fullscreen-adaptation 2 files / 9 tests 全过；workspace-inspector-tabs 回归 19 tests 过；eslint 2 改动文件 0 error；npx tsc -b ✓；npm run build ✓（仅既有 KaTeX 字体与 chunk size warnings）。
+- 文件：src/components/workspace/WorkspaceInspector.tsx、tests/frontend/workspace-inspector-width-range.test.ts（新）、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。Notes：窄视口 mobileOverlay/全屏模式不参与宽度 clamp（维持全屏覆盖布局）；自动展开目标固定 640 而非动态上限；progress.md/session-handoff.md 顶部另有并行会话的 browser-single-window-guard 条目（编写期间被并行插入，本条目插于其上，未触碰其内容）；工作区有多个并行会话未 commit 改动，本 feature 未触碰；未跑全量 test/lint。
+- 下一步：可选真机冒烟（宽屏拖到 >640、窗口缩窄自动收缩、打开内容仍展开到 640）。
+
+---
+
 ## 当前状态：browser-single-window-guard（已完成）
 
 - 目标：用户问「浏览器打开能否只允许开一个窗口？开多个 SSE 会堵塞的吧」。调研澄清：服务端 SSE 无互相阻塞（EventEmitter 广播），堵塞根因是浏览器 HTTP/1.1 同源 6 连接池被每窗口 2-4 条常驻长连接占满致普通 API 排队。用户决策：Web Locks 严格单窗口（无接管逃生门）、检测到第二窗口时尽力自动聚焦已有窗口（window.focus() 由已有窗口自行调用 + 标题闪烁兜底）。
 - 实现：新增 `src/lib/window-guard.ts`（acquireAppWindowGuard：ifAvailable 抢锁、acquiredPromise race 成功判定、刷新竞态 400ms×2 重试、降级 unsupported；startWindowFocusResponder 监听 quickforge-window-guard 频道 → focus + 标题闪烁 5s；requestExistingWindowFocus 广播）+ `src/components/WindowGuardNotice.tsx`（全屏拦截页，内联 SVG、t() 双语、复用既有 token、不 import App、零 /api）；`src/main.tsx` bootstrap 渲染前 await 守卫，blocked 先自动广播一次 focus 再渲染拦截页；i18n 中英成对 3 key；wiki 3 处同步。
 - 验证：定向 vitest window-guard 10 tests（主 Agent 复核重跑通过）；i18n 回归 3 文件 31 tests；eslint 5 文件 0 error；tsc -b ✓；npm run build ✓（仅既有警告）。未跑全量。
 - 文件：src/lib/window-guard.ts（新）、src/components/WindowGuardNotice.tsx（新）、src/main.tsx、src/lib/i18n.ts、tests/frontend/window-guard.test.ts（新）、docs/wiki/{src, src/lib, src/components}/README.md、feature_list.json、progress.md、session-handoff.md。
-- Blocker：无。Notes：① 拦截页语言用浏览器默认（i18n import 时同步初始化，零 /api 代价的小妥协）；② Electron/Android/隐身/不同 profile 为独立锁空间天然隔离；③ 同根因的设置页额外 channels/events SSE（channels-settings-tab.ts:179）记为潜在后续优化，未动；④ progress.md 顶部另有并行会话的 sse-health-probe-notice 条目，未触碰。
-- 下一步：真机冒烟（第二个窗口见拦截页 + 已有窗口自动跳前台；关掉第一个后刷新第二个可正常接管；旧浏览器降级放行）。
+- Blocker：无。Notes：① 拦截页语言用浏览器默认（i18n import 时同步初始化，零 /api 代价的小妥协）；② Electron/Android/隐身/不同 profile 为独立锁空间天然隔离；③ 同根因的设置页额外 channels/events SSE（channels-settings-tab.ts:179）记为潜在后续优化，未动；④ progress.md 顶部另有并行会话条目，未触碰。Revision（用户真机反馈点击切换不跳转）：双重浏览器限制（message 回调无 user activation 的 window.focus() 被忽略 + 后台标签 setTimeout 节流致闪烁不可见）→ 修复为立即「● 」标题 + 系统通知聚焦（granted+开关开+10s 节流，点击通知 close+focus 可靠）+ focus 事件兜底清 title + 拦截页点击反馈 hint（i18n +3 key，测试 15 用例，复验全过）。
+- 下一步：真机复测（先确保通知权限已授予：点按钮应弹通知，点通知旧窗口跳前台；未授权时旧窗口标题立即出现 ● 且切回后清除；关第一个窗口后刷新第二个可接管）。
+
+---
+
+## 当前状态：sse-health-probe-notice（已完成）
+
+- 目标：用户反馈后台被杀后前端只显示「重新连接中… 3/10」，应明确告知健康检查失败。用户确认：A（重连失败尽早探测 /api/health，不可达则切换提示且持续自动重试）+ 恢复后对比 bootId 提示「服务已重启」。
+- 实现：server-agent.ts 新增 probeHealth/probeHealthInBackground/probeBootIdAfterConnect（5s 超时、single-flight、竞态防护、baseUrl 跟随直连/代理切换）；serverUnreachable=true 时豁免 MAX_SSE_RECONNECT_ATTEMPTS=10 上限（退避封顶 30s 持续自动重试），onopen/retryNow/disconnect 复位；SseConnectionStatus 增量扩展 reconnecting.unreachable?/connected.restarted?；reconnect-notice.ts unreachable 文案 sseServerUnreachableLabel（隐藏 n/10、保留倒计时）+ restarted 补播升级文案 sseReconnectedRestarted（重置淡出计时器，已移除则忽略）；i18n 中英 +2 key；wiki src/lib、src/components 同步。
+- 验证：定向 vitest 2 files / 67 tests（新增 8 例）；model-retry-notice 回归 12 tests；eslint 0 error；tsc -b ✓。
+- 文件：src/lib/server-agent.ts、src/lib/i18n.ts、src/components/chat/panel-decoration/reconnect-notice.ts、tests/frontend/server-agent.test.ts、tests/frontend/reconnect-notice.test.ts、docs/wiki/src/lib/README.md、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。Notes：「不可达」不区分进程死/断网（浏览器端不可分）；restarted 补播在恢复提示已淡出后忽略；首连多一次 /api/health 请求；工作区有多个并行会话未 commit 改动，本 feature 未触碰。
+- 下一步：真机验证（杀后端→不可达提示+持续重试；重启后端→自动恢复+已重启提示；弱网→维持 n/10）。
+
+---
+
+## 当前状态：session-switch-no-auto-preview-tab（已完成）
+
+- 目标：用户反馈「切换项目内 session 时 tab 自动打开」。定位两条机制：① 面板开合按 (projectId, sessionId) localStorage 恢复（useWorkspaceInspectorOpenState），切回曾展开的 session 自动开面板；② 自动预览 effect 对恢复会话的全部历史 present_files 自动弹 tab + 强制开面板（sessionStorage 去重只覆盖浏览器标签页生命周期，冷启动首次切换仍弹）。用户决策：②不自动预览历史 present_files、①恢复 tab 列表但不强制打开面板。
+- 实现：① 删除 `src/hooks/useWorkspaceInspectorOpenState.ts` 与 `tests/frontend/workspace-inspector-open-state.test.ts`，App.tsx `workspaceInspectorOpen` 改 `useState(false)`（默认收起，仅用户手动或自动预览请求打开；tab 列表仍按会话持久化恢复）；② `artifact-preview-utils.ts` 新增纯函数 `collectToolResultToolCallIds` / `isNewlyPresentedArtifact`，App.tsx 自动预览 effect 前新增附着时刻快照 effect（autoPreviewHistoryRef，restore 返回时消息已同步填充），历史门控仅放行附着后新发生的 present_files；删除 sessionStorage 去重机制，保留 autoPreviewSignatureRef 内存去重；`workspace-inspector-tabs.test.ts` 删除 openStateSource 源码断言。
+- 验证：定向 vitest 4 files / 50 tests 全过（新 `tests/frontend/auto-preview-fresh-present.test.ts` 8 tests）；eslint 改动 src 2 文件 0 error；tsc -b ✓；build ✓（仅既有警告）。
+- 文件：src/App.tsx、src/components/workspace/artifact-preview-utils.ts、src/hooks/useWorkspaceInspectorOpenState.ts（删）、tests/frontend/auto-preview-fresh-present.test.ts（新）、tests/frontend/workspace-inspector-open-state.test.ts（删）、tests/frontend/workspace-inspector-tabs.test.ts、docs/wiki/{src, src/components, src/lib}/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。Notes：缓存命中后台校准补尾 toolResult 视为新产物（可接受）；live present 仍强制开面板（预期）；工作区含并行会话未 commit 改动（persist-skip-message-deep-clone / mcp-restore-nonblocking / sse-reconnect-notice / ai-stream-idle-fast-detect-retry / model-stream-retry-notice / update-check-async-snapshot 等），本 feature 未触碰。
+- 下一步：可选真机冒烟（切回曾展开面板的 session 不再自动开；冷启动后首次切含 present_files 的旧 session 不再弹；新会话 AI present 当次仍弹）。
+
+---
+
+## 当前状态：persist-skip-message-deep-clone（已完成）
+
+- 目标：/restore 偶发慢优化之二——消除持久化路径对全量 messages 的两次 structuredClone 深拷贝（纯 CPU 削减，事务边界/锁/CAS 不变，DB 写入字节级等价）。
+- 实现：`server/session-state-service.mjs` synchronize() 改「body 深拷贝 + messages 浅拷贝」；savePairChunked() 入口浅拷贝冻结快照防编码 yield 间隙 torn read；`server/sqlite/session-state-repository.mjs` normalizeRecord() 预编码旁路不再深拷贝 messages（仅同步读长度对齐，写库内容为编码瞬间不可变字符串）。新增 2 用例（不可克隆探针 + torn-read 防护）。
+- 验证：定向 5 files / 95 tests 全过；eslint 0 error；node --check；全量 npm run test 264 files / 2427 tests、lint、build 全过。
+- 文件：server/session-state-service.mjs、server/sqlite/session-state-repository.mjs、tests/server/session-state-repository.test.mjs、tests/server/session-state-service.test.mjs、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。下一步：观察慢日志 persist took 分布；残余集中在 COMMIT 段时再评估 worker 线程（记录在案待定项）。
+
+---
+
+## 当前状态：mcp-restore-nonblocking（已完成）
+
+- 目标：/restore 偶发慢优化之一——MCP（重）连接不再挡在 restore 关键路径（原 error+过冷却会同步等待 ≤15s+15s，single-flight 扩散到所有并发方）。
+- 实现：registry.mjs 增加 waitForConnections:false 快照模式、reconnectDisconnected、subscribeMcpToolsetChanged 签名变更通知；agent-manager.mjs 透传 mcpToolsMode（restoreAgentUnlocked 走 cached），模块级订阅变化后调现成 refreshAllSessionTools()（无死循环）；index.mjs listen 回调 fire-and-forget 预热（覆盖 CLI/SDK/Desktop/Android 全入口，经只读调研确认）。新会话/subagent//api/tools/callMcpTool 保持 await 语义。
+- 验证：定向 12 files / 63 tests 全过（registry 3 新用例 + restore cached 行为断言，11 个测试文件 mock 补导出）；eslint 0 error；node --check；全量 264 files / 2427 tests、lint、build 全过。
+- 文件：server/mcp/registry.mjs、server/agent-manager.mjs、server/index.mjs、tests/server/mcp-registry.test.mjs、tests/server/agent-manager.persist-session-state.test.mjs 等 15 个文件（见 feature_list.json 的 mcp-restore-nonblocking.files）、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。Notes：① restore 后首个回合若恰好用到尚未重连完成的 MCP 工具，按现状 503 报错自愈（重连完成后工具集通知自动重建会话工具）；② 本会话与并行会话（server-process-error-guards、agent-idle-timeout-10min）共享工作区，各自 feature 未 commit，commit 时按 feature 分开。
+- 下一步：真机观察 restore durationMs 不再出现 MCP 量级长尾；两 feature 均未 commit。
+
+---
+
+## 当前状态：agent-idle-timeout-10min（已完成）
+
+- 目标：用户反馈 agent 空闲缓存 30 分钟太长，10 分钟足够（30 分钟 idle 被 destroyAgent 踢出内存 → 冷恢复走完整重建）。
+- 实现：`server/agent-manager.mjs:270` `IDLE_TIMEOUT_MS` 30*60*1000 → 10*60*1000（唯一消费点 `resetIdleTimer()`，逐出日志自动跟随）；ACP `idleRetention='always'` 会话不受影响。
+- 验证：node --check / eslint 0 error / 动态 import 冒烟 / git diff 仅 1 行；无测试断言该值，未跑全量。
+- 文件：server/agent-manager.mjs、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。Notes：工作区另有并行会话未提交的 MCP warmup/agent-manager 一族改动（本改动仅 +1/-1 行常量，无冲突，commit 时勿混入）；终端 PTY 30 分钟保留与 ask_user 30 分钟超时为独立语义未动。
+- 下一步：无；未 commit。
+
+---
+
+## 当前状态：server-process-error-guards（已完成）
+
+- 目标：用户报告后台服务无声退出（8/27 23:10:29 日志断档、无错误无优雅关闭标记）。根因：无 uncaughtException/unhandledRejection 处理器，且 detached + stdio:'ignore' 启动导致崩溃零痕迹。
+- 实现：新增 `server/utils/process-error-guards.mjs`（fatal：记录含 stack → best-effort 优雅关闭 5s 上限 → flushLogger → exit(1)，re-entrancy 守卫；rejection：仅记录继续运行，不 flush 不退出）；`server/index.mjs` 启动早期（:101，模块级状态声明后）`installProcessErrorHandlers({onFatalError: () => stopQuickForgeServer()})`；同步 wiki server/README、server/utils/README 与 logging-design §5 埋点表。
+- 验证：定向 6/6 + tests/server/utils/ 回归 9 files / 157 tests 全过；eslint 3 文件 0 告警；npm run build 通过；定向验证 + build，未跑全量测试。
+- 文件：server/utils/process-error-guards.mjs（新）、server/index.mjs、tests/server/utils/process-error-guards.test.mjs（新）、docs/wiki/server/README.md、docs/wiki/server/utils/README.md、docs/architecture/logging-design.zh-CN.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。Notes：① 并行会话同期在工作区推进 MCP warmup/agent-manager 改动（server/agent-manager.mjs、server/mcp/registry.mjs、tests/server/agent-manager.*、tests/server/mcp-registry.test.mjs 等），与本 feature 无关，未触碰、commit 时勿混入；② update/check 弱网 500 修复（fdd7115）未随 v1.10.0 发布，全局安装版本复现属预期。
+- 下一步：可选真机触发未捕获异常验证日志落盘；本 feature 未 commit；工作区另有并行会话的 MCP warmup 未 commit 改动。
 
 ---
 

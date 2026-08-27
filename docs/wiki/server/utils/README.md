@@ -5,6 +5,7 @@
 | 文件 | 说明 | 行数 |
 |------|------|------|
 | [logger.mjs](../../server/utils/logger.mjs) | 日志工具 | 182 |
+| [process-error-guards.mjs](../../server/utils/process-error-guards.mjs) | 进程级异常兜底 | 63 |
 | [network.mjs](../../server/utils/network.mjs) | 网络工具 | 38 |
 | [platform.mjs](../../server/utils/platform.mjs) | 平台工具 (跨平台) | 161 |
 | [response.mjs](../../server/utils/response.mjs) | HTTP 响应工具 | 42 |
@@ -22,6 +23,13 @@
 - 输出到 stderr 和文件 (`~/.quickforge/logs/server-YYYY-MM-DD.log`)
 - 级别: `info`, `warn`, `error`
 - 支持自动日志轮转
+
+### process-error-guards.mjs — 进程级异常兜底 (63 行)
+
+- `createProcessErrorHandlers({ onFatalError, exitProcess, shutdownTimeoutMs })` — 返回 `{ handleUncaughtException, handleUnhandledRejection }` 纯处理器（可注入 `exitProcess` 供测试）
+- `handleUncaughtException`（fatal）：记录错误（含 `.stack` 与 `fatal: 'uncaughtException'` 字段）→ best-effort 优雅关闭（`Promise.race`，`shutdownTimeoutMs` 默认 5s 上限）→ `flushLogger()` → `exitProcess(1)`；re-entrancy 守卫使 fatal 关闭期间的二次异常只补记日志并立即 flush + exit
+- `handleUnhandledRejection`（非 fatal）：仅记录（Error 取 `.stack`，非 Error 经 `util.inspect` 转字符串）并继续运行——不调用 `flushLogger`（会关闭日志流）、不退出进程、不触发 `onFatalError`
+- `installProcessErrorHandlers(options)` — 内部 create 后向 `process` 注册 `uncaughtException` / `unhandledRejection` 监听
 
 ### network.mjs — 网络工具 (38 行)
 

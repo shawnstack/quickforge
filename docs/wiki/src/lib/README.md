@@ -6,9 +6,9 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `i18n.ts` | 3351 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload） |
+| `i18n.ts` | 3357 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload） |
 | `pi-chat.ts` | 365 | Pi Chat 初始化和模型管理 |
-| `server-agent.ts` | 2260 | Server Agent — 服务端 Agent 客户端 |
+| `server-agent.ts` | 2261 | Server Agent — 服务端 Agent 客户端 |
 | `selected-capabilities.ts` | 82 | 用户本轮插件选择的前端统一规范化/快照：合法类型与字符串边界、`type+pluginName+name` 去重、顺序保持、最多 4 项，持久化/历史读取快照均剥离 description |
 | `deferred-session-agent.ts` | 302 | 新会话首条消息前的延迟 Agent 代理：本地先渲染乐观消息，`prompt()` 时才创建真实 `ServerAgent`，并把暂存的 capabilities / contextReferences / promptMode 转发给真实 Agent |
 | `indexeddb-cache.ts` | 通用 IndexedDB 只读缓存封装：惰性单例 open、条目级 schemaVersion、LRU+字节双预算淘汰、全部异常静默降级（供会话消息/工作区/设置快照等缓存层复用） |
@@ -39,6 +39,7 @@
 | `logger.ts` | 56 | 前端日志工具 |
 | `update-check-poll.ts` | 71 | 更新检查轮询助手：`requestUpdateCheck()` 对非阻塞的 `GET /api/system/update/check` 状态快照做有界轮询（默认 10 次 × 1s，可注入 fetch/sleep 单测）到 `ok`/`error` 终态，失败一律返回 `{ kind: 'error' }` 不抛出（fetch/sleep 可注入）；`force` 仅首次请求带 `?force=1`；兼容不带 `status` 字段的旧服务端 payload |
 | `random-id.ts` | 19 | UUID 生成 |
+| `window-guard.ts` | 350 | Web Locks 严格单窗口守卫：`acquireAppWindowGuard` 以 `ifAvailable` 抢锁（持锁成功时 request promise 因回调永不结束不会结算，成功判定只依赖 acquired 标志）；同窗口刷新竞态按 400ms×2 重试后判 blocked；blocked 窗口经 `requestExistingWindowFocus` 用 BroadcastChannel 广播 focus 请求，持锁窗口尽力 `window.focus()`（后台无 user activation 常被拒绝），收到请求**立即**把标题置为 `● ` 前缀闪烁 5s（不等首个 800ms 计时器，规避后台标签 setTimeout 节流）并交替闪烁；满足 `Notification.permission === 'granted'` 且 system-notifications 开关开启时发一条系统通知（构造器通知，tag `quickforge-window-guard`，10s 内去重仅弹一条，标题闪烁不受限），点击通知自带 user activation → `close()` + `window.focus()` 可靠切回；window focus 事件兜底：后台节流导致截止计时器迟到时，用户切回窗口立即恢复原标题不留脏 title（Notification 构造器/权限/开关/now/focus 监听均可注入单测）；Web Locks/BroadcastChannel 不可用降级放行（unsupported） |
 | `tool-display-settings.ts` | 40 | Tool 与上下文用量展示设置 |
 | `tool-execution-events.ts` | 120 | 工具执行事件处理 |
 | `tool-param-summary.ts` | 工具参数→摘要文案纯函数：`summarizeParams`（自 local-tools 提取，按工具名取 command/path/query 等生成单行摘要）、`normalizeToolArguments`（toolCall arguments 归一化，兼容 JSON 字符串）、`truncateSummary`；工具卡片与 subagent 跑马灯共用同一套规则 |
@@ -57,7 +58,7 @@
 
 ## 核心模块
 
-### i18n.ts (3351 行)
+### i18n.ts (3357 行)
 
 **用途**: 国际化支持。包含中英文翻译字典和应用语言管理。
 
@@ -100,7 +101,7 @@
 - `getCloudUsage()` / `getCloudInstallations()` 读取额度与设备。
 - `revokeCloudInstallation()` / `logoutCloud()` 管理设备生命周期；当前设备退出的远端撤销顺序由 Node 保证。
 
-### server-agent.ts (2260 行)
+### server-agent.ts (2261 行)
 
 **用途**: `ServerAgent` 类 — 与服务端 Agent 通信的客户端。
 
@@ -177,7 +178,7 @@
 
 ### tool-artifacts.ts
 
-**用途**: 从当前 AI turn 的工具结果中提取产物文件；识别 `write_file`、`edit_file` 和 `present_files`，并将 HTML/图片分流到 Browser，将 Markdown、代码、配置及普通文本分流到 Reader，将 PDF/DOCX/XLS/XLSX 分流到 Document；显式 `preview: false` 的文件仅保留在产物列表（仍可手动预览）。
+**用途**: 从当前 AI turn 的工具结果中提取产物文件；识别 `write_file`、`edit_file` 和 `present_files`，并将 HTML/图片分流到 Browser，将 Markdown、代码、配置及普通文本分流到 Reader，将 PDF/DOCX/XLS/XLSX 分流到 Document；显式 `preview: false` 的文件仅保留在产物列表（仍可手动预览）。自动预览仅对 agent 附着后新发生的 `present_files` 生效（恢复会话的历史 present 不自动弹）。
 
 ### mermaid-renderer.ts
 

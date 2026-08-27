@@ -135,6 +135,7 @@ qf logs --grep sessionId=abc123  # 按关键字过滤
 | 服务启动/关闭 | port, host, signal | INFO |
 | 重启请求 | supervisorPid | INFO |
 | ErrorBoundary 捕获 | error.message, componentStack | ERROR |
+| uncaughtException / unhandledRejection 兜底 | errorName, stack, fatal | ERROR |
 
 ## 6. 环境变量
 

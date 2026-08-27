@@ -180,3 +180,22 @@ export function findBestPreviewableArtifact(artifacts: AiTurnArtifact[]): Presen
   }
   return [...candidates].sort((a, b) => latestIndex(b) - latestIndex(a))[0]
 }
+
+// 收集消息中全部 toolResult 的 toolCallId，用于构建「附着时刻历史快照」：
+// 自动预览据此区分恢复会话时已有的历史 present_files 与 agent 附着后新发生的 present。
+export function collectToolResultToolCallIds(messages: Iterable<{ role?: string; toolCallId?: unknown }>): Set<string> {
+  const ids = new Set<string>()
+  for (const message of messages) {
+    if (message.role !== 'toolResult') continue
+    if (typeof message.toolCallId !== 'string' || message.toolCallId.length === 0) continue
+    ids.add(message.toolCallId)
+  }
+  return ids
+}
+
+// 判断产物是否包含历史快照之外的新 toolCallId：仅「附着后新发生」的 present 允许自动预览；
+// toolCallIds 缺失或为空时保守返回 false（不弹），避免无法判定来源时打扰用户。
+export function isNewlyPresentedArtifact(toolCallIds: readonly string[] | undefined, historyToolCallIds: ReadonlySet<string>): boolean {
+  if (!toolCallIds || toolCallIds.length === 0) return false
+  return toolCallIds.some((id) => !historyToolCallIds.has(id))
+}

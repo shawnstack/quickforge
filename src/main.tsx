@@ -7,7 +7,9 @@ import { patchThinkingSelector } from '@/lib/patch-thinking-selector'
 import { applyClipboardPolyfill } from '@/lib/clipboard-polyfill'
 import { isMobileShell } from '@/lib/mobile-server'
 import { logger } from '@/lib/logger'
+import { acquireAppWindowGuard } from '@/lib/window-guard'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { WindowGuardNotice } from '@/components/WindowGuardNotice'
 import App from './App.tsx'
 
 patchThinkingSelector({ hideSelector: true })
@@ -36,12 +38,33 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator && !Capacitor.isNativeP
 }
 
 // Keep this entry module explicit so Vite invalidates stale HMR import timestamps.
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <LucideProvider strokeWidth={1.75}>
-      <ErrorBoundary>
-        <App />
-      </ErrorBoundary>
-    </LucideProvider>
-  </StrictMode>,
-)
+const root = createRoot(document.getElementById('root')!)
+
+// 渲染前先通过 Web Locks 保证同一浏览器上下文严格单窗口（ifAvailable 抢锁很快）：
+// granted / unsupported 正常渲染 App；blocked 的窗口先尽力把已有窗口带到前台，
+// 再只渲染拦截页——不加载 App、不建立 SSE 连接。
+async function bootstrap() {
+  const guard = await acquireAppWindowGuard()
+
+  if (guard.status === 'blocked') {
+    guard.requestExistingWindowFocus()
+    root.render(
+      <StrictMode>
+        <WindowGuardNotice onSwitchFocus={guard.requestExistingWindowFocus} />
+      </StrictMode>,
+    )
+    return
+  }
+
+  root.render(
+    <StrictMode>
+      <LucideProvider strokeWidth={1.75}>
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
+      </LucideProvider>
+    </StrictMode>,
+  )
+}
+
+void bootstrap()

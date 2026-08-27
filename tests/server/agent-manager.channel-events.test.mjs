@@ -39,6 +39,7 @@ vi.mock('../../server/ai-http-logger.mjs', () => ({ streamSimpleWithAiHttpLoggin
 vi.mock('../../server/mcp/registry.mjs', () => ({
   createMcpToolDefinitions: vi.fn(async () => []),
   isMcpToolName: vi.fn(() => false),
+  subscribeMcpToolsetChanged: vi.fn(() => () => {}),
 }))
 vi.mock('../../server/plugins/registry.mjs', () => ({
   callPluginTool: vi.fn(),

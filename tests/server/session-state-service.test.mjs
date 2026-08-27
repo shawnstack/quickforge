@@ -15,6 +15,7 @@ import {
   readSessionStorageState,
   saveSessionBody,
   saveSessionMetadata,
+  saveSessionStatePair,
   stopSessionStateService,
   updateSessionMetadataBucket,
 } from '../../server/session-state-service.mjs'
@@ -197,5 +198,33 @@ describe('session state service facade (storage v2)', () => {
     expect(record.state.messageStorage).toBe('split')
     expect(record.state).not.toHaveProperty('messages')
     expect(readSessionStateValue('small')).toMatchObject({ title: 'Small', messages: [{ role: 'user', content: 'only one' }] })
+  })
+
+  it('keeps the chunked persist write at the call-time snapshot against pushes during encode yields', async () => {
+    const messages = []
+    for (let index = 0; index < 120; index += 1) messages.push({ id: `m${index}`, role: 'user', content: `message ${index}` })
+    const state = { id: 'snapshot', scope: 'global', stateVersion: 1, title: 'Snapshot', messages }
+    const metadata = { id: 'snapshot', scope: 'global', stateVersion: 1, createdAt: '2026-01-01T00:00:00.000Z' }
+    // This immediate is queued BEFORE the first inter-batch yield of the
+    // chunked encode (FIFO immediates), so the push and the in-place edit
+    // land in the source array exactly between encode batches — the
+    // torn-read window (batch size 50 < 120 messages guarantees a yield).
+    const injection = new Promise((resolve) => setImmediate(() => {
+      messages.push({ id: 'late', role: 'user', content: 'pushed during encode' })
+      messages[0].content = 'mutated after its batch was encoded'
+      resolve()
+    }))
+    const saved = await saveSessionStatePair({ state, metadata, expectedRevision: 0 })
+    await injection
+    // The persisted rows stay at the call-time snapshot: row count, contents,
+    // and the already-encoded first message are all frozen at call time.
+    expect(saved.messageStoragePlan).toBe('replace')
+    expect(saved.messageCount).toBe(120)
+    expect(repository.messageCount({ scope: 'global', sessionId: 'snapshot' })).toBe(120)
+    const page = repository.readMessagesPage({ scope: 'global', sessionId: 'snapshot', limit: 200 })
+    expect(page.messages[0].message).toEqual({ id: 'm0', role: 'user', content: 'message 0' })
+    expect(page.messages.at(-1).message).toEqual({ id: 'm119', role: 'user', content: 'message 119' })
+    expect(page.messages.some((row) => row.message.id === 'late')).toBe(false)
+    expect(saved.metadata.messageCount).toBe(120)
   })
 })

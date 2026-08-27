@@ -49,7 +49,7 @@ export function createSettingsTabs(customProvider?: string) {
     { key: 'agents', tab: createAgentProfilesSettingsTab(), getDescription: () => t('agentsDescription') },
     { key: 'skills', tab: createSkillsSettingsTab(), getDescription: () => t('globalSkillsDescription') },
     { key: 'mcp', tab: createMcpSettingsTab(), getDescription: undefined },
-    { key: 'plugins', tab: createPluginsSettingsTab(), getDescription: () => t('pluginsDescription') },
+    { key: 'plugins', tab: createPluginsSettingsTab(), getDescription: undefined },
     { key: 'scheduledTasks', tab: createScheduledTasksSettingsTab(), getDescription: () => t('scheduledTasksDescription') },
     { key: 'projectCommands', tab: createProjectCommandsSettingsTab(), getDescription: () => t('projectCommandsDescription') },
     { key: 'backup', tab: createBackupSettingsTab(), getDescription: () => t('backupRestoreDescription') },

@@ -257,8 +257,6 @@ class LanAccessSettingsTab extends SettingsTab {
 
     return html`
       <div class="quickforge-settings-stack">
-        <div class="quickforge-settings-warning">${t('lanAccessRiskWarning')}</div>
-
         <section class="quickforge-settings-section" aria-label=${t('lanAccessStatus')}>
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main">

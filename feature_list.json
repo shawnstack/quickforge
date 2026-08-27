@@ -17,6 +17,35 @@
       "verification": "npm run test → 259 files / 2349 tests 全部通过（硬门禁 100%）；npm run lint → 0 errors / 1 既有 warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；prepare-runtime/offline-package 后 npm pack → package-offline/shawnstack-quickforge-1.9.1.tgz（7.0MB / 453 files）；打包 package.json 校验 version 1.9.1、8 个运行时 dependencies + @vscode/ripgrep optionalDependencies、无 devDependencies/scripts。"
     },
     {
+      "id": "plugins-remove-description",
+      "name": "插件设置页移除插件描述文案",
+      "status": "done",
+      "approach": "用户要求移除「管理本地 QuickForge 插件。当前首版支持通过 manifest 声明并贡献 Agent 工具的插件。」。PluginsPage.tsx 删除标题下方的描述行；settings-tabs.ts 插件项 getDescription 改为 undefined（与 mcp 项同先例，设置页 activeDescription 与搜索文本均用可选链消费）；i18n.ts 中英文成对删除 pluginsDescription key，grep 确认无残留。无测试引用 PluginsPage/pluginsDescription。",
+      "files": [
+        "src/components/plugins/PluginsPage.tsx",
+        "src/lib/settings-tabs.ts",
+        "src/lib/i18n.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "grep 确认 pluginsDescription 无残留；npx eslint 改动 3 文件 0 error；npx tsc -b 通过；npm run build 成功（仅既有 chunk size warning）。未跑全量 test/lint。"
+    },
+    {
+      "id": "lan-access-remove-risk-warning",
+      "name": "局域网访问设置页移除高风险警告文案",
+      "status": "done",
+      "approach": "用户要求移除局域网访问设置页顶部的「高风险：通过密码的局域网设备可以访问你的对话、项目和可用工具。请只在可信网络中开启。」警告。lan-access-settings-tab.ts render 删除 quickforge-settings-warning 警告 div；i18n.ts 中英文成对删除 lanAccessRiskWarning key（grep 确认无残留引用）。.quickforge-settings-warning 样式保留（cloud/backup/skills/plugins 页仍用）。无测试引用 lan-access-settings-tab，无需改测试。",
+      "files": [
+        "src/lib/lan-access-settings-tab.ts",
+        "src/lib/i18n.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "grep 确认 lanAccessRiskWarning 无残留；npx eslint 改动文件 0 error（server/cloud/identity.mjs 既有 warning 与本次无关）；npm run build 成功（仅既有 chunk size warning）。未跑全量 test/lint。"
+    },
+    {
       "id": "cloud-settings-url-row-redesign",
       "name": "云服务设置页移除启用开关/登录说明 + Cloud API 地址行样式重设计（方案 A 已实现）",
       "status": "done",

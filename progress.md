@@ -8,6 +8,22 @@
 - Verification: 完整 `npm run test` → **259 files / 2349 tests 全部通过**（发布硬门禁 100%）；`npm run lint` → 0 errors / 1 既有 warning（server/cloud/identity.mjs:92）；`npm run build` 成功（仅既有 chunk size warnings）；`prepare-runtime-package` + `prepare-offline-package` + `npm pack` → `package-offline/shawnstack-quickforge-1.9.1.tgz`（7.0MB / 453 files）；打包元数据校验 version 1.9.1、8 个运行时 dependencies + @vscode/ripgrep optionalDependencies、无 devDependencies/scripts。
 - Release sequence: 本轮变更构成 release commit（7 个发布文件），随后 master 快进到发布提交、创建 `v1.9.1` tag、原子推送 `master`/`dev`/tag；GitHub Desktop Release 与 `npm publish` 由用户执行。
 
+## Completed Feature：plugins-remove-description
+
+- Feature: 插件设置页移除插件描述文案（plugins-remove-description，**已完成**）
+- Status: done — 用户要求移除「管理本地 QuickForge 插件。当前首版支持通过 manifest 声明并贡献 Agent 工具的插件。」。`PluginsPage.tsx` 删除标题下方描述行；`settings-tabs.ts` 插件项 `getDescription` 改为 `undefined`（与 mcp 项同先例；`SettingsWorkspacePage.tsx` 的 activeDescription/搜索文本均可选链消费，安全）；`i18n.ts` 中英文成对删除 `pluginsDescription` key，grep 确认无残留。
+- Verification: grep 删除 key 无残留；eslint 改动 3 文件 0 error；tsc -b 通过；npm run build 成功（仅既有 chunk size warning）。tests/ 无 PluginsPage/pluginsDescription 引用。未跑全量 test/lint。
+- Boundaries: 纯 UI 文案移除，不改插件发现与加载逻辑；无新增依赖；未 commit/tag/push。
+- Next step: 无 blocker。
+
+## Completed Feature：lan-access-remove-risk-warning
+
+- Feature: 局域网访问设置页移除高风险警告文案（lan-access-remove-risk-warning，**已完成**）
+- Status: done — 用户要求移除设置页顶部「高风险：通过密码的局域网设备可以访问你的对话、项目和可用工具。请只在可信网络中开启。」。`lan-access-settings-tab.ts` render 删除 `quickforge-settings-warning` 警告 div；`i18n.ts` 中英文成对删除 `lanAccessRiskWarning` key，grep 确认无残留引用。`.quickforge-settings-warning` 样式保留（cloud/backup/skills/plugins 页仍用）。
+- Verification: grep 删除 key 无残留；eslint 改动文件 0 error（server/cloud/identity.mjs 既有 warning 与本次无关）；npm run build 成功（仅既有 chunk size warning）。tests/ 无 lan-access-settings-tab 相关测试文件。未跑全量 test/lint。
+- Boundaries: 纯 UI 文案移除，不改局域网访问功能与密码逻辑；无新增依赖；未 commit/tag/push。
+- Next step: 无 blocker。
+
 ## Completed Feature：cloud-settings-url-row-redesign
 
 - Feature: 云服务设置页移除「启用云服务」开关行与登录安全说明 + Cloud API 地址行样式重设计·方案 A（cloud-settings-url-row-redesign，**已完成**）

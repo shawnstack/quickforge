@@ -9,6 +9,12 @@ function request(headers = {}) {
   return req
 }
 
+function getRequest() {
+  const req = request()
+  req.method = 'GET'
+  return req
+}
+
 function response() {
   return {
     status: undefined,
@@ -76,5 +82,33 @@ describe('system remote access policy', () => {
     )
     expect(requestRestart).toHaveBeenCalledOnce()
     expect(res.status).toBe(202)
+  })
+
+  it('serves update check snapshots without a 500 even when the registry check failed', async () => {
+    const getUpdateCheckState = vi.fn(() => ({ status: 'error', checkError: 'request timeout' }))
+    const res = response()
+    await handleSystemApi(
+      getRequest(),
+      res,
+      new URL('http://localhost/api/system/update/check'),
+      { getUpdateCheckState },
+    )
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ status: 'error', checkError: 'request timeout' })
+    expect(getUpdateCheckState).toHaveBeenCalledWith(false)
+  })
+
+  it('passes force=1 through to a manual update check', async () => {
+    const getUpdateCheckState = vi.fn(() => ({ status: 'checking' }))
+    const res = response()
+    await handleSystemApi(
+      getRequest(),
+      res,
+      new URL('http://localhost/api/system/update/check?force=1'),
+      { getUpdateCheckState },
+    )
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ status: 'checking' })
+    expect(getUpdateCheckState).toHaveBeenCalledWith(true)
   })
 })

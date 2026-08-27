@@ -8,10 +8,12 @@ const QUICKFORGE_LATEST_RELEASE_API_URL = 'https://api.github.com/repos/shawnsta
 const DEFAULT_REGISTRY_URL = 'https://registry.npmjs.org/'
 
 // 外部更新检查（npm registry / GitHub Releases）是应用中最慢的调用。
-// 增加进程内冷却缓存：并发调用共享同一 Promise，TTL 内重复调用复用结果；
-// 失败不缓存，下次调用立即重试。
 const UPDATE_CHECK_COOLDOWN_MS = 5 * 60 * 1000
-const updateCheckCooldowns = new Map() // key -> { at, promise }
+const updateCheckCooldowns = new Map() // key -> { at, promise }（checkDesktopRelease 沿用）
+// npm 运行时检查改为进程内状态机：快照接口永不等网络，必要时在后台刷新，
+// HTTP 请求不再阻塞在 registry 调用上，网络失败也不再以 500 暴露给前端。
+const UPDATE_CHECK_ERROR_RETRY_MS = 30 * 1000
+const updateCheckStates = new Map() // key -> { status, result, error, checkedAt, promise }
 
 function cooldownLoad(key, loader) {
   const now = Date.now()
@@ -188,12 +190,23 @@ export async function fetchLatestVersion(packageName) {
   }
 }
 
-export function checkForUpdates(projectRoot) {
-  return cooldownLoad(`npm:${projectRoot}`, async () => {
+function getUpdateCheckEntry(key) {
+  let entry = updateCheckStates.get(key)
+  if (!entry) {
+    entry = { status: 'idle', result: null, error: '', checkedAt: 0, promise: null }
+    updateCheckStates.set(key, entry)
+  }
+  return entry
+}
+
+function startUpdateCheck(entry, projectRoot) {
+  entry.status = 'checking'
+  entry.error = ''
+  const promise = (async () => {
     const pkg = await getPackageInfo(projectRoot)
     const latestVersion = await fetchLatestVersion(pkg.name)
     const comparison = compareVersions(pkg.version, latestVersion)
-    return {
+    entry.result = {
       ...pkg,
       channel: 'npm-runtime',
       distribution: 'npm',
@@ -204,7 +217,47 @@ export function checkForUpdates(projectRoot) {
       installCommand: `npm install -g ${pkg.name}@latest`,
       releaseUrl: QUICKFORGE_RELEASES_URL,
     }
+    entry.checkedAt = Date.now()
+    entry.status = 'ok'
+    return entry.result
+  })()
+  entry.promise = promise
+  promise.catch((error) => {
+    // 后台失败只记录状态；显式等待方（checkForUpdates / 更新流程）自行收到 rejection。
+    entry.status = 'error'
+    entry.error = error?.message || 'update check failed'
+    entry.checkedAt = Date.now()
   })
+  return promise
+}
+
+function snapshotUpdateCheck(entry) {
+  const snapshot = { status: entry.status, ...(entry.result || {}) }
+  if (entry.checkedAt) snapshot.checkedAt = new Date(entry.checkedAt).toISOString()
+  if (entry.status === 'error') snapshot.checkError = entry.error
+  return snapshot
+}
+
+// 非阻塞快照：立即返回 checking/ok/error，永不等网络。结果过期、尚未检查或
+// 失败退避到期时在后台触发一次刷新；force 用于手动检查，跳过缓存与退避。
+export function getUpdateCheckState(projectRoot, options = {}) {
+  const entry = getUpdateCheckEntry(`npm:${projectRoot}`)
+  const now = Date.now()
+  if (entry.status !== 'checking') {
+    const fresh = entry.status === 'ok' && now - entry.checkedAt < UPDATE_CHECK_COOLDOWN_MS
+    const inErrorBackoff = entry.status === 'error' && now - entry.checkedAt < UPDATE_CHECK_ERROR_RETRY_MS
+    if (options.force || (!fresh && !inErrorBackoff)) startUpdateCheck(entry, projectRoot)
+  }
+  return snapshotUpdateCheck(entry)
+}
+
+// 显式等待最新结果（更新流程使用）：成功结果走冷却缓存复用，失败直接抛出。
+export function checkForUpdates(projectRoot) {
+  const entry = getUpdateCheckEntry(`npm:${projectRoot}`)
+  if (entry.status === 'checking') return entry.promise
+  const fresh = entry.status === 'ok' && Date.now() - entry.checkedAt < UPDATE_CHECK_COOLDOWN_MS
+  if (fresh) return Promise.resolve(entry.result)
+  return startUpdateCheck(entry, projectRoot)
 }
 
 export function checkDesktopRelease(projectRoot) {

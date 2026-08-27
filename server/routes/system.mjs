@@ -9,7 +9,8 @@ export async function handleSystemApi(req, res, url, context) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/system/update/check') {
-    sendJson(res, 200, await context.checkForUpdates())
+    // 非阻塞：立即返回检查状态快照，registry 请求在后台刷新，网络失败不再返回 500。
+    sendJson(res, 200, context.getUpdateCheckState(url.searchParams.get('force') === '1'))
     return
   }
 

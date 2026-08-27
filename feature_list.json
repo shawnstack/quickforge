@@ -1,6 +1,29 @@
 {
   "features": [
     {
+      "id": "update-check-async-snapshot",
+      "name": "检查更新接口异步化：GET /api/system/update/check 立即返回状态快照，后台刷新 registry，弱网不再 500",
+      "status": "done",
+      "approach": "用户报告控制台 `Failed to load resource: 500 http://localhost:5176/api/system/update/check` 并指出更新检查应异步。根因：server/routes/system.mjs 的 GET /api/system/update/check await checkForUpdates()，服务端同步等待外部 npm registry fetch（package-update.mjs 内 5 秒超时），弱网/超时/registry 404 时函数抛错 → 路由抛出 → sendError 500，浏览器把非 2xx 记入控制台。按用户方向落地为服务端状态机 + 前端有界轮询：① server/utils/package-update.mjs 新增进程内状态机 updateCheckStates（npm key 粒度）与 getUpdateCheckState(projectRoot, {force})——同步返回快照 {status: 'checking'|'ok'|'error', ...上次结果, checkError?, checkedAt}，永不等网络；结果过期（5 分钟冷却）、尚未检查或失败退避（30 秒）到期时在后台 startUpdateCheck 刷新（成功缓存 result，失败记 checkError 不抛给 HTTP 层）；force（?force=1，设置页手动检查）跳过缓存与退避。checkForUpdates(projectRoot) 保留可等待语义供 POST /api/system/update 更新流程：成功走冷却缓存、与快照共享同一后台 Promise、失败如实 reject。checkDesktopRelease 沿用旧 cooldownLoad（前端无调用方，未动）。② 路由 GET /api/system/update/check 改为 sendJson(200, 快照)，index.mjs context 由 checkForUpdates 换成 getUpdateCheckState(force)。③ 前端新增 src/lib/update-check-poll.ts：requestUpdateCheck() 对快照接口有界轮询（默认 10 次 × 1s，fetch/sleep 可注入），终态 ok 返回 payload、error/HTTP 失败/网络异常一律返回 {kind:'error'} 不抛出，force 仅首次带 ?force=1，并兼容不带 status 字段的旧服务端 payload；useUpdateCheck（启动静默检查）与 about-settings-tab（手动检查 force:true）接入，失败路径行为不变（启动静默、About 显示 checkError/updateCheckFailed 文案）。",
+      "files": [
+        "server/utils/package-update.mjs",
+        "server/routes/system.mjs",
+        "server/index.mjs",
+        "src/lib/update-check-poll.ts",
+        "src/hooks/useUpdateCheck.ts",
+        "src/lib/about-settings-tab.ts",
+        "tests/server/utils/package-update.test.mjs",
+        "tests/server/routes/system.test.mjs",
+        "tests/frontend/update-check-poll.test.ts",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/server/utils/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/hooks/README.md"
+      ],
+      "verification": "npx vitest run tests/server/utils/package-update.test.mjs tests/server/routes/system.test.mjs tests/frontend/update-check-poll.test.ts（23+6 全过）；npm run lint（0 error，仅既有 identity.mjs warning）；npm run build 通过；npm run test 全量 263 文件 / 2415 测试通过。"
+    },
+    {
       "id": "model-stream-retry-notice",
       "name": "模型上游流重试可视化：任意 idle 超时重试（上限 10）+「模型连接重试中… n/10」提示",
       "status": "done",

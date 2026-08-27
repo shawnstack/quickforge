@@ -37,6 +37,7 @@
 | `patch-thinking-selector.ts` | 117 | 思考模式选择器修补 |
 | `clipboard-polyfill.ts` | 51 | 剪贴板 API polyfill |
 | `logger.ts` | 56 | 前端日志工具 |
+| `update-check-poll.ts` | 71 | 更新检查轮询助手：`requestUpdateCheck()` 对非阻塞的 `GET /api/system/update/check` 状态快照做有界轮询（默认 10 次 × 1s，可注入 fetch/sleep 单测）到 `ok`/`error` 终态，失败一律返回 `{ kind: 'error' }` 不抛出（fetch/sleep 可注入）；`force` 仅首次请求带 `?force=1`；兼容不带 `status` 字段的旧服务端 payload |
 | `random-id.ts` | 19 | UUID 生成 |
 | `tool-display-settings.ts` | 40 | Tool 与上下文用量展示设置 |
 | `tool-execution-events.ts` | 120 | 工具执行事件处理 |
@@ -263,7 +264,7 @@
 | `lan-access-settings-tab.ts` | LAN 共享设置（启用/禁用、密码、会话 TTL），仅展示当前仍有访问权限、可以踢出的局域网设备摘要、IP 与有效期，并支持逐个或全部踢出 |
 | `backup-settings-tab.ts` | 数据备份导出和导入 |
 | `default-options-settings-tab.ts` | 设置默认模型、语言、思考级别、Tool 展示、上下文用量显示、上下文管理和终端 Shell；默认 Shell 从系统识别列表选择，并支持自定义命令或路径 |
-| `about-settings-tab.ts` | 关于信息、更新检查/执行，以及后端服务重启 |
+| `about-settings-tab.ts` | 关于信息、更新检查/执行（经 `update-check-poll.ts` 轮询，手动检查 force 跳过服务端缓存），以及后端服务重启 |
 | `project-commands-settings-tab.ts` | 项目命令目录配置 + 命令预览 + 新建命令 |
 | `archived-conversations-settings-tab.ts` | 已归档对话的恢复和永久删除 |
 | `react-settings-tabs.tsx` | 将 Agent、Skills、MCP、插件、定时任务和分享链接管理等 React 页面适配为设置 Tab |

@@ -7,6 +7,7 @@ import {
   checkForUpdates,
   checkDesktopRelease,
   fetchLatestVersion,
+  getUpdateCheckState,
   resolveRegistry,
 } from '../../../server/utils/package-update.mjs'
 
@@ -14,6 +15,47 @@ const PACKAGE_NAME = '@shawnstack/quickforge'
 
 async function makeTempDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'quickforge-package-update-'))
+}
+
+async function makeProjectDir(version = '1.0.0') {
+  const dir = await makeTempDir()
+  await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: PACKAGE_NAME, version }), 'utf8')
+  return dir
+}
+
+// 手动控制的 fetch mock：每个请求挂起直到 resolve/reject，便于断言快照接口不等网络。
+function deferredFetchMock() {
+  const pending = []
+  const impl = vi.fn(() => new Promise((resolve, reject) => {
+    pending.push({ resolve, reject })
+  }))
+  return {
+    impl,
+    resolveLast(value) {
+      pending.shift().resolve(value)
+    },
+    rejectLast(error) {
+      pending.shift().reject(error)
+    },
+  }
+}
+
+// 后台检查在读取 package.json、解析 registry 之后才发起 fetch，需等待其就绪。
+async function waitForFetchCall(impl, count = 1) {
+  const started = Date.now()
+  while (impl.mock.calls.length < count && Date.now() - started < 2000) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  if (impl.mock.calls.length < count) throw new Error(`fetch was not called ${count} time(s)`)
+}
+
+async function untilUpdateStatus(projectRoot, status) {
+  const started = Date.now()
+  while (Date.now() - started < 2000) {
+    if (getUpdateCheckState(projectRoot).status === status) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error(`update check state did not become '${status}'`)
 }
 
 async function writeTempNpmrc(content) {
@@ -144,6 +186,97 @@ describe('package update utilities', () => {
       expect(result.updateAvailable).toBe(true)
       expect(result.installCommand).toBe(`npm install -g ${result.name}@latest`)
       expect(result.releaseUrl).toBe('https://github.com/shawnstack/quickforge/releases/latest')
+    })
+
+    it('still rejects for the explicit update flow when the registry fails', async () => {
+      const projectRoot = await makeProjectDir()
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('request timeout'))
+
+      await expect(checkForUpdates(projectRoot)).rejects.toThrow('request timeout')
+      expect(getUpdateCheckState(projectRoot)).toMatchObject({ status: 'error', checkError: 'request timeout' })
+    })
+  })
+
+  describe('getUpdateCheckState', () => {
+    it('returns a checking snapshot immediately without waiting for the registry', async () => {
+      const projectRoot = await makeProjectDir('1.0.0')
+      const { impl, resolveLast } = deferredFetchMock()
+      vi.spyOn(globalThis, 'fetch').mockImplementation(impl)
+
+      const snapshot = getUpdateCheckState(projectRoot)
+
+      // 快照同步返回，不等 registry（此刻请求甚至可能尚未发起）
+      expect(snapshot.status).toBe('checking')
+
+      await waitForFetchCall(impl)
+      // fetch 仍挂起时再次获取快照，依然是立即返回 checking
+      expect(getUpdateCheckState(projectRoot).status).toBe('checking')
+
+      resolveLast({ ok: true, json: async () => ({ 'dist-tags': { latest: '2.0.0' } }) })
+      await untilUpdateStatus(projectRoot, 'ok')
+
+      const done = getUpdateCheckState(projectRoot)
+      expect(done.status).toBe('ok')
+      expect(done.currentVersion).toBe('1.0.0')
+      expect(done.latestVersion).toBe('2.0.0')
+      expect(done.updateAvailable).toBe(true)
+    })
+
+    it('reuses a fresh result without a second registry request', async () => {
+      const projectRoot = await makeProjectDir()
+      const { impl, resolveLast } = deferredFetchMock()
+      vi.spyOn(globalThis, 'fetch').mockImplementation(impl)
+
+      getUpdateCheckState(projectRoot)
+      await waitForFetchCall(impl)
+      resolveLast({ ok: true, json: async () => ({ 'dist-tags': { latest: '1.1.0' } }) })
+      await untilUpdateStatus(projectRoot, 'ok')
+
+      const cached = getUpdateCheckState(projectRoot)
+
+      expect(cached.status).toBe('ok')
+      expect(cached.latestVersion).toBe('1.1.0')
+      expect(impl).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports registry failures as an error snapshot instead of throwing', async () => {
+      const projectRoot = await makeProjectDir()
+      const { impl, rejectLast } = deferredFetchMock()
+      vi.spyOn(globalThis, 'fetch').mockImplementation(impl)
+
+      getUpdateCheckState(projectRoot)
+      await waitForFetchCall(impl)
+      rejectLast(new Error('registry returned HTTP 404'))
+      await untilUpdateStatus(projectRoot, 'error')
+
+      const failed = getUpdateCheckState(projectRoot)
+
+      expect(failed.status).toBe('error')
+      expect(failed.checkError).toBe('registry returned HTTP 404')
+      // 失败退避期内不自动重试
+      expect(impl).toHaveBeenCalledTimes(1)
+    })
+
+    it('skips cache and error backoff when forced', async () => {
+      const projectRoot = await makeProjectDir('1.0.0')
+      const { impl, resolveLast } = deferredFetchMock()
+      vi.spyOn(globalThis, 'fetch').mockImplementation(impl)
+
+      getUpdateCheckState(projectRoot)
+      await waitForFetchCall(impl)
+      resolveLast({ ok: true, json: async () => ({ 'dist-tags': { latest: '1.1.0' } }) })
+      await untilUpdateStatus(projectRoot, 'ok')
+
+      const forced = getUpdateCheckState(projectRoot, { force: true })
+
+      expect(forced.status).toBe('checking')
+      expect(forced.latestVersion).toBe('1.1.0') // 上次结果随快照保留
+      await waitForFetchCall(impl, 2)
+      expect(impl).toHaveBeenCalledTimes(2)
+
+      resolveLast({ ok: true, json: async () => ({ 'dist-tags': { latest: '1.2.0' } }) })
+      await untilUpdateStatus(projectRoot, 'ok')
+      expect(getUpdateCheckState(projectRoot).latestVersion).toBe('1.2.0')
     })
   })
 

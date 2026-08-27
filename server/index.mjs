@@ -49,7 +49,7 @@ import { readCloudServiceConfig } from './cloud/service-config.mjs'
 import { startQfAgent, stopQfAgent, getQfAgentStatus } from './cloud/qf-agent-process.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
-import { getPackageInfo, checkForUpdates, checkDesktopRelease } from './utils/package-update.mjs'
+import { getPackageInfo, checkForUpdates, getUpdateCheckState, checkDesktopRelease } from './utils/package-update.mjs'
 import { installAiHttpLogger } from './ai-http-logger.mjs'
 import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
 import { parseCookies } from './share-store.mjs'
@@ -533,7 +533,7 @@ async function handleApi(req, res, url, requestContext = {}) {
       getSystemStatus: () => getSystemStatus(requestContext),
       requestRestart,
       getPackageInfo: () => getPackageInfo(projectRoot),
-      checkForUpdates: () => checkForUpdates(projectRoot),
+      getUpdateCheckState: (force) => getUpdateCheckState(projectRoot, { force }),
       checkDesktopRelease: () => checkDesktopRelease(projectRoot),
       updateQuickForge,
       isLocalRequest: requestContext.isLocalRequest === true,

@@ -5,6 +5,7 @@ import {
   saveUpdateCheckSettings,
   shouldCheckAtStartup,
 } from '@/lib/update-check-settings'
+import { requestUpdateCheck } from '@/lib/update-check-poll'
 import { logger } from '@/lib/logger'
 
 type PiStorage = Awaited<ReturnType<typeof initializePiStorage>>
@@ -23,15 +24,6 @@ export type UpdateCheckInfo = {
   result: UpdateCheckResult
   /** Dismiss the current new-version reminder (persists ignoredVersion). */
   dismissUpdate: () => void
-}
-
-type UpdateCheckResponse = {
-  channel?: 'npm-runtime'
-  distribution?: 'npm'
-  currentVersion: string
-  latestVersion: string
-  updateAvailable: boolean
-  localVersionIsNewer?: boolean
 }
 
 const INITIAL_RESULT: UpdateCheckResult = {
@@ -76,14 +68,15 @@ export function useUpdateCheck(
 
       setResult((prev) => ({ ...prev, status: 'checking' }))
       try {
-        const response = await fetch('/api/system/update/check', { cache: 'no-store' })
-        if (!response.ok) {
+        // 服务端立即返回状态快照，这里轮询到终态；任何失败静默处理。
+        const outcome = await requestUpdateCheck()
+        if (outcome.kind !== 'ok') {
           setResult((prev) => ({ ...prev, status: 'error' }))
           return
         }
-        const payload = (await response.json()) as UpdateCheckResponse
+        const payload = outcome.payload
         const updateAvailable =
-          payload.updateAvailable && payload.latestVersion !== settings.ignoredVersion
+          payload.updateAvailable === true && payload.latestVersion !== settings.ignoredVersion
         try {
           await saveUpdateCheckSettings(storage, {
             ...settings,

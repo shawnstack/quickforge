@@ -322,7 +322,7 @@ server/
 **核心文件**:
 - `terminal/terminal-manager.mjs` — PTY 创建、输入输出转发、REST/WS 输入写入、resize、会话上限、断线保留和关闭清理。已连接的终端不会因为无输入输出而自动销毁；最后一个客户端断开后默认保留 30 分钟，便于页面刷新、休眠恢复或前端重连。
 - `routes/terminal.mjs` — `/api/terminal/capabilities`、`/api/terminal/sessions`、`/api/terminal/sessions/:id/input` 和 `/api/terminal/sessions/:id/ws`。
-- `routes/system.mjs` — 系统状态、服务重启、关于信息和 QuickForge Runtime 更新 API；`GET /api/system/update/check` 检查 npm 分发的 Runtime 版本，`POST /api/system/update` 仅允许 localhost 请求并要求 `x-quickforge-action: update`，会启动外部 `update-supervisor.mjs`，让当前服务退出后再执行全局 npm 更新并自动重启；Desktop 客户端更新不走该 npm 更新入口，而是通过 GitHub Releases / 桌面包分发。
+- `routes/system.mjs` — 系统状态、服务重启、关于信息和 QuickForge Runtime 更新 API；`GET /api/system/update/check` 检查 npm 分发的 Runtime 版本（非阻塞状态快照：立即返回 checking/ok/error，registry 后台刷新，弱网失败不再 500，前端 `src/lib/update-check-poll.ts` 轮询），`POST /api/system/update` 仅允许 localhost 请求并要求 `x-quickforge-action: update`，会启动外部 `update-supervisor.mjs`，让当前服务退出后再执行全局 npm 更新并自动重启；Desktop 客户端更新不走该 npm 更新入口，而是通过 GitHub Releases / 桌面包分发。
 
 **PTY 运行时加载**:
 - `loadPty()` 优先加载仓库自带的 vendored 运行时 `vendor/node-pty/lib/index.js`（约 5MB，含 win32-x64/arm64、darwin-x64/arm64 四平台预编译，由 `scripts/vendor-node-pty.mjs` 从 node-pty devDependency 同步生成，来源版本记录在 `vendor/node-pty/VENDOR.json`）；失败时回退 `require('node-pty')`（如用户自装），两者皆不可用时 capabilities 返回 503 降级，报错文案见 `PTY_UNAVAILABLE_MESSAGE`。

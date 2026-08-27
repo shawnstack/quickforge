@@ -8,6 +8,7 @@ import {
   saveUpdateCheckSettings,
   type UpdateCheckFrequency,
 } from '@/lib/update-check-settings'
+import { requestUpdateCheck } from '@/lib/update-check-poll'
 import './info-tip'
 
 type AboutInfo = {
@@ -144,9 +145,13 @@ class AboutSettingsTab extends SettingsTab {
     this.requestUpdate()
 
     try {
-      const response = await fetch('/api/system/update/check', { cache: 'no-store' })
-      const payload = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(payload?.error || t('updateCheckFailed'))
+      // 手动检查带 force=1 跳过服务端缓存；接口立即返回快照，这里轮询到终态。
+      const outcome = await requestUpdateCheck({
+        force: true,
+        intervalMs: POLL_INTERVAL_MS,
+      })
+      if (outcome.kind !== 'ok') throw new Error(outcome.message || t('updateCheckFailed'))
+      const payload = outcome.payload
       this.updateInfo = payload as UpdateInfo
       this.about = payload as AboutInfo
 

@@ -23,7 +23,7 @@
 | [useSentinel.ts](../../src/hooks/useSentinel.ts) | 57 | 哨兵元素（用于 Infinite Scroll） |
 | [useTaskToasts.ts](../../src/hooks/useTaskToasts.ts) | 35 | 后台任务 Toast 通知管理 |
 | [useUIState.ts](../../src/hooks/useUIState.ts) | 57 | 应用 UI 状态管理 |
-| [useUpdateCheck.ts](../../src/hooks/useUpdateCheck.ts) | 129 | 应用更新检查 |
+| [useUpdateCheck.ts](../../src/hooks/useUpdateCheck.ts) | 121 | 应用更新检查（启动后台静默检查；经 `update-check-poll.ts` 轮询非阻塞快照接口，失败静默） |
 | [useVisibleRuntimeStatuses.ts](../../src/hooks/useVisibleRuntimeStatuses.ts) | 100 | 可见会话的后台任务状态轮询 |
 
 ---

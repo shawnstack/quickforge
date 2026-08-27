@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：update-check-async-snapshot（已完成）
+
+- 目标：用户报告 `GET /api/system/update/check` 500（控制台 Failed to load resource）且指出更新检查应异步。根因：路由同步 await 外部 npm registry（5 秒超时），弱网失败抛 500。
+- 实现：`server/utils/package-update.mjs` npm 检查改状态机——`getUpdateCheckState(projectRoot, {force})` 同步返回 `{status:'checking'|'ok'|'error', ...结果, checkError?, checkedAt}` 快照、后台刷新（5 分钟冷却 / 30 秒失败退避 / force 跳过），`checkForUpdates` 保留可等待语义供更新流程；路由 `server/routes/system.mjs` 改 `sendJson(200, 快照)` + `?force=1`；`server/index.mjs` context 接线。前端新 `src/lib/update-check-poll.ts`（有界轮询 10×1s，可注入 fetch/sleep，失败不抛出，兼容旧 payload）；`src/hooks/useUpdateCheck.ts`（启动静默）与 `src/lib/about-settings-tab.ts`（手动 force）接入。
+- 验证：定向 3 files / 29 tests、eslint 0 error、build ✓、全量 npm run test 263 files / 2415 tests 全过。
+- 文件：server/utils/package-update.mjs、server/routes/system.mjs、server/index.mjs、src/lib/update-check-poll.ts（新）、src/hooks/useUpdateCheck.ts、src/lib/about-settings-tab.ts、tests/server/utils/package-update.test.mjs、tests/server/routes/system.test.mjs、tests/frontend/update-check-poll.test.ts（新）、docs/wiki/{server, server/routes, server/utils, src/lib, src/hooks}/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。Notes：`/api/system/update/desktop`（checkDesktopRelease）仍为阻塞形态但前端无调用方，未纳入本次；identity.mjs:92 lint warning 为既有问题。
+- 下一步：可选真机弱网验证（无 500、About 手动检查失败文案/恢复重查）；本会话累计四组未 commit 改动（sse-reconnect-notice / ai-stream-idle-fast-detect-retry / model-stream-retry-notice / update-check-async-snapshot）。
+
+---
+
 ## 当前状态：model-stream-retry-notice（已完成）
 
 - 目标：用户实测反馈本机弱网只看到「AI stream idle timeout after 60000ms」错误、没有重连文字（SSE 走 localhost 不断，前端 SSE 重连提示覆盖不到上游模型流层）。把上游故障做成可见恢复体验。

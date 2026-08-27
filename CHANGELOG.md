@@ -2,6 +2,27 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.10.0] - 2026-08-27
+
+### Added
+
+- Added the composer message queue: messages typed while the AI turn is streaming are queued instead of dropped, then sent automatically in order when the turn ends. Queued items can be edited inline, deleted, promoted, and reordered by dragging the handle; a "send now" action injects the message at the next tool-call boundary through steering with an optimistic in-chat display (QuickForge sessions only; the queue pauses after a manual stop or error and can be resumed). Queue state persists per session in localStorage so a refresh mid-stream does not lose queued messages.
+
+### Changed
+
+- Removed the description text from the plugins settings page.
+- Removed the high-risk warning banner from the LAN access settings page.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.10.0` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.10.0.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.10.0.tgz
+  ```
+
 ## [1.9.1] - 2026-08-27
 
 ### Added

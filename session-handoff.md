@@ -1,6 +1,19 @@
 # Session Handoff
 
-## 当前状态：chat-message-queue（已完成）
+## 当前状态：release-v1.10.0（已完成）
+
+- 目标：按用户指令「发布一个版本」，以 `v1.9.1` tag 之后 dev 的待发布内容为基线（新功能 chat-message-queue dfb2bcc + plugins/lan-access 两个文案精简提交），经用户选型确认按 **minor** 发布 **v1.10.0**。
+- 已完成：`npm version minor` 1.9.1→1.10.0；CHANGELOG.md 新增 `[1.10.0] - 2026-08-27` 章节（Added/Changed/Released）；README.md 当前版本徽章 → 1.10.0。
+- 门禁：完整 `npm run test` → **260 files / 2365 tests 全部通过**（硬门禁）；`npm run lint` → 0 errors / 1 既有 warning（identity.mjs:92）；`npm run build` 成功（仅既有 chunk size warnings）。
+- 打包：runtime/offline 包已生成，`package-offline/shawnstack-quickforge-1.10.0.tgz`（unpacked 24.2MB / 453 files）；元数据校验 version 1.10.0、8 运行时 deps + @vscode/ripgrep optional、无 devDeps/scripts。
+- 文件：package.json、package-lock.json、CHANGELOG.md、README.md、feature_list.json、progress.md、session-handoff.md。
+- 发布序列：本变更构成 release commit（在 dev 上），随后 master `--ff-only` 快进、`v1.10.0` tag、原子推送 `master`/`dev`/tag。
+- Blocker：无。剩余人工步骤：GitHub Desktop Release 与 `npm publish ./package-offline/shawnstack-quickforge-1.10.0.tgz --access public`（用户执行，需 npm 登录）。
+- 下一步：无。可从 feature_list.json 选择下一个 feature。
+
+---
+
+## 前一会话状态：chat-message-queue（已完成）
 
 - 目标：为聊天 Composer 增加「排队 + 插队」——AI 回合运行期间继续输入的消息进入队列、回合结束后按序自动发送；队列项可「立即」在当前工具轮结束后注入进行中回合。先出 `design-mockups/message-queue.html` 交互稿，用户手动验证通过后实现。
 - 实现：新增 `src/lib/message-queue.ts`（纯函数队列操作 + localStorage 持久化 + steer 客户端，175 行）与 `src/components/chat/panel-decoration/message-queue.ts`（面板 controller，385 行）；`ChatPanelHost.tsx` 接入 capture-phase Enter 入队、decorate 更新、`agent_end` 冲刷/暂停分支、会话恢复与卸载保存；`todo-write-summary.ts` 锚点容忍相邻队列面板防抖动交换；capabilities 新增 `messageSteering`（QuickForge true / Side Chat、OpenCode false）；i18n 双语 15 key；index.css 追加 `.quickforge-msg-queue*` 样式段；panel-decoration 桶文件导出。插队走既有 `POST /api/agents/:id/steer`（pi-agent-core steering 在轮间 drain，服务端零改动）；OpenCode/Side Chat 通过能力位降级。

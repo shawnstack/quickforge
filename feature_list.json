@@ -1,6 +1,22 @@
 {
   "features": [
     {
+      "id": "release-v1.10.0",
+      "name": "发布 minor v1.10.0",
+      "status": "done",
+      "approach": "v1.9.1 tag 之后 dev 实际待发布内容为一个新功能提交 dfb2bcc（chat-message-queue：Composer 流式期排队自动发送 + 「立即」steer 轮边界插队 + 拖拽排序），另有 plugins/lan-access 两个设置页文案精简提交经 435c3bf 合入（未包含在 v1.9.1 npm 包内）。新功能按 semver 应升 minor，经用户确认按 minor 发布 v1.10.0。执行：npm version minor 1.9.1→1.10.0；CHANGELOG 新增 [1.10.0] - 2026-08-27 章节（Added/Changed/Released）；README 当前版本徽章更新为 1.10.0；完整 test/lint/build 门禁通过后生成 runtime/offline 包并 npm pack 出 tarball；本条目随 release commit 提交，随后 master 快进到发布提交、创建 tag v1.10.0、原子推送 master/dev/tag，GitHub Desktop Release 与 npm publish 由用户执行。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test → 260 files / 2365 tests 全部通过（硬门禁 100%）；npm run lint → 0 errors / 1 既有 warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build 成功（仅既有 chunk size warnings）；prepare-runtime/offline-package 后 npm pack → package-offline/shawnstack-quickforge-1.10.0.tgz（unpacked 24.2MB / 453 files）；打包 package.json 校验 version 1.10.0、8 个运行时 dependencies + @vscode/ripgrep optionalDependencies、无 devDependencies/scripts。"
+    },
+    {
       "id": "chat-message-queue",
       "name": "Composer 消息队列：流式期排队自动发送与 steer 轮边界插队",
       "status": "done",

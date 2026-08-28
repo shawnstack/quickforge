@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：sse-unreachable-tiered-notice（已完成）
+
+- 目标：用户实测不可达提示后要求更友好的交互。经设计稿（design-mockups/unreachable-notice.html）与确认：方案 A 分层升级、30s 阈值、恢复指引按环境排序。
+- 实现：server-agent reconnecting 广播带 unreachableSince；reconnect-notice Tier1 琥珀双行+立即重试按钮，≥30s 让位；新 unreachable-strip.ts Tier2 常驻条（composer dock 前、role=alert、断开时长/倒计时/立即重试/恢复指引两行=环境过滤+日志、sync 重挂保留展开）；ChatPanelHost 挂载对齐 reconnect-notice（仅主聊天）；index.css 复用琥珀配方；i18n +8/-1 key（精修删除 HelpAuto）。
+- 验证：vitest 3 files / 82 tests（unreachable-strip 12 新例）；eslint 0 error；tsc -b；npm run build ✓。
+- 文件：见 feature_list.json 的 sse-unreachable-tiered-notice.files（15 个，含 design-mockups/unreachable-notice.html）。
+- Blocker：无。Notes：Tier2 直接移除无离场动画；i18n/wiki×2/feature_list 为混合文件（含并行会话未提交改动），commit 时需拆分暂存（同 e1f439d 做法）；本 feature 未 commit，上一 feature sse-health-probe-notice 已提交（e1f439d）。
+- 下一步：真机冒烟分层升级全流程。
+
+---
+
 ## 当前状态：chat-compact-composer-on-narrow-chat-area（已完成）
 
 - 目标：用户需求中间对话区被左右侧栏拖宽挤压变窄时（viewport 宽度不变，`@media` 视口查询覆盖不到）Composer 输入框控件收起文字只留 icon，复用移动端 icon-only 紧凑形态。

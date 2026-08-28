@@ -1822,6 +1822,51 @@ describe('ServerAgent', () => {
     }
   })
 
+  it('stamps unreachableSince once per outage and clears it on recovery', async () => {
+    vi.useFakeTimers()
+    const statuses: Array<Record<string, unknown>> = []
+    const { subscribeSseConnectionState } = await import('../../src/lib/server-agent')
+    let reachable = false
+    stubHealthFetch(() => ({ ok: reachable, status: reachable ? 200 : 503, json: async () => (reachable ? { ok: true, bootId: 'boot-since' } : {}) }))
+    const agent = await createServerAgent({ sessionId: 'sse-health-since-1' })
+    const unsubscribe = subscribeSseConnectionState((status) => statuses.push(status as Record<string, unknown>))
+
+    try {
+      const startedAt = Date.now()
+      latestEventSource().onerror?.(new Event('error'))
+      await settleHealthProbe()
+      // 不可达广播携带窗口起始时间戳（false→true 沿记录一次）。
+      const since = statuses.at(-1)!.unreachableSince
+      expect(since).toBeTypeOf('number')
+      expect(since as number).toBeGreaterThanOrEqual(startedAt)
+      expect(since as number).toBeLessThanOrEqual(Date.now())
+
+      vi.advanceTimersByTime(1000)
+      latestEventSource().onerror?.(new Event('error'))
+      await settleHealthProbe()
+      // 同一轮不可达期间时间戳保持不变（后续重试广播复用）。
+      expect(statuses.at(-1)!.unreachableSince).toBe(since)
+
+      // 恢复：onopen 广播 connected 并清除不可达窗口。
+      reachable = true
+      vi.advanceTimersByTime(2000)
+      latestEventSource().onopen?.(new Event('open'))
+      expect(statuses.at(-1)).toEqual({ status: 'connected', recovered: true })
+      await settleHealthProbe()
+
+      // 再次断连且 health 可达：reconnecting 广播不再携带 unreachable/unreachableSince。
+      latestEventSource().onerror?.(new Event('error'))
+      await settleHealthProbe()
+      expect(statuses.at(-1)).toMatchObject({ status: 'reconnecting', attempt: 1 })
+      expect(statuses.at(-1)!.unreachable).toBeUndefined()
+      expect(statuses.at(-1)!.unreachableSince).toBeUndefined()
+    } finally {
+      unsubscribe()
+      agent.dispose()
+      vi.useRealTimers()
+    }
+  })
+
   it('treats health probe fetch failures and timeouts as unreachable', async () => {
     vi.useFakeTimers()
     const statuses: Array<Record<string, unknown>> = []

@@ -52,8 +52,10 @@ const SSE_HEALTH_PROBE_TIMEOUT_MS = 5000
 export const MAX_SSE_RECONNECT_ATTEMPTS = 10
 
 // 连接状态广播：弱网断流期间 UI 据此显示「重新连接中… n/10」等提示。
+// reconnecting.unreachableSince：健康探测确认后端不可达的起始时刻（ms），
+// UI 据此计算断开时长与提示分层阈值；恢复/重试/断开时清除。
 export type SseConnectionStatus =
-  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number; unreachable?: boolean }
+  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number; unreachable?: boolean; unreachableSince?: number }
   | { status: 'connected'; recovered: boolean; restarted?: boolean }
   | { status: 'failed'; maxAttempts: number }
 
@@ -129,6 +131,7 @@ class GlobalAgentSseClient {
   private reconnectAttempts = 0
   // 健康检查探测：后端整体不可达标志（true 时重连无上限）与最近一次已知 bootId 基线。
   private serverUnreachable = false
+  private serverUnreachableSince: number | undefined
   private lastKnownBootId: string | undefined
   private healthProbeInFlight = false
   private connectionHandlers = new Set<(status: SseConnectionStatus) => void>()
@@ -195,6 +198,7 @@ class GlobalAgentSseClient {
       if (recovered) {
         this.reconnectAttempts = 0
         this.serverUnreachable = false
+        this.serverUnreachableSince = undefined
         this.setConnectionStatus({ status: 'connected', recovered: true })
       }
       // 连上后取一次 bootId：与基线不同说明后端在断连期间重启过，补播 restarted 提示；
@@ -259,9 +263,17 @@ class GlobalAgentSseClient {
       attempt: this.reconnectAttempts,
       maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS,
       nextRetryAt: Date.now() + waitMs,
-      ...(this.serverUnreachable ? { unreachable: true } : {}),
+      ...this.unreachableStatusFields(),
     })
     return true
+  }
+
+  /** 不可达态在 reconnecting 广播上附加的增量字段（含不可达起始时刻）。 */
+  private unreachableStatusFields(): { unreachable?: true; unreachableSince?: number } {
+    if (!this.serverUnreachable) return {}
+    return this.serverUnreachableSince === undefined
+      ? { unreachable: true }
+      : { unreachable: true, unreachableSince: this.serverUnreachableSince }
   }
 
   private scheduleReconnect() {
@@ -305,13 +317,19 @@ class GlobalAgentSseClient {
         const current = this.lastConnectionStatus
         // 竞态防护：结果返回时已不在重连中（已连上/进入 failed/已断开）则只保留 bootId 更新。
         if (current?.status !== 'reconnecting') return
+        const wasUnreachable = this.serverUnreachable
         this.serverUnreachable = !result.reachable
+        if (this.serverUnreachable && !wasUnreachable) {
+          this.serverUnreachableSince = Date.now()
+        } else if (!this.serverUnreachable) {
+          this.serverUnreachableSince = undefined
+        }
         this.setConnectionStatus({
           status: 'reconnecting',
           attempt: current.attempt,
           maxAttempts: current.maxAttempts,
           nextRetryAt: current.nextRetryAt,
-          ...(this.serverUnreachable ? { unreachable: true } : {}),
+          ...this.unreachableStatusFields(),
         })
       },
       () => {
@@ -387,6 +405,7 @@ class GlobalAgentSseClient {
     this.reconnectAttempts = 0
     this.reconnectDelay = 1000
     this.serverUnreachable = false
+    this.serverUnreachableSince = undefined
     this.lastConnectionStatus = null
   }
 }

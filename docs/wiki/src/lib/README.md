@@ -8,7 +8,7 @@
 |------|------|------|
 | `i18n.ts` | 3357 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload） |
 | `pi-chat.ts` | 365 | Pi Chat 初始化和模型管理 |
-| `server-agent.ts` | 2261 | Server Agent — 服务端 Agent 客户端 |
+| `server-agent.ts` | 2280 | Server Agent — 服务端 Agent 客户端 |
 | `selected-capabilities.ts` | 82 | 用户本轮插件选择的前端统一规范化/快照：合法类型与字符串边界、`type+pluginName+name` 去重、顺序保持、最多 4 项，持久化/历史读取快照均剥离 description |
 | `deferred-session-agent.ts` | 302 | 新会话首条消息前的延迟 Agent 代理：本地先渲染乐观消息，`prompt()` 时才创建真实 `ServerAgent`，并把暂存的 capabilities / contextReferences / promptMode 转发给真实 Agent |
 | `indexeddb-cache.ts` | 通用 IndexedDB 只读缓存封装：惰性单例 open、条目级 schemaVersion、LRU+字节双预算淘汰、全部异常静默降级（供会话消息/工作区/设置快照等缓存层复用） |
@@ -101,7 +101,7 @@
 - `getCloudUsage()` / `getCloudInstallations()` 读取额度与设备。
 - `revokeCloudInstallation()` / `logoutCloud()` 管理设备生命周期；当前设备退出的远端撤销顺序由 Node 保证。
 
-### server-agent.ts (2261 行)
+### server-agent.ts (2280 行)
 
 **用途**: `ServerAgent` 类 — 与服务端 Agent 通信的客户端。
 
@@ -116,7 +116,7 @@
 - 自定义命令注入
 - 下一次 prompt 的结构化选择：`setNextPromptCapabilities()` 先通过 `selected-capabilities.ts` 统一规范化（仅合法对象/字符串、裁剪长度、按 `type+pluginName+name` 去重、保持顺序、最多 4 项），请求体继续发送可含 description 的本轮选择，同时乐观 user message `details.selectedCapabilities` 写入不含 description 的展示快照；与 `details.contextReferences` 可共存，两者均发送一次后清空，下一轮不泄漏。`setNextPromptContextReferences()` 发送最多 8 个 `{type:'file',projectId,path}`，随 prompt body 的 `contextReferences` 字段上送、乐观 user message 同步写入 `details.contextReferences` 供历史 chip 即时渲染；失败沿用既有 optimistic 回滚。`setPromptMode('plan' | 'ask' | null)` 把 `setPlanMode` 泛化为单轮模式选择（当前仅 `'plan'` 映射到既有 `{type:'plan'}` command，`'ask'` 为预留值尚无发送方；`setPlanMode` 保留为兼容包装）
 - 支持直接后端连接（绕过 Vite 代理）
-- **弱网重连状态广播**：`GlobalAgentSseClient` 的指数退避重连（1s 起 ×2、封顶 30s）新增尝试计数与上限 `MAX_SSE_RECONNECT_ATTEMPTS = 10`；`onerror` 进入恢复（直连→同源代理切换计一次零等待尝试）时经 `subscribeSseConnectionState` 广播 `{status:'reconnecting', attempt, maxAttempts, nextRetryAt, unreachable?}`，`onopen` 成功且此前确有断连时广播 `{status:'connected', recovered:true, restarted?}` 并重置计数/退避，第 10 次重试仍失败广播 `{status:'failed', maxAttempts}` 并停止自动重试（`requestSseReconnectNow()` 供 UI「立即重试」手动重启、`getSseConnectionState()` 取当前快照）；断连期间的 streaming 卡死仍由既有 15s 静默看门狗轮询 `/status` 兜底，两者互补不替代。重连期间每次调度失败后还会 fire-and-forget 探测一次 `/api/health`（`SSE_HEALTH_PROBE_TIMEOUT_MS = 5000`，AbortController 超时、single-flight 去重、baseUrl 跟随直连/同源代理切换）：`reachable = ok && json.ok`，结果返回时若仍处重连中则更新 `serverUnreachable` 并重播当前 reconnecting 状态（不可达时携带 `unreachable:true`）；`serverUnreachable` 为 true 时重连不再受 10 次上限约束（退避仍封顶 30s 持续自动重试，翻回 false 后若已超上限则下次失败照常进 failed），成功连上/`retryNow()`/`disconnect()` 均复位该标志。探测同时读取 `bootId` 维护基线：重连探测结果无条件更新基线；每次 `onopen`（含首次连接）再探测一次，若基线存在且 bootId 变化则补播 `{status:'connected', recovered:true, restarted:true}`（服务重启提示），首次连接仅记录基线；连上后到达的探测结果不影响 unreachable 语义
+- **弱网重连状态广播**：`GlobalAgentSseClient` 的指数退避重连（1s 起 ×2、封顶 30s）新增尝试计数与上限 `MAX_SSE_RECONNECT_ATTEMPTS = 10`；`onerror` 进入恢复（直连→同源代理切换计一次零等待尝试）时经 `subscribeSseConnectionState` 广播 `{status:'reconnecting', attempt, maxAttempts, nextRetryAt, unreachable?}`，`onopen` 成功且此前确有断连时广播 `{status:'connected', recovered:true, restarted?}` 并重置计数/退避，第 10 次重试仍失败广播 `{status:'failed', maxAttempts}` 并停止自动重试（`requestSseReconnectNow()` 供 UI「立即重试」手动重启、`getSseConnectionState()` 取当前快照）；断连期间的 streaming 卡死仍由既有 15s 静默看门狗轮询 `/status` 兜底，两者互补不替代。重连期间每次调度失败后还会 fire-and-forget 探测一次 `/api/health`（`SSE_HEALTH_PROBE_TIMEOUT_MS = 5000`，AbortController 超时、single-flight 去重、baseUrl 跟随直连/同源代理切换）：`reachable = ok && json.ok`，结果返回时若仍处重连中则更新 `serverUnreachable` 并重播当前 reconnecting 状态（不可达时携带 `unreachable:true`）；`serverUnreachable` 为 true 时重连不再受 10 次上限约束（退避仍封顶 30s 持续自动重试，翻回 false 后若已超上限则下次失败照常进 failed），成功连上/`retryNow()`/`disconnect()` 均复位该标志。探测同时读取 `bootId` 维护基线：重连探测结果无条件更新基线；每次 `onopen`（含首次连接）再探测一次，若基线存在且 bootId 变化则补播 `{status:'connected', recovered:true, restarted:true}`（服务重启提示），首次连接仅记录基线；连上后到达的探测结果不影响 unreachable 语义。不可达窗口带时间戳：`serverUnreachable` 从 false→true 时记录 `unreachableSince`（`Date.now()`，同一轮不可达期间保持不变），reconnecting 广播携带该字段供 UI 计算断开时长与提示分层阈值（30s 升级 Tier2 常驻条）；翻回 false / onopen 恢复 / `retryNow()` / `disconnect()` 均清除
 - **会话消息 IndexedDB 快照缓存（F12，只读加速层）**：`ServerAgent.restore()` 先读 `session-message-cache`，命中则用本地快照立即构造 Agent（不 POST /restore），后台经 `GET /state` 轻量校准——服务器 `stateVersion` 与缓存一致且 split `messagesSummary.count` 等于本地条数时跳过 `/messages` 补拉，不一致走既有 reconcile（尾部增量/全量重取，`versionBefore` 守卫不变）；restore/create 物化与 SSE 消息写事件（state/agent_end/message_end/turn_end/messages_replaced/tool_execution_*）经模块级 debounce（1.5s trailing）写回快照，写入前做 stateVersion 高水位守卫。服务器 SQLite 唯一权威，缓存任何失败（不可用/损坏/配额）均静默回源路径。
 
 ### shared-server-agent.ts (488 行)

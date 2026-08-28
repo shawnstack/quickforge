@@ -44,6 +44,7 @@ import {
   createTodoWriteSummaryController,
   createMessageQueuePanelController,
   createReconnectNoticeController,
+  createUnreachableStripController,
   createModelRetryNoticeController,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
@@ -677,6 +678,8 @@ export function ChatPanelHost({
     // 全局 Agent SSE 弱网重连提示（消息流末尾居中轻量行）；Side Chat 使用
     // 独立的 NDJSON 流、不共享该连接，因此不挂此装饰。
     const reconnectNotice = sideChatMode ? null : createReconnectNoticeController({ panel })
+    // 后端持续不可达 ≥30s 时升级为 composer 上方常驻琥珀状态条（Tier2）。
+    const unreachableStrip = sideChatMode ? null : createUnreachableStripController({ panel })
     // 模型上游流重试提示（model_stream_retry SSE 事件驱动，与 SSE 连接层提示并列）。
     const modelRetryNotice = sideChatMode ? null : createModelRetryNoticeController({ panel })
 
@@ -1012,6 +1015,7 @@ export function ChatPanelHost({
           isActive: assistantWaitingActive,
         })
         reconnectNotice?.sync()
+        unreachableStrip?.sync()
         modelRetryNotice?.sync()
       } catch (error) {
         logger.warn('Failed to decorate chat messages:', error)
@@ -1660,6 +1664,7 @@ export function ChatPanelHost({
       scrollBottomButton.cleanup()
       todoWriteSummary.cleanup()
       reconnectNotice?.destroy()
+      unreachableStrip?.destroy()
       modelRetryNotice?.destroy()
       cancelMessageQueuePersist()
       if (messageQueueActive()) saveStoredMessageQueueState(sessionId, messageQueue.getState())

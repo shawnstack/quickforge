@@ -5943,6 +5943,115 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   border-color: color-mix(in oklab, #d97706 40%, var(--border));
 }
 
+/* 不可达即时态（Tier1）：琥珀双行 + 立即重试按钮。标题/图标配方与 failed 态
+   一致（#d97706 88%），图标为静态三角（不旋转、无 spinner）。 */
+.quickforge-reconnect[data-state='unreachable'] {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quickforge-reconnect[data-state='unreachable'] .quickforge-reconnect-title {
+  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+  font-weight: 500;
+}
+
+.quickforge-reconnect[data-state='unreachable'] .quickforge-reconnect-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-reconnect-main {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.quickforge-reconnect-sub {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+
+/* 持续不可达 ≥30s 升级为 composer 上方常驻琥珀状态条（Tier2，位于滚动容器
+   外、任何滚动位置可见）。琥珀配方复用 persist-degraded：35% 边框 + 8% 背景。 */
+.quickforge-unreachable-strip {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  border-top: 1px solid color-mix(in oklab, #d97706 35%, var(--border));
+  background: color-mix(in oklab, #d97706 8%, var(--background));
+  font-variant-numeric: tabular-nums;
+  animation: quickforge-reconnect-enter 180ms ease-out both;
+}
+
+.quickforge-unreachable-strip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.quickforge-unreachable-strip .quickforge-reconnect-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-unreachable-strip-title {
+  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+  font-weight: 500;
+}
+
+.quickforge-unreachable-strip-sub {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-unreachable-strip-spacer {
+  flex: 1;
+}
+
+.quickforge-unreachable-help-toggle {
+  font: inherit;
+  font-size: 0.6875rem;
+  cursor: pointer;
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 1px 8px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.quickforge-unreachable-help-toggle:hover {
+  background: var(--muted);
+  border-color: color-mix(in oklab, #d97706 40%, var(--border));
+}
+
+.quickforge-unreachable-strip-help {
+  display: none;
+}
+
+.quickforge-unreachable-strip-help[data-open='true'] {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 6px;
+  border-top: 1px dashed color-mix(in oklab, #d97706 25%, var(--border));
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .quickforge-reconnect,
   .quickforge-reconnect.quickforge-reconnect-leaving {
@@ -5955,6 +6064,10 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   }
 
   .quickforge-model-retry {
+    animation: none;
+  }
+
+  .quickforge-unreachable-strip {
     animation: none;
   }
 }

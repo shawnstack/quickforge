@@ -2133,6 +2133,29 @@
         "session-handoff.md"
       ],
       "verification": "定向 npx vitest run workspace-inspector-width-range（新 6 tests）+ mobile-fullscreen-adaptation（3 tests）→ 2 files / 9 tests 全过；workspace-inspector-tabs 回归 1 file / 19 tests 全过；npx eslint WorkspaceInspector.tsx + 新测试 0 error；npx tsc -b 通过；npm run build 成功（仅既有 KaTeX 字体与 chunk size warnings）。未跑全量 test/lint；未新增依赖；未手工修改生成产物；未 commit。"
+    },
+    {
+      "id": "sse-unreachable-tiered-notice",
+      "name": "后端不可达提示分层升级（Tier1 行内双行 + Tier2 composer 常驻条）",
+      "status": "done",
+      "approach": "方案 A 分层升级（design-mockups/unreachable-notice.html）。server-agent.ts：SseConnectionStatus reconnecting 分支新增 unreachableSince?（serverUnreachable false→true 时记 Date.now()，同一轮不可达期间保持不变；翻回 false/onopen 恢复/retryNow/disconnect 清除），不可达广播携带该字段，其余重试/bootId 逻辑零改动。reconnect-notice.ts（Tier1）：unreachable 分支改为琥珀双行 data-state=\"unreachable\"——主行静态三角警告图标 + sseUnreachableTitle + 立即重试按钮（requestSseReconnectNow），副行 sseUnreachableDetail（含健康检查失败与每秒倒计时）；持续 ≥UNREACHABLE_STRIP_AFTER_MS(30s) 行内提示自动隐藏（tick 内复查，无新广播也到点消失）交给 Tier2；unreachableSince 缺失时不做隐藏判断（防御边界）；restarted 恢复提示延时 4000ms（普通 2200ms 不变）；sync 状态比较改用 data-state 值。新增 panel-decoration/unreachable-strip.ts（Tier2 常驻条 controller，260 行）：订阅连接状态且自持 1s interval，reconnecting+unreachable+距 unreachableSince ≥30s 时在 composer dock（message-editor 外层）之前插入 role=alert 琥珀常驻条（滚动容器外常驻可见）：断开时长（45s / 1m 05s）+ 倒计时副文案 + 立即重试 + 恢复指引 toggle；展开区精简为两行——按环境只显示对应动作（desktop class/__quickforgeDesktopApp → 重启应用；isMobileShell()/isRemoteQuickForgeClient()（异常回退 /Android/i UA）→ 检查 Tailscale；默认 → qf restart）+ 日志行，不整列三种环境（用户反馈「恢复指引文字太多」后由 5 行排序改为过滤）；恢复直接移除；展开状态实例内记忆、sync 重挂保留；导出 UNREACHABLE_STRIP_AFTER_MS=30000 供 Tier1 共用；全 createElement/textContent。ChatPanelHost 仅主聊天挂载/sync/destroy 对齐 reconnect-notice；panel-decoration.ts 桶导出。index.css：[data-state='unreachable'] 双行琥珀（color-mix #d97706 88% 同 failed 态、图标不旋转）、.quickforge-unreachable-strip（35% 边框 + 8% 背景复用 persist-degraded 配方、7px 12px、0.75rem）与展开区（dashed 25%、0.6875rem muted）、进入动画复用 quickforge-reconnect-enter 180ms 并纳入 prefers-reduced-motion 关闭；不新增颜色 token。i18n 中英成对新增 8 key（sseUnreachableTitle/Detail/StripTitle/HelpToggle/HelpCli/HelpDesktop/HelpRemote/HelpLogs），删除被取代的 sseServerUnreachableLabel 与初版 sseUnreachableHelpAuto（精修时随 5→2 行移除）。",
+      "files": [
+        "design-mockups/unreachable-notice.html",
+        "src/lib/server-agent.ts",
+        "src/lib/i18n.ts",
+        "src/components/chat/panel-decoration/reconnect-notice.ts",
+        "src/components/chat/panel-decoration/unreachable-strip.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/index.css",
+        "tests/frontend/server-agent.test.ts",
+        "tests/frontend/reconnect-notice.test.ts",
+        "tests/frontend/unreachable-strip.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/reconnect-notice.test.ts tests/frontend/server-agent.test.ts tests/frontend/unreachable-strip.test.ts → 3 files / 82 tests 全通过（unreachable-strip 新建 12 例：可见性阈值/无广播自动出现、45s 与 1m 05s 时长格式、指引展开收起与 sync 重挂保留、desktop/mobile/默认三种环境过滤（各只显示对应动作+日志两行）、重试按钮、恢复移除、destroy 清 interval 及源码契约；reconnect-notice 更新 unreachable 双行/30s 隐藏/missing-since 边界/restarted 4s；server-agent 新增 unreachableSince 记一次/跨重试不变/恢复清除 1 例）；npx eslint 全部改动 src/tests 文件 0 error；npx tsc -b 通过。未跑全量 test/lint/build；未 commit。父 Agent 复验：vitest 同上 82 tests、eslint 9 个改动文件、tsc -b、npm run build（仅既有第三方警告）均通过。"
     }
   ]
 }

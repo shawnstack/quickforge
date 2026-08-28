@@ -5,22 +5,28 @@ import {
   subscribeSseConnectionState,
   type SseConnectionStatus,
 } from '@/lib/server-agent'
+import { UNREACHABLE_STRIP_AFTER_MS } from './unreachable-strip'
 
 /**
- * Weak-network reconnect notice for the global agent SSE stream.
+ * Tier-1 inline reconnect notice for the global agent SSE stream.
  *
  * Appends a lightweight centered row at the end of the message list
  * (design-mockups/reconnect-indicator.html · 方案 A) while the stream retries:
  * 「重新连接中… 8/10 · 4s 后重试」 → 「已重新连接」 (auto-dismissed) →
- * 「连接失败，已重试 10 次」+ manual retry. Health-probe variants: while the
- * backend is unreachable the row switches to 「后端服务不可达（健康检查失败）」
- * (no n/10 count, retries without a cap); a changed server bootId on recovery
- * upgrades the notice to 「已重新连接 · 服务已重启」. Idempotent across decorate
- * passes; re-appends itself when the message list is rebuilt.
+ * 「连接失败，已重试 10 次」+ manual retry. Health-probe variants
+ * (design-mockups/unreachable-notice.html · 方案 A): while the backend is
+ * unreachable the row escalates to an amber two-line notice with its own
+ * 「立即重试」 button (data-state="unreachable"); after
+ * UNREACHABLE_STRIP_AFTER_MS it hides itself and hands over to the
+ * persistent composer strip (unreachable-strip.ts). A changed server bootId
+ * on recovery upgrades the notice to 「已重新连接 · 服务已重启」 shown for a
+ * longer 4s window. Idempotent across decorate passes; re-appends itself
+ * when the message list is rebuilt.
  */
 
 const RECONNECT_NOTICE_SELECTOR = '.quickforge-reconnect'
 const RECONNECTED_AUTO_DISMISS_MS = 2200
+const RECONNECTED_RESTARTED_DISMISS_MS = 4000
 const LEAVE_ANIMATION_MS = 340
 
 const SPINNER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5"/></svg>'
@@ -68,7 +74,7 @@ export function createReconnectNoticeController(deps: { panel: HTMLElement }): R
     return panel.querySelector<HTMLElement>(RECONNECT_NOTICE_SELECTOR)
   }
 
-  function ensureNotice(state: 'reconnecting' | 'reconnected' | 'failed'): HTMLElement | null {
+  function ensureNotice(state: 'reconnecting' | 'reconnected' | 'failed' | 'unreachable'): HTMLElement | null {
     const messageList = panel.querySelector<HTMLElement>('message-list')
     if (!messageList) return null
 
@@ -99,20 +105,61 @@ export function createReconnectNoticeController(deps: { panel: HTMLElement }): R
     }, LEAVE_ANIMATION_MS)
   }
 
+  /** 不可达态（Tier1）：琥珀双行 + 「立即重试」；持续 ≥30s 后隐藏并交给 Tier2 常驻条。 */
+  function tier2OwnsUnreachable(status: Extract<SseConnectionStatus, { status: 'reconnecting' }>): boolean {
+    return status.unreachableSince !== undefined && Date.now() - status.unreachableSince >= UNREACHABLE_STRIP_AFTER_MS
+  }
+
+  function renderUnreachable(notice: HTMLElement, status: Extract<SseConnectionStatus, { status: 'reconnecting' }>) {
+    notice.classList.remove('quickforge-reconnect-leaving')
+    const main = document.createElement('div')
+    main.className = 'quickforge-reconnect-main'
+
+    const text = document.createElement('span')
+    text.className = 'quickforge-reconnect-title'
+    text.textContent = t('sseUnreachableTitle')
+
+    const retry = document.createElement('button')
+    retry.className = 'quickforge-reconnect-retry'
+    retry.setAttribute('type', 'button')
+    retry.textContent = t('sseReconnectRetryNow')
+    retry.addEventListener('click', () => {
+      requestSseReconnectNow()
+    })
+
+    main.append(iconSpan(WARN_SVG), text, retry)
+
+    const sub = document.createElement('div')
+    sub.className = 'quickforge-reconnect-sub'
+
+    notice.replaceChildren(main, sub)
+
+    const tick = () => {
+      if (tier2OwnsUnreachable(status)) {
+        // 到点自动隐藏：Tier2 常驻条接管（无新广播也要在 tick 内复查）。
+        removeNotice()
+        return
+      }
+      const seconds = Math.max(0, Math.ceil((status.nextRetryAt - Date.now()) / 1000))
+      sub.textContent = t('sseUnreachableDetail', { seconds })
+    }
+    tick()
+    countdownTimer = setInterval(tick, 1000)
+  }
+
   function renderReconnecting(notice: HTMLElement, status: Extract<SseConnectionStatus, { status: 'reconnecting' }>) {
+    if (status.unreachable) {
+      renderUnreachable(notice, status)
+      return
+    }
     notice.classList.remove('quickforge-reconnect-leaving')
     const text = document.createElement('span')
     text.className = 'quickforge-reconnect-text'
-    if (status.unreachable) {
-      // 健康检查失败：后端整体不可达，此态下重连无上限，隐藏 n/10 计数只保留倒计时。
-      text.textContent = t('sseServerUnreachableLabel')
-    } else {
-      text.textContent = `${t('sseReconnectingLabel')} `
-      const count = document.createElement('span')
-      count.className = 'quickforge-reconnect-count'
-      count.textContent = `${status.attempt}/${status.maxAttempts}`
-      text.append(count)
-    }
+    text.textContent = `${t('sseReconnectingLabel')} `
+    const count = document.createElement('span')
+    count.className = 'quickforge-reconnect-count'
+    count.textContent = `${status.attempt}/${status.maxAttempts}`
+    text.append(count)
 
     const countdown = document.createElement('span')
     countdown.className = 'quickforge-reconnect-countdown'
@@ -133,10 +180,11 @@ export function createReconnectNoticeController(deps: { panel: HTMLElement }): R
     text.className = 'quickforge-reconnect-text'
     text.textContent = restarted ? t('sseReconnectedRestarted') : t('sseReconnectedLabel')
     notice.replaceChildren(iconSpan(CHECK_SVG), text)
+    // restarted（断连期间服务重启）提示多停留一会儿让用户看清原因。
     dismissTimer = setTimeout(() => {
       dismissTimer = null
       dismissWithAnimation()
-    }, RECONNECTED_AUTO_DISMISS_MS)
+    }, restarted ? RECONNECTED_RESTARTED_DISMISS_MS : RECONNECTED_AUTO_DISMISS_MS)
   }
 
   function renderFailed(notice: HTMLElement, status: Extract<SseConnectionStatus, { status: 'failed' }>) {
@@ -158,7 +206,12 @@ export function createReconnectNoticeController(deps: { panel: HTMLElement }): R
   function apply(status: SseConnectionStatus | null) {
     if (disposed || !status || status.status === 'connected') return
     clearTimers()
-    const notice = ensureNotice(status.status)
+    if (status.status === 'reconnecting' && status.unreachable && tier2OwnsUnreachable(status)) {
+      // Tier2 常驻条已接管（持续不可达 ≥30s）：行内提示让位。
+      removeNotice()
+      return
+    }
+    const notice = ensureNotice(status.status === 'reconnecting' && status.unreachable ? 'unreachable' : status.status)
     if (!notice) return
     if (status.status === 'reconnecting') renderReconnecting(notice, status)
     else renderFailed(notice, status)
@@ -191,7 +244,8 @@ export function createReconnectNoticeController(deps: { panel: HTMLElement }): R
       const current = getSseConnectionState()
       if (!current || current.status === 'connected') return
       const notice = findNotice()
-      if (!notice || notice.dataset.state !== current.status) {
+      const expectedState = current.status === 'reconnecting' && current.unreachable ? 'unreachable' : current.status
+      if (!notice || notice.dataset.state !== expectedState) {
         apply(current)
         return
       }

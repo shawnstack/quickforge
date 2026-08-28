@@ -38,6 +38,8 @@ export { syncContextCompactionNotice } from './panel-decoration/context-compacti
 export { syncPersistDegradedNotice } from './panel-decoration/persist-degraded-notice'
 export type { ReconnectNoticeController } from './panel-decoration/reconnect-notice'
 export { createReconnectNoticeController } from './panel-decoration/reconnect-notice'
+export type { UnreachableStripController } from './panel-decoration/unreachable-strip'
+export { createUnreachableStripController, UNREACHABLE_STRIP_AFTER_MS } from './panel-decoration/unreachable-strip'
 export type { ModelRetryNoticeController } from './panel-decoration/model-retry-notice'
 export { createModelRetryNoticeController } from './panel-decoration/model-retry-notice'
 export { createOpenCodeUsageIndicator } from './panel-decoration/opencode-usage'

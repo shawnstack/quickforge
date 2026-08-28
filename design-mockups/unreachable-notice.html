@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>后端不可达提示 · 交互重设计</title>
+<style>
+  /* token 与 src/index.css 语义一致（DESIGN_LANGUAGE.md：具体 token 以源码为准） */
+  :root {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --radius: 0.5rem;
+    --shadow-quickforge: 0 10px 26px -18px rgb(15 23 42 / 0.48);
+    /* 复用先例：警告琥珀 = persist-degraded / approval 卡（#d97706）；成功绿 = todo 完成（#048f65） */
+    --warning: #d97706;
+    --success: #048f65;
+  }
+  html.dark {
+    --background: #0b1220;
+    --foreground: #e2e8f0;
+    --muted: #16233b;
+    --muted-foreground: #8fa3bd;
+    --border: #24344f;
+    --success: #6ee7b7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--background); color: var(--foreground);
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .page-head h1 { font-size: 18px; margin: 0; }
+  .btn {
+    font-size: 12px; padding: 3px 10px; border-radius: 0.4rem; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--foreground);
+  }
+  .btn:hover { background: var(--muted); }
+
+  .intro { margin: 14px 0 0; color: var(--muted-foreground); font-size: 13px; max-width: 860px; }
+  .intro b { color: var(--foreground); font-weight: 600; }
+
+  .tier-diagram {
+    display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; margin: 18px 0 26px;
+  }
+  .tier {
+    flex: 1 1 180px; border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 12px; font-size: 12.5px;
+  }
+  .tier .tier-name { font-weight: 600; margin-bottom: 4px; }
+  .tier .tier-desc { color: var(--muted-foreground); }
+  .tier-arrow { align-self: center; color: var(--muted-foreground); font-size: 16px; }
+  .tier.t1 { border-color: color-mix(in oklab, var(--warning) 35%, var(--border)); }
+  .tier.t1 .tier-name { color: color-mix(in oklab, var(--warning) 88%, var(--foreground)); }
+
+  .options { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 18px; }
+  .option-card {
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 14px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .option-key { font-size: 12px; color: var(--muted-foreground); }
+  .option-name { font-size: 15px; font-weight: 600; margin: 2px 0; }
+  .option-desc { font-size: 12.5px; color: var(--muted-foreground); }
+  .state-switch { display: flex; gap: 6px; flex-wrap: wrap; }
+  .state-switch .btn[aria-pressed="true"] { background: var(--muted); border-color: color-mix(in oklab, var(--foreground) 30%, var(--border)); }
+
+  /* ── 聊天示意 ── */
+  .chat-mock {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    display: flex; flex-direction: column; height: 380px; overflow: hidden;
+  }
+  .message-list { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 78%; padding: 7px 11px; border-radius: 0.7rem; font-size: 13px; }
+  .msg.user { align-self: flex-end; background: var(--muted); }
+  .msg.agent { align-self: flex-start; border: 1px solid var(--border); }
+
+  /* ── Tier1：流末尾行内双行提示（复用 quickforge-reconnect 词汇 + 新 data-state） ── */
+  .quickforge-reconnect {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    margin: 0.35rem 0; padding: 0.2rem 0;
+    font-size: 0.75rem; color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+    animation: quickforge-reconnect-enter 180ms ease-out;
+  }
+  @keyframes quickforge-reconnect-enter { from { opacity: 0; transform: translateY(4px); } }
+  .qr-main { display: flex; align-items: center; gap: 0.45rem; }
+  .qr-icon { width: 0.875rem; height: 0.875rem; display: inline-flex; }
+  .qr-icon svg { width: 100%; height: 100%; }
+  .quickforge-reconnect[data-state="unreachable"] .qr-title {
+    color: color-mix(in oklab, var(--warning) 88%, var(--foreground));
+    font-weight: 500;
+  }
+  .qr-sub { font-size: 0.6875rem; color: var(--muted-foreground); }
+  .quickforge-reconnect-retry {
+    font-size: 0.6875rem; border-radius: 0.4rem; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--foreground);
+    padding: 1px 8px; margin-left: 0.35rem;
+  }
+  .quickforge-reconnect-retry:hover {
+    background: var(--muted);
+    border-color: color-mix(in oklab, var(--warning) 40%, var(--border));
+  }
+  .quickforge-reconnect[data-state="reconnected"] .qr-title { color: var(--success); }
+
+  /* ── Tier2：composer 上常驻状态条（琥珀配方复用 persist-degraded） ── */
+  .quickforge-unreachable-strip {
+    border-top: 1px solid color-mix(in oklab, var(--warning) 35%, var(--border));
+    background: color-mix(in oklab, var(--warning) 8%, var(--background));
+    padding: 7px 12px; font-size: 0.75rem;
+    display: none; flex-direction: column; gap: 6px;
+    animation: quickforge-reconnect-enter 180ms ease-out;
+  }
+  .quickforge-unreachable-strip.visible { display: flex; }
+  .strip-row { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; }
+  .strip-title { color: color-mix(in oklab, var(--warning) 88%, var(--foreground)); font-weight: 500; }
+  .strip-sub { color: var(--muted-foreground); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+  .strip-spacer { flex: 1; }
+  .strip-help {
+    border-top: 1px dashed color-mix(in oklab, var(--warning) 25%, var(--border));
+    padding-top: 6px; font-size: 0.6875rem; color: var(--muted-foreground);
+    display: none; flex-direction: column; gap: 3px;
+  }
+  .strip-help.open { display: flex; }
+  .strip-help code {
+    background: var(--muted); border-radius: 0.3rem; padding: 0 5px;
+    font-size: 0.6875rem; color: var(--foreground);
+  }
+
+  .composer {
+    border-top: 1px solid var(--border); padding: 10px 12px;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .composer-input {
+    flex: 1; border: 1px solid var(--border); border-radius: 9999px;
+    padding: 7px 14px; font-size: 13px; color: var(--muted-foreground);
+    background: var(--background);
+  }
+  .composer-send {
+    width: 30px; height: 30px; border-radius: 9999px; border: 1px solid var(--border);
+    background: var(--muted); color: var(--foreground); cursor: pointer; font-size: 13px;
+  }
+
+  .demo-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .demo-log {
+    font-size: 12px; color: var(--muted-foreground); min-height: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+  .footnote {
+    margin-top: 22px; border: 1px dashed var(--border); border-radius: var(--radius);
+    padding: 12px 14px; font-size: 12.5px; color: var(--muted-foreground); max-width: 860px;
+  }
+  .footnote code { background: var(--muted); border-radius: 0.3rem; padding: 0 5px; color: var(--foreground); }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>后端不可达提示 · 交互重设计</h1>
+  <button class="btn" id="themeToggle">切换深浅色</button>
+</header>
+
+<p class="intro">
+  <b>现状问题：</b>① unreachable 复用「重连中」的灰色 spinner（视觉层级最低，实际是最严重状态）；
+  ② 无任何操作入口（failed 态才有「立即重试」按钮，unreachable 永不 failed）；
+  ③ 提示在消息流末尾，向上滚动查看历史时离开视口；
+  ④ 文案为工程师语言且只有一行，无恢复指引。
+</p>
+
+<div class="tier-diagram">
+  <div class="tier"><div class="tier-name">Tier 0 · 弱网重连中</div><div class="tier-desc">health 可达、SSE 断 → 维持现状「重新连接中… n/10」（本设计不改）</div></div>
+  <div class="tier-arrow">→</div>
+  <div class="tier t1"><div class="tier-name">Tier 1 · 不可达即时态</div><div class="tier-desc">探测失败即切换：琥珀色双行 + 立即重试按钮；短暂重启（&lt;30s）停留在此层，恢复后绿色提示淡出</div></div>
+  <div class="tier-arrow">→</div>
+  <div class="tier t1"><div class="tier-name">Tier 2 · 持续断开 ≥30s</div><div class="tier-desc">升级为 composer 上方常驻琥珀状态条（滚动任何位置都可见）：断开时长 + 立即重试 + 可展开恢复指引</div></div>
+  <div class="tier-arrow">→</div>
+  <div class="tier"><div class="tier-name">恢复</div><div class="tier-desc">绿「已重新连接（· 服务已重启）」，restarted 时延长显示至 4s；状态条退场</div></div>
+</div>
+
+<main class="options">
+
+  <!-- ═══ 方案 A（推荐）═══ -->
+  <article class="option-card" data-option="A">
+    <div>
+      <div class="option-key">方案 A（推荐）</div>
+      <div class="option-name">分层升级：行内提示 → 常驻状态条</div>
+      <div class="option-desc">
+        前 30s 用强化的行内双行提示（不打扰、覆盖短暂重启场景）；超过 30s 仍在不可达则升级为
+        composer 上方常驻条（sticky，任何滚动位置可见），并给出可操作的恢复指引。
+      </div>
+    </div>
+    <div class="state-switch" data-target="A">
+      <button class="btn" data-state="tier1" aria-pressed="false">Tier1 即时态</button>
+      <button class="btn" data-state="tier2" aria-pressed="false">Tier2 常驻条（收起）</button>
+      <button class="btn" data-state="tier2open" aria-pressed="false">Tier2 常驻条（展开指引）</button>
+      <button class="btn" data-state="recovered" aria-pressed="false">已恢复 · 服务重启</button>
+    </div>
+
+    <div class="chat-mock" id="mockA">
+      <div class="message-list">
+        <div class="msg user">帮我看下这个报错</div>
+        <div class="msg agent">好的，我来看一下日志里的异常堆栈……</div>
+        <div class="msg user">服务怎么没反应了？</div>
+        <!-- Tier1：流末尾行内双行（替换原单行灰色提示） -->
+        <div class="quickforge-reconnect" data-state="unreachable" id="inlineA" hidden role="status" aria-live="polite">
+          <div class="qr-main">
+            <span class="qr-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+                <path d="M8 2.2 14.4 13.4H1.6Z"/><path d="M8 6.4v3.2" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.15" fill="currentColor" stroke="none"/>
+              </svg>
+            </span>
+            <span class="qr-title">无法连接到本地服务</span>
+            <button class="quickforge-reconnect-retry" type="button">立即重试</button>
+          </div>
+          <div class="qr-sub">健康检查失败 · <span class="js-countdown">5s</span> 后自动重试</div>
+        </div>
+        <!-- 恢复态（restarted 变体，显示 4s） -->
+        <div class="quickforge-reconnect" data-state="reconnected" id="recoveredA" hidden role="status">
+          <div class="qr-main">
+            <span class="qr-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.6 6.4 12 13 4.6"/></svg>
+            </span>
+            <span class="qr-title">已重新连接 · 服务已重启</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tier2：composer 上常驻条（sticky，不随消息滚动消失） -->
+      <div class="quickforge-unreachable-strip" id="stripA" role="alert">
+        <div class="strip-row">
+          <span class="qr-icon" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" style="color: var(--warning);">
+              <path d="M8 2.2 14.4 13.4H1.6Z"/><path d="M8 6.4v3.2" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.15" fill="currentColor" stroke="none"/>
+            </svg>
+          </span>
+          <span class="strip-title">本地服务已断开 <span class="js-duration">32s</span></span>
+          <span class="strip-sub">健康检查失败 · <span class="js-countdown">5s</span> 后自动重试</span>
+          <span class="strip-spacer"></span>
+          <button class="quickforge-reconnect-retry" type="button">立即重试</button>
+          <button class="btn" type="button" id="helpToggleA">恢复指引 ⌄</button>
+        </div>
+        <div class="strip-help" id="helpA">
+          <span>· 终端运行 <code>qf restart</code></span>
+          <span>· 日志：<code>~/.quickforge/logs/server-*.log</code></span>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="composer-input">输入消息…（服务恢复前发送可能失败）</div>
+        <button class="composer-send" type="button">➤</button>
+      </div>
+    </div>
+
+    <div class="demo-row">
+      <button class="btn" id="simulateA">▶ 模拟：杀掉后端 → 30s 升级 → 重启恢复（压缩时间轴）</button>
+      <span class="demo-log" id="logA"></span>
+    </div>
+  </article>
+
+  <!-- ═══ 方案 B（最小改动）═══ -->
+  <article class="option-card" data-option="B">
+    <div>
+      <div class="option-key">方案 B（最小改动）</div>
+      <div class="option-name">仅强化现有行内提示</div>
+      <div class="option-desc">
+        只做 Tier1（琥珀双行 + 立即重试按钮 + 友好文案），不新增常驻条与指引。
+        改动面最小，但滚动查看历史时仍不可见，长时间断开仍缺乏全局感知与恢复指引。
+      </div>
+    </div>
+    <div class="state-switch" data-target="B">
+      <button class="btn" data-state="tier1" aria-pressed="false">Tier1 即时态</button>
+      <button class="btn" data-state="recovered" aria-pressed="false">已恢复</button>
+    </div>
+
+    <div class="chat-mock" id="mockB">
+      <div class="message-list">
+        <div class="msg user">帮我看下这个报错</div>
+        <div class="msg agent">好的，我来看一下日志里的异常堆栈……</div>
+        <div class="quickforge-reconnect" data-state="unreachable" id="inlineB" hidden role="status" aria-live="polite">
+          <div class="qr-main">
+            <span class="qr-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+                <path d="M8 2.2 14.4 13.4H1.6Z"/><path d="M8 6.4v3.2" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.15" fill="currentColor" stroke="none"/>
+              </svg>
+            </span>
+            <span class="qr-title">无法连接到本地服务</span>
+            <button class="quickforge-reconnect-retry" type="button">立即重试</button>
+          </div>
+          <div class="qr-sub">健康检查失败 · <span class="js-countdown">5s</span> 后自动重试</div>
+        </div>
+        <div class="quickforge-reconnect" data-state="reconnected" id="recoveredB" hidden role="status">
+          <div class="qr-main">
+            <span class="qr-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.6 6.4 12 13 4.6"/></svg>
+            </span>
+            <span class="qr-title">已重新连接 · 服务已重启</span>
+          </div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="composer-input">输入消息…</div>
+        <button class="composer-send" type="button">➤</button>
+      </div>
+    </div>
+    <div class="demo-log">（无自动升级与常驻条）</div>
+  </article>
+
+</main>
+
+<footer class="footnote">
+  <b>实现要点（对应真实代码）：</b><br>
+  ① 数据源：<code>server-agent.ts</code> 的 <code>SseConnectionStatus.reconnecting</code> 增加 <code>unreachableSince?</code> 时间戳（探测确认不可达时写入，恢复时清除），UI 据此计算断开时长与 30s 升级阈值（<code>UNREACHABLE_STRIP_AFTER_MS = 30000</code>）。<br>
+  ② Tier1：<code>reconnect-notice.ts</code> unreachable 分支改双行布局 + 琥珀标题 + 「立即重试」按钮（复用 <code>.quickforge-reconnect-retry</code>，点击调既有 <code>requestSseReconnectNow()</code>，重置退避立即重连）；新增 <code>data-state="unreachable"</code> 样式（<code>index.css</code>，琥珀 color-mix 配方同 failed 态）。<br>
+  ③ Tier2：ChatPanelHost 在 composer 上方挂常驻条 controller（挂载/同步方式同现有 panel-decoration 周期 <code>sync()</code>）；样式复用 persist-degraded 的琥珀配方（<code>index.css:2640-2660</code>：35% 边框 + 8% 背景）；恢复指引按运行环境只显示对应一条动作 + 日志行（精简为两行：<code>isDesktopApp()</code> → 重启应用；<code>isNativeMobileEntry()</code> / 远程 → 检查 Tailscale；默认 CLI → <code>qf restart</code>）。<br>
+  ④ 恢复：connected{restarted} 显示时长分档（普通 2.2s / restarted 4s）；状态条走既有 320ms 离场动画。<br>
+  ⑤ i18n 新增 key（中英成对，风格沿用 <code>sseReconnect*</code>）：<code>sseUnreachableTitle</code>、<code>sseUnreachableDetail</code>、<code>sseUnreachableStripTitle</code>、<code>sseUnreachableHelpToggle</code>、<code>sseUnreachableHelpCli/Desktop/Remote/Logs</code>。<br>
+  ⑥ 动画遵循 180ms 进入 / 320ms 离场 + <code>prefers-reduced-motion</code> 全关；Side Chat 与分享页不挂（同现状）。<br>
+  ⑦ 演示时间轴压缩：mockup 中 3s ≈ 实际 30s 升级阈值。
+</footer>
+
+<script>
+  var dark = false;
+  document.getElementById('themeToggle').addEventListener('click', function () {
+    dark = !dark;
+    document.documentElement.classList.toggle('dark', dark);
+  });
+
+  function setState(mock, state) {
+    var inline = mock.querySelector('[data-state="unreachable"]');
+    var strip = mock.querySelector('.quickforge-unreachable-strip');
+    var recovered = mock.querySelector('[data-state="reconnected"]');
+    if (inline) inline.hidden = !(state === 'tier1');
+    if (strip) {
+      strip.classList.toggle('visible', state === 'tier2' || state === 'tier2open');
+      if (strip.querySelector('.strip-help')) {
+        strip.querySelector('.strip-help').classList.toggle('open', state === 'tier2open');
+      }
+    }
+    if (recovered) recovered.hidden = !(state === 'recovered');
+  }
+
+  document.querySelectorAll('.state-switch').forEach(function (sw) {
+    var target = document.getElementById('mock' + sw.dataset.target);
+    sw.querySelectorAll('.btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        sw.querySelectorAll('.btn').forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
+        b.setAttribute('aria-pressed', 'true');
+        setState(target, b.dataset.state);
+      });
+    });
+  });
+
+  var helpToggle = document.getElementById('helpToggleA');
+  if (helpToggle) {
+    helpToggle.addEventListener('click', function () {
+      document.getElementById('helpA').classList.toggle('open');
+    });
+  }
+
+  /* 倒计时/时长跳动演示 */
+  var cd = 5;
+  var dur = 32;
+  setInterval(function () {
+    cd = cd <= 1 ? 5 : cd - 1;
+    dur += 1;
+    document.querySelectorAll('.js-countdown').forEach(function (el) { el.textContent = cd + 's'; });
+    document.querySelectorAll('.js-duration').forEach(function (el) {
+      el.textContent = dur >= 60 ? Math.floor(dur / 60) + 'm ' + (dur % 60) + 's' : dur + 's';
+    });
+  }, 1000);
+
+  /* 压缩时间轴模拟：tier1 → 3s 后 tier2 → 再 4s 恢复 */
+  var logA = document.getElementById('logA');
+  document.getElementById('simulateA').addEventListener('click', function () {
+    dur = 0;
+    var mock = document.getElementById('mockA');
+    logA.textContent = 't=0s 健康探测失败 → Tier1 行内提示';
+    setState(mock, 'tier1');
+    setTimeout(function () { logA.textContent = 't≈30s（演示 3s）仍不可达 → 升级 Tier2 常驻条'; setState(mock, 'tier2'); }, 3000);
+    setTimeout(function () { logA.textContent = 't≈60s（演示 7s）服务重启完成 → 自动恢复 · 已重启提示'; setState(mock, 'recovered'); }, 7000);
+  });
+</script>
+</body>
+</html>

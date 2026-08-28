@@ -100,7 +100,7 @@ class FakeElement {
 // --- Module mocks -----------------------------------------------------------
 
 type MockStatus =
-  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number; unreachable?: boolean }
+  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number; unreachable?: boolean; unreachableSince?: number }
   | { status: 'connected'; recovered: boolean; restarted?: boolean }
   | { status: 'failed'; maxAttempts: number }
 
@@ -135,7 +135,10 @@ vi.mock('@/lib/i18n', () => ({
     const map: Record<string, string> = {
       sseReconnectingLabel: 'Reconnecting…',
       sseReconnectNextRetry: `Retrying in ${params?.seconds}s`,
-      sseServerUnreachableLabel: 'Backend unreachable (health check failed)',
+      sseUnreachableTitle: "Can't reach the local service",
+      sseUnreachableDetail: `Health check failed · retrying in ${params?.seconds}s`,
+      sseUnreachableStripTitle: `Local service unreachable for ${params?.duration}`,
+      sseUnreachableHelpToggle: 'How to recover',
       sseReconnectedLabel: 'Reconnected',
       sseReconnectedRestarted: 'Reconnected · server restarted',
       sseReconnectFailedLabel: `Connection failed after ${params?.maxAttempts} attempts`,
@@ -248,18 +251,84 @@ describe('reconnect notice controller', () => {
     controller.destroy()
   })
 
-  it('renders the unreachable label without the attempt count while the backend is down', async () => {
+  it('renders the unreachable state as a two-line amber notice with a retry button', async () => {
     const { panel, messageList } = buildPanel()
     const controller = await createController(panel)
 
-    connectionState.emit({ status: 'reconnecting', attempt: 4, maxAttempts: 10, nextRetryAt: Date.now() + 3000, unreachable: true })
+    connectionState.emit({
+      status: 'reconnecting',
+      attempt: 4,
+      maxAttempts: 10,
+      nextRetryAt: Date.now() + 3000,
+      unreachable: true,
+      unreachableSince: Date.now(),
+    })
 
     const notice = messageList.querySelector('.quickforge-reconnect')!
-    expect(notice.dataset.state).toBe('reconnecting')
-    expect(notice.querySelector('.quickforge-reconnect-text')!.textContent).toBe('Backend unreachable (health check failed)')
+    // 新 data-state：不再复用 reconnecting（Tier1 专用琥珀双行态）。
+    expect(notice.dataset.state).toBe('unreachable')
+    expect(notice.getAttribute('role')).toBe('status')
+    expect(notice.querySelector('.quickforge-reconnect-title')!.textContent).toBe("Can't reach the local service")
+    // 副行含「健康检查失败」与倒计时；无 n/10 计数、无 spinner 文案。
+    expect(notice.querySelector('.quickforge-reconnect-sub')!.textContent).toBe('Health check failed · retrying in 3s')
     expect(notice.querySelector('.quickforge-reconnect-count')).toBeNull()
-    // 「Xs 后重试」倒计时保留。
-    expect(notice.querySelector('.quickforge-reconnect-countdown')!.textContent).toBe('Retrying in 3s')
+    expect(notice.querySelector('.quickforge-reconnect-text')).toBeNull()
+
+    // 主行含「立即重试」按钮，点击触发既有手动重连。
+    const retry = notice.querySelector('.quickforge-reconnect-retry')!
+    expect(retry).not.toBeNull()
+    retry.click()
+    expect(connectionState.retryNowCalls).toBe(1)
+
+    controller.destroy()
+  })
+
+  it('hides the inline unreachable notice after 30s so the persistent strip takes over', async () => {
+    vi.useFakeTimers()
+    const { panel, messageList } = buildPanel()
+    const controller = await createController(panel)
+
+    const since = Date.now()
+    connectionState.emit({
+      status: 'reconnecting',
+      attempt: 2,
+      maxAttempts: 10,
+      nextRetryAt: Date.now() + 60000,
+      unreachable: true,
+      unreachableSince: since,
+    })
+    expect(messageList.querySelector('.quickforge-reconnect')).not.toBeNull()
+
+    vi.advanceTimersByTime(29000)
+    expect(messageList.querySelector('.quickforge-reconnect')).not.toBeNull()
+
+    // 倒计时 tick 内复查阈值：到 30s 自动隐藏（Tier2 composer 常驻条接管）。
+    vi.advanceTimersByTime(1000)
+    expect(messageList.querySelector('.quickforge-reconnect')).toBeNull()
+
+    // 后续重连广播不再重建行内提示。
+    connectionState.emit({
+      status: 'reconnecting',
+      attempt: 3,
+      maxAttempts: 10,
+      nextRetryAt: Date.now() + 30000,
+      unreachable: true,
+      unreachableSince: since,
+    })
+    expect(messageList.querySelector('.quickforge-reconnect')).toBeNull()
+
+    controller.destroy()
+  })
+
+  it('keeps the inline unreachable notice when unreachableSince is missing', async () => {
+    vi.useFakeTimers()
+    const { panel, messageList } = buildPanel()
+    const controller = await createController(panel)
+
+    // 防御边界：广播缺 unreachableSince 时不做分层隐藏判断。
+    connectionState.emit({ status: 'reconnecting', attempt: 1, maxAttempts: 10, nextRetryAt: Date.now() + 60000, unreachable: true })
+    vi.advanceTimersByTime(60000)
+    expect(messageList.querySelector('.quickforge-reconnect')).not.toBeNull()
 
     controller.destroy()
   })
@@ -278,8 +347,8 @@ describe('reconnect notice controller', () => {
     connectionState.emit({ status: 'connected', recovered: true, restarted: true })
     expect(notice.querySelector('.quickforge-reconnect-text')!.textContent).toBe('Reconnected · server restarted')
 
-    // 淡出计时器从 restarted 更新时刻重新起算（原计时器已于 1000ms 处作废）。
-    vi.advanceTimersByTime(2199)
+    // 淡出计时器从 restarted 更新时刻重新起算且延长到 4s（原计时器已于 1000ms 处作废）。
+    vi.advanceTimersByTime(3999)
     expect(notice.classList.contains('quickforge-reconnect-leaving')).toBe(false)
     vi.advanceTimersByTime(1)
     expect(notice.classList.contains('quickforge-reconnect-leaving')).toBe(true)
@@ -399,7 +468,14 @@ describe('reconnect notice source contracts', () => {
     for (const key of [
       'sseReconnectingLabel',
       'sseReconnectNextRetry',
-      'sseServerUnreachableLabel',
+      'sseUnreachableTitle',
+      'sseUnreachableDetail',
+      'sseUnreachableStripTitle',
+      'sseUnreachableHelpToggle',
+      'sseUnreachableHelpCli',
+      'sseUnreachableHelpDesktop',
+      'sseUnreachableHelpRemote',
+      'sseUnreachableHelpLogs',
       'sseReconnectedLabel',
       'sseReconnectedRestarted',
       'sseReconnectFailedLabel',
@@ -407,20 +483,27 @@ describe('reconnect notice source contracts', () => {
     ]) {
       expect(i18nSource.match(new RegExp(`${key}: '`))).not.toBeNull()
     }
+    // 旧 key 已被 sseUnreachable* 系列取代。
+    expect(i18nSource).not.toContain('sseServerUnreachableLabel')
     expect((i18nSource.match(/sseReconnectingLabel: '/g) ?? []).length).toBe(2)
-    expect((i18nSource.match(/sseServerUnreachableLabel: '/g) ?? []).length).toBe(2)
+    expect((i18nSource.match(/sseUnreachableTitle: '/g) ?? []).length).toBe(2)
+    // 精修删除的 HelpAuto key 不应残留。
+    expect(i18nSource).not.toContain('sseUnreachableHelpAuto')
     expect((i18nSource.match(/sseReconnectedRestarted: '/g) ?? []).length).toBe(2)
     expect(i18nSource).toContain("sseReconnectingLabel: '重新连接中…'")
-    expect(i18nSource).toContain("sseServerUnreachableLabel: '后端服务不可达（健康检查失败）'")
+    expect(i18nSource).toContain("sseUnreachableTitle: '无法连接到本地服务'")
+    expect(i18nSource).toContain("sseUnreachableDetail: '健康检查失败 · {seconds}s 后自动重试'")
+    expect(i18nSource).toContain("sseUnreachableStripTitle: '本地服务已断开 {duration}'")
     expect(i18nSource).toContain("sseReconnectedRestarted: '已重新连接 · 服务已重启'")
     expect(i18nSource).toContain("sseReconnectFailedLabel: '连接失败，已重试 {maxAttempts} 次'")
   })
 
-  it('styles cover the three states, spinner, retry hover and reduced motion', () => {
+  it('styles cover the states, spinner, retry hover and reduced motion', () => {
     expect(cssSource).toContain('.quickforge-reconnect,\n.quickforge-model-retry {')
     expect(cssSource).toContain(".quickforge-reconnect[data-state='reconnecting'] .quickforge-reconnect-icon svg circle")
     expect(cssSource).toContain(".quickforge-reconnect[data-state='reconnected']")
     expect(cssSource).toContain(".quickforge-reconnect[data-state='failed']")
+    expect(cssSource).toContain(".quickforge-reconnect[data-state='unreachable']")
     expect(cssSource).toContain('.quickforge-reconnect-retry:hover')
     const reconnectSlice = cssSource.slice(cssSource.indexOf('/* SSE reconnect notice'))
     expect(reconnectSlice).toContain('@media (prefers-reduced-motion: reduce)')

@@ -1,6 +1,27 @@
 {
   "features": [
     {
+      "id": "pinned-execution-summary-groups",
+      "name": "右上角置顶摘要按 Git、任务清单、已结束 Subagent 分组显示",
+      "status": "done",
+      "approach": "将现有 GitToolsPinnedSummary 泛化为当前会话置顶摘要，保留 36×36 List 触发器和 Workspace Inspector 打开时隐藏的既有规则。挂载条件改为 Todo、最近终态 Subagent 或 Git 任一存在；非 Git 会话也能查看任务/Subagent。用户视觉修订后，展开浮层删除顶部总标题与描述，只保留 absolute 右上角 X；实际分组顺序固定为 Git（若存在）→ Todo（若存在）→ 已结束 Subagent（若存在），首个实际分组无顶部 margin/分割线，后续实际分组使用紧凑浅色 0.5px 分割线，标题行预留 X 空间。Git 标题中英文均为 Git；Todo 展开、Subagent 最近优先、Git branch/menu、移动端 fixed 浮层与桌面 overflow visible 保持不变，移动分支菜单 top/max-height 按 Git 首位位置成对调整。Todo 复用当前消息分支最新合法 TodoWrite 完整快照，默认 3 项并可展开全部；终态 Subagent 由 extractLatestTerminalSubagentRuns 仅扫描当前 agent messages，按 toolCallId 配对调用/结果并以 pendingToolCalls 排除运行中项，复用统一 payload builder，按结束时间最近优先、canonical ID 去重并取 3 项，不枚举全局 store。点击结束项先关闭浮层，再打开 Workspace Inspector Subagent 详情 Tab。",
+      "files": [
+        "src/App.tsx",
+        "src/components/git/GitToolsPinnedSummary.tsx",
+        "src/lib/i18n.ts",
+        "src/lib/subagent-run-detail.ts",
+        "tests/frontend/subagent-run-detail.test.ts",
+        "tests/frontend/git-tools-pinned-summary.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "design-mockups/execution-summary-groups.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "用户视觉修订后定向 Vitest 4 files / 125 tests 全过（git-tools-pinned-summary、subagent-run-detail、todo-write-summary、mobile-fullscreen-adaptation）；定向 ESLint 0 error；npx tsc -b --pretty false 通过；feature_list.json JSON parse 通过；git diff --check 通过。按要求未运行 build；未跑全量 test/lint；未 commit。"
+    },
+    {
       "id": "subagent-running-indicator",
       "name": "Composer 完全访问权限旁显示当前会话 Subagent 运行数量并跳转 Inspector 详情",
       "status": "done",

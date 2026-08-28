@@ -1,0 +1,970 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>置顶摘要分组 · QuickForge 交互设计稿</title>
+<style>
+  :root {
+    color-scheme: light;
+    --background: #ffffff;
+    --foreground: #18181b;
+    --muted: #f4f4f5;
+    --muted-strong: #e9e9ec;
+    --muted-foreground: #71717a;
+    --border: #e4e4e7;
+    --popover: #ffffff;
+    --sidebar: #fbfbfc;
+    --primary: #18181b;
+    --primary-foreground: #fafafa;
+    --emerald: #059669;
+    --red: #dc2626;
+    --amber: #d97706;
+    --blue: #2563eb;
+    --shadow: rgb(15 23 42 / 0.16);
+    --overlay: rgb(15 23 42 / 0.08);
+    --font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  body.dark {
+    color-scheme: dark;
+    --background: #111113;
+    --foreground: #f4f4f5;
+    --muted: #202024;
+    --muted-strong: #29292e;
+    --muted-foreground: #a1a1aa;
+    --border: #303036;
+    --popover: #151518;
+    --sidebar: #121215;
+    --primary: #fafafa;
+    --primary-foreground: #18181b;
+    --emerald: #34d399;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --blue: #60a5fa;
+    --shadow: rgb(0 0 0 / 0.46);
+    --overlay: rgb(0 0 0 / 0.24);
+  }
+
+  * { box-sizing: border-box; }
+  html { min-width: 320px; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; }
+  svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+  [hidden] { display: none !important; }
+
+  .page {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 20px 18px 42px;
+  }
+
+  .demo-toolbar,
+  .placement-note,
+  .stage-wrap { width: min(1220px, 100%); }
+
+  .demo-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+  .demo-toolbar h1 {
+    margin: 0 4px 0 0;
+    color: var(--foreground);
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  .toolbar-divider { width: 1px; height: 18px; background: var(--border); }
+  .segmented {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--background);
+  }
+  .segmented button {
+    min-height: 30px;
+    padding: 5px 9px;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+  .segmented button + button { border-left: 1px solid var(--border); }
+  .segmented button:hover,
+  .segmented button:focus-visible,
+  .segmented button.active { background: var(--muted); color: var(--foreground); outline: none; }
+
+  .placement-note {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 42px;
+    padding: 9px 12px;
+    border: 1px solid color-mix(in oklab, var(--amber) 28%, var(--border));
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--amber) 7%, var(--background));
+    color: color-mix(in oklab, var(--foreground) 88%, var(--amber));
+    font-size: 13px;
+    font-weight: 620;
+  }
+  .placement-note svg { width: 17px; height: 17px; flex: none; color: var(--amber); stroke-width: 1.9; }
+
+  .stage-wrap { display: flex; justify-content: center; }
+  .app-stage {
+    width: 100%;
+    height: min(790px, calc(100vh - 170px));
+    min-height: 650px;
+    position: relative;
+    display: grid;
+    grid-template-columns: 244px minmax(0, 1fr);
+    grid-template-rows: 50px minmax(0, 1fr);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 15px;
+    background: var(--background);
+    box-shadow: 0 18px 55px -42px var(--shadow);
+    transition: width 220ms ease, height 220ms ease;
+  }
+  .app-stage.mobile {
+    width: min(390px, 100%);
+    height: 760px;
+    min-height: 650px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-topbar {
+    grid-column: 1 / -1;
+    position: relative;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 660;
+  }
+  .brand-mark {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--muted-foreground);
+  }
+  .brand-mark svg { width: 14px; height: 14px; stroke-width: 1.8; }
+  .topbar-context {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+  .topbar-context span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-context svg { width: 13px; height: 13px; flex: none; stroke-width: 1.8; }
+  .mobile-menu { display: none; }
+
+  .window-toolbar {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .toolbar-icon {
+    width: 36px;
+    height: 36px;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 14px;
+    background: transparent;
+    color: color-mix(in oklab, var(--muted-foreground) 85%, transparent);
+    cursor: pointer;
+    transition: color 150ms ease, background-color 150ms ease;
+  }
+  .toolbar-icon:hover,
+  .toolbar-icon:focus-visible,
+  .toolbar-icon.active { background: color-mix(in oklab, var(--muted) 45%, transparent); color: color-mix(in oklab, var(--foreground) 90%, transparent); outline: none; }
+  .toolbar-icon svg { width: 18px; height: 18px; stroke-width: 1.85; }
+  .update-dot {
+    width: 6px;
+    height: 6px;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    border: 1.5px solid var(--background);
+    border-radius: 999px;
+    background: var(--blue);
+  }
+
+  .sidebar {
+    grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
+    overflow: hidden;
+    border-right: 1px solid var(--border);
+    background: var(--sidebar);
+  }
+  .sidebar-inner { height: 100%; display: flex; flex-direction: column; padding: 14px 10px 10px; }
+  .new-chat {
+    width: 100%;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--foreground);
+    font-size: 12.5px;
+    font-weight: 580;
+    cursor: pointer;
+  }
+  .new-chat:hover { background: var(--muted); }
+  .new-chat svg { width: 16px; height: 16px; color: var(--muted-foreground); stroke-width: 1.8; }
+  .sidebar-section { margin-top: 19px; }
+  .sidebar-heading {
+    padding: 0 9px 7px;
+    color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+  }
+  .project-row,
+  .session-row {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    text-align: left;
+    cursor: pointer;
+  }
+  .project-row { height: 31px; padding: 0 8px; border-radius: 8px; font-size: 12px; font-weight: 600; }
+  .project-row svg { width: 14px; height: 14px; flex: none; stroke-width: 1.8; }
+  .session-list { display: grid; gap: 2px; margin-top: 3px; padding-left: 15px; }
+  .session-row { min-height: 32px; padding: 6px 9px; border-radius: 8px; font-size: 12px; line-height: 1.35; }
+  .session-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-row:hover,
+  .session-row.selected { background: var(--muted); color: var(--foreground); }
+  .sidebar-footer { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 8px; color: var(--muted-foreground); font-size: 11px; }
+  .avatar { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: var(--muted); color: var(--foreground); font-size: 10px; font-weight: 700; }
+
+  .chat-area {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: var(--background);
+  }
+  .chat-header {
+    height: 48px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  }
+  .chat-heading { min-width: 0; padding-right: 160px; }
+  .chat-heading strong { display: block; overflow: hidden; color: var(--foreground); font-size: 13px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-heading span { display: block; margin-top: 1px; color: var(--muted-foreground); font-size: 10.5px; }
+  .messages { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 26px 24px 154px; }
+  .message-stack { width: min(690px, 100%); margin: 0 auto; display: flex; flex-direction: column; gap: 17px; }
+  .user-message {
+    align-self: flex-end;
+    max-width: 80%;
+    padding: 9px 12px;
+    border-radius: 13px;
+    background: var(--muted);
+    color: var(--foreground);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .assistant-message { color: color-mix(in oklab, var(--foreground) 92%, transparent); font-size: 13.5px; line-height: 1.72; }
+  .tool-event {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 39px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--background) 66%, var(--muted));
+    color: var(--muted-foreground);
+    font-size: 11.5px;
+  }
+  .tool-event svg { width: 15px; height: 15px; flex: none; stroke-width: 1.8; }
+  .tool-event code { color: var(--foreground); font-family: var(--mono); font-size: 10.5px; font-weight: 650; }
+  .location-callout { color: var(--muted-foreground); font-size: 11.5px; line-height: 1.55; }
+
+  .composer-dock {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    padding: 12px 18px 17px;
+    background: color-mix(in oklab, var(--background) 96%, transparent);
+  }
+  .composer {
+    width: min(720px, 100%);
+    min-height: 104px;
+    margin: 0 auto;
+    padding: 13px 13px 10px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--popover);
+    box-shadow: 0 18px 48px -36px var(--shadow);
+  }
+  .composer-placeholder { min-height: 48px; padding: 1px 3px; color: var(--muted-foreground); font-size: 13px; }
+  .composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .composer-controls { display: flex; align-items: center; gap: 6px; }
+  .composer-button {
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 9px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .composer-button:hover { background: var(--muted); color: var(--foreground); }
+  .composer-button.icon-only { width: 32px; padding: 0; }
+  .composer-button svg { width: 15px; height: 15px; stroke-width: 1.85; }
+  .send-button { width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: var(--primary); color: var(--primary-foreground); cursor: pointer; }
+  .send-button svg { width: 15px; height: 15px; stroke-width: 2; }
+
+  /* 对齐 GitToolsPinnedSummary：桌面端轻量 rounded-3xl 浮层，位于右上角触发器下方。 */
+  .summary-popover {
+    width: min(328px, calc(100% - 16px));
+    max-height: calc(100% - 64px);
+    position: absolute;
+    z-index: 40;
+    top: 52px;
+    right: 8px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 15px;
+    border: 1px solid color-mix(in oklab, var(--border) 38%, transparent);
+    border-radius: 24px;
+    background: var(--background);
+    color: var(--foreground);
+    box-shadow: 0 16px 42px -24px var(--shadow);
+    scrollbar-width: thin;
+    transform-origin: top right;
+    animation: popover-in 150ms ease-out;
+  }
+  .summary-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+  .summary-title { margin: 1px 0 0; color: var(--foreground); font-size: 14px; font-weight: 650; }
+  .summary-subtitle { margin-top: 3px; color: var(--muted-foreground); font-size: 10.5px; line-height: 1.45; }
+  .summary-close { width: 28px; height: 28px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 999px; background: transparent; color: color-mix(in oklab, var(--foreground) 85%, transparent); cursor: pointer; }
+  .summary-close:hover,
+  .summary-close:focus-visible { background: var(--muted); outline: none; }
+  .summary-close svg { width: 16px; height: 16px; stroke-width: 1.9; }
+
+  .summary-section { padding: 2px 0; }
+  .summary-section + .summary-section { margin-top: 10px; padding-top: 11px; border-top: 1px solid var(--border); }
+  .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 6px 5px; }
+  .section-title { color: var(--muted-foreground); font-size: 10.5px; font-weight: 650; letter-spacing: 0.015em; }
+  .section-stat { color: color-mix(in oklab, var(--muted-foreground) 80%, transparent); font-family: var(--mono); font-size: 9.5px; font-variant-numeric: tabular-nums; }
+
+  .summary-row {
+    width: 100%;
+    min-height: 39px;
+    display: grid;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 7px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+  }
+  button.summary-row { cursor: pointer; }
+  button.summary-row:hover,
+  button.summary-row:focus-visible { background: color-mix(in oklab, var(--muted) 45%, transparent); outline: none; }
+  .task-row { grid-template-columns: 16px minmax(0, 1fr) auto; }
+  .task-status { width: 15px; height: 15px; display: grid; place-items: center; color: var(--muted-foreground); }
+  .task-status svg { width: 15px; height: 15px; stroke-width: 1.8; }
+  .task-status.running { color: var(--blue); }
+  .task-status.done { color: var(--emerald); }
+  .task-copy { min-width: 0; overflow: hidden; color: color-mix(in oklab, var(--foreground) 90%, transparent); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+  .task-row.completed .task-copy { color: var(--muted-foreground); text-decoration: line-through; text-decoration-thickness: 1px; }
+  .task-label { color: var(--muted-foreground); font-size: 9.5px; white-space: nowrap; }
+  .extra-task { display: none; }
+  .task-list.expanded .extra-task { display: grid; }
+  .view-all {
+    width: 100%;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+  .view-all:hover,
+  .view-all:focus-visible { background: color-mix(in oklab, var(--muted) 45%, transparent); color: var(--foreground); outline: none; }
+  .view-all svg { width: 13px; height: 13px; stroke-width: 1.8; transition: transform 160ms ease; }
+  .task-list.expanded + .view-all svg { transform: rotate(180deg); }
+
+  .agent-row { grid-template-columns: 17px minmax(0, 1fr) auto 13px; }
+  .result-icon { width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; }
+  .result-icon svg { width: 11px; height: 11px; stroke-width: 2.1; }
+  .result-icon.success { color: var(--emerald); background: color-mix(in oklab, var(--emerald) 10%, transparent); }
+  .result-icon.failed { color: var(--red); background: color-mix(in oklab, var(--red) 9%, transparent); }
+  .agent-main { min-width: 0; display: flex; align-items: center; gap: 7px; }
+  .agent-name { flex: none; color: var(--foreground); font-family: var(--mono); font-size: 10px; font-weight: 700; }
+  .agent-task { min-width: 0; overflow: hidden; color: color-mix(in oklab, var(--foreground) 86%, transparent); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .agent-time { color: var(--muted-foreground); font-family: var(--mono); font-size: 9.5px; font-variant-numeric: tabular-nums; }
+  .row-chevron { width: 13px; height: 13px; color: var(--muted-foreground); stroke-width: 1.8; }
+
+  .git-row { grid-template-columns: 18px minmax(0, 1fr) auto; min-height: 43px; }
+  .git-row > svg { width: 16px; height: 16px; color: var(--muted-foreground); stroke-width: 1.8; }
+  .git-copy { min-width: 0; display: flex; align-items: center; gap: 6px; }
+  .git-label { min-width: 0; overflow: hidden; color: color-mix(in oklab, var(--foreground) 90%, transparent); font-size: 11.5px; font-weight: 580; text-overflow: ellipsis; white-space: nowrap; }
+  .file-count { color: var(--muted-foreground); font-size: 9.5px; white-space: nowrap; }
+  .diff-stats { display: flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 650; }
+  .additions { color: var(--emerald); }
+  .deletions { color: var(--red); }
+  .branch-chevron { width: 14px; height: 14px; color: var(--muted-foreground); transition: transform 160ms ease; }
+  .branch-row[aria-expanded="true"] .branch-chevron { transform: rotate(180deg); }
+  .branch-menu { margin: 2px 4px 5px 27px; padding: 5px; border: 1px solid var(--border); border-radius: 12px; background: var(--popover); }
+  .branch-option { width: 100%; min-height: 30px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 7px; border: 0; border-radius: 8px; background: transparent; color: var(--muted-foreground); font-family: var(--mono); font-size: 10px; text-align: left; cursor: pointer; }
+  .branch-option:hover { background: var(--muted); color: var(--foreground); }
+  .branch-option.current { color: var(--foreground); }
+  .branch-option svg { width: 12px; height: 12px; color: var(--emerald); stroke-width: 2; }
+
+  .summary-empty { padding: 27px 12px 23px; text-align: center; }
+  .summary-empty svg { width: 24px; height: 24px; margin: 0 auto 9px; color: color-mix(in oklab, var(--muted-foreground) 72%, transparent); stroke-width: 1.6; }
+  .summary-empty strong { display: block; color: var(--foreground); font-size: 12px; font-weight: 620; }
+  .summary-empty span { display: block; margin-top: 4px; color: var(--muted-foreground); font-size: 10.5px; line-height: 1.5; }
+
+  .inspector-shade { position: absolute; z-index: 44; inset: 50px 0 0; background: var(--overlay); opacity: 0; pointer-events: none; transition: opacity 190ms ease; }
+  .inspector-shade.open { opacity: 1; pointer-events: auto; }
+  .inspector {
+    width: min(410px, 76%);
+    position: absolute;
+    z-index: 45;
+    top: 50px;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--border);
+    background: var(--background);
+    box-shadow: -18px 0 46px -38px var(--shadow);
+    transform: translateX(102%);
+    transition: transform 220ms cubic-bezier(.2,.8,.2,1);
+  }
+  .inspector.open { transform: translateX(0); }
+  .inspector-header { height: 49px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 13px; border-bottom: 1px solid var(--border); }
+  .inspector-header strong { min-width: 0; overflow: hidden; font-size: 12.5px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+  .inspector-close { width: 30px; height: 30px; display: grid; place-items: center; flex: none; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--muted-foreground); cursor: pointer; }
+  .inspector-close:hover { background: var(--muted); color: var(--foreground); }
+  .inspector-close svg { width: 16px; height: 16px; stroke-width: 1.9; }
+  .inspector-body { padding: 18px; overflow: auto; }
+  .detail-kicker { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; color: var(--emerald); font-family: var(--mono); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .detail-kicker.failed { color: var(--red); }
+  .detail-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .detail-title { margin: 0 0 17px; color: var(--foreground); font-size: 16px; font-weight: 650; line-height: 1.45; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .detail-field { padding: 10px; border: 1px solid var(--border); border-radius: 11px; background: color-mix(in oklab, var(--background) 72%, var(--muted)); }
+  .detail-field.full { grid-column: 1 / -1; }
+  .detail-label { margin-bottom: 5px; color: var(--muted-foreground); font-size: 9.5px; }
+  .detail-value { color: var(--foreground); font-family: var(--mono); font-size: 10.5px; line-height: 1.55; overflow-wrap: anywhere; }
+  .detail-output { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .detail-output h3 { margin: 0 0 7px; font-size: 11px; font-weight: 650; }
+  .detail-output p { margin: 0; color: var(--muted-foreground); font-size: 11.5px; line-height: 1.65; }
+
+  .demo-toast { position: absolute; z-index: 60; right: 14px; bottom: 14px; max-width: min(330px, calc(100% - 28px)); padding: 9px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--popover); color: var(--foreground); box-shadow: 0 16px 38px -26px var(--shadow); font-size: 11.5px; opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity 160ms ease, transform 160ms ease; }
+  .demo-toast.show { opacity: 1; transform: translateY(0); }
+
+  .app-stage.mobile .sidebar { display: none; }
+  .app-stage.mobile .chat-area { grid-column: 1; }
+  .app-stage.mobile .brand span { display: none; }
+  .app-stage.mobile .mobile-menu { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--muted-foreground); }
+  .app-stage.mobile .mobile-menu svg { width: 17px; height: 17px; stroke-width: 1.8; }
+  .app-stage.mobile .topbar-context { max-width: 105px; }
+  .app-stage.mobile .window-toolbar { top: 6px; right: 5px; gap: 1px; }
+  .app-stage.mobile .toolbar-icon.secondary:first-of-type { display: none; }
+  .app-stage.mobile .toolbar-icon { width: 36px; height: 36px; }
+  /* 模拟真实移动定位：fixed inset-x-2 top-14；舞台内等效为 absolute left/right 8px, top 56px。 */
+  .app-stage.mobile .summary-popover { width: auto; max-height: calc(100% - 64px); top: 56px; right: 8px; left: 8px; border-radius: 24px; transform-origin: top center; }
+  .app-stage.mobile .chat-header { padding-inline: 13px; }
+  .app-stage.mobile .chat-heading { padding-right: 116px; }
+  .app-stage.mobile .messages { padding: 21px 14px 149px; }
+  .app-stage.mobile .composer-dock { padding: 9px 8px 11px; }
+  .app-stage.mobile .composer { min-height: 98px; }
+  .app-stage.mobile .composer-button .control-label { display: none; }
+  .app-stage.mobile .composer-button { width: 32px; padding: 0; }
+  .app-stage.mobile .inspector { width: 100%; top: 50px; border-left: 0; }
+  .app-stage.mobile .inspector-shade { display: none; }
+
+  @keyframes popover-in { from { opacity: 0; transform: translateY(-4px) scale(.985); } to { opacity: 1; transform: none; } }
+
+  @media (max-width: 760px) {
+    .page { padding: 13px 8px 28px; }
+    .toolbar-divider { display: none; }
+    .app-stage:not(.mobile) { grid-template-columns: 205px minmax(0, 1fr); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="demo-toolbar" aria-label="设计稿控制栏">
+    <h1 data-i18n="pageTitle">置顶摘要 · 分组交互稿</h1>
+    <span class="toolbar-divider" aria-hidden="true"></span>
+    <div class="segmented" data-control="theme" aria-label="主题">
+      <button type="button" class="active" data-value="light">Light</button>
+      <button type="button" data-value="dark">Dark</button>
+    </div>
+    <div class="segmented" data-control="language" aria-label="语言">
+      <button type="button" class="active" data-value="zh">中文</button>
+      <button type="button" data-value="en">EN</button>
+    </div>
+    <div class="segmented" data-control="viewport" aria-label="设备">
+      <button type="button" class="active" data-value="desktop" data-i18n="desktop">桌面</button>
+      <button type="button" data-value="mobile" data-i18n="mobile">移动</button>
+    </div>
+    <div class="segmented" data-control="scenario" aria-label="场景">
+      <button type="button" class="active" data-value="all" data-i18n="allGroups">全部分组</button>
+      <button type="button" data-value="tasks" data-i18n="tasksOnly">仅任务</button>
+      <button type="button" data-value="agents" data-i18n="agentsOnly">仅 Subagent</button>
+      <button type="button" data-value="environment" data-i18n="environmentOnly">仅环境</button>
+      <button type="button" data-value="empty" data-i18n="emptySummary">空摘要</button>
+    </div>
+  </div>
+
+  <div class="placement-note" role="note">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 10v6M12 7h.01"></path></svg>
+    <span data-i18n="placementNote">位置：右上角全局工具栏的现有置顶摘要，不在 Composer Dock。</span>
+  </div>
+
+  <main class="stage-wrap">
+    <section class="app-stage" id="appStage" aria-label="QuickForge 主界面舞台">
+      <header class="app-topbar">
+        <button class="mobile-menu" type="button" aria-label="打开会话栏"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"></path></svg></button>
+        <div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m13 2-8 12h6l-1 8 9-13h-6z"></path></svg></span><span>QuickForge</span></div>
+        <div class="topbar-context"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6l2 2h8v12H4z"></path></svg><span>quickforge / dev</span></div>
+
+        <div class="window-toolbar" aria-label="右上角全局窗口工具栏">
+          <button class="toolbar-icon secondary" type="button" aria-label="打开项目"><svg viewBox="0 0 24 24"><path d="M4 5h6l2 2h8v12H4z"></path><path d="m9 15 6-6M11 9h4v4"></path></svg></button>
+          <button class="toolbar-icon" id="summaryTrigger" type="button" aria-label="置顶摘要" title="置顶摘要" aria-expanded="false" aria-controls="summaryPopover">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"></path><path d="M4 6h.01M4 12h.01M4 18h.01"></path></svg>
+            <span class="update-dot" id="updateDot" aria-hidden="true"></span>
+          </button>
+          <button class="toolbar-icon secondary" type="button" aria-label="终端"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"></path><path d="m8 9 3 3-3 3M13 15h3"></path></svg></button>
+          <button class="toolbar-icon secondary" type="button" aria-label="Workspace Inspector"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zM15 4v16"></path></svg></button>
+        </div>
+      </header>
+
+      <aside class="sidebar" aria-label="会话栏">
+        <div class="sidebar-inner">
+          <button class="new-chat" type="button"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg><span data-i18n="newChat">新对话</span></button>
+          <section class="sidebar-section">
+            <div class="sidebar-heading" data-i18n="projects">项目</div>
+            <button class="project-row" type="button"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"></path></svg><svg viewBox="0 0 24 24"><path d="M4 5h6l2 2h8v12H4z"></path></svg><span>quickforge</span></button>
+            <div class="session-list">
+              <button class="session-row selected" type="button"><span data-i18n="sessionOne">置顶摘要分组设计</span></button>
+              <button class="session-row" type="button"><span data-i18n="sessionTwo">检查 Subagent 跳转链路</span></button>
+              <button class="session-row" type="button"><span data-i18n="sessionThree">移动端界面适配</span></button>
+            </div>
+          </section>
+          <section class="sidebar-section">
+            <div class="sidebar-heading" data-i18n="recent">最近</div>
+            <div class="session-list" style="padding-left:0">
+              <button class="session-row" type="button"><span data-i18n="recentOne">发布检查与构建验证</span></button>
+              <button class="session-row" type="button"><span data-i18n="recentTwo">Workspace Inspector 细节</span></button>
+            </div>
+          </section>
+          <div class="sidebar-footer"><span class="avatar">QF</span><span data-i18n="localWorkspace">本地工作区</span></div>
+        </div>
+      </aside>
+
+      <section class="chat-area" aria-label="聊天区">
+        <div class="chat-header"><div class="chat-heading"><strong data-i18n="chatTitle">置顶摘要分组设计</strong><span data-i18n="chatMeta">QuickForge · 当前会话</span></div></div>
+        <div class="messages">
+          <div class="message-stack">
+            <div class="user-message" data-i18n="userMessage">把任务、已结束 Subagent 和环境信息统一放进现有置顶摘要。</div>
+            <div class="assistant-message" data-i18n="assistantMessage">已按真实挂载位置整理：入口仍是右上角全局工具栏的 List 图标，收起后不会在聊天区或输入框附近留下摘要控件。</div>
+            <div class="tool-event"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"></path><path d="M4 6h.01M4 12h.01M4 18h.01"></path></svg><code>GitToolsPinnedSummary</code><span data-i18n="toolMessage">右上角 36×36 List 触发器 · 点击查看分组</span></div>
+            <div class="assistant-message" data-i18n="assistantFollowup">点击已结束的 Subagent 会关闭摘要，并打开右侧 Workspace Inspector 详情；任务与 Git 行也提供轻量可点击演示。</div>
+            <div class="location-callout" data-i18n="composerReminder">Composer Dock 保持普通输入体验：这里没有任务摘要、Subagent 摘要或环境摘要。</div>
+          </div>
+        </div>
+        <div class="composer-dock">
+          <div class="composer">
+            <div class="composer-placeholder" data-i18n="composerPlaceholder">输入消息…</div>
+            <div class="composer-footer">
+              <div class="composer-controls">
+                <button class="composer-button icon-only" type="button" aria-label="添加"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg></button>
+                <button class="composer-button" type="button"><svg viewBox="0 0 24 24"><path d="M12 3 3 20h18z"></path><path d="M12 9v4M12 17h.01"></path></svg><span class="control-label" data-i18n="fullAccess">完全访问</span></button>
+                <button class="composer-button" type="button"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"></path></svg><span class="control-label" data-i18n="plan">计划</span></button>
+              </div>
+              <button class="send-button" type="button" aria-label="发送"><svg viewBox="0 0 24 24"><path d="M12 19V5m0 0-5 5m5-5 5 5"></path></svg></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="summary-popover" id="summaryPopover" role="dialog" aria-modal="false" aria-labelledby="summaryTitle" aria-describedby="summaryDescription" hidden>
+        <div class="summary-header">
+          <div>
+            <h2 class="summary-title" id="summaryTitle" data-i18n="summaryTitle">置顶摘要</h2>
+            <div class="summary-subtitle" id="summaryDescription" data-i18n="summarySubtitle">当前任务、已结束 Subagent 与环境信息</div>
+          </div>
+          <button class="summary-close" id="summaryClose" type="button" aria-label="关闭置顶摘要"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"></path></svg></button>
+        </div>
+
+        <div id="summaryContent">
+          <section class="summary-section" id="tasksSection">
+            <div class="section-heading"><span class="section-title" data-i18n="tasksHeading">任务清单 · 3/5</span><span class="section-stat" data-i18n="threeVisible">默认 3 条</span></div>
+            <div class="task-list" id="taskList">
+              <button class="summary-row task-row completed" type="button" data-task="entry"><span class="task-status done"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.5 2.5L16 9"></path></svg></span><span class="task-copy" data-i18n="taskOne">确认真实全局工具栏挂载位置</span><span class="task-label" data-i18n="completed">完成</span></button>
+              <button class="summary-row task-row" type="button" data-task="mockup"><span class="task-status running"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></span><span class="task-copy" data-i18n="taskTwo">覆盖分组摘要交互设计稿</span><span class="task-label" data-i18n="inProgress">进行中</span></button>
+              <button class="summary-row task-row" type="button" data-task="verify"><span class="task-status"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle></svg></span><span class="task-copy" data-i18n="taskThree">执行 HTML 与无外链检查</span><span class="task-label" data-i18n="pending">待处理</span></button>
+              <button class="summary-row task-row completed extra-task" type="button" data-task="desktop"><span class="task-status done"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.5 2.5L16 9"></path></svg></span><span class="task-copy" data-i18n="taskFour">复刻桌面端右对齐定位</span><span class="task-label" data-i18n="completed">完成</span></button>
+              <button class="summary-row task-row completed extra-task" type="button" data-task="mobile"><span class="task-status done"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.5 2.5L16 9"></path></svg></span><span class="task-copy" data-i18n="taskFive">复刻移动端 inset-x-2 top-14</span><span class="task-label" data-i18n="completed">完成</span></button>
+            </div>
+            <button class="view-all" id="viewAllTasks" type="button" aria-expanded="false"><span data-i18n="viewAllTasks">查看全部 5 项</span><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"></path></svg></button>
+          </section>
+
+          <section class="summary-section" id="agentsSection">
+            <div class="section-heading"><span class="section-title" data-i18n="agentsHeading">已结束 Subagent · 3</span><span class="section-stat" data-i18n="recentFirst">最近完成优先</span></div>
+            <div id="agentRows"></div>
+          </section>
+
+          <section class="summary-section" id="environmentSection">
+            <div class="section-heading"><span class="section-title" data-i18n="environmentHeading">环境信息</span><span class="section-stat">Git</span></div>
+            <button class="summary-row git-row" id="changesRow" type="button"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"></path><path d="M8 9h8M8 13h5"></path></svg><span class="git-copy"><span class="git-label" data-i18n="changes">更改</span><span class="file-count" data-i18n="fileCount">6 个文件</span></span><span class="diff-stats"><span class="additions">+184</span><span class="deletions">-73</span></span></button>
+            <button class="summary-row git-row branch-row" id="branchRow" type="button" aria-expanded="false"><svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="7" r="2"></circle><circle cx="6" cy="19" r="2"></circle><path d="M6 7v10M8 17c5 0 8-3 8-8"></path></svg><span class="git-copy"><span class="git-label">feature/pinned-summary-groups</span></span><svg class="branch-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"></path></svg></button>
+            <div class="branch-menu" id="branchMenu" hidden>
+              <button class="branch-option current" type="button" data-branch="feature/pinned-summary-groups"><span>feature/pinned-summary-groups</span><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-8"></path></svg></button>
+              <button class="branch-option" type="button" data-branch="dev"><span>dev</span></button>
+              <button class="branch-option" type="button" data-branch="master"><span>master</span></button>
+            </div>
+            <button class="summary-row git-row" id="commitRow" type="button"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"></path><circle cx="9" cy="5" r="2"></circle><circle cx="15" cy="12" r="2"></circle><circle cx="11" cy="19" r="2"></circle></svg><span class="git-copy"><span class="git-label" data-i18n="commitPush">提交或推送</span></span><svg class="row-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"></path></svg></button>
+          </section>
+        </div>
+
+        <div class="summary-empty" id="summaryEmpty" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h7"></path><path d="M4 6h.01M4 12h.01M4 18h.01"></path></svg>
+          <strong data-i18n="emptyTitle">暂无置顶摘要</strong>
+          <span data-i18n="emptyDescription">当前会话没有任务、已结束 Subagent 或可展示的环境信息。</span>
+        </div>
+      </section>
+
+      <div class="inspector-shade" id="inspectorShade"></div>
+      <aside class="inspector" id="inspector" aria-label="Workspace Inspector" aria-hidden="true">
+        <div class="inspector-header"><strong id="inspectorHeading">Workspace Inspector · Subagent</strong><button class="inspector-close" id="inspectorClose" type="button" aria-label="关闭 Workspace Inspector"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"></path></svg></button></div>
+        <div class="inspector-body">
+          <div class="detail-kicker" id="detailKicker"><span class="detail-dot"></span><span id="detailStatus">explore · 成功</span></div>
+          <h2 class="detail-title" id="detailTitle">调研现有置顶摘要入口与定位</h2>
+          <div class="detail-grid">
+            <div class="detail-field"><div class="detail-label" data-i18n="typeLabel">类型</div><div class="detail-value" id="detailType">Subagent</div></div>
+            <div class="detail-field"><div class="detail-label" data-i18n="elapsedLabel">耗时</div><div class="detail-value" id="detailElapsed">1m 18s</div></div>
+            <div class="detail-field full"><div class="detail-label" data-i18n="referenceLabel">引用</div><div class="detail-value" id="detailReference">run_explore_pinned_01</div></div>
+          </div>
+          <div class="detail-output"><h3 data-i18n="detailSummary">详情摘要</h3><p id="detailOutput">已确认 GitToolsPinnedSummary 位于 App 的全局窗口工具栏，并记录桌面与移动定位。</p></div>
+        </div>
+      </aside>
+
+      <div class="demo-toast" id="demoToast" role="status" aria-live="polite"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+(() => {
+  const state = { language: 'zh', scenario: 'all', viewport: 'desktop', summaryOpen: false, tasksExpanded: false };
+
+  const copy = {
+    zh: {
+      pageTitle: '置顶摘要 · 分组交互稿', desktop: '桌面', mobile: '移动', allGroups: '全部分组', tasksOnly: '仅任务', agentsOnly: '仅 Subagent', environmentOnly: '仅环境', emptySummary: '空摘要',
+      placementNote: '位置：右上角全局工具栏的现有置顶摘要，不在 Composer Dock。', newChat: '新对话', projects: '项目', sessionOne: '置顶摘要分组设计', sessionTwo: '检查 Subagent 跳转链路', sessionThree: '移动端界面适配', recent: '最近', recentOne: '发布检查与构建验证', recentTwo: 'Workspace Inspector 细节', localWorkspace: '本地工作区',
+      chatTitle: '置顶摘要分组设计', chatMeta: 'QuickForge · 当前会话', userMessage: '把任务、已结束 Subagent 和环境信息统一放进现有置顶摘要。', assistantMessage: '已按真实挂载位置整理：入口仍是右上角全局工具栏的 List 图标，收起后不会在聊天区或输入框附近留下摘要控件。', toolMessage: '右上角 36×36 List 触发器 · 点击查看分组', assistantFollowup: '点击已结束的 Subagent 会关闭摘要，并打开右侧 Workspace Inspector 详情；任务与 Git 行也提供轻量可点击演示。', composerReminder: 'Composer Dock 保持普通输入体验：这里没有任务摘要、Subagent 摘要或环境摘要。', composerPlaceholder: '输入消息…', fullAccess: '完全访问', plan: '计划',
+      summaryTitle: '置顶摘要', summarySubtitle: '当前任务、已结束 Subagent 与环境信息', tasksHeading: '任务清单 · 3/5', threeVisible: '默认 3 条', taskOne: '确认真实全局工具栏挂载位置', taskTwo: '覆盖分组摘要交互设计稿', taskThree: '执行 HTML 与无外链检查', taskFour: '复刻桌面端右对齐定位', taskFive: '复刻移动端 inset-x-2 top-14', completed: '完成', inProgress: '进行中', pending: '待处理', viewAllTasks: '查看全部 5 项', collapseTasks: '收起至 3 项',
+      agentsHeading: '已结束 Subagent · 3', recentFirst: '最近完成优先', environmentHeading: '环境信息', changes: '更改', fileCount: '6 个文件', commitPush: '提交或推送', emptyTitle: '暂无置顶摘要', emptyDescription: '当前会话没有任务、已结束 Subagent 或可展示的环境信息。',
+      typeLabel: '类型', elapsedLabel: '耗时', referenceLabel: '引用', detailSummary: '详情摘要', success: '成功', failed: '失败', taskDetail: '任务详情', gitChanges: 'Git 更改', gitCommit: 'Git 提交与推送', taskOpened: '已打开任务详情，置顶摘要已收起。', branchSwitched: '已模拟切换分支：',
+      run1: '调研现有置顶摘要入口与定位', run2: '实现上一版 Composer 摘要方案', run3: '查找 Workspace Inspector 跳转链路', output1: '已确认 GitToolsPinnedSummary 位于 App 的全局窗口工具栏，并记录桌面与移动定位。', output2: '该方案因错误放置在 Composer Dock 而失败，保留失败状态供检查。', output3: '已定位 Subagent 详情打开事件、右侧 Inspector 结构与移动覆盖行为。',
+      gitOutput: '模拟进入 Workspace Inspector 的 Git 更改视图：6 个文件，新增 184 行，删除 73 行。', commitOutput: '模拟打开提交或推送流程；真实组件会关闭置顶摘要后进入对应 Git 操作。'
+    },
+    en: {
+      pageTitle: 'Pinned summary · grouped mockup', desktop: 'Desktop', mobile: 'Mobile', allGroups: 'All groups', tasksOnly: 'Tasks only', agentsOnly: 'Subagent only', environmentOnly: 'Environment only', emptySummary: 'Empty',
+      placementNote: 'Position: the existing pinned summary in the top-right global toolbar, not in the Composer Dock.', newChat: 'New chat', projects: 'Projects', sessionOne: 'Pinned summary grouping', sessionTwo: 'Inspect Subagent navigation', sessionThree: 'Mobile layout adaptation', recent: 'Recent', recentOne: 'Release checks and build', recentTwo: 'Workspace Inspector details', localWorkspace: 'Local workspace',
+      chatTitle: 'Pinned summary grouping', chatMeta: 'QuickForge · Current session', userMessage: 'Put tasks, finished subagents, and environment information in the existing pinned summary.', assistantMessage: 'The mockup now follows the real mount point: the entry remains the List icon in the top-right global toolbar, with no summary left near the chat or composer when collapsed.', toolMessage: 'Top-right 36×36 List trigger · click to view groups', assistantFollowup: 'Selecting a finished Subagent closes the summary and opens its Workspace Inspector detail. Task and Git rows also provide lightweight demos.', composerReminder: 'The Composer Dock stays focused on input. No task, Subagent, or environment summary appears here.', composerPlaceholder: 'Message QuickForge…', fullAccess: 'Full access', plan: 'Plan',
+      summaryTitle: 'Pinned summary', summarySubtitle: 'Current tasks, finished Subagents, and environment information', tasksHeading: 'Task list · 3/5', threeVisible: '3 shown', taskOne: 'Confirm the real global-toolbar mount point', taskTwo: 'Rebuild the grouped summary mockup', taskThree: 'Run HTML and no-external-link checks', taskFour: 'Match desktop right-aligned positioning', taskFive: 'Match mobile inset-x-2 top-14', completed: 'Done', inProgress: 'In progress', pending: 'Pending', viewAllTasks: 'View all 5 tasks', collapseTasks: 'Collapse to 3 tasks',
+      agentsHeading: 'Finished Subagents · 3', recentFirst: 'Newest first', environmentHeading: 'Environment', changes: 'Changes', fileCount: '6 files', commitPush: 'Commit or push', emptyTitle: 'No pinned summary', emptyDescription: 'This session has no tasks, finished Subagents, or environment information to show.',
+      typeLabel: 'Type', elapsedLabel: 'Elapsed', referenceLabel: 'Reference', detailSummary: 'Detail summary', success: 'Success', failed: 'Failed', taskDetail: 'Task detail', gitChanges: 'Git changes', gitCommit: 'Git commit and push', taskOpened: 'Task detail opened; the pinned summary was closed.', branchSwitched: 'Simulated branch switch: ',
+      run1: 'Inspect the existing pinned-summary entry and positioning', run2: 'Implement the previous Composer summary concept', run3: 'Locate the Workspace Inspector navigation flow', output1: 'Confirmed that GitToolsPinnedSummary is mounted in the global App toolbar and recorded desktop and mobile positioning.', output2: 'This approach failed because it incorrectly placed the summary in the Composer Dock; the failure remains visible for inspection.', output3: 'Located the Subagent detail event, right-side Inspector structure, and mobile overlay behavior.',
+      gitOutput: 'Simulated Workspace Inspector Git changes view: 6 files, 184 additions, and 73 deletions.', commitOutput: 'Simulated commit or push flow. The real component closes the pinned summary before opening the Git action.'
+    }
+  };
+
+  const runs = [
+    { agent: 'explore', status: 'success', elapsed: '1m 18s', ref: 'run_explore_pinned_01', taskKey: 'run1', outputKey: 'output1' },
+    { agent: 'general', status: 'failed', elapsed: '54s', ref: 'run_general_composer_02', taskKey: 'run2', outputKey: 'output2' },
+    { agent: 'explore', status: 'success', elapsed: '37s', ref: 'run_explore_inspector_03', taskKey: 'run3', outputKey: 'output3' }
+  ];
+
+  const appStage = document.getElementById('appStage');
+  const summaryTrigger = document.getElementById('summaryTrigger');
+  const summaryPopover = document.getElementById('summaryPopover');
+  const summaryClose = document.getElementById('summaryClose');
+  const updateDot = document.getElementById('updateDot');
+  const summaryContent = document.getElementById('summaryContent');
+  const summaryEmpty = document.getElementById('summaryEmpty');
+  const tasksSection = document.getElementById('tasksSection');
+  const agentsSection = document.getElementById('agentsSection');
+  const environmentSection = document.getElementById('environmentSection');
+  const taskList = document.getElementById('taskList');
+  const viewAllTasks = document.getElementById('viewAllTasks');
+  const agentRows = document.getElementById('agentRows');
+  const branchRow = document.getElementById('branchRow');
+  const branchMenu = document.getElementById('branchMenu');
+  const inspector = document.getElementById('inspector');
+  const inspectorShade = document.getElementById('inspectorShade');
+  const inspectorClose = document.getElementById('inspectorClose');
+  const toast = document.getElementById('demoToast');
+  let toastTimer = 0;
+
+  function lang() { return copy[state.language]; }
+  function setActive(control, value) {
+    document.querySelectorAll(`[data-control="${control}"] button`).forEach((button) => button.classList.toggle('active', button.dataset.value === value));
+  }
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+  }
+  function successIcon() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 12 3 3 7-7"></path></svg>'; }
+  function failedIcon() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8 8 8M16 8l-8 8"></path></svg>'; }
+  function chevronIcon() { return '<svg class="row-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>'; }
+
+  function renderAgents() {
+    agentRows.innerHTML = runs.map((run, index) => {
+      const task = lang()[run.taskKey];
+      return `<button class="summary-row agent-row" type="button" data-run-index="${index}" aria-label="${escapeHtml(run.agent + ': ' + task)}"><span class="result-icon ${run.status}">${run.status === 'success' ? successIcon() : failedIcon()}</span><span class="agent-main"><span class="agent-name">${run.agent}</span><span class="agent-task">${escapeHtml(task)}</span></span><span class="agent-time">${run.elapsed}</span>${chevronIcon()}</button>`;
+    }).join('');
+    agentRows.querySelectorAll('[data-run-index]').forEach((row) => row.addEventListener('click', () => openRun(Number(row.dataset.runIndex))));
+  }
+
+  function setSummaryOpen(open) {
+    state.summaryOpen = open;
+    summaryPopover.hidden = !open;
+    summaryTrigger.classList.toggle('active', open);
+    summaryTrigger.setAttribute('aria-expanded', String(open));
+    if (open) {
+      updateDot.hidden = true;
+      window.requestAnimationFrame(() => summaryClose.focus({ preventScroll: true }));
+    } else {
+      branchMenu.hidden = true;
+      branchRow.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  function applyScenario(scenario) {
+    state.scenario = scenario;
+    const empty = scenario === 'empty';
+    summaryContent.hidden = empty;
+    summaryEmpty.hidden = !empty;
+    tasksSection.hidden = !(scenario === 'all' || scenario === 'tasks');
+    agentsSection.hidden = !(scenario === 'all' || scenario === 'agents');
+    environmentSection.hidden = !(scenario === 'all' || scenario === 'environment');
+    updateDot.hidden = state.summaryOpen;
+    setActive('scenario', scenario);
+  }
+
+  function toggleTasks() {
+    state.tasksExpanded = !state.tasksExpanded;
+    taskList.classList.toggle('expanded', state.tasksExpanded);
+    viewAllTasks.setAttribute('aria-expanded', String(state.tasksExpanded));
+    viewAllTasks.querySelector('span').textContent = state.tasksExpanded ? lang().collapseTasks : lang().viewAllTasks;
+  }
+
+  function openInspectorDetail(detail) {
+    setSummaryOpen(false);
+    document.getElementById('inspectorHeading').textContent = detail.heading;
+    const kicker = document.getElementById('detailKicker');
+    kicker.classList.toggle('failed', detail.failed === true);
+    document.getElementById('detailStatus').textContent = detail.status;
+    document.getElementById('detailTitle').textContent = detail.title;
+    document.getElementById('detailType').textContent = detail.type;
+    document.getElementById('detailElapsed').textContent = detail.elapsed;
+    document.getElementById('detailReference').textContent = detail.reference;
+    document.getElementById('detailOutput').textContent = detail.output;
+    inspector.classList.add('open');
+    inspectorShade.classList.add('open');
+    inspector.setAttribute('aria-hidden', 'false');
+  }
+
+  function openRun(index) {
+    const run = runs[index];
+    if (!run) return;
+    openInspectorDetail({
+      heading: 'Workspace Inspector · Subagent',
+      status: `${run.agent} · ${run.status === 'success' ? lang().success : lang().failed}`,
+      failed: run.status === 'failed',
+      title: lang()[run.taskKey],
+      type: run.agent,
+      elapsed: run.elapsed,
+      reference: run.ref,
+      output: lang()[run.outputKey]
+    });
+  }
+
+  function openTask(row) {
+    const title = row.querySelector('.task-copy').textContent;
+    const status = row.querySelector('.task-label').textContent;
+    openInspectorDetail({ heading: `Workspace Inspector · ${lang().taskDetail}`, status, failed: false, title, type: lang().taskDetail, elapsed: '—', reference: `task_${row.dataset.task}`, output: lang().taskOpened });
+  }
+
+  function closeInspector() {
+    inspector.classList.remove('open');
+    inspectorShade.classList.remove('open');
+    inspector.setAttribute('aria-hidden', 'true');
+  }
+
+  function showToast(message) {
+    window.clearTimeout(toastTimer);
+    toast.textContent = message;
+    toast.classList.add('show');
+    toastTimer = window.setTimeout(() => toast.classList.remove('show'), 2400);
+  }
+
+  function applyLanguage() {
+    document.documentElement.lang = state.language === 'zh' ? 'zh-CN' : 'en';
+    document.querySelectorAll('[data-i18n]').forEach((node) => {
+      const value = lang()[node.dataset.i18n];
+      if (value) node.textContent = value;
+    });
+    viewAllTasks.querySelector('span').textContent = state.tasksExpanded ? lang().collapseTasks : lang().viewAllTasks;
+    renderAgents();
+  }
+
+  summaryTrigger.addEventListener('click', () => setSummaryOpen(!state.summaryOpen));
+  summaryClose.addEventListener('click', () => { setSummaryOpen(false); summaryTrigger.focus(); });
+  viewAllTasks.addEventListener('click', toggleTasks);
+  taskList.querySelectorAll('[data-task]').forEach((row) => row.addEventListener('click', () => openTask(row)));
+  branchRow.addEventListener('click', () => {
+    const open = branchMenu.hidden;
+    branchMenu.hidden = !open;
+    branchRow.setAttribute('aria-expanded', String(open));
+  });
+  branchMenu.querySelectorAll('[data-branch]').forEach((option) => option.addEventListener('click', () => {
+    branchMenu.hidden = true;
+    branchRow.setAttribute('aria-expanded', 'false');
+    showToast(lang().branchSwitched + option.dataset.branch);
+  }));
+  document.getElementById('changesRow').addEventListener('click', () => openInspectorDetail({ heading: `Workspace Inspector · ${lang().gitChanges}`, status: 'Git · 6 files', failed: false, title: lang().changes, type: 'Git', elapsed: '—', reference: 'feature/pinned-summary-groups', output: lang().gitOutput }));
+  document.getElementById('commitRow').addEventListener('click', () => openInspectorDetail({ heading: `Workspace Inspector · ${lang().gitCommit}`, status: 'Git · dev', failed: false, title: lang().commitPush, type: 'Git', elapsed: '—', reference: 'feature/pinned-summary-groups', output: lang().commitOutput }));
+  inspectorClose.addEventListener('click', closeInspector);
+  inspectorShade.addEventListener('click', closeInspector);
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!state.summaryOpen) return;
+    if (summaryPopover.contains(event.target) || summaryTrigger.contains(event.target)) return;
+    setSummaryOpen(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (state.summaryOpen) {
+      setSummaryOpen(false);
+      summaryTrigger.focus();
+      return;
+    }
+    closeInspector();
+  });
+
+  document.querySelector('[data-control="theme"]').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button) return;
+    document.body.classList.toggle('dark', button.dataset.value === 'dark');
+    setActive('theme', button.dataset.value);
+  });
+  document.querySelector('[data-control="language"]').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button) return;
+    state.language = button.dataset.value;
+    setActive('language', state.language);
+    applyLanguage();
+  });
+  document.querySelector('[data-control="viewport"]').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button) return;
+    state.viewport = button.dataset.value;
+    appStage.classList.toggle('mobile', state.viewport === 'mobile');
+    setActive('viewport', state.viewport);
+  });
+  document.querySelector('[data-control="scenario"]').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button) return;
+    applyScenario(button.dataset.value);
+    closeInspector();
+    setSummaryOpen(true);
+  });
+
+  applyLanguage();
+  applyScenario('all');
+})();
+</script>
+</body>
+</html>

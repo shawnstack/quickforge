@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：pinned-execution-summary-groups（已完成）
+
+- 目标：将 Git、任务清单和已结束 Subagent 分组显示在右上角现有 `GitToolsPinnedSummary` 置顶摘要中；运行中 Subagent 继续留在 Composer 胶囊。用户视觉修订要求移除展开浮层顶部总标题/描述，Git 排首位并使用浅分割线。
+- 实现：摘要在 Todo/终态 Subagent/Git 任一存在时挂载，非 Git 会话也可见任务与 Subagent。展开浮层不再渲染顶部总标题/描述，只保留 absolute 右上角 X；实际分组顺序为 Git → Todo → 已结束 Subagent，首个实际分组无顶部间距/分割线，后续分组使用紧凑浅色 0.5px 分割线，标题行预留 X 空间，Git 中英文标题均为 `Git`。Todo 复用当前消息分支最新合法快照；新增 `extractLatestTerminalSubagentRuns()`，用当前 messages + pendingToolCalls 配对并排除运行中临时结果，按终态时间排序、canonical ID 去重、最近 3 项。App 订阅当前 agent 相关事件刷新；点击已结束项先关闭摘要再打开 Workspace Inspector Subagent Tab。Todo 展开、Subagent“最近优先”、Git changes/branch/menu/commit-push 保持；桌面 overflow visible 避免分支菜单裁剪，移动端 fixed 滚动且分支菜单 top/max-height 按 Git 首位成对调整。
+- 验证：用户视觉修订后定向 Vitest 4 files / 125 tests、ESLint、`npx tsc -b --pretty false`、JSON parse、`git diff --check` 全过；按要求未运行 build，未跑全量 test/lint。
+- 文件：`src/App.tsx`、`src/components/git/GitToolsPinnedSummary.tsx`、`src/lib/i18n.ts`、`src/lib/subagent-run-detail.ts`、两份测试、wiki components/lib、三个状态文件；本轮视觉修订仅修改 GitToolsPinnedSummary、i18n、对应测试、components wiki 与三个状态文件，未改 `docs/wiki/src/lib/README.md`。
+- Blocker：无。边界：Inspector 打开时摘要入口仍隐藏；终态最近 3 项；任务“查看全部”仅浮层内展开；未 commit。
+- 下一步：真机冒烟 Git/非 Git、done/error 点击、回滚/会话切换、移动/主题/中英文和分支菜单。
+
+---
+
 ## 当前状态：subagent-running-indicator（已完成）
 
 - 目标：将已确认的 HTML 设计实现到主聊天 Composer：在「完全访问权限」旁显示当前会话运行中的 Subagent 数量，点击具体运行打开 Workspace Inspector 详情 Tab。

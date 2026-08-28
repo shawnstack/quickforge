@@ -12,6 +12,7 @@ import {
   canPublishSubagentRunPayload,
   currentSubagentToolSummaries,
   currentSubagentToolSummariesWithMemory,
+  extractLatestTerminalSubagentRuns,
   normalizeOpenSubagentRunRequest,
   resolveSubagentRunPayloadForOpen,
   shouldPublishSubagentRunPayload,
@@ -59,6 +60,64 @@ function testPayload(
   }
   return { ...payload, fingerprint: subagentRunFingerprint(payload) }
 }
+
+describe('terminal subagent run extraction', () => {
+  const call = (id: string, task: string, name = 'explore') => ({
+    role: 'assistant',
+    content: [{ type: 'toolCall', id, name: 'run_subagent', arguments: { subagent: name, task } }],
+  })
+  const result = (id: string, options: { timestamp?: number; isError?: boolean; canonicalId?: string } = {}) => ({
+    role: 'toolResult',
+    toolName: 'run_subagent',
+    toolCallId: id,
+    timestamp: options.timestamp,
+    isError: options.isError,
+    content: [{ type: 'text', text: options.isError ? 'failed' : 'done' }],
+    details: options.canonicalId ? { toolCallId: options.canonicalId } : {},
+  })
+
+  it('pairs calls/results, ignores pending, malformed, and non-run messages, and keeps done/error', () => {
+    const runs = extractLatestTerminalSubagentRuns([
+      call('done-1', 'Done task'),
+      result('done-1'),
+      call('error-1', 'Error task', 'general'),
+      result('error-1', { isError: true }),
+      call('pending-1', 'Pending task'),
+      result('pending-1'),
+      { role: 'assistant', content: [{ type: 'toolCall', name: 'run_subagent', arguments: {} }] },
+      { role: 'toolResult', toolName: 'read_file', toolCallId: 'done-1', content: [] },
+    ], new Set(['pending-1']), 'compact', t)
+
+    expect(runs.map((run) => [run.runId, run.status])).toEqual([
+      ['error-1', 'error'],
+      ['done-1', 'done'],
+    ])
+  })
+
+  it('sorts timestamps before message-index fallbacks and deduplicates canonical ids', () => {
+    const runs = extractLatestTerminalSubagentRuns([
+      call('old', 'Old'),
+      result('old'),
+      call('new', 'New'),
+      result('new', { timestamp: 200 }),
+      result('new', { timestamp: 100 }),
+    ], [], 'compact', t, 5)
+
+    expect(runs.map((run) => run.task)).toEqual(['New', 'Old'])
+  })
+
+  it('clamps limit to 1..5 and follows the current rollback message array', () => {
+    const messages = Array.from({ length: 7 }, (_, index) => [
+      call(`id-${index}`, `Task ${index}`),
+      result(`id-${index}`, { timestamp: index }),
+    ]).flat()
+    expect(extractLatestTerminalSubagentRuns(messages, [], 'compact', t, 99)).toHaveLength(5)
+    expect(extractLatestTerminalSubagentRuns(messages, [], 'compact', t, 0)).toHaveLength(1)
+
+    const rolledBack = messages.slice(0, 4)
+    expect(extractLatestTerminalSubagentRuns(rolledBack, [], 'compact', t).map((run) => run.task)).toEqual(['Task 1', 'Task 0'])
+  })
+})
 
 describe('subagent run detail payload', () => {
   it('uses details.sessionId as the stable run id', () => {

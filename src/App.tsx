@@ -34,7 +34,9 @@ import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import {
   OPEN_SUBAGENT_RUN_EVENT,
+  extractLatestTerminalSubagentRuns,
   normalizeOpenSubagentRunRequest,
+  type SubagentRunPayload,
 } from '@/lib/subagent-run-detail'
 import type {
   AgentAccessMode,
@@ -50,6 +52,7 @@ import { sessionTitle } from '@/lib/types'
 import { isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '@/components/chat/context-usage'
 import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
 import { ChatConversationSurface } from '@/components/chat/ChatConversationSurface'
+import { extractLatestTodoWriteSnapshot } from '@/components/chat/panel-decoration'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { NewChatProjectPicker } from '@/components/chat/NewChatProjectPicker'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
@@ -114,6 +117,7 @@ import { RemoteTunnelOverlay } from '@/components/mobile/RemoteTunnelOverlay'
 import { isCloudTunnelClient, isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
 import { initializeSystemNotifications, showTaskSystemNotification } from '@/lib/system-notifications'
 import { resolveChatHarnessCapabilities } from '@/lib/chat-harness-capabilities'
+import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 
 // --- Code-split secondary views (only loaded when first opened) ---
 // These are conditionally-mounted routes/panels; lazy loading keeps heavy
@@ -330,6 +334,7 @@ function MainApp() {
   })
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
   const [gitToolsExpanded, setGitToolsExpanded] = useState(false)
+  const [pinnedSummaryRevision, setPinnedSummaryRevision] = useState(0)
   const [gitCommitDialogOpen, setGitCommitDialogOpen] = useState(false)
   const [gitGraphOpen, setGitGraphOpen] = useState(false)
   const [externalProjectIds, setExternalProjectIds] = useState<Set<string>>(() => new Set())
@@ -494,6 +499,35 @@ function MainApp() {
   // 面板开合改为页面生命周期内的用户选择，默认收起，切换 session 不再自动展开；
   // tab 列表仍按 (projectId, sessionId) 持久化恢复。
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
+
+  useEffect(() => {
+    const agent = agentManager.agent
+    if (!agent) return undefined
+    const relevantEvents = new Set([
+      'tool_execution_start',
+      'tool_execution_update',
+      'tool_execution_end',
+      'message_end',
+      'messages_replaced',
+      'agent_end',
+    ])
+    return agent.subscribe((event) => {
+      if (relevantEvents.has(event.type)) setPinnedSummaryRevision((value) => value + 1)
+    })
+  }, [agentManager.agent])
+
+  const pinnedSummaryMessages = agentManager.agent?.state.messages ?? []
+  const pinnedSummaryTodos = useMemo(() => (
+    extractLatestTodoWriteSnapshot(pinnedSummaryMessages)?.todos ?? []
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
+  ), [agentManager.agent, pinnedSummaryRevision])
+  const pinnedSummarySubagentRuns = useMemo(() => extractLatestTerminalSubagentRuns(
+    pinnedSummaryMessages,
+    agentManager.agent?.state.pendingToolCalls,
+    getCachedToolDisplaySettings().toolDisplayMode,
+    t,
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
+  ), [agentManager.agent, pinnedSummaryRevision])
 
   useEffect(() => {
     const loadingSessionId = agentManager.loadingSessionId
@@ -894,17 +928,21 @@ function MainApp() {
     return () => window.removeEventListener('quickforge:preview-artifact', handler as EventListener)
   }, [agentManager.currentToolProject?.id, openArtifactPreview])
 
+  const openSubagentRun = useCallback((payload: SubagentRunPayload) => {
+    setArtifactPreviewOpen(false)
+    requestWorkspaceInspector({ projectId: agentManager.currentToolProject?.id, kind: 'subagent', payload })
+  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
+
   // 点击 subagent 摘要时，在 Workspace Inspector 中打开或激活该次运行的独立 Tab。
   useEffect(() => {
     const handler = (event: Event) => {
       const request = normalizeOpenSubagentRunRequest((event as CustomEvent).detail)
       if (!request?.payload) return
-      setArtifactPreviewOpen(false)
-      requestWorkspaceInspector({ projectId: agentManager.currentToolProject?.id, kind: 'subagent', payload: request.payload })
+      openSubagentRun(request.payload)
     }
     window.addEventListener(OPEN_SUBAGENT_RUN_EVENT, handler as EventListener)
     return () => window.removeEventListener(OPEN_SUBAGENT_RUN_EVENT, handler as EventListener)
-  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
+  }, [openSubagentRun])
 
   // 隧道恢复免刷新对账：监听 quickforge:tunnel-recovered，同步当前会话与后台任务的
   // 真实服务端状态；全部成功才允许免刷新恢复，任一 syncState 失败会 reject waitUntil，
@@ -1705,12 +1743,22 @@ function MainApp() {
           onOpenInIDEA={openProjectInIDEAWithFeedback}
         />
       ) : null}
-      {!workspaceInspectorOpen && agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository ? (
+      {!workspaceInspectorOpen && (
+        pinnedSummaryTodos.length > 0
+        || pinnedSummarySubagentRuns.length > 0
+        || titleGitStatus?.isGitRepository
+      ) ? (
         <GitToolsPinnedSummary
-          projectId={agentManager.currentToolProject.id}
+          projectId={agentManager.currentToolProject?.id}
           status={titleGitStatus}
+          todos={pinnedSummaryTodos}
+          finishedSubagentRuns={pinnedSummarySubagentRuns}
           expanded={gitToolsExpanded}
           onExpandedChange={setGitToolsExpanded}
+          onOpenSubagentRun={(payload) => {
+            setGitToolsExpanded(false)
+            openSubagentRun(payload)
+          }}
           onOpenChanges={() => {
             setGitToolsExpanded(false)
             openWorkspaceGitChanges()

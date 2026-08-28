@@ -515,6 +515,81 @@ export function currentSubagentToolSummariesWithMemory(
   return memory.recall(payload.runId)
 }
 
+type SubagentRunMessageLike = {
+  role?: string
+  content?: unknown
+  toolName?: string
+  toolCallId?: string
+  isError?: boolean
+  details?: unknown
+  timestamp?: unknown
+}
+
+/**
+ * 从当前消息分支提取最近结束的 run_subagent。仅扫描传入消息，不依赖全局运行 store。
+ * toolResult 时间戳优先用于排序；缺失时回退其在当前分支中的消息索引。
+ */
+export function extractLatestTerminalSubagentRuns(
+  messages: readonly SubagentRunMessageLike[],
+  pendingToolCalls: Iterable<string> | undefined,
+  toolDisplayMode: SubagentToolDisplayMode,
+  t: SubagentRunI18n,
+  limit = 3,
+): SubagentRunPayload[] {
+  const pending = new Set(pendingToolCalls ?? [])
+  const calls = new Map<string, Record<string, unknown>>()
+
+  for (const message of messages) {
+    if (message.role !== 'assistant' || !Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (!isRecord(block) || block.type !== 'toolCall' || block.name !== 'run_subagent') continue
+      const toolCallId = nonEmptyText(block.id)
+      const args = normalizeToolArguments(block.arguments)
+      if (toolCallId && args) calls.set(toolCallId, args)
+    }
+  }
+
+  const terminal: Array<{ payload: SubagentRunPayload; timestamp?: number; index: number }> = []
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]
+    if (message.role !== 'toolResult' || message.toolName !== 'run_subagent') continue
+    const toolCallId = nonEmptyText(message.toolCallId)
+    if (!toolCallId || pending.has(toolCallId)) continue
+    const args = calls.get(toolCallId)
+    if (!args) continue
+    const result: ToolResultLike = {
+      toolCallId,
+      isError: message.isError,
+      content: Array.isArray(message.content)
+        ? message.content.filter((block): block is { type: string; text?: string } => isRecord(block) && typeof block.type === 'string')
+        : undefined,
+      details: message.details,
+    }
+    const payload = buildSubagentRunPayload(args, result, false, toolDisplayMode, t, toolCallId)
+    if (payload.status !== 'done' && payload.status !== 'error') continue
+    terminal.push({ payload, timestamp: typeof message.timestamp === 'number' ? message.timestamp : undefined, index })
+  }
+
+  terminal.sort((left, right) => {
+    if (left.timestamp !== undefined && right.timestamp !== undefined) return right.timestamp - left.timestamp
+    if (left.timestamp !== undefined) return -1
+    if (right.timestamp !== undefined) return 1
+    return right.index - left.index
+  })
+
+  const result: SubagentRunPayload[] = []
+  const seen = new Set<string>()
+  const boundedLimit = Math.min(5, Math.max(1, Number.isFinite(limit) ? Math.floor(limit) : 3))
+  for (const item of terminal) {
+    const canonicalId = item.payload.canonicalToolCallId || item.payload.runId
+    if (!canonicalId || seen.has(canonicalId)) continue
+    seen.add(canonicalId)
+    result.push(item.payload)
+    if (result.length >= boundedLimit) break
+  }
+  return result
+}
+
 /**
  * 从 run_subagent 的 params/result.details 构建规范化载荷。
  * 聊天摘要与 Workspace Inspector 运行详情 Tab 共用此函数，保证状态和内容一致。

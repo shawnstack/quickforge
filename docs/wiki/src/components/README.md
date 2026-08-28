@@ -25,7 +25,7 @@ components/
 ├── git/
 │   ├── GitBranchMenu.tsx           # 标题栏 / Git 工具中的分支搜索、切换、创建分支和 Git 图谱入口
 │   ├── GitCommitPushDialog.tsx     # Git 提交 / 提交并推送 / 推送弹窗，支持 AI 生成提交信息
-│   ├── GitToolsPinnedSummary.tsx   # 顶部工具栏 Git 置顶摘要，支持收起胶囊和展开工具卡片
+│   ├── GitToolsPinnedSummary.tsx   # 顶部工具栏置顶摘要：Git、任务清单与最近结束的 Subagent
 │   └── GitGraphDialog.tsx          # Git 提交图谱大弹窗
 ├── agent-profiles/
 │   └── AgentProfilesPage.tsx        # Agent Profiles 独立管理页面
@@ -92,6 +92,7 @@ components/
 - `ChatPanelHost` 通过独立的 `approvalReadOnly` / `approvalReadOnlyMessage` 控制审批可操作性，不与消息发送 `readOnly` 混用。分享页即使具有 operate 权限也只读展示实时审批，并提示回到分享者原始对话处理；刷新无法恢复分享页既有 pending 审批是当前已知限制。
 - 消息回滚、分叉、复制功能
 - 顶部分支徽标的 git status 探测经 `workspace-api.ts` 的 `getGitStatus` 发起：请求带 20s 超时（TimeoutError 中止，防止大仓库慢查询钉死 HTTP/1.1 同源连接池），卸载或 `gitProjectId`/`revision` 变化时通过 AbortController 立即中止；被中止的请求静默处理，不写警告日志。App.tsx 标题栏刷新同样中止上一请求并在项目 scope 切换时立即取消。
+- 顶部工具栏的 `GitToolsPinnedSummary` 保留 36×36 `List` 触发器，并泛化为当前会话“置顶摘要”：存在 Todo、最近结束的 Subagent 或 Git 仓库任一内容时显示（因此非 Git 会话也能查看前两类内容），Workspace Inspector 打开期间仍按既有规则隐藏。展开浮层不再显示顶部总标题/描述，只保留 absolute 定位在右上角的 X；实际分组按 Git → Todo → 已结束 Subagent 顺序渲染，首个存在的分组无顶部间距或分割线，后续存在的分组使用紧凑浅色分割线，标题行预留右侧空间避免与 X 重叠。Todo 复用当前消息分支最新合法 TodoWrite 完整快照，默认展示 3 项并可在浮层内展开全部；已结束 Subagent 只扫描当前 agent 的消息与 `pendingToolCalls`，排除仍运行的父工具调用后按终态时间最近优先取 3 项，不遍历全局 `subagentRunStore`，避免跨会话/回滚污染；`最近优先` 保留在 Subagent 标题右侧。点击终态 Subagent 会先关闭浮层，再复用 App 的 Workspace Inspector 请求链路打开或激活对应详情 Tab；Git 分组仅在当前项目为 Git 仓库时显示更改、分支与提交/推送入口。移动端使用视口内 fixed 滚动浮层和成对约束的 fixed 分支菜单 top/max-height，桌面端保持 overflow visible，避免现有分支子菜单被裁剪。
 - TodoWrite 任务摘要由 `panel-decoration/todo-write-summary.ts` 的 controller 驱动：摘要是 Composer Dock 内、`message-editor` 前的正常流 sibling，不进入历史工具过程 DOM，也不覆盖消息或输入框；展开时自然占用 Dock 高度并压缩上方消息区。收起时收缩为居中的进度胶囊（环形进度 + 紧凑 `完成/总数` 计数 + 小箭头），展开时胶囊经 CSS 过渡（flex-grow 数值插值生长为整行、圆角/背景/标题与双统计交叉淡化、grid-rows 0fr→1fr 列表高度、列表项阶梯淡入、进度弧 dashoffset）还原为完整列表；动效全部由 `data-expanded`/`data-complete`/`data-running` 与 body 的 `hidden` 属性驱动（`transition-behavior: allow-discrete` 延迟 display:none 至收起动画结束），`prefers-reduced-motion` 下全部关闭。无有效 Todo 时不显示；首次取得含未完成项的有效快照时自动展开，用户手动展开/收起状态会在后续仍含未完成项的新快照中保留，并短暂显示“已更新”；任一新快照全完成时环交叉淡化为对勾并自动收起，但用户仍可手动重新打开；成功空数组清空或消息回滚到不存在有效快照时移除摘要并重置状态。长列表在摘要内部滚动，桌面约显示 4 项、移动端约显示 3 项。editor 或 Composer shell 被重建时 controller 会按当前快照自愈重挂；`readOnly` 页面没有 Composer Dock 时不显示。`ChatPanelHost` 在消息装饰刷新时调用 `update()`，卸载时调用 `cleanup()` 清计时器、观察器、点击监听和 DOM。
 - Composer Dock 的 sibling 顺序为：任务摘要 → 消息队列面板（存在时）→ command/file 临时建议菜单 → `message-editor` → stats；临时建议菜单始终紧邻输入框。任务摘要与消息队列面板互为合法相邻 sibling（锚点规则容忍彼此，`quickforge-msg-queue` 是任务摘要的可接受后继），避免每个装饰周期交换位置。任务摘要插入、展开或收起会改变 Composer 布局，因此 Slash invocation overlay 同时观察 textarea 与 `.quickforge-composer-shell` 的尺寸变化并重算几何；两路 observer 在重建与卸载时成对 cleanup。
 - 消息队列（排队/插队）由 `src/lib/message-queue.ts`（纯函数队列操作、localStorage 持久化、steer 客户端）+ `panel-decoration/message-queue.ts`（面板 controller）组成：流式期间 textarea capture-phase keydown 拦截 Enter，把输入加入本地队列并把占位符切为「继续输入以排队后续修改」（在 decorateEditor 之后覆盖默认占位符）。回合自然结束（`agent_end` 且非 aborted/error）且队列非空时延迟 250ms 取队头作为普通 prompt 自动发送直至清空；`aborted`/`error` 结束（含停止按钮与 Escape 中断）则暂停并显示恢复入口。队列项支持行内编辑、删除与「立即」插队——经 `ServerAgent.steer`（乐观显示：点击即在对话流中追加该 user 消息，服务端在当前工具轮结束后注入同一消息并按 role+timestamp 原位对账，HTTP 失败回滚乐观副本）注入进行中回合（能力位 `messageSteering` 仅 QuickForge 开启；OpenCode/Side Chat 关闭，steer 不可用或未流式时点击退化为置顶立即发送）。队列项支持拖拽排序：行首 ⠿ 手柄触发指针 mini-sortable（6px 阈值激活、原位半透明占位 + body 级克隆幽灵跟随、越过相邻行中线占位实时换位、列表边缘自动滚动），move/up 监听挂 window capture（手柄级监听会因指针捕获不生效而丢失抬起）；拖拽会话为每控制器持有，流式期间 decorate 周期触发的重渲染在拖拽进行中挂起（会话结束时统一从权威 items 重建，取消/中断的拖拽也因此复位行序），仅控制器卸载时取消会话，落点经 `moveQueuedMessage` 提交并照常持久化；不支持 React 版 @dnd-kit（控制器为原生 DOM）。行内编辑跨 decorate 重建保值/保焦点/保光标（仅当编辑项未变时）。状态持久化到 localStorage（`quickforge:message-queue:v1`），卸载即保存、挂载时按 sessionId 恢复；上限 20 条、单条 2000 字符；自动发送失败回退队头并暂停，steer 失败仅记 warn 并保留该项。
@@ -220,7 +221,7 @@ components/
 ### 标题栏 Git 组件 (`git/`)
 
 - `GitBranchMenu.tsx` 挂载在主对话标题栏的分支 chip 和 `GitToolsPinnedSummary` 展开卡片中，提供分支搜索、当前未提交变更摘要、分支切换、创建并检出新分支，以及 Git 图谱入口。
-- `GitToolsPinnedSummary.tsx` 显示在顶部窗口工具栏中，收起态为 Git 摘要图标，展开后提供更改统计、分支操作和提交/推送入口。小屏 H5 与 Android WebView 使用标题栏下方、限制视口高度的固定浮层，支持点击外部或 Escape 关闭；Inspector 已提供移动全屏覆盖布局（GitTools 更改入口维持现状），小屏仍隐藏“更改”入口，桌面端仍可跳转 Changes/审查面板。
+- `GitToolsPinnedSummary.tsx` 显示在顶部窗口工具栏中，收起态为摘要图标；展开后不显示顶部总标题/描述，只保留右上角 X，并按 Git → Todo → 已结束 Subagent 排列实际存在的分组。首组无顶部分割线，后续组使用紧凑浅色分割线；Git 组提供更改统计、分支操作和提交/推送入口。小屏 H5 与 Android WebView 使用标题栏下方、限制视口高度的固定浮层，支持点击外部或 Escape 关闭；Inspector 已提供移动全屏覆盖布局（GitTools 更改入口维持现状），小屏仍隐藏“更改”入口，桌面端仍可跳转 Changes/审查面板。
 - `GitCommitPushDialog.tsx` 提供提交、提交并推送、推送操作；默认只提交已暂存文件，可展开确认文件范围并显式选择是否包含全部未暂存更改；AI 仅生成可编辑的提交文案，不会自动继续提交。弹窗打开时刷新 Git 状态，detached HEAD 会阻止提交/推送；提交成功但推送失败时会保留成功状态并提供仅重试推送。
 - `GitGraphDialog.tsx` 使用 `/api/git/log` 渲染居中的 Git 提交图谱弹窗，包含图线、描述、日期、作者和提交短哈希列，并支持刷新和关闭。
 

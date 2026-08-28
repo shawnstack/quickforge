@@ -249,10 +249,9 @@ function combineAbortSignals(...signals) {
   return controller.signal
 }
 
-// 流级透明重试上限：idle 超时（上游挂死）时内部重建底层流，吞掉重复 start、
-// 有已产出内容时新流从零重放（消息被新 partial 原位替换）。上限对齐前端
-// SSE 重连的 10 次语义；每次尝试的 idle 预算天然构成重试间隔。
-export const MAX_STREAM_RETRIES = 10
+// 流级透明重试只用于首个实质事件前的 idle 超时；一旦产出任何非 start 事件，
+// 后续 idle 直接失败，避免重建流时重放或覆盖已展示内容。
+export const MAX_STREAM_RETRIES = 2
 
 function wrapStreamWithTimeouts(createStream, timeoutController, {
   idleTimeoutMs,
@@ -351,8 +350,7 @@ function wrapStreamWithTimeouts(createStream, timeoutController, {
     rejectTimeout(error)
   }
 
-  // 首个实质事件（text/thinking/toolcall）之前用宽松的首事件档（容忍 prefill），
-  // 产出过实质内容后切换到紧凑的中断档（快速检出断流）。
+  // 首个实质事件（任意非 start 事件）之前使用首事件档；产出后使用 idle 档。
   const currentIdleDelay = () => (hasSubstantiveEvent ? idleTimeoutMs : firstEventTimeoutMs)
 
   const resetIdleTimer = () => {
@@ -365,7 +363,7 @@ function wrapStreamWithTimeouts(createStream, timeoutController, {
 
   const onIdleDeadline = (delayMs) => {
     if (settled) return
-    if (streamRetries < maxStreamRetries && !parentSignal?.aborted) {
+    if (!hasSubstantiveEvent && streamRetries < maxStreamRetries && !parentSignal?.aborted) {
       swapStreamForRetry(delayMs)
       return
     }
@@ -380,7 +378,6 @@ function wrapStreamWithTimeouts(createStream, timeoutController, {
       purpose,
       timeoutMs: delayMs,
       retryAttempt: streamRetries,
-      hadContent: hasSubstantiveEvent,
     })
     // 旧 pump 靠 generation 守卫静默退出；挂起的 iterator.return() 唤醒它后不再
     // 触发 closeIteration，外部 next() 的等待者跨重试存活，由新流继续喂。
@@ -391,8 +388,6 @@ function wrapStreamWithTimeouts(createStream, timeoutController, {
     currentStream = createStream()
     iterator = currentStream[Symbol.asyncIterator]()
     lastEventAt = Date.now()
-    // 新流从零重放：重置实质内容标记（重试后的首事件等待回到首事件档）。
-    hasSubstantiveEvent = false
     try {
       onStreamRetry?.({ attempt: streamRetries, maxAttempts: maxStreamRetries, timeoutMs: delayMs })
     } catch { /* 上报失败不影响重试本身 */ }
@@ -572,10 +567,10 @@ export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
     : legacyDeadlineMs ?? DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS
   const explicitIdleConfigured = Number.isFinite(providerOptions.idleTimeoutMs) || legacyDeadlineMs !== undefined
   // 显式配置 idle/deadline 时它就是唯一的静默预算（两档同值，保持既有调用方语义）；
-  // 默认路径下首事件档更宽松以容忍大上下文 prefill。
+  // 默认路径使用独立的首事件预算。
   const firstEventTimeoutMs = Number.isFinite(providerOptions.firstEventTimeoutMs)
     ? Math.max(1, providerOptions.firstEventTimeoutMs)
-    : explicitIdleConfigured ? idleTimeoutMs : Math.max(idleTimeoutMs, DEFAULT_AI_STREAM_FIRST_EVENT_TIMEOUT_MS)
+    : explicitIdleConfigured ? idleTimeoutMs : DEFAULT_AI_STREAM_FIRST_EVENT_TIMEOUT_MS
   const totalTimeoutMs = Number.isFinite(providerOptions.totalTimeoutMs)
     ? Math.max(1, providerOptions.totalTimeoutMs)
     : DEFAULT_AI_STREAM_TOTAL_TIMEOUT_MS

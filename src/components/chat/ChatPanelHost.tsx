@@ -46,6 +46,7 @@ import {
   createReconnectNoticeController,
   createUnreachableStripController,
   createModelRetryNoticeController,
+  removeSubagentRunningIndicator,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
 import { t } from '@/lib/i18n'
@@ -1050,6 +1051,8 @@ export function ChatPanelHost({
           capabilitySuggestionsEnabled: props.capabilities.capabilitySuggestions,
           attachmentsEnabled: props.capabilities.attachments,
           fileReferenceSuggestionsEnabled: !sideChatMode,
+          subagentRunningIndicatorEnabled: !sideChatMode && !props.readOnly,
+          getPendingToolCalls: () => agent.state.pendingToolCalls,
           disabledControls: sideChatMode,
           onAccessModeChange: props.onAccessModeChange,
           onTogglePlanMode: props.onTogglePlanMode,
@@ -1530,6 +1533,7 @@ export function ChatPanelHost({
       }
       if (eventType === 'tool_execution_start' || eventType === 'tool_execution_update' || eventType === 'tool_execution_end') {
         scheduleToolInterfaceUpdate()
+        scheduleDecorateRef.current?.()
       }
       if (eventType === 'acp_session_update' || eventType === 'acp_session_usage_update') {
         // OpenCode runtime config/mode/usage changed — refresh composer controls
@@ -1666,6 +1670,7 @@ export function ChatPanelHost({
       reconnectNotice?.destroy()
       unreachableStrip?.destroy()
       modelRetryNotice?.destroy()
+      removeSubagentRunningIndicator(panel)
       cancelMessageQueuePersist()
       if (messageQueueActive()) saveStoredMessageQueueState(sessionId, messageQueue.getState())
       messageQueue.cleanup()

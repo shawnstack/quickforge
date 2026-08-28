@@ -1,0 +1,1129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Subagent 运行指示器 · 设计稿</title>
+<style>
+  :root {
+    color-scheme: light;
+    --background: #ffffff;
+    --foreground: #18181b;
+    --card: #fafafa;
+    --popover: #ffffff;
+    --muted: #f4f4f5;
+    --muted-foreground: #71717a;
+    --border: #e4e4e7;
+    --primary: #18181b;
+    --primary-foreground: #fafafa;
+    --emerald: rgb(5 150 105);
+    --emerald-soft: rgb(5 150 105 / 0.10);
+    --warning: #d97706;
+    --shadow: rgb(15 23 42 / 0.16);
+    --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  }
+
+  body.dark {
+    color-scheme: dark;
+    --background: #101012;
+    --foreground: #f4f4f5;
+    --card: #17171a;
+    --popover: #19191c;
+    --muted: #202024;
+    --muted-foreground: #a1a1aa;
+    --border: #303036;
+    --primary: #fafafa;
+    --primary-foreground: #18181b;
+    --emerald: rgb(52 211 153);
+    --emerald-soft: rgb(52 211 153 / 0.11);
+    --warning: #fbbf24;
+    --shadow: rgb(0 0 0 / 0.46);
+  }
+
+  * { box-sizing: border-box; }
+
+  html { min-width: 320px; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button { font: inherit; }
+
+  .page {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    padding: 26px 20px 52px;
+  }
+
+  .toolbar {
+    width: min(1040px, 100%);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted-foreground);
+    font-size: 12.5px;
+  }
+
+  .toolbar h1 {
+    margin: 0;
+    color: var(--foreground);
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .toolbar .sep {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+  }
+
+  .seg {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .seg button {
+    min-height: 29px;
+    padding: 5px 10px;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button:hover { background: var(--muted); color: var(--foreground); }
+  .seg button.active { background: var(--muted); color: var(--foreground); }
+
+  .stage-shell {
+    width: min(1040px, 100%);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 240px;
+    gap: 16px;
+    align-items: start;
+  }
+
+  .chat-panel {
+    width: 100%;
+    height: 680px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--background);
+    transition: width 180ms ease;
+  }
+
+  .stage-shell.narrow {
+    grid-template-columns: minmax(0, 460px) 240px;
+    justify-content: center;
+  }
+
+  .chat-header {
+    flex: none;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 15px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in oklab, var(--background) 96%, var(--muted));
+  }
+
+  .chat-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .chat-title-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--emerald);
+    box-shadow: 0 0 0 3px var(--emerald-soft);
+  }
+
+  .header-meta {
+    color: var(--muted-foreground);
+    font-size: 11.5px;
+  }
+
+  .messages {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 24px 24px 154px;
+  }
+
+  .message-stack {
+    width: min(650px, 100%);
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .msg-user {
+    align-self: flex-end;
+    max-width: 82%;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--muted);
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+
+  .msg-assistant {
+    align-self: stretch;
+    font-size: 13.5px;
+    line-height: 1.7;
+  }
+
+  .tool-summary {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--background) 60%, var(--card));
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+
+  .tool-summary strong {
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+
+  .composer-dock {
+    position: absolute;
+    z-index: 4;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    padding: 82px 15px 15px;
+    background: linear-gradient(to top, var(--background) 70%, transparent);
+    pointer-events: none;
+  }
+
+  .composer {
+    width: min(690px, 100%);
+    min-height: 108px;
+    margin: 0 auto;
+    position: relative;
+    padding: 13px 13px 10px;
+    border: 1px solid var(--border);
+    border-radius: 17px;
+    background: color-mix(in oklab, var(--popover) 97%, var(--background));
+    box-shadow: 0 22px 65px -38px var(--shadow);
+    pointer-events: auto;
+  }
+
+  .composer-input {
+    min-height: 42px;
+    padding: 1px 3px;
+    color: var(--muted-foreground);
+    font-size: 13.5px;
+  }
+
+  .composer-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .left-controls,
+  .right-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .control-button {
+    height: 2rem;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--muted) 42%, transparent);
+    color: var(--muted-foreground);
+    font-size: 12px;
+    font-weight: 550;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color 140ms ease, background 140ms ease, color 140ms ease, opacity 150ms ease, transform 150ms ease;
+  }
+
+  .control-button:hover,
+  .control-button:focus-visible,
+  .control-button[aria-expanded="true"] {
+    border-color: color-mix(in oklab, var(--border) 72%, var(--foreground));
+    background: color-mix(in oklab, var(--muted) 78%, transparent);
+    color: var(--foreground);
+    outline: none;
+  }
+
+  .control-button.icon-only {
+    width: 2rem;
+    padding: 0;
+  }
+
+  .control-button svg { width: 14px; height: 14px; flex: none; }
+
+  .access-warning { color: var(--warning); }
+
+  .subagent-trigger {
+    max-width: 230px;
+    color: color-mix(in oklab, var(--muted-foreground) 90%, transparent);
+    transform-origin: left center;
+  }
+
+  .subagent-trigger.is-hidden {
+    width: 0;
+    min-width: 0;
+    padding: 0;
+    margin-right: -8px;
+    overflow: hidden;
+    border-width: 0;
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.92);
+  }
+
+  .running-spinner {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 1.6px solid color-mix(in oklab, var(--emerald) 24%, transparent);
+    border-top-color: var(--emerald);
+    border-radius: 999px;
+    animation: spin 850ms linear infinite;
+  }
+
+  .running-count {
+    color: var(--foreground);
+    font-variant-numeric: tabular-nums;
+    font-weight: 650;
+  }
+
+  .running-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .send-button {
+    width: 2rem;
+    height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    cursor: pointer;
+  }
+
+  .send-button svg { width: 15px; height: 15px; }
+
+  .stage-shell.narrow .access-label,
+  .stage-shell.narrow .access-chevron,
+  .stage-shell.narrow .plan-label,
+  .stage-shell.narrow .running-label {
+    display: none;
+  }
+
+  .stage-shell.narrow .access-button,
+  .stage-shell.narrow .plan-button,
+  .stage-shell.narrow .subagent-trigger {
+    width: 2rem;
+    padding-inline: 0;
+    gap: 3px;
+  }
+
+  .stage-shell.narrow .subagent-trigger {
+    width: auto;
+    min-width: 2rem;
+    padding-inline: 0.45rem;
+  }
+
+  .subagent-popover {
+    width: min(410px, calc(100vw - 44px));
+    position: absolute;
+    z-index: 12;
+    left: 52px;
+    bottom: 49px;
+    overflow: hidden;
+    padding: 0.35rem;
+    border: 1px solid var(--border);
+    border-radius: 0.85rem;
+    background: var(--popover);
+    color: var(--foreground);
+    box-shadow: 0 18px 46px -26px var(--shadow), 0 0 0 1px color-mix(in oklab, var(--background) 72%, transparent) inset;
+    transform-origin: bottom left;
+    transition: opacity 140ms ease, transform 140ms ease, visibility 140ms ease;
+  }
+
+  .subagent-popover[hidden] {
+    display: block;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(5px) scale(0.985);
+  }
+
+  .popover-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 9px 7px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .popover-title {
+    font-size: 12.5px;
+    font-weight: 650;
+  }
+
+  .popover-total {
+    color: var(--muted-foreground);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .run-list {
+    display: flex;
+    flex-direction: column;
+    padding-top: 4px;
+  }
+
+  .run-item {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 15px minmax(0, 1fr) 18px;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 9px;
+    border: 0;
+    border-radius: 0.58rem;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 130ms ease;
+  }
+
+  .run-item:hover,
+  .run-item:focus-visible {
+    background: var(--muted);
+    outline: none;
+  }
+
+  .run-status {
+    width: 12px;
+    height: 12px;
+    display: grid;
+    place-items: center;
+  }
+
+  .run-status .running-spinner { width: 11px; height: 11px; border-width: 1.4px; }
+
+  .run-content { min-width: 0; }
+
+  .run-topline {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+  }
+
+  .agent-name {
+    flex: none;
+    padding: 2px 5px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: color-mix(in oklab, var(--background) 60%, var(--card));
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 650;
+  }
+
+  .run-task {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    color: var(--foreground);
+    font-size: 12px;
+    font-weight: 550;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .elapsed {
+    flex: none;
+    color: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .run-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 5px;
+    min-width: 0;
+    color: var(--muted-foreground);
+    font-size: 10.5px;
+  }
+
+  .meta-prefix { flex: none; }
+
+  .marquee {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    mask-image: linear-gradient(to right, transparent, black 8px, black calc(100% - 8px), transparent);
+  }
+
+  .marquee-track {
+    width: max-content;
+    display: block;
+    padding-left: 5px;
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    animation: marquee 7s linear infinite alternate;
+  }
+
+  .open-icon {
+    width: 14px;
+    height: 14px;
+    color: var(--muted-foreground);
+  }
+
+  .inspector {
+    position: absolute;
+    z-index: 10;
+    top: 48px;
+    right: 0;
+    bottom: 0;
+    width: min(380px, 78%);
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--border);
+    background: var(--popover);
+    box-shadow: -18px 0 44px -34px var(--shadow);
+    transform: translateX(102%);
+    transition: transform 200ms ease;
+  }
+
+  .inspector.open { transform: translateX(0); }
+
+  .inspector-head {
+    height: 48px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 13px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .inspector-title {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 12.5px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .close-button {
+    width: 27px;
+    height: 27px;
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  .close-button:hover { background: var(--muted); color: var(--foreground); }
+
+  .inspector-body {
+    padding: 16px;
+    overflow: auto;
+  }
+
+  .detail-kicker {
+    margin-bottom: 7px;
+    color: var(--emerald);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .detail-task {
+    margin: 0 0 16px;
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .detail-card {
+    margin-top: 10px;
+    padding: 11px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--background) 60%, var(--card));
+  }
+
+  .detail-label {
+    margin-bottom: 5px;
+    color: var(--muted-foreground);
+    font-size: 10.5px;
+  }
+
+  .detail-value {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.55;
+  }
+
+  .toast {
+    position: absolute;
+    z-index: 20;
+    right: 14px;
+    bottom: 14px;
+    max-width: calc(100% - 28px);
+    padding: 8px 11px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--popover);
+    color: var(--foreground);
+    box-shadow: 0 14px 36px -23px var(--shadow);
+    font-size: 11.5px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(5px);
+    transition: opacity 150ms ease, transform 150ms ease;
+  }
+
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  .notes {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .note-card {
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: color-mix(in oklab, var(--background) 60%, var(--card));
+  }
+
+  .note-card h2 {
+    margin: 0 0 7px;
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  .note-card p,
+  .note-card li {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 11.5px;
+    line-height: 1.55;
+  }
+
+  .note-card ul { margin: 0; padding-left: 17px; }
+  .note-card code { font-family: var(--font-mono); font-size: 10.5px; color: var(--foreground); }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-28px); } }
+
+  @media (max-width: 800px) {
+    .stage-shell,
+    .stage-shell.narrow { grid-template-columns: minmax(0, 1fr); }
+    .notes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 560px) {
+    .page { padding: 16px 10px 36px; }
+    .toolbar .sep { display: none; }
+    .chat-panel { height: 650px; }
+    .messages { padding-inline: 15px; }
+    .notes { grid-template-columns: 1fr; }
+    .plan-button { display: none; }
+    .subagent-popover { left: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="toolbar" aria-label="设计稿控制栏">
+    <h1 data-i18n="title">Subagent 运行指示器</h1>
+    <span class="sep" aria-hidden="true"></span>
+
+    <div class="seg" data-control="theme" aria-label="主题">
+      <button type="button" class="active" data-value="light">Light</button>
+      <button type="button" data-value="dark">Dark</button>
+    </div>
+
+    <div class="seg" data-control="language" aria-label="语言">
+      <button type="button" class="active" data-value="zh">中文</button>
+      <button type="button" data-value="en">EN</button>
+    </div>
+
+    <div class="seg" data-control="count" aria-label="运行数量">
+      <button type="button" data-value="0">0</button>
+      <button type="button" data-value="1">1</button>
+      <button type="button" class="active" data-value="2">2</button>
+      <button type="button" data-value="3">3</button>
+    </div>
+
+    <div class="seg" data-control="width" aria-label="面板宽度">
+      <button type="button" class="active" data-value="wide" data-i18n="wide">宽</button>
+      <button type="button" data-value="narrow" data-i18n="narrow">窄</button>
+    </div>
+  </div>
+
+  <main class="stage-shell" id="stageShell">
+    <section class="chat-panel" aria-label="聊天对话框设计演示">
+      <header class="chat-header">
+        <div class="chat-title">
+          <span class="chat-title-dot" aria-hidden="true"></span>
+          <span data-i18n="chatTitle">QuickForge 对话</span>
+        </div>
+        <span class="header-meta" data-i18n="headerMeta">工作区已连接</span>
+      </header>
+
+      <div class="messages">
+        <div class="message-stack">
+          <div class="msg-user" data-i18n="userMessage">请调研聊天渲染链路，并设计 subagent 运行入口。</div>
+          <div class="msg-assistant" data-i18n="assistantMessage">正在并行委托多个智能体进行源码调研与实现评估。</div>
+          <div class="tool-summary">
+            <span class="running-spinner" aria-hidden="true"></span>
+            <strong>run_subagent</strong>
+            <span data-i18n="toolSummary">explore · 调研聊天渲染入口与状态链路</span>
+          </div>
+          <div class="msg-assistant" data-i18n="assistantHint">运行入口集中显示在输入框左下角。点击指示器后先选择具体运行，再打开 Inspector 详情 Tab。</div>
+        </div>
+      </div>
+
+      <div class="composer-dock">
+        <div class="composer">
+          <div class="composer-input" data-i18n="placeholder">输入消息…</div>
+
+          <div class="composer-footer">
+            <div class="left-controls" id="leftControls">
+              <button class="control-button icon-only" type="button" aria-label="添加附件">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+
+              <button class="control-button access-button" type="button" aria-label="完全访问权限">
+                <svg class="access-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2.7 19.2a1.2 1.2 0 0 0 1 1.8h16.6a1.2 1.2 0 0 0 1-1.8L12 3Z"/><path d="M12 9v4.5M12 17h.01"/></svg>
+                <span class="access-label" data-i18n="fullAccess">完全访问权限</span>
+                <svg class="access-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+              </button>
+
+              <button class="control-button subagent-trigger" id="subagentTrigger" type="button" aria-haspopup="menu" aria-expanded="false">
+                <span class="running-spinner" aria-hidden="true"></span>
+                <span class="running-count" id="runningCount">2</span>
+                <span class="running-label" id="runningLabel">个子智能体运行中</span>
+              </button>
+
+              <button class="control-button plan-button" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/></svg>
+                <span class="plan-label" data-i18n="plan">计划</span>
+              </button>
+            </div>
+
+            <div class="right-controls">
+              <button class="send-button" type="button" aria-label="发送">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m0 0-5 5m5-5 5 5"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="subagent-popover" id="subagentPopover" role="menu" hidden>
+            <div class="popover-header">
+              <span class="popover-title" data-i18n="popoverTitle">正在运行的子智能体</span>
+              <span class="popover-total" id="popoverTotal">2 个运行中</span>
+            </div>
+            <div class="run-list" id="runList"></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="inspector" id="inspector" aria-label="Subagent Inspector 详情">
+        <div class="inspector-head">
+          <div class="inspector-title" id="inspectorTitle">Subagent 运行详情</div>
+          <button class="close-button" id="closeInspector" type="button" aria-label="关闭 Inspector">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="inspector-body">
+          <div class="detail-kicker" id="detailAgent">explore · running</div>
+          <h2 class="detail-task" id="detailTask">调研聊天渲染入口与状态链路</h2>
+          <div class="detail-card">
+            <div class="detail-label" data-i18n="currentTool">当前工具</div>
+            <div class="detail-value" id="detailTool">grep_files · src/components/chat</div>
+          </div>
+          <div class="detail-card">
+            <div class="detail-label" data-i18n="jumpBehavior">实际交互</div>
+            <div class="detail-value">quickforge:open-subagent-run → Workspace Inspector Tab</div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="toast" id="toast" role="status" aria-live="polite">已打开 Inspector 详情 Tab</div>
+    </section>
+
+    <aside class="notes">
+      <div class="note-card">
+        <h2 data-i18n="designTitle">设计要点</h2>
+        <ul>
+          <li data-i18n="design1">胶囊与“完全访问权限”保持同高、同圆角、同视觉重量。</li>
+          <li data-i18n="design2">保留“运行中”文字，避免只用动画图标表达状态。</li>
+          <li data-i18n="design3">0 个运行时隐藏；窄宽度时收缩为 spinner + 数字。</li>
+        </ul>
+      </div>
+
+      <div class="note-card">
+        <h2 data-i18n="implementationTitle">实现提示</h2>
+        <p data-i18n="implementationText">现有 plan 按钮会被强制插入 access 按钮之后。若需按本稿顺序紧贴显示，应调整 <code>panel-decoration/agent-access-menu.ts</code> 的排序逻辑。</p>
+      </div>
+
+      <div class="note-card">
+        <h2 data-i18n="jumpTitle">跳转路径</h2>
+        <p><code>quickforge:open-subagent-run</code><br>→ App<br>→ WorkspaceInspector<br>→ Subagent 详情 Tab</p>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script>
+(() => {
+  const state = {
+    language: 'zh',
+    count: 2,
+    elapsedOffset: 0,
+  };
+
+  const copy = {
+    zh: {
+      title: 'Subagent 运行指示器',
+      wide: '宽',
+      narrow: '窄',
+      chatTitle: 'QuickForge 对话',
+      headerMeta: '工作区已连接',
+      userMessage: '请调研聊天渲染链路，并设计 subagent 运行入口。',
+      assistantMessage: '正在并行委托多个智能体进行源码调研与实现评估。',
+      toolSummary: 'explore · 调研聊天渲染入口与状态链路',
+      assistantHint: '运行入口集中显示在输入框左下角。点击指示器后先选择具体运行，再打开 Inspector 详情 Tab。',
+      placeholder: '输入消息…',
+      fullAccess: '完全访问权限',
+      plan: '计划',
+      popoverTitle: '正在运行的子智能体',
+      currentTool: '当前工具',
+      jumpBehavior: '实际交互',
+      designTitle: '设计要点',
+      design1: '胶囊与“完全访问权限”保持同高、同圆角、同视觉重量。',
+      design2: '保留“运行中”文字，避免只用动画图标表达状态。',
+      design3: '0 个运行时隐藏；窄宽度时收缩为 spinner + 数字。',
+      implementationTitle: '实现提示',
+      implementationText: '现有 plan 按钮会被强制插入 access 按钮之后。若需按本稿顺序紧贴显示，应调整 panel-decoration/agent-access-menu.ts 的排序逻辑。',
+      jumpTitle: '跳转路径',
+      runningSuffix: '个子智能体运行中',
+      popoverSuffix: '个运行中',
+      openToast: '已打开 Inspector 详情 Tab',
+      detailTitle: 'Subagent 运行详情',
+      running: '运行中',
+      toolPrefix: '当前：',
+    },
+    en: {
+      title: 'Subagent running indicator',
+      wide: 'Wide',
+      narrow: 'Narrow',
+      chatTitle: 'QuickForge chat',
+      headerMeta: 'Workspace connected',
+      userMessage: 'Inspect the chat rendering flow and design a subagent running entry.',
+      assistantMessage: 'Delegating repository research and implementation assessment in parallel.',
+      toolSummary: 'explore · inspect chat rendering and state flow',
+      assistantHint: 'The entry stays beside Full access. Select a run, then open its Inspector detail tab.',
+      placeholder: 'Message QuickForge…',
+      fullAccess: 'Full access',
+      plan: 'Plan',
+      popoverTitle: 'Running subagents',
+      currentTool: 'Current tool',
+      jumpBehavior: 'Production behavior',
+      designTitle: 'Design notes',
+      design1: 'Match the height, radius, and visual weight of the Full access pill.',
+      design2: 'Keep a visible running label instead of relying on animation alone.',
+      design3: 'Hide at zero; collapse to spinner + count in narrow mode.',
+      implementationTitle: 'Implementation note',
+      implementationText: 'The existing plan control is forcibly inserted after access. Adjust panel-decoration/agent-access-menu.ts ordering to match this mockup.',
+      jumpTitle: 'Jump path',
+      runningSuffix: 'subagents running',
+      popoverSuffix: 'running',
+      openToast: 'Inspector detail tab opened',
+      detailTitle: 'Subagent run detail',
+      running: 'running',
+      toolPrefix: 'Current: ',
+    },
+  };
+
+  const runs = [
+    {
+      agent: 'explore',
+      taskZh: '调研聊天渲染入口与状态链路',
+      taskEn: 'Inspect chat rendering and state flow',
+      tool: 'grep_files · src/components/chat/ChatPanelHost.tsx',
+      elapsed: 73,
+    },
+    {
+      agent: 'general',
+      taskZh: '实现窗口化消息锚定与跳转评估',
+      taskEn: 'Evaluate windowed message anchoring and navigation',
+      tool: 'read_file · src/components/chat/windowed-messages.ts',
+      elapsed: 41,
+    },
+    {
+      agent: 'explore',
+      taskZh: '查找相关测试、Wiki 与影响范围',
+      taskEn: 'Locate related tests, wiki pages, and impact surface',
+      tool: 'grep_files · tests/frontend docs/wiki',
+      elapsed: 18,
+    },
+  ];
+
+  const shell = document.getElementById('stageShell');
+  const trigger = document.getElementById('subagentTrigger');
+  const popover = document.getElementById('subagentPopover');
+  const runList = document.getElementById('runList');
+  const runningCount = document.getElementById('runningCount');
+  const runningLabel = document.getElementById('runningLabel');
+  const popoverTotal = document.getElementById('popoverTotal');
+  const inspector = document.getElementById('inspector');
+  const inspectorTitle = document.getElementById('inspectorTitle');
+  const detailAgent = document.getElementById('detailAgent');
+  const detailTask = document.getElementById('detailTask');
+  const detailTool = document.getElementById('detailTool');
+  const closeInspector = document.getElementById('closeInspector');
+  const toast = document.getElementById('toast');
+  let toastTimer = 0;
+
+  function iconArrow() {
+    return '<svg class="open-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg>';
+  }
+
+  function taskFor(run) {
+    return state.language === 'zh' ? run.taskZh : run.taskEn;
+  }
+
+  function formatElapsed(value) {
+    const seconds = value + state.elapsedOffset;
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    return minutes > 0 ? `${minutes}:${String(rest).padStart(2, '0')}` : `${rest}s`;
+  }
+
+  function renderRuns() {
+    const lang = copy[state.language];
+    const activeRuns = runs.slice(0, state.count);
+    runList.innerHTML = activeRuns.map((run, index) => `
+      <button class="run-item" type="button" role="menuitem" data-run-index="${index}">
+        <span class="run-status"><span class="running-spinner" aria-hidden="true"></span></span>
+        <span class="run-content">
+          <span class="run-topline">
+            <span class="agent-name">${run.agent}</span>
+            <span class="run-task">${taskFor(run)}</span>
+            <span class="elapsed" data-elapsed="${index}">${formatElapsed(run.elapsed)}</span>
+          </span>
+          <span class="run-meta">
+            <span class="meta-prefix">${lang.toolPrefix}</span>
+            <span class="marquee"><span class="marquee-track">${run.tool}</span></span>
+          </span>
+        </span>
+        ${iconArrow()}
+      </button>
+    `).join('');
+
+    runList.querySelectorAll('.run-item').forEach((button) => {
+      button.addEventListener('click', () => openRun(Number(button.dataset.runIndex)));
+    });
+  }
+
+  function updateCount() {
+    const lang = copy[state.language];
+    runningCount.textContent = String(state.count);
+    runningLabel.textContent = lang.runningSuffix;
+    popoverTotal.textContent = `${state.count} ${lang.popoverSuffix}`;
+    trigger.classList.toggle('is-hidden', state.count === 0);
+
+    if (state.count === 0) closePopover();
+    renderRuns();
+  }
+
+  function openPopover() {
+    if (state.count === 0) return;
+    popover.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+  }
+
+  function closePopover() {
+    popover.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+  }
+
+  function openRun(index) {
+    const run = runs[index];
+    const lang = copy[state.language];
+    if (!run) return;
+
+    inspectorTitle.textContent = `${run.agent} · ${lang.detailTitle}`;
+    detailAgent.textContent = `${run.agent} · ${lang.running}`;
+    detailTask.textContent = taskFor(run);
+    detailTool.textContent = run.tool;
+    inspector.classList.add('open');
+    closePopover();
+
+    toast.textContent = lang.openToast;
+    toast.classList.add('show');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => toast.classList.remove('show'), 1800);
+  }
+
+  function applyLanguage() {
+    const lang = copy[state.language];
+    document.documentElement.lang = state.language === 'zh' ? 'zh-CN' : 'en';
+    document.querySelectorAll('[data-i18n]').forEach((node) => {
+      const key = node.dataset.i18n;
+      if (key === 'implementationText') {
+        const source = lang[key];
+        const file = 'panel-decoration/agent-access-menu.ts';
+        node.innerHTML = source.replace(file, `<code>${file}</code>`);
+        return;
+      }
+      if (lang[key]) node.textContent = lang[key];
+    });
+    updateCount();
+  }
+
+  function setActive(control, value) {
+    document.querySelectorAll(`[data-control="${control}"] button`).forEach((button) => {
+      button.classList.toggle('active', button.dataset.value === value);
+    });
+  }
+
+  document.querySelector('[data-control="theme"]').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button) return;
+    document.body.classList.toggle('dark', button.dataset.value === 'dark');
+    setActive('theme', button.dataset.value);
+  });
+
+  document.querySelector('[data-control="language"]').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button) return;
+    state.language = button.dataset.value;
+    setActive('language', state.language);
+    applyLanguage();
+  });
+
+  document.querySelector('[data-control="count"]').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button) return;
+    state.count = Number(button.dataset.value);
+    setActive('count', button.dataset.value);
+    updateCount();
+  });
+
+  document.querySelector('[data-control="width"]').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button) return;
+    shell.classList.toggle('narrow', button.dataset.value === 'narrow');
+    setActive('width', button.dataset.value);
+  });
+
+  trigger.addEventListener('click', () => {
+    if (popover.hidden) openPopover();
+    else closePopover();
+  });
+
+  closeInspector.addEventListener('click', () => inspector.classList.remove('open'));
+
+  document.addEventListener('click', (event) => {
+    if (!popover.contains(event.target) && !trigger.contains(event.target)) closePopover();
+  });
+
+  window.setInterval(() => {
+    state.elapsedOffset += 1;
+    document.querySelectorAll('[data-elapsed]').forEach((node) => {
+      const run = runs[Number(node.dataset.elapsed)];
+      if (run) node.textContent = formatElapsed(run.elapsed);
+    });
+  }, 1000);
+
+  applyLanguage();
+})();
+</script>
+</body>
+</html>

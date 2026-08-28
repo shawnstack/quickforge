@@ -1,5 +1,37 @@
 # Session Handoff
 
+## 当前状态：subagent-running-indicator（已完成）
+
+- 目标：将已确认的 HTML 设计实现到主聊天 Composer：在「完全访问权限」旁显示当前会话运行中的 Subagent 数量，点击具体运行打开 Workspace Inspector 详情 Tab。
+- 实现：新增 `panel-decoration/subagent-running-indicator.ts`；以当前 `agent.state.pendingToolCalls` + `subagentRunStore.get(toolCallId)` 筛选 running，避免全局 store 跨会话污染。胶囊位于 access 后、plan 前；重复装饰复用 spinner/count/label DOM，避免旋转动画被重启造成闪烁；0 项移除，compact/mobile 收成 spinner+数字。body-level 菜单展示名称/任务/递增耗时，支持菜单互斥、外部点击/Escape、resize/scroll、DOM 重挂和 timer/listener cleanup；点击使用最新 payload 派发现有 `quickforge:open-subagent-run`。Side Chat/readOnly/disabled 不显示。
+- 验证：Vitest 5 files / 111 tests；ESLint 0 error；`npx tsc -b --pretty false`；`npm run build`；`git diff --check` 全过。build 仅既有 KaTeX/chunk warnings，未跑全量 test/lint。
+- 文件：`src/components/chat/panel-decoration/subagent-running-indicator.ts`、`src/components/chat/panel-decoration.ts`、`src/components/chat/ChatPanelHost.tsx`、`src/index.css`、`src/lib/i18n.ts`、`tests/frontend/subagent-running-indicator.test.ts`、`docs/wiki/src/components/README.md`、三个状态文件。
+- Blocker：无。边界：store 缺失当前 pending id 的实时快照时不显示；菜单保持名称/任务/耗时的轻量信息，工具详情由 Inspector 承担；未 commit。
+- 下一步：真机并行启动多个 subagent，验证数量递增/递减、Inspector 跳转、0 时消失和窄宽度紧凑态。
+
+---
+
+## 当前状态：model-stream-safe-retry-policy（已完成）
+
+- 目标：修复用户真机反馈的模型回复“中途重复运行”。根因是已有实质内容后发生 idle timeout 时仍从零重建模型流，造成生成/工具调用重复执行、内容重写和重复计费；用户决策改为仅首个实质事件前透明重试。
+- 实现：`server/ai-provider-options.mjs` 默认首事件 90s、已有内容 idle 180s、total 20min；`server/ai-http-logger.mjs` `MAX_STREAM_RETRIES=2`，且仅 `!hasSubstantiveEvent` 时重试，已有内容后超时直接失败；三份测试与 wiki server/src/components 同步。
+- 验证：定向 7 files / 60 tests 全过；定向 ESLint 0 error；两模块 `node --check`；`npx tsc -b`；`npm run build` 均通过（仅既有 KaTeX/chunk warnings）；`git diff --check` 通过。未跑全量 npm test/lint。
+- 文件：server/ai-provider-options.mjs、server/ai-http-logger.mjs、tests/server/ai-provider-options.test.mjs、tests/server/ai-http-logger.test.mjs、tests/frontend/model-retry-notice.test.ts、docs/wiki/server/README.md、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。边界：首事件前请求可能已被上游处理但尚未返回，重试仍可能重复计费；首事件后停滞直接报 idle timeout；total timeout 不重试；未 commit。
+- 下一步：真机观察弱网/大上下文/长工具回合，确认不再中途重复运行，并评估 90s/180s 两档预算。
+
+---
+
+## 当前状态：subagent-running-indicator-design（设计稿已完成）
+
+- 目标：在聊天 Composer 左下角「完全访问权限」旁显示正在运行的 Subagent 数量；点击胶囊展开运行列表，点击具体运行跳转 Workspace Inspector 详情 Tab。
+- 产出：新增 `design-mockups/subagent-running-indicator.html` 自包含 HTML。包含 light/dark、中英、0/1/2/3 运行数、宽/窄模式；胶囊与现有 access 控件视觉对齐；列表展示 agent/任务/当前工具/耗时；点击项模拟 Inspector 面板滑入。
+- 验证：Node 必要结构/无外链/内嵌脚本语法检查通过；`git diff --check` 通过；Playwright 验证弹层、Inspector、0 数量隐藏、Dark、窄模式均正常。
+- Blocker：无。边界：本轮只做设计稿，未改功能源码；docs/wiki 无需更新；未 commit。实现时若要求指示器紧贴 access（位于 plan 前），需调整 `src/components/chat/panel-decoration/agent-access-menu.ts` 的现有 plan 排序逻辑。
+- 下一步：用户复核设计稿；确认后另行实现运行中集合/当前会话过滤、Composer 控件挂载、`quickforge:open-subagent-run` 跳转与测试。
+
+---
+
 ## 当前状态：sse-unreachable-tiered-notice（已完成）
 
 - 目标：用户实测不可达提示后要求更友好的交互。经设计稿（design-mockups/unreachable-notice.html）与确认：方案 A 分层升级、30s 阈值、恢复指引按环境排序。

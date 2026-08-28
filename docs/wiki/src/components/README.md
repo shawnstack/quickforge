@@ -6,7 +6,7 @@
 components/
 ├── chat/
 │   ├── ChatConversationSurface.tsx # 主聊天与 Side Chat 共用的薄 conversation 布局/背景壳 (16 行)
-│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1692 行)
+│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1744 行)
 │   ├── ModelSetupEmptyState.tsx    # 模型未配置时的空状态引导 (43 行)
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (340 行)
 │   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(495 行)
@@ -16,7 +16,8 @@ components/
 │   ├── slash-icons.ts              # Slash 三类复用 Lucide 图标静态映射（SquareTerminal / BookOpen / Bot）
 │   ├── slash-invocation-chip.ts    # Slash 选中态 chip：输入框内联覆盖层控制器 + 消息流 chip 共享元素 (541 行)
 │   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
-│   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (343 行)
+│   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (380 行)
+│   ├── panel-decoration/subagent-running-indicator.ts # Composer 当前会话 Subagent 运行数量、运行列表与 Inspector 跳转桥接 (287 行)
 │   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 (174 行)
 │   └── windowed-messages.ts        # 超长会话窗口化渲染（只渲染最近 3 轮，向上滚动逐页加载更早轮次）
 ├── cloud/
@@ -84,6 +85,7 @@ components/
 - 核心聊天面板宿主
 - 封装 `@earendil-works/pi-web-ui` 的 `ChatPanel` 组件
 - 集成 Agent 权限模式选择器、Plan 模式输入态、工作区工具渲染、分享对话渲染
+- 主聊天 Composer 在「完全访问权限」后、Plan 前显示当前会话运行中的 Subagent 胶囊：数据只遍历当前 agent 的 `state.pendingToolCalls`，再按 toolCallId 从全局 `subagentRunStore` 取 `status=running` 快照，避免其他会话污染；0 个时移除。点击胶囊打开 body-level fixed 运行列表（名称、任务、递增耗时），点击具体项派发既有 `quickforge:open-subagent-run` 事件并复用 Workspace Inspector 的 Subagent 详情 Tab。菜单与 Composer 其他弹层互斥，支持外部点击/Escape 关闭、滚动/缩放重定位、DOM 重挂幂等及卸载清理；Side Chat、只读页、禁用控件不显示。移动端和 ChatPanelHost 容器紧凑模式下隐藏「运行中」文字，仅保留 spinner + 数量。
 - 支持本地工具渲染器 (`getLocalWorkspaceTools`)；为兼容历史会话，既有 `generate_image` 结果仍不并入普通工具汇总，而是独立显示图片、模型信息、打开原图与下载入口，并与中间 Markdown、Thinking 和其他工具过程一起归入当前回合唯一的“执行中/已执行”顶层折叠区域；当前 Agent 不再暴露该工具。
 - 分享页使用 `/api/shared/:shareId/assets/:assetId` 加载已授权会话的生成图片
 - 工具审批卡使用轻量语义容器和左侧 3px 状态线：普通工具为 warning，自动上下文压缩为 info；命令、路径、MCP/Plugin 服务与工具等关键参数始终可见，完整参数可展开查看；subagent 来源以徽标展示。提交期间禁用按钮，失败后保留卡片并允许重试；成功或拒绝后仍移除卡片，不保留持久历史。
@@ -198,7 +200,7 @@ components/
 - 聊天面板 DOM 装饰的兼容入口，继续向 `ChatPanelHost.tsx` re-export 消息装饰、草稿、审批卡、上下文压缩提示、等待气泡和 TodoWrite 任务摘要 controller 等能力
 - `panel-decoration/todo-write-summary.ts`（360 行）负责 TodoWrite 最新快照的规范化、QuickForge/OpenCode 当前消息分支提取、计数与 Composer Dock 正常流摘要 controller；摘要位于 `message-editor` 前，收起为居中进度胶囊、展开为整行标题 + 列表（形态过渡与动效全部在 CSS），展开时自然压缩消息区、长列表内部滚动，复用既有轻盈内嵌工具视觉，不引入新的视觉范式，因此无需更新 `DESIGN_LANGUAGE.md`
 - `panel-decoration/message-queue.ts`（593 行）提供流式期 Composer 消息队列面板 controller：Enter capture 拦截入队、队列列表渲染（下一条标记、行内编辑、删除、「立即」插队按钮、⠿ 手柄拖拽排序）、暂停横幅与恢复按钮、占位符切换与清理；面板位于任务摘要之后、建议菜单之前，纯逻辑与持久化在 `src/lib/message-queue.ts`
-- `panel-decoration/model-retry-notice.ts`（115 行）为模型上游流重试提示 controller：ChatPanelHost 转发服务端 `model_stream_retry` SSE 事件（ai-http-logger 内部重建上游流时上报 attempt/maxAttempts，恢复上报 recovered），在 `message-list` 末尾显示居中轻量行「模型连接重试中… n/10」（复用 quickforge-reconnect 的 icon/count 样式词汇）；message_update/message_end/agent_end/error 到达即带退场动画移除，decorate 周期 sync 重挂、destroy 清理；仅主聊天挂载（Side Chat 不挂）
+- `panel-decoration/model-retry-notice.ts`（115 行）为模型上游流重试提示 controller：ChatPanelHost 转发服务端 `model_stream_retry` SSE 事件（ai-http-logger 仅在首个实质事件前 idle 时透明重建上游流，最多重试 2 次，并上报动态 attempt/maxAttempts；新流恢复时上报 recovered），在 `message-list` 末尾显示居中轻量行「模型连接重试中… n/2」（复用 quickforge-reconnect 的 icon/count 样式词汇）；一旦已有文本、thinking、tool call 或其他非 `start` 事件，后续 idle 直接失败而不重试。message_update/message_end/agent_end/error 到达即带退场动画移除，decorate 周期 sync 重挂、destroy 清理；仅主聊天挂载（Side Chat 不挂）
 - `panel-decoration/reconnect-notice.ts`（263 行）为全局 Agent SSE 弱网重连提示 controller（Tier1，design-mockups/reconnect-indicator.html 方案 A + unreachable-notice.html 方案 A）：订阅 `subscribeSseConnectionState`，在 `message-list` 末尾追加居中轻量行——重连中显示 spinner +「重新连接中… n/10」+ 每秒倒计时；重连广播携带 `unreachable:true`（server-agent 重连期间探测 `/api/health` 失败）时切换为琥珀双行即时态 `data-state="unreachable"`：主行静态三角警告图标 +「无法连接到本地服务」+「立即重试」按钮（调 `requestSseReconnectNow`），副行「健康检查失败 · Xs 后自动重试」倒计时，隐藏 n/10 计数（此态下后端无上限持续自动重试）；持续不可达 ≥`UNREACHABLE_STRIP_AFTER_MS`（30s，常量由 unreachable-strip 导出）时行内提示自动隐藏、交给 Tier2 常驻条接管（倒计时 tick 内复查，无新广播也到点消失）；恢复后短暂显示绿色「已重新连接」（约 2.2s 后带退场动画自动移除），若补播 `restarted:true`（断连期间服务重启、bootId 变化）则升级为「已重新连接 · 服务已重启」、显示延时延长到 4s 并重置淡出计时器（提示已移除则忽略该更新）；重试上限后显示琥珀色「连接失败，已重试 10 次」+「立即重试」按钮；元素幂等复用、decorate 周期 `sync()` 在消息列表被 Lit 重建后重新挂回末尾，卸载 `destroy()` 退订并清理计时器/DOM。仅主聊天挂载（Side Chat 走独立 NDJSON 流不共享该连接）；文案全部 createElement/textContent，innerHTML 仅静态 SVG 常量
 - `panel-decoration/unreachable-strip.ts`（258 行）为持续不可达 Tier2 常驻条 controller（design-mockups/unreachable-notice.html 方案 A）：订阅 `subscribeSseConnectionState` 且自持 1s interval，当 reconnecting 且 `unreachable` 且距 `unreachableSince` ≥30s（无新广播也到点自动出现）时在 composer dock（`message-editor` 外层、`decorateEditor` 挂 `.quickforge-composer-dock` 的节点）之前插入 `role="alert"` 琥珀常驻条——位于滚动容器外、任何滚动位置可见：断开时长（`<60s` 显示「45s」，≥60s 显示「1m 05s」，tabular-nums）+「健康检查失败 · Xs 后自动重试」副文案 + 弹性空隙 +「立即重试」（`requestSseReconnectNow`）+「恢复指引」toggle；展开区精简为两行——按运行环境只显示对应动作（桌面应用 body class `quickforge-desktop-app` 或 `window.__quickforgeDesktopApp` → 重启应用；`isMobileShell()/isRemoteQuickForgeClient()`（mobile-server 导出不可用时回退 /Android/i UA）→ 检查主机与 Tailscale；默认 → 终端 `qf restart`）+ 日志路径行，不整列三种环境（用户反馈文字太多后由 5 行排序改为过滤）；恢复（connected/failed/非 unreachable）直接移除条并清 interval；展开状态在 controller 实例内记忆、decorate 周期 `sync()` 重挂后保留（元素被 Lit 重建后重新插回 dock 前，位置正确时不移动避免重启动画）；`destroy()` 退订清计时器。仅主聊天挂载（同 reconnect-notice）；导出 `UNREACHABLE_STRIP_AFTER_MS=30000` 供 Tier1 隐藏判断共用；文案全部 createElement/textContent，innerHTML 仅静态 SVG 常量
 - `decorateEditor` 仅保留 Composer/editor 编排：占位符、只读清理、model selector 开关、left/right controls 定位，以及调用各 focused helper

@@ -1,6 +1,57 @@
 {
   "features": [
     {
+      "id": "subagent-running-indicator",
+      "name": "Composer 完全访问权限旁显示当前会话 Subagent 运行数量并跳转 Inspector 详情",
+      "status": "done",
+      "approach": "在主聊天 ChatPanelHost 的 editor 装饰周期中注入 Subagent 运行指示器，位置固定为 Agent access 后、Plan 前。当前会话隔离不扩展全局 store schema，而是遍历当前 agent.state.pendingToolCalls，再按 toolCallId 从 subagentRunStore 读取快照并仅保留 status=running；tool_execution_start/update/end 后触发 decorate，终态立即移除。新增 panel-decoration/subagent-running-indicator.ts：0 项删除控件与菜单；有运行时渲染 spinner+数量+运行中文字胶囊；重复装饰时复用现有 spinner/count/label DOM，仅更新数量和文字，避免 CSS 旋转动画被反复重启造成闪烁；点击创建 body-level fixed 菜单，展示名称、任务和每秒递增耗时，支持 outside pointerdown/Escape 关闭及 resize/scroll 重定位；点击运行项解析 store 最新 payload 后派发既有 quickforge:open-subagent-run，复用 App→WorkspaceInspector 详情 Tab 链路。菜单纳入 Composer 弹层互斥，DOM 重挂幂等并在卸载清理 timer/listener。Side Chat、只读页和 disabledControls 不显示；移动端与容器 compact 模式隐藏文字，仅保留 spinner+数量。",
+      "files": [
+        "src/components/chat/panel-decoration/subagent-running-indicator.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/subagent-running-indicator.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 5 files / 111 tests 全过（新增 subagent-running-indicator 7 tests，回归 subagent-run-detail 84、chat-compact-controls 9、composer-plus-menu 9、side-chat-composer-menu-scope 2）；npx eslint 改动源码与测试 0 error；npx tsc -b --pretty false 通过；npm run build 通过（仅既有 KaTeX 字体与 chunk size 警告）；git diff --check 通过。未跑全量 test/lint。"
+    },
+    {
+      "id": "model-stream-safe-retry-policy",
+      "name": "模型流安全重试策略：仅首个实质事件前重试，避免中途重复运行",
+      "status": "done",
+      "approach": "用户真机反馈模型回复会“中途重复运行”。根因是上一版将任意 idle 超时都纳入透明重试：流已经产出实质内容后若停滞，包装层会从零重建整条模型请求，导致已执行的生成/工具调用再次运行、内容重写与重复计费。用户决策改为安全优先：仅在尚未收到实质事件（!hasSubstantiveEvent）时允许透明重试，收到任何实质内容后 idle 超时直接失败，不再自动重跑；MAX_STREAM_RETRIES 从 10 收紧为 2。超时预算同时按阶段调整：首个实质事件 90s、已有内容后的 idle 180s、整次调用 total 20min。实现位于 server/ai-provider-options.mjs 与 server/ai-http-logger.mjs；测试覆盖默认预算、零内容最多重试 2 次、有实质内容后不重试、恢复上报与前端源码契约，wiki 同步服务端策略及模型重试提示边界。边界：首事件前重试虽避免可见内容后的重复运行，但上游可能已处理尚未返回的请求，仍可能产生重复计费；首事件后网络停滞会直接报 idle timeout，由用户决定是否重新发起；total timeout 仍不重试，Side Chat/后台任务的既有展示边界不变。",
+      "files": [
+        "server/ai-provider-options.mjs",
+        "server/ai-http-logger.mjs",
+        "tests/server/ai-provider-options.test.mjs",
+        "tests/server/ai-http-logger.test.mjs",
+        "tests/frontend/model-retry-notice.test.ts",
+        "docs/wiki/server/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 7 files / 60 tests 全过；定向 ESLint 0 error；node --check server/ai-provider-options.mjs 与 server/ai-http-logger.mjs 通过；npx tsc -b 通过；npm run build 通过（仅既有 KaTeX 字体与 chunk size warnings）；git diff --check 通过。未跑全量 npm run test / npm run lint；未 commit。"
+    },
+    {
+      "id": "subagent-running-indicator-design",
+      "name": "Composer 完全访问权限旁的 Subagent 运行数量指示器 HTML 设计稿",
+      "status": "done",
+      "approach": "用户确认：指示器放在聊天 Composer 左下角“完全访问权限”旁，点击具体运行项后跳转 Workspace Inspector 的 Subagent 详情 Tab。本轮仅完成交互设计稿，不修改功能源码。新增自包含 HTML：复刻现有 2rem/999px Composer 胶囊；运行数为 0 时隐藏，运行时显示绿色 spinner、数字和“运行中”文字；点击向上展开运行列表，每项展示智能体名称、任务摘要、当前工具跑马灯与递增耗时，点击后模拟 Inspector 面板滑入。设计稿提供 light/dark、中文/英文、0/1/2/3 运行数及宽/窄模式切换，窄模式收缩为 spinner+数字，并支持 prefers-reduced-motion。页面内注明：若实现时需按设计稿将指示器紧贴 access 按钮，应调整 agent-access-menu.ts 中 plan 按钮的现有排序逻辑。",
+      "files": [
+        "design-mockups/subagent-running-indicator.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "Node 基础检查通过：必要结构完整、无外部资源引用、内嵌脚本可编译（34,038 bytes，后补 data favicon）；git diff --check 通过。Playwright 浏览器验证：默认态布局、运行列表弹层、点击运行项打开模拟 Inspector 详情、0 数量隐藏、Dark 主题、窄模式 spinner+数字均正常；新页面控制台无业务错误。仅设计稿，无需运行 npm test/lint/build；未改功能源码，docs/wiki 无需更新。"
+    },
+    {
       "id": "chat-compact-composer-on-narrow-chat-area",
       "name": "对话区被侧栏挤压变窄时 Composer 控件 icon-only 紧凑模式（ResizeObserver + 滞回，viewport 不变时 @media 覆盖不到的场景）",
       "status": "done",

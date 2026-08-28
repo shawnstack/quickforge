@@ -15,6 +15,11 @@ import { t } from '@/lib/i18n'
 import type { AgentAccessMode } from '@/lib/types'
 import type { OpenCodeAcpSession } from '@/lib/server-agent'
 import { removeAgentAccessMenu, setupAgentAccessMenu } from './panel-decoration/agent-access-menu'
+import {
+  removeSubagentRunningIndicator,
+  removeSubagentRunningIndicatorMenu,
+  setupSubagentRunningIndicator,
+} from './panel-decoration/subagent-running-indicator'
 import { removeOpenCodeConfigMenu, setupOpenCodeConfigMenu } from './panel-decoration/opencode-config-menu'
 import { removeOpenCodeModeMenu, setupOpenCodeModeMenu } from './panel-decoration/opencode-mode-menu'
 import { hideNativeAttachmentControls, removeComposerPlusPopover, setupComposerPlusMenu } from './panel-decoration/composer-plus-menu'
@@ -65,6 +70,12 @@ export type {
 } from './panel-decoration/todo-write-summary'
 export { createMessageQueuePanelController } from './panel-decoration/message-queue'
 export type { MessageQueuePanelController, MessageQueuePanelState } from './panel-decoration/message-queue'
+export {
+  getRunningSubagentRuns,
+  removeSubagentRunningIndicator,
+  removeSubagentRunningIndicatorMenu,
+  setupSubagentRunningIndicator,
+} from './panel-decoration/subagent-running-indicator'
 
 // Inline local file path link decoration lives in ./panel-decoration/local-file-path-links.
 
@@ -90,6 +101,8 @@ export type EditorDecorationDeps = {
   capabilitySuggestionsEnabled: boolean
   attachmentsEnabled: boolean
   fileReferenceSuggestionsEnabled: boolean
+  subagentRunningIndicatorEnabled?: boolean
+  getPendingToolCalls?: () => Iterable<string>
   disabledControls?: boolean
   onAccessModeChange: (mode: AgentAccessMode) => void
   onTogglePlanMode: () => void
@@ -113,6 +126,7 @@ export type EditorDecorationDeps = {
 export function disableComposerControls(panel: HTMLElement, editor: MessageEditorElement | null) {
   removeComposerPlusPopover(panel)
   removeAgentAccessMenu(panel, true)
+  removeSubagentRunningIndicator(panel)
   removePlanModeControls(editor)
   closeComposerModelMenu(panel.querySelector<HTMLElement>('.quickforge-model-trigger'), true)
 
@@ -154,6 +168,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     capabilitySuggestionsEnabled,
     attachmentsEnabled,
     fileReferenceSuggestionsEnabled,
+    subagentRunningIndicatorEnabled = false,
+    getPendingToolCalls = () => [],
     disabledControls = false,
     onAccessModeChange,
     onTogglePlanMode,
@@ -237,6 +253,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     if (!attachmentsEnabled && editor) hideNativeAttachmentControls(editor)
     panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.remove()
     removeAgentAccessMenu(panel, disabledControls)
+    removeSubagentRunningIndicator(panel)
     panel.querySelector<HTMLButtonElement>('.quickforge-opencode-config-inline')?.remove()
     removeOpenCodeConfigMenu(panel)
     panel.querySelector<HTMLButtonElement>('.quickforge-opencode-mode-inline')?.remove()
@@ -253,6 +270,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     removeOpenCodeConfigMenu(panel)
     removeOpenCodeModeMenu(panel)
     removeAgentAccessMenu(panel)
+    removeSubagentRunningIndicatorMenu(panel)
     closeComposerModelMenu()
   }
 
@@ -330,6 +348,13 @@ export function decorateEditor(deps: EditorDecorationDeps) {
       disableComposerControls(panel, editor)
     } else {
       panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.remove()
+      setupSubagentRunningIndicator({
+        panel,
+        leftControls,
+        enabled: subagentRunningIndicatorEnabled,
+        getPendingToolCalls,
+        dismissComposerMenus,
+      })
     }
     return
   }
@@ -339,6 +364,13 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     leftControls,
     agentAccessMode,
     onAccessModeChange,
+    dismissComposerMenus,
+  })
+  setupSubagentRunningIndicator({
+    panel,
+    leftControls,
+    enabled: subagentRunningIndicatorEnabled,
+    getPendingToolCalls,
     dismissComposerMenus,
   })
 }

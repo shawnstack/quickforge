@@ -4198,6 +4198,7 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
 }
 
 .quickforge-composer .quickforge-agent-access-inline,
+.quickforge-composer .quickforge-subagent-running-trigger,
 .quickforge-composer .quickforge-plan-inline {
   height: 2rem;
   border: 1px solid color-mix(in oklab, var(--border) 70%, transparent) !important;
@@ -4385,6 +4386,118 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
 }
 
+.quickforge-composer .quickforge-subagent-running-trigger {
+  min-width: 2rem;
+  padding: 0 0.6rem !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-composer .quickforge-subagent-running-trigger[aria-expanded="true"] {
+  border-color: color-mix(in oklab, var(--border) 76%, transparent) !important;
+  background: color-mix(in oklab, var(--muted) 58%, transparent) !important;
+  color: var(--foreground) !important;
+}
+
+.quickforge-subagent-running-spinner {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex: 0 0 auto;
+  border: 1.5px solid color-mix(in oklab, #048f65 34%, transparent);
+  border-top-color: #048f65;
+  border-radius: 50%;
+  animation: quickforge-reconnect-spin 0.9s linear infinite;
+}
+
+html.dark .quickforge-subagent-running-spinner {
+  border-color: color-mix(in oklab, #6ee7b7 34%, transparent);
+  border-top-color: #6ee7b7;
+}
+
+.quickforge-subagent-running-count {
+  color: color-mix(in oklab, var(--foreground) 84%, transparent);
+  font-weight: 650;
+}
+
+.quickforge-subagent-running-menu {
+  position: fixed;
+  z-index: 10000;
+  max-height: min(420px, calc(100vh - 24px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.35rem;
+  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  border-radius: 0.85rem;
+  background: color-mix(in oklab, var(--popover) 98%, white);
+  color: var(--foreground);
+  box-shadow: 0 18px 46px -26px rgb(15 23 42 / 0.42), 0 0 0 1px rgb(255 255 255 / 0.72) inset;
+}
+
+.quickforge-subagent-running-menu-title {
+  padding: 0.45rem 0.6rem 0.3rem;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.quickforge-subagent-running-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.quickforge-subagent-running-item {
+  display: flex !important;
+  width: 100%;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.55rem 0.6rem !important;
+  border-radius: 0.55rem !important;
+  color: inherit !important;
+  text-align: left;
+}
+
+.quickforge-subagent-running-item:hover,
+.quickforge-subagent-running-item:focus-visible {
+  background: color-mix(in oklab, var(--muted) 72%, transparent) !important;
+  transform: none !important;
+}
+
+.quickforge-subagent-running-item-top {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.quickforge-subagent-running-item-label {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in oklab, var(--foreground) 90%, transparent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-subagent-running-elapsed {
+  flex: 0 0 auto;
+  color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-subagent-running-task {
+  overflow: hidden;
+  color: color-mix(in oklab, var(--muted-foreground) 84%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .quickforge-composer .quickforge-plan-inline[aria-pressed="true"] {
   border-color: color-mix(in oklab, var(--border) 70%, transparent) !important;
   background: color-mix(in oklab, var(--muted) 42%, transparent) !important;
@@ -4557,6 +4670,7 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
 
 .quickforge-composer .quickforge-plus-inline:hover:not(:disabled),
 .quickforge-composer .quickforge-agent-access-inline:hover:not(:disabled),
+.quickforge-composer .quickforge-subagent-running-trigger:hover:not(:disabled),
 .quickforge-composer .quickforge-model-trigger:hover:not(:disabled) {
   background: var(--quickforge-sidebar-hover-bg) !important;
   color: var(--foreground) !important;
@@ -4880,6 +4994,10 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .quickforge-subagent-running-spinner {
+    animation: none;
+  }
+
   .quickforge-composer .quickforge-stop-button--waiting::before {
     animation: none;
     opacity: 0.55;
@@ -5274,6 +5392,16 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
     display: none;
   }
 
+  .quickforge-composer .quickforge-subagent-running-trigger {
+    width: 2rem;
+    gap: 0;
+    padding-inline: 0 !important;
+  }
+
+  .quickforge-composer .quickforge-subagent-running-trigger-label {
+    display: none;
+  }
+
   .quickforge-composer :is(.quickforge-context-usage, .quickforge-context-usage-label) {
     margin-inline: 0.125rem;
   }
@@ -5328,6 +5456,16 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
 }
 
 .quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-agent-access-inline :is(.quickforge-agent-access-label, .quickforge-agent-access-chevron) {
+  display: none;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-subagent-running-trigger {
+  width: 2rem;
+  gap: 0;
+  padding-inline: 0 !important;
+}
+
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-subagent-running-trigger-label {
   display: none;
 }
 

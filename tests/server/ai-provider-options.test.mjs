@@ -20,10 +20,9 @@ describe('AI provider options', () => {
     })
   })
 
-  it('defines two-tier stream silence budgets and a twenty-minute total timeout', () => {
-    // 经用户决策两档统一 60s：中断档（出过内容后）与首事件档（prefill 观察期）。
-    expect(DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS).toBe(60 * 1000)
-    expect(DEFAULT_AI_STREAM_FIRST_EVENT_TIMEOUT_MS).toBe(60 * 1000)
+  it('defines a 90s first-event budget, a three-minute post-content idle budget, and a twenty-minute total timeout', () => {
+    expect(DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS).toBe(3 * 60 * 1000)
+    expect(DEFAULT_AI_STREAM_FIRST_EVENT_TIMEOUT_MS).toBe(90 * 1000)
     expect(DEFAULT_AI_STREAM_TOTAL_TIMEOUT_MS).toBe(20 * 60 * 1000)
     expect(DEFAULT_AI_STREAM_DEADLINE_MS).toBe(DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS)
   })

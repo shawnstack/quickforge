@@ -125,12 +125,12 @@ describe('model retry notice controller', () => {
     const { panel, messageList } = buildPanel()
     const controller = await createController(panel)
 
-    controller.show(8, 10)
+    controller.show(1, 2)
     const notice = messageList.querySelector('.quickforge-model-retry')
     expect(notice).not.toBeNull()
     expect(messageList.children.at(-1)).toBe(notice)
     expect(notice!.getAttribute('role')).toBe('status')
-    expect(notice!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('8/10')
+    expect(notice!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('1/2')
     expect(notice!.querySelector('.quickforge-reconnect-icon')).not.toBeNull()
 
     controller.destroy()
@@ -140,12 +140,12 @@ describe('model retry notice controller', () => {
     const { panel, messageList } = buildPanel()
     const controller = await createController(panel)
 
-    controller.show(1, 10)
+    controller.show(1, 2)
     const first = messageList.querySelector('.quickforge-model-retry')!
-    controller.show(9, 10)
+    controller.show(2, 2)
     const second = messageList.querySelector('.quickforge-model-retry')!
     expect(second).toBe(first)
-    expect(second.querySelector('.quickforge-reconnect-count')!.textContent).toBe('9/10')
+    expect(second.querySelector('.quickforge-reconnect-count')!.textContent).toBe('2/2')
 
     controller.destroy()
   })
@@ -155,7 +155,7 @@ describe('model retry notice controller', () => {
     const { panel, messageList } = buildPanel()
     const controller = await createController(panel)
 
-    controller.show(2, 10)
+    controller.show(2, 2)
     controller.hide()
     const notice = messageList.querySelector('.quickforge-model-retry')!
     expect(notice.classList.contains('quickforge-model-retry-leaving')).toBe(true)
@@ -170,7 +170,7 @@ describe('model retry notice controller', () => {
     const { panel, messageList } = buildPanel()
     const controller = await createController(panel)
 
-    controller.show(5, 10)
+    controller.show(1, 2)
     messageList.remove()
     const newList = new FakeElement('message-list')
     panel.append(newList)
@@ -178,7 +178,7 @@ describe('model retry notice controller', () => {
 
     const notice = newList.querySelector('.quickforge-model-retry')
     expect(notice).not.toBeNull()
-    expect(notice!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('5/10')
+    expect(notice!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('1/2')
 
     controller.destroy()
   })
@@ -187,7 +187,7 @@ describe('model retry notice controller', () => {
     const { panel, messageList } = buildPanel()
     const controller = await createController(panel)
 
-    controller.show(3, 10)
+    controller.show(2, 2)
     controller.destroy()
     expect(messageList.querySelector('.quickforge-model-retry')).toBeNull()
   })
@@ -215,9 +215,9 @@ describe('model retry notice source contracts', () => {
     expect(agentManagerSource.match(/onStreamRetry/g)?.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('ai-http-logger retries any idle timeout up to 10 and reports recovery', () => {
-    expect(aiHttpLoggerSource).toContain('export const MAX_STREAM_RETRIES = 10')
-    expect(aiHttpLoggerSource).toContain('if (streamRetries < maxStreamRetries && !parentSignal?.aborted) {')
+  it('ai-http-logger retries only before substantive output, up to 2 attempts, and reports recovery', () => {
+    expect(aiHttpLoggerSource).toContain('export const MAX_STREAM_RETRIES = 2')
+    expect(aiHttpLoggerSource).toContain('if (!hasSubstantiveEvent && streamRetries < maxStreamRetries && !parentSignal?.aborted) {')
     expect(aiHttpLoggerSource).toContain('recovered: true')
   })
 

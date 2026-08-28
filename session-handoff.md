@@ -39,8 +39,8 @@
 - 实现：新增 `src/lib/window-guard.ts`（acquireAppWindowGuard：ifAvailable 抢锁、acquiredPromise race 成功判定、刷新竞态 400ms×2 重试、降级 unsupported；startWindowFocusResponder 监听 quickforge-window-guard 频道 → focus + 标题闪烁 5s；requestExistingWindowFocus 广播）+ `src/components/WindowGuardNotice.tsx`（全屏拦截页，内联 SVG、t() 双语、复用既有 token、不 import App、零 /api）；`src/main.tsx` bootstrap 渲染前 await 守卫，blocked 先自动广播一次 focus 再渲染拦截页；i18n 中英成对 3 key；wiki 3 处同步。
 - 验证：定向 vitest window-guard 10 tests（主 Agent 复核重跑通过）；i18n 回归 3 文件 31 tests；eslint 5 文件 0 error；tsc -b ✓；npm run build ✓（仅既有警告）。未跑全量。
 - 文件：src/lib/window-guard.ts（新）、src/components/WindowGuardNotice.tsx（新）、src/main.tsx、src/lib/i18n.ts、tests/frontend/window-guard.test.ts（新）、docs/wiki/{src, src/lib, src/components}/README.md、feature_list.json、progress.md、session-handoff.md。
-- Blocker：无。Notes：① 拦截页语言用浏览器默认（i18n import 时同步初始化，零 /api 代价的小妥协）；② Electron/Android/隐身/不同 profile 为独立锁空间天然隔离；③ 同根因的设置页额外 channels/events SSE（channels-settings-tab.ts:179）记为潜在后续优化，未动；④ progress.md 顶部另有并行会话条目，未触碰。Revision（用户真机反馈点击切换不跳转）：双重浏览器限制（message 回调无 user activation 的 window.focus() 被忽略 + 后台标签 setTimeout 节流致闪烁不可见）→ 修复为立即「● 」标题 + 系统通知聚焦（granted+开关开+10s 节流，点击通知 close+focus 可靠）+ focus 事件兜底清 title + 拦截页点击反馈 hint（i18n +3 key，测试 15 用例，复验全过）。
-- 下一步：真机复测（先确保通知权限已授予：点按钮应弹通知，点通知旧窗口跳前台；未授权时旧窗口标题立即出现 ● 且切回后清除；关第一个窗口后刷新第二个可接管）。
+- Blocker：无。Notes：① 拦截页语言用浏览器默认（i18n import 时同步初始化，零 /api 代价的小妥协）；② Electron/Android/隐身/不同 profile 为独立锁空间天然隔离；③ 同根因的设置页额外 channels/events SSE（channels-settings-tab.ts:179）记为潜在后续优化，未动；④ progress.md 顶部另有并行会话条目，未触碰。Revision 轨迹：用户反馈点击切换不跳转（浏览器硬限制）→ 中间做过通知聚焦方案 → 用户决策回归极简（删切换/通知/闪烁/BroadcastChannel 链路，window-guard.ts 收缩为 118 行纯锁守卫）→ 又实测关闭按钮无效（window.close() 对手动开的标签页必然失败）→ 最终 Revision 3：拦截页纯静态提示（34 行，无按钮无 state，仅图标 + 双语标题/描述），i18n 最终仅保留 windowGuardTitle/Description 两 key。复验 vitest/eslint/tsc/build 全过。
+- 下一步：真机复测（第二个窗口只见纯提示卡片；关第一个窗口后刷新第二个可接管；旧浏览器降级放行）。
 
 ---
 

@@ -1,26 +1,11 @@
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
-import { requestExistingWindowFocus } from '@/lib/window-guard'
-
-type WindowGuardNoticeProps = {
-  onSwitchFocus?: () => void
-}
 
 /**
  * Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（不加载 App、不发任何
- * /api 请求），提示用户回到已有窗口，并可广播 focus 请求把已有窗口带到前台。
- * 点击后立即显示本地提示（不依赖窗口是否真的切换成功），引导用户通过系统
- * 通知或任务栏中的 ● 标记定位已有窗口。
+ * /api 请求），纯静态提示用户关闭本窗口并回到已有窗口使用（浏览器不允许
+ * 脚本关闭手动打开的标签页，故不提供关闭按钮）。
  */
-export function WindowGuardNotice({ onSwitchFocus = requestExistingWindowFocus }: WindowGuardNoticeProps) {
-  const [switchRequested, setSwitchRequested] = useState(false)
-
-  const handleSwitchFocus = () => {
-    onSwitchFocus()
-    setSwitchRequested(true)
-  }
-
+export function WindowGuardNotice() {
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-background p-6">
       <div className="w-full max-w-md rounded-xl border border-border bg-background p-6 text-center shadow-quickforge">
@@ -42,12 +27,6 @@ export function WindowGuardNotice({ onSwitchFocus = requestExistingWindowFocus }
         </div>
         <h1 className="mt-4 text-lg font-medium text-foreground">{t('windowGuardTitle')}</h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('windowGuardDescription')}</p>
-        <Button onClick={handleSwitchFocus} className="mt-6">
-          {t('windowGuardSwitchButton')}
-        </Button>
-        {switchRequested && (
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">{t('windowGuardSwitchHint')}</p>
-        )}
       </div>
     </div>
   )

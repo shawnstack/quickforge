@@ -26,11 +26,11 @@ src/
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [main.tsx](../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 70 |
+| [main.tsx](../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 69 |
 | [App.tsx](../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 684 |
 | [index.css](../src/index.css) | 全局样式 (Tailwind + pi-web-ui + 自定义) | 5345 |
 
-### main.tsx (70 行)
+### main.tsx (69 行)
 
 - 从 `react-dom/client` 创建根节点
 - 应用全局 CSS（`index.css`）
@@ -39,7 +39,7 @@ src/
 - 调用 `applyClipboardPolyfill()` 应用剪贴板兼容处理
 - 生产环境注册 `/sw.js`，启用轻量 PWA 安装和前端静态资源缓存；Capacitor 原生环境不注册 Service Worker
 - Android 薄壳入口由 `components/mobile/MobileServerConnectPage.tsx`、`components/mobile/CloudRemotePage.tsx` 与 `lib/mobile-server.ts` 提供：启动后先由用户选择云账户或服务器连接方式；服务器选择页以已保存列表为主，点击服务器行才会连接，`lastUsedUrl` 仅用于显示“上次使用”标记。添加表单仅在首次使用或主动添加时展开；表单会提示支持的 Tailscale 地址范围并预览规范化地址，别名编辑与删除收拢在服务器管理区，删除前需要确认。连接地址仅接受 `.ts.net` MagicDNS 完整域名或 Tailscale `100.64.0.0/10` 地址，远端页面继续保持页面、REST、SSE 和 LAN Cookie 同源；云账户检测到已有原生会话时需用户点击“继续当前登录”后才加载设备，也可清理本地会话后使用其他账号；侧栏底部可通过当前地址返回服务器选择页
-- 渲染前调用 `lib/window-guard.ts` 的 `acquireAppWindowGuard()`（Web Locks 严格单窗口，ifAvailable 抢锁很快）：granted/unsupported 正常渲染 App；blocked 窗口先自动广播一次 focus 请求把已有窗口带到前台，再只渲染 `WindowGuardNotice` 拦截页——不加载 App、不建立 SSE 连接
+- 渲染前调用 `lib/window-guard.ts` 的 `acquireAppWindowGuard()`（Web Locks 严格单窗口，ifAvailable 抢锁很快）：granted/unsupported 正常渲染 App；blocked 窗口只渲染 `WindowGuardNotice` 拦截页——不加载 App、不建立 SSE 连接，纯静态提示用户关闭本窗口并回到已有窗口使用（不提供关闭按钮：浏览器不允许脚本关闭手动打开的标签页）
 - 在 `<StrictMode>` 中渲染 `<App />` 组件
 
 ### App.tsx (684 行)

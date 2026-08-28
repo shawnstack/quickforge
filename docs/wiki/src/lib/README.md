@@ -39,7 +39,7 @@
 | `logger.ts` | 56 | 前端日志工具 |
 | `update-check-poll.ts` | 71 | 更新检查轮询助手：`requestUpdateCheck()` 对非阻塞的 `GET /api/system/update/check` 状态快照做有界轮询（默认 10 次 × 1s，可注入 fetch/sleep 单测）到 `ok`/`error` 终态，失败一律返回 `{ kind: 'error' }` 不抛出（fetch/sleep 可注入）；`force` 仅首次请求带 `?force=1`；兼容不带 `status` 字段的旧服务端 payload |
 | `random-id.ts` | 19 | UUID 生成 |
-| `window-guard.ts` | 350 | Web Locks 严格单窗口守卫：`acquireAppWindowGuard` 以 `ifAvailable` 抢锁（持锁成功时 request promise 因回调永不结束不会结算，成功判定只依赖 acquired 标志）；同窗口刷新竞态按 400ms×2 重试后判 blocked；blocked 窗口经 `requestExistingWindowFocus` 用 BroadcastChannel 广播 focus 请求，持锁窗口尽力 `window.focus()`（后台无 user activation 常被拒绝），收到请求**立即**把标题置为 `● ` 前缀闪烁 5s（不等首个 800ms 计时器，规避后台标签 setTimeout 节流）并交替闪烁；满足 `Notification.permission === 'granted'` 且 system-notifications 开关开启时发一条系统通知（构造器通知，tag `quickforge-window-guard`，10s 内去重仅弹一条，标题闪烁不受限），点击通知自带 user activation → `close()` + `window.focus()` 可靠切回；window focus 事件兜底：后台节流导致截止计时器迟到时，用户切回窗口立即恢复原标题不留脏 title（Notification 构造器/权限/开关/now/focus 监听均可注入单测）；Web Locks/BroadcastChannel 不可用降级放行（unsupported） |
+| `window-guard.ts` | 118 | Web Locks 严格单窗口守卫（纯锁守卫）：`acquireAppWindowGuard` 以 `ifAvailable` 抢锁（持锁成功时 request promise 因回调永不结束不会结算，成功判定只依赖 acquired 标志）；同窗口刷新竞态按 400ms×2 重试后判 blocked（blocked 窗口由 main.tsx 渲染拦截页）；Web Locks 不可用降级放行（unsupported，BroadcastChannel 等不再是依赖） |
 | `tool-display-settings.ts` | 40 | Tool 与上下文用量展示设置 |
 | `tool-execution-events.ts` | 120 | 工具执行事件处理 |
 | `tool-param-summary.ts` | 工具参数→摘要文案纯函数：`summarizeParams`（自 local-tools 提取，按工具名取 command/path/query 等生成单行摘要）、`normalizeToolArguments`（toolCall arguments 归一化，兼容 JSON 字符串）、`truncateSummary`；工具卡片与 subagent 跑马灯共用同一套规则 |

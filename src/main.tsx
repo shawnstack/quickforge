@@ -41,16 +41,15 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator && !Capacitor.isNativeP
 const root = createRoot(document.getElementById('root')!)
 
 // 渲染前先通过 Web Locks 保证同一浏览器上下文严格单窗口（ifAvailable 抢锁很快）：
-// granted / unsupported 正常渲染 App；blocked 的窗口先尽力把已有窗口带到前台，
-// 再只渲染拦截页——不加载 App、不建立 SSE 连接。
+// granted / unsupported 正常渲染 App；blocked 的窗口只渲染拦截页——不加载 App、
+// 不建立 SSE 连接，拦截页引导用户关闭本窗口并回到已有窗口。
 async function bootstrap() {
   const guard = await acquireAppWindowGuard()
 
   if (guard.status === 'blocked') {
-    guard.requestExistingWindowFocus()
     root.render(
       <StrictMode>
-        <WindowGuardNotice onSwitchFocus={guard.requestExistingWindowFocus} />
+        <WindowGuardNotice />
       </StrictMode>,
     )
     return

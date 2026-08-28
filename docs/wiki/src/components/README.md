@@ -59,7 +59,7 @@ components/
 │   ├── prompt-dialog.tsx           # 提示输入对话框 (116 行)
 │   └── toast.tsx                   # Toast 通知组件 (113 行)
 ├── ErrorBoundary.tsx               # 错误边界组件 (53 行)
-├── WindowGuardNotice.tsx           # Web Locks 单窗口拦截页：blocked 窗口全屏卡片，不加载 App (41 行)
+├── WindowGuardNotice.tsx           # Web Locks 单窗口拦截页：blocked 窗口全屏纯静态提示（无按钮） (34 行)
 ├── project-directory-picker.tsx    # 项目目录选择器 (247 行)
 └── skills-dialog.tsx               # Skills 管理面板与项目技能对话框
 ```
@@ -290,6 +290,6 @@ components/
 
 React 类组件实现的错误边界，捕获子组件渲染错误并显示降级 UI。
 
-### WindowGuardNotice.tsx (55 行)
+### WindowGuardNotice.tsx (34 行)
 
-Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` 渲染前抢锁失败时），不加载 App、不发任何 `/api` 请求。全屏居中卡片复用既有 token（`bg-background` / `border-border` / `shadow-quickforge` / `rounded-xl`）与内联 SVG 层叠窗口图标，不新增样式规则；「切换到已有窗口」主按钮默认经 `lib/window-guard.ts` 的 BroadcastChannel 广播 focus 请求，由持锁窗口响应聚焦 + 标题立即闪烁 + 系统通知点击聚焦兜底。点击后按钮文字不变，下方以本地 state（`useState`）即时显示 `windowGuardSwitchHint` 小字提示（`text-muted-foreground`）：若浏览器未自动切换，引导用户点击系统通知或任务栏中带 ● 标记的 QuickForge 窗口。
+Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` 渲染前抢锁失败时），不加载 App、不发任何 `/api` 请求。纯静态提示（无按钮、无 state、无 `window.close()`——浏览器不允许脚本关闭手动打开的标签页，实测关闭按钮无效后移除）：全屏居中卡片复用既有 token（`bg-background` / `border-border` / `shadow-quickforge` / `rounded-xl`）与内联 SVG 层叠窗口图标 + 双语标题/描述（`windowGuardTitle` / `windowGuardDescription`），文案引导用户关闭本窗口并回到已有窗口使用。

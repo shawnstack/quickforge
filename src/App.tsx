@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils'
 import {
   OPEN_SUBAGENT_RUN_EVENT,
   extractLatestTerminalSubagentRuns,
+  extractRunningSubagentRuns,
   normalizeOpenSubagentRunRequest,
   type SubagentRunPayload,
 } from '@/lib/subagent-run-detail'
@@ -522,6 +523,13 @@ function MainApp() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
   ), [agentManager.agent, pinnedSummaryRevision])
   const pinnedSummarySubagentRuns = useMemo(() => extractLatestTerminalSubagentRuns(
+    pinnedSummaryMessages,
+    agentManager.agent?.state.pendingToolCalls,
+    getCachedToolDisplaySettings().toolDisplayMode,
+    t,
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
+  ), [agentManager.agent, pinnedSummaryRevision])
+  const pinnedSummaryRunningSubagentRuns = useMemo(() => extractRunningSubagentRuns(
     pinnedSummaryMessages,
     agentManager.agent?.state.pendingToolCalls,
     getCachedToolDisplaySettings().toolDisplayMode,
@@ -1746,12 +1754,14 @@ function MainApp() {
       {!workspaceInspectorOpen && (
         pinnedSummaryTodos.length > 0
         || pinnedSummarySubagentRuns.length > 0
+        || pinnedSummaryRunningSubagentRuns.length > 0
         || titleGitStatus?.isGitRepository
       ) ? (
         <GitToolsPinnedSummary
           projectId={agentManager.currentToolProject?.id}
           status={titleGitStatus}
           todos={pinnedSummaryTodos}
+          runningSubagentRuns={pinnedSummaryRunningSubagentRuns}
           finishedSubagentRuns={pinnedSummarySubagentRuns}
           expanded={gitToolsExpanded}
           onExpandedChange={setGitToolsExpanded}

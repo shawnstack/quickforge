@@ -3,11 +3,13 @@ import {
   Bot,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   Circle,
   Clock3,
   FileDiff,
   GitBranch,
   List,
+  Loader2,
   SlidersHorizontal,
   X,
   XCircle,
@@ -24,6 +26,7 @@ type GitToolsPinnedSummaryProps = {
   projectId?: string
   status?: GitStatusResponse
   todos: TodoWriteItem[]
+  runningSubagentRuns: SubagentRunPayload[]
   finishedSubagentRuns: SubagentRunPayload[]
   expanded: boolean
   onExpandedChange: (expanded: boolean) => void
@@ -70,6 +73,7 @@ export function GitToolsPinnedSummary({
   projectId,
   status,
   todos,
+  runningSubagentRuns,
   finishedSubagentRuns,
   expanded,
   onExpandedChange,
@@ -84,6 +88,8 @@ export function GitToolsPinnedSummary({
   const rootRef = useRef<HTMLDivElement | null>(null)
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
   const [expandedTasksSignature, setExpandedTasksSignature] = useState<string>()
+  // 已结束小节默认折叠；仅在摘要弹层展开期间记忆，重开弹层恢复折叠，不持久化。
+  const [finishedSubagentRunsCollapsed, setFinishedSubagentRunsCollapsed] = useState(true)
   const totals = useMemo(() => gitTotals(status), [status])
   const todoCounts = useMemo(() => todoWriteCounts(todos), [todos])
   const dirtyCount = status ? (status.counts?.total ?? status.files.length) : 0
@@ -99,6 +105,7 @@ export function GitToolsPinnedSummary({
     function closeSummary() {
       setBranchMenuOpen(false)
       setExpandedTasksSignature(undefined)
+      setFinishedSubagentRunsCollapsed(true)
       onExpandedChange(false)
     }
 
@@ -119,7 +126,7 @@ export function GitToolsPinnedSummary({
     }
   }, [expanded, onExpandedChange])
 
-  if (todos.length === 0 && finishedSubagentRuns.length === 0 && !hasGitSection) return null
+  if (todos.length === 0 && runningSubagentRuns.length === 0 && finishedSubagentRuns.length === 0 && !hasGitSection) return null
 
   return (
     <div ref={rootRef} className="relative" onClick={(event) => event.stopPropagation()}>
@@ -133,6 +140,7 @@ export function GitToolsPinnedSummary({
           if (expanded) {
             setBranchMenuOpen(false)
             setExpandedTasksSignature(undefined)
+            setFinishedSubagentRunsCollapsed(true)
           }
           onExpandedChange(!expanded)
         }}
@@ -151,6 +159,7 @@ export function GitToolsPinnedSummary({
           <button type="button" className="absolute right-3 top-3 z-10 rounded-full p-1.5 text-foreground/85 transition-colors hover:bg-muted" onClick={() => {
             setBranchMenuOpen(false)
             setExpandedTasksSignature(undefined)
+            setFinishedSubagentRunsCollapsed(true)
             onExpandedChange(false)
           }} aria-label={t('pinnedSummaryCollapse')} title={t('pinnedSummaryCollapse')}>
             <X className="size-4" />
@@ -234,36 +243,77 @@ export function GitToolsPinnedSummary({
             </section>
           ) : null}
 
-          {visibleSubagentRuns.length > 0 ? (
+          {runningSubagentRuns.length > 0 || finishedSubagentRuns.length > 0 ? (
             <section className={cn((hasGitSection || todos.length > 0) && 'mt-3 border-t-[0.5px] border-[color-mix(in_oklab,var(--border)_28%,transparent)] pt-3')} aria-labelledby="pinned-subagents-title">
               <div id="pinned-subagents-title" className="mb-2 flex items-center justify-between gap-3 pr-8 text-xs font-medium text-muted-foreground">
                 <span>{t('pinnedSubagentsTitle')}</span>
-                <span>{t('pinnedRecentFirst')}</span>
               </div>
-              <div className="space-y-1">
-                {visibleSubagentRuns.map((payload) => {
-                  const duration = formatDuration(payload)
-                  const label = payload.label || payload.name || t('subagentGeneral')
-                  return (
-                    <button
-                      key={payload.canonicalToolCallId || payload.runId}
-                      type="button"
-                      className="flex min-h-11 w-full items-center gap-2.5 rounded-2xl px-1.5 text-left transition-colors hover:bg-muted/45"
-                      onClick={() => onOpenSubagentRun(payload)}
-                      aria-label={t('pinnedSubagentOpenAria', { name: label, task: payload.task })}
-                    >
-                      {payload.status === 'error'
-                        ? <XCircle className="size-4 shrink-0 text-destructive" />
-                        : <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-foreground/88">{label}</span>
-                        <span className="block truncate text-xs text-muted-foreground">{payload.task}</span>
-                      </span>
-                      {duration ? <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{duration}</span> : <Bot className="size-3.5 shrink-0 text-muted-foreground/65" />}
-                    </button>
-                  )
-                })}
-              </div>
+              {runningSubagentRuns.length > 0 ? (
+                <div className="mb-2">
+                  <div className="mb-1 px-1.5 text-[11px] text-muted-foreground/85">{t('pinnedSubagentsRunningSection')}</div>
+                  <div className="space-y-1">
+                    {runningSubagentRuns.map((payload) => {
+                      const label = payload.label || payload.name || t('subagentGeneral')
+                      return (
+                        <button
+                          key={payload.canonicalToolCallId || payload.runId}
+                          type="button"
+                          className="flex min-h-11 w-full items-center gap-2.5 rounded-2xl px-1.5 text-left transition-colors hover:bg-muted/45"
+                          onClick={() => onOpenSubagentRun(payload)}
+                          aria-label={t('pinnedSubagentOpenAria', { name: label, task: payload.task })}
+                        >
+                          <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground/65" aria-hidden="true" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium text-foreground/88">{label}</span>
+                            <span className="block truncate text-xs text-muted-foreground">{payload.task}</span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              {finishedSubagentRuns.length > 0 ? (
+                <div>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-3 rounded-lg px-1.5 py-1 text-[11px] text-muted-foreground/85 transition-colors hover:bg-muted/45 hover:text-foreground"
+                    onClick={() => setFinishedSubagentRunsCollapsed((value) => !value)}
+                    aria-expanded={!finishedSubagentRunsCollapsed}
+                  >
+                    <span>{t('pinnedSubagentsFinishedSection')} · {finishedSubagentRuns.length}</span>
+                    {finishedSubagentRunsCollapsed
+                      ? <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/85" aria-hidden="true" />
+                      : <ChevronDown className="size-3.5 shrink-0 text-muted-foreground/85" aria-hidden="true" />}
+                  </button>
+                  {!finishedSubagentRunsCollapsed ? (
+                    <div className="mt-1 space-y-1">
+                      {visibleSubagentRuns.map((payload) => {
+                        const duration = formatDuration(payload)
+                        const label = payload.label || payload.name || t('subagentGeneral')
+                        return (
+                          <button
+                            key={payload.canonicalToolCallId || payload.runId}
+                            type="button"
+                            className="flex min-h-11 w-full items-center gap-2.5 rounded-2xl px-1.5 text-left transition-colors hover:bg-muted/45"
+                            onClick={() => onOpenSubagentRun(payload)}
+                            aria-label={t('pinnedSubagentOpenAria', { name: label, task: payload.task })}
+                          >
+                            {payload.status === 'error'
+                              ? <XCircle className="size-4 shrink-0 text-destructive" />
+                              : <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />}
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium text-foreground/88">{label}</span>
+                              <span className="block truncate text-xs text-muted-foreground">{payload.task}</span>
+                            </span>
+                            {duration ? <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{duration}</span> : <Bot className="size-3.5 shrink-0 text-muted-foreground/65" />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </section>
           ) : null}
 

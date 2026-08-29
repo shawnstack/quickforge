@@ -13,6 +13,7 @@ import {
   currentSubagentToolSummaries,
   currentSubagentToolSummariesWithMemory,
   extractLatestTerminalSubagentRuns,
+  extractRunningSubagentRuns,
   normalizeOpenSubagentRunRequest,
   resolveSubagentRunPayloadForOpen,
   shouldPublishSubagentRunPayload,
@@ -116,6 +117,55 @@ describe('terminal subagent run extraction', () => {
 
     const rolledBack = messages.slice(0, 4)
     expect(extractLatestTerminalSubagentRuns(rolledBack, [], 'compact', t).map((run) => run.task)).toEqual(['Task 1', 'Task 0'])
+  })
+})
+
+describe('running subagent run extraction', () => {
+  const call = (id: string, task: string, subagent: unknown = 'explore') => ({
+    role: 'assistant',
+    content: [{ type: 'toolCall', id, name: 'run_subagent', arguments: { subagent, task } }],
+  })
+
+  it('collects only pending run_subagent calls as running payloads keyed by toolCallId', () => {
+    const runs = extractRunningSubagentRuns([
+      call('run-1', 'Investigate the server architecture'),
+      call('done-1', 'Done task'),
+      { role: 'toolResult', toolName: 'run_subagent', toolCallId: 'done-1', content: [{ type: 'text', text: 'done' }] },
+      { role: 'assistant', content: [{ type: 'toolCall', id: 'other-1', name: 'read_file', arguments: { path: 'a.ts' } }] },
+    ], new Set(['run-1', 'other-1']), 'compact', t)
+
+    expect(runs).toHaveLength(1)
+    expect(runs[0].runId).toBe('run-1')
+    expect(runs[0].canonicalToolCallId).toBe('run-1')
+    expect(runs[0].status).toBe('running')
+    expect(runs[0].task).toBe('Investigate the server architecture')
+    expect(runs[0].label).toBe('Explore')
+  })
+
+  it('falls back through params subagent name/label like the shared payload builder', () => {
+    const runs = extractRunningSubagentRuns([
+      call('general-1', 'General task', 'general'),
+      call('custom-1', 'Custom task', { name: 'reviewer', label: 'Reviewer' }),
+    ], new Set(['general-1', 'custom-1']), 'compact', t)
+
+    expect(runs.map((run) => [run.runId, run.name, run.label])).toEqual([
+      ['general-1', 'general', 'General'],
+      ['custom-1', 'reviewer', 'Reviewer'],
+    ])
+  })
+
+  it('returns nothing without pending tool calls and deduplicates repeated call blocks by id', () => {
+    expect(extractRunningSubagentRuns([call('run-1', 'Task')], undefined, 'compact', t)).toEqual([])
+    expect(extractRunningSubagentRuns([call('run-1', 'Task')], new Set(), 'compact', t)).toEqual([])
+
+    const runs = extractRunningSubagentRuns([
+      call('run-1', 'First task'),
+      call('run-2', 'Second task'),
+      call('run-1', 'First task retried'),
+    ], new Set(['run-1', 'run-2']), 'compact', t)
+
+    expect(runs.map((run) => run.runId)).toEqual(['run-1', 'run-2'])
+    expect(runs.map((run) => run.task)).toEqual(['First task retried', 'Second task'])
   })
 })
 

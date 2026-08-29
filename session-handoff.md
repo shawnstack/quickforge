@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：pinned-summary-subagent-sections（已完成，已提交）
+
+- 目标：按用户确认的简约双小节设计，把 `GitToolsPinnedSummary` 的 Subagent 分组改为「运行中」（默认展开）+「已结束 · N」（默认折叠、标题行整行切换）；后续文案修订：分组标题 i18n「智能体 / Agents」，Git 分组标题「Git 工具 / Git Tools」。
+- 实现：组件 Props 新增 `runningSubagentRuns`，空态判断与 App 挂载条件纳入运行中列表；Subagent 分组重写为双小节——运行中行用弱色 `Loader2 animate-spin` + 名称 + task 弱副行（无耗时），已结束行保持 ✓/✗ + 名称 + 静态耗时（Bot fallback）+ task 副行；已结束标题行 `aria-expanded` + ChevronRight/Down（size-3.5 弱色）整行切换，组件 `useState(true)` 不持久化，关闭弹层三路径均恢复折叠；两组全空隐藏整组；分组顺序/分割线/`aria-labelledby` 不变；删除「最近优先」。数据层新增 `extractRunningSubagentRuns()`（复用与终态提取共用的 `collectRunSubagentToolCalls` + `buildSubagentRunPayload(args, undefined, true, …)`，pending 集合过滤、天然去重）；App 新增 `pinnedSummaryRunningSubagentRuns` 同一 revision 计算并传入；`openSubagentRun` → Inspector 已支持 running 快照，无需适配。i18n：`pinnedSubagentsTitle`='Subagent'，新增 `pinnedSubagentsRunningSection`/`pinnedSubagentsFinishedSection`，删 `pinnedRecentFirst`。
+- 验证：定向 Vitest 3 files / 113 tests（git-tools-pinned-summary 11、subagent-run-detail 90 含新增 3、model-retry-notice 12）；定向 ESLint 6 文件 0 error；`npx tsc -b`；`feature_list.json` JSON parse；`git diff --check` 全过。未跑全量 test/lint/build。
+- 文件：`src/App.tsx`、`src/components/git/GitToolsPinnedSummary.tsx`、`src/lib/i18n.ts`、`src/lib/subagent-run-detail.ts`、`tests/frontend/git-tools-pinned-summary.test.ts`、`tests/frontend/subagent-run-detail.test.ts`、`docs/wiki/src/components/README.md`（三处同步：L28 目录树注释 / L95 详述 / L224 组件条目）、三个状态文件。
+- Blocker：无。边界：已结束仍最近 3 项；运行中行无耗时/定时器；pending 中的 run 即使残留旧 toolResult 也按运行中展示；折叠不持久化；未 commit。docs/wiki 三处已同步（实现时曾误判无需同步，冒烟时发现并修正）。
+- 下一步：用户复核设计还原度；真机冒烟运行中→已结束迁移、两种行点击打开 Inspector、弹层重开恢复折叠、两组全空隐藏、中英文。
+
+---
+
 ## 当前状态：pinned-execution-summary-groups（已完成）
 
 - 目标：将 Git、任务清单和已结束 Subagent 分组显示在右上角现有 `GitToolsPinnedSummary` 置顶摘要中；运行中 Subagent 继续留在 Composer 胶囊。用户视觉修订要求移除展开浮层顶部总标题/描述，Git 排首位并使用浅分割线。

@@ -6,12 +6,13 @@ const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'u
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 
 describe('GitToolsPinnedSummary source contract', () => {
-  it('mounts for any of tasks, terminal subagents, or Git and keeps Inspector hiding', () => {
+  it('mounts for any of tasks, running or terminal subagents, or Git and keeps Inspector hiding', () => {
     expect(appSource).toContain('!workspaceInspectorOpen && (')
     expect(appSource).toContain('pinnedSummaryTodos.length > 0')
     expect(appSource).toContain('pinnedSummarySubagentRuns.length > 0')
+    expect(appSource).toContain('pinnedSummaryRunningSubagentRuns.length > 0')
     expect(appSource).toContain('titleGitStatus?.isGitRepository')
-    expect(summarySource).toContain('if (todos.length === 0 && finishedSubagentRuns.length === 0 && !hasGitSection) return null')
+    expect(summarySource).toContain('if (todos.length === 0 && runningSubagentRuns.length === 0 && finishedSubagentRuns.length === 0 && !hasGitSection) return null')
     expect(summarySource).toContain('status?.isGitRepository && projectId')
   })
 
@@ -49,16 +50,39 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(summarySource).toContain('<X className="size-4" />')
   })
 
-  it('renders actual groups in Git, Todo, then finished Subagent order', () => {
+  it('renders actual groups in Git, Todo, then Subagent order with running before finished', () => {
     const git = summarySource.indexOf('aria-labelledby="pinned-environment-title"')
     const todo = summarySource.indexOf('aria-labelledby="pinned-tasks-title"')
     const subagent = summarySource.indexOf('aria-labelledby="pinned-subagents-title"')
+    const running = summarySource.indexOf("t('pinnedSubagentsRunningSection')")
+    const finished = summarySource.indexOf("t('pinnedSubagentsFinishedSection')")
     expect(git).toBeGreaterThan(-1)
     expect(todo).toBeGreaterThan(git)
     expect(subagent).toBeGreaterThan(todo)
+    expect(running).toBeGreaterThan(subagent)
+    expect(finished).toBeGreaterThan(running)
     expect(summarySource).toContain("{t('gitToolsTitle')}")
     expect(summarySource).toContain('gap-3 pr-8 text-xs')
-    expect(summarySource).toContain("<span>{t('pinnedRecentFirst')}</span>")
+  })
+
+  it('collapses the finished section by default behind a full-row chevron toggle and resets on reopen', () => {
+    expect(summarySource).toContain('useState(true)')
+    expect(summarySource).toContain('setFinishedSubagentRunsCollapsed((value) => !value)')
+    expect(summarySource).toContain('aria-expanded={!finishedSubagentRunsCollapsed}')
+    expect(summarySource).toContain("<ChevronRight className=\"size-3.5 shrink-0 text-muted-foreground/85\"")
+    expect(summarySource).toContain("<ChevronDown className=\"size-3.5 shrink-0 text-muted-foreground/85\"")
+    expect(summarySource).toContain('!finishedSubagentRunsCollapsed ? (')
+    expect(summarySource).toContain("t('pinnedSubagentsFinishedSection')} · {finishedSubagentRuns.length}")
+    expect(summarySource).not.toContain("t('pinnedRecentFirst')")
+    // 关闭弹层的三条路径（外部点击/Escape、toggle、X）都恢复默认折叠。
+    expect(summarySource.match(/setFinishedSubagentRunsCollapsed\(true\)/g)).toHaveLength(3)
+  })
+
+  it('shows running rows with a muted spinner and feeds both lists from App', () => {
+    expect(summarySource).toContain("<Loader2 className=\"size-4 shrink-0 animate-spin text-muted-foreground/65\"")
+    expect(summarySource).toContain("t('pinnedSubagentsRunningSection')")
+    expect(appSource).toContain('runningSubagentRuns={pinnedSummaryRunningSubagentRuns}')
+    expect(appSource).toContain('extractRunningSubagentRuns(')
   })
 
   it('uses no divider on the first actual group and shallow compact dividers afterwards', () => {
@@ -85,7 +109,8 @@ describe('GitToolsPinnedSummary source contract', () => {
       'pinnedSummaryCollapse',
       'pinnedTasksTitle',
       'pinnedSubagentsTitle',
-      'pinnedRecentFirst',
+      'pinnedSubagentsRunningSection',
+      'pinnedSubagentsFinishedSection',
       'pinnedViewAllTasks',
       'pinnedCollapseTasks',
       'pinnedSubagentOpenAria',
@@ -93,9 +118,12 @@ describe('GitToolsPinnedSummary source contract', () => {
     ]) {
       expect(i18nSource.match(new RegExp(`${key}:`, 'g'))).toHaveLength(2)
     }
-    for (const removedKey of ['pinnedSummaryTitle', 'pinnedSummaryDescription', 'environmentInfo']) {
+    for (const removedKey of ['pinnedSummaryTitle', 'pinnedSummaryDescription', 'environmentInfo', 'pinnedRecentFirst']) {
       expect(i18nSource).not.toContain(`${removedKey}:`)
     }
-    expect(i18nSource.match(/gitToolsTitle: 'Git'/g)).toHaveLength(2)
+    expect(i18nSource.match(/gitToolsTitle: 'Git Tools'/g)).toHaveLength(1)
+    expect(i18nSource.match(/gitToolsTitle: 'Git 工具'/g)).toHaveLength(1)
+    expect(i18nSource.match(/pinnedSubagentsTitle: 'Agents'/g)).toHaveLength(1)
+    expect(i18nSource.match(/pinnedSubagentsTitle: '智能体'/g)).toHaveLength(1)
   })
 })

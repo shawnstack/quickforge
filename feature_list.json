@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "project-picker-mkdir-and-roots",
+      "name": "项目目录选择器：移除 QuickForge 快捷入口并新增新建目录功能",
+      "status": "done",
+      "approach": "服务端 server/routes/filesystem.mjs 移除写死的 addRoot('QuickForge', projectRoot) 快捷入口（projectRoot 常量保留为 _activeWorkspaceRoot 默认值），快捷入口剩 Home/Desktop/Documents/Current project/盘符或 / 与 macOS 卷；浏览白名单不受影响（盘符与 / 仍覆盖安装目录路径，home 兜底保留）。提取 isPathWithinRoots 纯函数与 getAllowedRootPaths()（roots+home 兜底）供 directories 与新端点共用。新增 POST /api/filesystem/mkdir（createFilesystemDirectory：parentPath 缺失 400、名称含路径分隔符 / \\ . .. \\0 或空白 400、越界 allowedRoots 403、父目录不存在映射 404（assertDirectory 原生 400 不动共享函数，本端点内映射）、EEXIST 409、EACCES/EPERM 403，fs.mkdir recursive:false，返回 {ok,path}）；不加 local-only 守卫（用户决策：与 POST /api/project/path 同性质，Android 远程客户端可用，安全性靠白名单+名称校验）。前端 project-directory-picker.tsx 当前路径行右侧新增 FolderPlus「新建目录」按钮（sm 以下隐藏文字），点击在目录列表顶部插入内联输入 form（autoFocus、Enter 提交、Escape stopPropagation 关闭并清空、失败保留输入行供改名重试并复用现有 error 区），创建成功 loadDirectory(新路径) 直接进入；creatingFolder 状态传播禁用目录行/parent 行/新建/取消/选择按钮、Escape 关弹窗与遮罩点击关闭；创建中按钮显示专用 t('creatingDirectory')。i18n 中英成对 +4 key（createDirectory/newDirectoryNamePlaceholder/createDirectoryFailed/creatingDirectory）。",
+      "files": [
+        "server/routes/filesystem.mjs",
+        "src/components/project-directory-picker.tsx",
+        "src/lib/i18n.ts",
+        "tests/server/routes/filesystem.test.mjs",
+        "tests/frontend/project-directory-picker.test.ts",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/src/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 2 files / 21 tests 全过（新建 tests/server/routes/filesystem.test.mjs 12：roots 无 QuickForge 且 Home 为 homedir、home parent 回归、mkdir 成功+fs.stat 验证+afterEach 递归清理 home 下临时目录、重复名 409、非法名 5 组 400、缺 parentPath 400、不存在父目录 404、Windows 未挂载盘符越界 403 条件用例 POSIX 跳过并注释说明；新建 tests/frontend/project-directory-picker.test.ts 9：源码契约 FolderPlus import、POST body parentPath/name、成功进入新目录、失败保留输入行、专用 creating 文案不用 selecting、Escape stopPropagation、disabled 含 creatingFolder ≥5 处、i18n 4 key 双语言块成对、服务端无 addRoot('QuickForge' 移除守卫）；定向 ESLint 5 文件 0 error 0 warning；node --check server/routes/filesystem.mjs；npx tsc -b --pretty false；git diff --check 全过。未跑全量 test/lint/build；未 commit。"
+    },
+    {
       "id": "pinned-summary-draggable-capsule",
       "name": "GitToolsPinnedSummary 桌面端常驻 List 与 closed/capsule/panel 三态浮动摘要",
       "status": "needs-review",

@@ -16,7 +16,7 @@
 | `agent.mjs` | 558 | Agent 会话管理、消息流式处理 |
 | `storage.mjs` | 151 | 存储 CRUD 操作 |
 | `project.mjs` | 106 | 项目管理 |
-| `filesystem.mjs` | 87 | 文件系统浏览 |
+| `filesystem.mjs` | 172 | 文件系统浏览与目录创建 |
 | `tools.mjs` | 82 | 工具定义和执行 |
 | `skills.mjs` | 213 | Skills 管理 |
 | `agent-profiles.mjs` | 236 | Agent Profile 管理 API，支持 AI 填充基础定义 |
@@ -121,13 +121,16 @@ Agent 会话管理核心路由。
 - `PUT /api/project/reorder` — 按顺序重排项目列表
 - `DELETE /api/project/:projectId` — 删除项目；删除当前项目时活动项目切换到剩余列表中的后继项目，没有剩余项目时前端使用合成的默认 workspace；删除最后一个项目时后端 `workspaceRoot` 回退到默认工作区。
 
-## filesystem.mjs (87 行)
+## filesystem.mjs (172 行)
 
-文件系统浏览路由（供前端目录选择器使用）。
+文件系统浏览与目录创建路由（供前端目录选择器使用）。
+
+roots 为 Home/Desktop/Documents/Current project/盘符（Windows 枚举 A-Z 存在盘符，POSIX 为 `/` 与 macOS `/Volumes` 挂载点），已不含 QuickForge 安装目录；allowedRoots 白名单（roots + `os.homedir()` 兜底）由 directories 与 mkdir 共用。
 
 **主要端点**:
 - `GET /api/filesystem/roots` — 获取文件系统根
-- `GET /api/filesystem/list?path=...` — 列出目录内容
+- `GET /api/filesystem/directories?path=...` — 列出目录内容
+- `POST /api/filesystem/mkdir` — 在 allowedRoots 白名单内的父目录下创建子目录（名称禁止路径分隔符/`.`/`..`，已存在返回 409）
 
 ## tools.mjs (82 行)
 

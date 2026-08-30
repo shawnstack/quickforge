@@ -2,7 +2,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { sendJson } from '../utils/response.mjs'
+import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { pathExists, assertDirectory } from '../utils/workspace.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -27,7 +27,6 @@ async function getFilesystemRoots() {
   await addRoot('Home', home)
   await addRoot('Desktop', path.join(home, 'Desktop'))
   await addRoot('Documents', path.join(home, 'Documents'))
-  await addRoot('QuickForge', projectRoot)
   await addRoot('Current project', _activeWorkspaceRoot)
 
   if (process.platform === 'win32') {
@@ -50,16 +49,27 @@ async function getFilesystemRoots() {
   return roots
 }
 
+function isPathWithinRoots(resolved, allowedRoots) {
+  return allowedRoots.some((root) => {
+    const rel = path.relative(root, resolved)
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+  })
+}
+
+async function getAllowedRootPaths() {
+  const roots = await getFilesystemRoots()
+  const allowedRootPaths = roots.map((r) => path.resolve(r.path))
+  // Always allow browsing from home directory as a fallback
+  allowedRootPaths.push(os.homedir())
+  return allowedRootPaths
+}
+
 async function listFilesystemDirectories(inputPath, allowedRoots) {
   const requestedPath = String(inputPath || os.homedir())
   const resolved = path.resolve(requestedPath)
 
   // Only allow browsing within or at known filesystem roots
-  const isAllowed = allowedRoots.some((root) => {
-    const rel = path.relative(root, resolved)
-    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
-  })
-  if (!isAllowed) {
+  if (!isPathWithinRoots(resolved, allowedRoots)) {
     const error = new Error('Access denied: path is outside allowed roots')
     error.statusCode = 403
     throw error
@@ -82,6 +92,63 @@ async function listFilesystemDirectories(inputPath, allowedRoots) {
   return { path: resolved, parent, directories }
 }
 
+async function createFilesystemDirectory(parentPath, name, allowedRoots) {
+  const parent = String(parentPath || '').trim()
+  if (!parent) {
+    const error = new Error('parentPath is required')
+    error.statusCode = 400
+    throw error
+  }
+
+  const trimmed = String(name || '').trim()
+  if (
+    !trimmed
+    || trimmed.includes('/')
+    || trimmed.includes('\\')
+    || trimmed === '.'
+    || trimmed === '..'
+    || trimmed.includes('\0')
+  ) {
+    const error = new Error('Invalid directory name')
+    error.statusCode = 400
+    throw error
+  }
+
+  const resolvedParent = path.resolve(parent)
+  if (!isPathWithinRoots(resolvedParent, allowedRoots)) {
+    const error = new Error('Access denied: path is outside allowed roots')
+    error.statusCode = 403
+    throw error
+  }
+
+  try {
+    await assertDirectory(resolvedParent)
+  } catch {
+    const error = new Error(`Parent directory does not exist: ${resolvedParent}`)
+    error.statusCode = 404
+    throw error
+  }
+
+  const target = path.join(resolvedParent, trimmed)
+  try {
+    await fs.mkdir(target, { recursive: false })
+  } catch (mkdirError) {
+    if (mkdirError?.code === 'EEXIST') {
+      const error = new Error('Directory already exists')
+      error.statusCode = 409
+      throw error
+    }
+    if (mkdirError?.code === 'EACCES' || mkdirError?.code === 'EPERM') {
+      const error = new Error('Access denied: cannot create directory')
+      error.statusCode = 403
+      throw error
+    }
+    throw mkdirError
+  }
+
+  return { ok: true, path: target }
+}
+
 export async function handleFilesystemApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/filesystem/roots') {
     sendJson(res, 200, { roots: await getFilesystemRoots() })
@@ -89,11 +156,13 @@ export async function handleFilesystemApi(req, res, url) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/filesystem/directories') {
-    const roots = await getFilesystemRoots()
-    const allowedRootPaths = roots.map((r) => path.resolve(r.path))
-    // Always allow browsing from home directory as a fallback
-    allowedRootPaths.push(os.homedir())
-    sendJson(res, 200, await listFilesystemDirectories(url.searchParams.get('path'), allowedRootPaths))
+    sendJson(res, 200, await listFilesystemDirectories(url.searchParams.get('path'), await getAllowedRootPaths()))
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/filesystem/mkdir') {
+    const body = await readJsonBody(req)
+    sendJson(res, 200, await createFilesystemDirectory(body?.parentPath, body?.name, await getAllowedRootPaths()))
     return
   }
 

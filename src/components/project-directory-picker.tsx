@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, Folder, Loader2 } from 'lucide-react'
+import { ChevronLeft, Folder, FolderPlus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
@@ -44,6 +44,7 @@ export function ProjectDirectoryPicker({
   onSelect,
 }: ProjectDirectoryPickerProps) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const newFolderInputRef = useRef<HTMLInputElement>(null)
   const [roots, setRoots] = useState<FilesystemRoot[]>([])
   const [currentPath, setCurrentPath] = useState('')
   const [pathInput, setPathInput] = useState('')
@@ -51,6 +52,9 @@ export function ProjectDirectoryPicker({
   const [directories, setDirectories] = useState<DirectoryEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [showNewFolder, setShowNewFolder] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [creatingFolder, setCreatingFolder] = useState(false)
   const [error, setError] = useState('')
 
   const loadDirectory = async (path: string) => {
@@ -68,6 +72,35 @@ export function ProjectDirectoryPicker({
       setError(loadError instanceof Error ? loadError.message : t('directoryLoadFailed'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const openNewFolderInput = () => {
+    setShowNewFolder(true)
+    setNewFolderName('')
+    setError('')
+    window.setTimeout(() => newFolderInputRef.current?.focus(), 0)
+  }
+
+  const submitNewFolder = async () => {
+    const name = newFolderName.trim()
+    if (!name || creatingFolder || submitting) return
+    setCreatingFolder(true)
+    setError('')
+    try {
+      const response = await fetch('/api/filesystem/mkdir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentPath: currentPath, name }),
+      })
+      const payload = await readJsonResponse<{ ok: boolean; path: string }>(response)
+      setShowNewFolder(false)
+      setNewFolderName('')
+      await loadDirectory(payload.path)
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : t('createDirectoryFailed'))
+    } finally {
+      setCreatingFolder(false)
     }
   }
 
@@ -103,11 +136,11 @@ export function ProjectDirectoryPicker({
   useEffect(() => {
     if (!open) return
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !submitting) onOpenChange(false)
+      if (event.key === 'Escape' && !submitting && !creatingFolder) onOpenChange(false)
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [onOpenChange, open, submitting])
+  }, [creatingFolder, onOpenChange, open, submitting])
 
   if (!open) return null
 
@@ -130,7 +163,7 @@ export function ProjectDirectoryPicker({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(event) => {
-        if (event.target === event.currentTarget && !submitting) onOpenChange(false)
+        if (event.target === event.currentTarget && !submitting && !creatingFolder) onOpenChange(false)
       }}
     >
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-quickforge">
@@ -196,16 +229,59 @@ export function ProjectDirectoryPicker({
               <div className="min-w-0 truncate text-sm font-medium" title={currentPath}>
                 {currentPath || t('loading')}
               </div>
-              {loading ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={loading || submitting || creatingFolder || !currentPath}
+                  onClick={openNewFolderInput}
+                >
+                  <FolderPlus className="size-4" />
+                  <span className="hidden sm:inline">{t('createDirectory')}</span>
+                </Button>
+                {loading ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+              </div>
             </div>
 
             <div className="max-h-80 overflow-y-auto p-1">
+              {showNewFolder ? (
+                <form
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void submitNewFolder()
+                  }}
+                >
+                  <FolderPlus className="size-4 shrink-0 text-muted-foreground" />
+                  <input
+                    ref={newFolderInputRef}
+                    className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={newFolderName}
+                    onChange={(event) => setNewFolderName(event.target.value)}
+                    placeholder={t('newDirectoryNamePlaceholder')}
+                    disabled={loading || submitting || creatingFolder}
+                    autoFocus
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.stopPropagation()
+                        setShowNewFolder(false)
+                        setNewFolderName('')
+                      }
+                    }}
+                  />
+                  <Button type="submit" variant="outline" size="sm" disabled={creatingFolder || !newFolderName.trim()}>
+                    {creatingFolder ? t('creatingDirectory') : t('createDirectory')}
+                  </Button>
+                </form>
+              ) : null}
+
               {parentPath ? (
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted/28 disabled:opacity-50"
                   onClick={() => loadDirectory(parentPath)}
-                  disabled={loading || submitting}
+                  disabled={loading || submitting || creatingFolder}
                 >
                   <ChevronLeft className="size-4 text-muted-foreground" />
                   <span>{t('parentDirectory')}</span>
@@ -222,7 +298,7 @@ export function ProjectDirectoryPicker({
                   type="button"
                   className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted/28 disabled:opacity-50"
                   onClick={() => loadDirectory(directory.path)}
-                  disabled={loading || submitting}
+                  disabled={loading || submitting || creatingFolder}
                   title={directory.path}
                 >
                   <Folder className="size-4 shrink-0 text-muted-foreground" />
@@ -234,10 +310,10 @@ export function ProjectDirectoryPicker({
         </div>
 
         <div className="flex justify-end gap-2 border-t border-border p-4">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting || creatingFolder}>
             {t('cancel')}
           </Button>
-          <Button type="button" onClick={selectCurrentPath} disabled={loading || submitting || disabled || !(pathInput.trim() || currentPath)}>
+          <Button type="button" onClick={selectCurrentPath} disabled={loading || submitting || creatingFolder || disabled || !(pathInput.trim() || currentPath)}>
             {submitting ? t('selecting') : t('selectThisFolder')}
           </Button>
         </div>

@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：project-picker-mkdir-and-roots（已完成，未提交）
+
+- 目标：项目目录选择器「快捷入口」移除 QuickForge 安装目录入口，并新增「新建目录」功能（当前路径行右侧按钮 + 内联输入，成功后直接进入新目录；端点不加 local-only 守卫，Android 远程客户端可用）。
+- 实现：`server/routes/filesystem.mjs`（172 行）删 `addRoot('QuickForge', ...)`、提取 `isPathWithinRoots`/`getAllowedRootPaths()`、新增 `POST /api/filesystem/mkdir`（400/403/404/409 校验链，mkdir recursive:false）；`src/components/project-directory-picker.tsx` 新建按钮 + 内联输入 form + creatingFolder 禁用传播；`src/lib/i18n.ts` +4 key 中英成对；新建 `tests/server/routes/filesystem.test.mjs`（12）与 `tests/frontend/project-directory-picker.test.ts`（9 契约）；wiki server/routes（修正过时 list→directories、补 mkdir）与 src/README picker 条目同步。
+- 验证：定向 vitest 2 files / 21 tests、ESLint 5 文件 0 error、node --check、tsc -b、git diff --check 全过；未跑全量 test/lint/build；未 commit。
+- 文件：server/routes/filesystem.mjs、src/components/project-directory-picker.tsx、src/lib/i18n.ts、tests/server/routes/filesystem.test.mjs（新）、tests/frontend/project-directory-picker.test.ts（新）、docs/wiki/server/routes/README.md、docs/wiki/src/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。Notes：① assertDirectory 原生抛 400，本端点内映射为 404（父目录不存在语义），共享函数未动；② Windows 越界 403 测试为条件用例（需存在未挂载盘符），POSIX 跳过已注释说明；③ 工作区另有 pinned-summary-draggable-capsule（needs-review）等未提交改动及 oom-analysis-diagram.svg 未跟踪文件，与本 feature 无关，commit 时需分开。
+- 下一步：真机冒烟（快捷入口无 QuickForge；新建目录全流程：成功进入/重名 409/非法名 400/失败保留输入行；创建期间禁用态）。
+
+---
+
 ## 当前状态：pinned-summary-draggable-capsule（待用户真机复核，已随单 commit 提交）
 
 - 目标：保持既有顶部 List + desktop closed/capsule/panel 三态与可靠拖动，并修复打开/关闭右侧 WorkspaceInspector 后摘要状态与位置丢失。

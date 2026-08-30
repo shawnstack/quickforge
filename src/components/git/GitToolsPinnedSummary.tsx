@@ -149,7 +149,6 @@ export function GitToolsPinnedSummary({
   const suppressClickRef = useRef(false)
   const dragFrameRef = useRef<number | null>(null)
   const responsiveCleanupFrameRef = useRef<number | null>(null)
-  const suspensionCleanupFrameRef = useRef<number | null>(null)
   const positionRef = useRef<PinnedSummaryPosition | undefined>(undefined)
   const previousBodyUserSelectRef = useRef<string | null>(null)
   const dragTrackingCleanupRef = useRef<(() => void) | null>(null)
@@ -445,7 +444,6 @@ export function GitToolsPinnedSummary({
 
   useEffect(() => {
     if (!suspended) return
-    clearCloseAnimationTimer()
     clearFocusFrame()
     finishDrag()
     if (responsiveCleanupFrameRef.current !== null) {
@@ -456,17 +454,8 @@ export function GitToolsPinnedSummary({
       window.cancelAnimationFrame(dragFrameRef.current)
       dragFrameRef.current = null
     }
-    const frame = window.requestAnimationFrame(() => {
-      suspensionCleanupFrameRef.current = null
-      setBranchMenuOpen(false)
-      setDesktopWidgetClosing(false)
-    })
-    suspensionCleanupFrameRef.current = frame
-    return () => {
-      if (suspensionCleanupFrameRef.current === frame) suspensionCleanupFrameRef.current = null
-      window.cancelAnimationFrame(frame)
-    }
-  }, [clearCloseAnimationTimer, clearFocusFrame, finishDrag, suspended])
+    queueMicrotask(() => setBranchMenuOpen(false))
+  }, [clearFocusFrame, finishDrag, suspended])
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return undefined
@@ -626,7 +615,6 @@ export function GitToolsPinnedSummary({
     clearFocusFrame()
     finishDrag()
     if (responsiveCleanupFrameRef.current !== null) window.cancelAnimationFrame(responsiveCleanupFrameRef.current)
-    if (suspensionCleanupFrameRef.current !== null) window.cancelAnimationFrame(suspensionCleanupFrameRef.current)
     if (dragFrameRef.current !== null) window.cancelAnimationFrame(dragFrameRef.current)
     restoreDragBodyStyle()
   }, [clearCloseAnimationTimer, clearFocusFrame, finishDrag, restoreDragBodyStyle])

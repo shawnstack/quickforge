@@ -3,6 +3,7 @@ import {
   clampPinnedSummaryPosition,
   getPinnedSummaryOutsideAction,
   hasPinnedSummaryDragThreshold,
+  shouldClosePinnedSummaryBeforeInspectorOpen,
   shouldSuspendPinnedSummary,
 } from '../../src/lib/pinned-summary-drag'
 
@@ -35,6 +36,11 @@ describe('pinned summary drag helpers', () => {
     expect(shouldSuspendPinnedSummary({ inspectorOpen: false, desktopInspectorViewport: true, mobileShell: false })).toBe(false)
     expect(shouldSuspendPinnedSummary({ inspectorOpen: true, desktopInspectorViewport: false, mobileShell: false })).toBe(false)
     expect(shouldSuspendPinnedSummary({ inspectorOpen: true, desktopInspectorViewport: true, mobileShell: true })).toBe(false)
+  })
+
+  it('keeps summary state only when the upcoming Inspector layout can suspend it', () => {
+    expect(shouldClosePinnedSummaryBeforeInspectorOpen(true)).toBe(false)
+    expect(shouldClosePinnedSummaryBeforeInspectorOpen(false)).toBe(true)
   })
 
   it('maps outside presses to desktop panel minimization while keeping capsules resident', () => {

@@ -118,7 +118,10 @@ import { RemoteTunnelOverlay } from '@/components/mobile/RemoteTunnelOverlay'
 import { isCloudTunnelClient, isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
 import { initializeSystemNotifications, showTaskSystemNotification } from '@/lib/system-notifications'
 import { resolveChatHarnessCapabilities } from '@/lib/chat-harness-capabilities'
-import { shouldSuspendPinnedSummary } from '@/lib/pinned-summary-drag'
+import {
+  shouldClosePinnedSummaryBeforeInspectorOpen,
+  shouldSuspendPinnedSummary,
+} from '@/lib/pinned-summary-drag'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 
 // --- Code-split secondary views (only loaded when first opened) ---
@@ -516,14 +519,15 @@ function MainApp() {
     return () => query.removeEventListener('change', update)
   }, [])
 
-  const pinnedSummarySuspended = useMemo(
+  const canSuspendPinnedSummaryOnInspectorOpen = useMemo(
     () => shouldSuspendPinnedSummary({
-      inspectorOpen: workspaceInspectorOpen,
+      inspectorOpen: true,
       desktopInspectorViewport,
       mobileShell,
     }),
-    [workspaceInspectorOpen, desktopInspectorViewport, mobileShell],
+    [desktopInspectorViewport, mobileShell],
   )
+  const pinnedSummarySuspended = workspaceInspectorOpen && canSuspendPinnedSummaryOnInspectorOpen
 
   useEffect(() => {
     const agent = agentManager.agent
@@ -1794,9 +1798,15 @@ function MainApp() {
           suspended={pinnedSummarySuspended}
           onExpandedChange={setGitToolsExpanded}
           onOpenSubagentRun={(payload) => {
+            if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {
+              setGitToolsExpanded(false)
+            }
             openSubagentRun(payload)
           }}
           onOpenChanges={() => {
+            if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {
+              setGitToolsExpanded(false)
+            }
             openWorkspaceGitChanges()
           }}
           onOpenCommitPush={() => {
@@ -1836,6 +1846,9 @@ function MainApp() {
           if (workspaceInspectorOpen) {
             setWorkspaceInspectorOpen(false)
           } else {
+            if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {
+              setGitToolsExpanded(false)
+            }
             setWorkspaceInspectorOpen(true)
           }
         }}

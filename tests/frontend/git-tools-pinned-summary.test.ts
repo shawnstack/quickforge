@@ -17,11 +17,12 @@ function desktopWidgetBlock() {
 describe('GitToolsPinnedSummary source contract', () => {
   it('keeps the summary mounted only while the real desktop Inspector sidebar suspends it', () => {
     expect(appSource).toContain("window.matchMedia('(min-width: 1024px)')")
-    expect(appSource).toContain('const pinnedSummarySuspended = useMemo(')
+    expect(appSource).toContain('const canSuspendPinnedSummaryOnInspectorOpen = useMemo(')
     expect(appSource).toContain('() => shouldSuspendPinnedSummary({')
-    expect(appSource).toContain('inspectorOpen: workspaceInspectorOpen')
+    expect(appSource).toContain('inspectorOpen: true')
     expect(appSource).toContain('desktopInspectorViewport')
     expect(appSource).toContain('mobileShell')
+    expect(appSource).toContain('const pinnedSummarySuspended = workspaceInspectorOpen && canSuspendPinnedSummaryOnInspectorOpen')
     expect(appSource).toContain('!workspaceInspectorOpen\n        || pinnedSummarySuspended')
     expect(appSource).toContain('suspended={pinnedSummarySuspended}')
     expect(appSource).toContain('pinnedSummaryTodos.length > 0')
@@ -42,25 +43,33 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(summarySource).not.toContain("suspended && 'opacity-0'")
   })
 
-  it('pauses summary side effects without resetting logical mode, position, task expansion, or agent folding', () => {
+  it('pauses temporary interactions without cancelling an explicit close timer or normalizing mounted state', () => {
     const suspensionEffect = summarySource.slice(
       summarySource.indexOf('if (!suspended) return'),
       summarySource.indexOf("if (typeof window.matchMedia !== 'function')", summarySource.indexOf('if (!suspended) return')),
     )
-    expect(suspensionEffect).toContain('clearCloseAnimationTimer()')
     expect(suspensionEffect).toContain('clearFocusFrame()')
     expect(suspensionEffect).toContain('finishDrag()')
     expect(suspensionEffect).toContain('window.cancelAnimationFrame(responsiveCleanupFrameRef.current)')
     expect(suspensionEffect).toContain('window.cancelAnimationFrame(dragFrameRef.current)')
-    expect(suspensionEffect).toContain('setBranchMenuOpen(false)')
-    expect(suspensionEffect).toContain('setDesktopWidgetClosing(false)')
-    expect(suspensionEffect).toContain('const frame = window.requestAnimationFrame(() => {')
-    expect(suspensionEffect).toContain('suspensionCleanupFrameRef.current = frame')
+    expect(suspensionEffect).toContain('queueMicrotask(() => setBranchMenuOpen(false))')
+    expect(suspensionEffect).not.toContain('clearCloseAnimationTimer()')
+    expect(suspensionEffect).not.toContain('setDesktopWidgetClosing(')
+    expect(suspensionEffect).not.toContain('setDesktopWidgetMounted(')
+    expect(suspensionEffect).not.toContain('requestAnimationFrame(')
+    expect(suspensionEffect).toContain('queueMicrotask(')
     expect(suspensionEffect).not.toContain('setPosition(')
     expect(suspensionEffect).not.toContain('setCapsuleVisible(')
     expect(suspensionEffect).not.toContain('setExpandedTasksSignature(')
     expect(suspensionEffect).not.toContain('setFinishedSubagentRunsCollapsed(')
     expect(suspensionEffect).not.toContain('onExpandedChange(')
+    expect(summarySource).not.toContain('normalizePinnedSummaryMountedForSuspension')
+    expect(summarySource).not.toContain('suspensionCleanupFrameRef')
+    const unmountCleanup = summarySource.slice(
+      summarySource.indexOf('useEffect(() => () => {'),
+      summarySource.indexOf('if (todos.length === 0', summarySource.indexOf('useEffect(() => () => {')),
+    )
+    expect(unmountCleanup).toContain('clearCloseAnimationTimer()')
     expect(summarySource).toContain('if (!floatingSummaryVisible || suspended) return')
     expect(summarySource).toContain('if (!desktopDraggable || suspended) return\n    window.addEventListener(\'resize\', clampCurrentPosition)')
     expect(summarySource).toContain('if (!desktopDraggable || !desktopWidgetMounted || suspended) return undefined')
@@ -85,7 +94,24 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(summarySource.indexOf("target?.closest('[data-pinned-summary-inspector-toggle=\"true\"]')")).toBeLessThan(summarySource.indexOf('getPinnedSummaryOutsideAction(desktopDraggable, desktopMode)'))
   })
 
-  it('keeps Inspector-opening summary actions reversible while Commit/Push still closes permanently', () => {
+  it('uses the same future suspension capability for the direct PanelRight open branch and leaves close untouched', () => {
+    const panelRightClick = appSource.slice(
+      appSource.indexOf('onClick={() => {', appSource.indexOf('data-pinned-summary-inspector-toggle="true"') - 600),
+      appSource.indexOf('data-pinned-summary-inspector-toggle="true"'),
+    )
+    const closeBranch = panelRightClick.slice(
+      panelRightClick.indexOf('if (workspaceInspectorOpen) {'),
+      panelRightClick.indexOf('} else {'),
+    )
+    const openBranch = panelRightClick.slice(panelRightClick.indexOf('} else {'))
+    expect(closeBranch).toContain('setWorkspaceInspectorOpen(false)')
+    expect(closeBranch).not.toContain('setGitToolsExpanded(false)')
+    expect(openBranch).toContain('if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {')
+    expect(openBranch).toContain('setGitToolsExpanded(false)')
+    expect(openBranch.indexOf('setGitToolsExpanded(false)')).toBeLessThan(openBranch.indexOf('setWorkspaceInspectorOpen(true)'))
+  })
+
+  it('closes mobile and overlay summaries before Inspector actions but preserves the desktop suspended panel; Commit/Push always closes', () => {
     const subagentCallback = appSource.slice(
       appSource.indexOf('onOpenSubagentRun={(payload) => {'),
       appSource.indexOf('onOpenChanges={() => {'),
@@ -98,10 +124,12 @@ describe('GitToolsPinnedSummary source contract', () => {
       appSource.indexOf('onOpenCommitPush={() => {'),
       appSource.indexOf('onCheckout={handleCheckoutTitleBranch}'),
     )
+    for (const callback of [subagentCallback, changesCallback]) {
+      expect(callback).toContain('if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {')
+      expect(callback).toContain('setGitToolsExpanded(false)')
+    }
     expect(subagentCallback).toContain('openSubagentRun(payload)')
-    expect(subagentCallback).not.toContain('setGitToolsExpanded(false)')
     expect(changesCallback).toContain('openWorkspaceGitChanges()')
-    expect(changesCallback).not.toContain('setGitToolsExpanded(false)')
     expect(commitCallback).toContain('setGitToolsExpanded(false)')
     expect(commitCallback).toContain('setGitCommitDialogOpen(true)')
   })

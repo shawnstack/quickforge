@@ -50,6 +50,10 @@ export function shouldSuspendPinnedSummary({
   return inspectorOpen && desktopInspectorViewport && !mobileShell
 }
 
+export function shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen: boolean) {
+  return !canSuspendPinnedSummaryOnInspectorOpen
+}
+
 export function getPinnedSummaryOutsideAction(
   desktopDraggable: boolean,
   mode: 'panel' | 'capsule' | 'closed',

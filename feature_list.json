@@ -1,6 +1,66 @@
 {
   "features": [
     {
+      "id": "pinned-summary-draggable-capsule",
+      "name": "GitToolsPinnedSummary 桌面端常驻 List 与 closed/capsule/panel 三态浮动摘要",
+      "status": "needs-review",
+      "approach": "在既有 closed/capsule/panel 三态与可靠拖动上做最小往返恢复：App 用与 WorkspaceInspector 完全一致的 (min-width:1024px) 判定，并仅在 Inspector open、>=1024px、非 mobileShell 时继续挂载 GitToolsPinnedSummary 且传 suspended；<1024px/mobileShell 保持原卸载和全屏 overlay。suspended 不改变 expanded/capsule/position/mounted、Todo 展开或智能体折叠，toolbar root 与 desktop fixed widget 同时 hidden/inert/aria-hidden；暂停时停用 outside/Escape/resize/ResizeObserver，结束 drag 并清 window pointer listeners/capture/body userSelect/rAF，关闭 branchMenu 与 pending closing/focus，不回焦。恢复时用当前 panel/capsule 的 offsetWidth/offsetHeight 目标布局尺寸重新 clamp 到 12px 安全区，不 open/minimize、不抢焦点。PanelRight 按钮提供显式 marker，summary document pointerdown 优先忽略，消除 panel 预先缩成 capsule 竞态；Git Changes/Subagent Inspector 路径不再 setGitToolsExpanded(false)，Commit/Push 仍保持关闭。无 localStorage、无 App 完整状态提升、无新依赖。",
+      "files": [
+        "design-mockups/pinned-summary-drag-capsule.html",
+        "src/App.tsx",
+        "src/components/git/GitToolsPinnedSummary.tsx",
+        "src/lib/pinned-summary-drag.ts",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/frontend/pinned-summary-drag.test.ts",
+        "tests/frontend/git-tools-pinned-summary.test.ts",
+        "tests/frontend/todo-write-renderer.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "相关 Vitest：10 files / 175 tests 全过（pinned summary 22、drag 5、workspace inspector tabs/width/request/on-demand、mobile fullscreen、side chat、subagent detail）；定向 ESLint：GitToolsPinnedSummary/pinned-summary-drag/两测试 0 error；Revision（提交门禁修正）：初判「App.tsx 20 个 memoization error 与本 feature 无关」有误——渲染路径直呼 shouldSuspendPinnedSummary 使 React Compiler 对 MainApp 整体 Compilation Skipped（单文件 stash 对照 HEAD 干净），修复为 useMemo 包裹调用，并以 useState(false)+effect 内 update() 校准替代 matchMedia lazy initializer（对齐 WorkspaceInspector 模式），契约断言同步；另修 todo-write-renderer.test.ts 的 CSS block 提取上界（index.css 末尾追加的 pinned-summary 段 position:absolute 误入 todo 布局断言区间）；npx tsc -b --pretty false 通过；npm run build 通过（仅既有 KaTeX 字体与 chunk size warnings）；feature_list.json JSON parse 与 git diff --check 通过。测试边界：pinned-summary-drag 是纯函数真实判定测试；git-tools-pinned-summary 是源码契约测试，不是 React 挂载点击/拖动测试。状态保持 needs-review；真机矩阵：closed→sidebar→closed、capsule/panel 原位恢复、PanelRight 不预先 minimize、Git Changes/Subagent 可恢复、Commit/Push 关闭、mobile 不变、隐藏期间 Escape/外点/resize 无影响、drag 清理完整、视口变化 12px clamp 且不抢焦点。提交门禁：全量 npm run test → 271 files / 2530 passed + 1 既有失败（tests/server/cloud/qf-agent-process.test.mjs「keeps the restart budget bounded when newly isolated identities keep getting rejected」，单文件 stash 对照确认 HEAD 同样失败、与本次改动无关，该文件历史亦有定时器波动记录）；npm run lint → 0 errors（identity.mjs 既有 warning）；npm run build → 通过（仅既有 KaTeX/chunk 警告）。"
+    },
+    {
+      "id": "p0-subagent-observability",
+      "name": "P0 Subagent 可观测性：生命周期、AI stream 关联与 SSE 失败日志",
+      "status": "done",
+      "approach": "最小化增加 Subagent 行车记录仪：run_subagent execute 透传 toolCallId 至 runSubagent；profile/task/workspace/model 等前置校验通过后立即生成 subagentSessionId 并记录 started，后续模型解析、工具创建、system prompt、Agent 构造或 prompt 任一失败由终态守卫只记录一个 failed；保持 timeout_triggered、parent_aborted、settled_after_abort、completed 既有语义和不重复终态日志。统一关联 parentSessionId/subagentSessionId/toolCallId/subagent，并带 timeoutMs/durationMs/toolCalls，abort 后 settle 记录 waitAfterAbortMs/outcome。日志严格白名单，不记录 task/context/messages/system prompt/工具参数结果/profilePath/完整错误正文。Subagent 内部 streamSimpleWithAiHttpLogging 显式传 quickforgeInternalLogContext，ai-http-logger 规范化为安全关联字段并在调用 provider streamSimple 前删除；retry/timeout WARN 带同一关联字段。session/global SSE 的 keepalive/event 写失败及 request/response socket error 增结构化 WARN，并以连接级幂等守卫确保一次连接故障只 WARN 一次、cleanup/release/end 只执行一次；正常 close 不记 failure，不含 event payload，协议不变。",
+      "files": [
+        "server/agent-manager.mjs",
+        "server/ai-http-logger.mjs",
+        "server/routes/agent.mjs",
+        "tests/server/agent-manager.subagents.test.mjs",
+        "tests/server/ai-http-logger.test.mjs",
+        "tests/server/routes/agent.test.mjs",
+        "docs/architecture/logging-design.zh-CN.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 三文件共 47 tests 全过：tests/server/agent-manager.subagents.test.mjs 10（含真实调用 MockAgent streamFn 的 quickforgeInternalLogContext 接线断言与 Agent 构造初始化失败 started→唯一 failed）、tests/server/ai-http-logger.test.mjs 21、tests/server/routes/agent.test.mjs 16（含重复 error 只 WARN/cleanup/release/end 一次）；定向 ESLint 6 个相关源码/测试文件 0 error；node --check 三个服务端模块通过；git diff --check 通过；未跑全量 test/lint/build；未 commit。"
+    },
+    {
+      "id": "subagent-running-icon-badge",
+      "name": "Subagent 运行指示器改为 Bot 图标+数量角标并修复菜单 hover 闪烁",
+      "status": "done",
+      "approach": "用户确认将 Composer 旁「绿色 spinner+数字+运行中」胶囊改为静态 Bot 图标 + icon 右上角 emerald 数量角标（无动画），并修复悬停运行列表时界面闪烁。闪烁根因有二：① renderMenuItems 每轮 decorate 都 menu.replaceChildren 全量重建菜单项，流式期间每个 delta 触发 rAF 装饰，hover 元素被替换导致 :hover 闪断；② Lit 重建 leftControls 时 trigger 元素换新，旧菜单因 __quickforgeOwnerTrigger !== trigger 被整体拆除。实现：subagent-running-indicator.ts 新增模块级 BOT_ICON_SVG（与项目实际安装 lucide-react v1.11.0 的 Bot 节点及聊天 run_subagent 摘要卡 local-tools.ts:539 完全同款的天线+方头+双耳+双眼 SVG，14×14，currentColor stroke；Revision：初版误用 lucide 旧版 bot path，用户反馈「机器人 icon 不对」后对齐），trigger 子结构改为 icon 容器 span（innerHTML=SVG）+ 角标 span（textContent=runs.length），保持按类名 querySelector 复用、缺失才 replaceChildren 重建，删除 spinner/count/label 与 TriggerLabel 文案；renderMenuItems 改为按 runId 就地 diff——heading/list 首次创建后复用，从 list 现有子元素建 Map<runId,item>，遍历当前 runs 复用/新建 item 并仅在字段不一致时更新 label/task 文本、elapsed dataset 与文本、aria-label，onclick 重绑（属性赋值安全），insertBefore 仅乱序时移动，消失的 runId 元素删除；trigger 查不到而新建时不再 removeSubagentRunningIndicatorMenu，改为在 ownedMenu 归属同 panel 时同步 __quickforgeOwnerTrigger 为新 trigger 并继续 renderMenuItems（菜单保持打开），dismiss/positionMenu 闭包同步改为读取菜单当前 ownerTrigger 而非捕获旧引用。index.css：trigger 改 position:relative + width:2rem + padding:0，删除 spinner（含 dark/reduced-motion）与 count 样式段，新增 icon（flex 居中）与 badge（参照 scroll-bottom-badge 模式：absolute -0.3rem 偏移、emerald 背景、白字、dark 变体 rgb(52 211 153)/rgb(5 46 31)）；移动端 @media 与 compact 段中 label 隐藏/宽度收缩规则随 label 删除而移除，三控件共用胶囊基础规则保留。i18n 删除 subagentRunningIndicatorTriggerLabel（en/zh），其余 5 key 保留。测试更新受影响断言并新增 3 个防回归用例：多次 decorate 后同 runId item/heading 元素身份 toBe 保持、runId 增删与顺序、trigger 重建后菜单保留且 ownerTrigger 更新。文案修订（用户要求更简短、中文统一「智能体」）：TriggerAria/MenuTitle/MenuAria 改为「{count} 个智能体运行中」「智能体运行中 · {count}」「智能体运行中」，英文对应 '{count} agents running'/'Agents running · {count}'/'Agents running'。",
+      "files": [
+        "src/components/chat/panel-decoration/subagent-running-indicator.ts",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/subagent-running-indicator.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 3 files / 109 tests 全过（subagent-running-indicator 10 含新增 3、chat-compact-controls 9、subagent-run-detail 90）；定向 ESLint 改动 ts 文件 0 error（index.css 被 eslint 配置忽略，属预期）；npx tsc -b --pretty false 通过；npm run build 通过（仅既有 KaTeX 字体与 chunk size 警告）；feature_list.json JSON parse 通过；git diff --check 通过。未跑全量 npm run test / npm run lint；未 commit。"
+    },
+    {
       "id": "pinned-summary-subagent-sections",
       "name": "置顶摘要 Subagent 分组改为「运行中/已结束」双小节",
       "status": "done",

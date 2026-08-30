@@ -6,6 +6,7 @@ import path from 'node:path'
 const mocks = vi.hoisted(() => ({
   streamSimple: vi.fn(),
   resolveManagedCloudProvider: vi.fn(),
+  logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
 
 vi.mock('../../server/cloud/runtime.mjs', () => ({
@@ -15,6 +16,7 @@ vi.mock('../../server/cloud/runtime.mjs', () => ({
 vi.mock('@earendil-works/pi-ai/compat', () => ({
   streamSimple: mocks.streamSimple,
 }))
+vi.mock('../../server/utils/logger.mjs', () => ({ logger: mocks.logger }))
 
 function controlledStream() {
   const queue = []
@@ -88,6 +90,7 @@ describe('AI stream deadline', () => {
     vi.useFakeTimers()
     mocks.streamSimple.mockReset()
     mocks.resolveManagedCloudProvider.mockReset()
+    for (const method of Object.values(mocks.logger)) method.mockReset()
     mocks.streamSimple.mockReturnValue(controlledStream().stream)
   })
 
@@ -187,6 +190,49 @@ describe('AI stream deadline', () => {
 
     expect(mocks.resolveManagedCloudProvider).not.toHaveBeenCalled()
     expect(mocks.streamSimple.mock.calls[0][0].headers).toEqual({ 'X-Test': 'yes' })
+  })
+
+  it('adds safe subagent correlation fields to retry/timeout logs without forwarding internal context', async () => {
+    mocks.streamSimple.mockImplementation(() => controlledStream().stream)
+    const { streamSimpleWithAiHttpLogging, MAX_STREAM_RETRIES } = await import('../../server/ai-http-logger.mjs')
+    const secret = 'sensitive-subagent-task-body'
+    const correlation = {
+      parentSessionId: 'parent-session',
+      subagentSessionId: 'subagent-session',
+      toolCallId: 'tool-call-safe-log',
+      subagent: 'explore',
+      timeoutMs: 60_000,
+      task: secret,
+      messages: [secret],
+    }
+    const stream = streamSimpleWithAiHttpLogging(
+      { provider: 'mock', api: 'mock', id: 'mock-model' },
+      { systemPrompt: secret, messages: [{ role: 'user', content: secret }], tools: [] },
+      { deadlineMs: 1000, totalTimeoutMs: 60_000, quickforgeInternalLogContext: correlation },
+    )
+    const result = stream.result()
+    const rejection = expect(result).rejects.toThrow('AI stream idle timeout after 1000ms')
+
+    await vi.advanceTimersByTimeAsync((MAX_STREAM_RETRIES + 1) * 1000)
+    await rejection
+
+    for (const call of mocks.streamSimple.mock.calls) {
+      expect(call[2]).not.toHaveProperty('quickforgeInternalLogContext')
+    }
+    const records = mocks.logger.warn.mock.calls.map(([, fields]) => fields)
+    expect(records).toHaveLength(MAX_STREAM_RETRIES + 1)
+    for (const fields of records) {
+      expect(fields).toMatchObject({
+        parentSessionId: 'parent-session',
+        subagentSessionId: 'subagent-session',
+        toolCallId: 'tool-call-safe-log',
+        subagent: 'explore',
+        subagentTimeoutMs: 60_000,
+      })
+      expect(fields).not.toHaveProperty('task')
+      expect(fields).not.toHaveProperty('messages')
+      expect(JSON.stringify(fields)).not.toContain(secret)
+    }
   })
 
   it('retries idle streams up to the cap, reports progress, then times out', async () => {

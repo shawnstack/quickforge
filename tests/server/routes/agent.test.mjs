@@ -11,12 +11,50 @@ const mocks = vi.hoisted(() => ({
   updateSessionHarnessConfigOption: vi.fn(),
   updateSessionHarnessMode: vi.fn(),
   forkSession: vi.fn(),
+  releaseSse: vi.fn(),
+  agentEvents: null,
+  logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
+
+class TestEventEmitter {
+  constructor() {
+    this.listeners = new Map()
+  }
+
+  on(event, listener) {
+    const listeners = this.listeners.get(event) || []
+    listeners.push(listener)
+    this.listeners.set(event, listeners)
+    return this
+  }
+
+  emit(event, ...args) {
+    for (const listener of [...(this.listeners.get(event) || [])]) listener(...args)
+  }
+
+  removeListener(event, listener) {
+    this.listeners.set(event, (this.listeners.get(event) || []).filter((candidate) => candidate !== listener))
+    return this
+  }
+
+  removeAllListeners(event) {
+    if (event) this.listeners.delete(event)
+    else this.listeners.clear()
+  }
+
+  listenerCount(event) {
+    return (this.listeners.get(event) || []).length
+  }
+}
 
 vi.mock('../../../server/agent-manager.mjs', () => ({
   abortRun: vi.fn(),
   abortToolCall: vi.fn(),
-  agentEvents: { on: vi.fn(), off: vi.fn(), removeListener: vi.fn() },
+  agentEvents: (() => {
+    const events = new TestEventEmitter()
+    mocks.agentEvents = events
+    return events
+  })(),
   approveAutoCompact: vi.fn(),
   approveToolCall: vi.fn(),
   continueSession: vi.fn(),
@@ -30,7 +68,7 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   listSessions: vi.fn(() => []),
   rejectAutoCompact: vi.fn(),
   rejectToolCall: vi.fn(),
-  releaseSse: vi.fn(),
+  releaseSse: mocks.releaseSse,
   restoreAgent: mocks.restoreAgent,
   rollbackSessionMessages: vi.fn(),
   runPrompt: mocks.runPrompt,
@@ -55,7 +93,7 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
 }))
 
 vi.mock('../../../server/utils/logger.mjs', () => ({
-  logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+  logger: mocks.logger,
 }))
 
 function request(body) {
@@ -155,6 +193,9 @@ describe('agent split-session state and messages routes', () => {
     mocks.getSessionEventBus.mockReset()
     mocks.tryAcquireSse.mockReset()
     mocks.touchSession.mockReset()
+    mocks.releaseSse.mockReset()
+    for (const method of Object.values(mocks.logger)) method.mockReset()
+    mocks.agentEvents.removeAllListeners()
   })
 
   function getRequest() {
@@ -262,6 +303,74 @@ describe('agent split-session state and messages routes', () => {
     expect(JSON.parse(res.body).messages).toEqual([{ role: 'user', content: 'm0' }])
   })
 
+  it('logs session SSE event write failure without payload and cleans up', async () => {
+    const eventBus = new TestEventEmitter()
+    mocks.getSessionEventBus.mockReturnValue(eventBus)
+    mocks.tryAcquireSse.mockReturnValue(true)
+    mocks.getSessionState.mockReturnValue(null)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const req = new TestEventEmitter()
+    req.method = 'GET'
+    req.headers = {}
+    const sensitivePayload = 'sensitive-sse-event-payload'
+    const res = new TestEventEmitter()
+    res.writableEnded = false
+    res.writeHead = vi.fn()
+    res.write = vi.fn(() => { throw new Error('socket write failed') })
+    res.end = vi.fn(() => { res.writableEnded = true })
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-write-failure/stream'))
+    eventBus.emit('agent_event', { type: 'message_update', content: sensitivePayload })
+    res.emit('error', new TypeError('repeated response error'))
+    req.emit('error', new Error('request error after cleanup'))
+    req.emit('close')
+
+    expect(mocks.releaseSse).toHaveBeenCalledTimes(1)
+    expect(mocks.releaseSse).toHaveBeenCalledWith('session-write-failure')
+    expect(eventBus.listenerCount('agent_event')).toBe(0)
+    expect(res.end).toHaveBeenCalledTimes(1)
+    expect(mocks.logger.warn).toHaveBeenCalledTimes(1)
+    expect(mocks.logger.warn).toHaveBeenCalledWith(
+      'Session agent SSE connection failure',
+      expect.objectContaining({
+        streamScope: 'session',
+        sessionId: 'session-write-failure',
+        failureType: 'event_write_failed',
+        errorName: 'Error',
+      }),
+    )
+    expect(JSON.stringify(mocks.logger.warn.mock.calls)).not.toContain(sensitivePayload)
+  })
+
+  it('logs one global SSE failure and cleans up once across repeated error paths', async () => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const req = new TestEventEmitter()
+    req.method = 'GET'
+    req.headers = {}
+    const res = new TestEventEmitter()
+    res.writableEnded = false
+    res.writeHead = vi.fn()
+    res.flushHeaders = vi.fn()
+    res.write = vi.fn()
+    res.end = vi.fn(() => { res.writableEnded = true })
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/events'))
+    expect(mocks.agentEvents.listenerCount('agent_event')).toBe(1)
+    res.emit('error', new Error('socket error with private payload'))
+    res.emit('error', new TypeError('repeated socket error'))
+    req.emit('error', new Error('request error after cleanup'))
+    req.emit('close')
+
+    expect(mocks.agentEvents.listenerCount('agent_event')).toBe(0)
+    expect(res.end).toHaveBeenCalledTimes(1)
+    expect(mocks.logger.warn).toHaveBeenCalledTimes(1)
+    expect(mocks.logger.warn).toHaveBeenCalledWith(
+      'Global agent SSE connection failure',
+      expect.objectContaining({ streamScope: 'global', failureType: 'response_socket_error', errorName: 'Error' }),
+    )
+    expect(JSON.stringify(mocks.logger.warn.mock.calls)).not.toContain('private payload')
+  })
+
   it('sends a lightweight initial state frame for split sessions on SSE connect', async () => {
     const { EventEmitter } = await import('node:events')
     const eventBus = new EventEmitter()
@@ -292,6 +401,8 @@ describe('agent split-session state and messages routes', () => {
     // Cleanup triggers on req close, clearing the keep-alive interval.
     req.emit('close')
 
+    expect(mocks.releaseSse).toHaveBeenCalledTimes(1)
+    expect(mocks.logger.warn).not.toHaveBeenCalled()
     const frame = chunks.join('')
     expect(frame).toContain('event: state')
     expect(frame).not.toContain('"messages"')
@@ -370,10 +481,11 @@ describe('agent global events stream', () => {
     expect(res.status).toBe(200)
     expect(res.headers['content-type']).toBe('text/event-stream')
     expect(res.flushed).toBe(true)
-    expect(agentEvents.on).toHaveBeenCalledWith('agent_event', expect.any(Function))
+    expect(agentEvents.listenerCount('agent_event')).toBe(1)
 
     req.emit('close')
-    expect(agentEvents.removeListener).toHaveBeenCalledWith('agent_event', expect.any(Function))
+    expect(agentEvents.listenerCount('agent_event')).toBe(0)
     expect(res.writableEnded).toBe(true)
+    expect(mocks.logger.warn).not.toHaveBeenCalled()
   })
 })

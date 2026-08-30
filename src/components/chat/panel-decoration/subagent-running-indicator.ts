@@ -16,6 +16,8 @@ type SubagentRunningMenuElement = HTMLDivElement & {
   __quickforgeOwnerTrigger?: HTMLButtonElement
 }
 
+const BOT_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>'
+
 /**
  * 当前会话正在运行的 subagent。只遍历该 agent 的 pendingToolCalls，避免全局
  * subagentRunStore 中其他会话的快照污染 Composer 指示器。
@@ -93,39 +95,64 @@ function renderMenuItems(options: {
     return
   }
 
-  const heading = document.createElement('div')
-  heading.className = 'quickforge-subagent-running-menu-title'
+  let heading = menu.querySelector<HTMLElement>('.quickforge-subagent-running-menu-title')
+  if (!heading) {
+    heading = document.createElement('div')
+    heading.className = 'quickforge-subagent-running-menu-title'
+    menu.append(heading)
+  }
   heading.textContent = t('subagentRunningIndicatorMenuTitle', { count: runs.length })
 
-  const list = document.createElement('div')
-  list.className = 'quickforge-subagent-running-list'
+  let list = menu.querySelector<HTMLElement>('.quickforge-subagent-running-list')
+  if (!list) {
+    list = document.createElement('div')
+    list.className = 'quickforge-subagent-running-list'
+    menu.append(list)
+  }
+
+  const existing = new Map<string, HTMLButtonElement>()
+  for (const item of list.querySelectorAll<HTMLButtonElement>('.quickforge-subagent-running-item')) {
+    if (item.dataset.runId) existing.set(item.dataset.runId, item)
+  }
+
+  let previous: HTMLElement | null = null
   for (const payload of runs) {
-    const item = document.createElement('button')
-    item.type = 'button'
-    item.className = 'quickforge-subagent-running-item'
-    item.setAttribute('role', 'menuitem')
-    item.dataset.runId = payload.runId
+    let item = existing.get(payload.runId)
+    if (!item) {
+      item = document.createElement('button')
+      item.type = 'button'
+      item.className = 'quickforge-subagent-running-item'
+      item.setAttribute('role', 'menuitem')
+      item.dataset.runId = payload.runId
 
-    const top = document.createElement('span')
-    top.className = 'quickforge-subagent-running-item-top'
-    const label = document.createElement('span')
-    label.className = 'quickforge-subagent-running-item-label'
-    label.textContent = payload.label || payload.name
-    const elapsed = document.createElement('span')
-    elapsed.className = 'quickforge-subagent-running-elapsed'
-    if (typeof payload.timing?.startedAt === 'number') elapsed.dataset.startedAt = String(payload.timing.startedAt)
-    if (typeof payload.timing?.durationMs === 'number') elapsed.dataset.durationMs = String(payload.timing.durationMs)
-    elapsed.textContent = t('subagentRunningIndicatorElapsed', { seconds: elapsedSeconds(payload) })
-    top.append(label, elapsed)
+      const top = document.createElement('span')
+      top.className = 'quickforge-subagent-running-item-top'
+      const label = document.createElement('span')
+      label.className = 'quickforge-subagent-running-item-label'
+      const elapsed = document.createElement('span')
+      elapsed.className = 'quickforge-subagent-running-elapsed'
+      top.append(label, elapsed)
+      const task = document.createElement('span')
+      task.className = 'quickforge-subagent-running-task'
+      item.append(top, task)
+    }
 
-    const task = document.createElement('span')
-    task.className = 'quickforge-subagent-running-task'
-    task.textContent = payload.task
-    item.setAttribute('aria-label', t('subagentRunningIndicatorItemAria', {
-      name: payload.label || payload.name,
-      task: payload.task,
-    }))
-    item.append(top, task)
+    const labelText = payload.label || payload.name
+    const label = item.querySelector<HTMLElement>('.quickforge-subagent-running-item-label')
+    if (label && label.textContent !== labelText) label.textContent = labelText
+    const task = item.querySelector<HTMLElement>('.quickforge-subagent-running-task')
+    if (task && task.textContent !== payload.task) task.textContent = payload.task
+    const elapsed = item.querySelector<HTMLElement>('.quickforge-subagent-running-elapsed')
+    if (elapsed) {
+      if (typeof payload.timing?.startedAt === 'number') elapsed.dataset.startedAt = String(payload.timing.startedAt)
+      else delete elapsed.dataset.startedAt
+      if (typeof payload.timing?.durationMs === 'number') elapsed.dataset.durationMs = String(payload.timing.durationMs)
+      else delete elapsed.dataset.durationMs
+      const elapsedText = t('subagentRunningIndicatorElapsed', { seconds: elapsedSeconds(payload) })
+      if (elapsed.textContent !== elapsedText) elapsed.textContent = elapsedText
+    }
+    const itemAria = t('subagentRunningIndicatorItemAria', { name: labelText, task: payload.task })
+    if (item.getAttribute('aria-label') !== itemAria) item.setAttribute('aria-label', itemAria)
     item.onclick = (event) => {
       event.preventDefault()
       event.stopPropagation()
@@ -135,9 +162,15 @@ function renderMenuItems(options: {
         detail: { runId: payloadForOpen.runId, payload: payloadForOpen },
       }))
     }
-    list.append(item)
+
+    const reference: ChildNode | null = previous ? previous.nextSibling : (Array.from(list.children)[0] ?? null)
+    if (item !== reference) list.insertBefore(item, reference)
+    previous = item
   }
-  menu.replaceChildren(heading, list)
+
+  for (const [runId, item] of existing) {
+    if (!runs.some((run) => run.runId === runId)) item.remove()
+  }
 }
 
 function openSubagentRunningMenu(options: {
@@ -170,7 +203,8 @@ function openSubagentRunningMenu(options: {
   renderMenuItems({ menu, panel, getRunningRuns, store })
 
   const positionMenu = () => {
-    const rect = trigger.getBoundingClientRect()
+    const anchor = menu.__quickforgeOwnerTrigger ?? trigger
+    const rect = anchor.getBoundingClientRect()
     const gap = 8
     const width = Math.min(360, window.innerWidth - 24)
     menu.style.width = `${width}px`
@@ -191,7 +225,8 @@ function openSubagentRunningMenu(options: {
       event.preventDefault()
     } else {
       const target = event.target as Node
-      if (menu.contains(target) || trigger.contains(target)) return
+      const ownerTrigger = menu.__quickforgeOwnerTrigger
+      if (menu.contains(target) || ownerTrigger?.contains(target)) return
     }
     removeSubagentRunningIndicatorMenu(panel)
   }
@@ -232,7 +267,6 @@ export function setupSubagentRunningIndicator(options: {
 
   let trigger = leftControls.querySelector<HTMLButtonElement>('.quickforge-subagent-running-trigger')
   if (!trigger) {
-    removeSubagentRunningIndicatorMenu(panel, true)
     trigger = document.createElement('button')
     trigger.type = 'button'
   }
@@ -243,21 +277,19 @@ export function setupSubagentRunningIndicator(options: {
   trigger.setAttribute('aria-expanded', String(ownedMenu?.__quickforgeOwnerPanel === panel))
   trigger.title = t('subagentRunningIndicatorTriggerAria', { count: runs.length })
 
-  let spinner = trigger.querySelector<HTMLElement>('.quickforge-subagent-running-spinner')
-  let count = trigger.querySelector<HTMLElement>('.quickforge-subagent-running-count')
-  let label = trigger.querySelector<HTMLElement>('.quickforge-subagent-running-trigger-label')
-  if (!spinner || !count || !label) {
-    spinner = document.createElement('span')
-    spinner.className = 'quickforge-subagent-running-spinner'
-    spinner.setAttribute('aria-hidden', 'true')
-    count = document.createElement('span')
-    count.className = 'quickforge-subagent-running-count'
-    label = document.createElement('span')
-    label.className = 'quickforge-subagent-running-trigger-label'
-    trigger.replaceChildren(spinner, count, label)
+  let icon = trigger.querySelector<HTMLElement>('.quickforge-subagent-running-icon')
+  let badge = trigger.querySelector<HTMLElement>('.quickforge-subagent-running-badge')
+  if (!icon || !badge) {
+    icon = document.createElement('span')
+    icon.className = 'quickforge-subagent-running-icon'
+    icon.setAttribute('aria-hidden', 'true')
+    icon.innerHTML = BOT_ICON_SVG
+    badge = document.createElement('span')
+    badge.className = 'quickforge-subagent-running-badge'
+    badge.setAttribute('aria-hidden', 'true')
+    trigger.replaceChildren(icon, badge)
   }
-  count.textContent = String(runs.length)
-  label.textContent = t('subagentRunningIndicatorTriggerLabel')
+  badge.textContent = String(runs.length)
 
   trigger.onpointerdown = (event) => {
     event.preventDefault()
@@ -283,10 +315,7 @@ export function setupSubagentRunningIndicator(options: {
   if (planButton && trigger.nextSibling !== planButton) leftControls.insertBefore(planButton, trigger.nextSibling)
 
   if (ownedMenu?.__quickforgeOwnerPanel === panel) {
-    if (ownedMenu.__quickforgeOwnerTrigger !== trigger) {
-      removeSubagentRunningIndicatorMenu(panel)
-    } else {
-      renderMenuItems({ menu: ownedMenu, panel, getRunningRuns, store })
-    }
+    ownedMenu.__quickforgeOwnerTrigger = trigger
+    renderMenuItems({ menu: ownedMenu, panel, getRunningRuns, store })
   }
 }

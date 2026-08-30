@@ -253,6 +253,16 @@ function combineAbortSignals(...signals) {
 // 后续 idle 直接失败，避免重建流时重放或覆盖已展示内容。
 export const MAX_STREAM_RETRIES = 2
 
+function normalizeInternalLogContext(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const result = {}
+  for (const field of ['parentSessionId', 'subagentSessionId', 'toolCallId', 'subagent']) {
+    if (typeof value[field] === 'string' && value[field]) result[field] = value[field]
+  }
+  if (Number.isFinite(value.timeoutMs)) result.subagentTimeoutMs = value.timeoutMs
+  return result
+}
+
 function wrapStreamWithTimeouts(createStream, timeoutController, {
   idleTimeoutMs,
   firstEventTimeoutMs,
@@ -263,6 +273,7 @@ function wrapStreamWithTimeouts(createStream, timeoutController, {
   provider,
   model,
   purpose,
+  logContext = {},
 }) {
   const startedAt = Date.now()
   const queue = []
@@ -331,6 +342,7 @@ function wrapStreamWithTimeouts(createStream, timeoutController, {
     const error = new Error(`AI stream ${timeoutType} timeout after ${timeoutMs}ms`)
     if (!finish(error)) return
     logger.warn(error.message, {
+      ...logContext,
       provider,
       model,
       purpose,
@@ -373,6 +385,7 @@ function wrapStreamWithTimeouts(createStream, timeoutController, {
   const swapStreamForRetry = (delayMs) => {
     streamRetries += 1
     logger.warn(`AI stream idle timeout after ${delayMs}ms; retrying stream (attempt ${streamRetries}/${maxStreamRetries})`, {
+      ...logContext,
       provider,
       model,
       purpose,
@@ -577,6 +590,7 @@ export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
   const timeoutController = new AbortController()
   const parentSignal = providerOptions.signal ?? null
   const onStreamRetry = typeof providerOptions.onStreamRetry === 'function' ? providerOptions.onStreamRetry : null
+  const logContext = normalizeInternalLogContext(providerOptions.quickforgeInternalLogContext)
 
   const baseOptions = { ...providerOptions }
   delete baseOptions.deadlineMs
@@ -584,6 +598,7 @@ export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
   delete baseOptions.firstEventTimeoutMs
   delete baseOptions.totalTimeoutMs
   delete baseOptions.onStreamRetry
+  delete baseOptions.quickforgeInternalLogContext
 
   // 每次尝试独立的 abort controller：零内容重试换流时打断上一次的挂起连接，
   // 而 total timeout 的 timeoutController 跨尝试共享（总时长不因重试重置）。
@@ -630,5 +645,6 @@ export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
     provider: model?.provider,
     model: model?.id,
     purpose: providerOptions.metadata?.quickforgePurpose || 'chat',
+    logContext,
   })
 }

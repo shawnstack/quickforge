@@ -94,7 +94,7 @@ logger.info(`Agent prompt error`, err, { sessionId })
 
 该功能用于本地诊断，默认关闭。开启后日志可能包含 API Key、系统提示词、用户输入、项目源码片段、工具结果和模型返回内容，请勿分享或上传这些日志。
 
-AI 流超时诊断始终写入服务端结构化日志：默认 5 分钟无新事件触发 `idle` timeout，20 分钟触发 `total` timeout。记录仅包含 provider/model/purpose、timeout 类型与阈值、elapsed、事件数、最后事件时间/距今和等待阶段，不记录 prompt、响应正文、token、authorization 或其他凭据。
+AI 流超时诊断始终写入服务端结构化日志：默认等待首个实质事件 90 秒，已有实质内容后 3 分钟无新事件触发 `idle` timeout，20 分钟触发 `total` timeout。记录仅包含 provider/model/purpose、timeout 类型与阈值、elapsed、事件数、最后事件时间/距今和等待阶段，不记录 prompt、响应正文、token、authorization 或其他凭据。Subagent 调用会通过仅 QuickForge 内部消费的 `quickforgeInternalLogContext` 追加 `parentSessionId`、`subagentSessionId`、`toolCallId`、`subagent` 与 Subagent timeout 关联字段；包装层会在调用 Provider 前删除该字段，AI stream retry/timeout 日志也只使用上述白名单字段，不记录 task、消息、system prompt、工具参数/结果或完整错误正文。
 
 ## 3. 前端日志 (`src/lib/logger.ts`)
 
@@ -136,6 +136,8 @@ qf logs --grep sessionId=abc123  # 按关键字过滤
 | 重启请求 | supervisorPid | INFO |
 | ErrorBoundary 捕获 | error.message, componentStack | ERROR |
 | uncaughtException / unhandledRejection 兜底 | errorName, stack, fatal | ERROR |
+| Subagent 生命周期 | parentSessionId, subagentSessionId, toolCallId, subagent, lifecycleEvent, timeoutMs, durationMs, toolCalls；abort 后 settle 另含 waitAfterAbortMs/outcome | INFO/WARN |
+| Agent SSE 写入/Socket 失败 | streamScope, sessionId（仅 session stream）, failureType, errorName；连接级幂等，同一连接仅一次 WARN/cleanup/release/end，正常 close 不记 failure；不含 event payload | WARN |
 
 ## 6. 环境变量
 

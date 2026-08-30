@@ -1,0 +1,1023 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>置顶摘要 · 可拖动与胶囊收缩交互稿</title>
+<style>
+  :root {
+    color-scheme: light;
+    --background: #ffffff;
+    --foreground: #18181b;
+    --muted: #f4f4f5;
+    --muted-strong: #e9e9ec;
+    --muted-foreground: #71717a;
+    --border: #e4e4e7;
+    --popover: #ffffff;
+    --sidebar: #fbfbfc;
+    --emerald: #059669;
+    --red: #dc2626;
+    --amber: #d97706;
+    --blue: #2563eb;
+    --shadow: rgb(15 23 42 / 0.17);
+    --font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  body.dark {
+    color-scheme: dark;
+    --background: #111113;
+    --foreground: #f4f4f5;
+    --muted: #202024;
+    --muted-strong: #29292e;
+    --muted-foreground: #a1a1aa;
+    --border: #303036;
+    --popover: #151518;
+    --sidebar: #121215;
+    --emerald: #34d399;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --blue: #60a5fa;
+    --shadow: rgb(0 0 0 / 0.48);
+  }
+
+  * { box-sizing: border-box; }
+  html { min-width: 320px; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; }
+  svg { display: block; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+  [hidden] { display: none !important; }
+
+  .page {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 20px 18px 42px;
+  }
+
+  .demo-toolbar,
+  .design-note,
+  .stage-wrap { width: min(1220px, 100%); }
+
+  .demo-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+  .demo-toolbar h1 {
+    margin: 0 4px 0 0;
+    color: var(--foreground);
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  .toolbar-divider { width: 1px; height: 18px; background: var(--border); }
+  .segmented {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--background);
+  }
+  .segmented button,
+  .reset-button {
+    min-height: 30px;
+    padding: 5px 9px;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+  .segmented button + button { border-left: 1px solid var(--border); }
+  .reset-button { border: 1px solid var(--border); border-radius: 9px; }
+  .segmented button:hover,
+  .segmented button:focus-visible,
+  .segmented button.active,
+  .reset-button:hover,
+  .reset-button:focus-visible {
+    background: var(--muted);
+    color: var(--foreground);
+    outline: none;
+  }
+  .state-readout {
+    margin-left: auto;
+    color: var(--muted-foreground);
+    font-family: var(--mono);
+    font-size: 10.5px;
+  }
+
+  .design-note {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 42px;
+    padding: 9px 12px;
+    border: 1px solid color-mix(in oklab, var(--blue) 24%, var(--border));
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--blue) 6%, var(--background));
+    color: color-mix(in oklab, var(--foreground) 90%, var(--blue));
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .design-note svg { width: 17px; height: 17px; flex: none; color: var(--blue); stroke-width: 1.9; }
+
+  .app-stage {
+    width: 100%;
+    height: min(760px, calc(100vh - 174px));
+    min-height: 650px;
+    position: relative;
+    display: grid;
+    grid-template-columns: 238px minmax(0, 1fr);
+    grid-template-rows: 50px minmax(0, 1fr);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 15px;
+    background: var(--background);
+    box-shadow: 0 18px 55px -42px var(--shadow);
+  }
+
+  .app-topbar {
+    grid-column: 1 / -1;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 13px;
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 650;
+  }
+  .brand-mark {
+    width: 23px;
+    height: 23px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--muted-foreground);
+  }
+  .brand-mark svg { width: 14px; height: 14px; stroke-width: 1.8; }
+  .topbar-path { color: var(--muted-foreground); font-size: 12px; }
+  .topbar-spacer { flex: 1; }
+  .topbar-icon,
+  .summary-trigger {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+  .topbar-icon svg,
+  .summary-trigger svg { width: 17px; height: 17px; stroke-width: 1.8; }
+  .summary-trigger:hover,
+  .summary-trigger:focus-visible,
+  .summary-trigger[aria-pressed="true"] { background: var(--muted); color: var(--foreground); outline: none; }
+
+  .sidebar {
+    grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
+    border-right: 1px solid var(--border);
+    background: var(--sidebar);
+    padding: 14px 10px;
+  }
+  .sidebar-heading {
+    margin: 12px 8px 7px;
+    color: color-mix(in oklab, var(--muted-foreground) 65%, transparent);
+    font-size: 10.5px;
+    font-weight: 650;
+  }
+  .sidebar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    padding: 0 9px;
+    border-radius: 9px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+  .sidebar-row.active { background: var(--muted); color: var(--foreground); }
+  .sidebar-row svg { width: 14px; height: 14px; stroke-width: 1.8; }
+
+  .chat {
+    grid-column: 2;
+    grid-row: 2;
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 72% 18%, color-mix(in oklab, var(--blue) 5%, transparent), transparent 28%),
+      var(--background);
+  }
+  .chat-header {
+    height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 18px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  }
+  .chat-title { font-size: 13px; font-weight: 640; }
+  .chat-meta { color: var(--muted-foreground); font-size: 11px; }
+  .message-column {
+    width: min(690px, calc(100% - 34px));
+    margin: 0 auto;
+    padding: 38px 0 130px;
+  }
+  .message {
+    width: fit-content;
+    max-width: 82%;
+    margin-bottom: 18px;
+    padding: 10px 13px;
+    border-radius: 16px;
+    color: color-mix(in oklab, var(--foreground) 90%, transparent);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .message.user { margin-left: auto; background: var(--muted); }
+  .message.assistant { padding-left: 0; color: var(--foreground); }
+  .composer {
+    position: absolute;
+    left: 50%;
+    bottom: 20px;
+    width: min(690px, calc(100% - 32px));
+    min-height: 96px;
+    transform: translateX(-50%);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: var(--background);
+    box-shadow: 0 14px 34px -28px var(--shadow);
+    padding: 14px;
+  }
+  .composer-placeholder { color: var(--muted-foreground); font-size: 13px; }
+  .composer-controls { display: flex; align-items: center; gap: 8px; margin-top: 32px; }
+  .composer-chip { padding: 5px 8px; border-radius: 9px; background: var(--muted); color: var(--muted-foreground); font-size: 11px; }
+
+  .summary-widget {
+    --capsule-width: 252px;
+    --capsule-height: 44px;
+    --panel-width: 328px;
+    --panel-height: 590px;
+    position: absolute;
+    z-index: 40;
+    width: var(--capsule-width);
+    height: var(--capsule-height);
+    touch-action: none;
+    transition:
+      width 210ms cubic-bezier(.22,.8,.24,1),
+      height 210ms cubic-bezier(.22,.8,.24,1),
+      filter 150ms ease;
+  }
+  .summary-widget[data-mode="panel"] {
+    width: var(--panel-width);
+    height: min(var(--panel-height), calc(100% - 24px));
+  }
+  .summary-widget.dragging {
+    transition: none;
+    filter: drop-shadow(0 16px 24px color-mix(in oklab, var(--shadow) 55%, transparent));
+  }
+
+  .summary-capsule,
+  .summary-panel {
+    position: absolute;
+    inset: 0;
+    border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
+    background: color-mix(in oklab, var(--popover) 97%, transparent);
+    box-shadow: 0 18px 48px -28px var(--shadow);
+    color: var(--foreground);
+    overflow: hidden;
+  }
+
+  .summary-capsule {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 7px 0 10px;
+    border-radius: 999px;
+    cursor: grab;
+    opacity: 1;
+    transform: scale(1);
+    transition: opacity 115ms ease 85ms, transform 210ms cubic-bezier(.22,.8,.24,1), border-radius 210ms ease;
+  }
+  .summary-capsule-main {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    align-self: stretch;
+    border: 0;
+    border-radius: 999px 0 0 999px;
+    background: transparent;
+    color: inherit;
+    cursor: inherit;
+  }
+  .summary-capsule-main:focus-visible { outline: 2px solid color-mix(in oklab, var(--blue) 70%, transparent); outline-offset: -2px; }
+  .summary-widget[data-mode="panel"] .summary-capsule {
+    pointer-events: none;
+    opacity: 0;
+    transform: scale(.96);
+    transition-delay: 0ms;
+  }
+  .summary-capsule:active { cursor: grabbing; }
+  .capsule-segment {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .capsule-segment + .capsule-segment::before {
+    content: "";
+    width: 1px;
+    height: 14px;
+    margin-right: 4px;
+    background: color-mix(in oklab, var(--foreground) 15%, transparent);
+  }
+  .capsule-segment svg { width: 13px; height: 13px; stroke-width: 1.9; }
+  .capsule-segment.running { color: color-mix(in oklab, var(--foreground) 76%, var(--muted-foreground)); }
+  .capsule-segment.tasks { font-family: var(--mono); font-size: 10.5px; }
+  .capsule-segment .plus { color: var(--emerald); }
+  .capsule-segment .minus { color: var(--red); }
+  .capsule-segment.finished { color: var(--emerald); }
+  .capsule-actions {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+  }
+  .capsule-expand,
+  .capsule-close {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted-foreground);
+  }
+  .capsule-expand { pointer-events: none; }
+  .capsule-close { cursor: pointer; }
+  .capsule-close:hover,
+  .capsule-close:focus-visible { background: var(--muted); color: var(--foreground); outline: none; }
+  .capsule-expand svg,
+  .capsule-close svg { width: 15px; height: 15px; stroke-width: 1.8; }
+
+  .summary-panel {
+    border-radius: 24px;
+    opacity: 0;
+    transform: scale(.97);
+    pointer-events: none;
+    transition: opacity 125ms ease, transform 210ms cubic-bezier(.22,.8,.24,1), border-radius 210ms ease;
+  }
+  .summary-widget[data-mode="panel"] .summary-panel {
+    opacity: 1;
+    transform: scale(1);
+    pointer-events: auto;
+    transition-delay: 70ms, 0ms, 0ms;
+  }
+
+  .drag-header {
+    height: 42px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 9px 0 12px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 56%, transparent);
+    cursor: grab;
+    user-select: none;
+  }
+  .drag-header:active { cursor: grabbing; }
+  .drag-grip { color: color-mix(in oklab, var(--muted-foreground) 72%, transparent); }
+  .drag-grip svg { width: 16px; height: 16px; stroke-width: 1.65; }
+  .drag-title { color: var(--muted-foreground); font-size: 11px; font-weight: 600; }
+  .drag-spacer { flex: 1; }
+  .header-actions { display: inline-flex; align-items: center; gap: 1px; }
+  .collapse-button {
+    width: 29px;
+    height: 29px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: color-mix(in oklab, var(--foreground) 76%, transparent);
+    cursor: pointer;
+  }
+  .collapse-button:hover,
+  .collapse-button:focus-visible { background: var(--muted); color: var(--foreground); outline: none; }
+  .collapse-button svg { width: 15px; height: 15px; stroke-width: 1.9; }
+
+  .panel-scroll {
+    height: calc(100% - 42px);
+    overflow: auto;
+    padding: 14px 14px 16px;
+    scrollbar-width: thin;
+  }
+  .summary-section + .summary-section {
+    margin-top: 13px;
+    padding-top: 13px;
+    border-top: .5px solid color-mix(in oklab, var(--border) 50%, transparent);
+  }
+  .section-title {
+    min-height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 4px 7px;
+    color: var(--muted-foreground);
+    font-size: 11.5px;
+    font-weight: 610;
+  }
+  .section-stat { font-family: var(--mono); font-size: 10px; font-weight: 500; }
+  .summary-row {
+    width: 100%;
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 5px 6px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--foreground);
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 140ms ease;
+  }
+  .summary-row:hover,
+  .summary-row:focus-visible { background: color-mix(in oklab, var(--muted) 58%, transparent); outline: none; }
+  .row-icon {
+    width: 17px;
+    height: 17px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    color: var(--muted-foreground);
+  }
+  .row-icon svg { width: 15px; height: 15px; stroke-width: 1.8; }
+  .row-main { min-width: 0; flex: 1; }
+  .row-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: color-mix(in oklab, var(--foreground) 88%, transparent); font-size: 12px; font-weight: 580; }
+  .row-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; color: var(--muted-foreground); font-size: 10.5px; }
+  .row-tail { flex: none; color: var(--muted-foreground); font-family: var(--mono); font-size: 10px; }
+  .row-tail.delta { display: flex; gap: 5px; font-size: 10px; }
+  .row-tail .plus { color: var(--emerald); }
+  .row-tail .minus { color: var(--red); }
+  .todo-complete .row-icon { color: var(--emerald); }
+  .todo-progress .row-icon { color: var(--amber); }
+  .todo-pending .row-icon { color: var(--muted-foreground); }
+  .todo-complete .row-title { color: var(--muted-foreground); text-decoration: line-through; }
+  .view-all {
+    width: 100%;
+    min-height: 28px;
+    margin-top: 3px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+  .view-all:hover,
+  .view-all:focus-visible { background: var(--muted); color: var(--foreground); outline: none; }
+
+  .agent-subheading {
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 6px;
+    color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    font-size: 10.5px;
+  }
+  button.agent-subheading {
+    width: 100%;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    cursor: pointer;
+  }
+  button.agent-subheading:hover,
+  button.agent-subheading:focus-visible { background: var(--muted); color: var(--foreground); outline: none; }
+  .agent-subheading svg { width: 13px; height: 13px; stroke-width: 1.8; }
+  .running-spinner { color: var(--muted-foreground); }
+  .success { color: var(--emerald); }
+  .failed { color: var(--red); }
+
+  .stage-group {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  .summary-widget[data-mode="panel"] .stage-group {
+    animation: group-in 180ms ease forwards;
+  }
+  .summary-widget[data-mode="panel"] .stage-group:nth-child(1) { animation-delay: 90ms; }
+  .summary-widget[data-mode="panel"] .stage-group:nth-child(2) { animation-delay: 115ms; }
+  .summary-widget[data-mode="panel"] .stage-group:nth-child(3) { animation-delay: 140ms; }
+  @keyframes group-in { to { opacity: 1; transform: translateY(0); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { animation: spin 1s linear infinite; }
+
+  body.reduced-motion *,
+  body.reduced-motion *::before,
+  body.reduced-motion *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 1ms !important;
+      transition-delay: 0ms !important;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .app-stage { grid-template-columns: minmax(0, 1fr); }
+    .sidebar { display: none; }
+    .chat { grid-column: 1; }
+    .state-readout { width: 100%; margin-left: 0; }
+  }
+
+  @media (max-width: 430px) {
+    .page { padding-inline: 8px; }
+    .demo-toolbar h1 { width: 100%; }
+    .toolbar-divider { display: none; }
+    .app-stage { min-height: 620px; }
+    .summary-widget { --panel-width: min(328px, calc(100vw - 30px)); }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="demo-toolbar" aria-label="Design controls">
+    <h1 data-i18n="pageTitle">置顶摘要 · 可拖动与胶囊收缩</h1>
+    <div class="toolbar-divider"></div>
+    <div class="segmented" data-control="theme" aria-label="Theme">
+      <button type="button" class="active" data-value="light">Light</button>
+      <button type="button" data-value="dark">Dark</button>
+    </div>
+    <div class="segmented" data-control="language" aria-label="Language">
+      <button type="button" class="active" data-value="zh">中</button>
+      <button type="button" data-value="en">EN</button>
+    </div>
+    <div class="segmented" data-control="motion" aria-label="Motion">
+      <button type="button" class="active" data-value="normal" data-i18n="motionNormal">动效</button>
+      <button type="button" data-value="reduced" data-i18n="motionReduced">减弱</button>
+    </div>
+    <button id="resetPosition" class="reset-button" type="button" data-i18n="reset">重置位置</button>
+    <span id="stateReadout" class="state-readout">胶囊 · x 0 · y 0</span>
+  </div>
+
+  <div class="design-note">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12h8M12 8v8"></path><circle cx="12" cy="12" r="9"></circle></svg>
+    <span data-i18n="designNote">顶部 List 始终保留；完整浮窗可缩小为原位胶囊或完全关闭，胶囊主体展开、独立按钮关闭。</span>
+  </div>
+
+  <div class="stage-wrap">
+    <main id="appStage" class="app-stage" aria-label="QuickForge mock application">
+      <header class="app-topbar">
+        <div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24"><path d="M7 5h10M5 9h14M8 13h8M10 17h4"></path></svg></span><span>QuickForge</span></div>
+        <span class="topbar-path">quickforge / dev</span>
+        <span class="topbar-spacer"></span>
+        <button id="summaryTrigger" class="summary-trigger" type="button" aria-label="切换置顶摘要" aria-pressed="true" aria-expanded="true"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"></path><path d="M3 6h.01M3 12h.01M3 18h.01"></path></svg></button>
+        <button class="topbar-icon" type="button" aria-label="Layout"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg></button>
+      </header>
+
+      <aside class="sidebar" aria-hidden="true">
+        <div class="sidebar-row active"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg><span data-i18n="newChat">新对话</span></div>
+        <div class="sidebar-heading" data-i18n="projects">项目</div>
+        <div class="sidebar-row"><svg viewBox="0 0 24 24"><path d="M3 7h7l2 2h9v10H3z"></path></svg><span>quickforge</span></div>
+        <div class="sidebar-heading" data-i18n="recent">最近</div>
+        <div class="sidebar-row active"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h11M4 18h8"></path></svg><span data-i18n="sessionTitle">摘要弹窗拖动设计</span></div>
+      </aside>
+
+      <section class="chat">
+        <div class="chat-header"><span class="chat-title" data-i18n="sessionTitle">摘要弹窗拖动设计</span><span class="chat-meta">QuickForge · dev</span></div>
+        <div class="message-column">
+          <div class="message user" data-i18n="userMessage">我希望这个弹窗可以拖动，然后可以收缩成一个摘要小胶囊。</div>
+          <div class="message assistant" data-i18n="assistantMessage">设计稿保留当前三组摘要信息，把固定浮层升级为可拖动窗口；收缩后仅保留关键数字，减少顶部占用。</div>
+        </div>
+        <div class="composer" aria-hidden="true">
+          <div class="composer-placeholder" data-i18n="composerPlaceholder">输入消息…</div>
+          <div class="composer-controls"><span class="composer-chip" data-i18n="fullAccess">完全访问</span><span class="composer-chip" data-i18n="plan">计划</span></div>
+        </div>
+      </section>
+
+      <div id="summaryWidget" class="summary-widget" data-mode="panel" style="left: 680px; top: 64px;">
+        <div id="summaryCapsule" class="summary-capsule" role="group" aria-label="置顶摘要胶囊" aria-hidden="true">
+          <button id="summaryCapsuleMain" class="summary-capsule-main" type="button" aria-label="展开置顶摘要">
+            <span class="capsule-segment tasks" title="任务 2/4"><svg viewBox="0 0 24 24"><path d="M11 18H3M16 6H3M16 12H3"></path><path d="m17 18 2 2 4-4"></path></svg><span>2/4</span></span>
+            <span class="capsule-segment" title="Git 更改"><svg viewBox="0 0 24 24"><path d="M12 3v18M5 8h14M5 16h14"></path></svg><span class="plus">+3</span><span class="minus">−1</span></span>
+            <span class="capsule-segment running" title="运行中智能体 1 个，已结束智能体 2 个"><svg viewBox="0 0 24 24"><path d="M12 8V4H8"></path><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M2 14h2M20 14h2M9 13v2M15 13v2"></path></svg><span>1/2</span></span>
+            <span class="capsule-expand"><svg viewBox="0 0 24 24"><path d="m7 15 5-5 5 5"></path></svg></span>
+          </button>
+          <span class="capsule-actions">
+            <button id="capsuleCloseButton" class="capsule-close" type="button" aria-label="关闭置顶摘要" title="关闭置顶摘要"><svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"></path></svg></button>
+          </span>
+        </div>
+
+        <section id="summaryPanel" class="summary-panel" role="dialog" aria-label="置顶摘要" aria-hidden="true">
+          <div id="dragHeader" class="drag-header" aria-label="拖动置顶摘要">
+            <span class="drag-grip"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="1"></circle><circle cx="15" cy="8" r="1"></circle><circle cx="9" cy="12" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="9" cy="16" r="1"></circle><circle cx="15" cy="16" r="1"></circle></svg></span>
+            <span class="drag-title" data-i18n="dragHint">拖动摘要</span>
+            <span class="drag-spacer"></span>
+            <span class="header-actions">
+              <button id="minimizeButton" class="collapse-button" type="button" aria-label="缩小为摘要" title="缩小为摘要"><svg viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3M16 21v-3a2 2 0 0 1 2-2h3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3"></path></svg></button>
+              <button id="closeButton" class="collapse-button" type="button" aria-label="关闭置顶摘要" title="关闭置顶摘要"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+            </span>
+          </div>
+
+          <div class="panel-scroll">
+            <section class="summary-section stage-group" aria-labelledby="gitTitle">
+              <div class="section-title"><span id="gitTitle" data-i18n="gitTools">Git 工具</span></div>
+              <button class="summary-row" type="button">
+                <span class="row-icon"><svg viewBox="0 0 24 24"><path d="M4 19V5M9 19v-7M14 19V9M19 19V3"></path></svg></span>
+                <span class="row-main"><span class="row-title" data-i18n="changes">更改</span></span>
+                <span class="row-tail delta"><span class="plus">+3</span><span class="minus">−1</span></span>
+              </button>
+              <button class="summary-row" type="button">
+                <span class="row-icon"><svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="6" r="2"></circle><circle cx="6" cy="19" r="2"></circle><path d="M6 7v10M8 7c6 0 4 10 10 10V8"></path></svg></span>
+                <span class="row-main"><span class="row-title">dev</span></span>
+                <span class="row-tail"><svg viewBox="0 0 24 24" style="width:13px;height:13px"><path d="m7 10 5 5 5-5"></path></svg></span>
+              </button>
+              <button class="summary-row" type="button">
+                <span class="row-icon"><svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg></span>
+                <span class="row-main"><span class="row-title" data-i18n="commitOrPush">提交或推送</span></span>
+              </button>
+            </section>
+
+            <section class="summary-section stage-group" aria-labelledby="tasksTitle">
+              <div class="section-title"><span id="tasksTitle" data-i18n="tasks">任务清单</span><span class="section-stat">2/4</span></div>
+              <button class="summary-row todo-complete" type="button">
+                <span class="row-icon"><svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"></path><circle cx="12" cy="12" r="9"></circle></svg></span>
+                <span class="row-main"><span class="row-title" data-i18n="taskOne">确定胶囊摘要字段</span></span>
+              </button>
+              <button class="summary-row todo-complete" type="button">
+                <span class="row-icon"><svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"></path><circle cx="12" cy="12" r="9"></circle></svg></span>
+                <span class="row-main"><span class="row-title" data-i18n="taskTwo">完成可拖动交互</span></span>
+              </button>
+              <button class="summary-row todo-progress" type="button">
+                <span class="row-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></span>
+                <span class="row-main"><span class="row-title" data-i18n="taskThree">验证收缩与位置保留</span></span>
+              </button>
+              <div id="extraTask" hidden>
+                <button class="summary-row todo-pending" type="button">
+                  <span class="row-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle></svg></span>
+                  <span class="row-main"><span class="row-title" data-i18n="taskFour">同步实现规格</span></span>
+                </button>
+              </div>
+              <button id="viewAllButton" class="view-all" type="button" data-i18n="viewAll">查看全部 4 项任务</button>
+            </section>
+
+            <section class="summary-section stage-group" aria-labelledby="agentsTitle">
+              <div class="section-title"><span id="agentsTitle" data-i18n="agents">智能体</span></div>
+              <div class="agent-subheading"><span data-i18n="running">运行中</span></div>
+              <button class="summary-row" type="button">
+                <span class="row-icon running-spinner"><svg class="spin" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.2-8.6"></path></svg></span>
+                <span class="row-main"><span class="row-title">explore</span><span class="row-sub" data-i18n="runningTask">调研 server 端架构与调用链…</span></span>
+              </button>
+              <button id="finishedToggle" class="agent-subheading" type="button" aria-expanded="false">
+                <span><span data-i18n="finished">已结束</span> · 2</span>
+                <svg id="finishedChevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"></path></svg>
+              </button>
+              <div id="finishedRows" hidden>
+                <button class="summary-row" type="button">
+                  <span class="row-icon success"><svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"></path><circle cx="12" cy="12" r="9"></circle></svg></span>
+                  <span class="row-main"><span class="row-title">explore</span><span class="row-sub" data-i18n="finishedTaskOne">调研 panel-decoration 接入方式…</span></span>
+                  <span class="row-tail">1m 18s</span>
+                </button>
+                <button class="summary-row" type="button">
+                  <span class="row-icon failed"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="m9 9 6 6M15 9l-6 6"></path></svg></span>
+                  <span class="row-main"><span class="row-title">general</span><span class="row-sub" data-i18n="finishedTaskTwo">验证摘要折叠交互…</span></span>
+                  <span class="row-tail">54s</span>
+                </button>
+              </div>
+            </section>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+(() => {
+  const copy = {
+    zh: {
+      pageTitle: '置顶摘要 · 可拖动与胶囊收缩', motionNormal: '动效', motionReduced: '减弱', reset: '重置位置',
+      designNote: '顶部 List 始终保留；完整浮窗可缩小为原位胶囊或完全关闭，胶囊主体展开、独立按钮关闭。',
+      newChat: '新对话', projects: '项目', recent: '最近', sessionTitle: '摘要弹窗拖动设计',
+      userMessage: '我希望这个弹窗可以拖动，然后可以收缩成一个摘要小胶囊。',
+      assistantMessage: '设计稿保留当前三组摘要信息，把固定浮层升级为可拖动窗口；收缩后仅保留关键数字，减少顶部占用。',
+      composerPlaceholder: '输入消息…', fullAccess: '完全访问', plan: '计划', dragHint: '拖动摘要',
+      gitTools: 'Git 工具', changes: '更改', commitOrPush: '提交或推送', tasks: '任务清单',
+      taskOne: '确定胶囊摘要字段', taskTwo: '完成可拖动交互', taskThree: '验证收缩与位置保留', taskFour: '同步实现规格',
+      viewAll: '查看全部 4 项任务', collapseTasks: '收起任务', agents: '智能体', running: '运行中', finished: '已结束',
+      runningTask: '调研 server 端架构与调用链…', finishedTaskOne: '调研 panel-decoration 接入方式…', finishedTaskTwo: '验证摘要折叠交互…',
+      capsuleState: '胶囊', panelState: '弹窗', closedState: '关闭', expandAria: '展开置顶摘要', minimizeAria: '缩小为摘要', closeAria: '关闭置顶摘要', toggleAria: '切换置顶摘要', dialogAria: '置顶摘要', dragAria: '拖动置顶摘要'
+    },
+    en: {
+      pageTitle: 'Pinned summary · draggable capsule', motionNormal: 'Motion', motionReduced: 'Reduced', reset: 'Reset position',
+      designNote: 'The top List button always remains. The full panel can minimize to an in-place capsule or close completely; the capsule body expands and its separate button closes.',
+      newChat: 'New chat', projects: 'Projects', recent: 'Recent', sessionTitle: 'Draggable summary design',
+      userMessage: 'Make this popover draggable and let it collapse into a compact summary capsule.',
+      assistantMessage: 'The design keeps the current three summary groups, upgrades the fixed popover into a draggable window, and retains only key counts when collapsed.',
+      composerPlaceholder: 'Type a message…', fullAccess: 'Full access', plan: 'Plan', dragHint: 'Drag summary',
+      gitTools: 'Git Tools', changes: 'Changes', commitOrPush: 'Commit or push', tasks: 'Tasks',
+      taskOne: 'Define capsule summary fields', taskTwo: 'Build draggable interaction', taskThree: 'Verify collapse and position memory', taskFour: 'Sync implementation spec',
+      viewAll: 'View all 4 tasks', collapseTasks: 'Collapse tasks', agents: 'Agents', running: 'Running', finished: 'Finished',
+      runningTask: 'Research the server architecture and call chain…', finishedTaskOne: 'Research panel-decoration integration…', finishedTaskTwo: 'Verify summary collapse interaction…',
+      capsuleState: 'Capsule', panelState: 'Panel', closedState: 'Closed', expandAria: 'Expand pinned summary', minimizeAria: 'Minimize to summary', closeAria: 'Close pinned summary', toggleAria: 'Toggle pinned summary', dialogAria: 'Pinned summary', dragAria: 'Drag pinned summary'
+    }
+  };
+
+  const state = {
+    language: 'zh',
+    theme: 'light',
+    motion: 'normal',
+    mode: 'panel',
+    tasksExpanded: false,
+    finishedExpanded: false,
+    x: 0,
+    y: 0,
+    drag: null,
+    suppressClick: false
+  };
+
+  const stage = document.getElementById('appStage');
+  const trigger = document.getElementById('summaryTrigger');
+  const widget = document.getElementById('summaryWidget');
+  const capsule = document.getElementById('summaryCapsule');
+  const capsuleMain = document.getElementById('summaryCapsuleMain');
+  const capsuleCloseButton = document.getElementById('capsuleCloseButton');
+  const panel = document.getElementById('summaryPanel');
+  const dragHeader = document.getElementById('dragHeader');
+  const minimizeButton = document.getElementById('minimizeButton');
+  const closeButton = document.getElementById('closeButton');
+  const resetButton = document.getElementById('resetPosition');
+  const readout = document.getElementById('stateReadout');
+  const finishedToggle = document.getElementById('finishedToggle');
+  const finishedRows = document.getElementById('finishedRows');
+  const finishedChevron = document.getElementById('finishedChevron');
+  const viewAllButton = document.getElementById('viewAllButton');
+  const extraTask = document.getElementById('extraTask');
+
+  function t(key) { return copy[state.language][key] || key; }
+
+  function applyLanguage() {
+    document.documentElement.lang = state.language === 'zh' ? 'zh-CN' : 'en';
+    document.querySelectorAll('[data-i18n]').forEach((node) => {
+      node.textContent = t(node.dataset.i18n);
+    });
+    capsuleMain.setAttribute('aria-label', t('expandAria'));
+    capsuleCloseButton.setAttribute('aria-label', t('closeAria'));
+    capsuleCloseButton.title = t('closeAria');
+    minimizeButton.setAttribute('aria-label', t('minimizeAria'));
+    minimizeButton.title = t('minimizeAria');
+    closeButton.setAttribute('aria-label', t('closeAria'));
+    closeButton.title = t('closeAria');
+    trigger.setAttribute('aria-label', t('toggleAria'));
+    panel.setAttribute('aria-label', t('dialogAria'));
+    dragHeader.setAttribute('aria-label', t('dragAria'));
+    viewAllButton.textContent = state.tasksExpanded ? t('collapseTasks') : t('viewAll');
+    updateReadout();
+  }
+
+  function setActive(control, value) {
+    document.querySelectorAll(`[data-control="${control}"] button`).forEach((button) => {
+      button.classList.toggle('active', button.dataset.value === value);
+    });
+  }
+
+  function widgetSize(mode = state.mode) {
+    const styles = getComputedStyle(widget);
+    if (mode === 'closed') return { width: 0, height: 0 };
+    return mode === 'panel'
+      ? { width: Number.parseFloat(styles.getPropertyValue('--panel-width')) || 328, height: Math.min(590, stage.clientHeight - 24) }
+      : { width: Number.parseFloat(styles.getPropertyValue('--capsule-width')) || 252, height: 44 };
+  }
+
+  function clampPosition(x, y, mode = state.mode) {
+    const size = widgetSize(mode);
+    const margin = 12;
+    return {
+      x: Math.min(Math.max(margin, x), Math.max(margin, stage.clientWidth - size.width - margin)),
+      y: Math.min(Math.max(margin, y), Math.max(margin, stage.clientHeight - size.height - margin))
+    };
+  }
+
+  function renderPosition() {
+    widget.style.left = `${Math.round(state.x)}px`;
+    widget.style.top = `${Math.round(state.y)}px`;
+    updateReadout();
+  }
+
+  function updateReadout() {
+    const modeText = state.mode === 'panel' ? t('panelState') : state.mode === 'capsule' ? t('capsuleState') : t('closedState');
+    readout.textContent = `${modeText} · x ${Math.round(state.x)} · y ${Math.round(state.y)}`;
+  }
+
+  function resetPosition() {
+    const nextMode = state.mode === 'closed' ? 'panel' : state.mode;
+    const size = widgetSize(nextMode);
+    state.x = Math.max(12, stage.clientWidth - size.width - 18);
+    state.y = 62;
+    if (state.mode === 'closed') {
+      setMode('panel');
+      return;
+    }
+    const clamped = clampPosition(state.x, state.y, nextMode);
+    state.x = clamped.x;
+    state.y = clamped.y;
+    renderPosition();
+  }
+
+  function setMode(mode) {
+    if (state.mode === mode) return;
+    const previousMode = state.mode;
+    state.mode = mode;
+    if (mode !== 'closed') widget.dataset.mode = mode;
+    widget.hidden = mode === 'closed';
+    capsule.setAttribute('aria-hidden', String(mode !== 'capsule'));
+    panel.setAttribute('aria-hidden', String(mode !== 'panel'));
+    trigger.setAttribute('aria-pressed', String(mode !== 'closed'));
+    trigger.setAttribute('aria-expanded', String(mode !== 'closed'));
+    if (mode !== 'panel') {
+      state.finishedExpanded = false;
+      finishedToggle.setAttribute('aria-expanded', 'false');
+      finishedRows.hidden = true;
+      finishedChevron.innerHTML = '<path d="m9 18 6-6-6-6"></path>';
+    }
+    if (mode !== 'closed') {
+      requestAnimationFrame(() => {
+        const clamped = clampPosition(state.x, state.y, mode);
+        state.x = clamped.x;
+        state.y = clamped.y;
+        renderPosition();
+      });
+    }
+    if (mode === 'closed' && previousMode !== 'closed') trigger.focus();
+    updateReadout();
+  }
+
+  function startDrag(event, source) {
+    if (event.button !== 0) return;
+    if (source === 'header' && event.target.closest('button')) return;
+    state.drag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: state.x,
+      originY: state.y,
+      moved: false,
+      source
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function moveDrag(event) {
+    const drag = state.drag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(dx, dy) > 4) {
+      drag.moved = true;
+      state.suppressClick = true;
+      widget.classList.add('dragging');
+      document.body.style.userSelect = 'none';
+    }
+    if (!drag.moved) return;
+    const next = clampPosition(drag.originX + dx, drag.originY + dy);
+    state.x = next.x;
+    state.y = next.y;
+    renderPosition();
+  }
+
+  function endDrag(event) {
+    const drag = state.drag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    state.drag = null;
+    widget.classList.remove('dragging');
+    document.body.style.userSelect = '';
+    if (drag.moved) {
+      window.setTimeout(() => { state.suppressClick = false; }, 0);
+    }
+  }
+
+  capsule.addEventListener('pointerdown', (event) => startDrag(event, 'capsule'));
+  dragHeader.addEventListener('pointerdown', (event) => startDrag(event, 'header'));
+  window.addEventListener('pointermove', moveDrag, { passive: false });
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
+
+  capsuleMain.addEventListener('click', () => {
+    if (state.suppressClick) return;
+    setMode('panel');
+  });
+  minimizeButton.addEventListener('click', () => setMode('capsule'));
+  closeButton.addEventListener('click', () => setMode('closed'));
+  capsuleCloseButton.addEventListener('pointerdown', (event) => event.stopPropagation());
+  capsuleCloseButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setMode('closed');
+  });
+  trigger.addEventListener('click', () => setMode(state.mode === 'closed' ? 'panel' : 'closed'));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.mode !== 'closed') setMode('closed');
+  });
+
+  finishedToggle.addEventListener('click', () => {
+    state.finishedExpanded = !state.finishedExpanded;
+    finishedToggle.setAttribute('aria-expanded', String(state.finishedExpanded));
+    finishedRows.hidden = !state.finishedExpanded;
+    finishedChevron.innerHTML = state.finishedExpanded
+      ? '<path d="m6 9 6 6 6-6"></path>'
+      : '<path d="m9 18 6-6-6-6"></path>';
+  });
+
+  viewAllButton.addEventListener('click', () => {
+    state.tasksExpanded = !state.tasksExpanded;
+    extraTask.hidden = !state.tasksExpanded;
+    viewAllButton.textContent = state.tasksExpanded ? t('collapseTasks') : t('viewAll');
+  });
+
+  document.querySelectorAll('[data-control="theme"] button').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.theme = button.dataset.value;
+      document.body.classList.toggle('dark', state.theme === 'dark');
+      setActive('theme', state.theme);
+    });
+  });
+
+  document.querySelectorAll('[data-control="language"] button').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.language = button.dataset.value;
+      setActive('language', state.language);
+      applyLanguage();
+    });
+  });
+
+  document.querySelectorAll('[data-control="motion"] button').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.motion = button.dataset.value;
+      document.body.classList.toggle('reduced-motion', state.motion === 'reduced');
+      setActive('motion', state.motion);
+    });
+  });
+
+  resetButton.addEventListener('click', resetPosition);
+  window.addEventListener('resize', () => {
+    if (state.mode === 'closed') return;
+    const clamped = clampPosition(state.x, state.y);
+    state.x = clamped.x;
+    state.y = clamped.y;
+    renderPosition();
+  });
+
+  applyLanguage();
+  requestAnimationFrame(resetPosition);
+})();
+</script>
+</body>
+</html>

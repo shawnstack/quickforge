@@ -101,10 +101,10 @@ export { getPendingAskForSession, normalizeAskQuestions } from './ask-store.mjs'
 function wrapSubagentToolDefinition(definition, parentSessionId) {
   return {
     ...definition,
-    execute: async (_toolCallId, params, signal, onUpdate) => {
+    execute: async (toolCallId, params, signal, onUpdate) => {
       const parentSession = agentSessions.get(parentSessionId)
       if (!parentSession) throw new Error('Parent session is no longer active.')
-      const result = await runSubagent(parentSession, params || {}, signal, onUpdate)
+      const result = await runSubagent(parentSession, toolCallId, params || {}, signal, onUpdate)
       return {
         content: [{ type: 'text', text: result.content }],
         details: result.details,
@@ -1543,7 +1543,7 @@ function formatTimeoutMinutes(timeoutMs) {
   return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
 }
 
-async function runSubagent(parentSession, params, parentSignal, onUpdate) {
+async function runSubagent(parentSession, toolCallId, params, parentSignal, onUpdate) {
   const profile = await resolveSubagentProfile(parentSession, params?.subagent)
   if (!profile || !profile.enabledAsSubagent) {
     const error = new Error(`Unknown or disabled subagent: ${typeof params?.subagent === 'string' ? params.subagent : params?.subagent?.name || ''}`)
@@ -1568,190 +1568,252 @@ async function runSubagent(parentSession, params, parentSignal, onUpdate) {
   const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 60 * 60 * 1000))
   definition.capabilityPolicy ||= inferCapabilityPolicy(definition.allowedTools || [])
   definition.allowedTools = applyCapabilityPolicy(definition.allowedTools || [], definition.capabilityPolicy)
-  const { model: subagentModel, info: subagentModelInfo } = await resolveAgentProfileModel(
-    definition,
-    parentSession.model,
-    readStore,
-    parentSession.modelAccessContext || {},
-  )
-  const subagentThinkingLevel = resolveAgentProfileThinkingLevel(definition, parentSession.thinkingLevel, subagentModel)
   const subagentSessionId = `${parentSession.sessionId}:subagent:${definition.name}:${randomUUID()}`
   const startedAt = Date.now()
+  const lifecycleContext = {
+    parentSessionId: parentSession.sessionId,
+    subagentSessionId,
+    toolCallId,
+    subagent: definition.name,
+    timeoutMs,
+  }
   let toolCalls = 0
-  let latestMessages = []
-  let latestPendingToolCalls = []
-  let toolsForClient = []
-  let lastTraceAt = 0
-  let tracePending = false
-  let traceTimer = null
-
-  const tools = await createServerTools(
-    parentSession.projectId,
-    parentSession.projectContext,
-    sessionSkillsContext(parentSession),
-    true,
-    (toolName) => {
-      if (!definition.allowedTools.includes(toolName)) return `Subagent ${definition.name} is not allowed to use ${toolName}.`
-      return commandToolPermissionError(parentSession, toolName)
-    },
-    {
-      allowedToolNames: definition.allowedTools,
-      includeSubagentTool: false,
-      includeMcpTools: false,
-    },
-  )
-  toolsForClient = tools.map(({ execute: _execute, prepareArguments: _prepareArguments, ...tool }) => tool)
-
-  const emitSubagentTrace = () => {
-    if (traceTimer) {
-      clearTimeout(traceTimer)
-      traceTimer = null
-    }
-    tracePending = false
-    lastTraceAt = Date.now()
-    onUpdate?.({
-      content: [],
-      details: {
-        subagent: definition.name,
-        label: definition.label,
-        sessionId: subagentSessionId,
-        parentSessionId: parentSession.sessionId,
-        toolCalls,
-        allowedTools: definition.allowedTools,
-        timeoutMs,
-        source: definition.source,
-        lifecycle: definition.lifecycle,
-        profilePath: definition.filePath,
-        capabilityPolicy: definition.capabilityPolicy,
-        model: subagentModelInfo,
-        durationMs: Date.now() - startedAt,
-        messages: latestMessages,
-        tools: toolsForClient,
-        pendingToolCalls: latestPendingToolCalls,
-      },
+  let terminalLifecycleLogged = false
+  const logLifecycle = (level, lifecycleEvent, extra = {}) => {
+    logger[level](`Subagent lifecycle: ${lifecycleEvent}`, {
+      lifecycleEvent,
+      ...lifecycleContext,
+      durationMs: Date.now() - startedAt,
+      toolCalls,
+      ...extra,
     })
   }
-
-  const emitSubagentTraceThrottled = () => {
-    const elapsed = Date.now() - lastTraceAt
-    if (elapsed >= SUBAGENT_TRACE_THROTTLE_MS) {
-      emitSubagentTrace()
-      return
-    }
-    tracePending = true
-    if (traceTimer) return
-    traceTimer = setTimeout(() => {
-      if (tracePending) emitSubagentTrace()
-    }, SUBAGENT_TRACE_THROTTLE_MS - elapsed)
+  const logTerminalLifecycle = (level, lifecycleEvent, extra = {}) => {
+    if (terminalLifecycleLogged) return
+    terminalLifecycleLogged = true
+    logLifecycle(level, lifecycleEvent, extra)
   }
 
-  const systemPrompt = composeSubagentSystemPrompt({
-    definition,
-    parentSystemPrompt: parentSession.agent.state.systemPrompt,
-    projectContext: parentSession.projectContext,
-  })
-  const userMessage = {
-    role: 'user',
-    content: [{ type: 'text', text: formatSubagentTask(params) }],
-    timestamp: Date.now(),
-  }
-  const subagent = new Agent({
-    initialState: {
-      systemPrompt,
-      model: subagentModel,
-      thinkingLevel: subagentThinkingLevel,
-      messages: [],
-      tools,
-    },
-    streamFn: (streamModel, streamContext, streamOptions) => streamSimpleWithAiHttpLogging(streamModel, streamContext, {
-      ...streamOptions,
-      onStreamRetry: (info) => emitSessionEvent(parentSession, { type: 'model_stream_retry', ...info }),
-    }),
-    getApiKey: parentSession.getApiKey,
-    sessionId: subagentSessionId,
-    convertToLlm: serverConvertToLlm,
-    onPayload: (payload) => {
-      restoreReasoningContentInPayload(payload, subagent.state.messages, subagent.state.model)
-    },
-    beforeToolCall: async (context) => {
-      const toolName = context.toolCall?.name
-      toolCalls += 1
-      emitSubagentTrace()
-      if (toolCalls > Number(definition.maxToolCalls || 300)) {
-        return { block: true, reason: `Subagent ${definition.name} exceeded its tool-call budget.` }
+  logLifecycle('info', 'started')
+
+  try {
+    const { model: subagentModel, info: subagentModelInfo } = await resolveAgentProfileModel(
+      definition,
+      parentSession.model,
+      readStore,
+      parentSession.modelAccessContext || {},
+    )
+    const subagentThinkingLevel = resolveAgentProfileThinkingLevel(definition, parentSession.thinkingLevel, subagentModel)
+    let latestMessages = []
+    let latestPendingToolCalls = []
+    let toolsForClient = []
+    let lastTraceAt = 0
+    let tracePending = false
+    let traceTimer = null
+
+    const tools = await createServerTools(
+      parentSession.projectId,
+      parentSession.projectContext,
+      sessionSkillsContext(parentSession),
+      true,
+      (toolName) => {
+        if (!definition.allowedTools.includes(toolName)) return `Subagent ${definition.name} is not allowed to use ${toolName}.`
+        return commandToolPermissionError(parentSession, toolName)
+      },
+      {
+        allowedToolNames: definition.allowedTools,
+        includeSubagentTool: false,
+        includeMcpTools: false,
+      },
+    )
+    toolsForClient = tools.map(({ execute: _execute, prepareArguments: _prepareArguments, ...tool }) => tool)
+
+    const emitSubagentTrace = () => {
+      if (traceTimer) {
+        clearTimeout(traceTimer)
+        traceTimer = null
       }
-      if (!definition.allowedTools.includes(toolName)) {
-        return { block: true, reason: `Subagent ${definition.name} is not allowed to use ${toolName}.` }
-      }
-      const commandPermissionError = commandToolPermissionError(parentSession, toolName)
-      if (commandPermissionError) return { block: true, reason: commandPermissionError }
-      if (!hasFullAccess(parentSession)) {
-        if (safeReadTools.has(toolName)) return undefined
-        return createApprovalPromise(parentSession, context.toolCall?.id, toolName, context.args, {
-          type: 'subagent',
+      tracePending = false
+      lastTraceAt = Date.now()
+      onUpdate?.({
+        content: [],
+        details: {
           subagent: definition.name,
           label: definition.label,
           sessionId: subagentSessionId,
-        })
-      }
-      return undefined
-    },
-  })
-
-  subagent.subscribe((event) => {
-    latestMessages = subagent.state.messages.slice()
-    latestPendingToolCalls = Array.from(subagent.state.pendingToolCalls || [])
-    if (event.type === 'message_start' || event.type === 'message_update') {
-      if (event.message?.role === 'assistant') {
-        latestMessages = [...latestMessages, event.message]
-      }
+          parentSessionId: parentSession.sessionId,
+          toolCalls,
+          allowedTools: definition.allowedTools,
+          timeoutMs,
+          source: definition.source,
+          lifecycle: definition.lifecycle,
+          profilePath: definition.filePath,
+          capabilityPolicy: definition.capabilityPolicy,
+          model: subagentModelInfo,
+          durationMs: Date.now() - startedAt,
+          messages: latestMessages,
+          tools: toolsForClient,
+          pendingToolCalls: latestPendingToolCalls,
+        },
+      })
     }
-    if (event.type === 'tool_execution_start' || event.type === 'tool_execution_end' || event.type === 'message_end') {
-      emitSubagentTrace()
-    } else {
-      emitSubagentTraceThrottled()
+
+    const emitSubagentTraceThrottled = () => {
+      const elapsed = Date.now() - lastTraceAt
+      if (elapsed >= SUBAGENT_TRACE_THROTTLE_MS) {
+        emitSubagentTrace()
+        return
+      }
+      tracePending = true
+      if (traceTimer) return
+      traceTimer = setTimeout(() => {
+        if (tracePending) emitSubagentTrace()
+      }, SUBAGENT_TRACE_THROTTLE_MS - elapsed)
     }
-  })
 
-  let timedOut = false
-  const timeout = setTimeout(() => {
-    timedOut = true
-    subagent.abort()
-  }, timeoutMs)
-  const onParentAbort = () => subagent.abort()
-  parentSignal?.addEventListener?.('abort', onParentAbort, { once: true })
-
-  try {
-    await subagent.prompt(userMessage)
-    if (timedOut) throw new Error(`Subagent ${definition.name} timed out after ${formatTimeoutMinutes(timeoutMs)}.`)
-    if (parentSignal?.aborted) throw new Error(`Subagent ${definition.name} aborted with parent run.`)
-  } finally {
-    clearTimeout(timeout)
-    parentSignal?.removeEventListener?.('abort', onParentAbort)
-    emitSubagentTrace()
-  }
-
-  const content = lastAssistantText(subagent.state.messages) || `Subagent ${definition.name} completed without a text response.`
-  return {
-    content,
-    details: {
-      subagent: definition.name,
-      label: definition.label,
+    const systemPrompt = composeSubagentSystemPrompt({
+      definition,
+      parentSystemPrompt: parentSession.agent.state.systemPrompt,
+      projectContext: parentSession.projectContext,
+    })
+    const userMessage = {
+      role: 'user',
+      content: [{ type: 'text', text: formatSubagentTask(params) }],
+      timestamp: Date.now(),
+    }
+    const subagent = new Agent({
+      initialState: {
+        systemPrompt,
+        model: subagentModel,
+        thinkingLevel: subagentThinkingLevel,
+        messages: [],
+        tools,
+      },
+      streamFn: (streamModel, streamContext, streamOptions) => streamSimpleWithAiHttpLogging(streamModel, streamContext, {
+        ...streamOptions,
+        onStreamRetry: (info) => emitSessionEvent(parentSession, { type: 'model_stream_retry', ...info }),
+        quickforgeInternalLogContext: lifecycleContext,
+      }),
+      getApiKey: parentSession.getApiKey,
       sessionId: subagentSessionId,
-      parentSessionId: parentSession.sessionId,
-      toolCalls,
-      allowedTools: definition.allowedTools,
-      timeoutMs,
-      source: definition.source,
-      lifecycle: definition.lifecycle,
-      profilePath: definition.filePath,
-      capabilityPolicy: definition.capabilityPolicy,
-      model: subagentModelInfo,
-      durationMs: Date.now() - startedAt,
-      messages: latestMessages,
-      tools: toolsForClient,
-      pendingToolCalls: latestPendingToolCalls,
-    },
+      convertToLlm: serverConvertToLlm,
+      onPayload: (payload) => {
+        restoreReasoningContentInPayload(payload, subagent.state.messages, subagent.state.model)
+      },
+      beforeToolCall: async (context) => {
+        const toolName = context.toolCall?.name
+        toolCalls += 1
+        emitSubagentTrace()
+        if (toolCalls > Number(definition.maxToolCalls || 300)) {
+          return { block: true, reason: `Subagent ${definition.name} exceeded its tool-call budget.` }
+        }
+        if (!definition.allowedTools.includes(toolName)) {
+          return { block: true, reason: `Subagent ${definition.name} is not allowed to use ${toolName}.` }
+        }
+        const commandPermissionError = commandToolPermissionError(parentSession, toolName)
+        if (commandPermissionError) return { block: true, reason: commandPermissionError }
+        if (!hasFullAccess(parentSession)) {
+          if (safeReadTools.has(toolName)) return undefined
+          return createApprovalPromise(parentSession, context.toolCall?.id, toolName, context.args, {
+            type: 'subagent',
+            subagent: definition.name,
+            label: definition.label,
+            sessionId: subagentSessionId,
+          })
+        }
+        return undefined
+      },
+    })
+
+    subagent.subscribe((event) => {
+      latestMessages = subagent.state.messages.slice()
+      latestPendingToolCalls = Array.from(subagent.state.pendingToolCalls || [])
+      if (event.type === 'message_start' || event.type === 'message_update') {
+        if (event.message?.role === 'assistant') {
+          latestMessages = [...latestMessages, event.message]
+        }
+      }
+      if (event.type === 'tool_execution_start' || event.type === 'tool_execution_end' || event.type === 'message_end') {
+        emitSubagentTrace()
+      } else {
+        emitSubagentTraceThrottled()
+      }
+    })
+
+    let abortTrigger = null
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      timedOut = true
+      abortTrigger ||= { type: 'timeout', triggeredAt: Date.now() }
+      logLifecycle('warn', 'timeout_triggered')
+      subagent.abort()
+    }, timeoutMs)
+    const onParentAbort = () => {
+      abortTrigger ||= { type: 'parent_abort', triggeredAt: Date.now() }
+      logLifecycle('warn', 'parent_aborted')
+      subagent.abort()
+    }
+    parentSignal?.addEventListener?.('abort', onParentAbort, { once: true })
+
+    try {
+      let promptOutcome = 'resolved'
+      try {
+        await subagent.prompt(userMessage)
+      } catch (error) {
+        promptOutcome = 'rejected'
+        throw error
+      } finally {
+        if (abortTrigger) {
+          logLifecycle('warn', 'settled_after_abort', {
+            abortReason: abortTrigger.type,
+            waitAfterAbortMs: Date.now() - abortTrigger.triggeredAt,
+            outcome: promptOutcome,
+          })
+        }
+      }
+      if (timedOut) throw new Error(`Subagent ${definition.name} timed out after ${formatTimeoutMinutes(timeoutMs)}.`)
+      if (parentSignal?.aborted) throw new Error(`Subagent ${definition.name} aborted with parent run.`)
+
+      const content = lastAssistantText(subagent.state.messages) || `Subagent ${definition.name} completed without a text response.`
+      logTerminalLifecycle('info', 'completed')
+      return {
+        content,
+        details: {
+          subagent: definition.name,
+          label: definition.label,
+          sessionId: subagentSessionId,
+          parentSessionId: parentSession.sessionId,
+          toolCalls,
+          allowedTools: definition.allowedTools,
+          timeoutMs,
+          source: definition.source,
+          lifecycle: definition.lifecycle,
+          profilePath: definition.filePath,
+          capabilityPolicy: definition.capabilityPolicy,
+          model: subagentModelInfo,
+          durationMs: Date.now() - startedAt,
+          messages: latestMessages,
+          tools: toolsForClient,
+          pendingToolCalls: latestPendingToolCalls,
+        },
+      }
+    } catch (error) {
+      logTerminalLifecycle('warn', 'failed', {
+        outcome: timedOut ? 'timeout' : parentSignal?.aborted ? 'parent_aborted' : 'error',
+        errorName: error instanceof Error ? error.name : typeof error,
+      })
+      throw error
+    } finally {
+      clearTimeout(timeout)
+      parentSignal?.removeEventListener?.('abort', onParentAbort)
+      emitSubagentTrace()
+    }
+  } catch (error) {
+    logTerminalLifecycle('warn', 'failed', {
+      outcome: 'error',
+      errorName: error instanceof Error ? error.name : typeof error,
+    })
+    throw error
   }
 }
 

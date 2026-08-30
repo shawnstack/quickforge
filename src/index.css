@@ -4387,9 +4387,9 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
 }
 
 .quickforge-composer .quickforge-subagent-running-trigger {
-  min-width: 2rem;
-  padding: 0 0.6rem !important;
-  font-variant-numeric: tabular-nums;
+  position: relative;
+  width: 2rem;
+  padding: 0 !important;
 }
 
 .quickforge-composer .quickforge-subagent-running-trigger[aria-expanded="true"] {
@@ -4398,24 +4398,35 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   color: var(--foreground) !important;
 }
 
-.quickforge-subagent-running-spinner {
-  width: 0.75rem;
-  height: 0.75rem;
-  flex: 0 0 auto;
-  border: 1.5px solid color-mix(in oklab, #048f65 34%, transparent);
-  border-top-color: #048f65;
-  border-radius: 50%;
-  animation: quickforge-reconnect-spin 0.9s linear infinite;
+.quickforge-subagent-running-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
 }
 
-html.dark .quickforge-subagent-running-spinner {
-  border-color: color-mix(in oklab, #6ee7b7 34%, transparent);
-  border-top-color: #6ee7b7;
+.quickforge-subagent-running-badge {
+  position: absolute;
+  top: -0.3rem;
+  right: -0.3rem;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: rgb(5 150 105);
+  color: #ffffff;
+  border: 2px solid var(--background);
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.quickforge-subagent-running-count {
-  color: color-mix(in oklab, var(--foreground) 84%, transparent);
-  font-weight: 650;
+html.dark .quickforge-subagent-running-badge {
+  background: rgb(52 211 153);
+  color: rgb(5 46 31);
 }
 
 .quickforge-subagent-running-menu {
@@ -4994,10 +5005,6 @@ html.dark .quickforge-subagent-running-spinner {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .quickforge-subagent-running-spinner {
-    animation: none;
-  }
-
   .quickforge-composer .quickforge-stop-button--waiting::before {
     animation: none;
     opacity: 0.55;
@@ -5392,16 +5399,6 @@ html.dark .quickforge-subagent-running-spinner {
     display: none;
   }
 
-  .quickforge-composer .quickforge-subagent-running-trigger {
-    width: 2rem;
-    gap: 0;
-    padding-inline: 0 !important;
-  }
-
-  .quickforge-composer .quickforge-subagent-running-trigger-label {
-    display: none;
-  }
-
   .quickforge-composer :is(.quickforge-context-usage, .quickforge-context-usage-label) {
     margin-inline: 0.125rem;
   }
@@ -5456,16 +5453,6 @@ html.dark .quickforge-subagent-running-spinner {
 }
 
 .quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-agent-access-inline :is(.quickforge-agent-access-label, .quickforge-agent-access-chevron) {
-  display: none;
-}
-
-.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-subagent-running-trigger {
-  width: 2rem;
-  gap: 0;
-  padding-inline: 0 !important;
-}
-
-.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-subagent-running-trigger-label {
   display: none;
 }
 
@@ -6553,5 +6540,88 @@ html.dark .quickforge-todo-summary-ring-check {
 
   .quickforge-todo-summary[data-running="true"]:not([data-expanded="true"]) .quickforge-todo-summary-ring-bar {
     animation: none;
+  }
+}
+/* Desktop pinned summary shared floating widget and panel/capsule morph. */
+@keyframes quickforge-pinned-summary-open {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.quickforge-pinned-summary-widget {
+  width: var(--quickforge-pinned-summary-width, min(20.5rem, calc(100vw - 1rem)));
+  height: var(--quickforge-pinned-summary-height, 20rem);
+  transform-origin: top right;
+  animation: quickforge-pinned-summary-open 160ms ease-out;
+  transition:
+    width 220ms cubic-bezier(.22,.8,.24,1),
+    height 220ms cubic-bezier(.22,.8,.24,1),
+    opacity 160ms ease-out,
+    transform 160ms ease-out;
+}
+
+.quickforge-pinned-summary-widget[data-closing="true"] {
+  opacity: 0;
+  transform: scale(0.96);
+  pointer-events: none;
+}
+
+.quickforge-pinned-summary-widget[data-dragging="true"] {
+  animation: none;
+  transition: none;
+}
+
+.quickforge-pinned-summary-capsule,
+.quickforge-pinned-summary-panel {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transition:
+    opacity 140ms ease,
+    transform 220ms cubic-bezier(.22,.8,.24,1);
+}
+
+.quickforge-pinned-summary-capsule {
+  width: max-content;
+  min-width: 11rem;
+  height: 2.75rem;
+  transform: scale(1);
+  opacity: 1;
+}
+
+.quickforge-pinned-summary-panel {
+  height: max-content;
+  transform: scale(0.97);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.quickforge-pinned-summary-widget[data-mode="panel"] .quickforge-pinned-summary-capsule {
+  transform: scale(0.97);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.quickforge-pinned-summary-widget[data-mode="panel"] .quickforge-pinned-summary-panel {
+  transform: scale(1);
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: 55ms, 0ms;
+}
+
+.quickforge-pinned-summary-widget[data-mode="capsule"] .quickforge-pinned-summary-capsule {
+  transition-delay: 55ms, 0ms;
+}
+
+.quickforge-pinned-summary-widget[data-dragging="true"] .quickforge-pinned-summary-capsule,
+.quickforge-pinned-summary-widget[data-dragging="true"] .quickforge-pinned-summary-panel {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-pinned-summary-widget,
+  .quickforge-pinned-summary-capsule,
+  .quickforge-pinned-summary-panel {
+    animation: none;
+    transition: none;
   }
 }

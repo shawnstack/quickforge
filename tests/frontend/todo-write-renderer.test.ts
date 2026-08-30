@@ -136,7 +136,7 @@ describe('TodoWrite history renderer', () => {
   })
 
   it('uses a normal-flow composer layout with bounded scrolling, focus, responsive, and reduced-motion handling', () => {
-    const block = css.slice(css.indexOf('/* TodoWrite task summary'))
+    const block = css.slice(css.indexOf('/* TodoWrite task summary'), css.indexOf('/* Desktop pinned summary'))
     expect(css).toMatch(/\.quickforge-composer-shell\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;/)
     expect(block).toMatch(/\.quickforge-todo-summary\s*\{[\s\S]*?width:\s*100%;[\s\S]*?flex:\s*none;/)
     expect(block).toMatch(/\.quickforge-todo-summary-list\s*\{[\s\S]*?max-height:[^;]+;[\s\S]*?overflow-y:\s*auto;[\s\S]*?overscroll-behavior:\s*contain;/)

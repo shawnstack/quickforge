@@ -53,6 +53,7 @@
 | `chat-harness-capabilities.ts` | 主聊天 Harness capability 静态表与页面策略 resolver；QuickForge 默认全开，OpenCode P0 关闭模型/思考、Plan/Access、命令与 capability suggestions、上下文压缩、历史派生（按消息 fork/rollback/retry），P1 开放整会话 fork（`forkSession`）与 OpenCode 动态配置（`harnessConfig`）；另导出 `SIDE_CHAT_CAPABILITIES` 全 false 的可执行能力表，Side Chat 仍复用主控件布局，但由共享装饰层将不支持控件原生禁用，服务端固定 `tools: []` 作为安全边界 |
 | `system-notifications.ts` | 浏览器 Notification/Service Worker、Electron Desktop 原生通知与 Capacitor Android 本地通知统一适配；管理默认开启的设备偏好、权限、安卓远程浏览器首次发送授权、后台展示、点击打开会话和短时去重 |
 | `info-tip.ts` | 134 | 统一问号说明浮层 Web Component |
+| `pinned-summary-drag.ts` | 59 | 置顶摘要桌面浮动摘要拖动/外点纯函数：`clampPinnedSummaryPosition`（视口内 clamp，默认 12px 安全边距）、`getPinnedSummaryOutsideAction`（closed→stay / 非 desktopDraggable→close / desktop panel→minimize / desktop capsule→stay）、`hasPinnedSummaryDragThreshold`（默认 4px 拖动阈值）；供 `GitToolsPinnedSummary` 桌面三态浮动摘要共用，配套纯函数测试 `tests/frontend/pinned-summary-drag.test.ts` |
 
 ---
 

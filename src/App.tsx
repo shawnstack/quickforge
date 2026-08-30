@@ -118,6 +118,7 @@ import { RemoteTunnelOverlay } from '@/components/mobile/RemoteTunnelOverlay'
 import { isCloudTunnelClient, isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
 import { initializeSystemNotifications, showTaskSystemNotification } from '@/lib/system-notifications'
 import { resolveChatHarnessCapabilities } from '@/lib/chat-harness-capabilities'
+import { shouldSuspendPinnedSummary } from '@/lib/pinned-summary-drag'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 
 // --- Code-split secondary views (only loaded when first opened) ---
@@ -500,6 +501,29 @@ function MainApp() {
   // 面板开合改为页面生命周期内的用户选择，默认收起，切换 session 不再自动展开；
   // tab 列表仍按 (projectId, sessionId) 持久化恢复。
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
+  const [desktopInspectorViewport, setDesktopInspectorViewport] = useState(false)
+
+  // 1024px 对应 Tailwind lg 断点，与 WorkspaceInspector 的窄视口判定保持一致。
+  // 不用 lazy initializer 读取 window.matchMedia：渲染期调用全局/有副作用的 API 会让
+  // React Compiler 跳过整个组件优化并触发 preserve-manual-memoization；初值由 effect 内
+  // update() 立即校准。防御式写法兼容 vitest node 环境无 matchMedia。
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined
+    const query = window.matchMedia('(min-width: 1024px)')
+    const update = () => setDesktopInspectorViewport(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
+
+  const pinnedSummarySuspended = useMemo(
+    () => shouldSuspendPinnedSummary({
+      inspectorOpen: workspaceInspectorOpen,
+      desktopInspectorViewport,
+      mobileShell,
+    }),
+    [workspaceInspectorOpen, desktopInspectorViewport, mobileShell],
+  )
 
   useEffect(() => {
     const agent = agentManager.agent
@@ -1751,7 +1775,10 @@ function MainApp() {
           onOpenInIDEA={openProjectInIDEAWithFeedback}
         />
       ) : null}
-      {!workspaceInspectorOpen && (
+      {(
+        !workspaceInspectorOpen
+        || pinnedSummarySuspended
+      ) && (
         pinnedSummaryTodos.length > 0
         || pinnedSummarySubagentRuns.length > 0
         || pinnedSummaryRunningSubagentRuns.length > 0
@@ -1764,13 +1791,12 @@ function MainApp() {
           runningSubagentRuns={pinnedSummaryRunningSubagentRuns}
           finishedSubagentRuns={pinnedSummarySubagentRuns}
           expanded={gitToolsExpanded}
+          suspended={pinnedSummarySuspended}
           onExpandedChange={setGitToolsExpanded}
           onOpenSubagentRun={(payload) => {
-            setGitToolsExpanded(false)
             openSubagentRun(payload)
           }}
           onOpenChanges={() => {
-            setGitToolsExpanded(false)
             openWorkspaceGitChanges()
           }}
           onOpenCommitPush={() => {
@@ -1813,6 +1839,7 @@ function MainApp() {
             setWorkspaceInspectorOpen(true)
           }
         }}
+        data-pinned-summary-inspector-toggle="true"
         disabled={needsModelSetup}
         aria-label={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         title={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}

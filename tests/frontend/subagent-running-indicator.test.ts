@@ -6,7 +6,6 @@ import { SubagentRunStore } from '../../src/lib/subagent-run-detail'
 vi.mock('@/lib/i18n', () => ({
   t: (key: string, params?: Record<string, string | number>) => {
     const values: Record<string, string> = {
-      subagentRunningIndicatorTriggerLabel: 'Running',
       subagentRunningIndicatorTriggerAria: `${params?.count} subagents running`,
       subagentRunningIndicatorMenuTitle: `Running subagents · ${params?.count}`,
       subagentRunningIndicatorMenuAria: 'Running subagents',
@@ -26,6 +25,7 @@ class FakeElement {
   dataset: Record<string, string> = {}
   style: Record<string, string> = {}
   textContent: string | null = null
+  innerHTML = ''
   type = ''
   offsetHeight = 160
   onclick: ((event: FakeEvent) => void) | null = null
@@ -295,10 +295,10 @@ describe('subagent running Composer indicator', () => {
 
     const trigger = dom.panel.querySelector('.quickforge-subagent-running-trigger')!
     expect(dom.leftControls.children).toEqual([dom.access, trigger, dom.plan])
-    expect(trigger.querySelector('.quickforge-subagent-running-count')!.textContent).toBe('2')
-    expect(trigger.querySelector('.quickforge-subagent-running-trigger-label')!.textContent).toBe('Running')
+    expect(trigger.querySelector('.quickforge-subagent-running-badge')!.textContent).toBe('2')
+    expect(trigger.querySelector('.quickforge-subagent-running-icon')!.innerHTML).toContain('<svg')
 
-    const spinner = trigger.querySelector('.quickforge-subagent-running-spinner')
+    const icon = trigger.querySelector('.quickforge-subagent-running-icon')
     setupSubagentRunningIndicator({
       panel: dom.panel as unknown as HTMLElement,
       leftControls: dom.leftControls as unknown as HTMLElement,
@@ -307,8 +307,8 @@ describe('subagent running Composer indicator', () => {
       dismissComposerMenus: vi.fn(),
       store,
     })
-    expect(trigger.querySelector('.quickforge-subagent-running-spinner')).toBe(spinner)
-    expect(trigger.querySelector('.quickforge-subagent-running-count')!.textContent).toBe('1')
+    expect(trigger.querySelector('.quickforge-subagent-running-icon')).toBe(icon)
+    expect(trigger.querySelector('.quickforge-subagent-running-badge')!.textContent).toBe('1')
   })
 
   it('opens the body-level menu and dispatches the latest payload on item click', async () => {
@@ -377,6 +377,114 @@ describe('subagent running Composer indicator', () => {
     expect(dom.panel.querySelector('.quickforge-subagent-running-trigger')).toBeNull()
     expect(dom.body.querySelector('.quickforge-subagent-running-menu')).toBeNull()
   })
+
+  it('keeps menu item element identity across repeated decorate cycles', async () => {
+    const dom = buildDom()
+    vi.stubGlobal('document', dom.document)
+    vi.stubGlobal('window', dom.windowObject)
+    const store = new SubagentRunStore()
+    store.publish(payload('run-1', 'running'))
+    store.publish(payload('run-2', 'running'))
+    const { setupSubagentRunningIndicator } = await loadModule()
+    const pendingToolCalls = () => ['run-1', 'run-2']
+    const options = {
+      panel: dom.panel as unknown as HTMLElement,
+      leftControls: dom.leftControls as unknown as HTMLElement,
+      enabled: true,
+      getPendingToolCalls: pendingToolCalls,
+      dismissComposerMenus: vi.fn(),
+      store,
+    }
+
+    setupSubagentRunningIndicator(options)
+    dom.panel.querySelector('.quickforge-subagent-running-trigger')!.onpointerdown!(new FakeEvent())
+    const menu = dom.body.querySelector('.quickforge-subagent-running-menu')!
+    const heading = menu.querySelector('.quickforge-subagent-running-menu-title')!
+    const item1 = menu.querySelectorAll('.quickforge-subagent-running-item')[0]!
+    const item1Label = item1.querySelector('.quickforge-subagent-running-item-label')!
+
+    setupSubagentRunningIndicator(options)
+    expect(dom.body.querySelector('.quickforge-subagent-running-menu')).toBe(menu)
+    expect(menu.querySelector('.quickforge-subagent-running-menu-title')).toBe(heading)
+    expect(menu.querySelectorAll('.quickforge-subagent-running-item')[0]).toBe(item1)
+    expect(item1.querySelector('.quickforge-subagent-running-item-label')).toBe(item1Label)
+
+    store.publish(payload('run-1', 'running', { task: 'Updated task', fingerprint: 'updated' }))
+    setupSubagentRunningIndicator(options)
+    const menuAfter = dom.body.querySelector('.quickforge-subagent-running-menu')!
+    expect(menuAfter).toBe(menu)
+    const itemAfter = menuAfter.querySelectorAll('.quickforge-subagent-running-item')[0]!
+    expect(itemAfter).toBe(item1)
+    expect(item1.querySelector('.quickforge-subagent-running-task')!.textContent).toBe('Updated task')
+  })
+
+  it('removes disappeared runs and appends new runs in pending order', async () => {
+    const dom = buildDom()
+    vi.stubGlobal('document', dom.document)
+    vi.stubGlobal('window', dom.windowObject)
+    const store = new SubagentRunStore()
+    store.publish(payload('run-1', 'running'))
+    store.publish(payload('run-2', 'running'))
+    const { setupSubagentRunningIndicator } = await loadModule()
+    let pendingToolCalls = () => ['run-1', 'run-2']
+    const options = {
+      panel: dom.panel as unknown as HTMLElement,
+      leftControls: dom.leftControls as unknown as HTMLElement,
+      enabled: true,
+      getPendingToolCalls: () => pendingToolCalls(),
+      dismissComposerMenus: vi.fn(),
+      store,
+    }
+
+    setupSubagentRunningIndicator(options)
+    dom.panel.querySelector('.quickforge-subagent-running-trigger')!.onpointerdown!(new FakeEvent())
+    const menu = dom.body.querySelector('.quickforge-subagent-running-menu')!
+    const item2 = menu.querySelectorAll('.quickforge-subagent-running-item')[1]!
+
+    store.publish(payload('run-1', 'done', { fingerprint: 'terminal' }))
+    store.publish(payload('run-3', 'running'))
+    pendingToolCalls = () => ['run-3', 'run-2']
+    setupSubagentRunningIndicator(options)
+
+    const items = menu.querySelectorAll('.quickforge-subagent-running-item')
+    expect(items.map((item) => item.dataset.runId)).toEqual(['run-3', 'run-2'])
+    expect(items[1]).toBe(item2)
+    expect(menu.querySelectorAll('[data-run-id="run-1"]')).toEqual([])
+  })
+
+  it('keeps the open menu and rebinds the owner trigger when the trigger element is recreated', async () => {
+    const dom = buildDom()
+    vi.stubGlobal('document', dom.document)
+    vi.stubGlobal('window', dom.windowObject)
+    const store = new SubagentRunStore()
+    store.publish(payload('run-1', 'running'))
+    const { setupSubagentRunningIndicator } = await loadModule()
+    const options = {
+      panel: dom.panel as unknown as HTMLElement,
+      leftControls: dom.leftControls as unknown as HTMLElement,
+      enabled: true,
+      getPendingToolCalls: () => ['run-1'],
+      dismissComposerMenus: vi.fn(),
+      store,
+    }
+
+    setupSubagentRunningIndicator(options)
+    const oldTrigger = dom.panel.querySelector('.quickforge-subagent-running-trigger')!
+    oldTrigger.onpointerdown!(new FakeEvent())
+    const menu = dom.body.querySelector('.quickforge-subagent-running-menu')! as unknown as {
+      __quickforgeOwnerTrigger?: unknown
+    }
+    expect(menu.parentElement).toBe(dom.body)
+
+    oldTrigger.remove()
+    setupSubagentRunningIndicator(options)
+
+    const newTrigger = dom.panel.querySelector('.quickforge-subagent-running-trigger')!
+    expect(newTrigger).not.toBe(oldTrigger)
+    expect(dom.body.querySelector('.quickforge-subagent-running-menu')!.parentElement).toBe(dom.body)
+    expect(menu.__quickforgeOwnerTrigger).toBe(newTrigger)
+    expect(newTrigger.getAttribute('aria-expanded')).toBe('true')
+  })
 })
 
 describe('subagent running indicator source contracts', () => {
@@ -392,9 +500,8 @@ describe('subagent running indicator source contracts', () => {
     expect(indicatorSource).toContain("window.addEventListener('scroll', dismiss, true)")
   })
 
-  it('contains bilingual copy and compact/mobile visual rules', () => {
+  it('contains bilingual copy and badge visual rules', () => {
     for (const key of [
-      'subagentRunningIndicatorTriggerLabel',
       'subagentRunningIndicatorTriggerAria',
       'subagentRunningIndicatorMenuTitle',
       'subagentRunningIndicatorMenuAria',
@@ -403,10 +510,14 @@ describe('subagent running indicator source contracts', () => {
     ]) {
       expect(i18nSource.match(new RegExp(`${key}:`, 'g'))).toHaveLength(2)
     }
+    expect(i18nSource).not.toContain('subagentRunningIndicatorTriggerLabel')
     expect(cssSource).toContain('.quickforge-subagent-running-trigger')
     expect(cssSource).toContain('.quickforge-subagent-running-menu')
+    expect(cssSource).toContain('.quickforge-subagent-running-icon')
+    expect(cssSource).toContain('.quickforge-subagent-running-badge')
+    expect(cssSource).toContain('html.dark .quickforge-subagent-running-badge')
     expect(cssSource).toContain('max-height: min(420px, calc(100vh - 24px))')
-    expect(cssSource).toContain('.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-subagent-running-trigger-label')
-    expect(cssSource).toMatch(/@media \(max-width: 768px\)[\s\S]*quickforge-subagent-running-trigger-label/)
+    expect(cssSource).not.toContain('.quickforge-subagent-running-spinner')
+    expect(cssSource).not.toContain('.quickforge-subagent-running-trigger-label')
   })
 })

@@ -436,6 +436,17 @@ async function handleStreamHead(req, res, sessionId) {
 }
 
 function handleGlobalStream(req, res) {
+  let failureLogged = false
+  let cleanedUp = false
+  const logFailure = (failureType, error) => {
+    if (failureLogged || cleanedUp) return
+    failureLogged = true
+    logger.warn('Global agent SSE connection failure', {
+      streamScope: 'global',
+      failureType,
+      errorName: error instanceof Error ? error.name : typeof error,
+    })
+  }
   res.writeHead(200, {
     'content-type': 'text/event-stream',
     'cache-control': 'no-cache, no-transform',
@@ -449,7 +460,8 @@ function handleGlobalStream(req, res) {
   const keepAlive = setInterval(() => {
     try {
       res.write(': ping\n\n')
-    } catch {
+    } catch (error) {
+      logFailure('keepalive_write_failed', error)
       cleanup()
     }
   }, 15000)
@@ -457,12 +469,15 @@ function handleGlobalStream(req, res) {
   const onAgentEvent = (event) => {
     try {
       writeSseEvent(res, event.type || 'agent_event', event)
-    } catch {
+    } catch (error) {
+      logFailure('event_write_failed', error)
       cleanup()
     }
   }
 
   const cleanup = () => {
+    if (cleanedUp) return
+    cleanedUp = true
     clearInterval(keepAlive)
     agentEvents.removeListener('agent_event', onAgentEvent)
     if (!res.writableEnded) {
@@ -473,11 +488,35 @@ function handleGlobalStream(req, res) {
   agentEvents.on('agent_event', onAgentEvent)
 
   req.on('close', cleanup)
-  req.on('error', cleanup)
-  res.on('error', cleanup)
+  req.on('error', (error) => {
+    logFailure('request_socket_error', error)
+    cleanup()
+  })
+  res.on('error', (error) => {
+    logFailure('response_socket_error', error)
+    cleanup()
+  })
 }
 
 async function handleStream(req, res, sessionId) {
+  let failureLogged = false
+  let cleanedUp = false
+  let sseAcquired = false
+  const logFailure = (failureType, error) => {
+    if (failureLogged || cleanedUp) return
+    failureLogged = true
+    logger.warn('Session agent SSE connection failure', {
+      streamScope: 'session',
+      sessionId,
+      failureType,
+      errorName: error instanceof Error ? error.name : typeof error,
+    })
+  }
+  const releaseConnection = () => {
+    if (!sseAcquired) return
+    sseAcquired = false
+    releaseSse(sessionId)
+  }
   // Restore from storage if not already in memory
   let eventBus = getSessionEventBus(sessionId)
   if (!eventBus) {
@@ -495,6 +534,7 @@ async function handleStream(req, res, sessionId) {
     sendJson(res, 409, { error: 'Session is already active in another tab' })
     return
   }
+  sseAcquired = true
 
   // Reset idle timer — active SSE connection keeps session alive
   touchSession(sessionId)
@@ -511,7 +551,14 @@ async function handleStream(req, res, sessionId) {
   // fetch messages through GET /api/agents/:id/messages)
   const state = getSessionState(sessionId)
   if (state) {
-    writeSseEvent(res, 'state', stripSplitSessionState(state))
+    try {
+      writeSseEvent(res, 'state', stripSplitSessionState(state))
+    } catch (error) {
+      logFailure('initial_state_write_failed', error)
+      releaseConnection()
+      if (!res.writableEnded) res.end()
+      return
+    }
   }
 
   // Keep-alive ping every 15 seconds — also resets idle timer
@@ -519,7 +566,8 @@ async function handleStream(req, res, sessionId) {
     try {
       res.write(': ping\n\n')
       touchSession(sessionId)
-    } catch {
+    } catch (error) {
+      logFailure('keepalive_write_failed', error)
       cleanup()
     }
   }, 15000)
@@ -528,15 +576,18 @@ async function handleStream(req, res, sessionId) {
   const onAgentEvent = (event) => {
     try {
       writeSseEvent(res, event.type, event)
-    } catch {
+    } catch (error) {
+      logFailure('event_write_failed', error)
       cleanup()
     }
   }
 
   const cleanup = () => {
+    if (cleanedUp) return
+    cleanedUp = true
     clearInterval(keepAlive)
     eventBus.removeListener('agent_event', onAgentEvent)
-    releaseSse(sessionId)
+    releaseConnection()
     if (!res.writableEnded) {
       res.end()
     }
@@ -545,8 +596,14 @@ async function handleStream(req, res, sessionId) {
   eventBus.on('agent_event', onAgentEvent)
 
   req.on('close', cleanup)
-  req.on('error', cleanup)
-  res.on('error', cleanup)
+  req.on('error', (error) => {
+    logFailure('request_socket_error', error)
+    cleanup()
+  })
+  res.on('error', (error) => {
+    logFailure('response_socket_error', error)
+    cleanup()
+  })
 }
 
 function writeSseEvent(res, event, data) {

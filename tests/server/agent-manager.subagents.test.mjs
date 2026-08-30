@@ -3,9 +3,19 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 
+const mocks = vi.hoisted(() => {
+  const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+  logger.child = vi.fn(() => logger)
+  return {
+    logger,
+    streamSimpleWithAiHttpLogging: vi.fn(),
+  }
+})
+
 class MockAgent {
   static instances = []
   static hangPrompts = false
+  static failNextConstruction = false
   static promptStarted = null
   static resolvePromptStarted = null
 
@@ -13,6 +23,7 @@ class MockAgent {
     for (const instance of MockAgent.instances) instance.resolvePrompt?.()
     MockAgent.instances = []
     MockAgent.hangPrompts = false
+    MockAgent.failNextConstruction = false
     MockAgent.promptStarted = null
     MockAgent.resolvePromptStarted = null
   }
@@ -25,6 +36,10 @@ class MockAgent {
   }
 
   constructor(options = {}) {
+    if (MockAgent.failNextConstruction) {
+      MockAgent.failNextConstruction = false
+      throw new TypeError('controlled agent construction failure')
+    }
     MockAgent.instances.push(this)
     this.options = options
     this.state = {
@@ -37,6 +52,7 @@ class MockAgent {
     this.listeners = new Set()
     this.abortCount = 0
     this.resolvePrompt = null
+    this.streamFnInvoked = false
   }
 
   subscribe(listener) {
@@ -49,6 +65,14 @@ class MockAgent {
   }
 
   async prompt() {
+    if (!this.streamFnInvoked) {
+      this.streamFnInvoked = true
+      await this.options.streamFn?.(
+        this.state.model,
+        { systemPrompt: this.state.systemPrompt, messages: this.state.messages },
+        { signal: this.signal },
+      )
+    }
     if (MockAgent.hangPrompts) {
       MockAgent.resolvePromptStarted?.(this)
       return new Promise((resolve) => {
@@ -80,7 +104,8 @@ vi.mock('@earendil-works/pi-agent-core', () => ({
   estimateTokens: vi.fn(() => 0),
   shouldCompact: vi.fn(() => false),
 }))
-vi.mock('../../server/ai-http-logger.mjs', () => ({ streamSimpleWithAiHttpLogging: vi.fn() }))
+vi.mock('../../server/ai-http-logger.mjs', () => ({ streamSimpleWithAiHttpLogging: mocks.streamSimpleWithAiHttpLogging }))
+vi.mock('../../server/utils/logger.mjs', () => ({ logger: mocks.logger }))
 vi.mock('../../server/mcp/registry.mjs', () => ({
   createMcpToolDefinitions: vi.fn(async () => []),
   isMcpToolName: vi.fn(() => false),
@@ -107,6 +132,10 @@ describe('agent manager subagent execution', () => {
     databaseModule = await import('../../server/sqlite/database.mjs')
     await databaseModule.initializeSqliteStorage()
     MockAgent.reset()
+    for (const method of [mocks.logger.debug, mocks.logger.error, mocks.logger.info, mocks.logger.warn, mocks.logger.child]) method.mockReset()
+    mocks.logger.child.mockImplementation(() => mocks.logger)
+    mocks.streamSimpleWithAiHttpLogging.mockReset()
+    mocks.streamSimpleWithAiHttpLogging.mockResolvedValue({})
   })
 
   afterEach(async () => {
@@ -147,6 +176,77 @@ describe('agent manager subagent execution', () => {
 
       expect(result.content[0].text).toBe('mock subagent completed')
       expect(result.details.subagent).toBe('explore')
+      expect(mocks.streamSimpleWithAiHttpLogging).toHaveBeenCalledTimes(1)
+      const [streamModel, streamContext, streamOptions] = mocks.streamSimpleWithAiHttpLogging.mock.calls[0]
+      expect(streamModel).toBe(MockAgent.instances.at(-1).state.model)
+      expect(streamContext).toMatchObject({ messages: expect.any(Array) })
+      expect(streamOptions).toMatchObject({
+        signal: expect.any(Object),
+        quickforgeInternalLogContext: {
+          parentSessionId: session.sessionId,
+          subagentSessionId: result.details.sessionId,
+          toolCallId: 'tool-call-1',
+          subagent: 'explore',
+          timeoutMs: 60 * 60 * 1000,
+        },
+      })
+      const lifecycle = [...mocks.logger.info.mock.calls, ...mocks.logger.warn.mock.calls]
+        .map(([, fields]) => fields)
+        .filter((fields) => fields?.toolCallId === 'tool-call-1')
+      expect(lifecycle.map((fields) => fields.lifecycleEvent)).toEqual(['started', 'completed'])
+      for (const fields of lifecycle) {
+        expect(fields).toMatchObject({
+          parentSessionId: session.sessionId,
+          subagentSessionId: result.details.sessionId,
+          toolCallId: 'tool-call-1',
+          subagent: 'explore',
+          timeoutMs: 60 * 60 * 1000,
+          durationMs: expect.any(Number),
+          toolCalls: 0,
+        })
+        expect(JSON.stringify(fields)).not.toContain('Inspect the workspace.')
+      }
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('logs one failed terminal event when subagent initialization fails after started', async () => {
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('subagent-initialization-failure', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      MockAgent.failNextConstruction = true
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      await expect(runSubagent.execute(
+        'tool-call-init-failure',
+        { subagent: 'explore', task: 'Inspect initialization.' },
+        new AbortController().signal,
+      )).rejects.toThrow('controlled agent construction failure')
+
+      const lifecycle = [...mocks.logger.info.mock.calls, ...mocks.logger.warn.mock.calls]
+        .map(([, fields]) => fields)
+        .filter((fields) => fields?.toolCallId === 'tool-call-init-failure')
+      expect(lifecycle.map((fields) => fields.lifecycleEvent)).toEqual(['started', 'failed'])
+      expect(lifecycle.filter((fields) => fields.lifecycleEvent === 'failed')).toHaveLength(1)
+      expect(lifecycle[1]).toMatchObject({
+        parentSessionId: session.sessionId,
+        subagentSessionId: expect.stringContaining(`${session.sessionId}:subagent:explore:`),
+        subagent: 'explore',
+        timeoutMs: 60 * 60 * 1000,
+        outcome: 'error',
+        errorName: 'TypeError',
+      })
+      expect(JSON.stringify(lifecycle)).not.toContain('controlled agent construction failure')
     } finally {
       await destroyAgent(session.sessionId)
     }
@@ -181,6 +281,19 @@ describe('agent manager subagent execution', () => {
 
       await timeoutExpectation
       expect(subagent.abortCount).toBe(1)
+      const lifecycle = mocks.logger.warn.mock.calls
+        .map(([, fields]) => fields)
+        .filter((fields) => fields?.toolCallId === 'tool-call-timeout')
+      expect(lifecycle.map((fields) => fields.lifecycleEvent)).toEqual([
+        'timeout_triggered',
+        'settled_after_abort',
+        'failed',
+      ])
+      expect(lifecycle[1]).toMatchObject({
+        abortReason: 'timeout',
+        waitAfterAbortMs: expect.any(Number),
+        outcome: 'resolved',
+      })
     } finally {
       await destroyAgent(session.sessionId)
     }
@@ -271,6 +384,15 @@ describe('agent manager subagent execution', () => {
 
       await abortExpectation
       expect(subagent.abortCount).toBe(1)
+      const lifecycle = mocks.logger.warn.mock.calls
+        .map(([, fields]) => fields)
+        .filter((fields) => fields?.toolCallId === 'tool-call-parent-abort')
+      expect(lifecycle.map((fields) => fields.lifecycleEvent)).toEqual([
+        'parent_aborted',
+        'settled_after_abort',
+        'failed',
+      ])
+      expect(lifecycle[1]).toMatchObject({ abortReason: 'parent_abort', outcome: 'resolved' })
     } finally {
       await destroyAgent(session.sessionId)
     }

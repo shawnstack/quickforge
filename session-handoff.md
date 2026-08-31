@@ -1,5 +1,18 @@
 # Session Handoff
 
+## 当前状态：pinned-summary-draggable-capsule（普通任务置顶摘要一致性验收修订，needs-review，本次修订已提交）
+
+- 目标：修复普通 global 会话虽具备 `todo_write`，但基础提示词只在 `For project tasks:` 语境指导使用，导致普通任务置顶摘要不一致的问题；不让无内容入口常驻。
+- 实现：`server/system-prompt.mjs` 仅把 `todo_write` 通用规则移到 `For project tasks:` 之前，文案、权限与项目任务其他规则不变；所有具备该工具的非简单多步骤任务现在均适用。
+- 测试：`tests/server/system-prompt.test.mjs` 改为结构性契约——规则必须存在且索引早于 `For project tasks:`，该专属段之后不得再包含规则，全文只出现一次。
+- UI/文档：未改 `App.tsx` 或 `GitToolsPinnedSummary.tsx`，继续按实际 Todo/Git/Subagent 内容挂载，无内容不显示入口。`docs/wiki/server/README.md` 与 `docs/wiki/src/components/README.md` 仅同步本次作用域和空态边界。
+- 验证：`npx vitest run tests/server/system-prompt.test.mjs` → 1 file / 7 tests 全过；`npx eslint server/system-prompt.mjs tests/server/system-prompt.test.mjs`、`node --check server/system-prompt.mjs`、`feature_list.json` JSON parse、`git diff --check` 全过。
+- 文件：`server/system-prompt.mjs`、`tests/server/system-prompt.test.mjs`、`docs/wiki/server/README.md`、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Blocker：无。边界：feature 保持 needs-review；未改前端契约、未新增依赖、未触碰生成产物；本次修订已提交，临时未跟踪文件已清理。
+- 下一步：普通全局会话真机发起非简单多步骤任务，确认 Todo 产生后既有置顶摘要出现；无 Todo 时入口仍隐藏。
+
+---
+
 ## 当前状态：diff-display-optimization（最终视觉收口，done，未提交）
 
 - 目标：按用户连续反馈把 `write_file` / `edit_file` 工具 Diff 收敛到极简：`+N/−N` 仍有颜色区分，正文只显示一列智能行号，并减少说明性文字；不改通用过程折叠。

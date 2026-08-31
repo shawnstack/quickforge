@@ -10,13 +10,16 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('Make minimal, focused changes')
   })
 
-  it('describes todo_write as a brief current plan for non-trivial work', () => {
+  it('keeps the todo_write rule outside the project-task-only section', () => {
     const prompt = composeSystemPrompt()
+    const todoRule = '- When todo_write is available, use it for non-trivial multi-step work and keep a short current plan; skip it for simple tasks.'
+    const todoRuleIndex = prompt.indexOf(todoRule)
+    const projectTasksIndex = prompt.indexOf('For project tasks:')
 
-    expect(prompt).toContain('When todo_write is available')
-    expect(prompt).toContain('non-trivial multi-step work')
-    expect(prompt).toContain('keep a short current plan')
-    expect(prompt).toContain('skip it for simple tasks')
+    expect(todoRuleIndex).toBeGreaterThanOrEqual(0)
+    expect(projectTasksIndex).toBeGreaterThan(todoRuleIndex)
+    expect(prompt.slice(projectTasksIndex)).not.toContain(todoRule)
+    expect(prompt.match(/When todo_write is available/g)).toHaveLength(1)
     expect(prompt).not.toContain('For multi-step work, use a brief plan.')
   })
 

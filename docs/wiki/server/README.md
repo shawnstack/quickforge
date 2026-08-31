@@ -21,7 +21,7 @@ server/
 ├── plugins/                  # 本地插件 manifest、加载和工具适配
 ├── share-store.mjs           # 分享数据存储 (432 行)
 ├── session-utils.mjs         # 会话工具 (102 行)
-├── system-prompt.mjs         # 系统提示词合成 (91 行)
+├── system-prompt.mjs         # 系统提示词合成；todo_write 通用计划规则位于项目任务专属段之外
 ├── project-config.mjs        # 项目配置管理 (162 行)
 ├── conversation-compaction.mjs # 对话历史压缩 (302 行)
 ├── context-references.mjs      # @ 文件引用请求校验、canonical details 与本轮路径提示

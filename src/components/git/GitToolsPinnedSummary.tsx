@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import {
   Bot,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  ChevronUp,
   Circle,
   Clock3,
   FileDiff,
@@ -13,6 +12,7 @@ import {
   List,
   ListTodo,
   Loader2,
+  Maximize2,
   Minimize2,
   SlidersHorizontal,
   X,
@@ -23,9 +23,11 @@ import type { TodoWriteItem, TodoWriteStatus } from '@/components/chat/panel-dec
 import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
 import { todoWriteCounts } from '@/components/chat/panel-decoration'
 import {
-  clampPinnedSummaryPosition,
   getPinnedSummaryOutsideAction,
   hasPinnedSummaryDragThreshold,
+  resolvePinnedSummaryInitialPosition,
+  resolvePinnedSummaryLayout,
+  type PinnedSummaryLayoutMode,
   type PinnedSummaryPosition,
 } from '@/lib/pinned-summary-drag'
 import { cn } from '@/lib/utils'
@@ -48,6 +50,7 @@ type GitToolsPinnedSummaryProps = {
   onCreated: (status: GitStatusResponse) => void
   onOpenGraph: () => void
   mobileShell?: boolean
+  initialAnchorRef: RefObject<HTMLElement | null>
 }
 
 type DragSource = 'capsule' | 'header'
@@ -56,6 +59,7 @@ type DesktopMode = 'panel' | 'capsule' | 'closed'
 type PinnedSummaryWidgetStyle = CSSProperties & {
   '--quickforge-pinned-summary-width'?: string
   '--quickforge-pinned-summary-height'?: string
+  '--quickforge-pinned-summary-panel-max-height'?: string
 }
 
 type CapsuleSegment = {
@@ -137,11 +141,14 @@ export function GitToolsPinnedSummary({
   onCreated,
   onOpenGraph,
   mobileShell = false,
+  initialAnchorRef,
 }: GitToolsPinnedSummaryProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const topTriggerRef = useRef<HTMLButtonElement | null>(null)
   const desktopWidgetRef = useRef<HTMLDivElement | null>(null)
   const desktopPanelRef = useRef<HTMLDivElement | null>(null)
+  const desktopPanelHeaderRef = useRef<HTMLDivElement | null>(null)
+  const desktopPanelContentRef = useRef<HTMLDivElement | null>(null)
   const desktopPanelMinimizeRef = useRef<HTMLButtonElement | null>(null)
   const capsuleRef = useRef<HTMLDivElement | null>(null)
   const capsuleMainRef = useRef<HTMLButtonElement | null>(null)
@@ -160,6 +167,7 @@ export function GitToolsPinnedSummary({
   const previousExpandedRef = useRef(expanded)
   const wasSuspendedRef = useRef(suspended)
   const [position, setPosition] = useState<PinnedSummaryPosition>()
+  const [panelMaxHeight, setPanelMaxHeight] = useState<number>()
   const [capsuleVisible, setCapsuleVisible] = useState(false)
   const [desktopWidgetMounted, setDesktopWidgetMounted] = useState(false)
   const [desktopWidgetClosing, setDesktopWidgetClosing] = useState(false)
@@ -167,7 +175,6 @@ export function GitToolsPinnedSummary({
   const focusFrameRef = useRef<number | null>(null)
   const [dragging, setDragging] = useState(false)
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
-  const [branchMenuSide, setBranchMenuSide] = useState<'left' | 'right'>('left')
   const [expandedTasksSignature, setExpandedTasksSignature] = useState<string>()
   // 已结束小节默认折叠；仅在摘要弹层展开期间记忆，重开弹层恢复折叠，不持久化。
   const [finishedSubagentRunsCollapsed, setFinishedSubagentRunsCollapsed] = useState(true)
@@ -250,6 +257,32 @@ export function GitToolsPinnedSummary({
     widget.style.top = `${Math.round(next.y)}px`
   }, [])
 
+  const applyResolvedLayout = useCallback((
+    current: PinnedSummaryPosition,
+    targetSize: ReturnType<typeof getPinnedSummaryLayoutSize>,
+    mode: PinnedSummaryLayoutMode,
+  ) => {
+    const layout = resolvePinnedSummaryLayout(
+      current,
+      targetSize,
+      { width: window.innerWidth, height: window.innerHeight },
+      mode,
+    )
+    applyWidgetPosition(layout.position)
+    updatePosition(layout.position)
+    if (mode === 'panel') setPanelMaxHeight(layout.panelMaxHeight)
+    return layout.position
+  }, [applyWidgetPosition, updatePosition])
+
+  const getPanelNaturalHeight = useCallback((panel: HTMLElement) => {
+    if (desktopMode !== 'panel') return getPinnedSummaryLayoutSize(panel).height
+    const borderBoxDelta = Math.max(0, panel.offsetHeight - panel.clientHeight)
+    const headerHeight = desktopPanelHeaderRef.current?.offsetHeight ?? 0
+    const content = desktopPanelContentRef.current
+    if (!content) return panel.scrollHeight + borderBoxDelta
+    return headerHeight + content.scrollHeight + borderBoxDelta
+  }, [desktopMode])
+
   const restoreDragBodyStyle = useCallback(() => {
     if (previousBodyUserSelectRef.current === null) return
     document.body.style.userSelect = previousBodyUserSelectRef.current
@@ -267,16 +300,13 @@ export function GitToolsPinnedSummary({
       dragFrameRef.current = null
     }
     if (drag.moved) {
-      const next = clampPinnedSummaryPosition(
+      applyResolvedLayout(
         drag.current,
-        {
-          width: desktopWidgetRef.current?.getBoundingClientRect().width ?? 0,
-          height: desktopWidgetRef.current?.getBoundingClientRect().height ?? 0,
-        },
-        { width: window.innerWidth, height: window.innerHeight },
+        getPinnedSummaryLayoutSize(desktopMode === 'panel'
+          ? (desktopPanelRef.current ?? desktopWidgetRef.current!)
+          : (capsuleRef.current ?? desktopWidgetRef.current!)),
+        desktopMode === 'panel' ? 'panel' : 'capsule',
       )
-      applyWidgetPosition(next)
-      updatePosition(next)
       window.setTimeout(() => {
         suppressClickRef.current = false
       }, 0)
@@ -286,7 +316,7 @@ export function GitToolsPinnedSummary({
     }
     restoreDragBodyStyle()
     setDragging(false)
-  }, [applyWidgetPosition, restoreDragBodyStyle, updatePosition])
+  }, [applyResolvedLayout, desktopMode, restoreDragBodyStyle])
 
   const resetSummaryDetails = useCallback(() => {
     setBranchMenuOpen(false)
@@ -369,14 +399,8 @@ export function GitToolsPinnedSummary({
     const target = desktopMode === 'panel' ? desktopPanelRef.current : capsuleRef.current
     const targetSize = getPinnedSummaryLayoutSize(target ?? widget)
     const current = positionRef.current ?? { x: widget.getBoundingClientRect().left, y: widget.getBoundingClientRect().top }
-    const next = clampPinnedSummaryPosition(
-      current,
-      targetSize,
-      { width: window.innerWidth, height: window.innerHeight },
-    )
-    applyWidgetPosition(next)
-    updatePosition(next)
-  }, [applyWidgetPosition, desktopDraggable, desktopMode, suspended, updatePosition])
+    applyResolvedLayout(current, targetSize, desktopMode === 'panel' ? 'panel' : 'capsule')
+  }, [applyResolvedLayout, desktopDraggable, desktopMode, suspended])
 
   const moveDrag = useCallback((event: DragPointerEvent) => {
     const drag = dragRef.current
@@ -393,17 +417,19 @@ export function GitToolsPinnedSummary({
       setDragging(true)
     }
     if (!drag.moved) return
-    drag.current = clampPinnedSummaryPosition(
+    const layout = resolvePinnedSummaryLayout(
       {
         x: drag.origin.x + currentPointer.x - drag.start.x,
         y: drag.origin.y + currentPointer.y - drag.start.y,
       },
-      {
-        width: desktopWidgetRef.current?.getBoundingClientRect().width ?? 0,
-        height: desktopWidgetRef.current?.getBoundingClientRect().height ?? 0,
-      },
+      getPinnedSummaryLayoutSize(desktopMode === 'panel'
+        ? (desktopPanelRef.current ?? desktopWidgetRef.current!)
+        : (capsuleRef.current ?? desktopWidgetRef.current!)),
       { width: window.innerWidth, height: window.innerHeight },
+      desktopMode === 'panel' ? 'panel' : 'capsule',
     )
+    drag.current = layout.position
+    if (desktopMode === 'panel') setPanelMaxHeight(layout.panelMaxHeight)
     if (dragFrameRef.current !== null) return
     dragFrameRef.current = window.requestAnimationFrame(() => {
       dragFrameRef.current = null
@@ -411,7 +437,7 @@ export function GitToolsPinnedSummary({
       if (!currentDrag?.moved) return
       applyWidgetPosition(currentDrag.current)
     })
-  }, [applyWidgetPosition])
+  }, [applyWidgetPosition, desktopMode])
 
   const beginDrag = useCallback((event: React.PointerEvent<HTMLElement>, source: DragSource) => {
     if (!desktopDraggable || suspended || event.button !== 0) return
@@ -476,6 +502,7 @@ export function GitToolsPinnedSummary({
       responsiveCleanupFrameRef.current = window.requestAnimationFrame(() => {
         responsiveCleanupFrameRef.current = null
         setPosition(undefined)
+        setPanelMaxHeight(undefined)
         setCapsuleVisible(false)
         setDesktopWidgetMounted(false)
         setDesktopWidgetClosing(false)
@@ -523,7 +550,19 @@ export function GitToolsPinnedSummary({
       widget.style.setProperty('--quickforge-pinned-summary-capsule-width', `${Math.ceil(capsuleSize.width)}px`)
       widget.style.setProperty('--quickforge-pinned-summary-capsule-height', `${Math.ceil(capsuleSize.height)}px`)
       widget.style.setProperty('--quickforge-pinned-summary-panel-width', `${Math.ceil(panelSize.width)}px`)
-      widget.style.setProperty('--quickforge-pinned-summary-panel-height', `${Math.ceil(panelSize.height)}px`)
+      const panelNaturalHeight = getPanelNaturalHeight(panel)
+      widget.style.setProperty('--quickforge-pinned-summary-panel-height', `${Math.ceil(panelNaturalHeight || panelSize.height)}px`)
+      if (positionRef.current) {
+        const mode = desktopMode === 'panel' ? 'panel' : 'capsule'
+        const layoutPosition = dragRef.current?.current ?? positionRef.current
+        const layout = resolvePinnedSummaryLayout(
+          layoutPosition,
+          mode === 'panel' ? panelSize : capsuleSize,
+          { width: window.innerWidth, height: window.innerHeight },
+          mode,
+        )
+        if (mode === 'panel') setPanelMaxHeight(layout.panelMaxHeight)
+      }
     }
 
     measure()
@@ -532,7 +571,7 @@ export function GitToolsPinnedSummary({
     observer.observe(capsule)
     observer.observe(panel)
     return () => observer.disconnect()
-  }, [desktopDraggable, desktopWidgetMounted, finishedSubagentRunsCollapsed, showAllTasks, suspended])
+  }, [desktopDraggable, desktopMode, desktopWidgetMounted, finishedSubagentRunsCollapsed, getPanelNaturalHeight, showAllTasks, suspended])
 
   useEffect(() => {
     if (!desktopDraggable || !desktopWidgetMounted || suspended) return
@@ -543,23 +582,19 @@ export function GitToolsPinnedSummary({
       const targetSize = getPinnedSummaryLayoutSize(target ?? widget)
       const widgetRect = widget.getBoundingClientRect()
       if (!positionRef.current) {
-        const anchorRect = rootRef.current?.getBoundingClientRect()
-        const next = clampPinnedSummaryPosition(
-          {
-            x: (anchorRect?.right ?? widgetRect.right) - targetSize.width,
-            y: anchorRect?.top ?? widgetRect.top,
-          },
+        const fallbackRect = rootRef.current?.getBoundingClientRect() ?? widgetRect
+        const initialPosition = resolvePinnedSummaryInitialPosition({
+          anchorRect: initialAnchorRef.current?.getBoundingClientRect(),
+          fallbackRect,
           targetSize,
-          { width: window.innerWidth, height: window.innerHeight },
-        )
-        applyWidgetPosition(next)
-        updatePosition(next)
+        })
+        applyResolvedLayout(initialPosition, targetSize, desktopMode === 'panel' ? 'panel' : 'capsule')
         return
       }
       clampCurrentPosition()
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [applyWidgetPosition, clampCurrentPosition, desktopDraggable, desktopMode, desktopWidgetMounted, finishedSubagentRunsCollapsed, showAllTasks, suspended, updatePosition])
+  }, [applyResolvedLayout, clampCurrentPosition, desktopDraggable, desktopMode, desktopWidgetMounted, finishedSubagentRunsCollapsed, initialAnchorRef, showAllTasks, suspended])
 
   useLayoutEffect(() => {
     const wasSuspended = wasSuspendedRef.current
@@ -570,14 +605,8 @@ export function GitToolsPinnedSummary({
     const target = desktopMode === 'panel' ? desktopPanelRef.current : capsuleRef.current
     const targetSize = getPinnedSummaryLayoutSize(target ?? widget)
     const current = positionRef.current ?? { x: widget.getBoundingClientRect().left, y: widget.getBoundingClientRect().top }
-    const next = clampPinnedSummaryPosition(
-      current,
-      targetSize,
-      { width: window.innerWidth, height: window.innerHeight },
-    )
-    applyWidgetPosition(next)
-    updatePosition(next)
-  }, [applyWidgetPosition, desktopDraggable, desktopMode, desktopWidgetMounted, suspended, updatePosition])
+    applyResolvedLayout(current, targetSize, desktopMode === 'panel' ? 'panel' : 'capsule')
+  }, [applyResolvedLayout, desktopDraggable, desktopMode, desktopWidgetMounted, suspended])
 
   useEffect(() => {
     if (!desktopDraggable || suspended) return
@@ -586,16 +615,11 @@ export function GitToolsPinnedSummary({
   }, [clampCurrentPosition, desktopDraggable, suspended])
 
   useEffect(() => {
-    if (!floatingSummaryVisible || suspended) return
+    if (desktopDraggable || !floatingSummaryVisible || suspended) return
 
     function handlePointerDown(event: PointerEvent) {
-      const target = event.target as HTMLElement | null
-      if (target?.closest('[data-pinned-summary-inspector-toggle="true"]')) return
       if (rootRef.current?.contains(event.target as Node)) return
-      if (desktopWidgetRef.current?.contains(event.target as Node)) return
-      const outsideAction = getPinnedSummaryOutsideAction(desktopDraggable, desktopMode)
-      if (outsideAction === 'minimize') minimizeDesktopPanel({ focusCapsule: false })
-      else if (outsideAction === 'close') closeSummary()
+      if (getPinnedSummaryOutsideAction(false) === 'close') closeSummary()
     }
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -608,7 +632,7 @@ export function GitToolsPinnedSummary({
       document.removeEventListener('pointerdown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [closeSummary, desktopDraggable, desktopMode, floatingSummaryVisible, minimizeDesktopPanel, suspended])
+  }, [closeSummary, desktopDraggable, floatingSummaryVisible, suspended])
 
   useEffect(() => () => {
     clearCloseAnimationTimer()
@@ -622,14 +646,7 @@ export function GitToolsPinnedSummary({
   if (todos.length === 0 && runningSubagentRuns.length === 0 && finishedSubagentRuns.length === 0 && !hasGitSection) return null
 
   const toggleBranchMenu = () => {
-    setBranchMenuOpen((value) => {
-      const next = !value
-      if (next && desktopDraggable) {
-        const panelRect = desktopWidgetRef.current?.getBoundingClientRect()
-        setBranchMenuSide((panelRect?.left ?? 0) < window.innerWidth / 2 ? 'right' : 'left')
-      }
-      return next
-    })
+    setBranchMenuOpen((value) => !value)
   }
 
   const summarySections = (
@@ -657,8 +674,7 @@ export function GitToolsPinnedSummary({
                   currentBranch={status.branch}
                   dirtyCount={dirtyCount}
                   className={cn(
-                    'fixed inset-x-2 top-[9.25rem] max-h-[calc(100dvh-9.75rem)] w-auto overflow-y-auto md:absolute md:inset-x-auto md:top-0 md:mt-0 md:max-h-none md:w-[min(340px,calc(100vw-1rem))] md:overflow-hidden',
-                    branchMenuSide === 'left' ? 'md:left-auto md:right-full md:mr-3' : 'md:left-full md:right-auto md:ml-3',
+                    'fixed inset-x-2 top-[9.25rem] max-h-[calc(100dvh-9.75rem)] w-auto overflow-y-auto md:absolute md:inset-x-auto md:top-full md:mt-1 md:max-h-[min(22rem,calc(100dvh-8rem))] md:w-full md:overflow-y-auto',
                     mobileShell && 'md:fixed md:inset-x-2 md:right-auto md:top-[9.25rem] md:mt-0 md:max-h-[calc(100dvh-9.75rem)] md:w-auto md:overflow-y-auto lg:inset-x-2 lg:right-auto lg:top-[9.25rem] lg:mr-0',
                   )}
                   openChangesClassName={cn('hidden md:flex', mobileShell && 'md:hidden')}
@@ -797,8 +813,11 @@ export function GitToolsPinnedSummary({
           ? 'var(--quickforge-pinned-summary-panel-width, min(20.5rem, calc(100vw - 1rem)))'
           : 'var(--quickforge-pinned-summary-capsule-width, max-content)',
         '--quickforge-pinned-summary-height': desktopMode === 'panel'
-          ? 'var(--quickforge-pinned-summary-panel-height, 20rem)'
+          ? 'min(var(--quickforge-pinned-summary-panel-height, 20rem), var(--quickforge-pinned-summary-panel-max-height, calc(100dvh - 1.5rem)))'
           : 'var(--quickforge-pinned-summary-capsule-height, 2.75rem)',
+        '--quickforge-pinned-summary-panel-max-height': desktopMode !== 'panel' || panelMaxHeight === undefined
+          ? undefined
+          : `${Math.max(0, Math.floor(panelMaxHeight))}px`,
       }
     : undefined
 
@@ -827,7 +846,7 @@ export function GitToolsPinnedSummary({
         <button
           ref={capsuleMainRef}
           type="button"
-          className="quickforge-pinned-summary-capsule-main flex min-w-0 flex-1 items-center gap-2 rounded-l-full py-1 pl-2.5 text-left transition-colors hover:bg-muted/30"
+          className="quickforge-pinned-summary-capsule-main group flex min-w-0 flex-1 items-center gap-2 rounded-l-full py-1 pl-2.5 text-left transition-colors hover:bg-muted/30"
           onClick={() => {
             if (suppressClickRef.current) return
             openDesktopPanel()
@@ -844,7 +863,9 @@ export function GitToolsPinnedSummary({
               {segment.content}
             </span>
           ))}
-          <ChevronUp className="ml-auto size-3.5 shrink-0 text-muted-foreground/65" aria-hidden="true" />
+          <span className="ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors group-hover:bg-muted/40 group-hover:text-muted-foreground group-focus-visible:bg-muted/40 group-focus-visible:text-muted-foreground" aria-hidden="true">
+            <Maximize2 className="size-3.5" />
+          </span>
         </button>
         <button
           type="button"
@@ -865,11 +886,12 @@ export function GitToolsPinnedSummary({
       <div
         ref={desktopPanelRef}
         id={PINNED_SUMMARY_PANEL_ID}
-        className="quickforge-pinned-summary-panel flex max-h-[calc(100dvh-1.5rem)] w-[min(20.5rem,calc(100vw-1rem))] flex-col overflow-visible rounded-3xl border border-[color-mix(in_oklab,var(--border)_38%,transparent)] bg-background text-foreground shadow-quickforge"
+        className="quickforge-pinned-summary-panel flex w-[min(20.5rem,calc(100vw-1rem))] flex-col overflow-visible rounded-3xl border border-[color-mix(in_oklab,var(--border)_38%,transparent)] bg-background text-foreground shadow-quickforge"
         aria-hidden={desktopMode !== 'panel'}
         inert={desktopMode !== 'panel' ? true : undefined}
       >
         <div
+          ref={desktopPanelHeaderRef}
           className={cn(
             'flex min-h-10 shrink-0 cursor-grab items-center gap-2 rounded-t-3xl px-3 text-xs font-medium text-muted-foreground',
             dragging && 'cursor-grabbing',
@@ -885,10 +907,7 @@ export function GitToolsPinnedSummary({
             <X className="size-4" aria-hidden="true" />
           </button>
         </div>
-        <div className={cn(
-          'max-h-[calc(100dvh-4rem)] px-4 pb-4',
-          branchMenuOpen ? 'overflow-visible' : 'overflow-y-auto overscroll-contain',
-        )}>
+        <div ref={desktopPanelContentRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4">
           {summarySections}
         </div>
       </div>

@@ -1,0 +1,1379 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuickForge · 固定摘要胶囊展开图标候选</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --background: #ffffff;
+      --foreground: #20242b;
+      --muted: #f2f4f6;
+      --muted-strong: #e8ebef;
+      --muted-foreground: #6f7782;
+      --faint: #69717c;
+      --border: #dfe3e8;
+      --border-soft: #e9ecf0;
+      --surface: #fbfcfd;
+      --surface-raised: #ffffff;
+      --accent: #e9edf3;
+      --accent-foreground: #252a32;
+      --primary: #303640;
+      --primary-foreground: #ffffff;
+      --success: #16845b;
+      --danger: #ca4b4b;
+      --focus: #5d77a8;
+      --shadow-soft: 0 10px 26px -18px rgb(15 23 42 / 0.48);
+      --shadow-panel: 0 18px 48px -28px rgb(15 23 42 / 0.34);
+      --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --motion-fast: 150ms;
+      --motion-panel: 260ms;
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --background: #17191d;
+      --foreground: #e7e9ed;
+      --muted: #22252b;
+      --muted-strong: #2b2f36;
+      --muted-foreground: #a4abb5;
+      --faint: #9ca4af;
+      --border: #343840;
+      --border-soft: #292d33;
+      --surface: #14161a;
+      --surface-raised: #1a1d22;
+      --accent: #292d34;
+      --accent-foreground: #f0f1f3;
+      --primary: #d9dde4;
+      --primary-foreground: #202329;
+      --success: #55be8f;
+      --danger: #e47777;
+      --focus: #91abd7;
+      --shadow-soft: 0 12px 30px -18px rgb(0 0 0 / 0.78);
+      --shadow-panel: 0 20px 54px -24px rgb(0 0 0 / 0.7);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { font-size: 14px; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--surface);
+      color: var(--foreground);
+      font-family: var(--font-sans);
+      line-height: 1.5;
+    }
+
+    button, input { font: inherit; }
+    button { -webkit-tap-highlight-color: transparent; }
+
+    svg {
+      display: block;
+      width: 1em;
+      height: 1em;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .page-shell { min-height: 100vh; }
+
+    .page-header {
+      border-bottom: 1px solid var(--border-soft);
+      background: color-mix(in oklab, var(--background) 92%, transparent);
+    }
+
+    .header-inner,
+    .main,
+    .footer-inner {
+      width: min(1180px, calc(100% - 32px));
+      margin-inline: auto;
+    }
+
+    .header-inner {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 24px 0 20px;
+    }
+
+    .eyebrow {
+      margin: 0 0 5px;
+      color: var(--muted-foreground);
+      font-size: 0.75rem;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.35rem, 2vw, 1.7rem);
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+    }
+
+    .scope {
+      max-width: 760px;
+      margin: 8px 0 0;
+      color: var(--muted-foreground);
+      font-size: 0.9rem;
+    }
+
+    .scope strong { color: var(--foreground); font-weight: 600; }
+
+    .header-actions,
+    .control-row,
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .header-actions { justify-content: flex-end; padding-top: 3px; }
+
+    .control-button,
+    .segmented button,
+    .apply-button {
+      min-height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--background);
+      color: var(--muted-foreground);
+      cursor: pointer;
+      transition: color var(--motion-fast), background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast);
+    }
+
+    .control-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 0 11px;
+      white-space: nowrap;
+    }
+
+    .control-button svg { font-size: 16px; }
+
+    .control-button:hover,
+    .segmented button:hover,
+    .apply-button:hover {
+      background: var(--muted);
+      color: var(--foreground);
+    }
+
+    button:focus-visible,
+    [tabindex="0"]:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+
+    .main { padding: 24px 0 42px; }
+
+    .section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: -0.01em;
+    }
+
+    .section-head p {
+      margin: 3px 0 0;
+      color: var(--muted-foreground);
+      font-size: 0.8rem;
+    }
+
+    .prototype-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border-soft);
+      border-radius: 14px;
+      background: var(--background);
+    }
+
+    .control-label {
+      color: var(--muted-foreground);
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .segmented {
+      display: inline-flex;
+      gap: 3px;
+      padding: 3px;
+      border-radius: 11px;
+      background: var(--muted);
+    }
+
+    .segmented button {
+      min-height: 28px;
+      padding: 0 9px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      font-size: 0.75rem;
+    }
+
+    .segmented button[aria-pressed="true"] {
+      background: var(--background);
+      color: var(--foreground);
+      box-shadow: 0 1px 3px rgb(15 23 42 / 0.1);
+    }
+
+    .switch-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted-foreground);
+      cursor: pointer;
+      font-size: 0.78rem;
+      user-select: none;
+    }
+
+    .switch-label input {
+      width: 30px;
+      height: 18px;
+      margin: 0;
+      appearance: none;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--muted-strong);
+      cursor: pointer;
+      transition: background var(--motion-fast), border-color var(--motion-fast);
+    }
+
+    .switch-label input::before {
+      content: "";
+      display: block;
+      width: 12px;
+      height: 12px;
+      margin: 2px;
+      border-radius: 50%;
+      background: var(--background);
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.22);
+      transition: transform var(--motion-fast);
+    }
+
+    .switch-label input:checked { background: var(--foreground); border-color: var(--foreground); }
+    .switch-label input:checked::before { transform: translateX(12px); }
+
+    .stage-card {
+      overflow: hidden;
+      min-height: 520px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--background);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .app-toolbar {
+      display: flex;
+      align-items: center;
+      height: 54px;
+      padding: 0 14px 0 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--background);
+    }
+
+    .window-title {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+    }
+
+    .project-mark {
+      display: grid;
+      width: 26px;
+      height: 26px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--muted);
+      color: var(--muted-foreground);
+      font-size: 15px;
+    }
+
+    .window-title strong {
+      overflow: hidden;
+      font-size: 0.84rem;
+      font-weight: 620;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .window-title span {
+      color: var(--faint);
+      font-size: 0.73rem;
+    }
+
+    .toolbar-context {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .context-note {
+      padding: 3px 7px;
+      border: 1px solid var(--border-soft);
+      border-radius: 999px;
+      color: var(--faint);
+      font-size: 0.67rem;
+      white-space: nowrap;
+    }
+
+    .icon-button {
+      display: inline-grid;
+      width: 34px;
+      height: 34px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--muted-foreground);
+      cursor: pointer;
+      transition: color var(--motion-fast), background var(--motion-fast);
+    }
+
+    .icon-button:hover { background: var(--muted); color: var(--foreground); }
+    .icon-button svg { font-size: 16px; }
+    .toolbar-list { border-radius: 12px; color: var(--faint); }
+    .toolbar-list svg { font-size: 18px; }
+
+    .conversation {
+      position: relative;
+      min-height: 466px;
+      overflow: hidden;
+      background: var(--background);
+    }
+
+    .conversation-copy {
+      width: min(660px, calc(100% - 48px));
+      margin: 0 auto;
+      padding-top: 116px;
+    }
+
+    .message {
+      margin-bottom: 18px;
+      color: var(--muted-foreground);
+      font-size: 0.86rem;
+    }
+
+    .message.user {
+      width: fit-content;
+      max-width: 74%;
+      margin-left: auto;
+      padding: 10px 13px;
+      border-radius: 15px 15px 4px 15px;
+      background: var(--muted);
+      color: var(--foreground);
+    }
+
+    .message .agent-label {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--foreground);
+      font-size: 0.73rem;
+      font-weight: 650;
+    }
+
+    .placeholder-line {
+      height: 7px;
+      margin-top: 8px;
+      border-radius: 999px;
+      background: var(--muted);
+    }
+
+    .placeholder-line:nth-child(2) { width: 88%; }
+    .placeholder-line:nth-child(3) { width: 64%; }
+
+    .widget-frame {
+      position: absolute;
+      z-index: 4;
+      top: 18px;
+      left: 50%;
+      width: min(334px, calc(100% - 24px));
+      height: 352px;
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+
+    .capsule,
+    .summary-panel {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      background: var(--background);
+      color: var(--foreground);
+      pointer-events: auto;
+      transform-origin: top center;
+    }
+
+    .capsule {
+      display: flex;
+      height: 44px;
+      align-items: center;
+      overflow: hidden;
+      border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+      border-radius: 999px;
+      box-shadow: var(--shadow-soft);
+      transition: opacity var(--motion-fast), transform var(--motion-panel), visibility 0s linear 0s;
+    }
+
+    .capsule-main {
+      display: flex;
+      min-width: 0;
+      height: 42px;
+      flex: 1 1 auto;
+      align-items: center;
+      gap: 8px;
+      padding: 0 2px 0 11px;
+      border: 0;
+      border-radius: 999px 10px 10px 999px;
+      background: transparent;
+      color: var(--muted-foreground);
+      cursor: pointer;
+      text-align: left;
+      transition: background var(--motion-fast), color var(--motion-fast), box-shadow var(--motion-fast);
+    }
+
+    .capsule-main:hover,
+    .widget-frame.preview-hover .capsule-main {
+      background: color-mix(in oklab, var(--muted) 72%, transparent);
+      color: var(--foreground);
+    }
+
+    .capsule-main:focus-visible,
+    .widget-frame.preview-focus .capsule-main {
+      outline: none;
+      box-shadow: inset 0 0 0 2px var(--focus);
+      color: var(--foreground);
+    }
+
+    .segment {
+      display: inline-flex;
+      min-width: 0;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      font-size: 0.76rem;
+      font-weight: 610;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .segment svg { font-size: 14px; }
+
+    .segment + .segment::before {
+      content: "";
+      width: 1px;
+      height: 14px;
+      margin-right: 4px;
+      background: color-mix(in oklab, var(--foreground) 14%, transparent);
+    }
+
+    .add { color: var(--success); }
+    .del { color: var(--danger); }
+
+    .expand-slot {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      flex: 0 0 30px;
+      margin-left: auto;
+      place-items: center;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--faint);
+      opacity: 0.56;
+      pointer-events: none;
+      transition: color var(--motion-fast), background var(--motion-fast), opacity var(--motion-fast), transform var(--motion-fast);
+    }
+
+    .expand-slot svg { width: 15px; height: 15px; }
+
+    .capsule-main:hover .expand-slot,
+    .capsule-main:focus-visible .expand-slot,
+    .widget-frame.preview-hover .expand-slot,
+    .widget-frame.preview-focus .expand-slot {
+      background: color-mix(in oklab, var(--foreground) 7%, transparent);
+      color: var(--foreground);
+      opacity: 0.94;
+    }
+
+    .capsule-main:active .expand-slot { transform: scale(0.94); }
+
+    .capsule-close {
+      width: 32px;
+      height: 32px;
+      margin: 0 5px 0 1px;
+      color: var(--muted-foreground);
+    }
+
+    .capsule-close:hover { color: var(--danger); }
+
+    .summary-panel {
+      display: flex;
+      height: 326px;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid color-mix(in oklab, var(--border) 56%, transparent);
+      border-radius: 22px;
+      box-shadow: var(--shadow-panel);
+      opacity: 0;
+      visibility: hidden;
+      clip-path: inset(0 0 86% 0 round 22px);
+      transform: scaleX(0.98);
+      transition: clip-path var(--motion-panel) cubic-bezier(.2,.75,.25,1), opacity var(--motion-fast), transform var(--motion-panel), visibility 0s linear var(--motion-panel);
+    }
+
+    .panel-header {
+      display: flex;
+      min-height: 46px;
+      align-items: center;
+      gap: 7px;
+      padding: 0 8px 0 13px;
+      color: var(--muted-foreground);
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .panel-header > svg { width: 16px; height: 16px; }
+    .panel-header span { flex: 1; }
+    .panel-header .icon-button { width: 32px; height: 32px; color: color-mix(in oklab, var(--foreground) 84%, transparent); }
+    .panel-header .panel-close:hover { color: var(--danger); }
+
+    .panel-content {
+      min-height: 0;
+      flex: 1;
+      overflow: auto;
+      padding: 0 15px 15px;
+    }
+
+    .summary-group + .summary-group { margin-top: 14px; }
+
+    .summary-group h3 {
+      margin: 0 0 6px;
+      color: var(--muted-foreground);
+      font-size: 0.72rem;
+      font-weight: 620;
+    }
+
+    .summary-row {
+      display: flex;
+      min-height: 34px;
+      align-items: center;
+      gap: 9px;
+      padding: 0 8px;
+      border-radius: 10px;
+      color: var(--foreground);
+      font-size: 0.8rem;
+    }
+
+    .summary-row:hover { background: color-mix(in oklab, var(--muted) 65%, transparent); }
+    .summary-row > svg { width: 15px; height: 15px; color: var(--muted-foreground); }
+    .summary-row .grow { flex: 1; }
+    .summary-row .secondary { color: var(--muted-foreground); font-size: 0.73rem; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+    .status-dot.pending { background: #c7922c; }
+
+    .widget-frame.mode-panel .capsule {
+      opacity: 0;
+      visibility: hidden;
+      transform: scaleX(0.97);
+      transition-delay: 0s, 0s, var(--motion-fast);
+      pointer-events: none;
+    }
+
+    .widget-frame.mode-panel .summary-panel {
+      opacity: 1;
+      visibility: visible;
+      clip-path: inset(0 round 22px);
+      transform: scaleX(1);
+      transition-delay: 0s;
+    }
+
+    .widget-frame.mode-closed .capsule,
+    .widget-frame.mode-closed .summary-panel {
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-4px) scale(0.98);
+      pointer-events: none;
+    }
+
+    .stage-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 12px;
+      border-top: 1px solid var(--border-soft);
+      background: var(--surface);
+      color: var(--muted-foreground);
+      font-size: 0.73rem;
+    }
+
+    .state-reading {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .state-reading code {
+      overflow: hidden;
+      color: var(--foreground);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .event-note { color: var(--faint); white-space: nowrap; }
+
+    .matrix-section { margin-top: 30px; }
+
+    .candidate-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .candidate-card {
+      position: relative;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--background);
+      transition: border-color var(--motion-fast), box-shadow var(--motion-fast), background var(--motion-fast);
+    }
+
+    .candidate-card[data-selected="true"] {
+      border-color: color-mix(in oklab, var(--focus) 60%, var(--border));
+      box-shadow: var(--shadow-soft);
+    }
+
+    .candidate-card.recommended::before {
+      content: "推荐";
+      position: absolute;
+      top: 13px;
+      right: 13px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--muted);
+      color: var(--foreground);
+      font-size: 0.65rem;
+      font-weight: 650;
+    }
+
+    .candidate-title {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding-right: 56px;
+    }
+
+    .candidate-letter {
+      display: grid;
+      width: 22px;
+      height: 22px;
+      place-items: center;
+      border-radius: 7px;
+      background: var(--muted);
+      color: var(--foreground);
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+
+    .candidate-title h3 { margin: 0; font-size: 0.91rem; }
+
+    .candidate-description {
+      min-height: 39px;
+      margin: 7px 0 12px 30px;
+      color: var(--muted-foreground);
+      font-size: 0.76rem;
+    }
+
+    .candidate-visuals {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 76px;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .state-stack {
+      display: grid;
+      gap: 7px;
+    }
+
+    .mini-state {
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      align-items: center;
+      gap: 7px;
+    }
+
+    .mini-label {
+      color: var(--faint);
+      font-size: 0.66rem;
+      text-align: right;
+    }
+
+    .mini-capsule {
+      display: flex;
+      width: 100%;
+      min-width: 0;
+      height: 44px;
+      align-items: center;
+      overflow: hidden;
+      border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+      border-radius: 999px;
+      background: var(--background);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .mini-main {
+      display: flex;
+      min-width: 0;
+      height: 42px;
+      flex: 1;
+      align-items: center;
+      gap: 6px;
+      padding-left: 9px;
+      color: var(--muted-foreground);
+      font-size: 0.68rem;
+      font-weight: 610;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .mini-main .tiny-icon { width: 13px; height: 13px; }
+    .mini-segment {
+      display: inline-flex;
+      min-width: 0;
+      align-items: center;
+      gap: 3px;
+      white-space: nowrap;
+    }
+    .mini-segment + .mini-segment::before {
+      content: "";
+      width: 1px;
+      height: 13px;
+      margin-right: 3px;
+      background: color-mix(in oklab, var(--foreground) 14%, transparent);
+    }
+    .mini-main .expand-slot { width: 30px; height: 30px; flex-basis: 30px; margin-left: auto; }
+    .mini-close { display: grid; width: 31px; height: 31px; margin-right: 4px; place-items: center; color: var(--muted-foreground); }
+    .mini-close svg { width: 14px; height: 14px; }
+
+    .mini-state.is-hover .mini-main {
+      background: color-mix(in oklab, var(--muted) 72%, transparent);
+      color: var(--foreground);
+    }
+
+    .mini-state.is-hover .expand-slot,
+    .mini-state.is-focus .expand-slot {
+      background: color-mix(in oklab, var(--foreground) 7%, transparent);
+      color: var(--foreground);
+      opacity: 0.94;
+    }
+
+    .mini-state.is-focus .mini-main {
+      color: var(--foreground);
+      box-shadow: inset 0 0 0 2px var(--focus);
+      border-radius: 999px 9px 9px 999px;
+    }
+
+    .detail-view {
+      display: grid;
+      min-height: 146px;
+      place-items: center;
+      border: 1px solid var(--border-soft);
+      border-radius: 13px;
+      background: var(--surface);
+    }
+
+    .detail-view-inner {
+      display: grid;
+      width: 60px;
+      height: 60px;
+      place-items: center;
+      border-radius: 50%;
+      background: color-mix(in oklab, var(--foreground) 6%, transparent);
+      color: var(--foreground);
+    }
+
+    .detail-view svg { width: 32px; height: 32px; stroke-width: 1.65; }
+
+    .candidate-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 12px;
+      padding-top: 11px;
+      border-top: 1px solid var(--border-soft);
+    }
+
+    .candidate-note {
+      color: var(--faint);
+      font-size: 0.69rem;
+    }
+
+    .apply-button {
+      min-width: 84px;
+      padding: 0 10px;
+      font-size: 0.73rem;
+      font-weight: 600;
+    }
+
+    .candidate-card[data-selected="true"] .apply-button {
+      border-color: var(--foreground);
+      background: var(--foreground);
+      color: var(--background);
+    }
+
+    .decision-section {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 14px;
+      margin-top: 30px;
+    }
+
+    .decision-card {
+      padding: 17px 18px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--background);
+    }
+
+    .decision-card h2 { margin: 0 0 8px; font-size: 0.96rem; }
+    .decision-card p { margin: 0; color: var(--muted-foreground); font-size: 0.8rem; }
+    .decision-card strong { color: var(--foreground); }
+
+    .checks {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px 12px;
+      margin: 10px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checks li {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      color: var(--muted-foreground);
+      font-size: 0.76rem;
+    }
+
+    .checks svg { width: 14px; height: 14px; flex: 0 0 auto; margin-top: 2px; color: var(--success); }
+
+    .page-footer { border-top: 1px solid var(--border-soft); background: var(--background); }
+    .footer-inner { padding: 15px 0; color: var(--faint); font-size: 0.72rem; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    html.reduce-motion *,
+    html.reduce-motion *::before,
+    html.reduce-motion *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      transition-delay: 0s !important;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        transition-delay: 0s !important;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .header-inner { flex-direction: column; }
+      .header-actions { justify-content: flex-start; }
+      .prototype-controls { align-items: flex-start; flex-direction: column; }
+      .candidate-grid,
+      .decision-section { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      .header-inner, .main, .footer-inner { width: min(100% - 20px, 1180px); }
+      .context-note { display: none; }
+      .conversation-copy { width: calc(100% - 30px); }
+      .candidate-card { padding: 13px; }
+      .candidate-visuals { grid-template-columns: 1fr; }
+      .detail-view { min-height: 88px; }
+      .checks { grid-template-columns: 1fr; }
+      .segment { gap: 3px; }
+      .capsule-main { gap: 5px; padding-left: 9px; }
+      .segment + .segment::before { margin-right: 2px; }
+      .widget-frame { width: min(326px, calc(100% - 14px)); }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="page-header">
+      <div class="header-inner">
+        <div>
+          <p class="eyebrow">Focused UI study · pinned summary</p>
+          <h1>只重设计胶囊内部的“展开摘要”图标</h1>
+          <p class="scope"><strong>范围：</strong>只替换主体 button 末端 30px 视觉槽中的 SVG。顶部工具栏 List 是上下文入口，不参与候选；独立 X、panel 的 Minimize2 / X 与全部交互语义保持不变。</p>
+        </div>
+        <div class="header-actions" aria-label="页面设置">
+          <button class="control-button" id="themeButton" type="button" aria-label="切换深浅主题" title="切换深浅主题">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.42 1.42"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg>
+            <span id="themeLabel">深色主题</span>
+          </button>
+          <button class="control-button" id="resetButton" type="button" aria-label="重置主舞台为胶囊状态" title="重置主舞台为胶囊状态">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path></svg>
+            Reset
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <section aria-labelledby="stage-title">
+        <div class="section-head">
+          <div>
+            <h2 id="stage-title">主舞台</h2>
+            <p>点击胶囊主体（或 Enter / Space）展开；外点与 Escape 只记录事件，不改变状态。</p>
+          </div>
+        </div>
+
+        <div class="prototype-controls" aria-label="原型预览控制">
+          <div class="control-group">
+            <span class="control-label">强制视觉态</span>
+            <div class="segmented" id="previewControls" role="group" aria-label="强制胶囊主体视觉态">
+              <button type="button" data-preview="default" aria-pressed="true">Default</button>
+              <button type="button" data-preview="hover" aria-pressed="false">Hover</button>
+              <button type="button" data-preview="focus" aria-pressed="false">Focus</button>
+            </div>
+          </div>
+          <label class="switch-label">
+            <input id="motionToggle" type="checkbox" role="switch" aria-label="强制减少动态效果">
+            Reduced motion
+          </label>
+        </div>
+
+        <div class="stage-card" id="stageCard">
+          <div class="app-toolbar">
+            <div class="window-title">
+              <span class="project-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M15 6a9 9 0 0 0-9 9V3"></path><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle></svg>
+              </span>
+              <div>
+                <strong>quickforge · redesign summary icon</strong>
+                <span>main</span>
+              </div>
+            </div>
+            <div class="toolbar-context">
+              <span class="context-note">上下文入口，不参与本轮</span>
+              <button class="icon-button toolbar-list" type="button" aria-label="固定摘要入口（上下文，不参与本轮）" title="固定摘要入口（上下文，不参与本轮）">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h.01"></path><path d="M3 12h.01"></path><path d="M3 19h.01"></path><path d="M8 5h13"></path><path d="M8 12h13"></path><path d="M8 19h13"></path></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="conversation" id="conversation">
+            <div class="widget-frame" id="widget" data-mode="capsule">
+              <div class="capsule" id="capsule">
+                <button class="capsule-main" id="capsuleMain" type="button" aria-label="展开固定摘要：Todo 2/4，变更 +3 −1，Agents 1/2" title="展开完整摘要" aria-expanded="false" aria-controls="summaryPanel">
+                  <span class="segment">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5h8"></path><path d="M13 12h8"></path><path d="M13 19h8"></path><path d="m3 17 2 2 4-4"></path><rect x="3" y="4" width="6" height="6" rx="1"></rect></svg>
+                    <span>2/4</span>
+                  </span>
+                  <span class="segment">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path><path d="M9 10h6"></path><path d="M12 13V7"></path><path d="M9 17h6"></path></svg>
+                    <span class="add">+3</span><span class="del">−1</span>
+                  </span>
+                  <span class="segment">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg>
+                    <span>1/2</span>
+                  </span>
+                  <span class="expand-slot" id="mainExpandSlot" data-role="capsule-expand-icon" aria-hidden="true"></span>
+                </button>
+                <button class="icon-button capsule-close" id="capsuleClose" type="button" aria-label="关闭固定摘要" title="关闭固定摘要">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                </button>
+              </div>
+
+              <section class="summary-panel" id="summaryPanel" aria-label="固定摘要详情" aria-hidden="true">
+                <header class="panel-header">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="1"></circle><circle cx="19" cy="9" r="1"></circle><circle cx="5" cy="9" r="1"></circle><circle cx="12" cy="15" r="1"></circle><circle cx="19" cy="15" r="1"></circle><circle cx="5" cy="15" r="1"></circle></svg>
+                  <span>拖动固定摘要</span>
+                  <button class="icon-button" id="minimizeButton" type="button" aria-label="收缩为摘要胶囊" title="收缩为摘要胶囊">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 10 7-7"></path><path d="M20 10h-6V4"></path><path d="m3 21 7-7"></path><path d="M4 14h6v6"></path></svg>
+                  </button>
+                  <button class="icon-button panel-close" id="panelClose" type="button" aria-label="关闭固定摘要" title="关闭固定摘要">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                  </button>
+                </header>
+                <div class="panel-content">
+                  <section class="summary-group" aria-labelledby="git-group-title">
+                    <h3 id="git-group-title">Git tools</h3>
+                    <div class="summary-row">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path><path d="M9 10h6"></path><path d="M12 13V7"></path><path d="M9 17h6"></path></svg>
+                      <span class="grow">Changes</span><span class="add">+3</span><span class="del">−1</span>
+                    </div>
+                    <div class="summary-row">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6a9 9 0 0 0-9 9V3"></path><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle></svg>
+                      <span class="grow">main</span><span class="secondary">clean index</span>
+                    </div>
+                  </section>
+                  <section class="summary-group" aria-labelledby="todo-group-title">
+                    <h3 id="todo-group-title">Todo · 2 / 4</h3>
+                    <div class="summary-row"><span class="status-dot"></span><span class="grow">确认正式交互语义</span><span class="secondary">done</span></div>
+                    <div class="summary-row"><span class="status-dot"></span><span class="grow">比较真实图标/槽位尺寸候选</span><span class="secondary">done</span></div>
+                    <div class="summary-row"><span class="status-dot pending"></span><span class="grow">实现选定图标</span><span class="secondary">pending</span></div>
+                  </section>
+                  <section class="summary-group" aria-labelledby="agent-group-title">
+                    <h3 id="agent-group-title">Agents · 1 / 2</h3>
+                    <div class="summary-row">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg>
+                      <span class="grow">Explore · icon semantics</span><span class="secondary">complete</span>
+                    </div>
+                  </section>
+                </div>
+              </section>
+            </div>
+
+            <div class="conversation-copy" aria-hidden="true">
+              <div class="message user">只看胶囊里面的展开 icon，保留现有行为。</div>
+              <div class="message">
+                <span class="agent-label">QuickForge</span>
+                已将候选限制在主体 button 内部的固定圆形提示槽。panel 仍从相同 top 向下展开，Minimize2 负责手动收缩。
+                <div class="placeholder-line"></div>
+                <div class="placeholder-line"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stage-meta">
+            <div class="state-reading">
+              <span>状态读数</span>
+              <code id="stateReadout">mode=capsule · icon=B Maximize2 · preview=default · motion=system</code>
+            </div>
+            <span class="event-note" id="eventNote">等待交互</span>
+          </div>
+        </div>
+        <div class="sr-only" id="liveRegion" role="status" aria-live="polite" aria-atomic="true"></div>
+      </section>
+
+      <section class="matrix-section" aria-labelledby="matrix-title">
+        <div class="section-head">
+          <div>
+            <h2 id="matrix-title">候选矩阵</h2>
+            <p>所有样例保持相同的 44px 胶囊、30px 槽、15px SVG、间距与颜色；只替换 SVG 路径。</p>
+          </div>
+        </div>
+        <div class="candidate-grid" id="candidateGrid" role="group" aria-label="展开图标候选"></div>
+      </section>
+
+      <section class="decision-section" aria-label="推荐与验收">
+        <article class="decision-card">
+          <h2>推荐：B · Maximize2</h2>
+          <p><strong>最强理由是它与 panel 标题栏的 Minimize2 构成 Lucide 原生、可逆的视觉对：</strong>从紧凑摘要扩为完整摘要，再由同族图标收回。15px 真实图标/槽位尺寸下四个端点仍比复杂面板轮廓更清楚。它位于“摘要数据之后、独立 X 之前”的内部提示槽，配合“展开完整摘要”可访问名称和同 top 向下展开/过渡，语义被限定为扩大摘要而非关闭、下拉菜单或全屏窗口。</p>
+        </article>
+        <article class="decision-card">
+          <h2>验收要点</h2>
+          <ul class="checks">
+            <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg><span>提示槽属于主体 button，非第三个 button</span></li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg><span>默认弱化，hover / focus 增强且不跳动</span></li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg><span>X 是胶囊唯一独立右侧按钮</span></li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg><span>外点 / Escape 不收缩也不关闭</span></li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg><span>panel 保留 GripHorizontal、Minimize2、X</span></li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg><span>深浅主题、键盘、reduced motion 可用</span></li>
+          </ul>
+        </article>
+      </section>
+    </main>
+
+    <footer class="page-footer">
+      <div class="footer-inner">QuickForge 单文件设计原型 · 无外部资源 · 候选不改变 List / Minimize2 / X 或摘要内容。</div>
+    </footer>
+  </div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const icons = {
+        A: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m18 15-6-6-6 6"></path></svg>',
+        B: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"></path><path d="m21 3-7 7"></path><path d="m3 21 7-7"></path><path d="M9 21H3v-6"></path></svg>',
+        C: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 6 5 5 5-5"></path><path d="m7 13 5 5 5-5"></path></svg>',
+        D: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M3 9h18"></path><path d="m15 14-3 3-3-3"></path></svg>'
+      };
+
+      const candidates = [
+        {
+          id: 'A',
+          name: 'ChevronUp',
+          description: '当前基线。足够轻，但方向与实际“向下长出 panel”相反，也未与 Minimize2 构成明确一对。',
+          note: '轻量 · 方向冲突'
+        },
+        {
+          id: 'B',
+          name: 'Maximize2',
+          description: '推荐。与 Minimize2 原生配对，表达“由紧凑摘要扩大为完整摘要”；真实图标/槽位尺寸下端点清晰。',
+          note: '可逆配对 · 真实图标/槽位尺寸清楚',
+          recommended: true
+        },
+        {
+          id: 'C',
+          name: 'ChevronsDown',
+          description: '垂直向下展开最直观，与 panel 生长方向一致；但更容易被理解成下拉菜单或继续向下滚动。',
+          note: '方向准确 · 下拉歧义'
+        },
+        {
+          id: 'D',
+          name: 'PanelTopOpen',
+          description: '直接描绘顶部区域向下打开面板，空间语义完整；15px 下外框与分隔线略密、视觉更重。',
+          note: '面板语义 · 小尺寸偏密'
+        }
+      ];
+
+      const tinyTodo = '<svg class="tiny-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5h8"></path><path d="M13 12h8"></path><path d="M13 19h8"></path><path d="m3 17 2 2 4-4"></path><rect x="3" y="4" width="6" height="6" rx="1"></rect></svg>';
+      const closeIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>';
+
+      const state = {
+        mode: 'capsule',
+        icon: 'B',
+        preview: 'default',
+        reduceMotion: false,
+        lastEvent: '等待交互'
+      };
+
+      const widget = document.getElementById('widget');
+      const mainExpandSlot = document.querySelector('[data-role="capsule-expand-icon"]');
+      const capsuleMain = document.getElementById('capsuleMain');
+      const capsuleClose = document.getElementById('capsuleClose');
+      const summaryPanel = document.getElementById('summaryPanel');
+      const minimizeButton = document.getElementById('minimizeButton');
+      const panelClose = document.getElementById('panelClose');
+      const resetButton = document.getElementById('resetButton');
+      const themeButton = document.getElementById('themeButton');
+      const themeLabel = document.getElementById('themeLabel');
+      const motionToggle = document.getElementById('motionToggle');
+      const previewControls = document.getElementById('previewControls');
+      const stateReadout = document.getElementById('stateReadout');
+      const eventNote = document.getElementById('eventNote');
+      const liveRegion = document.getElementById('liveRegion');
+      const candidateGrid = document.getElementById('candidateGrid');
+      const stageCard = document.getElementById('stageCard');
+
+      function miniCapsule(candidateId, visualState, label) {
+        return `
+          <div class="mini-state ${visualState}" aria-label="${label} 状态预览">
+            <span class="mini-label">${label}</span>
+            <div class="mini-capsule" aria-hidden="true">
+              <div class="mini-main">
+                <span class="mini-segment">${tinyTodo}<span>2/4</span></span>
+                <span class="mini-segment"><span>+3</span><span>−1</span></span>
+                <span class="mini-segment"><span>1/2</span></span>
+                <span class="expand-slot">${icons[candidateId]}</span>
+              </div>
+              <span class="mini-close">${closeIcon}</span>
+            </div>
+          </div>`;
+      }
+
+      function renderCandidates(focusCandidate = null) {
+        candidateGrid.innerHTML = candidates.map((candidate) => `
+          <article class="candidate-card ${candidate.recommended ? 'recommended' : ''}" data-candidate="${candidate.id}" data-selected="${state.icon === candidate.id}" aria-label="候选 ${candidate.id} ${candidate.name}${state.icon === candidate.id ? '，已选中' : ''}">
+            <div class="candidate-title">
+              <span class="candidate-letter">${candidate.id}</span>
+              <h3>${candidate.name}</h3>
+            </div>
+            <p class="candidate-description">${candidate.description}</p>
+            <div class="candidate-visuals">
+              <div class="state-stack">
+                ${miniCapsule(candidate.id, '', 'Default')}
+                ${miniCapsule(candidate.id, 'is-hover', 'Hover')}
+                ${miniCapsule(candidate.id, 'is-focus', 'Focus')}
+              </div>
+              <div class="detail-view" aria-label="${candidate.name} 放大细节">
+                <div class="detail-view-inner">${icons[candidate.id]}</div>
+              </div>
+            </div>
+            <div class="candidate-footer">
+              <span class="candidate-note">${candidate.note}</span>
+              <button class="apply-button" type="button" data-apply="${candidate.id}" data-candidate="${candidate.id}" aria-pressed="${state.icon === candidate.id}" aria-label="将候选 ${candidate.id} ${candidate.name} 应用到主舞台">
+                ${state.icon === candidate.id ? '已应用' : '应用到舞台'}
+              </button>
+            </div>
+          </article>`).join('');
+
+        if (focusCandidate) {
+          const button = candidateGrid.querySelector(`button[data-candidate="${focusCandidate}"]`);
+          button?.focus({ preventScroll: true });
+        }
+      }
+
+      function candidateName() {
+        const candidate = candidates.find((item) => item.id === state.icon);
+        return candidate ? candidate.name : '';
+      }
+
+      function announce(message) {
+        liveRegion.textContent = '';
+        window.setTimeout(() => { liveRegion.textContent = message; }, 20);
+      }
+
+      function updateUI(shouldAnnounce = false, focusCandidate = null) {
+        widget.dataset.mode = state.mode;
+        widget.classList.toggle('mode-panel', state.mode === 'panel');
+        widget.classList.toggle('mode-closed', state.mode === 'closed');
+        widget.classList.toggle('preview-hover', state.preview === 'hover');
+        widget.classList.toggle('preview-focus', state.preview === 'focus');
+        mainExpandSlot.innerHTML = icons[state.icon];
+        capsuleMain.setAttribute('aria-expanded', String(state.mode === 'panel'));
+        summaryPanel.setAttribute('aria-hidden', String(state.mode !== 'panel'));
+        summaryPanel.inert = state.mode !== 'panel';
+        capsuleMain.tabIndex = state.mode === 'capsule' ? 0 : -1;
+        capsuleClose.tabIndex = state.mode === 'capsule' ? 0 : -1;
+        minimizeButton.tabIndex = state.mode === 'panel' ? 0 : -1;
+        panelClose.tabIndex = state.mode === 'panel' ? 0 : -1;
+        document.documentElement.classList.toggle('reduce-motion', state.reduceMotion);
+
+        previewControls.querySelectorAll('button').forEach((button) => {
+          button.setAttribute('aria-pressed', String(button.dataset.preview === state.preview));
+        });
+
+        stateReadout.textContent = `mode=${state.mode} · icon=${state.icon} ${candidateName()} · preview=${state.preview} · motion=${state.reduceMotion ? 'reduced' : 'system'}`;
+        eventNote.textContent = state.lastEvent;
+        renderCandidates(focusCandidate);
+
+        if (shouldAnnounce) {
+          announce(`状态：${state.mode === 'capsule' ? '胶囊' : state.mode === 'panel' ? '摘要面板已展开' : '摘要已关闭'}；候选 ${state.icon} ${candidateName()}；${state.lastEvent}`);
+        }
+      }
+
+      function openPanel() {
+        if (state.mode !== 'capsule') return;
+        state.mode = 'panel';
+        state.lastEvent = '主体点击：panel 从同 top 向下展开';
+        updateUI(true);
+        window.setTimeout(() => minimizeButton.focus({ preventScroll: true }), state.reduceMotion ? 0 : 270);
+      }
+
+      function minimizePanel() {
+        if (state.mode !== 'panel') return;
+        state.mode = 'capsule';
+        state.lastEvent = 'Minimize2：手动收缩为胶囊';
+        updateUI(true);
+        window.setTimeout(() => capsuleMain.focus({ preventScroll: true }), state.reduceMotion ? 0 : 170);
+      }
+
+      function closeSummary(source) {
+        state.mode = 'closed';
+        state.lastEvent = `${source} X：关闭摘要`;
+        updateUI(true);
+        resetButton.focus({ preventScroll: true });
+      }
+
+      capsuleMain.addEventListener('click', openPanel);
+      minimizeButton.addEventListener('click', minimizePanel);
+      capsuleClose.addEventListener('click', (event) => {
+        event.stopPropagation();
+        closeSummary('胶囊');
+      });
+      panelClose.addEventListener('click', () => closeSummary('panel'));
+
+      resetButton.addEventListener('click', () => {
+        state.mode = 'capsule';
+        state.preview = 'default';
+        state.lastEvent = 'Reset：恢复胶囊（保留当前候选）';
+        updateUI(true);
+        capsuleMain.focus({ preventScroll: true });
+      });
+
+      themeButton.addEventListener('click', () => {
+        const dark = document.documentElement.dataset.theme !== 'dark';
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        themeLabel.textContent = dark ? '浅色主题' : '深色主题';
+        state.lastEvent = `主题切换：${dark ? '深色' : '浅色'}`;
+        updateUI(true);
+      });
+
+      motionToggle.addEventListener('change', () => {
+        state.reduceMotion = motionToggle.checked;
+        state.lastEvent = state.reduceMotion ? 'Reduced motion：强制开启' : 'Reduced motion：跟随系统';
+        updateUI(true);
+      });
+
+      previewControls.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-preview]');
+        if (!button) return;
+        state.preview = button.dataset.preview;
+        state.lastEvent = `强制预览：${button.textContent}`;
+        updateUI(true);
+      });
+
+      candidateGrid.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-apply]');
+        if (!button) return;
+        state.icon = button.dataset.apply;
+        state.lastEvent = `应用候选 ${state.icon} ${candidateName()}：仅替换 data-role=capsule-expand-icon 槽内 SVG`;
+        updateUI(true, button.dataset.candidate);
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        state.lastEvent = 'Escape：无操作（状态保持）';
+        updateUI(true);
+      });
+
+      document.addEventListener('pointerdown', (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (stageCard.contains(target) || target.closest('.page-header, .prototype-controls, .candidate-grid')) return;
+        if (target.closest('button, a, input, select, textarea, label, [role="button"], [role="switch"], [tabindex]')) return;
+        if (!target.matches('body, .page-shell, .main, main > section, .section-head, .matrix-section, .decision-section, .decision-card, .page-footer')) return;
+        state.lastEvent = 'desktop 外点：无操作（状态保持）';
+        eventNote.textContent = state.lastEvent;
+      });
+
+      updateUI(false);
+    })();
+  </script>
+</body>
+</html>

@@ -29,6 +29,12 @@ export type IndexedDbCacheEntry<T = unknown> = {
   lastUsed: number
 }
 
+/** 内存淘汰索引的单条元数据（与磁盘 entry 的 bytes/lastUsed 字段对应）。 */
+type CacheEntryMeta = {
+  bytes: number
+  lastUsed: number
+}
+
 /** join('::')，纯函数，供组装复合缓存 key。 */
 export function computeCacheKey(parts: string[]): string {
   return parts.join('::')
@@ -109,10 +115,43 @@ export type IndexedDbCacheOptions = {
 
 function estimateBytes(value: unknown): number {
   try {
-    const serialized = JSON.stringify(value)
-    return typeof serialized === 'string' ? serialized.length : 0
+    return estimateNodeBytes(value, 0, new Set())
   } catch {
     return 0
+  }
+}
+
+/** 递归粗估的最大深度；更深或循环引用按叶节点小开销计。 */
+const ESTIMATE_MAX_DEPTH = 16
+
+/**
+ * 递归粗估 JSON 序列化体积，避免为估算构建完整的序列化中间字符串。
+ * 口径与 JSON.stringify 对齐到粗估级别：string 按 length+2（引号），
+ * number/bigint 固定 8，boolean/null/undefined 固定 4，对象/数组每节点
+ * +2（括号）+ 每键/元素 +1（逗号），键名按 string 口径。seen 集合防
+ * 循环引用并在回溯时移除，使共享引用仍按多次序列化计数。
+ */
+function estimateNodeBytes(value: unknown, depth: number, seen: Set<object>): number {
+  if (value === null || value === undefined) return 4
+  const type = typeof value
+  if (type === 'string') return (value as string).length + 2
+  if (type === 'number' || type === 'bigint') return 8
+  if (type === 'boolean') return 4
+  if (type !== 'object') return 4
+  const node = value as object
+  if (depth >= ESTIMATE_MAX_DEPTH || seen.has(node)) return 4
+  seen.add(node)
+  try {
+    let total = 2
+    if (Array.isArray(node)) {
+      for (const item of node) total += 1 + estimateNodeBytes(item, depth + 1, seen)
+    } else {
+      const record = node as Record<string, unknown>
+      for (const key of Object.keys(record)) total += 1 + key.length + 2 + estimateNodeBytes(record[key], depth + 1, seen)
+    }
+    return total
+  } finally {
+    seen.delete(node)
   }
 }
 
@@ -130,6 +169,12 @@ export class IndexedDbCache {
   private readonly maxBytes: number
   private readonly factory: IndexedDbCacheFactory
   private openPromise: Promise<MinimalIdbDatabaseLike | null> | null = null
+  /**
+   * 淘汰索引（key → bytes/lastUsed）：首次 evict 时从 store 单次 getAll 重建，
+   * 之后 put/get/delete/clear 增量维护，避免每次 put 都全量物化 store 条目。
+   * null 表示尚未构建。
+   */
+  private metaIndex: Map<string, CacheEntryMeta> | null = null
 
   constructor(options: IndexedDbCacheOptions = {}) {
     this.dbName = options.dbName ?? CACHE_DB_NAME
@@ -164,6 +209,7 @@ export class IndexedDbCache {
       try {
         entry.lastUsed = Date.now()
         await requestToPromise(db.transaction(this.storeName, 'readwrite').objectStore(this.storeName).put(entry, key))
+        this.metaIndex?.set(key, { bytes: entry.bytes, lastUsed: entry.lastUsed })
       } catch {
         // lastUsed 刷新是尽力而为
       }
@@ -190,6 +236,7 @@ export class IndexedDbCache {
         lastUsed: now,
       }
       await requestToPromise(db.transaction(this.storeName, 'readwrite').objectStore(this.storeName).put(entry, key))
+      this.metaIndex?.set(key, { bytes: entry.bytes, lastUsed: entry.lastUsed })
       await this.evictIfNeeded(db)
       return true
     } catch {
@@ -202,6 +249,7 @@ export class IndexedDbCache {
       const db = await this.open()
       if (!db) return false
       await requestToPromise(db.transaction(this.storeName, 'readwrite').objectStore(this.storeName).delete(key))
+      this.metaIndex?.delete(key)
       return true
     } catch {
       return false
@@ -226,6 +274,7 @@ export class IndexedDbCache {
       const db = await this.open()
       if (!db) return false
       await requestToPromise(db.transaction(this.storeName, 'readwrite').objectStore(this.storeName).clear())
+      this.metaIndex?.clear()
       return true
     } catch {
       return false
@@ -281,25 +330,29 @@ export class IndexedDbCache {
   }
 
   private async evictIfNeeded(db: MinimalIdbDatabaseLike): Promise<void> {
-    const entries = await requestToPromise(
-      db.transaction(this.storeName, 'readonly').objectStore(this.storeName).getAll(),
-    )
-    if (!Array.isArray(entries)) return
-    const candidates: CacheEvictionCandidate[] = []
-    for (const entry of entries) {
-      if (!entry || typeof entry !== 'object') continue
-      const meta = entry as Partial<IndexedDbCacheEntry>
-      if (typeof meta.key !== 'string') continue
-      candidates.push({
-        key: meta.key,
-        bytes: typeof meta.bytes === 'number' && Number.isFinite(meta.bytes) ? meta.bytes : 0,
-        lastUsed: typeof meta.lastUsed === 'number' && Number.isFinite(meta.lastUsed) ? meta.lastUsed : 0,
-      })
+    if (!this.metaIndex) {
+      const entries = await requestToPromise(
+        db.transaction(this.storeName, 'readonly').objectStore(this.storeName).getAll(),
+      )
+      if (!Array.isArray(entries)) return
+      const rebuilt = new Map<string, CacheEntryMeta>()
+      for (const entry of entries) {
+        if (!entry || typeof entry !== 'object') continue
+        const meta = entry as Partial<IndexedDbCacheEntry>
+        if (typeof meta.key !== 'string') continue
+        rebuilt.set(meta.key, {
+          bytes: typeof meta.bytes === 'number' && Number.isFinite(meta.bytes) ? meta.bytes : 0,
+          lastUsed: typeof meta.lastUsed === 'number' && Number.isFinite(meta.lastUsed) ? meta.lastUsed : 0,
+        })
+      }
+      this.metaIndex = rebuilt
     }
+    const candidates: CacheEvictionCandidate[] = [...this.metaIndex].map(([key, meta]) => ({ key, ...meta }))
     const evicted = selectEvictionKeys(candidates, this.maxEntries, this.maxBytes)
     if (evicted.length === 0) return
     const store = db.transaction(this.storeName, 'readwrite').objectStore(this.storeName)
     await Promise.all(evicted.map((key) => requestToPromise(store.delete(key))))
+    for (const key of evicted) this.metaIndex.delete(key)
   }
 }
 

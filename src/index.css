@@ -3240,23 +3240,63 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   }
 }
 
+.quickforge-diff-stats {
+  display: inline-flex;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.quickforge-diff-stats-add {
+  color: rgb(21 128 61);
+}
+
+.quickforge-diff-stats-del {
+  color: rgb(185 28 28);
+}
+
+.quickforge-diff-view {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-top: 0.375rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 54%, transparent);
+}
+
+.quickforge-diff-state,
+.quickforge-diff-empty {
+  color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+.quickforge-diff-state {
+  display: flex;
+  gap: 0.65rem;
+}
+
+.quickforge-diff-empty {
+  padding: 0.125rem 0;
+}
+
 .quickforge-diff-block {
   max-height: 28rem;
   overflow: auto;
-  /* 整块单一 grid：第三列取 max(剩余宽度, 最宽行)，所有行共享列宽，
+  /* 整块单一 grid：代码列取 max(剩余宽度, 最宽行)，所有行共享列宽，
      行背景因此铺满整个横向滚动区域，滚动条右滑不露底。 */
   display: grid;
-  grid-template-columns: 3.1rem 3.1rem minmax(max-content, 1fr);
-  border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
-  border-radius: 0.75rem;
-  background: color-mix(in oklab, var(--muted) 28%, transparent);
+  grid-template-columns: 3.1rem minmax(max-content, 1fr);
   font-family: var(--font-mono);
   font-size: 0.78rem;
   line-height: 1.45;
 }
 
-/* 结构化 diff 行：old/new 双行号列 + 代码列；+/- 前缀已剥离，变更语义由底色承载。
-   行盒让渡给块级 grid（display:contents），三个单元格直接参与共享列。 */
+/* 结构化 diff 行：单列智能行号 + 代码列；+/- 前缀已剥离，变更语义由底色承载。
+   行盒让渡给块级 grid（display:contents），两个单元格直接参与共享列。 */
 .quickforge-diff-row {
   display: contents;
 }
@@ -3290,32 +3330,16 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   color: rgb(153 27 27);
 }
 
-/* 字符级高亮：配对删/加行经 token 对比，真正变化的字符段加重底色。 */
-.quickforge-diff-code mark {
-  background: transparent;
-  color: inherit;
-  border-radius: 2px;
-}
-
-.quickforge-diff-row-add .quickforge-diff-code mark {
-  background: color-mix(in oklab, rgb(34 197 94) 34%, transparent);
-}
-
-.quickforge-diff-row-del .quickforge-diff-code mark {
-  background: color-mix(in oklab, rgb(239 68 68) 28%, transparent);
-}
-
-/* hunk 间隙省略行：数量由相邻 hunk 头行号差计算。 */
+/* hunk 间隙省略行：可访问名称保留省略数量，可见内容仅为省略号。 */
 .quickforge-diff-gap {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.1875rem 0.75rem 0.1875rem 0.9rem;
-  font-size: 0.72rem;
-  color: var(--muted-foreground);
-  border-block: 1px dashed color-mix(in oklab, var(--border) 70%, transparent);
-  background: color-mix(in oklab, var(--muted) 35%, transparent);
+  padding: 0.125rem 0.75rem 0.125rem 0.9rem;
+  font-size: 0.7rem;
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  border-block: 1px solid color-mix(in oklab, var(--border) 38%, transparent);
+  background: transparent;
   user-select: none;
 }
 
@@ -3323,142 +3347,20 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   border-top: none;
 }
 
-.quickforge-diff-gap-dots {
-  letter-spacing: 2px;
-}
-
-/* 标题行：文件路径上提（替代 ---/+++ 两行文件头），新文件标记。 */
-.quickforge-diff-path {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-}
-
-.quickforge-diff-newfile {
-  flex: none;
-  border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
-  border-radius: 999px;
-  padding: 0 0.4rem;
-  font-size: 0.68rem;
-  color: var(--muted-foreground);
-}
-
-/* 暗色主题切换亮文字色：修复固定深绿/深红文字在深背景下的对比度问题（含徽章与里程计）。 */
-html.dark .quickforge-diff-row-add .quickforge-diff-code,
-html.dark .quickforge-diff-badge-add,
-html.dark .quickforge-odometer-side.add {
+html.dark .quickforge-diff-stats-add {
   color: rgb(134 239 172);
 }
 
-html.dark .quickforge-diff-row-del .quickforge-diff-code,
-html.dark .quickforge-diff-badge-del,
-html.dark .quickforge-odometer-side.del {
+html.dark .quickforge-diff-stats-del {
   color: rgb(252 165 165);
 }
 
-.quickforge-diff-badge {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 0.05rem 0.45rem;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 600;
+html.dark .quickforge-diff-row-add .quickforge-diff-code {
+  color: rgb(134 239 172);
 }
 
-.quickforge-diff-badge-add {
-  background: color-mix(in oklab, rgb(34 197 94) 16%, transparent);
-  color: rgb(22 101 52);
-}
-
-.quickforge-diff-badge-del {
-  background: color-mix(in oklab, rgb(239 68 68) 14%, transparent);
-  color: rgb(153 27 27);
-}
-
-/* 工具卡片 ±行数里程计：每位数字一列，translateY 滚动；进位新列从上方入场。 */
-.quickforge-diff-counter {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.quickforge-diff-counter-running {
-  animation: quickforge-odometer-breathe 1.6s ease-in-out infinite;
-}
-
-@keyframes quickforge-odometer-breathe {
-  50% { opacity: 0.55; }
-}
-
-.quickforge-odometer-side {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.1rem;
-  border-radius: 999px;
-  padding: 0.05rem 0.45rem;
-}
-
-.quickforge-odometer-side.add {
-  background: color-mix(in oklab, rgb(34 197 94) 16%, transparent);
-  color: rgb(22 101 52);
-}
-
-.quickforge-odometer-side.del {
-  background: color-mix(in oklab, rgb(239 68 68) 14%, transparent);
-  color: rgb(153 27 27);
-}
-
-.quickforge-odometer-digit {
-  display: inline-block;
-  height: 1em;
-  overflow: hidden;
-  vertical-align: bottom;
-}
-
-.quickforge-odometer-strip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: transform;
-}
-
-.quickforge-odometer-strip span {
-  height: 1em;
-  line-height: 1;
-}
-
-.quickforge-odometer-digit.enter {
-  animation: quickforge-odometer-enter 380ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-@keyframes quickforge-odometer-enter {
-  from {
-    opacity: 0;
-    transform: translateY(-1em);
-  }
-}
-
-/* prefers-reduced-motion：关闭滚动过渡与呼吸/入场动画，数字直接跳变。 */
-.quickforge-diff-counter.quickforge-odometer-reduced .quickforge-odometer-strip {
-  transition: none;
-}
-
-.quickforge-diff-counter.quickforge-odometer-reduced .quickforge-odometer-digit.enter {
-  animation: none;
-}
-
-.quickforge-diff-counter.quickforge-odometer-reduced.quickforge-diff-counter-running {
-  animation: none;
+html.dark .quickforge-diff-row-del .quickforge-diff-code {
+  color: rgb(252 165 165);
 }
 
 .quickforge-composer-dock {
@@ -6575,6 +6477,7 @@ html.dark .quickforge-todo-summary-ring-check {
 .quickforge-pinned-summary-panel {
   position: absolute;
   inset: 0 auto auto 0;
+  transform-origin: top right;
   transition:
     opacity 140ms ease,
     transform 220ms cubic-bezier(.22,.8,.24,1);
@@ -6589,7 +6492,7 @@ html.dark .quickforge-todo-summary-ring-check {
 }
 
 .quickforge-pinned-summary-panel {
-  height: max-content;
+  max-height: var(--quickforge-pinned-summary-panel-max-height, calc(100dvh - 1.5rem));
   transform: scale(0.97);
   opacity: 0;
   pointer-events: none;

@@ -31,12 +31,63 @@ function createAgent(overrides = {}) {
   return agent
 }
 
+function runDiffToolResult(item, { id = 'diff', status = 'completed' } = {}) {
+  const agent = createAgent()
+  agent.handleSessionUpdate({
+    sessionId: 'acp-session',
+    update: { sessionUpdate: 'tool_call', toolCallId: id, title: 'Diff', kind: 'edit', rawInput: {} },
+  })
+  agent.handleSessionUpdate({
+    sessionId: 'acp-session',
+    update: { sessionUpdate: 'tool_call_update', toolCallId: id, status, content: [item] },
+  })
+  return agent.state.messages.at(-1).details.diff
+}
+
 function textChunk(agent, messageId, text, type = 'agent_message_chunk') {
   agent.handleSessionUpdate({
     sessionId: 'acp-session',
     update: { sessionUpdate: type, messageId, content: { type: 'text', text } },
   })
 }
+
+describe('OpenCode diff details', () => {
+  it('counts a raw trailing newline once and normalizes CRLF/CR', () => {
+    expect(runDiffToolResult({ type: 'diff', path: 'new.txt', newText: 'alpha\r\n' })).toEqual({
+      format: 'raw',
+      path: 'new.txt',
+      addedLines: 1,
+      removedLines: 0,
+      text: 'alpha\n',
+    })
+  })
+
+  it('counts edit trailing newlines without rendering false empty lines', () => {
+    expect(runDiffToolResult({ type: 'diff', path: 'edit.txt', oldText: 'old\r', newText: 'new\r\n' })).toEqual({
+      format: 'unified',
+      path: 'edit.txt',
+      addedLines: 1,
+      removedLines: 1,
+      text: '--- edit.txt\n+++ edit.txt\n-old\n+new',
+    })
+  })
+
+  it('reports identical empty content as a complete zero-line diff', () => {
+    expect(runDiffToolResult({ type: 'diff', path: 'empty.txt', oldText: '', newText: '' })).toEqual({
+      format: 'unified',
+      path: 'empty.txt',
+      addedLines: 0,
+      removedLines: 0,
+      text: '',
+    })
+  })
+
+  it('marks a genuinely bounded OpenCode diff as truncated', () => {
+    const diff = runDiffToolResult({ type: 'diff', path: 'long.txt', newText: `alpha\n${'x'.repeat(20_000)}` })
+    expect(diff).toMatchObject({ format: 'raw', path: 'long.txt', addedLines: 2, removedLines: 0, truncated: true })
+    expect(diff.text).toMatch(/\n…\[truncated\]$/)
+  })
+})
 
 describe('OpenCode history tool normalization', () => {
   it('normalizes legacy names, multiple calls, arguments, and matching results without mutating input', () => {

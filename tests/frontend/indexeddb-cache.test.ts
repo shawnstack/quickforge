@@ -30,6 +30,7 @@ class FakeIDBRequest<T = unknown> {
 
 class FakeObjectStore {
   entries = new Map<string, unknown>()
+  getAllCallCount = 0
 
   get(key: string): FakeIDBRequest {
     const request = new FakeIDBRequest()
@@ -66,6 +67,7 @@ class FakeObjectStore {
   }
 
   getAll(): FakeIDBRequest {
+    this.getAllCallCount += 1
     const request = new FakeIDBRequest<unknown[]>()
     queueMicrotask(() => request.succeed([...this.entries.values()]))
     return request as unknown as FakeIDBRequest
@@ -213,6 +215,32 @@ describe('IndexedDbCache', () => {
     vi.setSystemTime(Date.now() + 10)
     await cache.put('c', bigValue)
     expect(storedKeys(factory)).toEqual(['c'])
+  })
+
+  it('reuses the in-memory eviction index so only the first put materializes getAll', async () => {
+    const factory = new FakeFactory()
+    const cache = new IndexedDbCache({ dbName: 'test-db', maxEntries: 10, factory: () => factory })
+
+    for (const key of ['k1', 'k2', 'k3', 'k4']) await cache.put(key, { key })
+
+    const store = factory.dbs.get('test-db')?.stores.get('entries')
+    expect(store?.getAllCallCount).toBe(1)
+    expect(storedKeys(factory)).toEqual(['k1', 'k2', 'k3', 'k4'])
+  })
+
+  it('rebuilds the eviction index from store contents on a cold instance and evicts correctly', async () => {
+    const factory = new FakeFactory()
+    const warm = new IndexedDbCache({ dbName: 'test-db', maxEntries: 3, factory: () => factory })
+    for (const key of ['k1', 'k2', 'k3']) {
+      await warm.put(key, { key })
+      vi.setSystemTime(Date.now() + 10)
+    }
+    expect(storedKeys(factory)).toEqual(['k1', 'k2', 'k3'])
+
+    const cold = new IndexedDbCache({ dbName: 'test-db', maxEntries: 3, factory: () => factory })
+    await cold.put('k4', { key: 'k4' })
+
+    expect(storedKeys(factory)).toEqual(['k2', 'k3', 'k4'])
   })
 
   it('refreshes lastUsed on get so recently read entries survive eviction', async () => {

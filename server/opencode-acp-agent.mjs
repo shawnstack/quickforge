@@ -270,9 +270,17 @@ function safeJson(value) {
   }
 }
 
-function boundedText(value, limit = TOOL_OUTPUT_LIMIT) {
+function boundedTextResult(value, limit = TOOL_OUTPUT_LIMIT) {
   const text = String(value ?? '')
-  return text.length > limit ? `${text.slice(0, limit)}\n…[truncated]` : text
+  const truncated = text.length > limit
+  return {
+    text: truncated ? `${text.slice(0, limit)}\n…[truncated]` : text,
+    truncated,
+  }
+}
+
+function boundedText(value, limit = TOOL_OUTPUT_LIMIT) {
+  return boundedTextResult(value, limit).text
 }
 
 function safeRawOutput(value) {
@@ -283,27 +291,43 @@ function safeRawOutput(value) {
     .replace(/(["']?(?:token|secret|password|api[-_ ]?key|private[-_ ]?key)["']?\s*[:=]\s*)["']?[^\s,;"}]+["']?/gi, '$1"[redacted]"'))
 }
 
+function normalizeDiffText(value) {
+  return String(value ?? '').replace(/\r\n?/g, '\n')
+}
+
+function diffLines(value) {
+  const normalized = normalizeDiffText(value)
+  if (!normalized) return []
+  const lines = normalized.split('\n')
+  if (lines[lines.length - 1] === '') lines.pop()
+  return lines
+}
+
 function diffDetails(item) {
   const hasOldText = typeof item?.oldText === 'string'
-  const oldText = hasOldText ? item.oldText : ''
-  const newText = typeof item?.newText === 'string' ? item.newText : ''
-  const oldLines = oldText ? oldText.split('\n') : []
-  const newLines = newText ? newText.split('\n') : []
+  const oldText = hasOldText ? normalizeDiffText(item.oldText) : ''
+  const newText = typeof item?.newText === 'string' ? normalizeDiffText(item.newText) : ''
+  const oldLines = diffLines(oldText)
+  const newLines = diffLines(newText)
   const path = typeof item?.path === 'string' ? item.path : ''
   const text = hasOldText
-    ? [
-        `--- ${path || 'before'}`,
-        `+++ ${path || 'after'}`,
-        ...oldLines.map((line) => `-${line}`),
-        ...newLines.map((line) => `+${line}`),
-      ].join('\n')
+    ? oldText === newText
+      ? ''
+      : [
+          `--- ${path || 'before'}`,
+          `+++ ${path || 'after'}`,
+          ...oldLines.map((line) => `-${line}`),
+          ...newLines.map((line) => `+${line}`),
+        ].join('\n')
     : newText
+  const bounded = boundedTextResult(text)
   return {
     format: hasOldText ? 'unified' : 'raw',
     path,
-    addedLines: newLines.length,
-    removedLines: oldLines.length,
-    text: boundedText(text),
+    addedLines: oldText === newText ? 0 : newLines.length,
+    removedLines: oldText === newText ? 0 : oldLines.length,
+    text: bounded.text,
+    ...(bounded.truncated ? { truncated: true } : {}),
   }
 }
 

@@ -12,8 +12,7 @@ import { ToolMarqueeController, type ToolMarqueeEnv, type ToolMarqueeView } from
 import { syncInputClampBoxes, type InputClampLabels } from '@/lib/input-clamp'
 
 const subagentInputClampLabels: InputClampLabels = { collapsed: () => t('expand'), expanded: () => t('collapse') }
-import { OdometerDiffCounterController, type OdometerElementLike, type OdometerEnv } from '@/lib/diff-counter'
-import { parseDiffFileInfo, parseDiffRows, type DiffLineRow, type DiffRow } from '@/lib/diff-view'
+import { parseDiffFileInfo, parseDiffRows, diffLineNumber, type DiffRow } from '@/lib/diff-view'
 import {
   OPEN_SUBAGENT_RUN_EVENT,
   buildSubagentRunPayload,
@@ -167,7 +166,9 @@ function getDiffDetails(details: unknown): ToolDiffDetails | undefined {
   const diff = (details as { diff?: unknown }).diff
   if (!diff || typeof diff !== 'object') return undefined
   const candidate = diff as ToolDiffDetails
-  return typeof candidate.text === 'string' ? candidate : undefined
+  const hasText = typeof candidate.text === 'string'
+  const hasCounts = typeof candidate.addedLines === 'number' || typeof candidate.removedLines === 'number'
+  return hasText || hasCounts ? candidate : undefined
 }
 
 function detailsWithoutDiffText(details: unknown) {
@@ -211,65 +212,56 @@ async function terminateCommand(sessionId: string, toolCallId: string, button: H
   }
 }
 
-function renderInlineDiffStats(toolName: string, diff: ToolDiffDetails | undefined, running = false) {
-  if ((toolName !== 'write_file' && toolName !== 'edit_file') || !diff) return nothing
+function renderInlineDiffStats(diff: ToolDiffDetails | undefined) {
+  if (!diff) return nothing
 
   const addedLines = Number(diff.addedLines ?? 0)
   const removedLines = Number(diff.removedLines ?? 0)
-
-  // 里程计计数器：partial diff 到达时数字逐位滚动，结束定格。
   return html`
-    <quickforge-diff-counter
-      class="quickforge-tool-meta-hover shrink-0"
-      added=${addedLines}
-      removed=${removedLines}
-      ?running=${running}
-      title="+${addedLines} -${removedLines}"
-    ></quickforge-diff-counter>
+    <span class="quickforge-diff-stats shrink-0">
+      <span class="quickforge-diff-stats-add">+${addedLines}</span>
+      <span class="quickforge-diff-stats-del">−${removedLines}</span>
+    </span>
   `
-}
-
-function renderDiffCode(row: DiffLineRow) {
-  if (!row.segments || row.segments.length === 0) return row.text || ' '
-  return row.segments.map((segment) => (segment.changed ? html`<mark>${segment.text}</mark>` : segment.text))
 }
 
 function renderDiffRow(row: DiffRow) {
   if (row.kind === 'gap') {
     return html`
-      <div class="quickforge-diff-gap${row.first ? ' quickforge-diff-gap-first' : ''}" aria-hidden="true">
-        <span class="quickforge-diff-gap-dots">⋯⋯</span>
-        <span>${t('diffOmittedLines', { count: row.count })}</span>
-      </div>
+      <div
+        class="quickforge-diff-gap${row.first ? ' quickforge-diff-gap-first' : ''}"
+        aria-label=${t('diffOmittedLines', { count: row.count })}
+      >⋯</div>
     `
   }
   return html`
     <div class="quickforge-diff-row quickforge-diff-row-${row.kind}">
-      <span class="quickforge-diff-ln">${row.oldNo ?? ''}</span>
-      <span class="quickforge-diff-ln">${row.newNo ?? ''}</span>
-      <span class="quickforge-diff-code">${renderDiffCode(row)}</span>
+      <span class="quickforge-diff-ln">${diffLineNumber(row) ?? ''}</span>
+      <span class="quickforge-diff-code">${row.text || ' '}</span>
     </div>
   `
 }
 
-function renderDiff(diff: ToolDiffDetails) {
-  const addedLines = Number(diff.addedLines ?? 0)
-  const removedLines = Number(diff.removedLines ?? 0)
-  const diffText = diff.text ?? ''
-  const rows = parseDiffRows(diffText)
-  const fileInfo = parseDiffFileInfo(diffText)
+function renderDiff(diff: ToolDiffDetails, isNewFile = false) {
+  const hasText = typeof diff.text === 'string'
+  const diffText = hasText ? diff.text as string : ''
+  const fileInfo = hasText ? parseDiffFileInfo(diffText) : null
+  const format = diff.format === 'raw' ? 'raw' : 'unified'
+  const newFile = isNewFile || fileInfo?.isNewFile === true || format === 'raw'
 
   return html`
-    <div>
-      <div class="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <span>Diff</span>
-        <span class="quickforge-diff-badge quickforge-diff-badge-add">+${addedLines}</span>
-        <span class="quickforge-diff-badge quickforge-diff-badge-del">-${removedLines}</span>
-        ${diff.truncated ? html`<span class="text-muted-foreground/80">truncated</span>` : nothing}
-        ${fileInfo?.isNewFile ? html`<span class="quickforge-diff-newfile">${t('diffNewFile')}</span>` : nothing}
-        ${fileInfo ? html`<span class="quickforge-diff-path" title=${fileInfo.path}>${fileInfo.path}</span>` : nothing}
-      </div>
-      <div class="quickforge-diff-block">${rows.map(renderDiffRow)}</div>
+    <div class="quickforge-diff-view">
+      ${(diff.truncated || newFile) ? html`
+        <div class="quickforge-diff-state">
+          ${newFile ? html`<span>${t('diffNewFile')}</span>` : nothing}
+          ${diff.truncated ? html`<span>${t('diffTruncated')}</span>` : nothing}
+        </div>
+      ` : nothing}
+      ${hasText
+        ? diffText !== ''
+          ? html`<div class="quickforge-diff-block">${parseDiffRows(diffText, format, Boolean(diff.truncated)).map(renderDiffRow)}</div>`
+          : html`<div class="quickforge-diff-empty">${t('diffNoChanges')}</div>`
+        : nothing}
     </div>
   `
 }
@@ -451,60 +443,6 @@ class QuickForgeToolMarquee extends HTMLElement {
 
 if (!customElements.get('quickforge-tool-marquee')) {
   customElements.define('quickforge-tool-marquee', QuickForgeToolMarquee)
-}
-
-const odometerEnv: OdometerEnv = {
-  prefersReducedMotion: () => Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches),
-  createElement: (tag) => document.createElement(tag) as unknown as OdometerElementLike,
-  setTimeout: (handler, ms) => setTimeout(handler, ms),
-  clearTimeout: (token) => clearTimeout(token as ReturnType<typeof setTimeout>),
-}
-
-/**
- * 工具卡片 ±行数里程计（attribute 驱动，保证 Lit 高频重渲染下元素实例稳定，
- * 数字列的滚动/入场动画由 CSS transition/animation 与 OdometerDiffCounterController 完成）。
- * 过程分组重装饰会整体搬移工具节点（disconnect→connect）：搬移保留子树，
- * controller 仍在时直接复用（动画不打断）；只有全新元素 / cloneNode 克隆体
- * （元素状态不随克隆复制）才走 controller 构造里的清空重建，避免重复叠加。
- */
-class QuickForgeDiffCounter extends HTMLElement {
-  private controller: OdometerDiffCounterController | undefined
-  private ready = false
-
-  static get observedAttributes() {
-    return ['added', 'removed', 'running']
-  }
-
-  connectedCallback() {
-    if (!this.controller) {
-      this.controller = new OdometerDiffCounterController(this as unknown as OdometerElementLike, odometerEnv)
-    }
-    this.ready = true
-    this.sync()
-  }
-
-  disconnectedCallback() {
-    this.ready = false
-    // 只清待触发的入场标记定时器；controller 与 DOM 保留，重挂（搬移）后继续复用。
-    this.controller?.dispose()
-  }
-
-  attributeChangedCallback() {
-    if (!this.ready) return
-    this.sync()
-  }
-
-  private sync() {
-    this.controller?.sync(
-      Number(this.getAttribute('added') ?? 0) || 0,
-      Number(this.getAttribute('removed') ?? 0) || 0,
-      this.getAttribute('running') === 'true',
-    )
-  }
-}
-
-if (!customElements.get('quickforge-diff-counter')) {
-  customElements.define('quickforge-diff-counter', QuickForgeDiffCounter)
 }
 
 function renderTiming(timing: QuickForgeToolTiming | undefined, status: ToolStatusKey) {
@@ -940,6 +878,7 @@ class LocalWorkspaceToolRenderer {
     const input = detailed ? stringifyValue(visibleParams) : ''
     const output = toolOutputText(this.toolName, visibleParams, result, isStreaming)
     const diff = getDiffDetails(visibleDetails)
+    const isNewFile = isRecord(visibleDetails) && visibleDetails.created === true
     const details = detailed ? stringifyValue(diff ? detailsWithoutDiffText(visibleDetails) : visibleDetails) : ''
     const detailsKey = toolDetailsStateKey(this.toolName, visibleParams, result?.details)
     const detailsOpen = toolDetailsOpen.get(detailsKey) ?? detailed
@@ -960,14 +899,14 @@ class LocalWorkspaceToolRenderer {
               <span class="quickforge-tool-title min-w-0">
                 <span class=${status === 'running' ? 'quickforge-tool-label quickforge-tool-running-sweep' : 'quickforge-tool-label'}>${acpTitle ? html`OpenCode<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${acpTitle}${acpKind ? `/${acpKind}` : ''}</span>` : t(this.labelKey)}${summary ? html`<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${summary}</span>` : ''}</span>
                 <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-                ${renderInlineDiffStats(this.toolName, diff, status === 'running')}
+                ${(this.toolName === 'write_file' || this.toolName === 'edit_file') ? renderInlineDiffStats(diff) : nothing}
                 ${status === 'running' ? nothing : renderStatus(status, timing)}
               </span>
             </summary>
             <div class="mt-3 space-y-3">
               ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : ''}
               ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('output')}</div>${this.toolName === 'run_command' ? html`<console-block .content=${output} .variant=${variant}></console-block>` : html`<code-block .code=${output} language="text"></code-block>`}</div>` : ''}
-              ${diff ? renderDiff(diff) : ''}
+              ${typeof diff?.text === 'string' ? renderDiff(diff, isNewFile) : nothing}
               ${details ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${details} language="json"></code-block></div>` : ''}
             </div>
           </details>
@@ -1187,6 +1126,7 @@ class OpenCodeToolRenderer {
     const input = detailed ? stringifyValue(visibleParams) : ''
     const output = resultText(result)
     const diff = getDiffDetails(visibleDetails)
+    const isNewFile = isRecord(visibleDetails) && visibleDetails.created === true
     const details = detailed ? stringifyValue(diff ? detailsWithoutDiffText(visibleDetails) : visibleDetails) : ''
     const detailsKey = toolDetailsStateKey('opencode_tool', visibleParams, result?.details)
     const detailsOpen = toolDetailsOpen.get(detailsKey) ?? detailed
@@ -1203,13 +1143,14 @@ class OpenCodeToolRenderer {
               <span class="quickforge-tool-title min-w-0">
                 <span class="quickforge-tool-label">OpenCode<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${title}${kind ? `/${kind}` : ''}</span></span>
                 <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                ${renderInlineDiffStats(diff)}
                 ${renderStatus(status, timing)}
               </span>
             </summary>
             <div class="mt-3 space-y-3">
               ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
               ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('output')}</div><code-block .code=${output} language=${outputLanguageFromText(output)}></code-block></div>` : nothing}
-              ${diff ? renderDiff(diff) : nothing}
+              ${typeof diff?.text === 'string' ? renderDiff(diff, isNewFile) : nothing}
               ${details ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${details} language="json"></code-block></div>` : nothing}
             </div>
           </details>

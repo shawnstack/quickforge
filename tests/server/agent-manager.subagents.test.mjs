@@ -211,6 +211,55 @@ describe('agent manager subagent execution', () => {
     }
   })
 
+  it('caps runtime trace updates at the last 50 messages while the terminal result keeps the full list', async () => {
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    const streamedMessageCount = 60
+    mocks.streamSimpleWithAiHttpLogging.mockImplementation(async () => {
+      const agent = MockAgent.instances.at(-1)
+      for (let index = 0; index < streamedMessageCount; index += 1) {
+        const message = {
+          role: 'assistant',
+          content: [{ type: 'text', text: `trace-message-${index}` }],
+          timestamp: Date.now(),
+        }
+        agent.state.messages.push(message)
+        await agent.emit({ type: 'message_end', message })
+      }
+    })
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('subagent-trace-tail-workspace', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      const updates = []
+      const result = await runSubagent.execute(
+        'tool-call-trace-tail',
+        { subagent: 'explore', task: 'Inspect the workspace.' },
+        new AbortController().signal,
+        (partialResult) => updates.push(partialResult),
+      )
+
+      expect(updates.length).toBeGreaterThan(0)
+      const finalUpdate = updates.at(-1)
+      expect(finalUpdate.details.messages).toHaveLength(50)
+      expect(finalUpdate.details.messagesTotal).toBe(streamedMessageCount + 1)
+      expect(finalUpdate.details.messages[0].content[0].text).toBe(`trace-message-${streamedMessageCount - 49}`)
+      expect(finalUpdate.details.messages.at(-1).content[0].text).toBe('mock subagent completed')
+      expect(result.details.messages).toHaveLength(streamedMessageCount + 1)
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
   it('logs one failed terminal event when subagent initialization fails after started', async () => {
     const workspaceRoot = path.join(tmpDir, 'workspace')
     const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')

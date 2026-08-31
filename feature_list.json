@@ -1,6 +1,27 @@
 {
   "features": [
     {
+      "id": "browser-oom-first-aid",
+      "name": "浏览器渲染进程 OOM 第一步止血：IndexedDbCache 去全量序列化/物化 + subagent 运行期 trace 截尾",
+      "status": "done",
+      "approach": "起因：用户确认页面长期开着导致浏览器渲染进程 OOM；三路只读调研定位放大器后按用户决策走两步走的第一步（零体验风险的止血）。① src/lib/indexeddb-cache.ts：estimateBytes 由 JSON.stringify(value).length 全量序列化改为递归粗估（string length+2、number/bigint 8、boolean/null/undefined 4、对象/数组每节点 +2 + 每键/元素 +1，深度上限 16 + seen Set 防循环、回溯删除保持 DAG 与 stringify 同口径，异常兜底 0；'x'.repeat(80) 估值 82>60 维持 maxBytes=120 测试口径）；新增实例私有 metaIndex Map（初始 null）：put 成功后可选链更新、evictIfNeeded 冷启动首次单次 getAll 以 store 内容重建此后纯内存维护（get 的 lastUsed 写回成功后才同步索引、delete/clear 同步维护、非数组 getAll 容错保持 null 重试），消除每次 put 的全量 stringify 大字符串与每次 evict 的 getAll 全量物化（约 40 会话快照反序列化）；entry 磁盘格式、selectEvictionKeys 纯 LRU、公开 API、CACHE_SCHEMA_VERSION 全部不动。② server/agent-manager.mjs：新常量 SUBAGENT_TRACE_MESSAGES_LIMIT=50，emitSubagentTrace 的 details.messages 改 latestMessages.slice(-50) 并新增 messagesTotal 实际总数（Array.isArray 防御；同一同步字面量读同一 latestMessages 无口径分裂），所有 update 发送路径（节流补发/工具边界立即发/finally 收尾）统一截尾；终态 toolResult details.messages（:1799）保持全量；updateRuntimeToolExecution/persist/SSE 转发零改动。前端复核确认 update 消费方只依赖尾部（traceMessages 过滤、跑马灯尾部 chunk、指纹、终态判定逆向尾部扫描），运行中 Inspector 呈最近 50 条滚动窗、结束后全量恢复，体验无损；运行中刷新页面恢复的 running 快照只含尾部 50 条为唯一可感知差异。③ wiki：src/lib subagent-run-detail 与 server README 补 update 截尾+终态全量语义。第二步（消息窗口化/智能货架 + 跳转适配）另行立项。",
+      "files": [
+        "src/lib/indexeddb-cache.ts",
+        "server/agent-manager.mjs",
+        "tests/frontend/indexeddb-cache.test.ts",
+        "tests/server/agent-manager.subagents.test.mjs",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/server/README.md",
+        "oom-analysis-diagram.svg",
+        "oom-browser-renderer.svg",
+        "oom-plain-words.svg",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 5 files / 47 tests 全过（indexeddb-cache 15 含新 2：同实例 4 次 put 后 FakeObjectStore getAllCallCount===1、冷启动新实例首 put 重建索引正确淘汰 k1；session-message 8、workspace 7、app-settings 6；agent-manager.subagents 11 含新 1：真实驱动 MockAgent 产出 61 条消息，断言 update 窗口=50、messagesTotal=61、窗口首元素 trace-message-11 精确校验 off-by-one、终态 toolResult 全量 61）；定向 ESLint 4 文件 0 问题；node --check server/agent-manager.mjs；npx tsc -b --pretty false；git diff --check；feature_list.json JSON parse 全过。explore 独立复核 26/26 复跑通过：粗估与索引生命周期闭环、冷启动 null 安全、终态未截尾、前端无全量 messages 假设。未跑全量 test/lint/build；未 commit。"
+    },
+    {
       "id": "project-picker-mkdir-and-roots",
       "name": "项目目录选择器：移除 QuickForge 快捷入口并新增新建目录功能",
       "status": "done",
@@ -23,7 +44,7 @@
       "id": "pinned-summary-draggable-capsule",
       "name": "GitToolsPinnedSummary 桌面端常驻 List 与 closed/capsule/panel 三态浮动摘要",
       "status": "needs-review",
-      "approach": "在既有 closed/capsule/panel 三态与可靠拖动上做最小往返恢复：App 用与 WorkspaceInspector 完全一致的 (min-width:1024px) 判定，将 canSuspendPinnedSummaryOnInspectorOpen 明确建模为“即将打开 Inspector 时是否具备 desktop sidebar suspension/preserve 能力”，仅在 Inspector open、>=1024px、非 mobileShell 时继续挂载 GitToolsPinnedSummary 且传 suspended；<1024px/mobileShell 保持原卸载和全屏 overlay。PanelRight 直接打开、Git Changes 与 Subagent 回调统一按该 future capability 分支：真实桌面侧栏保留 summary，窄屏/mobileShell 在 setWorkspaceInspectorOpen(true) 前先 setGitToolsExpanded(false)；PanelRight 关闭分支不改 summary，Commit/Push 始终关闭。suspended 保留 panel/capsule、position、Todo 展开和智能体折叠，toolbar root 与 desktop fixed widget 同时 hidden/inert/aria-hidden；暂停时停用 outside/Escape/resize/ResizeObserver，只结束 drag 并清 window pointer listeners/capture/body userSelect/drag 与 responsive rAF、关闭 branchMenu 和 pending focus，不取消代表用户明确关闭意图的 160ms close timer，也不用可被 cleanup 取消的 rAF 归一化 closing/mounted，让 hidden 期间 timer 自然完成 closed=>unmounted；组件 unmount 的既有 cleanup 仍清 timer。恢复时用当前 panel/capsule 的 offsetWidth/offsetHeight 目标布局尺寸重新 clamp 到 12px 安全区，不 open/minimize、不抢焦点。PanelRight 按钮提供显式 marker，summary document pointerdown 无条件优先忽略，消除 desktop panel 预先缩成 capsule 竞态；小屏 onClick 显式关闭。无 localStorage、无 App 完整状态提升、无新依赖。",
+      "approach": "在既有首次 conversation header 锚点、closed/capsule/panel 三态与 Inspector suspend/resume 基础上完成置顶摘要新交互。Desktop：panel/capsule 外点均 stay，Escape 无摘要级动作且结构上不安装 desktop outside/Escape listener；只有 panel 显式 Minimize 调用 minimizeDesktopPanel 进入 capsule，capsule 主体原位打开 panel，panel/capsule X 与顶部 List 完全关闭。mobile/mobileShell 保留 List + fixed panel，外点/Escape/X 关闭且无 capsule/minimize；branch menu 不因 desktop 外点改变摘要形态，本轮不新增嵌套 dismiss。pinned-summary-drag.ts 简化 outside API 为 desktop stay/mobile close，删除 desktop minimize action；新增 resolvePinnedSummaryLayout 统一方向性布局：横向 12px inset；panel 优先保留当前 y，以 viewport bottom 12px 计算 panelMaxHeight 并复用 flex 内容区滚动，仅当下方不足 PINNED_SUMMARY_PANEL_MIN_HEIGHT=180 时向上移到刚好容纳最小高度，极矮 viewport 使用全部安全区域，不按目标 panel 整屏自然高度向上 clamp。首次定位、panel/capsule 切换、window resize、drag 过程/结束、Inspector resume 均复用该策略；header rect 仍只在 positionRef 首次为空时读取。动态 max-height 通过 CSS 变量传给 panel，ResizeObserver 以 offset 尺寸并在 panel 展开态用 scrollHeight 记录自然高度，避免 transform/max-height 污染与循环；panel/capsule 子层 transform-origin: top right，保留 width/height 220ms 与 reduced-motion。Inspector suspension、closing timer、pointer cleanup、header 默认锚点与移动端行为保持。设计 mockup 仍保留为历史交互稿，本轮未同步，以源码与 wiki 当前规格为准。 终审健壮性修复：ResizeObserver 与 drag 并发时改用 dragRef.current.current 作为布局 position，panelMaxHeight 只在 panel mode 更新/消费，拖动结束/取消继续由 finishDrag 收敛；panel 自然高度补 offsetHeight-clientHeight 边框差，删除无效 height:min(max-content,...)。受限 desktop panel 内容区始终 overflow-y-auto/overscroll，branch menu 改在 panel 内向下 absolute 展开、宽度随 panel、带 viewport max-height 与自身滚动，不再依赖祖先 overflow-visible 或横向越出 panel。图标终审采用设计原型推荐 B：capsule 主体末端展开提示由 ChevronUp 改为 Maximize2，与 panel 标题栏既有 Minimize2 配对；Maximize2 位于主体 button 内约 28px 的透明圆形视觉槽，aria-hidden 且不是独立 button，默认弱化、主体 hover/focus 时克制增强；顶部 List、独立 X、点击/拖动/关闭逻辑不变。",
       "files": [
         "design-mockups/pinned-summary-drag-capsule.html",
         "src/App.tsx",
@@ -40,7 +61,7 @@
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "Revision 3 最终收口后，相关 Vitest 8 files / 165 tests 全过（git-tools-pinned-summary 23、pinned-summary-drag 6、workspace inspector tabs/width/request、mobile fullscreen、side chat、subagent detail）；测试锁定 PanelRight desktop preserve/mobileShell+窄屏 close、Git Changes/Subagent 同 capability 分支、suspension 不清 160ms close timer/不归一化 closing/mounted、unmount 仍清 timer，以及 suspension/clamp/outside/drag 阈值。定向 ESLint 0 error；npx tsc -b --pretty false、npm run build、feature_list.json JSON parse、git diff --check 全过，git status 仅列出本 feature 10 个预期文件。build 仅既有 KaTeX 字体与 chunk size warnings；状态保持 needs-review，未提交、未改生成产物。前轮完整门禁记录：npm run test → 271 files / 2530 passed + 1 既有失败（tests/server/cloud/qf-agent-process.test.mjs restart budget 用例，stash 对照确认 HEAD 同样失败、与本次无关）；npm run lint → 0 errors。"
+      "verification": "图标终审后：定向 Vitest tests/frontend/git-tools-pinned-summary.test.ts 24 tests 全过（新增/更新契约锁定 capsule Maximize2 + panel Minimize2 配对、28px 非 button/aria-hidden 视觉槽、独立 X 与无 ChevronUp 残留）；定向 ESLint 2 文件 0 error；npx tsc -b --pretty false、npm run build、JSON parse、git diff --check 全过。此前终审修复定向 Vitest 5 files / 52 tests、ESLint 4 文件、tsc/build/JSON/diff check 结果继续有效；build 仅既有 KaTeX/chunk warnings，生成产物无 Git 状态变化。feature 保持 needs-review；未提交。"
     },
     {
       "id": "p0-subagent-observability",
@@ -1321,19 +1342,25 @@
     },
     {
       "id": "diff-display-optimization",
-      "name": "对话区 write/edit 工具 diff 结构化显示（行号/去前缀/文件头上提/省略分隔/暗色对比度/字符级高亮）",
+      "name": "对话区 write/edit 工具 Diff 极简显示（彩色统计/单列行号/OpenCode 兼容）",
       "status": "done",
-      "approach": "设计稿 design-mockups/diff-display-optimization.html（现状复刻/方案 A/方案 B 三卡对比 + 亮暗主题切换 + edit/write 双示例，页面内 JS 即解析原型，用户选定方案 B 推荐）定稿后实现：新模块 src/lib/diff-view.ts 纯函数解析 unified diff——parseDiffRows（行号 old/new 双侧、剥离 +/- 前缀、hunk 头行号差计算间隙省略行、配对删/加行字符级变化段）、parseDiffFileInfo（路径上提 + /dev/null 判新文件）、tokenizeDiffLine/markTokenChanges（单词/空白/单符号三分段 token LCS，乘积超 40000 回退整行变化）；local-tools.ts renderDiff 由逐行分色 + 固定 RGB 内联样式改为结构化行渲染（quickforge-diff-row 双行号 grid、配对行 mark 加重底色、标题行路径 + 新文件 chip、i18n 省略 N 行/新文件双语），删除 DIFF_BLOCK_STYLE 等内联样式双保险与 diffLineClass/diffLineStyle/styleMap 依赖，OpenCodeToolRenderer 复用同渲染自动受益；index.css 新增行号/gap/mark/path/newfile 样式 + html.dark 亮绿/亮红文字覆盖（含 diff 徽章与里程计 side，修复暗色下固定深色文字对比度不足）；追加修复（用户反馈长行横向滚动后行背景缺失）：diff 块改整块单一 grid（grid-template-columns 3.1rem 3.1rem minmax(max-content,1fr)）+ 行 display:contents + gap 跨全列——第三列取 max(剩余宽度, 最宽行)，全部行共享列宽使行背景铺满整个横向滚动区，设计稿同步修复并加长行示例，无头 Edge 像素级验证通过；服务端与协议零改动（text-diff.mjs 输出不变，全部为前端解析）",
+      "approach": "在原结构化 Diff 基础上按用户反馈持续收敛。摘要行删除滚动里程计、自定义元素、动画和对应模块/测试，改为默认可见的静态统计，其中 `+N` 绿色、`−N` 红色，仅文字着色，无 badge/背景/边框；running 的 count-only partial 只显示统计，不误报正文。展开区删除重复的 Diff 标题、路径、统计 chip 和字符级 token/LCS/mark 高亮；正文只保留单列智能行号（del 取 oldNo、add 取 newNo、ctx 优先 newNo）、浅色整行增删背景、hunk gap 与单一共享两列 grid + display:contents 的长行横向背景，gap 可见内容仅为 `⋯`。容器改为弱分隔线，状态文案缩短为新文件/已截断/无变化。新建空文件同时显示新文件与无变化。diff-view.ts 支持标准 unified、OpenCode 无 hunk pseudo-unified 与 raw 新文件文本，raw 不剥首字符且行号从 1 开始；截断尾标记仅在 details.truncated=true 时移除，避免合法正文误删。OpenCode diff 生成统一 CRLF/CR、修正尾随换行计数与相同内容语义，并在真实截断时设置 truncated。设计稿保留为历史方案对照，当前规格以源码与 Wiki 为准。",
       "files": [
-        "src/lib/diff-view.ts",
         "src/lib/local-tools.ts",
+        "src/lib/diff-view.ts",
+        "src/lib/diff-counter.ts",
         "src/index.css",
         "src/lib/i18n.ts",
+        "server/opencode-acp-agent.mjs",
         "tests/frontend/diff-view.test.ts",
+        "tests/frontend/diff-counter.test.ts",
+        "tests/server/opencode-acp-agent.test.mjs",
         "docs/wiki/src/lib/README.md",
-        "design-mockups/diff-display-optimization.html"
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
       ],
-      "verification": "npx vitest run tests/frontend/diff-view.test.ts tests/frontend/local-tools-lit-reactivity.test.ts tests/frontend/tool-artifacts-and-events.test.ts tests/frontend/diff-counter.test.ts → 35 passed（含 diff-view 新增 16 用例）；npx eslint 四个改动文件 0 error；npx tsc -b exit 0"
+      "verification": "此前全量 npm run test → 272 files / 2559 tests 全过；本轮最终视觉收口定向 Vitest 5 files / 119 tests 全过（diff-view 24、local-tool-running-sweep 6、local-tools-lit-reactivity 2、opencode-acp-agent 40、server tools 47）；定向 ESLint 4 文件 0 error；npx tsc -b --pretty false、npm run build、git diff --check 全过。build 仅既有 KaTeX 字体解析与 chunk size warnings；未提交、未手改生成产物。"
     },
     {
       "id": "input-clamp-expand",

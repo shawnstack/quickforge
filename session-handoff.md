@@ -1,5 +1,57 @@
 # Session Handoff
 
+## 当前状态：diff-display-optimization（最终视觉收口，done，未提交）
+
+- 目标：按用户连续反馈把 `write_file` / `edit_file` 工具 Diff 收敛到极简：`+N/−N` 仍有颜色区分，正文只显示一列智能行号，并减少说明性文字；不改通用过程折叠。
+- 实现：摘要统计改为默认可见静态彩色文字（`+N` 绿色、`−N` 红色），无 badge/背景/边框；删除 `diff-counter` 里程计模块、自定义元素、动画和对应测试。展开区删除重复标题/路径/统计 chip 与字符级 token/LCS/mark；正文采用单列智能行号（del=oldNo、add=newNo、ctx=newNo），共享 grid 为“行号 + 代码”两列，保留浅色整行背景和长行横向滚动；gap 可见内容仅为 `⋯`。状态短文案为“新文件 / 已截断 / 无变化”。
+- Partial/OpenCode：count-only partial 仅显示摘要计数，无完整 text 不渲染正文。`parseDiffRows` 支持标准 unified、OpenCode 无 hunk pseudo-unified 与 raw；raw 不丢首字符且从 1 编号。OpenCode 服务端统一换行、修正尾随换行统计和相同内容语义，真实截断设置 `truncated:true`；尾 marker 仅在显式 truncated 时移除，合法正文不误删。
+- 文件：`src/lib/local-tools.ts`、`src/lib/diff-view.ts`、`src/index.css`、`src/lib/i18n.ts`、`server/opencode-acp-agent.mjs`、`tests/frontend/diff-view.test.ts`、`tests/server/opencode-acp-agent.test.mjs`、`docs/wiki/src/lib/README.md`；删除 `src/lib/diff-counter.ts`、`tests/frontend/diff-counter.test.ts`；同步三个状态文件。
+- 验证：此前全量 `npm run test` 272 files / 2559 tests 全过；本轮最终视觉收口定向 Vitest 5 files / 119 tests 全过；定向 ESLint 4 文件 0 error；`npx tsc -b --pretty false`、`npm run build`、`git diff --check` 全过。build 仅既有 KaTeX/chunk warnings。
+- Blocker：无。未 commit/tag/push，未新增依赖，未手改生成产物；工作区仍有其他 feature 的未提交改动，提交时需按 feature/片段拆分。
+- 下一步：真机冒烟 light/dark、edit/write、新建空文件、长行横向滚动、OpenCode raw/pseudo-unified；若视觉符合预期即可结束，无需再改架构文档。历史设计稿不代表当前规格，当前以源码与 Wiki 为准。
+
+---
+
+## 当前状态：pinned-summary-draggable-capsule（desktop stay + 向下展开，needs-review，未提交）
+
+- 目标：desktop panel/capsule 外点均保持，Escape 无摘要动作；仅显式 Minimize 进入 capsule，capsule 主体打开 panel，X/List 完全关闭；capsule→panel 保持同一 top 向下增长。mobile/mobileShell 原 overlay close 行为不变。
+- 实现：`pinned-summary-drag.ts` 的 outside API 简化为 desktop `stay` / mobile `close`，删除 desktop minimize action；组件结构上仅 `!desktopDraggable` 时安装 outside pointerdown/Escape listener。desktop `minimizeDesktopPanel` 仅接在 panel Minimize；两种 X 与 List 走 `closeSummary`。branch menu 不因摘要外点改变形态。
+- 布局：新增 `resolvePinnedSummaryLayout`，12px viewport inset，`PINNED_SUMMARY_PANEL_MIN_HEIGHT=180`。panel 优先保留 position.y，动态 max-height=`viewport bottom inset - y`，内容区继续 flex + `overflow-y-auto`；只有下方不足 180px 才上移到刚好容纳该高度，极矮 viewport 用全部安全区域。首次锚点、形态切换、resize、drag 过程/结束、Inspector resume 复用该策略；header rect 只在首次无 position 时读取。
+- CSS/测量：widget inline CSS 变量传 `--quickforge-pinned-summary-panel-max-height`，且 `panelMaxHeight` 只在 panel mode 更新/消费；panel 展开态用 `scrollHeight + (offsetHeight - clientHeight)` 记录含边框自然高度，避免 2px morph 误差。`ResizeObserver` 在拖动中以 `dragRef.current.current` 解析 panel 布局，不再用拖动起点 `positionRef` 覆盖 max-height；结束/取消继续由 `finishDrag` 收敛。删除无效 `height: min(max-content, ...)`，依赖 auto + max-height/widget 变量。panel 内容区始终 `overflow-y-auto overscroll-contain`；desktop branch menu 在受限 panel 内向下展开、宽度随 panel、设置 viewport 约束 max-height 与自身滚动，不再切换整个内容区为 overflow-visible。panel/capsule `transform-origin: top right`，width/height 220ms 和 reduced-motion 保留。
+- 图标：按用户确认的原型推荐 B，capsule 主体末端由 `ChevronUp` 改为 `Maximize2`，与 panel 标题栏现有 `Minimize2` 配对。图标位于主体 button 内约 28px 透明圆形视觉槽（`aria-hidden`、非独立 button），默认弱化，仅随主体 hover/focus 用现有 Tailwind `group-*` 克制增强；顶部 `List`、独立 `X` 及全部点击/拖动/关闭链路不变，不新增 CSS 模式。
+- 测试：`pinned-summary-drag.test.ts` 真实覆盖 desktop/mobile outside、top 保持、自然高度超限、必要上移、极矮 viewport；`git-tools-pinned-summary.test.ts` 锁定 desktop 无 outside/Escape listener、mobile close、Minimize 唯一收缩、capsule `Maximize2` 非独立提示槽、X/List close、动态 max-height/top transform-origin、resume 复用布局。Inspector/mobile 回归保留。
+- 文档：components/lib wiki 已同步；design mockup 与当前语义差异较大，保留为历史稿，本轮不做小修，源码/wiki 为准；无新视觉模式，DESIGN_LANGUAGE 不改。
+- 验证：图标终审后定向 `npx vitest run tests/frontend/git-tools-pinned-summary.test.ts` → 24 tests 全过（`Maximize2`/`Minimize2` 配对、约 28px 非 button/`aria-hidden` 槽、独立 X、无 `ChevronUp`）；定向 ESLint 2 文件 0 error；`npx tsc -b --pretty false`、`npm run build`、feature JSON parse、`git diff --check` 全过。此前终审修复 5 files / 52 tests 与 ESLint 4 文件结果继续有效；build 仅既有 KaTeX/chunk warnings，生成产物无 Git 状态变化。
+- Blocker：无。边界：feature 保持 needs-review；未提交/tag/push、未手改生成产物；其他未提交 feature 改动保留。
+- 下一步：完成最终门禁，真机复核 desktop 外点/Escape stay、Minimize 唯一 panel→capsule、capsule 展开 top 不上浮且下方内容滚动；通过前不标 done。
+
+---
+
+## 当前状态：pinned-summary-draggable-capsule（首次 header 锚点调整，needs-review，未提交）
+
+- 目标：仅修改无历史位置的首次 desktop 锚点，使胶囊/面板默认出现在主对话顶部栏下方、从主内容右缘内缩，不遮挡顶部栏；拖动与 Inspector 恢复语义不变。
+- 实现：`App.tsx` 为主对话 `<header>` 增稳定 `conversationHeaderRef: RefObject<HTMLElement | null>`，以 `initialAnchorRef` 传入摘要；`pinned-summary-drag.ts` 新增纯函数 `resolvePinnedSummaryInitialPosition`，使用 `PINNED_SUMMARY_INITIAL_GAP=10` / `PINNED_SUMMARY_INITIAL_RIGHT_INSET=12`，首次坐标 `y=ceil(header.bottom)+10`、`x=header.right-targetWidth-12`，header 不可用时先回退 toolbar root rect，toolbar root 也不可用时再回退 widget rect，最终仍按 12px viewport 安全区 clamp。
+- 生命周期：header rect 仅在 desktop mounted 且 `positionRef.current` 不存在的分支读取一次；用户拖动后、panel/capsule 形态切换、resize、Inspector suspend/resume 都只 clamp 当前 position，不重新锚定。mobile/mobileShell 不变；无 querySelector/Tailwind selector，无 28/32/56 titlebar 定位魔法常量。
+- 测试/文档：纯函数测试覆盖 header bottom+gap/right inset 与传入 fallback rect；源码契约覆盖 ref 接线、conversation header → toolbar root → widget rect 回退顺序、单次读取、Inspector resume 不重锚。components wiki 两处与 lib wiki 已同步；DESIGN_LANGUAGE 无需改。
+- 验证：定向 Vitest 5 files / 48 tests 全过（pinned summary 32 + Inspector/mobile 回归 16）；定向 ESLint 5 文件 0 error；`npx tsc -b --pretty false`、`npm run build`、feature JSON parse、`git diff --check` 全过。build 仅既有 KaTeX 字体与 chunk size warnings，生成产物无 git 状态变化。本次 fallback 措辞收尾另跑相关 Vitest 2 files / 32 tests、feature JSON parse、`git diff --check` 全过；按要求未再次 build。
+- 文件：`src/App.tsx`、`src/components/git/GitToolsPinnedSummary.tsx`、`src/lib/pinned-summary-drag.ts`、两份 frontend 测试、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Blocker：无。边界：未新增依赖/持久化，未触碰生成产物，未 commit；工作区其他 feature 的未提交改动保留。
+- 下一步：用户真机复核首次 panel/capsule 位置；通过前 feature 保持 needs-review。
+
+---
+
+## 当前状态：browser-oom-first-aid（已完成，未提交）
+
+- 目标：用户确认"页面一直开着导致 OOM"发生在浏览器渲染进程；调研定位后按用户决策"两步走"完成第一步零体验风险止血（IndexedDB 缓存去全量序列化/物化 + subagent 运行期 trace 截尾），体验无损。
+- 调研结论：浏览器侧 OOM 主因为消息只增不减 + DOM 无窗口化全量渲染（ChatPanelHost.tsx:600 `createMessageWindow({enabled:false})` 禁用了窗口化；pi-web-ui MessageList 无原生虚拟化，code-block base64 属性 + hljs span 树放大多份驻留）；高频放大器为 IndexedDbCache 每次 put 全量 JSON.stringify + 每次 evict getAll 全量物化，以及 run_subagent trace 每 150ms 全量 messages 重发（O(N²)）。三张分析图：oom-analysis-diagram.svg / oom-browser-renderer.svg / oom-plain-words.svg（工作区根目录）。
+- 实现：① src/lib/indexeddb-cache.ts — estimateBytes 递归粗估（string length+2、number 8、布尔空 4、节点 +2/键 +1、深度 16 + seen 防循环、异常 0）；实例私有 metaIndex（null 起步，首次 evict 单次 getAll 重建后纯内存维护，put/get 写回成功/delete/clear 同步，非数组容错）；磁盘格式/LRU/API/schema 零改动。② server/agent-manager.mjs — SUBAGENT_TRACE_MESSAGES_LIMIT=50，emitSubagentTrace details.messages=slice(-50)+messagesTotal（全部 update 路径统一），终态 toolResult（:1799）全量不动。前端消费方只依赖尾部，运行中 Inspector 最近 50 条、结束全量恢复。
+- 验证：定向 vitest 5 files / 47 tests 全过（新增 3：getAllCallCount===1、冷启动重建淘汰、MockAgent 真实驱动 61 条消息窗口 50/total 61/终态 61）；ESLint 4 文件 0 问题；node --check；tsc -b；git diff --check；feature JSON parse。explore 独立复核 26/26 复跑通过（索引生命周期闭环、无 off-by-one、终态未截尾、前端无全量假设）。
+- 文件：src/lib/indexeddb-cache.ts、server/agent-manager.mjs、tests/frontend/indexeddb-cache.test.ts、tests/server/agent-manager.subagents.test.mjs、docs/wiki/src/lib/README.md、docs/wiki/server/README.md、三张 SVG、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。边界：未跑全量 test/lint/build；未 commit；唯一可感知差异为运行中刷新页面恢复的 running 快照只含尾部 50 条（终态后全量恢复）；多 tab 依赖现有 Web Locks 单窗口守卫（与改动前等价）。
+- 下一步：① 建议真机长会话 + 长 subagent 运行观察渲染进程内存曲线确认止血效果；② 第二步"智能货架"（恢复消息窗口化 + turn 导航/跳转/decorate/process-folding 适配）另行立项，立项时先 explore windowed-messages.ts 能力边界与全量 DOM 依赖面；③ 工作区仍有多批并行会话未提交改动（pinned-summary Revision 3 已复核通过待 commit、project-picker、subagent UI 族、p0-subagent-observability 等），commit 时按 feature 拆分。
+
+---
+
 ## 当前状态：project-picker-mkdir-and-roots（已完成，未提交）
 
 - 目标：项目目录选择器「快捷入口」移除 QuickForge 安装目录入口，并新增「新建目录」功能（当前路径行右侧按钮 + 内联输入，成功后直接进入新目录；端点不加 local-only 守卫，Android 远程客户端可用）。
@@ -11,7 +63,7 @@
 
 ---
 
-## 当前状态：pinned-summary-draggable-capsule（待用户真机复核，Revision 3 未提交）
+## 当前状态：pinned-summary-draggable-capsule（已完成，用户复核通过，Revision 3 未提交）
 
 - 目标：保持既有顶部 List + desktop closed/capsule/panel 三态与可靠拖动，并修复打开/关闭右侧 WorkspaceInspector 后摘要状态与位置丢失。
 - 实现：App 以与 Inspector 相同的 `(min-width: 1024px)` 判定 `canSuspendPinnedSummaryOnInspectorOpen`（未来打开 Inspector 是否具备 desktop sidebar suspension/preserve 能力），仅 `workspaceInspectorOpen && capability` 时继续挂载摘要并传 `suspended`；`<1024px` 和 `mobileShell` 保持原卸载与 fullscreen overlay。PanelRight 直接打开、Git Changes/智能体入口统一按该 capability 分支：真实桌面保留 panel，窄屏/mobileShell 在打开 Inspector 前先关闭摘要；PanelRight 关闭分支不改 summary；Commit/Push 始终关闭。suspended 保留 panel/capsule/position、Todo 展开和智能体折叠；toolbar root 与 desktop widget 同时 `hidden` + `inert` + `aria-hidden`。
@@ -20,9 +72,9 @@
 - 测试边界：`pinned-summary-drag.test.ts` 为真实纯函数测试（suspension 判定、future capability 的 desktop preserve/mobile close、clamp/outside/4px threshold）；`git-tools-pinned-summary.test.ts` 为源码契约测试（PanelRight 打开 desktop preserve/mobile close、关闭不改 summary、摘要 action 条件接线、hidden/inert/aria-hidden、suspension 不清 close timer/不归一化 closing/mounted、unmount 仍清 timer、marker、恢复 clamp、focus cleanup），不是 React 挂载交互测试。
 - 文件：`src/App.tsx`、`src/components/git/GitToolsPinnedSummary.tsx`、`src/lib/pinned-summary-drag.ts`、两份相关测试、`tests/frontend/todo-write-renderer.test.ts`（提交门禁修复 CSS 提取上界）、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`（对齐检查补 pinned-summary-drag 条目）、`feature_list.json`、`progress.md`、`session-handoff.md`。suspension 轮未改依赖/i18n/CSS/设计稿/生成产物（i18n/index.css 的未提交改动属本 feature 更早轮次，一并入库）。
 - 验证：Revision 3 最终收口相关 Vitest 8 files / 165 tests 全过（summary 23、drag 6、Inspector tabs/width/request、mobile fullscreen、side chat、subagent detail）；定向 ESLint（App/摘要组件/纯函数/两测试）0 error；`npx tsc -b --pretty false`、`npm run build`、feature JSON parse、`git diff --check` 全过，`git status` 仅有本 feature 的 10 个预期文件。build 仅既有 KaTeX/chunk warnings，未改生成产物。前轮完整 npm test/lint 记录不变：2530 passed + 1 个 HEAD 同样失败的 qf-agent-process 定时器用例、lint 0 errors。
-- Blocker/Risk：无 blocker；自动化仍无法替代真实浏览器焦点、pointer capture 和视觉位置复核，状态保持 needs-review。
+- Blocker/Risk：无；用户已按真机验收矩阵复核通过。
 - 真机矩阵：closed→sidebar→closed（含 closing 160ms 竞态无幽灵 capsule）；capsule 拖后原位恢复；panel 拖后原位恢复且 Todo/智能体折叠保持；PanelRight 鼠标/键盘不预先 minimize；desktop Git Changes/Subagent 打开并关闭后 panel 恢复；`<1024px`/mobileShell 同路径关闭后不自动重开；Commit/Push 关闭；隐藏时 Escape/外点/resize 不改状态；drag 中打开 Inspector 后监听/capture/userSelect/rAF 全清；视口变化后恢复保持 12px 安全区且不抢焦点。
-- 下一步：请用户按上述真机验收矩阵复核；通过后将 needs-review 标为 done。基线实现已在 `639aef4`，本次 Revision 3 修复未 commit、未 push。
+- 下一步：无；用户复核通过已收尾。基线实现已在 `639aef4`，本次 Revision 3 修复未 commit、未 push。
 
 ---
 

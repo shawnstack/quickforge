@@ -2,6 +2,40 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.10.1] - 2026-08-31
+
+### Added
+
+- Added a composer subagent running indicator: a static bot icon with an emerald count badge shows how many subagents are running in the current session; clicking it opens a live menu (agent name, task, elapsed time) that jumps to the Workspace Inspector subagent tab, with in-place DOM diffing so streaming no longer breaks hover.
+- Added P0 subagent observability: structured lifecycle logs (started/completed/failed/timeout/abort-settle) correlated by parent/subagent session and toolCall, internal AI stream logging for subagent contexts, and idempotent single-WARN guards for session/global SSE connection failures.
+- Added a pinned execution summary in the top-right corner: Git tools, Todo checklist, and subagent runs grouped as "running / finished" sections. On desktop it becomes a draggable panel/capsule that keeps its state and position across Workspace Inspector open/close, expands downward with viewport-aware max height, and pairs a Maximize2 capsule hint with the Minimize2 panel action.
+- Added directory creation to the project picker: a "new folder" button with inline input at the top of the list that enters the new directory on success (name validation, whitelist-scoped `POST /api/filesystem/mkdir`); removed the hardcoded QuickForge installation root from the quick-access list.
+- Added SSE reconnect health probing: when the backend becomes unreachable the UI shows "backend unreachable (health check failed)" with unlimited automatic retry, and on recovery compares bootId to surface "service restarted"; persistent disconnects escalate from an inline amber alert to a recovery strip above the composer with disconnect duration and environment-sorted guidance.
+- Added weak-network recovery notices with upstream stream retry surfaced in the chat UI.
+- Landed eight parallel-session improvements: non-blocking MCP (re)connects on restore, server process error guards (uncaughtException/unhandledRejection with graceful shutdown), removal of a double structuredClone on the persistence path, idle session eviction timeout reduced from 30 to 10 minutes, a Web Locks strict single-window guard with a static block notice for the second window, no auto-opening of the inspector or historical artifact previews on session switch, Workspace Inspector drag width up to min(1200px, 75% viewport), and icon-only composer controls when the chat area is squeezed below 640px (with hysteresis).
+- Added first aid for browser renderer OOM: IndexedDB cache size estimation now uses recursive approximation with an in-memory metadata index instead of full JSON.stringify/materialization, and subagent running traces are truncated to the latest 50 messages (terminal results keep the full list).
+
+### Changed
+
+- Tightened the model stream safe-retry policy: transparent retries only happen before the first substantive event (max 2); once content has arrived, idle timeouts fail fast instead of re-running the turn, preventing duplicated generation and double billing.
+- Simplified `write_file` / `edit_file` and OpenCode diff rendering: static colored `+N/−N` counts, a single smart line-number column, fewer captions, and no scrolling odometer animation (removed the diff-counter module); OpenCode diffs normalize line endings and report truncation explicitly.
+- Simplified the second-window block notice to a static card after browser restrictions made scripted window switching unreliable.
+- Made the runtime update check async with a non-blocking state snapshot, and removed the memory session note from the settings page.
+
+### Fixed
+
+- Fixed pinned summary inspector open paths: desktop keeps the panel across inspector open/close while narrow/mobile overlays close it first, and the 160ms close timer is preserved across suspension.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.10.1` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.10.1.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.10.1.tgz
+  ```
+
 ## [1.10.0] - 2026-08-27
 
 ### Added

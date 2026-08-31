@@ -70,7 +70,7 @@ describe('GitToolsPinnedSummary source contract', () => {
       summarySource.indexOf('if (todos.length === 0', summarySource.indexOf('useEffect(() => () => {')),
     )
     expect(unmountCleanup).toContain('clearCloseAnimationTimer()')
-    expect(summarySource).toContain('if (!floatingSummaryVisible || suspended) return')
+    expect(summarySource).toContain('if (desktopDraggable || !floatingSummaryVisible || suspended) return')
     expect(summarySource).toContain('if (!desktopDraggable || suspended) return\n    window.addEventListener(\'resize\', clampCurrentPosition)')
     expect(summarySource).toContain('if (!desktopDraggable || !desktopWidgetMounted || suspended) return undefined')
     expect(summarySource).toContain('if (!desktopDraggable || !desktopWidgetMounted || suspended) return')
@@ -88,10 +88,9 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(summarySource).not.toContain('window.requestAnimationFrame(() => topTriggerRef.current?.focus())')
   })
 
-  it('marks the PanelRight toggle so document pointerdown cannot pre-minimize the summary', () => {
+  it('marks the PanelRight toggle for compatibility without requiring desktop outside-dismiss exceptions', () => {
     expect(appSource).toContain('data-pinned-summary-inspector-toggle="true"')
-    expect(summarySource).toContain("target?.closest('[data-pinned-summary-inspector-toggle=\"true\"]')")
-    expect(summarySource.indexOf("target?.closest('[data-pinned-summary-inspector-toggle=\"true\"]')")).toBeLessThan(summarySource.indexOf('getPinnedSummaryOutsideAction(desktopDraggable, desktopMode)'))
+    expect(summarySource).not.toContain("target?.closest('[data-pinned-summary-inspector-toggle=\"true\"]')")
   })
 
   it('uses the same future suspension capability for the direct PanelRight open branch and leaves close untouched', () => {
@@ -134,17 +133,14 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(commitCallback).toContain('setGitCommitDialogOpen(true)')
   })
 
-  it('re-clamps the preserved target mode on suspension exit without opening, minimizing, or focusing', () => {
+  it('reuses directional layout safety on suspension exit without opening, minimizing, or focusing', () => {
     const resumeEffect = summarySource.slice(
       summarySource.indexOf('const wasSuspended = wasSuspendedRef.current'),
       summarySource.indexOf('useEffect(() => {', summarySource.indexOf('const wasSuspended = wasSuspendedRef.current')),
     )
     expect(resumeEffect).toContain('if (!wasSuspended || suspended || !desktopDraggable || !desktopWidgetMounted) return')
     expect(resumeEffect).toContain("const target = desktopMode === 'panel' ? desktopPanelRef.current : capsuleRef.current")
-    expect(resumeEffect).toContain('clampPinnedSummaryPosition(')
-    expect(resumeEffect).toContain('{ width: window.innerWidth, height: window.innerHeight }')
-    expect(resumeEffect).toContain('applyWidgetPosition(next)')
-    expect(resumeEffect).toContain('updatePosition(next)')
+    expect(resumeEffect).toContain("applyResolvedLayout(current, targetSize, desktopMode === 'panel' ? 'panel' : 'capsule')")
     expect(resumeEffect).not.toContain('openDesktopPanel')
     expect(resumeEffect).not.toContain('minimizeDesktopPanel')
     expect(resumeEffect).not.toContain('.focus()')
@@ -179,16 +175,37 @@ describe('GitToolsPinnedSummary source contract', () => {
 
   it('keeps one mounted desktop widget and crossfades panel/capsule with measured dimensions', () => {
     const widget = desktopWidgetBlock()
+    const applyResolvedLayoutBlock = summarySource.slice(
+      summarySource.indexOf('const applyResolvedLayout'),
+      summarySource.indexOf('const getPanelNaturalHeight'),
+    )
     expect(widget).toContain('data-mode={desktopMode === \'closed\' ? \'capsule\' : desktopMode}')
     expect(widget).toContain('data-closing={desktopWidgetClosing ? \'true\' : \'false\'}')
     expect(widget).toContain('data-dragging={dragging ? \'true\' : \'false\'}')
     expect(widget).toContain('quickforge-pinned-summary-capsule')
     expect(widget).toContain('quickforge-pinned-summary-panel')
     expect(summarySource).toContain('new ResizeObserver(measure)')
+    expect(summarySource).toContain("const layoutPosition = dragRef.current?.current ?? positionRef.current")
+    expect(summarySource).toContain("if (mode === 'panel') setPanelMaxHeight(layout.panelMaxHeight)")
+    expect(applyResolvedLayoutBlock).not.toContain('updatePosition(layout.position)\n    setPanelMaxHeight')
     expect(summarySource).toContain("'--quickforge-pinned-summary-panel-height'")
+    expect(summarySource).toContain('const borderBoxDelta = Math.max(0, panel.offsetHeight - panel.clientHeight)')
+    expect(summarySource).toContain('const headerHeight = desktopPanelHeaderRef.current?.offsetHeight ?? 0')
+    expect(summarySource).toContain('return headerHeight + content.scrollHeight + borderBoxDelta')
+    expect(summarySource).toContain('ref={desktopPanelContentRef}')
     expect(summarySource).toContain("'--quickforge-pinned-summary-capsule-width'")
+    expect(summarySource).toContain("'--quickforge-pinned-summary-panel-max-height': desktopMode !== 'panel' || panelMaxHeight === undefined")
+    expect(summarySource).toContain('min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4')
+    expect(summarySource).not.toContain("branchMenuOpen ? 'overflow-visible'")
+    expect(summarySource).toContain('md:top-full md:mt-1')
+    expect(summarySource).toContain('md:max-h-[min(22rem,calc(100dvh-8rem))]')
+    expect(summarySource).toContain('md:w-full md:overflow-y-auto')
+    expect(summarySource).not.toContain("branchMenuSide === 'left'")
     expect(cssSource).toContain('width 220ms cubic-bezier(.22,.8,.24,1)')
     expect(cssSource).toContain('height 220ms cubic-bezier(.22,.8,.24,1)')
+    expect(cssSource).toContain('max-height: var(--quickforge-pinned-summary-panel-max-height')
+    expect(cssSource).not.toContain('height: min(max-content')
+    expect(cssSource).toContain('transform-origin: top right')
     expect(cssSource).toContain('.quickforge-pinned-summary-widget[data-mode="panel"] .quickforge-pinned-summary-capsule')
     expect(cssSource).toContain('.quickforge-pinned-summary-widget[data-mode="panel"] .quickforge-pinned-summary-panel')
     expect(cssSource).toContain('.quickforge-pinned-summary-widget[data-dragging="true"]')
@@ -200,20 +217,31 @@ describe('GitToolsPinnedSummary source contract', () => {
     const widget = desktopWidgetBlock()
     expect(widget).toContain("onClick={() => minimizeDesktopPanel()} aria-label={t('pinnedSummaryMinimize')}")
     expect(widget).toContain('<Minimize2 className="size-4"')
+    expect(widget).toContain('<Maximize2 className="size-3.5" />')
     expect(widget).toContain("onClick={() => closeSummary({ focusTrigger: true })} aria-label={t('pinnedSummaryClose')}")
     expect(widget).toContain('<X className="size-4"')
   })
 
-  it('expands reliably from the capsule body and closes only via the semantic X action', () => {
+  it('uses a non-button Maximize2 visual slot inside the capsule body while keeping X independent', () => {
     const widget = desktopWidgetBlock()
-    expect(widget).toContain('className="quickforge-pinned-summary-capsule-main')
-    expect(widget).toContain('openDesktopPanel()')
+    const capsuleMain = widget.slice(
+      widget.indexOf('<button\n          ref={capsuleMainRef}'),
+      widget.indexOf('<button\n          type="button"\n          className="quickforge-pinned-summary-capsule-close'),
+    )
+    expect(capsuleMain).toContain('className="quickforge-pinned-summary-capsule-main group')
+    expect(capsuleMain).toContain('openDesktopPanel()')
+    expect(capsuleMain).toContain('inline-flex size-7 shrink-0 items-center justify-center rounded-full')
+    expect(capsuleMain).toContain('group-hover:bg-muted/40')
+    expect(capsuleMain).toContain('group-focus-visible:bg-muted/40')
+    expect(capsuleMain).toContain('aria-hidden="true"')
+    expect(capsuleMain).toContain('<Maximize2 className="size-3.5" />')
+    expect(capsuleMain.match(/<button/g)).toHaveLength(1)
     expect(widget).toContain('className="quickforge-pinned-summary-capsule-close')
     expect(widget).toContain('event.stopPropagation()')
     expect(widget).toContain("closeSummary({ focusTrigger: true })")
     expect(widget).toContain('<X className="size-4"')
-    expect(widget).toContain('<ChevronUp className="ml-auto size-3.5')
     expect(widget).toContain('size-8 shrink-0')
+    expect(summarySource).not.toContain('ChevronUp')
   })
 
   it('uses three semantic capsule categories with icons and one combined agent segment', () => {
@@ -235,15 +263,21 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(summarySource).not.toContain('border-border/60')
   })
 
-  it('keeps a desktop capsule resident on outside press and minimizes an open desktop panel to it', () => {
-    expect(summarySource).toContain('if (!floatingSummaryVisible || suspended) return')
-    expect(summarySource).toContain('if (desktopWidgetRef.current?.contains(event.target as Node)) return')
-    expect(summarySource).toContain('const outsideAction = getPinnedSummaryOutsideAction(desktopDraggable, desktopMode)')
-    expect(summarySource).toContain("if (outsideAction === 'minimize') minimizeDesktopPanel({ focusCapsule: false })")
-    expect(summarySource).toContain("else if (outsideAction === 'close') closeSummary()")
-    expect(summarySource).not.toContain("if (outsideAction === 'stay')")
-    expect(summarySource).toContain("if (event.key === 'Escape') closeSummary({ focusTrigger: true })")
-    expect(summarySource).toContain('scheduleSummaryFocus(() => topTriggerRef.current)')
+  it('does not install or handle summary-level outside/Escape dismissal on desktop', () => {
+    const dismissEffect = summarySource.slice(
+      summarySource.indexOf('if (desktopDraggable || !floatingSummaryVisible || suspended) return'),
+      summarySource.indexOf('useEffect(() => () => {'),
+    )
+    expect(dismissEffect).toContain("getPinnedSummaryOutsideAction(false) === 'close'")
+    expect(dismissEffect).toContain("if (event.key === 'Escape') closeSummary({ focusTrigger: true })")
+    expect(dismissEffect).toContain("document.addEventListener('pointerdown', handlePointerDown)")
+    expect(dismissEffect).toContain("document.addEventListener('keydown', handleKeyDown)")
+    expect(dismissEffect).not.toContain('desktopWidgetRef.current?.contains')
+    expect(dismissEffect).not.toContain('minimizeDesktopPanel')
+    expect(dismissEffect).not.toContain('preventDefault')
+    expect(dismissEffect).not.toContain('stopPropagation')
+    expect(dragSource).toContain("export type PinnedSummaryOutsideAction = 'stay' | 'close'")
+    expect(dragSource).not.toContain("'minimize'")
   })
 
   it('keeps mobile and mobileShell as List plus fixed panel with no desktop minimize/capsule branch', () => {
@@ -306,16 +340,53 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(summarySource).toContain('const capsuleSize = getPinnedSummaryLayoutSize(capsule)')
     expect(summarySource).toContain('const panelSize = getPinnedSummaryLayoutSize(panel)')
     expect(summarySource).not.toContain('(target ?? widget).getBoundingClientRect()')
-    expect(summarySource).toContain('x: (anchorRect?.right ?? widgetRect.right) - targetSize.width')
+    expect(summarySource).toContain('const fallbackRect = rootRef.current?.getBoundingClientRect() ?? widgetRect')
+    expect(summarySource).toContain('fallbackRect,')
+    expect(summarySource).toContain('resolvePinnedSummaryInitialPosition({')
+    expect(summarySource).toContain('resolvePinnedSummaryLayout(')
+    expect(summarySource).toContain("if (mode === 'panel') setPanelMaxHeight(layout.panelMaxHeight)")
     expect(summarySource).toContain('targetSize,')
   })
 
-  it('anchors initial desktop position to the toolbar and does not persist it', () => {
-    expect(summarySource).toContain('const anchorRect = rootRef.current?.getBoundingClientRect()')
-    expect(summarySource).toContain('x: (anchorRect?.right ?? widgetRect.right) - targetSize.width')
-    expect(summarySource).toContain('y: anchorRect?.top ?? widgetRect.top')
-    expect(summarySource).toContain('positionRef.current')
+  it('anchors only the first desktop position below the conversation header and preserves toolbar-root then widget fallback order', () => {
+    expect(appSource).toContain('const conversationHeaderRef = useRef<HTMLElement | null>(null)')
+    expect(appSource).toContain('<header ref={conversationHeaderRef}')
+    expect(appSource).toContain('initialAnchorRef={conversationHeaderRef}')
+    expect(summarySource).toContain('initialAnchorRef: RefObject<HTMLElement | null>')
+
+    const initialPositionBranch = summarySource.slice(
+      summarySource.indexOf('if (!positionRef.current) {'),
+      summarySource.indexOf('clampCurrentPosition()', summarySource.indexOf('if (!positionRef.current) {')),
+    )
+    expect(initialPositionBranch).toContain('resolvePinnedSummaryInitialPosition({')
+    expect(initialPositionBranch).toContain('anchorRect: initialAnchorRef.current?.getBoundingClientRect()')
+    expect(initialPositionBranch).toContain('const fallbackRect = rootRef.current?.getBoundingClientRect() ?? widgetRect')
+    expect(initialPositionBranch).toContain('fallbackRect,')
+    expect(initialPositionBranch).toContain('applyResolvedLayout(initialPosition, targetSize')
+    expect(summarySource.match(/initialAnchorRef\.current\?\.getBoundingClientRect\(\)/g)).toHaveLength(1)
+    expect(summarySource).not.toContain('querySelector')
+    expect(dragSource).toContain('export const PINNED_SUMMARY_INITIAL_GAP = 10')
+    expect(dragSource).toContain('export const PINNED_SUMMARY_INITIAL_RIGHT_INSET = 12')
+    expect(dragSource).toContain('x: finiteOr(anchorRect.right, fallbackRect.right) - Math.max(0, finiteOr(targetSize.width, 0)) - PINNED_SUMMARY_INITIAL_RIGHT_INSET')
+    expect(dragSource).toContain('y: Math.ceil(finiteOr(anchorRect.bottom, fallbackRect.y)) + PINNED_SUMMARY_INITIAL_GAP')
+    expect(dragSource).not.toMatch(/\b(?:28|32|56)\b/)
     expect(summarySource).not.toContain('localStorage')
+  })
+
+  it('never re-reads the conversation header for drag, shape changes, resize, or Inspector resume', () => {
+    const initialBranchStart = summarySource.indexOf('if (!positionRef.current) {')
+    const initialBranchEnd = summarySource.indexOf('clampCurrentPosition()', initialBranchStart)
+    const withoutInitialBranch = `${summarySource.slice(0, initialBranchStart)}${summarySource.slice(initialBranchEnd)}`
+    expect(withoutInitialBranch).not.toContain('initialAnchorRef.current')
+
+    const resumeEffect = summarySource.slice(
+      summarySource.indexOf('const wasSuspended = wasSuspendedRef.current'),
+      summarySource.indexOf('useEffect(() => {', summarySource.indexOf('const wasSuspended = wasSuspendedRef.current')),
+    )
+    expect(resumeEffect).toContain('const current = positionRef.current ??')
+    expect(resumeEffect).toContain('applyResolvedLayout(current, targetSize')
+    expect(resumeEffect).not.toContain('initialAnchorRef')
+    expect(resumeEffect).not.toContain('resolvePinnedSummaryInitialPosition')
   })
 
   it('keeps current groups, task expansion, and agent folding state inside the component', () => {

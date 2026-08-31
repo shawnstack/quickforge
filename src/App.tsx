@@ -259,6 +259,7 @@ function MainApp() {
   const agentAccessModeRef = useRef<AgentAccessMode>('default')
   const activeProjectRef = useRef<ProjectInfo | undefined>(undefined)
   const defaultWorkspaceRef = useRef<ProjectInfo | undefined>(undefined)
+  const conversationHeaderRef = useRef<HTMLElement | null>(null)
 
   // --- Project hook ---
   const {
@@ -1817,6 +1818,7 @@ function MainApp() {
           onCreated={handleBranchCreated}
           onOpenGraph={() => setGitGraphOpen(true)}
           mobileShell={mobileShell}
+          initialAnchorRef={conversationHeaderRef}
         />
       ) : null}
       {!remoteClient ? (
@@ -2049,7 +2051,7 @@ function MainApp() {
       <main className={cn(
         'flex min-w-0 flex-1 flex-col bg-[var(--quickforge-main-bg)] md:overflow-hidden md:rounded-tl-2xl',
       )}>
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 pr-20">
+        <header ref={conversationHeaderRef} className="flex h-14 shrink-0 items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 pr-20">
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => ui.setMobileSidebarOpen(true)} aria-label={t('toggleSidebar')}>
             <Menu className="size-[18px]" />
           </Button>

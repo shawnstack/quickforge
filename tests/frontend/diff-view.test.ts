@@ -1,11 +1,26 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
-  markTokenChanges,
+  diffLineNumber,
   parseDiffFileInfo,
   parseDiffRows,
-  tokenizeDiffLine,
   type DiffLineRow,
 } from '../../src/lib/diff-view'
+
+const localTools = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
+const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const renderDiffSource = localTools.slice(
+  localTools.indexOf('function renderDiffRow'),
+  localTools.indexOf('function formatDuration'),
+)
+const localRendererSource = localTools.slice(
+  localTools.indexOf('class LocalWorkspaceToolRenderer'),
+  localTools.indexOf('function askUserQuestionsFromParams'),
+)
+const openCodeRendererSource = localTools.slice(
+  localTools.indexOf('class OpenCodeToolRenderer'),
+  localTools.indexOf('function parseMcpToolName'),
+)
 
 const EDIT_DIFF = [
   '--- a/src/lib/scheduler.ts',
@@ -33,7 +48,7 @@ describe('parseDiffFileInfo', () => {
 })
 
 describe('parseDiffRows', () => {
-  it('strips prefixes and assigns dual line numbers', () => {
+  it('strips prefixes and keeps old/new numbers for smart single-column selection', () => {
     const rows = parseDiffRows(EDIT_DIFF)
     expect(rows.map((row) => row.kind)).toEqual(['gap', 'ctx', 'del', 'add', 'ctx'])
     expect((rows[1] as DiffLineRow).oldNo).toBe(18)
@@ -45,9 +60,11 @@ describe('parseDiffRows', () => {
     expect((rows[2] as DiffLineRow).text).toBe('  const timer = setInterval(() => tick(), interval);')
   })
 
-  it('emits a first gap from the file head to the first hunk', () => {
-    const gap = parseDiffRows(EDIT_DIFF)[0]
-    expect(gap).toEqual({ kind: 'gap', count: 17, first: true })
+  it('selects one smart line number by row kind with context fallback', () => {
+    expect(diffLineNumber({ kind: 'del', text: 'old', oldNo: 7, newNo: null })).toBe(7)
+    expect(diffLineNumber({ kind: 'add', text: 'new', oldNo: null, newNo: 8 })).toBe(8)
+    expect(diffLineNumber({ kind: 'ctx', text: 'same', oldNo: 9, newNo: 10 })).toBe(10)
+    expect(diffLineNumber({ kind: 'ctx', text: 'fallback', oldNo: 11, newNo: null })).toBe(11)
   })
 
   it('emits gaps between hunks and keeps numbers continuous', () => {
@@ -68,81 +85,144 @@ describe('parseDiffRows', () => {
       { kind: 'gap', count: 4, first: true },
       { kind: 'gap', count: 4, first: false },
     ])
-    const lineNumbers = rows
-      .filter((row) => row.kind !== 'gap')
-      .map((row) => (row as DiffLineRow).oldNo)
-    expect(lineNumbers).toEqual([5, 6, null, 7, 12, 13, null, 14])
+    expect(rows.filter((row) => row.kind !== 'gap').map((row) => (row as DiffLineRow).oldNo))
+      .toEqual([5, 6, null, 7, 12, 13, null, 14])
   })
 
-  it('omits a leading gap when the hunk starts at line 1', () => {
-    const rows = parseDiffRows('@@ -1,2 +1,2 @@\n a\n-b\n+B')
-    expect(rows[0]?.kind).toBe('ctx')
-  })
-
-  it('drops the trailing empty line from a final newline', () => {
-    const rows = parseDiffRows('@@ -1 +1 @@\n a\n')
-    expect(rows).toHaveLength(1)
-  })
-
-  it('keeps empty context lines as rows', () => {
-    const rows = parseDiffRows('@@ -1,2 +1,2 @@\n \n x')
-    expect((rows[0] as DiffLineRow).text).toBe('')
-    expect((rows[0] as DiffLineRow).oldNo).toBe(1)
-  })
-
-  it('renders an empty diff as a single empty context row', () => {
-    expect(parseDiffRows('')).toEqual([{ kind: 'ctx', text: '', oldNo: 0, newNo: 0 }])
-  })
-})
-
-describe('character-level pairing', () => {
-  it('marks only the changed tokens on paired del/add rows', () => {
-    const rows = parseDiffRows(EDIT_DIFF)
-    const del = rows[2] as DiffLineRow
-    const add = rows[3] as DiffLineRow
-    const delChanged = (del.segments ?? []).filter((segment) => segment.changed).map((segment) => segment.text).join('')
-    const addChanged = (add.segments ?? []).filter((segment) => segment.changed).map((segment) => segment.text).join('')
-    expect(addChanged.replace(/\s/g, '')).toBe('void')
-    expect(delChanged).toBe('')
-    // Segments reconstruct the full line text
-    expect((del.segments ?? []).map((segment) => segment.text).join('')).toBe(del.text)
-    expect((add.segments ?? []).map((segment) => segment.text).join('')).toBe(add.text)
-    // Unchanged parts include the shared call expression
-    expect(add.segments?.some((segment) => !segment.changed && segment.text.includes('setInterval'))).toBe(true)
-  })
-
-  it('pairs the minimum of adjacent del/add block sizes', () => {
-    const text = ['@@ -1,3 +1,2 @@', '-a', '-b', '+A', ' c'].join('\n')
-    const rows = parseDiffRows(text)
-    const paired = rows.filter((row) => (row as DiffLineRow).segments !== undefined)
-    // Only -a/+A are paired; -b has no counterpart and keeps full-line rendering
-    expect(paired.map((row) => row.kind)).toEqual(['del', 'add'])
-    const unpairedDel = rows.find((row) => row.kind === 'del' && (row as DiffLineRow).oldNo === 2) as DiffLineRow
-    expect(unpairedDel.segments).toBeUndefined()
-  })
-
-  it('marks whole lines as changed when tokens exceed the fallback limit', () => {
-    const a = new Array(300).fill('x')
-    const b = new Array(200).fill('y')
-    const { aMarks, bMarks } = markTokenChanges(a, b)
-    expect(aMarks.every(Boolean)).toBe(true)
-    expect(bMarks.every(Boolean)).toBe(true)
-  })
-
-  it('marks everything as changed against an empty side', () => {
-    const { aMarks } = markTokenChanges(tokenizeDiffLine('abc'), [])
-    expect(aMarks.every(Boolean)).toBe(true)
-  })
-})
-
-describe('tokenizeDiffLine', () => {
-  it('splits words, whitespace runs, and single symbols', () => {
-    expect(tokenizeDiffLine('if (running || disposed)')).toEqual([
-      'if', ' ', '(', 'running', ' ', '|', '|', ' ', 'disposed', ')',
+  it('preserves raw text from its first character and numbers new lines from 1', () => {
+    expect(parseDiffRows('alpha\nbeta', 'raw')).toEqual([
+      { kind: 'add', text: 'alpha', oldNo: null, newNo: 1 },
+      { kind: 'add', text: 'beta', oldNo: null, newNo: 2 },
     ])
   })
 
-  it('returns an empty list for empty text', () => {
-    expect(tokenizeDiffLine('')).toEqual([])
+  it('numbers pseudo-unified +/- lines from 1 when there is no hunk header', () => {
+    expect(parseDiffRows('-old\n+new')).toEqual([
+      { kind: 'del', text: 'old', oldNo: 1, newNo: null },
+      { kind: 'add', text: 'new', oldNo: null, newNo: 1 },
+    ])
+  })
+
+  it.each(['[diff truncated]', '…[truncated]'])('drops the exact truncation marker %s and trailing separator only when explicitly truncated', (marker) => {
+    const rows = parseDiffRows(`@@ -1 +1 @@\n-old\n+new\n\n${marker}`, 'unified', true)
+    expect(rows).toEqual([
+      { kind: 'del', text: 'old', oldNo: 1, newNo: null },
+      { kind: 'add', text: 'new', oldNo: null, newNo: 1 },
+    ])
+  })
+
+  it('drops the exact OpenCode marker from long diff parse rows when explicitly truncated', () => {
+    const rows = parseDiffRows(`alpha\n${'x'.repeat(20_000).slice(0, 16 * 1024 - 6)}\n…[truncated]`, 'raw', true)
+    expect(rows[0]).toEqual({ kind: 'add', text: 'alpha', oldNo: null, newNo: 1 })
+    expect(rows.some((row) => row.kind !== 'gap' && row.text === '…[truncated]')).toBe(false)
+  })
+
+  it.each(['[diff truncated]', '…[truncated]'])('preserves exact tail marker %s as raw body text when not truncated', (marker) => {
+    expect(parseDiffRows(`alpha\n${marker}`, 'raw', false)).toEqual([
+      { kind: 'add', text: 'alpha', oldNo: null, newNo: 1 },
+      { kind: 'add', text: marker, oldNo: null, newNo: 2 },
+    ])
+  })
+
+  it.each(['[diff truncated]', '…[truncated]'])('preserves exact tail marker %s as unified body text when not truncated', (marker) => {
+    expect(parseDiffRows(`@@ -1,2 +1,2 @@\n alpha\n ${marker}`, 'unified', false)).toEqual([
+      { kind: 'ctx', text: 'alpha', oldNo: 1, newNo: 1 },
+      { kind: 'ctx', text: marker, oldNo: 2, newNo: 2 },
+    ])
+  })
+
+  it('keeps marker-like lines when they are not the exact tail marker', () => {
+    expect(parseDiffRows('…[truncated]\nafter', 'raw')).toEqual([
+      { kind: 'add', text: '…[truncated]', oldNo: null, newNo: 1 },
+      { kind: 'add', text: 'after', oldNo: null, newNo: 2 },
+    ])
+    expect(parseDiffRows('prefix …[truncated] suffix', 'raw')).toEqual([
+      { kind: 'add', text: 'prefix …[truncated] suffix', oldNo: null, newNo: 1 },
+    ])
+  })
+
+  it('returns no rows for an empty diff', () => {
+    expect(parseDiffRows('')).toEqual([])
+    expect(parseDiffRows('', 'raw')).toEqual([])
+  })
+})
+
+describe('diff rendering source contract', () => {
+  it('renders static summary counts as separately colored text without badge styling', () => {
+    const statsSource = localTools.slice(
+      localTools.indexOf('function renderInlineDiffStats'),
+      localTools.indexOf('function renderDiffRow'),
+    )
+    expect(statsSource).toContain('<span class="quickforge-diff-stats-add">+${addedLines}</span>')
+    expect(statsSource).toContain('<span class="quickforge-diff-stats-del">−${removedLines}</span>')
+    expect(statsSource).not.toContain('quickforge-tool-meta-hover')
+    expect(localTools).toContain("typeof candidate.addedLines === 'number' || typeof candidate.removedLines === 'number'")
+    expect(localTools).not.toContain('quickforge-diff-counter')
+    expect(css).toMatch(/\.quickforge-diff-stats-add\s*\{[^}]*color:/s)
+    expect(css).toMatch(/\.quickforge-diff-stats-del\s*\{[^}]*color:/s)
+    expect(css).toMatch(/html\.dark \.quickforge-diff-stats-add\s*\{[^}]*color:/s)
+    expect(css).toMatch(/html\.dark \.quickforge-diff-stats-del\s*\{[^}]*color:/s)
+    const statsCss = css.slice(css.indexOf('.quickforge-diff-stats {'), css.indexOf('.quickforge-diff-view {'))
+    expect(statsCss).not.toMatch(/background|border|border-radius|animation/)
+  })
+
+  it('renders a body only for complete string text and passes explicit new-file state', () => {
+    expect(renderDiffSource).toContain("const hasText = typeof diff.text === 'string'")
+    expect(renderDiffSource).toContain("hasText\n        ? diffText !== ''")
+    expect(renderDiffSource).toContain('parseDiffRows(diffText, format, Boolean(diff.truncated))')
+    expect(localRendererSource).toContain("typeof diff?.text === 'string' ? renderDiff(diff, isNewFile)")
+    expect(localRendererSource).toContain('visibleDetails.created === true')
+    expect(renderDiffSource).toContain("t('diffNewFile')")
+    expect(renderDiffSource).toContain("t('diffNoChanges')")
+  })
+
+  it('shows OpenCode summary counts whenever diff data exists', () => {
+    expect(openCodeRendererSource).toContain('renderInlineDiffStats(diff)')
+    expect(openCodeRendererSource).toContain("typeof diff?.text === 'string' ? renderDiff(diff, isNewFile)")
+  })
+
+  it('does not repeat titles, paths, chips, or character-level marks', () => {
+    expect(renderDiffSource).not.toContain('<span>Diff</span>')
+    expect(renderDiffSource).not.toContain('quickforge-diff-path')
+    expect(renderDiffSource).not.toContain('quickforge-diff-badge')
+    expect(renderDiffSource).not.toContain('<mark>')
+  })
+
+  it('renders one smart line-number cell and a gap with only a visible ellipsis', () => {
+    const rowTemplate = renderDiffSource.slice(
+      renderDiffSource.indexOf('function renderDiffRow'),
+      renderDiffSource.indexOf('function renderDiff('),
+    )
+    expect(rowTemplate.match(/class="quickforge-diff-ln"/g)).toHaveLength(1)
+    expect(rowTemplate).toContain('${diffLineNumber(row) ?? \'\'}')
+    expect(rowTemplate).not.toContain('${row.oldNo')
+    expect(rowTemplate).not.toContain('${row.newNo')
+    expect(rowTemplate).toContain("aria-label=${t('diffOmittedLines', { count: row.count })}")
+    expect(rowTemplate).toContain('>⋯</div>')
+    expect(rowTemplate).not.toContain('quickforge-diff-gap-dots')
+    expect(rowTemplate).not.toContain("<span>${t('diffOmittedLines'")
+    expect(rowTemplate).not.toContain('aria-hidden="true"')
+  })
+
+  it('uses short state copy in both locales', () => {
+    expect(localTools).toContain("t('diffNewFile')")
+    expect(localTools).toContain("t('diffTruncated')")
+    expect(localTools).toContain("t('diffNoChanges')")
+    const i18n = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
+    expect(i18n).toContain("diffNewFile: 'new file'")
+    expect(i18n).toContain("diffTruncated: 'truncated'")
+    expect(i18n).toContain("diffNoChanges: 'no changes'")
+    expect(i18n).toContain("diffNewFile: '新文件'")
+    expect(i18n).toContain("diffTruncated: '已截断'")
+    expect(i18n).toContain("diffNoChanges: '无变化'")
+  })
+
+  it('keeps the two-column shared grid, display:contents rows, and long-line background model', () => {
+    expect(css).toMatch(/\.quickforge-diff-block\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*3\.1rem minmax\(max-content, 1fr\)/s)
+    expect(css).not.toMatch(/grid-template-columns:\s*3\.1rem 3\.1rem/)
+    expect(css).toMatch(/\.quickforge-diff-row\s*\{[^}]*display:\s*contents/s)
+    expect(css).toMatch(/\.quickforge-diff-row-add \.quickforge-diff-code\s*\{[^}]*background:/s)
+    expect(css).toMatch(/\.quickforge-diff-gap\s*\{[^}]*grid-column:\s*1 \/ -1/s)
+    expect(css).not.toContain('.quickforge-diff-code mark')
   })
 })

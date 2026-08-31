@@ -271,6 +271,9 @@ const IDLE_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
 const ABORT_IDLE_WAIT_TIMEOUT_MS = 3000
 const SUBAGENT_DEFAULT_TIMEOUT_MS = 60 * 60 * 1000
 const SUBAGENT_TRACE_THROTTLE_MS = 150
+// 运行期 trace update 的 details.messages 只携带最近 N 条消息（截尾），
+// 并附 messagesTotal 总条数；终态 toolResult.details.messages 保持全量。
+const SUBAGENT_TRACE_MESSAGES_LIMIT = 50
 
 /**
  * Create a Promise that only resolves when the user accepts or rejects the tool call.
@@ -1651,7 +1654,8 @@ async function runSubagent(parentSession, toolCallId, params, parentSignal, onUp
           capabilityPolicy: definition.capabilityPolicy,
           model: subagentModelInfo,
           durationMs: Date.now() - startedAt,
-          messages: latestMessages,
+          messages: Array.isArray(latestMessages) ? latestMessages.slice(-SUBAGENT_TRACE_MESSAGES_LIMIT) : [],
+          messagesTotal: Array.isArray(latestMessages) ? latestMessages.length : 0,
           tools: toolsForClient,
           pendingToolCalls: latestPendingToolCalls,
         },

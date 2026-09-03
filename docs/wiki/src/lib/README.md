@@ -6,9 +6,10 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `i18n.ts` | 3357 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload） |
+| `i18n.ts` | 3443 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload） |
+| `error-messages.ts` | 42 | 已知上游代码异常文案的展示层国际化：`translateErrorMessage(message)` 以「精确/参数正则 → i18n key」规则表映射 pi-ai（Request was aborted、流异常结束）、ai-http-logger（AI stream idle/total timeout）、undici fetch failed 与 server-agent prompt HTTP 兜底等已知英文异常串；数据层保持原文（持久化、appendAssistantErrorMessageOnce 去重、subagent trace 去重都依赖原始文本），仅在展示层（message-actions 错误红块装饰、local-tools subagent 错误原因卡）调用；未匹配的动态正文原样显示 |
 | `pi-chat.ts` | 365 | Pi Chat 初始化和模型管理 |
-| `server-agent.ts` | 2280 | Server Agent — 服务端 Agent 客户端 |
+| `server-agent.ts` | 2323 | Server Agent — 服务端 Agent 客户端 |
 | `selected-capabilities.ts` | 82 | 用户本轮插件选择的前端统一规范化/快照：合法类型与字符串边界、`type+pluginName+name` 去重、顺序保持、最多 4 项，持久化/历史读取快照均剥离 description |
 | `deferred-session-agent.ts` | 302 | 新会话首条消息前的延迟 Agent 代理：本地先渲染乐观消息，`prompt()` 时才创建真实 `ServerAgent`，并把暂存的 capabilities / contextReferences / promptMode 转发给真实 Agent |
 | `indexeddb-cache.ts` | 通用 IndexedDB 只读缓存封装：惰性单例 open、条目级 schemaVersion、LRU+字节双预算淘汰、全部异常静默降级（供会话消息/工作区/设置快照等缓存层复用） |
@@ -16,7 +17,7 @@
 | `workspace-cache.ts` | Workspace 只读缓存 store（F13）：目录条目（SWR+30s TTL 新鲜判定）、展开路径、文件内容（size+mtimeMs 失效戳、>1MB 跳写）；复用 `IndexedDbCache` 与 `resolveServerCacheKey`，坏条目删除、不可用全程 no-op |
 | `app-settings-cache.ts` | 启动 Settings 快照 store（F14）：追踪键白名单（language/外观/字号/工具展示）、结构校验读取（坏条目删除）、>4KB 跳写；`HttpStorageBackend.set` 经 `updateAppSettingSnapshotFromStorageSet` 写通，IndexedDB 不可用全程 no-op |
 | `shared-server-agent.ts` | 488 | 共享会话 Agent 客户端 |
-| `local-tools.ts` | 1352 | 前端本地工具渲染器注册；含原生 `todo_write` 与 OpenCode `todowrite` 专用历史 renderer |
+| `local-tools.ts` | 1294 | 前端本地工具渲染器注册；含原生 `todo_write` 与 OpenCode `todowrite` 专用历史 renderer |
 | `todo-write-history.ts` | 90 | TodoWrite 历史工具消息视图模型：区分 running/error/success/clear/neutral，并按 QuickForge/OpenCode 来源提取已应用快照 |
 | `share-client.ts` | 148 | 分享功能客户端 API |
 | `slash-catalog.ts` | 102 | 斜杠菜单目录客户端：并行拉取 `/api/skills?available=true`（可带 projectId）与 `/api/agent-profiles`（可带 projectId），agents 过滤 `enabledAsSubagent === true`；任一失败/非 200/形状异常整体返回 null 静默降级；按 projectId 模块级缓存成功结果 |
@@ -102,13 +103,13 @@
 - `getCloudUsage()` / `getCloudInstallations()` 读取额度与设备。
 - `revokeCloudInstallation()` / `logoutCloud()` 管理设备生命周期；当前设备退出的远端撤销顺序由 Node 保证。
 
-### server-agent.ts (2280 行)
+### server-agent.ts (2323 行)
 
 **用途**: `ServerAgent` 类 — 与服务端 Agent 通信的客户端。
 
 **关键功能**:
 - SSE 事件流管理（`GlobalAgentSseClient`）
-- 消息发送/接收；`steer(message)` 乐观显示——立即把 steering user 消息追加进本地 state 并发 `message_start`，服务端在下一工具轮边界注入同一消息（同 role+timestamp）经 `message_end` 回显后由 `upsertMessage` 原位替换不重复，HTTP 失败则回滚乐观副本并重新通知面板；prompt HTTP 请求失败时先回滚未被服务端接收的乐观 user message，再追加符合消息契约的 assistant error message（具体 `errorMessage`、`stopReason:'error'`、当前模型字段、零 usage 与 timestamp），并以 `agent_end` 的 `status:'error'` / `errorMessage` 结束本地运行，让聊天区直接显示服务端返回的具体原因
+- 消息发送/接收；`steer(message)` 乐观显示——立即把 steering user 消息追加进本地 state 并发 `message_start`，服务端在下一工具轮边界注入同一消息（同 role+timestamp）经 `message_end` 回显后由 `upsertMessage` 原位替换不重复，HTTP 失败则回滚乐观副本并重新通知面板；prompt HTTP 请求失败时先回滚未被服务端接收的乐观 user message，再追加符合消息契约的 assistant error message（具体 `errorMessage`、`stopReason:'error'`、当前模型字段、零 usage 与 timestamp），并以 `agent_end` 的 `status:'error'` / `errorMessage` 结束本地运行，让聊天区直接显示服务端返回的具体原因；该合成错误消息同时挂客户端专用 `quickforgeFailedPrompt`（未被服务端接收的原始消息），`retryFailedPrompt(errorEntry)` 据此在非流式时移除该错误消息、把 stash 中的 `selectedCapabilities`/`contextReferences` 预置回 nextPrompt*（避免 prompt 空快照逻辑剥除 details）后原样重发，供「错误旁继续按钮」区分「重发未送达消息」与「发继续消息」两种语义
 - Agent 状态管理（创建、单次恢复、销毁）；`ServerAgent.restore()` 支持 `AbortSignal`，从 `/api/agents/:sessionId/restore` 一次取得完整权威快照，取消的旧会话请求不会创建 SSE；页面刷新或 SSE 重连时会从服务端 state 恢复运行中工具的临时 `toolResult`（含 subagent `details.messages`）和 `pendingToolCalls`
 - OpenCode `acpSession` 快照（configOptions/modes/usage）随 state 事件与 refresh 同步；`setConfigOption`/`setMode` 调用 harness API 并以响应刷新本地；`forkSession` 触发整会话 ACP fork；`acp_session_usage_update` 轻量事件即时更新 usage
 - ask_user 提问流：`ask_user_required`/`ask_user_answered` SSE 事件维护 `state.pendingAsk`（随 state 快照与 SSE state 帧恢复），`answerAsk(askId, {answers, skipped})` POST `/api/agents/:id/answer-ask` 回传后清空 pending；回答以纯文本作为 ask_user 工具结果回给模型

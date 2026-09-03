@@ -10,7 +10,12 @@ import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { randomId } from '@/lib/random-id'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
-import { normalizeSelectedCapabilities, withSelectedCapabilitiesSnapshot, type SelectedCapability } from '@/lib/selected-capabilities'
+import {
+  normalizeSelectedCapabilities,
+  selectedCapabilitiesFromDetails,
+  withSelectedCapabilitiesSnapshot,
+  type SelectedCapability,
+} from '@/lib/selected-capabilities'
 import { SubagentRunEventPublisher } from '@/lib/subagent-run-detail'
 import {
   readSessionMessageSnapshot,
@@ -95,14 +100,25 @@ function assistantErrorMessage(errorMessage: string, model: Model<Api>): AgentMe
   }
 }
 
-function appendAssistantErrorMessageOnce(messages: AgentMessage[], errorMessage: string, model: Model<Api>): AgentMessage[] {
+function appendAssistantErrorMessageOnce(
+  messages: AgentMessage[],
+  errorMessage: string,
+  model: Model<Api>,
+  failedPrompt?: AgentMessage,
+): AgentMessage[] {
   const lastMessage = messages.at(-1)
   if (lastMessage?.role === 'assistant'
     && lastMessage.stopReason === 'error'
     && lastMessage.errorMessage === errorMessage) {
     return messages
   }
-  return [...messages, assistantErrorMessage(errorMessage, model)]
+  const error = assistantErrorMessage(errorMessage, model)
+  if (failedPrompt) {
+    // 仅客户端可见：该错误由 prompt HTTP 失败合成，服务端从未收到这条消息，
+    // retryFailedPrompt 依赖它原样重发（「继续」语义对它没有意义）。
+    (error as unknown as Record<string, unknown>).quickforgeFailedPrompt = failedPrompt
+  }
+  return [...messages, error]
 }
 
 async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number, init: RequestInit = {}): Promise<{ response: Response; body?: T }> {
@@ -1046,7 +1062,7 @@ export class ServerAgent {
       if (this.state.messages.length === msgCountBeforeOptimistic + 1 && this.state.messages[this.state.messages.length - 1] === agentMessage) {
         this.state.messages = this.state.messages.slice(0, -1)
       }
-      this.state.messages = appendAssistantErrorMessageOnce(this.state.messages, message, this.state.model)
+      this.state.messages = appendAssistantErrorMessageOnce(this.state.messages, message, this.state.model, agentMessage)
       this.state.errorMessage = message
       this.state.isStreaming = false
       this.state.streamingMessage = undefined
@@ -1060,6 +1076,34 @@ export class ServerAgent {
       } as unknown as AgentEvent)
     })
     this.startStateWatchdog()
+  }
+
+  /**
+   * 重试一条「发送失败」的错误消息（prompt HTTP 失败时乐观 user 消息已回滚，
+   * 错误消息上挂有原始 quickforgeFailedPrompt）。移除该错误消息后原样重发；
+   * 重发前把 stash 里的 capabilities/contextReferences 预置回 nextPrompt*，
+   * 否则 prompt 的空快照逻辑会把它们从消息 details 中剥掉。
+   */
+  async retryFailedPrompt(errorEntry: AgentMessage): Promise<boolean> {
+    if (this.disposed || this.state.isStreaming) return false
+    const failedPrompt = (errorEntry as unknown as Record<string, unknown>).quickforgeFailedPrompt as AgentMessage | undefined
+    if (!failedPrompt) return false
+    const details = (failedPrompt as unknown as { details?: unknown }).details
+    if (details && typeof details === 'object' && !Array.isArray(details)) {
+      const capabilities = selectedCapabilitiesFromDetails(details)
+      if (capabilities.length > 0) this.setNextPromptCapabilities(capabilities)
+      const references = (details as Record<string, unknown>).contextReferences
+      if (Array.isArray(references) && references.length > 0) {
+        this.setNextPromptContextReferences(references as FileContextReference[])
+      }
+    }
+    const messages = this.state.messages
+    const index = messages.lastIndexOf(errorEntry)
+    if (index >= 0 && index === messages.length - 1) {
+      this.state.messages = messages.slice(0, index)
+    }
+    await this.prompt(failedPrompt)
+    return true
   }
 
   abort(): void {

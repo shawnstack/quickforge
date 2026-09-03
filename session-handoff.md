@@ -1,5 +1,38 @@
 # Session Handoff
 
+## 当前状态：known-exception-i18n（已完成，未提交）
+
+- 目标：用户实测「错误：Request was aborted.」英文原文，要求把已知的代码异常做好国际化。
+- 实现：新增 `src/lib/error-messages.ts`（translateErrorMessage 规则表：pi-ai 'Request was aborted'/流异常结束、ai-http-logger 'AI stream idle/total timeout after Nms'、undici 'fetch failed'、server-agent 'Failed to send prompt: HTTP N' → i18n key，ms/status 插值，句点/大小写/空白容忍，未匹配透传）；展示层两处接入——message-actions.ts `decorateAssistantErrorText` 改写 pi-web-ui 错误红块动态文本（保留 strong、dataset 幂等、译文===原文不改写）、local-tools.ts subagent 错误原因卡（renderSubagentRunBody，聊天摘要卡与 Inspector 共用）；i18n 中英 +7 key。数据层保持英文原文（持久化/去重/trace 去重依赖），服务端零改动。
+- 验证：定向 vitest 6 files / 193 tests 全过（error-messages 新建含映射与接线契约）；eslint 5 文件 0 error；tsc -b；npm run build ✓（仅既有警告）。未跑全量 test/lint。
+- 文件：src/lib/error-messages.ts（新）、src/lib/i18n.ts、src/lib/local-tools.ts、src/components/chat/panel-decoration/message-actions.ts、tests/frontend/error-messages.test.ts（新）、docs/wiki/src/lib/README.md、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。边界：动态正文（provider 错误、OpenCode ACP、subagent 超时复合句）不在映射表原样显示；规则表按需追加；未 commit、未触碰生成产物。
+- 下一步：真机冒烟（中文下中止/超时/发送失败错误的本地化显示，英文界面不变，未知错误仍原文）。注：本会话稍早完成的 error-continue-retry-button（错误旁继续按钮）也未提交。
+
+---
+
+## 当前状态：todo-summary-completed-icon-emerald（已完成，未提交）
+
+- 目标：用户反馈「对话上方的 todo 显示，完成的 icon 换一下绿色的，和摘要的保持一致」——把对话顶部 todo-write-summary 行级完成项图标由灰色改为与置顶摘要（GitToolsPinnedSummary 的 CheckCircle2 + text-emerald-600）一致的绿色。
+- 实现：仅 `src/index.css`——`.quickforge-todo-summary-item--completed .quickforge-todo-summary-status-icon` color 从 `var(--muted-foreground)` 改为本组件「全部完成」圆环对勾既有 emerald 配方（light `rgb(4 143 101)`，新增 `html.dark` 变体 `rgb(110 231 183)`，复用 slash agent chip 语义色不新增颜色体系）；完成项文字保持 muted+删除线；ring-check 上方注释措辞同步。`tests/frontend/todo-write-renderer.test.ts` emerald 契约用例扩展断言行级完成项图标 light/dark 绿色。
+- 验证：定向 vitest todo-write-renderer 10 tests 全过；回归 todo-write-summary 26 + git-tools-pinned-summary 24 全过；eslint 测试文件 0 error（css 被 lint 配置忽略）；feature JSON parse；`npm run build` 通过（仅既有 chunk size 警告）。纯 CSS 改动未跑 tsc/全量。
+- 文件：src/index.css、tests/frontend/todo-write-renderer.test.ts、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。边界：不改图标形状/完成项文字样式/in_progress/pending 图标与置顶摘要本体；无架构变化故 wiki 未更新（纯视觉微调）；未 commit、未触碰生成产物。
+- 下一步：真机复核 light/dark 下对话上方 Todo 摘要完成项绿色图标与置顶摘要一致。
+
+---
+
+## 当前状态：error-continue-retry-button（已完成，未提交）
+
+- 目标：用户希望「在错误的旁边设计一个重试按钮」；调研给方案后用户确认改语义为「重试 = 发送一条继续用户消息」（保留失败轮部分进度、不重放工具副作用），并要求处理 HTTP 层发送失败与 continue 语义不符的问题（重发原始消息）。
+- 实现：`message-actions.ts` 终态错误（会话最后一条消息为 stopReason:'error' assistant 错误）挂常显弱化操作行（runIcon「继续生成」icon-only + 时间戳，无 hover 依赖；创建/快路径两处管理；历史错误与流式中不显示；门控 allowRetry/readOnly/historyActionsDisabled）；`ChatPanelHost.tsx` 接 `onContinueAfterError`（stash 优先 retryFailedPrompt，否则 prompt(t('errorContinueMessage'))）；`server-agent.ts` prompt HTTP 失败合成错误时挂客户端专用 `quickforgeFailedPrompt`，新增 `retryFailedPrompt`（预置 stash 的 capabilities/contextReferences 回 nextPrompt*、移除错误条目后原样重发）；i18n 中英 +2 key。安全前提（已核验）：pi-ai transform-messages 整条跳过 error/aborted assistant 消息、孤儿 toolCall 自动合成 toolResult，「继续」链路与用户手动打字恢复同路径。
+- 验证：定向 vitest 3 files / 84 tests 全过（message-actions 新增 10 用例、server-agent 新增 4 用例、i18n snapshot）；回归 3 files / 32 tests；eslint 6 文件 0 error；tsc -b；npm run build ✓（仅既有警告）。附带修复 message-actions.test.ts 假 DOM harness querySelectorAll 的文档顺序问题。未跑全量 test/lint。
+- 文件：src/components/chat/panel-decoration/message-actions.ts、src/components/chat/ChatPanelHost.tsx、src/lib/server-agent.ts、src/lib/i18n.ts、tests/frontend/message-actions.test.ts、tests/frontend/server-agent.test.ts、docs/wiki/src/components/README.md、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。边界：仅终态错误有按钮；OpenCode/Side Chat/readOnly 沿用现有门控（OpenCode 的 prompt 语义支持留作后续）；错误消息不进 LLM 上下文；消息队列 error 暂停行为不变；未 commit、未触碰生成产物。
+- 下一步：真机冒烟（错误→▶ 按钮→「继续」消息从失败前进度接着做；断网发送失败→重发原始消息含插件/文件 chip；流式禁用；OpenCode 无按钮）。
+
+---
+
 ## 当前状态：sidebar-drag-vertical-boundary（已完成，未提交）
 
 - 目标：用户反馈「项目和任务拖动的时候注意不能无限向下拖动」——限制侧栏拖拽的纵向边界。

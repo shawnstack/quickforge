@@ -985,6 +985,18 @@ export function ChatPanelHost({
           onRollbackFromMessage: props.onRollbackFromMessage,
           onRetryFromMessage: props.onRetryFromMessage,
           onForkFromMessage: props.onForkFromMessage,
+          onContinueAfterError: (errorMessage) => {
+            const serverAgent = agent as ServerAgent
+            // 发送失败的错误消息带原始消息 stash：原样重发而非发「继续」。
+            if (typeof serverAgent.retryFailedPrompt === 'function') {
+              void serverAgent.retryFailedPrompt(errorMessage as import('@earendil-works/pi-agent-core').AgentMessage).then((retried) => {
+                if (retried) return
+                void serverAgent.prompt(t('errorContinueMessage'))
+              })
+              return
+            }
+            void serverAgent.prompt(t('errorContinueMessage'))
+          },
           onOpenLocalFilePath: props.onOpenLocalFilePath,
           disableFork: !props.capabilities.forkFromMessage,
           allowRollback: props.capabilities.rollback,

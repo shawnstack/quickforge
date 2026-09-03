@@ -551,6 +551,133 @@ describe('ServerAgent', () => {
     }
   })
 
+  it('attaches the failed prompt to the synthesized error message for retry', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: 'Selected model is not configured in QuickForge.', code: 'model_not_configured' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-failed-prompt-stash',
+      initialState: {
+        model: { api: 'openai-completions', provider: 'mock', id: 'mock-model' },
+        messages: [{ role: 'assistant', content: 'ready' }] as AgentMessage[],
+      },
+    })
+    try {
+      await agent.prompt('hello')
+      await vi.waitFor(() => {
+        expect(agent.state.messages.at(-1)).toMatchObject({ stopReason: 'error', errorMessage: 'Selected model is not configured in QuickForge.' })
+      })
+      expect((agent.state.messages.at(-1) as unknown as Record<string, unknown>).quickforgeFailedPrompt).toMatchObject({
+        role: 'user',
+        content: 'hello',
+      })
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('retryFailedPrompt re-sends the original message with its capability snapshot and drops the error entry', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({ error: 'boom', code: 'model_not_configured' }),
+      })
+      .mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-retry-failed-prompt',
+      initialState: {
+        model: { api: 'openai-completions', provider: 'mock', id: 'mock-model' },
+        messages: [{ role: 'assistant', content: 'ready' }] as AgentMessage[],
+      },
+    })
+    try {
+      agent.setNextPromptCapabilities([{ type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' }])
+      await agent.prompt('hello')
+      await vi.waitFor(() => {
+        expect(agent.state.messages.at(-1)).toMatchObject({ stopReason: 'error', errorMessage: 'boom' })
+      })
+      expect(agent.state.messages).toHaveLength(2)
+
+      await expect(agent.retryFailedPrompt(agent.state.messages.at(-1) as AgentMessage)).resolves.toBe(true)
+
+      expect(agent.state.messages).toHaveLength(2)
+      expect(agent.state.messages.at(-1)).toMatchObject({ role: 'user', content: 'hello' })
+      expect(agent.state.messages.some((message) => (message as { stopReason?: string }).stopReason === 'error')).toBe(false)
+      const resent = agent.state.messages.at(-1) as unknown as { details?: { selectedCapabilities?: Array<Record<string, unknown>> } }
+      expect(resent.details?.selectedCapabilities).toEqual([
+        { type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' },
+      ])
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      const retryBody = JSON.parse(fetchMock.mock.calls[1][1].body as string) as {
+        message: { content: string; details?: { selectedCapabilities?: unknown[] } }
+      }
+      expect(retryBody.message.content).toBe('hello')
+      expect(retryBody.message.details?.selectedCapabilities).toHaveLength(1)
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('retryFailedPrompt returns false for error entries without a stash', async () => {
+    const agent = await createServerAgent({
+      sessionId: 'session-retry-no-stash',
+      initialState: {
+        model: { api: 'openai-completions', provider: 'mock', id: 'mock-model' },
+        messages: [],
+      },
+    })
+    try {
+      await expect(agent.retryFailedPrompt({
+        role: 'assistant',
+        content: [{ type: 'text', text: '' }],
+        stopReason: 'error',
+        errorMessage: 'x',
+      } as AgentMessage)).resolves.toBe(false)
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('retryFailedPrompt refuses to run while the agent is streaming', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({ error: 'boom', code: 'model_not_configured' }),
+      })
+      .mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-retry-streaming',
+      initialState: {
+        model: { api: 'openai-completions', provider: 'mock', id: 'mock-model' },
+        messages: [{ role: 'assistant', content: 'ready' }] as AgentMessage[],
+      },
+    })
+    try {
+      await agent.prompt('hello')
+      await vi.waitFor(() => {
+        expect(agent.state.messages.at(-1)).toMatchObject({ stopReason: 'error', errorMessage: 'boom' })
+      })
+      const errorEntry = agent.state.messages.at(-1) as AgentMessage
+
+      await agent.prompt('second')
+      expect(agent.state.isStreaming).toBe(true)
+
+      await expect(agent.retryFailedPrompt(errorEntry)).resolves.toBe(false)
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('ignores duplicate prompts while already streaming', async () => {
     vi.useFakeTimers()
     const fetchMock = vi.fn().mockResolvedValue({ ok: true })

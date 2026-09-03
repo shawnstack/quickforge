@@ -2,6 +2,7 @@ import type { MessageWithUsage } from '../chat-utils'
 import { formatMessageTime, messageTimestamp, replaceSvg } from '../chat-utils'
 import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
+import { translateErrorMessage } from '@/lib/error-messages'
 import {
   closeSvgCodeBlockMenus,
   decorateMarkdownCommandBlocks,
@@ -15,6 +16,7 @@ import {
   forkIcon,
   retryIcon,
   rollbackIcon,
+  runIcon,
 } from './icons'
 import { decorateLocalFilePathLinks } from './local-file-path-links'
 import { decorateUserMessageInputClamp, type InputClampLabels } from '@/lib/input-clamp'
@@ -73,6 +75,34 @@ function createMessageTime(timestamp: number): HTMLElement | null {
   time.className = 'quickforge-message-time'
   time.textContent = formatMessageTime(timestamp)
   return time
+}
+
+/** 失败回合合成的错误 assistant 消息（stopReason=error 且带 errorMessage）。 */
+function isErrorMessage(message: MessageWithUsage): boolean {
+  if (message.role !== 'assistant') return false
+  const { stopReason, errorMessage } = message as { stopReason?: unknown; errorMessage?: unknown }
+  return stopReason === 'error' && typeof errorMessage === 'string' && errorMessage.length > 0
+}
+
+/**
+ * pi-web-ui 的错误红块按原始英文 errorMessage 渲染（<strong>Error:</strong> +
+ * 动态文本节点）。已知异常串在展示层翻译为本地化文案（数据保持原文）；保留原
+ * strong 节点（前缀本地化与加粗），dataset 记录当前译文使重复 decorate 幂等，
+ * 未匹配到映射规则（译文与原文相同）时不改写 Lit 渲染的节点。
+ */
+function decorateAssistantErrorText(element: HTMLElement, message: MessageWithUsage) {
+  if (!isErrorMessage(message)) return
+  const { errorMessage } = message as { errorMessage?: unknown }
+  if (typeof errorMessage !== 'string') return
+  const block = element.querySelector<HTMLElement>('div.bg-destructive\\/10')
+  if (!block) return
+  const strong = block.querySelector('strong')
+  if (!strong) return
+  const translated = translateErrorMessage(errorMessage)
+  if (!translated || translated === errorMessage) return
+  if (block.dataset.quickforgeErrorText === translated) return
+  block.dataset.quickforgeErrorText = translated
+  block.replaceChildren(strong, document.createTextNode(` ${translated}`))
 }
 
 type RollbackPopoverElement = HTMLElement & {
@@ -223,6 +253,8 @@ export type MessageDecorationDeps = {
   onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
   onRetryFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
+  /** 终态错误旁「继续生成」：发送一条继续消息或重发未送达的原始消息。 */
+  onContinueAfterError?: (errorMessage: MessageWithUsage) => void
   onOpenLocalFilePath?: (path: string) => void
   disableFork: boolean
   allowRollback?: boolean
@@ -375,6 +407,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     onRollbackFromMessage,
     onRetryFromMessage,
     onForkFromMessage,
+    onContinueAfterError,
     onOpenLocalFilePath,
     disableFork,
     allowRollback = true,
@@ -455,15 +488,32 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       decorateLocalFilePathLinks(element, entry.message, onOpenLocalFilePath)
     }
 
-    const actionsClass = `quickforge-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-end'}`
+    if (entry.message.role === 'assistant') {
+      decorateAssistantErrorText(element, entry.message)
+    }
+
+    // 终态错误（会话最后一条消息是错误）挂「继续生成」操作行；历史错误不显示按钮。
+    const isTerminalErrorEntry = displayIndex === displayEntries.length - 1 && isErrorMessage(entry.message)
+    const showContinueAction = isTerminalErrorEntry
+      && Boolean(onContinueAfterError)
+      && !readOnly
+      && (allowRetry || historyActionsDisabled)
+    // 错误操作行常显弱化：错误是终态，恢复入口不依赖 hover（触屏无 hover）。
+    const actionsClass = isTerminalErrorEntry
+      ? 'quickforge-message-actions pointer-events-none mt-1 flex gap-1 px-4 justify-start'
+      : `quickforge-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-end'}`
     const existingActions = element.querySelector<HTMLElement>('.quickforge-message-actions')
     const showAssistantActions = entry.message.role !== 'assistant' || assistantActionIndexes.has(displayIndex)
     if (!showAssistantActions) {
       existingActions?.remove()
       return
     }
+    // 错误消息的操作行只在按钮应显示时存在：不再是终态错误或门控关闭时整行移除，
+    // 让其回落到常规路径（空文本 assistant 消息不建行，历史错误保持无操作行）。
+    const staleErrorRow = Boolean(existingActions) && isErrorMessage(entry.message) && !showContinueAction
+    if (staleErrorRow) existingActions?.remove()
 
-    if (existingActions?.dataset.quickforgeLayout === 'message-bottom') {
+    if (!staleErrorRow && existingActions?.dataset.quickforgeLayout === 'message-bottom') {
       existingActions.className = actionsClass
       if (existingActions.parentElement === element && existingActions !== element.lastElementChild) {
         element.append(existingActions)
@@ -503,6 +553,18 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         existingActions.append(retryButton)
       }
 
+      // Manage continue-after-error button: only show on the terminal error message
+      const existingContinue = existingActions.querySelector<HTMLButtonElement>('button[data-quickforge-action="continue"]')
+      if (existingContinue && !showContinueAction) {
+        existingContinue.remove()
+      } else if (showContinueAction) {
+        const continueButton = existingContinue ?? createIconActionButton('continue', t('errorContinueAction'), runIcon, () => {
+          onContinueAfterError?.(entry.message)
+        })
+        continueButton.disabled = historyActionsDisabled || isStreaming()
+        if (!existingContinue) existingActions.append(continueButton)
+      }
+
       ensureMessageTime(existingActions)
 
       return
@@ -512,6 +574,17 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     const actions = document.createElement('div')
     actions.dataset.quickforgeLayout = 'message-bottom'
     actions.className = actionsClass
+
+    if (showContinueAction) {
+      const continueButton = createIconActionButton('continue', t('errorContinueAction'), runIcon, () => {
+        onContinueAfterError?.(entry.message)
+      })
+      continueButton.disabled = historyActionsDisabled || isStreaming()
+      actions.append(continueButton)
+      ensureMessageTime(actions)
+      element.append(actions)
+      return
+    }
 
     if (entry.message.role === 'assistant') {
       const text = assistantText(entry.message as Parameters<typeof assistantText>[0])

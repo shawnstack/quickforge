@@ -1,6 +1,59 @@
 {
   "features": [
     {
+      "id": "known-exception-i18n",
+      "name": "已知代码异常文案国际化：展示层把 Request was aborted / AI stream 超时等已知英文异常映射为本地化文案",
+      "status": "done",
+      "approach": "起因：用户实测界面上出现「错误：Request was aborted.」英文原文，要求把已知的代码异常做好国际化。调研：错误正文由 pi-ai（各 provider signal abort 抛 'Request was aborted'、'Anthropic stream ended before message_stop'、'Stream ended without finish_reason'）、server/ai-http-logger.mjs（'AI stream idle/total timeout after Nms'）、undici（'fetch failed'）与 src/lib/server-agent.ts（'Failed to send prompt: HTTP N' 兜底）以英文写入消息数据。数据层必须保持原文（SQLite 持久化、客户端 appendAssistantErrorMessageOnce 去重、subagent trace 去重均依赖原始字符串精确比较），因此翻译只做在展示层。① 新增 src/lib/error-messages.ts：translateErrorMessage(message) 规则表（trim + 忽略大小写 + 容忍句尾句点 + 参数捕获 ms/status 走 t(key, params) 插值），未匹配的动态正文（provider 错误、subagent 超时进度复合句等）原样返回。② 展示面一（主聊天/Side Chat 共用）：message-actions.ts 新增 decorateAssistantErrorText，decorate 周期对每条错误 assistant 消息把 pi-web-ui 红块（div.bg-destructive/10）内 <strong> 后的动态文本改写为译文——保留原 strong 节点（前缀本地化与加粗）、dataset.quickforgeErrorText 记录当前译文保证幂等、语言切换后下一轮 decorate 自动收敛、译文与原文相同（未匹配/en 语境等值）不改写 Lit 节点。③ 展示面二（聊天 run_subagent 摘要卡 + Workspace Inspector 详情共用）：local-tools.ts renderSubagentRunBody 错误原因卡改用 translateErrorMessage(payload.errorMessage) || t('subagentErrorUnavailable')。④ i18n 中英成对 +7 key（errorRequestAborted/errorAiStreamIdleTimeout/errorAiStreamTotalTimeout/errorAnthropicStreamEnded/errorStreamNoFinishReason/errorFetchFailed/errorSendPromptHttp）。服务端零改动、无新依赖、无视觉变化（DESIGN_LANGUAGE 无需更新）。",
+      "files": [
+        "src/lib/error-messages.ts",
+        "src/lib/i18n.ts",
+        "src/lib/local-tools.ts",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "tests/frontend/error-messages.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 6 files / 193 tests 全过（error-messages 新建：10 条已知串映射（含句尾句点/大小写/首尾空白容忍与 ms/status 插值断言）+ 动态正文透传 + 空值 + message-actions/local-tools 两处接线契约；message-actions 27、i18n-language-snapshot、subagent-run-detail 93、local-tools-lit-reactivity、server-agent 55 回归）；npx eslint 5 个改动文件 0 error；npx tsc -b --pretty false 通过；npm run build 通过（仅既有 KaTeX/chunk 警告）。未跑全量 npm run test / lint；未 commit。"
+    },
+    {
+      "id": "todo-summary-completed-icon-emerald",
+      "name": "对话上方 Todo 摘要完成项图标改绿色，与置顶摘要 Todo 的 emerald 完成语义一致",
+      "status": "done",
+      "approach": "起因：用户反馈「对话上方的 todo 显示，完成的 icon 换一下绿色的，和摘要的保持一致」。现状：置顶摘要（GitToolsPinnedSummary TodoStatusIcon）完成项为 CheckCircle2 + text-emerald-600 绿色，而对话上方 todo-write-summary 的行级完成项图标 CSS（.quickforge-todo-summary-item--completed .quickforge-todo-summary-status-icon）为 var(--muted-foreground) 灰色。修改：仅改 src/index.css——完成项状态图标 color 对齐本组件既有「全部完成」圆环对勾的 emerald 配方（light rgb(4 143 101) / dark rgb(110 231 183)，复用 slash agent chip 语义色，不新增颜色体系；light 值与置顶摘要 emerald-600 视觉一致），完成项文字仍保持 muted+删除线不变；同步更新 ring-check 上方注释措辞（绿色从「只出现在全部完成这一刻」扩展为「Todo 完成语义」，涵盖行级图标与圆环对勾）。测试：todo-write-renderer.test.ts 既有 emerald 契约用例扩展为同时断言行级完成项图标的 light/dark 绿色。",
+      "files": [
+        "src/index.css",
+        "tests/frontend/todo-write-renderer.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/todo-write-renderer.test.ts → 10 tests 全过（emerald 契约用例含新增行级图标 light/dark 断言）；回归 todo-write-summary 26 + git-tools-pinned-summary 24 → 50 tests 全过；npx eslint tests/frontend/todo-write-renderer.test.ts 0 error（css 被配置忽略）。纯 CSS 颜色改动无 TS/架构变化，未跑 tsc/build 与全量。未 commit。"
+    },
+    {
+      "id": "error-continue-retry-button",
+      "name": "错误旁「继续生成」按钮：会话末尾错误消息挂常显继续操作行，发送「继续」消息或重发未送达的原始消息",
+      "status": "done",
+      "approach": "起因：用户希望「在错误的旁边设计一个重试按钮」，先调研后确认方案。调研结论：错误渲染为消息数组末尾的 {role:'assistant', stopReason:'error', errorMessage, 空文本}（pi-web-ui 红块），decorateMessages 对空文本 assistant 消息直接 return，错误消息此前无任何操作行。用户决策改变重试语义：不采用既有 retryFromMessage/continueSession（会截断最后一条 user 消息之后的全部内容，丢弃失败轮已完成的工具进度并重放工具副作用），改为「重试 = 发送一条继续用户消息」——沿链路核验安全：pi-ai transform-messages 构建请求时整条跳过 stopReason error/aborted 的 assistant 消息（模型从最后有效状态接着做）、并为孤儿 toolCall 自动合成 toolResult，空文本错误消息不会到达 provider API；该路径与用户手动在错误后打字完全相同。实现：① message-actions.ts 新增 isErrorMessage 判定与终态错误分支——会话最后一条 display 消息为错误时挂常显弱化操作行（runIcon icon-only「继续生成」按钮 + 时间戳，不依赖 hover、触屏可用；不放 copy/fork），行样式为不带 opacity-0 的 actionsClass 变体；创建路径与 message-bottom 快路径都管理 continue 按钮的存在性/禁用态；错误不再是最后一条或门控关闭时整行移除回落常规路径（历史错误保持无操作行）。② ChatPanelHost 接线 onContinueAfterError：错误带 quickforgeFailedPrompt 时优先 ServerAgent.retryFailedPrompt（重发原始消息），否则 agent.prompt(t('errorContinueMessage')) 发「继续」；门控沿用 allowRetry(capabilities.retry，OpenCode 隐藏)/readOnly/historyActionsDisabled(Side Chat 显示但禁用)/流式禁用。③ server-agent.ts：prompt HTTP 失败合成错误消息时挂客户端专用 quickforgeFailedPrompt（原始未送达消息）；新增 retryFailedPrompt(errorEntry)——非流式时把 stash 的 selectedCapabilities/contextReferences 预置回 nextPrompt*（避免 prompt 空快照逻辑剥除 details）后移除错误消息并原样重发。④ i18n 中英成对 +2 key（errorContinueAction/errorContinueMessage）。服务端零改动、无新依赖、无新 CSS 段。测试附带修复 message-actions.test.ts 假 DOM harness 的 querySelectorAll 按选择器分组拼接问题（改为真实 DOM 的文档顺序匹配，否则 user/assistant 交错序列与消息 index 错位配对）。",
+      "files": [
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/lib/server-agent.ts",
+        "src/lib/i18n.ts",
+        "tests/frontend/message-actions.test.ts",
+        "tests/frontend/server-agent.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 3 files / 84 tests 全过（message-actions 27 含新增 error message continue action describe 10 用例：终态错误常显行+点击回传错误消息、重装饰幂等+Side Chat 禁用、历史错误无行、陈旧行移除、四种门控隐藏、ChatPanelHost 接线契约；server-agent 55 含新增 4 用例：失败错误挂 stash、retryFailedPrompt 重发保留 capabilities 快照并移除错误条目、无 stash 返回 false、流式拒绝；i18n-language-snapshot 通过）；回归 chat-harness-capabilities/side-chat-workspace-tab/message-queue 3 files / 32 tests 全过；npx eslint 6 个改动文件 0 error；npx tsc -b --pretty false 通过；npm run build 通过（仅既有 KaTeX/chunk 警告）。未跑全量 npm run test / lint；未 commit。"
+    },
+    {
       "id": "sidebar-drag-vertical-boundary",
       "name": "侧栏项目/任务拖拽纵向边界：区块标题拖拽 clamp 到可见视口，修复可无限向下拖动",
       "status": "done",

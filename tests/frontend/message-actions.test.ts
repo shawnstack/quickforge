@@ -144,8 +144,19 @@ function createFakeElement(tagName = 'div'): FakeNode {
       return null
     },
     querySelectorAll(selector: string) {
+      // 真实 DOM 的 querySelectorAll 按文档顺序返回；逐 child 对全部选择器
+      // 匹配（而非按选择器分组拼接），否则 user/assistant 交错的元素序列会
+      // 与消息 index 错位配对。
       const alternatives = selector.split(',').map((part) => part.trim())
-      return alternatives.flatMap((alternative) => descendants(node, alternative))
+      const result: FakeNode[] = []
+      const walk = (current: FakeNode) => {
+        for (const child of current.children) {
+          if (alternatives.some((alternative) => matchesSelector(child, alternative))) result.push(child)
+          walk(child)
+        }
+      }
+      walk(node)
+      return result
     },
     closest(selector: string) {
       let current: FakeNode | null = node
@@ -320,6 +331,151 @@ describe('assistant message actions', () => {
     expect(css).not.toMatch(
       /message-list\s+(?:user-message|assistant-message)[^{}]*\{[^{}]*content-visibility\s*:/s,
     )
+  })
+})
+
+describe('error message continue action', () => {
+  beforeEach(() => {
+    vi.stubGlobal('document', {
+      createElement: createFakeElement,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })
+    vi.stubGlobal('window', {
+      setTimeout,
+      clearTimeout,
+      requestAnimationFrame: (callback: () => void) => { callback(); return 1 },
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function errorMessageFixture() {
+    return {
+      role: 'assistant',
+      content: [{ type: 'text', text: '' }],
+      stopReason: 'error',
+      errorMessage: 'AI stream idle timeout after 60000ms',
+      timestamp: 1_750_000_000_000,
+    }
+  }
+
+  function buildPanel(elements: FakeNode[]) {
+    const messageList = createFakeElement('message-list')
+    messageList.append(...elements)
+    const panel = createFakeElement('div')
+    panel.append(messageList)
+    return { panel, messageList }
+  }
+
+  function decorateErrorPanel(
+    elements: FakeNode[],
+    messages: Record<string, unknown>[],
+    options: Partial<Parameters<typeof decorateMessages>[0]> = {},
+  ) {
+    const { panel } = buildPanel(elements)
+    decorateMessages({
+      panel: panel as unknown as HTMLElement,
+      getMessages: () => messages as never,
+      isStreaming: () => false,
+      onCopyAnswer: vi.fn(),
+      onRollbackFromMessage: vi.fn(),
+      onRetryFromMessage: vi.fn(),
+      onForkFromMessage: vi.fn(),
+      disableFork: false,
+      onContinueAfterError: vi.fn(),
+      ...options,
+    })
+    return panel
+  }
+
+  it('shows an always-visible continue button on the terminal error message and reports the error entry on click', () => {
+    const onContinueAfterError = vi.fn()
+    const user = createUserMessageElement().element
+    const errorElement = createFakeElement('assistant-message')
+    const messages = [{ role: 'user', content: 'question' }, errorMessageFixture()]
+    decorateErrorPanel([user, errorElement], messages, { onContinueAfterError })
+
+    const row = errorElement.querySelector('.quickforge-message-actions')
+    expect(row).not.toBeNull()
+    expect(row?.className).not.toContain('opacity-0')
+    expect(row?.querySelector('.quickforge-message-time')).not.toBeNull()
+    expect(row?.querySelector('button[data-quickforge-action="copy"]')).toBeNull()
+
+    const continueButton = row?.querySelector('button[data-quickforge-action="continue"]')
+    expect(continueButton).not.toBeNull()
+    expect(continueButton?.disabled).toBe(false)
+    expect(continueButton?.getAttribute('aria-label')).toBe('errorContinueAction')
+
+    continueButton?.onclick?.({ stopPropagation() {} })
+    expect(onContinueAfterError).toHaveBeenCalledWith(messages.at(-1))
+  })
+
+  it('keeps the continue row across re-decoration and disables it for restricted history actions', () => {
+    const user = createUserMessageElement().element
+    const errorElement = createFakeElement('assistant-message')
+    const messages = [{ role: 'user', content: 'question' }, errorMessageFixture()]
+    const decorate = () => decorateErrorPanel([user, errorElement], messages, { historyActionsDisabled: true })
+
+    decorate()
+    const firstRow = errorElement.querySelector('.quickforge-message-actions')
+    expect(firstRow?.querySelector('button[data-quickforge-action="continue"]')?.disabled).toBe(true)
+
+    decorate()
+    const secondRow = errorElement.querySelector('.quickforge-message-actions')
+    expect(secondRow).toBe(firstRow)
+    expect(secondRow?.querySelectorAll('button[data-quickforge-action="continue"]')).toHaveLength(1)
+    expect(secondRow?.querySelector('button[data-quickforge-action="continue"]')?.disabled).toBe(true)
+  })
+
+  it('does not create a row for historical error messages', () => {
+    const user = createUserMessageElement().element
+    const errorElement = createFakeElement('assistant-message')
+    const trailingUser = createUserMessageElement().element
+    decorateErrorPanel([user, errorElement, trailingUser], [
+      { role: 'user', content: 'question' },
+      errorMessageFixture(),
+      { role: 'user', content: 'next' },
+    ])
+
+    expect(errorElement.querySelector('.quickforge-message-actions')).toBeNull()
+    expect(errorElement.querySelector('button[data-quickforge-action="continue"]')).toBeNull()
+  })
+
+  it('removes the stale error row once the error is no longer the terminal message', () => {
+    const user = createUserMessageElement().element
+    const errorElement = createFakeElement('assistant-message')
+    const elements = [user, errorElement]
+    const messages = [{ role: 'user', content: 'question' }, errorMessageFixture()]
+    decorateErrorPanel(elements, messages)
+    expect(errorElement.querySelector('.quickforge-message-actions')).not.toBeNull()
+
+    const trailingUser = createUserMessageElement().element
+    elements.push(trailingUser)
+    decorateErrorPanel(elements, [...messages, { role: 'user', content: 'next' }])
+    expect(errorElement.querySelector('.quickforge-message-actions')).toBeNull()
+  })
+
+  it.each([
+    ['retry capability unavailable', { allowRetry: false }],
+    ['read-only viewer', { readOnly: true }],
+    ['streaming', { isStreaming: () => true }],
+    ['no continue handler', { onContinueAfterError: undefined }],
+  ])('hides the continue row when %s', (_name, options) => {
+    const user = createUserMessageElement().element
+    const errorElement = createFakeElement('assistant-message')
+    decorateErrorPanel([user, errorElement], [{ role: 'user', content: 'question' }, errorMessageFixture()], options)
+
+    expect(errorElement.querySelector('.quickforge-message-actions')).toBeNull()
+  })
+
+  it('wires onContinueAfterError to retryFailedPrompt with a continue-message fallback in ChatPanelHost', () => {
+    const source = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
+    expect(source).toContain('onContinueAfterError:')
+    expect(source).toContain('retryFailedPrompt')
+    expect(source).toContain("t('errorContinueMessage')")
   })
 })
 

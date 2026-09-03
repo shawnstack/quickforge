@@ -1,4 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('../../server/ai-http-logger.mjs', () => ({
+  streamSimpleWithAiHttpLogging: vi.fn(() => ({
+    result: vi.fn(async () => textMessage('assistant', 'generated summary')),
+  })),
+}))
 import {
   compactionMessageDetails,
   extractCompactSummaryText,
@@ -30,6 +36,18 @@ const legacyNoticeText = [
 ].join('\n')
 
 describe('conversation compaction message handling', () => {
+  it('allows a short single user turn when the manual character gate is disabled', async () => {
+    const result = await (await import('../../server/conversation-compaction.mjs')).compactConversation({
+      messages: [textMessage('user', 'u1'), textMessage('assistant', 'a1')],
+      model: { provider: 'mock', id: 'mock-model' },
+      minSourceChars: 0,
+    })
+
+    expect(result.skipped).toBe(false)
+    expect(result.compactedCount).toBe(2)
+    expect(result.recentTail).toEqual([])
+  })
+
   it('does not count a compact summary as a real user turn and removes its notice from the next summary source', () => {
     const summary = textMessage('user', legacySummaryText, compactionMessageDetails('summary'))
     const notice = textMessage('assistant', legacyNoticeText, compactionMessageDetails('notice'))

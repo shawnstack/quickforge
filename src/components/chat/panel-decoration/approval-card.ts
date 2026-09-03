@@ -201,7 +201,7 @@ export function buildApprovalCardDisplayModel({
     ...(pluginTool ? ['Plugin'] : []),
     ...(sourceLabel ? [sourceLabel] : []),
   ]
-  const keepRecentTurns = typeof args.keepRecentTurns === 'number' ? args.keepRecentTurns : 3
+  const keepRecentTurns = typeof args.keepRecentTurns === 'number' ? args.keepRecentTurns : 0
   const risk = tone === 'info'
     ? translate('autoCompactApprovalRisk', { keepRecentTurns })
     : toolName === 'run_command'

@@ -13,7 +13,7 @@ export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
 export const DEFAULT_AUTO_COMPACT_SETTINGS = {
   enabled: true,
   thresholdPercent: 80,
-  keepRecentTurns: 3,
+  keepRecentTurns: 0,
   minSourceChars: 1600,
   requireConfirmation: true,
 }
@@ -40,7 +40,7 @@ export function normalizeAutoCompactSettings(value) {
   return {
     enabled: value.enabled !== false,
     thresholdPercent: clampNumber(value.thresholdPercent, DEFAULT_AUTO_COMPACT_SETTINGS.thresholdPercent, 50, 95),
-    keepRecentTurns: clampNumber(value.keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 1, 20),
+    keepRecentTurns: clampNumber(value.keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20),
     minSourceChars: clampNumber(value.minSourceChars, DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars, 0, 200000),
     requireConfirmation: value.requireConfirmation !== false,
   }
@@ -92,12 +92,15 @@ function isToolResultMessage(message) {
 
 export function tailStartForRecentTurns(messages, keepRecentTurns, maxTailChars = DEFAULT_MAX_TAIL_CHARS) {
   const source = Array.isArray(messages) ? messages : []
+  const normalizedKeepRecentTurns = clampNumber(keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20)
+  if (normalizedKeepRecentTurns === 0) return source.length
+
   let seenUserTurns = 0
   let tailChars = 0
   for (let index = source.length - 1; index >= 0; index--) {
     if (isUserMessage(source[index])) seenUserTurns += 1
     tailChars += messageChars(source[index])
-    if (seenUserTurns >= keepRecentTurns) return index
+    if (seenUserTurns >= normalizedKeepRecentTurns) return index
     // 保留的尾部超过预算：仍按完整用户轮次切分，避免把当前运行中的
     // assistant/toolResult 链从中间截断，导致压缩线落在一轮对话内部。
     if (tailChars >= maxTailChars) {
@@ -229,7 +232,7 @@ export async function compactSessionInPlace({
   onBeforePersist,
 }) {
   const source = Array.isArray(messages) ? messages : []
-  const normalizedKeepRecentTurns = clampNumber(keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 1, 20)
+  const normalizedKeepRecentTurns = clampNumber(keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20)
   const normalizedMinSourceChars = clampNumber(minSourceChars, DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars, 0, 200000)
   const tailStart = tailStartForRecentTurns(source, normalizedKeepRecentTurns)
   const sourceMessages = buildCompactionSourceMessages(session, source, tailStart)
@@ -243,6 +246,7 @@ export async function compactSessionInPlace({
     thinkingLevel: session.thinkingLevel,
     getApiKey: session.getApiKey,
     keepTurns: 0,
+    ...(reason === 'manual_compact' ? { minSourceChars: normalizedMinSourceChars } : {}),
   })
 
   if (result.skipped) return { compacted: false, usage, reason: result.reason || 'skipped' }

@@ -10,11 +10,11 @@ import {
 } from '../../server/auto-compaction.mjs'
 
 describe('auto compact settings', () => {
-  it('defaults to enabled with confirmation and three recent turns while preserving explicit settings', () => {
+  it('defaults to enabled with confirmation and no recent turns while preserving explicit settings', () => {
     expect(normalizeAutoCompactSettings(null)).toEqual(DEFAULT_AUTO_COMPACT_SETTINGS)
     expect(normalizeAutoCompactSettings({})).toMatchObject({
       enabled: true,
-      keepRecentTurns: 3,
+      keepRecentTurns: 0,
       requireConfirmation: true,
     })
     expect(normalizeAutoCompactSettings({ enabled: false, keepRecentTurns: 2, requireConfirmation: false })).toMatchObject({
@@ -22,6 +22,7 @@ describe('auto compact settings', () => {
       keepRecentTurns: 2,
       requireConfirmation: false,
     })
+    expect(normalizeAutoCompactSettings({ keepRecentTurns: 0 }).keepRecentTurns).toBe(0)
   })
 })
 
@@ -33,6 +34,11 @@ describe('tailStartForRecentTurns', () => {
   function toolMessage(role) {
     return { role, content: [{ type: role === 'assistant' ? 'toolCall' : 'toolResult', name: 'tool', arguments: { query: 'x'.repeat(80) } }] }
   }
+
+  it('returns the whole history length when manual compaction keeps no recent turns', () => {
+    const messages = [textMessage('user', 'u1'), textMessage('assistant', 'a1')]
+    expect(tailStartForRecentTurns(messages, 0)).toBe(messages.length)
+  })
 
   it('keeps the last keepRecentTurns user turns in a normal conversation', () => {
     const messages = [

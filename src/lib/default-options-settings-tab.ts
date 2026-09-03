@@ -146,7 +146,7 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
   private autoCompactRequireConfirmation = true
   private autoCompactThresholdPercent = 80
   private autoCompactThresholdPercentInput = '80'
-  private autoCompactKeepRecentTurns = 3
+  private autoCompactKeepRecentTurns = 0
   private autoArchiveEnabled = false
   private systemNotificationsEnabled = false
   private systemNotificationPermission: SystemNotificationPermission = 'unsupported'
@@ -407,7 +407,8 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
   }
 
   private updateAutoCompactKeepRecentTurns(value: string) {
-    this.autoCompactKeepRecentTurns = Number(value) || 3
+    const parsed = Number(value)
+    this.autoCompactKeepRecentTurns = Number.isFinite(parsed) ? parsed : 0
     this.saved = false
     this.requestUpdate()
   }
@@ -427,7 +428,8 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
   }
 
   private commitAutoCompactKeepRecentTurns() {
-    const normalized = Math.max(1, Math.min(20, Math.round(this.autoCompactKeepRecentTurns || 3)))
+    const parsed = Number(this.autoCompactKeepRecentTurns)
+    const normalized = Number.isFinite(parsed) ? Math.max(0, Math.min(20, Math.round(parsed))) : 0
     this.autoCompactKeepRecentTurns = normalized
     this.requestUpdate()
     void this.saveAutoCompactOptions()
@@ -1191,7 +1193,7 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
               <input
                 class="quickforge-settings-input quickforge-settings-number-input"
                 type="number"
-                min="1"
+                min="0"
                 max="20"
                 step="1"
                 .value=${String(this.autoCompactKeepRecentTurns)}

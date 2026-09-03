@@ -44,7 +44,7 @@ vi.mock('@/lib/tool-display-settings', () => ({
 }))
 vi.mock('@/lib/auto-compact-settings', () => ({
   loadAutoCompactSettings: vi.fn(async () => ({
-    enabled: true, requireConfirmation: true, thresholdPercent: 80, keepRecentTurns: 3,
+    enabled: true, requireConfirmation: true, thresholdPercent: 80, keepRecentTurns: 0,
   })),
   saveAutoCompactSettings: vi.fn(async () => undefined),
 }))

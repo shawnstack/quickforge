@@ -11,6 +11,17 @@
 
 ---
 
+## 当前状态：manual-compact-adaptive-retention（已完成，未提交）
+
+- 目标：实现主动 `/compact` 放宽方案：不看 80% 阈值，取消 1600 字符门槛，固定 `keepRecentTurns: 0`，直接压缩全部当前可压缩历史，不保留最近 n 轮；同时自动压缩设置默认 `keepRecentTurns: 0` 且支持 `0-20`；`/summary` 不变。
+- 已改文件：`server/auto-compaction.mjs`（默认 `keepRecentTurns: 0`，设置归一化支持 `0-20`，保留 keep=0 tailStart 与 in-place 支持）、`server/agent-manager.mjs`（手动 compact 固定 `keepRecentTurns: 0` + `minSourceChars: 0`）、`server/conversation-compaction.mjs`（可选 `minSourceChars` 贯通短历史）、`src/lib/auto-compact-settings.ts`、`src/lib/default-options-settings-tab.ts`、`src/components/chat/ChatPanelHost.tsx`、`src/components/chat/panel-decoration/approval-card.ts`、`src/lib/i18n.ts`、相关测试、Wiki 与状态文件。
+- 当前验证：定向 Vitest 6 files / 39 tests 全部通过；相关 ESLint、`node --check server/auto-compaction.mjs`、`npx tsc -b --pretty false`、`npm run build`、`git diff --check` 与 `feature_list.json` JSON parse 均通过。build 仅有既有 KaTeX 字体与 chunk size 警告。
+- Blocker：无。当前未补 agent-manager 契约测试，入口仅固定传入 keep=0 和 0 门槛，核心行为由 tail 边界与压缩器测试覆盖。
+
+- 边界：不改 `/summary`，自动压缩的阈值、字符门槛、确认、间隔与保护逻辑保持不变，仅调整 `keepRecentTurns` 默认值为 0 并开放 0；不触碰生成产物、不新增依赖、未 commit。
+
+---
+
 ## 当前状态：known-exception-i18n（已完成，未提交）
 
 - 目标：用户实测「错误：Request was aborted.」英文原文，要求把已知的代码异常做好国际化。

@@ -17,6 +17,32 @@
       "boundaries": "不改变展开拖拽、reset、移动端行为；不新增依赖，不触碰 dist/package-dist/package-offline。"
     },
     {
+      "id": "manual-compact-adaptive-retention",
+      "name": "手动 /compact 始终压缩全部历史",
+      "status": "done",
+      "approach": "手动 /compact 不看自动压缩的 80% 阈值，不使用 1600 字符门槛；固定 keepRecentTurns=0，压缩全部当前可压缩历史，不保留最近 n 轮。自动压缩支持 keepRecentTurns=0-20，默认值为 0；/summary 语义保持不变。保留 keep=0 边界与短历史门槛测试，并同步 server wiki 和会话状态记录。",
+      "files": [
+        "server/auto-compaction.mjs",
+        "server/agent-manager.mjs",
+        "server/conversation-compaction.mjs",
+        "tests/server/auto-compaction.test.mjs",
+        "tests/server/conversation-compaction.test.mjs",
+        "src/lib/auto-compact-settings.ts",
+        "src/lib/default-options-settings-tab.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/panel-decoration/approval-card.ts",
+        "src/lib/i18n.ts",
+        "tests/frontend/settings-normalizers.test.ts",
+        "tests/frontend/default-options-settings-tab.test.ts",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 Vitest 6 files / 39 tests 全部通过；相关 ESLint 通过；node --check server/auto-compaction.mjs、npx tsc -b --pretty false、npm run build、git diff --check 与 feature_list.json JSON parse 均通过。build 仅有既有 KaTeX 字体与 chunk size 警告；未跑全量 test/lint；未 commit。",
+       "boundaries": "不修改 /summary、自动压缩阈值/minSourceChars/确认/间隔与保护逻辑，仅将自动压缩 keepRecentTurns 默认值改为 0 并支持 0；不修改生成产物；不新增依赖。"
+    },
+    {
       "id": "known-exception-i18n",
       "name": "已知代码异常文案国际化：展示层把 Request was aborted / AI stream 超时等已知英文异常映射为本地化文案",
       "status": "done",

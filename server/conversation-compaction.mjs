@@ -293,13 +293,23 @@ export function splitMessagesForCompaction(messages, options = {}) {
   }
 }
 
-export async function compactConversation({ messages, model, thinkingLevel, getApiKey, keepTurns = DEFAULT_COMPACT_KEEP_TURNS }) {
+export async function compactConversation({
+  messages,
+  model,
+  thinkingLevel,
+  getApiKey,
+  keepTurns = DEFAULT_COMPACT_KEEP_TURNS,
+  minSourceChars = MIN_SUMMARY_SOURCE_CHARS,
+}) {
   if (!model?.provider) throw new Error('No model configured for conversation compaction.')
 
   const split = splitMessagesForCompaction(messages, { keepTurns })
   const transcript = buildTranscript(split.compactRange, model)
+  const normalizedMinSourceChars = Number.isFinite(Number(minSourceChars))
+    ? Math.max(0, Number(minSourceChars))
+    : MIN_SUMMARY_SOURCE_CHARS
 
-  if (split.compactRange.length === 0 || (split.compactRange.length < 4 && transcript.length < MIN_SUMMARY_SOURCE_CHARS)) {
+  if (split.compactRange.length === 0 || (split.compactRange.length < 4 && transcript.length < normalizedMinSourceChars)) {
     return {
       skipped: true,
       reason: 'not_enough_history',

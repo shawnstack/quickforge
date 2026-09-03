@@ -1177,14 +1177,14 @@ export function ChatPanelHost({
               copy: {
                 status: t('autoCompactApprovalStatus'),
                 title: t('autoCompactApprovalTitle'),
-                risk: t('autoCompactApprovalRisk', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 3 }),
+                risk: t('autoCompactApprovalRisk', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0 }),
                 approve: t('autoCompactApprovalAccept'),
                 reject: t('autoCompactApprovalReject'),
               },
               disabled: autoCompactDisabled,
               disabledReason: autoCompactDisabledReason,
               getMessages: displayMessages,
-              keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 3,
+              keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0,
               onApprove: async () => {
                 const callback = propsRef.current.onApproveAutoCompact
                 if (!callback) throw new Error(t('autoCompactApprovalUnavailable'))
@@ -1207,12 +1207,12 @@ export function ChatPanelHost({
             {
               percent: pendingAutoCompact.usage?.percent ?? 0,
               threshold: pendingAutoCompact.thresholdPercent ?? 0,
-              keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 3,
+              keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0,
               summary: t('autoCompactApprovalWaiting', {
                 percent: pendingAutoCompact.usage?.percent ?? 0,
                 threshold: pendingAutoCompact.thresholdPercent ?? 0,
               }),
-              description: t('autoCompactApprovalPreview', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 3 }),
+              description: t('autoCompactApprovalPreview', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0 }),
             },
           )
         } else {

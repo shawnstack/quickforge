@@ -82,6 +82,7 @@ describe('settings normalizers', () => {
     expect(normalizeAutoCompactSettings(null)).toEqual(DEFAULT_AUTO_COMPACT_SETTINGS)
     expect(normalizeAutoCompactSettings({})).toMatchObject({
       enabled: true,
+      keepRecentTurns: 0,
       requireConfirmation: true,
     })
     expect(normalizeAutoCompactSettings({ enabled: false, requireConfirmation: false })).toMatchObject({
@@ -97,7 +98,7 @@ describe('settings normalizers', () => {
     })).toEqual({
       enabled: true,
       thresholdPercent: 95,
-      keepRecentTurns: 1,
+      keepRecentTurns: 0,
       minSourceChars: DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars,
       requireConfirmation: false,
     })

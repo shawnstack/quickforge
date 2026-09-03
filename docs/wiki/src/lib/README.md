@@ -49,6 +49,7 @@
 | `sidebar-session-sort-mode.ts` | 左侧会话时间线排序偏好的 `localStorage` 安全读写，刷新后恢复且不参与后端同步 |
 | `sidebar-session-display.ts` | 左侧 Projects 时间线、项目会话与 Tasks 的五条递增展示纯行为：计算下一展示目标、判断是否需要请求下一页，并以 timeline/global/project 各 key 的 pending generation 合并快速重复点击；仅在异步加载确认新增数据且 generation 仍有效时提交展示数量，重置会使在途旧请求失效，失败保持原数量并允许重试 |
 | `sidebar-section-order.ts` | 左侧 Projects / Tasks 顶层区块顺序的 `localStorage` 安全读写与纯函数排序：规范化缺失、重复和外来 ID，固定映射 `tasks` 到现有 conversations UI；桌面/移动共用 App 状态，置顶区不参与排序 |
+| `project-drag-boundary.ts` | 37 | 侧栏拖拽纵向边界纯函数：`visibleProjectDragBoundary` 取列表区块与共享滚动视口的可见交集；`clampProjectDragTransform` 锁定横向并把纵向 transform 夹取在可见边界内（含拖动期间容器 scrollTop 滚动补偿），rect 缺失或退化（拖动节点高过可见区）时 fail-closed 双向锁定，不允许无界拖动。Projects 条目拖拽（`restrictProjectDragToViewport`）与 Projects/Tasks 顶层区块标题拖拽（`restrictSectionDragToViewport`，边界为区块排序容器）共用，均在 ChatSidebar 中以 modifier 接线 |
 | `chat-harness-capabilities.ts` | 主聊天 Harness capability 静态表与页面策略 resolver；QuickForge 默认全开，OpenCode P0 关闭模型/思考、Plan/Access、命令与 capability suggestions、上下文压缩、历史派生（按消息 fork/rollback/retry），P1 开放整会话 fork（`forkSession`）与 OpenCode 动态配置（`harnessConfig`）；另导出 `SIDE_CHAT_CAPABILITIES` 全 false 的可执行能力表，Side Chat 仍复用主控件布局，但由共享装饰层将不支持控件原生禁用，服务端固定 `tools: []` 作为安全边界 |
 | `system-notifications.ts` | 浏览器 Notification/Service Worker、Electron Desktop 原生通知与 Capacitor Android 本地通知统一适配；管理默认开启的设备偏好、权限、安卓远程浏览器首次发送授权、后台展示、点击打开会话和短时去重 |
 | `info-tip.ts` | 134 | 统一问号说明浮层 Web Component |

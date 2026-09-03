@@ -519,6 +519,8 @@ export const ChatSidebar = memo(function ChatSidebar({
   const sidebarScrollViewportRef = useRef<HTMLDivElement | null>(null)
   const projectsDragBoundaryRef = useRef<HTMLDivElement | null>(null)
   const projectDragStartScrollTopRef = useRef(0)
+  const sectionsDragBoundaryRef = useRef<HTMLDivElement | null>(null)
+  const sectionDragStartScrollTopRef = useRef(0)
   const showMoreStateRef = useRef(createSidebarSessionShowMoreState())
   const previousProjectsCollapsedRef = useRef(projectsCollapsed)
   const previousConversationsCollapsedRef = useRef(conversationsCollapsed)
@@ -538,6 +540,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   }, [])
 
   const handleSectionDragStart = useCallback((event: { active: { id: string | number } }) => {
+    sectionDragStartScrollTopRef.current = sidebarScrollViewportRef.current?.scrollTop ?? 0
     const activeSectionId = sidebarSectionIdFromDndId(event.active.id)
     if (activeSectionId) setDraggingSectionId(activeSectionId)
   }, [])
@@ -613,6 +616,19 @@ export const ChatSidebar = memo(function ChatSidebar({
   const canAutoScrollProjectsViewport = useCallback((element: Element) => (
     element === sidebarScrollViewportRef.current
   ), [])
+
+  const restrictSectionDragToViewport = useCallback<Modifier>(({ transform, draggingNodeRect }) => {
+    const boundaryRect = sectionsDragBoundaryRef.current?.getBoundingClientRect()
+    const scrollViewportRect = sidebarScrollViewportRef.current?.getBoundingClientRect()
+    const visibleBoundary = visibleProjectDragBoundary(boundaryRect, scrollViewportRect)
+    const scrollViewport = sidebarScrollViewportRef.current
+    return clampProjectDragTransform(
+      transform,
+      draggingNodeRect,
+      visibleBoundary,
+      (scrollViewport?.scrollTop ?? 0) - sectionDragStartScrollTopRef.current,
+    )
+  }, [])
 
   const projectIds = useMemo(() => projects.map((p) => p.id), [projects])
   const openProjectMenuProject = useMemo(() => projects.find((project) => project.id === projectMenuId), [projectMenuId, projects])
@@ -1303,10 +1319,12 @@ export const ChatSidebar = memo(function ChatSidebar({
             onDragEnd={handleSectionDragEnd}
             onDragCancel={finishSectionDrag}
             measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+            modifiers={[restrictSectionDragToViewport]}
             autoScroll={false}
           >
             <SortableContext items={sectionOrder.map(sidebarSectionDndId)} strategy={verticalListSortingStrategy}>
               <div
+                ref={sectionsDragBoundaryRef}
                 className="flex flex-col"
                 data-dragging-section={draggingSectionId}
               >

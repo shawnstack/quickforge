@@ -22,12 +22,12 @@ export function clampProjectDragTransform(
   scrollDeltaY = 0,
 ): Transform {
   if (!draggingRect || !viewportRect) {
-    return { ...transform, x: 0 }
+    return { ...transform, x: 0, y: 0 }
   }
 
   const minY = viewportRect.top - draggingRect.top - scrollDeltaY
   const maxY = viewportRect.bottom - draggingRect.bottom - scrollDeltaY
-  if (minY > maxY) return { ...transform, x: 0 }
+  if (minY > maxY) return { ...transform, x: 0, y: 0 }
 
   return {
     ...transform,

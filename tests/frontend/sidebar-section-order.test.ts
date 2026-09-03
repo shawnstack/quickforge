@@ -257,6 +257,20 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(sidebarSource).toContain('transform ? { ...transform, x: 0 } : null')
   })
 
+  it('clamps the section drag preview to the visible sections boundary so it cannot drag unbounded', () => {
+    expect(sidebarSource).toContain('const sectionsDragBoundaryRef = useRef<HTMLDivElement | null>(null)')
+    expect(sidebarSource).toContain('ref={sectionsDragBoundaryRef}')
+    expect(sidebarSource).toContain('sectionDragStartScrollTopRef.current = sidebarScrollViewportRef.current?.scrollTop ?? 0')
+    expect(sidebarSource).toContain('const restrictSectionDragToViewport = useCallback<Modifier>')
+    expect(sidebarSource).toContain('(scrollViewport?.scrollTop ?? 0) - sectionDragStartScrollTopRef.current')
+    expect(sidebarSource).toContain('modifiers={[restrictSectionDragToViewport]}')
+
+    const sectionContextStart = sidebarSource.indexOf('sensors={sectionSensors}')
+    const sectionContextSource = sidebarSource.slice(sectionContextStart, sidebarSource.indexOf('</DndContext>', sectionContextStart))
+    expect(sectionContextSource).toContain('modifiers={[restrictSectionDragToViewport]}')
+    expect(sectionContextSource).toContain('autoScroll={false}')
+  })
+
   it('retains the nested project DnD context and project persistence callback', () => {
     const sectionContextIndex = sidebarSource.indexOf('sensors={sectionSensors}')
     const projectContextIndex = sidebarSource.indexOf('sensors={sensors}', sectionContextIndex)

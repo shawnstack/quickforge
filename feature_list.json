@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "sidebar-drag-vertical-boundary",
+      "name": "侧栏项目/任务拖拽纵向边界：区块标题拖拽 clamp 到可见视口，修复可无限向下拖动",
+      "status": "done",
+      "approach": "起因：用户反馈「项目和任务拖动的时候注意不能无限向下拖动」。调研：项目条目拖拽已有 restrictProjectDragToViewport modifier（d07f18a）夹取在 Projects 列表与共享滚动视口的可见交集内；但后续 72ac7e0 引入的「项目/任务」顶层区块标题拖拽（section DndContext）没有任何 modifier，SortableSidebarSection 仅锁横向，纵向 transform 无界，拖动区块标题可无限向下。修复：ChatSidebar.tsx 新增 sectionsDragBoundaryRef（挂在区块排序容器 div，即 SortableContext 内包裹两个 SortableSidebarSection 的 flex 容器）与 sectionDragStartScrollTopRef（handleSectionDragStart 记录起始 scrollTop），新 modifier restrictSectionDragToViewport 与项目拖拽同构——复用 src/lib/project-drag-boundary.ts 纯函数（visibleProjectDragBoundary 取区块排序容器与共享滚动视口的可见交集，clampProjectDragTransform 夹取纵向并补偿拖动期间手动滚动），接入区块 DndContext modifiers；区块拖拽预览不能向下越出可见区域，也不会上移越过 Pinned 区块。dnd-kit 碰撞检测（collisionRect）使用 modifier 处理后的 transform，落点同步受限，换位语义不变（拖拽期间两区块本就临时折叠，换位所需位移远小于边界）。同时把 clampProjectDragTransform 的 fallback 收紧为 fail-closed：rect 缺失或退化（minY>maxY，如拖动节点高过可见区）时横向纵向同时锁定（原仅锁横向、纵向无界），项目条目与区块两条拖拽路径共用；dnd-kit useRect 对 active node 挂 ResizeObserver，拖拽开始区块折叠后会重新测量，该 fallback 只覆盖测量间隙等瞬态。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "src/lib/project-drag-boundary.ts",
+        "tests/frontend/project-drag-boundary.test.ts",
+        "tests/frontend/sidebar-section-order.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 4 files / 37 tests 全过（project-drag-boundary 10，含改写后的 fail-closed fallback 用例：rect 缺失/退化时 x/y 均为 0；sidebar-section-order 19，含新增区块拖拽边界 wiring 契约：sectionsDragBoundaryRef、起始 scrollTop 记录、restrictSectionDragToViewport modifier 与 section DndContext 接线；mobile-fullscreen-adaptation 3、sidebar-new-chat-routing 5 ChatSidebar 回归）；npx eslint 4 个改动文件 0 error；npx tsc -b --pretty false 通过；npm run build 通过（仅既有 KaTeX/chunk 第三方警告）。未跑全量 npm run test / lint；未 commit。"
+    },
+    {
       "id": "subagent-timeout-structured-progress",
       "name": "Subagent 错误结构化输出：任意失败 toolResult 携带进度摘要与 details（超时/父中止/通用失败），默认超时上调 2 小时",
       "status": "done",

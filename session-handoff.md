@@ -1,5 +1,17 @@
 # Session Handoff
 
+## 当前状态：sidebar-drag-vertical-boundary（已完成，未提交）
+
+- 目标：用户反馈「项目和任务拖动的时候注意不能无限向下拖动」——限制侧栏拖拽的纵向边界。
+- 根因：项目条目拖拽已有 clamp（restrictProjectDragToViewport，d07f18a），但 72ac7e0 后加的「项目/任务」顶层区块标题拖拽（section DndContext）没有 modifier，`SortableSidebarSection` 仅锁横向，纵向 transform 无界。
+- 实现：`ChatSidebar.tsx` 新增 `sectionsDragBoundaryRef`（区块排序容器 div）+ `sectionDragStartScrollTopRef`（dragStart 记录起始 scrollTop）+ `restrictSectionDragToViewport` modifier（复用 `src/lib/project-drag-boundary.ts` 的 visibleProjectDragBoundary/clampProjectDragTransform，含滚动补偿），接入区块 DndContext `modifiers`；区块拖拽预览夹取在区块容器与共享滚动视口的可见交集内。`clampProjectDragTransform` fallback 收紧 fail-closed：rect 缺失/退化时 x/y 同时锁定（原仅锁横向、纵向无界），两条拖拽路径共用。
+- 验证：定向 vitest 4 files / 37 tests 全过（fallback 用例改写 + 新增区块边界 wiring 契约 + ChatSidebar 回归）；eslint 4 文件 0 error；tsc -b；npm run build 通过（仅既有警告）。未跑全量。
+- 文件：src/components/sidebar/ChatSidebar.tsx、src/lib/project-drag-boundary.ts、tests/frontend/project-drag-boundary.test.ts、tests/frontend/sidebar-section-order.test.ts、docs/wiki/src/components/README.md、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。边界：section autoScroll 仍为 false、KeyboardSensor 不受影响；dnd-kit 碰撞检测用 modifier 后 transform，落点同步受限；未 commit。
+- 下一步：真机冒烟（区块标题向下拖停在可见区底部、向上不越过 Pinned、换位正常；项目条目拖拽回归）。
+
+---
+
 ## 当前状态：subagent-timeout-structured-progress（已完成，未提交）
 
 - 目标：① 用户反馈「错误原因: Subagent general timed out after 60 minutes.」超时报错只有一行纯文本，要求报错时把 subagent 已完成工作结构化输出（父模型能大概知道做了什么）；② 子 Agent 默认超时改为 2 小时。

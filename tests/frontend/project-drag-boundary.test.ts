@@ -39,24 +39,24 @@ describe('clampProjectDragTransform', () => {
     ).y).toBe(100)
   })
 
-  it('safely falls back to horizontal locking when a rectangle is missing or invalid', () => {
+  it('locks both axes when a rectangle is missing or invalid so the preview cannot drift unbounded', () => {
     const transform = { x: 32, y: 75, scaleX: 0.9, scaleY: 1.1 }
 
     expect(clampProjectDragTransform(transform, null, viewportRect)).toEqual({
       x: 0,
-      y: 75,
+      y: 0,
       scaleX: 0.9,
       scaleY: 1.1,
     })
     expect(clampProjectDragTransform(transform, draggingRect, null)).toEqual({
       x: 0,
-      y: 75,
+      y: 0,
       scaleX: 0.9,
       scaleY: 1.1,
     })
     expect(clampProjectDragTransform(transform, draggingRect, { top: 220, bottom: 180 })).toEqual({
       x: 0,
-      y: 75,
+      y: 0,
       scaleX: 0.9,
       scaleY: 1.1,
     })

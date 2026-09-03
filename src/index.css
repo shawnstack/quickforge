@@ -6197,7 +6197,7 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
 }
 
 /* 完成态对勾复用 slash agent chip 的 emerald 语义色：整体单色克制，
-   绿色只出现在「全部完成」这一刻，不新增颜色体系 */
+   绿色只用于 Todo 完成语义（行级完成图标与全部完成圆环对勾），不新增颜色体系 */
 .quickforge-todo-summary-ring-check {
   color: rgb(4 143 101);
   opacity: 0;
@@ -6376,8 +6376,14 @@ html.dark .quickforge-todo-summary-ring-check {
   color: color-mix(in oklab, var(--primary) 78%, var(--foreground));
 }
 
+/* 完成项图标与置顶摘要 Todo 的 emerald 完成语义保持一致：
+   复用下方 ring-check 的 slash agent chip emerald 配方，不新增颜色体系 */
 .quickforge-todo-summary-item--completed .quickforge-todo-summary-status-icon {
-  color: var(--muted-foreground);
+  color: rgb(4 143 101);
+}
+
+html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-status-icon {
+  color: rgb(110 231 183);
 }
 
 .quickforge-todo-summary-content {

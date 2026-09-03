@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：sidebar-collapse-zoom-width（已完成，未提交）
+
+- 目标：修复桌面侧栏收缩后浏览器缩放/`window.resize` 重新写入展开宽度，以及收缩/移动清理遗漏遗留内联 `width` 的问题。
+- 改动：`src/components/sidebar/ChatSidebar.tsx` 的 resize effect 增加 `if (isMobile || !sidebarOpen) return`；`finishResizing()` 无 `finalWidth` 时调用 `asideRef.current?.style.removeProperty('width')`。展开拖拽、reset、移动端语义保持不变。
+- 测试：`tests/frontend/sidebar-section-order.test.ts` 新增源码契约，锁定 `!sidebarOpen` 守卫、resize listener 与 `removeProperty('width')` 清理。
+- 文档：`docs/wiki/src/components/README.md` ChatSidebar 条目补充收缩态不会因 window.resize/浏览器缩放恢复展开宽度。
+- 验证：定向 `npx vitest run tests/frontend/sidebar-section-order.test.ts` → 1 file / 20 tests 全过；相关 ESLint 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 通过（仅既有 KaTeX 字体与 chunk size 警告）；`git diff --check` 通过。
+- Blocker：无。未新增依赖，未触碰生成产物，未 commit/tag/push；工作区其他未提交改动保留。
+
+---
+
 ## 当前状态：known-exception-i18n（已完成，未提交）
 
 - 目标：用户实测「错误：Request was aborted.」英文原文，要求把已知的代码异常做好国际化。

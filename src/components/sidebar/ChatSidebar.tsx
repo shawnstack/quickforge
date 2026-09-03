@@ -948,6 +948,8 @@ export const ChatSidebar = memo(function ChatSidebar({
       const nextWidth = clampSidebarWidth(finalWidth)
       if (asideRef.current) asideRef.current.style.width = `${nextWidth}px`
       setSidebarWidth(nextWidth)
+    } else {
+      asideRef.current?.style.removeProperty('width')
     }
     restoreResizeBodyStyle()
     setIsResizing(false)
@@ -1015,14 +1017,14 @@ export const ChatSidebar = memo(function ChatSidebar({
   }, [finishResizing, isMobile, sidebarOpen])
 
   useEffect(() => {
-    if (isMobile) return
+    if (isMobile || !sidebarOpen) return
     const syncWidthToViewport = () => {
       const nextWidth = clampSidebarWidth(resizeDragRef.current?.currentWidth ?? sidebarWidth)
       finishResizing(nextWidth)
     }
     window.addEventListener('resize', syncWidthToViewport)
     return () => window.removeEventListener('resize', syncWidthToViewport)
-  }, [finishResizing, isMobile, sidebarWidth])
+  }, [finishResizing, isMobile, sidebarWidth, sidebarOpen])
 
   useEffect(() => {
     if (!projectMenuId) return

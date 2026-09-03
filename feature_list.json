@@ -1,6 +1,22 @@
 {
   "features": [
     {
+      "id": "sidebar-collapse-zoom-width",
+      "name": "桌面侧栏收缩态避免 resize 恢复展开宽度",
+      "status": "done",
+      "approach": "ChatSidebar 的桌面 resize effect 增加 sidebarOpen 守卫，收缩或移动清理路径在无 finalWidth 时移除遗留 DOM 内联 width，保持展开拖拽、reset 与移动端语义不变；新增源码契约回归断言并同步 ChatSidebar wiki。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "tests/frontend/sidebar-section-order.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/sidebar-section-order.test.ts → 1 file / 20 tests 全过；npx eslint src/components/sidebar/ChatSidebar.tsx tests/frontend/sidebar-section-order.test.ts 0 error；npx tsc -b --pretty false 通过；npm run build 通过（仅既有 KaTeX 字体与 chunk size 警告）；git diff --check 通过；未 commit/tag/push，未修改生成产物。",
+      "boundaries": "不改变展开拖拽、reset、移动端行为；不新增依赖，不触碰 dist/package-dist/package-offline。"
+    },
+    {
       "id": "known-exception-i18n",
       "name": "已知代码异常文案国际化：展示层把 Request was aborted / AI stream 超时等已知英文异常映射为本地化文案",
       "status": "done",

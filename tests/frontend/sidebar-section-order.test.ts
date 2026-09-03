@@ -257,6 +257,15 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(sidebarSource).toContain('transform ? { ...transform, x: 0 } : null')
   })
 
+  it('does not restore a desktop collapsed width on viewport resize and clears stale inline width', () => {
+    const resizeEffect = sidebarSource.match(/useEffect\(\(\) => \{\s*if \(isMobile \|\| !sidebarOpen\)[\s\S]*?\}, \[finishResizing, isMobile, sidebarWidth, sidebarOpen\]\)/)?.[0] ?? ''
+    const finishResizeSource = sidebarSource.match(/const finishResizing = useCallback\(\(finalWidth\?: number\) => \{[\s\S]*?\n\s{2}\}, \[restoreResizeBodyStyle\]\)/)?.[0] ?? ''
+
+    expect(resizeEffect).toContain('if (isMobile || !sidebarOpen) return')
+    expect(resizeEffect).toContain('window.addEventListener(\'resize\', syncWidthToViewport)')
+    expect(finishResizeSource).toContain("asideRef.current?.style.removeProperty('width')")
+  })
+
   it('clamps the section drag preview to the visible sections boundary so it cannot drag unbounded', () => {
     expect(sidebarSource).toContain('const sectionsDragBoundaryRef = useRef<HTMLDivElement | null>(null)')
     expect(sidebarSource).toContain('ref={sectionsDragBoundaryRef}')

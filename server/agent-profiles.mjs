@@ -27,7 +27,7 @@ const BUILTIN_OVERRIDES_STORE = 'agent-profile-overrides'
 const RESERVED_NAMES = new Set(subagentDefinitions.map((definition) => definition.name))
 const allowedToolNames = new Set(AGENT_PROFILE_TOOL_NAMES)
 const nameRegex = /^[a-z][a-z0-9_-]{1,39}$/
-const DEFAULT_MAX_RUNTIME_MS = 60 * 60 * 1000
+const DEFAULT_MAX_RUNTIME_MS = 2 * 60 * 60 * 1000
 const DEFAULT_MAX_TOOL_CALLS = 300
 const MIGRATION_MARKER_FILE = path.join(userAgentsDir, '.custom-agents-migrated.json')
 let customAgentMigrationPromise = null

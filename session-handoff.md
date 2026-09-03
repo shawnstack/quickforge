@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 当前状态：subagent-timeout-structured-progress（已完成，未提交）
+
+- 目标：① 用户反馈「错误原因: Subagent general timed out after 60 minutes.」超时报错只有一行纯文本，要求报错时把 subagent 已完成工作结构化输出（父模型能大概知道做了什么）；② 子 Agent 默认超时改为 2 小时。
+- 实现：`server/agent-manager.mjs`——超时错误首句不变，其后追加 `Progress before timeout: N tool calls; still running: …; last assistant message: …`（工具计数、pending×消息交集的被中断工具名、lastAssistantText 截断 600 字符）；抛错前把与成功终态同构的 `quickforgeSubagentDetails`（含 `timedOut:true`、全量 messages）挂到 error；`wrapSubagentToolDefinition.execute` catch 后按 toolCallId 存入模块级 stash（即取即删 + 6h TTL）；主 Agent 构造点新增 `afterToolCall` 把 stash 注入错误 toolResult.details 持久化（前端 `details.timedOut→error` 既有判定生效，UI 零改动）。超时默认/上限：`SUBAGENT_DEFAULT_TIMEOUT_MS`/`SUBAGENT_MAX_TIMEOUT_MS` = 2 小时（两处 clamp），`server/subagents.mjs`（内置 explore/general + markdown 回落）、`server/agent-profiles.mjs`、`server/agent-profile-files.mjs` 默认值同步上调。Revision：父运行中止复用同一机制——`aborted with parent run.` 首句 + `Progress before abort:` 摘要，details 以 `aborted:true` 注入（用户停止后 toolResult 持久化、下一回合模型可见、刷新后 Inspector 保留 trace）；摘要分段抽为 subagentProgressSegments、终态 details 抽为 buildTerminalSubagentDetails 闭包共用。Revision 2：内层 catch 为所有未携带 details 的运行期失败（模型流错误等）统一挂同构 quickforgeSubagentDetails（无标记、错误正文保持上游原文以维持 stripTerminalErrorFromTrace 去重），修复"只要报错就看不到执行过程"；外层失败（prompt 前无进度）不挂。
+- 验证：Revision 2 复验 2 files / 106 tests 全过（新增通用失败用例与前端恢复契约；父中止用例锁定 aborted 正文/details/注入）；此前定向 5 files / 121 tests、回归 agent-manager.* 9 files / 31 tests + routes/agent 16 tests；eslint 0 error；node --check；`npm run build` 通过（仅既有 chunk 警告）。未跑全量 test/lint。
+- 文件：server/agent-manager.mjs、server/subagents.mjs、server/agent-profiles.mjs、server/agent-profile-files.mjs、tests/server/agent-manager.subagents.test.mjs、tests/frontend/subagent-run-detail.test.ts、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。边界：外层失败（模型解析/工具创建等 prompt 前）无进度不挂 details；旧持久化空 details 无法回溯补全；日志仍只记元数据；scheduled-tasks runtimeLimitMs 与 run_command 1h 为独立语义未动（见 progress Notes）；未 commit、未触碰生成产物。
+- 下一步：真机冒烟（超时后父 Agent 能转述部分进度、摘要卡错误原因显示进度、刷新后 Inspector 仍可见完整 trace）。
+
+---
+
 ## 当前状态：pinned-summary-draggable-capsule（普通任务置顶摘要一致性验收修订，needs-review，本次修订已提交）
 
 - 目标：修复普通 global 会话虽具备 `todo_write`，但基础提示词只在 `For project tasks:` 语境指导使用，导致普通任务置顶摘要不一致的问题；不让无内容入口常驻。

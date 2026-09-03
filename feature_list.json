@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "subagent-timeout-structured-progress",
+      "name": "Subagent 错误结构化输出：任意失败 toolResult 携带进度摘要与 details（超时/父中止/通用失败），默认超时上调 2 小时",
+      "status": "done",
+      "approach": "起因：用户反馈「Subagent general timed out after 60 minutes.」超时报错只有一行纯文本，父模型与刷新后的 Inspector 都不知道 subagent 做了什么；调研确认 pi-agent-core 对抛错 execute 只保留 error.message（details 为空对象），且 details 本身不进 LLM 上下文（omitDetailsForLlm），前端实时 SSE 路径虽有运行中快照回填但持久化 toolResult.details 为空、恢复后丢失。① 超时错误正文：agent-manager.mjs 保持既有首句「Subagent X timed out after N minutes.」不变，其后追加进度摘要「Progress before timeout: N tool calls; still running: toolA, toolB; last assistant message: …」——工具调用计数取 beforeToolCall 累计值，被中断工具由 pendingToolCalls(toolCallId 集合) × 消息历史 assistant toolCall 块求交集（与前端 currentSubagentToolSummaries 同一算法），最后一条 assistant 文本经 lastAssistantText 提取、压缩空白并截断 600 字符（SUBAGENT_TIMEOUT_LAST_MESSAGE_LIMIT），无对应内容时省略该分句。② details 注入：runSubagent 抛超时错误前把 quickforgeSubagentDetails（与成功终态同构：subagent/label/sessionId/parentSessionId/toolCallId/toolCalls/allowedTools/timeoutMs/source/lifecycle/profilePath/capabilityPolicy/model/durationMs/messages 全量/tools/pendingToolCalls，另加 timedOut:true）挂到 error 上；wrapSubagentToolDefinition.execute 捕获后按 toolCallId 存入模块级 stashedSubagentErrorDetails（即取即删、遗留条目 6 小时 TTL 兜底清理）；主 Agent 构造点新增 afterToolCall（仅 isError 且 toolName===run_subagent 时取回 stash，返回 { details } 合并），错误 toolResult 因此携带完整过程持久化，刷新/恢复后 Inspector 可见，前端 details.timedOut→error 判定既有逻辑直接生效，isError/置顶摘要 ✗/SSE 协议零变化。③ 默认超时 60 分钟 → 2 小时：SUBAGENT_DEFAULT_TIMEOUT_MS 与新增 SUBAGENT_MAX_TIMEOUT_MS（含临时 subagent prompt 内 clamp 与 runSubagent clamp 两处）同步 2 小时；内置 explore/general 的 maxRuntimeMs、subagents.mjs markdown 回落、agent-profiles.mjs / agent-profile-files.mjs 的 DEFAULT_MAX_RUNTIME_MS 一并上调，旧安装内置 markdown 由启动物化按全内容比对自动重写。定时任务 runtimeLimitMs（scheduled-tasks，非 subagent 语义）与 run_command 1 小时超时未动。（Revision：父运行中止复用同一机制——`Subagent X aborted with parent run.` 首句不变，其后追加 `Progress before abort:` 同构摘要，details 以 `aborted:true` 标记经同一 stash/afterToolCall 注入；用户停止后错误 toolResult 同样持久化，下一回合模型可见、刷新后 Inspector 保留 trace，前端 `details.aborted → error` 为既有判定；摘要分段构建抽为 subagentProgressSegments、终态 details 抽为 buildTerminalSubagentDetails 闭包供两分支共用。）（Revision 2：修复\"只要报错就看不到执行过程\"——内层 catch 为所有未携带 details 的运行期失败（模型流错误等）统一挂 quickforgeSubagentDetails（同构终态、不带标记），错误正文保持上游原文（前端 stripTerminalErrorFromTrace 依赖 errorMessage 与 trace 终态错误文本精确相等去重），刷新/恢复后 Inspector 的 trace 不再丢失；实时 SSE 路径的 previousPayload 合并兜底保留，错误 toolResult 现直接携带全量 details。）",
+      "files": [
+        "server/agent-manager.mjs",
+        "server/subagents.mjs",
+        "server/agent-profiles.mjs",
+        "server/agent-profile-files.mjs",
+        "tests/server/agent-manager.subagents.test.mjs",
+        "tests/frontend/subagent-run-detail.test.ts",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 5 files / 121 tests 全过（agent-manager.subagents 12 含改写超时用例与新增「有进度超时」用例：MockAgent hangAfterProgress 模式驱动 1 tool call/still running: read_file/last assistant message 断言 + error.quickforgeSubagentDetails + afterToolCall 注入/即取即删/非 run_subagent 早退；agent-profiles 4、agent-profile-files、subagents、subagent-run-detail 92 含新 2：timedOut details 注入后 status=error、trace 保留、errorSource=output 时不重复渲染 output 块、无 isError 时 details.timedOut 仍判 error）；回归 agent-manager.* 家族 9 files / 31 tests + routes/agent 16 tests 全过；eslint 6 个改动文件 0 error；node --check 4 个服务端模块通过。未跑全量 test/lint/build；未 commit。（Revision 复验：agent-manager.subagents 12 + subagent-run-detail 92 → 2 files / 104 tests 全过，父中止用例锁定新正文/quickforgeSubagentDetails.aborted/注入与即取即删；eslint 2 文件 0 error；node --check 通过。）（Revision 2 复验：agent-manager.subagents 13（新通用失败用例：MockAgent failAfterProgress 模式，正文不变/无标记/messages+pending 保留/注入与即取即删）+ subagent-run-detail 93（新通用错误恢复契约：无标记 details 下 status=error、trace 保留、output 去重）→ 2 files / 106 tests 全过；eslint 3 文件 0 error。）"
+    },
+    {
       "id": "browser-oom-first-aid",
       "name": "浏览器渲染进程 OOM 第一步止血：IndexedDbCache 去全量序列化/物化 + subagent 运行期 trace 截尾",
       "status": "done",

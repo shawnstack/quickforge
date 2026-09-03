@@ -104,10 +104,19 @@ function wrapSubagentToolDefinition(definition, parentSessionId) {
     execute: async (toolCallId, params, signal, onUpdate) => {
       const parentSession = agentSessions.get(parentSessionId)
       if (!parentSession) throw new Error('Parent session is no longer active.')
-      const result = await runSubagent(parentSession, toolCallId, params || {}, signal, onUpdate)
-      return {
-        content: [{ type: 'text', text: result.content }],
-        details: result.details,
+      try {
+        const result = await runSubagent(parentSession, toolCallId, params || {}, signal, onUpdate)
+        return {
+          content: [{ type: 'text', text: result.content }],
+          details: result.details,
+        }
+      } catch (error) {
+        // 超时等错误附带的 quickforgeSubagentDetails 由 afterToolCall 取回注入
+        // toolResult（pi-agent-core 对抛错 execute 只保留错误文本）。
+        if (error && typeof error === 'object' && error.quickforgeSubagentDetails) {
+          stashSubagentErrorDetails(toolCallId, error.quickforgeSubagentDetails)
+        }
+        throw error
       }
     },
   }
@@ -269,11 +278,16 @@ function hasFullAccess(session) {
 
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
 const ABORT_IDLE_WAIT_TIMEOUT_MS = 3000
-const SUBAGENT_DEFAULT_TIMEOUT_MS = 60 * 60 * 1000
+const SUBAGENT_DEFAULT_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours
+const SUBAGENT_MAX_TIMEOUT_MS = 2 * 60 * 60 * 1000
 const SUBAGENT_TRACE_THROTTLE_MS = 150
 // 运行期 trace update 的 details.messages 只携带最近 N 条消息（截尾），
 // 并附 messagesTotal 总条数；终态 toolResult.details.messages 保持全量。
 const SUBAGENT_TRACE_MESSAGES_LIMIT = 50
+// 超时错误正文中最后一条 assistant 文本的截断长度（半角字符）。
+const SUBAGENT_TIMEOUT_LAST_MESSAGE_LIMIT = 600
+// run_subagent 错误 details 暂存条目的兜底 TTL；正常路径 afterToolCall 即取走删除。
+const SUBAGENT_ERROR_DETAILS_STASH_TTL_MS = 6 * 60 * 60 * 1000
 
 /**
  * Create a Promise that only resolves when the user accepts or rejects the tool call.
@@ -1509,7 +1523,7 @@ model:
   modelId: ${frontmatterString(spec.model.modelId)}${spec.model.api ? `
   api: ${frontmatterString(spec.model.api)}` : ''}${spec.model.baseUrl ? `
   baseUrl: ${frontmatterString(spec.model.baseUrl)}` : ''}` : ''}
-max-runtime-ms: ${Math.max(1000, Math.min(Number(spec.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 60 * 60 * 1000))}
+max-runtime-ms: ${Math.max(1000, Math.min(Number(spec.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), SUBAGENT_MAX_TIMEOUT_MS))}
 max-tool-calls: ${Math.max(1, Math.min(Number(spec.maxToolCalls || 300), 300))}
 ---
 ${spec.systemPrompt}
@@ -1546,6 +1560,83 @@ function formatTimeoutMinutes(timeoutMs) {
   return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
 }
 
+/**
+ * 从 subagent 消息历史提取仍在 pendingToolCalls 中的工具名（与前端
+ * currentSubagentToolSummaries 相同的交集算法：assistant toolCall 块 × pending id），
+ * 按出现顺序去重返回，用于超时错误摘要中的「被中断时仍在执行」。
+ */
+function pendingSubagentToolNames(messages, pendingToolCalls) {
+  const pending = new Set(pendingToolCalls || [])
+  if (pending.size === 0) return []
+  const names = []
+  for (const message of messages) {
+    if (!message || message.role !== 'assistant' || !Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (!block || block.type !== 'toolCall' || !pending.has(block.id)) continue
+      pending.delete(block.id)
+      if (typeof block.name === 'string' && block.name && !names.includes(block.name)) names.push(block.name)
+    }
+    if (pending.size === 0) break
+  }
+  return names
+}
+
+/**
+ * 终止类错误正文的进度摘要分段：工具调用数、被中断时仍在执行的工具、
+ * 最后一条 assistant 文本（压缩空白并截断）。details 不进入 LLM 上下文
+ * （omitDetailsForLlm），父模型只能通过这段文字了解 subagent 被中止前
+ * 完成了什么、部分成果是否可用；超时与父运行中止共用。
+ */
+function subagentProgressSegments({ toolCalls, messages, pendingToolCalls }) {
+  const segments = [`${toolCalls} tool call${toolCalls === 1 ? '' : 's'}`]
+  const runningTools = pendingSubagentToolNames(messages, pendingToolCalls)
+  if (runningTools.length > 0) segments.push(`still running: ${runningTools.join(', ')}`)
+  const lastMessage = String(lastAssistantText(messages) || '').trim().replace(/\s+/g, ' ')
+  if (lastMessage) {
+    const truncated = lastMessage.length > SUBAGENT_TIMEOUT_LAST_MESSAGE_LIMIT
+      ? `${lastMessage.slice(0, SUBAGENT_TIMEOUT_LAST_MESSAGE_LIMIT)}…`
+      : lastMessage
+    segments.push(`last assistant message: ${truncated}`)
+  }
+  return segments
+}
+
+/** 超时错误正文：保持既有首句不变（兼容既有断言与用户认知），其后追加进度摘要。 */
+function buildSubagentTimeoutErrorMessage(name, timeoutMs, progress) {
+  return `Subagent ${name} timed out after ${formatTimeoutMinutes(timeoutMs)}. Progress before timeout: ${subagentProgressSegments(progress).join('; ')}.`
+}
+
+/** 父运行中止错误正文：首句保持既有文案，其后追加与超时同构的进度摘要。 */
+function buildSubagentAbortedErrorMessage(name, progress) {
+  return `Subagent ${name} aborted with parent run. Progress before abort: ${subagentProgressSegments(progress).join('; ')}.`
+}
+
+/**
+ * run_subagent 抛错时附带的结构化 details 暂存（toolCallId → { stashedAt, details }）。
+ * pi-agent-core 将抛错的 execute 收口为纯文本错误结果（details 为空对象），父 Agent
+ * 的 afterToolCall 从这里取回 details 注入 toolResult，使超时错误也携带完整过程
+ * （messages/toolCalls/pendingToolCalls 等）持久化并在 Inspector 中可见。正常路径
+ * afterToolCall 立即取走并删除；遗留条目仅按 TTL 兜底清理，防异常销毁泄漏。
+ */
+const stashedSubagentErrorDetails = new Map()
+
+function stashSubagentErrorDetails(toolCallId, details) {
+  if (typeof toolCallId !== 'string' || !toolCallId) return
+  const now = Date.now()
+  for (const [stashedId, entry] of stashedSubagentErrorDetails) {
+    if (now - entry.stashedAt > SUBAGENT_ERROR_DETAILS_STASH_TTL_MS) stashedSubagentErrorDetails.delete(stashedId)
+  }
+  stashedSubagentErrorDetails.set(toolCallId, { stashedAt: now, details })
+}
+
+function takeStashedSubagentErrorDetails(toolCallId) {
+  if (typeof toolCallId !== 'string') return undefined
+  const entry = stashedSubagentErrorDetails.get(toolCallId)
+  if (!entry) return undefined
+  stashedSubagentErrorDetails.delete(toolCallId)
+  return entry.details
+}
+
 async function runSubagent(parentSession, toolCallId, params, parentSignal, onUpdate) {
   const profile = await resolveSubagentProfile(parentSession, params?.subagent)
   if (!profile || !profile.enabledAsSubagent) {
@@ -1568,7 +1659,7 @@ async function runSubagent(parentSession, toolCallId, params, parentSignal, onUp
     throw new Error('No active model is configured for the parent session.')
   }
 
-  const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), 60 * 60 * 1000))
+  const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), SUBAGENT_MAX_TIMEOUT_MS))
   definition.capabilityPolicy ||= inferCapabilityPolicy(definition.allowedTools || [])
   definition.allowedTools = applyCapabilityPolicy(definition.allowedTools || [], definition.capabilityPolicy)
   const subagentSessionId = `${parentSession.sessionId}:subagent:${definition.name}:${randomUUID()}`
@@ -1675,6 +1766,30 @@ async function runSubagent(parentSession, toolCallId, params, parentSignal, onUp
       }, SUBAGENT_TRACE_THROTTLE_MS - elapsed)
     }
 
+    // 终止类错误（超时/父运行中止）共用的终态 details：与成功终态同构并附
+    // timedOut/aborted 标记，经 quickforgeSubagentDetails → stash →
+    // afterToolCall 注入错误 toolResult 持久化。
+    const buildTerminalSubagentDetails = (extra) => ({
+      subagent: definition.name,
+      label: definition.label,
+      sessionId: subagentSessionId,
+      parentSessionId: parentSession.sessionId,
+      toolCallId,
+      toolCalls,
+      allowedTools: definition.allowedTools,
+      timeoutMs,
+      source: definition.source,
+      lifecycle: definition.lifecycle,
+      profilePath: definition.filePath,
+      capabilityPolicy: definition.capabilityPolicy,
+      model: subagentModelInfo,
+      durationMs: Date.now() - startedAt,
+      messages: latestMessages,
+      tools: toolsForClient,
+      pendingToolCalls: latestPendingToolCalls,
+      ...extra,
+    })
+
     const systemPrompt = composeSubagentSystemPrompt({
       definition,
       parentSystemPrompt: parentSession.agent.state.systemPrompt,
@@ -1775,8 +1890,17 @@ async function runSubagent(parentSession, toolCallId, params, parentSignal, onUp
           })
         }
       }
-      if (timedOut) throw new Error(`Subagent ${definition.name} timed out after ${formatTimeoutMinutes(timeoutMs)}.`)
-      if (parentSignal?.aborted) throw new Error(`Subagent ${definition.name} aborted with parent run.`)
+      const terminalProgress = { toolCalls, messages: latestMessages, pendingToolCalls: latestPendingToolCalls }
+      if (timedOut) {
+        const timeoutError = new Error(buildSubagentTimeoutErrorMessage(definition.name, timeoutMs, terminalProgress))
+        timeoutError.quickforgeSubagentDetails = buildTerminalSubagentDetails({ timedOut: true })
+        throw timeoutError
+      }
+      if (parentSignal?.aborted) {
+        const abortedError = new Error(buildSubagentAbortedErrorMessage(definition.name, terminalProgress))
+        abortedError.quickforgeSubagentDetails = buildTerminalSubagentDetails({ aborted: true })
+        throw abortedError
+      }
 
       const content = lastAssistantText(subagent.state.messages) || `Subagent ${definition.name} completed without a text response.`
       logTerminalLifecycle('info', 'completed')
@@ -1802,6 +1926,13 @@ async function runSubagent(parentSession, toolCallId, params, parentSignal, onUp
         },
       }
     } catch (error) {
+      // 其余运行期失败（模型流错误等）统一附带终态 details：错误正文保持上游
+      // 原文（前端 stripTerminalErrorFromTrace 依赖 errorMessage 与 trace 终态
+      // 错误文本精确相等来去重），过程信息只进 details 供 toolResult 持久化与
+      // Inspector 恢复展示；不带 timedOut/aborted 标记，状态由 isError 驱动。
+      if (error && typeof error === 'object' && !error.quickforgeSubagentDetails) {
+        error.quickforgeSubagentDetails = buildTerminalSubagentDetails({})
+      }
       logTerminalLifecycle('warn', 'failed', {
         outcome: timedOut ? 'timeout' : parentSignal?.aborted ? 'parent_aborted' : 'error',
         errorName: error instanceof Error ? error.name : typeof error,
@@ -2164,6 +2295,11 @@ export async function createAgent(sessionId, config = {}) {
       restoreReasoningContentInPayload(payload, session?.lastTransformedContextMessages || agent.state.messages, agent.state.model)
     },
     transformContext: (messages, signal) => transformSessionContext(session, messages, signal),
+    afterToolCall: async ({ toolCall, isError }) => {
+      if (!isError || toolCall?.name !== 'run_subagent') return undefined
+      const details = takeStashedSubagentErrorDetails(toolCall?.id)
+      return details ? { details } : undefined
+    },
     beforeToolCall: async (context) => {
       const toolName = context.toolCall?.name
       const toolCallId = context.toolCall?.id

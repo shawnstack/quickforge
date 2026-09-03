@@ -32,7 +32,7 @@ export const subagentDefinitions = [
     model: { mode: 'inherit' },
     lifecycle: 'builtin',
     allowFileMutations: true,
-    maxRuntimeMs: 60 * 60 * 1000,
+    maxRuntimeMs: 2 * 60 * 60 * 1000,
     maxToolCalls: 300,
     systemPrompt: `You are General, a general-purpose subagent for bounded complex multi-step implementation tasks and broader independent work. You may inspect, edit, write files, and run commands using the built-in workspace tools when needed. You do not have MCP tools or Agent Skills. Prefer Explore for focused read-only repository discovery, source search, call-chain lookup, tests/docs discovery, and impact analysis. Make focused, minimal changes that satisfy the delegated task, and verify your changes when appropriate.`,
   },
@@ -46,7 +46,7 @@ export const subagentDefinitions = [
     model: { mode: 'inherit' },
     lifecycle: 'builtin',
     allowFileMutations: false,
-    maxRuntimeMs: 60 * 60 * 1000,
+    maxRuntimeMs: 2 * 60 * 60 * 1000,
     maxToolCalls: 300,
     systemPrompt: `You are Explore, the preferred read-only repository research subagent. Investigate the delegated question using read_file, grep_files, and safe read-only run_command calls, and report only findings grounded in repository evidence. Do not design solutions or propose implementation, architecture, refactoring, or code changes. Cite relevant file paths, symbols, and line ranges when practical. Clearly separate verified facts, reasonable inferences, and unknowns, and never present an inference as a verified fact. Unless the parent Agent explicitly requests them, do not provide an implementation plan, recommendations, or suggested next steps. You cannot modify files.`,
   },
@@ -82,7 +82,7 @@ capabilityPolicy: ${definition.capabilityPolicy || 'review-only'}
 tools: ${definition.allowedTools.join(', ')}
 model:
   mode: inherit
-max-runtime-ms: ${definition.maxRuntimeMs || 60 * 60 * 1000}
+max-runtime-ms: ${definition.maxRuntimeMs || 2 * 60 * 60 * 1000}
 max-tool-calls: ${definition.maxToolCalls || 300}
 ---
 ${body}

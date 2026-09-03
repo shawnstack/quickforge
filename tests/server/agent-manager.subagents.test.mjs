@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => {
 class MockAgent {
   static instances = []
   static hangPrompts = false
+  static hangAfterProgress = false
+  static failAfterProgress = false
   static failNextConstruction = false
   static promptStarted = null
   static resolvePromptStarted = null
@@ -23,6 +25,8 @@ class MockAgent {
     for (const instance of MockAgent.instances) instance.resolvePrompt?.()
     MockAgent.instances = []
     MockAgent.hangPrompts = false
+    MockAgent.hangAfterProgress = false
+    MockAgent.failAfterProgress = false
     MockAgent.failNextConstruction = false
     MockAgent.promptStarted = null
     MockAgent.resolvePromptStarted = null
@@ -30,9 +34,48 @@ class MockAgent {
 
   static configureHangingPrompts() {
     MockAgent.hangPrompts = true
+    MockAgent.hangAfterProgress = false
+    MockAgent.failAfterProgress = false
     MockAgent.promptStarted = new Promise((resolve) => {
       MockAgent.resolvePromptStarted = resolve
     })
+  }
+
+  // 挂起前先产生一条带文本 + 未完成 toolCall 的 assistant 消息并触发 beforeToolCall，
+  // 用于驱动超时错误摘要（toolCalls 计数 / still running / last assistant message）。
+  static configureHangingWithProgress() {
+    MockAgent.hangPrompts = true
+    MockAgent.hangAfterProgress = true
+    MockAgent.failAfterProgress = false
+    MockAgent.promptStarted = new Promise((resolve) => {
+      MockAgent.resolvePromptStarted = resolve
+    })
+  }
+
+  // 产生同样的进度后让 prompt 以受控错误 reject，驱动"通用运行期失败也应携带
+  // 终态 details（错误正文保持上游原文）"的用例。
+  static configureFailingAfterProgress() {
+    MockAgent.hangPrompts = false
+    MockAgent.hangAfterProgress = false
+    MockAgent.failAfterProgress = true
+    MockAgent.promptStarted = new Promise((resolve) => {
+      MockAgent.resolvePromptStarted = resolve
+    })
+  }
+
+  async pushProgress() {
+    await this.options.beforeToolCall?.({ toolCall: { id: 'sub-tool-1', name: 'read_file' }, args: { path: 'a.ts' } })
+    const assistant = {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'Inspecting repository structure so far' },
+        { type: 'toolCall', id: 'sub-tool-1', name: 'read_file', arguments: { path: 'a.ts' } },
+      ],
+      timestamp: Date.now(),
+    }
+    this.state.messages.push(assistant)
+    this.state.pendingToolCalls = new Set(['sub-tool-1'])
+    await this.emit({ type: 'message_end', message: assistant })
   }
 
   constructor(options = {}) {
@@ -73,7 +116,13 @@ class MockAgent {
         { signal: this.signal },
       )
     }
+    if (MockAgent.failAfterProgress) {
+      await this.pushProgress()
+      MockAgent.resolvePromptStarted?.(this)
+      throw new Error('controlled subagent stream failure')
+    }
     if (MockAgent.hangPrompts) {
+      if (MockAgent.hangAfterProgress) await this.pushProgress()
       MockAgent.resolvePromptStarted?.(this)
       return new Promise((resolve) => {
         this.resolvePrompt = resolve
@@ -187,7 +236,7 @@ describe('agent manager subagent execution', () => {
           subagentSessionId: result.details.sessionId,
           toolCallId: 'tool-call-1',
           subagent: 'explore',
-          timeoutMs: 60 * 60 * 1000,
+          timeoutMs: 2 * 60 * 60 * 1000,
         },
       })
       const lifecycle = [...mocks.logger.info.mock.calls, ...mocks.logger.warn.mock.calls]
@@ -200,7 +249,7 @@ describe('agent manager subagent execution', () => {
           subagentSessionId: result.details.sessionId,
           toolCallId: 'tool-call-1',
           subagent: 'explore',
-          timeoutMs: 60 * 60 * 1000,
+          timeoutMs: 2 * 60 * 60 * 1000,
           durationMs: expect.any(Number),
           toolCalls: 0,
         })
@@ -291,7 +340,7 @@ describe('agent manager subagent execution', () => {
         parentSessionId: session.sessionId,
         subagentSessionId: expect.stringContaining(`${session.sessionId}:subagent:explore:`),
         subagent: 'explore',
-        timeoutMs: 60 * 60 * 1000,
+        timeoutMs: 2 * 60 * 60 * 1000,
         outcome: 'error',
         errorName: 'TypeError',
       })
@@ -301,7 +350,7 @@ describe('agent manager subagent execution', () => {
     }
   })
 
-  it('aborts a hanging subagent and reports the real 60-minute timeout', async () => {
+  it('aborts a hanging subagent and reports the real 2-hour default timeout with structured progress', async () => {
     vi.useFakeTimers()
     MockAgent.configureHangingPrompts()
     const workspaceRoot = path.join(tmpDir, 'workspace')
@@ -318,18 +367,34 @@ describe('agent manager subagent execution', () => {
 
     try {
       const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
-      const resultPromise = runSubagent.execute(
+      const rejection = runSubagent.execute(
         'tool-call-timeout',
         { subagent: 'explore', task: 'Keep inspecting.' },
         new AbortController().signal,
-      )
-      const timeoutExpectation = expect(resultPromise).rejects.toThrow('Subagent explore timed out after 60 minutes.')
+      ).then(undefined, (error) => error)
       const subagent = await MockAgent.promptStarted
 
-      await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+      await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000)
 
-      await timeoutExpectation
+      const error = await rejection
+      expect(error).toBeInstanceOf(Error)
+      expect(error.message).toBe('Subagent explore timed out after 120 minutes. Progress before timeout: 0 tool calls.')
+      expect(error.quickforgeSubagentDetails).toMatchObject({
+        subagent: 'explore',
+        toolCallId: 'tool-call-timeout',
+        timedOut: true,
+        toolCalls: 0,
+        messages: [],
+      })
       expect(subagent.abortCount).toBe(1)
+
+      const afterToolCall = session.agent.options.afterToolCall
+      expect(typeof afterToolCall).toBe('function')
+      const injected = await afterToolCall({ toolCall: { id: 'tool-call-timeout', name: 'run_subagent' }, isError: true })
+      expect(injected).toEqual({ details: expect.objectContaining({ timedOut: true, subagent: 'explore' }) })
+      expect(await afterToolCall({ toolCall: { id: 'tool-call-timeout', name: 'run_subagent' }, isError: true })).toBeUndefined()
+      expect(await afterToolCall({ toolCall: { id: 'other-tool', name: 'read_file' }, isError: true })).toBeUndefined()
+
       const lifecycle = mocks.logger.warn.mock.calls
         .map(([, fields]) => fields)
         .filter((fields) => fields?.toolCallId === 'tool-call-timeout')
@@ -343,6 +408,55 @@ describe('agent manager subagent execution', () => {
         waitAfterAbortMs: expect.any(Number),
         outcome: 'resolved',
       })
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('summarizes subagent progress and injects terminal details when timing out mid-tool', async () => {
+    vi.useFakeTimers()
+    MockAgent.configureHangingWithProgress()
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('subagent-timeout-progress-workspace', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      const rejection = runSubagent.execute(
+        'tool-call-progress',
+        { subagent: 'explore', task: 'Inspect with progress.' },
+        new AbortController().signal,
+      ).then(undefined, (error) => error)
+      const subagent = await MockAgent.promptStarted
+
+      await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000)
+
+      const error = await rejection
+      expect(error.message).toBe(
+        'Subagent explore timed out after 120 minutes. Progress before timeout: 1 tool call; still running: read_file; last assistant message: Inspecting repository structure so far.',
+      )
+      expect(error.quickforgeSubagentDetails).toMatchObject({
+        subagent: 'explore',
+        toolCallId: 'tool-call-progress',
+        timedOut: true,
+        toolCalls: 1,
+      })
+      expect(error.quickforgeSubagentDetails.messages).toHaveLength(1)
+      expect([...error.quickforgeSubagentDetails.pendingToolCalls]).toEqual(['sub-tool-1'])
+      expect(subagent.abortCount).toBe(1)
+
+      const injected = await session.agent.options.afterToolCall({ toolCall: { id: 'tool-call-progress', name: 'run_subagent' }, isError: true })
+      expect(injected.details).toMatchObject({ timedOut: true, toolCalls: 1 })
+      expect(injected.details.messages).toHaveLength(1)
+      expect(injected.details.pendingToolCalls).toEqual(['sub-tool-1'])
     } finally {
       await destroyAgent(session.sessionId)
     }
@@ -404,6 +518,50 @@ describe('agent manager subagent execution', () => {
     }
   })
 
+  it('attaches terminal details to generic subagent failures without changing the upstream error message', async () => {
+    MockAgent.configureFailingAfterProgress()
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('subagent-generic-failure-workspace', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      const error = await runSubagent.execute(
+        'tool-call-generic-failure',
+        { subagent: 'explore', task: 'Inspect until failure.' },
+        new AbortController().signal,
+      ).then(undefined, (caught) => caught)
+
+      expect(error).toBeInstanceOf(Error)
+      // 错误正文保持上游原文：前端 stripTerminalErrorFromTrace 依赖 errorMessage
+      // 与 trace 终态错误文本精确相等来去重。
+      expect(error.message).toBe('controlled subagent stream failure')
+      expect(error.quickforgeSubagentDetails).toMatchObject({
+        subagent: 'explore',
+        toolCallId: 'tool-call-generic-failure',
+        toolCalls: 1,
+      })
+      expect(error.quickforgeSubagentDetails.timedOut).toBeUndefined()
+      expect(error.quickforgeSubagentDetails.aborted).toBeUndefined()
+      expect(error.quickforgeSubagentDetails.messages).toHaveLength(1)
+      expect(error.quickforgeSubagentDetails.pendingToolCalls).toEqual(['sub-tool-1'])
+
+      const injected = await session.agent.options.afterToolCall({ toolCall: { id: 'tool-call-generic-failure', name: 'run_subagent' }, isError: true })
+      expect(injected).toEqual({ details: expect.objectContaining({ subagent: 'explore', toolCalls: 1 }) })
+      expect(await session.agent.options.afterToolCall({ toolCall: { id: 'tool-call-generic-failure', name: 'run_subagent' }, isError: true })).toBeUndefined()
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
   it('aborts a hanging subagent with its parent run', async () => {
     MockAgent.configureHangingPrompts()
     const workspaceRoot = path.join(tmpDir, 'workspace')
@@ -426,12 +584,27 @@ describe('agent manager subagent execution', () => {
         { subagent: 'explore', task: 'Keep inspecting.' },
         parentController.signal,
       )
-      const abortExpectation = expect(resultPromise).rejects.toThrow('Subagent explore aborted with parent run.')
+      const rejection = resultPromise.then(undefined, (error) => error)
       const subagent = await MockAgent.promptStarted
 
       parentController.abort()
 
-      await abortExpectation
+      const error = await rejection
+      expect(error).toBeInstanceOf(Error)
+      expect(error.message).toBe('Subagent explore aborted with parent run. Progress before abort: 0 tool calls.')
+      expect(error.quickforgeSubagentDetails).toMatchObject({
+        subagent: 'explore',
+        toolCallId: 'tool-call-parent-abort',
+        aborted: true,
+        toolCalls: 0,
+        messages: [],
+      })
+      expect(error.quickforgeSubagentDetails.timedOut).toBeUndefined()
+
+      const injected = await session.agent.options.afterToolCall({ toolCall: { id: 'tool-call-parent-abort', name: 'run_subagent' }, isError: true })
+      expect(injected).toEqual({ details: expect.objectContaining({ aborted: true, subagent: 'explore' }) })
+      expect(await session.agent.options.afterToolCall({ toolCall: { id: 'tool-call-parent-abort', name: 'run_subagent' }, isError: true })).toBeUndefined()
+
       expect(subagent.abortCount).toBe(1)
       const lifecycle = mocks.logger.warn.mock.calls
         .map(([, fields]) => fields)

@@ -233,6 +233,87 @@ describe('subagent run detail payload', () => {
     expect(payload.status).toBe('running')
   })
 
+  it('treats a timed-out toolResult with injected details as an error run that keeps its trace', () => {
+    const timeoutText = 'Subagent explore timed out after 120 minutes. Progress before timeout: 12 tool calls; still running: read_file.'
+    const payload = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'Audit the repo' },
+      {
+        isError: true,
+        content: [{ type: 'text', text: timeoutText }],
+        details: {
+          subagent: 'explore',
+          toolCallId: 'call-7',
+          timedOut: true,
+          toolCalls: 12,
+          messages: [
+            { role: 'assistant', content: [{ type: 'text', text: 'Found the entry' }] },
+          ],
+          pendingToolCalls: ['tool-1'],
+        },
+      },
+      false,
+      'concise',
+      t,
+    )
+
+    expect(payload.canonicalToolCallId).toBe('call-7')
+    expect(payload.status).toBe('error')
+    expect(payload.statusLabel).toBe('Explore failed')
+    expect(payload.errorMessage).toBe(timeoutText)
+    expect(payload.errorSource).toBe('output')
+    expect(payload.traceMessages).toEqual([
+      { role: 'assistant', content: [{ type: 'text', text: 'Found the entry' }] },
+    ])
+    // 错误正文与 output 相同（errorSource=output）时不重复渲染 output 块。
+    expect(subagentRunBodyBlocks(payload)).toContain('error')
+    expect(subagentRunBodyBlocks(payload)).not.toContain('output')
+  })
+
+  it('maps details.timedOut to error even without the isError flag', () => {
+    const payload = buildSubagentRunPayload(
+      { subagent: 'general', task: 'T' },
+      { isError: false, content: [], details: { timedOut: true } },
+      false,
+      'concise',
+      t,
+    )
+    expect(payload.status).toBe('error')
+  })
+
+  it('keeps the trace for a generic error toolResult with injected details and no terminal flag', () => {
+    const failureText = 'AI stream idle timeout after 60000ms'
+    const payload = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'Audit the repo' },
+      {
+        isError: true,
+        content: [{ type: 'text', text: failureText }],
+        details: {
+          subagent: 'explore',
+          toolCallId: 'call-9',
+          toolCalls: 8,
+          messages: [
+            { role: 'assistant', content: [{ type: 'text', text: 'Halfway done' }] },
+          ],
+        },
+      },
+      false,
+      'concise',
+      t,
+    )
+
+    expect(payload.canonicalToolCallId).toBe('call-9')
+    expect(payload.status).toBe('error')
+    expect(payload.errorMessage).toBe(failureText)
+    expect(payload.errorSource).toBe('output')
+    expect(payload.traceMessages).toEqual([
+      { role: 'assistant', content: [{ type: 'text', text: 'Halfway done' }] },
+    ])
+    const blocks = subagentRunBodyBlocks(payload)
+    expect(blocks).toContain('trace')
+    expect(blocks).toContain('error')
+    expect(blocks).not.toContain('output')
+  })
+
   it('uses the final assistant stopReason as the current terminal state', () => {
     const terminalError = buildSubagentRunPayload(
       { subagent: 'explore', task: 'T' },

@@ -40,6 +40,9 @@ function getToastPresentation(status: BackgroundTaskStatus): ToastPresentation {
   return { tone: 'neutral', message: t('taskRunning') }
 }
 
+// Exit delay for the leave transition; matches the --quickforge-dur-exit token.
+const toastExitMs = 140
+
 function Toast({ toast, onDismiss, onClick }: ToastProps) {
   const [visible, setVisible] = useState(false)
   const [leaving, setLeaving] = useState(false)
@@ -53,7 +56,7 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
     // Auto-dismiss after 5s
     dismissTimerRef.current = window.setTimeout(() => {
       setLeaving(true)
-      dismissTimerRef.current = window.setTimeout(() => onDismiss(toast.id), 200)
+      dismissTimerRef.current = window.setTimeout(() => onDismiss(toast.id), toastExitMs)
     }, 5000)
 
     return () => {
@@ -65,7 +68,7 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
   const handleDismiss = () => {
     setLeaving(true)
     if (dismissTimerRef.current !== null) window.clearTimeout(dismissTimerRef.current)
-    dismissTimerRef.current = window.setTimeout(() => onDismiss(toast.id), 200)
+    dismissTimerRef.current = window.setTimeout(() => onDismiss(toast.id), toastExitMs)
   }
 
   const presentation = getToastPresentation(toast.status)
@@ -85,10 +88,10 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
       role="alert"
       onClick={() => onClick(toast.sessionId)}
       className={cn(
-        'pointer-events-auto flex w-80 cursor-pointer items-start gap-3 rounded-xl border border-border bg-background p-3 shadow-quickforge transition-all duration-200 ease-out',
+        'pointer-events-auto flex w-80 cursor-pointer items-start gap-3 rounded-xl border border-border bg-background p-3 shadow-quickforge transition-[translate,opacity] ease-(--quickforge-ease-out) motion-reduce:transition-none',
         visible && !leaving
-          ? 'translate-x-0 opacity-100'
-          : 'translate-x-4 opacity-0',
+          ? 'duration-(--quickforge-dur-base) translate-x-0 opacity-100'
+          : 'duration-(--quickforge-dur-exit) translate-x-4 opacity-0',
       )}
     >
       <div className="mt-0.5 shrink-0">

@@ -377,12 +377,12 @@ export function SkillsManagerPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="quickforge-dialog-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget && !saving) closePanel()
       }}
     >
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-quickforge">
+      <div className="quickforge-dialog-panel-in flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-background shadow-quickforge">
         <div className="quickforge-settings-toolbar">
           <div className="quickforge-settings-row-main">
             <div className="quickforge-settings-row-title">

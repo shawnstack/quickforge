@@ -84,8 +84,8 @@ export function GitGraphDialog({ projectId, projectName, onClose }: GitGraphDial
   const rows = useMemo(() => commits, [commits])
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm" onClick={(event) => event.target === event.currentTarget ? onClose() : undefined}>
-      <div className="flex h-[78vh] w-[86vw] max-w-[1500px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge">
+    <div className="quickforge-dialog-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm" onClick={(event) => event.target === event.currentTarget ? onClose() : undefined}>
+      <div className="quickforge-dialog-panel-in flex h-[78vh] w-[86vw] max-w-[1500px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge">
         <div className="flex h-14 shrink-0 items-center gap-3 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-5">
           <GitGraph className="size-5 text-muted-foreground" />
           <div className="min-w-0 flex-1">

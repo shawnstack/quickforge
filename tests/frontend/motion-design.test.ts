@@ -66,7 +66,68 @@ describe('motion design tokens and primitives', () => {
 
   it('guards all new animation primitives under prefers-reduced-motion', () => {
     const css = readSource('../../src/index.css')
-    const guardBlock = css.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.quickforge-dialog-backdrop-in,\s*\.quickforge-dialog-panel-in,\s*\.quickforge-sidebar-label-in \{\s*animation: none;/)
+    const guardBlock = css.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.quickforge-dialog-backdrop-in,\s*\.quickforge-dialog-panel-in,\s*\.quickforge-sidebar-label-in,\s*\.quickforge-menu-in,\s*\.quickforge-list-item-in \{\s*animation: none;/)
     expect(guardBlock).not.toBeNull()
+  })
+})
+
+describe('motion design batch 2', () => {
+  it('adds the exit duration token for enter/exit pairs', () => {
+    const css = readSource('../../src/index.css')
+    expect(css).toContain('--quickforge-dur-exit: 140ms;')
+  })
+
+  it('defines the menu-in primitive and wires both dropdown menus with trigger-corner origins', () => {
+    const css = readSource('../../src/index.css')
+    expect(css).toContain('.quickforge-menu-in {')
+    const menuKeyframes = css.slice(
+      css.indexOf('@keyframes quickforge-menu-in'),
+      css.indexOf('@keyframes quickforge-list-item-in'),
+    )
+    expect(menuKeyframes).toContain('scale(0.96) translateY(-4px)')
+
+    const branchMenu = readSource('../../src/components/git/GitBranchMenu.tsx')
+    expect(branchMenu).toContain("'quickforge-menu-in absolute left-0 top-10 z-40 w-[340px] origin-top-left")
+
+    const openMenu = readSource('../../src/components/project/ProjectOpenMenu.tsx')
+    expect(openMenu).toContain('quickforge-menu-in absolute right-0 top-10 z-50 w-52 origin-top-right')
+  })
+
+  it('reuses the dialog enter classes in the four large feature dialogs', () => {
+    const dialogs = [
+      '../../src/components/skills-dialog.tsx',
+      '../../src/components/git/GitGraphDialog.tsx',
+      '../../src/components/share/ShareConversationDialog.tsx',
+      '../../src/components/project-directory-picker.tsx',
+    ]
+    for (const path of dialogs) {
+      const source = readSource(path)
+      expect(source).toContain('quickforge-dialog-backdrop-in fixed inset-0 z-50')
+      expect(source).toContain('quickforge-dialog-panel-in flex')
+    }
+  })
+
+  it('retunes toast to translate/opacity only with token-driven enter and faster exit', () => {
+    const toast = readSource('../../src/components/ui/toast.tsx')
+    expect(toast).toContain('transition-[translate,opacity] ease-(--quickforge-ease-out) motion-reduce:transition-none')
+    expect(toast).toContain("'duration-(--quickforge-dur-base) translate-x-0 opacity-100'")
+    expect(toast).toContain("'duration-(--quickforge-dur-exit) translate-x-4 opacity-0'")
+    // JS unmount timeout matches the exit token.
+    expect(toast).toContain('const toastExitMs = 140')
+    expect(toast).not.toContain('transition-all duration-200')
+  })
+
+  it('fades newly mounted git-change rows in via the list-item primitive', () => {
+    const css = readSource('../../src/index.css')
+    expect(css).toContain('.quickforge-list-item-in {')
+    const changes = readSource('../../src/components/workspace/WorkspaceChangesList.tsx')
+    expect(changes).toContain("'quickforge-list-item-in group min-w-0 overflow-hidden'")
+  })
+
+  it('retunes all five sidebar session delete exits from 360ms to the exit token', () => {
+    const sidebar = readSource('../../src/components/sidebar/ChatSidebar.tsx')
+    expect(sidebar).toContain('const deleteSessionFadeMs = 140')
+    expect(sidebar).not.toContain('duration-[360ms]')
+    expect(sidebar.match(/duration-\(--quickforge-dur-exit\) ease-\(--quickforge-ease-out\)/g)).toHaveLength(10)
   })
 })

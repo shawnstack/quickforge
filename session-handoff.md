@@ -2,6 +2,16 @@
 
 > 归档说明（2026-09-04）：更早的 85 个条目已移至 docs/archive/session-handoff-archive.md；feature 条目对应归档在 docs/archive/feature-list-archive.json。
 
+## 当前状态：motion-design-batch-2（已完成，未提交）
+
+- 目标：动效第二批——大弹窗复用 / 菜单展开 / Toast 调优 / 列表项淡入 / 侧栏删除退出 retune（方案与交互演示见 design-review/motion-design-demo-batch2.html，用户已确认执行）。
+- 改动：四个大弹窗（skills-dialog / GitGraphDialog / ShareConversationDialog / project-directory-picker）挂 dialog-backdrop-in / panel-in；index.css 新增 `--quickforge-dur-exit: 140ms` + `quickforge-menu-in` / `quickforge-list-item-in` 原语（reduced-motion 守卫同步扩展）；GitBranchMenu / ProjectOpenMenu 挂 menu-in（origin-top-left/right）；ui/toast.tsx 改 `transition-[translate,opacity]` + 两分支 duration（base/exit）+ toastExitMs=140；WorkspaceChangesList 行挂 list-item-in；ChatSidebar 删除退出 deleteSessionFadeMs=140 且 5 处配对类 token 化；motion-design.test.ts 扩至 13 用例；DESIGN_LANGUAGE.md 动效章节补 exit token 与菜单/列表/toast 范式。
+- 验证：定向 vitest 3 files / 42 tests 全过；eslint 10 文件 0 error；tsc -b 通过；npm run build 通过（仅既有警告）；产物 CSS 抽查全部正确编译（exit token 压缩为 .14s 属正常归一化）。未跑全量，未 commit。
+- Blocker：无。
+- 下一步：真机冒烟（弹窗/菜单/toast/变更列表/删除退出 + reduced-motion）；如观感 OK 可与第一批一起随下次发布提交。
+
+---
+
 ## 当前状态：agent-manager-module-split（已完成，已提交）
 
 - 目标：把 server/agent-manager.mjs（4014 行上帝模块）按职责无损拆分，纯机械搬移、零行为变更，agent-manager 保留 facade re-export，消费方零改动。

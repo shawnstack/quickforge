@@ -98,7 +98,7 @@ export function GitBranchMenu({
   }, [onCreated, projectId, refresh])
 
   return (
-    <div className={cn('absolute left-0 top-10 z-40 w-[340px] overflow-hidden rounded-2xl border border-border bg-popover shadow-quickforge', className)} onClick={(event) => event.stopPropagation()}>
+    <div className={cn('quickforge-menu-in absolute left-0 top-10 z-40 w-[340px] origin-top-left overflow-hidden rounded-2xl border border-border bg-popover shadow-quickforge', className)} onClick={(event) => event.stopPropagation()}>
       <div className="border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] p-3">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />

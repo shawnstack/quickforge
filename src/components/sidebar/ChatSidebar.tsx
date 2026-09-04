@@ -151,7 +151,8 @@ const hourMs = 60 * minuteMs
 const dayMs = 24 * hourMs
 const weekMs = 7 * dayMs
 const yearMs = 365 * dayMs
-const deleteSessionFadeMs = 360
+// Session delete exit duration; matches the --quickforge-dur-exit motion token.
+const deleteSessionFadeMs = 140
 const sessionHoverTipDelayMs = 400
 const sessionTitleScrollDelayMs = 400
 const sessionTitleScrollSpeedPxPerSecond = 35
@@ -1058,7 +1059,7 @@ export const ChatSidebar = memo(function ChatSidebar({
       <div
         key={session.id}
         className={cn(
-          'grid transition-[grid-template-rows,opacity,transform] duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+          'grid transition-[grid-template-rows,opacity,transform] duration-(--quickforge-dur-exit) ease-(--quickforge-ease-out) motion-reduce:transition-none',
           deleting ? 'grid-rows-[0fr] -translate-x-1 opacity-0' : 'grid-rows-[1fr] translate-x-0 opacity-100',
         )}
       >
@@ -1067,7 +1068,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             className={cn(
               rowClass,
               selected ? activeRowClass : sessionInactiveRowClass,
-              deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+              deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-(--quickforge-dur-exit) ease-(--quickforge-ease-out) motion-reduce:transition-none',
             )}
             onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
             onClickCapture={() => hideSessionHoverTip(session.id)}
@@ -1418,7 +1419,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                 <div
                                   key={session.id}
                                   className={cn(
-                                    'grid transition-[grid-template-rows,opacity,transform] duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                    'grid transition-[grid-template-rows,opacity,transform] duration-(--quickforge-dur-exit) ease-(--quickforge-ease-out) motion-reduce:transition-none',
                                     deleting ? 'grid-rows-[0fr] -translate-x-1 opacity-0' : 'grid-rows-[1fr] translate-x-0 opacity-100',
                                   )}
                                 >
@@ -1427,7 +1428,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                       className={cn(
                                         rowClass,
                                         selected ? activeRowClass : sessionInactiveRowClass,
-                                        deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                        deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-(--quickforge-dur-exit) ease-(--quickforge-ease-out) motion-reduce:transition-none',
                                       )}
                                       onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
                                       onClickCapture={() => hideSessionHoverTip(session.id)}
@@ -1540,7 +1541,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                               {({ listeners, attributes }) => (
                                 <div
                                   className={cn(
-                                    'grid transition-[grid-template-rows,opacity,transform] duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                    'grid transition-[grid-template-rows,opacity,transform] duration-(--quickforge-dur-exit) ease-(--quickforge-ease-out) motion-reduce:transition-none',
                                     deleting ? 'grid-rows-[0fr] -translate-x-1 opacity-0' : 'grid-rows-[1fr] translate-x-0 opacity-100',
                                   )}
                                 >
@@ -1550,7 +1551,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   rowClass,
                                   active ? projectActiveRowClass : inactiveRowClass,
                                   menuOpen && 'z-20 overflow-visible',
-                                  deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                  deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-(--quickforge-dur-exit) ease-(--quickforge-ease-out) motion-reduce:transition-none',
                                 )}
                                 style={{ touchAction: 'none' }}
                                 {...listeners}
@@ -1620,7 +1621,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                             <div
                                               key={session.id}
                                               className={cn(
-                                                'grid transition-[grid-template-rows,opacity,transform] duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                                'grid transition-[grid-template-rows,opacity,transform] duration-(--quickforge-dur-exit) ease-(--quickforge-ease-out) motion-reduce:transition-none',
                                                 deleting ? 'grid-rows-[0fr] -translate-x-1 opacity-0' : 'grid-rows-[1fr] translate-x-0 opacity-100',
                                               )}
                                             >
@@ -1630,7 +1631,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                     rowClass,
                                                     'gap-1',
                                                     selected ? activeRowClass : sessionInactiveRowClass,
-                                                    deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                                    deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-(--quickforge-dur-exit) ease-(--quickforge-ease-out) motion-reduce:transition-none',
                                                   )}
                                                   onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
                                                   onClickCapture={() => hideSessionHoverTip(session.id)}
@@ -1777,7 +1778,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                           <div
                             key={session.id}
                             className={cn(
-                              'grid transition-[grid-template-rows,opacity,transform] duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                              'grid transition-[grid-template-rows,opacity,transform] duration-(--quickforge-dur-exit) ease-(--quickforge-ease-out) motion-reduce:transition-none',
                               deleting ? 'grid-rows-[0fr] -translate-x-1 opacity-0' : 'grid-rows-[1fr] translate-x-0 opacity-100',
                             )}
                           >
@@ -1786,7 +1787,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                 className={cn(
                                   rowClass,
                                   selected ? activeRowClass : sessionInactiveRowClass,
-                                  deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-[360ms] ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none',
+                                  deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-(--quickforge-dur-exit) ease-(--quickforge-ease-out) motion-reduce:transition-none',
                                 )}
                                 onMouseEnter={(event) => showSessionHoverTip(event, session.id)}
                                 onClickCapture={() => hideSessionHoverTip(session.id)}

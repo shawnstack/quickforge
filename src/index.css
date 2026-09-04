@@ -39,12 +39,14 @@
      - fast (120ms): color and icon feedback (hover, press).
      - base (180ms): overlays, dialog/menu enter, list item and label fades.
      - slow (280ms): conversation enter and large-area morphs.
+     - exit (140ms): leave states — always faster than the matching enter.
      Enter animations use --quickforge-ease-out; exits stay faster than enters.
      Long-running loops (tool-running sweep, shimmer, breathe) are exempt from
      the duration scale — they keep their own 1.2s–2s ease-in-out cycles. */
   --quickforge-dur-fast: 120ms;
   --quickforge-dur-base: 180ms;
   --quickforge-dur-slow: 280ms;
+  --quickforge-dur-exit: 140ms;
   --quickforge-ease-out: cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -565,10 +567,38 @@ body:has(.quickforge-conversation-loading) .quickforge-turn-navigation-tooltip {
   }
 }
 
+/* Dropdown menus grow from the trigger corner. The primitive animates only;
+   set the origin per menu with Tailwind `origin-top-left` / `origin-top-right`
+   matching its alignment. Close stays an instant unmount. */
+.quickforge-menu-in {
+  animation: quickforge-menu-in var(--quickforge-dur-base) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+}
+
+/* Newly mounted list rows (e.g. git changes) fade in without displacement —
+   rows sit inside overflow/hidden containers where translate would clip. */
+.quickforge-list-item-in {
+  animation: quickforge-list-item-in var(--quickforge-dur-base) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-list-item-in {
+  from {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .quickforge-dialog-backdrop-in,
   .quickforge-dialog-panel-in,
-  .quickforge-sidebar-label-in {
+  .quickforge-sidebar-label-in,
+  .quickforge-menu-in,
+  .quickforge-list-item-in {
     animation: none;
   }
 }

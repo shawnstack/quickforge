@@ -1,6 +1,32 @@
 {
   "features": [
     {
+      "id": "motion-design-batch-2",
+      "name": "动效统一第二批：大弹窗复用、菜单展开、Toast 调优、列表项淡入、侧栏删除退出 retune",
+      "status": "done",
+      "approach": "按用户确认的四步方案落地：① skills-dialog / GitGraphDialog / ShareConversationDialog / project-directory-picker 四个大弹窗复用第一批的 quickforge-dialog-backdrop-in / panel-in（同构接线，大弹窗不做更慢更炫的处理，GitGraph 的 backdrop-blur 随遮罩淡入）；② 新增 --quickforge-dur-exit: 140ms token（第一个真正 enter/exit 配对）与 quickforge-menu-in 原语（scale .96 + 上浮 4px，origin 由组件用 Tailwind origin-top-left/right 按对齐设置），接线 GitBranchMenu（三处调用点均为条件渲染，直接挂组件根节点，origin-top-left）与 ProjectOpenMenu（origin-top-right），关闭保持瞬时；③ ui/toast.tsx 调优：transition-all → transition-[translate,opacity]，enter/exit 时长分设在两分支类（base 180ms / exit 140ms，规避同类名 duration 的 CSS 顺序不确定性），JS 卸载超时 200ms → toastExitMs=140 常量对齐 token，加 motion-reduce:transition-none；④ 新增 quickforge-list-item-in（opacity 淡入，不位移避免 overflow 容器裁切）接线 WorkspaceChangesList 文件行（key 含 status，状态变化重挂载会重放淡入，属可接受轻微效果，不改 key 语义）；⑤ ChatSidebar 会话删除退出 360ms → exit token：deleteSessionFadeMs=140 + 5 处配对（外层 grid 收缩 + 内层行淡出）的 duration/ease 全部 token 化，机制不变仅提速。reduced-motion 守卫扩展覆盖 menu-in/list-item-in。交互演示 design-review/motion-design-demo-batch2.html。",
+      "files": [
+        "src/index.css",
+        "src/components/skills-dialog.tsx",
+        "src/components/git/GitGraphDialog.tsx",
+        "src/components/share/ShareConversationDialog.tsx",
+        "src/components/project-directory-picker.tsx",
+        "src/components/git/GitBranchMenu.tsx",
+        "src/components/project/ProjectOpenMenu.tsx",
+        "src/components/ui/toast.tsx",
+        "src/components/workspace/WorkspaceChangesList.tsx",
+        "src/components/sidebar/ChatSidebar.tsx",
+        "tests/frontend/motion-design.test.ts",
+        "DESIGN_LANGUAGE.md",
+        "design-review/motion-design-demo-batch2.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run motion-design + sidebar-section-order + project-directory-picker → 3 files / 42 tests 全过（motion-design 扩至 13 用例）；npx eslint 10 个改动文件 0 error；npx tsc -b 通过；npm run build 通过（仅既有 chunk size 警告）；产物 CSS 抽查确认 menu-in/list-item-in keyframes 与原语、exit token（压缩为 .14s）、toast 的 transition-property:translate,opacity 与 var(--quickforge-dur-exit) 均正确编译。未 commit/tag/push。",
+      "boundaries": "不新增依赖；菜单退出保持瞬时卸载（不引入延迟卸载）；不改 WorkspaceChangesList 的 key 语义；MobileServerConnectPage / ShareLinksSettingsPage 为路由页非弹窗不接线；toast 保留 setTimeout 状态机机制仅调优属性与时长。"
+    },
+    {
       "id": "agent-manager-module-split",
       "name": "agent-manager.mjs 上帝模块无损拆分（纯机械搬移，零行为变更）",
       "status": "done",

@@ -2,6 +2,16 @@
 
 > 归档说明（2026-09-04）：更早的 33 个条目已移至 docs/archive/progress-archive.md；feature 条目对应归档在 docs/archive/feature-list-archive.json。
 
+## Completed Feature：motion-design-batch-2（2026-09-04）
+
+- Feature: 动效统一第二批——大弹窗复用、菜单展开、Toast 调优、列表项淡入、侧栏删除退出 retune（motion-design-batch-2，**已完成**）
+- Status: done — 四步方案 + 可选第 5 项全部落地，源码、契约测试与 DESIGN_LANGUAGE.md 已同步；未 commit。
+- 实现：① skills/GitGraph/ShareConversation/project-directory-picker 四个大弹窗复用第一批 dialog-backdrop-in / panel-in；② 新增 `--quickforge-dur-exit: 140ms` token 与 `quickforge-menu-in` 原语（origin 由组件按对齐设置 origin-top-left/right），接线 GitBranchMenu（条件渲染确认无机制改动）与 ProjectOpenMenu；③ toast 调优：`transition-[translate,opacity]`、enter/exit 时长分设两分支类（180/140ms）、卸载超时对齐 token、加 motion-reduce 降级；④ `quickforge-list-item-in` 接线 WorkspaceChangesList（不改 key 语义，状态变化重放淡入属可接受）；⑤ 侧栏会话删除退出 360ms → 140ms（deleteSessionFadeMs 常量 + 5 处配对类全部 token 化，机制不变）。
+- 测试：motion-design.test.ts 扩至 13 用例（exit token、menu 原语+两处接线、四弹窗复用、toast 契约、列表项接线、5 处删除 retune）。
+- Verification: 定向 vitest 3 files / 42 tests 全过；eslint 10 文件 0 error；tsc -b 通过；npm run build 通过；产物 CSS 抽查（menu/list keyframes、exit token 压缩为 .14s、toast transition-property）确认。未跑全量 test/lint。
+- Boundaries: 菜单退出保持瞬时卸载；不改 ChangesList key；路由页（MobileServerConnect/ShareLinksSettings）不接线；无新依赖。
+- Next step: 真机冒烟——四个大弹窗落位、Git 分支菜单/项目打开菜单从触发角展开、后台任务 toast 进出节奏、git 变更列表新文件淡入、侧栏删除会话的快速退出、reduced-motion 全降级。
+
 ## Completed Feature：agent-manager-module-split（2026-09-04）
 
 - Feature: agent-manager.mjs 上帝模块无损拆分（agent-manager-module-split，**done**）——纯机械搬移，零行为变更。

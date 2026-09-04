@@ -97,7 +97,7 @@ export function WorkspaceChangesList({
               return (
                 <div
                   key={`${file.status}:${file.oldPath ?? ''}:${file.path}`}
-                  className={cn('group min-w-0 overflow-hidden', isSelected && 'rounded-xl bg-muted/30')}
+                  className={cn('quickforge-list-item-in group min-w-0 overflow-hidden', isSelected && 'rounded-xl bg-muted/30')}
                 >
                   <div
                     className={cn(

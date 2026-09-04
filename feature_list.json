@@ -1,6 +1,22 @@
 {
   "features": [
     {
+      "id": "desktop-memory-session-idle-eviction",
+      "name": "桌面端内存排查：修复会话永不淘汰（SSE keepAlive 重置闲置计时器）",
+      "status": "done",
+      "approach": "排查桌面端内存暴涨卡死：会话级 SSE keepAlive 每 15s touchSession 重置 10 分钟闲置计时器，前端全局 SSE 常开导致打开过的所有会话连同全量消息历史永久驻留内嵌主进程堆。移除 keepAlive 内 touchSession（connect 单次 arm 保留）。安全性：数据路由与 runPrompt→syncSessionFromStorage 均自动 restore 被淘汰会话；running 会话闲置计时器自动续命；sseConnected 随 session 对象销毁无 409 死锁；前端只用全局流 /api/agents/events（模块级 emitter，不受销毁/恢复影响），会话级 /stream 端点无消费方。其余内存问题候选（渲染端窗口化禁用、装饰全量扫描、desktop inline、SSE 背压等）记录在 progress.md Notes 未处理。 Revision：前端空闲会话副本缓存清零——MAX_IDLE_AGENT_TASKS 5→0（taskMap 仅保留当前会话 + 后台 running/streaming 任务，切走的空闲会话立即销毁、切回走服务端 restore），startDeferredSession 视图切换后补 pruneIdleTasks(undefined) 堵住滞留口子；渲染端驻留副本 ~7 → 当前 + 后台运行数。",
+      "files": [
+        "server/routes/agent.mjs",
+        "progress.md",
+        "session-handoff.md",
+        "src/lib/agent-task-retention.ts",
+        "src/hooks/useAgentManager.ts",
+        "tests/frontend/agent-task-retention.test.ts"
+      ],
+      "verification": "定向 Vitest tests/server/routes 24 files / 183 tests（含 agent.test.mjs）+ agent-manager.abort / acp.server.prompt-cleanup / agent-manager-exports-contract 全过；eslint server/routes/agent.mjs 0 error；未跑全量 test/lint/build。 Revision 复验：定向 vitest 5 files / 26 tests 全过；eslint 3 文件 0 error；tsc -b；build ✓（仅既有警告）。",
+      "boundaries": "单文件最小改动；销毁不丢数据（历史在 SQLite，下次访问自动 restore）；未修改 dist/package-dist/package-offline 生成产物；未新增依赖；未 commit/tag/push；docs/wiki 未更新（内部行为修复，不涉及架构/职责/公共入口/发布流程）。"
+    },
+    {
       "id": "subagent-capability-inheritance",
       "name": "Subagent MCP 与 Agent Skills Profile 开关及父工具集交集继承",
       "status": "done",

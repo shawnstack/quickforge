@@ -1,5 +1,15 @@
 # Progress
 
+## Completed Feature：desktop-memory-session-idle-eviction（2026-09-05）
+
+- Feature: 桌面端内存暴涨排查 + 修复会话永不淘汰问题（desktop-memory-session-idle-eviction，**已完成**）。
+- Status: done — 用户报告桌面端「内存爆炸卡死」。三轮只读调研（渲染端 / 服务端 / Electron 主进程）+ 关键点人工核实，结论：①根因之一为会话级 SSE keepAlive 每 15s `touchSession` 重置 10 分钟闲置计时器（agent.mjs），前端全局 SSE 常开导致本次运行打开过的所有会话连同全量消息历史永久驻留内嵌主进程堆；②其余主要问题见下方 Notes（渲染端窗口化禁用、装饰全量扫描、进程内嵌等，未在本条处理）。
+- 实现：`server/routes/agent.mjs` keepAlive 心跳移除 `touchSession(sessionId)`（connect 时单次 arm 保留，与 restoreAgent 行为一致），并补注释说明心跳不得重置闲置计时的约束。删除安全性已核实：数据路由（state/messages/status/HEAD）与 `runPrompt`→`syncSessionFromStorage` 均自动 restore 被闲置销毁的会话（销毁不丢数据，历史在 SQLite）；闲置计时器对 running 会话自动续命（agent-manager.mjs:411-416）；`sseConnected` 挂在 session 对象上，销毁后无 409 死锁；前端实际只用全局流 `/api/agents/events`（server-agent.ts:208，挂模块级 emitter，不受销毁/恢复影响），会话级 `/stream` 端点在 src/、android/ 无消费方；`8e75c78` 引入该 touch 时前端尚用会话级流，现已不适用。
+- Verification: 定向 vitest `tests/server/routes`（24 files / 183 tests，含 agent.test.mjs）+ agent-manager.abort / acp.prompt-cleanup / exports-contract 全过；eslint server/routes/agent.mjs 0 error。
+- Boundaries: 单文件最小改动；未动 `dist/` 等生成产物；未 commit/tag/push。docs/wiki 无需更新（内部行为修复，不涉及架构/职责/公共入口/发布流程）。
+- Next step: 无 blocker；后续候选见 Notes（渲染端窗口化恢复、装饰增量化、desktop fork 隔离、SSE 背压）。
+- Revision（前端空闲会话副本缓存清零）：用户决策「不要存 7 个副本」——`agent-task-retention.ts` `MAX_IDLE_AGENT_TASKS` 5→0：taskMap 仅作为活动注册表（当前会话 + 后台 running/streaming 任务），切走的空闲会话立即销毁、切回走服务端 restore（网络往返换内存）；`useAgentManager.ts` `startDeferredSession` 视图切换后补 `pruneIdleTasks(undefined)`，堵住「新建空白会话后上一个空闲会话滞留到下次事件」的口子（running/streaming 不受影响，后台运行/完成 toast/状态角标/隧道恢复同步等 taskMap 消费方均兼容）。渲染端驻留副本 ~7 → 当前 + 后台运行数。新增契约用例 `MAX_IDLE_AGENT_TASKS === 0`。验证：定向 vitest 5 files / 26 tests 全过；eslint 3 文件 0 error；tsc -b；build ✓（仅既有警告）。
+
 ## Completed Feature：subagent-capability-inheritance（2026-09-04）
 
 - Feature: Subagent MCP 与 Agent Skills Profile 开关及父工具集交集继承（**已完成**）。
@@ -30,6 +40,7 @@
 
 ## Notes
 
+- 桌面端内存排查（2026-09-05）遗留候选，按收益排序：①渲染端消息窗口化被 `ChatPanelHost.tsx:600` `{enabled:false}` 整体禁用（commit 32be493 为 turn-navigation 关闭），长会话全量 DOM 常驻 + 流式期每 rAF 全量装饰扫描（message-actions.ts querySelectorAll 全面板、artifacts key 全量构建）→ 卡死主因；恢复窗口化或装饰增量化（code-blocks.ts:574-588 command 块已有指纹跳过模式可参照；mermaid/SVG 块每帧 atob+哈希未跳过）。②desktop 默认 inline 内嵌 server 于主进程（electron-main.mjs:519），server 同步 SQLite 大事务（agent-persistence 每次全量序列化会话消息）与 GC 停顿直接冻结窗口/托盘；fork 模式路径已存在（QUICKFORGE_DESKTOP_INLINE=0，stdio ignore）。③SSE 无背压（res.write 返回值未检查，慢客户端无界缓冲）+ message_update 每次携带全量 partial。④storage 路由 keys/has/index 触发 exportSnapshot 全库物化（session-state-repository.mjs:723-745）。⑤ACP 会话 idleRetention:'always'（acp/server.mjs:656）+ 渠道进程 taskkill 强杀 → 旧 ACP 会话无界驻留。⑥pdfjs loadingTask 卸载竞态泄漏（WorkspaceDocumentContent.tsx:116-133）、xlsx 全 sheet 物化。
 - 已修复测试基础设施问题：`tests/frontend/local-tool-running-sweep.test.ts` 的 CSS `ruleFor` 正则此前会把规则上方注释 glue 进 selector 文本，导致 `.quickforge-tool-running-sweep` 误报缺失；现参考 `chat-compact-controls.test.ts` 先剥离 CSS 注释，定向测试 6/6 通过。
 
 ## Completed Feature：sidebar-pin-hover-alignment（2026-09-04）

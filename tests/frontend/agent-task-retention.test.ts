@@ -28,6 +28,10 @@ function createTask(
 }
 
 describe('agent task retention', () => {
+  it('retains no idle session copies by default (renderer memory contract)', () => {
+    expect(MAX_IDLE_AGENT_TASKS).toBe(0)
+  })
+
   it('keeps the current session and running background tasks', () => {
     const tasks = [
       createTask('current', 'idle', 1),

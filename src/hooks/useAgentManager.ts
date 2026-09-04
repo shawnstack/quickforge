@@ -459,8 +459,11 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     const url = new URL(window.location.href)
     url.searchParams.delete('session')
     window.history.replaceState({}, '', url)
+    // 切到空白新会话后立刻回收上一个空闲会话（running/streaming 的照旧保留），
+    // 否则它会滞留在 taskMap 里直到下一次 create/load 事件。
+    pruneIdleTasks(undefined)
     return deferredAgent
-  }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, loadCloudModels, storageRef, agentAccessModeRef])
+  }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, loadCloudModels, pruneIdleTasks, storageRef, agentAccessModeRef])
 
   const applyDefaultHarnessToBlankSession = useCallback(async (harness?: AgentHarness) => {
     const currentAgent = agentRef.current

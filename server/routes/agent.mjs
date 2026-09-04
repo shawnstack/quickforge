@@ -536,7 +536,8 @@ async function handleStream(req, res, sessionId) {
   }
   sseAcquired = true
 
-  // Reset idle timer — active SSE connection keeps session alive
+  // Arm the idle timer once on connect (identical to what restore already
+  // does); ongoing keep-alive pings above intentionally do not re-arm it.
   touchSession(sessionId)
 
   // Set SSE headers
@@ -561,11 +562,13 @@ async function handleStream(req, res, sessionId) {
     }
   }
 
-  // Keep-alive ping every 15 seconds — also resets idle timer
+  // Keep-alive ping every 15 seconds. The ping itself must NOT touch the
+  // session: re-arming the idle timer here would pin every session a client
+  // ever opened (with its full message history) in memory for the lifetime
+  // of the app. Evicted sessions transparently restore on the next request.
   const keepAlive = setInterval(() => {
     try {
       res.write(': ping\n\n')
-      touchSession(sessionId)
     } catch (error) {
       logFailure('keepalive_write_failed', error)
       cleanup()

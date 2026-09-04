@@ -1,5 +1,18 @@
 # Session Handoff
 
+## 当前状态：desktop-memory-session-idle-eviction（已完成，未提交）
+
+- 目标：用户报告桌面端「内存爆炸卡死」，全链路排查并修复第一根因（会话永不淘汰）。
+- 排查结论：①会话级 SSE keepAlive 每 15s `touchSession` 重置 10 分钟闲置计时器，前端全局 SSE 常开 → 本次运行打开过的所有会话连同全量消息历史永久驻留内嵌主进程堆（本条已修复）；②渲染端消息窗口化被 `ChatPanelHost.tsx:600` `{enabled:false}` 禁用 + 流式期每 rAF 全量装饰扫描 → 长会话卡死主因（未处理，见 progress.md Notes）；③desktop inline 内嵌 server、SSE 无背压、storage 全库物化、ACP idleRetention:'always'、pdfjs/xlsx 预览问题等候选（未处理）。
+- 实现：`server/routes/agent.mjs` keepAlive 心跳移除 `touchSession(sessionId)`（connect 单次 arm 保留）。删除安全性已核实：数据路由与 runPrompt→syncSessionFromStorage 均自动 restore；running 会话闲置计时器自动续命；sseConnected 随 session 对象销毁无 409 死锁；前端只用全局流 `/api/agents/events`（模块级 emitter 不受销毁/恢复影响），会话级 `/stream` 无消费方；`8e75c78` 引入该 touch 时前端尚用会话级流，现已不适用。
+- 验证：定向 vitest `tests/server/routes` 24 files / 183 tests（含 agent.test.mjs）+ agent-manager.abort / acp.prompt-cleanup / exports-contract 全过；eslint server/routes/agent.mjs 0 error。
+- 文件：server/routes/agent.mjs、progress.md、session-handoff.md。
+- Revision（前端空闲副本清零）：`agent-task-retention.ts` MAX_IDLE_AGENT_TASKS 5→0 + `useAgentManager.ts` startDeferredSession 视图切换后补 pruneIdleTasks(undefined)。taskMap 仅剩当前会话 + 后台 running/streaming 任务；切回空闲会话走服务端 restore（比内存缓存多一个网络往返，用户决策以内存优先）。验证：定向 vitest 5 files / 26 tests、eslint 3 文件、tsc -b、build 全过。
+- Blocker：无。边界：销毁不丢数据（历史在 SQLite，下次访问自动 restore）；未 commit/tag/push；未跑全量 test/lint/build。
+- 下一步：可选真机验证（开多个长会话后放 10 分钟，观察主进程内存回落；再对被淘汰会话发消息确认无感恢复；来回切换会话确认切回路径正常）；后续候选按 progress.md Notes 顺序（渲染端窗口化/装饰增量化、desktop fork 隔离、SSE 背压等）。
+
+---
+
 ## 当前状态：subagent-capability-inheritance（已完成，未提交）
 
 - 目标：在 Subagent Profile 设置中增加“允许使用 MCP 工具”和“允许使用 Agent Skills”两个开关；开启后子 Agent 继承主 Agent 当前实际工具集中的对应能力，默认关闭。

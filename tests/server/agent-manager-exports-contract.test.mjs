@@ -57,7 +57,6 @@ const EXPECTED_EXPORTS = [
 // 内部共享导出（拆分期间临时暴露给被抽出模块使用，随对应块迁移后收回）。
 // 增删任何内部共享导出都必须显式更新本清单并说明理由。
 const INTERNAL_SHARED_EXPORTS = [
-  'persistSession', // agent-compaction 使用；persistence 块迁移后收回
   'resetIdleTimer', // agent-compaction 使用
   'createServerTools', // agent-subagent-runner 使用；工具构建块迁移后收回
 ]

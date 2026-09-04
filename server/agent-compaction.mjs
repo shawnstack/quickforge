@@ -27,7 +27,8 @@ import {
 import { generateAiTitle } from './session-utils.mjs'
 // createAgent/persistSession/resetIdleTimer 属会话生命周期编排，仍由 agent-manager.mjs
 // 提供（函数作用域引用，ESM live binding 安全）。
-import { createAgent, persistSession, resetIdleTimer } from './agent-manager.mjs'
+import { createAgent, resetIdleTimer } from './agent-manager.mjs'
+import { persistSession } from './agent-persistence.mjs'
 
 export function resetSessionCompaction(session) {
   session.contextCompaction = null

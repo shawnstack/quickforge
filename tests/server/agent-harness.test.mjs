@@ -41,13 +41,16 @@ describe('agent Harness selection', () => {
   })
 
   it('persists only the OpenCode usage snapshot and restores it through the create path', async () => {
-    const source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../../server/agent-manager.mjs', import.meta.url), 'utf8'))
+    // 持久化快照构建已随模块拆分逐字符迁至 agent-persistence.mjs（行为不变），
+    // 恢复路径（createAgent）仍在 agent-manager.mjs。
+    const source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../../server/agent-persistence.mjs', import.meta.url), 'utf8'))
+    const managerSource = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../../server/agent-manager.mjs', import.meta.url), 'utf8'))
     // openCodeUsage is the only acpSession-derived field written to session data.
     expect(source).toContain("openCodeUsage: harness === AGENT_HARNESS_OPENCODE && agent.state.acpSession?.usage ? agent.state.acpSession.usage : undefined")
-    expect(source).toContain('openCodeUsage: sessionData.openCodeUsage || null')
+    expect(managerSource).toContain('openCodeUsage: sessionData.openCodeUsage || null')
     // Dynamic config/modes are runtime-authoritative and never persisted.
-    expect(source).not.toContain('acpSession: sessionData.acpSession')
-    expect(source).toContain('restoredUsage: openCodeUsage')
+    expect(`${source}\n${managerSource}`).not.toContain('acpSession: sessionData.acpSession')
+    expect(managerSource).toContain('restoredUsage: openCodeUsage')
   })
 
   it('forks the whole OpenCode session with sourceHarnessSessionId and persists immediately', async () => {

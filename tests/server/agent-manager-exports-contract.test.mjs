@@ -54,19 +54,26 @@ const EXPECTED_EXPORTS = [
   'validateAgentHarness',
 ]
 
+// 内部共享导出（拆分期间临时暴露给被抽出模块使用，随对应块迁移后收回）。
+// 增删任何内部共享导出都必须显式更新本清单并说明理由。
+const INTERNAL_SHARED_EXPORTS = [
+  'persistSession', // agent-compaction 使用；persistence 块迁移后收回
+  'resetIdleTimer', // agent-compaction 使用
+]
+
 describe('agent-manager export contract (module split safety net)', () => {
   it('exports exactly the expected symbol set', () => {
-    expect(Object.keys(agentManager).sort()).toEqual(EXPECTED_EXPORTS)
+    expect(Object.keys(agentManager).sort()).toEqual([...EXPECTED_EXPORTS, ...INTERNAL_SHARED_EXPORTS].sort())
   })
 
   it('exports functions/event emitter values, not undefined', () => {
-    for (const name of EXPECTED_EXPORTS) {
+    for (const name of [...EXPECTED_EXPORTS, ...INTERNAL_SHARED_EXPORTS]) {
       expect(agentManager[name], `export ${name} must be defined`).toBeDefined()
     }
   })
 
   it('public API entry points remain callable functions', () => {
-    const functionExports = EXPECTED_EXPORTS.filter((name) => name !== 'agentEvents')
+    const functionExports = [...EXPECTED_EXPORTS, ...INTERNAL_SHARED_EXPORTS].filter((name) => name !== 'agentEvents')
     for (const name of functionExports) {
       expect(typeof agentManager[name], `export ${name} must be a function`).toBe('function')
     }

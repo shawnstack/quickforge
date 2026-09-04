@@ -37,18 +37,11 @@ import { getGlobalMemoryRevision, isGlobalMemoryEnabled } from './global-memory.
 import { buildSystemPrompt, generateAiTitle, generateTitle } from './session-utils.mjs'
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
 import {
-  compactConversation,
-  compactionMessageDetails,
   isCompactSummaryMessage,
-  parseCompactArgs,
-  saveCompactBackup,
 } from './conversation-compaction.mjs'
 import {
   buildAutoCompactLoopMessages,
-  compactSessionInPlace,
-  DEFAULT_AUTO_COMPACT_SETTINGS,
   maybeAutoCompactSession,
-  readAutoCompactSettings,
 } from './auto-compaction.mjs'
 import {
   formatAgentCommandPrompt,
@@ -98,6 +91,20 @@ import {
   stashSubagentErrorDetails,
   takeStashedSubagentErrorDetails,
 } from './agent-session-store.mjs'
+
+export { normalizeAgentHarness, validateAgentHarness } from './agent-harness.mjs'
+import { resetSessionCompaction, summarySession, compactSession, clearSession } from './agent-compaction.mjs'
+import {
+  AGENT_ACCESS_MODE_DEFAULT,
+  AGENT_ACCESS_MODE_FULL_ACCESS,
+  AGENT_HARNESS_QUICKFORGE,
+  AGENT_HARNESS_OPENCODE,
+  normalizeAgentHarness,
+  normalizeAccessMode,
+  yoloModeFromAccessMode,
+  hasFullAccess,
+} from './agent-harness.mjs'
+
 import {
   agentEvents,
   emitSessionEvent,
@@ -110,9 +117,6 @@ import {
   appendAssistantErrorMessageOnce,
   markLatestAssistantProcessFinished,
   assistantTextMessage,
-  userTextMessage,
-  compactedSessionTitle,
-  estimateTokenReduction,
 } from './agent-session-events.mjs'
 
 export {
@@ -263,43 +267,8 @@ async function rebuildSessionTools(session) {
 // Agent Manager
 // ---------------------------------------------------------------------------
 
-const AGENT_ACCESS_MODE_DEFAULT = 'default'
-const AGENT_ACCESS_MODE_FULL_ACCESS = 'full-access'
-const AGENT_HARNESS_QUICKFORGE = 'quickforge'
-const AGENT_HARNESS_OPENCODE = 'opencode'
-
-export function normalizeAgentHarness(value, fallback = AGENT_HARNESS_QUICKFORGE) {
-  if (value === AGENT_HARNESS_QUICKFORGE || value === AGENT_HARNESS_OPENCODE) return value
-  if (fallback !== value) return normalizeAgentHarness(fallback, AGENT_HARNESS_QUICKFORGE)
-  return AGENT_HARNESS_QUICKFORGE
-}
-
-export function validateAgentHarness(value) {
-  if (value === undefined || value === null || value === '') return AGENT_HARNESS_QUICKFORGE
-  if (value === 'claude-code') {
-    throw Object.assign(new Error('Claude Code Harness is not available yet.'), { statusCode: 400 })
-  }
-  if (value !== AGENT_HARNESS_QUICKFORGE && value !== AGENT_HARNESS_OPENCODE) {
-    throw Object.assign(new Error(`Unsupported Harness: ${value}`), { statusCode: 400 })
-  }
-  return value
-}
-
-function normalizeAccessMode(value, fallback = AGENT_ACCESS_MODE_DEFAULT) {
-  if (value === AGENT_ACCESS_MODE_DEFAULT || value === AGENT_ACCESS_MODE_FULL_ACCESS) return value
-  if (value === true || value === 'true') return AGENT_ACCESS_MODE_FULL_ACCESS
-  if (value === false || value === 'false') return AGENT_ACCESS_MODE_DEFAULT
-  if (fallback !== value) return normalizeAccessMode(fallback, AGENT_ACCESS_MODE_DEFAULT)
-  return AGENT_ACCESS_MODE_DEFAULT
-}
-
-function yoloModeFromAccessMode(accessMode) {
-  return normalizeAccessMode(accessMode) === AGENT_ACCESS_MODE_FULL_ACCESS
-}
-
-function hasFullAccess(session) {
-  return normalizeAccessMode(session?.accessMode, session?.yoloMode) === AGENT_ACCESS_MODE_FULL_ACCESS
-}
+// Harness/访问模式常量与归一化 helper 已迁至 agent-harness.mjs
+// /summary、/compact、/clear 会话压缩业务已迁至 agent-compaction.mjs
 
 /** @typedef {{ agent: Agent, projectContext: object|null, projectId: string|null, accessMode: string, yoloMode: boolean, model: object, thinkingLevel: string, scope: string, title: string, createdAt: string, status: string, startedAt: string|null, finishedAt: string|null, listeners: Set<function>, idleTimer: NodeJS.Timeout|null, eventBus: EventEmitter }} AgentSession */
 
@@ -616,297 +585,6 @@ function messageWithLogicalId(message) {
 
 function prepareCloudUserMessage(session, message) {
   return isManagedCloudModel(session?.model) ? messageWithLogicalId(message) : message
-}
-
-function resetSessionCompaction(session) {
-  session.contextCompaction = null
-  session.lastAutoCompactAt = null
-  session.lastAutoCompactRejected = null
-  session.lastTransformedContextMessages = null
-  session.autoCompacting = false
-}
-
-function finishManualSessionRun(session, status, errorMessage) {
-  session.status = status
-  session.finishedAt = new Date().toISOString()
-  session.agent.state.isStreaming = false
-  session.agent.state.streamingMessage = undefined
-  session.agent.state.errorMessage = errorMessage
-}
-
-async function summarySession(session, initialUserMessage, summaryOptions) {
-  if (session.harness === AGENT_HARNESS_OPENCODE) {
-    throw Object.assign(new Error('OpenCode Harness does not support QuickForge summary derivation yet.'), { statusCode: 409 })
-  }
-  if (session.agent.state.isStreaming) {
-    session.agent.state.messages = [
-      ...session.agent.state.messages,
-      initialUserMessage,
-      assistantTextMessage('Cannot summarize while a generation is still running. Stop it or wait until it finishes, then run /summary again.', session.model),
-    ]
-    await persistSession(session)
-    const messages = session.agent.state.messages
-    emitSessionEvent(session, { type: 'message_end', messages })
-    emitSessionEvent(session, { type: 'agent_end', messages })
-    return { sessionId: session.sessionId, status: session.status }
-  }
-
-  const sourceStatus = session.status
-  const sourceStartedAt = session.startedAt
-  const sourceFinishedAt = session.finishedAt
-  const sourceErrorMessage = session.agent.state.errorMessage
-
-  resetIdleTimer(session)
-  session.status = 'running'
-  session.startedAt = session.startedAt ?? new Date().toISOString()
-  session.finishedAt = null
-  session.agent.state.isStreaming = true
-  session.agent.state.errorMessage = undefined
-  emitSessionEvent(session, { type: 'agent_start' })
-
-  try {
-    const originalMessages = session.agent.state.messages.slice()
-    const options = parseCompactArgs(summaryOptions?.args || '')
-
-    if (options.unsupported?.length) {
-      session.agent.state.messages = [
-        ...originalMessages,
-        initialUserMessage,
-        assistantTextMessage(`Unsupported /summary option(s): ${options.unsupported.join(', ')}\n\nSupported usage: /summary or /summary keep=0`, session.model),
-      ]
-      finishManualSessionRun(session, 'idle')
-      await persistSession(session)
-      const messages = session.agent.state.messages
-      emitSessionEvent(session, { type: 'message_end', messages })
-      emitSessionEvent(session, { type: 'agent_end', messages })
-      return { sessionId: session.sessionId, status: session.status }
-    }
-
-    const result = await compactConversation({
-      messages: originalMessages,
-      model: session.model,
-      thinkingLevel: session.thinkingLevel,
-      getApiKey: session.getApiKey,
-      keepTurns: options.keepTurns,
-    })
-
-    if (result.skipped) {
-      session.agent.state.messages = [
-        ...originalMessages,
-        initialUserMessage,
-        assistantTextMessage('Not enough earlier history to summarize. Continue chatting and run /summary again later.', session.model),
-      ]
-      finishManualSessionRun(session, 'idle')
-      await persistSession(session)
-      const messages = session.agent.state.messages
-      emitSessionEvent(session, { type: 'message_end', messages })
-      emitSessionEvent(session, { type: 'agent_end', messages })
-      return { sessionId: session.sessionId, status: session.status }
-    }
-
-    await saveCompactBackup(session.sessionId, originalMessages)
-
-    const reduction = estimateTokenReduction(result.originalApproxChars, result.finalApproxChars)
-    const summaryMessage = userTextMessage([
-      'The previous conversation has been compacted. Treat the following summary as the authoritative replacement for earlier history. If information is missing, ask for clarification instead of guessing.',
-      '',
-      '<compact_summary>',
-      result.summary,
-      '</compact_summary>',
-    ].join('\n'), compactionMessageDetails('summary'))
-    const notice = assistantTextMessage([
-      `已基于当前对话创建压缩后的新对话：原 ${result.originalCount} 条消息 → ${result.recentTail.length + 2} 条消息。`,
-      `当前原对话已完整保留，保留最近 ${result.keepTurns} 个用户回合原文，估算新对话上下文减少约 ${reduction}%。`,
-      '压缩前历史已保存到本地备份。',
-    ].join('\n'), session.model, compactionMessageDetails('notice'))
-
-    const compactedMessages = [summaryMessage, notice, ...result.recentTail]
-    const titleSourceMessages = [summaryMessage, ...result.recentTail]
-    const aiTitle = await generateAiTitle(titleSourceMessages, session.model, session.thinkingLevel, session.getApiKey)
-    const compactedTitle = aiTitle && aiTitle !== 'New chat'
-      ? aiTitle
-      : compactedSessionTitle(session.title)
-    const compactedSessionId = randomUUID()
-    const compactedSession = await createAgent(compactedSessionId, {
-      scope: session.scope,
-      projectId: session.projectId,
-      accessMode: session.accessMode,
-      harness: session.harness,
-      sourceHarnessSessionId: session.harness === AGENT_HARNESS_OPENCODE ? session.agent.harnessSessionId : null,
-      yoloMode: session.yoloMode,
-      model: session.model,
-      modelRef: session.modelRef,
-      modelAccessContext: session.modelAccessContext,
-      resolvePersistedModel: true,
-      thinkingLevel: session.thinkingLevel,
-      messages: compactedMessages,
-      title: compactedTitle,
-      createdAt: new Date().toISOString(),
-    })
-    updateSessionMessages(compactedSession, compactedMessages)
-    await persistSession(compactedSession)
-
-    session.status = sourceStatus
-    session.startedAt = sourceStartedAt
-    session.finishedAt = sourceFinishedAt
-    session.agent.state.isStreaming = false
-    session.agent.state.streamingMessage = undefined
-    session.agent.state.errorMessage = sourceErrorMessage
-    await persistSession(session)
-
-    const messages = session.agent.state.messages
-    emitSessionEvent(session, { type: 'agent_end', messages })
-    emitSessionEvent(session, {
-      type: 'session_forked',
-      sourceSessionId: session.sessionId,
-      targetSessionId: compactedSessionId,
-      title: compactedSession.title,
-      createdAt: compactedSession.createdAt,
-      scope: compactedSession.scope,
-      projectId: compactedSession.projectId,
-      messages: compactedSession.agent.state.messages,
-    })
-    emitSessionEvent(compactedSession, { type: 'message_end', messages: compactedSession.agent.state.messages })
-    emitSessionEvent(compactedSession, { type: 'agent_end', messages: compactedSession.agent.state.messages })
-    return { sessionId: session.sessionId, status: session.status, compactedSessionId }
-  } catch (err) {
-    const errorMessage = err?.message || 'Conversation compaction failed'
-    session.agent.state.messages = [
-      ...session.agent.state.messages,
-      initialUserMessage,
-      assistantTextMessage(`Conversation compaction failed: ${errorMessage}`, session.model),
-    ]
-    finishManualSessionRun(session, 'error', errorMessage)
-    await persistSession(session)
-    const messages = session.agent.state.messages
-    emitSessionEvent(session, { type: 'error', error: errorMessage })
-    emitSessionEvent(session, { type: 'agent_end', messages, errorMessage })
-    return { sessionId: session.sessionId, status: session.status }
-  }
-}
-
-async function compactSession(session, initialUserMessage, compactOptions) {
-  if (session.agent.state.isStreaming) {
-    session.agent.state.messages = [
-      ...session.agent.state.messages,
-      initialUserMessage,
-      assistantTextMessage('Cannot compact while a generation is still running. Stop it or wait until it finishes, then run /compact again.', session.model),
-    ]
-    await persistSession(session)
-    const messages = session.agent.state.messages
-    emitSessionEvent(session, { type: 'message_end', messages })
-    emitSessionEvent(session, { type: 'agent_end', messages })
-    return { sessionId: session.sessionId, status: session.status }
-  }
-
-  const args = String(compactOptions?.args || '').trim()
-  if (args) {
-    session.agent.state.messages = [
-      ...session.agent.state.messages,
-      initialUserMessage,
-      assistantTextMessage('Unsupported /compact option(s). Supported usage: /compact', session.model),
-    ]
-    session.status = 'idle'
-    session.finishedAt = new Date().toISOString()
-    await persistSession(session)
-    const messages = session.agent.state.messages
-    emitSessionEvent(session, { type: 'message_end', messages })
-    emitSessionEvent(session, { type: 'agent_end', messages })
-    return { sessionId: session.sessionId, status: session.status }
-  }
-
-  resetIdleTimer(session)
-  session.status = 'running'
-  session.startedAt = session.startedAt ?? new Date().toISOString()
-  session.finishedAt = null
-  session.agent.state.isStreaming = true
-  session.agent.state.errorMessage = undefined
-  emitSessionEvent(session, { type: 'agent_start' })
-
-  try {
-    const messages = session.agent.state.messages.slice()
-    const settings = await readAutoCompactSettings().catch(() => DEFAULT_AUTO_COMPACT_SETTINGS)
-    const usage = getSessionContextUsage(session)
-    const result = await compactSessionInPlace({
-      session,
-      messages,
-      keepRecentTurns: 0,
-      minSourceChars: 0,
-      usage,
-      thresholdPercent: settings.thresholdPercent,
-      emitSessionEvent,
-      persistSession,
-      reason: 'manual_compact',
-      onBeforePersist: () => {
-        finishManualSessionRun(session, 'idle')
-      },
-    })
-
-    if (!result.compacted) {
-      session.agent.state.messages = [
-        ...messages,
-        initialUserMessage,
-        assistantTextMessage('Not enough earlier history to compact. Continue chatting and run /compact again later.', session.model),
-      ]
-      finishManualSessionRun(session, 'idle')
-      await persistSession(session)
-      const nextMessages = session.agent.state.messages
-      emitSessionEvent(session, { type: 'message_end', messages: nextMessages })
-      emitSessionEvent(session, { type: 'agent_end', messages: nextMessages })
-      return { sessionId: session.sessionId, status: session.status }
-    }
-
-    const nextMessages = session.agent.state.messages
-    emitSessionEvent(session, { type: 'message_end', messages: nextMessages })
-    emitSessionEvent(session, { type: 'agent_end', messages: nextMessages })
-    return { sessionId: session.sessionId, status: session.status }
-  } catch (err) {
-    const errorMessage = err?.message || 'Conversation compaction failed'
-    session.agent.state.messages = [
-      ...session.agent.state.messages,
-      initialUserMessage,
-      assistantTextMessage(`Conversation compaction failed: ${errorMessage}`, session.model),
-    ]
-    finishManualSessionRun(session, 'error', errorMessage)
-    await persistSession(session)
-    const messages = session.agent.state.messages
-    emitSessionEvent(session, { type: 'error', error: errorMessage })
-    emitSessionEvent(session, { type: 'agent_end', messages, errorMessage })
-    return { sessionId: session.sessionId, status: session.status }
-  }
-}
-
-async function clearSession(session) {
-  if (session.agent.state.isStreaming) {
-    session.agent.state.messages = [
-      ...session.agent.state.messages,
-      assistantTextMessage('Cannot clear while a generation is still running. Stop it or wait until it finishes, then run /clear again.', session.model),
-    ]
-    await persistSession(session)
-    const messages = session.agent.state.messages
-    emitSessionEvent(session, { type: 'message_end', messages })
-    emitSessionEvent(session, { type: 'agent_end', messages })
-    return { sessionId: session.sessionId, status: session.status }
-  }
-
-  updateSessionMessages(session, [])
-  resetSessionCompaction(session)
-  session.status = 'idle'
-  session.startedAt = null
-  session.finishedAt = new Date().toISOString()
-  session.title = 'New chat'
-  session.titleSource = 'default'
-  session.titleGenerationId += 1
-  session.agent.state.isStreaming = false
-  session.agent.state.streamingMessage = undefined
-  session.agent.state.errorMessage = undefined
-
-  await persistSession(session)
-  const messages = session.agent.state.messages
-  emitSessionEvent(session, { type: 'message_end', messages })
-  emitSessionEvent(session, { type: 'agent_end', messages })
-  emitSessionEvent(session, { type: 'title_updated', title: session.title })
-  return { sessionId: session.sessionId, status: session.status, cleared: true }
 }
 
 const QUICKFORGE_COMMAND_DETAILS_KEY = 'quickforgeCommand'
@@ -1816,7 +1494,7 @@ function isIdleRetainedSession(session) {
   return session?.idleRetention === 'always'
 }
 
-function resetIdleTimer(session) {
+export function resetIdleTimer(session) {
   if (session.idleTimer) clearTimeout(session.idleTimer)
   session.idleTimer = null
   if (isIdleRetainedSession(session)) return
@@ -2609,7 +2287,8 @@ async function persistSessionUnlocked(session) {
 // the extreme tail, so persist optimizations stay measurable.
 const SLOW_PERSIST_LOG_MS = 200
 
-async function persistSession(session) {
+// 内部共享导出（模块拆分临时暴露，随 persistence 块迁移后收回）
+export async function persistSession(session) {
   const startedAt = performance.now()
   // Serialize per session (per-row revision CAS guarantees correctness);
   // cross-session persists run independently instead of piling onto one

@@ -1,4 +1,5 @@
 import { type Api, type Model, modelsAreEqual } from '@earendil-works/pi-ai'
+import { agentAccessCheckIcon } from '@/components/chat/panel-decoration/icons'
 import { t } from '@/lib/i18n'
 import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
 
@@ -93,7 +94,6 @@ function positionMainMenu(menu: HTMLElement, anchor?: HTMLElement | null) {
 function createMenuItem(options: {
   label: string
   selected?: boolean
-  chevron?: boolean
   disabled?: boolean
   onPointerDown?: (event: PointerEvent) => void
   onPointerEnter?: () => void
@@ -108,11 +108,11 @@ function createMenuItem(options: {
   label.className = 'quickforge-model-menu-item-label'
   label.textContent = options.label
 
-  const suffix = document.createElement('span')
-  suffix.className = 'quickforge-model-menu-item-suffix'
-  suffix.textContent = options.chevron ? '›' : options.selected ? '✓' : ''
+  const checkSlot = document.createElement('span')
+  checkSlot.className = 'quickforge-model-menu-item-check-slot'
+  checkSlot.innerHTML = options.selected ? agentAccessCheckIcon : ''
 
-  item.append(label, suffix)
+  item.append(checkSlot, label)
   if (options.onPointerDown) item.onpointerdown = options.onPointerDown
   if (options.onPointerEnter) item.onpointerenter = options.onPointerEnter
   if (options.onClick) item.addEventListener('click', options.onClick)

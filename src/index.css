@@ -4752,7 +4752,7 @@ html.dark .quickforge-subagent-running-badge {
 .quickforge-model-menu-item {
   display: grid !important;
   width: 100%;
-  grid-template-columns: minmax(0, 1fr) 1.3rem;
+  grid-template-columns: 1rem minmax(0, 1fr);
   align-items: center;
   gap: 0.5rem;
   padding: 0.42rem 0.55rem 0.42rem 0.75rem !important;
@@ -4776,13 +4776,11 @@ html.dark .quickforge-subagent-running-badge {
   white-space: nowrap;
 }
 
-.quickforge-model-menu-item-suffix {
+.quickforge-model-menu-item-check-slot {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
-  font-size: 1.1rem;
-  line-height: 1;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
 }
 
 .quickforge-model-settings-footer {

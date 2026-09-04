@@ -25,6 +25,8 @@
 - Revision 4（上下文圆环紧凑态槽位修复）：`context-usage.ts` 在模型按钮前源码创建 `quickforge-context-usage-slot`，紧凑态由 `index.css` 提供固定 32px flex 槽位，14px 圆环居中；百分比与数据计算不变。新增 `chat-compact-controls` / `context-usage` 契约测试锁定槽位、插入顺序、14px 环和 compact 分组布局。定向 Vitest 2 files / 24 tests、ESLint、tsc -b、build、git diff --check 通过；未 commit/tag/push。
 - Revision 5：Agent 输入框底部权限控件去除 `border-transparent` 透明边框类，保留原有尺寸、圆角、间距与 hover/展开反馈；新增 `tests/frontend/agent-access-menu.test.ts` 源码契约，确认触发按钮无透明边框且下拉菜单仍保留实际边框。改动文件：`src/components/chat/panel-decoration/agent-access-menu.ts`、`tests/frontend/agent-access-menu.test.ts`。定向 3 files / 18 tests、ESLint、tsc -b、git diff --check 通过；未 commit/tag/push。
 
+- Revision 6：模型选择弹窗（桌面与移动端共用）选中勾改为复用 `agentAccessCheckIcon` SVG，勾选槽位移至左侧并与思考等级菜单统一 1rem 栅格、13px 图标和前景色；新增 `custom-model-selector.test.ts` 契约断言。定向模型选择器 8/8、ESLint、git diff --check、tsc -b 和 build 均通过；未 commit/tag/push。
+
 ## Notes
 
 - 已修复测试基础设施问题：`tests/frontend/local-tool-running-sweep.test.ts` 的 CSS `ruleFor` 正则此前会把规则上方注释 glue 进 selector 文本，导致 `.quickforge-tool-running-sweep` 误报缺失；现参考 `chat-compact-controls.test.ts` 先剥离 CSS 注释，定向测试 6/6 通过。

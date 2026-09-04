@@ -16,14 +16,18 @@
 
 - 目标：用户分步驱动 Composer 底栏视觉与交互重构——①「完全访问权限」→「完全访问」+ 琥珀文字色；②「+」/模型/权限按钮完全去框（方案 A）；③思考等级拆为独立选择器（模型右侧、发送左侧，大脑 icon + 等级文字 + 下拉箭头），模型选择纯文字 + 下拉小箭头、不设 max-width；④模型选择弹层不含思考等级，桌面端合并为单一模型列表（无二级子菜单）；⑤「完全访问」hover/展开底色为中性（与其他控件一致），仅文字琥珀。
 - 实现：新 `src/components/chat/panel-decoration/thinking-level-controls.ts`（五档菜单：关/低/中/高/超高；与 Agent 权限菜单共用样式选择器组、互斥、Escape/点外关闭）；`model-controls.ts` 去后缀；`panel-decoration.ts` 接线 `onThinkingLevelChange`；`ChatPanelHost.tsx` 回调写 `agent.state.thinkingLevel` + `updateThinkingLevel` + 重跑装饰；`icons.ts` +thinkingBrainIcon/thinkingChevronIcon；`i18n.ts` agentAccessFullLabel 改「完全访问」；`index.css` 去框（含「+」）、琥珀文字/中性底、chevron/盒形 icon 切换、紧凑 icon-only、模型名去 max-width。`custom-model-selector.ts`：移除思考区与 thinking 相关选项、桌面单一列表（删 renderModelSubmenu/positionModelSubmenu/.quickforge-model-submenu CSS，恢复 .quickforge-model-menu-note 空态提示），`useModelActions.ts` / `SharedConversationPage.tsx` 调用点清理（保留非推理模型自动归零守卫）。设计稿 design-mockups/composer-borderless.html 同步。
-- 验证：此前全量 `npm run test` 276 files / 2626 tests 的唯一失败为 `local-tool-running-sweep.test.ts` CSS 解析误报；现已修复测试解析器并完成定向 6/6 通过，待重新运行全量门禁。npm run build ✓；eslint 0 error；chat-compact-controls / composer-control-hover 断言同步。**中途事故**：Python 正则批量删 CSS 误吞 4638 行，已从 HEAD 恢复并逐块重放（详见 progress.md 事故记录），最终 diff 复验干净。
-- 文件：src/lib/i18n.ts、src/index.css、src/lib/custom-model-selector.ts、src/hooks/useModelActions.ts、src/components/share/SharedConversationPage.tsx、src/components/chat/panel-decoration/{thinking-level-controls.ts,model-controls.ts,icons.ts,panel-decoration.ts}、src/components/chat/ChatPanelHost.tsx、tests/frontend/{chat-compact-controls,composer-control-hover}.test.ts、design-mockups/composer-borderless.html（新）、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- 验证：此前全量 `npm run test` 276 files / 2626 tests 的唯一失败为 `local-tool-running-sweep.test.ts` CSS 解析误报；现已修复测试解析器并完成全量 277 files / 2638 tests 全通过。npm run build ✓；eslint 0 error（1 个既有 warning）；chat-compact-controls / composer-control-hover 断言同步。**中途事故**：Python 正则批量删 CSS 误吞 4638 行，已从 HEAD 恢复并逐块重放（详见 progress.md 事故记录），最终 diff 复验干净。
+- 文件：src/lib/i18n.ts、src/index.css、src/lib/custom-model-selector.ts、src/hooks/useModelActions.ts、src/components/share/SharedConversationPage.tsx、src/components/chat/panel-decoration/{thinking-level-controls.ts,model-controls.ts,icons.ts,panel-decoration.ts}、src/components/chat/ChatPanelHost.tsx、tests/frontend/{chat-compact-controls,composer-control-hover,custom-model-selector}.test.ts、design-mockups/composer-borderless.html（新）、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
 - Blocker：无。
 - 备注：紧凑模式模型 icon 经 6 候选对比页（design-mockups/model-compact-icon-options.html）评审后决定维持立方体 Box，并补齐 mask 内部棱线使显示与设计稿一致；icon-only 形态按钮行改 flex-start + gap 0.5rem，图标控件连续排列间距统一（权限/模型/思考之间不再有 justify-between 弹性空隙），发送/停止按钮 margin-left auto 保持右缘。
 - 下一步：可选真机冒烟（切档发送生效、非推理模型按钮隐藏、窄屏 icon-only、模型菜单单列表、窗口缩放模型名不截断）；工作区还有 sidebar-pin-hover-alignment / motion-design 两批等未提交改动，commit 时按 feature 拆分。
 - 本轮修订：紧凑态控件行保持 `justify-content: space-between`，左/右控件组继续分开；右侧模型、思考等级、发送/停止内部连续排列，右侧组 `gap: 0.5rem`，模型/思考等级各 2rem，发送/停止 `margin-left: auto` 贴右。更新 `src/index.css` 与 `tests/frontend/chat-compact-controls.test.ts`，并同步 feature/progress 状态；定向 Vitest 12/12、ESLint、tsc -b、git diff --check 通过。
 - Revision 4：上下文用量环在模型按钮前插入 `quickforge-context-usage-slot` 32px flex 槽位，环本身固定 14px 且居中；不改变百分比/数据计算。`chat-compact-controls.test.ts` 与 `context-usage.test.ts` 锁定 CSS 槽位、DOM 顺序和 compact 布局；定向 2 files / 24 tests、ESLint、tsc -b、build、git diff --check 通过。未 commit/tag/push。
-- Revision 5：Agent 输入框底部权限控件去除 `border-transparent` 透明边框类，保留原有尺寸、圆角、间距与 hover/展开反馈；新增 `tests/frontend/agent-access-menu.test.ts` 源码契约，确认触发按钮无透明边框且下拉菜单仍保留实际边框。改动文件：`src/components/chat/panel-decoration/agent-access-menu.ts`、`tests/frontend/agent-access-menu.test.ts`。定向 3 files / 18 tests、ESLint、tsc -b、git diff --check 通过；未 commit/tag/push。
+- Revision 6：模型选择弹窗（桌面与移动端共用）选中勾改为复用 `agentAccessCheckIcon` SVG，勾选槽位移至左侧并与思考等级菜单统一 1rem 栅格、13px 图标和前景色；新增 `custom-model-selector.test.ts` 契约断言。定向模型选择器 8/8、ESLint、git diff --check 通过；待运行 tsc/build。未 commit/tag/push。
+- Blocker：无。
+- 下一步：如确认视觉效果，可提交并推送。
+
+---
 
 ## 当前状态：sidebar-pin-hover-alignment（已完成，未提交）
 

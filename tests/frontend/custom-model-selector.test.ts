@@ -11,6 +11,8 @@ vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
 
 import { openCustomOnlyModelSelector, closeComposerModelMenu } from '../../src/lib/custom-model-selector'
 
+const customModelSelectorSource = readFileSync(new URL('../../src/lib/custom-model-selector.ts', import.meta.url), 'utf8')
+
 type Listener = (event: unknown) => void
 
 class FakeElement {
@@ -218,6 +220,17 @@ describe('custom model selector settings entry', () => {
     expect(css).toMatch(/\.quickforge-model-settings-footer\s*\{[^}]*flex:\s*0 0 auto[^}]*border-top:/s)
     expect(css).toMatch(/\.quickforge-model-settings-link\s*\{[^}]*background:\s*transparent[^}]*muted-foreground/s)
     expect(css).toMatch(/\.quickforge-model-settings-link:hover,\s*\.quickforge-model-settings-link:focus-visible\s*\{[^}]*background:[^}]*color:\s*var\(--foreground\)/s)
+  })
+
+  it('uses the same SVG check icon and left check slot as the thinking-level menu', () => {
+    const css = readFileSync('src/index.css', 'utf8')
+
+    expect(customModelSelectorSource).toContain("import { agentAccessCheckIcon } from '@/components/chat/panel-decoration/icons'")
+    expect(customModelSelectorSource).toContain("checkSlot.className = 'quickforge-model-menu-item-check-slot'")
+    expect(customModelSelectorSource).toContain('checkSlot.innerHTML = options.selected ? agentAccessCheckIcon : \'\'')
+    expect(customModelSelectorSource).toContain('item.append(checkSlot, label)')
+    expect(css).toMatch(/\.quickforge-model-menu-item\s*\{[^}]*grid-template-columns:\s*1rem\s+minmax\(0,\s*1fr\)/s)
+    expect(css).toMatch(/\.quickforge-model-menu-item-check-slot\s*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center[^}]*color:\s*color-mix\(in oklab,\s*var\(--foreground\)\s+88%,\s*transparent\)/s)
   })
 
   it('keeps desktop model selection behavior unchanged', () => {

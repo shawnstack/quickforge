@@ -16,6 +16,17 @@ describe('agent profile max runtime conversion', () => {
     expect(source).toContain("{t('maxRuntimeMinutesHelp')}")
   })
 
+  it('declares capability checkboxes, defaults them off, and saves their payload', async () => {
+    const source = await readFile(new URL('../../src/components/agent-profiles/AgentProfilesPage.tsx', import.meta.url), 'utf8')
+    expect(source).toContain("allowMcpTools: false")
+    expect(source).toContain("allowAgentSkills: false")
+    expect(source).toContain("checked={agentForm.allowMcpTools}")
+    expect(source).toContain("checked={agentForm.allowAgentSkills}")
+    expect(source).toContain("allowMcpTools: form.allowMcpTools")
+    expect(source).toContain("allowAgentSkills: form.allowAgentSkills")
+    expect(source).toContain("disabled={capabilityReadonly}")
+  })
+
   it('defaults missing persisted values to 60 minutes', () => {
     expect(DEFAULT_MAX_RUNTIME_MINUTES).toBe(60)
     expect(maxRuntimeMsToMinutes()).toBe('60')

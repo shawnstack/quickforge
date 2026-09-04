@@ -12,6 +12,8 @@ const temporarySubagentSchema = Type.Object({
   model: Type.Optional(Type.Any({ description: 'Model reference. Omit or use { mode: "inherit" } to inherit the parent model.' })),
   maxRuntimeMs: Type.Optional(Type.Number({ description: 'Optional max runtime in milliseconds.' })),
   maxToolCalls: Type.Optional(Type.Number({ description: 'Optional max tool-call budget.' })),
+  allowMcpTools: Type.Optional(Type.Boolean({ description: 'Allow MCP tools inherited from the parent session.' })),
+  allowAgentSkills: Type.Optional(Type.Boolean({ description: 'Allow Agent Skills inherited from the parent session.' })),
 })
 
 // ---------------------------------------------------------------------------
@@ -28,7 +30,7 @@ const temporarySubagentSchema = Type.Object({
 export const subagentTool = {
   name: 'run_subagent',
   label: 'Run subagent',
-  description: 'Delegate a bounded task to an enabled temporary Agent Profile. Prefer explore for focused read-only repository discovery before implementation decisions, including locating files, searching source, tracing call chains, finding related tests/docs/wiki pages, and impact analysis. Use general for bounded complex multi-step implementation or broader independent work. Custom profiles can also be enabled as subagents. Subagents are short-lived and do not receive MCP or Agent Skill tools.',
+  description: 'Delegate a bounded task to an enabled temporary Agent Profile. Prefer explore for focused read-only repository discovery before implementation decisions, including locating files, searching source, tracing call chains, finding related tests/docs/wiki pages, and impact analysis. Use general for bounded complex multi-step implementation or broader independent work. Custom profiles can also be enabled as subagents. Subagents inherit the parent session MCP and Agent Skill tools only when the selected Profile explicitly allows them.',
   parameters: Type.Object({
     subagent: Type.Union([
       Type.String({ description: 'Agent Profile name to invoke.' }),

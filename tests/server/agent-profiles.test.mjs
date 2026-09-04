@@ -34,6 +34,8 @@ describe('managed custom agent markdown profiles', () => {
       capabilityPolicy: 'review-only',
       enabledAsSubagent: true,
       thinkingLevel: 'high',
+      allowMcpTools: true,
+      allowAgentSkills: true,
     })
 
     expect(created.source).toBe('user')
@@ -44,9 +46,11 @@ describe('managed custom agent markdown profiles', () => {
     expect(markdown).toContain('managedBy: quickforge')
     expect(markdown).toContain('readonly: false')
     expect(markdown).toContain('thinking-level: high')
+    expect(markdown).toContain('allow-mcp-tools: true')
+    expect(markdown).toContain('allow-agent-skills: true')
 
     const loaded = await getAgentProfile(created.id)
-    expect(loaded).toMatchObject({ name: 'reviewer', source: 'user', readonly: false, thinkingLevel: 'high' })
+    expect(loaded).toMatchObject({ name: 'reviewer', source: 'user', readonly: false, thinkingLevel: 'high', allowMcpTools: true, allowAgentSkills: true })
   })
 
   it('updates, renames, and deletes managed markdown agents', async () => {
@@ -138,6 +142,14 @@ describe('managed custom agent markdown profiles', () => {
 
     await updateBuiltinAgentModelOverride('explore', { mode: 'inherit' })
     expect(await getAgentProfile('explore')).toMatchObject({ model: { mode: 'inherit' } })
+  })
+
+  it('persists capability overrides for built-in agents without changing other fields', async () => {
+    const { getAgentProfile, updateBuiltinAgentOverrides } = await import('../../server/agent-profiles.mjs')
+    const updated = await updateBuiltinAgentOverrides('explore', { allowMcpTools: true, allowAgentSkills: true })
+    expect(updated).toMatchObject({ builtin: true, allowMcpTools: true, allowAgentSkills: true, allowedTools: ['read_file', 'grep_files', 'run_command'] })
+    expect(await getAgentProfile('explore')).toMatchObject({ allowMcpTools: true, allowAgentSkills: true })
+    await updateBuiltinAgentOverrides('explore', { allowMcpTools: false, allowAgentSkills: false })
   })
 
   it('persists model and thinking-level overrides for built-in agents in one update', async () => {

@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { Agent } from '@earendil-works/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { composeSubagentSystemPrompt, formatSubagentTask } from './subagents.mjs'
+import { isMcpToolName } from './mcp/registry.mjs'
 import { getAgentProfile } from './agent-profiles.mjs'
 import { agentProfileFromMarkdown } from './agent-profile-files.mjs'
 import {
@@ -79,6 +80,8 @@ function normalizeTemporarySubagentSpec(input) {
     model,
     maxRuntimeMs: spec.maxRuntimeMs,
     maxToolCalls: spec.maxToolCalls,
+    allowMcpTools: spec.allowMcpTools === true,
+    allowAgentSkills: spec.allowAgentSkills === true,
   }
 }
 
@@ -110,6 +113,8 @@ model:
   baseUrl: ${frontmatterString(spec.model.baseUrl)}` : ''}` : ''}
 max-runtime-ms: ${Math.max(1000, Math.min(Number(spec.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), SUBAGENT_MAX_TIMEOUT_MS))}
 max-tool-calls: ${Math.max(1, Math.min(Number(spec.maxToolCalls || 300), 300))}
+allow-mcp-tools: ${spec.allowMcpTools === true ? 'true' : 'false'}
+allow-agent-skills: ${spec.allowAgentSkills === true ? 'true' : 'false'}
 ---
 ${spec.systemPrompt}
 `
@@ -228,6 +233,16 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
   const timeoutMs = Math.max(1000, Math.min(Number(definition.maxRuntimeMs || SUBAGENT_DEFAULT_TIMEOUT_MS), SUBAGENT_MAX_TIMEOUT_MS))
   definition.capabilityPolicy ||= inferCapabilityPolicy(definition.allowedTools || [])
   definition.allowedTools = applyCapabilityPolicy(definition.allowedTools || [], definition.capabilityPolicy)
+  const parentToolNames = new Set(
+    (Array.isArray(parentSession.agent?.state?.tools) ? parentSession.agent.state.tools : [])
+      .map((tool) => tool?.name)
+      .filter((toolName) => typeof toolName === 'string'),
+  )
+  const inheritedToolNames = [...parentToolNames].filter((toolName) => (
+    (definition.allowMcpTools === true && isMcpToolName(toolName))
+    || (definition.allowAgentSkills === true && (toolName === 'activate_skill' || toolName === 'read_skill_resource'))
+  ))
+  const effectiveAllowedTools = [...new Set([...definition.allowedTools, ...inheritedToolNames])]
   const subagentSessionId = `${parentSession.sessionId}:subagent:${definition.name}:${randomUUID()}`
   const startedAt = Date.now()
   const lifecycleContext = {
@@ -277,13 +292,15 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
       sessionSkillsContext(parentSession),
       true,
       (toolName) => {
-        if (!definition.allowedTools.includes(toolName)) return `Subagent ${definition.name} is not allowed to use ${toolName}.`
+        if (!effectiveAllowedTools.includes(toolName)) return `Subagent ${definition.name} is not allowed to use ${toolName}.`
         return commandToolPermissionError(parentSession, toolName)
       },
       {
-        allowedToolNames: definition.allowedTools,
+        allowedToolNames: effectiveAllowedTools,
         includeSubagentTool: false,
-        includeMcpTools: false,
+        includeMcpTools: definition.allowMcpTools === true,
+        includePluginTools: false,
+        includeSkillTools: definition.allowAgentSkills === true,
       },
     )
     toolsForClient = tools.map(({ execute: _execute, prepareArguments: _prepareArguments, ...tool }) => tool)
@@ -303,7 +320,7 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
           sessionId: subagentSessionId,
           parentSessionId: parentSession.sessionId,
           toolCalls,
-          allowedTools: definition.allowedTools,
+          allowedTools: effectiveAllowedTools,
           timeoutMs,
           source: definition.source,
           lifecycle: definition.lifecycle,
@@ -342,7 +359,7 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
       parentSessionId: parentSession.sessionId,
       toolCallId,
       toolCalls,
-      allowedTools: definition.allowedTools,
+      allowedTools: effectiveAllowedTools,
       timeoutMs,
       source: definition.source,
       lifecycle: definition.lifecycle,
@@ -360,6 +377,7 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
       definition,
       parentSystemPrompt: parentSession.agent.state.systemPrompt,
       projectContext: parentSession.projectContext,
+      effectiveAllowedTools,
     })
     const userMessage = {
       role: 'user',
@@ -392,11 +410,12 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
         if (toolCalls > Number(definition.maxToolCalls || 300)) {
           return { block: true, reason: `Subagent ${definition.name} exceeded its tool-call budget.` }
         }
-        if (!definition.allowedTools.includes(toolName)) {
+        if (!effectiveAllowedTools.includes(toolName)) {
           return { block: true, reason: `Subagent ${definition.name} is not allowed to use ${toolName}.` }
         }
         const commandPermissionError = commandToolPermissionError(parentSession, toolName)
         if (commandPermissionError) return { block: true, reason: commandPermissionError }
+        if (toolName === 'activate_skill' || toolName === 'read_skill_resource') return undefined
         if (!hasFullAccess(parentSession)) {
           if (safeReadTools.has(toolName)) return undefined
           return createApprovalPromise(parentSession, context.toolCall?.id, toolName, context.args, {
@@ -478,7 +497,7 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
           sessionId: subagentSessionId,
           parentSessionId: parentSession.sessionId,
           toolCalls,
-          allowedTools: definition.allowedTools,
+          allowedTools: effectiveAllowedTools,
           timeoutMs,
           source: definition.source,
           lifecycle: definition.lifecycle,

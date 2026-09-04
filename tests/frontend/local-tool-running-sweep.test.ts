@@ -3,13 +3,14 @@ import { describe, expect, it } from 'vitest'
 
 const localTools = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
 const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const cssRules = css.replace(/\/\*[\s\S]*?\*\//g, '')
 const renderer = localTools.slice(
   localTools.indexOf('class LocalWorkspaceToolRenderer'),
   localTools.indexOf('function askUserQuestionsFromParams'),
 )
 
 function ruleFor(selector: string) {
-  for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+  for (const match of cssRules.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selectors = match[1]
       .split(',')
       .map((item) => item.trim())

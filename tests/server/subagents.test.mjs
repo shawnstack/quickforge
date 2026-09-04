@@ -28,6 +28,16 @@ describe('subagent definitions', () => {
     expect(general.description).toContain('Prefer Explore for focused read-only repository discovery')
   })
 
+  it('describes inherited capability tools dynamically and removes unavailable skills catalog', () => {
+    const definition = getSubagentDefinition('explore')
+    const disabled = composeSubagentSystemPrompt({ definition, parentSystemPrompt: '<available_skills>fake</available_skills>', effectiveAllowedTools: definition.allowedTools })
+    expect(disabled).not.toContain('fake')
+    const enabled = composeSubagentSystemPrompt({ definition, parentSystemPrompt: '<available_skills>real</available_skills>', effectiveAllowedTools: [...definition.allowedTools, 'mcp__server__tool', 'activate_skill'] })
+    expect(enabled).toContain('real')
+    expect(enabled).toContain('mcp__server__tool')
+    expect(enabled).toContain('MCP tools inherited from the parent session')
+  })
+
   it('does not give Explore conflicting command instructions', () => {
     const prompt = composeSubagentSystemPrompt({
       definition: getSubagentDefinition('explore'),

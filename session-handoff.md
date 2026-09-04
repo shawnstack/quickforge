@@ -1,6 +1,41 @@
 # Session Handoff
 
+## 当前状态：subagent-capability-inheritance（已完成，未提交）
+
+- 目标：在 Subagent Profile 设置中增加“允许使用 MCP 工具”和“允许使用 Agent Skills”两个开关；开启后子 Agent 继承主 Agent 当前实际工具集中的对应能力，默认关闭。
+- 实现：Profile/API/Markdown 新增 `allowMcpTools` / `allowAgentSkills`；自定义 QuickForge Profile 可编辑，外部只读 Profile 不可编辑，内置 `general` / `explore` 通过 `agent-profile-overrides` 保存两个开关。临时 Profile schema 也支持显式传入两个字段。
+- 子 Agent：从父会话 `agent.state.tools` 中按工具名取交集，避免从全局 MCP registry 获得父 Agent 未拥有的额外 MCP；Skills 只继承 `activate_skill` / `read_skill_resource`；构建和执行前均校验 effective tools；MCP 仍沿用父会话审批/完全访问规则；禁止递归 subagent；关闭 Skills 时移除父 prompt 中的 `<available_skills>`。
+- 文件：相关 server Profile、tool definitions、subagent runner、设置页、i18n、测试、Wiki、`feature_list.json`、`progress.md`。
+- 验证：定向 Vitest 7 files / 64 tests 全过；相关 ESLint 0 error；`npx tsc -b --pretty false`、相关 `node --check`、`npm run build` 全通过（仅既有 KaTeX 字体与 chunk size warnings）。
+- Blocker：无。未新增依赖，未修改生成产物，未 commit/tag/push。
+- 下一步：可选真机验证：在主会话启用 MCP/Skill 后，Profile 开启对应开关，运行 general/explore，确认子 Agent 工具列表和审批行为；工作区其他未提交 feature 仍需按 feature 拆分。
+
 > 归档说明（2026-09-04）：更早的 85 个条目已移至 docs/archive/session-handoff-archive.md；feature 条目对应归档在 docs/archive/feature-list-archive.json。
+
+## 当前状态：composer-borderless-thinking-control（已完成，未提交）
+
+- 目标：用户分步驱动 Composer 底栏视觉与交互重构——①「完全访问权限」→「完全访问」+ 琥珀文字色；②「+」/模型/权限按钮完全去框（方案 A）；③思考等级拆为独立选择器（模型右侧、发送左侧，大脑 icon + 等级文字 + 下拉箭头），模型选择纯文字 + 下拉小箭头、不设 max-width；④模型选择弹层不含思考等级，桌面端合并为单一模型列表（无二级子菜单）；⑤「完全访问」hover/展开底色为中性（与其他控件一致），仅文字琥珀。
+- 实现：新 `src/components/chat/panel-decoration/thinking-level-controls.ts`（五档菜单：关/低/中/高/超高；与 Agent 权限菜单共用样式选择器组、互斥、Escape/点外关闭）；`model-controls.ts` 去后缀；`panel-decoration.ts` 接线 `onThinkingLevelChange`；`ChatPanelHost.tsx` 回调写 `agent.state.thinkingLevel` + `updateThinkingLevel` + 重跑装饰；`icons.ts` +thinkingBrainIcon/thinkingChevronIcon；`i18n.ts` agentAccessFullLabel 改「完全访问」；`index.css` 去框（含「+」）、琥珀文字/中性底、chevron/盒形 icon 切换、紧凑 icon-only、模型名去 max-width。`custom-model-selector.ts`：移除思考区与 thinking 相关选项、桌面单一列表（删 renderModelSubmenu/positionModelSubmenu/.quickforge-model-submenu CSS，恢复 .quickforge-model-menu-note 空态提示），`useModelActions.ts` / `SharedConversationPage.tsx` 调用点清理（保留非推理模型自动归零守卫）。设计稿 design-mockups/composer-borderless.html 同步。
+- 验证：此前全量 `npm run test` 276 files / 2626 tests 的唯一失败为 `local-tool-running-sweep.test.ts` CSS 解析误报；现已修复测试解析器并完成定向 6/6 通过，待重新运行全量门禁。npm run build ✓；eslint 0 error；chat-compact-controls / composer-control-hover 断言同步。**中途事故**：Python 正则批量删 CSS 误吞 4638 行，已从 HEAD 恢复并逐块重放（详见 progress.md 事故记录），最终 diff 复验干净。
+- 文件：src/lib/i18n.ts、src/index.css、src/lib/custom-model-selector.ts、src/hooks/useModelActions.ts、src/components/share/SharedConversationPage.tsx、src/components/chat/panel-decoration/{thinking-level-controls.ts,model-controls.ts,icons.ts,panel-decoration.ts}、src/components/chat/ChatPanelHost.tsx、tests/frontend/{chat-compact-controls,composer-control-hover}.test.ts、design-mockups/composer-borderless.html（新）、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 备注：紧凑模式模型 icon 经 6 候选对比页（design-mockups/model-compact-icon-options.html）评审后决定维持立方体 Box，并补齐 mask 内部棱线使显示与设计稿一致；icon-only 形态按钮行改 flex-start + gap 0.5rem，图标控件连续排列间距统一（权限/模型/思考之间不再有 justify-between 弹性空隙），发送/停止按钮 margin-left auto 保持右缘。
+- 下一步：可选真机冒烟（切档发送生效、非推理模型按钮隐藏、窄屏 icon-only、模型菜单单列表、窗口缩放模型名不截断）；工作区还有 sidebar-pin-hover-alignment / motion-design 两批等未提交改动，commit 时按 feature 拆分。
+- 本轮修订：紧凑态控件行保持 `justify-content: space-between`，左/右控件组继续分开；右侧模型、思考等级、发送/停止内部连续排列，右侧组 `gap: 0.5rem`，模型/思考等级各 2rem，发送/停止 `margin-left: auto` 贴右。更新 `src/index.css` 与 `tests/frontend/chat-compact-controls.test.ts`，并同步 feature/progress 状态；定向 Vitest 12/12、ESLint、tsc -b、git diff --check 通过。
+- Revision 4：上下文用量环在模型按钮前插入 `quickforge-context-usage-slot` 32px flex 槽位，环本身固定 14px 且居中；不改变百分比/数据计算。`chat-compact-controls.test.ts` 与 `context-usage.test.ts` 锁定 CSS 槽位、DOM 顺序和 compact 布局；定向 2 files / 24 tests、ESLint、tsc -b、build、git diff --check 通过。未 commit/tag/push。
+- Revision 5：Agent 输入框底部权限控件去除 `border-transparent` 透明边框类，保留原有尺寸、圆角、间距与 hover/展开反馈；新增 `tests/frontend/agent-access-menu.test.ts` 源码契约，确认触发按钮无透明边框且下拉菜单仍保留实际边框。改动文件：`src/components/chat/panel-decoration/agent-access-menu.ts`、`tests/frontend/agent-access-menu.test.ts`。定向 3 files / 18 tests、ESLint、tsc -b、git diff --check 通过；未 commit/tag/push。
+
+## 当前状态：sidebar-pin-hover-alignment（已完成，未提交）
+
+- 目标：用户反馈「hover 时候置顶时候的按钮有点对不齐」——修复侧栏会话行置顶按钮在静置/hover 两态间的位置与尺寸跳变。
+- 根因：静置 pin（in-flow、可变宽度时间文本左侧、size-5/12px）与 hover 浮层 pin（absolute right-1、size-6/14px）几何不一致，hover 跳位 5-20px 且放大、过渡期双影；pinnedSessionButtonClass 的双 transition 工具类被 twMerge 去重导致 opacity 瞬变；全局行归档图标误用 size-4；浮层 right-1 与行内容缘 px-2 错位。
+- 实现：镜像槽位几何——静置 [pin 槽 size-6][gap-1][时间槽 w-9 右对齐]（未置顶行 size-6 空 span 占位），hover 浮层 right-2 + [Pin size-6][gap-1][Archive h-6 w-9] 完全镜像静置簇：pin 原位交叉淡入淡出零位移零缩放、归档胶囊精确覆盖时间槽、时间列/标题列跨行对齐；图标统一 size-3.5；pin 过渡改 transition-[color,opacity]；会话浮层与行内主按钮间距统一 gap-1（用户反馈 gap-2 太宽后收窄，两态必须一致以保持镜像）、项目行浮层保持 gap-px（共享 right-2）；四处行结构同步（Pinned 分区/时间线/项目子会话/全局会话）。
+- 验证：定向 vitest 4 files / 44 tests（含新增 sidebar-session-action-alignment 7 契约）+ 回归 3 files / 21 tests 全过；eslint 2 文件 0 error；tsc -b；npm run build 通过（仅既有 chunk 警告）。未跑全量。
+- 文件：src/components/sidebar/ChatSidebar.tsx、tests/frontend/sidebar-session-action-alignment.test.ts（新）、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：真机冒烟（置顶/未置顶行 hover pin 原位淡入淡出、归档落位、跨行对齐、pin/unpin 无挤压；确认归档与 hover 提示回归）。工作区仍有 motion-design 两批等其他 feature 未提交改动，commit 时按 feature 拆分。
+
+---
 
 ## 当前状态：motion-design-batch-2（已完成，未提交）
 

@@ -156,8 +156,18 @@ vi.mock('@earendil-works/pi-agent-core', () => ({
 vi.mock('../../server/ai-http-logger.mjs', () => ({ streamSimpleWithAiHttpLogging: mocks.streamSimpleWithAiHttpLogging }))
 vi.mock('../../server/utils/logger.mjs', () => ({ logger: mocks.logger }))
 vi.mock('../../server/mcp/registry.mjs', () => ({
-  createMcpToolDefinitions: vi.fn(async () => []),
-  isMcpToolName: vi.fn(() => false),
+  createMcpToolDefinitions: vi.fn(async () => [{
+    name: 'mcp__parent__visible',
+    label: 'Visible MCP',
+    description: 'Parent MCP tool',
+    parameters: { type: 'object', properties: {} },
+  }, {
+    name: 'mcp__global__extra',
+    label: 'Extra MCP',
+    description: 'Not present in the parent session',
+    parameters: { type: 'object', properties: {} },
+  }]),
+  isMcpToolName: vi.fn((name) => typeof name === 'string' && name.startsWith('mcp__')),
   subscribeMcpToolsetChanged: vi.fn(() => () => {}),
 }))
 vi.mock('../../server/plugins/registry.mjs', () => ({
@@ -749,6 +759,44 @@ describe('agent manager subagent execution', () => {
       expect(MockAgent.instances.at(-1).state).toMatchObject({ model: parentModel, thinkingLevel: 'medium' })
     } finally {
       await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('inherits only the parent MCP tool intersection when enabled and keeps it disabled by default', async () => {
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    const { writeStore } = await import('../../server/storage.mjs')
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
+
+    const session = await createAgent('subagent-mcp-inheritance', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      session.agent.state.tools = [
+        runSubagent,
+        { name: 'read_file' },
+        { name: 'mcp__parent__visible' },
+        { name: 'activate_skill' },
+      ]
+      await runSubagentFallback(session, 'subagent-mcp-disabled')
+      expect(MockAgent.instances.at(-1).state.tools.map((tool) => tool.name)).not.toContain('mcp__parent__visible')
+
+      await writeStore('agent-profile-overrides', { explore: { allowMcpTools: true } })
+      await runSubagentFallback(session, 'subagent-mcp-enabled')
+      const inheritedNames = MockAgent.instances.at(-1).state.tools.map((tool) => tool.name)
+      expect(inheritedNames).toContain('mcp__parent__visible')
+      expect(inheritedNames).not.toContain('mcp__global__extra')
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+
+    async function runSubagentFallback(parent, toolCallId) {
+      const tool = parent.agent.state.tools.find((item) => item.name === 'run_subagent')
+      return tool.execute(toolCallId, { subagent: 'explore', task: 'Inspect the workspace.' }, new AbortController().signal)
     }
   })
 

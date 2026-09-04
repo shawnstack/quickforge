@@ -66,6 +66,16 @@ describe('built-in agent profile PATCH route', () => {
     expect(JSON.parse(res.body)).toEqual({ agent: { id: 'explore', name: 'explore', builtin: true, model: { mode: 'inherit' }, thinkingLevel: 'high' } })
   })
 
+  it('accepts capability flags for built-in agents', async () => {
+    mocks.getAgentProfile.mockResolvedValue({ id: 'explore', name: 'explore', builtin: true, readonly: true })
+    mocks.updateBuiltinAgentOverrides.mockResolvedValue({ id: 'explore', name: 'explore', builtin: true, allowMcpTools: true, allowAgentSkills: true })
+    const { handleAgentProfilesApi } = await import('../../../server/routes/agent-profiles.mjs')
+    const res = response()
+    await handleAgentProfilesApi(request('PATCH', { allowMcpTools: true, allowAgentSkills: true }), res, new URL('http://localhost/api/agent-profiles/explore'))
+    expect(mocks.updateBuiltinAgentOverrides).toHaveBeenCalledWith('explore', { allowMcpTools: true, allowAgentSkills: true })
+    expect(res.status).toBe(200)
+  })
+
   it('rejects other fields for built-in agents', async () => {
     mocks.getAgentProfile.mockResolvedValue({ id: 'explore', name: 'explore', builtin: true, readonly: true })
     const { handleAgentProfilesApi } = await import('../../../server/routes/agent-profiles.mjs')

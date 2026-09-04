@@ -175,6 +175,7 @@ export async function createServerTools(projectId, projectContext, skillsContext
     includeSubagentTool = true,
     includeMcpTools = true,
     includePluginTools = true,
+    includeSkillTools = true,
     mcpWaitForConnections = true,
     parentSessionId = null,
     sessionId = null,
@@ -183,11 +184,13 @@ export async function createServerTools(projectId, projectContext, skillsContext
   const allowedTools = allowedToolNames ? new Set(allowedToolNames) : null
   const isAllowed = (definition) => !allowedTools || allowedTools.has(definition.name)
 
-  const skillTools = await createSkillTools({
-    globalSkillNames: skillsContext.globalSkillNames,
-    projectSkillNames: skillsContext.projectSkillNames,
-    workspaceRoot: projectContext?.workspaceRoot,
-  })
+  const skillTools = includeSkillTools
+    ? await createSkillTools({
+        globalSkillNames: skillsContext.globalSkillNames,
+        projectSkillNames: skillsContext.projectSkillNames,
+        workspaceRoot: projectContext?.workspaceRoot,
+      })
+    : []
   const skillToolContext = await loadSkillToolContext({
     globalSkillNames: skillsContext.globalSkillNames,
     projectSkillNames: skillsContext.projectSkillNames,

@@ -165,10 +165,10 @@ Agent Profile 管理路由。
 - `GET /api/agent-profiles/available-tools` — 获取第一阶段可配置的 workspace 工具列表。
 - `POST /api/agent-profiles/ai-fill` — 使用默认模型生成 Agent 名称、显示名称、描述和系统提示词。
 - `GET /api/agent-profiles/:id` — 获取单个 Agent。
-- `PATCH|PUT /api/agent-profiles/:id` — 更新自定义 Agent；内置 Agent 只接受单一 `model` 字段，用于设置或恢复模型覆盖。
+- `PATCH|PUT /api/agent-profiles/:id` — 更新自定义 Agent；内置 Agent 仅接受 `model`、`thinkingLevel`、`allowMcpTools`、`allowAgentSkills` 字段，用于设置对应覆盖。自定义 Profile 的两个能力开关缺失时默认关闭。
 - `DELETE /api/agent-profiles/:id` — 删除自定义 Agent。
 
-内置 Agent 不允许删除，其提示词、工具、思考等级和运行预算不可修改。
+内置 Agent 不允许删除，其提示词、工具和运行预算不可修改；模型、思考等级以及 MCP/Agent Skills 能力开关通过 override 管理。
 
 ## models.mjs (68 行)
 

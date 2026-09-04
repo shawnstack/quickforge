@@ -15,6 +15,7 @@ import {
   AGENT_PROFILE_TOOL_NAMES,
   inferCapabilityPolicy,
   modelReferenceSnapshot,
+  normalizeAgentProfileBoolean,
   normalizeAgentProfileThinkingLevel,
   normalizeCapabilityPolicy,
   normalizeModelReference,
@@ -76,6 +77,8 @@ function builtinProfileFromSubagent(definition, override = null) {
     capabilityPolicy: definition.capabilityPolicy || inferCapabilityPolicy(definition.allowedTools),
     model: modelReferenceSnapshot(override?.model || definition.model),
     thinkingLevel: normalizeAgentProfileThinkingLevel(override?.thinkingLevel || 'inherit'),
+    allowMcpTools: normalizeAgentProfileBoolean(override?.allowMcpTools),
+    allowAgentSkills: normalizeAgentProfileBoolean(override?.allowAgentSkills),
     lifecycle: 'builtin',
     managed: true,
     maxRuntimeMs: definition.maxRuntimeMs || DEFAULT_MAX_RUNTIME_MS,
@@ -119,6 +122,8 @@ function normalizeProfileInput(input, existing = null, { creating = false } = {}
   validateAgentProfileTools(allowedTools, capabilityPolicy)
   const model = validateModelReference(normalizeModelReference(input?.model ?? existing?.model))
   const thinkingLevel = normalizeAgentProfileThinkingLevel(input?.thinkingLevel ?? existing?.thinkingLevel)
+  const allowMcpTools = normalizeAgentProfileBoolean(input?.allowMcpTools ?? existing?.allowMcpTools)
+  const allowAgentSkills = normalizeAgentProfileBoolean(input?.allowAgentSkills ?? existing?.allowAgentSkills)
 
   return {
     id: existing?.id || `agent-${randomUUID()}`,
@@ -130,6 +135,8 @@ function normalizeProfileInput(input, existing = null, { creating = false } = {}
     capabilityPolicy,
     model,
     thinkingLevel,
+    allowMcpTools,
+    allowAgentSkills,
     lifecycle: existing?.lifecycle || 'persistent',
     maxRuntimeMs: normalizeOptionalRuntime(input?.maxRuntimeMs ?? existing?.maxRuntimeMs, DEFAULT_MAX_RUNTIME_MS),
     maxToolCalls: normalizeOptionalPositiveInteger(input?.maxToolCalls ?? existing?.maxToolCalls, DEFAULT_MAX_TOOL_CALLS, 300),
@@ -327,6 +334,11 @@ export async function updateBuiltinAgentOverrides(id, patch = {}) {
     if (thinkingLevel === 'inherit') delete entry.thinkingLevel
     else entry.thinkingLevel = thinkingLevel
   }
+  for (const key of ['allowMcpTools', 'allowAgentSkills']) {
+    if (!Object.prototype.hasOwnProperty.call(patch, key)) continue
+    if (patch[key] === true) entry[key] = true
+    else delete entry[key]
+  }
 
   if (Object.keys(entry).length === 0) delete next[current.name]
   else next[current.name] = entry
@@ -359,6 +371,8 @@ export function agentProfileSnapshot(profile) {
     capabilityPolicy: profile.capabilityPolicy || inferCapabilityPolicy(profile.allowedTools || []),
     model: modelReferenceSnapshot(profile.model),
     thinkingLevel: normalizeAgentProfileThinkingLevel(profile.thinkingLevel),
+    allowMcpTools: profile.allowMcpTools === true,
+    allowAgentSkills: profile.allowAgentSkills === true,
     lifecycle: profile.lifecycle || (profile.builtin ? 'builtin' : 'persistent'),
     managed: profile.managed === true,
     maxRuntimeMs: profile.maxRuntimeMs,

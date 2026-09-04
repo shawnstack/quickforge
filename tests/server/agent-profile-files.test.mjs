@@ -26,6 +26,8 @@ tools: Read, Grep, Bash
 enabled-as-subagent: true
 max-runtime-ms: 60000
 max-tool-calls: 12
+allow-mcp-tools: true
+allow-agent-skills: true
 ---
 Run all checks and report failures.
 `)
@@ -42,11 +44,22 @@ Run all checks and report failures.
       enabledAsSubagent: true,
       maxRuntimeMs: 60000,
       maxToolCalls: 12,
+      allowMcpTools: true,
+      allowAgentSkills: true,
       readonly: true,
       source: 'file',
     })
     expect(profile.systemPrompt).toBe('Run all checks and report failures.')
     expect(profile.allowFileMutations).toBe(false)
+  })
+
+  it('defaults missing capability flags to false', () => {
+    const profile = agentProfileFromMarkdown('/workspace/.quickforge/agents/defaults.md', `---
+name: defaults
+---
+Defaults.
+`)
+    expect(profile).toMatchObject({ allowMcpTools: false, allowAgentSkills: false })
   })
 
   it('maps mutation tool aliases and marks file mutations as allowed', () => {

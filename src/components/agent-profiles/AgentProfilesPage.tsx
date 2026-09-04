@@ -50,6 +50,8 @@ type AgentProfile = {
   source?: string
   model?: AgentModelRef
   thinkingLevel?: AgentThinkingLevel
+  allowMcpTools?: boolean
+  allowAgentSkills?: boolean
   capabilityPolicy?: string
   relativePath?: string
   updatedAt?: string
@@ -74,6 +76,8 @@ type AgentFormState = {
   modelMode: 'inherit' | 'fixed'
   fixedModelValue: string
   thinkingLevel: AgentThinkingLevel
+  allowMcpTools: boolean
+  allowAgentSkills: boolean
 }
 
 type GeneratedAgentFields = Pick<AgentFormState, 'name' | 'label' | 'description' | 'systemPrompt'>
@@ -126,6 +130,8 @@ function defaultAgentForm(): AgentFormState {
     modelMode: 'inherit',
     fixedModelValue: '',
     thinkingLevel: 'inherit',
+    allowMcpTools: false,
+    allowAgentSkills: false,
   }
 }
 
@@ -142,6 +148,8 @@ function agentFormFromProfile(agent: AgentProfile): AgentFormState {
     modelMode: agent.model?.mode === 'fixed' ? 'fixed' : 'inherit',
     fixedModelValue: modelRefToOption(agent.model),
     thinkingLevel: agent.thinkingLevel ?? 'inherit',
+    allowMcpTools: agent.allowMcpTools === true,
+    allowAgentSkills: agent.allowAgentSkills === true,
   }
 }
 
@@ -157,6 +165,8 @@ function buildAgentPayload(form: AgentFormState) {
     enabledAsSubagent: form.enabledAsSubagent,
     model: form.modelMode === 'fixed' ? modelRefFromOption(form.fixedModelValue) : { mode: 'inherit' },
     thinkingLevel: form.thinkingLevel,
+    allowMcpTools: form.allowMcpTools,
+    allowAgentSkills: form.allowAgentSkills,
   }
 }
 
@@ -285,6 +295,7 @@ export function AgentProfilesPage() {
   const openMenuAgent = useMemo(() => agentProfiles.find((agent) => agent.id === openMenuProfileId) ?? null, [agentProfiles, openMenuProfileId])
   const definitionReadonly = Boolean(editingAgent?.readonly)
   const modelReadonly = Boolean(editingAgent?.readonly && !editingAgent?.builtin)
+  const capabilityReadonly = Boolean(editingAgent?.readonly && !editingAgent?.builtin)
   const selectedFixedModel = useMemo(() => {
     const reference = modelRefFromOption(agentForm.fixedModelValue)
     if (reference.mode !== 'fixed') return undefined
@@ -418,6 +429,8 @@ export function AgentProfilesPage() {
         ? {
             model: agentForm.modelMode === 'fixed' ? modelRefFromOption(agentForm.fixedModelValue) : { mode: 'inherit' },
             thinkingLevel: savedThinkingLevel,
+            allowMcpTools: agentForm.allowMcpTools,
+            allowAgentSkills: agentForm.allowAgentSkills,
           }
         : buildAgentPayload({ ...agentForm, thinkingLevel: savedThinkingLevel })
       if (editingAgentId) {
@@ -627,6 +640,16 @@ export function AgentProfilesPage() {
                 <label className="block text-sm font-medium text-foreground">
                   {t('maxToolCalls')}
                   <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.maxToolCalls} disabled={definitionReadonly} onChange={(event) => updateAgentForm('maxToolCalls', event.target.value)} />
+                </label>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex items-center gap-2 text-sm text-foreground">
+                  <input type="checkbox" checked={agentForm.allowMcpTools} disabled={capabilityReadonly} onChange={(event) => updateAgentForm('allowMcpTools', event.target.checked)} />
+                  {t('allowMcpTools')}
+                </label>
+                <label className="flex items-center gap-2 text-sm text-foreground">
+                  <input type="checkbox" checked={agentForm.allowAgentSkills} disabled={capabilityReadonly} onChange={(event) => updateAgentForm('allowAgentSkills', event.target.checked)} />
+                  {t('allowAgentSkills')}
                 </label>
               </div>
               <label className="flex items-center gap-2 text-sm text-foreground">

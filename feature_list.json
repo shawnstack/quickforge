@@ -1,6 +1,53 @@
 {
   "features": [
     {
+      "id": "subagent-capability-inheritance",
+      "name": "Subagent MCP 与 Agent Skills Profile 开关及父工具集交集继承",
+      "status": "done",
+      "approach": "Agent Profile 新增 allowMcpTools/allowAgentSkills，Markdown/API 缺失默认 false；QuickForge 自定义 Profile 可编辑，外部 readonly 保持不可编辑，内置 general/explore 仅通过 agent-profile-overrides 保存两个开关。run_subagent 只从父会话当前 agent.state.tools 交集继承实际 MCP 与 Skill 工具，保留父审批/完全访问语义并禁止递归调用；关闭 Skills 时动态移除子 Agent 可用 Skills 目录提示。",
+      "files": [
+        "server/agent-profile-schema.mjs",
+        "server/agent-profile-files.mjs",
+        "server/agent-profiles.mjs",
+        "server/routes/agent-profiles.mjs",
+        "server/subagents.mjs",
+        "server/agent-subagent-runner.mjs",
+        "src/components/agent-profiles/AgentProfilesPage.tsx",
+        "src/lib/i18n.ts",
+        "tests/server/agent-profile-files.test.mjs",
+        "tests/server/agent-profiles.test.mjs",
+        "tests/server/routes/agent-profiles.test.mjs",
+        "tests/server/tools/definitions.test.mjs",
+        "tests/server/agent-manager.subagents.test.mjs",
+        "tests/server/subagents.test.mjs",
+        "tests/frontend/agent-profile-runtime.test.ts",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/routes/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md",
+        "server/tools/definitions.mjs"
+      ],
+      "verification": "定向 Vitest 7 files / 64 tests 全过；改动文件 ESLint 0 error；npx tsc -b --pretty false 通过；node --check 相关服务端模块通过；npm run build 通过（仅既有 KaTeX 字体与 chunk size warnings）；未 commit/tag/push。",
+      "boundaries": "未修改 dist/package-dist/package-offline；未新增依赖；工作区既有 local-tool-running-sweep 失败记录保留。"
+    },
+    {
+      "id": "sidebar-pin-hover-alignment",
+      "name": "侧栏会话行置顶按钮 hover 对齐修复（镜像槽位交叉淡入淡出）",
+      "status": "done",
+      "approach": "用户反馈「hover 时候置顶时候的按钮有点对不齐」。根因有三：① 静置 pin（in-flow，位于可变宽度时间文本左侧，size-5/12px 图标）与 hover 浮层 pin（absolute right-1，size-6/14px 图标）位置和尺寸都不一致，hover 时图标跳位约 5-20px 且放大，160ms 过渡期间双影；② pinnedSessionButtonClass 同时声明 transition-opacity + transition-colors，twMerge 只保留后者，静置 pin 的 opacity 实际是瞬变；③ 全局会话行归档图标误用 size-4 与其他三处 size-3.5 不一致，浮层 right-1(4px) 也与行内容右缘 px-2(8px) 错位。修复采用镜像槽位几何：静置态 [pin 槽 size-6][gap-2][时间槽 w-9 右对齐]（未置顶行渲染同尺寸空 span 占位，时间列/标题列跨行对齐且 pin/unpin 不再挤压布局）；hover 浮层 right-2 锚点（与 px-2 内容缘对齐）内 [Pin size-6][gap-1][Archive h-6 w-9]，与静置簇几何完全镜像——pin 原位交叉淡入淡出零位移零缩放，归档胶囊精确覆盖时间槽；pin 图标统一 size-3.5，归档统一 size-3.5；pin 过渡改单一 transition-[color,opacity]。会话浮层与行内主按钮间距统一 gap-1（初版 gap-2 被用户反馈太宽后收窄，两态间距必须一致以保持镜像），项目行浮层保持 gap-px（基类不再携带 gap，两个变体各自声明），两者共享 right-2 锚点。四处行结构（Pinned 分区/时间线/项目子会话/全局会话）同步修改。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "tests/frontend/sidebar-session-action-alignment.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run sidebar-session-action-alignment（新，7 用例）+ sidebar-section-order + sidebar-session-display-limit + sidebar-session-sort-mode → 4 files / 44 tests 全过；回归 motion-design + sidebar-new-chat-routing + mobile-fullscreen-adaptation → 3 files / 21 tests 全过；npx eslint 2 个改动文件 0 error；npx tsc -b 通过；npm run build 通过（仅既有 chunk size 警告）。未 commit/tag/push。",
+      "boundaries": "不改悬停提示、确认归档流、actionsSuppressed 抑制机制与删除退出动效；不新增 CSS 模式（纯 Tailwind 工具类几何）；未置顶行预留 24px 空槽使标题可用宽度减少约 32px（换取全列对齐与零跳变）；DESIGN_LANGUAGE 无新视觉模式故未改。"
+    },
+    {
       "id": "motion-design-batch-2",
       "name": "动效统一第二批：大弹窗复用、菜单展开、Toast 调优、列表项淡入、侧栏删除退出 retune",
       "status": "done",
@@ -61,13 +108,14 @@
         "src/components/sidebar/ChatSidebar.tsx",
         "tests/frontend/motion-design.test.ts",
         "tests/frontend/sidebar-section-order.test.ts",
+        "tests/frontend/local-tool-running-sweep.test.ts",
         "DESIGN_LANGUAGE.md",
         "design-review/motion-design-demo.html",
         "feature_list.json",
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "定向 npx vitest run tests/frontend/motion-design.test.ts tests/frontend/sidebar-section-order.test.ts → 2 files / 27 tests 全过（含同步更新 sidebar-section-order 对 sidebarSessionTitleClass 的既有精确字符串契约）；npx eslint 6 个改动文件 0 error；npx tsc -b 通过；npm run build 通过（仅既有 chunk size 警告）；产物 CSS 抽查确认 duration-(--quickforge-dur-fast)/ease token、transition-property 含 scale、.active\\:scale-\\[0\\.97\\]:active{scale:.97}、dialog/label keyframes 均正确编译。未 commit/tag/push，未手工修改 dist（构建生成）。",
+      "verification": "定向 npx vitest run tests/frontend/motion-design.test.ts tests/frontend/sidebar-section-order.test.ts → 2 files / 27 tests 全过（含同步更新 sidebar-section-order 对 sidebarSessionTitleClass 的既有精确字符串契约）；补修 tests/frontend/local-tool-running-sweep.test.ts 的 CSS 注释剥离解析后，扫光契约 6/6 通过；npx eslint 6 个改动文件 0 error；npx tsc -b 通过；npm run build 通过（仅既有 chunk size 警告）；产物 CSS 抽查确认 duration-(--quickforge-dur-fast)/ease token、transition-property 含 scale、.active\\:scale-\\[0\\.97\\]:active{scale:.97}、dialog/label keyframes 均正确编译。未 commit/tag/push，未手工修改 dist（构建生成）。",
       "boundaries": "不新增依赖与动画库；仅进入动画（退出保持立即卸载）；只动画 opacity/transform/scale 不触发布局；skills-dialog、GitGraphDialog、ShareConversationDialog 等大型功能弹窗本轮未接线（可后续复用同名类）；toast/菜单展开/列表项 enter-exit 属第二批范围未实施。"
     },
     {
@@ -432,7 +480,7 @@
       "id": "chat-compact-composer-on-narrow-chat-area",
       "name": "对话区被侧栏挤压变窄时 Composer 控件 icon-only 紧凑模式（ResizeObserver + 滞回，viewport 不变时 @media 覆盖不到的场景）",
       "status": "done",
-      "approach": "用户需求：中间对话区被左右侧栏拖宽挤压变窄时（viewport 宽度不变，@media 视口查询不触发），Composer 输入框带文字控件应收起文字只留 icon。只读调研确认：index.css @media (max-width:768px) 已有 agent-access/model-trigger 的 icon-only 规则但不覆盖侧栏挤压场景；ChatPanelHost 宿主 div（quickforge-chat-panel-host）挂 light DOM pi-web-ui 元素，全局 CSS 后代选择器可命中，Side Chat 复用同一宿主；五个带文字控件为 agent-access（label+chevron）、model-trigger（span.ml-1+thinking 徽标）、plan（无 class 文字 span，icon 是 svg 专用 class）、opencode-config（label+chevron）、opencode-mode（label，icon 来自 model-trigger::before）。实现：① ChatPanelHost.tsx 模块级常量 CHAT_COMPACT_WIDTH_THRESHOLD=640（控件行极限约 530px+余量）/CHAT_COMPACT_WIDTH_RELEASE=672（32px 滞回防拖动抖动），新增 useEffect 用 ResizeObserver（typeof 防御式检查，vitest node 环境无 ResizeObserver）监听宿主 contentRect 宽度：<640 挂 quickforge-chat-compact、≥672 摘除、区间内保持现状。② index.css 在移动端 @media 块之后新增 .quickforge-chat-panel-host.quickforge-chat-compact 段：五控件统一收 2rem/gap 0/padding-inline 0 !important，agent-access 与 opencode-config 隐藏 label+chevron、model-trigger 的 span.ml-1 照抄移动端 sr-only 块并隐藏 thinking 徽标、plan 用 > span 只隐藏文字 span（不命中 svg icon）、opencode-mode 隐藏 label（::before icon 保留）；选择器三 class 特异性高于 @media 内两 class 规则，移动端两态同时命中时值一致零回归，未改动 @media 块内任何规则。③ 新增 tests/frontend/chat-compact-controls.test.ts 源码契约测试（readFileSync+正则，参照 composer-control-hover/workspace-inspector-width-range）：阈值常量、ResizeObserver 防御、classList add/remove 分支滞回、CSS 五控件覆盖、@media 既有规则回归守卫；ruleFor 匹配前剥 CSS 注释、:is() 含逗号规则改精确文本断言。④ wiki src/components/README.md 补紧凑模式条目。",
+      "approach": "用户需求：中间对话区被左右侧栏拖宽挤压变窄时（viewport 宽度不变，@media 视口查询不触发），Composer 输入框带文字控件应收起文字只留 icon。只读调研确认：index.css @media (max-width:768px) 已有 agent-access/model-trigger 的 icon-only 规则但不覆盖侧栏挤压场景；ChatPanelHost 宿主 div（quickforge-chat-panel-host）挂 light DOM pi-web-ui 元素，全局 CSS 后代选择器可命中，Side Chat 复用同一宿主；五个带文字控件为 agent-access（label+chevron）、model-trigger（span.ml-1+thinking 徽标）、plan（无 class 文字 span，icon 是 svg 专用 class）、opencode-config（label+chevron）、opencode-mode（label，icon 来自 model-trigger::before）。实现：① ChatPanelHost.tsx 模块级常量 CHAT_COMPACT_WIDTH_THRESHOLD=640（控件行极限约 530px+余量）/CHAT_COMPACT_WIDTH_RELEASE=672（32px 滞回防拖动抖动），新增 useEffect 用 ResizeObserver（typeof 防御式检查，vitest node 环境无 ResizeObserver）监听宿主 contentRect 宽度：<640 挂 quickforge-chat-compact、≥672 摘除、区间内保持现状。② index.css 在移动端 @media 块之后新增 .quickforge-chat-panel-host.quickforge-chat-compact 段：五控件统一收 2rem/gap 0/padding-inline 0 !important，agent-access 与 opencode-config 隐藏 label+chevron、model-trigger 的 span.ml-1 照抄移动端 sr-only 块并隐藏 thinking 徽标、plan 用 > span 只隐藏文字 span（不命中 svg icon）、opencode-mode 隐藏 label（::before icon 保留）；选择器三 class 特异性高于 @media 内两 class 规则，移动端两态同时命中时值一致零回归，未改动 @media 块内任何规则。③ 新增 tests/frontend/chat-compact-controls.test.ts 源码契约测试（readFileSync+正则，参照 composer-control-hover/workspace-inspector-width-range）：阈值常量、ResizeObserver 防御、classList add/remove 分支滞回、CSS 五控件覆盖、@media 既有规则回归守卫；ruleFor 匹配前剥 CSS 注释、:is() 含逗号规则改精确文本断言。④ wiki src/components/README.md 补紧凑模式条目。Revision：紧凑态控件行恢复 `justify-content: space-between` 保持左/右控件组分开，仅对右侧末尾控件组设 `gap: 0.5rem`；模型与思考等级槽位固定 2rem，发送/停止按钮保持 `margin-left: auto` 贴右。契约测试新增左右分组、右侧连续布局和发送/停止贴右断言。",
       "files": [
         "src/components/chat/ChatPanelHost.tsx",
         "src/index.css",
@@ -442,7 +490,7 @@
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "定向 npx vitest run 8 files / 48 tests 全过（新增 chat-compact-controls 9 tests：3 ChatPanelHost 源码契约 + 5 CSS 契约 + 1 移动端 @media 回归守卫；回归 composer-control-hover 3、composer-plus-menu 9、send-stop-button 5、opencode-config-menu 10、custom-model-selector 7、side-chat-composer-menu-scope 2、mobile-fullscreen-adaptation 3）；npx eslint src/components/chat/ChatPanelHost.tsx tests/frontend/chat-compact-controls.test.ts 0 error；npx tsc -b 通过；npm run build 通过（仅既有 KaTeX 字体与 chunk size 警告）。未跑全量 test/lint。"
+      "verification": "定向 npx vitest run 8 files / 48 tests 全过（新增 chat-compact-controls 9 tests：3 ChatPanelHost 源码契约 + 5 CSS 契约 + 1 移动端 @media 回归守卫；回归 composer-control-hover 3、composer-plus-menu 9、send-stop-button 5、opencode-config-menu 10、custom-model-selector 7、side-chat-composer-menu-scope 2、mobile-fullscreen-adaptation 3）；npx eslint src/components/chat/ChatPanelHost.tsx tests/frontend/chat-compact-controls.test.ts 0 error；npx tsc -b 通过；npm run build 通过（仅既有 KaTeX 字体与 chunk size 警告）。未跑全量 test/lint。Revision 验证：npx vitest run tests/frontend/chat-compact-controls.test.ts → 12/12；npx eslint tests/frontend/chat-compact-controls.test.ts、npx tsc -b --pretty false、git diff --check 均通过。"
     },
     {
       "id": "browser-single-window-guard",
@@ -665,6 +713,31 @@
         "session-handoff.md"
       ],
       "verification": "npm run test → 260 files / 2365 tests 全部通过（硬门禁 100%）；npm run lint → 0 errors / 1 既有 warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build 成功（仅既有 chunk size warnings）；prepare-runtime/offline-package 后 npm pack → package-offline/shawnstack-quickforge-1.10.0.tgz（unpacked 24.2MB / 453 files）；打包 package.json 校验 version 1.10.0、8 个运行时 dependencies + @vscode/ripgrep optionalDependencies、无 devDependencies/scripts。"
+    },
+    {
+      "id": "composer-borderless-thinking-control",
+      "name": "Composer 底栏去框 + 思考等级独立选择器",
+      "status": "done",
+      "approach": "经三轮设计稿对齐（design-mockups/composer-borderless.html）：①「完全访问」标签文案「完全访问权限」→「完全访问」并以琥珀 #d97706 呈现（与审批卡警告色一致）；②模型选择与 Agent 权限按钮完全去框（无边框无底色，hover/展开才出现浅色圆角底，完全访问 hover 为 12% 琥珀淡底），「计划」/子智能体胶囊保持不变；③控件顺序不变（左：[+] [完全访问]；右：[模型] [发送]），思考等级从模型按钮「· 等级」后缀拆为独立选择器插在模型右侧、发送左侧——大脑 icon + 等级文字（icon+文字形态经用户确认），模型选择变纯文字 + 下拉小箭头（用户确认补箭头）。新 panel-decoration/thinking-level-controls.ts：五档菜单（关/低/中/高/超高）样式与 Agent 权限菜单一致、与其他 Composer 弹层互斥；选择经 onThinkingLevelChange 回调写 agent.state.thinkingLevel、调 updateThinkingLevel 同步服务端并重跑装饰；model.reasoning 为 false 时自动隐藏。紧凑/移动端：思考按钮与权限按钮收成 icon-only，模型按钮隐藏文字与箭头、以 ::before 盒形 icon 呈现。 Revision（用户追加三连改）：①「+」按钮同样去框（保留 2rem 尺寸与展开/hover 反馈）；②模型选择弹层（桌面菜单 + 移动端 sheet）彻底移除思考等级区块——custom-model-selector 删除 thinking 区渲染、`thinkingLevel`/`onThinkingLevelSelect`/`showThinking` 选项与 THINKING_LEVELS/thinkingLevelLabel，useModelActions 与 SharedConversationPage 调用点同步清理（两处保留切非推理模型自动归零守卫），无主的 model-menu-separator/model-menu-note/model-sheet-thinking* CSS 一并删除；③思考等级按钮补下拉小箭头（thinkingChevronIcon，紧凑/移动端与文字一起隐藏）。桌面模型菜单头部文案由「推理」改为「模型」。 Revision 2（用户四连改）：①全量回归审查无误伤（276 files / 2626 tests，唯一失败为 HEAD 既有 sweep）；②「完全访问」hover/展开背景改回中性浅色底（删除 12% 琥珀淡底规则，文字/图标保持琥珀）；③桌面模型菜单合并为单一列表——移除「当前模型行 → hover 子菜单」二级结构、positionModelSubmenu 与 .quickforge-model-submenu CSS，列表为「模型」头部 + 全部模型勾选项 + 设置入口，空列表显示未添加模型提示（恢复 .quickforge-model-menu-note）；④模型按钮移除 max-width min(14rem,38vw) 钳制，窗口缩放不截断模型名（<768px/紧凑模式仍按设计收成 icon）。 Revision 3：紧凑/移动端 icon-only 形态下按钮行改 flex-start + gap 0.5rem，全部图标控件（+、权限、模型、思考）连续排列、行内/行间间距统一（原 justify-between 使权限 icon 与模型/思考间出现不和谐的弹性大空隙），发送/停止按钮 margin-left auto 保持右缘；紧凑模型 icon 经 6 候选评审维持 Box，并补齐 mask 内部棱线（顶棱 + 正面竖线）与设计稿一致。 Revision 4：紧凑态上下文环在模型按钮前插入源码创建的 `quickforge-context-usage-slot` 32px flex 槽位，环本身继续保持 14px 并居中；不改变上下文百分比/数据计算，紧凑态左右分组、0.5rem gap 与发送/停止贴右语义保持。新增上下文环/槽位与紧凑布局契约测试。 Revision 5：Agent 输入框底部权限控件去除 `border-transparent` 透明边框类，保留原有尺寸、圆角、间距与 hover/展开反馈；新增源码契约测试，确认触发按钮无透明边框且下拉菜单仍保留实际边框。",
+      "files": [
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "src/components/chat/panel-decoration/model-controls.ts",
+        "src/components/chat/panel-decoration/thinking-level-controls.ts",
+        "src/components/chat/panel-decoration/icons.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/context-usage.ts",
+        "tests/frontend/context-usage.test.ts",
+        "tests/frontend/chat-compact-controls.test.ts",
+        "tests/frontend/composer-control-hover.test.ts",
+        "design-mockups/composer-borderless.html",
+        "docs/wiki/src/components/README.md",
+        "src/components/share/SharedConversationPage.tsx",
+        "src/components/chat/panel-decoration/agent-access-menu.ts",
+        "tests/frontend/agent-access-menu.test.ts"
+      ],
+      "verification": "npm run build ✓；eslint 改动 TS 文件 0 error；定向 tests/frontend 126/127 files（1312 tests）全过（唯一排除项 local-tool-running-sweep 为 HEAD 既有失败，见 progress.md Notes）；chat-compact-controls / composer-control-hover 断言同步新选择器；Revision 4 定向 Vitest 2 files / 24 tests 全过，ESLint、tsc -b、build 与 git diff --check 通过。Revision 5 定向 3 files / 18 tests 全过；ESLint、tsc -b、git diff --check 通过。"
     }
   ]
 }

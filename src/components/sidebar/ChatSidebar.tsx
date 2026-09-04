@@ -468,21 +468,22 @@ export const ChatSidebar = memo(function ChatSidebar({
   const iconSlotClass = 'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors group-hover:text-foreground/70'
   const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow,opacity] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
   const sectionActionButtonClass = `quickforge-sidebar-section-icon ${iconButtonClass} pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
-  const actionOverlayBaseClass = 'pointer-events-none absolute inset-y-0 right-1 z-20 flex items-center gap-px rounded-r-lg bg-gradient-to-l from-[var(--quickforge-sidebar-hover-bg)] via-[var(--quickforge-sidebar-hover-bg)]/95 to-transparent pl-4 opacity-0 transition-opacity duration-160'
-  const actionOverlayClass = `${actionOverlayBaseClass} group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
-  const projectActionOverlayClass = `${actionOverlayBaseClass} group-hover:pointer-events-auto group-hover:opacity-100`
+  const actionOverlayBaseClass = 'pointer-events-none absolute inset-y-0 right-2 z-20 flex items-center rounded-r-lg bg-gradient-to-l from-[var(--quickforge-sidebar-hover-bg)] via-[var(--quickforge-sidebar-hover-bg)]/95 to-transparent pl-4 opacity-0 transition-opacity duration-160'
+  const actionOverlayClass = `${actionOverlayBaseClass} gap-1 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
+  const projectActionOverlayClass = `${actionOverlayBaseClass} gap-px group-hover:pointer-events-auto group-hover:opacity-100`
   const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
+  const overlayArchiveButtonClass = `h-6 w-9 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
   const sessionTitleClass = sidebarSessionTitleClass
-  const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-2 text-left'
+  const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-1 text-left'
   const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate'
   const sessionLoadingIndicator = (sessionId: string) => loadingSessionId === sessionId
     ? <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground/55" aria-hidden="true" />
     : null
-  const pinnedSessionButtonClass = `relative z-10 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-opacity duration-160 transition-colors ${sidebarHoverBgClass} hover:text-foreground/85`
+  const pinnedSessionButtonClass = `relative z-10 inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-[color,opacity] duration-160 ${sidebarHoverBgClass} hover:text-foreground/85`
   const sessionMetaHoverHiddenClass = 'group-hover:pointer-events-none group-hover:opacity-0 group-focus-within:pointer-events-none group-focus-within:opacity-0'
   const activeSessionTitleClass = 'font-[350] text-foreground/84'
   const activeProjectTitleClass = 'font-[350] text-foreground/80'
-  const timeClass = 'quickforge-sidebar-session-time shrink-0 text-[11px] leading-4 transition-opacity duration-160'
+  const timeClass = 'quickforge-sidebar-session-time w-9 shrink-0 text-right text-[11px] leading-4 transition-opacity duration-160'
   const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
   const projectMenuClass = 'fixed z-50 min-w-48 overflow-hidden rounded-lg border border-border bg-background p-1 shadow-quickforge'
   const viewSortMenuClass = 'fixed z-50 overflow-hidden rounded-2xl border border-border bg-background p-1.5 shadow-quickforge'
@@ -1084,7 +1085,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               role="button"
               tabIndex={0}
               aria-busy={loadingSessionId === session.id}
-              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              className="flex min-w-0 flex-1 items-center gap-1 text-left"
               onClick={() => onLoadSession(session.id)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' && event.key !== ' ') return
@@ -1112,7 +1113,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                 aria-label={t('unpinSession')}
                 title={t('unpinSession')}
               >
-                <Pin className="size-3" />
+                <Pin className="size-3.5" />
               </button>
               <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(session.pinnedAt)}</span>
             </div>
@@ -1142,7 +1143,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={overlayIconButtonClass}
+                    className={overlayArchiveButtonClass}
                     onClick={(event) => requestDeleteSession(event, session.id)}
                     aria-label={t('archiveSession')}
                   >
@@ -1440,7 +1441,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                         hideSessionHoverTip(session.id)
                                       }}
                                     >
-                                      <button className="flex min-w-0 flex-1 items-center gap-2 text-left" type="button" aria-busy={loadingSessionId === session.id} onClick={() => onLoadSession(session.id)}>
+                                      <button className="flex min-w-0 flex-1 items-center gap-1 text-left" type="button" aria-busy={loadingSessionId === session.id} onClick={() => onLoadSession(session.id)}>
                                         <div className="min-w-0 flex-1">
                                           <div className={sessionTitleRowClass}>
                                             {sessionLoadingIndicator(session.id)}
@@ -1462,9 +1463,11 @@ export const ChatSidebar = memo(function ChatSidebar({
                                             aria-label={t('unpinSession')}
                                             title={t('unpinSession')}
                                           >
-                                            <Pin className="size-3" />
+                                            <Pin className="size-3.5" />
                                           </button>
-                                        ) : null}
+                                        ) : (
+                                          <span className="size-6 shrink-0" aria-hidden="true" />
+                                        )}
                                         <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(timeValue)}</span>
                                       </button>
                                       <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
@@ -1493,7 +1496,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                             <Button
                                               variant="ghost"
                                               size="icon"
-                                              className={overlayIconButtonClass}
+                                              className={overlayArchiveButtonClass}
                                               onClick={(event) => requestDeleteSession(event, session.id)}
                                               aria-label={t('archiveSession')}
                                             >
@@ -1663,9 +1666,11 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                     aria-label={t('unpinSession')}
                                                     title={t('unpinSession')}
                                                   >
-                                                    <Pin className="size-3" />
+                                                    <Pin className="size-3.5" />
                                                   </button>
-                                                ) : null}
+                                                ) : (
+                                                  <span className="size-6 shrink-0" aria-hidden="true" />
+                                                )}
                                                 <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified)}</span>
                                               </button>
                                               <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
@@ -1694,7 +1699,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                     <Button
                                                       variant="ghost"
                                                       size="icon"
-                                                      className={overlayIconButtonClass}
+                                                      className={overlayArchiveButtonClass}
                                                       onClick={(event) => requestDeleteSession(event, session.id)}
                                                       aria-label={t('archiveSession')}
                                                     >
@@ -1819,9 +1824,11 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   aria-label={t('unpinSession')}
                                   title={t('unpinSession')}
                                 >
-                                  <Pin className="size-3" />
+                                  <Pin className="size-3.5" />
                                 </button>
-                              ) : null}
+                              ) : (
+                                <span className="size-6 shrink-0" aria-hidden="true" />
+                              )}
                               <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified)}</span>
                             </button>
                             <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
@@ -1850,11 +1857,11 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className={overlayIconButtonClass}
+                                    className={overlayArchiveButtonClass}
                                     onClick={(event) => requestDeleteSession(event, session.id)}
                                     aria-label={t('archiveSession')}
                                   >
-                                    <Archive className="size-4" />
+                                    <Archive className="size-3.5" />
                                   </Button>
                                 </>
                               )}

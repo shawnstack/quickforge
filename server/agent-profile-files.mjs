@@ -104,6 +104,8 @@ ${formatModelFrontmatter(profile.model)}
 thinking-level: ${normalizeAgentProfileThinkingLevel(profile.thinkingLevel)}
 max-runtime-ms: ${profile.maxRuntimeMs || DEFAULT_MAX_RUNTIME_MS}
 max-tool-calls: ${profile.maxToolCalls || DEFAULT_MAX_TOOL_CALLS}
+allow-mcp-tools: ${profile.allowMcpTools === true ? 'true' : 'false'}
+allow-agent-skills: ${profile.allowAgentSkills === true ? 'true' : 'false'}
 created-at: ${quoteFrontmatter(profile.createdAt || new Date().toISOString())}
 updated-at: ${quoteFrontmatter(profile.updatedAt || new Date().toISOString())}
 ---
@@ -149,6 +151,8 @@ export function agentProfileFromMarkdown(file, text, options = {}) {
   const source = firstString(metadata.source) || options.source || 'file'
   const lifecycle = firstString(metadata.lifecycle) || (source === 'temporary' ? 'temporary' : 'persistent')
   const explicitReadonly = firstOptionalBoolean(metadata.readonly, metadata['read-only'])
+  const allowMcpTools = firstOptionalBoolean(metadata['allow-mcp-tools'], metadata.allow_mcp_tools, metadata.allowMcpTools) === true
+  const allowAgentSkills = firstOptionalBoolean(metadata['allow-agent-skills'], metadata.allow_agent_skills, metadata.allowAgentSkills) === true
   const managedBy = firstString(metadata.managedBy, metadata['managed-by'])
   const profileId = firstString(metadata.id) || `${options.idPrefix || source || 'file'}:${name}`
 
@@ -172,6 +176,8 @@ export function agentProfileFromMarkdown(file, text, options = {}) {
     runId: firstString(metadata.runId, metadata['run-id']),
     maxRuntimeMs: normalizeRuntime(metadata['max-runtime-ms'] ?? metadata.max_runtime_ms ?? metadata.maxRuntimeMs),
     maxToolCalls: normalizeToolCalls(metadata['max-tool-calls'] ?? metadata.max_tool_calls ?? metadata.maxToolCalls),
+    allowMcpTools,
+    allowAgentSkills,
     enabledAsSubagent: enabledAsSubagent === undefined ? true : enabledAsSubagent,
     builtin: false,
     source,

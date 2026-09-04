@@ -209,10 +209,10 @@ export async function handleAgentProfilesApi(req, res, url, context = {}) {
       const current = await getAgentProfile(id)
       const body = await readJsonBody(req)
       if (current?.builtin) {
-        const allowedKeys = ['model', 'thinkingLevel']
+        const allowedKeys = ['model', 'thinkingLevel', 'allowMcpTools', 'allowAgentSkills']
         const keys = Object.keys(body || {})
         if (keys.length === 0 || keys.some((key) => !allowedKeys.includes(key))) {
-          throw requestError('Built-in agents only allow model and thinkingLevel updates', 403)
+          throw requestError('Built-in agents only allow model, thinkingLevel, allowMcpTools, and allowAgentSkills updates', 403)
         }
         sendJson(res, 200, { agent: agentProfileSnapshot(await updateBuiltinAgentOverrides(id, await canonicalizeProfileModel(body, current, context))) })
         return

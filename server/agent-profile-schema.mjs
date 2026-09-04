@@ -168,6 +168,10 @@ export function normalizeAgentProfileThinkingLevel(value, fallback = 'inherit') 
   return normalized
 }
 
+export function normalizeAgentProfileBoolean(value, fallback = false) {
+  return value === undefined ? fallback : value === true
+}
+
 export function resolveAgentProfileThinkingLevel(profile, inheritedThinkingLevel, model) {
   const configured = normalizeAgentProfileThinkingLevel(profile?.thinkingLevel)
   const requested = configured === 'inherit'

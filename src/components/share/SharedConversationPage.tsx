@@ -163,16 +163,6 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
             setError(err instanceof Error ? err.message : 'Failed to update model')
           })
         },
-        undefined,
-        {
-          thinkingLevel: agent.state.thinkingLevel,
-          onThinkingLevelSelect: (level) => {
-            void agent.updateThinkingLevel(level).catch((err) => {
-              logger.error('Failed to update shared thinking level:', err)
-              setError(err instanceof Error ? err.message : 'Failed to update thinking level')
-            })
-          },
-        },
       )
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load models')

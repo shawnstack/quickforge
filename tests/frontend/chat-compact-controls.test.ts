@@ -44,6 +44,32 @@ describe('chat area compact controls (narrow chat host)', () => {
   })
 
   describe('index.css compact section', () => {
+    it('reserves a centered 32px slot for the 14px context ring before the model trigger', () => {
+      const slot = ruleFor(`${compactPrefix} .quickforge-context-usage-slot`)
+      expect(slot.body).toMatch(/display:\s*inline-flex/)
+      expect(slot.body).toMatch(/width:\s*2rem/)
+      expect(slot.body).toMatch(/height:\s*2rem/)
+      expect(slot.body).toMatch(/flex:\s*0 0 2rem/)
+      expect(slot.body).toMatch(/align-items:\s*center/)
+      expect(slot.body).toMatch(/justify-content:\s*center/)
+    })
+
+    it('keeps the compact row split between left and right control groups', () => {
+      const row = ruleFor(`${compactPrefix} > div:first-child > .px-2.pb-2`)
+      expect(row.body).toMatch(/justify-content:\s*space-between/)
+      expect(row.body).not.toMatch(/justify-content:\s*flex-start/)
+
+      const rightGroup = ruleFor(`${compactPrefix} > div:first-child > .px-2.pb-2 > .flex.gap-2.items-center:last-child`)
+      expect(rightGroup.body).toMatch(/gap:\s*0\.5rem/)
+    })
+
+    it('keeps send and stop buttons pinned to the right edge', () => {
+      const send = ruleFor(`${compactPrefix} .quickforge-send-button`)
+      const stop = ruleFor(`${compactPrefix} .quickforge-stop-button`)
+      expect(send.body).toMatch(/margin-left:\s*auto/)
+      expect(stop.body).toMatch(/margin-left:\s*auto/)
+    })
+
     it('shrinks agent-access to 2rem and hides its label and chevron', () => {
       const shrink = ruleFor(`${compactPrefix} .quickforge-agent-access-inline`)
       expect(shrink.body).toMatch(/width:\s*2rem/)
@@ -56,7 +82,7 @@ describe('chat area compact controls (narrow chat host)', () => {
       )
     })
 
-    it('shrinks model trigger to 2rem, sr-only its label and hide the thinking-level badge', () => {
+    it('shrinks model trigger to 2rem, sr-only its label and swaps chevron for the box icon', () => {
       const shrink = ruleFor(`${compactPrefix} .quickforge-model-trigger`)
       expect(shrink.body).toMatch(/width:\s*2rem/)
       expect(shrink.body).toMatch(/min-width:\s*2rem/)
@@ -69,8 +95,23 @@ describe('chat area compact controls (narrow chat host)', () => {
       expect(srOnly.body).toMatch(/margin:\s*-1px\s*!important/)
       expect(srOnly.body).toMatch(/clip:\s*rect\(0 0 0 0\)/)
 
-      const badge = ruleFor(`${compactPrefix} .quickforge-model-trigger[data-quickforge-thinking-level]::after`)
-      expect(badge.body).toMatch(/display:\s*none/)
+      const chevron = ruleFor(`${compactPrefix} .quickforge-model-trigger::after`)
+      expect(chevron.body).toMatch(/display:\s*none/)
+
+      const modelIcon = ruleFor(`${compactPrefix} .quickforge-model-trigger::before`)
+      expect(modelIcon.body).toMatch(/display:\s*block/)
+    })
+
+    it('shrinks the thinking-level control to 2rem and hides its label and chevron', () => {
+      const shrink = ruleFor(`${compactPrefix} .quickforge-thinking-inline`)
+      expect(shrink.body).toMatch(/width:\s*2rem/)
+      expect(shrink.body).toMatch(/gap:\s*0/)
+      expect(shrink.body).toMatch(/padding-inline:\s*0\s*!important/)
+
+      // :is() 参数表内的逗号会让朴素的选择器 split 失配，改用精确规则文本断言
+      expect(cssRules).toContain(
+        `${compactPrefix} .quickforge-thinking-inline :is(.quickforge-thinking-label, .quickforge-thinking-chevron) {\n  display: none;\n}`,
+      )
     })
 
     it('shrinks the plan button to 2rem and hides its plain text span only', () => {
@@ -122,7 +163,16 @@ describe('chat area compact controls (narrow chat host)', () => {
         '  .quickforge-composer .quickforge-model-trigger {\n    width: 2rem;\n    min-width: 2rem;\n    gap: 0;\n    padding-inline: 0 !important;\n  }',
       )
       expect(mobileBlock).toContain(
-        '  .quickforge-composer .quickforge-model-trigger[data-quickforge-thinking-level]::after {\n    display: none;\n  }',
+        '  .quickforge-composer .quickforge-model-trigger::after {\n    display: none;\n  }',
+      )
+      expect(mobileBlock).toContain(
+        '  .quickforge-composer .quickforge-model-trigger::before {\n    display: block;\n  }',
+      )
+      expect(mobileBlock).toContain(
+        '  .quickforge-composer .quickforge-thinking-inline {\n    width: 2rem;\n    gap: 0;\n    padding-inline: 0 !important;\n  }',
+      )
+      expect(mobileBlock).toContain(
+        '  .quickforge-composer .quickforge-thinking-inline :is(.quickforge-thinking-label, .quickforge-thinking-chevron) {\n    display: none;\n  }',
       )
     })
   })

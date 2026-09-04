@@ -240,16 +240,8 @@ export function useModelActions({
           openSettingsDialog('customModels', model.provider)
         },
         {
-          thinkingLevel: currentAgent.state.thinkingLevel,
           anchor,
           onOpenModelSettings: openModelSettings,
-          onThinkingLevelSelect: (level) => {
-            currentAgent.state.thinkingLevel = level
-            void currentAgent.updateThinkingLevel(level).catch((error) => {
-              logger.error('Failed to sync thinking level to server:', error)
-            })
-            setChatPanelRevision((value) => value + 1)
-          },
         },
       )
 

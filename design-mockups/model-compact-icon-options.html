@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>紧凑模式模型 icon 候选</title>
+<style>
+  :root {
+    --background: #faf9f7;
+    --foreground: #1c1917;
+    --muted: #efece7;
+    --muted-foreground: #78716c;
+    --border: #e2ddd5;
+    --warning: #d97706;
+    --hover-bg: #e9e5df;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 28px; padding: 44px 24px;
+  }
+  h1 { font-size: 1.05rem; font-weight: 650; }
+  .sub { font-size: 0.78rem; color: var(--muted-foreground); margin-top: -20px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+    width: min(980px, 100%);
+  }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: #fff;
+    padding: 18px 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card-head { display: flex; align-items: center; gap: 12px; }
+  .num {
+    flex: 0 0 auto; width: 1.5rem; height: 1.5rem;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 999px; background: var(--muted);
+    color: var(--muted-foreground); font-size: 0.78rem; font-weight: 650;
+  }
+  .name { font-size: 0.88rem; font-weight: 650; }
+  .desc { font-size: 0.72rem; color: var(--muted-foreground); line-height: 1.6; }
+  .big {
+    display: flex; align-items: center; justify-content: center;
+    height: 84px; border-radius: 0.75rem; background: var(--muted);
+    color: var(--muted-foreground);
+  }
+  .big svg { width: 44px; height: 44px; }
+
+  /* 真实紧凑态：2rem 图标按钮 */
+  .bar {
+    display: flex; align-items: center; gap: 2px;
+    padding: 8px 10px; border-radius: 0.75rem;
+    background: var(--background); border: 1px dashed var(--border);
+  }
+  .bar-label { font-size: 0.68rem; color: var(--muted-foreground); margin-right: auto; padding-right: 8px; }
+  button.icon-only {
+    font: inherit; cursor: pointer; border: none; background: transparent;
+    width: 2rem; height: 2rem; padding: 0; border-radius: 8px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--muted-foreground);
+    transition: background 120ms ease, color 120ms ease;
+  }
+  button.icon-only:hover { background: var(--hover-bg); color: var(--foreground); }
+  button.icon-only.warn { color: var(--warning); }
+  button.icon-only.warn:hover { background: var(--hover-bg); color: var(--warning); }
+</style>
+</head>
+<body>
+  <h1>紧凑模式 · 模型选择 icon 候选（6 选 1）</h1>
+  <div class="sub">下条「真实尺寸」行为紧凑模式实际观感（2rem 按钮 / 14px 图标），悬停可试交互；大图仅为细节预览。思考等级（大脑）与完全访问（盾牌）一并列出便于对比。</div>
+
+  <!-- 公共 SVG 片段（JS 注入，避免重复） -->
+  <div class="grid" id="grid"></div>
+
+<script>
+const BRAIN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 0 0-5.997-.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 0 1 5.997-.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>'
+const SHIELD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'
+const PLUS = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>'
+
+const candidates = [
+  {
+    name: '① 立方体 Box（当前）',
+    desc: '现在的实现。立体包裹感强，但小尺寸下内部线条略糊，「模型」语义偏「包裹/组件」。',
+    svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.29 7 8.71 5 8.71-5"/><path d="M12 22V12"/></svg>',
+  },
+  {
+    name: '② 星光 Sparkles',
+    desc: 'pi-web-ui 原生模型按钮就用它，AI 生成语义最直白；与大脑（思考）区分度高。四角星 + 两粒小星。',
+    svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>',
+  },
+  {
+    name: '③ 芯片 Cpu',
+    desc: '「计算/推理硬件」语义，线条在小尺寸下最清晰；偏技术感，与「模型」关联稍间接。',
+    svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>',
+  },
+  {
+    name: '④ 分层 Layers',
+    desc: '「多模型/堆叠切换」语义，形状沉稳、小尺寸辨识度好；一层层像模型列表。',
+    svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>',
+  },
+  {
+    name: '⑤ 机器人 Bot',
+    desc: '「AI 助手」语义最直白；但子智能体指示器已用 Bot 图标，同屏重复容易混淆。',
+    svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>',
+  },
+  {
+    name: '⑥ 终端 Terminal',
+    desc: '「CLI/编码工具」语义，线条极简、最小尺寸也清晰；更像整个应用的图标而非「模型」。',
+    svg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>',
+  },
+]
+
+const grid = document.getElementById('grid')
+for (const c of candidates) {
+  const card = document.createElement('div')
+  card.className = 'card'
+  card.innerHTML = `
+    <div class="card-head"><span class="num">${c.name.slice(0, 1)}</span><span class="name">${c.name.slice(2)}</span></div>
+    <div class="big">${c.svg.replace('width="14" height="14"', 'width="44" height="44"')}</div>
+    <div class="desc">${c.desc}</div>
+    <div class="bar">
+      <span class="bar-label">真实尺寸</span>
+      <button class="icon-only" title="添加">${PLUS}</button>
+      <button class="icon-only warn" title="完全访问">${SHIELD}</button>
+      <button class="icon-only" title="模型">${c.svg}</button>
+      <button class="icon-only" title="思考等级">${BRAIN}</button>
+    </div>
+  `
+  grid.append(card)
+}
+</script>
+</body>
+</html>

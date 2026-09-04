@@ -22,6 +22,7 @@ describe('composer control hover feedback', () => {
       '.quickforge-composer .quickforge-plus-inline:hover:not(:disabled)',
       '.quickforge-composer .quickforge-agent-access-inline:hover:not(:disabled)',
       '.quickforge-composer .quickforge-subagent-running-trigger:hover:not(:disabled)',
+      '.quickforge-composer .quickforge-thinking-inline:hover:not(:disabled)',
       '.quickforge-composer .quickforge-model-trigger:hover:not(:disabled)',
     ])
     expect(neutralHover.body).toMatch(/background:\s*var\(--quickforge-sidebar-hover-bg\)\s*!important/)

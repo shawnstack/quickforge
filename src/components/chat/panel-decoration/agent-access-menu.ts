@@ -142,7 +142,7 @@ export function setupAgentAccessMenu(options: {
   const label = agentAccessLabel(agentAccessMode)
   const title = agentAccessMode === 'full-access' ? t('agentAccessFullTitle') : t('agentAccessDefaultTitle')
   const content = `${agentAccessMode === 'full-access' ? agentAccessWarningIcon : agentAccessShieldIcon}<span class="quickforge-agent-access-label"></span>${agentAccessChevronIcon}`
-  const buttonClass = `quickforge-agent-access-inline inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-muted-foreground${agentAccessMode === 'full-access' ? ' quickforge-agent-access-inline-full' : ''}`
+  const buttonClass = `quickforge-agent-access-inline inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground${agentAccessMode === 'full-access' ? ' quickforge-agent-access-inline-full' : ''}`
   const existingButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')
   const syncButton = (button: HTMLButtonElement) => {
     patchContent(button, content)

@@ -1,16 +1,11 @@
 import { type Api, type Model, modelsAreEqual } from '@earendil-works/pi-ai'
-import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import { t } from '@/lib/i18n'
 import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
 
 type AnyModel = Model<Api>
 
 type ModelSelectorOptions = {
-  thinkingLevel?: ThinkingLevel
-  onThinkingLevelSelect?: (level: ThinkingLevel) => void
   anchor?: HTMLElement | null
-  /** 控制是否渲染思考等级区（表单场景传 false） */
-  showThinking?: boolean
   /** 点击设置入口时打开自定义模型设置；仅需要该入口的场景传入 */
   onOpenModelSettings?: () => void
   /** 覆盖模型列表项的显示文案 */
@@ -19,18 +14,6 @@ type ModelSelectorOptions = {
   noneLabel?: string
   /** 点击 none 选项时回调 */
   onNoneSelect?: () => void
-}
-
-const THINKING_LEVELS: ThinkingLevel[] = ['low', 'medium', 'high', 'xhigh']
-
-function thinkingLevelLabel(level: ThinkingLevel) {
-  switch (level) {
-    case 'low': return t('thinkingLow')
-    case 'medium': return t('thinkingMedium')
-    case 'high': return t('thinkingHigh')
-    case 'xhigh': return t('thinkingXHigh')
-    default: return t('thinkingOff')
-  }
 }
 
 function createButton(className: string, text = '') {
@@ -64,14 +47,14 @@ export type ModelSelectorHandle = {
 }
 
 function ownedComposerModelMenus(anchor: HTMLElement) {
-  return Array.from(document.querySelectorAll<ComposerModelMenuElement>('.quickforge-model-menu, .quickforge-model-submenu, .quickforge-model-sheet-backdrop'))
+  return Array.from(document.querySelectorAll<ComposerModelMenuElement>('.quickforge-model-menu, .quickforge-model-sheet-backdrop'))
     .filter((menu) => menu.__quickforgeOwnerAnchor === anchor)
 }
 
 export function closeComposerModelMenu(anchor?: HTMLElement | null, scoped = false) {
   const menus = scoped
     ? anchor ? ownedComposerModelMenus(anchor) : []
-    : Array.from(document.querySelectorAll<ComposerModelMenuElement>('.quickforge-model-menu, .quickforge-model-submenu, .quickforge-model-sheet-backdrop'))
+    : Array.from(document.querySelectorAll<ComposerModelMenuElement>('.quickforge-model-menu, .quickforge-model-sheet-backdrop'))
   menus.forEach((menu) => {
     menu.__quickforgeCleanup?.()
     menu.remove()
@@ -105,20 +88,6 @@ function positionMainMenu(menu: HTMLElement, anchor?: HTMLElement | null) {
     : Math.min(fallbackTop, window.innerHeight - measuredHeight - 12)
   menu.style.left = `${left}px`
   menu.style.top = `${Math.max(12, top)}px`
-}
-
-function positionModelSubmenu(submenu: HTMLElement, menu: HTMLElement) {
-  const width = Math.min(252, window.innerWidth - 24)
-  submenu.style.width = `${width}px`
-  const mainRect = menu.getBoundingClientRect()
-  const measuredHeight = submenu.offsetHeight || 320
-  const gap = 0
-  const left = mainRect.left - width - gap >= 12
-    ? mainRect.left - width - gap
-    : Math.min(mainRect.right + gap, window.innerWidth - width - 12)
-  const top = Math.max(12, Math.min(mainRect.top, window.innerHeight - measuredHeight - 12))
-  submenu.style.left = `${left}px`
-  submenu.style.top = `${top}px`
 }
 
 function createMenuItem(options: {
@@ -158,7 +127,6 @@ function openMobileModelSelector(
   anchor?: HTMLElement | null,
 ): ModelSelectorHandle {
   let models = initialModels
-  let selectedThinkingLevel = options.thinkingLevel ?? 'off'
   let selectedModel = currentModel
 
   const backdrop = document.createElement('div') as ComposerModelMenuElement
@@ -194,52 +162,6 @@ function openMobileModelSelector(
     closeComposerModelMenu(anchor)
   }
   header.append(title, closeButton)
-
-  const thinkingSection = options.showThinking === false ? null : document.createElement('div')
-  let renderThinkingSection: (() => void) | undefined
-  if (thinkingSection) {
-    thinkingSection.className = 'quickforge-model-sheet-section'
-
-    const thinkingLabel = document.createElement('div')
-    thinkingLabel.className = 'quickforge-model-sheet-section-label'
-    thinkingLabel.textContent = t('reasoning')
-
-    renderThinkingSection = () => {
-      thinkingSection.replaceChildren(thinkingLabel)
-      if (selectedModel?.reasoning === true) {
-        const thinkingOptions = document.createElement('div')
-        thinkingOptions.className = 'quickforge-model-sheet-thinking-options'
-        const buttons = new Map<ThinkingLevel, HTMLButtonElement>()
-
-        for (const level of THINKING_LEVELS) {
-          const button = createButton('quickforge-model-sheet-thinking-option', thinkingLevelLabel(level))
-          buttons.set(level, button)
-          button.onpointerdown = (event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            selectedThinkingLevel = level
-            options.onThinkingLevelSelect?.(level)
-            for (const [option, optionButton] of buttons) {
-              const selected = option === selectedThinkingLevel
-              optionButton.classList.toggle('is-selected', selected)
-              optionButton.setAttribute('aria-pressed', String(selected))
-            }
-          }
-          const selected = level === selectedThinkingLevel
-          button.classList.toggle('is-selected', selected)
-          button.setAttribute('aria-pressed', String(selected))
-          thinkingOptions.append(button)
-        }
-        thinkingSection.append(thinkingOptions)
-      } else {
-        const note = document.createElement('div')
-        note.className = 'quickforge-model-menu-note'
-        note.textContent = t('thinkingNotSupported')
-        thinkingSection.append(note)
-      }
-    }
-    renderThinkingSection()
-  }
 
   const modelSectionLabel = document.createElement('div')
   modelSectionLabel.className = 'quickforge-model-sheet-section-label quickforge-model-sheet-model-label'
@@ -297,17 +219,12 @@ function openMobileModelSelector(
   // 选中模型：立即生效，但保持抽屉打开，仅高亮当前项
   const selectModel = (model: AnyModel) => {
     selectedModel = model
-    if (!model.reasoning && selectedThinkingLevel !== 'off') {
-      selectedThinkingLevel = 'off'
-      options.onThinkingLevelSelect?.('off')
-    }
     for (const [item, itemModel] of modelItems) {
       const selected = modelsAreEqual(itemModel, model)
       item.setAttribute('aria-checked', String(selected))
       const suffix = item.querySelector<HTMLElement>('.quickforge-model-menu-item-suffix')
       if (suffix) suffix.textContent = selected ? '✓' : ''
     }
-    renderThinkingSection?.()
     onSelect(model)
   }
 
@@ -322,7 +239,6 @@ function openMobileModelSelector(
   sheet.append(
     dragZone,
     header,
-    ...(thinkingSection ? [thinkingSection] : []),
     modelSectionLabel,
     modelList,
     ...(settingsFooter ? [settingsFooter] : []),
@@ -430,7 +346,6 @@ export function openModelSheet(
     onSelect,
     {
       ...options,
-      showThinking: false,
       onNoneSelect: options.noneLabel ? () => onSelect(null) : undefined,
     },
     anchor,
@@ -454,9 +369,7 @@ export function openCustomOnlyModelSelector(
   }
 
   let models = initialModels
-  let selectedThinkingLevel = options.thinkingLevel ?? 'off'
   let selectedModel = currentModel
-  let submenu: ComposerModelMenuElement | null = null
 
   const menu = document.createElement('div') as ComposerModelMenuElement
   menu.className = 'quickforge-model-menu'
@@ -464,31 +377,22 @@ export function openCustomOnlyModelSelector(
   menu.setAttribute('role', 'menu')
   menu.setAttribute('aria-label', t('selectCustomModel'))
 
-  const renderModelSubmenu = () => {
-    submenu?.remove()
-    submenu = document.createElement('div') as ComposerModelMenuElement
-    submenu.className = 'quickforge-model-submenu'
-    if (anchor) submenu.__quickforgeOwnerAnchor = anchor
-    submenu.setAttribute('role', 'menu')
-    submenu.setAttribute('aria-label', t('model'))
+  const renderMenu = () => {
+    menu.replaceChildren()
 
     const header = document.createElement('div')
     header.className = 'quickforge-model-menu-header'
     header.textContent = t('model')
-    submenu.append(header)
+    menu.append(header)
 
     const sortedModels = [...models].sort((a, b) => modelLabel(a).localeCompare(modelLabel(b)))
     for (const model of sortedModels) {
-      submenu.append(createMenuItem({
+      menu.append(createMenuItem({
         label: modelLabel(model),
         selected: modelsAreEqual(selectedModel, model),
         onPointerDown: (event) => {
           event.preventDefault()
           event.stopPropagation()
-          if (!model.reasoning && selectedThinkingLevel !== 'off') {
-            selectedThinkingLevel = 'off'
-            options.onThinkingLevelSelect?.('off')
-          }
           selectedModel = model
           onSelect(model)
           closeComposerModelMenu(anchor)
@@ -496,56 +400,12 @@ export function openCustomOnlyModelSelector(
       }))
     }
 
-    submenu.addEventListener('pointerdown', (event) => event.stopPropagation())
-    document.body.append(submenu)
-    positionModelSubmenu(submenu, menu)
-  }
-
-  const renderMainMenu = () => {
-    menu.replaceChildren()
-
-    const header = document.createElement('div')
-    header.className = 'quickforge-model-menu-header'
-    header.textContent = t('reasoning')
-    menu.append(header)
-
-    const supportsThinking = selectedModel?.reasoning === true
-    if (supportsThinking) {
-      for (const level of THINKING_LEVELS) {
-        menu.append(createMenuItem({
-          label: thinkingLevelLabel(level),
-          selected: selectedThinkingLevel === level,
-          onPointerDown: (event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            selectedThinkingLevel = level
-            options.onThinkingLevelSelect?.(level)
-            renderMainMenu()
-            positionMainMenu(menu, anchor)
-          },
-        }))
-      }
-    } else {
+    if (sortedModels.length === 0) {
       const note = document.createElement('div')
       note.className = 'quickforge-model-menu-note'
-      note.textContent = t('thinkingNotSupported')
+      note.textContent = t('noModelAdded')
       menu.append(note)
     }
-
-    const separator = document.createElement('div')
-    separator.className = 'quickforge-model-menu-separator'
-    menu.append(separator)
-
-    menu.append(createMenuItem({
-      label: selectedModel ? modelLabel(selectedModel) : t('noModelAdded'),
-      chevron: true,
-      onPointerEnter: renderModelSubmenu,
-      onPointerDown: (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        renderModelSubmenu()
-      },
-    }))
 
     if (options.onOpenModelSettings) {
       const settingsFooter = document.createElement('div')
@@ -559,7 +419,6 @@ export function openCustomOnlyModelSelector(
   const dismiss = (event: Event) => {
     if (event.type === 'resize' || event.type === 'scroll') {
       positionMainMenu(menu, anchor)
-      if (submenu) positionModelSubmenu(submenu, menu)
       return
     }
     if (event instanceof KeyboardEvent) {
@@ -567,7 +426,7 @@ export function openCustomOnlyModelSelector(
       event.preventDefault()
     } else {
       const target = event.target as Node
-      if (menu.contains(target) || submenu?.contains(target) || anchor?.contains(target)) return
+      if (menu.contains(target) || anchor?.contains(target)) return
     }
     close()
   }
@@ -580,7 +439,7 @@ export function openCustomOnlyModelSelector(
   }
   menu.addEventListener('pointerdown', (event) => event.stopPropagation())
 
-  renderMainMenu()
+  renderMenu()
   document.body.append(menu)
   positionMainMenu(menu, anchor)
   anchor?.setAttribute('aria-expanded', 'true')
@@ -594,8 +453,7 @@ export function openCustomOnlyModelSelector(
     updateModels: (nextModels) => {
       if (!document.body.contains(menu)) return
       models = [...nextModels]
-      if (submenu) renderModelSubmenu()
-      renderMainMenu()
+      renderMenu()
       positionMainMenu(menu, anchor)
     },
   }

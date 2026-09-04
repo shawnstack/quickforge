@@ -1832,7 +1832,7 @@ export const appTranslations = {
     yoloDisabledTitle: '工作区授权已锁定：本地工具已阻止',
     agentAccessMenuLabel: 'Agent 权限模式',
     agentAccessDefaultLabel: '默认权限',
-    agentAccessFullLabel: '完全访问权限',
+    agentAccessFullLabel: '完全访问',
     subagentRunningIndicatorTriggerAria: '{count} 个智能体运行中',
     subagentRunningIndicatorMenuTitle: '智能体运行中 · {count}',
     subagentRunningIndicatorMenuAria: '智能体运行中',

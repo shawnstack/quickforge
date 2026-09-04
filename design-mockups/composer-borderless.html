@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>输入框底部控件 · v3 最终稿（已实现）</title>
+<style>
+  :root {
+    --background: #faf9f7;
+    --foreground: #1c1917;
+    --muted: #efece7;
+    --muted-foreground: #78716c;
+    --border: #e2ddd5;
+    --warning: #d97706;
+    --hover-bg: #e9e5df;
+    --shadow: 0 10px 26px -18px rgb(15 23 42 / 0.48);
+    --popover: #fffdfb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 36px; padding: 48px 24px;
+  }
+  h1 { font-size: 1.05rem; font-weight: 650; }
+  .section { width: min(720px, 100%); }
+  .section-title { font-size: 0.82rem; color: var(--muted-foreground); margin-bottom: 10px; font-weight: 600; }
+  .section-title .tag {
+    display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px;
+    font-size: 0.7rem; font-weight: 550; background: #e7f5ec; color: #15803d;
+  }
+  .stage { position: relative; }
+
+  .composer {
+    border: 1px solid var(--border); border-radius: 1rem; background: #fff;
+    box-shadow: var(--shadow); padding: 14px 14px 10px;
+  }
+  .composer-input {
+    width: 100%; border: none; outline: none; resize: none;
+    font-size: 0.875rem; line-height: 1.6; min-height: 44px; background: transparent;
+  }
+  .composer-input::placeholder { color: var(--muted-foreground); }
+  .composer-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; gap: 8px; }
+  .left-controls, .right-controls { display: flex; align-items: center; gap: 2px; min-width: 0; }
+
+  button {
+    font: inherit; cursor: pointer; border: none; background: transparent;
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 6px; height: 32px; padding: 0 8px; border-radius: 8px;
+    font-size: 0.75rem; font-weight: 500;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  svg { flex: 0 0 auto; }
+  .label { max-width: 13rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .send { background: var(--foreground); color: var(--background); width: 32px; padding: 0; }
+  .plus { color: var(--muted-foreground); }
+  .plus:hover { background: var(--hover-bg); color: var(--foreground); }
+
+  /* ---- 无框控件 ---- */
+  .ctl { border: none; background: transparent; color: var(--muted-foreground); }
+  .ctl:hover, .ctl[aria-expanded="true"] { background: var(--hover-bg); color: var(--foreground); }
+  .access.full { color: var(--warning); }
+  .access.full:hover, .access.full[aria-expanded="true"] {
+    background: var(--hover-bg); color: var(--warning);
+  }
+
+  /* ---- 思考等级菜单 ---- */
+  .think-menu {
+    position: absolute; right: 0; bottom: calc(100% + 8px);
+    min-width: 9.5rem; padding: 6px;
+    border: 1px solid color-mix(in srgb, var(--border) 100%, transparent);
+    border-radius: 14px; background: var(--popover);
+    box-shadow: 0 18px 46px -26px rgb(15 23 42 / 0.42);
+  }
+  .think-item {
+    width: 100%; justify-content: flex-start; gap: 10px; height: 36px;
+    padding: 0 10px; border-radius: 9px; font-size: 0.78rem; color: var(--foreground);
+    display: grid; grid-template-columns: 1rem minmax(0, 1fr); text-align: left;
+  }
+  .think-item:hover { background: var(--muted); }
+  .think-item .check { color: var(--foreground); visibility: hidden; }
+  .think-item[aria-checked="true"] .check { visibility: visible; }
+  .think-item[aria-checked="true"] { font-weight: 600; }
+
+  .hint { font-size: 0.72rem; color: var(--muted-foreground); margin-top: 8px; line-height: 1.7; }
+  .hint b { color: var(--foreground); font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>v3 最终稿 —— 顺序不变，思考等级独立（模型右侧、发送左侧）</h1>
+
+  <!-- 常规态 -->
+  <div class="section">
+    <div class="section-title">常规形态<span class="tag">已按此实现</span></div>
+    <div class="composer">
+      <textarea class="composer-input" placeholder="描述你想做的事" rows="2"></textarea>
+      <div class="composer-bar">
+        <div class="left-controls">
+          <button class="plus"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button class="ctl access full" title="完全访问：等同开发者授权">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <span class="label">完全访问</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+        </div>
+        <div class="right-controls">
+          <!-- 模型选择：纯文字 + 下拉箭头（大脑 icon 已移走） -->
+          <button class="ctl model" title="选择模型">
+            <span class="label">GLM-4.6 Preview</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <!-- 思考等级：大脑 icon + 等级文字，插在模型右侧、发送左侧 -->
+          <button class="ctl think" title="思考等级: 高">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 0 0-5.997-.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 0 1 5.997-.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>
+            <span class="label">高</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <button class="send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div class="hint">
+      左侧顺序不变：<b>[+] [完全访问]</b>；右侧：<b>[模型 ⌄] [🧠 高] [发送]</b>。模型选择纯文字 + 小箭头，大脑 icon 归思考等级。
+      不支持推理的模型下，思考等级按钮自动隐藏（与原「· 等级」后缀的显示条件一致）。
+    </div>
+  </div>
+
+  <!-- 菜单展开态 -->
+  <div class="section">
+    <div class="section-title">思考等级菜单 · 展开态<span class="tag">5 档</span></div>
+    <div class="stage composer" style="padding-bottom: 210px;">
+      <div class="composer-bar" style="margin-top: 0;">
+        <div class="left-controls">
+          <button class="plus"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button class="ctl access full">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <span class="label">完全访问</span>
+          </button>
+        </div>
+        <div class="right-controls" style="position: relative;">
+          <button class="ctl model">
+            <span class="label">GLM-4.6 Preview</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <button class="ctl think" aria-expanded="true" style="background: var(--hover-bg); color: var(--foreground);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 0 0-5.997-.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 0 1 5.997-.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>
+            <span class="label">高</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="think-menu">
+            <button class="think-item" aria-checked="false"><span class="check"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>关</button>
+            <button class="think-item" aria-checked="false"><span class="check"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>低</button>
+            <button class="think-item" aria-checked="false"><span class="check"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>中</button>
+            <button class="think-item" aria-checked="true"><span class="check"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>高</button>
+            <button class="think-item" aria-checked="false"><span class="check"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>超高</button>
+          </div>
+          <button class="send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div class="hint">
+      点击向上弹出，样式对齐 Agent 权限菜单（勾选态、Escape/点外关闭、与其他 composer 菜单互斥）。
+      档位沿用现有文案：关 / 低 / 中 / 高 / 超高。
+    </div>
+  </div>
+</body>
+</html>

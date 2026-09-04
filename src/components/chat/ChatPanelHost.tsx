@@ -1068,6 +1068,16 @@ export function ChatPanelHost({
           disabledControls: sideChatMode,
           onAccessModeChange: props.onAccessModeChange,
           onTogglePlanMode: props.onTogglePlanMode,
+          onThinkingLevelChange: (level) => {
+            const currentAgent = agent as ServerAgent | SharedServerAgent
+            currentAgent.state.thinkingLevel = level
+            if (typeof currentAgent.updateThinkingLevel === 'function') {
+              void currentAgent.updateThinkingLevel(level).catch((error) => {
+                logger.error('Failed to sync thinking level to server:', error)
+              })
+            }
+            decorateFnRef.current?.()
+          },
           onInput: handleEditorInput,
           onFilesChange: handleEditorFilesChange,
           removeCommandSuggestions: cmdSuggestions.remove,

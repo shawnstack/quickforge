@@ -24,6 +24,7 @@ import { removeOpenCodeConfigMenu, setupOpenCodeConfigMenu } from './panel-decor
 import { removeOpenCodeModeMenu, setupOpenCodeModeMenu } from './panel-decoration/opencode-mode-menu'
 import { hideNativeAttachmentControls, removeComposerPlusPopover, setupComposerPlusMenu } from './panel-decoration/composer-plus-menu'
 import { decorateModelButtonLabel } from './panel-decoration/model-controls'
+import { removeThinkingLevelControl, removeThinkingLevelMenu, setupThinkingLevelControl, type QuickForgeThinkingLevel } from './panel-decoration/thinking-level-controls'
 import { removePlanModeControls, setupPlanModeControls, syncPlanModeButton } from './panel-decoration/plan-mode-controls'
 import { syncSendStopButton } from './panel-decoration/send-stop-button'
 import { bindEditorCallbacks } from './panel-decoration/editor-bindings'
@@ -106,6 +107,7 @@ export type EditorDecorationDeps = {
   disabledControls?: boolean
   onAccessModeChange: (mode: AgentAccessMode) => void
   onTogglePlanMode: () => void
+  onThinkingLevelChange?: (level: QuickForgeThinkingLevel) => void
   onInput: (value: string) => void
   onFilesChange: (files: unknown[]) => void
   removeCommandSuggestions: () => void
@@ -128,6 +130,7 @@ export function disableComposerControls(panel: HTMLElement, editor: MessageEdito
   removeAgentAccessMenu(panel, true)
   removeSubagentRunningIndicator(panel)
   removePlanModeControls(editor)
+  removeThinkingLevelMenu()
   closeComposerModelMenu(panel.querySelector<HTMLElement>('.quickforge-model-trigger'), true)
 
   const controls = [
@@ -135,6 +138,7 @@ export function disableComposerControls(panel: HTMLElement, editor: MessageEdito
     panel.querySelector<HTMLButtonElement>('.quickforge-model-trigger'),
     panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline'),
     panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline'),
+    panel.querySelector<HTMLButtonElement>('.quickforge-thinking-inline'),
   ]
   controls.forEach((button) => {
     if (!button) return
@@ -173,6 +177,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     disabledControls = false,
     onAccessModeChange,
     onTogglePlanMode,
+    onThinkingLevelChange,
     onInput,
     onFilesChange,
     removeCommandSuggestions,
@@ -260,6 +265,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     removeOpenCodeModeMenu(panel)
     panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
     panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline')?.remove()
+    removeThinkingLevelControl()
     return
   }
 
@@ -271,7 +277,19 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     removeOpenCodeModeMenu(panel)
     removeAgentAccessMenu(panel)
     removeSubagentRunningIndicatorMenu(panel)
+    removeThinkingLevelMenu()
     closeComposerModelMenu()
+  }
+
+  if (onThinkingLevelChange) {
+    setupThinkingLevelControl({
+      editor,
+      rightControls,
+      dismissComposerMenus,
+      onThinkingLevelChange,
+    })
+  } else {
+    removeThinkingLevelControl()
   }
 
   if (editor) {

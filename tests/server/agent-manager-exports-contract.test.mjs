@@ -59,6 +59,7 @@ const EXPECTED_EXPORTS = [
 const INTERNAL_SHARED_EXPORTS = [
   'persistSession', // agent-compaction 使用；persistence 块迁移后收回
   'resetIdleTimer', // agent-compaction 使用
+  'createServerTools', // agent-subagent-runner 使用；工具构建块迁移后收回
 ]
 
 describe('agent-manager export contract (module split safety net)', () => {

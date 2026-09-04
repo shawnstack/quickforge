@@ -210,9 +210,13 @@ describe('model retry notice source contracts', () => {
   })
 
   it('agent-manager injects onStreamRetry into both Agent streamFn sites', () => {
+    // 主 Agent streamFn 仍在 agent-manager.mjs；subagent streamFn 已随 runSubagent
+    // 逐字符迁至 agent-subagent-runner.mjs（模块拆分，行为不变），两处注入都在。
     expect(agentManagerSource).toContain("emitSessionEvent(session, { type: 'model_stream_retry', ...info })")
-    expect(agentManagerSource).toContain("emitSessionEvent(parentSession, { type: 'model_stream_retry', ...info })")
-    expect(agentManagerSource.match(/onStreamRetry/g)?.length).toBeGreaterThanOrEqual(2)
+    const subagentRunnerSource = readFileSync(new URL('../../server/agent-subagent-runner.mjs', import.meta.url), 'utf8')
+    expect(subagentRunnerSource).toContain("emitSessionEvent(parentSession, { type: 'model_stream_retry', ...info })")
+    expect(agentManagerSource.match(/onStreamRetry/g)?.length).toBeGreaterThanOrEqual(1)
+    expect(subagentRunnerSource.match(/onStreamRetry/g)?.length).toBeGreaterThanOrEqual(1)
   })
 
   it('ai-http-logger retries only before substantive output, up to 2 attempts, and reports recovery', () => {

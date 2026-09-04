@@ -472,7 +472,12 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
       ? visibleMessages
       : getEffectiveMessages?.() ?? visibleMessages
     const existing = panel.querySelector<HTMLElement>('.quickforge-context-usage')
+    const existingSlot = panel.querySelector<HTMLElement>('.quickforge-context-usage-slot')
     const existingLabel = panel.querySelector<HTMLElement>('.quickforge-context-usage-label')
+    const removeContextUsageVisual = () => {
+      existingSlot?.remove()
+      if (!existingSlot) existing?.remove()
+    }
     const existingGitBranch = panel.querySelector<HTMLElement>('.quickforge-git-branch-inline')
     const statsRight = renderInline
       ? panel.querySelector('message-editor')?.parentElement?.querySelector<HTMLElement>('.ml-auto.items-center')
@@ -487,7 +492,7 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     if (!renderInline) {
       existingGitBranch?.remove()
       existingLabel?.remove()
-      if (!renderModelRing) existing?.remove()
+      if (!renderModelRing) removeContextUsageVisual()
     } else if (gitBranch && statsRight) {
       const gitBranchLabel = `${gitBranchIcon}<span style="max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(gitBranch)}</span>`
       const gitBranchTitle = `Git branch: ${gitBranch}`
@@ -525,7 +530,7 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
 
     if (!contextWindow) {
       tipController.close()
-      existing?.remove()
+      removeContextUsageVisual()
       existingLabel?.remove()
       notifyDisplayChange(displayInfo)
       return displayInfo
@@ -565,22 +570,24 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     notifyDisplayChange(displayInfo)
 
     if (!renderInline && !renderModelRing) {
-      existing?.remove()
+      removeContextUsageVisual()
       existingLabel?.remove()
       return displayInfo
     }
 
     if (renderModelRing && (!modelButton || !modelControls)) {
-      existing?.remove()
+      removeContextUsageVisual()
       existingLabel?.remove()
       return displayInfo
     }
 
     if (!renderModelRing && !statsRight) {
-      existing?.remove()
+      removeContextUsageVisual()
       existingLabel?.remove()
       return displayInfo
     }
+
+    if (!renderModelRing) existingSlot?.remove()
 
     const ringPercent = Math.min(100, Math.max(0, usage.percent))
     const ring = `conic-gradient(${usage.color} ${ringPercent * 3.6}deg, color-mix(in oklab, var(--muted-foreground) 20%, transparent) 0deg)`
@@ -603,9 +610,12 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
 
     if (renderModelRing && modelButton && modelControls) {
       existingLabel?.remove()
-      if (icon.parentElement !== modelControls || icon.nextElementSibling !== modelButton) {
-        modelControls.insertBefore(icon, modelButton)
+      const slot = existingSlot ?? document.createElement('span')
+      slot.className = 'quickforge-context-usage-slot'
+      if (slot.parentElement !== modelControls || slot.nextElementSibling !== modelButton) {
+        modelControls.insertBefore(slot, modelButton)
       }
+      if (icon.parentElement !== slot) slot.append(icon)
       tipController.bind(icon, {
         usage,
         contextWindow: displayContextWindow,

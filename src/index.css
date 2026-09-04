@@ -5440,6 +5440,16 @@ html.dark .quickforge-subagent-running-badge {
    @media 视口查询覆盖不到该场景），ChatPanelHost.tsx 用 ResizeObserver 监听宿主
    内容宽度——<640px 挂 quickforge-chat-compact、≥672px 释放（32px 滞回防拖动
    抖动）。本段复用移动端 icon-only 形态：带文字控件收成 2rem 只留 icon。 */
+/* Context ring keeps a 32px control slot in compact mode; the ring itself stays 14px and centered. */
+.quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-context-usage-slot {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  align-items: center;
+  justify-content: center;
+}
+
 .quickforge-chat-panel-host.quickforge-chat-compact .quickforge-composer .quickforge-agent-access-inline {
   width: 2rem;
   gap: 0;

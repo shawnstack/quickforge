@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { contextUsageBreakdownRows, createContextUsageIndicator, isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '../../src/components/chat/context-usage'
 import { getContextUsage, type MessageWithUsage } from '../../src/components/chat/chat-utils'
@@ -5,6 +6,8 @@ import { getContextUsage, type MessageWithUsage } from '../../src/components/cha
 vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
 }), { virtual: true })
+
+const contextUsageSource = readFileSync(new URL('../../src/components/chat/context-usage.ts', import.meta.url), 'utf8')
 
 const originalDocument = globalThis.document
 const originalWindow = globalThis.window
@@ -59,6 +62,15 @@ function createIndicator({
 }
 
 describe('context usage indicator', () => {
+  it('keeps the compact ring visual at 14px inside a dedicated slot before the model button', () => {
+    expect(contextUsageSource).toContain("const existingSlot = panel.querySelector<HTMLElement>('.quickforge-context-usage-slot')")
+    expect(contextUsageSource).toContain("slot.className = 'quickforge-context-usage-slot'")
+    expect(contextUsageSource).toContain("modelControls.insertBefore(slot, modelButton)")
+    expect(contextUsageSource).toContain("if (icon.parentElement !== slot) slot.append(icon)")
+    expect(contextUsageSource).toContain("'width: 14px'")
+    expect(contextUsageSource).toContain("'height: 14px'")
+  })
+
   it('skips effective message construction when server usage is available', () => {
     const getEffectiveMessages = vi.fn(() => {
       throw new Error('effective messages should not be constructed')

@@ -6,7 +6,7 @@
 - 文档已更新；`npm run test`（273 files / 2602 tests）、`npm run lint`（0 error，1 个既有 warning）、`npm run build` 均已通过。
 - qf-agent 测试夹具已最小修复：Windows `taskkill` mock 正确触发 exit，并在每个测试前恢复 real timers；定向测试 28/28 通过。
 - runtime/offline 包已生成并复核，`package-offline/shawnstack-quickforge-1.10.2.tgz` 约 7.4 MB，包内版本为 1.10.2。
-- 工作区发布流程尚未完成，Git commit/tag/push 与 npm publish 均未执行。
+- v1.10.2 Git 发布已完成：release commit `40deadb`、tag `v1.10.2` 已创建，并已推送 `origin/dev`；npm publish 未执行。
 - `pinned-summary-draggable-capsule` 当前仍为 needs-review，但已按用户确认纳入本次发布。
 
 ---

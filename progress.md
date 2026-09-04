@@ -2,6 +2,17 @@
 
 > 归档说明（2026-09-04）：更早的 33 个条目已移至 docs/archive/progress-archive.md；feature 条目对应归档在 docs/archive/feature-list-archive.json。
 
+## Completed Feature：agent-manager-module-split（2026-09-04）
+
+- Feature: agent-manager.mjs 上帝模块无损拆分（agent-manager-module-split，**done**）——纯机械搬移，零行为变更。
+- 结果：agent-manager.mjs 4014 → 约 1966 行，保留会话生命周期编排 + facade re-export；新模块 agent-session-store / agent-session-events / agent-harness / agent-compaction / agent-prompt-commands / agent-approval-orchestrator / agent-subagent-runner / agent-persistence，函数逐字符搬移，消费方 import 路径零改动。
+- 执行序列（每块独立 commit，均过门禁）：b55c3d8 安全网（导出面契约测试 + agentSessions/pendingRestores/subagent 错误暂存收口）→ 557b748 事件核心（agentEvents/emitSessionEvent/分帧/消息构造器/context usage）→ 61d316d harness 常量 + /summary /compact /clear → 9fe9758 斜杠命令解析与 prompt 模板 → e841aad 审批 Promise 编排 → f33e70b run_subagent 生命周期 → 1f7a8fd 会话持久化（persistSessionState 经 facade 保持公共 API）。
+- 门禁：每块全量 npm run test 与基线一致（275 files / 2612 tests，唯一失败为既有前端 CSS 契约，与 server 无关）、eslint 0 error、build 通过；契约测试锁定 47 个消费面符号不变，内部共享导出（resetIdleTimer/createServerTools，persistSession 已随块4收回）单独登记；tunnel-host 集成测试捕获一处链接期缺导出（persistSession 未导出）并即时修复。两个既有源码契约测试（model-retry-notice、agent-harness）同步覆盖符号新位置，行为断言不变。
+- 文档：docs/wiki/server/README.md 模块地图同步（目录树 + agent-manager 条目 + 拆分模块清单）。
+- Notes: ① 前端 App.tsx / ChatPanelHost.tsx 上帝组件拆分另行立项；② 工具构建（createServerTools 等）与 SSE 路由仍在 agent-manager，后续可继续拆；③ 工作区基线的 local-tool-running-sweep 前端 CSS 契约失败为拆分前既有问题（motion-design 批次遗留），与本 feature 无关。
+
+---
+
 ## Planned Feature：agent-manager-module-split（2026-09-04 立项，未开始）
 
 - Feature: agent-manager.mjs 上帝模块无损拆分（agent-manager-module-split，**pending**）——纯机械搬移，零行为变更。

@@ -3,8 +3,8 @@
     {
       "id": "agent-manager-module-split",
       "name": "agent-manager.mjs 上帝模块无损拆分（纯机械搬移，零行为变更）",
-      "status": "pending",
-      "approach": "目标：把 server/agent-manager.mjs（约 4000 行、8+ 类职责）按职责拆为独立模块，全程纯机械搬移——函数体逐字符剪切到新文件、agent-manager.mjs 保留为 facade 并 re-export 同名符号，不改任何逻辑/签名/常量/导出面，14 个消费方（routes、acp/server.mjs、index.mjs 等）import 路径零改动。步骤：第零步建安全网——记录全量 test/lint/build 基线数字；新增导出符号契约测试（import * as 枚举导出集合，拆分全程不变）；对覆盖薄弱的高风险区（persist CAS 重试、subagent 超时/中止 details 注入、审批 Promise 编排）先补行为用例；准备导出等价性校验。第一步状态收口：新建 server/agent-session-store.mjs 持有模块级可变状态 agentSessions / stashedSubagentErrorDetails / pendingRestores，agent-manager 内部改经它读写，确立唯一 owner，对外旧符号继续 re-export。第二步绞杀式逐块抽取，按耦合度低到高一次一块独立提交：agent-compaction（summary/compact/clear）→ agent-prompt-commands（斜杠命令/模板）→ agent-subagent-runner（runSubagent/超时中止摘要/details/trace 截尾）→ agent-persistence（persistSession/CAS/debounce）→ agent-approval-orchestrator（四个 createXxxPromise）→ 工具包装并入工具构建模块。每块流程：原样剪切+re-export → 定向测试+全量 test/lint/node --check → grep 确认无悬挂引用 → madge/人工确认无新增循环 import → 单独 commit。禁止顺手改：不改函数名/参数默认值/常量值/测试；发现的优化点记 progress Notes 拆完另行立项。第三步 agent-manager 收敛为会话编排+re-export 表，同步 docs/wiki/server/README.md 模块地图。后续可复用同一流程拆前端 App.tsx / ChatPanelHost.tsx（hooks 抽取，JSX 与 props 契约不变，注意 effect 注册顺序不变），另行立条目。",
+      "status": "done",
+      "approach": "目标：把 server/agent-manager.mjs（约 4000 行、8+ 类职责）按职责拆为独立模块，全程纯机械搬移——函数体逐字符剪切到新文件、agent-manager.mjs 保留为 facade 并 re-export 同名符号，不改任何逻辑/签名/常量/导出面，14 个消费方（routes、acp/server.mjs、index.mjs 等）import 路径零改动。步骤：第零步建安全网——记录全量 test/lint/build 基线数字；新增导出符号契约测试（import * as 枚举导出集合，拆分全程不变）；对覆盖薄弱的高风险区（persist CAS 重试、subagent 超时/中止 details 注入、审批 Promise 编排）先补行为用例；准备导出等价性校验。第一步状态收口：新建 server/agent-session-store.mjs 持有模块级可变状态 agentSessions / stashedSubagentErrorDetails / pendingRestores，agent-manager 内部改经它读写，确立唯一 owner，对外旧符号继续 re-export。第二步绞杀式逐块抽取，按耦合度低到高一次一块独立提交：agent-compaction（summary/compact/clear）→ agent-prompt-commands（斜杠命令/模板）→ agent-subagent-runner（runSubagent/超时中止摘要/details/trace 截尾）→ agent-persistence（persistSession/CAS/debounce）→ agent-approval-orchestrator（四个 createXxxPromise）→ 工具包装并入工具构建模块。每块流程：原样剪切+re-export → 定向测试+全量 test/lint/node --check → grep 确认无悬挂引用 → madge/人工确认无新增循环 import → 单独 commit。禁止顺手改：不改函数名/参数默认值/常量值/测试；发现的优化点记 progress Notes 拆完另行立项。第三步 agent-manager 收敛为会话编排+re-export 表，同步 docs/wiki/server/README.md 模块地图。后续可复用同一流程拆前端 App.tsx / ChatPanelHost.tsx（hooks 抽取，JSX 与 props 契约不变，注意 effect 注册顺序不变），另行立条目。 实际执行顺序（依据依赖方向调整）：第零步安全网→状态收口→事件核心→块1 harness+compaction→块2 prompt-commands→块5 approvals（先行以避免块3临时导出抖动）→块3 subagent-runner→块4 persistence。额外产出：源码契约测试两处同步（model-retry-notice subagent streamFn 新位置、agent-harness openCodeUsage 快照新位置），契约测试升级为稳定消费面 + INTERNAL_SHARED_EXPORTS 内部共享两层清单。",
       "files": [
         "server/agent-manager.mjs",
         "server/agent-session-store.mjs",
@@ -19,8 +19,8 @@
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "未开始。每块搬移的门禁：导出符号契约测试通过；定向 vitest + 全量 npm run test 与基线数字一致（不增不减失败）；npm run lint 0 新 error；node --check 各新模块；无新增循环依赖；单 commit 可回滚。发布前完整 test/lint/build。",
-      "boundaries": "只做模块拆分，不改变任何语法语义/运行时行为/导出面/依赖版本；不触碰 dist、package-dist、package-offline；不与并行 feature 混在同一批 commit；前端上帝组件拆分不在本条目范围（后续另立条目）；发现的代码问题只记 progress.md Notes 不顺手修。"
+      "verification": "已完成。每个 commit 均过门禁：全量 npm run test 与基线一致（275 files / 2612 tests，唯一失败为既有前端 CSS 契约 local-tool-running-sweep，与 server 无关）；eslint 0 error（仅既有 identity.mjs:92 warning）；npm run build 通过；导出符号契约测试全程锁定消费面零变化；tunnel-host 集成测试捕获并修复一处链接期缺导出问题。提交序列：b55c3d8（安全网+状态收口）、557b748（事件核心）、61d316d（块1）、9fe9758（块2）、e841aad（块5）、f33e70b（块3）、1f7a8fd（块4）。",
+      "boundaries": "只做模块拆分，不改变任何语法语义/运行时行为/导出面/依赖版本；不触碰 dist、package-dist、package-offline；不与并行 feature 混在同一批 commit；前端上帝组件拆分不在本条目范围（后续另立条目）；发现的代码问题只记 progress.md Notes 不顺手修。 已完成拆分不改任何运行时行为；内部共享导出（resetIdleTimer/createServerTools）登记于契约测试，后续工具构建/生命周期块迁移时收回；工具构建与 SSE 路由未在本轮拆分（agent-manager 约 1966 行保留会话编排职责）；前端上帝组件拆分另行立项。"
     },
     {
       "id": "motion-design-batch-1",

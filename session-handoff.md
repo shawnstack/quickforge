@@ -2,12 +2,14 @@
 
 > 归档说明（2026-09-04）：更早的 85 个条目已移至 docs/archive/session-handoff-archive.md；feature 条目对应归档在 docs/archive/feature-list-archive.json。
 
-## 当前状态：agent-manager-module-split（已立项，未开始）
+## 当前状态：agent-manager-module-split（已完成，已提交）
 
-- 背景：用户要求架构审查后确认拆分 agent-manager.mjs 上帝模块；feature_list.json 已新增 `agent-manager-module-split`（pending），progress.md 已记录立项条目。
-- 方案要点：纯机械搬移（函数逐字符剪切 + agent-manager facade re-export，零行为/语法语义/导出面变更）；第零步安全网（全量基线 + 导出符号契约测试 + 高风险区补测）→ agent-session-store.mjs 收口三个模块级可变状态 → 按耦合度低到高逐块抽取（compaction / prompt-commands / subagent-runner / persistence / approval-orchestrator / 工具包装），每块独立 commit 与门禁。
-- 下一步：执行第零步——跑 `npm run test` / `lint` / `build` 记录基线数字，新建 `tests/server/agent-manager-exports-contract.test.mjs`。
-- Blocker：无。前端 App.tsx/ChatPanelHost.tsx 拆分不在本条目，后续另立。
+- 目标：把 server/agent-manager.mjs（4014 行上帝模块）按职责无损拆分，纯机械搬移、零行为变更，agent-manager 保留 facade re-export，消费方零改动。
+- 结果：agent-manager 约 1966 行（会话编排 + facade）；新模块 agent-session-store / agent-session-events / agent-harness / agent-compaction / agent-prompt-commands / agent-approval-orchestrator / agent-subagent-runner / agent-persistence。函数逐字符搬移。
+- 提交序列（每块独立 commit）：b55c3d8 安全网+状态收口、557b748 事件核心、61d316d harness+compaction、9fe9758 prompt-commands、e841aad approvals、f33e70b subagent-runner、1f7a8fd persistence。
+- 验证：每块全量 npm run test 与基线一致（275 files / 2612 tests，唯一失败为既有前端 CSS 契约 local-tool-running-sweep，拆分前即存在、与 server 无关）；eslint 0 error（仅既有 identity.mjs:92 warning）；npm run build 通过；tests/server/agent-manager-exports-contract.test.mjs 锁定 47 个消费面符号 + INTERNAL_SHARED_EXPORTS（现余 resetIdleTimer/createServerTools，后续块迁移后收回）。
+- 文档：docs/wiki/server/README.md 模块地图已同步；feature_list.json 标 done；progress.md 有完整条目。
+- 下一步（可选）：① 真机冒烟（会话创建/prompt/审批/subagent//compact//plan/持久化恢复/OpenCode）；② 前端 App.tsx/ChatPanelHost.tsx 上帝组件拆分另立 feature；③ 工具构建与 SSE 路由仍留 agent-manager，可后续继续拆。
 
 ---
 

@@ -7,7 +7,15 @@
 ```
 server/
 ├── index.mjs                 # 服务器入口 (883 行)
-├── agent-manager.mjs         # Agent 生命周期管理 (3991 行，含 Agent Profile / subagent 执行)
+├── agent-manager.mjs         # Agent 生命周期编排 + facade (约 1966 行；压缩/命令/审批/subagent/持久化已拆至 agent-* 模块)
+├── agent-session-store.mjs   # 模块级可变状态唯一 owner（agentSessions / pendingRestores / subagent 错误 details 暂存）
+├── agent-session-events.mjs  # 共享事件核心（emitSessionEvent/分帧转换/消息构造器/context usage）
+├── agent-harness.mjs         # harness/访问模式常量与归一化 helper
+├── agent-compaction.mjs      # /summary /compact /clear 会话压缩业务
+├── agent-prompt-commands.mjs # 斜杠命令状态解析与命令 prompt 模板
+├── agent-approval-orchestrator.mjs # 审批 / ask_user / ACP / 自动压缩审批 Promise 编排
+├── agent-subagent-runner.mjs # run_subagent 生命周期与 SUBAGENT_* 常量
+├── agent-persistence.mjs     # 会话持久化（CAS 权威快照 / debounce / 降级标记）
 ├── auto-archive.mjs          # 超过 30 天未更新对话的自动归档 runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
@@ -81,9 +89,21 @@ server/
 - `models.mjs` 只向浏览器返回无密钥模型描述，过滤 `available:false`，指定 catalog ID 未命中时强制刷新一次；真实 Cloud Token 和上游地址仅在 Node 请求期间注入。
 - 主聊天消息使用公开的 `metadata.quickforgeClientMessageId` 标识逻辑消息；真正的 Cloud Chat `Idempotency-Key` 以 `sessionId + messageId` 绑定在 `~/.quickforge/storage/security/cloud-chat-idempotency/` 私有 sidecar 中，不进入 Session JSON、浏览器状态或通用备份。同消息的 Provider 网络重试、`/continue` 和重启恢复后重新生成复用同一 UUID，不同消息使用不同 UUID；AI HTTP 调试日志会脱敏该 Header。
 
-### agent-manager.mjs (3991 行)
+### agent-manager.mjs (约 1966 行)
 
-**用途**: Agent 生命周期管理。后端最复杂的模块。
+**用途**: Agent 生命周期编排与 facade。后端最复杂的模块；agent-manager-module-split 拆分后职责按模块收口，agent-manager.mjs 保留会话生命周期编排（createAgent/runPrompt/abort/restore/destroy/fork、SSE 管理、模型/权限/标题更新）并作为 facade re-export 公共 API，消费方 import 路径不变。
+
+**拆分出的模块**（均为纯机械搬移，行为与注释语义不变；导出面由 `tests/server/agent-manager-exports-contract.test.mjs` 锁定）:
+- `agent-session-store.mjs` — 模块级可变状态唯一 owner：`agentSessions` / `pendingRestores` / `stashedSubagentErrorDetails` 及 stash/take 访问器。
+- `agent-session-events.mjs` — 共享事件核心：`agentEvents` emitter、`emitSessionEvent` 与 split-message 分帧转换、消息构造器、tool timing / runtime tool execution 合并、context usage 估算。
+- `agent-harness.mjs` — harness/访问模式常量与 `normalizeAgentHarness` / `validateAgentHarness` / `normalizeAccessMode` 等 helper。
+- `agent-compaction.mjs` — `/summary` / `/compact` / `/clear` 会话压缩业务（`summarySession` / `compactSession` / `clearSession`）。
+- `agent-prompt-commands.mjs` — 斜杠命令状态解析（`resolveCommandState`）与 `/plan` `/init` `/review` `/commit` `/skill` `/agent` 及自定义命令 prompt 模板。
+- `agent-approval-orchestrator.mjs` — 工具审批 / ask_user / ACP 审批 / 自动压缩审批四类 Promise 编排。
+- `agent-subagent-runner.mjs` — `run_subagent` 生命周期：`runSubagent`、临时 profile、超时/中止进度摘要、错误 details 构建、trace 截尾与 `SUBAGENT_*` 常量。
+- `agent-persistence.mjs` — 会话持久化：CAS 权威快照（`persistAuthoritativeSessionState` / `persistSessionUnlocked`）、`persistSession` / `persistSessionState`、400ms debounce、慢持久化日志与 persist 降级标记。
+- 拆分期间的内部共享导出（`resetIdleTimer` / `createServerTools`，登记于契约测试 `INTERNAL_SHARED_EXPORTS` 清单）后续随对应块迁移后收回。
+
 
 **功能**:
 - Agent 创建（`createAgent`）：按会话固定的 `harness` 初始化 QuickForge Agent 或 OpenCode ACP facade；缺失/未知持久化值回落 QuickForge，OpenCode ACP session ID 单独持久化并在恢复时按 initialize capability 选择 load/resume。OpenCode 新会话不依赖 QuickForge 模型配置，前端占位模型不会进入 ACP/服务端模型参数。OpenCode adapter 按 ACP `messageId` 分段 assistant，保留 text/thinking 收包顺序，并将工具持久化为 assistant 文本 → assistant toolCall → toolResult → 后续 assistant 文本。

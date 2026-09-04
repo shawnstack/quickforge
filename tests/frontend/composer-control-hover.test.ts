@@ -30,6 +30,13 @@ describe('composer control hover feedback', () => {
     expect(neutralHover.body).toMatch(/transform:\s*none\s*!important/)
   })
 
+  it('keeps the running Subagent trigger hover feedback', () => {
+    const triggerHover = ruleFor('.quickforge-composer .quickforge-subagent-running-trigger:hover:not(:disabled)').body
+
+    expect(triggerHover).toMatch(/background:\s*var\(--quickforge-sidebar-hover-bg\)\s*!important/)
+    expect(triggerHover).toMatch(/transform:\s*none\s*!important/)
+  })
+
   it('keeps send hover primary and stationary', () => {
     const sendHover = ruleFor('.quickforge-composer .quickforge-send-button:hover:not(:disabled)').body
 

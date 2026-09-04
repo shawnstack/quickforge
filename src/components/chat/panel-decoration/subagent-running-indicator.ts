@@ -270,7 +270,7 @@ export function setupSubagentRunningIndicator(options: {
     trigger = document.createElement('button')
     trigger.type = 'button'
   }
-  trigger.className = 'quickforge-subagent-running-trigger inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-muted-foreground'
+  trigger.className = 'quickforge-subagent-running-trigger inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground'
   trigger.setAttribute('aria-haspopup', 'menu')
   trigger.setAttribute('aria-label', t('subagentRunningIndicatorTriggerAria', { count: runs.length }))
   const ownedMenu = document.querySelector<SubagentRunningMenuElement>('.quickforge-subagent-running-menu')

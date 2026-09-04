@@ -227,6 +227,16 @@ async function loadModule() {
   return import('../../src/components/chat/panel-decoration/subagent-running-indicator')
 }
 
+function ruleFor(selector: string) {
+  for (const match of cssSource.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selectors = match[1]
+      .split(',')
+      .map((item) => item.trim())
+    if (selectors.includes(selector)) return { selectors, body: match[2] }
+  }
+  throw new Error(`missing CSS rule: ${selector}`)
+}
+
 const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
 const decorationSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
 const indicatorSource = readFileSync(new URL('../../src/components/chat/panel-decoration/subagent-running-indicator.ts', import.meta.url), 'utf8')
@@ -498,6 +508,24 @@ describe('subagent running indicator source contracts', () => {
     expect(indicatorSource).toContain("document.addEventListener('keydown', dismiss, true)")
     expect(indicatorSource).toContain("window.addEventListener('resize', dismiss, true)")
     expect(indicatorSource).toContain("window.addEventListener('scroll', dismiss, true)")
+  })
+
+  it('keeps the trigger borderless while preserving hover, expanded, Plan, and menu borders', () => {
+    expect(indicatorSource).not.toContain('border-transparent')
+
+    const trigger = ruleFor('.quickforge-composer .quickforge-subagent-running-trigger').body
+    expect(trigger).toMatch(/border:\s*none\s*!important/)
+    expect(trigger).toMatch(/background:\s*transparent\s*!important/)
+
+    const triggerExpanded = ruleFor('.quickforge-composer .quickforge-subagent-running-trigger[aria-expanded="true"]').body
+    expect(triggerExpanded).toMatch(/border:\s*none\s*!important/)
+    expect(triggerExpanded).toMatch(/background:\s*color-mix\([^;]+\)\s*!important/)
+
+    const plan = ruleFor('.quickforge-composer .quickforge-plan-inline').body
+    expect(plan).toMatch(/border:\s*1px\s+solid\s+color-mix\([^;]+\)\s*!important/)
+
+    const menu = ruleFor('.quickforge-subagent-running-menu').body
+    expect(menu).toMatch(/border:\s*1px\s+solid\s+color-mix\([^;]+\)/)
   })
 
   it('contains bilingual copy and badge visual rules', () => {

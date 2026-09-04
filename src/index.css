@@ -4189,7 +4189,13 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   white-space: nowrap;
 }
 
-.quickforge-composer .quickforge-subagent-running-trigger,
+.quickforge-composer .quickforge-subagent-running-trigger {
+  height: 2rem;
+  border: none !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+}
+
 .quickforge-composer .quickforge-plan-inline {
   height: 2rem;
   border: 1px solid color-mix(in oklab, var(--border) 70%, transparent) !important;
@@ -4423,7 +4429,7 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
 }
 
 .quickforge-composer .quickforge-subagent-running-trigger[aria-expanded="true"] {
-  border-color: color-mix(in oklab, var(--border) 76%, transparent) !important;
+  border: none !important;
   background: color-mix(in oklab, var(--muted) 58%, transparent) !important;
   color: var(--foreground) !important;
 }

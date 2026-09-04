@@ -24,6 +24,7 @@
 - 本轮修订：紧凑态控件行保持 `justify-content: space-between`，左/右控件组继续分开；右侧模型、思考等级、发送/停止内部连续排列，右侧组 `gap: 0.5rem`，模型/思考等级各 2rem，发送/停止 `margin-left: auto` 贴右。更新 `src/index.css` 与 `tests/frontend/chat-compact-controls.test.ts`，并同步 feature/progress 状态；定向 Vitest 12/12、ESLint、tsc -b、git diff --check 通过。
 - Revision 4：上下文用量环在模型按钮前插入 `quickforge-context-usage-slot` 32px flex 槽位，环本身固定 14px 且居中；不改变百分比/数据计算。`chat-compact-controls.test.ts` 与 `context-usage.test.ts` 锁定 CSS 槽位、DOM 顺序和 compact 布局；定向 2 files / 24 tests、ESLint、tsc -b、build、git diff --check 通过。未 commit/tag/push。
 - Revision 6：模型选择弹窗（桌面与移动端共用）选中勾改为复用 `agentAccessCheckIcon` SVG，勾选槽位移至左侧并与思考等级菜单统一 1rem 栅格、13px 图标和前景色；新增 `custom-model-selector.test.ts` 契约断言。定向模型选择器 8/8、ESLint、git diff --check 通过；待运行 tsc/build。未 commit/tag/push。
+- Revision 7（运行中 Subagent 控件去框）：完成 `src/components/chat/panel-decoration/subagent-running-indicator.ts` 的运行中控件去框，并同步 `tests/frontend/subagent-running-indicator.test.ts` 与 `tests/frontend/composer-control-hover.test.ts` 契约覆盖。定向 2 files / 15 tests、ESLint、tsc、build、git diff --check 均通过。
 - Blocker：无。
 - 下一步：如确认视觉效果，可提交并推送。
 

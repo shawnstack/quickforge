@@ -68,7 +68,7 @@
 - `createWorkspacePathValidator()` — 基于会话 workspace 上下文构造路径校验器（workspace 搜索/mention-search 遍历复用）
 - `toWorkspaceRelative()` — 将绝对路径转为工作区相对路径
 - `walkFiles()` — 递归遍历文件
-- `directorySize()` — 递归计算目录大小（带缓存与 `invalidateDirectorySizeCache()`）
+- `directorySize()` — 递归计算目录大小（带缓存）
 
 ### password-auth.mjs — 密码工具 (44 行)
 

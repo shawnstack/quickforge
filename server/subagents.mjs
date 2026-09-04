@@ -107,16 +107,6 @@ export function builtinSubagentProfilePath(name) {
   return path.join(builtinAgentsDir, `${String(name || '').trim().toLowerCase()}.md`)
 }
 
-export function listSubagentSummaries() {
-  return subagentDefinitions.map(({ name, label, mode, description, allowedTools }) => ({
-    name,
-    label,
-    mode,
-    description,
-    allowedTools: [...allowedTools],
-  }))
-}
-
 export function getSubagentDefinition(name) {
   return subagentByName.get(String(name || '').trim().toLowerCase()) || null
 }

@@ -333,10 +333,6 @@ export function readSessionStateValue(sessionId) {
   return assembleState(repository().findBySessionId(sessionId))
 }
 
-export function readSessionMetadataValue(sessionId) {
-  return repository().findBySessionId(sessionId)?.metadata ?? null
-}
-
 function mergeMetadata(existing, update, sessionId) {
   const metadata = { ...existing, ...structuredClone(update), id: sessionId }
   for (const field of ['pinnedAt', 'archivedAt']) {

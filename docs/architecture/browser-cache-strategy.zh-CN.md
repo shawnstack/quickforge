@@ -29,7 +29,6 @@
 - `readApiCache<T>(key, ttlMs)` — 读取未过期缓存，过期/缺失返回 null。
 - `writeApiCache(key, value)` — 写内存；序列化后 ≤ 256KB 才写 localStorage（避免大响应撑爆配额）。
 - `invalidateApiCache(pattern)` — 按精确 key 或 RegExp 失效（内存 + localStorage）。
-- `clearApiCache()` — 清空全部。
 - 跨标签页同步：监听 `storage` 事件，其它标签页写入/失效时丢弃本页内存副本。
 
 ### 2. `/api/project` 列表缓存（`src/hooks/useProject.ts`）

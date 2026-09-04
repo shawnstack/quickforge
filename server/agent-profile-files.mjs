@@ -257,8 +257,3 @@ export async function loadFileAgentProfiles(workspaceRoot, options = {}) {
   for (const profile of await loadProjectAgentProfiles(workspaceRoot, options)) byName.set(profile.name, profile)
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
-
-export const agentProfileSearchPaths = {
-  global: ['~/.claude/agents', '~/.quickforge/agents'],
-  project: ['<project>/.claude/agents', '<project>/.quickforge/agents'],
-}

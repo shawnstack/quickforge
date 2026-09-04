@@ -132,10 +132,6 @@ function generateShareId() {
   return `${SHARE_ID_PREFIX}${randomToken(18)}`
 }
 
-export function generateSharePassword() {
-  return `${randomToken(4).slice(0, 6).toUpperCase()}-${randomToken(4).slice(0, 6).toUpperCase()}`
-}
-
 export async function hashSharePassword(password, salt) {
   if (password === undefined || password === null || typeof password !== 'string') return {}
   if (!password) return { passwordHash: undefined, passwordSalt: undefined, passwordVersion: undefined }
@@ -672,35 +668,6 @@ export async function issueConversationShareToken(shareId) {
     data[shareId] = record
     await writeShareStoreFile(data)
     return { token, share: publicShareRecord(record) }
-  })
-}
-
-// Prune expired share tokens. Authoritative: a repository transaction that
-// deletes expired rows and bumps the share revision/mirror when anything was
-// removed. JSON: best-effort in-place prune of the legacy store.
-export async function pruneShareTokens(shareId) {
-  assertSafeShareId(shareId)
-  if (repositoryActive()) {
-    return enqueueWrite(writeQueueName, async () => {
-      assertShareWritesAllowed()
-      const removed = getShareRepository().pruneTokens(shareId, {})
-      requestShareJsonMirrorDrain()
-      return removed
-    })
-  }
-  return enqueueWrite(writeQueueName, async () => {
-    const data = await readShareStoreFile()
-    const record = data[shareId]
-    if (!record) return 0
-    const pruned = pruneTokenRecords(record.tokens)
-    const removed = (Array.isArray(record.tokens) ? record.tokens.length : 0) - pruned.length
-    if (removed > 0) {
-      record.tokens = pruned
-      record.updatedAt = new Date().toISOString()
-      data[shareId] = record
-      await writeShareStoreFile(data)
-    }
-    return removed
   })
 }
 

@@ -331,23 +331,6 @@ export async function projectContextFromId(projectId) {
   }
 }
 
-export async function readInstructionsFile(filePath) {
-  const candidates = filePath.endsWith('AGENTS.md')
-    ? [filePath, path.join(path.dirname(filePath), 'agents.md')]
-    : [filePath]
-
-  for (const candidate of candidates) {
-    try {
-      const content = await fs.readFile(candidate, 'utf8')
-      const trimmed = content.trim()
-      if (trimmed) return trimmed
-    } catch {
-      // try next candidate
-    }
-  }
-  return null
-}
-
 async function readInstructionSources(candidates) {
   const sources = []
   const seen = new Set()

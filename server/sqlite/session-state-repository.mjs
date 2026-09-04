@@ -319,19 +319,6 @@ function verificationDigest(rows) {
   return digestFromLines(rows.map((row) => snapshotDigestLine(row.scope, row.project_id, row.session_id, row.state_digest, row.metadata_digest, row.messages_digest)))
 }
 
-export function sessionStateSnapshotDigest(records) {
-  return verificationDigest(records.map((record) => ({
-    scope: record.scope,
-    project_id: record.projectId || '',
-    session_id: record.sessionId,
-    state_digest: record.stateDigest,
-    metadata_digest: record.metadataDigest,
-    messages_digest: typeof record.messagesDigest === 'string'
-      ? record.messagesDigest
-      : (Array.isArray(record.messages) ? messagesDigestFromValues(record.messages) : ''),
-  })))
-}
-
 function actualRevision(database, record) {
   const active = cachedStatement(database, 'SELECT revision, state_version, created_at, message_count FROM sessions WHERE scope = ? AND project_id = ? AND session_id = ?')
     .get(record.scope, record.projectId, record.sessionId)

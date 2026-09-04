@@ -98,25 +98,6 @@ export function invalidateApiCache(pattern: string | RegExp): void {
   }
 }
 
-/**
- * 清空所有 API 缓存（内存 + localStorage）。
- */
-export function clearApiCache(): void {
-  memoryCache.clear()
-  try {
-    const storage = globalThis.localStorage
-    if (!storage) return
-    const keys: string[] = []
-    for (let i = 0; i < storage.length; i += 1) {
-      const itemKey = storage.key(i)
-      if (itemKey?.startsWith(STORAGE_KEY_PREFIX)) keys.push(itemKey)
-    }
-    for (const itemKey of keys) storage.removeItem(itemKey)
-  } catch {
-    // 忽略
-  }
-}
-
 // 跨标签页同步：其它标签页写入或失效缓存时，丢弃本页内存副本
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {

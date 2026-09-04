@@ -12,7 +12,6 @@ import type {
   WorkspaceFileResponse,
   WorkspaceResolvedPathResponse,
   WorkspaceSearchResponse,
-  WorkspaceTreeResponse,
 } from './workspace-types'
 
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
@@ -39,10 +38,6 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 
 function projectQuery(projectId: string) {
   return `projectId=${encodeURIComponent(projectId)}`
-}
-
-export function getWorkspaceTree(projectId: string, signal?: AbortSignal) {
-  return fetchJson<WorkspaceTreeResponse>(`/api/workspace/tree?${projectQuery(projectId)}`, signal)
 }
 
 export function getWorkspaceChildren(projectId: string, path = '.', options: { limit?: number; cursor?: string; signal?: AbortSignal } = {}) {

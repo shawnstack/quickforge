@@ -67,7 +67,7 @@ describe('share lifecycle (startup order, fail closed, shutdown)', () => {
   })
 
   afterEach(async () => {
-    service.configureShareService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
+    service.configureShareService({ repository: null, mirror: null, phase: 'json_authoritative' })
     service.stopShareService()
     await databaseModule.closeSqliteStorage()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR

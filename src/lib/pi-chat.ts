@@ -313,10 +313,6 @@ export function configuredModelsFromProviders(providers: CustomProvider[]): Mode
     .map((model) => normalizeModelForProvider(model))
 }
 
-export function selectableModelsFromProviders(providers: CustomProvider[]): Model<Api>[] {
-  return filterSelectableModels(configuredModelsFromProviders(providers))
-}
-
 export async function getConfiguredModels(storage: AppStorage): Promise<Model<Api>[]> {
   try {
     const catalog = await loadModelCatalog()

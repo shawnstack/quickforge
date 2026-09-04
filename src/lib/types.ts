@@ -121,12 +121,6 @@ export type BackgroundTask = {
   unsubscribe: () => void
 }
 
-export function sessionScope(
-  session: QuickForgeSessionMetadata | QuickForgeSessionData | null | undefined,
-): ChatScope {
-  return session?.scope === 'project' ? 'project' : 'global'
-}
-
 export function sessionTitle(title: string, channelName?: string) {
   const displayTitle = title === 'New chat' ? t('newChat') : title
   const normalizedChannelName = channelName?.trim()

@@ -492,20 +492,12 @@ export async function loadProjectSkills(workspaceRoot) {
   })
 }
 
-export async function loadSkills() {
-  return loadGlobalSkills()
-}
-
 export async function listGlobalSkillSummaries() {
   return summarizeSkills(await loadGlobalSkills())
 }
 
 export async function listProjectSkillSummaries(workspaceRoot) {
   return summarizeSkills(await loadProjectSkills(workspaceRoot))
-}
-
-export async function listSkillSummaries() {
-  return listGlobalSkillSummaries()
 }
 
 export async function findGlobalSkill(name) {
@@ -520,20 +512,12 @@ export async function findProjectSkill(name, workspaceRoot) {
   return skills.find((skill) => skill.name === skillName) || null
 }
 
-export async function findSkill(name) {
-  return findGlobalSkill(name)
-}
-
 export async function filterKnownGlobalSkillNames(skillNames) {
   return filterKnownNames(skillNames, await loadGlobalSkills())
 }
 
 export async function filterKnownProjectSkillNames(skillNames, workspaceRoot) {
   return filterKnownNames(skillNames, await loadProjectSkills(workspaceRoot))
-}
-
-export async function filterKnownSkillNames(skillNames) {
-  return filterKnownGlobalSkillNames(skillNames)
 }
 
 export async function loadSelectedGlobalSkills(skillNames) {
@@ -544,10 +528,6 @@ export async function loadSelectedProjectSkills(skillNames, workspaceRoot) {
   const skills = await loadProjectSkills(workspaceRoot)
   const pluginSkills = skills.filter((skill) => String(skill.source || '').startsWith('plugin:'))
   return mergeSkills(pluginSkills, selectSkills(skillNames, skills))
-}
-
-export async function loadSelectedSkills(skillNames) {
-  return loadSelectedGlobalSkills(skillNames)
 }
 
 async function walkResourceFiles(rootDir, currentDir, files, maxFiles) {

@@ -13,7 +13,6 @@ export const SHARE_STORAGE_PHASES = Object.freeze({
 
 let repositoryInstance = null
 let cachedPhase = SHARE_STORAGE_PHASES.JSON_AUTHORITATIVE
-let jsonAdapter = null
 let mirrorAdapter = null
 let drainPromise = null
 let mirrorTimer = null
@@ -26,14 +25,6 @@ function storage() {
 function repository() {
   if (!repositoryInstance) repositoryInstance = createShareRepository(storage())
   return repositoryInstance
-}
-
-// JSON-authoritative read/write adapter slot (same pattern as
-// session-state-service). share-store keeps its legacy JSON path, so this is a
-// public extension point rather than an internal call site.
-export function requireShareJsonAdapter(method) {
-  if (typeof jsonAdapter?.[method] !== 'function') throw new Error(`JSON authoritative share adapter does not implement ${method}`)
-  return jsonAdapter[method].bind(jsonAdapter)
 }
 
 function sqliteReadable() {
@@ -51,9 +42,8 @@ export function createDefaultShareMirror() {
   }
 }
 
-export function configureShareService({ repository: configuredRepository, mirror, phase, json } = {}) {
+export function configureShareService({ repository: configuredRepository, mirror, phase } = {}) {
   if (configuredRepository !== undefined) repositoryInstance = configuredRepository
-  if (json !== undefined) jsonAdapter = json
   if (mirror !== undefined) mirrorAdapter = mirror
   if (phase !== undefined) {
     if (!Object.values(SHARE_STORAGE_PHASES).includes(phase)) throw new TypeError(`Invalid share storage phase: ${phase}`)

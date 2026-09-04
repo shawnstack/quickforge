@@ -188,14 +188,6 @@ export async function directorySize(dir) {
   }
 }
 
-export function invalidateDirectorySizeCache(dir) {
-  if (dir) {
-    directorySizeCache.delete(dir)
-  } else {
-    directorySizeCache.clear()
-  }
-}
-
 export function shouldSkipSearchDir(name) {
   return ['.git', 'node_modules', 'dist', 'dist-ssr', '.vite'].includes(name)
 }

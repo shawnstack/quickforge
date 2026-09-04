@@ -188,12 +188,6 @@ const splitMigrationMarkerFile = path.join(configDir, '.split-migrated')
 const projectsConfigFile = path.join(configDir, 'projects.json')
 const legacyStorageMigrationMarkerFile = path.join(storageDir, '.layout-migrated')
 
-export function storeFile(storeName) {
-  assertStore(storeName)
-  if (isConfigStore(storeName)) return configStoreFilePath(storeName)
-  return sessionStoreFile(storeName, { scope: 'global' })
-}
-
 function legacyFlatStoreFile(storeName) {
   return path.join(storageDir, `${storeName}.json`)
 }
@@ -424,11 +418,6 @@ export async function writeSessionStateMetadataBucket(bucket, metadata) {
 
 export async function removeSessionStateJsonBody(bucket, sessionId) {
   await fs.rm(sessionDataFile(sessionId, bucket), { force: true })
-}
-
-export async function readSessionStateJsonBody(bucket, sessionId) {
-  await ensureStorage()
-  return readJsonFile(sessionDataFile(sessionId, bucket), null)
 }
 
 // Streaming filesystem adapter over the legacy session-state JSON layout,

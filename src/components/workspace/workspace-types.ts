@@ -48,11 +48,6 @@ export type GitChangedFile = {
   deletions?: number
 }
 
-export type WorkspaceTreeResponse = {
-  root: string
-  tree: WorkspaceTreeNode[]
-}
-
 export type WorkspaceChildrenResponse = {
   root: string
   path: string

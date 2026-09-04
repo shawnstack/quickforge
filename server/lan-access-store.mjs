@@ -184,11 +184,6 @@ export async function readLanAccessStatus() {
   return publicStatus(await readLanAccessFile())
 }
 
-export async function readLanAccessConfig() {
-  if (repositoryActive()) return requireLanAccessRepositoryConfig()
-  return readLanAccessFile()
-}
-
 export async function updateLanAccessSettings({ enabled, password, sessionTtlHours }) {
   return enqueueWrite(writeQueueName, async () => {
     assertLanAccessWritesAllowed()

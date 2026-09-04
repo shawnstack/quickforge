@@ -33,7 +33,6 @@ export const INPUT_CLAMP_LINES = 6
 export const INPUT_CLAMP_CONTROL_SAFE_AREA_PX = 30
 /** 过渡时长；与 index.css 中 .quickforge-input-clamp 的 transition 保持一致。 */
 export const INPUT_CLAMP_TRANSITION_MS = 220
-export const INPUT_CLAMP_EASING = 'cubic-bezier(.22, 1, .36, 1)'
 /** 展开过渡结束兜底（transitionend 不监听，用略长于过渡的定时器置 none）。 */
 export const INPUT_CLAMP_SETTLE_TIMEOUT_MS = 320
 

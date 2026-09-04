@@ -93,6 +93,12 @@ import {
 } from './ask-store.mjs'
 
 export { getPendingAskForSession, normalizeAskQuestions } from './ask-store.mjs'
+import {
+  agentSessions,
+  pendingRestores,
+  stashSubagentErrorDetails,
+  takeStashedSubagentErrorDetails,
+} from './agent-session-store.mjs'
 
 // ---------------------------------------------------------------------------
 // Tool definitions (server-side, no REST roundtrip)
@@ -234,8 +240,6 @@ async function rebuildSessionTools(session) {
 // Agent Manager
 // ---------------------------------------------------------------------------
 
-const agentSessions = new Map()
-
 const AGENT_ACCESS_MODE_DEFAULT = 'default'
 const AGENT_ACCESS_MODE_FULL_ACCESS = 'full-access'
 const AGENT_HARNESS_QUICKFORGE = 'quickforge'
@@ -287,7 +291,7 @@ const SUBAGENT_TRACE_MESSAGES_LIMIT = 50
 // 超时错误正文中最后一条 assistant 文本的截断长度（半角字符）。
 const SUBAGENT_TIMEOUT_LAST_MESSAGE_LIMIT = 600
 // run_subagent 错误 details 暂存条目的兜底 TTL；正常路径 afterToolCall 即取走删除。
-const SUBAGENT_ERROR_DETAILS_STASH_TTL_MS = 6 * 60 * 60 * 1000
+// （暂存状态与 stash/take 访问器已收口至 agent-session-store.mjs）
 
 /**
  * Create a Promise that only resolves when the user accepts or rejects the tool call.
@@ -1618,25 +1622,6 @@ function buildSubagentAbortedErrorMessage(name, progress) {
  * （messages/toolCalls/pendingToolCalls 等）持久化并在 Inspector 中可见。正常路径
  * afterToolCall 立即取走并删除；遗留条目仅按 TTL 兜底清理，防异常销毁泄漏。
  */
-const stashedSubagentErrorDetails = new Map()
-
-function stashSubagentErrorDetails(toolCallId, details) {
-  if (typeof toolCallId !== 'string' || !toolCallId) return
-  const now = Date.now()
-  for (const [stashedId, entry] of stashedSubagentErrorDetails) {
-    if (now - entry.stashedAt > SUBAGENT_ERROR_DETAILS_STASH_TTL_MS) stashedSubagentErrorDetails.delete(stashedId)
-  }
-  stashedSubagentErrorDetails.set(toolCallId, { stashedAt: now, details })
-}
-
-function takeStashedSubagentErrorDetails(toolCallId) {
-  if (typeof toolCallId !== 'string') return undefined
-  const entry = stashedSubagentErrorDetails.get(toolCallId)
-  if (!entry) return undefined
-  stashedSubagentErrorDetails.delete(toolCallId)
-  return entry.details
-}
-
 async function runSubagent(parentSession, toolCallId, params, parentSignal, onUpdate) {
   const profile = await resolveSubagentProfile(parentSession, params?.subagent)
   if (!profile || !profile.enabledAsSubagent) {
@@ -3545,7 +3530,7 @@ export async function destroyAgent(sessionId) {
 // to restoreAgent; without dedupe each raced through createAgent and the last
 // agentSessions.set overwrote the others, leaking the overwritten sessions
 // (listeners, idle/persist timers, OpenCode child processes) forever.
-const pendingRestores = new Map()
+// （pendingRestores 已收口至 agent-session-store.mjs）
 
 /**
  * Try to restore an agent session from persisted storage.

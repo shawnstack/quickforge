@@ -1,5 +1,16 @@
 # Progress
 
+## 1.10.2 发布状态（2026-09-04）
+
+- 已 bump 版本至 1.10.2，并完成当前 dev 分支待发布提交的文档整理。
+- 发布前门禁已通过：`npm run test`（273 files / 2602 tests 全过）、`npm run lint`（0 error，1 个既有 warning）、`npm run build`（通过，含既有 KaTeX/chunk warnings）。
+- qf-agent 测试夹具已最小修复：Windows `taskkill` mock 正确触发 exit，并在每个测试前恢复 real timers；定向测试 28/28 通过。
+- runtime/offline 包已生成并复核，`package-offline/shawnstack-quickforge-1.10.2.tgz` 约 7.4 MB，包内版本为 1.10.2。
+- Git 发布门禁尚未完成：需复核差异后进行 commit/tag/push；本次不执行 npm publish。
+- 当前 `pinned-summary-draggable-capsule` needs-review feature 已按用户确认纳入本次发布，仍保留 needs-review 状态。
+
+---
+
 ## Completed Feature：sidebar-collapse-zoom-width
 
 - Feature: 桌面侧栏收缩态避免 resize 恢复展开宽度（sidebar-collapse-zoom-width，**已完成**）

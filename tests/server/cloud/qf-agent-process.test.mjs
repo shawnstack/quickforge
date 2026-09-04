@@ -71,8 +71,12 @@ function createChild({ pid = nextPid++ } = {}) {
 function useSuccessfulAgentSpawn({ runtimeSpawnGate = null } = {}) {
   const versionChildren = []
   const runtimeChildren = []
-  mocks.spawn.mockImplementation((_executable, args) => {
+  mocks.spawn.mockImplementation((executable, args) => {
     const child = createChild()
+    if (executable === 'taskkill') {
+      queueMicrotask(() => child.emit('exit', 0))
+      return child
+    }
     if (Array.isArray(args) && args.includes('--version')) {
       versionChildren.push(child)
       queueMicrotask(() => {
@@ -98,6 +102,7 @@ function startOptions() {
 }
 
 beforeEach(async () => {
+  vi.useRealTimers()
   tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'quickforge-qf-agent-'))
   process.env.QUICKFORGE_QF_AGENT_PATH = process.execPath
   process.env.QUICKFORGE_QF_AGENT_IDENTITY_DIR = path.join(tempDir, 'identity')

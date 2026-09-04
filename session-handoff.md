@@ -1,5 +1,16 @@
 # Session Handoff
 
+## 1.10.2 发布状态（2026-09-04）
+
+- 已由父 Agent bump 版本至 1.10.2；当前发布目标为用户确认纳入的 dev 分支全部待发布提交。
+- 文档已更新；`npm run test`（273 files / 2602 tests）、`npm run lint`（0 error，1 个既有 warning）、`npm run build` 均已通过。
+- qf-agent 测试夹具已最小修复：Windows `taskkill` mock 正确触发 exit，并在每个测试前恢复 real timers；定向测试 28/28 通过。
+- runtime/offline 包已生成并复核，`package-offline/shawnstack-quickforge-1.10.2.tgz` 约 7.4 MB，包内版本为 1.10.2。
+- 工作区发布流程尚未完成，Git commit/tag/push 与 npm publish 均未执行。
+- `pinned-summary-draggable-capsule` 当前仍为 needs-review，但已按用户确认纳入本次发布。
+
+---
+
 ## 当前状态：sidebar-collapse-zoom-width（已完成，未提交）
 
 - 目标：修复桌面侧栏收缩后浏览器缩放/`window.resize` 重新写入展开宽度，以及收缩/移动清理遗漏遗留内联 `width` 的问题。

@@ -2,6 +2,35 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [1.10.2] - 2026-09-04
+
+### Added
+
+- Added a "Continue generating" action for terminal errors: it sends a continuation message without truncating completed tool progress, while failed HTTP prompts can retry the original message with capabilities and context references preserved.
+- Added display-layer localization for known errors, including aborted requests, AI stream timeouts, failed fetches, and HTTP prompt failures, while retaining the original error text in persisted data.
+- Added structured progress details to failed subagent tool results, preserving traces across refreshes and restoring the default and maximum subagent runtime to two hours.
+- Applied the Todo planning rule to all eligible non-simple multi-step tasks, not only project tasks.
+
+### Changed
+
+- Changed automatic compaction to retain zero recent turns by default, with manual compaction compressing all currently eligible history.
+
+### Fixed
+
+- Fixed collapsed sidebar sections being reset to their expanded width after browser resize or zoom.
+- Fixed the conversation Todo summary's completed-item icon to use the emerald completion color.
+- Fixed project and task section dragging so it is clamped to the visible viewport instead of moving downward without bound.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@1.10.2` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-1.10.2.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-1.10.2.tgz
+  ```
+
 ## [1.10.1] - 2026-08-31
 
 ### Added

@@ -1,0 +1,918 @@
+# Session Handoff Archive
+
+更早的会话交接记录已从 session-handoff.md 移入本文件（2026-09-04 归档，仅保留最近 30 个 feature 对应的交接内容）。按归档时顺序排列（新→旧），追加归档时新内容插入本标题之后。
+
+## 前一会话状态：chat-message-queue（已完成）
+
+- 目标：为聊天 Composer 增加「排队 + 插队」——AI 回合运行期间继续输入的消息进入队列、回合结束后按序自动发送；队列项可「立即」在当前工具轮结束后注入进行中回合。先出 `design-mockups/message-queue.html` 交互稿，用户手动验证通过后实现。
+- 实现：新增 `src/lib/message-queue.ts`（纯函数队列操作 + localStorage 持久化 + steer 客户端，175 行）与 `src/components/chat/panel-decoration/message-queue.ts`（面板 controller，385 行）；`ChatPanelHost.tsx` 接入 capture-phase Enter 入队、decorate 更新、`agent_end` 冲刷/暂停分支、会话恢复与卸载保存；`todo-write-summary.ts` 锚点容忍相邻队列面板防抖动交换；capabilities 新增 `messageSteering`（QuickForge true / Side Chat、OpenCode false）；i18n 双语 15 key；index.css 追加 `.quickforge-msg-queue*` 样式段；panel-decoration 桶文件导出。插队走既有 `POST /api/agents/:id/steer`（pi-agent-core steering 在轮间 drain，服务端零改动）；OpenCode/Side Chat 通过能力位降级。
+- 验证：定向 vitest message-queue(新) + todo 两件套 → 47 tests 全过；capabilities/side-chat/ChatPanelHost 引用族 6 files / 72 tests 全过；eslint 改动文件 0 error；tsc -b 通过；npm run build 成功（仅既有 warnings）。未跑全量 test/lint；未 commit/tag/push。
+- 复审修订（用户截图反馈）：队头排队项去掉特殊深边框（三参 color-mix 无效回退 currentColor 所致，现与其余项一致 var(--border)）；删除「AI 结束后按顺序自动发送」文案、messageQueueAutoHint 双语 key 及相关死 CSS/DOM 属性；复验 eslint/定向 vitest 37 tests/tsc/build 全过。
+- 拖拽排序设计稿轮次：应要求设计排队项拖动排序，`design-mockups/message-queue.html` 已扩展可操作演示（⠿ 手柄、幽灵跟随、占位换位、边缘自动滚动），浏览器自动化实测换位/序号刷新/无残留全过；修复 move/up 事件路由（改挂 window capture）与 ghost 清理两个 bug。mockup 内「自动发送」hint 文案已同步删除。
+- 拖拽排序组件落地（Revision 3）：`message-queue.ts` 新增 beginRowDragSession 指针 mini-sortable（window capture 三监听、6px 阈值、占位+幽灵换位、边缘自动滚动），lib 新增 moveQueuedMessage 纯函数，CSS/i18n（DragTitle 双语）同步；验证 4 files / 57 tests 全过、eslint/tsc/build 全过。未 commit。
+- 拖拽正确性评审修复（Revision 4，用户指出实际功能不正确）：修复 4 个真 bug——①流式期间 decorate 周期 render() 无条件取消进行中拖拽（队列恰在流式期使用，拖拽必被打断；静态稿无重渲染所以没测出）→ 拖拽会话存续期间挂起重渲染、会话结束统一从权威 items 重建；②取消的拖拽遗留脏行序不复位 → 同一重建路径修复；③拖拽会话为模块级全局、跨控制器实例误杀 → 改为每控制器持有（beginRowDragSession 工厂返回 {cancel}，onCommit/onEnd 回调）；④流式期间行内编辑被重渲染冲掉（重置为已提交文本+抢焦点）→ 编辑输入框跨重渲染保值/保焦点/保光标（dataset.queueItemId 同项判定）。复验 4 files / 59 tests、eslint/tsc/build 全过。未 commit。
+- 「立即」插队乐观显示（Revision 5，用户提出点击后马上显示）：`ServerAgent.steer(message)` 改 async——点击即乐观把 user 消息追加进 state.messages 并 emit message_start（面板立即渲染），POST 同一消息对象（客户端 timestamp）；服务端在工具轮边界注入同一消息经 message_end 回显，upsertMessage 按 role+timestamp 原位替换乐观副本不重复；HTTP 失败回滚乐观副本+二次 message_start+reject（队列项保留）。ChatPanelHost submitJump 改调 agent.steer，删除 steerSessionMessage 死代码及其测试。复验 vitest 2 files / 54 tests（server-agent 新增乐观/回滚两用例）、eslint/tsc/build 全过。未 commit。
+- 提交前完整门禁（Revision 6）：完整 npm run test 暴露 todo-write-renderer 无界切片契约被追加在后的队列 CSS 污染 → 队列 CSS 段移至 todo 摘要注释之前；期间 src/index.css 曾被脚本误截断，从 HEAD + 事故前 dist 编译产物（含 @supports color-mix 原值）重建并经 bundle 逐条比对确认等价。最终门禁：260 files / 2365 tests 全过、lint 0 error、build ✓；随后 chat-message-queue 全部改动作为 feature commit 提交。
+- Blocker：无。
+- 下一步：可选真机冒烟（多连发排队、点「立即」消息立即出现且轮边界后不重复、停止/出错后的暂停恢复、流式中拖拽排序与行内编辑）。
+
+---
+
+## 前一会话：release-v1.9.1（已完成）
+
+- 目标：按用户指令「发布版本」，以 `v1.9.0` tag 之后 dev 的 6 个提交为基线，经用户选型确认按 **patch** 发布 **v1.9.1**。
+- 基线提交：cdc97d0（云设置页 URL 行重设计+删开关）、b28a4ee（状态文件记录）、2b96c30（检查更新遵循 npm registry 配置）、5905e1c（Todo 胶囊摘要）、163e637（云设置页删远程/身份/设备区块）、1c39bd9（侧栏显示更多颜色）。
+- 已完成：`npm version patch` 1.9.0→1.9.1；CHANGELOG.md 新增 `[1.9.1] - 2026-08-27` 章节（Added/Changed/Fixed/Released）；README.md 当前版本徽章 → 1.9.1。
+- 门禁：完整 `npm run test` → **259 files / 2349 tests 全部通过**（硬门禁）；`npm run lint` → 0 errors / 1 既有 warning（identity.mjs:92）；`npm run build` 成功（仅既有 chunk size warnings）。
+- 打包：runtime/offline 包已生成，`package-offline/shawnstack-quickforge-1.9.1.tgz`（7.0MB / unpacked 约24MB / 453 files）；元数据校验 version 1.9.1、8 运行时 deps + @vscode/ripgrep optional、无 devDeps/scripts。
+- 文件：package.json、package-lock.json、CHANGELOG.md、README.md、feature_list.json、progress.md、session-handoff.md。
+- 发布序列：本变更构成 release commit（在 dev 上），随后 master `--ff-only` 快进、`v1.9.1` tag、原子推送 `master`/`dev`/tag。
+- Blocker：无。剩余人工步骤：GitHub Desktop Release 与 `npm publish ./package-offline/shawnstack-quickforge-1.9.1.tgz --access public`（用户执行，需 npm 登录）。
+- 下一步：无。可从 feature_list.json 选择下一个 feature；遗留决策（用户未答）：新装实例云服务默认 enabled=false 是否改为默认开启。
+
+---
+
+## 当前状态：plugins-remove-description（已完成）
+
+- 目标：移除插件设置页描述文案「管理本地 QuickForge 插件。当前首版支持通过 manifest 声明并贡献 Agent 工具的插件。」。
+- 实现：`PluginsPage.tsx` 删除标题下方描述行；`settings-tabs.ts` 插件项 `getDescription` 改为 `undefined`（mcp 项同先例）；`i18n.ts` 中英文成对删除 `pluginsDescription` key（grep 无残留）。
+- 验证：eslint 改动 3 文件 0 error；tsc -b 通过；npm run build 成功（仅既有 chunk size warning）；tests/ 无相关引用。未跑全量 test/lint。
+- 文件：src/components/plugins/PluginsPage.tsx、src/lib/settings-tabs.ts、src/lib/i18n.ts、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无。上一改动 lan-access-remove-risk-warning 已提交（91d0c4d），本改动未 commit。
+
+---
+
+## 当前状态：lan-access-remove-risk-warning（已完成）
+
+- 目标：移除局域网访问设置页顶部「高风险：通过密码的局域网设备可以访问你的对话、项目和可用工具。请只在可信网络中开启。」警告文案。
+- 实现：`src/lib/lan-access-settings-tab.ts` render 删除 `quickforge-settings-warning` 警告 div；`src/lib/i18n.ts` 中英文成对删除 `lanAccessRiskWarning` key（grep 确认无残留）。`.quickforge-settings-warning` 样式保留（cloud/backup/skills/plugins 页仍用）。
+- 验证：eslint 改动文件 0 error；npm run build 成功（仅既有 chunk size warning）；tests/ 无 lan-access-settings-tab 相关测试，未跑全量 test/lint。
+- 文件：src/lib/lan-access-settings-tab.ts、src/lib/i18n.ts、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无。未 commit/tag/push。
+
+---
+
+## 当前状态：cloud-settings-url-row-redesign（已完成，方案 A 已实现）
+
+- 目标：删除「登录或注册」安全说明文字与「启用云服务」开关行；Cloud API 地址行调整样式（先设计稿，用户选 A）。
+- 实现：两项删除 + 方案 A 均已落地——`CloudAccountSettingsPage.tsx` URL 行改为 `quickforge-settings-row-form` 紧凑表单组（标签上置、「来源」caption 移至标签行右端、输入框通栏与「测试连接」「保存修改」同排，错误提示/重建身份入口保持下方）；`src/index.css` 新增 row-form 三条规则（纵向堆叠 / min-height 0 / 悬停不高亮）；`tests/frontend/cloud-account-settings-page.test.ts` 新增方案 A 布局源码契约 describe；设计稿 `design-mockups/cloud-url-row-redesign.html` 保留。
+- 验证：定向 vitest 3 files / 23 tests 全通过（含 2 条新契约）；eslint 改动文件 0 error；tsc -b 通过；npm run build 成功（仅既有 chunk size warning）。未跑全量 test/lint。
+- 文件：src/components/cloud/CloudAccountSettingsPage.tsx、src/index.css、src/lib/i18n.ts、tests/frontend/cloud-i18n.test.ts、tests/frontend/cloud-account-settings-page.test.ts、design-mockups/cloud-url-row-redesign.html（新）、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无。遗留决策（用户未答）：新装实例云服务默认 enabled=false 且无 UI 开关，是否改 `server/cloud/service-config.mjs` candidateFrom 默认值。下方另有并行会话条目（update-check-npm-registry-config、todo-summary-capsule-redesign），未触碰。
+
+---
+
+## 当前状态：update-check-npm-registry-config（已完成）
+
+- 目标：用户询问「检查更新 npm 包更新是哪种方式、是否走接口、npm 命令检查是否更好」，调研确认当前为直接 fetch registry packument 取 `dist-tags.latest`（`server/utils/package-update.mjs`，仅读 `npm_config_registry` 环境变量、不读 `.npmrc`）；用户确认按「读取当前 npm 配置的源」落地（明确不采用 `npm view` 命令方案——更慢、依赖本机 npm、底层请求同一接口）。
+- 实现：`server/utils/package-update.mjs` 新增导出 `resolveRegistry(packageName, options)`——环境变量 `npm_config_registry`/`NPM_CONFIG_REGISTRY` > 用户级 `.npmrc`（路径取 `NPM_CONFIG_USERCONFIG` 或 `~/.npmrc`；`@scope:registry` 覆盖通用 `registry` 键；容忍注释/空行/引号值；只读 registry 相关键、不触碰凭据）> 默认官方源，缺文件/空值/非法内容静默回退；`getRegistryPackageUrl` 改 async 接入，`fetchLatestVersion`/`checkForUpdates`（`/api/system/update/check`）生效，5 分钟冷却缓存不变。`bin/quickforge.mjs` 删除本地复制的 registry/fetch 副本，初始化网络代理后委托 server 模块 `fetchLatestVersion`。
+- 验证：定向 vitest 1 file / 11 tests 全通过（resolveRegistry 7 用例 + fetchLatestVersion 按 npm 配置构造 URL）；eslint 3 文件 0 error；node --check 通过；真实冒烟 `node bin/quickforge.mjs check-update` 走共享模块与本机 npm 配置成功返回 latest 1.9.0。未跑全量。
+- 文件：server/utils/package-update.mjs、bin/quickforge.mjs、tests/server/utils/package-update.test.mjs、docs/wiki/server/utils/README.md、docs/wiki/bin/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无（可选后续见 progress.md：packument → 轻量 `/-/package/<name>/dist-tags` 端点；bin 与 server 模块仍各有一份相同的 compareVersions 复制，本轮未动）。
+
+---
+
+## 当前状态：cloud-settings-remove-remote-identity-sections（已完成）
+
+- 目标：用户确认「远程访问」「云身份」状态展示均不需要，要求下线（用户贴文中还含上一轮已删除的「绑定服务 http://127.0.0.1:5176/」，属旧构建/未刷新界面）。
+- 实现：`CloudAccountSettingsPage.tsx` 整块移除远程访问 section（标题/描述/Agent 状态徽标/授权提示/错误警告）及 remoteStatus 轮询等全部关联逻辑，不再请求 `/api/cloud/remote-status`；「云身份」section 去掉头部状态行与警告，连接后仅保留邮箱/套餐、额度、退出登录行，未连接时不渲染。`cloud-account-settings-state.ts` 移除 shouldPollCloudRemoteStatus/getCloudRemoteAuthorizationUi/getCloudAccountViewState；`i18n.ts` 中英文成对删 31 个 key（cloudSessionServiceMismatch 保留供错误码映射）；两个测试文件同步；docs/wiki src/README.md 与 components/README.md 已同步。cloud-client.ts API 绑定与服务端 remote-status/installations 端点保留。
+- 验证：定向 vitest 3 files / 21 tests 全通过；eslint 5 文件 0 error；tsc -b 通过；删除标识符/key 无残留。未跑全量。
+- 文件：src/components/cloud/CloudAccountSettingsPage.tsx、src/components/cloud/cloud-account-settings-state.ts、src/lib/i18n.ts、tests/frontend/cloud-account-settings-page.test.ts、tests/frontend/cloud-i18n.test.ts、docs/wiki/src/README.md、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无。注意本文件下方另有并行会话的 todo-summary-capsule-redesign（设计稿待用户确认）条目，未触碰。
+
+---
+
+## 当前状态：todo-summary-capsule-redesign（已完成）
+
+- 目标：优化输入框上方 TodoWrite 任务摘要 UI——未展开时收缩成一个显示进度的胶囊（水平居中），展开/收起带动画过渡；先设计稿确认后实现。
+- 实现：`todo-write-summary.ts`（311→360 行）toggle 外加居中 `.quickforge-todo-summary-toggle-row`，toggle 子元素一次性持久（ring + heading + stats + stats-compact(aria-hidden) + updated + spacer + chevron），弧进度经内联 `--quickforge-todo-ring-offset` CSS 变量驱动，root 增 data-complete/data-running；`index.css` 整段替换 todo 摘要样式——胶囊⇄整行形态过渡（flex-grow 0→1 插值、圆角/背景/文字交叉淡化、grid-rows 0fr→1fr、列表项阶梯淡入、箭头旋转），body hidden 即时赋值 + `allow-discrete` display 延迟 + `@starting-style` 进入动画，环双 SVG grid 同格叠放（无 absolute，保住 renderer 测试的正常流契约），reduced-motion/移动端同步。wiki 两处同步。
+- 验证：定向 vitest 3 files / 58 tests 全通过（todo-write-summary 新增 5 个胶囊结构用例）；eslint 0 error；tsc -b 通过；npm run build 成功，dist CSS 保留 @starting-style/allow-discrete/ring-offset。设计稿阶段经临时 HTTP 服务 + IAB 交互断言。未跑全量 test/lint。用户追加完成态绿色对勾（复用 slash agent chip emerald：浅 rgb(4 143 101)/深 rgb(110 231 183)）后复跑 todo-write-summary + todo-write-renderer 2 files / 36 tests 全通过（renderer 新增绿色双主题契约用例）、eslint 0 error。
+- 文件：design-mockups/todo-capsule-summary.html、src/components/chat/panel-decoration/todo-write-summary.ts、src/index.css、tests/frontend/todo-write-summary.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无 blocker；可选真机目视深浅主题动画效果。未 commit/tag/push。
+
+---
+
+
+## 当前状态：cloud-settings-remove-devices-simplify（已完成）
+
+- 目标：用户要求云服务设置页移除「绑定服务 http://127.0.0.1:5176/」展示、去掉设备管理并精简界面。
+- 实现：`CloudAccountSettingsPage.tsx` 删除远程访问区的绑定服务 URL 行与 Agent PID 行（保留标题/描述/状态徽标/授权提示/错误警告），整块移除「已连接设备」管理区块及 revoke/installation 辅助逻辑；`cloud-account-settings-state.ts` 详情加载与状态移除 installations（cloud-unavailable 判定 3→2 全失败）；`i18n.ts` 中英文成对删除 13 个设备 UI 专属 key；两个测试文件同步更新。cloud-client.ts API 绑定、服务端 /api/cloud/installations 端点、移动端 CloudRemotePage 设备列表均保留（远程连接功能仍需）。
+- 验证：定向 vitest 3 files / 27 tests 全通过；eslint 5 文件 0 error；tsc -b 通过；删除 key 无残留引用。未跑全量。
+- 文件：src/components/cloud/CloudAccountSettingsPage.tsx、src/components/cloud/cloud-account-settings-state.ts、src/lib/i18n.ts、tests/frontend/cloud-account-settings-page.test.ts、tests/frontend/cloud-i18n.test.ts、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无。
+
+---
+
+## 当前状态：sidebar-show-more-muted-color（已完成）
+
+- 目标：用户反馈项目会话列表「显示更多」颜色太深、与会话标题区分不开，应对齐「项目」分区标题的灰色。
+- 实现：ChatSidebar.tsx 的 SessionDisplayControls（项目视图/时间线/全局对话三处共用）按钮 resting 色 `text-muted-foreground/60`→`/50`（与分区标题一致、与会话标题 `/70` 拉开差距），hover `/80` 保留；tests/frontend/sidebar-section-order.test.ts:198 硬编码断言同步更新。
+- 验证：定向 vitest sidebar-section-order → 1 file / 18 tests 全通过；eslint 两个改动文件 0 error。未跑全量。
+- 文件：src/components/sidebar/ChatSidebar.tsx、tests/frontend/sidebar-section-order.test.ts、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：无。
+
+---
+
+## 当前状态：release-v1.9.0（已完成）
+
+- 目标：按用户指令「发布一个版本」，在 `v1.8.1` tag 之后以 dev HEAD（2dd87cb，11 个新提交）为基线发布 **v1.9.0（minor，用户确认）**；npm 1.8.1 从未发布，用户决策跳过、由 1.9.0 直接取代。
+- 已完成：`npm version minor` 1.8.1→1.9.0；CHANGELOG.md 顶部新增 `[1.9.0] - 2026-08-26` 章节（基于 v1.8.1..HEAD 11 个提交：文档预览+移动端 H5、Monaco 本地打包、SSE/Cloud/git 状态修复、SQLite persist 优化与 synchronous=NORMAL、vendor node-pty、包体裁剪、todo 图标）；README.md 版本徽章 → 1.9.0。
+- 门禁：完整 `npm run test` → **259 files / 2340 tests 全部通过**（硬门禁）；`npm run lint` → 0 errors / 1 既有 warning（identity.mjs:92）；`npm run build` 成功（仅既有 KaTeX/chunk size warnings）。
+- 打包：runtime/offline 包已生成，`package-offline/shawnstack-quickforge-1.9.0.tgz`（7.4MB / unpacked 24.2MB / 453 files）；元数据校验 version 1.9.0、8 运行时 deps + @vscode/ripgrep optional。
+- 文件：package.json、package-lock.json、CHANGELOG.md、README.md、feature_list.json、progress.md、session-handoff.md。
+- 发布序列：本变更构成 release commit（在 dev 上），随后 master `--ff-only` 快进、`v1.9.0` tag、原子推送 `master`/`dev`/tag。
+- Blocker：无。剩余人工步骤：GitHub Desktop Release 与 `npm publish ./package-offline/shawnstack-quickforge-1.9.0.tgz --access public`（用户执行，需 npm 登录）。
+- 下一步：发布完成后新会话从 `feature_list.json` 选择下一个非 done feature。
+
+---
+
+## 当前状态：git-status-connection-pool-guard（已完成）
+
+- 目标：用户反馈 `GET http://localhost:5176/api/git/status?projectId=e14ed8a7-…` 「导致后续请求全部被阻止」。
+- 诊断：日志 `~/.quickforge/logs/server-2026-08-26.log` 双结论——①用户所贴 e14ed8a7 请求三次 503/0ms（12:15:35×2、12:22:01），均命中 dev server 重启后的启动维护窗口（listen → startup initialization complete 之间，`resolveMaintenanceGate` 对非白名单 API fail-closed），~1 秒即过、非 bug；②真正的「后续请求全部被阻止」：12:28:46 页面刷新后 4 个无 signal/无超时的 git/status（default×2、97e168b3×2，来源 App.tsx 标题栏 + ChatPanelHost 分支探测）在大仓库各跑 141-146s，加 2 条常驻 SSE 占满 HTTP/1.1 同源 6 连接池；同期服务端其他请求 1ms 正常、慢请求结束后积压请求成串放出，证实浏览器侧连接耗尽。慢的根因是服务端 `listGitStatus`（`server/routes/workspace.mjs:433`，`--untracked-files=all` + numstat + 行数统计）在这两个仓库上极慢（73cb87e5 仅 ~500ms）。
+- 实现：`src/components/workspace/workspace-api.ts` `getGitStatus` 组合 20s 超时（`composeGitStatusSignal`：TimeoutError DOMException、成功后 `dispose` 清计时器、桥接外部 signal abort）；`src/App.tsx` `refreshTitleGitStatus` 增 `titleGitAbortRef`（新请求先 abort 上一条、catch 首行 `controller.signal.aborted` 静默、finally 清 ref），项目 scope 切换 effect 同步 abort；`src/components/chat/ChatPanelHost.tsx` 分支探测挂 AbortController，cleanup/`gitProjectId`/`revision` 变化即中止。WorkspaceInspector 不变（超时走既有 error+重试）。
+- 验证：定向 `npx vitest run tests/frontend/git-status-request-lifecycle.test.ts` → 1 file / 8 tests 全通过；相关回归 5 files / 29 tests；eslint 4 文件 0 error；`npx tsc -b` 通过。未跑全量。
+- 文件：src/components/workspace/workspace-api.ts、src/App.tsx、src/components/chat/ChatPanelHost.tsx、tests/frontend/git-status-request-lifecycle.test.ts（新）、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：可选真机复现验证（大仓库打开 Git 面板，20s 后超时出重试按钮、其余请求不再被钉死）。Notes：`listGitStatus` 大仓库 100-146s 性能问题与服务端轻量化（标题栏/分支徽标只需 branch/counts 却调全量端点）留作后续独立 feature；release-v1.8.1 发布门禁需含本改动全量重跑 test/lint/build。
+
+---
+
+## 当前状态：switch-sqlite-synchronous-normal（已完成）
+
+- 目标：按用户知情决策把 SQLite `synchronous` 从 FULL 切回 NORMAL，消除大 persist COMMIT 段逐事务 fsync（及其在杀毒扫描/机械盘/网络盘上的延迟尖刺）；接受 OS 崩溃/断电回滚「最后一次 checkpoint 以来已提交事务」的有界窗口（进程崩溃安全）。
+- 实现：`server/sqlite/database.mjs` `SQLITE_SYNCHRONOUS` 2→1；`configurePragmas` 用常量注入；`publicHealth` synchronous 摘要改为 `SQLITE_SYNCHRONOUS_NAMES` 派生（原硬编码 'full'）；safety argument 注释改写为 NORMAL 语义（WAL 帧校验和 → 任意崩溃事务原子/不撕裂，仅放弃逐 COMMIT fsync）。文档：`sqlite-storage-foundation.zh-CN.md` §3.1 追加 2026-08-26 修订段（按其预设回退条款格式；明确存储 v2 无 mirror 兜底、窗口内丢失即真实丢失）、`session-storage-current-architecture.zh-CN.md`、wiki pragma 行。测试：foundation pragma 断言 2→1、health 'full'→'normal'。
+- 验证：定向 vitest 8 SQLite 相关文件 / 66 tests 全通过；eslint 0 error。
+- 文件：server/sqlite/database.mjs、tests/server/sqlite-storage-foundation.test.mjs、docs/architecture/sqlite-storage-foundation.zh-CN.md、docs/architecture/session-storage-current-architecture.zh-CN.md、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：与同会话完成的 optimize-persist-encoding-yield（单遍序列化 + 分批 yield + 慢日志 200ms，见下节）叠加后观察慢日志分布；release-v1.8.1（in_progress）发布门禁需含两项改动全量重跑 test/lint/build。工作区另有 cloud-models-timeout-nonblocking 等未提交改动，无冲突。
+
+---
+
+## 当前状态：optimize-persist-encoding-yield（已完成）
+
+- 目标：消除「大 session 持久化时消息 3 遍 JSON 序列化 + 同步编码独占事件循环 → 全局接口卡顿」，按用户决策实施评估项 ①单遍序列化器 + ③分批让出（安全子集）+ 慢日志阈值 1000→200ms；synchronous=NORMAL 与 SQLite worker 线程暂不动（NORMAL 已向用户解释为崩溃持久性权衡，待单独拍板）。
+- 实现：新增 `server/sqlite/canonical-json.mjs`（canonicalJsonStringify，与旧三遍流水线字节级等价，差分测试 `tests/server/canonical-json.test.mjs` 54 用例钉死）；`session-state-repository.mjs` encodeMessage/messageDigest 切换新序列化器（digest 与既有库行兼容）、新增 `encodeMessagesChunked`（50 条/批 + 批间 setImmediate）与 normalizeRecord 的 `messagesEncoded` 预编码旁路；`session-state-service.mjs` savePair 拆 savePairWithPlan + savePairChunked（仅 expectedRevision/CAS 调用方走 yield 编码路径，其余同步路径零波及），`saveSessionStatePair` 变 async（唯一调用方 agent-manager:2424 已补 await）；`agent-manager.mjs` SLOW_PERSIST_LOG_MS=200。**否决项备忘**：跨 yield 持 SQLite 事务分批 INSERT 不可行——事务挂起期间其他同步写者经 savepoint 加入同一事务，中途失败 ROLLBACK 会回滚其已确认写入；独立连接则 busy_timeout 同步阻塞重造全局停顿。
+- 验证：定向 vitest 13 文件 / 166 tests 全通过（含新增 yield 有序性、预编码旁路字节一致、错位抛 TypeError 用例）；eslint 改动文件 0 error；feature_list.json/progress.md/本文件已同步，docs/wiki/server/README.md 的 repository/service 两条已更新。
+- 文件：server/sqlite/canonical-json.mjs（新）、server/sqlite/session-state-repository.mjs、server/session-state-service.mjs、server/agent-manager.mjs、tests/server/canonical-json.test.mjs（新）、tests/server/session-state-repository.test.mjs、tests/server/session-state-phase3.test.mjs、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：跑一段时间观察 200ms 慢日志分布——若同步写突刺（INSERT+COMMIT 段）仍显著，候选升级路径：SQLite 移 worker 线程（根治）/ replace 按 digest 差异只重写变更行（缩事务）；synchronous=FULL→NORMAL 需用户拍板（会削弱断电/OS 崩溃下的已提交事务持久性，与 7 天 quick_check 节奏的安全论证绑定）。注意 `release-v1.8.1` 仍 in_progress，发布门禁需含本改动全量重跑 test/lint/build。工作区另有 cloud-models-timeout-nonblocking 等未提交改动，与本改动无冲突。
+
+---
+
+## 当前状态：vendor-node-pty-runtime（已完成）
+
+- 目标：把终端所需的 node-pty 运行时从 15MB/61MB 的上游 npm 包裁剪为最小运行集，直接随 `@shawnstack/quickforge` npm 包分发（用户要求四平台齐全）。
+- 实现：新增 `vendor/node-pty/`（5.3MB，win32-x64/arm64 + darwin-x64/arm64，lib JS + prebuilds 去 pdb + 许可文本），内嵌 `{"type":"commonjs"}` package.json 标记规避仓库根 ESM 冲突，`VENDOR.json` 记录来源 node-pty@1.1.0；`scripts/vendor-node-pty.mjs` 负责从 devDependency 重新同步（保留 licenses/ 与 README）；`server/terminal/terminal-manager.mjs` loadPty() vendor 优先 → node-pty 回退 → 503 降级，导出 vendoredPtyEntryPath()，darwin 上 ensureVendoredSpawnHelperExecutable() 自愈 spawn-helper 执行位（git index 已标 100755，Windows 重新生成后需 `git update-index --chmod=+x` 重设）；node-pty 移 optionalDependencies → devDependencies；package.json files、两个 prepare 脚本 copyEntries、electron-builder files+asarUnpack 纳入 vendor。
+- 验证：定向 vitest 5 tests（含 require.cache 断言 vendor-first）+ node 冒烟 spawn 通过；完整 `npm run test` 257 files / 2275 tests 全通过；`npm run lint` 0 errors / 1 既有 warning；`npm run build` 成功；`npm pack --dry-run` 7.4MB / 452 files（原 4.8MB）。
+- 文件：vendor/node-pty/**（新）、scripts/vendor-node-pty.mjs（新）、tests/server/terminal-vendor-runtime.test.mjs（新）、server/terminal/terminal-manager.mjs、package.json、package-lock.json、scripts/prepare-runtime-package.cjs、scripts/prepare-offline-package.cjs、desktop/electron-builder.config.cjs、docs/wiki/server/README.md、docs/wiki/root-config.md、docs/architecture/patch-release-runbook.zh-CN.md、feature_list.json、progress.md、session-handoff.md。
+- Blocker：无。
+- 下一步：可选真机验证（npm 消费端终端开箱即用、macOS arm64、Electron asarUnpack）；升级 node-pty 时跑 `npm install && node scripts/vendor-node-pty.mjs`；`release-v1.8.1` 仍 in_progress，发布门禁需纳入本改动重新完整验证（tarball 现为 7.4MB）。
+- Notes（与本次 feature 无关）：node-pty 1.1.0 Windows kill 阶段 conpty_console_list_agent 有 `AttachConsole failed` stderr 噪音（官方副本同样存在，疑似上游 bug，与 vendor 化无关）。
+
+---
+
+## 当前状态：global-sse-flush-headers（已完成）
+
+- 目标：用户反馈 `http://localhost:5176/api/agents/events`、`/api/channels/events` 请求时间长、易挂起；诊断后修复 `/api/agents/events` 首字节延迟问题。
+- 根因：两接口均为 SSE 长连接（永久 Pending + Time 增长是正常表象）。但 `handleGlobalStream`（`server/routes/agent.mjs`）`writeHead` 后无 body 写入，Node 将响应头缓存到第一次 `res.write`（15s ping 或首条事件）才发出，客户端 TTFB/`onopen` 最长延迟 15 秒；`handleChannelEvents` 因立即写 snapshot 无此问题。
+- 实现：`handleGlobalStream` 在 `writeHead` 后加 `res.flushHeaders()` 立即刷出响应头（附一行注释说明缘由）。`tests/server/routes/agent.test.mjs` 新增 "agent global events stream" 用例：断言 200 + `text/event-stream` + `flushHeaders` 被调用 + 挂载 `agent_event` 监听，`req.emit('close')` 后移除监听并 end；mock 的 `agentEvents` 补 `removeListener: vi.fn()`（cleanup 路径需要）。
+- 验证：定向 `npx vitest run tests/server/routes/agent.test.mjs` → 1 file / 14 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（`server/cloud/identity.mjs:92`）。
+- 范围外未改（已向用户说明）：dev 下 server/Vite 重启断流后 EventSource 指数退避重连（Network 面板呈现为新 Pending 请求）；HTTP/1.1 同源 6 连接上限下多 SSE（channels/events + agents/events + 会话 stream + 设置页再开一条）多 tab 挤占连接池。
+- 文件：`server/routes/agent.mjs`、`tests/server/routes/agent.test.mjs`、`progress.md`、`session-handoff.md`。
+- 边界：无架构/公共入口变化，docs/wiki 无需更新；未新增依赖，未 commit/tag/push，未触碰生成产物。
+- 下一步：无 blocker；可选真机确认 `/api/agents/events` 在 DevTools 中 TTFB 即时（不再等 15s ping）。注意 `release-v1.8.1` 仍 in_progress，本改动需纳入其发布门禁重新完整验证。
+
+---
+
+## 当前状态：package-size-trim（已完成）
+
+- 目标：按用户决策裁剪包体：1) qf-agent 功能暂时移除、不再引用/分发二进制；2) mermaid 等纯前端依赖按推荐移回 devDependencies；3) Monaco 只读查看器去掉 4 个语言 worker。
+- 实现：①package.json files + prepare-runtime/offline copyEntries 去掉 runtime-assets；electron-builder.config.cjs 删 extraResources/平台 helper；electron-main.mjs 删 desktopAgentPath/qfAgentPath；git rm runtime-assets（52MB 五平台）。qf-agent-process.mjs 托管代码不动——缺二进制 → unavailable，QUICKFORGE_QF_AGENT_PATH 可外部指定，win32 dev 保留 ../quickforge-cloud/bin/agent.exe 回退。②mermaid/react-markdown/remark-gfm/@dnd-kit×3/@capacitor×3 → devDependencies，npm install --package-lock-only 同步（无版本变化）；消费端安装省 ~93MB。③monaco-local.ts 改 editor.api + editor.all + 新 monaco-basic-languages.ts（全部 Monarch 贡献聚合，按需懒加载）+ 仅 editor.worker，getWorker 不再按 label 分发；新增 src/monaco-esm.d.ts；已知取舍：JSON 无 Monarch 着色、纯文本呈现。
+- 文件：package.json、package-lock.json、scripts/prepare-runtime-package.cjs、scripts/prepare-offline-package.cjs、desktop/electron-builder.config.cjs、desktop/electron-main.mjs、src/components/workspace/monaco-local.ts、src/components/workspace/monaco-basic-languages.ts（新）、src/monaco-esm.d.ts（新）、tests/frontend/monaco-local.test.ts、docs/architecture/quickforge-cloud-client.zh-CN.md、docs/design/remote-access-p2p.md、docs/wiki/server/README.md、docs/wiki/src/components/README.md、状态文件；git rm runtime-assets/agent 五平台二进制。
+- 验证：定向 vitest 多组全通过；eslint/tsc/node --check/build 全通过（dist 26→17MB，四语言 worker 消失）；完整 npm run test 256 files / 2269 tests 全通过；npm run lint 0 errors / 1 既有 warning；package-dist 重建 npm pack --dry-run → 4.8MB / 414 files（v1.7.10 为 24.1MB），打包 dependencies 仅 9 个。
+- 边界：vite.config.ts 未动（并行 Monaco 会话刚移除 monaco manual chunk，为 rolldown 首屏刻意决策，本轮构建沿用）；qf-agent-process.mjs / public-api.mjs 未动（测试全用注入 fake，无需改）；并行会话的 monaco-local-bundled-loading 改动完整保留，本轮 worker 裁剪叠加其上并同步了其 wiki 描述。未 commit/tag/push。
+- 下一步：无 blocker。Cloud 远程访问暂不可用（unavailable），恢复=还原二进制与四处打包引用；release-v1.8.1 发布门禁需在含本轮改动的基线重跑完整 test/lint/build。
+
+## 当前状态：monaco-local-bundled-loading（已完成）
+
+- 目标：消除 Monaco 编辑器对 `cdn.jsdelivr.net` 的运行时依赖（Edge Tracking Prevention 提示 + package-offline 离线场景编辑器加载不出），并保证不拖慢首屏。
+- 实现：`src/components/workspace/monaco-local.ts`（新）提供 `ensureLocalMonaco()` 模块级单例——函数内 `Promise.all` 动态 import `monaco-editor` 与 editor/json/css/html/ts 五个 `?worker`，设置 `self.MonacoEnvironment.getWorker` 按 label 分发，经 `@monaco-editor/react` 的 `loader.config({ monaco })` 注册本地实例；顶层只 import `loader`（Environment 为 type-only，编译期擦除）。`MonacoCodeViewer.tsx` / `MonacoDiffViewer.tsx` 增加 `monacoReady` gate（useEffect + cancelled 清理；config 先于 `loader.init()`，杜绝默认 CDN 注入；未 ready 返回 null，其余 props/options 不变）。`vite.config.ts` 删除 monaco manualChunks 分支并留注释说明：monaco 本体仅被 monaco-local 动态 import 引用，默认分包隔离为异步 chunk；若设 manual chunk，rolldown 会把共享 preload-helper 收编进 monaco chunk 并经 modulepreload 拖回首屏（已实测复现并修复）。
+- 文件：`src/components/workspace/monaco-local.ts`（新）、`src/components/workspace/MonacoCodeViewer.tsx`、`src/components/workspace/MonacoDiffViewer.tsx`、`vite.config.ts`、`tests/frontend/monaco-local.test.ts`（新，源码契约）、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 4 files / 29 tests 全通过；eslint 改动文件 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（monaco 异步 chunk：editor.api2 3.63MB/gzip 926KB + 5 个独立 worker，与既存大 chunk 共同触发既有 size warning）；dist 只读检查：index.html modulepreload 11 项与入口静态闭包均不含 monaco；全 dist 仅 1 处 `cdn.jsdelivr.net` 死字符串（`@monaco-editor/loader` 默认 config，运行时被短路，无网络请求）。
+- 边界：未新增依赖（monaco-editor 本就在 devDependencies）；未手工修改生成产物；未 commit/tag/push；cloud-models-timeout-nonblocking 并行改动未触碰。
+- 下一步：无 blocker；可选真机断网验证代码/Diff 查看器。注意 `release-v1.8.1` 仍 in_progress，本改动需纳入其发布门禁完整 test/lint/build 重新验证。
+
+---
+
+## 当前状态：cloud-models-timeout-nonblocking（已完成）
+
+- 背景与根因：用户报告 `http://localhost:5176/api/cloud/models` 500。`~/.quickforge/logs/server-2026-08-26.log` 证实：10:25:45 dev server 重启 → Cloud identity/模型内存缓存清空 → 首次回源 `https://qf.shawnstack.com/v1/models` 超时（默认 10s，`TimeoutError`）→ 非 `CloudApiError` 被全局 `sendError` 兜底为 500；同时 `/api/models/catalog` 在 `server/model-catalog.mjs` 串行 await 同一 in-flight promise，主模型目录同步挂 ~10s（阻塞功能使用）。
+- 实现：`server/cloud/client.mjs` fetch 异常分类（TimeoutError→504 `cloud_timeout`、TypeError→502 `cloud_unreachable`、均 retryable，外部 AbortError 原样抛）；`server/model-catalog.mjs` 2s 短截止 + 底层请求继续暖缓存 + 防 unhandled rejection；`useCloudModels` 失败 30s 负缓存；`pi-chat.ts resolveNewSessionModel` 与 `useAppBootstrap` 5s 上限走既有本地回退；`default-options-settings-tab.ts` 设置页先渲染 catalog/local、Cloud 后台增量合并（loadSettings 代数守卫 + 手动改选保护），类加 export 供测试。
+- 文件：`server/cloud/client.mjs`、`server/model-catalog.mjs`、`src/hooks/useAppBootstrap.ts`、`src/hooks/useCloudModels.ts`、`src/lib/pi-chat.ts`、`src/lib/default-options-settings-tab.ts`、5 个测试文件（新建 `tests/frontend/default-options-settings-tab.test.ts`）、`docs/architecture/quickforge-cloud-client.zh-CN.md`、`docs/wiki/server/routes/README.md`、`docs/wiki/src/hooks/README.md`、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 10 files / 98 tests 全通过；eslint 12 文件 0 error；`npx tsc -b` 通过；`npm run build` 成功（仅既有 KaTeX/chunk warnings）。未跑全量 test/lint。
+- 边界：未新增依赖，未手工修改生成产物，未 commit/tag/push；工作区 Monaco 相关并行改动（`MonacoCodeViewer.tsx`、`MonacoDiffViewer.tsx`、`monaco-local.ts`、`tests/frontend/monaco-local.test.ts`、`vite.config.ts` monaco chunk 策略、`docs/wiki/src/components/README.md`）为其他任务未提交内容，本轮未触碰。
+- 下一步：无 blocker。注意 `release-v1.8.1` feature 仍为 in_progress，本改动需纳入其发布门禁的完整 test/lint/build 重新验证。
+
+---
+
+## 当前状态：mobile-h5-fullscreen-sidebar-and-inspector（已完成）
+
+- 目标：手机 H5 端左侧会话侧栏整屏展示（去掉 w-80 + max-w-[85vw] 两层限制），并让右侧 Workspace Inspector 的 PanelRight 开关在移动端可见、Inspector 以全屏覆盖可用。
+- 实现：`ChatSidebar.tsx` 移动分支改为 `'flex h-full w-full flex-col'`，`App.tsx` 移动抽屉 div 移除 `max-w-[85vw]`；`App.tsx` PanelRight 按钮由 `hidden ... lg:inline-flex` 改为全断点 `inline-flex`；`WorkspaceInspector.tsx` 新增 `narrowViewport`（matchMedia 1024px，防御式）+ `mobileOverlay`，根 aside mobileOverlay 时 `quickforge-workspace-inspector-fullscreen z-20 flex rounded-none border-l-0`、无 width style、separator 加 `!mobileOverlay` 条件；桌面 fullscreen z-40/Maximize2/Escape 与 GitToolsPinnedSummary `hidden md:flex` 均不动。
+- 文件：`src/App.tsx`、`src/components/sidebar/ChatSidebar.tsx`、`src/components/workspace/WorkspaceInspector.tsx`、`tests/frontend/side-chat-workspace-tab.test.ts`（首用例更新）、`tests/frontend/mobile-fullscreen-adaptation.test.ts`（新建）、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 7 files / 66 tests 全通过；eslint（5 个改动文件）0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；feature JSON 解析通过。未跑全量 test/lint。
+- 边界：未新增依赖，未手工修改生成产物，未 commit/tag/push；GitTools 更改入口维持现状（小屏仍隐藏）。
+- 下一步：无 blocker；可选真机目视验证移动侧栏整屏、PanelRight 开关与 Inspector 全屏覆盖关闭交互。注意 `release-v1.8.1` feature 仍为 in_progress，本轮改动需纳入其发布门禁重新验证。
+
+---
+
+## 当前状态：todo-pending-status-icon-hollow-circle（已完成）
+
+- 目标：更换任务摘要面板中"未进行中（pending）"状态图标，先设计后选型。
+- 实现：`design-mockups/todo-pending-icon-options.html` 提供 5 个候选方案（真实面板上下文 + 14px 实际尺寸 + 深浅主题切换），用户选定方案 A 空心圆。`src/components/chat/panel-decoration/todo-write-summary.ts` 的 `statusIcon()` pending 分支删除中心实心小圆点，只留 r=9 外圈；三态统一为「外圈+内部符号」语言（无符号=未开始、指针=进行中、对勾=已完成）。颜色/尺寸/stroke 约束不变，未改 CSS。
+- 验证：定向 Vitest 2 files / 30 tests 全通过；目标 ESLint 0 error；`npm run build` 成功（仅既有 KaTeX/chunk size warnings）。未跑全量 test/lint。
+- 边界：纯局部图标替换，docs/wiki 与 DESIGN_LANGUAGE 无需更新；未新增依赖，未手工修改生成产物，未 commit/tag/push；设计稿保留。
+- 下一步：无 blocker；可选真机目视深浅主题下三态图标效果。
+
+---
+
+## 当前状态：workspace-document-preview（已完成）
+
+- 目标：把已有的 PDF.js、docx-preview、SheetJS 能力接入 Workspace 文件预览链路，支持 PDF/DOCX/XLS/XLSX 只读预览（用户已确认方案并要求不过度设计）。
+- 实现：WorkspaceInspector 新增顶层 `document` Tab（持久化仅 `{path, format}`，同路径复用 + `reloadNonce` 刷新）；Files 文件树与 `present_files`（自动+手动）统一按 `artifactPreviewMode` 三路分流；服务端 `inferPresentedFileKind` / 前端 `tool-artifacts` 识别 `pdf/docx/excel`；`/api/workspace/preview` 白名单与 MIME 扩展四种文档类型（沿用 50 MiB、安全校验、ETag、预检，未新增 API/HEAD/Range）；`WorkspaceDocumentContent` 按格式动态加载 pdfjs-dist（可见页懒渲染）、docx-preview（容器隔离）、xlsx（多 Sheet + 分页 + 5000 行上限）；三个解析库提升为直接 devDependencies（版本与既有锁定一致）。
+- 文件：见 `feature_list.json` 的 `workspace-document-preview.files`（共 27 个：核心代码 + 测试 + wiki + 状态文件）。
+- 验证：定向 6 files / 169 tests、完整 `npm run test`（253 files / 2247 tests）、`npm run lint`（0 errors / 1 既有 warning）、`npm run build` 全部通过；构建确认无重复打包。
+- 边界：未新增库类别/版本升级（仅把已用传递依赖变为直接依赖），未手工修改生成产物，未 commit/tag/push；PPT/PPTX/DOC/XLSM 明确不支持。
+- Blocker：无。可选下一步：Electron / Android 远程真机目视验证大文件 PDF/Excel；后续可考虑 Excel Worker 化与 PPTX 策略（不在本期）。
+- 注意：`release-v1.8.1` feature 仍为 in_progress（发布门禁任务，见下文），与本 feature 无冲突；发布前需在其基线上重新完整运行 test/lint/build（本轮文档预览改动已包含在当前工作区，需一并纳入发布验证）。
+
+---
+
+## 当前状态：fix-cutover-startup-bugs（已完成，Share/LAN/Scheduled Runs 启动完整性收口）
+
+- 目标：避免 Share、LAN Access、Scheduled Runs 可选存储域在日常启动中执行整库/全域完整性扫描并把整机置为 `FAILED`，同时保留 SQLite/schema/migration 和首次 cutover、backup/restore/export 等正确边界的严格门禁。
+- 实现：新增 migration 12，在同一 `BEGIN IMMEDIATE` migration 事务中物理删除 `share_sessions.record_digest` 与 `lan_access_state.record_digest`；Share/LAN repository 移除在线逐行 digest 读写和 `invalidDigests` 校验。Share/LAN pending/authoritative 常规启动只 drain 事务性 mirror outbox，outbox 清空后提升 authoritative 并保留已有 storage state count/digest/backup/diagnostic 元数据；Scheduled Runs authoritative 不再调用 health quick check。首次 JSON→SQLite cutover 仍执行双读、备份重读、replace、快照 count/digest 与关系校验。Share 写入路径同步修复普通更新/重复 create 的 token 保留、密码变化 token 失效或替代 token 新 authVersion、supersede 物理清 token，以及 issue/prune 时间戳一致性。通用启动恢复指引已改为先停进程并完整复制整个 dataDir（含 SQLite/WAL/SHM），再按实际错误域处理，明确禁止删库和盲跑 session downgrade。
+- 文件：核心为 `server/sqlite/migrations.mjs`、`server/share-store.mjs`、Share/LAN repositories 与 cutover、`server/scheduled-runs-cutover.mjs`、`server/startup-state.mjs`、`server/index.mjs`；覆盖 migration、repository、cutover、authoritative store、backup、startup gate、full-chain smoke 等测试；同步三份架构文档、server Wiki 与三个状态文件。
+- 验证：定向 17 files / 135 tests 与 Share 聚焦 5 files / 34 tests 全通过；完整 `npm run test` → 253 files / 2219 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；`git diff --check` 与 feature JSON 解析通过。
+- 边界：未新增依赖，未手工修改生成产物，未 commit/tag/push；两个无关未跟踪 design-mockups 文件未触碰。未实现域级 degraded readiness、统一离线 restore CLI 或明确 Electron CI script，均不属于本轮范围。
+- 下一步：无 blocker。
+
+---
+
+## 当前状态：sidebar-five-item-display-shared-scroll（已完成）
+
+- 目标：左侧 Projects/Tasks 采用默认 5 条、每次增加 5 条的显式展示控件，并让 Pinned/Projects/Tasks 共用侧栏中部唯一滚动容器，同时保持项目 DnD 可见边界与自动滚动正确。
+- 实现：`ChatSidebar.tsx` 新增实例本地 timeline/global/per-project 展示计数。Projects 时间线、单项目会话和 Tasks 都使用 `slice` + 唯一可见的“显示更多”行；该行复用普通 session 的字号、行高、水平布局、圆角与点击区域，仅以 muted 灰色降低层级，不显示“收起”，show-less i18n 已删除。共享折叠 props、展开项目集合与 `sessionViewMode` 变化会在桌面/移动两个独立实例中兜底恢复 5 条。视图模式使用 previous ref + effect 监听共享 prop，仅在真实变化时重置 timeline 并 invalidate generation，初始挂载无额外副作用；DnD 临时视觉折叠不触发重置。`sidebar-session-display.ts` 负责纯行为计算、快速点击去重与竞态失效：每个 timeline/global/project key 独立维护 generation 和 pending generation；只有 loadMore 成功且 generation 未变化才返回下一 count。Projects/Tasks/单项目折叠、折叠全部和时间线视图切换会立即使对应在途请求失效，旧 Promise 完成不能覆盖已恢复的 5 条；失败仍保持原数量并允许重试。Pinned sentinel 保留但折叠时禁用，其余三个 sentinel 删除。
+- 布局 / DnD：Pinned、Projects、Tasks 放入单一 `sidebarScrollViewportRef` 的 `overflow-y-auto` 中，移除区块和项目子列表固定高度/内部滚动；footer 继续固定在外。`visibleProjectDragBoundary` 只返回 Projects 与共享视口的合法相交矩形，缺失或不相交时返回 undefined；`clampProjectDragTransform` 对反转上下界安全降级为仅横向锁定，autoScroll allowlist 仅允许共享视口。
+- 文件：`src/components/sidebar/ChatSidebar.tsx`、`src/hooks/useSessionPagination.ts`、`src/lib/sidebar-session-display.ts`、`src/lib/project-drag-boundary.ts`、`src/lib/i18n.ts`、5 个侧栏/分页测试、components/lib Wiki 与三个状态文件。
+- 验证：局部收口后，定向 Vitest 5 files / 48 tests 全通过（显示更多与普通 session 共用行/标题尺寸布局、muted 灰色、无可见收起/无 show-less key，并继续覆盖每次 +5、共享 `sessionViewMode`、折叠重置与 generation 竞态保护）；目标 ESLint 0 error；完整 `npm run test` → 253 files / 2210 tests 全通过；`npm run lint` → 0 errors / 1 既有 warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；`git diff --check` 与 feature JSON 解析通过。
+- 边界：未新增依赖，未修改生成目录，未 commit/tag/push；两个既有未跟踪 design-mockups 文件未触碰。下一步仅可选桌面/移动真机目视长列表、显示更多、折叠重置与拖拽边界。
+
+---
+
+## 当前状态：release-v1.8.1（已完成）
+
+- 事实：最终基线为 `35e0863`（b81effaa + 发布说明文档刷新），`v1.8.1` tag 已创建并推送远端，master/dev 已同步到该提交；npm 1.8.1 从未发布（latest 停留在 1.8.0），经用户决策跳过补发，由 v1.9.0 直接取代（见文首 release-v1.9.0）。
+- 下一步：无；后续发布见 release-v1.9.0。
+
+---
+
+
+## 当前状态：remove-side-chat-title-entry-global-inspector-access（已完成）
+
+- 目标：彻底移除主对话顶部 Side Chat 入口；桌面端 Workspace Inspector 在 global/无项目会话仍可从主工具栏右侧栏按钮打开；移动端不新增入口。
+- 实现：`App.tsx` 删除标题区 Side Chat 按钮、`openWorkspaceSideChat`、`sideChatTabOpen`；`WorkspaceInspector` 删除 `onSideChatPresenceChange` prop/callback 链，只保留真正的 Side Chat reset/abort 清理。桌面 `PanelRight` 按钮的 disabled 条件由 `!currentToolProject.id || needsModelSetup` 收敛为 `needsModelSetup`，并让有活动 global session 时 Inspector 组件保持挂载；按钮仍是 `lg:inline-flex`，未增加移动入口。Inspector 内 `+` 菜单和空状态 Side Chat 入口、活动会话/模型限制、单实例和运行时非持久化语义均保留。无引用的 `sideChatOpen` 中英文 i18n 键已删除。
+- 测试：扩展 `tests/frontend/side-chat-workspace-tab.test.ts`，锁定 App 无顶部入口/状态链、桌面右侧栏按钮不依赖项目且保持桌面断点、Inspector `+`/空状态入口、单实例查找和关闭生命周期。
+- 验证：相关 Vitest 5 files / 46 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功，仅既有 KaTeX 字体解析与 chunk size warnings；`git diff --check` 通过。
+- 文档与边界：`docs/wiki/src/components/README.md` 已同步入口与 global 可达性；无新视觉模式，无需更新 `DESIGN_LANGUAGE.md`。未新增依赖，未手工修改 `dist/`、`package-dist/`、`package-offline/`，未 commit/tag/push；既有未跟踪设计稿未触碰。
+- 下一步：无 blocker；可选桌面真机验证 global/无项目会话打开 Inspector，以及 Inspector 内重复打开 Side Chat 只激活同一 Tab。
+
+---
+
+## 当前状态：remove-todo-summary-bottom-border（已完成）
+
+- 目标：仅移除输入框上方 TodoWrite 任务摘要的底部分隔横线。
+- 实现：删除 `src/index.css` 中 `.quickforge-todo-summary` 的 `border-bottom: 1px solid color-mix(...)`；其余任务摘要样式、交互和业务代码保持不变。
+- 验证：`npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/slash-invocation-chip.test.ts` → 2 files / 44 tests 全通过；`npm run build` 成功，仅有既有 KaTeX 字体解析与 chunk size warning。
+- 文档与边界：纯局部样式调整，不改变架构、模块职责或公共入口，因此 docs/wiki 与 `DESIGN_LANGUAGE.md` 无需更新。未新增依赖，未手工修改生成产物，未创建 commit/tag/push；既有未跟踪设计稿保持不动。
+- 下一步：无 blocker；可选真机目视确认底部横线已消失。
+
+---
+
+## 当前状态：prompt-http-error-message（已完成）
+
+- 目标：Prompt HTTP 请求失败时，不只保留全局错误状态，还要在聊天区显示服务端返回的具体原因。
+- 实现：`src/lib/server-agent.ts` 复用项目 assistant error 消息契约，新增最小构造/去重 helper。fetch catch 先按既有身份与长度条件回滚乐观 user message，再追加空 text block、当前模型字段、完整零 usage/cost、`stopReason:'error'`、具体 `errorMessage`、timestamp 的 assistant 消息；清理 streaming/watchdog；继续发 error 事件；`agent_end` 现携带 `status:'error'`、`errorMessage` 与最终 messages。
+- 测试：`tests/frontend/server-agent.test.ts` 模拟 400 `{error:'Selected model is not configured in QuickForge.', code:'model_not_configured'}`，覆盖具体原因、乐观回滚、assistant error 消息完整契约、无重复、error/agent_end 事件和结束状态。
+- 验证：定向 Vitest 1 file / 38 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 与 `git diff --check` 通过。
+- 文档与边界：`docs/wiki/src/lib/README.md` 已同步；不改架构/设计语言文档。未新增依赖，未修改生成产物，未 commit/tag/push；工作区其他未提交改动保持不动。
+- 下一步：无 blocker。
+
+---
+
+## 当前状态：side-chat-workspace-tab（已完成，最终收敛）
+
+- 目标：Side Chat 直接复用主聊天完整界面和核心交互，不为不适用功能重做一套实现；不支持控件原位禁用，服务端硬只读。
+- 实现：`SideChatTabContent` 只包装共享 `ChatConversationSurface + ChatPanelHost mode="side-chat"`；同一 pi-web-ui ChatPanel/MessageList/MessageEditor 提供纯文本发送、停止、复制、Markdown/代码块、滚动与轮次导航。`+`、模型、Access、rollback/retry/fork 保持主控件外观并 native disabled；Slash、插件、附件、文件引用、thinking、Plan、审批、终端、context usage/compaction 等不启用。Agent/client 仅维护内存纯文本，最多 40 条，发请求时从最新向前按完整消息裁剪至 200,000 字符；Tab 非持久化，关闭与主会话 scope 变化时 abort/reset。入口要求活动主会话和可用模型。
+- 安全与隔离：服务端读取活动主会话权威纯文本上下文，固定 `tools: []`，任何 toolcall/toolUse fail closed，不创建/调用/持久化主 Agent。Side Chat 初始化 ChatPanel 时保存并恢复主聊天全局 artifacts renderer；禁用控件只关闭当前 panel/anchor 所属模型与 Access 菜单，不干扰主聊天；Host 不触发草稿 localStorage、Git、通知、artifact、审批或终端副作用。
+- 验证：定向 11 files / 97 tests，隔离修复聚焦 9 files / 71 tests；完整 `npm run test` → 249 files / 2148 tests；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体与 chunk warnings）；TS/MJS syntax/`git diff --check` 均通过。
+- 边界：Plan pill 仅在主聊天已进入 Plan 模式后出现，Side Chat 从不进入该模式，因此不额外制造假控件。本次仅提交 Side Chat，未 tag/push，未新增依赖，未手工修改生成产物。
+
+---
+
+## 当前状态：fix-side-chat-assistant-usage-contract（已完成）
+
+- 目标：最小修复 Side Chat 调用 pi-ai 时 assistant 上下文缺失 `usage.totalTokens` 导致的运行时异常。
+- 实现：`server/routes/side-chat.mjs` 新增小 helper，仅在最终服务端模型解析后，将既有 `mainConversationMessages + normalizeSideMessages` 的纯文本结果物化为 pi-ai 消息。user 保持纯文本与 timestamp；assistant 为 `content:[{type:'text',text}]`，使用最终模型的 `api/provider/id`，完整零 usage/cost、`stopReason:'stop'`、timestamp。客户端 usage/details/tool/thinking 不进入模型上下文；字符预算、compact summary、权限、工具安全和 `tools: []` 不变。
+- 测试：服务端首轮主上下文 assistant、第二轮侧聊历史 assistant 均断言完整模型字段、text block、`usage.totalTokens=0`、`cost.total=0`；另有全 assistant 完整 usage 契约与 `tools: []` 断言。前端 SideChatAgent 补 local stream update/final 的完整零 usage 断言。
+- 验证：定向 Vitest 2 files / 13 tests 全通过；目标 ESLint 0 error；MJS `node --check` 通过；`npx tsc -b --pretty false` 通过；`git diff --check` 通过。
+- 文档与边界：routes Wiki 补一句服务端 pi-ai 消息物化契约；无架构/公共入口变化。未 commit/push，未修改生成产物，未触碰其他并行文件。
+- 下一步：无 blocker。
+
+---
+
+## 当前状态：side-chat-shared-conversation-surface（已完成）
+
+- 目标：Side Chat 不只复用 `ChatPanelHost` 内部，还与主聊天复用完整 conversation 显示壳；最终背景、布局、overflow、消息、Composer、轮次导航和装饰链一致，Side Chat 空状态仍保持普通空白。
+- 实现：新增 16 行 `ChatConversationSurface.tsx`，只提供 `relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--quickforge-main-bg)]`。App 主聊天改用该组件，既有 empty/enter class、Hero、项目选择器、ErrorBoundary/Suspense 和首次引导层级不变；`SideChatTabContent` 用同一 surface 包住同一 `ChatPanelHost mode="side-chat"`，明确 `newChatEmptyState={false}`，删除 `showTurnNavigation={false}`，无自绘 textarea/messages/button 和 side-chat 视觉 class。`ChatPanelHost` 的 DOM 插入统一为无 mode 视觉分支的 `host.replaceChildren(panel)`；mode 仅继续控制安全能力、tools 为空、附件/模型/thinking 关闭、内存输入与副作用隔离。
+- 文件：`src/components/chat/ChatConversationSurface.tsx`、`src/App.tsx`、`src/components/chat/ChatPanelHost.tsx`、`src/components/workspace/SideChatTabContent.tsx`、`tests/frontend/side-chat-workspace-tab.test.ts`、`docs/wiki/src/components/README.md`、状态文件。
+- 验证：定向 Vitest 5 files / 38 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；完整 `npm run test` → 247 files / 2108 tests 全通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；`git diff --check` 通过。
+- 边界：安全策略 `SIDE_CHAT_CAPABILITIES` 仍全 false，`toolsFactory` 仍返回 `[]`；生命周期、无模型入口、非持久化与服务端路由未改。未触碰并行 `ChatSidebar.tsx` / `sidebar-section-order.test.ts`，未触碰无关原型和 `docs/prototypes/`，禁止 commit/push。
+- 下一步：无 blocker；可选真机目视主聊天和不同 Inspector 宽度下的深浅主题、轮次导航与 Composer。合理可见差异仅为主聊天与 Inspector 实际容器宽度不同，同一响应式规则自然适配。
+
+---
+
+## 当前状态：context-usage-skills-mcp-breakdown（已完成）
+
+- 目标：在现有上下文用量 Tooltip 构成区的系统提示词、工具定义、消息之后增加 `Skills`、`MCP` 两行；仅显示数字，字段缺失或 `<=0` 隐藏，总量与圆环不变。
+- 实现：`server/context-usage.mjs` 新增 `skillsTokens` / `mcpTokens` 来源统计。最终审查收口后，Skills 以 `activate_skill` / `read_skill_resource` definition 参数枚举证明会话存在 enabled Skills，只选择系统提示词中最后一个带固定系统介绍且包含全部启用名称的真实 `<available_skills>` catalog，并统计 Skills definitions 与已关联调用/结果；无 enabled Skills 时指令伪标签与伪调用均不计。MCP definition 仅接受非数组对象 `mcp` 且 `serverName` / `toolName` 为非空字符串；名称回退通过共享 `server/mcp/tool-name.mjs` 复用 registry 的真实 server canonical 与 tool sanitize/encode 规则，解析后重建并要求原字符串完全一致，拒绝三处带空格、空 segment、非法 server 及未编码 tool 名，同时接受 helper 真实生成的 canonical 名称；未改变 `registry.isMcpToolName()` / `callMcpTool()` 公共行为。toolResult 有非空 `toolCallId` 时只按已识别 MCP call ID 关联，错误/孤立 ID 不再降级到名称；ID 缺失/空时才按已识别 canonical `toolName` 关联；ID/name 都缺失时才接受完整 `details: {mcp:true,server,tool}`。两项复用 `estimateTokens`，不进入 `estimatedInputTokens`、provider usage、`inputTokens` 或 percent 加总。前端类型均为可选字段，Tooltip 严格在现有三行后按正数追加 `Skills` / `MCP`。
+- 文件：最终审查新增/修改 `server/context-usage.mjs`、`server/mcp/tool-name.mjs`、`server/mcp/config.mjs`、`server/mcp/registry.mjs`、`tests/server/context-usage.test.mjs`、`docs/wiki/server/README.md` 与状态文件；此前功能文件 `src/lib/server-agent.ts`、`src/components/chat/chat-utils.ts`、`src/components/chat/context-usage.ts`、`src/lib/i18n.ts`、`tests/frontend/context-usage.test.ts`、`docs/wiki/src/components/README.md` 保持现有实现不动。已确认原型 `docs/prototypes/context-usage-source-attribution.html` 保留且未移入业务演示控件。
+- 验证：最终审查定向 Vitest 3 files / 40 tests 全通过；MCP registry 额外回归 1 file / 6 tests 全通过；完整 `npm run test` → 247 files / 2119 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warnings）；`git diff --check` 通过。
+- 文档与边界：server/components Wiki 已同步；架构、模块职责和公共入口未改变，无需更大文档更新。未新增依赖，未手工修改 `dist/`、`package-dist/`、`package-offline/`，未创建 commit/tag/push。
+- 下一步：无 blocker；可选真机查看有 Skills/MCP 和无来源数据两种 Tooltip。
+
+---
+
+## 当前状态：tool-call-running-title-sweep（已完成）
+
+- 目标：为普通工具调用的标题与参数增加克制的运行态扫光，同时移除同一区域重复的 spinner/耗时反馈。
+- 实现：普通 `LocalWorkspaceToolRenderer` 仅在 running 时为 `quickforge-tool-label` 追加 `quickforge-tool-running-sweep`，标题与参数摘要低强度从左到右循环；运行态隐藏 `renderStatus` 的 spinner/耗时，done/error/called 原状态不变。保留 `aria-busy` 语义；reduced motion 关闭扫光且不增加静态运行状态；`run_command` 输出与终止按钮保持不变；共享 `renderStatus` 未修改。
+- 文件：`src/lib/local-tools.ts`、`src/index.css`、`tests/frontend/local-tool-running-sweep.test.ts`；设计探索稿 `design-mockups/tool-call-running-light-sweep.html`。
+- 验证：目标 Vitest 4 files / 31 tests 全通过；目标 ESLint 通过；`npm run build` 成功（仅既有 KaTeX 字体与 chunk size warnings）；`feature_list.json` JSON 可解析；`git diff --check` 通过。
+- 文档与边界：局部视觉状态反馈不改架构、模块职责或公共入口，docs/wiki 无需更新；符合现有 DESIGN_LANGUAGE，未修改规范。未创建 commit/tag/push，未手工修改生成产物。
+- 下一步：无 blocker；可选真机目视普通工具 running/done/error/called、reduced motion 与 `run_command` 终止按钮。
+
+---
+
+## 当前状态：subagent-tab-bot-icon（已完成）
+
+- 目标：用户要求把右侧 Workspace Inspector 中显示 subagent 过程的 Tab 图标改为复用 subagent 设计里的 icon。
+- 调研：设计稿 `design-mockups/subagent-tool-marquee-impl.html`、`subagent-marquee-roll-switch.html` 的 subagent 工具类型图标为 Lucide `Bot`（天线+方头+双耳+双眼 SVG），与聊天 run_subagent 摘要卡（`src/lib/local-tools.ts:537`）及 Slash agent 图标（`src/components/chat/slash-icons.ts` agent=Bot）完全一致；Inspector 现状为 `WorkspaceInspector.tsx` 两处内联 `SquareActivity`（顶部 Tab 栏、ChevronDown Tab 下拉列表），`panelTabMeta` 对 subagent 返回 undefined。
+- 实现：`WorkspaceInspector.tsx` 两处 `SquareActivity` → `Bot`，import 同步替换（Bot 按字母序置于 Check 前，SquareActivity 移除；全仓库无其他使用处）。`tests/frontend/workspace-inspector-tabs.test.ts` 新增源码契约测试：两处 subagent 分支渲染 `<Bot …>`、源码不含 `SquareActivity`、import 含 `Bot, Check, ChevronDown`。
+- 验证：`npx vitest run` inspector 相关 5 files / 37 tests 全通过；`npx eslint` 两改动文件 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。未跑全量 test/lint。
+- 文档与边界：纯图标替换，不改架构、模块职责或公共入口，docs/wiki 无需更新；复用既有 Lucide 图标体系，无新视觉模式，DESIGN_LANGUAGE 无需修改。未新增依赖，未创建 commit/tag/push，未手工修改生成目录。
+- 下一步：无 blocker；可选真机目视深浅主题下 subagent Tab 的 Bot 图标。
+
+---
+
+## 当前状态：side-chat-workspace-tab（已完成）
+
+- 目标与结果：已完成“侧边聊天 Workspace Tab”完整闭环并真实复用主对话核心 UI。Tab 单实例、非持久化；主标题栏、Workspace `+` 和空状态入口重复打开只激活已有 Tab，无可用模型时三类入口均不可打开。App 稳定持有 SideChatAgent 与输入内存，切换其他 Workspace Tab 保留；关闭自身、关闭全部、在其他 Tab 执行 close others、切换主会话 runtime scope 时 abort/reset、清空并恢复主标题入口。
+- 前端：新增内存态 `side-chat-agent.ts` 与 NDJSON `side-chat-client.ts`；`SideChatTabContent.tsx` 现在只是 `ChatPanelHost mode="side-chat"` 的薄包装，不再自绘消息、textarea 或按钮。Side Chat 复用主对话同一个 `ChatPanel` / `AgentInterface` / `MessageList` / `MessageEditor`、消息装饰、Markdown/代码块、滚动、Composer 键盘、复制和发送/停止；`SIDE_CHAT_CAPABILITIES` 全 false，Host 在首帧关闭附件/模型/thinking，并跳过草稿 localStorage、Slash、插件、文件引用、Git、context/compaction、artifacts、通知、审批/ask、workspace tools、历史操作、终端执行、Plan/Access。Agent tools setter 与 Host toolsFactory 均 fail closed 为空。`serializePanelTabs` 剔除 `side-chat`，刷新不恢复。i18n 和组件/lib Wiki 已同步。
+- 服务端：新增并注册 `POST /api/side-chat/stream`。当前活动会话通过 `getSessionState` 权威读取主消息、模型、thinking 与 `contextCompaction`；主上下文复用压缩语义后仅投影 user/assistant 纯文本，忽略 system/tool/toolCall/thinking/details/非文本块，按 120,000 字符从最新向前确定性裁剪，并在预算内尽量保留 compact summary；主线与侧聊合计不超过 200,000 字符。QuickForge 会话使用服务端权威模型；OpenCode 使用请求中的已配置 QuickForge `modelRef`，不走 ACP。固定 `tools: []`；任何 `toolcall_*` / `toolUse` fail closed；不调用 `runPrompt`，不写 Session/主 Agent；断连 abort；响应 `no-store + nosniff`。
+- 测试：服务端覆盖权威上下文、纯文本投影、长上下文裁剪、最新消息与 compact summary 保留、`tools: []`、OpenCode QuickForge 模型、安全角色拒绝和 tool-call fail closed；前端新增 SideChatAgent 事件顺序、delta、error、abort、可重发、tools fail closed 与 40 条上限，并锁定 SideChatTabContent 真实复用 ChatPanelHost、无自绘 textarea、复制可用、无模型入口一致、Tab presence 与清理生命周期。
+- 验证：定向 Vitest 11 files / 76 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；完整 `npm run test` → 245 files / 2095 tests 全通过；完整 `npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 通过。
+- 边界：未新增依赖，未创建 commit/tag/push，未手工修改 `dist/`、`package-dist/`、`package-offline/`；build 只重建被忽略的 `dist/`。未跟踪原型 `design-mockups/side-chat-tab.html` 未修改。工作区另有 `src/components/sidebar/ChatSidebar.tsx` 与 `tests/frontend/sidebar-section-order.test.ts` 的并行改动，本功能未触碰或覆盖。
+- 下一步：无 blocker；可选真机确认深浅主题、入口/Tab 单实例、切换其他 Tab 保留、四种清理生命周期、OpenCode 主会话及流式停止。
+
+---
+
+## 当前状态：fix-tasks-collapse-flicker（已完成）
+
+- 目标：最小修复左侧 Tasks 普通收起闪烁；只关闭收起动画，保留展开动画。
+- 根因：Tasks 外层 `SortableSidebarSection` 在普通收起的同一次更新中从 `flex-1` 切为 `shrink-0`，内层内容面板却继续执行 200ms `grid-template-rows` / `opacity` transition；`h-full`、flex 与滚动容器组合产生中间绘制帧。
+- 实现：`ChatSidebar.tsx` 的 Tasks 内容面板将 `transition-none` 条件从仅 `isSectionDragging` 改为 `conversationsVisuallyCollapsed`。因此普通收起和拖拽临时收起都瞬时关闭；展开时条件为 false，既有 `collapsePanelClass` 的 200ms 动画继续生效。Projects 路径未修改。
+- 测试：`sidebar-section-order.test.ts` 新增聚焦源码契约，从 Tasks 面板单行锁定关闭态使用 `conversationsVisuallyCollapsed && 'transition-none'`，并确认共享面板基类仍含 200ms transition；同步修正拖拽路径计数断言，避免大范围脆弱匹配。
+- 验证：`npx vitest run tests/frontend/sidebar-section-order.test.ts` → 1 file / 15 tests 全通过；`npx eslint src/components/sidebar/ChatSidebar.tsx tests/frontend/sidebar-section-order.test.ts` → 0 error；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。
+- 文档与边界：局部视觉 bugfix 不改变架构、模块职责或公共入口，未更新 docs/wiki；复用现有 `transition-none`，未引入视觉模式，未修改 DESIGN_LANGUAGE。未新增依赖、未创建 commit/tag/push、未手工修改生成目录；build 只重建被忽略的 `dist/`，`design-mockups/side-chat-tab.html` 未触碰。
+- 下一步：无 blocker；可选真机确认桌面/移动 Tasks 普通收起无闪烁、展开仍有动画。
+
+---
+
+## 当前状态：tasks-new-chat-inherits-current-task-project（已完成，已纠正语义）
+
+- 目标：拆分侧栏三个新建入口，避免 Tasks 标题 MessageSquarePlus 错误跟随当前任务或 `activeProject`。顶部“发起新对话”继续按默认项目规则；Tasks 标题始终显式新建 global；项目行继续绑定对应项目。
+- 实现：`ChatSidebar` 新增语义独立的 `onStartNewDefaultChat`，顶部入口使用该回调；既有 `onStartNewGlobalChat` 仅供 Tasks 标题入口。`App.tsx` 恢复 `startNewDefaultSession` 的 `activeProject` 规则，并新增 `startNewExplicitGlobalSession`：先 `setEmptyStateProjectDismissed(true)`，再调用 `startNewGlobalSession()`。空状态 dismiss 标记改为离开当前空状态后复位，避免 explicit global 新建后被 active-project 自动 effect 切回项目。global 使用默认 Workspace（`~/.quickforge/workspace`），不读取 `chatScope` / `currentToolProject` / `activeProject`。
+- 桌面/移动：桌面分别传 `startNewDefaultSession` 与 `startNewExplicitGlobalSession`；移动分别使用先 `closeMobileSidebar()` 的包装回调，关闭行为保持。项目行仍为 `onClick={() => onStartNewProjectChat(item)}`。
+- 清理：删除错误的 `src/lib/new-chat-project-target.ts` 与 `tests/frontend/new-chat-project-target.test.ts`，移除 lib Wiki helper 条目；新增 `tests/frontend/sidebar-new-chat-routing.test.ts` 覆盖源码/纯逻辑契约。
+- 文档：组件 Wiki 明确 global 默认 Workspace，以及顶部、Tasks 标题、项目行三类入口差异。无视觉模式变化，无需修改 DESIGN_LANGUAGE.md。
+- 验证：`npx vitest run tests/frontend/sidebar-new-chat-routing.test.ts tests/frontend/sidebar-section-order.test.ts` → 2 files / 19 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；feature JSON 解析与 `git diff --check` 通过。
+- 边界：未新增依赖，未手工修改生成目录，未创建 commit/tag/push；build 只重建被忽略的 `dist/`，无关未跟踪文件 `design-mockups/side-chat-tab.html` 保持不动。
+- 下一步：无 blocker；可选真机验证桌面/移动顶部 default、Tasks explicit global 和项目行绑定三类入口。
+
+---
+
+## 当前状态：todo-write-sticky-summary（已完成，完整门禁通过）
+
+- 目标：为非简单多步骤任务提供 QuickForge 原生 `todo_write` 完整快照工具，并把最新成功快照显示为 Composer Dock 内、`message-editor` 前的正常流任务摘要；同时兼容 OpenCode `todowrite` 当前消息与历史工具展示。
+- 服务端实现：`server/tools/definitions.mjs` 定义 `todo_write` 严格 schema（完整最新 `todos` 快照、最多 20、每项仅 `content/status`、三态 `pending/in_progress/completed`、空数组清空、`executionMode: sequential`）；`server/tools/index.mjs` 的 `toolTodoWrite` 防御校验并返回 `todo_write_result`；`server/agent-manager.mjs` 默认免审批但不归入安全读取；`server/custom-commands.mjs` 既有 `/plan` 权限链明确拒绝；`server/routes/tools.mjs` 禁止 direct REST；`server/system-prompt.mjs` 指导仅在非简单多步骤任务维护简短当前计划。
+- 数据语义：没有新增独立 todo store、SQLite 表或其他持久化权威源。成功快照随普通 `toolResult` 消息写入现有会话消息；空数组是显式清空。错误、畸形或未成功工具结果不覆盖上一有效快照。
+- UI 实现：`src/components/chat/panel-decoration/todo-write-summary.ts` 负责严格规范化、QuickForge/OpenCode 消息提取与任务摘要 controller；`ChatPanelHost.tsx` 创建 controller、每轮装饰更新并在卸载 cleanup；`panel-decoration.ts` 只做兼容导出；`src/index.css` 与 `src/lib/i18n.ts` 提供轻盈内嵌样式和双语。摘要位于 Composer Dock 正常流，展开时自然压缩上方消息区，不覆盖消息或输入框；长列表内部滚动，桌面约显示 4 项、移动约显示 3 项。
+- Composer 顺序与生命周期：sibling 顺序为任务摘要 → command/file 临时建议菜单 → `message-editor` → stats，菜单紧邻输入框。无有效 Todo 不显示；首次未完成自动展开；用户手动展开/收起状态在后续未完成快照保留；新 toolCall 即使内容相同也短暂显示“已更新”；全完成自动收起且可重开；成功空数组或回滚到无快照移除并重置；editor/shell 重建时按当前快照自愈；`readOnly` 页面无 Composer Dock 时不显示。
+- Slash overlay：`slash-invocation-chip.ts` 的 invocation overlay 同时观察 textarea 与 `.quickforge-composer-shell`。任务摘要插入、展开或收起改变 Composer 几何时会重算 overlay；editor/shell 自愈重建时重新绑定，两路 observer 在重建与卸载路径成对 disconnect/cleanup。
+- QuickForge/OpenCode：QuickForge 从成功 `todo_write` 的 `toolResult.details.todos` 读取；OpenCode 当前消息分支识别 `opencode_tool` 的 `todowrite` ACP metadata，按 `toolCallId` 向前配对 assistant tool call，从顶层 `arguments.todos` 或 `rawInput.todos` 取快照。历史工具消息仍留在既有过程折叠中，不被 Composer Dock 摘要替代。
+- 历史 renderer：`src/lib/todo-write-history.ts` 提供纯视图模型；`src/lib/local-tools.ts` 注册原生 `todo_write` renderer，并只对 OpenCode `todowrite` metadata 走专用分支。状态准确区分 running、error、success、clear、neutral；历史文案只陈述“更新任务清单 / 清空任务清单”，不声称同步当前 UI；`detailed` 才显示 input/details JSON。
+- 审查修复：两个 major 已修复：①摘要从聊天消息区顶部调整到 Composer Dock 正常流，并补齐 sibling 顺序、内部滚动、readOnly、重建自愈与清空/回滚移除；② Slash overlay 增加 composer shell 观察与 observer 成对 cleanup。`DESIGN_LANGUAGE.md` 无需更新，复用既有轻盈内嵌工具模式。
+- 测试与最终门禁：定向 `npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts tests/frontend/slash-invocation-chip.test.ts tests/server/tools/definitions.test.mjs tests/server/tools/index.test.mjs tests/server/routes/tools.todo-write.test.mjs` → 6 files / 89 tests passed；`npx tsc -b --pretty false` → exit 0。完整 `npm run test -- --reporter=dot` → 242 files / 2112 tests passed；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → passed，仅既有 KaTeX 字体解析与 chunk size warning。
+- 验证过程：首次完整 `test/lint/build` 链通过；为了提取数量二次运行全量 test 时，`tests/server/cloud/qf-agent-process.test.mjs` 的 “does not double start while a restart timer is pending” 出现一次无关定时器波动（1 failed / 2111 passed），单文件复跑 28/28 通过，随后全量 242 files / 2112 tests 通过；未为此修改代码。
+- Blocker / 下一步：无 blocker；下一步仅可选真机目视输入框上方任务摘要、长列表、`/` 与 `@` 菜单、slash chip、深浅主题及窄屏。
+- 边界：不要把任务前 `package-lock.json` 的 43 行 peer 元数据噪音纳入功能；`artifacts/todo-write-interaction-prototype.html` 是保留原型，正式实现不依赖、未归入正式功能；无关未跟踪 `').Groups[1].Value` 未触碰、不纳入功能。未新增依赖/存储表，未手工修改生成产物。
+- Git：未创建 commit、tag 或 push；本会话也未执行这些操作。
+
+---
+
+## 前轮会话：release-v1.8.0（已完成，发布记录）
+
+- 本会话目标：完成 v1.8.0（minor）发布：整合当前功能改动、提升版本、准备 CHANGELOG、完整门禁、runtime/offline 打包、release commit/tag/push 与用户执行 npm publish 的发布顺序。
+- 前置与版本：起始 `dev` 带全部当前改动（`/commit`、自定义模型入口、文档与簿记等 20 条目），已作为功能提交 `56d435d` 纳入；`master` 以 `--ff-only` 快进，无 merge commit。package 双文件已 1.7.12→1.8.0；CHANGELOG 已按 `v1.7.12..HEAD` 的 17 个提交准备；README 无固定版本引用，未修改。
+- 发布门禁：`npm run test` → 239 files / 2068 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。
+- 打包结果：prepare-runtime-package / prepare-offline-package 成功；package-offline 内 npm pack 成功。
+- tarball：`package-offline/shawnstack-quickforge-1.8.0.tgz`，25,273,416 bytes，326 files 清单。
+- 元数据：package-dist 与 package-offline 均 `@shawnstack/quickforge@1.8.0`，均无 devDependencies/scripts；offline 包保留 `@vscode/ripgrep` 与 `node-pty` 的 optionalDependencies 策略（与 v1.7.12 相同，打包脚本零改动）。
+- Git：三个生成目录被 .gitignore 排除；release commit 范围为 6 个发布文件（CHANGELOG、package.json、package-lock.json、feature_list.json、progress.md、session-handoff.md）；发布后 `dev` 与 `master` 同步指向发布提交。
+- 发布顺序：release commit → 创建 tag `v1.8.0` → `dev` 快进至发布提交 → 原子推送 `master`/`dev`/`v1.8.0` → 用户执行 npm publish。
+
+---
+
+## 前轮会话：main-chat-model-selector-settings-entry（已完成，要点归档）
+
+- 目标：仅在主聊天的模型选择桌面浮层和移动抽屉底部增加低强调“自定义模型”，点击先关闭选择器，再进入设置 `customModels` 列表页；共享对话、Agent 表单等复用场景保持无入口。
+- 实现：`ModelSelectorOptions` 新增语义独立的可选无参 `onOpenModelSettings`，保留第四个旧编辑回调参数兼容但不复用。`useModelActions` 主聊天调用在 options 中传既有 `openModelSettings`（其落点为 `openSettingsPage('customModels')`）；桌面 `quickforge-model-menu` 与移动 `quickforge-model-sheet` 均条件渲染共享设置按钮。按钮点击执行 `closeComposerModelMenu(anchor)` 后才调用回调，确保 DOM 已移除且 trigger `aria-expanded=false`。共享页与 `openModelSheet` 表单调用不传回调，入口不出现；原模型选择与思考等级行为未改。
+- 样式/i18n：新增中英文可见文案与 aria-label。footer 使用既有 border/muted token、透明底与克制 hover/focus 背景，不位移；移动 footer 是 `flex: 0 0 auto`，位于 `flex:1 + overflow-y:auto` 的模型列表之后，长列表只滚动中部内容。
+- 测试：新增 `tests/frontend/custom-model-selector.test.ts`，覆盖桌面/移动有回调显示、无回调隐藏、点击关闭后跳转顺序、aria、移动 footer 布局/hover/focus CSS 契约，以及桌面模型选择行为回归；扩展 `use-model-actions-cloud.test.ts` 覆盖主聊天确实传回调且落到 `customModels`。
+- 文档：同步 `docs/wiki/src/lib/README.md` 的模块行数与可选回调/调用场景契约。`DESIGN_LANGUAGE.md` 无需修改，因为实现直接复用其既有轻盈、低强调、统一分隔线和 hover 不跳动原则，未引入新视觉范式。
+- 验证：定向 Vitest 4 files / 15 tests 全通过；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；需求文件 `git diff --check` 通过。
+- 边界：未新增依赖，未创建 commit/tag/push，未手工修改 `dist/package-dist/package-offline`；build 仅重建被忽略的 `dist/`。工作区开始时已有 `/commit`、README/Wiki、package-lock 等其他未提交改动，本功能只做增量修改，未覆盖或回退。
+- 下一步：无 blocker；可选真机确认桌面浮层、移动长列表抽屉、深浅主题及设置页打开动画衔接。
+
+---
+
+## 当前状态：file-reference-root-browser（已完成）
+
+- 目标：Composer 输入 `@` 时从当前项目根目录一级开始浏览；目录可点击或用 Enter/Tab 逐层进入；文字只筛选当前目录；当前层全部展示并滚动浏览；文件继续使用既有结构化 context reference。
+- 服务端：`server/routes/workspace.mjs` 新增 `listWorkspaceMentionChildren` 与 `GET /api/workspace/mention-children?projectId&path`。路由严格调用 `registeredProjectContextFromId`，未知/删除项目 404 `PROJECT_NOT_FOUND`，不回退默认 workspace；当前目录与每个子节点均走 mention 级 `allowSensitive:false` validator 和 realpath 复查，排除敏感项、项目外/敏感真实目标链接。审查修正补齐解析后 `SKIP_DIRS` 过滤：普通 `node_modules`、名为 `node_modules` 的目录链接、以及安全别名指向任意 `node_modules` 子树均不返回；普通安全目录符号链接继续允许。一次返回当前层全部直接子文件/目录，目录优先；不递归、不分页。`server/index.mjs` 已接入 dispatcher。旧 `mention-search` 保留兼容。
+- 前端：`file-reference-suggestions.ts` 裸 `@` 立即加载根目录；目录行用独立 folder 图标，点击/Enter/Tab 只进入目录且不产生引用；文件选择继续复用原 token 删除、最多 8 个引用去重、chip/草稿/发送链。输入文字按当前层 `name` 大小写不敏感本地过滤，无 debounce/递归搜索请求；菜单不做 entries slice，全部行由既有 max-height/overflow-y 滚动。菜单关闭后重置到根目录；保留 IME、Esc、Arrow、菜单互斥和 context chip 行契约。审查补测确认旧目录请求迟到不会覆盖当前根目录，`remove()` 会中止 in-flight 请求，`cleanupTextareaHandler()` 会移除 keydown/composition listeners。
+- 测试：前端覆盖裸 `@` 根目录加载、当前层筛选不追加请求、Enter 进入目录 + Tab 选文件、25 项不截断、请求竞态/Abort/cleanup、既有引用/chip 共存；服务端覆盖 205+ 当前层全部返回、直接子节点、不递归、普通与链接/别名 `node_modules` 过滤、安全普通目录链接、敏感项与链接过滤、路径拒绝、严格项目上下文及 dispatcher。
+- 文档：更新 `docs/wiki/server/routes/README.md` 与 `docs/wiki/src/components/README.md`；`DESIGN_LANGUAGE.md` 无需修改（复用既有浮层、滚动与轻量图标模式，未引入新视觉范式）。
+- 验证：审查收口 `npx vitest run tests/server/routes/workspace-tree-on-demand.test.mjs tests/frontend/file-reference-controller.test.ts` → 2 files / 29 tests 全通过；目标 `npx eslint` 0 error；`npx tsc -b --pretty false` 通过；`git diff --check` 通过（仅既有 CRLF→LF warning）。完整门禁：`npm run test` → 238 files / 2062 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）。
+- 边界：未新增依赖，未修改 dist/package-dist/package-offline，未创建 commit/tag/push；任务前已有 `/commit`、package-lock 等无关未提交改动，均保留未覆盖。
+
+---
+
+## 当前状态：slash-menu-click-outside-dismiss（已完成）
+
+- 目标：用户反馈输入 `/` 弹出指令菜单后，点击非命令区域应收起菜单。
+- 根因：第一层问题是 document pointerdown 对 `editor.contains(target)` 放行，导致点击输入框/Composer 控件不收起；去掉该放行后又暴露重开竞态——菜单 DOM `remove()` 会触发 MutationObserver → decorate → 无参数 `update()`，正文仍以 `/` 开头时菜单立即重建，catalog 回调同样可能无参数刷新。
+- 实现：新增用户关闭抑制态与统一内部删除 `removeMenu()`。菜单外 pointerdown、Escape、公开 `remove()` 先置抑制再删除；无参数 `update()` 在抑制态仅保持关闭，下一次真实输入显式 `update(value)` 解除抑制并正常打开/过滤。选中行、chip 激活、非 Slash 文本和无结果等内部删除不进入抑制。document pointerdown handler 改为控制器级单例，所有删除路径及 `cleanupTextareaHandler()` 均经 `removeMenu()` 清理，避免 listener 泄漏/累积；handler 判断当前 suggestions，兼容内部重建。菜单本体 pointerdown 仍不关闭；`@` 菜单未改。
+- 测试：fake document 真实记录 capture listener。共 18 用例，新增/扩展覆盖点 textarea/菜单外关闭、Esc、公开 remove；三种用户关闭后 `instance.update()` 不重开；下一次显式 `update('/...')` 重开；catalog resolve 回调与多次过滤重渲染始终只有一个 pointerdown listener；controller cleanup 后 listener 清零。
+- 验证：`npx vitest run tests/frontend/command-suggestions.test.ts` → 1 file / 18 tests passed；`npx vitest run tests/frontend/command-suggestions.test.ts tests/frontend/slash-invocation-chip.test.ts tests/frontend/composer-plus-menu.test.ts` → 3 files / 49 tests passed；`npx eslint src/components/chat/command-suggestions.ts tests/frontend/command-suggestions.test.ts` → 0 error；`npx tsc -b --pretty false` → exit 0；`git diff --check` → exit 0（仅 `feature_list.json` 既有 CRLF→LF warning）。
+- 文档：`docs/wiki/src/components/README.md` 同步关闭抑制、显式输入解锁与统一 listener 清理契约，command-suggestions 行数更新为 495。DESIGN_LANGUAGE 无需更新（无新视觉模式，仅交互 bugfix）。
+- 边界：未新增依赖，未创建 commit/tag/push，未手工修改生成目录；工作区并行未提交改动（/commit 功能、package-lock 噪音等）全部保留。
+- 下一步：可选真机验证点击输入框/消息区收起、继续输入重开、点击菜单行仍正常插入（含触屏与深浅主题）。
+
+---
+
+## 当前状态：builtin-slash-commit（已完成）
+
+- 目标：实现 QuickForge 内置 `/commit [message]`，可选提交信息，prompt 保持简短，并安全地只创建当前任务的一个本地 commit。
+- 实现：`server/custom-commands.mjs` 增加 catalog/help、带/不带参数解析与项目限定；`server/agent-manager.mjs` 注入 `allowEdit=false / allowCommands=true / allowSubagents=false`，使用 6 条规则的短 prompt，覆盖仅提交任务文件、禁止批量 add、验证失败停止、不编辑/不混入/不绕过 hooks、最多一个本地 commit、禁止远端动作、缺省 message 生成与结果报告。前端 Slash 菜单增加 `/commit [message]`，点击/Tab 插入 `/commit `；i18n 中英文、README、server/components Wiki 已同步。
+- 测试：custom commands 覆盖 catalog/help、带/不带参数、项目限定和权限；现有 Slash 集成测试扩展真实 runPrompt 命令状态与 prompt 关键约束；前端建议测试覆盖行数、usage/description 与插入行为。
+- 验证：定向 Vitest 3 files / 78 tests passed；目标 ESLint 0 error；`npx tsc -b --pretty false` 通过；完整 `npm run test` → 238 files / 2050 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 通过。
+- 边界：未修改 AGENTS.md/agents.md、未新增依赖、未手工修改生成目录、未创建 commit/tag/push；工作区任务前已有 `package-lock.json` peer 元数据差异，本轮未修改或还原。
+
+---
+
+## 当前状态：并行插件标签功能已提交（commit-only 会话）
+
+- 本会话任务：用户要求提交工作区代码；未修改任何功能代码。
+- 新增提交：`4f0182f fix(ui): 点击 slash chip 不再露出命令原文`（slash-invocation-chip.ts + 测试 + index.css 专属 pointer-events hunk，经 `git apply --cached` hunk 级拆分）；`abbc7cd feat(chat): 插件标签链路与用户消息插件回显`——composer-plugin-chips-inside-editor 与 user-message-selected-plugin-chips 两功能在 capability-suggestions / i18n / composer-drafts / chat-utils 等文件内改动交织，无法按文件干净拆分，合并为一笔，含 selected-capabilities 前后端新模块、服务端 canonical 权威链、用户消息/分享回显与三份 Wiki 同步；状态记录随后以独立 docs commit 收口。
+- 提交前完整门禁（最终工作树）：`npm run test` → 238 files / 2043 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（server/cloud/identity.mjs:92）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）。两个 commit 的 hook lint 均通过（同一既有 warning）。
+- 未提交项：`package-lock.json` 仍为 npm 11.6.2 的 43 行 peer 元数据噪音，沿前几轮会话约定未提交也未丢弃，待用户在统一 npm 版本策略下定夺。
+- 下一步：未 tag、未 push（除非用户明确要求）；可选真机验证项见各 feature 记录（slash chip 点击光标落末尾、插件/文件混合标签、分享页插件标签）。
+
+---
+
+## 当前状态：slash-chip-click-keeps-chip（已完成）
+
+- 目标：修复用户真机反馈——选中 agent 后 Composer 内的小 tab（slash chip）被点击时直接露出 `/agent <name>` 命令原文，用户不希望点击显示文字。
+- 根因：`.quickforge-slash-overlay` 整体 `pointer-events:none`，点击 chip 穿透到 textarea 的 `/skill|/agent` 前缀区，光标进入前缀触发 document selectionchange 的降级逻辑（隐藏覆盖层 + 卸透明 class → 原文可见）。
+- 实现：`src/index.css` 新增 `.quickforge-slash-overlay .quickforge-slash-chip { pointer-events: auto; }`（仅输入框覆盖层内 chip 可点击，消息流 chip 保持纯展示）；`src/components/chat/slash-invocation-chip.ts` 的 `renderChipContent` 为覆盖层 chip 挂 `pointerdown` 监听（项目惯例同 capability-suggestions × 按钮）：preventDefault 吃掉默认行为后聚焦 textarea 并把光标移到文本末尾，chip 保持显示、不降级。共享工厂 `createSlashChipElement` 未改、不挂监听。键盘方向键进入前缀区的降级/自愈、IME composition、自愈重建逻辑均未触碰。
+- 测试：`tests/frontend/slash-invocation-chip.test.ts` 新增 1 用例——chip 恰好 1 个 pointerdown 监听、preventDefault 调用、focus + 光标落文本末尾、选中态保留不降级（overlay 可见 + 透明 class 保留），并断言 CSS 只有覆盖层内 chip 开启 pointer-events。
+- 验证：定向 vitest slash-invocation-chip + command-suggestions → 2 files / 36 tests；相邻 message-actions / composer-plus-menu / slash-catalog → 3 files / 29 tests；改动源码/测试 eslint 0 error；`npx tsc -b --pretty false` 通过。
+- 文档：同步 `docs/wiki/src/components/README.md`（模块树与章节行数 528→541、交互契约补点击行为）；DESIGN_LANGUAGE 无需更新（无新视觉模式，仅 pointer-events 与既有交互习惯）。
+- 边界：未新增依赖，未创建 commit/tag/push，未手工修改生成目录；工作区并行未提交改动（plugin-chips 会话等）全部保留。
+- 下一步：可选真机验证点击 skill/agent chip 光标落末尾、原文不露出（含触屏与深浅主题）。
+
+---
+
+## 当前状态：user-message-selected-plugin-chips（已完成）
+
+- 目标：发送后在用户消息气泡显示本轮已选插件标签；retry/continue 复用原插件；分享页保留插件标签。依赖未提交但已完成的 `composer-plugin-chips-inside-editor`，其差异完整保留。
+- 数据规范：前端 `src/lib/selected-capabilities.ts` 与服务端 `server/selected-capabilities.mjs` 使用匹配规则——只收合法对象/字符串，type 限定 plugin/skill/tool/command，裁剪字段长度，按 `type+pluginName+name` 去重、保持顺序、最多 4 项。`details.selectedCapabilities` 快照仅持久化 type/pluginName/name/label；服务端历史读取 `selectedCapabilitiesFromMessage` 与前端 `selectedCapabilitiesFromDetails` 均再次投影快照字段，因此历史 `details.description` 即使伪造也会被丢弃，retry/continue prompt 不可读取。description 仅可来自新发送请求顶层 selectedCapabilities，参与该当前轮临时 capability prompt。未知插件不依赖 registry，可历史展示。
+- 实时/权威链：ServerAgent、Deferred 首条乐观 user message 都写入快照，可与 `details.contextReferences` 共存；请求体继续发送 canonical selectedCapabilities，一次消费后下一轮不泄漏。`runPrompt` 不信任客户端消息 details，以顶层 canonical 数组覆盖；空数组删除伪造/陈旧字段但保留其他 details。activeCapabilityPrompt 使用同一 canonical 结果，message converter 仍剥离 details，正文/复制/标题不受标签污染。
+- 历史/重试/分享：message-actions 只从 details 读取，在现有 context chip 行中插件在文件前，复用 createCapabilityChip 与三类专用图标/未知 fallback；只读调用不传 onRemove，无 ×，三态 aria、replaceChildren 幂等及空数据清理保留。审查收口仅最小导出 `decorateUserContextChips` 供 fake DOM 行为测试，实际覆盖混合顺序、二次调用不重复、混合→空删除、历史无 remove、三态 aria；另通过真实 `decorateMessages` copy 点击确认复制仍走原始 `draftTextFromUserMessage`。continueSession 从最后用户消息恢复 capability prompt，同时保留文件引用重校验，但 description 已由历史快照边界剥离。分享输出只删除 contextReferences，保留 selectedCapabilities。
+- 文档：已同步 `docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`、`docs/wiki/server/README.md`；未改 DESIGN_LANGUAGE（复用既有 chip 视觉模式）。
+- 验证：审查收口定向 Vitest 9 文件 / 87 用例全通过；目标 eslint 0 error；`npx tsc -b --pretty false` 通过；完整 `npm run test` 238 文件 / 2043 用例 100% 全通过；`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；`git diff --check` 与 feature JSON 解析通过。
+- 边界：未新增依赖，未创建 commit/tag/push，未手工修改生成目录；build 仅重建被忽略的 `dist/`。`package-lock.json` 最终 blob hash 仍为 `a7f0bb9fcb4de96f8953024be8ac588435dcc3ab`，仅任务前既有 peer 元数据差异，本 feature 未修改/还原。严格未触碰并行 slash feature 的 `src/components/chat/slash-invocation-chip.ts`、其测试及专属逻辑；共享 Wiki/状态文件仅精确修正本 feature 记录并保留并行 feature 状态。
+
+---
+
+## 当前状态：composer-plugin-chips-inside-editor（已完成）
+
+- 目标：把 Composer 用户界面的“能力”入口改为“插件”，并把插件/文件共享标签行稳定放进 `message-editor` 真正输入卡片内、textarea 上方；内部 capability 协议不重命名。
+- 实现：`src/lib/i18n.ts` 保持 Plugins/插件、Selected plugins/已选插件、Remove plugin/移除插件，并新增混合态 `Selected plugins and referenced files / 已选插件和引用的文件`。`chat-utils.ts` 的 `ensureComposerContextChips` 继续以 textarea 父元素定位输入卡片，DOM/mock 不完整时安全返回 null；新增 `syncComposerContextChipsAriaLabel`，由 capability/file 两个控制器完成自身 chip 增删后统一调用：仅插件用已选插件、仅文件复用引用的文件、混合明确表达插件和文件，空容器移除。两类 chip 在任一同步/删除顺序下互不删除。插件标签按 `pluginName` 为 documents/spreadsheets/presentations 使用现有 document/spreadsheet/presentation 图标，未知插件回退 plugin 图标；多选、去重、草稿恢复、显式 × 删除和发送一次性消费保持。
+- 样式/文档：`src/index.css` 仅收紧卡片内标签布局并降低有标签时 textarea 顶部 padding，未改 `.quickforge-composer > div:first-child` 根卡片选择器，文件标签语义色保留；组件 Wiki 已将 `chat-utils.ts` 更新为真实 340 行，并记录共享容器三态 aria-label/空容器契约。`DESIGN_LANGUAGE.md` 未修改（无新视觉模式）。
+- 测试：真实近似双控制器 harness 参数化覆盖 file-first/plugin-first 两种同步顺序、同步不互删、分别删除后保留另一类、最后一项删除移除空容器，以及仅文件/仅插件/混合 aria-label；同时保留输入卡片位置、专用图标、插件文案、文件 helper、Composer drafts/恢复、Skill/Agent Slash 回归。定向 9 files / 77 tests 通过。
+- 完整门禁：目标 eslint 0 error；`npx tsc -b --pretty false` 通过；`npm run test -- --reporter=dot` 236 files / 2024 tests 全通过；`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；`git diff --check` 通过。
+- 边界：feature 保持 done，无 blocker；未创建 commit/tag/push，未新增依赖。`package-lock.json` 仍是任务前既有 43 行 peer 元数据差异，本次未修改/还原。未手工修改 `dist/`、`package-dist/`、`package-offline/`；build 仅重建被忽略的 `dist/`。
+- 下一步：可选真机目视深浅主题、窄宽度、多插件与文件混合标签、× 删除、发送后消费及读屏名称。
+
+---
+
+## 当前状态：工作区剩余功能已安全拆分提交
+
+- 分支/基线：`dev`，起始 HEAD `72ac7e09`，无 upstream；未 amend 既有提交，未 tag、未 push。
+- 新增提交：`d66a3e7 feat(ui): 按会话隔离 Workspace Inspector 状态`；`924e8c5 feat(ui): 优化 Slash 菜单名称与图标`；`b64a4b2 fix(ui): 调整 Composer 控件悬停反馈`；本状态记录将以独立 docs commit 收口。
+- 完整门禁：`npm run test` → 236 files / 2020 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check`、`feature_list.json` / `package.json` / `package-lock.json` JSON 解析通过。每个 commit 前均复核 cached diff/stat/check，commit hook lint 也均通过（同一既有 warning）。
+- 未提交项：`package-lock.json` 只有 npm `peer` 元数据变化，`package.json` 无依赖或版本变化；当前 npm 11.6.2 对 HEAD 锁文件隔离重算可产生相同结果，因此判定为工具链噪音。未擅自提交，也未 restore/checkout 丢弃，后续需在统一 npm 版本策略下决定是否单独规范化。
+- 生成产物：`dist/`、`package-dist/`、`package-offline/` 均由 `.gitignore` 忽略，未纳入提交。
+- 下一步：如需彻底干净工作树，请用户确认是否接受单独提交 npm 11.6.2 的 lockfile peer 元数据规范化；否则保留现状即可。不要 push，除非用户另行明确要求。
+
+---
+
+## 当前状态：sidebar-section-title-drag-collapse（已完成）
+
+- 目标：移除 Projects / Tasks 专用六点拖拽按钮，改为直接拖动标题主 toggle；拖动任一区块时两个区块都临时收缩，结束/取消后恢复原折叠状态。
+- 实现：`SortableSidebarSection` 的 `setActivatorNodeRef`、attributes、listeners 仅绑定 Projects / Tasks 标题 toggle；标题保留原 `onClick` 折叠回调，并通过独立 `draggableSectionTitleClass` 增加 `touch-none`、`cursor-grab` 与 dragging 时 `cursor-grabbing`。共享 `sectionToggleClass` 恢复普通折叠标题样式，Pinned 不使用 draggable class、activator 或 listeners，继续保持默认 pointer/触摸行为。外层 PointerSensor 保持 6px 激活阈值，KeyboardSensor 接线保留；右侧筛选、展开全部、添加、新建等 action buttons 未绑定 listeners。
+- 临时折叠：`draggingSectionId !== undefined` 派生 `projectsVisuallyCollapsed` / `conversationsVisuallyCollapsed`，任一区块拖动时两者同时为 true；Chevron、`aria-expanded`、`SortableSidebarSection.collapsed` 与实际内容 grid 全部使用派生状态，内容收缩增加 `transition-none`。`finishSectionDrag` 同时服务 cancel/end，仅清空 dragging state，不调用 `onToggleProjectsCollapsed` / `onToggleConversationsCollapsed`，因此恢复各自原状态。
+- 保留边界：折叠 `shrink-0`、展开 Tasks `flex-1`、展开 Projects `max-h-[55%]`、顶层 flex/min-h-0/overflow-hidden、设置区 `mt-auto shrink-0`、Projects 内部嵌套 DnD/MeasuringStrategy/视口边界/排序持久化均未改。
+- 测试与文档：更新 `tests/frontend/sidebar-section-order.test.ts`（移除专用 handle 契约，覆盖标题 activator、Pinned 与 draggable class 隔离、action 隔离、双派生折叠、视觉恢复接线与 transition-none）；同步 `docs/wiki/src/components/README.md`。`DESIGN_LANGUAGE.md` 无需修改，未新增视觉模式。
+- 验证：定向 vitest 2 files / 21 tests；目标 eslint 0 error；`npx tsc -b --pretty false` 与 `git diff --check` 通过；前一轮完整 `npm run test` 236 files / 2020 tests 全通过、`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）、`npm run build` 成功（仅既有 KaTeX/chunk warnings），本次极小局部修复未重复全量门禁。
+- 边界：未新增依赖，未手工修改生成目录，未创建 commit/tag/push；工作区并行未提交改动全部保留。
+
+---
+
+## 当前状态：sidebar-collapsed-sections-compact-layout（已完成）
+
+- 目标：修复 Projects / Tasks 顶层排序区块折叠后仍占据展开高度，导致按 Tasks→Projects 排序时两个折叠标题之间出现巨大空白。
+- 根因：`SortableSidebarSection` 只按 ID 固定分配尺寸——Projects 始终 `max-h-[55%]`、Tasks 始终 `flex-1`，未考虑折叠状态；Tasks 折叠后仍吞掉排序容器剩余高度。
+- 实现：`SortableSidebarSection` 新增 `collapsed` 参数，由调用处按 `sectionId` 在 `projectsCollapsed` / `conversationsCollapsed` 间推导。折叠统一使用 `shrink-0`；展开 Tasks 继续 `flex-1`，展开 Projects 继续 `max-h-[55%]`。保留排序容器 `flex min-h-0 flex-1 flex-col overflow-hidden`、Projects/Tasks 内部 `overflow-y-auto`、底部设置 `mt-auto shrink-0`，未改顶层/项目 DnD、顺序持久化或桌面/移动共享接线。
+- 测试：扩展 `tests/frontend/sidebar-section-order.test.ts` 源码契约，覆盖 collapsed 传递、折叠 shrink-0、展开 Tasks/Projects 尺寸、排序容器、内部滚动及设置底部固定边界。
+- 文档：同步 `docs/wiki/src/components/README.md`；`DESIGN_LANGUAGE.md` 无需修改（既有布局 bugfix，无新视觉模式）。
+- 验证：定向 vitest 2 files / 20 tests；目标 eslint 0 error；`npx tsc -b --pretty false` 通过；完整 `npm run test` 236 files / 2019 tests 全通过；`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；`git diff --check` 通过。
+- 边界：未新增依赖，未修改/覆盖 `package-lock.json` 既有并行变更，未手工修改生成目录，未创建 commit/tag/push；工作区其他并行修改全部保留。
+
+---
+
+## 当前状态：unify-neutral-slash-icons（已完成）
+
+- 目标：所有 Slash 图标去类别色，并让斜杠菜单 command/skill/agent 复用项目已有 Lucide `SquareTerminal` / `BookOpen` / `Bot`；不扩大到非 Slash 能力菜单。
+- 实现：新增 `src/components/chat/slash-icons.ts`，使用项目已有 React 静态渲染模式把三个 Lucide 组件转换为 SVG 字符串；`command-suggestions.ts` 三类菜单行和骨架统一读取该映射，并与 canonical-name 显示调整一并收口；`slash-invocation-chip.ts` 的 skill/agent chip 同样读取映射，并删除旧 `slashAgentIcon` 自绘 glyph。CSS 菜单三类图标默认 `var(--muted-foreground)`，hover/selected 为 `var(--foreground)`；共享 `.quickforge-slash-chip-icon` 单独设为 `var(--muted-foreground)`，覆盖输入框与消息流全部复用位置。
+- 颜色边界：按用户字面只中性化图标。skill/agent chip 的既有蓝/绿背景与文字语义色可通过图标子元素独立分离，因此保持不变；chip 结构、类型信息、边框/背景与行为未改。非 Slash `+ → 能力`、@ 文件引用等继续使用 `capability-icons.ts`，未受影响。
+- 测试：`command-suggestions.test.ts` 断言菜单输出 `lucide-square-terminal` / `lucide-book-open` / `lucide-bot`，并锁定三类默认/hover/selected 中性 token、无类别 RGB；`slash-invocation-chip.test.ts` 断言 skill/agent 分别输出 BookOpen/Bot，旧 `slashAgentIcon` 不存在，chip icon 使用中性 token。
+- 文档：`docs/wiki/src/components/README.md` 新增 slash-icons 导航，更新 command-suggestions/slash-invocation-chip 图标映射、颜色边界和模块行数。
+- 验证：定向 vitest 2 files / 35 tests 全通过；改动 TS/测试 eslint 0 error；`npx tsc -b --pretty false` exit 0；`npm run lint` 为 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 通过。
+- 边界：未新增依赖，未手工修改生成目录；已随 canonical-name 合并提交为 `924e8c5`，未 tag、未 push。`package-lock.json` 噪音未纳入提交且未丢弃。
+
+---
+
+## 当前状态：sidebar-section-reorder（已完成）
+
+- 目标：完成已开始的侧栏 section reorder，让 Projects 与当前 Tasks（源码 conversations UI）两个完整区块可安全拖拽换位并在桌面/移动共用、刷新持久化。
+- 实现：`src/lib/sidebar-section-order.ts` 定义 `projects/tasks` 规范化、排序和 `localStorage` 安全读写；`src/App.tsx` 持有唯一状态并传给两个 ChatSidebar。`ChatSidebar.tsx` 保持置顶区在外部固定，在区块级 `DndContext + SortableContext` 中按 `sectionOrder` 动态渲染完整 Projects / Tasks；`SortableSidebarSection` 使用 `sidebar-section:*` 命名空间 ID，水平 transform 锁定为 0、顶层 autoScroll 关闭。标题旁弱化 `GripVertical` 按钮是唯一 activator：PointerSensor 保留 6px 阈值以支持鼠标/触摸，外层另接入 KeyboardSensor + `sortableKeyboardCoordinates`，聚焦手柄后可用 Space → 方向键 → Space 完成排序；`useSortable` attributes/listeners、`aria-label` / `title` 仍绑定该手柄，折叠、添加、筛选、菜单等按钮不绑定监听。Projects 内原嵌套 DnD、视口 modifier/autoScroll、拖动折叠会话和 `onReorderProjects` 持久化未改。
+- 测试：保留纯函数/storage 5 用例，源码接线契约现为 7 个，覆盖动态顺序、完整区块映射、置顶外置、外层 `sectionSensors` 同时配置 PointerSensor 与 KeyboardSensor/`sortableKeyboardCoordinates`、命名空间和安全手柄、start/cancel/end+x 锁定、项目嵌套 DnD/持久化保留、App 桌面/移动共用状态；与 project-drag-boundary 合计 19/19 通过。现有测试架构以源码契约为主，没有可低成本复用的真实 DOM dnd-kit 键盘行为 harness，因此未为本修复扩大测试基础设施。
+- 文档：更新 `docs/wiki/src/components/README.md` 的 ChatSidebar 行数与交互契约；`docs/wiki/src/lib/README.md` 新增 sidebar-section-order 模块条目。未修改 DESIGN_LANGUAGE（实现直接遵循既有轻盈、克制、icon-only 可访问命名规范）。
+- 验证：定向 vitest 2 文件 / 19 用例全过；`npx eslint src/components/sidebar/ChatSidebar.tsx tests/frontend/sidebar-section-order.test.ts` 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；feature JSON 解析与 `git diff --check` 通过。
+- 边界：未触碰 `package-lock.json` 及 Workspace Inspector、command suggestions、session actions 等并行改动；未手工修改生成目录，未新增依赖，未创建 commit/tag/push。
+
+---
+
+## 当前状态：session-scoped-workspace-inspector-state（已完成）
+
+- 目标：Workspace Inspector 的展开/收起、tabs、`activePanelTabId` 与 Reader 左侧导航显示按 session 隔离恢复；Inspector 整体宽度等纯布局偏好继续全局。
+- 实现：`useAgentManager` 新增稳定的 `currentRuntimeScopeId`。pending deferred session 使用自身 `pending-*` 身份；首次发送创建真实 Agent 时，`createAgent` 仅在原 deferred 仍是当前视图时附着，并通过 `attachTaskToView(task, previousAgent.sessionId)` 沿用原 scope，使 `WorkspaceInspector` 的 React `key` 不变化，组件内 open、tabs、activePanelTabId、Review 子视图、readerNavigationVisible 原样存活；`sessionId` 更新后 open hook 的 effect 与 Inspector tabs effect 把当前内存快照写入真实 `projectId + sessionId` localStorage。切换普通会话或成功附着另一 deferred session 才更换 scope；pending 自身仍不落盘。
+- 请求隔离：`WorkspaceInspectorOpenRequest` 新增 `scope={projectId,runtimeScopeId}`。App 的 request bridge 发起前校验当前 scope；聊天文件 `resolveWorkspacePath` 完成/失败后同时校验 request id、project 和 runtime scope；Inspector 消费时再次校验。session A 的迟到请求不能打开或持久化到同项目 session B。历史无项目、无 scope 的 subagent 请求继续兼容。
+- 新建边界：删除 App wrapper 预先递增 pending scope 的逻辑；`useChatActions` 新建动作返回 `created/reused/cancelled`，reuse、模型设置取消、无项目和异常均不会由 wrapper 提前滚动 Inspector scope。
+- 测试/文档：扩展 `workspace-inspector-request.test.ts` 与 `workspace-inspector-tabs.test.ts`，覆盖同项目跨 session 拒绝、projectless subagent 兼容、pending→real key 不变及落盘接线、异步文件 scope 校验、新建 reuse/cancel 不提前滚动；同步 `docs/wiki/src/README.md`、`docs/wiki/src/components/README.md`。
+- 验证：定向 6 files / 41 tests；相关 eslint 0 error；`npx tsc -b --pretty false` exit 0；最终合并工作区 `npm run test` 236 files / 2020 tests 全通过；`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；feature/package/lock JSON 与 `git diff --check` 通过。
+- 边界：未新增依赖，未手工修改生成目录；已提交为 `d66a3e7`，未 tag、未 push。`package-lock.json` 噪音未纳入提交且未丢弃。
+
+---
+
+## 当前状态：composer-controls-hover-background（已完成）
+
+- 目标：调整对话输入区 +、权限、模型、发送/停止按钮 hover，使用背景反馈代替 `translateY(-1px)` 跳动，同时保持中性/主操作/停止态层级。
+- 实现：`src/index.css` 保留 `.quickforge-composer button:hover:not(:disabled)` 全局规则；新增精确覆盖——+、权限、模型 hover 使用 `var(--quickforge-sidebar-hover-bg)`、`var(--foreground)`、`transform:none` 且带 `:not(:disabled)`；发送 hover 使用 `color-mix(in oklab, var(--primary) 92%, var(--quickforge-sidebar-hover-bg))`、`primary-foreground`、`transform:none`；停止 hover 保留原 foreground/background 混合背景并补 `transform:none`。未改变 Plan、OpenCode config、chip/菜单项；model trigger 覆盖 OpenCode mode 为预期。
+- 测试：新增 `tests/frontend/composer-control-hover.test.ts`，结构化读取 CSS 规则，验证全局规则仍存在、三个中性目标的精确 selector/token/前景/不位移、发送态 primary 混色与前景、停止态既有背景与不位移。
+- 验证：定向 3 files / 16 tests 全通过；新增测试 eslint 0 error；最终合并工作区 `npm run test` 236 files / 2020 tests 全通过；`npm run lint` 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX/chunk warnings）；feature/package/lock JSON 与 `git diff --check` 通过。
+- 边界：未更新 `docs/wiki` 或 `DESIGN_LANGUAGE.md`（纯视觉反馈且现有“hover 有感知、不跳动”规范已覆盖）；未手工修改生成目录、未新增依赖；已提交为 `b64a4b2`，未 tag、未 push。`package-lock.json` 噪音未纳入提交且未丢弃。
+- 待确认：可选真机检查深浅主题 hover 对比度、发送 primary 层级和五类控件无垂直跳动。
+
+---
+
+## 当前状态：fix-session-state-clear-actions（已完成）
+
+- 目标：修复两个同根因状态清除缺陷——取消置顶与归档恢复均需通过可序列化的 `null` 触发服务端 clear 语义。
+- 实现：`src/hooks/useSessionActions.ts` 将取消置顶从 `pinnedAt:undefined` 改为 `pinnedAt:null`；`src/lib/archived-conversations-settings-tab.ts` 将删除 `archivedAt` 字段改为 session/metadata 两个 payload 都显式写 `archivedAt:null`。服务端代码未改，继续使用字符串=设置、null=清除、字段缺失=保留的三态契约。
+- 测试：新增 `tests/frontend/session-state-clear-actions.test.ts`（2 用例），行为验证取消置顶传给 backend 的对象及 JSON 均含 `pinnedAt:null`，并验证归档恢复 helper 产生的两个 JSON payload 均含 `archivedAt:null`；扩展 `tests/server/storage.session-state-facade.test.mjs`，验证 null 同时清除 state/metadata、SQLite 提升列及 pinned/archive 查询过滤状态。
+- 验证：合并定向 vitest 2 文件 / 27 用例全部通过；改动文件 eslint 0 error；`npx tsc -b --pretty false`、`npm run build`、`git diff --check` 通过。build 仅既有 KaTeX 字体解析与 chunk size warning。
+- 边界：未修改 Wiki（仅恢复既有行为承诺，不影响架构/入口）；未修改用户已有 `package-lock.json`；未触碰生成目录，未新增依赖，未提交 Git。工作区同时存在并行会话的 slash-menu-canonical-name-display 改动，均已保留。
+
+---
+
+## 当前状态：slash-menu-canonical-name-display（已完成）
+
+- 目标：普通 command 继续显示完整命令；skill/agent 菜单行只显示具体 canonical name，同时保持完整插入文本和既有类型前缀搜索。
+- 实现：`command-suggestions.ts` 的 `appendUsageText` 仅切换可见主文本来源——command 继续使用 `usage`（并保留 argumentHint），skill/agent 使用 `name`；`usage`、`entryHaystack`、`insertText`、选中 chip 逻辑均未改变。
+- 测试：`command-suggestions.test.ts` 断言 `/plan [task]`、`skill-creator`、`explore` 三类主文本；skill/agent 的 `data-quickforge-insert` 仍为完整命令；`/skill ` 与 `/agent ` 前缀过滤仍命中对应类型。
+- 文档：`docs/wiki/src/components/README.md` 已同步显示、搜索和插入契约，并更新 command-suggestions 行数为 481。
+- 验证：定向 vitest 1 文件 / 13 用例全过；改动源码/测试 eslint 0 error；`npx tsc -b --pretty false`、`npm run build`、`git diff --check` 均通过。build 仅既有 KaTeX 字体解析与 chunk size warning。
+- 边界：未新增依赖、未手工修改生成目录；已与中性 Slash 图标合并提交为 `924e8c5`，未 tag、未 push。`package-lock.json` 噪音未纳入提交且未丢弃。无 blocker。
+
+---
+
+## 当前状态：file-reference-mention（已完成）
+
+- 目标：让聊天输入框使用 `@` 引用当前项目文件，并把插件能力选择解耦到 `+ → 能力`，保持结构化草稿、一次性发送与服务端安全边界一致。
+- 关键实现：`@` 仅 files-only；裸 `@`/1 字符只提示，2+ 字符 300ms debounce 调 `/api/workspace/mention-search?projectId&query&limit=8`，支持键盘选择并生成结构化文件 chip。`+ → 能力` 生成独立能力 chip，不再插入 `@Documents`、不从正文推断。`text`、`contextReferences`、`selectedCapabilities` 写入 localStorage 草稿（能力防御规范化、按 `type+pluginName+name` 去重、最多 4；附件仍不持久化）；`contextReferences` 随下一次 prompt 一次性发送。服务端重新校验会话项目、路径、安全边界并只注入项目相对路径提示，history user message `details.contextReferences` 用于恢复文件 chip，失败回滚/retry 已覆盖。mention-search 过滤敏感文件与不安全符号链接，对未知/已删除 `projectId` 严格返回 404 `PROJECT_NOT_FOUND`，普通 workspace search/children 等兼容回退保持不变；OpenCode/shared 禁用或显式拒绝非空引用。
+- 设计稿：`design-mockups/file-reference-mention.html`。
+- 验证：合并定向 vitest 20 files / 242 tests passed；相关 eslint 0；`tsc -b` passed；`npm run build` passed（仅既有 KaTeX/chunk warnings）；`git diff --check` passed。未声称运行全量 `npm test` / `npm lint`。
+- 限制 / 下一步：输入框只有 chip、没有正文且没有附件时不能发送；裸 `@` 不提供最近文件；真机目视待用户，重点确认键盘/IME、深浅主题、草稿恢复、发送后历史 chip、敏感路径及 404/重试提示。无代码 blocker。
+
+---
+
+## 当前状态：wiki-sync-uncommitted-features（已完成）
+
+- 用户需求：同步更新当前 wiki 文档；**明令禁止修改代码，只能维护文档**。
+- 最终状态：**已完成**。纯文档会话，未改任何代码/测试/生成产物。对照工作区两条未提交功能链（slash-menu-expansion 已 done、file-reference-mention 并行开发中）逐页审计 docs/wiki 并补缺口，改动集中在 6 个 md 文件：
+  - `docs/wiki/server/README.md`：新增 `context-references.mjs` 独立小节（导出清单 + `CONTEXT_REFERENCE_SENSITIVE/OUTSIDE_PROJECT/NOT_FOUND/FORBIDDEN/VALIDATION_FAILED` 与 `CONTEXT_REFERENCES_INVALID/LIMIT` 错误码）；skills.mjs 小节补 `summarizeSkills()` 导出；修正 index/agent-manager/custom-commands/skills 过期行数（1006/3763/614/654）。
+  - `docs/wiki/server/routes/README.md`：修正 agent/skills/agent-profiles/shared-conversation/workspace 行数（558/213/236/444/1614）。mention-search、prompt contextReferences、skills ?available、agent-profiles ?projectId、shared 拒绝等端点描述此前已由并行会话同步，核对无误。
+  - `docs/wiki/server/utils/README.md`：workspace.mjs（232 行）更新为现状行为——敏感路径**大小写不敏感**匹配、realpath 后对真实目标**复查**（防符号链接伪装）、稳定 errorCode `WORKSPACE_SENSITIVE_PATH` / `WORKSPACE_PATH_ESCAPE`（403）、`createWorkspacePathValidator`。
+  - `docs/wiki/src/README.md`：lib 模块数 28→86、index.css 行数 293/346→5345。
+  - `docs/wiki/src/components/README.md`：ChatPanelHost 1456 / chat-utils 300（补 `FileContextReference`、`ComposerCapabilitySelection`、`MessageEditorElement` 扩展与 `hasDraft` 四元口径）/ command-suggestions 479（IME 描述更正 + 图标来源改 capability-icons.ts）/ file-reference-suggestions 404 / slash-invocation-chip 541（**行为更正为最终实现**：composition 期间覆盖层保持显示 + `.quickforge-slash-preedit` 预编辑镜像（Chromium 剥离去重 / WebKit end 拼接兜底）；selectionchange 光标入前缀区**降级显示**而非自毁、光标回尾部自愈；update 对外部移除的 overlay/textarea **自愈重建**）/ panel-decoration 286（message-actions 补 `decorateUserFileReferences`——用户消息 `details.contextReferences` 渲染 `.quickforge-message-context-references` chip 行；composer-plus-menu 补 `selectPluginCapability` 语义与浮层互斥）。
+  - `docs/wiki/src/lib/README.md`：表新增 `deferred-session-agent.ts`（296 行，此前 wiki 完全未收录）+ 独立章节；server-agent 2047 行小节补 `setPromptMode('plan'|'ask'|null)` 泛化（'ask' 预留值、无发送方；`setPlanMode` 兼容包装）；shared-server-agent 488 行补结构化选择 no-op；i18n 3337；slash-catalog 102。
+- 注意：`setPromptMode('ask')` 在 server-agent / deferred-session-agent / shared-server-agent 三处 API 均已存在但**当前无任何 UI 调用方**、服务端也无对应 command 消费——按源码现状如实文档化为预留值；若 file-reference 会话后续实现 ask 模式，记得回来更新。
+- 验证：全部事实与源码逐一核对（wc -l / grep 导出 / 阅读最终实现）；git status 确认除并行会话既有改动外无代码变更。未创建 commit/tag/push。
+
+---
+
+## 前轮状态：rename-sidebar-conversations-to-tasks（已完成）
+
+- 用户需求：左侧边栏的“对话”分组标题更名为“任务”。
+- 最终状态：**已完成并验证**。`src/lib/i18n.ts` 的 `conversations` key（唯一使用处为 `src/components/sidebar/ChatSidebar.tsx` 左侧边栏分组标题 `t('conversations')`）：中文 `对话` → `任务`，英文 `Conversations` → `Tasks`；key 名、`conversationsCollapsed` 等组件状态与折叠逻辑未动。`DESIGN_LANGUAGE.md` 中 3 处以 Conversations 作为侧栏分组标题示例的提及同步为 Tasks。
+- 验证：`npx eslint src/lib/i18n.ts` → 0 error；`npx vitest run tests/frontend/i18n-language-snapshot.test.ts tests/frontend/sidebar-session-sort-mode.test.ts` → 2 files / 11 tests 全通过。`npx tsc -b` 报错全部来自并行会话 file-reference-mention 功能中间态文件（file-reference-suggestions.ts、ChatPanelHost.tsx、capability-suggestions.ts、composer-plus-menu.ts、panel-decoration.ts），无一涉及 `src/lib/i18n.ts`。
+- 遗留：真机目视确认左栏标题显示“任务”/英文 "Tasks"；其余“对话”相关文案（置顶、暂无对话、已归档对话、重命名对话等）按最小范围保持不变，如需一并更名待用户确认。本会话未创建 commit/tag/push，未手工修改生成目录。
+
+---
+
+## 前轮状态：slash-menu-expansion · 方案 A 选中态 chip（已完成）
+
+- 用户需求演进：①/ 触发「指令/技能/子智能体」菜单（已完成）→ ②选中后输入框内联 chip + 消息流 chip（设计稿两轮澄清后定稿方案 A：输入行内联）。
+- 最终状态：**已完成并验证**。新增 `src/components/chat/slash-invocation-chip.ts`（纯逻辑前缀解析/匹配/剥前缀计划/spacer 宽度 + env 注入可单测的控制器：engage/isActive/isDismissed/update/clear/removePrefix/cleanup；覆盖层挂 .quickforge-composer-shell，幽灵层同步 computed 字体/行高/padding/tabSize/scrollTop，ResizeObserver 重同步；IME compositionstart 隐藏恢复；selectionchange 光标入前缀区自毁不记 dismissed）；command-suggestions 集成（skill/agent 选中 engage、激活抑制菜单、catalog ready 自动 engage 含草稿恢复/手输、Backspace 在 cmd 长度处一次删前缀、Esc 退出记 dismissed）；message-actions decorateUserSlashInvocationChip（用户消息前缀 chip，chip 自带 dataset.quickforgeSlashChipPrefix 幂等还原，复制走 draftTextFromUserMessage 原文）；index.css slash-overlay/-ghost/-source-text/-spacer/-chip 全套 + html.dark 变体（.quickforge-composer-shell 已有 relative 未重复加）。
+- 关键取舍（subagent 偏差均合理）：还原机制按 chip 标记而非 container 快照（Lit 重渲染会整体替换 markdown 子树）；selectionchange 自毁不记 dismissed（Esc 才记，防 Esc 被下次输入覆盖）；update 校验加词边界（/agent explore-deep 不匹配 /agent explore）；消息流装饰测试走纯函数 + 源码/CSS 断言（现有 harness 无浏览器 DOM 渲染 markdown-block）。
+- 验证：npm run test → 226 files / 1945 tests 全通过（含 input-clamp 既有断言随 if 块化修正，守卫语义不变）；npm run lint → 0 errors / 1 existing warning；npx tsc -b → 0；npm run build 成功（仅既有 warning）；git diff --check 通过。
+- 遗留：真机目视留待用户——重点验证方案 A 风险点（光标与幽灵文本对齐、中文 IME composition、窄列宽换行、字号设置缩放后重同步）；消息流 chip 深浅主题观感。若对齐在真机不可接受，回退路径：保留消息流 chip + 输入框退回纯文本（或改方案 B chip 行）。
+- **追加修复（用户真机反馈「打字后 chip 消失」）**：最小复现环境（真实 MessageEditor + 真实装饰代码 + 无头 Edge CDP：选中→打字→多行→逐字符→IME 全链路）无法复现，判定破坏源为真实 app 的 React/Lit 生命周期操作（静态排查未定位唯一移除者）。修复为自愈式三层防御：① update 时 overlay/textarea 被外部移除或重建（isConnected 检查）→ 重建挂载而非放弃选中态（重 resolve targets、重建 overlay/chip/listeners/透明 class）；② selectionchange 光标入前缀区由「自毁」改为「降级显示原文」，光标回尾部自动恢复（防 selection 被程序重置的瞬时值 + 用户误点不再永久丢 chip）；③ 既有自动 engage（catalog 命中即重挂）继续兜底。测试更新：selectionchange 用例改降级/自愈语义，新增 overlay 外部移除重建、textarea 重建重挂两用例（19 通过）。临时复现文件已删（repro-slash.html/repro-slash-main.ts/repro-cdp.mjs），临时 vite(5199)/无头 Edge 进程已清理。
+- 本会话未创建 commit/tag/push，未新增依赖，未手工修改生成目录。设计稿 design-mockups/slash-menu-expansion.html 已标注方案 A 定稿。
+
+- **并行会话冲突记录（本轮）**：用户要求 build 时发现另一并行会话正在开发 file-reference-mention 功能（@ 文件引用，新增 file-reference-suggestions.ts / capability-icons.ts，改写 capability-suggestions.ts / chat-utils.ts / ChatPanelHost.tsx / composer-plus-menu.ts），其中图标注册表被抽到新模块 capability-icons.ts 导致 slash-invocation-chip.ts import 断链——已修复（改 import './capability-icons'）。该会话其余中间态错误（i18n key 缺失、类型未同步）未触碰，等其收尾后 build 才能恢复全绿；dist/ 保持本会话上次完整成功构建产物（含自愈修复，已验证）。
+
+- **IME 期间 chip 保持显示（用户第二轮真机反馈「中文输入过程中标签消失，输入完恢复」）**：原 compositionstart 防护是「隐藏覆盖层 + 移除透明 class 回退原文」——正是消失元凶。改为 composition 期间覆盖层持续渲染：新增 compositionupdate 监听，预编辑（拼音串）镜像进幽灵层尾部（.quickforge-slash-preedit 弱下划线提示输入中；Chromium 下 value 已含预编辑则从任务文本中剥离避免重复，WebKit 兼容 end 手动拼接）；update 在 composition 中改为实时 render 而非挂起（pendingText 机制整体移除）；顺手修复 renderChipContent 重建时旧 textNode/preeditEl 残留 bug。测试：composition 用例重写为保持显示 + 预编辑镜像 + WebKit/Chromium 双路径 + 残留清理断言（19 全过）。验证：定向 vitest 32/32、eslint 0 error；全量 npm run test 有 29 个失败**全部来自并行 file-reference 会话中间态**（updateFileReferenceSuggestions/setPromptMode/composer-plus-menu 等，与本 feature 无关）；`npx vite build` 直接产出成功（tsc -b 被并行半成品阻断，vite 不做类型检查），三个 slash 标记（overlay/preedit/self-heal）均确认进入 dist。
+
+---
+
+## 前轮状态：slash-menu-expansion 主功能（已完成）
+
+- 本会话目标：聊天输入框 `/` 触发的补全菜单扩展为「指令 / 技能 / 子智能体」三类。
+- 最终状态：**已完成并验证**。设计稿 design-mockups/slash-menu-expansion.html 用户定稿选档（行图标开、Enter 发送原文、子智能体描述 label·description），由两个并行 subagent 实现（服务端 / 前端，契约：/api/skills?available=true、/api/agent-profiles?projectId、插入文本 /skill <name> 与 /agent <name> ），主 Agent 复查 diff 并跑完整门禁。
+- 服务端：custom-commands.mjs 新增 /skill、/agent 解析与 formatSkillCommandPrompt/formatAgentCommandPrompt；agent-manager resolveCommandState 在 handleInternalCommand 前拦截（skill 用 loadSkillToolContext 同源校验、agent 按 workspaceRoot getAgentProfile 校验 enabledAsSubagent；失败 textResponse 用法+可用列表；通过注入 commandPrompt、无 permissions）；routes/skills.mjs ?available=true 合并视图；routes/agent-profiles.mjs 可选 projectId；skills.mjs summarizeSkills 导出。内部命令优先于同名自定义命令。
+- 前端：command-suggestions.ts 三分组重写（sticky 组头+条数、图标行、argumentHint muted、命中加粗、底部键位提示条、骨架 shimmer+reduced-motion、aria-busy/option/selected）；懒加载状态机（idle→loading→ready/error，error 降级仅指令组、菜单关闭重开重试一次）；键盘 ↑↓ 循环/Tab 补全 active/Esc 关闭/Enter 不拦截；slash-catalog.ts（并行 fetch、enabledAsSubagent 过滤、失败 null、按 projectId 缓存）；ChatPanelHost ref 传 projectId；capabilityIcons 导出复用 + agent 翠绿新图标；i18n 7 新 key 双语、删孤儿 customCommandsHint/EmptyHint。
+- 验证：npm run test → 225 files / 1918 tests 全通过；npm run lint → 0 errors / 1 existing warning（identity.mjs:92）；npx tsc -b → 0；npm run build 成功（仅既有 warning）；git diff --check 通过。
+- 遗留：真机目视留待用户（/ 三分组、懒加载骨架、键盘、深浅主题；选中技能/子智能体发送验证语义；未知名称提示文本）。已知名义：/skill 任务可省略（激活后询问），/agent 任务必填；user-guide 无斜杠命令清单段落故未改（检索确认）。
+- 本会话未创建 commit/tag/push，未新增依赖，未手工修改 dist/、package-dist/、package-offline/。
+
+---
+
+## 前轮状态：fix-sidebar-project-drag-bottom-boundary（已完成）
+
+- 本会话目标：限制左侧 Projects 排序拖拽的顶部/底部边界，并让 dnd-kit 自动滚动只作用于 Projects 自身滚动视口。
+- 最终状态：**已完成并验证**。`ChatSidebar.tsx` 为 Projects 的 `h-full overflow-y-auto` 容器增加 ref；`project-drag-boundary.ts` 纯函数按 `draggingNodeRect`、实时视口矩形和拖拽开始后的 `scrollTop` 增量锁定 `x=0` 并夹紧 `y`。滚动增量用于抵消 dnd-kit 非 DragOverlay 路径在 modifier 后追加的 scroll adjustment，确保预览在自动滚动后仍停于真实视口边界。
+- 自动滚动：`DndContext autoScroll.canScroll` 仅接受 Projects 容器，拒绝 document 与所有外层滚动祖先；该容器到真实顶部/底部时由 dnd-kit 6.3.1 的 scroll-position 判断停止。
+- 保留契约：`closestCenter`、`verticalListSortingStrategy`、`MeasuringStrategy.Always`、拖动期间折叠项目会话、`onReorderProjects` 排序持久化、现有拖拽视觉样式均未改变。
+- 类型核对：实际安装 `@dnd-kit/core@6.3.1`；`Modifier` 由 core 导出，参数包含 `draggingNodeRect`；`autoScroll.canScroll` 类型是 `(element: Element) => boolean`。
+- 改动文件：`src/components/sidebar/ChatSidebar.tsx`、`src/lib/project-drag-boundary.ts`、`tests/frontend/project-drag-boundary.test.ts`、`docs/wiki/src/components/README.md`，以及增量更新的 `feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 1 文件 / 7 用例全通过；改动文件 eslint 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 成功（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` 通过。
+- 遗留：未做手工浏览器验证。建议准备超过 Projects 视口高度的项目列表，分别拖到最顶部/最底部，确认预览不越界、只有 Projects 区滚动、到真实边界停止且放下后排序持久化。
+- 并发保护：开始时 Wiki 与三份状态文件已有 generate_image / system-prompt 等其他任务未提交改动；本轮只在现有内容上增量追加，未覆盖或回退。未新增依赖，未创建 commit/tag/push，未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## 前轮状态：temporarily-disable-generate-image-tool（已完成）
+
+- 本会话目标：暂时下线 `generate_image` 工具，同时完整保留历史会话兼容链路。
+- 最终状态：**已完成并验证**。`server/tools/definitions.mjs` 的 `workspaceTools` 已移除 `generate_image`，因此 Agent 与 `GET /api/tools` 不再暴露该能力；`server/tools/index.mjs` handler、`server/image-generation.mjs`、`server/routes/tools.mjs` 的 `directRouteDisabledTools`、会话资产路由、前端 renderer/i18n/process-folding 等均未删除。
+- 改动文件：`server/tools/definitions.mjs`、`tests/server/tools/definitions.test.mjs`、中英文用户指南、`docs/wiki/server/{README.md,tools/README.md}`、`docs/wiki/src/{lib,components}/README.md`，以及簿记文件 `feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：definitions 定向测试 1 文件 / 20 用例全通过；图片生成历史兼容测试 4 文件 / 63 用例全通过；`npm run lint` 为 0 errors / 1 existing warning（`server/cloud/identity.mjs:92`）；`npm run build` 成功（仅既有 KaTeX 字体解析和 chunk size warning）；`git diff --check` 通过。
+- 文档：当前能力文档已明确图片生成暂时不可调用；源码/组件 Wiki 的 handler、资产和 renderer 描述改为仅历史会话兼容；未修改 CHANGELOG。
+- Blocker：无。未新增依赖，未创建 commit/tag/push，未手工修改 `dist/`、`package-dist/`、`package-offline/`；`npm run build` 生成的 `dist/` 仍为被忽略产物。
+- 并发保护：任务开始时 `feature_list.json`、`progress.md`、`session-handoff.md` 及系统提示词文件已有其他任务修改，本轮均在现有内容基础上增量追加，未覆盖。
+
+---
+
+## 前轮状态：remove-base-prompt-minimalism-rules（已完成）
+
+- 本会话目标：按用户要求删除基础系统提示词中的“选择最简单的实现”和“只做最小、局部修改”规则。
+- 最终状态：**已完成并验证**。`server/system-prompt.mjs` 的 `BASE_SYSTEM_PROMPT` 删除了 `Prefer the simplest solution that satisfies the request.`、`Make surgical changes only.`，并一并删除同义重复的 `Make minimal, focused changes.`；保留 `Do not refactor unrelated code.` 及其他规则。
+- 改动文件：`server/system-prompt.mjs`、`tests/server/system-prompt.test.mjs`，以及簿记文件 `feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：`npm run test -- --run tests/server/system-prompt.test.mjs` → 1 file / 5 tests 全通过；grep 确认三条规则在基础提示词中无匹配。
+- 文档：未修改 Wiki，因为这只是基础提示词措辞调整，不改变模块职责、公共入口或配置方式。
+- 注意：`progress.md` 在本会话开始前已有其他智能体写入的“中止双消息根因”笔记，本次保留未覆盖；未创建 commit/tag/push。
+
+---
+
+## 前轮状态：release-v1.7.12（已完成，发布记录）
+
+- 本会话目标：完成 v1.7.12 打包与发布状态收尾，记录 release commit、tag/push 与用户执行 npm publish 的发布顺序。
+- 前置与版本：起始工作区干净、当前分支 `master`，发布准备阶段已确认目标 tag `v1.7.12` 尚未创建；`package.json` / `package-lock.json` 已由 1.7.11 更新为 1.7.12，CHANGELOG 1.7.12 已按 `v1.7.11..HEAD` 的 12 个提交准备；README 无固定版本引用，未修改。
+- 发布门禁：`npm run test` → 219 files / 1865 tests 全通过；`npm run lint` → 0 errors / 1 existing warning（`server/cloud/identity.mjs:92 no-useless-assignment`）；`npm run build` → 成功。
+- 打包结果：`node scripts/prepare-runtime-package.cjs` 成功；`node scripts/prepare-offline-package.cjs` 成功；在 `package-offline` 目录运行 `npm pack` 成功。
+- tarball：`package-offline/shawnstack-quickforge-1.7.12.tgz` 存在，大小 25,255,113 bytes（24.09 MiB）；清单 324 files，包含 `bin/`、`server/`、`skills/`、`plugins/`、`runtime-assets/`、`dist/`、`README.md`、`LICENSE`、`package.json`。
+- 元数据：`package-dist/package.json` 与 `package-offline/package.json` 均为 `@shawnstack/quickforge@1.7.12`，均无 `devDependencies` / `scripts`；offline 包按脚本将 `@vscode/ripgrep` 从 `dependencies` 移至 `optionalDependencies`，并保留 `node-pty` optional dependency。
+- Git：`dist/`、`package-dist/`、`package-offline/` 均由 `.gitignore` 排除；生成产物不进入版本控制，release commit 范围为 6 个发布文件：`CHANGELOG.md`、`package.json`、`package-lock.json`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 发布顺序：本变更用于 release commit，随后创建并推送 tag `v1.7.12`；npm publish 由用户执行：`npm publish ./package-offline/shawnstack-quickforge-1.7.12.tgz --access public`。
+
+---
+
+## 前轮会话：fix-workspace-inspector-subagent-trace-outer-card（已完成，要点归档）
+
+## 当前状态：fix-workspace-inspector-subagent-trace-outer-card（已完成）
+
+- 本会话目标：移除 Workspace Inspector 中完整 subagent 执行区域的最外层圆角边框与弱背景，使其融入消息流。
+- 最终状态：**已完成并验证**。`src/lib/local-tools.ts` 的 `.quickforge-subagent-trace` 根容器由 `quickforge-subagent-trace rounded-lg border border-border bg-background/60 p-2.5` 收敛为 `quickforge-subagent-trace p-2.5`；内部 `message-list`、状态/耗时、process summary 分隔线、思考正文、工具统计、折叠交互及聊天摘要未改。
+- 改动文件：`src/lib/local-tools.ts`、`tests/frontend/local-tools-lit-reactivity.test.ts`；增量更新 `feature_list.json`、`progress.md`、`session-handoff.md`，新增独立 done bugfix，未改其他 feature 状态。
+- 测试覆盖：从源码提取命中 `.quickforge-subagent-trace` 的 class 属性并拆分 token，断言保留 `p-2.5`，且不含 `rounded-lg`、`border`、`border-border`、`bg-background/60`；未使用脆弱的大段模板字符串断言。
+- 验证：`npx vitest run tests/frontend/local-tools-lit-reactivity.test.ts` → 1 file / 2 passed；`npx eslint src/lib/local-tools.ts tests/frontend/local-tools-lit-reactivity.test.ts` → 0 error；`npx tsc -b --pretty false` → exit 0；`npm run build` → exit 0（仅既有 KaTeX 字体解析与 chunk size warning）；`git diff --check` → exit 0。
+- 文档：未修改 `docs/wiki`，因为这是纯视觉外框 bugfix，不改变行为契约、模块职责、公共入口或可配置行为。
+- 遗留：可选真机目视；本会话未创建 commit/tag/push，未新增依赖，未手工修改生成目录。
+
+---
+
+## 前轮会话：fix-subagent-marquee-width-reconnect（已完成，要点归档）
+
+## 当前状态：fix-subagent-marquee-width-reconnect（已完成）
+
+- 本会话目标：实施 subagent 跑马灯最小修复——摘要标题占据剩余宽度；custom element 断开再连接不重复追加双视图。
+- 最终状态：**已完成并验证**。普通 `.quickforge-tool-title` 行为保持 `flex: 0 1 auto`，仅 `.quickforge-subagent-title` 使用 `flex: 1 1 auto`；`QuickForgeToolMarquee` 重连优先复用现有两组完整 view，仅异常 DOM 才清理重建，attribute 同步和现有动画/ResizeObserver 行为不变。
+- 改动文件：`src/index.css`、`src/lib/local-tools.ts`、`tests/frontend/tool-marquee.test.ts`；增量更新 `feature_list.json`、`progress.md`、`session-handoff.md`。保留了工作区既有 `src/index.css`、input-clamp、wiki 与簿记改动，未覆盖或改写其他 active/done feature 状态。
+- 测试覆盖：① CSS 源码契约断言普通 title 仍 `flex: 0 1 auto`、subagent title 为 `flex: 1 1 auto`；②执行转译后的 custom element 生命周期，覆盖 connect→disconnect→reconnect 后仍恰好两组原 view、控制器重建复用节点，并继续响应 `text`/`running` 属性。
+- 验证：`npx vitest run tests/frontend/tool-marquee.test.ts tests/frontend/local-tools-lit-reactivity.test.ts` → 2 files / 16 passed；`npx eslint src/lib/local-tools.ts tests/frontend/tool-marquee.test.ts` → 0 error；`npx tsc -b --pretty false` → exit 0；`git diff --check` → exit 0。
+- 文档：未修改 `docs/wiki`，因为本次仅修复布局与生命周期幂等缺陷，没有改变模块职责、公共入口、动画语义或用户可配置行为。
+- 遗留：可选真机目视；本会话未创建 commit/tag/push，生成目录未修改。
+
+---
+
+## 前轮会话：input-clamp-expand（已完成，要点归档）
+
+## 当前状态：input-clamp-expand（已完成）
+
+- 本会话目标：长输入内容定高收起——聊天用户消息与 subagent 详情任务块统一用户消息气泡视觉并定高收起（设计稿两轮迭代获用户确认后实现：`好的先执行吧`）。
+- 最终状态：**已完成并验证**。追加真机反馈修复：① `white-space: pre-wrap` 仅作用于 task/context/expectedOutput 三个值节点，保留原始换行且不再把 Lit 模板缩进渲染成字段间大空白；②共享收起盒增加 30px 流内按钮安全区，仅 overflowing 内容显示，收起/展开态均不覆盖正文，fits 内容不留额外空白。`npx vitest run tests/frontend/input-clamp.test.ts` → 20/20 通过。
+- 改动文件：本次追加 `src/lib/input-clamp.ts`（六行正文阈值与含按钮安全区的收起高度分离，注入流内 safe-area 节点）、`src/lib/local-tools.ts`（三字段值级 wrapper）、`src/index.css`（值级 pre-wrap、安全区/fade 样式）、`tests/frontend/input-clamp.test.ts`（20 用例，覆盖高度口径、字段值换行作用域与安全区接线）、`docs/wiki/src/lib/README.md`（行为说明）及簿记三件套。
+- 关键决策：状态走 data 属性而非 class（Lit 重渲染重写 class，data 属性与注入节点可跨 SSE 实时更新存活，无需按 runId 持久化展开态，重开 Tab 回落收起）；浅色浓度 3%（浅色 token --background 纯白，混灰易显脏）、深色 6%；边框浓度用户反馈后再调淡——`primary 18%→12% 混 border`（气泡/任务块/展开按钮三处同步，按钮 hover 34%→26%，设计稿同步），测试与 feature 记录已验证/更新。
+- 遗留：真机目视确认（长用户消息与详情任务块收起/展开、深浅主题气泡浓度观感；设计稿可对照）留待用户。本会话改动未提交 git。预览服务 `python -m http.server 8791 --bind 127.0.0.1 --directory D:/quickforge` 仍在后台（IAB 内核点击通道本会话中后期失效属环境问题，渲染正常）。
+
+---
+
+## 前轮会话（并行）：ask-user-history-review-style（已完成，要点归档）
+
+- 本会话目标：ask_user 提交/跳过后的历史工具消息展开体复用回执确认步样式（所见即所提交，非 detailed 省略 output 文本块已获用户批准）。
+- 最终状态：**已完成并验证**（定向 vitest 23/23、eslint 0 error、tsc -b 通过）。
+- 改动文件：`src/lib/local-tools.ts`（新增导出纯函数 `askUserReviewRowsFromDetails`——自包含防御解析持久化 toolResult.details 的 questions/answers/skipped/skipReason，answers 对齐补 undefined、choices/custom 只收 string，坏形状返回 null；`ASK_USER_SKIP_REASON_KEYS` + `askUserSkipReasonText` 四映射；`AskUserToolRenderer` 非 detailed 且 review 非 null 时渲染 `quickforge-ask-review` 只读行——复用 `buildAskAnswerText` 合并答案、未答/跳过显示 `askUserUnanswered`、跳过态行区顶部加跳过原因行、无修改按钮，此态省略 input 问题清单与 output 文本块；detailed 一律维持 input JSON + output 原文，review null（pending/旧消息）维持原问题清单视图；import `buildAskAnswerText` 自 ask-user-card.ts，无循环依赖）、`src/lib/i18n.ts`（新增 askUserSkipReasonTimeout/Aborted/NoQuestions/User 双语）、`tests/frontend/ask-user-card.test.ts`（+7 用例：纯函数 4——经 ts.transpileModule 提取函数体单测（同 local-tools-lit-reactivity 惯例，规避模块级副作用）；源码断言 3——回执行渲染/无 edit 按钮、output 与问题清单门控、skip reason 映射与 i18n 双语文案）、`docs/wiki/src/lib/README.md`（local-tools 段补 ask_user 渲染器描述 + 工具清单加 ask_user）；簿记三件套。
+- 验证记录：`npx vitest run tests/frontend/ask-user-card.test.ts tests/frontend/local-tools-lit-reactivity.test.ts` → `Tests 23 passed (23)`；`npx eslint src/lib/local-tools.ts src/lib/i18n.ts tests/frontend/ask-user-card.test.ts` → 0 error；`npx tsc -b` → exit 0。未跑全量（小改动定向验证，符合项目规则）。
+- 遗留：真机目视确认（触发一次 ask_user 提交与跳过、重载会话后展开历史工具消息观察回执行/跳过原因行；detailed 模式对照）留待用户。本会话改动未提交 git。
+
+---
+
+## 前轮会话：diff-display-optimization（已完成，要点归档）
+
+- 本会话目标：优化对话区 write_file/edit_file 工具的 diff 显示（用户要求：调研 + 设计稿预览，确认后按推荐方案 B 落地）。
+- 最终状态：**已完成并验证**（定向 vitest 35/35、eslint 0 error、tsc -b 通过）。
+- 改动文件：`src/lib/diff-view.ts`（新增，unified diff 结构化解析纯函数：行号双侧/前缀剥离/hunk 间隙省略/配对删加行 token LCS 字符级变化段/路径与新文件判定）、`src/lib/local-tools.ts`（renderDiff 改结构化行渲染，删内联样式双保险与 diffLineClass/diffLineStyle/styleMap）、`src/index.css`（diff 行号/gap/mark/path/newfile 样式 + html.dark 亮绿/亮红文字覆盖，含徽章与里程计 side；**追加修复**：用户反馈横向滚动后行背景缺失——块改单一 grid `3.1rem 3.1rem minmax(max-content,1fr)` + 行 display:contents + gap 跨全列，第三列取 max(剩余宽,最宽行) 使所有行背景铺满整个横向滚动区，设计稿同步修复并加长行示例）、`src/lib/i18n.ts`（diffOmittedLines/diffNewFile 双语）、`tests/frontend/diff-view.test.ts`（新增 16 用例）、`docs/wiki/src/lib/README.md`（diff-view 模块行 + local-tools 段同步）、`design-mockups/diff-display-optimization.html`（对比设计稿留档）；簿记三件套。
+- 验证记录：`npx vitest run tests/frontend/diff-view.test.ts tests/frontend/local-tools-lit-reactivity.test.ts tests/frontend/tool-artifacts-and-events.test.ts tests/frontend/diff-counter.test.ts` → 35 passed；`npx eslint` 四改动文件 0 error；`npx tsc -b` exit 0；修复后 `npm run build` 通过 + 无头 Edge 截图像素级验证（临时页复制 index.css 规则并预置 scrollLeft 最大：绿/红行背景延伸至块右缘、上下文行保持块底色，临时页已删）。未跑全量（小改动定向验证，符合项目规则）。
+- 遗留：真机目视确认（触发一次 edit/write 任务观察新 diff 块、亮暗两主题、多 hunk 省略行）留待用户；预览用本地静态服务 `python -m http.server 8941 --directory D:/quickforge/design-mockups`（后台运行中，设计稿也可直接双击打开）。本会话改动未提交 git。
+
+---
+
+## 并行会话：input-clamp-expand（设计阶段，待用户定稿）
+
+- 本会话目标：subagent 阅读详情时顶部输入（任务说明块）定高收起 + 框底展开按钮；按用户第二轮反馈（与聊天用户消息样式统一、用户消息也定高、背景调浅）迭代出 v2 设计稿（input-clamp-expand）。
+- 最终状态：**设计阶段完成，待用户定稿**。v2 设计稿 `design-mockups/input-clamp-expand.html`：聊天用户消息与 subagent 详情任务块统一复用用户消息气泡视觉（对齐 `src/index.css` user-message-container 公式：背景 primary 混 card、边框 primary 18% 混 border、圆角 1.125rem 右下 0.375rem、同款轻阴影、14px/1.625 文字）；长内容定高裁切不滚动 + 底部渐隐（渐隐色=气泡背景色）+ 居中「展开/收起」pill 按钮；气泡背景浓度默认 6%（比应用现状 primary 10% 浅，工具栏可切 4/6/8/10%）；收起高度可切 3/6/10 行；深浅色、列宽 380–960 可调；内容不足定高时按钮与渐隐整体不渲染。
+- 改动文件：`design-mockups/input-clamp-expand.html`（新增）；`design-mockups/subagent-task-clamp-expand.html`（v1 样稿，被 v2 取代后删除）；簿记三件套（feature_list.json 登记 input-clamp-expand 为 in_progress）。
+- 验证记录：浏览器打开样稿——初始四状态正确（短内容 fits 自动隐藏按钮 / 长消息收起 / 初始展开 / 任务块收起，类名与 aria-expanded 断言全过）；展开↔收起点击交互在 v1（同款交互 JS）端到端验证通过（expanded ↔ 收起 ↔ 展开）。预览服务：`python -m http.server 8791 --bind 127.0.0.1 --directory D:/quickforge`（后台运行中）；样稿零外部依赖，也可直接双击打开。
+- 遗留/Blocker：等用户定稿两处选档——气泡背景浓度（4/6/8/10%）、收起高度（3/6/10 行）；确认后实现：共用 clamp 组件（max-height 裁切 + 渐隐 + 展开按钮）、聊天 user-message 装饰链路与 `renderSubagentRunBody` 任务块接入、气泡浓度调浅落 index.css。备注：本会话 IAB 自动化点击通道后期整体失效（顶部复选框也点不动，新标签页/重置面板不恢复），属环境问题非设计稿问题。本会话改动未提交 git。
+
+---
+
+## 前轮会话：fix-ask-user-nav-row-and-enter-confirm（已完成，要点归档）
+
+- 本会话目标：修复 ask_user 卡片真机反馈两问题：①自由输入展开后无就近确认入口（「下一问」在选项区与 toggle 之间、位于 textarea 上方）；②上一问/下一问不在同一行（上一问在底部 actions 行、下一问在 body 内）。
+- 最终状态：**已完成并验证**（定向 vitest 15/15 全过、eslint 改动文件 0 error）。
+- 改动文件：`src/components/chat/panel-decoration/ask-user-card.ts`（nextBtn 提升为注入时创建、常驻底部 .quickforge-ask-actions 行与 backBtn 同行，append 顺序 back/next/submit/skip/note；一次性绑定 isAskAnswered 校验 + advance；renderStep 按 `!isReview && (multiSelect || allowCustom)` 控制显隐，单选且无自由输入隐藏、点选自动前进不变；setSubmitting 补 nextBtn.disabled；body 模板删内联 next 按钮与逐次 querySelector/绑定；customInput 增 keydown——Enter 且 !shiftKey 时 preventDefault，isAskAnswered 通过则 advance 否则提示 askUserNeedAnswer，Shift+Enter 保持换行）、`src/index.css`（删 .quickforge-ask-next { align-self:flex-start } 规则；.quickforge-ask-actions 补 flex-wrap:wrap 防窄屏溢出）、`tests/frontend/ask-user-card.test.ts`（Next 用例按新实现重写：append 顺序/显隐条件/一次性绑定断言 + 反向断言模板与 CSS 不再含 quickforge-ask-next；新增 keydown Enter 用例）、`docs/wiki/src/components/README.md`（ask-user 段同步：导航按钮统一底部操作行、textarea Enter 确认前进 Shift+Enter 换行）；簿记三件套。
+- 验证记录：`npx vitest run tests/frontend/ask-user-card.test.ts` → `Tests 15 passed (15)`；`npx eslint src/components/chat/panel-decoration/ask-user-card.ts tests/frontend/ask-user-card.test.ts` → 0 error；`npm run build`（tsc -b + vite build）通过（主 Agent 补跑）。未跑全量测试（小改动定向验证，符合项目规则）。
+- 遗留：评审其余发现（⑤–⑩，见 progress.md Notes）待用户定夺；真机目视确认留待用户。该会话改动未提交 git。
+
+---
+
+## 前轮会话：subagent 跑马灯工具切换上下滚动过渡（已完成，要点归档）
+- 最终状态：**已完成并验证**（tool-marquee 13/13、前端全量 85 文件 778 用例全过、eslint 0 error、tsc -b 通过）。
+- 改动文件：`src/lib/tool-marquee.ts`（控制器双视图重写：text 切换旧视图 translateY 0→-100% 滚出、新视图自 +100% 滚入 260ms，滚动期间旧横向动画不中断、结束后按 400ms 起始延迟重建，滚动中遇新文本先就地结算再重滚；同值刷新不打断 + 静止自愈排程；reduced-motion/首次出现/终态直切）、`src/lib/local-tools.ts`（QuickForgeToolMarquee 构建双视图，非当前视图整体 aria-hidden）、`src/index.css`（容器定高 1.125rem + .quickforge-marquee-view 绝对铺满规则）、`tests/frontend/tool-marquee.test.ts`（重写 13 用例）、`docs/wiki/src/lib/README.md`（tool-marquee 与 local-tools 两行同步）、`design-mockups/subagent-tool-marquee-impl.html`（标注 v1 参考）；设计稿 `design-mockups/subagent-marquee-roll-switch.html`；簿记三件套。
+- 效果：工具摘要切换时旧摘要上滚出、新摘要自下滚入（与横向滚动两轴独立），间隙保持与终态消失行为不变。
+- 遗留：真机目视确认（触发多工具 subagent 任务观察切换滚动与窄列宽表现）留待用户。本会话改动未提交 git。
+
+---
+
+## 前轮会话（并行）：ask_user 卡片评审遗留 ③④ 修复（已完成，要点归档）
+
+- 本会话目标：修复 ask_user 卡片评审遗留 ③④（fix-ask-user-custom-mix-and-review-edit：③展开自由输入清空已选 choices，与「选项 + 补充」数据模型矛盾；④回执步仅 backBtn 逐题回退，回改成本高）。
+- 最终状态：**已完成并验证**（定向 vitest 14/14 全过、eslint 改动文件 0 error、tsc -b 通过）。
+- 改动文件：`src/components/chat/panel-decoration/ask-user-card.ts`（删除 customToggle 展开分支清空 choices 与移除勾选两行；review 每行末尾新增 quickforge-ask-review-edit 按钮，点击 message 复位 + disarmSkip + step=index + renderStep 直达该题，isReview 分支内重新绑定）、`src/index.css`（.quickforge-ask-review-edit 复用 ghost 视觉模式紧凑样式 + hover；review-row 改 content 列 + 右侧按钮行布局）、`src/lib/i18n.ts`（askUserCustomToggle/askUserCustomPlaceholder 双语改补充语义，新增 askUserEdit en『Edit』/zh『修改』）、`tests/frontend/ask-user-card.test.ts`（+3 用例：清空模式不存在、review-edit 绑定与样式、四条双语文案）、`docs/wiki/src/components/README.md`（ask-user 段同步）；簿记三件套。
+- 遗留：评审其余发现（⑤–⑩，见 progress.md Notes）待用户定夺；真机目视确认（展开补充说明不清空已选、回执点「修改」直达对应题）留待用户。该会话改动未提交 git。
+
+---
+
+## 前轮会话：subagent 跑马灯工具间隙保持（已完成，要点归档）
+
+- 本会话目标：优化 subagent 运行卡跑马灯——工具间隙（上一个工具已结束、下一个尚未开始）不要让工作过程显示消失（subagent-marquee-hold-between-tools）。
+- 最终状态：**已完成并验证**（定向 vitest 91/91 全过、eslint 0 error、tsc -b 通过）。
+- 改动文件：`src/lib/subagent-run-detail.ts`（新增 `SubagentToolSummaryMemory` 有界记忆 + `currentSubagentToolSummariesWithMemory` 带记忆数据源）、`src/lib/local-tools.ts`（`renderSubagentRunSummary` 改用带记忆版本，模块级单例）、`tests/frontend/subagent-run-detail.test.ts`（+5 用例：间隙回放与切换、终态恒空不污染、runId 隔离、空入参/clear、有界淘汰）、`docs/wiki/src/lib/README.md`（local-tools 与 subagent-run-detail 两处描述同步）；簿记三件套。
+- 效果：running 期间跑马灯持续展示——pending 间隙回放该 run 最近一次非空摘要（元素保持挂载、text 不变动画不中断），下一个工具摘要出现即切换，运行结束照常消失；首个工具出现前行为与旧版一致。
+- 验证记录：`npx vitest run tests/frontend/subagent-run-detail.test.ts tests/frontend/tool-marquee.test.ts` → 91 passed；`npx eslint` 三改动文件 0 error；`npx tsc -b` exit 0。未跑全量（小改动定向验证，符合项目规则）。
+- 遗留：真机目视确认（触发一次多工具 subagent 任务，观察工具间隙跑马灯保持显示）留待用户。本会话改动未提交 git。
+
+---
+
+## 前轮会话：ask_user 卡片两交互缺陷修复（已完成，要点归档）
+
+- 本会话目标：修复 ask_user 卡片两个交互缺陷（fix-ask-user-skip-and-custom-forward，评审定案①跳过语义失真②单选+自由输入无前进路径）。
+- 最终状态：**已完成并验证**（定向 vitest 11/11 全过、eslint 改动文件 0 error）。
+- 改动文件：`src/components/chat/panel-decoration/ask-user-card.ts`（skip 两步确认 + disarmSkip 助手；Next 条件 multi→multi||allowCustom）、`src/lib/i18n.ts`（askUserSkip 双语改『跳过全部提问』+ 新增 askUserSkipConfirm）、`tests/frontend/ask-user-card.test.ts`（+3 组源码断言）、`docs/wiki/src/components/README.md`（L156 向导交互描述同步）；簿记三件套。
+- 验证记录：`npx vitest run tests/frontend/ask-user-card.test.ts` → `Tests 11 passed (11)`；`npx eslint` 三个改动 src/tests 文件 → 0 error。未跑全量（小改动定向验证，符合项目规则）。
+- 遗留：评审其余发现（③–⑩，见 progress.md Notes）待用户定夺；真机目视确认（跳过两步确认、单选自由输入点「下一问」）留待用户。本会话改动未提交 git。
+
+---
+
+## 前轮会话：session-import 元数据桶韧性修复（已完成，要点归档）
+
+- 本会话目标：修复 24h 变更风险审查发现的 M1——单个损坏的 `sessions-metadata.json` 阻断整个启动（fail-closed 扩大化）。
+- 最终状态：**已完成并验证**（定向测试 + 相关存储测试全过、eslint 0 error）。
+
+## 实现要点（速览）
+
+- `server/session-state-import.mjs`：桶级 `readMetadataBucket` 读取 + `isPlainObject` 形状校验纳入 try/catch——失败（损坏 JSON SyntaxError / Windows EACCES/EBUSY / 非对象内容）时该桶降级为**空 metadata 继续**导入，不再上抛置 `STARTUP_FAILED`。正文文件照常导入（走既有 body-only `deriveMetadata` 推导，title/时间戳取自正文），仅 metadata-only 条目丢失（本就不含消息、按设计 dropped）。记 `diagnostics`（`kind: 'metadata-bucket-error'`，含 scope/projectId/message）+ `logger.warn`，与模块既有单条目韧性语义对齐。
+- 头部 Resilience 注释与 `docs/architecture/session-storage-v2.zh-CN.md` §5 导入清单同步补充该语义。
+
+## 本会话改动文件
+
+- 修改：`server/session-state-import.mjs`、`tests/server/session-state-import.test.mjs`（新增双桶降级用例：global 损坏 JSON + project 合法 JSON 但数组）、`docs/architecture/session-storage-v2.zh-CN.md`
+- 簿记：`feature_list.json`（done）、`progress.md`、`session-handoff.md`
+
+## 验证记录
+
+- 定向：vitest `tests/server/session-state-import.test.mjs` 4 用例全过（新用例断言降级导入 2 会话、diagnostics 2 桶错 + 2 body-only、metadata 由正文推导）。
+- 相关面：backup.authoritative-session / session-state-offline-export / session-state-lifecycle / storage.session-recovery 共 18 用例全过。
+- `npx eslint` 改动文件 0 error。
+
+## 遗留与下一步
+
+- 本会话改动未提交 git（遵循约定）。
+- 风险审查其余发现（本轮 progress.md Notes 已记）：H1 存储 v2 就地升级 backup 表零读取者/零告警、M2 导入 count>0 永不重跑、benchmark 脚本悬空 import、前端 diff-counter `?running` 布尔绑定失效 + className 覆写——均未处理，待用户定夺。
+- 前轮遗留（更新）：v1.7.11 npm publish 待办已由当前 v1.7.12 release 流程取代；根目录空目录 design-preview/ 重启后可删；既有 lint warning server/cloud/identity.mjs:92。
+
+---
+
+## 前轮会话：ask-user-tool（已完成，要点归档）
+
+- 服务端：`server/tools/definitions.mjs` 新增 `askUserTool`（questions 1-4，每问 options≤4 / multiSelect / allowCustom）；`server/ask-store.mjs`（pendingAsks Map、ASK_TIMEOUT_MS=30min、`normalizeAskQuestions` 兼容单问简写、`formatAskResult` 超时/跳过/abort→按默认方案继续）；`server/agent-manager.mjs` `wrapAskUserToolDefinition` + `createAskUserPromise`（SSE `ask_user_required`/`ask_user_answered`）+ `answerAsk` + state `pendingAsk` + 免审批；`server/approval-store.mjs` planAllowedTools 加 ask_user；`server/routes/agent.mjs` `POST /api/agents/:id/answer-ask`。
+- 前端：`src/lib/server-agent.ts` 事件与 pendingAsk 全套、`answerAsk()`；`panel-decoration/ask-user-card.ts` 向导式卡（单选自动前进、末步统一提交、可跳过/回改，`data-ask-id`+displaySignature 去重）；ChatPanelHost/App 接线；i18n en/zh 各 18 键；`.quickforge-ask-*` 样式。
+- 真机反馈修复：①propsRef effect 漏 `onAnswerAsk` 致卡片误禁用（已补+回归断言）；②ask_user 工具消息新增 `AskUserToolRenderer` 纳入工具显示模式（summary「N 问 · 首问」、output=回答文本）。
+- 验证：全量 test 217 文件 1795 用例 / lint 0 error / build 通过；真实会话目视确认留待用户（可要求"用 ask_user 问我一个问题"触发）。
+- 前轮未提交改动（diff-odometer-counter / scroll-to-bottom-button / marquee / thinking-cap 等）仍保持未提交状态。

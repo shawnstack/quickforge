@@ -34,6 +34,18 @@
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
     "PingFang SC", "Microsoft YaHei", monospace;
+
+  /* Motion tokens: the shared duration / easing scale for interface animations.
+     - fast (120ms): color and icon feedback (hover, press).
+     - base (180ms): overlays, dialog/menu enter, list item and label fades.
+     - slow (280ms): conversation enter and large-area morphs.
+     Enter animations use --quickforge-ease-out; exits stay faster than enters.
+     Long-running loops (tool-running sweep, shimmer, breathe) are exempt from
+     the duration scale — they keep their own 1.2s–2s ease-in-out cycles. */
+  --quickforge-dur-fast: 120ms;
+  --quickforge-dur-base: 180ms;
+  --quickforge-dur-slow: 280ms;
+  --quickforge-ease-out: cubic-bezier(0.2, 0, 0, 1);
 }
 
 /*
@@ -510,6 +522,54 @@ body:has(.quickforge-conversation-loading) .quickforge-turn-navigation-tooltip {
 
   .quickforge-conversation-loading-runner {
     left: 27%;
+  }
+}
+
+/* ---- Shared motion primitives (tokens above) ---- */
+
+/* Modal dialogs fade their backdrop in and settle the panel from a slight
+   rise + scale, instead of appearing instantly. Enter-only: resolve paths
+   unmount immediately, which keeps exits snappy. */
+.quickforge-dialog-backdrop-in {
+  animation: quickforge-dialog-backdrop-in var(--quickforge-dur-base) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-dialog-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.quickforge-dialog-panel-in {
+  animation: quickforge-dialog-panel-in var(--quickforge-dur-base) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-dialog-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+}
+
+/* Sidebar labels / section headers fade in when they mount with the expanded
+   sidebar, so text settles in while the width transition runs instead of
+   popping in fully opaque. Opacity-only: no layout or clipping side effects
+   inside overflow-hidden rows. */
+.quickforge-sidebar-label-in {
+  animation: quickforge-sidebar-label-in var(--quickforge-dur-base) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-sidebar-label-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-dialog-backdrop-in,
+  .quickforge-dialog-panel-in,
+  .quickforge-sidebar-label-in {
+    animation: none;
   }
 }
 
@@ -2962,6 +3022,8 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   white-space: nowrap;
 }
 
+/* Tool-running highlight sweep: a long-running loop, exempt from the motion
+   duration scale (see --quickforge-dur-* tokens) by design. */
 .quickforge-tool-running-sweep {
   position: relative;
 }

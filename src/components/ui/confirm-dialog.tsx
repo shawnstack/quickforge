@@ -80,14 +80,14 @@ function MessageDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6"
+      className="quickforge-dialog-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) resolveCancelOnce()
       }}
     >
       <div
         className={cn(
-          'w-full max-w-[420px] rounded-2xl border border-border bg-background p-5 shadow-quickforge',
+          'quickforge-dialog-panel-in w-full max-w-[420px] rounded-2xl border border-border bg-background p-5 shadow-quickforge',
         )}
         role="dialog"
         aria-modal="true"

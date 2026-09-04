@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>定时任务交互重设计 · 设计稿</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --bg-weak: #f4f4f5;
+    --border: #e4e4e7;
+    --border-weak: #ececef;
+    --text: #3f3f46;
+    --text-strong: #27272a;
+    --text-weak: #a1a1aa;
+    --accent: #3b82f6;
+    --accent-weak: #eff6ff;
+    --emerald: #10b981;
+    --emerald-weak: #ecfdf5;
+    --amber: #d97706;
+    --amber-weak: #fffbeb;
+    --red: #dc2626;
+    --red-weak: #fef2f2;
+    --blue: #2563eb;
+    --radius: 10px;
+    --radius-sm: 7px;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.05);
+    --shadow-pop: 0 4px 16px rgba(0,0,0,.10);
+    font-size: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    padding: 40px 24px 80px;
+  }
+  .page { max-width: 1080px; margin: 0 auto; }
+
+  /* ---------- 设计稿骨架 ---------- */
+  .spec-header { margin-bottom: 36px; }
+  .spec-header h1 { font-size: 22px; font-weight: 600; color: var(--text-strong); }
+  .spec-header p { color: var(--text-weak); margin-top: 6px; font-size: 13px; }
+  .section { margin-top: 56px; }
+  .section-tag {
+    display: inline-block;
+    font-size: 11px; font-weight: 600; letter-spacing: .06em;
+    color: var(--text-weak);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .section h2 { font-size: 17px; font-weight: 600; color: var(--text-strong); margin-bottom: 4px; }
+  .section-desc { font-size: 13px; color: var(--text-weak); margin-bottom: 16px; max-width: 720px; }
+  .callout {
+    background: var(--accent-weak);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--text);
+    margin-top: 14px;
+    max-width: 720px;
+  }
+  .callout b { color: var(--text-strong); }
+
+  /* ---------- 通用 UI 元素 ---------- */
+  .frame {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: #fff;
+    font-size: 13px; color: var(--text);
+    cursor: default;
+  }
+  .btn.primary { background: var(--text-strong); color: #fff; border-color: var(--text-strong); }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--text-weak); }
+  .btn.ghost:hover { color: var(--text); }
+  .btn.danger-ghost { border-color: transparent; background: transparent; color: var(--text-weak); }
+  .btn.danger-ghost:hover { color: var(--red); }
+  .icon { width: 15px; height: 15px; stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11.5px; padding: 1px 8px; border-radius: 99px; font-weight: 500;
+  }
+  .badge .dot { width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
+  .badge.ok    { background: var(--emerald-weak); color: #047857; }
+  .badge.run   { background: var(--accent-weak); color: var(--blue); }
+  .badge.paused{ background: var(--amber-weak); color: var(--amber); }
+  .badge.fail  { background: var(--red-weak); color: var(--red); }
+  .muted { color: var(--text-weak); font-size: 12px; }
+
+  /* ================= 1. 侧栏入口 ================= */
+  .app-shell { display: grid; grid-template-columns: 220px 1fr; min-height: 420px; }
+  .sidebar {
+    border-right: 1px solid var(--border);
+    padding: 14px 10px;
+    background: var(--bg);
+  }
+  .side-section { font-size: 11px; font-weight: 600; color: var(--text-weak); letter-spacing: .05em; padding: 10px 8px 4px; }
+  .side-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: var(--radius-sm);
+    font-size: 13px; color: var(--text);
+  }
+  .side-item:hover { background: var(--bg-weak); }
+  .side-item.active { background: var(--bg-weak); color: var(--text-strong); font-weight: 500; box-shadow: var(--shadow); }
+  .side-item .icon { color: var(--text-weak); }
+  .side-item.active .icon { color: var(--text); }
+  .side-spacer { flex: 1; }
+  .side-badge {
+    font-size: 10.5px; font-weight: 600;
+    background: var(--red-weak); color: var(--red);
+    border-radius: 99px; padding: 0 6px;
+  }
+  .side-badge.ok { background: var(--emerald-weak); color: #047857; }
+  .main-pane { padding: 20px 26px; display: flex; align-items: center; justify-content: center; color: var(--text-weak); font-size: 13px; }
+
+  /* ================= 2. 创建流程 ================= */
+  .create-panel { padding: 0; }
+  .create-head {
+    padding: 12px 18px; border-bottom: 1px solid var(--border-weak);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .create-head h3 { font-size: 14px; font-weight: 600; color: var(--text-strong); }
+  .create-body { padding: 18px; display: grid; gap: 16px; }
+
+  /* 对话式引导 */
+  .chat-flow { display: grid; gap: 14px; }
+  .bubble-row { display: flex; gap: 10px; }
+  .bubble-row.ai { align-items: flex-start; }
+  .bubble-row.user { justify-content: flex-end; }
+  .avatar {
+    width: 26px; height: 26px; border-radius: 99px; flex: none;
+    background: var(--bg-weak); border: 1px solid var(--border-weak);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-weak);
+  }
+  .bubble {
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: var(--radius);
+    padding: 9px 13px;
+    font-size: 13px;
+    max-width: 78%;
+    box-shadow: var(--shadow);
+  }
+  .bubble-row.ai .bubble { border-top-left-radius: 4px; }
+  .bubble-row.user .bubble { background: var(--text-strong); color: #fff; border-color: var(--text-strong); border-top-right-radius: 4px; }
+
+  /* 解析结果：结构化 + 可编辑 */
+  .parsed-card { border: 1px solid var(--border); border-radius: var(--radius); background: #fff; box-shadow: var(--shadow); }
+  .parsed-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border-weak);
+    font-size: 12px; color: var(--text-weak);
+  }
+  .parsed-head .ok-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--emerald); }
+  .parsed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  .field { padding: 11px 16px; border-bottom: 1px solid var(--border-weak); }
+  .field:nth-last-child(-n+2) { border-bottom: none; }
+  .field:nth-child(odd) { border-right: 1px solid var(--border-weak); }
+  .field label { display: block; font-size: 11.5px; color: var(--text-weak); margin-bottom: 4px; }
+  .field .value { font-size: 13px; color: var(--text-strong); }
+  .field .value code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+
+  /* 预设 + cron 编辑行 */
+  .schedule-edit {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-size: 12px; padding: 2px 10px; border-radius: 99px;
+    border: 1px solid var(--border); color: var(--text);
+    background: #fff; cursor: default;
+  }
+  .chip:hover { background: var(--bg-weak); }
+  .chip.active { background: var(--accent-weak); border-color: var(--accent); color: var(--blue); font-weight: 500; }
+  .cron-input {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 3px 8px; background: #fff;
+    font-family: ui-monospace, Consolas, monospace; font-size: 12.5px;
+    color: var(--text-strong); box-shadow: var(--shadow);
+  }
+  .cron-input .icon { width: 13px; height: 13px; color: var(--text-weak); }
+  .next-run-hint { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--emerald); }
+
+  .instruction-box {
+    margin: 0 16px 14px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg); padding: 9px 12px;
+    font-size: 13px; color: var(--text);
+    min-height: 56px;
+  }
+  .instruction-box .label { font-size: 11.5px; color: var(--text-weak); margin-bottom: 4px; }
+  .parsed-actions { display: flex; gap: 8px; padding: 0 16px 16px; align-items: center; }
+  .parsed-actions .spacer { flex: 1; }
+
+  /* ================= 3. 任务面板（抽屉） ================= */
+  .drawer-scene { position: relative; min-height: 430px; background: var(--bg); display: flex; justify-content: flex-end; }
+  .drawer-dim { position: absolute; inset: 0; background: rgba(0,0,0,.06); }
+  .drawer {
+    position: relative; width: 460px; max-width: 92%;
+    background: #fff; border-left: 1px solid var(--border);
+    box-shadow: -6px 0 24px rgba(0,0,0,.06);
+    display: flex; flex-direction: column;
+  }
+  .drawer-head {
+    padding: 14px 18px; border-bottom: 1px solid var(--border-weak);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .drawer-head h3 { font-size: 15px; font-weight: 600; color: var(--text-strong); flex: 1; }
+  .drawer-body { padding: 6px 12px 16px; overflow-y: auto; flex: 1; }
+  .task-row {
+    padding: 11px 8px; border-radius: var(--radius-sm);
+    display: grid; grid-template-columns: 1fr auto; gap: 2px 10px;
+    border-bottom: 1px solid var(--border-weak);
+  }
+  .task-row:hover { background: var(--bg-weak); }
+  .task-title { font-size: 13.5px; color: var(--text-strong); font-weight: 500; display: flex; align-items: center; gap: 8px; }
+  .task-meta { grid-column: 1; font-size: 12px; color: var(--text-weak); }
+  .task-side { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 4px; }
+  .icon-btn {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--text-weak); border: none; background: transparent;
+  }
+  .icon-btn:hover { background: var(--bg-weak); color: var(--text); }
+  .run-pill { font-size: 11.5px; color: var(--text-weak); }
+  .fail-note { color: var(--red); }
+
+  /* ================= 4. 失败闭环 ================= */
+  .run-detail { padding: 16px 18px; }
+  .run-detail-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .run-detail-head h4 { font-size: 14px; font-weight: 600; color: var(--text-strong); flex: 1; }
+  .err-block {
+    border: 1px solid #fecaca; background: var(--red-weak);
+    border-radius: var(--radius-sm); padding: 10px 13px;
+    font-size: 12.5px; color: #991b1b;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  .fix-actions { display: flex; gap: 8px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="spec-header">
+    <h1>定时任务 · 交互重设计方案</h1>
+    <p>设计稿 v1 · 对应讨论的四项改进：入口前移 / 对话式创建 + 可编辑结果 / 任务面板 / 失败处理闭环。风格遵循 DESIGN_LANGUAGE.md（轻盈、克制、工具感）。</p>
+  </div>
+
+  <!-- ========== Section 1 ========== -->
+  <div class="section">
+    <span class="section-tag">改进 1</span>
+    <h2>入口前移：侧栏一级入口 + 状态徽章</h2>
+    <p class="section-desc">定时任务从 Settings 标签页移到侧栏一级入口。徽章只在有异常时出现（失败=红、运行中=绿数字），无异常时保持安静，避免视觉噪音。</p>
+
+    <div class="frame app-shell">
+      <div class="sidebar">
+        <div class="side-section">工作区</div>
+        <div class="side-item"><svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>会话</div>
+        <div class="side-item"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>项目</div>
+        <div class="side-section">自动化</div>
+        <div class="side-item active">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg>
+          定时任务
+          <span class="side-spacer"></span>
+          <span class="side-badge">1 失败</span>
+        </div>
+        <div class="side-item"><svg class="icon" viewBox="0 0 24 24"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>触发器</div>
+        <div class="side-spacer"></div>
+        <div class="side-item"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.06-.4.1-.8.1-1.2z"/></svg>设置</div>
+      </div>
+      <div class="main-pane">对话主界面（不变）</div>
+    </div>
+    <div class="callout"><b>设计取舍：</b>徽章数字用文字而非红点，避免"狼来了"——一眼知道是 1 个任务失败还是仅需要关注。Settings 里保留一个只读入口跳转到此处。</div>
+  </div>
+
+  <!-- ========== Section 2 ========== -->
+  <div class="section">
+    <span class="section-tag">改进 2</span>
+    <h2>创建流程：对话式引导 → 可编辑的结构化结果</h2>
+    <p class="section-desc">AI 追问发生在对话流里（而不是琥珀色文字要求用户改写 textarea）；解析结果落地为表单，<b>所有字段均可直接修改</b>——常用计划做成 chip 预设，cron 永远开放高级编辑，AI 只是降门槛的手段而非必经之路。</p>
+
+    <div class="frame create-panel">
+      <div class="create-head">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg>
+        <h3>新建定时任务</h3>
+        <span class="muted">创建 · 第 2 步 / 共 2 步</span>
+        <span style="flex:1"></span>
+        <button class="btn ghost"><svg class="icon" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+
+      <div class="create-body">
+        <div class="chat-flow">
+          <div class="bubble-row user">
+            <div class="bubble">每个工作日早上帮我跑一遍项目的测试，如果有失败就总结原因</div>
+          </div>
+          <div class="bubble-row ai">
+            <div class="avatar"><svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 3l1.8 5.2H19l-4.4 3.2 1.7 5.3L12 13.6l-4.3 3.1 1.7-5.3L5 8.2h5.2z"/></svg></div>
+            <div class="bubble">
+              好的，我理解的任务如下。「早上」没有具体时间，我先按 <b>9:00</b> 处理，你可以直接在下方修改。
+            </div>
+          </div>
+        </div>
+
+        <div class="parsed-card">
+          <div class="parsed-head">
+            <span class="ok-dot"></span>
+            <span>AI 已解析 · 以下内容可直接编辑</span>
+            <span style="flex:1"></span>
+            <button class="btn ghost" style="font-size:12px"><svg class="icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg>重新解析</button>
+          </div>
+
+          <div class="parsed-grid">
+            <div class="field">
+              <label>任务标题</label>
+              <div class="value">工作日测试巡检</div>
+            </div>
+            <div class="field">
+              <label>执行 Agent</label>
+              <div class="value">默认 · 通用助手</div>
+            </div>
+            <div class="field" style="grid-column: 1 / -1">
+              <label>执行计划 <span style="color:var(--blue)">· 点击预设或直接改 cron</span></label>
+              <div class="schedule-edit">
+                <div class="chips">
+                  <span class="chip">每 20 分钟</span>
+                  <span class="chip">每小时</span>
+                  <span class="chip">每天 9:00</span>
+                  <span class="chip active">工作日 9:00</span>
+                  <span class="chip">每周一 9:00</span>
+                  <span class="chip">每月 1 日 9:00</span>
+                </div>
+                <span class="cron-input">
+                  <svg class="icon" viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
+                  0 9 * * 1-5
+                  <svg class="icon" viewBox="0 0 24 24" style="color:var(--emerald)"><path d="M5 13l4 4L19 7"/></svg>
+                </span>
+                <span class="next-run-hint">
+                  <svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="8"/></svg>
+                  下次执行：下周一 09:00
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div style="height:12px"></div>
+          <div class="instruction-box">
+            <div class="label">提示词（发给 Agent 的指令）</div>
+            运行项目测试套件（npm run test）。如果全部通过，只回复"全部通过"；如果有失败，列出失败的测试名和原因摘要。
+          </div>
+
+          <div class="parsed-actions">
+            <button class="btn primary"><svg class="icon" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>创建任务</button>
+            <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>高级选项</button>
+            <span class="spacer"></span>
+            <span class="muted">执行模式 · 模型 · 思考等级 · 绑定项目 收拢在高级选项</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <b>关键变化：</b>① cron 与执行规则从「只读」改为「可编辑」，AI 解析错也能就地修正；② 常用计划做成 6 个 chip，点选即改写 cron 并实时刷新"下次执行"；③ 高级选项（模型 / 思考等级 / Agent / 项目 / 串并行）默认收拢，创建主路径只剩"标题 + 计划 + 提示词"三件事；④"重新解析"保留在结果卡头部，随时可再来一轮。
+    </div>
+  </div>
+
+  <!-- ========== Section 3 ========== -->
+  <div class="section">
+    <span class="section-tag">改进 3</span>
+    <h2>任务面板：从主界面右侧滑出的抽屉</h2>
+    <p class="section-desc">点击侧栏入口打开抽屉（不离开对话上下文）。每行显示标题 / 计划 / 下次执行 + 状态；安全高频的「立即执行」提升为行内 icon，暂停和删除收进「更多」菜单，修正现在"toggle 裸露、立即执行藏菜单"的倒挂。</p>
+
+    <div class="frame drawer-scene">
+      <div class="drawer-dim"></div>
+      <div class="drawer">
+        <div class="drawer-head">
+          <h3>定时任务</h3>
+          <span class="badge fail"><span class="dot"></span>1 失败</span>
+          <span class="badge run"><span class="dot"></span>1 运行中</span>
+          <span style="flex:1"></span>
+          <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>新建</button>
+          <button class="btn ghost"><svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        </div>
+        <div class="drawer-body">
+          <div class="task-row">
+            <div class="task-title">工作日测试巡检 <span class="badge fail"><span class="dot"></span>失败</span></div>
+            <div class="task-meta">工作日 9:00 · 上次今天 09:00 · <span class="fail-note">退出码 1</span></div>
+            <div class="task-side">
+              <span class="run-pill">下次 09-07</span>
+              <button class="icon-btn" title="查看详情"><svg class="icon" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+            </div>
+          </div>
+          <div class="task-row">
+            <div class="task-title">每日项目日报 <span class="badge run"><span class="dot"></span>运行中</span></div>
+            <div class="task-meta">每天 18:00 · Agent：通用助手 · serial</div>
+            <div class="task-side">
+              <button class="icon-btn" title="立即执行"><svg class="icon" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg></button>
+              <button class="icon-btn" title="更多"><svg class="icon" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+            </div>
+          </div>
+          <div class="task-row">
+            <div class="task-title">每周依赖审计 <span class="badge ok"><span class="dot"></span>启用</span></div>
+            <div class="task-meta">每周一 9:00 · 上次 09-01 成功 · 耗时 2m10s</div>
+            <div class="task-side">
+              <span class="run-pill">下次 09-08</span>
+              <button class="icon-btn" title="立即执行"><svg class="icon" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg></button>
+              <button class="icon-btn" title="更多"><svg class="icon" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+            </div>
+          </div>
+          <div class="task-row">
+            <div class="task-title">会议纪要归档 <span class="badge paused"><span class="dot"></span>已暂停</span></div>
+            <div class="task-meta">每天 20:00 · 8-28 由你手动暂停</div>
+            <div class="task-side">
+              <button class="icon-btn" title="更多"><svg class="icon" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+            </div>
+          </div>
+          <div style="text-align:center; padding:10px 0 2px">
+            <button class="btn ghost" style="font-size:12.5px">查看全部执行历史 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="callout"><b>操作分层：</b>立即执行 = 高频且无害 → 行内 icon；暂停/恢复/编辑/删除 = 低频或有破坏性 → 收进「更多」菜单（删除仍走确认弹窗）。点击任务行进入详情与最近执行，抽屉内二级视图，不整页跳转。</div>
+  </div>
+
+  <!-- ========== Section 4 ========== -->
+  <div class="section">
+    <span class="section-tag">改进 4</span>
+    <h2>失败闭环：从错误直达修复</h2>
+    <p class="section-desc">失败运行的详情不再只是只读记录，头部给出三个动作：查看会话（还原现场）、立即重跑（验证偶发）、编辑任务（修复根因）。</p>
+
+    <div class="frame">
+      <div class="run-detail">
+        <div class="run-detail-head">
+          <h4>工作日测试巡检 · 运行记录 #217</h4>
+          <span class="badge fail"><span class="dot"></span>失败</span>
+          <span class="muted">今天 09:00 · 触发：schedule · 耗时 1m42s</span>
+        </div>
+        <div class="err-block">Error: 测试进程退出码 1 — 3 个用例失败（tests/server/auth.test.mjs 等），详见会话输出</div>
+        <div class="fix-actions">
+          <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>查看会话</button>
+          <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg>立即重跑</button>
+          <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>编辑任务</button>
+        </div>
+        <div style="margin-top:16px" class="muted">下方为最近 5 次运行的时间线（成功 / 失败 / 耗时），与现有详情视图一致。</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

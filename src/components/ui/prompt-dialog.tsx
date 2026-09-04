@@ -48,14 +48,14 @@ function PromptDialogInner({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      className="quickforge-dialog-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={(event) => {
         if (event.target === event.currentTarget) onResolve(null)
       }}
     >
       <div
         className={cn(
-          'w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-quickforge',
+          'quickforge-dialog-panel-in w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-quickforge',
           'mx-4',
         )}
       >

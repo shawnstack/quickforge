@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuickForge 动效设计提案 · 第二批</title>
+<style>
+  :root {
+    /* ===== 动效 Token（第一批已落地 + 本批新增 exit）===== */
+    --dur-fast: 120ms;     /* 颜色 hover / 图标反馈 */
+    --dur-base: 180ms;     /* 浮层 / 列表项 / toast 进入 */
+    --dur-slow: 280ms;     /* 会话进入 / 大区块 morph */
+    --dur-exit: 140ms;     /* ★ 本批新增：所有退出态 */
+    --ease-out: cubic-bezier(0.2, 0, 0, 1);
+
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --border: #e4e4e7;
+    --fg: #3f3f46;
+    --fg-muted: #a1a1aa;
+    --accent: #3b82f6;
+    --danger: #ef4444;
+    --emerald: #10b981;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--fg);
+    font-size: 14px; line-height: 1.6; padding: 48px 24px 96px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 600; }
+  .sub { color: var(--fg-muted); margin: 6px 0 40px; font-size: 13px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  .desc { color: var(--fg-muted); font-size: 13px; margin-bottom: 16px; }
+  section { margin-bottom: 56px; }
+  .stage {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 24px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+  }
+  code.tok { background:#f4f4f5; border-radius:4px; padding:1px 6px; font-size:12px; }
+
+  .btn {
+    border: 1px solid var(--border); background: var(--panel); color: var(--fg);
+    border-radius: 7px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out),
+                scale 100ms var(--ease-out);
+  }
+  .btn:hover { background: #f4f4f5; }
+  .btn:active { scale: .97; }
+  .btn.primary { background: var(--fg); color: #fff; border-color: var(--fg); }
+  .btn.primary:hover { background: #52525b; }
+
+  /* ========== 1 · 大弹窗复用（skills/GitGraph/Share 同构）========== */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.5);
+    display: grid; place-items: center; z-index: 50;
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--dur-base) var(--ease-out);
+  }
+  .overlay.open { opacity: 1; pointer-events: auto; }
+  .overlay.blur { backdrop-filter: blur(2px); }
+  .dialog {
+    width: 560px; max-width: 92vw; max-height: 72vh; overflow: auto;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 24px; box-shadow: 0 12px 32px rgba(0,0,0,.08);
+    transform: scale(.97) translateY(4px); opacity: 0;
+    transition: transform var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out);
+  }
+  .overlay.open .dialog { transform: none; opacity: 1; }
+  .dialog h4 { font-size: 15px; margin-bottom: 4px; }
+  .dialog .hint { font-size: 12px; color: var(--fg-muted); margin-bottom: 16px; }
+  .skill-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border: 1px solid var(--border); border-radius: 9px; margin-bottom: 8px; font-size: 13px;
+  }
+  .skill-row .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--emerald); flex: none; }
+
+  /* ========== 2 · 菜单展开 ========== */
+  .menu-anchor { position: relative; display: inline-block; }
+  .menu {
+    position: absolute; top: calc(100% + 6px); right: 0; min-width: 190px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 11px;
+    padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.07); z-index: 10;
+    transform-origin: top right;
+    transform: scale(.96) translateY(-4px); opacity: 0;
+    pointer-events: none;
+    transition: transform var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out);
+  }
+  .menu.origin-left { left: 0; right: auto; transform-origin: top left; }
+  .menu.open { transform: none; opacity: 1; pointer-events: auto; }
+  .menu .item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; border-radius: 7px; cursor: pointer; font-size: 13px;
+    transition: background-color var(--dur-fast) var(--ease-out);
+  }
+  .menu .item:hover { background: #f4f4f5; }
+  .menu .item.danger:hover { color: var(--danger); }
+  .compare-cell { border: 1px dashed var(--border); border-radius: 8px; padding: 14px; }
+  .compare-cell h3 { font-size: 12px; color: var(--fg-muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: .04em; }
+  .menu-instant { transition: none !important; }
+
+  /* ========== 3 · Toast ========== */
+  .toast-zone { position: fixed; right: 16px; top: 64px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
+  .toast {
+    display: flex; align-items: flex-start; gap: 10px; width: 320px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.07); cursor: pointer;
+    translate: 16px 0; opacity: 0;
+    transition: translate var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out);
+  }
+  .toast.in { translate: 0 0; opacity: 1; }
+  .toast.out {
+    translate: 8px 0; opacity: 0;
+    transition-duration: var(--dur-exit);   /* 退出更快 */
+  }
+  .toast .icon { font-size: 15px; line-height: 1.3; }
+  .toast.ok .icon { color: var(--emerald); }
+  .toast.err .icon { color: var(--danger); }
+  .toast .txt b { display: block; font-size: 13px; font-weight: 600; }
+  .toast .txt span { display: block; font-size: 12px; color: var(--fg-muted); margin-top: 2px; }
+  .toast .x { margin-left: auto; color: var(--fg-muted); cursor: pointer; padding: 0 2px; }
+  .toast .x:hover { color: var(--fg); }
+
+  /* ========== 4 · 列表项 enter（变更文件列表）========== */
+  .changes { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+  .chg {
+    display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 10px;
+    min-height: 40px; padding: 6px 12px; border-radius: 11px; font-size: 13px;
+    transition: background-color var(--dur-fast) var(--ease-out);
+    animation: list-item-in var(--dur-base) var(--ease-out) both;
+  }
+  .chg:hover { background: #f4f4f5; }
+  @keyframes list-item-in { from { opacity: 0; } }
+  .chg .st { font-size: 11px; font-family: ui-monospace, monospace; border-radius: 5px; padding: 1px 6px; }
+  .chg .st.M { background: #fef3c7; color: #92400e; }
+  .chg .st.A { background: #d1fae5; color: #065f46; }
+  .chg .st.D { background: #fee2e2; color: #991b1b; }
+  .chg .ops { opacity: 0; transition: opacity var(--dur-fast); }
+  .chg:hover .ops { opacity: 1; }
+  .chg .ops button { border: 0; background: none; cursor: pointer; font-size: 13px; color: var(--fg-muted); padding: 2px 4px; border-radius: 5px; }
+  .chg .ops button:hover { background: #f4f4f5; color: var(--fg); }
+  .chg .ops button.danger:hover { color: var(--danger); }
+
+  /* ========== 5 · 可选：侧栏删除退出 retune ========== */
+  .side-list { display: flex; flex-direction: column; gap: 2px; width: 100%; max-width: 300px; }
+  .srow {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 7px;
+    font-size: 13px; cursor: pointer; overflow: hidden;
+    animation: list-item-in var(--dur-base) var(--ease-out) both;
+  }
+  .srow:hover { background: #f4f4f5; }
+  .srow .del { margin-left: auto; color: var(--fg-muted); opacity: 0; }
+  .srow:hover .del { opacity: 1; }
+  .srow .del:hover { color: var(--danger); }
+  .srow.exit-slow { animation: exit-slow 360ms cubic-bezier(0.2,0,0,1) forwards; }
+  .srow.exit-fast { animation: exit-fast var(--dur-exit) cubic-bezier(0.2,0,0,1) forwards; }
+  @keyframes exit-slow { to { opacity: 0; transform: translateX(8px) scale(.98); max-height: 0; padding-top: 0; padding-bottom: 0; } }
+  @keyframes exit-fast { to { opacity: 0; transform: translateX(8px); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>QuickForge 动效设计提案 · 第二批</h1>
+  <p class="sub">目标：toast / 菜单展开 / 列表项 enter-exit / 大弹窗复用。延续第一批 token（120 / 180 / 280ms + 统一缓动），本批新增 <code class="tok">--dur-exit: 140ms</code>——第一个真正的「进入 + 退出」配对。退出永远比进入快。</p>
+
+  <section>
+    <h2>1 · 大弹窗复用（skills / GitGraph / Share 同构）</h2>
+    <p class="desc">与 ui 弹窗完全相同的进入类：遮罩淡入 + 面板 scale .97、上浮 4px。大弹窗也不做更慢更炫的处理——同一范式，同一节奏。GitGraph 的背景模糊随遮罩一起淡入。</p>
+    <div class="stage">
+      <button class="btn primary" onclick="openDlg('dlg-skills')">Skills 管理弹窗</button>
+      <button class="btn" onclick="openDlg('dlg-git')">GitGraph（带背景模糊）</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>2 · 菜单展开：从触发角生长（左右两例 + 新旧对比）</h2>
+    <p class="desc">transform-origin 设在触发按钮一侧的顶角，scale .96→1 + 上浮 4px，180ms。关闭保持瞬时。右侧「当前效果」即现状——瞬间出现。</p>
+    <div class="stage" style="align-items:flex-start">
+      <div class="compare-cell">
+        <h3>新设计 · 右对齐</h3>
+        <div class="menu-anchor">
+          <button class="btn" onclick="toggleMenu(event, 'm1')">项目操作 ▾</button>
+          <div class="menu" id="m1">
+            <div class="item">在文件管理器中显示</div>
+            <div class="item">在 VS Code 中打开</div>
+            <div class="item">复制路径</div>
+            <div class="item danger">删除项目</div>
+          </div>
+        </div>
+      </div>
+      <div class="compare-cell">
+        <h3>新设计 · 左对齐</h3>
+        <div class="menu-anchor">
+          <button class="btn" onclick="toggleMenu(event, 'm2')">分支 ▾</button>
+          <div class="menu origin-left" id="m2">
+            <div class="item">main</div>
+            <div class="item">dev</div>
+            <div class="item">feature/motion-design</div>
+          </div>
+        </div>
+      </div>
+      <div class="compare-cell">
+        <h3>当前效果（无动画）</h3>
+        <div class="menu-anchor">
+          <button class="btn" onclick="toggleMenu(event, 'm3')">项目操作 ▾</button>
+          <div class="menu menu-instant" id="m3">
+            <div class="item">在文件管理器中显示</div>
+            <div class="item">复制路径</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3 · Toast：进入 180ms，退出 140ms</h2>
+    <p class="desc">只过渡 translate + opacity（不再 transition-all）。进入从右侧 16px 滑入淡入；退出更快收回（140ms），堆叠时后方的卡片自然顶上。点卡片或 ✕ 手动关闭，或等 3.2s 自动退出。</p>
+    <div class="stage">
+      <button class="btn" onclick="toast('ok', '任务完成', '重构登录模块已完成')">成功 Toast</button>
+      <button class="btn" onclick="toast('err', '任务失败', '构建失败：lint 报错 3 处')">错误 Toast</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>4 · 列表项 enter：变更文件列表</h2>
+    <p class="desc">agent 运行中文件增删最频繁的列表。新增行 opacity 淡入 180ms 落位（不位移，避免 overflow 容器内裁切）；消失保持瞬时——文件状态本来就由 git 刷新驱动。hover 操作按钮浮现逻辑不变。</p>
+    <div class="stage">
+      <button class="btn" onclick="addChange()">模拟 agent 修改新文件</button>
+      <div class="changes" id="changes"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>5 · 可选：侧栏删除退出 360ms → 140ms</h2>
+    <p class="desc">现有会话删除退出 360ms（含收缩），在「退出要快」的刻度下偏慢。左列为现状，右列为 retune 后。两列各点一次删除对比手感。</p>
+    <div class="stage" style="align-items:flex-start">
+      <div class="compare-cell" style="flex:1">
+        <h3>现状 360ms（含高度收缩）</h3>
+        <div class="side-list" id="sl1"></div>
+      </div>
+      <div class="compare-cell" style="flex:1">
+        <h3>Retune 140ms（仅淡出右移）</h3>
+        <div class="side-list" id="sl2"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- 大弹窗 -->
+<div class="overlay" id="dlg-skills">
+  <div class="dialog">
+    <h4>Skills 管理</h4>
+    <p class="hint">大弹窗与 ui 弹窗共用同一进入类（quickforge-dialog-backdrop-in / panel-in）</p>
+    <div class="skill-row"><span class="dot"></span>pdf-export — 已启用</div>
+    <div class="skill-row"><span class="dot"></span>web-research — 已启用</div>
+    <div class="skill-row"><span class="dot" style="background:#d4d4d8"></span>docx-writer — 未启用</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn primary" onclick="closeDlg()">完成</button></div>
+  </div>
+</div>
+<div class="overlay blur" id="dlg-git">
+  <div class="dialog" style="width:640px">
+    <h4>Git Graph</h4>
+    <p class="hint">backdrop-blur 随遮罩透明度一起淡入，无需单独处理</p>
+    <pre style="font-size:12px;color:var(--fg-muted);line-height:1.9">●───●───●  main
+   \
+    ●───●   dev
+        \
+         ●  feature/motion-design</pre>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn" onclick="closeDlg()">关闭</button></div>
+  </div>
+</div>
+
+<div class="toast-zone" id="toasts"></div>
+
+<script>
+  // 1. 大弹窗
+  function openDlg(id){ document.getElementById(id).classList.add('open'); }
+  function closeDlg(){ document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open')); }
+  document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); }));
+
+  // 2. 菜单
+  function toggleMenu(e, id){
+    e.stopPropagation();
+    const m = document.getElementById(id);
+    document.querySelectorAll('.menu.open').forEach(x => x !== m && x.classList.remove('open'));
+    m.classList.toggle('open');
+  }
+  document.addEventListener('click', () => document.querySelectorAll('.menu.open').forEach(m => m.classList.remove('open')));
+
+  // 3. Toast
+  function toast(tone, title, msg){
+    const t = document.createElement('div');
+    t.className = 'toast ' + tone;
+    t.innerHTML = `<span class="icon">${tone === 'ok' ? '✔' : '✖'}</span><span class="txt"><b>${title}</b><span>${msg}</span></span><span class="x">✕</span>`;
+    document.getElementById('toasts').appendChild(t);
+    requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('in')));
+    const out = () => {
+      if (t.classList.contains('out')) return;
+      t.classList.remove('in'); t.classList.add('out');
+      setTimeout(() => t.remove(), 140);
+    };
+    t.addEventListener('transitionend', e => { if (e.propertyName === 'opacity' && !t.classList.contains('in')) t.remove(); });
+    t.querySelector('.x').addEventListener('click', e => { e.stopPropagation(); out(); });
+    t.addEventListener('click', out);
+    setTimeout(out, 3200);
+  }
+
+  // 4. 变更列表
+  const changesEl = document.getElementById('changes');
+  const files = [
+    ['M', 'src/components/sidebar/ChatSidebar.tsx'],
+    ['A', 'tests/frontend/motion-design.test.ts'],
+    ['M', 'src/index.css'],
+    ['D', 'src/lib/legacy-animations.ts'],
+    ['A', 'src/components/ui/skeleton.tsx'],
+  ];
+  let fi = 0;
+  function addChange(){
+    const [st, path] = files[fi++ % files.length];
+    const row = document.createElement('div');
+    row.className = 'chg';
+    row.innerHTML = `<span class="st ${st}">${st}</span><span style="font-family:ui-monospace,monospace;font-size:12px">${path}</span><span class="ops"><button title="暂存">＋</button><button class="danger" title="放弃">↺</button></span>`;
+    changesEl.prepend(row);
+  }
+  for (let i = 0; i < 3; i++) addChange();
+
+  // 5. 侧栏删除退出对比
+  function buildSideList(id, exitClass){
+    const el = document.getElementById(id);
+    ['重构登录模块', '修复侧栏拖拽', '压缩历史会话', '更新 wiki 文档'].forEach(name => {
+      const r = document.createElement('div');
+      r.className = 'srow';
+      r.innerHTML = `<span style="width:6px;height:6px;border-radius:50%;background:#d4d4d8"></span><span>${name}</span><span class="del">✕</span>`;
+      r.querySelector('.del').addEventListener('click', e => {
+        e.stopPropagation();
+        r.style.pointerEvents = 'none';
+        r.classList.add(exitClass);
+        r.addEventListener('animationend', () => r.remove(), { once: true });
+      });
+      el.appendChild(r);
+    });
+  }
+  buildSideList('sl1', 'exit-slow');
+  buildSideList('sl2', 'exit-fast');
+</script>
+</body>
+</html>

@@ -219,7 +219,7 @@ function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; ena
 }
 
 const sidebarSessionRowBaseClass = 'group relative flex items-center gap-2 overflow-hidden rounded-lg py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out'
-const sidebarSessionTitleClass = 'truncate text-sm font-[350] leading-5'
+const sidebarSessionTitleClass = 'quickforge-sidebar-label-in truncate text-sm font-[350] leading-5'
 
 function SessionDisplayControls({
   visibleCount,
@@ -448,7 +448,7 @@ export const ChatSidebar = memo(function ChatSidebar({
 }: ChatSidebarProps) {
   const sidebarHoverBgClass = 'hover:bg-[var(--quickforge-sidebar-hover-bg)]'
   const sidebarActiveBgClass = 'bg-[var(--quickforge-sidebar-hover-bg)]'
-  const sectionHeaderClass = `quickforge-sidebar-section-header group mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1 text-sm font-[350] leading-5 text-muted-foreground/50 transition-colors ${sidebarHoverBgClass}`
+  const sectionHeaderClass = `quickforge-sidebar-label-in quickforge-sidebar-section-header group mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1 text-sm font-[350] leading-5 text-muted-foreground/50 transition-colors ${sidebarHoverBgClass}`
   const sectionToggleClass = 'quickforge-sidebar-section-toggle flex min-w-0 flex-1 items-center gap-1 text-left transition-colors'
   const draggableSectionTitleClass = `${sectionToggleClass} cursor-grab touch-none active:cursor-grabbing`
   const chevronClass = 'quickforge-sidebar-section-icon size-4 shrink-0 text-current opacity-0 transition-[transform,opacity] duration-200 ease-out group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none'

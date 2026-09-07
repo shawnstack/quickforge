@@ -26,7 +26,7 @@
 | `side-chat.mjs` | 独立、内存态 Side Chat 的纯模型 NDJSON 流路由；读取当前主会话上下文但固定 `tools: []`，不调用或写入主 Agent；纯文本安全投影在服务端最终模型解析后物化为 pi-ai 合法 user/assistant 消息，assistant 使用服务端模型字段与完整零 usage/cost |
 | `shared-conversation.mjs` | 共享会话查看与共享图片资产读取 |
 | `session-assets.mjs` | 当前会话生成图片资产的同源二进制读取 |
-| `backup.mjs` | 817 | 数据备份和恢复（权威会话/分享/LAN 访问导出与恢复、settings 导入） |
+| `backup.mjs` | 856 | 数据备份和恢复（普通 HTTP 入口仅允许 settings sections；权威会话/分享/LAN 访问备份由内部 capability + maintenance 路径使用） |
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 107 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |

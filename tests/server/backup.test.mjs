@@ -66,6 +66,14 @@ async function callImport(backup, storage, body) {
   const url = new URL('http://localhost/api/backup/import')
   const req = { method: 'POST', ...mockReq(body) }
   const res = mockRes()
+  await backup.handleBackupApi(req, res, url, backup.createInternalBackupContext())
+  return { res, json: JSON.parse(res._body || '{}') }
+}
+
+async function callImportHttp(backup, body) {
+  const url = new URL('http://localhost/api/backup/import')
+  const req = { method: 'POST', ...mockReq(body) }
+  const res = mockRes()
   await backup.handleBackupApi(req, res, url)
   return { res, json: JSON.parse(res._body || '{}') }
 }
@@ -80,9 +88,8 @@ async function callImportWithToken(backup, body) {
 
 async function callExport(backup, urlText = 'http://localhost/api/backup/export') {
   const url = new URL(urlText)
-  const req = { method: 'GET' }
   const res = mockRes()
-  await backup.handleBackupApi(req, res, url)
+  await backup.handleBackupApi({ method: 'GET' }, res, url)
   return { res, json: JSON.parse(res._body || '{}') }
 }
 
@@ -140,6 +147,26 @@ describe('backup export — settings sections', () => {
       expect(json.data.providerKeys).toEqual({ openai: 'key' })
       expect(json.data.customProviders).toBeUndefined()
       expect(json.data.sessions).toBeUndefined()
+    })
+  })
+
+  it('rejects full-scope exports from the ordinary HTTP entry', async () => {
+    await withTempBackup(async (backup) => {
+      await expect(callExport(backup, 'http://localhost/api/backup/export?scope=all'))
+        .rejects.toMatchObject({ statusCode: 403, errorCode: 'backup_scope_forbidden' })
+      await expect(callExport(backup, 'http://localhost/api/backup/export?scope=sessions'))
+        .rejects.toMatchObject({ statusCode: 403, errorCode: 'backup_scope_forbidden' })
+    })
+  })
+
+  it('rejects conversation, share, and LAN imports from the ordinary HTTP entry', async () => {
+    await withTempBackup(async (backup) => {
+      for (const section of ['conversations', 'sessionsMetadata', 'shares', 'lanAccess']) {
+        await expect(callImportHttp(backup, {
+          backup: makeBackup({ settings: {}, ...(section === 'conversations' ? { sessions: {} } : {}), ...(section === 'sessionsMetadata' ? { sessionsMetadata: {} } : {}), ...(section === 'shares' ? { shares: {} } : {}), ...(section === 'lanAccess' ? { lanAccess: {} } : {}) }),
+          sections: [section],
+        })).rejects.toMatchObject({ statusCode: 403, errorCode: 'backup_section_forbidden' })
+      }
     })
   })
 

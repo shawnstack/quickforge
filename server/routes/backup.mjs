@@ -15,7 +15,7 @@ import { isLanAccessStorageAuthoritative } from '../lan-access-service.mjs'
 import { isLanAccessMaintenanceActive } from '../lan-access-cutover.mjs'
 import { exportLanAccessStateForBackup, restoreLanAccessStateSnapshot } from '../lan-access-backup.mjs'
 import { readLanAccessJsonFile, writeLanAccessJsonFile } from '../lan-access-json-file.mjs'
-import { refreshAllSessionModels } from '../agent-manager.mjs'
+import { destroyAgent, listSessions, refreshAllSessionModels } from '../agent-manager.mjs'
 import { logger } from '../utils/logger.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import {
@@ -31,6 +31,45 @@ const BACKUP_APP = 'quickforge'
 const IMPORT_UPLOAD_MAX_BYTES = Number(process.env.QUICKFORGE_IMPORT_UPLOAD_MAX_BYTES || 1024 * 1024 * 1024)
 const backupScopes = new Set(['all', 'config', 'sessions', 'shares', 'lan-access'])
 const settingsSectionIds = ['settings', 'mcp', 'providerKeys', 'customProviders', 'scheduledTasks']
+
+// This capability is intentionally module-private. HTTP request fields/context
+// cannot manufacture it; only trusted in-process maintenance callers can opt
+// into the full backup surface.
+const INTERNAL_BACKUP_CAPABILITY = Symbol('quickforge.internalBackupCapability')
+export function createInternalBackupContext() {
+  return Object.freeze({ [INTERNAL_BACKUP_CAPABILITY]: true })
+}
+
+function hasInternalBackupCapability(context) {
+  return context?.[INTERNAL_BACKUP_CAPABILITY] === true
+}
+
+function assertPublicBackupBoundary(context, operation, { scope, sections } = {}) {
+  if (hasInternalBackupCapability(context)) return
+  if (operation === 'export') {
+    if (scope && scope !== 'config') {
+      const error = new Error('HTTP backup export is limited to settings sections')
+      error.statusCode = 403
+      error.errorCode = 'backup_scope_forbidden'
+      throw error
+    }
+    if (sections !== undefined && sections !== null && sections !== '') {
+      // normalizeExportSections performs the precise allow-list validation.
+      normalizeExportSections(sections)
+    }
+    return
+  }
+  if (operation === 'import') {
+    const requested = Array.isArray(sections) ? sections : []
+    const forbidden = requested.filter((id) => ['conversations', 'sessions', 'sessionsMetadata', 'shares', 'lanAccess'].includes(String(id)))
+    if (forbidden.length > 0) {
+      const error = new Error(`HTTP backup import cannot restore: ${forbidden.join(', ')}`)
+      error.statusCode = 403
+      error.errorCode = 'backup_section_forbidden'
+      throw error
+    }
+  }
+}
 const exportSectionIds = new Set(settingsSectionIds)
 const restoreSectionIds = new Set([...settingsSectionIds, 'conversations', 'shares', 'lanAccess'])
 const restoreModes = new Set(['replace', 'merge'])
@@ -617,6 +656,19 @@ function mergeRecordStore(localValue, backupValue) {
   return { ...(localValue && typeof localValue === 'object' ? localValue : {}), ...backupValue }
 }
 
+async function destroyActiveSessionsBeforeConversationRestore() {
+  // destroyAgent performs a final persist. Dispose every live agent before the
+  // restore transaction, otherwise an in-flight agent can resurrect old state
+  // after replace (or overwrite the restored body on shutdown).
+  for (const { sessionId } of listSessions()) {
+    try {
+      await destroyAgent(sessionId)
+    } catch (error) {
+      logger.warn(`Failed to destroy in-memory agent before conversation restore ${sessionId}:`, error?.message || error)
+    }
+  }
+}
+
 async function restoreValidatedBackup(backup, mode = 'replace') {
   const merge = mode === 'merge'
   const { sections } = backup
@@ -660,6 +712,7 @@ async function restoreValidatedBackup(backup, mode = 'replace') {
   }
 
   if (sections.sessions !== undefined || sections.sessionsMetadata !== undefined) {
+    await destroyActiveSessionsBeforeConversationRestore()
     if (isSessionStateAuthoritative()) {
       // Authoritative restore: a single maintenance-locked, compensated SQLite
       // transaction that replaces/merges bodies and metadata together. It never
@@ -744,13 +797,17 @@ async function restoreValidatedBackup(backup, mode = 'replace') {
 }
 
 export async function handleBackupApi(req, res, url, context = { isLocalRequest: true }) {
-  if (!isAuthenticatedAppClient(context)) {
+  if (!hasInternalBackupCapability(context) && !isAuthenticatedAppClient(context)) {
     const error = new Error('Backup import and export require a local or authenticated remote client.')
     error.statusCode = 403
     error.errorCode = 'backup_auth_required'
     throw error
   }
   if (req.method === 'GET' && url.pathname === '/api/backup/export') {
+    assertPublicBackupBoundary(context, 'export', {
+      scope: url.searchParams.get('scope'),
+      sections: url.searchParams.get('sections'),
+    })
     if (isScheduledRunsMaintenanceActive()) {
       const error = new Error('Scheduled task maintenance is in progress')
       error.statusCode = 423
@@ -788,7 +845,15 @@ export async function handleBackupApi(req, res, url, context = { isLocalRequest:
     await ensureStorage()
     const body = await readJsonBody(req)
     const importBody = body?.importToken ? { ...body, backup: await readPendingImportBackup(body.importToken) } : body
+    if (!hasInternalBackupCapability(context) && Array.isArray(importBody?.sections)) {
+      assertPublicBackupBoundary(context, 'import', { sections: importBody.sections })
+    }
     const { backup, mode } = parseImportPayload(importBody)
+    assertPublicBackupBoundary(context, 'import', {
+      sections: importBody?.sections ?? Object.entries(backup.sections)
+        .filter(([, value]) => value !== undefined)
+        .map(([id]) => id),
+    })
     const restoringSessions = backup.sections.sessions !== undefined || backup.sections.sessionsMetadata !== undefined
     const restoringShares = backup.sections.shares !== undefined
     const restoringLanAccess = backup.sections.lanAccess !== undefined

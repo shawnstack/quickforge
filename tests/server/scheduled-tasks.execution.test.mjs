@@ -94,6 +94,7 @@ vi.mock('../../server/agent-manager.mjs', async () => {
         }),
         abort: vi.fn(() => settleContinue.reject(new Error('Scheduled task aborted'))),
         waitForIdle: vi.fn(async () => {}),
+        resolveContinue: () => settleContinue.resolve(),
       }
       const session = {
         sessionId,
@@ -150,7 +151,7 @@ async function waitFor(predicate, message = 'condition') {
   throw new Error(`Timed out waiting for ${message}`)
 }
 
-async function createRecurringTask(storage, taskId = 'task-lifecycle') {
+async function createRecurringTask(storage, taskId = 'task-lifecycle', executionMode = 'serial') {
   const now = new Date().toISOString()
   const task = {
     id: taskId,
@@ -159,7 +160,7 @@ async function createRecurringTask(storage, taskId = 'task-lifecycle') {
     scheduleType: 'daily',
     executeTime: '09:00',
     scheduleRule: '每天 09:00',
-    executionMode: 'serial',
+    executionMode,
     agentId: 'timeout-agent',
     status: 'enabled',
     createdAt: now,
@@ -269,6 +270,54 @@ describe('scheduled task execution lifecycle', () => {
       const current = (await storage.readStore('scheduled-tasks'))['task-lifecycle']
       return current?.runs?.[0]?.status === 'success'
     }, 'second task run completion')
+  })
+
+  it('preserves a concurrently started parallel run when the first run finishes', async () => {
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    await storage.ensureStorage()
+    await createRecurringTask(storage, 'task-parallel', 'parallel')
+
+    const firstResponse = await runTask(routes, 'task-parallel')
+    const firstSessionId = firstResponse.body.task.lastSessionId
+    await waitFor(() => mocks.eventBuses.get(firstSessionId)?.listenerCount('agent_event') === 1, 'first parallel listener')
+    vi.setSystemTime(new Date(Date.now() + 1))
+    // Date.now() is NOT faked by this suite (toFake covers timers only), and
+    // sessionId embeds a millisecond timestamp. Without crossing into the next
+    // real millisecond the two parallel runs can collide on one sessionId and
+    // share a single event bus (listenerCount 2 instead of 1).
+    const firstRunMs = Date.now()
+    await new Promise((resolve) => {
+      const tick = () => (Date.now() > firstRunMs ? resolve() : setImmediate(tick))
+      tick()
+    })
+    const secondResponse = await runTask(routes, 'task-parallel')
+    const secondSessionId = secondResponse.body.task.lastSessionId
+    await waitFor(() => mocks.eventBuses.get(secondSessionId)?.listenerCount('agent_event') === 1, 'second parallel listener')
+
+    const finish = (sessionId) => {
+      const session = mocks.sessions.get(sessionId)
+      const messages = [{ role: 'assistant', content: [{ type: 'text', text: `${sessionId} 完成` }] }]
+      session.agent.state.messages = messages
+      mocks.eventBuses.get(sessionId).emit('agent_event', { type: 'agent_end', status: 'idle', messages })
+      // The runtime's continue() promise only settles when the agent run ends;
+      // mirror that here so executeTask's runPromise can finish without the
+      // 1000ms timeout path.
+      session.agent.resolveContinue()
+    }
+    finish(firstSessionId)
+    await new Promise((resolve) => setImmediate(resolve))
+    await waitFor(async () => (await storage.readStore('scheduled-tasks'))['task-parallel']?.currentRunIds?.length === 1, 'first parallel completion')
+
+    const duringSecond = (await storage.readStore('scheduled-tasks'))['task-parallel']
+    expect(duringSecond.currentRunIds).toContain(secondResponse.body.task.currentRunId)
+    finish(secondSessionId)
+    const completed = await waitFor(async () => {
+      const current = (await storage.readStore('scheduled-tasks'))['task-parallel']
+      return current?.runs?.filter((run) => run.status === 'success').length === 2 ? current : null
+    }, 'second parallel completion')
+    expect(completed.currentRunIds).toEqual([])
+    expect(completed.status).toBe('enabled')
   })
 
   it('finishes cleanup even when abortRun never settles', async () => {

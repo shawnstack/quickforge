@@ -720,6 +720,21 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     return count
   }
 
+  // SQL-only identity projection for key existence/listing and sidecar cleanup.
+  // These methods intentionally never parse body_json, meta_json, or messages.
+  function sessionIdentityRows() {
+    return storage.prepare('SELECT scope, project_id, session_id FROM sessions ORDER BY scope, project_id, session_id').all()
+  }
+
+  function sessionKeys() {
+    return sessionIdentityRows().map((row) => row.session_id)
+  }
+
+  function hasSession(sessionId) {
+    nonEmptyString(sessionId, 'sessionId')
+    return Boolean(storage.prepare('SELECT 1 AS present FROM sessions WHERE session_id = ? LIMIT 1').get(sessionId))
+  }
+
   function exportSnapshot() {
     return storage.transaction((database) => {
       const rows = database.prepare(`SELECT ${SESSION_ROW_COLUMNS} FROM sessions ORDER BY scope, project_id, session_id`).all()
@@ -862,6 +877,9 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     deleteBySessionId,
     replaceAll,
     exportSnapshot,
+    sessionIdentityRows,
+    sessionKeys,
+    hasSession,
     verifyIntegrity,
     count,
     digest,

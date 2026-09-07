@@ -1,5 +1,12 @@
 # Progress
 
+## Completed Feature：backup-settings-only-and-snapshot-fast-path（本轮，已完成）
+
+- 本轮完成并验证：消息队列、活跃 Agent destroy-first、scheduled task updater、IndexedDB 事件收窄、`exportSnapshot` 的 keys/has/identity 快路径优化，以及用户 HTTP backup 的 settings-only boundary。
+- 结果：相关实现与测试已完成；用户备份 HTTP 边界明确为 settings-only，不扩展到其他数据；本轮状态文件仅做最小追加/更新，保留工作区历史未提交改动。
+- Revision（提交前定向验证与测试修复，2026-09-07）：发现新增并行用例「preserves a concurrently started parallel run」从未跑绿（HEAD 源码下同样失败，非源码回归），两处测试缺陷：①mock `createAgent` 的 timeout 模式 `continue()` 永不 resolve，`finish()` 仅 emit `agent_end` 无法唤醒 `runPromise`，用例只能卡在超时路径——mock 暴露 `resolveContinue` 并在 `finish()` 中结算；②`sessionId` 嵌入真实（未 fake 的）`Date.now()` 毫秒时间戳，同毫秒两次 run 共用 sessionId/事件总线使 listenerCount 断言失败——第二次 run 前自旋等待跨毫秒。修复后定向 vitest 8 files / 131 tests 全过（scheduled-tasks.execution 连跑 3 次 13/13 稳定）；eslint 16 个改动文件 0 error；随后创建 commit（docs/reports/ 12 份分析报告按用户决策保持未跟踪，另行整理）。
+- Notes：未修改生成产物，未覆盖历史条目；未处理项沿用既有 Notes，不在本轮扩大范围。
+
 ## Completed Feature：desktop-memory-session-idle-eviction（2026-09-05）
 
 - Feature: 桌面端内存暴涨排查 + 修复会话永不淘汰问题（desktop-memory-session-idle-eviction，**已完成**）。
@@ -40,6 +47,7 @@
 
 ## Notes
 
+- scheduled-tasks 并行 run 的 sessionId 为 `scheduled-${taskId}-${Date.now().toString(36)}`（server/routes/scheduled-tasks.mjs executeTask），同一毫秒并发启动的两个 run 会共用 sessionId/事件总线（测试中同毫秒冲突已实证）；生产修复（追加随机后缀等）另行立项，不在本轮扩大范围。
 - 桌面端内存排查（2026-09-05）遗留候选，按收益排序：①渲染端消息窗口化被 `ChatPanelHost.tsx:600` `{enabled:false}` 整体禁用（commit 32be493 为 turn-navigation 关闭），长会话全量 DOM 常驻 + 流式期每 rAF 全量装饰扫描（message-actions.ts querySelectorAll 全面板、artifacts key 全量构建）→ 卡死主因；恢复窗口化或装饰增量化（code-blocks.ts:574-588 command 块已有指纹跳过模式可参照；mermaid/SVG 块每帧 atob+哈希未跳过）。②desktop 默认 inline 内嵌 server 于主进程（electron-main.mjs:519），server 同步 SQLite 大事务（agent-persistence 每次全量序列化会话消息）与 GC 停顿直接冻结窗口/托盘；fork 模式路径已存在（QUICKFORGE_DESKTOP_INLINE=0，stdio ignore）。③SSE 无背压（res.write 返回值未检查，慢客户端无界缓冲）+ message_update 每次携带全量 partial。④storage 路由 keys/has/index 触发 exportSnapshot 全库物化（session-state-repository.mjs:723-745）。⑤ACP 会话 idleRetention:'always'（acp/server.mjs:656）+ 渠道进程 taskkill 强杀 → 旧 ACP 会话无界驻留。⑥pdfjs loadingTask 卸载竞态泄漏（WorkspaceDocumentContent.tsx:116-133）、xlsx 全 sheet 物化。
 - 已修复测试基础设施问题：`tests/frontend/local-tool-running-sweep.test.ts` 的 CSS `ruleFor` 正则此前会把规则上方注释 glue 进 selector 文本，导致 `.quickforge-tool-running-sweep` 误报缺失；现参考 `chat-compact-controls.test.ts` 先剥离 CSS 注释，定向测试 6/6 通过。
 

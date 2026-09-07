@@ -153,8 +153,11 @@ describe('message queue source contracts', () => {
     // optimistic copy reconciles with the server echo by role+timestamp.
     expect(hostSource).toContain("await (agent as ServerAgent).steer({ role: 'user', content: item.text, timestamp: Date.now() })")
     expect(hostSource).not.toContain('steerSessionMessage')
-    expect(hostSource).toContain('saveStoredMessageQueueState(sessionId, messageQueue.getState())')
-    expect(hostSource).toContain('if (head) window.setTimeout(() => submitQueuedPrompt(head), 250)')
+    expect(hostSource).toContain('queuedPromptTimer = window.setTimeout(')
+    expect(hostSource).toContain('const head = messageQueue.getState().items[0]')
+    expect(hostSource).toContain('messageQueue.removeItem(item.id)')
+    expect(hostSource).toContain('cancelQueuedPrompt()')
+    expect(hostSource).toContain('if (queuedPromptInFlight) messageQueue.restoreHead(queuedPromptInFlight)')
   })
 
   it('intercepts streaming Enter at capture phase and syncs the placeholder', () => {

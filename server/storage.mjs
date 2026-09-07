@@ -1048,6 +1048,24 @@ export function ensureStorage() {
   return storageInitPromise
 }
 
+export async function readSessionKeys(options = {}) {
+  await ensureStorage()
+  const facade = await sessionStateFacade()
+  return facade.readSessionKeys(options)
+}
+
+export async function hasSession(sessionId) {
+  await ensureStorage()
+  const facade = await sessionStateFacade()
+  return facade.hasSession(sessionId)
+}
+
+export async function readSessionIdentityRows() {
+  await ensureStorage()
+  const facade = await sessionStateFacade()
+  return facade.readSessionIdentityRows()
+}
+
 export async function readStore(storeName) {
   assertStore(storeName)
   await ensureStorage()
@@ -1071,16 +1089,13 @@ export async function writeStore(storeName, data) {
     if (storeName === 'sessions') {
       // Whole-store replace: resolve removed sessions for best-effort sidecar
       // cleanup, then swap the store in one verified transaction.
-      const removed = []
-      for (const record of Object.values(facade.readSessionStateStore('sessions'))) {
-        if (!Object.hasOwn(data || {}, record.id)) removed.push(record)
-      }
+      const removed = facade.readSessionIdentityRows().filter((row) => !Object.hasOwn(data || {}, row.session_id))
       facade.replaceSessionStateStore(storeName, data)
-      for (const record of removed) {
-        const bucket = record.scope === 'project' ? { scope: 'project', projectId: record.projectId } : { scope: 'global' }
+      for (const row of removed) {
+        const bucket = row.scope === 'project' ? { scope: 'project', projectId: row.project_id } : { scope: 'global' }
         try {
           const { deleteSessionAssets } = await import('./session-assets.mjs')
-          await deleteSessionAssets(bucket, record.id)
+          await deleteSessionAssets(bucket, row.session_id)
         } catch { /* Sidecars are best-effort after the authoritative commit. */ }
       }
     } else {

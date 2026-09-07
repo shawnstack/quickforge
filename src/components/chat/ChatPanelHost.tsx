@@ -730,21 +730,35 @@ export function ChatPanelHost({
       && !readOnly
       && typeof (agent as ServerAgent).prompt === 'function'
     )
+    let queuedPromptTimer: number | undefined
+    let queuedPromptInFlight: QueuedMessage | undefined
+    const cancelQueuedPrompt = () => {
+      if (queuedPromptTimer === undefined) return
+      window.clearTimeout(queuedPromptTimer)
+      queuedPromptTimer = undefined
+    }
     const submitQueuedPrompt = (item: QueuedMessage) => {
+      queuedPromptTimer = undefined
       if (disposed) return
       if (agent.state.isStreaming) {
-        // Spurious early flush — put it back; the next settled turn retries.
-        messageQueue.restoreHead(item)
+        // Keep the head in the queue until a prompt is actually accepted.
         return
       }
+      queuedPromptInFlight = item
       void Promise.resolve()
         .then(() => (agent as ServerAgent).prompt(item.text))
+        .then(() => {
+          if (disposed) return
+          queuedPromptInFlight = undefined
+          messageQueue.removeItem(item.id)
+          saveStoredMessageQueueState(sessionId, messageQueue.getState())
+        })
         .catch((error) => {
+          if (disposed) return
+          queuedPromptInFlight = undefined
           logger.warn('Failed to auto-send queued message:', error)
-          if (!disposed) {
-            messageQueue.restoreHead(item)
-            messageQueue.setPaused(true)
-          }
+          messageQueue.setPaused(true)
+          saveStoredMessageQueueState(sessionId, messageQueue.getState())
         })
     }
     let messageQueuePersistTimer: number | undefined
@@ -1603,9 +1617,11 @@ export function ChatPanelHost({
           const queueSnapshot = messageQueue.getState()
           if ((endedStatus === 'aborted' || endedStatus === 'error') && queueSnapshot.items.length > 0) {
             if (!queueSnapshot.paused) messageQueue.setPaused(true)
-          } else if (!queueSnapshot.paused && queueSnapshot.items.length > 0) {
-            const head = messageQueue.consumeHead()
-            if (head) window.setTimeout(() => submitQueuedPrompt(head), 250)
+          } else if (!queueSnapshot.paused && queueSnapshot.items.length > 0 && queuedPromptTimer === undefined && queuedPromptInFlight === undefined) {
+            queuedPromptTimer = window.setTimeout(() => {
+              const head = messageQueue.getState().items[0]
+              if (head) submitQueuedPrompt(head)
+            }, 250)
           }
         }
       }
@@ -1694,7 +1710,12 @@ export function ChatPanelHost({
       modelRetryNotice?.destroy()
       removeSubagentRunningIndicator(panel)
       cancelMessageQueuePersist()
-      if (messageQueueActive()) saveStoredMessageQueueState(sessionId, messageQueue.getState())
+      cancelQueuedPrompt()
+      if (messageQueueActive()) {
+        if (queuedPromptInFlight) messageQueue.restoreHead(queuedPromptInFlight)
+        queuedPromptInFlight = undefined
+        saveStoredMessageQueueState(sessionId, messageQueue.getState())
+      }
       messageQueue.cleanup()
       uninstallMessageListWindow(windowLayer)
       unsubscribeScrollEvents()

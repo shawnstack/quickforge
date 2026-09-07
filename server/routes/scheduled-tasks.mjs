@@ -757,20 +757,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
     const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
     const aiResult = result.ok ? latestAssistantText(result.messages) : ''
     const latestTask = (await readStore(STORE))[task.id] ?? task
-    const recurring = isRecurringTask(latestTask)
     removeActiveRun(task.id, runId)
-    const remainingRunIds = removeCurrentRunId(latestTask, runId)
-    const stillRunning = remainingRunIds.length > 0
-    const nextRunAt = stillRunning ? latestTask.nextRunAt : (advanceNextRunAtAtStart ? latestTask.nextRunAt : calculateNextRun(latestTask, new Date(finishedAt)))
-    const nextStatus = stillRunning
-      ? latestTask.status
-      : latestTask.status === 'paused'
-        ? 'paused'
-        : result.aborted
-          ? (recurring && nextRunAt ? 'paused' : 'failed')
-          : result.ok
-            ? (nextRunAt ? 'enabled' : 'completed')
-            : (recurring && nextRunAt ? 'enabled' : 'failed')
 
     const terminalRun = {
       ...currentRun,
@@ -795,18 +782,33 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
     let terminalMetadataError = null
     let terminalTask
     try {
-      terminalTask = await updateTask(task.id, (current) => ({
-        ...current,
-        status: nextStatus,
-        currentRunId: stillRunning ? remainingRunIds[remainingRunIds.length - 1] : null,
-        currentRunIds: remainingRunIds,
-        lastRunAt: finishedAt,
-        nextRunAt: nextRunAt ?? current.nextRunAt,
-        lastSessionId: sessionId,
-        ...(!isScheduledRunsAuthoritative() ? {
-          runs: (current.runs || []).map((run) => run.id === runId ? terminalRun : run),
-        } : {}),
-      }))
+      terminalTask = await updateTask(task.id, (current) => {
+        const remainingRunIds = removeCurrentRunId(current, runId)
+        const stillRunning = remainingRunIds.length > 0
+        const recurring = isRecurringTask(current)
+        const nextRunAt = stillRunning ? current.nextRunAt : (advanceNextRunAtAtStart ? current.nextRunAt : calculateNextRun(current, new Date(finishedAt)))
+        const nextStatus = stillRunning
+          ? current.status
+          : current.status === 'paused'
+            ? 'paused'
+            : result.aborted
+              ? (recurring && nextRunAt ? 'paused' : 'failed')
+              : result.ok
+                ? (nextRunAt ? 'enabled' : 'completed')
+                : (recurring && nextRunAt ? 'enabled' : 'failed')
+        return {
+          ...current,
+          status: nextStatus,
+          currentRunId: stillRunning ? remainingRunIds[remainingRunIds.length - 1] : null,
+          currentRunIds: remainingRunIds,
+          lastRunAt: finishedAt,
+          nextRunAt: nextRunAt ?? current.nextRunAt,
+          lastSessionId: sessionId,
+          ...(!isScheduledRunsAuthoritative() ? {
+            runs: (current.runs || []).map((run) => run.id === runId ? terminalRun : run),
+          } : {}),
+        }
+      })
     } catch (error) {
       if (!terminalPersisted) throw error
       terminalMetadataError = error

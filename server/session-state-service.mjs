@@ -402,6 +402,18 @@ export function updateSessionMetadataBucket(scope, projectId, updateFn) {
   return changes.updated
 }
 
+export function readSessionKeys({ prefix = '' } = {}) {
+  return repository().sessionKeys().filter((key) => !prefix || key.startsWith(prefix))
+}
+
+export function hasSession(sessionId) {
+  return repository().hasSession(sessionId)
+}
+
+export function readSessionIdentityRows() {
+  return repository().sessionIdentityRows()
+}
+
 export function readSessionStateStore(storeName, { scope, projectId } = {}) {
   // JSON-era provenance: 'sessions-metadata' has always been a metadata-only
   // bucket store ({sessionId: metadata}). Loading it must never materialize

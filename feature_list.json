@@ -731,6 +731,19 @@
       "verification": "npm run test → 260 files / 2365 tests 全部通过（硬门禁 100%）；npm run lint → 0 errors / 1 既有 warning（server/cloud/identity.mjs:92 no-useless-assignment）；npm run build 成功（仅既有 chunk size warnings）；prepare-runtime/offline-package 后 npm pack → package-offline/shawnstack-quickforge-1.10.0.tgz（unpacked 24.2MB / 453 files）；打包 package.json 校验 version 1.10.0、8 个运行时 dependencies + @vscode/ripgrep optionalDependencies、无 devDependencies/scripts。"
     },
     {
+      "id": "backup-settings-only-and-snapshot-fast-path",
+      "name": "备份 settings-only 边界与 exportSnapshot 快路径优化",
+      "status": "done",
+      "approach": "完成本轮四项数据修复与 exportSnapshot 第一阶段优化：收窄 IndexedDB 事件处理范围；优化 exportSnapshot 的 keys/has/identity 路径，避免不必要的全量物化；同步消息队列、活跃 Agent destroy-first、scheduled task updater；并明确用户 HTTP backup 的 settings-only boundary，仅备份设置数据，不越界处理其他数据。",
+      "files": [
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "本轮实现与相关测试已完成；状态文件 JSON 解析验证通过。",
+      "boundaries": "仅同步状态记录；不修改生成产物，不覆盖历史条目。"
+    },
+    {
       "id": "composer-borderless-thinking-control",
       "name": "Composer 底栏去框 + 思考等级独立选择器",
       "status": "done",

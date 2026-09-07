@@ -706,8 +706,11 @@ export type ServerAgentStateSnapshot = {
 
 /** SSE 事件类型：处理后需要调度一次会话消息快照缓存写入。 */
 const MESSAGE_CACHE_EVENT_TYPES = new Set([
-  'state', 'agent_end', 'message_end', 'turn_end', 'messages_replaced',
-  'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
+  // Full snapshots are needed only at message/turn/agent boundaries and when
+  // the server replaces history. Streaming state/tool updates are deliberately
+  // excluded: the live SSE state remains authoritative while a turn is active.
+  'agent_end', 'message_end', 'turn_end', 'messages_replaced',
+  'tool_execution_start', 'tool_execution_end',
 ])
 
 type SessionMessageCacheSource = {

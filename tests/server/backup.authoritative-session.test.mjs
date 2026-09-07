@@ -78,7 +78,7 @@ async function callExport(backup, urlText = 'http://localhost/api/backup/export?
   const url = new URL(urlText)
   const req = { method: 'GET' }
   const res = mockRes()
-  await backup.handleBackupApi(req, res, url)
+  await backup.handleBackupApi(req, res, url, backup.createInternalBackupContext())
   return { res, json: JSON.parse(res._body || '{}') }
 }
 
@@ -86,7 +86,7 @@ async function callImport(backup, body) {
   const url = new URL('http://localhost/api/backup/import')
   const req = { method: 'POST', ...mockReq(body) }
   const res = mockRes()
-  await backup.handleBackupApi(req, res, url)
+  await backup.handleBackupApi(req, res, url, backup.createInternalBackupContext())
   return { res, json: JSON.parse(res._body || '{}') }
 }
 
@@ -194,7 +194,7 @@ describe('backup route — authoritative session state', () => {
         mode: 'replace',
       }
       const url = new URL('http://localhost/api/backup/import')
-      await expect(backup.handleBackupApi({ method: 'POST', ...mockReq(payload) }, mockRes(), url))
+      await expect(backup.handleBackupApi({ method: 'POST', ...mockReq(payload) }, mockRes(), url, backup.createInternalBackupContext()))
         .rejects.toMatchObject({ statusCode: 423, errorCode: 'session_state_maintenance' })
       expect(repository.count()).toBe(1)
       maintenance.releaseSessionStateMaintenanceLock(sqliteStorage, lease)
@@ -213,7 +213,7 @@ describe('backup route — authoritative session state', () => {
         mode: 'replace',
       }
       const url = new URL('http://localhost/api/backup/import')
-      await expect(backup.handleBackupApi({ method: 'POST', ...mockReq(payload) }, mockRes(), url))
+      await expect(backup.handleBackupApi({ method: 'POST', ...mockReq(payload) }, mockRes(), url, backup.createInternalBackupContext()))
         .rejects.toMatchObject({ statusCode: 400 })
       expect(repository.count()).toBe(1)
       expect(repository.findBySessionId('seed')).not.toBeNull()

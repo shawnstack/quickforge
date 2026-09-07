@@ -1547,6 +1547,34 @@ describe('ServerAgent', () => {
     }
   })
 
+  it('does not schedule snapshot writes for high-frequency tool updates, but does at tool completion', async () => {
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { messages: [], stateVersion: 1 },
+    })
+
+    try {
+      const source = latestEventSource()
+      source.emit('tool_execution_update', {
+        sessionId: 'session-1',
+        stateVersion: 2,
+        toolCallId: 'call-1',
+        partialResult: { content: [], details: { text: 'streaming' } },
+      })
+      expect(sessionCacheMock.scheduled).toBe(0)
+
+      source.emit('tool_execution_end', {
+        sessionId: 'session-1',
+        stateVersion: 3,
+        toolCallId: 'call-1',
+        result: { content: [{ type: 'text', text: 'done' }] },
+      })
+      expect(sessionCacheMock.scheduled).toBe(1)
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('schedules a snapshot write after SSE message_end incremental frames', async () => {
     const agent = await createServerAgent({
       sessionId: 'session-1',

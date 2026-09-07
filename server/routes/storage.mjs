@@ -1,7 +1,7 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
-import { readStore, writeStore, atomicUpdate, getComparable, getStoreRevision, readSessionStoreScoped, readSessionValue, writeSessionValueWithMetadata, deleteSessionWithMetadata, applySessionBatch, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
+import { readStore, writeStore, atomicUpdate, getComparable, getStoreRevision, readSessionStoreScoped, readSessionValue, writeSessionValueWithMetadata, deleteSessionWithMetadata, applySessionBatch, readSessionKeys, hasSession, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { AUTO_ARCHIVE_SETTINGS_KEY, archiveInactiveSessions, normalizeAutoArchiveSettings } from '../auto-archive.mjs'
-import { refreshAllSessionModels, destroyAgent } from '../agent-manager.mjs'
+import { listSessions, refreshAllSessionModels, destroyAgent } from '../agent-manager.mjs'
 import { logger } from '../utils/logger.mjs'
 import { directorySize } from '../utils/workspace.mjs'
 import { isAuthenticatedAppClient } from '../access-policy.mjs'
@@ -252,8 +252,7 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
 
   if (req.method === 'GET' && parts[3] === 'keys') {
     const prefix = url.searchParams.get('prefix') || ''
-    const data = await readStore(store)
-    const keys = Object.keys(data).filter((key) => !prefix || key.startsWith(prefix))
+    const keys = store === 'sessions' ? await readSessionKeys({ prefix }) : Object.keys(await readStore(store)).filter((key) => !prefix || key.startsWith(prefix))
     sendJson(res, 200, { keys })
     return
   }
@@ -301,6 +300,17 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
   }
 
   if (req.method === 'DELETE' && parts.length === 3) {
+    if (store === 'sessions') {
+      // Clear all persisted sessions only after every live agent has been
+      // destroyed; destroyAgent's final persist would otherwise resurrect it.
+      for (const { sessionId } of listSessions()) {
+        try {
+          await destroyAgentForSession(sessionId)
+        } catch (error) {
+          logger.warn(`Failed to destroy in-memory agent before clearing sessions ${sessionId}:`, error?.message || error)
+        }
+      }
+    }
     await writeStore(store, {})
     if (store === 'custom-providers') {
       try {
@@ -315,8 +325,8 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
 
   if (req.method === 'GET' && parts[3] === 'has') {
     const key = decodeSegment(parts[4])
-    const data = await readStore(store)
-    sendJson(res, 200, { exists: Object.prototype.hasOwnProperty.call(data, key) })
+    const exists = store === 'sessions' ? await hasSession(key) : Object.prototype.hasOwnProperty.call(await readStore(store), key)
+    sendJson(res, 200, { exists })
     return
   }
 

@@ -1,5 +1,12 @@
 # Session Handoff
 
+## 当前状态：backup-settings-only-and-snapshot-fast-path（已完成，已提交 dev）
+
+- 本轮已完成：消息队列、活跃 Agent destroy-first、scheduled task updater、IndexedDB 事件收窄、`exportSnapshot` keys/has/identity 优化，以及用户 HTTP backup settings-only boundary。
+- 提交前定向验证发现并修复新增并行用例两处缺陷（mock `continue()` 不结算、sessionId 同毫秒冲突，见 progress.md Revision）：定向 vitest 8 files / 131 tests 全过，scheduled-tasks.execution 连跑 3 次稳定，eslint 改动文件 0 error。
+- 本会话已创建 commit（dev 分支，未 push）；`docs/reports/` 12 份分析报告按用户决策保持未跟踪，待后续整理（报告自身建议保留 3 份、9 份移 docs/archive/）。
+- 未处理项：既有 Notes 候选保持原状；未跑全量 test/lint/build（非发布）。
+
 ## 当前状态：desktop-memory-session-idle-eviction（已完成，未提交）
 
 - 目标：用户报告桌面端「内存爆炸卡死」，全链路排查并修复第一根因（会话永不淘汰）。

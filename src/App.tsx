@@ -1346,7 +1346,7 @@ function MainApp() {
     return visibleSessions.find((session) => session.id === agentManager.currentSessionId)
   }, [agentManager.currentSessionId, visibleSessions])
   const currentSessionPinned = Boolean(currentSessionMetadata?.pinnedAt)
-  const visibleRuntimeStatuses = useVisibleRuntimeStatuses(visibleSessions)
+  const { statuses: visibleRuntimeStatuses, completedSessionIds, markSessionRead } = useVisibleRuntimeStatuses(visibleSessions)
 
   const sessionTaskStatus = useCallback((session: QuickForgeSessionMetadata) => {
     return agentManager.taskStatuses[session.id]
@@ -1914,6 +1914,7 @@ function MainApp() {
         onLoadMoreProject={loadMoreProject}
         onLoadMoreProjectTimeline={loadMoreProjectTimeline}
         sessionTaskStatus={sessionTaskStatus}
+        completedSessionIds={completedSessionIds}
         selectingProject={selectingProject}
         onTogglePinnedCollapsed={ui.togglePinnedCollapsed}
         onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}
@@ -1930,7 +1931,7 @@ function MainApp() {
         onOpenProjectSkills={openProjectSkills}
         onOpenProjectInExplorer={remoteClient ? undefined : openProjectInExplorerWithFeedback}
         onDeleteProject={deleteProjectInline}
-        onLoadSession={loadSessionWithTransition}
+        onLoadSession={(sessionId) => { markSessionRead(sessionId); loadSessionWithTransition(sessionId) }}
         onSessionViewModeChange={setSidebarSessionViewMode}
         onSessionSortModeChange={setSidebarSessionSortMode}
         onTogglePinSession={togglePinSession}
@@ -1991,6 +1992,7 @@ function MainApp() {
               onLoadMoreProject={loadMoreProject}
               onLoadMoreProjectTimeline={loadMoreProjectTimeline}
               sessionTaskStatus={sessionTaskStatus}
+         completedSessionIds={completedSessionIds}
               selectingProject={selectingProject}
               onTogglePinnedCollapsed={ui.togglePinnedCollapsed}
               onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}

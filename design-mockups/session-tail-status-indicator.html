@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>会话列表尾部状态指示器 · 设计稿</title>
+<style>
+  :root {
+    color-scheme: light;
+    --background: #ffffff;
+    --foreground: #18181b;
+    --card: #fafafa;
+    --popover: #ffffff;
+    --muted: #f4f4f5;
+    --muted-foreground: #71717a;
+    --border: #e4e4e7;
+    --sidebar-hover-bg: #e5e7eb;
+    --emerald: #10b981;
+    --emerald-soft: rgb(16 185 129 / 0.14);
+    --shadow: rgb(15 23 42 / 0.16);
+    --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  }
+
+  body.dark {
+    color-scheme: dark;
+    --background: #101012;
+    --foreground: #f4f4f5;
+    --card: #17171a;
+    --popover: #19191c;
+    --muted: #202024;
+    --muted-foreground: #a1a1aa;
+    --border: #303036;
+    --sidebar-hover-bg: rgb(244 244 245 / 0.10);
+    --emerald: #34d399;
+    --emerald-soft: rgb(52 211 153 / 0.16);
+    --shadow: rgb(0 0 0 / 0.46);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button { font: inherit; }
+
+  .page {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    padding: 26px 20px 52px;
+  }
+
+  .toolbar {
+    width: min(980px, 100%);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted-foreground);
+    font-size: 12.5px;
+  }
+
+  .toolbar h1 {
+    margin: 0;
+    color: var(--foreground);
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .toolbar .sep {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+  }
+
+  .seg {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .seg button {
+    min-height: 29px;
+    padding: 5px 10px;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button:hover { background: var(--muted); color: var(--foreground); }
+  .seg button.active { background: var(--muted); color: var(--foreground); }
+
+  .toolbar .action {
+    min-height: 29px;
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    transition: background 140ms ease, color 140ms ease;
+  }
+
+  .toolbar .action:hover {
+    background: var(--muted);
+    color: var(--foreground);
+  }
+
+  .stage-shell {
+    width: min(980px, 100%);
+    display: grid;
+    grid-template-columns: 276px minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+  }
+
+  @media (max-width: 860px) {
+    .stage-shell { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  /* ---------- 侧边栏（尽量还原真实结构） ---------- */
+
+  .sidebar {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--background);
+    padding: 10px 8px 14px;
+    box-shadow: 0 24px 70px -46px var(--shadow);
+  }
+
+  .sidebar-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px 10px;
+  }
+
+  .sidebar-title {
+    flex: 1;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  .sidebar-head .ghost-btn {
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  .sidebar-head .ghost-btn:hover { background: var(--sidebar-hover-bg); color: var(--foreground); }
+
+  .new-chat {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: background 140ms ease, color 140ms ease;
+  }
+
+  .new-chat:hover { background: var(--sidebar-hover-bg); color: var(--foreground); }
+
+  .section-label {
+    padding: 10px 10px 4px;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-weight: 480;
+    letter-spacing: 0.06em;
+  }
+
+  .session-list { display: flex; flex-direction: column; gap: 2px; }
+
+  /* 会话行：group relative flex items-center gap-2 rounded-lg py-1.5 px-2 */
+  .session {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    cursor: pointer;
+    transition: background-color 160ms ease-out, color 160ms ease-out;
+  }
+
+  .session:hover {
+    background: var(--sidebar-hover-bg);
+    color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  }
+
+  .session.selected {
+    background: var(--sidebar-hover-bg);
+    color: color-mix(in oklab, var(--foreground) 84%, transparent);
+    box-shadow: 0 8px 22px -20px rgb(15 23 42 / 0.32);
+  }
+
+  .session .title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    font-weight: 350;
+    line-height: 20px;
+  }
+
+  .session.selected .title { font-weight: 380; }
+
+  /* 时间列：w-9 text-right text-[11px]，hover 时让位给操作按钮 */
+  .session .time {
+    width: 36px;
+    flex: none;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    line-height: 16px;
+    text-align: right;
+    opacity: 1;
+    transition: opacity 150ms ease;
+  }
+
+  .session .pin-slot {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted-foreground);
+    opacity: 1;
+    transition: opacity 150ms ease;
+  }
+
+  .session .pin-slot svg { width: 13px; height: 13px; }
+
+  /* ---------- 尾部状态槽：本方案核心 ---------- */
+
+  .status-slot {
+    width: 14px;
+    height: 20px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5; /* 高于 hover 操作浮层，hover 时状态不消失 */
+  }
+
+  /* 运行中：12px 旋转 loader（对应 lucide Loader2 + animate-spin） */
+  .status-slot .spin {
+    width: 12px;
+    height: 12px;
+    color: color-mix(in oklab, var(--foreground) 55%, transparent);
+    animation: qf-spin 0.9s linear infinite;
+  }
+
+  body.dark .status-slot .spin { color: color-mix(in oklab, var(--foreground) 62%, transparent); }
+
+  @keyframes qf-spin { to { transform: rotate(360deg); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .status-slot .spin { animation-duration: 2.4s; }
+  }
+
+  /* 已完成未读：6px 绿点 + 极淡光环 */
+  .status-slot .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--emerald);
+    box-shadow: 0 0 0 3px var(--emerald-soft);
+  }
+
+  /* ---------- hover 操作浮层（pin + 归档），只盖住 pin/时间区，不盖状态槽 ---------- */
+
+  .row-actions {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 26px; /* 8px 内边距 + 14px 状态槽 + 4px 间距 */
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding-left: 18px;
+    border-radius: 0 8px 8px 0;
+    background: linear-gradient(to left, var(--sidebar-hover-bg) 62%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 150ms ease;
+  }
+
+  .session:hover .row-actions,
+  .session:focus-within .row-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .row-actions button {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  .row-actions button:hover { background: color-mix(in oklab, var(--muted-foreground) 16%, transparent); color: var(--foreground); }
+  .row-actions svg { width: 13px; height: 13px; }
+
+  .session:hover .time,
+  .session:hover .pin-slot { opacity: 0; }
+
+  /* ---------- 现状对比小面板 ---------- */
+
+  .compare {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  .compare .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 13px;
+    color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  }
+
+  .compare .row .t {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .compare .head-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--emerald);
+  }
+
+  .compare .tag {
+    flex: none;
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+  }
+
+  /* ---------- 说明面板 ---------- */
+
+  .notes {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: color-mix(in oklab, var(--card) 55%, var(--background));
+    padding: 14px 16px;
+  }
+
+  .card h2 {
+    margin: 0 0 10px;
+    font-size: 13px;
+    font-weight: 650;
+  }
+
+  .legend {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .legend .item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--muted-foreground);
+    line-height: 1.55;
+  }
+
+  .legend .demo {
+    width: 22px;
+    flex: none;
+    display: inline-flex;
+    justify-content: center;
+  }
+
+  .legend .demo .spin {
+    width: 12px;
+    height: 12px;
+    color: color-mix(in oklab, var(--foreground) 55%, transparent);
+    animation: qf-spin 0.9s linear infinite;
+  }
+
+  .legend .demo .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--emerald);
+    box-shadow: 0 0 0 3px var(--emerald-soft);
+  }
+
+  .legend b { color: var(--foreground); font-weight: 600; }
+
+  .card ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--muted-foreground);
+    font-size: 12.5px;
+    line-height: 1.75;
+  }
+
+  .card code {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: color-mix(in oklab, var(--foreground) 78%, transparent);
+    background: var(--muted);
+    border-radius: 5px;
+    padding: 1px 5px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="toolbar">
+    <h1>会话列表尾部状态指示器</h1>
+    <span class="sep"></span>
+    <div class="seg" role="group" aria-label="主题">
+      <button type="button" data-theme="light" class="active">浅色</button>
+      <button type="button" data-theme="dark">深色</button>
+    </div>
+    <span class="sep"></span>
+    <button type="button" class="action" id="finishBtn">模拟：后台任务结束</button>
+    <button type="button" class="action" id="resetBtn">重置演示</button>
+  </div>
+
+  <div class="stage-shell">
+    <aside class="sidebar" aria-label="会话列表示意">
+      <div class="sidebar-head">
+        <span class="sidebar-title">QuickForge</span>
+        <button type="button" class="ghost-btn" aria-label="设置">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+
+      <button type="button" class="new-chat">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
+        新对话
+      </button>
+
+      <div class="section-label">对话</div>
+      <div class="session-list" id="sessionList">
+        <!-- 状态由脚本控制：running → spinner；unread → 绿点；idle → 空 -->
+        <div class="session selected" data-state="running" tabindex="0">
+          <span class="title">会话列表尾部状态指示器设计</span>
+          <span class="pin-slot" aria-hidden="true"></span>
+          <span class="time">14:02</span>
+          <span class="status-slot" aria-hidden="true"></span>
+          <div class="row-actions">
+            <button type="button" data-act="pin" aria-label="置顶" title="置顶">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24z"/></svg>
+            </button>
+            <button type="button" data-act="archive" aria-label="归档" title="归档">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="session" data-state="running" tabindex="0">
+          <span class="title">修复 Android 后台轮询耗电</span>
+          <span class="pin-slot" aria-hidden="true"></span>
+          <span class="time">13:47</span>
+          <span class="status-slot" aria-hidden="true"></span>
+          <div class="row-actions">
+            <button type="button" data-act="pin" aria-label="置顶" title="置顶">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 0 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 0-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24z"/></svg>
+            </button>
+            <button type="button" data-act="archive" aria-label="归档" title="归档">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="session" data-state="unread" tabindex="0">
+          <span class="title">重构存储层分页查询</span>
+          <span class="pin-slot" aria-hidden="true"></span>
+          <span class="time">11:20</span>
+          <span class="status-slot" aria-hidden="true"></span>
+          <div class="row-actions">
+            <button type="button" data-act="pin" aria-label="置顶" title="置顶">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 0 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 0-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24z"/></svg>
+            </button>
+            <button type="button" data-act="archive" aria-label="归档" title="归档">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="session" data-state="unread" tabindex="0">
+          <span class="title">OpenCode ACP 适配问题</span>
+          <span class="pin-slot" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 0 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 0-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24z"/></svg>
+          </span>
+          <span class="time">09:31</span>
+          <span class="status-slot" aria-hidden="true"></span>
+          <div class="row-actions">
+            <button type="button" data-act="pin" aria-label="取消置顶" title="取消置顶">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 0 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 0-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24z"/></svg>
+            </button>
+            <button type="button" data-act="archive" aria-label="归档" title="归档">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="session" data-state="idle" tabindex="0">
+          <span class="title">每周构建脚本优化</span>
+          <span class="pin-slot" aria-hidden="true"></span>
+          <span class="time">昨天</span>
+          <span class="status-slot" aria-hidden="true"></span>
+          <div class="row-actions">
+            <button type="button" data-act="pin" aria-label="置顶" title="置顶">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 0 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 0-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24z"/></svg>
+            </button>
+            <button type="button" data-act="archive" aria-label="归档" title="归档">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="session" data-state="idle" tabindex="0">
+          <span class="title">部署流水线调查笔记</span>
+          <span class="pin-slot" aria-hidden="true"></span>
+          <span class="time">周二</span>
+          <span class="status-slot" aria-hidden="true"></span>
+          <div class="row-actions">
+            <button type="button" data-act="pin" aria-label="置顶" title="置顶">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 0 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 0-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24z"/></svg>
+            </button>
+            <button type="button" data-act="archive" aria-label="归档" title="归档">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="compare">
+        <div style="margin-bottom: 6px;">现状（对照）：运行中绿点在<b>标题前</b></div>
+        <div class="row">
+          <span class="head-dot"></span>
+          <span class="t">修复 Android 后台轮询耗电</span>
+          <span class="tag">运行中</span>
+        </div>
+        <div style="margin-top: 6px;">本方案：状态移到行<b>尾部</b>，并区分"运行中 / 已完成未读"</div>
+      </div>
+    </aside>
+
+    <div class="notes">
+      <div class="card">
+        <h2>状态图例</h2>
+        <div class="legend">
+          <div class="item">
+            <span class="demo"><svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="40 16.5"/></svg></span>
+            <span><b>运行中</b> — 会话后台任务仍在执行，尾部显示 12px 旋转 loader（对应 <code>Loader2 + animate-spin</code>，替代原"标题前绿点"）。</span>
+          </div>
+          <div class="item">
+            <span class="demo"><span class="dot"></span></span>
+            <span><b>已完成 · 未读</b> — 任务结束且用户还没看过这个会话，尾部显示 6px 绿点 + 淡光环；点击进入会话即清除。</span>
+          </div>
+          <div class="item">
+            <span class="demo"></span>
+            <span><b>已读 / 空闲</b> — 无状态，槽位保留占位保证标题右对齐基线不跳动。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>交互说明</h2>
+        <ul>
+          <li>状态槽固定 14px，位于时间列右侧（行最尾），四类渲染路径（置顶 / 分组 / 全局 / 搜索）统一追加。</li>
+          <li>hover 出现"置顶 / 归档"操作浮层时只覆盖 <code>pin + 时间</code> 区域，<b>状态槽浮于其上不消失</b>——运行中或未读状态在 hover 时仍可见。</li>
+          <li>点击会话 = 选中 + 标记已读：绿点消失，spinner 也随任务状态由后端 <code>sessionTaskStatus</code> 驱动消失。</li>
+          <li>顶部「模拟：后台任务结束」可把所有 spinner 变为绿点，试试点击会话后绿点清除的效果。</li>
+          <li>遵守 <code>prefers-reduced-motion</code>：减弱动画时 spinner 放慢而非禁用，保留状态可辨识性。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const SPIN_SVG = '<svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="40 16.5"/></svg>'
+  const DOT_SPAN = '<span class="dot"></span>'
+
+  const list = document.getElementById('sessionList')
+
+  function paint(row) {
+    const slot = row.querySelector('.status-slot')
+    const state = row.dataset.state
+    slot.innerHTML = state === 'running' ? SPIN_SVG : state === 'unread' ? DOT_SPAN : ''
+  }
+
+  function paintAll() {
+    list.querySelectorAll('.session').forEach(paint)
+  }
+
+  document.querySelectorAll('[data-theme]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-theme]').forEach((b) => b.classList.toggle('active', b === btn))
+      document.body.classList.toggle('dark', btn.dataset.theme === 'dark')
+    })
+  })
+
+  list.addEventListener('click', (event) => {
+    const action = event.target.closest('[data-act]')
+    if (action) {
+      event.stopPropagation()
+      action.blur()
+      return
+    }
+    const row = event.target.closest('.session')
+    if (!row) return
+    list.querySelectorAll('.session').forEach((r) => r.classList.toggle('selected', r === row))
+    if (row.dataset.state === 'unread') {
+      row.dataset.state = 'idle'
+      paint(row)
+    }
+  })
+
+  document.getElementById('finishBtn').addEventListener('click', () => {
+    list.querySelectorAll('.session').forEach((row) => {
+      if (row.dataset.state === 'running') {
+        row.dataset.state = row.classList.contains('selected') ? 'idle' : 'unread'
+        paint(row)
+      }
+    })
+  })
+
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    const initial = ['running', 'running', 'unread', 'unread', 'idle', 'idle']
+    list.querySelectorAll('.session').forEach((row, index) => {
+      row.dataset.state = initial[index]
+      row.classList.toggle('selected', index === 0)
+      paint(row)
+    })
+  })
+
+  paintAll()
+</script>
+</body>
+</html>

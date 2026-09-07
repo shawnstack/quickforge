@@ -1,3 +1,13 @@
+## 当前状态：sidebar-session-running-unread-status（已完成，未提交）
+
+- 目标：侧栏会话行尾显示运行 icon；成功完成后以绿色点表示未读。
+- 实现：`useVisibleRuntimeStatuses` 监听 agent_start/agent_end，维护当前前端生命周期内的完成未读集合；`ChatSidebar` 三类会话行使用 Loader2/emerald 点；点击会话清除未读。预览：`design-review/sidebar-session-status.html`。
+- Revision（移除标题左侧加载 spinner）：删除 `ChatSidebar.tsx` 的 `sessionLoadingIndicator` 定义及 5 处渲染（置顶/时间线/项目分组/全局会话/搜索结果列表），消除加载时标题文字被 icon 挤动的抖动；`aria-busy` 保留，行尾运行中/未读状态不受影响。验证：ESLint、tsc -b、定向 vitest 6 files / 52 tests 通过。
+- 验证：tsc、相关 ESLint、git diff --check 通过。
+- 未新增依赖，未修改 dist/package-dist/package-offline，未 commit/tag/push。
+
+---
+
 # Session Handoff
 
 ## 当前状态：backup-settings-only-and-snapshot-fast-path（已完成，已提交 dev）

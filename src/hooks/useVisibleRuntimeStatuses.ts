@@ -11,6 +11,7 @@ function toBackgroundTaskStatus(status: unknown): BackgroundTaskStatus | undefin
 
 export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[]) {
   const [statuses, setStatuses] = useState<Record<string, BackgroundTaskStatus>>({})
+  const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(() => new Set())
 
   const visibleSessionIds = useMemo(() => {
     return new Set(sessions.map((session) => session.id))
@@ -68,6 +69,12 @@ export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[])
 
       if (event.type === 'agent_start') {
         setStatuses((current) => ({ ...current, [sessionId]: 'running' }))
+        setCompletedSessionIds((current) => {
+          if (!current.has(sessionId)) return current
+          const next = new Set(current)
+          next.delete(sessionId)
+          return next
+        })
         return
       }
 
@@ -79,6 +86,9 @@ export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[])
             ? 'error'
             : 'idle'
         setStatuses((current) => ({ ...current, [sessionId]: status }))
+        if (status === 'idle') {
+          setCompletedSessionIds((current) => new Set(current).add(sessionId))
+        }
       }
     })
 
@@ -95,5 +105,14 @@ export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[])
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [refreshVisibleStatuses])
 
-  return statuses
+  const markSessionRead = useCallback((sessionId: string) => {
+    setCompletedSessionIds((current) => {
+      if (!current.has(sessionId)) return current
+      const next = new Set(current)
+      next.delete(sessionId)
+      return next
+    })
+  }, [])
+
+  return { statuses, completedSessionIds, markSessionRead }
 }

@@ -1,3 +1,10 @@
+## Completed Feature：sidebar-session-running-unread-status（本轮）
+
+- 侧栏会话行尾新增状态反馈：运行中显示旋转 Loader2，成功完成且用户尚未点击时显示 emerald 绿色未读点，点击对应会话清除。覆盖 Pinned、Projects/Timeline、Tasks 三类会话行。
+- 未读状态仅存在于当前前端生命周期；错误/中止不显示成功未读点。新增 `design-review/sidebar-session-status.html` 交互预览。
+- 验证：`npx tsc -b --pretty false`、相关 ESLint、`git diff --check` 通过。未修改生成产物、未新增依赖。
+- Revision（移除标题左侧加载 spinner）：用户反馈点击/刷新会话时标题左侧的加载 icon 出现/消失会把标题挤得抖动一下。删除 `sessionLoadingIndicator` 定义及 5 处渲染（置顶/时间线/项目分组/全局会话/搜索结果列表，最后一处为调研时发现的搜索弹窗），行按钮 `aria-busy` 语义保留，行尾运行中/未读状态不受影响；`Loader2` import 因行尾状态与加载占位仍在使用而保留。验证：ESLint ChatSidebar.tsx、`npx tsc -b`、定向 vitest 6 files / 52 tests 全过。
+
 # Progress
 
 ## Completed Feature：backup-settings-only-and-snapshot-fast-path（本轮，已完成）

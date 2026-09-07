@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QuickForge Session 状态指示器预览</title>
+  <style>
+    :root { color-scheme: light; --bg:#fbfcfe; --sidebar:#f7f8fb; --text:#334155; --muted:#94a3b8; --hover:#eef2f7; --green:#10b981; --border:#e2e8f0; }
+    * { box-sizing:border-box; } body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); font:14px/1.4 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--text); }
+    .preview { width:380px; padding:18px; border:1px solid var(--border); border-radius:16px; background:var(--sidebar); box-shadow:0 16px 40px #0f172a12; }
+    h1 { margin:0 0 14px; font-size:13px; font-weight:600; color:#64748b; } .row { height:42px; display:flex; align-items:center; gap:8px; padding:0 10px; border-radius:10px; } .row:hover { background:var(--hover); }
+    .title { min-width:0; flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } .meta { width:36px; text-align:right; color:var(--muted); font-size:11px; }
+    .status { width:14px; display:grid; place-items:center; flex:0 0 14px; } .spinner { width:12px; height:12px; border:2px solid #cbd5e1; border-top-color:#64748b; border-radius:50%; animation:spin .8s linear infinite; } .dot { width:6px; height:6px; border-radius:50%; background:var(--green); }
+    .legend { display:flex; gap:16px; margin-top:16px; padding:10px 2px 0; border-top:1px solid var(--border); color:#64748b; font-size:12px; } .legend span { display:flex; align-items:center; gap:6px; } @keyframes spin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body><main class="preview"><h1>左侧对话 Session 状态</h1><div class="row"><div class="title">正在执行的对话任务</div><div class="status"><i class="spinner" aria-label="运行中"></i></div><div class="meta"></div></div><div class="row"><div class="title">已完成、尚未阅读的结果</div><div class="status"><i class="dot" aria-label="未读"></i></div><div class="meta"></div></div><div class="row"><div class="title">普通已阅读对话</div><div class="status"></div><div class="meta">昨天</div></div><div class="legend"><span><i class="spinner"></i>运行中</span><span><i class="dot"></i>完成未读</span></div></main></body>
+</html>

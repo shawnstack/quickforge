@@ -102,6 +102,7 @@ type ChatSidebarProps = {
   onLoadMoreProject: (projectId: string) => Promise<boolean>
   onLoadMoreProjectTimeline: () => Promise<boolean>
   sessionTaskStatus: (session: QuickForgeSessionMetadata) => BackgroundTaskStatus
+  completedSessionIds: Set<string>
   selectingProject: boolean
   onTogglePinnedCollapsed: () => void
   onToggleProjectsCollapsed: () => void
@@ -412,6 +413,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onLoadMoreProject,
   onLoadMoreProjectTimeline,
   sessionTaskStatus,
+  completedSessionIds,
   selectingProject,
   onTogglePinnedCollapsed,
   onToggleProjectsCollapsed,
@@ -476,9 +478,15 @@ export const ChatSidebar = memo(function ChatSidebar({
   const sessionTitleClass = sidebarSessionTitleClass
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-1 text-left'
   const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate'
-  const sessionLoadingIndicator = (sessionId: string) => loadingSessionId === sessionId
-    ? <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground/55" aria-hidden="true" />
-    : null
+  const sessionStatusIndicator = (session: QuickForgeSessionMetadata) => {
+    if (sessionTaskStatus(session) === 'running') {
+      return <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground/55" aria-label="运行中" />
+    }
+    if (completedSessionIds.has(session.id)) {
+      return <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" aria-label="未读" />
+    }
+    return null
+  }
   const pinnedSessionButtonClass = `relative z-10 inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-[color,opacity] duration-160 ${sidebarHoverBgClass} hover:text-foreground/85`
   const sessionMetaHoverHiddenClass = 'group-hover:pointer-events-none group-hover:opacity-0 group-focus-within:pointer-events-none group-focus-within:opacity-0'
   const activeSessionTitleClass = 'font-[350] text-foreground/84'
@@ -1095,8 +1103,6 @@ export const ChatSidebar = memo(function ChatSidebar({
             >
               <div className="min-w-0 flex-1">
                 <div className={sessionTitleRowClass}>
-                  {sessionLoadingIndicator(session.id)}
-                  {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                   <SessionTitleMarquee
                     className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
                     title={sessionTitle(session.title, session.channelName)}
@@ -1115,7 +1121,8 @@ export const ChatSidebar = memo(function ChatSidebar({
               >
                 <Pin className="size-3.5" />
               </button>
-              <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(session.pinnedAt)}</span>
+              {sessionStatusIndicator(session)}
+               <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(session.pinnedAt)}</span>
             </div>
             <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
               {confirmingDeleteSessionId === session.id ? (
@@ -1444,8 +1451,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                                       <button className="flex min-w-0 flex-1 items-center gap-1 text-left" type="button" aria-busy={loadingSessionId === session.id} onClick={() => onLoadSession(session.id)}>
                                         <div className="min-w-0 flex-1">
                                           <div className={sessionTitleRowClass}>
-                                            {sessionLoadingIndicator(session.id)}
-                                            {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                                             <SessionTitleMarquee
                                               className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
                                               title={sessionTitle(session.title, session.channelName)}
@@ -1648,8 +1653,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                 >
                                               <button className={sessionButtonClass} type="button" aria-busy={loadingSessionId === session.id} onClick={() => onLoadSession(session.id)}>
                                                 <div className={sessionTitleRowClass}>
-                                                  {sessionLoadingIndicator(session.id)}
-                                                  {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                                                   <SessionTitleMarquee
                                                     className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
                                                     title={sessionTitle(session.title, session.channelName)}
@@ -1671,7 +1674,11 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                 ) : (
                                                   <span className="size-6 shrink-0" aria-hidden="true" />
                                                 )}
-                                                <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified)}</span>
+                                               {sessionStatusIndicator(session)}
+
+                               {sessionTaskStatus(session) === 'running' || completedSessionIds.has(session.id) ? null : (
+                                 <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified)}</span>
+                               )}
                                               </button>
                                               <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
                                                 {confirmingDeleteSessionId === session.id ? (
@@ -1806,8 +1813,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                               >
                             <button className={sessionButtonClass} type="button" aria-busy={loadingSessionId === session.id} onClick={() => onLoadSession(session.id)}>
                               <div className={sessionTitleRowClass}>
-                                {sessionLoadingIndicator(session.id)}
-                                {sessionTaskStatus(session) === 'running' ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                                 <SessionTitleMarquee
                                   className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
                                   title={sessionTitle(session.title, session.channelName)}
@@ -1829,7 +1834,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                               ) : (
                                 <span className="size-6 shrink-0" aria-hidden="true" />
                               )}
-                              <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified)}</span>
+                              {sessionStatusIndicator(session)}
+                               {sessionTaskStatus(session) === 'running' || completedSessionIds.has(session.id) ? null : (
+                                 <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified)}</span>
+                               )}
                             </button>
                             <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
                               {confirmingDeleteSessionId === session.id ? (
@@ -2150,7 +2158,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                       className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors hover:bg-muted/28"
                       onClick={() => selectSearchResult(session.id)}
                     >
-                      {sessionLoadingIndicator(session.id)}
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm text-foreground/90">{sessionTitle(session.title, session.channelName)}</span>
                         <span className="block truncate text-[11px] text-muted-foreground/55">{projectName || t('normalChat')} · {formatSessionTime(session.lastModified)}</span>

@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "sidebar-session-running-unread-status",
+      "name": "侧栏会话运行图标与完成未读点",
+      "status": "done",
+      "approach": "侧栏会话行尾显示运行中的 Loader2 旋转图标；agent_end 成功后记录当前前端生命周期内的未读完成会话，显示 emerald 绿色点，点击会话清除。新增 HTML 预览。 Revision：移除标题左侧的 session 消息加载 spinner——删除 sessionLoadingIndicator 定义及 5 处渲染（置顶/时间线/项目分组/全局会话/搜索结果列表），消除点击或刷新会话时 spinner 出现/消失把标题文字挤动造成的抖动；行按钮 aria-busy 语义保留，行尾运行中/未读状态不受影响。",
+      "files": [
+        "src/hooks/useVisibleRuntimeStatuses.ts",
+        "src/App.tsx",
+        "src/components/sidebar/ChatSidebar.tsx",
+        "design-review/sidebar-session-status.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx tsc -b --pretty false；相关 ESLint；git diff --check；HTML 预览已生成。Revision：ESLint ChatSidebar.tsx、npx tsc -b、定向 vitest 6 files / 52 tests（sidebar-section-order / session-action-alignment / session-display-limit / session-sort-mode / new-chat-routing / mobile-fullscreen-adaptation）全过。",
+      "boundaries": "未新增依赖；未修改生成产物；未做跨刷新持久化；错误/中止不显示成功未读点。"
+    },
+    {
       "id": "desktop-memory-session-idle-eviction",
       "name": "桌面端内存排查：修复会话永不淘汰（SSE keepAlive 重置闲置计时器）",
       "status": "done",

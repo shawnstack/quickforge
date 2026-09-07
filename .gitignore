@@ -15,6 +15,7 @@ desktop-dist-*/
 package-dist
 package-offline
 .agentbridge
+.zcode/
 *.tgz
 *.local
 $null

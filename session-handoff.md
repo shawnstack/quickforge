@@ -1,4 +1,14 @@
-## 当前状态：session-change-summary-rollback（已完成，未提交，待真机冒烟）
+## 当前状态：split-commit-4-features（已完成）
+
+- 本轮目标：把工作区 4 个并行 feature 的未提交改动按 feature 拆分提交。
+- 提交结果（dev 分支，领先 origin/dev 6 commits，未 push）：`5d1b518` fix: 切回页面时无置顶会话的 Pinned 区块闪现；`92a094d` fix: 切回页面时侧栏显示更多按钮 spinner 闪烁；`0e7fc48` feat: 长文本粘贴自动转为附件并支持系统打开；`40450c2` feat: 会话代码变更摘要条与影子备份回滚。交叉文件（App.tsx/agent.mjs/agent.test/ChatSidebar/sidebar-section-order.test/index.css/三状态文件/wiki）按 hunk/条目块归属拆分，总量核对 c30d3c5..HEAD = 36 文件 +1778/−47 与拆分前工作区一致。
+- 提交前修复：① `tests/server/routes/side-chat.test.mjs` storage mock 补 `cacheDir`（F2 的 text-attachments 顶层导入破坏该测试 16 用例，随 0e7fc48 提交）；② 6 个被 CRLF 污染文件转回 LF（App.tsx/agent-subagent-runner.mjs/session-pagination-bootstrap.test.ts/feature_list.json/progress.md/session-handoff.md，App.tsx 的 CRLF 曾致 4 个源码契约测试失败）。
+- 验证：全量三件套通过（npm run test 2691 tests 全绿 / lint 0 error / build ✓ 仅既有 chunk 警告）；提交后 git diff 为空、status 仅剩 `.zcode/` untracked（不属于任何 feature，勿提交）。
+- 下一步：真机冒烟——F1 摘要条/回滚/预览分流、F2 重启桌面应用后粘贴附件、F3/F4 切回闪烁；按需 push dev。
+
+---
+
+## 当前状态：session-change-summary-rollback（已完成，已提交 40450c2，待真机冒烟）
 
 - 目标：对话底部常驻摘要条——显示本会话修改的代码文件数与对账真实 +N/−N 行数，支持安全回滚（影子备份恢复到会话首次修改前、删除会话新建文件）与文件预览。用户确认：影子备份机制、整会话粒度、真实 diff 口径；Revision 后预览对齐产物体系（html/md/txt/word 等全类型）。
 - 实现：`server/session-file-backups.mjs`（新）+ write_file/edit_file 写盘前备份接入（`server/tools/index.mjs`）+ subagent 写入归因父会话（`agent-subagent-runner.mjs` 工具上下文补 sessionId）+ 路由 GET `/api/agents/:id/file-changes`、POST `/api/agents/:id/rollback-files`（`server/routes/agent.mjs`）；前端新 `panel-decoration/change-summary-strip.ts`（两步确认回滚、流式禁用）、ChatPanelHost/App/panel-decoration 接线、i18n +7 key、index.css 新增 `.quickforge-change-summary-strip` 段。预览：类型判定复用 `artifactPreviewMode`（html/图片→Browser、markdown/代码→Reader、pdf/docx/excel→Document），回调 `onOpenFilePreview` 在 App 直调产物预览统一入口 `openArtifactPreview(projectId, relativePath)`，与产物列表同源（含 tab 复用/重载；全局会话无项目上下文不显示按钮）。

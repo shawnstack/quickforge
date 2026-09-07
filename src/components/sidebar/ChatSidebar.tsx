@@ -92,12 +92,16 @@ type ChatSidebarProps = {
   projectTimelineSessions: QuickForgeSessionMetadata[]
   projectTimelineHasMore: boolean
   projectTimelineLoading: boolean
+  /** True only while a user-triggered "show more" append is in flight; silent refocus
+      refreshes keep loading props true but appending false so the button stays static. */
+  projectTimelineAppending: boolean
   globalHasMore: boolean
-  globalLoading: boolean
+  globalAppending: boolean
   onLoadMoreGlobal: () => Promise<boolean>
   onLoadMorePinned: () => void
   projectHasMore: (projectId: string) => boolean
   projectLoading: (projectId: string) => boolean
+  projectAppending: (projectId: string) => boolean
   projectLoaded: (projectId: string) => boolean
   onLoadMoreProject: (projectId: string) => Promise<boolean>
   onLoadMoreProjectTimeline: () => Promise<boolean>
@@ -403,12 +407,14 @@ export const ChatSidebar = memo(function ChatSidebar({
   projectTimelineSessions,
   projectTimelineHasMore,
   projectTimelineLoading,
+  projectTimelineAppending,
   globalHasMore,
-  globalLoading,
+  globalAppending,
   onLoadMoreGlobal,
   onLoadMorePinned,
   projectHasMore,
   projectLoading,
+  projectAppending,
   projectLoaded,
   onLoadMoreProject,
   onLoadMoreProjectTimeline,
@@ -1513,7 +1519,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                               visibleCount={timelineVisibleCount}
                               loadedCount={timelineSessions.length}
                               hasMore={projectTimelineHasMore}
-                              loading={projectTimelineLoading}
+                              loading={projectTimelineAppending}
                               onShowMore={showMoreTimelineSessions}
                             />
                           </>
@@ -1718,7 +1724,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                           visibleCount={projectVisibleCounts[item.id] ?? SIDEBAR_SESSION_DISPLAY_STEP}
                                           loadedCount={projectSessions.length}
                                           hasMore={projectHasMore(item.id)}
-                                          loading={projectLoading(item.id)}
+                                          loading={projectAppending(item.id)}
                                           onShowMore={() => showMoreProjectSessions(item.id, projectSessions.length)}
                                         />
                                       </>
@@ -1877,7 +1883,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                         visibleCount={globalVisibleCount}
                         loadedCount={globalSessions.length}
                         hasMore={globalHasMore}
-                        loading={globalLoading}
+                        loading={globalAppending}
                         onShowMore={showMoreGlobalSessions}
                       />
                     </div>

@@ -411,9 +411,11 @@ function MainApp() {
     projectTimelineSessions,
     projectTimelineHasMore,
     projectTimelineLoading,
+    projectTimelineAppending,
     projectHasMore,
-    globalLoading,
+    globalAppending,
     projectLoading,
+    projectAppending,
     projectLoaded,
     loadGlobalSessions,
     loadProjectSessions,
@@ -1904,12 +1906,14 @@ function MainApp() {
         projectTimelineSessions={projectTimelineSessions}
         projectTimelineHasMore={projectTimelineHasMore}
         projectTimelineLoading={projectTimelineLoading}
+        projectTimelineAppending={projectTimelineAppending}
         globalHasMore={globalHasMore}
-        globalLoading={globalLoading}
+        globalAppending={globalAppending}
         onLoadMoreGlobal={loadMoreGlobal}
         onLoadMorePinned={loadMorePinned}
         projectHasMore={projectHasMore}
         projectLoading={projectLoading}
+        projectAppending={projectAppending}
         projectLoaded={projectLoaded}
         onLoadMoreProject={loadMoreProject}
         onLoadMoreProjectTimeline={loadMoreProjectTimeline}
@@ -1982,12 +1986,14 @@ function MainApp() {
               projectTimelineSessions={projectTimelineSessions}
               projectTimelineHasMore={projectTimelineHasMore}
               projectTimelineLoading={projectTimelineLoading}
+              projectTimelineAppending={projectTimelineAppending}
               globalHasMore={globalHasMore}
-              globalLoading={globalLoading}
+              globalAppending={globalAppending}
               onLoadMoreGlobal={loadMoreGlobal}
               onLoadMorePinned={loadMorePinned}
               projectHasMore={projectHasMore}
               projectLoading={projectLoading}
+              projectAppending={projectAppending}
               projectLoaded={projectLoaded}
               onLoadMoreProject={loadMoreProject}
               onLoadMoreProjectTimeline={loadMoreProjectTimeline}

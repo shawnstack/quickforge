@@ -87,7 +87,7 @@ export function useSessionPagination({
   const loadPinnedSessions = useCallback(async (offset: number, version = requestVersionRef.current) => {
     const backend = backendRef.current
     if (!backend) return
-    setPinnedPage((prev) => ({ ...prev, loading: true }))
+    setPinnedPage((prev) => ({ ...prev, loading: true, appending: offset > 0 }))
     try {
       const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
         'sessions-metadata', 'pinnedAt',
@@ -102,19 +102,20 @@ export function useSessionPagination({
           items: sortSessions(merged, sortMode),
           total: stalled ? merged.length : result.total,
           loading: false,
+          appending: false,
         }
       })
     } catch {
       if (!isCurrentRequest(version)) return
-      setPinnedPage((prev) => ({ ...prev, loading: false }))
+      setPinnedPage((prev) => ({ ...prev, loading: false, appending: false }))
     }
   }, [backendRef, isCurrentRequest, sortMode])
 
   const loadGlobalSessions = useCallback(async (offset: number, version = requestVersionRef.current) => {
     const backend = backendRef.current
     if (!backend) return
-    setGlobalPage((prev) => ({ ...prev, loading: true }))
-    globalPageRef.current = { ...globalPageRef.current, loading: true }
+    setGlobalPage((prev) => ({ ...prev, loading: true, appending: offset > 0 }))
+    globalPageRef.current = { ...globalPageRef.current, loading: true, appending: offset > 0 }
     try {
       const indexName = sortMode === 'createdAt' ? 'createdAt' : 'lastModified'
       const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
@@ -129,6 +130,7 @@ export function useSessionPagination({
           items: sortSessions(merged, sortMode),
           total: stalled ? merged.length : result.total,
           loading: false,
+          appending: false,
         }
         globalPageRef.current = nextPage
         return nextPage
@@ -136,7 +138,7 @@ export function useSessionPagination({
     } catch {
       if (!isCurrentRequest(version)) return
       setGlobalPage((prev) => {
-        const nextPage = { ...prev, loading: false }
+        const nextPage = { ...prev, loading: false, appending: false }
         globalPageRef.current = nextPage
         return nextPage
       })
@@ -148,7 +150,7 @@ export function useSessionPagination({
     if (!backend) return
     setProjectPages((prev) => {
       const page = prev[projectId]
-      const nextPage = { ...(page ?? { items: [], total: 0 }), loading: true }
+      const nextPage = { ...(page ?? { items: [], total: 0 }), loading: true, appending: offset > 0 }
       projectPagesRef.current = { ...projectPagesRef.current, [projectId]: nextPage }
       return { ...prev, [projectId]: nextPage }
     })
@@ -170,6 +172,7 @@ export function useSessionPagination({
             items: sortSessions(merged, sortMode),
             total: stalled ? merged.length : result.total,
             loading: false,
+            appending: false,
           },
         }
         projectPagesRef.current = nextPages
@@ -179,7 +182,7 @@ export function useSessionPagination({
       if (!isCurrentRequest(version)) return
       setProjectPages((prev) => {
         const page = prev[projectId]
-        const nextPages = { ...prev, [projectId]: { ...(page ?? { items: [], total: 0 }), loading: false } }
+        const nextPages = { ...prev, [projectId]: { ...(page ?? { items: [], total: 0 }), loading: false, appending: false } }
         projectPagesRef.current = nextPages
         return nextPages
       })
@@ -189,8 +192,8 @@ export function useSessionPagination({
   const loadProjectTimelineSessions = useCallback(async (offset: number, version = requestVersionRef.current) => {
     const backend = backendRef.current
     if (!backend) return
-    setProjectTimelinePage((prev) => ({ ...prev, loading: true }))
-    projectTimelinePageRef.current = { ...projectTimelinePageRef.current, loading: true }
+    setProjectTimelinePage((prev) => ({ ...prev, loading: true, appending: offset > 0 }))
+    projectTimelinePageRef.current = { ...projectTimelinePageRef.current, loading: true, appending: offset > 0 }
     try {
       const indexName = sortMode === 'createdAt' ? 'createdAt' : 'lastModified'
       const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
@@ -205,6 +208,7 @@ export function useSessionPagination({
           items: sortSessions(merged, sortMode),
           total: stalled ? merged.length : result.total,
           loading: false,
+          appending: false,
         }
         projectTimelinePageRef.current = nextPage
         return nextPage
@@ -212,7 +216,7 @@ export function useSessionPagination({
     } catch {
       if (!isCurrentRequest(version)) return
       setProjectTimelinePage((prev) => {
-        const nextPage = { ...prev, loading: false }
+        const nextPage = { ...prev, loading: false, appending: false }
         projectTimelinePageRef.current = nextPage
         return nextPage
       })
@@ -234,7 +238,7 @@ export function useSessionPagination({
       setProjectPages((prev) => {
         const next: Record<string, SessionPage> = {}
         for (const [projectId, page] of Object.entries(prev)) {
-          next[projectId] = { ...page, loading: false }
+          next[projectId] = { ...page, loading: false, appending: false }
         }
         return next
       })
@@ -243,7 +247,7 @@ export function useSessionPagination({
       return
     }
 
-    setProjectTimelinePage((prev) => ({ ...prev, loading: false }))
+    setProjectTimelinePage((prev) => ({ ...prev, loading: false, appending: false }))
     const loadedProjectIds = new Set([
       ...Object.keys(projectPagesRef.current),
       ...expandedProjectIdsRef.current,
@@ -364,10 +368,13 @@ export function useSessionPagination({
     projectTimelineSessions: projectTimelinePage.items,
     projectTimelineHasMore: projectTimelinePage.items.length < projectTimelinePage.total,
     projectTimelineLoading: projectTimelinePage.loading,
+    projectTimelineAppending: projectTimelinePage.appending ?? false,
     globalHasMore: globalPage.items.length < globalPage.total,
     projectHasMore,
     globalLoading: globalPage.loading,
+    globalAppending: globalPage.appending ?? false,
     projectLoading,
+    projectAppending: useCallback((projectId: string) => projectPages[projectId]?.appending ?? false, [projectPages]),
     projectLoaded,
     loadGlobalSessions,
     loadProjectSessions,

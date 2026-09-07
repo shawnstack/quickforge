@@ -851,6 +851,22 @@
       ],
       "verification": "定向 vitest 3 files / 33 tests（sidebar-section-order 新增 refocus flash 防回归契约）全过；eslint 2 改动文件 0 error；npx tsc -b 通过；浏览器实测切回事件后 Pinned 区块不再挂载/卸载。",
       "boundaries": "未改 LoadMoreSentinel/分页/loading 语义；有置顶会话时区块常驻行为不变；未新增依赖、未触碰生成产物、未 commit。"
+    },
+    {
+      "id": "sidebar-show-more-refocus-spinner",
+      "name": "切回浏览器时「显示更多」按钮 spinner 闪烁修复（loading/appending 语义分离）",
+      "status": "done",
+      "approach": "切回 visibilitychange → refreshSessions 把各会话列表统一置 loading:true，SessionDisplayControls 的 loading ? spinner : 文字 + disabled 误切换（请求耗时跨渲染帧时肉眼可见、被 React 合批时不可见，故闪烁时有时无；120ms 延迟实测复现）。修复：SessionPage 增加 appending 可选字段（offset>0 的用户追加加载才置 true，静默 offset=0 刷新保持 false），hook 导出 projectTimelineAppending/globalAppending/projectAppending，ChatSidebar 三处 SessionDisplayControls 改读 appending；原 *Loading getter 保留给空态 spinner 与 LoadMoreSentinel 防重复门控；ChatSidebar/App 的 globalLoading 死链移除（hook 导出保留）。用户点「显示更多」的 spinner 反馈与首载/分页/防并发语义零变化。",
+      "files": [
+        "src/lib/session-list-updates.ts",
+        "src/hooks/useSessionPagination.ts",
+        "src/App.tsx",
+        "src/components/sidebar/ChatSidebar.tsx",
+        "tests/frontend/session-pagination-bootstrap.test.ts",
+        "tests/frontend/sidebar-section-order.test.ts"
+      ],
+      "verification": "定向 vitest 5 files / 47 tests（bootstrap 新增 2 用例：静默 refresh loading:true+appending:false、loadMore appending:true；section-order 新增按钮接线契约）全过；eslint 6 文件 0 error；npx tsc -b 通过；浏览器实测（同 120ms 延迟条件）修复后 svgChanges 空、disabledFlips 0。",
+      "boundaries": "不改 LoadMoreSentinel/空态 spinner/分页/防并发语义；hook 导出面不变（仅增 3 个 appending getter）；未新增依赖、未触碰生成产物、未 commit。"
     }
   ]
 }

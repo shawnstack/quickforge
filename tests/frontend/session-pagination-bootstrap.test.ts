@@ -150,6 +150,7 @@ describe('session pagination bootstrap', () => {
         items: [projectSession],
         total: 1,
         loading: false,
+        appending: false,
       },
     })
   })
@@ -198,6 +199,7 @@ describe('session pagination bootstrap', () => {
       items: [globalSessionA, globalSessionB],
       total: 2,
       loading: false,
+      appending: false,
     })
   })
 
@@ -310,7 +312,95 @@ describe('session pagination bootstrap', () => {
         items: [projectSessionA, projectSessionB],
         total: 2,
         loading: false,
+        appending: false,
       },
     })
+  })
+
+  it('marks silent offset-0 refreshes as loading without appending', async () => {
+    const globalSession = session('global-1')
+    const refresh = deferred<{ values: ReturnType<typeof session>[]; total: number }>()
+    let globalOffsetZeroCalls = 0
+    const fetchPaginatedFromIndex = vi.fn((
+      _storeName: string,
+      _indexName: string,
+      options: { pinned?: string; scope?: string; offset?: number },
+    ) => {
+      if (options.pinned === 'only') return Promise.resolve({ values: [], total: 0 })
+      if (options.scope === 'global' && options.offset === 0) {
+        globalOffsetZeroCalls += 1
+        return globalOffsetZeroCalls === 1
+          ? Promise.resolve({ values: [globalSession], total: 1 })
+          : refresh.promise
+      }
+      return Promise.resolve({ values: [], total: 0 })
+    })
+    const backend = { fetchPaginatedFromIndex } as unknown as HttpStorageBackend
+    const pagination = useSessionPagination({
+      backendRef: { current: backend },
+      expandedProjectIds: new Set(),
+      viewMode: 'project',
+      sortMode: 'updatedAt',
+    })
+    await flushMicrotasks()
+
+    void pagination.refreshSessions()
+    await flushMicrotasks()
+
+    // Refocus refresh in flight: loading true, appending false — mounted "show more"
+    // buttons read appending, so they must not flip to spinner.
+    expect(reactHarness.states[0]).toEqual({
+      items: [globalSession],
+      total: 1,
+      loading: true,
+      appending: false,
+    })
+
+    refresh.resolve({ values: [globalSession], total: 1 })
+    await flushMicrotasks()
+    expect(reactHarness.states[0]).toEqual({
+      items: [globalSession],
+      total: 1,
+      loading: false,
+      appending: false,
+    })
+  })
+
+  it('marks user-triggered load-more as appending', async () => {
+    const firstPage = Array.from({ length: 20 }, (_, index) => session(`global-${index}`))
+    const nextPage = deferred<{ values: ReturnType<typeof session>[]; total: number }>()
+    const fetchPaginatedFromIndex = vi.fn((
+      _storeName: string,
+      _indexName: string,
+      options: { pinned?: string; scope?: string; offset?: number },
+    ) => {
+      if (options.pinned === 'only') return Promise.resolve({ values: [], total: 0 })
+      if (options.scope === 'global' && options.offset === 0) return Promise.resolve({ values: firstPage, total: 21 })
+      if (options.scope === 'global' && options.offset === 20) return nextPage.promise
+      return Promise.resolve({ values: [], total: 0 })
+    })
+    const backend = { fetchPaginatedFromIndex } as unknown as HttpStorageBackend
+    const pagination = useSessionPagination({
+      backendRef: { current: backend },
+      expandedProjectIds: new Set(),
+      viewMode: 'project',
+      sortMode: 'updatedAt',
+    })
+    await flushMicrotasks()
+
+    void pagination.loadMoreGlobal()
+    await flushMicrotasks()
+
+    expect(reactHarness.states[0]).toEqual({
+      items: firstPage,
+      total: 21,
+      loading: true,
+      appending: true,
+    })
+
+    nextPage.resolve({ values: [session('global-20')], total: 21 })
+    await flushMicrotasks()
+    expect(reactHarness.states[0].loading).toBe(false)
+    expect(reactHarness.states[0].appending).toBe(false)
   })
 })

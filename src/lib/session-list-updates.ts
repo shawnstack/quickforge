@@ -4,6 +4,10 @@ export type SessionPage = {
   items: QuickForgeSessionMetadata[]
   total: number
   loading: boolean
+  /** True only while appending an offset>0 page (user-triggered "show more"). Silent
+      offset=0 refreshes keep loading:true with appending:false so already-mounted UI
+      (SessionDisplayControls spinner) is not disturbed on tab refocus. */
+  appending?: boolean
 }
 
 function sessionSortTime(value?: string) {

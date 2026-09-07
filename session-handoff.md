@@ -18,12 +18,13 @@
 
 ---
 
-## 当前状态：workspace-refocus-jitter-investigation（只读调研，已完成，未改代码）
+## 当前状态：sidebar-show-more-refocus-spinner（调研+修复，已完成，未提交）
 
-- 目标：用户报告「切回浏览器到页面，工作区的显示会抖动一下」，定位原因。
-- 结论：非单一 bug，是切回瞬间多路代码同时动作叠加。①必然发生：`useCrossTabSync` visibilitychange 刷新 sessions/projects（App 全树重渲染 + loading 一帧，聊天面板不重建）+ 隐藏期挂起的 rAF/RO 回调在切回第一帧集中补跑（decorate 重扫 + 双重 rAF scrollToBottom，pi-web-ui AgentInterface 内部 RO 亦无条件写 scrollTop）——流式中切走时滚动跳变最明显。②条件发生（后台断连）：reconnect-notice 文档流内提示行插拔 + unreachable-strip 常驻条挂载/移除挤压 composer。③流式中切走时 watchdog 补跑全量替换 messages。④放大器：滚动容器无 scrollbar-gutter，滚动条出现/消失导致整列 reflow。证据链与修复方向详见 progress.md Notes（2026-09-07 条目）。
-- 文件：progress.md（Notes 追加）、session-handoff.md（本条目）；未修改任何源码。
-- 下一步：如用户确认要修，按 Notes 中四个修复方向立项（首帧滚动守卫 / 提示条 overlay 化 / watchdog 守卫 / scrollbar-gutter），先真机 Performance 录制确认主因。
+- 背景：用户在 Pinned 闪烁修复后报告「显示更多按钮也闪烁一下」。调研实测确认（120ms 延迟复现、本地快时 React 合批掩盖——闪烁时有时无）：切回 → refreshSessions 把各列表置 `loading:true` → SessionDisplayControls `loading ? spinner : 文字` + `disabled` 误切换。
+- 修复：`SessionPage` 增加可选 `appending` 字段（offset>0 用户追加才置 true，静默 offset=0 刷新 false）；四个 loader 置位/成功/失败/timeline 收尾同步维护；hook 导出 `projectTimelineAppending`/`globalAppending`/`projectAppending`；ChatSidebar 三处 SessionDisplayControls 改读 appending；`*Loading` getter 保留给空态 spinner 与 LoadMoreSentinel 防重复门控；ChatSidebar/App 的 `globalLoading` 死链移除（hook 导出保留）。
+- 测试与验证：bootstrap 新增 2 用例（静默 refresh `loading:true+appending:false`、loadMore `appending:true`）+ 3 处断言补 appending；section-order 新增按钮接线契约。定向 vitest 5 files / 47 tests、eslint 6 文件 0 error、`npx tsc -b` 全过；浏览器复验同延迟条件 `svgChanges:[]`、`disabledFlips:0`。
+- 文件：`src/lib/session-list-updates.ts`、`src/hooks/useSessionPagination.ts`、`src/App.tsx`、`src/components/sidebar/ChatSidebar.tsx`、两份测试、feature_list.json、progress.md、session-handoff.md。
+- 下一步：用户真机切走/切回确认按钮静止、点「显示更多」确认 spinner 反馈正常；未 commit。
 
 ---
 
@@ -48,6 +49,18 @@
 ---
 
 # Session Handoff
+
+## 当前状态：large-paste-text-attachment（已完成，未提交）
+
+- 目标：一次粘贴大量文字时自动写入 qf 临时目录，以附件方式发送；附件位于输入框内部，点击附件打开系统文件管理器，记录显示完整路径。
+- 当前规则：单次粘贴 `>= 3000` 字符触发；小于阈值按普通正文粘贴；最大 2,000,000 字符。
+- 实现：`server/text-attachments.mjs` 写入与路径校验；`server/routes/agent.mjs` 提供文本附件创建/系统打开接口；`server/message-converters.mjs` 读取安全路径；`editor-bindings.ts` 接入粘贴；`App.tsx` 将 qf 临时附件交给系统打开；`message-actions.ts` 显示完整路径并绑定附件点击。
+- 验证：文本附件与消息转换测试 9/9；tsc、相关 ESLint、npm run build、git diff --check 通过。仅有既有构建 warnings。
+- 未完成/风险：尚未做真实桌面端手工冒烟；OpenCode path-only 附件链路尚需单独确认；工作区存在 `.zcode/` 未跟踪目录，不要误加入本 feature。
+- 未 commit/tag/push。
+
+---
+
 
 ## 当前状态：backup-settings-only-and-snapshot-fast-path（已完成，已提交 dev）
 

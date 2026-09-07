@@ -108,6 +108,22 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(sidebarSource).toContain('!pinnedCollapsed && pinnedHasMore && !pinnedLoading')
   })
 
+  it('keeps show-more buttons static during silent refocus refreshes (appending-only spinner)', () => {
+    // SessionDisplayControls renders `loading ? spinner : label`; only user-triggered
+    // appends (offset>0) may flip it. Silent visibilitychange refreshes set loading
+    // with appending:false, so the three call sites must read the appending variants.
+    expect(sidebarSource).toContain('loading={projectTimelineAppending}')
+    expect(sidebarSource).toContain('loading={projectAppending(item.id)}')
+    expect(sidebarSource).toContain('loading={globalAppending}')
+    expect(sidebarSource).not.toContain('loading={globalLoading}')
+    expect(sidebarSource).not.toContain('loading={projectLoading(item.id)}')
+    expect(sidebarSource).not.toContain('loading={projectTimelineLoading}')
+    // Original loading getters stay wired for empty-state spinners and the sentinel.
+    expect(sidebarSource).toContain('projectTimelineLoading ?')
+    expect(sidebarSource).toContain('projectSessions.length === 0 && projectLoading(item.id)')
+    expect(sidebarSource).toContain('!pinnedCollapsed && pinnedHasMore && !pinnedLoading')
+  })
+
   it('uses one middle scroll container while sections and child lists grow naturally', () => {
     const sortableSectionStart = sidebarSource.indexOf('function SortableSidebarSection')
     const sortableSectionSource = sidebarSource.slice(sortableSectionStart, sidebarSource.indexOf('export const ChatSidebar', sortableSectionStart))

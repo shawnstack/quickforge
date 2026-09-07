@@ -48,8 +48,7 @@ export type { UnreachableStripController } from './panel-decoration/unreachable-
 export { createUnreachableStripController, UNREACHABLE_STRIP_AFTER_MS } from './panel-decoration/unreachable-strip'
 export type { ModelRetryNoticeController } from './panel-decoration/model-retry-notice'
 export { createModelRetryNoticeController } from './panel-decoration/model-retry-notice'
-export type { ChangeSummaryStripController, ChangeSummary } from './panel-decoration/change-summary-strip'
-export { createChangeSummaryStripController } from './panel-decoration/change-summary-strip'
+export { decorateAssistantArtifactCard, syncAssistantArtifactCard } from './panel-decoration/assistant-artifact-card'
 export { createOpenCodeUsageIndicator } from './panel-decoration/opencode-usage'
 export { releaseStreamingProcessGroups } from './panel-decoration/process-folding'
 

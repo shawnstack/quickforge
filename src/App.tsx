@@ -917,9 +917,9 @@ function MainApp() {
     })
   }, [agentManager.currentToolProject, requestWorkspaceInspector, setArtifactPreviewOpen])
 
-  // 变更摘要条文件预览：复用产物预览统一入口，按类型分流 Reader/Document/Browser，
+  // 助手回复文件卡片预览：复用产物预览统一入口，按类型分流 Reader/Document/Browser，
   // 与产物列表点开同一文件的行为完全同源。
-  const openFilePreviewFromChangeSummary = useCallback((relativePath: string) => {
+  const openFilePreviewFromArtifactCard = useCallback((relativePath: string) => {
     const projectId = agentManager.currentToolProject?.id
     if (!projectId) return
     openArtifactPreview(projectId, relativePath)
@@ -2278,7 +2278,7 @@ function MainApp() {
                       onRejectAutoCompact={handleRejectAutoCompact}
                       onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
                       onOpenLocalFilePath={openLocalFilePathFromChat}
-                      onOpenFilePreview={openFilePreviewFromChangeSummary}
+                      onOpenFilePreview={openFilePreviewFromArtifactCard}
                       onArtifactsChange={(artifacts) => {
                         setCurrentSessionArtifactsState({
                           projectId: agentManager.currentToolProject?.id,

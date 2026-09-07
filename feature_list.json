@@ -1,16 +1,36 @@
 {
   "features": [
     {
+      "id": "assistant-reply-artifact-card",
+      "name": "助手回复底部本轮文件产物卡片",
+      "status": "done",
+      "approach": "在 message-actions decorateMessages 中同步 assistant-artifact-card：从 extractCurrentTurnArtifacts 提取当前轮 write_file/edit_file/present_files 且有 path 的文件，仅挂到最后一个已完成 assistant，流式或无产物时移除；按 design-mockups/assistant-reply-file-card.html 展示文件图标、标题/说明、总 +N/-N、类型徽标、文件名/路径/辅助信息、每文件差异、统一“打开”预览按钮与底部变更范围/详情展开；Lit 重建幂等。",
+      "files": [
+        "src/components/chat/panel-decoration/assistant-artifact-card.ts",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/assistant-artifact-card.test.ts",
+        "design-mockups/assistant-reply-file-card.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest、npx tsc -b、全量 npm run test（283 files / 2688 tests 全过）/ npm run lint（0 error，仅既有 warning）/ npm run build、git diff --check 均通过",
+      "boundaries": "未修改服务端、生成产物或设计无关代码；已提交 dev，未 push。"
+    },
+    {
       "id": "session-change-summary-rollback",
-      "name": "对话底部会话级代码变更摘要条：修改文件/±行数/影子备份安全回滚/产物预览",
-      "status": "needs-review",
-      "approach": "输入框上方常驻摘要条（仿 unreachable-strip 锚点范式）显示本会话 write_file/edit_file 修改的文件数与对账真实 +N/−N 行数；服务端新增 session-file-backups.mjs 影子备份——写盘前把会话首次修改前旧内容备份到 cache/global/session-backups/<sessionId>/（同文件只备份首次、新建文件登记 created），getSessionFileChanges 用备份内容 vs 当前文件实时对账 diff，rollbackSessionFiles 恢复备份并删除会话新建文件（不依赖 git、不影响会话外改动，子 Agent 写入归因父会话，7 天 TTL 清理）；新路由 GET /api/agents/:id/file-changes 与 POST /api/agents/:id/rollback-files。前端 change-summary-strip.ts controller 两步确认回滚（流式中禁用）、文件列表展开；预览对齐产物体系——类型判定复用 artifactPreviewMode（html/图片 → Browser、markdown/代码(.txt 等) → Reader、pdf/docx/excel → Document），经 App onOpenFilePreview 直调产物预览统一入口 openArtifactPreview，与产物列表点开同一文件行为完全同源；i18n 中英 +7 key，CSS 中性色条 + 绿/红 ±行数。",
+      "name": "会话影子备份/回滚服务端能力（前端由助手卡片替代）",
+      "status": "done",
+      "approach": "输入框上方常驻摘要条（仿 unreachable-strip 锚点范式）显示本会话 write_file/edit_file 修改的文件数与对账真实 +N/−N 行数；服务端新增 session-file-backups.mjs 影子备份——写盘前把会话首次修改前旧内容备份到 cache/global/session-backups/<sessionId>/（同文件只备份首次、新建文件登记 created），getSessionFileChanges 用备份内容 vs 当前文件实时对账 diff，rollbackSessionFiles 恢复备份并删除会话新建文件（不依赖 git、不影响会话外改动，子 Agent 写入归因父会话，7 天 TTL 清理）；新路由 GET /api/agents/:id/file-changes 与 POST /api/agents/:id/rollback-files。前端旧 change-summary-strip 已删除，展示由 assistant-artifact-card 替代；预览对齐产物体系——类型判定复用 artifactPreviewMode（html/图片 → Browser、markdown/代码(.txt 等) → Reader、pdf/docx/excel → Document），经 App onOpenFilePreview 直调产物预览统一入口 openArtifactPreview，与产物列表点开同一文件行为完全同源；旧摘要条前端 i18n/CSS/测试已删除；服务端备份、摘要查询与回滚路由保留。",
       "files": [
         "server/session-file-backups.mjs",
         "server/tools/index.mjs",
         "server/agent-subagent-runner.mjs",
         "server/routes/agent.mjs",
-        "src/components/chat/panel-decoration/change-summary-strip.ts",
         "src/components/chat/panel-decoration.ts",
         "src/components/chat/ChatPanelHost.tsx",
         "src/App.tsx",
@@ -18,7 +38,6 @@
         "src/lib/i18n.ts",
         "tests/server/session-file-backups.test.mjs",
         "tests/server/routes/agent.test.mjs",
-        "tests/frontend/change-summary-strip.test.ts",
         "docs/wiki/server/README.md",
         "docs/wiki/server/routes/README.md",
         "docs/wiki/src/components/README.md",
@@ -26,7 +45,7 @@
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "定向 vitest：session-file-backups 5（首次备份幂等/新建删除口径/多轮编辑回滚/空会话/非法 sessionId）+ routes/agent 21（含新端点 2）+ tools 68 + agent-manager.subagents 16 + 前端契约 10 全过；eslint 改动 ts 文件 0 error；node --check 4 个 server 模块；npx tsc -b；npm run build 通过（仅既有 chunk 警告）。未跑全量 test/lint。",
+      "verification": "服务端备份/路由既有定向测试已通过；前端展示改由 assistant-reply-artifact-card 覆盖。",
       "boundaries": "回滚仅覆盖 write_file/edit_file（run_command 产生的文件改动不纳入，记 progress Notes）；OpenCode harness 不经 QuickForge 工具链无备份；Side Chat/readOnly/share 页不挂条；未新增依赖、未触碰生成产物、未 commit。"
     },
     {

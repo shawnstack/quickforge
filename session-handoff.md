@@ -1,3 +1,13 @@
+## 当前状态：assistant-reply-artifact-card（已完成，已提交 dev，未 push）
+
+- 目标：仅在最后一条已完成 assistant 回复底部显示按设计稿重做的本轮文件产物卡片；流式中、user、历史 assistant 或无 artifact 时移除。
+- 实现：复用 `extractCurrentTurnArtifacts`，纳入有 path 的 `write_file`/`edit_file`/`present_files`；卡片显示文件图标、标题/说明、总 +N/-N、类型徽标、文件名、路径/类型辅助信息、每文件差异、统一「打开」预览按钮、底部变更范围及详情展开/收起。旧 change-summary-strip 前端文件、接线、CSS、i18n key 与测试已删除；服务端 `session-file-backups.mjs`、工具备份和 file-changes/rollback 路由保留。
+- 测试/验证：定向前端测试与 `npx tsc -b --pretty false` 通过；提交前全量 `npm run test`（283 files / 2688 tests 全过）、`npm run lint`（0 error，仅既有 warning）、`npm run build`（仅既有警告）、`git diff --check` 均通过。
+- 文件：`src/components/chat/panel-decoration/assistant-artifact-card.ts`、`message-actions.ts`、`panel-decoration.ts`、`ChatPanelHost.tsx`、`src/index.css`、`src/lib/i18n.ts`、`tests/frontend/assistant-artifact-card.test.ts`、`design-mockups/assistant-reply-file-card.html` 及三状态文件。
+- 已提交/阻塞：feature commit 见 git log（dev 分支）；阻塞：无。
+
+---
+
 ## 当前状态：split-commit-4-features（已完成）
 
 - 本轮目标：把工作区 4 个并行 feature 的未提交改动按 feature 拆分提交。

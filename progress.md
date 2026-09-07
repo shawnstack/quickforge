@@ -1,3 +1,11 @@
+## Completed Feature：assistant-reply-artifact-card（2026-09-07，Revision）
+
+- 目标：仅在最后一条已渲染 assistant 回复底部显示“本次回复涉及的文件”卡片；流式中、user、历史 assistant 或无当前轮 artifacts 时不显示。
+- 实现：新增 `src/components/chat/panel-decoration/assistant-artifact-card.ts`，复用 `extractCurrentTurnArtifacts`，只纳入有 path 的 `write_file`/`edit_file`/`present_files`；按设计稿展示文件图标、标题/说明、总 +N/-N、类型徽标、文件名、路径/类型辅助信息、每文件差异、统一「打开」预览按钮，以及「变更范围 · 本次回复」和详情展开/收起。`message-actions.ts` 每次 decorate 先清理并同步卡片，保证 Lit 重建幂等；流式或无 artifact 清除。旧 change-summary-strip UI、CSS、i18n key 和测试已删除；服务端影子备份/回滚实现保留。
+- 测试：新增 `tests/frontend/assistant-artifact-card.test.ts` 覆盖最后 assistant/流式过滤、actions 前插入、preview 接线、CSS 类与 reduced-motion 契约；前端全套 130 files / 1351 tests 通过。
+- Verification：定向 `npx vitest run tests/frontend --reporter=dot`、`npx eslint` 改动 TS/TSX、`npx tsc -b --pretty false`、`git diff --check` 均通过；提交前全量 `npm run test`（283 files / 2688 tests）、`npm run lint`（0 error，仅既有 warning）、`npm run build` 通过。
+- Boundaries：未修改服务端、生成产物；已提交 dev，未 push。
+
 ## Completed Feature：session-change-summary-rollback（2026-09-07，needs-review）
 
 - Feature: 对话底部会话级代码变更摘要条——修改文件数、对账真实 ±行数、影子备份安全回滚、HTML 预览（session-change-summary-rollback）。

@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI 回复文件卡片 · QuickForge 设计稿</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f7f7f5;
+      --surface: #ffffff;
+      --surface-soft: #fafaf9;
+      --surface-hover: #f4f4f2;
+      --border: #e7e7e4;
+      --border-strong: #d8d8d3;
+      --text: #242422;
+      --text-soft: #666662;
+      --text-muted: #969691;
+      --accent: #3f6f9e;
+      --accent-soft: #edf4fb;
+      --added: #07805c;
+      --removed: #c84747;
+      --code-bg: #f6f7f8;
+      --code-line: #eef0f1;
+      --shadow: 0 8px 24px -22px rgb(20 20 20 / 35%);
+      --radius-lg: 16px;
+      --radius-md: 11px;
+      --radius-sm: 8px;
+      --ease-out: cubic-bezier(.2, 0, 0, 1);
+      --dur-fast: 120ms;
+      --dur-base: 180ms;
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --page: #171817;
+      --surface: #202120;
+      --surface-soft: #1c1d1c;
+      --surface-hover: #292a28;
+      --border: #353733;
+      --border-strong: #494c48;
+      --text: #ecece8;
+      --text-soft: #aaaba5;
+      --text-muted: #797d76;
+      --accent: #91b8df;
+      --accent-soft: #263544;
+      --added: #6ee7b7;
+      --removed: #fca5a5;
+      --code-bg: #191b1b;
+      --code-line: #242725;
+      --shadow: 0 12px 30px -26px rgb(0 0 0 / 80%);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--page);
+      color: var(--text);
+      font: 14px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      transition: background var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
+    }
+
+    button {
+      font: inherit;
+      color: inherit;
+    }
+
+    .page {
+      width: min(100% - 40px, 980px);
+      margin: 0 auto;
+      padding: 36px 0 52px;
+    }
+
+    .review-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--text-soft);
+      font-size: 12px;
+      letter-spacing: .02em;
+    }
+
+    .eyebrow-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--added);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--added) 13%, transparent);
+    }
+
+    .theme-toggle {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 11px;
+      background: var(--surface);
+      color: var(--text-soft);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+    }
+
+    .theme-toggle:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+    .theme-toggle:active { transform: scale(.97); }
+
+    .chat-shell {
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 54px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-soft);
+      font-size: 12px;
+    }
+
+    .chat-header strong { color: var(--text); font-weight: 600; }
+    .header-meta { color: var(--text-muted); }
+
+    .messages {
+      display: flex;
+      flex-direction: column;
+      gap: 26px;
+      padding: 28px clamp(18px, 5vw, 58px) 34px;
+      background: var(--surface);
+    }
+
+    .message {
+      display: flex;
+      flex-direction: column;
+      max-width: 680px;
+    }
+
+    .message.user { align-self: flex-end; align-items: flex-end; }
+    .message.assistant { align-self: flex-start; }
+
+    .message-label {
+      margin-bottom: 7px;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .message-copy {
+      color: var(--text-soft);
+      font-size: 14px;
+    }
+
+    .user .message-copy {
+      max-width: 470px;
+      padding: 11px 15px;
+      border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--border));
+      border-radius: 15px 15px 4px 15px;
+      background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+      color: var(--text);
+    }
+
+    .assistant .message-copy p { margin: 0; }
+    .assistant .message-copy p + p { margin-top: 8px; }
+
+    .code-block {
+      width: min(100%, 620px);
+      margin-top: 13px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--code-bg);
+    }
+
+    .code-topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 34px;
+      padding: 0 11px 0 13px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-muted);
+      font: 11px/1.3 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .code-language { color: var(--text-soft); }
+    .code-body {
+      margin: 0;
+      padding: 10px 0;
+      overflow-x: auto;
+      color: var(--text-soft);
+      font: 12px/1.75 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .code-line { display: flex; min-width: max-content; padding-right: 16px; }
+    .code-line.added { background: color-mix(in srgb, var(--added) 9%, transparent); color: var(--added); }
+    .code-line.removed { background: color-mix(in srgb, var(--removed) 8%, transparent); color: var(--removed); }
+    .line-number { width: 40px; padding-right: 12px; color: var(--text-muted); text-align: right; user-select: none; }
+    .line-mark { width: 18px; color: var(--text-muted); text-align: center; user-select: none; }
+    .code-text { white-space: pre; }
+
+    .reply-file-card {
+      width: min(100%, 620px);
+      margin-top: 16px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      background: var(--surface-soft);
+      box-shadow: 0 5px 18px -19px rgb(20 20 20 / 45%);
+      animation: card-in var(--dur-base) var(--ease-out) both;
+    }
+
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 15px 12px;
+    }
+
+    .card-icon {
+      display: grid;
+      flex: none;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+      border-radius: 10px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .card-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .card-heading { min-width: 0; flex: 1; }
+    .card-title { margin: 0; color: var(--text); font-size: 13px; font-weight: 600; }
+    .card-subtitle { margin: 3px 0 0; color: var(--text-muted); font-size: 11px; }
+    .card-total { display: inline-flex; gap: 8px; margin-top: 6px; font: 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .added { color: var(--added); }
+    .removed { color: var(--removed); }
+
+    .card-action {
+      flex: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      background: var(--surface);
+      color: var(--text-soft);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+    }
+
+    .card-action:hover { border-color: var(--border-strong); background: var(--surface-hover); color: var(--text); }
+    .card-action:active { transform: scale(.97); }
+
+    .file-list { padding: 0 9px 9px; }
+    .file-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 48px;
+      padding: 7px 7px;
+      border-top: 1px solid var(--border);
+    }
+
+    .file-type {
+      display: grid;
+      flex: none;
+      width: 26px;
+      height: 26px;
+      place-items: center;
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--text-soft);
+      font: 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+      text-transform: uppercase;
+    }
+
+    .file-info { min-width: 0; flex: 1; }
+    .file-name { overflow: hidden; color: var(--text); font: 12px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .file-meta { overflow: hidden; margin-top: 2px; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .file-stats { display: inline-flex; flex: none; gap: 7px; font: 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+    .details {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows var(--dur-base) var(--ease-out);
+    }
+
+    .details-inner { overflow: hidden; }
+    .details-content {
+      margin: 0 7px 8px;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--code-bg);
+      color: var(--text-soft);
+      font: 11px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .details-content div { white-space: pre; }
+    .details-content .plus { color: var(--added); }
+    .details-content .minus { color: var(--removed); }
+    .reply-file-card[data-expanded="true"] .details { grid-template-rows: 1fr; }
+
+    .card-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 15px 12px;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .details-toggle {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--accent);
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .details-toggle:hover { text-decoration: underline; }
+    .message-actions { margin-top: 9px; color: var(--text-muted); font-size: 11px; }
+    .composer-hint { padding: 14px 22px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 11px; }
+
+    .design-notes {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .note {
+      padding: 13px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      color: var(--text-soft);
+      font-size: 11px;
+    }
+
+    .note strong { display: block; margin-bottom: 4px; color: var(--text); font-size: 12px; }
+
+    @media (max-width: 640px) {
+      .page { width: min(100% - 24px, 980px); padding-top: 22px; }
+      .messages { padding: 22px 14px 28px; }
+      .chat-header { padding: 0 15px; }
+      .card-head { gap: 9px; padding: 12px; }
+      .card-action { padding: 5px 8px; }
+      .file-list { padding-inline: 5px; }
+      .file-row { gap: 7px; padding-inline: 5px; }
+      .file-stats { gap: 4px; }
+      .design-notes { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="review-bar">
+      <div class="eyebrow"><span class="eyebrow-dot"></span><span>AI 回复底部文件预览 · 设计评审稿</span></div>
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="切换浅色或深色主题">切换深色</button>
+    </div>
+
+    <section class="chat-shell" aria-label="对话示例">
+      <header class="chat-header">
+        <span><strong>scheduled-tasks-redesign.html</strong> · 对话预览</span>
+        <span class="header-meta">只展示最后一条 AI 回复卡片</span>
+      </header>
+
+      <div class="messages">
+        <article class="message user">
+          <div class="message-label">你</div>
+          <div class="message-copy">把定时任务页面的布局和代码样式整理得更清晰一些。</div>
+        </article>
+
+        <article class="message assistant">
+          <div class="message-label">AI</div>
+          <div class="message-copy">
+            <p>我先调整了页面结构，统一了卡片间距、操作区域和代码展示样式。</p>
+          </div>
+          <div class="message-actions">复制　⋯</div>
+        </article>
+
+        <article class="message user">
+          <div class="message-label">你</div>
+          <div class="message-copy">文件改动能在这条回复的底部直接看到吗？</div>
+        </article>
+
+        <article class="message assistant">
+          <div class="message-label">AI · 最新回复</div>
+          <div class="message-copy">
+            <p>可以。文件变更会附在最后一条 AI 回复下方，和回复内容保持同一条视觉流。</p>
+          </div>
+
+          <div class="code-block" aria-label="代码片段示例">
+            <div class="code-topline"><span>src/pages/scheduled-tasks.tsx</span><span class="code-language">tsx</span></div>
+            <pre class="code-body"><code><span class="code-line"><span class="line-number">42</span><span class="line-mark"> </span><span class="code-text">return &lt;TaskPanel tasks={tasks} /&gt;</span></span><span class="code-line added"><span class="line-number">43</span><span class="line-mark">+</span><span class="code-text">return &lt;TaskPanel density="comfortable" tasks={tasks} /&gt;</span></span></code></pre>
+          </div>
+
+          <section class="reply-file-card" id="replyFileCard" aria-label="本次回复涉及的文件">
+            <div class="card-head">
+              <div class="card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M14 2H6.8A1.8 1.8 0 0 0 5 3.8v16.4A1.8 1.8 0 0 0 6.8 22h10.4a1.8 1.8 0 0 0 1.8-1.8V7z"/><path d="M14 2v5h5M8.5 12h7M8.5 16h5"/></svg>
+              </div>
+              <div class="card-heading">
+                <h2 class="card-title">本次回复修改了 3 个文件</h2>
+                <p class="card-subtitle">仅统计这条 AI 回复涉及的文件</p>
+                <div class="card-total"><span class="added">+58</span><span class="removed">−12</span></div>
+              </div>
+              <button class="card-action" type="button" title="打开文件预览" aria-label="打开文件预览" data-action="open">打开</button>
+            </div>
+
+            <div class="file-list">
+              <div class="file-row">
+                <div class="file-type">tsx</div>
+                <div class="file-info"><div class="file-name">src/pages/scheduled-tasks.tsx</div><div class="file-meta">页面组件 · React / TypeScript</div></div>
+                <div class="file-stats"><span class="added">+31</span><span class="removed">−6</span></div>
+              </div>
+              <div class="file-row">
+                <div class="file-type">css</div>
+                <div class="file-info"><div class="file-name">src/styles/scheduled-tasks.css</div><div class="file-meta">样式文件 · CSS</div></div>
+                <div class="file-stats"><span class="added">+19</span><span class="removed">−4</span></div>
+              </div>
+              <div class="file-row">
+                <div class="file-type">html</div>
+                <div class="file-info"><div class="file-name">public/scheduled-tasks-redesign.html</div><div class="file-meta">网站 · HTML</div></div>
+                <div class="file-stats"><span class="added">+8</span><span class="removed">−2</span></div>
+              </div>
+            </div>
+
+            <div class="details" aria-hidden="true">
+              <div class="details-inner">
+                <div class="details-content"><div class="plus">+ .task-panel {</div><div class="plus">+   gap: 1rem;</div><div class="plus">+   border-radius: 0.75rem;</div><div class="plus">+ }</div>
+              </div>
+            </div>
+
+            <div class="card-foot">
+              <span>变更范围 · 本次回复</span>
+              <button class="details-toggle" id="detailsToggle" type="button" aria-expanded="false">展开代码详情</button>
+            </div>
+          </section>
+          <div class="message-actions">复制　重新生成　⋯</div>
+        </article>
+      </div>
+
+      <div class="composer-hint">输入框区域保持干净 · 会话级回滚摘要不放在本卡片中</div>
+    </section>
+
+    <section class="design-notes" aria-label="设计说明">
+      <div class="note"><strong>位置</strong>卡片作为最后一条 AI 回复的内容尾部，位于回复操作行之前，不再挂在输入框上方。</div>
+      <div class="note"><strong>范围</strong>只展示本次最新回复涉及的文件；前面的 AI 回复不显示，避免重复堆叠。</div>
+      <div class="note"><strong>语义</strong>本稿只提供文件预览入口，不放“回滚”按钮；会话级回滚仍应保持独立语义。</div>
+    </section>
+  </main>
+
+  <script>
+    const root = document.documentElement;
+    const themeToggle = document.getElementById('themeToggle');
+    const card = document.getElementById('replyFileCard');
+    const detailsToggle = document.getElementById('detailsToggle');
+    const details = card.querySelector('.details');
+
+    themeToggle.addEventListener('click', () => {
+      const dark = root.dataset.theme !== 'dark';
+      root.dataset.theme = dark ? 'dark' : 'light';
+      themeToggle.textContent = dark ? '切换浅色' : '切换深色';
+    });
+
+    detailsToggle.addEventListener('click', () => {
+      const expanded = card.dataset.expanded === 'true';
+      card.dataset.expanded = String(!expanded);
+      detailsToggle.textContent = expanded ? '展开代码详情' : '收起代码详情';
+      detailsToggle.setAttribute('aria-expanded', String(!expanded));
+      details.setAttribute('aria-hidden', String(expanded));
+    });
+
+    card.querySelector('[data-action="open"]').addEventListener('click', () => {
+      window.alert('这里接入现有文件预览：HTML → Browser，代码 → Reader。');
+    });
+  </script>
+</body>
+</html>

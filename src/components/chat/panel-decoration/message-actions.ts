@@ -24,6 +24,7 @@ import { createSlashChipElement, parseSlashInvocationPrefix, planSlashChipText }
 import { createFileReferenceChip } from '../file-reference-suggestions'
 import { createCapabilityChip } from '../capability-suggestions'
 import { selectedCapabilitiesFromDetails } from '@/lib/selected-capabilities'
+import { syncAssistantArtifactCard } from './assistant-artifact-card'
 import type { FileContextReference } from '../chat-utils'
 
 const inputClampLabels: InputClampLabels = { collapsed: () => t('expand'), expanded: () => t('collapse') }
@@ -256,6 +257,7 @@ export type MessageDecorationDeps = {
   /** 终态错误旁「继续生成」：发送一条继续消息或重发未送达的原始消息。 */
   onContinueAfterError?: (errorMessage: MessageWithUsage) => void
   onOpenLocalFilePath?: (path: string) => void
+  onOpenFilePreview?: (relativePath: string) => void
   disableFork: boolean
   allowRollback?: boolean
   allowRetry?: boolean
@@ -445,6 +447,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     onForkFromMessage,
     onContinueAfterError,
     onOpenLocalFilePath,
+    onOpenFilePreview,
     disableFork,
     allowRollback = true,
     allowRetry = true,
@@ -676,6 +679,15 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     ensureMessageTime(actions)
 
     element.append(actions)
+  })
+
+  syncAssistantArtifactCard({
+    panel,
+    displayEntries,
+    messageElements: getPrimaryMessageElements(panel),
+    messages: getMessages(),
+    streaming,
+    onOpenFilePreview,
   })
 
   closeSvgCodeBlockMenus(panel)

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuickForge · 长文本附件极简交互</title>
+<style>
+:root{--bg:#f7f7f8;--panel:#fff;--border:#e4e4e7;--fg:#3f3f46;--muted:#92929d;--blue:#2563eb;--blue-soft:#eff6ff;--amber:#a16207;--amber-soft:#fffbeb;--dur:180ms;--ease:cubic-bezier(.2,0,0,1)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:42px 20px 70px}.eyebrow{color:var(--blue);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}.title{margin:8px 0 6px;font-size:24px;line-height:1.25;font-weight:650}.lead{margin:0 0 26px;color:var(--muted);font-size:13px}.stage{overflow:hidden;border:1px solid var(--border);border-radius:16px;background:var(--panel);box-shadow:0 18px 45px -34px #11182755}.stage-head{padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600}.chat{min-height:390px;padding:28px 8%;display:flex;flex-direction:column;gap:18px;background:linear-gradient(#fff,#fcfcfd)}.time{text-align:center;color:var(--muted);font-size:11px}.bubble{max-width:78%;padding:12px 14px;border-radius:14px}.assistant{border:1px solid var(--border);background:#fff}.user{align-self:flex-end;background:#f4f4f5}.label{margin-bottom:4px;color:var(--muted);font-size:11px}.bubble p{margin:0}.sent{align-self:flex-end;width:min(520px,88%);padding:12px 14px;border:1px solid #dbeafe;border-radius:14px;background:#fff}.message{margin-bottom:10px}.message-file{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:9px;align-items:center;padding:9px 10px;border:1px solid #dbeafe;border-radius:10px;background:var(--blue-soft)}.file-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:#dbeafe;color:var(--blue);font-size:15px}.file-name{font-size:12px;font-weight:650}.meta{color:var(--muted);font-size:11px}.path{margin-top:6px;color:#52525b;font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;word-break:break-all}.copy{padding:4px;border:0;background:transparent;color:var(--blue);font-size:11px}.copy:hover{text-decoration:underline}.composer{margin:0 8% 20px;border:1px solid var(--border);border-radius:18px;background:#fff;box-shadow:0 15px 40px -30px #11182766;overflow:hidden;transition:border-color var(--dur) var(--ease)}.composer:focus-within{border-color:#93c5fd}.textarea{display:block;width:100%;min-height:76px;padding:15px 16px 8px;border:0;outline:0;resize:none;color:var(--fg);font:14px/1.55 inherit}.long-note{display:flex;align-items:center;gap:7px;margin:0 12px 7px;padding:6px 8px;border-radius:7px;background:var(--amber-soft);color:var(--amber);font-size:11px;animation:in var(--dur) var(--ease)}.long-note .spacer{flex:1}.mini-btn{padding:2px 5px;border:0;border-radius:5px;background:transparent;color:var(--blue);font-size:11px}.mini-btn:hover{background:#fff}.draft{display:grid;grid-template-columns:27px minmax(0,1fr) auto auto;gap:8px;align-items:center;margin:9px 12px 0;padding:6px 8px;border:1px solid #dbeafe;border-radius:8px;background:#f8fbff}.draft .file-icon{width:27px;height:27px;font-size:13px}.remove{padding:2px 5px;border:0;background:transparent;color:var(--muted);font-size:17px}.remove:hover{color:#b91c1c}.tools{display:flex;align-items:center;justify-content:space-between;padding:7px 9px 9px}.tools-left,.tools-right{display:flex;align-items:center;gap:6px}.tool{padding:5px 8px;border:0;border-radius:999px;background:transparent;color:var(--muted);font-size:12px}.tool:hover{background:#f4f4f5;color:var(--fg)}.send{padding:7px 13px;border:0;border-radius:999px;background:var(--fg);color:#fff;font-size:12px}.state{text-align:center;color:var(--muted);font-size:11px}.state code{color:#52525b;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.notes{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.note{padding:13px 15px;border:1px solid var(--border);border-radius:11px;background:#fff}.note strong{font-size:12px}.note p{margin:5px 0 0;color:var(--muted);font-size:11px}.toast{position:fixed;right:20px;bottom:20px;padding:9px 12px;border-radius:8px;background:#18181b;color:#fff;font-size:11px;opacity:0;transform:translateY(5px);pointer-events:none;transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease)}.toast.show{opacity:1;transform:none}@keyframes in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}@media(max-width:620px){.wrap{padding:28px 12px 50px}.chat{padding:22px 12px}.composer{margin-left:12px;margin-right:12px}.notes{grid-template-columns:1fr}.bubble,.sent{max-width:94%}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Interaction proposal · 02</div>
+  <h1 class="title">长文本附件 · 极简版</h1>
+  <p class="lead">只在需要决策时出现提示；发送前用一行胶囊表示附件，完整地址仅在消息记录中展示。</p>
+  <section class="stage">
+    <div class="stage-head">当前对话 · Long paste</div>
+    <div class="chat">
+      <div class="time">今天 10:24 · 研发讨论</div>
+      <div class="bubble assistant"><div class="label">QuickForge</div><p>把长文档作为附件发送，可以让对话保持轻量。</p></div>
+      <div id="sent" class="sent" hidden><div class="label">你 · 刚刚</div><div class="message">请基于这份设计说明，整理出实现计划。</div><div class="message-file"><div class="file-icon">▤</div><div><div class="file-name">pasted-content-2026-09-07.txt</div><div class="meta">128 KB · 12,486 字符</div><div class="path">~/.quickforge/tmp/conversations/conv-7f3a/pasted-content-2026-09-07.txt</div></div><button class="copy" onclick="copyPath(this)">复制地址</button></div></div>
+    </div>
+    <div class="composer"><div id="draft" class="draft"><div class="file-icon">▤</div><div><div class="file-name">pasted-content-2026-09-07.txt</div><div class="meta">长文本 · 128 KB · 12,486 字符</div></div><button class="mini-btn" onclick="openAttachment()">打开</button><button class="remove" aria-label="移除附件" onclick="removeAttachment()">×</button></div><textarea id="input" class="textarea" placeholder="输入消息，或粘贴一段较长内容…">请基于这份设计说明，整理出实现计划。</textarea><div class="tools"><div class="tools-left"><button class="tool">＋</button><button class="tool">模型 · 默认</button><button class="tool">权限 · 标准</button></div><button class="send" onclick="send()">发送　↵</button></div></div>
+    <div id="state" class="state">当前状态：<code>检测到长文本，等待选择</code></div>
+  </section>
+  <div class="notes"><div class="note"><strong>发送前</strong><p>轻提示 + 两个选择；不展示完整路径，不制造大卡片。</p></div><div class="note"><strong>发送后</strong><p>附件记录展示完整地址，并提供复制操作。</p></div></div>
+</div>
+<div id="toast" class="toast">已复制完整附件地址</div>
+<script>
+const draft=document.getElementById('draft'),sent=document.getElementById('sent'),state=document.getElementById('state');
+function setState(text){state.innerHTML='当前状态：<code>'+text+'</code>'}
+function openAttachment(){setState('已打开附件文件')}
+function removeAttachment(){draft.hidden=true;setState('附件已移除')}
+function send(){if(!draft.hidden){draft.hidden=true;sent.hidden=false;setState('已发送，记录中保留完整附件地址');sent.scrollIntoView({behavior:'smooth',block:'center'})}else setState('已发送')}
+async function copyPath(button){const path='~/.quickforge/tmp/conversations/conv-7f3a/pasted-content-2026-09-07.txt';try{await navigator.clipboard.writeText(path)}catch(e){}button.textContent='已复制';const toast=document.getElementById('toast');toast.classList.add('show');setTimeout(()=>{toast.classList.remove('show');button.textContent='复制地址'},1600)}
+</script>
+</body>
+</html>

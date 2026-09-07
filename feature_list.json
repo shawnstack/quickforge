@@ -1,6 +1,21 @@
 {
   "features": [
     {
+      "id": "settings-select-reactive-shadowing",
+      "name": "设置页自定义下拉 Lit 响应式属性遮蔽修复",
+      "status": "done",
+      "approach": "设置「默认模型/思考等级/语言/默认运行时/终端 Shell」选择后触发按钮不立即回显、再点一次才显示：quickforge-settings-select.ts 中 static properties（Lit 在 prototype 生成响应式 accessor，setter 内 requestUpdate）与真实类字段初始化（value=''、options=[] 等 8 个）混用，tsconfig target es2023（useDefineForClassFields 默认 true）下原生字段在实例上创建 own property 永久遮蔽 prototype accessor，父组件 .value=... 属性绑定不触发 requestUpdate；再点一次能看到是 _openMenu/_close 手动 requestUpdate 的副作用（值本身写入实例所以保存/重开设置显示正确）。修复：8 个 reactive 属性全部改为 declare 声明（对齐 info-tip.ts/local-tools.ts 项目范式），默认值移入 constructor 经 accessor 赋值（Lit 官方模式；options 被 render 直接 .find/.map 必须保留数组默认值），行为与原默认值完全一致。",
+      "files": [
+        "src/lib/quickforge-settings-select.ts",
+        "tests/frontend/quickforge-settings-select.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "新增回归测试 6 用例：ES2023+useDefineForClassFields transpile AST 契约（8 属性不再出现非静态字段声明 + static properties 键保留）+ Node stub 最小 DOM 直接实例化（手动 finalize 模拟 customElements.define 的 accessor 安装、enableUpdating 模拟 connectedCallback 放行首轮更新、遮蔽 performUpdate 阻断真实渲染）验证属性赋值触发 requestUpdate（isUpdatePending/performUpdate spy）、constructor 默认值经 accessor 无 own property、_select change 派发、_open/_close 周期 label 不回退；bug 复发形态（value 改回字段初始化）实测 4/6 失败证明回归有效。定向 vitest 3 files / 10 tests 全过；eslint 两改动文件 0 error；npx tsc -b 通过。",
+      "boundaries": "纯 bug 修复不改架构，docs/wiki 无该组件条目无需同步；default-options-settings-tab.ts 5 处使用点全部显式绑定属性无默认值依赖（其余 grep 命中为原生 select 的 CSS 类复用）；未新增依赖、未触碰生成产物、未 commit。"
+    },
+    {
       "id": "sidebar-session-time-nowrap",
       "name": "侧栏会话时间列断行修复",
       "status": "done",

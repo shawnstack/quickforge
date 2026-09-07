@@ -1,3 +1,12 @@
+## Bugfix：settings-select-reactive-shadowing（2026-09-08）
+
+- 现象：设置「默认模型/思考等级/语言/默认运行时/终端 Shell」选择后触发按钮不立即回显新选中项，再点一次才显示；数据保存链路正常（重开设置显示正确值）。
+- 根因：`src/lib/quickforge-settings-select.ts` static properties（Lit 在 prototype 生成响应式 accessor）与真实类字段初始化（value=''、options=[] 等 8 个）混用；tsconfig target es2023 且 useDefineForClassFields 默认 true，原生字段在实例上创建 own property 永久遮蔽 prototype accessor，父组件 `.value=...` 属性绑定赋值不触发 requestUpdate（值本身写入实例所以保存/重开正确，但 UI 不重渲染）；再点一次显示是 `_openMenu`/`_close` 手动 requestUpdate 的副作用。
+- 修复：8 个 reactive 属性改 `declare` 声明（对齐 info-tip.ts/local-tools.ts 项目范式）+ 默认值移 constructor 经 accessor 赋值（Lit 官方模式；options 被 render 直接 .find/.map 必须保留 [] 默认值），行为完全不变。
+- 测试：新增 `tests/frontend/quickforge-settings-select.test.ts` 6 用例——ES2023+useDefineForClassFields transpile AST 契约防字段声明复发；Node stub 最小 DOM（HTMLElement/customElements/document/window + 手动 finalize 模拟 customElements.define 的 accessor 安装 + enableUpdating 模拟 connectedCallback 放行首轮更新 + 遮蔽 performUpdate 阻断真实渲染）直接实例化组件，验证属性赋值触发 requestUpdate（isUpdatePending/performUpdate spy）、默认值经 accessor 无 own property、_select change 派发、_open/_close 周期 label 不回退；bug 复发形态实测 4/6 失败，回归有效。
+- Verification: 定向 vitest quickforge-settings-select 6 + default-options-settings-tab 2 + local-tools-lit-reactivity 2 全过（3 files/10 tests）；eslint 两改动文件 0 error；npx tsc -b 通过。
+- Boundaries: 纯 bug 修复；wiki 无该组件条目未动；default-options-settings-tab 5 处使用点均显式绑定属性，其余 grep 命中为原生 select 的 CSS 类复用；未新增依赖、未触碰生成产物、未 commit。
+
 ## Bugfix：sidebar-session-time-nowrap（2026-09-08）
 
 - 现象：中文界面侧栏会话时间「15小时」在 36px 固定列内断成两行（「15小/时」），行高被撑开；「2天」不受影响。

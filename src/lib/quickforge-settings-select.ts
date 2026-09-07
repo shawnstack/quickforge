@@ -54,14 +54,31 @@ class QuickForgeSettingsSelect extends LitElement {
     noResultsLabel: { type: String },
   }
 
-  value = ''
-  placeholder = ''
-  options: QuickForgeSettingsSelectOption[] = []
-  disabled = false
-  label = ''
-  searchable = false
-  searchPlaceholder = ''
-  noResultsLabel = ''
+  // 只做类型声明：Lit 会在 prototype 上为 static properties 生成响应式
+  // accessor。若改回真实类字段初始化，es2023(target)+useDefineForClassFields
+  // 会在实例上定义 own property，永久遮蔽 prototype accessor，父组件
+  // .value=... 等属性绑定将不再触发 requestUpdate（默认值改在 constructor
+  // 中经 accessor 赋值，走 Lit 官方模式）。
+  declare value: string
+  declare placeholder: string
+  declare options: QuickForgeSettingsSelectOption[]
+  declare disabled: boolean
+  declare label: string
+  declare searchable: boolean
+  declare searchPlaceholder: string
+  declare noResultsLabel: string
+
+  constructor() {
+    super()
+    this.value = ''
+    this.placeholder = ''
+    this.options = []
+    this.disabled = false
+    this.label = ''
+    this.searchable = false
+    this.searchPlaceholder = ''
+    this.noResultsLabel = ''
+  }
 
   private triggerRef = createRef<HTMLButtonElement>()
   private searchRef = createRef<HTMLInputElement>()

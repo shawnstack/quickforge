@@ -1,3 +1,13 @@
+## 当前状态：settings-select-reactive-shadowing（已完成，未提交）
+
+- 现象：设置页自定义下拉（默认模型/思考等级/语言/默认运行时/终端 Shell）选择后触发按钮不立即回显，再点一次才显示；保存与重开设置显示正常。
+- 根因：`src/lib/quickforge-settings-select.ts` static properties 与真实类字段初始化混用——tsconfig target es2023 + useDefineForClassFields 默认 true 下，原生字段在实例上创建 own property，永久遮蔽 Lit 在 prototype 生成的响应式 accessor，父组件 `.value=...` 属性绑定不触发 requestUpdate；再点一次显示来自 `_openMenu`/`_close` 手动 requestUpdate。
+- 修复：8 个 reactive 属性改 `declare` + constructor 默认值（Lit 官方模式，走 accessor），对齐 info-tip.ts/local-tools.ts 项目范式；行为不变。
+- 测试：新增 `tests/frontend/quickforge-settings-select.test.ts`（6 用例：ES2023 transpile AST 契约 + Node stub 最小 DOM 实例化验证 accessor 调度/change 派发/开关周期回显；bug 复发形态实测 4/6 失败）。定向 vitest 3 files / 10 tests、eslint 改动文件 0 error、`npx tsc -b` 全过。
+- 下一步：真机冒烟——设置页五个下拉选择后触发按钮立即回显、Portal 菜单定位/键盘/搜索不受影响；未 commit（工作区还有 assistant-reply-artifact-card Revision 3 等并行未提交改动，commit 时按 feature 拆分）。
+
+---
+
 ## 当前状态：sidebar-session-time-nowrap（已完成，已提交 dev，未 push）
 
 - 现象：中文界面侧栏会话时间「15小时」在固定 36px 时间列内断成两行并撑高行；「2天」等短文案不受影响。

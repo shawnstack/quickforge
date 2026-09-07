@@ -96,6 +96,21 @@ vi.mock('../../../server/utils/logger.mjs', () => ({
   logger: mocks.logger,
 }))
 
+const attachmentMocks = vi.hoisted(() => ({
+  createTextAttachment: vi.fn(),
+  isTextAttachmentPath: vi.fn(),
+  openPathInFileManager: vi.fn(),
+}))
+
+vi.mock('../../../server/text-attachments.mjs', () => ({
+  createTextAttachment: attachmentMocks.createTextAttachment,
+  isTextAttachmentPath: attachmentMocks.isTextAttachmentPath,
+}))
+
+vi.mock('../../../server/utils/platform.mjs', () => ({
+  openPathInFileManager: attachmentMocks.openPathInFileManager,
+}))
+
 function request(body) {
   const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
   req.method = 'POST'
@@ -141,6 +156,66 @@ describe('agent prompt route', () => {
       references,
     )
     expect(JSON.parse(res.body)).toEqual({ sessionId: 'session-1', status: 'running' })
+  })
+})
+
+describe('agent text attachment routes', () => {
+  beforeEach(() => {
+    attachmentMocks.createTextAttachment.mockReset()
+    attachmentMocks.isTextAttachmentPath.mockReset()
+    attachmentMocks.openPathInFileManager.mockReset()
+  })
+
+  it('creates a text attachment for the session', async () => {
+    const attachment = { id: 'text-1', type: 'document', path: 'C:\\qf\\a.txt' }
+    attachmentMocks.createTextAttachment.mockResolvedValue(attachment)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(
+      request({ text: 'pasted content', fileName: 'pasted-content.txt' }),
+      res,
+      new URL('http://localhost/api/agents/session-1/text-attachment'),
+    )
+
+    expect(attachmentMocks.createTextAttachment).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      text: 'pasted content',
+      fileName: 'pasted-content.txt',
+    })
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ attachment })
+  })
+
+  it('passes the attachment file itself to the system file manager open helper', async () => {
+    attachmentMocks.isTextAttachmentPath.mockReturnValue(true)
+    attachmentMocks.openPathInFileManager.mockResolvedValue()
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const attachmentPath = 'C:\\qf\\cache\\global\\tmp\\conversations\\s1\\pasted-content.txt'
+
+    await handleAgentApi(
+      request({ path: attachmentPath }),
+      res,
+      new URL('http://localhost/api/agents/session-1/open-text-attachment'),
+    )
+
+    expect(attachmentMocks.openPathInFileManager).toHaveBeenCalledWith(attachmentPath)
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ ok: true, opened: 'file' })
+  })
+
+  it('rejects opening paths outside the temporary attachment root', async () => {
+    attachmentMocks.isTextAttachmentPath.mockReturnValue(false)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+
+    await expect(handleAgentApi(
+      request({ path: 'C:\\Windows\\system.ini' }),
+      response(),
+      new URL('http://localhost/api/agents/session-1/open-text-attachment'),
+    )).rejects.toMatchObject({ statusCode: 400, message: 'Invalid text attachment path' })
+
+    expect(attachmentMocks.openPathInFileManager).not.toHaveBeenCalled()
   })
 })
 

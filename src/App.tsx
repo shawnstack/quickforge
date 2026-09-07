@@ -855,6 +855,25 @@ function MainApp() {
   }, [addToast, agentManager.currentSessionId])
 
   const openLocalFilePathFromChat = useCallback(async (filePath: string) => {
+    const sessionId = agentManager.currentSessionId ?? 'local'
+    const normalizedPath = filePath.replace(/[\\\\/]+/g, '/').toLowerCase()
+    const isQuickForgeTextAttachment = normalizedPath.includes('/cache/global/tmp/conversations/')
+    if (isQuickForgeTextAttachment) {
+      try {
+        const response = await fetch(`/api/agents/${encodeURIComponent(sessionId)}/open-text-attachment`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ path: filePath }),
+        })
+        if (response.ok) return
+        const payload = await response.json().catch(() => null) as { error?: string; message?: string } | null
+        throw new Error(payload?.message || payload?.error || `HTTP ${response.status}`)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '打开临时附件失败'
+        addToast({ sessionId: agentManager.currentSessionId ?? '', title: '无法打开文件', status: 'error', message })
+        return
+      }
+    }
     const projectId = agentManager.currentToolProject?.id
     const requestScope = workspaceInspectorScopeRef.current
     if (!projectId) {

@@ -76,6 +76,16 @@ describe('serverConvertToLlm', () => {
     ])
   })
 
+  it('reads a qf temporary text attachment by safe path without changing stored history', async () => {
+    const { createTextAttachment } = await import('../../server/text-attachments.mjs')
+    const attachment = await createTextAttachment({ sessionId: 'converter-test', text: 'large pasted text', fileName: 'pasted-content.txt' })
+    const message = { role: 'user-with-attachments', content: 'summarize', attachments: [attachment] }
+    expect(serverConvertToLlm([message])[0].content[1].text).toContain('large pasted text')
+    expect(message.attachments[0].extractedText).toBeUndefined()
+    const { rm } = await import('node:fs/promises')
+    await rm(attachment.path, { force: true })
+  })
+
   it('keeps artifact filtering and user-with-attachments conversion intact', () => {
     const messages = [
       { role: 'artifact', content: [] },

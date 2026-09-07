@@ -1,4 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
+import { createTextAttachment, isTextAttachmentPath } from '../text-attachments.mjs'
+import { openPathInFileManager } from '../utils/platform.mjs'
 import { logger } from '../utils/logger.mjs'
 import { resolveModelBinding } from '../model-catalog.mjs'
 import {
@@ -81,6 +83,28 @@ export async function handleAgentApi(req, res, url, context = {}) {
       await handleStreamHead(req, res, sessionId)
       return
     }
+  }
+
+  // POST /api/agents/:sessionId/text-attachment — persist a large pasted text as a temporary attachment
+  if (req.method === 'POST' && subPath === 'text-attachment') {
+    const body = await readJsonBody(req)
+    const attachment = await createTextAttachment({ sessionId, text: body?.text, fileName: body?.fileName })
+    sendJson(res, 200, { attachment })
+    return
+  }
+
+  // POST /api/agents/:sessionId/open-text-attachment — open a temporary text attachment in the system file manager
+  if (req.method === 'POST' && subPath === 'open-text-attachment') {
+    const body = await readJsonBody(req, 16 * 1024)
+    const filePath = typeof body?.path === 'string' ? body.path : ''
+    if (!isTextAttachmentPath(filePath)) {
+      const error = new Error('Invalid text attachment path')
+      error.statusCode = 400
+      throw error
+    }
+    await openPathInFileManager(filePath)
+    sendJson(res, 200, { ok: true, opened: 'file' })
+    return
   }
 
   // POST /api/agents/:sessionId/prompt — send user message

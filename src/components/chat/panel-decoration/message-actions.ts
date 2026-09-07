@@ -359,6 +359,42 @@ function contextReferencesFromMessage(message: MessageWithUsage): FileContextRef
   )).slice(0, 8)
 }
 
+// attachment-tile 宿主标记：path = 当前附件完整路径（点击时读取，路径变化无需重绑），
+// bound = 点击监听已安装（每 tile 只绑一次）。
+const TEXT_ATTACHMENT_TILE_PATH_FLAG = 'quickforgeTextAttachmentPath'
+const TEXT_ATTACHMENT_TILE_BOUND_FLAG = 'quickforgeTextAttachmentBound'
+
+/**
+ * 用户消息内 qf 临时文本附件装饰：按附件顺序对齐 attachment-tile，绑定
+ * 「系统文件管理器打开」点击；完整路径只放 tile 的 hover 提示，消息内
+ * 不展示路径文字行（清理旧版本装饰遗留的行）。装饰周期高频重复执行
+ * （流式期每 rAF 全量扫描、DOM 元素被 Lit 按 index 复用），必须幂等：
+ * 每 tile 只安装一个读取当前路径的监听。
+ */
+export function decorateTextAttachmentTiles(
+  element: HTMLElement,
+  attachments: Array<{ path?: string }>,
+  onOpenLocalFilePath?: (path: string) => void,
+) {
+  element.querySelectorAll<HTMLElement>('.quickforge-text-attachment-path').forEach((row) => row.remove())
+  const tiles = Array.from(element.querySelectorAll<HTMLElement>('attachment-tile'))
+  attachments.forEach((attachment, attachmentIndex) => {
+    const attachmentPath = attachment?.path
+    if (!attachmentPath) return
+    const tile = tiles[attachmentIndex]
+    if (!tile) return
+    tile.setAttribute('title', `点击在系统文件管理器中打开：${attachmentPath}`)
+    tile.dataset[TEXT_ATTACHMENT_TILE_PATH_FLAG] = attachmentPath
+    if (tile.dataset[TEXT_ATTACHMENT_TILE_BOUND_FLAG] === '1') return
+    tile.dataset[TEXT_ATTACHMENT_TILE_BOUND_FLAG] = '1'
+    tile.addEventListener('click', (clickEvent) => {
+      clickEvent.stopPropagation()
+      const currentPath = tile.dataset[TEXT_ATTACHMENT_TILE_PATH_FLAG]
+      if (currentPath) onOpenLocalFilePath?.(currentPath)
+    }, true)
+  })
+}
+
 export function decorateUserContextChips(element: HTMLElement, message: MessageWithUsage) {
   const container = element.querySelector<HTMLElement>('.user-message-container')
   if (!container) return
@@ -465,6 +501,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     }
     if (entry.message.role === 'user' || entry.message.role === 'user-with-attachments') {
       decorateUserContextChips(element, entry.message)
+      if (Array.isArray(entry.message.attachments)) {
+        decorateTextAttachmentTiles(element, entry.message.attachments as Array<{ path?: string }>, onOpenLocalFilePath)
+      }
     }
 
     const messageTimeValue = messageTimestamp(entry.message)

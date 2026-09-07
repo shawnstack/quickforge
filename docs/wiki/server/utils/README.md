@@ -41,7 +41,7 @@
 ### platform.mjs — 跨平台工具 (161 行)
 
 - `selectDirectoryDialog()` — 打开系统原生目录选择器（跨平台实现）
-- `openPathInFileManager()` — 在文件管理器中打开目录
+- `openPathInFileManager()` — 在文件管理器中打开目录，或定位具体文件（win32 `explorer /select,`、darwin `open -R`、Linux 打开父目录）；参数构造见 `createFileManagerOpenArgs()`
 - `openPathInVSCode()` / `openPathInIDEA()` — 在对应编辑器中打开目录或具体文件
 - `openBrowser()` — 打开浏览器
 - `spawnCollect()` — 子进程执行并收集输出

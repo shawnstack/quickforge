@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { existsSync, readFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { Readable } from 'node:stream'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -13,7 +15,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../server/agent-manager.mjs', () => ({ getSessionState: mocks.getSessionState }))
 vi.mock('../../../server/model-catalog.mjs', () => ({ resolveModelBinding: mocks.resolveModelBinding }))
 vi.mock('../../../server/ai-http-logger.mjs', () => ({ streamSimpleWithAiHttpLogging: mocks.streamSimple }))
-vi.mock('../../../server/storage.mjs', () => ({ readStore: mocks.readStore }))
+vi.mock('../../../server/storage.mjs', () => ({
+  cacheDir: path.join(os.tmpdir(), 'quickforge-side-chat-test-cache'),
+  readStore: mocks.readStore,
+}))
 
 const quickForgeModel = {
   id: 'qf-model',

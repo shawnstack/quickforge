@@ -53,6 +53,9 @@ type FakeNode = {
   prepend: (item: FakeNode) => void
   replaceChildren: (...items: FakeNode[]) => void
   remove: () => void
+  listeners: Record<string, Array<(event: unknown) => void>>
+  addEventListener: (type: string, listener: (event: unknown) => void) => void
+  removeEventListener: (type: string, listener: (event: unknown) => void) => void
   querySelector: (selector: string) => FakeNode | null
   querySelectorAll: (selector: string) => FakeNode[]
   closest: (selector: string) => FakeNode | null
@@ -134,6 +137,14 @@ function createFakeElement(tagName = 'div'): FakeNode {
         if (index >= 0) parent.children.splice(index, 1)
       }
       node.parentElement = null
+    },
+    listeners: {} as Record<string, Array<(event: unknown) => void>>,
+    addEventListener(type: string, listener: (event: unknown) => void) {
+      const registered = node.listeners[type] ?? (node.listeners[type] = [])
+      registered.push(listener)
+    },
+    removeEventListener(type: string, listener: (event: unknown) => void) {
+      node.listeners[type] = (node.listeners[type] ?? []).filter((candidate) => candidate !== listener)
     },
     querySelector(selector: string) {
       const alternatives = selector.split(',').map((part) => part.trim())
@@ -666,5 +677,133 @@ describe('user message slash invocation chip decoration', () => {
     // 覆盖层不拦截指针，激活时原文透明但光标可见。
     expect(css).toMatch(/\.quickforge-slash-overlay \{[^}]*pointer-events: none/s)
     expect(css).toMatch(/\.quickforge-slash-source-text \{[^}]*color: transparent[^}]*caret-color: var\(--foreground\)/s)
+  })
+})
+
+describe('text attachment tile decoration', () => {
+  beforeEach(() => {
+    vi.stubGlobal('document', {
+      createElement: createFakeElement,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })
+    vi.stubGlobal('window', {
+      setTimeout,
+      clearTimeout,
+      requestAnimationFrame: (callback: () => void) => { callback(); return 1 },
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function createUserMessageWithTiles(tileCount: number) {
+    const { element } = createUserMessageElement()
+    const tiles = Array.from({ length: tileCount }, () => {
+      const tile = createFakeElement('attachment-tile')
+      element.append(tile)
+      return tile
+    })
+    return { element, tiles }
+  }
+
+  function decorateAttachmentPanel(element: FakeNode, message: Record<string, unknown>, onOpenLocalFilePath: ReturnType<typeof vi.fn>) {
+    const messageList = createFakeElement('message-list')
+    messageList.append(element)
+    const panel = createFakeElement('div')
+    panel.append(messageList)
+    decorateMessages({
+      panel: panel as unknown as HTMLElement,
+      getMessages: () => [message] as never,
+      isStreaming: () => false,
+      onCopyAnswer: vi.fn(),
+      onRollbackFromMessage: vi.fn(),
+      onRetryFromMessage: vi.fn(),
+      onForkFromMessage: vi.fn(),
+      disableFork: false,
+      historyActionsDisabled: false,
+      onOpenLocalFilePath,
+    })
+  }
+
+  function clickTile(tile: FakeNode) {
+    for (const listener of [...(tile.listeners.click ?? [])]) {
+      listener({ stopPropagation: vi.fn() })
+    }
+  }
+
+  it('binds the open handler to the matching tile with the path only in the hover title', () => {
+    const onOpenLocalFilePath = vi.fn()
+    const attachmentPath = 'C:\\Users\\demo\\.quickforge\\cache\\global\\tmp\\conversations\\s1\\pasted-content.txt'
+    const { element, tiles } = createUserMessageWithTiles(1)
+
+    decorateAttachmentPanel(element, {
+      role: 'user-with-attachments',
+      content: 'see attachment',
+      attachments: [{ path: attachmentPath }],
+    }, onOpenLocalFilePath)
+
+    // 消息内不展示路径文字行，完整路径只在 tile 的 hover 提示里。
+    expect(element.querySelectorAll('.quickforge-text-attachment-path')).toHaveLength(0)
+    expect(tiles[0].getAttribute('title')).toBe(`点击在系统文件管理器中打开：${attachmentPath}`)
+
+    clickTile(tiles[0])
+    expect(onOpenLocalFilePath).toHaveBeenCalledTimes(1)
+    expect(onOpenLocalFilePath).toHaveBeenCalledWith(attachmentPath)
+  })
+
+  it('is idempotent across repeated decoration cycles, keeps clicks working, and removes stale path rows', () => {
+    const onOpenLocalFilePath = vi.fn()
+    const attachmentPath = 'C:\\qf\\cache\\global\\tmp\\conversations\\s2\\pasted-content.txt'
+    const { element, tiles } = createUserMessageWithTiles(1)
+    const message = { role: 'user-with-attachments', content: '', attachments: [{ path: attachmentPath }] }
+    // 旧版本装饰遗留的路径行要被清掉。
+    const staleRow = createFakeElement('div')
+    staleRow.className = 'quickforge-text-attachment-path'
+    staleRow.textContent = attachmentPath
+    element.append(staleRow)
+
+    decorateAttachmentPanel(element, message, onOpenLocalFilePath)
+    decorateAttachmentPanel(element, message, onOpenLocalFilePath)
+
+    expect(element.querySelectorAll('.quickforge-text-attachment-path')).toHaveLength(0)
+
+    clickTile(tiles[0])
+    expect(onOpenLocalFilePath).toHaveBeenCalledTimes(1)
+    clickTile(tiles[0])
+    expect(onOpenLocalFilePath).toHaveBeenCalledTimes(2)
+  })
+
+  it('aligns multiple attachments to their own tiles and follows path changes', () => {
+    const onOpenLocalFilePath = vi.fn()
+    const { element, tiles } = createUserMessageWithTiles(2)
+    const firstPath = 'C:\\tmp\\a.txt'
+    const secondPath = 'C:\\tmp\\b.txt'
+
+    decorateAttachmentPanel(element, {
+      role: 'user-with-attachments',
+      content: '',
+      attachments: [{ path: firstPath }, { path: secondPath }],
+    }, onOpenLocalFilePath)
+
+    clickTile(tiles[0])
+    expect(onOpenLocalFilePath).toHaveBeenLastCalledWith(firstPath)
+    clickTile(tiles[1])
+    expect(onOpenLocalFilePath).toHaveBeenLastCalledWith(secondPath)
+
+    const changedPath = 'C:\\tmp\\c.txt'
+    decorateAttachmentPanel(element, {
+      role: 'user-with-attachments',
+      content: '',
+      attachments: [{ path: firstPath }, { path: changedPath }],
+    }, onOpenLocalFilePath)
+
+    clickTile(tiles[1])
+    expect(onOpenLocalFilePath).toHaveBeenLastCalledWith(changedPath)
+    expect(onOpenLocalFilePath).toHaveBeenCalledTimes(3)
+    clickTile(tiles[0])
+    expect(onOpenLocalFilePath).toHaveBeenLastCalledWith(firstPath)
+    expect(onOpenLocalFilePath).toHaveBeenCalledTimes(4)
   })
 })

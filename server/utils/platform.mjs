@@ -170,17 +170,28 @@ async function findIntelliJIdeaExecutable() {
   return findExistingFile(candidates.map((candidate) => candidate.file))
 }
 
+export function createFileManagerOpenArgs(targetPath, isDirectory, platform = process.platform) {
+  if (platform === 'win32') {
+    return isDirectory ? [targetPath] : [`/select,${targetPath}`]
+  }
+  if (platform === 'darwin') {
+    return isDirectory ? [targetPath] : ['-R', targetPath]
+  }
+  // No cross-desktop "reveal file" standard on Linux: open the parent folder.
+  return [isDirectory ? targetPath : path.dirname(targetPath)]
+}
+
 export async function openPathInFileManager(targetPath) {
   const resolved = path.resolve(String(targetPath || ''))
   const stat = await fs.stat(resolved).catch(() => null)
-  if (!stat || !stat.isDirectory()) {
-    const error = new Error(`Directory does not exist: ${resolved}`)
+  if (!stat || (!stat.isDirectory() && !stat.isFile())) {
+    const error = new Error(`Path does not exist: ${resolved}`)
     error.statusCode = 400
     throw error
   }
 
   const command = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open'
-  const args = [resolved]
+  const args = createFileManagerOpenArgs(resolved, stat.isDirectory())
   await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       detached: true,

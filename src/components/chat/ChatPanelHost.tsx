@@ -1094,6 +1094,8 @@ export function ChatPanelHost({
           },
           onInput: handleEditorInput,
           onFilesChange: handleEditorFilesChange,
+          sessionId,
+          onOpenLocalFilePath: props.onOpenLocalFilePath,
           removeCommandSuggestions: cmdSuggestions.remove,
           updateCommandSuggestions: cmdSuggestions.update,
           setupCommandTextareaHandler: cmdSuggestions.setupTextareaHandler,

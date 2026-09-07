@@ -1,3 +1,16 @@
+## 当前状态：large-paste-text-attachment Revision（真机冒烟报错修复 + UI 微调，已完成，未提交）
+
+- 背景：用户真机点击粘贴文本附件报「无法打开文件 Path is outside the selected project: C:\Users\...\.quickforge\cache\global\tmp\conversations\pending-...」。只读排查结论：该报错只能来自 App.tsx `openLocalFilePathFromChat` 的 resolveWorkspacePath 回退分支，而当前代码（含 16:34 dist）的 `/cache/global/tmp/conversations/` 检测对该路径必然命中——即用户渲染进程跑的是 feature 中间态旧 bundle（编辑器粘贴已有、App.tsx 专用分支 15:07 才写入），**重启桌面应用加载新 dist 即不复现**；但当前代码另有两个真实缺陷，本轮一并修复。
+- 修复①（服务端）：`openPathInFileManager` 原仅接受目录（`stat.isDirectory()` 否则 400），open-text-attachment 路由传入 .txt 文件必然失败。现支持文件定位：参数构造抽为纯函数 `createFileManagerOpenArgs`（win32 `explorer /select,<file>`、darwin `open -R`、Linux `xdg-open <父目录>`；目录行为不变），缺失/类型非法统一报 `Path does not exist`（原 Directory does not exist）。
+- 修复②（前端装饰）：message-actions 附件装饰重写为 `decorateTextAttachmentTiles`——Lit index-keyed 复用 user-message DOM 下原实现每装饰周期重复 append `.quickforge-text-attachment-path` 行、叠加 once 点击监听，且多附件 `:last-of-type` 全绑最后一个 tile；现 tile 按 attachment 下标对齐、每 tile 仅安装一个读取当前 dataset 路径的持久 capture 监听（路径变化自动跟随、点击永远生效且拦截 pi 自带 AttachmentOverlay）。editor-bindings 编辑器 chip 点击监听同步去 `once` + 同款两标记去重。
+- 修复③（UI 微调，用户反馈"顶部不要显示完整路径"）：消息内不再展示 `.quickforge-text-attachment-path` 路径行（CSS 两条规则删除，装饰函数保留旧残留清理）；完整路径仅在附件 tile hover 提示（title），点击打开行为不变。方案 A（三选一问题未作答按推荐执行），如需"只显示文件名/中间省略路径"再微调即可。
+- 文件：server/utils/platform.mjs、src/components/chat/panel-decoration/{message-actions,editor-bindings}.ts、src/index.css（-路径行样式）、tests/server/utils/platform.test.mjs（+2）、tests/server/routes/agent.test.mjs（+3，mock text-attachments/platform）、tests/frontend/message-actions.test.ts（+3，FakeNode 扩展 listeners/addEventListener）、docs/wiki/server/utils/README.md、feature_list.json、progress.md、session-handoff.md。
+- 验证：定向 vitest message-actions 30 / routes/agent 19 / utils/platform 5 / text-attachments+message-converters+editor-bindings+routes/channels 17 全过；UI 微调轮 message-actions+editor-bindings 32 全过；改动文件 eslint 0 error；tsc -b；node --check；npm run build 通过（仅既有 chunk 警告，dist 已刷新）。
+- 下一步：用户**重启桌面应用**后冒烟——粘贴 ≥3000 字符 → 消息内只见附件块（无路径文字行，hover 显示完整路径）；点击输入框附件 chip 与消息附件 tile 均在资源管理器中定位到该 .txt；多次点击持续生效；连续两次粘贴多附件时各 tile 打开各自文件。
+- Notes：open 路由未校验会话归属（`isSessionTextAttachmentPath` 导出未用，任何合法 qf 附件路径可经任意会话 URL 打开，本地单用户影响小，留观）；`.zcode/` 未跟踪目录与并行会话改动（sidebar-pinned-refocus-flash 等）不属于本 feature，commit 时按 feature 拆分。
+
+---
+
 ## 当前状态：sqlite-heavy-op-worker-thread（已完成，待提交）
 
 - 目标：会话持久化的消息编码+同步大事务不再阻塞主事件循环（"保存设置被 persist 拖住"治本），所有运行时（desktop fork/inline、qf CLI/npm web、ACP stdio）统一受益。

@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+import { isTextAttachmentPath } from './text-attachments.mjs'
+
 /**
  * LLM message format converters.
  *
@@ -43,8 +46,11 @@ export function serverConvertToLlm(messages) {
         for (const att of m.attachments) {
           if (att.type === 'image' && att.content) {
             textContent.push({ type: 'image', data: att.content, mimeType: att.mimeType })
-          } else if (att.type === 'document' && att.extractedText) {
-            textContent.push({ type: 'text', text: `\n\n[Document: ${att.fileName}]\n${att.extractedText}` })
+          } else if (att.type === 'document') {
+            const extractedText = att.extractedText || (att.path && isTextAttachmentPath(att.path) ? (() => {
+              try { return fs.readFileSync(att.path, 'utf8') } catch { return '' }
+            })() : '')
+            if (extractedText) textContent.push({ type: 'text', text: `\n\n[Document: ${att.fileName}]\n${extractedText}` })
           }
         }
       }

@@ -1,4 +1,25 @@
-import { createExternalAppEnv, createVSCodeOpenArgs, shouldHideVSCodeLauncherWindow } from '../../../server/utils/platform.mjs'
+import { createExternalAppEnv, createFileManagerOpenArgs, createVSCodeOpenArgs, shouldHideVSCodeLauncherWindow } from '../../../server/utils/platform.mjs'
+
+describe('file manager open arguments', () => {
+  it('opens directories directly on every platform', () => {
+    expect(createFileManagerOpenArgs('C:\\cache\\global\\tmp\\conversations\\s1', true, 'win32'))
+      .toEqual(['C:\\cache\\global\\tmp\\conversations\\s1'])
+    expect(createFileManagerOpenArgs('/tmp/conversations/s1', true, 'darwin'))
+      .toEqual(['/tmp/conversations/s1'])
+    expect(createFileManagerOpenArgs('/tmp/conversations/s1', true, 'linux'))
+      .toEqual(['/tmp/conversations/s1'])
+  })
+
+  it('reveals files at their location instead of rejecting them', () => {
+    expect(createFileManagerOpenArgs('C:\\cache\\global\\tmp\\conversations\\s1\\pasted-content.txt', false, 'win32'))
+      .toEqual(['/select,C:\\cache\\global\\tmp\\conversations\\s1\\pasted-content.txt'])
+    expect(createFileManagerOpenArgs('/tmp/conversations/s1/pasted-content.txt', false, 'darwin'))
+      .toEqual(['-R', '/tmp/conversations/s1/pasted-content.txt'])
+    // Linux has no cross-desktop reveal standard: open the parent folder.
+    expect(createFileManagerOpenArgs('/tmp/conversations/s1/pasted-content.txt', false, 'linux'))
+      .toEqual(['/tmp/conversations/s1'])
+  })
+})
 
 describe('external application environment', () => {
   it('removes Electron runtime flags before launching VS Code', () => {

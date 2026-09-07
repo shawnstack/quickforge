@@ -1,6 +1,33 @@
 {
   "features": [
     {
+      "id": "large-paste-text-attachment",
+      "name": "长文本粘贴自动转为临时附件",
+      "status": "done",
+      "approach": "粘贴达到 3000 字符时写入 qf cache/global/tmp/conversations 临时目录，消息仅保存路径元数据并由服务端安全读取；输入框内复用 attachment-tile，点击附件通过系统文件管理器打开（文件用 /select、open -R 定位），pending 会话不再发起无效打开请求；消息与编辑器两侧点击绑定幂等（每 tile 一个持久监听、点击时读当前路径）；消息内不展示路径文字行，完整路径只在附件 hover 提示里。",
+      "files": [
+        "server/text-attachments.mjs",
+        "server/routes/agent.mjs",
+        "server/message-converters.mjs",
+        "server/utils/platform.mjs",
+        "src/App.tsx",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/chat-utils.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/panel-decoration/editor-bindings.ts",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "src/index.css",
+        "tests/server/text-attachments.test.mjs",
+        "tests/server/message-converters.test.mjs",
+        "tests/server/utils/platform.test.mjs",
+        "tests/server/routes/agent.test.mjs",
+        "tests/frontend/message-actions.test.ts",
+        "docs/wiki/server/utils/README.md"
+      ],
+      "verification": "Revision（真机冒烟修复）：openPathInFileManager 由仅目录改为支持文件定位（win32 explorer /select,、darwin open -R、Linux 打开父目录，参数构造抽为纯函数 createFileManagerOpenArgs），错误文案改为 Path does not exist；message-actions 附件装饰幂等化（tile 按 attachment 对齐且只装一个读当前路径的持久监听）；editor-bindings 点击监听去 once（第二次点击不再落回 pi 附件预览）。Revision 2（UI 微调）：按用户反馈移除消息内完整路径行（含 .quickforge-text-attachment-path CSS 与旧装饰残留清理），完整路径仅保留在附件 tile hover 提示，点击行为不变。定向 vitest：message-actions 30、agent 路由 19、platform 5、text-attachments/message-converters/editor-bindings/channels 17 全过；eslint 0 error；tsc -b；node --check；npm run build 通过（仅既有 chunk 警告）。",
+      "boundaries": "未修改生成产物、未新增依赖、未 commit/tag/push。"
+    },
+    {
       "id": "sqlite-heavy-op-worker-thread",
       "name": "SQLite 会话域重操作迁入 worker_threads 专职线程（双连接分区）",
       "status": "done",

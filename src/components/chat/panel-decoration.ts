@@ -123,6 +123,8 @@ export type EditorDecorationDeps = {
   selectPluginCapability: (pluginName: string) => void
   availablePluginRows: () => CapabilitySuggestion[]
   onBeforeSend?: (input: string) => void
+  sessionId?: string
+  onOpenLocalFilePath?: (path: string) => void
 }
 
 export function disableComposerControls(panel: HTMLElement, editor: MessageEditorElement | null) {
@@ -193,6 +195,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     selectPluginCapability,
     availablePluginRows,
     onBeforeSend,
+    sessionId,
+    onOpenLocalFilePath,
   } = deps
 
   const editor = panel.querySelector<MessageEditorElement>('message-editor')
@@ -219,6 +223,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     updateFileReferenceSuggestions: fileReferenceSuggestionsEnabled ? updateFileReferenceSuggestions : () => removeFileReferenceSuggestions(),
     attachmentsEnabled,
     onBeforeSend,
+    sessionId,
+    onOpenLocalFilePath,
   })
   if (commandSuggestionsEnabled) setupCommandTextareaHandler(editor)
   else removeCommandSuggestions()

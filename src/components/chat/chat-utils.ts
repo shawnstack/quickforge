@@ -36,7 +36,7 @@ export type MessageEditorElement = HTMLElement & {
   __quickforgePlanWrappedOnSend?: (input: string, attachments: unknown[]) => void
   __quickforgeAttachmentPasteGuard?: (event: ClipboardEvent) => void
   __quickforgeAttachmentDropGuard?: (event: DragEvent) => void
-}
+  __quickforgeLargePasteHandler?: (event: ClipboardEvent) => void}
 
 export type CommandSuggestionElement = HTMLDivElement & {
   __quickforgeDismissHandler?: (event: Event) => void

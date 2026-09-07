@@ -46,6 +46,17 @@
 - Boundaries: 不改 useSessionPagination/loading/分页语义；不动 dnd-kit；未新增依赖；未触碰生成产物；未 commit。调研中发现的其余工作区级候选（rAF 补跑滚动跳变、SSE 重连提示条插拔、watchdog 全量替换、scrollbar-gutter）保持 Notes 备查，不在本 feature 扩大范围。
 - Next step: 无 blocker；用户真机切走/切回确认项目列表不再闪。
 
+## Completed Feature：large-paste-text-attachment（本轮）
+
+- 长文本粘贴达到 3,000 字符时写入 qf 临时目录 `cache/global/tmp/conversations`，消息仅保存路径元数据；模型侧按受限路径读取，不把全文重复写入消息。
+- 输入框内复用现有附件 tile；不显示“打开”文字，点击附件自动调用系统文件管理器；对话记录显示完整路径文本。
+- 修复 pending 会话打开附件时的 400：不再直接在编辑器层拼接 agent endpoint，统一交给 App 的本地路径处理。
+- 验证：文本附件与消息转换测试 9/9 通过；tsc、相关 ESLint、npm run build、git diff --check 通过。构建仅有既有 KaTeX/chunk warnings。
+- Revision（真机冒烟报错修复，2026-09-07）：用户报告点击附件报「无法打开文件 Path is outside the selected project」。排查结论：该报错来自旧构建渲染进程（feature 中间态：编辑器粘贴已有、App.tsx 专用分支未上），重启加载新 dist 后不复现；但当前代码存在两个真实缺陷一并修复——① `openPathInFileManager` 仅接受目录，而 open-text-attachment 路由传入 .txt 文件，必然 400「Directory does not exist」：改为支持文件定位（win32 `explorer /select,<file>`、darwin `open -R`、Linux `xdg-open <父目录>`，参数构造抽为纯函数 `createFileManagerOpenArgs`，缺失文案统一 `Path does not exist`）；② message-actions 附件装饰无幂等守卫（Lit index-keyed 复用 user-message DOM，每装饰周期重复 append 路径行 + 叠加 once 点击监听），且多附件时 `:last-of-type` 全绑到最后一个 tile：重写为 `decorateTextAttachmentTiles`（tile 按 attachment 下标对齐、每 tile 仅一个读取当前 dataset 路径的持久监听、路径行按内容比对后重建）；editor-bindings 点击监听同步去 `once`（第二次点击不再落回 pi 附件预览）。新增测试：platform 2（三平台目录/文件参数矩阵）、agent 路由 3（创建/合法路径透传文件本身/非法路径 400）、message-actions 3（绑定+路径行、重复装饰幂等+持续可点、多附件对齐+路径变化跟随）。定向 vitest message-actions 30 / agent 19 / platform 5 / text-attachments+message-converters+editor-bindings+channels 17 全过；eslint 0 error；tsc -b；node --check；npm run build 通过。wiki server/utils 平台条目同步。
+- Revision 2（UI 微调，2026-09-07）：用户反馈对话内不要显示完整路径。移除消息内 `.quickforge-text-attachment-path` 路径行（CSS 两条规则删除；装饰函数保留对该行的清理，防止同会话旧装饰残留），完整路径仅在附件 tile hover 提示（title）里，点击打开行为不变。message-actions 测试同步（路径行不存在 + 旧残留被清理），定向 vitest message-actions 30 + editor-bindings 2 全过；eslint 0 error；tsc -b；npm run build 通过。
+- 边界：未新增依赖，未 commit/tag/push。
+
+
 ## Completed Feature：backup-settings-only-and-snapshot-fast-path（本轮，已完成）
 
 - 本轮完成并验证：消息队列、活跃 Agent destroy-first、scheduled task updater、IndexedDB 事件收窄、`exportSnapshot` 的 keys/has/identity 快路径优化，以及用户 HTTP backup 的 settings-only boundary。

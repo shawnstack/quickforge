@@ -348,11 +348,11 @@ describe('automatic conversation archive', () => {
       // derives them, so timestamp-less metadata is only reachable through a
       // direct repository-shaped save (legacy imports); the scan must then
       // load the body.
-      service.saveSessionStatePair({
+      await service.saveSessionStatePair({
         state: { id: 'no-timestamps-stale-body', scope: 'global', createdAt: daysAgo(now, 40), messages: [{ role: 'user', content: 'stale' }] },
         metadata: { id: 'no-timestamps-stale-body', scope: 'global', messageCount: 1 },
       })
-      service.saveSessionStatePair({
+      await service.saveSessionStatePair({
         state: { id: 'no-timestamps-fresh-body', scope: 'global', createdAt: daysAgo(now, 60), lastModified: daysAgo(now, 5), messages: [{ role: 'user', content: 'fresh' }] },
         metadata: { id: 'no-timestamps-fresh-body', scope: 'global', messageCount: 1 },
       })

@@ -188,7 +188,7 @@ async function persistSessionUnlocked(session) {
 
   if (messages.length === 0) {
     try {
-      deleteSessionState(sessionId, { expectedRevision: session.persistedStorageRevision })
+      await deleteSessionState(sessionId, { expectedRevision: session.persistedStorageRevision })
       session.persistedStorageRevision = null
       session.persistedStateVersion = null
       session.persistedStateJson = null

@@ -182,8 +182,12 @@ describe('agent manager external session synchronization', () => {
     try {
       await runPrompt(sessionId, 'second', [])
       await vi.waitFor(() => expect(MockAgent.instances[0].lastTransformedMessages).not.toBeNull())
-      const stored = await readSessionValue(sessionId)
-      expect(stored.messages.at(-1).metadata?.quickforgeClientMessageId).toMatch(/^qfcm_[0-9a-f-]{36}$/)
+      // The run-boundary persist is fire-and-forget (debounced, worker-backed);
+      // wait for the persisted record instead of racing the write.
+      await vi.waitFor(async () => {
+        const stored = await readSessionValue(sessionId)
+        expect(stored?.messages.at(-1).metadata?.quickforgeClientMessageId).toMatch(/^qfcm_[0-9a-f-]{36}$/)
+      })
     } finally {
       await destroyAgent(sessionId)
     }

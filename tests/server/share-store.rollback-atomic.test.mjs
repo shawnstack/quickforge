@@ -105,7 +105,7 @@ describe('shared conversation rollback in authoritative mode', () => {
     // Storage v2: bodies never store messages inline; the reassembled read
     // view carries the truncated message list.
     expect(record.state).not.toHaveProperty('messages')
-    expect(readSessionStateValue(sessionId).messages).toEqual(messages.slice(0, 2))
+    expect((await readSessionStateValue(sessionId)).messages).toEqual(messages.slice(0, 2))
     expect(record.metadata).toMatchObject({ messageCount: 2, preview: 'reply a1' })
   })
 
@@ -123,7 +123,7 @@ describe('shared conversation rollback in authoritative mode', () => {
     const result = await shareStore.rollbackSharedSessionMessages({ sessionId }, 2)
     expect(result.rollbackIndex).toBe(2)
     const record = repository.findBySessionId(sessionId)
-    expect(readSessionStateValue(sessionId).messages).toEqual([{ role: 'user', content: 'm0' }, { role: 'assistant', content: 'reply a1' }])
+    expect((await readSessionStateValue(sessionId)).messages).toEqual([{ role: 'user', content: 'm0' }, { role: 'assistant', content: 'reply a1' }])
     expect(record.metadata).toMatchObject({ messageCount: 2, pinnedAt: '2026-01-01T00:00:00.000Z' })
 
     await expect(shareStore.rollbackSharedSessionMessages({ sessionId: 'missing' }, 0)).rejects.toThrow(/Session not found/)

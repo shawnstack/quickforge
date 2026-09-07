@@ -1,6 +1,39 @@
 {
   "features": [
     {
+      "id": "sqlite-heavy-op-worker-thread",
+      "name": "SQLite 会话域重操作迁入 worker_threads 专职线程（双连接分区）",
+      "status": "done",
+      "approach": "新增 sqlite/session-state-worker-protocol.mjs（op 白名单 + 错误序列化）、session-state-worker.mjs（worker 入口：自开 DatabaseSync 连接 + createSessionStateRepository，按白名单执行重 op，SQLITE_BUSY 有限重试）、session-state-worker-client.mjs（主线程懒启动 RPC 门面：按数据库路径键控、崩溃拒绝在飞并自动重建、closeSqliteStorage 经 registerSqliteStorageCloseHook 优雅终止）；database.mjs 新增 getSqliteDatabasePath 与持久注册的关闭钩子集合。session-state-service 的重操作方法（save/replaceMessages/appendMessages/applyBatch/replaceAll/exportSnapshot/verifyIntegrity/checkpointWal/delete/readMessagesPage 等）经 heavyOp 路由 worker，小读保持主线程同步；QUICKFORGE_SQLITE_WORKER=0 kill-switch 回退直连；configureSessionStateService({repository}) 注入恒优先（不经 worker）。savePairChunked 保留主线程分批编码（快照契约不变），事务在 worker 执行。异步化打开的 pin-vs-persist 交错窗口补两侧 CAS 有界重试（atomicSessionMetadataStateUpdate 修 return await 捕获异步 conflict；storage.mjs atomicSessionMetadataBucketUpdateViaFacade 按 maxRetries=3 用新鲜桶重算 updateFn）；writePlan rename 补 Windows AV 同款 25/50/100ms 重试。所有运行时（desktop fork/inline、qf CLI/npm web、ACP stdio）统一受益。",
+      "files": [
+        "server/sqlite/database.mjs",
+        "server/sqlite/session-state-worker.mjs",
+        "server/sqlite/session-state-worker-client.mjs",
+        "server/sqlite/session-state-worker-protocol.mjs",
+        "server/session-state-service.mjs",
+        "server/storage.mjs",
+        "server/agent-persistence.mjs",
+        "server/session-state-backup.mjs",
+        "tests/server/sqlite/session-state-worker.test.mjs",
+        "tests/server/session-state-service.test.mjs",
+        "tests/server/session-state-phase3.test.mjs",
+        "tests/server/session-state-backup.test.mjs",
+        "tests/server/agent-manager.persist-session-state.test.mjs",
+        "tests/server/auto-archive.test.mjs",
+        "tests/server/storage.session-state-facade.test.mjs",
+        "tests/server/storage.session-metadata-pin.test.mjs",
+        "tests/server/agent-manager.external-sync.test.mjs",
+        "tests/server/share-store.rollback-atomic.test.mjs",
+        "tests/fixtures/session-state-full-chain-electron-smoke.mjs",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "新增 worker 单测 6 用例（WAL 跨连接可见性、CAS 错误属性保持、白名单门面、崩溃拒绝+自动重建、kill-switch、close/reopen 生命周期）连跑 3 次稳定；sqlite+session-state 全族 97 tests 连跑 4 次全过；受影响面 25 files / 212 tests 全过；全量 vitest 281 files / 2662 tests 中 2642 过（剩 20 个失败均属并行会话未提交改动：3 个前端源码契约 + side-chat 16 个 vi.mock 缺 cacheDir，与本 feature 无关）；eslint 全部改动文件 0 error；node --check；npm run build 通过（仅既有 chunk 警告）。",
+      "boundaries": "未新增依赖（worker_threads/node:sqlite 内置）；repository 零改动（多进程 CAS fixtures 不受影响）；session-state-import 启动导入路径维持主线程直连未迁移；share/lan/scheduled-runs/session-index/maintenance-lock 留主线程（后续可评估）；未触碰生成产物。"
+    },
+    {
       "id": "desktop-fork-default",
       "name": "桌面端默认 fork 子进程运行 server（inline 变显式 opt-in）",
       "status": "done",

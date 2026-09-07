@@ -1,5 +1,6 @@
 import { createSessionStateRepository, encodeMessagesChunked, MESSAGES_PAGE_LIMIT_MAX, MESSAGES_SPLIT_VALUE, messageDigest } from './sqlite/session-state-repository.mjs'
 import { getSqliteStorage } from './sqlite/database.mjs'
+import { getSessionStateHeavyRepository, isSessionStateWorkerEnabled } from './sqlite/session-state-worker-client.mjs'
 
 // Storage v2 integration: SQLite is the single authoritative session store.
 // The JSON→SQLite phase machine (cutover, mirror queue, JSON write barrier) is
@@ -43,6 +44,21 @@ function repository() {
     repositoryInstanceHandle = handle
   }
   return repositoryInstance
+}
+
+// Heavy operations (message encoding + big synchronous transactions, snapshot
+// scans, deletes with vacuum) run on the dedicated worker thread so they never
+// stall the main event loop; with QUICKFORGE_SQLITE_WORKER=0 (kill switch)
+// they fall back to the synchronous in-thread repository, which resolves
+// identically through the await at the call sites.
+async function heavyOp(op, ...args) {
+  // Configured repository overrides (tests, maintenance injection) always win:
+  // they may be in-memory fakes the worker thread cannot reach.
+  if (repositoryInstance && repositoryInstanceHandle === null) {
+    return repositoryInstance[op](...args)
+  }
+  const target = isSessionStateWorkerEnabled() ? getSessionStateHeavyRepository() : repository()
+  return target[op](...args)
 }
 
 // v2: only the repository override remains testable. The retired phase
@@ -172,12 +188,12 @@ function synchronize(stateValue, metadataValue, sessionId, fallback = null) {
   return { state, metadata, ...bucket, stateVersion: version, sessionId }
 }
 
-function allMessages(record) {
+async function allMessages(record) {
   if (!record) return []
   const messages = []
   let offset = 0
   for (;;) {
-    const page = repository().readMessagesPage({ scope: record.scope, projectId: record.projectId, sessionId: record.sessionId, limit: MESSAGES_PAGE_LIMIT_MAX, offset })
+    const page = await heavyOp('readMessagesPage', { scope: record.scope, projectId: record.projectId, sessionId: record.sessionId, limit: MESSAGES_PAGE_LIMIT_MAX, offset })
     messages.push(...page.messages.map((row) => row.message))
     if (!page.hasMore || page.messages.length === 0) break
     offset = page.nextOffset
@@ -185,10 +201,10 @@ function allMessages(record) {
   return messages
 }
 
-function assembleState(record) {
+async function assembleState(record) {
   if (!record) return null
   if (record.state?.messageStorage !== MESSAGES_SPLIT_VALUE) return record.state
-  const messages = Array.isArray(record.messages) ? record.messages : allMessages(record)
+  const messages = Array.isArray(record.messages) ? record.messages : await allMessages(record)
   return { ...record.state, messages }
 }
 
@@ -228,7 +244,7 @@ function messageStoragePlan(state, existing) {
   return { mode: 'append', messages: tail }
 }
 
-function savePairWithPlan(state, metadata, options, plan, existing) {
+async function savePairWithPlan(state, metadata, options, plan, existing) {
   const sessionId = options.sessionId ?? state?.id ?? metadata?.id
   const record = synchronize(state, metadata, sessionId, existing)
   const finalMetadata = { ...record.metadata }
@@ -245,17 +261,17 @@ function savePairWithPlan(state, metadata, options, plan, existing) {
     : { ...record, metadata: finalMetadata }
   let saved
   if (plan.mode === 'replace') {
-    saved = repository().replaceMessages(finalRecord, plan.messages, {
+    saved = await heavyOp('replaceMessages', finalRecord, plan.messages, {
       expectedRevision: options.expectedRevision,
       expectedStateVersion: options.expectedStateVersion,
     })
   } else if (plan.mode === 'append') {
-    saved = repository().appendMessages(finalRecord, plan.messages, {
+    saved = await heavyOp('appendMessages', finalRecord, plan.messages, {
       expectedRevision: options.expectedRevision,
       expectedStateVersion: options.expectedStateVersion,
     })
   } else {
-    saved = repository().save(finalRecord, {
+    saved = await heavyOp('save', finalRecord, {
       expectedRevision: options.expectedRevision,
       expectedStateVersion: options.expectedStateVersion,
     })
@@ -267,7 +283,7 @@ function savePairWithPlan(state, metadata, options, plan, existing) {
   return { ...saved, messageStoragePlan: plan.mode, messageCount: totalMessageCount }
 }
 
-function savePair(state, metadata, options = {}) {
+async function savePair(state, metadata, options = {}) {
   const sessionId = options.sessionId ?? state?.id ?? metadata?.id
   const existing = options.fallback ?? (sessionId ? repository().findBySessionId(sessionId) : null)
   const plan = messageStoragePlan(state, existing)
@@ -329,7 +345,7 @@ export function readSessionStateRecord(sessionId) {
   return repository().findBySessionId(sessionId)
 }
 
-export function readSessionStateValue(sessionId) {
+export async function readSessionStateValue(sessionId) {
   return assembleState(repository().findBySessionId(sessionId))
 }
 
@@ -388,7 +404,7 @@ function metadataBucketChanges(scope, projectId, updateFn) {
   return { updated, upserts, deletes }
 }
 
-export function updateSessionMetadataBucket(scope, projectId, updateFn) {
+export async function updateSessionMetadataBucket(scope, projectId, updateFn) {
   const changes = metadataBucketChanges(scope, projectId, updateFn)
   if (changes.deletes.length > 0) {
     const error = new TypeError('Metadata bucket updates cannot delete session bodies; use full session delete')
@@ -397,7 +413,7 @@ export function updateSessionMetadataBucket(scope, projectId, updateFn) {
     throw error
   }
   if (changes.upserts.length > 0) {
-    repository().applyBatch({ upserts: changes.upserts })
+    await heavyOp('applyBatch', { upserts: changes.upserts })
   }
   return changes.updated
 }
@@ -414,7 +430,7 @@ export function readSessionIdentityRows() {
   return repository().sessionIdentityRows()
 }
 
-export function readSessionStateStore(storeName, { scope, projectId } = {}) {
+export async function readSessionStateStore(storeName, { scope, projectId } = {}) {
   // JSON-era provenance: 'sessions-metadata' has always been a metadata-only
   // bucket store ({sessionId: metadata}). Loading it must never materialize
   // state bodies or message rows — read the metadata-only projection straight
@@ -428,12 +444,14 @@ export function readSessionStateStore(storeName, { scope, projectId } = {}) {
     }
     return merged
   }
-  const records = repository().exportSnapshot().records.filter((record) => {
+  const snapshot = await heavyOp('exportSnapshot')
+  const records = snapshot.records.filter((record) => {
     if (!scope) return true
     if (record.scope !== scope) return false
     return scope !== 'project' || record.projectId === projectId
   })
-  return Object.fromEntries(records.map((record) => [record.sessionId, storeName === 'sessions' ? assembleState(record) : record.metadata]))
+  const entries = await Promise.all(records.map(async (record) => [record.sessionId, storeName === 'sessions' ? await assembleState(record) : record.metadata]))
+  return Object.fromEntries(entries)
 }
 
 // Metadata bucket summaries straight from the authoritative sessions table
@@ -460,7 +478,7 @@ export async function saveSessionStatePair({ state, metadata, expectedRevision =
   return savePairChunked(state, resolvedMetadata, { expectedRevision, expectedStateVersion })
 }
 
-export function saveSessionBody(sessionId, value, { expectedRevision = null } = {}) {
+export async function saveSessionBody(sessionId, value, { expectedRevision = null } = {}) {
   if (!isPlainObject(value)) throw new TypeError('Session body must be a plain object')
   const existing = repository().findBySessionId(sessionId)
   const state = { ...(existing?.state || {}), ...structuredClone(value), id: sessionId }
@@ -468,7 +486,7 @@ export function saveSessionBody(sessionId, value, { expectedRevision = null } = 
   return savePair(state, metadata, { sessionId, expectedRevision: expectedRevision ?? existing?.revision ?? 0, fallback: existing })
 }
 
-export function saveSessionMetadata(sessionId, value, { expectedRevision = null } = {}) {
+export async function saveSessionMetadata(sessionId, value, { expectedRevision = null } = {}) {
   if (!isPlainObject(value)) throw new TypeError('Session metadata must be a plain object')
   const existing = repository().findBySessionId(sessionId)
   if (!existing) {
@@ -479,18 +497,19 @@ export function saveSessionMetadata(sessionId, value, { expectedRevision = null 
   }
   const metadata = mergeMetadata(existing.metadata, value, sessionId)
   const synchronized = applyMetadataToState(existing, metadata)
-  return repository().save(synchronized, { expectedRevision: expectedRevision ?? existing.revision })
+  return heavyOp('save', synchronized, { expectedRevision: expectedRevision ?? existing.revision })
 }
 
-export function deleteSessionState(sessionId, { expectedRevision = null } = {}) {
+export async function deleteSessionState(sessionId, { expectedRevision = null } = {}) {
   const existing = repository().findBySessionId(sessionId)
   if (!existing) return false
-  return repository().deleteBySessionId(sessionId, { expectedRevision: expectedRevision ?? existing.revision })
+  return heavyOp('deleteBySessionId', sessionId, { expectedRevision: expectedRevision ?? existing.revision })
 }
 
-export function replaceSessionStateStore(storeName, values) {
+export async function replaceSessionStateStore(storeName, values) {
   if (!isPlainObject(values)) throw new TypeError('Session store must be a plain object')
-  const current = new Map(repository().exportSnapshot().records.map((record) => [record.sessionId, record]))
+  const snapshot = await heavyOp('exportSnapshot')
+  const current = new Map(snapshot.records.map((record) => [record.sessionId, record]))
   const records = []
   if (storeName === 'sessions') {
     for (const [sessionId, state] of Object.entries(values)) {
@@ -520,7 +539,7 @@ export function replaceSessionStateStore(storeName, values) {
   } else {
     throw new TypeError(`Unsupported session state store: ${storeName}`)
   }
-  repository().replaceAll(records)
+  await heavyOp('replaceAll', records)
   return values
 }
 
@@ -529,7 +548,7 @@ export async function atomicSessionRecordUpdate(sessionId, updateFn, { maxRetrie
     const existing = repository().findBySessionId(sessionId)
     if (!existing) return null
     const updated = await updateFn({
-      state: structuredClone(assembleState(existing)),
+      state: structuredClone(await assembleState(existing)),
       metadata: structuredClone(existing.metadata),
       revision: existing.revision,
       stateVersion: existing.stateVersion,
@@ -538,7 +557,7 @@ export async function atomicSessionRecordUpdate(sessionId, updateFn, { maxRetrie
     const state = updated.state ?? existing.state
     const metadata = updated.metadata ?? deriveMetadata(state, existing.metadata)
     try {
-      return savePair(state, metadata, {
+      return await savePair(state, metadata, {
         sessionId,
         expectedRevision: existing.revision,
         fallback: existing,
@@ -554,9 +573,9 @@ export async function atomicSessionStateUpdate(sessionId, updateFn, { maxRetries
   for (let attempt = 0; attempt < maxRetries; attempt += 1) {
     const existing = repository().findBySessionId(sessionId)
     if (!existing) return null
-    const updated = await updateFn(structuredClone(assembleState(existing)))
+    const updated = await updateFn(structuredClone(await assembleState(existing)))
     try {
-      return savePair(updated, deriveMetadata(updated, existing.metadata), { sessionId, expectedRevision: existing.revision, fallback: existing }).state
+      return (await savePair(updated, deriveMetadata(updated, existing.metadata), { sessionId, expectedRevision: existing.revision, fallback: existing })).state
     } catch (error) {
       if (error?.errorCode !== 'SESSION_STATE_CONFLICT' || attempt === maxRetries - 1) throw error
     }
@@ -567,7 +586,7 @@ export async function atomicSessionStateUpdate(sessionId, updateFn, { maxRetries
 export async function atomicSessionMetadataStateUpdate(scope, projectId, updateFn, { maxRetries = 3 } = {}) {
   for (let attempt = 0; attempt < maxRetries; attempt += 1) {
     try {
-      return updateSessionMetadataBucket(scope, projectId, updateFn)
+      return await updateSessionMetadataBucket(scope, projectId, updateFn)
     } catch (error) {
       if (error?.errorCode !== 'SESSION_STATE_CONFLICT' || attempt === maxRetries - 1) throw error
     }
@@ -575,7 +594,7 @@ export async function atomicSessionMetadataStateUpdate(scope, projectId, updateF
   return null
 }
 
-export function applySessionBatch(operations) {
+export async function applySessionBatch(operations) {
   if (!Array.isArray(operations) || operations.length === 0) throw new TypeError('Session batch operations are required')
   // pi-web-ui's SessionsStore.delete() emits a `sessions` delete AND a
   // `sessions-metadata` delete for the same key in one transaction. The
@@ -650,14 +669,15 @@ export function applySessionBatch(operations) {
   // An idempotent batch (e.g. deleting sessions that are already gone) still
   // succeeds instead of tripping the repository's empty-change guard.
   if (upserts.length === 0 && deletes.length === 0) return { saved: 0, deleted: 0, revisions: [] }
-  const result = repository().applyBatch({ upserts, deletes })
+  const result = await heavyOp('applyBatch', { upserts, deletes })
   return { saved: result.saved.length, deleted: result.deleted.filter(Boolean).length, revisions: result.saved.map((record) => ({ sessionId: record.sessionId, revision: record.revision, stateVersion: record.stateVersion })) }
 }
 
-export function exportSessionStateSnapshot() {
-  const snapshot = repository().exportSnapshot()
+export async function exportSessionStateSnapshot() {
+  const snapshot = await heavyOp('exportSnapshot')
+  const sessions = await Promise.all(snapshot.records.map(async (record) => [record.sessionId, await assembleState(record)]))
   return {
-    sessions: Object.fromEntries(snapshot.records.map((record) => [record.sessionId, assembleState(record)])),
+    sessions: Object.fromEntries(sessions),
     sessionsMetadata: Object.fromEntries(snapshot.records.map((record) => [record.sessionId, record.metadata])),
     count: snapshot.count,
     digest: snapshot.digest,
@@ -678,17 +698,17 @@ export function normalizeSessionSnapshotValues({ sessions, sessionsMetadata }) {
   return records
 }
 
-export function replaceSessionStateSnapshot({ sessions, sessionsMetadata }, { merge = false } = {}) {
+export async function replaceSessionStateSnapshot({ sessions, sessionsMetadata }, { merge = false } = {}) {
   if (!isPlainObject(sessions) || !isPlainObject(sessionsMetadata)) throw new TypeError('sessions and sessionsMetadata must be objects')
-  const current = merge ? exportSessionStateSnapshot() : { sessions: {}, sessionsMetadata: {} }
+  const current = merge ? await exportSessionStateSnapshot() : { sessions: {}, sessionsMetadata: {} }
   const targetSessions = { ...current.sessions, ...sessions }
   const targetMetadata = { ...current.sessionsMetadata, ...sessionsMetadata }
   const records = normalizeSessionSnapshotValues({ sessions: targetSessions, sessionsMetadata: targetMetadata })
-  repository().replaceAll(records)
+  await heavyOp('replaceAll', records)
   return { sessions: records.length, sessionsMetadata: records.length }
 }
 
-export function getSessionStateDiagnostics() {
+export async function getSessionStateDiagnostics() {
   const state = readSessionStorageState()
   let integrity
   try {
@@ -696,7 +716,7 @@ export function getSessionStateDiagnostics() {
     // must not re-parse every stored body. The result carries
     // `lightweight: true`; full per-row verification stays on maintenance
     // entry points (backup export/restore, downgrade tooling).
-    integrity = repository().verifyIntegrity({ quickCheck: true })
+    integrity = await heavyOp('verifyIntegrity', { quickCheck: true })
   } catch (error) {
     integrity = { ok: false, error: error?.message || String(error) }
   }

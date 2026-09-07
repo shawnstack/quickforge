@@ -144,7 +144,19 @@ async function writePlan(plan, planFile = RESTORE_PLAN_FILE) {
   const temporary = `${planFile}.${process.pid}.${randomUUID()}.tmp`
   try {
     await fs.writeFile(temporary, `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
-    await fs.rename(temporary, planFile)
+    // Windows AV can briefly hold the freshly written tmp file between
+    // writeFile and rename (EPERM/EBUSY); the same bounded retry as
+    // writeJsonAtomic closes that window without losing rename atomicity.
+    const delays = [25, 50, 100]
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await fs.rename(temporary, planFile)
+        return
+      } catch (error) {
+        if (attempt >= delays.length || !['EPERM', 'EBUSY', 'EACCES'].includes(error?.code)) throw error
+        await new Promise((resolve) => { setTimeout(resolve, delays[attempt]) })
+      }
+    }
   } catch (error) {
     await fs.rm(temporary, { force: true }).catch(() => {})
     throw error
@@ -241,7 +253,7 @@ export async function restoreSessionStateSnapshot(values, options = {}) {
     try {
       plan = { ...plan, status: 'applying' }
       await writePlan(plan, planFile)
-      replaceSessionStateSnapshot(targetValues, { merge: false })
+      await replaceSessionStateSnapshot(targetValues, { merge: false })
       const after = repository.exportSnapshot()
       if (after.count !== targetCount || after.digest !== targetDigest) {
         throw new Error('Session state restore count/digest verification failed')
@@ -257,7 +269,7 @@ export async function restoreSessionStateSnapshot(values, options = {}) {
       try {
         plan = { ...plan, status: 'compensating', failedAt: new Date().toISOString() }
         await writePlan(plan, planFile)
-        replaceSessionStateSnapshot(beforeValues, { merge: false })
+        await replaceSessionStateSnapshot(beforeValues, { merge: false })
         const restored = repository.exportSnapshot()
         if (restored.count !== beforeCount || restored.digest !== beforeDigest) {
           throw new Error('Session state restore compensation verification failed', { cause: error })
@@ -311,7 +323,7 @@ export async function recoverSessionStateRestorePlan({
   return runSessionStateMaintenance(async () => {
     const rollBack = ROLL_BACK_STATUSES.has(plan.status)
     const value = rollBack ? plan.before : plan.target
-    replaceSessionStateSnapshot(value, { merge: false })
+    await replaceSessionStateSnapshot(value, { merge: false })
     const after = repository.exportSnapshot()
     if (after.count !== (rollBack ? plan.beforeCount : plan.targetCount) || after.digest !== (rollBack ? plan.beforeDigest : plan.targetDigest)) {
       throw new Error('Session state restore plan recovery verification failed')

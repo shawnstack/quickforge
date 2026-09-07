@@ -85,7 +85,7 @@ describe('F9 Phase 3 service integration (split session full chain, storage v2)'
     expect(appended.messageStoragePlan).toBe('append')
     expect(appended.messageCount).toBe(20)
     expect(repository.messageCount({ scope: 'global', sessionId: 'one' })).toBe(20)
-    expect(readSessionStateValue('one').messages).toHaveLength(20)
+    expect((await readSessionStateValue('one')).messages).toHaveLength(20)
 
     // Same-length in-place edits rewrite in full (replace), truncations too.
     const edited = await saveSessionStatePair({
@@ -103,8 +103,8 @@ describe('F9 Phase 3 service integration (split session full chain, storage v2)'
     expect(truncated.messageCount).toBe(10)
   })
 
-  it('storedMessagesState reports the split count and tail digest', () => {
-    saveSessionStatePair({ state: state('one', 3), metadata: metadata('one', 3) })
+  it('storedMessagesState reports the split count and tail digest', async () => {
+    await saveSessionStatePair({ state: state('one', 3), metadata: metadata('one', 3) })
     const splitState = storedMessagesState('one')
     expect(splitState).toMatchObject({ split: true, count: 3 })
     expect(splitState.tailDigest).toMatch(/^[0-9a-f]{64}$/)
@@ -113,8 +113,8 @@ describe('F9 Phase 3 service integration (split session full chain, storage v2)'
   })
 
   it('backup/restore roundtrips a split session with an exact digest', async () => {
-    saveSessionStatePair({ state: state('big', 210), metadata: metadata('big', 210) })
-    saveSessionBody('small', { messages: messages(3), title: 'Small' })
+    await saveSessionStatePair({ state: state('big', 210), metadata: metadata('big', 210) })
+    await saveSessionBody('small', { messages: messages(3), title: 'Small' })
 
     const exported = await exportSessionStateForBackup()
     expect(exported.count).toBe(2)
@@ -131,7 +131,7 @@ describe('F9 Phase 3 service integration (split session full chain, storage v2)'
     const after = repository.exportSnapshot()
     expect(after.count).toBe(2)
     expect(after.digest).toBe(exported.digest)
-    expect(readSessionStateValue('big').messages).toHaveLength(210)
+    expect((await readSessionStateValue('big')).messages).toHaveLength(210)
     expect(repository.messageCount({ scope: 'global', sessionId: 'big' })).toBe(210)
   })
 })

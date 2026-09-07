@@ -455,8 +455,8 @@ async function sessionStateFacade() {
   return service
 }
 
-function saveSessionBodyViaFacade(facade, sessionId, value) {
-  const saved = facade.saveSessionBody(sessionId, value)
+async function saveSessionBodyViaFacade(facade, sessionId, value) {
+  const saved = await facade.saveSessionBody(sessionId, value)
   bumpStoreRevision('sessions-metadata')
   return saved.state
 }
@@ -474,7 +474,7 @@ async function atomicSessionStateUpdateViaFacade(facade, sessionId, updateFn) {
 async function deleteSessionStateViaFacade(facade, sessionId) {
   const record = facade.readSessionStateRecord(sessionId)
   const bucket = record ? (record.scope === 'project' ? { scope: 'project', projectId: record.projectId } : { scope: 'global' }) : null
-  const deleted = facade.deleteSessionState(sessionId)
+  const deleted = await facade.deleteSessionState(sessionId)
   if (deleted) {
     bumpStoreRevision('sessions-metadata')
     if (bucket) {
@@ -511,22 +511,34 @@ async function atomicSessionRecordUpdateViaFacade(facade, sessionId, updateFn) {
 // legacy merged-store view and per-entry updateFns see exactly the same
 // sessions, one bucket at a time. Empty store: updateFn still runs once
 // against the (empty) global bucket, matching the legacy empty-file behavior.
-function atomicSessionMetadataBucketUpdateViaFacade(facade, updateFn) {
+// Heavy writes are async (worker thread), so a persist can interleave between
+// the bucket read and the applyBatch commit; updateSessionMetadataBucket
+// re-reads fresh state per call, and a bounded CAS retry re-runs updateFn
+// against that fresh bucket (the same contract as the service-level atomic*
+// retries; before the worker migration the synchronous run-to-completion
+// serialized these writers instead).
+async function atomicSessionMetadataBucketUpdateViaFacade(facade, updateFn, { maxRetries = 3 } = {}) {
   const buckets = facade.readSessionMetadataBuckets()
   const targets = buckets.length > 0 ? buckets : [{ scope: 'global', projectId: null, metadata: {} }]
   let updated = {}
   for (const bucket of targets) {
-    const updatedBucket = updateFn({ ...bucket.metadata })
-    updated = facade.updateSessionMetadataBucket(bucket.scope, bucket.projectId, () => updatedBucket)
+    for (let attempt = 0; attempt < maxRetries; attempt += 1) {
+      try {
+        updated = await facade.updateSessionMetadataBucket(bucket.scope, bucket.projectId, (current) => updateFn(current))
+        break
+      } catch (error) {
+        if (error?.errorCode !== 'SESSION_STATE_CONFLICT' || attempt === maxRetries - 1) throw error
+      }
+    }
   }
   bumpStoreRevision('sessions-metadata')
   return updated
 }
 
 async function atomicSessionStoreReplaceViaFacade(facade, updateFn) {
-  const current = facade.readSessionStateStore('sessions')
+  const current = await facade.readSessionStateStore('sessions')
   const updated = await updateFn(current)
-  facade.replaceSessionStateStore('sessions', updated)
+  await facade.replaceSessionStateStore('sessions', updated)
   bumpStoreRevision('sessions-metadata')
   return updated
 }
@@ -691,7 +703,7 @@ export async function applySessionBatch(operations) {
     const record = facade.readSessionStateRecord(operation.key)
     if (record) deletedRecords.push(record)
   }
-  const result = facade.applySessionBatch(operations)
+  const result = await facade.applySessionBatch(operations)
   for (const record of deletedRecords) {
     const bucket = record.scope === 'project' ? { scope: 'project', projectId: record.projectId } : { scope: 'global' }
     try {
@@ -1090,7 +1102,7 @@ export async function writeStore(storeName, data) {
       // Whole-store replace: resolve removed sessions for best-effort sidecar
       // cleanup, then swap the store in one verified transaction.
       const removed = facade.readSessionIdentityRows().filter((row) => !Object.hasOwn(data || {}, row.session_id))
-      facade.replaceSessionStateStore(storeName, data)
+      await facade.replaceSessionStateStore(storeName, data)
       for (const row of removed) {
         const bucket = row.scope === 'project' ? { scope: 'project', projectId: row.project_id } : { scope: 'global' }
         try {
@@ -1099,7 +1111,7 @@ export async function writeStore(storeName, data) {
         } catch { /* Sidecars are best-effort after the authoritative commit. */ }
       }
     } else {
-      facade.replaceSessionStateStore(storeName, data)
+      await facade.replaceSessionStateStore(storeName, data)
     }
     bumpStoreRevision(storeName === 'sessions' ? 'sessions-metadata' : storeName)
     return

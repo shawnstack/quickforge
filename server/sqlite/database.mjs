@@ -354,6 +354,36 @@ export function getSqliteStorage() {
   return openState.handle
 }
 
+export function getSqliteDatabasePath() {
+  if (!openState) throw new Error('SQLite storage is not initialized')
+  return openState.databasePath
+}
+
+// Let auxiliary storage surfaces (the heavy-op worker thread) participate in
+// close/reopen cycles without a circular import: closeSqliteStorage awaits
+// every registered hook before closing the main connection.
+const storageCloseHooks = new Set()
+
+export function registerSqliteStorageCloseHook(hook) {
+  if (typeof hook !== 'function') throw new TypeError('SQLite storage close hook must be a function')
+  storageCloseHooks.add(hook)
+  return () => storageCloseHooks.delete(hook)
+}
+
+async function runStorageCloseHooks() {
+  // Hooks stay registered across close/reopen cycles: module-scoped surfaces
+  // (the heavy-op worker) must participate in every close, not just the first.
+  for (const hook of [...storageCloseHooks]) {
+    try {
+      await hook()
+    } catch (error) {
+      sqliteLogger.warn('SQLite storage close hook failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+}
+
 export function getSqliteStorageSummary(options) {
   return getSqliteStorage().health(options)
 }
@@ -363,6 +393,7 @@ export async function closeSqliteStorage() {
     try { await initializationPromise.promise } catch { /* Failed initialization has no open handle. */ }
   }
   if (!openState) return
+  await runStorageCloseHooks()
   const state = openState
   openState = null
   try {

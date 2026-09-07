@@ -122,14 +122,14 @@ try {
   }
 
   // Session save / read / delete.
-  saveSessionBody('smoke', { messages: [{ role: 'user', content: 'hello' }], title: 'Smoke' })
-  const readBack = readSessionStateValue('smoke')
+  await saveSessionBody('smoke', { messages: [{ role: 'user', content: 'hello' }], title: 'Smoke' })
+  const readBack = await readSessionStateValue('smoke')
   if (!readBack || readBack.messages.length !== 1 || readBack.title !== 'Smoke') throw new Error('session save/read failed')
 
   // CAS 409 on a stale expectedRevision.
   let conflicted = false
   try {
-    saveSessionBody('smoke', { messages: [] }, { expectedRevision: 0 })
+    await saveSessionBody('smoke', { messages: [] }, { expectedRevision: 0 })
   } catch (error) {
     if (error?.errorCode === 'SESSION_STATE_CONFLICT') conflicted = true
   }
@@ -139,23 +139,23 @@ try {
   // session_messages; reads reassemble body + messages. The state frame the
   // routes would ship is asserted to be lightweight (summary instead of the
   // full message list).
-  saveSessionBody('big', { messages: bigMessages(210), title: 'Big' })
-  const readBig = readSessionStateValue('big')
+  await saveSessionBody('big', { messages: bigMessages(210), title: 'Big' })
+  const readBig = await readSessionStateValue('big')
   if (!readBig || readBig.messages.length !== 210 || readBig.title !== 'Big') throw new Error('split session read/assembly failed')
   if (repository.messageCount({ scope: 'global', sessionId: 'big' }) !== 210) throw new Error('split session message count mismatch')
-  saveSessionBody('big', { messages: [...bigMessages(210), { role: 'user', content: 'appended', timestamp: '2026-01-01T00:00:03.000Z' }] })
+  await saveSessionBody('big', { messages: [...bigMessages(210), { role: 'user', content: 'appended', timestamp: '2026-01-01T00:00:03.000Z' }] })
   if (repository.messageCount({ scope: 'global', sessionId: 'big' }) !== 211) throw new Error('incremental append failed')
   const splitStateFrame = JSON.stringify({ ...readBig, messages: undefined, messagesSummary: { count: readBig.messages.length } })
   if (Buffer.byteLength(splitStateFrame, 'utf8') > 2048) throw new Error(`split state frame unexpectedly large: ${Buffer.byteLength(splitStateFrame, 'utf8')} bytes`)
-  if (!deleteSessionState('big')) throw new Error('split session delete failed')
+  if (!(await deleteSessionState('big'))) throw new Error('split session delete failed')
 
-  const deleted = deleteSessionState('smoke')
-  if (!deleted || readSessionStateValue('smoke') !== null) throw new Error('session delete failed')
+  const deleted = await deleteSessionState('smoke')
+  if (!deleted || (await readSessionStateValue('smoke')) !== null) throw new Error('session delete failed')
 
   // Authoritative backup/restore with a split session present: the exported
   // snapshot must reassemble messages; restoring the exported values must
   // reproduce the exact stored digest (representation roundtrip).
-  saveSessionBody('big2', { messages: bigMessages(210), title: 'Big 2' })
+  await saveSessionBody('big2', { messages: bigMessages(210), title: 'Big 2' })
   const exported = await exportSessionStateForBackup()
   if (exported.count !== 2 || exported.phase !== 'authoritative' || !exported.digest) throw new Error('authoritative export failed')
   if (exported.sessions.big2?.messages?.length !== 210) throw new Error('split session export did not reassemble messages')
@@ -166,7 +166,7 @@ try {
   if (restored.sessions !== 2) throw new Error('authoritative restore failed')
   const afterRestore = repository.exportSnapshot()
   if (afterRestore.count !== 2 || afterRestore.digest !== exported.digest) throw new Error('split-session restore digest roundtrip failed')
-  const readBig2 = readSessionStateValue('big2')
+  const readBig2 = await readSessionStateValue('big2')
   if (!readBig2 || readBig2.messages.length !== 210) throw new Error('split session restore reassembly failed')
 
   // Scheduled runs must not regress while session state is authoritative.
@@ -325,7 +325,7 @@ try {
   // flipping authority. Split sessions must materialize a complete v1 body
   // (marker + messages inline); --dry-run must write nothing. Runtime saves
   // never touch the JSON tree, so big3.json cannot exist before the tool runs.
-  saveSessionBody('big3', { messages: bigMessages(210), title: 'Big 3' })
+  await saveSessionBody('big3', { messages: bigMessages(210), title: 'Big 3' })
   const big3Json = path.join(sessionsDir, 'big3.json')
   let big3Written = true
   try { await readFile(big3Json, 'utf8') } catch { big3Written = false }

@@ -1,3 +1,12 @@
+## Completed Feature：sqlite-heavy-op-worker-thread（本轮，已完成）
+
+- Feature: SQLite 会话域重操作迁入 worker_threads 专职线程（sqlite-heavy-op-worker-thread，**已完成**）——"保存设置被同进程同步大事务阻塞"的治本项。
+- 架构（方案 A 双连接分区）：worker 持自开 DatabaseSync 连接，白名单 op（save/saveMany/applyBatch/replaceMessages/appendMessages/delete/deleteBySessionId/replaceAll/exportSnapshot/verifyIntegrity/checkpointWal/readMessagesPage）经 postMessage RPC 在 worker 侧执行；主线程保留小读与 share/lan/scheduled-runs/session-index/maintenance-lock。正确性靠既有 revision CAS + BEGIN IMMEDIATE + busy_timeout（worker 侧 SQLITE_BUSY 有限重试），postMessage FIFO 保持 per-session 串行；错误序列化保留 statusCode/errorCode 控制流属性。`QUICKFORGE_SQLITE_WORKER=0` kill-switch；`configureSessionStateService({repository})` 注入恒优先不经 worker（测试/维护注入可达）。savePairChunked 保留主线程分批编码（快照契约不变），事务移 worker。
+- 实现关键点：database.mjs 新增 getSqliteDatabasePath + 持久关闭钩子集合（closeSqliteStorage 先关 worker）；service heavyOp 路由 + 11 个导出方法 async 化；storage.mjs 调用点补 await；**异步化暴露两处真实缺陷已修**——①`atomicSessionMetadataStateUpdate` 的 `return updateSessionMetadataBucket(...)` 无 await 导致 conflict 重试从未捕获异步 rejection（改 return await）；②storage.mjs pin 路径 `atomicSessionMetadataBucketUpdateViaFacade` 原靠同步 run-to-completion 串行化，异步交错后按 service 同款 maxRetries=3 用新鲜桶状态重算 updateFn。附带：writePlan rename 补 Windows AV 25/50/100ms 重试（并行全量跑下 backup 测试在用户真实目录 EPERM 偶发，同 writeJsonAtomic 既有模式）。
+- 验证：worker 单测 6 用例 ×3 稳定；sqlite+session-state 全族 97×4 稳定；受影响面 25 files / 212 tests 全过；全量 281 files / 2662 tests → 2642 过，剩 20 失败均属并行会话未提交改动（git-status-request-lifecycle 2 / git-tools-pinned-summary 1 / side-chat-workspace-tab 1 为其 App.tsx/ChatPanelHost 改动的源码契约失败；routes/side-chat 16 为其 text-attachments.mjs import cacheDir 撞 vi.mock 缺导出）；eslint 改动文件 0 error；node --check；build ✓。
+- Boundaries：repository 零改动；session-state-import 启动导入未迁移；share/lan 等域留主线程（后续可评估）；未新增依赖；未触碰生成产物。
+- Next step: 真机验证（长会话 agent 运行中保存设置/切会话不再卡顿、desktop 与 npm web 各一次；观察日志无 SESSION_STATE_WORKER_CRASHED）；kill-switch 验证 QUICKFORGE_SQLITE_WORKER=0 回退。
+
 ## Completed Feature：desktop-fork-default（本轮，已完成）
 
 - Feature: 桌面端默认以独立子进程运行 server，inline 变显式 opt-in（desktop-fork-default，**已完成**）。

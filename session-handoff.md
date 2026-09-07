@@ -1,4 +1,14 @@
-## 当前状态：desktop-fork-default（已完成，待提交）
+## 当前状态：sqlite-heavy-op-worker-thread（已完成，待提交）
+
+- 目标：会话持久化的消息编码+同步大事务不再阻塞主事件循环（"保存设置被 persist 拖住"治本），所有运行时（desktop fork/inline、qf CLI/npm web、ACP stdio）统一受益。
+- 架构：方案 A 双连接分区——新 `server/sqlite/session-state-worker{,-client,-protocol}.mjs`，worker 自开 DatabaseSync 执行白名单重 op（save/replaceMessages/appendMessages/applyBatch/replaceAll/exportSnapshot/verifyIntegrity/checkpointWal/delete/readMessagesPage 等），小读留主线程；`QUICKFORGE_SQLITE_WORKER=0` kill-switch；service 注入 repository 恒优先；错误序列化保 CAS 控制流属性；closeSqliteStorage 经新关闭钩子先关 worker。
+- 修复的连带缺陷：`atomicSessionMetadataStateUpdate` 缺 `return await`（异步 conflict 逃逸重试）；storage.mjs pin 路径补 maxRetries=3 新鲜桶重算（异步交错窗口）；writePlan rename 补 AV 重试。
+- 验证：worker 单测 6×3 稳定；sqlite+session-state 全族 97×4 稳定；受影响面 25 files/212 tests；全量 2662 中 2642 过（剩 20 失败均属并行会话未提交改动：3 前端源码契约 + side-chat 16 个 vi.mock 缺 cacheDir，见 progress.md）；eslint/node --check/build 全过。
+- 下一步：真机验证（长会话运行中保存设置不卡顿，desktop + npm web 各一次；日志无 WORKER_CRASHED）；可选后续：share/lan/scheduled-runs 域评估迁移、session-state-import 迁移、设置页加载链优化（catalog 重复请求 + Cloud 2s，另行立项）。
+
+---
+
+## 当前状态：desktop-fork-default（已完成，已提交 5cf2d6e）
 
 - 目标：桌面端默认以独立子进程运行 server，inline 变 `QUICKFORGE_DESKTOP_INLINE=1` 显式 opt-in；消除同步 SQLite 大事务/GC 停顿冻结 Electron 主进程窗口的问题。
 - 实现：electron-main.mjs 默认判定翻转 + dev stdio inherit；public-api.mjs 新增 stopChildProcess 升级链（SIGTERM→等 exit 10s→SIGKILL 5s）；新契约测试 desktop-fork-default.test.ts；wiki 两处同步（README 桌面运行时隔离、server README 代理矩阵）。

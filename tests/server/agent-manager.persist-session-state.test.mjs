@@ -153,7 +153,7 @@ describe('agent persist in authoritative session state', () => {
       expect(record.state).toMatchObject({ id: sessionId, title: 'Agent title' })
       expect(record.state).not.toHaveProperty('messages')
       const { readSessionStateValue } = await import('../../server/session-state-service.mjs')
-      expect(readSessionStateValue(sessionId)).toMatchObject({
+      expect(await readSessionStateValue(sessionId)).toMatchObject({
         id: sessionId,
         title: 'Agent title',
         messages: [{ role: 'user', content: 'hello' }],
@@ -255,7 +255,7 @@ describe('agent persist in authoritative session state', () => {
       const first = repository.findBySessionId(sessionId)
       // Sidebar pin: a concurrent metadata-only update bumps the revision.
       const { saveSessionMetadata } = await import('../../server/session-state-service.mjs')
-      saveSessionMetadata(sessionId, { pinnedAt: PINNED_AT })
+      await saveSessionMetadata(sessionId, { pinnedAt: PINNED_AT })
       expect(repository.findBySessionId(sessionId).revision).toBe(first.revision + 1)
 
       // The run appends messages and persists again: revision CAS must merge
@@ -267,7 +267,7 @@ describe('agent persist in authoritative session state', () => {
       expect(after.metadata).toMatchObject({ pinnedAt: PINNED_AT })
       expect(after.state).toMatchObject({ pinnedAt: PINNED_AT })
       const { readSessionStateValue } = await import('../../server/session-state-service.mjs')
-      expect(readSessionStateValue(sessionId).messages).toMatchObject([
+      expect((await readSessionStateValue(sessionId)).messages).toMatchObject([
         { role: 'user', content: 'hello' },
         { role: 'assistant', content: 'done' },
       ])
@@ -306,7 +306,7 @@ describe('agent persist in authoritative session state', () => {
       const after = repository.findBySessionId(sessionId)
       expect(after.revision).toBe(first.revision + 1)
       const { readSessionStateValue } = await import('../../server/session-state-service.mjs')
-      expect(readSessionStateValue(sessionId).messages).toEqual([{ role: 'user', content: 'external write' }])
+      expect((await readSessionStateValue(sessionId)).messages).toEqual([{ role: 'user', content: 'external write' }])
       expect(session.persistConflictCount).toBe(1)
     } finally {
       await agentManager.destroyAgent(sessionId)
@@ -344,7 +344,7 @@ describe('agent persist in authoritative session state', () => {
     try {
       await agentManager.persistSessionState(session)
       const { saveSessionMetadata } = await import('../../server/session-state-service.mjs')
-      saveSessionMetadata(sessionId, { archivedAt: '2026-02-01T00:00:00.000Z' })
+      await saveSessionMetadata(sessionId, { archivedAt: '2026-02-01T00:00:00.000Z' })
       // Unknown state fields adopted from storage (e.g. written by a plugin or
       // carried over from a previous cutover) must survive the agent's rebuild.
       const withArchive = repository.findBySessionId(sessionId)
@@ -364,7 +364,7 @@ describe('agent persist in authoritative session state', () => {
         archivedAt: '2026-02-01T00:00:00.000Z',
       })
       const { readSessionStateValue } = await import('../../server/session-state-service.mjs')
-      expect(readSessionStateValue(sessionId)).toMatchObject({
+      expect(await readSessionStateValue(sessionId)).toMatchObject({
         storageUnknown: { keep: true },
         archivedAt: '2026-02-01T00:00:00.000Z',
         messages: [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'second' }],
@@ -481,7 +481,7 @@ describe('agent persist in authoritative session state', () => {
       expect(agentManager.getSessionState(sessionId).persistDegraded).toBeUndefined()
       expect(agentManager.getSessionStatus(sessionId).persistDegraded).toBeUndefined()
       const { readSessionStateValue } = await import('../../server/session-state-service.mjs')
-      expect(readSessionStateValue(sessionId).messages.at(-1).content).toBe('recovered')
+      expect((await readSessionStateValue(sessionId)).messages.at(-1).content).toBe('recovered')
     } finally {
       saveConflictFault.remaining = 0
       await agentManager.destroyAgent(sessionId)

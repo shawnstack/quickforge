@@ -267,7 +267,7 @@ describe('authoritative session state backup/restore', () => {
       sessionsMetadata: {},
     }
     await restoreSessionStateSnapshot(target, { mode: 'replace' })
-    const snapshot = exportSessionStateSnapshot()
+    const snapshot = await exportSessionStateSnapshot()
     expect(snapshot.count).toBe(1)
     expect(Object.keys(snapshot.sessions)).toEqual(['only'])
     expect(readSessionStorageState().phase).toBe('authoritative')

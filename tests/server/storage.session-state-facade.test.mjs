@@ -471,7 +471,7 @@ describe('batch route endpoint (POST /api/storage/batch)', () => {
       const value = await callRoute(routeModule, 'GET', '/api/storage/sessions/key/one')
       expect(value).toMatchObject({ ok: true, status: 200 })
       expect(value.payload.value).toMatchObject({ id: 'one' })
-      expect(readSessionStateValue('one')).toMatchObject({ id: 'one' })
+      expect(await readSessionStateValue('one')).toMatchObject({ id: 'one' })
     })
   })
 })

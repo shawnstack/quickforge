@@ -97,6 +97,17 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(sidebarSource.indexOf('sensors={sectionSensors}')).toBeLessThan(sidebarSource.indexOf('sectionOrder.map((sectionId) => ('))
   })
 
+  it('mounts the Pinned section on content only, not loading (refocus flash regression)', () => {
+    // visibilitychange refocus runs loadPinnedSessions, which sets loading:true while items
+    // stay empty for pin-less users; mounting on loading alone flashes an empty Pinned block
+    // above the Projects list for ~60ms and shoves the list down and back up.
+    expect(sidebarSource).toContain('{pinnedSessionItems.length > 0 ? (')
+    expect(sidebarSource).not.toContain('pinnedSessionItems.length > 0 || pinnedLoading')
+    expect(sidebarSource).not.toContain('pinnedSessionItems.length === 0')
+    // loading still gates the load-more sentinel inside the mounted section.
+    expect(sidebarSource).toContain('!pinnedCollapsed && pinnedHasMore && !pinnedLoading')
+  })
+
   it('uses one middle scroll container while sections and child lists grow naturally', () => {
     const sortableSectionStart = sidebarSource.indexOf('function SortableSidebarSection')
     const sortableSectionSource = sidebarSource.slice(sortableSectionStart, sidebarSource.indexOf('export const ChatSidebar', sortableSectionStart))

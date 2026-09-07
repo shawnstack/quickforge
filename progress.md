@@ -26,6 +26,16 @@
 
 # Progress
 
+## Completed Feature：sidebar-pinned-refocus-flash（2026-09-07，已完成）
+
+- Feature: 切回浏览器时侧栏项目列表闪烁修复（sidebar-pinned-refocus-flash，**done**）——用户报告"切回浏览器到页面，左边项目的列表闪烁一下"。
+- 根因（调研 + 实测实证，详见 Notes 2026-09-07 条目）：切回 → `useCrossTabSync` visibilitychange → `refreshSessions` → `loadPinnedSessions(0)` 先 `setPinnedPage({...prev, loading:true})`（useSessionPagination.ts:90，空 items 保留）→ 无置顶会话时 `ChatSidebar.tsx:1299` 挂载条件 `length > 0 || pinnedLoading` 因 loading 短暂成立 → 整个 Pinned 区块（标题 + `px-3 pb-1` 容器，侧栏第一个区块）挂载 → fetch 返回无置顶 → 卸载；MutationObserver 两次复现存活 42-62ms，下方项目列表被挤下再弹回即"闪烁"。触发条件 = 无置顶会话；App 首启同路径但整页加载期不显眼。
+- 实现：挂载条件收紧为 `pinnedSessionItems.length > 0`（内容驱动，附注释说明约束）；删除随之不可达的区块内 loading spinner 占位分支（`length === 0 ? spinner : list` 三元收敛为直接渲染）；`pinnedLoading` 保留于 `LoadMoreSentinel enabled={!pinnedCollapsed && pinnedHasMore && !pinnedLoading}` 防重复加载更多，分页/loading 语义零改动。有置顶会话时区块常驻行为不变。
+- 测试：`sidebar-section-order.test.ts` 新增契约——挂载条件含 `length > 0`、不含 `|| pinnedLoading`、区块内无 `length === 0` 死分支、LoadMoreSentinel 仍受 `!pinnedLoading` 门控。
+- Verification: 定向 vitest 3 files / 33 tests（含 sidebar-section-order 21）全过；eslint 2 改动文件 0 error；`npx tsc -b --pretty false` 通过；修复后 dev server + MutationObserver 复验切回事件，Pinned 区块插拔消失（仅剩 dnd-kit 无位移 transition 写入）。未跑全量 test/lint/build（非发布）。
+- Boundaries: 不改 useSessionPagination/loading/分页语义；不动 dnd-kit；未新增依赖；未触碰生成产物；未 commit。调研中发现的其余工作区级候选（rAF 补跑滚动跳变、SSE 重连提示条插拔、watchdog 全量替换、scrollbar-gutter）保持 Notes 备查，不在本 feature 扩大范围。
+- Next step: 无 blocker；用户真机切走/切回确认项目列表不再闪。
+
 ## Completed Feature：backup-settings-only-and-snapshot-fast-path（本轮，已完成）
 
 - 本轮完成并验证：消息队列、活跃 Agent destroy-first、scheduled task updater、IndexedDB 事件收窄、`exportSnapshot` 的 keys/has/identity 快路径优化，以及用户 HTTP backup 的 settings-only boundary。

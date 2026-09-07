@@ -27,6 +27,16 @@
 
 ---
 
+## 当前状态：sidebar-pinned-refocus-flash（调研+修复，已完成，未提交）
+
+- 背景：用户报告「切回浏览器到页面，左边项目的列表闪烁一下」。调研实测定位（dev server + MutationObserver 两次复现）：切回 → `useCrossTabSync` visibilitychange → `refreshSessions` → `loadPinnedSessions(0)` 先 `setPinnedPage({...prev, loading:true})`（空 items 保留）→ 无置顶会话时 `ChatSidebar.tsx:1299` 挂载条件 `length > 0 || pinnedLoading` 因 loading 短暂成立 → Pinned 区块整体闪现 42-62ms 后随空数据卸载，把下方项目列表挤下再弹回。触发条件 = 无置顶会话。
+- 修复：挂载条件收紧为 `pinnedSessionItems.length > 0`（内容驱动）；删除不可达的区块内 loading spinner 死分支；`pinnedLoading` 仍保留于 `LoadMoreSentinel` 门控，分页/loading 语义零改动。
+- 测试与验证：`sidebar-section-order.test.ts` 新增防回归契约 4 断言；定向 vitest 3 files / 33 tests、eslint 2 文件 0 error、`npx tsc -b` 全过；修复后浏览器复验切回事件 Pinned 区块插拔消失。
+- 文件：`src/components/sidebar/ChatSidebar.tsx`、`tests/frontend/sidebar-section-order.test.ts`、feature_list.json、progress.md、session-handoff.md。
+- 下一步：用户真机切走/切回确认；未 commit。调研中其余工作区级候选（rAF 补跑滚动跳变、SSE 重连提示条插拔、watchdog 全量替换、scrollbar-gutter）见 progress.md Notes 备查，未扩大范围。
+
+---
+
 ## 当前状态：sidebar-session-running-unread-status（已完成，未提交）
 
 - 目标：侧栏会话行尾显示运行 icon；成功完成后以绿色点表示未读。

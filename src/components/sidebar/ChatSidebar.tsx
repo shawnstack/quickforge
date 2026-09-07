@@ -1296,7 +1296,10 @@ export const ChatSidebar = memo(function ChatSidebar({
 
       {sidebarOpen ? (
         <div ref={sidebarScrollViewportRef} className="min-h-0 flex-1 overflow-y-auto">
-          {(pinnedSessionItems.length > 0 || pinnedLoading) ? (
+          {/* Content-driven mount: loading alone must not mount this section — refocus
+              refreshes (visibilitychange → loadPinnedSessions sets loading:true while items
+              stay empty) would flash an empty Pinned block and shove the sections below. */}
+          {pinnedSessionItems.length > 0 ? (
             <div className="px-3 pb-1">
               <div className={sectionHeaderClass}>
                 <button type="button" className={sectionToggleClass} onClick={onTogglePinnedCollapsed} aria-expanded={!pinnedCollapsed}>
@@ -1307,17 +1310,8 @@ export const ChatSidebar = memo(function ChatSidebar({
               <div className={cn(collapsePanelClass, pinnedCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass)}>
                 <div className={collapseInnerClass}>
                   <div className="space-y-0.5">
-                      {pinnedSessionItems.length === 0 ? (
-                        <div className="flex items-center px-3 py-3 text-xs text-muted-foreground/55">
-                          <Loader2 className="mr-1.5 size-3 animate-spin" />
-                          {t('loadingChatWorkspace')}
-                        </div>
-                      ) : (
-                        <>
-                          {pinnedSessionItems.map(renderPinnedSessionItem)}
-                          <LoadMoreSentinel onLoadMore={onLoadMorePinned} enabled={!pinnedCollapsed && pinnedHasMore && !pinnedLoading} />
-                        </>
-                      )}
+                    {pinnedSessionItems.map(renderPinnedSessionItem)}
+                    <LoadMoreSentinel onLoadMore={onLoadMorePinned} enabled={!pinnedCollapsed && pinnedHasMore && !pinnedLoading} />
                   </div>
                 </div>
               </div>

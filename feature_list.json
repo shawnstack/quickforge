@@ -839,6 +839,18 @@
         "tests/frontend/subagent-running-indicator.test.ts"
       ],
       "verification": "npm run build ✓；eslint 改动 TS 文件 0 error；定向 tests/frontend 126/127 files（1312 tests）全过（唯一排除项 local-tool-running-sweep 为 HEAD 既有失败，见 progress.md Notes）；chat-compact-controls / composer-control-hover 断言同步新选择器；Revision 4 定向 Vitest 2 files / 24 tests 全过，ESLint、tsc -b、build 与 git diff --check 通过。Revision 5 定向 3 files / 18 tests 全过；ESLint、tsc -b、git diff --check 通过。Revision 6 模型选择器定向 8 tests 全过；ESLint 与 git diff --check 通过，待运行 tsc/build。Revision 7（运行中 Subagent 控件去框）：定向 2 files / 15 tests 全过；ESLint、tsc -b、build、git diff --check 均通过。"
+    },
+    {
+      "id": "sidebar-pinned-refocus-flash",
+      "name": "切回浏览器时侧栏项目列表闪烁修复（Pinned 区块 loading 误挂载）",
+      "status": "done",
+      "approach": "切回页面 visibilitychange → refreshSessions → loadPinnedSessions 先置 loading:true 且 items 为空，无置顶会话时 ChatSidebar 的 Pinned 区块挂载条件 length>0||pinnedLoading 短暂成立，整个区块闪现约 42-62ms 后随空数据卸载，把下方项目列表挤下再弹回（dev server + MutationObserver 两次复现实证）。修复：挂载条件收紧为 pinnedSessionItems.length>0（内容驱动），删除随之不可达的区块内 loading spinner 占位分支；pinnedLoading 仍保留于 LoadMoreSentinel enabled 门控。修复后浏览器复验 Pinned 区块插拔消失。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "tests/frontend/sidebar-section-order.test.ts"
+      ],
+      "verification": "定向 vitest 3 files / 33 tests（sidebar-section-order 新增 refocus flash 防回归契约）全过；eslint 2 改动文件 0 error；npx tsc -b 通过；浏览器实测切回事件后 Pinned 区块不再挂载/卸载。",
+      "boundaries": "未改 LoadMoreSentinel/分页/loading 语义；有置顶会话时区块常驻行为不变；未新增依赖、未触碰生成产物、未 commit。"
     }
   ]
 }

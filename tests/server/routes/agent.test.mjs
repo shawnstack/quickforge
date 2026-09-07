@@ -111,6 +111,16 @@ vi.mock('../../../server/utils/platform.mjs', () => ({
   openPathInFileManager: attachmentMocks.openPathInFileManager,
 }))
 
+const fileBackupMocks = vi.hoisted(() => ({
+  getSessionFileChanges: vi.fn(),
+  rollbackSessionFiles: vi.fn(),
+}))
+
+vi.mock('../../../server/session-file-backups.mjs', () => ({
+  getSessionFileChanges: fileBackupMocks.getSessionFileChanges,
+  rollbackSessionFiles: fileBackupMocks.rollbackSessionFiles,
+}))
+
 function request(body) {
   const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
   req.method = 'POST'
@@ -216,6 +226,45 @@ describe('agent text attachment routes', () => {
     )).rejects.toMatchObject({ statusCode: 400, message: 'Invalid text attachment path' })
 
     expect(attachmentMocks.openPathInFileManager).not.toHaveBeenCalled()
+  })
+})
+
+describe('agent file change summary routes', () => {
+  beforeEach(() => {
+    fileBackupMocks.getSessionFileChanges.mockReset()
+    fileBackupMocks.rollbackSessionFiles.mockReset()
+  })
+
+  it('returns the session-scoped file change summary', async () => {
+    const summary = {
+      files: [{ path: 'C:\\ws\\a.ts', relativePath: 'a.ts', created: false, added: 3, removed: 1 }],
+      totalAdded: 3,
+      totalRemoved: 1,
+    }
+    fileBackupMocks.getSessionFileChanges.mockResolvedValue(summary)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+
+    const req = request(undefined)
+    req.method = 'GET'
+    const res = response()
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1/file-changes'))
+
+    expect(fileBackupMocks.getSessionFileChanges).toHaveBeenCalledWith('session-1')
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual(summary)
+  })
+
+  it('rolls back session file changes and reports the result', async () => {
+    const result = { restored: 2, removedCreated: 1, errors: [] }
+    fileBackupMocks.rollbackSessionFiles.mockResolvedValue(result)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+
+    const res = response()
+    await handleAgentApi(request({}), res, new URL('http://localhost/api/agents/session-1/rollback-files'))
+
+    expect(fileBackupMocks.rollbackSessionFiles).toHaveBeenCalledWith('session-1')
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual(result)
   })
 })
 

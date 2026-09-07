@@ -301,6 +301,9 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
         includeMcpTools: definition.allowMcpTools === true,
         includePluginTools: false,
         includeSkillTools: definition.allowAgentSkills === true,
+        // 子 Agent 的文件写入归因到父会话，纳入父会话的变更摘要与回滚。
+        sessionId: parentSession.sessionId,
+        scope: parentSession.scope,
       },
     )
     toolsForClient = tools.map(({ execute: _execute, prepareArguments: _prepareArguments, ...tool }) => tool)

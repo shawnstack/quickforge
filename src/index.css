@@ -6269,6 +6269,130 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   }
 }
 
+/* 会话代码变更摘要条：composer 上方常驻条（影子备份驱动），中性色系。
+   +N/−N 复用 git 变更列表的绿/红语义色。 */
+.quickforge-change-summary-strip {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  border-top: 1px solid var(--border);
+  background: var(--background);
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-change-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.quickforge-change-summary-icon {
+  display: inline-flex;
+}
+
+.quickforge-change-summary-icon svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-change-summary-title {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.quickforge-change-summary-added {
+  color: rgb(4 143 101);
+}
+
+html.dark .quickforge-change-summary-added {
+  color: rgb(110 231 183);
+}
+
+.quickforge-change-summary-removed {
+  color: rgb(220 38 38);
+}
+
+html.dark .quickforge-change-summary-removed {
+  color: rgb(252 165 165);
+}
+
+.quickforge-change-summary-spacer {
+  flex: 1;
+}
+
+.quickforge-change-summary-rollback,
+.quickforge-change-summary-cancel,
+.quickforge-change-summary-preview,
+.quickforge-change-summary-toggle {
+  font: inherit;
+  font-size: 0.6875rem;
+  cursor: pointer;
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 1px 8px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.quickforge-change-summary-rollback:hover,
+.quickforge-change-summary-cancel:hover,
+.quickforge-change-summary-preview:hover,
+.quickforge-change-summary-toggle:hover {
+  background: var(--muted);
+}
+
+.quickforge-change-summary-rollback:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.quickforge-change-summary-rollback {
+  color: rgb(220 38 38);
+  border-color: color-mix(in oklab, rgb(220 38 38) 30%, var(--border));
+}
+
+.quickforge-change-summary-files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+  font-size: 0.6875rem;
+}
+
+.quickforge-change-summary-file {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.quickforge-change-summary-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-change-summary-file-stats {
+  display: inline-flex;
+  gap: 0.375rem;
+  flex: none;
+}
+
+
 /* TodoWrite task summary: an in-flow sibling immediately above the composer.
    Collapsed it shrinks to a centered progress capsule; expanding morphs it
    into the header row of the full list. All animation timing lives in CSS —

@@ -917,6 +917,14 @@ function MainApp() {
     })
   }, [agentManager.currentToolProject, requestWorkspaceInspector, setArtifactPreviewOpen])
 
+  // 变更摘要条文件预览：复用产物预览统一入口，按类型分流 Reader/Document/Browser，
+  // 与产物列表点开同一文件的行为完全同源。
+  const openFilePreviewFromChangeSummary = useCallback((relativePath: string) => {
+    const projectId = agentManager.currentToolProject?.id
+    if (!projectId) return
+    openArtifactPreview(projectId, relativePath)
+  }, [agentManager.currentToolProject?.id, openArtifactPreview])
+
   // 附着时刻快照：agent/sessionId 变化时（restore 返回后消息已同步填充）记录全部历史
   // toolResult 的 toolCallId；缓存命中后后台校准补尾出现的 toolResult 会视为新产物（可接受）。
   // 此快照用于区分「历史 present_files」与「附着后新 present」。必须声明在自动预览 effect
@@ -2270,6 +2278,7 @@ function MainApp() {
                       onRejectAutoCompact={handleRejectAutoCompact}
                       onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
                       onOpenLocalFilePath={openLocalFilePathFromChat}
+                      onOpenFilePreview={openFilePreviewFromChangeSummary}
                       onArtifactsChange={(artifacts) => {
                         setCurrentSessionArtifactsState({
                           projectId: agentManager.currentToolProject?.id,

@@ -16,6 +16,7 @@ server/
 ├── agent-approval-orchestrator.mjs # 审批 / ask_user / ACP / 自动压缩审批 Promise 编排
 ├── agent-subagent-runner.mjs # run_subagent 生命周期与 SUBAGENT_* 常量
 ├── agent-persistence.mjs     # 会话持久化（CAS 权威快照 / debounce / 降级标记）
+├── session-file-backups.mjs  # 会话级文件影子备份（变更摘要 / 安全回滚）
 ├── auto-archive.mjs          # 超过 30 天未更新对话的自动归档 runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
@@ -102,6 +103,7 @@ server/
 - `agent-approval-orchestrator.mjs` — 工具审批 / ask_user / ACP 审批 / 自动压缩审批四类 Promise 编排。
 - `agent-subagent-runner.mjs` — `run_subagent` 生命周期：`runSubagent`、临时 profile、超时/中止进度摘要、错误 details 构建、trace 截尾与 `SUBAGENT_*` 常量。
 - `agent-persistence.mjs` — 会话持久化：CAS 权威快照（`persistAuthoritativeSessionState` / `persistSessionUnlocked`）、`persistSession` / `persistSessionState`、400ms debounce、慢持久化日志与 persist 降级标记。
+- `session-file-backups.mjs` — 会话级影子备份：`write_file`/`edit_file` 写盘前把该会话首次修改前的旧内容备份到 `~/.quickforge/cache/global/session-backups/<sessionId>/`（同会话同文件只备份首次；新建文件只登记 created 标记），`getSessionFileChanges` 用「备份内容 vs 当前文件」对账真实 diff 生成摘要，`rollbackSessionFiles` 恢复备份并删除会话新建文件；备份不随会话销毁删除（刷新后仍可回滚），7 天 TTL 兜底清理（≥1h 扫一次）。子 Agent 的文件写入经工具上下文 `sessionId` 归因到父会话。
 - 拆分期间的内部共享导出（`resetIdleTimer` / `createServerTools`，登记于契约测试 `INTERNAL_SHARED_EXPORTS` 清单）后续随对应块迁移后收回。
 
 

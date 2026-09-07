@@ -16,6 +16,7 @@ import {
 import { getToolWorkspaceRoot } from '../utils/workspace.mjs'
 import { manageGlobalMemory } from '../global-memory.mjs'
 import { generateSessionImages } from '../image-generation.mjs'
+import { backupFileBeforeWrite } from '../session-file-backups.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -508,6 +509,15 @@ export async function toolWriteFile(params, context, runtime = {}) {
     details: { running: true, path: relativePath, project: context?.project, diff: { addedLines: diff.addedLines, removedLines: diff.removedLines } },
   })
 
+  // 影子备份：记录本会话首次修改前的旧内容，供会话级回滚（失败不阻断写盘）。
+  if (context?.sessionId) {
+    try {
+      await backupFileBeforeWrite(context.sessionId, file, existed ? oldText : null, { relativePath })
+    } catch (error) {
+      console.warn('[session-file-backups] backup failed', { path: relativePath, error: error?.message })
+    }
+  }
+
   await fs.mkdir(path.dirname(file), { recursive: true })
   await fs.writeFile(file, content, 'utf8')
 
@@ -571,6 +581,15 @@ export async function toolEditFile(params, context, runtime = {}) {
     content: [{ type: 'text', text: `Editing ${relativePath} (+${diff.addedLines} -${diff.removedLines})` }],
     details: { running: true, path: relativePath, project: context?.project, diff: { addedLines: diff.addedLines, removedLines: diff.removedLines } },
   })
+
+  // 影子备份：记录本会话首次修改前的旧内容，供会话级回滚（失败不阻断写盘）。
+  if (context?.sessionId) {
+    try {
+      await backupFileBeforeWrite(context.sessionId, file, text, { relativePath })
+    } catch (error) {
+      console.warn('[session-file-backups] backup failed', { path: relativePath, error: error?.message })
+    }
+  }
 
   await fs.writeFile(file, nextText, 'utf8')
 

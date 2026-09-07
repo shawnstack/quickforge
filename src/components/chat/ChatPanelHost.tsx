@@ -46,6 +46,7 @@ import {
   createReconnectNoticeController,
   createUnreachableStripController,
   createModelRetryNoticeController,
+  createChangeSummaryStripController,
   removeSubagentRunningIndicator,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
@@ -171,6 +172,7 @@ type ChatPanelHostProps = {
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
+  onOpenFilePreview?: (relativePath: string) => void
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void
@@ -209,6 +211,7 @@ type PropsRef = {
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
+  onOpenFilePreview?: (relativePath: string) => void
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void
@@ -253,6 +256,7 @@ export function ChatPanelHost({
   onRejectAutoCompact,
   onOpenWorkspaceGitChanges,
   onOpenLocalFilePath,
+  onOpenFilePreview,
   onArtifactsChange,
   onContextUsageDisplayChange,
   onInitialRenderReady,
@@ -389,6 +393,7 @@ export function ChatPanelHost({
     onRejectAutoCompact,
     onOpenWorkspaceGitChanges,
     onOpenLocalFilePath,
+    onOpenFilePreview,
     onArtifactsChange,
     onContextUsageDisplayChange,
     onInitialRenderReady,
@@ -427,6 +432,7 @@ export function ChatPanelHost({
       onRejectAutoCompact,
       onOpenWorkspaceGitChanges,
       onOpenLocalFilePath,
+      onOpenFilePreview,
       onArtifactsChange,
       onContextUsageDisplayChange,
       onInitialRenderReady,
@@ -683,6 +689,18 @@ export function ChatPanelHost({
     const unreachableStrip = sideChatMode ? null : createUnreachableStripController({ panel })
     // 模型上游流重试提示（model_stream_retry SSE 事件驱动，与 SSE 连接层提示并列）。
     const modelRetryNotice = sideChatMode ? null : createModelRetryNoticeController({ panel })
+    // 会话级代码变更摘要条（影子备份驱动）：修改文件数/±行数/回滚/HTML 预览。
+    const changeSummaryStrip = sideChatMode || readOnly
+      ? null
+      : createChangeSummaryStripController({
+        panel,
+        getSessionId: () => agent.sessionId,
+        getMessages: () => agent.state.messages as { role?: string; toolName?: unknown }[],
+        isStreaming: () => agent.state.isStreaming === true,
+        onOpenFilePreview: (relativePath) => {
+          propsRef.current.onOpenFilePreview?.(relativePath)
+        },
+      })
 
     let turnNavigation: ReturnType<typeof createTurnNavigation> | null = null
 
@@ -1146,6 +1164,12 @@ export function ChatPanelHost({
         todoWriteSummary.update()
       } catch (error) {
         logger.warn('Failed to update TodoWrite summary:', error)
+      }
+
+      try {
+        changeSummaryStrip?.sync()
+      } catch (error) {
+        logger.warn('Failed to update change summary strip:', error)
       }
 
       try {
@@ -1710,6 +1734,7 @@ export function ChatPanelHost({
       reconnectNotice?.destroy()
       unreachableStrip?.destroy()
       modelRetryNotice?.destroy()
+      changeSummaryStrip?.destroy()
       removeSubagentRunningIndicator(panel)
       cancelMessageQueuePersist()
       cancelQueuedPrompt()

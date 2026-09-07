@@ -1,3 +1,14 @@
+## 当前状态：session-change-summary-rollback（已完成，未提交，待真机冒烟）
+
+- 目标：对话底部常驻摘要条——显示本会话修改的代码文件数与对账真实 +N/−N 行数，支持安全回滚（影子备份恢复到会话首次修改前、删除会话新建文件）与文件预览。用户确认：影子备份机制、整会话粒度、真实 diff 口径；Revision 后预览对齐产物体系（html/md/txt/word 等全类型）。
+- 实现：`server/session-file-backups.mjs`（新）+ write_file/edit_file 写盘前备份接入（`server/tools/index.mjs`）+ subagent 写入归因父会话（`agent-subagent-runner.mjs` 工具上下文补 sessionId）+ 路由 GET `/api/agents/:id/file-changes`、POST `/api/agents/:id/rollback-files`（`server/routes/agent.mjs`）；前端新 `panel-decoration/change-summary-strip.ts`（两步确认回滚、流式禁用）、ChatPanelHost/App/panel-decoration 接线、i18n +7 key、index.css 新增 `.quickforge-change-summary-strip` 段。预览：类型判定复用 `artifactPreviewMode`（html/图片→Browser、markdown/代码→Reader、pdf/docx/excel→Document），回调 `onOpenFilePreview` 在 App 直调产物预览统一入口 `openArtifactPreview(projectId, relativePath)`，与产物列表同源（含 tab 复用/重载；全局会话无项目上下文不显示按钮）。
+- 验证：定向 vitest 5 个新/扩测试文件 + 回归（session-file-backups 5、routes/agent 21、tools 68、agent-manager.subagents 16、前端契约 10）全过；eslint 改动 ts 0 error；node --check；tsc -b；npm run build ✓（仅既有 chunk 警告）。Revision 复验：契约测试 10、eslint、tsc -b。未跑全量 test/lint。
+- 边界：run_command / OpenCode 产生的文件改动不纳入（progress Notes 有记录）；备份 7 天 TTL；Side Chat/readOnly 不挂条；未 commit、未新增依赖、未触碰生成产物。
+- 下一步：真机冒烟（Agent 编辑+新建 md/txt/html/docx → 摘要条/展开列表/预览分流 Reader/Browser/Document/回滚后文件复原、新建文件被删、流式中回滚禁用）；工作区还有多个并行 feature 未提交改动，commit 时按 feature 拆分。
+
+---
+
+
 ## 当前状态：large-paste-text-attachment Revision（真机冒烟报错修复 + UI 微调，已完成，未提交）
 
 - 背景：用户真机点击粘贴文本附件报「无法打开文件 Path is outside the selected project: C:\Users\...\.quickforge\cache\global\tmp\conversations\pending-...」。只读排查结论：该报错只能来自 App.tsx `openLocalFilePathFromChat` 的 resolveWorkspacePath 回退分支，而当前代码（含 16:34 dist）的 `/cache/global/tmp/conversations/` 检测对该路径必然命中——即用户渲染进程跑的是 feature 中间态旧 bundle（编辑器粘贴已有、App.tsx 专用分支 15:07 才写入），**重启桌面应用加载新 dist 即不复现**；但当前代码另有两个真实缺陷，本轮一并修复。

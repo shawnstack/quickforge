@@ -1,5 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { createTextAttachment, isTextAttachmentPath } from '../text-attachments.mjs'
+import { getSessionFileChanges, rollbackSessionFiles } from '../session-file-backups.mjs'
 import { openPathInFileManager } from '../utils/platform.mjs'
 import { logger } from '../utils/logger.mjs'
 import { resolveModelBinding } from '../model-catalog.mjs'
@@ -104,6 +105,19 @@ export async function handleAgentApi(req, res, url, context = {}) {
     }
     await openPathInFileManager(filePath)
     sendJson(res, 200, { ok: true, opened: 'file' })
+    return
+  }
+
+  // GET /api/agents/:sessionId/file-changes — session-scoped file change summary (shadow backups vs current files)
+  if (req.method === 'GET' && subPath === 'file-changes') {
+    sendJson(res, 200, await getSessionFileChanges(sessionId))
+    return
+  }
+
+  // POST /api/agents/:sessionId/rollback-files — restore files modified in this session to their pre-session state
+  if (req.method === 'POST' && subPath === 'rollback-files') {
+    const result = await rollbackSessionFiles(sessionId)
+    sendJson(res, 200, result)
     return
   }
 

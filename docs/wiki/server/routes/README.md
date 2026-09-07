@@ -84,6 +84,8 @@ Agent 会话管理核心路由。
 - `POST /api/agents/:sessionId/yolo-mode` — 旧客户端兼容入口
 - `POST /api/agents/:sessionId/model` — 接收版本化 `modelRef`（旧完整 `model` 仅作兼容识别），从当前统一目录解析权威模型；prompt/continue 执行前会再次解析，失效显式绑定直接拒绝
 - `POST /api/agents/:sessionId/thinking-level` — 更新思考级别
+- `GET /api/agents/:sessionId/file-changes` — 会话级代码变更摘要（`server/session-file-backups.mjs` 影子备份驱动）：返回 `{files:[{path,relativePath,created,added,removed}], totalAdded, totalRemoved}`，每文件为「会话首次修改前备份内容 vs 当前文件」的对账真实 diff；无备份返回空
+- `POST /api/agents/:sessionId/rollback-files` — 把本会话 write_file/edit_file 修改的文件恢复到首次修改前状态（恢复备份内容、删除会话新建文件），返回 `{restored, removedCreated, errors}`；逐文件尽力恢复
 
 ## storage.mjs (151 行)
 

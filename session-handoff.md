@@ -1,3 +1,22 @@
+## 当前状态：desktop-fork-default（已完成，待提交）
+
+- 目标：桌面端默认以独立子进程运行 server，inline 变 `QUICKFORGE_DESKTOP_INLINE=1` 显式 opt-in；消除同步 SQLite 大事务/GC 停顿冻结 Electron 主进程窗口的问题。
+- 实现：electron-main.mjs 默认判定翻转 + dev stdio inherit；public-api.mjs 新增 stopChildProcess 升级链（SIGTERM→等 exit 10s→SIGKILL 5s）；新契约测试 desktop-fork-default.test.ts；wiki 两处同步（README 桌面运行时隔离、server README 代理矩阵）。
+- 验证：定向 vitest 3 files / 16 tests、eslint 3 文件、node --check、npm run build 全过。
+- 接受项：默认模式自定义 PAC URL 需 opt-in inline；Windows fork 退出硬杀（WAL 可恢复）；同版本端口复用为 fork 既有语义。
+- 下一步：同会话继续 sqlite-heavy-op-worker-thread（worker_threads 双连接分区，方案已批准）；真机冒烟清单见 progress.md。
+
+---
+
+## 当前状态：workspace-refocus-jitter-investigation（只读调研，已完成，未改代码）
+
+- 目标：用户报告「切回浏览器到页面，工作区的显示会抖动一下」，定位原因。
+- 结论：非单一 bug，是切回瞬间多路代码同时动作叠加。①必然发生：`useCrossTabSync` visibilitychange 刷新 sessions/projects（App 全树重渲染 + loading 一帧，聊天面板不重建）+ 隐藏期挂起的 rAF/RO 回调在切回第一帧集中补跑（decorate 重扫 + 双重 rAF scrollToBottom，pi-web-ui AgentInterface 内部 RO 亦无条件写 scrollTop）——流式中切走时滚动跳变最明显。②条件发生（后台断连）：reconnect-notice 文档流内提示行插拔 + unreachable-strip 常驻条挂载/移除挤压 composer。③流式中切走时 watchdog 补跑全量替换 messages。④放大器：滚动容器无 scrollbar-gutter，滚动条出现/消失导致整列 reflow。证据链与修复方向详见 progress.md Notes（2026-09-07 条目）。
+- 文件：progress.md（Notes 追加）、session-handoff.md（本条目）；未修改任何源码。
+- 下一步：如用户确认要修，按 Notes 中四个修复方向立项（首帧滚动守卫 / 提示条 overlay 化 / watchdog 守卫 / scrollbar-gutter），先真机 Performance 录制确认主因。
+
+---
+
 ## 当前状态：sidebar-session-running-unread-status（已完成，未提交）
 
 - 目标：侧栏会话行尾显示运行 icon；成功完成后以绿色点表示未读。

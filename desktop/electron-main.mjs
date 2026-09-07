@@ -516,7 +516,12 @@ async function boot() {
     registerDesktopNotificationHandler()
 
     const desktopRuntimeVersion = await getDesktopRuntimeVersion()
-    const inline = process.env.QUICKFORGE_DESKTOP_INLINE !== '0'
+    // The server runs in a dedicated child process by default so synchronous
+    // SQLite transactions and GC pauses cannot freeze the Electron main
+    // process. QUICKFORGE_DESKTOP_INLINE=1 opts back into the in-process
+    // server, which is required for the Chromium proxy runtime (custom PAC
+    // URLs).
+    const inline = process.env.QUICKFORGE_DESKTOP_INLINE === '1'
     quickForgeInstance = await startQuickForge({
       host: process.env.QUICKFORGE_DESKTOP_HOST || '127.0.0.1',
       port: process.env.QUICKFORGE_DESKTOP_PORT || process.env.QUICKFORGE_PORT || 5177,
@@ -531,6 +536,7 @@ async function boot() {
         || process.env.QUICKFORGE_DESKTOP_TERMINAL === '1',
       runtimeKind: 'desktop',
       detached: false,
+      stdio: app.isPackaged ? 'ignore' : 'inherit',
     })
 
     await refreshDesktopTheme()

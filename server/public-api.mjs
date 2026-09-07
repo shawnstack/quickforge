@@ -24,6 +24,48 @@ function isProcessRunning(pid) {
   }
 }
 
+const CHILD_STOP_SIGTERM_WAIT_MS = 10000
+const CHILD_STOP_SIGKILL_WAIT_MS = 5000
+
+function waitForChildExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      clearTimeout(timer)
+      child.removeListener('exit', onSettled)
+      child.removeListener('error', onSettled)
+    }
+    const onSettled = () => {
+      cleanup()
+      resolve(true)
+    }
+    const timer = setTimeout(() => {
+      cleanup()
+      resolve(false)
+    }, timeoutMs)
+    child.once('exit', onSettled)
+    child.once('error', onSettled)
+  })
+}
+
+// SIGTERM first so the server can run its graceful shutdown (flush logger,
+// close SQLite); escalate to SIGKILL if it does not exit in time. On Windows
+// kill() terminates immediately, so the waits resolve right away.
+async function stopChildProcess(child) {
+  try {
+    child.kill('SIGTERM')
+  } catch {
+    // The child may have already exited.
+  }
+  if (await waitForChildExit(child, CHILD_STOP_SIGTERM_WAIT_MS)) return true
+  try {
+    child.kill('SIGKILL')
+  } catch {
+    // The child may have already exited.
+  }
+  return waitForChildExit(child, CHILD_STOP_SIGKILL_WAIT_MS)
+}
+
 function normalizeHost(host) {
   return host || '127.0.0.1'
 }
@@ -259,7 +301,7 @@ export async function startQuickForge(options = {}) {
     reused: false,
     async stop() {
       if (child.killed) return false
-      child.kill('SIGTERM')
+      await stopChildProcess(child)
       return true
     },
   }
@@ -269,6 +311,6 @@ export async function stopQuickForge(instance) {
   if (!instance || instance.reused) return false
   if (typeof instance.stop === 'function') return instance.stop()
   if (!instance.child || instance.child.killed) return false
-  instance.child.kill('SIGTERM')
+  await stopChildProcess(instance.child)
   return true
 }

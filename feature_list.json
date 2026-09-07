@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "desktop-fork-default",
+      "name": "桌面端默认 fork 子进程运行 server（inline 变显式 opt-in）",
+      "status": "done",
+      "approach": "翻转 desktop/electron-main.mjs 启动默认：server 以独立子进程运行，避免同步 SQLite 大事务/GC 停顿冻结 Electron 主进程（桌面内存排查结论②的直接对策）；QUICKFORGE_DESKTOP_INLINE=1 显式回退 inline（需要 Chromium 代理栈/自定义 PAC 地址时）。附带健壮化：dev（非 app.isPackaged）下子进程 stdio inherit 保住 server stderr 诊断，打包版保持 ignore 由文件日志兜底；fork stop 由单发 SIGTERM 升级为 SIGTERM→等 exit（10s）→SIGKILL（5s）（对齐 qf CLI 语义，Windows 强杀语义下等待立即返回、无行为恶化）。",
+      "files": [
+        "desktop/electron-main.mjs",
+        "server/public-api.mjs",
+        "tests/frontend/desktop-fork-default.test.ts",
+        "docs/wiki/README.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 3 files / 16 tests（desktop-fork-default 新契约 4 + startup-health-timeout 5 + public-api 7）全过；eslint 3 个改动文件 0 error；node --check electron-main.mjs / public-api.mjs；npm run build 通过（仅既有 chunk 警告）。",
+      "boundaries": "默认模式下自定义 PAC URL 返回 400（需 QUICKFORGE_DESKTOP_INLINE=1），系统代理不受影响，wiki 已写明；Windows fork 退出为硬杀、graceful shutdown 不执行（SQLite WAL 可恢复，日志尾 ≤5s 可能丢）；同版本端口复用（reuseExisting:'same-version'）为 fork 既有设计语义保持；未新增依赖；未触碰生成产物。"
+    },
+    {
       "id": "sidebar-session-running-unread-status",
       "name": "侧栏会话运行图标与完成未读点",
       "status": "done",

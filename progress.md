@@ -1,3 +1,13 @@
+## Completed Feature：desktop-fork-default（本轮，已完成）
+
+- Feature: 桌面端默认以独立子进程运行 server，inline 变显式 opt-in（desktop-fork-default，**已完成**）。
+- 背景：用户追问"修改默认模型/思考等级接口慢"的根因链路：①设置页加载链（catalog 重复请求 + Cloud 2s 等待，另行立项）；②同进程单事件循环被会话持久化同步 SQLite 大事务阻塞——桌面端默认 inline 内嵌 server 使该阻塞直接冻结 Electron 主进程窗口。用户决策：翻转 fork 默认 + 立项 worker_threads 治本（见后续 feature）。
+- 实现：`desktop/electron-main.mjs` 默认判定改 `QUICKFORGE_DESKTOP_INLINE === '1'`（opt-in inline，附注释说明动机与 PAC 逃生门）；dev（`!app.isPackaged`）传 `stdio: 'inherit'` 保住子进程 stderr，打包版保持 ignore；`server/public-api.mjs` 新增 `stopChildProcess`（SIGTERM→`waitForChildExit` 10s→SIGKILL→5s，对齐 qf CLI `terminateProcess` 语义），instance.stop 与 stopQuickForge 兜底分支均走升级链。
+- 语义变化：默认 fork 下桌面代理走 node 侧 os-proxy-resolver（自定义 PAC URL 需 opt-in inline）；同版本端口复用（'same-version'）生效——退出不复用进程、attach 既有同版本服务；顺带修复 inline 三缺陷：UI restart 杀整个 App、EADDRINUSE 静默 process.exit(1)、启动失败傻等 300s。
+- Verification：定向 vitest 3 files / 16 tests（desktop-fork-default 4 新契约 + startup-health-timeout 5 + public-api 7）全过；eslint 3 文件 0 error；node --check；npm run build ✓（仅既有 chunk 警告）。
+- Boundaries：未新增依赖；未触碰生成产物；Windows fork 退出为硬杀（WAL 可恢复、日志尾 ≤5s 可能丢）已记录为接受项。
+- Next step: 真机冒烟（启动/退出无孤儿进程、托盘主题刷新、UI restart 窗口保留并重连、杀子进程前端显示断连）；随后执行 sqlite-heavy-op-worker-thread。
+
 ## Completed Feature：sidebar-session-running-unread-status（本轮）
 
 - 侧栏会话行尾新增状态反馈：运行中显示旋转 Loader2，成功完成且用户尚未点击时显示 emerald 绿色未读点，点击对应会话清除。覆盖 Pinned、Projects/Timeline、Tasks 三类会话行。
@@ -54,6 +64,7 @@
 
 ## Notes
 
+- 切回浏览器时工作区显示"抖一下"调研（2026-09-07，双 explore 只读调研 + 关键点人工核实，未改代码）：切回必然执行的只有 `useCrossTabSync.ts:78-91`（visibilitychange → refreshSessions + loadProject，loading:true 一帧 + App 全树重渲染，聊天面板不重建）与 `useVisibleRuntimeStatuses.ts:98-106`（侧栏状态点刷新）。候选根因按可能性：①隐藏期 rAF/ResizeObserver 全部挂起，切回第一帧集中补跑——`ChatPanelHost.tsx:1313-1321` scheduleDecorate、`scroll-sync.ts:80-87` 双重 rAF scrollToBottom（仅 <=1px 才跳过写入）+ `scroll-sync.ts:173-180` RO 对容器/max-w-3xl/composer dock 的触发，叠加 pi-web-ui AgentInterface 内部 RO 无条件 `scrollTop=scrollHeight`；若离开时 autoScroll 开启且后台有流式内容增长，切回即滚动跳变 + 装饰批量 DOM 更新。②后台 SSE 断连（标签页节流/冻结/系统睡眠）→ 切回时退避 timer 立即到点重连，`reconnect-notice.ts:89` 的提示行是 `messageList.append` 文档流内元素（index.css:6025 起 in-flow + 入场动画），"断开→已重连→2.2s 淡出→340ms 离场"压缩在切回后几秒内演完；断连 ≥30s 时 `unreachable-strip.ts` 常驻条插在 composer dock 前（in-flow，index.css:6176 起），挂载/移除整块挤压工作区。③流式中切走：state watchdog 5s 轮询被节流（server-agent.ts:48-49），切回补跑若静默 >15s 触发 `refreshStateFromServer({forceMessages:true})` 全量替换 messages → MessageList（key=index repeat）全列表 Lit 更新 + 装饰翻转。④放大器：消息滚动容器无 `scrollbar-gutter`，任何高度跨阈值变化 → 滚动条出现/消失 → `.max-w-3xl` 列宽 ±15px 全列 reflow。修复方向（另行立项）：恢复可见首帧 scrollToBottom 前加 near-bottom 守卫；reconnect/unreachable 提示条改 overlay 或预留固定高度；watchdog 补跑先检查流式状态；滚动容器 `scrollbar-gutter: stable`。自证：DevTools Performance 录制切回瞬间 + 对 `.quickforge-reconnect` 设 DOM 断点。
 - scheduled-tasks 并行 run 的 sessionId 为 `scheduled-${taskId}-${Date.now().toString(36)}`（server/routes/scheduled-tasks.mjs executeTask），同一毫秒并发启动的两个 run 会共用 sessionId/事件总线（测试中同毫秒冲突已实证）；生产修复（追加随机后缀等）另行立项，不在本轮扩大范围。
 - 桌面端内存排查（2026-09-05）遗留候选，按收益排序：①渲染端消息窗口化被 `ChatPanelHost.tsx:600` `{enabled:false}` 整体禁用（commit 32be493 为 turn-navigation 关闭），长会话全量 DOM 常驻 + 流式期每 rAF 全量装饰扫描（message-actions.ts querySelectorAll 全面板、artifacts key 全量构建）→ 卡死主因；恢复窗口化或装饰增量化（code-blocks.ts:574-588 command 块已有指纹跳过模式可参照；mermaid/SVG 块每帧 atob+哈希未跳过）。②desktop 默认 inline 内嵌 server 于主进程（electron-main.mjs:519），server 同步 SQLite 大事务（agent-persistence 每次全量序列化会话消息）与 GC 停顿直接冻结窗口/托盘；fork 模式路径已存在（QUICKFORGE_DESKTOP_INLINE=0，stdio ignore）。③SSE 无背压（res.write 返回值未检查，慢客户端无界缓冲）+ message_update 每次携带全量 partial。④storage 路由 keys/has/index 触发 exportSnapshot 全库物化（session-state-repository.mjs:723-745）。⑤ACP 会话 idleRetention:'always'（acp/server.mjs:656）+ 渠道进程 taskkill 强杀 → 旧 ACP 会话无界驻留。⑥pdfjs loadingTask 卸载竞态泄漏（WorkspaceDocumentContent.tsx:116-133）、xlsx 全 sheet 物化。
 - 已修复测试基础设施问题：`tests/frontend/local-tool-running-sweep.test.ts` 的 CSS `ruleFor` 正则此前会把规则上方注释 glue 进 selector 文本，导致 `.quickforge-tool-running-sweep` 误报缺失；现参考 `chat-compact-controls.test.ts` 先剥离 CSS 注释，定向测试 6/6 通过。

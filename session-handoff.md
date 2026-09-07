@@ -1,3 +1,12 @@
+## 当前状态：sidebar-session-time-nowrap（已完成，已提交 dev，未 push）
+
+- 现象：中文界面侧栏会话时间「15小时」在固定 36px 时间列内断成两行并撑高行；「2天」等短文案不受影响。
+- 修复：`src/components/sidebar/ChatSidebar.tsx` `timeClass`（:500）一行——`w-9`→`w-11`（36→44px）+ 补 `whitespace-nowrap`。4 处引用共用该变量；固定宽度保证整列右对齐；`formatSessionTime` 最长 zh 输出「23小时」，44px 足够；i18n 仅 zh/en。
+- 验证：eslint ChatSidebar.tsx 0 error；npm run build 通过（仅既有警告）（纯 className 改动，无对应单测，未跑全量）。
+- 下一步：真机复核中文界面侧栏时间单行显示、各列表（Pinned/项目/时间线）行高一致；英文界面不受影响。已提交 dev，未 push。
+
+---
+
 ## 当前状态：assistant-reply-artifact-card（已完成，已提交 dev，未 push）
 
 - 目标：仅在最后一条已完成 assistant 回复底部显示按设计稿重做的本轮文件产物卡片；流式中、user、历史 assistant 或无 artifact 时移除。

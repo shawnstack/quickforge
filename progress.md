@@ -1,3 +1,10 @@
+## Bugfix：sidebar-session-time-nowrap（2026-09-08）
+
+- 现象：中文界面侧栏会话时间「15小时」在 36px 固定列内断成两行（「15小/时」），行高被撑开；「2天」不受影响。
+- 修复：`src/components/sidebar/ChatSidebar.tsx` `timeClass` 一行——`w-9`→`w-11`（36→44px，容纳最长 zh 输出「23小时」≈36-40px）+ 补 `whitespace-nowrap` 禁止 CJK 断行。4 处引用（置顶 1131 / 项目 1476、1680 / 时间线 1839）共用该变量，一处生效；固定宽度保证整列右对齐（非 min-w 自适应）。`formatSessionTime` 无绝对日期兜底、i18n 仅 zh/en，44px 覆盖所有输出。
+- Verification: eslint ChatSidebar.tsx 0 error；npm run build 通过（仅既有 chunk 警告）；纯 className 字符串改动，无对应单测，未跑全量。
+- Boundaries: 未动 i18n 文案、未动 en 布局（w-11 对「15h」等短文案仅加空白）；已提交 dev，未 push。
+
 ## Completed Feature：assistant-reply-artifact-card（2026-09-07，Revision）
 
 - 目标：仅在最后一条已渲染 assistant 回复底部显示“本次回复涉及的文件”卡片；流式中、user、历史 assistant 或无当前轮 artifacts 时不显示。

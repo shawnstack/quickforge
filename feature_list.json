@@ -1,6 +1,20 @@
 {
   "features": [
     {
+      "id": "sidebar-session-time-nowrap",
+      "name": "侧栏会话时间列断行修复",
+      "status": "done",
+      "approach": "中文文案「{count}小时」超出时间列固定 36px（w-9，按英文 '15h' 设计）且无禁止断行约束，CJK 默认可在汉字间换行导致「15小时」断成两行并撑高行高；ChatSidebar timeClass 一行改为 w-11（44px，容纳最长 zh 输出「23小时」）+ whitespace-nowrap，4 处引用（Pinned/项目分组/时间线/全局会话行）共用该变量一处生效；固定宽度保持整列右对齐。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "eslint ChatSidebar.tsx 0 error；npm run build 通过（仅既有警告）；纯 className 字符串改动无对应单测，未跑全量",
+      "boundaries": "未改 i18n 文案与 formatSessionTime 逻辑；英文界面（15h 等短文案）仅加空白不受影响；已提交 dev，未 push。"
+    },
+    {
       "id": "assistant-reply-artifact-card",
       "name": "助手回复底部本轮文件产物卡片",
       "status": "done",

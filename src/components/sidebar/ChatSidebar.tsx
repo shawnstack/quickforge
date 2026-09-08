@@ -535,6 +535,8 @@ export const ChatSidebar = memo(function ChatSidebar({
   const sidebarScrollViewportRef = useRef<HTMLDivElement | null>(null)
   const projectsDragBoundaryRef = useRef<HTMLDivElement | null>(null)
   const projectDragStartScrollTopRef = useRef(0)
+  const suppressProjectRowClickRef = useRef(false)
+  const suppressSectionHeaderClickRef = useRef(false)
   const sectionsDragBoundaryRef = useRef<HTMLDivElement | null>(null)
   const sectionDragStartScrollTopRef = useRef(0)
   const showMoreStateRef = useRef(createSidebarSessionShowMoreState())
@@ -552,10 +554,12 @@ export const ChatSidebar = memo(function ChatSidebar({
   )
 
   const finishSectionDrag = useCallback(() => {
+    suppressSectionHeaderClickRef.current = true
     setDraggingSectionId(undefined)
   }, [])
 
   const handleSectionDragStart = useCallback((event: { active: { id: string | number } }) => {
+    suppressSectionHeaderClickRef.current = true
     sectionDragStartScrollTopRef.current = sidebarScrollViewportRef.current?.scrollTop ?? 0
     const activeSectionId = sidebarSectionIdFromDndId(event.active.id)
     if (activeSectionId) setDraggingSectionId(activeSectionId)
@@ -771,6 +775,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   }, [conversationsCollapsed, onToggleConversationsCollapsed])
 
   const handleDragStart = useCallback(() => {
+    suppressProjectRowClickRef.current = true
     projectDragStartScrollTopRef.current = sidebarScrollViewportRef.current?.scrollTop ?? 0
     setIsProjectDragging(true)
     setProjectMenuId(null)
@@ -783,6 +788,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   }, [])
 
   const finishProjectDrag = useCallback(() => {
+    suppressProjectRowClickRef.current = true
     setIsProjectDragging(false)
   }, [])
 
@@ -1307,8 +1313,20 @@ export const ChatSidebar = memo(function ChatSidebar({
               stay empty) would flash an empty Pinned block and shove the sections below. */}
           {pinnedSessionItems.length > 0 ? (
             <div className="px-3 pb-1">
-              <div className={sectionHeaderClass}>
-                <button type="button" className={sectionToggleClass} onClick={onTogglePinnedCollapsed} aria-expanded={!pinnedCollapsed}>
+              <div
+                className={sectionHeaderClass}
+                onPointerDown={() => {
+                  suppressSectionHeaderClickRef.current = false
+                }}
+                onClick={() => {
+                  if (suppressSectionHeaderClickRef.current) {
+                    suppressSectionHeaderClickRef.current = false
+                    return
+                  }
+                  onTogglePinnedCollapsed()
+                }}
+              >
+                <button type="button" className={sectionToggleClass} aria-expanded={!pinnedCollapsed}>
                   <span className="truncate">{t('pinnedConversations')}</span>
                   <ChevronRight className={cn(chevronClass, !pinnedCollapsed && 'rotate-90')} />
                 </button>
@@ -1348,12 +1366,23 @@ export const ChatSidebar = memo(function ChatSidebar({
                       <>
                         <div className="px-3">
             <div className="mb-0.5">
-              <div className={sectionHeaderClass}>
+              <div
+                className={sectionHeaderClass}
+                onPointerDown={() => {
+                  suppressSectionHeaderClickRef.current = false
+                }}
+                onClick={() => {
+                  if (suppressSectionHeaderClickRef.current) {
+                    suppressSectionHeaderClickRef.current = false
+                    return
+                  }
+                  toggleProjectsCollapsed()
+                }}
+              >
                 <button
                   ref={setActivatorNodeRef}
                   type="button"
                   className={cn(draggableSectionTitleClass, isDragging && 'cursor-grabbing')}
-                  onClick={toggleProjectsCollapsed}
                   aria-expanded={!projectsVisuallyCollapsed}
                   {...attributes}
                   {...listeners}
@@ -1366,7 +1395,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                     variant="ghost"
                     size="icon"
                     className={sectionActionButtonClass}
-                    onClick={openViewSortMenu}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      openViewSortMenu(event)
+                    }}
                     aria-label={t('filterSort')}
                     title={t('filterSort')}
                     aria-haspopup="menu"
@@ -1380,7 +1412,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                     variant="ghost"
                     size="icon"
                     className={sectionActionButtonClass}
-                    onClick={toggleAllProjectsExpanded}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      toggleAllProjectsExpanded()
+                    }}
                     aria-label={expandedProjectIds.size === projects.length ? t('collapseAllProjects') : t('expandAllProjects')}
                   >
                     {expandedProjectIds.size === projects.length ? <ChevronsDownUp className="size-4" /> : <ChevronsUpDown className="size-4" />}
@@ -1391,7 +1426,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                     variant="ghost"
                     size="icon"
                     className={sectionActionButtonClass}
-                    onClick={onSelectProjectDirectory}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onSelectProjectDirectory()
+                    }}
                     disabled={selectingProject}
                     aria-label={t('addProject')}
                   >
@@ -1564,11 +1602,21 @@ export const ChatSidebar = memo(function ChatSidebar({
                                 style={{ touchAction: 'none' }}
                                 {...listeners}
                                 {...attributes}
+                                onPointerDown={(event) => {
+                                  suppressProjectRowClickRef.current = false
+                                  listeners?.onPointerDown?.(event)
+                                }}
+                                onClick={() => {
+                                  if (suppressProjectRowClickRef.current) {
+                                    suppressProjectRowClickRef.current = false
+                                    return
+                                  }
+                                  toggleProjectExpanded(item.id)
+                                }}
                               >
                                 <button
                                   type="button"
                                   className={iconSlotClass}
-                                  onClick={() => toggleProjectExpanded(item.id)}
                                   aria-label={expanded ? t('collapseProject') : t('expandProject')}
                                 >
                                   {expanded ? <FolderOpen className="size-4" /> : <Folder className="size-4" />}
@@ -1577,7 +1625,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   className="flex min-w-0 flex-1 items-center text-left"
                                   type="button"
                                   title={item.path}
-                                  onClick={() => toggleProjectExpanded(item.id)}
                                 >
                                   <span className={cn(sessionTitleClass, active && activeProjectTitleClass)}>{item.name}</span>
                                 </button>
@@ -1586,7 +1633,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                                     variant="ghost"
                                     size="icon"
                                     className={overlayIconButtonClass}
-                                    onClick={(event) => openProjectMenu(event, item.id)}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      openProjectMenu(event, item.id)
+                                    }}
                                     aria-label={t('moreOptions')}
                                     aria-expanded={menuOpen}
                                   >
@@ -1596,7 +1646,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                                     variant="ghost"
                                     size="icon"
                                     className={overlayIconButtonClass}
-                                    onClick={() => onStartNewProjectChat(item)}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      onStartNewProjectChat(item)
+                                    }}
                                     aria-label={t('newProjectChat')}
                                   >
                                     <MessageSquarePlus className="size-4" />
@@ -1751,12 +1804,23 @@ export const ChatSidebar = memo(function ChatSidebar({
                     ) : (
                       <>
                         <div className="px-3 pb-3">
-            <div className={sectionHeaderClass}>
+            <div
+              className={sectionHeaderClass}
+              onPointerDown={() => {
+                suppressSectionHeaderClickRef.current = false
+              }}
+              onClick={() => {
+                if (suppressSectionHeaderClickRef.current) {
+                  suppressSectionHeaderClickRef.current = false
+                  return
+                }
+                toggleConversationsCollapsed()
+              }}
+            >
               <button
                 ref={setActivatorNodeRef}
                 type="button"
                 className={cn(draggableSectionTitleClass, isDragging && 'cursor-grabbing')}
-                onClick={toggleConversationsCollapsed}
                 aria-expanded={!conversationsVisuallyCollapsed}
                 {...attributes}
                 {...listeners}
@@ -1768,7 +1832,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                 variant="ghost"
                 size="icon"
                 className={cn(iconButtonClass, 'quickforge-sidebar-section-icon')}
-                onClick={onStartNewGlobalChat}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onStartNewGlobalChat()
+                }}
                 aria-label={t('newChat')}
               >
                 <MessageSquarePlus className="size-4" />

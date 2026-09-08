@@ -155,7 +155,7 @@ describe('ChatSidebar section reorder wiring', () => {
 
     const sectionToggleClass = sidebarSource.match(/const sectionToggleClass = '([^']+)'/)?.[1]
     const draggableSectionTitleClass = sidebarSource.match(/const draggableSectionTitleClass = `([^`]+)`/)?.[1]
-    const pinnedHeaderSource = sidebarSource.match(/(<button type="button" className=\{sectionToggleClass\}[\s\S]*?onClick=\{onTogglePinnedCollapsed\}[\s\S]*?<\/button>)/)?.[1]
+    const pinnedHeaderSource = sidebarSource.match(/(<button type="button" className=\{sectionToggleClass\}[\s\S]*?<\/button>)/)?.[1]
 
     expect(sectionToggleClass).not.toContain('cursor-grab')
     expect(sectionToggleClass).not.toContain('touch-none')
@@ -166,8 +166,10 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(pinnedHeaderSource).not.toContain('setActivatorNodeRef')
     expect(pinnedHeaderSource).not.toContain('{...listeners}')
 
-    const projectHeaderSource = sidebarSource.match(/<div className=\{sectionHeaderClass\}>\s*(<button[\s\S]*?onClick=\{toggleProjectsCollapsed\}[\s\S]*?<\/button>)[\s\S]*?onClick=\{openViewSortMenu\}/)?.[1]
-    const tasksHeaderSource = sidebarSource.match(/<div className=\{sectionHeaderClass\}>\s*(<button[\s\S]*?onClick=\{toggleConversationsCollapsed\}[\s\S]*?<\/button>)[\s\S]*?onClick=\{onStartNewGlobalChat\}/)?.[1]
+    // The header div now owns the guarded onClick (whole-row hit area), so each
+    // sortable title toggle sits right after its collapse call and stays click-free.
+    const projectHeaderSource = sidebarSource.match(/toggleProjectsCollapsed\(\)\s*\}\}\s*>\s*(<button[\s\S]*?<\/button>)[\s\S]*?openViewSortMenu\(event\)/)?.[1]
+    const tasksHeaderSource = sidebarSource.match(/toggleConversationsCollapsed\(\)\s*\}\}\s*>\s*(<button[\s\S]*?<\/button>)[\s\S]*?onStartNewGlobalChat\(\)/)?.[1]
 
     for (const toggleSource of [projectHeaderSource, tasksHeaderSource]) {
       expect(toggleSource).toContain('ref={setActivatorNodeRef}')
@@ -177,12 +179,12 @@ describe('ChatSidebar section reorder wiring', () => {
     }
 
     const projectActionsSource = sidebarSource.slice(
-      sidebarSource.indexOf('onClick={openViewSortMenu}'),
-      sidebarSource.indexOf('</div>', sidebarSource.indexOf('onClick={onSelectProjectDirectory}')),
+      sidebarSource.indexOf('openViewSortMenu(event)'),
+      sidebarSource.indexOf('</div>', sidebarSource.indexOf('onSelectProjectDirectory()')),
     )
     const tasksActionSource = sidebarSource.slice(
-      sidebarSource.indexOf('onClick={onStartNewGlobalChat}'),
-      sidebarSource.indexOf('</div>', sidebarSource.indexOf('onClick={onStartNewGlobalChat}')),
+      sidebarSource.indexOf('onStartNewGlobalChat()'),
+      sidebarSource.indexOf('</div>', sidebarSource.indexOf('onStartNewGlobalChat()')),
     )
     expect(projectActionsSource).not.toContain('{...listeners}')
     expect(projectActionsSource).not.toContain('setActivatorNodeRef')

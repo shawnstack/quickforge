@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 380" font-family="'Segoe UI', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <pattern id="hatch" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
+      <rect width="8" height="8" fill="#fecaca"/>
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#ef4444" stroke-width="1.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <text x="450" y="30" text-anchor="middle" font-size="18" font-weight="700" fill="#0f172a">项目行点击热区剖面（总高约 36px）</text>
+
+  <!-- Row container -->
+  <g>
+    <rect x="60" y="60" width="780" height="120" rx="8" fill="#f1f5f9" stroke="#cbd5e1"/>
+
+    <!-- left padding dead zone -->
+    <rect x="60" y="60" width="16" height="120" fill="url(#hatch)"/>
+    <text x="68" y="128" font-size="11" fill="#b91c1c" transform="rotate(-90 68 128)" text-anchor="middle">px-2 死区</text>
+
+    <!-- icon button 24x24 -->
+    <rect x="76" y="108" width="48" height="24" fill="#dcfce7" stroke="#16a34a" rx="4"/>
+    <text x="100" y="124" font-size="11" fill="#166534" text-anchor="middle">▸ icon 按钮 24×24 可点</text>
+
+    <!-- gap dead zone -->
+    <rect x="124" y="60" width="16" height="120" fill="url(#hatch)"/>
+
+    <!-- title button: only 20px tall -->
+    <rect x="140" y="110" width="380" height="20" fill="#dcfce7" stroke="#16a34a" rx="3"/>
+    <text x="330" y="124" font-size="11" fill="#166534" text-anchor="middle">标题按钮 flex-1 可点（但高仅约 20px）</text>
+
+    <!-- top dead band -->
+    <rect x="140" y="60" width="380" height="50" fill="url(#hatch)"/>
+    <rect x="140" y="130" width="380" height="50" fill="url(#hatch)"/>
+    <text x="330" y="88" font-size="11" fill="#b91c1c" text-anchor="middle">上边缘死区 ≈8px</text>
+    <text x="330" y="168" font-size="11" fill="#b91c1c" text-anchor="middle">下边缘死区 ≈8px</text>
+
+    <!-- right overlay strip -->
+    <rect x="560" y="60" width="280" height="120" fill="url(#hatch)" opacity="0.9"/>
+    <rect x="700" y="108" width="48" height="24" fill="#dcfce7" stroke="#16a34a" rx="4"/>
+    <text x="724" y="124" font-size="11" fill="#166534" text-anchor="middle">⋮ 菜单</text>
+    <rect x="756" y="108" width="48" height="24" fill="#dcfce7" stroke="#16a34a" rx="4"/>
+    <text x="780" y="124" font-size="11" fill="#166534" text-anchor="middle">＋ 新建</text>
+    <text x="700" y="88" font-size="11" fill="#b91c1c" text-anchor="middle">hover overlay 全高条带 ≈70px 宽</text>
+    <text x="700" y="168" font-size="11" fill="#b91c1c" text-anchor="middle">非按钮处点击无任何响应</text>
+  </g>
+
+  <!-- dimension arrows -->
+  <line x1="60" y1="200" x2="840" y2="200" stroke="#64748b" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <text x="450" y="218" font-size="12" fill="#475569" text-anchor="middle">行宽 100%（行 div 只有拖拽 listeners，无 onClick）</text>
+
+  <!-- legend -->
+  <g transform="translate(60,250)">
+    <rect width="20" height="14" fill="#dcfce7" stroke="#16a34a" rx="3"/>
+    <text x="28" y="12" font-size="12" fill="#0f172a">可点区（实际触发展开/收起）</text>
+    <rect y="30" width="20" height="14" fill="url(#hatch)" stroke="#ef4444"/>
+    <text x="28" y="42" font-size="12" fill="#0f172a">死区：点击无任何响应</text>
+  </g>
+
+  <!-- conclusion -->
+  <g transform="translate(60,320)">
+    <text font-size="13" fill="#0f172a">
+      <tspan x="0" dy="0">结论：onClick 只挂在「图标按钮 + 标题文字」两个小块上（ChatSidebar.tsx L1547-1605）。</tspan>
+      <tspan x="0" dy="20">行 div（items-center + px-2 + gap-2）的上下留白、左右 padding、右侧 hover overlay 条带均为死区 → 四条边点击都失效。</tspan>
+      <tspan x="0" dy="20">「项目」分区头（L1347-1401）同款结构，同样只有内层标题按钮可点。</tspan>
+    </text>
+  </g>
+</svg>

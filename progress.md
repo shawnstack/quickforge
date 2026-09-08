@@ -1,3 +1,20 @@
+## Bugfix：sidebar-project-row-hit-area（2026-09-08）
+
+- 现象：侧栏「项目」分组下项目行整行点击无响应，可点区只有最左 icon 按钮（24×24）和标题按钮（高约 20px）；上下留白、左右 padding、中间 gap 全是死区；右侧操作 overlay hover 时全高拦截右缘点击。
+- 根因：项目行 div（挂 useSortable `{...listeners}{...attributes}`，L1559 一带）本身没有 onClick，展开/收起只绑在内层两个小按钮上；对照会话行是整行挂 onClick。
+- 修复：① 行 div 新增 onClick 统一 `toggleProjectExpanded(item.id)`，内层 icon/标题按钮移除各自 onClick（点击与键盘 Enter 的 click 冒泡到行级统一处理，按钮/aria-label/title 保留，a11y 不回退）；② 新增 `suppressProjectRowClickRef = useRef(false)` 三段式防拖拽误触——`handleDragStart` 与 `finishProjectDrag`（dragEnd/dragCancel 共用出口）置 true，行 onClick 命中则复位 ref 并 return，吞掉拖拽结束后浏览器同手势补发的 click；行 div 另挂 `onPointerDown` 先复位 ref 再转发 `listeners?.onPointerDown?.(event)`（JSX 后写属性覆盖 spread 的 dnd listener，必须手动转发保拖拽），新手势开始即清位，Escape 取消拖拽后不吞下一次真实点击；③ 右侧 overlay 两个 Button（Ellipsis 菜单、MessageSquarePlus 新建）onClick 显式 `event.stopPropagation()` 防误触行级切换（openProjectMenu 内部原有 stopPropagation 保留不动）。
+- 测试：新增 `tests/frontend/project-row-hit-area.test.ts` 5 用例（源码字符串契约，touchAction 唯一锚点切出行块）——行级 onClick + 抑制守卫 + toggle + onPointerDown 清位转发 listeners、内层两按钮无 onClick、overlay 两按钮 stopPropagation、finishProjectDrag 置抑制 ref、handleDragStart 置抑制 ref。
+- Verification: 定向 vitest 4 files / 44 tests 全过（新 5 + project-drag-boundary 10 + sidebar-section-order 22 + sidebar-session-action-alignment 7，既有断言无冲突）；eslint 两改动文件 0 error；`npx tsc -b --pretty false`、`npm run build` 通过（dist 已重建，仅既有警告）。
+- Boundaries: 只修项目行，未动分区头/会话行/其他区域与样式类名；残余边界——拖拽结束 click 落在行外祖先时标记驻留至下次手势 pointerdown 清除（物理点击无感）；键盘 Enter 在拖拽取消后无 pointerdown 直接触发的极端组合仍可能被吞一次；wiki 无需更新（纯组件内交互修复）；未新增依赖、未触碰生成产物、未 commit。
+
+### Revision：三个分区头整行可点（2026-09-08）
+
+- 现象：用户复查反馈置顶/项目/任务三个分区头（sectionHeaderClass 行）同款死区——标题按钮外整行（左右 padding、右侧按钮间空隙）点击无反应。
+- 修复（与项目行同款模式）：新增 `suppressSectionHeaderClickRef = useRef(false)`（与项目行 ref 相邻）；三个 header div 各挂 `onPointerDown` 清位（listeners 挂在内层标题按钮上、冒泡到 header div 才触发，无 spread 覆盖问题、无需转发）与带守卫的 `onClick`（置顶调 `onTogglePinnedCollapsed()`、项目调 `toggleProjectsCollapsed()`、任务调 `toggleConversationsCollapsed()`）；三个内层标题按钮移除各自 onClick（activator ref/listeners/attributes/aria-expanded 保留，键盘 Enter 的 click 冒泡到 header 生效，a11y 不回退）；`handleSectionDragStart` 与 `finishSectionDrag`（dragEnd/dragCancel 共用出口）置抑制 ref；右侧 4 个 action Button（项目头 openViewSortMenu/toggleAllProjectsExpanded/onSelectProjectDirectory + 任务头 onStartNewGlobalChat）onClick 包 `event.stopPropagation()` 原调用保留。
+- 测试：新增 `tests/frontend/sidebar-section-header-hit-area.test.ts` 6 用例（源码字符串契约，`className={sectionHeaderClass}` 三处按 indexOf 顺序切片锚定置顶/项目/任务头）——header div 三件套（清位/守卫/toggle）、标题按钮无 onClick 且 activator 属性保留、4 个 action Button stopPropagation + 原调用、finishSectionDrag/handleSectionDragStart 置位、ref 声明。另同步 `sidebar-section-order.test.ts` 一处用例锚点（旧锚绑定标题按钮自带 onClick 与单行 div 写法；断言语义不变）。
+- Verification: 定向 vitest 5 files / 50 tests 全过（section-header-hit-area 6 新 + project-row-hit-area 5 + project-drag-boundary 10 + sidebar-section-order 22 + sidebar-session-action-alignment 7）；eslint 三个改动文件 0 error；`npx tsc -b --pretty false` 通过。
+- Boundaries: 未动项目行（上轮已修）、会话行、其他区域与样式类名；残余边界与项目行一致（拖拽结束 click 落头外祖先时标记驻留至下次手势、键盘 Enter 极端组合）；wiki 无需更新；未新增依赖、未触碰生成产物、未 commit。
+
 ## Revision 9：assistant-reply-artifact-card 改为会话累计口径（2026-09-08）
 
 - 背景：用户反馈「产物和修改应该是当前 session 的总和，而不是单次的」——上一版「最近产物轮」只展示最后一个有产物轮的文件，此前轮次的产物/修改不显示。

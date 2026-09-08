@@ -1,3 +1,15 @@
+## 当前状态：sidebar-project-row-hit-area Revision——项目行 + 三个分区头整行可点（已完成，未提交）
+
+- 目标：修复侧栏可点死区。上轮项目行整行可点已修；本轮 Revision 按用户复查反馈补齐置顶/项目/任务三个分区头（标题按钮外整行点击无反应）。
+- 实现（分区头，与项目行同款模式）：新增 `suppressSectionHeaderClickRef`（与项目行 ref 相邻）；三个 header div（`className={sectionHeaderClass}`）各挂 `onPointerDown` 清位（listeners 在内层标题按钮上冒泡触发，无需转发）+ 带守卫 `onClick`（`onTogglePinnedCollapsed()` / `toggleProjectsCollapsed()` / `toggleConversationsCollapsed()`）；三个标题按钮移除各自 onClick（activator ref/{...listeners}/{...attributes}/aria-expanded 保留，键盘 Enter 冒泡生效）；`handleSectionDragStart` 与 `finishSectionDrag`（dragEnd/dragCancel 共用）置抑制 ref；右侧 4 个 action Button（openViewSortMenu / toggleAllProjectsExpanded / onSelectProjectDirectory / onStartNewGlobalChat）onClick 包 `event.stopPropagation()` 原调用保留。
+- 验证：定向 vitest 5 files / 50 tests 全过（新增 sidebar-section-header-hit-area 6 + project-row-hit-area 5 + project-drag-boundary 10 + sidebar-section-order 22 + sidebar-session-action-alignment 7）；sidebar-section-order.test.ts 一处用例锚点同步（旧锚绑定标题按钮自带 onClick，断言语义不变）；eslint 三改动文件 0 error；`npx tsc -b --pretty false` 通过。
+- 文件：`src/components/sidebar/ChatSidebar.tsx`、`tests/frontend/sidebar-section-header-hit-area.test.ts`（新）、`tests/frontend/sidebar-section-order.test.ts`（锚点同步）、feature_list/progress/session-handoff。
+- 下一步：真机冒烟——三个分区头留白/右侧按钮间空隙点击应展开收起；点右侧筛选/展开全部/添加项目/新建会话按钮不触发展开收起；拖拽分区排序后不误触发展开收起，Escape 取消后下一次点击正常；键盘 Tab 到标题按钮 Enter 仍可切换；项目行冒烟项见下段。未 commit。
+
+---
+
+
+
 ## 当前状态：assistant-reply-artifact-card Revision 9——会话累计口径（已完成，未提交）
 
 - 背景：用户反馈产物和修改应为当前 session 的总和而非单次/单轮。

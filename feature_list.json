@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "sidebar-project-row-hit-area",
+      "name": "侧栏项目行整行可点修复",
+      "status": "done",
+      "approach": "侧栏「项目」分组下项目行整行点击无响应：行 div（挂 useSortable {...listeners}{...attributes}）无 onClick，可点区只有内层 icon 按钮（24×24）与标题按钮（高约 20px），上下留白/左右 padding/gap 均为死区；右侧 projectActionOverlayClass 全高覆盖 hover 右缘拦截。修复：行 div 新增 onClick 统一触发展开/收起（点击/键盘 Enter 冒泡均生效，a11y 不回退），内层 icon/标题两个按钮移除各自 onClick 只保留按钮语义与 aria-label/title；新增 suppressProjectRowClickRef（useRef(false)）三段式防拖拽误触——handleDragStart 与 finishProjectDrag（dragEnd/dragCancel 共用）置 true，行 onClick 命中则复位并 return 吞掉拖拽结束后浏览器同手势补发的 click；行 div 另挂 onPointerDown 先复位 ref 再转发 listeners?.onPointerDown?.(event)（JSX 后写属性会覆盖 spread 的 dnd listener，必须手动转发保拖拽），使任何新手势开始即清除驻留标记，Escape 取消拖拽后不会吞掉下一次真实点击；右侧 overlay 菜单（openProjectMenu）与新建会话（onStartNewProjectChat）两个 Button 的 onClick 显式 event.stopPropagation() 防误触行级切换（菜单原有内部 stopPropagation 保留不动）。Revision（分区头）：用户复查反馈置顶/项目/任务三个分区头同款死区（标题按钮外整行不可点），同模式修复——新增 suppressSectionHeaderClickRef（useRef(false)）与项目行 ref 相邻；三个 header div（className={sectionHeaderClass}）各挂 onPointerDown 清位（listeners 挂在内层标题按钮、冒泡到 header div 触发，无需手动转发）与带守卫的 onClick（置顶调 onTogglePinnedCollapsed、项目调 toggleProjectsCollapsed、任务调 toggleConversationsCollapsed）；三个内层标题按钮移除各自 onClick（activator ref/{...listeners}/{...attributes}/aria-expanded 保留，键盘 Enter 的 click 冒泡到 header 生效，a11y 不回退）；handleSectionDragStart 与 finishSectionDrag（dragEnd/dragCancel 共用出口）置抑制 ref；右侧 4 个 action Button（openViewSortMenu/toggleAllProjectsExpanded/onSelectProjectDirectory/onStartNewGlobalChat）onClick 包 event.stopPropagation() 原调用保留。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "tests/frontend/project-row-hit-area.test.ts",
+        "tests/frontend/sidebar-section-header-hit-area.test.ts",
+        "tests/frontend/sidebar-section-order.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "新增回归测试 5 用例（源码字符串契约，同 project-drag-boundary/sidebar-section-order 范式）：行 div（touchAction 锚点切片）带 onClick+suppressProjectRowClickRef 守卫+toggleProjectExpanded、onPointerDown 清位并转发 listeners?.onPointerDown（保拖拽契约）、ref 声明存在；icon/标题内层按钮不含 onClick（防双触发回归）；overlay 菜单/新建按钮 onClick 含 stopPropagation 且原逻辑保留；finishProjectDrag 置抑制 ref；handleDragStart 置抑制 ref（Escape 取消不驻留契约）。定向 vitest 4 files / 44 tests 全过（project-row-hit-area 5 新 + project-drag-boundary 10 + sidebar-section-order 22 + sidebar-session-action-alignment 7，无既有断言需更新）；eslint ChatSidebar.tsx 与新测试文件 0 error；npx tsc -b --pretty false 通过。Revision（分区头）：新增 tests/frontend/sidebar-section-header-hit-area.test.ts 6 用例（源码字符串契约，className={sectionHeaderClass} 三处按 indexOf 顺序切片锚定置顶/项目/任务头）——三个 header div 带 onPointerDown 清位 + onClick 守卫 + 对应 toggle；三个标题按钮不含 onClick 且 activator 属性保留（projects/conversations 含 {...listeners}）；4 个右侧 action Button onClick 含 stopPropagation 且原调用/aria-label 保留；finishSectionDrag 与 handleSectionDragStart 均置抑制 ref；ref 声明存在且紧邻项目行 ref。sidebar-section-order.test.ts 同步更新一处用例锚点（旧锚绑定标题按钮自带 onClick 与单行 div 写法，断言语义不变：pinned 头仍 sectionToggleClass 非 activator、projects/tasks 标题按钮仍 activator、action 区无 listeners）。定向 vitest 5 files / 50 tests 全过；eslint 三个改动文件 0 error；npx tsc -b --pretty false 通过。",
+      "boundaries": "Revision 后范围：项目行 + 三个分区头（置顶/项目/任务）整行可点，未动会话行/其他区域与样式类名；未调样式类名；残余边界——若拖拽结束 click 落在头外祖先元素，标记驻留至下一次手势 pointerdown 清除（物理点击必经 pointerdown，无感）；键盘 Enter 在拖拽取消后立即触发且无 pointerdown 的极端组合仍可能被吞一次；wiki 无需更新（纯组件内交互修复，不改架构/公共入口）；未新增依赖、未触碰生成产物、未 commit。"
+    },
+    {
       "id": "provider-keys-send-cache",
       "name": "Provider Keys 发送路径前端内存缓存",
       "status": "done",

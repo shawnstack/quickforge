@@ -509,6 +509,8 @@ function MainApp() {
   // tab 列表仍按 (projectId, sessionId) 持久化恢复。
   const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
   const [desktopInspectorViewport, setDesktopInspectorViewport] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(320)
+  const handleSidebarWidthChange = useCallback((width: number) => setSidebarWidth(width), [])
 
   // 1024px 对应 Tailwind lg 断点，与 WorkspaceInspector 的窄视口判定保持一致。
   // 不用 lazy initializer 读取 window.matchMedia：渲染期调用全局/有副作用的 API 会让
@@ -2042,6 +2044,7 @@ function MainApp() {
         onOpenUpdate={openAboutSettings}
         onDismissUpdate={updateCheck.dismissUpdate}
         onToggleSidebar={toggleSidebar}
+        onWidthChange={handleSidebarWidthChange}
         currentSessionHoverInfo={currentSessionHoverInfo}
       />
 
@@ -2434,7 +2437,9 @@ function MainApp() {
               sideChatEnabled={Boolean(agentManager.currentSessionId) && !needsModelSetup}
               onClearSideChat={clearSideChat}
               onFullscreenChange={setWorkspaceInspectorFullscreen}
-            />
+            conversationMinWidth={440}
+               leftSidebarWidth={sidebarWidth}
+             />
           </Suspense>
         </>
       ) : null}

@@ -1,3 +1,22 @@
+## Feature：桌面侧栏默认宽度略微收窄（2026-09-08）
+
+- 目标：让左侧项目/对话区域稍微窄一点，为中间内容保留更多空间。
+- 实现：`src/components/sidebar/ChatSidebar.tsx` 将桌面侧栏默认宽度和最小宽度从 320px 调整为 304px；最大宽度 520px、拖拽调整、收缩态和移动端全屏宽度保持不变。同步 `docs/wiki/src/components/README.md` 的宽度说明。
+- 验证：定向 vitest 2 files / 9 tests 全过（workspace-inspector-width-range、mobile-fullscreen-adaptation）；ChatSidebar ESLint 通过；`npm exec tsc -- --noEmit` 通过；`git diff --check` 通过。
+- 边界：仅调整桌面展开态宽度，不改 Inspector 约束逻辑、交互和生成产物；未 commit/tag/push。
+
+---
+
+## Feature：右侧 Inspector 拖动保留对话区最小宽度（2026-09-08）
+
+- 目标：右侧面板向左拖动时，不再无限压缩中间对话区；对话区最小宽度采用用户确认的 440px。
+- 实现：`ChatSidebar` 通过桌面 `ResizeObserver` 回报实际侧栏宽度；`App` 将侧栏宽度与 440px 对话区约束传给 `WorkspaceInspector`。Inspector 最大宽度统一取 1200px、75vw、`viewport - sidebar - 440px - 1px` 的较小值（仍保留 340px 最小值），覆盖恢复、拖动、窗口/侧栏变化、640px 自动展开、`maxWidth` 与 `aria-valuemax`。
+- 文档：同步 `docs/wiki/src/components/README.md` 的 Inspector 宽度说明。
+- 验证：定向 vitest 2 files / 9 tests 全过；相关 ESLint 0 error；`npm exec tsc -- --noEmit` 通过；`git diff --check` 通过。
+- 边界：视口过窄导致 440px 对话区与 Inspector 340px 同时不可满足时，保留 Inspector 最小宽度作为降级；移动 fullscreen/overlay 和 Inspector 内部导航拖动不变；未新增依赖、未修改生成产物、未 commit/tag/push。
+
+---
+
 ## Feature：字号滑块松手后统一应用并保存（2026-09-08）
 
 - 目标：拖动外观设置中的界面字号、消息字号滑块时，只更新当前设置页的数值徽章和进度；松手触发 change 后才保存并全局应用。

@@ -120,6 +120,8 @@ type WorkspaceInspectorProps = {
   sideChatEnabled: boolean
   onClearSideChat: () => void
   onFullscreenChange?: (fullscreen: boolean) => void
+  conversationMinWidth?: number
+  leftSidebarWidth?: number
 }
 
 function getDesktopTitlebarHeight() {
@@ -243,23 +245,28 @@ const NAV_PANEL_MIN_WIDTH = 140
 const NAV_PANEL_DEFAULT_WIDTH = 200
 const NAV_PANEL_MAX_WIDTH = 400
 
-function getInspectorMaxWidth() {
+function getInspectorMaxWidth(leftSidebarWidth = 0, conversationMinWidth = 0) {
   if (typeof window === 'undefined') return WORKSPACE_INSPECTOR_MAX_WIDTH
-  return Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, Math.min(WORKSPACE_INSPECTOR_MAX_WIDTH, window.innerWidth * WORKSPACE_INSPECTOR_MAX_VIEWPORT_RATIO))
+  const availableWidth = window.innerWidth - leftSidebarWidth - conversationMinWidth - 1
+  return Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, Math.min(
+    WORKSPACE_INSPECTOR_MAX_WIDTH,
+    window.innerWidth * WORKSPACE_INSPECTOR_MAX_VIEWPORT_RATIO,
+    availableWidth,
+  ))
 }
 
-function clampInspectorWidth(width: number) {
-  return Math.min(getInspectorMaxWidth(), Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, width))
+function clampInspectorWidth(width: number, leftSidebarWidth = 0, conversationMinWidth = 0) {
+  return Math.min(getInspectorMaxWidth(leftSidebarWidth, conversationMinWidth), Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, width))
 }
 
-function readPersistedInspectorWidth(): number {
+function readPersistedInspectorWidth(leftSidebarWidth = 0, conversationMinWidth = 0): number {
   if (typeof window === 'undefined') return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
   try {
     const raw = window.localStorage.getItem(WORKSPACE_INSPECTOR_WIDTH_STORAGE_KEY)
     if (!raw) return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
     const value = Number(raw)
     if (!Number.isFinite(value)) return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
-    return clampInspectorWidth(value)
+    return clampInspectorWidth(value, leftSidebarWidth, conversationMinWidth)
   } catch {
     return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
   }
@@ -648,7 +655,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, sideChatAgent, sideChatInputMemory, sideChatRevision, sideChatEnabled, onClearSideChat, onFullscreenChange }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, sideChatAgent, sideChatInputMemory, sideChatRevision, sideChatEnabled, onClearSideChat, onFullscreenChange, conversationMinWidth = 440, leftSidebarWidth = 0 }: WorkspaceInspectorProps) {
   const [treeState, dispatchTree] = useReducer(workspaceTreeReducer, {})
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [treeRefreshing, setTreeRefreshing] = useState(false)
@@ -694,7 +701,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   const [visible, setVisible] = useState(false)
   const [narrowViewport, setNarrowViewport] = useState(false)
   const mobileOverlay = narrowViewport && mounted
-  const [width, setWidth] = useState(readPersistedInspectorWidth)
+  const [width, setWidth] = useState(() => readPersistedInspectorWidth(leftSidebarWidth, conversationMinWidth))
   const [isResizing, setIsResizing] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [fullscreenAnimating, setFullscreenAnimating] = useState(false)
@@ -1013,15 +1020,18 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   useEffect(() => {
     const syncWidthToViewport = () => {
       if (fullscreen || mobileOverlay) return
-      setWidth((current) => clampInspectorWidth(current))
+      setWidth((current) => clampInspectorWidth(current, leftSidebarWidth, conversationMinWidth))
     }
     window.addEventListener('resize', syncWidthToViewport)
+    syncWidthToViewport()
     return () => window.removeEventListener('resize', syncWidthToViewport)
-  }, [fullscreen, mobileOverlay])
+  }, [conversationMinWidth, fullscreen, leftSidebarWidth, mobileOverlay])
 
   const expandInspectorToMax = useCallback(() => {
-    setWidth((current) => (current < WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH ? WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH : current))
-  }, [])
+    setWidth((current) => (current < WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH
+      ? clampInspectorWidth(WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH, leftSidebarWidth, conversationMinWidth)
+      : current))
+  }, [conversationMinWidth, leftSidebarWidth])
 
   // 打开文件、文档、网页、终端或 subagent 运行详情时自动拉宽到固定宽度（手动拖动上限更高，见 getInspectorMaxWidth）。
   useEffect(() => {
@@ -1635,7 +1645,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     const start = resizeDragRef.current
     const aside = asideRef.current
     if (!start || !aside) return
-    start.currentWidth = clampInspectorWidth(start.startWidth + start.startX - event.clientX)
+    start.currentWidth = clampInspectorWidth(start.startWidth + start.startX - event.clientX, leftSidebarWidth, conversationMinWidth)
     if (resizeFrameRef.current !== null) return
     resizeFrameRef.current = window.requestAnimationFrame(() => {
       resizeFrameRef.current = null
@@ -1807,7 +1817,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
           currentAside.style.zIndex = ''
           currentAside.style.width = `${width}px`
           currentAside.style.minWidth = `${WORKSPACE_INSPECTOR_MIN_WIDTH}px`
-          currentAside.style.maxWidth = `${getInspectorMaxWidth()}px`
+          currentAside.style.maxWidth = `${getInspectorMaxWidth(leftSidebarWidth, conversationMinWidth)}px`
           window.requestAnimationFrame(() => {
             setFullscreenAnimating(false)
             exitAction?.()
@@ -1820,7 +1830,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
         setFullscreenAnimating(false)
       }
     })
-  }, [fullscreen, onFullscreenChange, width])
+  }, [conversationMinWidth, fullscreen, leftSidebarWidth, onFullscreenChange, width])
 
   useEffect(() => {
     if (!fullscreen) return undefined
@@ -1860,14 +1870,14 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
           isResizing ? 'transition-none' : '',
           fullscreen ? 'quickforge-workspace-inspector-fullscreen z-40 rounded-none border-l-0' : undefined,
         )}
-        style={visible && !fullscreen && !mobileOverlay ? { width, minWidth: WORKSPACE_INSPECTOR_MIN_WIDTH, maxWidth: getInspectorMaxWidth() } : undefined}
+        style={visible && !fullscreen && !mobileOverlay ? { width, minWidth: WORKSPACE_INSPECTOR_MIN_WIDTH, maxWidth: getInspectorMaxWidth(leftSidebarWidth, conversationMinWidth) } : undefined}
       >
         {visible && !fullscreen && !mobileOverlay ? (
           <div
             role="separator"
             aria-orientation="vertical"
             aria-valuemin={WORKSPACE_INSPECTOR_MIN_WIDTH}
-            aria-valuemax={getInspectorMaxWidth()}
+            aria-valuemax={getInspectorMaxWidth(leftSidebarWidth, conversationMinWidth)}
             aria-valuenow={width}
             className="absolute inset-y-0 -left-2 z-20 w-4 cursor-col-resize bg-transparent"
             onPointerDown={startResizing}

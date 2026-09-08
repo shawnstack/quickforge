@@ -141,6 +141,7 @@ type ChatSidebarProps = {
   latestVersion?: string
   currentVersion?: string
   onToggleSidebar: () => void
+  onWidthChange?: (width: number) => void
   currentSessionHoverInfo?: {
     sessionId?: string
     gitBranch?: string
@@ -454,6 +455,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   latestVersion,
   currentVersion,
   onToggleSidebar,
+  onWidthChange,
   currentSessionHoverInfo,
 }: ChatSidebarProps) {
   const sidebarHoverBgClass = 'hover:bg-[var(--quickforge-sidebar-hover-bg)]'
@@ -544,6 +546,17 @@ export const ChatSidebar = memo(function ChatSidebar({
   const previousConversationsCollapsedRef = useRef(conversationsCollapsed)
   const previousExpandedProjectIdsRef = useRef(expandedProjectIds)
   const previousSessionViewModeRef = useRef(sessionViewMode)
+
+  useEffect(() => {
+    if (isMobile || !onWidthChange || typeof ResizeObserver === 'undefined') return undefined
+    const aside = asideRef.current
+    if (!aside) return undefined
+    const reportWidth = () => onWidthChange(aside.getBoundingClientRect().width)
+    reportWidth()
+    const observer = new ResizeObserver(reportWidth)
+    observer.observe(aside)
+    return () => observer.disconnect()
+  }, [isMobile, onWidthChange])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),

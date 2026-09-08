@@ -1,3 +1,13 @@
+## Feature：字号滑块松手后统一应用并保存（2026-09-08）
+
+- 目标：拖动外观设置中的界面字号、消息字号滑块时，只更新当前设置页的数值徽章和进度；松手触发 change 后才保存并全局应用。
+- 实现：`appearance-settings-tab.ts` 将原 `previewFontSize` 收敛为本地 `updateFontSize`，input 只 normalize、更新两个本地字号字段并 `requestUpdate`；删除 `scheduleFontSizePreview` 调用。change 保持既有 `saveFontSize` 链路，但先同步 `applyFontSizeSettings`，再调用 `saveFontSizeSettings` 持久化，避免网络延迟阻塞松手后的视觉反馈；成功后的重复 apply 由既有 dirty-check 跳过。`font-size-settings.ts` 删除已无调用方的 RAF 预览调度函数及状态。
+- 测试：新增 `appearance-settings-tab.test.ts`，以两个滑块参数化验证 input 仅更新本地状态，不持久化、不改 root font-size/CSS 变量；change 当下即应用并开始保存，持久化结束后状态保持。删除 `font-size-settings-apply.test.ts` 中已废弃预览调度测试。
+- 验证：定向 vitest 3 files / 13 tests 全过；相关 ESLint 0 error；`npm run build` 通过（仅既有 KaTeX 字体与 chunk 体积提示）；`git diff --check` 通过。首次单独 `npx tsc -b --pretty false` 碰到并行 `src/App.tsx` 两个未使用变量中间态，稍后包含 tsc 的 build 已通过。
+- 边界：保存失败行为、字号范围/默认值、主题设置均不变；无需更新 docs/wiki（纯组件内交互时机调整，不改架构/职责/公共入口）；未新增依赖、未手工修改生成产物、未 commit/tag/push。
+
+---
+
 ## Revision 19：Inspector Tab 下拉列表 hover / 选中态背景修复（2026-09-08）
 
 - 目标：修复右侧 Inspector 左上角 ChevronDown 打开的 Tab 列表中，非选中项 hover 时没有背景反馈的问题，并保证选中项状态不被 hover 弱化。

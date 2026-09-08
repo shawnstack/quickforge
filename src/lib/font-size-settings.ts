@@ -98,24 +98,6 @@ export function applyFontSizeSettings(settings: FontSizeSettings) {
   }
 }
 
-let pendingPreviewSettings: FontSizeSettings | null = null
-let pendingPreviewFrameId: number | null = null
-
-// Slider drags fire an `input` event per step; applying synchronously would rewrite the
-// root font-size (full-page rem reflow) on every step within a single frame. Coalescing
-// onto one animation frame keeps the preview to at most one application per frame.
-export function scheduleFontSizePreview(settings: FontSizeSettings): void {
-  if (typeof document === 'undefined') return
-  pendingPreviewSettings = normalizeFontSizeSettings(settings)
-  if (pendingPreviewFrameId !== null) return
-  pendingPreviewFrameId = window.requestAnimationFrame(() => {
-    pendingPreviewFrameId = null
-    const pending = pendingPreviewSettings
-    pendingPreviewSettings = null
-    if (pending) applyFontSizeSettings(pending)
-  })
-}
-
 export async function loadFontSizeSettings(storage: AppStorage): Promise<FontSizeSettings> {
   const hasForced13PxMigration = await storage.settings.get<boolean>(FONT_SIZE_FORCE_13PX_MIGRATION_KEY)
   if (!hasForced13PxMigration) {

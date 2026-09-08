@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   FONT_SIZE_SETTINGS_CHANGED_EVENT,
   applyFontSizeSettings,
-  scheduleFontSizePreview,
 } from '../../src/lib/font-size-settings'
 
 type FakeDocument = {
@@ -31,21 +30,7 @@ function createFakeDocument(): FakeDocument {
 }
 
 function createFakeWindow() {
-  const frameCallbacks: FrameRequestCallback[] = []
-  let nextFrameId = 0
-  const window = Object.assign(new EventTarget(), {
-    requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => {
-      const frameId = ++nextFrameId
-      frameCallbacks.push(callback)
-      return frameId
-    }),
-  })
-  return {
-    window,
-    flushAnimationFrame: () => {
-      for (const callback of frameCallbacks.splice(0)) callback(0)
-    },
-  }
+  return new EventTarget()
 }
 
 describe('font size settings apply', () => {
@@ -56,7 +41,7 @@ describe('font size settings apply', () => {
     fakeDocument = createFakeDocument()
     fakeWindow = createFakeWindow()
     vi.stubGlobal('document', fakeDocument)
-    vi.stubGlobal('window', fakeWindow.window)
+    vi.stubGlobal('window', fakeWindow)
   })
 
   afterEach(() => {
@@ -65,7 +50,7 @@ describe('font size settings apply', () => {
 
   it('skips redundant writes and events when nothing changed', () => {
     const events: unknown[] = []
-    fakeWindow.window.addEventListener(FONT_SIZE_SETTINGS_CHANGED_EVENT, (event) =>
+    fakeWindow.addEventListener(FONT_SIZE_SETTINGS_CHANGED_EVENT, (event) =>
       events.push((event as CustomEvent).detail),
     )
 
@@ -80,7 +65,7 @@ describe('font size settings apply', () => {
 
   it('updates message CSS variables without dispatching an event', () => {
     const events: unknown[] = []
-    fakeWindow.window.addEventListener(FONT_SIZE_SETTINGS_CHANGED_EVENT, (event) =>
+    fakeWindow.addEventListener(FONT_SIZE_SETTINGS_CHANGED_EVENT, (event) =>
       events.push((event as CustomEvent).detail),
     )
 
@@ -94,7 +79,7 @@ describe('font size settings apply', () => {
 
   it('dispatches an event when the interface font size changes', () => {
     const events: unknown[] = []
-    fakeWindow.window.addEventListener(FONT_SIZE_SETTINGS_CHANGED_EVENT, (event) =>
+    fakeWindow.addEventListener(FONT_SIZE_SETTINGS_CHANGED_EVENT, (event) =>
       events.push((event as CustomEvent).detail),
     )
 
@@ -103,33 +88,5 @@ describe('font size settings apply', () => {
     expect(events).toHaveLength(2)
     expect(events[1]).toEqual({ interfaceFontSizePx: 16, messageFontSizePx: 16 })
     expect(fakeDocument.documentElement.style.fontSize).toBe('16px')
-  })
-
-  it('coalesces repeated preview schedules into a single application', () => {
-    const events: unknown[] = []
-    fakeWindow.window.addEventListener(FONT_SIZE_SETTINGS_CHANGED_EVENT, (event) =>
-      events.push((event as CustomEvent).detail),
-    )
-
-    scheduleFontSizePreview({ interfaceFontSizePx: 13, messageFontSizePx: 13 })
-    scheduleFontSizePreview({ interfaceFontSizePx: 14, messageFontSizePx: 14 })
-    scheduleFontSizePreview({ interfaceFontSizePx: 15, messageFontSizePx: 15 })
-    expect(fakeWindow.window.requestAnimationFrame).toHaveBeenCalledOnce()
-    expect(events).toHaveLength(0)
-    expect(fakeDocument.documentElement.style.fontSize).toBe('')
-
-    fakeWindow.flushAnimationFrame()
-    expect(events).toHaveLength(1)
-    expect(events[0]).toEqual({ interfaceFontSizePx: 15, messageFontSizePx: 15 })
-    expect(fakeDocument.documentElement.style.fontSize).toBe('15px')
-  })
-
-  it('schedules a new frame after a flushed preview', () => {
-    scheduleFontSizePreview({ interfaceFontSizePx: 13, messageFontSizePx: 13 })
-    fakeWindow.flushAnimationFrame()
-    scheduleFontSizePreview({ interfaceFontSizePx: 14, messageFontSizePx: 13 })
-    expect(fakeWindow.window.requestAnimationFrame).toHaveBeenCalledTimes(2)
-    fakeWindow.flushAnimationFrame()
-    expect(fakeDocument.documentElement.style.fontSize).toBe('14px')
   })
 })

@@ -7,12 +7,12 @@ import {
   type AppTheme,
 } from '@/lib/appearance-settings'
 import {
+  applyFontSizeSettings,
   DEFAULT_FONT_SIZE_SETTINGS,
   FONT_SIZE_RANGE,
   loadFontSizeSettings,
   normalizeFontSizeSettings,
   saveFontSizeSettings,
-  scheduleFontSizePreview,
   type FontSizeSettings,
 } from '@/lib/font-size-settings'
 import { t } from '@/lib/i18n'
@@ -83,23 +83,22 @@ class AppearanceSettingsTab extends SettingsTab {
     })
   }
 
-  private previewFontSize(settings: FontSizeSettings) {
+  private updateFontSize(settings: FontSizeSettings) {
     const normalized = normalizeFontSizeSettings(settings)
     this.interfaceFontSizePx = normalized.interfaceFontSizePx
     this.messageFontSizePx = normalized.messageFontSizePx
-    scheduleFontSizePreview(normalized)
     this.requestUpdate()
   }
 
   private updateInterfaceFontSize(value: string) {
-    this.previewFontSize({
+    this.updateFontSize({
       ...this.currentFontSizeSettings(),
       interfaceFontSizePx: Number(value) || DEFAULT_FONT_SIZE_SETTINGS.interfaceFontSizePx,
     })
   }
 
   private updateMessageFontSize(value: string) {
-    this.previewFontSize({
+    this.updateFontSize({
       ...this.currentFontSizeSettings(),
       messageFontSizePx: Number(value) || DEFAULT_FONT_SIZE_SETTINGS.messageFontSizePx,
     })
@@ -107,7 +106,9 @@ class AppearanceSettingsTab extends SettingsTab {
 
   private async saveFontSize() {
     try {
-      await saveFontSizeSettings(getAppStorage(), this.currentFontSizeSettings())
+      const settings = this.currentFontSizeSettings()
+      applyFontSizeSettings(settings)
+      await saveFontSizeSettings(getAppStorage(), settings)
       this.error = ''
       this.requestUpdate()
     } catch (error) {

@@ -1,3 +1,13 @@
+## 当前交接摘要：字号滑块松手后统一应用并保存（2026-09-08）
+
+- 目标：界面字号、消息字号拖动时不再全局实时缩放，松手后才保存并应用。
+- 实现：两个滑块共用语义——input 只 normalize、更新 Lit 本地字号状态并 `requestUpdate`，badge/progress 即时变化；change 继续走 `saveFontSize`，当下先 apply，再由 `saveFontSizeSettings` 持久化，避免网络延迟阻塞松手后的视觉反馈；持久化成功后的重复 apply 会被 dirty-check 跳过。已删除无调用方的 `scheduleFontSizePreview` 与对应测试。
+- 验证：`npx vitest run tests/frontend/appearance-settings-tab.test.ts tests/frontend/font-size-settings-apply.test.ts tests/frontend/settings-normalizers.test.ts` → 3 files / 13 tests 全过；相关 `npx eslint` 0 error；`npm run build` 通过（仅既有警告）；`git diff --check` 通过。首次单独 tsc 曾碰到并行 App.tsx 中间态，后续 build 内 tsc 已通过。
+- 文件：`src/lib/appearance-settings-tab.ts`、`src/lib/font-size-settings.ts`、`tests/frontend/appearance-settings-tab.test.ts`、`tests/frontend/font-size-settings-apply.test.ts`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Blocker：无。无需更新 wiki；未 commit/tag/push。建议真机拖动两个滑块确认页面其余区域拖动中不缩放、松手后一次变化。
+
+---
+
 ## 当前交接摘要：Inspector Tab 下拉列表 hover / 选中态背景修复（2026-09-08）
 
 - 目标：让右侧 Inspector 的 ChevronDown Tab 下拉列表在 hover 非选中项时显示背景，同时让当前选中项保持更明确的 active 背景。

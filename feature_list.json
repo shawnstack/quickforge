@@ -1077,6 +1077,23 @@
       ],
       "verification": "定向 vitest 2 files / 29 tests 全过（sidebar-section-header-hit-area 7 + sidebar-section-order 22）；eslint 2 个改动 TS/TSX 文件 0 error；npx tsc -b --pretty false 通过；npm run build 通过（仅既有 KaTeX 字体与 chunk 体积提示）。",
       "boundaries": "仅改变任务分组新建对话按钮的默认可见性；点击行为与可访问性属性不变；未新增依赖、未手工修改生成目录、未 commit；纯组件内样式复用，不影响架构、模块职责或公共入口，因此无需更新 docs/wiki。"
+    },
+    {
+      "id": "font-size-slider-apply-on-change",
+      "name": "字号滑块松手后统一应用并保存",
+      "status": "done",
+      "approach": "外观设置的界面字号与消息字号继续共用 renderFontSizeSlider：input 仅 normalize 后更新 Lit 组件本地两个字号字段并 requestUpdate，使 badge、滑块进度和控件值即时反馈；不再调度全局预览，不修改 document 根字号或消息字号 CSS 变量，也不持久化。change 调用 saveFontSize，当下先 apply 以免网络延迟阻塞视觉反馈，再沿用 saveFontSizeSettings 持久化；持久化成功后的重复 apply 由既有 dirty-check 跳过，保存失败捕获、错误提示及不回滚字号行为保持。删除已无调用方的 scheduleFontSizePreview 及对应 RAF 合并测试。",
+      "files": [
+        "src/lib/appearance-settings-tab.ts",
+        "src/lib/font-size-settings.ts",
+        "tests/frontend/appearance-settings-tab.test.ts",
+        "tests/frontend/font-size-settings-apply.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/appearance-settings-tab.test.ts tests/frontend/font-size-settings-apply.test.ts tests/frontend/settings-normalizers.test.ts：3 files / 13 tests 全过；npx eslint src/lib/appearance-settings-tab.ts src/lib/font-size-settings.ts tests/frontend/appearance-settings-tab.test.ts tests/frontend/font-size-settings-apply.test.ts：0 error；npm run build 通过（仅既有 KaTeX 字体与 chunk 体积提示）；git diff --check 通过。首次独立 npx tsc -b --pretty false 曾被并行工作区 src/App.tsx 两个未使用变量中间态阻塞，稍后包含 tsc -b 的 npm run build 已通过。",
+      "boundaries": "两个滑块语义一致；不改字号范围、默认值、保存失败行为、主题设置或其他设置项；未新增依赖、未手工修改 dist/package-dist/package-offline、未 commit/tag/push；纯组件内交互时机调整，不影响架构、模块职责或公共入口，因此无需更新 docs/wiki。"
     }
   ]
 }

@@ -186,10 +186,21 @@ describe('message queue source contracts', () => {
     expect(controllerSource).not.toContain('let cancelActiveRowDrag')
     expect(controllerSource).toContain('renderDeferredByDrag = true')
     // Session end rebuilds from authoritative items — cancelled gestures must
-    // not leave the rows shuffled, parked renders must not be dropped.
+    // not leave the rows shuffled, parked renders must not be dropped. A
+    // cancelled moved placeholder invalidates the same-state render signature.
+    expect(controllerSource).toContain('if (moved) renderedSignature = null')
     expect(controllerSource).toContain('if (moved || renderDeferredByDrag) {')
     // Controller teardown still cancels the session without rebuilding.
     expect(controllerSource).toContain('session?.cancel()')
+  })
+
+  it('skips same-state streaming renders while preserving remounts and state changes', () => {
+    expect(controllerSource).toContain('let renderedSignature: string | null = null')
+    expect(controllerSource).toContain('const hadRoot = root?.isConnected === true')
+    expect(controllerSource).toContain('renderedSignature === signature')
+    expect(controllerSource).toContain('items,\n      paused,\n      streaming: isStreaming(),\n      canSteer: steeringEnabled(),\n      jumpingId,\n      editingId,')
+    // The rebuild remains available when the root was newly created or detached.
+    expect(controllerSource).toContain('if (hadRoot && root.isConnected && renderedSignature === signature) return')
   })
 
   it('preserves the live edit input across decorate-pass rebuilds', () => {

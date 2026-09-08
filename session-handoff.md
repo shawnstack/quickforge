@@ -1,3 +1,28 @@
+## 当前交接摘要：聊天消息队列流式发送时无变化重渲染闪烁修复（2026-09-08）
+
+- 目标：流式生成期间队列可见状态未变化时，不再因队列 DOM 被全量替换而闪烁。
+- 根因：decorate 流程随每个 agent delta 高频调用队列 `render()`，旧实现无条件执行 `root.replaceChildren()`。
+- 实现：`message-queue.ts` 新增 `renderedSignature`，覆盖队列项、暂停态、流式态、steer 能力、跳转态和编辑态；root 已连接且签名相同时跳过重建，状态变化、首次创建或 root 脱离后仍完整渲染。签名在 DOM 重建完成后提交；拖拽发生位移后主动失效签名，确保取消拖拽时恢复权威顺序。
+- 文件：`src/components/chat/panel-decoration/message-queue.ts`、`tests/frontend/message-queue.test.ts`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：`npx vitest run tests/frontend/message-queue.test.ts`（1 file / 15 tests）通过；相关 ESLint 0 error；`npm run build` 通过（仅既有警告）；`git diff --check` 通过。
+- Blocker：无。无需更新 wiki；已提交（当前提交），未 push。
+- 下一步：真机冒烟——流式生成过程中观察已有队列行保持稳定、无闪烁；聚焦队列编辑框时输入值/光标不被无变化 delta 重置；新增、删除、立即发送、暂停/恢复以及流式结束时队列仍能立即更新。
+
+---
+
+## 当前交接摘要：手动停止的助手消息显示灰色「已停止」（2026-09-08）
+
+- 目标：手动终止生成后，部分回答末尾显示灰色「已停止」，且用户自己中止的回合不再出现「错误：请求已中止。」红块与重试按钮。
+- 对齐：两轮设计稿（design-mockups/assistant-stopped-message-preview.html）——v1 假气泡三方案被否，v2 镜像真实 DOM 后用户确认方案①（灰色、与正文同号、与正文左缘对齐、常显不依赖 hover）执行。
+- 实现：`message-actions.ts` 新增 `decorateAssistantStoppedText`（decorateAssistantErrorText 同款先例）：`stopReason==='aborted'` 的 assistant 消息，发现路径限定渲染根 div 直接子级 `span.text-sm.text-destructive.italic`（不误伤 tool 卡内同款标签），移除红/斜体类挂 `quickforge-message-stopped-label`，dataset 记录文案幂等、语言切换即时更新；i18n +`messageStoppedLabel`（zh 已停止 / en Stopped）；`index.css` +`.quickforge-message-stopped-label`（block、6px 上间距、0 1rem 缩进、muted 色）。pi-web-ui 零改动。
+- Revision（用户中止去失败痕迹）：服务端 `agent-manager.mjs` agent_end 对 `signal.aborted` 的运行跳过 `appendAssistantErrorMessageOnce`（此前会在 aborted 终态消息后再合成 `stopReason:'error'` 的「错误：请求已中止。」红块）并清 `state.errorMessage`；非用户中止失败（超时/HTTP 等）仍照常合成。前端 `message-actions.ts` 新增 `trailingTurnAborted` 门控（尾部 assistant `stopReason='aborted'`）：用户中止回合最后一条 user 消息隐藏重试按钮（回滚/复制/错误终态「继续生成」不受影响，重装饰随回合状态恢复）。
+- 文件：`src/components/chat/panel-decoration/message-actions.ts`、`src/lib/i18n.ts`、`src/index.css`、`server/agent-manager.mjs`、`tests/frontend/message-actions.test.ts`（+4 用例）、`tests/server/agent-manager.abort.test.mjs`（+2 用例）、`design-mockups/assistant-stopped-message-preview.html`、`docs/wiki/src/components/README.md`、`docs/wiki/server/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest abort 3 + message-actions 34 + error-messages 14 + i18n-snapshot 2 + routes/agent 21 全过；eslint 改动文件 0 error；`node --check`、`npx tsc -b --pretty false`、`npm run build` 通过（仅既有警告）；产物 CSS 已含新类；`git diff --check` 通过。
+- Blocker：无。已提交（当前提交），未 push。
+- 下一步：真机冒烟——对话中途点停止：末尾只有灰色「已停止」，无「错误：请求已中止。」红块、无重试/继续按钮（亮/暗主题各一次）；hover 最后一条 user 消息仍有回滚、无重试；真实失败（如断网/超时）仍有红块错误与「继续生成」；发新消息后重试按钮恢复；切语言后历史停止消息文案跟随。注意：历史会话里已持久化的「错误：请求已中止。」是存量数据，不做迁移。
+
+---
+
 ## 当前交接摘要：桌面侧栏默认宽度略微收窄（2026-09-08）
 
 - 目标：将左侧项目/对话区域从默认 320px 略微收窄到 304px。

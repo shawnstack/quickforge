@@ -1127,6 +1127,42 @@
       ],
       "verification": "npx vitest run tests/frontend/appearance-settings-tab.test.ts tests/frontend/font-size-settings-apply.test.ts tests/frontend/settings-normalizers.test.ts：3 files / 13 tests 全过；npx eslint src/lib/appearance-settings-tab.ts src/lib/font-size-settings.ts tests/frontend/appearance-settings-tab.test.ts tests/frontend/font-size-settings-apply.test.ts：0 error；npm run build 通过（仅既有 KaTeX 字体与 chunk 体积提示）；git diff --check 通过。首次独立 npx tsc -b --pretty false 曾被并行工作区 src/App.tsx 两个未使用变量中间态阻塞，稍后包含 tsc -b 的 npm run build 已通过。",
       "boundaries": "两个滑块语义一致；不改字号范围、默认值、保存失败行为、主题设置或其他设置项；未新增依赖、未手工修改 dist/package-dist/package-offline、未 commit/tag/push；纯组件内交互时机调整，不影响架构、模块职责或公共入口，因此无需更新 docs/wiki。"
+    },
+    {
+      "id": "assistant-stopped-message-label",
+      "name": "手动停止的助手消息显示灰色「已停止」",
+      "status": "done",
+      "approach": "pi-web-ui 对 stopReason=aborted 的 assistant 消息渲染 <span class=\"text-sm text-destructive italic\">Request aborted</span>（红色斜体英文、无 px-4 缩进贴左缘、未接入翻译）。装饰层 decorateAssistantStoppedText（message-actions.ts，与 decorateAssistantErrorText 同一先例）按方案①改写：移除 text-destructive/italic、挂 quickforge-message-stopped-label（muted 灰、px-4 缩进、6px 上间距、display:block，字号沿用 text-sm 与正文同号），文案走新 i18n key messageStoppedLabel（zh 已停止 / en Stopped）；发现路径限定渲染根 div 直接子级 span（parentElement.parentElement === 消息元素）避免误伤 tool 卡内同款 aborted 标签；dataset.quickforgeStoppedLabel 记录当前文案，重复 decorate 与语言切换幂等更新；Lit 重建的新红 span 会被下一装饰周期重新发现并改写。不动 pi-web-ui、服务端零改动，红色语义保留给错误。 Revision（用户中止不再显示失败痕迹）：服务端 agent-manager agent_end 对 signal.aborted 的运行跳过 appendAssistantErrorMessageOnce（此前会在 stopReason=aborted 终态消息之后再合成一条 stopReason=error 的「错误：请求已中止。」红块消息）并清 state.errorMessage（状态面板不把用户停止报成 error；非用户中止失败仍照常合成）；前端 decorateMessages 以 trailingTurnAborted（尾部 assistant stopReason=aborted）门控，隐藏用户中止回合最后一条 user 消息的重试按钮（错误终态的「继续生成」、回滚/复制不受影响；重装饰可随回合状态恢复）。",
+      "files": [
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/frontend/message-actions.test.ts",
+        "design-mockups/assistant-stopped-message-preview.html",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md",
+        "server/agent-manager.mjs",
+        "tests/server/agent-manager.abort.test.mjs"
+      ],
+      "verification": "定向 vitest：tests/server/agent-manager.abort.test.mjs 3 tests（新增用户中止不合成错误消息/非中止失败仍合成两用例）+ tests/frontend/message-actions.test.ts 34 tests（新增中止回合隐藏重试、正常回合恢复）+ tests/server/routes/agent.test.mjs 21 tests 全过；eslint 四改动文件 0 error；node --check；npx tsc -b --pretty false；npm run build 通过（仅既有警告）；git diff --check 通过。",
+      "notes": "对齐流程：v1 假气泡三方案被否，v2 镜像真实 DOM（定位到 pi-web-ui 既有红字现状）后用户确认方案①执行；Revision 追加用户中止去失败痕迹（错误消息+重试按钮）。tool 卡内部的 aborted 红字标签不在本 feature 范围（process-folding 已有 processAborted 状态文案）。历史会话中已持久化的「错误：请求已中止。」消息为存量数据，不做迁移。"
+    },
+    {
+      "id": "message-queue-streaming-render-flicker",
+      "name": "聊天消息队列流式发送时无变化重渲染闪烁修复",
+      "status": "done",
+      "approach": "流式生成期间，消息装饰流程会随每个 agent delta 高频调用消息队列 render()；即使队列可见状态没有变化，旧实现仍执行 root.replaceChildren() 全量重建队列 DOM，造成队列区域闪烁并破坏临时 DOM 状态。修复：message-queue.ts 增加 renderedSignature，覆盖 items、paused、isStreaming()、steeringEnabled()、jumpingId、editingId；当队列 root 已连接且签名未变化时保留现有 DOM，首次创建、重新挂载或任一可见状态变化时仍完整渲染。签名仅在 DOM 重建完成后提交，避免异常中途留下错误缓存；拖拽发生位移后主动失效签名，确保 pointercancel 也会按权威数据恢复临时调整过的 DOM 顺序。既有拖拽延期渲染、编辑输入恢复和空队列移除语义保持不变。",
+      "files": [
+        "src/components/chat/panel-decoration/message-queue.ts",
+        "tests/frontend/message-queue.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/message-queue.test.ts：1 file / 15 tests 全过；npx eslint src/components/chat/panel-decoration/message-queue.ts tests/frontend/message-queue.test.ts：0 error；npm run build 通过（仅既有字体解析与 chunk 体积提示）；git diff --check 通过。",
+      "boundaries": "仅优化消息队列组件内部的无变化 render 路径；不改消息发送、排队、立即发送、拖拽排序或暂停/恢复语义；未新增依赖、未手工修改生成产物、未 commit/tag/push。纯组件内部渲染稳定性修复，不影响架构、模块职责或公共入口，因此无需更新 docs/wiki。"
     }
   ]
 }

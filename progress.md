@@ -1,3 +1,26 @@
+## Bugfix：聊天消息队列流式发送时无变化重渲染闪烁修复（2026-09-08）
+
+- 现象：聊天正在流式生成且消息队列内容没有变化时，队列区域仍随每个流式 delta 全量重建，表现为队列或队列项闪一下。
+- 根因：消息装饰流程会高频调用消息队列 `render()`，旧实现每次都执行 `root.replaceChildren()`，没有判断队列的可见状态是否实际变化。
+- 修复：`message-queue.ts` 增加 `renderedSignature`，覆盖 `items`、`paused`、`isStreaming()`、`steeringEnabled()`、`jumpingId`、`editingId`；root 已连接且签名不变时保留现有 DOM。首次创建、脱离后重挂载或任一可见状态变化时仍完整渲染；签名仅在 DOM 重建完成后提交。拖拽发生位移后主动失效签名，确保 `pointercancel` 也会按权威数据恢复临时调整过的 DOM 顺序。
+- 测试：`message-queue.test.ts` 增加源码契约，锁定同状态跳过、签名覆盖范围，以及新建/脱离 root 时不得跳过重建。
+- 验证：`npx vitest run tests/frontend/message-queue.test.ts`（1 file / 15 tests）通过；相关 ESLint 0 error；`npm run build` 通过（仅既有字体解析与 chunk 体积提示）；`git diff --check` 通过。
+- 边界：拖拽延期渲染、编辑输入恢复、空队列移除、排队/立即发送/暂停恢复等既有语义不变；无需更新 docs/wiki（纯组件内部渲染稳定性修复，不改架构、职责或公共入口）；未新增依赖、未手工修改生成产物、未 commit/tag/push。
+
+---
+
+## Feature：手动停止的助手消息显示灰色「已停止」（2026-09-08）
+
+- 目标：用户手动终止生成后，部分回答末尾以灰色「已停止」标明终态，替换现状的红色斜体英文 "Request aborted"。
+- 对齐过程：v1 对齐稿（假气泡面板 + meta 行/灰线/行内三方案）被否；v2 先摸清真实渲染——pi-web-ui AssistantMessage 对 `stopReason:'aborted'` 渲染 `<span class="text-sm text-destructive italic">Request aborted</span>`（红、斜体、英文、无 px-4 缩进贴左缘，且应用未安装 pi-web-ui 翻译，恒英文），稿子改为镜像真实消息区结构（design-mockups/assistant-stopped-message-preview.html），用户确认方案①（灰色、与正文同号、左缘对齐、常显）执行。
+- 实现：`message-actions.ts` 新增 `decorateAssistantStoppedText`（与 `decorateAssistantErrorText` 同一先例）：仅 assistant 且 `stopReason==='aborted'`；先找 `quickforge-message-stopped-label` 标记 span（幂等/语言切换路径），否则发现 `span.text-sm.text-destructive.italic` 且 `parentElement.parentElement === 消息元素`（渲染根 div 直接子级，避免误伤 tool 卡内同款 aborted 标签——工具级状态由 process-folding `processAborted` 负责）；改写为移除 text-destructive/italic、挂标记类、`dataset.quickforgeStoppedLabel` 记录当前文案；i18n 新 key `messageStoppedLabel`（zh 已停止 / en Stopped）；`index.css` 新增 `.quickforge-message-stopped-label`（display:block、margin-top 6px、padding 0 1rem、color var(--muted-foreground)，字号沿用节点自带 text-sm=应用根覆盖下与正文同号）。Lit 重建的新红 span 由下一装饰周期重新发现改写；不动 pi-web-ui、服务端零改动，红色语义保留给错误。
+- 测试：`message-actions.test.ts` 新增 describe 3 用例——标记 span 本地化改写且重跑幂等、非 aborted 消息不动、发现路径/类交换/CSS 样式源码契约（FakeNode 选择器引擎不支持复合选择器，发现路径沿用错误装饰的源码契约形态）。
+- 验证：定向 vitest 3 files / 49 tests 全过；eslint 三改动文件 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 通过（仅既有警告）；产物 CSS 含 `.quickforge-message-stopped-label`；`git diff --check` 通过。
+- 边界：tool 卡内部 aborted 红字、共享会话页（未走装饰管线的渲染面）不在本 feature 范围；未新增依赖、未手工修改生成产物、未 commit/tag/push。
+- Revision（用户中止不再显示失败痕迹）：用户反馈手动停止后仍出现「错误：请求已中止。」红块与重试按钮。根因链路：用户停止 → pi-ai 抛 "Request was aborted" → pi-agent-core `handleRunFailure` 落 `stopReason:'aborted'` 终态消息（灰「已停止」那条）并把 errorMessage 经 processEvents 写入 `state.errorMessage`（agent.js:394）→ agent-manager agent_end 据此再 `appendAssistantErrorMessageOnce` 合成 `stopReason:'error'` 红块消息 → 前端终态错误行挂「继续生成」。修复：① 服务端 agent-manager agent_end 对 `signal.aborted` 的运行跳过合成并清 `state.errorMessage`（状态面板不把用户停止报成 error；非用户中止失败——超时/HTTP 等仍照常合成）；② 前端 `decorateMessages` 新增 `trailingTurnAborted`（尾部 assistant stopReason=aborted）门控，用户中止回合最后一条 user 消息隐藏重试按钮（回滚/复制/错误终态「继续生成」不受影响；重装饰随回合状态变化恢复）。测试：abort.test.mjs +2（用户中止不合成/非中止失败仍合成）、message-actions.test.ts +1（中止隐藏重试、正常恢复）。验证：定向 vitest abort 3 + message-actions 34 + routes/agent 21 全过；eslint 0 error；node --check；tsc -b；build 通过。边界：历史会话已持久化的「错误：请求已中止。」消息为存量数据不迁移（新停止干净）。
+
+---
+
 ## Feature：桌面侧栏默认宽度略微收窄（2026-09-08）
 
 - 目标：让左侧项目/对话区域稍微窄一点，为中间内容保留更多空间。

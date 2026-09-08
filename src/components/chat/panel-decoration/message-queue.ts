@@ -208,6 +208,7 @@ export function createMessageQueuePanelController({
   let keydownHandler: ((event: KeyboardEvent) => void) | null = null
   let dragSession: RowDragSession | null = null
   let renderDeferredByDrag = false
+  let renderedSignature: string | null = null
   let disposed = false
 
   const notify = () => {
@@ -311,8 +312,22 @@ export function createMessageQueuePanelController({
       root = null
       return
     }
+    const hadRoot = root?.isConnected === true
     if (!ensureRoot() || !root) return
     bindTextarea()
+
+    // Decorate passes can call render() for every streaming delta. Keep the
+    // existing DOM when the visible queue state is unchanged; besides avoiding
+    // flicker this preserves focus, selection, and any transient DOM state.
+    const signature = JSON.stringify({
+      items,
+      paused,
+      streaming: isStreaming(),
+      canSteer: steeringEnabled(),
+      jumpingId,
+      editingId,
+    })
+    if (hadRoot && root.isConnected && renderedSignature === signature) return
 
     // The same rebuild cadence can hit while the user is editing a queued
     // item: capture the live input (same item only) so the rebuild carries
@@ -359,7 +374,10 @@ export function createMessageQueuePanelController({
       root.append(banner)
     }
 
-    if (items.length === 0) return
+    if (items.length === 0) {
+      renderedSignature = signature
+      return
+    }
     const list = document.createElement('ul')
     list.className = 'quickforge-msg-queue-list'
     items.forEach((item, index) => {
@@ -505,6 +523,10 @@ export function createMessageQueuePanelController({
             // Rebuild from the authoritative items: applies state changes that
             // arrived mid-drag, and restores the row order after a cancelled
             // gesture leaves the DOM shuffled.
+            // A cancelled drag can leave the placeholder DOM reordered while
+            // authoritative items stay unchanged. Invalidate the signature so
+            // the final render restores the persisted order.
+            if (moved) renderedSignature = null
             if (moved || renderDeferredByDrag) {
               renderDeferredByDrag = false
               render()
@@ -516,6 +538,7 @@ export function createMessageQueuePanelController({
       list.append(row)
     })
     root.append(list)
+    renderedSignature = signature
   }
 
   const syncStreamingChrome = () => {

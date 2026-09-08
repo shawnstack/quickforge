@@ -96,6 +96,49 @@ function diffTotal(artifacts: AiTurnArtifact[]) {
   }), { added: 0, removed: 0 })
 }
 
+function artifactPathKey(path: string | undefined) {
+  return (path ?? '').replace(/\\/g, '/')
+}
+
+/**
+ * 同一文件一轮内多次 write/edit（不同 toolCallId）按路径合并为一行：
+ * 行序取首次写入位置，kind/preview 取最新一次。多次写入的 ± 显示净变化
+ * （Σ加 − Σ减，只落在加或减一侧）——与 git diff / 新增文件的观感一致，
+ * 累计 churn 会让「先建后改」的纯新增文件凭空多出 -N；单次调用不进合并
+ * 分支，保留真实 hunk 计数（+a −r，与 diff 视图逐段一致）。
+ * 提取器按工具调用产出产物（产物面板语义），合并只发生在卡片层。
+ */
+function mergeChangedArtifactsByPath(artifacts: AiTurnArtifact[]): AiTurnArtifact[] {
+  const merged = new Map<string, AiTurnArtifact>()
+  for (const artifact of artifacts) {
+    const key = artifactPathKey(artifact.path)
+    const existing = merged.get(key)
+    if (!existing) {
+      merged.set(key, artifact)
+      continue
+    }
+    const hasStats = [existing.addedLines, existing.removedLines, artifact.addedLines, artifact.removedLines]
+      .some((value) => typeof value === 'number')
+    const net = (existing.addedLines ?? 0) + (artifact.addedLines ?? 0)
+      - (existing.removedLines ?? 0) - (artifact.removedLines ?? 0)
+    merged.set(key, {
+      ...artifact,
+      addedLines: hasStats ? Math.max(net, 0) : undefined,
+      removedLines: hasStats ? Math.max(-net, 0) : undefined,
+    })
+  }
+  return [...merged.values()]
+}
+
+/** present_files 重复呈现同一文件：保留首现顺序、字段取最新一次。 */
+function dedupePresentedArtifacts(artifacts: AiTurnArtifact[]): AiTurnArtifact[] {
+  const merged = new Map<string, AiTurnArtifact>()
+  for (const artifact of artifacts) {
+    merged.set(artifactPathKey(artifact.path), artifact)
+  }
+  return [...merged.values()]
+}
+
 function createDiffStat(className: string, text: string) {
   const element = document.createElement('span')
   element.className = className
@@ -425,8 +468,8 @@ type CardPlan = {
 
 function buildCardPlans(artifacts: AiTurnArtifact[], deps: ArtifactCardDeps, changedExpanded: boolean, onExpandedChange?: (expanded: boolean) => void): CardPlan[] {
   const plans: CardPlan[] = []
-  const presented = artifacts.filter((artifact) => artifact.source === 'present_files')
-  const changed = artifacts.filter((artifact) => artifact.source !== 'present_files')
+  const presented = dedupePresentedArtifacts(artifacts.filter((artifact) => artifact.source === 'present_files'))
+  const changed = mergeChangedArtifactsByPath(artifacts.filter((artifact) => artifact.source !== 'present_files'))
   presented.forEach((artifact) => {
     plans.push({
       signature: `file:${artifact.source}:${artifact.path}:${artifact.kind}:${artifact.preview ? 1 : 0}:${artifact.command ?? ''}`,

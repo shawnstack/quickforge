@@ -27,11 +27,18 @@ describe('assistant artifact card contract', () => {
     // 流式中只 return 不清卡：上一轮产物卡片保留到新轮流式结束。
     expect(source).toMatch(/if \(streaming\) return/)
     // 换卡时机 = 最近一个有文件产物的轮（findLastArtifactTurn 由新向旧按 user 边界扫描）。
-    expect(source).toContain('function findLastArtifactTurn(displayEntries')
-    expect(source).toContain('const turn = findLastArtifactTurn(displayEntries)')
+    expect(source).toContain('function findLastArtifactTurn(messages')
+    expect(source).toContain('const turn = findLastArtifactTurn(messages)')
+    // 扫描必须跑在完整 messages 上（产物来自 toolResult.details，displayEntries
+    // 只含 user/assistant，用它做提取源会永远为空——刷新/新轮都不出卡）。
+    expect(source).toMatch(/extractArtifactsFromMessages\(messages\.slice\(turnStart, end\)/)
+    // messages → display 元素经对象身份映射（displayEntries 与 messages 同源同引用）。
+    expect(source).toContain('entry.message === turn.lastAssistantMessage')
     expect(source).toContain('if (!turn || !lastAssistantElement) {')
-    // 无产物轮只在整个会话扫描不到任何产物轮时才清卡。
     expect(source).not.toContain('extractCurrentTurnArtifacts')
+    // deps 必须带完整 messages。
+    expect(source).toMatch(/messages: MessageWithUsage\[\]/)
+    expect(actions).toMatch(/messages: getMessages\(\),/)
   })
 
   it('splits presented files into single-file cards and keeps a changed-files aggregate card', () => {
@@ -45,6 +52,15 @@ describe('assistant artifact card contract', () => {
     expect(source).toContain('quickforge-assistant-file-card-name')
     expect(source).toContain('quickforge-assistant-file-card-sub')
     expect(source).toContain('ARTIFACT_KIND_LABELS[artifact.kind')
+    // 同一文件一轮内多次写入（不同 toolCallId）/多次 present 不重复显示：
+    // 卡片层按路径合并——多次写入 ± 取净变化（Σ加−Σ减，纯新增文件不凭空出 -N，
+    // 与 git diff 方向一致），单次调用保留真实 hunk 计数；present 取最新字段。
+    expect(source).toContain('function mergeChangedArtifactsByPath')
+    expect(source).toContain('function dedupePresentedArtifacts')
+    expect(source).toMatch(/presented = dedupePresentedArtifacts\(/)
+    expect(source).toMatch(/changed = mergeChangedArtifactsByPath\(/)
+    expect(source).toMatch(/Math\.max\(net, 0\)/)
+    expect(source).toMatch(/Math\.max\(-net, 0\)/)
   })
 
   it('collapses the changed-files card by default and preserves expansion across decorations', () => {

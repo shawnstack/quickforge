@@ -1,3 +1,22 @@
+## Revision 8：assistant-reply-artifact-card 合并文件 ± 语义——churn 改净变化（2026-09-08）
+
+- 现象：用户对照 diff（纯新增）质疑卡片出现 -N。排查确认方向无反（createTextDiff insert→addedLines、调用点 old 在前、行渲染 +→绿 -→红均正确）；根因是 Revision 7 的合并取累计 churn——「先建 (+N) 后小改 (+a −r)」显示 +N+a −r，纯新增文件凭空多出 -r。
+- 修复：mergeChangedArtifactsByPath 多次写入分支改净变化：net = Σ加 − Σ减，addedLines=max(net,0)、removedLines=max(-net,0)（任一侧有统计才赋值），与 git diff/新增文件观感一致；单次调用不进合并分支，保留真实 hunk ±（与 diff 视图逐段一致）。折叠头 diffTotal 随行之自动一致。
+- Verification: 定向 14；全量前端 132 files / 1379 tests；eslint 0 error；`npx tsc -b`、`npm run build` 通过（dist 已重建）。
+
+## Revision 7：assistant-reply-artifact-card 修改文件重复显示修复（2026-09-08）
+
+- 现象：用户反馈修改文件列表出现重复行。根因：`artifactKey` 去重键含 toolCallId——同一文件一轮内多次 write/edit（或多次 present_files、父/子会话都写）每次工具调用各产出一条产物，卡片逐条渲染即重复。
+- 修复：去重放在卡片层（共享提取器保持「每次工具调用一条」的产物面板语义）——`buildCardPlans` 前置 `mergeChangedArtifactsByPath`（changed 按归一路径合并为一行：行序取首现、kind/preview 取最新、± 为各次累计 churn）与 `dedupePresentedArtifacts`（present 同文件去重，字段取最新、保首现顺序）；路径键统一反斜杠归一（不做大小写折叠，避免大小写敏感文件系统误合并）。折叠头总数 diffTotal 随合并后数据自动一致。
+- Verification: 定向 44；全量前端 132 files / 1379 tests；eslint 0 error；`npx tsc -b`、`npm run build` 通过（dist 已重建）。
+
+## Revision 6 修正：assistant-reply-artifact-card 提取源回归——刷新不出卡（2026-09-08）
+
+- 现象：用户刷新页面后卡片消失。根因是 Revision 6 把产物提取从完整 `messages` 挪到了 `displayEntries`——后者是只含 user/assistant 的过滤视图，**不含 `toolResult` 消息**，而 `extractArtifactsFromMessages` 恰恰从 `toolResult.details` 取 path/diff，导致提取永远为空、卡片在任何状态下都不再渲染（刷新加载新构建后暴露）。
+- 修复：`findLastArtifactTurn` 改回在完整 `messages` 上扫描（user/user-with-attachments 为轮边界），返回该轮最后一条 assistant 的**消息对象**；sync 经对象引用（displayEntries 与 messages 同源同引用）`entry.message === turn.lastAssistantMessage` 定位 display 下标取元素。deps 恢复 `messages` 字段（message-actions 调用点同步恢复）。服务端 restore 链路核实无问题：persistSession 持久化完整 `state.messages`（含 toolResult+details），客户端 IndexedDB 快照同源，刷新后数据支持出卡。
+- 测试加固：契约断言提取必须跑在 `messages.slice(turnStart, end)`（完整消息）而非 displayEntries，并断言 deps 携带 `messages: getMessages()`——防止同类回归再从字符串层面溜过。
+- Verification: 定向 44；全量前端 132 files / 1379 tests 全过；eslint 改动文件 0 error；`npx tsc -b`、`npm run build` 通过。
+
 ## Revision 6：assistant-reply-artifact-card 卡片生命周期——流式保留旧产物（2026-09-08）
 
 - 背景：用户反馈「发送一个新消息卡片就消失了」——旧实现 streaming 一到就 removeArtifactCards，新一轮哪怕只是问答、没有任何文件改动，上一轮产物卡也被清掉。

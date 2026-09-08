@@ -1,3 +1,13 @@
+## 当前状态：assistant-reply-artifact-card Revision 6 + 刷新回归修复（已完成，未提交）
+
+- 背景：用户反馈①发送新消息卡片即消失（应为新轮有新产物才消失）②刷新页面后卡片消失。
+- 实现：Revision 6 生命周期——sync 流式分支改纯 return 不清卡；`findLastArtifactTurn` 从新向旧按 user 边界扫描取最近产物轮，卡片挂该轮最后一条 assistant；新轮无产物保留旧卡、有产物流式结束后换轮重建、全无产物轮才清卡。刷新回归修复——Revision 6 初版误把提取源换成 displayEntries（不含 toolResult，提取恒空），改回完整 `messages` 扫描 + 对象引用映射 display 元素，deps 恢复 `messages` 字段；服务端持久化/restore（含 toolResult+details）核实无问题。
+- 验证：定向 44；全量前端 132 files / 1379 tests；eslint 0 error；`npx tsc -b`、`npm run build` 通过。
+- 文件：`assistant-artifact-card.ts`、`tool-artifacts.ts`（导出 extractArtifactsFromMessages）、`message-actions.ts`、`tests/frontend/assistant-artifact-card.test.ts`、feature_list/progress/session-handoff/wiki。
+- 下一步：真机冒烟——写文件出卡 → 刷新页面卡片仍在（restore 后出卡）→ 发纯问答新消息（流式中与结束后卡片保留）→ 再发改文件消息（流式结束后换新轮卡片）；未 commit（工作区有 provider-keys-cache 等并行未提交改动，commit 时按 feature 拆分）。
+
+---
+
 ## 当前状态：provider-keys-send-cache——发送路径 provider keys 前端内存缓存（已完成，已提交）
 
 - 目标：消除发送消息路径上的 `providerKeys.get` HTTP 往返（pi 库 AgentInterface.sendMessage 乐观上屏前 await 该调用，HttpStorageBackend 每次发无缓存 GET /api/storage/provider-keys/key/:provider，服务端忙时可感知卡顿）。

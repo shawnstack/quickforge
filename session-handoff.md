@@ -1,3 +1,13 @@
+## 当前状态：assistant-reply-artifact-card Revision 9——会话累计口径（已完成，未提交）
+
+- 背景：用户反馈产物和修改应为当前 session 的总和而非单次/单轮。
+- 实现：提取改 `extractSessionArtifacts(messages)`（全会话跨轮求和），卡片挂最后一条 assistant；流式不清卡、新轮无产物签名一致原地不动、有产物增量更新；卡片迁移新宿主时展开态回退读旧卡；与「撤销」会话级回滚口径对齐；`extractArtifactsFromMessages` 收回内部。
+- 验证：定向 44；全量前端 132 files / 1379 tests；eslint 0 error；`npx tsc -b`、`npm run build` 通过（dist 已重建）。
+- 文件：`assistant-artifact-card.ts`、`tool-artifacts.ts`、`tests/frontend/assistant-artifact-card.test.ts`、feature_list/progress/session-handoff/wiki。
+- 下一步：真机冒烟——多轮写不同文件后卡片应累计所有文件与 ±；纯问答轮不动卡片；重启应用加载新 dist。未 commit。
+
+---
+
 ## 当前状态：assistant-reply-artifact-card Revision 6 + 刷新回归修复（已完成，未提交）
 
 - 背景：用户反馈①发送新消息卡片即消失（应为新轮有新产物才消失）②刷新页面后卡片消失。

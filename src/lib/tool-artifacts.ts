@@ -129,7 +129,7 @@ function normalizePresentedFile(value: unknown) {
   return undefined
 }
 
-export function extractArtifactsFromMessages(messages: AgentMessage[]): AiTurnArtifact[] {
+function extractArtifactsFromMessages(messages: AgentMessage[]): AiTurnArtifact[] {
   const seen = new Set<string>()
   const artifacts: AiTurnArtifact[] = []
 

@@ -1,5 +1,5 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import { extractArtifactsFromMessages, type AiTurnArtifact, type AiTurnArtifactKind } from '@/lib/tool-artifacts'
+import { extractSessionArtifacts, type AiTurnArtifact, type AiTurnArtifactKind } from '@/lib/tool-artifacts'
 import { t } from '@/lib/i18n'
 import type { MessageWithUsage } from '../chat-utils'
 import { showRollbackConfirmPopover } from './rollback-confirm-popover'
@@ -505,60 +505,36 @@ function syncAnchor(lastAssistantElement: HTMLElement) {
   return actions ?? null
 }
 
-/**
- * 从最新一轮向旧扫描，取「最近一个产出了 write/edit/present 文件产物的轮」：
- * 新一轮没有文件改动时卡片继续展示上一轮的产物，只有新产物出现（该轮流式
- * 结束后的 sync）才被替换。扫描在完整 messages 上进行（产物来自 toolResult
- * 消息的 details，displayEntries 过滤掉了它们）；返回该轮最后一条 assistant
- * 的消息对象，由调用方经对象引用映射到对应 display 元素。
- */
-function findLastArtifactTurn(messages: MessageWithUsage[]) {
-  let end = messages.length
-  while (end > 0) {
-    let boundary = -1
-    for (let index = end - 1; index >= 0; index -= 1) {
-      const role = messages[index]?.role
-      if (role === 'user' || role === 'user-with-attachments') {
-        boundary = index
-        break
-      }
-    }
-    const turnStart = boundary + 1
-    const artifacts = extractArtifactsFromMessages(messages.slice(turnStart, end) as unknown as AgentMessage[])
-      .filter((artifact) => Boolean(artifact.path) && INCLUDED_SOURCES.has(artifact.source))
-    if (artifacts.length > 0) {
-      for (let index = end - 1; index >= turnStart; index -= 1) {
-        if (messages[index]?.role === 'assistant') {
-          return { artifacts, lastAssistantMessage: messages[index] }
-        }
-      }
-    }
-    end = boundary
-  }
-  return undefined
-}
-
-/** Sync the artifact cards of the last artifact-bearing turn (streaming keeps them). */
+/** Sync the session-cumulative artifact cards, mounted below the last assistant (streaming keeps them). */
 export function syncAssistantArtifactCard(deps: ArtifactCardDeps) {
   const { panel, displayEntries, messageElements, messages, streaming } = deps
-  // 新一轮流式中不清卡：上一轮产物卡片保留到该轮流式结束——只有新轮真正
-  // 产出文件产物（下一个 idle sync 换目标轮）或整段会话再无产物轮时才移除。
+  // 新一轮流式中不清卡：会话累计卡片保留到该轮流式结束，由下一个 idle sync
+  // 按全会话产物增量更新（无新产物时签名一致原地不动）。
   if (streaming) return
 
-  const turn = findLastArtifactTurn(messages)
-  // displayEntries 与 messages 同源同引用，用对象身份定位 display 下标。
-  const lastAssistantIndex = turn
-    ? displayEntries.findIndex((entry) => entry.message === turn.lastAssistantMessage)
-    : -1
+  // 产物/修改取当前会话累计（跨轮求和，与「撤销」的会话级回滚口径一致），
+  // 提取跑在完整 messages 上（产物来自 toolResult.details，displayEntries
+  // 过滤掉了它们）。
+  const artifacts = extractSessionArtifacts(messages as unknown as AgentMessage[])
+    .filter((artifact) => Boolean(artifact.path) && INCLUDED_SOURCES.has(artifact.source))
+
+  // 会话级卡片挂在最后一条 assistant（对话尾部）；无 assistant 或无产物时清除。
+  let lastAssistantIndex = -1
+  for (let index = displayEntries.length - 1; index >= 0; index -= 1) {
+    if (displayEntries[index].message.role === 'assistant') {
+      lastAssistantIndex = index
+      break
+    }
+  }
   const lastAssistantElement = lastAssistantIndex >= 0 ? messageElements[lastAssistantIndex] : undefined
-  if (!turn || !lastAssistantElement) {
+  if (lastAssistantIndex < 0 || !lastAssistantElement || artifacts.length === 0) {
     removeArtifactCards(panel)
     return
   }
 
-  const artifacts = turn.artifacts
-
+  // 展开态优先读本宿主元素标记；卡片随对话尾部迁移到新宿主时回退读旧卡自身状态。
   const changedExpanded = lastAssistantElement.dataset[EXPANDED_FLAG] === 'true'
+    || panel.querySelector<HTMLElement>('[data-quickforge-artifact-card="changed"]')?.dataset.quickforgeArtifactExpanded === 'true'
   const anchor = syncAnchor(lastAssistantElement)
   const existingCards = Array.from(
     lastAssistantElement.querySelectorAll<HTMLElement>('[data-quickforge-artifact-card]'),

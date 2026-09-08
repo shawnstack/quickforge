@@ -1,3 +1,9 @@
+## Revision 9：assistant-reply-artifact-card 改为会话累计口径（2026-09-08）
+
+- 背景：用户反馈「产物和修改应该是当前 session 的总和，而不是单次的」——上一版「最近产物轮」只展示最后一个有产物轮的文件，此前轮次的产物/修改不显示。
+- 实现：提取改 `extractSessionArtifacts(messages)`（全会话跨轮求和，含此前各轮 write/edit/present），卡片挂最后一条 assistant（对话尾部）；新轮无产物时签名一致原地不动，有产物时增量更新；卡片随对话尾部迁移到新宿主时展开态回退读旧卡自身 `data-quickforge-artifact-expanded`（不因迁移回折）。与「撤销」语义对齐——rollbackFiles 本就是会话级回滚，卡片口径与其一致。`extractArtifactsFromMessages` 收回内部（卡片改用 extractSessionArtifacts 后无外部使用方）。
+- Verification: 定向 44；全量前端 132 files / 1379 tests；eslint 0 error；`npx tsc -b`、`npm run build` 通过（dist 已重建）。
+
 ## Revision 8：assistant-reply-artifact-card 合并文件 ± 语义——churn 改净变化（2026-09-08）
 
 - 现象：用户对照 diff（纯新增）质疑卡片出现 -N。排查确认方向无反（createTextDiff insert→addedLines、调用点 old 在前、行渲染 +→绿 -→红均正确）；根因是 Revision 7 的合并取累计 churn——「先建 (+N) 后小改 (+a −r)」显示 +N+a −r，纯新增文件凭空多出 -r。

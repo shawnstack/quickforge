@@ -17,24 +17,24 @@ const floatingPosition = readFileSync(new URL('../../src/components/chat/panel-d
 describe('assistant artifact card contract', () => {
   it('exports an idempotent final-assistant sync entry point and filters supported sources', () => {
     expect(source).toContain('export function syncAssistantArtifactCard')
-    expect(source).toContain('extractArtifactsFromMessages(')
+    expect(source).toContain('extractSessionArtifacts(messages')
     expect(source).toContain("['write_file', 'edit_file', 'present_files']")
     expect(source).toContain("card.dataset.quickforgeArtifactCard = 'file'")
     expect(source).toContain("card.dataset.quickforgeArtifactCard = 'changed'")
   })
 
-  it('keeps the previous turn cards while a newer artifact-less turn streams', () => {
-    // 流式中只 return 不清卡：上一轮产物卡片保留到新轮流式结束。
+  it('aggregates artifacts across the whole session and keeps cards while streaming', () => {
+    // 流式中只 return 不清卡：会话累计卡片保留到新轮流式结束。
     expect(source).toMatch(/if \(streaming\) return/)
-    // 换卡时机 = 最近一个有文件产物的轮（findLastArtifactTurn 由新向旧按 user 边界扫描）。
-    expect(source).toContain('function findLastArtifactTurn(messages')
-    expect(source).toContain('const turn = findLastArtifactTurn(messages)')
-    // 扫描必须跑在完整 messages 上（产物来自 toolResult.details，displayEntries
+    // 产物/修改为当前会话累计（跨轮求和，与「撤销」的会话级回滚口径一致），
+    // 提取必须跑在完整 messages 上（产物来自 toolResult.details，displayEntries
     // 只含 user/assistant，用它做提取源会永远为空——刷新/新轮都不出卡）。
-    expect(source).toMatch(/extractArtifactsFromMessages\(messages\.slice\(turnStart, end\)/)
-    // messages → display 元素经对象身份映射（displayEntries 与 messages 同源同引用）。
-    expect(source).toContain('entry.message === turn.lastAssistantMessage')
-    expect(source).toContain('if (!turn || !lastAssistantElement) {')
+    expect(source).toContain('extractSessionArtifacts(messages')
+    expect(source).not.toContain('findLastArtifactTurn')
+    // 会话级卡片挂最后一条 assistant（对话尾部）；无 assistant 或无产物才清卡。
+    expect(source).toMatch(/artifacts\.length === 0\) \{/)
+    // 卡片随对话尾部迁移到新宿主时，展开态回退读旧卡自身状态。
+    expect(source).toContain("panel.querySelector<HTMLElement>('[data-quickforge-artifact-card=\"changed\"]')")
     expect(source).not.toContain('extractCurrentTurnArtifacts')
     // deps 必须带完整 messages。
     expect(source).toMatch(/messages: MessageWithUsage\[\]/)

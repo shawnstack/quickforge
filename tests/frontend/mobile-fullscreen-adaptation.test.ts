@@ -14,7 +14,7 @@ describe('Mobile H5 fullscreen adaptation', () => {
 
   it('keeps the PanelRight Inspector toggle reachable on all viewport sizes', () => {
     expect(appSource).not.toContain("'hidden rounded-[10px]")
-    expect(appSource).toContain("'rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40 inline-flex'")
+    expect(appSource).toContain("'rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40 inline-flex'")
   })
 
   it('shows the Workspace Inspector as a fullscreen overlay on narrow viewports', () => {

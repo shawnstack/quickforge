@@ -1,3 +1,23 @@
+## 当前交接摘要：Inspector 顶栏回归 56px 对齐 + 顶部按钮组高度与 hover 统一（2026-09-08）
+
+- 目标：修复 Revision 17 引入的两个回归——① Inspector 顶栏底部横线与对话区 header 底部横线不齐（44px vs 56px）；② `+`/全屏按钮与右上角浮动工具栏的终端/关闭右侧边栏按钮高度不一致。并修复用户反馈的「最左侧 ChevronDown 下拉按钮 hover 无背景」。
+- 方案（用户确认「统一回 56px」）：Inspector 顶栏 `h-11`→`h-14`，与 `src/App.tsx:2152` 对话区 header 及浮动工具栏同高（13px 根字号下均 45.5px，两条底线对齐）；`+`/全屏/终端/关闭四个 `Button` 去掉 `size-8` 覆盖，回到 `size="icon"`（29.25px）与浮动工具栏按钮同尺寸；左侧下拉按钮 `size-8`→`size-9`（保留 `rounded-xl`）；两处下拉菜单 `top-10`→`top-12`（按钮变高后恢复原有间距）。Tab 条保留 Revision 17 的紧凑 `h-8` + 隐藏滚动条。
+- hover 结论：`hover:bg-[var(--quickforge-sidebar-hover-bg)]` 已存在于产物 CSS 且实测生效（headless Chrome + CDP，四个按钮 hover 均得 `rgb(229,231,235)`）；用户看到的「没有 hover」应为改动前旧产物或页面未强刷。顺带把 `App.tsx` 右上角浮动工具栏的终端/关闭右侧边栏按钮从**未生成**的 `hover:bg-muted/45` 换成同一 token（此前这两个按钮完全没有 hover 反馈），对应两处硬编码类名断言同步更新。
+- 验证：headless Chrome 实测两条 header 底线均 45.5px、六个按钮均 29.25px、四个按钮 hover 背景均生效；`npm run test` 287 files / 2742 tests 全过；`npm run lint` 0 error（5 个既有 warning）；`npm run build` 通过。
+- 文件：`src/components/workspace/WorkspaceInspector.tsx`、`src/App.tsx`、`tests/frontend/mobile-fullscreen-adaptation.test.ts`、`tests/frontend/side-chat-workspace-tab.test.ts`、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。未 commit、未 push。
+- Blocker：无。下一步：真机强刷（Ctrl+Shift+R）后确认——两条顶栏横线齐平、`+`/全屏与终端/关闭四个按钮等高、最左侧 ChevronDown hover 有浅灰背景（亮/暗各看一次）、两处下拉菜单定位正常、多 Tab 溢出不上下跳且拖拽排序/滚轮横向滚动仍可用。
+
+---
+
+## 历史记录：WorkspaceInspector 顶部 Tab 条收窄 + 滚动条高度跳动修复（Revision 17，已被 Revision 18 回归修正）
+
+- 目标：右侧 Inspector 顶部 Tab 条在溢出出滚动条时不再上下跳动，并整体收窄。
+- 改动：顶栏 56→44px、Tab 40→32px + `rounded-xl`；横向滚动容器固定 32px，并用 `src/index.css` 的 unlayered 类 `.quickforge-inspector-tab-strip` 隐藏原生滚动条（Tailwind arbitrary 类会被 pi-web-ui 的 unlayered `*{scrollbar-width:thin}` 压过）；左侧下拉按钮与右侧图标按钮统一 32px；两处下拉菜单 `top-12`→`top-10`。顶部工具栏 hover 背景从失效的 `hover:bg-muted/45`（该类未生成）改为 `hover:bg-[var(--quickforge-sidebar-hover-bg)]`。
+- 回归与修正：顶栏 44px 导致与对话区 header 56px 底线不齐、按钮 32px 与浮动工具栏 36px 不等高——Revision 18 已把顶栏恢复 `h-14`、按钮恢复 `size-9`、下拉菜单恢复 `top-12`，Tab 条紧凑 `h-8` 与隐藏滚动条保留。
+- 验证：定向 vitest `workspace-inspector` 6 files / 46 tests、eslint 改动文件 0 error、`npm run build` 通过；产物 CSS 已确认 `.quickforge-inspector-tab-strip{scrollbar-width:none}` 为 unlayered 且在全局 thin 规则之后，hover 背景类已生成。
+
+---
+
 ## 当前交接摘要：侧栏置顶分区独占展示 + 产物卡文件图标与打开方式（2026-09-08）
 
 - 目标：完成两项 feature 的本地提交收尾并交接真机验证。

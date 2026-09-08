@@ -1,3 +1,26 @@
+## Revision 18：Inspector 顶栏回归 56px 对齐 + 顶部按钮组高度与 hover 统一（2026-09-08）
+
+- 背景：用户反馈 Revision 17 引入两个回归——① `+`/全屏按钮与右上角浮动工具栏的终端/关闭右侧边栏按钮高度不一致；② Inspector 顶栏底部横线与对话区 header 底部横线不齐（44px vs 56px）。并确认「顶部 tab 最左侧 ChevronDown 下拉没有 hover 背景」。
+- 方案（用户确认「统一回 56px」）：Inspector 顶栏 `h-11`→`h-14`，与 `src/App.tsx:2152` 对话区 header、`fixed right-2 top:0.625rem` 浮动工具栏同高（13px 根字号下均 45.5px，两条底线对齐）；`+`/全屏/终端/关闭四个 `Button` 去掉 `size-8` 覆盖，回到 `size="icon"`（29.25px）与浮动工具栏按钮同尺寸；左侧下拉按钮 `size-8`→`size-9`（保留 `rounded-xl`）；两处下拉菜单 `top-10`→`top-12`（按钮变高后恢复原有间距）。Tab 条保留 Revision 17 的紧凑 `h-8` + 隐藏滚动条。
+- hover 排查结论：`hover:bg-[var(--quickforge-sidebar-hover-bg)]` 已存在于产物 CSS 且实际生效——用 headless Chrome + CDP 实测（`Input.dispatchMouseEvent` + `getComputedStyle`），四个按钮 hover 均得到 `rgb(229,231,235)`；用户看到的「没有 hover」应为改动前的旧产物或页面未强刷。顺带把 `App.tsx` 右上角浮动工具栏的终端/关闭右侧边栏按钮从**未生成**的 `hover:bg-muted/45` 换成同一 token（此前这两个按钮完全没有 hover 反馈），对应两处硬编码类名断言同步更新。
+- 验证：headless Chrome 实测两条 header 底线均 45.5px、六个按钮均 29.25px、四个按钮 hover 背景均生效；`npm run test` 287 files / 2742 tests 全过；`npm run lint` 0 error（5 个既有 warning）；`npm run build` 通过。
+- 文件：`src/components/workspace/WorkspaceInspector.tsx`、`src/App.tsx`、`tests/frontend/mobile-fullscreen-adaptation.test.ts`、`tests/frontend/side-chat-workspace-tab.test.ts`、`docs/wiki/src/components/README.md`、`progress.md`、`session-handoff.md`。未 commit、未 push。
+- 下一步：真机强刷（Ctrl+Shift+R）后确认——两条顶栏横线齐平、`+`/全屏与终端/关闭四个按钮等高、最左侧 ChevronDown hover 有浅灰背景（亮/暗各看一次）、两处下拉菜单定位正常。
+
+---
+
+## Revision 17：WorkspaceInspector 顶部 Tab 条收窄并消除滚动条高度跳动（2026-09-08）
+
+- 背景：右侧 Inspector 顶部 Tab 在多个时出现横向原生滚动条（Windows/Electron 占位式），撑高自动高度的滚动容器，父容器 `items-center` 居中导致 Tab 视觉上移，滚动条出现/消失时来回跳。
+- 方案（用户确认 A）：顶栏 `h-14`(56px)→`h-11`(44px)；Tab 按钮 `h-10`(40px)→`h-8`(32px)、`rounded-2xl`→`rounded-xl`；横向滚动容器固定 `h-8`，并在 `src/index.css` 增加 unlayered 自定义类 `.quickforge-inspector-tab-strip` 隐藏原生滚动条（滚轮/触控板滚动与拖拽排序保留）；左侧 Tab 下拉按钮 `size-9`→`size-8`、`rounded-2xl`→`rounded-xl`；`+`/全屏/终端/折叠图标按钮 className 补 `size-8`；两处下拉菜单 `top-12`→`top-10`（与顶栏底保持 2px 间距）；分隔线 `h-3.5`→`h-3`。下拉列表条目 `h-10` 与滚动区类名不动（有测试断言）。
+- 根因（首版 Tailwind arbitrary 类未生效）：`[scrollbar-width:none]` / `[&::-webkit-scrollbar]:hidden` 被编译进 `@layer utilities`，而 pi-web-ui 的 unlayered `*{scrollbar-width:thin}` 与 `::-webkit-scrollbar{width:8px;height:8px}` 在层叠中优先于任何 `@layer`；Chromium 在标准 `scrollbar-width` 生效时又忽略 `::-webkit-scrollbar` 自定义，滚动条仍以 8px 占位挤压 Tab。改用 unlayered 类后正常覆盖。
+- 追加修复（顶部工具栏 hover 背景失效）：`hover:bg-muted/45` 这类带透明度修饰符的颜色类在本项目 Tailwind 产物中**未生成**（本项目 theme 缺 `--color-muted`/`--color-foreground` 映射，仅 pi-web-ui 预构建 CSS 里恰好存在的 `/30 /50 /60` 等可用），导致顶部左侧 Tab 下拉与 `+`/全屏/终端图标按钮 hover 无任何背景。改用项目既有、亮暗主题都可见的 `hover:bg-[var(--quickforge-sidebar-hover-bg)]`（亮色 `#e5e7eb`、暗色 `muted/74%`，composer 按钮已在用）。这是既有系统性问题的局部修复，其他 `bg-muted/NN`、`text-foreground/NN` 类同样可能未生成，后续如遇 hover/文字层级异常可按此排查。
+- 验证：`npx vitest run workspace-inspector` 6 files / 46 tests 全过；`npx eslint src/components/workspace/WorkspaceInspector.tsx` 0 error；`npm run build` 通过；产物 CSS 确认 `.quickforge-inspector-tab-strip{scrollbar-width:none}` 为 unlayered 且位于全局 `*{scrollbar-width:thin}` 之后，`.hover\:bg-\[var\(--quickforge-sidebar-hover-bg\)\]` 已生成且变量亮色为 `#e5e7eb`。
+- 文件：`src/components/workspace/WorkspaceInspector.tsx`、`src/index.css`、`docs/wiki/src/components/README.md`、`progress.md`、`session-handoff.md`。未 commit、未 push。
+- 下一步：真机冒烟——多 Tab 溢出时 Tab 不再上下跳且整体更紧凑；顶部左下拉与 `+`/全屏/终端按钮 hover 有可见浅灰背景（亮/暗主题各看一次）；Tab 下拉与 `+` 菜单定位正确；拖拽排序与滚轮横向滚动仍可用。
+
+---
+
 ## 提交收尾：侧栏置顶分区独占展示 + 产物卡文件图标与打开方式（2026-09-08）
 
 - 提交：`70a587a feat: 置顶会话改为分区独占展示并收紧悬停操作`；`b39c120 feat: 完善产物卡文件图标与打开方式`；`7a0ecae fix: 侧栏运行状态指示器贴齐时间槽`。均为本地 commit，未 push。

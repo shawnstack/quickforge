@@ -1925,7 +1925,7 @@ function MainApp() {
           aria-label={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
           title={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
           className={cn(
-            'rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40',
+            'rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40',
             terminalDockOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
           )}
         >
@@ -1951,7 +1951,7 @@ function MainApp() {
         aria-label={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         title={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         className={cn(
-          'rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40 inline-flex',
+          'rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40 inline-flex',
           workspaceInspectorOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
         )}
       >

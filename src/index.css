@@ -7162,3 +7162,24 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
     transition: none;
   }
 }
+
+/*
+ * Workspace Inspector 顶部 Tab 条：隐藏原生横向滚动条。
+ *
+ * 必须写成 unlayered 规则。pi-web-ui 的 app.css 用 unlayered `*{scrollbar-width:thin}`
+ * 与 `::-webkit-scrollbar{width:8px;height:8px}` 定义全局滚动条，而层叠中 unlayered 规则
+ * 优先于任何 @layer —— Tailwind 生成的 utilities 位于 @layer utilities，因此
+ * `[scrollbar-width:none]` / `[&::-webkit-scrollbar]:hidden` 会被全局 thin 覆盖；
+ * 且 Chromium 在标准 scrollbar-width 生效时会忽略 ::-webkit-scrollbar 自定义，
+ * 滚动条仍以 8px 占位并挤压 Tab。这里用 unlayered 类 + 更高特异性压过全局 `*` 规则。
+ * 滚动能力（滚轮/触控板/键盘/拖拽排序）不受影响。
+ */
+.quickforge-inspector-tab-strip {
+  scrollbar-width: none;
+}
+
+.quickforge-inspector-tab-strip::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}

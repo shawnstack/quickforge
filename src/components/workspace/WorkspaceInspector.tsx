@@ -1885,7 +1885,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
             <div ref={tabListRef} className="relative shrink-0">
               <button
                 type="button"
-                className="flex size-9 items-center justify-center rounded-2xl bg-transparent text-muted-foreground/85 transition-colors hover:bg-muted/45 hover:text-foreground/90"
+                className="flex size-9 items-center justify-center rounded-xl bg-transparent text-muted-foreground/85 transition-colors hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90"
                 onClick={() => setTabListOpen((value) => !value)}
                 aria-label={t('rightPanelOpenTabsTitle')}
                 title={t('rightPanelOpenTabsTitle')}
@@ -1973,7 +1973,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
             modifiers={[restrictPanelTabToHorizontal]}
           >
             <SortableContext items={panelTabIds} strategy={horizontalListSortingStrategy}>
-              <div className={cn('flex min-w-0 flex-1 items-center gap-1 overflow-x-auto', draggingPanelTabId && 'cursor-grabbing')}>
+              <div className={cn('quickforge-inspector-tab-strip flex h-8 min-w-0 flex-1 items-center gap-1 overflow-x-auto', draggingPanelTabId && 'cursor-grabbing')}>
                 {panelTabs.map((tab, index) => {
                   const item = panelTabMeta(tab)
                   const Icon = item?.icon
@@ -1985,11 +1985,11 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
                     <SortablePanelTab key={tab.id} id={tab.id}>
                       {({ listeners, attributes, isDragging }) => (
                         <>
-                          {index > 0 ? <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-[color-mix(in_oklab,var(--muted-foreground)_18%,transparent)]" /> : null}
+                          {index > 0 ? <span aria-hidden="true" className="mx-0.5 h-3 w-px bg-[color-mix(in_oklab,var(--muted-foreground)_18%,transparent)]" /> : null}
                           <button
                             type="button"
                             className={cn(
-                              'group flex h-10 max-w-40 cursor-grab items-center gap-2 rounded-2xl px-3 text-[13px] font-medium transition-[background-color,color,box-shadow] active:cursor-grabbing',
+                              'group flex h-8 max-w-40 cursor-grab items-center gap-2 rounded-xl px-3 text-[13px] font-medium transition-[background-color,color,box-shadow] active:cursor-grabbing',
                               active
                                 ? 'bg-[color-mix(in_oklab,var(--muted)_86%,transparent)] text-foreground/82 hover:bg-[color-mix(in_oklab,var(--muted)_86%,transparent)]'
                                 : 'text-muted-foreground/45 hover:bg-[color-mix(in_oklab,var(--muted)_72%,transparent)] hover:text-muted-foreground/72',
@@ -2052,7 +2052,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
                   variant="ghost"
                   size="icon"
                   type="button"
-                  className="rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40"
+                  className="rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40"
                   onClick={() => setMenuOpen((value) => !value)}
                   aria-label={t('rightPanelAddTab')}
                   title={t('rightPanelAddTab')}
@@ -2089,7 +2089,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
             <Button
               variant="ghost"
               size="icon"
-              className="shrink-0 rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40"
+              className="shrink-0 rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40"
               disabled={fullscreenAnimating}
               onClick={() => toggleFullscreen()}
               aria-label={fullscreen ? t('workspaceExitFullscreen') : t('workspaceFullscreen')}
@@ -2103,7 +2103,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
                   variant="ghost"
                   size="icon"
                   className={cn(
-                    'shrink-0 rounded-[10px] text-muted-foreground/85 hover:bg-muted/45 hover:text-foreground/90 disabled:opacity-40',
+                    'shrink-0 rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40',
                     globalTerminalOpen && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground',
                   )}
                   disabled={fullscreenAnimating || !onShowGlobalTerminal}

@@ -182,6 +182,14 @@ describe('assistant artifact card contract', () => {
     expect(source).toMatch(/if \(segment\.value <= 0\) return/)
   })
 
+  it('hides the header ± stats when the net change is zero', () => {
+    // 会话累计口径的文件可能被 commit/revert：added=0/removed=0 的合并产物
+    // 不再渲染 +0 -0 统计与 diffbar；净变化非 0 时仍显示。空 headerStats div
+    // 仍 append（margin-left:auto 推右侧，保持标题与撤销按钮布局不变）。
+    expect(source).toContain('if (hasDiff && (total.added > 0 || total.removed > 0)) {')
+    expect(source).toContain('header.append(chevron, heading, headerStats)')
+  })
+
   it('pushes header stats to the right and animates expansion with grid rows', () => {
     // 统计组 margin-left:auto：流式 +N 增长只推右侧，不挤压标题。
     expect(source).toContain('quickforge-assistant-artifact-card-header-stats')

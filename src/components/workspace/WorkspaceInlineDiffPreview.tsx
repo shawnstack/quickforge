@@ -24,6 +24,7 @@ type WorkspaceInlineDiffPreviewProps = {
   diff?: GitFileDiffResponse
   loading?: boolean
   error?: string
+  noChanges?: boolean
 }
 
 const INLINE_DIFF_CONTEXT_RADIUS = 3
@@ -147,7 +148,7 @@ function toggleExpandedGroup(current: Record<string, string[]>, diffKey: string,
   return { ...current, [diffKey]: [...currentGroups] }
 }
 
-export function WorkspaceInlineDiffPreview({ diff, loading, error }: WorkspaceInlineDiffPreviewProps) {
+export function WorkspaceInlineDiffPreview({ diff, loading, error, noChanges }: WorkspaceInlineDiffPreviewProps) {
   const [expandedGroupsByDiff, setExpandedGroupsByDiff] = useState<Record<string, string[]>>({})
   const diffKey = diff ? `${diff.path}\u0000${diff.oldContent.length}\u0000${diff.newContent.length}` : ''
   const expandedGroups = useMemo(() => new Set(expandedGroupsByDiff[diffKey] ?? []), [diffKey, expandedGroupsByDiff])
@@ -159,6 +160,11 @@ export function WorkspaceInlineDiffPreview({ diff, loading, error }: WorkspaceIn
 
   if (loading) {
     return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm text-muted-foreground/70">{t('workspaceLoadingDiff')}</div>
+  }
+
+  // 会话累计口径的文件被 commit/revert 后 Git 工作区已无变更：本地化空态（列表行已有打开文件入口，不放按钮）。
+  if (noChanges) {
+    return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm text-muted-foreground/70">{t('workspaceFileNoWorkingTreeChanges')}</div>
   }
 
   if (error) {

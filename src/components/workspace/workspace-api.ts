@@ -14,11 +14,16 @@ import type {
   WorkspaceSearchResponse,
 } from './workspace-types'
 
+/** 带 HTTP 状态码的 API 错误：fetchJson/postJson 抛错时附加 response.status。 */
+export type WorkspaceApiError = Error & { status?: number }
+
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(url, { cache: 'no-store', signal })
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
-    throw new Error(payload?.error || `Request failed: ${response.status}`)
+    const error = new Error(payload?.error || `Request failed: ${response.status}`) as WorkspaceApiError
+    error.status = response.status
+    throw error
   }
   return payload as T
 }
@@ -31,7 +36,9 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   })
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
-    throw new Error(payload?.error || `Request failed: ${response.status}`)
+    const error = new Error(payload?.error || `Request failed: ${response.status}`) as WorkspaceApiError
+    error.status = response.status
+    throw error
   }
   return payload as T
 }

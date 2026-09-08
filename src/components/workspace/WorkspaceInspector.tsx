@@ -308,7 +308,14 @@ function readerDiffText(diff: GitFileDiffResponse) {
   return `Diff for ${header}\n\n--- OLD\n${diff.oldContent}\n\n--- NEW\n${diff.newContent}`
 }
 
-function InlineReader({ project, path, mode, file, diff, loading, error, navigationVisible, onNavigationVisibleChange, allowExternalOpen = true }: {
+// 服务端 /api/git/file-diff 对无工作区变更的文件固定返回 404 'File has no working tree changes'
+// （server/routes/workspace.mjs）。产物卡的「N 个文件已更改」是会话累计口径，文件被
+// commit/revert/撤销后 Git 工作区已无变更；该 404 转为友好空态而不是红色错误。
+function isNoWorkingTreeChangesError(err: unknown) {
+  return err instanceof Error && err.message === 'File has no working tree changes'
+}
+
+function InlineReader({ project, path, mode, file, diff, loading, error, noChanges, navigationVisible, onNavigationVisibleChange, allowExternalOpen = true, onOpenCurrentFile }: {
   project?: ProjectInfo
   path?: string
   mode: ReaderMode
@@ -316,9 +323,11 @@ function InlineReader({ project, path, mode, file, diff, loading, error, navigat
   diff?: GitFileDiffResponse
   loading?: boolean
   error?: string
+  noChanges?: boolean
   navigationVisible: boolean
   onNavigationVisibleChange: (visible: boolean) => void
   allowExternalOpen?: boolean
+  onOpenCurrentFile?: () => void
 }) {
   const [copied, setCopied] = useState<'path' | 'content'>()
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
@@ -493,6 +502,21 @@ function InlineReader({ project, path, mode, file, diff, loading, error, navigat
       </div>
       <div className="min-h-0 flex-1 bg-background">
         {loading ? <div className="p-4 text-sm text-muted-foreground/70">{t('openingReader')}</div> : null}
+        {!loading && noChanges ? (
+          <div className="p-4">
+            <div className="text-sm text-muted-foreground/70">{t('workspaceFileNoWorkingTreeChanges')}</div>
+            {onOpenCurrentFile ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3 rounded-xl"
+                onClick={onOpenCurrentFile}
+              >
+                {t('workspaceOpenCurrentFile')}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         {!loading && error ? <div className="p-4 text-sm text-destructive">{error}</div> : null}
         {!loading && !error && mode === 'file' && file ? (
           isMarkdown ? (
@@ -671,6 +695,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   const [expandedDiff, setExpandedDiff] = useState<GitFileDiffResponse>()
   const [expandedDiffLoading, setExpandedDiffLoading] = useState(false)
   const [expandedDiffError, setExpandedDiffError] = useState<string>()
+  const [expandedDiffNoChanges, setExpandedDiffNoChanges] = useState(false)
 
   const canUseTerminal = Boolean(onShowGlobalTerminal)
   const availablePanelTabItems = useMemo(
@@ -920,6 +945,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     setExpandedDiff(undefined)
     setExpandedDiffError(undefined)
     setExpandedDiffLoading(false)
+    setExpandedDiffNoChanges(false)
   }, [expandedDiffPath, reviewFiles])
 
   useEffect(() => {
@@ -1587,10 +1613,14 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     try {
       const diff = await getGitFileDiff(projectId, path)
       if (!projectGuardRef.current.isCurrent(projectToken)) return
-      updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, diff, loading: false, error: undefined } : item) }))
+      updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, diff, loading: false, error: undefined, noChanges: undefined } : item) }))
     } catch (err) {
       if (!projectGuardRef.current.isCurrent(projectToken)) return
-      updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenDiffFailed') } : item) }))
+      // 会话累计口径的文件被 commit/revert 后 Git 工作区已无变更：404 转为友好空态。
+      const noChanges = isNoWorkingTreeChangesError(err)
+      updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? (noChanges
+        ? { ...item, loading: false, error: undefined, noChanges: true }
+        : { ...item, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenDiffFailed'), noChanges: undefined }) : item) }))
     }
   }
 
@@ -1603,6 +1633,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
       setExpandedDiff(undefined)
       setExpandedDiffError(undefined)
       setExpandedDiffLoading(false)
+      setExpandedDiffNoChanges(false)
       return
     }
 
@@ -1612,13 +1643,22 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     setExpandedDiff(undefined)
     setExpandedDiffError(undefined)
     setExpandedDiffLoading(true)
+    setExpandedDiffNoChanges(false)
     try {
       const diff = await getGitFileDiff(projectId, path)
       if (expandedDiffRequestRef.current !== requestId || !projectGuardRef.current.isCurrent(projectToken)) return
       setExpandedDiff(diff)
+      setExpandedDiffNoChanges(false)
     } catch (err) {
       if (expandedDiffRequestRef.current !== requestId || !projectGuardRef.current.isCurrent(projectToken)) return
-      setExpandedDiffError(err instanceof Error ? err.message : t('workspaceOpenDiffFailed'))
+      if (isNoWorkingTreeChangesError(err)) {
+        // 同 openDiffTab：无工作区变更的 404 转为友好空态，不显示红色错误。
+        setExpandedDiffError(undefined)
+        setExpandedDiffNoChanges(true)
+      } else {
+        setExpandedDiffError(err instanceof Error ? err.message : t('workspaceOpenDiffFailed'))
+        setExpandedDiffNoChanges(false)
+      }
     } finally {
       if (expandedDiffRequestRef.current === requestId && projectGuardRef.current.isCurrent(projectToken)) setExpandedDiffLoading(false)
     }
@@ -2223,6 +2263,8 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
                       diff={activeReaderTab.diff}
                       loading={activeReaderTab.loading}
                       error={activeReaderTab.error}
+                      noChanges={activeReaderTab.noChanges}
+                      onOpenCurrentFile={activeReaderTab.noChanges ? () => { void openFileTabRef.current?.(activeReaderTab.path) } : undefined}
                       navigationVisible={readerNavigationVisible}
                       onNavigationVisibleChange={setReaderNavigationVisible}
                       allowExternalOpen={Boolean(onOpenProjectInExplorer || onOpenProjectInVSCode || onOpenProjectInIDEA)}
@@ -2441,6 +2483,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
                               expandedDiff={expandedDiff}
                               expandedLoading={expandedDiffLoading}
                               expandedError={expandedDiffError}
+                              expandedNoChanges={expandedDiffNoChanges}
                               onSelectFile={toggleReviewDiff}
                               onRestoreFile={handleRestoreFile}
                               onStageFile={handleStageFile}

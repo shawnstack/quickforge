@@ -13,6 +13,7 @@ type WorkspaceChangesListProps = {
   expandedDiff?: GitFileDiffResponse
   expandedLoading?: boolean
   expandedError?: string
+  expandedNoChanges?: boolean
   onSelectFile: (path: string) => void
   onRestoreFile?: (file: GitChangedFile) => void
   onStageFile?: (file: GitChangedFile) => void
@@ -55,6 +56,7 @@ export function WorkspaceChangesList({
   expandedDiff,
   expandedLoading,
   expandedError,
+  expandedNoChanges,
   onSelectFile,
   onRestoreFile,
   onStageFile,
@@ -162,7 +164,7 @@ export function WorkspaceChangesList({
                   </div>
 
                   {isSelected ? (
-                    <WorkspaceInlineDiffPreview diff={expandedDiff} loading={expandedLoading} error={expandedError} />
+                    <WorkspaceInlineDiffPreview diff={expandedDiff} loading={expandedLoading} error={expandedError} noChanges={expandedNoChanges} />
                   ) : null}
                 </div>
               )

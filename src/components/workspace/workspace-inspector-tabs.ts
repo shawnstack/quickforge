@@ -12,6 +12,7 @@ export type ReaderTab = {
   diff?: GitFileDiffResponse
   loading: boolean
   error?: string
+  noChanges?: boolean
 }
 
 export type WorkspacePanelPrimaryTabKind = 'files' | 'review' | 'terminal' | 'browser' | 'side-chat'

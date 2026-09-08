@@ -1163,6 +1163,29 @@
       ],
       "verification": "npx vitest run tests/frontend/message-queue.test.ts：1 file / 15 tests 全过；npx eslint src/components/chat/panel-decoration/message-queue.ts tests/frontend/message-queue.test.ts：0 error；npm run build 通过（仅既有字体解析与 chunk 体积提示）；git diff --check 通过。",
       "boundaries": "仅优化消息队列组件内部的无变化 render 路径；不改消息发送、排队、立即发送、拖拽排序或暂停/恢复语义；未新增依赖、未手工修改生成产物、未 commit/tag/push。纯组件内部渲染稳定性修复，不影响架构、模块职责或公共入口，因此无需更新 docs/wiki。"
+    },
+    {
+      "id": "workspace-diff-no-changes-empty-state",
+      "name": "diff 无工作区变更时友好空态与产物卡 ±0 统计隐藏",
+      "status": "done",
+      "approach": "聊天产物卡「N 个文件已更改」是会话累计（工具调用）口径，文件被 commit/revert/撤销后 Git 工作区已无变更：点「审查」请求 /api/git/file-diff 得到 404 File has no working tree changes（server/routes/workspace.mjs），前端此前把英文 err.message 直接显示为红色错误，与卡片「已更改」文案互相矛盾。修复：① workspace-api.ts 的 fetchJson/postJson 抛错时附加 HTTP status（导出 WorkspaceApiError 类型）；② WorkspaceInspector 新增 isNoWorkingTreeChangesError（匹配服务端固定 message），openDiffTab（产物卡「审查」直达 diff tab）把该 404 转为 readerTab.noChanges 空态——本地化文案 workspaceFileNoWorkingTreeChanges + 「查看文件当前内容」按钮（openFileTab 降级打开 file reader）；③ toggleReviewDiff（Changes 列表内联展开）同款处理，经 expandedDiffNoChanges → WorkspaceChangesList(expandedNoChanges) → WorkspaceInlineDiffPreview(noChanges) 渲染纯文案空态（列表行已有打开文件入口，不放按钮）；其他错误仍走红色 err.message；④ ReaderTab 类型增加 noChanges；⑤ 产物卡 createChangedFilesCard 净变化为 0（total.added=0 且 total.removed=0）时不再渲染 +0 -0 统计与 diffbar，空 headerStats div 保留布局。",
+      "files": [
+        "src/components/workspace/workspace-api.ts",
+        "src/components/workspace/workspace-inspector-tabs.ts",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "src/components/workspace/WorkspaceChangesList.tsx",
+        "src/components/workspace/WorkspaceInlineDiffPreview.tsx",
+        "src/components/chat/panel-decoration/assistant-artifact-card.ts",
+        "src/lib/i18n.ts",
+        "tests/frontend/assistant-artifact-card.test.ts",
+        "tests/frontend/workspace-diff-no-changes.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/assistant-artifact-card.test.ts tests/frontend/workspace-diff-no-changes.test.ts tests/frontend/workspace-inspector-tabs.test.ts tests/frontend/i18n-language-snapshot.test.ts：4 files / 45 tests 全过；npx eslint 九个改动源码/测试文件 0 error；npx tsc -b --pretty false 通过；git diff --check 通过。",
+      "boundaries": "服务端 API 与检测逻辑零改动（404 行为保留）；openDiffTab 命中已存在 diff tab 时仍只激活不重拉；产物卡行内各文件自身 ± 显示、会话累计口径语义不变；内联空态不放按钮（列表行已有打开入口）；未新增依赖、未手工修改生成产物、未 commit/tag/push；docs/wiki/src/components/README.md 已同步双口径说明与空态交互。"
     }
   ]
 }

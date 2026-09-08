@@ -1,3 +1,15 @@
+## 当前交接摘要：diff 无工作区变更时友好空态 + 产物卡 ±0 统计隐藏（2026-09-08）
+
+- 目标：文件被 commit/revert/撤销后，点产物卡「审查」不再显示红色英文 "File has no working tree changes"，改为友好空态 + 降级入口；产物卡净变化 0 时不再显示 `+0 -0`。
+- 根因：产物卡「N 个文件已更改」是会话累计（工具调用）口径，diff 是 Git 工作区实时口径；`/api/git/file-diff` 对无变更文件返回 404（服务端固定 message），前端 `openDiffTab`/`toggleReviewDiff` 原样把 `err.message` 显示为红色错误。
+- 实现：`workspace-api.ts` fetchJson/postJson 抛错附加 HTTP `status`（`WorkspaceApiError`）；`WorkspaceInspector.tsx` 新增 `isNoWorkingTreeChangesError`，`openDiffTab` 404 → readerTab `noChanges` 空态（i18n `workspaceFileNoWorkingTreeChanges` + `workspaceOpenCurrentFile` 按钮经 `openFileTab` 降级打开 file reader）；`toggleReviewDiff` 内联路径经 `expandedDiffNoChanges` → `WorkspaceChangesList(expandedNoChanges)` → `WorkspaceInlineDiffPreview(noChanges)` 渲染纯文案空态；`ReaderTab` +`noChanges`；`assistant-artifact-card.ts` 头部统计条件 `hasDiff && (total.added > 0 || total.removed > 0)` 净 0 隐藏。
+- 文件：`src/components/workspace/workspace-api.ts`、`workspace-inspector-tabs.ts`、`WorkspaceInspector.tsx`、`WorkspaceChangesList.tsx`、`WorkspaceInlineDiffPreview.tsx`、`src/components/chat/panel-decoration/assistant-artifact-card.ts`、`src/lib/i18n.ts`、`tests/frontend/assistant-artifact-card.test.ts`、`tests/frontend/workspace-diff-no-changes.test.ts`（新）、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 4 files / 45 tests 全过；eslint 改动文件 0 error；`npx tsc -b --pretty false` 通过；`git diff --check` 通过。
+- Blocker：无。未 commit/push。
+- 下一步：真机冒烟——让 Agent 改文件后 commit，再点产物卡「审查」：diff tab 应显示灰色「该文件当前没有工作区变更，可能已提交或还原。」+「查看文件当前内容」按钮（点击打开文件预览）；Changes 列表内联展开同文案无红字；净变化 0 的卡片标题不再显示 `+0 -0`；真实错误（如路径不存在）仍显示红色错误。
+
+---
+
 ## 当前交接摘要：聊天消息队列流式发送时无变化重渲染闪烁修复（2026-09-08）
 
 - 目标：流式生成期间队列可见状态未变化时，不再因队列 DOM 被全量替换而闪烁。

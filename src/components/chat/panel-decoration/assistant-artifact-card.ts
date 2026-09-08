@@ -414,7 +414,8 @@ function createChangedFilesCard(
   // 统计组 margin-left:auto 推到右侧：流式 +N 增长只推动右侧，不挤压标题。
   const headerStats = document.createElement('div')
   headerStats.className = 'quickforge-assistant-artifact-card-header-stats'
-  if (hasDiff) {
+  // 净变化为 0（文件已 commit/revert，会话累计加减相抵）时不再渲染 +0 -0 统计与 diffbar。
+  if (hasDiff && (total.added > 0 || total.removed > 0)) {
     headerStats.append(
       createDiffBar(total.added, total.removed),
       createDiffStat('quickforge-assistant-artifact-card-added', `+${total.added}`),

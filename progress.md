@@ -14,6 +14,23 @@
 - Verification: 定向 vitest 4 files / 47 tests 全过（on-demand-source 4 + tabs 9 + request 20 + artifact-card 14）；eslint 三改动文件 0 error；`npx tsc -b --pretty false` 通过。
 - Boundaries: 仅收起导航不隐藏 reader 头部/面板 tab 栏（文件名、± 统计、复制/打开菜单保留）；收起态会持久化到该 project+session（用户可用文件夹按钮恢复，与手动收起同语义）；无 path 的 review 请求、文件树、terminal 等面板不受影响；未新增依赖、未触碰生成产物、未 commit。
 
+## Bugfix：sidebar-pin-hover-alignment Revision 2——状态并入时间槽（2026-09-08）
+
+- 需求：用户确认运行/未读状态时可以不显示时间，但 pin 位置也要与 hover 一致。
+- 根因（Revision 1 遗留的次要偏差）：状态指示器（running spinner 12px/未读点 6px）插在 pin 与时间之间单独占位（running 时静置 pin 左移 16px、未读左移 10px）；且项目/全局行 running/未读时时间槽整体省略（pin 无对齐目标，偏差最大 ~30px）。
+- 修复：`sessionStatusIndicator` 改造为 `sessionTimeSlotContent(session, timeText)`——running → spinner、未读 → emerald 点、否则时间文本，三选一渲染在固定 `w-11 text-right` 时间槽内；删除『状态时省略时间槽』条件分支，槽恒定渲染；置顶区/项目行/全局行 3 处调用统一（置顶区原为状态+时间同时显示，现状态优先替代时间）。槽为 text-right 行内上下文（非 flex），dot 补 `inline-block` 生效宽高。效果：pin 右侧几何恒 `[gap-1][w-11 槽]`，任何状态下静置 pin 中心恒 68px 与 hover pin 完全重合；状态随槽一起 group-hover 淡出（原状态指示器 hover 不淡出被渐变半掩）。
+- 测试：新增契约用例——`sessionStatusIndicator` 旧模式移除、`? null : (` 时间省略模式移除、`sessionTimeSlotContent(session, formatSessionTime` 恰 3 处、槽函数含 Loader2/animate-spin/bg-emerald-500/inline-block。
+- Verification: 定向 vitest 2 files / 30 tests 全过（alignment 8 含新用例 + section-order 22）；eslint 两改动文件 0 error；`npx tsc -b --pretty false`、`npm run build` 通过（dist 已重建，仅既有警告）。
+- Boundaries: 时间线行本无状态指示器未补（行为不变）；wiki 无需更新（纯组件内渲染调整）；未新增依赖、未触碰生成产物（build 为验证目的重建 dist 属正常流程）、未 commit。
+
+## Bugfix：sidebar-pin-hover-alignment（2026-09-08）
+
+- 现象：项目会话行的置顶 icon 在 hover 时向右跳 8px（两态交叉淡入淡出期间肉眼可见横移）。
+- 根因（几何推算，距行右缘）：静置态 pin 中心 68px（行内流 [pin 24][gap 4][时间槽 44] + 右 padding 8）；hover 态 pin 中心 60px（浮层 absolute right-2 [Pin 24][gap 4][Archive 36]）；偏差 8px = 时间槽 w-11(44) 与 Archive 胶囊 w-9(36) 宽度差。`sidebar-session-action-alignment.test.ts` 头注释声称『两 pin 中心重合、Archive 精确覆盖时间槽』，但 w-9≠w-11 该不变量不成立（测试仅断言类名字符串存在）。
+- 修复：`overlayArchiveButtonClass`（ChatSidebar.tsx）`w-9`→`w-11`，置顶区/时间线/项目行/全局行 4 处共用一处生效；Archive 胶囊精确覆盖时间槽、两 pin 中心重合（68px）。测试同步：注释 w-9→w-11、it 描述、断言 `toContain('w-11')` + 新增 `not.toContain('w-9')` 防回归。不改时间槽（sidebar-session-time-nowrap 刚为中文『23小时』扩到 44px）。
+- Verification: 定向 vitest 2 files / 29 tests（alignment 7 + section-order 22）全过；eslint 两改动文件 0 error；`npx tsc -b --pretty false` 通过。
+- Boundaries: running spinner/未读点插在 pin 与时间之间导致的次要偏差（16/10px）未处理（hover 移出布局会引入新跳动）；running/未读时时间槽省略的最大 ~30px 偏差属既有设计；wiki 无需更新；未新增依赖、未触碰生成产物、未 commit。
+
 ## Bugfix：sidebar-project-row-hit-area（2026-09-08）
 
 - 现象：侧栏「项目」分组下项目行整行点击无响应，可点区只有最左 icon 按钮（24×24）和标题按钮（高约 20px）；上下留白、左右 padding、中间 gap 全是死区；右侧操作 overlay hover 时全高拦截右缘点击。

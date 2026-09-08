@@ -9,7 +9,7 @@ function countOccurrences(haystack: string, needle: string) {
 
 // 会话行右侧采用镜像槽位几何：
 // 静置态（行内流）[标题 flex-1][pin 槽 size-6][gap-1][时间槽 w-11] + 行右 padding px-2(8px)
-// hover 态（absolute right-2=8px）[Pin size-6][gap-1][Archive h-6 w-9] + pl-4 渐变
+// hover 态（absolute right-2=8px）[Pin size-6][gap-1][Archive h-6 w-11] + pl-4 渐变
 // 两个 pin 槽中心重合，Archive 胶囊精确覆盖时间槽，
 // 置顶图标 hover 交叉淡入淡出时零位移、零缩放；行内与浮层间距必须一致（均为 gap-1）。
 describe('sidebar session action alignment', () => {
@@ -32,7 +32,7 @@ describe('sidebar session action alignment', () => {
     expect(countOccurrences(sidebarSource, '<span className="size-6 shrink-0" aria-hidden="true" />')).toBe(3)
   })
 
-  it('overlay mirrors the resting cluster: right-2 anchor, session gap-2, project gap-px, w-9 archive pill', () => {
+  it('overlay mirrors the resting cluster: right-2 anchor, session gap-2, project gap-px, w-11 archive pill', () => {
     const overlayBaseLine = sidebarSource.match(/const actionOverlayBaseClass = '([^']+)'/)?.[1] ?? ''
     expect(overlayBaseLine).toContain('right-2')
     expect(overlayBaseLine).not.toContain('right-1')
@@ -52,8 +52,25 @@ describe('sidebar session action alignment', () => {
 
     const archiveClassLine = sidebarSource.match(/const overlayArchiveButtonClass = `([^`]+)`/)?.[1] ?? ''
     expect(archiveClassLine).toContain('h-6')
-    expect(archiveClassLine).toContain('w-9')
+    // Archive 胶囊宽必须等于时间槽 w-11(44px)，否则 hover 时 pin 中心相对静置态偏移 (44-36)=8px
+    expect(archiveClassLine).toContain('w-11')
+    expect(archiveClassLine).not.toContain('w-9')
     expect(countOccurrences(sidebarSource, 'className={overlayArchiveButtonClass}')).toBe(4)
+  })
+
+  it('running/unread status replaces time inside the fixed w-11 slot so the pin never shifts', () => {
+    // 旧模式必须移除：状态指示器在 pin 与时间之间单独占位、running/未读时省略时间槽，
+    // 都会让静置 pin 相对 hover pin（Archive 槽 w-11 几何）左移/右移
+    expect(sidebarSource).not.toContain('sessionStatusIndicator')
+    expect(sidebarSource).not.toContain('completedSessionIds.has(session.id) ? null : (')
+    // 置顶区/项目行/全局行三处共用 sessionTimeSlotContent，时间槽恒定渲染（宽度恒 w-11）
+    expect(countOccurrences(sidebarSource, 'sessionTimeSlotContent(session, formatSessionTime')).toBe(3)
+    const slotFn = sidebarSource.match(/const sessionTimeSlotContent = \([^)]+\) => \{([\s\S]*?)\n {2}\}/)?.[1] ?? ''
+    expect(slotFn).toContain('Loader2')
+    expect(slotFn).toContain('animate-spin')
+    expect(slotFn).toContain('bg-emerald-500')
+    // 槽为 text-right 的行内上下文（非 flex），dot 必须显式 inline-block 才能生效宽高
+    expect(slotFn).toContain('inline-block')
   })
 
   it('pin icons are one size everywhere (size-3.5) across resting and hover states', () => {

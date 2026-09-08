@@ -29,6 +29,26 @@
 
 ---
 
+## 当前状态：sidebar-pin-hover-alignment Revision 2——状态并入时间槽（已完成，未提交）
+
+- 背景：Revision 1 修复无状态行 8px 偏差后，用户追加要求——运行/未读状态时可以不显示时间，但 pin 位置也要与 hover 一致。
+- 根因：状态指示器插在 pin 与时间之间单独占位（running 静置 pin 左移 16px/未读 10px），且项目/全局行状态时时间槽整体省略（偏差最大 ~30px）。
+- 修复：`sessionStatusIndicator` → `sessionTimeSlotContent(session, timeText)`——spinner/emerald 点/时间三选一进固定 `w-11 text-right` 槽，槽恒渲染，置顶区/项目行/全局行 3 处统一；dot 补 `inline-block`（槽非 flex）。任何状态静置 pin 中心恒 68px 与 hover pin 重合；状态随槽 hover 淡出。置顶区行为变化：状态优先替代 pinnedAt 时间。
+- 验证：定向 vitest 2 files / 30 tests（alignment 8 含新契约 + section-order 22）；eslint 0 error；`npx tsc -b --pretty false`、`npm run build` 通过（dist 已重建，仅既有警告）。
+- 下一步：真机冒烟——① running/未读行 pin 位置与无状态行一致、spinner/点右对齐时间列、hover 随槽淡出；② 置顶区 running 显示 spinner 不显示时间、点开会话后恢复时间；③ Archive 胶囊（44px）覆盖状态槽。未 commit。
+
+---
+
+## 当前状态：sidebar-pin-hover-alignment（已完成，未提交）
+
+- 背景：用户反馈项目会话行的置顶 icon 与 hover 时的置顶 icon 位置不一致（hover 时向右跳 8px）。
+- 根因：静置态 pin 中心距行右缘 68px（流式 [pin 24][gap 4][时间槽 w-11=44] + padding 8），hover 态 60px（浮层 right-2 [Pin 24][gap 4][Archive w-9=36]）；偏差 = 时间槽 44 与 Archive 胶囊 36 的宽度差。
+- 修复：`overlayArchiveButtonClass`（ChatSidebar.tsx）`w-9`→`w-11`，4 处会话列表共用生效，两 pin 中心重合；测试 `sidebar-session-action-alignment.test.ts` 注释/描述/断言同步 + `not.toContain('w-9')` 防回归。
+- 验证：定向 vitest 2 files / 29 tests 全过；eslint 两文件 0 error；`npx tsc -b --pretty false` 通过。
+- 下一步：真机冒烟——项目分组/置顶区/时间线/全局会话行 hover 时 pin 图标原地淡入淡出、无横向跳动；Archive 胶囊略宽（36→44px）观感可接受；未 commit（与工作区其他并行未提交改动按 feature 拆分提交）。
+
+---
+
 
 
 ## 当前状态：assistant-reply-artifact-card Revision 9——会话累计口径（已完成，未提交）

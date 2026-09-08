@@ -1,6 +1,21 @@
 {
   "features": [
     {
+      "id": "sidebar-pin-hover-alignment",
+      "name": "侧栏置顶图标 hover 位置一致性修复",
+      "status": "done",
+      "approach": "项目会话行置顶 icon 在 hover 时向右跳 8px：静置态 pin 槽位于行内流 [pin size-6=24][gap-1=4][时间槽 w-11=44] + 行右 padding 8，pin 中心距行右缘 68px；hover 态浮层 absolute right-2(8) 内 [Pin 24][gap 4][Archive w-9=36]，pin 中心 60px；偏差 8px 恰为时间槽(44)与 Archive 胶囊(36)宽度差。对齐测试注释声称『两 pin 中心重合、Archive 精确覆盖时间槽』但 w-9≠w-11 该不变量实际不成立（测试只断言类名存在未验几何）。修复：overlayArchiveButtonClass 的 w-9→w-11（一处改动，置顶区/时间线/项目行/全局行 4 处共用生效），Archive 胶囊精确覆盖时间槽宽度、两 pin 中心重合；同步更新测试断言与注释并新增 not.toContain('w-9') 防回归。不反向把时间槽改回 w-9（sidebar-session-time-nowrap 刚为中文『23小时』扩到 44px）。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "tests/frontend/sidebar-session-action-alignment.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "Revision 1（hover 对齐）：定向 vitest 2 files / 29 tests 全过；eslint 两改动文件 0 error；npx tsc -b --pretty false 通过。Revision 2（状态槽统一）：定向 vitest sidebar-session-action-alignment 8 tests + sidebar-section-order 22 tests 全过（新增状态槽契约用例）；eslint 两改动文件 0 error（no-regex-spaces 修正）；npx tsc -b --pretty false 通过；npm run build 通过（dist 已重建，仅既有 KaTeX 字体/大 chunk 警告）。",
+      "boundaries": "只改 overlayArchiveButtonClass 一处宽度与 sessionTimeSlotContent 槽函数三处调用，未动静置 pin 槽位/间距/浮层结构；时间线行本无状态指示器未补（行为不变）；置顶区行为变化——running/未读时状态替代 pinnedAt 时间显示（原为状态+时间同时显示）；未新增依赖、未触碰生成产物、未 commit。"
+    },
+    {
       "id": "sidebar-project-row-hit-area",
       "name": "侧栏项目行整行可点修复",
       "status": "done",

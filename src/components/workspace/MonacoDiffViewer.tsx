@@ -62,6 +62,11 @@ export function MonacoDiffViewer({ path, oldContent, newContent, language, statu
         ignoreTrimWhitespace: false,
         folding: false,
         glyphMargin: false,
+        // 中文/全角内容常见大量 ambiguous 字符，关闭检测避免每次打开都弹
+        // “This document contains many ambiguous unicode characters” 提示。
+        unicodeHighlight: {
+          ambiguousCharacters: false,
+        },
         scrollbar: {
           verticalScrollbarSize: 8,
           horizontalScrollbarSize: 8,

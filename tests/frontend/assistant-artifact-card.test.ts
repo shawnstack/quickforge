@@ -63,6 +63,23 @@ describe('assistant artifact card contract', () => {
     expect(source).toMatch(/Math\.max\(-net, 0\)/)
   })
 
+  it('uses the workspace file-manager Material icons resolved by path', () => {
+    expect(source).toContain("import { fileIconUrl } from '../../workspace/file-icon-assets'")
+    expect(source).toContain('function createFileIcon(')
+    expect(source).toMatch(/createFileIcon\('quickforge-assistant-file-card-icon', artifact\.path \?\? '', artifact\.kind\)/)
+    expect(source).toMatch(/createFileIcon\('quickforge-assistant-artifact-card-type', path, artifact\.kind\)/)
+    // 旧的按 kind 单色内联 SVG 图标体系移除。
+    expect(source).not.toContain('ARTIFACT_KIND_ICONS')
+    expect(source).not.toContain('createIconSpan')
+    // CSS：图标为裸 img（与文件树同款彩色 Material 图标），不再有 chip 底/描边规则。
+    const iconRules = css.match(/\.quickforge-assistant-file-card-icon\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(iconRules).toMatch(/width:\s*1\.25rem/)
+    const typeRules = css.match(/\.quickforge-assistant-artifact-card-type\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(typeRules).toMatch(/width:\s*1rem/)
+    expect(css).not.toMatch(/-file-card-icon svg|-card-type svg/)
+    expect(css).not.toMatch(/-file-card-icon,\s*\n\.quickforge-assistant-artifact-card-type/)
+  })
+
   it('collapses the changed-files card by default and preserves expansion across decorations', () => {
     expect(source).toContain('createChangedFilesCard(changed, deps, { expandedByDefault: changedExpanded, onExpandedChange })')
     expect(source).toContain("lastAssistantElement.dataset[EXPANDED_FLAG] === 'true'")
@@ -87,7 +104,7 @@ describe('assistant artifact card contract', () => {
     expect(source).toContain("t('assistantArtifactPreview')")
     expect(source).toContain("t('assistantArtifactReveal')")
     expect(source).toContain('onReviewFileChanges?.(artifact.path ?? \'\')')
-    expect(source).toContain('onRevealFile(artifact.path ?? \'\')')
+    expect(source).toMatch(/onRevealFile\?\.\(artifact\.path \?\? '', target\)/)
     expect(source).toContain('onOpenFilePreview(artifact.path ?? \'\')')
     // 行布局：名字 + 路径同行。
     expect(source).toContain('quickforge-assistant-artifact-card-file-path')
@@ -118,7 +135,7 @@ describe('assistant artifact card contract', () => {
     expect(app).toContain('reviewFileChangesFromArtifactCard')
     expect(app).toContain("kind: 'review', view: 'changes', path: relativePath")
     expect(app).toContain('revealFileFromArtifactCard')
-    expect(app).toContain("openWorkspaceExternal(projectId, relativePath, 'explorer')")
+    expect(app).toContain('await openWorkspaceExternal(projectId, relativePath, target)')
     expect(app).toContain('serverAgent.rollbackFiles()')
     expect(app).toContain('setRolledBackFilesSessionId(null)')
 
@@ -198,6 +215,66 @@ describe('assistant artifact card contract', () => {
     const popoverBlock = css.match(/\.quickforge-rollback-popover\s*\{([^}]*)\}/)?.[1] ?? ''
     expect(popoverBlock).toMatch(/position:\s*fixed/)
     expect(css).toContain('.quickforge-rollback-popover-up .quickforge-rollback-popover-arrow')
+  })
+
+  it('renders the open control as a split button with direct-preview main zone', () => {
+    // 主区：点击直接预览（不弹菜单）；箭头区：弹菜单（预览打开 / 在文件管理器中显示）。
+    expect(source).toContain('quickforge-assistant-open-main')
+    expect(source).toContain('quickforge-assistant-open-menu-zone')
+    expect(source).toMatch(/main\.addEventListener\('click',[^]*?onOpenFilePreview\?\.\(artifact\.path \?\? ''\)/)
+    expect(source).toContain("wrapper.classList.add('quickforge-assistant-open-single')")
+    expect(source).toContain("trigger.setAttribute('aria-label', t('assistantArtifactOpenMenu'))")
+    // 退化形态（无预览能力）：箭头区保留「打开」文字，整颗弹菜单。
+    expect(source).toMatch(/if \(!canPreview\) \{[\s\S]*?label\.textContent = t\('assistantArtifactOpen'\)[\s\S]*?trigger\.append\(label\)/)
+    // CSS：一颗胶囊两个点击区；描边档下主区右 border 让位、箭头区左边框即分隔线。
+    const zoneBlock = css.match(/\.quickforge-assistant-open-menu-zone\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(zoneBlock).toMatch(/border-left:\s*1px solid var\(--border\)/)
+    expect(zoneBlock).toMatch(/border-radius:\s*0 0\.4rem 0\.4rem 0/)
+    expect(css).toMatch(/\.quickforge-assistant-open-main\s*\{[^}]*border-right:\s*0[^}]*border-radius:\s*0\.4rem 0 0 0\.4rem/)
+    // 退化形态恢复整圆角/常规内距，保留完整描边。
+    const singleBlock = css.match(/\.quickforge-assistant-open-single \.quickforge-assistant-open-menu-zone\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(singleBlock).toMatch(/border-radius:\s*0\.4rem/)
+    expect(singleBlock).not.toMatch(/border-left:\s*0/)
+  })
+
+  it('upgrades open/review buttons to the outline tier while rollback stays ghost', () => {
+    // 「打开」「审查」描边档（经用户确认）：常显 1px 边框（复用卡片表面
+    // var(--border) 强度）+ background 底 + 前景文字；「撤销」保持 ghost。
+    const outlineBlock = css.match(
+      /\.quickforge-assistant-artifact-card-open,\s*\.quickforge-assistant-artifact-card-review\s*\{([^}]*)\}/,
+    )?.[1] ?? ''
+    expect(outlineBlock).toMatch(/border:\s*1px solid var\(--border\)/)
+    expect(outlineBlock).toMatch(/background:\s*var\(--background\)/)
+    expect(outlineBlock).toMatch(/color:\s*var\(--foreground\)/)
+    expect(outlineBlock).not.toContain('rollback')
+    const baseBlock = css.match(
+      /\.quickforge-assistant-artifact-card-open,\s*\.quickforge-assistant-artifact-card-rollback,\s*\.quickforge-assistant-artifact-card-review\s*\{([^}]*)\}/,
+    )?.[1] ?? ''
+    expect(baseBlock).toMatch(/border:\s*0/)
+    expect(css).toMatch(/\.quickforge-assistant-artifact-card-rollback:hover:not\(:disabled\)/)
+  })
+
+  it('offers explorer/vscode/idea open targets with icons in the dropdown', () => {
+    // 下拉菜单：预览 + 资源管理器定位 + VS Code / IDEA 打开，品牌图标复用
+    // 工作区 ProjectOpenMenu 同款资源。
+    expect(source).toContain("import fileManagerIconUrl from '@/assets/icons/file-manager.svg'")
+    expect(source).toContain("import vscodeIconUrl from '@/assets/icons/vscode.svg'")
+    expect(source).toContain("import ideaIconUrl from '@/assets/icons/idea.svg'")
+    expect(source).toMatch(/target: 'explorer', label: t\('assistantArtifactReveal'\), iconUrl: fileManagerIconUrl/)
+    expect(source).toMatch(/target: 'vscode', label: t\('openInVSCode'\), iconUrl: vscodeIconUrl/)
+    expect(source).toMatch(/target: 'idea', label: t\('openInIDEA'\), iconUrl: ideaIconUrl/)
+    expect(source).toMatch(/onRevealFile\?\.\(artifact\.path \?\? '', target\)/)
+    expect(source).toContain('menuItem.append(item.icon, label)')
+    // App 侧按目标转发 open-external，失败提示按目标区分。
+    expect(app).toMatch(/revealFileFromArtifactCard = useCallback\(async \(relativePath: string, target: WorkspaceExternalOpenTarget = 'explorer'\)/)
+    expect(app).toMatch(/await openWorkspaceExternal\(projectId, relativePath, target\)/)
+    expect(app).toMatch(/'openInVSCodeFailed' : target === 'idea' \? 'openInIDEAFailed' : 'assistantArtifactRevealFailed'/)
+    // CSS：菜单项 flex 图标槽 + 描边 SVG 变体。
+    const itemBlock = css.match(/\.quickforge-assistant-open-menu-item\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(itemBlock).toMatch(/display:\s*flex/)
+    const iconBlock = css.match(/\.quickforge-assistant-open-menu-icon\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(iconBlock).toMatch(/width:\s*0\.875rem/)
+    expect(css).toMatch(/svg\.quickforge-assistant-open-menu-icon\s*\{[^}]*stroke:\s*currentColor/)
   })
 
   it('unifies stat and button font sizes with the card type scale', () => {

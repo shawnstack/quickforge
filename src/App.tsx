@@ -103,6 +103,7 @@ import { GitToolsPinnedSummary } from '@/components/git/GitToolsPinnedSummary'
 import { GitGraphDialog } from '@/components/git/GitGraphDialog'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
 import { checkoutGitBranch, getGitStatus, openWorkspaceExternal, resolveWorkspacePath } from '@/components/workspace/workspace-api'
+import type { WorkspaceExternalOpenTarget } from '@/components/workspace/workspace-api'
 import {
   shouldHandleWorkspaceInspectorRequest,
   workspaceInspectorRuntimeScopeMatches,
@@ -933,17 +934,19 @@ function MainApp() {
     requestWorkspaceInspector({ projectId, kind: 'review', view: 'changes', path: relativePath })
   }, [agentManager.currentToolProject?.id, requestWorkspaceInspector])
 
-  // 助手回复文件卡片「打开 ▾ → 在文件管理器中显示」：走工作区 open-external 的
-  // explorer 目标（打开文件所在目录，服务端带工作区路径安全校验、仅限本机请求）。
-  const revealFileFromArtifactCard = useCallback(async (relativePath: string) => {
+  // 助手回复文件卡片「打开 ▾」外部打开：走工作区 open-external 路由（服务端带
+  // 工作区路径安全校验、仅限本机请求）。explorer 定位文件所在目录（默认），
+  // vscode / idea 用对应编辑器打开文件；失败提示按目标区分。
+  const revealFileFromArtifactCard = useCallback(async (relativePath: string, target: WorkspaceExternalOpenTarget = 'explorer') => {
     const projectId = agentManager.currentToolProject?.id
     if (!projectId) return
     try {
-      await openWorkspaceExternal(projectId, relativePath, 'explorer')
+      await openWorkspaceExternal(projectId, relativePath, target)
     } catch (error) {
+      const failureKey = target === 'vscode' ? 'openInVSCodeFailed' : target === 'idea' ? 'openInIDEAFailed' : 'assistantArtifactRevealFailed'
       addToast({
         sessionId: agentManager.currentSessionId ?? '',
-        title: t('assistantArtifactRevealFailed'),
+        title: t(failureKey),
         status: 'error',
         message: error instanceof Error ? error.message : String(error),
       })

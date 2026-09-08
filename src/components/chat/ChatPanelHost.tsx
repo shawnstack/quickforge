@@ -55,6 +55,7 @@ import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { getGitStatus } from '../workspace/workspace-api'
+import type { WorkspaceExternalOpenTarget } from '../workspace/workspace-api'
 import { requestAndroidRemoteSystemNotificationPermissionOnce } from '@/lib/system-notifications'
 import type { ChatHarnessCapabilities } from '@/lib/chat-harness-capabilities'
 import { applyChatPagePolicy, QUICKFORGE_CHAT_HARNESS_CAPABILITIES, SIDE_CHAT_UI_CAPABILITIES } from '@/lib/chat-harness-capabilities'
@@ -178,7 +179,7 @@ type ChatPanelHostProps = {
   /** artifact 卡片「审查」：打开工作区 Review 面板并直达该文件 diff。 */
   onReviewFileChanges?: (relativePath: string) => void
   /** artifact 卡片「打开 ▾ → 在文件管理器中显示」。 */
-  onRevealFile?: (relativePath: string) => void
+  onRevealFile?: (relativePath: string, target?: WorkspaceExternalOpenTarget) => void
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void
@@ -224,7 +225,7 @@ type PropsRef = {
   /** artifact 卡片「审查」：打开工作区 Review 面板并直达该文件 diff。 */
   onReviewFileChanges?: (relativePath: string) => void
   /** artifact 卡片「打开 ▾ → 在文件管理器中显示」。 */
-  onRevealFile?: (relativePath: string) => void
+  onRevealFile?: (relativePath: string, target?: WorkspaceExternalOpenTarget) => void
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void

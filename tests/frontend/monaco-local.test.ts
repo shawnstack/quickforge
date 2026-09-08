@@ -62,6 +62,10 @@ describe('monaco local bundling (no CDN)', () => {
     expect(diffViewerSource).toContain('onMount={handleDiffMount}')
   })
 
+  it('disables ambiguous unicode highlighting in the diff viewer', () => {
+    expect(diffViewerSource).toMatch(/unicodeHighlight:\s*\{\s*ambiguousCharacters:\s*false,?\s*\}/)
+  })
+
   it('keeps monaco-editor and @monaco-editor/react as local package dependencies', () => {
     const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies }
 

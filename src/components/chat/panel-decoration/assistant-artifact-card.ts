@@ -1,6 +1,11 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { extractSessionArtifacts, type AiTurnArtifact, type AiTurnArtifactKind } from '@/lib/tool-artifacts'
 import { t } from '@/lib/i18n'
+import { fileIconUrl } from '../../workspace/file-icon-assets'
+import type { WorkspaceExternalOpenTarget } from '../../workspace/workspace-api'
+import fileManagerIconUrl from '@/assets/icons/file-manager.svg'
+import vscodeIconUrl from '@/assets/icons/vscode.svg'
+import ideaIconUrl from '@/assets/icons/idea.svg'
 import type { MessageWithUsage } from '../chat-utils'
 import { showRollbackConfirmPopover } from './rollback-confirm-popover'
 import { positionFixedDropdown } from './floating-position'
@@ -32,19 +37,6 @@ const ARTIFACT_KIND_CATEGORY_KEYS: Record<AiTurnArtifactKind, string> = {
   unknown: 'assistantArtifactCategoryFile',
 }
 
-const FILE_DOCUMENT_ICON = '<path d="M14 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3.5V8h4.5M8.5 12.5h7M8.5 16h4.5"/>'
-
-const ARTIFACT_KIND_ICONS: Record<AiTurnArtifactKind, string> = {
-  markdown: '<path d="M4 16.5v-9l4.5 5 4.5-5v9"/><path d="M17.5 7.5v8.5"/><path d="m15 13.5 2.5 2.5 2.5-2.5"/>',
-  code: '<path d="m9 8.5-3.5 3.5L9 15.5"/><path d="m15 8.5 3.5 3.5L15 15.5"/>',
-  html: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 2.6 14.6 0 17-2.6-2.4-2.6-14.6 0-17Z"/>',
-  image: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="m3.5 16.5 5-5 4.5 4.5 3-3 4.5 4.5"/><circle cx="15.25" cy="9.25" r="1.25"/>',
-  pdf: FILE_DOCUMENT_ICON,
-  docx: FILE_DOCUMENT_ICON,
-  excel: FILE_DOCUMENT_ICON,
-  unknown: FILE_DOCUMENT_ICON,
-}
-
 // 打开菜单互斥：同一时刻只保留一个打开菜单（跨多张卡片）。
 let activeOpenMenuCleanup: (() => void) | null = null
 
@@ -67,8 +59,8 @@ type ArtifactCardDeps = {
   fileChangesRolledBack?: boolean
   /** 审查单文件改动：打开工作区 Review 面板并直达该文件的 diff。 */
   onReviewFileChanges?: (relativePath: string) => void
-  /** 在系统文件管理器中显示文件所在目录。 */
-  onRevealFile?: (relativePath: string) => void
+  /** 用系统应用打开/定位文件：资源管理器定位（explorer，默认）或 VS Code / IDEA 打开。 */
+  onRevealFile?: (relativePath: string, target?: WorkspaceExternalOpenTarget) => void
 }
 
 function fileName(path: string) {
@@ -79,10 +71,6 @@ function fileDirectory(path: string) {
   const normalized = path.replace(/\\/g, '/')
   const separator = normalized.lastIndexOf('/')
   return separator > 0 ? normalized.slice(0, separator) : '.'
-}
-
-function artifactIcon(kind: AiTurnArtifactKind | undefined) {
-  return ARTIFACT_KIND_ICONS[kind ?? 'unknown']
 }
 
 function artifactCategory(kind: AiTurnArtifactKind | undefined) {
@@ -165,21 +153,46 @@ function createDiffBar(added: number, removed: number) {
   return bar
 }
 
-function createIconSpan(className: string, kind: AiTurnArtifactKind | undefined) {
-  const icon = document.createElement('span')
+/** 与工作区文件管理同源的 Material 文件图标：按路径解析（扩展名/特例名），彩色原样呈现。 */
+function createFileIcon(className: string, path: string, kind: AiTurnArtifactKind | undefined) {
+  const icon = document.createElement('img')
   icon.className = className
+  icon.src = fileIconUrl(path)
+  icon.alt = ''
+  icon.draggable = false
   icon.setAttribute('aria-hidden', 'true')
-  icon.innerHTML = `<svg viewBox="0 0 24 24">${artifactIcon(kind)}</svg>`
   icon.title = kind ?? 'unknown'
   return icon
 }
 
+/** 打开菜单项图标：品牌图标用图片资源（img），预览用行内描边 SVG。 */
+function createImageMenuIcon(url: string) {
+  const icon = document.createElement('img')
+  icon.className = 'quickforge-assistant-open-menu-icon'
+  icon.src = url
+  icon.alt = ''
+  icon.draggable = false
+  icon.setAttribute('aria-hidden', 'true')
+  return icon
+}
+
+function createStrokeMenuIcon(pathMarkup: string) {
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  icon.setAttribute('class', 'quickforge-assistant-open-menu-icon')
+  icon.setAttribute('viewBox', '0 0 24 24')
+  icon.setAttribute('aria-hidden', 'true')
+  icon.innerHTML = pathMarkup
+  return icon
+}
+
 /**
- * 「打开 ▾」控件：按钮点击弹出两项菜单——文件预览 / 在文件管理器中显示。
- * 无任何可用动作时不渲染。菜单挂 wrapper 内但用 fixed 视口定位
- * （positionFixedDropdown），逃逸明细动画层 overflow:hidden 与消息列表滚动
- * 裁剪；pointerdown 在外、Escape、滚动/缩放即关闭；module 级互斥保证同时
- * 只有一个菜单。
+ * 「打开｜▾」分裂按钮：主区点击直接预览（onOpenFilePreview），箭头区弹出
+ * 菜单——文件预览 / 在文件管理器中显示，选择即执行。无预览能力（全局会话
+ * 无项目上下文）时主区不渲染，整颗退化为纯菜单形态（wrapper 标记
+ * -single，保留「打开 ▾」文字）。无任何可用动作时不渲染。菜单挂 wrapper
+ * 内但用 fixed 视口定位（positionFixedDropdown），逃逸明细动画层
+ * overflow:hidden 与消息列表滚动裁剪；pointerdown 在外、Escape、滚动/缩放
+ * 即关闭；module 级互斥保证同时只有一个菜单。
  */
 function createOpenMenuControl(artifact: AiTurnArtifact, deps: ArtifactCardDeps, compact: boolean) {
   const { onOpenFilePreview, onRevealFile } = deps
@@ -188,12 +201,42 @@ function createOpenMenuControl(artifact: AiTurnArtifact, deps: ArtifactCardDeps,
   const wrapper = document.createElement('span')
   wrapper.className = 'quickforge-assistant-open-action'
 
+  const canPreview = Boolean(onOpenFilePreview && artifact.path)
+
+  if (canPreview) {
+    const main = document.createElement('button')
+    main.type = 'button'
+    main.className = `quickforge-assistant-artifact-card-open quickforge-assistant-open-main${compact ? ' quickforge-assistant-open-compact' : ''}`
+    main.title = t('assistantArtifactPreview')
+    const label = document.createElement('span')
+    label.textContent = t('assistantArtifactOpen')
+    main.append(label)
+    main.addEventListener('click', (event) => {
+      event.stopPropagation()
+      onOpenFilePreview?.(artifact.path ?? '')
+    })
+    wrapper.append(main)
+  } else {
+    wrapper.classList.add('quickforge-assistant-open-single')
+  }
+
   const trigger = document.createElement('button')
   trigger.type = 'button'
-  trigger.className = `quickforge-assistant-artifact-card-open${compact ? ' quickforge-assistant-open-compact' : ''}`
+  trigger.className = `quickforge-assistant-artifact-card-open quickforge-assistant-open-menu-zone${compact ? ' quickforge-assistant-open-compact' : ''}`
   trigger.setAttribute('aria-haspopup', 'menu')
   trigger.setAttribute('aria-expanded', 'false')
-  trigger.innerHTML = `<span>${t('assistantArtifactOpen')}</span><svg class="quickforge-assistant-open-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`
+  trigger.setAttribute('aria-label', t('assistantArtifactOpenMenu'))
+  const caret = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  caret.setAttribute('class', 'quickforge-assistant-open-caret')
+  caret.setAttribute('viewBox', '0 0 24 24')
+  caret.setAttribute('aria-hidden', 'true')
+  caret.innerHTML = '<path d="m6 9 6 6 6-6"/>'
+  if (!canPreview) {
+    const label = document.createElement('span')
+    label.textContent = t('assistantArtifactOpen')
+    trigger.append(label)
+  }
+  trigger.append(caret)
 
   let cleanup: (() => void) | null = null
 
@@ -211,19 +254,37 @@ function createOpenMenuControl(artifact: AiTurnArtifact, deps: ArtifactCardDeps,
     menu.className = 'quickforge-assistant-open-menu'
     menu.setAttribute('role', 'menu')
 
-    const items: Array<{ label: string; action: () => void }> = []
+    // 菜单项与工作区 ProjectOpenMenu 同款图标资源（file-manager/vscode/idea）。
+    const items: Array<{ label: string; icon: HTMLElement | SVGElement; action: () => void }> = []
     if (onOpenFilePreview && artifact.path) {
-      items.push({ label: t('assistantArtifactPreview'), action: () => onOpenFilePreview(artifact.path ?? '') })
+      items.push({
+        label: t('assistantArtifactPreview'),
+        icon: createStrokeMenuIcon('<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>'),
+        action: () => onOpenFilePreview(artifact.path ?? ''),
+      })
     }
     if (onRevealFile && artifact.path) {
-      items.push({ label: t('assistantArtifactReveal'), action: () => onRevealFile(artifact.path ?? '') })
+      const targets: Array<{ target: WorkspaceExternalOpenTarget; label: string; iconUrl: string }> = [
+        { target: 'explorer', label: t('assistantArtifactReveal'), iconUrl: fileManagerIconUrl },
+        { target: 'vscode', label: t('openInVSCode'), iconUrl: vscodeIconUrl },
+        { target: 'idea', label: t('openInIDEA'), iconUrl: ideaIconUrl },
+      ]
+      for (const { target, label, iconUrl } of targets) {
+        items.push({
+          label,
+          icon: createImageMenuIcon(iconUrl),
+          action: () => onRevealFile?.(artifact.path ?? '', target),
+        })
+      }
     }
     items.forEach((item) => {
       const menuItem = document.createElement('button')
       menuItem.type = 'button'
       menuItem.className = 'quickforge-assistant-open-menu-item'
       menuItem.setAttribute('role', 'menuitem')
-      menuItem.textContent = item.label
+      const label = document.createElement('span')
+      label.textContent = item.label
+      menuItem.append(item.icon, label)
       menuItem.addEventListener('click', (event) => {
         event.stopPropagation()
         closeMenu()
@@ -294,7 +355,7 @@ function createPresentedFileCard(artifact: AiTurnArtifact, deps: ArtifactCardDep
   card.dataset.quickforgeArtifactCard = 'file'
   card.setAttribute('aria-label', artifact.path ?? '')
 
-  card.append(createIconSpan('quickforge-assistant-file-card-icon', artifact.kind))
+  card.append(createFileIcon('quickforge-assistant-file-card-icon', artifact.path ?? '', artifact.kind))
 
   const heading = document.createElement('div')
   heading.className = 'quickforge-assistant-file-card-heading'
@@ -418,7 +479,7 @@ function createChangedFilesCard(
     const row = document.createElement('div')
     row.className = 'quickforge-assistant-artifact-card-file'
 
-    row.append(createIconSpan('quickforge-assistant-artifact-card-type', artifact.kind))
+    row.append(createFileIcon('quickforge-assistant-artifact-card-type', path, artifact.kind))
 
     const info = document.createElement('div')
     info.className = 'quickforge-assistant-artifact-card-file-info'

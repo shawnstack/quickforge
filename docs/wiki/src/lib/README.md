@@ -16,6 +16,7 @@
 | `session-message-cache.ts` | 会话消息只读快照 store（F12）：`resolveServerCacheKey`（baseUrl→直连后端→origin）、结构校验读取、per-key debounce 写入 + stateVersion 高水位守卫、IndexedDB 不可用全程 no-op |
 | `workspace-cache.ts` | Workspace 只读缓存 store（F13）：目录条目（SWR+30s TTL 新鲜判定）、展开路径、文件内容（size+mtimeMs 失效戳、>1MB 跳写）；复用 `IndexedDbCache` 与 `resolveServerCacheKey`，坏条目删除、不可用全程 no-op |
 | `app-settings-cache.ts` | 启动 Settings 快照 store（F14）：追踪键白名单（language/外观/字号/工具展示）、结构校验读取（坏条目删除）、>4KB 跳写；`HttpStorageBackend.set` 经 `updateAppSettingSnapshotFromStorageSet` 写通，IndexedDB 不可用全程 no-op |
+| `provider-keys-cache.ts` | Provider keys 前端内存缓存：provider→key 模块级 Map（null=已确认无 key）+ in-flight 并发去重；`HttpStorageBackend` 对 provider-keys store 读穿/写通（set/delete/clear 后广播），备份导入统一失效；跨标签经 BroadcastChannel('quickforge-sync') 'provider-keys-changed' 广播互失效（sourceTabId 自忽略），通道不可用静默降级 |
 | `shared-server-agent.ts` | 488 | 共享会话 Agent 客户端 |
 | `local-tools.ts` | 1294 | 前端本地工具渲染器注册；含原生 `todo_write` 与 OpenCode `todowrite` 专用历史 renderer |
 | `todo-write-history.ts` | 90 | TodoWrite 历史工具消息视图模型：区分 running/error/success/clear/neutral，并按 QuickForge/OpenCode 来源提取已应用快照 |
@@ -25,7 +26,7 @@
 | `message-queue.ts` | 172 | 流式期 Composer 消息队列：纯函数入队/删除/编辑/置顶/拖拽重排 moveQueuedMessage（20 条上限、单条 2000 字符）与 per-session localStorage 持久化（含 paused 标记、无 localStorage 安全降级）；插队经 `ServerAgent.steer`（乐观显示） |
 | `startup-model.ts` | 主聊天启动模型的当前目录精确匹配与安全回退 |
 | `cloud-client.ts` | QuickForge Cloud 本地 BFF 客户端和公开配置/状态/额度/设备类型 |
-| `http-storage-backend.ts` | 245 | HTTP Storage Backend 实现；`set` 成功后 fire-and-forget 写通启动设置快照（`app-settings-cache`） |
+| `http-storage-backend.ts` | 286 | HTTP Storage Backend 实现；`set` 成功后 fire-and-forget 写通启动设置快照（`app-settings-cache`）；provider-keys store 挂接 `provider-keys-cache` 内存缓存（get/has 读穿、set/delete/clear 写通 + 跨标签广播，fake/override 短路不污染缓存） |
 | `types.ts` | 82 | 类型定义 |
 | `utils.ts` | 6 | 通用工具函数（cn） |
 | `message-utils.ts` | 95 | 消息处理工具 |
@@ -188,7 +189,7 @@
 
 **用途**: 聊天 Markdown 与 Workspace Markdown Reader 共享的 Mermaid 渲染入口。首次遇到 Mermaid fenced code block 时动态加载 Mermaid，以严格安全配置生成 SVG，并在转为图片预览前拒绝脚本、事件属性、HTML 外嵌内容和外部资源。
 
-### http-storage-backend.ts (200 行)
+### http-storage-backend.ts (286 行)
 
 **用途**: 通过 HTTP API 实现的 Storage Backend。
 
@@ -198,6 +199,19 @@
 - 支持 `storeOverrides`（覆盖本地读取逻辑）
 - 健康检查（`isAvailable()`）
 - `fakeProviderKeys` — 模拟供应商密钥
+- `set` 成功后 fire-and-forget 写通启动设置快照（`app-settings-cache`）
+- provider-keys store 挂接 `provider-keys-cache` 内存缓存：`get` 读穿（缓存命中零 HTTP，未命中经 in-flight 去重回填）、`has` 仅缓存命中时短路（不回填，has 无法区分具体值）、`set`/`delete`/`clear` HTTP 成功后写通 + 广播；`keys` 不缓存（非关键路径）；transaction legacy 路径委托 get/set/delete 自动继承。所有缓存逻辑位于 `fakeProviderKeys` 与 `storeOverrides` 短路之后——分享页假 key 与本地 override 命中不污染缓存
+
+### provider-keys-cache.ts (139 行)
+
+**用途**: provider→key 模块级内存缓存，消除发送消息路径上 `providerKeys.get` 的无缓存 HTTP 往返（pi 库 AgentInterface.sendMessage 乐观上屏前 await 该调用，服务端忙时往返可感知）。
+
+**设计**:
+- 缓存值三态：`string`=已缓存 key、`null`=已确认无 key（服务端 miss 返回 200 `{value:null}`）、`undefined`=未缓存。
+- 模块级 Map + in-flight Promise 表：同 provider 并发 miss 只发一次 load；load 失败不缓存（finally 清理，允许重试）。
+- 模块级单例而非 backend 实例字段：全局 AppStorage 会被多处 `initializePiStorage` 重建。
+- 失效路径：backend set/delete/clear 写穿、备份导入（`backup-settings-tab.ts` 绕过 backend 直写服务端，成功后统一 `clearProviderKeysCache` + 广播）、跨标签 `BroadcastChannel('quickforge-sync')` `provider-keys-changed`（与 `useCrossTabSync` 共用频道、sourceTabId 自忽略、未知类型互相安全忽略）。
+- 通道惰性建立（首次产生缓存项或广播时）而非 import 期：Node 测试环境未关闭通道会挂住事件循环（建立时 `unref` 兜底），且缓存为空时不存在跨标签过期窗口；BroadcastChannel 不可用/监听器异常静默降级。
 
 ### types.ts (82 行)
 

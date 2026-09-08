@@ -1,4 +1,14 @@
-## 当前状态：assistant-reply-artifact-card Revision 6——卡片生命周期（流式保留旧产物）（已完成，未提交）
+## 当前状态：provider-keys-send-cache——发送路径 provider keys 前端内存缓存（已完成，已提交）
+
+- 目标：消除发送消息路径上的 `providerKeys.get` HTTP 往返（pi 库 AgentInterface.sendMessage 乐观上屏前 await 该调用，HttpStorageBackend 每次发无缓存 GET /api/storage/provider-keys/key/:provider，服务端忙时可感知卡顿）。
+- 实现：新增 `src/lib/provider-keys-cache.ts`（模块级 Map：provider→key / null=已确认无 key；in-flight 并发去重；BroadcastChannel('quickforge-sync') 'provider-keys-changed' 跨标签互失效，sourceTabId 自忽略；通道惰性建立 + Node unref 兜底 + clear 关闭重置，不可用静默降级）；`http-storage-backend.ts` 仅对 provider-keys store 挂接（get 读穿命中零 HTTP、has 命中短路不回填、set/delete/clear 写通 + 广播，均位于 fakeProviderKeys/storeOverrides/assert 短路之后，transaction legacy 自动继承）；`backup-settings-tab.ts` 导入成功后统一失效 + 广播。
+- 验证：定向 vitest 3 files / 33 tests 全过（新模块 10 + backend 新增 8 + app-settings-cache 回归 6 + backend 既有 9）；eslint 5 改动文件 0 error；`npx tsc -b --pretty false`、`npm run build` 通过（仅既有警告）；提交前全量前端 132 files / 1379 tests 复跑通过。
+- 文件：`provider-keys-cache.ts`（新）、`http-storage-backend.ts`、`backup-settings-tab.ts`、`tests/frontend/provider-keys-cache.test.ts`（新）、`tests/frontend/http-storage-backend.test.ts`、docs/wiki/src/lib/README.md、feature_list/progress/session-handoff。
+- 下一步：真机验证——发送消息即时乐观上屏（无感知延迟）；设置页改 key / 删 key 后发送立即用新值（get 不再回旧值）；备份导入（含/不含 providerKeys sections）后发送取导入后 key；双标签 A 改 key B 标签发送取新值；已提交（assistant-reply-artifact-card Rev2-6 已同批先行单独提交）。
+
+---
+
+## 当前状态：assistant-reply-artifact-card Revision 6——卡片生命周期（流式保留旧产物）（已完成，已提交）
 
 - 背景：用户反馈发送新消息卡片即消失，应在新轮产出新产物时才消失。
 - 实现：sync 流式分支改纯 return 不清卡；新增 `findLastArtifactTurn`（displayEntries 从新向旧按 user 边界扫描，取最近一个有 write/edit/present 产物的轮，卡片挂该轮最后一条 assistant，`extractArtifactsFromMessages` 自 tool-artifacts 导出）；新轮有产物 → 流式结束后 idle sync 换轮重建，无产物 → 签名一致跳过保留旧卡；全无产物轮才清卡；deps 删 `messages` 字段。恢复旧会话时历史产物轮也会出卡（语义一致）。

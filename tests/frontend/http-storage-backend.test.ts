@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpStorageBackend } from '../../src/lib/http-storage-backend'
+import { clearProviderKeysCache } from '../../src/lib/provider-keys-cache'
 // Direct file import: the package exports map only exposes the full UI bundle
 // (Lit/pdfjs), which is unnecessary for the store classes.
 // @ts-expect-error package subpath is not in the exports map
@@ -177,5 +178,129 @@ describe('HttpStorageBackend settings snapshot write-through', () => {
     const backend = new HttpStorageBackend()
     await expect(backend.set('settings', 'language', 'zh')).resolves.toBeUndefined()
     expect(calls).toHaveLength(1)
+  })
+})
+
+describe('HttpStorageBackend provider keys cache', () => {
+  const calls: FetchCall[] = []
+
+  beforeEach(() => {
+    // 本套件不关心跨标签广播：禁用 BroadcastChannel 避免 Node 通道副作用，
+    // 同时覆盖「通道不可用静默降级」路径
+    vi.stubGlobal('BroadcastChannel', undefined)
+    clearProviderKeysCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    calls.length = 0
+    clearProviderKeysCache()
+  })
+
+  function installFetchMock() {
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const urlText = String(url)
+      calls.push({ url: urlText, init })
+      if (urlText.includes('/api/storage/provider-keys/key/')) return jsonResponse({ value: 'sk-live' })
+      if (urlText.includes('/api/storage/provider-keys/has/')) return jsonResponse({ exists: true })
+      return jsonResponse({ ok: true })
+    }))
+  }
+
+  it('serves provider-keys get from memory after the first fetch', async () => {
+    installFetchMock()
+    const backend = new HttpStorageBackend('http://127.0.0.1:3456')
+    await expect(backend.get('provider-keys', 'anthropic')).resolves.toBe('sk-live')
+    await expect(backend.get('provider-keys', 'anthropic')).resolves.toBe('sk-live')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('http://127.0.0.1:3456/api/storage/provider-keys/key/anthropic')
+  })
+
+  it('write-through after set serves the new value without fetching', async () => {
+    installFetchMock()
+    const backend = new HttpStorageBackend()
+    await backend.set('provider-keys', 'anthropic', 'sk-new')
+    expect(calls).toHaveLength(1)
+    await expect(backend.get('provider-keys', 'anthropic')).resolves.toBe('sk-new')
+    expect(calls).toHaveLength(1)
+  })
+
+  it('delete write-through marks the key as confirmed-missing', async () => {
+    installFetchMock()
+    const backend = new HttpStorageBackend()
+    await backend.set('provider-keys', 'anthropic', 'sk-new')
+    await backend.delete('provider-keys', 'anthropic')
+    expect(calls).toHaveLength(2)
+    await expect(backend.get('provider-keys', 'anthropic')).resolves.toBeNull()
+    expect(calls).toHaveLength(2)
+  })
+
+  it('clearing the provider-keys store drops the whole cache', async () => {
+    installFetchMock()
+    const backend = new HttpStorageBackend()
+    await backend.set('provider-keys', 'anthropic', 'sk-new')
+    await backend.clear('provider-keys')
+    calls.length = 0
+    await expect(backend.get('provider-keys', 'anthropic')).resolves.toBe('sk-live')
+    expect(calls).toHaveLength(1)
+  })
+
+  it('has short-circuits on cache hits and never backfills on misses', async () => {
+    installFetchMock()
+    const backend = new HttpStorageBackend()
+    await backend.set('provider-keys', 'anthropic', 'sk-new')
+    calls.length = 0
+    await expect(backend.has('provider-keys', 'anthropic')).resolves.toBe(true)
+    expect(calls).toHaveLength(0)
+    await backend.delete('provider-keys', 'anthropic')
+    calls.length = 0
+    await expect(backend.has('provider-keys', 'anthropic')).resolves.toBe(false)
+    expect(calls).toHaveLength(0)
+
+    // 未缓存 provider 走 HTTP，且 has 不回填缓存（下一次仍走 HTTP）
+    await expect(backend.has('provider-keys', 'openai')).resolves.toBe(true)
+    expect(calls).toHaveLength(1)
+    await expect(backend.has('provider-keys', 'openai')).resolves.toBe(true)
+    expect(calls).toHaveLength(2)
+  })
+
+  it('fakeProviderKeys and storeOverrides hits bypass the cache entirely', async () => {
+    installFetchMock()
+    const backend = new HttpStorageBackend('', { fakeProviderKeys: ['shared-provider'] })
+    await expect(backend.get('provider-keys', 'shared-provider')).resolves.toBe('shared-server-managed-key')
+    expect(calls).toHaveLength(0)
+    // 假 key 命中不写缓存：真实 provider 仍走 HTTP
+    await expect(backend.get('provider-keys', 'anthropic')).resolves.toBe('sk-live')
+    expect(calls).toHaveLength(1)
+
+    const overridden = new HttpStorageBackend('', {
+      storeOverrides: { 'provider-keys': { get: async () => 'override-key' } },
+    })
+    await expect(overridden.get('provider-keys', 'openai')).resolves.toBe('override-key')
+    expect(calls).toHaveLength(1)
+    // override 命中不写缓存：openai 在无 override backend 仍走 HTTP 取真值
+    await expect(backend.get('provider-keys', 'openai')).resolves.toBe('sk-live')
+    expect(calls).toHaveLength(2)
+    expect(calls[1].url.endsWith('/api/storage/provider-keys/key/openai')).toBe(true)
+  })
+
+  it('provider-keys transactions inherit the cache through the legacy path', async () => {
+    installFetchMock()
+    const backend = new HttpStorageBackend()
+    await backend.transaction(['provider-keys'], 'readwrite', async (tx) => {
+      await expect(tx.get('provider-keys', 'anthropic')).resolves.toBe('sk-live')
+      await tx.set('provider-keys', 'anthropic', 'sk-tx')
+    })
+    expect(calls).toHaveLength(2)
+    await expect(backend.get('provider-keys', 'anthropic')).resolves.toBe('sk-tx')
+    expect(calls).toHaveLength(2)
+  })
+
+  it('keeps non-provider-keys stores fully uncached', async () => {
+    installFetchMock()
+    const backend = new HttpStorageBackend()
+    await expect(backend.get('settings', 'language')).resolves.toBeNull()
+    await expect(backend.get('settings', 'language')).resolves.toBeNull()
+    expect(calls).toHaveLength(2)
   })
 })

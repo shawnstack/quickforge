@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "provider-keys-send-cache",
+      "name": "Provider Keys 发送路径前端内存缓存",
+      "status": "done",
+      "approach": "发送卡顿根因：pi 库 AgentInterface.sendMessage 在乐观上屏前 await providerKeys.get(provider)，HttpStorageBackend 每次发送都发无缓存 GET /api/storage/provider-keys/key/:provider（cache:'no-store'），服务端忙时往返被拉长到可感知。修复：新增 src/lib/provider-keys-cache.ts 模块级 Map 缓存（provider→key，null=已确认无 key，服务端 miss 语义 200 {value:null}）+ in-flight Promise 表并发去重（load 失败不缓存允许重试）；HttpStorageBackend 仅对 provider-keys store 挂接——get 读穿（缓存命中零 HTTP）、has 仅命中时短路且不回填（has 无法区分值）、set/delete/clear HTTP 成功后写通 + BroadcastChannel('quickforge-sync') 'provider-keys-changed' 跨标签广播（与 useCrossTabSync 共用频道、sourceTabId 自忽略、未知类型互相安全忽略）、keys 不缓存、transaction legacy 路径委托 get/set/delete 自动继承；所有缓存逻辑在 fakeProviderKeys/storeOverrides 短路与 assertStoreAccess 之后，分享页假 key/override/blocked store 不污染不短路。备份导入（backup-settings-tab.ts 绕过 backend 直写服务端）成功后统一 clearProviderKeysCache + 广播（无论 sections 是否含 providerKeys）。通道惰性建立（首次产生缓存项或广播时）而非 import 期：实测 Node 未关闭 BroadcastChannel 会挂住事件循环（建立时 unref 兜底、clearProviderKeysCache 关闭重置），且缓存为空时不存在跨标签过期窗口；BroadcastChannel 不可用/监听器异常静默降级。",
+      "files": [
+        "src/lib/provider-keys-cache.ts",
+        "src/lib/http-storage-backend.ts",
+        "src/lib/backup-settings-tab.ts",
+        "tests/frontend/provider-keys-cache.test.ts",
+        "tests/frontend/http-storage-backend.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 3 files / 33 tests 全过（provider-keys-cache 新增 10 用例：命中/已确认无 key/并发去重/失败不缓存可重试/forget 写穿/清除含通道重置/广播载荷/他标签失效/自忽略/通道不可用降级；http-storage-backend 新增 8 用例：get 二次零 fetch、set 写通零 fetch、delete 后 null 零 fetch、clear 整表失效、has 命中短路且不回填、fake/override 不污染缓存、transaction legacy 继承、非 provider-keys store 不缓存；app-settings-cache 6 用例回归）；eslint 5 个改动 TS 文件 0 error/0 warning；npx tsc -b --pretty false 通过；npm run build 通过（仅既有 KaTeX 字体/大 chunk 警告）；提交前全量前端 132 files / 1379 tests 复跑通过。tests 下无 backup-settings-tab / use-cross-tab-sync 测试文件（grep 确认）。",
+      "boundaries": "keys/list 不缓存（非关键路径）；缓存放模块级而非 backend 实例字段（AppStorage 会被多处 initializePiStorage 重建）；跨标签一致性依赖广播尽力而为（通道不可用降级为各标签独立缓存，写操作写通保证本标签永不过期，他标签最长滞后到下一次页面刷新/写操作）；wiki 已同步 docs/wiki/src/lib/README.md（新模块条目 + http-storage-backend 行为更新）；未新增依赖、未触碰 node_modules/dist/package-dist/package-offline、已提交（assistant-reply-artifact-card Rev2-6 同批先行单独提交）。"
+    },
+    {
       "id": "settings-select-reactive-shadowing",
       "name": "设置页自定义下拉 Lit 响应式属性遮蔽修复",
       "status": "done",

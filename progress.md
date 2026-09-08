@@ -5,6 +5,15 @@
 - 边界：恢复旧会话/分支时，最后一个产物轮即使是历史轮也会重新出卡（与「卡片代表最近产物轮」一致）；流式中若 Lit 重建旧宿主元素导致卡片短暂丢失，流式结束的 idle sync 会重挂。
 - Verification: 定向 44；全量前端 132 files / 1371 tests 全过；eslint 改动文件 0 error；`npx tsc -b`（含并行会话 http-storage-backend 中间态自愈后）、`npm run build` 通过。
 
+## Feature：provider-keys-send-cache（2026-09-08）
+
+- 现象：发送消息到乐观上屏之间存在可感知延迟，服务端忙时更明显。
+- 根因：发送路径 `providerKeys.get(provider)` 无缓存——pi 库 AgentInterface.sendMessage 在乐观上屏前 await 该调用，QuickForge 的 HttpStorageBackend 每次都发无缓存 HTTP GET /api/storage/provider-keys/key/:provider（cache:'no-store'），往返被服务端排队拉长。
+- 实现：① 新增 `src/lib/provider-keys-cache.ts`——模块级 Map（provider→key，null=已确认无 key）+ in-flight 去重 + load 失败不缓存；跨标签 BroadcastChannel('quickforge-sync') 'provider-keys-changed' 广播互失效（sourceTabId 自忽略，与 useCrossTabSync 共用频道且未知类型互相安全忽略）；通道惰性建立 + unref 兜底 + clear 时关闭重置（实测 Node 未关闭通道会挂住事件循环，import 期建立会挂死 vitest worker），不可用静默降级。② `http-storage-backend.ts` 挂接：get 读穿（命中零 HTTP）、has 命中短路不回填、set/delete/clear 写通 + 广播，全部位于 fakeProviderKeys/storeOverrides 短路与 assertStoreAccess 之后；transaction legacy 路径自动继承；keys 不缓存。③ `backup-settings-tab.ts` 导入成功后统一失效 + 广播（备份导入绕过 backend 直写服务端）。
+- 测试：新增 `tests/frontend/provider-keys-cache.test.ts` 10 用例；`tests/frontend/http-storage-backend.test.ts` 新增 8 用例（缓存命中/写穿/清除/has 语义/fake 与 override 不污染/legacy 继承/非 provider-keys 不缓存）。
+- Verification: 定向 vitest 3 files / 33 tests 全过；eslint 5 改动文件 0 error；`npx tsc -b --pretty false`、`npm run build` 通过（仅既有警告）；提交前全量前端 132 files / 1379 tests 复跑通过。
+- Boundaries: 模块级缓存（AppStorage 会被多处重建，实例字段会丢）；跨标签一致性尽力而为（写通保证本标签永不过期，他标签滞后到刷新/写操作）；未新增依赖、未触碰生成产物、已提交（artifact-card Rev2-6 同批先行单独提交）。
+
 ## Revision 5：assistant-reply-artifact-card 字体统一 + 浮层遮挡修复（2026-09-08）
 
 - 背景：用户复查要求检查字体大小与弹窗遮挡。核查发现三个真实问题：① Revision 4 的明细动画层 `.quickforge-assistant-artifact-card-details-body { overflow:hidden }` 会把行内「打开▾」菜单裁掉（展开后靠后的行菜单不可见）；② 消息列表 `overflow-y-auto` 裁剪 absolute 浮层——产物卡恰在本轮最后一条消息底部（输入框正上方），「撤销」确认弹层/打开菜单向下弹最易被裁；③ 字体不一致——行内 ± 统计与「打开/审查/撤销」按钮继承消息正文字号（~14px），大于折叠头统计（12px）与卡片标题（13px）。

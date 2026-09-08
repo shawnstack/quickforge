@@ -2,6 +2,7 @@ import { SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import { broadcastProviderKeysChanged, clearProviderKeysCache } from '@/lib/provider-keys-cache'
 import './info-tip'
 
 const BACKUP_FILE_PREFIX = 'quickforge-backup'
@@ -240,6 +241,11 @@ class BackupSettingsTab extends SettingsTab {
       })
       const payload = await response.json().catch(() => null) as BackupImportResponse & { error?: string } | null
       if (!response.ok) throw new Error(payload?.error || t('backupImportFailed'))
+
+      // 备份导入绕过 backend 直写服务端存储：统一失效 provider keys 内存缓存
+      // 并广播其他标签（无论所选 sections 是否包含 providerKeys，统一失效成本最低）
+      clearProviderKeysCache()
+      broadcastProviderKeysChanged()
 
       const summary = formatSummary(payload?.summary)
       this.safetyBackupPath = payload?.safetyBackupPath || ''

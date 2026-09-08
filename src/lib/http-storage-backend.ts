@@ -1,5 +1,13 @@
 import type { StorageBackend, StorageTransaction } from '@earendil-works/pi-web-ui'
 import { updateAppSettingSnapshotFromStorageSet } from '@/lib/app-settings-cache'
+import {
+  broadcastProviderKeysChanged,
+  clearProviderKeysCache,
+  forgetCachedProviderKey,
+  getCachedProviderKey,
+  rememberCachedProviderKey,
+  resolveProviderKeyThroughCache,
+} from '@/lib/provider-keys-cache'
 
 const DEFAULT_BLOCKED_STORES = new Set<string>()
 
@@ -96,6 +104,17 @@ export class HttpStorageBackend implements StorageBackend {
     const override = this.storeOverrides[storeName]
     if (override?.get) return override.get<T>(key)
     this.assertStoreAccess(storeName)
+    if (storeName === 'provider-keys') {
+      // 发送消息关键路径：缓存命中零 HTTP（null=已确认无 key，服务端 miss 语义
+      // 为 200 { value: null }）；未命中经 in-flight 去重后回填
+      const cached = getCachedProviderKey(key)
+      if (cached !== undefined) return cached as T | null
+      const value = await resolveProviderKeyThroughCache(key, async () => {
+        const payload = await this.request<{ value: T | null }>(this.path(storeName, 'key', key))
+        return (payload.value ?? null) as string | null
+      })
+      return value as T | null
+    }
     const payload = await this.request<{ value: T | null }>(this.path(storeName, 'key', key))
     return payload.value ?? null
   }
@@ -106,6 +125,12 @@ export class HttpStorageBackend implements StorageBackend {
       method: 'PUT',
       body: JSON.stringify({ value }),
     })
+    // provider keys 写通内存缓存 + 跨标签失效广播（HttpStorageBackend 实例可被
+    // 重建，缓存放模块级，见 provider-keys-cache.ts）
+    if (storeName === 'provider-keys') {
+      rememberCachedProviderKey(key, value as string)
+      broadcastProviderKeysChanged()
+    }
     // 启动设置快照写通（fire-and-forget）：undefined/null 归一为 null，与
     // GET 的读取语义一致；非 settings store / 白名单外键由缓存模块过滤。
     void updateAppSettingSnapshotFromStorageSet(storeName, key, value ?? null).catch(() => {
@@ -116,6 +141,10 @@ export class HttpStorageBackend implements StorageBackend {
   async delete(storeName: string, key: string): Promise<void> {
     this.assertStoreAccess(storeName)
     await this.request<{ ok: boolean }>(this.path(storeName, 'key', key), { method: 'DELETE' })
+    if (storeName === 'provider-keys') {
+      forgetCachedProviderKey(key)
+      broadcastProviderKeysChanged()
+    }
   }
 
   async keys(storeName: string, prefix?: string): Promise<string[]> {
@@ -171,6 +200,10 @@ export class HttpStorageBackend implements StorageBackend {
   async clear(storeName: string): Promise<void> {
     this.assertStoreAccess(storeName)
     await this.request<{ ok: boolean }>(this.path(storeName), { method: 'DELETE' })
+    if (storeName === 'provider-keys') {
+      clearProviderKeysCache()
+      broadcastProviderKeysChanged()
+    }
   }
 
   async has(storeName: string, key: string): Promise<boolean> {
@@ -178,6 +211,12 @@ export class HttpStorageBackend implements StorageBackend {
     const override = this.storeOverrides[storeName]
     if (override?.has) return override.has(key)
     this.assertStoreAccess(storeName)
+    if (storeName === 'provider-keys') {
+      // 仅缓存命中时短路（null=已确认无 key）；未命中走 HTTP 且不回填——
+      // has 无法区分具体值，错误缓存会让后续 get 拿到错误结果
+      const cached = getCachedProviderKey(key)
+      if (cached !== undefined) return cached !== null
+    }
     const payload = await this.request<{ exists: boolean }>(this.path(storeName, 'has', key))
     return payload.exists
   }
@@ -195,7 +234,9 @@ export class HttpStorageBackend implements StorageBackend {
     // Sessions are committed as a single server-side batch when the transaction
     // only touches sessions/sessions-metadata (and none of the stores is
     // overridden locally), so SessionsStore.save()/delete() never issue two
-    // independent commits. Any other store keeps the legacy per-operation path.
+    // independent commits. Any other store keeps the legacy per-operation path,
+    // which delegates to this.get/set/delete — provider-keys 内存缓存（读穿/
+    // 写穿/广播）因此在 legacy 路径自动继承。
     const sessionStores = new Set(['sessions', 'sessions-metadata'])
     const batchable = storeNames.length > 0
       && storeNames.every((storeName) => sessionStores.has(storeName))

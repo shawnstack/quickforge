@@ -1782,7 +1782,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               <Button
                 variant="ghost"
                 size="icon"
-                className={cn(iconButtonClass, 'quickforge-sidebar-section-icon')}
+                className={sectionActionButtonClass}
                 onClick={(event) => {
                   event.stopPropagation()
                   onStartNewGlobalChat()

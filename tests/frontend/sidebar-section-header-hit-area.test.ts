@@ -91,6 +91,17 @@ describe('ChatSidebar section header hit area', () => {
     expect(conversationsTitle).not.toContain('onClick')
   })
 
+  it('reuses the hover/focus-within action class for the conversations new-chat button', () => {
+    const [, , conversations] = sectionHeaderSlices()
+    const newChatButton = buttonAround(conversations, 'onStartNewGlobalChat()')
+
+    expect(newChatButton).toContain('className={sectionActionButtonClass}')
+    expect(newChatButton).not.toContain("className={cn(iconButtonClass, 'quickforge-sidebar-section-icon')}")
+    expect(sidebarSource).toContain(
+      "const sectionActionButtonClass = `quickforge-sidebar-section-icon ${iconButtonClass} pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`",
+    )
+  })
+
   it('stops section action button clicks from bubbling into the header toggle', () => {
     const [, projects, conversations] = sectionHeaderSlices()
 

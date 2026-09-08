@@ -1,3 +1,13 @@
+## Feature：侧栏任务分组新建对话按钮默认隐藏（2026-09-08）
+
+- 目标：让左侧栏「任务」分组右侧的新建对话按钮默认隐藏，仅在标题行 hover 或 focus-within 时显示。
+- 实现：`ChatSidebar.tsx` 中该按钮改为复用既有 `sectionActionButtonClass`，获得默认 `opacity-0`/`pointer-events-none` 与 `group-hover`、`group-focus-within` 显示和交互恢复；原 `onClick`、`stopPropagation`、`aria-label`、图标保持不变。
+- 测试：`sidebar-section-header-hit-area.test.ts` 新增契约，确认按钮复用该类，并锁定类中 hover/focus-within 的可见性和 pointer-events 行为。
+- 验证：定向 vitest 2 files / 29 tests 全过；eslint 2 个改动 TS/TSX 文件 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 通过（仅既有 KaTeX 字体与 chunk 体积提示）。
+- 边界：纯组件内样式复用，不改架构/公共入口，无需更新 docs/wiki；未新增依赖、未手工修改生成目录、未 commit/push。
+
+---
+
 ## Revision 18：Inspector 顶栏回归 56px 对齐 + 顶部按钮组高度与 hover 统一（2026-09-08）
 
 - 背景：用户反馈 Revision 17 引入两个回归——① `+`/全屏按钮与右上角浮动工具栏的终端/关闭右侧边栏按钮高度不一致；② Inspector 顶栏底部横线与对话区 header 底部横线不齐（44px vs 56px）。并确认「顶部 tab 最左侧 ChevronDown 下拉没有 hover 背景」。

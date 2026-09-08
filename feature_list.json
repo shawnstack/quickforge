@@ -1,6 +1,39 @@
 {
   "features": [
     {
+      "id": "sidebar-width-slightly-narrower",
+      "name": "桌面侧栏默认宽度略微收窄",
+      "status": "done",
+      "approach": "ChatSidebar 桌面侧栏默认宽度和最小宽度由 320px 调整为 304px（减少 16px）；最大宽度、拖拽行为、收缩态和移动端全屏宽度保持不变。同步组件 Wiki 的宽度说明。",
+      "files": [
+        "src/components/sidebar/ChatSidebar.tsx",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 2 files / 9 tests 全过（workspace-inspector-width-range、mobile-fullscreen-adaptation）；ChatSidebar ESLint 通过；npm exec tsc -- --noEmit 通过；git diff --check 通过。",
+      "boundaries": "仅调整桌面展开态默认/最小宽度；未修改最大宽度、移动端、收缩态、拖拽逻辑或生成产物，未 commit/tag/push。"
+    },
+    {
+      "id": "conversation-min-width-inspector-resize",
+      "name": "右侧 Inspector 拖动保留对话区最小宽度",
+      "status": "done",
+      "approach": "右侧 WorkspaceInspector 的最大宽度同时受 1200px、75vw、左侧桌面侧栏实际宽度、中间对话区最小 440px 和 1px 分隔线约束；ChatSidebar 通过 ResizeObserver 回报桌面实际宽度，App 将布局约束传给 Inspector。初始化恢复、拖动、窗口/侧栏尺寸变化、640px 自动展开、aside maxWidth 与 separator aria-valuemax 统一使用动态上限；移动 fullscreen/overlay 与 Inspector 内部导航拖动不变。",
+      "files": [
+        "src/App.tsx",
+        "src/components/sidebar/ChatSidebar.tsx",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "tests/frontend/workspace-inspector-width-range.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 2 files / 9 tests 全过（workspace-inspector-width-range、mobile-fullscreen-adaptation）；相关 ESLint 0 error；npm exec tsc -- --noEmit 通过；git diff --check 通过。",
+      "boundaries": "对话区最小宽度为用户确认的 440px；在视口过窄、无法同时满足侧栏/440px 对话区/Inspector 340px 时，保留 Inspector 既有 340px 下限，属于明确的空间冲突降级；未新增依赖、未修改生成产物、未 commit/tag/push。"
+    },
+    {
       "id": "sidebar-pin-hover-alignment",
       "name": "侧栏置顶图标 hover 位置一致性修复 + 置顶分区独占展示",
       "status": "done",

@@ -1,3 +1,24 @@
+## 当前交接摘要：桌面侧栏默认宽度略微收窄（2026-09-08）
+
+- 目标：将左侧项目/对话区域从默认 320px 略微收窄到 304px。
+- 实现：`ChatSidebar.tsx` 的 `sidebarDefaultWidth` 与 `sidebarMinWidth` 均改为 304；`sidebarMaxWidth=520`、拖拽、收缩态 `w-14`、移动端 `w-full` 不变；Wiki 已同步说明。
+- 文件：`src/components/sidebar/ChatSidebar.tsx`、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 2 files / 9 tests 全过（workspace-inspector-width-range、mobile-fullscreen-adaptation）；ChatSidebar ESLint 通过；`npm exec tsc -- --noEmit` 通过；`git diff --check` 通过。
+- Blocker：无。未 commit/tag/push。
+
+---
+
+## 当前交接摘要：右侧 Inspector 拖动保留对话区最小宽度（2026-09-08）
+
+- 目标：右侧 Inspector 向左拖动时，中间对话区至少保留 440px，避免被无限压缩。
+- 实现：`ChatSidebar` 桌面根 aside 用 `ResizeObserver` 回报实际宽度；`App.tsx` 保存侧栏宽度并传 `conversationMinWidth={440}` / `leftSidebarWidth`；`WorkspaceInspector.tsx` 将 1200px、75vw、`viewport - sidebar - 440px - 1px` 纳入统一动态上限，覆盖初始化恢复、拖动、window resize、侧栏变化、640px 自动展开、`maxWidth`、`aria-valuemax`。
+- 文件：`src/App.tsx`、`src/components/sidebar/ChatSidebar.tsx`、`src/components/workspace/WorkspaceInspector.tsx`、`tests/frontend/workspace-inspector-width-range.test.ts`、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 2 files / 9 tests 全过；相关 ESLint 0 error；`npm exec tsc -- --noEmit` 通过；`git diff --check` 通过。
+- 边界：窄视口无法同时满足侧栏、对话区 440px、Inspector 340px 时保留 Inspector 最小宽度；移动 fullscreen/overlay 与 Inspector 内部导航拖动不变。未 commit/tag/push。
+- 下一步：建议在桌面宽窗口实际拖动 Inspector 左边缘确认对话区停在约 440px；再确认侧栏展开/收起或拖宽时 Inspector 上限同步收紧。
+
+---
+
 ## 当前交接摘要：字号滑块松手后统一应用并保存（2026-09-08）
 
 - 目标：界面字号、消息字号拖动时不再全局实时缩放，松手后才保存并应用。

@@ -116,7 +116,7 @@ components/
 
 ### ChatSidebar.tsx
 
-- 左侧聊天列表面板；移动端抽屉为 100% 全屏宽（`w-full`），不再受 85vw 上限限制；桌面侧栏通过 `ResizeObserver` 回报实际宽度，供右侧 Workspace Inspector 在 1200px / 75vw 上限之外同时保留左栏、1px 分隔线和 440px 对话区
+- 左侧聊天列表面板；移动端抽屉为 100% 全屏宽（`w-full`），不再受 85vw 上限限制；桌面侧栏默认/最小宽度为 304px、最大宽度为 520px，侧栏通过 `ResizeObserver` 回报实际宽度，供右侧 Workspace Inspector 在 1200px / 75vw 上限之外同时保留左栏、1px 分隔线和 440px 对话区
 - 桌面侧栏收缩态固定为 `w-14`：不会因 `window.resize` 或浏览器缩放恢复展开宽度，收缩/移动清理时会移除遗留的内联 `width`
 - 支持全局会话 / 项目会话切换
 - 三类新建入口语义独立：顶部“发起新对话”继续使用默认规则，有 `activeProject` 时在该项目新建，否则新建 global；Tasks 标题右侧 MessageSquarePlus 始终显式新建 global，不读取 `activeProject`、当前任务或 `currentToolProject`，并使用默认 Workspace（`~/.quickforge/workspace`）；项目行 MessageSquarePlus 继续把对应 `item` 传给 `onStartNewProjectChat(item)`。桌面与移动均使用相同语义，移动端点击后仍先关闭侧栏

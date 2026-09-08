@@ -7,19 +7,24 @@ function countOccurrences(haystack: string, needle: string) {
   return haystack.split(needle).length - 1
 }
 
-// 会话行右侧采用镜像槽位几何：
-// 静置态（行内流）[标题 flex-1][pin 槽 size-6][gap-1][时间槽 w-11] + 行右 padding px-2(8px)
-// hover 态（absolute right-2=8px）[Pin size-6][gap-1][Archive h-6 w-11] + pl-4 渐变
-// 两个 pin 槽中心重合，Archive 胶囊精确覆盖时间槽，
-// 置顶图标 hover 交叉淡入淡出时零位移、零缩放；行内与浮层间距必须一致（均为 gap-1）。
+// 会话行右侧几何：
+// 静置态（行内流）[标题 flex-1][时间槽 w-11] 贴右 + 行右 padding px-2(8px)——
+// 置顶会话只出现在置顶分区，其余列表已按 pinned=exclude 过滤，静置不渲染 pin 槽；
+// hover 态（absolute right-2=8px）[Pin/PinOff size-6=24px][gap-1=4px][Archive size-6=24px] + pl-4 渐变。
+// 浮层按钮组紧凑贴尾（两按钮同 24px 槽，图标间距 14px）；静置时间槽右缘与 Archive 右缘同锚 8px。
 describe('sidebar session action alignment', () => {
-  it('resting pin button matches overlay pin geometry (size-6) and fades opacity smoothly', () => {
-    const pinnedClassLine = sidebarSource.match(/const pinnedSessionButtonClass = `([^`]+)`/)?.[1] ?? ''
-    expect(pinnedClassLine).toContain('size-6')
-    expect(pinnedClassLine).toContain('transition-[color,opacity]')
+  it('resting rows render no pin affordance: pinned sessions live only in the pinned section', () => {
+    expect(sidebarSource).not.toContain('pinnedSessionButtonClass')
+    expect(countOccurrences(sidebarSource, '<span className="size-6 shrink-0" aria-hidden="true" />')).toBe(0)
+  })
+
+  it('hover pin keeps the size-6 slot and fades opacity smoothly', () => {
+    const overlayIconButtonLine = sidebarSource.match(/const overlayIconButtonClass = `([^`]+)`/)?.[1] ?? ''
+    expect(overlayIconButtonLine).toContain('size-6')
+    expect(overlayIconButtonLine).toContain('shrink-0')
     // twMerge 会丢弃与前一个冲突的 transition 工具类；同时出现两个 transition-* 会让 opacity 瞬变
-    expect(pinnedClassLine).not.toContain('transition-opacity')
-    expect(pinnedClassLine).not.toContain('transition-colors')
+    expect(overlayIconButtonLine).not.toContain('transition-opacity')
+    expect(overlayIconButtonLine).not.toContain('transition-colors')
   })
 
   it('session time occupies a fixed right-aligned w-11 slot', () => {
@@ -28,11 +33,7 @@ describe('sidebar session action alignment', () => {
     expect(timeClassLine).toContain('text-right')
   })
 
-  it('unpinned rows reserve the same size-6 pin slot so time and title columns stay aligned', () => {
-    expect(countOccurrences(sidebarSource, '<span className="size-6 shrink-0" aria-hidden="true" />')).toBe(3)
-  })
-
-  it('overlay mirrors the resting cluster: right-2 anchor, session gap-2, project gap-px, w-11 archive pill', () => {
+  it('overlay mirrors the resting cluster: right-2 anchor, session gap-2, project gap-px, compact size-6 archive button', () => {
     const overlayBaseLine = sidebarSource.match(/const actionOverlayBaseClass = '([^']+)'/)?.[1] ?? ''
     expect(overlayBaseLine).toContain('right-2')
     expect(overlayBaseLine).not.toContain('right-1')
@@ -51,16 +52,17 @@ describe('sidebar session action alignment', () => {
     expect(projectOverlayClassLine).toContain('gap-px')
 
     const archiveClassLine = sidebarSource.match(/const overlayArchiveButtonClass = `([^`]+)`/)?.[1] ?? ''
-    expect(archiveClassLine).toContain('h-6')
-    // Archive 胶囊宽必须等于时间槽 w-11(44px)，否则 hover 时 pin 中心相对静置态偏移 (44-36)=8px
-    expect(archiveClassLine).toContain('w-11')
+    // 浮层按钮组紧凑贴尾：Archive 与 Pin 同为 size-6(24px) 圆形按钮，图标间距 14px；
+    // 静置 pin 已随置顶分区独占展示移除，无需 44px 胶囊对齐时间槽
+    expect(archiveClassLine).toContain('size-6')
+    expect(archiveClassLine).not.toContain('w-11')
     expect(archiveClassLine).not.toContain('w-9')
     expect(countOccurrences(sidebarSource, 'className={overlayArchiveButtonClass}')).toBe(4)
   })
 
-  it('running/unread status replaces time inside the fixed w-11 slot so the pin never shifts', () => {
-    // 旧模式必须移除：状态指示器在 pin 与时间之间单独占位、running/未读时省略时间槽，
-    // 都会让静置 pin 相对 hover pin（Archive 槽 w-11 几何）左移/右移
+  it('running/unread status replaces time inside the fixed w-11 slot so hover geometry stays stable', () => {
+    // 旧模式必须移除：状态指示器单独占位、running/未读时省略时间槽，
+    // 都会让时间槽宽度漂移、破坏 Archive 胶囊对齐
     expect(sidebarSource).not.toContain('sessionStatusIndicator')
     expect(sidebarSource).not.toContain('completedSessionIds.has(session.id) ? null : (')
     // 置顶区/项目行/全局行三处共用 sessionTimeSlotContent，时间槽恒定渲染（宽度恒 w-11）
@@ -73,9 +75,15 @@ describe('sidebar session action alignment', () => {
     expect(slotFn).toContain('inline-block')
   })
 
-  it('pin icons are one size everywhere (size-3.5) across resting and hover states', () => {
-    expect(countOccurrences(sidebarSource, '<Pin className="size-3.5" />')).toBe(8)
+  it('pin icons are one size everywhere (size-3.5): list overlays pin, the pinned section unpins', () => {
+    expect(countOccurrences(sidebarSource, '<Pin className="size-3.5" />')).toBe(3)
+    expect(countOccurrences(sidebarSource, '<PinOff className="size-3.5" />')).toBe(1)
     expect(countOccurrences(sidebarSource, '<Pin className="size-3" />')).toBe(0)
+  })
+
+  it('pinned-section overlay unpins (PinOff + unpinSession); list overlays pin (pinSession)', () => {
+    expect(countOccurrences(sidebarSource, "aria-label={t('unpinSession')}")).toBe(1)
+    expect(countOccurrences(sidebarSource, "aria-label={t('pinSession')}")).toBe(3)
   })
 
   it('archive icons in session overlays are unified at size-3.5', () => {
@@ -83,7 +91,7 @@ describe('sidebar session action alignment', () => {
     expect(countOccurrences(sidebarSource, '<Archive className="size-4" />')).toBe(0)
   })
 
-  it('keeps resting order [pin][time] and overlay order [pin][archive] in every session row', () => {
+  it('keeps resting rows time-only and overlay order [pin|pinOff][archive] in every session row', () => {
     const rowPatterns = [
       /formatSessionTime\(session\.pinnedAt\)/,
       /formatSessionTime\(timeValue\)/,
@@ -93,11 +101,11 @@ describe('sidebar session action alignment', () => {
       const matches = [...sidebarSource.matchAll(new RegExp(pattern.source, 'g'))]
       expect(matches.length).toBeGreaterThan(0)
       for (const match of matches) {
-        const rowStart = sidebarSource.lastIndexOf('<button', match.index ?? 0)
-        const rowEnd = match.index ?? 0
-        const rowSource = sidebarSource.slice(rowStart, rowEnd)
-        expect(rowSource.indexOf('pinnedSessionButtonClass')).toBeGreaterThanOrEqual(0)
-        const overlayStart = sidebarSource.indexOf('actionOverlayClass', rowEnd)
+        // 静置态时间槽是行内最右元素：标题与时间槽之间不得再插入 pin 槽
+        const titleIndex = sidebarSource.lastIndexOf('SessionTitleMarquee', match.index ?? 0)
+        const restingSource = sidebarSource.slice(titleIndex, match.index ?? 0)
+        expect(restingSource).not.toContain('<Pin')
+        const overlayStart = sidebarSource.indexOf('actionOverlayClass', match.index ?? 0)
         const overlayEnd = sidebarSource.indexOf('</div>', overlayStart)
         const overlaySource = sidebarSource.slice(overlayStart, overlayEnd)
         expect(overlaySource.indexOf('toggleSessionPinFromActions')).toBeLessThan(overlaySource.indexOf('requestDeleteSession'))

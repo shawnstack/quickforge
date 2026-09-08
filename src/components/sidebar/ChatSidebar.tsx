@@ -19,6 +19,7 @@ import {
   PanelLeft,
   PanelLeftOpen,
   Pin,
+  PinOff,
   Plus,
   Puzzle,
   SlidersHorizontal,
@@ -480,7 +481,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const actionOverlayClass = `${actionOverlayBaseClass} gap-1 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
   const projectActionOverlayClass = `${actionOverlayBaseClass} gap-px group-hover:pointer-events-auto group-hover:opacity-100`
   const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
-  const overlayArchiveButtonClass = `h-6 w-11 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
+  const overlayArchiveButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
   const sessionTitleClass = sidebarSessionTitleClass
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-1 text-left'
   const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate'
@@ -493,7 +494,6 @@ export const ChatSidebar = memo(function ChatSidebar({
     }
     return timeText
   }
-  const pinnedSessionButtonClass = `relative z-10 inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-[color,opacity] duration-160 ${sidebarHoverBgClass} hover:text-foreground/85`
   const sessionMetaHoverHiddenClass = 'group-hover:pointer-events-none group-hover:opacity-0 group-focus-within:pointer-events-none group-focus-within:opacity-0'
   const activeSessionTitleClass = 'font-[350] text-foreground/84'
   const activeProjectTitleClass = 'font-[350] text-foreground/80'
@@ -1121,19 +1121,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                   />
                 </div>
               </div>
-              <button
-                type="button"
-                className={cn(pinnedSessionButtonClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onTogglePinSession(session.id)
-                }}
-                aria-label={t('unpinSession')}
-                title={t('unpinSession')}
-              >
-                <Pin className="size-3.5" />
-              </button>
-               <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{sessionTimeSlotContent(session, formatSessionTime(session.pinnedAt))}</span>
+              <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{sessionTimeSlotContent(session, formatSessionTime(session.pinnedAt))}</span>
             </div>
             <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
               {confirmingDeleteSessionId === session.id ? (
@@ -1156,7 +1144,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                     onClick={(event) => toggleSessionPinFromActions(event, session.id)}
                     aria-label={t('unpinSession')}
                   >
-                    <Pin className="size-3.5" />
+                    <PinOff className="size-3.5" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -1494,22 +1482,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                                             />
                                           </div>
                                         </div>
-                                        {session.pinnedAt ? (
-                                          <button
-                                            type="button"
-                                            className={cn(pinnedSessionButtonClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}
-                                            onClick={(event) => {
-                                              event.stopPropagation()
-                                              onTogglePinSession(session.id)
-                                            }}
-                                            aria-label={t('unpinSession')}
-                                            title={t('unpinSession')}
-                                          >
-                                            <Pin className="size-3.5" />
-                                          </button>
-                                        ) : (
-                                          <span className="size-6 shrink-0" aria-hidden="true" />
-                                        )}
                                         <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{formatSessionTime(timeValue)}</span>
                                       </button>
                                       <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
@@ -1531,7 +1503,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                               size="icon"
                                               className={overlayIconButtonClass}
                                               onClick={(event) => toggleSessionPinFromActions(event, session.id)}
-                                              aria-label={session.pinnedAt ? t('unpinSession') : t('pinSession')}
+                                              aria-label={t('pinSession')}
                                             >
                                               <Pin className="size-3.5" />
                                             </Button>
@@ -1710,23 +1682,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                     title={sessionTitle(session.title, session.channelName)}
                                                   />
                                                 </div>
-                                                {session.pinnedAt ? (
-                                                  <button
-                                                    type="button"
-                                                    className={cn(pinnedSessionButtonClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}
-                                                    onClick={(event) => {
-                                                      event.stopPropagation()
-                                                      onTogglePinSession(session.id)
-                                                    }}
-                                                    aria-label={t('unpinSession')}
-                                                    title={t('unpinSession')}
-                                                  >
-                                                    <Pin className="size-3.5" />
-                                                  </button>
-                                                ) : (
-                                                  <span className="size-6 shrink-0" aria-hidden="true" />
-                                                )}
-                                               <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{sessionTimeSlotContent(session, formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified))}</span>
+                                                <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{sessionTimeSlotContent(session, formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified))}</span>
                                               </button>
                                               <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
                                                 {confirmingDeleteSessionId === session.id ? (
@@ -1747,7 +1703,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                       size="icon"
                                                       className={overlayIconButtonClass}
                                                       onClick={(event) => toggleSessionPinFromActions(event, session.id)}
-                                                      aria-label={session.pinnedAt ? t('unpinSession') : t('pinSession')}
+                                                      aria-label={t('pinSession')}
                                                     >
                                                       <Pin className="size-3.5" />
                                                     </Button>
@@ -1880,22 +1836,6 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   title={sessionTitle(session.title, session.channelName)}
                                 />
                               </div>
-                              {session.pinnedAt ? (
-                                <button
-                                  type="button"
-                                  className={cn(pinnedSessionButtonClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    onTogglePinSession(session.id)
-                                  }}
-                                  aria-label={t('unpinSession')}
-                                  title={t('unpinSession')}
-                                >
-                                  <Pin className="size-3.5" />
-                                </button>
-                              ) : (
-                                <span className="size-6 shrink-0" aria-hidden="true" />
-                              )}
                               <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{sessionTimeSlotContent(session, formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified))}</span>
                             </button>
                             <div className={cn(actionOverlayClass, actionsSuppressed && 'hidden')}>
@@ -1917,7 +1857,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                     size="icon"
                                     className={overlayIconButtonClass}
                                     onClick={(event) => toggleSessionPinFromActions(event, session.id)}
-                                    aria-label={session.pinnedAt ? t('unpinSession') : t('pinSession')}
+                                    aria-label={t('pinSession')}
                                   >
                                     <Pin className="size-3.5" />
                                   </Button>

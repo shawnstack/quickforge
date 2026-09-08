@@ -30,13 +30,13 @@ describe('sidebar new chat routing', () => {
   })
 
   it('routes the Tasks title action through the explicit global handler on desktop and mobile', () => {
-    const tasksToggleIndex = sidebarSource.indexOf('onClick={toggleConversationsCollapsed}')
+    const tasksToggleIndex = sidebarSource.indexOf('toggleConversationsCollapsed()')
     const tasksHeader = sidebarSource.slice(
       tasksToggleIndex,
       sidebarSource.indexOf("aria-label={t('newChat')}", tasksToggleIndex) + 80,
     )
 
-    expect(tasksHeader).toContain('onClick={onStartNewGlobalChat}')
+    expect(tasksHeader).toMatch(/onClick=\{\(event\) => \{\s*event\.stopPropagation\(\)\s*onStartNewGlobalChat\(\)\s*\}\}/)
     expect(appSource).toContain('onStartNewGlobalChat={startNewExplicitGlobalSession}')
     expect(appSource).toContain('onStartNewGlobalChat={startNewExplicitGlobalSessionFromSidebar}')
 
@@ -56,7 +56,7 @@ describe('sidebar new chat routing', () => {
   })
 
   it('keeps project-row new chat bound to the clicked project item', () => {
-    expect(sidebarSource).toContain('onClick={() => onStartNewProjectChat(item)}')
+    expect(sidebarSource).toMatch(/onClick=\{\(event\) => \{\s*event\.stopPropagation\(\)\s*onStartNewProjectChat\(item\)\s*\}\}/)
     expect(appSource).toContain('onStartNewProjectChat={startNewProjectChatWithInspectorReset}')
     expect(appSource).toContain('onStartNewProjectChat={startNewProjectChatFromSidebar}')
   })
@@ -64,7 +64,7 @@ describe('sidebar new chat routing', () => {
   it('does not derive the Tasks icon target from the active or current task project', () => {
     const explicitGlobalHandler = callbackSource('startNewExplicitGlobalSession')
     const tasksHeader = sidebarSource.slice(
-      sidebarSource.indexOf('onClick={toggleConversationsCollapsed}'),
+      sidebarSource.indexOf('toggleConversationsCollapsed()'),
       sidebarSource.indexOf("aria-label={t('newChat')}") + 80,
     )
 

@@ -38,7 +38,7 @@ function sqlSessionQueryOptions({ store, indexName, directionParam, scope, proje
   if (store !== 'sessions-metadata' || !SESSION_QUERY_INDEXES.has(indexName)) return null
   if (directionParam !== null && directionParam !== 'asc' && directionParam !== 'desc') return null
   if (archived !== null && archived !== 'only' && archived !== 'include') return null
-  if (pinned !== null && pinned !== 'only') return null
+  if (pinned !== null && pinned !== 'only' && pinned !== 'exclude') return null
   const pagination = parseSqlPagination(limitParam, offsetParam)
   if (!pagination) return null
 
@@ -54,6 +54,7 @@ function sqlSessionQueryOptions({ store, indexName, directionParam, scope, proje
     projectId: scopeMode === 'project' ? projectId : null,
     archive: archived === 'only' ? 'only' : archived === 'include' ? 'include' : 'exclude',
     pinnedOnly: pinned === 'only',
+    pinnedExclude: pinned === 'exclude',
     sort: indexName,
     direction: directionParam === 'desc' ? 'desc' : 'asc',
   }
@@ -131,6 +132,7 @@ async function readIndexedValues(store, indexName, direction, scope, projectId, 
       })
       .filter((value) => {
         if (pinned === 'only') return isValidPinnedAt(value?.pinnedAt)
+        if (pinned === 'exclude') return !isValidPinnedAt(value?.pinnedAt)
         return true
       }),
     store,

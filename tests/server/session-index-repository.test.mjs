@@ -114,6 +114,7 @@ describe('session index repository (read-only query layer over sessions)', () =>
     expect(repository.listPage(query({ archive: 'only' })).values.map((value) => value.id)).toEqual(['archived'])
     expect(repository.listPage(query({ archive: 'include' })).total).toBe(5)
     expect(repository.listPage(query({ pinnedOnly: true, sort: 'pinnedAt' })).values.map((value) => value.id)).toEqual(['global-pinned'])
+    expect(repository.listPage(query({ pinnedExclude: true, scopeMode: 'global' })).values.map((value) => value.id)).toEqual(['global-normal', 'global-null'])
     expect(repository.listPage(query({ direction: 'asc', sort: 'createdAt' })).values.at(0).id).toBe('global-pinned')
   })
 

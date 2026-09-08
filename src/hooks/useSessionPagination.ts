@@ -120,7 +120,7 @@ export function useSessionPagination({
       const indexName = sortMode === 'createdAt' ? 'createdAt' : 'lastModified'
       const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
         'sessions-metadata', indexName,
-        { direction: 'desc', limit: PAGE_SIZE, offset, scope: 'global' },
+        { direction: 'desc', limit: PAGE_SIZE, offset, scope: 'global', pinned: 'exclude' },
       )
       if (!isCurrentRequest(version)) return
       setGlobalPage((prev) => {
@@ -158,7 +158,7 @@ export function useSessionPagination({
       const indexName = sortMode === 'createdAt' ? 'createdAt' : 'lastModified'
       const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
         'sessions-metadata', indexName,
-        { direction: 'desc', limit: PAGE_SIZE, offset, scope: 'project', projectId },
+        { direction: 'desc', limit: PAGE_SIZE, offset, scope: 'project', projectId, pinned: 'exclude' },
       )
       if (!isCurrentRequest(version)) return
       setProjectPages((prev) => {
@@ -198,7 +198,7 @@ export function useSessionPagination({
       const indexName = sortMode === 'createdAt' ? 'createdAt' : 'lastModified'
       const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
         'sessions-metadata', indexName,
-        { direction: 'desc', limit: PAGE_SIZE, offset, scope: 'projects' },
+        { direction: 'desc', limit: PAGE_SIZE, offset, scope: 'projects', pinned: 'exclude' },
       )
       if (!isCurrentRequest(version)) return
       setProjectTimelinePage((prev) => {
@@ -263,8 +263,11 @@ export function useSessionPagination({
   }, [backendRef, isCurrentRequest, loadGlobalSessions, loadPinnedSessions, loadProjectSessions, loadProjectTimelineSessions, nextRequestVersion, onBroadcastSessionsChanged, viewMode])
 
   const upsertSessionMetadata = useCallback((session: QuickForgeSessionMetadata) => {
+    // 置顶会话只进置顶分区：其余列表以 pinned=exclude 拉取，不持有置顶会话；
+    // 取消置顶后由 refreshSessions 收敛各列表。
     if (isValidPinnedAt(session.pinnedAt)) {
       setPinnedPage((page) => upsertSessionPage(page, session, sortMode))
+      return
     }
     if (session.scope === 'project' && session.projectId) {
       setProjectPages((pages) => {

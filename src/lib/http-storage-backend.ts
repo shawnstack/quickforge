@@ -179,7 +179,7 @@ export class HttpStorageBackend implements StorageBackend {
       scope?: string
       projectId?: string
       archived?: 'only' | 'include'
-      pinned?: 'only'
+      pinned?: 'only' | 'exclude'
     },
   ): Promise<{ values: T[]; total: number }> {
     this.assertStoreAccess(storeName)

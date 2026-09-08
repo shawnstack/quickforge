@@ -46,7 +46,7 @@ function normalizeQuery(options = {}) {
   const offset = options.offset ?? 0
   if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError('limit must be a positive safe integer')
   if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError('offset must be a non-negative safe integer')
-  return { scopeMode, projectId, archive, pinnedOnly: options.pinnedOnly === true, sort, direction, limit, offset }
+  return { scopeMode, projectId, archive, pinnedOnly: options.pinnedOnly === true, pinnedExclude: options.pinnedExclude === true, sort, direction, limit, offset }
 }
 
 const SORT_COLUMNS = Object.freeze({ createdAt: 'created_at', lastModified: LAST_MODIFIED_EXPR, pinnedAt: 'pinned_at' })
@@ -63,6 +63,7 @@ function buildQuery(options, { page = true } = {}) {
   if (query.archive === 'exclude') where.push('archived_at IS NULL')
   else if (query.archive === 'only') where.push('archived_at IS NOT NULL')
   if (query.pinnedOnly) where.push('pinned_at IS NOT NULL')
+  if (query.pinnedExclude) where.push('pinned_at IS NULL')
 
   const column = SORT_COLUMNS[query.sort]
   // Pinned-first ordering (metadata pinnedAt promoted to the pinned_at

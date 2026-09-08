@@ -94,6 +94,7 @@ describe('storage session index query route', () => {
     'direction=desc&limit=1&offset=Infinity&scope=global',
     'direction=sideways&limit=1&offset=0&scope=global',
     'direction=desc&limit=1&offset=0&scope=global&projectId=unexpected',
+    'direction=desc&limit=1&offset=0&scope=global&pinned=sometimes',
   ])('keeps invalid/legacy pagination and scope on the sorted-read fallback: %s', async (query) => {
     await seed([metadata('one')])
     const payload = await call(route, query)
@@ -113,5 +114,34 @@ describe('storage session index query route', () => {
     const payload = await call(route, 'direction=desc&scope=global')
     expect(payload.total).toBe(2)
     expect(payload.values.map((value) => value.id)).toEqual(['b', 'a'])
+  })
+
+  it('pinned=exclude stays SQL-eligible and filters pinned sessions out of list queries', async () => {
+    const values = [
+      metadata('plain', { lastModified: '2026-01-02T00:00:00.000Z' }),
+      metadata('pinned', { lastModified: '2026-01-03T00:00:00.000Z', pinnedAt: '2026-01-01T00:00:00.000Z' }),
+      // Non-date pinnedAt string: excluded by the SQL `pinned_at IS NULL`
+      // predicate but kept by the legacy isValidPinnedAt filter — the
+      // discriminator proving this query was served by the SQL path.
+      metadata('weird', { lastModified: '2026-01-04T00:00:00.000Z', pinnedAt: 'not-a-date' }),
+    ]
+    await seed(values)
+    const payload = await call(route, 'direction=desc&limit=10&offset=0&scope=global&pinned=exclude')
+    expect(payload.total).toBe(1)
+    expect(payload.values.map((value) => value.id)).toEqual(['plain'])
+  })
+
+  it('keeps an invalid pinned value on the sorted-read fallback (pinned passthrough)', async () => {
+    const values = [
+      metadata('plain', { lastModified: '2026-01-02T00:00:00.000Z' }),
+      metadata('pinned', { lastModified: '2026-01-03T00:00:00.000Z', pinnedAt: '2026-01-01T00:00:00.000Z' }),
+      metadata('weird', { lastModified: '2026-01-04T00:00:00.000Z', pinnedAt: 'not-a-date' }),
+    ]
+    await seed(values)
+    // pinned=something-else is not SQL-eligible: the legacy sorted read keeps
+    // every session (no pinned filtering at all), pinned or not.
+    const payload = await call(route, 'direction=desc&limit=10&offset=0&scope=global&pinned=sometimes')
+    expect(payload.total).toBe(3)
+    expect(payload.values.map((value) => value.id).sort()).toEqual(['pinned', 'plain', 'weird'])
   })
 })

@@ -105,6 +105,10 @@ describe('session pagination bootstrap', () => {
 
     await Promise.resolve()
     expect(fetchPaginatedFromIndex).toHaveBeenCalledTimes(2)
+    // 置顶列表仍以 pinned=only 拉取；全局/项目/时间线列表以 pinned=exclude 过滤置顶会话
+    const requestedPinnedValues = fetchPaginatedFromIndex.mock.calls.map((call) => (call[2] as { pinned?: string }).pinned)
+    expect(requestedPinnedValues.filter((pinned) => pinned === 'only')).toHaveLength(1)
+    expect(requestedPinnedValues.filter((pinned) => pinned === 'exclude')).toHaveLength(1)
 
     pinned.resolve({ values: [], total: 0 })
     global.resolve({ values: [], total: 0 })
@@ -143,7 +147,7 @@ describe('session pagination bootstrap', () => {
     expect(fetchPaginatedFromIndex).toHaveBeenCalledWith(
       'sessions-metadata',
       'lastModified',
-      expect.objectContaining({ scope: 'project', projectId: 'project-1' }),
+      expect.objectContaining({ scope: 'project', projectId: 'project-1', pinned: 'exclude' }),
     )
     expect(reactHarness.states[2]).toEqual({
       'project-1': {

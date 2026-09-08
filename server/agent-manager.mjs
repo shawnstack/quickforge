@@ -791,6 +791,11 @@ export async function createAgent(sessionId, config = {}) {
       // but a few paths (e.g. concurrent-run rejection) only set
       // `state.errorMessage`. Append an error message so the user sees the
       // reason at the end of the transcript instead of only a toast.
+      // 用户主动停止（signal 已 abort）不算失败：pi-agent-core 已落一条
+      // stopReason='aborted' 的终态消息（前端显示灰色「已停止」），不再追加
+      // "Request was aborted" 错误消息与重试/继续入口；同时清掉
+      // state.errorMessage，避免状态面板把用户停止报成错误。
+      if (session.agent.signal?.aborted) session.agent.state.errorMessage = undefined
       const runError = session.agent.state.errorMessage
       if (runError) {
         agent.state.messages = appendAssistantErrorMessageOnce(agent.state.messages, runError, session.model)

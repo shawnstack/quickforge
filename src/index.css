@@ -2261,6 +2261,17 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
   align-self: center;
 }
 
+/* 手动停止（stopReason=aborted）的 assistant 状态行：装饰层把 pi-web-ui 渲染的
+   红色斜体 "Request aborted" span 改写为灰色「已停止」，并补齐与正文一致的
+   px-4 缩进与上间距（design-mockups/assistant-stopped-message-preview.html 方案①）。
+   字号沿用节点自带的 text-sm（应用根覆盖下与正文同号）。 */
+.quickforge-message-stopped-label {
+  display: block;
+  margin-top: 6px;
+  padding: 0 1rem;
+  color: var(--muted-foreground);
+}
+
 .quickforge-svg-code-toolbar {
   position: relative;
   display: inline-flex;

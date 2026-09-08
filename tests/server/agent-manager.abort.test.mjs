@@ -96,4 +96,71 @@ describe('agent manager abort', () => {
       await destroyAgent(sessionId)
     }
   })
+
+  it('does not append the request-aborted error message when the user stopped the run', async () => {
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
+    const { createAgent, destroyAgent, getSessionStatus } = await import('../../server/agent-manager.mjs')
+    const sessionId = 'user-abort-no-error-message'
+    const session = await createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', id: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+    session.status = 'running'
+    // 用户点击停止后的终态：signal 已 abort，pi-agent-core 已落 stopReason='aborted'
+    // 消息，state.errorMessage 还带着 pi-ai 抛出的 "Request was aborted."
+    const controller = new AbortController()
+    controller.abort()
+    session.agent.signal = controller.signal
+    session.agent.state.messages = [
+      { role: 'user', content: 'question' },
+      { role: 'assistant', content: [{ type: 'text', text: 'partial answer' }], stopReason: 'aborted', errorMessage: 'Request was aborted.' },
+    ]
+    session.agent.state.errorMessage = 'Request was aborted.'
+
+    try {
+      for (const listener of session.agent.listeners) {
+        await listener({ type: 'agent_end', messages: session.agent.state.messages })
+      }
+      expect(session.agent.state.messages).toHaveLength(2)
+      expect(session.agent.state.messages.at(-1).stopReason).toBe('aborted')
+      expect(session.agent.state.errorMessage).toBeUndefined()
+      expect(getSessionStatus(sessionId)?.status).toBe('aborted')
+    } finally {
+      await destroyAgent(sessionId)
+    }
+  })
+
+  it('still appends the error message when the run failed without a user abort', async () => {
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
+    const { createAgent, destroyAgent, getSessionStatus } = await import('../../server/agent-manager.mjs')
+    const sessionId = 'natural-failure-error-message'
+    const session = await createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', id: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+    session.status = 'running'
+    session.agent.state.messages = [
+      { role: 'user', content: 'question' },
+      { role: 'assistant', content: [{ type: 'text', text: 'partial answer' }] },
+    ]
+    session.agent.state.errorMessage = 'AI stream idle timeout after 60000ms'
+
+    try {
+      for (const listener of session.agent.listeners) {
+        await listener({ type: 'agent_end', messages: session.agent.state.messages })
+      }
+      expect(session.agent.state.messages).toHaveLength(3)
+      expect(session.agent.state.messages.at(-1).stopReason).toBe('error')
+      expect(session.agent.state.messages.at(-1).errorMessage).toBe('AI stream idle timeout after 60000ms')
+      expect(getSessionStatus(sessionId)?.status).toBe('error')
+    } finally {
+      await destroyAgent(sessionId)
+    }
+  })
 })

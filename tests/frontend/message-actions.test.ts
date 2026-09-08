@@ -336,6 +336,39 @@ describe('assistant message actions', () => {
     expect(assistant.querySelector('button[data-quickforge-action="fork"]')?.disabled).toBe(true)
   })
 
+  it('hides the retry button on the last user message when the turn was stopped by the user', () => {
+    const user = createUserMessageElement().element
+    const assistant = createFakeElement('assistant-message')
+    const messageList = createFakeElement('message-list')
+    messageList.append(user, assistant)
+    const panel = createFakeElement('div')
+    panel.append(messageList)
+    const decorateWithTurn = (stopReason?: string) => decorateMessages({
+      panel: panel as unknown as HTMLElement,
+      getMessages: () => [
+        { role: 'user', content: 'question' },
+        { role: 'assistant', content: [{ type: 'text', text: 'partial answer' }], ...(stopReason ? { stopReason } : {}) },
+      ] as never,
+      isStreaming: () => false,
+      onCopyAnswer: vi.fn(),
+      onRollbackFromMessage: vi.fn(),
+      onRetryFromMessage: vi.fn(),
+      onForkFromMessage: vi.fn(),
+      disableFork: false,
+      allowRollback: true,
+      allowRetry: true,
+    })
+
+    decorateWithTurn('aborted')
+    expect(user.querySelector('button[data-quickforge-action="retry"]')).toBeNull()
+    // 回滚不受停止影响，仍可用
+    expect(user.querySelector('button[data-quickforge-action="rollback"]')).not.toBeNull()
+
+    // 同一会话重新装饰为正常完成的回合后，重试按钮恢复
+    decorateWithTurn()
+    expect(user.querySelector('button[data-quickforge-action="retry"]')).not.toBeNull()
+  })
+
   it('does not apply content visibility to message hosts containing rollback popovers', () => {
     const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
 
@@ -487,6 +520,108 @@ describe('error message continue action', () => {
     expect(source).toContain('onContinueAfterError:')
     expect(source).toContain('retryFailedPrompt')
     expect(source).toContain("t('errorContinueMessage')")
+  })
+})
+
+describe('assistant stopped label decoration', () => {
+  beforeEach(() => {
+    vi.stubGlobal('document', {
+      createElement: createFakeElement,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })
+    vi.stubGlobal('window', {
+      setTimeout,
+      clearTimeout,
+      requestAnimationFrame: (callback: () => void) => { callback(); return 1 },
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function stoppedMessageFixture(stopReason?: string) {
+    return {
+      role: 'assistant',
+      content: [{ type: 'text', text: '部分回答' }],
+      ...(stopReason ? { stopReason } : {}),
+      timestamp: 1_750_000_000_000,
+    }
+  }
+
+  // 镜像 pi-web-ui AssistantMessage 渲染根：<assistant-message> > div > …
+  function createAssistantMessageElement() {
+    const element = createFakeElement('assistant-message')
+    const root = createFakeElement('div')
+    element.append(root)
+    return { element, root }
+  }
+
+  function decorateStoppedPanel(
+    elements: FakeNode[],
+    messages: Record<string, unknown>[],
+  ) {
+    const messageList = createFakeElement('message-list')
+    messageList.append(...elements)
+    const panel = createFakeElement('div')
+    panel.append(messageList)
+    decorateMessages({
+      panel: panel as unknown as HTMLElement,
+      getMessages: () => messages as never,
+      isStreaming: () => false,
+      onCopyAnswer: vi.fn(),
+      onRollbackFromMessage: vi.fn(),
+      onRetryFromMessage: vi.fn(),
+      onForkFromMessage: vi.fn(),
+      disableFork: false,
+    })
+  }
+
+  it('rewrites the marked status span to the localized stopped label and stays idempotent', () => {
+    const user = createUserMessageElement().element
+    const { element, root } = createAssistantMessageElement()
+    const span = createFakeElement('span')
+    span.className = 'quickforge-message-stopped-label'
+    span.textContent = 'Stopped (old locale)'
+    span.dataset.quickforgeStoppedLabel = 'Stopped (old locale)'
+    root.append(span)
+    const messages = [{ role: 'user', content: 'question' }, stoppedMessageFixture('aborted')]
+
+    decorateStoppedPanel([user, element], messages)
+    expect(span.textContent).toBe('messageStoppedLabel')
+    expect(span.dataset.quickforgeStoppedLabel).toBe('messageStoppedLabel')
+
+    decorateStoppedPanel([user, element], messages)
+    expect(span.textContent).toBe('messageStoppedLabel')
+  })
+
+  it('leaves the status span untouched when the message was not manually stopped', () => {
+    const user = createUserMessageElement().element
+    const { element, root } = createAssistantMessageElement()
+    const span = createFakeElement('span')
+    span.className = 'quickforge-message-stopped-label'
+    span.textContent = 'Stopped (old locale)'
+    span.dataset.quickforgeStoppedLabel = 'Stopped (old locale)'
+    root.append(span)
+
+    decorateStoppedPanel([user, element], [{ role: 'user', content: 'question' }, stoppedMessageFixture()])
+    expect(span.textContent).toBe('Stopped (old locale)')
+  })
+
+  it('ships the stopped-label rewrite contract: scoped discovery, class swap, and styling', () => {
+    const source = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
+    // 发现路径限定 assistant 渲染根的直接子级，避免误伤 tool 卡内同款 aborted 标签
+    expect(source).toContain("querySelectorAll<HTMLElement>('span.text-sm.text-destructive.italic')")
+    expect(source).toContain('candidate.parentElement?.parentElement === element')
+    expect(source).toContain("classList.remove('text-destructive', 'italic')")
+    expect(source).toContain('span.dataset.quickforgeStoppedLabel === label')
+    expect(source).toMatch(/decorateAssistantStoppedText\(element, entry\.message\)/)
+
+    const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+    expect(css).toContain('.quickforge-message-stopped-label')
+    expect(css).toMatch(/\.quickforge-message-stopped-label \{[\s\S]*?padding: 0 1rem;/)
+    expect(css).toMatch(/\.quickforge-message-stopped-label \{[\s\S]*?color: var\(--muted-foreground\)/)
   })
 })
 

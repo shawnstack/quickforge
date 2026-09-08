@@ -107,6 +107,36 @@ function decorateAssistantErrorText(element: HTMLElement, message: MessageWithUs
   block.replaceChildren(strong, document.createTextNode(` ${translated}`))
 }
 
+/** 手动停止（stopReason=aborted）assistant 消息状态行改写后的标记类。 */
+const STOPPED_LABEL_CLASS = 'quickforge-message-stopped-label'
+
+/**
+ * pi-web-ui 对手动停止的 assistant 消息渲染 <span class="text-sm
+ * text-destructive italic">Request aborted</span>——红色斜体英文，且不带 px-4
+ * 缩进贴在消息区左缘。展示层改写为灰色「已停止」并补齐与正文左缘对齐（设计稿
+ * design-mockups/assistant-stopped-message-preview.html 方案①）；pi-web-ui 与
+ * 数据不动，红色语义保留给错误。只匹配 assistant 渲染根 div 的直接子级 span，
+ * 避免误伤 tool 卡内部同款 aborted 标签（process-folding 另有自己的状态文案）。
+ */
+function decorateAssistantStoppedText(element: HTMLElement, message: MessageWithUsage) {
+  if (message.role !== 'assistant') return
+  const { stopReason } = message as { stopReason?: unknown }
+  if (stopReason !== 'aborted') return
+  let span = element.querySelector<HTMLElement>(`.${STOPPED_LABEL_CLASS}`)
+  if (!span) {
+    span = Array.from(element.querySelectorAll<HTMLElement>('span.text-sm.text-destructive.italic'))
+      .find((candidate) => candidate.parentElement?.parentElement === element) ?? null
+    if (!span) return
+    span.classList.remove('text-destructive', 'italic')
+    span.classList.add(STOPPED_LABEL_CLASS)
+  }
+  // 重复 decorate / 语言切换幂等：dataset 记录当前文案，变化才重写。
+  const label = t('messageStoppedLabel')
+  if (span.dataset.quickforgeStoppedLabel === label) return
+  span.dataset.quickforgeStoppedLabel = label
+  span.textContent = label
+}
+
 type RollbackPopoverDeps = {
   panel: HTMLElement
   messageIndex: number
@@ -381,6 +411,14 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     return undefined
   })()
 
+  // 用户主动停止的回合（尾部 assistant stopReason='aborted'）不提供重试入口：
+  // 停止是用户意图而非失败；服务端对用户停止也不再合成 "Request was aborted"
+  // 错误消息。回滚不受影响。
+  const trailingTurnAborted = (() => {
+    const last = displayEntries[displayEntries.length - 1]?.message
+    return last?.role === 'assistant' && (last as { stopReason?: unknown }).stopReason === 'aborted'
+  })()
+
   const messageElements = getPrimaryMessageElements(panel)
   const streaming = isStreaming()
   const assistantActionIndexes = assistantActionDisplayIndexes(displayEntries.map(({ message }) => message), streaming)
@@ -442,6 +480,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
     if (entry.message.role === 'assistant') {
       decorateAssistantErrorText(element, entry.message)
+      decorateAssistantStoppedText(element, entry.message)
     }
 
     // 终态错误（会话最后一条消息是错误）挂「继续生成」操作行；历史错误不显示按钮。
@@ -494,7 +533,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
       // Manage retry button visibility: only show on the last user message
       const existingRetry = existingActions.querySelector<HTMLButtonElement>('button[data-quickforge-action="retry"]')
-      const isLastUser = !readOnly && (allowRetry || historyActionsDisabled) && lastUserEntry && entry.index === lastUserEntry.index && entry.message.role !== 'assistant'
+      const isLastUser = !readOnly && (allowRetry || historyActionsDisabled) && lastUserEntry && entry.index === lastUserEntry.index && entry.message.role !== 'assistant' && !trailingTurnAborted
       if (existingRetry && !isLastUser) {
         existingRetry.remove()
       } else if (!existingRetry && isLastUser) {
@@ -577,7 +616,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         actions.append(rollbackAction)
       }
 
-      if (!readOnly && (allowRetry || historyActionsDisabled) && lastUserEntry && entry.index === lastUserEntry.index) {
+      if (!readOnly && (allowRetry || historyActionsDisabled) && lastUserEntry && entry.index === lastUserEntry.index && !trailingTurnAborted) {
         const retryButton = createIconActionButton('retry', t('retry'), retryIcon, () => {
           onRetryFromMessage(entry.index)
         })

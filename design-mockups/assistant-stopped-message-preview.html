@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>助手消息「已停止」标识 · 对齐稿 v2</title>
+  <style>
+    :root {
+      --font-sans: "Segoe UI", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+      --font-mono: Consolas, "Cascadia Mono", monospace;
+      --main-bg: #ffffff;
+      --card: #ffffff;
+      --primary: #4f6ef7;
+      --border: #e3e6eb;
+      --line-soft: #eef0f3;
+      --foreground: #282c33;
+      --muted-foreground: #707782;
+      --destructive: #b34a4a;
+      --accent: #4f6ef7;
+      --radius-panel: 12px;
+      --shadow: 0 1px 3px rgba(35, 38, 43, 0.05);
+    }
+
+    html[data-theme="dark"] {
+      --main-bg: #171a20;
+      --card: #171a20;
+      --primary: #86a0ff;
+      --border: #2c313a;
+      --line-soft: #242932;
+      --foreground: #e8ebef;
+      --muted-foreground: #9da5b0;
+      --destructive: #d09a9a;
+      --accent: #86a0ff;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-height: 100%; }
+
+    body {
+      margin: 0;
+      color: var(--foreground);
+      background: var(--main-bg);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      transition: background 180ms ease, color 180ms ease;
+    }
+
+    button { font: inherit; }
+
+    .page-header,
+    .toolbar,
+    .preview-wrap,
+    .notes {
+      width: min(880px, calc(100% - 40px));
+      margin-right: auto;
+      margin-left: auto;
+    }
+
+    .page-header { padding: 42px 0 12px; }
+
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--muted-foreground);
+      font-size: 12px;
+      letter-spacing: .08em;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 23px;
+      font-weight: 650;
+      letter-spacing: -.015em;
+    }
+
+    .intro {
+      max-width: 720px;
+      margin: 8px 0 0;
+      color: var(--muted-foreground);
+      font-size: 13px;
+    }
+
+    .intro code {
+      padding: 1px 5px;
+      background: color-mix(in oklab, var(--muted-foreground) 10%, transparent);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      padding: 12px 0 4px;
+    }
+
+    .tool-button {
+      padding: 6px 12px;
+      color: var(--foreground);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .tool-button:hover,
+    .tool-button:focus-visible {
+      background: color-mix(in oklab, var(--muted-foreground) 8%, transparent);
+      border-color: var(--muted-foreground);
+      outline: none;
+    }
+
+    .tool-hint {
+      margin-left: auto;
+      color: var(--muted-foreground);
+      font-size: 12px;
+      opacity: .8;
+    }
+
+    .preview-wrap { padding: 14px 0 30px; }
+
+    /* 镜像真实消息区：pi-web-ui ChatPanel 的画布 */
+    .chat-panel {
+      overflow: hidden;
+      background: var(--main-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-panel);
+      box-shadow: var(--shadow);
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 42px;
+      padding: 0 16px;
+      color: var(--muted-foreground);
+      background: color-mix(in oklab, var(--muted-foreground) 6%, var(--card));
+      border-bottom: 1px solid var(--line-soft);
+      font-size: 12px;
+    }
+
+    .panel-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--muted-foreground);
+      border-radius: 50%;
+      opacity: .6;
+    }
+
+    .chat-body {
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+      padding: 26px 0 28px;
+    }
+
+    /* 稿内注记（不属于消息区 UI） */
+    .state-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 6px;
+      padding-left: 16px;
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
+
+    .state-label::after {
+      flex: 0 1 200px;
+      height: 1px;
+      background: var(--line-soft);
+      content: "";
+    }
+
+    .state-label.is-current { color: var(--destructive); }
+    .state-label.is-pick { color: var(--accent); }
+
+    /* user-message：右对齐，primary 淡底气泡（镜像 user-message-container 覆盖样式） */
+    .user-message {
+      display: flex;
+      justify-content: flex-end;
+      margin: 0 16px;
+    }
+
+    .user-bubble {
+      max-width: min(78%, 45rem);
+      padding: 8px 16px;
+      background: color-mix(in oklab, var(--primary) 6%, var(--card));
+      border: 1px solid color-mix(in oklab, var(--primary) 12%, var(--border));
+      border-radius: 1.125rem 1.125rem 0.375rem 1.125rem;
+      font-size: 14px;
+      line-height: 1.72;
+    }
+
+    html[data-theme="light"] .user-bubble {
+      background: color-mix(in oklab, var(--primary) 3%, var(--card));
+    }
+
+    /* assistant-message：平文本 px-4（镜像 pi-web-ui AssistantMessage） */
+    .assistant-message { display: flex; flex-direction: column; align-items: flex-start; }
+
+    .assistant-content {
+      width: 100%;
+      padding: 0 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      font-size: 14px;
+      line-height: 1.72;
+    }
+
+    .assistant-content p { margin: 0; }
+
+    .assistant-content code {
+      padding: 1px 5px;
+      background: color-mix(in oklab, var(--muted-foreground) 10%, transparent);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    /* usage 行（px-4 mt-2 text-xs muted） */
+    .usage {
+      width: 100%;
+      padding: 8px 16px 0;
+      color: var(--muted-foreground);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 状态行 —— 本稿主角 */
+    .status {
+      display: block;
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: nowrap;
+    }
+
+    /* 现状：红色斜体英文，无 px-4 缩进（忠实还原贴左缘的 bug） */
+    .status-current {
+      color: var(--destructive);
+      font-style: italic;
+      padding-left: 0;
+    }
+
+    /* 方案①：灰色正文号，与正文左缘对齐 */
+    .status-a {
+      margin-top: 6px;
+      padding: 0 16px;
+      color: var(--muted-foreground);
+    }
+
+    /* 方案②：同①但保留斜体（只换色换文案的最小改动） */
+    .status-b {
+      margin-top: 6px;
+      padding: 0 16px;
+      color: var(--muted-foreground);
+      font-style: italic;
+    }
+
+    /* 方案③：12px 注脚档 + 破折号 */
+    .status-c {
+      margin-top: 6px;
+      padding: 0 16px;
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
+
+    /* 错误红块（对照，镜像 stopReason=error 分支） */
+    .error-block {
+      margin: 12px 16px 0;
+      padding: 12px;
+      background: color-mix(in oklab, var(--destructive) 10%, transparent);
+      color: var(--destructive);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    /* 装饰层 meta 行（quickforge-message-actions，hover 态） */
+    .message-actions {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      margin: 4px 0 0 16px;
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
+
+    .message-actions button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      color: var(--muted-foreground);
+      background: transparent;
+      border: 0;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .message-actions button:hover,
+    .message-actions button:focus-visible {
+      color: var(--foreground);
+      background: color-mix(in oklab, var(--muted-foreground) 10%, transparent);
+      outline: none;
+    }
+
+    .message-actions svg { width: 15px; height: 15px; }
+
+    .message-time {
+      padding: 0 4px;
+      color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+      line-height: 1;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 参考线：正文左缘 / 状态行位置 */
+    .reference-lines .assistant-content { outline: 1px dashed var(--accent); outline-offset: -1px; }
+    .reference-lines .status { position: relative; }
+    .reference-lines .status::before {
+      position: absolute;
+      top: -2px;
+      bottom: -2px;
+      left: 0;
+      border-left: 1px dashed var(--accent);
+      content: "";
+      opacity: .6;
+    }
+    .reference-lines .status-a,
+    .reference-lines .status-b,
+    .reference-lines .status-c { outline: 1px dashed var(--accent); outline-offset: 3px; }
+
+    .notes {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      padding: 0 0 48px;
+    }
+
+    .note { padding-top: 12px; border-top: 1px solid var(--border); }
+    .note h2 { margin: 0 0 5px; font-size: 13px; font-weight: 600; }
+    .note p { margin: 0 0 6px; color: var(--muted-foreground); font-size: 12px; line-height: 1.65; }
+    .note ol { margin: 0; padding-left: 18px; color: var(--muted-foreground); font-size: 12px; line-height: 1.75; }
+
+    @media (max-width: 640px) {
+      .page-header, .toolbar, .preview-wrap, .notes { width: min(100% - 28px, 880px); }
+      .page-header { padding-top: 28px; }
+      .tool-hint { width: 100%; margin-left: 0; }
+      .notes { grid-template-columns: 1fr; gap: 14px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <p class="eyebrow">QUICKFORGE · 对齐稿 v2（镜像真实消息区结构）</p>
+    <h1>手动停止后的「已停止」灰色标识</h1>
+    <p class="intro">现状：手动停止后，pi-web-ui 在部分回答末尾渲染 <code>&lt;span class="text-sm text-destructive italic"&gt;Request aborted</code> —— 红色斜体英文，且未缩进、贴在消息区左缘。本稿对比现状与三个灰色「已停止」改法，版式按真实 DOM 镜像（assistant 平文本 px-4、usage 行、hover meta 行）。</p>
+  </header>
+
+  <div class="toolbar" aria-label="预览控制">
+    <button class="tool-button" id="theme-toggle" type="button">切换深色 / 浅色</button>
+    <button class="tool-button" id="guides-toggle" type="button" aria-pressed="false">显示 / 隐藏对齐参考线</button>
+    <span class="tool-hint">该状态行常显，不依赖 hover；meta 行（复制/时间）仍维持 hover 显隐。</span>
+  </div>
+
+  <main class="preview-wrap">
+    <section class="chat-panel" aria-label="助手消息状态预览">
+      <div class="panel-head"><span class="panel-dot" aria-hidden="true"></span><span>对话预览 · 现状 vs 方案</span></div>
+      <div class="chat-body" id="chat-body">
+
+        <div>
+          <p class="state-label">提问（上下文）</p>
+          <div class="user-message">
+            <div class="user-bubble">帮我把这两个文件里的旧接口替换掉，改完跑一下测试。</div>
+          </div>
+        </div>
+
+        <div>
+          <p class="state-label">正常完成（对照，无状态行）</p>
+          <article class="assistant-message">
+            <div class="assistant-content">
+              <p>已全部替换完成：<code>src/agent.ts</code> 3 处、<code>src/session.ts</code> 1 处，测试 18 passed。</p>
+            </div>
+            <div class="usage">0.9K tok · $0.002</div>
+            <div class="message-actions" aria-label="正常完成消息操作">
+              <button type="button" aria-label="复制消息" title="复制">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>
+              </button>
+              <span class="message-time">10:32</span>
+            </div>
+          </article>
+        </div>
+
+        <div>
+          <p class="state-label is-current">手动停止 · 现状（红 · 斜体 · 英文 · 贴左缘）</p>
+          <article class="assistant-message">
+            <div class="assistant-content">
+              <p>好的，我先梳理两个文件的调用点：<code>src/agent.ts</code> 有 3 处 <code>createLegacyClient</code>，<code>src/session.ts</code> 有 1 处。我先替换 agent.ts 的前两</p>
+            </div>
+            <div class="usage">0.6K tok · $0.001</div>
+            <span class="status status-current">Request aborted</span>
+            <div class="message-actions" aria-label="已停止消息操作">
+              <button type="button" aria-label="复制消息" title="复制">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>
+              </button>
+              <span class="message-time">10:35</span>
+            </div>
+          </article>
+        </div>
+
+        <div>
+          <p class="state-label is-pick">方案 ① 灰色「已停止」· 与正文同号、左缘对齐（推荐）</p>
+          <article class="assistant-message">
+            <div class="assistant-content">
+              <p>好的，我先梳理两个文件的调用点：<code>src/agent.ts</code> 有 3 处 <code>createLegacyClient</code>，<code>src/session.ts</code> 有 1 处。我先替换 agent.ts 的前两</p>
+            </div>
+            <div class="usage">0.6K tok · $0.001</div>
+            <span class="status status-a" role="status">已停止</span>
+            <div class="message-actions" aria-label="已停止消息操作">
+              <button type="button" aria-label="复制消息" title="复制">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>
+              </button>
+              <span class="message-time">10:35</span>
+            </div>
+          </article>
+        </div>
+
+        <div>
+          <p class="state-label is-pick">方案 ② 灰色斜体「已停止」· 保留现状排印，仅换色换文案</p>
+          <article class="assistant-message">
+            <div class="assistant-content">
+              <p>好的，我先梳理两个文件的调用点：<code>src/agent.ts</code> 有 3 处 <code>createLegacyClient</code>，<code>src/session.ts</code> 有 1 处。我先替换 agent.ts 的前两</p>
+            </div>
+            <div class="usage">0.6K tok · $0.001</div>
+            <span class="status status-b" role="status">已停止</span>
+            <div class="message-actions" aria-label="已停止消息操作">
+              <button type="button" aria-label="复制消息" title="复制">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>
+              </button>
+              <span class="message-time">10:35</span>
+            </div>
+          </article>
+        </div>
+
+        <div>
+          <p class="state-label is-pick">方案 ③ 灰色 12px「— 已停止」· 注脚档，最轻</p>
+          <article class="assistant-message">
+            <div class="assistant-content">
+              <p>好的，我先梳理两个文件的调用点：<code>src/agent.ts</code> 有 3 处 <code>createLegacyClient</code>，<code>src/session.ts</code> 有 1 处。我先替换 agent.ts 的前两</p>
+            </div>
+            <div class="usage">0.6K tok · $0.001</div>
+            <span class="status status-c" role="status">— 已停止</span>
+            <div class="message-actions" aria-label="已停止消息操作">
+              <button type="button" aria-label="复制消息" title="复制">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>
+              </button>
+              <span class="message-time">10:35</span>
+            </div>
+          </article>
+        </div>
+
+        <div>
+          <p class="state-label">错误（对照 · 红色保留给错误）</p>
+          <article class="assistant-message">
+            <div class="assistant-content">
+              <p>好的，我开始替换。</p>
+            </div>
+            <div class="usage">0.4K tok · $0.001</div>
+            <div class="error-block"><strong>错误：</strong> 请求超时，已重试 3 次。</div>
+            <div class="message-actions" aria-label="错误消息操作">
+              <button type="button" aria-label="继续生成" title="继续生成">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 3 14 9-14 9V3z"></path></svg>
+              </button>
+              <span class="message-time">10:36</span>
+            </div>
+          </article>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <section class="notes" aria-label="设计决策清单">
+    <article class="note">
+      <h2>待对齐决策</h2>
+      <ol>
+        <li>方案：① 灰色正文号 / ② 灰色斜体 / ③ 12px 注脚 + 破折号。均为常显、不依赖 hover。</li>
+        <li>顺带修正：现状该行没有 px-4 缩进（贴左缘）；三个方案统一与正文左缘对齐，并加 6px 上间距。</li>
+        <li>文案：中文「已停止」，英文「Stopped」（新增消息级 i18n key；现状英文 "Request aborted" 未接入任何翻译）。</li>
+        <li>范围：仅手动停止（stopReason=aborted）的 assistant 消息；错误仍走红色错误块 + 继续生成。</li>
+      </ol>
+    </article>
+    <article class="note">
+      <h2>实现口径</h2>
+      <p>装饰层改写该 span（与 decorateAssistantErrorText 同一先例：定位 DOM、翻译文案、记录 dataset 幂等），并补缩进/颜色样式；不修改 pi-web-ui，服务端零改动。红色（destructive）继续专属错误语义。</p>
+    </article>
+  </section>
+
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var chatBody = document.getElementById("chat-body");
+      var themeToggle = document.getElementById("theme-toggle");
+      var guidesToggle = document.getElementById("guides-toggle");
+
+      themeToggle.addEventListener("click", function () {
+        var isDark = root.getAttribute("data-theme") === "dark";
+        root.setAttribute("data-theme", isDark ? "light" : "dark");
+      });
+
+      guidesToggle.addEventListener("click", function () {
+        var isVisible = chatBody.classList.toggle("reference-lines");
+        guidesToggle.setAttribute("aria-pressed", String(isVisible));
+      });
+    }());
+  </script>
+</body>
+</html>

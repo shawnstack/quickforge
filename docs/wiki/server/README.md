@@ -92,7 +92,7 @@ server/
 
 ### agent-manager.mjs (约 1966 行)
 
-**用途**: Agent 生命周期编排与 facade。后端最复杂的模块；agent-manager-module-split 拆分后职责按模块收口，agent-manager.mjs 保留会话生命周期编排（createAgent/runPrompt/abort/restore/destroy/fork、SSE 管理、模型/权限/标题更新）并作为 facade re-export 公共 API，消费方 import 路径不变。
+**用途**: Agent 生命周期编排与 facade。后端最复杂的模块；agent-manager-module-split 拆分后职责按模块收口，agent-manager.mjs 保留会话生命周期编排（createAgent/runPrompt/abort/restore/destroy/fork、SSE 管理、模型/权限/标题更新）并作为 facade re-export 公共 API，消费方 import 路径不变。agent_end 事件订阅里对失败回合合成尾部错误消息（`appendAssistantErrorMessageOnce`，仅 `state.errorMessage` 存在时；concurrent-run 拒绝等少数路径不经过 handleRunFailure）——用户主动停止（`signal.aborted`）不算失败：pi-agent-core 已落 `stopReason:'aborted'` 终态消息（前端灰色「已停止」），此时跳过合成并清 `state.errorMessage`，状态面板不把用户停止报成 error；非用户中止的失败（超时/HTTP 等）仍照常合成错误消息。
 
 **拆分出的模块**（均为纯机械搬移，行为与注释语义不变；导出面由 `tests/server/agent-manager-exports-contract.test.mjs` 锁定）:
 - `agent-session-store.mjs` — 模块级可变状态唯一 owner：`agentSessions` / `pendingRestores` / `stashedSubagentErrorDetails` 及 stash/take 访问器。

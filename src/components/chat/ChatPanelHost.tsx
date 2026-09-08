@@ -172,6 +172,13 @@ type ChatPanelHostProps = {
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
   onOpenFilePreview?: (relativePath: string) => void
+  /** artifact 卡片「撤销」：撤销本会话文件改动（readOnly 面板不传）。 */
+  onRollbackFiles?: () => Promise<void> | void
+  fileChangesRolledBack?: boolean
+  /** artifact 卡片「审查」：打开工作区 Review 面板并直达该文件 diff。 */
+  onReviewFileChanges?: (relativePath: string) => void
+  /** artifact 卡片「打开 ▾ → 在文件管理器中显示」。 */
+  onRevealFile?: (relativePath: string) => void
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void
@@ -211,6 +218,13 @@ type PropsRef = {
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
   onOpenFilePreview?: (relativePath: string) => void
+  /** artifact 卡片「撤销」：撤销本会话文件改动（readOnly 面板不传）。 */
+  onRollbackFiles?: () => Promise<void> | void
+  fileChangesRolledBack?: boolean
+  /** artifact 卡片「审查」：打开工作区 Review 面板并直达该文件 diff。 */
+  onReviewFileChanges?: (relativePath: string) => void
+  /** artifact 卡片「打开 ▾ → 在文件管理器中显示」。 */
+  onRevealFile?: (relativePath: string) => void
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void
@@ -256,6 +270,10 @@ export function ChatPanelHost({
   onOpenWorkspaceGitChanges,
   onOpenLocalFilePath,
   onOpenFilePreview,
+  onRollbackFiles,
+  fileChangesRolledBack,
+  onReviewFileChanges,
+  onRevealFile,
   onArtifactsChange,
   onContextUsageDisplayChange,
   onInitialRenderReady,
@@ -432,6 +450,10 @@ export function ChatPanelHost({
       onOpenWorkspaceGitChanges,
       onOpenLocalFilePath,
       onOpenFilePreview,
+      onRollbackFiles,
+      fileChangesRolledBack,
+      onReviewFileChanges,
+      onRevealFile,
       onArtifactsChange,
       onContextUsageDisplayChange,
       onInitialRenderReady,
@@ -1017,6 +1039,10 @@ export function ChatPanelHost({
           },
           onOpenLocalFilePath: props.onOpenLocalFilePath,
           onOpenFilePreview: props.onOpenFilePreview,
+          onRollbackFiles: props.readOnly ? undefined : props.onRollbackFiles,
+          fileChangesRolledBack: props.fileChangesRolledBack,
+          onReviewFileChanges: props.onReviewFileChanges,
+          onRevealFile: props.readOnly ? undefined : props.onRevealFile,
           disableFork: !props.capabilities.forkFromMessage,
           allowRollback: props.capabilities.rollback,
           allowRetry: props.capabilities.retry,

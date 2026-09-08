@@ -8,7 +8,7 @@ function countOccurrences(haystack: string, needle: string) {
 }
 
 // 会话行右侧采用镜像槽位几何：
-// 静置态（行内流）[标题 flex-1][pin 槽 size-6][gap-1][时间槽 w-9] + 行右 padding px-2(8px)
+// 静置态（行内流）[标题 flex-1][pin 槽 size-6][gap-1][时间槽 w-11] + 行右 padding px-2(8px)
 // hover 态（absolute right-2=8px）[Pin size-6][gap-1][Archive h-6 w-9] + pl-4 渐变
 // 两个 pin 槽中心重合，Archive 胶囊精确覆盖时间槽，
 // 置顶图标 hover 交叉淡入淡出时零位移、零缩放；行内与浮层间距必须一致（均为 gap-1）。
@@ -22,9 +22,9 @@ describe('sidebar session action alignment', () => {
     expect(pinnedClassLine).not.toContain('transition-colors')
   })
 
-  it('session time occupies a fixed right-aligned w-9 slot', () => {
+  it('session time occupies a fixed right-aligned w-11 slot', () => {
     const timeClassLine = sidebarSource.match(/const timeClass = '([^']+)'/)?.[1] ?? ''
-    expect(timeClassLine).toContain('w-9')
+    expect(timeClassLine).toContain('w-11')
     expect(timeClassLine).toContain('text-right')
   })
 

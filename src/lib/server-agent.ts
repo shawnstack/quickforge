@@ -636,6 +636,12 @@ export type ServerAgentConfig = {
   }
 }
 
+export type ServerFileRollbackResult = {
+  restored: number
+  removedCreated: number
+  errors: Array<{ path: string; message: string }>
+}
+
 export type ServerRollbackResult = {
   ok: boolean
   rollbackIndex: number
@@ -1247,6 +1253,24 @@ export class ServerAgent {
     const payload = await res.json().catch(() => null) as (ServerRollbackResult & ServerErrorPayload) | null
     if (!res.ok) throw new Error(serverErrorMessage(payload, `Failed to roll back: HTTP ${res.status}`))
     return payload as ServerRollbackResult
+  }
+
+  /**
+   * Roll back session-scoped file changes: restore files modified in this
+   * session to their pre-session content and delete files the session created
+   * (server-side shadow backups). Repeat calls are safe no-ops once the
+   * backup index is cleared.
+   */
+  async rollbackFiles(): Promise<ServerFileRollbackResult> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/rollback-files`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    const payload = await res.json().catch(() => null) as (ServerFileRollbackResult & ServerErrorPayload) | null
+    if (!res.ok) throw new Error(serverErrorMessage(payload, `Failed to roll back files: HTTP ${res.status}`))
+    return payload as ServerFileRollbackResult
   }
 
   /**

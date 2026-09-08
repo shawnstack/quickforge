@@ -1,3 +1,29 @@
+## Revision 6：assistant-reply-artifact-card 卡片生命周期——流式保留旧产物（2026-09-08）
+
+- 背景：用户反馈「发送一个新消息卡片就消失了」——旧实现 streaming 一到就 removeArtifactCards，新一轮哪怕只是问答、没有任何文件改动，上一轮产物卡也被清掉。
+- 实现：① sync 流式分支改为纯 `return`（不清卡），上一轮卡片原地保留；② 产物提取从「当前轮（最后一条 user 之后）」改为 `findLastArtifactTurn`——在 displayEntries 上从最新轮向旧按 user 边界扫描，取最近一个产出 write/edit/present 文件产物的轮，卡片挂到该轮最后一条 assistant（displayEntries 与 messageElements 对齐且 message 为同引用，直接切片跑 `extractArtifactsFromMessages`，tool-artifacts 导出该函数）；③ 换卡时机自然成立：新轮流式结束后的 idle sync 中，若新轮有产物 → 目标轮切换 → 签名不同 → removeArtifactCards + 挂新卡；若无产物 → 目标轮仍是旧轮 → 签名一致跳过，旧卡保留；④ 整段会话扫描不到任何产物轮才清卡；⑤ deps 删除不再需要的 `messages` 字段（message-actions 调用点同步），撤销重新武装仍由 App onArtifactsChange（产物变化）驱动，语义不变。
+- 边界：恢复旧会话/分支时，最后一个产物轮即使是历史轮也会重新出卡（与「卡片代表最近产物轮」一致）；流式中若 Lit 重建旧宿主元素导致卡片短暂丢失，流式结束的 idle sync 会重挂。
+- Verification: 定向 44；全量前端 132 files / 1371 tests 全过；eslint 改动文件 0 error；`npx tsc -b`（含并行会话 http-storage-backend 中间态自愈后）、`npm run build` 通过。
+
+## Revision 5：assistant-reply-artifact-card 字体统一 + 浮层遮挡修复（2026-09-08）
+
+- 背景：用户复查要求检查字体大小与弹窗遮挡。核查发现三个真实问题：① Revision 4 的明细动画层 `.quickforge-assistant-artifact-card-details-body { overflow:hidden }` 会把行内「打开▾」菜单裁掉（展开后靠后的行菜单不可见）；② 消息列表 `overflow-y-auto` 裁剪 absolute 浮层——产物卡恰在本轮最后一条消息底部（输入框正上方），「撤销」确认弹层/打开菜单向下弹最易被裁；③ 字体不一致——行内 ± 统计与「打开/审查/撤销」按钮继承消息正文字号（~14px），大于折叠头统计（12px）与卡片标题（13px）。
+- 实现：① 新增 `panel-decoration/floating-position.ts` `positionFixedDropdown(trigger, dropdown, margin)`——fixed 视口定位（右对齐触发器、整体 clamp 进视口、下方空间不足向上翻转），fixed 不受祖先 overflow:hidden/滚动容器裁剪；② 打开菜单与撤销确认弹层（共享 rollback-confirm-popover，消息级回滚同样受益）改经此定位，均增补 scroll(capture)/resize 即关；弹层向上翻转加 `-up` 变体（箭头移底边），CSS 去 absolute top/right 改 fixed；③ 字体统一到卡片 12px 档——`-file-stats` 显式 `font-size: 0.75rem`，按钮基础 `font: inherit` 改 `font-family: inherit; font-size: 0.75rem; line-height: 1.25`（行内 compact 11px 不变）；④ 健壮性——`removeArtifactCards` 内统一 `closeActiveOpenMenu()`（流式/清空分支移除卡片时同步清 document 级监听）。
+- Verification: 定向 43；全量前端 131 files / 1360 tests 全过；eslint 改动文件 0 error；`npx tsc -b`、`npm run build` 通过。
+
+## Revision 4：assistant-reply-artifact-card 样式定稿——diff 红绿 + 对话宽度（2026-09-08）
+
+- 背景：功能确认后用户要求样式对齐：± 有红绿区分、宽度与对话一致；先画 `design-mockups/assistant-reply-file-card-v2.html`（浅/深色、折叠/展开、打开▾下拉、比例条/ghost/参考线三个开关）对齐后按 6 项定稿执行。
+- 实现：① ± 红绿——`-added/-removed` 色值与应用 `.quickforge-diff-stats-add/del` 同源（light green-700/red-700、dark green-300/red-300），折叠头统计组与行内统计统一；② 宽度——容器 `min(100%,620px)` → `width:100%` 填满消息容器（与正文/输入框同边），删 640px 断点的 `margin-inline:0.5rem`；③ 折叠头重排——标题 `flex:0 1 auto`，新增 `-header-stats`（margin-left:auto + mono tabular-nums）装比例条与 ±，流式 +N 增长不推标题；④ 比例条——`createDiffBar`（段宽按 +N/−N flex 占比，纯新增仅绿段），折叠头与行内都有；⑤ 按钮 Ghost 化——打开/审查/撤销去边框改透明底，hover 浮中性浅底，撤销 hover 转红（同组红绿 token）；⑥ 展开动画——details 三层结构（grid 动画层 / overflow 钳高层 / padding 列表层），`grid-template-rows 0fr→1fr` 过渡，`visibility` 延迟 dur-base 切换防折叠区 Tab 聚焦，reduced-motion 关闭。
+- Verification: 定向 vitest assistant-artifact-card + message-actions（41）；全量前端 131 files / 1358 tests 全过；eslint 改动文件 0 error；`npx tsc -b`、`npm run build` 通过。
+
+## Revision 3：assistant-reply-artifact-card 完全对齐截图两类卡（2026-09-08）
+
+- 背景：用户给出第二张目标截图（两张 present 单文件卡 + 折叠的「13 个文件已更改 +353 -134」条），要求一次做完剩余全部差异并保持交互一致。
+- 实现：① 卡片拆分——present_files 每文件独立单文件卡（类型 SVG 图标 + 文件名 + i18n「类别 · KIND」副标题 + 「打开▾」），write_file/edit_file 聚合为默认折叠「N 个文件已更改 +X -Y」卡，header role=button 点击/Enter/Space 切换 chevron 展开，展开态持久在宿主消息元素 dataset；行内 = 类型图标 + 文件名/路径同行 + +N/-N + 「审查」+「打开▾」。② 「打开」升级「打开▾」下拉：预览打开（onOpenFilePreview）+ 在文件管理器中显示（onRevealFile → `openWorkspaceExternal(…,'explorer')` 复用既有 open-external，服务端零改动），菜单模块级互斥。③ 「审查」落地 diff：`WorkspaceInspectorOpenRequest` review 分支加可选 `path`，App `onReviewFileChanges(path)` → requestWorkspaceInspector review/changes+path → WorkspaceInspector `openDiffTab` 单文件 Monaco diff（git 工作区口径，与 ± 统计会话影子备份口径不同，注释标注）。④ 装饰幂等重写为签名跳过重建：卡片 `dataset.quickforgeArtifactSignature` 与计划一致仅校正位置不重建——确认弹层/下拉菜单/展开态在任意 DOM mutation 触发的重装饰中存活（同时修复 Revision 2 撤销弹层会被装饰周期立刻清掉的隐患）。⑤ i18n 删旧 key（标题/说明/范围/切换等）+ 增类别/菜单 key，CSS 重写两类卡共享容器/折叠 header/菜单/响应式。
+- Verification: 全量前端 vitest 130 files / 1350 tests 全过；eslint 改动 11 文件 0 error；`npx tsc -b`、`npm run build` 通过。
+- Notes（与 feature 无关）：顺带修复既有失败测试 sidebar-session-action-alignment——源码 518c176 有意 `w-9`→`w-11`（中文断行修复），测试断言未同步，更新为 w-11（一行断言 + 用例名/注释）。
+
 ## Bugfix：settings-select-reactive-shadowing（2026-09-08）
 
 - 现象：设置「默认模型/思考等级/语言/默认运行时/终端 Shell」选择后触发按钮不立即回显新选中项，再点一次才显示；数据保存链路正常（重开设置显示正确值）。
@@ -13,6 +39,13 @@
 - 修复：`src/components/sidebar/ChatSidebar.tsx` `timeClass` 一行——`w-9`→`w-11`（36→44px，容纳最长 zh 输出「23小时」≈36-40px）+ 补 `whitespace-nowrap` 禁止 CJK 断行。4 处引用（置顶 1131 / 项目 1476、1680 / 时间线 1839）共用该变量，一处生效；固定宽度保证整列右对齐（非 min-w 自适应）。`formatSessionTime` 无绝对日期兜底、i18n 仅 zh/en，44px 覆盖所有输出。
 - Verification: eslint ChatSidebar.tsx 0 error；npm run build 通过（仅既有 chunk 警告）；纯 className 字符串改动，无对应单测，未跑全量。
 - Boundaries: 未动 i18n 文案、未动 en 布局（w-11 对「15h」等短文案仅加空白）；已提交 dev，未 push。
+
+## Revision：assistant-reply-artifact-card 补撤销与行内打开（2026-09-08）
+
+- 背景：评审发现卡片与目标形态差异——缺「撤销」入口（服务端 rollback-files 已就绪但前端无 UI）、缺每文件「打开」（头部按钮只开第一个可预览文件）。「审查」diff 视图暂用行内预览顶替。
+- 实现：① 头部「撤销」按钮（`quickforge-assistant-artifact-card-rollback`，包 `.quickforge-rollback-action` 供弹层锚定）——点击弹共享确认层（原 message-actions 私有实现抽为 `panel-decoration/rollback-confirm-popover.ts`，onConfirm 泛化无参），确认后调 App `rollbackFilesFromArtifactCard` → `ServerAgent.rollbackFiles()`（POST rollback-files，幂等）；成功按会话 id 记 `rolledBackFilesSessionId` 置灰「已撤销」，`onArtifactsChange` 重新武装；部分失败/异常走 addToast；流式中防御拦截（卡片本就不显示）。② 每文件行 stats 后追加「打开」小按钮（`artifact.preview && artifact.path` 才渲染），替代原头部仅开首个可预览文件的按钮。③ readOnly 面板 ChatPanelHost 不传 onRollbackFiles 隐藏撤销；卡片模块不引用消息级 onRollbackFromMessage。
+- Verification: vitest assistant-artifact-card + message-actions（38 tests）+ 关联 18 文件（320 tests）全过；`npx tsc -b`、eslint 改动 8 文件 0 error、`npm run build` 通过。
+- Boundaries: 服务端零改动；整卡折叠、类型专属图标、「审查」diff 视图未做（后续可选）；未 commit。
 
 ## Completed Feature：assistant-reply-artifact-card（2026-09-07，Revision）
 

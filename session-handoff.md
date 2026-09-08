@@ -1,3 +1,33 @@
+## 当前状态：assistant-reply-artifact-card Revision 6——卡片生命周期（流式保留旧产物）（已完成，未提交）
+
+- 背景：用户反馈发送新消息卡片即消失，应在新轮产出新产物时才消失。
+- 实现：sync 流式分支改纯 return 不清卡；新增 `findLastArtifactTurn`（displayEntries 从新向旧按 user 边界扫描，取最近一个有 write/edit/present 产物的轮，卡片挂该轮最后一条 assistant，`extractArtifactsFromMessages` 自 tool-artifacts 导出）；新轮有产物 → 流式结束后 idle sync 换轮重建，无产物 → 签名一致跳过保留旧卡；全无产物轮才清卡；deps 删 `messages` 字段。恢复旧会话时历史产物轮也会出卡（语义一致）。
+- 验证：定向 44；全量前端 132 files / 1371 tests；eslint 0 error；`npx tsc -b`、`npm run build` 通过（tsc 曾被并行会话 http-storage-backend 中间态阻塞，其完成后自愈）。
+- 文件：`assistant-artifact-card.ts`、`tool-artifacts.ts`（导出 extractArtifactsFromMessages）、`message-actions.ts`（调用点删 messages）、`tests/frontend/assistant-artifact-card.test.ts`、feature_list/progress/session-handoff/wiki。
+- 下一步：真机冒烟——写文件出卡 → 发纯问答新消息（流式中与结束后卡片都保留）→ 再发一条改文件的消息（流式结束后卡片换到新轮）→ 撤销置灰在无产物新轮后保持；未 commit（工作区仍有 provider-keys-cache 等并行未提交改动，commit 时按 feature 拆分）。
+
+---
+
+## 当前状态：assistant-reply-artifact-card Revision 5——字体统一 + 浮层遮挡修复（已完成，未提交）
+
+- 背景：用户复查字体大小与弹窗遮挡。三个实际问题：Revision 4 明细动画层 `overflow:hidden` 裁掉行内打开菜单；消息列表 `overflow-y-auto` 裁剪 absolute 浮层（卡片常在最后一条消息底部，撤销弹层/菜单向下弹最易撞）；行内 ± 统计与按钮继承正文 ~14px 大于卡片 12px 档。
+- 实现：新增 `panel-decoration/floating-position.ts`（`positionFixedDropdown`：fixed 视口定位 + clamp + 上翻）；打开菜单与共享撤销弹层（含 message-actions 消息级回滚）改 fixed 定位、scroll(capture)/resize 即关、弹层 `-up` 箭头变体；`-file-stats` 与按钮基础字号统一 0.75rem（`font: inherit` → family/size/line-height 显式）；`removeArtifactCards` 统一 `closeActiveOpenMenu()` 清监听。
+- 验证：定向 43；全量前端 131 files / 1360 tests；eslint 0 error；`npx tsc -b`、`npm run build` 通过。
+- 文件：`floating-position.ts`（新）、`assistant-artifact-card.ts`、`rollback-confirm-popover.ts`、`index.css`、`tests/frontend/assistant-artifact-card.test.ts`（+2 it）、feature_list/progress/session-handoff/wiki。
+- 下一步：真机冒烟——展开聚合卡后最后几行打开菜单完整可见、撤销弹层近输入框时向上翻/不被裁、滚动即关、± 与按钮字号观感；未 commit（工作区有 settings-select-reactive-shadowing 等并行未提交改动，commit 时按 feature 拆分）。
+
+---
+
+## 当前状态：assistant-reply-artifact-card Revision 4——样式定稿（已完成，未提交）
+
+- 背景：功能（拆分两类卡/审查/打开▾/撤销）已确认，本轮按用户要求做样式对齐；先出 `design-mockups/assistant-reply-file-card-v2.html` 对齐稿（红绿 ±、对话宽度、比例条、ghost 按钮、折叠头右排、展开动画 6 项），用户确认「就这么干」后全部落地。
+- 实现：`index.css` 卡片段——± 红绿（`-added/-removed` 与 `.quickforge-diff-stats-add/del` 同源 light/dark 色值）、`-diffbar` GitHub 比例条（5px、段宽 flex 占比、`-add/-del` 段）、容器 `width:100%`（原 620px 上限，与对话正文同宽）、`-header-stats`（margin-left:auto + mono tabular-nums）、按钮 Ghost（去边框、hover 中性浮底、撤销 hover 红）、details `grid-template-rows 0fr→1fr` + visibility 延迟切换 + `-details-body/-details-list` 三层（reduced-motion 关闭）。`assistant-artifact-card.ts`——新增 `createDiffBar`、折叠头统计移入 `-header-stats` 组、行 stats 先条后数、details 三层包装。
+- 验证：定向 41；全量前端 131 files / 1358 tests；eslint 0 error；`npx tsc -b`、`npm run build` 通过。
+- 文件：`assistant-artifact-card.ts`、`index.css`、`tests/frontend/assistant-artifact-card.test.ts`（+2 it：红绿/比例条契约、头部布局/展开动画契约）、`design-mockups/assistant-reply-file-card-v2.html`（新对齐稿）、feature_list/progress/session-handoff/wiki。
+- 下一步：真机冒烟（红绿/比例条浅深色、宽度与正文同边、折叠头 +N 不推标题、展开动画、ghost hover、撤销 hover 红）；未 commit（工作区有 settings-select-reactive-shadowing 等并行未提交改动，commit 时按 feature 拆分）。
+
+---
+
 ## 当前状态：settings-select-reactive-shadowing（已完成，未提交）
 
 - 现象：设置页自定义下拉（默认模型/思考等级/语言/默认运行时/终端 Shell）选择后触发按钮不立即回显，再点一次才显示；保存与重开设置显示正常。
@@ -5,6 +35,16 @@
 - 修复：8 个 reactive 属性改 `declare` + constructor 默认值（Lit 官方模式，走 accessor），对齐 info-tip.ts/local-tools.ts 项目范式；行为不变。
 - 测试：新增 `tests/frontend/quickforge-settings-select.test.ts`（6 用例：ES2023 transpile AST 契约 + Node stub 最小 DOM 实例化验证 accessor 调度/change 派发/开关周期回显；bug 复发形态实测 4/6 失败）。定向 vitest 3 files / 10 tests、eslint 改动文件 0 error、`npx tsc -b` 全过。
 - 下一步：真机冒烟——设置页五个下拉选择后触发按钮立即回显、Portal 菜单定位/键盘/搜索不受影响；未 commit（工作区还有 assistant-reply-artifact-card Revision 3 等并行未提交改动，commit 时按 feature 拆分）。
+
+---
+
+## 当前状态：assistant-reply-artifact-card Revision 3——完全对齐截图两类卡（已完成，未提交）
+
+- 背景：用户第二张截图确认最终形态：present 文件各自单文件卡（类型图标 + 「类别 · KIND」副标题 + 打开▾），write/edit 聚合为默认折叠「N 个文件已更改 +X -Y」条，要求一次做完且交互一致。
+- 实现：① `assistant-artifact-card.ts` 重写为 CardPlan 体系——单文件卡 + 折叠聚合卡（header role=button chevron 展开、展开态持久在宿主消息元素 dataset），行内类型图标/名字路径同行/+N -N/审查/打开▾；② 「打开▾」下拉 = 预览打开（onOpenFilePreview）+ 在文件管理器中显示（onRevealFile → `openWorkspaceExternal(…,'explorer')` 既有路由，服务端零改动），模块级互斥 `closeActiveOpenMenu`；③ 「审查」→ `onReviewFileChanges(path)` → requestWorkspaceInspector review/changes+`path`（`WorkspaceInspectorOpenRequest` review 分支加可选 path，workspace-types.ts + WorkspaceInspector.tsx 直达 `openDiffTab` 单文件 Monaco diff，git 工作区口径）；④ 幂等改签名跳过重建（`dataset.quickforgeArtifactSignature` 一致仅校正位置），确认弹层/下拉/展开态跨装饰周期存活；⑤ 头部「撤销」沿用 Revision 2 链路（rollback-confirm-popover → ServerAgent.rollbackFiles）。i18n 删旧增类别/菜单 key；index.css 重写两类卡段。
+- 验证：全量前端 vitest 130 files / 1350 tests 全过（含顺带修复既有 sidebar-session-action-alignment 陈旧 w-9 断言→w-11）；eslint 改动 11 文件 0 error；`npx tsc -b`、`npm run build` 通过。
+- 文件：`assistant-artifact-card.ts`、`message-actions.ts`、`rollback-confirm-popover.ts`（Revision 2 新增）、`ChatPanelHost.tsx`、`App.tsx`、`server-agent.ts`、`workspace-types.ts`、`WorkspaceInspector.tsx`、`index.css`、`i18n.ts`、`tests/frontend/assistant-artifact-card.test.ts`、`tests/frontend/sidebar-session-action-alignment.test.ts`（顺带修复）、wiki components README 及三状态文件。
+- 下一步：真机冒烟——present 出单文件卡、write/edit 出折叠条（默认收起，展开后流式刷新不回折）、打开▾ 两项分流、审查直达单文件 diff、撤销全链路；未 commit（工作区同有 docs/reports/ 未跟踪等其他改动，commit 时按 feature 拆分）。
 
 ---
 

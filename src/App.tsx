@@ -102,7 +102,7 @@ import { GitCommitPushDialog } from '@/components/git/GitCommitPushDialog'
 import { GitToolsPinnedSummary } from '@/components/git/GitToolsPinnedSummary'
 import { GitGraphDialog } from '@/components/git/GitGraphDialog'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
-import { checkoutGitBranch, getGitStatus, resolveWorkspacePath } from '@/components/workspace/workspace-api'
+import { checkoutGitBranch, getGitStatus, openWorkspaceExternal, resolveWorkspacePath } from '@/components/workspace/workspace-api'
 import {
   shouldHandleWorkspaceInspectorRequest,
   workspaceInspectorRuntimeScopeMatches,
@@ -924,6 +924,66 @@ function MainApp() {
     if (!projectId) return
     openArtifactPreview(projectId, relativePath)
   }, [agentManager.currentToolProject?.id, openArtifactPreview])
+
+  // 助手回复文件卡片「审查」：打开工作区 Review 面板并直达该文件的 diff tab
+  // （git 工作区 diff，与会话影子备份口径无关；文件卡上的 ±行数才是会话口径）。
+  const reviewFileChangesFromArtifactCard = useCallback((relativePath: string) => {
+    const projectId = agentManager.currentToolProject?.id
+    if (!projectId) return
+    requestWorkspaceInspector({ projectId, kind: 'review', view: 'changes', path: relativePath })
+  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector])
+
+  // 助手回复文件卡片「打开 ▾ → 在文件管理器中显示」：走工作区 open-external 的
+  // explorer 目标（打开文件所在目录，服务端带工作区路径安全校验、仅限本机请求）。
+  const revealFileFromArtifactCard = useCallback(async (relativePath: string) => {
+    const projectId = agentManager.currentToolProject?.id
+    if (!projectId) return
+    try {
+      await openWorkspaceExternal(projectId, relativePath, 'explorer')
+    } catch (error) {
+      addToast({
+        sessionId: agentManager.currentSessionId ?? '',
+        title: t('assistantArtifactRevealFailed'),
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
+
+  // 助手回复文件卡片「撤销」：调服务端 rollback-files 恢复本会话修改的文件、删除会话
+  // 新建文件（影子备份，重复调用幂等）。撤销成功后记录会话 id，卡片按钮置灰为「已撤销」；
+  // 新一轮文件产物（onArtifactsChange）触发时重新武装。
+  const [rolledBackFilesSessionId, setRolledBackFilesSessionId] = useState<string | null>(null)
+
+  const rollbackFilesFromArtifactCard = useCallback(async () => {
+    const currentAgent = agentManager.agent
+    if (!currentAgent?.sessionId) return
+    const serverAgent = currentAgent as ServerAgent
+    if (typeof serverAgent.rollbackFiles !== 'function') return
+    if (currentAgent.state.isStreaming) {
+      addToast({ sessionId: currentAgent.sessionId, title: t('generationStillRunning'), status: 'error' })
+      return
+    }
+    try {
+      const result = await serverAgent.rollbackFiles()
+      if (result.errors.length > 0) {
+        addToast({
+          sessionId: currentAgent.sessionId,
+          title: t('assistantArtifactRollbackPartialFailed', { count: result.errors.length }),
+          status: 'error',
+          message: result.errors.map((file) => file.path).join(', '),
+        })
+      }
+      setRolledBackFilesSessionId(currentAgent.sessionId)
+    } catch (error) {
+      addToast({
+        sessionId: currentAgent.sessionId,
+        title: t('assistantArtifactRollbackFailed'),
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }, [addToast, agentManager.agent])
 
   // 附着时刻快照：agent/sessionId 变化时（restore 返回后消息已同步填充）记录全部历史
   // toolResult 的 toolCallId；缓存命中后后台校准补尾出现的 toolResult 会视为新产物（可接受）。
@@ -2279,7 +2339,13 @@ function MainApp() {
                       onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
                       onOpenLocalFilePath={openLocalFilePathFromChat}
                       onOpenFilePreview={openFilePreviewFromArtifactCard}
+                      onRollbackFiles={rollbackFilesFromArtifactCard}
+                      fileChangesRolledBack={rolledBackFilesSessionId !== null
+                        && rolledBackFilesSessionId === agentManager.currentSessionId}
+                      onReviewFileChanges={reviewFileChangesFromArtifactCard}
+                      onRevealFile={revealFileFromArtifactCard}
                       onArtifactsChange={(artifacts) => {
+                        setRolledBackFilesSessionId(null)
                         setCurrentSessionArtifactsState({
                           projectId: agentManager.currentToolProject?.id,
                           sessionId: agentManager.currentSessionId,

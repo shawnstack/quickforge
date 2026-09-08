@@ -25,6 +25,7 @@ import { createFileReferenceChip } from '../file-reference-suggestions'
 import { createCapabilityChip } from '../capability-suggestions'
 import { selectedCapabilitiesFromDetails } from '@/lib/selected-capabilities'
 import { syncAssistantArtifactCard } from './assistant-artifact-card'
+import { removeRollbackConfirmPopover, showRollbackConfirmPopover } from './rollback-confirm-popover'
 import type { FileContextReference } from '../chat-utils'
 
 const inputClampLabels: InputClampLabels = { collapsed: () => t('expand'), expanded: () => t('collapse') }
@@ -106,118 +107,16 @@ function decorateAssistantErrorText(element: HTMLElement, message: MessageWithUs
   block.replaceChildren(strong, document.createTextNode(` ${translated}`))
 }
 
-type RollbackPopoverElement = HTMLElement & {
-  quickforgeCleanup?: () => void
-}
-
-function removeRollbackConfirmPopover(panel: HTMLElement) {
-  panel.querySelectorAll<RollbackPopoverElement>('.quickforge-rollback-popover').forEach((popover) => {
-    popover.quickforgeCleanup?.()
-    const wrapper = popover.closest<HTMLElement>('.quickforge-rollback-action')
-    const trigger = wrapper?.querySelector<HTMLButtonElement>('button[data-quickforge-action="rollback"]')
-    trigger?.setAttribute('aria-expanded', 'false')
-    popover.remove()
-  })
-}
-
-function showRollbackConfirmPopover(options: {
-  panel: HTMLElement
-  button: HTMLButtonElement
-  messageIndex: number
-  title: string
-  description: string
-  onConfirm: (messageIndex: number) => Promise<void> | void
-}) {
-  const { panel, button, messageIndex, title, description, onConfirm } = options
-  const wrapper = button.closest<HTMLElement>('.quickforge-rollback-action')
-  if (!wrapper || button.disabled) return
-
-  const existing = wrapper.querySelector<RollbackPopoverElement>('.quickforge-rollback-popover')
-  if (existing) {
-    removeRollbackConfirmPopover(panel)
-    return
-  }
-
-  removeRollbackConfirmPopover(panel)
-
-  const popover = document.createElement('div') as RollbackPopoverElement
-  popover.className = 'quickforge-rollback-popover'
-  popover.setAttribute('role', 'dialog')
-  popover.setAttribute('aria-label', title)
-  popover.tabIndex = -1
-
-  const arrow = document.createElement('div')
-  arrow.className = 'quickforge-rollback-popover-arrow'
-
-  const titleElement = document.createElement('div')
-  titleElement.className = 'quickforge-rollback-popover-title'
-  titleElement.textContent = title
-
-  const descriptionElement = document.createElement('div')
-  descriptionElement.className = 'quickforge-rollback-popover-description'
-  descriptionElement.textContent = description
-
-  const footer = document.createElement('div')
-  footer.className = 'quickforge-rollback-popover-footer'
-
-  const cancelButton = document.createElement('button')
-  cancelButton.type = 'button'
-  cancelButton.className = 'quickforge-rollback-popover-cancel'
-  cancelButton.textContent = t('cancel')
-
-  const confirmButton = document.createElement('button')
-  confirmButton.type = 'button'
-  confirmButton.className = 'quickforge-rollback-popover-confirm'
-  confirmButton.textContent = t('confirmRollback')
-
-  footer.append(cancelButton, confirmButton)
-  popover.append(arrow, titleElement, descriptionElement, footer)
-
-  const close = () => removeRollbackConfirmPopover(panel)
-  const handleOutsidePointerDown = (event: PointerEvent) => {
-    const target = event.target as Node | null
-    if (!target || popover.contains(target) || button.contains(target)) return
-    close()
-  }
-  const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== 'Escape') return
-    event.preventDefault()
-    close()
-  }
-
-  popover.quickforgeCleanup = () => {
-    document.removeEventListener('pointerdown', handleOutsidePointerDown, true)
-    document.removeEventListener('keydown', handleKeyDown)
-  }
-  popover.addEventListener('pointerdown', (event) => event.stopPropagation())
-  popover.addEventListener('click', (event) => event.stopPropagation())
-  cancelButton.addEventListener('click', close)
-  confirmButton.addEventListener('click', async () => {
-    confirmButton.disabled = true
-    cancelButton.disabled = true
-    confirmButton.textContent = t('rollingBack')
-    try {
-      await onConfirm(messageIndex)
-    } finally {
-      close()
-    }
-  })
-
-  wrapper.append(popover)
-  button.setAttribute('aria-expanded', 'true')
-  document.addEventListener('pointerdown', handleOutsidePointerDown, true)
-  document.addEventListener('keydown', handleKeyDown)
-  window.requestAnimationFrame(() => confirmButton.focus())
-}
-
-function createRollbackAction(options: {
+type RollbackPopoverDeps = {
   panel: HTMLElement
   messageIndex: number
   isDisabled: boolean
   title: string
   description: string
   onConfirm: (messageIndex: number) => Promise<void> | void
-}) {
+}
+
+function createRollbackAction(options: RollbackPopoverDeps) {
   const wrapper = document.createElement('span')
   wrapper.className = 'quickforge-rollback-action'
 
@@ -225,10 +124,9 @@ function createRollbackAction(options: {
     showRollbackConfirmPopover({
       panel: options.panel,
       button,
-      messageIndex: options.messageIndex,
       title: options.title,
       description: options.description,
-      onConfirm: options.onConfirm,
+      onConfirm: () => options.onConfirm(options.messageIndex),
     })
   })
   rollbackButton.disabled = options.isDisabled
@@ -258,6 +156,14 @@ export type MessageDecorationDeps = {
   onContinueAfterError?: (errorMessage: MessageWithUsage) => void
   onOpenLocalFilePath?: (path: string) => void
   onOpenFilePreview?: (relativePath: string) => void
+  /** 会话文件撤销（artifact 卡片头部按钮）；readOnly 场景由调用方不传以隐藏。 */
+  onRollbackFiles?: () => Promise<void> | void
+  /** 当前会话文件改动是否已撤销（撤销后按钮置灰为「已撤销」）。 */
+  fileChangesRolledBack?: boolean
+  /** 审查单文件改动：打开工作区 Review 面板并直达该文件的 diff。 */
+  onReviewFileChanges?: (relativePath: string) => void
+  /** 在系统文件管理器中显示文件所在目录。 */
+  onRevealFile?: (relativePath: string) => void
   disableFork: boolean
   allowRollback?: boolean
   allowRetry?: boolean
@@ -448,6 +354,10 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     onContinueAfterError,
     onOpenLocalFilePath,
     onOpenFilePreview,
+    onRollbackFiles,
+    fileChangesRolledBack,
+    onReviewFileChanges,
+    onRevealFile,
     disableFork,
     allowRollback = true,
     allowRetry = true,
@@ -688,6 +598,10 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     messages: getMessages(),
     streaming,
     onOpenFilePreview,
+    onRollbackFiles,
+    fileChangesRolledBack,
+    onReviewFileChanges,
+    onRevealFile,
   })
 
   closeSvgCodeBlockMenus(panel)

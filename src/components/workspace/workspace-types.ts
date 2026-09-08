@@ -12,7 +12,7 @@ type WorkspaceInspectorRequestScope = {
 }
 
 export type WorkspaceInspectorOpenRequest =
-  | ({ id: number; projectId: string; kind: 'review'; view: 'review' | 'changes' } & WorkspaceInspectorRequestScope)
+  | ({ id: number; projectId: string; kind: 'review'; view: 'review' | 'changes'; /** 指定文件时在 Review 面板内直达该文件的 diff tab */ path?: string } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'files' | 'terminal' | 'side-chat' } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'reader'; path: string } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'document'; path: string; format: 'pdf' | 'docx' | 'excel' } & WorkspaceInspectorRequestScope)

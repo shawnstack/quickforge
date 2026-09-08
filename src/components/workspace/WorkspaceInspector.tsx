@@ -714,6 +714,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   const openSubagentRunTabRef = useRef<((payload: SubagentRunPayload) => void) | undefined>(undefined)
   const openFileTabRef = useRef<((path: string) => void) | undefined>(undefined)
   const openDocumentTabRef = useRef<((path: string, format: DocumentFormat) => void) | undefined>(undefined)
+  const openDiffTabRef = useRef<((path: string, switchToChanges: boolean) => void) | undefined>(undefined)
   const handledRequestIdRef = useRef<number | undefined>(undefined)
   const projectGuardRef = useRef(createWorkspaceInspectorProjectGuard())
   const loadingReaderKeysRef = useRef<Set<string>>(new Set())
@@ -978,6 +979,8 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     handledRequestIdRef.current = request.id
     if (request.kind === 'review') {
       openPanelTabRef.current?.('review', request.view)
+      // 指定文件时（如聊天文件卡「审查」）直达该文件的 diff tab。
+      if (request.path) openDiffTabRef.current?.(request.path, false)
     } else if (request.kind === 'reader') {
       openFileTabRef.current?.(request.path)
     } else if (request.kind === 'document') {
@@ -1545,6 +1548,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     setActivePanelTabId(targetTab.id)
   }
   openDocumentTabRef.current = openDocumentTab
+  openDiffTabRef.current = openDiffTab
 
   async function openDiffTab(path: string, switchToChanges: boolean) {
     if (!projectId) return

@@ -33,22 +33,30 @@
       "id": "assistant-reply-artifact-card",
       "name": "助手回复底部本轮文件产物卡片",
       "status": "done",
-      "approach": "在 message-actions decorateMessages 中同步 assistant-artifact-card：从 extractCurrentTurnArtifacts 提取当前轮 write_file/edit_file/present_files 且有 path 的文件，仅挂到最后一个已完成 assistant，流式或无产物时移除；按 design-mockups/assistant-reply-file-card.html 展示文件图标、标题/说明、总 +N/-N、类型徽标、文件名/路径/辅助信息、每文件差异、统一“打开”预览按钮与底部变更范围/详情展开；Lit 重建幂等。",
+      "approach": "在 message-actions decorateMessages 中同步 assistant-artifact-card：从 extractCurrentTurnArtifacts 提取当前轮 write_file/edit_file/present_files 且有 path 的文件，仅挂到最后一个已完成 assistant，流式或无产物时移除。Revision（对齐截图交互）：① 卡片头部「撤销」——共享 rollback-confirm-popover.ts 确认后经 App rollbackFilesFromArtifactCard 调 ServerAgent.rollbackFiles()（POST /api/agents/:id/rollback-files，服务端幂等），成功按会话 id 置灰「已撤销」，onArtifactsChange 重新武装，readOnly 隐藏。Revision 3（完全对齐截图两类卡）：present_files 拆为每文件独立单文件卡（类型 SVG 图标 + i18n「类别 · KIND」副标题）；write_file/edit_file 聚合为默认折叠的「N 个文件已更改 +X -Y」卡（header 点击/键盘切换 chevron 展开，展开态持久在宿主消息元素 dataset 跨 Lit 重建保留），行内 = 类型图标 + 文件名/路径同行 + +N/-N 统计 + 「审查」+「打开▾」下拉（预览打开 → onOpenFilePreview；在文件管理器中显示 → onRevealFile 复用 open-external explorer）。「审查」经 onReviewFileChanges(path) → requestWorkspaceInspector({kind:'review',view:'changes',path})，WorkspaceInspectorOpenRequest review 分支新增可选 path，WorkspaceInspector 直达 openDiffTab 单文件 Monaco diff（git 工作区口径）。幂等改为签名跳过重建：卡片 dataset.quickforgeArtifactSignature 与计划一致时仅校正位置不重建，确认弹层/下拉/展开态跨装饰周期存活。Revision 4（样式定稿，design-mockups/assistant-reply-file-card-v2.html）：± 统计红绿着色（与应用 diff token 同源 light green-700/red-700、dark green-300/red-300）+ GitHub 风格 5px 比例条（段宽按 +N/−N flex 占比）；卡片宽度 620px 上限改为 width:100% 填满消息容器与对话正文同宽；折叠头「标题左 + 统计组（margin-left:auto）+ 撤销右」布局防流式 +N 推挤标题；打开/审查/撤销按钮 Ghost 化（无边框、hover 浮底，撤销 hover 转红）；明细展开改 grid-template-rows 0fr→1fr 动画（visibility 延迟切换防折叠区 Tab 聚焦，reduced-motion 关闭）。Revision 5（复查修复）：行内 ± 统计与按钮字号统一 0.75rem（原继承正文 ~14px 超出卡片字号档）；新增 floating-position.ts positionFixedDropdown，打开菜单与撤销确认弹层改 fixed 视口定位（clamp + 下方不足向上翻、-up 箭头变体、scroll/resize 即关）——逃逸明细动画层 overflow:hidden 与消息列表滚动裁剪，removeArtifactCards 统一 closeActiveOpenMenu 清监听。Revision 6（生命周期）：sync 流式分支改纯 return 不清卡，卡片生命周期改为「最近一个有文件产物的轮」——findLastArtifactTurn 在 displayEntries 从新向旧按 user 边界扫描（extractArtifactsFromMessages 自 tool-artifacts 导出），新轮无产物时旧卡保留（签名一致跳过），有产物时流式结束后换轮重建，全无产物轮才清卡；deps 删 messages 字段。",
       "files": [
         "src/components/chat/panel-decoration/assistant-artifact-card.ts",
         "src/components/chat/panel-decoration/message-actions.ts",
+        "src/components/chat/panel-decoration/rollback-confirm-popover.ts",
+        "src/components/chat/panel-decoration/floating-position.ts",
         "src/components/chat/panel-decoration.ts",
         "src/components/chat/ChatPanelHost.tsx",
+        "src/App.tsx",
+        "src/lib/server-agent.ts",
         "src/index.css",
         "src/lib/i18n.ts",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "src/components/workspace/workspace-types.ts",
         "tests/frontend/assistant-artifact-card.test.ts",
+        "tests/frontend/sidebar-session-action-alignment.test.ts",
         "design-mockups/assistant-reply-file-card.html",
+        "design-mockups/assistant-reply-file-card-v2.html",
         "feature_list.json",
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "定向 vitest、npx tsc -b、全量 npm run test（283 files / 2688 tests 全过）/ npm run lint（0 error，仅既有 warning）/ npm run build、git diff --check 均通过",
-      "boundaries": "未修改服务端、生成产物或设计无关代码；已提交 dev，未 push。"
+      "verification": "Revision 6 验证：全量前端 vitest 132 files / 1371 tests 全过（含并行会话新增测试）；Revision 5：131/1360、eslint 改动文件 0 error、npx tsc -b、npm run build 通过。Revision 4：131/1358；顺带修复既有 sidebar-session-action-alignment 陈旧断言（源码 518c176 已改 w-11，测试仍断 w-9）。",
+      "boundaries": "服务端零改动（rollback-files/open-external 既有）；「审查」显示 git 工作区 diff，与 ± 统计的会话影子备份口径不同（有意如此，源码注释标注）；未 commit。"
     },
     {
       "id": "session-change-summary-rollback",

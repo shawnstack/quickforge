@@ -1,0 +1,875 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI 回复文件卡片 v2 · diff 着色 + 对话宽度对齐 · QuickForge 设计稿</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f7f7f5;
+      --surface: #ffffff;
+      --surface-soft: #fafaf9;
+      --surface-hover: #f4f4f2;
+      --border: #e7e7e4;
+      --border-strong: #d8d8d3;
+      --text: #242422;
+      --text-soft: #666662;
+      --text-muted: #969691;
+      --accent: #3f6f9e;
+      --accent-soft: #edf4fb;
+      /* 与应用 .quickforge-diff-stats-add / -del 完全同源的红绿 */
+      --add: rgb(21 128 61);
+      --del: rgb(185 28 28);
+      --shadow: 0 8px 24px -22px rgb(20 20 20 / 35%);
+      --radius-lg: 16px;
+      --radius-md: 11px;
+      --radius-sm: 8px;
+      --ease-out: cubic-bezier(.2, 0, 0, 1);
+      --dur-fast: 120ms;
+      --dur-base: 180ms;
+      --content-col: 56rem; /* var(--quickforge-chat-content-max-width) */
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --page: #171817;
+      --surface: #202120;
+      --surface-soft: #1c1d1c;
+      --surface-hover: #292a28;
+      --border: #353733;
+      --border-strong: #494c48;
+      --text: #ecece8;
+      --text-soft: #aaaba5;
+      --text-muted: #797d76;
+      --accent: #91b8df;
+      --accent-soft: #263544;
+      --add: rgb(134 239 172);
+      --del: rgb(252 165 165);
+      --shadow: 0 12px 30px -26px rgb(0 0 0 / 80%);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--page);
+      color: var(--text);
+      font: 14px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      transition: background var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
+    }
+
+    button { font: inherit; color: inherit; }
+
+    .page {
+      width: min(100% - 40px, 1180px);
+      margin: 0 auto;
+      padding: 36px 0 60px;
+    }
+
+    /* ============ 顶部控制条 ============ */
+    .review-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 18px;
+      margin-bottom: 22px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--text-soft);
+      font-size: 12px;
+      letter-spacing: .02em;
+      margin-right: auto;
+    }
+
+    .eyebrow-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--add);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--add) 13%, transparent);
+    }
+
+    .opt {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 12px;
+      background: var(--surface);
+      color: var(--text-soft);
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+      transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+    }
+
+    .opt:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+    .opt input { accent-color: var(--accent); margin: 0; }
+    .opt.is-on { color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+
+    .theme-toggle {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 12px;
+      background: var(--surface);
+      color: var(--text-soft);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+    }
+    .theme-toggle:hover { background: var(--surface-hover); }
+    .theme-toggle:active { transform: scale(.97); }
+
+    /* ============ 聊天壳与内容列 ============ */
+    .chat-shell {
+      overflow: visible;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 54px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-soft);
+      font-size: 12px;
+    }
+    .chat-header strong { color: var(--text); font-weight: 600; }
+    .header-meta { color: var(--text-muted); }
+
+    .messages {
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      padding: 30px clamp(18px, 4vw, 48px) 30px;
+    }
+
+    /* 内容列：与真实应用一致 —— min(100%, 56rem) 居中。
+       正文、两类卡片、输入框全部落在同一对边上。 */
+    .msg-col {
+      position: relative;
+      width: min(100%, var(--content-col));
+      margin-inline: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* 对齐参考线（勾选后显示）：虚线 = 56rem 内容列左右边 */
+    .guide-l, .guide-r {
+      position: absolute;
+      top: -30px;
+      bottom: -22px;
+      width: 0;
+      border-left: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--dur-base) var(--ease-out);
+      z-index: 5;
+    }
+    .guide-l { left: -10px; }
+    .guide-r { right: -10px; }
+    .guide-tag {
+      position: absolute;
+      top: -4px;
+      left: -10px;
+      transform: translateX(-100%);
+      padding: 2px 7px;
+      border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--accent);
+      font-size: 10.5px;
+      white-space: nowrap;
+    }
+    body.show-guides .guide-l, body.show-guides .guide-r { opacity: 1; }
+
+    /* ============ 消息 ============ */
+    .user-msg {
+      align-self: flex-end;
+      max-width: 78%;
+      padding: 9px 14px;
+      border-radius: 16px 16px 4px 16px;
+      background: var(--surface-hover);
+      color: var(--text);
+      font-size: 13.5px;
+    }
+
+    .assistant-msg {
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .assistant-msg p { margin: 0 0 10px; }
+    .assistant-msg p:last-child { margin-bottom: 0; }
+
+    /* ============ 单文件卡（present_files） ============ */
+    .file-card {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      transition: border-color var(--dur-fast) var(--ease-out);
+    }
+    .file-card:hover { border-color: var(--border-strong); }
+
+    .type-icon {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      flex: none;
+      border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+      color: var(--accent);
+    }
+    .type-icon svg {
+      width: 18px; height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.7;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .type-icon.sm { width: 26px; height: 26px; border-radius: 7px; }
+    .type-icon.sm svg { width: 13px; height: 13px; }
+
+    .file-card-heading { min-width: 0; flex: 1 1 auto; }
+    .file-card-name {
+      overflow: hidden;
+      font-size: 13px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: var(--mono);
+    }
+    .file-card-sub {
+      overflow: hidden;
+      margin-top: 2px;
+      color: var(--text-muted);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ============ 聚合卡（write_file / edit_file） ============ */
+    .agg-card {
+      display: flex;
+      width: 100%;
+      flex-direction: column;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .agg-header {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 10px 9px 12px;
+      border-radius: var(--radius-lg);
+      cursor: pointer;
+      user-select: none;
+      transition: background var(--dur-fast) var(--ease-out);
+    }
+    .agg-header:hover { background: var(--surface-hover); }
+    .agg-header:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: -2px; }
+
+    .chev {
+      display: grid;
+      place-items: center;
+      width: 16px;
+      height: 16px;
+      flex: none;
+      color: var(--text-muted);
+      transition: transform var(--dur-fast) var(--ease-out);
+    }
+    .chev svg {
+      width: 14px; height: 14px;
+      fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .agg-card[data-expanded="true"] .chev { transform: rotate(90deg); }
+
+    .agg-title {
+      min-width: 0;
+      flex: 0 1 auto;
+      overflow: hidden;
+      font-size: 13px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* 头部统计组：右对齐推到撤销左侧，数字用 tabular-nums —— 流式 +N 增长不推动标题 */
+    .agg-stats-group {
+      display: inline-flex;
+      flex: none;
+      align-items: center;
+      gap: 12px;
+      margin-left: auto;
+      padding-right: 4px;
+    }
+
+    .diffbar {
+      --w: 52px;
+      display: none;
+      width: var(--w);
+      height: 5px;
+      flex: none;
+      gap: 2px;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .diffbar i { display: block; height: 100%; border-radius: 999px; }
+    .diffbar .b-add { background: var(--add); opacity: .8; }
+    .diffbar .b-del { background: var(--del); opacity: .8; }
+    body.show-bars .diffbar { display: inline-flex; }
+
+    .stats {
+      display: inline-flex;
+      gap: 10px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .stat-add { color: var(--add); }
+    .stat-del { color: var(--del); }
+
+    /* ============ 按钮 ============ */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      flex: none;
+      padding: 6px 10px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+    }
+    .btn svg {
+      width: 13px; height: 13px;
+      fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .btn:hover { background: var(--surface-hover); color: var(--text); }
+    .btn:active { transform: scale(.97); }
+    .btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 1px; }
+    .btn[disabled] { cursor: default; opacity: .5; }
+    .btn[disabled]:hover { background: transparent; color: var(--text-muted); }
+
+    /* 「描边按钮」对照态：勾掉 ghost 选项后回到当前实现的描边样式 */
+    body:not(.btn-ghost) .btn {
+      border-color: var(--border);
+      background: var(--surface);
+    }
+    body:not(.btn-ghost) .btn:hover {
+      border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+      background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+      color: var(--text);
+    }
+
+    .btn-undo { color: var(--text-soft); }
+    body.btn-ghost .btn-undo:hover { color: var(--del); background: color-mix(in srgb, var(--del) 8%, transparent); }
+
+    /* 打开▾ 下拉 */
+    .open-wrap { position: relative; }
+
+    .open-menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      z-index: 30;
+      display: none;
+      min-width: 186px;
+      padding: 5px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      box-shadow: 0 14px 34px -18px rgb(20 20 20 / 40%);
+    }
+    .open-menu.open { display: block; }
+
+    .menu-item {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 9px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--text-soft);
+      font-size: 12.5px;
+      text-align: left;
+      cursor: pointer;
+      transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+    }
+    .menu-item:hover { background: var(--surface-hover); color: var(--text); }
+    .menu-item svg {
+      width: 14px; height: 14px;
+      flex: none;
+      fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    /* ============ 展开明细 ============ */
+    .agg-details-wrap {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows var(--dur-base) var(--ease-out);
+    }
+    .agg-card[data-expanded="true"] .agg-details-wrap { grid-template-rows: 1fr; }
+    .agg-details { overflow: hidden; }
+    .agg-card[data-expanded="true"] .agg-details { padding-bottom: 5px; }
+
+    .agg-row {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 10px;
+      min-height: 44px;
+      padding: 5px 12px;
+      border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+      border-radius: 0 0 2px 2px;
+      transition: background var(--dur-fast) var(--ease-out);
+    }
+    .agg-row:hover { background: var(--surface-soft); }
+
+    .agg-row-info { min-width: 0; flex: 1 1 auto; display: flex; align-items: baseline; gap: 8px; overflow: hidden; }
+    .agg-row-name {
+      overflow: hidden;
+      flex: 0 1 auto;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .agg-row-path {
+      overflow: hidden;
+      flex: 1 1 auto;
+      min-width: 3rem;
+      color: var(--text-muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .agg-row-actions { display: inline-flex; flex: none; align-items: center; gap: 6px; }
+
+    /* ============ 输入框 ============ */
+    .composer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 46px;
+      padding: 6px 8px 6px 18px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      color: var(--text-muted);
+      font-size: 13.5px;
+    }
+    .composer .composer-send {
+      margin-left: auto;
+      width: 34px; height: 34px;
+      display: grid; place-items: center;
+      border: 0; border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent);
+      cursor: pointer;
+    }
+    .composer .composer-send svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ============ 变更清单 ============ */
+    .notes {
+      margin-top: 26px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      padding: 20px 24px;
+    }
+    .notes h2 { margin: 0 0 4px; font-size: 14px; }
+    .notes .notes-sub { margin: 0 0 14px; color: var(--text-muted); font-size: 12px; }
+    .notes ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 9px; }
+    .notes li { font-size: 13px; color: var(--text-soft); }
+    .notes li strong { color: var(--text); font-weight: 600; }
+    .notes li code {
+      padding: 1px 5px;
+      border-radius: 5px;
+      background: var(--surface-hover);
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--text);
+    }
+    .chip-must {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--add) 12%, transparent);
+      color: var(--add);
+      font-size: 10.5px;
+      vertical-align: 1px;
+    }
+    .chip-opt {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      color: var(--accent);
+      font-size: 10.5px;
+      vertical-align: 1px;
+    }
+
+    .hint {
+      margin: 10px 2px 0;
+      color: var(--text-muted);
+      font-size: 11.5px;
+      text-align: center;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+    }
+  </style>
+</head>
+<body class="btn-ghost show-bars">
+  <main class="page">
+    <div class="review-bar">
+      <span class="eyebrow"><span class="eyebrow-dot"></span>design-mockups / assistant-reply-file-card-v2</span>
+      <label class="opt is-on" id="optGhost"><input type="checkbox" checked />按钮 Ghost 化</label>
+      <label class="opt is-on" id="optBars"><input type="checkbox" checked />± 比例条</label>
+      <label class="opt" id="optGuides"><input type="checkbox" />对齐参考线</label>
+      <button class="theme-toggle" id="themeToggle" type="button">切换深色</button>
+    </div>
+
+    <section class="chat-shell">
+      <div class="chat-header">
+        <span><strong>quickforge</strong> · dev</span>
+        <span class="header-meta">demo · 会话产物卡片样式对齐</span>
+      </div>
+
+      <div class="messages">
+        <div class="msg-col">
+          <span class="guide-l"><span class="guide-tag">56rem 内容列左缘</span></span>
+          <span class="guide-r"></span>
+
+          <div class="user-msg">把产物卡的样式和对话对齐一下，diff 数字要有红绿区分。</div>
+
+          <div class="assistant-msg">
+            <p>好的，已按三处调整：±统计使用应用 diff 红/绿 token；卡片宽度从 620px 上限改为填满对话内容列（56rem，与正文、输入框同边）；折叠头改为「标题左 · 统计右」布局。</p>
+          </div>
+
+          <!-- present_files 单文件卡 ×2：满内容列宽 -->
+          <div class="file-card">
+            <span class="type-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 18V6h4l3 4 3-4h4v12" /><path d="M14 14l3 3 3-3" /></svg>
+            </span>
+            <span class="file-card-heading">
+              <span class="file-card-name">session-handoff.md</span>
+              <span class="file-card-sub">文档 · MD</span>
+            </span>
+            <span class="file-card-actions open-wrap">
+              <button class="btn open-btn" type="button">打开
+                <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg>
+              </button>
+              <span class="open-menu" role="menu">
+                <button class="menu-item" type="button" role="menuitem">
+                  <svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                  预览打开
+                </button>
+                <button class="menu-item" type="button" role="menuitem">
+                  <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+                  在文件管理器中显示
+                </button>
+              </span>
+            </span>
+          </div>
+
+          <div class="file-card">
+            <span class="type-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 18V6h4l3 4 3-4h4v12" /><path d="M14 14l3 3 3-3" /></svg>
+            </span>
+            <span class="file-card-heading">
+              <span class="file-card-name">progress.md</span>
+              <span class="file-card-sub">文档 · MD</span>
+            </span>
+            <span class="file-card-actions open-wrap">
+              <button class="btn open-btn" type="button">打开
+                <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg>
+              </button>
+              <span class="open-menu" role="menu">
+                <button class="menu-item" type="button" role="menuitem">
+                  <svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                  预览打开
+                </button>
+                <button class="menu-item" type="button" role="menuitem">
+                  <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+                  在文件管理器中显示
+                </button>
+              </span>
+            </span>
+          </div>
+
+          <!-- write/edit 聚合卡：默认折叠，头部统计红绿 -->
+          <div class="agg-card" id="aggCard" data-expanded="false">
+            <div class="agg-header" id="aggHeader" role="button" tabindex="0" aria-expanded="false">
+              <span class="chev" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" /></svg></span>
+              <span class="agg-title">13 个文件已更改</span>
+              <span class="agg-stats-group">
+                <span class="diffbar" aria-hidden="true">
+                  <i class="b-add" style="flex: 353 0 0px"></i>
+                  <i class="b-del" style="flex: 134 0 0px"></i>
+                </span>
+                <span class="stats">
+                  <span class="stat-add">+353</span>
+                  <span class="stat-del">−134</span>
+                </span>
+              </span>
+              <button class="btn btn-undo" type="button">撤销</button>
+            </div>
+
+            <div class="agg-details-wrap">
+              <div class="agg-details">
+                <div class="agg-row">
+                  <span class="type-icon sm" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6l-5 6 5 6" /><path d="M16 6l5 6-5 6" /></svg></span>
+                  <span class="agg-row-info">
+                    <span class="agg-row-name">assistant-artifact-card.ts</span>
+                    <span class="agg-row-path">src/components/chat/panel-decoration/</span>
+                  </span>
+                  <span class="diffbar" aria-hidden="true">
+                    <i class="b-add" style="flex: 212 0 0px"></i>
+                    <i class="b-del" style="flex: 97 0 0px"></i>
+                  </span>
+                  <span class="stats"><span class="stat-add">+212</span><span class="stat-del">−97</span></span>
+                  <span class="agg-row-actions">
+                    <button class="btn" type="button">审查</button>
+                    <span class="open-wrap">
+                      <button class="btn open-btn" type="button">打开
+                        <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg>
+                      </button>
+                      <span class="open-menu" role="menu">
+                        <button class="menu-item" type="button" role="menuitem">
+                          <svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                          预览打开
+                        </button>
+                        <button class="menu-item" type="button" role="menuitem">
+                          <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+                          在文件管理器中显示
+                        </button>
+                      </span>
+                    </span>
+                  </span>
+                </div>
+
+                <div class="agg-row">
+                  <span class="type-icon sm" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6l-5 6 5 6" /><path d="M16 6l5 6-5 6" /></svg></span>
+                  <span class="agg-row-info">
+                    <span class="agg-row-name">message-actions.ts</span>
+                    <span class="agg-row-path">src/components/chat/panel-decoration/</span>
+                  </span>
+                  <span class="diffbar" aria-hidden="true">
+                    <i class="b-add" style="flex: 38 0 0px"></i>
+                    <i class="b-del" style="flex: 12 0 0px"></i>
+                  </span>
+                  <span class="stats"><span class="stat-add">+38</span><span class="stat-del">−12</span></span>
+                  <span class="agg-row-actions">
+                    <button class="btn" type="button">审查</button>
+                    <span class="open-wrap">
+                      <button class="btn open-btn" type="button">打开
+                        <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg>
+                      </button>
+                      <span class="open-menu" role="menu">
+                        <button class="menu-item" type="button" role="menuitem">
+                          <svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                          预览打开
+                        </button>
+                        <button class="menu-item" type="button" role="menuitem">
+                          <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+                          在文件管理器中显示
+                        </button>
+                      </span>
+                    </span>
+                  </span>
+                </div>
+
+                <div class="agg-row">
+                  <span class="type-icon sm" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 18V6h4l3 4 3-4h4v12" /><path d="M14 14l3 3 3-3" /></svg></span>
+                  <span class="agg-row-info">
+                    <span class="agg-row-name">session-handoff.md</span>
+                    <span class="agg-row-path">./</span>
+                  </span>
+                  <span class="diffbar" aria-hidden="true">
+                    <i class="b-add" style="flex: 57 0 0px"></i>
+                    <i class="b-del" style="flex: 23 0 0px"></i>
+                  </span>
+                  <span class="stats"><span class="stat-add">+57</span><span class="stat-del">−23</span></span>
+                  <span class="agg-row-actions">
+                    <button class="btn" type="button">审查</button>
+                    <span class="open-wrap">
+                      <button class="btn open-btn" type="button">打开
+                        <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg>
+                      </button>
+                      <span class="open-menu" role="menu">
+                        <button class="menu-item" type="button" role="menuitem">
+                          <svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                          预览打开
+                        </button>
+                        <button class="menu-item" type="button" role="menuitem">
+                          <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+                          在文件管理器中显示
+                        </button>
+                      </span>
+                    </span>
+                  </span>
+                </div>
+
+                <!-- 纯新增文件：只有 +N，无 − -->
+                <div class="agg-row">
+                  <span class="type-icon sm" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6l-5 6 5 6" /><path d="M16 6l5 6-5 6" /></svg></span>
+                  <span class="agg-row-info">
+                    <span class="agg-row-name">rollback-confirm-popover.ts</span>
+                    <span class="agg-row-path">src/components/chat/panel-decoration/</span>
+                  </span>
+                  <span class="diffbar" aria-hidden="true">
+                    <i class="b-add" style="flex: 1 0 0px"></i>
+                  </span>
+                  <span class="stats"><span class="stat-add">+96</span></span>
+                  <span class="agg-row-actions">
+                    <button class="btn" type="button">审查</button>
+                    <span class="open-wrap">
+                      <button class="btn open-btn" type="button">打开
+                        <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg>
+                      </button>
+                      <span class="open-menu" role="menu">
+                        <button class="menu-item" type="button" role="menuitem">
+                          <svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+                          预览打开
+                        </button>
+                        <button class="menu-item" type="button" role="menuitem">
+                          <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+                          在文件管理器中显示
+                        </button>
+                      </span>
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 输入框：佐证三段（正文 / 卡片 / 输入框）共享同一对边 -->
+          <div class="composer">
+            发送消息…
+            <button class="composer-send" type="button" aria-label="发送">
+              <svg viewBox="0 0 24 24"><path d="M5 12h13" /><path d="M12 5l7 7-7 7" /></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p class="hint">点击折叠条可展开/收起（展开用 grid-rows 过渡）；「打开▾」可点开下拉。</p>
+
+    <!-- ============ 变更清单 ============ -->
+    <section class="notes">
+      <h2>本稿变更点（对齐讨论用）</h2>
+      <p class="notes-sub">前两项为指定必改；其余为建议项，均可在顶部勾选实时对比。</p>
+      <ol>
+        <li><strong>± 统计红绿着色</strong><span class="chip-must">必改</span> —— 复用应用现有 diff token（<code>.quickforge-diff-stats-add/del</code>：亮色 <code>rgb(21 128 61)</code>/<code>rgb(185 28 28)</code>，暗色 green-300/red-300），折叠头与行内统计同源，tabular-nums 等宽数字。</li>
+        <li><strong>宽度对齐对话</strong><span class="chip-must">必改</span> —— 卡片从 <code>min(100%, 620px)</code> 改为填满消息容器（<code>width:100%</code>，容器本身受 <code>min(56rem, 100%−2rem)</code> 约束），单文件卡 / 聚合卡 / 正文 / 输入框四者同边。勾选「对齐参考线」看虚线。</li>
+        <li><strong>折叠头排版</strong><span class="chip-opt">建议</span> —— 「N 个文件已更改」居左，±统计+撤销推到右侧成组；流式更新时 +N 增长只推右侧统计、不挤压标题。</li>
+        <li><strong>± 比例条</strong><span class="chip-opt">建议</span> —— GitHub 风格 5px 双色条（段宽按 +N/−N 占比 flex 分配，红绿各 80% 不透明度），纯新增文件只有绿段。纯新增、纯删除、混合一眼可辨；嫌吵可关。</li>
+        <li><strong>按钮 Ghost 化</strong><span class="chip-opt">建议</span> —— 打开/审查/撤销从描边按钮改为无边框 ghost（muted 色、hover 浮底），更接近截图的轻量观感；撤销 hover 转红提示破坏性。取消勾选可回到当前描边样式对比。</li>
+        <li><strong>展开动画</strong><span class="chip-opt">建议</span> —— 明细区用 <code>grid-template-rows 0fr→1fr</code> 过渡展开（比 max-height 稳定，无内容高度测量），<code>prefers-reduced-motion</code> 关闭。</li>
+      </ol>
+    </section>
+  </main>
+
+  <script>
+    const root = document.documentElement;
+
+    const themeToggle = document.getElementById('themeToggle');
+    themeToggle.addEventListener('click', () => {
+      const dark = root.dataset.theme !== 'dark';
+      root.dataset.theme = dark ? 'dark' : 'light';
+      themeToggle.textContent = dark ? '切换浅色' : '切换深色';
+    });
+
+    function bindOpt(id, className, onChange) {
+      const label = document.getElementById(id);
+      const input = label.querySelector('input');
+      const sync = () => {
+        document.body.classList.toggle(className, input.checked);
+        label.classList.toggle('is-on', input.checked);
+        onChange?.(input.checked);
+      };
+      input.addEventListener('change', sync);
+      sync();
+    }
+
+    bindOpt('optGhost', 'btn-ghost');
+    bindOpt('optBars', 'show-bars');
+    bindOpt('optGuides', 'show-guides');
+
+    const aggCard = document.getElementById('aggCard');
+    const aggHeader = document.getElementById('aggHeader');
+    function setExpanded(expanded) {
+      aggCard.dataset.expanded = String(expanded);
+      aggHeader.setAttribute('aria-expanded', String(expanded));
+    }
+    aggHeader.addEventListener('click', (event) => {
+      if (event.target.closest('.btn')) return; // 按钮（撤销等）不触发折叠
+      setExpanded(aggCard.dataset.expanded !== 'true');
+    });
+    aggHeader.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        setExpanded(aggCard.dataset.expanded !== 'true');
+      }
+    });
+
+    // 打开▾ 下拉：互斥
+    document.addEventListener('click', (event) => {
+      const openBtn = event.target.closest('.open-btn');
+      document.querySelectorAll('.open-menu.open').forEach((menu) => {
+        if (!openBtn || menu !== openBtn.parentElement.querySelector('.open-menu')) menu.classList.remove('open');
+      });
+      if (openBtn) {
+        const menu = openBtn.parentElement.querySelector('.open-menu');
+        menu.classList.toggle('open');
+      }
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') document.querySelectorAll('.open-menu.open').forEach((menu) => menu.classList.remove('open'));
+    });
+  </script>
+</body>
+</html>

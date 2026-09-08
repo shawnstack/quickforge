@@ -2489,10 +2489,8 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
 }
 
 .quickforge-rollback-popover {
-  position: absolute;
+  position: fixed;
   z-index: 45;
-  top: calc(100% + 0.5rem);
-  right: 0;
   width: min(19rem, calc(100vw - 2rem));
   padding: 0.75rem;
   border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
@@ -2514,6 +2512,16 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
   border-left: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
   background: color-mix(in oklab, var(--popover) 96%, transparent);
   transform: rotate(45deg);
+}
+
+/* 触发器贴近视口底部、弹层向上翻转时，箭头移到底边。 */
+.quickforge-rollback-popover-up .quickforge-rollback-popover-arrow {
+  top: auto;
+  bottom: -0.35rem;
+  border-top: 0;
+  border-left: 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-right: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
 }
 
 .quickforge-rollback-popover-title {
@@ -6269,33 +6277,33 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   }
 }
 
-/* Assistant reply artifact card layout: file list stays visible; details are opt-in. */
-.quickforge-assistant-artifact-card {
+/* Assistant reply artifact cards: presented-file cards + collapsed changed-files card. */
+.quickforge-assistant-artifact-card,
+.quickforge-assistant-file-card {
+  position: relative;
   display: flex;
-  width: min(100%, 620px);
+  width: 100%;
   max-width: 100%;
   flex-direction: column;
   margin: 0.75rem 0 0;
   padding: 0;
-  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 1rem;
   background: var(--card);
   box-shadow: 0 8px 24px -22px rgb(20 20 20 / 35%);
 }
 
-.quickforge-assistant-artifact-card-header {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
+/* present 单文件卡：一行式（图标 + 文件名/类别 + 打开菜单）。 */
+.quickforge-assistant-file-card {
+  flex-direction: row;
+  align-items: center;
   gap: 0.75rem;
-  padding: 0.875rem 0.9375rem 0.75rem;
+  padding: 0.75rem 0.875rem;
 }
 
-.quickforge-assistant-artifact-card-icon {
+.quickforge-assistant-file-card-icon,
+.quickforge-assistant-artifact-card-type {
   display: grid;
-  width: 2.125rem;
-  height: 2.125rem;
   flex: none;
   place-items: center;
   border: 1px solid color-mix(in oklab, var(--primary) 18%, var(--border));
@@ -6304,7 +6312,13 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   color: var(--primary);
 }
 
-.quickforge-assistant-artifact-card-icon svg {
+.quickforge-assistant-file-card-icon {
+  width: 2.125rem;
+  height: 2.125rem;
+}
+
+.quickforge-assistant-file-card-icon svg,
+.quickforge-assistant-artifact-card-type svg {
   width: 1.125rem;
   height: 1.125rem;
   fill: none;
@@ -6314,75 +6328,293 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   stroke-linejoin: round;
 }
 
-.quickforge-assistant-artifact-card-heading {
+.quickforge-assistant-file-card-heading {
   min-width: 0;
   flex: 1 1 auto;
+}
+
+.quickforge-assistant-file-card-name {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-assistant-file-card-sub {
+  overflow: hidden;
+  margin-top: 0.125rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-assistant-file-card-actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+/* 聚合卡折叠头：chevron + 「N 个文件已更改」+ 总 ±行数 + 撤销，整行可点。 */
+.quickforge-assistant-artifact-card-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 1rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.quickforge-assistant-artifact-card-header:hover { background: color-mix(in oklab, var(--muted) 45%, transparent); }
+.quickforge-assistant-artifact-card-header:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: -2px;
+}
+
+.quickforge-assistant-artifact-card-chevron {
+  display: grid;
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: none;
+  place-items: center;
+  color: var(--muted-foreground);
+  transition: transform var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-assistant-artifact-card-chevron svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-assistant-artifact-card[data-quickforge-artifact-expanded="true"] .quickforge-assistant-artifact-card-chevron {
+  transform: rotate(90deg);
+}
+
+.quickforge-assistant-artifact-card-heading {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: baseline;
+  gap: 0.5rem;
 }
 
 .quickforge-assistant-artifact-card-title {
   overflow: hidden;
   margin: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.quickforge-assistant-artifact-card-description {
-  overflow: hidden;
-  margin: 0.1875rem 0 0;
-  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.quickforge-assistant-artifact-card-total,
-.quickforge-assistant-artifact-card-file-stats {
+/* 折叠头统计组：margin-left:auto 推到右侧（撤销按钮左侧），流式 +N 增长不挤压标题。 */
+.quickforge-assistant-artifact-card-header-stats {
   display: inline-flex;
-  gap: 0.5rem;
+  flex: none;
+  align-items: center;
+  gap: 0.625rem;
+  margin-left: auto;
+  padding-right: 0.25rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.quickforge-assistant-artifact-card-total { margin-top: 0.375rem; }
+/* ± 红绿着色与应用 diff 视图同源（.quickforge-diff-stats-add / -del 的色值）。 */
+.quickforge-assistant-artifact-card-added { color: rgb(21 128 61); }
+.quickforge-assistant-artifact-card-removed { color: rgb(185 28 28); }
 
-.quickforge-assistant-artifact-card-open {
+html.dark .quickforge-assistant-artifact-card-added { color: rgb(134 239 172); }
+html.dark .quickforge-assistant-artifact-card-removed { color: rgb(252 165 165); }
+
+/* GitHub 风格 ± 比例条：段宽按 +N/−N 占比 flex 分配。 */
+.quickforge-assistant-artifact-card-diffbar {
+  display: inline-flex;
+  width: 3.25rem;
+  height: 0.3125rem;
+  flex: none;
+  gap: 2px;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.quickforge-assistant-artifact-card-diffbar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  opacity: 0.8;
+}
+
+.quickforge-assistant-artifact-card-diffbar-add { background: rgb(21 128 61); }
+.quickforge-assistant-artifact-card-diffbar-del { background: rgb(185 28 28); }
+
+html.dark .quickforge-assistant-artifact-card-diffbar-add { background: rgb(134 239 172); }
+html.dark .quickforge-assistant-artifact-card-diffbar-del { background: rgb(252 165 165); }
+
+.quickforge-assistant-artifact-card-file-stats {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.quickforge-assistant-artifact-card-open,
+.quickforge-assistant-artifact-card-rollback,
+.quickforge-assistant-artifact-card-review {
   display: inline-flex;
   max-width: 100%;
   flex: none;
   align-items: center;
   justify-content: center;
+  gap: 0.25rem;
   margin-left: 0;
   padding: 0.375rem 0.625rem;
   color: var(--muted-foreground);
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 0.4rem;
-  background: var(--background);
+  background: transparent;
   cursor: pointer;
-  font: inherit;
+  font-family: inherit;
+  font-size: 0.75rem;
+  line-height: 1.25;
   white-space: nowrap;
   transition:
     background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
-    border-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
     color var(--quickforge-dur-fast) var(--quickforge-ease-out),
     transform var(--quickforge-dur-fast) var(--quickforge-ease-out);
 }
 
-.quickforge-assistant-artifact-card-open:hover {
-  border-color: color-mix(in oklab, var(--primary) 35%, var(--border));
-  background: color-mix(in oklab, var(--primary) 6%, var(--background));
+.quickforge-assistant-artifact-card-open:hover,
+.quickforge-assistant-artifact-card-review:hover {
+  background: color-mix(in oklab, var(--muted) 45%, transparent);
   color: var(--foreground);
 }
-.quickforge-assistant-artifact-card-open:active { transform: scale(0.97); }
+
+/* 撤销是破坏性动作：hover 转红提示，与 ± 红绿同一组色值。 */
+.quickforge-assistant-artifact-card-rollback:hover:not(:disabled) {
+  background: color-mix(in srgb, rgb(185 28 28) 8%, transparent);
+  color: rgb(185 28 28);
+}
+
+html.dark .quickforge-assistant-artifact-card-rollback:hover:not(:disabled) {
+  background: color-mix(in srgb, rgb(252 165 165) 10%, transparent);
+  color: rgb(252 165 165);
+}
+
+.quickforge-assistant-artifact-card-open:active,
+.quickforge-assistant-artifact-card-review:active { transform: scale(0.97); }
+.quickforge-assistant-artifact-card-rollback:active:not(:disabled) { transform: scale(0.97); }
+.quickforge-assistant-artifact-card-rollback:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
 .quickforge-assistant-artifact-card-open:focus-visible,
-.quickforge-assistant-artifact-card-toggle:focus-visible {
+.quickforge-assistant-artifact-card-review:focus-visible,
+.quickforge-assistant-artifact-card-rollback:focus-visible {
   outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
   outline-offset: 2px;
 }
 
+/* 「打开 ▾」：chevron 图标 + 弹出菜单（预览打开 / 在文件管理器中显示）。 */
+.quickforge-assistant-open-action {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.quickforge-assistant-open-caret {
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-assistant-open-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: 10.5rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card);
+  box-shadow: 0 10px 28px -18px rgb(20 20 20 / 45%);
+}
+
+.quickforge-assistant-open-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.4375rem 0.625rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.quickforge-assistant-open-menu-item:hover {
+  background: color-mix(in oklab, var(--primary) 8%, transparent);
+}
+
+/* 文件行内的紧凑版「打开 ▾」「审查」。 */
+.quickforge-assistant-open-compact {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+}
+
+.quickforge-assistant-artifact-card-review {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+}
+
+/* 聚合卡文件列表：默认折叠，data-quickforge-artifact-expanded="true" 时展开。
+   展开用 grid-template-rows 0fr→1fr 过渡（无需测量内容高度）；visibility 在
+   收起动画结束后才切 hidden，避免 0fr 折叠区内的按钮仍可被 Tab 聚焦。 */
 .quickforge-assistant-artifact-card-details {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--quickforge-dur-base) var(--quickforge-ease-out),
+    visibility 0s linear var(--quickforge-dur-base);
+}
+
+.quickforge-assistant-artifact-card[data-quickforge-artifact-expanded="true"] .quickforge-assistant-artifact-card-details {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition: grid-template-rows var(--quickforge-dur-base) var(--quickforge-ease-out);
+}
+
+/* 中层只做钳高收缩，padding 必须放在最内层，否则 0fr 收不起去。 */
+.quickforge-assistant-artifact-card-details-body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.quickforge-assistant-artifact-card-details-list {
   display: flex;
   flex-direction: column;
-  gap: 0;
-  min-width: 0;
   padding: 0 0.5625rem 0.5625rem;
 }
 
@@ -6391,114 +6623,68 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   min-width: 0;
   align-items: center;
   gap: 0.625rem;
-  min-height: 3rem;
-  padding: 0.4375rem;
+  min-height: 2.75rem;
+  padding: 0.375rem 0.3125rem;
   border-top: 1px solid var(--border);
 }
 
-.quickforge-assistant-artifact-card-file-info,
-.quickforge-assistant-artifact-card-file-name {
-  overflow-wrap: anywhere;
-}
-
 .quickforge-assistant-artifact-card-type {
-  display: grid;
   width: 1.625rem;
   height: 1.625rem;
-  flex: none;
-  place-items: center;
-  border: 1px solid color-mix(in oklab, var(--border) 75%, var(--foreground));
-  border-radius: 0.4rem;
-  background: var(--background);
-  color: var(--muted-foreground);
-  font: 0.625rem/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  text-transform: uppercase;
+  border-radius: 0.5rem;
 }
 
-.quickforge-assistant-artifact-card-file-info { min-width: 0; flex: 1 1 auto; }
+.quickforge-assistant-artifact-card-file-info {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
 .quickforge-assistant-artifact-card-file-name {
+  flex: 0 1 auto;
   overflow: hidden;
   color: var(--foreground);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.quickforge-assistant-artifact-card-meta {
+
+.quickforge-assistant-artifact-card-file-path {
+  flex: 1 1 auto;
   overflow: hidden;
-  margin-top: 0.125rem;
   color: var(--muted-foreground);
   font-size: 0.6875rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .quickforge-assistant-artifact-card-file-stats { flex: none; }
 
-.quickforge-assistant-artifact-card-detail-body {
-  margin: 0 0.5625rem 0.5rem;
-  padding: 0.5625rem 0.625rem;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  background: color-mix(in oklab, var(--background) 90%, var(--muted));
-  color: var(--muted-foreground);
-  font: 0.6875rem/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  white-space: pre-wrap;
-}
-
-.quickforge-assistant-artifact-card-footer {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.5rem 0.9375rem 0.75rem;
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
-}
-.quickforge-assistant-artifact-card-scope {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.quickforge-assistant-artifact-card-toggle {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  min-height: 1.5rem;
-  margin-left: 0;
-  padding: 0 0.125rem;
-  border: 0;
-  background: transparent;
-  color: var(--primary);
-  cursor: pointer;
-  font: inherit;
-  white-space: nowrap;
-  transition: color var(--quickforge-dur-fast) var(--quickforge-ease-out), transform var(--quickforge-dur-fast) var(--quickforge-ease-out);
-}
-.quickforge-assistant-artifact-card-toggle:hover { color: var(--foreground); }
-.quickforge-assistant-artifact-card-toggle:active { transform: scale(0.97); }
-.quickforge-assistant-artifact-card-details[hidden],
-.quickforge-assistant-artifact-card-detail-body[hidden] { display: none; }
-
 @media (max-width: 640px) {
-  .quickforge-assistant-artifact-card { margin-inline: 0.5rem; }
-  .quickforge-assistant-artifact-card-header { gap: 0.5625rem; padding: 0.75rem; }
-  .quickforge-assistant-artifact-card-open { padding: 0.3125rem 0.5rem; }
+  .quickforge-assistant-artifact-card-header { gap: 0.4375rem; padding: 0.625rem 0.75rem; }
+  .quickforge-assistant-artifact-card-open,
+  .quickforge-assistant-artifact-card-rollback,
+  .quickforge-assistant-artifact-card-review { padding: 0.3125rem 0.5rem; }
   .quickforge-assistant-artifact-card-file { gap: 0.4375rem; padding-inline: 0.3125rem; }
   .quickforge-assistant-artifact-card-file-stats { gap: 0.25rem; }
-  .quickforge-assistant-artifact-card-footer { padding-inline: 0.75rem; }
 }
 
 @media (max-width: 380px) {
   .quickforge-assistant-artifact-card-header { flex-wrap: wrap; }
-  .quickforge-assistant-artifact-card-heading { flex-basis: calc(100% - 2.6875rem); }
-  .quickforge-assistant-artifact-card-open { margin-left: auto; }
+  .quickforge-assistant-artifact-card-heading { flex-basis: calc(100% - 1.625rem); }
+  .quickforge-assistant-file-card { gap: 0.5625rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .quickforge-assistant-artifact-card-open,
-  .quickforge-assistant-artifact-card-toggle { transition: none; }
+  .quickforge-assistant-artifact-card-review,
+  .quickforge-assistant-artifact-card-rollback,
+  .quickforge-assistant-artifact-card-chevron,
+  .quickforge-assistant-artifact-card-details { transition: none; }
 }
 
 /* TodoWrite task summary: an in-flow sibling immediately above the composer.

@@ -1,3 +1,80 @@
+## 当前交接摘要：侧栏置顶分区独占展示 + 产物卡文件图标与打开方式（2026-09-08）
+
+- 目标：完成两项 feature 的本地提交收尾并交接真机验证。
+- 提交：`70a587a feat: 置顶会话改为分区独占展示并收紧悬停操作`；`b39c120 feat: 完善产物卡文件图标与打开方式`；`7a0ecae fix: 侧栏运行状态指示器贴齐时间槽`。均未 push。
+- 完整门禁全绿：`npm run test` 287 files / 2742 tests 全过；`npm run lint` 0 errors、5 个既有 warnings；`npm run build` 成功（仅既有 KaTeX 字体与大 chunk warnings）；`git diff --check` 通过。后续 spinner 补丁定向 vitest 1 file / 9 tests、相关 ESLint 与 diff-check 通过。
+- Blocker：无。下一步：真机冒烟侧栏置顶/hover 交互与产物卡图标、分裂按钮及资源管理器/VS Code/IDEA 打开方式。
+
+---
+
+## 当前状态：sidebar-pin-hover-alignment Revision 4——hover 浮层紧凑贴尾（已完成，已提交 70a587a，未 push）
+
+- 需求：用户反馈 hover 置顶/归档按钮太靠前、分太开。
+- 修复：静置 pin 已删后 44px Archive 胶囊失去对齐意义，`overlayArchiveButtonClass` 改回 `size-6` 与 Pin 同槽——图标间距 24→14px、Archive 图标中心右移 10px、渐变收窄 20px，右锚仍 8px。4 处浮层共用一处生效，测试同步。
+- 验证：定向 vitest 2 files / 31 tests、eslint 0 error、`npx tsc -b`、`npm run build` 全过（dist 已重建）。
+- 下一步：真机冒烟——hover 时 [置顶/PinOff][归档] 两按钮紧凑靠右，观感确认；其余冒烟项见 Revision 3 条目。已提交 `70a587a`，未 push。
+
+---
+
+## 当前状态：assistant-reply-artifact-card Revision 16——打开下拉扩展 VS Code/IDEA 目标（已完成，Rev12-16 已提交 b39c120，未 push）
+
+- 背景：用户要求打开下拉提供 IDEA/资源管理器/VSCode 选项且带 icon。
+- 实现：下拉菜单四项带图标——预览打开（eye 描边 SVG）+ 资源管理器定位 + 在 VS Code 中打开 + 在 IntelliJ IDEA 中打开（品牌图标复用 ProjectOpenMenu 同款资源）；`onRevealFile` 签名扩为 `(relativePath, target?)`（artifact-card/ChatPanelHost 类型同步），App 按 target 转发 `openWorkspaceExternal`、失败 toast 按目标区分（既有 i18n key 零新增）；菜单项 flex 图标槽布局。服务端零改动。
+- 验证：定向 vitest assistant-artifact-card 18 + message-actions 30（新增外部打开契约）；eslint 四改动文件 0 error；`npx tsc -b`、`npm run build` 通过（dist 已重建）；wiki 菜单描述同步。
+- 文件：`assistant-artifact-card.ts`、`ChatPanelHost.tsx`、`App.tsx`、`src/index.css`、`tests/frontend/assistant-artifact-card.test.ts`、docs/wiki/src/components/README.md、feature_list/progress/session-handoff。
+- 下一步：真机冒烟——下拉四项图标/文案（资源管理器/VS Code/IDEA）、VS Code 与 IDEA 可打开文件（本机装了对应 CLI 时）、失败 toast 按目标区分、readOnly/全局会话菜单仅预览项。已提交 `b39c120`，未 push。
+
+---
+
+## 当前状态：sidebar-pin-hover-alignment Revision 3——置顶分区独占展示（已完成，已提交 70a587a，未 push）
+
+- 需求（用户决策）：置顶会话只在置顶分区展示（项目/时间线/全部会话列表全部隐藏）；hover 浮层保留归档按钮；置顶区取消置顶用 PinOff。
+- 实现：服务端 `pinned=exclude` 三态查询（storage.mjs + session-index-repository，与 archived 对称，保分页口径）；前端三个列表加载带 exclude、`upsertSessionMetadata` 置顶只进 pinnedPage；ChatSidebar 删全部静置 pin 按钮/占位 span（时间槽成最右元素），置顶区浮层 PinOff、三列表浮层恒 pinSession；搜索结果不动。
+- 验证：定向 5 files / 58 tests、eslint 0 error、tsc、node --check、`npm run build`（dist 已重建）全过；全量 test 286/287 files（2740/2742 tests）——仅剩 `sidebar-new-chat-routing.test.ts` 2 用例失败，属并行会话 hit-area 重构致契约过时（progress Notes 已记），非本 feature。
+- 下一步：真机冒烟——① 置顶会话不再出现在项目分组/时间线/全部会话，仅置顶分区显示；② 项目列表行 hover 显示 [置顶 Pin][归档]（静置无 pin 图标，时间贴右）；③ 置顶分区行 hover 显示 [PinOff][归档]，点 PinOff 取消置顶后会话回到原列表；④ 置顶/取消置顶后各列表刷新正确、分页"显示更多"正常；⑤ running/未读行状态右对齐时间列。已提交 `70a587a`，未 push。
+
+---
+
+## 当前状态：assistant-reply-artifact-card Revision 15——打开/审查按钮感升级描边档（已完成，已提交 b39c120，未 push）
+
+- 背景：用户觉得按钮感不够强，三档选型（软填充/描边/主色淡底）确认**描边 outline 档**；审查同步、撤销保持 ghost。
+- 实现：`src/index.css`——open/review 常显 1px var(--border) 边框 + var(--background) 底 + 前景文字（hover 仍 muted 45% 浮底、active/focus 不变）；分裂接缝改描边实现（主区 border-right:0、箭头区 border-left 即分隔线；single 退化整圆角完整描边）；撤销零改动。
+- 验证：定向 vitest assistant-artifact-card 17 tests（split 契约更新 + 新增 outline 分层契约）；`npx tsc -b`、`npm run build` 通过（dist 已重建）；wiki 按钮档位描述同步。
+- 文件：`src/index.css`、`tests/frontend/assistant-artifact-card.test.ts`、docs/wiki/src/components/README.md、feature_list/progress/session-handoff。
+- 下一步：真机冒烟——打开/审查常显边框+底色的按钮感（light/dark）、hover/按压、分裂接缝分隔线视觉连续、撤销仍 ghost hover 红、行内 compact 与单文件卡观感。已提交 `b39c120`，未 push。
+
+---
+
+## 当前状态：assistant-reply-artifact-card Revision 14——「打开」改分裂按钮（已完成，已提交 b39c120，未 push）
+
+- 背景：用户确认设计后执行——「打开｜▾」分裂按钮：主区点击直接预览，箭头区弹菜单（预览打开/在文件管理器中显示，选择即执行）；行内 compact 同样分裂；无预览能力时退化整颗弹菜单。
+- 实现：`createOpenMenuControl` 重构（主区 `-open-main` 直连 onOpenFilePreview + 箭头区 `-open-menu-zone` 弹菜单，`-open-single` 退化标记）；CSS 胶囊分裂（左/右圆角 + 细分隔线 + 各自 hover，compact 收窄，single 恢复整圆角）；i18n +`assistantArtifactOpenMenu`；菜单 fixed 定位/互斥/即关机制不变。
+- 验证：定向 vitest assistant-artifact-card 16 + message-actions 30 + i18n-language-snapshot 2；eslint 三改动文件 0 error；`npx tsc -b`、`npm run build` 通过（dist 已重建）；wiki 打开控件描述同步。
+- 文件：`assistant-artifact-card.ts`、`src/index.css`、`src/lib/i18n.ts`、`tests/frontend/assistant-artifact-card.test.ts`、docs/wiki/src/components/README.md、feature_list/progress/session-handoff。
+- 下一步：真机冒烟——单文件卡与折叠卡行内「打开」主区点击直接出预览、箭头弹菜单选择即执行、分隔线/hover 两区独立、全局会话（无预览）退化整颗菜单、Escape/滚动关菜单。已提交 `b39c120`，未 push。
+
+---
+
+## 当前状态：assistant-reply-artifact-card Revision 13——产物图标对齐文件管理 Material 图标（已完成，已提交 b39c120，未 push）
+
+- 背景：用户希望产物卡片文件图标用「文件管理」同款。原为按 kind 的单色 SVG + primary chip 底；文件管理用 Material Icon Theme 彩色图标按路径解析。
+- 实现：新 `src/components/workspace/file-icon-assets.ts`（fileIconUrls/directoryIconUrls + `fileIconUrl(path)`，自 file-icon.tsx 拆出，避免 tsx 混出非组件导出触发 react-refresh 规则）；`assistant-artifact-card.ts` 删旧 kind 图标体系，`createFileIcon` 以 img + `fileIconUrl(artifact.path)` 渲染两处图标槽；CSS 改裸 img（单文件卡 1.25rem、行内 1rem），删 chip 底/svg 描边规则。文件树/变更列表渲染零改动。
+- 验证：定向 vitest assistant-artifact-card 15 + message-actions 30；eslint 四改动文件 0 error；`npx tsc -b`、`npm run build` 通过（dist 已重建）；wiki components README 两处措辞同步。
+- 文件：`file-icon-assets.ts`（新）、`file-icon.tsx`、`assistant-artifact-card.ts`、`src/index.css`、`tests/frontend/assistant-artifact-card.test.ts`、docs/wiki/src/components/README.md、feature_list/progress/session-handoff。
+- 下一步：真机冒烟——present 单文件卡与折叠卡行内显示彩色 Material 图标（与文件树同款：md/ts/tsx/json/pdf/docx 等各得其所，package.json 等特例名也对）、light/dark 观感、卡片布局无错位。已提交 `b39c120`，未 push。
+
+---
+
+## 当前状态：assistant-reply-artifact-card Revision 12——审查关闭 ambiguous unicode 提示（已完成，已提交 b39c120，未 push）
+
+- 背景：用户反馈审查页面每次弹 “This document contains many ambiguous unicode characters / Disable Ambiguous Highlight”——Monaco unicodeHighlight 对中文/全角内容默认检测。
+- 实现：`MonacoDiffViewer.tsx` options 增加 `unicodeHighlight: { ambiguousCharacters: false }`（IDiffEditorOptions extends IEditorOptions，作用于两栏）；monaco-local.test.ts 新增契约。
+- 验证：定向 vitest monaco-local 8 tests；eslint 0 error；`npx tsc -b`、`npm run build` 通过（dist 已重建）。
+- 文件：`src/components/workspace/MonacoDiffViewer.tsx`、`tests/frontend/monaco-local.test.ts`、feature_list/progress/session-handoff。
+- 下一步：真机冒烟——审查含中文/全角的 diff 不再弹提示；文件预览（MonacoCodeViewer）如也弹可同款处理。已提交 `b39c120`，未 push。
+
+---
+
 ## 当前状态：assistant-reply-artifact-card Revision 11——审查 diff 单列行号（已完成，未提交；Rev10 收起右侧文件列表同批未提交）
 
 - 背景：用户反馈审查视图「序号有 2 列，只需要 1 列」——MonacoDiffViewer `renderSideBySide: true` 左右两栏各带一列行号。

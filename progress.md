@@ -1,3 +1,53 @@
+## 提交收尾：侧栏置顶分区独占展示 + 产物卡文件图标与打开方式（2026-09-08）
+
+- 提交：`70a587a feat: 置顶会话改为分区独占展示并收紧悬停操作`；`b39c120 feat: 完善产物卡文件图标与打开方式`；`7a0ecae fix: 侧栏运行状态指示器贴齐时间槽`。均为本地 commit，未 push。
+- 完整门禁全绿：`npm run test` 287 files / 2742 tests 全过；`npm run lint` 0 errors、5 个既有 warnings；`npm run build` 成功（仅既有 KaTeX 字体与大 chunk warnings）；`git diff --check` 通过。后续 spinner 补丁定向 vitest 1 file / 9 tests、相关 ESLint 与 diff-check 通过。此前侧栏 2 个失败为过程记录，现已修复并纳入全绿结果。
+- Blocker：无。下一步：真机冒烟侧栏置顶/hover 交互与产物卡图标、分裂按钮及外部打开目标。
+
+---
+
+## Revision 16：assistant-reply-artifact-card 打开下拉扩展 VS Code/IDEA 目标（2026-09-08）
+
+- 背景：用户要求打开下拉也提供 IDEA、资源管理器、VSCode 选项且带 icon。
+- 实现：① `assistant-artifact-card.ts` 菜单项数组扩展——预览打开（行内 eye 描边 SVG）+ explorer 定位 + vscode + idea 三个外部目标（品牌图标 import `@/assets/icons/{file-manager,vscode,idea}.svg`，与工作区 ProjectOpenMenu 同款资源），`onRevealFile?.(artifact.path ?? '', target)` 传目标；deps 类型 `onRevealFile?: (relativePath, target?: WorkspaceExternalOpenTarget) => void`。② `ChatPanelHost.tsx` 两处 prop 类型同步 + type import。③ `App.tsx` `revealFileFromArtifactCard(relativePath, target = 'explorer')` 按目标转发 `openWorkspaceExternal`，失败 toast 按目标区分（openInVSCodeFailed/openInIDEAFailed/assistantArtifactRevealFailed，均既有 key 零新增）。④ CSS：菜单项 display:block→flex（图标槽 0.875rem + gap 0.5rem），svg 变体描边规则。
+- 服务端零改动（open-external 路由本就支持三目标）；readOnly 不传 onRevealFile 时菜单仅预览项（既有门控不变）。
+- 测试：新增契约（三图标 import、targets 数组三项、onRevealFile 双参转发、App target 转发与失败 key 分流、CSS flex 图标槽）；两处旧单参断言同步。
+- Verification: 定向 vitest assistant-artifact-card 18 + message-actions 30 全过；eslint 四改动文件 0 error；`npx tsc -b`、`npm run build` 通过（dist 已重建）；wiki 菜单描述同步。
+- Boundaries: 主区直接预览/审查/撤销不受影响；i18n 零新增（复用既有 openIn* key）；未新增依赖；已提交 `b39c120`，未 push。
+
+## Revision 15：assistant-reply-artifact-card 打开/审查按钮感升级描边档（2026-09-08）
+
+- 背景：用户觉得分裂按钮版「按钮感不够强」，经 AskUserQuestion 三档选型（软填充/描边/主色淡底）确认为**描边 outline 档**，「审查」同步升级、「撤销」保持 ghost。
+- 实现：index.css——基础 ghost 规则后追加描边档覆盖：`.quickforge-assistant-artifact-card-open, .quickforge-assistant-artifact-card-review` 常显 `border: 1px solid var(--border)`（复用卡片表面边框强度，遵守 DESIGN_LANGUAGE 不自造弱化混色）+ `var(--background)` 底 + `var(--foreground)` 文字；hover 仍走既有 muted 45% 浮底规则、active scale 回缩/focus-visible 不变。分裂胶囊接缝改描边实现：主区 `border-right: 0` 让位、箭头区 `border-left: 1px solid var(--border)` 即内部分隔线；退化 single 形态恢复整圆角并保留完整四边描边（删 border-left:0）。「撤销」及 rollback hover 转红规则零改动。
+- 测试：assistant-artifact-card.test.ts——split 契约更新（分隔线 var(--border)、single 整圆角且不去边框、主区 border-right:0）+ 新增 outline/ghost 分层契约（open/review 描边三要素、基础规则仍 border:0、rollback hover:not(:disabled) 保留）。
+- Verification: 定向 vitest assistant-artifact-card 17 tests 全过；`npx tsc -b`、`npm run build` 通过（dist 已重建）；wiki components README 按钮档位描述同步。
+- Boundaries: 仅改 CSS 与测试，DOM 结构/交互零变化；compact/响应式规则自动继承描边；未新增依赖；已提交 `b39c120`，未 push。
+
+## Revision 14：assistant-reply-artifact-card 「打开」改分裂按钮（2026-09-08）
+
+- 背景：用户要求「打开」参考顶部设置按钮形态做分裂按钮——主区点击直接预览、箭头点击弹菜单选择后直接打开；设计先行过稿确认（菜单保留「预览打开」、行内 compact 同样分裂、主区不加图标）。
+- 实现：`createOpenMenuControl` 重构——canPreview 时渲染主区按钮（`-open-main`，点击 `onOpenFilePreview(path)` 直接预览、title「预览打开」）+ 箭头区按钮（`-open-menu-zone`，aria-haspopup/expanded + aria-label「更多打开方式」，点击弹菜单，菜单项预览打开/在文件管理器中显示选择即执行）；无预览能力时主区不渲染、wrapper 标记 `-open-single`，箭头区补「打开」文字整颗弹菜单（=原形态）；菜单 fixed 定位/点外/Escape/滚动即关/模块级互斥机制原样保留（trigger 换为箭头区按钮）。CSS：主区左圆角、箭头区右圆角 + 细分隔线（border-left，--border 52%），compact 箭头区内距收窄，single 退化恢复整圆角/常规内距；各点击区独立 hover（复用基础 ghost 规则）。i18n 新增 `assistantArtifactOpenMenu`（zh 更多打开方式 / en More ways to open）。
+- 测试：assistant-artifact-card.test.ts 新增分裂按钮契约（主区直连预览、箭头区 aria、退化形态保留文字、CSS 分隔线/圆角/退化恢复）。
+- Verification: 定向 vitest assistant-artifact-card 16 + message-actions 30 + i18n-language-snapshot 2 全过；eslint 三改动文件 0 error；`npx tsc -b`、`npm run build` 通过（dist 已重建）；wiki components README 打开控件描述同步。
+- Boundaries: 审查/撤销按钮不动；菜单内容与执行行为不变（仅入口变化）；无 path 或无任何回调仍不渲染；未新增依赖；已提交 `b39c120`，未 push。
+
+## Revision 13：assistant-reply-artifact-card 产物图标对齐文件管理 Material 图标（2026-09-08）
+
+- 背景：用户希望产物卡片的文件图标使用「文件管理」的图标。原实现是按 kind（code/markdown/pdf…）的单色内联 SVG + primary 着色 chip 底；文件管理（文件树/变更列表）用的是 Material Icon Theme 彩色图标，按路径解析（扩展名 + 特例名如 package.json/tsconfig/README）。
+- 实现：① 新增 `src/components/workspace/file-icon-assets.ts`——自 file-icon.tsx 拆出 fileIconUrls/directoryIconUrls 静态资源映射并导出 `fileIconUrl(path)`（纯 TS，非渲染层可复用；拆分原因：react-refresh/only-export-components 禁止 tsx 组件文件混出非组件导出）；file-icon.tsx 瘦身为纯组件，改从 assets 模块导入，行为不变。② `assistant-artifact-card.ts` 删除 ARTIFACT_KIND_ICONS/FILE_DOCUMENT_ICON/artifactIcon/createIconSpan，新增 `createFileIcon(className, path, kind)`——img 元素 + `fileIconUrl(path)`，两处调用点（单文件卡 line297、折叠卡行 line421）传 `artifact.path`；kind 仍用于 title 与「类别 · KIND」副标题。③ CSS：两类图标类从 chip（border/primary 底/居中 18px svg 描边）改为裸 img——单文件卡 1.25rem、行内 1rem（与文件树行 size-4 同档），删除 svg 描边规则与行内 chip 尺寸规则。
+- 效果：同一文件在文件树、变更列表、产物卡片三处图标完全一致（同一资源同一解析）。
+- 测试：assistant-artifact-card.test.ts 新增契约（fileIconUrl 导入 + createFileIcon 两调用点 + 旧体系移除 + CSS 裸图标尺寸/无 svg 规则）。
+- Verification: 定向 vitest assistant-artifact-card 15 + message-actions 30 全过；eslint 四改动文件 0 error；`npx tsc -b`、`npm run build` 通过（dist 已重建）；wiki components README 两处措辞同步。
+- Boundaries: 文件树/变更列表渲染路径零改动（仅 file-icon.tsx 内部拆分）；i18n 类别副标题、± 统计、按钮布局不动；无扩展名文件回落 document 图标（getFileIconName 既有默认）；未新增依赖；已提交 `b39c120`，未 push。
+
+## Revision 12：assistant-reply-artifact-card 审查关闭 ambiguous unicode 提示（2026-09-08）
+
+- 背景：用户反馈审查页面每次都弹 “This document contains many ambiguous unicode characters / Disable Ambiguous Highlight”——Monaco unicodeHighlight 对中文/全角内容默认开启 ambiguous 字符检测，文档命中多字符即弹通知。
+- 实现：`MonacoDiffViewer.tsx` options 增加 `unicodeHighlight: { ambiguousCharacters: false }`（IDiffEditorOptions extends IEditorOptions，作用于左右两栏）；invisibleCharacters/nonBasicASCII 保持默认。
+- 测试：monaco-local.test.ts 新增 unicodeHighlight 契约。
+- Verification: 定向 vitest monaco-local 8 tests 全过；eslint 两改动文件 0 error；`npx tsc -b --pretty false`、`npm run build` 通过。
+- Boundaries: 只动审查 diff；MonacoCodeViewer（文件查看）未动——若文件预览同样弹此提示可按需同款处理；未新增依赖；已提交 `b39c120`，未 push。
+
 ## Revision 11：assistant-reply-artifact-card 审查 diff 单列行号（2026-09-08）
 
 - 背景：用户反馈审查视图「序号有 2 列，只需要 1 列」——MonacoDiffViewer `renderSideBySide: true` 左右两栏各带一列行号（左原文件/右新文件）。
@@ -13,6 +63,23 @@
 - 测试：新增 workspace-inspector-on-demand-source.test.ts 契约（if (request.path) 块内 openDiffTab + setReaderNavigationVisible(false) 顺序）；同步 assistant-artifact-card.test.ts 既有断言（旧单行 `if (request.path) openDiffTab...` 锚点改块级正则）。
 - Verification: 定向 vitest 4 files / 47 tests 全过（on-demand-source 4 + tabs 9 + request 20 + artifact-card 14）；eslint 三改动文件 0 error；`npx tsc -b --pretty false` 通过。
 - Boundaries: 仅收起导航不隐藏 reader 头部/面板 tab 栏（文件名、± 统计、复制/打开菜单保留）；收起态会持久化到该 project+session（用户可用文件夹按钮恢复，与手动收起同语义）；无 path 的 review 请求、文件树、terminal 等面板不受影响；未新增依赖、未触碰生成产物、未 commit。
+
+## Revision 4：sidebar-pin-hover-alignment——hover 浮层紧凑贴尾（2026-09-08）
+
+- 需求：用户反馈 hover 置顶/归档按钮"太靠前、分太开"，应更靠尾部、更紧密。
+- 根因：Rev1 为对齐静置 pin 把 Archive 胶囊扩到 44px；Rev3 删静置 pin 后该约束失效，44px 胶囊成为纯粹的松散来源（图标间距 24px、Archive 图标中心距右缘 30px、浮层渐变多占 20px）。
+- 修复：`overlayArchiveButtonClass` `h-6 w-11`→`size-6`（与 Pin 同 24px 圆形槽），gap-1 不变——图标间距 14px、Archive 图标中心距右缘 20px、右锚仍 right-2(8px)。测试注释/描述/断言同步（`size-6` + not w-11/w-9）。
+- Verification: 定向 vitest 2 files / 31 tests、eslint 0 error、`npx tsc -b`、`npm run build` 全过（dist 已重建）。
+- Boundaries: 一处类常量改动，4 处浮层共用生效；已提交 `70a587a`，未 push。
+
+## Revision 3：sidebar-pin-hover-alignment——置顶分区独占展示（2026-09-08）
+
+- 需求（用户决策）：置顶会话只在置顶分区展示，项目/时间线/全部会话列表全部隐藏；hover 浮层保留归档按钮；置顶区取消置顶用 PinOff 图标。
+- 实现（general subagent 执行、主 Agent 审查）：① 服务端 `pinned=exclude` 三态——storage.mjs 白名单 + legacy readIndexedValues 镜像过滤、session-index-repository buildQuery `pinned_at IS NULL`（与 archived 对称；选服务端过滤因分页 total/LIMIT 口径天然一致，前端 filter 会破坏 hasMore 判定）；② 前端 global/project/timeline 三个加载带 `pinned:'exclude'`，`upsertSessionMetadata` 置顶会话只进 pinnedPage 直接 return（toggle 后 refreshSessions 收敛）；③ ChatSidebar 删全部静置 pin 按钮 + size-6 占位 span（时间槽成最右元素），置顶区浮层 Pin→PinOff，三列表浮层 aria-label 恒 pinSession，`pinnedSessionButtonClass` 常量删除；④ 搜索结果不动（主动查找场景保留置顶会话）。
+- 测试：对齐测试重写（占位 0、Pin×3+PinOff×1、静置无 pin 契约、resting order 改静置仅 [time]）；bootstrap 补 only/exclude 各 1 次断言 + project 恢复加载 exclude；repository/路由新增 pinnedExclude SQL 与 legacy 回退用例。
+- Verification: 定向 5 files / 58 tests、eslint 7 文件 0 error、tsc -b、node --check、`npm run build`（dist 已重建）全过。全量 `npm run test` 287 files：286 过 / 2740 tests 过，仅剩 `sidebar-new-chat-routing.test.ts` 2 用例失败——见 Notes。
+- Notes：全量失败 2 用例（断言 `onClick={() => onStartNewProjectChat(item)}` 等源码字符串）由并行会话 sidebar-section-header-hit-area/project-row-hit-area 的 onClick stopPropagation 重构导致契约过时，非本 feature 改动；首次全量另有 1 文件 2 用例失败、复跑已自愈，属并行会话中间态。归属该会话修复，本 feature 不扩大范围。
+- Boundaries: legacy 与 SQL 对非法 pinnedAt 语义差异为既有现状；wiki 无该查询参数条目；未新增依赖；已提交 `70a587a`，未 push。
 
 ## Bugfix：sidebar-pin-hover-alignment Revision 2——状态并入时间槽（2026-09-08）
 

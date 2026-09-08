@@ -56,6 +56,12 @@ describe('monaco local bundling (no CDN)', () => {
     }
   })
 
+  it('shows a single line-number column in the diff viewer (original side off)', () => {
+    expect(diffViewerSource).toContain('type DiffOnMount')
+    expect(diffViewerSource).toContain("editor.getOriginalEditor().updateOptions({ lineNumbers: 'off' })")
+    expect(diffViewerSource).toContain('onMount={handleDiffMount}')
+  })
+
   it('keeps monaco-editor and @monaco-editor/react as local package dependencies', () => {
     const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies }
 

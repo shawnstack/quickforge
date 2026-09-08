@@ -1,3 +1,19 @@
+## Revision 11：assistant-reply-artifact-card 审查 diff 单列行号（2026-09-08）
+
+- 背景：用户反馈审查视图「序号有 2 列，只需要 1 列」——MonacoDiffViewer `renderSideBySide: true` 左右两栏各带一列行号（左原文件/右新文件）。
+- 实现：`MonacoDiffViewer.tsx` 挂 `onMount`（DiffOnMount），`editor.getOriginalEditor().updateOptions({ lineNumbers: 'off' })` 隐藏左栏行号，仅保留右栏（新文件）一列行号；左右两栏布局、diff 高亮、gutter 变更指示不变；options prop 后续更新只设传入键，不会重新打开行号；`key={status:path}` 换文件重挂载时 onMount 重新生效。
+- 测试：monaco-local.test.ts 新增契约（type DiffOnMount import、getOriginalEditor 关行号、onMount={handleDiffMount} 接线）。
+- Verification: 定向 vitest monaco-local 7 tests 全过；eslint 两改动文件 0 error；`npx tsc -b --pretty false` 通过；`git diff --check` 干净。
+- Boundaries: 只动审查 diff（MonacoDiffViewer 唯一消费方是 WorkspaceInspector InlineReader）；MonacoCodeViewer（文件查看）行号不受影响；未新增依赖、未触碰生成产物、未 commit。
+
+## Revision 10：assistant-reply-artifact-card 审查视图纯 diff——收起右侧文件列表（2026-09-08）
+
+- 背景：用户反馈产物卡片更改区域点「审查」打开后「只用展示 diff 就好了，不要右边的旁边还有东西」——WorkspaceInspector 打开 diff tab 时 `readerNavigationVisible` 默认 true，diff 右侧还挂着「更改文件列表」导航面板。
+- 实现：WorkspaceInspector 请求处理 effect 中，带 `path` 的 review 请求（仅产物卡「审查」使用，App.tsx:933）直达 diff tab 时同步 `setReaderNavigationVisible(false)`，审查视图只展示 diff 本身；reader 头部文件夹按钮可随时切回列表；无 `path` 的 review 请求（App.tsx:755）与其他面板不受影响。该状态沿既有 per project+session 持久化链路（writePersistedPanelTabs）。
+- 测试：新增 workspace-inspector-on-demand-source.test.ts 契约（if (request.path) 块内 openDiffTab + setReaderNavigationVisible(false) 顺序）；同步 assistant-artifact-card.test.ts 既有断言（旧单行 `if (request.path) openDiffTab...` 锚点改块级正则）。
+- Verification: 定向 vitest 4 files / 47 tests 全过（on-demand-source 4 + tabs 9 + request 20 + artifact-card 14）；eslint 三改动文件 0 error；`npx tsc -b --pretty false` 通过。
+- Boundaries: 仅收起导航不隐藏 reader 头部/面板 tab 栏（文件名、± 统计、复制/打开菜单保留）；收起态会持久化到该 project+session（用户可用文件夹按钮恢复，与手动收起同语义）；无 path 的 review 请求、文件树、terminal 等面板不受影响；未新增依赖、未触碰生成产物、未 commit。
+
 ## Bugfix：sidebar-project-row-hit-area（2026-09-08）
 
 - 现象：侧栏「项目」分组下项目行整行点击无响应，可点区只有最左 icon 按钮（24×24）和标题按钮（高约 20px）；上下留白、左右 padding、中间 gap 全是死区；右侧操作 overlay hover 时全高拦截右缘点击。

@@ -979,8 +979,12 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     handledRequestIdRef.current = request.id
     if (request.kind === 'review') {
       openPanelTabRef.current?.('review', request.view)
-      // 指定文件时（如聊天文件卡「审查」）直达该文件的 diff tab。
-      if (request.path) openDiffTabRef.current?.(request.path, false)
+      // 指定文件时（如聊天文件卡「审查」）直达该文件的 diff tab，并收起右侧
+      // 文件列表导航，让审查视图只展示 diff 本身。
+      if (request.path) {
+        openDiffTabRef.current?.(request.path, false)
+        setReaderNavigationVisible(false)
+      }
     } else if (request.kind === 'reader') {
       openFileTabRef.current?.(request.path)
     } else if (request.kind === 'document') {

@@ -125,10 +125,10 @@ describe('assistant artifact card contract', () => {
     expect(serverAgent).toContain('/rollback-files')
     expect(serverAgent).toContain('async rollbackFiles(): Promise<ServerFileRollbackResult>')
 
-    // Review 请求支持指定文件直达 diff tab。
+    // Review 请求支持指定文件直达 diff tab，并收起右侧文件列表导航（审查只展示 diff）。
     expect(workspaceTypes).toMatch(/kind: 'review'; view: 'review' \| 'changes';[^}]*path\?: string/)
     expect(inspector).toContain('openDiffTabRef')
-    expect(inspector).toContain('if (request.path) openDiffTabRef.current?.(request.path, false)')
+    expect(inspector).toMatch(/if \(request\.path\) \{[\s\S]*?openDiffTabRef\.current\?\.\(request\.path, false\)[\s\S]*?setReaderNavigationVisible\(false\)[\s\S]*?\}/)
   })
 
   it('keeps card surfaces explicit and motion tokenized', () => {

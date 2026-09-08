@@ -18,6 +18,12 @@ describe('workspace inspector on-demand source wiring', () => {
   })
 })
 
+describe('workspace inspector review request wiring', () => {
+  it('collapses the file navigation when a review request opens a file diff', () => {
+    expect(source).toMatch(/if \(request\.path\) \{[\s\S]*?openDiffTabRef\.current\?\.\(request\.path, false\)[\s\S]*?setReaderNavigationVisible\(false\)[\s\S]*?\}/)
+  })
+})
+
 describe('workspace inspector cache wiring', () => {
   it('seeds and writes the directory cache inside loadTreeDirectory', () => {
     expect(source).toMatch(/readWorkspaceDirectoryCache\(resolveServerCacheKey\(\), projectId, directoryPath\)/)

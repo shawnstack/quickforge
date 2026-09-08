@@ -1,4 +1,4 @@
-import { DiffEditor } from '@monaco-editor/react'
+import { DiffEditor, type DiffOnMount } from '@monaco-editor/react'
 import { useEffect, useState } from 'react'
 import { useAppTheme } from '@/hooks/useAppTheme'
 import { useCodeFontMetrics } from '@/hooks/useCodeFontMetrics'
@@ -34,6 +34,11 @@ export function MonacoDiffViewer({ path, oldContent, newContent, language, statu
     return null
   }
 
+  // 左右两栏 diff 只保留一列行号（右栏新文件），隐藏左栏原文件行号。
+  const handleDiffMount: DiffOnMount = (editor) => {
+    editor.getOriginalEditor().updateOptions({ lineNumbers: 'off' })
+  }
+
   return (
     <DiffEditor
       key={`${status}:${path}`}
@@ -41,6 +46,7 @@ export function MonacoDiffViewer({ path, oldContent, newContent, language, statu
       modified={newContent}
       language={language}
       theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+      onMount={handleDiffMount}
       options={{
         readOnly: true,
         contextmenu: false,

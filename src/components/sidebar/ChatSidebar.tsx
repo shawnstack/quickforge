@@ -487,7 +487,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate'
   const sessionTimeSlotContent = (session: QuickForgeSessionMetadata, timeText: string) => {
     if (sessionTaskStatus(session) === 'running') {
-      return <Loader2 className="size-3 animate-spin text-muted-foreground/55" aria-label="运行中" />
+      return <Loader2 className="inline-block size-3 animate-spin text-muted-foreground/55" aria-label="运行中" />
     }
     if (completedSessionIds.has(session.id)) {
       return <span className="inline-block size-1.5 rounded-full bg-emerald-500" aria-label="未读" />

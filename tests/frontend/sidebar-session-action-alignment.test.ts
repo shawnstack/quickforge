@@ -71,8 +71,11 @@ describe('sidebar session action alignment', () => {
     expect(slotFn).toContain('Loader2')
     expect(slotFn).toContain('animate-spin')
     expect(slotFn).toContain('bg-emerald-500')
-    // 槽为 text-right 的行内上下文（非 flex），dot 必须显式 inline-block 才能生效宽高
-    expect(slotFn).toContain('inline-block')
+    // 槽为 text-right 的行内上下文（非 flex）：spinner 必须 inline-block 才会贴尾，dot 也需它才能生效宽高
+    const loaderClass = slotFn.match(/<Loader2 className="([^"]+)"/)?.[1] ?? ''
+    expect(loaderClass).toContain('inline-block')
+    const unreadClass = slotFn.match(/<span className="([^"]+)" aria-label="未读"/)?.[1] ?? ''
+    expect(unreadClass).toContain('inline-block')
   })
 
   it('pin icons are one size everywhere (size-3.5): list overlays pin, the pinned section unpins', () => {

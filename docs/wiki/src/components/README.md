@@ -123,7 +123,7 @@ components/
 - 显式 global 入口在调用 `startNewGlobalSession` 前设置空状态项目 dismiss 标记，阻止 `App.tsx` 的 active-project 自动选择 effect 将新会话切回项目对话
 - 支持“按项目 / 时间线”视图切换，以及按更新时间或创建时间排序；两项偏好均保存在浏览器 `localStorage`，刷新后恢复，不参与后端备份或跨设备同步
 - 搜索、置顶、归档会话；归档内容可在设置页的“已归档对话”中恢复或永久删除
-- 会话行右侧操作区采用镜像槽位对齐：静置态为 `[置顶按钮 size-6][gap-1][时间槽 w-9 右对齐]`（行 padding px-2），hover 浮层以 `right-2` 锚点渲染 `[置顶 size-6][gap-1][归档 h-6 w-9]`，两组几何互为镜像——置顶图标 hover 交叉淡入淡出时零位移零缩放，归档胶囊精确落在时间槽上；行内主按钮与浮层间距必须一致（均为 gap-1）；未置顶行同样预留 size-6 空槽，时间列与标题结尾在置顶/未置顶混合列表中保持跨行对齐。置顶按钮过渡使用单一 `transition-[color,opacity]`（twMerge 会丢弃冲突的第二个 transition 工具类，导致 opacity 瞬变）。项目行操作浮层保持 gap-px 间距不变，仅同样改用 right-2 锚点与内容右缘对齐
+- 会话行静置态右侧固定为 `w-11`、`text-right` 的时间/状态槽：普通会话显示时间，运行中显示贴右尾部的 Loader2，完成未读显示 emerald 点。hover/focus-within 时该槽淡出，`right-2` 浮层显示紧凑的 `[Pin/PinOff size-6][gap-1][Archive size-6]` 操作组；置顶分区使用 PinOff，其余列表使用 Pin。项目行操作浮层保持独立的 gap-px 间距
 - 折叠/展开项目分组
 - “按项目”视图支持拖拽排序并持久化；拖拽预览横向锁定且限制在 Projects 当前可见区域（与统一侧栏滚动视口的交集）内，dnd-kit 自动滚动只允许侧栏中部共享滚动容器，预览不会越过 Pinned / Tasks，拖动期间会话分组继续临时折叠；边界矩形缺失或退化（如拖动节点高过可见区）时横向纵向同时锁定，不允许无界拖动
 - 显式分段加载会话：Pinned 保留折叠感知的 Intersection Observer；Projects 时间线、项目会话与 Tasks 使用弱化的“显示更多”行

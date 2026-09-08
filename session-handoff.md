@@ -1,3 +1,13 @@
+## 当前交接摘要：Inspector Tab 下拉列表 hover / 选中态背景修复（2026-09-08）
+
+- 目标：让右侧 Inspector 的 ChevronDown Tab 下拉列表在 hover 非选中项时显示背景，同时让当前选中项保持更明确的 active 背景。
+- 实现：`WorkspaceInspector.tsx` 的列表项条件样式从未生成的 `bg-muted/55` / `hover:bg-muted/34` 改为既有 `--quickforge-sidebar-active-bg` / `--quickforge-sidebar-hover-bg`；`workspace-inspector-tab-list-scroll.test.ts` 增加防回归契约。
+- 验证：定向 vitest 1 file / 2 tests 全过；相关 ESLint 0 error；`npx tsc -b --pretty false`、`npm run build`、`git diff --check` 均通过。构建只有既有 KaTeX 字体与 chunk 体积提示。
+- 文件：`src/components/workspace/WorkspaceInspector.tsx`、`tests/frontend/workspace-inspector-tab-list-scroll.test.ts`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Blocker：无。无需更新 wiki；已提交（当前提交），未 push。下一步真机检查亮/暗主题下非选中项 hover、选中项背景，以及关闭按钮 hover/点击是否保持正常。
+
+---
+
 ## 当前交接摘要：侧栏任务分组新建对话按钮默认隐藏（2026-09-08）
 
 - 目标：任务分组右侧的新建对话按钮默认隐藏，在标题行 hover 或 focus-within 时显示。

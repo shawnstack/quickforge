@@ -56,4 +56,17 @@ describe('Workspace Inspector tab list menu', () => {
     expect(scrollIndex).toBeGreaterThanOrEqual(0)
     expect(footerIndex).toBeGreaterThan(scrollIndex)
   })
+
+  it('keeps the selected tab distinct while inactive tabs receive a hover background', () => {
+    const mapCall = findPanelTabsMap(sourceFile)
+    expect(mapCall).toBeDefined()
+
+    const mapCallback = mapCall!.arguments[0]
+    expect(mapCallback && ts.isArrowFunction(mapCallback)).toBe(true)
+
+    const callbackText = mapCallback!.getText(sourceFile)
+    expect(callbackText).toMatch(
+      /active\s*\?\s*'bg-\[var\(--quickforge-sidebar-active-bg\)\] text-foreground'\s*:\s*'text-foreground\/86 hover:bg-\[var\(--quickforge-sidebar-hover-bg\)\] hover:text-foreground'/,
+    )
+  })
 })

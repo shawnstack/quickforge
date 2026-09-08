@@ -1909,7 +1909,9 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
                           key={tab.id}
                           className={cn(
                             'group flex h-10 w-full items-center gap-2 rounded-xl px-2 transition-colors',
-                            active ? 'bg-muted/55 text-foreground' : 'text-foreground/86 hover:bg-muted/34 hover:text-foreground',
+                            active
+                              ? 'bg-[var(--quickforge-sidebar-active-bg)] text-foreground'
+                              : 'text-foreground/86 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground',
                           )}
                           role="none"
                         >

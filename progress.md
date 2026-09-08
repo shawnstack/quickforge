@@ -1,3 +1,13 @@
+## Revision 19：Inspector Tab 下拉列表 hover / 选中态背景修复（2026-09-08）
+
+- 目标：修复右侧 Inspector 左上角 ChevronDown 打开的 Tab 列表中，非选中项 hover 时没有背景反馈的问题，并保证选中项状态不被 hover 弱化。
+- 根因：列表项使用的 `hover:bg-muted/34` 与 `bg-muted/55` 在当前 Tailwind 产物中未生成，因此 hover 和 active 背景均可能失效。
+- 实现：`WorkspaceInspector.tsx` 将非选中项改为既有 `hover:bg-[var(--quickforge-sidebar-hover-bg)]`，选中项改为 `bg-[var(--quickforge-sidebar-active-bg)]`；两者仍由 `active` 条件分支隔离。`workspace-inspector-tab-list-scroll.test.ts` 新增局部源码契约，锁定 hover/active token。
+- 验证：定向 vitest 1 file / 2 tests 全过；相关 ESLint 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 通过（仅既有 KaTeX 字体与 chunk 体积提示）；产物确认包含 hover/active 变量；`git diff --check` 通过。
+- 边界：不改列表项高度、点击激活、关闭按钮、Tab 排序或持久化；无需更新 docs/wiki（纯组件内视觉反馈修复，复用既有设计 token）；未新增依赖、未手工修改生成目录。已提交（当前提交），未 push；待真机在亮/暗主题确认 hover 与选中态层级。
+
+---
+
 ## Feature：侧栏任务分组新建对话按钮默认隐藏（2026-09-08）
 
 - 目标：让左侧栏「任务」分组右侧的新建对话按钮默认隐藏，仅在标题行 hover 或 focus-within 时显示。

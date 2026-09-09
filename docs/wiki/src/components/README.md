@@ -1,5 +1,17 @@
 # `src/components/` — React 组件
 
+## 主聊天快捷任务
+
+`App.tsx` 显式传入 `taskLauncherEnabled`，`ChatPanelHost` 仅在可编辑的主聊天挂载 `task-launcher.ts`；Side Chat 与 shared 不启用。入口放在 composer shell 正常流顶部，不插入 TodoWrite/队列与 editor 的相邻锚点之间。仅用户主动发起新对话成功（含复用未落盘空会话）后显示描述卡片；自动初始化、已有会话（即使零消息）不显示。新建页切换项目继承资格，取消不新开，切历史或首次发送后永久失效，不因发送失败回到空消息而恢复，也无对话紧凑版。`taskLauncherVisible` 独立于 host opt-in，通过 ref 同步而不重建面板；隐藏时卸载节点、取消待填入操作、断开 ResizeObserver 并清理 dock 高度变量。Tab 支持左右箭头/Home/End，所有操作均为原生按钮。中英文模板与提示位于 `src/lib/i18n.ts`，样式沿用主题 token；空态 dock 的 ResizeObserver 将实际高度用于项目选择器定位。
+
+点击只填提示词，不发送。已有不同正文时内联保留/替换；确认及插件目录加载完成后重新读取草稿，只替换正文，保留最新附件、文件引用与无关插件。初始草稿恢复前禁用入口；提交模板会取消旧恢复任务，更新真实 capability controller 后再恢复 composer。异步意图以 generation 与 dispose 防止新任务、取消、发送、会话切换及卸载后的旧操作覆盖。
+
+办公任务通过既有 `capability-suggestions` 选择已启用且 `loaded` 的 documents/spreadsheets/presentations，复用真实可取消 chip，不调用启用插件 API；不可用时显示提示。不支持插件能力的 runtime 仍可填模板，不触发插件加载/选择。PPT、Word、数据处理中英文模板直接请求 PPTX、DOCX、XLSX 产物；周报以撰写周报为目标，不强制文件格式。这仅调整请求目标，不新增生成/导出能力，实际执行仍受 runtime、工具与审批约束。插件仍可从 + 菜单选择，`@` 仅用于当前项目文件引用。
+
+`replaceTemplatePlugin` 在提交模板时同步替换上次模板自动选择的插件（办公切开发也撤回），保留用户已有及后来手动重选的插件；周报与 Word 共用 documents 不重复。自动选择来源仅保存在 controller 内存，按完整 capability key 区分，遵守最多四项限制；chip 取消、consume、草稿 restore 清理来源，恢复的草稿视为用户选择。等待冲突、保留草稿及过期异步操作不改变选择。
+
+针对性验证：`tests/frontend/task-launcher.test.ts` 及 capability-suggestions、composer-drafts、composer-draft-restoration 回归测试。浏览器视觉、窄屏和实际插件执行需另做冒烟验证。
+
 ## 目录结构
 
 ```
@@ -11,7 +23,8 @@ components/
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (340 行)
 │   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(495 行)
 │   ├── file-reference-suggestions.ts # Composer @ 当前项目逐层目录浏览、文件筛选/选择与结构化文件 chip (403 行)
-│   ├── capability-suggestions.ts   # + 菜单插件目录与结构化插件 chip（不再占用 @）(233 行)
+│   ├── capability-suggestions.ts   # + 菜单/快捷任务共享插件目录与结构化插件 chip（不占用 @）
+│   ├── task-launcher.ts            # 主聊天开发/办公双 Tab、8 个任务模板与草稿冲突保护
 │   ├── capability-icons.ts         # @ 文件引用与非 Slash 插件菜单/chip 的中立图标表
 │   ├── slash-icons.ts              # Slash 三类复用 Lucide 图标静态映射（SquareTerminal / BookOpen / Bot）
 │   ├── slash-invocation-chip.ts    # Slash 选中态 chip：输入框内联覆盖层控制器 + 消息流 chip 共享元素 (541 行)

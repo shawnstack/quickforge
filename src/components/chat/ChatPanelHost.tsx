@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ApiKeyPromptDialog,
   ChatPanel,
@@ -20,6 +20,7 @@ import {
 import { createCommandSuggestions } from './command-suggestions'
 import { fetchSlashCatalog } from '@/lib/slash-catalog'
 import { createCapabilitySuggestions } from './capability-suggestions'
+import { createTaskLauncher } from './task-launcher'
 import { createFileReferenceSuggestions, canUseFileReferenceSuggestions } from './file-reference-suggestions'
 import { removeComposerPlusPopover } from './panel-decoration/composer-plus-menu'
 import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './context-usage'
@@ -194,6 +195,10 @@ type ChatPanelHostProps = {
   bypassClientApiKeyCheck?: boolean
   allowModelControls?: boolean
   newChatEmptyState?: boolean
+  /** Opt-in only for App's main conversation; shared and Side Chat stay unchanged. */
+  taskLauncherEnabled?: boolean
+  taskLauncherVisible?: boolean
+  onTaskLauncherDismiss?: () => void
   showTurnNavigation?: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
@@ -289,6 +294,9 @@ export function ChatPanelHost({
   bypassClientApiKeyCheck = false,
   allowModelControls = true,
   newChatEmptyState = false,
+  taskLauncherEnabled = false,
+  taskLauncherVisible = false,
+  onTaskLauncherDismiss,
   showTurnNavigation = true,
   rollbackConfirmTitle,
   rollbackConfirmDescription,
@@ -521,6 +529,11 @@ export function ChatPanelHost({
   const restoreSideChatDraftRef = useRef<(() => void) | null>(null)
   const scrollSyncRef = useRef<ReturnType<typeof createScrollSync> | null>(null)
   const scheduleDecorateRef = useRef<(() => void) | null>(null)
+  const taskLauncherStateRef = useRef({ visible: taskLauncherVisible, dismiss: onTaskLauncherDismiss })
+  useLayoutEffect(() => {
+    taskLauncherStateRef.current = { visible: taskLauncherVisible, dismiss: onTaskLauncherDismiss }
+    scheduleDecorateRef.current?.()
+  }, [taskLauncherVisible, onTaskLauncherDismiss])
   // Current project id for lazy slash-catalog loads. Read at call time because
   // the command-suggestions subsystem is created once per panel while the
   // project prop may change (same source as the /api/project/commands fetch).
@@ -741,6 +754,19 @@ export function ChatPanelHost({
       restoreDraftIntoComposer: restoreSuggestionDraft,
     })
 
+    const taskLauncher = taskLauncherEnabled && !sideChatMode && !readOnly && !('shareId' in agent)
+      ? createTaskLauncher({
+          panel,
+          visible: () => taskLauncherStateRef.current.visible && !agent.state.isStreaming && agent.state.messages.length === 0,
+          read: () => readComposerDraft(panel),
+          restore: restoreSuggestionDraft,
+          interact: () => handleComposerInteraction(),
+          ready: () => !disposed && (initialComposerStateReady || composerInteracted || readyComposerPanels.has(panel)),
+          capabilities: capabilitySuggestions,
+          capabilitiesEnabled: effectiveCapabilities.capabilitySuggestions,
+        })
+      : null
+
     // --- @ current-project file reference subsystem ---
     const fileReferenceSuggestions = createFileReferenceSuggestions({
       panel,
@@ -816,6 +842,7 @@ export function ChatPanelHost({
         && typeof (agent as ServerAgent).steer === 'function',
       onChange: () => schedulePersistMessageQueue(),
       onComposerCleared: () => {
+        taskLauncher?.cancel()
         cmdSuggestions.remove()
         capabilitySuggestions.remove()
         fileReferenceSuggestions.remove()
@@ -1155,6 +1182,8 @@ export function ChatPanelHost({
           selectPluginCapability: capabilitySuggestions.selectPlugin,
           availablePluginRows: capabilitySuggestions.availablePluginRows,
           onBeforeSend: () => {
+            taskLauncher?.hide()
+            taskLauncherStateRef.current.dismiss?.()
             if (sideChatMode) return
             requestAndroidRemoteSystemNotificationPermissionOnce()
             const capabilities = props.capabilities.capabilitySuggestions
@@ -1186,6 +1215,7 @@ export function ChatPanelHost({
       } catch { /* continue to todo summary */ }
 
       try {
+        taskLauncher?.sync()
         todoWriteSummary.update()
       } catch (error) {
         logger.warn('Failed to update TodoWrite summary:', error)
@@ -1415,6 +1445,8 @@ export function ChatPanelHost({
               : ApiKeyPromptDialog.prompt(provider)
           ),
       onBeforeSend: () => {
+        taskLauncher?.hide()
+        taskLauncherStateRef.current.dismiss?.()
         if (sideChatMode) {
           sideChatInputMemory?.set('')
           scrollSync.enable()
@@ -1468,7 +1500,10 @@ export function ChatPanelHost({
           restoreDraftForSession(panel, draft, sessionId, currentDraftKey)
         } else {
           const draftToRestore = storedDraft ?? composerDraftsRef.current.get(currentDraftKey) ?? emptyDraft()
-          if (!hasDraft(draftToRestore)) initialComposerStateReady = true
+          if (!hasDraft(draftToRestore)) {
+            initialComposerStateReady = true
+            taskLauncher?.sync()
+          }
           cancelRestoredDraftRestore()
           const agentInterface = panel.querySelector<HTMLElement & { updateComplete?: Promise<unknown> }>('agent-interface')
           restoredDraftRestoreRef.current = scheduleComposerDraftRestore(panel, draftToRestore, composerDraftsRef.current, currentDraftKey, {
@@ -1483,6 +1518,7 @@ export function ChatPanelHost({
             onApplied: () => {
               initialComposerStateReady = true
               readyComposerPanelsRef.current.add(panel)
+              taskLauncher?.sync()
             },
             updateComplete: agentInterface?.updateComplete,
           })
@@ -1499,7 +1535,10 @@ export function ChatPanelHost({
         } else {
           void loadComposerDraft(currentDraftKey)
             .then((storedDraft) => restoreStoredDraft(storedDraft))
-            .catch((err) => logger.error('Failed to load composer draft:', err))
+            .catch((err) => {
+              logger.error('Failed to load composer draft:', err)
+              restoreStoredDraft()
+            })
         }
       }
 
@@ -1749,6 +1788,7 @@ export function ChatPanelHost({
       scrollSync.cleanup()
       scrollSyncRef.current = null
       scrollBottomButton.cleanup()
+      taskLauncher?.dispose()
       todoWriteSummary.cleanup()
       reconnectNotice?.destroy()
       unreachableStrip?.destroy()
@@ -1775,7 +1815,7 @@ export function ChatPanelHost({
       restoreSideChatDraftRef.current = null
       panel.remove()
     }
-  }, [agent, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, effectiveCapabilities.capabilitySuggestions, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
+  }, [agent, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, taskLauncherEnabled, effectiveCapabilities.capabilitySuggestions, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
 
   useEffect(() => {
     const host = hostRef.current

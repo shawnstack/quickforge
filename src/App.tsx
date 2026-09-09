@@ -1,6 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
+import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
+import { createTaskLauncherVisibility } from '@/components/chat/task-launcher-visibility'
 import {
   Archive,
   ChevronDown,
@@ -1274,13 +1276,38 @@ function MainApp() {
     setWorkspaceInspectorOpen(open)
   }, [setWorkspaceInspectorOpen])
 
+  const [taskLauncherIntent] = useState(() => createTaskLauncherVisibility<typeof agentManager.agent>())
+  const [taskLauncherAgent, setTaskLauncherAgent] = useState<typeof agentManager.agent>(null)
+  const invalidateTaskLauncher = useCallback(() => {
+    taskLauncherIntent.invalidate()
+    setTaskLauncherAgent(null)
+  }, [taskLauncherIntent])
+  const runNewChatWithLauncher = useCallback(async (start: () => Promise<'cancelled' | 'reused' | 'created'>, explicit = true) => {
+    const version = taskLauncherIntent.begin()
+    const result = await start()
+    const agent = agentRef.current
+    if (taskLauncherIntent.complete(version, agent, explicit && result !== 'cancelled'
+      && agent instanceof DeferredSessionAgent && !currentSessionIdRef.current
+      && !agent.state.isStreaming && agent.state.messages.length === 0)) {
+      setTaskLauncherAgent(agent)
+    }
+    return result
+  }, [agentRef, currentSessionIdRef, taskLauncherIntent])
+
   const startNewGlobalChatWithInspectorReset = useCallback(async (...args: Parameters<typeof startNewGlobalChat>) => {
     return startNewGlobalChat(...args)
   }, [startNewGlobalChat])
 
   const startNewProjectChatWithInspectorReset = useCallback(async (...args: Parameters<typeof startNewProjectChat>) => {
-    return startNewProjectChat(...args)
-  }, [startNewProjectChat])
+    return runNewChatWithLauncher(() => startNewProjectChat(...args))
+  }, [runNewChatWithLauncher, startNewProjectChat])
+
+  useEffect(() => {
+    if (agentManager.currentSessionId) taskLauncherIntent.invalidate()
+    return agentManager.agent?.subscribe((event) => {
+      if (event.type === 'message_start' || event.type === 'agent_start') invalidateTaskLauncher()
+    })
+  }, [agentManager.agent, agentManager.currentSessionId, invalidateTaskLauncher, taskLauncherIntent])
 
   const { deleteProjectInline } = useProjectActions({
     activeProjectRef,
@@ -1384,7 +1411,6 @@ function MainApp() {
     renameSession,
     togglePinSession,
     archiveSession,
-    startNewGlobalSession,
   } = useSessionActions({
     storageRef,
     taskMapRef,
@@ -1400,8 +1426,9 @@ function MainApp() {
   })
 
   const loadSessionWithTransition = useCallback((sessionId: string) => {
+    invalidateTaskLauncher()
     scheduleSessionLoad(sessionId, () => loadSession(sessionId))
-  }, [loadSession, scheduleSessionLoad])
+  }, [invalidateTaskLauncher, loadSession, scheduleSessionLoad])
 
   const openSettingsPage = useCallback((initialTab: typeof ui.settingsInitialTab, customProvider?: string) => {
     ui.setSettingsInitialTab(initialTab)
@@ -1586,8 +1613,12 @@ function MainApp() {
   // 默认项目必须进入真实会话状态，不能只在选择器中显示为已选。
   useEffect(() => {
     if (!showNewChatEmptyState || emptyStateProjectDismissed || !activeProject || agentManager.chatScope !== 'global') return
-    void startNewProjectChat(activeProject)
-  }, [activeProject, agentManager.chatScope, emptyStateProjectDismissed, showNewChatEmptyState, startNewProjectChat])
+    if (taskLauncherAgent && taskLauncherAgent === agentManager.agent) {
+      void runNewChatWithLauncher(() => startNewProjectChat(activeProject))
+    } else {
+      void startNewProjectChat(activeProject)
+    }
+  }, [activeProject, agentManager.agent, agentManager.chatScope, emptyStateProjectDismissed, runNewChatWithLauncher, showNewChatEmptyState, startNewProjectChat, taskLauncherAgent])
 
   const startNewDefaultSession = useCallback(() => {
     setEmptyStateProjectDismissed(false)
@@ -1595,22 +1626,22 @@ function MainApp() {
       void startNewProjectChatWithInspectorReset(activeProject)
       return
     }
-    startNewGlobalSession()
-  }, [activeProject, startNewGlobalSession, startNewProjectChatWithInspectorReset])
+    void runNewChatWithLauncher(startNewGlobalChat)
+  }, [activeProject, runNewChatWithLauncher, startNewGlobalChat, startNewProjectChatWithInspectorReset])
 
   const startNewExplicitGlobalSession = useCallback(() => {
     setEmptyStateProjectDismissed(true)
-    startNewGlobalSession()
-  }, [startNewGlobalSession])
+    void runNewChatWithLauncher(startNewGlobalChat)
+  }, [runNewChatWithLauncher, startNewGlobalChat])
 
   const handleSelectEmptyStateProject = useCallback((project: ProjectInfo) => {
-    void startNewProjectChatWithInspectorReset(project)
-  }, [startNewProjectChatWithInspectorReset])
+    void runNewChatWithLauncher(() => startNewProjectChat(project), taskLauncherAgent === agentManager.agent)
+  }, [agentManager.agent, runNewChatWithLauncher, startNewProjectChat, taskLauncherAgent])
 
   const handleClearEmptyStateProject = useCallback(() => {
     setEmptyStateProjectDismissed(true)
-    startNewGlobalSession()
-  }, [startNewGlobalSession])
+    void runNewChatWithLauncher(startNewGlobalChat, taskLauncherAgent === agentManager.agent)
+  }, [agentManager.agent, runNewChatWithLauncher, startNewGlobalChat, taskLauncherAgent])
 
   const handleSelectEmptyStateNewProject = useCallback(() => {
     selectProjectDirectory()
@@ -2381,6 +2412,10 @@ function MainApp() {
                       restoredDraft={restoredDraft}
                       onRestoredDraftConsumed={consumeRestoredDraft}
                       newChatEmptyState={showNewChatEmptyState}
+                      taskLauncherEnabled
+                      taskLauncherVisible={taskLauncherAgent !== null && taskLauncherAgent === agentManager.agent
+                        && agentManager.agent instanceof DeferredSessionAgent && !agentManager.currentSessionId && showNewChatEmptyState}
+                      onTaskLauncherDismiss={invalidateTaskLauncher}
                     />
                     </Suspense>
                   </ErrorBoundary>

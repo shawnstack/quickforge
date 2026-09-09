@@ -1,6 +1,41 @@
 {
   "features": [
     {
+      "id": "chat-task-launcher",
+      "name": "主聊天开发/办公八个快捷任务入口",
+      "status": "done",
+      "approach": "用户批准原型后正式实现并修正显示范围。App 显式 opt-in，主聊天双 Tab 八模板，仅主动新建成功且未落盘空会话显示；自动初始化/已有零消息会话不显示，新建页项目切换继承，首次发送/历史切换失效，无紧凑版；只填草稿不发送，内联保留或替换正文，重新读取附件/引用/无关插件；复用真实 capability controller，禁用或未 loaded 插件不启用；异步 generation 和 dispose 防竞态，初始恢复前禁用。模板插件以 controller 内存所有权同步替换不累加，手动已有/重选保留，chip 取消、consume、restore 清理来源；中英文办公模板直接请求 PPTX/DOCX/XLSX，周报不强制格式，真实执行能力与不可用提示不变。",
+      "files": [
+        "src/App.tsx",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/task-launcher.ts",
+        "src/components/chat/task-launcher-visibility.ts",
+        "tests/frontend/task-launcher-visibility.test.ts",
+        "tests/frontend/sidebar-new-chat-routing.test.ts",
+        "src/components/chat/capability-suggestions.ts",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/task-launcher.test.ts",
+        "tests/frontend/capability-suggestions.test.ts",
+        "tests/frontend/task-launcher-dom.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "模板插件替换与产物 Prompt 修正：针对性 vitest 8 files / 65 tests passed（含真实 controller 状态化生命周期与中英文 Prompt 检查）；修改 TS 文件 ESLint 与 npx tsc -b --pretty false 通过。未运行 build、未浏览器实测。此前显示范围与生产构建验证保留于历史记录。",
+      "boundaries": "未新增依赖、未改 dist/package-dist/package-offline、未 commit；仅明确办公产物请求，不改变真实 runtime/工具/审批能力，不自动 enable 插件，保留不可用提示。待父 Agent 审查及浏览器空态/窄屏/真实插件冒烟。"
+    },
+    {
+      "id": "chat-task-launcher-design-preview",
+      "name": "聊天开发/办公任务入口 HTML 设计预览",
+      "status": "needs-review",
+      "approach": "仅独立原型：浅色桌面聊天布局、开发/办公双 Tab 各四张图标卡片；默认空对话，可切换对话中紧凑布局。点击卡片填入可编辑完整 Prompt，不自动发送；不同草稿内联保留/替换，办公模板联动可取消的演示插件 chip。",
+      "files": ["design-mockups/chat-task-launcher.html", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "内联 JS node --check 通过；Node VM 模拟 DOM 断言通过：8 张卡片、Prompt 填入、草稿保留/替换、插件取消、模拟发送保留草稿、键盘 Tab 切换、预览场景与空草稿禁发；静态唯一 ID/无外部资源或网络调用检查通过。未浏览器实测，不宣称视觉验收。",
+      "boundaries": "用户仅授权 HTML 对齐，待确认设计；无真实发送、附件访问、插件启用或 Office 文件生成。未改正式源码、依赖与生成产物，未提交。无需更新 Wiki（独立原型不影响架构、模块职责或公共入口）。"
+    },
+    {
       "id": "safe-single-file-rollback",
       "name": "安全单文件撤销正式实现",
       "status": "done",

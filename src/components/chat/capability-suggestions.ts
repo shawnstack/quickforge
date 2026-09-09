@@ -90,6 +90,13 @@ export function createCapabilityChip(capability: SelectedCapability, onRemove?: 
       event.stopPropagation()
       onRemove()
     }
+    // Keyboard activation has no pointerdown; avoid removing twice on pointer clicks.
+    remove.onclick = (event) => {
+      if (event.detail !== 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      onRemove()
+    }
     chip.append(remove)
   }
   return chip
@@ -105,6 +112,8 @@ export function createCapabilitySuggestions({
   let loadPromise: Promise<void> | null = null
   let loadState: 'idle' | 'loading' | 'loaded' = 'idle'
   let selected = new Map<string, SelectedCapability>()
+  // Session-local ownership only; restored drafts and manual selections are user-owned.
+  let templateCapabilityKey: string | undefined
 
   const emitSelection = () => onSelectionChange?.([...selected.values()])
 
@@ -153,7 +162,9 @@ export function createCapabilitySuggestions({
     container.querySelectorAll('.quickforge-capability-chip').forEach((chip) => chip.remove())
     for (const capability of selected.values()) {
       container.append(createCapabilityChip(capability, () => {
-        selected.delete(selectedCapabilityKey(capability))
+        const key = selectedCapabilityKey(capability)
+        selected.delete(key)
+        if (templateCapabilityKey === key) templateCapabilityKey = undefined
         const editor = panel.querySelector<MessageEditorElement>('message-editor')
         if (editor) {
           const capabilities = [...selected.values()]
@@ -172,7 +183,9 @@ export function createCapabilitySuggestions({
   }
 
   const selectCapability = (capability: CapabilitySuggestion) => {
-    selected.set(selectedCapabilityKey(capability), capability)
+    const key = selectedCapabilityKey(capability)
+    if (templateCapabilityKey === key) templateCapabilityKey = undefined
+    selected = new Map(normalizeSelectedCapabilities([...selected.values(), capability]).map((item) => [selectedCapabilityKey(item), item]))
     const editor = panel.querySelector<MessageEditorElement>('message-editor')
     if (editor) {
       const capabilities = [...selected.values()]
@@ -200,6 +213,7 @@ export function createCapabilitySuggestions({
   const consumeSelectedCapabilities = () => {
     const result = normalizeSelectedCapabilities([...selected.values()])
     selected = new Map()
+    templateCapabilityKey = undefined
     const editor = panel.querySelector<MessageEditorElement>('message-editor')
     if (editor) editor.selectedCapabilities = []
     emitSelection()
@@ -209,6 +223,7 @@ export function createCapabilitySuggestions({
 
   const snapshotSelectedCapabilities = () => normalizeSelectedCapabilities([...selected.values()])
   const restoreSelectedCapabilities = (capabilities: SelectedCapability[]) => {
+    templateCapabilityKey = undefined
     selected = new Map(normalizeSelectedCapabilities(capabilities).map((capability) => [selectedCapabilityKey(capability), capability]))
     const editor = panel.querySelector<MessageEditorElement>('message-editor')
     if (editor) editor.selectedCapabilities = [...selected.values()]
@@ -216,8 +231,21 @@ export function createCapabilitySuggestions({
     syncChips()
   }
 
+  // Commit a template selection synchronously before composer input callbacks run.
+  const replaceTemplatePlugin = (capabilities: SelectedCapability[], pluginName?: string) => {
+    const retained = normalizeSelectedCapabilities(capabilities)
+      .filter((capability) => selectedCapabilityKey(capability) !== templateCapabilityKey)
+    const capability = enabled ? rows().find((row) => row.pluginName === pluginName) : undefined
+    const key = capability && selectedCapabilityKey(capability)
+    const alreadySelected = retained.some((item) => selectedCapabilityKey(item) === key)
+    restoreSelectedCapabilities(capability ? [...retained, capability] : retained)
+    if (key && !alreadySelected && selected.has(key)) templateCapabilityKey = key
+    return snapshotSelectedCapabilities()
+  }
+
   return {
     refresh,
+    replaceTemplatePlugin,
     availablePluginRows: rows,
     selectPlugin,
     consumeSelectedCapabilities,

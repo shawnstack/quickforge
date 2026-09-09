@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCapabilityChip, createCapabilitySuggestions } from '../../src/components/chat/capability-suggestions'
+import { createTaskLauncherActions } from '../../src/components/chat/task-launcher'
+import type { ComposerDraft } from '../../src/components/chat/chat-utils'
+import type { SelectedCapability } from '../../src/lib/selected-capabilities'
 import { capabilityIcons } from '../../src/components/chat/capability-icons'
 import { loadPlugins } from '@/components/plugins/plugin-api'
 
@@ -62,6 +65,113 @@ describe('plugin capability controller', () => {
     vi.mocked(loadPlugins).mockResolvedValue({ plugins: [plugin] as never, searchPaths: [], errors: [] })
   })
   afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
+
+  async function setupTasks() {
+    vi.mocked(loadPlugins).mockResolvedValue({ plugins: ['documents', 'spreadsheets', 'presentations', 'custom'].map((name) => ({ ...plugin, name })) as never, searchPaths: [], errors: [] })
+    const panel = node()
+    const editor = node('message-editor')
+    const card = node()
+    card.append(node('textarea'))
+    editor.append(card)
+    panel.append(editor)
+    let draft: ComposerDraft = { text: '', attachments: [], selectedCapabilities: [] }
+    const restore = (next: ComposerDraft) => { draft = next; editor.value = next.text; editor.selectedCapabilities = next.selectedCapabilities ?? [] }
+    const controller = createCapabilitySuggestions({ panel: panel as unknown as HTMLElement, restoreDraftIntoComposer: restore })
+    await controller.refresh()
+    const notify = vi.fn()
+    const actions = createTaskLauncherActions({ read: () => ({ ...draft, selectedCapabilities: controller.snapshotSelectedCapabilities() }), restore: (next) => {
+      expect(controller.snapshotSelectedCapabilities()).toEqual(next.selectedCapabilities)
+      restore(next)
+    }, capabilities: controller, capabilitiesEnabled: true, ready: () => true, interact: vi.fn(), notify })
+    const choose = async (id: Parameters<typeof actions.choose>[0]) => { await actions.choose(id); await actions.replace() }
+    return { controller, actions, choose, editor, notify, names: () => controller.snapshotSelectedCapabilities().map((item) => item.pluginName) }
+  }
+
+  it('replaces only template-owned plugins across office, same-plugin and development tasks', async () => {
+    const s = await setupTasks()
+    s.controller.selectPlugin('custom')
+    await s.choose('weekly')
+    expect(s.names()).toEqual(['custom', 'documents'])
+    await s.choose('word')
+    expect(s.names()).toEqual(['custom', 'documents'])
+    await s.choose('ppt')
+    expect(s.names()).toEqual(['custom', 'presentations'])
+    await s.choose('data')
+    expect(s.names()).toEqual(['custom', 'spreadsheets'])
+    await s.choose('develop')
+    expect(s.names()).toEqual(['custom'])
+  })
+
+  it('preserves both pre-existing manual matches and later manual re-selection', async () => {
+    const s = await setupTasks()
+    s.controller.selectPlugin('documents')
+    await s.choose('weekly')
+    await s.choose('ppt')
+    expect(s.names()).toEqual(['documents', 'presentations'])
+    s.controller.selectPlugin('presentations')
+    await s.choose('data')
+    await s.choose('develop')
+    expect(s.names()).toEqual(['documents', 'presentations'])
+  })
+
+  it('does not mutate chips while awaiting conflict confirmation, keeping, or a stale refresh', async () => {
+    const s = await setupTasks()
+    await s.choose('weekly')
+    await s.actions.choose('ppt')
+    expect(s.notify).toHaveBeenLastCalledWith('conflict')
+    expect(s.names()).toEqual(['documents'])
+    s.actions.keep()
+    await s.actions.replace()
+    expect(s.names()).toEqual(['documents'])
+    let resolve!: () => void
+    vi.spyOn(s.controller, 'refresh').mockReturnValue(new Promise<void>((done) => { resolve = done }))
+    const pending = s.actions.choose('data')
+    expect(s.names()).toEqual(['documents'])
+    s.actions.dispose()
+    resolve()
+    await pending
+    expect(s.names()).toEqual(['documents'])
+  })
+
+  it('clears ownership when cancelling a chip, consuming, or restoring a draft', async () => {
+    const s = await setupTasks()
+    await s.choose('weekly')
+    s.editor.querySelector('.quickforge-context-chip-remove')?.onpointerdown?.({ preventDefault() {}, stopPropagation() {} })
+    expect(s.names()).toEqual([])
+    s.controller.selectPlugin('documents')
+    await s.choose('develop')
+    expect(s.names()).toEqual(['documents'])
+    s.controller.consumeSelectedCapabilities()
+    await s.choose('weekly')
+    const consumed = s.controller.consumeSelectedCapabilities()
+    expect(s.names()).toEqual([])
+    s.controller.restoreSelectedCapabilities(consumed)
+    await s.choose('develop')
+    expect(s.names()).toEqual(['documents'])
+    s.controller.consumeSelectedCapabilities()
+    await s.choose('ppt')
+    s.controller.restoreSelectedCapabilities(s.controller.snapshotSelectedCapabilities())
+    await s.choose('develop')
+    expect(s.names()).toEqual(['presentations'])
+  })
+
+  it('uses full capability keys and never owns a template item excluded by the four-item limit', async () => {
+    const s = await setupTasks()
+    const manual: SelectedCapability[] = ['skill', 'tool', 'command'].map((type) => ({ type: type as SelectedCapability['type'], pluginName: 'documents', name: 'documents', label: type }))
+    s.controller.restoreSelectedCapabilities(manual)
+    await s.choose('weekly')
+    expect(s.controller.snapshotSelectedCapabilities()).toHaveLength(4)
+    await s.choose('develop')
+    expect(s.controller.snapshotSelectedCapabilities()).toEqual(manual)
+    s.controller.selectPlugin('custom')
+    await s.choose('weekly')
+    expect(s.controller.snapshotSelectedCapabilities()).toHaveLength(4)
+    expect(s.controller.snapshotSelectedCapabilities().map(({ type, pluginName }) => [type, pluginName])).toEqual([
+      ['skill', 'documents'], ['tool', 'documents'], ['command', 'documents'], ['plugin', 'custom'],
+    ])
+    const external = { type: 'plugin' as const, pluginName: 'documents', name: 'documents', label: 'manual external' }
+    expect(s.controller.replaceTemplatePlugin([...manual.slice(0, 2), external])).toContainEqual(external)
+  })
 
   it('does not use @ text and consumes only an explicit + selection once', async () => {
     const panel = node()

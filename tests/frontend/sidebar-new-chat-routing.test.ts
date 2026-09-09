@@ -23,7 +23,7 @@ describe('sidebar new chat routing', () => {
     expect(defaultHandler).toContain('setEmptyStateProjectDismissed(false)')
     expect(defaultHandler).toContain('if (activeProject)')
     expect(defaultHandler).toContain('startNewProjectChatWithInspectorReset(activeProject)')
-    expect(defaultHandler).toContain('startNewGlobalSession()')
+    expect(defaultHandler).toContain('runNewChatWithLauncher(startNewGlobalChat)')
     expect(topEntry).toContain('onClick={onStartNewDefaultChat}')
     expect(appSource).toContain('onStartNewDefaultChat={startNewDefaultSession}')
     expect(appSource).toContain('onStartNewDefaultChat={startNewDefaultSessionFromSidebar}')
@@ -48,7 +48,7 @@ describe('sidebar new chat routing', () => {
     const explicitGlobalHandler = callbackSource('startNewExplicitGlobalSession')
 
     expect(explicitGlobalHandler.indexOf('setEmptyStateProjectDismissed(true)')).toBeLessThan(
-      explicitGlobalHandler.indexOf('startNewGlobalSession()'),
+      explicitGlobalHandler.indexOf('runNewChatWithLauncher(startNewGlobalChat)'),
     )
     expect(appSource).toContain("if (!showNewChatEmptyState || emptyStateProjectDismissed || !activeProject || agentManager.chatScope !== 'global') return")
     expect(appSource).toContain('if (!showNewChatEmptyState && wasNewChatEmptyStateRef.current)')

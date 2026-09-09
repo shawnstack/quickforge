@@ -1,4 +1,48 @@
-## 当前交接摘要：safe-single-file-rollback（done，正式实现完成）
+## 当前交接：chat-task-launcher 模板插件替换与办公产物 Prompt（done，待父 Agent 审查）
+
+- 目标：只替换模板自动插件，保留手动已有与重选；办公 Prompt 直接请求真实文件产物，周报不强制 DOCX。
+- 改动：src/components/chat/{capability-suggestions,task-launcher}.ts、src/lib/i18n.ts、tests/frontend/{capability-suggestions,task-launcher}.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、本文件。并行产物卡内容保留。
+- 实现：controller 单个内存 owner key + replaceTemplatePlugin 同步提交，手动重选转用户所有，chip/consume/restore 清来源，完整 key 与四项上限，不改持久化。launcher 冲突或过期零选择变更，restore 前 controller 与 draft 一致；仅 enabled+loaded 插件，未调用 enable API。
+- 验证：vitest 8 files / 65 tests passed；修改 TS ESLint 与 tsc -b --pretty false 通过。未 build/改生成产物/新增依赖/commit。
+- Blocker：无自动检查阻塞；未浏览器或 Office 文件生成实测。下一步父 Agent 审查并冒烟；真实 runtime/工具/审批边界及不可用提示保持，不将 Prompt 目标误述为新增能力。
+
+---
+
+## 当前交接：chat-task-launcher 显示范围修正（done，待父 Agent 审查）
+
+- 目标：仅主动新建成功后的未落盘空页显示，已有零消息会话/自动初始化不显示；项目切换继承资格，发送/历史切换失效，无紧凑版。
+- 本次局部编辑：App、ChatPanelHost、task-launcher.ts、index.css、Wiki、侧栏路由/DOM 测试和三份状态；新增 task-launcher-visibility.ts 及对应测试。所有并行产物/撤销改动保留。
+- 已验证：vitest 7 files / 47 tests passed，修改 TS 文件 ESLint、tsc -b 通过；未 build、未改生成产物、未 commit。
+- Blocker：无自动检查阻塞；未浏览器实测。下一步父 Agent 审查新建异步 race 与项目自动选择，验证发送失败也不恢复、零消息历史及隐藏无占位。
+
+---
+
+## Feature：chat-task-launcher（done，待父 Agent 审查）
+
+- 用户已批准正式实现；App 显式开启，Side Chat/shared 不受影响。开发/办公各四入口，空态描述卡片/已有对话紧凑，响应式主题 token、中英文及键盘 Tab。
+- 点击只填模板，不发送；冲突内联保留/替换，确认重新读正文、附件、引用及无关插件。复用真实 capability controller，仅 enabled + loaded 插件选择，无启用 API；不支持 runtime 仍填模板。
+- 初始草稿恢复前禁用；旧恢复取消，异步新操作/取消/发送/会话卸载失效；空态 ResizeObserver 根据真实 dock 高度定位项目选择器。
+- 修改清单详见 feature_list.json；Wiki 已更新。保留原型与历史状态记录，未改生成产物、依赖，未提交。
+- 验证：vitest 5 files / 38 tests passed；变更文件 ESLint、tsc -b、独立 Vite 生产构建与 git diff --check 通过，临时构建目录已清理。构建仅既有 KaTeX 字体/大 chunk warnings。
+- Notes：初次只读命令误用了 PowerShell/系统 rg，当前 shell 无此工具；后续使用 cmd 与 dedicated grep。没有因此修改源码或依赖。
+- Blocker/风险：未浏览器实测空态项目选择器、窄屏/矮屏、焦点及真实插件运行；不承诺 Office 导出。父 Agent 应审查初始恢复与 Lit 装饰/布局。
+- 下一步：父 Agent 审查及浏览器冒烟；无需发布或提交。
+
+---
+
+## 当前交接摘要：chat-task-launcher-design-preview（needs-review）
+
+- 当前目标：独立聊天开发/办公任务入口 HTML 设计对齐，等待用户确认，不实现正式功能。
+- 改动文件：`design-mockups/chat-task-launcher.html`（新增）、`feature_list.json`、`progress.md`、本文件；保留全部既有任务记录。
+- 已完成：浅色聊天空态与对话中紧凑预览、两类各四卡、可编辑完整 Prompt、草稿内联保留/替换、可取消演示插件 chip、模拟附件与发送、响应式和键盘 Tab 语义。
+- 验证：内联 JS `node --check`、Node VM 模拟 DOM 交互断言、静态唯一 ID/无外部资源与网络调用检查通过。未进行浏览器视觉/交互实测；检查命令兼容性及 SVG 命名空间误报已修正后重跑通过。
+- Blocker：待用户确认视觉与交互；无真实 API、插件或 Office 文件生成能力接入。
+- 边界：未改正式源码、依赖、产物，未提交；无需更新 Wiki（纯独立设计原型）。
+- 下一步：直接打开 HTML，检查空态/对话中、开发/办公切换、草稿保护与窄屏，再根据用户反馈调整原型。未经授权不实现正式功能。
+
+---
+
+## 历史交接摘要：safe-single-file-rollback（done，正式实现完成）
 
 - 当前目标：在既有安全撤销弹窗内完成单文件撤销；安全行新增“撤销此文件”，独立 `POST rollback-file` 传 `{path, revision}`，不触碰冲突文件。`partial` 成功后剩余文件可继续单撤/整批，最后 `completed` 才整体标记完成；整批仍须全部剩余文件安全。
 - 改动文件：后端 `server/session-file-backups.mjs`、`server/routes/agent.mjs`；前端 `src/lib/server-agent.ts`、`src/components/chat/file-rollback-state.ts`、`FileRollbackDialog.tsx`、仅弹窗 CSS、i18n；对应 server/frontend 测试及三份状态文件。完整清单见 `feature_list.json`。外部文件卡、`src/App.tsx`、Demo 本轮未改。

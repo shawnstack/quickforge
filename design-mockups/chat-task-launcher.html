@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>QuickForge · 聊天任务入口设计预览</title>
+<style>
+  :root { font-size: 13px; color-scheme: light; --ink: #374151; --muted: #737b88; --line: #e5e7eb; --hover: #f5f6f8; --quickforge-dur-fast: 120ms; --quickforge-ease-out: cubic-bezier(.2,0,0,1); }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--ink); background: #fff; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  button, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 0; background: transparent; border-radius: 8px; transition: background var(--quickforge-dur-fast) var(--quickforge-ease-out); }
+  button:hover { background: var(--hover); }
+  button:focus-visible, textarea:focus-visible { outline: 2px solid #7a80bd; outline-offset: 4px; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  [hidden] { display: none !important; }
+  svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .app { display: grid; grid-template-columns: 228px minmax(0,1fr); min-height: 100dvh; }
+  .sidebar { background: #f3f4f6; border-right: 1px solid var(--line); padding: 23px 15px 16px; display: flex; flex-direction: column; gap: 26px; }
+  .brand { display: flex; gap: 10px; align-items: center; padding: 0 10px; font-size: 15px; font-weight: 600; letter-spacing: -.4px; }
+  .brand svg { width: 24px; height: 24px; }
+  .nav-item { display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 8px; margin: 3px 0; }
+  .nav-item.active { background: #d9dee7; }
+  .section-label { color: var(--muted); font-size: 11px; padding: 0 12px 8px; }
+  .session { font-size: 12px; padding: 10px 12px; color: #677180; }
+  .sidebar-foot { margin-top: auto; border-top: 1px solid var(--line); padding: 16px 10px 0; display: flex; gap: 10px; align-items: center; font-size: 12px; }
+  .avatar { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid #dce0e6; border-radius: 50%; font-size: 11px; background: #fafafa; }
+  main { min-width: 0; display: flex; flex-direction: column; }
+  .topbar { min-height: 65px; padding: 14px 28px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+  .breadcrumb { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+  .breadcrumb span { color: var(--muted); }
+  .preview-switch { display: flex; align-items: center; gap: 3px; background: #f5f6f8; border-radius: 8px; padding: 3px; font-size: 11px; }
+  .preview-switch button { padding: 5px 10px; color: var(--muted); }
+  .preview-switch button[aria-pressed="true"] { background: white; color: var(--ink); box-shadow: 0 1px 3px #1822380d; }
+  .stage { width: min(56rem, calc(100% - 64px)); margin: auto; padding: 52px 0 34px; }
+  .intro { text-align: center; margin-bottom: 38px; }
+  .intro-mark { display: inline-grid; place-items: center; width: 44px; height: 44px; margin-bottom: 17px; color: #767398; }
+  .intro-mark svg { width: 34px; height: 34px; stroke-width: 1.3; }
+  h1 { margin: 0; font-size: 28px; font-weight: 400; letter-spacing: -.8px; }
+  .intro p { color: var(--muted); margin: 13px 0 0; font-size: 13px; }
+  .launcher-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+  .tabs { display: flex; gap: 20px; }
+  .tabs button { border-radius: 0; padding: 9px 1px; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tabs button[aria-selected="true"] { border-bottom-color: #72758a; color: #374151; }
+  .launcher-hint { color: var(--muted); font-size: 11px; }
+  .cards { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+  .task-card { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 9px; border: 1px solid var(--line); border-radius: 12px; padding: 17px 15px 15px; min-width: 0; background: #fff; }
+  .task-card:hover { border-color: #ced2dd; background: #fafbfc; }
+  .task-card[aria-pressed="true"] { border-color: #b5b6cb; background: #f8f8fc; }
+  .task-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; margin-bottom: 2px; }
+  .purple { color: #8270ae; background: #f4f0fa; } .blue { color: #6385b5; background: #eff5fc; } .green { color: #5c927a; background: #eff7f2; } .orange { color: #b38b56; background: #fbf5ec; }
+  .task-title { font-size: 13px; font-weight: 500; }
+  .task-desc { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .draft-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 11px 13px; background: #faf8f2; border: 1px solid #eee7d6; border-radius: 10px; margin-top: 12px; font-size: 12px; }
+  .draft-notice span { flex: 1 1 240px; }
+  .draft-notice button { padding: 6px 9px; border: 1px solid #dedbd2; background: #fff; }
+  .composer { border: 1px solid #dfe2e7; border-radius: 1.5rem; padding: 17px 17px 12px; margin-top: 17px; box-shadow: 0 4px 16px -10px #25334b30; }
+  .composer:focus-within { border-color: #b8bbcd; }
+  textarea { display: block; width: 100%; min-height: 76px; max-height: 260px; resize: vertical; border: 0; background: transparent; line-height: 1.8; padding: 2px 3px; }
+  textarea::placeholder { color: #9299a4; }
+  .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 11px; }
+  .composer-meta { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+  .icon-button { padding: 7px; display: inline-flex; gap: 5px; align-items: center; }
+  .send { display: inline-flex; align-items: center; gap: 7px; background: #535d70; color: white; padding: 9px 12px; font-size: 11px; flex-shrink: 0; }
+  .send:hover:not(:disabled) { background: #434e62; }
+  .chip { display: inline-flex; align-items: center; gap: 7px; background: #f4f2f9; color: #7a698e; border-radius: 7px; padding: 4px 7px; margin: 0 0 12px; font-size: 11px; }
+  .chip svg { width: 14px; height: 14px; }
+  .chip button { display: inline-flex; padding: 3px; }
+  .under-composer { margin-top: 12px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 11px; gap: 12px; }
+  .project { display: inline-flex; align-items: center; gap: 6px; }
+  .project svg { width: 14px; height: 14px; }
+  .status { min-height: 20px; margin: 13px 3px 0; font-size: 12px; color: #6f7585; line-height: 1.7; }
+  footer { text-align: center; padding: 14px 24px 19px; color: #818894; font-size: 10px; line-height: 1.8; }
+  .conversation { margin-bottom: 34px; font-size: 13px; line-height: 1.9; }
+  .message-user { width: fit-content; max-width: 86%; margin-left: auto; background: #f3f4f6; padding: 11px 17px; border-radius: 15px 15px 4px 15px; }
+  .message-assistant { margin-top: 27px; display: flex; gap: 13px; }
+  .message-assistant > svg { margin-top: 4px; color: #7c7994; }
+  .message-assistant p { margin: 0 0 10px; }
+  .message-caption { font-size: 10px; color: var(--muted); }
+  .app.in-chat .stage { margin: auto auto 0; padding-top: 40px; }
+  .app.in-chat .task-card { padding: 11px 13px; gap: 5px; }
+  .app.in-chat .task-icon { width: 24px; height: 24px; margin-bottom: 0; background: transparent; }
+  .app.in-chat .task-icon svg { width: 18px; height: 18px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  @media (min-height: 950px) { .stage { transform: translateY(-25px); } .app.in-chat .stage { transform: none; } }
+  @media (max-width: 1000px) { .app { grid-template-columns: 190px minmax(0,1fr); } .stage { width: calc(100% - 40px); } .task-card { padding: 14px 11px; } .launcher-hint { display: none; } }
+  @media (max-width: 720px) { .app { grid-template-columns: minmax(0,1fr); } .sidebar { display: none; } .topbar { padding: 12px 20px; } .stage { padding-top: 38px; } h1 { font-size: 25px; } .intro { margin-bottom: 26px; } }
+  @media (max-width: 440px) { .cards { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; } .task-card { gap: 6px; padding: 12px; } .intro-mark { margin-bottom: 8px; } .stage { width: calc(100% - 32px); } .composer { padding: 14px 12px 10px; } .composer-meta { gap: 7px; } .under-composer { align-items: flex-start; } .breadcrumb { font-size: 11px; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <symbol id="spark" viewBox="0 0 24 24"><path d="m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6Z" /></symbol>
+    <symbol id="folder" viewBox="0 0 24 24"><path d="M3 7V5h6l2 3h10v12H3Z" /></symbol>
+    <symbol id="code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 20" /></symbol>
+    <symbol id="search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6M7 10h6m-3-3v6" /></symbol>
+    <symbol id="review" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8Zm0 0v5h5M8 13l2 2 5-5m-7 8h7" /></symbol>
+    <symbol id="bug" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="13" rx="5"/><path d="m9 7-2-4m8 4 2-4M3 9l4 2m10 0 4-2M3 15h4m10 0h4M5 21l3-3m8 0 3 3M12 11v9" /></symbol>
+    <symbol id="document" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8Zm0 0v5h5M8 12h8m-8 4h6" /></symbol>
+    <symbol id="table" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10m-6-5h18" /></symbol>
+    <symbol id="slides" viewBox="0 0 24 24"><path d="M3 4h18v13H3ZM12 17v4m-4 0h8M7 12l3-3 3 2 4-4" /></symbol>
+    <symbol id="clip" viewBox="0 0 24 24"><path d="m8 13 7-7a3 3 0 0 1 4 4L9 20a5 5 0 0 1-7-7L13 2m-7 13 9-9" /></symbol>
+    <symbol id="arrow" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6" /></symbol>
+    <symbol id="close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6" /></symbol>
+    <symbol id="chat" viewBox="0 0 24 24"><path d="M4 4h16v13H9l-5 4Zm4 5h8m-8 4h5" /></symbol>
+  </defs>
+</svg>
+<div class="app" id="app">
+  <aside class="sidebar" aria-label="侧栏外观示意（不可操作）">
+    <div class="brand"><svg aria-hidden="true"><use href="#spark"/></svg>QuickForge</div>
+    <div><div class="nav-item active"><svg aria-hidden="true"><use href="#chat"/></svg>新对话</div><div class="nav-item"><svg aria-hidden="true"><use href="#folder"/></svg>项目</div></div>
+    <div><div class="section-label">当前项目</div><div class="nav-item"><svg aria-hidden="true"><use href="#folder"/></svg>quickforge</div><div class="session">梳理聊天模块的交互</div><div class="session">输入框体验优化</div></div>
+    <div><div class="section-label">最近对话 · 示例</div><div class="session">本周工作回顾</div><div class="session">整理产品方案</div></div>
+    <div class="sidebar-foot"><span class="avatar">Q</span><span>本地工作空间</span></div>
+  </aside>
+  <main>
+    <header class="topbar">
+      <div class="breadcrumb">新对话 <span>/</span> <span>quickforge</span></div>
+      <div class="preview-switch" role="group" aria-label="预览场景"><button id="empty-view" aria-pressed="true">空对话</button><button id="chat-view" aria-pressed="false">对话中</button></div>
+    </header>
+    <div class="stage">
+      <section class="intro" id="intro"><div class="intro-mark"><svg aria-hidden="true"><use href="#spark"/></svg></div><h1>今天，我们一起完成什么？</h1><p>从一个任务开始，或直接说说你的想法。</p></section>
+      <section class="conversation" id="conversation" aria-label="示例对话" hidden>
+        <div class="message-user">我想先了解聊天模块，再优化新对话的使用体验。</div>
+        <div class="message-assistant"><svg aria-hidden="true"><use href="#spark"/></svg><div><p>可以先从入口和消息流转入手，理清输入区、对话面板与项目上下文之间的关系，再确定最小改动范围。</p><p>你可以选择下方的「探索代码」开始，也可以补充具体的优化目标。</p><div class="message-caption">示例内容 · 未实际读取项目</div></div></div>
+      </section>
+      <section aria-label="任务快捷入口">
+        <div class="launcher-head"><div class="tabs" role="tablist" aria-label="任务类型"><button id="tab-dev" role="tab" aria-selected="true" aria-controls="panel-dev" tabindex="0">开发任务</button><button id="tab-office" role="tab" aria-selected="false" aria-controls="panel-office" tabindex="-1">办公任务</button></div><span class="launcher-hint">选择任务，补充细节后再发送</span></div>
+        <div class="cards" id="panel-dev" role="tabpanel" aria-labelledby="tab-dev"></div>
+        <div class="cards" id="panel-office" role="tabpanel" aria-labelledby="tab-office" hidden></div>
+        <div class="draft-notice" id="draft-notice" hidden><span id="draft-notice-text" role="status"></span><button id="keep-draft">保留草稿</button><button id="replace-draft">替换为模板</button></div>
+      </section>
+      <div class="composer">
+        <div class="chip" id="plugin-chip" hidden><svg aria-hidden="true"><use href="#spark"/></svg><span id="plugin-label"></span><button id="remove-plugin" aria-label="取消演示插件选择"><svg aria-hidden="true"><use href="#close"/></svg></button></div>
+        <label class="sr-only" for="prompt">任务描述（可编辑，不会真实发送）</label>
+        <textarea id="prompt" placeholder="描述你的任务，或从上方选择一个起点…" aria-describedby="preview-note" spellcheck="false"></textarea>
+        <div class="composer-bar"><div class="composer-meta"><button class="icon-button" id="attachment" aria-label="模拟添加附件" title="仅模拟，不读取文件"><svg aria-hidden="true"><use href="#clip"/></svg><span>附件 · 模拟</span></button><span>默认权限</span><span>QuickForge</span></div><button class="send" id="send" disabled><span>模拟发送</span><svg aria-hidden="true"><use href="#arrow"/></svg></button></div>
+      </div>
+      <div class="under-composer"><span class="project"><svg aria-hidden="true"><use href="#folder"/></svg>quickforge <span>· 当前项目示意</span></span><span>模板可自由编辑</span></div>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </div>
+    <footer id="preview-note">设计预览 · 不会真实发送、读取附件或启用插件；办公模板仅演示内容协作，不承诺生成 Office 文件。</footer>
+  </main>
+</div>
+<script>
+  const tasks = {
+    dev: [
+      { id: 'explore', title: '探索代码', desc: '看懂结构，定位关键逻辑', icon: 'search', color: 'purple', prompt: '请帮我探索当前项目的代码。目标：了解【模块或问题】。请先只读调研项目说明、相关入口、调用链、现有实现模式与测试，给出关键文件路径和简洁的结构说明；适合时用图示解释。不要修改文件，遇到不明确的信息先向我确认。' },
+      { id: 'develop', title: '开发功能', desc: '从需求到可验证的实现', icon: 'code', color: 'blue', prompt: '请帮我开发一个功能：\n需求：【描述期望行为】\n验收标准：【列出完成条件】\n请先调研相关代码、现有模式、测试和文档影响，指出歧义并提出最小实现方案。得到我确认后再修改，避免无关重构，完成后运行相关验证并报告结果。' },
+      { id: 'review', title: '代码审查', desc: '发现风险，给出改进建议', icon: 'review', color: 'green', prompt: '请审查当前项目的【未提交改动或指定文件】。只读检查正确性、安全性、边界条件、回归风险和测试缺口，按严重程度列出问题，附文件路径、位置、影响和可执行的建议。区分确定问题与待确认风险；没有发现问题时如实说明。不要直接修改代码。' },
+      { id: 'fix', title: '修复问题', desc: '定位原因，最小改动修复', icon: 'bug', color: 'orange', prompt: '请帮我定位并修复问题。\n现象：【描述错误表现】\n复现步骤：【操作步骤】\n预期行为：【正确结果】\n相关日志：【补充非敏感日志】\n请先调研调用链并验证根因，信息不足时先询问。说明最小修复方案，得到我确认后再修改，并补充或运行相关回归测试。' }
+    ],
+    office: [
+      { id: 'weekly', title: '周报编写', desc: '梳理进展，提炼工作重点', icon: 'document', color: 'purple', plugin: '文档 · documents', prompt: '请根据我提供的材料撰写一份周报。\n汇报周期：【日期范围】\n读者：【团队或负责人】\n工作记录：【粘贴本周事项与结果】\n请按本周成果、关键进展、问题与风险、下周计划组织，突出可验证的结果，语言简洁。不要编造数据或完成情况，材料缺失时标明待补充。先给出可编辑文本供我确认。' },
+      { id: 'data', title: '数据处理', desc: '整理表格，提取有效信息', icon: 'table', color: 'green', plugin: '表格 · spreadsheets', prompt: '请协助处理我提供的数据。\n数据来源：【说明文件或粘贴样例】\n处理目标：【清洗、汇总或分析需求】\n字段含义与口径：【补充说明】\n请先检查数据结构、缺失值和重复项，确认处理规则后再开展分析。保留原始数据，说明计算方法、异常和局限，先输出可检查的表格与结论；不要假设已能读写 Excel 文件。' },
+      { id: 'ppt', title: 'PPT制作', desc: '搭建叙事，规划逐页内容', icon: 'slides', color: 'orange', plugin: '演示 · presentations', prompt: '请帮我规划一份演示文稿。\n主题：【演示主题】\n受众与目标：【希望传达的信息】\n时长或页数：【填写要求】\n已有材料：【粘贴内容】\n请先给出叙事结构，再列出每页标题、核心观点、图表建议和演讲备注。需要事实依据的内容标注来源或待核实，不虚构数据。先提供可编辑的逐页内容，不承诺直接生成 PPTX 文件。' },
+      { id: 'word', title: 'Word文档', desc: '组织结构，打磨专业表达', icon: 'document', color: 'blue', plugin: '文档 · documents', prompt: '请协助起草一份文档。\n文档类型与主题：【填写要求】\n读者与用途：【说明背景】\n现有材料：【粘贴内容】\n篇幅与格式要求：【补充要求】\n请先拟定结构，按清晰的标题层级组织正文，必要时使用列表和表格，并标出待补充事实。先输出可编辑内容供我审阅，不承诺直接生成 DOCX 文件。' }
+    ]
+  };
+  const $ = (id) => document.getElementById(id);
+  let pendingTask = null;
+  let selectedTask = null;
+  const announce = (text) => { $('status').textContent = text; };
+  function refreshDraft() {
+    $('send').disabled = !$('prompt').value.trim();
+    document.querySelectorAll('.task-card').forEach((button) => {
+      button.setAttribute('aria-pressed', String(button.dataset.task === selectedTask && $('prompt').value === button.taskPrompt));
+    });
+  }
+  function dismissPending() { pendingTask = null; $('draft-notice').hidden = true; }
+  function applyTask(task) {
+    $('prompt').value = task.prompt;
+    selectedTask = task.id;
+    $('plugin-chip').hidden = !task.plugin;
+    $('plugin-label').textContent = task.plugin ? `${task.plugin} · 演示选择` : '';
+    dismissPending();
+    refreshDraft();
+    $('prompt').focus();
+    announce(`已填入「${task.title}」模板，可直接编辑；尚未发送。${task.plugin ? '插件仅为演示选择，可点击叉号取消。' : ''}`);
+  }
+  function chooseTask(task) {
+    if ($('prompt').value.trim() && $('prompt').value !== task.prompt) {
+      pendingTask = task;
+      $('draft-notice').hidden = false;
+      $('draft-notice-text').textContent = `已有草稿。是否替换为「${task.title}」模板？`;
+      $('keep-draft').focus();
+      return;
+    }
+    applyTask(task);
+  }
+  Object.entries(tasks).forEach(([group, items]) => {
+    items.forEach((task) => {
+      const button = document.createElement('button');
+      button.className = 'task-card';
+      button.dataset.task = task.id;
+      button.taskPrompt = task.prompt;
+      button.setAttribute('aria-pressed', 'false');
+      button.innerHTML = `<span class="task-icon ${task.color}"><svg aria-hidden="true"><use href="#${task.icon}"/></svg></span><span class="task-title">${task.title}</span><span class="task-desc">${task.desc}</span>`;
+      button.addEventListener('click', () => chooseTask(task));
+      $(`panel-${group}`).append(button);
+    });
+  });
+  const tabs = [$('tab-dev'), $('tab-office')];
+  function selectTab(index) {
+    tabs.forEach((tab, i) => {
+      tab.setAttribute('aria-selected', String(i === index));
+      tab.tabIndex = i === index ? 0 : -1;
+      $(tab.getAttribute('aria-controls')).hidden = i !== index;
+    });
+    dismissPending();
+  }
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => selectTab(index));
+    tab.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : 1 - index;
+      selectTab(next);
+      tabs[next].focus();
+    });
+  });
+  $('prompt').addEventListener('input', refreshDraft);
+  $('keep-draft').addEventListener('click', () => { dismissPending(); $('prompt').focus(); announce('已保留原草稿及原有插件选择。'); });
+  $('replace-draft').addEventListener('click', () => { if (pendingTask) applyTask(pendingTask); });
+  $('draft-notice').addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { dismissPending(); $('prompt').focus(); announce('已取消替换，原草稿保持不变。'); }
+  });
+  $('remove-plugin').addEventListener('click', () => { $('plugin-chip').hidden = true; $('prompt').focus(); announce('已取消演示插件选择；草稿内容保持不变。'); });
+  $('attachment').addEventListener('click', () => announce('附件操作仅为原型模拟：没有打开文件选择器，也没有读取或上传文件。'));
+  $('send').addEventListener('click', () => {
+    if ($('prompt').value.trim()) announce('模拟发送已触发：没有调用 API、发送消息或启用插件。草稿已保留，方便继续调整。');
+  });
+  function setPreview(inChat) {
+    $('app').classList.toggle('in-chat', inChat);
+    $('intro').hidden = inChat;
+    $('conversation').hidden = !inChat;
+    $('empty-view').setAttribute('aria-pressed', String(!inChat));
+    $('chat-view').setAttribute('aria-pressed', String(inChat));
+  }
+  $('empty-view').addEventListener('click', () => setPreview(false));
+  $('chat-view').addEventListener('click', () => setPreview(true));
+</script>
+</body>
+</html>

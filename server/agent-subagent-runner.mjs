@@ -279,6 +279,17 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
       parentSession.modelAccessContext || {},
     )
     const subagentThinkingLevel = resolveAgentProfileThinkingLevel(definition, parentSession.thinkingLevel, subagentModel)
+    // 运行环境元信息：继承模型时 subagentModelInfo 不含实际模型标识，这里合并解析后的
+    // 模型 provider/id/name，并带上已算好的思考等级，供前端运行详情「运行信息」行展示。
+    const subagentRuntimeDetails = {
+      model: {
+        ...subagentModelInfo,
+        ...(subagentModel?.provider ? { provider: subagentModel.provider } : {}),
+        ...(subagentModel?.id ? { id: subagentModel.id } : {}),
+        ...(subagentModel?.name ? { name: subagentModel.name } : {}),
+      },
+      thinkingLevel: subagentThinkingLevel,
+    }
     let latestMessages = []
     let latestPendingToolCalls = []
     let toolsForClient = []
@@ -331,7 +342,7 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
           lifecycle: definition.lifecycle,
           profilePath: definition.filePath,
           capabilityPolicy: definition.capabilityPolicy,
-          model: subagentModelInfo,
+          ...subagentRuntimeDetails,
           durationMs: Date.now() - startedAt,
           messages: Array.isArray(latestMessages) ? latestMessages.slice(-SUBAGENT_TRACE_MESSAGES_LIMIT) : [],
           messagesTotal: Array.isArray(latestMessages) ? latestMessages.length : 0,
@@ -370,7 +381,7 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
       lifecycle: definition.lifecycle,
       profilePath: definition.filePath,
       capabilityPolicy: definition.capabilityPolicy,
-      model: subagentModelInfo,
+      ...subagentRuntimeDetails,
       durationMs: Date.now() - startedAt,
       messages: latestMessages,
       tools: toolsForClient,
@@ -508,7 +519,7 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
           lifecycle: definition.lifecycle,
           profilePath: definition.filePath,
           capabilityPolicy: definition.capabilityPolicy,
-          model: subagentModelInfo,
+          ...subagentRuntimeDetails,
           durationMs: Date.now() - startedAt,
           messages: latestMessages,
           tools: toolsForClient,

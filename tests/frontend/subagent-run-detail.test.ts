@@ -20,8 +20,10 @@ import {
   subagentRunBodyBlocks,
   subagentRunFingerprint,
   subagentRunId,
+  subagentRunModelLabel,
   subagentRunPayloadFromToolEvent,
   subagentRunTraceMessagesForDisplay,
+  subagentThinkingLevelLabelKey,
 } from '../../src/lib/subagent-run-detail'
 
 // i18n 由调用方注入：这里用与真实 t 相同形状的 stub（避免测试环境加载 i18n→pdfjs 链路）。
@@ -603,6 +605,47 @@ describe('subagent run detail payload', () => {
     )
     expect(payload.runId).toBe('call-9')
   })
+
+  it('parses the runtime model and thinking level from details', () => {
+    const payload = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'Find' },
+      {
+        details: {
+          subagent: 'explore',
+          toolCallId: 'call-meta',
+          model: { mode: 'inherit', inherited: true, provider: 'anthropic', id: 'claude-sonnet-4' },
+          thinkingLevel: 'high',
+        },
+        content: [],
+      },
+      false,
+      'concise',
+      t,
+    )
+    expect(payload.model).toEqual({ mode: 'inherit', inherited: true, provider: 'anthropic', id: 'claude-sonnet-4' })
+    expect(payload.thinkingLevel).toBe('high')
+  })
+
+  it('ignores malformed model/thinkingLevel details', () => {
+    const malformed = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'Find' },
+      { details: { subagent: 'explore', model: { mode: 'weird' }, thinkingLevel: 'inherit' }, content: [] },
+      false,
+      'concise',
+      t,
+    )
+    expect(malformed.model).toBeUndefined()
+    expect(malformed.thinkingLevel).toBeUndefined()
+
+    const unknownLevel = buildSubagentRunPayload(
+      { subagent: 'explore', task: 'Find' },
+      { details: { subagent: 'explore', thinkingLevel: 'weird' }, content: [] },
+      false,
+      'concise',
+      t,
+    )
+    expect(unknownLevel.thinkingLevel).toBeUndefined()
+  })
 })
 
 describe('subagentRunId', () => {
@@ -812,6 +855,26 @@ describe('subagentRunBodyBlocks', () => {
     expect(subagentRunBodyBlocks(payload({ output: 'Done' }))).toEqual(['task', 'output'])
   })
 
+  it('inserts the meta block right after task when model/thinkingLevel exist, regardless of detailed mode', () => {
+    expect(subagentRunBodyBlocks(payload({
+      model: { mode: 'inherit', inherited: true, provider: 'anthropic', id: 'claude-sonnet-4' },
+      thinkingLevel: 'high',
+    }))).toEqual(['task', 'meta'])
+    expect(subagentRunBodyBlocks(payload({ thinkingLevel: 'off' }))).toEqual(['task', 'meta'])
+    expect(subagentRunBodyBlocks(payload({
+      detailed: true,
+      model: { mode: 'fixed', provider: 'mock', id: 'fixed-model' },
+      traceMessages: [{ role: 'assistant', content: [] }],
+      input: '{}',
+      details: '{}',
+    }))).toEqual(['task', 'meta', 'summary', 'trace', 'input', 'details'])
+  })
+
+  it('omits the meta block when the model has no displayable identity', () => {
+    expect(subagentRunBodyBlocks(payload({ model: { mode: 'inherit', inherited: true } }))).toEqual(['task'])
+    expect(subagentRunBodyBlocks(payload({ model: { mode: 'fixed', inherited: false } }))).toEqual(['task'])
+  })
+
   it('renders trace, a separate error block, and non-duplicate output for failed runs', () => {
     expect(subagentRunBodyBlocks(payload({
       status: 'error',
@@ -847,6 +910,24 @@ describe('subagentRunBodyBlocks', () => {
 
   it('omits the task block when nothing is present', () => {
     expect(subagentRunBodyBlocks(payload({ task: '', context: '', expectedOutput: '' }))).toEqual([])
+  })
+})
+
+describe('subagent run meta labels', () => {
+  it('prefers provider/id and falls back to name/id/provider', () => {
+    expect(subagentRunModelLabel({ mode: 'inherit', provider: 'anthropic', id: 'claude-sonnet-4' })).toBe('anthropic / claude-sonnet-4')
+    expect(subagentRunModelLabel({ mode: 'fixed', name: 'Sonnet' })).toBe('Sonnet')
+    expect(subagentRunModelLabel({ mode: 'fixed', providerId: 'custom', modelId: 'local-1' })).toBe('custom / local-1')
+    expect(subagentRunModelLabel({ mode: 'fixed' })).toBe('')
+    expect(subagentRunModelLabel(undefined)).toBe('')
+  })
+
+  it('maps every thinking level to the shared i18n key', () => {
+    expect(subagentThinkingLevelLabelKey('off')).toBe('thinkingOff')
+    expect(subagentThinkingLevelLabelKey('low')).toBe('thinkingLow')
+    expect(subagentThinkingLevelLabelKey('medium')).toBe('thinkingMedium')
+    expect(subagentThinkingLevelLabelKey('high')).toBe('thinkingHigh')
+    expect(subagentThinkingLevelLabelKey('xhigh')).toBe('thinkingXHigh')
   })
 })
 

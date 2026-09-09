@@ -22,8 +22,10 @@ import {
   resolveSubagentRunPayloadForOpen,
   shouldPublishSubagentRunPayload,
   subagentRunBodyBlocks,
+  subagentRunModelLabel,
   subagentRunTraceMessagesForDisplay,
   subagentRunStore,
+  subagentThinkingLevelLabelKey,
   type SubagentRunPayload,
   SubagentToolSummaryMemory,
 } from '@/lib/subagent-run-detail'
@@ -643,9 +645,24 @@ function renderSubagentRunSummary(payload: SubagentRunPayload) {
 }
 
 /**
+ * 运行信息行：任务说明块上方独立一行、居中，只显示模型名与思考等级（有则显示，用 `·` 分隔）。
+ * 两者都无可显示内容时返回 nothing（subagentRunBodyBlocks 的 meta 块已先做过同一判断）。
+ */
+function renderSubagentRunMeta(payload: SubagentRunPayload) {
+  const model = subagentRunModelLabel(payload.model)
+  const thinking = payload.thinkingLevel ? t(subagentThinkingLevelLabelKey(payload.thinkingLevel)) : ''
+  if (!model && !thinking) return nothing
+  return html`<div class="quickforge-subagent-meta flex items-center justify-center gap-1.5 text-xs text-muted-foreground/80">
+    ${model ? html`<span>${model}</span>` : nothing}
+    ${model && thinking ? html`<span aria-hidden="true">·</span>` : nothing}
+    ${thinking ? html`<span>${thinking}</span>` : nothing}
+  </div>`
+}
+
+/**
  * 唯一 subagent 运行详情模板，由 Workspace Inspector 的运行 Tab 使用。
  * 展示层级与顺序遵循 subagentRunBodyBlocks（与 Git 历史最终态的聊天内展示一致）：
- * task/context/expectedOutput → detailed 摘要 → trace → 独立错误块 → 非重复 output → input/details。
+ * 运行信息（任务说明块上方独立一行）→ 任务说明气泡 → detailed 摘要 → trace → 独立错误块 → 非重复 output → input/details。
  */
 export function renderSubagentRunBody(payload: SubagentRunPayload) {
   const bodyBlocks = new Set(subagentRunBodyBlocks(payload))
@@ -653,6 +670,7 @@ export function renderSubagentRunBody(payload: SubagentRunPayload) {
   const pendingToolCalls = new Set(payload.pendingToolCalls)
   return html`
     <div class="mt-3 space-y-3">
+      ${bodyBlocks.has('meta') ? renderSubagentRunMeta(payload) : nothing}
       ${bodyBlocks.has('task') ? html`<div class="quickforge-subagent-task quickforge-input-clamp" data-quickforge-input-clamp="true">
         <div class="space-y-1">
           ${payload.task ? html`<div><span class="font-medium">${t('subagentTask')}:</span> <span class="quickforge-subagent-task-value">${payload.task}</span></div>` : nothing}

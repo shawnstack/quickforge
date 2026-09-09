@@ -19,6 +19,7 @@
  */
 
 import type { AppTextKey } from '@/lib/i18n'
+import { modelDisplayLabel } from '@/lib/model-display-label'
 import { subagentProcessTraceMessages } from '@/lib/subagent-process-trace'
 import { extractQuickForgeTiming, toolStartEventWithPartialResult, type QuickForgeToolTiming, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 import { normalizeToolArguments, summarizeParams, truncateSummary } from '@/lib/tool-param-summary'
@@ -31,6 +32,21 @@ export type SubagentToolDisplayMode = 'concise' | 'compact' | 'detailed'
 export type SubagentRunI18n = (key: AppTextKey, params?: Record<string, string | number>) => string
 
 export type SubagentRunErrorSource = 'trace' | 'output' | 'details' | 'fallback'
+
+/** 本次 subagent 运行实际使用的模型；继承时 provider/id 为父会话模型，并带 inherited: true。 */
+export type SubagentRunModel = {
+  mode: 'inherit' | 'fixed'
+  inherited?: boolean
+  provider?: string
+  id?: string
+  name?: string
+  providerId?: string
+  catalogId?: string
+  modelId?: string
+}
+
+/** 本次运行实际生效的思考等级；inherit 已在服务端解析为具体等级，模型不支持推理时为 off。 */
+export type SubagentRunThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh'
 
 export type SubagentRunPayload = {
   /** 稳定运行 id：新消息以显式 toolCallId / toolResult 顶层 toolCallId / details.toolCallId 为主键；details.sessionId 仅历史兼容 fallback；旧消息回退 `${name}:${task}`。 */
@@ -58,6 +74,10 @@ export type SubagentRunPayload = {
   /** 失败原因；fallback 表示上游未提供可显示的具体错误正文，由渲染层本地化。 */
   errorMessage: string
   errorSource?: SubagentRunErrorSource
+  /** 本次运行实际使用的模型；旧会话或缺失时为 undefined。 */
+  model?: SubagentRunModel
+  /** 本次运行实际生效的思考等级。 */
+  thinkingLevel?: SubagentRunThinkingLevel
   /** 聊天工具显示模式，仅用于兼容统一载荷。 */
   detailed: boolean
   /** 内容指纹，用于去重实时更新事件。 */
@@ -172,6 +192,50 @@ function arrayFromUnknown(value: unknown) {
 
 function nonEmptyText(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+const SUBAGENT_THINKING_LEVELS: readonly SubagentRunThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh']
+
+function subagentRunModelFromDetails(value: unknown): SubagentRunModel | undefined {
+  if (!isRecord(value)) return undefined
+  const mode = value.mode === 'fixed' ? 'fixed' : value.mode === 'inherit' ? 'inherit' : undefined
+  if (!mode) return undefined
+  return {
+    mode,
+    ...(typeof value.inherited === 'boolean' ? { inherited: value.inherited } : {}),
+    ...(typeof value.provider === 'string' && value.provider ? { provider: value.provider } : {}),
+    ...(typeof value.id === 'string' && value.id ? { id: value.id } : {}),
+    ...(typeof value.name === 'string' && value.name ? { name: value.name } : {}),
+    ...(typeof value.providerId === 'string' && value.providerId ? { providerId: value.providerId } : {}),
+    ...(typeof value.catalogId === 'string' && value.catalogId ? { catalogId: value.catalogId } : {}),
+    ...(typeof value.modelId === 'string' && value.modelId ? { modelId: value.modelId } : {}),
+  }
+}
+
+function subagentRunThinkingLevelFromDetails(value: unknown): SubagentRunThinkingLevel | undefined {
+  return typeof value === 'string' && (SUBAGENT_THINKING_LEVELS as readonly string[]).includes(value)
+    ? value as SubagentRunThinkingLevel
+    : undefined
+}
+
+/** 运行详情「模型」展示名：provider/id 优先，缺失时回落 name；都没有时返回空串。 */
+export function subagentRunModelLabel(model: SubagentRunModel | undefined): string {
+  if (!model) return ''
+  const provider = model.provider || model.providerId || ''
+  const id = model.id || model.modelId || model.catalogId || ''
+  if (provider && id) return modelDisplayLabel({ provider, id })
+  return model.name || id || provider || ''
+}
+
+/** 思考等级复用的 i18n key（与主 Agent 思考等级控件文案一致）。 */
+export function subagentThinkingLevelLabelKey(level: SubagentRunThinkingLevel): AppTextKey {
+  switch (level) {
+    case 'low': return 'thinkingLow'
+    case 'medium': return 'thinkingMedium'
+    case 'high': return 'thinkingHigh'
+    case 'xhigh': return 'thinkingXHigh'
+    default: return 'thinkingOff'
+  }
 }
 
 type AssistantTerminalState = {
@@ -370,19 +434,22 @@ export function subagentRunFingerprint(payload: Omit<SubagentRunPayload, 'finger
 /**
  * 运行详情侧栏（SubagentRunDetailBody）内部块的展示顺序，单一事实来源。
  * 顺序与 Git 历史最终态（32be493 的聊天内 details）保持一致：
- * task/context/expectedOutput → 详细摘要 → trace → 错误正文 → 非重复 output → input → details。
+ * task/context/expectedOutput → 运行信息 → 详细摘要 → trace → 错误正文 → 非重复 output → input → details。
  * 渲染器按此顺序输出；单元测试直接断言该顺序。
  */
-export type SubagentRunBodyBlock = 'task' | 'summary' | 'trace' | 'error' | 'output' | 'input' | 'details'
+export type SubagentRunBodyBlock = 'task' | 'meta' | 'summary' | 'trace' | 'error' | 'output' | 'input' | 'details'
 
 export function subagentRunBodyBlocks(
   payload: Pick<
     SubagentRunPayload,
-    'task' | 'context' | 'expectedOutput' | 'status' | 'detailed' | 'traceMessages' | 'errorMessage' | 'errorSource' | 'output' | 'input' | 'details'
+    'task' | 'context' | 'expectedOutput' | 'model' | 'thinkingLevel' | 'status' | 'detailed' | 'traceMessages' | 'errorMessage' | 'errorSource' | 'output' | 'input' | 'details'
   >,
 ): SubagentRunBodyBlock[] {
   const blocks: SubagentRunBodyBlock[] = []
   if (payload.task || payload.context || payload.expectedOutput) blocks.push('task')
+  // 以「可显示内容」为准：旧会话 details.model 可能只有 {mode,inherited} 而无模型标识，
+  // 此时不产出空块（与渲染层 subagentRunModelLabel 的判断保持一致）。
+  if (subagentRunModelLabel(payload.model) || payload.thinkingLevel) blocks.push('meta')
   if (payload.detailed) blocks.push('summary')
   if (payload.traceMessages.length > 0) blocks.push('trace')
   if (payload.status === 'error') blocks.push('error')
@@ -671,6 +738,8 @@ export function buildSubagentRunPayload(
     details: stringifyValue(result?.details),
     output,
     ...error,
+    model: subagentRunModelFromDetails(details?.model),
+    thinkingLevel: subagentRunThinkingLevelFromDetails(details?.thinkingLevel),
     detailed,
   }
   return { ...payload, fingerprint: subagentRunFingerprint(payload) }

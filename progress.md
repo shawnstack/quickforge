@@ -1,3 +1,16 @@
+## Feature：subagent-run-detail-model-thinking subagent 运行详情展示模型与思考等级（2026-09-09，done）
+
+- 需求（用户提出）：点击 subagent 摘要打开 Workspace Inspector 运行详情时，希望看到该次 subagent 实际使用的模型与思考等级；范围仅限详情页。样式两轮调整（用户确认）：最终为任务说明块上方独立一行、居中，只显示「模型名 · 思考等级」，不带文字标签与继承标记。
+- 调研（双 explore）：详情链路 = 聊天摘要点击 → `OPEN_SUBAGENT_RUN_EVENT` → WorkspaceInspector `kind:'subagent'` Tab → SubagentRunDetailContent → `renderSubagentRunBody`（local-tools.ts）。缺口：服务端已算出 `subagentModel`/`subagentThinkingLevel`，但 details 只写 `model: subagentModelInfo`（继承时无模型名）且完全没有 thinkingLevel；前端 payload 未解析；summary 块受 `detailed` 门控。
+- 实现：服务端 `agent-subagent-runner.mjs` 新增 `subagentRuntimeDetails`（模型 info + provider/id/name + thinkingLevel），emitSubagentTrace / buildTerminalSubagentDetails / 成功终态三处 details 展开它；前端 `subagent-run-detail.ts` 新增 `SubagentRunModel`/`SubagentRunThinkingLevel` 类型与 `payload.model`/`thinkingLevel` 严格解析、`'meta'` block、`subagentRunModelLabel`/`subagentThinkingLevelLabelKey`；`local-tools.ts` 新增 `renderSubagentRunMeta`，在任务说明块上方独立一行居中渲染（`flex items-center justify-center text-xs`，`模型名 · 思考等级`）。样式调整后不再需要文字标签与继承标记，i18n 无新增 key（思考等级复用既有 `thinkingLevel` 系列）。
+- 审查发现并修复：旧会话 `details.model` 只有 `{mode,inherited}` 无模型标识时，原判定会产生空 meta 块与多余间距 → block 条件改为 `subagentRunModelLabel(...) || thinkingLevel`，并加回归用例。
+- 验证（父 Agent 独立复跑）：`npx vitest run tests/frontend/subagent-run-detail.test.ts tests/frontend/i18n-language-snapshot.test.ts tests/frontend/input-clamp.test.ts` 121 passed；`npx vitest run tests/server/agent-manager.subagents.test.mjs` 14 passed；`npm run lint` 0 error（仅既有 identity.mjs warning）；`npx tsc -b --pretty false` 无错误；`npm run build` 成功。
+- 边界：仅详情页；未改聊天摘要卡/置顶摘要行；未新增依赖；未改生成产物；未 commit；未加 DOM 渲染测试（仓库无渲染 harness）。
+- 用户反馈排查：「没看到思考等级」——该字段本次新增，只对改动后新产生的运行生效；历史会话持久化的 details 没有此字段（固定模型的历史 details 仍带 providerId/modelId，所以模型名可见），需重启 dev server 并重跑一次 subagent 验证。
+- 下一步：浏览器冒烟 + 用户决定 commit/发布。
+
+---
+
 ## Feature：remove-opencode-harness 移除 OpenCode ACP harness 支持（2026-09-09，done）
 
 - 完成内容：全量实施完成（服务端/前端/测试/文档三批次全部落地），三项已确认决策全部落实——① 保留 `.opencode/` 目录生态兼容；② 不做旧 OpenCode 会话向前兼容（存量会话降级为 QuickForge 会话，已记入 CHANGELOG Breaking Changes）；③ 彻底删除 harness 概念（不保留 'quickforge' 单值管道，设置页默认 Harness 选择器整体删除）。

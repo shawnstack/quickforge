@@ -666,6 +666,10 @@ describe('agent manager subagent execution', () => {
       expect(result.details.subagent).toBe('test-finder')
       expect(result.details.lifecycle).toBe('temporary')
       expect(result.details.model).toMatchObject({ mode: 'inherit', inherited: true })
+      // 运行信息行依赖：继承时补上实际模型 provider/id，并带上解析后的思考等级。
+      expect(result.details.model.provider).toBe('mock')
+      expect(result.details.model.id).toBe('mock-model')
+      expect(result.details.thinkingLevel).toBe('off')
       expect(result.details.profilePath).toContain(tempAgentsDir)
       const markdown = await readFile(result.details.profilePath, 'utf8')
       expect(markdown).toContain('name: test-finder')
@@ -718,8 +722,12 @@ describe('agent manager subagent execution', () => {
 
     try {
       const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
-      await runSubagent.execute('tool-call-deep', { subagent: 'deep-review', task: 'Review.' }, new AbortController().signal)
+      const deepResult = await runSubagent.execute('tool-call-deep', { subagent: 'deep-review', task: 'Review.' }, new AbortController().signal)
       expect(MockAgent.instances.at(-1).state).toMatchObject({ model: fixedModel, thinkingLevel: 'high' })
+      expect(deepResult.details).toMatchObject({
+        thinkingLevel: 'high',
+        model: { mode: 'fixed', provider: 'mock', id: 'fixed-model' },
+      })
 
       await runSubagent.execute('tool-call-plain', { subagent: 'plain-review', task: 'Review.' }, new AbortController().signal)
       expect(MockAgent.instances.at(-1).state).toMatchObject({ model: plainModel, thinkingLevel: 'off' })

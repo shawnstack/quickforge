@@ -1,6 +1,27 @@
 {
   "features": [
     {
+      "id": "subagent-run-detail-model-thinking",
+      "name": "subagent 运行详情展示模型与思考等级",
+      "status": "done",
+      "dependencies": [],
+      "approach": "用户需求：点击 subagent 摘要打开 Workspace Inspector 运行详情时，展示本次运行实际使用的模型与思考等级。调研结论：详情走 kind:'subagent' Tab → SubagentRunDetailContent → renderSubagentRunBody（src/lib/local-tools.ts）；服务端已算出 subagentModel 与 subagentThinkingLevel，但 details 只写 model:subagentModelInfo（继承时仅 {mode:'inherit',inherited:true}，不含模型名）且完全没写 thinkingLevel；summary 块受 payload.detailed 门控，故新增独立且不受门控的 meta 块。实现：服务端 agent-subagent-runner.mjs 新增 subagentRuntimeDetails（合并解析后模型 provider/id/name + thinkingLevel），三处 details（emitSubagentTrace/buildTerminalSubagentDetails/成功终态）改为展开该对象；前端 subagent-run-detail.ts 新增 SubagentRunModel/SubagentRunThinkingLevel 类型与 payload.model/thinkingLevel 字段、严格解析（非法丢弃）、导出 subagentRunModelLabel（复用 modelDisplayLabel，provider/id 优先回落 name）与 subagentThinkingLevelLabelKey（复用主 Agent thinkingOff..thinkingXHigh 文案）、SubagentRunBodyBlock 新增 'meta'（task 之后 summary 之前，以「有可显示模型标识或 thinkingLevel」为条件，避免旧会话空块）；local-tools.ts 新增 renderSubagentRunMeta，在任务说明块上方独立一行居中渲染（模型名 · 思考等级，用 · 分隔，无文字标签与继承标记）；i18n 无净新增 key；更新 docs/wiki/src/lib/README.md 与 docs/wiki/server/README.md。",
+      "files": [
+        "server/agent-subagent-runner.mjs",
+        "src/lib/subagent-run-detail.ts",
+        "src/lib/local-tools.ts",
+        "tests/frontend/subagent-run-detail.test.ts",
+        "tests/server/agent-manager.subagents.test.mjs",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "父 Agent 独立复跑：npx vitest run tests/frontend/subagent-run-detail.test.ts tests/frontend/i18n-language-snapshot.test.ts tests/frontend/input-clamp.test.ts 121 passed；npx vitest run tests/server/agent-manager.subagents.test.mjs 14 passed；npm run lint 0 error（仅 server/cloud/identity.mjs:92 既有 no-useless-assignment warning，与本次无关）；npx tsc -b --pretty false 无错误；npm run build 成功（仅既有 KaTeX 字体运行时解析与 chunk 体积警告）。未做浏览器实测。",
+      "boundaries": "仅 subagent 运行详情页（Workspace Inspector subagent Tab）展示，聊天摘要卡与置顶摘要行未改动；未新增依赖；未改动 dist/、package-dist/、package-offline/ 生成产物；未 commit/tag/push；未加 renderSubagentRunBody 的 DOM 渲染测试（local-tools.ts 依赖 pi-web-ui/Lit 运行时，仓库现有测试只覆盖其纯逻辑，无渲染 harness）。"
+    },
+    {
       "id": "fix-builtin-agent-save-silent-noop",
       "name": "修复内置 Agent Profile 保存静默失效（点保存无反应）",
       "status": "done",

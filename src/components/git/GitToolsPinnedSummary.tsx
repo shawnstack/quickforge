@@ -81,8 +81,21 @@ type DragState = {
 
 type DragPointerEvent = Pick<PointerEvent, 'pointerId' | 'clientX' | 'clientY'>
 
+type PinnedBranchMenuPlacement = {
+  side: 'left' | 'right'
+  top: number
+  maxHeight: number
+}
+
 const PINNED_SUMMARY_PANEL_ID = 'quickforge-pinned-summary-panel'
 const PINNED_SUMMARY_DESKTOP_QUERY = '(min-width: 768px)'
+// 分支菜单旁挂弹层的几何契约：宽度与 GitBranchMenu w-[340px] 一致，左右留 4px 间距，
+// 距 viewport 边缘至少 12px；垂直方向 22rem 上限并在下方不足时收缩（内部列表自身滚动）。
+const PINNED_BRANCH_MENU_WIDTH = 340
+const PINNED_BRANCH_MENU_GAP = 4
+const PINNED_BRANCH_MENU_VIEWPORT_INSET = 12
+const PINNED_BRANCH_MENU_MAX_HEIGHT = 352
+const PINNED_BRANCH_MENU_MIN_HEIGHT = 160
 
 function gitTotals(status?: GitStatusResponse) {
   return (status?.files ?? []).reduce((totals, file) => {
@@ -145,6 +158,7 @@ export function GitToolsPinnedSummary({
 }: GitToolsPinnedSummaryProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const topTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const branchRowRef = useRef<HTMLButtonElement | null>(null)
   const desktopWidgetRef = useRef<HTMLDivElement | null>(null)
   const desktopPanelRef = useRef<HTMLDivElement | null>(null)
   const desktopPanelHeaderRef = useRef<HTMLDivElement | null>(null)
@@ -175,6 +189,7 @@ export function GitToolsPinnedSummary({
   const focusFrameRef = useRef<number | null>(null)
   const [dragging, setDragging] = useState(false)
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
+  const [branchMenuPlacement, setBranchMenuPlacement] = useState<PinnedBranchMenuPlacement>()
   const [expandedTasksSignature, setExpandedTasksSignature] = useState<string>()
   // 已结束小节默认折叠；仅在摘要弹层展开期间记忆，重开弹层恢复折叠，不持久化。
   const [finishedSubagentRunsCollapsed, setFinishedSubagentRunsCollapsed] = useState(true)
@@ -492,6 +507,11 @@ export function GitToolsPinnedSummary({
     return () => query.removeEventListener('change', update)
   }, [])
 
+  // 桌面/移动形态切换时旁挂菜单的定位口径失效，直接收起。
+  useEffect(() => {
+    queueMicrotask(() => setBranchMenuOpen(false))
+  }, [desktopDraggable])
+
   useEffect(() => {
     const previousExpanded = previousExpandedRef.current
     previousExpandedRef.current = expanded
@@ -646,7 +666,27 @@ export function GitToolsPinnedSummary({
   if (todos.length === 0 && runningSubagentRuns.length === 0 && finishedSubagentRuns.length === 0 && !hasGitSection) return null
 
   const toggleBranchMenu = () => {
-    setBranchMenuOpen((value) => !value)
+    if (branchMenuOpen) {
+      setBranchMenuOpen(false)
+      return
+    }
+    const row = branchRowRef.current
+    const widget = desktopWidgetRef.current
+    if (desktopDraggable && row && widget) {
+      const rowRect = row.getBoundingClientRect()
+      const widgetRect = widget.getBoundingClientRect()
+      setBranchMenuPlacement({
+        side: widgetRect.left - PINNED_BRANCH_MENU_VIEWPORT_INSET >= PINNED_BRANCH_MENU_WIDTH + PINNED_BRANCH_MENU_GAP ? 'left' : 'right',
+        top: Math.round(rowRect.top - widgetRect.top),
+        maxHeight: Math.max(
+          PINNED_BRANCH_MENU_MIN_HEIGHT,
+          Math.min(PINNED_BRANCH_MENU_MAX_HEIGHT, window.innerHeight - rowRect.top - PINNED_BRANCH_MENU_VIEWPORT_INSET),
+        ),
+      })
+    } else {
+      setBranchMenuPlacement(undefined)
+    }
+    setBranchMenuOpen(true)
   }
 
   const summarySections = (
@@ -663,18 +703,18 @@ export function GitToolsPinnedSummary({
             </button>
 
             <div className="relative">
-              <button type="button" className="flex h-11 w-full items-center gap-3 rounded-2xl px-2.5 text-left text-foreground/88 transition-colors hover:bg-muted/45 hover:text-foreground" onClick={toggleBranchMenu} aria-expanded={branchMenuOpen}>
+              <button ref={branchRowRef} type="button" className="flex h-11 w-full items-center gap-3 rounded-2xl px-2.5 text-left text-foreground/88 transition-colors hover:bg-muted/45 hover:text-foreground" onClick={toggleBranchMenu} aria-expanded={branchMenuOpen}>
                 <GitBranch className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate font-medium">{status.branch || t('unknown')}</span>
                 <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', branchMenuOpen && 'rotate-180')} />
               </button>
-              {branchMenuOpen ? (
+              {!desktopDraggable && branchMenuOpen ? (
                 <GitBranchMenu
                   projectId={projectId}
                   currentBranch={status.branch}
                   dirtyCount={dirtyCount}
                   className={cn(
-                    'fixed inset-x-2 top-[9.25rem] max-h-[calc(100dvh-9.75rem)] w-auto overflow-y-auto md:absolute md:inset-x-auto md:top-full md:mt-1 md:max-h-[min(22rem,calc(100dvh-8rem))] md:w-full md:overflow-y-auto',
+                    'fixed inset-x-2 top-[9.25rem] max-h-[calc(100dvh-9.75rem)] w-auto overflow-y-auto',
                     mobileShell && 'md:fixed md:inset-x-2 md:right-auto md:top-[9.25rem] md:mt-0 md:max-h-[calc(100dvh-9.75rem)] md:w-auto md:overflow-y-auto lg:inset-x-2 lg:right-auto lg:top-[9.25rem] lg:mr-0',
                   )}
                   openChangesClassName={cn('hidden md:flex', mobileShell && 'md:hidden')}
@@ -911,6 +951,35 @@ export function GitToolsPinnedSummary({
           {summarySections}
         </div>
       </div>
+
+      {branchMenuOpen && desktopDraggable && branchMenuPlacement && projectId ? (
+        <GitBranchMenu
+          projectId={projectId}
+          currentBranch={status?.branch}
+          dirtyCount={dirtyCount}
+          className={cn(
+            'absolute left-auto right-auto z-50 overflow-y-auto',
+            branchMenuPlacement.side === 'left' ? 'right-full mr-1 origin-top-right' : 'left-full ml-1 origin-top-left',
+          )}
+          style={{ top: branchMenuPlacement.top, maxHeight: branchMenuPlacement.maxHeight }}
+          onCheckout={async (branch) => {
+            await onCheckout(branch)
+            setBranchMenuOpen(false)
+          }}
+          onCreated={(nextStatus) => {
+            onCreated(nextStatus)
+            setBranchMenuOpen(false)
+          }}
+          onOpenGraph={() => {
+            setBranchMenuOpen(false)
+            onOpenGraph()
+          }}
+          onOpenChanges={() => {
+            setBranchMenuOpen(false)
+            onOpenChanges()
+          }}
+        />
+      ) : null}
     </div>
   ) : null
 

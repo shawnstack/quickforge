@@ -1,3 +1,14 @@
+## 当前交接摘要：置顶摘要分支菜单旁挂弹出（2026-09-09）
+
+- 目标：用户反馈置顶摘要（小浮层）里点 git 分支在面板内部再嵌一个小下拉太挤；先按「屏蔽一下」做成只读行，后按最终指令「不要移除 不要在里面打开、从旁边打开」改为旁挂弹层。
+- 实现：`GitToolsPinnedSummary.tsx` 桌面分支菜单从「panel 内容流内 `md:absolute md:top-full md:w-full` 下拉」改为 desktop widget 直接子节点旁挂：默认左侧 `right-full mr-1 origin-top-right`，左侧空间不足 340px 翻右侧 `left-full ml-1 origin-top-left`；打开时测量（`rowRect`/`widgetRect` 差定 top、viewport 12px 安全区定 maxHeight，22rem 上限/160px 下限），拖动/收起/suspend/`desktopDraggable` 变化（queueMicrotask）即关闭；移动端保持原 fixed `top-[9.25rem]` 契约（实例加 `!desktopDraggable` 守卫）。`GitBranchMenu.tsx` 新增可选 `style` prop 透传到根节点承接动态定位。`App.tsx` 的 `onCheckout`/`onCreated`/`onOpenGraph` 接线恢复（中间只读版本曾移除）。
+- 文件：`src/components/git/GitToolsPinnedSummary.tsx`、`src/components/git/GitBranchMenu.tsx`、`src/App.tsx`、`tests/frontend/git-tools-pinned-summary.test.ts`（新「旁挂弹出」契约用例替换只读用例；恢复 queueMicrotask/9.25rem 断言；commitCallback 锚点 `mobileShell={mobileShell}`）、`docs/wiki/src/components/README.md`（6 处）、`progress.md` Notes、`session-handoff.md`。
+- 验证：定向 vitest 2 files / 38 tests 全过；eslint 4 文件 0 error；`npx tsc -b` 通过。未跑全量。
+- Blocker：无。未 commit。
+- 下一步：真机冒烟——置顶摘要展开后点分支行，菜单从面板左侧弹出并对齐行位置；把面板拖到屏幕左缘再打开应翻到右侧；切换分支/打开图谱/收起摘要后菜单关闭；移动端菜单仍固定在原位置；标题栏分支 chip 与提交弹窗内的菜单回归正常。
+
+---
+
 ## 当前交接摘要：对话报错重试一行式轻量错误行（2026-09-09）
 
 - 目标：把对话回合失败的终态错误（pi-web-ui 红块 + icon-only「继续生成」+ hover 重试入口分裂）改为一行式轻量错误行：`⚠ 生成失败 · 译文或原文 [重试] [详情]`，重试中转「⟳ 正在重试…」，连续失败追加琥珀「已重试 n 次仍失败 · 切换模型」。设计稿 `design-mockups/conversation-error-retry.html`（已用户确认并浏览器实操验证）。

@@ -121,7 +121,7 @@ describe('GitToolsPinnedSummary source contract', () => {
     )
     const commitCallback = appSource.slice(
       appSource.indexOf('onOpenCommitPush={() => {'),
-      appSource.indexOf('onCheckout={handleCheckoutTitleBranch}'),
+      appSource.indexOf('mobileShell={mobileShell}'),
     )
     for (const callback of [subagentCallback, changesCallback]) {
       expect(callback).toContain('if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {')
@@ -197,9 +197,6 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(summarySource).toContain("'--quickforge-pinned-summary-panel-max-height': desktopMode !== 'panel' || panelMaxHeight === undefined")
     expect(summarySource).toContain('min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4')
     expect(summarySource).not.toContain("branchMenuOpen ? 'overflow-visible'")
-    expect(summarySource).toContain('md:top-full md:mt-1')
-    expect(summarySource).toContain('md:max-h-[min(22rem,calc(100dvh-8rem))]')
-    expect(summarySource).toContain('md:w-full md:overflow-y-auto')
     expect(summarySource).not.toContain("branchMenuSide === 'left'")
     expect(cssSource).toContain('width 220ms cubic-bezier(.22,.8,.24,1)')
     expect(cssSource).toContain('height 220ms cubic-bezier(.22,.8,.24,1)')
@@ -291,6 +288,28 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(summarySource.match(/max-h-\[calc\(100dvh-9\.75rem\)\]/g)).toHaveLength(2)
     expect(summarySource).not.toContain('touch-none')
     expect(summarySource).not.toContain('touchAction')
+  })
+
+  it('opens the branch menu beside the desktop floating panel instead of inside its content flow', () => {
+    const widget = desktopWidgetBlock()
+    const sections = summarySource.slice(
+      summarySource.indexOf('const summarySections'),
+      summarySource.indexOf('const desktopWidgetStyle'),
+    )
+    expect(widget).toContain('{branchMenuOpen && desktopDraggable && branchMenuPlacement && projectId ? (')
+    expect(widget).toContain("branchMenuPlacement.side === 'left' ? 'right-full mr-1 origin-top-right' : 'left-full ml-1 origin-top-left'")
+    expect(widget).toContain('style={{ top: branchMenuPlacement.top, maxHeight: branchMenuPlacement.maxHeight }}')
+    expect(sections).toContain('{!desktopDraggable && branchMenuOpen ? (')
+    expect(sections).toContain('top-[9.25rem]')
+    expect(sections).not.toContain('md:top-full')
+    expect(summarySource).not.toContain('md:top-full')
+    expect(summarySource).not.toContain('md:w-full md:overflow-y-auto')
+    expect(summarySource).toContain('const rowRect = row.getBoundingClientRect()')
+    expect(summarySource).toContain('const widgetRect = widget.getBoundingClientRect()')
+    expect(summarySource).toContain('Math.round(rowRect.top - widgetRect.top)')
+    expect(summarySource).toContain('PINNED_BRANCH_MENU_WIDTH')
+    expect(summarySource).toContain('PINNED_BRANCH_MENU_MAX_HEIGHT')
+    expect(summarySource).toContain('useEffect(() => {\n    queueMicrotask(() => setBranchMenuOpen(false))\n  }, [desktopDraggable])')
   })
 
   it('tracks the active pointer on window until move/up/cancel and captures only after a real drag', () => {

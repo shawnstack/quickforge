@@ -419,7 +419,7 @@ export function AgentProfilesPage() {
   }
 
   async function handleSaveAgent() {
-    if (!agentFormIsValid(agentForm)) return
+    if (!editingAgent?.builtin && !agentFormIsValid(agentForm)) return
     setAgentLoading(true)
     setError('')
     const savedThinkingLevel =

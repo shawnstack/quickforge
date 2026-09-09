@@ -46,6 +46,13 @@ describe('agent profile max runtime conversion', () => {
     expect(maxRuntimeMinutesToMs('0.00001')).toBe(1_000)
   })
 
+  it('allows built-in agent saves even though the 2h built-in runtime exceeds the editable 60 minute cap', async () => {
+    const source = await readFile(new URL('../../src/components/agent-profiles/AgentProfilesPage.tsx', import.meta.url), 'utf8')
+
+    expect(source).toContain('if (!editingAgent?.builtin && !agentFormIsValid(agentForm)) return')
+    expect(isMaxRuntimeMinutesValid(maxRuntimeMsToMinutes(2 * 60 * 60 * 1000))).toBe(false)
+  })
+
   it('accepts only values from one second through 60 minutes', () => {
     expect(MIN_RUNTIME_MINUTES).toBe(1000 / 60_000)
     expect(isMaxRuntimeMinutesValid(String(MIN_RUNTIME_MINUTES))).toBe(true)

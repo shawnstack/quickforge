@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>安全撤销 · QuickForge 交互演示</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f7f7f5;
+      --surface: #fff;
+      --soft: #fafaf9;
+      --hover: #f3f3f1;
+      --border: #e7e7e4;
+      --text: #343432;
+      --muted: #6a6a65;
+      --accent: #426887;
+      --danger: #a33232;
+      --quickforge-dur-fast: 120ms;
+      --quickforge-dur-base: 180ms;
+      --quickforge-ease-out: cubic-bezier(.2, 0, 0, 1);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--page); color: var(--text); font: 14px/1.6 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    button, select { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; }
+    button { min-height: 36px; padding: 6px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: background var(--quickforge-dur-fast) var(--quickforge-ease-out); }
+    button:hover:not(:disabled), select:hover { background: var(--hover); }
+    button:disabled, select:disabled { opacity: .5; cursor: not-allowed; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    button.undo:hover:not(:disabled) { color: var(--danger); background: #fcf1f0; }
+    button.confirm { color: #fff; border-color: transparent; background: #b95b5b; padding: 8px 15px; }
+    button.confirm:hover:not(:disabled) { background: #a94e4e; }
+    button.confirm:disabled { opacity: 1; color: #fff; background: #eac2c2; }
+    .page { width: min(100% - 40px, 960px); margin: 28px auto 48px; }
+    .demo-bar, .toolbar, .card-heading, .dialog-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+    .demo-bar { margin-bottom: 16px; color: var(--muted); font-size: 12px; }
+    .demo-label { margin-right: auto; }
+    select { min-height: 36px; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 5px 28px 5px 9px; }
+    .demo-bar button { font-size: 12px; }
+    .chat { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); overflow: hidden; }
+    .chat-header { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--border); padding: 15px 22px; font-size: 12px; color: var(--muted); }
+    .chat-header strong { color: var(--text); font-size: 14px; font-weight: 600; }
+    main { max-width: 56rem; margin: auto; padding: 28px clamp(16px, 4vw, 36px); }
+    .speaker { margin: 0 0 7px; font-size: 12px; font-weight: 600; color: var(--muted); }
+    .message { margin: 0 0 28px; }
+    .message p { margin: 0; }
+    .request { display: inline-block; background: var(--soft); border-radius: 11px; padding: 10px 14px; }
+    h1, h2, p { margin-top: 0; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 0; }
+    h2 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+    .hint { color: var(--muted); font-size: 12px; margin: 0; }
+    .card { border: 1px solid var(--border); border-radius: 16px; margin-top: 16px; }
+    .card-heading { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .card-heading strong { font-size: 13px; font-weight: 600; }
+    .card-heading .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+    .file { display: flex; align-items: center; gap: 12px; padding: 10px 16px; }
+    .file + .file { border-top: 1px solid var(--border); }
+    .path { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .file-note { flex: none; color: var(--muted); font-size: 12px; }
+    .toolbar { justify-content: space-between; padding: 13px 16px; border-top: 1px solid var(--border); }
+    .toolbar .hint { flex: 1 1 230px; }
+    .undo, .confirm { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+    svg { width: 16px; height: 16px; flex: none; }
+    .outcome { padding: 13px 15px; background: var(--soft); border-radius: 10px; margin-top: 16px; }
+    .outcome h2 { margin: 0; }
+    .footnote { margin: 18px 0 0; color: var(--muted); font-size: 12px; }
+    dialog { width: min(840px, calc(100% - 28px)); max-height: calc(100dvh - 40px); padding: 28px; border: 1px solid var(--border); border-radius: 22px; color: var(--text); background: var(--surface); box-shadow: 0 20px 65px -28px rgb(20 20 20 / 30%); }
+    dialog[open] { animation: enter var(--quickforge-dur-base) var(--quickforge-ease-out); }
+    dialog::backdrop { background: rgb(30 30 28 / 22%); }
+    .dialog-heading { justify-content: space-between; flex-wrap: nowrap; margin-bottom: 12px; }
+    .close { display: inline-flex; align-items: center; justify-content: center; width: 36px; padding: 6px; flex: none; border-color: transparent; background: transparent; color: var(--muted); }
+    .dialog-description { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+    .file-group + .file-group { margin-top: 24px; }
+    .preview-files { display: grid; gap: 8px; list-style: none; padding: 0; margin: 0; }
+    .preview-files .file { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+    .preview-files .path { font-size: 14px; }
+    .preview-files .file-note { font-size: 14px; text-align: right; }
+    .check-note { margin: 22px 0 16px; color: var(--muted); font-size: 14px; }
+    .dialog-actions { display: flex; justify-content: flex-end; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    [hidden] { display: none !important; }
+    @keyframes enter { from { opacity: 0; transform: translateY(4px) scale(.97); } to { opacity: 1; transform: none; } }
+    @media (max-width: 600px) {
+      .page { width: calc(100% - 24px); margin-top: 16px; }
+      .demo-label { flex-basis: 100%; }
+      .chat-header { padding: 13px 16px; }
+      dialog { padding: 20px; }
+      .preview-files .file { align-items: stretch; flex-direction: column; gap: 4px; }
+      .preview-files .path { flex: auto; }
+      .preview-files .file-note { text-align: left; }
+      .toolbar > button { width: 100%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="demo-bar" aria-label="演示控制">
+      <span class="demo-label">交互 Demo · 安全撤销</span>
+      <label for="scenario">演示场景</label>
+      <select id="scenario">
+        <option value="conflict">全部冲突</option>
+        <option value="safe">全部安全</option>
+        <option value="mixed">混合情况</option>
+        <option value="unavailable">备份不可用</option>
+        <option value="changed">确认前文件变化</option>
+      </select>
+      <button id="reset" type="button">重置演示</button>
+    </section>
+    <section class="chat" aria-label="QuickForge 示例会话">
+      <header class="chat-header"><strong>QuickForge</strong><span>示例项目 / 调整文件改动卡片</span></header>
+      <main>
+        <div class="message">
+          <div class="speaker">你</div>
+          <p class="request">帮我调整文件改动卡片，补充测试并更新进度。</p>
+        </div>
+        <article aria-label="助手回复">
+          <div class="speaker">QuickForge</div>
+          <p>已调整卡片与样式，新增测试，并更新进度和交接说明。</p>
+          <section class="card" aria-label="本会话文件修改" id="file-card">
+            <div class="card-heading"><strong>本会话修改 · 6 个文件</strong><span class="meta">5 个修改 / 1 个新建</span></div>
+            <div id="files"></div>
+            <div class="toolbar">
+              <p class="hint">整批检查；全部安全才撤销。</p>
+              <button id="undo" class="undo" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5-5 5 5 5M4 10h10a6 6 0 0 1 0 12" transform="translate(0 -2)" /></svg>
+                <span id="undo-label">撤销文件改动</span>
+              </button>
+            </div>
+          </section>
+          <section id="outcome" class="outcome" hidden aria-labelledby="outcome-title">
+            <h2 id="outcome-title" tabindex="-1"></h2>
+          </section>
+          <p class="footnote">仅内存演示，不访问真实文件。前置整批检查不代表真实文件系统的事务原子性，非业务实现。</p>
+        </article>
+      </main>
+    </section>
+    <p id="feedback" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+  </div>
+  <dialog id="confirmation" aria-labelledby="dialog-title" aria-describedby="dialog-description">
+    <div class="dialog-heading">
+      <h1 id="dialog-title" tabindex="-1">撤销文件改动</h1>
+      <button id="close" class="close" type="button" aria-label="关闭" title="关闭（Esc）" autofocus>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+      </button>
+    </div>
+    <p id="dialog-description" class="dialog-description">撤销前会重新检查当前文件内容；如果文件已被其他进程改过，本次不会写入任何文件。</p>
+    <section class="file-group" aria-labelledby="safe-title">
+      <h2 id="safe-title">可安全撤销 <span id="safe-count">0</span></h2>
+      <ul id="safe-files" class="preview-files"></ul>
+    </section>
+    <section class="file-group" aria-labelledby="unsafe-title">
+      <h2 id="unsafe-title">不能安全撤销 <span id="unsafe-count">0</span></h2>
+      <ul id="unsafe-files" class="preview-files"></ul>
+    </section>
+    <p id="check-note" class="check-note" role="status" aria-live="polite" aria-atomic="true"></p>
+    <div class="dialog-actions">
+      <button id="confirm" class="confirm" type="button" aria-describedby="check-note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5-5 5 5 5M4 10h10a6 6 0 0 1 0 12" transform="translate(0 -2)" /></svg>
+        <span id="confirm-label">撤销文件</span>
+      </button>
+    </div>
+  </dialog>
+  <script>
+    'use strict';
+
+    // Pure in-memory model: null means absent. No filesystem, Git or network access.
+    function createScenario(name) {
+      const files = [
+        { id: 'progress', path: 'D:\\quickforge\\progress.md', before: '待更新进度', after: '卡片调整完成', later: '外部更新的进度' },
+        { id: 'handoff', path: 'D:\\quickforge\\session-handoff.md', before: '上次交接', after: '卡片调整交接', later: '外部更新的交接' },
+        { id: 'app', path: 'D:\\quickforge\\src\\App.tsx', before: '<ArtifactCard />', after: '<ArtifactCard compact />', later: '<ArtifactCard expanded />' },
+        { id: 'card', path: 'D:\\quickforge\\src\\components\\chat\\panel-decoration\\assistant-artifact-card.ts', before: 'const compact = false;', after: 'const compact = true;', later: 'const compact = userPreference;' },
+        { id: 'style', path: 'D:\\quickforge\\src\\index.css', before: '.artifact { padding: 16px; }', after: '.artifact { padding: 12px; }', later: '.artifact { padding: 20px; }' },
+        { id: 'test', path: 'D:\\quickforge\\tests\\frontend\\assistant-artifact-card.test.ts', before: null, after: 'test("compact card", verifyCompact);', later: 'test("custom card", verifyCustom);' }
+      ];
+      return files.map(file => ({
+        ...file,
+        current: name === 'conflict' || (name === 'mixed' && ['style', 'test'].includes(file.id)) ? file.later : file.after,
+        recordAvailable: name !== 'unavailable',
+        result: null
+      }));
+    }
+
+    function inspectFile(file) {
+      if (file.result === 'restored' || file.result === 'deleted') return file.result;
+      if (!file.recordAvailable || typeof file.after !== 'string' || (file.before !== null && typeof file.before !== 'string')) return 'blocked';
+      if (file.current !== file.after) return 'conflict';
+      return file.before === null ? 'delete' : 'restore';
+    }
+
+    function calculatePlan(files) {
+      const plan = { restore: 0, delete: 0, conflict: 0, blocked: 0, completed: 0, safe: 0, unsafe: 0, canExecute: false };
+      files.forEach(file => {
+        const state = inspectFile(file);
+        if (state === 'restored' || state === 'deleted') plan.completed += 1;
+        else plan[state] += 1;
+      });
+      plan.safe = plan.restore + plan.delete;
+      plan.unsafe = plan.conflict + plan.blocked;
+      plan.canExecute = files.length > 0 && plan.safe === files.length;
+      return plan;
+    }
+
+    function executeBatch(files) {
+      // Always recheck the whole current batch; never trust an earlier preview plan.
+      // No undo result is produced until every file passes. This is not a filesystem transaction.
+      const plan = calculatePlan(files);
+      if (!plan.canExecute) return { files, plan, status: 'blocked', writes: 0 };
+      const nextFiles = files.map(file => ({
+        ...file,
+        current: file.before,
+        result: file.before === null ? 'deleted' : 'restored'
+      }));
+      return { files: nextFiles, plan, status: 'completed', writes: files.length };
+    }
+
+    function simulateExternalChange(files) {
+      // Only an external edit to the new-file example; no undo writes or deletions.
+      return files.map(file => file.id === 'test' ? { ...file, current: file.later } : file);
+    }
+
+    globalThis.SafeUndoDemo = Object.freeze({ createScenario, inspectFile, calculatePlan, executeBatch, simulateExternalChange });
+
+    function mountDemo() {
+      const byId = id => document.getElementById(id);
+      const dialog = byId('confirmation');
+      let files = createScenario('conflict');
+      let busy = false;
+      let finished = false;
+      const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+      const announce = text => { byId('feedback').textContent = text; };
+      const blockedText = '存在不能安全撤销的文件，未写入任何文件。';
+
+      function fileMarkup(file, preview) {
+        const state = inspectFile(file);
+        const reasons = {
+          restore: '内容未变，将恢复修改前内容',
+          delete: '内容未变，将删除本次新建文件',
+          conflict: file.before === null ? '当前文件已被外部修改，不删除' : '当前文件已被外部修改',
+          blocked: file.before === null ? '创建记录不可用，不删除' : '备份不可用',
+          restored: '已恢复',
+          deleted: '已删除'
+        };
+        const note = preview || finished ? reasons[state] : file.before === null ? '新建' : '修改';
+        const tag = preview ? 'li' : 'div';
+        return `<${tag} class="file"><span class="path" title="${escapeHtml(file.path)}">${escapeHtml(file.path)}</span><span class="file-note">${note}</span></${tag}>`;
+      }
+
+      function render() {
+        byId('files').innerHTML = files.map(file => fileMarkup(file, false)).join('');
+        byId('file-card').setAttribute('aria-busy', String(busy));
+        byId('scenario').disabled = busy;
+        byId('reset').disabled = busy;
+        byId('undo').disabled = busy || finished;
+        byId('undo-label').textContent = finished ? '已全部撤销' : '撤销文件改动';
+      }
+
+      function renderConfirmation() {
+        const plan = calculatePlan(files);
+        const isSafe = file => ['restore', 'delete'].includes(inspectFile(file));
+        byId('safe-count').textContent = plan.safe;
+        byId('unsafe-count').textContent = plan.unsafe;
+        byId('safe-files').innerHTML = files.filter(isSafe).map(file => fileMarkup(file, true)).join('');
+        byId('unsafe-files').innerHTML = files.filter(file => !isSafe(file)).map(file => fileMarkup(file, true)).join('');
+        byId('confirm').disabled = busy || !plan.canExecute;
+        byId('close').disabled = busy;
+        byId('confirm-label').textContent = busy ? '正在检查…' : '撤销文件';
+        dialog.setAttribute('aria-busy', String(busy));
+        byId('check-note').textContent = busy ? '正在重新检查全部文件，尚未写入任何文件。' : plan.canExecute ? '全部文件可安全撤销；确认后将再次整批检查。' : blockedText;
+      }
+
+      function openConfirmation() {
+        if (busy || finished || dialog.open) return;
+        renderConfirmation();
+        dialog.returnValue = '';
+        dialog.showModal();
+        byId('close').focus();
+      }
+
+      async function executeSelected() {
+        if (busy || !dialog.open || byId('confirm').disabled) return;
+        busy = true;
+        render();
+        renderConfirmation();
+        byId('dialog-title').focus();
+        try {
+          await new Promise(resolve => setTimeout(resolve, 420));
+          if (byId('scenario').value === 'changed') files = simulateExternalChange(files);
+          const result = executeBatch(files);
+          files = result.files;
+          finished = result.status === 'completed';
+        } finally {
+          busy = false;
+          render();
+          renderConfirmation();
+        }
+        if (!finished) {
+          // Keep the conflict visible and return focus to the available close control.
+          byId('close').focus();
+          announce(blockedText);
+          return;
+        }
+        byId('outcome').hidden = false;
+        byId('outcome-title').textContent = '本会话文件改动已全部撤销 · 已恢复 5 个文件，已删除 1 个新建文件。';
+        dialog.close('completed');
+        byId('outcome-title').focus();
+        announce(byId('outcome-title').textContent);
+      }
+
+      function reset() {
+        if (busy) return;
+        if (dialog.open) dialog.close('reset');
+        files = createScenario(byId('scenario').value);
+        finished = false;
+        byId('outcome').hidden = true;
+        render();
+        announce('演示已重置。未操作任何真实文件。');
+      }
+
+      byId('undo').addEventListener('click', openConfirmation);
+      byId('close').addEventListener('click', () => { if (!busy) dialog.close('cancel'); });
+      dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+      dialog.addEventListener('close', () => {
+        if (dialog.returnValue === 'completed' || dialog.returnValue === 'reset') return;
+        byId('undo').focus();
+        announce('已关闭，未写入任何文件。');
+      });
+      byId('confirm').addEventListener('click', executeSelected);
+      byId('reset').addEventListener('click', reset);
+      byId('scenario').addEventListener('change', reset);
+      render();
+    }
+
+    if (typeof document !== 'undefined') mountDemo();
+  </script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as agentManager from '../../server/agent-manager.mjs'
+import { agentSessions } from '../../server/agent-session-store.mjs'
 
 // agent-manager 模块拆分（agent-manager-module-split）的导出面契约：
 // 拆分全程 agent-manager.mjs 作为 facade re-export 同名符号，消费方零改动。
@@ -22,6 +23,7 @@ const EXPECTED_EXPORTS = [
   'getSessionEventBus',
   'getSessionState',
   'getSessionStatus',
+  'isSessionFileRollbackBusy', // rollback uses actual runtime state, not UI-masked streaming
   'isSseConnected',
   'listSessions',
   'markLatestAssistantProcessFinished',
@@ -62,6 +64,29 @@ const INTERNAL_SHARED_EXPORTS = [
 ]
 
 describe('agent-manager export contract (module split safety net)', () => {
+  it('rollback busy guard uses raw streaming, abort and live pending tool states', () => {
+    const id = 'rollback-busy-contract'
+    const session = { agent: { state: { isStreaming: false, pendingToolCalls: new Set() } }, runtimeToolExecutions: new Map(), abortPending: false }
+    agentSessions.set(id, session)
+    try {
+      expect(agentManager.isSessionFileRollbackBusy(id)).toBe(false)
+      session.abortPending = true
+      expect(agentManager.isSessionFileRollbackBusy(id)).toBe(true)
+      session.abortPending = false
+      session.agent.state.isStreaming = true
+      expect(agentManager.isSessionFileRollbackBusy(id)).toBe(true)
+      session.agent.state.isStreaming = false
+      session.agent.state.pendingToolCalls.add('tool')
+      expect(agentManager.isSessionFileRollbackBusy(id)).toBe(true)
+      session.agent.state.pendingToolCalls.clear()
+      session.runtimeToolExecutions.set('runtime-tool', { pending: true })
+      expect(agentManager.isSessionFileRollbackBusy(id)).toBe(true)
+    } finally {
+      agentSessions.delete(id)
+    }
+    expect(agentManager.isSessionFileRollbackBusy(id)).toBe(false)
+  })
+
   it('exports exactly the expected symbol set', () => {
     expect(Object.keys(agentManager).sort()).toEqual([...EXPECTED_EXPORTS, ...INTERNAL_SHARED_EXPORTS].sort())
   })

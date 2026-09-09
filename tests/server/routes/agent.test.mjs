@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   tryAcquireSse: vi.fn(),
   touchSession: vi.fn(),
   runPrompt: vi.fn(),
+  isSessionFileRollbackBusy: vi.fn(() => false),
   updateSessionHarnessConfigOption: vi.fn(),
   updateSessionHarnessMode: vi.fn(),
   forkSession: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   getSessionEventBus: mocks.getSessionEventBus,
   getSessionState: mocks.getSessionState,
   getSessionStatus: vi.fn(),
+  isSessionFileRollbackBusy: mocks.isSessionFileRollbackBusy,
   isSseConnected: vi.fn(),
   listSessions: vi.fn(() => []),
   rejectAutoCompact: vi.fn(),
@@ -113,12 +115,16 @@ vi.mock('../../../server/utils/platform.mjs', () => ({
 
 const fileBackupMocks = vi.hoisted(() => ({
   getSessionFileChanges: vi.fn(),
+  getSessionFileRollbackPreview: vi.fn(),
   rollbackSessionFiles: vi.fn(),
+  rollbackSessionFile: vi.fn(),
 }))
 
 vi.mock('../../../server/session-file-backups.mjs', () => ({
   getSessionFileChanges: fileBackupMocks.getSessionFileChanges,
+  getSessionFileRollbackPreview: fileBackupMocks.getSessionFileRollbackPreview,
   rollbackSessionFiles: fileBackupMocks.rollbackSessionFiles,
+  rollbackSessionFile: fileBackupMocks.rollbackSessionFile,
 }))
 
 function request(body) {
@@ -233,6 +239,7 @@ describe('agent file change summary routes', () => {
   beforeEach(() => {
     fileBackupMocks.getSessionFileChanges.mockReset()
     fileBackupMocks.rollbackSessionFiles.mockReset()
+    fileBackupMocks.rollbackSessionFile.mockReset()
   })
 
   it('returns the session-scoped file change summary', async () => {
@@ -254,16 +261,78 @@ describe('agent file change summary routes', () => {
     expect(JSON.parse(res.body)).toEqual(summary)
   })
 
-  it('rolls back session file changes and reports the result', async () => {
-    const result = { restored: 2, removedCreated: 1, errors: [] }
+  it('returns whole-batch preview with a live busy guard', async () => {
+    const preview = { revision: 'r1', canRollback: true, files: [] }
+    fileBackupMocks.getSessionFileRollbackPreview.mockResolvedValue(preview)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const req = request()
+    req.method = 'GET'
+    const res = response()
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1/rollback-files/preview'))
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual(preview)
+    const [, options] = fileBackupMocks.getSessionFileRollbackPreview.mock.calls.at(-1)
+    options.isSessionBusy()
+    expect(mocks.isSessionFileRollbackBusy).toHaveBeenCalledWith('session-1')
+  })
+
+  it.each([['completed', 200], ['blocked', 409], ['failed', 500]])('returns structured %s response with HTTP %s', async (status, code) => {
+    const result = { status, restored: status === 'completed' ? 2 : 0, removedCreated: 0, errors: [], preview: { revision: 'r2', canRollback: false, files: [] } }
     fileBackupMocks.rollbackSessionFiles.mockResolvedValue(result)
     const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    await handleAgentApi(request({ revision: 'r1' }), res, new URL('http://localhost/api/agents/session-1/rollback-files'))
+    expect(fileBackupMocks.rollbackSessionFiles).toHaveBeenCalledWith('session-1', { revision: 'r1', isSessionBusy: expect.any(Function) })
+    expect(res.status).toBe(code)
+    expect(JSON.parse(res.body)).toEqual(result)
+  })
 
+  it.each([['partial', 200], ['completed', 200], ['blocked', 409], ['failed', 500]])('dispatches single-file %s to its dedicated backend with HTTP %s', async (status, code) => {
+    const result = { status, restored: 1, removedCreated: 0, errors: [], preview: { revision: 'batch', canRollback: false, files: [] } }
+    fileBackupMocks.rollbackSessionFile.mockResolvedValue(result)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    await handleAgentApi(request({ path: 'C:\\ws\\a.ts', revision: 'item' }), res, new URL('http://localhost/api/agents/session-1/rollback-file'))
+    expect(fileBackupMocks.rollbackSessionFile).toHaveBeenCalledWith('session-1', { path: 'C:\\ws\\a.ts', revision: 'item', isSessionBusy: expect.any(Function) })
+    expect(fileBackupMocks.rollbackSessionFiles).not.toHaveBeenCalled()
+    fileBackupMocks.rollbackSessionFile.mock.calls.at(-1)[1].isSessionBusy()
+    expect(mocks.isSessionFileRollbackBusy).toHaveBeenCalledWith('session-1')
+    expect(res.status).toBe(code)
+    expect(JSON.parse(res.body)).toEqual(result)
+  })
+
+  it.each([{}, { path: '' }, { path: 42, revision: 'r' }, { path: '/unknown', revision: 'r' }])('invalid single-file payload never falls back to batch: %j', async (body) => {
+    fileBackupMocks.rollbackSessionFile.mockResolvedValue({ status: 'blocked', restored: 0, removedCreated: 0, errors: [], preview: { files: [] } })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    await handleAgentApi(request(body), res, new URL('http://localhost/api/agents/session-1/rollback-file'))
+    expect(fileBackupMocks.rollbackSessionFile).toHaveBeenCalledWith('session-1', { path: body.path, revision: body.revision, isSessionBusy: expect.any(Function) })
+    expect(fileBackupMocks.rollbackSessionFiles).not.toHaveBeenCalled()
+    expect(res.status).toBe(409)
+  })
+
+  it('malformed single-file JSON returns blocked without calling either rollback backend', async () => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const req = Readable.from([Buffer.from('{invalid')])
+    req.method = 'POST'
+    req.headers = {}
+    const res = response()
+    fileBackupMocks.getSessionFileRollbackPreview.mockResolvedValue({ revision: 'batch', canRollback: true, files: [] })
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1/rollback-file'))
+    expect(res.status).toBe(409)
+    expect(JSON.parse(res.body).status).toBe('blocked')
+    expect(fileBackupMocks.rollbackSessionFile).not.toHaveBeenCalled()
+    expect(fileBackupMocks.rollbackSessionFiles).not.toHaveBeenCalled()
+  })
+
+  it('passes missing revision to the fail-closed backend instead of blind rollback', async () => {
+    const result = { status: 'blocked', restored: 0, removedCreated: 0, errors: [], preview: { revision: 'r1', canRollback: false, files: [], reason: 'batch_changed' } }
+    fileBackupMocks.rollbackSessionFiles.mockResolvedValue(result)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
     const res = response()
     await handleAgentApi(request({}), res, new URL('http://localhost/api/agents/session-1/rollback-files'))
-
-    expect(fileBackupMocks.rollbackSessionFiles).toHaveBeenCalledWith('session-1')
-    expect(res.status).toBe(200)
+    expect(fileBackupMocks.rollbackSessionFiles).toHaveBeenCalledWith('session-1', { revision: undefined, isSessionBusy: expect.any(Function) })
+    expect(res.status).toBe(409)
     expect(JSON.parse(res.body)).toEqual(result)
   })
 })

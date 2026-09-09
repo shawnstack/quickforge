@@ -115,6 +115,7 @@
 - Agent 状态管理（创建、单次恢复、销毁）；`ServerAgent.restore()` 支持 `AbortSignal`，从 `/api/agents/:sessionId/restore` 一次取得完整权威快照，取消的旧会话请求不会创建 SSE；页面刷新或 SSE 重连时会从服务端 state 恢复运行中工具的临时 `toolResult`（含 subagent `details.messages`）和 `pendingToolCalls`
 - OpenCode `acpSession` 快照（configOptions/modes/usage）随 state 事件与 refresh 同步；`setConfigOption`/`setMode` 调用 harness API 并以响应刷新本地；`forkSession` 触发整会话 ACP fork；`acp_session_usage_update` 轻量事件即时更新 usage
 - ask_user 提问流：`ask_user_required`/`ask_user_answered` SSE 事件维护 `state.pendingAsk`（随 state 快照与 SSE state 帧恢复），`answerAsk(askId, {answers, skipped})` POST `/api/agents/:id/answer-ask` 回传后清空 pending；回答以纯文本作为 ask_user 工具结果回给模型
+- 文件撤销独立于消息回滚：`getFileRollbackPreview(signal?)` GET `/rollback-files/preview`（30s 超时）取得整批及每项独立 revision；旧服务端缺少每项 revision 时禁用单项操作。`rollbackFiles(revision, signal?)` POST `/rollback-files` 提交整批 `{revision}`；`rollbackFile(path, revision, signal?)` POST `/rollback-file` 提交选中项 `{path, revision}`，不回退整批接口（两者均 60s 超时）。校验响应结构及 HTTP/status 配对：单项接受 200 / `partial` 或 `completed`，整批接受 200 / `completed`，两者均接受 409 / `blocked`、500 / `failed`，返回结构化 `ServerFileRollbackResult`（含实际恢复/删除计数、errors 与剩余 preview）。`partial` 仅表示本次单项成功，不能触发整体「已撤销」；普通兄弟项冲突/legacy 不阻止安全单项，但全局 reason 仍禁用，整批要求剩余全安全。传输失败、超时、取消或异常响应不能证明服务端未写入，交给文件撤销弹窗展示“结果未确认”，不自动重试执行。
 - 系统提示词加载
 - Agent 权限模式切换
 - 自定义命令注入

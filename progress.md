@@ -1,10 +1,35 @@
-## Demo：safe-undo-interaction-demo（待用户评审）
+## Feature：safe-single-file-rollback（done，正式实现完成）
 
-- 目标：用户先看安全撤销 HTML 交互，不实现真实撤销逻辑。
-- 产物：`design-mockups/safe-undo.html`，包含预检查确认、安全恢复/删除、后续修改冲突保留、失败重试及备份不可用四类模拟场景。
-- 验证：内联脚本 `node --check` 与 Node VM 场景断言通过；未做浏览器视觉/交互实测。
-- 边界：无真实文件访问或接口调用；业务代码、依赖、生成产物未改；无需更新 Wiki（独立原型，无架构/公共入口变化）。保留其他并行任务记录。
-- 下一步：用户预览确认交互；真实安全撤销仍未实现，未提交。
+- 目标与实现：专用弹窗安全文件行新增“撤销此文件”；独立 `POST rollback-file` 携带 `{path, revision}`，混合场景只撤安全文件、不动冲突文件。成功为 `partial` 时保留剩余项继续单撤或整批撤销，最后 `completed` 才标记整体完成；整批仍要求全部剩余文件安全。
+- 改动：`server/session-file-backups.mjs`、`server/routes/agent.mjs`；`src/lib/server-agent.ts`、`src/components/chat/file-rollback-state.ts`、`FileRollbackDialog.tsx`、仅弹窗 CSS、i18n 与对应 server/frontend 测试。完整路径见 `feature_list.json`。外部文件卡、`src/App.tsx` 与 Demo 本轮未改。
+- Wiki：五份已同步：`docs/wiki/server/README.md`、`docs/wiki/server/routes/README.md`、`docs/wiki/server/tools/README.md`、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`。
+- 验证（父 Agent 已核实）：`npm run test` **300 files / 2999 tests passed**；`npm run lint` **0 errors / 1 个既有 warning**；`npm run build -- --outDir .safe-single-undo-build-check` 通过类型检查与生产构建，独立目录已删除。独立只读审查未发现阻塞；未浏览器实测。
+- 边界：沿用 QuickForge write/edit 安全回滚范围；文件系统操作不是原子事务，失败 intent 保留且不重试，不误报完成。未动 `package-dist/`、`package-offline/`，未新增依赖、未提交。
+- Notes：仅既有 `server/cloud/identity.mjs:92` 的 `no-useless-assignment` lint warning 与 KaTeX 字体解析/大 chunk 构建 warnings，本次不扩大修复范围。
+- 下一步：浏览器冒烟混合安全单撤、不动冲突文件、连续单撤/剩余整批/最后完成、窄屏。用户授权后已执行 `npm run build`，生产 `dist/` 已刷新为含单文件撤销的最新前端产物。
+
+---
+
+## Feature：safe-undo-file-rollback（正式实现完成）
+
+- 目标：将用户已确认的安全撤销弹窗接入真实文件回滚；外层 Demo 不带入正式实现。
+- 实现：新增专用文件撤销弹窗，外部文件卡/按钮的 class、布局和文案保持，旧消息回滚浮层未改。GET 获取 preview，POST 携带 revision，结构化处理 200/409/500；before/pending/after 连续性、文件锁、Windows 大小写路径别名、全批校验、旧备份拒绝与失败保留均已接入；前端用结构化状态呈现安全/不安全分组、整批禁用和真实结果。
+- 重要文件：后端 `server/session-file-backups.mjs`、`server/session-file-lock.mjs`、`server/tools/index.mjs`、`server/agent-manager.mjs`、`server/routes/agent.mjs`；前端 `FileRollbackDialog.tsx`、`file-rollback-state.ts`、`assistant-artifact-card.ts`、`src/App.tsx`、`src/lib/server-agent.ts`、i18n/CSS；相关 server/frontend 回归测试（完整路径见 feature_list）。
+- Wiki：已同步 `docs/wiki/server/README.md`、`server/routes/README.md`、`server/tools/README.md`、`src/components/README.md`、`src/lib/README.md`（后四项均相对 `docs/wiki/`）。
+- 验证（父 Agent 已核实）：`npm run test` 全量 **300 files / 2930 tests passed**；最终前端文案测试另跑 **4 files / 48 tests passed**。`npm run lint` 通过，0 errors、1 个既有 warning。`npm run build -- --outDir .safe-undo-build-check` 通过（类型检查及生产构建）；独立输出已删除；随后按用户要求执行 `npm run build` 成功，已刷新当时整批撤销版本的 `dist/`（不含后续单文件最新版），未动 `package-dist/`、`package-offline/`。构建有 KaTeX 字体解析与大 chunk warnings。
+- 边界：仅覆盖 QuickForge write/edit 文件工具（含归属父会话的子工具），不覆盖 shell/OpenCode 原生改动；全批检查不保证外部文件系统原子事务，中途失败如实计数并保留备份，不误报完成；旧备份不支持安全回滚。未 commit；保留其他历史/并行内容。
+- Notes：未修改文件 `server/cloud/identity.mjs:92` 有既有 `no-useless-assignment` lint warning，本次不扩大修复范围。
+- 下一步：未真机浏览器冒烟、无截图，不宣称视觉实测。用户检查原撤销入口打开新窗、外部修改混合场景整批禁用、安全恢复/新建文件删除、ESC 及深浅色/窄屏；本 feature 当时版本的生产 `dist` 已按用户后续要求构建；后续单文件撤销由 `safe-single-file-rollback` 承接，最新版已按用户后续授权的 `npm run build` 进入生产 `dist/`。
+
+---
+
+## Demo：safe-undo-interaction-demo（done，用户已确认）
+
+- 目标：用户先看安全撤销 HTML 交互，Demo 本身不实现真实撤销逻辑。
+- 产物：`design-mockups/safe-undo.html`，按用户截图简化为撤销文件改动弹窗：安全/不安全分组、文件路径与原因、右上关闭、右下撤销。有任一不安全则整批不执行，全部安全才可确认；执行前再次整批检查。移除原部分撤销/失败重试演示。
+- 验证：内联脚本 `node --check` 与主 Agent Node VM 断言通过（全部冲突/混合/备份不可用零写入；全安全恢复5个、删除1个；确认前新增冲突整批零写入；重复执行保护）；未做浏览器视觉/交互实测。用户已确认弹窗方案，外层 Demo 不带入正式实现。
+- 边界：Demo 无真实文件访问或接口调用；Demo 阶段未改业务代码、依赖、生成产物，无需更新 Wiki（独立原型）。保留其他并行任务记录。
+- 承接：真实安全撤销已由正式 feature `safe-undo-file-rollback` 承接并实现，见顶部记录；未提交。
 
 ---
 

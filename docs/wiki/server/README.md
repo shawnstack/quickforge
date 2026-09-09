@@ -104,7 +104,9 @@ server/
 - `agent-approval-orchestrator.mjs` — 工具审批 / ask_user / ACP 审批 / 自动压缩审批四类 Promise 编排。
 - `agent-subagent-runner.mjs` — `run_subagent` 生命周期：`runSubagent`、临时 profile、超时/中止进度摘要、错误 details 构建、trace 截尾与 `SUBAGENT_*` 常量。
 - `agent-persistence.mjs` — 会话持久化：CAS 权威快照（`persistAuthoritativeSessionState` / `persistSessionUnlocked`）、`persistSession` / `persistSessionState`、400ms debounce、慢持久化日志与 persist 降级标记。
-- `session-file-backups.mjs` — 会话级影子备份：`write_file`/`edit_file` 写盘前把该会话首次修改前的旧内容备份到 `~/.quickforge/cache/global/session-backups/<sessionId>/`（同会话同文件只备份首次；新建文件只登记 created 标记），`getSessionFileChanges` 用「备份内容 vs 当前文件」对账真实 diff 生成摘要，`rollbackSessionFiles` 恢复备份并删除会话新建文件；备份不随会话销毁删除（刷新后仍可回滚），7 天 TTL 兜底清理（≥1h 扫一次）。子 Agent 的文件写入经工具上下文 `sessionId` 归因到父会话。
+- `session-file-backups.mjs` — 会话级影子备份位于 `~/.quickforge/cache/global/session-backups/<sessionId>/`：`write_file`/`edit_file` 首次写入保存 before 内容/hash（新建文件登记 created），先持久化 pending 与预期写入 hash，写盘后提交 `afterHash`；每次续写校验旧内容与上次 after 的连续性，已发现的外部改动、不完整写入或旧备份不会因后续写入被重新标为安全。缺少可信 after/路径元数据的旧备份拒绝撤销；Windows 路径别名须验证同一文件后合并，重复索引、不可验证别名及不可信路径（含符号链接/硬链接、工作区根变更）拒绝处理。`getSessionFileChanges` 保持原摘要结构，但不读取不可信目标。
+  - `session-file-lock.mjs` 提供全局进程内锁，串行化受控写入的读取/日志/写盘/after 提交及摘要、预检、撤销；不阻止编辑器或其他进程。`getSessionFileRollbackPreview` 返回整批及每项独立 revision；`rollbackSessionFiles` 校验整批 revision，剩余文件全安全才开始；`rollbackSessionFile` 按 `{path, revision}` 仅校验并撤销选中项，普通兄弟项冲突或 legacy 不阻止安全单项，但会话忙、索引异常及失败/未完成的回滚 intent 仍全局阻止。两者执行前再次检查选中范围，执行期间逐项复查，I/O 等失败立即停止，如实返回已恢复/删除计数并保留备份与执行记录，不自动补偿，不保证对外部进程的文件系统原子性。
+  - 回滚先持久化独立 `rollback-intent` marker，再提交索引与逐项执行状态；marker 仅在最终索引提交成功后清除，失败路径保留已持久化 intent 并启用不可用保护，避免重启或旧索引把失败误认为可重试。成功项标记 `completed`，从剩余 preview/summary 排除；尚有剩余项返回 `partial`，全部完成才返回 `completed`。再次写入已完成项以当次 before 新建记录，整批完成后的新写入另起批次；物理 blob 留待 7 天 TTL 清理（新备份时触发、至少间隔 1h）。仅覆盖带会话上下文的 QuickForge `write_file`/`edit_file`，子 Agent 同类工具归因父会话；不涵盖 shell、OpenCode 原生或 MCP 独立写入，也不操作 Git index。
 - 拆分期间的内部共享导出（`resetIdleTimer` / `createServerTools`，登记于契约测试 `INTERNAL_SHARED_EXPORTS` 清单）后续随对应块迁移后收回。
 
 

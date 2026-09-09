@@ -52,6 +52,7 @@ import type {
 import { sessionTitle } from '@/lib/types'
 import { isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '@/components/chat/context-usage'
 import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
+import { FileRollbackDialog } from '@/components/chat/FileRollbackDialog'
 import { ChatConversationSurface } from '@/components/chat/ChatConversationSurface'
 import { extractLatestTodoWriteSnapshot } from '@/components/chat/panel-decoration'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
@@ -959,40 +960,51 @@ function MainApp() {
     }
   }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
 
-  // 助手回复文件卡片「撤销」：调服务端 rollback-files 恢复本会话修改的文件、删除会话
-  // 新建文件（影子备份，重复调用幂等）。撤销成功后记录会话 id，卡片按钮置灰为「已撤销」；
-  // 新一轮文件产物（onArtifactsChange）触发时重新武装。
+  // 文件卡外观/props 链保持不变，点击只打开独立预检弹窗。
+  // 仅完整成功才标记已撤销；新文件产物的重新武装逻辑仍由 onArtifactsChange 负责。
   const [rolledBackFilesSessionId, setRolledBackFilesSessionId] = useState<string | null>(null)
+  const [fileRollbackTarget, setFileRollbackTarget] = useState<{
+    agent: ServerAgent; sessionId: string; projectId: string
+  } | null>(null)
+  const fileRollbackTargetRef = useRef(fileRollbackTarget)
+  const currentRollbackContextRef = useRef({
+    agent: agentManager.agent,
+    sessionId: agentManager.currentSessionId,
+    projectId: agentManager.currentToolProject?.id,
+  })
+  const closeFileRollback = useCallback(() => {
+    fileRollbackTargetRef.current = null
+    setFileRollbackTarget(null)
+  }, [])
+  useLayoutEffect(() => {
+    const context = {
+      agent: agentManager.agent,
+      sessionId: agentManager.currentSessionId,
+      projectId: agentManager.currentToolProject?.id,
+    }
+    currentRollbackContextRef.current = context
+    const target = fileRollbackTargetRef.current
+    if (target && (target.agent !== context.agent || target.sessionId !== context.sessionId || target.projectId !== context.projectId)) {
+      closeFileRollback()
+    }
+  }, [agentManager.agent, agentManager.currentSessionId, agentManager.currentToolProject?.id, closeFileRollback])
 
-  const rollbackFilesFromArtifactCard = useCallback(async () => {
-    const currentAgent = agentManager.agent
-    if (!currentAgent?.sessionId) return
-    const serverAgent = currentAgent as ServerAgent
-    if (typeof serverAgent.rollbackFiles !== 'function') return
-    if (currentAgent.state.isStreaming) {
-      addToast({ sessionId: currentAgent.sessionId, title: t('generationStillRunning'), status: 'error' })
-      return
+  const rollbackFilesFromArtifactCard = useCallback(() => {
+    const { agent, sessionId, projectId } = currentRollbackContextRef.current
+    if (!agent || !sessionId || !projectId || agent.sessionId !== sessionId || fileRollbackTargetRef.current) return
+    const serverAgent = agent as ServerAgent
+    if (typeof serverAgent.getFileRollbackPreview !== 'function' || typeof serverAgent.rollbackFiles !== 'function') return
+    const target = { agent: serverAgent, sessionId, projectId }
+    fileRollbackTargetRef.current = target
+    setFileRollbackTarget(target)
+  }, [])
+  const completeFileRollback = useCallback(() => {
+    const target = fileRollbackTargetRef.current
+    const context = currentRollbackContextRef.current
+    if (target && target.agent === context.agent && target.sessionId === context.sessionId && target.projectId === context.projectId) {
+      setRolledBackFilesSessionId(target.sessionId)
     }
-    try {
-      const result = await serverAgent.rollbackFiles()
-      if (result.errors.length > 0) {
-        addToast({
-          sessionId: currentAgent.sessionId,
-          title: t('assistantArtifactRollbackPartialFailed', { count: result.errors.length }),
-          status: 'error',
-          message: result.errors.map((file) => file.path).join(', '),
-        })
-      }
-      setRolledBackFilesSessionId(currentAgent.sessionId)
-    } catch (error) {
-      addToast({
-        sessionId: currentAgent.sessionId,
-        title: t('assistantArtifactRollbackFailed'),
-        status: 'error',
-        message: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }, [addToast, agentManager.agent])
+  }, [])
 
   // 附着时刻快照：agent/sessionId 变化时（restore 返回后消息已同步填充）记录全部历史
   // toolResult 的 toolCallId；缓存命中后后台校准补尾出现的 toolResult 会视为新产物（可接受）。
@@ -2465,6 +2477,11 @@ function MainApp() {
         />
       ) : null}
     </div>
+    {fileRollbackTarget && fileRollbackTarget.agent === agentManager.agent
+      && fileRollbackTarget.sessionId === agentManager.currentSessionId
+      && fileRollbackTarget.projectId === agentManager.currentToolProject?.id ? (
+        <FileRollbackDialog client={fileRollbackTarget.agent} onClose={closeFileRollback} onCompleted={completeFileRollback} />
+      ) : null}
     {!startupSplashExited ? <StartupSplash exiting /> : null}
     <ProjectDirectoryPicker
       open={projectPickerOpen}

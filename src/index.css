@@ -7366,3 +7366,60 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
   height: 0;
   display: none;
 }
+
+/* Session file rollback: isolated modal, no changes to the outer artifact card. */
+.quickforge-file-rollback-dialog {
+  width: min(840px, calc(100% - 28px));
+  max-height: calc(100dvh - 40px);
+  margin: auto;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 20px 65px -28px rgb(0 0 0 / 30%);
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.quickforge-file-rollback-dialog[open] {
+  animation: quickforge-file-rollback-enter var(--quickforge-dur-base) var(--quickforge-ease-out);
+}
+.quickforge-file-rollback-dialog::backdrop { background: rgb(0 0 0 / 22%); }
+.quickforge-file-rollback-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.quickforge-file-rollback-heading h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.quickforge-file-rollback-dialog button { cursor: pointer; transition: background var(--quickforge-dur-fast) var(--quickforge-ease-out); }
+.quickforge-file-rollback-dialog button:disabled { opacity: .45; cursor: not-allowed; }
+.quickforge-file-rollback-dialog :focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.quickforge-file-rollback-close { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--muted-foreground); }
+.quickforge-file-rollback-close:hover { background: var(--muted); }
+.quickforge-file-rollback-description { color: var(--muted-foreground); margin: 0 0 24px; }
+.quickforge-file-rollback-group + .quickforge-file-rollback-group { margin-top: 24px; }
+.quickforge-file-rollback-group h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+.quickforge-file-rollback-group ul { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.quickforge-file-rollback-group li { display: flex; align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.quickforge-file-rollback-path { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--font-mono, monospace); }
+.quickforge-file-rollback-reason { flex: 0 1 35%; color: var(--muted-foreground); text-align: right; overflow-wrap: anywhere; }
+.quickforge-file-rollback-single { flex: none; padding: 5px 9px; border: 0; border-radius: 6px; background: color-mix(in oklab, var(--destructive) 8%, transparent); color: var(--destructive); font-size: 12px; white-space: nowrap; }
+.quickforge-file-rollback-single:hover:not(:disabled) { background: color-mix(in oklab, var(--destructive) 14%, transparent); }
+.quickforge-file-rollback-feedback { margin: 22px 0 12px; color: var(--muted-foreground); }
+.quickforge-file-rollback-feedback p { margin: 0 0 6px; }
+.quickforge-file-rollback-recheck { border: 0; border-radius: 4px; background: transparent; color: var(--foreground); padding: 2px 0; text-decoration: underline; text-underline-offset: 3px; }
+.quickforge-file-rollback-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.quickforge-file-rollback-confirm { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 15px; border: 0; border-radius: 8px; background: var(--destructive); color: var(--destructive-foreground); }
+.quickforge-file-rollback-confirm:hover:not(:disabled) { background: color-mix(in oklab, var(--destructive) 90%, var(--foreground)); }
+@keyframes quickforge-file-rollback-enter {
+  from { opacity: 0; transform: translateY(4px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 600px) {
+  .quickforge-file-rollback-dialog { padding: 20px; }
+  .quickforge-file-rollback-group li { align-items: stretch; flex-direction: column; gap: 4px; }
+  .quickforge-file-rollback-path { flex: auto; white-space: normal; overflow-wrap: anywhere; }
+  .quickforge-file-rollback-reason { text-align: left; }
+  .quickforge-file-rollback-single { align-self: flex-end; margin-top: 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-file-rollback-dialog[open] { animation: none; }
+  .quickforge-file-rollback-dialog button { transition: none; }
+}

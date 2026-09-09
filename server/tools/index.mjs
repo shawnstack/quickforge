@@ -16,7 +16,8 @@ import {
 import { getToolWorkspaceRoot } from '../utils/workspace.mjs'
 import { manageGlobalMemory } from '../global-memory.mjs'
 import { generateSessionImages } from '../image-generation.mjs'
-import { backupFileBeforeWrite } from '../session-file-backups.mjs'
+import { backupFileBeforeWrite, recordFileAfterWrite } from '../session-file-backups.mjs'
+import { withSessionFileLock } from '../session-file-lock.mjs'
 
 // --- read_file ---
 export async function toolReadFile(params, context) {
@@ -449,7 +450,18 @@ export async function toolGrepFiles(params, context, runtime = {}) {
 }
 
 // --- write_file ---
-export async function toolWriteFile(params, context, runtime = {}) {
+async function readTextForWrite(file) {
+  const bytes = await fs.readFile(file)
+  const text = bytes.toString('utf8')
+  if (bytes.includes(0) || !Buffer.from(text, 'utf8').equals(bytes)) throw new Error('Only UTF-8 text files can be written with file tools')
+  return text
+}
+
+export function toolWriteFile(params, context, runtime = {}) {
+  return withSessionFileLock(() => writeFileLocked(params, context, runtime))
+}
+
+async function writeFileLocked(params, context, runtime) {
   const file = resolveWorkspacePath(params?.path, context)
   await assertSafeWorkspacePath(file, context, { forWrite: true })
 
@@ -458,7 +470,7 @@ export async function toolWriteFile(params, context, runtime = {}) {
   let oldText = ''
   let existed = true
   try {
-    oldText = await fs.readFile(file, 'utf8')
+    oldText = await readTextForWrite(file)
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
     existed = false
@@ -471,17 +483,14 @@ export async function toolWriteFile(params, context, runtime = {}) {
     details: { running: true, path: relativePath, project: context?.project, diff: { addedLines: diff.addedLines, removedLines: diff.removedLines } },
   })
 
-  // 影子备份：记录本会话首次修改前的旧内容，供会话级回滚（失败不阻断写盘）。
-  if (context?.sessionId) {
-    try {
-      await backupFileBeforeWrite(context.sessionId, file, existed ? oldText : null, { relativePath })
-    } catch (error) {
-      console.warn('[session-file-backups] backup failed', { path: relativePath, error: error?.message })
-    }
-  }
+  // Journal persistence is mandatory: failure blocks this tool write.
+  await backupFileBeforeWrite(context?.sessionId, file, existed ? oldText : null, {
+    relativePath, workspaceRoot: getToolWorkspaceRoot(context), afterContent: content,
+  })
 
   await fs.mkdir(path.dirname(file), { recursive: true })
   await fs.writeFile(file, content, 'utf8')
+  await recordFileAfterWrite(context?.sessionId, file)
 
   return {
     content: `${existed ? 'Wrote' : 'Created'} ${relativePath} (+${diff.addedLines} -${diff.removedLines})`,
@@ -514,13 +523,17 @@ function convertToLineEnding(text, ending) {
   return ending === '\r\n' ? normalized.replaceAll('\n', '\r\n') : normalized
 }
 
-export async function toolEditFile(params, context, runtime = {}) {
+export function toolEditFile(params, context, runtime = {}) {
+  return withSessionFileLock(() => editFileLocked(params, context, runtime))
+}
+
+async function editFileLocked(params, context, runtime) {
   const file = resolveWorkspacePath(params?.path, context)
   await assertSafeWorkspacePath(file, context)
 
   const rawOldText = String(params?.oldText ?? '')
   const rawNewText = String(params?.newText ?? '')
-  const text = await fs.readFile(file, 'utf8')
+  const text = await readTextForWrite(file)
   const lineEnding = detectLineEnding(text)
   const oldText = convertToLineEnding(rawOldText, lineEnding)
   const newText = convertToLineEnding(rawNewText, lineEnding)
@@ -544,16 +557,12 @@ export async function toolEditFile(params, context, runtime = {}) {
     details: { running: true, path: relativePath, project: context?.project, diff: { addedLines: diff.addedLines, removedLines: diff.removedLines } },
   })
 
-  // 影子备份：记录本会话首次修改前的旧内容，供会话级回滚（失败不阻断写盘）。
-  if (context?.sessionId) {
-    try {
-      await backupFileBeforeWrite(context.sessionId, file, text, { relativePath })
-    } catch (error) {
-      console.warn('[session-file-backups] backup failed', { path: relativePath, error: error?.message })
-    }
-  }
+  await backupFileBeforeWrite(context?.sessionId, file, text, {
+    relativePath, workspaceRoot: getToolWorkspaceRoot(context), afterContent: nextText,
+  })
 
   await fs.writeFile(file, nextText, 'utf8')
+  await recordFileAfterWrite(context?.sessionId, file)
 
   return {
     content: `Edited ${relativePath} (+${diff.addedLines} -${diff.removedLines})`,

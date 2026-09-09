@@ -1407,6 +1407,16 @@ export function getSessionState(sessionId) {
 /**
  * Get a lightweight status snapshot for SSE-first state recovery.
  */
+// Unlike the UI status snapshot, abortPending must remain busy until the
+// underlying stream/tools actually stop. Used by file rollback under its lock.
+export function isSessionFileRollbackBusy(sessionId) {
+  const session = agentSessions.get(sessionId)
+  return Boolean(session && (
+    session.agent?.state?.isStreaming || session.abortPending ||
+    runtimePendingToolCalls(session).length || getPendingApprovalForSession(sessionId)
+  ))
+}
+
 export function getSessionStatus(sessionId) {
   const session = agentSessions.get(sessionId)
   if (!session) return null

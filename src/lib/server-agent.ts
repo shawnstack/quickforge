@@ -637,10 +637,50 @@ export type ServerAgentConfig = {
   }
 }
 
+export type ServerFileRollbackPreview = {
+  revision: string
+  canRollback: boolean
+  files: Array<{
+    path: string
+    relativePath: string
+    /** Absent on older servers; individual rollback must stay disabled. */
+    revision?: string
+    action: 'restore' | 'delete'
+    safe: boolean
+    reason: string
+  }>
+  reason?: string
+}
+
 export type ServerFileRollbackResult = {
+  status: 'partial' | 'completed' | 'blocked' | 'failed'
   restored: number
   removedCreated: number
   errors: Array<{ path: string; message: string }>
+  preview: ServerFileRollbackPreview
+}
+
+function isFileRollbackPreview(value: unknown): value is ServerFileRollbackPreview {
+  if (!value || typeof value !== 'object') return false
+  const preview = value as ServerFileRollbackPreview
+  return typeof preview.revision === 'string' && typeof preview.canRollback === 'boolean'
+    && (preview.reason === undefined || typeof preview.reason === 'string')
+    && Array.isArray(preview.files) && preview.files.every((file) => file
+      && typeof file.path === 'string' && typeof file.relativePath === 'string'
+      && (file.revision === undefined || typeof file.revision === 'string')
+      && (file.action === 'restore' || file.action === 'delete')
+      && typeof file.safe === 'boolean' && typeof file.reason === 'string')
+}
+
+function isFileRollbackResult(value: unknown): value is ServerFileRollbackResult {
+  if (!value || typeof value !== 'object') return false
+  const result = value as ServerFileRollbackResult
+  return ['partial', 'completed', 'blocked', 'failed'].includes(result.status)
+    && Number.isInteger(result.restored) && result.restored >= 0
+    && Number.isInteger(result.removedCreated) && result.removedCreated >= 0
+    && Array.isArray(result.errors) && result.errors.every((error) => error
+      && typeof error.path === 'string' && typeof error.message === 'string')
+    && isFileRollbackPreview(result.preview)
 }
 
 export type ServerRollbackResult = {
@@ -1256,22 +1296,48 @@ export class ServerAgent {
     return payload as ServerRollbackResult
   }
 
-  /**
-   * Roll back session-scoped file changes: restore files modified in this
-   * session to their pre-session content and delete files the session created
-   * (server-side shadow backups). Repeat calls are safe no-ops once the
-   * backup index is cleared.
-   */
-  async rollbackFiles(): Promise<ServerFileRollbackResult> {
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/rollback-files`
-    const res = await fetch(url, {
+  /** Read-only safety check. Execution must use the exact reviewed revision. */
+  async getFileRollbackPreview(signal?: AbortSignal): Promise<ServerFileRollbackPreview> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/rollback-files/preview`
+    const { response, body } = await fetchJsonWithTimeout<ServerFileRollbackPreview & ServerErrorPayload>(url, 30_000, { signal })
+    if (!response.ok || !isFileRollbackPreview(body)) {
+      throw new Error(serverErrorMessage(body ?? null, `Failed to preview file rollback: HTTP ${response.status}`))
+    }
+    return body
+  }
+
+  /** Deliberately separate endpoint: never fall back to the older whole-batch API. */
+  async rollbackFile(path: string, revision: string, signal?: AbortSignal): Promise<ServerFileRollbackResult> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/rollback-file`
+    const { response, body } = await fetchJsonWithTimeout<ServerFileRollbackResult & ServerErrorPayload>(url, 60_000, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ path, revision }),
+      signal,
     })
-    const payload = await res.json().catch(() => null) as (ServerFileRollbackResult & ServerErrorPayload) | null
-    if (!res.ok) throw new Error(serverErrorMessage(payload, `Failed to roll back files: HTTP ${res.status}`))
-    return payload as ServerFileRollbackResult
+    if (isFileRollbackResult(body) && (
+      (response.status === 200 && (body.status === 'partial' || body.status === 'completed'))
+      || (response.status === 409 && body.status === 'blocked')
+      || (response.status === 500 && body.status === 'failed')
+    )) return body
+    throw new Error(serverErrorMessage(body ?? null, `File rollback result unconfirmed: HTTP ${response.status}`))
+  }
+
+  /** A timeout/abort cannot establish whether server-side writes completed. */
+  async rollbackFiles(revision: string, signal?: AbortSignal): Promise<ServerFileRollbackResult> {
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/rollback-files`
+    const { response, body } = await fetchJsonWithTimeout<ServerFileRollbackResult & ServerErrorPayload>(url, 60_000, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ revision }),
+      signal,
+    })
+    if (isFileRollbackResult(body) && (
+      (response.status === 200 && body.status === 'completed')
+      || (response.status === 409 && body.status === 'blocked')
+      || (response.status === 500 && body.status === 'failed')
+    )) return body
+    throw new Error(serverErrorMessage(body ?? null, `File rollback result unconfirmed: HTTP ${response.status}`))
   }
 
   /**

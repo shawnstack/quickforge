@@ -1,6 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { createTextAttachment, isTextAttachmentPath } from '../text-attachments.mjs'
-import { getSessionFileChanges, rollbackSessionFiles } from '../session-file-backups.mjs'
+import { getSessionFileChanges, getSessionFileRollbackPreview, rollbackSessionFiles, rollbackSessionFile } from '../session-file-backups.mjs'
 import { openPathInFileManager } from '../utils/platform.mjs'
 import { logger } from '../utils/logger.mjs'
 import { resolveModelBinding } from '../model-catalog.mjs'
@@ -36,6 +36,7 @@ import {
   rejectAutoCompact,
   abortToolCall,
   rollbackSessionMessages,
+  isSessionFileRollbackBusy,
   continueSession,
   stripSplitSessionState,
   agentEvents,
@@ -115,10 +116,29 @@ export async function handleAgentApi(req, res, url, context = {}) {
     return
   }
 
-  // POST /api/agents/:sessionId/rollback-files — restore files modified in this session to their pre-session state
-  if (req.method === 'POST' && subPath === 'rollback-files') {
-    const result = await rollbackSessionFiles(sessionId)
-    sendJson(res, 200, result)
+  // Full-batch preview/confirmation; legacy clients without a revision fail closed.
+  if (req.method === 'GET' && subPath === 'rollback-files/preview') {
+    sendJson(res, 200, await getSessionFileRollbackPreview(sessionId, {
+      isSessionBusy: () => isSessionFileRollbackBusy(sessionId),
+    }))
+    return
+  }
+  if (req.method === 'POST' && (subPath === 'rollback-files' || subPath === 'rollback-file')) {
+    const options = { isSessionBusy: () => isSessionFileRollbackBusy(sessionId) }
+    let body
+    try { body = await readJsonBody(req) } catch {
+      const preview = await getSessionFileRollbackPreview(sessionId, options)
+      sendJson(res, 409, {
+        status: 'blocked', restored: 0, removedCreated: 0, errors: [],
+        preview: { ...preview, canRollback: false, reason: 'batch_changed' },
+      })
+      return
+    }
+    // Dedicated endpoint dispatch: missing/invalid path must NEVER select batch.
+    const result = subPath === 'rollback-file'
+      ? await rollbackSessionFile(sessionId, { ...options, path: body?.path, revision: body?.revision })
+      : await rollbackSessionFiles(sessionId, { ...options, revision: body?.revision })
+    sendJson(res, result.status === 'completed' || result.status === 'partial' ? 200 : result.status === 'blocked' ? 409 : 500, result)
     return
   }
 

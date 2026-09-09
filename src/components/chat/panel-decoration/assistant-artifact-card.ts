@@ -7,7 +7,6 @@ import fileManagerIconUrl from '@/assets/icons/file-manager.svg'
 import vscodeIconUrl from '@/assets/icons/vscode.svg'
 import ideaIconUrl from '@/assets/icons/idea.svg'
 import type { MessageWithUsage } from '../chat-utils'
-import { showRollbackConfirmPopover } from './rollback-confirm-popover'
 import { positionFixedDropdown } from './floating-position'
 
 export const ASSISTANT_ARTIFACT_CARD_CLASS = 'quickforge-assistant-artifact-card'
@@ -435,17 +434,12 @@ function createChangedFilesCard(
     rollback.title = rollback.textContent
     rollback.setAttribute('aria-label', rollback.textContent)
     rollback.setAttribute('aria-haspopup', 'dialog')
-    rollback.setAttribute('aria-expanded', 'false')
     rollback.disabled = Boolean(deps.fileChangesRolledBack)
+    // Keep the parent card's Enter/Space expansion handler from consuming button activation.
+    rollback.addEventListener('keydown', (event) => event.stopPropagation())
     rollback.addEventListener('click', (event) => {
       event.stopPropagation()
-      showRollbackConfirmPopover({
-        panel: deps.panel,
-        button: rollback,
-        title: t('assistantArtifactRollbackConfirmTitle'),
-        description: t('assistantArtifactRollbackConfirmDescription'),
-        onConfirm: deps.onRollbackFiles ?? (() => {}),
-      })
+      void deps.onRollbackFiles?.()
     })
     action.append(rollback)
     header.append(action)

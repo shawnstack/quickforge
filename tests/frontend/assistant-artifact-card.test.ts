@@ -110,12 +110,15 @@ describe('assistant artifact card contract', () => {
     expect(source).toContain('quickforge-assistant-artifact-card-file-path')
   })
 
-  it('keeps the cards before message actions and wires session-file rollback through the shared confirm popover', () => {
+  it('keeps the cards before message actions and routes only file rollback to the dedicated dialog', () => {
     expect(source).toContain("find((candidate) => candidate.parentElement === lastAssistantElement)")
     expect(source).toContain('lastAssistantElement.insertBefore(plan.element, anchor)')
-    expect(source).toContain("import { showRollbackConfirmPopover } from './rollback-confirm-popover'")
+    expect(source).not.toContain('showRollbackConfirmPopover')
     expect(source).toContain("'quickforge-rollback-action'")
-    expect(source).toContain("t('assistantArtifactRollbackConfirmTitle')")
+    expect(source).toContain('void deps.onRollbackFiles?.()')
+    expect(source).toContain("rollback.className = 'quickforge-assistant-artifact-card-rollback'")
+    expect(source).toContain("rollback.textContent = deps.fileChangesRolledBack ? t('assistantArtifactRollbackDone') : t('assistantArtifactRollback')")
+    expect(source).toContain("rollback.addEventListener('keydown', (event) => event.stopPropagation())")
     expect(source).toContain('rollback.disabled = Boolean(deps.fileChangesRolledBack)')
     expect(source).not.toContain('onRollbackFromMessage')
 
@@ -136,11 +139,14 @@ describe('assistant artifact card contract', () => {
     expect(app).toContain("kind: 'review', view: 'changes', path: relativePath")
     expect(app).toContain('revealFileFromArtifactCard')
     expect(app).toContain('await openWorkspaceExternal(projectId, relativePath, target)')
-    expect(app).toContain('serverAgent.rollbackFiles()')
+    expect(app).toContain('<FileRollbackDialog client={fileRollbackTarget.agent}')
+    expect(app).toContain('fileRollbackTarget.sessionId === agentManager.currentSessionId')
+    expect(app).toContain('fileRollbackTarget.projectId === agentManager.currentToolProject?.id')
     expect(app).toContain('setRolledBackFilesSessionId(null)')
 
     expect(serverAgent).toContain('/rollback-files')
-    expect(serverAgent).toContain('async rollbackFiles(): Promise<ServerFileRollbackResult>')
+    expect(serverAgent).toContain('async rollbackFiles(revision: string, signal?: AbortSignal): Promise<ServerFileRollbackResult>')
+    expect(serverAgent).toContain('async getFileRollbackPreview(signal?: AbortSignal)')
 
     // Review 请求支持指定文件直达 diff tab，并收起右侧文件列表导航（审查只展示 diff）。
     expect(workspaceTypes).toMatch(/kind: 'review'; view: 'review' \| 'changes';[^}]*path\?: string/)

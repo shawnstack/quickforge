@@ -1,3 +1,18 @@
+## 当前交接摘要：v2.0.0 发布准备（2026-09-09，完成）
+
+- 目标：按用户确认以当前 `dev` 全量发布 2.0.0；两个 `needs-review` 功能按现状纳入；不含 Android。
+- 远端/基线：已运行 `git fetch --prune --tags origin`；准备阶段分支为 `dev`，`HEAD == origin/dev == 7cd79018e76d84a54b6f852a7347fcb5f567356c`，准备前工作区干净，远端无 `v2.0.0` 标签。
+- 已改：`package.json`、`package-lock.json` 版本升至 2.0.0；`CHANGELOG.md` 新增 2.0.0 的 Added/Changed/Fixed/Breaking Changes/Upgrade Notes；`README.md` 当前版本升至 2.0.0；`feature_list.json`、`progress.md`、本文件同步完成状态。
+- 发布范围：`pinned-summary-draggable-capsule`、`workspace-inspector-header-alignment` 保持 `needs-review`，但已按用户确认纳入本次发布；Android 明确不纳入。
+- 发布硬门禁（全部通过）：`npm run test` 全量 296 files / 2847 tests 全过；`npm run lint` 0 errors；`npm run build` 成功。
+- 打包核验：runtime/offline 包已生成并核验——`shawnstack-quickforge-2.0.0.tgz` 版本 2.0.0、无 scripts/devDependencies、ripgrep 位于 optionalDependencies。
+- git 收尾：`master` 已快进同步至 `dev`；release commit（`chore(release): v2.0.0`）与 `v2.0.0` tag 已创建并推送至 origin（dev + master + tag）。
+- Blocker：无。
+- 待办：npm publish 留给用户手动执行（本会话不执行）。
+- 边界：未修改 `android/`、`docs/wiki/`、`dist/`、`package-dist/`、`package-offline/`。仅发布元数据变化，无需更新 wiki。
+
+---
+
 ## 当前交接摘要：git 读接口（file-diff/branches/log）客户端断开取消传播（2026-09-09）
 
 - 目标：P2 收尾——4 个 git 读接口取消语义统一（此前仅 status 有）。

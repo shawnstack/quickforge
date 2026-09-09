@@ -1,6 +1,6 @@
 {
   "name": "@shawnstack/quickforge",
-  "version": "1.10.2",
+  "version": "2.0.0",
   "description": "AI chat application with Agent access modes for local workspace tools. React + Vite + Tailwind CSS frontend, local Node.js storage server.",
   "keywords": [
     "ai",

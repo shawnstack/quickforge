@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "release-v2.0.0",
+      "name": "发布准备 v2.0.0（当前 dev 全量，不含 Android）",
+      "status": "done",
+      "approach": "按用户确认以 v1.10.2..HEAD 的当前 dev 全量内容发布 2.0.0：fetch --prune --tags 后确认 dev 与 origin/dev 同步、工作区起始干净且远端无 v2.0.0 标签；使用 npm version 2.0.0 --no-git-tag-version 更新根包版本；人工整理 CHANGELOG 2.0.0 说明并更新 README 当前版本。pinned-summary-draggable-capsule 与 workspace-inspector-header-alignment 两个 needs-review 功能按现状纳入发布但保持各自 needs-review 状态；发布范围不含 Android。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "发布硬门禁全部通过：npm run test 全量 296 files / 2847 tests 全过；npm run lint 0 errors；npm run build 成功。runtime/offline 包已生成并核验（shawnstack-quickforge-2.0.0.tgz：版本 2.0.0、无 scripts/devDependencies、ripgrep 位于 optionalDependencies）；git diff --check 通过；master 以快进方式与 dev 同步；发布 commit 与 v2.0.0 tag 已创建并推送。",
+      "boundaries": "发布完成。npm publish 留给用户手动执行；未修改 android/、docs/wiki/ 或生成目录 dist/package-dist/package-offline。"
+    },
+    {
       "id": "git-read-routes-cancel-propagation",
       "name": "git 读接口（file-diff/branches/log）客户端断开取消传播",
       "status": "done",

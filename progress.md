@@ -1,3 +1,17 @@
+## Release：v2.0.0 发布准备（2026-09-09，完成）
+
+- 目标：按用户确认发布当前 `dev` 全量内容，目标版本 2.0.0；不含 Android。
+- 远端核验：已执行 `git fetch --prune --tags origin`；当前分支 `dev`，`HEAD` 与 `origin/dev` 均为 `7cd79018e76d84a54b6f852a7347fcb5f567356c`；准备前工作区干净；远端标签中不存在 `v2.0.0`。
+- 已完成：`npm version 2.0.0 --no-git-tag-version` 更新 `package.json` / `package-lock.json`；按 `v1.10.2..HEAD` 整理 `CHANGELOG.md` 2.0.0 说明；README 当前版本更新为 2.0.0；同步发布状态文件。
+- 发布范围：`pinned-summary-draggable-capsule` 与 `workspace-inspector-header-alignment` 两个 `needs-review` 功能已按用户确认以现状纳入本次发布，各自状态不改；Android 不纳入。
+- 发布硬门禁（全部通过）：`npm run test` 全量 296 files / 2847 tests 全过；`npm run lint` 0 errors；`npm run build` 成功。
+- 打包核验：runtime/offline 包已生成并核验——`shawnstack-quickforge-2.0.0.tgz` 版本 2.0.0、无 scripts/devDependencies、ripgrep 位于 optionalDependencies。
+- git 收尾：`master` 已以快进（`--ff-only`）方式与 `dev` 同步；release commit 与 `v2.0.0` tag 已创建并推送至 origin。
+- 文档边界：本轮只改发布元数据与发布状态，不改变架构、模块职责或公共入口，因此无需更新 `docs/wiki`。
+- 待办：npm publish 留给用户手动执行，本会话默认不执行。
+
+---
+
 ## Feature：git 读接口（file-diff/branches/log）客户端断开取消传播（2026-09-09）
 
 - 背景：P2 收尾。git() 的 signal 能力与 createRequestAbortState helper 已就绪（前两个 feature），把取消传播扩展到其余 3 个 git 读接口——前端关分支菜单/图谱弹窗虽不 abort 请求，但刷新/关页/断连时服务端不再白跑（file-diff 内部还跑全量 git status）。

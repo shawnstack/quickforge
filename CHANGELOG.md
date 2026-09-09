@@ -2,6 +2,42 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [2.0.0] - 2026-09-09
+
+### Added
+
+- Added session-level file change tracking and recovery: assistant replies can show cumulative changed-file cards with net line statistics, focused diff review, preview/external-open actions, and safe rollback backed by per-session shadow copies.
+- Added automatic attachment handling for long pasted text, keeping large inputs out of the composer while preserving preview and system-open workflows.
+- Expanded subagent workflows with capability-aware access controls, clearer sidebar actions, correlated lifecycle/AI-stream diagnostics, and more durable failed-run details.
+- Added opt-out runtime diagnostics for event-loop delay, in-flight and slow HTTP requests, socket/SSE activity, and browser connection-pool queueing.
+
+### Changed
+
+- Improved desktop and storage isolation: Desktop now starts the local server in a separate process by default, and heavy session-state SQLite operations run on a dedicated worker thread to keep the UI and HTTP event loop responsive.
+- Reduced request and streaming overhead with provider-key caching, faster session/backup paths, session-list request coalescing, shared Git status requests, lightweight Git branch probes, 50 ms SSE update throttling, and backpressure protection.
+- Made workspace and AI operations more bounded: filename search prefers ripgrep with a behavior-preserving fallback, Git read operations propagate client cancellation, file-diff requests time out and can be retried, and synchronous AI routes use scenario-specific total budgets.
+- Refined conversation recovery and feedback: terminal failures use a compact retry/details row with repeated-failure model-switch guidance, while user-stopped turns show a neutral stopped state instead of an error trail.
+- Refined file review and workspace interaction with friendly no-change states, single-column diff line numbers, cumulative artifact deduplication, safer Inspector sizing, aligned headers and hover states, and a side-mounted branch menu for the pinned summary.
+- Polished composer and sidebar interaction with borderless controls, a separate thinking-level selector, pinned-session exclusivity, stable status/time slots, larger row/header hit areas, and reduced refresh or streaming flicker.
+- Split the oversized agent manager into focused session, event, harness, compaction, command, approval, subagent, and persistence modules without changing its public facade.
+
+### Fixed
+
+- Fixed settings selects that did not immediately reflect newly chosen values because Lit reactive accessors were shadowed by class fields.
+- Fixed review tabs that could remain stuck on “opening” after a file was removed or a diff request stalled; terminal review states can now reload.
+- Fixed message queues rebuilding unchanged DOM during streaming, sidebar loading indicators flashing during background refreshes, and empty pinned sections briefly appearing when returning to the page.
+- Fixed manual stops producing an additional aborted-request error message and inappropriate retry affordances.
+
+### Breaking Changes
+
+- No known breaking changes were found in the released application, CLI, SDK entry point, persisted session data, or configuration formats.
+
+### Upgrade Notes
+
+- The existing Node.js requirement remains `>=22.19.0`; no dependency reinstall beyond the normal package upgrade is required.
+- Existing workspaces, settings, and session data remain compatible. Normal startup maintenance and migrations continue to run automatically when needed.
+- This release preparation covers the current `dev` application/runtime scope. Android builds and Android artifacts are not included.
+
 ## [1.10.2] - 2026-09-04
 
 ### Added

@@ -3,7 +3,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
 import { resolveModelBinding } from '../model-catalog.mjs'
-import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
+import { AI_GIT_COMMIT_MESSAGE_TOTAL_TIMEOUT_MS, DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { projectContextFromId, registeredProjectContextFromId } from '../project-config.mjs'
 import { readStore } from '../storage.mjs'
@@ -15,6 +15,7 @@ import {
   resolveWorkspacePath,
   toWorkspaceRelative,
 } from '../utils/workspace.mjs'
+import { resolveRipgrepExecutable } from '../utils/ripgrep.mjs'
 
 const MAX_PREVIEW_BYTES = 50 * 1024 * 1024
 const MAX_STATIC_PREVIEW_BYTES = 50 * 1024 * 1024
@@ -33,6 +34,10 @@ const DEFAULT_MENTION_SEARCH_LIMIT = 20
 const MAX_MENTION_SEARCH_LIMIT = 50
 const MAX_SEARCH_VISITED_ENTRIES = 50000
 const SKIP_DIRS = new Set(['.git', 'node_modules'])
+// rg 文件名搜索的护栏：60s 超时（大仓库/网络盘上 rg 可能长期不返回）+ 输出行数上限
+// （防极端仓库 stdout 无界，超限即 kill 子进程并按截断结算）
+const WORKSPACE_SEARCH_TIMEOUT_MS = 60_000
+const WORKSPACE_SEARCH_MAX_OUTPUT_LINES = 200_000
 
 const extensionLanguageMap = new Map([
   ['ts', 'typescript'], ['tsx', 'typescript'], ['js', 'javascript'], ['jsx', 'javascript'],
@@ -108,7 +113,41 @@ function killProcessTree(child) {
   }
 }
 
+function gitAbortError() {
+  // 客户端断开/调用方取消时按标准 AbortError 结算（非超时，不带 504）
+  return Object.assign(new Error('git request aborted'), { code: 'ABORT_ERR', name: 'AbortError' })
+}
+
+function workspaceSearchAbortError() {
+  // 客户端断开/调用方取消时按标准 AbortError 结算（非超时，不带 504）
+  return Object.assign(new Error('workspace search aborted'), { code: 'ABORT_ERR', name: 'AbortError' })
+}
+
+export function isAbortError(error) {
+  return error?.name === 'AbortError' || error?.code === 'ABORT_ERR'
+}
+
+// 客户端断开（req aborted / res 提前 close）时联动 AbortController；结算后必须调用 dispose 移除监听
+export function createRequestAbortState(req, res) {
+  const controller = new AbortController()
+  const onAbort = () => controller.abort()
+  const onClose = () => {
+    if (!res.writableEnded) onAbort()
+  }
+  req?.once?.('aborted', onAbort)
+  res?.once?.('close', onClose)
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      req?.off?.('aborted', onAbort)
+      res?.off?.('close', onClose)
+    },
+  }
+}
+
 export function git(args, cwd, options = {}) {
+  const signal = options.signal
+  if (signal?.aborted) return Promise.reject(gitAbortError())
   return new Promise((resolve, reject) => {
     const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1, options.timeoutMs) : DEFAULT_GIT_TIMEOUT_MS
     const child = spawn('git', args, {
@@ -127,10 +166,15 @@ export function git(args, cwd, options = {}) {
     const stdout = []
     const stderr = []
     let settled = false
+    const onAbort = () => {
+      killProcessTree(child)
+      finish(() => reject(gitAbortError()))
+    }
     const finish = (callback) => {
       if (settled) return
       settled = true
       clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
       callback()
     }
     const timeout = setTimeout(() => {
@@ -143,6 +187,7 @@ export function git(args, cwd, options = {}) {
       })
     }, timeoutMs)
     timeout.unref?.()
+    signal?.addEventListener('abort', onAbort)
 
     child.stdout.on('data', (chunk) => stdout.push(chunk))
     child.stderr.on('data', (chunk) => stderr.push(chunk))
@@ -161,8 +206,8 @@ export function git(args, cwd, options = {}) {
   })
 }
 
-async function isGitRepository(workspaceRoot) {
-  const result = await git(['rev-parse', '--is-inside-work-tree'], workspaceRoot, { allowFailure: true })
+async function isGitRepository(workspaceRoot, signal) {
+  const result = await git(['rev-parse', '--is-inside-work-tree'], workspaceRoot, { allowFailure: true, signal })
   return result.code === 0 && result.stdout.toString('utf8').trim() === 'true'
 }
 
@@ -220,17 +265,17 @@ function parseGitStatus(buffer) {
   return files.sort((left, right) => left.path.localeCompare(right.path, undefined, { sensitivity: 'base' }))
 }
 
-async function currentGitHead(workspaceRoot) {
-  const result = await git(['branch', '--show-current'], workspaceRoot, { allowFailure: true })
+async function currentGitHead(workspaceRoot, signal) {
+  const result = await git(['branch', '--show-current'], workspaceRoot, { allowFailure: true, signal })
   const branch = result.stdout.toString('utf8').trim()
   if (branch) return { branch, detached: false }
-  const head = await git(['rev-parse', '--short', 'HEAD'], workspaceRoot, { allowFailure: true })
+  const head = await git(['rev-parse', '--short', 'HEAD'], workspaceRoot, { allowFailure: true, signal })
   const commit = head.stdout.toString('utf8').trim()
   return { branch: commit ? `HEAD ${commit}` : undefined, detached: Boolean(commit) }
 }
 
-async function currentGitBranch(workspaceRoot) {
-  return (await currentGitHead(workspaceRoot)).branch
+async function currentGitBranch(workspaceRoot, signal) {
+  return (await currentGitHead(workspaceRoot, signal)).branch
 }
 
 async function assertValidBranchName(workspaceRoot, branch) {
@@ -253,15 +298,16 @@ function branchSortKey(branch, current) {
   return [branch.name === current ? '0' : '1', branch.remote ? '1' : '0', branch.name.toLowerCase()].join(':')
 }
 
-async function listGitBranches(context) {
-  if (!(await isGitRepository(context.workspaceRoot))) return { isGitRepository: false, branches: [] }
-  const current = await currentGitBranch(context.workspaceRoot)
+async function listGitBranches(context, options = {}) {
+  const signal = options.signal
+  if (!(await isGitRepository(context.workspaceRoot, signal))) return { isGitRepository: false, branches: [] }
+  const current = await currentGitBranch(context.workspaceRoot, signal)
   const result = await git([
     'for-each-ref',
     '--format=%(refname)%1f%(refname:short)%1f%(objectname:short)%1f%(committerdate:iso8601-strict)%1f%(upstream:short)',
     'refs/heads',
     'refs/remotes',
-  ], context.workspaceRoot)
+  ], context.workspaceRoot, { signal })
   const branches = result.stdout.toString('utf8').split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
@@ -296,15 +342,16 @@ function parseGitDecorations(raw) {
     })
 }
 
-async function listGitLog(context) {
-  if (!(await isGitRepository(context.workspaceRoot))) return { isGitRepository: false, commits: [] }
+async function listGitLog(context, options = {}) {
+  const signal = options.signal
+  if (!(await isGitRepository(context.workspaceRoot, signal))) return { isGitRepository: false, commits: [] }
   const result = await git([
     'log',
     '--all',
     '--date=iso-strict',
     '--max-count=200',
     '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e',
-  ], context.workspaceRoot, { allowFailure: true })
+  ], context.workspaceRoot, { allowFailure: true, signal })
   if (result.code !== 0) return { isGitRepository: true, commits: [] }
   const commits = result.stdout.toString('utf8').split('\x1e')
     .map((record) => record.trim())
@@ -354,9 +401,9 @@ function numstatNewPath(rawPath) {
 }
 
 // 工作区 vs HEAD 的每个文件增删行数（口径与 git diff --numstat 一致）
-async function collectNumstat(context) {
+async function collectNumstat(context, signal) {
   const map = new Map()
-  const result = await git(['diff', 'HEAD', '--numstat', '-z'], context.workspaceRoot, { allowFailure: true })
+  const result = await git(['diff', 'HEAD', '--numstat', '-z'], context.workspaceRoot, { allowFailure: true, signal })
   if (result.code !== 0) return map
   const records = result.stdout.toString('utf8').split('\0').filter(Boolean)
   for (const record of records) {
@@ -447,16 +494,17 @@ async function collectWorkspaceLineCounts(context, files) {
 }
 
 export async function listGitStatus(context, options = {}) {
+  const signal = options.signal
   // `git status` 的退出码同时用于判定仓库（非仓库为 128），省掉一次 rev-parse 子进程
   const result = await git(
     ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--branch'],
     context.workspaceRoot,
-    { allowFailure: true },
+    { allowFailure: true, signal },
   )
   if (result.code !== 0) return { isGitRepository: false, files: [] }
   const files = parseGitStatus(result.stdout)
   if (options.includeFileStats !== false) {
-    const numstat = await collectNumstat(context)
+    const numstat = await collectNumstat(context, signal)
     const fallbackFiles = files.filter((file) => !numstat.has(file.path))
     const workspaceLineCounts = await collectWorkspaceLineCounts(context, fallbackFiles)
     for (const file of files) {
@@ -475,7 +523,7 @@ export async function listGitStatus(context, options = {}) {
   }
   const parsedHead = parseGitStatusHead(result.stdout)
   // 分离 HEAD 的头记录只有 `HEAD (no branch)`：保留既有 `HEAD <short-sha>` 标签
-  const head = !parsedHead || parsedHead.detached ? await currentGitHead(context.workspaceRoot) : parsedHead
+  const head = !parsedHead || parsedHead.detached ? await currentGitHead(context.workspaceRoot, signal) : parsedHead
   return {
     isGitRepository: true,
     branch: head.branch,
@@ -713,6 +761,7 @@ ${trimForPrompt(worktreeDiff)}`
         reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
         maxRetries: DEFAULT_AI_MAX_RETRIES,
         maxRetryDelayMs: 60000,
+        totalTimeoutMs: AI_GIT_COMMIT_MESSAGE_TOTAL_TIMEOUT_MS,
       },
     )
     const message = await stream.result()
@@ -729,8 +778,8 @@ ${trimForPrompt(worktreeDiff)}`
   }
 }
 
-async function readGitFile(workspaceRoot, ref, relativePath) {
-  const result = await git(['show', `${ref}:${relativePath}`], workspaceRoot, { allowFailure: true })
+async function readGitFile(workspaceRoot, ref, relativePath, signal) {
+  const result = await git(['show', `${ref}:${relativePath}`], workspaceRoot, { allowFailure: true, signal })
   return result.code === 0 ? result.stdout.toString('utf8') : ''
 }
 
@@ -934,6 +983,131 @@ export async function readValidatedWorkspaceSearchDirectory(directory, validateW
   return { directoryReal, dirents }
 }
 
+// rg 文件名搜索：`rg --files` 拿全量候选清单，Node 侧做与 BFS 一致的路径子串匹配。
+// `--hidden --no-ignore` 对齐 BFS 不跳隐藏文件、不尊重 .gitignore 的行为；
+// 两个 glob 排除对齐 SKIP_DIRS（.git/node_modules，任意层级）。
+// 返回 null 表示 rg 不可用/失败，由调用方回退 BFS；被我们主动 kill（超时/abort/行数护栏）不算失败。
+function searchWorkspaceWithRipgrep(executable, context, normalizedQuery, options = {}) {
+  const signal = options.signal
+  if (signal?.aborted) throw workspaceSearchAbortError()
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable.command, [
+      '--files',
+      '--hidden',
+      '--no-ignore',
+      '--glob', '!node_modules/**',
+      '--glob', '!.git/**',
+    ], {
+      cwd: context.workspaceRoot,
+      shell: false,
+      windowsHide: true,
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    const results = []
+    const parentDirectories = new Set()
+    let stdoutBuffer = ''
+    let lineCount = 0
+    let truncated = false
+    let killedByUs = false
+    let settled = false
+
+    const finish = (callback) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
+      callback()
+    }
+
+    const onAbort = () => {
+      killedByUs = true
+      killProcessTree(child)
+      finish(() => reject(workspaceSearchAbortError()))
+    }
+
+    const timeout = setTimeout(() => {
+      killedByUs = true
+      killProcessTree(child)
+      finish(() => {
+        const error = new Error(`workspace search timed out after ${WORKSPACE_SEARCH_TIMEOUT_MS}ms`)
+        error.statusCode = 504
+        reject(error)
+      })
+    }, WORKSPACE_SEARCH_TIMEOUT_MS)
+    timeout.unref?.()
+
+    signal?.addEventListener('abort', onAbort)
+
+    const consumeLine = (line) => {
+      lineCount += 1
+      if (lineCount > WORKSPACE_SEARCH_MAX_OUTPUT_LINES) {
+        truncated = true
+        killedByUs = true
+        killProcessTree(child)
+        finish(() => resolve({ results, truncated }))
+        return
+      }
+      // rg 在 Windows 输出 `\` 分隔的相对路径，归一化为与 BFS（toWorkspaceRelative）一致的 `/` 风格
+      const relativePath = line.replace(/\\/g, '/')
+      if (relativePath.toLocaleLowerCase().includes(normalizedQuery)) {
+        results.push({ name: relativePath.split('/').pop(), path: relativePath, type: 'file' })
+      }
+      // 父目录路径全集去重累积，扫描结束后统一推导 directory 条目（与 BFS 目录条目语义对齐）
+      let separatorIndex = relativePath.lastIndexOf('/')
+      while (separatorIndex > 0) {
+        parentDirectories.add(relativePath.slice(0, separatorIndex))
+        separatorIndex = relativePath.lastIndexOf('/', separatorIndex - 1)
+      }
+    }
+
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      if (settled) return
+      stdoutBuffer += chunk
+      let newlineIndex = stdoutBuffer.indexOf('\n')
+      while (newlineIndex >= 0) {
+        const line = stdoutBuffer.slice(0, newlineIndex).replace(/\r$/, '')
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1)
+        if (line) consumeLine(line)
+        if (settled) return
+        newlineIndex = stdoutBuffer.indexOf('\n')
+      }
+    })
+    // 排空 stderr，避免管道写满反向阻塞 rg
+    child.stderr.on('data', () => {})
+
+    child.once('error', () => {
+      // spawn 失败（如 ENOENT）：返回 null 由上层回退 BFS
+      finish(() => resolve(null))
+    })
+
+    child.once('close', (code) => {
+      if (settled) return
+      // rg 退出码 1 = --files 未列出任何文件（no matches 语义），输出为空时按空结果结算而非失败
+      if (!killedByUs && code !== 0 && (code !== 1 || lineCount > 0)) {
+        finish(() => resolve(null))
+        return
+      }
+      if (stdoutBuffer) {
+        const line = stdoutBuffer.replace(/\r$/, '')
+        stdoutBuffer = ''
+        if (line) consumeLine(line)
+      }
+      finish(() => {
+        for (const directoryPath of parentDirectories) {
+          if (directoryPath.toLocaleLowerCase().includes(normalizedQuery)) {
+            results.push({ name: directoryPath.split('/').pop(), path: directoryPath, type: 'directory' })
+          }
+        }
+        resolve({ results, truncated })
+      })
+    })
+  })
+}
+
 export async function searchWorkspace(context, rawQuery, options = {}) {
   const query = typeof rawQuery === 'string' ? rawQuery.trim() : ''
   if (query.length < 2) {
@@ -945,6 +1119,22 @@ export async function searchWorkspace(context, rawQuery, options = {}) {
   const validateWorkspacePath = await createWorkspacePathValidator(context)
   await validateWorkspacePath(context.workspaceRoot, { allowSensitive: true })
   const normalizedQuery = query.toLocaleLowerCase()
+
+  // 优先 ripgrep（全量 --files 清单 + Node 侧子串匹配，保真 BFS 行为）；rg 不可用/失败时回退 BFS
+  const executable = await resolveRipgrepExecutable()
+  if (executable) {
+    const ripgrepResult = await searchWorkspaceWithRipgrep(executable, context, normalizedQuery, options)
+    if (ripgrepResult) {
+      ripgrepResult.results.sort(compareWorkspaceEntries)
+      return {
+        root: context.project.name,
+        query,
+        entries: ripgrepResult.results.slice(0, limit),
+        truncated: ripgrepResult.truncated || ripgrepResult.results.length > limit,
+      }
+    }
+  }
+
   const results = []
   const pending = [context.workspaceRoot]
   const visitedDirectories = new Set()
@@ -953,6 +1143,7 @@ export async function searchWorkspace(context, rawQuery, options = {}) {
   let hasAdditionalMatch = false
 
   while (pending.length > 0 && !traversalTruncated && !hasAdditionalMatch) {
+    if (options.signal?.aborted) throw workspaceSearchAbortError()
     const directory = pending.pop()
     let validated
     try {
@@ -996,9 +1187,20 @@ export async function searchWorkspace(context, rawQuery, options = {}) {
 
 async function handleWorkspaceSearch(req, res, url) {
   const context = await projectContextFromUrl(url)
-  sendJson(res, 200, await searchWorkspace(context, url.searchParams.get('query') || '', {
-    limit: url.searchParams.get('limit'),
-  }))
+  // 客户端断开（req aborted / res 提前 close）时中止 rg/BFS 搜索，避免白跑
+  const { signal, dispose } = createRequestAbortState(req, res)
+  try {
+    sendJson(res, 200, await searchWorkspace(context, url.searchParams.get('query') || '', {
+      limit: url.searchParams.get('limit'),
+      signal,
+    }))
+  } catch (error) {
+    // 客户端已断开时不再写响应，静默结束
+    if (isAbortError(error)) return
+    throw error
+  } finally {
+    dispose()
+  }
 }
 
 function mentionSearchRank(entry, normalizedQuery) {
@@ -1410,17 +1612,47 @@ async function handleGitStatus(req, res, url) {
   const context = await projectContextFromUrl(url)
   // `light=1`：标题栏/分支徽标只需 branch + counts，跳过 numstat 与行数统计
   const includeFileStats = url.searchParams.get('light') !== '1'
-  sendJson(res, 200, await listGitStatus(context, { includeFileStats }))
+  // 客户端断开（req aborted / res 提前 close）时中止 git 子进程，避免白跑
+  const { signal, dispose } = createRequestAbortState(req, res)
+  try {
+    sendJson(res, 200, await listGitStatus(context, { includeFileStats, signal }))
+  } catch (error) {
+    // 客户端已断开时不再写响应，静默结束
+    if (isAbortError(error)) return
+    throw error
+  } finally {
+    dispose()
+  }
 }
 
 async function handleGitBranches(req, res, url) {
   const context = await projectContextFromUrl(url)
-  sendJson(res, 200, await listGitBranches(context))
+  // 客户端断开（req aborted / res 提前 close）时中止 git 子进程，避免白跑
+  const { signal, dispose } = createRequestAbortState(req, res)
+  try {
+    sendJson(res, 200, await listGitBranches(context, { signal }))
+  } catch (error) {
+    // 客户端已断开时不再写响应，静默结束
+    if (isAbortError(error)) return
+    throw error
+  } finally {
+    dispose()
+  }
 }
 
 async function handleGitLog(req, res, url) {
   const context = await projectContextFromUrl(url)
-  sendJson(res, 200, await listGitLog(context))
+  // 客户端断开（req aborted / res 提前 close）时中止 git 子进程，避免白跑
+  const { signal, dispose } = createRequestAbortState(req, res)
+  try {
+    sendJson(res, 200, await listGitLog(context, { signal }))
+  } catch (error) {
+    // 客户端已断开时不再写响应，静默结束
+    if (isAbortError(error)) return
+    throw error
+  } finally {
+    dispose()
+  }
 }
 
 async function handleGitCheckout(req, res) {
@@ -1470,41 +1702,51 @@ async function handleGitFileDiff(req, res, url) {
     throw error
   }
 
-  const statusPayload = await listGitStatus(context)
-  if (!statusPayload.isGitRepository) {
-    const error = new Error('This project is not a Git repository')
-    error.statusCode = 400
+  // 客户端断开（req aborted / res 提前 close）时中止 git 子进程，避免白跑；fs 读取不中止，口径同 status
+  const { signal, dispose } = createRequestAbortState(req, res)
+  try {
+    const statusPayload = await listGitStatus(context, { signal })
+    if (!statusPayload.isGitRepository) {
+      const error = new Error('This project is not a Git repository')
+      error.statusCode = 400
+      throw error
+    }
+    const changedFile = statusPayload.files.find((file) => file.path === relativePath)
+    if (!changedFile) {
+      const error = new Error('File has no working tree changes')
+      error.statusCode = 404
+      throw error
+    }
+
+    const newRelativePath = changedFile.path
+    const oldRelativePath = changedFile.oldPath || changedFile.path
+    let oldContent = ''
+    let newContent = ''
+
+    if (changedFile.status !== 'added' && changedFile.status !== 'untracked') {
+      const oldFile = resolveWorkspacePath(oldRelativePath, context)
+      await assertSafeWorkspacePath(oldFile, context, { ignoreMissing: true })
+      oldContent = await readGitFile(context.workspaceRoot, 'HEAD', oldRelativePath, signal)
+    }
+    if (changedFile.status !== 'deleted') {
+      newContent = (await readWorkspaceTextFile(context, newRelativePath)).content
+    }
+
+    sendJson(res, 200, {
+      path: newRelativePath,
+      oldPath: changedFile.oldPath,
+      status: changedFile.status,
+      oldContent,
+      newContent,
+      language: languageFromPath(newRelativePath),
+    })
+  } catch (error) {
+    // 客户端已断开时不再写响应，静默结束
+    if (isAbortError(error)) return
     throw error
+  } finally {
+    dispose()
   }
-  const changedFile = statusPayload.files.find((file) => file.path === relativePath)
-  if (!changedFile) {
-    const error = new Error('File has no working tree changes')
-    error.statusCode = 404
-    throw error
-  }
-
-  const newRelativePath = changedFile.path
-  const oldRelativePath = changedFile.oldPath || changedFile.path
-  let oldContent = ''
-  let newContent = ''
-
-  if (changedFile.status !== 'added' && changedFile.status !== 'untracked') {
-    const oldFile = resolveWorkspacePath(oldRelativePath, context)
-    await assertSafeWorkspacePath(oldFile, context, { ignoreMissing: true })
-    oldContent = await readGitFile(context.workspaceRoot, 'HEAD', oldRelativePath)
-  }
-  if (changedFile.status !== 'deleted') {
-    newContent = (await readWorkspaceTextFile(context, newRelativePath)).content
-  }
-
-  sendJson(res, 200, {
-    path: newRelativePath,
-    oldPath: changedFile.oldPath,
-    status: changedFile.status,
-    oldContent,
-    newContent,
-    language: languageFromPath(newRelativePath),
-  })
 }
 
 async function contextFromGitBody(req) {

@@ -1,3 +1,47 @@
+## 当前交接摘要：git 读接口（file-diff/branches/log）客户端断开取消传播（2026-09-09）
+
+- 目标：P2 收尾——4 个 git 读接口取消语义统一（此前仅 status 有）。
+- 实现：`server/routes/workspace.mjs` 的 isGitRepository/currentGitBranch/listGitBranches/listGitLog/readGitFile 加可选 signal（完整传播，其余调用方不变）；handleGitBranches/handleGitLog/handleGitFileDiff 接 `createRequestAbortState`（AbortError 静默 + finally dispose；file-diff 的 controller 建在 path 校验后，listGitStatus 与 readGitFile 两处传播，fs 读取不中止）。
+- 文件：`server/routes/workspace.mjs`、`tests/server/routes/workspace-git.test.mjs`（describe 扩名 workspace git routes abort + it.each 3 新用例）、`docs/wiki/server/routes/README.md`（file-diff 详细/简版、branches、log、路径边界句共 5 处）、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 4 files / 43 tests 全过；eslint 0 error；`node --check`；`npm run test` 全量 296 files / 2847 tests 全过；`git diff --check` 通过。
+- Blocker：无。未 commit。**本会话累计 4 个 feature 未提交**（git-status 取消+light / LLM 超时预算 / search 换 rg / git 读接口取消传播），全部验证全绿。
+- 下一步：真机冒烟清单——① 分支徽标更快（light）；② 不可达模型点「测试连接」~60s 失败；③ 大仓库文件树过滤搜索明显变快、连续输入旧扫描中止；④ 关页/刷新时服务端日志无 git/rg 白跑。剩余候选：前端 branches/log 超时与卸载 abort、workspace children/file 读超时、MCP 增量重连、storage/quota 缓存、backup 流式导出。
+
+---
+
+## 当前交接摘要：workspace/search 切换 ripgrep 优先（保真 + 兜底 + 超时/取消）（2026-09-09）
+
+- 目标：P2——search（原栈式 DFS 无超时不可取消）底层遍历切 ripgrep，复用超时/取消能力；前端防抖 abort 后服务端不再白跑。
+- 实现：① 新建 `server/utils/ripgrep.mjs`（从 tools/index.mjs 逐字抽 rg 解析三函数，tools 改 import）；② `server/routes/workspace.mjs` 新增 `searchWorkspaceWithRipgrep`（`rg --files --hidden --no-ignore --glob '!node_modules/**' --glob '!.git/**'` + Node 侧子串匹配 + 父目录推导目录条目 + 路径归一化 + 60s 超时/504 + 200k 行护栏 + signal 取消；失败返回 null 回退原 DFS），`handleWorkspaceSearch` 接入 req aborted/res close 取消；③ 新增共享 `createRequestAbortState`/`isAbortError`，`handleGitStatus` 内联模式迁移复用。
+- 文件：`server/utils/ripgrep.mjs`（新）、`server/tools/index.mjs`、`server/routes/workspace.mjs`、`tests/server/routes/workspace-search-ripgrep.test.mjs`（新 3 用例）、`docs/wiki/server/routes/README.md`（search 条目 + 简版 + 路径边界句）、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 5 files / 88 tests 全过（现有 search 测试 21 用例零改动全绿）；eslint 0 error；`node --check` ×3；tests/server 全量 156 files / 1385 tests 全绿。
+- Blocker：无。未 commit。已接受差异：空目录/工作区内 symlink 目录在 rg 路径不可见、超载前 limit 条可能不同。
+- 下一步：F2——file-diff/branches/log 三个 git 读接口接入 abort 传播（复用 createRequestAbortState；readGitFile/listGitBranches/listGitLog/isGitRepository/currentGitBranch 加可选 signal；测试 it.each 参数化）；真机冒烟大仓库搜索。
+
+---
+
+## 当前交接摘要：同步等待 LLM 的 4 个路由接口场景化 total 超时预算（2026-09-09）
+
+- 目标：接口超时/慢接口调研的 P1——「HTTP 响应同步等 LLM 跑完」的 4 个接口不再沿用 20min 默认 total 档。
+- 实现：`server/ai-provider-options.mjs` 新增 4 个场景化常量（AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS=60s / AI_AGENT_PROFILE_FILL_TOTAL_TIMEOUT_MS=3min / AI_SCHEDULED_TASK_PARSE_TOTAL_TIMEOUT_MS=2min / AI_GIT_COMMIT_MESSAGE_TOTAL_TIMEOUT_MS=2min），`server/routes/models.mjs`、`agent-profiles.mjs`、`scheduled-tasks.mjs`、`workspace.mjs`（generateGitCommitMessage）的 streamSimpleWithAiHttpLogging options 各加一行 `totalTimeoutMs`。不改 wrapper、不动 idle/firstEvent 默认档与透明重试语义。
+- 文件：上述 5 个 server 文件 + `tests/server/ai-provider-options.test.mjs`（+4 常量契约）+ 新建 `tests/server/routes/ai-timeout-budgets.test.mjs`（4 用例：HTTP handler 级 mock 断言 options 传参）+ `docs/wiki/server/routes/README.md`（4 条目）、`docs/wiki/server/README.md`（超时治理段 + ai-provider-options 小节）、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 6 files / 57 tests 全过；eslint 7 文件 0 error；`node --check` ×5；`npm run test` 全量 295 files / 2841 tests 全过（首次 1 例 runtime-diagnostics elapsedMs 计时 flaky，重跑全绿）；`git diff --check` 通过。
+- Blocker：无。未 commit（工作区含本 feature 与上一 feature「git status 取消传播 + light」两组未提交改动，均验证全绿）。
+- 下一步：真机冒烟——不可达模型点「测试连接」~60s 返回失败。后续候选（P2）= workspace/search 换 ripgrep、其余 git 读接口接入 abort、LLM 调用的客户端断开传播（side-chat 模式可参照）。
+
+---
+
+## 当前交接摘要：git status 取消传播 + ChatPanelHost 分支探测接入 light（2026-09-09）
+
+- 目标：接口超时/慢接口调研的 P0 收尾——ChatPanelHost 分支探测降耗（light）与「前端 abort 后服务端继续白跑 git 子进程」的取消传播。
+- 实现：① `ChatPanelHost.tsx` 的 getGitStatus 调用加 `{ light: true }`（只消费 isGitRepository/branch，独立缓存键 projectId::light，与标题栏 full 分离）；② `server/routes/workspace.mjs` 的 git() 封装支持 `options.signal`（已中止不 spawn 直接 AbortError；运行中 abort → killProcessTree + reject AbortError；所有结算路径移除 listener），listGitStatus 透传 signal 至 status/collectNumstat/currentGitHead（后两者加可选 signal 参数），handleGitStatus 仿 side-chat 先例建 AbortController（`req` aborted / `res` 提前 close），AbortError 静默结束、finally 清理监听。
+- 文件：`server/routes/workspace.mjs`、`src/components/chat/ChatPanelHost.tsx`、`tests/server/routes/workspace-git.test.mjs`（+路由 abort 用例；mockRes 升级 EventEmitter + spawnControl 透传式 mock）、`tests/server/routes/workspace-git-process.test.mjs`（+3 个 git() abort 用例）、`tests/frontend/git-status-request-lifecycle.test.ts`（断言同步）、`docs/wiki/server/routes/README.md`、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 5 files / 67 tests 全过；改动文件 eslint 0 error；`node --check`；`npx tsc -b`；`npm run build` 通过（仅既有警告）；`npm run test` 全量 294 files / 2836 tests 全过；`git diff --check` 通过。
+- Blocker：无。未 commit。
+- 下一步：真机冒烟——分支徽标应更快出现（走 light）；DevTools 断开 status 请求或大仓库 20s 超时后，服务端不应再有后续 git 子进程耗时。后续候选（P1）= 同步 LLM 接口传超时预算、workspace/search 换 ripgrep、其余 git 接口接入 abort。
+
+---
+
 ## 当前交接摘要：产物卡「审查」打开卡死修复（2026-09-09）
 
 - 目标：用户报告点击产物卡「审查」后若审查内容已被删除，会一直显示「打开中」并拖住其他请求。

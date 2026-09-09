@@ -1,8 +1,8 @@
 import { createWriteStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { createRequire } from 'node:module'
 import { resolveWorkspacePath, toWorkspaceRelative, assertSafeWorkspacePath, truncateText, splitLines, walkFiles } from '../utils/workspace.mjs'
+import { resolveRipgrepExecutable } from '../utils/ripgrep.mjs'
 import { logsDir } from '../storage.mjs'
 import { createTextDiff } from '../utils/text-diff.mjs'
 import {
@@ -17,8 +17,6 @@ import { getToolWorkspaceRoot } from '../utils/workspace.mjs'
 import { manageGlobalMemory } from '../global-memory.mjs'
 import { generateSessionImages } from '../image-generation.mjs'
 import { backupFileBeforeWrite } from '../session-file-backups.mjs'
-
-const require = createRequire(import.meta.url)
 
 // --- read_file ---
 export async function toolReadFile(params, context) {
@@ -86,8 +84,6 @@ const SENSITIVE_EXCLUDE_GLOBS = [
   '!id_ed25519',
   '!**/id_ed25519',
 ]
-
-let cachedRipgrepExecutable
 
 /**
  * Process items with bounded concurrency.  Returns results in input order.
@@ -168,40 +164,6 @@ function normalizeGrepParams(params, context) {
 
 function isRegexLikelyRipgrepCompatible(query) {
   return !(/\(\?[=!<]/.test(query) || /\\[1-9]/.test(query))
-}
-
-function ripgrepCandidatePath() {
-  try {
-    return require('@vscode/ripgrep').rgPath || null
-  } catch {
-    return null
-  }
-}
-
-async function verifyRipgrepExecutable(command) {
-  return new Promise((resolve) => {
-    const child = spawn(command, ['--version'], { shell: false, windowsHide: true })
-    child.once('error', () => resolve(false))
-    child.once('close', (code) => resolve(code === 0))
-  })
-}
-
-async function resolveRipgrepExecutable() {
-  if (cachedRipgrepExecutable !== undefined) return cachedRipgrepExecutable
-
-  const bundled = ripgrepCandidatePath()
-  if (bundled && await verifyRipgrepExecutable(bundled)) {
-    cachedRipgrepExecutable = { command: bundled, source: 'bundled' }
-    return cachedRipgrepExecutable
-  }
-
-  if (await verifyRipgrepExecutable('rg')) {
-    cachedRipgrepExecutable = { command: 'rg', source: 'system' }
-    return cachedRipgrepExecutable
-  }
-
-  cachedRipgrepExecutable = null
-  return cachedRipgrepExecutable
 }
 
 function buildRipgrepArgs(options, context) {

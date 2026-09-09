@@ -1,4 +1,5 @@
 import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
+import { AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS } from '../ai-provider-options.mjs'
 import { listModelCatalog } from '../model-catalog.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
@@ -38,6 +39,7 @@ async function probeModelConnection(model, apiKeyOverride) {
       reasoning: undefined,
       maxRetries: 0,
       maxRetryDelayMs: 30000,
+      totalTimeoutMs: AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS,
     },
   )
   const message = await stream.result()

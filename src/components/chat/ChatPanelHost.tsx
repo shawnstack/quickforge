@@ -497,7 +497,8 @@ export function ChatPanelHost({
         return
       }
 
-      getGitStatus(gitProjectId, controller.signal)
+      // 此处只消费 isGitRepository/branch，走 light（独立缓存键，跳过 numstat/行数统计）
+      getGitStatus(gitProjectId, controller.signal, { light: true })
         .then((status) => {
           if (disposed) return
           setGitBranch(status.isGitRepository ? status.branch : undefined)

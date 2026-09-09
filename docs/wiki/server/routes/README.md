@@ -165,7 +165,7 @@ Agent Profile 管理路由。
 - `GET /api/agent-profiles[?projectId=...]` — 列出内置和自定义 Agent Profile；传入有效 `projectId` 时按对应 workspaceRoot 合并项目级 `.claude/agents`、`.quickforge/agents` 文件 profile，省略或无效时保持默认行为（响应形状不变，仍含 disabled，由前端过滤）。
 - `POST /api/agent-profiles` — 创建自定义 Agent。
 - `GET /api/agent-profiles/available-tools` — 获取第一阶段可配置的 workspace 工具列表。
-- `POST /api/agent-profiles/ai-fill` — 使用默认模型生成 Agent 名称、显示名称、描述和系统提示词。
+- `POST /api/agent-profiles/ai-fill` — 使用默认模型生成 Agent 名称、显示名称、描述和系统提示词。HTTP 响应同步等待模型完成，AI 调用总预算 3 分钟（`AI_AGENT_PROFILE_FILL_TOTAL_TIMEOUT_MS`），不再沿用 20 分钟默认档。
 - `GET /api/agent-profiles/:id` — 获取单个 Agent。
 - `PATCH|PUT /api/agent-profiles/:id` — 更新自定义 Agent；内置 Agent 仅接受 `model`、`thinkingLevel`、`allowMcpTools`、`allowAgentSkills` 字段，用于设置对应覆盖。自定义 Profile 的两个能力开关缺失时默认关闭。
 - `DELETE /api/agent-profiles/:id` — 删除自定义 Agent。
@@ -178,7 +178,7 @@ Agent Profile 管理路由。
 
 **主要端点**:
 - `GET /api/models/catalog` — 返回当前请求上下文可使用的公开模型目录。每个条目携带版本化 `quickforgeModelRef`；不返回 API Key、Cloud Token 或请求 Header，普通 LAN 请求不包含 Cloud。
-- `POST /api/models/test-connection` — 用当前配置（Base URL、API Key、模型 ID）发送最小请求验证连通性。请求体 `{ model, apiKey? }`（`model` 为完整模型对象，`apiKey` 可选，用于测试尚未保存的配置）；成功返回 `{ ok: true }`，失败返回 `{ ok: false, error }`。错误统一以 HTTP 200 返回，便于前端统一解析。
+- `POST /api/models/test-connection` — 用当前配置（Base URL、API Key、模型 ID）发送最小请求验证连通性。请求体 `{ model, apiKey? }`（`model` 为完整模型对象，`apiKey` 可选，用于测试尚未保存的配置）；成功返回 `{ ok: true }`，失败返回 `{ ok: false, error }`。错误统一以 HTTP 200 返回，便于前端统一解析。探测的 AI 调用总预算 60 秒（`AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS`），超时按连通失败返回。
 
 ## scheduled-tasks.mjs (949 行)
 
@@ -187,7 +187,7 @@ Agent Profile 管理路由。
 **主要端点**:
 - `GET /api/scheduled-tasks` — 列出任务
 - `GET /api/scheduled-tasks/runs` — 分页查询运行历史
-- `POST /api/scheduled-tasks/parse` — 使用 AI 将自然语言解析为 cron 任务草稿
+- `POST /api/scheduled-tasks/parse` — 使用 AI 将自然语言解析为 cron 任务草稿。HTTP 响应同步等待模型完成，AI 调用总预算 2 分钟（`AI_SCHEDULED_TASK_PARSE_TOTAL_TIMEOUT_MS`）
 - `POST /api/scheduled-tasks` — 创建任务
 - `PUT /api/scheduled-tasks/:id` — 更新任务
 - `DELETE /api/scheduled-tasks/:id` — 删除任务
@@ -286,15 +286,15 @@ Workspace Inspector 后端 API。
 **主要端点**:
 - `GET /api/workspace/tree?projectId=...` — 兼容旧客户端的递归文件树；仍只跳过 `.git`、`node_modules`，节点总量有上限
 - `GET /api/workspace/children?projectId=...&path=.&limit=&cursor=` — 按需列出一个目录的直接子节点，目录优先并使用大小写不敏感主排序及确定性次级排序；相对路径统一使用 `/`。`cursor` 是当前排序结果中的 offset 编码，不是目录快照，目录在分页间变化时可能出现重复或跳过；响应必含 `root/path/entries/nextCursor/truncated`。单个超大目录仍需读取并排序整层后才能分页
-- `GET /api/workspace/search?projectId=...&query=&limit=` — 独立遍历整个项目并按名称/相对路径搜索，不依赖前端已加载节点；至少 2 个字符，结果与遍历均有上限。结果上限通过多找 1 个匹配后截断，因此 `truncated: true` 表示还有额外匹配，或遍历先达到安全上限。每个从遍历队列取出的目录都会在 `readdir` 前重新经过现有 workspace 真实路径 validator；不安全、已替换为外部链接或不可访问的目录会跳过。该检查用于缩小竞态窗口，不宣称消除文件系统不可避免的 TOCTOU
+- `GET /api/workspace/search?projectId=...&query=&limit=` — 独立搜索整个项目并按名称/相对路径匹配，不依赖前端已加载节点；至少 2 个字符，结果有上限。底层优先 ripgrep：`rg --files --hidden --no-ignore`（内置 `@vscode/ripgrep` 优先，回退系统 `rg`）拿全量候选清单，Node 侧做与旧遍历一致的路径子串匹配——隐藏文件、敏感文件可见与不尊重 `.gitignore` 均为既有行为，`node_modules`/`.git` 通过 glob 排除对齐 SKIP_DIRS，目录条目从文件路径的父目录推导，Windows 路径归一化为 `/` 风格；带 60 秒超时（超时杀进程树并 504）与 200k 行输出护栏。rg 不可用或执行失败时回退原有栈式遍历（保留每目录 `readdir` 前 realpath validator 与 TOCTOU 缩窗口语义，同样支持取消）。客户端断开（`req` aborted / 连接提前关闭）会中止 rg 子进程或遍历。`truncated: true` 表示还有额外匹配或达到安全上限；rg 不跟随符号链接目录（旧遍历会跟随工作区内安全链接），空目录条目在 rg 路径下不可见
 - `GET /api/workspace/mention-children?projectId=...&path=.` — Composer `@` 文件引用专用目录浏览；`projectId` 必须对应仍存在的已注册项目，未知或已删除项目返回 HTTP 404 / `PROJECT_NOT_FOUND`，不会回退默认 workspace。只读取 `path` 的直接子节点并一次返回当前层全部安全文件/目录（目录优先排序），不递归、不分页；始终启用 mention 级敏感路径与 realpath/符号链接边界检查，排除 `.env*`、密钥/证书、credentials/secrets、`.git` 及指向敏感或项目外目标的链接。目录只用于逐层导航，不能成为 context reference
 - `GET /api/workspace/mention-search?projectId=...&query=&limit=` — 旧版 `@` 文件引用专用递归搜索端点，保留兼容；至少 2 个字符，仅返回普通文件，默认 20、最大 50 条，保留与普通 search 相同的 visited 上限和 `truncated`。始终启用敏感路径保护（大小写不敏感，并在 realpath 后复查真实目标），排除 `.env*`、密钥/证书、credentials/secrets 与 `.git`，不返回绝对路径；排序依次为 basename 精确、前缀、包含，再按相对路径。`projectId` 必须对应仍存在的已注册项目，未知或已删除项目返回 HTTP 404 / `PROJECT_NOT_FOUND`，不会回退默认 workspace；普通 `/api/workspace/search`、children 等端点继续保留兼容回退。当前 Composer 不再调用该递归端点
 - `GET /api/workspace/file?projectId=...&path=...` — 安全读取 1MB 以内文本文件，返回 Monaco 语言标识；响应含 `size` 与 `mtimeMs`（F13 缓存失效戳）；`&meta=1` 轻量模式走同一安全校验与 stat，仅返回 `{path,size,mtimeMs,language,readonly}` 不读内容（供前端缓存 meta 校验）
 - `GET /api/workspace/preview/:projectId/*` — 安全读取项目内静态产物文件，供右侧 Artifact Preview iframe/img 加载 HTML、CSS、JS、图片等资源，并向 Workspace Document Tab 提供 PDF/DOCX/XLS/XLSX 二进制流（50 MiB 上限内）；采用 ETag 协商缓存：响应带 `cache-control: private, no-cache` 与强 ETag `"<mtimeMs>-<size>"`（源自 `fs.stat`，零额外 IO），请求带匹配的 `If-None-Match` 时返回 304 且不再读取文件体，文件 mtime/size 变化即生成新 ETag 立即生效；附加 `?__quickforge_check=1` 时仅执行预检并返回文件元数据（含 `mtimeMs`），错误响应包含稳定错误代码、原始报错和请求路径，供前端统一展示 404/403/413/415/500 等状态
-- `GET /api/git/status?projectId=...` — 基于 `git status --porcelain=v1 -z --untracked-files=all --branch` 返回扁平的工作区文件变更列表（未跟踪目录展开为具体文件，不返回目录分组项）；`branch`/`detached` 取自同一条命令的 `## ` 头记录（不再单独跑 `branch --show-current`），该命令退出码同时用于判定仓库（非仓库 128 返回 `{ isGitRepository: false, files: [] }`）。默认附加 `git diff HEAD --numstat` 的每个文件增删行数（`additions`/`deletions`）；未跟踪/新增文件按工作区文件行数估算，最多统计排序后的 100 个文件，单文件上限 1MB、单次总量上限 10MB、并发数 6，超限文件仍返回状态但省略增删行数。`light=1` 跳过 numstat 与行数统计，只返回 branch/counts 与文件状态（供标题栏、分支徽标等只需计数的调用方）
-- `GET /api/git/file-diff?projectId=...&path=...` — 返回单文件 `oldContent/newContent`，供 Monaco DiffEditor 展示
+- `GET /api/git/status?projectId=...` — 基于 `git status --porcelain=v1 -z --untracked-files=all --branch` 返回扁平的工作区文件变更列表（未跟踪目录展开为具体文件，不返回目录分组项）；`branch`/`detached` 取自同一条命令的 `## ` 头记录（不再单独跑 `branch --show-current`），该命令退出码同时用于判定仓库（非仓库 128 返回 `{ isGitRepository: false, files: [] }`）。默认附加 `git diff HEAD --numstat` 的每个文件增删行数（`additions`/`deletions`）；未跟踪/新增文件按工作区文件行数估算，最多统计排序后的 100 个文件，单文件上限 1MB、单次总量上限 10MB、并发数 6，超限文件仍返回状态但省略增删行数。`light=1` 跳过 numstat 与行数统计，只返回 branch/counts 与文件状态（供分支徽标等只需 branch/counts 的调用方；标题栏需 `additions/deletions` 走 full）。客户端断开（`req` aborted 或连接提前关闭）时中止该链路的 git 子进程（进程树清理）并静默结束，不再白跑到 2 分钟超时；取消贯穿 status/numstat/detached HEAD 兜底子进程，行数统计的文件读取不中止
+- `GET /api/git/file-diff?projectId=...&path=...` — 返回单文件 `oldContent/newContent`，供 Monaco DiffEditor 展示。客户端断开（`req` aborted / 连接提前关闭）时中止内部 git status 与 `git show` 子进程（fs 读取不中止，口径同 status）
 
-**路径边界**: 工作区文件读取、静态预览和外部打开分别使用各自的路径校验及文件类型/大小限制；目录 children/search 会限制在 workspace 内并跳过 `.git`、`node_modules` 及不安全的符号链接。search 对每个待遍历目录在读取前重新校验真实路径，但文件系统检查与后续读取之间仍存在不可完全消除的 TOCTOU；客户端取消请求也不保证已经开始的服务端扫描立即停止。
+**路径边界**: 工作区文件读取、静态预览和外部打开分别使用各自的路径校验及文件类型/大小限制；目录 children/search 会限制在 workspace 内并跳过 `.git`、`node_modules` 及不安全的符号链接。search 对每个待遍历目录在读取前重新校验真实路径，但文件系统检查与后续读取之间仍存在不可完全消除的 TOCTOU；客户端取消请求也不保证已经开始的服务端目录扫描立即停止（git 读接口（status/branches/log/file-diff）与 `/api/workspace/search` 例外：客户端断开时会中止相应 git / rg 子进程与遍历）。
 
 ## workspace.mjs
 
@@ -303,26 +303,26 @@ Workspace Inspector 后端 API。
 **主要端点**:
 - `GET /api/workspace/tree` — 兼容旧客户端的递归工作区树。
 - `GET /api/workspace/children` — 按目录路径分页读取直接子节点，供 Files 树按需展开；offset cursor 只定位当前排序结果，不承诺目录快照。
-- `GET /api/workspace/search` — 独立遍历项目进行路径/名称搜索，不依赖前端已经展开的目录；`truncated` 表示存在额外匹配或遍历达到安全上限。上述 JSON 接口均返回 `Cache-Control: no-store`，但前端会在当前 Inspector 会话内保留各目录已加载页、展开和错误状态。
+- `GET /api/workspace/search` — 独立搜索项目进行路径/名称匹配（ripgrep 优先、遍历兜底，带 60s 超时与客户端断开中止），不依赖前端已经展开的目录；`truncated` 表示存在额外匹配或达到安全上限。上述 JSON 接口均返回 `Cache-Control: no-store`，但前端会在当前 Inspector 会话内保留各目录已加载页、展开和错误状态。
 - `GET /api/workspace/mention-children` — Composer `@` 文件引用的安全逐层目录浏览；严格已注册 `projectId`，一次返回当前目录全部直接子文件/目录，不递归不分页，敏感路径及指向敏感/外部目标的符号链接不会出现。
 - `GET /api/workspace/mention-search` — 旧版 `@` files-only 递归搜索端点，保留兼容但当前 Composer 不再调用；至少 2 字符、默认 20/最大 50，未知或已删除 `projectId` 严格返回 404 / `PROJECT_NOT_FOUND`。
 - `GET /api/workspace/file?projectId=...&path=...` — 安全读取工作区文本文件。
 - `GET /api/workspace/preview/:projectId/:path` — 为 HTML/SVG/图片/Markdown 等允许类型提供静态预览；ETag 协商缓存（`private, no-cache` + `"<mtimeMs>-<size>"`），未变化请求返回 304 零重传。
 - `POST /api/workspace/resolve-path` — 将绝对路径解析为当前项目内的相对路径。
 - `POST /api/workspace/open-external` — 在资源管理器中打开选中变更文件所在目录，或在 VS Code / IntelliJ IDEA 中直接打开工作区内的选中文件；路径经过工作区边界校验。
-- `GET /api/git/status` — 获取 Git 仓库状态、当前分支、变更计数和文件列表；`light=1` 跳过 numstat 与行数统计。
-- `GET /api/git/file-diff` — 获取单文件工作区 diff 内容。
+- `GET /api/git/status` — 获取 Git 仓库状态、当前分支、变更计数和文件列表；`light=1` 跳过 numstat 与行数统计；客户端断开时中止 git 子进程。
+- `GET /api/git/file-diff` — 获取单文件工作区 diff 内容；客户端断开时中止 git 子进程。
 - `POST /api/git/stage` — 暂存单个变更文件。
 - `POST /api/git/stage-all` — 暂存全部工作区变更。
 - `POST /api/git/unstage` — 将单个已暂存文件退回未暂存。
 - `POST /api/git/unstage-all` — 将全部已暂存内容退回未暂存。
 - `POST /api/git/restore` — 还原单个变更文件；未跟踪文件会被删除。
 - `POST /api/git/restore-all` — 还原全部 tracked 变更并清理未跟踪文件。
-- `GET /api/git/branches` — 列出本地与远端分支。
+- `GET /api/git/branches` — 列出本地与远端分支；客户端断开时中止 git 子进程。
 - `POST /api/git/checkout` — 检出已有分支。
 - `POST /api/git/create-branch` — 从当前 HEAD 创建并检出新分支。
-- `GET /api/git/log` — 获取最近提交和 refs 装饰，用于标题栏 Git 图谱弹窗。
-- `POST /api/git/generate-commit-message` — 使用当前默认模型根据 staged/unstaged diff 生成 Conventional Commit 提交信息。
+- `GET /api/git/log` — 获取最近提交和 refs 装饰，用于标题栏 Git 图谱弹窗；客户端断开时中止 git 子进程。
+- `POST /api/git/generate-commit-message` — 使用当前默认模型根据 staged/unstaged diff 生成 Conventional Commit 提交信息。HTTP 响应同步等待模型完成，AI 调用总预算 2 分钟（`AI_GIT_COMMIT_MESSAGE_TOTAL_TIMEOUT_MS`）；前置的 git diff 子进程另有 2 分钟独立超时。
 - `POST /api/git/commit` — 提交已暂存内容；可选 `includeUnstaged` 时先执行 `git add -A`。
 - `POST /api/git/push` — 执行 `git push`，无 upstream 等错误直接返回给前端。
 - `POST /api/git/commit-and-push` — 提交后执行 `git push`。

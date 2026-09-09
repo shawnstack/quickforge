@@ -1,5 +1,5 @@
 import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
-import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
+import { AI_SCHEDULED_TASK_PARSE_TOTAL_TIMEOUT_MS, DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { readJsonBody, sendJson, decodeSegment } from '../utils/response.mjs'
 import { readStore, atomicUpdate } from '../storage.mjs'
 import { createAgent, getSessionEventBus, agentEvents, persistSessionState, abortRun } from '../agent-manager.mjs'
@@ -183,6 +183,7 @@ async function parseScheduledTaskInstructionWithAi(instruction, modelInput, thin
         reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
         maxRetries: DEFAULT_AI_MAX_RETRIES,
         maxRetryDelayMs: 60000,
+        totalTimeoutMs: AI_SCHEDULED_TASK_PARSE_TOTAL_TIMEOUT_MS,
       },
     )
     const message = await stream.result()

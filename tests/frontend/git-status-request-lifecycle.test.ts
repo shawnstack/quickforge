@@ -195,7 +195,7 @@ describe('git status callers release connections', () => {
   })
 
   it('ChatPanelHost aborts its git status request on cleanup', () => {
-    expect(panelHostSource).toContain('getGitStatus(gitProjectId, controller.signal)')
+    expect(panelHostSource).toContain('getGitStatus(gitProjectId, controller.signal, { light: true })')
     expect(panelHostSource).toContain('disposed = true\n      controller.abort()')
   })
 })

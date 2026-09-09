@@ -1,6 +1,82 @@
 {
   "features": [
     {
+      "id": "git-read-routes-cancel-propagation",
+      "name": "git 读接口（file-diff/branches/log）客户端断开取消传播",
+      "status": "done",
+      "approach": "承接 git-status-cancel-propagation-and-light：把 createRequestAbortState 取消传播扩展到其余 3 个 git 读接口（GET /api/git/file-diff、branches、log），前端断开/关页/刷新时服务端不再白跑 git 子进程。实现：isGitRepository / currentGitBranch / listGitBranches / listGitLog / readGitFile 加可选 signal 参数（完整传播口径同 listGitStatus：branches 3 处子进程 rev-parse/branch --show-current/for-each-ref、log 2 处、file-diff 的 listGitStatus+git show 全覆盖；其余既有调用方不传、行为不变）；handleGitBranches / handleGitLog 接 createRequestAbortState（AbortError 静默 return + finally dispose）；handleGitFileDiff 的 controller 建在 path 400 校验之后，listGitStatus({ signal }) 与 readGitFile(..., signal) 两处传播，readWorkspaceTextFile 的 fs 读取不中止（口径同 status 行数统计）。",
+      "files": [
+        "server/routes/workspace.mjs",
+        "tests/server/routes/workspace-git.test.mjs",
+        "docs/wiki/server/routes/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 4 files / 43 tests 全过（workspace-git 15：status abort 既有用例零改动 + it.each 参数化 3 新用例 branches/log/file-diff（URL 带 path= 防 400），复用 spawnControl 透传 mock + 永不退出 fakeChild + req.emit('aborted')，断言 handler 静默 resolve、响应未写、req/res 监听器清零；workspace-git-process 4、workspace-tree-on-demand 21、workspace-search-ripgrep 3 回归）；eslint 2 文件 0 error 0 warning；node --check；npm run test 全量 296 files / 2847 tests 全过；git diff --check 通过。",
+      "boundaries": "不动 git 写接口与前端 workspace-api.ts（getGitBranches/getGitLog 无超时无 signal 记为后续候选，客户端 abort 目前仅在连接断开时发生）；AbortError 语义沿用 isAbortError，不新增错误类型；至此 4 个 git 读接口取消语义统一（req aborted / res 提前 close → killProcessTree + 静默）；未新增依赖、未 commit/tag/push。"
+    },
+    {
+      "id": "workspace-search-ripgrep",
+      "name": "workspace/search 切换 ripgrep 优先（保真模式 + BFS 兜底 + 超时/取消）",
+      "status": "done",
+      "approach": "接口超时/慢接口调研的 P2。调研发现 /api/workspace/search 是文件名/路径子串搜索（返回 entries），非内容搜索，不能复用 grep 工具封装的输出层；方案 = `rg --files` 只把目录遍历外包给 ripgrep（并行 IO + 60s 超时 + abort），匹配逻辑仍用 Node 的 toLowerCase().includes 保真。实现：① rg 解析三函数（ripgrepCandidatePath/verifyRipgrepExecutable/resolveRipgrepExecutable + 缓存）从 tools/index.mjs 逐字抽到新建 server/utils/ripgrep.mjs 共享，tools 改 import、grep 工具逻辑零改动；② searchWorkspaceWithRipgrep：spawn `rg --files --hidden --no-ignore --glob '!node_modules/**' --glob '!.git/**'`（--hidden/--no-ignore 对齐 BFS 隐藏文件可见/敏感文件可见/不尊重 .gitignore 的既有被测行为），逐行归一化（Windows \\ → /）后子串匹配 + 父目录全集推导 directory 条目（既有测试契约），60s 超时（killProcessTree + 504）+ 200k 行输出护栏 + options.signal 取消（所有结算路径清 listener）；rg 退出码 1 且零输出按空结果结算，其他失败返回 null 回退原 DFS（逐字保留 + 主循环加 signal 检查）；③ 新增共享 createRequestAbortState(req,res)/isAbortError helper，handleGitStatus 内联模式迁移复用（逻辑等价），handleWorkspaceSearch 接入 req aborted/res close 取消——前端文件树过滤框的防抖 abort 旧请求现在能真正停止服务端扫描。行为保真验收 = 现有 search 测试（workspace-tree-on-demand 21 用例）零改动全绿。",
+      "files": [
+        "server/utils/ripgrep.mjs",
+        "server/tools/index.mjs",
+        "server/routes/workspace.mjs",
+        "tests/server/routes/workspace-search-ripgrep.test.mjs",
+        "docs/wiki/server/routes/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 5 files / 88 tests 全过（tree-on-demand 21 既有断言零改动、新 workspace-search-ripgrep 3 用例：rg 不可用回退 BFS 结果一致、客户端断开静默+rg 进程清理+监听器清零、预 abort reject AbortError；workspace-git 12（status 迁移 helper 回归）、tools/index 47（rg 解析抽取回归）、mention-project-context 5）；eslint 4 文件 0 error（tools/index 2 个 no-console warning 为既有代码）；node --check ×3；tests/server 全量 156 files / 1385 tests 全绿；主 Agent 复核定向 88/88。",
+      "boundaries": "已接受的边缘行为差异：①空目录条目在 rg 路径下不可见（BFS 可发现，无测试覆盖）；②工作区内 symlink/junction 目录 rg 不跟随（旧 BFS 跟随安全链接，外部链接两者一致排除）；③匹配数>limit 时 rg 全量扫描取排序前 limit，与 BFS 早停部分集合可能不同（truncated 语义一致）；④truncated 触发点不同（50k visited vs 200k 行/60s）；⑤rg 失败由 BFS 兜底保证结果正确。mention-search 前端零调用方未迁移（仍 BFS）；killProcessTree 保持 workspace.mjs 与 tools 两份实现（未统一）；超时错误带 statusCode 504 对齐 git() 语义；未新增依赖、未 commit/tag/push。"
+    },
+    {
+      "id": "ai-sync-routes-total-budgets",
+      "name": "同步等待 LLM 的 4 个路由接口场景化 total 超时预算",
+      "status": "done",
+      "approach": "承接接口超时/慢接口调研的 P1。4 个「HTTP 响应同步等 LLM 跑完」的接口（test-connection / agent-profiles ai-fill / scheduled-tasks parse / git generate-commit-message）此前全部走流包装层默认 total 20min，极端时用户等待 20 分钟；wrapper（streamSimpleWithAiHttpLogging）原生支持 options.totalTimeoutMs 覆写但无调用方使用。实现：ai-provider-options.mjs 新增 4 个场景化常量（AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS=60s：探测语义快速判负，与其 maxRetries:0 不重试意图一致；AI_AGENT_PROFILE_FILL_TOTAL_TIMEOUT_MS=3min：输出最大（1600 tokens）留足 thinking 慢启动；AI_SCHEDULED_TASK_PARSE_TOTAL_TIMEOUT_MS=2min；AI_GIT_COMMIT_MESSAGE_TOTAL_TIMEOUT_MS=2min），4 个路由的 options 各加一行 totalTimeoutMs，不动 maxRetries/maxTokens/idle/firstEvent 档、不改 wrapper。设计约束：除 test-connection 外 total ≥ 默认 firstEvent 90s，避免误杀 thinking 模型合法慢启动；total 与 SDK 重试（3×2min per-attempt）及 wrapper 换流重试共享预算，收紧后挂起场景重试空间变小属预期（宁快失败）；test-connection 的 60s 先于 90s firstEvent 触发，等效「探测最多等 60s」。",
+      "files": [
+        "server/ai-provider-options.mjs",
+        "server/routes/models.mjs",
+        "server/routes/agent-profiles.mjs",
+        "server/routes/scheduled-tasks.mjs",
+        "server/routes/workspace.mjs",
+        "tests/server/ai-provider-options.test.mjs",
+        "tests/server/routes/ai-timeout-budgets.test.mjs",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 6 files / 57 tests 全过（新建 ai-timeout-budgets.test.mjs 4 用例：HTTP handler 级 mock streamSimpleWithAiHttpLogging，断言 4 接口 options 含对应 totalTimeoutMs 且 maxTokens/maxRetries 防回归，ai-fill/parse 用合法 JSON 走完整校验链路，commit message 用真实临时 git 仓库；ai-provider-options +4 常量契约；ai-http-logger 默认档回归 21 例）；eslint 7 文件 0 error 0 warning；node --check ×5；npm run test 全量 295 files / 2841 tests 全过（首次运行 runtime-diagnostics 1 例 elapsedMs 计时 flaky，单独重跑 ×2 与全量重跑均全绿）；git diff --check 通过。",
+      "boundaries": "不改 server/ai-http-logger.mjs、不动 idle/firstEvent 默认档与透明重试语义、不加 env 覆写（纯常量，保持模块常量契约风格）；4 个接口未传 AbortSignal（客户端断开后 AI 调用跑满新预算即止，req abort 传播留作后续 feature）；SSE/agent 流路径零触碰（注入点仅在 4 个 route 文件的 options 字面量）；docs/architecture/logging-design.zh-CN.md 无需更新（仅描述默认档，默认档未变）；未新增依赖、未 commit/tag/push。工作区同时含上一 feature（git-status-cancel-propagation-and-light）未提交改动，本 feature 在 workspace.mjs 上仅叠加 import + 1 行。"
+    },
+    {
+      "id": "git-status-cancel-propagation-and-light",
+      "name": "git status 取消传播（客户端断开中止 git 子进程）+ ChatPanelHost 分支探测接入 light",
+      "status": "done",
+      "approach": "承接接口超时/慢接口调研的 P0 收尾。git-status-latency-reduction 已把 full 降到 ~257ms、light 106ms，遗留两点：① ChatPanelHost 顶部分支徽标探测仍走 full 但只消费 isGitRepository/branch；② 前端 20s 超时/abort 后服务端不感知，git 子进程白跑到 2min 预算（大仓库下最疼）。实现：A) ChatPanelHost 的 getGitStatus 调用加 { light: true }（独立缓存键 projectId::light，与标题栏 full 请求分离）；B) 服务端取消传播——git() 封装新增 options.signal（已中止则不 spawn 直接 reject AbortError；运行中 abort 时 killProcessTree + 经既有 finish/settled 机制 reject AbortError，所有结算路径 removeEventListener 防泄漏），listGitStatus 的 signal 贯穿 status 子进程、collectNumstat 与 detached HEAD 兜底的 currentGitHead（均加可选 signal 参数，其他调用方不受影响），handleGitStatus 仿 routes/side-chat.mjs 先例建 AbortController + req.once('aborted') + res.once('close', !writableEnded 则 abort)，AbortError 静默 return（客户端已断开不写响应），finally off 清理监听。",
+      "files": [
+        "server/routes/workspace.mjs",
+        "src/components/chat/ChatPanelHost.tsx",
+        "tests/server/routes/workspace-git.test.mjs",
+        "tests/server/routes/workspace-git-process.test.mjs",
+        "tests/frontend/git-status-request-lifecycle.test.ts",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 5 files / 67 tests 全过（新增 4 用例：git() 已中止 signal 不 spawn 直接 AbortError、运行中 abort 杀进程树+AbortError+listener 清理、结算后 abort 不误杀、路由级客户端断开静默结束且响应未写/监听器清零；回归 git-tools-pinned-summary + context-usage 确认标题栏 full 不受影响）；改动文件 eslint 0 error 0 warning；node --check；npx tsc -b；npm run build 通过（仅既有 KaTeX/chunk 警告）；npm run test 全量 294 files / 2836 tests 全过；git diff --check 通过。",
+      "boundaries": "取消传播仅覆盖 /api/git/status 链路，git() 的 signal 能力已就绪但其他 git 接口（file-diff/branches/log/push 等）未接入（后续按需几行接入）；collectWorkspaceLineCounts 的 fs 读取不中止（纯本地 IO，abort 后浪费有限）；App 标题栏仍走 full（titleGitStatus 供 GitToolsPinnedSummary/GitCommitPushDialog 消费，需要 additions/deletions）；ChatPanelHost 接 light 后首屏同项目最多 full+light 两条并发短连接（light ~106ms，仍在每模式在途去重 + 20s 超时 + git 写操作双键失效保护内）；killProcessTree 未升级为 utils/process-tree.mjs 的 terminateProcessTree（对无子进程的 git status 场景现有实现够用，不扩大范围）；未新增依赖、未 commit/tag/push。"
+    },
+    {
       "id": "workspace-diff-review-recovery",
       "name": "产物卡「审查」打开卡死修复（file-diff 20s 超时 + 终态 diff tab 重拉恢复）",
       "status": "done",

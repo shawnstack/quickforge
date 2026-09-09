@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { EventEmitter } from 'node:events'
 import { execFile } from 'node:child_process'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,6 +7,19 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { commitAndPushGitChanges, handleGitApi, listGitStatus } from '../../../server/routes/workspace.mjs'
 import { getDefaultWorkspaceRoot, setDefaultWorkspaceRoot } from '../../../server/project-config.mjs'
+
+// 路由级 abort 用例用可控假子进程替换 spawn；默认透传真实 spawn，其余用例不受影响
+const spawnControl = vi.hoisted(() => ({ impl: null }))
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    spawn: (command, args, options) => (spawnControl.impl
+      ? spawnControl.impl(command, args, options)
+      : actual.spawn(command, args, options)),
+  }
+})
 
 const execFileAsync = promisify(execFile)
 const tempDirs = []
@@ -16,9 +30,19 @@ async function git(cwd, ...args) {
   return execFileAsync('git', args, { cwd, windowsHide: true })
 }
 
+function fakeChild(pid = 1234) {
+  const child = new EventEmitter()
+  child.pid = pid
+  child.stdout = new EventEmitter()
+  child.stderr = new EventEmitter()
+  child.kill = vi.fn()
+  return child
+}
+
 function mockRes() {
-  return {
+  const res = {
     headersSent: false,
+    writableEnded: false,
     status: undefined,
     headers: {},
     body: '',
@@ -29,8 +53,17 @@ function mockRes() {
     },
     end(body = '') {
       this.body = body
+      this.writableEnded = true
     },
   }
+  Object.setPrototypeOf(res, EventEmitter.prototype)
+  return res
+}
+
+function mockReq(method = 'GET') {
+  const req = new EventEmitter()
+  req.method = method
+  return req
 }
 
 async function initRepoWithCommit(workspaceRoot) {
@@ -43,6 +76,7 @@ async function initRepoWithCommit(workspaceRoot) {
 }
 
 afterEach(async () => {
+  spawnControl.impl = null
   if (originalGitCeiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES
   else process.env.GIT_CEILING_DIRECTORIES = originalGitCeiling
   setDefaultWorkspaceRoot(originalDefaultWorkspaceRoot)
@@ -214,7 +248,7 @@ describe('workspace git status branch header and light mode', () => {
     setDefaultWorkspaceRoot(workspaceRoot)
 
     const lightRes = mockRes()
-    await handleGitApi({ method: 'GET' }, lightRes, new URL('http://localhost/api/git/status?projectId=unknown&light=1'))
+    await handleGitApi(mockReq(), lightRes, new URL('http://localhost/api/git/status?projectId=unknown&light=1'))
     const light = JSON.parse(lightRes.body)
     expect(lightRes.status).toBe(200)
     expect(light.isGitRepository).toBe(true)
@@ -223,9 +257,74 @@ describe('workspace git status branch header and light mode', () => {
     expect(light.files[0]).not.toHaveProperty('additions')
 
     const fullRes = mockRes()
-    await handleGitApi({ method: 'GET' }, fullRes, new URL('http://localhost/api/git/status?projectId=unknown'))
+    await handleGitApi(mockReq(), fullRes, new URL('http://localhost/api/git/status?projectId=unknown'))
     const full = JSON.parse(fullRes.body)
     expect(full.files[0]).toMatchObject({ additions: 1, deletions: 0 })
+  })
+})
+
+describe('workspace git routes abort', () => {
+  it('silently settles and leaves the response unwritten when the client disconnects mid-run', async () => {
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'quickforge-git-'))
+    tempDirs.push(workspaceRoot)
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    // 假 git 子进程永不自行退出，直到 abort 触发进程树清理，保证时序确定不 flaky
+    const gitChild = fakeChild(4321)
+    const killer = fakeChild(8765)
+    const spawned = []
+    spawnControl.impl = (command) => {
+      spawned.push(command)
+      return command === 'git' ? gitChild : killer
+    }
+
+    const req = mockReq()
+    const res = mockRes()
+    const running = handleGitApi(req, res, new URL('http://localhost/api/git/status?projectId=unknown'))
+    await vi.waitFor(() => expect(spawned).toContain('git'), { timeout: 5000 })
+
+    req.emit('aborted')
+    await expect(running).resolves.toBeUndefined()
+
+    expect(res.headersSent).toBe(false)
+    expect(res.status).toBeUndefined()
+    expect(res.body).toBe('')
+    expect(req.listenerCount('aborted')).toBe(0)
+    expect(res.listenerCount('close')).toBe(0)
+  })
+
+  it.each([
+    ['branches', '/api/git/branches?projectId=unknown'],
+    ['log', '/api/git/log?projectId=unknown'],
+    // file-diff 必须带 path=，否则先命中 400 分支，轮不到 git 子进程
+    ['file-diff', '/api/git/file-diff?projectId=unknown&path=tracked.txt'],
+  ])('aborts %s git children when the client disconnects', async (_route, pathname) => {
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'quickforge-git-'))
+    tempDirs.push(workspaceRoot)
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    // 假 git 子进程永不自行退出，直到 abort 触发进程树清理，保证时序确定不 flaky
+    const gitChild = fakeChild(4321)
+    const killer = fakeChild(8765)
+    const spawned = []
+    spawnControl.impl = (command) => {
+      spawned.push(command)
+      return command === 'git' ? gitChild : killer
+    }
+
+    const req = mockReq()
+    const res = mockRes()
+    const running = handleGitApi(req, res, new URL(`http://localhost${pathname}`))
+    await vi.waitFor(() => expect(spawned).toContain('git'), { timeout: 5000 })
+
+    req.emit('aborted')
+    await expect(running).resolves.toBeUndefined()
+
+    expect(res.headersSent).toBe(false)
+    expect(res.status).toBeUndefined()
+    expect(res.body).toBe('')
+    expect(req.listenerCount('aborted')).toBe(0)
+    expect(res.listenerCount('close')).toBe(0)
   })
 })
 

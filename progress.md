@@ -1,3 +1,38 @@
+## Feature：git 读接口（file-diff/branches/log）客户端断开取消传播（2026-09-09）
+
+- 背景：P2 收尾。git() 的 signal 能力与 createRequestAbortState helper 已就绪（前两个 feature），把取消传播扩展到其余 3 个 git 读接口——前端关分支菜单/图谱弹窗虽不 abort 请求，但刷新/关页/断连时服务端不再白跑（file-diff 内部还跑全量 git status）。
+- 实现：见 feature_list.json 同 id 条目（5 个底层函数加可选 signal 完整传播；3 个 handler 接 helper，file-diff 两处传播、controller 建在 path 校验后）。
+- 验证：定向 4 files / 43 tests 全过（it.each 参数化 3 新用例，status 既有用例零改动）；eslint 0 error；`node --check`；`npm run test` 全量 296 files / 2847 tests 全过；`git diff --check` 通过。
+- 边界：不动 git 写接口与前端（getGitBranches/getGitLog 无超时记后续候选）；至此 4 个 git 读接口取消语义统一。
+- 下一步：真机冒烟——4 个 feature（本日累计）待验证清单见 session-handoff；剩余候选 = 前端 branches/log 请求超时与组件卸载 abort、workspace 读接口（children/file）超时、MCP 增量重连、storage/quota 缓存。
+
+## Feature：workspace/search 切换 ripgrep 优先（保真模式 + BFS 兜底 + 超时/取消）（2026-09-09）
+
+- 背景：接口超时/慢接口调研的 P2。search 原为栈式 DFS 逐目录 realpath+readdir，无超时、不可取消（wiki 明说客户端取消不停服务端扫描）；前端文件树过滤框防抖 abort 旧请求后服务端照跑。
+- 关键发现：search 是**文件名/路径子串搜索**（返回 entries），非内容搜索——不能复用 grep 工具封装的输出层；改为 `rg --files` 只外包目录遍历，Node 侧 includes 匹配保真。
+- 实现：见 feature_list.json 同 id 条目（utils/ripgrep.mjs 抽共享；`--hidden --no-ignore` + glob 排除保真；目录条目父目录推导；60s 超时 + 200k 行护栏 + signal 取消；失败回退原 DFS；createRequestAbortState helper，handleGitStatus 迁移复用、handleWorkspaceSearch 接入取消）。
+- 验证：定向 5 files / 88 tests 全过（**现有 search 测试 21 用例零改动全绿 = 行为保真验收**）；eslint 0 error（tools 2 个 no-console 为既有）；`node --check` ×3；tests/server 全量 156 files / 1385 tests 全绿。
+- 边界（已接受的差异）：空目录条目 / 工作区内 symlink 目录在 rg 路径下不可见；超载时前 limit 条可能不同（truncated 语义一致）；mention-search 未迁移（前端零调用）。
+- 下一步（F2，同日推进）：其余 git 读接口接入 abort 传播；真机冒烟——大仓库文件树过滤搜索响应明显变快、连续输入时旧扫描被真正中止。
+
+## Feature：同步等待 LLM 的 4 个路由接口场景化 total 超时预算（2026-09-09）
+
+- 背景：接口超时/慢接口调研的 P1。4 个「HTTP 响应同步等 LLM 跑完」的接口（test-connection / ai-fill / scheduled-tasks parse / generate-commit-message）全部走默认 total 20min，极端时用户等 20 分钟；wrapper 原生支持 totalTimeoutMs 覆写但无人使用。
+- 实现：见 feature_list.json 同 id 条目（ai-provider-options.mjs +4 常量：60s/3min/2min/2min；4 个路由 options 各加一行，不改 wrapper 与 idle/firstEvent 档）。
+- 验证：定向 vitest 6 files / 57 tests 全过（新 tests/server/routes/ai-timeout-budgets.test.mjs 4 用例 + 常量契约 + 默认档回归）；eslint 7 文件 0 error；`node --check` ×5；`npm run test` 全量 295 files / 2841 tests 全过（首次 1 例 runtime-diagnostics `elapsedMs ≥5ms` 计时 flaky，单独重跑 ×2 + 全量重跑全绿）；`git diff --check` 通过。
+- 边界：不动 wrapper/idle/firstEvent 档/透明重试语义；4 接口未传 AbortSignal（客户端断开传播留后续）；SSE 零影响。
+- Notes（与 feature 无关，未处理）：① runtime-diagnostics.test.mjs 的 `elapsedMs ≥5ms` 断言在全量并发下偶发 4ms flaky，可考虑放宽阈值或改 fake timers；② 调研附带发现 session-utils.mjs（AI 标题）与 conversation-compaction.mjs 也未传 total 覆写、wrapStreamWithTimeouts 的 maxStreamRetries 不可由 options 覆写，均为后续候选。
+- 下一步：真机冒烟——配置不可达模型 Base URL 后点「测试连接」，应在 ~60s 内返回失败（此前极端 20min）。P2 候选 = workspace/search 换 ripgrep、其余 git 读接口接入 abort 传播、LLM 调用的客户端断开传播。
+
+## Feature：git status 取消传播 + ChatPanelHost 分支探测接入 light（2026-09-09）
+
+- 背景：接口超时/慢接口调研后的 P0 收尾。git-status-latency-reduction 已把 full 优化到 ~257ms、light 106ms；遗留两点：ChatPanelHost 分支探测走 full（只消费 isGitRepository/branch），以及前端 20s 超时/abort 后服务端不感知、git 子进程白跑到 2min 预算。
+- 实现：见 feature_list.json 同 id 条目（A：ChatPanelHost `{ light: true }`；B：git() 支持 options.signal + handleGitStatus AbortController 取消传播，signal 贯穿 status/numstat/detached HEAD 兜底，AbortError 静默结束）。
+- 验证：定向 vitest 5 files / 67 tests 全过（新增 4 用例：git() 三态 abort + 路由级客户端断开）；改动文件 eslint 0 error；`node --check`；`npx tsc -b`；`npm run build` 通过（仅既有警告）；`npm run test` 全量 294 files / 2836 tests 全过；`git diff --check` 通过。
+- 边界：取消传播仅覆盖 /api/git/status 链路（git() signal 能力已就绪，其他 git 接口后续接入只是几行）；collectWorkspaceLineCounts 的 fs 读取不中止；App 标题栏仍走 full。
+- Notes（与 feature 无关，未处理）：workspace.mjs 私有的 killProcessTree 可考虑复用 `server/utils/process-tree.mjs` 的 terminateProcessTree（SIGTERM 宽限 + taskkill 超时），本次未扩大范围。
+- 下一步：真机冒烟——刷新页面观察分支徽标更快出现（走 light）；客户端断开 status 请求后服务端不再有后续 git 进程耗时。后续候选（P1）：同步等 LLM 的 4 个接口（test-connection/ai-fill/parse/generate-commit-message）传 totalTimeoutMs 场景化预算、workspace/search 换 ripgrep、其余 git 读接口补 abort 传播。
+
 ## Feature：产物卡「审查」打开卡死修复——file-diff 20s 超时 + 终态 diff tab 重拉（2026-09-09）
 
 - 现象：用户报告点击生成产物卡的「审查」，若审查内容已被删除，会一直显示「打开中」，并导致其他请求卡住。

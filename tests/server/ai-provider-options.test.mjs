@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AI_AGENT_PROFILE_FILL_TOTAL_TIMEOUT_MS,
+  AI_GIT_COMMIT_MESSAGE_TOTAL_TIMEOUT_MS,
+  AI_SCHEDULED_TASK_PARSE_TOTAL_TIMEOUT_MS,
+  AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS,
   DEFAULT_AI_HTTP_TIMEOUT_MS,
   DEFAULT_AI_MAX_RETRIES,
   DEFAULT_AI_STREAM_DEADLINE_MS,
@@ -25,6 +29,13 @@ describe('AI provider options', () => {
     expect(DEFAULT_AI_STREAM_FIRST_EVENT_TIMEOUT_MS).toBe(90 * 1000)
     expect(DEFAULT_AI_STREAM_TOTAL_TIMEOUT_MS).toBe(20 * 60 * 1000)
     expect(DEFAULT_AI_STREAM_DEADLINE_MS).toBe(DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS)
+  })
+
+  it('defines scenario total budgets for routes that synchronously wait for the LLM', () => {
+    expect(AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS).toBe(60_000)
+    expect(AI_AGENT_PROFILE_FILL_TOTAL_TIMEOUT_MS).toBe(3 * 60_000)
+    expect(AI_SCHEDULED_TASK_PARSE_TOTAL_TIMEOUT_MS).toBe(2 * 60_000)
+    expect(AI_GIT_COMMIT_MESSAGE_TOTAL_TIMEOUT_MS).toBe(2 * 60_000)
   })
 
   it('preserves explicit retry and timeout values', () => {

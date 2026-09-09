@@ -1,5 +1,5 @@
 import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
-import { DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
+import { AI_AGENT_PROFILE_FILL_TOTAL_TIMEOUT_MS, DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
@@ -149,6 +149,7 @@ Rules:
         reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
         maxRetries: DEFAULT_AI_MAX_RETRIES,
         maxRetryDelayMs: 60000,
+        totalTimeoutMs: AI_AGENT_PROFILE_FILL_TOTAL_TIMEOUT_MS,
       },
     )
     const message = await stream.result()

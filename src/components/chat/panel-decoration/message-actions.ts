@@ -162,10 +162,12 @@ export type MessageDecorationDeps = {
   turnErrorTracker?: TurnErrorTracker
   onOpenLocalFilePath?: (path: string) => void
   onOpenFilePreview?: (relativePath: string) => void
-  /** 会话文件撤销（artifact 卡片头部按钮）；readOnly 场景由调用方不传以隐藏。 */
-  onRollbackFiles?: () => Promise<void> | void
-  /** 当前会话文件改动是否已撤销（撤销后按钮置灰为「已撤销」）。 */
-  fileChangesRolledBack?: boolean
+  /** 轮级文件撤销（artifact 卡片头部按钮，传该轮全部 turnId）；readOnly 场景由调用方不传以隐藏。 */
+  onRollbackTurn?: (turnIds: string[]) => void
+  /** 已撤销的轮（轮键 = turnIds join('|') 集合，撤销后对应轮按钮置灰为「已撤销」）。 */
+  rolledBackTurns?: ReadonlySet<string>
+  /** 产物卡提取源（含 toolResult 全量消息）；缺省回退 getMessages()——窗口化时调用方应传全量。 */
+  getArtifactMessages?: () => MessageWithUsage[]
   /** 审查单文件改动：打开工作区 Review 面板并直达该文件的 diff。 */
   onReviewFileChanges?: (relativePath: string) => void
   /** 在系统文件管理器中显示文件所在目录。 */
@@ -362,8 +364,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     turnErrorTracker,
     onOpenLocalFilePath,
     onOpenFilePreview,
-    onRollbackFiles,
-    fileChangesRolledBack,
+    onRollbackTurn,
+    rolledBackTurns,
+    getArtifactMessages,
     onReviewFileChanges,
     onRevealFile,
     disableFork,
@@ -604,11 +607,12 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     panel,
     displayEntries,
     messageElements: getPrimaryMessageElements(panel),
-    messages: getMessages(),
+    // 产物提取需要全量消息（窗口化时 getMessages 只返回可见窗口）。
+    messages: getArtifactMessages?.() ?? getMessages(),
     streaming,
     onOpenFilePreview,
-    onRollbackFiles,
-    fileChangesRolledBack,
+    onRollbackTurn,
+    rolledBackTurns,
     onReviewFileChanges,
     onRevealFile,
   })

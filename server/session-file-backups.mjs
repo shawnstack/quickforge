@@ -139,6 +139,41 @@ async function readBackupContent(sessionId, entry) {
   return bytes.toString('utf8')
 }
 
+// Per-turn rollback needs a snapshot of every write, not just the session's
+// first before. Each version owns an independent blob; the entry-level
+// beforeHash/backupName stay anchored to the first version so the legacy
+// whole-session and single-file rollback paths are unchanged.
+function implicitEntryVersion(entry) {
+  return {
+    turnId: null,
+    toolCallId: null,
+    created: Boolean(entry.created),
+    beforeHash: entry.created || typeof entry.beforeHash !== 'string' ? null : entry.beforeHash,
+    blobName: entry.created || typeof entry.backupName !== 'string' ? null : entry.backupName,
+    beforeBytes: null,
+    afterBytes: null,
+    afterHash: typeof entry.afterHash === 'string' ? entry.afterHash : null,
+    timestamp: entry.backupAt || null,
+  }
+}
+function appendWriteVersion(entry, oldContent, meta) {
+  const existed = oldContent != null
+  const version = {
+    turnId: typeof meta.turnId === 'string' && meta.turnId ? meta.turnId : null,
+    toolCallId: typeof meta.toolCallId === 'string' && meta.toolCallId ? meta.toolCallId : null,
+    created: !existed,
+    beforeHash: existed ? hash(String(oldContent)) : null,
+    // The first version of a fresh entry shares the entry-level blob.
+    blobName: existed ? (entry.versions.length === 0 && entry.backupName) || `${randomUUID()}.txt` : null,
+    beforeBytes: existed ? Buffer.byteLength(String(oldContent), 'utf8') : 0,
+    afterBytes: typeof meta.afterContent === 'string' ? Buffer.byteLength(meta.afterContent, 'utf8') : null,
+    afterHash: null,
+    timestamp: new Date().toISOString(),
+  }
+  entry.versions.push(version)
+  return version
+}
+
 /** Internal journal primitives: caller MUST hold withSessionFileLock across the
  * before read, these calls, and the actual write. Missing after stays unsafe.
  * afterHash describes the prepared write, never arbitrary subsequent disk data.
@@ -158,7 +193,6 @@ export async function backupFileBeforeWrite(sessionId, absolutePath, oldContent,
     index.entries = index.entries.filter((candidate) => candidate !== entry)
     entry = undefined
   }
-  const isNew = !entry
   const workspaceRoot = meta.workspaceRoot ? path.resolve(meta.workspaceRoot) : null
   const workspaceReal = workspaceRoot ? await fs.realpath(workspaceRoot) : null
   const metadata = {
@@ -171,6 +205,10 @@ export async function backupFileBeforeWrite(sessionId, absolutePath, oldContent,
     else if (!entry.afterHash || !entry.workspaceRoot) entry.unsafeReason ||= 'legacy_backup'
     else if (oldContent == null || hash(String(oldContent)) !== entry.afterHash) entry.unsafeReason ||= 'external_modified'
     if (entry.workspaceReal !== workspaceReal || !entry.realPath || !metadata.realPath || pathKey(entry.realPath) !== pathKey(metadata.realPath)) entry.unsafeReason ||= 'unsafe_path'
+    // Entries written before version chains exist keep working: their
+    // entry-level snapshot becomes an implicit version with a null turnId,
+    // so legacy writes stay invisible to per-turn lookups.
+    if (!Array.isArray(entry.versions)) entry.versions = [implicitEntryVersion(entry)]
   } else {
     entry = {
       path: absolutePath, relativePath: meta.relativePath || absolutePath,
@@ -180,8 +218,10 @@ export async function backupFileBeforeWrite(sessionId, absolutePath, oldContent,
       entry.beforeHash = hash(String(oldContent))
       entry.backupName = `${randomUUID()}.txt`
     }
+    entry.versions = []
     index.entries.push(entry)
   }
+  const version = appendWriteVersion(entry, oldContent, meta)
   // Entry-local generation prevents ABA (including same-content tool writes),
   // without invalidating confirmations for unrelated entries.
   entry.generation = randomUUID()
@@ -192,8 +232,8 @@ export async function backupFileBeforeWrite(sessionId, absolutePath, oldContent,
   // writeIndex owns mkdir and its failure guard; never create the blob first.
   try {
     await writeIndex(sessionId, index)
-    if (isNew && !entry.created) {
-      await fs.writeFile(path.join(sessionDir(sessionId), entry.backupName), String(oldContent), { encoding: 'utf8', flag: 'wx' })
+    if (version.blobName) {
+      await fs.writeFile(path.join(sessionDir(sessionId), version.blobName), String(oldContent), { encoding: 'utf8', flag: 'wx' })
     }
   } catch (error) {
     unavailableSessions.add(sessionId)
@@ -207,6 +247,12 @@ export async function recordFileAfterWrite(sessionId, absolutePath) {
   if (!entry?.pending || !entry.intendedHash) throw new Error('incomplete_write')
   entry.afterHash = entry.intendedHash
   entry.pending = false
+  // The in-flight write is always the newest version (writes are serialized
+  // under the session file lock); legacy entries without a chain keep the
+  // entry-level-only behavior.
+  const versions = Array.isArray(entry.versions) ? entry.versions : null
+  const lastVersion = versions ? versions[versions.length - 1] : null
+  if (lastVersion) lastVersion.afterHash = entry.afterHash
   delete entry.intendedHash
   await writeIndex(sessionId, index)
 }
@@ -382,5 +428,218 @@ async function rollbackSelection(sessionId, options, single) {
     result.errors.push({ path: activePath, message: error?.message || String(error) })
   }
   result.preview = (await inspectBatch(sessionId, options)).preview
+  return result
+}
+
+// ---------------------------------------------------------------------------
+// Per-turn rollback (versioned entries)
+// ---------------------------------------------------------------------------
+
+async function readVersionBackupContent(sessionId, version) {
+  if (!/^[a-f0-9-]+\.txt$/.test(version.blobName || '') || typeof version.beforeHash !== 'string') throw new Error('backup_unavailable')
+  const file = path.join(sessionDir(sessionId), version.blobName)
+  const stat = await fs.lstat(file)
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error('backup_unavailable')
+  const bytes = await fs.readFile(file)
+  if (!isText(bytes) || hash(bytes) !== version.beforeHash) throw new Error('backup_unavailable')
+  return bytes.toString('utf8')
+}
+
+/** Per-turn view of one entry: whether the file can still be returned to its
+ * state at the start of the turn group (a user-message turn = the set of turn
+ * ids from its original run and any retries). Safety is fail-closed: later
+ * writes after the group's first matching version (any attribution),
+ * unverifiable disk state vs the group's last after, or incomplete/legacy
+ * version records all mark the file unsafe. `turnIds` is a Set of turn ids. */
+async function inspectTurnEntry(sessionId, entry, turnIds) {
+  const versions = Array.isArray(entry.versions) ? entry.versions : []
+  const matches = []
+  versions.forEach((version, index) => {
+    if (version && turnIds.has(version.turnId)) matches.push(index)
+  })
+  if (!matches.length) return null
+  const file = {
+    path: entry.path, relativePath: entry.relativePath || entry.path,
+    safe: false, reason: null, action: 'restore', created: false, beforeBytes: null, afterBytes: null,
+  }
+  const result = { file }
+  const first = versions[matches[0]]
+  const lastOfTurn = versions[matches[matches.length - 1]]
+  file.created = Boolean(first.created)
+  file.action = file.created ? 'delete' : 'restore'
+  file.beforeBytes = file.created ? 0 : (Number.isFinite(first.beforeBytes) ? first.beforeBytes : null)
+  file.afterBytes = Number.isFinite(lastOfTurn.afterBytes) ? lastOfTurn.afterBytes : null
+  // Any write after the group's first matching version that belongs to a run
+  // outside the group (a later turn, or an unattributed write) moved the file
+  // on; restoring here would silently undo work outside this turn.
+  if (versions.some((version, index) => index > matches[0] && version && !turnIds.has(version.turnId))) {
+    file.reason = 'modified-after-turn'
+    return result
+  }
+  const last = versions[versions.length - 1]
+  if (!last || typeof last.afterHash !== 'string' || !last.afterHash) {
+    file.reason = 'stale-backup'
+    return result
+  }
+  try {
+    await validatePath(entry)
+  } catch {
+    file.reason = 'stale-backup'
+    return result
+  }
+  if (!file.created) {
+    try {
+      result.backup = await readVersionBackupContent(sessionId, first)
+    } catch {
+      file.reason = 'stale-backup'
+      return result
+    }
+  }
+  try {
+    result.current = await readCurrent(entry)
+  } catch {
+    // Includes externally deleted targets: the disk state can no longer be
+    // proven to match the turn's last write.
+    file.reason = 'external-change'
+    return result
+  }
+  if (result.current.hash !== last.afterHash) {
+    file.reason = 'external-change'
+    return result
+  }
+  file.safe = true
+  return result
+}
+
+async function inspectTurnFile(sessionId, entry, turnIds) {
+  const inspected = await inspectTurnEntry(sessionId, entry, turnIds)
+  if (!inspected) return null
+  inspected.file.revision = hash(JSON.stringify({ entry, file: inspected.file, backup: inspected.backup ?? null, current: inspected.current ?? null }))
+  inspected.entry = entry
+  return inspected
+}
+
+/** A turn group is addressed by its turn ids (original run + retries).
+ * Returns the deduplicated id list, or null when the input is not an array
+ * (fail-closed). An empty list is valid: it simply matches no versions. */
+function normalizeTurnIds(turnIds) {
+  if (!Array.isArray(turnIds)) return null
+  return [...new Set(turnIds.filter((id) => typeof id === 'string' && id))]
+}
+
+async function inspectTurnBatch(sessionId, turnIds, options = {}) {
+  const normalized = normalizeTurnIds(turnIds)
+  if (!sessionId || !normalized) {
+    return { index: null, inspected: [], preview: { revision: hash('unavailable'), turnIds: [], canRollback: false, files: [], reason: 'unavailable' } }
+  }
+  const turnIdSet = new Set(normalized)
+  let index
+  try { index = await readIndex(sessionId) } catch {
+    return { index: null, inspected: [], preview: { revision: hash('unavailable'), turnIds: normalized, canRollback: false, files: [], reason: 'backup_unavailable' } }
+  }
+  const inspected = []
+  for (const entry of remainingEntries(index)) {
+    const item = await inspectTurnFile(sessionId, entry, turnIdSet)
+    if (item) inspected.push(item)
+  }
+  const files = inspected.map(({ file }) => file)
+  const revision = hash(JSON.stringify({ turnIds: normalized, index, states: inspected.map(({ file, current }) => ({ file, current })) }))
+  let reason
+  if (options.isSessionBusy?.()) reason = 'session_busy'
+  else if (unavailableSessions.has(sessionId)) reason = 'backup_unavailable'
+  else if (index.rollbackStarted) reason = 'incomplete_write'
+  // Unlike the whole-batch preview an empty file list is a valid answer here:
+  // the turn group simply recorded no journaled writes (frontend prompts
+  // instead).
+  const preview = { revision, turnIds: normalized, canRollback: !reason, files, ...(reason ? { reason } : {}) }
+  return { index, inspected, preview }
+}
+
+export async function getSessionTurnRollbackPreview(sessionId, options = {}) {
+  return withSessionFileLock(async () => (await inspectTurnBatch(sessionId, options?.turnIds, options)).preview)
+}
+export async function rollbackSessionTurn(sessionId, options = {}) {
+  return withSessionFileLock(() => rollbackTurnSelection(sessionId, options))
+}
+
+// Turn selection rolls back only the safe subset; unsafe files are reported
+// as per-file conflicts instead of blocking the entire request.
+function selectTurnRollback(batch) {
+  const safe = batch.inspected.filter(({ file }) => file.safe)
+  const conflicts = batch.inspected
+    .filter(({ file }) => !file.safe)
+    .map(({ file }) => ({ path: file.path, reason: file.reason }))
+  return { allowed: !batch.preview.reason, revision: batch.preview.revision, safe, conflicts }
+}
+
+async function rollbackTurnSelection(sessionId, options = {}) {
+  const turnIds = normalizeTurnIds(options.turnIds)
+  const turnIdSet = new Set(turnIds || [])
+  const batch = await inspectTurnBatch(sessionId, turnIds, options)
+  let preview = batch.preview
+  const result = { status: 'blocked', rolledBack: [], conflicts: [], errors: [] }
+  const selection = selectTurnRollback(batch)
+  if (typeof options.revision !== 'string' || !options.revision || options.revision !== selection.revision) {
+    preview = { ...preview, canRollback: false, reason: preview.reason === 'session_busy' ? 'session_busy' : 'batch_changed' }
+    return { ...result, preview }
+  }
+  if (!selection.allowed) return { ...result, conflicts: selection.conflicts, preview }
+  // Same double-preflight and journal discipline as the batch rollback: stop
+  // on the first error, never compensate, keep completed-item states.
+  const checked = await inspectTurnBatch(sessionId, turnIds, options)
+  const confirmed = selectTurnRollback(checked)
+  if (!confirmed.allowed || confirmed.revision !== selection.revision) {
+    return { ...result, conflicts: confirmed.conflicts, preview: { ...checked.preview, canRollback: false, reason: checked.preview.reason || 'batch_changed' } }
+  }
+  const index = checked.index
+  let activePath = ''
+  const intentPath = path.join(sessionDir(sessionId), 'rollback-intent')
+  let intentPersisted = false
+  try {
+    index.rollbackStarted = true
+    await fs.writeFile(intentPath, 'pending', { encoding: 'utf8', flag: 'wx' })
+    intentPersisted = true
+    await writeIndex(sessionId, index)
+    for (let i = 0; i < confirmed.safe.length; i++) {
+      const expected = confirmed.safe[i]
+      const entry = expected.entry
+      activePath = expected.file.relativePath || expected.file.path
+      if (options.isSessionBusy?.()) throw new Error('session_busy')
+      const fresh = await inspectTurnFile(sessionId, entry, turnIdSet)
+      if (!fresh?.file.safe || fresh.file.revision !== expected.file.revision) throw new Error(fresh?.file.reason || 'batch_changed')
+      entry.rollbackState = 'pending'
+      await writeIndex(sessionId, index)
+      // Narrow the journal-I/O race window too; no automatic retry after failure.
+      const current = await readCurrent(entry)
+      if (JSON.stringify(current) !== JSON.stringify(fresh.current)) throw new Error('external_modified')
+      if (options.isSessionBusy?.()) throw new Error('session_busy')
+      if (expected.file.action === 'delete') {
+        await fs.unlink(entry.path)
+      } else {
+        await fs.writeFile(entry.path, fresh.backup, 'utf8')
+      }
+      entry.rollbackState = 'completed'
+      await writeIndex(sessionId, index)
+      result.rolledBack.push({ path: expected.file.path, action: expected.file.action })
+    }
+    // Keep blobs until TTL; the separate intent stays authoritative until the
+    // final cleanup commit also succeeds.
+    index.completed = index.entries.every((entry) => entry.rollbackState === 'completed')
+    delete index.rollbackStarted
+    await writeIndex(sessionId, index)
+    await fs.unlink(intentPath)
+    result.conflicts = confirmed.conflicts
+    result.status = confirmed.conflicts.length ? 'partial' : 'completed'
+  } catch (error) {
+    unavailableSessions.add(sessionId)
+    if (!intentPersisted) {
+      index.rollbackStarted = true
+      await writeIndex(sessionId, index).catch(() => {})
+    }
+    result.status = 'failed'
+    result.conflicts = confirmed.conflicts
+    result.errors.push({ path: activePath, message: error?.message || String(error) })
+  }
+  result.preview = (await inspectTurnBatch(sessionId, turnIds, options)).preview
   return result
 }

@@ -484,8 +484,11 @@ async function writeFileLocked(params, context, runtime) {
   })
 
   // Journal persistence is mandatory: failure blocks this tool write.
+  // turnId groups this write under the current runPrompt turn for per-turn
+  // rollback; unattributed writes (no active run) stay invisible to turn lookups.
   await backupFileBeforeWrite(context?.sessionId, file, existed ? oldText : null, {
     relativePath, workspaceRoot: getToolWorkspaceRoot(context), afterContent: content,
+    turnId: context?.turnId ?? null, toolCallId: runtime?.toolCallId ?? null,
   })
 
   await fs.mkdir(path.dirname(file), { recursive: true })
@@ -494,7 +497,7 @@ async function writeFileLocked(params, context, runtime) {
 
   return {
     content: `${existed ? 'Wrote' : 'Created'} ${relativePath} (+${diff.addedLines} -${diff.removedLines})`,
-    details: { path: relativePath, project: context?.project, bytes: Buffer.byteLength(content, 'utf8'), created: !existed, diff },
+    details: { path: relativePath, project: context?.project, bytes: Buffer.byteLength(content, 'utf8'), created: !existed, diff, turnId: context?.turnId ?? null },
   }
 }
 
@@ -559,6 +562,7 @@ async function editFileLocked(params, context, runtime) {
 
   await backupFileBeforeWrite(context?.sessionId, file, text, {
     relativePath, workspaceRoot: getToolWorkspaceRoot(context), afterContent: nextText,
+    turnId: context?.turnId ?? null, toolCallId: runtime?.toolCallId ?? null,
   })
 
   await fs.writeFile(file, nextText, 'utf8')
@@ -566,7 +570,7 @@ async function editFileLocked(params, context, runtime) {
 
   return {
     content: `Edited ${relativePath} (+${diff.addedLines} -${diff.removedLines})`,
-    details: { path: relativePath, project: context?.project, replaced: count, diff },
+    details: { path: relativePath, project: context?.project, replaced: count, diff, turnId: context?.turnId ?? null },
   }
 }
 

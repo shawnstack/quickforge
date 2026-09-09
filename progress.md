@@ -1,3 +1,14 @@
+## Feature：new-chat-time-based-greeting 新对话欢迎语按时段随机（2026-09-09，done）
+
+- 需求：用户希望新对话空状态标题「今天想推进什么？」按时间点变化；首版草案被用户指出「推进」重复 12 次太单调，已重写为动词轮换（做/开始/搞定/收尾/安排/动手/忙/处理），"推进"归零。
+- 方案（用户确认）：4 时段 morning 06:00–11:59 / afternoon 12:00–17:59 / evening 18:00–22:59 / lateNight 23:00–05:59（本地时间）+ 问候保留行动号召 + 每段 3 条随机；方案 A = 纯函数 + i18n key，不做用户可配置文案、不新增依赖。
+- 实现：新增 `src/lib/new-chat-greeting.ts`（`getNewChatGreetingSlot` 越界/NaN 归一化、`getNewChatGreetingKeys`、`pickNewChatGreetingKey(date, random)` 随机可注入、`NEW_CHAT_GREETING_FALLBACK_KEY` = 既有 `newChatEmptyTitle`）；`src/lib/i18n.ts` 中英各新增 12 条 `newChatGreeting*`；`src/App.tsx` 在 `showNewChatEmptyState` 后以 `useMemo([showNewChatEmptyState])` 锁定随机结果（防重渲染抖动），替换第 2377 行渲染；新增 `tests/frontend/new-chat-greeting.test.ts`（20 用例）；`docs/wiki/src/lib/README.md` 模块表补一行。无需 SVG：纯文案选择逻辑，无新视觉结构。
+- 验证（父 Agent 已核实）：定向 `npx vitest run tests/frontend/new-chat-greeting.test.ts` 20 tests + 关联回归 task-launcher 18 / i18n-language-snapshot 2 全过；`npm run test` 全量 304 files / 3107 tests passed；`npx eslint` 4 个改动文件 0 error；`npm run build` 成功（仅既有 KaTeX 字体解析与大 chunk 警告，dist 按既有流程刷新）。
+- 边界：仅空状态 Hero 标题文案来源；不改 Hero/项目选择器/快捷任务结构；无设置项、无持久化 schema 变更、无新依赖；i18n 既有 key 全保留（`newChatEmptyTitle` 作兜底）；跨时段不自动刷新（进入新对话时重算一次）。未 commit。
+- 下一步：浏览器冒烟——四时段文案区间正确、同一空状态内重渲染不抖动、新建/刷新后随机变化、英文语言下文案正确。
+
+---
+
 ## Feature：chat-task-launcher 模板插件替换与办公产物 Prompt（done，待父 Agent 审查）
 
 - 用户批准小修：模板只撤回上次自动选择的插件，保留手动已有/后来重选；办公切开发撤回、周报与 Word 共用 documents 不重复。controller 内存完整 key 所有权，遵守四项上限；chip 取消、consume、restore 清理来源，不增加持久化 schema。冲突等待/keep/过期操作不改选择，恢复正文前同步最终 controller 快照。

@@ -33,6 +33,7 @@ import {
   initializePiStorage,
 } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
+import { pickNewChatGreetingKey } from '@/lib/new-chat-greeting'
 import { cn } from '@/lib/utils'
 import {
   OPEN_SUBAGENT_RUN_EVENT,
@@ -1602,6 +1603,12 @@ function MainApp() {
     && !agentManager.agent?.state.isStreaming
     && (agentManager.agent?.state.messages.length ?? 0) === 0
 
+  // 随机只在进入新对话空状态时锁定一次，避免重渲染导致文案抖动。
+  const newChatGreeting = useMemo(
+    () => (showNewChatEmptyState ? t(pickNewChatGreetingKey()) : ''),
+    [showNewChatEmptyState],
+  )
+
   // 清除标记只在离开当前新对话空状态后复位，显式 global 新建在本次空状态内保持生效。
   useEffect(() => {
     if (!showNewChatEmptyState && wasNewChatEmptyStateRef.current) {
@@ -2362,7 +2369,7 @@ function MainApp() {
                 )}>
                   {showNewChatEmptyState ? (
                     <div className="quickforge-empty-chat-hero" aria-hidden="true">
-                      <h1 className="quickforge-empty-chat-title">{t('newChatEmptyTitle')}</h1>
+                      <h1 className="quickforge-empty-chat-title">{newChatGreeting}</h1>
                     </div>
                   ) : null}
                   <ErrorBoundary>

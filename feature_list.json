@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "new-chat-time-based-greeting",
+      "name": "新对话欢迎语按时段随机",
+      "status": "done",
+      "approach": "用户希望新对话空状态标题「今天想推进什么？」随打开时间变化，并反馈原草案「推进」用词重复单调。经确认采用：4 时段（morning 06:00-11:59 / afternoon 12:00-17:59 / evening 18:00-22:59 / lateNight 23:00-05:59，浏览器本地时间）+ 问候并保留行动号召 + 每段 3 条随机；方案 A = 纯函数 + i18n key，不做用户可配置文案、不引入新依赖。实现：新增 src/lib/new-chat-greeting.ts（getNewChatGreetingSlot 带越界/NaN 归一化、getNewChatGreetingKeys、pickNewChatGreetingKey(date, random) 随机可注入便于单测、NEW_CHAT_GREETING_FALLBACK_KEY 指向既有 newChatEmptyTitle 兜底）；src/lib/i18n.ts 中英各新增 12 条 newChatGreetingMorning/Afternoon/Evening/LateNight1/2/3 文案（保留 newChatEmptyTitle）；src/App.tsx 在 showNewChatEmptyState 定义后以 useMemo 依赖 [showNewChatEmptyState] 锁定随机结果，避免 React 重渲染导致文案抖动。",
+      "files": [
+        "src/lib/new-chat-greeting.ts",
+        "src/lib/i18n.ts",
+        "src/App.tsx",
+        "tests/frontend/new-chat-greeting.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "父 Agent 已核实：npx vitest run tests/frontend/new-chat-greeting.test.ts（20 tests）+ 关联回归 task-launcher（18）/ i18n-language-snapshot（2）全过；npm run test 全量 304 files / 3107 tests passed；npx eslint src/lib/new-chat-greeting.ts src/App.tsx src/lib/i18n.ts tests/frontend/new-chat-greeting.test.ts 0 error；npm run build 成功（仅既有 KaTeX 字体解析与大 chunk 警告，dist 已按既有流程刷新）。未浏览器实测。",
+      "boundaries": "仅新对话空状态 Hero 标题文案来源；不改 Hero/项目选择器/快捷任务等空状态结构，无设置项、无持久化 schema 变更、未新增依赖，i18n 既有 key 全保留（newChatEmptyTitle 作兜底）。时段按浏览器本地时间，进入新对话空状态时随机锁定一次，跨时段不自动刷新（影响极小：每次新建对话都会重算）。未 commit/tag/push。"
+    },
+    {
       "id": "chat-task-launcher",
       "name": "主聊天开发/办公八个快捷任务入口",
       "status": "done",

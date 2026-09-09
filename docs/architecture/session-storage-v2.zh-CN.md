@@ -25,7 +25,7 @@ migration v11 把旧会话域 6 张表 `RENAME` 保留为回滚安全网（见 �
 
 | 表 | 作用 | 关键结构 |
 |---|---|---|
-| `sessions` | 每会话一行的小行权威表 | 主键 `(scope, project_id, session_id)`；提升列 `title`/`created_at`/`updated_at`/`message_count`/`state_version`/`harness`/`task_status`/`archived_at`/`pinned_at`/`revision`/`updated_at_ms`；正文 `body_json`/`meta_json`（两个小 JSON 对象，`json_valid` CHECK） |
+| `sessions` | 每会话一行的小行权威表 | 主键 `(scope, project_id, session_id)`；提升列 `title`/`created_at`/`updated_at`/`message_count`/`state_version`/`task_status`/`archived_at`/`pinned_at`/`revision`/`updated_at_ms`；正文 `body_json`/`meta_json`（两个小 JSON 对象，`json_valid` CHECK） |
 | `session_messages` | 消息逐行存储（append-only） | 主键 `(scope, project_id, session_id, seq)`；`UNIQUE(…, message_id)` 天然幂等去重；`message_json` + `message_digest`（sha256，CHECK 64 位 hex）；`FOREIGN KEY … REFERENCES sessions ON DELETE CASCADE` |
 | `session_tombstones` | 删除墓碑（防 stale writer 复活） | `WITHOUT ROWID`，仅 `(scope, project_id, session_id, deleted_at)` 四列，极小 |
 

@@ -1,5 +1,5 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import { extractSessionArtifacts, type AiTurnArtifact, type AiTurnArtifactKind } from '@/lib/tool-artifacts'
+import { extractTurnArtifacts, turnRollbackKey, type AiTurnArtifact, type AiTurnArtifactKind } from '@/lib/tool-artifacts'
 import { t } from '@/lib/i18n'
 import { fileIconUrl } from '../../workspace/file-icon-assets'
 import type { WorkspaceExternalOpenTarget } from '../../workspace/workspace-api'
@@ -52,14 +52,25 @@ type ArtifactCardDeps = {
   messages: MessageWithUsage[]
   streaming: boolean
   onOpenFilePreview?: (relativePath: string) => void
-  /** 会话文件撤销：恢复本会话修改的文件并删除会话新建文件（服务端影子备份）。 */
-  onRollbackFiles?: () => Promise<void> | void
-  /** 已撤销后按钮置灰为「已撤销」；新一轮文件写入由调用方重新武装。 */
-  fileChangesRolledBack?: boolean
+  /** 轮级撤销：按该轮全部 turnId（原 run + 重试 run）回滚新增/修改的文件（readOnly 面板不传 → 不渲染撤销按钮）。 */
+  onRollbackTurn?: (turnIds: string[]) => void
+  /** 已撤销轮（轮键 = turnIds join('|') 集合）：对应轮卡片按钮置灰为「已撤销」。 */
+  rolledBackTurns?: ReadonlySet<string>
   /** 审查单文件改动：打开工作区 Review 面板并直达该文件的 diff。 */
   onReviewFileChanges?: (relativePath: string) => void
   /** 用系统应用打开/定位文件：资源管理器定位（explorer，默认）或 VS Code / IDEA 打开。 */
   onRevealFile?: (relativePath: string, target?: WorkspaceExternalOpenTarget) => void
+}
+
+/** 单张 changed 聚合卡的轮级撤销上下文；null（无 turnId / 无入口）不渲染按钮。 */
+type TurnRollbackControl = {
+  turnIds: string[]
+  rolledBack: boolean
+} | null
+
+/** 轮首口径与 process-folding 一致：user 与 user-with-attachments 都算轮首。 */
+function isUserTurnBoundary(message: { role?: string }) {
+  return message.role === 'user' || message.role === 'user-with-attachments'
 }
 
 function fileName(path: string) {
@@ -380,9 +391,9 @@ function createPresentedFileCard(artifact: AiTurnArtifact, deps: ArtifactCardDep
 function createChangedFilesCard(
   artifacts: AiTurnArtifact[],
   deps: ArtifactCardDeps,
-  options: { expandedByDefault: boolean; onExpandedChange?: (expanded: boolean) => void },
+  options: { expandedByDefault: boolean; onExpandedChange?: (expanded: boolean) => void; rollback: TurnRollbackControl },
 ) {
-  const { expandedByDefault, onExpandedChange } = options
+  const { expandedByDefault, onExpandedChange, rollback } = options
   const card = document.createElement('section')
   card.className = ASSISTANT_ARTIFACT_CARD_CLASS
   card.dataset.quickforgeArtifactCard = 'changed'
@@ -423,25 +434,29 @@ function createChangedFilesCard(
   }
 
   header.append(chevron, heading, headerStats)
-  if (deps.onRollbackFiles) {
+  // 轮级撤销按钮：该轮有 turnId（服务端轮回滚支持，含同轮重试 run 的全部
+  // turnId）且面板提供入口才渲染；无 turnId（如旧会话产物）不渲染；
+  // 已撤销置灰为「已撤销」。
+  if (rollback && deps.onRollbackTurn) {
+    const { turnIds, rolledBack } = rollback
     const action = document.createElement('span')
     action.className = 'quickforge-rollback-action'
-    const rollback = document.createElement('button')
-    rollback.type = 'button'
-    rollback.className = 'quickforge-assistant-artifact-card-rollback'
-    rollback.dataset.quickforgeAction = 'rollback'
-    rollback.textContent = deps.fileChangesRolledBack ? t('assistantArtifactRollbackDone') : t('assistantArtifactRollback')
-    rollback.title = rollback.textContent
-    rollback.setAttribute('aria-label', rollback.textContent)
-    rollback.setAttribute('aria-haspopup', 'dialog')
-    rollback.disabled = Boolean(deps.fileChangesRolledBack)
+    const rollbackButton = document.createElement('button')
+    rollbackButton.type = 'button'
+    rollbackButton.className = 'quickforge-assistant-artifact-card-rollback'
+    rollbackButton.dataset.quickforgeAction = 'rollback'
+    rollbackButton.textContent = rolledBack ? t('assistantArtifactRollbackDone') : t('assistantArtifactRollbackTurn')
+    rollbackButton.title = rollbackButton.textContent
+    rollbackButton.setAttribute('aria-label', rollbackButton.textContent)
+    rollbackButton.setAttribute('aria-haspopup', 'dialog')
+    rollbackButton.disabled = rolledBack
     // Keep the parent card's Enter/Space expansion handler from consuming button activation.
-    rollback.addEventListener('keydown', (event) => event.stopPropagation())
-    rollback.addEventListener('click', (event) => {
+    rollbackButton.addEventListener('keydown', (event) => event.stopPropagation())
+    rollbackButton.addEventListener('click', (event) => {
       event.stopPropagation()
-      void deps.onRollbackFiles?.()
+      deps.onRollbackTurn?.(turnIds)
     })
-    action.append(rollback)
+    action.append(rollbackButton)
     header.append(action)
   }
 
@@ -522,7 +537,11 @@ type CardPlan = {
   element: HTMLElement
 }
 
-function buildCardPlans(artifacts: AiTurnArtifact[], deps: ArtifactCardDeps, changedExpanded: boolean, onExpandedChange?: (expanded: boolean) => void): CardPlan[] {
+function buildCardPlans(
+  artifacts: AiTurnArtifact[],
+  deps: ArtifactCardDeps,
+  options: { changedExpanded: boolean; onExpandedChange?: (expanded: boolean) => void; rollback: TurnRollbackControl },
+): CardPlan[] {
   const plans: CardPlan[] = []
   const presented = dedupePresentedArtifacts(artifacts.filter((artifact) => artifact.source === 'present_files'))
   const changed = mergeChangedArtifactsByPath(artifacts.filter((artifact) => artifact.source !== 'present_files'))
@@ -534,91 +553,146 @@ function buildCardPlans(artifacts: AiTurnArtifact[], deps: ArtifactCardDeps, cha
   })
   if (changed.length > 0) {
     const total = diffTotal(changed)
+    // 撤销态进签名：rolledBackTurns 变化 → 签名变化 → 该轮卡重建为「已撤销」
+    // 禁用态；turnIds 一并进签名——重试在同轮追加新 turnId 时重建卡片，按钮
+    // 闭包才能拿到完整的 turnId 集合。
+    const rollback = options.rollback && deps.onRollbackTurn ? options.rollback : null
     plans.push({
-      signature: `changed:${changed.map((artifact) => `${artifact.source}:${artifact.path}:${artifact.kind}:${artifact.addedLines ?? ''}:${artifact.removedLines ?? ''}:${artifact.preview ? 1 : 0}`).join('|')}:${total.added}:${total.removed}:${deps.onRollbackFiles ? 1 : 0}:${deps.fileChangesRolledBack ? 1 : 0}:${deps.onReviewFileChanges ? 1 : 0}:${deps.onRevealFile ? 1 : 0}`,
-      element: createChangedFilesCard(changed, deps, { expandedByDefault: changedExpanded, onExpandedChange }),
+      signature: `changed:${changed.map((artifact) => `${artifact.source}:${artifact.path}:${artifact.kind}:${artifact.addedLines ?? ''}:${artifact.removedLines ?? ''}:${artifact.preview ? 1 : 0}`).join('|')}:${total.added}:${total.removed}:${rollback ? `${rollback.rolledBack ? 2 : 1}:${rollback.turnIds.join(',')}` : 0}:${deps.onReviewFileChanges ? 1 : 0}:${deps.onRevealFile ? 1 : 0}`,
+      element: createChangedFilesCard(changed, deps, {
+        expandedByDefault: options.changedExpanded,
+        onExpandedChange: options.onExpandedChange,
+        rollback,
+      }),
     })
   }
   return plans
 }
 
-function removeArtifactCards(panel: HTMLElement, except?: HTMLElement) {
+/**
+ * 孤儿卡清理：只删不在任何有效轮宿主内的卡（宿主被 Lit 重渲染摘除、轮产物随
+ * 压缩/回滚消失、或没有任何轮再有产物）；宿主内的卡由各宿主的签名幂等更新负责。
+ */
+function removeOrphanArtifactCards(panel: HTMLElement, validHosts: ReadonlySet<HTMLElement>) {
+  const orphans = Array.from(panel.querySelectorAll<HTMLElement>('[data-quickforge-artifact-card]'))
+    .filter((card) => !card.parentElement || !validHosts.has(card.parentElement))
+  if (orphans.length === 0) return
   // 卡片移除时同步关闭 fixed 打开菜单：菜单虽随 wrapper 从 DOM 摘除，
   // 但 document 级关闭监听要靠 closeMenu 清理，不能等下次交互。
   closeActiveOpenMenu()
-  panel.querySelectorAll<HTMLElement>('[data-quickforge-artifact-card]').forEach((card) => {
-    if (except && card.parentElement === except) return
-    card.remove()
-  })
+  orphans.forEach((card) => card.remove())
 }
 
 /** 展开态跨装饰保留：挂在宿主消息元素 dataset 上（Lit 复用元素，比卡片本身活得久）。 */
 const EXPANDED_FLAG = 'quickforgeArtifactCardExpanded'
 
-function syncAnchor(lastAssistantElement: HTMLElement) {
-  const actions = Array.from(lastAssistantElement.querySelectorAll<HTMLElement>('.quickforge-message-actions'))
-    .find((candidate) => candidate.parentElement === lastAssistantElement)
+function syncAnchor(hostElement: HTMLElement) {
+  const actions = Array.from(hostElement.querySelectorAll<HTMLElement>('.quickforge-message-actions'))
+    .find((candidate) => candidate.parentElement === hostElement)
   return actions ?? null
 }
 
-/** Sync the session-cumulative artifact cards, mounted below the last assistant (streaming keeps them). */
+/** 一个轮的挂卡目标：该轮产物（已按卡片口径过滤）+ 轮标识（该轮全部 turnId，轮级撤销用）。 */
+type TurnCardTarget = {
+  artifacts: AiTurnArtifact[]
+  turnIds: string[]
+}
+
+/**
+ * Sync the per-turn artifact cards: one card group below each turn's last
+ * assistant message (streaming keeps the previous cards mounted).
+ */
 export function syncAssistantArtifactCard(deps: ArtifactCardDeps) {
   const { panel, displayEntries, messageElements, messages, streaming } = deps
-  // 新一轮流式中不清卡：会话累计卡片保留到该轮流式结束，由下一个 idle sync
-  // 按全会话产物增量更新（无新产物时签名一致原地不动）。
+  // 新一轮流式中不清卡：各轮已挂卡片保留到该轮流式结束，由下一个 idle sync
+  // 按轮增量更新（无新产物的轮签名一致原地不动）。
   if (streaming) return
 
-  // 产物/修改取当前会话累计（跨轮求和，与「撤销」的会话级回滚口径一致），
-  // 提取跑在完整 messages 上（产物来自 toolResult.details，displayEntries
-  // 过滤掉了它们）。
-  const artifacts = extractSessionArtifacts(messages as unknown as AgentMessage[])
-    .filter((artifact) => Boolean(artifact.path) && INCLUDED_SOURCES.has(artifact.source))
-
-  // 会话级卡片挂在最后一条 assistant（对话尾部）；无 assistant 或无产物时清除。
-  let lastAssistantIndex = -1
-  for (let index = displayEntries.length - 1; index >= 0; index -= 1) {
-    if (displayEntries[index].message.role === 'assistant') {
-      lastAssistantIndex = index
-      break
-    }
-  }
-  const lastAssistantElement = lastAssistantIndex >= 0 ? messageElements[lastAssistantIndex] : undefined
-  if (lastAssistantIndex < 0 || !lastAssistantElement || artifacts.length === 0) {
-    removeArtifactCards(panel)
-    return
+  // 每轮一张卡，显示「该轮新增」产物：按 user 边界切片提取（提取跑在完整
+  // messages 上——产物来自 toolResult.details，displayEntries 过滤掉了它们）。
+  // 轮与展示分段按边界消息对象对齐（Lit 复用/窗口裁剪下引用不变）。
+  const turnByBoundary = new Map<MessageWithUsage, TurnCardTarget>()
+  let leadingTurn: TurnCardTarget | undefined
+  for (const turn of extractTurnArtifacts(messages as unknown as AgentMessage[])) {
+    const artifacts = turn.artifacts.filter((artifact) => Boolean(artifact.path) && INCLUDED_SOURCES.has(artifact.source))
+    if (artifacts.length === 0) continue
+    const target: TurnCardTarget = { artifacts, turnIds: turn.turnIds }
+    if (turn.userIndex < 0) leadingTurn = target
+    else turnByBoundary.set(messages[turn.userIndex] as MessageWithUsage, target)
   }
 
-  // 展开态优先读本宿主元素标记；卡片随对话尾部迁移到新宿主时回退读旧卡自身状态。
-  const changedExpanded = lastAssistantElement.dataset[EXPANDED_FLAG] === 'true'
-    || panel.querySelector<HTMLElement>('[data-quickforge-artifact-card="changed"]')?.dataset.quickforgeArtifactExpanded === 'true'
-  const anchor = syncAnchor(lastAssistantElement)
-  const existingCards = Array.from(
-    lastAssistantElement.querySelectorAll<HTMLElement>('[data-quickforge-artifact-card]'),
-  ).filter((card) => card.parentElement === lastAssistantElement)
-
-  const plans = buildCardPlans(artifacts, deps, changedExpanded, (expanded) => {
-    lastAssistantElement.dataset[EXPANDED_FLAG] = String(expanded)
-  })
-
-  // 签名一致时只校正位置，不重建：保留展开态、打开菜单与确认弹层（decorate
-  // 在面板任意 DOM 变化时都会重跑，重建会把瞬态交互状态全部冲掉）。
-  const unchanged = existingCards.length === plans.length
-    && existingCards.every((card, index) => card.dataset.quickforgeArtifactSignature === plans[index].signature)
-  if (unchanged) {
-    existingCards.forEach((card, index) => {
-      if (card !== (anchor?.previousElementSibling ?? lastAssistantElement.lastElementChild)) {
-        lastAssistantElement.insertBefore(card, anchor)
+  // displayEntries 按同样用户消息边界切段，每段最后一个 assistant 挂该轮卡；
+  // 无 assistant（如轮首后紧跟错误/空响应）或无产物的轮不挂卡；首条 user 之前
+  // 的前置段对应 userIndex = -1 的前置组。
+  const validHosts = new Set<HTMLElement>()
+  const hosts: Array<{ element: HTMLElement; turn: TurnCardTarget }> = []
+  let segmentStart = 0
+  while (segmentStart < displayEntries.length) {
+    const leading = segmentStart === 0 && !isUserTurnBoundary(displayEntries[0].message)
+    let segmentEnd = segmentStart + (leading ? 0 : 1)
+    while (segmentEnd < displayEntries.length && !isUserTurnBoundary(displayEntries[segmentEnd].message)) segmentEnd += 1
+    const turn = leading ? leadingTurn : turnByBoundary.get(displayEntries[segmentStart].message)
+    if (turn) {
+      let lastAssistantIndex = -1
+      for (let index = segmentEnd - 1; index >= segmentStart; index -= 1) {
+        if (displayEntries[index].message.role === 'assistant') {
+          lastAssistantIndex = index
+          break
+        }
       }
-      void plans[index]
-    })
-    return
+      const hostElement = lastAssistantIndex >= 0 ? messageElements[lastAssistantIndex] : undefined
+      if (hostElement) {
+        validHosts.add(hostElement)
+        hosts.push({ element: hostElement, turn })
+      }
+    }
+    segmentStart = segmentEnd
   }
 
-  removeArtifactCards(panel)
-  plans.forEach((plan) => {
-    plan.element.dataset.quickforgeArtifactSignature = plan.signature
-    lastAssistantElement.insertBefore(plan.element, anchor)
-  })
+  removeOrphanArtifactCards(panel, validHosts)
+
+  for (const { element: hostElement, turn } of hosts) {
+    // 展开态读宿主级标记（dataset 挂宿主元素，多卡天然互不串扰）。
+    const changedExpanded = hostElement.dataset[EXPANDED_FLAG] === 'true'
+    const anchor = syncAnchor(hostElement)
+    const existingCards = Array.from(
+      hostElement.querySelectorAll<HTMLElement>('[data-quickforge-artifact-card]'),
+    ).filter((card) => card.parentElement === hostElement)
+
+    // turnIds 为空（如旧会话产物）→ 不渲染撤销按钮；已撤销轮（轮键 =
+    // turnIds join('|')）置灰为「已撤销」。
+    const rollback: TurnRollbackControl = turn.turnIds.length > 0 && deps.onRollbackTurn
+      ? { turnIds: turn.turnIds, rolledBack: deps.rolledBackTurns?.has(turnRollbackKey(turn.turnIds)) === true }
+      : null
+    const plans = buildCardPlans(turn.artifacts, deps, {
+      changedExpanded,
+      onExpandedChange: (expanded) => {
+        hostElement.dataset[EXPANDED_FLAG] = String(expanded)
+      },
+      rollback,
+    })
+
+    // 签名一致时只校正位置，不重建：保留展开态、打开菜单与确认弹层（decorate
+    // 在面板任意 DOM 变化时都会重跑，重建会把瞬态交互状态全部冲掉）。
+    const unchanged = existingCards.length === plans.length
+      && existingCards.every((card, index) => card.dataset.quickforgeArtifactSignature === plans[index].signature)
+    if (unchanged) {
+      existingCards.forEach((card) => {
+        if (card !== (anchor?.previousElementSibling ?? hostElement.lastElementChild)) {
+          hostElement.insertBefore(card, anchor)
+        }
+      })
+      continue
+    }
+
+    // 只重建本宿主的卡（其余轮的卡不动）；摘卡前关闭 fixed 打开菜单。
+    if (existingCards.length > 0) closeActiveOpenMenu()
+    existingCards.forEach((card) => card.remove())
+    plans.forEach((plan) => {
+      plan.element.dataset.quickforgeArtifactSignature = plan.signature
+      hostElement.insertBefore(plan.element, anchor)
+    })
+  }
 }
 
 export function decorateAssistantArtifactCard(deps: ArtifactCardDeps) {

@@ -5,7 +5,7 @@ import { getSqliteStorage, runSharedSqliteQuickCheck } from './database.mjs'
 
 const SESSION_ROW_COLUMNS = `
   scope, project_id, session_id, revision, state_version, created_at, updated_at,
-  message_count, title, title_source, harness, task_status, archived_at, pinned_at,
+  message_count, title, title_source, task_status, archived_at, pinned_at,
   body_json, meta_json, updated_at_ms
 `
 
@@ -351,16 +351,15 @@ const MESSAGE_ID_DEDUP_BATCH_SIZE = 500
 const UPSERT_SESSION_SQL = `
   INSERT INTO sessions (
     scope, project_id, session_id, title, title_source, created_at, updated_at,
-    message_count, state_version, harness, task_status, archived_at, pinned_at,
+    message_count, state_version, task_status, archived_at, pinned_at,
     body_json, meta_json, revision, updated_at_ms
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(scope, project_id, session_id) DO UPDATE SET
     title = excluded.title,
     title_source = excluded.title_source,
     updated_at = excluded.updated_at,
     message_count = excluded.message_count,
     state_version = excluded.state_version,
-    harness = excluded.harness,
     task_status = excluded.task_status,
     archived_at = excluded.archived_at,
     pinned_at = excluded.pinned_at,
@@ -391,7 +390,6 @@ function sessionRowValues(record, { revision, createdAt, messageCount }) {
     nullableString(state.titleSource) ?? nullableString(metadata.titleSource),
     createdAt, record.now,
     messageCount, record.stateVersion,
-    nullableString(state.harness) ?? nullableString(metadata.harness),
     nullableString(state.taskStatus) ?? nullableString(metadata.taskStatus),
     nullableString(state.archivedAt) ?? nullableString(metadata.archivedAt),
     nullableString(state.pinnedAt) ?? nullableString(metadata.pinnedAt),

@@ -3,7 +3,7 @@ import {
   ApiKeyPromptDialog,
   ChatPanel,
 } from '@earendil-works/pi-web-ui'
-import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, OpenCodeAcpSession, FileContextReference } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, FileContextReference } from '@/lib/server-agent'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import type { SideChatAgent } from '@/components/workspace/side-chat-agent'
@@ -24,7 +24,6 @@ import { createTaskLauncher } from './task-launcher'
 import { createFileReferenceSuggestions, canUseFileReferenceSuggestions } from './file-reference-suggestions'
 import { removeComposerPlusPopover } from './panel-decoration/composer-plus-menu'
 import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './context-usage'
-import { createOpenCodeUsageIndicator } from './panel-decoration'
 import { createTurnNavigation } from './turn-navigation'
 import {
   decorateMessages,
@@ -59,8 +58,8 @@ import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifac
 import { getGitStatus } from '../workspace/workspace-api'
 import type { WorkspaceExternalOpenTarget } from '../workspace/workspace-api'
 import { requestAndroidRemoteSystemNotificationPermissionOnce } from '@/lib/system-notifications'
-import type { ChatHarnessCapabilities } from '@/lib/chat-harness-capabilities'
-import { applyChatPagePolicy, QUICKFORGE_CHAT_HARNESS_CAPABILITIES, SIDE_CHAT_UI_CAPABILITIES } from '@/lib/chat-harness-capabilities'
+import type { ChatCapabilities } from '@/lib/chat-capabilities'
+import { applyChatPagePolicy, QUICKFORGE_CHAT_CAPABILITIES, SIDE_CHAT_UI_CAPABILITIES } from '@/lib/chat-capabilities'
 import { withPreservedArtifactsRenderer } from './side-chat-renderer-isolation'
 import type { ChatScope, ProjectInfo, RestoredDraft, AgentAccessMode } from '@/lib/types'
 import {
@@ -91,12 +90,6 @@ type AgentWithContextCompaction = AgentLike & {
     contextUsage?: ServerAgentContextUsage | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
-  }
-}
-
-type AgentWithAcpSession = AgentLike & {
-  state: AgentLike['state'] & {
-    acpSession?: OpenCodeAcpSession | null
   }
 }
 
@@ -175,9 +168,10 @@ type ChatPanelHostProps = {
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
   onOpenFilePreview?: (relativePath: string) => void
-  /** artifact 卡片「撤销」：撤销本会话文件改动（readOnly 面板不传）。 */
-  onRollbackFiles?: () => Promise<void> | void
-  fileChangesRolledBack?: boolean
+  /** artifact 卡片「撤销」：按该轮全部 turnId（原 run + 重试 run）撤销文件改动（readOnly 面板不传）。 */
+  onRollbackTurn?: (turnIds: string[]) => void
+  /** 已撤销的轮（轮键集合）：对应轮卡片按钮置灰为「已撤销」。 */
+  rolledBackTurns?: ReadonlySet<string>
   /** artifact 卡片「审查」：打开工作区 Review 面板并直达该文件 diff。 */
   onReviewFileChanges?: (relativePath: string) => void
   /** artifact 卡片「打开 ▾ → 在文件管理器中显示」。 */
@@ -202,7 +196,7 @@ type ChatPanelHostProps = {
   showTurnNavigation?: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
-  capabilities?: ChatHarnessCapabilities
+  capabilities?: ChatCapabilities
 }
 
 /**
@@ -225,9 +219,10 @@ type PropsRef = {
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
   onOpenFilePreview?: (relativePath: string) => void
-  /** artifact 卡片「撤销」：撤销本会话文件改动（readOnly 面板不传）。 */
-  onRollbackFiles?: () => Promise<void> | void
-  fileChangesRolledBack?: boolean
+  /** artifact 卡片「撤销」：按该轮全部 turnId（原 run + 重试 run）撤销文件改动（readOnly 面板不传）。 */
+  onRollbackTurn?: (turnIds: string[]) => void
+  /** 已撤销的轮（轮键集合）：对应轮卡片按钮置灰为「已撤销」。 */
+  rolledBackTurns?: ReadonlySet<string>
   /** artifact 卡片「审查」：打开工作区 Review 面板并直达该文件 diff。 */
   onReviewFileChanges?: (relativePath: string) => void
   /** artifact 卡片「打开 ▾ → 在文件管理器中显示」。 */
@@ -249,7 +244,7 @@ type PropsRef = {
   bypassClientApiKeyCheck: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
-  capabilities: ChatHarnessCapabilities
+  capabilities: ChatCapabilities
   gitBranch?: string
 }
 
@@ -277,8 +272,8 @@ export function ChatPanelHost({
   onOpenWorkspaceGitChanges,
   onOpenLocalFilePath,
   onOpenFilePreview,
-  onRollbackFiles,
-  fileChangesRolledBack,
+  onRollbackTurn,
+  rolledBackTurns,
   onReviewFileChanges,
   onRevealFile,
   onArtifactsChange,
@@ -300,7 +295,7 @@ export function ChatPanelHost({
   showTurnNavigation = true,
   rollbackConfirmTitle,
   rollbackConfirmDescription,
-  capabilities = QUICKFORGE_CHAT_HARNESS_CAPABILITIES,
+  capabilities = QUICKFORGE_CHAT_CAPABILITIES,
 }: ChatPanelHostProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
@@ -460,8 +455,8 @@ export function ChatPanelHost({
       onOpenWorkspaceGitChanges,
       onOpenLocalFilePath,
       onOpenFilePreview,
-      onRollbackFiles,
-      fileChangesRolledBack,
+      onRollbackTurn,
+      rolledBackTurns,
       onReviewFileChanges,
       onRevealFile,
       onArtifactsChange,
@@ -774,7 +769,6 @@ export function ChatPanelHost({
       enabled: !sideChatMode && canUseFileReferenceSuggestions({
         projectId: project?.id ?? projectId,
         readOnly,
-        harness: agent.harness,
         shared: 'shareId' in agent,
       }),
       restoreDraftIntoComposer: restoreSuggestionDraft,
@@ -905,12 +899,6 @@ export function ChatPanelHost({
       onDisplayChange: (info) => {
         if (!sideChatMode) propsRef.current.onContextUsageDisplayChange?.(agent.sessionId, info)
       },
-    })
-
-    // --- OpenCode harness usage badge (independent of QuickForge contextUsage) ---
-    const openCodeUsage = createOpenCodeUsageIndicator({
-      panel,
-      getAcpSession: () => (agent as AgentWithAcpSession).state.acpSession ?? null,
     })
 
     // --- Composer input/file-change handlers (update draft map) ---
@@ -1078,8 +1066,9 @@ export function ChatPanelHost({
           turnErrorTracker,
           onOpenLocalFilePath: props.onOpenLocalFilePath,
           onOpenFilePreview: props.onOpenFilePreview,
-          onRollbackFiles: props.readOnly ? undefined : props.onRollbackFiles,
-          fileChangesRolledBack: props.fileChangesRolledBack,
+          onRollbackTurn: props.readOnly ? undefined : props.onRollbackTurn,
+          rolledBackTurns: props.rolledBackTurns,
+          getArtifactMessages: () => agent.state.messages as MessageWithUsage[],
           onReviewFileChanges: props.onReviewFileChanges,
           onRevealFile: props.readOnly ? undefined : props.onRevealFile,
           disableFork: !props.capabilities.forkFromMessage,
@@ -1125,18 +1114,6 @@ export function ChatPanelHost({
           isWaiting: () => assistantWaitingActive,
           abort: () => agent.abort(),
           agentAccessMode: props.agentAccessMode,
-          harness: agent.harness,
-          getAcpSession: () => (agent as AgentWithAcpSession).state.acpSession ?? null,
-          onOpenCodeConfigOptionChange: (configId, value) => {
-            void (agent as ServerAgent).setConfigOption(configId, value).catch((error) => {
-              logger.error('Failed to update OpenCode config option:', error)
-            })
-          },
-          onOpenCodeModeChange: (modeId) => {
-            void (agent as ServerAgent).setMode(modeId).catch((error) => {
-              logger.error('Failed to update OpenCode mode:', error)
-            })
-          },
           planMode: props.planMode,
           workspaceToolsEnabled: props.workspaceToolsEnabled,
           readOnly: props.readOnly,
@@ -1353,7 +1330,6 @@ export function ChatPanelHost({
 
       if (props.capabilities.contextUsage) contextUsage.update()
       else contextUsage.cleanup()
-      if (agent.harness === 'opencode') openCodeUsage.update()
       turnNavigation?.update()
       scrollSync.setup()
       scrollBottomButton.setup()
@@ -1655,11 +1631,6 @@ export function ChatPanelHost({
         scheduleToolInterfaceUpdate()
         scheduleDecorateRef.current?.()
       }
-      if (eventType === 'acp_session_update' || eventType === 'acp_session_usage_update') {
-        // OpenCode runtime config/mode/usage changed — refresh composer controls
-        // and the usage badge without disturbing the conversation.
-        scheduleDecorateRef.current?.()
-      }
       if (eventType === 'error') {
         modelRetryNotice?.hide()
       }
@@ -1783,7 +1754,6 @@ export function ChatPanelHost({
       fileReferenceSuggestions.remove()
       fileReferenceSuggestions.cleanupTextareaHandler()
       contextUsage.cleanup()
-      openCodeUsage.cleanup()
       turnNavigation?.cleanup()
       scrollSync.cleanup()
       scrollSyncRef.current = null
@@ -1852,7 +1822,7 @@ export function ChatPanelHost({
     // 外部对 state.model 的直接赋值，需要手动触发重渲染才能刷新模型名称等 UI。
     const ai = hostRef.current?.querySelector('agent-interface') as { requestUpdate?: () => void } | null
     ai?.requestUpdate?.()
-  }, [sideChatMode, agentAccessMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, approvalReadOnly, approvalReadOnlyMessage, allowModelControls, capabilities, revision])
+  }, [sideChatMode, agentAccessMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, approvalReadOnly, approvalReadOnlyMessage, allowModelControls, capabilities, revision, rolledBackTurns])
 
   // Draft restoration trigger
   useEffect(() => {

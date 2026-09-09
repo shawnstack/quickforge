@@ -3,7 +3,6 @@
 // agent-manager.mjs 继续作为 facade，公共行为与注释语义保持不变。
 
 import { randomUUID } from 'node:crypto'
-import { AGENT_HARNESS_OPENCODE } from './agent-harness.mjs'
 import {
   assistantTextMessage,
   userTextMessage,
@@ -47,9 +46,6 @@ function finishManualSessionRun(session, status, errorMessage) {
 }
 
 export async function summarySession(session, initialUserMessage, summaryOptions) {
-  if (session.harness === AGENT_HARNESS_OPENCODE) {
-    throw Object.assign(new Error('OpenCode Harness does not support QuickForge summary derivation yet.'), { statusCode: 409 })
-  }
   if (session.agent.state.isStreaming) {
     session.agent.state.messages = [
       ...session.agent.state.messages,
@@ -143,8 +139,6 @@ export async function summarySession(session, initialUserMessage, summaryOptions
       scope: session.scope,
       projectId: session.projectId,
       accessMode: session.accessMode,
-      harness: session.harness,
-      sourceHarnessSessionId: session.harness === AGENT_HARNESS_OPENCODE ? session.agent.harnessSessionId : null,
       yoloMode: session.yoloMode,
       model: session.model,
       modelRef: session.modelRef,

@@ -6,15 +6,6 @@ vi.mock('../../src/components/chat/panel-decoration/composer-plus-menu', () => (
   removeComposerPlusPopover: vi.fn(),
   setupComposerPlusMenu: vi.fn(),
 }))
-vi.mock('../../src/components/chat/panel-decoration/opencode-config-menu', () => ({
-  removeOpenCodeConfigMenu: vi.fn(),
-  setupOpenCodeConfigMenu: vi.fn(),
-}))
-vi.mock('../../src/components/chat/panel-decoration/opencode-mode-menu', () => ({
-  removeOpenCodeModeMenu: vi.fn(),
-  setupOpenCodeModeMenu: vi.fn(),
-}))
-
 import { disableComposerControls } from '../../src/components/chat/panel-decoration'
 import { removeAgentAccessMenu } from '../../src/components/chat/panel-decoration/agent-access-menu'
 import type { MessageEditorElement } from '../../src/components/chat/chat-utils'

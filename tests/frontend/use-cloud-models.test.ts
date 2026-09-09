@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Api, Model } from '@earendil-works/pi-ai'
 
-const reactHarness = vi.hoisted(() => ({
+const reactStub = vi.hoisted(() => ({
   cleanups: [] as Array<() => void>,
   stateUpdates: [] as Array<{ index: number; value: unknown }>,
   stateCursor: 0,
@@ -19,26 +19,26 @@ vi.mock('react', () => ({
   },
   useEffect(effect: () => void | (() => void)) {
     const cleanup = effect()
-    if (cleanup) reactHarness.cleanups.push(cleanup)
+    if (cleanup) reactStub.cleanups.push(cleanup)
   },
   useRef<T>(initialValue: T) {
     return { current: initialValue }
   },
   useState<T>(initialValue: T | (() => T)) {
-    const index = reactHarness.stateCursor
-    reactHarness.stateCursor += 1
-    reactHarness.states[index] = typeof initialValue === 'function'
+    const index = reactStub.stateCursor
+    reactStub.stateCursor += 1
+    reactStub.states[index] = typeof initialValue === 'function'
       ? (initialValue as () => T)()
       : initialValue
     const setState = (update: T | ((previous: T) => T)) => {
-      const previous = reactHarness.states[index] as T
+      const previous = reactStub.states[index] as T
       const value = typeof update === 'function'
         ? (update as (current: T) => T)(previous)
         : update
-      reactHarness.states[index] = value
-      reactHarness.stateUpdates.push({ index, value })
+      reactStub.states[index] = value
+      reactStub.stateUpdates.push({ index, value })
     }
-    return [reactHarness.states[index] as T, setState] as const
+    return [reactStub.states[index] as T, setState] as const
   },
 }))
 
@@ -60,7 +60,7 @@ function model(id: string) {
   return { id, provider: 'quickforge-cloud' } as Model<Api>
 }
 
-function createWindowHarness() {
+function createWindowEnv() {
   const listeners = new Map<string, Set<EventListenerOrEventListenerObject>>()
   return {
     addEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
@@ -83,13 +83,13 @@ function createWindowHarness() {
 
 describe('useCloudModels', () => {
   beforeEach(() => {
-    reactHarness.cleanups = []
-    reactHarness.stateUpdates = []
-    reactHarness.stateCursor = 0
-    reactHarness.states = []
+    reactStub.cleanups = []
+    reactStub.stateUpdates = []
+    reactStub.stateCursor = 0
+    reactStub.states = []
     cloudMocks.getCloudModels.mockReset()
     cloudMocks.getCloudStatus.mockReset()
-    vi.stubGlobal('window', createWindowHarness())
+    vi.stubGlobal('window', createWindowEnv())
   })
 
   it('keeps the new service catalog when an invalidated request completes last', async () => {
@@ -193,14 +193,14 @@ describe('useCloudModels', () => {
     const request = hook.loadCloudModels()
     await flushMicrotasks()
     const signal = cloudMocks.getCloudModels.mock.calls[0][0] as AbortSignal
-    const updatesBeforeUnmount = reactHarness.stateUpdates.length
+    const updatesBeforeUnmount = reactStub.stateUpdates.length
 
-    for (const cleanup of [...reactHarness.cleanups].reverse()) cleanup()
+    for (const cleanup of [...reactStub.cleanups].reverse()) cleanup()
     expect(signal.aborted).toBe(true)
 
     catalog.resolve([model('late-model')])
     await expect(request).resolves.toEqual([])
-    expect(reactHarness.stateUpdates).toHaveLength(updatesBeforeUnmount)
+    expect(reactStub.stateUpdates).toHaveLength(updatesBeforeUnmount)
   })
 
   it('negatively caches a failed catalog load and retries after the window expires', async () => {

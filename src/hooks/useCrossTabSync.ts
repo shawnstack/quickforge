@@ -1,6 +1,5 @@
-import type { AgentHarness } from '@/lib/types'
 import { useEffect, useRef, useCallback } from 'react'
-import { getCrossTabSyncSourceId } from '@/lib/default-harness-events'
+import { getCrossTabSyncSourceId } from '@/lib/cross-tab-events'
 
 const CHANNEL_NAME = 'quickforge-sync'
 
@@ -8,9 +7,6 @@ type SyncMessage = {
   type: 'sessions-changed' | 'projects-changed' | 'settings-changed'
   sourceTabId: string
   timestamp: number
-  settings?: {
-    defaultHarness?: AgentHarness
-  }
 }
 
 /**
@@ -24,7 +20,7 @@ type SyncMessage = {
 export function useCrossTabSync(callbacks: {
   onSessionsChanged: () => void
   onProjectsChanged: () => void
-  onSettingsChanged: (settings?: SyncMessage['settings']) => void
+  onSettingsChanged: () => void
 }) {
   const callbacksRef = useRef(callbacks)
 
@@ -56,7 +52,7 @@ export function useCrossTabSync(callbacks: {
               callbacksRef.current.onProjectsChanged()
               break
             case 'settings-changed':
-              callbacksRef.current.onSettingsChanged(msg.settings)
+              callbacksRef.current.onSettingsChanged()
               break
           }
         }
@@ -90,19 +86,18 @@ export function useCrossTabSync(callbacks: {
     }
   }, [])
 
-  const broadcast = useCallback((type: SyncMessage['type'], settings?: SyncMessage['settings']) => {
+  const broadcast = useCallback((type: SyncMessage['type']) => {
     const msg: SyncMessage = {
       type,
       sourceTabId: tabId.current,
       timestamp: Date.now(),
-      settings,
     }
     channelRef.current?.postMessage(msg)
   }, [])
 
   const notifySessionsChanged = useCallback(() => broadcast('sessions-changed'), [broadcast])
   const notifyProjectsChanged = useCallback(() => broadcast('projects-changed'), [broadcast])
-  const notifySettingsChanged = useCallback((settings?: SyncMessage['settings']) => broadcast('settings-changed', settings), [broadcast])
+  const notifySettingsChanged = useCallback(() => broadcast('settings-changed'), [broadcast])
 
   return { notifySessionsChanged, notifyProjectsChanged, notifySettingsChanged }
 }

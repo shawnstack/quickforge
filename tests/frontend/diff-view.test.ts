@@ -17,10 +17,6 @@ const localRendererSource = localTools.slice(
   localTools.indexOf('class LocalWorkspaceToolRenderer'),
   localTools.indexOf('function askUserQuestionsFromParams'),
 )
-const openCodeRendererSource = localTools.slice(
-  localTools.indexOf('class OpenCodeToolRenderer'),
-  localTools.indexOf('function parseMcpToolName'),
-)
 
 const EDIT_DIFF = [
   '--- a/src/lib/scheduler.ts',
@@ -111,7 +107,7 @@ describe('parseDiffRows', () => {
     ])
   })
 
-  it('drops the exact OpenCode marker from long diff parse rows when explicitly truncated', () => {
+  it('drops the exact truncation marker from long diff parse rows when explicitly truncated', () => {
     const rows = parseDiffRows(`alpha\n${'x'.repeat(20_000).slice(0, 16 * 1024 - 6)}\n…[truncated]`, 'raw', true)
     expect(rows[0]).toEqual({ kind: 'add', text: 'alpha', oldNo: null, newNo: 1 })
     expect(rows.some((row) => row.kind !== 'gap' && row.text === '…[truncated]')).toBe(false)
@@ -171,14 +167,14 @@ describe('diff rendering source contract', () => {
     expect(renderDiffSource).toContain("hasText\n        ? diffText !== ''")
     expect(renderDiffSource).toContain('parseDiffRows(diffText, format, Boolean(diff.truncated))')
     expect(localRendererSource).toContain("typeof diff?.text === 'string' ? renderDiff(diff, isNewFile)")
-    expect(localRendererSource).toContain('visibleDetails.created === true')
+    expect(localRendererSource).toContain('result?.details?.created === true')
     expect(renderDiffSource).toContain("t('diffNewFile')")
     expect(renderDiffSource).toContain("t('diffNoChanges')")
   })
 
-  it('shows OpenCode summary counts whenever diff data exists', () => {
-    expect(openCodeRendererSource).toContain('renderInlineDiffStats(diff)')
-    expect(openCodeRendererSource).toContain("typeof diff?.text === 'string' ? renderDiff(diff, isNewFile)")
+  it('shows diff summary counts whenever diff data exists', () => {
+    expect(localRendererSource).toContain('renderInlineDiffStats(diff)')
+    expect(localRendererSource).toContain("typeof diff?.text === 'string' ? renderDiff(diff, isNewFile)")
   })
 
   it('does not repeat titles, paths, chips, or character-level marks', () => {

@@ -128,37 +128,12 @@ const todo = (content: string, status: 'pending' | 'in_progress' | 'completed') 
 const quickForgeResult = (todos: unknown, options: Record<string, unknown> = {}) => ({
   role: 'toolResult', toolName: 'todo_write', details: { todos }, isError: false, ...options,
 })
-const openCodeMessages = (id: string, todos: unknown, metadata: Record<string, unknown> = { kind: 'Todo Write' }) => ([
-  {
-    role: 'assistant',
-    content: [{ type: 'toolCall', id, name: 'opencode_tool', arguments: { rawInput: { todos }, __quickforgeAcp: metadata } }],
-  },
-  { role: 'toolResult', toolCallId: id, toolName: 'opencode_tool', details: { __quickforgeAcp: metadata }, isError: false },
-])
 
 describe('extractLatestTodoWriteSnapshot', () => {
   it('extracts QuickForge todo_write details.todos', () => {
     expect(extractLatestTodoWriteSnapshot([
       quickForgeResult([todo('Research', 'in_progress'), todo('Test', 'pending')]),
     ])).toEqual({ todos: [todo('Research', 'in_progress'), todo('Test', 'pending')] })
-  })
-
-  it('matches OpenCode todowrite metadata and pairs tool results with assistant arguments', () => {
-    expect(extractLatestTodoWriteSnapshot(openCodeMessages('todo-1', [todo('Implement', 'completed')], { title: 'TodoWrite' })))
-      .toEqual({ todos: [todo('Implement', 'completed')] })
-  })
-
-  it('uses assistant metadata when stale result metadata is non-todo', () => {
-    const messages = openCodeMessages('todo-stale', [todo('Current', 'in_progress')])
-    messages[1].details = { __quickforgeAcp: { title: 'stale' } }
-    expect(extractLatestTodoWriteSnapshot(messages)).toEqual({ todos: [todo('Current', 'in_progress')] })
-  })
-
-  it('supports top-level OpenCode arguments.todos', () => {
-    const messages = openCodeMessages('todo-2', [])
-    ;(messages[0].content[0].arguments as Record<string, unknown>).todos = [todo('Verify', 'pending')]
-    delete ((messages[0].content[0].arguments as Record<string, unknown>).rawInput as Record<string, unknown>).todos
-    expect(extractLatestTodoWriteSnapshot(messages)).toEqual({ todos: [todo('Verify', 'pending')] })
   })
 
   it('falls back to the previous valid snapshot when a newer candidate is invalid or errored', () => {
@@ -170,7 +145,7 @@ describe('extractLatestTodoWriteSnapshot', () => {
   })
 })
 
-function createHarness(initialMessages: unknown[], {
+function createEnv(initialMessages: unknown[], {
   withEditor = true,
   suggestionMenu,
 }: { withEditor?: boolean; suggestionMenu?: 'command' | 'file' } = {}) {
@@ -259,200 +234,200 @@ function createHarness(initialMessages: unknown[], {
 
 describe('TodoWrite composer summary controller', () => {
   it('inserts before message-editor in the composer shell and outside the message scroller', () => {
-    const harness = createHarness([quickForgeResult([todo('Work', 'in_progress')])])
-    harness.controller.update()
-    expect(harness.composerShell.children).toEqual([harness.root(), harness.editor, harness.stats])
-    expect(harness.root()?.parentElement).toBe(harness.composerShell)
-    expect(harness.root()?.parentElement).not.toBe(harness.scrollContent)
-    expect(harness.scrollContent.children).toEqual([harness.streaming, harness.messageList])
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('true')
-    expect(harness.body()?.hidden).toBe(false)
-    expect(harness.root()?.querySelectorAll('.quickforge-todo-summary-item')).toHaveLength(1)
+    const env = createEnv([quickForgeResult([todo('Work', 'in_progress')])])
+    env.controller.update()
+    expect(env.composerShell.children).toEqual([env.root(), env.editor, env.stats])
+    expect(env.root()?.parentElement).toBe(env.composerShell)
+    expect(env.root()?.parentElement).not.toBe(env.scrollContent)
+    expect(env.scrollContent.children).toEqual([env.streaming, env.messageList])
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
+    expect(env.body()?.hidden).toBe(false)
+    expect(env.root()?.querySelectorAll('.quickforge-todo-summary-item')).toHaveLength(1)
   })
 
   it.each([
     ['command', 'quickforge-command-suggestions'],
     ['file', 'quickforge-file-reference-suggestions'],
   ] as const)('keeps the summary before the %s menu while the menu stays adjacent to the editor', (suggestionMenu, menuClass) => {
-    const harness = createHarness([quickForgeResult([todo('Work', 'in_progress')])], { suggestionMenu })
-    harness.controller.update()
+    const env = createEnv([quickForgeResult([todo('Work', 'in_progress')])], { suggestionMenu })
+    env.controller.update()
 
-    expect(harness.composerShell.children).toEqual([harness.root(), harness.menu, harness.editor, harness.stats])
-    expect(harness.root()?.nextElementSibling).toBe(harness.menu)
-    expect(harness.editor.previousElementSibling).toBe(harness.menu)
-    expect(harness.menu?.matches(`.${menuClass}`)).toBe(true)
+    expect(env.composerShell.children).toEqual([env.root(), env.menu, env.editor, env.stats])
+    expect(env.root()?.nextElementSibling).toBe(env.menu)
+    expect(env.editor.previousElementSibling).toBe(env.menu)
+    expect(env.menu?.matches(`.${menuClass}`)).toBe(true)
 
     // Controller updates must not move the summary between the menu and editor.
-    harness.controller.update()
-    expect(harness.composerShell.children).toEqual([harness.root(), harness.menu, harness.editor, harness.stats])
+    env.controller.update()
+    expect(env.composerShell.children).toEqual([env.root(), env.menu, env.editor, env.stats])
   })
 
   it.each(['command', 'file'] as const)('returns the summary to immediately before the editor after the %s menu is removed', (suggestionMenu) => {
-    const harness = createHarness([quickForgeResult([todo('Work', 'in_progress')])], { suggestionMenu })
-    harness.controller.update()
-    harness.removeMenu()
-    harness.controller.update()
+    const env = createEnv([quickForgeResult([todo('Work', 'in_progress')])], { suggestionMenu })
+    env.controller.update()
+    env.removeMenu()
+    env.controller.update()
 
-    expect(harness.composerShell.children).toEqual([harness.root(), harness.editor, harness.stats])
-    expect(harness.editor.previousElementSibling).toBe(harness.root())
+    expect(env.composerShell.children).toEqual([env.root(), env.editor, env.stats])
+    expect(env.editor.previousElementSibling).toBe(env.root())
   })
 
   it('preserves state and placement when the composer shell is rebuilt', () => {
-    const harness = createHarness([quickForgeResult([todo('Work', 'in_progress')])], { suggestionMenu: 'file' })
-    harness.controller.update()
-    harness.toggle()?.click()
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    const env = createEnv([quickForgeResult([todo('Work', 'in_progress')])], { suggestionMenu: 'file' })
+    env.controller.update()
+    env.toggle()?.click()
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
 
-    const { nextShell, nextMenu, nextEditor, nextStats } = harness.rebuildShell({ withMenu: true })
-    harness.controller.update()
+    const { nextShell, nextMenu, nextEditor, nextStats } = env.rebuildShell({ withMenu: true })
+    env.controller.update()
 
-    expect(nextShell.children).toEqual([harness.root(), nextMenu, nextEditor, nextStats])
+    expect(nextShell.children).toEqual([env.root(), nextMenu, nextEditor, nextStats])
     expect(nextEditor.previousElementSibling).toBe(nextMenu)
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('does not display when message-editor is missing', () => {
-    const harness = createHarness([quickForgeResult([todo('Work', 'in_progress')])], { withEditor: false })
-    harness.controller.update()
-    expect(harness.root()).toBeNull()
+    const env = createEnv([quickForgeResult([todo('Work', 'in_progress')])], { withEditor: false })
+    env.controller.update()
+    expect(env.root()).toBeNull()
   })
 
   it('removes the displayed summary when message-editor disappears without resetting user state', () => {
-    const harness = createHarness([quickForgeResult([todo('Work', 'in_progress')])])
-    harness.controller.update()
-    harness.toggle()?.click()
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    const env = createEnv([quickForgeResult([todo('Work', 'in_progress')])])
+    env.controller.update()
+    env.toggle()?.click()
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
 
-    harness.removeEditor()
-    harness.controller.update()
-    expect(harness.root()).toBeNull()
+    env.removeEditor()
+    env.controller.update()
+    expect(env.root()).toBeNull()
 
-    const rebuiltEditor = harness.rebuildEditor()
-    harness.controller.update()
-    expect(harness.composerShell.children).toEqual([harness.root(), rebuiltEditor, harness.stats])
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    const rebuiltEditor = env.rebuildEditor()
+    env.controller.update()
+    expect(env.composerShell.children).toEqual([env.root(), rebuiltEditor, env.stats])
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('self-heals after the composer editor is rebuilt and preserves a manually expanded state', () => {
-    const harness = createHarness([quickForgeResult([todo('Done', 'completed')])])
-    harness.controller.update()
-    harness.toggle()?.click()
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('true')
+    const env = createEnv([quickForgeResult([todo('Done', 'completed')])])
+    env.controller.update()
+    env.toggle()?.click()
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
 
-    harness.removeEditor()
-    harness.controller.update()
-    const rebuiltEditor = harness.rebuildEditor()
-    harness.controller.update()
-    expect(harness.composerShell.children).toEqual([harness.root(), rebuiltEditor, harness.stats])
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('true')
+    env.removeEditor()
+    env.controller.update()
+    const rebuiltEditor = env.rebuildEditor()
+    env.controller.update()
+    expect(env.composerShell.children).toEqual([env.root(), rebuiltEditor, env.stats])
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('starts collapsed when the first snapshot is fully completed', () => {
-    const harness = createHarness([quickForgeResult([todo('Done', 'completed')])])
-    harness.controller.update()
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('false')
-    expect(harness.body()?.hidden).toBe(true)
+    const env = createEnv([quickForgeResult([todo('Done', 'completed')])])
+    env.controller.update()
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    expect(env.body()?.hidden).toBe(true)
   })
 
   it('keeps the user collapsed after a new unfinished snapshot and briefly marks it updated', () => {
-    const harness = createHarness([quickForgeResult([todo('One', 'in_progress')])])
-    harness.controller.update()
-    harness.toggle()?.click()
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    const env = createEnv([quickForgeResult([todo('One', 'in_progress')])])
+    env.controller.update()
+    env.toggle()?.click()
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
 
-    harness.setMessages([
+    env.setMessages([
       quickForgeResult([todo('One', 'in_progress')]),
       quickForgeResult([todo('One', 'completed'), todo('Two', 'pending')]),
     ])
-    harness.controller.update()
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('false')
-    expect(harness.updated()?.hidden).toBe(false)
-    expect(harness.timers).toHaveLength(1)
-    harness.timers[0].handler()
-    expect(harness.updated()?.hidden).toBe(true)
+    env.controller.update()
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    expect(env.updated()?.hidden).toBe(false)
+    expect(env.timers).toHaveLength(1)
+    env.timers[0].handler()
+    expect(env.updated()?.hidden).toBe(true)
   })
 
   it('marks a newer tool snapshot updated even when its todo content is unchanged', () => {
     const sameTodos = [todo('Stable', 'in_progress')]
-    const harness = createHarness([quickForgeResult(sameTodos, { toolCallId: 'first' })])
-    harness.controller.update()
-    harness.setMessages([
+    const env = createEnv([quickForgeResult(sameTodos, { toolCallId: 'first' })])
+    env.controller.update()
+    env.setMessages([
       quickForgeResult(sameTodos, { toolCallId: 'first' }),
       quickForgeResult(sameTodos, { toolCallId: 'second' }),
     ])
-    harness.controller.update()
-    expect(harness.updated()?.hidden).toBe(false)
-    expect(harness.timers).toHaveLength(1)
+    env.controller.update()
+    expect(env.updated()?.hidden).toBe(false)
+    expect(env.timers).toHaveLength(1)
   })
 
   it('auto-collapses every fully completed snapshot and allows the user to reopen it', () => {
-    const harness = createHarness([quickForgeResult([todo('One', 'in_progress')])])
-    harness.controller.update()
-    harness.setMessages([
+    const env = createEnv([quickForgeResult([todo('One', 'in_progress')])])
+    env.controller.update()
+    env.setMessages([
       quickForgeResult([todo('One', 'in_progress')]),
       quickForgeResult([todo('One', 'completed')]),
     ])
-    harness.controller.update()
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('false')
-    harness.toggle()?.click()
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('true')
+    env.controller.update()
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    env.toggle()?.click()
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('resets after an explicit empty snapshot', () => {
-    const harness = createHarness([quickForgeResult([todo('One', 'in_progress')])])
-    harness.controller.update()
-    harness.toggle()?.click()
-    harness.setMessages([
+    const env = createEnv([quickForgeResult([todo('One', 'in_progress')])])
+    env.controller.update()
+    env.toggle()?.click()
+    env.setMessages([
       quickForgeResult([todo('One', 'in_progress')]),
       quickForgeResult([]),
     ])
-    harness.controller.update()
-    expect(harness.root()).toBeNull()
+    env.controller.update()
+    expect(env.root()).toBeNull()
 
-    harness.setMessages([quickForgeResult([todo('Fresh', 'pending')])])
-    harness.controller.update()
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('true')
+    env.setMessages([quickForgeResult([todo('Fresh', 'pending')])])
+    env.controller.update()
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('removes and resets on rollback to no snapshot', () => {
-    const harness = createHarness([quickForgeResult([todo('One', 'in_progress')])])
-    harness.controller.update()
-    harness.toggle()?.click()
-    harness.setMessages([])
-    harness.controller.update()
-    expect(harness.root()).toBeNull()
+    const env = createEnv([quickForgeResult([todo('One', 'in_progress')])])
+    env.controller.update()
+    env.toggle()?.click()
+    env.setMessages([])
+    env.controller.update()
+    expect(env.root()).toBeNull()
 
-    harness.setMessages([quickForgeResult([todo('Fresh', 'pending')])])
-    harness.controller.update()
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('true')
+    env.setMessages([quickForgeResult([todo('Fresh', 'pending')])])
+    env.controller.update()
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('cleanup clears timers, listeners, and DOM', () => {
-    const harness = createHarness([quickForgeResult([todo('One', 'in_progress')])])
-    harness.controller.update()
-    harness.setMessages([
+    const env = createEnv([quickForgeResult([todo('One', 'in_progress')])])
+    env.controller.update()
+    env.setMessages([
       quickForgeResult([todo('One', 'in_progress')]),
       quickForgeResult([todo('One', 'pending')]),
     ])
-    harness.controller.update()
-    const toggle = harness.toggle()
-    harness.controller.cleanup()
-    expect(harness.root()).toBeNull()
-    expect(harness.timers[0]?.cleared).toBe(true)
+    env.controller.update()
+    const toggle = env.toggle()
+    env.controller.cleanup()
+    expect(env.root()).toBeNull()
+    expect(env.timers[0]?.cleared).toBe(true)
     expect(toggle?.listeners.get('click')?.size ?? 0).toBe(0)
   })
 })
 
 describe('TodoWrite capsule structure', () => {
   it('wraps the toggle in a row and renders ring, dual stats, spacer, and chevron in order', () => {
-    const harness = createHarness([quickForgeResult([todo('One', 'in_progress'), todo('Two', 'pending')])])
-    harness.controller.update()
+    const env = createEnv([quickForgeResult([todo('One', 'in_progress'), todo('Two', 'pending')])])
+    env.controller.update()
 
-    expect(harness.root()?.children.map((child) => child.className)).toEqual([
+    expect(env.root()?.children.map((child) => child.className)).toEqual([
       'quickforge-todo-summary-toggle-row',
       'quickforge-todo-summary-body',
     ])
-    expect(harness.toggle()?.children.map((child) => child.className)).toEqual([
+    expect(env.toggle()?.children.map((child) => child.className)).toEqual([
       'quickforge-todo-summary-ring',
       'quickforge-todo-summary-heading',
       'quickforge-todo-summary-stats',
@@ -461,54 +436,54 @@ describe('TodoWrite capsule structure', () => {
       'quickforge-todo-summary-spacer',
       'quickforge-todo-summary-chevron',
     ])
-    expect(harness.ring()?.getAttribute('aria-hidden')).toBe('true')
-    expect(harness.root()?.querySelector('.quickforge-todo-summary-spacer')?.getAttribute('aria-hidden')).toBe('true')
+    expect(env.ring()?.getAttribute('aria-hidden')).toBe('true')
+    expect(env.root()?.querySelector('.quickforge-todo-summary-spacer')?.getAttribute('aria-hidden')).toBe('true')
   })
 
   it('shows the aria-hidden compact count and drives the progress arc from completion', () => {
-    const harness = createHarness([quickForgeResult([todo('One', 'completed'), todo('Two', 'in_progress')])])
-    harness.controller.update()
+    const env = createEnv([quickForgeResult([todo('One', 'completed'), todo('Two', 'in_progress')])])
+    env.controller.update()
 
-    expect(harness.statsCompact()?.textContent).toBe('1/2')
-    expect(harness.statsCompact()?.getAttribute('aria-hidden')).toBe('true')
-    expect(harness.ring()?.getAttribute('style')).toBe('--quickforge-todo-ring-offset: 28.27')
-    expect(harness.root()?.dataset.complete).toBe('false')
-    expect(harness.root()?.dataset.running).toBe('true')
+    expect(env.statsCompact()?.textContent).toBe('1/2')
+    expect(env.statsCompact()?.getAttribute('aria-hidden')).toBe('true')
+    expect(env.ring()?.getAttribute('style')).toBe('--quickforge-todo-ring-offset: 28.27')
+    expect(env.root()?.dataset.complete).toBe('false')
+    expect(env.root()?.dataset.running).toBe('true')
   })
 
   it('marks completion and zeroes the arc when every todo is completed', () => {
-    const harness = createHarness([quickForgeResult([todo('One', 'completed')])])
-    harness.controller.update()
+    const env = createEnv([quickForgeResult([todo('One', 'completed')])])
+    env.controller.update()
 
-    expect(harness.root()?.dataset.complete).toBe('true')
-    expect(harness.root()?.dataset.running).toBe('false')
-    expect(harness.ring()?.getAttribute('style')).toBe('--quickforge-todo-ring-offset: 0.00')
-    expect(harness.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    expect(env.root()?.dataset.complete).toBe('true')
+    expect(env.root()?.dataset.running).toBe('false')
+    expect(env.ring()?.getAttribute('style')).toBe('--quickforge-todo-ring-offset: 0.00')
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('wraps the list in the collapsible body inner container', () => {
-    const harness = createHarness([quickForgeResult([todo('One', 'in_progress')])])
-    harness.controller.update()
+    const env = createEnv([quickForgeResult([todo('One', 'in_progress')])])
+    env.controller.update()
 
-    expect(harness.body()?.children.map((child) => child.className)).toEqual(['quickforge-todo-summary-body-inner'])
-    expect(harness.root()?.querySelectorAll('.quickforge-todo-summary-item')).toHaveLength(1)
+    expect(env.body()?.children.map((child) => child.className)).toEqual(['quickforge-todo-summary-body-inner'])
+    expect(env.root()?.querySelectorAll('.quickforge-todo-summary-item')).toHaveLength(1)
   })
 
   it('keeps the persistent toggle structure and advances the arc across snapshot updates', () => {
-    const harness = createHarness([quickForgeResult([todo('One', 'in_progress')])])
-    harness.controller.update()
-    const firstRing = harness.ring()
-    const firstToggle = harness.toggle()
+    const env = createEnv([quickForgeResult([todo('One', 'in_progress')])])
+    env.controller.update()
+    const firstRing = env.ring()
+    const firstToggle = env.toggle()
     expect(firstRing?.getAttribute('style')).toBe('--quickforge-todo-ring-offset: 56.55')
 
-    harness.setMessages([
+    env.setMessages([
       quickForgeResult([todo('One', 'in_progress')]),
       quickForgeResult([todo('One', 'completed')]),
     ])
-    harness.controller.update()
+    env.controller.update()
 
-    expect(harness.ring()).toBe(firstRing)
-    expect(harness.toggle()).toBe(firstToggle)
+    expect(env.ring()).toBe(firstRing)
+    expect(env.toggle()).toBe(firstToggle)
     expect(firstRing?.getAttribute('style')).toBe('--quickforge-todo-ring-offset: 0.00')
   })
 })

@@ -226,7 +226,7 @@ describe('workspace inspector tabs persistence', () => {
     const chatActionsSource = readFileSync(new URL('../../src/hooks/useChatActions.ts', import.meta.url), 'utf8')
 
     expect(appSource).not.toContain('workspaceInspectorPendingScopeId')
-    expect(chatActionsSource).toContain("if (blankSession.action === 'reuse') return 'reused'")
+    expect(chatActionsSource).toContain('if (reusableBlankSession) return \'reused\'')
     expect(chatActionsSource).toContain("return 'cancelled'")
     expect(chatActionsSource).toContain("return 'created'")
   })

@@ -5,7 +5,7 @@ import { createScrollSync } from '../../src/components/chat/scroll-sync'
 const originalWindow = globalThis.window
 const originalResizeObserver = globalThis.ResizeObserver
 
-function createHarness() {
+function createEnv() {
   const listeners = new Map<string, EventListener>()
   const scrollContainer = {
     scrollTop: 120,
@@ -54,14 +54,14 @@ afterEach(() => {
 
 describe('scroll sync programmatic navigation', () => {
   it('does not load older messages when programmatic navigation reaches the top', () => {
-    const harness = createHarness()
+    const env = createEnv()
     const onReachTop = vi.fn()
-    const sync = createScrollSync({ panel: harness.panel, onReachTop })
+    const sync = createScrollSync({ panel: env.panel, onReachTop })
     sync.setup()
 
     const end = sync.beginProgrammaticScroll()
-    harness.scrollContainer.scrollTop = 0
-    harness.dispatch('scroll')
+    env.scrollContainer.scrollTop = 0
+    env.dispatch('scroll')
 
     expect(onReachTop).not.toHaveBeenCalled()
     expect(sync.isEnabled).toBe(false)
@@ -69,14 +69,14 @@ describe('scroll sync programmatic navigation', () => {
   })
 
   it('still loads older messages when a real user scrolls to the top', () => {
-    const harness = createHarness()
+    const env = createEnv()
     const onReachTop = vi.fn()
-    const sync = createScrollSync({ panel: harness.panel, onReachTop })
+    const sync = createScrollSync({ panel: env.panel, onReachTop })
     sync.setup()
 
-    harness.dispatch('wheel', { deltaY: -1 } as Partial<WheelEvent>)
-    harness.scrollContainer.scrollTop = 0
-    harness.dispatch('scroll')
+    env.dispatch('wheel', { deltaY: -1 } as Partial<WheelEvent>)
+    env.scrollContainer.scrollTop = 0
+    env.dispatch('scroll')
 
     expect(onReachTop).toHaveBeenCalledTimes(1)
   })
@@ -91,16 +91,16 @@ describe('scroll sync programmatic navigation', () => {
   })
 
   it('does not re-enable auto-scroll while a programmatic jump passes near the bottom', () => {
-    const harness = createHarness()
-    const sync = createScrollSync({ panel: harness.panel })
+    const env = createEnv()
+    const sync = createScrollSync({ panel: env.panel })
     sync.setup()
 
     const end = sync.beginProgrammaticScroll()
-    harness.scrollContainer.scrollTop = 850
-    harness.dispatch('scroll')
+    env.scrollContainer.scrollTop = 850
+    env.dispatch('scroll')
 
     expect(sync.isEnabled).toBe(false)
-    expect(harness.setAutoScroll).toHaveBeenLastCalledWith(false)
+    expect(env.setAutoScroll).toHaveBeenLastCalledWith(false)
     end()
   })
 })

@@ -3,11 +3,6 @@ import type { ServerAgent, ServerAgentContextCompaction } from '@/lib/server-age
 import { t } from './i18n'
 
 export type AgentAccessMode = 'default' | 'full-access'
-export type AgentHarness = 'quickforge' | 'claude-code' | 'opencode'
-
-export function normalizeAgentHarness(value: unknown): Exclude<AgentHarness, 'claude-code'> {
-  return value === 'opencode' ? 'opencode' : 'quickforge'
-}
 
 export function agentAccessModeFromYoloMode(yoloMode: unknown): AgentAccessMode {
   return yoloMode === true || yoloMode === 'true' ? 'full-access' : 'default'
@@ -77,8 +72,6 @@ export type QuickForgeSessionMetadata = SessionMetadata & {
   channelName?: string
   titleSource?: SessionTitleSource
   accessMode?: AgentAccessMode
-  harness?: AgentHarness
-  harnessSessionId?: string
   yoloMode?: boolean
   taskStatus?: BackgroundTaskStatus
   taskStartedAt?: string
@@ -96,8 +89,6 @@ export type QuickForgeSessionData = SessionData & {
   channelName?: string
   titleSource?: SessionTitleSource
   accessMode?: AgentAccessMode
-  harness?: AgentHarness
-  harnessSessionId?: string
   yoloMode?: boolean
   taskStatus?: BackgroundTaskStatus
   taskStartedAt?: string

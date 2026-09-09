@@ -158,7 +158,7 @@ describe('model config refresh for active sessions', () => {
     }
   })
 
-  it('skips streaming sessions and non-QuickForge harness sessions', async () => {
+  it('skips streaming sessions', async () => {
     const sessionId = 'model-refresh-skip'
     const session = await setupSession(sessionId, 1000)
     const { destroyAgent, refreshAllSessionModels, agentEvents } = await import('../../server/agent-manager.mjs')
@@ -173,13 +173,6 @@ describe('model config refresh for active sessions', () => {
 
       // Streaming sessions are skipped; runPrompt re-resolves on the next message.
       session.agent.state.isStreaming = true
-      await refreshAllSessionModels()
-      expect(session.model.maxTokens).toBe(1000)
-      expect(events.filter((event) => event.type === 'state' && event.sessionId === sessionId)).toHaveLength(0)
-
-      // OpenCode harness sessions are skipped: OpenCode owns its model selection.
-      session.agent.state.isStreaming = false
-      session.harness = 'opencode'
       await refreshAllSessionModels()
       expect(session.model.maxTokens).toBe(1000)
       expect(events.filter((event) => event.type === 'state' && event.sessionId === sessionId)).toHaveLength(0)

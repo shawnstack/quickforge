@@ -138,26 +138,19 @@ function authoritativeSessionState(sessionId) {
   return state
 }
 
-async function resolveSideChatModel(state, body, context) {
-  const isOpenCode = state?.harness === 'opencode'
-  const requestedModelRef = isOpenCode && isPlainObject(body?.modelRef) ? body.modelRef : null
-  if (isOpenCode && !requestedModelRef) {
-    throw requestError('OpenCode side chat requires the inherited QuickForge model.', 400, 'SIDE_CHAT_MODEL_REQUIRED')
-  }
-  const input = requestedModelRef
-    ? { modelRef: requestedModelRef }
-    : state?.modelRef
-      ? { modelRef: state.modelRef }
-      : { model: state?.model }
+async function resolveSideChatModel(state, context) {
+  const input = state?.modelRef
+    ? { modelRef: state.modelRef }
+    : { model: state?.model }
   if (!input.modelRef && !input.model) {
     throw requestError('A configured QuickForge model is required.', 400, 'SIDE_CHAT_MODEL_REQUIRED')
   }
   return resolveModelBinding(input, {
     context,
-    currentModel: requestedModelRef ? null : state?.model,
-    allowCurrentHidden: !requestedModelRef,
+    currentModel: state?.model,
+    allowCurrentHidden: true,
     forExecution: true,
-    legacySnapshot: requestedModelRef ? null : state?.model,
+    legacySnapshot: state?.model,
   })
 }
 
@@ -236,8 +229,8 @@ export async function handleSideChatApi(req, res, url, context = {}) {
 
   const sideMessages = normalizeSideMessages(body?.messages)
   const state = authoritativeSessionState(sessionId)
-  const { model } = await resolveSideChatModel(state, body, context)
-  const thinkingLevel = state?.harness === 'opencode' ? 'off' : normalizeThinkingLevel(state?.thinkingLevel, model)
+  const { model } = await resolveSideChatModel(state, context)
+  const thinkingLevel = normalizeThinkingLevel(state?.thinkingLevel, model)
   const sideContextChars = conversationChars(sideMessages)
   const mainContextBudget = Math.min(
     SIDE_CHAT_MAIN_CONTEXT_CHAR_BUDGET,

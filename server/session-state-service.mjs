@@ -135,8 +135,6 @@ function deriveMetadata(state, existing = {}) {
     preview: Array.isArray(state.messages) ? previewFromMessages(state.messages) : existing.preview,
     stateVersion: version,
     thinkingLevel: state.thinkingLevel ?? existing.thinkingLevel ?? 'off',
-    harness: state.harness ?? existing.harness,
-    harnessSessionId: state.harnessSessionId ?? existing.harnessSessionId,
     accessMode: state.accessMode ?? existing.accessMode,
     yoloMode: state.yoloMode ?? existing.yoloMode,
     scope: bucket.scope,
@@ -360,7 +358,7 @@ function mergeMetadata(existing, update, sessionId) {
 function applyMetadataToState(existing, metadata) {
   const state = { ...existing.state }
   for (const field of [
-    'title', 'titleSource', 'lastModified', 'stateVersion', 'thinkingLevel', 'harness', 'harnessSessionId',
+    'title', 'titleSource', 'lastModified', 'stateVersion', 'thinkingLevel',
     'accessMode', 'yoloMode', 'source', 'channelId', 'channelName', 'taskStatus', 'taskStartedAt',
     'taskFinishedAt', 'contextCompaction', 'idleRetention', 'pinnedAt', 'archivedAt',
   ]) {

@@ -7,7 +7,6 @@ import {
   loadActiveModel,
   loadDefaultOptions,
   mergeAvailableModels,
-  openCodePlaceholderModel,
 } from '@/lib/pi-chat'
 import { initializeAppLanguage, applyAppLanguageFromSnapshot, t } from '@/lib/i18n'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
@@ -22,7 +21,6 @@ import {
 import { readAppSettingSnapshotValue, writeAppSettingSnapshotValue } from '@/lib/app-settings-cache'
 import { resolveServerCacheKey } from '@/lib/session-message-cache'
 import type { AgentAccessMode } from '@/lib/types'
-import { normalizeAgentHarness } from '@/lib/types'
 import { chooseStartupModel } from '@/lib/startup-model'
 import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { logger } from '@/lib/logger'
@@ -215,54 +213,51 @@ export function useAppBootstrap({
         agentAccessModeRef.current = savedAccessMode
 
         const defaultOptions = await loadDefaultOptions(storage)
-        const defaultHarness = normalizeAgentHarness(defaultOptions.harness)
         let initialModel: Model<Api> | null = null
-        if (defaultHarness !== 'opencode') {
-          const cloudModelsPromise = loadCloud().catch((error) => {
-            logger.warn('Failed to restore QuickForge Cloud models:', error)
-            return []
-          })
-          const configuredModels = await getSelectableConfiguredModels(storage)
-          const savedModel = await loadActiveModel(storage)
-          const persistedCloudModel = isManagedQuickForgeCloudModel(defaultOptions.model)
-            || isManagedQuickForgeCloudModel(savedModel)
-          let cloudModels = readCachedCloud()
-          if (persistedCloudModel) {
-            // Leave StartupSplash before the remote catalog resolves, but do not create an
-            // Agent until the persisted Cloud snapshot has been checked against that catalog.
-            if (!isCloudLoaded()) {
-              setModelSetup(true)
-              setReady(true)
-            }
-            cloudModels = await cloudModelsWithDeadline(cloudModelsPromise)
-            if (cancelled) return
+        const cloudModelsPromise = loadCloud().catch((error) => {
+          logger.warn('Failed to restore QuickForge Cloud models:', error)
+          return []
+        })
+        const configuredModels = await getSelectableConfiguredModels(storage)
+        const savedModel = await loadActiveModel(storage)
+        const persistedCloudModel = isManagedQuickForgeCloudModel(defaultOptions.model)
+          || isManagedQuickForgeCloudModel(savedModel)
+        let cloudModels = readCachedCloud()
+        if (persistedCloudModel) {
+          // Leave StartupSplash before the remote catalog resolves, but do not create an
+          // Agent until the persisted Cloud snapshot has been checked against that catalog.
+          if (!isCloudLoaded()) {
+            setModelSetup(true)
+            setReady(true)
           }
-          initialModel = chooseStartupModel(
-            mergeAvailableModels(configuredModels, cloudModels),
-            defaultOptions.model,
-            savedModel,
-          )
+          cloudModels = await cloudModelsWithDeadline(cloudModelsPromise)
+          if (cancelled) return
         }
-        const startupModel = initialModel ?? (defaultHarness === 'opencode' ? openCodePlaceholderModel() : null)
+        initialModel = chooseStartupModel(
+          mergeAvailableModels(configuredModels, cloudModels),
+          defaultOptions.model,
+          savedModel,
+        )
+        const startupModel = initialModel
         if (initialModel) activeModelRef.current = initialModel
 
         const createStartupSession = () => create(
           { model: startupModel!, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
           randomId(),
-          { scope: 'global', attachToView: true, harness: defaultHarness },
+          { scope: 'global', attachToView: true },
         )
 
         const sessionId = new URLSearchParams(window.location.search).get('session')
         if (sessionId) {
           const restored = await restoreSession(sessionId)
           if (!restored) {
-            setModelSetup(defaultHarness === 'quickforge' && !initialModel)
+            setModelSetup(!initialModel)
             if (startupModel) await createStartupSession()
           } else {
             setModelSetup(false)
           }
         } else {
-          setModelSetup(defaultHarness === 'quickforge' && !initialModel)
+          setModelSetup(!initialModel)
           if (startupModel) await createStartupSession()
         }
 

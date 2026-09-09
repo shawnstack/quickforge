@@ -1,4 +1,3 @@
-export type TodoWriteHistorySource = 'quickforge' | 'opencode'
 export type TodoWriteHistoryStatus = 'running' | 'done' | 'error' | 'called'
 export type TodoWriteHistorySummaryKey =
   | 'todoWriteHistoryRunning'
@@ -50,20 +49,10 @@ function todoWriteHistoryStatus(result: TodoWriteHistoryResult | undefined, isSt
   return result ? 'done' : 'called'
 }
 
-function openCodeTodosFromParams(params: Record<string, unknown> | undefined) {
-  if (!params) return undefined
-  if ('todos' in params) return params.todos
-  return isRecord(params.rawInput) ? params.rawInput.todos : undefined
-}
-
 export function buildTodoWriteHistoryViewModel({
-  source,
-  params,
   result,
   isStreaming,
 }: {
-  source: TodoWriteHistorySource
-  params?: Record<string, unknown>
   result?: TodoWriteHistoryResult
   isStreaming?: boolean
 }): TodoWriteHistoryViewModel {
@@ -73,9 +62,7 @@ export function buildTodoWriteHistoryViewModel({
   if (status !== 'done') return { status, summaryKey: 'todoWriteHistoryNeutral', snapshot: null }
 
   const details = isRecord(result?.details) ? result.details : undefined
-  const snapshot = source === 'quickforge'
-    ? normalizeTodoWriteHistoryTodos(details?.todos)
-    : normalizeTodoWriteHistoryTodos(openCodeTodosFromParams(params))
+  const snapshot = normalizeTodoWriteHistoryTodos(details?.todos)
 
   if (!snapshot) return { status, summaryKey: 'todoWriteHistoryNeutral', snapshot: null }
   if (snapshot.length === 0) return { status, summaryKey: 'todoWriteHistoryCleared', snapshot }

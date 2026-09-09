@@ -13,7 +13,6 @@ import {
   sessionMessagesTailDigest,
 } from './session-state-service.mjs'
 import { emitSessionEvent } from './agent-session-events.mjs'
-import { AGENT_HARNESS_OPENCODE } from './agent-harness.mjs'
 
 function messageTimestampMs(message) {
   const timestamp = message?.timestamp
@@ -183,7 +182,7 @@ async function persistAuthoritativeSessionState(session, sessionData, metadata) 
  * Persist session data to storage.
  */
 async function persistSessionUnlocked(session) {
-  const { sessionId, agent, harness, harnessSessionId, scope, projectId, source, channelId, channelName, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, modelRef, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
+  const { sessionId, agent, scope, projectId, source, channelId, channelName, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, modelRef, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
   const messages = agent.state.messages
 
   if (messages.length === 0) {
@@ -207,9 +206,6 @@ async function persistSessionUnlocked(session) {
     id: sessionId,
     title,
     titleSource,
-    harness,
-    harnessSessionId: agent.harnessSessionId || harnessSessionId || undefined,
-    openCodeUsage: harness === AGENT_HARNESS_OPENCODE && agent.state.acpSession?.usage ? agent.state.acpSession.usage : undefined,
     model,
     modelRef: modelRef || undefined,
     thinkingLevel,
@@ -272,8 +268,6 @@ async function persistSessionUnlocked(session) {
     stateVersion: session.stateVersion || 0,
     usage,
     thinkingLevel,
-    harness,
-    harnessSessionId: agent.harnessSessionId || harnessSessionId || undefined,
     accessMode,
     yoloMode,
     preview,

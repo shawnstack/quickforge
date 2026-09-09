@@ -7,6 +7,7 @@ class MockAgent {
   static instances = []
   static mode = 'complete'
   static promptGate = null
+  static onContinue = null
 
   constructor(options = {}) {
     MockAgent.instances.push(this)
@@ -36,6 +37,7 @@ class MockAgent {
   }
 
   async continue() {
+    MockAgent.onContinue?.(this)
     this.lastTransformedMessages = await this.options.transformContext(this.state.messages, this.signal)
     if (MockAgent.mode === 'hang') await MockAgent.promptGate
     for (const listener of this.listeners) await listener({ type: 'agent_end', messages: this.state.messages })
@@ -81,6 +83,7 @@ describe('agent file context references', () => {
     MockAgent.instances = []
     MockAgent.mode = 'complete'
     MockAgent.promptGate = null
+    MockAgent.onContinue = null
     vi.resetModules()
     databaseModule = await import('../../server/sqlite/database.mjs')
     await databaseModule.initializeSqliteStorage()
@@ -239,5 +242,65 @@ describe('agent file context references', () => {
     await expect(continueSession(session.sessionId)).rejects.toMatchObject({ errorCode: 'CONTEXT_REFERENCE_NOT_FOUND' })
     expect(session.agent.state.messages).toBe(failedMessages)
     expect(session.agent.state.messages).toHaveLength(2)
+  })
+
+  it('scopes a fresh rollback turn id to each retry run and clears it when the run ends', async () => {
+    const session = await createProjectSession('context-retry-turn-id', [
+      { role: 'user', content: 'inspect' },
+      { role: 'assistant', content: [{ type: 'text', text: 'old answer' }] },
+    ])
+    const { continueSession, currentSessionTurnId } = await import('../../server/agent-manager.mjs')
+    expect(currentSessionTurnId(session.sessionId)).toBeNull()
+
+    const observed = []
+    MockAgent.onContinue = () => observed.push(currentSessionTurnId(session.sessionId))
+    for (let retry = 0; retry < 2; retry++) {
+      await continueSession(session.sessionId)
+      // The hook fires synchronously at the start of the run: the retry is
+      // already attributed with its own turn id.
+      expect(observed[retry]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+      await vi.waitFor(() => expect(currentSessionTurnId(session.sessionId)).toBeNull())
+    }
+    MockAgent.onContinue = null
+    // Each retry run gets its own id; the frontend groups them into one turn.
+    expect(observed).toHaveLength(2)
+    expect(observed[1]).not.toBe(observed[0])
+  })
+
+  // Regression: createAgent 在会话创建时内联调用 createServerTools，options
+  // 必须与 rebuildSessionTools 一样传 getTurnId——漏传会让整会话的写盘工具
+  // context 没有 turnId getter，版本记录恒为 null（轮级撤销全程不可见）。
+  it('passes the live turn id getter on the createAgent tool path too', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const source = readFileSync(fileURLToPath(new URL('../../server/agent-manager.mjs', import.meta.url)), 'utf8')
+    const createAgentCall = source.slice(source.indexOf('const tools = await createServerTools'))
+    const optionsBlock = createAgentCall.slice(0, createAgentCall.indexOf('  // Resolve API key'))
+    expect(optionsBlock).toContain('getTurnId: () => currentSessionTurnId(sessionId)')
+    // Both the agent-profile branch and the default branch must pass it.
+    const profileBranch = optionsBlock.slice(optionsBlock.indexOf('agentProfile'), optionsBlock.indexOf(': {', optionsBlock.indexOf('mcpWaitForConnections')))
+    expect(profileBranch).toContain('getTurnId')
+    const occurrences = optionsBlock.split('getTurnId: () => currentSessionTurnId(sessionId)').length - 1
+    expect(occurrences).toBe(2)
+  })
+
+  // Regression: toolContext 必须持有「活」turnId 访问器。曾用对象展开
+  // `...{ get turnId() {...} }` 注入，展开会立即求值并固化为静态值，
+  // 使每会话构建一次的 toolContext 永久停在构建时的 turnId（主 Agent 写盘
+  // details.turnId 恒为 null，轮级撤销按钮因此永不出现）。
+  it('keeps toolContext.turnId a live accessor that follows the current turn', async () => {
+    const { attachTurnIdGetter } = await import('../../server/agent-manager.mjs')
+    let current = null
+    const context = attachTurnIdGetter({ sessionId: 'turn-accessor-session' }, () => current)
+    expect(context.turnId).toBeNull()
+    current = 'turn-a'
+    expect(context.turnId).toBe('turn-a')
+    current = 'turn-b'
+    expect(context.turnId).toBe('turn-b')
+    current = null
+    expect(context.turnId).toBeNull()
+    // 无 getTurnId 时不应凭空造出 turnId 属性
+    const plain = attachTurnIdGetter({ sessionId: 'no-getter' }, null)
+    expect('turnId' in plain).toBe(false)
   })
 })

@@ -4,13 +4,10 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import { logger } from '@/lib/logger'
 import { ServerAgent, type ServerAgentContextCompaction } from '@/lib/server-agent'
 import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
-import { shouldReplaceBlankDeferredSessionHarness } from '@/lib/deferred-session-harness'
-import { DEFAULT_HARNESS_CHANGED_EVENT } from '@/lib/default-harness-events'
 import {
   defaultThinkingLevelForModel,
   loadDefaultOptions,
   normalizeModelForProvider,
-  openCodePlaceholderModel,
   resolveConfiguredModel,
   resolveNewSessionModel,
 } from '@/lib/pi-chat'
@@ -20,7 +17,6 @@ import {
 } from '@/lib/message-utils'
 import type {
   AgentAccessMode,
-  AgentHarness,
   BackgroundTask,
   BackgroundTaskStatus,
   ChatScope,
@@ -71,10 +67,9 @@ export interface AgentManager {
   createAgent: (
     initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
     sessionId?: string,
-    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; harness?: AgentHarness; sourceHarnessSessionId?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
+    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
   ) => Promise<ServerAgent>
-  startDeferredSession: (options: { scope: ChatScope; project?: ProjectInfo; harness?: AgentHarness; shouldAttachToView?: () => boolean }) => Promise<DeferredSessionAgent>
-  applyDefaultHarnessToBlankSession: (harness?: AgentHarness) => Promise<boolean>
+  startDeferredSession: (options: { scope: ChatScope; project?: ProjectInfo; shouldAttachToView?: () => boolean }) => Promise<DeferredSessionAgent>
   loadSession: (
     sessionId: string,
     hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string; source?: 'acp'; channelId?: string; channelName?: string },
@@ -208,7 +203,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     async (
       initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
       sessionId: string = randomId(),
-      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; source?: 'acp'; channelId?: string; channelName?: string; harness?: AgentHarness; sourceHarnessSessionId?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
+      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; source?: 'acp'; channelId?: string; channelName?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
     ) => {
       const previousAgent = agentRef.current
       const existingTask = taskMapRef.current.get(sessionId)
@@ -238,24 +233,19 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       void _requestedTools
       const storage = storageRef.current
       const defaultOptions = storage ? await loadDefaultOptions(storage) : {}
-      const resolvedHarness = options?.harness ?? defaultOptions.harness ?? 'quickforge'
       const requestedOrDefaultModel = requestedModel ?? defaultOptions.model ?? activeModelRef.current
       const preservesBoundModel = requestedModel !== undefined && Boolean(restInitialState.messages?.length)
-      const resolvedModel = resolvedHarness === 'opencode'
-        ? openCodePlaceholderModel()
-        : preservesBoundModel
-          ? storage
-            ? await resolveConfiguredModel(storage, requestedOrDefaultModel as Model<Api>)
-            : normalizeModelForProvider(requestedOrDefaultModel as Model<Api>)
-          : await resolveNewSessionModel(
-              storage,
-              requestedOrDefaultModel as Model<Api>,
-              loadCloudModels,
-            )
-      const resolvedThinkingLevel = resolvedHarness === 'opencode'
-        ? 'off'
-        : requestedThinkingLevel ?? defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
-      if (resolvedHarness === 'quickforge') activeModelRef.current = resolvedModel
+      const resolvedModel = preservesBoundModel
+        ? storage
+          ? await resolveConfiguredModel(storage, requestedOrDefaultModel as Model<Api>)
+          : normalizeModelForProvider(requestedOrDefaultModel as Model<Api>)
+        : await resolveNewSessionModel(
+            storage,
+            requestedOrDefaultModel as Model<Api>,
+            loadCloudModels,
+          )
+      const resolvedThinkingLevel = requestedThinkingLevel ?? defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
+      activeModelRef.current = resolvedModel
       const resolvedAccessMode = normalizeAgentAccessMode(options?.accessMode, options?.yoloMode ?? agentAccessModeRef.current)
       agentAccessModeRef.current = resolvedAccessMode
       setAgentAccessMode(resolvedAccessMode)
@@ -266,8 +256,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         source: options?.source,
         channelId: options?.channelId,
         channelName: options?.channelName,
-        harness: resolvedHarness,
-        sourceHarnessSessionId: options?.sourceHarnessSessionId,
         accessMode: resolvedAccessMode,
         yoloMode: agentAccessModeToYoloMode(resolvedAccessMode),
         model: resolvedModel,
@@ -399,23 +387,18 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     [attachTaskToView, disposeDetachedAgent, pruneIdleTasks, refreshSessions, syncSessionUI, updateSessionTitle, loadCloudModels, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode],
   )
 
-  const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo; harness?: AgentHarness; shouldAttachToView?: () => boolean }) => {
+  const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo; shouldAttachToView?: () => boolean }) => {
     const requestId = ++deferredSessionRequestRef.current
     const storage = storageRef.current
     const defaultOptions = storage ? await loadDefaultOptions(storage) : {}
-    const resolvedHarness = options.harness ?? defaultOptions.harness ?? 'quickforge'
     const requestedOrDefaultModel = defaultOptions.model ?? activeModelRef.current
-    const resolvedModel = resolvedHarness === 'opencode'
-      ? openCodePlaceholderModel()
-      : await resolveNewSessionModel(
-          storage,
-          requestedOrDefaultModel as Model<Api>,
-          loadCloudModels,
-        )
-    const resolvedThinkingLevel = resolvedHarness === 'opencode'
-      ? 'off'
-      : defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
-    if (resolvedHarness === 'quickforge') activeModelRef.current = resolvedModel
+    const resolvedModel = await resolveNewSessionModel(
+      storage,
+      requestedOrDefaultModel as Model<Api>,
+      loadCloudModels,
+    )
+    const resolvedThinkingLevel = defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
+    activeModelRef.current = resolvedModel
 
     const scope = options.scope
     const project = scope === 'project' ? options.project : (options.project ?? defaultWorkspaceRef.current)
@@ -425,7 +408,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       model: resolvedModel,
       thinkingLevel: resolvedThinkingLevel,
       accessMode: agentAccessModeRef.current,
-      harness: resolvedHarness,
       yoloMode: agentAccessModeToYoloMode(agentAccessModeRef.current),
       createAgent,
     })
@@ -464,51 +446,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     pruneIdleTasks(undefined)
     return deferredAgent
   }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, loadCloudModels, pruneIdleTasks, storageRef, agentAccessModeRef])
-
-  const applyDefaultHarnessToBlankSession = useCallback(async (harness?: AgentHarness) => {
-    const currentAgent = agentRef.current
-    const observedRequestId = deferredSessionRequestRef.current
-    const defaultHarness = harness ?? (storageRef.current
-      ? (await loadDefaultOptions(storageRef.current)).harness ?? 'quickforge'
-      : 'quickforge')
-    if (deferredSessionRequestRef.current !== observedRequestId) return false
-    if (!shouldReplaceBlankDeferredSessionHarness({
-      isDeferredSession: currentAgent instanceof DeferredSessionAgent && agentRef.current === currentAgent,
-      isStreaming: currentAgent?.state.isStreaming ?? false,
-      messageCount: currentAgent?.state.messages.length ?? 0,
-      currentScope: currentChatScopeRef.current,
-      targetScope: 'global',
-      currentHarness: currentAgent?.harness ?? 'quickforge',
-      defaultHarness,
-    })) return false
-
-    const expectedAgent = currentAgent
-    const requestId = deferredSessionRequestRef.current + 1
-    await startDeferredSession({
-      scope: 'global',
-      harness: defaultHarness,
-      shouldAttachToView: () => {
-        const latestAgent = agentRef.current
-        return latestAgent === expectedAgent
-          && latestAgent instanceof DeferredSessionAgent
-          && !latestAgent.state.isStreaming
-          && latestAgent.state.messages.length === 0
-          && currentChatScopeRef.current === 'global'
-      },
-    })
-    return deferredSessionRequestRef.current === requestId && agentRef.current !== expectedAgent
-  }, [agentRef, currentChatScopeRef, startDeferredSession, storageRef])
-
-  useEffect(() => {
-    const handleDefaultHarnessChanged = (event: Event) => {
-      const detail = (event as CustomEvent<{ harness?: AgentHarness }>).detail
-      void applyDefaultHarnessToBlankSession(detail?.harness).catch((error) => {
-        logger.error('Failed to apply the default Harness to the blank chat:', error)
-      })
-    }
-    window.addEventListener(DEFAULT_HARNESS_CHANGED_EVENT, handleDefaultHarnessChanged)
-    return () => window.removeEventListener(DEFAULT_HARNESS_CHANGED_EVENT, handleDefaultHarnessChanged)
-  }, [applyDefaultHarnessToBlankSession])
 
   // --- Load a persisted session ---
   const performLoadSession = useCallback(
@@ -741,7 +678,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
 
     createAgent,
     startDeferredSession,
-    applyDefaultHarnessToBlankSession,
     loadSession,
     syncSessionUI,
     setChatPanelRevision,

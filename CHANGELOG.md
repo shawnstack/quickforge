@@ -2,6 +2,17 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [Unreleased]
+
+### Removed
+
+- Removed the OpenCode ACP harness runtime and the harness concept entirely: sessions no longer carry a harness choice, the default Harness selector is gone from settings, the `harness/config-option`, `harness/mode`, and whole-session fork routes are deleted, and the OpenCode config/mode menus and runtime usage badge no longer render.
+- Removed OpenCode-specific front-end handling: the OpenCode placeholder model for new sessions, `opencode_tool`/`todowrite` history rendering, and the OpenCode capability overrides in the chat capability table.
+
+### Breaking Changes
+
+- Existing OpenCode sessions degrade to QuickForge sessions on restore with no forward compatibility; persisted `harness`, `harnessSessionId`, and `openCodeUsage` fields are dropped. `.opencode/` directory ecosystem compatibility (skills, commands, AGENTS.md discovery) and QuickForge's own ACP Agent capability (`@agentclientprotocol/sdk`, `server/acp/`) are kept.
+
 ## [2.0.0] - 2026-09-09
 
 ### Added

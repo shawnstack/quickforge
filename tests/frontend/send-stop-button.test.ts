@@ -24,7 +24,7 @@ class FakeClassList {
   contains(name: string) { return this.names.has(name) }
 }
 
-function createHarness() {
+function createEnv() {
   const listeners: Array<{ type: string; handler: unknown; capture: boolean }> = []
   const attributes: Record<string, string> = {}
   const button = {
@@ -69,23 +69,23 @@ function createHarness() {
 
 describe('syncSendStopButton', () => {
   it('renders the waiting ring while streaming without assistant output', () => {
-    const harness = createHarness()
+    const env = createEnv()
 
     // Seed the send-state marker so the stop branch runs against a "was send" button.
-    harness.button.dataset.quickforgeSendIcon = 'arrow-up'
-    harness.sync({ isStreaming: true, isWaiting: () => true })
+    env.button.dataset.quickforgeSendIcon = 'arrow-up'
+    env.sync({ isStreaming: true, isWaiting: () => true })
 
-    expect(harness.button.classList.contains('quickforge-stop-button')).toBe(true)
-    expect(harness.button.classList.contains('quickforge-stop-button--waiting')).toBe(true)
-    expect(harness.button.classList.contains('quickforge-send-button')).toBe(false)
-    expect(harness.button.disabled).toBe(false)
-    expect(harness.button.title).toBe('Stop')
-    expect(harness.attributes['aria-label']).toBe('Stop')
+    expect(env.button.classList.contains('quickforge-stop-button')).toBe(true)
+    expect(env.button.classList.contains('quickforge-stop-button--waiting')).toBe(true)
+    expect(env.button.classList.contains('quickforge-send-button')).toBe(false)
+    expect(env.button.disabled).toBe(false)
+    expect(env.button.title).toBe('Stop')
+    expect(env.attributes['aria-label']).toBe('Stop')
 
     // Stop handler is wired in the capture phase on both pointerdown and click.
-    const captureListeners = harness.listeners.filter((entry) => entry.capture)
+    const captureListeners = env.listeners.filter((entry) => entry.capture)
     expect(captureListeners.map((entry) => entry.type).sort()).toEqual(['click', 'pointerdown'])
-    const handler = harness.button.__quickforgeStopHandler
+    const handler = env.button.__quickforgeStopHandler
     expect(handler).toBeTypeOf('function')
     const stopEvent = {
       preventDefault: vi.fn(),
@@ -93,45 +93,45 @@ describe('syncSendStopButton', () => {
       stopImmediatePropagation: vi.fn(),
     } as unknown as Event
     handler?.(stopEvent)
-    expect(harness.abort).toHaveBeenCalledTimes(1)
+    expect(env.abort).toHaveBeenCalledTimes(1)
   })
 
   it('leaves the waiting class off once assistant output started', () => {
-    const harness = createHarness()
-    harness.sync({ isStreaming: true, isWaiting: () => false })
+    const env = createEnv()
+    env.sync({ isStreaming: true, isWaiting: () => false })
 
-    expect(harness.button.classList.contains('quickforge-stop-button')).toBe(true)
-    expect(harness.button.classList.contains('quickforge-stop-button--waiting')).toBe(false)
+    expect(env.button.classList.contains('quickforge-stop-button')).toBe(true)
+    expect(env.button.classList.contains('quickforge-stop-button--waiting')).toBe(false)
   })
 
   it('defaults to not waiting when isWaiting is not provided', () => {
-    const harness = createHarness()
-    harness.sync({ isStreaming: true })
+    const env = createEnv()
+    env.sync({ isStreaming: true })
 
-    expect(harness.button.classList.contains('quickforge-stop-button--waiting')).toBe(false)
+    expect(env.button.classList.contains('quickforge-stop-button--waiting')).toBe(false)
   })
 
   it('clears the waiting ring when the first assistant delta arrives', () => {
-    const harness = createHarness()
-    harness.sync({ isStreaming: true, isWaiting: () => true })
-    expect(harness.button.classList.contains('quickforge-stop-button--waiting')).toBe(true)
+    const env = createEnv()
+    env.sync({ isStreaming: true, isWaiting: () => true })
+    expect(env.button.classList.contains('quickforge-stop-button--waiting')).toBe(true)
 
-    harness.sync({ isStreaming: true, isWaiting: () => false })
-    expect(harness.button.classList.contains('quickforge-stop-button--waiting')).toBe(false)
-    expect(harness.button.classList.contains('quickforge-stop-button')).toBe(true)
+    env.sync({ isStreaming: true, isWaiting: () => false })
+    expect(env.button.classList.contains('quickforge-stop-button--waiting')).toBe(false)
+    expect(env.button.classList.contains('quickforge-stop-button')).toBe(true)
   })
 
   it('restores the send button (and drops the waiting ring) when streaming ends', () => {
-    const harness = createHarness()
-    harness.sync({ isStreaming: true, isWaiting: () => true })
+    const env = createEnv()
+    env.sync({ isStreaming: true, isWaiting: () => true })
 
-    harness.sync({ isStreaming: false, isWaiting: () => true })
+    env.sync({ isStreaming: false, isWaiting: () => true })
 
-    expect(harness.button.classList.contains('quickforge-stop-button')).toBe(false)
-    expect(harness.button.classList.contains('quickforge-stop-button--waiting')).toBe(false)
-    expect(harness.button.classList.contains('quickforge-send-button')).toBe(true)
-    expect(harness.button.dataset.quickforgeSendIcon).toBe('arrow-up')
+    expect(env.button.classList.contains('quickforge-stop-button')).toBe(false)
+    expect(env.button.classList.contains('quickforge-stop-button--waiting')).toBe(false)
+    expect(env.button.classList.contains('quickforge-send-button')).toBe(true)
+    expect(env.button.dataset.quickforgeSendIcon).toBe('arrow-up')
     // Capture-phase stop handlers are removed again.
-    expect(harness.listeners.filter((entry) => entry.capture)).toHaveLength(0)
+    expect(env.listeners.filter((entry) => entry.capture)).toHaveLength(0)
   })
 })

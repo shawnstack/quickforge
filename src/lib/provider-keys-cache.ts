@@ -18,7 +18,7 @@
  * 且缓存为空时不存在跨标签过期窗口。BroadcastChannel 不可用/监听器异常
  * 均静默降级（风格对齐 app-settings-cache）。
  */
-import { getCrossTabSyncSourceId } from '@/lib/default-harness-events'
+import { getCrossTabSyncSourceId } from '@/lib/cross-tab-events'
 
 const SYNC_CHANNEL_NAME = 'quickforge-sync'
 const PROVIDER_KEYS_CHANGED_MESSAGE = 'provider-keys-changed'

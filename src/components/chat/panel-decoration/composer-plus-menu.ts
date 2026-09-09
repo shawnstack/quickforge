@@ -2,7 +2,6 @@ import type { CapabilitySuggestion } from '../capability-suggestions'
 import type { MessageEditorElement } from '../chat-utils'
 import { patchContent } from '../chat-utils'
 import { t } from '@/lib/i18n'
-import { removeOpenCodeModeMenu } from './opencode-mode-menu'
 import {
   attachmentIcon,
   documentPluginIcon,
@@ -122,8 +121,7 @@ function createPlusMenuItem({
 function renderComposerPlusPopover(deps: ComposerPlusMenuDeps, view: 'main' | 'plugins') {
   const { panel, editor, leftControls, selectPluginCapability, removeCommandSuggestions, removeCapabilitySuggestions, removeFileReferenceSuggestions } = deps
   // Composer menus are mutually exclusive: opening the plus popover closes the
-  // OpenCode mode menu so the two can never overlap.
-  removeOpenCodeModeMenu(panel)
+  // others so they can never overlap.
   removeCommandSuggestions()
   removeCapabilitySuggestions()
   removeFileReferenceSuggestions()

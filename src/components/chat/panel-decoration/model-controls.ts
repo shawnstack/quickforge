@@ -4,7 +4,7 @@ export function decorateModelButtonLabel(editor: MessageEditorElement | null, ri
   const modelState = editor as (MessageEditorElement & { currentModel?: { id?: string } }) | null
   const model = modelState?.currentModel
   rightControls.querySelector<HTMLElement>('[data-quickforge-thinking-badge]')?.remove()
-  const modelButton = Array.from(rightControls.querySelectorAll<HTMLButtonElement>('button:not(.quickforge-agent-access-inline):not(.quickforge-yolo-inline):not(.quickforge-plan-inline):not(.quickforge-opencode-mode-inline):not(.quickforge-thinking-inline)'))
+  const modelButton = Array.from(rightControls.querySelectorAll<HTMLButtonElement>('button:not(.quickforge-agent-access-inline):not(.quickforge-yolo-inline):not(.quickforge-plan-inline):not(.quickforge-thinking-inline)'))
     .find((button) => Boolean(model?.id && button.textContent?.includes(model.id)))
   if (!modelButton) return
 

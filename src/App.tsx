@@ -6,7 +6,6 @@ import { createTaskLauncherVisibility } from '@/components/chat/task-launcher-vi
 import {
   Archive,
   ChevronDown,
-  Copy,
   Ellipsis,
   Folder,
   GitBranch,
@@ -44,7 +43,6 @@ import {
 } from '@/lib/subagent-run-detail'
 import type {
   AgentAccessMode,
-  AgentHarness,
   ProjectInfo,
   QuickForgeSessionMetadata,
   RestoredDraft,
@@ -55,7 +53,7 @@ import type {
 import { sessionTitle } from '@/lib/types'
 import { isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '@/components/chat/context-usage'
 import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
-import { FileRollbackDialog } from '@/components/chat/FileRollbackDialog'
+import { TurnRollbackDialog } from '@/components/chat/FileRollbackDialog'
 import { ChatConversationSurface } from '@/components/chat/ChatConversationSurface'
 import { extractLatestTodoWriteSnapshot } from '@/components/chat/panel-decoration'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
@@ -116,13 +114,12 @@ import type { GitStatusResponse, WorkspaceInspectorOpenRequestInput, WorkspaceIn
 import { SideChatAgent } from '@/components/workspace/side-chat-agent'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
-import type { AiTurnArtifact } from '@/lib/tool-artifacts'
+import { turnRollbackKey, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { artifactPreviewMode, collectToolResultToolCallIds, documentFormatFromPath, findBestPreviewableArtifact, isNewlyPresentedArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
 import { RemoteTunnelOverlay } from '@/components/mobile/RemoteTunnelOverlay'
 import { isCloudTunnelClient, isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
 import { initializeSystemNotifications, showTaskSystemNotification } from '@/lib/system-notifications'
-import { resolveChatHarnessCapabilities } from '@/lib/chat-harness-capabilities'
 import {
   shouldClosePinnedSummaryBeforeInspectorOpen,
   shouldSuspendPinnedSummary,
@@ -400,7 +397,6 @@ function MainApp() {
 
   // --- Session list + cross-tab sync ---
   const crossTabRef = useRef<ReturnType<typeof useCrossTabSync> | null>(null)
-  const applyDefaultHarnessRef = useRef<((harness?: AgentHarness) => Promise<boolean>) | null>(null)
 
   const backendRef = useRef<HttpStorageBackend | null>(null)
   const notifySessionsChanged = useCallback(() => crossTabRef.current?.notifySessionsChanged(), [])
@@ -445,12 +441,8 @@ function MainApp() {
     onSessionsChanged: () => { refreshSessions() },
     // 切回窗口/跨标签页通知只走 useProject 的 15s 缓存，避免 visibilitychange 时重复请求 /api/project。
     onProjectsChanged: () => { loadProject() },
-    onSettingsChanged: (settings) => {
+    onSettingsChanged: () => {
       refreshSessions()
-      if (!settings?.defaultHarness) return
-      void applyDefaultHarnessRef.current?.(settings.defaultHarness).catch((error) => {
-        logger.error('Failed to apply the cross-tab default Harness change:', error)
-      })
     },
   })
 
@@ -607,7 +599,6 @@ function MainApp() {
   const {
     createAgent,
     startDeferredSession,
-    applyDefaultHarnessToBlankSession,
     loadSession: loadAgentSession,
     syncSessionUI,
     setCurrentAgentMessages,
@@ -620,10 +611,6 @@ function MainApp() {
     currentSessionIdRef,
     currentChatScopeRef,
   } = agentManager
-
-  useEffect(() => {
-    applyDefaultHarnessRef.current = applyDefaultHarnessToBlankSession
-  }, [applyDefaultHarnessToBlankSession])
 
   useEffect(() => {
     currentToolProjectIdRef.current = agentManager.currentToolProject?.id
@@ -750,9 +737,7 @@ function MainApp() {
   }, [clearSideChat, workspaceInspectorRuntimeScopeId])
 
   useEffect(() => {
-    const model = agentManager.agent?.harness === 'opencode'
-      ? activeModelRef.current
-      : agentManager.agent?.state.model ?? activeModelRef.current
+    const model = agentManager.agent?.state.model ?? activeModelRef.current
     sideChatAgent.setContext({ sessionId: agentManager.currentSessionId, model })
   }, [agentManager.agent, agentManager.chatPanelRevision, agentManager.currentSessionId, sideChatAgent])
 
@@ -963,12 +948,14 @@ function MainApp() {
     }
   }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
 
-  // 文件卡外观/props 链保持不变，点击只打开独立预检弹窗。
-  // 仅完整成功才标记已撤销；新文件产物的重新武装逻辑仍由 onArtifactsChange 负责。
-  const [rolledBackFilesSessionId, setRolledBackFilesSessionId] = useState<string | null>(null)
-  const [fileRollbackTarget, setFileRollbackTarget] = useState<{
-    agent: ServerAgent; sessionId: string; projectId: string
-  } | null>(null)
+  // 每轮产物卡「撤销本轮」：点击只打开独立预检弹窗（按该轮全部 turnId 轮级回滚）。
+  // completed/partial 均算该轮已撤销；轮已结束不会再有新产物，无需据此重新武装
+  // （重试例外：同轮追加新 turnId 后轮键变化，旧键残留无害）。
+  const [rolledBackTurns, setRolledBackTurns] = useState<ReadonlySet<string>>(() => new Set())
+  const [fileRollbackTarget, setFileRollbackTarget] = useState<
+    { agent: ServerAgent; sessionId: string; projectId: string; turnIds: string[] }
+    | null
+  >(null)
   const fileRollbackTargetRef = useRef(fileRollbackTarget)
   const currentRollbackContextRef = useRef({
     agent: agentManager.agent,
@@ -992,12 +979,13 @@ function MainApp() {
     }
   }, [agentManager.agent, agentManager.currentSessionId, agentManager.currentToolProject?.id, closeFileRollback])
 
-  const rollbackFilesFromArtifactCard = useCallback(() => {
+  const rollbackTurnFromArtifactCard = useCallback((turnIds: string[]) => {
     const { agent, sessionId, projectId } = currentRollbackContextRef.current
-    if (!agent || !sessionId || !projectId || agent.sessionId !== sessionId || fileRollbackTargetRef.current) return
+    // 空集合不入口；已有弹窗打开时不重复开。
+    if (!agent || !sessionId || !projectId || agent.sessionId !== sessionId || fileRollbackTargetRef.current || turnIds.length === 0) return
     const serverAgent = agent as ServerAgent
-    if (typeof serverAgent.getFileRollbackPreview !== 'function' || typeof serverAgent.rollbackFiles !== 'function') return
-    const target = { agent: serverAgent, sessionId, projectId }
+    if (typeof serverAgent.getTurnRollbackPreview !== 'function' || typeof serverAgent.rollbackTurn !== 'function') return
+    const target = { agent: serverAgent, sessionId, projectId, turnIds }
     fileRollbackTargetRef.current = target
     setFileRollbackTarget(target)
   }, [])
@@ -1005,7 +993,9 @@ function MainApp() {
     const target = fileRollbackTargetRef.current
     const context = currentRollbackContextRef.current
     if (target && target.agent === context.agent && target.sessionId === context.sessionId && target.projectId === context.projectId) {
-      setRolledBackFilesSessionId(target.sessionId)
+      // completed/partial 均算该轮已撤销（弹窗侧 onCompleted 两种终态都会回调）；
+      // 轮键按弹窗打开时的 turnIds 计算——重试追加新 turnId 后轮键变化，旧键残留无害。
+      setRolledBackTurns((previous) => new Set(previous).add(turnRollbackKey(target.turnIds)))
     }
   }, [])
 
@@ -1251,7 +1241,6 @@ function MainApp() {
     retryFromMessage,
     copyAnswer,
     forkFromMessage,
-    forkCurrentSession,
   } = useChatActions({
     storageRef,
     activeModelRef,
@@ -1678,12 +1667,6 @@ function MainApp() {
     ui.setConversationMenuOpen(false)
     ui.setShareDialogOpen(true)
   }, [ui])
-
-  const currentSessionAgent = agentManager.agent
-  const canForkCurrentSession = currentSessionAgent?.harness === 'opencode'
-    && !currentSessionAgent.state.isStreaming
-    && currentSessionAgent instanceof ServerAgent
-    && Boolean(currentSessionAgent.harnessSessionId)
 
   const handleArchiveCurrentSession = useCallback(() => {
     const sessionId = agentManager.currentSessionId
@@ -2301,20 +2284,6 @@ function MainApp() {
                     <button
                       type="button"
                       role="menuitem"
-                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => {
-                        ui.setConversationMenuOpen(false)
-                        void forkCurrentSession()
-                      }}
-                      disabled={!canForkCurrentSession}
-                      title={t('forkCurrentSessionTitle')}
-                    >
-                      <Copy className="size-[18px]" />
-                      <span>{t('forkCurrentSession')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
                       className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
                       onClick={handleRenameCurrentSession}
                     >
@@ -2396,13 +2365,11 @@ function MainApp() {
                       onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
                       onOpenLocalFilePath={openLocalFilePathFromChat}
                       onOpenFilePreview={openFilePreviewFromArtifactCard}
-                      onRollbackFiles={rollbackFilesFromArtifactCard}
-                      fileChangesRolledBack={rolledBackFilesSessionId !== null
-                        && rolledBackFilesSessionId === agentManager.currentSessionId}
+                      onRollbackTurn={rollbackTurnFromArtifactCard}
+                      rolledBackTurns={rolledBackTurns}
                       onReviewFileChanges={reviewFileChangesFromArtifactCard}
                       onRevealFile={revealFileFromArtifactCard}
                       onArtifactsChange={(artifacts) => {
-                        setRolledBackFilesSessionId(null)
                         setCurrentSessionArtifactsState({
                           projectId: agentManager.currentToolProject?.id,
                           sessionId: agentManager.currentSessionId,
@@ -2412,10 +2379,6 @@ function MainApp() {
                       onContextUsageDisplayChange={handleContextUsageDisplayChange}
                       onInitialRenderReady={handleSessionInitialRenderReady}
                       onInitialRenderError={handleSessionInitialRenderError}
-                      capabilities={resolveChatHarnessCapabilities(agentManager.agent?.harness)}
-                      disableFork={agentManager.agent?.harness === 'opencode'}
-                      bypassClientApiKeyCheck={agentManager.agent?.harness === 'opencode'}
-                      allowModelControls={agentManager.agent?.harness !== 'opencode'}
                       restoredDraft={restoredDraft}
                       onRestoredDraftConsumed={consumeRestoredDraft}
                       newChatEmptyState={showNewChatEmptyState}
@@ -2522,7 +2485,7 @@ function MainApp() {
     {fileRollbackTarget && fileRollbackTarget.agent === agentManager.agent
       && fileRollbackTarget.sessionId === agentManager.currentSessionId
       && fileRollbackTarget.projectId === agentManager.currentToolProject?.id ? (
-        <FileRollbackDialog client={fileRollbackTarget.agent} onClose={closeFileRollback} onCompleted={completeFileRollback} />
+        <TurnRollbackDialog client={fileRollbackTarget.agent} turnIds={fileRollbackTarget.turnIds} onClose={closeFileRollback} onCompleted={completeFileRollback} />
       ) : null}
     {!startupSplashExited ? <StartupSplash exiting /> : null}
     <ProjectDirectoryPicker

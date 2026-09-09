@@ -10,7 +10,7 @@ export const agentSessions = new Map()
  * in-flight Promise。注释原文见 agent-manager.mjs（防并发重复 createAgent 泄漏）：
  * to restoreAgent; without dedupe each raced through createAgent and the last
  * agentSessions.set overwrote the others, leaking the overwritten sessions
- * (listeners, idle/persist timers, OpenCode child processes) forever.
+ * (listeners, idle/persist timers) forever.
  */
 export const pendingRestores = new Map()
 

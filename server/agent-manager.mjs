@@ -6,7 +6,6 @@ import { loadSkillToolContext, abortRunningCommand } from './tools/index.mjs'
 import { createSkillTools, globalMemoryTool, workspaceTools } from './tools/definitions.mjs'
 import { createMcpToolDefinitions, isMcpToolName, subscribeMcpToolsetChanged } from './mcp/registry.mjs'
 import { createPluginToolDefinitions, isPluginToolName } from './plugins/registry.mjs'
-import { createOpenCodeAcpAgent } from './opencode-acp-agent.mjs'
 import { agentProfileSnapshot } from './agent-profiles.mjs'
 import { modelBindingFromModel, resolveImplicitModelPreference, resolveModelBinding } from './model-catalog.mjs'
 import {
@@ -66,7 +65,6 @@ import {
   takeStashedSubagentErrorDetails,
 } from './agent-session-store.mjs'
 
-export { normalizeAgentHarness, validateAgentHarness } from './agent-harness.mjs'
 import { runSubagent } from './agent-subagent-runner.mjs'
 import {
   persistSession,
@@ -80,21 +78,31 @@ export { persistSessionState } from './agent-persistence.mjs'
 import {
   createApprovalPromise,
   createAskUserPromise,
-  createAcpApprovalPromise,
   createAutoCompactApprovalPromise,
 } from './agent-approval-orchestrator.mjs'
 import { resolveCommandState } from './agent-prompt-commands.mjs'
 import { resetSessionCompaction, summarySession, compactSession, clearSession } from './agent-compaction.mjs'
-import {
-  AGENT_ACCESS_MODE_DEFAULT,
-  AGENT_ACCESS_MODE_FULL_ACCESS,
-  AGENT_HARNESS_QUICKFORGE,
-  AGENT_HARNESS_OPENCODE,
-  normalizeAgentHarness,
-  normalizeAccessMode,
-  yoloModeFromAccessMode,
-  hasFullAccess,
-} from './agent-harness.mjs'
+
+// 访问模式常量与归一化 helper（原独立常量模块随外部运行时接入的删除一并收回至此）。
+const AGENT_ACCESS_MODE_DEFAULT = 'default'
+const AGENT_ACCESS_MODE_FULL_ACCESS = 'full-access'
+
+function normalizeAccessMode(value, fallback = AGENT_ACCESS_MODE_DEFAULT) {
+  if (value === AGENT_ACCESS_MODE_DEFAULT || value === AGENT_ACCESS_MODE_FULL_ACCESS) return value
+  if (value === true || value === 'true') return AGENT_ACCESS_MODE_FULL_ACCESS
+  if (value === false || value === 'false') return AGENT_ACCESS_MODE_DEFAULT
+  if (fallback !== value) return normalizeAccessMode(fallback, AGENT_ACCESS_MODE_DEFAULT)
+  return AGENT_ACCESS_MODE_DEFAULT
+}
+
+function yoloModeFromAccessMode(accessMode) {
+  return normalizeAccessMode(accessMode) === AGENT_ACCESS_MODE_FULL_ACCESS
+}
+
+// 内部共享导出（agent-subagent-runner 临时 subagent 能力策略检查使用）
+export function hasFullAccess(session) {
+  return normalizeAccessMode(session?.accessMode, session?.yoloMode) === AGENT_ACCESS_MODE_FULL_ACCESS
+}
 
 import {
   agentEvents,
@@ -121,6 +129,18 @@ export {
 // ---------------------------------------------------------------------------
 // Tool definitions (server-side, no REST roundtrip)
 // ---------------------------------------------------------------------------
+
+// One user-triggered main run (runPrompt) or retry run (continueSession)
+// defines one rollback turn. Every journaled write during the run (including
+// subagent writes attributed to the parent session) carries the id via the
+// tool context; it is cleared when the run ends. A retry generates its own
+// id: the frontend rolls a turn back by the group of ids that share one user
+// message. Runtime-only on purpose: it must never leak into the persisted
+// session state.
+const sessionTurnIds = new Map()
+export function currentSessionTurnId(sessionId) {
+  return sessionTurnIds.get(sessionId) || null
+}
 
 function wrapSubagentToolDefinition(definition, parentSessionId) {
   return {
@@ -168,6 +188,20 @@ function wrapWorkspaceToolDefinition(definition, context, toolPermissions, optio
   return wrapToolDefinition(definition, context, toolPermissions)
 }
 
+// 内部共享导出：给 toolContext 装「活」的 turnId 访问器，供测试做行为断言。
+// 注意不能用对象展开 `...{ get turnId() {...} }`——展开会立即求值 getter
+// 并把结果固化成普通属性，使每会话构建一次的 toolContext 永久停在构建时的
+// turnId（主 Agent 路径恒为 null，轮级撤销因此不可见）。
+export function attachTurnIdGetter(context, getTurnId) {
+  if (!getTurnId) return context
+  Object.defineProperty(context, 'turnId', {
+    get: () => getTurnId() || null,
+    enumerable: true,
+    configurable: true,
+  })
+  return context
+}
+
 // 内部共享导出（模块拆分临时暴露给 agent-subagent-runner，工具构建块迁移后收回）
 export async function createServerTools(projectId, projectContext, skillsContext, includeWorkspaceTools, toolPermissions, options = {}) {
   const {
@@ -180,6 +214,7 @@ export async function createServerTools(projectId, projectContext, skillsContext
     parentSessionId = null,
     sessionId = null,
     scope = 'global',
+    getTurnId = null,
   } = options
   const allowedTools = allowedToolNames ? new Set(allowedToolNames) : null
   const isAllowed = (definition) => !allowedTools || allowedTools.has(definition.name)
@@ -201,6 +236,9 @@ export async function createServerTools(projectId, projectContext, skillsContext
     ...skillToolContext,
     ...(sessionId ? { sessionId, scope, projectId } : {}),
   }
+  // Live view of the session's current turn: the context object is built
+  // once per session, while the turn changes on every runPrompt run.
+  attachTurnIdGetter(toolContext, getTurnId)
   const tools = skillTools
     .filter(isAllowed)
     .map((definition) => wrapToolDefinition(definition, toolContext, toolPermissions))
@@ -230,10 +268,6 @@ export async function createServerTools(projectId, projectContext, skillsContext
 }
 
 async function rebuildSessionTools(session) {
-  if (session.harness === AGENT_HARNESS_OPENCODE) {
-    session.agent.state.tools = []
-    return
-  }
   const profileToolNames = Array.isArray(session.agentProfile?.allowedTools) ? session.agentProfile.allowedTools : null
   session.agent.state.tools = await createServerTools(
     session.projectId,
@@ -249,11 +283,13 @@ async function rebuildSessionTools(session) {
           parentSessionId: session.sessionId,
           sessionId: session.sessionId,
           scope: session.scope,
+          getTurnId: () => currentSessionTurnId(session.sessionId),
         }
       : {
           parentSessionId: session.sessionId,
           sessionId: session.sessionId,
           scope: session.scope,
+          getTurnId: () => currentSessionTurnId(session.sessionId),
         },
   )
 }
@@ -262,9 +298,9 @@ async function rebuildSessionTools(session) {
 // Agent Manager
 // ---------------------------------------------------------------------------
 
-// Harness/访问模式常量与归一化 helper 已迁至 agent-harness.mjs
+// 访问模式常量与归一化 helper 见文件顶部
 // 斜杠命令状态解析与内置命令 prompt 模板已迁至 agent-prompt-commands.mjs
-// 审批 / ask_user / ACP / 自动压缩审批 Promise 编排已迁至 agent-approval-orchestrator.mjs
+// 审批 / ask_user / 自动压缩审批 Promise 编排已迁至 agent-approval-orchestrator.mjs
 // /summary、/compact、/clear 会话压缩业务已迁至 agent-compaction.mjs
 // run_subagent 生命周期与 SUBAGENT_* 常量已迁至 agent-subagent-runner.mjs
 // 会话持久化已迁至 agent-persistence.mjs（persistSessionState 为公共 API 经 facade re-export）
@@ -489,10 +525,6 @@ export async function createAgent(sessionId, config = {}) {
     createdAt = new Date().toISOString(),
     lastModified = null,
     contextCompaction = null,
-    harness: rawHarness,
-    harnessSessionId = null,
-    sourceHarnessSessionId = null,
-    openCodeUsage = null,
     agentProfile = null,
     idleRetention = null,
     stateVersion = 0,
@@ -500,7 +532,6 @@ export async function createAgent(sessionId, config = {}) {
   } = config
   const accessMode = normalizeAccessMode(rawAccessMode, yoloMode)
   const resolvedYoloMode = yoloModeFromAccessMode(accessMode)
-  const harness = normalizeAgentHarness(rawHarness)
   // 'cached' (restore path) builds MCP tools from the current connection
   // snapshot without waiting for (re)connects; the background refresh and
   // toolset-change subscription converge active sessions afterwards.
@@ -519,8 +550,8 @@ export async function createAgent(sessionId, config = {}) {
   }
   projectContext ??= defaultGlobalWorkspaceContext()
 
-  // Build system prompt and tools only for the native QuickForge runtime.
-  const projectConfig = harness === AGENT_HARNESS_QUICKFORGE ? await readProjectConfig() : { projects: [], globalSkills: [] }
+  // Build system prompt and tools for the native QuickForge runtime.
+  const projectConfig = await readProjectConfig()
   const configuredProject = projectId
     ? projectConfig.projects.find((project) => project.id === projectId)
     : null
@@ -529,20 +560,13 @@ export async function createAgent(sessionId, config = {}) {
     projectSkillNames: configuredProject?.skills,
   }
   const profileSystemPrompt = agentProfileSystemPrompt(agentProfile)
-  const resolvedSystemPrompt = harness === AGENT_HARNESS_QUICKFORGE
-    ? systemPrompt ?? `${await buildSystemPrompt(projectId)}${profileSystemPrompt}`
-    : ''
-  if (harness === AGENT_HARNESS_OPENCODE && messages.length > 0 && !harnessSessionId && !sourceHarnessSessionId) {
-    throw Object.assign(new Error('OpenCode history requires a persisted ACP session ID or an ACP fork source.'), { statusCode: 400 })
-  }
+  const resolvedSystemPrompt = systemPrompt ?? `${await buildSystemPrompt(projectId)}${profileSystemPrompt}`
 
   let resolvedAgentProfile = agentProfile
 
-  // OpenCode owns its login, model, tools and context. QuickForge runtime keeps
-  // the existing model resolution path unchanged.
   let resolvedModel = model
   let resolvedModelRef = modelRef
-  if (!resolvedModel && harness === AGENT_HARNESS_QUICKFORGE) {
+  if (!resolvedModel) {
     // Try to load the active preference from storage. A stale/hidden implicit
     // preference may fall back, while an explicit session binding never does.
     try {
@@ -563,7 +587,7 @@ export async function createAgent(sessionId, config = {}) {
     }
   }
   if (resolvedAgentProfile && !resolvedModel) throw new Error('No active model is configured for the agent session.')
-  const resolvedBinding = harness === AGENT_HARNESS_QUICKFORGE && resolvedModel
+  const resolvedBinding = resolvedModel
     ? (resolvedModelRef
         ? { model: resolvedModel, modelRef: resolvedModelRef }
         : model
@@ -575,38 +599,40 @@ export async function createAgent(sessionId, config = {}) {
     ? resolveAgentProfileThinkingLevel(agentProfile, thinkingLevel, resolvedModel)
     : thinkingLevel
 
-  // Build native tools only for QuickForge. OpenCode uses its own tools and
-  // must not receive QuickForge MCP, Skills, Memory or workspace definitions.
+  // Build the native QuickForge tool set (MCP, Skills, Memory, workspace).
   const profileToolNames = Array.isArray(agentProfile?.allowedTools) ? agentProfile.allowedTools : null
-  const tools = harness === AGENT_HARNESS_QUICKFORGE
-    ? await createServerTools(
-        projectId,
-        projectContext,
-        skillsContext,
-        !!projectContext,
-        (toolName) => {
-          if (profileToolNames && !profileToolNames.includes(toolName)) return `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.`
-          const session = agentSessions.get(sessionId)
-          return session ? createCommandToolPermissions(session)(toolName) : null
+  const tools = await createServerTools(
+    projectId,
+    projectContext,
+    skillsContext,
+    !!projectContext,
+    (toolName) => {
+      if (profileToolNames && !profileToolNames.includes(toolName)) return `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.`
+      const session = agentSessions.get(sessionId)
+      return session ? createCommandToolPermissions(session)(toolName) : null
+    },
+    agentProfile
+      ? {
+          allowedToolNames: profileToolNames,
+          includeSubagentTool: false,
+          includeMcpTools: false,
+          mcpWaitForConnections,
+          parentSessionId: sessionId,
+          sessionId,
+          scope,
+          // Same live turn view as rebuildSessionTools: without this the
+          // session-created tool context has no turnId getter and every
+          // journaled write stays unattributed (turnId null).
+          getTurnId: () => currentSessionTurnId(sessionId),
+        }
+      : {
+          mcpWaitForConnections,
+          parentSessionId: sessionId,
+          sessionId,
+          scope,
+          getTurnId: () => currentSessionTurnId(sessionId),
         },
-        agentProfile
-          ? {
-              allowedToolNames: profileToolNames,
-              includeSubagentTool: false,
-              includeMcpTools: false,
-              mcpWaitForConnections,
-              parentSessionId: sessionId,
-              sessionId,
-              scope,
-            }
-          : {
-              mcpWaitForConnections,
-              parentSessionId: sessionId,
-              sessionId,
-              scope,
-            },
-      )
-    : []
+  )
 
   // Resolve API key
   const getApiKey = async (provider) => {
@@ -618,21 +644,10 @@ export async function createAgent(sessionId, config = {}) {
     }
   }
 
-  const initialMemoryEnabled = harness === AGENT_HARNESS_QUICKFORGE ? await isGlobalMemoryEnabled() : false
+  const initialMemoryEnabled = await isGlobalMemoryEnabled()
   const initialMemoryRevision = initialMemoryEnabled ? await getGlobalMemoryRevision() : null
   let session
-  const agent = harness === AGENT_HARNESS_OPENCODE
-    ? await createOpenCodeAcpAgent({
-        sessionId,
-        cwd: projectContext.workspaceRoot,
-        messages,
-        harnessSessionId,
-        sourceHarnessSessionId,
-        restoredUsage: openCodeUsage,
-        logger,
-        requestPermission: (request) => createAcpApprovalPromise(session, request),
-      })
-    : new Agent({
+  const agent = new Agent({
     initialState: {
       systemPrompt: resolvedSystemPrompt,
       model: resolvedModel,
@@ -698,8 +713,6 @@ export async function createAgent(sessionId, config = {}) {
   session = {
     sessionId,
     agent,
-    harness,
-    harnessSessionId: agent.harnessSessionId || null,
     projectContext,
     projectId,
     source: typeof source === 'string' && source.trim() ? source.trim() : null,
@@ -815,12 +828,6 @@ export async function createAgent(sessionId, config = {}) {
       emitSessionEvent(session, forwardEvent)
     }
 
-    // OpenCode runtime usage snapshots are authoritative and lightweight; the
-    // debounced write keeps the latest usage durable without blocking the run.
-    if (event.type === 'acp_session_usage_update') {
-      scheduleSessionPersist(session)
-    }
-
     // Track status
     if (event.type === 'agent_start') {
       session.abortEndEmitted = false
@@ -838,6 +845,7 @@ export async function createAgent(sessionId, config = {}) {
     }
 
     if (event.type === 'agent_end') {
+      sessionTurnIds.delete(sessionId)
       session.abortPending = false
       session.abortEndEmitted = false
       session.status = eventEndStatus || (session.agent.state.errorMessage ? 'error' : 'idle')
@@ -865,7 +873,7 @@ export async function createAgent(sessionId, config = {}) {
               session.sessionCreatedEmitted = true
               emitSessionEvent(session, { type: 'session_created', metadata })
             }
-            if (session.harness === AGENT_HARNESS_QUICKFORGE) scheduleSessionTitleGeneration(session, event.message)
+            scheduleSessionTitleGeneration(session, event.message)
           }
         } catch (err) {
           logger.error(`Failed to persist user message for session ${sessionId}:`, err, { sessionId })
@@ -912,9 +920,6 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
       statusCode: 409,
       errorCode: 'GENERATION_STILL_RUNNING_BEFORE_ROLLBACK',
     })
-  }
-  if (session.harness === AGENT_HARNESS_OPENCODE) {
-    throw Object.assign(new Error('OpenCode does not support rollback from a message position. This action is unavailable for OpenCode conversations.'), { statusCode: 409 })
   }
 
   const messages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []
@@ -1033,18 +1038,12 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   )
 
   if (modelAccessContext) session.modelAccessContext = modelAccessContext
-  if (session.harness === AGENT_HARNESS_QUICKFORGE) await refreshSessionModelBinding(session)
-  if (session.harness === AGENT_HARNESS_QUICKFORGE) await refreshMemoryState(session)
+  await refreshSessionModelBinding(session)
+  await refreshMemoryState(session)
   resetIdleTimer(session)
 
-  const commandState = session.harness === AGENT_HARNESS_QUICKFORGE
-    ? await resolveCommandState(session, canonicalInitialUserMessage, promptCommand)
-    : { userMessage: canonicalInitialUserMessage }
+  const commandState = await resolveCommandState(session, canonicalInitialUserMessage, promptCommand)
   const resolvedUserMessage = commandState.userMessage ?? canonicalInitialUserMessage
-
-  if (session.harness === AGENT_HARNESS_OPENCODE) {
-    session.agent.validatePrompt(resolvedUserMessage)
-  }
 
   if (commandState.textResponse) {
     session.agent.state.messages = [
@@ -1071,9 +1070,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     return compactSession(session, canonicalInitialUserMessage, commandState.compact)
   }
 
-  const userMessage = session.harness === AGENT_HARNESS_QUICKFORGE
-    ? prepareCloudUserMessage(session, resolvedUserMessage)
-    : resolvedUserMessage
+  const userMessage = prepareCloudUserMessage(session, resolvedUserMessage)
 
   // Set a meaningful fallback immediately. The AI title request starts only
   // after the first user message has been persisted by the message_end handler.
@@ -1095,10 +1092,15 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     referencePrompt,
   ].filter(Boolean).join('\n\n') || null
 
+  // A user-triggered main run defines exactly one rollback turn: journaled
+  // writes during this run (including subagent writes attributed here) share
+  // its id. Synthetic paths above (command text responses, /clear, summary,
+  // compaction) return earlier and stay unattributed.
+  sessionTurnIds.set(sessionId, randomUUID())
+
   // Fire and forget — events come through eventBus
   session.agent.prompt(userMessage).catch((err) => {
     logger.error(`Agent prompt error for session ${sessionId}:`, err, { sessionId })
-    if (session.harness === AGENT_HARNESS_OPENCODE) return
     const errorMessage = err.message || 'Unknown error'
     // Surface the failure at the end of the conversation itself so the user
     // sees the reason in the transcript, not only via toast/notification.
@@ -1119,6 +1121,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
       logger.error(`Failed to persist session ${sessionId} after prompt error:`, persistErr, { sessionId }),
     )
   }).finally(() => {
+    sessionTurnIds.delete(sessionId)
     session.activeCommandName = null
     session.activeCommandPermissions = null
     session.activeCommandPrompt = null
@@ -1147,9 +1150,6 @@ export async function continueSession(sessionId, modelAccessContext = null) {
       statusCode: 409,
       errorCode: 'GENERATION_ALREADY_RUNNING',
     })
-  }
-  if (session.harness === AGENT_HARNESS_OPENCODE) {
-    throw Object.assign(new Error('OpenCode does not support retry from a message position. This action is unavailable for OpenCode conversations.'), { statusCode: 409 })
   }
   if (modelAccessContext) session.modelAccessContext = modelAccessContext
   await refreshSessionModelBinding(session)
@@ -1198,10 +1198,15 @@ export async function continueSession(sessionId, modelAccessContext = null) {
   session.activeCapabilityPrompt = selectedCapabilityPrompt(canonicalSelectedCapabilities)
   session.activeTransientContextPrompt = contextReferencesPrompt(canonicalContextReferences)
 
+  // Same attribution rule as runPrompt: a retry run is one rollback turn of
+  // its own (the frontend groups it with the original run's turn id).
+  sessionTurnIds.set(sessionId, randomUUID())
+
   session.agent.continue().catch((err) => {
     logger.error(`Agent continue error for session ${sessionId}:`, err, { sessionId })
     emitSessionEvent(session, { type: 'error', error: err.message || 'Unknown error' })
   }).finally(() => {
+    sessionTurnIds.delete(sessionId)
     session.activeCommandName = null
     session.activeCommandPermissions = null
     session.activeCommandPrompt = null
@@ -1372,8 +1377,6 @@ export function getSessionState(sessionId) {
     source: session.source || undefined,
     channelId: session.channelId || undefined,
     channelName: session.channelName || undefined,
-    harness: session.harness,
-    harnessSessionId: session.agent.harnessSessionId || session.harnessSessionId || undefined,
     accessMode: session.accessMode,
     yoloMode: session.yoloMode,
     systemPrompt: session.agent.state.systemPrompt,
@@ -1397,7 +1400,6 @@ export function getSessionState(sessionId) {
     pendingToolApproval: getPendingApprovalForSession(session.sessionId),
     pendingAutoCompactApproval: getPendingAutoCompactApprovalForSession(session.sessionId),
     pendingAsk: getPendingAskForSession(session.sessionId),
-    acpSession: session.harness === AGENT_HARNESS_OPENCODE ? session.agent.state.acpSession : undefined,
     isStreaming: session.abortPending ? false : session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
     persistDegraded: session.persistDegraded ? true : undefined,
@@ -1427,8 +1429,6 @@ export function getSessionStatus(sessionId) {
     sessionId: session.sessionId,
     scope: session.scope,
     projectId: session.projectId,
-    harness: session.harness,
-    harnessSessionId: session.agent.harnessSessionId || session.harnessSessionId || undefined,
     source: session.source || undefined,
     channelId: session.channelId || undefined,
     channelName: session.channelName || undefined,
@@ -1501,7 +1501,6 @@ export async function destroyAgent(sessionId) {
 
   try {
     session.agent.abort()
-    if (session.harness === AGENT_HARNESS_OPENCODE) await session.agent.dispose?.()
   } catch {
     // ignore
   }
@@ -1529,7 +1528,7 @@ export async function destroyAgent(sessionId) {
 // (POST /restore, GET /state, GET /messages, GET /status, SSE) all fall back
 // to restoreAgent; without dedupe each raced through createAgent and the last
 // agentSessions.set overwrote the others, leaking the overwritten sessions
-// (listeners, idle/persist timers, OpenCode child processes) forever.
+// (listeners, idle/persist timers) forever.
 // （pendingRestores 已收口至 agent-session-store.mjs）
 
 /**
@@ -1590,9 +1589,6 @@ async function restoreAgentUnlocked(sessionId) {
       createdAt: sessionData.createdAt,
       lastModified: sessionData.lastModified,
       contextCompaction: sessionData.contextCompaction || null,
-      harness: normalizeAgentHarness(sessionData.harness),
-      harnessSessionId: typeof sessionData.harnessSessionId === 'string' ? sessionData.harnessSessionId : null,
-      openCodeUsage: sessionData.openCodeUsage || null,
       idleRetention: sessionData.idleRetention || null,
       stateVersion: sessionData.stateVersion,
       persistedStateVersion: sessionData.stateVersion,
@@ -1604,7 +1600,7 @@ async function restoreAgentUnlocked(sessionId) {
     })
   } catch (err) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })
-    if (err?.statusCode === 503 || err?.errorCode === 'OPENCODE_UNAVAILABLE') throw err
+    if (err?.statusCode === 503) throw err
     return null
   }
 }
@@ -1698,8 +1694,6 @@ export function listSessions() {
       scope: session.scope,
       status: session.status,
       title: session.title,
-      harness: session.harness,
-      harnessSessionId: session.agent.harnessSessionId || session.harnessSessionId || undefined,
       source: session.source || undefined,
       channelId: session.channelId || undefined,
       channelName: session.channelName || undefined,
@@ -1740,15 +1734,13 @@ subscribeMcpToolsetChanged(() => {
 })
 
 /**
- * Refresh the model binding of every active QuickForge session after model
- * configuration changes (custom providers, maxTokens, ...). OpenCode owns its
- * model selection and streaming sessions are skipped (runPrompt re-resolves
- * the binding on the next message). Only sessions whose model actually
- * changed get a state event.
+ * Refresh the model binding of every active session after model
+ * configuration changes (custom providers, maxTokens, ...). Streaming sessions
+ * are skipped (runPrompt re-resolves the binding on the next message). Only
+ * sessions whose model actually changed get a state event.
  */
 export async function refreshAllSessionModels() {
   for (const [sessionId, session] of agentSessions) {
-    if (session.harness !== AGENT_HARNESS_QUICKFORGE) continue
     if (session.agent?.state?.isStreaming) continue
     try {
       const before = JSON.stringify(session.model ?? null)
@@ -1796,7 +1788,7 @@ export async function updateSessionAccessMode(sessionId, accessMode) {
 
   session.accessMode = normalizeAccessMode(accessMode, session.accessMode)
   session.yoloMode = yoloModeFromAccessMode(session.accessMode)
-  if (session.harness === AGENT_HARNESS_QUICKFORGE) await rebuildSessionTools(session)
+  await rebuildSessionTools(session)
   await persistSession(session)
 
   const state = getSessionState(sessionId)
@@ -1809,100 +1801,6 @@ export async function updateSessionYoloMode(sessionId, yoloMode) {
   return updateSessionAccessMode(sessionId, yoloMode ? AGENT_ACCESS_MODE_FULL_ACCESS : AGENT_ACCESS_MODE_DEFAULT)
 }
 
-function requireOpenCodeHarnessSession(sessionId) {
-  const session = agentSessions.get(sessionId)
-  if (!session) throw Object.assign(new Error('Session not found'), { statusCode: 404 })
-  if (session.harness !== AGENT_HARNESS_OPENCODE) {
-    throw Object.assign(new Error('Harness configuration is only available for OpenCode sessions.'), { statusCode: 409 })
-  }
-  return session
-}
-
-export async function updateSessionHarnessConfigOption(sessionId, configId, value) {
-  const session = requireOpenCodeHarnessSession(sessionId)
-  await session.agent.setConfigOption(configId, value)
-  const state = getSessionState(sessionId)
-  emitSessionEvent(session, { type: 'state', ...state })
-  return { sessionId, acpSession: state.acpSession }
-}
-
-export async function updateSessionHarnessMode(sessionId, modeId) {
-  const session = requireOpenCodeHarnessSession(sessionId)
-  await session.agent.setMode(modeId)
-  const state = getSessionState(sessionId)
-  emitSessionEvent(session, { type: 'state', ...state })
-  return { sessionId, acpSession: state.acpSession }
-}
-
-/**
- * Fork the entire current OpenCode session into a new QuickForge session.
- *
- * OpenCode ACP only supports whole-session `session/fork` (no message-position
- * fork), so the new agent is created with the full message history and
- * `sourceHarnessSessionId` pointing at the current ACP session. The new session
- * is persisted immediately and announced through the existing `session_forked`
- * event so clients switch to it without a message-level fork semantic.
- */
-export async function forkSession(sessionId) {
-  const session = requireOpenCodeHarnessSession(sessionId)
-  if (session.agent.state.isStreaming) {
-    throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes before forking the conversation.'), {
-      statusCode: 409,
-      errorCode: 'GENERATION_STILL_RUNNING_BEFORE_FORK',
-    })
-  }
-  const sourceHarnessSessionId = session.agent.harnessSessionId
-  if (!sourceHarnessSessionId) {
-    throw Object.assign(new Error('This OpenCode conversation has no ACP session to fork.'), { statusCode: 409 })
-  }
-  const messages = session.agent.state.messages
-  if (messages.length === 0) {
-    throw Object.assign(new Error('There is no conversation to fork yet.'), { statusCode: 400 })
-  }
-  const forkedSessionId = randomUUID()
-  const forkedSession = await createAgent(forkedSessionId, {
-    scope: session.scope,
-    projectId: session.projectId,
-    accessMode: session.accessMode,
-    yoloMode: session.yoloMode,
-    model: session.model,
-    modelRef: session.modelRef,
-    modelAccessContext: session.modelAccessContext,
-    resolvePersistedModel: true,
-    thinkingLevel: session.thinkingLevel,
-    messages,
-    title: session.title,
-    titleSource: session.titleSource === 'default' ? 'manual' : session.titleSource,
-    createdAt: new Date().toISOString(),
-    harness: session.harness,
-    sourceHarnessSessionId,
-    idleRetention: session.idleRetention || null,
-  })
-  updateSessionMessages(forkedSession, messages)
-  await persistSession(forkedSession)
-
-  emitSessionEvent(session, {
-    type: 'session_forked',
-    sourceSessionId: session.sessionId,
-    targetSessionId: forkedSessionId,
-    title: forkedSession.title,
-    createdAt: forkedSession.createdAt,
-    scope: forkedSession.scope,
-    projectId: forkedSession.projectId,
-    messages: forkedSession.agent.state.messages,
-  })
-  emitSessionEvent(forkedSession, { type: 'state', ...getSessionState(forkedSessionId) })
-  emitSessionEvent(forkedSession, { type: 'message_end', messages: forkedSession.agent.state.messages })
-  emitSessionEvent(forkedSession, { type: 'agent_end', messages: forkedSession.agent.state.messages })
-  return {
-    sessionId: forkedSessionId,
-    title: forkedSession.title,
-    createdAt: forkedSession.createdAt,
-    scope: forkedSession.scope,
-    projectId: forkedSession.projectId,
-  }
-}
-
 /**
  * Update the model for an existing session.
  * Syncs the model to both the session record (for persistence) and the agent state (for API calls).
@@ -1913,9 +1811,6 @@ export function updateSessionModel(sessionId, model, modelRef = null) {
   const session = agentSessions.get(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
-  }
-  if (session.harness === AGENT_HARNESS_OPENCODE) {
-    throw Object.assign(new Error('OpenCode manages its model natively.'), { statusCode: 409 })
   }
   if (!model) {
     throw Object.assign(new Error('Missing model'), { statusCode: 400 })
@@ -1936,9 +1831,6 @@ export function updateSessionThinkingLevel(sessionId, thinkingLevel) {
   const session = agentSessions.get(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
-  }
-  if (session.harness === AGENT_HARNESS_OPENCODE) {
-    throw Object.assign(new Error('OpenCode manages its thinking level natively.'), { statusCode: 409 })
   }
   if (!thinkingLevel) {
     throw Object.assign(new Error('Missing thinkingLevel'), { statusCode: 400 })

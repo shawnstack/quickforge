@@ -1,5 +1,5 @@
 // agent-manager 模块拆分（agent-manager-module-split）：工具审批 / ask_user /
-// ACP 审批 / 自动压缩审批四类 Promise 编排从 agent-manager.mjs 逐字符搬移至此；
+// 自动压缩审批三类 Promise 编排从 agent-manager.mjs 逐字符搬移至此；
 // 行为与注释语义保持不变。
 
 import { randomUUID } from 'node:crypto'
@@ -163,57 +163,6 @@ export function createAskUserPromise(session, toolCallId, params) {
       askId,
       toolCallId,
       questions,
-    })
-  })
-}
-
-export function createAcpApprovalPromise(session, request) {  return new Promise((resolve, reject) => {
-    let settled = false
-    const requestedAt = Date.now()
-    const expiresAt = requestedAt + APPROVAL_TIMEOUT_MS
-    const timeout = setTimeout(() => {
-      if (settled) return
-      settled = true
-      pendingApprovals.delete(request.toolCallId)
-      resolve({ outcome: { outcome: 'cancelled' } })
-    }, APPROVAL_TIMEOUT_MS)
-
-    const cleanup = () => {
-      clearTimeout(timeout)
-      if (settled) return
-      settled = true
-      pendingApprovals.delete(request.toolCallId)
-    }
-    const allowOption = request.options.find((option) => option.kind === 'allow_once' || option.kind === 'allow_always')
-    const rejectOption = request.options.find((option) => option.kind === 'reject_once' || option.kind === 'reject_always')
-
-    pendingApprovals.set(request.toolCallId, {
-      resolve: (approved) => {
-        cleanup()
-        const option = approved ? allowOption : rejectOption
-        resolve(option
-          ? { outcome: { outcome: 'selected', optionId: option.optionId } }
-          : { outcome: { outcome: 'cancelled' } })
-      },
-      reject: (error) => {
-        cleanup()
-        reject(error)
-      },
-      sessionId: session.sessionId,
-      toolName: request.toolName,
-      args: request.args,
-      source: 'opencode',
-      requestedAt,
-      expiresAt,
-    })
-
-    emitSessionEvent(session, {
-      type: 'tool_approval_required',
-      sessionId: session.sessionId,
-      toolCallId: request.toolCallId,
-      toolName: request.toolName,
-      args: request.args,
-      source: 'opencode',
     })
   })
 }

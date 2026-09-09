@@ -5,7 +5,6 @@ import path from 'node:path'
 import {
   contextReferencesPrompt,
   validateContextReferences,
-  validatePromptContextReferences,
   withCanonicalContextReferences,
 } from '../../server/context-references.mjs'
 
@@ -21,7 +20,6 @@ function projectSession(workspaceRoot, overrides = {}) {
   return {
     scope: 'project',
     projectId: 'project-1',
-    harness: 'quickforge',
     projectContext: { workspaceRoot, project: { id: 'project-1', name: 'Project' } },
     ...overrides,
   }
@@ -116,16 +114,6 @@ describe('context references validation', () => {
       await expect(validateContextReferences([{ type: 'file', projectId: 'project-1', path: 'safe-name.txt' }], projectSession(workspaceRoot)))
         .rejects.toMatchObject({ errorCode: 'CONTEXT_REFERENCE_SENSITIVE' })
     }
-  })
-
-  it('rejects non-empty OpenCode references before filesystem validation', async () => {
-    const workspaceRoot = await createWorkspace()
-    await expect(validatePromptContextReferences([
-      { type: 'file', projectId: 'project-1', path: 'missing.ts' },
-    ], projectSession(workspaceRoot, { harness: 'opencode' }))).rejects.toMatchObject({
-      statusCode: 409,
-      errorCode: 'CONTEXT_REFERENCES_UNSUPPORTED_HARNESS',
-    })
   })
 
   it('overwrites forged details and creates a path-only transient prompt', () => {

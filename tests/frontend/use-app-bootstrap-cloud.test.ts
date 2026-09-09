@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Api, Model } from '@earendil-works/pi-ai'
 
-const reactHarness = vi.hoisted(() => ({
+const reactStub = vi.hoisted(() => ({
   cleanups: [] as Array<() => void>,
   stateCursor: 0,
   states: [] as unknown[],
@@ -13,7 +13,6 @@ const piMocks = vi.hoisted(() => ({
   loadActiveModel: vi.fn(),
   loadDefaultOptions: vi.fn(),
   mergeAvailableModels: vi.fn((configured: Model<Api>[], cloud: readonly Model<Api>[]) => [...configured, ...cloud]),
-  openCodePlaceholderModel: vi.fn(() => ({ id: 'opencode', provider: 'opencode' })),
 }))
 
 const loggerMocks = vi.hoisted(() => ({
@@ -27,24 +26,24 @@ vi.mock('react', () => ({
   },
   useEffect(effect: () => void | (() => void)) {
     const cleanup = effect()
-    if (cleanup) reactHarness.cleanups.push(cleanup)
+    if (cleanup) reactStub.cleanups.push(cleanup)
   },
   useRef<T>(initialValue: T) {
     return { current: initialValue }
   },
   useState<T>(initialValue: T | (() => T)) {
-    const index = reactHarness.stateCursor
-    reactHarness.stateCursor += 1
-    reactHarness.states[index] = typeof initialValue === 'function'
+    const index = reactStub.stateCursor
+    reactStub.stateCursor += 1
+    reactStub.states[index] = typeof initialValue === 'function'
       ? (initialValue as () => T)()
       : initialValue
     const setState = (update: T | ((previous: T) => T)) => {
-      const previous = reactHarness.states[index] as T
-      reactHarness.states[index] = typeof update === 'function'
+      const previous = reactStub.states[index] as T
+      reactStub.states[index] = typeof update === 'function'
         ? (update as (current: T) => T)(previous)
         : update
     }
-    return [reactHarness.states[index] as T, setState] as const
+    return [reactStub.states[index] as T, setState] as const
   },
 }))
 
@@ -72,9 +71,6 @@ vi.mock('@/lib/appearance-settings', () => ({
   applyAppearanceSettings: vi.fn(),
   loadAndApplyAppearanceSettings: vi.fn(async () => undefined),
   normalizeAppearanceSettings: vi.fn((value: unknown) => value),
-}))
-vi.mock('@/lib/types', () => ({
-  normalizeAgentHarness: (value: unknown) => value === 'opencode' ? 'opencode' : 'quickforge',
 }))
 vi.mock('@/lib/startup-model', () => ({
   chooseStartupModel: (models: Model<Api>[]) => models[0] ?? null,
@@ -114,7 +110,7 @@ function cloudModel() {
   } as Model<Api>
 }
 
-function useBootstrapHarness(
+function useBootstrapEnv(
   loadCloudModels: () => Promise<Model<Api>[]>,
   options?: {
     refreshSessions?: () => Promise<void>
@@ -146,33 +142,17 @@ function useBootstrapHarness(
 
 describe('useAppBootstrap Cloud loading boundary', () => {
   beforeEach(() => {
-    reactHarness.cleanups = []
-    reactHarness.stateCursor = 0
-    reactHarness.states = []
+    reactStub.cleanups = []
+    reactStub.stateCursor = 0
+    reactStub.states = []
     vi.clearAllMocks()
     vi.stubGlobal('window', { location: { search: '' } })
     piMocks.initializePiStorage.mockResolvedValue({ backend: {} })
     piMocks.loadActiveModel.mockResolvedValue(null)
     piMocks.loadDefaultOptions.mockResolvedValue({
-      harness: 'quickforge',
       model: undefined,
       thinkingLevel: 'off',
     })
-  })
-
-  it('does not prefetch Cloud for an OpenCode startup', async () => {
-    const loadCloudModels = vi.fn(async () => [cloudModel()])
-    piMocks.loadDefaultOptions.mockResolvedValue({
-      harness: 'opencode',
-      model: undefined,
-      thinkingLevel: 'off',
-    })
-
-    const { createAgent } = useBootstrapHarness(loadCloudModels)
-    await flushMicrotasks()
-
-    expect(loadCloudModels).not.toHaveBeenCalled()
-    expect(createAgent).toHaveBeenCalledTimes(1)
   })
 
   it('starts one Cloud prefetch early and does not await it for an ordinary local startup', async () => {
@@ -181,7 +161,7 @@ describe('useAppBootstrap Cloud loading boundary', () => {
     const loadCloudModels = vi.fn(() => cloud.promise)
     piMocks.getSelectableConfiguredModels.mockReturnValue(configured.promise)
 
-    const { createAgent } = useBootstrapHarness(loadCloudModels)
+    const { createAgent } = useBootstrapEnv(loadCloudModels)
     await flushMicrotasks()
 
     expect(loadCloudModels).toHaveBeenCalledTimes(1)
@@ -201,19 +181,18 @@ describe('useAppBootstrap Cloud loading boundary', () => {
     const loadCloudModels = vi.fn(() => cloud.promise)
     piMocks.getSelectableConfiguredModels.mockResolvedValue([localModel()])
     piMocks.loadDefaultOptions.mockResolvedValue({
-      harness: 'quickforge',
       model: cloudModel(),
       thinkingLevel: 'off',
     })
 
-    const { createAgent, setNeedsModelSetup } = useBootstrapHarness(loadCloudModels)
+    const { createAgent, setNeedsModelSetup } = useBootstrapEnv(loadCloudModels)
     await flushMicrotasks()
 
     expect(loadCloudModels).toHaveBeenCalledTimes(1)
     expect(setNeedsModelSetup).toHaveBeenCalledWith(true)
     expect(createAgent).not.toHaveBeenCalled()
 
-    for (const cleanup of [...reactHarness.cleanups].reverse()) cleanup()
+    for (const cleanup of [...reactStub.cleanups].reverse()) cleanup()
     cloud.resolve([cloudModel()])
     await flushMicrotasks()
 
@@ -227,14 +206,13 @@ describe('useAppBootstrap Cloud loading boundary', () => {
       const loadCloudModels = vi.fn(() => new Promise<Model<Api>[]>(() => {}))
       piMocks.getSelectableConfiguredModels.mockResolvedValue([localModel()])
       piMocks.loadDefaultOptions.mockResolvedValue({
-        harness: 'quickforge',
         model: cloudModel(),
         thinkingLevel: 'off',
       })
 
-      const { createAgent } = useBootstrapHarness(loadCloudModels)
+      const { createAgent } = useBootstrapEnv(loadCloudModels)
       await flushMicrotasks()
-      expect(reactHarness.states[0]).toBe(true)
+      expect(reactStub.states[0]).toBe(true)
       expect(createAgent).not.toHaveBeenCalled()
 
       vi.advanceTimersByTime(5_000)
@@ -258,7 +236,7 @@ describe('useAppBootstrap Cloud loading boundary', () => {
     piMocks.initializePiStorage.mockResolvedValue({ backend })
     piMocks.getSelectableConfiguredModels.mockResolvedValue([localModel()])
 
-    const { createAgent } = useBootstrapHarness(
+    const { createAgent } = useBootstrapEnv(
       vi.fn(async () => []),
       { refreshSessions, backendRef },
     )
@@ -268,8 +246,8 @@ describe('useAppBootstrap Cloud loading boundary', () => {
     expect(backendAtRefresh).toBe(backend)
     expect(refreshSessions).toHaveBeenCalledTimes(1)
     expect(createAgent).toHaveBeenCalledTimes(1)
-    expect(reactHarness.states[0]).toBe(true)
-    expect(reactHarness.states[1]).toBeUndefined()
+    expect(reactStub.states[0]).toBe(true)
+    expect(reactStub.states[1]).toBeUndefined()
 
     sessionRefresh.resolve()
     await flushMicrotasks()
@@ -279,7 +257,7 @@ describe('useAppBootstrap Cloud loading boundary', () => {
     const refreshError = new Error('metadata unavailable')
     piMocks.getSelectableConfiguredModels.mockResolvedValue([localModel()])
 
-    const { createAgent, refreshSessions } = useBootstrapHarness(
+    const { createAgent, refreshSessions } = useBootstrapEnv(
       vi.fn(async () => []),
       { refreshSessions: vi.fn(async () => Promise.reject(refreshError)) },
     )
@@ -287,8 +265,8 @@ describe('useAppBootstrap Cloud loading boundary', () => {
 
     expect(refreshSessions).toHaveBeenCalledTimes(1)
     expect(createAgent).toHaveBeenCalledTimes(1)
-    expect(reactHarness.states[0]).toBe(true)
-    expect(reactHarness.states[1]).toBeUndefined()
+    expect(reactStub.states[0]).toBe(true)
+    expect(reactStub.states[1]).toBeUndefined()
     expect(loggerMocks.warn).toHaveBeenCalledWith(
       'Failed to refresh startup session list:',
       refreshError,
@@ -299,7 +277,7 @@ describe('useAppBootstrap Cloud loading boundary', () => {
     const loadCloudModels = vi.fn(async () => Promise.reject(new Error('offline')))
     piMocks.getSelectableConfiguredModels.mockResolvedValue([localModel()])
 
-    const { createAgent } = useBootstrapHarness(loadCloudModels)
+    const { createAgent } = useBootstrapEnv(loadCloudModels)
     await flushMicrotasks()
 
     expect(createAgent).toHaveBeenCalledTimes(1)

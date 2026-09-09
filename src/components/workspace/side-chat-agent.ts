@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentMessage, AgentState, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, AssistantMessage, Model, Usage } from '@earendil-works/pi-ai'
-import type { AgentAccessMode, AgentHarness } from '@/lib/types'
+import type { AgentAccessMode } from '@/lib/types'
 import { modelReferenceFromModel, type ModelReference } from '@/lib/model-reference'
 import { streamSideChat, type SideChatMessage, type SideChatStreamOptions } from './side-chat-client'
 
@@ -34,7 +34,6 @@ export type SideChatAgentState = Omit<AgentState, 'tools' | 'pendingToolCalls'> 
   tools: []
   pendingToolCalls: Set<string>
   accessMode: AgentAccessMode
-  harness: AgentHarness
   yoloMode: false
 }
 
@@ -91,7 +90,6 @@ function requestMessagesWithinBudget(messages: AgentMessage[]): SideChatMessage[
 }
 
 export class SideChatAgent {
-  readonly harness: AgentHarness = 'quickforge'
   readonly streamFn = undefined
   readonly getApiKey = async () => undefined
   sessionId = ''
@@ -117,7 +115,6 @@ export class SideChatAgent {
       model: options.model,
       thinkingLevel: 'off' as ThinkingLevel,
       accessMode: 'default' as AgentAccessMode,
-      harness: this.harness,
       yoloMode: false as const,
     } as unknown as SideChatAgentState
     Object.defineProperties(state, {

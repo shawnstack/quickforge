@@ -888,7 +888,7 @@ describe('user message context chip decoration', () => {
 
 describe('user message slash invocation chip decoration', () => {
   // 消息流 DOM 断言依赖浏览器渲染（markdown-block light DOM + 文本节点），现有
-  // harness 为纯逻辑 + 源码断言；此处沿用：前缀解析/剥前缀计划已提为纯函数单测，
+  // 测试为纯逻辑 + 源码断言；此处沿用：前缀解析/剥前缀计划已提为纯函数单测，
   // 装饰器本身做最小源码断言（幂等还原按 chip 自带前缀，复制走原文不受影响）。
 
   it('parses message prefixes for the chip decoration', () => {

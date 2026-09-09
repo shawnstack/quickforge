@@ -124,27 +124,6 @@ describe('chat area compact controls (narrow chat host)', () => {
       expect(hide.body).toMatch(/display:\s*none/)
     })
 
-    it('shrinks the opencode config button to 2rem and hides its label and chevron', () => {
-      const shrink = ruleFor(`${compactPrefix} .quickforge-opencode-config-inline`)
-      expect(shrink.body).toMatch(/width:\s*2rem/)
-      expect(shrink.body).toMatch(/gap:\s*0/)
-      expect(shrink.body).toMatch(/padding-inline:\s*0\s*!important/)
-
-      // :is() 参数表内的逗号会让朴素的选择器 split 失配，改用精确规则文本断言
-      expect(cssRules).toContain(
-        `${compactPrefix} .quickforge-opencode-config-inline :is(.quickforge-opencode-config-label, .quickforge-agent-access-chevron) {\n  display: none;\n}`,
-      )
-    })
-
-    it('shrinks the opencode mode button to 2rem and hides its label', () => {
-      const shrink = ruleFor(`${compactPrefix} .quickforge-opencode-mode-inline`)
-      expect(shrink.body).toMatch(/width:\s*2rem/)
-      expect(shrink.body).toMatch(/min-width:\s*2rem/)
-      expect(shrink.body).toMatch(/padding-inline:\s*0\s*!important/)
-
-      const hide = ruleFor(`${compactPrefix} .quickforge-opencode-mode-inline .quickforge-opencode-mode-label`)
-      expect(hide.body).toMatch(/display:\s*none/)
-    })
   })
 
   describe('mobile media block regression guard', () => {

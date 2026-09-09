@@ -1,6 +1,13 @@
-import type { AgentHarness } from './types'
+/**
+ * Chat surface capability flags.
+ *
+ * The main conversation enables the full QuickForge surface; Side Chat and
+ * read-only pages narrow it through `applyChatPagePolicy`. Unsupported controls
+ * are rendered separately in a native disabled state by the shared panel
+ * decoration.
+ */
 
-export type ChatHarnessCapabilities = {
+export type ChatCapabilities = {
   modelSelection: boolean
   thinkingSelection: boolean
   clientApiKeyCheck: boolean
@@ -13,14 +20,12 @@ export type ChatHarnessCapabilities = {
   rollback: boolean
   retry: boolean
   forkFromMessage: boolean
-  forkSession: boolean
-  harnessConfig: boolean
   attachments: boolean
-  /** Steer a queued message into the running turn (QuickForge only). */
+  /** Steer a queued message into the running turn. */
   messageSteering: boolean
 }
 
-export const QUICKFORGE_CHAT_HARNESS_CAPABILITIES: ChatHarnessCapabilities = Object.freeze({
+export const QUICKFORGE_CHAT_CAPABILITIES: ChatCapabilities = Object.freeze({
   modelSelection: true,
   thinkingSelection: true,
   clientApiKeyCheck: true,
@@ -33,8 +38,6 @@ export const QUICKFORGE_CHAT_HARNESS_CAPABILITIES: ChatHarnessCapabilities = Obj
   rollback: true,
   retry: true,
   forkFromMessage: true,
-  forkSession: false,
-  harnessConfig: false,
   attachments: true,
   messageSteering: true,
 })
@@ -44,7 +47,7 @@ export const QUICKFORGE_CHAT_HARNESS_CAPABILITIES: ChatHarnessCapabilities = Obj
  * executable UI actions. Unsupported controls are rendered separately in a
  * native disabled state by the shared panel decoration.
  */
-export const SIDE_CHAT_UI_CAPABILITIES: ChatHarnessCapabilities = Object.freeze({
+export const SIDE_CHAT_UI_CAPABILITIES: ChatCapabilities = Object.freeze({
   modelSelection: false,
   thinkingSelection: false,
   clientApiKeyCheck: false,
@@ -57,8 +60,6 @@ export const SIDE_CHAT_UI_CAPABILITIES: ChatHarnessCapabilities = Object.freeze(
   rollback: false,
   retry: false,
   forkFromMessage: false,
-  forkSession: false,
-  harnessConfig: false,
   attachments: false,
   messageSteering: false,
 })
@@ -66,48 +67,21 @@ export const SIDE_CHAT_UI_CAPABILITIES: ChatHarnessCapabilities = Object.freeze(
 // Backward-compatible name for callers/tests that still import the old policy.
 export const SIDE_CHAT_CAPABILITIES = SIDE_CHAT_UI_CAPABILITIES
 
-export const OPENCODE_P0_CHAT_HARNESS_CAPABILITIES: ChatHarnessCapabilities = Object.freeze({
-  modelSelection: false,
-  thinkingSelection: false,
-  clientApiKeyCheck: false,
-  planMode: false,
-  accessMode: false,
-  commands: false,
-  capabilitySuggestions: false,
-  contextUsage: false,
-  compaction: false,
-  rollback: false,
-  retry: false,
-  forkFromMessage: false,
-  forkSession: true,
-  harnessConfig: true,
-  attachments: true,
-  messageSteering: false,
-})
-
-export function resolveChatHarnessCapabilities(harness: AgentHarness | null | undefined): ChatHarnessCapabilities {
-  return harness === 'opencode'
-    ? OPENCODE_P0_CHAT_HARNESS_CAPABILITIES
-    : QUICKFORGE_CHAT_HARNESS_CAPABILITIES
-}
-
 export type ChatPagePolicy = {
   readOnly?: boolean
   disableFork?: boolean
 }
 
 export function applyChatPagePolicy(
-  capabilities: ChatHarnessCapabilities,
+  capabilities: ChatCapabilities,
   policy: ChatPagePolicy,
-): ChatHarnessCapabilities {
+): ChatCapabilities {
   if (!policy.readOnly && !policy.disableFork) return capabilities
   return {
     ...capabilities,
     rollback: capabilities.rollback && !policy.readOnly,
     retry: capabilities.retry && !policy.readOnly,
     forkFromMessage: capabilities.forkFromMessage && !policy.readOnly && !policy.disableFork,
-    forkSession: capabilities.forkSession && !policy.readOnly && !policy.disableFork,
-    harnessConfig: capabilities.harnessConfig && !policy.readOnly,
     attachments: capabilities.attachments && !policy.readOnly,
     planMode: capabilities.planMode && !policy.readOnly,
     accessMode: capabilities.accessMode && !policy.readOnly,
@@ -117,7 +91,7 @@ export function applyChatPagePolicy(
 }
 
 export function shouldSendComposerInput(
-  capabilities: Pick<ChatHarnessCapabilities, 'attachments'>,
+  capabilities: Pick<ChatCapabilities, 'attachments'>,
   input: string,
   attachments: readonly unknown[] | null | undefined,
 ) {

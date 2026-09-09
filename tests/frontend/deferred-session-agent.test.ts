@@ -28,7 +28,7 @@ function deferred<T>() {
 
 async function createDeferredAgent(
   createAgent: () => Promise<ServerAgent>,
-  options?: { scope?: 'global' | 'project'; project?: { id: string; name: string; path: string; lastOpenedAt: string }; harness?: 'quickforge' | 'opencode' },
+  options?: { scope?: 'global' | 'project'; project?: { id: string; name: string; path: string; lastOpenedAt: string } },
 ) {
   const { DeferredSessionAgent } = await import('../../src/lib/deferred-session-agent')
   return new DeferredSessionAgent({
@@ -42,7 +42,6 @@ async function createDeferredAgent(
     } as Model<Api>,
     thinkingLevel: 'off',
     accessMode: 'default',
-    harness: options?.harness ?? 'quickforge',
     yoloMode: false,
     createAgent,
   })
@@ -114,22 +113,6 @@ describe('DeferredSessionAgent', () => {
       expect.any(Object),
       'test-id',
       expect.objectContaining({ scope: 'project', project }),
-    )
-  })
-
-  it('creates an OpenCode deferred session with its Harness and no optimistic model updates', async () => {
-    const createAgent = vi.fn(async () => createRealAgent())
-    const agent = await createDeferredAgent(createAgent, { harness: 'opencode' })
-    const originalModel = agent.state.model
-
-    await agent.updateModel({ provider: 'other', id: 'other-model' } as Model<Api>)
-    await agent.prompt('hello')
-
-    expect(agent.state.model).toBe(originalModel)
-    expect(createAgent).toHaveBeenCalledWith(
-      expect.any(Object),
-      'test-id',
-      expect.objectContaining({ harness: 'opencode' }),
     )
   })
 

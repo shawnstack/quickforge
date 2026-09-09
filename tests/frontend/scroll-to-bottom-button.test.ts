@@ -84,7 +84,7 @@ class FakeElement {
   }
 }
 
-function createHarness() {
+function createEnv() {
   const scrollContainer = Object.assign(new FakeElement('div'), {
     scrollTop: 696,
     scrollHeight: 1244,
@@ -153,28 +153,28 @@ function flushTimeouts() {
 
 describe('scroll-to-bottom button', () => {
   it('stays hidden near the bottom and appears beyond the show threshold', () => {
-    const harness = createHarness()
+    const env = createEnv()
     const onJumpSettled = vi.fn()
-    const controller = createScrollToBottomButton({ panel: harness.panel, onJumpSettled })
+    const controller = createScrollToBottomButton({ panel: env.panel, onJumpSettled })
 
-    harness.setDistance(50)
+    env.setDistance(50)
     controller.setup()
-    expect(harness.button()).toBeDefined()
-    expect(harness.button()!.classList.contains('is-visible')).toBe(false)
+    expect(env.button()).toBeDefined()
+    expect(env.button()!.classList.contains('is-visible')).toBe(false)
 
-    harness.setDistance(400)
-    harness.scrollContainer.dispatch('scroll')
-    expect(harness.button()!.classList.contains('is-visible')).toBe(true)
+    env.setDistance(400)
+    env.scrollContainer.dispatch('scroll')
+    expect(env.button()!.classList.contains('is-visible')).toBe(true)
   })
 
   it('uses a hysteresis band so the threshold never flickers', () => {
-    const harness = createHarness()
-    const controller = createScrollToBottomButton({ panel: harness.panel, onJumpSettled: vi.fn() })
+    const env = createEnv()
+    const controller = createScrollToBottomButton({ panel: env.panel, onJumpSettled: vi.fn() })
 
     const visibleAt = (distance: number) => {
-      harness.setDistance(distance)
-      harness.scrollContainer.dispatch('scroll')
-      return harness.button()!.classList.contains('is-visible')
+      env.setDistance(distance)
+      env.scrollContainer.dispatch('scroll')
+      return env.button()!.classList.contains('is-visible')
     }
 
     controller.setup()
@@ -185,43 +185,43 @@ describe('scroll-to-bottom button', () => {
   })
 
   it('counts unread assistant messages only while visible and clears on return', () => {
-    const harness = createHarness()
-    const controller = createScrollToBottomButton({ panel: harness.panel, onJumpSettled: vi.fn() })
+    const env = createEnv()
+    const controller = createScrollToBottomButton({ panel: env.panel, onJumpSettled: vi.fn() })
 
     controller.setup()
     controller.notifyNewAssistantMessage()
     controller.notifyNewAssistantMessage()
-    expect(harness.badge()!.classList.contains('quickforge-scroll-bottom-badge-empty')).toBe(true)
-    expect(harness.button()!.getAttribute('aria-label')).toBe('scrollToBottomLabel')
+    expect(env.badge()!.classList.contains('quickforge-scroll-bottom-badge-empty')).toBe(true)
+    expect(env.button()!.getAttribute('aria-label')).toBe('scrollToBottomLabel')
 
-    harness.setDistance(400)
-    harness.scrollContainer.dispatch('scroll')
+    env.setDistance(400)
+    env.scrollContainer.dispatch('scroll')
     controller.notifyNewAssistantMessage()
     controller.notifyNewAssistantMessage()
     controller.notifyNewAssistantMessage()
-    expect(harness.badge()!.textContent).toBe('3')
-    expect(harness.badge()!.classList.contains('quickforge-scroll-bottom-badge-empty')).toBe(false)
-    expect(harness.button()!.getAttribute('aria-label')).toBe('scrollToBottomUnreadLabel')
+    expect(env.badge()!.textContent).toBe('3')
+    expect(env.badge()!.classList.contains('quickforge-scroll-bottom-badge-empty')).toBe(false)
+    expect(env.button()!.getAttribute('aria-label')).toBe('scrollToBottomUnreadLabel')
 
-    harness.setDistance(50)
-    harness.scrollContainer.dispatch('scroll')
-    expect(harness.badge()!.classList.contains('quickforge-scroll-bottom-badge-empty')).toBe(true)
-    expect(harness.button()!.getAttribute('aria-label')).toBe('scrollToBottomLabel')
+    env.setDistance(50)
+    env.scrollContainer.dispatch('scroll')
+    expect(env.badge()!.classList.contains('quickforge-scroll-bottom-badge-empty')).toBe(true)
+    expect(env.button()!.getAttribute('aria-label')).toBe('scrollToBottomLabel')
   })
 
   it('jump hides the button, smooth-scrolls, then resumes tail-following', () => {
-    const harness = createHarness()
+    const env = createEnv()
     const onJumpSettled = vi.fn()
-    const controller = createScrollToBottomButton({ panel: harness.panel, onJumpSettled })
+    const controller = createScrollToBottomButton({ panel: env.panel, onJumpSettled })
 
     controller.setup()
-    harness.setDistance(400)
-    harness.scrollContainer.dispatch('scroll')
-    harness.button()!.dispatch('click')
+    env.setDistance(400)
+    env.scrollContainer.dispatch('scroll')
+    env.button()!.dispatch('click')
 
-    expect(harness.button()!.classList.contains('is-visible')).toBe(false)
-    expect(harness.scrollContainer.scrollTo).toHaveBeenCalledWith({
-      top: harness.scrollContainer.scrollHeight - harness.scrollContainer.clientHeight,
+    expect(env.button()!.classList.contains('is-visible')).toBe(false)
+    expect(env.scrollContainer.scrollTo).toHaveBeenCalledWith({
+      top: env.scrollContainer.scrollHeight - env.scrollContainer.clientHeight,
       behavior: 'smooth',
     })
     expect(onJumpSettled).not.toHaveBeenCalled()
@@ -230,46 +230,46 @@ describe('scroll-to-bottom button', () => {
   })
 
   it('a wheel-up during the jump cancels the resume of tail-following', () => {
-    const harness = createHarness()
+    const env = createEnv()
     const onJumpSettled = vi.fn()
-    const controller = createScrollToBottomButton({ panel: harness.panel, onJumpSettled })
+    const controller = createScrollToBottomButton({ panel: env.panel, onJumpSettled })
 
     controller.setup()
-    harness.setDistance(400)
-    harness.scrollContainer.dispatch('scroll')
-    harness.button()!.dispatch('click')
-    harness.scrollContainer.dispatch('wheel', { deltaY: -3 })
+    env.setDistance(400)
+    env.scrollContainer.dispatch('scroll')
+    env.button()!.dispatch('click')
+    env.scrollContainer.dispatch('wheel', { deltaY: -3 })
     flushTimeouts()
 
     expect(onJumpSettled).not.toHaveBeenCalled()
   })
 
   it('jumps instantly without smooth scrolling under reduced motion', () => {
-    const harness = createHarness()
+    const env = createEnv()
     currentMatchMedia = vi.fn(() => ({ matches: true }))
     const onJumpSettled = vi.fn()
-    const controller = createScrollToBottomButton({ panel: harness.panel, onJumpSettled })
+    const controller = createScrollToBottomButton({ panel: env.panel, onJumpSettled })
 
     controller.setup()
-    harness.setDistance(400)
-    harness.scrollContainer.dispatch('scroll')
-    harness.button()!.dispatch('click')
+    env.setDistance(400)
+    env.scrollContainer.dispatch('scroll')
+    env.button()!.dispatch('click')
 
-    expect(harness.scrollContainer.scrollTo).not.toHaveBeenCalled()
-    expect(harness.scrollContainer.scrollTop).toBe(harness.scrollContainer.scrollHeight - harness.scrollContainer.clientHeight)
+    expect(env.scrollContainer.scrollTo).not.toHaveBeenCalled()
+    expect(env.scrollContainer.scrollTop).toBe(env.scrollContainer.scrollHeight - env.scrollContainer.clientHeight)
     expect(onJumpSettled).toHaveBeenCalledTimes(1)
   })
 
   it('removes the button when the composer dock is gone (read-only sessions)', () => {
-    const harness = createHarness()
-    const controller = createScrollToBottomButton({ panel: harness.panel, onJumpSettled: vi.fn() })
+    const env = createEnv()
+    const controller = createScrollToBottomButton({ panel: env.panel, onJumpSettled: vi.fn() })
 
     controller.setup()
-    expect(harness.shell.children.length).toBe(1)
+    expect(env.shell.children.length).toBe(1)
 
-    harness.setShellAvailable(false)
+    env.setShellAvailable(false)
     controller.setup()
-    expect(harness.shell.children.length).toBe(0)
+    expect(env.shell.children.length).toBe(0)
   })
 })
 

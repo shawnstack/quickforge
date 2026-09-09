@@ -14,7 +14,7 @@ vi.mock('@/lib/agent-task-retention', () => ({ disposeAgentTask: vi.fn() }))
 
 import { useSessionActions } from '../../src/hooks/useSessionActions'
 
-function useActionsHarness(metadata: Record<string, unknown>) {
+function useActionsEnv(metadata: Record<string, unknown>) {
   const set = vi.fn(async () => undefined)
   const refreshSessions = vi.fn(async () => undefined)
   const storage = {
@@ -61,7 +61,7 @@ describe('session state clear actions', () => {
   })
 
   it('serializes pinnedAt:null when unpinning instead of omitting the field', async () => {
-    const { actions, set, refreshSessions } = useActionsHarness({
+    const { actions, set, refreshSessions } = useActionsEnv({
       id: 'session-1',
       title: 'Pinned',
       pinnedAt: '2026-08-20T00:00:00.000Z',

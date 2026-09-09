@@ -155,7 +155,7 @@ describe('ask-user card wiring', () => {
     expect(localTools).toContain('class AskUserToolRenderer')
     // The renderer must gate input/details on the tool display mode like the
     // other built-in renderers.
-    const rendererBlock = localTools.slice(localTools.indexOf('class AskUserToolRenderer'), localTools.indexOf('class OpenCodeToolRenderer'))
+    const rendererBlock = localTools.slice(localTools.indexOf('class AskUserToolRenderer'), localTools.indexOf('class TodoWriteToolRenderer'))
     expect(rendererBlock).toContain("toolDisplaySettings.toolDisplayMode === 'detailed'")
   })
 
@@ -170,7 +170,7 @@ describe('ask-user card wiring', () => {
     // output text block; detailed mode keeps the raw view.
     expect(localTools).toContain("const output = reviewActive ? '' : resultText(result)")
     expect(localTools).toContain('questions.length && !detailed && review === null')
-    const rendererBlock = localTools.slice(localTools.indexOf('class AskUserToolRenderer'), localTools.indexOf('class OpenCodeToolRenderer'))
+    const rendererBlock = localTools.slice(localTools.indexOf('class AskUserToolRenderer'), localTools.indexOf('class TodoWriteToolRenderer'))
     expect(rendererBlock).toContain('class="quickforge-ask-review"')
     expect(rendererBlock).toContain('class="quickforge-ask-review-row"')
     expect(rendererBlock).toContain('class="quickforge-ask-review-content"')

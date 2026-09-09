@@ -28,7 +28,6 @@ const quickForgeModel = {
   reasoning: true,
 }
 const modelRef = { version: 1, source: 'custom', providerId: 'provider-1', modelId: 'qf-model' }
-const clientModel = { ...quickForgeModel, id: 'client-model', provider: 'client' }
 const clientModelRef = { version: 1, source: 'custom', providerId: 'client-provider', modelId: 'client-model' }
 const zeroUsage = {
   input: 0,
@@ -129,7 +128,6 @@ beforeEach(() => {
   mocks.resolveModelBinding.mockResolvedValue({ model: quickForgeModel, modelRef })
   mocks.streamSimple.mockReturnValue(providerStream([]))
   mocks.getSessionState.mockReturnValue({
-    harness: 'quickforge',
     model: quickForgeModel,
     modelRef,
     thinkingLevel: 'high',
@@ -221,7 +219,6 @@ describe('side chat route', () => {
 
   it('projects active-session context to user/assistant text only', async () => {
     mocks.getSessionState.mockReturnValue({
-      harness: 'quickforge',
       model: quickForgeModel,
       modelRef,
       messages: [
@@ -252,7 +249,6 @@ describe('side chat route', () => {
     const { SIDE_CHAT_MAIN_CONTEXT_CHAR_BUDGET, SIDE_CHAT_COMBINED_CONTEXT_CHAR_LIMIT } = await import('../../../server/routes/side-chat.mjs')
     const summary = `COMPACT_SUMMARY_MARKER:${'s'.repeat(30_000)}`
     mocks.getSessionState.mockReturnValue({
-      harness: 'quickforge',
       model: quickForgeModel,
       modelRef,
       messages: [
@@ -275,31 +271,12 @@ describe('side chat route', () => {
     expect(totalChars(allMessages)).toBeLessThanOrEqual(SIDE_CHAT_COMBINED_CONTEXT_CHAR_LIMIT)
   })
 
-  it('uses QuickForge authoritative model and only uses client inherited modelRef for OpenCode', async () => {
+  it('uses the QuickForge authoritative model and ignores the client-inherited modelRef', async () => {
     await runSideChat(undefined, { modelRef: clientModelRef })
     expect(mocks.resolveModelBinding).toHaveBeenLastCalledWith(
       { modelRef },
       expect.objectContaining({ currentModel: quickForgeModel, allowCurrentHidden: true }),
     )
-
-    mocks.getSessionState.mockReturnValue({
-      harness: 'opencode',
-      model: { id: 'opencode-placeholder' },
-      messages: [{ role: 'assistant', content: 'OpenCode context' }],
-    })
-    mocks.resolveModelBinding.mockResolvedValueOnce({ model: clientModel, modelRef: clientModelRef })
-    await runSideChat(undefined, { modelRef: clientModelRef })
-    expect(mocks.resolveModelBinding).toHaveBeenLastCalledWith(
-      { modelRef: clientModelRef },
-      expect.objectContaining({ currentModel: null, allowCurrentHidden: false }),
-    )
-
-    const { handleSideChatApi } = await import('../../../server/routes/side-chat.mjs')
-    await expect(handleSideChatApi(
-      request({ sessionId: 'session-1', messages: [{ role: 'user', content: 'question' }] }),
-      response(),
-      new URL('http://localhost/api/side-chat/stream'),
-    )).rejects.toMatchObject({ statusCode: 400, errorCode: 'SIDE_CHAT_MODEL_REQUIRED' })
   })
 
   it.each([

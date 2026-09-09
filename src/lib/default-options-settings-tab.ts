@@ -1,5 +1,4 @@
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
-import type { AgentHarness } from '@/lib/types'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { getAppStorage, SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
@@ -38,7 +37,6 @@ import {
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
 import { loadModelCatalog } from '@/lib/model-reference'
-import { notifyDefaultHarnessChanged } from '@/lib/default-harness-events'
 import './info-tip'
 import './quickforge-settings-select'
 
@@ -136,8 +134,6 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
   private autoSelectedModelKey = ''
   private loadSettingsGeneration = 0
 
-  private harness: AgentHarness = 'quickforge'
-  private savedHarness: AgentHarness = 'quickforge'
   private defaultOptionsSavePromise: Promise<void> = Promise.resolve()
   private thinkingLevel: ThinkingLevel = 'off'
   private toolDisplayMode: ToolDisplayMode = 'compact'
@@ -240,8 +236,6 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
         this.requestUpdate()
       })
       this.thinkingLevel = defaults.thinkingLevel ?? defaultThinkingLevelForModel(this.selectedModel)
-      this.harness = defaults.harness ?? 'quickforge'
-      this.savedHarness = this.harness
       this.toolDisplayMode = toolDisplaySettings.toolDisplayMode
       this.showContextUsage = toolDisplaySettings.showContextUsage
       this.autoCompactEnabled = autoCompactSettings.enabled
@@ -271,13 +265,6 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
     const nextModel = this.models.find((model) => modelKey(model) === value)
     this.selectedModel = nextModel
     this.thinkingLevel = defaultThinkingLevelForModel(nextModel)
-    this.saved = false
-    this.requestUpdate()
-    void this.saveDefaultModelOptions()
-  }
-
-  private updateHarness(value: string) {
-    this.harness = value === 'opencode' ? 'opencode' : 'quickforge'
     this.saved = false
     this.requestUpdate()
     void this.saveDefaultModelOptions()
@@ -777,18 +764,12 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
   private async saveDefaultModelOptions() {
     const model = this.selectedModel
     const thinkingLevel = model?.reasoning ? this.thinkingLevel : 'off'
-    const harness = this.harness
     const save = async () => {
       try {
         await saveDefaultOptions(getAppStorage(), {
           model,
           thinkingLevel,
-          harness,
         })
-        if (this.savedHarness !== harness) {
-          notifyDefaultHarnessChanged(harness)
-          this.savedHarness = harness
-        }
         this.markSaved()
       } catch (error) {
         this.error = error instanceof Error ? error.message : t('requestFailed')
@@ -859,14 +840,6 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
     return [
       { value: 'zh', label: t('simplifiedChinese') },
       { value: 'en', label: t('english') },
-    ]
-  }
-
-  private harnessOptions() {
-    return [
-      { value: 'quickforge', label: 'QuickForge' },
-      { value: 'claude-code', label: t('claudeCodeHarnessUnavailable'), disabled: true },
-      { value: 'opencode', label: 'OpenCode' },
     ]
   }
 
@@ -1010,21 +983,6 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
                 .options=${this.languageOptions()}
                 label=${t('language')}
                 @change=${(event: CustomEvent<string>) => this.updateLanguage(event.detail)}
-              ></quickforge-settings-select>
-            </div>
-          </div>
-
-          <div class="quickforge-settings-row">
-            <div class="quickforge-settings-row-main">
-              <div class="quickforge-settings-row-title">${t('defaultHarness')}</div>
-              <div class="quickforge-settings-row-description">${t('defaultHarnessDescription')}</div>
-            </div>
-            <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
-              <quickforge-settings-select
-                .value=${this.harness}
-                .options=${this.harnessOptions()}
-                label=${t('defaultHarness')}
-                @change=${(event: CustomEvent<string>) => this.updateHarness(event.detail)}
               ></quickforge-settings-select>
             </div>
           </div>

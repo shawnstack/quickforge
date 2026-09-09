@@ -28,10 +28,10 @@ import { lastAssistantText, serverConvertToLlm } from './message-converters.mjs'
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
 import { sessionSkillsContext } from './tool-wiring.mjs'
 import { safeReadTools, commandToolPermissionError } from './approval-store.mjs'
-import { hasFullAccess } from './agent-harness.mjs'
+import { hasFullAccess } from './agent-manager.mjs'
 import { createApprovalPromise } from './agent-approval-orchestrator.mjs'
 import { emitSessionEvent } from './agent-session-events.mjs'
-import { createServerTools } from './agent-manager.mjs'
+import { createServerTools, currentSessionTurnId } from './agent-manager.mjs'
 
 const SUBAGENT_DEFAULT_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours
 const SUBAGENT_MAX_TIMEOUT_MS = 2 * 60 * 60 * 1000
@@ -304,6 +304,8 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
         // 子 Agent 的文件写入归因到父会话，纳入父会话的变更摘要与回滚。
         sessionId: parentSession.sessionId,
         scope: parentSession.scope,
+        // subagent 写盘同样归因到父会话的当前轮，纳入轮级撤销。
+        getTurnId: () => currentSessionTurnId(parentSession.sessionId),
       },
     )
     toolsForClient = tools.map(({ execute: _execute, prepareArguments: _prepareArguments, ...tool }) => tool)

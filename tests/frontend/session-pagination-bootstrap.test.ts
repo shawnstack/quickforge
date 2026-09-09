@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HttpStorageBackend } from '../../src/lib/http-storage-backend'
 
-const reactHarness = vi.hoisted(() => ({
+const reactStub = vi.hoisted(() => ({
   cursor: 0,
   states: [] as unknown[],
 }))
@@ -20,18 +20,18 @@ vi.mock('react', () => ({
     return { current: initialValue }
   },
   useState<T>(initialValue: T | (() => T)) {
-    const index = reactHarness.cursor
-    reactHarness.cursor += 1
-    reactHarness.states[index] = typeof initialValue === 'function'
+    const index = reactStub.cursor
+    reactStub.cursor += 1
+    reactStub.states[index] = typeof initialValue === 'function'
       ? (initialValue as () => T)()
       : initialValue
     const setState = (update: T | ((previous: T) => T)) => {
-      const previous = reactHarness.states[index] as T
-      reactHarness.states[index] = typeof update === 'function'
+      const previous = reactStub.states[index] as T
+      reactStub.states[index] = typeof update === 'function'
         ? (update as (value: T) => T)(previous)
         : update
     }
-    return [reactHarness.states[index] as T, setState] as const
+    return [reactStub.states[index] as T, setState] as const
   },
 }))
 
@@ -69,8 +69,8 @@ function session(id: string, scope: 'global' | 'project' = 'global', projectId?:
 
 describe('session pagination bootstrap', () => {
   beforeEach(() => {
-    reactHarness.cursor = 0
-    reactHarness.states = []
+    reactStub.cursor = 0
+    reactStub.states = []
   })
 
   it('does not leave restored projects in a fake loading state before the backend is ready', async () => {
@@ -83,7 +83,7 @@ describe('session pagination bootstrap', () => {
 
     await flushMicrotasks()
 
-    expect(reactHarness.states[2]).toEqual({})
+    expect(reactStub.states[2]).toEqual({})
   })
 
   it('starts pinned and global initial-page requests in parallel', async () => {
@@ -149,7 +149,7 @@ describe('session pagination bootstrap', () => {
       'lastModified',
       expect.objectContaining({ scope: 'project', projectId: 'project-1', pinned: 'exclude' }),
     )
-    expect(reactHarness.states[2]).toEqual({
+    expect(reactStub.states[2]).toEqual({
       'project-1': {
         items: [projectSession],
         total: 1,
@@ -199,7 +199,7 @@ describe('session pagination bootstrap', () => {
     await pagination.loadGlobalSessions(2)
     await flushMicrotasks()
 
-    expect(reactHarness.states[0]).toEqual({
+    expect(reactStub.states[0]).toEqual({
       items: [globalSessionA, globalSessionB],
       total: 2,
       loading: false,
@@ -311,7 +311,7 @@ describe('session pagination bootstrap', () => {
     await pagination.loadProjectSessions('project-1', 2)
     await flushMicrotasks()
 
-    expect(reactHarness.states[2]).toEqual({
+    expect(reactStub.states[2]).toEqual({
       'project-1': {
         items: [projectSessionA, projectSessionB],
         total: 2,
@@ -353,7 +353,7 @@ describe('session pagination bootstrap', () => {
 
     // Refocus refresh in flight: loading true, appending false — mounted "show more"
     // buttons read appending, so they must not flip to spinner.
-    expect(reactHarness.states[0]).toEqual({
+    expect(reactStub.states[0]).toEqual({
       items: [globalSession],
       total: 1,
       loading: true,
@@ -362,7 +362,7 @@ describe('session pagination bootstrap', () => {
 
     refresh.resolve({ values: [globalSession], total: 1 })
     await flushMicrotasks()
-    expect(reactHarness.states[0]).toEqual({
+    expect(reactStub.states[0]).toEqual({
       items: [globalSession],
       total: 1,
       loading: false,
@@ -395,7 +395,7 @@ describe('session pagination bootstrap', () => {
     void pagination.loadMoreGlobal()
     await flushMicrotasks()
 
-    expect(reactHarness.states[0]).toEqual({
+    expect(reactStub.states[0]).toEqual({
       items: firstPage,
       total: 21,
       loading: true,
@@ -404,8 +404,8 @@ describe('session pagination bootstrap', () => {
 
     nextPage.resolve({ values: [session('global-20')], total: 21 })
     await flushMicrotasks()
-    expect(reactHarness.states[0].loading).toBe(false)
-    expect(reactHarness.states[0].appending).toBe(false)
+    expect(reactStub.states[0].loading).toBe(false)
+    expect(reactStub.states[0].appending).toBe(false)
   })
 
   it('coalesces refreshSessions calls within the merge window into one round of requests', async () => {

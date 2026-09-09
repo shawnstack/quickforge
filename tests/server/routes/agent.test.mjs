@@ -9,9 +9,6 @@ const mocks = vi.hoisted(() => ({
   touchSession: vi.fn(),
   runPrompt: vi.fn(),
   isSessionFileRollbackBusy: vi.fn(() => false),
-  updateSessionHarnessConfigOption: vi.fn(),
-  updateSessionHarnessMode: vi.fn(),
-  forkSession: vi.fn(),
   releaseSse: vi.fn(),
   agentEvents: null,
   logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -78,9 +75,6 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   touchSession: mocks.touchSession,
   tryAcquireSse: mocks.tryAcquireSse,
   updateSessionAccessMode: vi.fn(),
-  updateSessionHarnessConfigOption: mocks.updateSessionHarnessConfigOption,
-  updateSessionHarnessMode: mocks.updateSessionHarnessMode,
-  forkSession: mocks.forkSession,
   updateSessionModel: vi.fn(),
   updateSessionThinkingLevel: vi.fn(),
   updateSessionTitle: vi.fn(),
@@ -118,6 +112,8 @@ const fileBackupMocks = vi.hoisted(() => ({
   getSessionFileRollbackPreview: vi.fn(),
   rollbackSessionFiles: vi.fn(),
   rollbackSessionFile: vi.fn(),
+  getSessionTurnRollbackPreview: vi.fn(),
+  rollbackSessionTurn: vi.fn(),
 }))
 
 vi.mock('../../../server/session-file-backups.mjs', () => ({
@@ -125,6 +121,8 @@ vi.mock('../../../server/session-file-backups.mjs', () => ({
   getSessionFileRollbackPreview: fileBackupMocks.getSessionFileRollbackPreview,
   rollbackSessionFiles: fileBackupMocks.rollbackSessionFiles,
   rollbackSessionFile: fileBackupMocks.rollbackSessionFile,
+  getSessionTurnRollbackPreview: fileBackupMocks.getSessionTurnRollbackPreview,
+  rollbackSessionTurn: fileBackupMocks.rollbackSessionTurn,
 }))
 
 function request(body) {
@@ -240,6 +238,8 @@ describe('agent file change summary routes', () => {
     fileBackupMocks.getSessionFileChanges.mockReset()
     fileBackupMocks.rollbackSessionFiles.mockReset()
     fileBackupMocks.rollbackSessionFile.mockReset()
+    fileBackupMocks.getSessionTurnRollbackPreview.mockReset()
+    fileBackupMocks.rollbackSessionTurn.mockReset()
   })
 
   it('returns the session-scoped file change summary', async () => {
@@ -334,6 +334,69 @@ describe('agent file change summary routes', () => {
     expect(fileBackupMocks.rollbackSessionFiles).toHaveBeenCalledWith('session-1', { revision: undefined, isSessionBusy: expect.any(Function) })
     expect(res.status).toBe(409)
     expect(JSON.parse(res.body)).toEqual(result)
+  })
+
+  it('returns the per-turn preview with a live busy guard', async () => {
+    const preview = { revision: 'turn-rev', turnIds: ['turn-1', 'turn-1r'], canRollback: true, files: [{ path: 'C:\\ws\\a.ts', safe: true, reason: null, action: 'restore', created: false, beforeBytes: 3, afterBytes: 5 }] }
+    fileBackupMocks.getSessionTurnRollbackPreview.mockResolvedValue(preview)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const req = request()
+    req.method = 'GET'
+    const res = response()
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1/rollback-turn/preview?turnIds=turn-1,turn-1r'))
+    expect(fileBackupMocks.getSessionTurnRollbackPreview).toHaveBeenCalledWith('session-1', { turnIds: ['turn-1', 'turn-1r'], isSessionBusy: expect.any(Function) })
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual(preview)
+    fileBackupMocks.getSessionTurnRollbackPreview.mock.calls.at(-1)[1].isSessionBusy()
+    expect(mocks.isSessionFileRollbackBusy).toHaveBeenCalledWith('session-1')
+  })
+
+  it('parses turnIds as a deduplicated comma-separated list', async () => {
+    fileBackupMocks.getSessionTurnRollbackPreview.mockResolvedValue({ revision: 'turn-rev', turnIds: ['turn-1'], canRollback: true, files: [] })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const req = request()
+    req.method = 'GET'
+    await handleAgentApi(req, response(), new URL('http://localhost/api/agents/session-1/rollback-turn/preview?turnIds=turn-1,,turn-1,'))
+    expect(fileBackupMocks.getSessionTurnRollbackPreview).toHaveBeenCalledWith('session-1', { turnIds: ['turn-1'], isSessionBusy: expect.any(Function) })
+  })
+
+  it.each([['missing', ''], ['blank', ',,'], ['absent', null]])('rejects a per-turn preview without turnIds (%s)', async (_name, raw) => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const req = request()
+    req.method = 'GET'
+    const url = new URL('http://localhost/api/agents/session-1/rollback-turn/preview')
+    if (raw !== null) url.searchParams.set('turnIds', raw)
+    await expect(handleAgentApi(req, response(), url)).rejects.toMatchObject({ statusCode: 400 })
+    expect(fileBackupMocks.getSessionTurnRollbackPreview).not.toHaveBeenCalled()
+  })
+
+  it.each([['completed', 200], ['partial', 200], ['blocked', 409], ['failed', 500]])('maps turn rollback %s to HTTP %s', async (status, code) => {
+    const result = {
+      status,
+      rolledBack: status === 'completed' || status === 'partial' ? [{ path: 'C:\\ws\\a.ts', action: 'restore' }] : [],
+      conflicts: status === 'partial' ? [{ path: 'C:\\ws\\b.ts', reason: 'modified-after-turn' }] : [],
+      errors: [],
+      preview: { revision: 'turn-rev', turnIds: ['turn-1', 'turn-1r'], canRollback: false, files: [] },
+    }
+    fileBackupMocks.rollbackSessionTurn.mockResolvedValue(result)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    await handleAgentApi(request({ turnIds: ['turn-1', 'turn-1r'], revision: 'turn-rev' }), res, new URL('http://localhost/api/agents/session-1/rollback-turn'))
+    expect(fileBackupMocks.rollbackSessionTurn).toHaveBeenCalledWith('session-1', { turnIds: ['turn-1', 'turn-1r'], revision: 'turn-rev', isSessionBusy: expect.any(Function) })
+    expect(res.status).toBe(code)
+    expect(JSON.parse(res.body)).toEqual(result)
+  })
+
+  it.each([
+    {},
+    { turnIds: [] },
+    { turnIds: 'turn-1' },
+    { turnIds: [''] },
+    { turnIds: ['turn-1', 42], revision: 'turn-rev' },
+  ])('rejects turn rollback without a valid turnIds array: %j', async (body) => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    await expect(handleAgentApi(request(body), response(), new URL('http://localhost/api/agents/session-1/rollback-turn'))).rejects.toMatchObject({ statusCode: 400 })
+    expect(fileBackupMocks.rollbackSessionTurn).not.toHaveBeenCalled()
   })
 })
 
@@ -602,52 +665,6 @@ describe('agent split-session state and messages routes', () => {
     expect(frame).not.toContain('"messages"')
     expect(frame).toContain('"messagesSummary":{"count":2}')
     expect(frame).toContain('"stateVersion":2')
-  })
-})
-
-describe('agent Harness configuration routes', () => {
-  beforeEach(() => {
-    mocks.updateSessionHarnessConfigOption.mockReset()
-    mocks.updateSessionHarnessMode.mockReset()
-    mocks.forkSession.mockReset()
-  })
-
-  it('calls the config option manager method', async () => {
-    const result = { sessionId: 'session-1', acpSession: { configOptions: [] } }
-    mocks.updateSessionHarnessConfigOption.mockResolvedValue(result)
-    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
-    const res = response()
-
-    await handleAgentApi(request({ configId: 'model', value: 'gpt' }), res, new URL('http://localhost/api/agents/session-1/harness/config-option'))
-
-    expect(mocks.updateSessionHarnessConfigOption).toHaveBeenCalledWith('session-1', 'model', 'gpt')
-    expect(JSON.parse(res.body)).toEqual(result)
-  })
-
-  it('calls the mode manager method and validates required fields', async () => {
-    const result = { sessionId: 'session-1', acpSession: { modes: { currentModeId: 'plan' } } }
-    mocks.updateSessionHarnessMode.mockResolvedValue(result)
-    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
-    const res = response()
-
-    await handleAgentApi(request({ modeId: 'plan' }), res, new URL('http://localhost/api/agents/session-1/harness/mode'))
-    expect(mocks.updateSessionHarnessMode).toHaveBeenCalledWith('session-1', 'plan')
-    expect(JSON.parse(res.body)).toEqual(result)
-
-    await expect(handleAgentApi(request({ configId: 'model' }), response(), new URL('http://localhost/api/agents/session-1/harness/config-option'))).rejects.toMatchObject({ statusCode: 400 })
-    await expect(handleAgentApi(request({}), response(), new URL('http://localhost/api/agents/session-1/harness/mode'))).rejects.toMatchObject({ statusCode: 400 })
-  })
-
-  it('calls the whole-session fork manager method', async () => {
-    const result = { sessionId: 'forked-1', title: 'Copy', scope: 'global', projectId: null }
-    mocks.forkSession.mockResolvedValue(result)
-    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
-    const res = response()
-
-    await handleAgentApi(request(), res, new URL('http://localhost/api/agents/session-1/fork'))
-
-    expect(mocks.forkSession).toHaveBeenCalledWith('session-1')
-    expect(JSON.parse(res.body)).toEqual(result)
   })
 })
 

@@ -53,34 +53,6 @@ export function normalizeTodoWriteTodos(value: unknown): TodoWriteItem[] | null 
   return todos
 }
 
-export function isTodoWriteAcpMetadata(value: unknown): boolean {
-  if (!isRecord(value)) return false
-  return [value.kind, value.title].some((candidate) => (
-    typeof candidate === 'string'
-    && candidate.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]/g, '') === 'todowrite'
-  ))
-}
-
-function assistantToolCallArgumentsForResult(messages: readonly TodoWriteMessage[], resultIndex: number, toolCallId: string) {
-  for (let index = resultIndex - 1; index >= 0; index--) {
-    const message = messages[index]
-    if (message.role !== 'assistant' || !Array.isArray(message.content)) continue
-    for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
-      const block = message.content[blockIndex]
-      if (isRecord(block) && block.type === 'toolCall' && block.id === toolCallId && isRecord(block.arguments)) {
-        return block.arguments
-      }
-    }
-  }
-  return undefined
-}
-
-function openCodeTodosFromArguments(args: Record<string, unknown> | undefined) {
-  if (!args) return undefined
-  if ('todos' in args) return args.todos
-  return isRecord(args.rawInput) ? args.rawInput.todos : undefined
-}
-
 function scanLatestTodoWriteSnapshot(messages: readonly TodoWriteMessage[]): { snapshot: TodoWriteSnapshot; key: string } | null {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]
@@ -92,18 +64,6 @@ function scanLatestTodoWriteSnapshot(messages: readonly TodoWriteMessage[]): { s
       if (todos) return { snapshot: { todos }, key: `quickforge:${message.toolCallId ?? index}` }
       continue
     }
-
-    if (message.toolName !== 'opencode_tool' || typeof message.toolCallId !== 'string') continue
-    const details = isRecord(message.details) ? message.details : undefined
-    const detailsMetadata = details?.__quickforgeAcp
-    let args: Record<string, unknown> | undefined
-    if (!isTodoWriteAcpMetadata(detailsMetadata)) {
-      args = assistantToolCallArgumentsForResult(messages, index, message.toolCallId)
-      if (!isTodoWriteAcpMetadata(args?.__quickforgeAcp)) continue
-    }
-    args ??= assistantToolCallArgumentsForResult(messages, index, message.toolCallId)
-    const todos = normalizeTodoWriteTodos(openCodeTodosFromArguments(args))
-    if (todos) return { snapshot: { todos }, key: `opencode:${message.toolCallId}` }
   }
 
   return null

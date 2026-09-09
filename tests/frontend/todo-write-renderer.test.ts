@@ -19,14 +19,11 @@ function classBlock(name: string, nextName: string) {
 describe('TodoWrite history view model', () => {
   it('reports running and error without claiming a pinned-summary sync', () => {
     expect(buildTodoWriteHistoryViewModel({
-      source: 'quickforge',
-      params: { todos: [todo('Stale input', 'completed')] },
+      result: { details: { todos: [todo('Stale input', 'completed')] } },
       isStreaming: true,
     })).toEqual({ status: 'running', summaryKey: 'todoWriteHistoryRunning', snapshot: null })
 
     expect(buildTodoWriteHistoryViewModel({
-      source: 'quickforge',
-      params: { todos: [todo('Stale input', 'completed')] },
       result: { isError: true, details: { todos: [todo('Not applied', 'completed')] } },
     })).toEqual({ status: 'error', summaryKey: 'todoWriteHistoryFailed', snapshot: null })
   })
@@ -34,8 +31,6 @@ describe('TodoWrite history view model', () => {
   it('uses only the successful QuickForge result details as the applied snapshot', () => {
     const applied = [todo('Applied', 'completed'), todo('Next', 'pending')]
     expect(buildTodoWriteHistoryViewModel({
-      source: 'quickforge',
-      params: { todos: [todo('Requested only', 'completed')] },
       result: { details: { todos: applied } },
     })).toEqual({
       status: 'done',
@@ -47,70 +42,26 @@ describe('TodoWrite history view model', () => {
 
   it('distinguishes a successful clear from invalid or absent snapshots', () => {
     expect(buildTodoWriteHistoryViewModel({
-      source: 'quickforge',
       result: { details: { todos: [] } },
     })).toEqual({ status: 'done', summaryKey: 'todoWriteHistoryCleared', snapshot: [] })
 
     expect(buildTodoWriteHistoryViewModel({
-      source: 'quickforge',
-      params: { todos: [todo('Must not count', 'completed')] },
       result: { details: { todos: [{ content: '', status: 'completed' }] } },
     })).toEqual({ status: 'done', summaryKey: 'todoWriteHistoryNeutral', snapshot: null })
 
-    expect(buildTodoWriteHistoryViewModel({
-      source: 'quickforge',
-      params: { todos: [todo('Called only', 'pending')] },
-    })).toEqual({ status: 'called', summaryKey: 'todoWriteHistoryNeutral', snapshot: null })
-  })
-
-  it('uses successful OpenCode params/rawInput todos but not streaming or missing results', () => {
-    const topLevel = [todo('Top level', 'completed')]
-    expect(buildTodoWriteHistoryViewModel({
-      source: 'opencode',
-      params: { todos: topLevel, rawInput: { todos: [todo('Fallback', 'pending')] } },
-      result: { details: {} },
-    })).toEqual({
-      status: 'done',
-      summaryKey: 'todoWriteHistorySummary',
-      summaryParams: { completed: 1, total: 1 },
-      snapshot: topLevel,
-    })
-
-    const rawInput = [todo('Raw input', 'in_progress')]
-    expect(buildTodoWriteHistoryViewModel({
-      source: 'opencode',
-      params: { rawInput: { todos: rawInput } },
-      result: { details: {} },
-    }).snapshot).toEqual(rawInput)
-
-    expect(buildTodoWriteHistoryViewModel({
-      source: 'opencode',
-      params: { todos: topLevel },
-      result: { details: {} },
-      isStreaming: true,
-    }).summaryKey).toBe('todoWriteHistoryRunning')
-    expect(buildTodoWriteHistoryViewModel({ source: 'opencode', params: { todos: topLevel } }).summaryKey)
-      .toBe('todoWriteHistoryNeutral')
+    expect(buildTodoWriteHistoryViewModel({})).toEqual({ status: 'called', summaryKey: 'todoWriteHistoryNeutral', snapshot: null })
   })
 })
 
 describe('TodoWrite history renderer', () => {
   it('registers the native todo_write renderer and keeps history summary-only outside detailed mode', () => {
-    const block = classBlock('TodoWriteToolRenderer', 'OpenCodeToolRenderer')
+    const block = classBlock('TodoWriteToolRenderer', 'McpToolRenderer')
     expect(source).toContain("registerToolRenderer('todo_write', todoWriteToolRenderer)")
     expect(block).toContain("toolDisplaySettings.toolDisplayMode === 'detailed'")
     expect(block).toContain('buildTodoWriteHistoryViewModel')
     expect(block).toContain('renderStatus(status, timing)')
     expect(block).toContain('language="json"')
     expect(block).not.toContain('quickforge-todo-summary-list')
-  })
-
-  it('delegates only OpenCode todowrite metadata with OpenCode snapshot semantics', () => {
-    const block = classBlock('OpenCodeToolRenderer', 'McpToolRenderer')
-    expect(block).toContain('if (isTodoWriteAcpMetadata(metadataFromParams) || isTodoWriteAcpMetadata(metadataFromDetails))')
-    expect(block).toContain("return todoWriteToolRenderer.render(params, result, isStreaming, 'opencode')")
-    expect(block).toContain('quickforge-opencode-tool-shell')
-    expect(block).toContain('OpenCode')
   })
 
   it('adds every bilingual audit-summary state', () => {

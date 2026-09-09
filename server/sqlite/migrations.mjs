@@ -517,7 +517,6 @@ export const SQLITE_MIGRATIONS = Object.freeze([
           updated_at TEXT NOT NULL CHECK (length(trim(updated_at)) > 0),
           message_count INTEGER NOT NULL DEFAULT 0 CHECK (typeof(message_count) = 'integer' AND message_count >= 0),
           state_version INTEGER NOT NULL DEFAULT 0 CHECK (typeof(state_version) = 'integer' AND state_version >= 0),
-          harness TEXT,
           task_status TEXT,
           archived_at TEXT,
           pinned_at TEXT,

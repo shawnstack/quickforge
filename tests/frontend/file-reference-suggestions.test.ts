@@ -11,11 +11,10 @@ vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
 
 describe('file reference mention helpers', () => {
   it('enables @ files only for editable QuickForge project conversations', () => {
-    expect(canUseFileReferenceSuggestions({ projectId: 'project-1', readOnly: false, harness: 'quickforge', shared: false })).toBe(true)
-    expect(canUseFileReferenceSuggestions({ readOnly: false, harness: 'quickforge', shared: false })).toBe(false)
-    expect(canUseFileReferenceSuggestions({ projectId: 'project-1', readOnly: true, harness: 'quickforge', shared: false })).toBe(false)
-    expect(canUseFileReferenceSuggestions({ projectId: 'project-1', readOnly: false, harness: 'opencode', shared: false })).toBe(false)
-    expect(canUseFileReferenceSuggestions({ projectId: 'project-1', readOnly: false, harness: 'quickforge', shared: true })).toBe(false)
+    expect(canUseFileReferenceSuggestions({ projectId: 'project-1', readOnly: false, shared: false })).toBe(true)
+    expect(canUseFileReferenceSuggestions({ readOnly: false, shared: false })).toBe(false)
+    expect(canUseFileReferenceSuggestions({ projectId: 'project-1', readOnly: true, shared: false })).toBe(false)
+    expect(canUseFileReferenceSuggestions({ projectId: 'project-1', readOnly: false, shared: true })).toBe(false)
   })
 
   it('finds only the active whitespace-delimited @ token at the caret', () => {

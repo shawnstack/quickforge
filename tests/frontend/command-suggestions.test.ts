@@ -208,7 +208,7 @@ const catalog: SlashCatalog = {
   agents: [{ name: 'explore', label: '只读调研', description: 'Locate files and call chains' }],
 }
 
-type Harness = {
+type TestEnv = {
   panel: FakeNode
   shell: FakeNode
   editor: FakeNode
@@ -225,7 +225,7 @@ type Harness = {
   clickRow: (row: FakeNode) => void
 }
 
-function createHarness(loadSlashCatalog?: () => Promise<SlashCatalog | null>): Harness {
+function createEnv(loadSlashCatalog?: () => Promise<SlashCatalog | null>): TestEnv {
   const textarea = createFakeElement('textarea')
   textarea.value = ''
   textarea.selectionStart = 0
@@ -375,7 +375,7 @@ describe('command suggestions slash menu', () => {
   it('renders commands plus loading skeletons and starts one catalog load on "/"', async () => {
     const pending = deferred()
     const loadSlashCatalog = vi.fn(() => pending.promise)
-    const { instance, setText, menu, optionRows, skeletonRows, heads } = createHarness(loadSlashCatalog)
+    const { instance, setText, menu, optionRows, skeletonRows, heads } = createEnv(loadSlashCatalog)
 
     setText('/')
     instance.update('/')
@@ -400,7 +400,7 @@ describe('command suggestions slash menu', () => {
 
   it('re-renders grouped rows with counts once the catalog resolves', async () => {
     const pending = deferred()
-    const { instance, setText, optionRows, heads, menu } = createHarness(() => pending.promise)
+    const { instance, setText, optionRows, heads, menu } = createEnv(() => pending.promise)
 
     setText('/')
     instance.update('/')
@@ -442,7 +442,7 @@ describe('command suggestions slash menu', () => {
 
   it('filters rows by query and bolds the matched segment', async () => {
     const pending = deferred()
-    const { instance, setText, optionRows, heads } = createHarness(() => pending.promise)
+    const { instance, setText, optionRows, heads } = createEnv(() => pending.promise)
 
     setText('/')
     instance.update('/')
@@ -482,7 +482,7 @@ describe('command suggestions slash menu', () => {
 
   it('inserts the full usage text with a trailing space on row click', async () => {
     const pending = deferred()
-    const { instance, setText, optionRows, restoreDraftIntoComposer } = createHarness(() => pending.promise)
+    const { instance, setText, optionRows, restoreDraftIntoComposer } = createEnv(() => pending.promise)
 
     setText('/')
     instance.update('/')
@@ -503,7 +503,7 @@ describe('command suggestions slash menu', () => {
 
   it('inserts /commit with a trailing space for an optional message', async () => {
     const pending = deferred()
-    const { instance, setText, optionRows, restoreDraftIntoComposer } = createHarness(() => pending.promise)
+    const { instance, setText, optionRows, restoreDraftIntoComposer } = createEnv(() => pending.promise)
 
     setText('/commit')
     instance.update('/commit')
@@ -524,7 +524,7 @@ describe('command suggestions slash menu', () => {
 
   it('supports arrow navigation, Tab completion, Escape close, and Enter passthrough', async () => {
     const pending = deferred()
-    const { instance, setText, optionRows, menu, keydown, restoreDraftIntoComposer } = createHarness(() => pending.promise)
+    const { instance, setText, optionRows, menu, keydown, restoreDraftIntoComposer } = createEnv(() => pending.promise)
 
     setText('/')
     instance.update('/')
@@ -570,7 +570,7 @@ describe('command suggestions slash menu', () => {
 
   it('degrades to commands-only on rejection and retries once after reopening', async () => {
     const loadSlashCatalog = vi.fn(() => Promise.reject(new Error('boom')))
-    const { instance, setText, optionRows, skeletonRows, heads, menu } = createHarness(loadSlashCatalog)
+    const { instance, setText, optionRows, skeletonRows, heads, menu } = createEnv(loadSlashCatalog)
 
     setText('/')
     instance.update('/')
@@ -600,7 +600,7 @@ describe('command suggestions slash menu', () => {
 
   it('removes the menu for non-slash text', async () => {
     const pending = deferred()
-    const { instance, setText, menu } = createHarness(() => pending.promise)
+    const { instance, setText, menu } = createEnv(() => pending.promise)
 
     setText('/')
     instance.update('/')
@@ -615,7 +615,7 @@ describe('command suggestions slash menu', () => {
 
   it('dismisses the menu on any pointerdown outside it, including the composer', async () => {
     const pending = deferred()
-    const { instance, setText, menu, panel, textarea, heads } = createHarness(() => pending.promise)
+    const { instance, setText, menu, panel, textarea, heads } = createEnv(() => pending.promise)
 
     setText('/')
     instance.update('/')
@@ -657,7 +657,7 @@ describe('command suggestions slash menu', () => {
 
   it('suppresses no-argument refreshes after Escape and public remove until explicit input', async () => {
     const pending = deferred()
-    const { instance, setText, menu, keydown } = createHarness(() => pending.promise)
+    const { instance, setText, menu, keydown } = createEnv(() => pending.promise)
 
     setText('/')
     instance.update('/')
@@ -690,7 +690,7 @@ describe('command suggestions slash menu', () => {
 
   it('keeps one document listener across rerenders and cleans it up with the controller', async () => {
     const pending = deferred()
-    const { instance, setText, menu } = createHarness(() => pending.promise)
+    const { instance, setText, menu } = createEnv(() => pending.promise)
 
     setText('/')
     instance.update('/')
@@ -717,7 +717,7 @@ describe('command suggestions slash menu', () => {
   // -------------------------------------------------------------------------
 
   /** 模拟真实 restoreComposerDraft：写回文本并同步触发一次 input → update。 */
-  const wireDraftRestore = (h: Harness) => {
+  const wireDraftRestore = (h: TestEnv) => {
     h.restoreDraftIntoComposer.mockImplementation((draft: { text: string }) => {
       h.setText(draft.text)
       h.instance.update(draft.text)
@@ -726,7 +726,7 @@ describe('command suggestions slash menu', () => {
 
   it('engages the chip when an agent row is selected and suppresses the menu', async () => {
     const pending = deferred()
-    const h = createHarness(() => pending.promise)
+    const h = createEnv(() => pending.promise)
     wireDraftRestore(h)
     const { instance, setText, optionRows, menu, overlay, textarea } = h
 
@@ -753,7 +753,7 @@ describe('command suggestions slash menu', () => {
 
   it('does not engage the chip for command rows', async () => {
     const pending = deferred()
-    const h = createHarness(() => pending.promise)
+    const h = createEnv(() => pending.promise)
     wireDraftRestore(h)
     const { instance, setText, optionRows, overlay } = h
 
@@ -769,7 +769,7 @@ describe('command suggestions slash menu', () => {
 
   it('auto-engages a fully typed command once the catalog is ready', async () => {
     const pending = deferred()
-    const { instance, setText, menu, overlay } = createHarness(() => pending.promise)
+    const { instance, setText, menu, overlay } = createEnv(() => pending.promise)
 
     setText('/')
     instance.update('/')
@@ -784,7 +784,7 @@ describe('command suggestions slash menu', () => {
 
   it('Backspace at the chip boundary removes the whole prefix', async () => {
     const pending = deferred()
-    const h = createHarness(() => pending.promise)
+    const h = createEnv(() => pending.promise)
     wireDraftRestore(h)
     const { instance, setText, optionRows, textarea, keydown } = h
 
@@ -817,7 +817,7 @@ describe('command suggestions slash menu', () => {
 
   it('Escape exits the chip keeping the text and the prefix stays dismissed', async () => {
     const pending = deferred()
-    const h = createHarness(() => pending.promise)
+    const h = createEnv(() => pending.promise)
     wireDraftRestore(h)
     const { instance, setText, optionRows, menu, overlay, textarea, keydown } = h
 
@@ -852,7 +852,7 @@ describe('command suggestions slash menu', () => {
 
   it('editing the prefix self-destructs the chip and the menu can open again', async () => {
     const pending = deferred()
-    const h = createHarness(() => pending.promise)
+    const h = createEnv(() => pending.promise)
     wireDraftRestore(h)
     const { instance, setText, optionRows, menu, overlay } = h
 

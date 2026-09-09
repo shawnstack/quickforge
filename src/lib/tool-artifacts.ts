@@ -18,6 +18,8 @@ export type AiTurnArtifact = {
   description?: string
   addedLines?: number
   removedLines?: number
+  /** 轮标识（write_file/edit_file toolResult details.turnId；旧会话可能缺失）。 */
+  turnId?: string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -151,6 +153,7 @@ function extractArtifactsFromMessages(messages: AgentMessage[]): AiTurnArtifact[
           confidence: 'high',
           path,
           toolCallId,
+          turnId: details ? stringField(details, 'turnId') : undefined,
           kind,
           preview: isPreviewableKind(kind),
           presentation: 'inferred',
@@ -211,4 +214,70 @@ export function extractCurrentTurnArtifacts(messages: AgentMessage[] | undefined
 export function extractSessionArtifacts(messages: AgentMessage[] | undefined): AiTurnArtifact[] {
   if (!messages?.length) return []
   return extractArtifactsFromMessages(messages)
+}
+
+/** 按轮切片的产物提取结果（每轮产物卡的口径）。 */
+export type AiTurnArtifacts = {
+  /**
+   * 该轮首条 user 消息（user / user-with-attachments）在完整消息数组中的下标；
+   * 首条 user 之前的残余内容（如上下文压缩后的半轮片段）归入 userIndex = -1 的前置组。
+   */
+  userIndex: number
+  artifacts: AiTurnArtifact[]
+  /**
+   * 该轮全部产物的 turnId 去重集合（来自 toolResult details.turnId，切片序保序）；
+   * 一轮 = 原 run + 重试 run 的全部 turnId。无任何 turnId 时为空数组。
+   */
+  turnIds: string[]
+}
+
+/**
+ * 轮级撤销的轮键：同一轮 turnIds 集合的稳定标识（App 的 rolledBackTurns
+ * 与卡片按钮的已撤销判定共用同一口径）。重试在同轮追加新 turnId 后轮键变化，
+ * 旧键残留无害（新产物出现本就该重新武装按钮）。
+ */
+export function turnRollbackKey(turnIds: string[]) {
+  return turnIds.join('|')
+}
+
+/** 轮首口径与 process-folding 一致：user 与 user-with-attachments 都算轮首。 */
+function isTurnBoundaryMessage(message: AgentMessage) {
+  return message.role === 'user' || message.role === 'user-with-attachments'
+}
+
+/**
+ * 按 user 消息边界切轮，返回「每轮新增」的产物列表：
+ * - 轮产物 = 该轮切片内的全部产物（内部按切片复用 extractArtifactsFromMessages，
+ *   其 seen/id 去重机制天然按切片生效，轮内不重复、跨轮各自独立）；
+ * - 无产物的轮不返回（卡片层只给有产物的轮挂卡）；
+ * - 首条 user 之前的内容归入 userIndex = -1 的前置组（无轮首，也无轮级撤销）。
+ */
+export function extractTurnArtifacts(messages: AgentMessage[] | undefined): AiTurnArtifacts[] {
+  if (!messages?.length) return []
+  const turns: AiTurnArtifacts[] = []
+  const pushTurn = (userIndex: number, slice: AgentMessage[]) => {
+    const artifacts = extractArtifactsFromMessages(slice)
+    if (artifacts.length === 0) return
+    // 一轮 = 原 run + 重试 run：该轮全部产物的 turnId 去重（切片序保序）。
+    const turnIds = [...new Set(artifacts
+      .map((artifact) => artifact.turnId)
+      .filter((turnId): turnId is string => Boolean(turnId)))]
+    turns.push({ userIndex, artifacts, turnIds })
+  }
+
+  let index = 0
+  if (!isTurnBoundaryMessage(messages[0])) {
+    // 前置组：首条 user 之前的全部内容（最多一个，无轮首边界）。
+    let end = 0
+    while (end < messages.length && !isTurnBoundaryMessage(messages[end])) end += 1
+    pushTurn(-1, messages.slice(0, end))
+    index = end
+  }
+  while (index < messages.length) {
+    let end = index + 1
+    while (end < messages.length && !isTurnBoundaryMessage(messages[end])) end += 1
+    pushTurn(index, messages.slice(index, end))
+    index = end
+  }
+  return turns
 }

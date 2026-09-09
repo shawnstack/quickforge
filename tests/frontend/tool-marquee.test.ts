@@ -38,7 +38,7 @@ type FakeAnimation = ToolMarqueeAnimation & {
   target: ToolMarqueeSpan | ToolMarqueeView['el']
 }
 
-function createHarness(options: { reducedMotion?: boolean; clientWidth?: number; scrollWidth?: number } = {}) {
+function createEnv(options: { reducedMotion?: boolean; clientWidth?: number; scrollWidth?: number } = {}) {
   const views: [ToolMarqueeView, ToolMarqueeView] = [
     createFakeView(options.scrollWidth ?? 500),
     createFakeView(options.scrollWidth ?? 500),
@@ -94,37 +94,37 @@ function createHarness(options: { reducedMotion?: boolean; clientWidth?: number;
 
 describe('ToolMarqueeController', () => {
   it('starts the first cycle after the start delay when text overflows while running', () => {
-    const harness = createHarness({ clientWidth: 200, scrollWidth: 500 })
-    harness.controller.sync('run_command · npm run test', true)
+    const env = createEnv({ clientWidth: 200, scrollWidth: 500 })
+    env.controller.sync('run_command · npm run test', true)
 
-    expect(harness.animations).toHaveLength(0)
-    expect(harness.timers).toHaveLength(1)
-    expect(harness.timers[0].ms).toBe(MARQUEE_START_DELAY_MS)
+    expect(env.animations).toHaveLength(0)
+    expect(env.timers).toHaveLength(1)
+    expect(env.timers[0].ms).toBe(MARQUEE_START_DELAY_MS)
 
-    harness.fireTimer(0)
-    expect(harness.animations).toHaveLength(1)
+    env.fireTimer(0)
+    expect(env.animations).toHaveLength(1)
     // 首次出现（无旧文本）不滚动：唯一的动画是当前视图的横向滚动。
-    expect(harness.animations[0].target).toBe(harness.views[0].movingSpan)
-    expect(harness.views[0].staticSpan.style.visibility).toBe('hidden')
-    expect(harness.views[0].movingSpan.style.display).toBe('inline-block')
-    expect(harness.views[0].staticSpan.textContent).toBe('run_command · npm run test')
-    expect(harness.views[0].movingSpan.textContent).toBe('run_command · npm run test')
+    expect(env.animations[0].target).toBe(env.views[0].movingSpan)
+    expect(env.views[0].staticSpan.style.visibility).toBe('hidden')
+    expect(env.views[0].movingSpan.style.display).toBe('inline-block')
+    expect(env.views[0].staticSpan.textContent).toBe('run_command · npm run test')
+    expect(env.views[0].movingSpan.textContent).toBe('run_command · npm run test')
     // 另一视图初始隐藏为滚入位。
-    expect(harness.views[1].el.style.visibility).toBe('hidden')
+    expect(env.views[1].el.style.visibility).toBe('hidden')
   })
 
   it('computes keyframes and duration from the measured distance', () => {
-    const harness = createHarness({ clientWidth: 200, scrollWidth: 500 })
-    harness.controller.sync('text', true)
-    harness.fireTimer(0)
+    const env = createEnv({ clientWidth: 200, scrollWidth: 500 })
+    env.controller.sync('text', true)
+    env.fireTimer(0)
 
     const distance = 300
     const scrollDurationMs = distance / MARQUEE_SCROLL_SPEED_PX_PER_SECOND * 1000
     const returnDurationMs = Math.min(500, Math.max(240, scrollDurationMs * 0.25))
     const expectedDuration = scrollDurationMs + MARQUEE_END_PAUSE_MS + returnDurationMs
-    expect(harness.env.animate).toHaveBeenCalledTimes(1)
-    const call = vi.mocked(harness.env.animate).mock.calls[0]
-    expect(call[0]).toBe(harness.views[0].movingSpan)
+    expect(env.env.animate).toHaveBeenCalledTimes(1)
+    const call = vi.mocked(env.env.animate).mock.calls[0]
+    expect(call[0]).toBe(env.views[0].movingSpan)
     expect(call[2]).toEqual({ duration: expectedDuration, fill: 'forwards' })
     expect(call[1][1]).toMatchObject({ transform: `translateX(-${distance}px)`, easing: 'linear' })
     expect(call[1][2]).toMatchObject({ transform: `translateX(-${distance}px)`, easing: 'ease-out' })
@@ -134,19 +134,19 @@ describe('ToolMarqueeController', () => {
   })
 
   it('stays static when not running, empty, reduced motion, or fitting', () => {
-    const notRunning = createHarness()
+    const notRunning = createEnv()
     notRunning.controller.sync('run_command · npm test', false)
-    const empty = createHarness()
+    const empty = createEnv()
     empty.controller.sync('', true)
-    const reduced = createHarness({ reducedMotion: true })
+    const reduced = createEnv({ reducedMotion: true })
     reduced.controller.sync('run_command · npm test', true)
-    const fitting = createHarness({ clientWidth: 600, scrollWidth: 500 })
+    const fitting = createEnv({ clientWidth: 600, scrollWidth: 500 })
     fitting.controller.sync('run_command · npm test', true)
 
-    for (const harness of [notRunning, empty, reduced, fitting]) {
-      expect(harness.timers).toHaveLength(0)
-      expect(harness.animations).toHaveLength(0)
-      for (const view of harness.views) {
+    for (const env of [notRunning, empty, reduced, fitting]) {
+      expect(env.timers).toHaveLength(0)
+      expect(env.animations).toHaveLength(0)
+      for (const view of env.views) {
         expect(view.staticSpan.style.visibility).toBe('')
         expect(view.movingSpan.style.display).toBe('')
       }
@@ -154,22 +154,22 @@ describe('ToolMarqueeController', () => {
   })
 
   it('rolls the outgoing view up and the incoming view in on text change', () => {
-    const harness = createHarness()
-    harness.controller.sync('tool A', true)
-    harness.fireTimer(0)
-    const horizontal = harness.animations[0]
+    const env = createEnv()
+    env.controller.sync('tool A', true)
+    env.fireTimer(0)
+    const horizontal = env.animations[0]
 
-    harness.controller.sync('tool B', true)
+    env.controller.sync('tool B', true)
     // 横向动画在纵向滚动期间不中断。
     expect(horizontal.cancelled).toBe(false)
     // 新增两条 roll 动画：旧视图 0 滚出、新视图 1 滚入。
-    expect(harness.animations).toHaveLength(3)
-    const [outRoll, inRoll] = harness.animations.slice(1)
-    expect(outRoll.target).toBe(harness.views[0].el)
-    expect(inRoll.target).toBe(harness.views[1].el)
-    expect(harness.timers).toHaveLength(1)
+    expect(env.animations).toHaveLength(3)
+    const [outRoll, inRoll] = env.animations.slice(1)
+    expect(outRoll.target).toBe(env.views[0].el)
+    expect(inRoll.target).toBe(env.views[1].el)
+    expect(env.timers).toHaveLength(1)
 
-    const calls = vi.mocked(harness.env.animate).mock.calls
+    const calls = vi.mocked(env.env.animate).mock.calls
     const [outFrames, outOptions] = [calls[1][1], calls[1][2]]
     const [inFrames, inOptions] = [calls[2][1], calls[2][2]]
     expect(outFrames[0]).toMatchObject({ transform: 'translateY(0)' })
@@ -180,40 +180,40 @@ describe('ToolMarqueeController', () => {
     expect(inOptions).toEqual({ duration: MARQUEE_ROLL_DURATION_MS, fill: 'forwards' })
 
     // 新文本已就位于滚入视图并解除隐藏，滚出前先摆好起点。
-    expect(harness.views[1].staticSpan.textContent).toBe('tool B')
-    expect(harness.views[1].el.style.visibility).toBe('')
-    expect(harness.views[1].el.style.transform).toBe('translateY(100%)')
-    expect(harness.views[0].el.style.transform).toBe('translateY(0)')
+    expect(env.views[1].staticSpan.textContent).toBe('tool B')
+    expect(env.views[1].el.style.visibility).toBe('')
+    expect(env.views[1].el.style.transform).toBe('translateY(100%)')
+    expect(env.views[0].el.style.transform).toBe('translateY(0)')
   })
 
   it('finalizes the roll by swapping views and rebuilding horizontal for the new text', async () => {
-    const harness = createHarness()
-    harness.controller.sync('tool A', true)
-    harness.fireTimer(0)
-    const horizontal = harness.animations[0]
-    harness.controller.sync('tool B', true)
-    const rollAnimations = harness.animations.slice(1)
+    const env = createEnv()
+    env.controller.sync('tool A', true)
+    env.fireTimer(0)
+    const horizontal = env.animations[0]
+    env.controller.sync('tool B', true)
+    const rollAnimations = env.animations.slice(1)
 
-    await harness.settleRoll(rollAnimations)
+    await env.settleRoll(rollAnimations)
 
     // 旧视图横向动画停掉并隐藏为下一个滚入位；新视图就位为当前视图。
     expect(horizontal.cancelled).toBe(true)
-    expect(harness.views[0].el.style.visibility).toBe('hidden')
-    expect(harness.views[0].el.style.transform).toBe('')
-    expect(harness.views[1].el.style.transform).toBe('')
+    expect(env.views[0].el.style.visibility).toBe('hidden')
+    expect(env.views[0].el.style.transform).toBe('')
+    expect(env.views[1].el.style.transform).toBe('')
     // 新文本按既有起始延迟重建横向循环。
-    expect(harness.timers).toHaveLength(2)
-    expect(harness.timers[1].ms).toBe(MARQUEE_START_DELAY_MS)
-    expect(harness.timers[0].cleared).toBe(false)
+    expect(env.timers).toHaveLength(2)
+    expect(env.timers[1].ms).toBe(MARQUEE_START_DELAY_MS)
+    expect(env.timers[0].cleared).toBe(false)
 
-    harness.fireTimer(1)
-    expect(harness.animations).toHaveLength(4)
-    expect(harness.animations[3].target).toBe(harness.views[1].movingSpan)
-    expect(harness.views[1].movingSpan.textContent).toBe('tool B')
+    env.fireTimer(1)
+    expect(env.animations).toHaveLength(4)
+    expect(env.animations[3].target).toBe(env.views[1].movingSpan)
+    expect(env.views[1].movingSpan.textContent).toBe('tool B')
   })
 
   it('switches instantly without rolling when reduced motion, not running, or clearing text', () => {
-    const reduced = createHarness({ reducedMotion: true })
+    const reduced = createEnv({ reducedMotion: true })
     reduced.controller.sync('tool A', true)
     reduced.controller.sync('tool B', true)
     expect(reduced.animations).toHaveLength(0)
@@ -221,7 +221,7 @@ describe('ToolMarqueeController', () => {
     expect(reduced.views[0].el.style.visibility).toBe('')
     expect(reduced.views[1].el.style.visibility).toBe('hidden')
 
-    const stopped = createHarness()
+    const stopped = createEnv()
     stopped.controller.sync('tool A', true)
     stopped.fireTimer(0)
     const horizontal = stopped.animations[0]
@@ -231,7 +231,7 @@ describe('ToolMarqueeController', () => {
     expect(stopped.views[0].staticSpan.textContent).toBe('tool B')
     expect(stopped.views[0].movingSpan.style.display).toBe('')
 
-    const cleared = createHarness()
+    const cleared = createEnv()
     cleared.controller.sync('tool A', true)
     cleared.fireTimer(0)
     cleared.controller.sync('', true)
@@ -241,126 +241,126 @@ describe('ToolMarqueeController', () => {
   })
 
   it('keeps scrolling on same-text refreshes even while a roll is in flight', () => {
-    const harness = createHarness()
-    harness.controller.sync('tool A', true)
-    harness.fireTimer(0)
-    harness.controller.sync('tool B', true)
-    expect(harness.animations).toHaveLength(3)
-    const [outRoll, inRoll] = harness.animations.slice(1)
+    const env = createEnv()
+    env.controller.sync('tool A', true)
+    env.fireTimer(0)
+    env.controller.sync('tool B', true)
+    expect(env.animations).toHaveLength(3)
+    const [outRoll, inRoll] = env.animations.slice(1)
 
     // 同值刷新（SSE 高频、工具间隙保持）：不打断进行中的横向动画与纵向滚动。
-    harness.controller.sync('tool B', true)
-    expect(harness.animations).toHaveLength(3)
+    env.controller.sync('tool B', true)
+    expect(env.animations).toHaveLength(3)
     expect(outRoll.cancelled).toBe(false)
     expect(inRoll.cancelled).toBe(false)
-    expect(harness.animations[0].cancelled).toBe(false)
-    expect(harness.timers).toHaveLength(1)
+    expect(env.animations[0].cancelled).toBe(false)
+    expect(env.timers).toHaveLength(1)
   })
 
   it('stops the horizontal animation on a same-text refresh once running ends', () => {
-    const harness = createHarness()
-    harness.controller.sync('tool A', true)
-    harness.fireTimer(0)
-    expect(harness.animations).toHaveLength(1)
+    const env = createEnv()
+    env.controller.sync('tool A', true)
+    env.fireTimer(0)
+    expect(env.animations).toHaveLength(1)
 
-    harness.controller.sync('tool A', false)
-    expect(harness.animations[0].cancelled).toBe(true)
-    expect(harness.views[0].staticSpan.style.visibility).toBe('')
-    expect(harness.views[0].movingSpan.style.display).toBe('')
+    env.controller.sync('tool A', false)
+    expect(env.animations[0].cancelled).toBe(true)
+    expect(env.views[0].staticSpan.style.visibility).toBe('')
+    expect(env.views[0].movingSpan.style.display).toBe('')
   })
 
   it('re-measures and rebuilds when restart is requested (width change path)', () => {
-    const harness = createHarness()
-    harness.controller.sync('tool A', true)
-    harness.fireTimer(0)
-    expect(harness.animations).toHaveLength(1)
+    const env = createEnv()
+    env.controller.sync('tool A', true)
+    env.fireTimer(0)
+    expect(env.animations).toHaveLength(1)
 
-    harness.controller.sync('tool A', true, true)
-    expect(harness.animations[0].cancelled).toBe(true)
-    expect(harness.timers).toHaveLength(2)
-    harness.fireTimer(1)
-    expect(harness.animations).toHaveLength(2)
-    expect(harness.animations[1].target).toBe(harness.views[0].movingSpan)
+    env.controller.sync('tool A', true, true)
+    expect(env.animations[0].cancelled).toBe(true)
+    expect(env.timers).toHaveLength(2)
+    env.fireTimer(1)
+    expect(env.animations).toHaveLength(2)
+    expect(env.animations[1].target).toBe(env.views[0].movingSpan)
   })
 
   it('loops with a restart pause after a cycle finishes', async () => {
-    const harness = createHarness()
-    harness.controller.sync('tool A', true)
-    harness.fireTimer(0)
-    const first = harness.animations[0]
+    const env = createEnv()
+    env.controller.sync('tool A', true)
+    env.fireTimer(0)
+    const first = env.animations[0]
 
     first.resolveFinished()
     await first.finished
     await Promise.resolve()
 
     expect(first.cancelled).toBe(true)
-    expect(harness.views[0].staticSpan.style.visibility).toBe('')
-    expect(harness.views[0].movingSpan.style.display).toBe('')
-    expect(harness.views[0].movingSpan.style.transform).toBe('')
-    expect(harness.timers).toHaveLength(2)
-    expect(harness.timers[1].ms).toBe(MARQUEE_RESTART_PAUSE_MS)
+    expect(env.views[0].staticSpan.style.visibility).toBe('')
+    expect(env.views[0].movingSpan.style.display).toBe('')
+    expect(env.views[0].movingSpan.style.transform).toBe('')
+    expect(env.timers).toHaveLength(2)
+    expect(env.timers[1].ms).toBe(MARQUEE_RESTART_PAUSE_MS)
 
-    harness.fireTimer(1)
-    expect(harness.animations).toHaveLength(2)
+    env.fireTimer(1)
+    expect(env.animations).toHaveLength(2)
   })
 
   it('finalizes an in-flight roll instantly when a newer text arrives mid-roll', async () => {
-    const harness = createHarness()
-    harness.controller.sync('tool A', true)
-    harness.fireTimer(0)
-    harness.controller.sync('tool B', true)
-    const firstRoll = harness.animations.slice(1)
+    const env = createEnv()
+    env.controller.sync('tool A', true)
+    env.fireTimer(0)
+    env.controller.sync('tool B', true)
+    const firstRoll = env.animations.slice(1)
 
     // 滚动进行中收到更新的文本：先就地结算（视图已完成一次交换），再从新当前视图滚向最新文本。
-    harness.controller.sync('tool C', true)
+    env.controller.sync('tool C', true)
     expect(firstRoll.map((animation) => animation.cancelled)).toEqual([true, true])
     // 结算后 view1（展示 tool B）成为当前视图，随即作为第二次滚动的滚出方保持可见。
-    expect(harness.views[1].el.style.visibility).toBe('')
-    expect(harness.views[1].staticSpan.textContent).toBe('tool B')
-    expect(harness.animations).toHaveLength(5)
-    const [secondOutRoll, secondInRoll] = harness.animations.slice(3)
-    expect(secondOutRoll.target).toBe(harness.views[1].el)
-    expect(secondInRoll.target).toBe(harness.views[0].el)
-    expect(harness.views[0].staticSpan.textContent).toBe('tool C')
-    expect(harness.views[0].el.style.transform).toBe('translateY(100%)')
+    expect(env.views[1].el.style.visibility).toBe('')
+    expect(env.views[1].staticSpan.textContent).toBe('tool B')
+    expect(env.animations).toHaveLength(5)
+    const [secondOutRoll, secondInRoll] = env.animations.slice(3)
+    expect(secondOutRoll.target).toBe(env.views[1].el)
+    expect(secondInRoll.target).toBe(env.views[0].el)
+    expect(env.views[0].staticSpan.textContent).toBe('tool C')
+    expect(env.views[0].el.style.transform).toBe('translateY(100%)')
 
-    await harness.settleRoll([secondOutRoll, secondInRoll])
-    harness.fireTimer(2)
-    expect(harness.animations).toHaveLength(6)
-    expect(harness.animations[5].target).toBe(harness.views[0].movingSpan)
-    expect(harness.views[0].movingSpan.textContent).toBe('tool C')
+    await env.settleRoll([secondOutRoll, secondInRoll])
+    env.fireTimer(2)
+    expect(env.animations).toHaveLength(6)
+    expect(env.animations[5].target).toBe(env.views[0].movingSpan)
+    expect(env.views[0].movingSpan.textContent).toBe('tool C')
   })
 
   it('dispose cancels the running animation and invalidates pending timers', () => {
-    const harness = createHarness()
-    harness.controller.sync('tool A', true)
+    const env = createEnv()
+    env.controller.sync('tool A', true)
 
     // 起始延迟期内 dispose：排程的 timer 被清除，不再产生任何动画。
-    harness.controller.dispose()
-    expect(harness.timers[0].cleared).toBe(true)
-    expect(harness.animations).toHaveLength(0)
+    env.controller.dispose()
+    expect(env.timers[0].cleared).toBe(true)
+    expect(env.animations).toHaveLength(0)
 
-    harness.controller.sync('tool A', true)
-    harness.fireTimer(1)
-    expect(harness.animations).toHaveLength(1)
-    harness.controller.dispose()
-    expect(harness.animations[0].cancelled).toBe(true)
-    expect(harness.views[0].staticSpan.style.visibility).toBe('')
-    expect(harness.views[0].movingSpan.style.display).toBe('')
+    env.controller.sync('tool A', true)
+    env.fireTimer(1)
+    expect(env.animations).toHaveLength(1)
+    env.controller.dispose()
+    expect(env.animations[0].cancelled).toBe(true)
+    expect(env.views[0].staticSpan.style.visibility).toBe('')
+    expect(env.views[0].movingSpan.style.display).toBe('')
   })
 
   it('dispose cancels an in-flight roll along with the horizontal animation', () => {
-    const harness = createHarness()
-    harness.controller.sync('tool A', true)
-    harness.fireTimer(0)
-    harness.controller.sync('tool B', true)
-    expect(harness.animations).toHaveLength(3)
+    const env = createEnv()
+    env.controller.sync('tool A', true)
+    env.fireTimer(0)
+    env.controller.sync('tool B', true)
+    expect(env.animations).toHaveLength(3)
 
-    harness.controller.dispose()
-    for (const animation of harness.animations) {
+    env.controller.dispose()
+    for (const animation of env.animations) {
       expect(animation.cancelled).toBe(true)
     }
-    for (const view of harness.views) {
+    for (const view of env.views) {
       expect(view.el.style.transform).toBe('')
       expect(view.staticSpan.style.visibility).toBe('')
       expect(view.movingSpan.style.display).toBe('')

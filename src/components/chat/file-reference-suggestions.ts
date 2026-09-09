@@ -28,10 +28,9 @@ const MAX_REFERENCES = 8
 export function canUseFileReferenceSuggestions(options: {
   projectId?: string
   readOnly: boolean
-  harness?: string
   shared: boolean
 }) {
-  return Boolean(options.projectId && !options.readOnly && options.harness === 'quickforge' && !options.shared)
+  return Boolean(options.projectId && !options.readOnly && !options.shared)
 }
 
 export function findFileMentionToken(text: string, caret: number): FileMentionToken | null {

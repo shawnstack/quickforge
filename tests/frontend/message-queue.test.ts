@@ -20,7 +20,7 @@ const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost
 const controllerSource = readFileSync(new URL('../../src/components/chat/panel-decoration/message-queue.ts', import.meta.url), 'utf8')
 const todoSource = readFileSync(new URL('../../src/components/chat/panel-decoration/todo-write-summary.ts', import.meta.url), 'utf8')
 const barrelSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
-const capabilitiesSource = readFileSync(new URL('../../src/lib/chat-harness-capabilities.ts', import.meta.url), 'utf8')
+const capabilitiesSource = readFileSync(new URL('../../src/lib/chat-capabilities.ts', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
 
@@ -213,11 +213,11 @@ describe('message queue source contracts', () => {
     expect(barrelSource).toContain("export { createMessageQueuePanelController } from './panel-decoration/message-queue'")
   })
 
-  it('gates steering per harness capability and ships both languages', () => {
+  it('gates steering per capabilities and ships both languages', () => {
     expect(capabilitiesSource).toContain('messageSteering: boolean')
     expect(capabilitiesSource.indexOf('messageSteering: true'))
-      .toBeLessThan(capabilitiesSource.indexOf('OPENCODE_P0_CHAT_HARNESS_CAPABILITIES'))
-    expect(capabilitiesSource.match(/messageSteering: false/g)?.length).toBe(2)
+      .toBeLessThan(capabilitiesSource.indexOf('SIDE_CHAT_UI_CAPABILITIES'))
+    expect(capabilitiesSource.match(/messageSteering: false/g)?.length).toBe(1)
     expect(i18nSource.match(/messageQueuePlaceholder:/g)?.length).toBe(2)
     expect(i18nSource.match(/messageQueueDragTitle:/g)?.length).toBe(2)
     expect(i18nSource).toContain("messageQueueJumpNow: 'Now'")

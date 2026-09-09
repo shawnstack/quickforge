@@ -18,7 +18,6 @@ const EXPECTED_EXPORTS = [
   'createAgent',
   'destroyAgent',
   'followUpAgent',
-  'forkSession',
   'getPendingAskForSession',
   'getSessionEventBus',
   'getSessionState',
@@ -27,7 +26,6 @@ const EXPECTED_EXPORTS = [
   'isSseConnected',
   'listSessions',
   'markLatestAssistantProcessFinished',
-  'normalizeAgentHarness',
   'normalizeAskQuestions',
   'persistSessionState',
   'refreshAllSessionModels',
@@ -47,13 +45,10 @@ const EXPECTED_EXPORTS = [
   'touchSession',
   'tryAcquireSse',
   'updateSessionAccessMode',
-  'updateSessionHarnessConfigOption',
-  'updateSessionHarnessMode',
   'updateSessionModel',
   'updateSessionThinkingLevel',
   'updateSessionTitle',
   'updateSessionYoloMode',
-  'validateAgentHarness',
 ]
 
 // 内部共享导出（拆分期间临时暴露给被抽出模块使用，随对应块迁移后收回）。
@@ -61,6 +56,9 @@ const EXPECTED_EXPORTS = [
 const INTERNAL_SHARED_EXPORTS = [
   'resetIdleTimer', // agent-compaction 使用
   'createServerTools', // agent-subagent-runner 使用；工具构建块迁移后收回
+  'currentSessionTurnId', // agent-subagent-runner 透传父会话当前轮 turnId（轮级撤销）
+  'attachTurnIdGetter', // toolContext 活 turnId 访问器（轮级撤销写盘归因）；供 context-references 行为断言
+  'hasFullAccess', // agent-subagent-runner 临时 subagent 能力策略检查使用（原 agent-harness.mjs 删除后迁回）
 ]
 
 describe('agent-manager export contract (module split safety net)', () => {

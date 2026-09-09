@@ -37,7 +37,7 @@
 2. `initializePiStorage()` 完成 health 检查并构造 Storage 后端；随后 fire-and-forget 刷新会话列表
 3. 串行服务器校准并覆盖预应用值：`initializeAppLanguage` → `loadToolDisplaySettings` → `loadAndApplyAppearanceSettings` → `loadAndApplyFontSizeSettings`
 4. 加载项目列表与活跃项目、Agent 访问模式与默认选项
-5. 按需提前预取 QuickForge Cloud 模型目录（非 opencode harness 时启动一次，通常不 await）；持久化 Cloud 模型启动时最多等待 5 秒，超时后按本地目录回退，不阻塞启动
+5. 按需提前预取 QuickForge Cloud 模型目录（启动时一次，通常不 await）；持久化 Cloud 模型启动时最多等待 5 秒，超时后按本地目录回退，不阻塞启动
 6. 模型目录/active-model 决策后创建启动会话；URL 携带 `?session=` 时统一委托 `useAgentManager.loadSession()` 走可取消的单次服务端恢复链路
 7. 校准后的 4 个设置值回写本地快照（成功路径 best-effort），随后标记 `ready`；标记模型是否已配置（`needsModelSetup`）
 

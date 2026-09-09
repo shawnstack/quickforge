@@ -20,8 +20,8 @@ import { chooseNewSessionModel, chooseStartupModel } from '@/lib/startup-model'
 import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { loadModelCatalog, type ModelReference } from '@/lib/model-reference'
 import { modelFromStoredPreference, storedModelPreference } from '@/lib/model-preference'
-import type { AgentAccessMode, AgentHarness } from '@/lib/types'
-import { agentAccessModeToYoloMode, normalizeAgentAccessMode, normalizeAgentHarness } from '@/lib/types'
+import type { AgentAccessMode } from '@/lib/types'
+import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 
 const ACTIVE_MODEL_SETTING_KEY = 'active-model'
 const AGENT_ACCESS_MODE_SETTING_KEY = 'agent-access-mode'
@@ -62,7 +62,6 @@ export type StoreBundle = {
 export type DefaultOptions = {
   model?: Model<Api>
   thinkingLevel?: ThinkingLevel
-  harness?: AgentHarness
 }
 
 export const DEFAULT_CONNECTION: ConnectionForm = {
@@ -75,8 +74,6 @@ export const DEFAULT_CONNECTION: ConnectionForm = {
   maxTokens: 32768,
   supportsImages: true,
 }
-
-export { openCodePlaceholderModel } from '@/lib/startup-model'
 
 function isDeepSeekThinkingModelInfo(modelId: string, baseUrl: string, provider = '') {
   const normalizedModelId = modelId.toLowerCase()
@@ -248,7 +245,6 @@ type StoredDefaultOptions = {
   modelSnapshot?: Model<Api>
   model?: Model<Api>
   thinkingLevel?: ThinkingLevel
-  harness?: AgentHarness
 }
 
 export async function saveActiveModel(storage: AppStorage, model: Model<Api>) {
@@ -271,7 +267,6 @@ export async function saveDefaultOptions(storage: AppStorage, options: DefaultOp
   await storage.settings.set(DEFAULT_OPTIONS_SETTING_KEY, {
     ...preference,
     thinkingLevel: isThinkingLevel(options.thinkingLevel) ? options.thinkingLevel : undefined,
-    harness: normalizeAgentHarness(options.harness),
   })
 }
 
@@ -287,7 +282,6 @@ export async function loadDefaultOptions(storage: AppStorage): Promise<DefaultOp
   return {
     model,
     thinkingLevel: isThinkingLevel(options.thinkingLevel) ? options.thinkingLevel : undefined,
-    harness: normalizeAgentHarness(options.harness),
   }
 }
 

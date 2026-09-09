@@ -15,30 +15,33 @@ const popoverSource = readFileSync(new URL('../../src/components/chat/panel-deco
 const floatingPosition = readFileSync(new URL('../../src/components/chat/panel-decoration/floating-position.ts', import.meta.url), 'utf8')
 
 describe('assistant artifact card contract', () => {
-  it('exports an idempotent final-assistant sync entry point and filters supported sources', () => {
+  it('exports an idempotent per-turn sync entry point and filters supported sources', () => {
     expect(source).toContain('export function syncAssistantArtifactCard')
-    expect(source).toContain('extractSessionArtifacts(messages')
+    expect(source).toContain('extractTurnArtifacts(messages')
     expect(source).toContain("['write_file', 'edit_file', 'present_files']")
     expect(source).toContain("card.dataset.quickforgeArtifactCard = 'file'")
     expect(source).toContain("card.dataset.quickforgeArtifactCard = 'changed'")
   })
 
-  it('aggregates artifacts across the whole session and keeps cards while streaming', () => {
-    // 流式中只 return 不清卡：会话累计卡片保留到新轮流式结束。
+  it('mounts one card group per turn and keeps cards while streaming', () => {
+    // 流式中只 return 不清卡：各轮卡片保留到新轮流式结束。
     expect(source).toMatch(/if \(streaming\) return/)
-    // 产物/修改为当前会话累计（跨轮求和，与「撤销」的会话级回滚口径一致），
-    // 提取必须跑在完整 messages 上（产物来自 toolResult.details，displayEntries
-    // 只含 user/assistant，用它做提取源会永远为空——刷新/新轮都不出卡）。
-    expect(source).toContain('extractSessionArtifacts(messages')
-    expect(source).not.toContain('findLastArtifactTurn')
-    // 会话级卡片挂最后一条 assistant（对话尾部）；无 assistant 或无产物才清卡。
-    expect(source).toMatch(/artifacts\.length === 0\) \{/)
-    // 卡片随对话尾部迁移到新宿主时，展开态回退读旧卡自身状态。
-    expect(source).toContain("panel.querySelector<HTMLElement>('[data-quickforge-artifact-card=\"changed\"]')")
-    expect(source).not.toContain('extractCurrentTurnArtifacts')
+    // 每轮一张卡显示「该轮新增」产物：按 user 边界（user / user-with-attachments）
+    // 切片提取，提取必须跑在完整 messages 上（产物来自 toolResult.details，
+    // displayEntries 只含 user/assistant，用它做提取源会永远为空）。
+    expect(source).toContain('extractTurnArtifacts(messages')
+    // 轮首口径与 process-folding 一致；轮与展示分段按边界消息对象对齐。
+    expect(source).toContain('function isUserTurnBoundary')
+    expect(source).toMatch(/turnByBoundary\.set\(messages\[turn\.userIndex\]/)
+    // 展开态只读宿主级 dataset 标记（多卡互不串扰，无面板级回退查询）。
+    expect(source).toContain("hostElement.dataset[EXPANDED_FLAG] === 'true'")
+    expect(source).not.toContain("panel.querySelector<HTMLElement>('[data-quickforge-artifact-card=\"changed\"]')")
+    // 孤儿清理：只删不在任何有效轮宿主内的卡；没有任何轮有产物时宿主集为空 → 全清。
+    expect(source).toContain('removeOrphanArtifactCards(panel, validHosts)')
+    expect(source).not.toContain('function removeArtifactCards')
     // deps 必须带完整 messages。
     expect(source).toMatch(/messages: MessageWithUsage\[\]/)
-    expect(actions).toMatch(/messages: getMessages\(\),/)
+    expect(actions).toMatch(/messages: getArtifactMessages\?\.\(\) \?\? getMessages\(\),/)
   })
 
   it('splits presented files into single-file cards and keeps a changed-files aggregate card', () => {
@@ -80,10 +83,10 @@ describe('assistant artifact card contract', () => {
     expect(css).not.toMatch(/-file-card-icon,\s*\n\.quickforge-assistant-artifact-card-type/)
   })
 
-  it('collapses the changed-files card by default and preserves expansion across decorations', () => {
-    expect(source).toContain('createChangedFilesCard(changed, deps, { expandedByDefault: changedExpanded, onExpandedChange })')
-    expect(source).toContain("lastAssistantElement.dataset[EXPANDED_FLAG] === 'true'")
-    expect(source).toContain("lastAssistantElement.dataset[EXPANDED_FLAG] = String(expanded)")
+  it('collapses the changed-files card by default and preserves expansion per host', () => {
+    expect(source).toMatch(/createChangedFilesCard\(changed, deps, \{[\s\S]*?expandedByDefault: options\.changedExpanded,/)
+    expect(source).toContain("hostElement.dataset[EXPANDED_FLAG] === 'true'")
+    expect(source).toContain("hostElement.dataset[EXPANDED_FLAG] = String(expanded)")
     expect(source).toContain("header.setAttribute('aria-expanded', String(expanded))")
     expect(source).toContain("header.addEventListener('click', toggleExpanded)")
     expect(source).toContain('key !== \'Enter\'')
@@ -92,7 +95,7 @@ describe('assistant artifact card contract', () => {
   it('skips rebuilding when signatures match so transient interactions survive decorate cycles', () => {
     expect(source).toContain('plan.element.dataset.quickforgeArtifactSignature = plan.signature')
     expect(source).toContain('card.dataset.quickforgeArtifactSignature === plans[index].signature')
-    expect(source).toContain('lastAssistantElement.insertBefore(card, anchor)')
+    expect(source).toContain('hostElement.insertBefore(card, anchor)')
     expect(source).toContain('closeActiveOpenMenu()')
   })
 
@@ -110,28 +113,37 @@ describe('assistant artifact card contract', () => {
     expect(source).toContain('quickforge-assistant-artifact-card-file-path')
   })
 
-  it('keeps the cards before message actions and routes only file rollback to the dedicated dialog', () => {
-    expect(source).toContain("find((candidate) => candidate.parentElement === lastAssistantElement)")
-    expect(source).toContain('lastAssistantElement.insertBefore(plan.element, anchor)')
+  it('mounts turn cards before message actions and routes per-turn rollback to the dedicated dialog', () => {
+    expect(source).toContain("find((candidate) => candidate.parentElement === hostElement)")
+    expect(source).toContain('hostElement.insertBefore(plan.element, anchor)')
     expect(source).not.toContain('showRollbackConfirmPopover')
     expect(source).toContain("'quickforge-rollback-action'")
-    expect(source).toContain('void deps.onRollbackFiles?.()')
-    expect(source).toContain("rollback.className = 'quickforge-assistant-artifact-card-rollback'")
-    expect(source).toContain("rollback.textContent = deps.fileChangesRolledBack ? t('assistantArtifactRollbackDone') : t('assistantArtifactRollback')")
-    expect(source).toContain("rollback.addEventListener('keydown', (event) => event.stopPropagation())")
-    expect(source).toContain('rollback.disabled = Boolean(deps.fileChangesRolledBack)')
+    expect(source).toContain('deps.onRollbackTurn?.(turnIds)')
+    expect(source).toContain("rollbackButton.className = 'quickforge-assistant-artifact-card-rollback'")
+    expect(source).toContain("rollbackButton.textContent = rolledBack ? t('assistantArtifactRollbackDone') : t('assistantArtifactRollbackTurn')")
+    expect(source).toContain('rollbackButton.disabled = rolledBack')
+    expect(source).toContain("rollbackButton.addEventListener('keydown', (event) => event.stopPropagation())")
+    // turnIds 为空（无 turnId 的历史产物路径）→ 不渲染撤销按钮；已撤销轮 → 禁用「已撤销」态
+    // （轮键 = turnIds join('|')，与 App 的 rolledBackTurns 同一口径）。
+    expect(source).toMatch(/turn\.turnIds\.length > 0 && deps\.onRollbackTurn/)
+    expect(source).toContain('rolledBack: deps.rolledBackTurns?.has(turnRollbackKey(turn.turnIds)) === true')
+    // 撤销态与 turnIds 都进签名：rolledBackTurns 变化、重试追加 turnId 时该轮卡重建
+    // （按钮闭包才能拿到完整的 turnId 集合）。
+    expect(source).toContain('rollback ? `${rollback.rolledBack ? 2 : 1}:${rollback.turnIds.join(\',\')}` : 0')
     expect(source).not.toContain('onRollbackFromMessage')
 
     expect(actions).toContain("from './rollback-confirm-popover'")
-    expect(actions).toContain('onRollbackFiles?: () => Promise<void> | void')
+    expect(actions).toContain('onRollbackTurn?: (turnIds: string[]) => void')
     expect(actions).toContain('onReviewFileChanges?: (relativePath: string) => void')
     expect(actions).toContain('onRevealFile?: (relativePath: string) => void')
 
     expect(panelDecoration).toContain("export { decorateAssistantArtifactCard, syncAssistantArtifactCard } from './panel-decoration/assistant-artifact-card'")
   })
 
-  it('wires review/reveal/rollback through ChatPanelHost, App, and the server client', () => {
-    expect(host).toContain('onRollbackFiles: props.readOnly ? undefined : props.onRollbackFiles')
+  it('wires review/reveal/turn-rollback through ChatPanelHost, App, and the server client', () => {
+    expect(host).toContain('onRollbackTurn: props.readOnly ? undefined : props.onRollbackTurn')
+    expect(host).toContain('rolledBackTurns: props.rolledBackTurns')
+    expect(host).toContain('getArtifactMessages: () => agent.state.messages as MessageWithUsage[]')
     expect(host).toContain('onRevealFile: props.readOnly ? undefined : props.onRevealFile')
     expect(host).toContain('onReviewFileChanges: props.onReviewFileChanges')
 
@@ -139,11 +151,18 @@ describe('assistant artifact card contract', () => {
     expect(app).toContain("kind: 'review', view: 'changes', path: relativePath")
     expect(app).toContain('revealFileFromArtifactCard')
     expect(app).toContain('await openWorkspaceExternal(projectId, relativePath, target)')
-    expect(app).toContain('<FileRollbackDialog client={fileRollbackTarget.agent}')
+    expect(app).toContain('<TurnRollbackDialog client={fileRollbackTarget.agent} turnIds={fileRollbackTarget.turnIds}')
     expect(app).toContain('fileRollbackTarget.sessionId === agentManager.currentSessionId')
     expect(app).toContain('fileRollbackTarget.projectId === agentManager.currentToolProject?.id')
-    expect(app).toContain('setRolledBackFilesSessionId(null)')
+    expect(app).toContain('setRolledBackTurns')
+    expect(app).toContain('rollbackTurnFromArtifactCard')
+    // 轮键 = 弹窗打开时 turnIds 的 join('|')：卡片判定与 App 记录共用 turnRollbackKey。
+    expect(app).toContain('new Set(previous).add(turnRollbackKey(target.turnIds))')
 
+    expect(serverAgent).toContain('/rollback-turn/preview?turnIds=')
+    expect(serverAgent).toContain('async rollbackTurn(turnIds: string[], revision: string, signal?: AbortSignal): Promise<ServerTurnRollbackResult>')
+    expect(serverAgent).toContain('async getTurnRollbackPreview(turnIds: string[], signal?: AbortSignal)')
+    // 会话级 rollbackFiles/rollbackFile 能力保留（入口移除不删服务端 API）。
     expect(serverAgent).toContain('/rollback-files')
     expect(serverAgent).toContain('async rollbackFiles(revision: string, signal?: AbortSignal): Promise<ServerFileRollbackResult>')
     expect(serverAgent).toContain('async getFileRollbackPreview(signal?: AbortSignal)')
@@ -152,6 +171,43 @@ describe('assistant artifact card contract', () => {
     expect(workspaceTypes).toMatch(/kind: 'review'; view: 'review' \| 'changes';[^}]*path\?: string/)
     expect(inspector).toContain('openDiffTabRef')
     expect(inspector).toMatch(/if \(request\.path\) \{[\s\S]*?openDiffTabRef\.current\?\.\(request\.path, false\)[\s\S]*?setReaderNavigationVisible\(false\)[\s\S]*?\}/)
+  })
+
+  it('removes the session-level undo-all entry and threads the per-turn turnIds collection end to end', () => {
+    // 撤回只能撤本轮：会话级「撤销全部」入口整体移除（卡片渲染、deps 契约、
+    // SessionRollbackControl 与「最新轮 hosts 末位」判定一并清理）。
+    expect(source).not.toContain('onRollbackFiles')
+    expect(source).not.toContain('fileChangesRolledBack')
+    expect(source).not.toContain('rollbackAll')
+    expect(source).not.toContain('SessionRollbackControl')
+    expect(source).not.toContain("'rollback-all'")
+    expect(source).not.toContain('turnIndex === hosts.length - 1')
+    expect(actions).not.toContain('onRollbackFiles')
+    expect(actions).not.toContain('fileChangesRolledBack')
+    expect(host).not.toContain('onRollbackFiles')
+    expect(host).not.toContain('fileChangesRolledBack')
+    // 装饰触发 effect 依赖只剩 rolledBackTurns。
+    expect(host).toMatch(/revision, rolledBackTurns\]/)
+    expect(host).not.toMatch(/revision, rolledBackTurns, fileChangesRolledBack\]/)
+
+    // App 接线：会话级状态/入口回调/session 模式挂载全部移除，轮级回调收数组。
+    expect(app).not.toContain('rollbackFilesFromArtifactCard')
+    expect(app).not.toContain('rolledBackFilesSessionId')
+    expect(app).not.toContain("mode: 'session'")
+    expect(app).not.toContain('<FileRollbackDialog')
+    expect(app).toContain('rollbackTurnFromArtifactCard = useCallback((turnIds: string[]) => {')
+    expect(app).toContain('turnIds.length === 0) return')
+    // 文案 key：中英成对保留轮级三件；assistantArtifactRollbackAll 已删，
+    // 旧 key assistantArtifactRollback（确认弹层标题等）保留。
+    expect(i18n).not.toContain('assistantArtifactRollbackAll')
+    expect(i18n).toContain('assistantArtifactRollbackTurn:')
+    expect(i18n).toContain('assistantArtifactRollbackDone:')
+    expect(i18n).toContain('assistantArtifactRollback:')
+
+    // 轮内 turnIds 集合链路：提取器输出集合 → 卡片按钮（turnIds 非空才渲染，
+    // 点击传数组）→ ChatPanelHost 透传数组签名。
+    expect(source).toContain('turnIds: string[]')
+    expect(host).toContain('onRollbackTurn?: (turnIds: string[]) => void')
   })
 
   it('keeps card surfaces explicit and motion tokenized', () => {

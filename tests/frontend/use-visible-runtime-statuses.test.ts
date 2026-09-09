@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QuickForgeSessionMetadata } from '../../src/lib/types'
 
-const reactHarness = vi.hoisted(() => ({
+const reactStub = vi.hoisted(() => ({
   cursor: 0,
   states: [] as unknown[],
   refs: [] as Array<{ current: unknown }>,
@@ -19,51 +19,51 @@ function sameDeps(previous: unknown[] | undefined, next: unknown[] | undefined) 
   return previous.every((value, index) => Object.is(value, next[index]))
 }
 
-// 与真实 React 对齐的最小 harness：deps 不变时 effect/useMemo 不重跑，
+// 与真实 React 对齐的最小测试桩：deps 不变时 effect/useMemo 不重跑，
 // useCallback 每次渲染返回新函数（真实场景中 sessions 数组身份变化即如此）。
 vi.mock('react', () => ({
   useCallback<T>(callback: T) {
     return callback
   },
   useEffect(effect: () => void | (() => void), deps?: unknown[]) {
-    const index = reactHarness.cursor
-    reactHarness.cursor += 1
-    const previous = reactHarness.effects[index]
+    const index = reactStub.cursor
+    reactStub.cursor += 1
+    const previous = reactStub.effects[index]
     if (previous && sameDeps(previous.deps, deps)) return
     previous?.cleanup?.()
     const cleanup = effect()
-    reactHarness.effects[index] = { deps, cleanup: typeof cleanup === 'function' ? cleanup : undefined }
+    reactStub.effects[index] = { deps, cleanup: typeof cleanup === 'function' ? cleanup : undefined }
   },
   useMemo<T>(factory: () => T, deps?: unknown[]) {
-    const index = reactHarness.cursor
-    reactHarness.cursor += 1
-    const previous = reactHarness.memos[index]
+    const index = reactStub.cursor
+    reactStub.cursor += 1
+    const previous = reactStub.memos[index]
     if (previous && sameDeps(previous.deps, deps)) return previous.value as T
     const value = factory()
-    reactHarness.memos[index] = { deps, value }
+    reactStub.memos[index] = { deps, value }
     return value
   },
   useRef<T>(initialValue: T) {
-    const index = reactHarness.cursor
-    reactHarness.cursor += 1
-    if (!reactHarness.refs[index]) reactHarness.refs[index] = { current: initialValue }
-    return reactHarness.refs[index] as { current: T }
+    const index = reactStub.cursor
+    reactStub.cursor += 1
+    if (!reactStub.refs[index]) reactStub.refs[index] = { current: initialValue }
+    return reactStub.refs[index] as { current: T }
   },
   useState<T>(initialValue: T | (() => T)) {
-    const index = reactHarness.cursor
-    reactHarness.cursor += 1
-    if (!(index in reactHarness.states)) {
-      reactHarness.states[index] = typeof initialValue === 'function'
+    const index = reactStub.cursor
+    reactStub.cursor += 1
+    if (!(index in reactStub.states)) {
+      reactStub.states[index] = typeof initialValue === 'function'
         ? (initialValue as () => T)()
         : initialValue
     }
     const setState = (update: T | ((previous: T) => T)) => {
-      const previous = reactHarness.states[index] as T
-      reactHarness.states[index] = typeof update === 'function'
+      const previous = reactStub.states[index] as T
+      reactStub.states[index] = typeof update === 'function'
         ? (update as (value: T) => T)(previous)
         : update
     }
-    return [reactHarness.states[index] as T, setState] as const
+    return [reactStub.states[index] as T, setState] as const
   },
 }))
 
@@ -72,13 +72,13 @@ vi.mock('@/lib/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: 
 
 import { useVisibleRuntimeStatuses } from '../../src/hooks/useVisibleRuntimeStatuses'
 
-type WindowHarness = {
+type WindowEnv = {
   runTimers: () => void
   setTimeout: ReturnType<typeof vi.fn>
   clearTimeout: ReturnType<typeof vi.fn>
 }
 
-function createWindowHarness(): WindowHarness {
+function createWindowEnv(): WindowEnv {
   const timers = new Map<number, () => void>()
   let nextHandle = 1
   return {
@@ -99,7 +99,7 @@ function createWindowHarness(): WindowHarness {
   }
 }
 
-function createDocumentHarness() {
+function createDocumentEnv() {
   return {
     visibilityState: 'visible',
     addEventListener: vi.fn(),
@@ -121,44 +121,44 @@ function session(id: string): QuickForgeSessionMetadata {
   }
 }
 
-let windowHarness: WindowHarness
+let windowEnv: WindowEnv
 
-// 测试用 harness：在非组件函数里直接调用被测 hook，react-hooks 规则不适用于此。
+// 测试用桩：在非组件函数里直接调用被测 hook，react-hooks 规则不适用于此。
 function renderHook(sessions: QuickForgeSessionMetadata[]) {
-  reactHarness.cursor = 0
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- test harness invokes the hook under test
+  reactStub.cursor = 0
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- test stub invokes the hook under test
   return useVisibleRuntimeStatuses(sessions)
 }
 
 describe('useVisibleRuntimeStatuses', () => {
   beforeEach(() => {
-    reactHarness.cursor = 0
-    reactHarness.states = []
-    reactHarness.refs = []
-    reactHarness.memos = []
-    reactHarness.effects = []
+    reactStub.cursor = 0
+    reactStub.states = []
+    reactStub.refs = []
+    reactStub.memos = []
+    reactStub.effects = []
     serverAgentMocks.fetchActiveAgentStatuses.mockClear()
     serverAgentMocks.subscribeToAgentEvents.mockClear()
-    windowHarness = createWindowHarness()
-    vi.stubGlobal('window', windowHarness)
-    vi.stubGlobal('document', createDocumentHarness())
+    windowEnv = createWindowEnv()
+    vi.stubGlobal('window', windowEnv)
+    vi.stubGlobal('document', createDocumentEnv())
   })
 
   it('does not refetch /api/agents while the visible id set is unchanged', async () => {
     renderHook([session('session-1'), session('session-2')])
-    windowHarness.runTimers()
+    windowEnv.runTimers()
     await flushMicrotasks()
     expect(serverAgentMocks.fetchActiveAgentStatuses).toHaveBeenCalledTimes(1)
 
     // 同一批 id、新的 sessions 数组身份（分页刷新会重建数组）——不得重复请求
     renderHook([session('session-1'), session('session-2')])
-    windowHarness.runTimers()
+    windowEnv.runTimers()
     await flushMicrotasks()
     expect(serverAgentMocks.fetchActiveAgentStatuses).toHaveBeenCalledTimes(1)
 
     // 对照组：id 集合变化时必须重新刷新
     renderHook([session('session-1'), session('session-2'), session('session-3')])
-    windowHarness.runTimers()
+    windowEnv.runTimers()
     await flushMicrotasks()
     expect(serverAgentMocks.fetchActiveAgentStatuses).toHaveBeenCalledTimes(2)
   })

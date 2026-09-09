@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
-import type { AgentAccessMode, AgentHarness } from '@/lib/types'
+import type { AgentAccessMode } from '@/lib/types'
 import { agentAccessModeFromYoloMode, agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
@@ -228,7 +228,7 @@ class GlobalAgentSseClient {
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
       'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
       'tool_approval_required', 'ask_user_required', 'ask_user_answered', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
-      'acp_session_usage_update', 'acp_session_update', 'persist_degraded', 'model_stream_retry',
+      'persist_degraded', 'model_stream_retry',
       'sessions-changed',
     ]
 
@@ -569,43 +569,6 @@ export type ServerAgentAskAnswer = {
   custom?: string
 }
 
-export type OpenCodeAcpConfigSelectOption = {
-  value: string
-  name: string
-  description?: string
-}
-
-export type OpenCodeAcpConfigOption = {
-  id: string
-  name: string
-  description?: string
-  category?: string
-  type: 'boolean' | 'select'
-  currentValue: boolean | string
-  /** Select values; grouped entries keep `options` and a `group` label. */
-  options?: Array<OpenCodeAcpConfigSelectOption | { group: string; name: string; options: OpenCodeAcpConfigSelectOption[] }>
-}
-
-export type OpenCodeAcpMode = {
-  id: string
-  name: string
-  description?: string
-}
-
-export type OpenCodeAcpUsage = {
-  used: number
-  size: number
-  cost?: { amount: number; currency: string } | null
-}
-
-export type OpenCodeAcpSession = {
-  configOptions: OpenCodeAcpConfigOption[]
-  modes: { currentModeId: string; availableModes: OpenCodeAcpMode[] } | null
-  availableCommands: Array<{ name: string; description: string; input?: { hint?: string } }>
-  sessionInfo: Record<string, unknown>
-  usage: OpenCodeAcpUsage | null
-}
-
 // ---------------------------------------------------------------------------
 // ServerAgent - Agent-compatible proxy that delegates to the server
 // ---------------------------------------------------------------------------
@@ -620,8 +583,6 @@ export type ServerAgentConfig = {
     messages?: AgentMessage[]
     tools?: unknown[]
     accessMode?: AgentAccessMode
-    harness?: AgentHarness
-    harnessSessionId?: string
     yoloMode?: boolean
     isStreaming?: boolean
     pendingToolCalls?: string[]
@@ -631,7 +592,6 @@ export type ServerAgentConfig = {
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
-    acpSession?: OpenCodeAcpSession | null
     persistDegraded?: boolean
     stateVersion?: number
   }
@@ -683,6 +643,61 @@ function isFileRollbackResult(value: unknown): value is ServerFileRollbackResult
     && isFileRollbackPreview(result.preview)
 }
 
+/** 每轮产物卡「撤销本轮」的预检结果（GET rollback-turn/preview）。 */
+export type ServerTurnRollbackPreview = {
+  revision: string
+  /** 回显请求的整轮 turnId 集合（一轮 = 原 run + 重试 run 的全部 turnId）。 */
+  turnIds: string[]
+  files: Array<{
+    path: string
+    safe: boolean
+    reason: string | null
+    action: 'restore' | 'delete'
+    /** 该轮新建（true → 撤销即删除）；其余为轮内修改（撤销即恢复到轮前内容）。 */
+    created?: boolean
+    beforeBytes?: number | null
+    afterBytes?: number | null
+  }>
+}
+
+/** 轮级撤销执行结果（POST rollback-turn）：conflicts 为被跳过的冲突文件。 */
+export type ServerTurnRollbackResult = {
+  status: 'completed' | 'partial'
+  rolledBack: Array<{ path: string; action: 'restore' | 'delete' }>
+  conflicts: Array<{ path: string; reason: string | null }>
+}
+
+function isTurnRollbackPreview(value: unknown): value is ServerTurnRollbackPreview {
+  if (!value || typeof value !== 'object') return false
+  const preview = value as ServerTurnRollbackPreview
+  return typeof preview.revision === 'string'
+    && Array.isArray(preview.turnIds) && preview.turnIds.every((turnId) => typeof turnId === 'string')
+    && Array.isArray(preview.files) && preview.files.every((file) => file
+      && typeof file.path === 'string'
+      && typeof file.safe === 'boolean'
+      && (file.reason === null || typeof file.reason === 'string')
+      && (file.action === 'restore' || file.action === 'delete'))
+}
+
+function isTurnRollbackResult(value: unknown): value is ServerTurnRollbackResult {
+  if (!value || typeof value !== 'object') return false
+  const result = value as ServerTurnRollbackResult
+  return (result.status === 'completed' || result.status === 'partial')
+    && Array.isArray(result.rolledBack) && result.rolledBack.every((file) => file
+      && typeof file.path === 'string'
+      && (file.action === 'restore' || file.action === 'delete'))
+    && Array.isArray(result.conflicts) && result.conflicts.every((file) => file
+      && typeof file.path === 'string'
+      && (file.reason === null || typeof file.reason === 'string'))
+}
+
+/** 轮级回滚 API 错误：附 HTTP status（WorkspaceApiError 风格），供 UI 区分 409 等语义。 */
+function turnRollbackApiError(status: number, message: string): Error & { status: number } {
+  const error = new Error(message) as Error & { status: number }
+  error.status = status
+  return error
+}
+
 export type ServerRollbackResult = {
   ok: boolean
   rollbackIndex: number
@@ -730,8 +745,6 @@ export type ServerAgentStateSnapshot = {
   model?: Model<Api>
   thinkingLevel?: ThinkingLevel
   accessMode?: AgentAccessMode
-  harness?: AgentHarness
-  harnessSessionId?: string
   yoloMode?: boolean
   tools?: unknown[]
   contextCompaction?: ServerAgentContextCompaction | null
@@ -742,7 +755,6 @@ export type ServerAgentStateSnapshot = {
   pendingToolCalls?: string[]
   isStreaming?: boolean
   errorMessage?: string
-  acpSession?: OpenCodeAcpSession | null
   /** Server failed to persist recent messages after CAS conflicts. */
   persistDegraded?: boolean
 }
@@ -790,8 +802,6 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     messages: snapshot.messages ?? [],
     tools: snapshot.tools ?? [],
     accessMode: normalizeAgentAccessMode(snapshot.accessMode, snapshot.yoloMode),
-    harness: snapshot.harness ?? 'quickforge',
-    harnessSessionId: snapshot.harnessSessionId,
     yoloMode: Boolean(snapshot.yoloMode),
     isStreaming: Boolean(snapshot.isStreaming),
     pendingToolCalls: snapshot.pendingToolCalls ?? [],
@@ -801,7 +811,6 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     pendingToolApproval: snapshot.pendingToolApproval,
     pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
     pendingAsk: snapshot.pendingAsk,
-    acpSession: snapshot.acpSession,
     persistDegraded: snapshot.persistDegraded === true ? true : undefined,
     stateVersion: snapshot.stateVersion,
   }
@@ -882,7 +891,6 @@ export class ServerAgent {
     messages: AgentMessage[]
     tools: unknown[]
     accessMode: AgentAccessMode
-    harness: AgentHarness
     yoloMode: boolean
     isStreaming: boolean
     streamingMessage?: AgentMessage
@@ -893,7 +901,6 @@ export class ServerAgent {
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
-    acpSession?: OpenCodeAcpSession | null
     persistDegraded?: boolean
   }
   streamFn = streamSimple
@@ -914,8 +921,6 @@ export class ServerAgent {
   private nextPromptContextReferences: FileContextReference[] = []
   private onPromptContextReferencesConsumed?: () => void
   private planMode = false
-  readonly harness: AgentHarness
-  readonly harnessSessionId?: string
   private onPlanModeConsumed?: () => void
   /** 最近一次已知会话元数据（title/scope/…），供缓存快照重建时保留。 */
   private sessionCacheMetadata: Record<string, unknown> = {}
@@ -942,8 +947,6 @@ export class ServerAgent {
     this.baseUrl = config.baseUrl ?? ''
 
     const init = config.initialState ?? {}
-    this.harness = init.harness ?? 'quickforge'
-    this.harnessSessionId = init.harnessSessionId
     this.lastServerStateVersion = typeof init.stateVersion === 'number' ? init.stateVersion : 0
 
     const rawState = {
@@ -953,7 +956,6 @@ export class ServerAgent {
       messages: init.messages?.slice() ?? [],
       tools: init.tools ?? [],
       accessMode: normalizeAgentAccessMode(init.accessMode, agentAccessModeFromYoloMode(init.yoloMode)),
-      harness: init.harness ?? 'quickforge',
       yoloMode: agentAccessModeToYoloMode(normalizeAgentAccessMode(init.accessMode, agentAccessModeFromYoloMode(init.yoloMode))),
       isStreaming: init.isStreaming ?? false,
       streamingMessage: undefined as AgentMessage | undefined,
@@ -964,7 +966,6 @@ export class ServerAgent {
       pendingToolApproval: init.pendingToolApproval ?? null,
       pendingAutoCompactApproval: init.pendingAutoCompactApproval ?? null,
       pendingAsk: init.pendingAsk ?? null,
-      acpSession: init.acpSession ?? null,
       persistDegraded: init.persistDegraded === true ? true : undefined,
     }
 
@@ -1340,6 +1341,36 @@ export class ServerAgent {
     throw new Error(serverErrorMessage(body ?? null, `File rollback result unconfirmed: HTTP ${response.status}`))
   }
 
+  /** 每轮产物卡「撤销本轮」预检：只读安全检查；执行必须使用预检返回的 revision。 */
+  async getTurnRollbackPreview(turnIds: string[], signal?: AbortSignal): Promise<ServerTurnRollbackPreview> {
+    // 空集合防御：无 turnId 的轮不该发起请求，直接按预检失败拒绝。
+    if (turnIds.length === 0) return Promise.reject(new Error('Turn rollback requires at least one turn id'))
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/rollback-turn/preview?turnIds=${encodeURIComponent(turnIds.join(','))}`
+    const { response, body } = await fetchJsonWithTimeout<ServerTurnRollbackPreview & ServerErrorPayload>(url, 30_000, { signal })
+    if (!response.ok || !isTurnRollbackPreview(body)) {
+      throw turnRollbackApiError(response.status, serverErrorMessage(body ?? null, `Failed to preview turn rollback: HTTP ${response.status}`))
+    }
+    return body
+  }
+
+  /**
+   * 轮级撤销执行：200 = completed/partial；409 = revision 过期（预览已失效）；
+   * 500 = 失败。网络/超时异常无法确认服务端是否已写入，同样按错误抛出（带 status）。
+   */
+  async rollbackTurn(turnIds: string[], revision: string, signal?: AbortSignal): Promise<ServerTurnRollbackResult> {
+    // 空集合防御：与预检同口径，空轮不发起执行请求。
+    if (turnIds.length === 0) return Promise.reject(new Error('Turn rollback requires at least one turn id'))
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/rollback-turn`
+    const { response, body } = await fetchJsonWithTimeout<ServerTurnRollbackResult & ServerErrorPayload>(url, 60_000, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ turnIds, revision }),
+      signal,
+    })
+    if (response.ok && isTurnRollbackResult(body)) return body
+    throw turnRollbackApiError(response.status, serverErrorMessage(body ?? null, `Turn rollback result unconfirmed: HTTP ${response.status}`))
+  }
+
   /**
    * Continue generation from the current last message (retry / regenerate).
    * The last message must be a user or tool-result message.
@@ -1354,58 +1385,6 @@ export class ServerAgent {
     this.state.isStreaming = true
     this.state.errorMessage = undefined
     this.startStateWatchdog()
-  }
-
-  /**
-   * Update an OpenCode harness config option (boolean toggle or select value).
-   * The server is authoritative for the advertised options; on success the
-   * response acpSession refreshes the local snapshot and listeners are notified
-   * so the composer config menu re-renders.
-   */
-  async setConfigOption(configId: string, value: boolean | string): Promise<void> {
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/harness/config-option`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ configId, value }),
-    })
-    const payload = await res.json().catch(() => null) as { acpSession?: OpenCodeAcpSession; error?: string } | null
-    if (!res.ok) throw new Error(payload?.error || `Failed to update OpenCode config option: HTTP ${res.status}`)
-    if (payload?.acpSession) {
-      this.state.acpSession = payload.acpSession
-      this.emitToListeners({ type: 'acp_session_update', acpSession: payload.acpSession } as unknown as AgentEvent)
-    }
-  }
-
-  /**
-   * Switch the OpenCode harness mode (ACP `modes` radios).
-   */
-  async setMode(modeId: string): Promise<void> {
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/harness/mode`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ modeId }),
-    })
-    const payload = await res.json().catch(() => null) as { acpSession?: OpenCodeAcpSession; error?: string } | null
-    if (!res.ok) throw new Error(payload?.error || `Failed to update OpenCode mode: HTTP ${res.status}`)
-    if (payload?.acpSession) {
-      this.state.acpSession = payload.acpSession
-      this.emitToListeners({ type: 'acp_session_update', acpSession: payload.acpSession } as unknown as AgentEvent)
-    }
-  }
-
-  /**
-   * Fork the entire current OpenCode session (ACP whole-session fork). The
-   * server persists the new session and announces it through the existing
-   * `session_forked` event, which the client uses to switch to the new session.
-   */
-  async forkSession(): Promise<{ sessionId: string; title?: string; createdAt?: string; scope?: string; projectId?: string | null }> {
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/fork`
-    const res = await fetch(url, { method: 'POST' })
-    const payload = await res.json().catch(() => null) as ({ sessionId?: string; error?: string } & ServerErrorPayload) | null
-    if (!res.ok) throw new Error(payload?.error || `Failed to fork conversation: HTTP ${res.status}`)
-    return payload as { sessionId: string; title?: string; createdAt?: string; scope?: string; projectId?: string | null }
   }
 
   /**
@@ -1529,8 +1508,6 @@ export class ServerAgent {
         thinkingLevel: state.thinkingLevel,
         tools: state.tools,
         accessMode: state.accessMode,
-        harness: this.harness,
-        harnessSessionId: this.harnessSessionId,
         yoloMode: state.yoloMode,
         isStreaming: state.isStreaming,
         pendingToolCalls: [...state.pendingToolCalls],
@@ -1540,7 +1517,6 @@ export class ServerAgent {
         pendingToolApproval: state.pendingToolApproval,
         pendingAutoCompactApproval: state.pendingAutoCompactApproval,
         pendingAsk: state.pendingAsk,
-        acpSession: state.acpSession,
         stateVersion: this.lastServerStateVersion,
       },
     }
@@ -1569,7 +1545,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; messagesSummary?: { count?: number }; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; pendingAsk?: ServerAgentPendingAsk | null; acpSession?: OpenCodeAcpSession | null; persistDegraded?: boolean }
+        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; messagesSummary?: { count?: number }; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; pendingAsk?: ServerAgentPendingAsk | null; persistDegraded?: boolean }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -1616,9 +1592,6 @@ export class ServerAgent {
         }
         if (s.pendingToolCalls !== undefined) {
           this.state.pendingToolCalls = new Set(s.pendingToolCalls)
-        }
-        if (s.acpSession !== undefined) {
-          this.state.acpSession = s.acpSession
         }
         // State frames are full snapshots: absence of the flag means healthy.
         this.state.persistDegraded = s.persistDegraded === true ? true : undefined
@@ -1828,25 +1801,6 @@ export class ServerAgent {
       }
 
       case 'session_forked': {
-        break
-      }
-
-      case 'acp_session_usage_update': {
-        const usageEvent = event as { usage?: OpenCodeAcpUsage | null }
-        if (usageEvent.usage !== undefined) {
-          const next = this.state.acpSession
-            ? { ...this.state.acpSession, usage: usageEvent.usage }
-            : { configOptions: [], modes: null, availableCommands: [], sessionInfo: {}, usage: usageEvent.usage }
-          this.state.acpSession = next
-        }
-        break
-      }
-
-      case 'acp_session_update': {
-        const acpEvent = event as { acpSession?: OpenCodeAcpSession | null }
-        if (acpEvent.acpSession) {
-          this.state.acpSession = acpEvent.acpSession
-        }
         break
       }
 
@@ -2219,9 +2173,6 @@ export class ServerAgent {
       if (state.pendingToolCalls !== undefined) {
         this.state.pendingToolCalls = new Set(state.pendingToolCalls)
       }
-      if (state.acpSession !== undefined) {
-        this.state.acpSession = state.acpSession
-      }
       // /state is a full snapshot: absence of the flag means healthy.
       this.state.persistDegraded = state.persistDegraded === true ? true : undefined
       if (state.isStreaming !== undefined) {
@@ -2330,8 +2281,6 @@ export class ServerAgent {
       source?: 'acp'
       channelId?: string
       channelName?: string
-      harness?: AgentHarness
-      sourceHarnessSessionId?: string
       accessMode?: AgentAccessMode
       yoloMode?: boolean
       model?: Model<Api>
@@ -2345,9 +2294,6 @@ export class ServerAgent {
   ): Promise<ServerAgent> {
     const baseUrl = config.baseUrl ?? ''
 
-    // Create agent on server. OpenCode owns its real model and credentials, so
-    // the frontend-only placeholder must never cross this boundary.
-    const usesOpenCode = config.harness === 'opencode'
     const res = await fetch(`${baseUrl}/api/agents/${encodeURIComponent(sessionId)}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -2357,13 +2303,11 @@ export class ServerAgent {
         source: config.source,
         channelId: config.channelId,
         channelName: config.channelName,
-        harness: config.harness,
-        sourceHarnessSessionId: config.sourceHarnessSessionId,
         accessMode: config.accessMode,
         yoloMode: config.yoloMode ?? agentAccessModeToYoloMode(normalizeAgentAccessMode(config.accessMode)),
-        modelRef: !usesOpenCode && config.model ? modelReferenceFromModel(config.model) : undefined,
-        model: !usesOpenCode ? config.model : undefined,
-        thinkingLevel: usesOpenCode ? undefined : config.thinkingLevel ?? 'off',
+        modelRef: config.model ? modelReferenceFromModel(config.model) : undefined,
+        model: config.model,
+        thinkingLevel: config.thinkingLevel ?? 'off',
         messages: config.messages ?? [],
         title: config.title ?? 'New chat',
         contextCompaction: config.contextCompaction,
@@ -2398,8 +2342,6 @@ export class ServerAgent {
         messages: (serverState.messages ?? config.messages ?? []) as AgentMessage[],
         tools: (serverState.tools ?? []) as unknown[],
         accessMode: normalizeAgentAccessMode(serverState.accessMode, config.accessMode ?? serverState.yoloMode ?? config.yoloMode),
-        harness: (serverState.harness ?? config.harness ?? 'quickforge') as AgentHarness,
-        harnessSessionId: serverState.harnessSessionId as string | undefined,
         yoloMode: Boolean(serverState.yoloMode ?? config.yoloMode),
         isStreaming: Boolean(serverState.isStreaming),
         pendingToolCalls: (serverState.pendingToolCalls ?? []) as string[],
@@ -2408,7 +2350,6 @@ export class ServerAgent {
         contextUsage: serverState.contextUsage as ServerAgentContextUsage | null | undefined,
         pendingToolApproval: serverState.pendingToolApproval as ServerAgentPendingToolApproval | null | undefined,
         pendingAutoCompactApproval: serverState.pendingAutoCompactApproval as ServerAgentPendingAutoCompactApproval | null | undefined,
-        acpSession: serverState.acpSession as OpenCodeAcpSession | null | undefined,
         persistDegraded: serverState.persistDegraded === true ? true : undefined,
         stateVersion: serverState.stateVersion as number | undefined,
       },

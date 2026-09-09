@@ -74,7 +74,7 @@ Agent 会话管理核心路由。
 - `GET /api/agents/:sessionId/state` — 获取完整会话快照，用于 SSE 异常恢复；仅在内存会话不存在时从磁盘恢复，不再每次无条件重读 Session
 - `GET /api/agents/:sessionId/status` — 获取轻量运行状态，用于 SSE 静默后的版本探测
 - `HEAD /api/agents/:sessionId/stream` — 检查 SSE 可用性
-- `POST /api/agents/:sessionId/prompt` — 发送消息；`/summary` 与 `/compact` 作为内置 slash command 通过此端点触发，不存在独立压缩 REST 路由。可选 `contextReferences: [{type:'file',projectId,path}]` 最多 8 条；仅项目 QuickForge 会话支持，服务端用已恢复会话的 projectId/workspaceRoot 重新校验并持久化 canonical `{type,projectId,path,name}` 到用户消息 `details.contextReferences`，只向本轮模型注入已验证相对路径提示，不读取正文。OpenCode 与 Shared 非空引用显式拒绝
+- `POST /api/agents/:sessionId/prompt` — 发送消息；`/summary` 与 `/compact` 作为内置 slash command 通过此端点触发，不存在独立压缩 REST 路由。可选 `contextReferences: [{type:'file',projectId,path}]` 最多 8 条；仅项目 QuickForge 会话支持，服务端用已恢复会话的 projectId/workspaceRoot 重新校验并持久化 canonical `{type,projectId,path,name}` 到用户消息 `details.contextReferences`，只向本轮模型注入已验证相对路径提示，不读取正文。Shared 非空引用显式拒绝
 - `POST /api/agents/:sessionId/title` — 手动重命名会话；同步更新服务端活跃状态与持久化数据，优先于待完成的 AI 标题
 - `POST /api/agents/:sessionId/abort` — 中止运行
 - `POST /api/agents/:sessionId/steer` — 引导 Agent
@@ -88,6 +88,8 @@ Agent 会话管理核心路由。
 - `GET /api/agents/:sessionId/rollback-files/preview` — 只读预检，200 返回 `{revision, canRollback, files:[{path, relativePath, revision, action:'restore'|'delete', safe, reason}], reason?}`；顶层 revision 对应剩余整批，每项 revision 独立。`canRollback` 仅表示剩余整批全安全；普通兄弟项冲突或 legacy 不阻止安全单项，会话忙、索引异常、不可用备份状态及失败/未完成的回滚 intent 则全局阻止。
 - `POST /api/agents/:sessionId/rollback-files` — 提交整批 `{revision}`，恢复本会话受控 write_file/edit_file 的修改前内容、删除会话新建文件；在全局进程内锁中再次检查剩余全批，任一不安全则整批不开始。返回 `{status, restored, removedCreated, errors:[{path,message}], preview}`：200 / `completed`、409 / `blocked`、500 / `failed`。
 - `POST /api/agents/:sessionId/rollback-file` — 提交预览中选中项的 `{path, revision}`，仅撤销该项，不回退整批接口；尚有剩余项返回 200 / `partial`，最后一项完成返回 200 / `completed`，409 / `blocked`、500 / `failed` 与整批共用结果结构。两接口均拒绝缺失/过期 revision，单项路径无效也以 409 拒绝；执行前复查选中范围，成功项从后续 preview/summary 排除，`partial` 不表示整体已撤销。回滚先持久化独立 `rollback-intent` marker，最终索引提交成功后才清除；失败保留已持久化 intent 与备份并阻止后续撤销/受控写入。开始后的 I/O 等失败可能已有部分写盘，计数如实保留，不自动补偿，不承诺外部文件系统原子性；物理 blob 留待 TTL 清理，不修改消息历史或 Git index。
+- `GET /api/agents/:sessionId/rollback-turn/preview?turnIds=t1,t2` — 轮级只读预检（per-turn-artifact-cards），`turnIds` 为逗号分隔的一轮 turnId 集合（原 run + 重试 run；去空去重），200 返回 `{revision, turnIds, canRollback, files:[{path, relativePath, safe, reason, action:'restore'|'delete', created, beforeBytes, afterBytes}]}`（`turnIds` 回显请求集合）；`turnIds` 缺失或全空返回 400。与整批预检不同，空 `files` 是合法答案（该轮无受控写入记录，前端据此识别不可撤销轮）；版本按集合匹配（`version.turnId ∈ turnIds`），每文件 `reason` 为 `null` 或 `modified-after-turn`（集合首匹配版本后该文件还有集合外 turnId 的版本写入，含无归属写入）/ `external-change`（磁盘 hash ≠ 该轮最后版本 afterHash，含外部删除）/ `stale-backup`（版本记录不完整 / blob / 路径校验失败），不安全项仅按文件标注、不整体阻断；`canRollback` 仍受会话忙、备份不可用及失败/未完成回滚 intent 等全局 reason 约束。
+- `POST /api/agents/:sessionId/rollback-turn` — 提交 `{turnIds: string[], revision}` 按轮回滚该轮（原 run + 重试 run）受控 write_file/edit_file：`restore` 写回集合首匹配版本 before、`delete` 删除该轮新建文件；只执行安全子集，不安全文件进入 `conflicts:[{path,reason}]` 而非整体阻断。返回 `{status, rolledBack:[{path,action}], conflicts, errors, preview}`：200 / `completed`（无冲突）或 `partial`（安全项已执行、存在 conflicts）、409 / `blocked`、500 / `failed`；`turnIds` 缺失、非数组、空数组或含非字符串/空项返回 400。revision 缺失/过期即拒绝，复用独立 `rollback-intent` marker、双 preflight 与逐项 fresh 复查，失败即停不自动补偿；不修改消息历史或 Git index。
 
 ## storage.mjs (151 行)
 
@@ -217,7 +219,7 @@ Agent Profile 管理路由。
 
 - `POST /api/side-chat/stream` — 接受 `{sessionId?, modelRef, messages}`，返回 `application/x-ndjson`：`meta`、增量 `delta`、终态 `done` 或流内 `error`。
 - 有 `sessionId` 时只接受当前已激活的主会话，并通过 `getSessionState` 读取权威消息、模型、thinking 与 `contextCompaction`；压缩会话使用既有 `buildAutoCompactLoopMessages` 语义。路由不会恢复/创建/驱逐 Agent，也不会调用 `runPrompt`、ACP 或任何持久化写入口。
-- QuickForge 主会话沿用服务端权威模型绑定；OpenCode 主会话不复用 ACP 模型，改用请求中的已配置 QuickForge `modelRef`。两条路径都通过统一 Model Catalog 重新解析，Cloud 继续服从请求认证上下文。
+- 主会话沿用服务端权威模型绑定，`modelRef` 通过统一 Model Catalog 重新解析，Cloud 继续服从请求认证上下文。
 - 模型上下文固定 `tools: []`，系统提示明确只读问答；主线上下文先复用 `buildAutoCompactLoopMessages` 与 `serverConvertToLlm`，再投影为仅含 user/assistant 纯文本的消息，忽略 system/tool/toolCall/thinking/非文本块与全部 details，并从最新向前按 120,000 字符确定性裁剪；存在 compact summary 时最多预留 20,000 字符尽量保留。侧聊历史最多 40 条、单条 12,000 字符；主线与侧聊上下文合计不超过 200,000 字符。任何 `toolcall_*` 或 `stopReason: toolUse` 都 fail closed；流随客户端断开中止，响应 `no-store + nosniff`。
 
 ## shared-conversation.mjs (444 行)

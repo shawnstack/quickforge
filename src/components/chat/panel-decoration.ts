@@ -13,15 +13,12 @@ import type {
 } from './chat-utils'
 import { t } from '@/lib/i18n'
 import type { AgentAccessMode } from '@/lib/types'
-import type { OpenCodeAcpSession } from '@/lib/server-agent'
 import { removeAgentAccessMenu, setupAgentAccessMenu } from './panel-decoration/agent-access-menu'
 import {
   removeSubagentRunningIndicator,
   removeSubagentRunningIndicatorMenu,
   setupSubagentRunningIndicator,
 } from './panel-decoration/subagent-running-indicator'
-import { removeOpenCodeConfigMenu, setupOpenCodeConfigMenu } from './panel-decoration/opencode-config-menu'
-import { removeOpenCodeModeMenu, setupOpenCodeModeMenu } from './panel-decoration/opencode-mode-menu'
 import { hideNativeAttachmentControls, removeComposerPlusPopover, setupComposerPlusMenu } from './panel-decoration/composer-plus-menu'
 import { decorateModelButtonLabel } from './panel-decoration/model-controls'
 import { removeThinkingLevelControl, removeThinkingLevelMenu, setupThinkingLevelControl, type QuickForgeThinkingLevel } from './panel-decoration/thinking-level-controls'
@@ -51,7 +48,6 @@ export { createModelRetryNoticeController } from './panel-decoration/model-retry
 export { createTurnErrorTracker } from './panel-decoration/turn-error-state'
 export type { TurnErrorTracker, TurnErrorView } from './panel-decoration/turn-error-state'
 export { decorateAssistantArtifactCard, syncAssistantArtifactCard } from './panel-decoration/assistant-artifact-card'
-export { createOpenCodeUsageIndicator } from './panel-decoration/opencode-usage'
 export { releaseStreamingProcessGroups } from './panel-decoration/process-folding'
 
 export type { MessageDecorationDeps } from './panel-decoration/message-actions'
@@ -61,7 +57,6 @@ export { createScrollToBottomButton } from './panel-decoration/scroll-to-bottom-
 export {
   createTodoWriteSummaryController,
   extractLatestTodoWriteSnapshot,
-  isTodoWriteAcpMetadata,
   normalizeTodoWriteTodos,
   todoWriteCounts,
 } from './panel-decoration/todo-write-summary'
@@ -91,10 +86,6 @@ export type EditorDecorationDeps = {
   isWaiting?: () => boolean
   abort: () => void
   agentAccessMode: AgentAccessMode
-  harness?: 'quickforge' | 'claude-code' | 'opencode'
-  getAcpSession?: () => OpenCodeAcpSession | null | undefined
-  onOpenCodeConfigOptionChange?: (configId: string, value: boolean | string) => void
-  onOpenCodeModeChange?: (modeId: string) => void
   planMode: boolean
   workspaceToolsEnabled: boolean
   readOnly: boolean
@@ -163,10 +154,6 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     isWaiting,
     abort,
     agentAccessMode,
-    harness,
-    getAcpSession,
-    onOpenCodeConfigOptionChange,
-    onOpenCodeModeChange,
     planMode,
     workspaceToolsEnabled,
     readOnly,
@@ -268,10 +255,6 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.remove()
     removeAgentAccessMenu(panel, disabledControls)
     removeSubagentRunningIndicator(panel)
-    panel.querySelector<HTMLButtonElement>('.quickforge-opencode-config-inline')?.remove()
-    removeOpenCodeConfigMenu(panel)
-    panel.querySelector<HTMLButtonElement>('.quickforge-opencode-mode-inline')?.remove()
-    removeOpenCodeModeMenu(panel)
     panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
     panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline')?.remove()
     removeThinkingLevelControl()
@@ -282,8 +265,6 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   // others (including the custom model menu) so they can never overlap.
   const dismissComposerMenus = () => {
     removeComposerPlusPopover(panel)
-    removeOpenCodeConfigMenu(panel)
-    removeOpenCodeModeMenu(panel)
     removeAgentAccessMenu(panel)
     removeSubagentRunningIndicatorMenu(panel)
     removeThinkingLevelMenu()
@@ -334,31 +315,6 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     })
   } else {
     panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline')?.remove()
-  }
-
-  if (harness === 'opencode' && getAcpSession && onOpenCodeConfigOptionChange && onOpenCodeModeChange) {
-    setupOpenCodeConfigMenu({
-      panel,
-      leftControls,
-      getAcpSession,
-      isStreaming,
-      onConfigOptionChange: onOpenCodeConfigOptionChange,
-      onModeChange: onOpenCodeModeChange,
-      dismissComposerMenus,
-    })
-    setupOpenCodeModeMenu({
-      panel,
-      rightControls,
-      getAcpSession,
-      isStreaming,
-      onModeChange: onOpenCodeModeChange,
-      dismissComposerMenus,
-    })
-  } else {
-    panel.querySelector<HTMLButtonElement>('.quickforge-opencode-config-inline')?.remove()
-    removeOpenCodeConfigMenu(panel)
-    panel.querySelector<HTMLButtonElement>('.quickforge-opencode-mode-inline')?.remove()
-    removeOpenCodeModeMenu(panel)
   }
 
   if (!workspaceToolsEnabled || !accessModeEnabled) {

@@ -34,7 +34,7 @@ describe('editor bindings', () => {
     expect(baseOnSend).toHaveBeenCalledWith('', [{}])
   })
 
-  it('blocks attachment sends when the Harness disables attachments', () => {
+  it('blocks attachment sends when capabilities disable attachments', () => {
     const onBeforeSend = vi.fn()
     const { editor, baseOnSend } = bind(onBeforeSend, false)
 

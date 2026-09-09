@@ -1,5 +1,5 @@
 import type { MessageEditorElement } from '../chat-utils'
-import { shouldSendComposerInput } from '@/lib/chat-harness-capabilities'
+import { shouldSendComposerInput } from '@/lib/chat-capabilities'
 
 const LARGE_PASTE_ATTACHMENT_THRESHOLD = 3000
 

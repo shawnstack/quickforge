@@ -70,7 +70,7 @@ class FakeElement {
   }
 }
 
-function createHarness(fetchImpl = vi.fn()) {
+function createEnv(fetchImpl = vi.fn()) {
   const panel = new FakeElement('div')
   const shell = new FakeElement('div')
   const editor = new FakeElement('message-editor')
@@ -119,7 +119,7 @@ describe('file reference suggestions controller', () => {
       { name: 'README.md', path: 'README.md', type: 'file' },
       { name: 'source-map.js', path: 'source-map.js', type: 'file' },
     ]))
-    const h = createHarness(fetchImpl)
+    const h = createEnv(fetchImpl)
     h.setText('@')
     h.controller.update('@')
     await Promise.resolve(); await Promise.resolve()
@@ -153,7 +153,7 @@ describe('file reference suggestions controller', () => {
         ? [{ name: 'src', path: 'src', type: 'directory' }]
         : [{ name: 'README.md', path: 'README.md', type: 'file' }])
     })
-    const h = createHarness(fetchImpl)
+    const h = createEnv(fetchImpl)
     h.setText('@')
     h.controller.update('@')
     await Promise.resolve(); await Promise.resolve()
@@ -177,7 +177,7 @@ describe('file reference suggestions controller', () => {
   })
 
   it('removes textarea listeners during cleanup', () => {
-    const h = createHarness()
+    const h = createEnv()
     h.controller.setupTextareaHandler(h.editor as unknown as MessageEditorElement)
     expect([...h.textarea.listeners.keys()].sort()).toEqual(['compositionend', 'compositionstart', 'keydown'])
 
@@ -189,7 +189,7 @@ describe('file reference suggestions controller', () => {
     const fetchImpl = vi.fn((url: string) => url.includes('path=src')
       ? response([{ name: 'file.ts', path: 'src/file.ts', type: 'file' }], 'src')
       : response([{ name: 'src', path: 'src', type: 'directory' }]))
-    const h = createHarness(fetchImpl)
+    const h = createEnv(fetchImpl)
     h.setText('@')
     h.controller.update('@')
     await Promise.resolve(); await Promise.resolve()
@@ -211,7 +211,7 @@ describe('file reference suggestions controller', () => {
 
   it('returns every current-level entry and relies on menu scrolling instead of truncating', async () => {
     const entries = Array.from({ length: 25 }, (_, index) => ({ name: `${index}.txt`, path: `${index}.txt`, type: 'file' }))
-    const h = createHarness(vi.fn(() => response(entries)))
+    const h = createEnv(vi.fn(() => response(entries)))
     h.setText('@')
     h.controller.update('@')
     await Promise.resolve(); await Promise.resolve()
@@ -220,7 +220,7 @@ describe('file reference suggestions controller', () => {
 
   it('selects with Enter, removes the token, preserves attachments, and deduplicates refs', async () => {
     const fetchImpl = vi.fn(() => response([{ name: 'file.ts', path: 'src/file.ts', type: 'file' }]))
-    const h = createHarness(fetchImpl)
+    const h = createEnv(fetchImpl)
     h.editor.attachments = [{ id: 'attachment' }]
     h.setText('before @fi after')
     h.textarea.selectionStart = h.textarea.selectionEnd = 'before @fi'.length
@@ -241,7 +241,7 @@ describe('file reference suggestions controller', () => {
   it.each(['file-first', 'plugin-first'] as const)(
     'keeps shared file/plugin chips independent for %s synchronization',
     async (order) => {
-      const h = createHarness()
+      const h = createEnv()
       const capabilityController = createCapabilitySuggestions({
         panel: h.panel as unknown as HTMLElement,
         restoreDraftIntoComposer: h.restoreDraftIntoComposer,

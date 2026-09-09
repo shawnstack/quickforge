@@ -183,7 +183,7 @@ const fire = (node: FakeNode, type: string, payload: Record<string, unknown> = {
 }
 
 // ---------------------------------------------------------------------------
-// Harness
+// TestEnv
 // ---------------------------------------------------------------------------
 
 type DocumentStub = {
@@ -196,7 +196,7 @@ type DocumentStub = {
 
 const agentInvocation: SlashInvocation = { kind: 'agent', name: 'explore', cmd: '/agent explore' }
 
-type Harness = {
+type TestEnv = {
   panel: FakeNode
   shell: FakeNode
   editor: FakeNode
@@ -212,7 +212,7 @@ type Harness = {
   setGeometry: (geometry: { shellLeft?: number; shellTop?: number; textareaLeft?: number; textareaTop?: number }) => void
 }
 
-function createHarness(envOverrides: Partial<SlashChipEnv> = {}): Harness {
+function createEnv(envOverrides: Partial<SlashChipEnv> = {}): TestEnv {
   const textarea = createFakeElement('textarea')
   textarea.value = ''
   textarea.selectionStart = 0
@@ -398,9 +398,9 @@ describe('slash invocation chip controller', () => {
   })
 
   const installDocument = () => {
-    const harness = createHarness()
-    vi.stubGlobal('document', harness.documentStub)
-    return harness
+    const env = createEnv()
+    vi.stubGlobal('document', env.documentStub)
+    return env
   }
 
   it('engages: mounts the overlay under the composer shell and mirrors the task text', () => {
@@ -644,7 +644,7 @@ describe('slash invocation chip controller', () => {
       cleanupByNode.set(node, cleanup)
       return cleanup
     })
-    const h = createHarness({ observeResize })
+    const h = createEnv({ observeResize })
     vi.stubGlobal('document', h.documentStub)
     h.setGeometry({ shellLeft: 10, shellTop: 20, textareaLeft: 34, textareaTop: 72 })
     h.setText('/agent explore task')
@@ -701,7 +701,7 @@ describe('slash invocation chip controller', () => {
     expect(spacer.style.width).toBe('100px')
 
     // A chip wider than the prefix clamps to zero (documented visual trade-off).
-    const wide = createHarness({ measureElementWidth: vi.fn(() => 300) })
+    const wide = createEnv({ measureElementWidth: vi.fn(() => 300) })
     vi.stubGlobal('document', wide.documentStub)
     wide.setText('/agent explore task')
     wide.chip.engage(agentInvocation)

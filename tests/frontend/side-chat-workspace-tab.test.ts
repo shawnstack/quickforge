@@ -6,10 +6,10 @@ import {
   type WorkspacePanelTab,
 } from '../../src/components/workspace/workspace-inspector-tabs'
 import {
-  QUICKFORGE_CHAT_HARNESS_CAPABILITIES,
+  QUICKFORGE_CHAT_CAPABILITIES,
   SIDE_CHAT_CAPABILITIES,
   SIDE_CHAT_UI_CAPABILITIES,
-} from '../../src/lib/chat-harness-capabilities'
+} from '../../src/lib/chat-capabilities'
 
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 const inspectorSource = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
@@ -23,7 +23,7 @@ const sideChatContentSource = readFileSync(new URL('../../src/components/workspa
 const rendererIsolationSource = readFileSync(new URL('../../src/components/chat/side-chat-renderer-isolation.ts', import.meta.url), 'utf8')
 
 const allDisabledCapabilities = Object.fromEntries(
-  Object.keys(QUICKFORGE_CHAT_HARNESS_CAPABILITIES).map((key) => [key, false]),
+  Object.keys(QUICKFORGE_CHAT_CAPABILITIES).map((key) => [key, false]),
 )
 
 describe('Workspace side chat tab', () => {
@@ -95,7 +95,7 @@ describe('Workspace side chat tab', () => {
   it('uses all-false executable capabilities while keeping QuickForge unchanged', () => {
     expect(SIDE_CHAT_CAPABILITIES).toBe(SIDE_CHAT_UI_CAPABILITIES)
     expect(SIDE_CHAT_UI_CAPABILITIES).toEqual(allDisabledCapabilities)
-    expect(QUICKFORGE_CHAT_HARNESS_CAPABILITIES).toMatchObject({
+    expect(QUICKFORGE_CHAT_CAPABILITIES).toMatchObject({
       modelSelection: true,
       planMode: true,
       accessMode: true,

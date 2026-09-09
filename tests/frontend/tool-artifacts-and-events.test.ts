@@ -1,6 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { describe, expect, it, vi } from 'vitest'
-import { extractCurrentTurnArtifacts, extractSessionArtifacts } from '../../src/lib/tool-artifacts'
+import { extractCurrentTurnArtifacts, extractSessionArtifacts, extractTurnArtifacts } from '../../src/lib/tool-artifacts'
 import {
   extractQuickForgeTiming,
   toolStartEventWithPartialResult,
@@ -178,6 +178,77 @@ describe('tool artifacts', () => {
 
     expect(artifacts).toHaveLength(1)
     expect(artifacts[0]).toMatchObject({ path: 'new.png', kind: 'image' })
+  })
+
+  it('slices per-turn artifacts at user and user-with-attachments boundaries', () => {
+    const turns = extractTurnArtifacts(messages([
+      { role: 'user', content: 'first' },
+      { role: 'toolResult', toolName: 'write_file', toolCallId: 'w1', details: { path: 'a.html' } },
+      { role: 'assistant', content: 'done' },
+      { role: 'user-with-attachments', content: 'second', attachments: [] },
+      { role: 'toolResult', toolName: 'write_file', toolCallId: 'w2', details: { path: 'b.md' } },
+      { role: 'toolResult', toolName: 'write_file', toolCallId: 'w3', details: { path: 'c.css' } },
+      { role: 'assistant', content: 'done' },
+      { role: 'user', content: 'third' },
+      { role: 'assistant', content: 'no artifacts' },
+    ]))
+
+    // 无产物的第三轮不返回；userIndex 为该轮首条 user 消息在完整数组中的下标。
+    expect(turns.map((turn) => turn.userIndex)).toEqual([0, 3])
+    expect(turns[0].artifacts).toMatchObject([{ path: 'a.html' }])
+    expect(turns[1].artifacts).toMatchObject([{ path: 'b.md' }, { path: 'c.css' }])
+  })
+
+  it('dedupes within a turn slice and keeps cross-turn duplicates independent', () => {
+    const turns = extractTurnArtifacts(messages([
+      { role: 'user', content: 'first' },
+      { role: 'toolResult', toolName: 'write_file', toolCallId: 'w1', details: { path: 'a.html' } },
+      { role: 'toolResult', toolName: 'write_file', toolCallId: 'w1', details: { path: 'a.html' } },
+      { role: 'assistant', content: 'done' },
+      { role: 'user', content: 'second' },
+      { role: 'toolResult', toolName: 'write_file', toolCallId: 'w2', details: { path: 'a.html' } },
+    ]))
+
+    // 轮内同 toolCallId 去重；跨轮同路径互不影响（各自归入自己的轮）。
+    expect(turns.map((turn) => turn.userIndex)).toEqual([0, 4])
+    expect(turns[0].artifacts).toHaveLength(1)
+    expect(turns[1].artifacts).toMatchObject([{ path: 'a.html' }])
+  })
+
+  it('collects the deduplicated turnIds of every artifact in a turn (original + retry runs)', () => {
+    const turns = extractTurnArtifacts(messages([
+      { role: 'user', content: 'first' },
+      { role: 'toolResult', toolName: 'write_file', toolCallId: 'w1', details: { path: 'a.html', turnId: 'turn-1' } },
+      { role: 'toolResult', toolName: 'edit_file', toolCallId: 'e1', details: { path: 'b.md', turnId: 'turn-2' } },
+      // 同一轮的重试 run：新 turnId + 与原 run 重复的 turnId。
+      { role: 'toolResult', toolName: 'write_file', toolCallId: 'w2', details: { path: 'c.css', turnId: 'turn-3' } },
+      { role: 'toolResult', toolName: 'write_file', toolCallId: 'w3', details: { path: 'd.txt', turnId: 'turn-1' } },
+      { role: 'assistant', content: 'done' },
+      { role: 'user', content: 'second' },
+      { role: 'toolResult', toolName: 'edit_file', toolCallId: 'e2', details: { path: 'e.md' } },
+    ]))
+
+    // 轮 turnIds = 该轮全部产物 turnId 的去重集合（切片序保序）；重试 run 的
+    // 新 turnId 并入同一轮。产物级 turnId 照原样保留。
+    expect(turns[0].artifacts.map((artifact) => artifact.turnId)).toEqual(['turn-1', 'turn-2', 'turn-3', 'turn-1'])
+    expect(turns[0].turnIds).toEqual(['turn-1', 'turn-2', 'turn-3'])
+    // 全部产物都没有 turnId（无 turnId 的历史产物路径）→ 空数组（卡片不渲染撤销按钮）。
+    expect(turns[1].artifacts[0]).toMatchObject({ turnId: undefined })
+    expect(turns[1].turnIds).toEqual([])
+  })
+
+  it('groups leading content before the first user message into userIndex -1 without a turnId', () => {
+    const turns = extractTurnArtifacts(messages([
+      { role: 'toolResult', toolName: 'write_file', toolCallId: 'w0', details: { path: 'old.html' } },
+      { role: 'assistant', content: 'residual' },
+      { role: 'user', content: 'first' },
+      { role: 'toolResult', toolName: 'write_file', toolCallId: 'w1', details: { path: 'new.html' } },
+    ]))
+
+    expect(turns.map((turn) => turn.userIndex)).toEqual([-1, 2])
+    expect(turns[0].artifacts).toMatchObject([{ path: 'old.html' }])
+    expect(turns[0].turnIds).toEqual([])
+    expect(turns[1].turnIds).toEqual([])
   })
 })
 

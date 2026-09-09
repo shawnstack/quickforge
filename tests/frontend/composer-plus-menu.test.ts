@@ -17,12 +17,6 @@ vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
 }))
 
-// removeOpenCodeModeMenu touches document/window listeners; the plus menu only
-// calls it defensively, so a no-op keeps the fake DOM minimal.
-vi.mock('../../src/components/chat/panel-decoration/opencode-mode-menu', () => ({
-  removeOpenCodeModeMenu: vi.fn(),
-}))
-
 // ---------------------------------------------------------------------------
 // Minimal fake DOM (same style as capability-suggestions.test.ts): stubs just
 // enough of document/panel for the plus menu to render and be interacted with.
@@ -155,7 +149,7 @@ function createFakeElement(tagName: string): FakeNode {
   return node
 }
 
-function createHarness(options: HarnessOptions = {}) {
+function createEnv(options: EnvOptions = {}) {
   const textarea = createFakeElement('textarea')
   textarea.value = ''
   textarea.selectionStart = 0
@@ -218,11 +212,11 @@ function createHarness(options: HarnessOptions = {}) {
   }
 }
 
-type HarnessOptions = {
+type EnvOptions = {
   pluginsEnabled?: boolean
 }
 
-type Harness = ReturnType<typeof createHarness>
+type TestEnv = ReturnType<typeof createEnv>
 
 const mockLoadPlugins = () => vi.mocked(loadPlugins)
 
@@ -266,7 +260,7 @@ const pointerDown = (node: FakeNode | null | undefined) => {
   node!.onpointerdown!({ preventDefault() {}, stopPropagation() {} } as Event)
 }
 
-const popoverItems = (h: Harness) => {
+const popoverItems = (h: TestEnv) => {
   const popover = h.panel.insertedPopover
   expect(popover).toBeTruthy()
   return popover!.children.filter((c) => c.className.split(/\s+/).includes('quickforge-plus-popover-item'))
@@ -274,15 +268,15 @@ const popoverItems = (h: Harness) => {
 
 const itemLabel = (item: FakeNode) => item.querySelector('.quickforge-plus-popover-item-label')?.textContent ?? ''
 
-const pluginsEntryOf = (h: Harness) => popoverItems(h).find((item) => itemLabel(item) === 'composerAddPlugins')
+const pluginsEntryOf = (h: TestEnv) => popoverItems(h).find((item) => itemLabel(item) === 'composerAddPlugins')
 
-const pluginItems = (h: Harness) => popoverItems(h).filter((item) => item.dataset.quickforgePluginName)
+const pluginItems = (h: TestEnv) => popoverItems(h).filter((item) => item.dataset.quickforgePluginName)
 
-const pluginNames = (h: Harness) => pluginItems(h).map((item) => item.dataset.quickforgePluginName)
+const pluginNames = (h: TestEnv) => pluginItems(h).map((item) => item.dataset.quickforgePluginName)
 
-const openMainMenu = (h: Harness) => pointerDown(h.plusButton)
+const openMainMenu = (h: TestEnv) => pointerDown(h.plusButton)
 
-const openPluginsView = (h: Harness) => {
+const openPluginsView = (h: TestEnv) => {
   const entry = pluginsEntryOf(h)
   pointerDown(entry)
 }
@@ -317,7 +311,7 @@ describe('composer + plugin menu availability', () => {
 
   it('shows every enabled and loaded plugin in the plugins view', async () => {
     mockLoadPlugins().mockResolvedValue(responseFor(documentsPlugin, spreadsheetsPlugin, presentationsPlugin))
-    const h = createHarness()
+    const h = createEnv()
     await flush()
 
     openMainMenu(h)
@@ -333,7 +327,7 @@ describe('composer + plugin menu availability', () => {
       { ...spreadsheetsPlugin, enabled: false },
       presentationsPlugin,
     ))
-    const h = createHarness()
+    const h = createEnv()
     await flush()
 
     openMainMenu(h)
@@ -348,7 +342,7 @@ describe('composer + plugin menu availability', () => {
       { ...spreadsheetsPlugin, status: 'loaded', enabled: false },
       presentationsPlugin,
     ))
-    const h = createHarness()
+    const h = createEnv()
     await flush()
 
     openMainMenu(h)
@@ -362,7 +356,7 @@ describe('composer + plugin menu availability', () => {
       { ...documentsPlugin, enabled: false },
       { ...spreadsheetsPlugin, status: 'error' },
     ))
-    const h = createHarness()
+    const h = createEnv()
     await flush()
 
     openMainMenu(h)
@@ -372,7 +366,7 @@ describe('composer + plugin menu availability', () => {
   it('does not show the plugins entry while loading, but shows it after reopening once loaded', async () => {
     const deferred = deferredResponse()
     mockLoadPlugins().mockImplementation(() => deferred.promise)
-    const h = createHarness()
+    const h = createEnv()
 
     openMainMenu(h)
     expect(pluginsEntryOf(h)).toBeUndefined()
@@ -389,7 +383,7 @@ describe('composer + plugin menu availability', () => {
 
   it('selects the plugin capability when a plugin item is clicked', async () => {
     mockLoadPlugins().mockResolvedValue(responseFor(documentsPlugin, spreadsheetsPlugin, presentationsPlugin))
-    const h = createHarness()
+    const h = createEnv()
     await flush()
 
     openMainMenu(h)
@@ -404,7 +398,7 @@ describe('composer + plugin menu availability', () => {
 
   it('does not issue additional /api/plugins requests when the plus menu is used', async () => {
     mockLoadPlugins().mockResolvedValue(responseFor(documentsPlugin, spreadsheetsPlugin, presentationsPlugin))
-    const h = createHarness()
+    const h = createEnv()
     expect(mockLoadPlugins()).toHaveBeenCalledTimes(1)
     await flush()
 
@@ -418,7 +412,7 @@ describe('composer + plugin menu availability', () => {
 
   it('keeps the plugins entry hidden when the capability switch is off', async () => {
     mockLoadPlugins().mockResolvedValue(responseFor(documentsPlugin, spreadsheetsPlugin, presentationsPlugin))
-    const h = createHarness({ pluginsEnabled: false })
+    const h = createEnv({ pluginsEnabled: false })
     await flush()
 
     openMainMenu(h)

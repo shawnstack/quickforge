@@ -55,7 +55,7 @@ function cloudModel() {
   return { id: 'cloud', provider: 'quickforge-cloud' } as Model<Api>
 }
 
-function useActionsHarness(options: {
+function useActionsEnv(options: {
   loadCloudModels: () => Promise<Model<Api>[]>
   isCloudModelsLoaded: () => boolean
 }) {
@@ -95,7 +95,7 @@ describe('useModelActions Cloud selector boundary', () => {
 
   it('waits for Cloud instead of showing an empty-model confirmation before Cloud is loaded', async () => {
     const loadCloudModels = vi.fn(async () => [cloudModel()])
-    const { actions, openSettingsPage } = useActionsHarness({
+    const { actions, openSettingsPage } = useActionsEnv({
       loadCloudModels,
       isCloudModelsLoaded: () => false,
     })
@@ -121,7 +121,7 @@ describe('useModelActions Cloud selector boundary', () => {
 
   it('does not show an empty-model confirmation when the Cloud request fails closed', async () => {
     const loadCloudModels = vi.fn(async () => [])
-    const { actions } = useActionsHarness({
+    const { actions } = useActionsEnv({
       loadCloudModels,
       isCloudModelsLoaded: () => false,
     })
@@ -136,7 +136,7 @@ describe('useModelActions Cloud selector boundary', () => {
 
   it('shows the existing confirmation only after Cloud is known to be empty', async () => {
     const loadCloudModels = vi.fn(async () => [])
-    const { actions } = useActionsHarness({
+    const { actions } = useActionsEnv({
       loadCloudModels,
       isCloudModelsLoaded: () => true,
     })

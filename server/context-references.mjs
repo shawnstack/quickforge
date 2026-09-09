@@ -64,11 +64,6 @@ export async function validatePromptContextReferences(value, session) {
     error.statusCode = 409
     throw error
   }
-  if (session?.harness === 'opencode') {
-    const error = contextReferenceError('OpenCode conversations do not support file context references', 'CONTEXT_REFERENCES_UNSUPPORTED_HARNESS')
-    error.statusCode = 409
-    throw error
-  }
   return validateContextReferences(references, session)
 }
 

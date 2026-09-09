@@ -1,6 +1,6 @@
 /**
  * write_file / edit_file 工具 diff 的结构化解析：
- * 支持 unified（含无 hunk 的 OpenCode pseudo-unified）与 raw 新文件文本，
+ * 支持 unified（含无 hunk 的 pseudo-unified）与 raw 新文件文本，
  * 输出 old/new 解析行号（渲染时按行类型选择单列智能行号）及 hunk 间隙省略行。
  * 纯函数、零 DOM 依赖，renderDiff 消费其结果。
  */

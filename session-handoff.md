@@ -1,3 +1,14 @@
+## 当前交接摘要：简化自定义模型的推理/思考模型标签（2026-09-09）
+
+- 目标：去掉自定义模型设置标签中的 DeepSeek V4/Qwen 示例。
+- 实现：`src/lib/i18n.ts` 的 `reasoningModel` 中英文分别简化为“推理/思考模型”和“Reasoning / Thinking model”；功能与调用方不变。
+- 文件：`src/lib/i18n.ts`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：i18n 快照测试 1 file / 2 tests 全过；`src/lib/i18n.ts` ESLint 通过；旧 UI 长文案无残留；`git diff --check` 通过。
+- Blocker：无。已纳入本次本地提交，未 push。
+- 边界：独立用户指南说明保留；无需更新 Wiki；未修改生成产物。
+
+---
+
 ## 当前交接摘要：v2.0.0 发布准备（2026-09-09，完成）
 
 - 目标：按用户确认以当前 `dev` 全量发布 2.0.0；两个 `needs-review` 功能按现状纳入；不含 Android。

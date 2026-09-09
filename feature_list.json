@@ -1,6 +1,20 @@
 {
   "features": [
     {
+      "id": "simplify-reasoning-model-label",
+      "name": "简化自定义模型的推理/思考模型标签",
+      "status": "done",
+      "approach": "按用户要求，将自定义模型设置中的 reasoningModel 中英文标签从带 DeepSeek V4/Qwen 示例的长说明简化为纯标签‘推理/思考模型’ / ‘Reasoning / Thinking model’；仅调整 i18n 文案，不改变开关能力、组件结构或模型判断逻辑。",
+      "files": [
+        "src/lib/i18n.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/i18n-language-snapshot.test.ts：1 file / 2 tests 全过；npx eslint src/lib/i18n.ts 通过；旧 UI 长文案在 src 中无残留；git diff --check 通过。",
+      "boundaries": "仅简化自定义模型设置标签；docs/user-guide 中关于 DeepSeek V4 能力配置的独立说明保留；不改架构、模块职责或公共入口，因此无需更新 docs/wiki；未修改生成产物；已纳入本次本地提交，未 tag/push。"
+    },
+    {
       "id": "release-v2.0.0",
       "name": "发布准备 v2.0.0（当前 dev 全量，不含 Android）",
       "status": "done",

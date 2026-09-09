@@ -59,12 +59,13 @@ server/
 
 **启动参数**:
 - `--dev`: 开发模式
-- 环境变量: `QUICKFORGE_PORT`, `QUICKFORGE_HOST`, `QUICKFORGE_DATA_DIR`, `QUICKFORGE_WORKSPACE_DIR`, `QUICKFORGE_SHARE_LAN`, `QUICKFORGE_ALLOW_REMOTE`
+- 环境变量: `QUICKFORGE_PORT`, `QUICKFORGE_HOST`, `QUICKFORGE_DATA_DIR`, `QUICKFORGE_WORKSPACE_DIR`, `QUICKFORGE_SHARE_LAN`, `QUICKFORGE_ALLOW_REMOTE`, `QUICKFORGE_DIAGNOSTICS`（默认开启，`0`/`false`/`off`/`no` 关闭运行时诊断采样）, `QUICKFORGE_DIAGNOSTICS_INTERVAL_MS`, `QUICKFORGE_DIAGNOSTICS_LAG_WARN_MS`, `QUICKFORGE_DIAGNOSTICS_SLOW_REQUEST_MS`
 
 **主要功能**:
 - HTTP 路由分发（基于 `url.pathname` 匹配）
 - 中间件：CORS、JSON 请求体大小限制
 - `GET /api/health` — 健康检查，返回 `version` 与 `package` 元数据，并按当前请求返回 `isLocalRequest` 与 `capabilities`；远端客户端的终端、重启和打开本机应用能力为关闭状态
+- `GET /api/diagnostics` — 仅本机可访问的运行时诊断快照（非本机 403 `Diagnostics are only available to local clients`）：event loop lag 分位、在途请求与耗时、按路径聚合耗时、最近慢请求、活跃 socket 连接数、全局 SSE 流数、进程内存。数据由 `server/runtime-diagnostics.mjs` 采集；用于区分「浏览器侧连接池排队」与「服务端事件循环阻塞」
 - 静态文件服务（`serveStatic`）
 - SSE（`/api/agents/events`, `/api/agents/:sessionId/stream`）
 - WebSocket 交互式终端（`/api/terminal/sessions/:id/ws`，仅 localhost）
@@ -118,7 +119,7 @@ server/
 - 默认工作目录：全局会话（无 `projectId`）会合成默认 workspace 上下文（`defaultGlobalWorkspaceContext`，根目录 `~/.quickforge/workspace`，合成 project id 为 `default`），使「对话」与「项目」享有相同的文件工具（读/写/编辑/grep/命令）、工作区面板、终端和 Git 能力；文件操作受该目录沙箱约束，默认权限下读类工具放行、写入/命令/MCP/Plugin 等可能影响系统的工具走审批，完全访问权限则在既有沙箱与敏感文件限制内自动执行；`projectContextFromId` 找不到项目时同样回落到该默认 workspace。`@` 文件引用是更窄的项目会话契约，不支持合成默认 workspace/global 会话
 - 工作区敏感路径保护：默认（`allowSensitive` 未开启）按大小写不敏感规则拦截 `.git`、`.env*`、密钥/证书、token、credentials/secrets 等；完成 realpath 与 workspace 边界检查后还会对真实目标再检查一次，防止内部符号链接伪装指向敏感文件。显式 `allowSensitive:true` 的既有 Workspace Inspector search/children/Reader 行为保持不变
 - 消息运行（`runPrompt`）：执行 AI 对话，管理消息历史。可选 `contextReferences` 仅接受最多 8 个项目文件引用；`server/context-references.mjs` 以已恢复 session 的 `projectId/projectContext.workspaceRoot` 为权威，校验 POSIX 项目相对路径、普通文件、非敏感、realpath 不逃逸并去重，绝不读取正文。canonical `{type:'file',projectId,path,name}` 覆盖客户端伪造 details 后持久化到用户消息；本轮 transient prompt 只列相对路径并要求相关时用 `read_file` 精确读取。顶层 `selectedCapabilities` 同样不信任消息 details：`server/selected-capabilities.mjs` 仅接收合法对象/字符串，裁剪长度、按 `type+pluginName+name` 去重、保持顺序且最多 4 项，以请求体 canonical 结果覆盖实际 user message `details.selectedCapabilities`（快照只持久化 type/pluginName/name/label；空数组删除伪造或陈旧字段，保留 contextReferences 等其他 details），并由同一规范化结果生成可含 description 的本轮 capability prompt；details 经 `message-converters.mjs` 在 LLM 转换时统一剥离，用户正文、标题和复制逻辑不混入插件标签。两类本轮提示可共存且 finally 清理。retry/continue 从对应最后 user message details 读取并重新规范化 selectedCapabilities、重新校验 contextReferences，再重建两类提示后生成，因此复用原插件与文件；失效文件在截断历史前失败。OpenCode 与 Shared 非空文件引用明确拒绝；共享输出仍剥离 `details.contextReferences`，但明确保留 `selectedCapabilities` 供分享页显示历史插件标签
-- SSE 事件流管理：向连接的客户端广播 Agent 事件；session/global 两类 SSE 的 keepalive/event 写失败与 request/response socket error 均记录结构化 WARN（仅 stream scope、sessionId、failure type、error name，不记录 event payload）；连接级幂等守卫确保同一连接故障只 WARN 一次、cleanup/release/end 只执行一次，正常 close 只 cleanup、不记录 failure，不改变 SSE 帧协议
+- SSE 事件流管理：向连接的客户端广播 Agent 事件；session/global 两类 SSE 的 keepalive/event 写失败与 request/response socket error 均记录结构化 WARN（仅 stream scope、sessionId、failure type、error name，不记录 event payload）；连接级幂等守卫确保同一连接故障只 WARN 一次、cleanup/release/end 只执行一次，正常 close 只 cleanup、不记录 failure，不改变 SSE 帧协议；`message_update` 走 50ms trailing 合并（`SSE_MESSAGE_UPDATE_THROTTLE_MS`，任何非 message_update 事件到达前先 flush pending 以保证顺序，cleanup 时 dispose），`res.writableLength` 超 4MB（`SSE_BACKPRESSURE_BYTES`）时丢弃可丢弃帧（`message_update`/`tool_execution_update`/keepalive ping），终态帧永不丢弃、不 await drain
 - 后台任务运行（`runTask` / `abortTask`）
 - Agent 恢复（`restoreAgent`）：从持久化状态恢复会话；Web 冷加载通过 `POST /api/agents/:sessionId/restore` 在一次请求中恢复并返回权威快照，`GET state` 仅在内存会话不存在时回落恢复，避免重复读取完整 Session。恢复关键路径不等待 MCP 连接/重连：restore 以 `mcpToolsMode:'cached'` 立即用当前连接快照（仅已连接 server）生成 MCP 工具（无连接时为空），同时 fire-and-forget 后台刷新（含 disconnected 重连）；工具集变化经 `subscribeMcpToolsetChanged` 订阅触发 `refreshAllSessionTools()` 重建活跃会话工具并广播 `state` 事件，新会话创建、subagent、`/api/tools` 与 `callMcpTool` 保持 await 语义
 - 模型配置即时刷新（`refreshAllSessionModels`）：`custom-providers` 存储（模型定义、Max Tokens 等）经 storage 路由（PUT/DELETE key、DELETE 整 store）或备份恢复变更后，遍历内存活跃会话重新解析 model 绑定（跳过 OpenCode harness 与 streaming 中会话——后者由下一次 `runPrompt` 的 `refreshSessionModelBinding` 刷新），仅当 `session.model` 实际变化时 emit `state` 事件推送前端；模型被删除导致的解析失败只记日志并保留最后绑定，由下一条消息复现原报错。前端 `ServerAgent` 复用既有 `case 'state'` 更新 `state.model`，`useAgentManager` 同步 `activeModelRef` 并 bump `chatPanelRevision` 触发重渲染。
@@ -227,6 +228,16 @@ server/
 - `server/maintenance/downgrade-lan-access-v1.mjs` 提供停机 lan-access 降级：`--dry-run` 只读、默认 drain 物化完整 `security/lan-access.json` 并对拍 SQLite 快照 tokenCount/digest、`--commit` 校验后切回 `json_authoritative`。
 - 业务模块只能使用受控 handle，不得自行关闭连接或改基础 PRAGMA；生命周期由 Server/ACP runner 管理。MED-9 已解决：authoritative history 的 total/page/filter 在 SQLite 中完成。
 
+### runtime-diagnostics.mjs (251 行)
+
+**用途**: 服务端运行时诊断采集（event loop lag / 在途请求 / 慢请求），供 `GET /api/diagnostics`（仅本机）查询，并在超阈值时打 WARN。
+
+- 默认开启；`QUICKFORGE_DIAGNOSTICS=0`（或 `false`/`off`/`no`）关闭采集，关闭后所有采集函数退化为 no-op，快照返回 `{ enabled: false }`。
+- event loop lag：`node:perf_hooks` 的 `monitorEventLoopDelay`（resolution 20ms），每 `QUICKFORGE_DIAGNOSTICS_INTERVAL_MS`（默认 5000ms）采样一次 p50/p99/max/mean 并 `reset()`；p99 ≥ `QUICKFORGE_DIAGNOSTICS_LAG_WARN_MS`（默认 100ms）时 `logger.warn('Event loop lag high')`，同一 30s 内节流。采样定时器 `.unref()`，不保活进程。
+- HTTP 请求：`beginHttpRequest` / `endHttpRequest` 记录在途请求与耗时；`endHttpRequest` 幂等（finish/close 各触发一次只结算一次）；路径按 `normalizePathKey` 折叠动态段（数字 / uuid / 长 hex → `:id`）后聚合，最多 200 个 key；非流式请求耗时 ≥ `QUICKFORGE_DIAGNOSTICS_SLOW_REQUEST_MS`（默认 1000ms）时打 `Slow HTTP request` WARN 并写入最近 20 条环形缓冲。
+- SSE / NDJSON 长连接不计入慢请求与路径耗时，只累计 `streamingSettledCount`（已结算流式响应数，**不是**当前打开数）；当前连接占用看快照的 `sockets`（活跃 TCP 连接数）与 `sse.globalStreams`（全局 SSE 监听器数）。
+- 与 `server/index.mjs` 接线：`createServer` 回调内 begin / finish / close 埋点、启动链末尾 `startRuntimeDiagnostics()`、`shutdownRuntime()` 内 `stopRuntimeDiagnostics()`。
+
 ### auto-archive.mjs
 
 **用途**: 按设置自动归档长期未更新的历史对话。
@@ -306,7 +317,7 @@ server/
 - 启动/停止/action 属于本地命令执行，仅允许 localhost 请求，并要求 `x-quickforge-action: channel-action`。
 - QuickForge 退出或重启时会调用 `shutdownChannels()` 停止渠道子进程。
 - 微信渠道要求 Node.js >= 22、npm/npx 可用；首次启动由 `weixin-acp` 输出终端二维码，设置页仅在存在二维码内容时展示扫码入口，并提供“打开日志文件夹”访问持久化渠道日志，不再内嵌最近日志或常驻展示 PID、命令、环境要求等运行细节。
-- 微信 bridge 与 Web 服务运行在不同进程，但共享会话存储。外部 ACP 会话持久化完成后会通过内部 relay 发布 `sessions-changed` SSE，前端按事件更新受影响会话并同步当前打开的会话，不再进行固定间隔轮询；页面重新可见时仍会执行一次全量兜底同步。
+- 微信 bridge 与 Web 服务运行在不同进程，但共享会话存储。外部 ACP 会话持久化完成后会通过内部 relay 发布 `sessions-changed`，该事件经 `GET /api/agents/events` 全局 SSE 流转发给前端（`handleGlobalStream` 内监听 `channelEvents` 并只转发 `sessions-changed`，过滤 `log`/`status`/`qrcode`；`channelEvents.setMaxListeners(100)` 对齐 agent 总线），因此 App 不再额外常驻一条 `GET /api/channels/events`；设置页「渠道」Tab 仍使用 `/api/channels/events` 获取 `snapshot`/`status`/`log`/`qrcode`。前端按事件更新受影响会话并同步当前打开的会话，不再进行固定间隔轮询；页面重新可见时仍会执行一次全量兜底同步。
 
 ### mcp/ — MCP Client 集成
 

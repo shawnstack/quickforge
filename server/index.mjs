@@ -49,6 +49,8 @@ import { readCloudServiceConfig } from './cloud/service-config.mjs'
 import { startQfAgent, stopQfAgent, getQfAgentStatus } from './cloud/qf-agent-process.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
+import { beginHttpRequest, endHttpRequest, getRuntimeDiagnosticsSnapshot, startRuntimeDiagnostics, stopRuntimeDiagnostics } from './runtime-diagnostics.mjs'
+import { agentEvents } from './agent-session-events.mjs'
 import { installProcessErrorHandlers } from './utils/process-error-guards.mjs'
 import { getPackageInfo, checkForUpdates, getUpdateCheckState, checkDesktopRelease } from './utils/package-update.mjs'
 import { installAiHttpLogger } from './ai-http-logger.mjs'
@@ -192,6 +194,7 @@ async function shutdownRuntime() {
     await stopQfAgent()
     stopScheduledTaskRunner()
     stopAutoArchiveRunner()
+    stopRuntimeDiagnostics()
     stopVite()
     await shutdownAgentManager()
     await shutdownMcpConnections()
@@ -406,6 +409,18 @@ async function handleApi(req, res, url, requestContext = {}) {
       }
     }
     sendJson(res, 200, await getSystemStatus(requestContext))
+    return
+  }
+
+  // Runtime diagnostics (local-only)
+  if (req.method === 'GET' && pathname === '/api/diagnostics') {
+    if (requestContext.isLocalRequest !== true) {
+      const error = new Error('Diagnostics are only available to local clients')
+      error.statusCode = 403
+      throw error
+    }
+    const snapshot = await getRuntimeDiagnosticsSnapshot({ sockets: await countActiveSockets() })
+    sendJson(res, 200, { ...snapshot, sse: { globalStreams: countGlobalStreams() } })
     return
   }
 
@@ -689,14 +704,47 @@ function sendLanAuthRequired(res) {
   res.end(JSON.stringify({ error: 'LAN authentication required' }))
 }
 
+// Active TCP connections held by the HTTP server (null when unsupported).
+function countActiveSockets() {
+  if (typeof server.getConnections !== 'function') return null
+  return new Promise((resolve) => {
+    server.getConnections((error, count) => {
+      if (error) resolve(null)
+      else resolve(count)
+    })
+  })
+}
+
+// Global SSE listeners (null when the event bus is unavailable).
+function countGlobalStreams() {
+  try { return agentEvents.listenerCount('agent_event') } catch { return null }
+}
+
+// SSE / NDJSON responses stay open by design; exclude them from slow-request stats.
+function isStreamingResponse(res) {
+  try {
+    const contentType = res.getHeader('content-type')
+    if (!contentType) return false
+    const value = String(contentType).toLowerCase()
+    return value.includes('text/event-stream') || value.includes('application/x-ndjson')
+  } catch {
+    return false
+  }
+}
+
 // --- Bootstrap ---
 const server = createServer(async (req, res) => {
   const reqId = randomUUID().slice(0, 8)
   const reqLogger = logger.child({ reqId })
   const startedAt = Date.now()
+  const diagHandle = beginHttpRequest({ method: req.method, path: req.url })
   res.on('finish', () => {
     const durationMs = Date.now() - startedAt
     reqLogger.info(`${req.method} ${req.url} ${res.statusCode}`, { method: req.method, url: req.url, status: res.statusCode, durationMs })
+    endHttpRequest(diagHandle, { status: res.statusCode, streaming: isStreamingResponse(res) })
+  })
+  res.on('close', () => {
+    endHttpRequest(diagHandle, { status: res.statusCode, streaming: isStreamingResponse(res), aborted: !res.writableEnded })
   })
 
   const remoteAddress = req.socket.remoteAddress
@@ -938,6 +986,7 @@ async function runStartupInitialization() {
   setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
   startScheduledTaskRunner()
   startAutoArchiveRunner()
+  startRuntimeDiagnostics()
 }
 
 if (getStartupState() !== STARTUP_STATES.FAILED) {

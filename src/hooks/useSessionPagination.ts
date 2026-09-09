@@ -12,6 +12,10 @@ import {
 
 const PAGE_SIZE = 20
 
+// refreshSessions 合并窗口：同一 hook 实例内的并发刷新在该窗口内复用同一轮请求，
+// 避免 agent_end 等多个事件源在同一时刻重复拉取会话列表。
+export const REFRESH_SESSIONS_MERGE_MS = 250
+
 function isValidPinnedAt(value?: string) {
   if (!value) return false
   const normalized = value.trim()
@@ -26,6 +30,12 @@ type UseSessionPaginationOptions = {
   viewMode: SidebarSessionViewMode
   sortMode: SidebarSessionSortMode
   onBroadcastSessionsChanged?: () => void
+}
+
+type RefreshRound = {
+  startedAt: number
+  pendingBroadcast: boolean
+  promise: Promise<void>
 }
 
 export function useSessionPagination({
@@ -46,6 +56,7 @@ export function useSessionPagination({
   const expandedProjectIdsRef = useRef(expandedProjectIds)
   const externalProjectIdsRef = useRef(externalProjectIds ?? new Set<string>())
   const requestVersionRef = useRef(0)
+  const refreshRoundRef = useRef<RefreshRound | null>(null)
 
   useEffect(() => {
     globalPageRef.current = globalPage
@@ -223,43 +234,67 @@ export function useSessionPagination({
     }
   }, [backendRef, isCurrentRequest, sortMode])
 
-  const refreshSessions = useCallback(async (opts?: { broadcast?: boolean }) => {
-    if (!backendRef.current) return
+  const refreshSessions = useCallback((opts?: { broadcast?: boolean }): Promise<void> => {
+    if (!backendRef.current) return Promise.resolve()
 
-    const version = nextRequestVersion()
-    // Reset and reload the visible initial pages.
-    await Promise.all([
-      loadPinnedSessions(0, version),
-      loadGlobalSessions(0, version),
-    ])
-    if (!isCurrentRequest(version)) return
+    // 合并窗口内复用正在跑的那一轮：多个事件源（如 agent_end）可能在同一时刻触发刷新，
+    // 重复请求只会放大 sessions-metadata 各索引的读取压力。
+    const existing = refreshRoundRef.current
+    if (existing && Date.now() - existing.startedAt < REFRESH_SESSIONS_MERGE_MS) {
+      // 被合并的调用若要求广播，记在正在跑的那一轮上，结尾只广播一次。
+      if (opts?.broadcast) existing.pendingBroadcast = true
+      return existing.promise
+    }
 
-    if (viewMode === 'timeline') {
-      setProjectPages((prev) => {
-        const next: Record<string, SessionPage> = {}
-        for (const [projectId, page] of Object.entries(prev)) {
-          next[projectId] = { ...page, loading: false, appending: false }
+    const round: RefreshRound = {
+      startedAt: Date.now(),
+      pendingBroadcast: Boolean(opts?.broadcast),
+      promise: Promise.resolve(),
+    }
+    refreshRoundRef.current = round
+
+    round.promise = (async () => {
+      try {
+        const version = nextRequestVersion()
+        // Reset and reload the visible initial pages.
+        await Promise.all([
+          loadPinnedSessions(0, version),
+          loadGlobalSessions(0, version),
+        ])
+        if (!isCurrentRequest(version)) return
+
+        if (viewMode === 'timeline') {
+          setProjectPages((prev) => {
+            const next: Record<string, SessionPage> = {}
+            for (const [projectId, page] of Object.entries(prev)) {
+              next[projectId] = { ...page, loading: false, appending: false }
+            }
+            return next
+          })
+          await loadProjectTimelineSessions(0, version)
+          if (round.pendingBroadcast && isCurrentRequest(version)) onBroadcastSessionsChanged?.()
+          return
         }
-        return next
-      })
-      await loadProjectTimelineSessions(0, version)
-      if (opts?.broadcast && isCurrentRequest(version)) onBroadcastSessionsChanged?.()
-      return
-    }
 
-    setProjectTimelinePage((prev) => ({ ...prev, loading: false, appending: false }))
-    const loadedProjectIds = new Set([
-      ...Object.keys(projectPagesRef.current),
-      ...expandedProjectIdsRef.current,
-      ...externalProjectIdsRef.current,
-    ])
-    if (loadedProjectIds.size === 0) {
-      setProjectPages({})
-    } else {
-      await Promise.all([...loadedProjectIds].map((projectId) => loadProjectSessions(projectId, 0, version)))
-    }
+        setProjectTimelinePage((prev) => ({ ...prev, loading: false, appending: false }))
+        const loadedProjectIds = new Set([
+          ...Object.keys(projectPagesRef.current),
+          ...expandedProjectIdsRef.current,
+          ...externalProjectIdsRef.current,
+        ])
+        if (loadedProjectIds.size === 0) {
+          setProjectPages({})
+        } else {
+          await Promise.all([...loadedProjectIds].map((projectId) => loadProjectSessions(projectId, 0, version)))
+        }
 
-    if (opts?.broadcast && isCurrentRequest(version)) onBroadcastSessionsChanged?.()
+        if (round.pendingBroadcast && isCurrentRequest(version)) onBroadcastSessionsChanged?.()
+      } finally {
+        if (refreshRoundRef.current === round) refreshRoundRef.current = null
+      }
+    })()
+
+    return round.promise
   }, [backendRef, isCurrentRequest, loadGlobalSessions, loadPinnedSessions, loadProjectSessions, loadProjectTimelineSessions, nextRequestVersion, onBroadcastSessionsChanged, viewMode])
 
   const upsertSessionMetadata = useCallback((session: QuickForgeSessionMetadata) => {

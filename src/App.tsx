@@ -439,7 +439,8 @@ function MainApp() {
 
   const crossTab = useCrossTabSync({
     onSessionsChanged: () => { refreshSessions() },
-    onProjectsChanged: () => { loadProject(true) },
+    // 切回窗口/跨标签页通知只走 useProject 的 15s 缓存，避免 visibilitychange 时重复请求 /api/project。
+    onProjectsChanged: () => { loadProject() },
     onSettingsChanged: (settings) => {
       refreshSessions()
       if (!settings?.defaultHarness) return
@@ -758,7 +759,7 @@ function MainApp() {
     requestWorkspaceInspector({ projectId, kind: 'review', view: 'changes' })
   }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
 
-  const refreshTitleGitStatus = useCallback(async () => {
+  const refreshTitleGitStatus = useCallback(async (force = false) => {
     const projectId = agentManager.currentToolProject?.id
     const requestId = titleGitRequestIdRef.current + 1
     titleGitRequestIdRef.current = requestId
@@ -770,7 +771,10 @@ function MainApp() {
       return undefined
     }
     try {
-      const status = await getGitStatus(projectId, controller.signal)
+      // 工具执行结束后的刷新要反映刚发生的仓库变化，必须绕过 1s 结果缓存。
+      // 注意：titleGitStatus 同时供 GitToolsPinnedSummary / GitCommitPushDialog 消费，
+      // 它们需要 files[].additions/deletions，因此这里必须走 full（不能传 light）。
+      const status = await getGitStatus(projectId, controller.signal, { force })
       if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, titleGitRequestIdRef.current)) return undefined
       setTitleGitStatus(status)
       return status
@@ -802,7 +806,7 @@ function MainApp() {
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(() => {
         refreshTimer = undefined
-        void refreshTitleGitStatus()
+        void refreshTitleGitStatus(true)
       }, 400)
     })
 
@@ -1183,10 +1187,11 @@ function MainApp() {
   useEffect(() => {
     if (!ready) return undefined
 
-    const source = new EventSource('/api/channels/events')
-    const handleSessionsChanged = (event: MessageEvent) => {
+    // 渠道 sessions-changed 由 /api/agents/events 转发（见 server/routes/agent.mjs），
+    // 复用全局单例 SSE 连接，避免额外常驻连接占用浏览器连接池。
+    const handleSessionsChanged = (event: Record<string, unknown>) => {
       try {
-        const payload = JSON.parse(event.data) as ChannelRefreshEvent
+        const payload = event as ChannelRefreshEvent
         if (payload.type !== 'sessions-changed' || typeof payload.sessionId !== 'string') return
 
         const projectId = channelEventProjectId(payload)
@@ -1211,11 +1216,7 @@ function MainApp() {
       }
     }
 
-    source.addEventListener('sessions-changed', handleSessionsChanged)
-    return () => {
-      source.removeEventListener('sessions-changed', handleSessionsChanged)
-      source.close()
-    }
+    return subscribeToAgentEvents(handleSessionsChanged)
   }, [agentRef, currentSessionIdRef, loadGlobalSessions, loadProjectSessions, ready, upsertSessionMetadata])
 
   useEffect(() => {

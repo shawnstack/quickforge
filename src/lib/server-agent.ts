@@ -229,6 +229,7 @@ class GlobalAgentSseClient {
       'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
       'tool_approval_required', 'ask_user_required', 'ask_user_answered', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
       'acp_session_usage_update', 'acp_session_update', 'persist_degraded', 'model_stream_retry',
+      'sessions-changed',
     ]
 
     const handleMessage = (eventType?: string) => (e: MessageEvent) => {
@@ -1490,6 +1491,9 @@ export class ServerAgent {
   // --- SSE event handling ---
 
   private handleSseEvent(event: Record<string, unknown>) {
+    // 渠道会话变更（/api/agents/events 转发的 sessions-changed）只供全局订阅者使用；
+    // 提前返回，避免它刷新 lastSseEventAt 让状态看门狗误判 SSE 仍活跃、推迟静默恢复。
+    if (event.type === 'sessions-changed') return
     if (!this.noteSseEvent(event)) return
     const type = event.type as string
 

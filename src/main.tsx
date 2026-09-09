@@ -8,11 +8,26 @@ import { applyClipboardPolyfill } from '@/lib/clipboard-polyfill'
 import { isMobileShell } from '@/lib/mobile-server'
 import { logger } from '@/lib/logger'
 import { acquireAppWindowGuard } from '@/lib/window-guard'
+import {
+  formatDiagnosticsReport,
+  startBrowserConnectionDiagnostics,
+} from '@/lib/browser-connection-diagnostics'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { WindowGuardNotice } from '@/components/WindowGuardNotice'
 import App from './App.tsx'
 
 patchThinkingSelector({ hideSelector: true })
+// 浏览器侧连接池诊断：DevTools 里执行 window.__quickforgePerf() 可查看请求排队与常驻长连接；
+// 同时异步拉取服务端 GET /api/diagnostics 快照，便于区分「浏览器侧排队」与「服务端阻塞」。
+startBrowserConnectionDiagnostics()
+const diagnosticsWindow = window as Window & { __quickforgePerf?: () => string }
+diagnosticsWindow.__quickforgePerf = () => {
+  void fetch('/api/diagnostics')
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+    .then((snapshot) => console.log('[QuickForge] 服务端运行时诊断 /api/diagnostics', snapshot))
+    .catch((error) => console.warn('[QuickForge] 服务端诊断不可用：', error))
+  return formatDiagnosticsReport()
+}
 applyClipboardPolyfill()
 if (Capacitor.isNativePlatform() && isMobileShell()) {
   document.documentElement.classList.add('quickforge-mobile-native')

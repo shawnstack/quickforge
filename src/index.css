@@ -6159,6 +6159,178 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   border-color: color-mix(in oklab, #d97706 40%, var(--border));
 }
 
+/* Turn terminal error: one-line lightweight row (design-mockups/conversation-error-retry.html).
+   Rewrites pi-web-ui's red error block (bg-destructive/10) in place into the same
+   lightweight-row vocabulary as the stopped label / reconnect notice — red stays only
+   on the warning icon and the single line of text; escalation reuses the
+   persist-degraded amber; the retrying transition reuses the reconnect spinner. */
+.quickforge-error-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 1rem 0;
+  padding-left: 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  animation: quickforge-reconnect-enter 180ms ease-out both;
+}
+
+.quickforge-error-icon {
+  display: inline-flex;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+  color: var(--destructive);
+}
+
+.quickforge-error-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.quickforge-error-text {
+  color: color-mix(in oklab, var(--destructive) 80%, var(--foreground));
+}
+
+.quickforge-error-retry {
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 1px 9px;
+  transition: background 0.12s ease;
+}
+
+.quickforge-error-retry svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.quickforge-error-retry:hover:not(:disabled) {
+  background: var(--muted);
+}
+
+.quickforge-error-retry:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.quickforge-error-details-toggle {
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0 0.15rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  transition: color 0.12s ease;
+}
+
+.quickforge-error-details-toggle:hover {
+  color: var(--foreground);
+}
+
+.quickforge-error-details-toggle svg {
+  width: 0.7rem;
+  height: 0.7rem;
+  transition: transform 0.12s ease;
+}
+
+.quickforge-error-details-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+/* 重试中过渡：复用 reconnect 的 spinner 词汇，文字转 muted。 */
+.quickforge-error-line.quickforge-error-retrying .quickforge-error-icon {
+  color: var(--muted-foreground);
+}
+
+.quickforge-error-line.quickforge-error-retrying .quickforge-error-icon svg {
+  animation: quickforge-reconnect-spin 0.9s linear infinite;
+}
+
+.quickforge-error-line.quickforge-error-retrying .quickforge-error-text {
+  color: var(--muted-foreground);
+}
+
+/* 升级提示（重试后仍失败）：persist-degraded 琥珀。 */
+.quickforge-error-escalate {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.25rem 0 0 2.5rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+}
+
+.quickforge-error-switch-model {
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in oklab, #d97706 92%, var(--foreground));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in oklab, #d97706 45%, transparent);
+}
+
+.quickforge-error-switch-model:hover {
+  color: #d97706;
+}
+
+/* 详情就地展开：mono 原文（数据层 errorMessage），默认收起。 */
+.quickforge-error-details {
+  display: none;
+  margin: 0.25rem 0 0 2.5rem;
+  max-width: 34rem;
+  border: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--background) 65%, var(--muted));
+  padding: 0.4rem 0.6rem;
+}
+
+.quickforge-error-details.quickforge-error-details-open {
+  display: block;
+}
+
+.quickforge-error-details pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.55;
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-error-line {
+    animation: none;
+  }
+
+  .quickforge-error-line.quickforge-error-retrying .quickforge-error-icon svg {
+    animation: none;
+  }
+
+  .quickforge-error-details-toggle svg {
+    transition: none;
+  }
+}
+
 /* 不可达即时态（Tier1）：琥珀双行 + 立即重试按钮。标题/图标配方与 failed 态
    一致（#d97706 88%），图标为静态三角（不旋转、无 spinner）。 */
 .quickforge-reconnect[data-state='unreachable'] {

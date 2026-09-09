@@ -42,6 +42,7 @@
 | `update-check-poll.ts` | 71 | 更新检查轮询助手：`requestUpdateCheck()` 对非阻塞的 `GET /api/system/update/check` 状态快照做有界轮询（默认 10 次 × 1s，可注入 fetch/sleep 单测）到 `ok`/`error` 终态，失败一律返回 `{ kind: 'error' }` 不抛出（fetch/sleep 可注入）；`force` 仅首次请求带 `?force=1`；兼容不带 `status` 字段的旧服务端 payload |
 | `random-id.ts` | 19 | UUID 生成 |
 | `window-guard.ts` | 118 | Web Locks 严格单窗口守卫（纯锁守卫）：`acquireAppWindowGuard` 以 `ifAvailable` 抢锁（持锁成功时 request promise 因回调永不结束不会结算，成功判定只依赖 acquired 标志）；同窗口刷新竞态按 400ms×2 重试后判 blocked（blocked 窗口由 main.tsx 渲染拦截页）；Web Locks 不可用降级放行（unsupported，BroadcastChannel 等不再是依赖） |
+| `browser-connection-diagnostics.ts` | 631 | 浏览器侧连接池 / 请求排队诊断采集器：`PerformanceObserver` 采同源资源计时（排队 = `requestStart - startTime`），包装 `window.fetch` 统计 in-flight 与常驻长连接（SSE / NDJSON，clone 分支观测结束、不改原响应体），排队超阈值 `console.warn`（同 path 节流 30s），`window.__quickforgePerf()` 输出报告并异步拉取 `GET /api/diagnostics`；`VITE_QUICKFORGE_DIAGNOSTICS=0` 关闭 |
 | `tool-display-settings.ts` | 40 | Tool 与上下文用量展示设置 |
 | `tool-execution-events.ts` | 120 | 工具执行事件处理 |
 | `tool-param-summary.ts` | 工具参数→摘要文案纯函数：`summarizeParams`（自 local-tools 提取，按工具名取 command/path/query 等生成单行摘要）、`normalizeToolArguments`（toolCall arguments 归一化，兼容 JSON 字符串）、`truncateSummary`；工具卡片与 subagent 跑马灯共用同一套规则 |
@@ -220,6 +221,16 @@
 ### utils.ts (6 行)
 
 - `cn()` — Tailwind class 合并工具 (封装 `clsx` + `tailwind-merge`)
+
+### browser-connection-diagnostics.ts (631 行)
+
+**用途**: 浏览器侧连接池 / 请求排队诊断采集器。目标是在 DevTools 控制台执行 `window.__quickforgePerf()` 就能区分「浏览器 HTTP/1.1 同源 6 连接池耗尽（请求在浏览器侧排队）」与「服务端阻塞」。
+
+- 排队时长取 `PerformanceResourceTiming` 的 `requestStart - startTime`（本地服务 DNS/connect 很短，近似 Stalled）；只统计同源或 `localhost`/`127.0.0.1` 请求（dev 下前端 :5176 与 API :32176 端口不同，按 hostname 命中）。
+- `PerformanceObserver({ type: 'resource', buffered: true })` 采集；排队 ≥ 500ms 时 `console.warn`，同一 path 在 30s 节流窗口内只告警一次；节流表定期清理避免无界增长。
+- 包装 `window.fetch`（幂等、保留 `this` 绑定、`stop()` 时还原）统计 in-flight 与常驻长连接数；仅当响应 `content-type` 为 `text/event-stream` / `application/x-ndjson` 时 `clone()` 并在后台读流观测结束，普通请求零额外开销，不影响调用方读取原响应体。
+- `formatDiagnosticsReport()` 输出采集状态、in-flight / activeLongLived、最大排队、慢排队与慢请求 top、按路径聚合；`src/main.tsx` 在 `patchThinkingSelector` 之后启动采集并挂 `window.__quickforgePerf`（同时异步打印 `GET /api/diagnostics` 服务端快照）。
+- `VITE_QUICKFORGE_DIAGNOSTICS=0` 时启动为 no-op，报告显示「采集：已关闭」。全部外部依赖（performance / PerformanceObserver / fetch / console / 计时器 / now / base）可注入单测。
 
 ### clipboard-polyfill.ts (51 行)
 

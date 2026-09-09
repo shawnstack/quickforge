@@ -2,6 +2,9 @@ import { EventEmitter } from 'node:events'
 import { createWechatChannelProvider } from './providers/wechat.mjs'
 
 export const channelEvents = new EventEmitter()
+// 每个打开 App 的标签页都会挂一个 channel_event 监听（/api/agents/events 转发 sessions-changed），
+// 默认 10 的阈值在多标签页下会触发 MaxListenersExceededWarning。
+channelEvents.setMaxListeners(100)
 
 const providers = new Map()
 let initialized = false

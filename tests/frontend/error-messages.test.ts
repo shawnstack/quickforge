@@ -41,16 +41,18 @@ describe('translateErrorMessage', () => {
 })
 
 describe('known error translation wiring contracts', () => {
-  it('decorates the pi-web-ui error block with the translated message', () => {
-    const source = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
-    expect(source).toContain('function decorateAssistantErrorText')
-    expect(source).toContain("querySelector<HTMLElement>('div.bg-destructive\\\\/10')")
-    expect(source).toContain('const translated = translateErrorMessage(errorMessage)')
-    expect(source).toContain('block.replaceChildren(strong, document.createTextNode(')
-    // 重复 decorate 幂等：dataset 记录当前译文；未匹配规则（译文===原文）不改写 Lit 节点
-    expect(source).toContain('block.dataset.quickforgeErrorText === translated')
-    expect(source).toContain('translated === errorMessage')
-    expect(source).toMatch(/decorateAssistantErrorText\(element, entry\.message\)/)
+  it('rewrites the pi-web-ui error block into the one-line error row with the translated message', () => {
+    const source = readFileSync(new URL('../../src/components/chat/panel-decoration/turn-error-row.ts', import.meta.url), 'utf8')
+    expect(source).toContain("querySelector<HTMLElement>('.bg-destructive\\\\/10')")
+    expect(source).toContain('const translated = translateErrorMessage(raw)')
+    // 数据层 errorMessage 原文不动：行内展示译文（命中规则时），详情折叠区收原文。
+    expect(source).toMatch(/details\.querySelector\('pre'\)/)
+    // 幂等：呈现签名不变则跳过；语言切换（译文变化）签名变化触发重建。
+    expect(source).toContain('row.dataset.quickforgeErrorSignature !== signature')
+    // 旧红块改写（message-actions 不再保留独立的错误文本翻译装饰器）。
+    const actionsSource = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
+    expect(actionsSource).not.toContain('function decorateAssistantErrorText')
+    expect(actionsSource).toMatch(/decorateTurnErrorRow\(element, \{/)
   })
 
   it('translates the subagent error reason card at render time', () => {

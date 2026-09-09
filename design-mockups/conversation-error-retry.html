@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>对话报错重试 · 交互定稿</title>
+<style>
+  /* token 镜像自 pi-web-ui app.css 真实值（oklch）；琥珀/成功绿复用项目先例 */
+  :root {
+    --background: oklch(100% 0 0);
+    --foreground: oklch(14.5% 0 0);
+    --primary: oklch(20.5% 0 0);
+    --primary-foreground: oklch(98.5% 0 0);
+    --muted: oklch(97% 0 0);
+    --muted-foreground: oklch(55.6% 0 0);
+    --accent: oklch(97% 0 0);
+    --border: oklch(92.2% 0 0);
+    --destructive: oklch(57.7% 0.245 27.325);
+    --radius: 0.5rem;
+    --warning: #d97706;
+    --success: #048f65;
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --dur-exit: 140ms;
+    --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  }
+  html.dark {
+    --background: oklch(14.5% 0 0);
+    --foreground: oklch(98.5% 0 0);
+    --primary: oklch(92.2% 0 0);
+    --primary-foreground: oklch(20.5% 0 0);
+    --muted: oklch(26.9% 0 0);
+    --muted-foreground: oklch(70.8% 0 0);
+    --accent: oklch(37.1% 0 0);
+    --border: oklch(27.5% 0 0);
+    --destructive: oklch(70.4% 0.191 22.216);
+    --success: #6ee7b7;
+  }
+  * { box-sizing: border-box; }
+  /* flex/inline-flex 类会覆盖 UA 对 [hidden] 的 display:none，这里统一压回 */
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--background); color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .page-head h1 { font-size: 18px; margin: 0; }
+  .btn {
+    font-size: 12px; padding: 3px 10px; border-radius: 0.4rem; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--foreground);
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .btn:hover { background: var(--muted); }
+  .btn[aria-pressed="true"] { background: var(--muted); border-color: color-mix(in oklab, var(--foreground) 30%, var(--border)); }
+  .intro { margin: 14px 0 0; color: var(--muted-foreground); font-size: 13px; max-width: 920px; }
+  .intro b { color: var(--foreground); font-weight: 600; }
+  .intro code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: var(--muted); padding: 1px 5px; border-radius: 4px; color: var(--foreground); }
+
+  .section { margin-top: 34px; }
+  .section-title { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  .section-desc { font-size: 12.5px; color: var(--muted-foreground); margin: 0 0 14px; max-width: 920px; }
+  .section-desc code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; background: var(--muted); padding: 1px 5px; border-radius: 4px; }
+
+  .row { display: grid; grid-template-columns: minmax(430px, 520px) 1fr; gap: 22px; align-items: start; }
+  @media (max-width: 980px) { .row { grid-template-columns: 1fr; } }
+
+  .chat-frame {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    height: 430px; display: flex; flex-direction: column; overflow: hidden; position: relative;
+  }
+  .frame-tag {
+    position: absolute; z-index: 5; top: 10px; right: 10px;
+    font-size: 11px; color: var(--muted-foreground);
+    background: color-mix(in oklab, var(--background) 88%, transparent);
+    border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px;
+    backdrop-filter: blur(4px);
+  }
+  .message-list { flex: 1; overflow-y: auto; padding: 14px 0 10px; display: flex; flex-direction: column; gap: 10px; }
+
+  /* ── 消息气泡（镜像既有 mockup 词汇） ── */
+  .msg { max-width: 78%; font-size: 13.5px; }
+  .msg.user { align-self: flex-end; background: var(--muted); padding: 7px 11px; border-radius: 0.7rem; margin-right: 16px; }
+  .msg.agent { align-self: flex-start; border: 1px solid var(--border); padding: 7px 11px; border-radius: 0.7rem; margin-left: 16px; }
+  .composer { border-top: 1px solid var(--border); padding: 10px 14px; display: flex; align-items: center; gap: 8px; }
+  .composer-box { flex: 1; border: 1px solid var(--border); border-radius: 0.75rem; padding: 7px 12px; font-size: 13px; color: var(--muted-foreground); }
+
+  /* ── 现状复刻 ── */
+  .cur-hover-row {
+    align-self: flex-end; margin-right: 16px;
+    display: flex; gap: 4px; align-items: center; margin-top: 2px;
+    opacity: 0; transition: opacity var(--dur-fast) var(--ease-out);
+  }
+  .msg-group:hover .cur-hover-row { opacity: 1; }
+  .cur-hover-note { align-self: flex-end; margin-right: 16px; font-size: 10.5px; color: var(--muted-foreground); opacity: 0.75; }
+  .icon-btn {
+    width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 0.375rem; color: var(--muted-foreground); cursor: pointer; background: transparent; border: 0;
+    transition: color var(--dur-fast) var(--ease-out);
+  }
+  .icon-btn:hover { color: var(--foreground); }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .msg-time { font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; margin: 0 4px; }
+
+  /* pi-web-ui 错误红块（Messages.js 真实模板镜像） */
+  .cur-error-block {
+    align-self: flex-start; margin: 12px 16px 0; padding: 12px;
+    background: color-mix(in oklab, var(--destructive) 10%, transparent);
+    color: var(--destructive); border-radius: var(--radius); font-size: 13.5px;
+    max-width: 78%; overflow: hidden;
+  }
+  .cur-error-block strong { font-weight: 700; }
+  .cur-error-actions { align-self: flex-start; margin: 4px 0 0 16px; display: flex; gap: 4px; align-items: center; padding-left: 16px; }
+
+  .pain-list { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--muted-foreground); }
+  .pain-list li { margin-bottom: 9px; }
+  .pain-list b { color: var(--foreground); font-weight: 600; }
+  .pain-list code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; background: var(--muted); padding: 1px 5px; border-radius: 4px; }
+
+  /* ── 定稿：一行式轻量错误行 ── */
+  .err-line {
+    align-self: stretch; margin: 2px 0 0 32px; padding-left: 16px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    animation: line-in var(--dur-base) var(--ease-out);
+  }
+  @keyframes line-in { from { opacity: 0; transform: translateY(3px); } }
+  .err-line .warn-ico { width: 13px; height: 13px; flex: none; color: var(--destructive); }
+  .err-line .err-text { font-size: 12.5px; color: color-mix(in oklab, var(--destructive) 80%, var(--foreground)); }
+  .retry-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
+    height: 24px; padding: 0 9px; border-radius: 0.375rem;
+    border: 1px solid var(--border); background: var(--background); color: var(--foreground);
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .retry-btn:hover { background: var(--accent); }
+  .retry-btn:active { transform: scale(0.97); }
+  .retry-btn svg { width: 12px; height: 12px; }
+
+  /* 「详情」文字按钮（与重试同行，行仍只有一行） */
+  .act-text {
+    font-size: 12px; cursor: pointer; background: none; border: 0; padding: 0 2px;
+    color: var(--muted-foreground); transition: color var(--dur-fast) var(--ease-out);
+    height: 24px; display: inline-flex; align-items: center; gap: 3px;
+  }
+  .act-text:hover { color: var(--foreground); }
+  .act-text svg { width: 11px; height: 11px; transition: transform var(--dur-fast) var(--ease-out); }
+  .act-text[aria-expanded="true"] svg { transform: rotate(90deg); }
+
+  /* 详情展开：译文之外的技术原文（数据层英文原串，mono 小字；默认收起） */
+  .err-details {
+    align-self: stretch; margin: 4px 0 0 32px; display: none;
+    border: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
+    border-radius: 0.75rem; background: color-mix(in oklab, var(--background) 65%, var(--muted));
+    padding: 7px 10px; max-width: 34rem;
+    animation: line-in var(--dur-base) var(--ease-out);
+  }
+  .err-details.open { display: block; }
+  .err-details pre {
+    margin: 0; font-family: ui-monospace, Consolas, monospace; font-size: 11px; line-height: 1.55;
+    color: color-mix(in oklab, var(--foreground) 82%, transparent);
+    white-space: pre-wrap; word-break: break-all;
+  }
+
+  /* 升级提示（复用 reconnect 失败琥珀词汇；仅多次失败时出现） */
+  .err-escalate {
+    align-self: stretch; margin: 4px 0 0 42px;
+    font-size: 12px; color: color-mix(in oklab, var(--warning) 88%, var(--foreground));
+    display: none; align-items: center; gap: 6px;
+    animation: line-in var(--dur-base) var(--ease-out);
+  }
+  .is-escalated .err-escalate { display: inline-flex; }
+  .err-escalate .link {
+    background: none; border: 0; padding: 0; cursor: pointer; font-size: 12px;
+    color: color-mix(in oklab, var(--warning) 92%, var(--foreground));
+    text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in oklab, var(--warning) 45%, transparent);
+  }
+  .err-escalate .link:hover { color: var(--warning); }
+
+  /* 重试行（复用 model-retry-notice 词汇） */
+  .retrying-line {
+    align-self: stretch; margin: 2px 0 0 32px; padding-left: 16px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; color: var(--muted-foreground);
+    animation: line-in var(--dur-base) var(--ease-out);
+  }
+  .retrying-line svg { width: 13px; height: 13px; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 恢复成功淡出行（复用「已重新连接」词汇） */
+  .recovered-line {
+    align-self: stretch; margin: 2px 0 0 32px; padding-left: 16px;
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12.5px; color: var(--success);
+    animation: recovered 2.2s var(--ease-out) forwards;
+  }
+  @keyframes recovered { 0% { opacity: 0; } 12% { opacity: 1; } 78% { opacity: 1; } 100% { opacity: 0; } }
+  .recovered-line svg { width: 13px; height: 13px; }
+
+  .state-switch { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .demo-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; font-size: 12.5px; color: var(--muted-foreground); }
+  .demo-controls label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .demo-badge { font-size: 11.5px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; border: 1px dashed var(--border); border-radius: 999px; padding: 1px 9px; }
+
+  /* toast */
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(6px);
+    background: color-mix(in oklab, var(--primary) 92%, transparent); color: var(--primary-foreground);
+    font-size: 12.5px; padding: 6px 14px; border-radius: 999px;
+    box-shadow: 0 10px 26px -18px rgb(15 23 42 / 0.48);
+    opacity: 0; pointer-events: none; z-index: 50;
+    transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .checklist { margin: 0; padding-left: 20px; font-size: 13px; }
+  .checklist li { margin-bottom: 9px; }
+  .checklist code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; background: var(--muted); padding: 1px 5px; border-radius: 4px; }
+  .no-change { margin-top: 14px; font-size: 12.5px; color: var(--muted-foreground); }
+  .no-change b { color: var(--foreground); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>对话报错重试 · 交互定稿（方案 A 简化版）</h1>
+  <button class="btn" id="theme-toggle">切换深浅主题</button>
+</div>
+<p class="intro">
+  <b>调研范围：</b>回合失败的<b>终态错误</b>——服务端合成 <code>stopReason='error'</code> 的 assistant 消息，pi-web-ui 渲染红色错误块
+  （<code>Messages.js</code>：<code>bg-destructive/10 text-destructive rounded-lg</code> + <code>&lt;strong&gt;Error:&lt;/strong&gt;</code>），
+  QuickForge 展示层 <code>decorateAssistantErrorText</code> 把 8 类已知错误串翻译为本地化文案。这是与 SSE 重连提示（reconnect-notice）、
+  模型流自动重试提示（model-retry-notice）并列的第三层：<b>前两层管「正在自动恢复」，本层管「恢复失败后的用户决策」</b>。
+  用户已选定方案 A 并要求更简洁——定稿为<b>一行式</b>：⚠ + 一句错误 + 重试按钮 +「详情」就地展开技术原文，多次失败才多出一行琥珀提示。
+</p>
+
+<!-- ═══ 1. 现状复刻 ═══ -->
+<div class="section">
+  <h2 class="section-title">1 · 现状复刻（对照基准）</h2>
+  <p class="section-desc">
+    按真实 DOM 镜像：错误红块下方挂常显弱化操作行（icon-only「继续生成」▶）；真正的「重试」入口在<b>最后一条用户消息</b>的 hover
+    操作行里（icon-only ↻，触发 <code>retryFromMessage</code> 裁剪重生成）。把鼠标悬停在用户消息上可见。
+  </p>
+  <div class="row">
+    <div class="chat-frame">
+      <span class="frame-tag">现状</span>
+      <div class="message-list">
+        <div class="msg-group">
+          <div class="msg user">帮我把导出逻辑拆成独立模块</div>
+          <div class="cur-hover-row">
+            <button class="icon-btn" title="复制"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></button>
+            <button class="icon-btn" title="回滚"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6.36 2.64L3 13"/></svg></button>
+            <button class="icon-btn" title="重试"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15.36-5.64L21 9"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15.36 5.64L3 15"/></svg></button>
+            <span class="msg-time">14:31</span>
+          </div>
+          <div class="cur-hover-note">↑ hover 用户消息才出现：复制 / 回滚 / 重试 ↻（真正的「重试」在这里）</div>
+        </div>
+        <div class="msg-group">
+          <div class="msg agent">好的，我先看一下现有的 server/storage 模块结构……</div>
+          <div class="cur-error-block"><strong>Error:</strong> 模型连接空闲超时（60000ms 无响应）。</div>
+          <div class="cur-error-actions">
+            <button class="icon-btn" title="继续生成"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
+            <span class="msg-time">14:32</span>
+          </div>
+        </div>
+      </div>
+      <div class="composer"><div class="composer-box">输入消息…</div></div>
+    </div>
+    <ul class="pain-list">
+      <li><b>恢复入口分裂且动词不明。</b>错误旁边只有一个 icon-only ▶「继续生成」（hover 才有 title）；名字叫「继续」、动作可能是重发原消息（发送失败 stash）也可能是发一条「继续」消息（<code>onContinueAfterError</code> 两条分支）。而真正语义上的「重试」（裁剪重生成）却在上方用户消息的 hover 行里——触屏无 hover，桌面用户也要回头找。</li>
+      <li><b>红块重、中英混排。</b><code>&lt;strong&gt;Error:&lt;/strong&gt;</code> 前缀恒英文（pi-web-ui 无本地化），后面接译文或原始英文技术串；大面积 <code>bg-destructive/10</code> 红块与全应用的轻量行词汇（已停止 / 重新连接中 / 模型重试中）反差强烈。</li>
+      <li><b>无错误分类与建议。</b>网络失败、超时、配额、上下文超限一律同款红块；8 条已知规则只翻译了文字，没有告诉用户「下一步该做什么」。</li>
+      <li><b>重试无过程反馈。</b>点重试后错误块被裁剪、回合重新生成，中间没有「正在重试」过渡——与另外两层提示的存在感不成比例。</li>
+      <li><b>反复失败无升级。</b>弱网下同一错误反复出现，界面永远停在第一次失败的形态，没有「多次失败 → 检查网络 / 换模型」的引导。</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══ 2. 定稿 ═══ -->
+<div class="section">
+  <h2 class="section-title">2 · 定稿：一行式错误行</h2>
+  <p class="section-desc">
+    错误呈现压缩为一行（对齐「已停止 / 重新连接中 / 模型重试中」的轻量行家族）：⚠（唯一的红）+ 一句错误译文或原文 + 常显
+    「重试」「详情」两个小按钮。默认只有这一行；点「详情」就地展开技术原文（数据层的英文原串，mono 小字折叠块）——
+    已知规则命中译文时行内显示译文、原文收进详情；未匹配的错误行内即原文，不显示详情按钮。连续失败 ≥2 次才追加一行琥珀提示。
+  </p>
+  <div class="state-switch" id="static-switch">
+    <button class="btn" aria-pressed="true" data-state="error">错误行</button>
+    <button class="btn" aria-pressed="false" data-state="retrying">重试中</button>
+    <button class="btn" aria-pressed="false" data-state="escalated">多次失败</button>
+  </div>
+  <div class="row">
+    <div class="chat-frame" style="height: 300px;">
+      <span class="frame-tag">定稿</span>
+      <div class="message-list" id="static-list">
+        <div class="msg user">帮我把导出逻辑拆成独立模块</div>
+        <div class="msg agent">好的，我先看一下现有的 server/storage 模块结构……</div>
+
+        <!-- 一行式错误行 -->
+        <div class="err-line" id="a-error">
+          <svg class="warn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          <span class="err-text">生成失败 · 模型连接空闲超时（60s 无响应）</span>
+          <button class="retry-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+            重试
+          </button>
+          <button class="act-text" id="a-details-toggle" aria-expanded="false">详情<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+        </div>
+        <div class="err-escalate">
+          已重试 2 次仍失败 · 可能是网络或当前模型不稳定 ·
+          <button class="link">切换模型</button>
+        </div>
+        <div class="err-details" id="a-details">
+          <pre>AI stream idle timeout after 60000ms.</pre>
+        </div>
+
+        <!-- 重试行 -->
+        <div class="retrying-line" id="a-retrying" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+          正在重试…
+        </div>
+      </div>
+      <div class="composer"><div class="composer-box">输入消息…</div></div>
+    </div>
+    <ul class="pain-list">
+      <li><b>一行式：</b>⚠ +「生成失败 · 原因」+「重试」「详情」。红色只出现在图标与这一行文字上，视觉权重与「已停止 / 重新连接中」完全同级；未匹配的错误行内直接显示原始串（此时无详情按钮）。</li>
+      <li><b>详情就地展开：</b>行内的译文是给人看的，点「详情」展开 mono 小字的英文原串（数据层原文，报 bug / 对照日志用）；仅译文命中（≠原文）时显示该按钮。展开区只读，无复制等附加动作。</li>
+      <li><b>就地重试、动词统一：</b>「重试」按钮常显在错误旁边（不依赖 hover）；行为统一——发送失败重发原消息，否则裁剪重生成（等价 <code>retryFromMessage</code>）。上方用户消息 hover 行的 ↻ 保留，作为历史习惯入口。</li>
+      <li><b>重试中状态行：</b>点击后错误行原地替换为「⟳ 正在重试…」（复用 model-retry-notice 的 spinner 行词汇）；成功后淡出、助手内容流入。</li>
+      <li><b>升级提示（连续失败 ≥2）：</b>仅此时追加一行琥珀「已重试 n 次仍失败 · 可能是网络或当前模型不稳定 · <u>切换模型</u>」——把用户从无效循环里捞出来，平时不占任何空间。</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══ 3. 交互演示 ═══ -->
+<div class="section">
+  <h2 class="section-title">3 · 交互演示（可操作）</h2>
+  <p class="section-desc">完整链路：触发回合失败 → 点「重试」→（按下方设定）再次失败追加琥珀提示 / 恢复成功淡出。hover 用户消息可看到保留的老重试入口。</p>
+  <div class="chat-frame" style="height: 420px;">
+    <div class="message-list" id="demo-list">
+      <div class="msg-group">
+        <div class="msg user">帮我把导出逻辑拆成独立模块</div>
+        <div class="cur-hover-row">
+          <button class="icon-btn" title="重试" data-demo-old-retry><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15.36-5.64L21 9"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15.36 5.64L3 15"/></svg></button>
+          <span class="msg-time">14:31</span>
+        </div>
+        <div class="cur-hover-note">↑ 老入口保留：hover 用户消息可重试</div>
+      </div>
+      <div class="msg agent" id="demo-agent">好的，我先看一下现有的 server/storage 模块结构……</div>
+
+      <div class="err-line" id="d-error" hidden>
+        <svg class="warn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        <span class="err-text" id="d-error-text">生成失败 · 模型连接空闲超时（60s 无响应）</span>
+        <button class="retry-btn" id="d-retry">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+          重试
+        </button>
+        <button class="act-text" id="d-details-toggle" aria-expanded="false">详情<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+      </div>
+      <div class="err-escalate">
+        <span id="d-escalate-text">已重试 2 次仍失败 · 可能是网络或当前模型不稳定 ·</span>
+        <button class="link" id="d-switch-model">切换模型</button>
+      </div>
+      <div class="err-details" id="d-details">
+        <pre id="d-details-text">AI stream idle timeout after 60000ms.</pre>
+      </div>
+
+      <div class="retrying-line" id="d-retrying" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+        正在重试…
+      </div>
+      <div class="recovered-line" id="d-recovered" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        已恢复
+      </div>
+    </div>
+    <div class="composer"><div class="composer-box">输入消息…</div></div>
+  </div>
+  <div class="demo-controls">
+    <button class="btn" id="d-trigger">模拟回合失败</button>
+    <span>重试结果：</span>
+    <label><input type="radio" name="outcome" value="fail" checked> 再次失败</label>
+    <label><input type="radio" name="outcome" value="success"> 恢复成功</label>
+    <span class="demo-badge" id="d-counter" hidden></span>
+    <span class="demo-badge" id="d-phase">状态：正常</span>
+  </div>
+</div>
+
+<!-- ═══ 4. 改动清单 ═══ -->
+<div class="section">
+  <h2 class="section-title">4 · 实现改动清单</h2>
+  <ol class="checklist">
+    <li>展示层把终态错误红块改写为一行式错误行：<code>decorateAssistantErrorText</code> 同一位置扩展——替换 <code>div.bg-destructive\/10</code> 的呈现为轻量行（数据层 <code>errorMessage</code> 原文不动），先例是 <code>decorateAssistantStoppedText</code> 对 aborted 标签的样式改写。</li>
+    <li>「详情」就地展开技术原文：点击行内「详情」切换折叠块（mono 小字显示 <code>errorMessage</code> 原始英文串）；仅 <code>translateErrorMessage</code> 命中（译文≠原文）时渲染详情按钮，未匹配错误行内已是原文。重试/状态切换时自动收起。</li>
+    <li>「重试」按钮统一语义：有 <code>retryFailedPrompt</code> stash → 重发原消息；否则走 <code>retryFromMessage</code>（最后用户消息裁剪重生成）。现状 <code>onContinueAfterError</code> 的两条分支收敛到这里；「继续生成」icon 按钮与其操作行移除。</li>
+    <li>重试中状态行：点击「重试」后错误行替换为「⟳ 正在重试…」，回合首个事件到达或再次失败即切换；复用 model-retry-notice 的行样式词汇。</li>
+    <li>失败计数与升级建议：同一会话尾部连续错误 ≥2 时追加琥珀行 + 内联「切换模型」链接（复用现有 <code>openCustomModelSelector</code> 入口）；重试成功或切换会话后清零。</li>
+    <li>i18n 中英成对新增 key：生成失败前缀、重试中、升级建议、详情；<code>errorContinueAction</code>「继续生成」文案随按钮移除（<code>errorContinueMessage</code> 保留给潜在的继续场景）。</li>
+    <li>用户消息 hover 行的 ↻ 重试入口与 <code>allowRetry</code> / readOnly / side-chat 门控全部保留不动。</li>
+  </ol>
+  <p class="no-change">
+    <b>明确不做：</b>详情只读查看原文，不加复制按钮、「从断点继续」入口；不动 SSE 重连提示与模型流自动重试（另两层，自动恢复语义）；不动「已停止」标签（aborted 是用户意图，刚定稿）；数据层 errorMessage 保持英文原文（去重与 trace 比较依赖）；不自动重试终态错误（会重复计费）；不新增依赖与色值（琥珀复用 #d97706，红只保留 destructive 文字/图标）。
+  </p>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ── 主题切换 ──
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark');
+  });
+
+  // ── toast ──
+  let toastTimer = null;
+  function showToast(text) {
+    const el = document.getElementById('toast');
+    el.textContent = text;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+  }
+
+  // ── 定稿静态状态切换 ──
+  const aError = document.getElementById('a-error');
+  const aRetrying = document.getElementById('a-retrying');
+  const aList = document.getElementById('static-list');
+  document.querySelectorAll('#static-switch .btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#static-switch .btn').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+      aList.classList.toggle('is-escalated', btn.dataset.state === 'escalated');
+      aError.hidden = btn.dataset.state === 'retrying';
+      aRetrying.hidden = btn.dataset.state !== 'retrying';
+    });
+  });
+  document.getElementById('a-details-toggle').addEventListener('click', (event) => {
+    const open = document.getElementById('a-details').classList.toggle('open');
+    event.currentTarget.setAttribute('aria-expanded', String(open));
+  });
+
+  // ── 交互演示状态机 ──
+  const dList = document.getElementById('demo-list');
+  const dError = document.getElementById('d-error');
+  const dErrorText = document.getElementById('d-error-text');
+  const dEscalateText = document.getElementById('d-escalate-text');
+  const dDetails = document.getElementById('d-details');
+  const dDetailsText = document.getElementById('d-details-text');
+  const dDetailsToggle = document.getElementById('d-details-toggle');
+  const dRetrying = document.getElementById('d-retrying');
+  const dRecovered = document.getElementById('d-recovered');
+  const dAgent = document.getElementById('demo-agent');
+  const dCounter = document.getElementById('d-counter');
+  const dPhase = document.getElementById('d-phase');
+  let failCount = 0; // 连续失败次数
+  let busy = false;
+
+  function phase(name) { dPhase.textContent = '状态：' + name; }
+  function render() {
+    dList.classList.toggle('is-escalated', failCount >= 2);
+    dCounter.hidden = failCount === 0;
+    dCounter.textContent = '连续失败 ' + failCount + ' 次';
+    dEscalateText.textContent = '已重试 ' + (failCount - 1) + ' 次仍失败 · 可能是网络或当前模型不稳定 ·';
+  }
+  function showError(text, raw) {
+    dErrorText.textContent = text;
+    dDetailsText.textContent = raw;
+    dDetails.classList.remove('open');
+    dDetailsToggle.setAttribute('aria-expanded', 'false');
+    dError.hidden = false;
+    dRetrying.hidden = true;
+    phase('生成失败');
+  }
+
+  document.getElementById('d-trigger').addEventListener('click', () => {
+    if (busy) return;
+    failCount = 1;
+    render();
+    showError('生成失败 · 模型连接空闲超时（60s 无响应）', 'AI stream idle timeout after 60000ms.');
+  });
+
+  function retry() {
+    if (busy || dError.hidden) return;
+    busy = true;
+    dError.hidden = true;
+    dDetails.classList.remove('open');
+    dDetailsToggle.setAttribute('aria-expanded', 'false');
+    dRetrying.hidden = false;
+    phase('正在重试…');
+    setTimeout(() => {
+      busy = false;
+      dRetrying.hidden = true;
+      const outcome = document.querySelector('input[name="outcome"]:checked').value;
+      if (outcome === 'success') {
+        failCount = 0;
+        render();
+        dRecovered.hidden = false;
+        setTimeout(() => { dRecovered.hidden = true; }, 2300);
+        dAgent.textContent = '好的，我先看一下现有的 server/storage 模块结构……已定位到导出入口，准备拆分 export.mjs。';
+        phase('正常');
+      } else {
+        failCount += 1;
+        render();
+        showError(
+          failCount >= 2 ? '生成失败 · 网络请求失败' : '生成失败 · 模型连接空闲超时（60s 无响应）',
+          failCount >= 2 ? 'fetch failed.' : 'AI stream idle timeout after 60000ms.',
+        );
+      }
+    }, 900);
+  }
+  document.getElementById('d-retry').addEventListener('click', retry);
+  dDetailsToggle.addEventListener('click', (event) => {
+    const open = dDetails.classList.toggle('open');
+    event.currentTarget.setAttribute('aria-expanded', String(open));
+  });
+  document.querySelector('[data-demo-old-retry]').addEventListener('click', () => {
+    showToast('老入口：retryFromMessage 裁剪重生成（保留不动）');
+  });
+  document.getElementById('d-switch-model').addEventListener('click', () => {
+    showToast('真实实现：openCustomModelSelector()');
+  });
+</script>
+</body>
+</html>

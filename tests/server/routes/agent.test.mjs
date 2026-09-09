@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   restoreAgent: vi.fn(),
@@ -444,7 +444,8 @@ describe('agent split-session state and messages routes', () => {
     res.end = vi.fn(() => { res.writableEnded = true })
 
     await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-write-failure/stream'))
-    eventBus.emit('agent_event', { type: 'message_update', content: sensitivePayload })
+    // message_update 现在经节流延迟写出，用终态事件触发同一写入失败路径。
+    eventBus.emit('agent_event', { type: 'message_end', content: sensitivePayload })
     res.emit('error', new TypeError('repeated response error'))
     req.emit('error', new Error('request error after cleanup'))
     req.emit('close')
@@ -611,5 +612,203 @@ describe('agent global events stream', () => {
     expect(agentEvents.listenerCount('agent_event')).toBe(0)
     expect(res.writableEnded).toBe(true)
     expect(mocks.logger.warn).not.toHaveBeenCalled()
+  })
+
+  it('forwards only channel sessions-changed events and detaches the channel listener on close', async () => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const { channelEvents } = await import('../../../server/channels/registry.mjs')
+    const { agentEvents } = await import('../../../server/agent-manager.mjs')
+    const req = new Readable({ read() {} })
+    req.method = 'GET'
+    req.headers = {}
+    const frames = []
+    let endCalls = 0
+    const res = {
+      writableEnded: false,
+      writeHead() {},
+      flushHeaders() {},
+      write(chunk) { frames.push(chunk) },
+      end() { endCalls += 1; this.writableEnded = true },
+      on() {},
+    }
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/events'), {})
+    expect(channelEvents.listenerCount('channel_event')).toBe(1)
+
+    // 非 sessions-changed 的渠道事件（log/status/qrcode）不得进入 agent 流。
+    channelEvents.emit('channel_event', { type: 'log', channelId: 'wechat', line: 'noise' })
+    channelEvents.emit('channel_event', { type: 'status', channelId: 'wechat', status: 'running' })
+    channelEvents.emit('channel_event', { type: 'qrcode', channelId: 'wechat' })
+    expect(frames).toEqual([])
+
+    const payload = { type: 'sessions-changed', channelId: 'wechat', sessionId: 's1', projectId: 'p1' }
+    channelEvents.emit('channel_event', payload)
+    expect(frames.join('')).toBe(`event: sessions-changed\ndata: ${JSON.stringify(payload)}\n\n`)
+
+    req.emit('close')
+    req.emit('close')
+    expect(channelEvents.listenerCount('channel_event')).toBe(0)
+    expect(agentEvents.listenerCount('agent_event')).toBe(0)
+    expect(endCalls).toBe(1)
+    expect(res.writableEnded).toBe(true)
+  })
+
+  it('raises the channel event listener limit so multi-tab subscribers stay under the default warning threshold', async () => {
+    const { channelEvents } = await import('../../../server/channels/registry.mjs')
+    expect(channelEvents.getMaxListeners()).toBeGreaterThanOrEqual(100)
+  })
+})
+
+describe('SSE streaming throttle and backpressure', () => {
+  beforeEach(() => {
+    mocks.restoreAgent.mockReset()
+    mocks.getSessionState.mockReset()
+    mocks.getSessionEventBus.mockReset()
+    mocks.tryAcquireSse.mockReset()
+    mocks.touchSession.mockReset()
+    mocks.releaseSse.mockReset()
+    for (const method of Object.values(mocks.logger)) method.mockReset()
+    mocks.agentEvents.removeAllListeners()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function sessionStream() {
+    const eventBus = new TestEventEmitter()
+    mocks.getSessionEventBus.mockReturnValue(eventBus)
+    mocks.tryAcquireSse.mockReturnValue(true)
+    mocks.getSessionState.mockReturnValue(null)
+    const req = new TestEventEmitter()
+    req.method = 'GET'
+    req.headers = {}
+    const chunks = []
+    const res = new TestEventEmitter()
+    res.writableEnded = false
+    res.writableLength = 0
+    res.writeHead = vi.fn()
+    res.write = vi.fn((chunk) => { chunks.push(chunk) })
+    res.end = vi.fn(() => { res.writableEnded = true })
+    return { eventBus, req, res, chunks }
+  }
+
+  it('coalesces message_update frames inside the throttle window to the last one', async () => {
+    vi.useFakeTimers()
+    const { createSseUpdateThrottle, SSE_MESSAGE_UPDATE_THROTTLE_MS } = await import('../../../server/routes/agent.mjs')
+    const frames = []
+    const throttle = createSseUpdateThrottle({ write: (event) => frames.push(event) })
+
+    throttle.push({ type: 'message_update', seq: 1 })
+    throttle.push({ type: 'message_update', seq: 2 })
+    throttle.push({ type: 'message_update', seq: 3 })
+    expect(frames).toEqual([])
+
+    vi.advanceTimersByTime(SSE_MESSAGE_UPDATE_THROTTLE_MS - 1)
+    expect(frames).toEqual([])
+    vi.advanceTimersByTime(1)
+    expect(frames.map((event) => event.seq)).toEqual([3])
+
+    throttle.dispose()
+  })
+
+  it('flushes the pending message_update before writing message_end', async () => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const { eventBus, req, res, chunks } = sessionStream()
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-throttle/stream'))
+
+    eventBus.emit('agent_event', { type: 'message_update', seq: 1 })
+    eventBus.emit('agent_event', { type: 'message_update', seq: 2 })
+    eventBus.emit('agent_event', { type: 'message_end', seq: 2 })
+
+    const frame = chunks.join('')
+    const updateIndex = frame.indexOf('event: message_update')
+    const endIndex = frame.indexOf('event: message_end')
+    expect(updateIndex).toBeGreaterThan(-1)
+    expect(endIndex).toBeGreaterThan(updateIndex)
+    expect(frame).not.toContain('"seq":1')
+    expect(frame).toContain('"seq":2')
+    expect(mocks.logger.warn).not.toHaveBeenCalled()
+
+    req.emit('close')
+  })
+
+  it('drops droppable frames above the writableLength threshold but always keeps terminal frames', async () => {
+    vi.useFakeTimers()
+    const { handleAgentApi, SSE_BACKPRESSURE_BYTES, SSE_MESSAGE_UPDATE_THROTTLE_MS } = await import('../../../server/routes/agent.mjs')
+    const { eventBus, req, res, chunks } = sessionStream()
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-throttle/stream'))
+
+    // 低于阈值：写入行为与改动前一致。
+    res.writableLength = 0
+    eventBus.emit('agent_event', { type: 'message_update', seq: 1 })
+    vi.advanceTimersByTime(SSE_MESSAGE_UPDATE_THROTTLE_MS)
+    expect(chunks.join('')).toContain('event: message_update')
+
+    // 超过阈值：节流窗口到期写出的 message_update 与 tool_execution_update 被丢弃。
+    chunks.length = 0
+    res.writableLength = SSE_BACKPRESSURE_BYTES + 1
+    eventBus.emit('agent_event', { type: 'message_update', seq: 2 })
+    vi.advanceTimersByTime(SSE_MESSAGE_UPDATE_THROTTLE_MS)
+    eventBus.emit('agent_event', { type: 'tool_execution_update', seq: 2 })
+    expect(chunks).toEqual([])
+
+    // 终态事件永不丢弃。
+    eventBus.emit('agent_event', { type: 'message_end', seq: 2 })
+    eventBus.emit('agent_event', { type: 'agent_end', seq: 2 })
+
+    const frame = chunks.join('')
+    expect(frame).not.toContain('event: message_update')
+    expect(frame).not.toContain('event: tool_execution_update')
+    expect(frame).toContain('event: message_end')
+    expect(frame).toContain('event: agent_end')
+
+    req.emit('close')
+  })
+
+  it('disposes the pending throttle timer on cleanup without writing after close', async () => {
+    vi.useFakeTimers()
+    const { handleAgentApi, SSE_MESSAGE_UPDATE_THROTTLE_MS } = await import('../../../server/routes/agent.mjs')
+    const { eventBus, req, res, chunks } = sessionStream()
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-throttle/stream'))
+    eventBus.emit('agent_event', { type: 'message_update', seq: 1 })
+    expect(chunks).toEqual([])
+
+    req.emit('close')
+    vi.advanceTimersByTime(SSE_MESSAGE_UPDATE_THROTTLE_MS * 4)
+
+    expect(chunks).toEqual([])
+    expect(res.end).toHaveBeenCalledTimes(1)
+    expect(eventBus.listenerCount('agent_event')).toBe(0)
+  })
+
+  it('throttles the global agent stream through the same writer', async () => {
+    vi.useFakeTimers()
+    const { handleAgentApi, SSE_MESSAGE_UPDATE_THROTTLE_MS } = await import('../../../server/routes/agent.mjs')
+    const req = new TestEventEmitter()
+    req.method = 'GET'
+    req.headers = {}
+    const chunks = []
+    const res = new TestEventEmitter()
+    res.writableEnded = false
+    res.writableLength = 0
+    res.writeHead = vi.fn()
+    res.flushHeaders = vi.fn()
+    res.write = vi.fn((chunk) => { chunks.push(chunk) })
+    res.end = vi.fn(() => { res.writableEnded = true })
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/events'))
+    mocks.agentEvents.emit('agent_event', { type: 'message_update', seq: 1 })
+    mocks.agentEvents.emit('agent_event', { type: 'message_update', seq: 2 })
+    expect(chunks).toEqual([])
+
+    vi.advanceTimersByTime(SSE_MESSAGE_UPDATE_THROTTLE_MS)
+    expect(chunks.join('')).toContain('"seq":2')
+    expect(chunks.join('')).not.toContain('"seq":1')
+
+    req.emit('close')
   })
 })

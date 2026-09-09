@@ -175,11 +175,27 @@ function classifyStatus(x, y) {
   return 'modified'
 }
 
+// `git status --porcelain=v1 --branch -z` 的第一条记录是 `## ...` 头记录（不是文件条目）
+function parseGitStatusHead(buffer) {
+  const header = (buffer.toString('utf8').split('\0')[0] ?? '').trim()
+  if (!header.startsWith('## ')) return undefined
+  const rest = header.slice(3).trim()
+  if (rest === 'HEAD (no branch)') return { branch: undefined, detached: true }
+  if (rest.startsWith('No commits yet on ')) {
+    const branch = rest.slice('No commits yet on '.length).trim()
+    return { branch: branch || undefined, detached: false }
+  }
+  // 有 upstream 时形如 `dev...origin/dev [ahead 3]`；分支名不允许含 `..`，按 `...` 取前段
+  const branch = rest.split('...')[0].trim()
+  return { branch: branch || undefined, detached: false }
+}
+
 function parseGitStatus(buffer) {
   const entries = buffer.toString('utf8').split('\0').filter(Boolean)
   const files = []
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index]
+    if (entry.startsWith('## ')) continue // --branch 头记录，跳过以免被当成文件条目
     const x = entry[0] || ' '
     const y = entry[1] || ' '
     const status = classifyStatus(x, y)
@@ -430,30 +446,36 @@ async function collectWorkspaceLineCounts(context, files) {
   return new Map(counts.filter(Boolean))
 }
 
-export async function listGitStatus(context) {
-  if (!(await isGitRepository(context.workspaceRoot))) return { isGitRepository: false, files: [] }
+export async function listGitStatus(context, options = {}) {
+  // `git status` 的退出码同时用于判定仓库（非仓库为 128），省掉一次 rev-parse 子进程
   const result = await git(
-    ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
+    ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--branch'],
     context.workspaceRoot,
+    { allowFailure: true },
   )
+  if (result.code !== 0) return { isGitRepository: false, files: [] }
   const files = parseGitStatus(result.stdout)
-  const numstat = await collectNumstat(context)
-  const fallbackFiles = files.filter((file) => !numstat.has(file.path))
-  const workspaceLineCounts = await collectWorkspaceLineCounts(context, fallbackFiles)
-  for (const file of files) {
-    const entry = numstat.get(file.path)
-    if (entry) {
-      file.additions = entry.additions
-      file.deletions = entry.deletions
-      continue
-    }
-    const count = workspaceLineCounts.get(file.path)
-    if (typeof count === 'number') {
-      file.additions = count
-      file.deletions = 0
+  if (options.includeFileStats !== false) {
+    const numstat = await collectNumstat(context)
+    const fallbackFiles = files.filter((file) => !numstat.has(file.path))
+    const workspaceLineCounts = await collectWorkspaceLineCounts(context, fallbackFiles)
+    for (const file of files) {
+      const entry = numstat.get(file.path)
+      if (entry) {
+        file.additions = entry.additions
+        file.deletions = entry.deletions
+        continue
+      }
+      const count = workspaceLineCounts.get(file.path)
+      if (typeof count === 'number') {
+        file.additions = count
+        file.deletions = 0
+      }
     }
   }
-  const head = await currentGitHead(context.workspaceRoot)
+  const parsedHead = parseGitStatusHead(result.stdout)
+  // 分离 HEAD 的头记录只有 `HEAD (no branch)`：保留既有 `HEAD <short-sha>` 标签
+  const head = !parsedHead || parsedHead.detached ? await currentGitHead(context.workspaceRoot) : parsedHead
   return {
     isGitRepository: true,
     branch: head.branch,
@@ -1386,7 +1408,9 @@ async function handleWorkspaceOpenExternal(req, res) {
 
 async function handleGitStatus(req, res, url) {
   const context = await projectContextFromUrl(url)
-  sendJson(res, 200, await listGitStatus(context))
+  // `light=1`：标题栏/分支徽标只需 branch + counts，跳过 numstat 与行数统计
+  const includeFileStats = url.searchParams.get('light') !== '1'
+  sendJson(res, 200, await listGitStatus(context, { includeFileStats }))
 }
 
 async function handleGitBranches(req, res, url) {

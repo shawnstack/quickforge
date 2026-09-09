@@ -43,7 +43,7 @@ vi.mock('@/lib/session-list-updates', () => ({
   upsertSessionPage: (page: unknown) => page,
 }))
 
-import { useSessionPagination } from '../../src/hooks/useSessionPagination'
+import { REFRESH_SESSIONS_MERGE_MS, useSessionPagination } from '../../src/hooks/useSessionPagination'
 
 async function flushMicrotasks() {
   for (let index = 0; index < 10; index += 1) await Promise.resolve()
@@ -406,5 +406,101 @@ describe('session pagination bootstrap', () => {
     await flushMicrotasks()
     expect(reactHarness.states[0].loading).toBe(false)
     expect(reactHarness.states[0].appending).toBe(false)
+  })
+
+  it('coalesces refreshSessions calls within the merge window into one round of requests', async () => {
+    const pending = deferred<{ values: never[]; total: number }>()
+    let bootstrapDone = false
+    const fetchPaginatedFromIndex = vi.fn(() => (
+      bootstrapDone ? pending.promise : Promise.resolve({ values: [], total: 0 })
+    ))
+    const backend = { fetchPaginatedFromIndex } as unknown as HttpStorageBackend
+    const pagination = useSessionPagination({
+      backendRef: { current: backend },
+      expandedProjectIds: new Set(),
+      viewMode: 'project',
+      sortMode: 'updatedAt',
+    })
+    await flushMicrotasks()
+    expect(fetchPaginatedFromIndex).toHaveBeenCalledTimes(2)
+    bootstrapDone = true
+
+    const first = pagination.refreshSessions()
+    const second = pagination.refreshSessions()
+    // 同一轮请求：pinned + global 各一次，第二次调用不再发请求且复用同一个 promise
+    expect(second).toBe(first)
+    expect(fetchPaginatedFromIndex).toHaveBeenCalledTimes(4)
+
+    pending.resolve({ values: [], total: 0 })
+    await Promise.all([first, second])
+  })
+
+  it('broadcasts once at the end of the merged round when a merged call requests it', async () => {
+    const pending = deferred<{ values: never[]; total: number }>()
+    let bootstrapDone = false
+    const fetchPaginatedFromIndex = vi.fn(() => (
+      bootstrapDone ? pending.promise : Promise.resolve({ values: [], total: 0 })
+    ))
+    const backend = { fetchPaginatedFromIndex } as unknown as HttpStorageBackend
+    const onBroadcastSessionsChanged = vi.fn()
+    const pagination = useSessionPagination({
+      backendRef: { current: backend },
+      expandedProjectIds: new Set(),
+      viewMode: 'project',
+      sortMode: 'updatedAt',
+      onBroadcastSessionsChanged,
+    })
+    await flushMicrotasks()
+    expect(onBroadcastSessionsChanged).not.toHaveBeenCalled()
+    bootstrapDone = true
+
+    const first = pagination.refreshSessions()
+    const second = pagination.refreshSessions({ broadcast: true })
+    const third = pagination.refreshSessions({ broadcast: true })
+    await flushMicrotasks()
+    // 仍在飞行中：广播只在整轮结束时执行
+    expect(onBroadcastSessionsChanged).not.toHaveBeenCalled()
+
+    pending.resolve({ values: [], total: 0 })
+    await Promise.all([first, second, third])
+    // 多次合并广播只触发一次，且不会丢失
+    expect(onBroadcastSessionsChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts a new round of requests once the merge window has elapsed', async () => {
+    const nowSpy = vi.spyOn(Date, 'now')
+    let now = 1_000_000
+    nowSpy.mockImplementation(() => now)
+    try {
+      const pending = deferred<{ values: never[]; total: number }>()
+      let bootstrapDone = false
+      const fetchPaginatedFromIndex = vi.fn(() => (
+        bootstrapDone ? pending.promise : Promise.resolve({ values: [], total: 0 })
+      ))
+      const backend = { fetchPaginatedFromIndex } as unknown as HttpStorageBackend
+      const pagination = useSessionPagination({
+        backendRef: { current: backend },
+        expandedProjectIds: new Set(),
+        viewMode: 'project',
+        sortMode: 'updatedAt',
+      })
+      await flushMicrotasks()
+      expect(fetchPaginatedFromIndex).toHaveBeenCalledTimes(2)
+      bootstrapDone = true
+
+      const first = pagination.refreshSessions()
+      expect(fetchPaginatedFromIndex).toHaveBeenCalledTimes(4)
+
+      now += REFRESH_SESSIONS_MERGE_MS + 1
+      const second = pagination.refreshSessions()
+
+      expect(second).not.toBe(first)
+      expect(fetchPaginatedFromIndex).toHaveBeenCalledTimes(6)
+
+      pending.resolve({ values: [], total: 0 })
+      await Promise.all([first, second])
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 })

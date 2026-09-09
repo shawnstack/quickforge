@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assistantActionDisplayIndexes } from '../../src/components/chat/panel-decoration/message-action-visibility'
 import { decorateMessages, decorateUserContextChips } from '../../src/components/chat/panel-decoration/message-actions'
+import { createTurnErrorTracker } from '../../src/components/chat/panel-decoration/turn-error-state'
 import { parseSlashInvocationPrefix, planSlashChipText } from '../../src/components/chat/slash-invocation-chip'
 
 // The real i18n module pulls in pi-web-ui which requires a browser DOM;
@@ -74,7 +75,9 @@ function hasClass(node: FakeNode, name: string) {
 
 function matchesSelector(node: FakeNode, selector: string) {
   const trimmed = selector.trim()
-  if (trimmed.startsWith('.')) return hasClass(node, trimmed.slice(1))
+  // CSS 类名含 "/"（如 Tailwind 的 bg-destructive/10）在选择器里写作 \/；
+  // 真实 querySelector 会解码转义，这里对齐（去掉转义反斜杠）。
+  if (trimmed.startsWith('.')) return hasClass(node, trimmed.slice(1).replace(/\\/g, ''))
   const attribute = /^\[([^=\]]+)(?:="([^"]*)")?\]$/.exec(trimmed)
   if (attribute) {
     const value = node.getAttribute(attribute[1])
@@ -196,6 +199,11 @@ function createFakeElement(tagName = 'div'): FakeNode {
       add(...names: string[]) {
         const classes = new Set(node.className.split(/\s+/).filter(Boolean))
         names.forEach((name) => classes.add(name))
+        node.className = [...classes].join(' ')
+      },
+      remove(...names: string[]) {
+        const classes = new Set(node.className.split(/\s+/).filter(Boolean))
+        names.forEach((name) => classes.delete(name))
         node.className = [...classes].join(' ')
       },
       toggle(name: string, force?: boolean) {
@@ -378,10 +386,15 @@ describe('assistant message actions', () => {
   })
 })
 
-describe('error message continue action', () => {
+describe('turn error row', () => {
   beforeEach(() => {
     vi.stubGlobal('document', {
       createElement: createFakeElement,
+      createTextNode: (text: string) => {
+        const node = createFakeElement('#text')
+        node.textContent = text
+        return node
+      },
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     })
@@ -396,14 +409,27 @@ describe('error message continue action', () => {
     vi.unstubAllGlobals()
   })
 
-  function errorMessageFixture() {
+  function errorMessageFixture(overrides: Record<string, unknown> = {}) {
     return {
       role: 'assistant',
       content: [{ type: 'text', text: '' }],
       stopReason: 'error',
       errorMessage: 'AI stream idle timeout after 60000ms',
       timestamp: 1_750_000_000_000,
+      ...overrides,
     }
+  }
+
+  // 镜像 pi-web-ui AssistantMessage 渲染根：assistant-message > div > 红块
+  // （Messages.js：div.bg-destructive/10 + <strong>Error:</strong> + 文本）。
+  function createErrorElement() {
+    const element = createFakeElement('assistant-message')
+    const root = createFakeElement('div')
+    const block = createFakeElement('div')
+    block.className = 'mx-4 mt-3 p-3 bg-destructive/10 text-destructive rounded-lg text-sm overflow-hidden'
+    root.append(block)
+    element.append(root)
+    return { element, root, block }
   }
 
   function buildPanel(elements: FakeNode[]) {
@@ -411,7 +437,7 @@ describe('error message continue action', () => {
     messageList.append(...elements)
     const panel = createFakeElement('div')
     panel.append(messageList)
-    return { panel, messageList }
+    return panel
   }
 
   function decorateErrorPanel(
@@ -419,7 +445,7 @@ describe('error message continue action', () => {
     messages: Record<string, unknown>[],
     options: Partial<Parameters<typeof decorateMessages>[0]> = {},
   ) {
-    const { panel } = buildPanel(elements)
+    const panel = buildPanel(elements)
     decorateMessages({
       panel: panel as unknown as HTMLElement,
       getMessages: () => messages as never,
@@ -429,97 +455,213 @@ describe('error message continue action', () => {
       onRetryFromMessage: vi.fn(),
       onForkFromMessage: vi.fn(),
       disableFork: false,
-      onContinueAfterError: vi.fn(),
+      onRetryAfterError: vi.fn(),
+      turnErrorTracker: createTurnErrorTracker(),
       ...options,
     })
     return panel
   }
 
-  it('shows an always-visible continue button on the terminal error message and reports the error entry on click', () => {
-    const onContinueAfterError = vi.fn()
+  it('rewrites the red block into the one-line error row with in-place retry and details', () => {
     const user = createUserMessageElement().element
-    const errorElement = createFakeElement('assistant-message')
-    const messages = [{ role: 'user', content: 'question' }, errorMessageFixture()]
-    decorateErrorPanel([user, errorElement], messages, { onContinueAfterError })
+    const { element, block } = createErrorElement()
+    decorateErrorPanel([user, element], [{ role: 'user', content: 'question' }, errorMessageFixture()])
 
-    const row = errorElement.querySelector('.quickforge-message-actions')
-    expect(row).not.toBeNull()
-    expect(row?.className).not.toContain('opacity-0')
-    expect(row?.querySelector('.quickforge-message-time')).not.toBeNull()
-    expect(row?.querySelector('button[data-quickforge-action="copy"]')).toBeNull()
+    expect(block.className).toBe('quickforge-error-line')
+    // t 被模拟为返回 key：译文 key 拼进行文本（真实运行是本地化文案）。
+    expect(block.querySelector('.quickforge-error-text')?.textContent).toBe('errorLinePrefix · errorAiStreamIdleTimeout')
+    const retry = block.querySelector('button[data-quickforge-action="error-retry"]')
+    expect(retry?.getAttribute('aria-label')).toBe('retry')
+    expect(retry?.disabled).toBe(false)
+    expect(block.querySelector('button[data-quickforge-action="error-details"]')).not.toBeNull()
 
-    const continueButton = row?.querySelector('button[data-quickforge-action="continue"]')
-    expect(continueButton).not.toBeNull()
-    expect(continueButton?.disabled).toBe(false)
-    expect(continueButton?.getAttribute('aria-label')).toBe('errorContinueAction')
-
-    continueButton?.onclick?.({ stopPropagation() {} })
-    expect(onContinueAfterError).toHaveBeenCalledWith(messages.at(-1))
+    const details = element.querySelector('.quickforge-error-details')
+    expect(details?.querySelector('pre')?.textContent).toBe('AI stream idle timeout after 60000ms')
+    expect(element.querySelector('.quickforge-error-escalate')).toBeNull()
+    // 旧「继续生成」icon 按钮与常显操作行不再生成。
+    expect(element.querySelector('button[data-quickforge-action="continue"]')).toBeNull()
+    expect(element.querySelector('.quickforge-message-actions')).toBeNull()
   })
 
-  it('keeps the continue row across re-decoration and disables it for restricted history actions', () => {
+  it('retry click swaps to the retrying presentation and reports the entry with a regenerate fallback', () => {
+    const onRetryAfterError = vi.fn()
+    const onRetryFromMessage = vi.fn()
     const user = createUserMessageElement().element
-    const errorElement = createFakeElement('assistant-message')
+    const { element, block } = createErrorElement()
     const messages = [{ role: 'user', content: 'question' }, errorMessageFixture()]
-    const decorate = () => decorateErrorPanel([user, errorElement], messages, { historyActionsDisabled: true })
+    decorateErrorPanel([user, element], messages, { onRetryAfterError, onRetryFromMessage })
 
-    decorate()
-    const firstRow = errorElement.querySelector('.quickforge-message-actions')
-    expect(firstRow?.querySelector('button[data-quickforge-action="continue"]')?.disabled).toBe(true)
+    block.querySelector('button[data-quickforge-action="error-retry"]')?.onclick?.({ stopPropagation() {} })
 
-    decorate()
-    const secondRow = errorElement.querySelector('.quickforge-message-actions')
-    expect(secondRow).toBe(firstRow)
-    expect(secondRow?.querySelectorAll('button[data-quickforge-action="continue"]')).toHaveLength(1)
-    expect(secondRow?.querySelector('button[data-quickforge-action="continue"]')?.disabled).toBe(true)
+    expect(block.className).toContain('quickforge-error-retrying')
+    expect(block.querySelector('.quickforge-error-text')?.textContent).toBe('errorRetryingLabel')
+    expect(onRetryAfterError).toHaveBeenCalledTimes(1)
+    const [errorEntry, fallbackRetry] = onRetryAfterError.mock.calls[0] as [unknown, () => void]
+    expect(errorEntry).toBe(messages.at(-1))
+    expect(typeof fallbackRetry).toBe('function')
+    fallbackRetry()
+    expect(onRetryFromMessage).toHaveBeenCalledWith(0)
   })
 
-  it('does not create a row for historical error messages', () => {
+  it('escalates after a retried error reappears and wires the switch-model link', () => {
+    const onSwitchModel = vi.fn()
+    const tracker = createTurnErrorTracker()
     const user = createUserMessageElement().element
-    const errorElement = createFakeElement('assistant-message')
+    const { element, block } = createErrorElement()
+    const decorate = (errorMessage: Record<string, unknown>) => decorateErrorPanel(
+      [user, element],
+      [{ role: 'user', content: 'question' }, errorMessage],
+      { turnErrorTracker: tracker, onSwitchModel },
+    )
+
+    decorate(errorMessageFixture())
+    block.querySelector('button[data-quickforge-action="error-retry"]')?.onclick?.({ stopPropagation() {} })
+    // 重试失败：新错误（不同 timestamp）→ 错误行恢复 + 琥珀升级提示。
+    decorate(errorMessageFixture({ timestamp: 1_750_000_100_000 }))
+
+    expect(block.className).not.toContain('quickforge-error-retrying')
+    const escalate = element.querySelector('.quickforge-error-escalate')
+    expect(escalate).not.toBeNull()
+    // fake DOM 的 textContent 不聚合子文本节点，dataset 记录了当前展示文案。
+    expect(escalate?.dataset.quickforgeEscalateText).toContain('errorRetryEscalate')
+    escalate?.querySelector('button[data-quickforge-action="error-switch-model"]')?.onclick?.({ stopPropagation() {} })
+    expect(onSwitchModel).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the row idempotent across repeated decoration cycles', () => {
+    const user = createUserMessageElement().element
+    const { element, block } = createErrorElement()
+    const decorate = () => decorateErrorPanel([user, element], [
+      { role: 'user', content: 'question' },
+      errorMessageFixture(),
+    ])
+
+    decorate()
+    const firstChildren = [...block.children]
+    decorate()
+    expect(block.children).toHaveLength(firstChildren.length)
+    expect(block.querySelector('button[data-quickforge-action="error-retry"]')).not.toBeNull()
+  })
+
+  it('clears companions once the element no longer renders an error message', () => {
+    const user = createUserMessageElement().element
+    const { element, block } = createErrorElement()
+    decorateErrorPanel([user, element], [{ role: 'user', content: 'question' }, errorMessageFixture()])
+    expect(element.querySelector('.quickforge-error-details')).not.toBeNull()
+
+    // Lit 重渲染移除红块后，消息变为普通 assistant：伴随元素全部清理。
+    block.remove()
+    decorateErrorPanel([user, element], [
+      { role: 'user', content: 'question' },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+    ])
+    expect(element.querySelector('.quickforge-error-details')).toBeNull()
+    expect(element.querySelector('.quickforge-error-escalate')).toBeNull()
+  })
+
+  it('rewrites historical errors without action buttons', () => {
+    const user = createUserMessageElement().element
+    const { element, block } = createErrorElement()
     const trailingUser = createUserMessageElement().element
-    decorateErrorPanel([user, errorElement, trailingUser], [
+    decorateErrorPanel([user, element, trailingUser], [
       { role: 'user', content: 'question' },
       errorMessageFixture(),
       { role: 'user', content: 'next' },
     ])
 
-    expect(errorElement.querySelector('.quickforge-message-actions')).toBeNull()
-    expect(errorElement.querySelector('button[data-quickforge-action="continue"]')).toBeNull()
+    expect(block.className).toBe('quickforge-error-line')
+    expect(block.querySelector('.quickforge-error-text')).not.toBeNull()
+    expect(block.querySelector('button[data-quickforge-action="error-retry"]')).toBeNull()
+    expect(block.querySelector('button[data-quickforge-action="error-details"]')).toBeNull()
+    expect(element.querySelector('.quickforge-error-details')).toBeNull()
   })
 
-  it('removes the stale error row once the error is no longer the terminal message', () => {
+  it('shows the raw message inline without a details toggle when no translation rule matches', () => {
     const user = createUserMessageElement().element
-    const errorElement = createFakeElement('assistant-message')
-    const elements = [user, errorElement]
-    const messages = [{ role: 'user', content: 'question' }, errorMessageFixture()]
-    decorateErrorPanel(elements, messages)
-    expect(errorElement.querySelector('.quickforge-message-actions')).not.toBeNull()
+    const { element, block } = createErrorElement()
+    decorateErrorPanel([user, element], [
+      { role: 'user', content: 'question' },
+      errorMessageFixture({ errorMessage: 'Something unexpected happened' }),
+    ])
 
-    const trailingUser = createUserMessageElement().element
-    elements.push(trailingUser)
-    decorateErrorPanel(elements, [...messages, { role: 'user', content: 'next' }])
-    expect(errorElement.querySelector('.quickforge-message-actions')).toBeNull()
+    expect(block.querySelector('.quickforge-error-text')?.textContent).toBe('errorLinePrefix · Something unexpected happened')
+    expect(block.querySelector('button[data-quickforge-action="error-details"]')).toBeNull()
+    expect(element.querySelector('.quickforge-error-details')).toBeNull()
+  })
+
+  it('toggles the details block open and closed in place', () => {
+    const user = createUserMessageElement().element
+    const { element, block } = createErrorElement()
+    decorateErrorPanel([user, element], [{ role: 'user', content: 'question' }, errorMessageFixture()])
+
+    const toggle = block.querySelector('button[data-quickforge-action="error-details"]')
+    toggle?.onclick?.({ stopPropagation() {} })
+    const details = element.querySelector('.quickforge-error-details')
+    expect(details?.className).toContain('quickforge-error-details-open')
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+
+    toggle?.onclick?.({ stopPropagation() {} })
+    expect(details?.className).not.toContain('quickforge-error-details-open')
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false')
   })
 
   it.each([
     ['retry capability unavailable', { allowRetry: false }],
     ['read-only viewer', { readOnly: true }],
-    ['streaming', { isStreaming: () => true }],
-    ['no continue handler', { onContinueAfterError: undefined }],
-  ])('hides the continue row when %s', (_name, options) => {
+    ['no retry handler', { onRetryAfterError: undefined }],
+  ])('hides the retry button when %s', (_name, options) => {
     const user = createUserMessageElement().element
-    const errorElement = createFakeElement('assistant-message')
-    decorateErrorPanel([user, errorElement], [{ role: 'user', content: 'question' }, errorMessageFixture()], options)
+    const { element, block } = createErrorElement()
+    decorateErrorPanel([user, element], [
+      { role: 'user', content: 'question' },
+      errorMessageFixture(),
+    ], options)
 
-    expect(errorElement.querySelector('.quickforge-message-actions')).toBeNull()
+    expect(block.querySelector('button[data-quickforge-action="error-retry"]')).toBeNull()
   })
 
-  it('wires onContinueAfterError to retryFailedPrompt with a continue-message fallback in ChatPanelHost', () => {
-    const source = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
-    expect(source).toContain('onContinueAfterError:')
-    expect(source).toContain('retryFailedPrompt')
-    expect(source).toContain("t('errorContinueMessage')")
+  it.each([
+    ['streaming', { isStreaming: () => true }],
+    ['restricted history actions', { historyActionsDisabled: true }],
+  ])('disables the retry button while %s', (_name, options) => {
+    const user = createUserMessageElement().element
+    const { element, block } = createErrorElement()
+    decorateErrorPanel([user, element], [
+      { role: 'user', content: 'question' },
+      errorMessageFixture(),
+    ], options)
+
+    expect(block.querySelector('button[data-quickforge-action="error-retry"]')?.disabled).toBe(true)
+  })
+
+  it('ships the turn-error rewrite contract across wiring, copy, and styles', () => {
+    const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
+    expect(hostSource).toContain('onRetryAfterError:')
+    expect(hostSource).toContain('retryFailedPrompt')
+    expect(hostSource).toContain('fallbackRetry()')
+    expect(hostSource).toContain('turnErrorTracker')
+
+    const actionsSource = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
+    expect(actionsSource).not.toContain('errorContinueAction')
+    expect(actionsSource).toMatch(/decorateTurnErrorRow\(element, \{/)
+
+    const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+    for (const selector of [
+      '.quickforge-error-line',
+      '.quickforge-error-retry',
+      '.quickforge-error-details-toggle',
+      '.quickforge-error-escalate',
+      '.quickforge-error-switch-model',
+      '.quickforge-error-details',
+      '.quickforge-error-retrying',
+    ]) {
+      expect(css).toContain(selector)
+    }
+
+    const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
+    expect(i18nSource).toContain("errorLinePrefix: 'Generation failed'")
+    expect(i18nSource).toContain("errorLinePrefix: '生成失败'")
+    expect(i18nSource).not.toContain('errorContinueAction')
   })
 })
 

@@ -40,6 +40,7 @@ import {
   stripSplitSessionState,
   agentEvents,
 } from '../agent-manager.mjs'
+import { channelEvents } from '../channels/registry.mjs'
 
 export async function handleAgentApi(req, res, url, context = {}) {
   const pathname = url.pathname
@@ -497,16 +498,31 @@ function handleGlobalStream(req, res) {
 
   const keepAlive = setInterval(() => {
     try {
-      res.write(': ping\n\n')
+      writeSseKeepAlive(res)
     } catch (error) {
       logFailure('keepalive_write_failed', error)
       cleanup()
     }
   }, 15000)
 
-  const onAgentEvent = (event) => {
+  const writeEvent = (event) => {
     try {
       writeSseEvent(res, event.type || 'agent_event', event)
+    } catch (error) {
+      logFailure('event_write_failed', error)
+      cleanup()
+    }
+  }
+  // 每个 token delta 一帧 message_update，帧内是完整累积消息：trailing 合并后再写出。
+  const updateThrottle = createSseUpdateThrottle({ write: writeEvent })
+  const onAgentEvent = (event) => updateThrottle.push(event)
+
+  // 只转发 sessions-changed：process-channel 的 log/status/qrcode 事件量大且只与设置页相关，
+  // 混入 agent 流会刷爆客户端。
+  const onChannelEvent = (event) => {
+    if (event?.type !== 'sessions-changed') return
+    try {
+      writeSseEvent(res, 'sessions-changed', event)
     } catch (error) {
       logFailure('event_write_failed', error)
       cleanup()
@@ -517,13 +533,16 @@ function handleGlobalStream(req, res) {
     if (cleanedUp) return
     cleanedUp = true
     clearInterval(keepAlive)
+    updateThrottle.dispose()
     agentEvents.removeListener('agent_event', onAgentEvent)
+    channelEvents.removeListener('channel_event', onChannelEvent)
     if (!res.writableEnded) {
       res.end()
     }
   }
 
   agentEvents.on('agent_event', onAgentEvent)
+  channelEvents.on('channel_event', onChannelEvent)
 
   req.on('close', cleanup)
   req.on('error', (error) => {
@@ -606,7 +625,7 @@ async function handleStream(req, res, sessionId) {
   // of the app. Evicted sessions transparently restore on the next request.
   const keepAlive = setInterval(() => {
     try {
-      res.write(': ping\n\n')
+      writeSseKeepAlive(res)
     } catch (error) {
       logFailure('keepalive_write_failed', error)
       cleanup()
@@ -614,7 +633,7 @@ async function handleStream(req, res, sessionId) {
   }, 15000)
 
   // Handle agent events
-  const onAgentEvent = (event) => {
+  const writeEvent = (event) => {
     try {
       writeSseEvent(res, event.type, event)
     } catch (error) {
@@ -622,11 +641,15 @@ async function handleStream(req, res, sessionId) {
       cleanup()
     }
   }
+  // 每个 token delta 一帧 message_update，帧内是完整累积消息：trailing 合并后再写出。
+  const updateThrottle = createSseUpdateThrottle({ write: writeEvent })
+  const onAgentEvent = (event) => updateThrottle.push(event)
 
   const cleanup = () => {
     if (cleanedUp) return
     cleanedUp = true
     clearInterval(keepAlive)
+    updateThrottle.dispose()
     eventBus.removeListener('agent_event', onAgentEvent)
     releaseConnection()
     if (!res.writableEnded) {
@@ -647,7 +670,83 @@ async function handleStream(req, res, sessionId) {
   })
 }
 
+// message_update 的 trailing 合并窗口（毫秒）：窗口内只写出最后一帧。
+export const SSE_MESSAGE_UPDATE_THROTTLE_MS = 50
+
+// res.writableLength 背压阈值（字节）：超过后丢弃可丢弃事件，终态/关键事件永不丢弃。
+export const SSE_BACKPRESSURE_BYTES = 4 * 1024 * 1024
+
+// 背压下可丢弃的事件：纯流式增量（下一帧是完整累积消息，message_end 兜底终态）。
+// 其余事件（message_end/agent_end/messages_replaced/error/tool_approval_required/
+// ask_user_required/state 等）不在名单内，永不丢弃。
+const SSE_DROPPABLE_EVENTS = new Set(['message_update', 'tool_execution_update'])
+
+/**
+ * 合并 message_update 的 SSE 写入器。
+ *
+ * 每个 token delta 都会产生一帧 message_update（帧内同时带 message 与
+ * assistantMessageEvent.partial 两份完整累积消息），一回合累计写出量 O(N²)；
+ * 窗口内只保留最后一帧，窗口到期后写出（trailing 合并）。
+ *
+ * 顺序保证：任何非 message_update 事件到达时先 flush pending 帧再写该事件，
+ * 否则客户端会先按终态清空流式容器、再收到迟到帧，导致已完成消息重复渲染。
+ */
+export function createSseUpdateThrottle({ write, windowMs = SSE_MESSAGE_UPDATE_THROTTLE_MS }) {
+  let pending = null
+  let timer = null
+
+  const clearTimer = () => {
+    if (!timer) return
+    clearTimeout(timer)
+    timer = null
+  }
+  const flush = () => {
+    clearTimer()
+    if (pending === null) return
+    const event = pending
+    pending = null
+    write(event)
+  }
+
+  return {
+    push(event) {
+      if (event?.type !== 'message_update') {
+        flush()
+        write(event)
+        return
+      }
+      pending = event
+      if (timer) return
+      timer = setTimeout(() => {
+        timer = null
+        if (pending === null) return
+        const last = pending
+        pending = null
+        write(last)
+      }, windowMs)
+    },
+    flush,
+    dispose() {
+      clearTimer()
+      pending = null
+    },
+  }
+}
+
+function isSseBackpressured(res) {
+  return typeof res.writableLength === 'number' && res.writableLength > SSE_BACKPRESSURE_BYTES
+}
+
+function writeSseKeepAlive(res) {
+  // ping 可丢弃：慢客户端积压时不继续堆积注释帧。
+  if (isSseBackpressured(res)) return
+  res.write(': ping\n\n')
+}
+
 function writeSseEvent(res, event, data) {
+  // 背压保护：慢客户端积压超过阈值时丢弃可丢弃事件；不 await drain，
+  // 避免慢客户端拖慢模型 token 流。
+  if (SSE_DROPPABLE_EVENTS.has(event) && isSseBackpressured(res)) return
   const payload = typeof data === 'string' ? data : JSON.stringify(data)
   // Split multi-line payloads
   const lines = payload.split('\n')

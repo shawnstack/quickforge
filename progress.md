@@ -1,3 +1,59 @@
+## Feature：对话报错重试一行式轻量错误行（2026-09-09）
+
+- 背景：用户问「当前页面报错的重试有没有更优雅的交互」，澄清目标为对话回合失败的终态错误层（与 SSE 重连、模型流自动重试并列的第三层：恢复失败后的用户决策）。
+- 调研结论：现状 = pi-web-ui 红块（`bg-destructive/10` + `<strong>Error:</strong>` 恒英文前缀 + 原文/译文直出）+ 错误旁 icon-only ▶「继续生成」（`onContinueAfterError` 两分支：stash 重发或发「继续」消息，语义不定）+ 真正的「重试」（`retryFromMessage` 裁剪重生成）藏在最后一条用户消息 hover 行（触屏不可发现）；无重试过程反馈、反复失败无升级引导。
+- 设计：先出交互稿 `design-mockups/conversation-error-retry.html`（token 镜像 pi-web-ui 真实 oklch 值、现状 DOM 复刻对照、可操作演示、编号清单），浏览器实操验证过状态机；用户选定方案 A 并两轮收敛（更简洁 + 补「详情」），定稿一行式：`⚠ 生成失败 · 译文或原文 [重试] [详情]`，重试中转「⟳ 正在重试…」，连续失败 ≥2 追加琥珀「已重试 n 次仍失败 · 切换模型」。
+- 实现：见 feature_list.json 同 id 条目（新模块 turn-error-row.ts / turn-error-state.ts；message-actions.ts 移除「继续生成」接入新错误行；ChatPanelHost 统一重试语义 + onSwitchModel + 主 effect 内创建 tracker；i18n 5 新 key 移除 errorContinueAction；index.css quickforge-error* 段复用 reconnect/琥珀词汇）。
+- 验证：定向 vitest 4 files / 62 tests 全过（含新建 turn-error-state 7 用例、message-actions 重写的 turn error row 用例组）；相关回归 14 files / 186 tests 全过；`npm run test` 全量 292 files / 2799 tests 全过；eslint 改动文件 0 error 0 warning（全量 0 error / 5 个 server/ 既有 warnings）；tsc -b；`npm run build` 通过（仅既有 chunk 提示）；dist 抽查含新样式与 zh 文案。
+- 边界：不动 SSE 重连/模型流重试两层与「已停止」标签；数据层 errorMessage 保持英文原文；不自动重试；详情只读；hover ↻ 与门控保留。
+- 下一步：真机弱网验证——制造回合失败应看到一行式错误行（译文 + 就地重试 + 详情原文）；点重试转「正在重试…」后恢复或再失败（第二次起出现琥珀升级行，「切换模型」打开模型选择）；发送失败场景点「重试」应原样重发 stash 消息。备选后续：subagent 错误原因卡（local-tools.ts 红卡）对齐同款轻量行词汇。
+
+## Feature：SSE 流式帧节流 + 背压保护（2026-09-09）
+
+- 背景：第一轮调研发现但一直未处理的两个 SSE 问题。
+- 调研结论：每帧同时携带 `message` 与 `assistantMessageEvent.partial`（同一份完整消息），单帧 ≈2× 累积 JSON，一个 N token 回合累计传输 O(N²)；前端 pi-web-ui 是全量替换 + rAF 批处理，不依赖每个 delta；`writeSseEvent` 从不检查 `res.write` 返回值。
+- 实现：`message_update` 50ms trailing 合并（`SSE_MESSAGE_UPDATE_THROTTLE_MS`，非 message_update 事件先 flush pending 保序，cleanup dispose）+ `writableLength` 超 4MB（`SSE_BACKPRESSURE_BYTES`）时丢弃可丢弃帧（终态帧永不丢弃，不 await drain）。
+- 验证：定向 39 tests 全过（新增 5 个用例）；eslint 0 error；`npx tsc -b`；`npm run test` 293 files / 2825 tests 全过；`npm run lint` 0 errors / 5 个既有 warnings；`npm run build` 通过。
+- Notes：既有「SSE 写失败只 WARN 一次」用例的触发事件由 `message_update` 改为 `message_end`（前者现在延迟 50ms 写出，会被 socket error 抢占），断言意图不变。
+- 下一步：真机观察长对话的 SSE 帧量/内存；剩余候选 = ChatPanelHost 接入 git status light（等并行会话收尾）、settings/custom-providers 逐 key 请求批量化、`message_update` 改增量 delta（高风险）。
+
+## Feature：/api/git/status 单次耗时优化（合并 git 子进程 + light 模式）（2026-09-09）
+
+- 背景：连接池优化后，`git status` 成为最大单一负担（最近 1.5 分钟 10 次、每次 400-670ms）。
+- 根因：4 次串行 git 子进程（Windows 每次 60-130ms），其中 `numstat` 最贵（125ms）且只有 WorkspaceInspector 需要。
+- 实现：见 feature_list.json 同 id 条目（A `--branch` 合并 branch 查询、B 退出码判仓库、C light 模式跳过 numstat + 行数统计）。
+- 实测：subagent 基准 full **419.3ms → 256.7ms**（-38.8%，git 子进程 4→2）、light **106.2ms**（-74.7%）；重启后真机复测 full **276/272/295ms**、light **107/111/109ms**（改前真机 400-670ms），light 返回 branch/files 且首条文件不含 `additions`。
+- 验证：定向 27 tests 全过；eslint 0 error；`npx tsc -b`；`npm run test` 293 files / 2820 tests 全过；`npm run lint` 0 errors / 5 个既有 warnings；`npm run build` 通过。
+- Notes：实施中发现 App 标题栏不能走 light（`titleGitStatus` 被 `GitToolsPinnedSummary` / `GitCommitPushDialog` 共享，需要 `additions/deletions`），已回退并同步测试断言与 wiki；light 能力保留待 ChatPanelHost 分支探测接入（该文件正被另一会话改动）。
+
+## Feature：会话列表重复请求收敛：refreshSessions 合并 + /api/agents 触发收敛（2026-09-09）
+
+- 背景：承接浏览器连接池优化。实测重启后 2.5 分钟内 `/api/storage/sessions-metadata/index/lastModified` 23 次、`pinnedAt` 13 次、`/api/agents` 16 次（单请求 1-5ms，但数量占满 6 连接池）。
+- 根因：①`agent_end` 双路 `refreshSessions`（App 全局订阅 + `syncSessionUI`），而 `refreshSessions` 无 in-flight 合并；②`useVisibleRuntimeStatuses` 的刷新 effect 依赖每次重建的 Set 身份。
+- 修复：见 feature_list.json 同 id 条目（`REFRESH_SESSIONS_MERGE_MS=250` in-flight 合并 + broadcast 合并到轮尾；effect 依赖收敛为 `visibleSessionKey`）。
+- 验证：定向 vitest 45 tests + 新增 1 test 全过（含变异验证）；eslint 0 error；`npx tsc -b`；`npm run test` 293 files / 2813 tests 全过；`npm run lint` 0 errors / 5 个既有 warnings；`npm run build` 通过。
+- Notes：修复期间修正了新测试文件的一处 `react-hooks/rules-of-hooks` lint error（测试 harness 直接调用 hook，改为定向禁用注释）。
+- 下一步：刷新页面后观察 `lastModified`/`pinnedAt`/`/api/agents` 频率是否下降；剩余候选是 `git status` 单次 400-670ms 的服务端耗时（`--untracked-files=all` + numstat）与 settings/custom-providers 逐 key 请求批量化。
+
+## Feature：浏览器连接池压力缓解：git status 去重 + sessions-changed 并入全局 SSE（2026-09-09）
+
+- 背景：承接上一条 runtime-diagnostics-instrumentation 的实测数据，定位「流式正常但普通 API 卡」的主因并修复。
+- 实测结论：服务端无阻塞（lag p99 33.62ms ≈ Windows 基线、89% 请求 <50ms、6 并发 git status 下 health 45ms）；浏览器同源 6 连接池被 2 条常驻 SSE 占 2 条；服务端观测普通请求并发峰值 6 → 需 8 条连接；高并发时刻来自页面加载静态 chunk、切回窗口时的数十个并发请求，以及 `/api/git/status` 3 个互不协调调用点（峰值 3 并发、每个 400-500ms）。
+- 修复：见 feature_list.json 同 id 条目（A：getGitStatus 在途共享 + 引用计数 abort + 1s 缓存 + force 绕过 + gitPostJson 失效缓存 + onProjectsChanged 走缓存；B：sessions-changed 并入 `/api/agents/events`，删除 App 常驻 channels EventSource）。
+- 验证：定向 vitest 4+3 files（36+87 tests）全过；改动文件 eslint 0 error；`npx tsc -b` 通过；`npm run test` 292 files / 2809 tests 全过；`npm run lint` 0 errors / 5 个既有 warnings；`npm run build` 通过；`git diff --check` 通过。
+- 真机验证（08:28 通过 POST /api/system/restart 重启为新 pid 28120）：重启后 2.5 分钟窗口内 `/api/channels/events` 请求 0 次、`/api/diagnostics` 的 inFlight 仅 1 条 `/api/agents/events`、`git status` maxOverlap 从修复前最多 3（压测 6-7）降到 1、sockets 从 7 降到 3。
+- Notes：跨标签页项目列表在 onProjectsChanged 走缓存后最多 15s 可见；设置页渠道 Tab 打开时仍会额外建一条 `/api/channels/events`（保留既有行为）。
+
+## Feature：运行时诊断采集：event loop lag / 在途请求 / 浏览器连接池排队（2026-09-09）
+
+- 背景：用户反馈「对话流式输出正常，但其他普通 API 经常卡住」，运行方式 CLI/npm start + 浏览器。本次会话目标为「先加诊断能力，用数据定位主因」。
+- 调研结论（双 explore 只读）：服务端已有每请求 durationMs 的 INFO 日志，但缺阈值告警、在途计数、event loop lag 与连接池指标。三类候选根因——①浏览器 HTTP/1.1 同源 6 连接池被每窗口 2-4 条常驻长连接 + 无超时慢请求占满（最可能，Notes 已有同机制历史复盘）；②服务端单事件循环被同步 SQLite 大事务阻塞；③单个 handler 慢（如大仓库 git status）。
+- 用户确认：新增 `GET /api/diagnostics`（仅本机）；服务端 + 前端浏览器侧都采集；默认开启、`QUICKFORGE_DIAGNOSTICS=0` 关闭。
+- 实现：见 feature_list.json 同 id 条目（服务端 `server/runtime-diagnostics.mjs` + `server/index.mjs` 埋点与端点；前端 `src/lib/browser-connection-diagnostics.ts` + `main.tsx` 挂 `window.__quickforgePerf`）。
+- 验证：定向 vitest 4 files / 42 tests + 前端 1 file / 15 tests 全过；改动文件 eslint 0 error 0 warning；`node --check`；`npm run build` 通过（仅既有警告）；`npm run test` 292 files / 2799 tests 全过；`npm run lint` 0 errors / 5 个既有 warnings；`git diff --check` 通过；真机冒烟（独立实例 127.0.0.1:5999）本机 200、隧道头 403、隧道头 health 仍 200。
+- Notes（与 feature 无关）：本工作区同时存在另一会话的 conversation-error-retry 改动（`src/components/chat/*`、`src/lib/i18n.ts`、`tests/frontend/error-messages.test.ts`、`tests/frontend/message-actions.test.ts`、`design-mockups/conversation-error-retry.html`、`docs/reports/`），本 feature 未触碰这些文件；全量 test/build 在该并发改动存在时仍全绿。
+- 下一步：真机按判据读数据——浏览器执行 `window.__quickforgePerf()`：若「最大排队大 / 耗时接近」且 `activeLongLived` 接近 6 → 浏览器连接池耗尽；若服务端 `eventLoop.p99Ms` 高且所有请求耗时同步变长 → 事件循环阻塞；若个别 path `totalMs` 突出而 lag 正常 → 单 handler 慢。确认主因后再决定优化 feature（SSE 背压 / 连接池治理 / 同步 SQLite 下放）。
+
 ## Feature：diff 无工作区变更时友好空态 + 产物卡 ±0 统计隐藏（2026-09-08）
 
 - 现象：Agent 修改文件后用户 commit/revert/撤销，聊天产物卡仍显示「N 个文件已更改」；点「审查」打开 diff 得到红色英文错误 "File has no working tree changes"，与卡片文案互相矛盾；净变化为 0 时标题还显示 `+0 -0`。

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchActiveAgentStatuses, subscribeToAgentEvents } from '@/lib/server-agent'
 import type { BackgroundTaskStatus, QuickForgeSessionMetadata } from '@/lib/types'
 import { logger } from '@/lib/logger'
@@ -55,12 +55,20 @@ export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[])
     }
   }, [visibleSessionIds])
 
+  // sessions 数组身份变化会重建 refreshVisibleStatuses（其闭包依赖 visibleSessionIds），
+  // 用 ref 持有最新回调，让刷新只在可见 id 集合真正变化时触发。
+  const refreshVisibleStatusesRef = useRef(refreshVisibleStatuses)
+
+  useEffect(() => {
+    refreshVisibleStatusesRef.current = refreshVisibleStatuses
+  }, [refreshVisibleStatuses])
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void refreshVisibleStatuses()
+      void refreshVisibleStatusesRef.current()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [refreshVisibleStatuses, visibleSessionKey])
+  }, [visibleSessionKey])
 
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {

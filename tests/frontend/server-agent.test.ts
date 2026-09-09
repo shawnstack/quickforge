@@ -1705,6 +1705,41 @@ describe('ServerAgent', () => {
     }
   })
 
+  describe('channel sessions-changed forwarding', () => {
+    it('delivers sessions-changed channel events to global subscribers and drops payloads without a sessionId', async () => {
+      const { subscribeToAgentEvents } = await import('../../src/lib/server-agent')
+      const events: Array<Record<string, unknown>> = []
+      const unsubscribe = subscribeToAgentEvents((event) => events.push(event))
+
+      try {
+        const source = latestEventSource()
+        expect(source.url.endsWith('/api/agents/events')).toBe(true)
+
+        source.emit('sessions-changed', { sessionId: 'session-1', projectId: 'project-1' })
+        source.emit('sessions-changed', { projectId: 'project-1' })
+
+        expect(events).toEqual([{ type: 'sessions-changed', sessionId: 'session-1', projectId: 'project-1' }])
+      } finally {
+        unsubscribe()
+      }
+    })
+
+    it('does not apply sessions-changed channel events to the matching session state', async () => {
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const source = latestEventSource()
+        source.emit('sessions-changed', { sessionId: 'session-1', projectId: 'project-1' })
+        expect(agent.state.systemPrompt).toBe('')
+
+        // 同一订阅上的普通 agent 事件仍生效，证明提前返回只针对 sessions-changed。
+        source.emit('state', { sessionId: 'session-1', systemPrompt: 'applied' })
+        expect(agent.state.systemPrompt).toBe('applied')
+      } finally {
+        agent.dispose()
+      }
+    })
+  })
+
   describe('model_stream_retry forwarding', () => {
     it('forwards retry progress and recovery events to subscribers', async () => {
       const agent = await createServerAgent({ sessionId: 'model-retry-forward-1' })

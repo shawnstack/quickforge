@@ -68,7 +68,7 @@ Agent 会话管理核心路由。
 
 **主要端点**:
 - `GET /api/agents` — 列出活跃会话
-- `GET /api/agents/events` — 全局 SSE 事件流
+- `GET /api/agents/events` — 全局 SSE 事件流；除 agent 事件外还转发渠道 `sessions-changed`（只转发该类型，过滤 `log`/`status`/`qrcode`），使 App 无需再额外常驻一条 `/api/channels/events`
 - `GET /api/agents/:sessionId/stream` — 会话级 SSE 流
 - `POST /api/agents/:sessionId/restore` — 从内存复用或从持久化存储恢复 Agent，并在同一响应中返回完整权威快照，供历史会话冷加载使用；并发恢复（restore/state/messages/status/SSE 同时回落）按 sessionId 共享同一 in-flight Promise，只构建一个内存 Agent 实例，避免竞态覆盖泄漏
 - `GET /api/agents/:sessionId/state` — 获取完整会话快照，用于 SSE 异常恢复；仅在内存会话不存在时从磁盘恢复，不再每次无条件重读 Session
@@ -291,7 +291,7 @@ Workspace Inspector 后端 API。
 - `GET /api/workspace/mention-search?projectId=...&query=&limit=` — 旧版 `@` 文件引用专用递归搜索端点，保留兼容；至少 2 个字符，仅返回普通文件，默认 20、最大 50 条，保留与普通 search 相同的 visited 上限和 `truncated`。始终启用敏感路径保护（大小写不敏感，并在 realpath 后复查真实目标），排除 `.env*`、密钥/证书、credentials/secrets 与 `.git`，不返回绝对路径；排序依次为 basename 精确、前缀、包含，再按相对路径。`projectId` 必须对应仍存在的已注册项目，未知或已删除项目返回 HTTP 404 / `PROJECT_NOT_FOUND`，不会回退默认 workspace；普通 `/api/workspace/search`、children 等端点继续保留兼容回退。当前 Composer 不再调用该递归端点
 - `GET /api/workspace/file?projectId=...&path=...` — 安全读取 1MB 以内文本文件，返回 Monaco 语言标识；响应含 `size` 与 `mtimeMs`（F13 缓存失效戳）；`&meta=1` 轻量模式走同一安全校验与 stat，仅返回 `{path,size,mtimeMs,language,readonly}` 不读内容（供前端缓存 meta 校验）
 - `GET /api/workspace/preview/:projectId/*` — 安全读取项目内静态产物文件，供右侧 Artifact Preview iframe/img 加载 HTML、CSS、JS、图片等资源，并向 Workspace Document Tab 提供 PDF/DOCX/XLS/XLSX 二进制流（50 MiB 上限内）；采用 ETag 协商缓存：响应带 `cache-control: private, no-cache` 与强 ETag `"<mtimeMs>-<size>"`（源自 `fs.stat`，零额外 IO），请求带匹配的 `If-None-Match` 时返回 304 且不再读取文件体，文件 mtime/size 变化即生成新 ETag 立即生效；附加 `?__quickforge_check=1` 时仅执行预检并返回文件元数据（含 `mtimeMs`），错误响应包含稳定错误代码、原始报错和请求路径，供前端统一展示 404/403/413/415/500 等状态
-- `GET /api/git/status?projectId=...` — 基于 `git status --porcelain=v1 -z --untracked-files=all` 返回扁平的工作区文件变更列表（未跟踪目录展开为具体文件，不返回目录分组项），并附加 `git diff HEAD --numstat` 的每个文件增删行数（`additions`/`deletions`）；未跟踪/新增文件按工作区文件行数估算，最多统计排序后的 100 个文件，单文件上限 1MB、单次总量上限 10MB、并发数 6，超限文件仍返回状态但省略增删行数
+- `GET /api/git/status?projectId=...` — 基于 `git status --porcelain=v1 -z --untracked-files=all --branch` 返回扁平的工作区文件变更列表（未跟踪目录展开为具体文件，不返回目录分组项）；`branch`/`detached` 取自同一条命令的 `## ` 头记录（不再单独跑 `branch --show-current`），该命令退出码同时用于判定仓库（非仓库 128 返回 `{ isGitRepository: false, files: [] }`）。默认附加 `git diff HEAD --numstat` 的每个文件增删行数（`additions`/`deletions`）；未跟踪/新增文件按工作区文件行数估算，最多统计排序后的 100 个文件，单文件上限 1MB、单次总量上限 10MB、并发数 6，超限文件仍返回状态但省略增删行数。`light=1` 跳过 numstat 与行数统计，只返回 branch/counts 与文件状态（供标题栏、分支徽标等只需计数的调用方）
 - `GET /api/git/file-diff?projectId=...&path=...` — 返回单文件 `oldContent/newContent`，供 Monaco DiffEditor 展示
 
 **路径边界**: 工作区文件读取、静态预览和外部打开分别使用各自的路径校验及文件类型/大小限制；目录 children/search 会限制在 workspace 内并跳过 `.git`、`node_modules` 及不安全的符号链接。search 对每个待遍历目录在读取前重新校验真实路径，但文件系统检查与后续读取之间仍存在不可完全消除的 TOCTOU；客户端取消请求也不保证已经开始的服务端扫描立即停止。
@@ -310,7 +310,7 @@ Workspace Inspector 后端 API。
 - `GET /api/workspace/preview/:projectId/:path` — 为 HTML/SVG/图片/Markdown 等允许类型提供静态预览；ETag 协商缓存（`private, no-cache` + `"<mtimeMs>-<size>"`），未变化请求返回 304 零重传。
 - `POST /api/workspace/resolve-path` — 将绝对路径解析为当前项目内的相对路径。
 - `POST /api/workspace/open-external` — 在资源管理器中打开选中变更文件所在目录，或在 VS Code / IntelliJ IDEA 中直接打开工作区内的选中文件；路径经过工作区边界校验。
-- `GET /api/git/status` — 获取 Git 仓库状态、当前分支、变更计数和文件列表。
+- `GET /api/git/status` — 获取 Git 仓库状态、当前分支、变更计数和文件列表；`light=1` 跳过 numstat 与行数统计。
 - `GET /api/git/file-diff` — 获取单文件工作区 diff 内容。
 - `POST /api/git/stage` — 暂存单个变更文件。
 - `POST /api/git/stage-all` — 暂存全部工作区变更。

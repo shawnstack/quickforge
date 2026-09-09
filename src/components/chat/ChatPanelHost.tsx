@@ -46,6 +46,7 @@ import {
   createReconnectNoticeController,
   createUnreachableStripController,
   createModelRetryNoticeController,
+  createTurnErrorTracker,
   removeSubagentRunningIndicator,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
@@ -611,6 +612,10 @@ export function ChatPanelHost({
     const panel = new ChatPanel()
     setPlanMode(false)
     const sessionId = agent.sessionId
+    // 回合错误重试循环状态机（计数 / 重试中 / 升级态）：随主 effect 重建即换
+    // agent/会话重置；revision 触发的面板 DOM 重建不影响（重试后裁剪重生成正
+    // 依赖计数跨重建存活）。
+    const turnErrorTracker = createTurnErrorTracker()
     const currentDraftKey = draftKeyRef.current
     const currentDraftContext = draftContextRef.current
     let disposed = false
@@ -1026,18 +1031,23 @@ export function ChatPanelHost({
           onRollbackFromMessage: props.onRollbackFromMessage,
           onRetryFromMessage: props.onRetryFromMessage,
           onForkFromMessage: props.onForkFromMessage,
-          onContinueAfterError: (errorMessage) => {
+          onRetryAfterError: (errorMessage, fallbackRetry) => {
             const serverAgent = agent as ServerAgent
-            // 发送失败的错误消息带原始消息 stash：原样重发而非发「继续」。
+            // 发送失败的错误消息带原始消息 stash：原样重发；其余走裁剪重生成
+            // （fallbackRetry = retryFromMessage(最后一条用户消息)）。
             if (typeof serverAgent.retryFailedPrompt === 'function') {
               void serverAgent.retryFailedPrompt(errorMessage as import('@earendil-works/pi-agent-core').AgentMessage).then((retried) => {
                 if (retried) return
-                void serverAgent.prompt(t('errorContinueMessage'))
+                fallbackRetry()
               })
               return
             }
-            void serverAgent.prompt(t('errorContinueMessage'))
+            fallbackRetry()
           },
+          onSwitchModel: sideChatMode ? undefined : (anchor) => {
+            propsRef.current.onModelSelect?.(anchor)
+          },
+          turnErrorTracker,
           onOpenLocalFilePath: props.onOpenLocalFilePath,
           onOpenFilePreview: props.onOpenFilePreview,
           onRollbackFiles: props.readOnly ? undefined : props.onRollbackFiles,

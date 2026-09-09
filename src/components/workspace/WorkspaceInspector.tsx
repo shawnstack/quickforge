@@ -1168,7 +1168,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
     setGitLoadStatus('loading')
     setGitError(undefined)
     try {
-      const statusResponse = await getGitStatus(projectId, controller.signal)
+      const statusResponse = await getGitStatus(projectId, controller.signal, { force })
       if (controller.signal.aborted || !projectGuardRef.current.isCurrent(projectToken)) return
       applyGitStatus(statusResponse)
     } catch (err) {

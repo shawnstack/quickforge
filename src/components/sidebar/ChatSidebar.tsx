@@ -940,6 +940,7 @@ export const ChatSidebar = memo(function ChatSidebar({
     }, deleteSessionFadeMs)
   }
   const toggleSessionPinFromActions = (event: React.MouseEvent<HTMLButtonElement>, sessionId: string) => {
+    event.stopPropagation()
     event.currentTarget.blur()
     setSuppressedSessionActionsId(sessionId)
     onTogglePinSession(sessionId)
@@ -1113,13 +1114,13 @@ export const ChatSidebar = memo(function ChatSidebar({
               }
               hideSessionHoverTip(session.id)
             }}
+            onClick={() => onLoadSession(session.id)}
           >
             <div
               role="button"
               tabIndex={0}
               aria-busy={loadingSessionId === session.id}
               className="flex min-w-0 flex-1 items-center gap-1 text-left"
-              onClick={() => onLoadSession(session.id)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' && event.key !== ' ') return
                 event.preventDefault()
@@ -1485,8 +1486,9 @@ export const ChatSidebar = memo(function ChatSidebar({
                                         }
                                         hideSessionHoverTip(session.id)
                                       }}
+                                      onClick={() => onLoadSession(session.id)}
                                     >
-                                      <button className="flex min-w-0 flex-1 items-center gap-1 text-left" type="button" aria-busy={loadingSessionId === session.id} onClick={() => onLoadSession(session.id)}>
+                                      <button className="flex min-w-0 flex-1 items-center gap-1 text-left" type="button" aria-busy={loadingSessionId === session.id}>
                                         <div className="min-w-0 flex-1">
                                           <div className={sessionTitleRowClass}>
                                             <SessionTitleMarquee
@@ -1687,8 +1689,9 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                     }
                                                     hideSessionHoverTip(session.id)
                                                   }}
+                                                  onClick={() => onLoadSession(session.id)}
                                                 >
-                                              <button className={sessionButtonClass} type="button" aria-busy={loadingSessionId === session.id} onClick={() => onLoadSession(session.id)}>
+                                              <button className={sessionButtonClass} type="button" aria-busy={loadingSessionId === session.id}>
                                                 <div className={sessionTitleRowClass}>
                                                   <SessionTitleMarquee
                                                     className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
@@ -1841,8 +1844,9 @@ export const ChatSidebar = memo(function ChatSidebar({
                                   }
                                   hideSessionHoverTip(session.id)
                                 }}
+                                onClick={() => onLoadSession(session.id)}
                               >
-                            <button className={sessionButtonClass} type="button" aria-busy={loadingSessionId === session.id} onClick={() => onLoadSession(session.id)}>
+                            <button className={sessionButtonClass} type="button" aria-busy={loadingSessionId === session.id}>
                               <div className={sessionTitleRowClass}>
                                 <SessionTitleMarquee
                                   className={cn(sessionTitleClass, selected && activeSessionTitleClass)}

@@ -1,3 +1,24 @@
+## 当前交接摘要：safe-undo-interaction-demo（待用户评审）
+
+- 当前目标：只提供安全撤销 HTML 交互 Demo；不接真实撤销接口。
+- 改动文件：`design-mockups/safe-undo.html`、`feature_list.json`、`progress.md`、本文件（仅新增记录，保留并行任务内容）。
+- 验证：内联脚本语法检查及 Node VM 四场景/部分成功/重试/冲突保护断言通过；尚未浏览器实测。
+- Blocker：无实现阻塞，等待用户视觉和交互反馈。未提交；真实业务逻辑仍保持原状，安全撤销保护尚未落地。
+- 下一步：展示 Demo，按用户反馈调整；未经确认不扩展真实实现。无需更新 Wiki（独立原型）。
+
+---
+
+## 当前交接摘要：sidebar-session-row-hit-area——会话行整行可点修复（2026-09-09）
+
+- 目标：用户发现侧栏会话行边缘点击无响应（同 2026-09-08 项目行 hit-area 问题模式），经调研确认 4 处会话行渲染（置顶/时间线/项目分组/全局）行容器 div 均无 onClick，选中只挂在内层标题按钮上，行上下留白、左右 padding、gap 与 hover 时右侧 overlay 全高区域均为死区。用户确认：整行可点、4 处全修、补回归测试。
+- 实现（与 sidebar-project-row-hit-area 同模式但更简，会话行无拖拽故无 suppressRef）：① 4 处行容器 div 统一加 `onClick={() => onLoadSession(session.id)}`；内层标题元素（置顶 div[role=button] + 其余三处 <button>）移除各自 onClick，click 冒泡行级统一处理（aria-busy/role/tabIndex 保留）；置顶行 onKeyDown 保留（原生 div 键盘 Enter/Space 不派发 click，防止破坏键盘可达性）。② `toggleSessionPinFromActions` 补 `event.stopPropagation()`（requestDelete/confirmDelete 原已具备），防点 pin 误触选中。③ deleting 行已有 pointer-events-none 隔离，无需额外守卫。
+- 文件：`src/components/sidebar/ChatSidebar.tsx`（+8/-4）、`tests/frontend/session-row-hit-area.test.ts`（新 4 用例，源码字符串契约）、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 5 files / 47 tests 全过（含 4 个既有 hit-area/对齐/排序测试，断言零修改）；eslint 两改动文件 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 通过（dist 已刷新，仅既有警告）。
+- Blocker：无。未 commit。
+- 下一步：真机冒烟——点击会话行上下留白/左右边缘即选中；hover 行点 pin/归档不误触选中；置顶行键盘 Enter/Space 可打开；deleting 行不可点。注：工作区可能还含其他并行会话未提交改动，提交前先 `git status` 确认归属。
+
+---
+
 ## 当前交接摘要：简化自定义模型的推理/思考模型标签（2026-09-09）
 
 - 目标：去掉自定义模型设置标签中的 DeepSeek V4/Qwen 示例。

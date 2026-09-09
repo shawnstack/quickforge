@@ -1,3 +1,25 @@
+## Demo：safe-undo-interaction-demo（待用户评审）
+
+- 目标：用户先看安全撤销 HTML 交互，不实现真实撤销逻辑。
+- 产物：`design-mockups/safe-undo.html`，包含预检查确认、安全恢复/删除、后续修改冲突保留、失败重试及备份不可用四类模拟场景。
+- 验证：内联脚本 `node --check` 与 Node VM 场景断言通过；未做浏览器视觉/交互实测。
+- 边界：无真实文件访问或接口调用；业务代码、依赖、生成产物未改；无需更新 Wiki（独立原型，无架构/公共入口变化）。保留其他并行任务记录。
+- 下一步：用户预览确认交互；真实安全撤销仍未实现，未提交。
+
+---
+
+## Bugfix：sidebar-session-row-hit-area（2026-09-09）
+
+- 现象：侧栏会话行（置顶/时间线/项目分组/全局 4 处渲染）边缘点击无响应，与 2026-09-08 项目行 hit-area 同构：行容器 div 无 onClick，选中只挂在内层 flex-1 标题按钮上，上下 py-1.5、左 px-2、右缘 px-2+gap-2、hover 时右侧操作 overlay 全高拦截均为死区。
+- 根因：会话行行容器（rowClass）只有 onMouseEnter/onClickCapture（仅隐藏 hover tip）/onMouseLeave，无 onClick；对照项目行修复前同款结构。
+- 修复（与 sidebar-project-row-hit-area 同模式但更简）：① 4 处行容器统一加 `onClick={() => onLoadSession(session.id)}`，内层标题元素移除各自 onClick 让 click 冒泡行级统一处理（aria-busy/role/tabIndex 保留；置顶行 onKeyDown 保留——原生 div 键盘不派发 click，删掉会坏键盘可达性；其余三处原生 <button> 键盘 Enter 的 click 自然冒泡无双触发）；② overlay pin handler `toggleSessionPinFromActions` 补 `event.stopPropagation()`（requestDeleteSession/confirmDeleteSession 原已具备），防点 pin 误触行级选中；③ 不加 suppressRef——会话行不在任何 SortableContext 内（仅 sectionOrder/projectIds 可拖），无拖拽误触风险；deleting 行已有 pointer-events-none 隔离。
+- 测试：新增 `tests/frontend/session-row-hit-area.test.ts` 4 用例（源码字符串契约，以 `onMouseEnter={(event) => showSessionHoverTip` 4 次出现按文档序切片）——4 处行容器含行级 onClick 且保留既有三事件、内层无 onClick 且 a11y 属性保留、置顶 onKeyDown 保留、三个 overlay handler 均含 stopPropagation、无 suppressSessionRowClickRef 契约。
+- Verification: 定向 vitest 5 files / 47 tests 全过（session-row-hit-area 4 新 + project-row-hit-area 5 + sidebar-section-header-hit-area 7 + sidebar-session-action-alignment 9 + sidebar-section-order 22，既有断言零修改）；eslint ChatSidebar.tsx 与新测试 0 error；`npx tsc -b --pretty false` 通过；`npm run build` 通过（dist 已刷新，仅既有警告）。
+- Boundaries: 只修 4 处会话行，未动项目行/分区头/样式类名；折叠态行为一致；wiki 无需更新（纯组件内交互修复）；未新增依赖、未触碰生成产物、未 commit。
+- 下一步：真机冒烟——点击会话行上下留白/左右边缘即选中会话；hover 行右侧点 pin/归档不误触选中；置顶行键盘 Enter/Space 仍可打开；deleting 行不可点。
+
+---
+
 ## Feature：简化自定义模型的推理/思考模型标签（2026-09-09）
 
 - 目标：移除自定义模型设置标签中的“DeepSeek V4、Qwen 等”示例，只保留简短名称。

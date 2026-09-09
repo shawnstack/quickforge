@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "workspace-diff-review-recovery",
+      "name": "产物卡「审查」打开卡死修复（file-diff 20s 超时 + 终态 diff tab 重拉恢复）",
+      "status": "done",
+      "approach": "用户报告：点击生成产物卡的「审查」，若审查内容已被删除，会一直显示「打开中」并导致其他请求卡住。只读调研（explore subagent + 主 Agent 溯源）确认：服务端 handleGitFileDiff 所有分支（含文件已删除→404 File has no working tree changes、stat 竞态→500）都会经全局 catch sendError，git 子进程有 2 分钟硬超时，不存在不回复分支；7157293 之前 404 也是走 error 终态清 loading。真正的挂死在前端：openDiffTab 调用的 getGitFileDiff 是 workspace-api 里唯一无超时/无 signal 的 git 请求（getGitStatus 已有 20s 超时，其注释明说「无超时的挂起请求会连同两条常驻 SSE 把后续请求全部阻塞」——同源 6 连接池），连接池排队/服务端极慢（file-diff 服务端每次先跑全量 listGitStatus 再 git show HEAD）时 await 永不 settle，reader tab 永远 loading:true 显示「打开中」，且该挂起请求一直占用一个池槽位拖住其他请求；更糟的是 openDiffTab 对已存在 diff tab 只激活不重拉（早退分支），卡死后再次点「审查」永远无法恢复。修复：① workspace-api.ts getGitFileDiff 加 GIT_FILE_DIFF_TIMEOUT_MS=10s 超时（AbortController + DOMException TimeoutError，成功 settle 后 clearTimeout），同时覆盖 openDiffTab 与 toggleReviewDiff 两个调用点；② WorkspaceInspector.tsx 把 openDiffTab 的 fetch/写回逻辑抽为共享 loadDiffIntoReaderTab(panelTabId, readerId, path, projectToken)（guard 失效放弃写入语义不变），对已存在的 diff reader 分两态：请求在途（loading）仅激活不重复发起；已是终态（diff/error/noChanges 空态，含产物被删除后的 404 空态）重置为 loading 重新拉取——超时/失败/空态都能通过再次点「审查」恢复，旧 diff 也会刷新为工作区实时口径。",
+      "files": [
+        "src/components/workspace/workspace-api.ts",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "tests/frontend/workspace-diff-review-recovery.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 6 files / 71 tests 全过（新建 workspace-diff-review-recovery 6 用例：10s 超时中止 signal 且 TimeoutError、成功清除 timer、超时常量契约、终态 tab 重置重拉源码契约、在途仅激活契约、新 tab/重试共用 loader 契约；回归 workspace-diff-no-changes / git-status-request-lifecycle / workspace-inspector-on-demand-source / assistant-artifact-card / workspace-inspector-tabs）；误触发全量 npm test 294 files / 2832 tests 全过；eslint 三改动文件 0 error；npx tsc -b 通过；npm run build 通过（仅既有 chunk 提示，dist 已刷新供真机冒烟）；git diff --check 通过。",
+      "boundaries": "guard 早退分支（项目切换中途）保持原样不写状态（换项目时 panelTabs 会被恢复逻辑整体替换，stuck tab 不存活）；loading 恢复 effect 不扩展到 review 面板 diff reader（超时已保证 fetch 必 settle，无需兜底重拉）；服务端 handleGitFileDiff 零改动（所有分支本就有界且必回复）；i18n 零新增（超时错误走 err.message，与 getGitStatus 超时同风格）；未新增依赖、未手工修改生成产物（build 刷新 dist 属验证流程）、未 commit/tag/push。"
+    },
+    {
       "id": "conversation-error-retry-one-line",
       "name": "对话报错重试一行式轻量错误行（就地重试/详情/升级建议）",
       "status": "done",

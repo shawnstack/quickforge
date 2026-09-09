@@ -241,8 +241,19 @@ function gitPostJson<T>(url: string, body: { projectId: string; [key: string]: u
   return postJson<T>(url, body)
 }
 
+// file-diff 服务端每次都先跑全量 git status 再 git show 旧版本；与 git status 同受
+// 同源 6 连接池约束，不能无限等待，超时即中止并释放连接。
+const GIT_FILE_DIFF_TIMEOUT_MS = 10_000
+
 export function getGitFileDiff(projectId: string, path: string) {
-  return fetchJson<GitFileDiffResponse>(`/api/git/file-diff?${projectQuery(projectId)}&path=${encodeURIComponent(path)}`)
+  const controller = new AbortController()
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException('Git file diff request timed out', 'TimeoutError'))
+  }, GIT_FILE_DIFF_TIMEOUT_MS)
+  return fetchJson<GitFileDiffResponse>(
+    `/api/git/file-diff?${projectQuery(projectId)}&path=${encodeURIComponent(path)}`,
+    controller.signal,
+  ).finally(() => clearTimeout(timer))
 }
 
 export function stageGitFile(projectId: string, path: string) {

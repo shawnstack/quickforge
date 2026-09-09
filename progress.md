@@ -1,3 +1,12 @@
+## Feature：产物卡「审查」打开卡死修复——file-diff 20s 超时 + 终态 diff tab 重拉（2026-09-09）
+
+- 现象：用户报告点击生成产物卡的「审查」，若审查内容已被删除，会一直显示「打开中」，并导致其他请求卡住。
+- 调研结论（explore subagent 只读 + 主 Agent 溯源）：服务端 `handleGitFileDiff`（server/routes/workspace.mjs:1464）所有分支都有界且必回复——文件已删除/已无工作区变更 → 404 `File has no working tree changes`（7157293 起前端转友好空态），tracked 删除 → 200 删除 diff，git 子进程 2 分钟硬超时，throw 全被全局 catch sendError。挂死在前端：`getGitFileDiff` 是 workspace-api 里唯一无超时的 git 请求；连接池排队/服务端极慢时 `await` 永不 settle → reader tab 永远 `loading:true`「打开中」，且挂起请求一直占同源 6 连接池一个槽位拖住其他请求；`openDiffTab` 对已存在 diff tab 只激活不重拉，卡死后再次点「审查」永远无法恢复。guard 早退（项目切换中途）与 tab 持久化恢复均排除（diff reader 不被持久化恢复；换项目时 tabs 整体替换）。
+- 修复：① `workspace-api.ts` `getGitFileDiff` 加 `GIT_FILE_DIFF_TIMEOUT_MS=10s` 超时（对齐 `getGitStatus` 的 TimeoutError AbortController 模式，成功后清 timer），同时覆盖 `openDiffTab` 与 `toggleReviewDiff` 两个调用点；② `WorkspaceInspector.tsx` openDiffTab 的 fetch/写回抽为共享 `loadDiffIntoReaderTab`（guard 失效放弃写入不变），已存在 diff reader 分两态：在途仅激活；终态（diff/error/noChanges）重置为 loading 重拉——再次点「审查」即可恢复/刷新。
+- 验证：定向 vitest 6 files / 71 tests 全过（新 `tests/frontend/workspace-diff-review-recovery.test.ts` 6 用例）；误触发全量 `npm run test` 294 files / 2832 tests 全过；eslint 三改动文件 0 error；`npx tsc -b`；`npm run build` 通过（dist 已刷新）；`git diff --check` 通过。
+- 下一步：真机冒烟——删除/回滚产物文件后点「审查」应显示空态或删除 diff（不再卡「打开中」）；人为断网/挂起时 10s 后出红色超时错误，再次点「审查」重新拉取可恢复；其余请求不被拖住。
+- Notes（与 feature 无关，未处理）：① 请求 effect 里 `openPanelTab('review', view)` 与紧随的 `openDiffTab(path)` 在同一同步块内，两处闭包的 `panelTabs` 都不含刚 append 的 review tab——项目+会话首次点「审查」（之前无 review tab）会 append 两个 review panel tab（diff reader 挂第二个，后续点击挂第一个）；② workspace-api 其余 git 读（branches/log）与 workspace 读（children/file）同样无超时，连接池极端场景仍可能被钉住，可按 getGitFileDiff 模式逐步补。
+
 ## Feature：对话报错重试一行式轻量错误行（2026-09-09）
 
 - 背景：用户问「当前页面报错的重试有没有更优雅的交互」，澄清目标为对话回合失败的终态错误层（与 SSE 重连、模型流自动重试并列的第三层：恢复失败后的用户决策）。

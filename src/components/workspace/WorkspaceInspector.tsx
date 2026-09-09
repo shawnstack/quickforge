@@ -1590,6 +1590,22 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
   openDocumentTabRef.current = openDocumentTab
   openDiffTabRef.current = openDiffTab
 
+  // 拉取单文件 git diff 并写回对应 reader tab；guard 失效（项目已切换）时放弃写入。
+  async function loadDiffIntoReaderTab(panelTabId: string, readerId: string, path: string, projectToken: WorkspaceInspectorProjectToken) {
+    try {
+      const diff = await getGitFileDiff(projectToken.projectId, path)
+      if (!projectGuardRef.current.isCurrent(projectToken)) return
+      updatePanelTab(panelTabId, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === readerId ? { ...item, diff, loading: false, error: undefined, noChanges: undefined } : item) }))
+    } catch (err) {
+      if (!projectGuardRef.current.isCurrent(projectToken)) return
+      // 会话累计口径的文件被 commit/revert 后 Git 工作区已无变更：404 转为友好空态。
+      const noChanges = isNoWorkingTreeChangesError(err)
+      updatePanelTab(panelTabId, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === readerId ? (noChanges
+        ? { ...item, loading: false, error: undefined, noChanges: true }
+        : { ...item, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenDiffFailed'), noChanges: undefined }) : item) }))
+    }
+  }
+
   async function openDiffTab(path: string, switchToChanges: boolean) {
     if (!projectId) return
     const projectToken = projectGuardRef.current.token(projectId)
@@ -1600,8 +1616,16 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
       updatePanelTab(targetTab.id, (tab) => ({ ...tab, reviewView: 'changes' }))
     }
     const id = readerTabId('diff', path)
-    if (targetTab.readerTabs?.some((tab) => tab.id === id)) {
-      updatePanelTab(targetTab.id, (tab) => ({ ...tab, activeReaderTabId: id }))
+    const existingReader = targetTab.readerTabs?.find((tab) => tab.id === id)
+    if (existingReader) {
+      // 在途请求只激活不重复发起；已是终态（diff/error/noChanges，含产物被删除后的
+      // 空态）则重置为 loading 重新拉取，保证再次点「审查」能恢复而不是永远复用旧结果。
+      if (existingReader.loading) {
+        updatePanelTab(targetTab.id, (tab) => ({ ...tab, activeReaderTabId: id }))
+        return
+      }
+      updatePanelTab(targetTab.id, (tab) => ({ ...tab, activeReaderTabId: id, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, diff: undefined, loading: true, error: undefined, noChanges: undefined } : item) }))
+      await loadDiffIntoReaderTab(targetTab.id, id, path, projectToken)
       return
     }
     const newTab: ReaderTab = { id, mode: 'diff', path, loading: true }
@@ -1610,18 +1634,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
       readerTabs: [...(tab.readerTabs || []), newTab],
       activeReaderTabId: id,
     }))
-    try {
-      const diff = await getGitFileDiff(projectId, path)
-      if (!projectGuardRef.current.isCurrent(projectToken)) return
-      updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, diff, loading: false, error: undefined, noChanges: undefined } : item) }))
-    } catch (err) {
-      if (!projectGuardRef.current.isCurrent(projectToken)) return
-      // 会话累计口径的文件被 commit/revert 后 Git 工作区已无变更：404 转为友好空态。
-      const noChanges = isNoWorkingTreeChangesError(err)
-      updatePanelTab(targetTab.id, (tab) => ({ ...tab, readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? (noChanges
-        ? { ...item, loading: false, error: undefined, noChanges: true }
-        : { ...item, loading: false, error: err instanceof Error ? err.message : t('workspaceOpenDiffFailed'), noChanges: undefined }) : item) }))
-    }
+    await loadDiffIntoReaderTab(targetTab.id, id, path, projectToken)
   }
 
   async function toggleReviewDiff(path: string) {

@@ -1,3 +1,15 @@
+## 当前交接摘要：产物卡「审查」打开卡死修复（2026-09-09）
+
+- 目标：用户报告点击产物卡「审查」后若审查内容已被删除，会一直显示「打开中」并拖住其他请求。
+- 根因：服务端 `/api/git/file-diff`（server/routes/workspace.mjs handleGitFileDiff）所有分支有界且必回复（删除文件 404→7157293 友好空态 / tracked 删除 200 删除 diff / git 子进程 2min 硬超时）；挂死在前端——`getGitFileDiff` 是 workspace-api 里唯一无超时的 git 请求，连接池排队/服务端极慢时永不 settle，reader tab 永远 loading「打开中」且占一个同源连接池槽位拖住其他请求；`openDiffTab` 对已存在 diff tab 只激活不重拉，卡死后无法恢复。
+- 实现：`workspace-api.ts` getGitFileDiff 加 `GIT_FILE_DIFF_TIMEOUT_MS=10s`（TimeoutError AbortController，成功清 timer；覆盖 openDiffTab 与 toggleReviewDiff 两调用点）；`WorkspaceInspector.tsx` openDiffTab 抽共享 `loadDiffIntoReaderTab`，已存在 diff reader 在途仅激活、终态（diff/error/noChanges）重置 loading 重拉——再次点「审查」可恢复/刷新。
+- 文件：`src/components/workspace/workspace-api.ts`、`src/components/workspace/WorkspaceInspector.tsx`、`tests/frontend/workspace-diff-review-recovery.test.ts`（新 6 用例）、`docs/wiki/src/components/README.md`（Review tab 条目）、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 vitest 6 files / 71 tests 全过；误触发全量 `npm run test` 294 files / 2832 tests 全过；eslint 三改动文件 0 error；`npx tsc -b`；`npm run build` 通过（dist 已刷新）；`git diff --check` 通过。
+- Blocker：无。未 commit。
+- 下一步：真机冒烟——删除/回滚产物文件后点「审查」出空态或删除 diff；断网/挂起 10s 后出超时红错、再点「审查」可恢复；其他请求不被拖住。Notes 待办见 progress.md（首次点「审查」双 review tab；其余 git/workspace 读无超时）。
+
+---
+
 ## 当前交接摘要：置顶摘要分支菜单旁挂弹出（2026-09-09）
 
 - 目标：用户反馈置顶摘要（小浮层）里点 git 分支在面板内部再嵌一个小下拉太挤；先按「屏蔽一下」做成只读行，后按最终指令「不要移除 不要在里面打开、从旁边打开」改为旁挂弹层。

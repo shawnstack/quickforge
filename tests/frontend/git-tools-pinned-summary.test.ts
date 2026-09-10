@@ -1,7 +1,19 @@
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it, vi } from 'vitest'
+
+// The real i18n module pulls in pi-web-ui, which requires a browser DOM; the
+// source contracts below only need the app translation keys to exist.
+vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
+
+import { GitToolsPinnedSummary } from '../../src/components/git/GitToolsPinnedSummary'
+import type { GoalState } from '../../src/lib/goal'
 
 const summarySource = readFileSync(new URL('../../src/components/git/GitToolsPinnedSummary.tsx', import.meta.url), 'utf8')
+const goalSectionSource = readFileSync(new URL('../../src/components/git/GoalSummarySection.tsx', import.meta.url), 'utf8')
+const goalUiSource = readFileSync(new URL('../../src/lib/goal-ui.ts', import.meta.url), 'utf8')
+const goalInspectorSource = readFileSync(new URL('../../src/components/workspace/GoalInspectorContent.tsx', import.meta.url), 'utf8')
 const dragSource = readFileSync(new URL('../../src/lib/pinned-summary-drag.ts', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
@@ -31,7 +43,8 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(appSource).toContain('titleGitStatus?.isGitRepository')
     expect(summarySource).toContain('suspended?: boolean')
     expect(summarySource).toContain('suspended = false')
-    expect(summarySource).toContain('if (todos.length === 0 && runningSubagentRuns.length === 0 && finishedSubagentRuns.length === 0 && !hasGitSection) return null')
+    expect(summarySource).toContain('!hasGoalSection')
+    expect(summarySource).toContain('&& !hasGitSection\n  ) return null')
   })
 
   it('hides both toolbar and fixed widget from layout, input, Tab order, and accessibility while suspended', () => {
@@ -437,5 +450,104 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(i18nSource).toContain("pinnedSummaryMinimize: '缩小为摘要'")
     expect(i18nSource).toContain("pinnedSummaryClose: 'Close pinned summary'")
     expect(i18nSource).toContain("pinnedSummaryClose: '关闭置顶摘要'")
+  })
+})
+
+describe('GitToolsPinnedSummary goal section', () => {
+  const goalState: GoalState = {
+    id: 'goal-1',
+    sessionId: 'session-1',
+    revision: 3,
+    objective: '收敛 Goal 到置顶摘要',
+    status: 'running',
+    criteria: [{ id: 'c1', description: '构建通过', required: true, status: 'passed', evidenceIds: [] }],
+    scope: [],
+    summary: '',
+    budget: { maxIterations: 8, maxActiveDurationMs: 1_800_000 },
+    usage: { iterations: 5, activeDurationMs: 1_080_000 },
+    evidence: [],
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+
+  function renderSummary(overrides: Record<string, unknown> = {}) {
+    return renderToStaticMarkup(createElement(GitToolsPinnedSummary, {
+      todos: [],
+      runningSubagentRuns: [],
+      finishedSubagentRuns: [],
+      expanded: true,
+      onExpandedChange: () => {},
+      onOpenSubagentRun: () => {},
+      onOpenChanges: () => {},
+      onOpenCommitPush: () => {},
+      onCheckout: async () => {},
+      onCreated: () => {},
+      onOpenGraph: () => {},
+      initialAnchorRef: { current: null },
+      ...overrides,
+    }))
+  }
+
+  it('stays mounted for a goal-only session and renders the goal section', () => {
+    const html = renderSummary({ goal: goalState, goalSessionId: 'session-1', onGoalAction: async () => {} })
+    expect(html).toContain('quickforge-goal-summary')
+    expect(html).toContain('收敛 Goal 到置顶摘要')
+    expect(html).toContain('执行中')
+    // No git repo, todo list or subagent run is required for the summary.
+    expect(appSource).toContain('|| Boolean(pinnedSummaryGoal)')
+    expect(appSource).toContain('goal={pinnedSummaryGoal}')
+    expect(appSource).toContain('goalSessionId={pinnedSummaryGoalSessionId}')
+    expect(appSource).toContain('onGoalAction={handlePinnedGoalAction}')
+  })
+
+  it('collapses to nothing without a goal, git repo, todos or subagent runs', () => {
+    expect(renderSummary({ expanded: false })).toBe('')
+  })
+
+  it('keeps the goal section above git/tasks/agents and out of their density', () => {
+    const goalIndex = summarySource.indexOf('{hasGoalSection && goal && goalSessionId ? (')
+    expect(goalIndex).toBeGreaterThan(-1)
+    expect(goalIndex).toBeLessThan(summarySource.indexOf('{hasGitSection && status && projectId ? ('))
+    expect(summarySource).toContain("<GoalSummarySection goal={goal} sessionId={goalSessionId} onAction={onGoalAction} />")
+    // Goal-first capsule with a real status and accepted-criteria count, capped
+    // density for the remaining segments.
+    expect(summarySource.indexOf("key: 'goal'")).toBeLessThan(summarySource.indexOf("key: 'tasks'"))
+    expect(summarySource).toContain('<Target className="size-3.5"')
+    expect(summarySource).toContain("t('goalCriteriaProgress', { completed: goalPassedCriteria, total: goalView.criteria.length })")
+    expect(summarySource).toContain('return goalView ? segments.slice(0, 3) : segments')
+    // Terminal goals stay reviewable: the section is never gated on an active status.
+    expect(summarySource).not.toContain('isGoalActive')
+  })
+
+  it('keeps the two-line summary navigation-only and owns the shared action lock in the Inspector', () => {
+    expect(goalSectionSource).toContain("from '@/lib/goal-ui'")
+    expect(goalSectionSource).toContain("onClick={() => requestOpenGoalSummary(sessionId, goal.id, 'progress')}")
+    expect(goalSectionSource).not.toContain('runGoalUiAction')
+    expect(goalSectionSource).not.toContain('onAction(')
+    expect(goalSectionSource).not.toContain('<textarea')
+    expect(goalSectionSource.match(/<button\b/g)).toHaveLength(1)
+    expect(goalSectionSource.match(/<span className="flex min-w-0/g)).toHaveLength(2)
+    expect(goalInspectorSource).toContain('runGoalUiAction(sessionId, goal.id, action, () => onAction(action, undefined, options))')
+    expect(goalInspectorSource).toContain('runGoalUiAction(sessionId, goal.id, action, () => onAction(action, undefined, { ...options!, signal: controller.signal }))')
+    expect(goalUiSource).toContain('export const OPEN_GOAL_SUMMARY_EVENT')
+    expect(summarySource).not.toContain('runGoalUiAction')
+    // The shell executes updateGoal once; the Inspector/controller own the lock.
+    expect(appSource).toContain('await agent.updateGoal(action, objective, options)')
+    expect(appSource).not.toContain('runGoalUiAction')
+    expect(appSource).toContain("'goal_updated',")
+  })
+
+  it('routes goal summary navigation to the existing Inspector without a new global mode', () => {
+    expect(appSource).toContain("const pinnedSummaryGoalEnabled = pinnedSummaryGoalSource !== 'acp'")
+    const goalOpenListener = appSource.indexOf('window.addEventListener(OPEN_GOAL_SUMMARY_EVENT')
+    expect(goalOpenListener).toBeGreaterThan(-1)
+    const goalOpenHandler = appSource.slice(appSource.lastIndexOf('const handler = (event: Event) => {', goalOpenListener), goalOpenListener)
+    expect(goalOpenHandler).toContain('sessionId !== pinnedSummaryGoalSessionId')
+    expect(goalOpenHandler).toContain('pinnedSummaryGoal.id !== goalId')
+    expect(goalOpenHandler).toContain("requestWorkspaceInspector({ projectId: workspaceInspectorScope.projectId, kind: 'goal', sessionId, goalId, view: detail.view === 'edit' ? 'edit' : 'progress' })")
+    expect(goalOpenHandler).not.toContain('setWorkspaceInspectorOpen(false)')
+    expect(goalOpenHandler).not.toContain('setGitToolsExpanded(true)')
+    expect(appSource).toContain('goalUnavailable')
+    // The inspector is still the only suspended/closed owner: no new mode flag.
+    expect(appSource).not.toContain('goalSummaryMode')
   })
 })

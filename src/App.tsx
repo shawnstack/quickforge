@@ -41,6 +41,9 @@ import {
   normalizeOpenSubagentRunRequest,
   type SubagentRunPayload,
 } from '@/lib/subagent-run-detail'
+import { OPEN_GOAL_SUMMARY_EVENT, syncGoalUiState } from '@/lib/goal-ui'
+import type { GoalAction, GoalActionOptions } from '@/lib/goal'
+import { saveGoalObjective } from '@/lib/goal-edit'
 import type {
   AgentAccessMode,
   ProjectInfo,
@@ -542,6 +545,9 @@ function MainApp() {
       'message_end',
       'messages_replaced',
       'agent_end',
+      // Goal transitions (plan confirm, pause/resume, accept, cancel) drive the
+      // pinned summary's goal section and capsule.
+      'goal_updated',
     ])
     return agent.subscribe((event) => {
       if (relevantEvents.has(event.type)) setPinnedSummaryRevision((value) => value + 1)
@@ -567,6 +573,26 @@ function MainApp() {
     t,
   // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
   ), [agentManager.agent, pinnedSummaryRevision])
+
+  // 置顶摘要里的 Goal 分区与 ChatPanelHost 的 Goal 卡同源、同门禁：只读/共享页面
+  // 不渲染 MainApp，ACP 会话（服务端禁用 Goal 模式）由 authoritative sessionSource 排除。
+  const pinnedSummaryGoalSource = (agentManager.agent as { sessionSource?: string } | null)?.sessionSource
+  const pinnedSummaryGoalEnabled = pinnedSummaryGoalSource !== 'acp'
+  const pinnedSummaryGoal = useMemo(() => (
+    pinnedSummaryGoalEnabled ? agentManager.agent?.state.goal ?? null : null
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
+  ), [agentManager.agent, pinnedSummaryGoalEnabled, pinnedSummaryRevision])
+  // 与 ChatPanelHost / 控制条共用同一个 store key：优先用 agent 自身的 sessionId。
+  const pinnedSummaryGoalSessionId = agentManager.agent?.sessionId ?? agentManager.currentSessionId ?? pinnedSummaryGoal?.sessionId ?? ''
+
+
+  // 服务端 goal 是权威：goal 离开可编辑状态、或目标被替换（revise）后，共享 store
+  // 里遗留的草稿/dirty 必须清除——否则摘要关闭、无 Goal surface 挂载时，控制条的
+  // pause/resume 会被旧锁卡死。用 effect 同步（不在 render 期写 store）。
+  useEffect(() => {
+    syncGoalUiState(pinnedSummaryGoalSessionId, pinnedSummaryGoal)
+  }, [pinnedSummaryGoal, pinnedSummaryGoalSessionId])
+
 
   useEffect(() => {
     const loadingSessionId = agentManager.loadingSessionId
@@ -1067,6 +1093,52 @@ function MainApp() {
     window.addEventListener('quickforge:preview-artifact', handler as EventListener)
     return () => window.removeEventListener('quickforge:preview-artifact', handler as EventListener)
   }, [agentManager.currentToolProject?.id, openArtifactPreview])
+
+  // 其它 Goal surface（控制条/卡片）请求打开摘要：只认当前会话 + 当前 Goal，
+  // 打开前复用现有收起 Inspector 入口解除 suspension，不新增全局模式。
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: unknown; goalId?: unknown; view?: unknown }>).detail
+      const sessionId = typeof detail?.sessionId === 'string' ? detail.sessionId : ''
+      const goalId = typeof detail?.goalId === 'string' ? detail.goalId : ''
+      if (!sessionId || !goalId) return
+      if (!pinnedSummaryGoalSessionId || sessionId !== pinnedSummaryGoalSessionId) return
+      if (!pinnedSummaryGoal || pinnedSummaryGoal.id !== goalId) return
+      requestWorkspaceInspector({ projectId: workspaceInspectorScope.projectId, kind: 'goal', sessionId, goalId, view: detail.view === 'edit' ? 'edit' : 'progress' })
+    }
+    window.addEventListener(OPEN_GOAL_SUMMARY_EVENT, handler as EventListener)
+    return () => window.removeEventListener(OPEN_GOAL_SUMMARY_EVENT, handler as EventListener)
+  }, [pinnedSummaryGoal, pinnedSummaryGoalSessionId, requestWorkspaceInspector, workspaceInspectorScope])
+
+  // Goal 动作只走 agent.updateGoal：共享锁由 Inspector / 控制条的
+  // goal-ui wrapper 持有，这里不重复包一层。
+  const handlePinnedGoalAction = useCallback(async (action: GoalAction, objective?: string, options?: GoalActionOptions) => {
+    const agent = agentRef.current
+    if (!agent || typeof agent.updateGoal !== 'function' || agent.sessionId !== pinnedSummaryGoalSessionId || agent.state.goal?.id !== pinnedSummaryGoal?.id || agent.state.goal?.sessionId !== pinnedSummaryGoalSessionId) throw new Error(t('goalUnavailable'))
+    await agent.updateGoal(action, objective, options)
+    setPinnedSummaryRevision((value) => value + 1)
+  }, [agentRef, pinnedSummaryGoal?.id, pinnedSummaryGoalSessionId])
+
+  const handleGoalSave = useCallback(async (baselineObjective: string, objective: string, confirmPause: boolean, signal: AbortSignal) => {
+    const sessionId = pinnedSummaryGoalSessionId
+    const goalId = pinnedSummaryGoal?.id ?? ''
+    await saveGoalObjective({
+      sessionId, goalId, baselineObjective, objective, confirmPause, signal,
+      getCurrent: () => {
+        const agent = agentRef.current
+        return agent ? { sessionId: agent.sessionId, goal: agent.state.goal ?? null, isStreaming: agent.state.isStreaming } : null
+      },
+      refresh: async (refreshSignal) => {
+        const agent = agentRef.current
+        if (!(agent instanceof ServerAgent) || agent.sessionId !== sessionId || agent.state.goal?.id !== goalId || agent.state.goal.sessionId !== sessionId || signal.aborted || refreshSignal.aborted) throw new Error(t('goalUnavailable'))
+        const snapshot = await agent.refreshGoalForSave(goalId, refreshSignal)
+        if (agentRef.current !== agent || agent.sessionId !== sessionId || agent.state.goal?.id !== goalId || agent.state.goal.sessionId !== sessionId || signal.aborted || refreshSignal.aborted) throw new Error(t('goalUnavailable'))
+        setPinnedSummaryRevision((value) => value + 1)
+        return snapshot
+      },
+      update: handlePinnedGoalAction,
+    })
+  }, [agentRef, handlePinnedGoalAction, pinnedSummaryGoal?.id, pinnedSummaryGoalSessionId])
 
   const openSubagentRun = useCallback((payload: SubagentRunPayload) => {
     setArtifactPreviewOpen(false)
@@ -1916,6 +1988,7 @@ function MainApp() {
         || pinnedSummarySubagentRuns.length > 0
         || pinnedSummaryRunningSubagentRuns.length > 0
         || titleGitStatus?.isGitRepository
+        || Boolean(pinnedSummaryGoal)
       ) ? (
         <GitToolsPinnedSummary
           projectId={agentManager.currentToolProject?.id}
@@ -1923,6 +1996,9 @@ function MainApp() {
           todos={pinnedSummaryTodos}
           runningSubagentRuns={pinnedSummaryRunningSubagentRuns}
           finishedSubagentRuns={pinnedSummarySubagentRuns}
+          goal={pinnedSummaryGoal}
+          goalSessionId={pinnedSummaryGoalSessionId}
+          onGoalAction={handlePinnedGoalAction}
           expanded={gitToolsExpanded}
           suspended={pinnedSummarySuspended}
           onExpandedChange={setGitToolsExpanded}
@@ -2428,6 +2504,7 @@ function MainApp() {
           {workspaceInspectorOpen ? <div aria-hidden="true" className="hidden w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_30%,var(--quickforge-sidebar-bg))] lg:block" /> : null}
           <Suspense fallback={<LazyOverlayFallback />}>
             <WorkspaceInspector
+              goalBinding={pinnedSummaryGoal ? { goal: pinnedSummaryGoal, sessionId: pinnedSummaryGoalSessionId, onAction: handlePinnedGoalAction, onSave: handleGoalSave } : undefined}
               key={`${workspaceInspectorProjectId}:${workspaceInspectorRuntimeScopeId}`}
               project={agentManager.currentToolProject}
               sessionId={agentManager.currentSessionId}

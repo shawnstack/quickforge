@@ -898,3 +898,43 @@ describe('SSE streaming throttle and backpressure', () => {
     req.emit('close')
   })
 })
+
+describe('agent create route', () => {
+  it('strips restore-only fields from the client create body', async () => {
+    const agentManager = await import('../../../server/agent-manager.mjs')
+    agentManager.createAgent.mockResolvedValue({
+      sessionId: 'session-1',
+      status: 'idle',
+      scope: 'global',
+      title: 'New chat',
+      accessMode: 'default',
+      yoloMode: false,
+    })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(
+      request({
+        scope: 'global',
+        restoredGoal: { id: 'goal_injected', status: 'running', objective: 'injected' },
+        persistedStateJson: '{"goal":{"id":"goal_injected"}}',
+        persistedStorageRevision: 99,
+        persistedMessageCount: 5,
+        persistedTailDigest: 'forged',
+      }),
+      res,
+      new URL('http://localhost/api/agents/session-1'),
+      { isLocalRequest: true },
+    )
+
+    expect(agentManager.createAgent).toHaveBeenCalledTimes(1)
+    const [, config] = agentManager.createAgent.mock.calls[0]
+    expect(config).not.toHaveProperty('restoredGoal')
+    expect(config).not.toHaveProperty('persistedStateJson')
+    expect(config).not.toHaveProperty('persistedStorageRevision')
+    expect(config).not.toHaveProperty('persistedMessageCount')
+    expect(config).not.toHaveProperty('persistedTailDigest')
+    expect(config.scope).toBe('global')
+    expect(res.status).toBe(200)
+  })
+})

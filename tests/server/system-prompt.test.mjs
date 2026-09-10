@@ -23,9 +23,9 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('For multi-step work, use a brief plan.')
   })
 
-  it('agent approval hook explicitly exempts todo_write without classifying it as a safe read', async () => {
+  it('agent approval hook explicitly exempts todo_write and goal_report without classifying them as safe reads', async () => {
     const source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../../server/agent-manager.mjs', import.meta.url), 'utf8'))
-    expect(source).toContain("if (toolName === 'ask_user' || toolName === 'todo_write') return undefined")
+    expect(source).toContain("if (toolName === 'ask_user' || toolName === 'todo_write' || toolName === 'goal_report') return undefined")
   })
 
   it('prioritizes Explore for repository discovery in base instructions and subagent catalog', () => {

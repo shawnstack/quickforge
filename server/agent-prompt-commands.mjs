@@ -15,6 +15,7 @@ import {
   resolveCustomCommandInvocation,
 } from './custom-commands.mjs'
 import { messageText } from './message-converters.mjs'
+import { startGoalPlanning } from './agent-goal-runner.mjs'
 
 const QUICKFORGE_COMMAND_DETAILS_KEY = 'quickforgeCommand'
 
@@ -62,6 +63,24 @@ function planCommandState(userMessage, args) {
     commandPrompt: formatPlanCommandPrompt(args),
     permissions: { allowEdit: false, allowCommands: false, allowSubagents: true },
     commandName: 'plan',
+  }
+}
+
+/**
+ * `/goal <objective>`: create the session goal and run the read-only planning
+ * turn. The goal runner owns the state; this only renders the command state.
+ * Failures (active goal, workspace conflict, persist failure) come back as a
+ * plain text response, exactly like other internal commands.
+ */
+async function goalCommandState(session, userMessage, args, requestSource = null) {
+  const result = await startGoalPlanning(session, args, requestSource)
+  if (result?.error) return { textResponse: result.error }
+  return {
+    userMessage,
+    commandPrompt: result.commandPrompt,
+    permissions: { allowEdit: false, allowCommands: false, allowSubagents: true },
+    commandName: 'plan',
+    goalRun: { kind: 'planning' },
   }
 }
 
@@ -153,7 +172,7 @@ async function agentCommandState(session, userMessage, args) {
   }
 }
 
-export async function resolveCommandState(session, userMessage, promptCommand = null) {
+export async function resolveCommandState(session, userMessage, promptCommand = null, requestSource = null) {
   const command = normalizedPromptCommand(promptCommand) || promptCommandFromMessage(userMessage)
   const internalInvocation = internalInvocationForPromptCommand(userMessage, command)
   // /skill and /agent need session context (enabled skills, workspace-rooted
@@ -171,6 +190,9 @@ export async function resolveCommandState(session, userMessage, promptCommand = 
   if (internalResponse?.compact) return { compact: internalResponse }
   if (internalResponse?.plan) {
     return planCommandState(userMessage, internalResponse.args)
+  }
+  if (internalResponse?.goal) {
+    return goalCommandState(session, userMessage, internalResponse.args, requestSource)
   }
   if (internalResponse?.init) {
     if (!session.projectId) return { textResponse: 'Initialization requires an active project chat.' }

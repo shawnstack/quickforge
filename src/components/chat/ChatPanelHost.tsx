@@ -4,6 +4,7 @@ import {
   ChatPanel,
 } from '@earendil-works/pi-web-ui'
 import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, FileContextReference } from '@/lib/server-agent'
+import type { GoalAction, GoalActionOptions, GoalState } from '@/lib/goal'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import type { SideChatAgent } from '@/components/workspace/side-chat-agent'
@@ -48,8 +49,15 @@ import {
   createModelRetryNoticeController,
   createTurnErrorTracker,
   removeSubagentRunningIndicator,
+  createGoalControlStripController,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
+import {
+  getGoalUiState,
+  requestOpenGoalSummary,
+  runGoalUiAction,
+  subscribeGoalUi,
+} from '@/lib/goal-ui'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
@@ -103,6 +111,13 @@ type AgentWithCapabilityPrompt = AgentLike & {
   setNextPromptCapabilities?: (capabilities: unknown[]) => void
   setNextPromptContextReferences?: (references: FileContextReference[], onConsumed?: () => void) => void
   setPlanMode?: (mode: boolean, onConsumed?: () => void) => void
+}
+
+type AgentWithGoal = AgentLike & {
+  state: AgentLike['state'] & { goal?: GoalState | null }
+  updateGoal?: (action: GoalAction, objective?: string, options?: GoalActionOptions) => Promise<GoalState | null>
+  /** `'acp'` for OpenCode/ACP sessions, where the server disables goal mode. */
+  sessionSource?: string
 }
 
 // 对话区 icon-only 紧凑模式阈值：控件行极限宽度约 530px + 余量取 640px；
@@ -718,6 +733,31 @@ export function ChatPanelHost({
       panel,
       getMessages: () => agent.state.messages as import('./panel-decoration').TodoWriteMessage[],
     })
+    // Goal mode control strip: QuickForge main chat only. Side Chat, shared and
+    // read-only pages gate it out through capabilities. ACP sessions
+    // (OpenCode) are excluded by the authoritative session source — the server
+    // rejects goal actions there (`isGoalModeAvailable`), so the strip must not
+    // offer them just because the page is not read-only. The strip is purely a
+    // view over the authoritative ServerAgent goal state; actions post to the
+    // server and the returned/streamed goal re-renders it. The shared goal-ui
+    // module owns the request lock/dirty guard and the open-summary request.
+    const goalStrip = !sideChatMode
+      ? createGoalControlStripController({
+          panel,
+          enabled: () => effectiveCapabilities.goal
+            && !('shareId' in agent)
+            && (agent as AgentWithGoal).sessionSource !== 'acp',
+          getGoal: () => (agent as AgentWithGoal).state.goal ?? null,
+          getSessionId: () => agent.sessionId,
+          goalUi: { getGoalUiState, requestOpenGoalSummary, runGoalUiAction, subscribeGoalUi },
+          onAction: async (action, objective) => {
+            const target = agent as AgentWithGoal
+            if (typeof target.updateGoal !== 'function') throw new Error(t('goalUnavailable'))
+            await target.updateGoal(action, objective)
+            scheduleDecorateRef.current?.()
+          },
+        })
+      : null
     // 全局 Agent SSE 弱网重连提示（消息流末尾居中轻量行）；Side Chat 使用
     // 独立的 NDJSON 流、不共享该连接，因此不挂此装饰。
     const reconnectNotice = sideChatMode ? null : createReconnectNoticeController({ panel })
@@ -1204,6 +1244,12 @@ export function ChatPanelHost({
         logger.warn('Failed to update queued messages panel:', error)
       }
 
+      try {
+        goalStrip?.update()
+      } catch (error) {
+        logger.warn('Failed to update goal control strip:', error)
+      }
+
       if (sideChatMode) {
         removeApprovalCard(panel)
         removeAskUserCard(panel)
@@ -1638,6 +1684,10 @@ export function ChatPanelHost({
         // Persist degradation flag changed — show/hide the warning banner.
         scheduleDecorateRef.current?.()
       }
+      if (eventType === 'goal_updated') {
+        // Authoritative goal snapshot changed — re-render the goal card.
+        scheduleDecorateRef.current?.()
+      }
       if (eventType === 'model_stream_retry') {
         // 服务端正在内部重建模型上游流 — 显示/更新重试进度；恢复或回合
         // 终止由 message_update / agent_end / error 分支移除。
@@ -1760,6 +1810,7 @@ export function ChatPanelHost({
       scrollBottomButton.cleanup()
       taskLauncher?.dispose()
       todoWriteSummary.cleanup()
+      goalStrip?.cleanup()
       reconnectNotice?.destroy()
       unreachableStrip?.destroy()
       modelRetryNotice?.destroy()
@@ -1785,7 +1836,7 @@ export function ChatPanelHost({
       restoreSideChatDraftRef.current = null
       panel.remove()
     }
-  }, [agent, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, taskLauncherEnabled, effectiveCapabilities.capabilitySuggestions, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
+  }, [agent, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, taskLauncherEnabled, effectiveCapabilities.capabilitySuggestions, effectiveCapabilities.goal, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
 
   useEffect(() => {
     const host = hostRef.current

@@ -16,7 +16,7 @@ export type ReaderTab = {
 }
 
 export type WorkspacePanelPrimaryTabKind = 'files' | 'review' | 'terminal' | 'browser' | 'side-chat'
-export type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader' | 'document' | 'subagent'
+export type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader' | 'document' | 'subagent' | 'goal'
 
 export type WorkspacePanelTab = {
   id: string
@@ -30,9 +30,17 @@ export type WorkspacePanelTab = {
     path: string
     format: DocumentFormat
   }
+  goal?: { sessionId: string; goalId: string; view: 'progress' | 'edit' }
   subagentRun?: SubagentRunPayload
   // 仅运行时使用、不持久化的刷新序号：同一 Browser tab 被重复预览时递增，触发 iframe 重新加载。
   reloadNonce?: number
+}
+
+export function upsertGoalTab(tabs: WorkspacePanelTab[], goal: NonNullable<WorkspacePanelTab['goal']>) {
+  const existing = tabs.find((tab) => tab.kind === 'goal' && tab.goal?.sessionId === goal.sessionId && tab.goal.goalId === goal.goalId)
+  const id = existing?.id ?? `goal:${encodeURIComponent(goal.sessionId)}:${encodeURIComponent(goal.goalId)}`
+  const tab: WorkspacePanelTab = { id, kind: 'goal', goal }
+  return { tabs: existing ? tabs.map((entry) => entry.id === id ? tab : entry) : [...tabs, tab], activePanelTabId: id }
 }
 
 export type PersistedWorkspacePanelTab = Pick<WorkspacePanelTab, 'id' | 'kind' | 'url' | 'reviewView' | 'terminalSessionId' | 'document'> & {
@@ -160,7 +168,7 @@ export function serializePanelTabs(
   readerNavigationVisible = true,
 ): PersistedWorkspaceInspectorTabs {
   const persistedTabs = tabs.flatMap((tab): PersistedWorkspacePanelTab[] => {
-    if (tab.kind === 'subagent' || tab.kind === 'side-chat') return []
+    if (tab.kind === 'subagent' || tab.kind === 'side-chat' || tab.kind === 'goal') return []
     if (tab.kind === 'reader') {
       const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
       if (!reader || reader.mode !== 'file') return []

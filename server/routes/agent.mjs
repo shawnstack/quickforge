@@ -38,6 +38,26 @@ import {
   agentEvents,
 } from '../agent-manager.mjs'
 import { channelEvents } from '../channels/registry.mjs'
+import { isGoalAction } from '../agent-goal-state.mjs'
+
+// Restore-only config fields are produced by the restore path (persisted goal
+// body, CAS baselines). A client must never be able to inject them through
+// POST /api/agents, so they are stripped from the request body before create.
+const RESTORE_ONLY_AGENT_CONFIG_FIELDS = [
+  'restoredGoal',
+  'persistedStateVersion',
+  'persistedStorageRevision',
+  'persistedStateJson',
+  'persistedMessageStorage',
+  'persistedMessageCount',
+  'persistedTailDigest',
+]
+
+function clientAgentConfig(body) {
+  const config = { ...(body && typeof body === 'object' ? body : {}) }
+  for (const field of RESTORE_ONLY_AGENT_CONFIG_FIELDS) delete config[field]
+  return config
+}
 
 export async function handleAgentApi(req, res, url, context = {}) {
   const pathname = url.pathname
@@ -189,6 +209,43 @@ export async function handleAgentApi(req, res, url, context = {}) {
     return
   }
 
+  // POST /api/agents/:sessionId/goal — goal mode action (confirm/pause/resume/cancel/revise/accept)
+  if (req.method === 'POST' && subPath === 'goal') {
+    const body = await readJsonBody(req)
+    const action = body?.action
+    if (!isGoalAction(action)) {
+      const error = new Error('Invalid goal action. Expected one of: confirm, pause, resume, extend_resume, cancel, revise, accept')
+      error.statusCode = 400
+      throw error
+    }
+    const session = await restoreAgent(sessionId)
+    if (!session) {
+      const error = new Error('Session not found')
+      error.statusCode = 404
+      throw error
+    }
+    // Dynamic import: the goal runner pulls in the persistence/storage chain,
+    // which non-goal requests should never pay for at module load.
+    const { handleGoalAction, isGoalModeAvailable } = await import('../agent-goal-runner.mjs')
+    // Request-entry gate: a shared conversation's sessionId can be addressed
+    // directly, and its session.source stays empty — only the request-scoped
+    // modelAccessContext marks it as shared. That overlay is request-scoped and
+    // must never permanently disable the owner's main chat, so real
+    // session-bound sources (acp/scheduled) are what reject here.
+    const requestSource = context && typeof context === 'object' ? context.source ?? null : null
+    if (!isGoalModeAvailable(session, requestSource)) {
+      const error = new Error('Goal mode is not available for this session.')
+      error.statusCode = 409
+      error.errorCode = 'GOAL_UNAVAILABLE'
+      throw error
+    }
+    const goal = action === 'extend_resume'
+      ? await handleGoalAction(session, action, undefined, requestSource, body)
+      : await handleGoalAction(session, action, body?.objective, requestSource)
+    sendJson(res, 200, { goal })
+    return
+  }
+
   // POST /api/agents/:sessionId/abort — abort current run
   if (req.method === 'POST' && subPath === 'abort') {
     const result = await abortRun(sessionId)
@@ -290,12 +347,13 @@ export async function handleAgentApi(req, res, url, context = {}) {
   // POST /api/agents/:sessionId — create/ensure agent
   if (req.method === 'POST' && parts.length === 3) {
     const body = await readJsonBody(req)
+    const clientConfig = clientAgentConfig(body)
     let config
-    if (body?.modelRef || body?.model) {
-      const binding = await resolveModelBinding(body, { context, legacySnapshot: body?.model })
-      config = { ...body, model: binding.model, modelRef: binding.modelRef, modelAccessContext: context, resolvePersistedModel: true }
+    if (clientConfig.modelRef || clientConfig.model) {
+      const binding = await resolveModelBinding(clientConfig, { context, legacySnapshot: clientConfig.model })
+      config = { ...clientConfig, model: binding.model, modelRef: binding.modelRef, modelAccessContext: context, resolvePersistedModel: true }
     } else {
-      config = { ...body, modelAccessContext: context, resolvePersistedModel: true }
+      config = { ...clientConfig, modelAccessContext: context, resolvePersistedModel: true }
     }
     const session = await createAgent(sessionId, config)
     sendJson(res, 200, {

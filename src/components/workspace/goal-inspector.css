@@ -1,0 +1,346 @@
+/* Goal inspector — the progress/edit surface of the Workspace Inspector Goal
+   tab. The content scrolls like every other inspector tab and the action bar
+   stays pinned at the bottom. Tone colors reuse the goal card/strip mapping
+   through the local --quickforge-goal-tone variable (see data-tone below). */
+.quickforge-goal-inspector {
+  --goal-inspector-warning: #d97706;
+  --goal-inspector-success: rgb(4 143 101);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  font-size: 13px;
+  overflow-wrap: break-word;
+}
+
+.quickforge-goal-inspector[data-tone="info"],
+.quickforge-goal-inspector[data-tone="active"] { --quickforge-goal-tone: #3478d4; }
+.quickforge-goal-inspector[data-tone="warning"] { --quickforge-goal-tone: #d97706; }
+.quickforge-goal-inspector[data-tone="success"] { --quickforge-goal-tone: rgb(4 143 101); }
+.quickforge-goal-inspector[data-tone="danger"] { --quickforge-goal-tone: var(--destructive); }
+
+/* G-01: the same scroll pattern as the other inspector tabs. */
+.quickforge-goal-inspector-scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 35%, transparent) transparent;
+}
+
+/* G-05: the segmented progress/edit switch, separate from action buttons. */
+.quickforge-goal-inspector-seg {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 2px;
+  background: var(--muted);
+  border-radius: 9px;
+}
+
+.quickforge-goal-inspector-seg button {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background var(--quickforge-dur-fast) var(--quickforge-ease-out), color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-goal-inspector-seg button:hover { color: var(--foreground); }
+
+.quickforge-goal-inspector-seg button[aria-pressed="true"] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+
+.quickforge-goal-inspector-seg button:active { transform: scale(0.97); }
+
+/* G-07/G-09: tone dot + status word + localized time + ? popover. */
+.quickforge-goal-inspector-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.quickforge-goal-inspector-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--quickforge-goal-tone);
+}
+
+.quickforge-goal-inspector-status-word { color: var(--quickforge-goal-tone); font-weight: 600; }
+
+.quickforge-goal-inspector-status time { margin-left: auto; }
+
+.quickforge-goal-inspector-qbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--background);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--quickforge-dur-fast) var(--quickforge-ease-out), color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-goal-inspector-qbtn:hover { background: var(--muted); color: var(--foreground); }
+
+.quickforge-goal-inspector-qbtn:active { transform: scale(0.97); }
+
+.quickforge-goal-inspector-pop { position: relative; }
+
+.quickforge-goal-inspector-pop-body {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  width: min(290px, 100%);
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  box-shadow: var(--shadow-quickforge);
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+/* G-06/G-13: one title scale (15px) with sane break-word wrapping. */
+.quickforge-goal-inspector h2 {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* G-07: the blocker reads as a warning strip, not flat body text. */
+.quickforge-goal-inspector-blocker {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--goal-inspector-warning) 30%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--goal-inspector-warning) 8%, var(--background));
+  color: var(--goal-inspector-warning);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.quickforge-goal-inspector-summary { color: var(--muted-foreground); overflow-wrap: break-word; white-space: pre-wrap; }
+
+.quickforge-goal-inspector [role="alert"] { color: var(--destructive); font-size: 12px; }
+
+.quickforge-goal-inspector-sectiontitle {
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* G-08: criterion status badges carry the semantic tone. */
+.quickforge-goal-inspector-criteria { display: flex; flex-direction: column; gap: 6px; }
+
+.quickforge-goal-inspector-criterion { display: flex; align-items: baseline; gap: 8px; }
+
+.quickforge-goal-inspector-criterion-main { flex: 1; min-width: 0; }
+
+.quickforge-goal-inspector-criterion-desc { overflow-wrap: break-word; white-space: pre-wrap; }
+
+.quickforge-goal-inspector-badge {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.quickforge-goal-inspector-badge[data-status="passed"] {
+  background: color-mix(in oklab, var(--goal-inspector-success) 12%, var(--background));
+  color: var(--goal-inspector-success);
+}
+
+.quickforge-goal-inspector-badge[data-status="failed"] {
+  background: color-mix(in oklab, var(--destructive) 10%, var(--background));
+  color: var(--destructive);
+}
+
+.quickforge-goal-inspector-badge[data-status="pending"] { background: var(--muted); color: var(--muted-foreground); }
+
+.quickforge-goal-inspector-badge[data-status="needs_review"] {
+  background: color-mix(in oklab, var(--goal-inspector-warning) 12%, var(--background));
+  color: var(--goal-inspector-warning);
+}
+
+/* G-14: collapsed evidence/scope reveal an expanding ▸ indicator. */
+.quickforge-goal-inspector details summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.quickforge-goal-inspector details summary::before {
+  content: "▸";
+  font-size: 10px;
+  transition: transform var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-goal-inspector details[open] summary::before { transform: rotate(90deg); }
+
+.quickforge-goal-inspector details summary:hover { color: var(--foreground); }
+
+.quickforge-goal-inspector details > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 4px 14px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.quickforge-goal-inspector details code,
+.quickforge-goal-inspector details time { color: var(--muted-foreground); font-size: 11px; }
+
+/* G-09/T-F: budget as two meter rows; exhausted dimensions get a chip. */
+.quickforge-goal-inspector-budget { display: flex; flex-direction: column; gap: 8px; }
+
+.quickforge-goal-inspector-budget-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.quickforge-goal-inspector-budget-label { width: 5rem; flex: none; color: var(--muted-foreground); }
+
+.quickforge-goal-inspector-meter {
+  flex: 1;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.quickforge-goal-inspector-meter-fill { display: block; height: 100%; border-radius: 999px; background: var(--quickforge-goal-tone); }
+
+.quickforge-goal-inspector-budget-row[data-exhausted="true"] .quickforge-goal-inspector-meter-fill { background: var(--goal-inspector-warning); }
+
+.quickforge-goal-inspector-budget-value { flex: none; font-variant-numeric: tabular-nums; }
+
+.quickforge-goal-inspector-budget-value em { font-style: normal; color: var(--muted-foreground); }
+
+.quickforge-goal-inspector-chip {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--goal-inspector-warning) 12%, var(--background));
+  color: var(--goal-inspector-warning);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.quickforge-goal-inspector-scope { color: var(--muted-foreground); font-size: 12px; }
+
+.quickforge-goal-inspector-scope summary { font-weight: 550; }
+
+.quickforge-goal-inspector-scope ul { display: flex; flex-direction: column; gap: 2px; margin: 6px 0 0 14px; }
+
+/* G-15: the inline budget confirmation gets a real visual container. */
+.quickforge-goal-inspector-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--muted) 45%, var(--background));
+}
+
+.quickforge-goal-inspector-confirm > p { font-size: 12px; }
+
+/* T-A: one actionable hint line instead of stacked notes. */
+.quickforge-goal-inspector-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.quickforge-goal-inspector-hint > span:first-child { min-width: 0; overflow-wrap: break-word; }
+
+/* G-01: actions never scroll out of view. */
+.quickforge-goal-inspector-footer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in oklab, var(--background) 94%, var(--muted));
+}
+
+.quickforge-goal-inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* G-04: the editor can shrink on short viewports. */
+.quickforge-goal-inspector textarea {
+  flex: 1;
+  width: 100%;
+  min-height: min(260px, 40vh);
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.quickforge-goal-inspector-seg button:focus-visible,
+.quickforge-goal-inspector-qbtn:focus-visible,
+.quickforge-goal-inspector textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-goal-inspector-seg button,
+  .quickforge-goal-inspector-qbtn,
+  .quickforge-goal-inspector details summary::before { transition: none; }
+}

@@ -3,6 +3,13 @@ import type {
   WorkspaceInspectorRuntimeScope,
 } from './workspace-types'
 
+export function workspaceInspectorGoalMatches(
+  requested: { sessionId: string; goalId: string } | undefined,
+  current: { sessionId: string; goal: { id: string; sessionId: string } } | undefined,
+) {
+  return Boolean(requested && current && requested.sessionId === current.sessionId && requested.goalId === current.goal.id && current.goal.sessionId === current.sessionId)
+}
+
 export function workspaceInspectorRuntimeScopeMatches(
   expected: WorkspaceInspectorRuntimeScope,
   actual: WorkspaceInspectorRuntimeScope,

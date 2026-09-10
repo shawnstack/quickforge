@@ -82,6 +82,21 @@ import {
 } from './agent-approval-orchestrator.mjs'
 import { resolveCommandState } from './agent-prompt-commands.mjs'
 import { resetSessionCompaction, summarySession, compactSession, clearSession } from './agent-compaction.mjs'
+import {
+  beginGoalRun,
+  clearTerminalGoal,
+  configureGoalRunner,
+  createGoalReportTool,
+  failGoalRunOnPersist,
+  finishGoalRun,
+  goalPlanningToolBlockReason,
+  goalRunSettlementToolBlockReason,
+  notifyGoalAbort,
+  recordGoalToolExecution,
+  sessionGoal,
+  stopGoalForSession,
+} from './agent-goal-runner.mjs'
+import { isGoalActiveStatus, isGoalTerminalStatus, goalAfterRestore, normalizeGoalState } from './agent-goal-state.mjs'
 
 // 访问模式常量与归一化 helper（原独立常量模块随外部运行时接入的删除一并收回至此）。
 const AGENT_ACCESS_MODE_DEFAULT = 'default'
@@ -141,6 +156,35 @@ const sessionTurnIds = new Map()
 export function currentSessionTurnId(sessionId) {
   return sessionTurnIds.get(sessionId) || null
 }
+
+// Goal continuations keep the full history and start a fresh turn id; the goal
+// runner gets the turn helpers injected so it never imports this module.
+configureGoalRunner({
+  beginTurn: (sessionId) => {
+    const turnId = randomUUID()
+    sessionTurnIds.set(sessionId, turnId)
+    return turnId
+  },
+  endTurn: (sessionId, turnId) => {
+    if (turnId === undefined || sessionTurnIds.get(sessionId) === turnId) sessionTurnIds.delete(sessionId)
+  },
+  // The goal_report tool only exists while the session has an active goal, so
+  // the tool set is rebuilt whenever that flips (created/confirmed/finished).
+  refreshTools: (session) => rebuildSessionTools(session),
+  // Workspace exclusivity keys on the normalized workspace path (two projectIds
+  // can point at the same directory). Persisted metadata only carries
+  // scope/projectId, so the runner asks the manager to resolve the path.
+  resolveWorkspaceRoot: async ({ scope, projectId } = {}) => {
+    if (scope === 'project' && projectId) {
+      try {
+        return (await projectContextFromId(projectId))?.workspaceRoot || null
+      } catch {
+        return null
+      }
+    }
+    return defaultGlobalWorkspaceContext()?.workspaceRoot || null
+  },
+})
 
 function wrapSubagentToolDefinition(definition, parentSessionId) {
   return {
@@ -210,6 +254,8 @@ export async function createServerTools(projectId, projectContext, skillsContext
     includeMcpTools = true,
     includePluginTools = true,
     includeSkillTools = true,
+    includeGoalTool = false,
+    goalSession = null,
     mcpWaitForConnections = true,
     parentSessionId = null,
     sessionId = null,
@@ -254,6 +300,13 @@ export async function createServerTools(projectId, projectContext, skillsContext
       .map((definition) => wrapWorkspaceToolDefinition(definition, toolContext, toolPermissions, { parentSessionId })))
   }
 
+  // Goal mode: only while the session has an active goal, and never for
+  // subagents (goalSession is the parent main-chat session or a resolver).
+  if (includeGoalTool && goalSession) {
+    const goalTool = createGoalReportTool(goalSession)
+    if (isAllowed(goalTool)) tools.push(goalTool)
+  }
+
   if (includeMcpTools) {
     const mcpTools = await createMcpToolDefinitions({ waitForConnections: mcpWaitForConnections })
     tools.push(...mcpTools.filter(isAllowed).map((definition) => wrapMcpToolDefinition(definition, toolPermissions)))
@@ -269,6 +322,7 @@ export async function createServerTools(projectId, projectContext, skillsContext
 
 async function rebuildSessionTools(session) {
   const profileToolNames = Array.isArray(session.agentProfile?.allowedTools) ? session.agentProfile.allowedTools : null
+  const goalActive = Boolean(activeGoalStatus(session))
   session.agent.state.tools = await createServerTools(
     session.projectId,
     session.projectContext,
@@ -286,12 +340,20 @@ async function rebuildSessionTools(session) {
           getTurnId: () => currentSessionTurnId(session.sessionId),
         }
       : {
+          includeGoalTool: goalActive,
+          goalSession: goalActive ? session : null,
           parentSessionId: session.sessionId,
           sessionId: session.sessionId,
           scope: session.scope,
           getTurnId: () => currentSessionTurnId(session.sessionId),
         },
   )
+}
+
+/** Active (non-terminal) goal of a session, or null. */
+function activeGoalStatus(session) {
+  const goal = sessionGoal(session)
+  return goal && isGoalActiveStatus(goal.status) ? goal : null
 }
 
 // ---------------------------------------------------------------------------
@@ -432,6 +494,34 @@ async function transformSessionContext(session, messages, signal) {
   )
 }
 
+// Goal continuations are scheduled only from here: after the run's final state
+// was persisted successfully. persistSession/flushSessionPersist return null on
+// CAS conflict or write failure, which must never lead to another round.
+async function afterGoalRunPersisted(session, persisted, endStatus) {
+  if (!session.goalRun) return
+  // Explicit prompt-settle barrier: settlement must not race the run's own
+  // `.finally` cleanup (which clears the active command state and turn id).
+  // Waiting for the prompt promise makes the ordering deterministic instead of
+  // depending on when the async persist flush happens to resolve.
+  const promptSettled = session.activePromptPromise
+  if (promptSettled) {
+    try {
+      await promptSettled
+    } catch {
+      // The run's failure is settled below; the barrier only orders cleanup.
+    }
+  }
+  if (!persisted) {
+    await failGoalRunOnPersist(session)
+    return
+  }
+  try {
+    await finishGoalRun(session, { status: endStatus })
+  } catch (error) {
+    logger.error(`Failed to settle goal run for session ${session.sessionId}:`, error, { sessionId: session.sessionId })
+  }
+}
+
 // agentEvents 已迁至 agent-session-events.mjs（下方 re-export）
 agentEvents.setMaxListeners(100)
 
@@ -529,7 +619,13 @@ export async function createAgent(sessionId, config = {}) {
     idleRetention = null,
     stateVersion = 0,
     mcpToolsMode = 'await',
+    // Restored goal body (restore path only; never taken from client input).
+    restoredGoal = null,
   } = config
+  // A goal that was in flight when the process stopped is paused, never
+  // replayed. The restored body is normalized defensively so a malformed or
+  // tampered persisted goal can never become an authoritative in-memory goal.
+  const initialGoal = goalAfterRestore(normalizeGoalState(restoredGoal, { sessionId }), Date.now())
   const accessMode = normalizeAccessMode(rawAccessMode, yoloMode)
   const resolvedYoloMode = yoloModeFromAccessMode(accessMode)
   // 'cached' (restore path) builds MCP tools from the current connection
@@ -627,6 +723,8 @@ export async function createAgent(sessionId, config = {}) {
         }
       : {
           mcpWaitForConnections,
+          includeGoalTool: Boolean(initialGoal && isGoalActiveStatus(initialGoal.status)),
+          goalSession: initialGoal && isGoalActiveStatus(initialGoal.status) ? () => agentSessions.get(sessionId) : null,
           parentSessionId: sessionId,
           sessionId,
           scope,
@@ -677,10 +775,20 @@ export async function createAgent(sessionId, config = {}) {
       const currentSession = agentSessions.get(sessionId)
       const commandPermissionError = commandToolPermissionError(currentSession, toolName)
       if (commandPermissionError) return { block: true, reason: commandPermissionError }
+      // Goal planning is read-only regardless of the session access mode: no
+      // commands, MCP/plugins, writes or writable subagents.
+      const goalPlanningError = goalPlanningToolBlockReason(currentSession, toolName, context.args)
+      if (goalPlanningError) return { block: true, reason: goalPlanningError }
+      // After the model reported the goal result, the rest of the turn is
+      // read-only so the verified state cannot change before user review.
+      const goalSettlementError = goalRunSettlementToolBlockReason(currentSession, toolName)
+      if (goalSettlementError) return { block: true, reason: goalSettlementError }
       const isSkillTool = toolName === 'activate_skill' || toolName === 'read_skill_resource'
       if (isSkillTool) return undefined
-      // ask_user only waits for the user's answer, and todo_write only records the latest plan snapshot; neither needs approval.
-      if (toolName === 'ask_user' || toolName === 'todo_write') return undefined
+      // ask_user only waits for the user's answer, todo_write only records the
+      // latest plan snapshot, and goal_report only records goal state; none
+      // needs approval.
+      if (toolName === 'ask_user' || toolName === 'todo_write' || toolName === 'goal_report') return undefined
       if (profileToolNames && !profileToolNames.includes(toolName)) return { block: true, reason: `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.` }
       if (toolName === 'manage_global_memory') return undefined
       if (toolName === 'run_subagent') {
@@ -775,6 +883,20 @@ export async function createAgent(sessionId, config = {}) {
     memoryEnabled: initialMemoryEnabled,
     memoryRevision: initialMemoryRevision,
     managedSystemPrompt: systemPrompt == null,
+    // Goal mode: authoritative goal body (persisted with the session) plus
+    // runtime-only bookkeeping for the active run and progress accounting.
+    goal: initialGoal,
+    goalRun: null,
+    goalStats: null,
+    goalContinuationPending: false,
+    // Settlement bookkeeping: a run whose final state is being persisted has
+    // already cleared goalRun, so an abort must be recorded as a generation
+    // bump for the in-flight settlement to observe.
+    goalRunSettling: false,
+    goalAbortGeneration: 0,
+    // Runtime record of successful verification tool calls for the current
+    // goal version (goal_report evidence is validated against it).
+    goalTrustedToolCalls: new Map(),
     /** Track active SSE connections. Only one SSE stream allowed per session to prevent
      *  connection-pool exhaustion when two browser tabs load the same session. */
     sseConnected: false,
@@ -790,6 +912,10 @@ export async function createAgent(sessionId, config = {}) {
     // before forwarding to clients.
     const timedEvent = addToolTimingToEvent(session, event)
     updateRuntimeToolExecution(session, timedEvent)
+    // Goal evidence trust: record successful verification tool executions for
+    // the current goal version (control-plane/delegation/skill/memory tools are
+    // ignored inside the runner).
+    if (timedEvent.type === 'tool_execution_end') recordGoalToolExecution(session, timedEvent)
     const eventEndStatus = event.type === 'agent_end'
       ? session.agent.signal?.aborted
         ? 'aborted'
@@ -854,9 +980,17 @@ export async function createAgent(sessionId, config = {}) {
       resetIdleTimer(session)
 
       // Persist after run ends. Flush any debounced write so the final state is durable.
-      flushSessionPersist(session).catch((err) =>
-        logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId }),
-      )
+      flushSessionPersist(session)
+        .then((metadata) => {
+          // Goal continuations start only after the run truly finished AND the
+          // final state was persisted. A null result (CAS conflict / failure)
+          // pauses the goal instead of continuing on an unpersisted state.
+          void afterGoalRunPersisted(session, metadata, eventEndStatus)
+        })
+        .catch((err) => {
+          logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId })
+          void afterGoalRunPersisted(session, null, eventEndStatus)
+        })
     }
 
     if (event.type === 'message_end') {
@@ -919,6 +1053,14 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
     throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes before rolling back.'), {
       statusCode: 409,
       errorCode: 'GENERATION_STILL_RUNNING_BEFORE_ROLLBACK',
+    })
+  }
+  // Rolling back the transcript of a goal would desync the goal's evidence and
+  // criteria from the conversation; require pause/cancel first.
+  if (activeGoalStatus(session)) {
+    throw Object.assign(new Error('This chat has an active goal. Pause or cancel it before rolling back messages.'), {
+      statusCode: 409,
+      errorCode: 'GOAL_ACTIVE',
     })
   }
 
@@ -1038,11 +1180,17 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   )
 
   if (modelAccessContext) session.modelAccessContext = modelAccessContext
+  // Request-scoped source (e.g. 'shared') must gate goal mode for THIS request
+  // only; it is threaded explicitly instead of being read back from the session,
+  // which would permanently disable the owner after a shared visitor prompted.
+  const requestSource = modelAccessContext && typeof modelAccessContext === 'object'
+    ? modelAccessContext.source ?? null
+    : null
   await refreshSessionModelBinding(session)
   await refreshMemoryState(session)
   resetIdleTimer(session)
 
-  const commandState = await resolveCommandState(session, canonicalInitialUserMessage, promptCommand)
+  const commandState = await resolveCommandState(session, canonicalInitialUserMessage, promptCommand, requestSource)
   const resolvedUserMessage = commandState.userMessage ?? canonicalInitialUserMessage
 
   if (commandState.textResponse) {
@@ -1070,6 +1218,20 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     return compactSession(session, canonicalInitialUserMessage, commandState.compact)
   }
 
+  // Goal mode is mutually exclusive with ordinary prompts and retries: an
+  // active goal owns the session until it is paused, cancelled or accepted.
+  if (!commandState.goalRun && activeGoalStatus(session)) {
+    throw Object.assign(new Error('This chat has an active goal. Use the goal card to pause, cancel or revise it before sending another message.'), {
+      statusCode: 409,
+      errorCode: 'GOAL_ACTIVE',
+    })
+  }
+  // A finished goal no longer occupies the card once the user moves on.
+  if (!commandState.goalRun && sessionGoal(session) && isGoalTerminalStatus(session.goal.status)) {
+    await clearTerminalGoal(session)
+  }
+  if (commandState.goalRun) beginGoalRun(session, commandState.goalRun.kind)
+
   const userMessage = prepareCloudUserMessage(session, resolvedUserMessage)
 
   // Set a meaningful fallback immediately. The AI title request starts only
@@ -1096,10 +1258,21 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   // writes during this run (including subagent writes attributed here) share
   // its id. Synthetic paths above (command text responses, /clear, summary,
   // compaction) return earlier and stay unattributed.
-  sessionTurnIds.set(sessionId, randomUUID())
+  const turnId = randomUUID()
+  sessionTurnIds.set(sessionId, turnId)
+  // Ownership token: the run's cleanup must only clear command state it
+  // installed, so a goal continuation that starts before this run's `.finally`
+  // runs (immediate persist flush) keeps its own prompt/permissions.
+  const commandToken = {}
+  session.activeCommandToken = commandToken
 
   // Fire and forget — events come through eventBus
-  session.agent.prompt(userMessage).catch((err) => {
+  const promptPromise = session.agent.prompt(userMessage)
+  // Explicit settle barrier consumed by afterGoalRunPersisted: goal settlement
+  // waits for the prompt to settle instead of assuming the async persist flush
+  // ordered the cleanup below.
+  session.activePromptPromise = promptPromise
+  promptPromise.catch((err) => {
     logger.error(`Agent prompt error for session ${sessionId}:`, err, { sessionId })
     const errorMessage = err.message || 'Unknown error'
     // Surface the failure at the end of the conversation itself so the user
@@ -1117,11 +1290,22 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     emitSessionEvent(session, { type: 'message_end', messages })
     emitSessionEvent(session, { type: 'error', error: errorMessage })
     emitSessionEvent(session, { type: 'agent_end', messages, errorMessage, status: 'error' })
-    flushSessionPersist(session).catch((persistErr) =>
-      logger.error(`Failed to persist session ${sessionId} after prompt error:`, persistErr, { sessionId }),
-    )
+    // This synthetic agent_end bypasses the agent's own subscribe hook, so a
+    // goal run must be settled explicitly here — and only after the final state
+    // is persisted, exactly like the real agent_end path.
+    flushSessionPersist(session)
+      .then((metadata) => {
+        void afterGoalRunPersisted(session, metadata, 'error')
+      })
+      .catch((persistErr) => {
+        logger.error(`Failed to persist session ${sessionId} after prompt error:`, persistErr, { sessionId })
+        void afterGoalRunPersisted(session, null, 'error')
+      })
   }).finally(() => {
-    sessionTurnIds.delete(sessionId)
+    if (session.activePromptPromise === promptPromise) session.activePromptPromise = null
+    if (sessionTurnIds.get(sessionId) === turnId) sessionTurnIds.delete(sessionId)
+    if (session.activeCommandToken !== commandToken) return
+    session.activeCommandToken = null
     session.activeCommandName = null
     session.activeCommandPermissions = null
     session.activeCommandPrompt = null
@@ -1151,7 +1335,20 @@ export async function continueSession(sessionId, modelAccessContext = null) {
       errorCode: 'GENERATION_ALREADY_RUNNING',
     })
   }
+  // Retrying is an ordinary run: it cannot interleave with an active goal.
+  if (activeGoalStatus(session)) {
+    throw Object.assign(new Error('This chat has an active goal. Use the goal card to pause, cancel or revise it before retrying.'), {
+      statusCode: 409,
+      errorCode: 'GOAL_ACTIVE',
+    })
+  }
+  if (sessionGoal(session) && isGoalTerminalStatus(session.goal.status)) {
+    await clearTerminalGoal(session)
+  }
   if (modelAccessContext) session.modelAccessContext = modelAccessContext
+  const requestSource = modelAccessContext && typeof modelAccessContext === 'object'
+    ? modelAccessContext.source ?? null
+    : null
   await refreshSessionModelBinding(session)
 
   const messages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []
@@ -1175,7 +1372,7 @@ export async function continueSession(sessionId, modelAccessContext = null) {
     withCanonicalContextReferences(lastUserMessage, canonicalContextReferences),
     canonicalSelectedCapabilities,
   )
-  const commandState = await resolveCommandState(session, canonicalLastUserMessage)
+  const commandState = await resolveCommandState(session, canonicalLastUserMessage, null, requestSource)
   const continuedUserMessage = prepareCloudUserMessage(session, commandState.userMessage ?? canonicalLastUserMessage)
   const trimmedMessages = messages.slice(0, lastUserIndex).concat(continuedUserMessage)
   updateSessionMessages(session, trimmedMessages)
@@ -1239,6 +1436,10 @@ export async function abortRun(sessionId) {
     }
   }
 
+  // A user stop also stops the goal: no continuation is scheduled, and the
+  // card shows pausing until the run really settles.
+  await notifyGoalAbort(session)
+
   session.agent.abort()
   let idleWaitTimer
   const becameIdle = await Promise.race([
@@ -1273,6 +1474,20 @@ export async function abortRun(sessionId) {
 }
 
 /**
+ * Steering/follow-up bypass runPrompt's goal exclusivity check, so they must
+ * reject an active goal themselves: a goal run owns the turn structure and a
+ * queued user message would interleave with it (or silently derail the goal).
+ */
+function assertNoActiveGoal(session, verb) {
+  const goal = activeGoalStatus(session)
+  if (!goal) return
+  throw Object.assign(new Error(`This chat has an active goal (${goal.status}). Use the goal card to pause, cancel or revise it before you ${verb}.`), {
+    statusCode: 409,
+    errorCode: 'GOAL_ACTIVE',
+  })
+}
+
+/**
  * Queue a steering message to inject after the current assistant turn.
  */
 export function steerAgent(sessionId, message) {
@@ -1280,6 +1495,7 @@ export function steerAgent(sessionId, message) {
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
+  assertNoActiveGoal(session, 'steer the run')
 
   const agentMessage = prepareCloudUserMessage(session, typeof message === 'string'
     ? { role: 'user', content: message, timestamp: Date.now() }
@@ -1297,6 +1513,7 @@ export function followUpAgent(sessionId, message) {
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
+  assertNoActiveGoal(session, 'queue a follow-up')
 
   const agentMessage = prepareCloudUserMessage(session, typeof message === 'string'
     ? { role: 'user', content: message, timestamp: Date.now() }
@@ -1352,6 +1569,12 @@ export async function syncSessionFromStorage(sessionId) {
     session.startedAt = stored.taskStartedAt || null
     session.finishedAt = stored.taskFinishedAt || null
     session.contextCompaction = stored.contextCompaction || null
+    // Storage is authoritative for the goal too, but only when it is actually
+    // newer: an in-memory mutation that has not been persisted yet must win.
+    const storedGoal = normalizeGoalState(stored.goal, { sessionId })
+    if (storedGoal && (!session.goal || storedGoal.revision > session.goal.revision)) {
+      session.goal = storedGoal
+    }
     session.stateVersion = Math.max(localStateVersion, storedStateVersion)
     session.runtimeToolExecutions?.clear()
     resetIdleTimer(session)
@@ -1403,6 +1626,7 @@ export function getSessionState(sessionId) {
     isStreaming: session.abortPending ? false : session.agent.state.isStreaming,
     errorMessage: session.agent.state.errorMessage,
     persistDegraded: session.persistDegraded ? true : undefined,
+    goal: sessionGoal(session),
   }
 }
 
@@ -1444,6 +1668,7 @@ export function getSessionStatus(sessionId) {
     messageCount: messages.length,
     lastMessageTimestamp: lastMessage?.timestamp ?? null,
     persistDegraded: session.persistDegraded ? true : undefined,
+    goal: sessionGoal(session),
   }
 }
 
@@ -1498,6 +1723,9 @@ export async function destroyAgent(sessionId) {
     session.persistTimer = null
   }
   session.toolTimings?.clear()
+  // Drop goal runtime bookkeeping (watchdogs, continuation guards) before the
+  // final persist; the persisted goal body itself is kept.
+  stopGoalForSession(session)
 
   try {
     session.agent.abort()
@@ -1597,6 +1825,9 @@ async function restoreAgentUnlocked(sessionId) {
       persistedMessageStorage: record?.state?.messageStorage === 'split' ? 'split' : null,
       persistedMessageCount: storedMessages?.count ?? (Array.isArray(sessionData.messages) ? sessionData.messages.length : 0),
       persistedTailDigest: storedMessages?.tailDigest || sessionMessagesTailDigest(sessionData.messages),
+      // Goal bodies restore from the persisted session; in-flight statuses are
+      // mapped to paused (no auto-replay) inside createAgent.
+      restoredGoal: sessionData.goal || null,
     })
   } catch (err) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })

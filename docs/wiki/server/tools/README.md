@@ -30,8 +30,9 @@
 | `read_skill_resource` | 读取 Skill 资源文件 |
 | `ask_user` | 向用户提出 1-4 个问题并等待回答：execute 阻塞在 `server/ask-store.mjs` 的 pendingAsks Promise 上，SSE `ask_user_required` 通知前端注入向导式提问卡，用户提交/跳过后经 `POST /api/agents/:id/answer-ask` resolve，回答以纯文本回给模型；30 分钟超时、跳过、abort 均按"用户未回答"继续而非中断；免审批（beforeToolCall 直接放行），`/plan` 白名单包含它；无 toolHandlers 入口，由 agent-manager 的 `wrapAskUserToolDefinition` 拦截并绑定会话 |
 | `todo_write` | 为非简单的多步骤任务记录简短当前计划；每次调用必须提交包含已完成项在内的**完整最新快照**。唯一参数 `todos` 最多 20 项，每项仅含非空 `content`（最多 200 字符）与 `status` 三态：`pending` / `in_progress` / `completed`；空数组表示显式清空。工具为 `sequential`，默认免审批但不属于安全读取工具，`/plan` 明确禁止调用，直接工具 REST 也禁止 |
+| `goal_report` | 仅 Goal 模式：会话有活跃 goal 时注入，规划轮必须且只能以 `action:"plan"` 提交 2-8 条可验收准则、范围与摘要，执行轮用 `progress` / `blocked` / `needs_review` / `complete` 回报。证据必须引用本会话真实成功工具结果的 `toolCallId`（控制面/委派/Skill/记忆类工具不算），准则只能在有此类证据时标记 `passed`；`complete` 只把目标交回用户 `needs_review`，不代表已完成。不在 `workspaceTools`、不进入 `GET /api/tools`，也没有 REST handler（直接调用返回 404） |
 
-`activate_skill`、`read_skill_resource`、`run_subagent` 和 `todo_write` 对所有运行中的 Agent 可用；文件/命令工作区工具需要绑定项目。`todo_write`、`write_file`、`edit_file` 和 `run_command` 标记为 `executionMode: 'sequential'` 以确保执行顺序。
+`activate_skill`、`read_skill_resource`、`run_subagent` 和 `todo_write` 对所有运行中的 Agent 可用；文件/命令工作区工具需要绑定项目。`todo_write`、`write_file`、`edit_file` 和 `run_command` 标记为 `executionMode: 'sequential'` 以确保执行顺序。`goal_report` 是 Goal 模式专用：仅在会话有活跃 goal 时由 `agent-manager.mjs` 的 `createGoalReportTool` 绑定会话注入，不进入默认工具集，也不经 `tools/index.mjs` handler。
 
 `generate_image` 当前已从 `workspaceTools` 移除，不再向 Agent 或 `GET /api/tools` 暴露。相关 handler、图片生成模块、会话资产路由与前端渲染仍保留，仅用于兼容历史会话。
 
@@ -54,6 +55,7 @@
 | `toolActivateSkill` | `activate_skill` | 激活 Agent Skill |
 | `toolReadSkillResource` | `read_skill_resource` | 读取技能资源 |
 | Agent-manager handler | `run_subagent` | 在父会话内创建短生命周期临时 Agent，使用受限工具执行专门子任务并返回建议性结果 |
+| Agent-manager handler（`createGoalReportTool`） | `goal_report` | 仅活跃 goal 会话注入：校验并记录 plan / progress / blocked / needs_review / complete；证据只信任本会话真实成功工具结果的 toolCallId，`complete` 只转为 `needs_review` 交用户验收 |
 
 ### 安全特性
 - **路径安全**: `resolveWorkspacePath()` 确保操作不超出工作区范围

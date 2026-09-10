@@ -1,3 +1,130 @@
+## Feature：goal-design-review Goal 功能设计评审（needs-review，待用户评审采纳）
+
+- 背景与范围（用户指令）：评审「当前 goal 功能的设计」——设计层（状态机/预算/证据人审/执行持久化/API/前端契约/设计债），与已落地的 UI 评审互补不重复；纯只读不改生产代码。
+- 方法：两路并行只读调研（服务端设计面全量 32 条转换表 + 8 条历史开放问题逐条核实）+ 父 Agent 亲读 agent-goal-state.mjs 全文、runner 关键段约 700 行、goal 端点、manager 分发顺序；全部 文件:行号 引用亲读核实。
+- 产物一 `docs/reviews/goal-design-review.zh-CN.md`（324 行，七维度）：总评「骨架设计质量高」（revision 单点递增 / 终止意图只升不降 / persist fail-closed / settle barrier / 证据信任链 / 重启不重放 / goal 水位不污染消息版本，均附行号）；问题分级 高 2 · 中 8 · 低 10：
+  - 🔴 X1 并发 /goal 双写窗口（runner:863-876 锁外检查 + commitGoal:243-246 无活跃守卫 + :347-348 跳过同 session）→ 后发覆盖先发、先发成孤儿 goal；
+  - 🔴 X2 clear/compact 先于 GOAL_ACTIVE 执行且不触碰 goal（manager:1209-1228 vs 回滚守卫 :1058-1065 同类风险不对称；调度间隙 clear 后续跑在清空会话上脱钩执行）；
+  - 🟡 D1 死状态 failed（零入边，错误统一 paused/repeated_failures）、D2 pendingDisposition 吞 error 计数（:729 先于 :766）、D3 结算窗口中止仍落 needs_review、B1 人审等待计费、B3 超时×已报告双 commit、E1 criterion 降级不清证据绑定、A1 仅 extend_resume 有 CAS、SSE 广义 epoch。
+- 产物二 `docs/reviews/goal-state-diagram.svg`：13 状态 + 主要转换（confirm/accept/resume/extend_resume/revise/cancel/pause/goal_report 全标注）+ 图例 + failed 死状态标注；node 校验 13 状态零缺失、XML well-formed。
+- 设计债核实 8 条判定：同 session 并发=部分缓解仍开放（=X1）；clear/compact=仍开放（=X2）；**retry 生命周期=已缓解**（continueSession 全活跃状态 409 + 终态先清理 + 测试锁定，静态推演无绕预算路径）；验收证据一致性=部分缓解仍开放（=E1）；pendingDisposition 优先 error=仍开放（=D2）；非 extend_resume 无 CAS=仍开放（既定边界）；SSE epoch=goal 特有已修复/广义仍开放；context-references 会话级残留=仍开放（无关旧问题）。
+- 改进建议分级：P0 = X1（锁内 re-check 约 5 行，复用 confirm 模式）+ X2（分发顺序调整或 clear 终态化）；P1 = D2/D3/E1/B3/B1/A3；P2 = D1/A1/X4/X5/B4 与 UI 评审遗留项（交叉引用不重复）。
+- 验证：SVG 13 状态/转换标注零缺失 + XML well-formed（node）；feature_list.json JSON.parse 通过；时序类结论（X1/D3/B3）为代码路径推断，报告已注明建议以并发用例先行验证。
+- 边界：纯评审零生产改动（git status 核实）；建议均未实施，采纳由用户决定；未做运行动态复现。
+- 下一步：用户评审报告 → 决定是否按 P0 开新 feature 修复 X1/X2（建议并发用例先行）。
+
+---
+
+## Feature：goal-ui-p0-budget-120 Goal UI P0+G-09+C-02 生产落地 + 预算 120 分钟（done，实现与全量自动验证完成，浏览器待验收）
+
+- 范围（用户确认）：按评审报告/优化示例落地生产——P0（G-01 滚动、G-03 按钮体系、G-04 textarea、T-A/T-B Note 收敛）+ G-09（时间/预算本地化）+ C-02（控制条回归极简）；预算默认时长 30→120 分钟、追加额度跟随默认（+120）、轮次 8 不变。
+- 预算改动：`server/agent-goal-state.mjs` GOAL_BUDGET_DEFAULTS 时长 120 分钟（extend_resume 复用同常量自动 +120）；`src/lib/goal.ts` 前端增量同步；`tests/server/agent-goal-state.test.mjs`、`tests/server/agent-goal-runner.test.mjs`（4 组用例按 120 分钟语义重新推导）、`tests/frontend/goal-state.test.ts` 断言同步；wiki 6 处数值更新 + 存量 goal 保留旧预算、首次追加跳变说明。
+- 侧栏重构：`GoalInspectorContent.tsx` + `goal-inspector.css` 按示例 After 形态重写——滚动容器 + 底部固定动作栏、分段导航、tone 状态行（唯一 ? 浮层收拢 Note，外点/Escape 关闭）+ 本地化时间、blocker 警示条、验收 badge 四态语义色、预算双行计量条 + 已耗尽 chip（移除 goalBudgetActual 毫秒拼接并删 key）、确认组容器、▸ 展开指示、Button 变体分层（hover/:active scale(0.97)/focus-visible/动效 token）、textarea min(260px,40vh)、动作行 flex-wrap + 按钮 nowrap + break-word；abort/focus/Escape 契约逻辑逐行核对原样保留。
+- 控制条（C-02）：objective 节点六处移除 + index.css 规则删除；时长 ≥60s 分钟格式化（新 key）、<60s 保留秒；取消确认单句（T-B）。
+- i18n：新增 16 key 中英成对（11 状态 hint、goalHintDetails、goalRecordedDurationMinutes、预算标签 ×2、已耗尽 chip）；goalKeepWorking 中文改「继续工作」（T-C）；删 goalBudgetActual（grep 零消费方）。
+- 父 Agent 审查修正：移除提示行重复的第二个 ? 浮层（保留状态行唯一入口，edit 视图也可达）；核实 CSS token（--shadow-quickforge/--quickforge-dur-fast/--quickforge-ease-out）均存在；核实控制条 objective 仅剩头注释与 revise 签名合法引用。
+- 最终验证（父 Agent 实际执行）：`npm run test` **退出码 0，315 files / 3381 tests passed**；`npm run lint` **退出码 0**，仅既有 `server/cloud/identity.mjs:92` warning；`npm run build` **退出码 0**，仅既有 KaTeX 字体/chunk warning。子 Agent 定向：预算 3 files/126 tests、UI 12 files/209 tests、eslint/tsc 全过。
+- Notes（残留，不宣称已解决）：popover 内 note 文案仍含「上方的卡片」（G-10/T-E；聊天卡语境正确故暂不改文案）；tone 色值第三处局部复制（C-01）；planning hint 复用 awaiting_confirmation 文案；formatGoalTime 为 toLocaleString 完整格式，可再精简；G-16 外壳问题未动。
+- 边界/下一步：无 commit；浏览器视觉/IME/焦点验收待用户；验收通过后可考虑 commit（发布走 patch-release-runbook）。
+
+---
+
+## Feature：goal-ui-review-optimization-example Goal UI 完整评审与优化示例（needs-review，待用户验收）
+
+- 背景与范围（用户明确）：浏览器验收 Goal 后反馈右侧边栏大量样式问题 + 说明性文字过多；本轮只产出评审报告与优化示例 HTML，不改生产代码、不改依赖。覆盖对象由用户选定为全部 Goal surface（右侧边栏 Inspector、置顶摘要、输入框控制条、聊天 Goal 卡）。
+- 产物一 `docs/reviews/goal-ui-review.zh-CN.md`：右侧边栏 3 高（G-01 内容链路无垂直滚动被裁剪 / G-03 按钮体系与全应用 Button 脱节无 hover/active/`:active` 回缩 / G-04 textarea 260px 硬编码矮视口溢出）+ 8 中 + 5 低；其余 surface S/C/K 系列（含 C-02 控制条实现与自身设计注释矛盾的新发现）；文字专项（100 key 中 25 条说明性文字、10 条长句、3 条 Note 连排、聊天卡 + 侧栏同屏双份、8 组冗余 T-01~T-08、收敛策略 T-A~T-G 对齐 DESIGN_LANGUAGE L187-191「? 浮层收拢」）；设计语言符合性对照表；P0/P1/P2 路线图。全部 文件:行号 引用经父 Agent 亲自读取核实。
+- 产物二 `design-mockups/goal-inspector-optimization.html`：自包含单文件 Before/After 对照（滚动容器、token 化 primary/secondary/ghost 按钮体系、状态 badge、时间/预算结构化本地化、Note 一行 + ? 浮层、确认组视觉容器、控制条回归单行极简），支持亮/暗主题、340/420px 面板宽度与 paused/needs_review 状态切换；问题编号 ● 标记 + 图例。
+- 重要修正（诚实记录）：调研初稿「动作行三按钮 340px 必溢出」经 `src/lib/goal.ts:280-294` 门控谓词核实不成立（confirmable 仅 awaiting_confirmation、accepting 仅 needs_review、paused/blocked 仅 resumable → 最多同屏 2 个按钮约 176px 不溢出），报告已把 G-02 下调为中优先级健壮性问题，并在示例设计说明中注明演示的是「flex-wrap + 按钮 nowrap + anywhere 收敛」而非真实溢出复现。
+- 验证（父 Agent 实际执行）：内联 JS `vm.Script` 编译通过；无外部资源（http(s)/fetch/XHR/@import/外部 src/url() 全 0）；getElementById 9 处引用全部有定义（10 ids）；Node VM + 最小 fake DOM 动态冒烟 9/9 断言通过；`feature_list.json` JSON.parse 通过。grep_files 工具在本工作区对 goal-control-strip.ts 漏报（连 className 都无命中），已改用 read_file/node 内联命令复核，引用以直读为准。
+- 边界：不改生产源码/测试/依赖、不触碰 `dist/`/`package-dist/`/`package-offline/`、无 commit/tag/push/发布；旧 feature 状态与历史未修改；真实浏览器视觉与交互待用户验收；G-16 外壳问题仅记录建议另开 feature。
+- 下一步：① 用户浏览器打开示例（340/420、亮/暗、两状态）+ 阅读报告，验收优化方向；② 确认后另开 feature 落地生产修复（建议 P0 先做 G-01/G-03/G-04 + T-A/T-B Note 收敛）；③ G-16 外壳问题另开 feature。
+
+---
+
+## Feature：goal-budget-extension-resume Goal 预算追加恢复（done，实现与全量自动验证完成，浏览器待验收）
+
+- 当前目标：预算耗尽无需取消重建，用户明确确认后追加耗尽维度默认额度并恢复同一 Goal。依赖 `goal-inspector-progress-editor`（done）；旧记录为历史、不修改其状态，旧文中无 CAS/取消新建的限制已由本 feature 的窄契约补充。
+- 后端契约：仅 `extend_resume` 接受 `{action,goalId,expectedRevision}`，revision 正 safe integer，拒绝额外字段/自定义预算；锁内 goalId/revision CAS 防旧请求重复追加。耗尽维度分别 +8 轮/+30 分钟，保留 usage/计划准则证据/进度；预算与恢复状态同次 persist 成功后才调度。仍不足 paused 不调度；足够时无计划 planning、未确认 awaiting_confirmation、已确认 running。planConfirmed 持久化，仅 confirm 置 true，revise/plan 清 false；旧记录 planning/awaiting_confirmation 强制 false，其余优先明确布尔值、缺字段按 usage.iterations > 0 兼容。统一预算 gate 不让错误越额续跑；旧 resume 耗尽仍409，提示新出口。其他动作不新增客户端 CAS。
+- 前端：Inspector 额度内联确认显示真实 usage/上限/增量，运行条耗尽继续入口导航 progress；严格预检绑定确认时旧 revision，失败对账不盲重发。关闭仅取消未发送 POST，已发送不能撤回、等待结算后释放锁；计划未确认仍需用户 confirm。
+- 实现路径：`server/{agent-goal-state,agent-goal-runner}.mjs`、`server/routes/agent.mjs`；`src/lib/{goal,server-agent,deferred-session-agent,i18n}.ts`、`src/components/workspace/GoalInspectorContent.tsx`、`src/components/chat/panel-decoration/{goal-control-strip,goal-card}.ts`。测试路径：`tests/server/{agent-goal-state,agent-goal-runner,agent-goal-manager}.test.mjs`、`tests/server/routes/agent.goal.test.mjs`；`tests/frontend/{goal-budget-inspector,goal-state,server-agent,goal-control-strip,goal-card,goal-card-controller,goal-ui}.test.ts`。完整清单见 feature_list.json。
+- Wiki：总入口、server、server/routes、src、src/lib、src/components 六份 README 已同步公共契约，无需再次修改。本次最终同步仅改三状态文件，不修改生产/测试；最终清单30个文件已核实存在。考虑 SVG 后采用文字分支说明，未新增视觉产物。
+- 最终验证（父 Agent 实际执行）：`npm run test` **退出码 0，315 files / 3377 tests passed**；`npm run lint` **退出码 0**，仅既有 `server/cloud/identity.mjs:92` no-useless-assignment warning；`npm run build` **退出码 0**，仅既有 KaTeX 字体解析与 chunk 体积 warning。此前子 Agent 定向后端 **166 tests**、前端 **270 tests** 通过，不替代最终全量结果。本子任务不重跑生产测试。浏览器真实交互、视觉/IME/焦点未验收。
+- Notes：旧 `pendingDisposition` 优先于 `error` 的问题会落 `needs_review`、并非 `completed`；本轮未修，不扩大范围，不宣称已修复。
+- 边界/下一步：done 表示实现与最终全量自动验证完成，浏览器验收仍待补充，不以自动测试替代。未新增/升级依赖、无 Git commit/tag/push/发布、未手工改 `dist/`/`package-dist/`/`package-offline/`，保留既有改动与历史。
+
+---
+
+## Feature：goal-inspector-progress-editor Goal 侧栏进度/编辑重设计（done，实现与全量自动验证完成，浏览器视觉未验收）
+
+- 当前目标：实现与父 Agent 最终全量自动验证已完成，标记 `done`；用户视觉及真实浏览器验收尚未完成。依赖 `goal-pinned-summary-production-ui`（done）；下文是历史记录，不改变旧 feature 状态或把旧行为当成当前 UI。
+- 当前行为：运行条为真实状态 + 服务端已记录累计时长 + 取消/暂停或继续/编辑三个 icon；摘要 Goal 分区仅两行纯导航，点击打开 Workspace Inspector progress。`GoalInspectorContent` 集中进度/验收/阶段动作与 edit，Tab 按 session + goal 复用，仅 runtime、不持久化。
+- 保存安全：`goal-ui` 保留运行中草稿与外部冲突 dirty 文本，dirty 允许 pause/cancel；`goal-edit` 运行中保存经确认 pause，等待权威 paused 且非 streaming 后 revise。App 绑定 `refreshGoalForSave` 单次严格快照，不自动 confirm/resume、不重试 POST；关闭由 layoutEffect 立即取消后续等待/尚未派发保存，已发 POST 不能撤回，结算前保留共享锁。当前 Goal 动作 API 无客户端 revision CAS，不保证跨客户端原子性。
+- 相关实现文件（已核实路径存在）：`src/App.tsx`、`src/components/chat/ChatPanelHost.tsx`、`src/components/chat/panel-decoration/goal-control-strip.ts`、`src/components/git/{GoalSummarySection.tsx,goal-summary.css,GitToolsPinnedSummary.tsx}`、`src/components/workspace/{WorkspaceInspector.tsx,GoalInspectorContent.tsx,goal-inspector.css,workspace-types.ts,workspace-inspector-tabs.ts,workspace-inspector-request.ts}`、`src/lib/{goal-ui.ts,goal-edit.ts,server-agent.ts,i18n.ts}`、`src/index.css`；测试为 `tests/frontend/{goal-edit,goal-ui,goal-inspector-lifecycle,goal-inspector-tabs,goal-control-strip,goal-summary-section,git-tools-pinned-summary,server-agent}.test.ts`。此前已同步四份 Wiki（根、src、src/components、src/lib 的 README）；本次最终状态轮次仅更新三状态文件，完整清单见 `feature_list.json`。
+- 最终验证（父 Agent 实际执行）：`npm run test` **退出码 0，314 files / 3292 tests passed**；`npm run lint` **退出码 0**，仅既有 `server/cloud/identity.mjs:92` no-useless-assignment warning；`npm run build` **退出码 0**，仅既有 KaTeX 字体解析与大 chunk warning。本次状态子任务不重跑生产测试。历史结果保留：最后修复前父 Agent 313 files / 3288 tests passed，子 Agent 定向 5 files / 141 tests passed、lint/build 通过，不替代最终全量结果。
+- Notes：此前一次全量在 `qf-agent-process.test.mjs:269` 重启 timer 测试失败；未改相关源码原样复跑全绿。根因未定位，不标已修复、不扩大本 feature 范围。
+- 边界：未新增依赖、不改 `server/`、未手工修改 `dist/`/`package-dist/`/`package-offline/`，无 commit/tag/push/发布；本轮不混入网络容错，不把其他后端旧问题标为已解决。已考虑可视化说明，本次为现有导航/职责纠正文档，无需新增 SVG 产物。
+- Blocker / 下一步：实现与自动验证无待办；浏览器真实 IME 组合输入、焦点保持/关闭回焦、侧栏与摘要响应式布局及用户视觉验收未做，不能以单测代替。后端无客户端 revision CAS，不能保证跨客户端原子保存或服务端拒绝所有外部冲突；检测到冲突或服务端返回错误时保留草稿并报错，已发 POST 不可回撤。
+
+---
+
+## Feature：goal-pinned-summary-production-ui Goal 置顶摘要生产 UI 落地（2026-09-10，done，实现与全量自动验证完成，仍保留用户视觉验收）
+
+- 授权与范围（用户明确）：原型已确认落地，生产 UI 实现与全量自动验证（`npm run test` / `npm run lint` / `npm run build` 均退出码 0）已完成；本会话最终一轮为**文档/状态同步**，不改后端（`server/` 未动）。旧记录保留：`goal-pinned-summary-interaction-prototype`（needs-review）与 `ai-goal-mode`（done）状态不擅改。
+- 生产主路径（与原型对齐）：完整 Goal 卡不再由 `ChatPanelHost` 挂载，旧 `panel-decoration/goal-card.ts` controller/viewmodel 保留兼容，`buildGoalCardViewModel` 仍是三个 surface 共用的纯投影。改为两块 surface——① 置顶摘要置顶的 Goal 首分区 `git/GoalSummarySection.tsx` + `goal-summary.css`：真实状态/目标正文、`已通过准则/总数`、blocker/summary、阶段主操作（confirm/pause/resume/accept·继续/revise 编辑器/cancel 内联确认），验收·证据·范围·预算默认折叠；② 输入框上方控制条 `panel-decoration/goal-control-strip.ts`：单行状态 + 最多两个 icon（pause/resume + 打开摘要），`running`/`verifying`/`pausing`→暂停、仅 `paused`→继续、`blocked`/`needs_review`/`awaiting_*` 只保留打开摘要、终态整条不渲染。
+- 外壳与挂载：`GitToolsPinnedSummary`/`App` 让摘要在只有 goal 时也挂载（goal-only 渲染）；胶囊首段为 Goal（短目标 + 真实状态 + 已验收准则数），之后才接任务/文件/智能体段且总段数截断为 3。控制条挂载点固定为 composer shell 首位（TodoWrite 摘要/排队消息锚点之间绝不插新 sibling），节点与 `aria-live` 标签只建一次、原地更新，pause/resume 复用同一按钮节点保住焦点，节点被移除时焦点交回摘要入口或编辑器。主会话门禁：置顶摘要只排除 ACP（`sessionSource !== 'acp'`），控制条再加 `capabilities.goal`、非共享页、非 side chat；其他 surface 打开摘要走 `quickforge:open-goal-summary` 事件，`App` 只认当前会话 + 当前 goal，打开前先关闭已打开的 Workspace Inspector 解除挂起再展开，不新增全局模式。
+- 真实后端（无假时序）：控制条**不复制原型的 800ms 演示延迟**，pause 直接 POST `/api/agents/:id/goal`，`pausing` 是服务端真实状态，图标在 pending/`pausing` 期间真实 disabled，失败经共享 store 广播回控制条而非被吞掉。
+- 共享状态与草稿保留：新增 `src/lib/goal-ui.ts`，按 `sessionId + goalId` 持有 pending/dirty/error/草稿，三个 surface 同源锁（`runGoalUiAction` 同步加锁、脏草稿拒绝除 `revise` 的动作并写原因、失败存为 error 广播）。草稿连同 `editing` 标记存 store（基线为服务端 objective），挂载面 `retainGoalUi`/`releaseGoalUi` 钉键/释放：关闭摘要、最小化、桌面↔移动响应式重挂后重开恢复同一文本与 dirty 锁（只有显式 `clearGoalUi` 丢弃，无人挂载草稿按 LRU 最多保留 6 份）；目标被真正改写或换 goal 时草稿失效清除。取消确认是内联行而非对话框：焦点进入「继续工作」，Escape 只关该行/菜单并把焦点还给触发按钮，并拦在置顶摘要文档级监听器之前。
+- 状态语义（SSE/HTTP 与消息水位）：goal 快照与 `goal_updated` 只推进独立 goal 水位（`goalSeq`：同 id 比 `revision`、跨 id/清空比水位、相同回显不推进），HTTP 动作响应与 `/state` 刷新都带请求前水位做竞态守卫，只有真正改变 goal 才广播 `goal_updated`；goal 帧与通知一律**不**推进消息 `stateVersion`（goal 不改消息，推进会作废在途消息对账导致丢消息）。
+- 收尾修复（已并入并有测试覆盖）：① `syncGoalUiState` 由 `App` 的 effect 在每次 goal 变化时调用（不在 render 期写 store），非可编辑状态或 objective 被替换时清旧 draft/dirty、但保留真实 in-flight pending；② 关闭/最小化/响应式重挂只在同一可编辑目标下 `releaseGoalUi` 保留草稿（不 `clearGoalUi`）；③ 被移除的焦点节点回填到摘要入口或 composer 编辑器，不落 `body`；④ `server-agent` 的 `/state` 消息版本早退只独立采纳「同 goal id + 严格更高 revision + 请求前捕获的 `goalSeq` 未被期间落地的 goal 改变」的 goal，跨 id/`null` 不越过 guard。
+- 文档：`docs/wiki/src/components/README.md`（新增 GoalSummarySection/goal-summary.css/goal-control-strip 条目与本轮行为段落）、`docs/wiki/src/lib/README.md`（新增 `goal-ui.ts` 行与共享 store/水位段落）、`docs/wiki/README.md`（Goal 模式概览补生产 UI 主路径）。
+- 验证（父 Agent 完整验证，全部通过，2026-09-10）：`npm run test` 退出码 0，**311 files / 3263 tests passed**；`npm run lint` 退出码 0，**0 error**（仅 1 个既有 warning `server/cloud/identity.mjs:92` no-useless-assignment，与本 feature 无关）；`npm run build` 退出码 0（TypeScript 类型检查与 Vite 生产构建通过，仍有既有 KaTeX 字体路径未构建解析警告与大 chunk 体积警告）；子 Agent 针对性回归 `npx vitest run tests/frontend/goal-control-strip.test.ts tests/frontend/goal-summary-section.test.ts tests/frontend/goal-ui.test.ts tests/frontend/goal-card.test.ts tests/frontend/goal-card-controller.test.ts tests/frontend/goal-state.test.ts` → **6 files / 113 tests passed**（control-strip 20 / summary-section 20 / goal-ui 17 / goal-card 22 / card-controller 19 / goal-state 15）；`feature_list.json` JSON parse 与 `git diff --check` 通过。
+- 边界：本期为收尾文档/状态同步，未改后端（`server/` 未动）、未新增依赖、未 commit/tag/push、未发布 npm、未手工修改 `dist/`、`package-dist/`、`package-offline/`。未做真实浏览器实测（布局、焦点圈闭、屏幕阅读器、IME、pause↔pausing 时序均属代码/单测保障，不宣称浏览器已验证）。
+- Notes：上轮评审六类中优先级问题中，**SSE 快照卡片刷新已补**（goal 快照/`goal_updated` 触发置顶摘要与 Goal 分区刷新且不动消息水位）；其余四类后端旧问题（同 session 并发、clear/compact 守卫、retry 生命周期、验收证据一致性）仍不修、不标已解决；消息版本回退属广义 SSE epoch/消息对账基础设施问题，本轮不扩范围、不声称已解决。
+- 下一步：① 用户浏览器验收（摘要三态与 goal-only 会话、控制条两 icon 与 pausing disabled、胶囊目标/状态/验收数、编辑 dirty 与跨关闭/响应式保留、取消内联确认焦点圈闭、pause 走真实后端时序）；② 验收通过后决定 commit/发布（发布走 `docs/architecture/patch-release-runbook.zh-CN.md`）。
+
+---
+
+## Feature：goal-pinned-summary-interaction-prototype Goal 置顶摘要交互设计原型（2026-09-10，needs-review，待用户视觉验收）
+
+- 授权范围（用户明确）：只做设计原型对齐，不进入生产落地——不改生产组件/后端/依赖，不跑生产整套 test/lint/build。
+- 产物：`design-mockups/goal-pinned-summary.html`（单文件自包含中文 HTML/CSS/JS/SVG，无外部资源与网络调用；依赖 `ai-goal-mode` 的既有语义）。
+- 覆盖交互：置顶摘要三态（关闭/胶囊/面板）与移动端弹层；输入框上方只放状态短标识 + pause/resume + 打开摘要两个 icon（不做 more 完整卡）；胶囊显示短目标/状态/验收数；面板内验收详情折叠 + 阶段主操作；more 提供编辑/取消；编辑有 dirty 保护；pause 走 pause → pausing(800ms) → paused（pausing 期间暂停 icon 真实 disabled 且 aria-disabled 同步）；聊天样例含审批与问答但不自动授权（拒绝工具→paused 且进展/验收数不变）；明确 accept 一次完成、continue 保留进度；取消不回滚 + 确认态焦点圈闭；预算展示 8 轮 / 30 分钟；设计说明区独立于产品 UI。
+- 验证（2026-09-10，针对最终修订版，两类结果分开记）：**父 Agent 独立静态**——内联 JS `node --check` 通过；67 个唯一 id 全部有定义、50 处 `getElementById` 引用零缺失；无外部资源与网络/API 调用（http(s) 0 命中、无 fetch/XHR）；改动范围仅 4 文件（原型 + 3 状态文件），未触生产源码；`feature_list.json` JSON parse 与 `git diff --check` 通过。**委派动态**（Node VM + 最小 fake DOM，父 Agent 转述）——最终 54 条断言全部通过，分组 R1 15 / R2 12 / R3 10 / R4 7 / R5 10，覆盖：输入框上方 2 icon 控条形态与 disabled/aria-disabled 同步、胶囊短目标/状态/验收数、pause→pausing(800ms)→paused 时序、continue 与工具被拒后进展/验收数保持不变、拒绝工具→paused、blocked 详情展开、accept 一次完成、编辑 dirty 保护、取消确认态焦点圈闭与 Tab/Escape 模拟。最终修订已修 pausing 的 aria-disabled 同步与「拒绝工具→paused」。旧版草稿的 686 条断言属修订前历史结果，不作为最终版依据。展示文件由父 Agent 用 present_files 交付。
+- 边界：不改生产源码/依赖/生成产物（`dist/`、`package-dist/`、`package-offline/` 未触碰）；未 commit/tag/push（原型文件为未跟踪状态）。未做真实浏览器、CSS 布局、屏幕阅读器与中文输入法（IME）实测，也无网络/真实 API/真实模型。
+- 不改之前 feature 状态、保留历史；既有中优先级遗留问题（同 session 并发、clear/compact 守卫、retry 生命周期、SSE 快照卡片刷新、验收证据一致性等）仍开放，本轮未标已解决。
+- 无需生产 Wiki 同步：仅设计产物，未影响架构、模块职责或公共入口。
+- 下一步：用户打开 HTML 做视觉/交互验收（摘要三态、输入框上方 icon、胶囊信息、面板折叠与主操作、pause→pausing→paused 时序与拒绝工具→paused、编辑 dirty 与取消语义、焦点圈闭、预算文案），并补真实浏览器/屏幕阅读器/中文输入法（IME）验收；确认前不推进生产落地。
+
+---
+
+## Feature：ai-goal-objective-edit-actions Goal 卡目标编辑按钮实时同步与 confirm 防误提交（2026-09-10，needs-review）
+
+- 范围（用户明确）：本轮 Goal 只修高优先级按钮问题；上轮评审六项问题中的其余五类中优先级问题（同 session 并发、clear/compact 守卫、retry 生命周期、SSE 快照卡片刷新、验收证据一致性）本轮仍未修，不标已解决。
+- 问题：goal 卡「修改目标/确认」按钮的 disabled 只按整卡重渲染时的 draft 计算 → 输入过程中不同步（可能已输入仍灰）、点击时可能拿着过期状态（草稿未提交却触发 confirm）。
+- 修复（仅 `src/components/chat/panel-decoration/goal-card.ts`）：① 输入事件只局部同步 dirty 相关按钮、不重建输入节点（textarea 节点/value/focus/选区保留属「输入不重绘」的代码保障，未做真实浏览器焦点/选区实测；`syncDraftActions` 闭包按 render 隔离，旧输入节点的处理器不更新新按钮，旧闭包只能触达旧 render 已 detach 的节点）；② 按钮新增 `disabledForDraft(dirty)`，仅由输入事件调用来局部同步按钮（dirty = `editing && draftObjective.trim() !== view.objective.trim()` 实时推导，不再信任 render 时捕获的值）；click 不重求 `disabledForDraft`，过期 confirm 提交由 `objectiveDirty()` 实时 return 防线拦截（点击仍先看按钮当时的 disabled）；③ dirty 按钮在每种可编辑状态（awaiting_confirmation/paused/blocked）按同一规则 re-arm，草稿回退后 confirm 自动恢复可用。
+- 测试：`tests/frontend/goal-card-controller.test.ts` 新增 6 条行为测试（各可编辑状态输入即时启用 revise / dirty 时 confirm 不可用且回退后 re-arm / 过期 confirm 点击被拒 / in-flight 时重复鼠标提交与 Ctrl+Enter 被阻断等）。
+- 验证：父 Agent 针对性验证——`npx vitest run tests/frontend/goal-card-controller.test.ts tests/frontend/goal-card.test.ts tests/frontend/goal-state.test.ts` **3 files / 54 tests passed**（controller 19 / card 20 / state 15）；两改动文件 `npx eslint` **0 error**；`npx tsc -b` 无错误；JSON parse 与 `git diff --check` 通过。子 Agent 委派实现：先红（4 失败）后绿，`npx vitest run tests/frontend` **149 files / 1667 tests passed**；独立只读评审未发现阻断。未跑全套 `npm run build`（本轮无构建/公共入口变更）。
+- 边界：只修按钮状态同步与 confirm 防误提交，未改架构/状态机/API 契约/i18n/视觉 token，无需更新 wiki；未做真实浏览器焦点/选区实测（fake DOM 断言输入节点未被替换、输入过程中无选区赋值，真实光标/选区与 IME 组合输入未验证）；未改后端/依赖/生成产物，未 commit/tag/push。不宣称整个 Goal 已无缺陷，状态 needs-review 仅表示本轮范围代码与自动验证通过、待用户验收。
+- 下一步：浏览器真实输入冒烟——中文输入法组合输入、光标/选区保持、dirty 时 confirm 置灰、回退文本后恢复可用、点击不再误提交；用户验收后决定是否 commit。
+
+---
+
+## Feature：ai-goal-mode Goal 模式（2026-09-10，done）
+
+- 需求与语义（用户确认）：主聊天 `/goal <目标>` → 只读规划 → 用户确认 → 有限轮执行 → `needs_review` 交回用户；`accept` 是唯一人审完成动作，`resume` 只继续执行，模型不能自行验收。范围仅 QuickForge 主聊天（共享/ACP/定时任务不可用）。
+- 状态流（代码语义，不含行号）：`/goal` 创建 goal 并进入 `planning`（复用 `/plan` 只读白名单，`goal_report action:"plan"` 提交准则/范围/摘要）→ `awaiting_confirmation` → 用户 `confirm` → `running`/`verifying` 有限轮 → `needs_review` → 用户 `accept`（写 human 证据并 `completed`）或 `resume`（继续执行）；受阻/审批拒绝超时/提问跳过/无进展/重复失败/预算耗尽/持久化失败分别落到 `paused`/`blocked` 并带 blocker。
+- 服务端：新增 `server/agent-goal-state.mjs`（纯状态模型：状态机、预算核算、证据与准则校验、human 验收、恢复映射、工作区 key）与 `server/agent-goal-runner.mjs`（会话绑定 runner：只读规划权限、工作区互斥 admission 队列、用户动作、`goal_report`、审批/ask/abort hook）。生命周期纪律：每轮仅在运行真正结束且最终状态持久化成功后调度下一轮（fail-closed → `paused`/`persist_failed`）；显式 settle barrier + abort generation 观测用户中止；goal body 随会话 CAS 权威快照持久化、metadata 只存 `{id,status,updatedAt}` 投影；重启把 in-flight 状态映射为 `paused` 且不自动重放。预算默认 8 轮 / 30 分钟累计活跃，`revise` 保留累计用量，耗尽后 `resume` 409 并提示 `cancel` 新建。
+- API 与工具：`POST /api/agents/:sessionId/goal` 的 `confirm` / `pause` / `resume` / `cancel` / `revise`（需 `objective`）/ `accept`（仅 `needs_review`）。`goal_report` 会话专用：仅活跃 goal 时注入，不在 `workspaceTools`/`GET /api/tools`，无 REST handler；证据只引用真实成功工具结果的 `toolCallId`（`run_command` 还需 exit code 0 且无中止/超时/信号），控制面/委派/Skill/记忆工具永不作为证据，工具成功是证据来源但不是目标的语义验证；human 证据只由用户 API 写入。
+- 前端：新增 `src/lib/goal.ts` 共享契约与 `src/components/chat/panel-decoration/goal-card.ts`（纯视图模型 + 原生 DOM 控制器，复用既有面板装饰模式，非 React 组件），挂在 composer shell 首位；`state.goal` 由快照、SSE `goal_updated` 与 `updateGoal` 维护，同 id 用 `revision`、跨 id/清空用 `goalSeq` 水位防竞态，请求 30s 超时；`needs_review` 提供 accept/resume 双按钮，字段防御归一化且签名相同不重绘。
+- 文档同步：`docs/wiki/README.md`、`server/README.md`、`server/routes/README.md`、`server/tools/README.md`、`src/lib/README.md`、`src/components/README.md`。未引入新视觉模式，未改 `DESIGN_LANGUAGE.md`；本轮实现未请求可视化产物，未新增图文件。
+- 验证（父 Agent 完整验证，全部通过）：`npm run test` 退出码 0，**308 files / 3180 tests passed**；`npm run lint` 退出码 0，**0 error**（仅 1 个既有 warning `server/cloud/identity.mjs:92` no-useless-assignment，与本 feature 无关）；`npm run build` 退出码 0，TypeScript 类型检查与 Vite 生产构建通过（仍有既有 KaTeX 字体路径未构建解析警告与大 chunk 体积警告）；`git diff --check` 通过；`git status` 无 `dist/`、`package-dist/`、`package-offline/` 变更。cancel/settlement 收尾竞态已修复并有测试覆盖，全量测试通过。
+- 未做（明确不宣称）：浏览器 E2E、真实模型端到端实测（planning/continuation 由 MockAgent 与纯函数测试覆盖）。
+- 边界：未新增依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未 commit/tag/push。文档只写完成后的行为、不依赖行号。
+- Notes（发现但不修的无关旧问题）：`server/context-references.mjs` 仍按会话级残留 `modelAccessContext.source === 'shared'` 判定共享会话，而该 overlay 由共享路由按请求写入会话（`server/agent-manager.mjs`）；共享访客发过一条消息后，owner 首条带文件引用的 prompt 可能被误拒。与 goal 的请求级来源处理口径不一致，另行 feature，不扩大本轮修复范围。
+- 下一步：浏览器真实模型验收——`/goal` 规划→确认→执行→人审双按钮（accept/resume）→暂停/继续/修改/取消；或由用户决定是否提交（本会话未 commit/tag/push/发布）。
+
+---
+
 ## Feature：subagent-run-detail-model-thinking subagent 运行详情展示模型与思考等级（2026-09-09，done）
 
 - 需求（用户提出）：点击 subagent 摘要打开 Workspace Inspector 运行详情时，希望看到该次 subagent 实际使用的模型与思考等级；范围仅限详情页。样式两轮调整（用户确认）：最终为任务说明块上方独立一行、居中，只显示「模型名 · 思考等级」，不带文字标签与继承标记。

@@ -41,7 +41,9 @@ vi.mock('@/lib/types', () => ({
 }), { virtual: true })
 
 vi.mock('@/lib/i18n', () => ({
-  t: (key: string) => {
+  t: (key: string, params?: Record<string, unknown>) => {
+    if (key === 'goalRefreshFailed') return `Failed to refresh goal state (HTTP ${params?.status})`
+    if (key === 'goalRefreshUnsafe') return 'Cannot safely refresh the current goal state'
     const messages = {
       en: {
         generationAlreadyRunning: 'Generation is still running. Stop it or wait until it finishes.',
@@ -1551,6 +1553,1003 @@ describe('ServerAgent', () => {
     } finally {
       agent.dispose()
     }
+  })
+
+  describe('goal state', () => {
+    const sampleGoal = {
+      id: 'goal-1',
+      sessionId: 'session-1',
+      revision: 2,
+      objective: 'Ship the goal UI',
+      status: 'awaiting_confirmation',
+      criteria: [{ id: 'c1', description: 'Builds', required: true, status: 'pending', evidenceIds: [] }],
+      scope: ['src/**'],
+      summary: '',
+      budget: { maxIterations: 10, maxActiveDurationMs: 600000 },
+      usage: { iterations: 0, activeDurationMs: 0 },
+      evidence: [],
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+
+    it('adopts the goal from state frames and clears it on an explicit null', async () => {
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const source = latestEventSource()
+        source.emit('state', { sessionId: 'session-1', stateVersion: 2, goal: sampleGoal })
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1', status: 'awaiting_confirmation', revision: 2 })
+
+        source.emit('state', { sessionId: 'session-1', stateVersion: 3, goal: null })
+        expect(agent.state.goal).toBeNull()
+
+        // Older servers may omit the field entirely; keep the last known goal.
+        source.emit('state', { sessionId: 'session-1', stateVersion: 4, goal: sampleGoal })
+        source.emit('state', { sessionId: 'session-1', stateVersion: 5 })
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1' })
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('applies and forwards goal_updated events', async () => {
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      const events: Array<Record<string, unknown>> = []
+      const unsubscribe = agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      try {
+        latestEventSource().emit('goal_updated', {
+          sessionId: 'session-1',
+          goal: { ...sampleGoal, status: 'running', revision: 3 },
+        })
+        expect(agent.state.goal).toMatchObject({ status: 'running', revision: 3 })
+        expect(events.at(-1)).toMatchObject({ type: 'goal_updated' })
+      } finally {
+        unsubscribe()
+        agent.dispose()
+      }
+    })
+
+    it('picks up the goal through a /state refresh', async () => {
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url === '/api/agents/session-1/state') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ stateVersion: 2, messages: [{ role: 'user', content: 'first' }], goal: sampleGoal }),
+          }
+        }
+        return { ok: true, status: 200, json: async () => ({}) }
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({
+        sessionId: 'session-1',
+        initialState: { messages: [{ role: 'user', content: 'first' }] as AgentMessage[], stateVersion: 1 },
+      })
+      try {
+        await agent.syncState()
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1' })
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it.each([
+      ['resume', 'awaiting_confirmation', false],
+      ['extend_resume', 'awaiting_confirmation', false],
+      ['extend_resume', 'paused', true],
+    ] as const)('adopts authoritative %s response %s without assuming execution', async (action, status, planConfirmed) => {
+      const { buildGoalCardViewModel } = await import('../../src/components/chat/panel-decoration/goal-card')
+      const { runGoalUiAction, getGoalUiState, clearGoalUi } = await import('../../src/lib/goal-ui')
+      const initial = { ...sampleGoal, status: 'paused', planConfirmed, usage: { iterations: 99, activeDurationMs: 99_000_000 } }
+      const returned = { ...initial, status, revision: initial.revision + 1,
+        budget: { maxIterations: 16, maxActiveDurationMs: 3_600_000 } }
+      const response = (goal: unknown) => ({ ok: true, status: 200, json: async () => ({ goal, isStreaming: false }) })
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        latestEventSource().emit('goal_updated', { sessionId: 'session-1', goal: initial })
+        const fetchMock = vi.fn()
+        if (action === 'extend_resume') fetchMock.mockResolvedValueOnce(response(initial))
+        fetchMock.mockResolvedValueOnce(response(returned))
+        vi.stubGlobal('fetch', fetchMock)
+        const pending = runGoalUiAction('session-1', initial.id, action, async () => {
+          const result = await agent.updateGoal(action, undefined, { goalId: initial.id, expectedRevision: initial.revision })
+          expect(result).toMatchObject({ status, planConfirmed, revision: returned.revision })
+        })
+        expect(getGoalUiState('session-1', initial.id).pending).toBe(true)
+        expect(agent.state.goal).toMatchObject({ status: 'paused', planConfirmed })
+        await pending
+        expect(getGoalUiState('session-1', initial.id)).toMatchObject({ pending: false, error: null })
+        expect(agent.state.goal).toMatchObject(returned)
+        const model = buildGoalCardViewModel(agent.state.goal!)
+        expect(model.confirmable).toBe(status === 'awaiting_confirmation')
+        expect(model.resumable).toBe(status === 'paused')
+        expect(model.pausable).toBe(false)
+        expect(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(1)
+      } finally { agent.dispose(); clearGoalUi('session-1', initial.id) }
+    })
+
+    describe('extend_resume', () => {
+      const exhausted = { ...sampleGoal, status: 'paused', usage: { iterations: 99, activeDurationMs: 99_000_000 } }
+      const options = { goalId: exhausted.id, expectedRevision: exhausted.revision }
+      const response = (body: unknown, status = 200) => ({ ok: status === 200, status, json: async () => body })
+
+      it('strictly preflights GET then posts exactly three fields, never objective', async () => {
+        const agent = await createServerAgent({ sessionId: 'session-1' })
+        try {
+          latestEventSource().emit('goal_updated', { sessionId: 'session-1', goal: exhausted })
+          const fetchMock = vi.fn().mockResolvedValueOnce(response({ goal: exhausted, isStreaming: false }))
+            .mockResolvedValueOnce(response({ goal: { ...exhausted, revision: exhausted.revision + 1, status: 'running' } }))
+          vi.stubGlobal('fetch', fetchMock)
+          await agent.updateGoal('extend_resume', 'must not send', options)
+          expect(fetchMock).toHaveBeenCalledTimes(2)
+          expect(fetchMock.mock.calls[0][0]).toBe('/api/agents/session-1/state')
+          expect(fetchMock.mock.calls[0][1]).toMatchObject({ cache: 'no-store' })
+          expect(fetchMock.mock.calls[1][0]).toBe('/api/agents/session-1/goal')
+          expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ action: 'extend_resume', ...options })
+          expect(agent.state.goal?.status).toBe('running')
+        } finally { agent.dispose() }
+      })
+
+      it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN])('rejects unsafe revision %s before any fetch', async (expectedRevision) => {
+        const agent = await createServerAgent({ sessionId: 'session-1' })
+        try {
+          latestEventSource().emit('goal_updated', { sessionId: 'session-1', goal: exhausted })
+          const fetchMock = vi.fn()
+          vi.stubGlobal('fetch', fetchMock)
+          await expect(agent.updateGoal('extend_resume', undefined, { ...options, expectedRevision })).rejects.toThrow()
+          expect(fetchMock).not.toHaveBeenCalled()
+        } finally { agent.dispose() }
+      })
+
+      it.each([
+        { goal: { ...exhausted, revision: exhausted.revision - 1 }, isStreaming: false },
+        { goal: { ...exhausted, revision: exhausted.revision + 1 }, isStreaming: false },
+        { goal: { ...exhausted, id: 'other' }, isStreaming: false },
+        { goal: { ...exhausted, sessionId: 'other' }, isStreaming: false },
+        { goal: exhausted },
+        { goal: exhausted, isStreaming: true },
+        { goal: { ...exhausted, status: 'running' }, isStreaming: false },
+        { goal: { ...exhausted, usage: { iterations: 0, activeDurationMs: 0 } }, isStreaming: false },
+      ])('refuses unsafe preflight without POST or retries: %j', async (snapshot) => {
+        const agent = await createServerAgent({ sessionId: 'session-1' })
+        try {
+          latestEventSource().emit('goal_updated', { sessionId: 'session-1', goal: exhausted })
+          const fetchMock = vi.fn().mockResolvedValue(response(snapshot))
+          vi.stubGlobal('fetch', fetchMock)
+          await expect(agent.updateGoal('extend_resume', undefined, options)).rejects.toThrow()
+          expect(fetchMock).toHaveBeenCalledTimes(1)
+        } finally { agent.dispose() }
+      })
+
+      it.each([false, true])('reconciles failed POST once without retry (network=%s)', async (network) => {
+        const agent = await createServerAgent({ sessionId: 'session-1' })
+        try {
+          latestEventSource().emit('goal_updated', { sessionId: 'session-1', goal: exhausted })
+          const fetchMock = vi.fn().mockResolvedValueOnce(response({ goal: exhausted, isStreaming: false }))
+          if (network) fetchMock.mockRejectedValueOnce(new Error('offline'))
+          else fetchMock.mockResolvedValueOnce(response({ error: 'conflict' }, 409))
+          fetchMock.mockResolvedValueOnce(response({ goal: { ...exhausted, revision: exhausted.revision + 1 }, isStreaming: false }))
+          vi.stubGlobal('fetch', fetchMock)
+          await expect(agent.updateGoal('extend_resume', undefined, options)).rejects.toThrow(network ? 'offline' : 'conflict')
+          expect(fetchMock).toHaveBeenCalledTimes(3)
+          expect(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(1)
+          expect(agent.state.goal?.revision).toBe(exhausted.revision + 1)
+        } finally { agent.dispose() }
+      })
+
+      it.each([false, true])('fails closed on HTTP GET errors (after POST=%s)', async (afterPost) => {
+        const agent = await createServerAgent({ sessionId: 'session-1' })
+        try {
+          latestEventSource().emit('goal_updated', { sessionId: 'session-1', goal: exhausted })
+          const fetchMock = vi.fn()
+          if (afterPost) fetchMock.mockResolvedValueOnce(response({ goal: exhausted, isStreaming: false }))
+            .mockResolvedValueOnce(response({ error: 'conflict' }, 409))
+          fetchMock.mockResolvedValue(response({}, 503))
+          vi.stubGlobal('fetch', fetchMock)
+          await expect(agent.updateGoal('extend_resume', undefined, options)).rejects.toThrow(afterPost ? 'goalBudgetReconcileFailed' : 'HTTP 503')
+          expect(fetchMock).toHaveBeenCalledTimes(afterPost ? 3 : 1)
+          expect(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(afterPost ? 1 : 0)
+        } finally { agent.dispose() }
+      })
+
+      it('cancels during preflight without dispatch even if fetch ignores abort', async () => {
+        const agent = await createServerAgent({ sessionId: 'session-1' })
+        try {
+          latestEventSource().emit('goal_updated', { sessionId: 'session-1', goal: exhausted })
+          const controller = new AbortController()
+          const fetchMock = vi.fn(async () => {
+            controller.abort()
+            return response({ goal: exhausted, isStreaming: false })
+          })
+          vi.stubGlobal('fetch', fetchMock)
+          await expect(agent.updateGoal('extend_resume', undefined, { ...options, signal: controller.signal })).rejects.toThrow()
+          expect(fetchMock).toHaveBeenCalledTimes(1)
+        } finally { agent.dispose() }
+      })
+
+      it('keeps shared pending after closing until an already dispatched POST settles', async () => {
+        const { runGoalUiAction, getGoalUiState, clearGoalUi } = await import('../../src/lib/goal-ui')
+        const agent = await createServerAgent({ sessionId: 'session-1' })
+        try {
+          latestEventSource().emit('goal_updated', { sessionId: 'session-1', goal: exhausted })
+          let finish!: (value: unknown) => void
+          const fetchMock = vi.fn().mockResolvedValueOnce(response({ goal: exhausted, isStreaming: false }))
+            .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+          vi.stubGlobal('fetch', fetchMock)
+          const controller = new AbortController()
+          const action = runGoalUiAction('session-1', exhausted.id, 'extend_resume', () => agent.updateGoal('extend_resume', undefined, { ...options, signal: controller.signal }))
+          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+          controller.abort()
+          expect(getGoalUiState('session-1', exhausted.id).pending).toBe(true)
+          expect(fetchMock.mock.calls[1][1].signal.aborted).toBe(false)
+          finish(response({ goal: exhausted }))
+          await action
+          expect(getGoalUiState('session-1', exhausted.id).pending).toBe(false)
+        } finally { clearGoalUi('session-1', exhausted.id); agent.dispose() }
+      })
+    })
+
+    it('posts a goal action and adopts the authoritative response', async () => {
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ goal: { ...sampleGoal, status: 'paused', revision: 4 } }),
+      }))
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const goal = await agent.updateGoal('pause')
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/agents/session-1/goal',
+          expect.objectContaining({ method: 'POST', body: JSON.stringify({ action: 'pause' }) }),
+        )
+        expect(goal).toMatchObject({ status: 'paused', revision: 4 })
+        expect(agent.state.goal).toMatchObject({ status: 'paused', revision: 4 })
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('sends the revised objective and surfaces HTTP failures without dropping the goal', async () => {
+      const { normalizeGoalState } = await import('../../src/lib/goal')
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        agent.state.goal = normalizeGoalState(sampleGoal)
+
+        const reviseFetch = vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ goal: { ...sampleGoal, objective: 'New scope', revision: 5 } }),
+        }))
+        vi.stubGlobal('fetch', reviseFetch)
+        await agent.updateGoal('revise', 'New scope')
+        expect(reviseFetch).toHaveBeenCalledWith(
+          '/api/agents/session-1/goal',
+          expect.objectContaining({ body: JSON.stringify({ action: 'revise', objective: 'New scope' }) }),
+        )
+        expect(agent.state.goal).toMatchObject({ objective: 'New scope', revision: 5 })
+
+        const failingFetch = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ error: 'goal update failed' }) }))
+        vi.stubGlobal('fetch', failingFetch)
+        await expect(agent.updateGoal('confirm')).rejects.toThrow('goal update failed')
+        // The previous authoritative goal stays on screen.
+        expect(agent.state.goal).toMatchObject({ objective: 'New scope', revision: 5 })
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('never lets a stale HTTP action response overwrite a newer goal', async () => {
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ goal: { ...sampleGoal, status: 'paused', revision: 1 } }),
+      }))
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        latestEventSource().emit('goal_updated', {
+          sessionId: 'session-1',
+          goal: { ...sampleGoal, status: 'running', revision: 5 },
+        })
+        expect(agent.state.goal).toMatchObject({ status: 'running', revision: 5 })
+
+        const goal = await agent.updateGoal('pause')
+        expect(goal).toMatchObject({ status: 'running', revision: 5 })
+        expect(agent.state.goal).toMatchObject({ status: 'running', revision: 5 })
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('does not let an in-flight action response overwrite a newer goal identity', async () => {
+      let releaseGoal: (() => void) | null = null
+      const fetchMock = vi.fn(async () => await new Promise((resolve) => {
+        releaseGoal = () => resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ goal: { ...sampleGoal, status: 'paused', revision: 9 } }),
+        })
+      }))
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const source = latestEventSource()
+        source.emit('goal_updated', { sessionId: 'session-1', goal: sampleGoal })
+        const pending = agent.updateGoal('pause')
+        await flushAllAsync()
+        expect(releaseGoal).not.toBeNull()
+
+        // A different goal replaces goal-1 while the request is in flight.
+        source.emit('goal_updated', {
+          sessionId: 'session-1',
+          goal: { ...sampleGoal, id: 'goal-2', status: 'running', revision: 1 },
+        })
+        expect(agent.state.goal).toMatchObject({ id: 'goal-2', status: 'running' })
+
+        releaseGoal?.()
+        const goal = await pending
+        // The stale goal-1 response is rejected by the goal watermark.
+        expect(agent.state.goal).toMatchObject({ id: 'goal-2', status: 'running' })
+        expect(goal).toMatchObject({ id: 'goal-2' })
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('does not let an in-flight action response resurrect a cleared goal', async () => {
+      let releaseGoal: (() => void) | null = null
+      const fetchMock = vi.fn(async () => await new Promise((resolve) => {
+        releaseGoal = () => resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ goal: { ...sampleGoal, status: 'cancelled', revision: 9 } }),
+        })
+      }))
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const source = latestEventSource()
+        source.emit('goal_updated', { sessionId: 'session-1', goal: sampleGoal })
+        const pending = agent.updateGoal('cancel')
+        await flushAllAsync()
+
+        source.emit('goal_updated', { sessionId: 'session-1', goal: null })
+        expect(agent.state.goal).toBeNull()
+
+        releaseGoal?.()
+        const goal = await pending
+        expect(agent.state.goal).toBeNull()
+        expect(goal).toBeNull()
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it.each([503, 200])('reports a translated save refresh error for HTTP %s', async (status) => {
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        latestEventSource().emit('goal_updated', { sessionId: 'session-1', goal: sampleGoal })
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: status === 200, status, json: async () => ({}) })))
+        await expect(agent.refreshGoalForSave(sampleGoal.id, new AbortController().signal)).rejects.toThrow(
+          status === 503 ? 'Failed to refresh goal state (HTTP 503)' : 'Cannot safely refresh the current goal state',
+        )
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('times out a hung goal action instead of leaving the card pending forever', async () => {
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        // The request never resolves; only the bounded timeout can reject it.
+        const fetchMock = vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+        }))
+        vi.stubGlobal('fetch', fetchMock)
+        vi.useFakeTimers()
+        const pending = agent.updateGoal('accept')
+        const assertion = expect(pending).rejects.toThrow('timed out')
+        await vi.advanceTimersByTimeAsync(30_000)
+        await assertion
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/agents/session-1/goal',
+          expect.objectContaining({ method: 'POST', body: JSON.stringify({ action: 'accept' }) }),
+        )
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('does not let a late /state null clear a newer goal_updated frame', async () => {
+      let releaseState: (() => void) | null = null
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url === '/api/agents/session-1/state') {
+          return await new Promise((resolve) => {
+            releaseState = () => resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({ stateVersion: 2, messages: [], goal: null }),
+            })
+          })
+        }
+        return { ok: true, status: 200, json: async () => ({}) }
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({ sessionId: 'session-1', initialState: { stateVersion: 1 } })
+      try {
+        const pending = agent.syncState()
+        await flushAllAsync()
+        expect(releaseState).not.toBeNull()
+
+        latestEventSource().emit('goal_updated', { sessionId: 'session-1', goal: sampleGoal })
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1' })
+
+        releaseState?.()
+        await pending
+        // The snapshot's null goal is superseded; the SSE goal stays.
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1', revision: 2 })
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('prefers a goal_updated frame over a late /state snapshot but still applies its messages', async () => {
+      let releaseState: (() => void) | null = null
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url === '/api/agents/session-1/state') {
+          return await new Promise((resolve) => {
+            releaseState = () => resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                stateVersion: 2,
+                messages: [
+                  { role: 'user', content: 'first' },
+                  { role: 'assistant', content: 'second' },
+                ],
+                goal: { ...sampleGoal, status: 'running', revision: 1 },
+              }),
+            })
+          })
+        }
+        return { ok: true, status: 200, json: async () => ({}) }
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({ sessionId: 'session-1', initialState: { stateVersion: 1 } })
+      try {
+        const pending = agent.syncState()
+        await flushAllAsync()
+        expect(releaseState).not.toBeNull()
+
+        latestEventSource().emit('goal_updated', {
+          sessionId: 'session-1',
+          goal: { ...sampleGoal, status: 'running', revision: 5 },
+        })
+        expect(agent.state.goal).toMatchObject({ revision: 5 })
+
+        releaseState?.()
+        await pending
+        expect(agent.state.goal).toMatchObject({ status: 'running', revision: 5 })
+        expect(agent.state.messages.map((message) => message.content)).toEqual(['first', 'second'])
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('schedules a snapshot cache write when a goal frame arrives', async () => {
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const before = sessionCacheMock.scheduled
+        latestEventSource().emit('goal_updated', { sessionId: 'session-1', goal: sampleGoal })
+        expect(sessionCacheMock.scheduled).toBe(before + 1)
+
+        const cacheModule = await import('../../src/lib/session-message-cache')
+        await cacheModule.flushPendingSessionMessageWrites()
+        const payload = sessionCacheMock.writes.at(-1)?.payload as { snapshot: Record<string, unknown> } | undefined
+        expect(payload?.snapshot.goal).toMatchObject({ id: 'goal-1', revision: 2 })
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('preserves the goal when an action response omits the payload', async () => {
+      const { normalizeGoalState } = await import('../../src/lib/goal')
+      const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        agent.state.goal = normalizeGoalState(sampleGoal)
+        const goal = await agent.updateGoal('pause')
+        expect(goal).toMatchObject({ id: 'goal-1', revision: 2, status: 'awaiting_confirmation' })
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1', revision: 2 })
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('keeps an in-flight message reconcile when a goal frame arrives', async () => {
+      let releaseMessages: (() => void) | null = null
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url.startsWith('/api/agents/session-1/messages')) {
+          return await new Promise((resolve) => {
+            releaseMessages = () => resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                after: 2,
+                count: 4,
+                hasMore: false,
+                messages: [
+                  { role: 'user', content: 'third' },
+                  { role: 'assistant', content: 'fourth' },
+                ],
+              }),
+            })
+          })
+        }
+        return { ok: true, status: 200, json: async () => ({}) }
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({
+        sessionId: 'session-1',
+        initialState: {
+          messages: [
+            { role: 'user', content: 'first' },
+            { role: 'assistant', content: 'second' },
+          ] as AgentMessage[],
+          stateVersion: 1,
+        },
+      })
+      try {
+        const source = latestEventSource()
+        source.emit('state', { sessionId: 'session-1', stateVersion: 2, messagesSummary: { count: 4 } })
+        await flushAllAsync()
+        expect(releaseMessages).not.toBeNull()
+
+        // goal_updated must NOT bump the message stateVersion; if it did, the
+        // reconcile below would discard the fetched tail (lost messages).
+        source.emit('goal_updated', { sessionId: 'session-1', goal: { ...sampleGoal, revision: 7 } })
+        releaseMessages?.()
+        await flushAllAsync()
+
+        expect(agent.state.messages.map((message) => message.content)).toEqual(['first', 'second', 'third', 'fourth'])
+        expect(agent.state.goal).toMatchObject({ revision: 7 })
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('persists the goal and session source into the snapshot cache for local recovery', async () => {
+      const { normalizeGoalState } = await import('../../src/lib/goal')
+      const agent = await createServerAgent({
+        sessionId: 'session-1',
+        initialState: { goal: normalizeGoalState(sampleGoal), source: 'acp', stateVersion: 3 },
+      })
+      try {
+        latestEventSource().emit('agent_end', { sessionId: 'session-1', stateVersion: 4, messages: [] })
+        const cacheModule = await import('../../src/lib/session-message-cache')
+        await cacheModule.flushPendingSessionMessageWrites()
+        const payload = sessionCacheMock.writes.at(-1)?.payload as { snapshot: Record<string, unknown> } | undefined
+        expect(payload?.snapshot.goal).toMatchObject({ id: 'goal-1', revision: 2 })
+        expect(payload?.snapshot.source).toBe('acp')
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('exposes the authoritative session source and tracks it from state frames', async () => {
+      const agent = await createServerAgent({ sessionId: 'session-1', initialState: { source: 'acp' } })
+      try {
+        expect(agent.sessionSource).toBe('acp')
+        latestEventSource().emit('state', { sessionId: 'session-1', stateVersion: 1, source: 'acp' })
+        expect(agent.sessionSource).toBe('acp')
+      } finally {
+        agent.dispose()
+      }
+    })
+
+    it('notifies goal subscribers when a goal-only state frame changes the goal', async () => {
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      const events: Array<Record<string, unknown>> = []
+      const unsubscribe = agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      const goalEvents = () => events.filter((event) => event.type === 'goal_updated')
+      try {
+        const source = latestEventSource()
+        expect(goalEvents()).toHaveLength(0)
+
+        // Resting snapshot: the frame touches nothing but the goal, and it must
+        // still be broadcast (the state path returns without forwarding).
+        source.emit('state', { sessionId: 'session-1', stateVersion: 2, goal: sampleGoal })
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1', revision: 2 })
+        expect(goalEvents()).toHaveLength(1)
+        expect(goalEvents()[0]).toMatchObject({ type: 'goal_updated', goal: { id: 'goal-1', revision: 2 } })
+
+        // Repeat snapshot and a stale revision stay silent instead of forcing a
+        // no-op re-render.
+        source.emit('state', { sessionId: 'session-1', stateVersion: 3, goal: { ...sampleGoal } })
+        source.emit('state', { sessionId: 'session-1', stateVersion: 4, goal: { ...sampleGoal, revision: 1 } })
+        expect(agent.state.goal).toMatchObject({ revision: 2 })
+        expect(goalEvents()).toHaveLength(1)
+
+        // A real transition (new revision) is broadcast again.
+        source.emit('state', { sessionId: 'session-1', stateVersion: 5, goal: { ...sampleGoal, status: 'running', revision: 3 } })
+        expect(goalEvents()).toHaveLength(2)
+        expect(goalEvents()[1]).toMatchObject({ type: 'goal_updated', goal: { status: 'running', revision: 3 } })
+
+        // An explicit null clears the goal and notifies subscribers.
+        source.emit('state', { sessionId: 'session-1', stateVersion: 6, goal: null })
+        expect(agent.state.goal).toBeNull()
+        expect(goalEvents()).toHaveLength(3)
+        expect(goalEvents()[2]).toMatchObject({ type: 'goal_updated', goal: null })
+
+        // A repeated clear snapshot is a no-op.
+        source.emit('state', { sessionId: 'session-1', stateVersion: 7, goal: null })
+        expect(goalEvents()).toHaveLength(3)
+      } finally {
+        unsubscribe()
+        agent.dispose()
+      }
+    })
+
+    it('notifies goal subscribers for an HTTP goal action without any SSE frame', async () => {
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ goal: { ...sampleGoal, status: 'paused', revision: 4 } }),
+      }))
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      const events: Array<Record<string, unknown>> = []
+      const unsubscribe = agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      try {
+        await agent.updateGoal('pause')
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1', status: 'paused', revision: 4 })
+        const goalEvents = events.filter((event) => event.type === 'goal_updated')
+        expect(goalEvents).toHaveLength(1)
+        expect(goalEvents[0]).toMatchObject({ type: 'goal_updated', goal: { id: 'goal-1', status: 'paused', revision: 4 } })
+      } finally {
+        unsubscribe()
+        agent.dispose()
+      }
+    })
+
+    it('notifies goal subscribers when a /state refresh changes the goal', async () => {
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url === '/api/agents/session-1/state') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ stateVersion: 2, messages: [{ role: 'user', content: 'first' }], goal: sampleGoal }),
+          }
+        }
+        return { ok: true, status: 200, json: async () => ({}) }
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({
+        sessionId: 'session-1',
+        initialState: { messages: [{ role: 'user', content: 'first' }] as AgentMessage[], stateVersion: 1 },
+      })
+      const events: Array<Record<string, unknown>> = []
+      const unsubscribe = agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      try {
+        await agent.syncState()
+        const goalEvents = () => events.filter((event) => event.type === 'goal_updated')
+        expect(goalEvents()).toHaveLength(1)
+        expect(goalEvents()[0]).toMatchObject({ type: 'goal_updated', goal: { id: 'goal-1', revision: 2 } })
+
+        // Refreshing the identical snapshot stays silent.
+        await agent.syncState()
+        expect(goalEvents()).toHaveLength(1)
+      } finally {
+        unsubscribe()
+        agent.dispose()
+      }
+    })
+
+    it('does not notify goal subscribers for a superseded HTTP goal response', async () => {
+      let releaseGoal: (() => void) | null = null
+      const fetchMock = vi.fn(async () => await new Promise((resolve) => {
+        releaseGoal = () => resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ goal: { ...sampleGoal, status: 'paused', revision: 9 } }),
+        })
+      }))
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      const events: Array<Record<string, unknown>> = []
+      const unsubscribe = agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      try {
+        const source = latestEventSource()
+        source.emit('goal_updated', { sessionId: 'session-1', goal: sampleGoal })
+        const pending = agent.updateGoal('pause')
+        await flushAllAsync()
+        expect(releaseGoal).not.toBeNull()
+
+        // A different goal replaces goal-1 while the action response is in flight.
+        source.emit('goal_updated', {
+          sessionId: 'session-1',
+          goal: { ...sampleGoal, id: 'goal-2', status: 'running', revision: 1 },
+        })
+        releaseGoal?.()
+        const goal = await pending
+        expect(goal).toMatchObject({ id: 'goal-2' })
+
+        // Only the two genuine SSE frames were broadcast: the superseded HTTP
+        // response must not re-render the card with a stale goal.
+        const goalEvents = events.filter((event) => event.type === 'goal_updated')
+        expect(goalEvents).toHaveLength(2)
+        expect(goalEvents.at(-1)).toMatchObject({ type: 'goal_updated', goal: { id: 'goal-2' } })
+      } finally {
+        unsubscribe()
+        agent.dispose()
+      }
+    })
+
+    it('keeps an in-flight message reconcile when a state frame changes the goal', async () => {
+      let releaseMessages: (() => void) | null = null
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url.startsWith('/api/agents/session-1/messages')) {
+          return await new Promise((resolve) => {
+            releaseMessages = () => resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                after: 2,
+                count: 4,
+                hasMore: false,
+                messages: [
+                  { role: 'user', content: 'third' },
+                  { role: 'assistant', content: 'fourth' },
+                ],
+              }),
+            })
+          })
+        }
+        return { ok: true, status: 200, json: async () => ({}) }
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({
+        sessionId: 'session-1',
+        initialState: {
+          messages: [
+            { role: 'user', content: 'first' },
+            { role: 'assistant', content: 'second' },
+          ] as AgentMessage[],
+          stateVersion: 1,
+        },
+      })
+      const events: Array<Record<string, unknown>> = []
+      const unsubscribe = agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      try {
+        const source = latestEventSource()
+        source.emit('state', { sessionId: 'session-1', stateVersion: 2, messagesSummary: { count: 4 } })
+        await flushAllAsync()
+        expect(releaseMessages).not.toBeNull()
+
+        // The goal-only frame is broadcast WITHOUT bumping the message version;
+        // if it did, the fetched tail below would be discarded (lost messages).
+        source.emit('state', { sessionId: 'session-1', stateVersion: 3, goal: sampleGoal })
+        expect(events.filter((event) => event.type === 'goal_updated')).toHaveLength(1)
+
+        releaseMessages?.()
+        await flushAllAsync()
+
+        expect(agent.state.messages.map((message) => message.content)).toEqual(['first', 'second', 'third', 'fourth'])
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1', revision: 2 })
+      } finally {
+        unsubscribe()
+        agent.dispose()
+      }
+    })
+
+    it('adopts a newer same-goal revision even when SSE already made the messages newest', async () => {
+      const { normalizeGoalState } = await import('../../src/lib/goal')
+      const stateSnapshot = deferred<Record<string, unknown>>()
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => stateSnapshot.promise,
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({
+        sessionId: 'session-1',
+        initialState: {
+          messages: [{ role: 'user', content: 'cached' }] as AgentMessage[],
+          stateVersion: 1,
+          goal: normalizeGoalState({ ...sampleGoal, status: 'running', revision: 2 }),
+        },
+      })
+      const events: Array<Record<string, unknown>> = []
+      const unsubscribe = agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      try {
+        const pending = agent.syncState()
+        await flushAllAsync()
+
+        // SSE wins the race: the client keeps the frame's messages and the
+        // server version watermark moves past the in-flight snapshot.
+        latestEventSource().emit('state', {
+          sessionId: 'session-1',
+          stateVersion: 5,
+          messages: [
+            { role: 'user', content: 'cached' },
+            { role: 'assistant', content: 'sse-newest' },
+          ],
+        })
+        expect(agent.state.messages.map((message) => message.content)).toEqual(['cached', 'sse-newest'])
+
+        // The snapshot resolves behind that version with a paused goal at
+        // revision+1. The message list must stay SSE-newest, but the goal change
+        // must not be dropped by the version regression guard.
+        stateSnapshot.resolve({
+          stateVersion: 2,
+          messages: [
+            { role: 'user', content: 'cached' },
+            { role: 'assistant', content: 'stale' },
+          ],
+          goal: { ...sampleGoal, status: 'paused', revision: 3 },
+        })
+        await pending
+
+        expect(agent.state.messages.map((message) => message.content)).toEqual(['cached', 'sse-newest'])
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1', status: 'paused', revision: 3 })
+        expect(events.filter((event) => event.type === 'goal_updated')).toHaveLength(1)
+      } finally {
+        unsubscribe()
+        agent.dispose()
+      }
+    })
+
+    it('adopts a newer same-goal revision when a local message change supersedes the snapshot', async () => {
+      const { normalizeGoalState } = await import('../../src/lib/goal')
+      const stateSnapshot = deferred<Record<string, unknown>>()
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => stateSnapshot.promise,
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({
+        sessionId: 'session-1',
+        initialState: {
+          messages: [] as AgentMessage[],
+          stateVersion: 1,
+          goal: normalizeGoalState({ ...sampleGoal, status: 'running', revision: 2 }),
+        },
+      })
+      const events: Array<Record<string, unknown>> = []
+      const unsubscribe = agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      try {
+        const pending = agent.syncState()
+        await flushAllAsync()
+
+        // The frame advances BOTH the local message version and the server
+        // watermark to 5, so the snapshot below is not a server-version
+        // regression — it loses the race on the local message guard instead.
+        latestEventSource().emit('state', {
+          sessionId: 'session-1',
+          stateVersion: 5,
+          messages: [{ role: 'user', content: 'sse-newest' }],
+        })
+        expect(agent.state.messages.map((message) => message.content)).toEqual(['sse-newest'])
+
+        stateSnapshot.resolve({
+          stateVersion: 5,
+          messages: [{ role: 'user', content: 'stale' }],
+          goal: { ...sampleGoal, status: 'paused', revision: 3 },
+        })
+        await pending
+
+        expect(agent.state.messages.map((message) => message.content)).toEqual(['sse-newest'])
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1', status: 'paused', revision: 3 })
+        expect(events.filter((event) => event.type === 'goal_updated')).toHaveLength(1)
+      } finally {
+        unsubscribe()
+        agent.dispose()
+      }
+    })
+
+    it('keeps an older revision, a cross-id goal and an explicit null behind the version guard', async () => {
+      const { normalizeGoalState } = await import('../../src/lib/goal')
+      const blocked: Array<{ label: string; goal: unknown }> = [
+        { label: 'an older revision', goal: { ...sampleGoal, status: 'paused', revision: 1 } },
+        { label: 'a cross-id goal', goal: { ...sampleGoal, id: 'goal-2', revision: 9 } },
+        { label: 'an explicit null clear', goal: null },
+      ]
+      for (const { label, goal } of blocked) {
+        const stateSnapshot = deferred<Record<string, unknown>>()
+        const fetchMock = vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => stateSnapshot.promise,
+        })
+        vi.stubGlobal('fetch', fetchMock)
+        const agent = await createServerAgent({
+          sessionId: 'session-1',
+          initialState: {
+            messages: [{ role: 'user', content: 'cached' }] as AgentMessage[],
+            stateVersion: 1,
+            goal: normalizeGoalState({ ...sampleGoal, status: 'running', revision: 2 }),
+          },
+        })
+        const events: Array<Record<string, unknown>> = []
+        const unsubscribe = agent.subscribe((event) => events.push(event as Record<string, unknown>))
+        try {
+          const pending = agent.syncState()
+          await flushAllAsync()
+          latestEventSource().emit('state', {
+            sessionId: 'session-1',
+            stateVersion: 5,
+            messages: [
+              { role: 'user', content: 'cached' },
+              { role: 'assistant', content: 'sse-newest' },
+            ],
+          })
+          stateSnapshot.resolve({
+            stateVersion: 2,
+            messages: [{ role: 'user', content: 'stale' }],
+            goal,
+          })
+          await pending
+
+          expect(agent.state.goal, label).toMatchObject({ id: 'goal-1', status: 'running', revision: 2 })
+          expect(events.filter((event) => event.type === 'goal_updated'), label).toHaveLength(0)
+        } finally {
+          unsubscribe()
+          agent.dispose()
+        }
+      }
+    })
+
+    it('rejects a deferred snapshot whose goal was superseded by a goal frame mid-flight', async () => {
+      const { normalizeGoalState } = await import('../../src/lib/goal')
+      const stateSnapshot = deferred<Record<string, unknown>>()
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => stateSnapshot.promise,
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({
+        sessionId: 'session-1',
+        initialState: {
+          messages: [{ role: 'user', content: 'cached' }] as AgentMessage[],
+          stateVersion: 1,
+          goal: normalizeGoalState({ ...sampleGoal, status: 'running', revision: 2 }),
+        },
+      })
+      try {
+        const pending = agent.syncState()
+        await flushAllAsync()
+
+        latestEventSource().emit('state', {
+          sessionId: 'session-1',
+          stateVersion: 5,
+          messages: [
+            { role: 'user', content: 'cached' },
+            { role: 'assistant', content: 'sse-newest' },
+          ],
+        })
+        // A goal frame lands during the gap and advances the goal watermark.
+        latestEventSource().emit('goal_updated', {
+          sessionId: 'session-1',
+          goal: { ...sampleGoal, status: 'running', revision: 5 },
+        })
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1', revision: 5 })
+
+        // The snapshot's same-goal revision 6 looks newer than the local goal,
+        // but the goal watermark moved during the gap, so the capture rejects it.
+        stateSnapshot.resolve({
+          stateVersion: 2,
+          messages: [{ role: 'user', content: 'stale' }],
+          goal: { ...sampleGoal, status: 'paused', revision: 6 },
+        })
+        await pending
+
+        expect(agent.state.goal).toMatchObject({ id: 'goal-1', status: 'running', revision: 5 })
+      } finally {
+        agent.dispose()
+      }
+    })
   })
 
   describe('channel sessions-changed forwarding', () => {

@@ -84,6 +84,7 @@ export function createCommandSuggestions({
   const builtinCommands = (): CustomCommandSummary[] => [
     { name: 'init', description: t('initCommandDescription'), argumentHint: '' },
     { name: 'plan', description: t('planCommandDescription'), argumentHint: '[task]' },
+    { name: 'goal', description: t('goalCommandDescription'), argumentHint: '[objective]' },
     { name: 'review', description: t('reviewCommandDescription'), argumentHint: '[scope]' },
     { name: 'commit', description: t('commitCommandDescription'), argumentHint: '[message]' },
     { name: 'summary', description: t('summaryCommandDescription'), argumentHint: '' },

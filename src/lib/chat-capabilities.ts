@@ -23,6 +23,8 @@ export type ChatCapabilities = {
   attachments: boolean
   /** Steer a queued message into the running turn. */
   messageSteering: boolean
+  /** Goal mode card and actions (QuickForge main chat only). */
+  goal: boolean
 }
 
 export const QUICKFORGE_CHAT_CAPABILITIES: ChatCapabilities = Object.freeze({
@@ -40,6 +42,7 @@ export const QUICKFORGE_CHAT_CAPABILITIES: ChatCapabilities = Object.freeze({
   forkFromMessage: true,
   attachments: true,
   messageSteering: true,
+  goal: true,
 })
 
 /**
@@ -62,6 +65,7 @@ export const SIDE_CHAT_UI_CAPABILITIES: ChatCapabilities = Object.freeze({
   forkFromMessage: false,
   attachments: false,
   messageSteering: false,
+  goal: false,
 })
 
 // Backward-compatible name for callers/tests that still import the old policy.
@@ -87,6 +91,7 @@ export function applyChatPagePolicy(
     accessMode: capabilities.accessMode && !policy.readOnly,
     commands: capabilities.commands && !policy.readOnly,
     capabilitySuggestions: capabilities.capabilitySuggestions && !policy.readOnly,
+    goal: capabilities.goal && !policy.readOnly,
   }
 }
 

@@ -15,6 +15,8 @@ server/
 ├── agent-approval-orchestrator.mjs # 审批 / ask_user / ACP / 自动压缩审批 Promise 编排
 ├── agent-subagent-runner.mjs # run_subagent 生命周期与 SUBAGENT_* 常量
 ├── agent-persistence.mjs     # 会话持久化（CAS 权威快照 / debounce / 降级标记）
+├── agent-goal-state.mjs      # Goal 模式纯状态模型（状态机 / 预算 / 证据与验收校验 / 恢复映射 / 工作区 key）
+├── agent-goal-runner.mjs     # Goal 模式 runner（会话绑定有限轮执行 / 工作区互斥 / 用户动作 / goal_report）
 ├── session-file-backups.mjs  # 会话级文件影子备份（变更摘要 / 安全回滚 / 轮级回滚）
 ├── auto-archive.mjs          # 超过 30 天未更新对话的自动归档 runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
@@ -131,6 +133,27 @@ server/
 - 工具权限检查
 - 会话活动跟踪（`touchSession`）
 - Agent 销毁和资源清理
+
+### Goal 预算追加与恢复
+
+- `extend_resume` 仅接受 `{action:'extend_resume', goalId, expectedRevision}`；`goalId` 为非空字符串、`expectedRevision` 为正 safe integer，不接受客户端预算值或其他字段。仅此动作在工作区 admission 锁内校验 goalId/revision CAS，旧请求返回 409 `GOAL_REVISION_CONFLICT`，不会重复追加；不可泛称所有 Goal 动作都有客户端 CAS。
+- 仅静止、可恢复且预算已耗尽的目标可追加。只给已耗尽维度增加默认额度：轮次 +8、累计活跃时长 +120 分钟；两者耗尽则都加。保留 goal 身份、累计 usage、计划/准则/证据/已有进度。预算及恢复状态在同次 persist 成功后才允许调度，失败回退；若加一次仍不足，保持 `paused` 与预算 blocker，不调度，用户需基于新 revision 再确认。存量 goal 保留创建时的旧预算，预算耗尽后 `extend_resume` 按当前默认值追加（旧 30 分钟目标首次追加将直接 +120 分钟）。
+- 额度足够后的恢复分支：无计划（无 criteria）→ `planning`；计划未确认 → `awaiting_confirmation`（不调度）；已确认 → `running`。`planConfirmed` 随 goal body 持久化，新目标为 false，仅用户 `confirm` 设置 true，`revise`/新 `plan` 清 false，暂停/重启保留。旧记录兼容以 `goalPlanConfirmed` 为准：planning/awaiting_confirmation 强制 false；其他状态优先明确布尔值，缺字段时仅以 `usage.iterations > 0` 推断。
+- runner 的统一预算 gate 覆盖确认/恢复、调度/开始轮次及结算，不让错误路径越额续跑；模型报告不是用户确认或自动验收。旧 `resume` 耗尽仍 409，提示新出口而非绕过预算。
+- 相关回归：`tests/server/agent-goal-state.test.mjs`、`agent-goal-runner.test.mjs`、`agent-goal-manager.test.mjs`、`tests/server/routes/agent.goal.test.mjs`。
+
+### Goal 模式（agent-goal-state.mjs / agent-goal-runner.mjs）
+
+**用途**: 主聊天（QuickForge main chat）的 `/goal <目标>` 有界多轮执行。状态模型是纯函数（无 I/O、无会话/存储/SSE 依赖），runner 把它与既有会话/持久化/事件模块组合起来；`agent-manager.mjs` 只调用 runner 导出的 hook。
+
+- **可用范围**：仅 QuickForge 主聊天。ACP 会话与渠道会话（持久化 `source`）、定时任务、共享会话（请求级 `source:'shared'`）均不可用；请求级来源只拒绝该次请求，不会永久关掉 owner 的 goal 能力。
+- **流程**：`/goal <目标>` → 只读规划（复用 `/plan` 权限白名单，`goal_report action:"plan"` 提交准则/范围/摘要）→ `awaiting_confirmation` → 用户 `confirm` → 有限轮执行 → `needs_review` → 用户 `accept` 完成或 `resume` 继续。模型无法自行完成目标：`goal_report action:"complete"` 只校验证据后把目标交回用户为 `needs_review`。
+- **预算**：默认最多 8 轮、累计活跃时长 120 分钟（`GOAL_BUDGET_DEFAULTS`；时长下限为 120 分钟）。`revise` 刻意保留累计用量，因此修改目标不能绕过预算；预算耗尽后旧 `resume` 仍返回 409 `GOAL_BUDGET_EXHAUSTED`，但新增 `extend_resume` 可在明确确认后追加额度恢复同一目标（见下方契约），不再要求取消新建。
+- **生命周期纪律**：每轮结束只有在运行真正结束且最终状态持久化成功后才调度下一轮（fail-closed：持久化失败则暂停为 `paused`/`blocker:'persist_failed'`）；`goalRun` 结算窗口用显式 barrier（`activePromptPromise`）与 abort generation 观测用户中止，避免 aborted 后仍继续。goal body 随会话 CAS 权威快照持久化，metadata 只存 `{id,status,updatedAt}` 投影；重启时 in-flight 状态统一映射为 `paused`，**不自动重放**任何轮次。
+- **工作区互斥**：同一工作区（按规范化路径 key，`path.resolve` + 小写；无法解析时回退 scope/projectId）同时最多一个活跃 goal。start/confirm/resume/revise 经按工作区串行的 admission 队列执行"检查互斥 + 提交所有权"，两个并发请求不会同时观察到空闲并各自提交活跃 goal；内存会话优先，其余经持久化 metadata 候选再回读权威 body 复核，陈旧 metadata 不会永久占锁。
+- **用户动作**：`POST /api/agents/:sessionId/goal` 的 `confirm` / `pause` / `resume` / `cancel` / `revise`（需新 `objective`）/ `accept`（仅 `needs_review`）。`pause` 在忙时先置 `pausing`；`cancel` 终止并持久化后拆除 run/watchdog（失败则保持活跃以便重试）；`resume` 只继续执行，从不隐式完成目标。
+- **人审与证据**：`goal_report` 是会话专用工具，仅在会话有活跃 goal 时注入，不进入 `workspaceTools`/`GET /api/tools`，也没有 REST handler。证据只能引用真实成功工具结果的 `toolCallId`（`run_command` 还要求 exit code 0 且无中止/超时/信号；`read_file`/`grep_files` 只要求传输成功），控制面/委派/Skill/记忆类工具永不作为证据；工具成功只是证据来源，不等于目标的语义验证。`accept` 由用户 API 写入 `source:'human'` 证据与 `acceptedAt`/`humanAcceptedAt`，模型无法伪造；required 准则为 `failed` 时拒绝接受，需先 `resume` 修复。
+- **与其他机制的关系**：规划轮只读（无写/命令/MCP/插件，子 Agent 仅只读）；报告 `complete`/`needs_review` 后本轮剩余只允许只读检查；活跃 goal 期间普通 prompt/retry/steer/follow-up/消息回滚均被拒（`GOAL_ACTIVE`），终止后随下一条普通消息清除卡片；审批/ask/用户停止会驱动 goal 状态（`awaiting_approval`/`awaiting_input`/`paused`）。Goal 模式不会自动执行文件撤销或 git 提交/发布，这些仍由用户显式操作。
 
 ### acp/ — ACP Agent 适配层
 

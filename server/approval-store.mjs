@@ -32,6 +32,9 @@ export const planAllowedTools = new Set([
   'read_skill_resource',
   'run_subagent',
   'ask_user',
+  // Goal planning runs reuse the /plan whitelist; goal_report is how the
+  // read-only planning turn hands back criteria/scope/summary.
+  'goal_report',
 ])
 
 export const safeReadTools = new Set([

@@ -90,6 +90,47 @@ export const todoWriteTool = {
   executionMode: 'sequential',
 }
 
+// Goal mode only: available exclusively while the session has an active goal.
+// It is deliberately not part of workspaceTools so it is never exposed through
+// GET /api/tools or direct REST tool calls.
+export const goalReportTool = {
+  name: 'goal_report',
+  label: 'Report goal progress',
+  description: 'Record the goal plan and its progress. Planning (read-only) must end with action="plan" providing verifiable acceptance criteria, scope and a plan summary. During execution use action="progress" for plan/evidence updates, action="blocked" with a concrete blocker, action="needs_review" for criteria that need human judgement, and action="complete" only when every required criterion is verified. Evidence must reference the toolCallId of a real, successful tool result from this session (goal_report/todo_write/ask_user results do not count); a criterion can only be marked passed with such evidence. Completing a report never marks the goal done — the user accepts it.',
+  parameters: Type.Object({
+    action: Type.Union([
+      Type.Literal('plan'),
+      Type.Literal('progress'),
+      Type.Literal('complete'),
+      Type.Literal('blocked'),
+      Type.Literal('needs_review'),
+    ], { description: 'plan while planning; progress/blocked/needs_review/complete during execution.' }),
+    summary: Type.String({ maxLength: 4000, description: 'Current plan or progress summary. Required for plan and progress.' }),
+    criteria: Type.Optional(Type.Array(Type.Object({
+      description: Type.String({ minLength: 1, maxLength: 500, description: 'Objectively verifiable acceptance criterion.' }),
+      required: Type.Optional(Type.Boolean({ description: 'Required for completion. Defaults to true; use false for human-judgement criteria.' })),
+    }, { additionalProperties: false }), { maxItems: 8, description: 'Complete acceptance criteria list (action="plan" only). Replaces the previous plan.' })),
+    scope: Type.Optional(Type.Array(Type.String({ maxLength: 200 }), { maxItems: 20, description: 'Files/areas the work will touch (action="plan" only).' })),
+    evidence: Type.Optional(Type.Array(Type.Object({
+      id: Type.Optional(Type.String({ maxLength: 64, description: 'Stable id to reference from criterionUpdates in the same call. Server assigns one when omitted.' })),
+      description: Type.String({ minLength: 1, maxLength: 500, description: 'What this evidence shows.' }),
+      toolCallId: Type.String({ maxLength: 128, description: 'toolCallId of a successful tool result in this session.' }),
+    }, { additionalProperties: false }), { maxItems: 40, description: 'New evidence to append.' })),
+    criterionUpdates: Type.Optional(Type.Array(Type.Object({
+      id: Type.String({ maxLength: 64, description: 'Criterion id from the plan.' }),
+      status: Type.Union([
+        Type.Literal('pending'),
+        Type.Literal('passed'),
+        Type.Literal('failed'),
+        Type.Literal('needs_review'),
+      ], { description: 'New criterion status. "passed" requires evidenceIds bound to successful tool results.' }),
+      evidenceIds: Type.Optional(Type.Array(Type.String({ maxLength: 64 }), { maxItems: 40, description: 'Evidence ids proving this criterion.' })),
+    }, { additionalProperties: false }), { maxItems: 8, description: 'Criterion status updates.' })),
+    blocker: Type.Optional(Type.String({ maxLength: 1000, description: 'Concrete blocker (action="blocked" only).' })),
+  }, { additionalProperties: false }),
+  executionMode: 'sequential',
+}
+
 export const workspaceTools = [
   subagentTool,
   askUserTool,

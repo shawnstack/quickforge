@@ -4,6 +4,7 @@ import { streamSimple } from '@earendil-works/pi-ai/compat'
 import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage, PromptCapabilitySelection, FileContextReference } from '@/lib/server-agent'
 import type { AgentAccessMode, ChatScope, ProjectInfo } from '@/lib/types'
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
+import type { GoalAction, GoalActionOptions, GoalState } from '@/lib/goal'
 import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { randomId } from '@/lib/random-id'
 import { normalizeSelectedCapabilities, withSelectedCapabilitiesSnapshot } from '@/lib/selected-capabilities'
@@ -54,6 +55,7 @@ export class DeferredSessionAgent {
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
+    goal: GoalState | null
   }
 
   constructor(options: DeferredSessionAgentOptions) {
@@ -74,6 +76,7 @@ export class DeferredSessionAgent {
       pendingToolCalls: new Set<string>(),
       contextCompaction: null,
       contextUsage: null,
+      goal: null,
     }
   }
 
@@ -172,6 +175,7 @@ export class DeferredSessionAgent {
     this.state.streamingMessage = undefined
     this.state.pendingToolCalls = new Set<string>()
     this.state.errorMessage = undefined
+    this.state.goal = null
   }
 
   async rollback(): Promise<never> {
@@ -221,6 +225,13 @@ export class DeferredSessionAgent {
     this.state.thinkingLevel = level
     const realAgent = await this.realAgentPromise
     if (realAgent) await realAgent.updateThinkingLevel(level)
+  }
+
+  async updateGoal(action: GoalAction, objective?: string, options?: GoalActionOptions): Promise<GoalState | null> {
+    const realAgent = await this.ensureRealAgent()
+    const goal = await realAgent.updateGoal(action, objective, options)
+    this.state.goal = goal
+    return goal
   }
 
   dispose(): void {

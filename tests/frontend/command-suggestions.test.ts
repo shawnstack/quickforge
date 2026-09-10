@@ -384,10 +384,10 @@ describe('command suggestions slash menu', () => {
     expect(menu()).not.toBeNull()
     expect(menu()!.getAttribute('role')).toBe('listbox')
     expect(menu()!.getAttribute('aria-busy')).toBe('true')
-    // 8 built-in commands + 1 project custom command.
-    expect(optionRows()).toHaveLength(9)
+    // 9 built-in commands + 1 project custom command.
+    expect(optionRows()).toHaveLength(10)
     expect(optionRows()[0].dataset.quickforgeCommandName).toBe('init')
-    expect(optionRows()[8].dataset.quickforgeCommandName).toBe('deploy')
+    expect(optionRows()[9].dataset.quickforgeCommandName).toBe('deploy')
     // Skills / subagents show a group head + 2 skeleton rows each while loading.
     expect(heads()).toHaveLength(3)
     expect(skeletonRows()).toHaveLength(4)
@@ -411,7 +411,7 @@ describe('command suggestions slash menu', () => {
     const labels = heads().map((head) => head.children[0].textContent)
     const counts = heads().map((head) => head.children[1].textContent)
     expect(labels).toEqual(['slashGroupCommands', 'slashGroupSkills', 'slashGroupAgents'])
-    expect(counts).toEqual(['9', '1', '1'])
+    expect(counts).toEqual(['10', '1', '1'])
 
     const commandRow = optionRows().find((row) => row.dataset.quickforgeCommandName === 'plan')
     expect(commandRow).toBeDefined()
@@ -578,7 +578,7 @@ describe('command suggestions slash menu', () => {
 
     // No throw; the menu shows only the commands group.
     expect(menu()).not.toBeNull()
-    expect(optionRows()).toHaveLength(9)
+    expect(optionRows()).toHaveLength(10)
     expect(skeletonRows()).toHaveLength(0)
     expect(heads()).toHaveLength(1)
     expect(loadSlashCatalog).toHaveBeenCalledTimes(1)

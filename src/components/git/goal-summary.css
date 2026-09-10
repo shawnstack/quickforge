@@ -1,0 +1,13 @@
+.quickforge-goal-summary-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 12px;
+}
+.quickforge-goal-summary-entry:hover { background: color-mix(in oklab, var(--muted) 45%, transparent); }
+.quickforge-goal-summary-entry:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

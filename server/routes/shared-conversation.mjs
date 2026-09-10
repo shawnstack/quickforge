@@ -18,6 +18,9 @@ import {
 const MAX_SHARED_MESSAGE_BYTES = 64 * 1024
 const CLIENT_MESSAGE_ID_FIELD = 'quickforgeClientMessageId'
 const CLIENT_MESSAGE_ID_MAX_LENGTH = 128
+// Same shape as the internal /goal command parser; kept local so the shared
+// route does not pull the full custom-commands/plugins/storage import chain.
+const GOAL_COMMAND_PATTERN = /^\/goal(?:\s+[\s\S]*)?$/i
 
 function sanitizedClientMessageId(value) {
   if (typeof value !== 'string') return undefined
@@ -89,7 +92,9 @@ function sanitizeSession(session, record) {
     systemPrompt: '',
     model: sanitizeModel(session?.model),
     thinkingLevel: session?.thinkingLevel || 'off',
-    tools: Array.isArray(session?.tools) ? session.tools : [],
+    // Goal mode is a QuickForge main-chat surface only: the goal state and its
+    // tool are never exposed to shared conversations.
+    tools: Array.isArray(session?.tools) ? session.tools.filter((tool) => tool?.name !== 'goal_report') : [],
     yoloMode: Boolean(session?.yoloMode),
     messages,
     contextCompaction: sanitizeContextCompaction(session?.contextCompaction),
@@ -381,10 +386,20 @@ export async function handleSharedConversationApi(req, res, url, context = {}) {
         errorCode: 'CONTEXT_REFERENCES_UNSUPPORTED_SHARED',
       })
     }
+    const message = messageFromBody(body, record, req)
+    // Goal mode is a QuickForge main-chat surface only: reject /goal before
+    // restoreAgent/runPrompt so a shared visitor can never create or mutate goal
+    // state, and never leaves a request-scoped shared source on the session.
+    if (typeof message.content === 'string' && GOAL_COMMAND_PATTERN.test(message.content.trim())) {
+      const error = new Error('Goal mode is not available in shared conversations.')
+      error.statusCode = 409
+      error.errorCode = 'GOAL_UNAVAILABLE'
+      throw error
+    }
     await restoreAgent(record.sessionId)
     const result = await runPrompt(
       record.sessionId,
-      messageFromBody(body, record, req),
+      message,
       [],
       body?.command,
       null,

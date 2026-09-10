@@ -410,6 +410,9 @@ export function parseInternalCommandInvocation(message) {
   const planMatch = text.match(/^\/plan(?:\s+([\s\S]*))?$/i)
   if (planMatch) return { type: 'plan', args: (planMatch[1] || '').trim() }
 
+  const goalMatch = text.match(/^\/goal(?:\s+([\s\S]*))?$/i)
+  if (goalMatch) return { type: 'goal', args: (goalMatch[1] || '').trim() }
+
   const reviewMatch = text.match(/^\/review(?:\s+([\s\S]*))?$/i)
   if (reviewMatch) return { type: 'review', args: (reviewMatch[1] || '').trim() }
 
@@ -451,6 +454,11 @@ export async function handleInternalCommand(invocation, workspaceRoot, commandDi
   if (invocation.type === 'plan') {
     if (!invocation.args) return 'Usage: /plan <task>'
     return { plan: true, args: invocation.args }
+  }
+
+  if (invocation.type === 'goal') {
+    if (!invocation.args) return 'Usage: /goal <objective>'
+    return { goal: true, args: invocation.args }
   }
 
   if (invocation.type === 'init') {

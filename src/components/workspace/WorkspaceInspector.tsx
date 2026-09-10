@@ -96,7 +96,12 @@ import type {
   WorkspacePanelTabKind,
 } from './workspace-inspector-tabs'
 
+import { GoalInspectorContent, type GoalInspectorBinding } from './GoalInspectorContent'
+import { upsertGoalTab } from './workspace-inspector-tabs'
+import { workspaceInspectorGoalMatches } from './workspace-inspector-request'
+
 type WorkspaceInspectorProps = {
+  goalBinding?: GoalInspectorBinding
   project?: ProjectInfo
   sessionId?: string
   runtimeScopeId: string
@@ -182,11 +187,12 @@ function browserTabLabel(previewUrl: string) {
 }
 
 function panelTabMeta(tab: WorkspacePanelTab) {
-  if (tab.kind === 'reader' || tab.kind === 'document' || tab.kind === 'subagent') return undefined
+  if (tab.kind === 'reader' || tab.kind === 'document' || tab.kind === 'subagent' || tab.kind === 'goal') return undefined
   return PANEL_TAB_BY_KIND[tab.kind]
 }
 
 function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) {
+  if (tab.kind === 'goal') return t('goalTitle')
   if (tab.kind === 'subagent') {
     const label = tab.subagentRun?.label || t('subagentRunDetails')
     return tab.subagentRun?.task ? `${label} · ${tab.subagentRun.task}` : label
@@ -679,7 +685,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   )
 }
 
-export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, sideChatAgent, sideChatInputMemory, sideChatRevision, sideChatEnabled, onClearSideChat, onFullscreenChange, conversationMinWidth = 440, leftSidebarWidth = 0 }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeScopeId, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, sideChatAgent, sideChatInputMemory, sideChatRevision, sideChatEnabled, onClearSideChat, onFullscreenChange, conversationMinWidth = 440, leftSidebarWidth = 0 }: WorkspaceInspectorProps) {
   const [treeState, dispatchTree] = useReducer(workspaceTreeReducer, {})
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [treeRefreshing, setTreeRefreshing] = useState(false)
@@ -1024,6 +1030,12 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
       openDocumentTabRef.current?.(request.path, request.format)
     } else if (request.kind === 'browser') {
       openPanelTabRef.current?.('browser', 'browser', { url: request.url })
+    } else if (request.kind === 'goal') {
+      if (workspaceInspectorGoalMatches(request, goalBinding)) {
+        const identity = { sessionId: request.sessionId, goalId: request.goalId, view: request.view }
+        setPanelTabs((current) => upsertGoalTab(current, identity).tabs)
+        setActivePanelTabId(upsertGoalTab([], identity).activePanelTabId)
+      }
     } else if (request.kind === 'subagent') {
       // 优先取 store 中最新快照（SSE 实时路径可能已比请求 payload 更新），无则用请求 payload。
       const latest = subagentRunStore.get(request.payload.runId) ?? request.payload
@@ -1032,7 +1044,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
       openPanelTabRef.current?.(request.kind, viewFromPanelKind(request.kind))
     }
     onRequestHandled?.(request.id)
-  }, [onRequestHandled, open, projectId, request, runtimeScopeId, sideChatEnabled])
+  }, [goalBinding, onRequestHandled, open, projectId, request, runtimeScopeId, sideChatEnabled])
   // 持久化工作区宽度：拖拽或自动展开后都写入，刷新后保持上次宽度
   useEffect(() => {
     try {
@@ -2195,7 +2207,7 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
         </div>
 
         <div className={cn('flex min-h-0 flex-1 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
-          {!project?.id && activePanelTab?.kind !== 'subagent' && activePanelTab?.kind !== 'side-chat' ? (
+          {!project?.id && activePanelTab?.kind !== 'goal' && activePanelTab?.kind !== 'subagent' && activePanelTab?.kind !== 'side-chat' ? (
             <div className="p-4 text-sm text-muted-foreground/70">{t('workspaceSelectProject')}</div>
           ) : !activePanelTab ? (
             <div className="flex min-h-0 flex-1 items-center justify-center px-5">
@@ -2225,6 +2237,10 @@ export function WorkspaceInspector({ project, sessionId, runtimeScopeId, open, o
                 </div>
               </div>
             </div>
+          ) : activePanelTab.kind === 'goal' ? (
+            goalBinding && activePanelTab.goal && workspaceInspectorGoalMatches(activePanelTab.goal, goalBinding) ? (
+              <GoalInspectorContent key={`${goalBinding.sessionId}:${goalBinding.goal.id}`} {...goalBinding} active={open} view={activePanelTab.goal.view} onViewChange={(view) => setPanelTabs((current) => current.map((tab) => tab.id === activePanelTab.id && tab.goal ? { ...tab, goal: { ...tab.goal, view } } : tab))} />
+            ) : <div className="p-4 text-sm text-muted-foreground">{t('goalUnavailable')}</div>
           ) : activePanelTab.kind === 'subagent' ? (
             <SubagentRunDetailContent payload={activePanelTab.subagentRun} />
           ) : activePanelTab.kind === 'side-chat' ? (

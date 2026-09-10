@@ -13,6 +13,7 @@ import {
   sessionMessagesTailDigest,
 } from './session-state-service.mjs'
 import { emitSessionEvent } from './agent-session-events.mjs'
+import { goalMetadataSummary } from './agent-goal-state.mjs'
 
 function messageTimestampMs(message) {
   const timestamp = message?.timestamp
@@ -184,8 +185,12 @@ async function persistAuthoritativeSessionState(session, sessionData, metadata) 
 async function persistSessionUnlocked(session) {
   const { sessionId, agent, scope, projectId, source, channelId, channelName, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, modelRef, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
   const messages = agent.state.messages
+  const goalBody = session.goal || null
 
-  if (messages.length === 0) {
+  // Empty sessions are cleaned up — except when a goal exists: a goal (and the
+  // card the user is interacting with) must survive even before any message is
+  // written.
+  if (messages.length === 0 && !goalBody) {
     try {
       await deleteSessionState(sessionId, { expectedRevision: session.persistedStorageRevision })
       session.persistedStorageRevision = null
@@ -225,6 +230,9 @@ async function persistSessionUnlocked(session) {
     contextCompaction: contextCompaction || undefined,
     idleRetention: session.idleRetention || undefined,
     stateVersion: Number.isFinite(session.stateVersion) ? session.stateVersion : 0,
+    // Goal mode lives in the same authoritative session record (CAS body), so
+    // it survives restart with the exact same conflict semantics as messages.
+    goal: goalBody || undefined,
   }
   session.lastModified = lastModified
 
@@ -287,6 +295,9 @@ async function persistSessionUnlocked(session) {
       usageBefore: contextCompaction.usageBefore,
     } : undefined,
     idleRetention: session.idleRetention || undefined,
+    // Compact projection so workspace exclusivity can be checked without
+    // materializing session bodies; the body stays authoritative.
+    goal: goalMetadataSummary(goalBody),
   }
 
   // Write body + metadata as one authoritative SQLite transaction.

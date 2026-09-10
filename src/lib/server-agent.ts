@@ -3,6 +3,7 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
 import type { AgentAccessMode } from '@/lib/types'
 import { agentAccessModeFromYoloMode, agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
+import { normalizeGoalState, goalBudgetExtension, type GoalActionOptions, type GoalAction, type GoalState } from '@/lib/goal'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { modelReferenceFromModel } from './model-reference'
@@ -49,6 +50,9 @@ const SSE_WATCHDOG_INTERVAL_MS = 5000
 const SSE_SILENCE_RECOVERY_MS = 15000
 const STATUS_REQUEST_TIMEOUT_MS = 10000
 const STATE_REQUEST_TIMEOUT_MS = 30000
+// A goal action must never hang the card: bound it so a stuck request rejects
+// (and the card's pending state is released) instead of waiting forever.
+const GOAL_ACTION_TIMEOUT_MS = 30000
 // 重连期间对 /api/health 的后台探测超时：后端整体是否可达（unreachable）与 bootId（重启检测）。
 const SSE_HEALTH_PROBE_TIMEOUT_MS = 5000
 
@@ -228,7 +232,7 @@ class GlobalAgentSseClient {
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
       'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
       'tool_approval_required', 'ask_user_required', 'ask_user_answered', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
-      'persist_degraded', 'model_stream_retry',
+      'persist_degraded', 'model_stream_retry', 'goal_updated',
       'sessions-changed',
     ]
 
@@ -593,7 +597,10 @@ export type ServerAgentConfig = {
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
     persistDegraded?: boolean
+    goal?: GoalState | null
     stateVersion?: number
+    /** Session source; `'acp'` marks OpenCode/ACP clients where goal mode is unavailable. */
+    source?: string
   }
 }
 
@@ -757,6 +764,8 @@ export type ServerAgentStateSnapshot = {
   errorMessage?: string
   /** Server failed to persist recent messages after CAS conflicts. */
   persistDegraded?: boolean
+  /** Goal mode state; null/absent means the session has no active goal. */
+  goal?: GoalState | null
 }
 
 // ---------------------------------------------------------------------------
@@ -768,8 +777,12 @@ const MESSAGE_CACHE_EVENT_TYPES = new Set([
   // Full snapshots are needed only at message/turn/agent boundaries and when
   // the server replaces history. Streaming state/tool updates are deliberately
   // excluded: the live SSE state remains authoritative while a turn is active.
+  // `goal_updated` is low-frequency (state transitions only, never a token
+  // stream) and is included so a goal change is snapshotted for local recovery
+  // as soon as it lands; the cache's stateVersion high-water guard still makes
+  // the write a no-op when the server version has not advanced.
   'agent_end', 'message_end', 'turn_end', 'messages_replaced',
-  'tool_execution_start', 'tool_execution_end',
+  'tool_execution_start', 'tool_execution_end', 'goal_updated',
 ])
 
 type SessionMessageCacheSource = {
@@ -812,6 +825,8 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
     pendingAsk: snapshot.pendingAsk,
     persistDegraded: snapshot.persistDegraded === true ? true : undefined,
+    goal: normalizeGoalState(snapshot.goal),
+    source: snapshot.source,
     stateVersion: snapshot.stateVersion,
   }
 }
@@ -882,6 +897,16 @@ async function fetchAllSessionMessages(baseUrl: string, sessionId: string): Prom
   return all
 }
 
+/**
+ * Outcome of adopting a goal snapshot (`ServerAgent.adoptGoalState`):
+ * - `applied`: the snapshot was accepted (not superseded by a newer goal update
+ *   and not a same-id revision regression).
+ * - `changed`: the accepted snapshot differs from the previous goal. Only a
+ *   changed adoption may broadcast `goal_updated`, so a same-value echo or a
+ *   rejected stale snapshot never triggers a no-op re-render.
+ */
+type GoalAdoptionResult = { applied: boolean; changed: boolean }
+
 export class ServerAgent {
   // --- Public state (mutable, AgentInterface-compatible) ---
   state: {
@@ -902,10 +927,18 @@ export class ServerAgent {
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
     persistDegraded?: boolean
+    goal?: GoalState | null
   }
   streamFn = streamSimple
   getApiKey?: (provider: string) => Promise<string | undefined>
   sessionId: string
+  /**
+   * Session source from the authoritative server snapshot. `'acp'` marks
+   * OpenCode/ACP clients, where the server disables goal mode entirely
+   * (`isGoalModeAvailable`); the card gate reads this instead of relying on
+   * `readOnly`/capabilities alone.
+   */
+  sessionSource?: string
 
   private listeners = new Set<(event: AgentEvent) => void>()
   private unsubscribeSse: (() => void) | undefined
@@ -917,6 +950,14 @@ export class ServerAgent {
   private statusPromise: Promise<void> | null = null
   private lastSseEventAt = Date.now()
   private lastServerStateVersion = 0
+  /**
+   * Goal-specific change watermark, independent of the message `stateVersion`.
+   * Every applied goal snapshot that actually changes the goal increments it, so
+   * an async response (goal action / `/state`) captured before the request can
+   * detect that a newer goal update superseded it — including cross-id
+   * replacements and explicit `null` clears where revisions are meaningless.
+   */
+  private goalSeq = 0
   private nextPromptCapabilities: PromptCapabilitySelection[] = []
   private nextPromptContextReferences: FileContextReference[] = []
   private onPromptContextReferencesConsumed?: () => void
@@ -948,6 +989,7 @@ export class ServerAgent {
 
     const init = config.initialState ?? {}
     this.lastServerStateVersion = typeof init.stateVersion === 'number' ? init.stateVersion : 0
+    this.sessionSource = typeof init.source === 'string' ? init.source : undefined
 
     const rawState = {
       systemPrompt: init.systemPrompt ?? '',
@@ -967,6 +1009,7 @@ export class ServerAgent {
       pendingAutoCompactApproval: init.pendingAutoCompactApproval ?? null,
       pendingAsk: init.pendingAsk ?? null,
       persistDegraded: init.persistDegraded === true ? true : undefined,
+      goal: normalizeGoalState(init.goal),
     }
 
     // Proxy that auto-syncs thinkingLevel changes to the server
@@ -1216,6 +1259,7 @@ export class ServerAgent {
     this.state.pendingToolCalls = new Set()
     this.state.pendingToolApproval = null
     this.state.pendingAutoCompactApproval = null
+    this.state.goal = null
   }
 
   /**
@@ -1476,6 +1520,168 @@ export class ServerAgent {
     }
   }
 
+  /**
+   * Post a goal action (confirm/pause/resume/cancel/revise/accept). `revise`
+   * requires the replacement objective; `accept` is the explicit human sign-off
+   * for a `needs_review` goal. The server returns the authoritative goal and the
+   * local state adopts it immediately (SSE `goal_updated` is the fallback).
+   *
+   * Staleness rules:
+   * - A missing `goal` field (older server / empty body) preserves the current
+   *   state instead of clearing it.
+   * - A response that raced a newer goal update never overwrites it: same-id
+   *   responses are guarded by `revision`, cross-id / `null` clears by the goal
+   *   change watermark captured before the request.
+   */
+  async updateGoal(action: GoalAction, objective?: string, options?: GoalActionOptions): Promise<GoalState | null> {
+    const extending = action === 'extend_resume'
+    if (extending) {
+      if (!options || !Number.isSafeInteger(options.expectedRevision) || options.expectedRevision <= 0
+        || this.state.goal?.id !== options.goalId) throw new Error(t('goalBudgetReconfirm'))
+      const signal = options.signal ?? new AbortController().signal
+      const snapshot = await this.refreshGoalForSave(options.goalId, signal)
+      const goal = this.state.goal
+      // Cancellation only gates dispatch. Once POST starts it must settle (and
+      // reconcile failures) before the shared UI lock can be released.
+      if (signal.aborted || !goal || goal.id !== options.goalId || goal.revision !== options.expectedRevision
+        || snapshot.isStreaming || !['paused', 'blocked', 'needs_review'].includes(goal.status)
+        || !goalBudgetExtension(goal).exhausted) throw new Error(t('goalBudgetReconfirm'))
+    }
+    const reconcileExtension = async () => {
+      if (extending && options) {
+        try { await this.refreshGoalForSave(options.goalId, new AbortController().signal) }
+        catch { throw new Error(t('goalBudgetReconcileFailed')) }
+      }
+    }
+    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/goal`
+    const body: Record<string, unknown> = extending
+      ? { action, goalId: options!.goalId, expectedRevision: options!.expectedRevision }
+      : { action }
+    if (!extending && typeof objective === 'string') body.objective = objective
+    // Capture the goal watermark before the async gap. The response is only
+    // adopted while no newer goal update (SSE / state / another action) landed
+    // in the meantime; otherwise the newer goal already owns the card.
+    const capture = { seq: this.goalSeq }
+    let res: Response
+    let payload: { goal?: unknown; error?: string } | undefined
+    try {
+      ({ response: res, body: payload } = await fetchJsonWithTimeout<{ goal?: unknown; error?: string }>(
+        url,
+        GOAL_ACTION_TIMEOUT_MS,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      ))
+    } catch (error) {
+      await reconcileExtension()
+      // A hung action aborts at the timeout. Surface a bounded error so the
+      // caller can clear its pending state instead of waiting forever.
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Failed to update goal: timed out after ${GOAL_ACTION_TIMEOUT_MS}ms`, { cause: error })
+      }
+      throw error
+    }
+    if (!res.ok) {
+      await reconcileExtension()
+      throw new Error(payload?.error || `Failed to update goal: HTTP ${res.status}`)
+    }
+    if (payload && Object.prototype.hasOwnProperty.call(payload, 'goal')) {
+      const goalResult = this.adoptGoalState(normalizeGoalState(payload.goal), capture)
+      // A goal action is applied through HTTP even when no SSE frame follows,
+      // so a real change must be broadcast here too (a superseded response
+      // reports `changed: false` and stays silent).
+      if (goalResult.changed) this.notifyGoalChanged()
+    }
+    return this.state.goal ?? null
+  }
+
+  /**
+   * Adopt an authoritative goal snapshot. Ordering has two layers:
+   *
+   * - Same goal id: `revision` is the authority — an older revision never
+   *   regresses the current goal.
+   * - Cross id / explicit `null` (clear): revisions are meaningless, so an
+   *   async response must prove it was not superseded. Callers that span an
+   *   async gap capture `{ seq }` and the snapshot is only adopted while the
+   *   goal change watermark is unchanged.
+   *
+   * Returns whether the snapshot was applied and whether it changed the goal;
+   * a rejected snapshot leaves the newer goal untouched.
+   */
+  /** Save-only reconciliation: never changes message/stream ordering or swallows failures. */
+  async refreshGoalForSave(goalId: string, signal: AbortSignal): Promise<{ isStreaming: boolean }> {
+    const capture = { seq: this.goalSeq }
+    const localVersion = this.stateVersion
+    const isCurrent = () => !this.disposed && !signal.aborted
+      && this.state.goal?.id === goalId && this.state.goal.sessionId === this.sessionId
+    if (!isCurrent()) throw new Error(t('goalUnavailable'))
+    const { response, body } = await fetchJsonWithTimeout<{
+      goal?: unknown; isStreaming?: unknown; stateVersion?: number
+    }>(`${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/state`, STATE_REQUEST_TIMEOUT_MS, { cache: 'no-store', signal })
+    if (!response.ok) throw new Error(t('goalRefreshFailed', { status: response.status }))
+    const next = normalizeGoalState(body?.goal)
+    if (!isCurrent() || !next || next.id !== goalId || next.sessionId !== this.sessionId
+      || typeof body?.isStreaming !== 'boolean' || localVersion !== this.stateVersion
+      || (typeof body.stateVersion === 'number' && body.stateVersion < this.lastServerStateVersion)) {
+      throw new Error(t('goalRefreshUnsafe'))
+    }
+    const result = this.adoptGoalState(next, capture)
+    if (!result.applied) throw new Error(t('goalRefreshUnsafe'))
+    if (result.changed) this.notifyGoalChanged()
+    return { isStreaming: body.isStreaming }
+  }
+
+  private adoptGoalState(next: GoalState | null, capture?: { seq: number }): GoalAdoptionResult {
+    if (capture && capture.seq !== this.goalSeq) return { applied: false, changed: false }
+    const current = this.state.goal
+    if (next !== null && current && current.id === next.id && next.revision < current.revision) return { applied: false, changed: false }
+    // Only a real change advances the watermark: an identical echo must not
+    // invalidate another in-flight response that is still valid.
+    const unchanged = next === null
+      ? current === null
+      : Boolean(current && current.id === next.id && current.revision === next.revision)
+    this.state.goal = next
+    if (!unchanged) this.goalSeq++
+    return { applied: true, changed: !unchanged }
+  }
+
+  /**
+   * Broadcast an authoritative goal change to listeners. Only call this after
+   * `adoptGoalState` reported `changed`: a same-value echo or a superseded
+   * async response must not cause a pointless re-render / cache churn.
+   *
+   * Deliberately does NOT bump the message `stateVersion`: a goal frame never
+   * changes messages, so advancing the message watermark would discard an
+   * in-flight message reconcile (lost messages). The SSE `goal_updated` case
+   * does not use this helper — it forwards the raw frame exactly once.
+   */
+  private notifyGoalChanged(): void {
+    this.emitToListeners({ type: 'goal_updated', goal: this.state.goal ?? null } as unknown as AgentEvent)
+  }
+
+  /**
+   * A message-version guard can reject a `/state` snapshot as too old to touch
+   * the message list, but the goal has an independent watermark: the very same
+   * goal at a strictly newer revision is still authoritative and must not be
+   * dropped just because a message frame won the race. Only that narrow case is
+   * adopted on the early-return path; cross-id replacements, explicit nulls and
+   * equal/lower revisions stay blocked and remain owned by the normal path.
+   *
+   * The `goalSeq` capture is the final arbiter: if a goal frame changed the goal
+   * while the fetch was in flight, the snapshot is superseded and rejected even
+   * when its revision looks newer.
+   */
+  private adoptNewerRevisionGoalFromSnapshot(goal: GoalState | null | undefined, goalSeqBeforeFetch: number): void {
+    if (!goal) return
+    const next = normalizeGoalState(goal)
+    const current = this.state.goal
+    if (!next || !current || current.id !== next.id || next.revision <= current.revision) return
+    const goalResult = this.adoptGoalState(next, { seq: goalSeqBeforeFetch })
+    if (goalResult.changed) this.notifyGoalChanged()
+  }
+
   dispose(): void {
     this.disposed = true
     if (this.pollTimer) {
@@ -1517,6 +1723,8 @@ export class ServerAgent {
         pendingToolApproval: state.pendingToolApproval,
         pendingAutoCompactApproval: state.pendingAutoCompactApproval,
         pendingAsk: state.pendingAsk,
+        goal: state.goal,
+        source: this.sessionSource,
         stateVersion: this.lastServerStateVersion,
       },
     }
@@ -1545,7 +1753,10 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { systemPrompt?: string; messages?: AgentMessage[]; messagesSummary?: { count?: number }; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; pendingAsk?: ServerAgentPendingAsk | null; persistDegraded?: boolean }
+        const s = event as { source?: string; systemPrompt?: string; messages?: AgentMessage[]; messagesSummary?: { count?: number }; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; pendingAsk?: ServerAgentPendingAsk | null; persistDegraded?: boolean; goal?: GoalState | null }
+        if (s.source !== undefined) {
+          this.sessionSource = s.source || undefined
+        }
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
@@ -1595,6 +1806,13 @@ export class ServerAgent {
         }
         // State frames are full snapshots: absence of the flag means healthy.
         this.state.persistDegraded = s.persistDegraded === true ? true : undefined
+        if (s.goal !== undefined) {
+          // The state frame returns below without forwarding, so a real goal
+          // change must be broadcast explicitly (a repeat snapshot / stale
+          // revision reports `changed: false` and stays silent).
+          const goalResult = this.adoptGoalState(normalizeGoalState(s.goal))
+          if (goalResult.changed) this.notifyGoalChanged()
+        }
         let wasStreaming = this.state.isStreaming
         if (s.isStreaming !== undefined) {
           wasStreaming = this.state.isStreaming
@@ -1801,6 +2019,22 @@ export class ServerAgent {
       }
 
       case 'session_forked': {
+        break
+      }
+
+      case 'goal_updated': {
+        const goalEvent = event as { goal?: unknown }
+        // A goal frame never changes messages, so it must NOT bump the local
+        // message stateVersion: doing so would discard an in-flight message
+        // reconcile (lost messages). A missing `goal` field (older server)
+        // preserves the current goal; an explicit null clears it; a stale
+        // frame for the same goal id never regresses a newer revision.
+        if (Object.prototype.hasOwnProperty.call(goalEvent, 'goal')) {
+          // The raw frame is forwarded once below for a real change; a
+          // same-value echo or a superseded revision returns early instead of
+          // triggering a no-op re-render (never emit a second time here).
+          if (!this.adoptGoalState(normalizeGoalState(goalEvent.goal)).changed) return
+        }
         break
       }
 
@@ -2077,8 +2311,14 @@ export class ServerAgent {
   private async _doRefreshStateFromServer(options?: { notify?: boolean; forceMessages?: boolean }) {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/state`
     try {
-      // Snapshot the version before the async gap
+      // Snapshot the message version and the goal watermark before the async
+      // gap. The message version guards the message list; the goal watermark
+      // independently guards the goal, so a goal_updated SSE frame that lands
+      // while this fetch is in flight is not overwritten by an older snapshot
+      // (and, because goal frames never bump stateVersion, the fetched
+      // messages are still applied).
       const versionBeforeFetch = this.stateVersion
+      const goalSeqBeforeFetch = this.goalSeq
       const { response: res, body } = await fetchJsonWithTimeout<ServerAgentStateSnapshot>(url, STATE_REQUEST_TIMEOUT_MS)
       if (!res.ok) {
         // If the session no longer exists (e.g. destroyed by idle timeout),
@@ -2095,6 +2335,9 @@ export class ServerAgent {
         ? state.stateVersion
         : undefined
       if (serverStateVersion !== undefined && serverStateVersion < this.lastServerStateVersion) {
+        // Version regression: the message list in this snapshot is stale, but a
+        // same-goal strictly-newer revision still wins for the goal card.
+        this.adoptNewerRevisionGoalFromSnapshot(state.goal, goalSeqBeforeFetch)
         return
       }
 
@@ -2102,6 +2345,10 @@ export class ServerAgent {
       // this fetch was in flight (a concurrent SSE event that already advanced
       // this.stateVersion) discards the result — the newer event wins.
       if (versionBeforeFetch !== this.stateVersion) {
+        // A concurrent SSE frame already owns the message list; the snapshot is
+        // discarded for messages, but a same-goal strictly-newer revision is
+        // still adopted so a goal change is not lost to the race.
+        this.adoptNewerRevisionGoalFromSnapshot(state.goal, goalSeqBeforeFetch)
         return
       }
       // Capture whether the server reports the same version we already
@@ -2175,6 +2422,16 @@ export class ServerAgent {
       }
       // /state is a full snapshot: absence of the flag means healthy.
       this.state.persistDegraded = state.persistDegraded === true ? true : undefined
+      if (state.source !== undefined) {
+        this.sessionSource = state.source || undefined
+      }
+      if (state.goal !== undefined) {
+        const goalResult = this.adoptGoalState(normalizeGoalState(state.goal), { seq: goalSeqBeforeFetch })
+        // HTTP refresh (syncState / watchdog / agent_end fallback) must notify
+        // goal subscribers even when no SSE frame follows; a snapshot that lost
+        // the race against a newer goal update reports `changed: false`.
+        if (goalResult.changed) this.notifyGoalChanged()
+      }
       if (state.isStreaming !== undefined) {
         const wasStreaming = this.state.isStreaming
         this.state.isStreaming = Boolean(state.isStreaming)
@@ -2351,6 +2608,7 @@ export class ServerAgent {
         pendingToolApproval: serverState.pendingToolApproval as ServerAgentPendingToolApproval | null | undefined,
         pendingAutoCompactApproval: serverState.pendingAutoCompactApproval as ServerAgentPendingAutoCompactApproval | null | undefined,
         persistDegraded: serverState.persistDegraded === true ? true : undefined,
+        source: (serverState.source ?? config.source) as string | undefined,
         stateVersion: serverState.stateVersion as number | undefined,
       },
     })

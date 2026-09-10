@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1340 940" font-family="'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7285"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3478d4"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1340" height="940" fill="#ffffff"/>
+  <text x="670" y="34" text-anchor="middle" font-size="17" font-weight="600" fill="#1f2430">Goal 状态机（13 状态 · 主要转换）</text>
+  <text x="670" y="54" text-anchor="middle" font-size="11" fill="#6b7285">实线 = 状态推进 · 虚线 = 恢复路径（resume / extend_resume）· 问题编号见 docs/reviews/goal-design-review.zh-CN.md</text>
+
+  <!-- ================= Row 1: 主路径 ================= -->
+  <g>
+    <rect x="50" y="70" width="150" height="44" rx="10" fill="#eef4fd" stroke="#3478d4"/>
+    <text x="125" y="88" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">planning</text>
+    <text x="125" y="104" text-anchor="middle" font-size="10" fill="#6b7285">只读规划</text>
+
+    <rect x="250" y="70" width="200" height="44" rx="10" fill="#fdf6ec" stroke="#d97706"/>
+    <text x="350" y="88" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">awaiting_confirmation</text>
+    <text x="350" y="104" text-anchor="middle" font-size="10" fill="#6b7285">等待用户确认</text>
+
+    <rect x="500" y="70" width="150" height="44" rx="10" fill="#eef4fd" stroke="#3478d4"/>
+    <text x="575" y="88" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">running</text>
+    <text x="575" y="104" text-anchor="middle" font-size="10" fill="#6b7285">执行中</text>
+
+    <rect x="710" y="70" width="150" height="44" rx="10" fill="#eef4fd" stroke="#3478d4"/>
+    <text x="785" y="88" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">verifying</text>
+    <text x="785" y="104" text-anchor="middle" font-size="10" fill="#6b7285">结算中</text>
+
+    <rect x="920" y="70" width="150" height="44" rx="10" fill="#fdf6ec" stroke="#d97706"/>
+    <text x="995" y="88" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">needs_review</text>
+    <text x="995" y="104" text-anchor="middle" font-size="10" fill="#6b7285">待复核</text>
+
+    <rect x="1130" y="70" width="160" height="44" rx="10" fill="#ecf9f3" stroke="#059669"/>
+    <text x="1210" y="88" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">completed</text>
+    <text x="1210" y="104" text-anchor="middle" font-size="10" fill="#6b7285">已完成（人审 accept）</text>
+  </g>
+
+  <!-- ================= Row 2: 等待/暂停/受阻 ================= -->
+  <g>
+    <rect x="250" y="250" width="150" height="44" rx="10" fill="#eef4fd" stroke="#3478d4"/>
+    <text x="325" y="268" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">pausing</text>
+    <text x="325" y="284" text-anchor="middle" font-size="10" fill="#6b7285">暂停中（等待轮结束）</text>
+
+    <rect x="480" y="250" width="170" height="44" rx="10" fill="#eef4fd" stroke="#3478d4"/>
+    <text x="565" y="268" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">awaiting_approval</text>
+    <text x="565" y="284" text-anchor="middle" font-size="10" fill="#6b7285">等待工具审批</text>
+
+    <rect x="700" y="250" width="170" height="44" rx="10" fill="#eef4fd" stroke="#3478d4"/>
+    <text x="785" y="268" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">awaiting_input</text>
+    <text x="785" y="284" text-anchor="middle" font-size="10" fill="#6b7285">等待用户回答</text>
+
+    <rect x="940" y="250" width="150" height="44" rx="10" fill="#fdf6ec" stroke="#d97706"/>
+    <text x="1015" y="268" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">blocked</text>
+    <text x="1015" y="284" text-anchor="middle" font-size="10" fill="#6b7285">受阻（模型报告）</text>
+  </g>
+
+  <!-- ================= Row 3: paused / cancelled ================= -->
+  <g>
+    <rect x="80" y="430" width="150" height="44" rx="10" fill="#f3f4f6" stroke="#6b7285"/>
+    <text x="155" y="448" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">cancelled</text>
+    <text x="155" y="464" text-anchor="middle" font-size="10" fill="#6b7285">已取消</text>
+
+    <rect x="560" y="430" width="150" height="44" rx="10" fill="#fdf6ec" stroke="#d97706"/>
+    <text x="635" y="448" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2430">paused</text>
+    <text x="635" y="464" text-anchor="middle" font-size="10" fill="#6b7285">已暂停（汇聚态）</text>
+  </g>
+
+  <!-- failed：死状态 -->
+  <g>
+    <rect x="940" y="620" width="150" height="44" rx="10" fill="#fdf0f0" stroke="#dc2626" stroke-dasharray="6 4"/>
+    <text x="1015" y="638" text-anchor="middle" font-size="13" font-weight="600" fill="#dc2626">failed</text>
+    <text x="1015" y="654" text-anchor="middle" font-size="10" fill="#dc2626">失败</text>
+    <text x="1015" y="690" text-anchor="middle" font-size="10" fill="#6b7285">死状态：无入边（评审 D1）</text>
+    <text x="1015" y="706" text-anchor="middle" font-size="10" fill="#6b7285">错误路径统一落 paused + repeated_failures</text>
+  </g>
+
+  <!-- ================= 边 ================= -->
+  <!-- /goal → planning -->
+  <circle cx="22" cy="92" r="4" fill="#6b7285"/>
+  <line x1="26" y1="92" x2="50" y2="92" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="38" y="80" text-anchor="middle" font-size="10" fill="#6b7285">/goal</text>
+
+  <!-- planning → awaiting_confirmation -->
+  <line x1="200" y1="92" x2="250" y2="92" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="225" y="80" text-anchor="middle" font-size="10" fill="#6b7285">goal_report(plan)</text>
+
+  <!-- awaiting_confirmation → running (confirm) -->
+  <line x1="450" y1="92" x2="500" y2="92" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="475" y="80" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2430">confirm</text>
+
+  <!-- running → verifying -->
+  <line x1="650" y1="92" x2="710" y2="92" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="680" y="64" text-anchor="middle" font-size="10" fill="#6b7285">goal_report(complete / needs_review)</text>
+
+  <!-- verifying → needs_review -->
+  <line x1="860" y1="92" x2="920" y2="92" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="890" y="80" text-anchor="middle" font-size="10" fill="#6b7285">轮结束结算</text>
+
+  <!-- needs_review → completed (accept) -->
+  <line x1="1070" y1="92" x2="1130" y2="92" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="1100" y="80" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2430">accept</text>
+
+  <!-- awaiting_confirmation → planning (revise, 曲线) -->
+  <path d="M 350 114 C 340 168, 160 168, 130 114" fill="none" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="240" y="162" text-anchor="middle" font-size="10" fill="#6b7285">revise（重规划，usage 保留）</text>
+
+  <!-- running 自环：预算内自动续跑 -->
+  <path d="M 545 70 C 550 38, 600 38, 605 70" fill="none" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="575" y="30" text-anchor="middle" font-size="10" fill="#6b7285">预算内自动续跑（轮结束且已持久化）</text>
+
+  <!-- running ↔ awaiting_approval -->
+  <line x1="530" y1="114" x2="530" y2="250" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="522" y="190" text-anchor="end" font-size="10" fill="#6b7285">请求审批</text>
+  <line x1="585" y1="250" x2="585" y2="114" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="593" y="205" text-anchor="start" font-size="10" fill="#6b7285">批准</text>
+
+  <!-- running ↔ awaiting_input -->
+  <path d="M 640 114 C 660 160, 720 200, 755 250" fill="none" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="700" y="165" text-anchor="start" font-size="10" fill="#6b7285">ask</text>
+  <path d="M 730 250 C 700 200, 660 160, 615 114" fill="none" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="648" y="232" text-anchor="end" font-size="10" fill="#6b7285">回答</text>
+
+  <!-- awaiting_approval → paused -->
+  <line x1="545" y1="294" x2="605" y2="430" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="538" y="370" text-anchor="end" font-size="10" fill="#6b7285">拒绝 / 超时</text>
+
+  <!-- awaiting_input → paused -->
+  <line x1="805" y1="294" x2="670" y2="430" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="812" y="370" text-anchor="start" font-size="10" fill="#6b7285">跳过 / 超时</text>
+
+  <!-- running/verifying → pausing -->
+  <path d="M 505 100 C 440 110, 325 160, 325 250" fill="none" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="368" y="145" text-anchor="middle" font-size="10" fill="#6b7285">pause / 预算超时 / 中止</text>
+
+  <!-- pausing → paused -->
+  <line x1="375" y1="294" x2="570" y2="437" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="440" y="360" text-anchor="middle" font-size="10" fill="#6b7285">轮结束</text>
+
+  <!-- running → blocked -->
+  <path d="M 645 108 C 645 185, 1015 185, 1015 250" fill="none" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="830" y="176" text-anchor="middle" font-size="10" fill="#6b7285">goal_report(blocked)</text>
+
+  <!-- needs_review → running (resume, 虚线) -->
+  <path d="M 1060 108 C 1130 150, 760 150, 655 108" fill="none" stroke="#3478d4" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowBlue)"/>
+  <text x="905" y="143" text-anchor="middle" font-size="11" font-weight="600" fill="#3478d4">resume</text>
+
+  <!-- paused → running (resume / extend_resume, 虚线) -->
+  <path d="M 560 440 C 440 430, 470 170, 505 118" fill="none" stroke="#3478d4" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowBlue)"/>
+  <text x="425" y="295" text-anchor="middle" font-size="11" font-weight="600" fill="#3478d4">resume / extend_resume</text>
+
+  <!-- blocked → paused (resume, 虚线) -->
+  <line x1="960" y1="294" x2="700" y2="445" stroke="#3478d4" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowBlue)"/>
+  <text x="884" y="345" text-anchor="middle" font-size="10" fill="#3478d4">resume</text>
+
+  <!-- paused → cancelled (cancel) -->
+  <path d="M 585 474 C 460 510, 340 490, 235 455" fill="none" stroke="#6b7285" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="400" y="512" text-anchor="middle" font-size="11" font-weight="600" fill="#1f2430">cancel（任意活跃态）</text>
+
+  <!-- paused 下方注释 -->
+  <text x="635" y="502" text-anchor="middle" font-size="10" fill="#6b7285">重启：IN_FLIGHT（planning / running / verifying / awaiting_* / pausing）一律 → paused</text>
+  <text x="635" y="518" text-anchor="middle" font-size="10" fill="#6b7285">resume / extend_resume → running / awaiting_confirmation / planning（按计划确认状态）</text>
+  <text x="635" y="534" text-anchor="middle" font-size="10" fill="#6b7285">预算耗尽 / 连续失败 / 无进展 / persist 失败 / 规划未完成 也都汇聚到 paused（blocker 区分原因）</text>
+
+  <!-- ================= 图例 ================= -->
+  <g>
+    <rect x="60" y="560" width="580" height="150" rx="10" fill="#f8fafc" stroke="#e4e7ee"/>
+    <text x="80" y="584" font-size="12" font-weight="600" fill="#1f2430">图例</text>
+
+    <rect x="80" y="598" width="20" height="14" rx="4" fill="#eef4fd" stroke="#3478d4"/>
+    <text x="110" y="609" font-size="11" fill="#6b7285">运行 / 等待中（IN_FLIGHT：进程重启一律映射为 paused）</text>
+
+    <rect x="80" y="622" width="20" height="14" rx="4" fill="#fdf6ec" stroke="#d97706"/>
+    <text x="110" y="633" font-size="11" fill="#6b7285">等待用户：awaiting_confirmation / paused / blocked / needs_review</text>
+
+    <rect x="80" y="646" width="20" height="14" rx="4" fill="#ecf9f3" stroke="#059669"/>
+    <rect x="110" y="646" width="20" height="14" rx="4" fill="#f3f4f6" stroke="#6b7285"/>
+    <text x="140" y="657" font-size="11" fill="#6b7285">终态：completed（绿）/ cancelled（灰）</text>
+
+    <rect x="80" y="670" width="20" height="14" rx="4" fill="#fdf0f0" stroke="#dc2626" stroke-dasharray="6 4"/>
+    <text x="110" y="681" font-size="11" fill="#6b7285">failed：红虚线 = 死状态（零入边，评审 D1）</text>
+
+    <line x1="80" y1="700" x2="100" y2="700" stroke="#3478d4" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="110" y="704" font-size="11" fill="#6b7285">虚线边 = resume / extend_resume 恢复路径</text>
+  </g>
+</svg>

@@ -74,7 +74,8 @@ Agent 会话管理核心路由。
 - `GET /api/agents/:sessionId/state` — 获取完整会话快照，用于 SSE 异常恢复；仅在内存会话不存在时从磁盘恢复，不再每次无条件重读 Session
 - `GET /api/agents/:sessionId/status` — 获取轻量运行状态，用于 SSE 静默后的版本探测
 - `HEAD /api/agents/:sessionId/stream` — 检查 SSE 可用性
-- `POST /api/agents/:sessionId/prompt` — 发送消息；`/summary` 与 `/compact` 作为内置 slash command 通过此端点触发，不存在独立压缩 REST 路由。可选 `contextReferences: [{type:'file',projectId,path}]` 最多 8 条；仅项目 QuickForge 会话支持，服务端用已恢复会话的 projectId/workspaceRoot 重新校验并持久化 canonical `{type,projectId,path,name}` 到用户消息 `details.contextReferences`，只向本轮模型注入已验证相对路径提示，不读取正文。Shared 非空引用显式拒绝
+- `POST /api/agents/:sessionId/prompt` — 发送消息；`/summary` 与 `/compact` 作为内置 slash command 通过此端点触发，不存在独立压缩 REST 路由。可选 `contextReferences: [{type:'file',projectId,path}]` 最多 8 条；仅项目 QuickForge 会话支持，服务端用已恢复会话的 projectId/workspaceRoot 重新校验并持久化 canonical `{type,projectId,path,name}` 到用户消息 `details.contextReferences`，只向本轮模型注入已验证相对路径提示，不读取正文。Shared 非空引用显式拒绝；`/goal <目标>` 同样经此端点触发，创建目标并启动只读规划轮
+- `POST /api/agents/:sessionId/goal` — Goal 模式用户动作：既有 `{action, objective?}` 支持 `confirm` / `pause` / `resume` / `cancel` / `revise`（需新 `objective`）/ `accept`（仅 `needs_review`）；新增 `extend_resume` 严格只接受 `{action:'extend_resume', goalId, expectedRevision}`，goalId 非空、expectedRevision 正 safe integer，不允许自定义预算或额外字段（400）。仅此追加动作做 goalId/revision CAS，旧请求 409 `GOAL_REVISION_CONFLICT` 不重复追加；未耗尽 409 `GOAL_BUDGET_NOT_EXHAUSTED`。只对耗尽维度 +8 轮/+120 分钟，保留 usage/计划证据，同次 persist 成功后才恢复；仍不足保持 paused 不调度，足够后无计划→planning、未确认→awaiting_confirmation、已确认→running。旧 resume 耗尽仍 409，但提示 extend_resume 新出口。返回 `{goal}` 权威快照；非法 action 400，无会话/无 goal 404，状态不允许或会话忙 409（`GOAL_ACTION_INVALID` / `GOAL_SESSION_BUSY`），预算耗尽 `GOAL_BUDGET_EXHAUSTED`，共享/ACP/定时任务来源 `GOAL_UNAVAILABLE`。route 先按请求级 `context.source` 判定可用性，再动态 import runner，避免非 goal 请求承担持久化/存储链的加载成本
 - `POST /api/agents/:sessionId/title` — 手动重命名会话；同步更新服务端活跃状态与持久化数据，优先于待完成的 AI 标题
 - `POST /api/agents/:sessionId/abort` — 中止运行
 - `POST /api/agents/:sessionId/steer` — 引导 Agent

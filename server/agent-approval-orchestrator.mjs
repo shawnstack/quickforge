@@ -15,6 +15,12 @@ import {
   normalizeAskQuestions,
   formatAskResult,
 } from './ask-store.mjs'
+import {
+  notifyGoalApprovalOutcome,
+  notifyGoalApprovalRequested,
+  notifyGoalAskOutcome,
+  notifyGoalAskRequested,
+} from './agent-goal-runner.mjs'
 
 /**
  * Create a Promise that only resolves when the user accepts or rejects the tool call.
@@ -32,6 +38,7 @@ export function createApprovalPromise(session, toolCallId, toolName, args, sourc
       if (settled) return
       settled = true
       pendingApprovals.delete(toolCallId)
+      void notifyGoalApprovalOutcome(session, { outcome: 'timeout' })
       resolve({ block: true, reason: `Approval timeout for ${toolName}` })
     }, APPROVAL_TIMEOUT_MS)
 
@@ -53,11 +60,13 @@ export function createApprovalPromise(session, toolCallId, toolName, args, sourc
     if (signal) {
       if (signal.aborted) {
         cleanup()
+        void notifyGoalApprovalOutcome(session, { outcome: 'aborted' })
         reject(new Error('Run aborted'))
         return
       }
       onAbort = () => {
         cleanup()
+        void notifyGoalApprovalOutcome(session, { outcome: 'aborted' })
         reject(new Error('Run aborted'))
       }
       signal.addEventListener('abort', onAbort, { once: true })
@@ -66,6 +75,7 @@ export function createApprovalPromise(session, toolCallId, toolName, args, sourc
     pendingApprovals.set(toolCallId, {
       resolve: (approved) => {
         cleanup()
+        void notifyGoalApprovalOutcome(session, { outcome: approved ? 'approved' : 'rejected' })
         resolve(approved ? undefined : { block: true, reason: `User rejected ${toolName}` })
       },
       reject: (err) => {
@@ -88,6 +98,9 @@ export function createApprovalPromise(session, toolCallId, toolName, args, sourc
       args,
       source,
     })
+    // Goal runs surface the wait state on the goal card (reusing this exact
+    // approval mechanism); non-goal runs are unaffected.
+    void notifyGoalApprovalRequested(session)
   })
 }
 
@@ -124,6 +137,9 @@ export function createAskUserPromise(session, toolCallId, params) {
       if (onAbort && session.agent.signal) session.agent.signal.removeEventListener('abort', onAbort)
       pendingAsks.delete(askId)
       const answers = payload.skipped ? null : payload.answers
+      // A skipped (or timed-out) question during a goal run pauses the goal
+      // instead of letting it loop on assumptions.
+      void notifyGoalAskOutcome(session, { skipped: !!payload.skipped, reason: payload.reason })
       resolve({
         content: [{ type: 'text', text: formatAskResult(questions, answers, payload.skipped, payload.reason) }],
         details: { askId, questions, answers, skipped: !!payload.skipped, ...(payload.reason ? { skipReason: payload.reason } : {}) },
@@ -164,6 +180,7 @@ export function createAskUserPromise(session, toolCallId, params) {
       toolCallId,
       questions,
     })
+    void notifyGoalAskRequested(session)
   })
 }
 

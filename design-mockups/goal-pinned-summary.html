@@ -1,0 +1,2583 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QuickForge · Goal 置顶摘要与极简控制条（设计原型）</title>
+<style>
+  :root {
+    color-scheme: light;
+    --background: #ffffff;
+    --foreground: #20242b;
+    --muted: #f2f4f6;
+    --muted-strong: #e8ebef;
+    --muted-foreground: #6f7782;
+    --faint: #8b939e;
+    --border: #e2e6ea;
+    --border-soft: #eef1f4;
+    --surface: #fbfcfd;
+    --surface-raised: #ffffff;
+    --accent: #eceff3;
+    --accent-foreground: #252a32;
+    --primary: #303640;
+    --primary-foreground: #ffffff;
+    --success: #16845b;
+    --warn: #b7791f;
+    --danger: #ca4b4b;
+    --review: #6b5bd2;
+    --focus: #5d77a8;
+    --shadow-soft: 0 10px 26px -18px rgb(15 23 42 / 0.48);
+    --shadow-panel: 0 22px 54px -32px rgb(15 23 42 / 0.42);
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --dur-slow: 280ms;
+    --dur-exit: 140ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  }
+
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --background: #17191d;
+    --foreground: #e7e9ed;
+    --muted: #22252b;
+    --muted-strong: #2b2f36;
+    --muted-foreground: #a4abb5;
+    --faint: #9ca4af;
+    --border: #343840;
+    --border-soft: #292d33;
+    --surface: #14161a;
+    --surface-raised: #1a1d22;
+    --accent: #292d34;
+    --accent-foreground: #f0f1f3;
+    --primary: #d9dde4;
+    --primary-foreground: #202329;
+    --success: #55be8f;
+    --warn: #d7a94a;
+    --danger: #e47777;
+    --review: #a99cf0;
+    --focus: #91abd7;
+    --shadow-soft: 0 12px 30px -18px rgb(0 0 0 / 0.78);
+    --shadow-panel: 0 24px 58px -26px rgb(0 0 0 / 0.72);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  html { font-size: 14px; }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--surface);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button, select, textarea { font: inherit; color: inherit; }
+  button { -webkit-tap-highlight-color: transparent; cursor: pointer; }
+
+  svg {
+    display: block;
+    width: 1em;
+    height: 1em;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  /* ---------- 原型演示控制栏 ---------- */
+  .demo-bar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    background: color-mix(in oklab, var(--background) 94%, transparent);
+  }
+
+  .demo-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .demo-brand strong { font-size: 0.95rem; letter-spacing: -0.01em; }
+
+  .demo-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .demo-sub { color: var(--muted-foreground); font-size: 0.78rem; }
+
+  .demo-controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+
+  .demo-field { display: flex; align-items: center; gap: 7px; }
+  .demo-field > span { color: var(--muted-foreground); font-size: 0.75rem; }
+
+  select {
+    min-height: 32px;
+    max-width: 220px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--background);
+    color: var(--foreground);
+    cursor: pointer;
+  }
+
+  .segmented {
+    display: inline-flex;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--background);
+  }
+
+  .segmented button {
+    min-height: 26px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+    transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+
+  .segmented button:hover { color: var(--foreground); }
+  .segmented button.active {
+    background: var(--accent);
+    color: var(--accent-foreground);
+    font-weight: 600;
+  }
+
+  .demo-note {
+    flex: none;
+    margin: 0;
+    padding: 7px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--surface);
+    color: var(--muted-foreground);
+    font-size: 0.76rem;
+  }
+
+  .demo-note code { font-family: var(--font-mono); font-size: 0.74rem; }
+
+  /* ---------- 应用骨架 ---------- */
+  .app-frame {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-rows: 52px minmax(0, 1fr);
+    grid-template-areas:
+      "topbar topbar"
+      "sidebar chat";
+    background: var(--background);
+    overflow: hidden;
+  }
+
+  .app-frame.narrow {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "topbar"
+      "chat";
+  }
+
+  .app-frame.narrow .sidebar { display: none; }
+
+  /* 顶部栏 */
+  .app-topbar {
+    grid-area: topbar;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--background);
+  }
+
+  .app-frame:not(.narrow) .hamburger { display: none; }
+
+  .brand { display: flex; align-items: center; gap: 7px; font-size: 0.92rem; font-weight: 600; }
+  .brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    background: var(--accent);
+    color: var(--accent-foreground);
+    font-size: 13px;
+  }
+
+  .topbar-context {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 3px 9px;
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbar-spacer { flex: 1 1 auto; }
+
+  .window-toolbar { display: flex; align-items: center; gap: 4px; }
+
+  /* 通用按钮 */
+  .icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 16px;
+    transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+  }
+
+  .icon-button:hover { background: var(--muted); color: var(--foreground); }
+  .icon-button:active { transform: scale(0.97); }
+  .icon-button:disabled { color: var(--faint); cursor: not-allowed; background: transparent; }
+
+  .icon-button.entry {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border-soft);
+    background: var(--surface-raised);
+  }
+
+  .icon-button.entry[aria-expanded="true"] {
+    border-color: var(--border);
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  .entry-dot {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--muted-foreground);
+  }
+
+  [data-tone="active"] .entry-dot, .entry-dot[data-tone="active"] { background: var(--warn); }
+  [data-tone="pending"] .entry-dot, .entry-dot[data-tone="pending"] { background: var(--review); }
+  [data-tone="danger"] .entry-dot, .entry-dot[data-tone="danger"] { background: var(--danger); }
+  [data-tone="done"] .entry-dot, .entry-dot[data-tone="done"] { background: var(--success); }
+  .icon-button.entry:not([aria-expanded="true"]) .entry-dot { animation: soft-pulse 2.4s var(--ease) infinite; }
+
+  .ghost-button,
+  .primary-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 9px;
+    font-size: 0.83rem;
+    transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+  }
+
+  .ghost-button {
+    border: 1px solid var(--border);
+    background: var(--background);
+    color: var(--muted-foreground);
+  }
+
+  .ghost-button:hover { background: var(--muted); color: var(--foreground); }
+
+  .primary-button {
+    border: 1px solid transparent;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-weight: 600;
+  }
+
+  .primary-button:hover { filter: brightness(1.08); }
+  .ghost-button:active, .primary-button:active { transform: scale(0.97); }
+  .ghost-button:disabled, .primary-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .ghost-button svg, .primary-button svg { font-size: 15px; }
+
+  /* 左侧轻导航 */
+  .sidebar {
+    grid-area: sidebar;
+    min-height: 0;
+    padding: 12px 10px;
+    border-right: 1px solid var(--border-soft);
+    background: var(--background);
+    overflow-y: auto;
+  }
+
+  .new-chat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    background: var(--surface-raised);
+    color: var(--muted-foreground);
+    font-size: 0.83rem;
+  }
+
+  .new-chat:hover { background: var(--muted); color: var(--foreground); }
+  .new-chat svg { font-size: 15px; }
+
+  .sidebar-section { margin-top: 16px; }
+
+  .sidebar-heading {
+    padding: 0 8px 6px;
+    color: var(--faint);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+
+  .nav-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 28px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 0.82rem;
+    text-align: left;
+    transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+
+  .nav-row svg { font-size: 15px; }
+  .nav-row:hover { background: var(--muted); color: var(--foreground); }
+
+  .session-row {
+    display: block;
+    width: 100%;
+    min-height: 28px;
+    padding: 5px 8px 5px 26px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 0.82rem;
+    text-align: left;
+    transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+
+  .session-row:hover { background: var(--muted); color: var(--foreground); }
+
+  .session-row.selected {
+    background: var(--accent);
+    color: var(--accent-foreground);
+    font-weight: 600;
+    box-shadow: 0 1px 2px -1px rgb(15 23 42 / 0.16);
+  }
+
+  .sidebar-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 20px;
+    padding: 8px;
+    border-top: 1px solid var(--border-soft);
+    color: var(--faint);
+    font-size: 0.76rem;
+  }
+
+  .avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 0.66rem;
+    font-weight: 700;
+  }
+
+  /* ---------- 聊天区 ---------- */
+  .chat-area {
+    grid-area: chat;
+    position: relative;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--background);
+  }
+
+  .chat-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .chat-head-main { display: flex; flex-direction: column; min-width: 0; }
+  .chat-head-main strong { font-size: 0.88rem; letter-spacing: -0.01em; }
+  .chat-head-main span { color: var(--faint); font-size: 0.72rem; }
+  .chat-head-actions { margin-left: auto; display: flex; gap: 4px; }
+
+  .messages {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 18px 18px 8px;
+    scroll-behavior: smooth;
+  }
+
+  .message-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: min(760px, 100%);
+    margin: 0 auto;
+  }
+
+  .user-message {
+    align-self: flex-end;
+    max-width: 76%;
+    padding: 9px 13px;
+    border: 1px solid var(--border-soft);
+    border-radius: 14px 14px 4px 14px;
+    background: var(--muted);
+    font-size: 0.85rem;
+  }
+
+  .assistant-message {
+    max-width: 88%;
+    color: var(--foreground);
+    font-size: 0.85rem;
+  }
+
+  .tool-event {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-soft);
+    border-radius: 9px;
+    background: var(--surface);
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+  }
+
+  .tool-event svg { font-size: 15px; }
+  .tool-event code { font-family: var(--font-mono); font-size: 0.75rem; color: var(--foreground); }
+
+  .chat-card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-raised);
+    padding: 12px 13px;
+    transition: border-color var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease);
+  }
+
+  .chat-card.flash,
+  .fact-block.flash {
+    border-color: var(--review);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--review) 16%, transparent);
+  }
+
+  .card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 0.83rem;
+  }
+
+  .card-head svg { font-size: 15px; color: var(--muted-foreground); }
+  .card-head strong { font-size: 0.85rem; }
+
+  .card-tag {
+    margin-left: auto;
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted-foreground);
+    font-size: 0.68rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .card-tag.review { color: var(--review); border-color: color-mix(in oklab, var(--review) 40%, var(--border)); }
+  .card-tag.warn { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 40%, var(--border)); }
+
+  .card-text { margin: 0; color: var(--muted-foreground); font-size: 0.8rem; }
+  .card-text + .card-text { margin-top: 4px; }
+
+  .card-code {
+    display: block;
+    margin: 7px 0;
+    padding: 6px 9px;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+
+  .card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+  .card-note { margin: 8px 0 0; color: var(--faint); font-size: 0.72rem; }
+
+  .chat-card[data-responded="true"] .card-actions button { opacity: 0.55; }
+
+  /* ---------- 底部输入框 ---------- */
+  .composer {
+    flex: none;
+    width: min(760px, calc(100% - 28px));
+    margin: 0 auto 14px;
+    padding: 10px 12px 8px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .composer-input {
+    display: block;
+    width: 100%;
+    min-height: 26px;
+    max-height: 120px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--foreground);
+    font-size: 0.86rem;
+    resize: none;
+    outline: none;
+  }
+
+  .composer-input::placeholder { color: var(--faint); }
+
+  .composer-foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  /* 输入框上方相邻的紧凑控制行（不是底部操作栏，也不是完整卡） */
+  .goal-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    margin-bottom: 7px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .composer-tools { display: flex; align-items: center; gap: 6px; }
+
+  .chip-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 0 9px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+    transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+
+  .chip-button:hover { background: var(--muted); color: var(--foreground); }
+  .chip-button svg { font-size: 15px; }
+
+  .composer-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+  .goal-control-bar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 2px 4px 2px 9px;
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    background: var(--surface);
+  }
+
+  .goal-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding-right: 6px;
+    color: var(--muted-foreground);
+    font-size: 0.76rem;
+    white-space: nowrap;
+  }
+
+  .goal-state .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--faint);
+  }
+
+  .goal-state[data-tone="active"] .dot { background: var(--warn); animation: soft-pulse 2s var(--ease) infinite; }
+  .goal-state[data-tone="pending"] .dot { background: var(--review); }
+  .goal-state[data-tone="review"] .dot { background: var(--review); }
+  .goal-state[data-tone="danger"] .dot { background: var(--danger); }
+  .goal-state[data-tone="done"] .dot { background: var(--success); }
+
+  .goal-control-bar .icon-button { width: 26px; height: 26px; font-size: 15px; }
+  .goal-control-bar .icon-button.pending { color: var(--review); }
+  .goal-control-bar .icon-button.pending[data-tone="active"] { color: var(--warn); }
+  .goal-control-bar .icon-button.pending[data-tone="danger"] { color: var(--danger); }
+
+  .goal-control-bar .entry-dot { top: 3px; right: 3px; width: 6px; height: 6px; }
+
+  .send-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    transition: filter var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+  }
+
+  .send-button:hover { filter: brightness(1.1); }
+  .send-button:active { transform: scale(0.97); }
+
+  /* ---------- 置顶摘要：胶囊 ---------- */
+  .summary-capsule {
+    position: absolute;
+    top: 58px;
+    right: 14px;
+    z-index: 30;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: min(320px, calc(100% - 28px));
+    padding: 6px 8px 6px 11px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-soft);
+    color: var(--muted-foreground);
+    font-size: 0.79rem;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+  }
+
+  .summary-capsule:hover { background: var(--muted); color: var(--foreground); }
+  .summary-capsule:active { transform: scale(0.99); }
+  .summary-capsule .capsule-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-size: inherit;
+    padding: 0;
+  }
+
+  .summary-capsule .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+  .summary-capsule[data-tone="active"] .dot { background: var(--warn); }
+  .summary-capsule[data-tone="pending"] .dot { background: var(--review); }
+  .summary-capsule[data-tone="review"] .dot { background: var(--review); }
+  .summary-capsule[data-tone="danger"] .dot { background: var(--danger); }
+  .summary-capsule[data-tone="done"] .dot { background: var(--success); }
+
+  .capsule-title {
+    min-width: 0;
+    max-width: 176px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    color: var(--foreground);
+  }
+
+  .capsule-state { color: var(--muted-foreground); white-space: nowrap; }
+
+  .capsule-accepted {
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+
+  .summary-capsule .icon-button { width: 22px; height: 22px; font-size: 13px; }
+
+  /* ---------- 置顶摘要：面板 ---------- */
+  .summary-panel {
+    position: absolute;
+    top: 58px;
+    right: 14px;
+    z-index: 31;
+    display: flex;
+    flex-direction: column;
+    width: min(392px, calc(100% - 28px));
+    max-height: calc(100% - 76px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-panel);
+    animation: panel-in var(--dur-base) var(--ease);
+  }
+
+  .panel-head {
+    flex: none;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 12px 10px 14px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .panel-head-main { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+  .panel-head h2 { margin: 0; font-size: 0.9rem; letter-spacing: -0.01em; }
+  .panel-head-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+
+  .state-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted-foreground);
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .state-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+  .state-badge[data-tone="active"] { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 38%, var(--border)); }
+  .state-badge[data-tone="active"] .dot { background: var(--warn); }
+  .state-badge[data-tone="pending"] { color: var(--review); border-color: color-mix(in oklab, var(--review) 38%, var(--border)); }
+  .state-badge[data-tone="pending"] .dot { background: var(--review); }
+  .state-badge[data-tone="danger"] { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 38%, var(--border)); }
+  .state-badge[data-tone="danger"] .dot { background: var(--danger); }
+  .state-badge[data-tone="review"] { color: var(--review); border-color: color-mix(in oklab, var(--review) 38%, var(--border)); }
+  .state-badge[data-tone="review"] .dot { background: var(--review); }
+  .state-badge[data-tone="done"] { color: var(--success); border-color: color-mix(in oklab, var(--success) 38%, var(--border)); }
+  .state-badge[data-tone="done"] .dot { background: var(--success); }
+
+  .panel-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 12px 14px 16px;
+  }
+
+  .panel-desc { margin: 0 0 12px; color: var(--faint); font-size: 0.74rem; }
+
+  .block-label {
+    display: block;
+    color: var(--faint);
+    font-size: 0.71rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .goal-block { margin-bottom: 12px; }
+
+  .goal-text {
+    margin: 6px 0 0;
+    color: var(--foreground);
+    font-size: 0.85rem;
+  }
+
+  .goal-editor { margin-top: 6px; }
+
+  .goal-editor textarea {
+    display: block;
+    width: 100%;
+    min-height: 74px;
+    margin-top: 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 0.84rem;
+    resize: vertical;
+    outline: none;
+  }
+
+  .goal-editor textarea:focus { border-color: var(--focus); }
+
+  .editor-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .editor-hint { color: var(--faint); font-size: 0.74rem; }
+  .editor-hint[data-dirty="true"] { color: var(--warn); }
+  .editor-actions { display: flex; gap: 8px; margin-left: auto; }
+  .editor-actions .ghost-button, .editor-actions .primary-button { min-height: 28px; font-size: 0.79rem; }
+
+  .metric-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin: 4px 0 8px;
+  }
+
+  .metric {
+    padding: 8px 10px;
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+
+  .metric-label { display: block; color: var(--faint); font-size: 0.7rem; }
+  .metric-value { display: block; margin-top: 2px; font-size: 0.86rem; font-weight: 600; }
+
+  .progress-track {
+    height: 5px;
+    border-radius: 999px;
+    background: var(--muted-strong);
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    background: var(--foreground);
+    opacity: 0.55;
+    transition: width var(--dur-slow) var(--ease);
+  }
+
+  .action-block { margin: 14px 0 4px; }
+
+  .action-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+
+  .action-buttons .primary-button,
+  .action-buttons .ghost-button { flex: 0 1 auto; }
+
+  .action-buttons .danger-outline {
+    border-color: color-mix(in oklab, var(--danger) 45%, var(--border));
+    color: var(--danger);
+  }
+
+  .action-buttons .danger-outline:hover { background: color-mix(in oklab, var(--danger) 10%, transparent); }
+
+  .action-hint {
+    margin: 9px 0 0;
+    color: var(--faint);
+    font-size: 0.74rem;
+  }
+
+  .fact-block {
+    margin-top: 10px;
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+
+  .fact-block > summary,
+  .proto-notes > summary {
+    padding: 8px 11px;
+    color: var(--muted-foreground);
+    font-size: 0.79rem;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .fact-block > summary::-webkit-details-marker,
+  .proto-notes > summary::-webkit-details-marker { display: none; }
+
+  .fact-block > summary::before,
+  .proto-notes > summary::before {
+    content: "";
+    width: 0;
+    height: 0;
+    border-left: 4px solid currentColor;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    transition: transform var(--dur-fast) var(--ease);
+  }
+
+  .fact-block[open] > summary::before,
+  .proto-notes[open] > summary::before { transform: rotate(90deg); }
+
+  .fact-list {
+    margin: 0;
+    padding: 0 12px 10px 26px;
+    color: var(--muted-foreground);
+    font-size: 0.77rem;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .fact-list li::marker { color: var(--faint); }
+
+  .schematic {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .schematic-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .schematic-note { color: var(--faint); font-size: 0.72rem; }
+  .schematic-group { margin-top: 8px; }
+
+  .schematic-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted-foreground);
+    font-size: 0.77rem;
+  }
+
+  .schematic-title svg { font-size: 14px; }
+  .schematic-count { margin-left: auto; color: var(--faint); font-size: 0.72rem; }
+
+  .schematic-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 5px;
+    padding: 6px 9px;
+    border: 1px solid var(--border-soft);
+    border-radius: 9px;
+    background: var(--surface);
+    color: var(--muted-foreground);
+    font-size: 0.77rem;
+  }
+
+  .schematic-row code { font-family: var(--font-mono); font-size: 0.73rem; color: var(--foreground); }
+  .schematic-row .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .schematic-row .diff-add { color: var(--success); font-size: 0.74rem; }
+  .schematic-row .diff-del { color: var(--danger); font-size: 0.74rem; }
+  .schematic-row .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .schematic-row .status-dot.ok { background: var(--success); }
+  .schematic-row .status-dot.run { background: var(--warn); }
+
+  /* 原型说明：产品面板之外、默认收起，展开后独立滚动 */
+  .proto-notes {
+    flex: none;
+    max-height: 44vh;
+    overflow-y: auto;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .proto-notes > summary { padding: 7px 16px; }
+
+  .proto-notes-body {
+    padding: 2px 16px 14px;
+    color: var(--muted-foreground);
+    font-size: 0.76rem;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .proto-notes-body h4 {
+    margin: 0 0 5px;
+    color: var(--foreground);
+    font-size: 0.78rem;
+  }
+
+  .proto-notes-body p { margin: 0; }
+  .proto-notes-body ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+  .proto-notes-body code { font-family: var(--font-mono); font-size: 0.72rem; color: var(--foreground); }
+  .proto-notes-body .schematic { margin-top: 0; padding-top: 0; border-top: 0; }
+
+  .note-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.72rem;
+  }
+
+  .note-table th,
+  .note-table td {
+    padding: 5px 7px;
+    border: 1px solid var(--border-soft);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .note-table th {
+    background: var(--surface);
+    color: var(--muted-foreground);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .table-scroll { overflow-x: auto; }
+
+  /* 更多菜单 */
+  .menu {
+    position: absolute;
+    top: 46px;
+    right: 10px;
+    z-index: 40;
+    min-width: 168px;
+    padding: 5px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-panel);
+    transform-origin: top right;
+    animation: menu-in var(--dur-base) var(--ease);
+  }
+
+  .menu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 30px;
+    padding: 0 9px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 0.8rem;
+    text-align: left;
+  }
+
+  .menu button:hover { background: var(--muted); color: var(--foreground); }
+  .menu button svg { font-size: 15px; }
+  .menu button.menu-danger { color: var(--danger); }
+  .menu button.menu-danger:hover { background: color-mix(in oklab, var(--danger) 10%, transparent); }
+
+  /* 确认弹窗 */
+  .dialog-shade {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    background: color-mix(in oklab, var(--foreground) 14%, transparent);
+    animation: fade-in var(--dur-base) var(--ease);
+  }
+
+  .confirm-dialog {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 51;
+    transform: translate(-50%, -50%);
+    width: min(430px, calc(100% - 32px));
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-panel);
+    animation: dialog-in var(--dur-base) var(--ease);
+  }
+
+  .confirm-dialog h3 { margin: 0 0 8px; font-size: 0.95rem; }
+  .confirm-dialog p { margin: 0; color: var(--muted-foreground); font-size: 0.82rem; }
+
+  .dialog-list {
+    margin: 10px 0 0;
+    padding-left: 18px;
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+  /* toast */
+  .toast {
+    position: absolute;
+    left: 50%;
+    bottom: 96px;
+    z-index: 60;
+    max-width: min(500px, calc(100% - 32px));
+    padding: 8px 13px;
+    transform: translateX(-50%);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-soft);
+    color: var(--foreground);
+    font-size: 0.79rem;
+    animation: fade-in var(--dur-base) var(--ease);
+  }
+
+  /* ---------- 窄屏（移动）演示 ---------- */
+  .app-frame.narrow .chat-head-main span { display: none; }
+  .app-frame.narrow .messages { padding: 12px 12px 8px; }
+  .app-frame.narrow .topbar-context { display: none; }
+  .app-frame.narrow .window-toolbar .icon-button:not(.entry) { display: none; }
+  .app-frame.narrow .composer-tools .chip-button span { display: none; }
+  .app-frame.narrow .composer { width: calc(100% - 20px); margin-bottom: 10px; }
+
+  .app-frame.narrow .summary-capsule {
+    position: static;
+    width: calc(100% - 24px);
+    max-width: none;
+    margin: 10px auto 0;
+    justify-content: space-between;
+    border-radius: 12px;
+    box-shadow: none;
+  }
+
+  .app-frame.narrow .summary-capsule .capsule-main { flex: 1 1 auto; }
+  .app-frame.narrow .capsule-title { max-width: none; flex: 1 1 auto; }
+  .app-frame.narrow .goal-row { gap: 6px; }
+
+  .app-frame.narrow .summary-panel {
+    left: 8px;
+    right: 8px;
+    top: 60px;
+    width: auto;
+    max-height: calc(100% - 76px);
+  }
+
+  @keyframes panel-in { from { opacity: 0; transform: translateY(4px) scale(0.985); } to { opacity: 1; transform: none; } }
+  @keyframes menu-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: none; } }
+  @keyframes dialog-in { from { opacity: 0; transform: translate(-50%, calc(-50% + 6px)) scale(0.98); } to { opacity: 1; transform: translate(-50%, -50%); } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes soft-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+</style>
+</head>
+<body data-state="running">
+<header class="demo-bar" role="region" aria-label="原型演示控制栏">
+  <div class="demo-brand">
+    <span class="demo-badge">原型演示</span>
+    <strong>Goal 置顶摘要 + 极简控制条</strong>
+    <span class="demo-sub">自包含 HTML · 无网络请求 · 无真实副作用</span>
+  </div>
+  <div class="demo-controls">
+    <label class="demo-field" for="scenarioSelect">
+      <span>Goal 场景</span>
+      <select id="scenarioSelect" aria-label="原型演示：切换 Goal 场景">
+        <optgroup label="未开始与确认">
+          <option value="idle">未开始（无活跃目标）</option>
+          <option value="awaiting_confirmation">等待确认</option>
+        </optgroup>
+        <optgroup label="执行中">
+          <option value="running" selected>执行中</option>
+          <option value="pausing">暂停中（过渡态）</option>
+          <option value="paused">已暂停</option>
+        </optgroup>
+        <optgroup label="等待人工处理">
+          <option value="awaiting_approval">等待工具审批</option>
+          <option value="awaiting_input">等待补充输入</option>
+          <option value="blocked">受阻</option>
+          <option value="needs_review">待人工验收</option>
+        </optgroup>
+        <optgroup label="已结束">
+          <option value="completed">已完成</option>
+          <option value="cancelled">已取消</option>
+        </optgroup>
+      </select>
+    </label>
+    <div class="demo-field">
+      <span>摘要三态</span>
+      <div class="segmented" data-control="summary" role="group" aria-label="摘要三态（桌面：入口 / 胶囊 / 面板）">
+        <button type="button" data-value="closed" aria-pressed="false">工具栏入口</button>
+        <button type="button" data-value="capsule" aria-pressed="false">胶囊</button>
+        <button type="button" data-value="panel" class="active" aria-pressed="true">面板</button>
+      </div>
+    </div>
+    <div class="demo-field">
+      <span>视图</span>
+      <div class="segmented" data-control="viewport" role="group" aria-label="视图宽度">
+        <button type="button" data-value="desktop" class="active" aria-pressed="true">桌面</button>
+        <button type="button" data-value="narrow" aria-pressed="false">窄屏</button>
+      </div>
+    </div>
+    <div class="demo-field">
+      <span>主题</span>
+      <div class="segmented" data-control="theme" role="group" aria-label="主题">
+        <button type="button" data-value="light" class="active" aria-pressed="true">浅色</button>
+        <button type="button" data-value="dark" aria-pressed="false">深色</button>
+      </div>
+    </div>
+    <button class="ghost-button" type="button" id="resetDemo" data-action="reset-demo">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7"></path><path d="M4 4v5h5"></path></svg>
+      重置演示
+    </button>
+  </div>
+</header>
+<p class="demo-note">
+  场景切换器与「重置演示」只重置原型状态、摘要文案与聊天样例卡，不会启动任务、调用工具或修改文件；产品内的暂停 / 继续 / 验收等操作会保留已有进展与验收数。
+  测试钩子：<code>window.goalPrototype.getState()</code> · <code>window.goalPrototype.setState('paused')</code> ·
+  <code>window.goalPrototype.setSummary('capsule')</code>
+</p>
+
+<details class="proto-notes" id="prototypeNotes">
+  <summary>原型说明（设计取舍 · 生产接入点 · 未验证边界）</summary>
+  <div class="proto-notes-body">
+    <div class="schematic" id="protoSchematic">
+      <div class="schematic-head">
+        <span class="block-label">置顶摘要三段挂载点</span>
+        <span class="schematic-note">示意：本原型不覆盖 Tasks / Subagent / Git 的内容与逻辑</span>
+      </div>
+      <div class="schematic-row">
+        <span class="status-dot run" aria-hidden="true"></span>
+        <span class="grow">Tasks 段（现有置顶摘要）</span>
+        <span class="schematic-count" id="schematicTaskCount">2/5</span>
+      </div>
+      <div class="schematic-row">
+        <span class="status-dot ok" aria-hidden="true"></span>
+        <span class="grow">Subagent 段（现有置顶摘要）</span>
+        <span>最近 1 次 · explore 已完成</span>
+      </div>
+      <div class="schematic-row">
+        <span class="status-dot run" aria-hidden="true"></span>
+        <span class="grow">Git 段（现有置顶摘要）</span>
+        <span>1 个文件 · 未提交</span>
+      </div>
+    </div>
+    <div>
+      <h4>双区域职责</h4>
+      <div class="table-scroll">
+        <table class="note-table">
+          <thead><tr><th>区域</th><th>放什么</th><th>不放什么</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>输入框上方控制行（Composer 内，紧贴输入框上沿）</td>
+              <td>状态点 + 极短状态（执行中 / 已暂停 / 待审批 / 受阻）、暂停 / 继续 icon、始终可用的打开摘要 icon（待处理时同一 icon 带提示点）</td>
+              <td>目标正文、任务列表、验收标准、进展明细、更多菜单</td>
+            </tr>
+            <tr>
+              <td>右上置顶摘要（工具栏入口 / 胶囊 / 面板）</td>
+              <td>目标正文与状态、步骤进展、验收通过数、验收标准 / 证据 / 范围与预算、阻塞说明、阶段主要动作、目标编辑</td>
+              <td>输入框与发送逻辑、与 Goal 无关的会话设置</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <h4>状态 · 控制条 · 摘要动作 · 胶囊</h4>
+      <div class="table-scroll">
+        <table class="note-table">
+          <thead><tr><th>状态</th><th>控制条（输入框上方）</th><th>摘要主要动作</th><th>可改目标</th><th>胶囊</th></tr></thead>
+          <tbody>
+            <tr><td>idle 未开始</td><td>隐藏</td><td>查看上次结果</td><td>否（可新建对话）</td><td>「未开始」</td></tr>
+            <tr><td>awaiting_confirmation</td><td>待确认状态 + 打开摘要 icon</td><td>确认并执行 / 修改目标</td><td>是</td><td>「待确认」</td></tr>
+            <tr><td>running 执行中</td><td>状态点 + 暂停 icon + 打开摘要 icon</td><td>暂停目标（修改目标需先暂停）</td><td>否 → 先暂停</td><td>「执行中」</td></tr>
+            <tr><td>pausing 暂停中</td><td>暂停 icon 禁用 +「暂停中」</td><td>暂停中…（禁用，不可重复点击）</td><td>否</td><td>「暂停中」</td></tr>
+            <tr><td>paused 已暂停</td><td>状态点 + 继续 icon + 打开摘要 icon</td><td>继续执行 / 修改目标</td><td>是</td><td>「已暂停」</td></tr>
+            <tr><td>awaiting_approval</td><td>待处理提示 + 打开摘要 icon</td><td>前往审批卡片（不在摘要里批准工具）</td><td>否</td><td>「待审批」</td></tr>
+            <tr><td>awaiting_input</td><td>待处理提示 + 打开摘要 icon</td><td>前往回答问题</td><td>否</td><td>「待回复」</td></tr>
+            <tr><td>blocked 受阻</td><td>受阻提示 + 打开摘要 icon</td><td>查看阻塞详情（摘要内折叠说明）/ 修改目标 / 取消目标…</td><td>是</td><td>「受阻」</td></tr>
+            <tr><td>needs_review</td><td>待验收提示 + 打开摘要 icon</td><td>通过验收（一次验收当前结果 → 已完成）/ 继续执行</td><td>否（先决定验收）</td><td>「待验收」</td></tr>
+            <tr><td>completed 已完成</td><td>隐藏</td><td>查看结果</td><td>否（可切换演示或新对话）</td><td>「已完成」</td></tr>
+            <tr><td>cancelled 已取消</td><td>隐藏</td><td>查看结果</td><td>否（可切换演示或新对话）</td><td>「已取消」</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>验收口径统一为「验收标准 3 项」：<code>通过验收</code> 一次性验收当前结果并把 Goal 置为 completed，不做「点一次加一项」的部分验收（无对应生产 API）；也不做逐项勾选，验收标准列表只是清单视图。</p>
+    </div>
+    <div>
+      <h4>编辑与草稿保护</h4>
+      <ul>
+        <li>只有 <code>awaiting_confirmation</code> / <code>paused</code> / <code>blocked</code> 允许修改目标；执行中提示「先暂停目标」，待审批 / 待回复 / 待验收提示先处理待办，终态不再提供修改目标（改目标需先切新演示或新建对话）。</li>
+        <li>草稿（dirty）期间，暂停 / 继续 / 确认执行 / 通过验收 / 继续执行 / 取消目标 / 审批与回答等会丢草稿的跨状态操作被拦住并提示先保存或取消；再次点「修改目标」不会覆盖已有草稿。</li>
+      </ul>
+    </div>
+    <div>
+      <h4>键盘与焦点</h4>
+      <ul>
+        <li>取消目标弹窗打开后默认焦点落在「返回」（非破坏性动作），Tab / Shift+Tab 在弹窗内循环，Escape 关闭；关闭后焦点回到触发元素，触发元素已隐藏（例如来自摘要更多菜单）则回到工具栏的摘要入口 icon。</li>
+        <li>控制条与摘要按钮保留 <code>aria-label</code> / <code>title</code>，全局保留 <code>:focus-visible</code> 与 <code>prefers-reduced-motion</code> 降级；摘要面板「更多」按钮保留 <code>aria-haspopup="menu"</code> / <code>aria-expanded</code>。</li>
+      </ul>
+    </div>
+    <div>
+      <h4>窄屏（移动）</h4>
+      <ul>
+        <li>摘要面板变为弹层：左右 8px、顶部 60px、最大高度 calc(100% - 76px)，面板内部滚动并禁用滚动链传导。</li>
+        <li>胶囊在窄屏变为聊天区顶部整行紧凑条（短标题 + 状态 + 验收通过数），点击打开弹层；工具栏入口保留。</li>
+        <li>控制行仍是输入框上方一行，窄屏下状态文字与打开摘要 icon 保持可见，输入框与发送按钮位置不下移。</li>
+      </ul>
+    </div>
+    <div>
+      <h4>生产接入文件（现状核对，本次未改动任何源码）</h4>
+      <ul>
+        <li><code>src/components/git/GitToolsPinnedSummary.tsx</code>：现有置顶摘要三态（panel / capsule / closed）与桌面、移动定位与内部滚动，目前不含 Goal 内容。</li>
+        <li><code>src/App.tsx</code>：全局工具栏挂载点与 expanded 状态。</li>
+        <li><code>src/lib/pinned-summary-drag.ts</code>：胶囊与面板的定位 / 拖拽契约。</li>
+        <li><code>src/components/chat/panel-decoration.ts</code>：Tasks 与状态装饰，示意结构可复用。</li>
+        <li>仓库中已存在的 Goal 能力（进行中、未提交，本原型只做视觉对齐）：<code>src/lib/goal.ts</code> 的 GoalStatus / GoalCriterion / GoalEvidence / GoalBudget 与 goalCanPause、goalCanResume、goalCanConfirm 等判定；<code>src/components/chat/panel-decoration/goal-card.ts</code> 的聊天内 Goal 卡视图与控制器；<code>server/agent-goal-state.mjs</code>、<code>server/agent-goal-runner.mjs</code> 的服务端状态与执行器。</li>
+        <li>需新增（本原型覆盖的缺口）：置顶摘要内的 Goal 视图（目标 / 状态 / 进展 / 验收 + 阶段动作）、Composer 输入框上方极简控制行与暂停、继续入口、摘要内的目标编辑与「保存 → 等待确认」流程、终态与草稿保护的交互契约。</li>
+        <li>真实 GoalStatus 还包含 planning、verifying、failed，本原型未演示这三个状态。</li>
+      </ul>
+    </div>
+    <div>
+      <h4>未做 / 待验证（浏览器边界）</h4>
+      <ul>
+        <li>未接真实模型，未发起任何网络请求（无 fetch / XHR / 外链资源）；页面只有本文件自身。</li>
+        <li>未做真实工具审批、文件写入、Git 或 Shell 操作；聊天样例卡的按钮只改原型状态。</li>
+        <li>未在真实浏览器手动实测：Tab / Shift+Tab 焦点循环的实际行为、Escape 后焦点回落是否符合预期、<code>scrollIntoView</code> 平滑滚动手感、窄屏弹层滚动、深色对比度、屏幕阅读器播报，均待后续验证。</li>
+        <li>无障碍只做了基础 aria-label / title / focus-visible 与 reduced-motion 降级；未做完整键盘流程、背景 inert（弹窗打开时面板与聊天区仍可被 Tab 到达的概率未验证）与 SR 测试。</li>
+        <li>静态语法检查（node 解析内联脚本）通过；本文件未在浏览器运行加载过。</li>
+      </ul>
+    </div>
+  </div>
+</details>
+
+<main class="app-frame" id="goalApp" data-state="running">
+  <header class="app-topbar">
+    <button class="icon-button hamburger" type="button" aria-label="打开会话栏" title="会话栏">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>
+    </button>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m13 2-8 12h6l-1 8 9-13h-6z"></path></svg></span>
+      <span>QuickForge</span>
+    </div>
+    <div class="topbar-context">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6l2 2h8v12H4z"></path></svg>
+      <span>quickforge / feature/goal-summary</span>
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="window-toolbar" role="group" aria-label="全局窗口工具栏">
+      <button class="icon-button" type="button" aria-label="终端" title="终端">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z"></path><path d="m8 9 3 3-3 3M13 15h3"></path></svg>
+      </button>
+      <button class="icon-button" type="button" aria-label="Workspace Inspector" title="Workspace Inspector">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM15 4v16"></path></svg>
+      </button>
+      <button class="icon-button entry" type="button" id="summaryEntry" data-action="open-panel"
+              aria-haspopup="dialog" aria-expanded="true" aria-controls="summaryPanel"
+              aria-label="置顶摘要：打开目标摘要面板" title="置顶摘要">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"></path><path d="M4 6h.01M4 12h.01M4 18h.01"></path></svg>
+        <span class="entry-dot" id="summaryEntryDot" data-tone="active" aria-hidden="true"></span>
+      </button>
+    </div>
+  </header>
+
+  <aside class="sidebar" aria-label="会话栏">
+    <button class="new-chat" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      新对话
+    </button>
+    <section class="sidebar-section">
+      <div class="sidebar-heading">项目</div>
+      <button class="nav-row" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6l2 2h8v12H4z"></path></svg>
+        <span>quickforge</span>
+      </button>
+      <button class="session-row selected" type="button">Goal 摘要与控制条设计</button>
+      <button class="session-row" type="button">置顶摘要三态定位核对</button>
+      <button class="session-row" type="button">窄屏弹层滚动检查</button>
+    </section>
+    <section class="sidebar-section">
+      <div class="sidebar-heading">最近</div>
+      <button class="session-row" type="button">发布检查与构建验证</button>
+      <button class="session-row" type="button">Subagent 跳转链路</button>
+    </section>
+    <div class="sidebar-footer">
+      <span class="avatar" aria-hidden="true">QF</span>
+      <span>本地工作区</span>
+    </div>
+  </aside>
+
+  <section class="chat-area" aria-label="聊天区">
+    <div class="chat-head">
+      <div class="chat-head-main">
+        <strong>Goal 摘要与控制条设计</strong>
+        <span>QuickForge · 当前会话</span>
+      </div>
+      <div class="chat-head-actions">
+        <button class="icon-button" type="button" aria-label="会话更多操作" title="更多会话操作">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5h.01M12 12h.01M12 19h.01"></path></svg>
+        </button>
+      </div>
+    </div>
+    <div class="summary-capsule" id="summaryCapsule" data-tone="active" hidden>
+      <button class="capsule-main" type="button" id="capsuleMain" data-action="open-panel" aria-label="展开置顶摘要面板" title="展开置顶摘要">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="capsule-title" id="capsuleTitle">收敛 Goal 到置顶摘要</span>
+        <span class="capsule-state" id="capsuleState">执行中</span>
+        <span class="capsule-accepted" id="capsuleAccepted">验收 1/3</span>
+      </button>
+      <button class="icon-button" type="button" data-action="close-capsule" aria-label="关闭置顶摘要（回到工具栏入口）" title="关闭摘要">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
+      </button>
+    </div>
+
+    <aside class="summary-panel" id="summaryPanel" role="dialog" aria-modal="false"
+           aria-labelledby="summaryPanelTitle" aria-describedby="summaryPanelDesc">
+      <header class="panel-head">
+        <div class="panel-head-main">
+          <span class="state-badge" id="goalStateBadge" data-tone="active">
+            <span class="dot" aria-hidden="true"></span>
+            <span id="goalStateBadgeText">执行中</span>
+          </span>
+          <h2 id="summaryPanelTitle">置顶摘要 · 目标</h2>
+        </div>
+        <div class="panel-head-actions">
+          <button class="icon-button" type="button" id="panelMoreButton" data-action="toggle-more"
+                  aria-haspopup="menu" aria-expanded="false" aria-label="更多 Goal 操作" title="更多：修改目标 / 取消目标">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5h.01M12 12h.01M12 19h.01"></path></svg>
+          </button>
+          <button class="icon-button" type="button" data-action="collapse-panel" aria-label="收起为目标胶囊" title="收起为胶囊">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"></path></svg>
+          </button>
+          <button class="icon-button" type="button" data-action="close-capsule" aria-label="关闭置顶摘要（回到工具栏入口）" title="关闭摘要">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="panel-body" id="summaryPanelBody">
+        <p class="panel-desc" id="summaryPanelDesc">目标正文、状态、步骤进展与验收都收在这里；输入框上方只有紧贴输入框上沿的一行极简控制条，不再常驻完整 Goal 卡。</p>
+
+        <section class="goal-block">
+          <span class="block-label">当前目标</span>
+          <p class="goal-text" id="goalText">把 Goal 状态管理收敛到右上置顶摘要：目标、状态、进展与验收都放在摘要面板里，输入框上方不再常驻完整 Goal 卡。</p>
+          <div class="goal-editor" id="goalEditor" hidden>
+            <label class="block-label" for="goalEditorInput">修改目标</label>
+            <textarea id="goalEditorInput" rows="3" aria-describedby="goalEditorHint"></textarea>
+            <div class="editor-foot">
+              <span class="editor-hint" id="goalEditorHint" data-dirty="false">未修改</span>
+              <div class="editor-actions">
+                <button class="ghost-button" type="button" id="goalEditorCancel" data-action="discard-goal">取消</button>
+                <button class="primary-button" type="button" id="goalEditorSave" data-action="save-goal" disabled>保存</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="metric-row">
+          <div class="metric">
+            <span class="metric-label">状态</span>
+            <span class="metric-value" id="goalMetricState">执行中</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">步骤进展</span>
+            <span class="metric-value" id="goalMetricProgress">2/5</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">验收通过（共 3 项）</span>
+            <span class="metric-value" id="goalMetricAccepted">1/3</span>
+          </div>
+        </div>
+        <div class="progress-track" id="goalProgress" role="progressbar" aria-label="目标步骤进展"
+             aria-valuemin="0" aria-valuemax="5" aria-valuenow="2">
+          <span class="progress-fill" id="goalProgressFill"></span>
+        </div>
+
+        <details class="fact-block" id="blockedFacts" hidden>
+          <summary>阻塞详情（摘要内说明）</summary>
+          <ul class="fact-list">
+            <li>阻塞原因（样例）：<code>npm run build</code> 连续两次失败，缺少依赖项，目标无法继续推进。</li>
+            <li>已完成的步骤与验收记录都保留；阻塞不会自动回滚任何文件。</li>
+            <li>可选处理：修改目标后重新确认执行，或取消目标保留记录回看。</li>
+          </ul>
+        </details>
+
+        <section class="action-block">
+          <span class="block-label">当前阶段动作</span>
+          <div class="action-buttons" data-phase-actions="idle" hidden>
+            <button class="ghost-button" type="button" data-action="view-result">查看上次结果</button>
+          </div>
+          <div class="action-buttons" data-phase-actions="awaiting_confirmation" hidden>
+            <button class="primary-button" type="button" id="goalConfirmButton" data-action="start-goal" data-confirm="true">确认并执行</button>
+            <button class="ghost-button" type="button" data-action="edit-goal">修改目标</button>
+          </div>
+          <div class="action-buttons" data-phase-actions="running" hidden>
+            <button class="ghost-button" type="button" data-action="pause-goal" data-confirm="true">暂停目标</button>
+          </div>
+          <div class="action-buttons" data-phase-actions="pausing" hidden>
+            <button class="ghost-button" type="button" disabled data-always-disabled="true">暂停中…</button>
+          </div>
+          <div class="action-buttons" data-phase-actions="paused" hidden>
+            <button class="primary-button" type="button" data-action="resume-goal" data-confirm="true">继续执行</button>
+            <button class="ghost-button" type="button" data-action="edit-goal">修改目标</button>
+          </div>
+          <div class="action-buttons" data-phase-actions="awaiting_approval" hidden>
+            <button class="ghost-button" type="button" data-action="focus-pending">前往审批卡片</button>
+          </div>
+          <div class="action-buttons" data-phase-actions="awaiting_input" hidden>
+            <button class="ghost-button" type="button" data-action="focus-pending">前往回答问题</button>
+          </div>
+          <div class="action-buttons" data-phase-actions="blocked" hidden>
+            <button class="primary-button" type="button" id="goalBlockedReveal" data-action="reveal-blocked">查看阻塞详情</button>
+            <button class="ghost-button" type="button" data-action="edit-goal">修改目标</button>
+            <button class="ghost-button danger-outline" type="button" data-action="cancel-goal-request">取消目标…</button>
+          </div>
+          <div class="action-buttons" data-phase-actions="needs_review" hidden>
+            <button class="primary-button" type="button" id="goalAcceptButton" data-action="accept-review" data-confirm="true">通过验收</button>
+            <button class="ghost-button" type="button" data-action="continue-review" data-confirm="true">继续执行</button>
+          </div>
+          <div class="action-buttons" data-phase-actions="completed" hidden>
+            <button class="ghost-button" type="button" data-action="view-result">查看结果</button>
+          </div>
+          <div class="action-buttons" data-phase-actions="cancelled" hidden>
+            <button class="ghost-button" type="button" data-action="view-result">查看结果</button>
+          </div>
+          <p class="action-hint" id="goalActionHint">执行中：控制条只保留状态点、极短状态与暂停 icon；目标正文、进展与验收都在本面板。</p>
+        </section>
+        <details class="fact-block" id="acceptanceFacts">
+          <summary>验收标准（3 项）</summary>
+          <ul class="fact-list">
+            <li>输入框上方不常驻完整 Goal 卡；控制条只有极短状态与少量 icon。</li>
+            <li>暂停 / 继续在控制条与摘要面板表现一致，暂停不可重复触发。</li>
+            <li>窄屏摘要弹层可独立滚动，长内容不被截断。</li>
+          </ul>
+          <p class="card-note">清单只作展示，不支持逐项勾选；验收动作只有面板里的「通过验收」。</p>
+        </details>
+
+        <details class="fact-block" id="evidenceFacts">
+          <summary>证据（4 条）</summary>
+          <ul class="fact-list">
+            <li>本页面即桌面摘要面板的效果证据（执行中场景）。</li>
+            <li>pausing → paused 过渡由内置短延时演示，未录制真实录屏。</li>
+            <li>文件自检：无外链资源、无 fetch / XHR；内联脚本通过 node 语法解析。</li>
+            <li>真实浏览器与真实设备实测待后续验证。</li>
+          </ul>
+        </details>
+
+        <details class="fact-block" id="budgetFacts">
+          <summary>范围与预算</summary>
+          <ul class="fact-list">
+            <li>范围：Goal 摘要面板、输入框上方控制行、聊天样例卡；不改动发送、模型选择与 Git 流程。</li>
+            <li>预算：本轮 8 轮对话 / 30 分钟，已用 5 轮 / 18 分钟。</li>
+            <li>时间盒：本轮原型限定一次会话内完成。</li>
+          </ul>
+        </details>
+
+      </div>
+
+      <div class="menu" id="goalMoreMenu" role="menu" aria-label="更多 Goal 操作" hidden>
+        <button type="button" role="menuitem" id="goalMoreEditItem" data-action="edit-goal">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16z"></path><path d="m14 6 4 4"></path></svg>
+          <span>修改目标</span>
+        </button>
+        <button type="button" role="menuitem" class="menu-danger" id="cancelGoalItem" data-action="cancel-goal-request">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m9 9 6 6M15 9l-6 6"></path></svg>
+          <span>取消目标…</span>
+        </button>
+      </div>
+    </aside>
+    <div class="messages" id="messages">
+      <div class="message-stack">
+        <div class="user-message">
+          给这个会话加一个 Goal 状态管理：目标、进展、验收都收敛到右上置顶摘要，输入框上方别再常驻完整 Goal 卡。
+        </div>
+        <div class="assistant-message">
+          已按两区域职责重做：输入框控制条只留状态点、极短状态和暂停 / 继续 / 待处理 icon；目标正文、进展、验收标准全部收进右上置顶摘要。摘要保留三态——工具栏入口、胶囊、面板。
+        </div>
+        <div class="tool-event">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"></path><path d="M4 6h.01M4 12h.01M4 18h.01"></path></svg>
+          <code>GoalPinnedSummary</code>
+          <span id="toolEventText">置顶摘要已更新：执行中 · 2/5</span>
+        </div>
+
+        <div class="chat-card" id="chatCardApproval" hidden>
+          <div class="card-head">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"></path><path d="m9 12 2 2 4-4"></path></svg>
+            <strong>工具审批 · 需要你批准</strong>
+            <span class="card-tag warn">样例 · 与 Goal 授权不同</span>
+          </div>
+          <code class="card-code">Bash: npm run build（工作区 quickforge）</code>
+          <p class="card-text">这是会话级工具授权；输入框上方控制条里的摘要入口只会打开摘要，不会替你批准工具。</p>
+          <div class="card-actions">
+            <button class="primary-button" type="button" data-action="approve-tool">批准（样例）</button>
+            <button class="ghost-button" type="button" data-action="deny-tool">拒绝（样例）</button>
+          </div>
+          <p class="card-note">原型演示：按钮只更新摘要状态与提示，不执行任何命令。</p>
+        </div>
+
+        <div class="chat-card" id="chatCardAsk" hidden>
+          <div class="card-head">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8h10a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3z"></path><path d="M12 4v4M9 13h.01M15 13h.01"></path></svg>
+            <strong>Subagent 提问 · 等待你的输入</strong>
+            <span class="card-tag">样例</span>
+          </div>
+          <p class="card-text">explore 子代理询问：验收标准里的「窄屏弹层滚动」是否要覆盖平板宽度（768–1024px）？</p>
+          <div class="card-actions">
+            <button class="ghost-button" type="button" data-action="answer-ask">回答（样例）</button>
+          </div>
+          <p class="card-note">原型演示：不会把回答真的发给子代理。</p>
+        </div>
+
+        <div class="chat-card" id="chatCardReview" hidden>
+          <div class="card-head">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.5 2.5L16 9"></path></svg>
+            <strong>人工验收 · 需要你做决定</strong>
+            <span class="card-tag review">样例</span>
+          </div>
+          <p class="card-text">4/5 步骤完成，3 项验收标准中已通过 2 项，证据已收进置顶摘要。请在摘要面板里明确选择「通过验收」（一次性验收当前结果并结束目标）或「继续执行」。</p>
+          <div class="card-actions">
+            <button class="ghost-button" type="button" data-action="open-panel">打开置顶摘要处理</button>
+          </div>
+          <p class="card-note">原型演示：这里不直接完成验收，避免绕过摘要流程，也不做逐项勾选。</p>
+        </div>
+
+        <div class="chat-card" id="chatCardResult" hidden>
+          <div class="card-head">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.5 2.5L16 9"></path></svg>
+            <strong id="resultCardTitle">目标已完成</strong>
+            <span class="card-tag">结果回看</span>
+          </div>
+          <p class="card-text" id="resultCardText">控制条已隐藏，摘要胶囊保留结果入口，随时可以回看。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="goal-row" id="goalControlRow">
+        <div class="goal-control-bar" id="goalControlBar" role="group" aria-label="Goal 控制条：状态、暂停 / 继续、打开摘要">
+          <span class="goal-state" id="goalStateShort" data-tone="active">
+            <span class="dot" aria-hidden="true"></span>
+            <span id="goalStateShortText">执行中</span>
+          </span>
+          <button class="icon-button" type="button" id="goalRunButton" data-action="pause-goal"
+                  aria-label="暂停目标" title="暂停目标">
+            <svg id="pauseIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12"></path></svg>
+            <svg id="playIcon" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M9 6l9 6-9 6z"></path></svg>
+          </button>
+          <button class="icon-button" type="button" id="goalSummaryButton" data-action="open-panel"
+                  aria-label="打开置顶摘要" title="打开置顶摘要">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"></path><path d="M4 6h.01M4 12h.01M4 18h.01"></path></svg>
+            <span class="entry-dot" id="goalSummaryDot" data-tone="active" aria-hidden="true" hidden></span>
+          </button>
+        </div>
+      </div>
+      <textarea class="composer-input" id="composerInput" rows="1"
+                placeholder="输入消息，或直接说「把目标改成……」" aria-label="消息输入"></textarea>
+      <div class="composer-foot">
+        <div class="composer-tools">
+          <button class="icon-button" type="button" aria-label="添加附件" title="添加附件">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+          </button>
+          <button class="chip-button" type="button" aria-label="访问级别：完全访问">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"></path></svg>
+            <span>完全访问</span>
+          </button>
+          <button class="chip-button" type="button" aria-label="模式：计划">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"></path></svg>
+            <span>计划</span>
+          </button>
+        </div>
+        <div class="composer-right">
+          <button class="send-button" type="button" aria-label="发送" title="发送">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m0 0-5 5m5-5 5 5"></path></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="dialog-shade" id="dialogShade" data-action="dismiss-cancel" hidden></div>
+
+  <div class="confirm-dialog" id="goalCancelDialog" role="dialog" aria-modal="true"
+       aria-labelledby="cancelDialogTitle" aria-describedby="cancelDialogDesc" hidden>
+    <h3 id="cancelDialogTitle">取消目标？</h3>
+    <p id="cancelDialogDesc">取消只停止这个 Goal，并保留记录供回看。请注意：</p>
+    <ul class="dialog-list">
+      <li>不会回滚已经修改的文件，工作区保持现状。</li>
+      <li>不会删除对话内容，聊天记录继续保留。</li>
+      <li>未完成步骤与验收记录会写入摘要的取消记录。</li>
+    </ul>
+    <div class="dialog-actions">
+      <button class="ghost-button" type="button" id="cancelDialogDismiss" data-action="dismiss-cancel">返回</button>
+      <button class="primary-button" type="button" id="confirmCancelButton" data-action="confirm-cancel">确认取消</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</main>
+<script>
+(() => {
+  'use strict';
+
+  const GOAL_STATES = ['idle', 'awaiting_confirmation', 'running', 'pausing', 'awaiting_approval', 'awaiting_input', 'paused', 'blocked', 'needs_review', 'completed', 'cancelled'];
+  const PAUSE_DELAY = 800;
+  const TOAST_DURATION = 2800;
+  const DEFAULT_GOAL = '把 Goal 状态管理收敛到右上置顶摘要：目标、状态、进展与验收都放在摘要面板里，输入框上方不再常驻完整 Goal 卡。';
+  const GOAL_TITLE = '收敛 Goal 到置顶摘要';
+  const ACCEPTED_TOTAL = 3;
+  const EDITABLE_STATES = ['awaiting_confirmation', 'paused', 'blocked'];
+  const TERMINAL_STATES = ['idle', 'completed', 'cancelled'];
+
+  const SCENARIOS = {
+    idle: { short: '未开始', tone: 'muted', control: 'hidden', title: '上次目标已归档', progress: [0, 5], accepted: [0, 3], card: 'result', hint: '暂无活跃目标：控制条隐藏，摘要保留上次结果供回看；需要新目标时从输入框或新对话重开。', toast: '场景：未开始（无活跃目标）。' },
+    awaiting_confirmation: { short: '待确认', tone: 'pending', control: 'pending', title: GOAL_TITLE, progress: [0, 5], accepted: [0, 3], card: null, hint: '等待你确认目标：控制条只有状态与打开摘要 icon，执行要在本面板点「确认并执行」，不会自动开始。', toast: '场景：等待确认。' },
+    running: { short: '执行中', tone: 'active', control: 'running', title: GOAL_TITLE, progress: [2, 5], accepted: [1, 3], card: null, hint: '执行中：控制条只有状态点、暂停 icon 与打开摘要 icon；要改目标请先暂停（暂停不丢已有进展与验收）。', toast: '场景：执行中。' },
+    pausing: { short: '暂停中', tone: 'active', control: 'pausing', title: GOAL_TITLE, progress: [2, 5], accepted: [1, 3], card: null, hint: '正在暂停：暂停按钮已禁用，重复点击无效，短延时后进入已暂停。', toast: '暂停中：按钮已禁用，短延时后进入已暂停。' },
+    paused: { short: '已暂停', tone: 'muted', control: 'paused', title: GOAL_TITLE, progress: [2, 5], accepted: [1, 3], card: null, hint: '已暂停：可从控制条或本面板继续执行，也可以直接修改目标。', toast: '场景：已暂停。' },
+    awaiting_approval: { short: '待审批', tone: 'pending', control: 'pending', title: GOAL_TITLE, progress: [2, 5], accepted: [1, 3], card: 'approval', hint: '等待工具审批：控制条用同一个打开摘要 icon 带提示点，本面板只做跳转，不会代你批准工具。', toast: '场景：等待工具审批。' },
+    awaiting_input: { short: '待回复', tone: 'pending', control: 'pending', title: GOAL_TITLE, progress: [3, 5], accepted: [1, 3], card: 'ask', hint: '等待补充输入：控制条用同一个打开摘要 icon 带提示点，本面板只做跳转，不会代你回答。', toast: '场景：等待补充输入。' },
+    blocked: { short: '受阻', tone: 'danger', control: 'pending', title: GOAL_TITLE, progress: [2, 5], accepted: [1, 3], card: null, hint: '受阻：先看本面板里折叠的阻塞详情，再决定修改目标后重新确认执行，或取消目标保留记录。', toast: '场景：受阻。' },
+    needs_review: { short: '待验收', tone: 'review', control: 'pending', title: GOAL_TITLE, progress: [4, 5], accepted: [2, 3], card: 'review', hint: '待人工验收：「通过验收」一次性验收当前结果并把目标置为已完成；「继续执行」回到执行中等待下一轮证据。', toast: '场景：待人工验收。' },
+    completed: { short: '已完成', tone: 'done', control: 'hidden', title: GOAL_TITLE, progress: [5, 5], accepted: [3, 3], card: 'result', hint: '已完成：控制条隐藏，摘要保留结果回看；终态不再提供修改目标，可新建对话重开一个目标。', toast: '场景：已完成。' },
+    cancelled: { short: '已取消', tone: 'muted', control: 'hidden', title: GOAL_TITLE, progress: [2, 5], accepted: [1, 3], card: 'result', hint: '已取消：文件与对话均未回滚，摘要保留取消记录；终态不再提供修改目标。', toast: '场景：已取消。' }
+  };
+
+  const PENDING_LABEL = {
+    awaiting_confirmation: '待确认：打开置顶摘要（不会直接开始执行）',
+    awaiting_approval: '待审批：打开置顶摘要（不会直接批准工具）',
+    awaiting_input: '待回复：打开置顶摘要（不会代你回答）',
+    blocked: '受阻：打开置顶摘要查看阻塞详情',
+    needs_review: '待验收：打开置顶摘要（不会直接验收）'
+  };
+
+  const RESULT_COPY = {
+    idle: { title: '上次结果 · 回看', text: '上一个目标已归档结束：控制条隐藏，摘要胶囊保留结果入口，随时可以回看。' },
+    completed: { title: '目标已完成', text: '5/5 步骤完成，验收 3/3 通过。控制条隐藏，结果保留在置顶摘要中供回看。' },
+    cancelled: { title: '目标已取消', text: '取消不会回滚已修改的文件与对话内容；摘要保留取消记录供回看。' }
+  };
+
+  const goalApp = document.getElementById('goalApp');
+  const scenarioSelect = document.getElementById('scenarioSelect');
+  const summaryEntry = document.getElementById('summaryEntry');
+  const summaryEntryDot = document.getElementById('summaryEntryDot');
+  const summaryCapsule = document.getElementById('summaryCapsule');
+  const capsuleMain = document.getElementById('capsuleMain');
+  const capsuleTitle = document.getElementById('capsuleTitle');
+  const capsuleState = document.getElementById('capsuleState');
+  const capsuleAccepted = document.getElementById('capsuleAccepted');
+  const summaryPanel = document.getElementById('summaryPanel');
+  const panelMoreButton = document.getElementById('panelMoreButton');
+  const goalMoreMenu = document.getElementById('goalMoreMenu');
+  const goalMoreEditItem = document.getElementById('goalMoreEditItem');
+  const cancelGoalItem = document.getElementById('cancelGoalItem');
+  const goalStateBadge = document.getElementById('goalStateBadge');
+  const goalStateBadgeText = document.getElementById('goalStateBadgeText');
+  const goalText = document.getElementById('goalText');
+  const goalEditor = document.getElementById('goalEditor');
+  const goalEditorInput = document.getElementById('goalEditorInput');
+  const goalEditorHint = document.getElementById('goalEditorHint');
+  const goalEditorSave = document.getElementById('goalEditorSave');
+  const goalMetricState = document.getElementById('goalMetricState');
+  const goalMetricProgress = document.getElementById('goalMetricProgress');
+  const goalMetricAccepted = document.getElementById('goalMetricAccepted');
+  const goalProgress = document.getElementById('goalProgress');
+  const goalProgressFill = document.getElementById('goalProgressFill');
+  const blockedFacts = document.getElementById('blockedFacts');
+  const goalActionHint = document.getElementById('goalActionHint');
+  const schematicTaskCount = document.getElementById('schematicTaskCount');
+  const goalControlRow = document.getElementById('goalControlRow');
+  const goalControlBar = document.getElementById('goalControlBar');
+  const goalStateShort = document.getElementById('goalStateShort');
+  const goalStateShortText = document.getElementById('goalStateShortText');
+  const goalRunButton = document.getElementById('goalRunButton');
+  const goalSummaryButton = document.getElementById('goalSummaryButton');
+  const goalSummaryDot = document.getElementById('goalSummaryDot');
+  const pauseIcon = document.getElementById('pauseIcon');
+  const playIcon = document.getElementById('playIcon');
+  const toolEventText = document.getElementById('toolEventText');
+  const cardApproval = document.getElementById('chatCardApproval');
+  const cardAsk = document.getElementById('chatCardAsk');
+  const cardReview = document.getElementById('chatCardReview');
+  const cardResult = document.getElementById('chatCardResult');
+  const resultCardTitle = document.getElementById('resultCardTitle');
+  const resultCardText = document.getElementById('resultCardText');
+  const dialogShade = document.getElementById('dialogShade');
+  const cancelDialog = document.getElementById('goalCancelDialog');
+  const cancelDialogDismiss = document.getElementById('cancelDialogDismiss');
+  const confirmCancelButton = document.getElementById('confirmCancelButton');
+  const toast = document.getElementById('toast');
+  const phaseBlocks = Array.prototype.slice.call(document.querySelectorAll('[data-phase-actions]'));
+
+  const state = {
+    scenarioName: 'running',
+    summary: 'panel',
+    viewport: 'desktop',
+    theme: 'light',
+    editing: false,
+    dirty: false,
+    originalGoal: '',
+    goalTitle: GOAL_TITLE,
+    progress: [2, 5],
+    accepted: [1, 3],
+    dialogTrigger: null,
+    pauseTimer: null,
+    toastTimer: null
+  };
+
+  function showToast(message) {
+    toast.textContent = message;
+    toast.hidden = false;
+    if (state.toastTimer) window.clearTimeout(state.toastTimer);
+    state.toastTimer = window.setTimeout(() => { toast.hidden = true; }, TOAST_DURATION);
+  }
+
+  function syncSegmented(control, value) {
+    const buttons = document.querySelectorAll('[data-control="' + control + '"] button[data-value]');
+    Array.prototype.forEach.call(buttons, (button) => {
+      const active = button.dataset.value === value;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  function canEditGoal(key) {
+    return EDITABLE_STATES.indexOf(key) >= 0;
+  }
+
+  function canCancelGoal(key) {
+    return TERMINAL_STATES.indexOf(key) < 0;
+  }
+
+  function editBlockReason(key) {
+    if (key === 'running') return '执行中不能直接修改目标：请先点「暂停目标」';
+    if (key === 'pausing') return '正在暂停：稍候再修改目标';
+    if (key === 'awaiting_approval' || key === 'awaiting_input' || key === 'needs_review') return '还有待处理事项：先处理完审批 / 回复 / 验收，再修改目标';
+    return '目标已结束：不再修改目标，可切换演示场景或新建对话重开';
+  }
+
+  function goalShortTitle(text) {
+    const head = String(text || '').split(/[：:，,。；;]/)[0].trim();
+    if (!head) return GOAL_TITLE;
+    return head.length > 22 ? head.slice(0, 21) + '…' : head;
+  }
+
+  function prefersReducedMotion() {
+    return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  function isVisible(element) {
+    let node = element;
+    while (node && node !== document) {
+      if (node.hidden) return false;
+      node = node.parentNode;
+    }
+    return true;
+  }
+
+  // 草稿保护：dirty 期间拦住会丢草稿的跨状态操作，并提示先保存 / 取消。
+  function blockIfDirty(what) {
+    if (!(state.editing && state.dirty)) return false;
+    setSummary('panel');
+    showToast('有未保存的目标修改：请先点「保存」或「取消」，再' + what + '。');
+    return true;
+  }
+
+  function syncMoreMenu() {
+    const editable = canEditGoal(state.scenarioName);
+    goalMoreEditItem.setAttribute('aria-disabled', editable ? 'false' : 'true');
+    goalMoreEditItem.title = editable ? '修改目标' : editBlockReason(state.scenarioName);
+    cancelGoalItem.hidden = !canCancelGoal(state.scenarioName);
+  }
+
+  function closeMoreMenu() {
+    goalMoreMenu.hidden = true;
+    panelMoreButton.setAttribute('aria-expanded', 'false');
+  }
+
+  function openMoreMenu() {
+    syncMoreMenu();
+    goalMoreMenu.hidden = false;
+    panelMoreButton.setAttribute('aria-expanded', 'true');
+  }
+
+  function toggleMoreMenu() {
+    if (goalMoreMenu.hidden) openMoreMenu();
+    else closeMoreMenu();
+  }
+
+  function setSummary(mode) {
+    state.summary = mode;
+    summaryPanel.hidden = mode !== 'panel';
+    summaryCapsule.hidden = mode !== 'capsule';
+    summaryEntry.setAttribute('aria-expanded', mode === 'panel' ? 'true' : 'false');
+    syncSegmented('summary', mode);
+    if (mode !== 'panel') closeMoreMenu();
+  }
+
+  function clearPauseTimer() {
+    if (state.pauseTimer) {
+      window.clearTimeout(state.pauseTimer);
+      state.pauseTimer = null;
+    }
+  }
+
+  function resetChatCards() {
+    [cardApproval, cardAsk, cardReview].forEach((card) => {
+      delete card.dataset.responded;
+      Array.prototype.forEach.call(card.querySelectorAll('button'), (button) => { button.disabled = false; });
+    });
+  }
+
+  function updateEditorState() {
+    const lock = state.editing && state.dirty;
+    goalEditor.hidden = !state.editing;
+    goalText.hidden = state.editing;
+    goalEditorSave.disabled = !state.dirty;
+    goalEditorHint.dataset.dirty = state.dirty ? 'true' : 'false';
+    goalEditorHint.textContent = state.dirty ? '有未保存修改：保存后回到「等待确认」' : '未修改（与当前目标一致）';
+    phaseBlocks.forEach((block) => {
+      Array.prototype.forEach.call(block.querySelectorAll('button'), (button) => {
+        if (button.dataset.alwaysDisabled === 'true') {
+          button.disabled = true;
+          return;
+        }
+        if (button.dataset.confirm === 'true') {
+          // 不置 disabled：保留可聚焦与提示能力，点击时由 blockIfDirty 拦住并提示先保存 / 取消。
+          button.setAttribute('aria-disabled', lock ? 'true' : 'false');
+          button.title = lock ? '请先保存或取消目标修改' : '原型演示：会保留已有进展与验收';
+        }
+      });
+    });
+    // 控制条暂停 icon 在 pausing 阶段是真实 disabled：aria-disabled 必须与实际 disabled 同步，
+    // 否则辅助技术会把它当成仍可触发的「暂停目标」。
+    goalRunButton.setAttribute('aria-disabled', (lock || goalRunButton.disabled) ? 'true' : 'false');
+    goalRunButton.title = lock
+      ? '请先保存或取消目标修改'
+      : (state.scenarioName === 'pausing' ? '正在暂停…' : (state.scenarioName === 'paused' ? '继续执行' : '暂停目标'));
+    goalSummaryButton.setAttribute('aria-disabled', 'false');
+    syncMoreMenu();
+  }
+
+  function updateChatCards() {
+    const key = SCENARIOS[state.scenarioName].card;
+    cardApproval.hidden = key !== 'approval';
+    cardAsk.hidden = key !== 'ask';
+    cardReview.hidden = key !== 'review';
+    cardResult.hidden = key !== 'result';
+    if (key === 'result') {
+      const copy = RESULT_COPY[state.scenarioName] || RESULT_COPY.completed;
+      resultCardTitle.textContent = copy.title;
+      resultCardText.textContent = copy.text;
+    }
+  }
+
+  function render() {
+    const config = SCENARIOS[state.scenarioName];
+    const short = config.short;
+    const progressText = state.progress[0] + '/' + state.progress[1];
+    const acceptedText = state.accepted[0] + '/' + state.accepted[1];
+
+    goalApp.dataset.state = state.scenarioName;
+    document.body.dataset.state = state.scenarioName;
+
+    goalStateBadge.dataset.tone = config.tone;
+    goalStateBadgeText.textContent = short;
+    goalStateShort.dataset.tone = config.tone;
+    goalStateShortText.textContent = short;
+    goalMetricState.textContent = short;
+    goalMetricProgress.textContent = progressText;
+    goalMetricAccepted.textContent = acceptedText;
+    schematicTaskCount.textContent = progressText;
+
+    goalProgress.setAttribute('aria-valuemax', String(state.progress[1]));
+    goalProgress.setAttribute('aria-valuenow', String(state.progress[0]));
+    goalProgressFill.style.width = (state.progress[1] > 0 ? (state.progress[0] / state.progress[1]) * 100 : 0).toFixed(1) + '%';
+
+    // 胶囊 = 目标短标题 + 状态 + 验收通过数（不用步骤数代替验收）
+    summaryCapsule.dataset.tone = config.tone;
+    capsuleTitle.textContent = state.goalTitle;
+    capsuleState.textContent = short;
+    capsuleAccepted.textContent = '验收 ' + acceptedText;
+    capsuleMain.setAttribute('aria-label', '展开置顶摘要：' + state.goalTitle + ' · ' + short + ' · 验收 ' + acceptedText);
+    capsuleMain.title = state.goalTitle + ' · ' + short + ' · 验收 ' + acceptedText;
+    summaryEntryDot.dataset.tone = config.tone;
+    summaryEntry.title = '置顶摘要：' + short + ' · 验收 ' + acceptedText;
+    summaryEntry.setAttribute('aria-label', '置顶摘要：' + state.goalTitle + '，' + short + '，验收 ' + acceptedText + '，打开目标摘要面板');
+    toolEventText.textContent = '置顶摘要已更新：' + short + ' · 步骤 ' + progressText + ' · 验收 ' + acceptedText;
+    goalActionHint.textContent = config.hint;
+
+    phaseBlocks.forEach((block) => {
+      block.hidden = block.dataset.phaseActions !== state.scenarioName;
+    });
+
+    blockedFacts.hidden = state.scenarioName !== 'blocked';
+
+    const control = config.control;
+    goalControlRow.hidden = control === 'hidden';
+    goalControlBar.hidden = control === 'hidden';
+    goalRunButton.hidden = control !== 'running' && control !== 'pausing' && control !== 'paused';
+
+    if (control === 'running') {
+      goalRunButton.disabled = false;
+      goalRunButton.dataset.action = 'pause-goal';
+      goalRunButton.setAttribute('aria-label', '暂停目标');
+      goalRunButton.title = '暂停目标';
+      pauseIcon.hidden = false;
+      playIcon.hidden = true;
+    } else if (control === 'pausing') {
+      goalRunButton.disabled = true;
+      goalRunButton.dataset.action = 'pause-goal';
+      goalRunButton.setAttribute('aria-label', '正在暂停：已禁用重复暂停');
+      goalRunButton.title = '正在暂停…';
+      pauseIcon.hidden = false;
+      playIcon.hidden = true;
+    } else if (control === 'paused') {
+      goalRunButton.disabled = false;
+      goalRunButton.dataset.action = 'resume-goal';
+      goalRunButton.setAttribute('aria-label', '继续执行目标');
+      goalRunButton.title = '继续执行';
+      pauseIcon.hidden = true;
+      playIcon.hidden = false;
+    }
+
+    // 待处理提示复用同一个「打开摘要」icon，不再额外放一个重复按钮。
+    const pending = control === 'pending';
+    goalSummaryButton.classList.toggle('pending', pending);
+    goalSummaryButton.dataset.tone = config.tone;
+    goalSummaryDot.hidden = !pending;
+    goalSummaryDot.dataset.tone = config.tone;
+    const summaryLabel = pending ? (PENDING_LABEL[state.scenarioName] || '待处理：打开置顶摘要') : '打开置顶摘要';
+    goalSummaryButton.setAttribute('aria-label', summaryLabel);
+    goalSummaryButton.title = summaryLabel;
+  }
+
+  // options.preserve === true 表示产品内的状态转换：保留已有目标正文、进展与验收数。
+  // 只有演示场景选择 / 重置（preserve 不为 true）才回到场景默认值。
+  function applyGoalState(key, options) {
+    options = options || {};
+    if (!SCENARIOS[key]) throw new Error('未知的 Goal 状态：' + key);
+    const config = SCENARIOS[key];
+    const preserve = options.preserve === true;
+    clearPauseTimer();
+    state.scenarioName = key;
+    state.progress = (options.progress || (preserve ? state.progress : config.progress)).slice();
+    state.accepted = (options.accepted || (preserve ? state.accepted : config.accepted)).slice();
+    state.editing = false;
+    state.dirty = false;
+    if (options.goalText) goalText.textContent = options.goalText;
+    else if (!preserve) goalText.textContent = DEFAULT_GOAL;
+    state.goalTitle = options.goalTitle || (preserve ? state.goalTitle : GOAL_TITLE);
+    state.originalGoal = goalText.textContent;
+    if (scenarioSelect.value !== key) scenarioSelect.value = key;
+    resetChatCards();
+    blockedFacts.open = false;
+
+    if (key === 'pausing') {
+      state.pauseTimer = window.setTimeout(() => {
+        state.pauseTimer = null;
+        if (state.scenarioName === 'pausing') {
+          applyGoalState('paused', { preserve: true, toast: '暂停完成：进入已暂停，进展与验收保持不变，可随时继续。' });
+        }
+      }, PAUSE_DELAY);
+    }
+
+    render();
+    updateChatCards();
+    updateEditorState();
+    if (options.toast !== false) showToast(options.toast || config.toast);
+  }
+
+  function enterEditMode() {
+    if (!canEditGoal(state.scenarioName)) {
+      setSummary('panel');
+      showToast(editBlockReason(state.scenarioName) + '。');
+      return;
+    }
+    if (state.editing) {
+      // 已在编辑中：绝不覆盖草稿，只把面板拉回并重新聚焦。
+      setSummary('panel');
+      goalEditorInput.focus();
+      goalEditorInput.setSelectionRange(goalEditorInput.value.length, goalEditorInput.value.length);
+      showToast(state.dirty
+        ? '仍有未保存的目标修改：草稿已保留，请点「保存」或「取消」。'
+        : '已在目标编辑中：当前内容与目标一致。');
+      return;
+    }
+    state.editing = true;
+    state.dirty = false;
+    state.originalGoal = goalText.textContent;
+    // 只更新输入框的值，绝不重建输入框，避免丢焦点与丢输入法组合状态。
+    goalEditorInput.value = state.originalGoal;
+    closeMoreMenu();
+    setSummary('panel');
+    updateEditorState();
+    goalEditorInput.focus();
+    goalEditorInput.setSelectionRange(goalEditorInput.value.length, goalEditorInput.value.length);
+    showToast('已进入目标编辑：保存后回到「等待确认」，取消则恢复原值。');
+  }
+
+  function cancelEdit() {
+    if (!state.editing) return;
+    goalEditorInput.value = state.originalGoal;
+    state.editing = false;
+    state.dirty = false;
+    updateEditorState();
+    showToast('已取消修改：目标恢复原值，未产生任何保存。');
+  }
+
+  function saveEdit() {
+    if (!state.editing) return;
+    if (!state.dirty) {
+      showToast('没有需要保存的修改。');
+      return;
+    }
+    const next = goalEditorInput.value.trim();
+    if (!next) {
+      showToast('目标不能为空：请先输入内容或点「取消」恢复原值。');
+      return;
+    }
+    applyGoalState('awaiting_confirmation', {
+      goalText: next,
+      goalTitle: goalShortTitle(next),
+      toast: '目标已保存：等待你确认后才会执行。'
+    });
+  }
+
+  function scrollCardIntoView(card) {
+    card.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    card.classList.add('flash');
+    window.setTimeout(() => { card.classList.remove('flash'); }, 1500);
+  }
+
+  function collapseForScroll() {
+    if (state.summary !== 'panel') return;
+    setSummary('capsule');
+    if (state.editing && state.dirty) {
+      showToast('摘要已收起：目标草稿仍保留，重新打开摘要可继续保存或取消。');
+    }
+  }
+
+  function focusPendingCard() {
+    let card = null;
+    if (state.scenarioName === 'awaiting_approval') card = cardApproval;
+    else if (state.scenarioName === 'awaiting_input') card = cardAsk;
+    else if (state.scenarioName === 'needs_review') card = cardReview;
+    if (!card) {
+      // 没有对应聊天卡片时不再弹「无对应卡」提示：受阻回到摘要内的阻塞说明，其它状态回到摘要本身。
+      if (state.scenarioName === 'blocked') {
+        revealBlockedDetail();
+        return;
+      }
+      setSummary('panel');
+      showToast('当前状态没有需要定位的聊天卡片：Goal 操作都在置顶摘要里。');
+      return;
+    }
+    collapseForScroll();
+    scrollCardIntoView(card);
+    showToast('已定位到聊天样例卡：请在卡片中处理，摘要不会代你批准或回答。');
+  }
+
+  function revealBlockedDetail() {
+    setSummary('panel');
+    blockedFacts.hidden = false;
+    blockedFacts.open = true;
+    blockedFacts.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    blockedFacts.classList.add('flash');
+    window.setTimeout(() => { blockedFacts.classList.remove('flash'); }, 1500);
+    showToast('已展开摘要内的阻塞详情：处理完后可修改目标重试，或取消目标保留记录。');
+  }
+
+  function viewResult() {
+    if (cardResult.hidden) {
+      showToast('当前场景没有可回看的结果卡（原型演示）。');
+      return;
+    }
+    collapseForScroll();
+    scrollCardIntoView(cardResult);
+    showToast('已定位到结果卡：控制条隐藏时仍可从摘要回看结果。');
+  }
+
+  function respondCard(card, message, nextState) {
+    if (nextState && blockIfDirty('处理会话级待办')) return;
+    card.dataset.responded = 'true';
+    Array.prototype.forEach.call(card.querySelectorAll('button'), (button) => { button.disabled = true; });
+    if (nextState) applyGoalState(nextState, { preserve: true, toast: false });
+    showToast(message);
+  }
+
+  function dialogFocusables() {
+    return Array.prototype.filter.call(cancelDialog.querySelectorAll('button'), (button) => !button.disabled && isVisible(button));
+  }
+
+  function trapDialogFocus(event) {
+    const items = dialogFocusables();
+    if (!items.length) return;
+    const index = items.indexOf(document.activeElement);
+    let next;
+    if (event.shiftKey) next = index <= 0 ? items[items.length - 1] : items[index - 1];
+    else next = (index === -1 || index === items.length - 1) ? items[0] : items[index + 1];
+    event.preventDefault();
+    next.focus();
+  }
+
+  function restoreDialogFocus() {
+    const trigger = state.dialogTrigger;
+    state.dialogTrigger = null;
+    if (trigger && typeof trigger.focus === 'function' && isVisible(trigger)) {
+      trigger.focus();
+      return;
+    }
+    // 触发元素已隐藏（例如来自摘要「更多」菜单）时，焦点回到工具栏的摘要入口。
+    summaryEntry.focus();
+  }
+
+  function openCancelDialog(trigger) {
+    if (blockIfDirty('取消目标')) return;
+    state.dialogTrigger = trigger || null;
+    closeMoreMenu();
+    dialogShade.hidden = false;
+    cancelDialog.hidden = false;
+    // 默认焦点落在非破坏性的「返回」，避免误确认取消。
+    cancelDialogDismiss.focus();
+  }
+
+  function closeCancelDialog() {
+    if (cancelDialog.hidden) return;
+    cancelDialog.hidden = true;
+    dialogShade.hidden = true;
+    restoreDialogFocus();
+  }
+
+  function confirmCancelGoal() {
+    closeCancelDialog();
+    applyGoalState('cancelled', { toast: '目标已取消：文件与对话均未回滚，摘要保留取消记录。' });
+  }
+
+  function resetDemo() {
+    state.theme = 'light';
+    document.documentElement.dataset.theme = 'light';
+    syncSegmented('theme', 'light');
+    state.viewport = 'desktop';
+    goalApp.classList.remove('narrow');
+    syncSegmented('viewport', 'desktop');
+    goalEditorInput.value = '';
+    closeCancelDialog();
+    setSummary('panel');
+    applyGoalState('running', { toast: '演示已重置：执行中 + 摘要面板展开。' });
+  }
+
+  document.addEventListener('click', (event) => {
+    const trigger = event.target.closest('[data-action]');
+    if (!trigger) {
+      if (!event.target.closest('#goalMoreMenu') && !event.target.closest('#panelMoreButton')) closeMoreMenu();
+      return;
+    }
+    const action = trigger.dataset.action;
+    switch (action) {
+      case 'open-panel':
+        setSummary('panel');
+        break;
+      case 'collapse-panel':
+        setSummary('capsule');
+        if (state.editing && state.dirty) showToast('摘要已收起：目标草稿仍保留，重新打开可继续保存或取消。');
+        break;
+      case 'close-capsule':
+        setSummary('closed');
+        if (state.editing && state.dirty) showToast('摘要已关闭：目标草稿仍保留，重新打开可继续保存或取消。');
+        break;
+      case 'toggle-more':
+        toggleMoreMenu();
+        break;
+      case 'edit-goal':
+        enterEditMode();
+        break;
+      case 'discard-goal':
+        cancelEdit();
+        break;
+      case 'save-goal':
+        saveEdit();
+        break;
+      case 'start-goal':
+        if (blockIfDirty('确认执行')) break;
+        applyGoalState('running', { preserve: true, toast: '已开始执行（原型演示，无真实副作用）。' });
+        break;
+      case 'pause-goal':
+        if (blockIfDirty('暂停目标')) break;
+        if (state.scenarioName === 'running') {
+          applyGoalState('pausing', { preserve: true, toast: '暂停中：按钮已禁用，短延时后进入已暂停。' });
+        } else if (state.scenarioName !== 'pausing') {
+          showToast('当前状态不可暂停。');
+        }
+        break;
+      case 'resume-goal':
+        if (blockIfDirty('继续执行')) break;
+        if (state.scenarioName === 'paused') {
+          applyGoalState('running', { preserve: true, toast: '已继续执行：进展与验收保持不变（原型演示）。' });
+        } else {
+          showToast('当前状态不可继续。');
+        }
+        break;
+      case 'accept-review':
+        if (blockIfDirty('通过验收')) break;
+        if (state.scenarioName !== 'needs_review') {
+          showToast('当前不在待验收状态。');
+          break;
+        }
+        // 统一口径：一次验收当前结果 → completed，不做「点一次加一项」的部分验收。
+        applyGoalState('completed', {
+          accepted: [ACCEPTED_TOTAL, ACCEPTED_TOTAL],
+          progress: [state.progress[1], state.progress[1]],
+          toast: '已通过验收：一次性验收当前结果，目标标记为已完成。'
+        });
+        break;
+      case 'continue-review':
+        if (blockIfDirty('继续执行')) break;
+        if (state.scenarioName !== 'needs_review') {
+          showToast('当前不在待验收状态。');
+          break;
+        }
+        applyGoalState('running', { preserve: true, toast: '已继续执行：已有的进展与验收数保持不变，等待下一轮证据。' });
+        break;
+      case 'focus-pending':
+        focusPendingCard();
+        break;
+      case 'reveal-blocked':
+        revealBlockedDetail();
+        break;
+      case 'view-result':
+        viewResult();
+        break;
+      case 'cancel-goal-request':
+        openCancelDialog(trigger);
+        break;
+      case 'confirm-cancel':
+        if (blockIfDirty('取消目标')) break;
+        confirmCancelGoal();
+        break;
+      case 'dismiss-cancel':
+        closeCancelDialog();
+        break;
+      case 'approve-tool':
+        respondCard(cardApproval, '已按样例「批准」记录（原型演示，未执行任何命令）。',
+          state.scenarioName === 'awaiting_approval' ? 'running' : null);
+        break;
+      case 'deny-tool':
+        // 拒绝工具不是「继续执行」：工具被拒后目标应停下来等用户处理，进展与验收数保持不变。
+        respondCard(cardApproval, '已按样例「拒绝」记录（原型演示，未执行任何命令）：工具被拒绝，目标已暂停，等待你下一步处理。',
+          state.scenarioName === 'awaiting_approval' ? 'paused' : null);
+        break;
+      case 'answer-ask':
+        respondCard(cardAsk, '已按样例「回答」记录（原型演示，未发送给子代理）。',
+          state.scenarioName === 'awaiting_input' ? 'running' : null);
+        break;
+      case 'reset-demo':
+        resetDemo();
+        break;
+      default:
+        break;
+    }
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-control]'), (group) => {
+    group.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-value]');
+      if (!button) return;
+      const control = group.dataset.control;
+      const value = button.dataset.value;
+      if (control === 'theme') {
+        state.theme = value;
+        document.documentElement.dataset.theme = value;
+        syncSegmented('theme', value);
+      } else if (control === 'viewport') {
+        state.viewport = value;
+        goalApp.classList.toggle('narrow', value === 'narrow');
+        syncSegmented('viewport', value);
+        showToast(value === 'narrow'
+          ? '窄屏演示：摘要变成弹层，面板内部独立滚动。'
+          : '桌面演示：摘要保留工具栏入口 / 胶囊 / 面板三态。');
+      } else if (control === 'summary') {
+        setSummary(value);
+      }
+    });
+  });
+
+  scenarioSelect.addEventListener('change', () => {
+    applyGoalState(scenarioSelect.value, {});
+  });
+
+  goalEditorInput.addEventListener('input', () => {
+    if (!state.editing) return;
+    const dirty = goalEditorInput.value.trim() !== state.originalGoal.trim();
+    if (dirty !== state.dirty) state.dirty = dirty;
+    updateEditorState();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (!cancelDialog.hidden) {
+      // 弹窗打开时：Escape 关闭，Tab / Shift+Tab 在弹窗内循环，其它快捷键不生效。
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeCancelDialog();
+        return;
+      }
+      if (event.key === 'Tab') trapDialogFocus(event);
+      return;
+    }
+    if (event.key !== 'Escape') return;
+    if (!goalMoreMenu.hidden) {
+      closeMoreMenu();
+      return;
+    }
+    if (state.summary === 'panel') setSummary('capsule');
+  });
+
+  window.goalPrototype = {
+    states: GOAL_STATES.slice(),
+    scenarios: SCENARIOS,
+    getState() {
+      return {
+        state: state.scenarioName,
+        summary: state.summary,
+        viewport: state.viewport,
+        theme: state.theme,
+        editing: state.editing,
+        dirty: state.dirty,
+        goal: goalText.textContent,
+        goalTitle: state.goalTitle,
+        editorValue: goalEditorInput.value,
+        progress: state.progress.slice(),
+        accepted: state.accepted.slice(),
+        acceptedTotal: ACCEPTED_TOTAL,
+        editable: canEditGoal(state.scenarioName),
+        cancelable: canCancelGoal(state.scenarioName),
+        controlRowHidden: goalControlRow.hidden,
+        controlBarHidden: goalControlBar.hidden,
+        controlBarButtons: Array.prototype.map.call(goalControlBar.querySelectorAll('button'), (button) => ({
+          action: button.dataset.action,
+          label: button.getAttribute('aria-label'),
+          title: button.title,
+          hidden: button.hidden,
+          disabled: button.disabled,
+          pending: button.classList.contains('pending')
+        })),
+        runButton: { action: goalRunButton.dataset.action, disabled: goalRunButton.disabled, hidden: goalRunButton.hidden, ariaDisabled: goalRunButton.getAttribute('aria-disabled') },
+        summaryButton: { label: goalSummaryButton.getAttribute('aria-label'), pending: goalSummaryButton.classList.contains('pending'), dotHidden: goalSummaryDot.hidden },
+        capsule: { title: capsuleTitle.textContent, state: capsuleState.textContent, accepted: capsuleAccepted.textContent, hidden: summaryCapsule.hidden },
+        metricAccepted: goalMetricAccepted.textContent,
+        blockedDetail: { visible: !blockedFacts.hidden, open: blockedFacts.open },
+        visiblePhaseActions: phaseBlocks.filter((block) => !block.hidden).map((block) => block.dataset.phaseActions),
+        phaseButtons: Array.prototype.map.call(document.querySelectorAll('[data-phase-actions] button'), (button) => ({
+          phase: button.closest('[data-phase-actions]').dataset.phaseActions,
+          action: button.dataset.action,
+          text: button.textContent.trim(),
+          disabled: button.disabled,
+          ariaDisabled: button.getAttribute('aria-disabled'),
+          visible: !button.closest('[data-phase-actions]').hidden
+        })),
+        confirmButtons: Array.prototype.map.call(document.querySelectorAll('[data-confirm="true"]'), (button) => ({
+          action: button.dataset.action,
+          disabled: button.disabled,
+          ariaDisabled: button.getAttribute('aria-disabled'),
+          hidden: button.closest('[data-phase-actions]').hidden
+        })),
+        moreMenu: { open: !goalMoreMenu.hidden, expanded: panelMoreButton.getAttribute('aria-expanded'), haspopup: panelMoreButton.getAttribute('aria-haspopup'), editItemAriaDisabled: goalMoreEditItem.getAttribute('aria-disabled'), cancelItemHidden: cancelGoalItem.hidden },
+        cancelDialogOpen: !cancelDialog.hidden,
+        dialogTriggerId: state.dialogTrigger ? (state.dialogTrigger.id || '') : '',
+        activeElementId: document.activeElement ? (document.activeElement.id || '') : '',
+        activeCards: [cardApproval, cardAsk, cardReview, cardResult].filter((card) => !card.hidden).map((card) => card.id),
+        toast: toast.hidden ? '' : toast.textContent
+      };
+    },
+    setState(next, options) {
+      applyGoalState(next, options || {});
+      return window.goalPrototype.getState();
+    },
+    setSummary(mode) {
+      setSummary(mode);
+      return window.goalPrototype.getState();
+    },
+    setViewport(value) {
+      state.viewport = value;
+      goalApp.classList.toggle('narrow', value === 'narrow');
+      syncSegmented('viewport', value);
+      return window.goalPrototype.getState();
+    },
+    editGoal() {
+      enterEditMode();
+      return window.goalPrototype.getState();
+    },
+    revealBlocked() {
+      revealBlockedDetail();
+      return window.goalPrototype.getState();
+    },
+    reset() {
+      resetDemo();
+      return window.goalPrototype.getState();
+    }
+  };
+
+  syncSegmented('theme', state.theme);
+  syncSegmented('viewport', state.viewport);
+  syncSegmented('summary', state.summary);
+  setSummary('panel');
+  applyGoalState('running', { toast: '原型演示已就绪：执行中，摘要面板默认展开。' });
+
+})();
+</script>
+</body>
+</html>

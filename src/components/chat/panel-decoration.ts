@@ -37,6 +37,16 @@ export type { ApprovalCardDeps, ToolApprovalSource } from './panel-decoration/ap
 export { injectApprovalCard, removeApprovalCard } from './panel-decoration/approval-card'
 export type { AskUserCardDeps } from './panel-decoration/ask-user-card'
 export { injectAskUserCard, removeAskUserCard } from './panel-decoration/ask-user-card'
+export type { GoalCardController, GoalCardDeps, GoalCardViewModel, GoalCardTone, GoalCardCriteriaView } from './panel-decoration/goal-card'
+export { buildGoalCardViewModel, createGoalCardController } from './panel-decoration/goal-card'
+export type {
+  GoalControlStripController,
+  GoalControlStripDeps,
+  GoalControlStripGoalUi,
+  GoalControlStripUiState,
+  GoalControlStripView,
+} from './panel-decoration/goal-control-strip'
+export { buildGoalControlStripView, createGoalControlStripController } from './panel-decoration/goal-control-strip'
 export { syncContextCompactionNotice } from './panel-decoration/context-compaction'
 export { syncPersistDegradedNotice } from './panel-decoration/persist-degraded-notice'
 export type { ReconnectNoticeController } from './panel-decoration/reconnect-notice'

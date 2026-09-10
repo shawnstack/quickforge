@@ -13,6 +13,12 @@ All notable changes to QuickForge will be documented in this file.
 
 - Existing OpenCode sessions degrade to QuickForge sessions on restore with no forward compatibility; persisted `harness`, `harnessSessionId`, and `openCodeUsage` fields are dropped. `.opencode/` directory ecosystem compatibility (skills, commands, AGENTS.md discovery) and QuickForge's own ACP Agent capability (`@agentclientprotocol/sdk`, `server/acp/`) are kept.
 
+### Changed
+
+- Raised the default Goal duration budget from 30 to 120 minutes (iterations stay at 8); `extend_resume` follows the same default and now adds 120 minutes per confirmation, while existing goals keep their original budget.
+- Redesigned the Goal inspector sidebar: scrollable content with a pinned action bar, segmented progress/edit switch, layered Button variants, status-tone header with localized timestamps, criterion status badges, budget meters with exhausted chips, and long notes collapsed behind a single "?" popover instead of stacked paragraphs.
+- Simplified the goal control strip above the composer to a compact row (status + recorded duration + icon actions): the objective text moved out to the pinned summary and inspector, duration is formatted in minutes, and the cancel confirmation shows one sentence.
+
 ## [2.0.0] - 2026-09-09
 
 ### Added

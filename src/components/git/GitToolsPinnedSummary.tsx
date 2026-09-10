@@ -15,12 +15,16 @@ import {
   Maximize2,
   Minimize2,
   SlidersHorizontal,
+  Target,
   X,
   XCircle,
 } from 'lucide-react'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
+import { GoalSummarySection } from '@/components/git/GoalSummarySection'
 import type { TodoWriteItem, TodoWriteStatus } from '@/components/chat/panel-decoration'
 import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
+import { buildGoalCardViewModel } from '@/components/chat/panel-decoration/goal-card'
+import type { GoalAction, GoalState } from '@/lib/goal'
 import { todoWriteCounts } from '@/components/chat/panel-decoration'
 import {
   getPinnedSummaryOutsideAction,
@@ -31,7 +35,7 @@ import {
   type PinnedSummaryPosition,
 } from '@/lib/pinned-summary-drag'
 import { cn } from '@/lib/utils'
-import { t } from '@/lib/i18n'
+import { t, type AppTextKey } from '@/lib/i18n'
 import type { GitStatusResponse } from '@/components/workspace/workspace-types'
 
 type GitToolsPinnedSummaryProps = {
@@ -40,6 +44,12 @@ type GitToolsPinnedSummaryProps = {
   todos: TodoWriteItem[]
   runningSubagentRuns: SubagentRunPayload[]
   finishedSubagentRuns: SubagentRunPayload[]
+  /** Authoritative session goal; drives the first section and the goal capsule segment. */
+  goal?: GoalState | null
+  /** Session the goal belongs to (the shared pending/dirty key). */
+  goalSessionId?: string
+  /** Goal action executor (`updateGoal`); the section owns the shared lock. */
+  onGoalAction?: (action: GoalAction, objective?: string) => Promise<unknown>
   expanded: boolean
   suspended?: boolean
   onExpandedChange: (expanded: boolean) => void
@@ -63,7 +73,7 @@ type PinnedSummaryWidgetStyle = CSSProperties & {
 }
 
 type CapsuleSegment = {
-  key: 'tasks' | 'git' | 'agents' | 'fallback'
+  key: 'goal' | 'tasks' | 'git' | 'agents' | 'fallback'
   aria: string
   content: ReactNode
 }
@@ -144,6 +154,9 @@ export function GitToolsPinnedSummary({
   todos,
   runningSubagentRuns,
   finishedSubagentRuns,
+  goal,
+  goalSessionId,
+  onGoalAction,
   expanded,
   suspended = false,
   onExpandedChange,
@@ -197,6 +210,11 @@ export function GitToolsPinnedSummary({
   const todoCounts = useMemo(() => todoWriteCounts(todos), [todos])
   const dirtyCount = status ? (status.counts?.total ?? status.files.length) : 0
   const hasGitSection = Boolean(status?.isGitRepository && projectId)
+  // The goal section only needs a goal identity plus an action executor: it
+  // shows even when there is no git repo, todo list or subagent run.
+  const hasGoalSection = Boolean(goal && goalSessionId)
+  const goalView = useMemo(() => (goal && hasGoalSection ? buildGoalCardViewModel(goal) : null), [goal, hasGoalSection])
+  const goalPassedCriteria = goalView ? goalView.criteria.filter((criterion) => criterion.status === 'passed').length : 0
   const todoSignature = todos.map((todo) => `${todo.status}:${todo.content}`).join('\n')
   const showAllTasks = expanded && expandedTasksSignature === todoSignature
   const visibleTodos = showAllTasks ? todos : todos.slice(0, 3)
@@ -209,6 +227,22 @@ export function GitToolsPinnedSummary({
   const agentFinishedCount = finishedSubagentRuns.length
   const capsuleSegments = useMemo<CapsuleSegment[]>(() => {
     const segments: CapsuleSegment[] = []
+    // Goal first: its short title + real status + accepted-criteria count are
+    // the primary answer; the other segments stay as compact counters.
+    if (goalView) {
+      segments.push({
+        key: 'goal',
+        aria: `${t('goalTitle')} ${t(goalView.statusKey as AppTextKey)} ${t('goalCriteriaProgress', { completed: goalPassedCriteria, total: goalView.criteria.length })}`,
+        content: (
+          <>
+            <Target className="size-3.5" aria-hidden="true" />
+            <span className="max-w-[8.5rem] truncate text-foreground/88">{goalView.objective || t('goalObjectiveEmpty')}</span>
+            <span>{t(goalView.statusKey as AppTextKey)}</span>
+            <span>{goalPassedCriteria}/{goalView.criteria.length}</span>
+          </>
+        ),
+      })
+    }
     if (todos.length > 0) {
       segments.push({
         key: 'tasks',
@@ -253,8 +287,9 @@ export function GitToolsPinnedSummary({
         content: <List className="size-[18px]" aria-hidden="true" />,
       })
     }
-    return segments
-  }, [agentFinishedCount, agentRunningCount, hasGitSection, hasGitTotals, todoCounts.completed, todoCounts.total, todos.length, totals.additions, totals.deletions])
+    // 有 Goal 时限制胶囊密度：Goal 段固定第一，其余最多再保留两段。
+    return goalView ? segments.slice(0, 3) : segments
+  }, [agentFinishedCount, agentRunningCount, goalPassedCriteria, goalView, hasGitSection, hasGitTotals, todoCounts.completed, todoCounts.total, todos.length, totals.additions, totals.deletions])
   const capsuleAriaParts = capsuleSegments.map((segment) => segment.aria)
   const capsuleAria = capsuleAriaParts.length > 0
     ? t('pinnedSummaryCapsuleAria', { summary: capsuleAriaParts.join(t('pinnedSummaryCapsuleSeparator')) })
@@ -663,7 +698,15 @@ export function GitToolsPinnedSummary({
     restoreDragBodyStyle()
   }, [clearCloseAnimationTimer, clearFocusFrame, finishDrag, restoreDragBodyStyle])
 
-  if (todos.length === 0 && runningSubagentRuns.length === 0 && finishedSubagentRuns.length === 0 && !hasGitSection) return null
+  // Goal-only summaries are valid: the section shows as soon as the session has
+  // a goal, even without a git repo, a todo list or a subagent run.
+  if (
+    !hasGoalSection
+    && todos.length === 0
+    && runningSubagentRuns.length === 0
+    && finishedSubagentRuns.length === 0
+    && !hasGitSection
+  ) return null
 
   const toggleBranchMenu = () => {
     if (branchMenuOpen) {
@@ -691,6 +734,10 @@ export function GitToolsPinnedSummary({
 
   const summarySections = (
     <>
+      {hasGoalSection && goal && goalSessionId ? (
+        <GoalSummarySection goal={goal} sessionId={goalSessionId} onAction={onGoalAction} />
+      ) : null}
+
       {hasGitSection && status && projectId ? (
         <section aria-labelledby="pinned-environment-title">
           <div id="pinned-environment-title" className="mb-2 pr-8 text-xs font-medium text-muted-foreground">{t('gitToolsTitle')}</div>
@@ -747,7 +794,7 @@ export function GitToolsPinnedSummary({
       ) : null}
 
       {todos.length > 0 ? (
-        <section className={cn(hasGitSection && 'mt-3 border-t-[0.5px] border-[color-mix(in_oklab,var(--border)_28%,transparent)] pt-3')} aria-labelledby="pinned-tasks-title">
+        <section className={cn((hasGoalSection || hasGitSection) && 'mt-3 border-t-[0.5px] border-[color-mix(in_oklab,var(--border)_28%,transparent)] pt-3')} aria-labelledby="pinned-tasks-title">
           <div id="pinned-tasks-title" className="mb-2 flex items-center justify-between gap-3 pr-8 text-xs font-medium text-muted-foreground">
             <span>{t('pinnedTasksTitle')}</span>
             <span>{todoCounts.completed}/{todoCounts.total}</span>
@@ -770,7 +817,7 @@ export function GitToolsPinnedSummary({
       ) : null}
 
       {runningSubagentRuns.length > 0 || finishedSubagentRuns.length > 0 ? (
-        <section className={cn((hasGitSection || todos.length > 0) && 'mt-3 border-t-[0.5px] border-[color-mix(in_oklab,var(--border)_28%,transparent)] pt-3')} aria-labelledby="pinned-subagents-title">
+        <section className={cn((hasGoalSection || hasGitSection || todos.length > 0) && 'mt-3 border-t-[0.5px] border-[color-mix(in_oklab,var(--border)_28%,transparent)] pt-3')} aria-labelledby="pinned-subagents-title">
           <div id="pinned-subagents-title" className="mb-2 flex items-center justify-between gap-3 pr-8 text-xs font-medium text-muted-foreground">
             <span>{t('pinnedSubagentsTitle')}</span>
           </div>

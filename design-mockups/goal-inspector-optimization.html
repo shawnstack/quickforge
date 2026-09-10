@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Goal 侧栏优化示例 · Before / After 对照</title>
+<style>
+/* ============================================================
+   优化示例 token（对齐生产命名：--background/--muted/--border/--ring…
+   以及建议新增的 goal tone 语义 token，见 C-01 修复方向）
+   数值为演示值，落地时以生产 src/index.css token 为准。
+   ============================================================ */
+:root {
+  --background: #ffffff;
+  --foreground: #212634;
+  --muted: #f1f3f8;
+  --muted-foreground: #6b7285;
+  --border: #e4e7ee;
+  --ring: #3478d4;
+  --destructive: #dc2626;
+  --radius: 10px;
+  /* 建议：goal tone 统一声明为语义 token（修复 C-01 两处硬编码重复） */
+  --goal-tone-info: #3478d4;
+  --goal-tone-active: #3478d4;
+  --goal-tone-warning: #b45309;
+  --goal-tone-success: rgb(4 143 101);
+  --goal-tone-danger: var(--destructive);
+  /* 动效 token（对齐设计语言统一刻度） */
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  /* 主题感知阴影（修复 C-04：暗色下硬编码 rgb(15 23 42/0.04) 不可见） */
+  --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --fs-aux: 12px;
+  --fs-body: 13px;
+  --fs-title: 15px;
+}
+html[data-theme="dark"] {
+  --background: #171922;
+  --foreground: #e7e9f0;
+  --muted: #232634;
+  --muted-foreground: #9aa1b5;
+  --border: #2c3040;
+  --goal-tone-info: #6b9fe8;
+  --goal-tone-active: #6b9fe8;
+  --goal-tone-warning: #d9a05b;
+  --goal-tone-success: #4cc79a;
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  padding-bottom: 64px;
+}
+
+/* ============ 演示控制区 ============ */
+.demo-bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  padding: 12px 20px;
+  background: color-mix(in srgb, var(--background) 92%, var(--muted));
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+}
+.demo-bar h1 { font-size: 15px; font-weight: 600; margin-right: 4px; }
+.demo-bar .demo-sub { color: var(--muted-foreground); font-size: var(--fs-aux); flex-basis: 100%; margin-top: -6px; }
+.demo-group { display: inline-flex; align-items: center; gap: 6px; }
+.demo-group > span { color: var(--muted-foreground); font-size: var(--fs-aux); }
+.demo-btn {
+  font-size: var(--fs-aux); padding: 4px 10px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--background); color: var(--foreground);
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.demo-btn:hover { background: var(--muted); }
+.demo-btn:active { transform: scale(0.97); }
+.demo-btn.is-active { background: var(--foreground); color: var(--background); border-color: var(--foreground); }
+
+/* ============ 对照舞台 ============ */
+.stage {
+  display: flex; flex-wrap: wrap; gap: 24px;
+  padding: 24px 20px 8px;
+  justify-content: center;
+}
+.stage[data-width="340"] .inspector { width: 340px; }
+.stage[data-width="420"] .inspector { width: 420px; }
+.panel-caption { flex-basis: 100%; text-align: center; color: var(--muted-foreground); font-size: var(--fs-aux); }
+
+.inspector {
+  display: flex; flex-direction: column;
+  min-width: 340px; max-width: 100%;
+  height: 540px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  overflow: hidden;
+  position: relative;
+}
+.inspector-tag {
+  position: absolute; top: -1px; right: 14px; z-index: 5;
+  font-size: 11px; font-weight: 600; padding: 2px 10px;
+  border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px;
+}
+.inspector-tag--before { background: color-mix(in srgb, var(--destructive) 12%, var(--background)); color: var(--destructive); }
+.inspector-tag--after { background: color-mix(in srgb, var(--goal-tone-success) 14%, var(--background)); color: var(--goal-tone-success); }
+
+/* 仿 Workspace Inspector Tab 头 */
+.inspector-tabs {
+  display: flex; align-items: center; gap: 6px;
+  height: 48px; flex: none; padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-aux); color: var(--muted-foreground);
+}
+.inspector-tabs .tab { padding: 4px 12px; border-radius: 10px; }
+.inspector-tabs .tab--active { background: var(--muted); color: var(--foreground); font-weight: 550; }
+.inspector-tabs .tab-close { margin-left: auto; cursor: pointer; }
+
+/* 问题编号标记 */
+.mk {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; margin: 0 2px; flex: none;
+  border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 1;
+  background: color-mix(in srgb, var(--destructive) 14%, var(--background));
+  color: var(--destructive); cursor: help; vertical-align: 1px;
+}
+.mk--ok { background: color-mix(in srgb, var(--goal-tone-success) 16%, var(--background)); color: var(--goal-tone-success); }
+
+/* ============================================================
+   BEFORE：忠实复刻现状（goal-inspector.css 的硬编码值）
+   —— 刻意保留问题：无滚动 / 裸按钮 / 13px / anywhere / 平铺 Note
+   ============================================================ */
+.b-goal {
+  display: flex; flex-direction: column; gap: 14px; padding: 18px;
+  min-height: 100%; font-size: 13px; overflow-wrap: anywhere;   /* 现状 css:1 */
+}
+.b-goal nav { display: flex; gap: 8px; }
+.b-goal .b-status { font-size: var(--fs-aux); color: var(--muted-foreground); }
+.b-goal h2 { font-size: 16px; font-weight: 500; white-space: pre-wrap; overflow-wrap: break-word; } /* text-sm=16px（项目覆盖） */
+.b-goal h3 { font-size: 13px; font-weight: 500; }
+.b-goal p { font-size: 13px; }
+.b-goal .b-note { font-size: var(--fs-aux); color: var(--muted-foreground); }
+.b-goal .b-meta { color: var(--muted-foreground); }
+/* 现状按钮：无边框、无 hover、无 transition（css:2-4） */
+.b-goal button {
+  padding: 5px 9px; border-radius: 7px; font-size: var(--fs-aux);
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+  border: 0; cursor: pointer;
+}
+.b-goal button[aria-pressed="true"] { background: var(--muted); color: var(--foreground); }
+.b-goal button:disabled { opacity: .4; cursor: not-allowed; }
+.b-goal button:focus-visible, .b-goal textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.b-goal textarea {
+  width: 100%; min-height: 260px; padding: 12px; line-height: 1.7;      /* 现状 css:5 硬编码 260px */
+  border: 1px solid var(--border); border-radius: 8px; background: var(--background);
+  color: var(--foreground); font: inherit; resize: vertical;
+}
+.b-goal summary { cursor: pointer; color: var(--muted-foreground); font-size: var(--fs-aux); }
+.b-goal details p { padding: 8px 0; }
+.b-goal code { font-size: var(--fs-aux); color: var(--muted-foreground); }
+.b-goal .b-actions { display: flex; gap: 8px; }                        /* 现状 :159 无 flex-wrap */
+/* 裁剪演示遮罩 + 标注 */
+.b-clip {
+  position: absolute; left: 0; right: 0; bottom: 48px; height: 84px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--background) 78%);
+}
+.b-clip-note {
+  position: absolute; left: 0; right: 0; bottom: 52px;
+  display: flex; justify-content: center; pointer-events: none;
+}
+.b-clip-note span {
+  font-size: 11px; padding: 3px 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--destructive) 10%, var(--background));
+  color: var(--destructive); border: 1px solid color-mix(in srgb, var(--destructive) 35%, var(--border));
+}
+
+/* ============================================================
+   AFTER：修复方案
+   ============================================================ */
+.a-goal { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.a-scroll {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;   /* 修复 G-01 */
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 35%, transparent) transparent;
+}
+.a-scroll::-webkit-scrollbar { width: 8px; }
+.a-scroll::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--muted-foreground) 30%, transparent); }
+.a-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* 导航分段控件（修复 G-05：与动作按钮分层） */
+.seg {
+  display: inline-flex; gap: 2px; padding: 2px; align-self: flex-start;
+  background: var(--muted); border-radius: 9px;
+}
+.seg button {
+  border: 0; background: transparent; color: var(--muted-foreground);
+  font-size: var(--fs-aux); font-weight: 550; padding: 4px 12px; cursor: pointer;
+  border-radius: 7px;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.seg button:hover { color: var(--foreground); }
+.seg button[aria-pressed="true"] { background: var(--background); color: var(--foreground); box-shadow: var(--shadow-soft); }
+.seg button:active { transform: scale(0.97); }
+.seg button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* 状态行：tone 点 + 状态词 + 本地化时间 + ？帮助（修复 G-09/T-A） */
+.a-statusrow { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: var(--fs-aux); }
+.a-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--tone, var(--goal-tone-info)); flex: none; }
+.a-statusrow b { color: var(--tone, var(--goal-tone-info)); font-weight: 600; }
+.a-statusrow time { margin-left: auto; }
+.qbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; flex: none; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--background); color: var(--muted-foreground);
+  font-size: 11px; font-weight: 700;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.qbtn:hover { background: var(--muted); color: var(--foreground); }
+.qbtn:active { transform: scale(0.97); }
+.qbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* 弹出说明浮层（实现设计语言 L187-191：机制说明收进 ？浮层） */
+.pop {
+  position: relative;
+}
+.pop__body {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  width: 290px; padding: 10px 12px;
+  background: var(--background); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  font-size: var(--fs-aux); color: var(--muted-foreground);
+  display: flex; flex-direction: column; gap: 8px;
+}
+html[data-theme="dark"] .pop__body { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.pop__body b { color: var(--foreground); font-weight: 600; }
+.pop[hidden] { display: none; }
+
+.a-objective { font-size: var(--fs-title); font-weight: 600; line-height: 1.5; overflow-wrap: break-word; }  /* 修复 G-06/G-13 */
+.a-sectiontitle {
+  font-size: 11px; font-weight: 650; letter-spacing: 0.04em; color: var(--muted-foreground);
+  text-transform: uppercase; margin-top: 2px;
+}
+/* blocker 警示条（修复 G-07：tone 化层级） */
+.a-blocker {
+  display: flex; gap: 8px; align-items: baseline;
+  padding: 8px 10px; border-radius: 8px; font-size: var(--fs-aux);
+  border: 1px solid color-mix(in srgb, var(--goal-tone-warning) 30%, var(--border));
+  background: color-mix(in srgb, var(--goal-tone-warning) 8%, var(--background));
+  color: var(--goal-tone-warning); font-weight: 550;
+}
+.a-summary { color: var(--muted-foreground); font-size: var(--fs-body); overflow-wrap: break-word; }
+
+/* 准则行 + 状态 badge（修复 G-08） */
+.a-criteria { display: flex; flex-direction: column; gap: 6px; }
+.a-criterion { display: flex; gap: 8px; align-items: baseline; }
+.badge {
+  flex: none; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
+}
+.badge--pass { background: color-mix(in srgb, var(--goal-tone-success) 12%, var(--background)); color: var(--goal-tone-success); }
+.badge--fail { background: color-mix(in srgb, var(--destructive) 10%, var(--background)); color: var(--destructive); }
+.badge--pending { background: var(--muted); color: var(--muted-foreground); }
+.badge--review { background: color-mix(in srgb, var(--goal-tone-warning) 12%, var(--background)); color: var(--goal-tone-warning); }
+.a-criterion .desc { font-size: var(--fs-body); overflow-wrap: break-word; }
+.a-criterion details { margin: 2px 0 0 0; font-size: var(--fs-aux); color: var(--muted-foreground); }
+.a-criterion summary { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.a-criterion summary:hover { color: var(--foreground); }
+.a-criterion summary::before { content: "▸"; font-size: 10px; transition: transform var(--dur-fast) var(--ease); }
+.a-criterion details[open] summary::before { transform: rotate(90deg); }   /* 修复 G-14 展开指示 */
+.a-criterion details div { padding: 4px 0 4px 14px; }
+.a-criterion code { font-size: 11px; }
+
+/* 预算结构化展示（修复 G-09/T-F/T-06） */
+.a-budget { display: flex; flex-direction: column; gap: 8px; }
+.a-budget-row { display: flex; align-items: center; gap: 10px; font-size: var(--fs-aux); }
+.a-budget-row .lbl { width: 44px; color: var(--muted-foreground); flex: none; }
+.meter { flex: 1; height: 6px; border-radius: 999px; background: var(--muted); overflow: hidden; }
+.meter i { display: block; height: 100%; border-radius: 999px; background: var(--meter-tone, var(--goal-tone-info)); }
+.a-budget-row .val { flex: none; font-variant-numeric: tabular-nums; }
+.a-budget-row .val em { font-style: normal; color: var(--muted-foreground); }
+.chip {
+  flex: none; font-size: 11px; font-weight: 650; padding: 1px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--goal-tone-warning) 12%, var(--background)); color: var(--goal-tone-warning);
+}
+
+/* 范围折叠（修复 G-14） */
+.a-scope { font-size: var(--fs-aux); color: var(--muted-foreground); }
+.a-scope summary { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-weight: 550; }
+.a-scope summary::before { content: "▸"; font-size: 10px; transition: transform var(--dur-fast) var(--ease); }
+.a-scope details[open] summary::before { transform: rotate(90deg); }
+.a-scope ul { margin: 6px 0 0 14px; display: flex; flex-direction: column; gap: 2px; }
+
+/* 预算追加确认组：带视觉容器（修复 G-15 + T 收敛） */
+.a-confirm {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: color-mix(in srgb, var(--muted) 45%, var(--background));
+}
+.a-confirm .row { display: flex; align-items: center; gap: 8px; font-size: var(--fs-body); }
+.a-confirm .sub { font-size: var(--fs-aux); color: var(--muted-foreground); }
+.a-confirm .ops { display: flex; flex-wrap: wrap; gap: 8px; }   /* 修复 G-02：wrap + nowrap 按钮 */
+
+/* 单行提示（修复 T-A：3 条 Note → 1 行 + ？浮层） */
+.a-hint {
+  display: flex; align-items: center; gap: 8px;
+  font-size: var(--fs-aux); color: var(--muted-foreground);
+  padding: 8px 10px; border-radius: 8px; background: var(--muted);
+}
+
+/* 底部固定动作栏（信息层级：动作始终可见，不随滚动丢失） */
+.a-actionbar {
+  flex: none; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 10px 16px; border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--background) 94%, var(--muted));
+}
+.a-actionbar .who { font-size: 11px; color: var(--muted-foreground); margin-left: auto; }
+
+/* 修复 G-03：token 化按钮体系（对齐全应用 Button 分层 + hover/active/focus） */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-aux); font-weight: 600; line-height: 1;
+  padding: 7px 14px; border-radius: 8px; cursor: pointer; white-space: nowrap;   /* nowrap 修复 G-02 断行 */
+  border: 1px solid transparent;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.btn:active { transform: scale(0.97); }                                          /* 设计语言 L156 */
+.btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.btn--primary { background: var(--foreground); color: var(--background); }
+.btn--primary:hover:not(:disabled) { opacity: .88; }
+.btn--secondary { background: var(--background); color: var(--foreground); border-color: var(--border); box-shadow: var(--shadow-soft); }
+.btn--secondary:hover:not(:disabled) { background: var(--muted); }
+.btn--ghost { background: transparent; color: var(--muted-foreground); }
+.btn--ghost:hover:not(:disabled) { background: var(--muted); color: var(--foreground); }
+
+/* ============ 图例 ============ */
+.legend {
+  max-width: 900px; margin: 10px auto 0; padding: 0 20px;
+  font-size: var(--fs-aux); color: var(--muted-foreground);
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px 24px;
+}
+.legend b { color: var(--foreground); font-weight: 600; }
+
+/* ============ 通用区块 ============ */
+.section { max-width: 980px; margin: 40px auto 0; padding: 0 20px; }
+.section > h2 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.section > .section-sub { color: var(--muted-foreground); font-size: var(--fs-aux); margin-bottom: 14px; }
+.cols { display: flex; flex-wrap: wrap; gap: 20px; }
+.col { flex: 1 1 340px; min-width: 0; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.col > h3 { font-size: var(--fs-aux); font-weight: 650; color: var(--muted-foreground); margin-bottom: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.col--before > h3 { color: var(--destructive); }
+.col--after > h3 { color: var(--goal-tone-success); }
+
+/* ============ 文案收敛演示 ============ */
+.t-before { display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-aux); color: var(--muted-foreground); }
+.t-before .t-item { display: flex; gap: 6px; }
+.t-before .t-item::before { content: "✕"; color: var(--destructive); font-weight: 700; flex: none; }
+.t-after { display: flex; flex-direction: column; gap: 12px; }
+.t-merge { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-aux); }
+.t-merge .t-item { display: flex; gap: 6px; color: var(--muted-foreground); }
+.t-merge .t-item::before { content: "✓"; color: var(--goal-tone-success); font-weight: 700; flex: none; }
+.t-merge .t-item b { color: var(--foreground); font-weight: 600; }
+
+/* ============ 控制条演示 ============ */
+.strip-demo { display: flex; flex-direction: column; gap: 14px; }
+.s-before {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: color-mix(in oklab, var(--background) 96%, var(--muted));
+  padding: 5px 9px; font-size: var(--fs-aux);
+}
+.s-before .s-icon { width: 14px; height: 14px; flex: none; border-radius: 999px; background: var(--goal-tone-warning); }
+.s-before .s-label { color: var(--goal-tone-warning); font-weight: 650; white-space: nowrap; }
+.s-before .s-obj { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-aux); }
+.s-before .s-dur { flex: none; color: var(--muted-foreground); font-size: 11px; }
+.s-before .s-btn {
+  width: 22px; height: 22px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 7px; background: transparent; color: var(--muted-foreground);
+  font-size: 13px; cursor: pointer;
+}
+.s-before .s-cancel-note { flex-basis: 100%; font-size: var(--fs-aux); color: var(--muted-foreground); }
+.s-after {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: color-mix(in oklab, var(--background) 96%, var(--muted));
+  box-shadow: var(--shadow-soft);
+  padding: 5px 7px; font-size: var(--fs-aux); width: 420px; max-width: 100%;
+}
+.s-after .s-icon { width: 8px; height: 8px; flex: none; border-radius: 999px; background: var(--goal-tone-warning); }
+.s-after .s-label { color: var(--goal-tone-warning); font-weight: 650; white-space: nowrap; }
+.s-after .s-dur { color: var(--muted-foreground); font-size: 11px; white-space: nowrap; }
+.s-after .s-spacer { flex: 1; }
+.s-after .s-btn {
+  width: 24px; height: 24px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 8px; background: transparent; color: var(--muted-foreground); cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.s-after .s-btn:hover { background: var(--muted); color: var(--foreground); }
+.s-after .s-btn:active { transform: scale(0.97); }
+.s-after .s-btn svg { width: 14px; height: 14px; }
+.s-note { font-size: var(--fs-aux); color: var(--muted-foreground); }
+
+/* 设计说明（独立于产品 UI） */
+.proto-notes { margin-top: 40px; border-top: 1px solid var(--border); padding: 16px 20px 0; }
+.proto-notes details { max-width: 980px; margin: 0 auto; }
+.proto-notes summary { cursor: pointer; font-size: var(--fs-aux); font-weight: 600; color: var(--muted-foreground); }
+.proto-notes summary:hover { color: var(--foreground); }
+.proto-notes ul { margin: 10px 0 0 18px; display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-aux); color: var(--muted-foreground); }
+.proto-notes b { color: var(--foreground); font-weight: 600; }
+
+@media (max-width: 760px) {
+  .inspector { min-width: 0; width: 100% !important; }
+  .stage[data-width] .inspector { width: 100% !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="demo-bar">
+  <h1>Goal 侧栏优化示例</h1>
+  <div class="demo-group">
+    <button class="demo-btn" id="theme-toggle" type="button">🌙 暗色</button>
+  </div>
+  <div class="demo-group">
+    <span>面板宽度</span>
+    <button class="demo-btn" id="w340" type="button" aria-pressed="true">340px（最窄）</button>
+    <button class="demo-btn" id="w420" type="button" aria-pressed="false">420px</button>
+  </div>
+  <div class="demo-group">
+    <span>状态</span>
+    <button class="demo-btn" id="st-paused" type="button" aria-pressed="true">已暂停（预算耗尽）</button>
+    <button class="demo-btn" id="st-review" type="button" aria-pressed="false">待复核</button>
+  </div>
+  <p class="demo-sub">配套 <b>docs/reviews/goal-ui-review.zh-CN.md</b> 的 Before/After 对照示例。左为现状复刻（含问题编号 ●），右为修复方案（含修复标记 ●）。数据为模拟，交互仅作演示；token 数值为演示值，落地以生产为准。</p>
+</header>
+
+<div class="stage" id="stage" data-width="340">
+  <p class="panel-caption">两个面板内容完全相同——请对比滚动、按钮、层级、时间与说明文字的处理。</p>
+
+  <!-- ================= BEFORE ================= -->
+  <section class="inspector" aria-label="现状 Before">
+    <span class="inspector-tag inspector-tag--before">Before · 现状复刻</span>
+    <div class="inspector-tabs">
+      <span class="tab tab--active">目标</span><span class="tab-close">×</span>
+      <span class="tab">文件</span><span class="tab">终端</span>
+    </div>
+    <div id="panel-before" style="display:flex;flex-direction:column;min-height:0;flex:1;position:relative;"></div>
+    <div class="b-clip"></div>
+    <div class="b-clip-note"><span>⚠ 内容被裁剪，且无法滚动（G-01）</span></div>
+  </section>
+
+  <!-- ================= AFTER ================= -->
+  <section class="inspector" aria-label="优化后 After">
+    <span class="inspector-tag inspector-tag--after">After · 优化方案</span>
+    <div class="inspector-tabs">
+      <span class="tab tab--active">目标</span><span class="tab-close">×</span>
+      <span class="tab">文件</span><span class="tab">终端</span>
+    </div>
+    <div id="panel-after" style="display:flex;min-height:0;flex:1;"></div>
+  </section>
+</div>
+
+<aside class="legend" aria-label="问题编号图例">
+  <span><b>G-01</b> 内容区无滚动被裁剪</span>
+  <span><b>G-02</b> 动作行无 wrap / anywhere 断行</span>
+  <span><b>G-03</b> 按钮体系脱节（无 hover/active）</span>
+  <span><b>G-05</b> 导航与动作按钮同款</span>
+  <span><b>G-06</b> 字号 16/13/12 混用</span>
+  <span><b>G-07</b> 信息层级扁平、无 tone</span>
+  <span><b>G-08</b> 准则状态无语义色</span>
+  <span><b>G-09</b> ISO 时间 / 毫秒数值未本地化</span>
+  <span><b>G-14</b> 折叠无展开指示</span>
+  <span><b>G-15</b> 确认组无视觉容器</span>
+  <span><b>T-A</b> Note 3 条平铺 → 1 行 + ? 浮层</span>
+  <span><b>T-F</b> 预算结构化（修复毫秒拼接）</span>
+</aside>
+
+<!-- ================= 文案收敛 ================= -->
+<section class="section" aria-labelledby="t-heading">
+  <h2 id="t-heading">说明性文字收敛：从「平铺」到「一行 + ? 浮层」</h2>
+  <p class="section-sub">对齐 DESIGN_LANGUAGE.md L187-191「大段辅助说明应收拢到 ? 浮层，保留一行 helper」。以下文案均取自当前 i18n 真实内容。</p>
+  <div class="cols">
+    <div class="col col--before">
+      <h3>Before · needs_review 状态侧栏平铺（3 条 Note 连排）</h3>
+      <div class="t-before">
+        <span class="t-item">请先复核证据再做决定。（goalNeedsReviewNote）</span>
+        <span class="t-item">验收通过会记录你对当前结果的确认；未机器验证的项按人工验收记录，不会伪装成机器通过。（goalNeedsReviewAcceptNote，42 字）</span>
+        <span class="t-item">继续执行会把目标交回模型继续推进，不代表验收通过。（goalNeedsReviewContinueNote）</span>
+        <span class="t-item">同一批 Note 还会在聊天 Goal 卡再显示一遍（K-01，同屏最多 6 条、3 条逐字重复）</span>
+        <span class="t-item">预算追加确认另有 4 段长文案平铺，如「实际已用 / 上限：1800000 / 1800000 毫秒；8 / 8 轮」（G-09）</span>
+      </div>
+    </div>
+    <div class="col col--after">
+      <h3>After · 一行可行动提示 + ？浮层承接机制说明</h3>
+      <div class="t-after">
+        <div class="a-hint" style="max-width:420px">
+          <span>待复核——「验收通过」记录人工确认，「继续执行」交回模型推进</span>
+          <span class="pop">
+            <button class="qbtn" type="button" data-note-toggle aria-label="查看说明">?</button>
+            <div class="pop__body" hidden>
+              <span><b>验收通过</b>：记录你对当前结果的确认；未机器验证的项按人工验收记录，不会伪装成机器通过。</span>
+              <span><b>继续执行</b>：把目标交回模型继续推进，不代表验收通过。</span>
+              <span><b>取消</b>：取消目标不会回滚它已经改动的文件（仅在取消确认时出现一次，T-01 合并）。</span>
+            </div>
+          </span>
+        </div>
+        <div class="t-merge">
+          <span class="t-item"><b>T-03</b>「继续执行/继续工作」分工：goalKeepWorking 改「继续工作」，与 en（Keep working）对齐</span>
+          <span class="t-item"><b>T-04</b> 删除逐字重复 key：goalActionSubmitting ≡ goalActionInProgress（更新中…）</span>
+          <span class="t-item"><b>T-06</b> 预算耗尽 4 处语义合并为结构化展示（见上方 After 面板预算区）</span>
+          <span class="t-item"><b>T-G</b> Note 只在侧栏显示一次，聊天卡不再平铺（K-01）</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 控制条 ================= -->
+<section class="section" aria-labelledby="c-heading">
+  <h2 id="c-heading">输入框控制条：回归「单行极简」承诺（C-02）</h2>
+  <p class="section-sub">goal-control-strip.ts 头注释与 index.css 注释均承诺「状态 icon + 短标签 + 至多两个 icon 按钮，objective 归摘要视图」，实现却塞入目标全文、时长、错误与内联取消三连。</p>
+  <div class="cols">
+    <div class="col col--before">
+      <h3>Before · 单行全家桶（7+ 节点）</h3>
+      <div class="strip-demo">
+        <div class="s-before">
+          <span class="s-icon"></span>
+          <span class="s-label">已暂停</span>
+          <span class="s-obj">重构用户中心登录流程，替换旧会话接口并通过全部六条验收标准</span>
+          <span class="s-dur">已记录 1832 秒</span>
+          <span style="flex:1"></span>
+          <button class="s-btn" type="button" title="取消目标">×</button>
+          <button class="s-btn" type="button" title="查看目标摘要">⤢</button>
+        </div>
+        <div class="s-before">
+          <span class="s-icon"></span>
+          <span class="s-label">已暂停</span>
+          <span class="s-obj">重构用户中心登录流程，替换旧会话接口并通过全部六条验收标准</span>
+          <span style="flex:1"></span>
+          <button class="s-btn" type="button" title="暂停">Ⅱ</button>
+          <button class="s-btn" type="button" title="查看目标摘要">⤢</button>
+          <span class="s-cancel-note">取消这个目标？取消目标不会回滚它已经改动的文件。</span>
+          <button class="s-btn" type="button">取消目标</button>
+          <button class="s-btn" type="button">继续执行</button>
+        </div>
+        <p class="s-note">目标全文与置顶摘要首分区重复；「已记录 1832 秒」不如「31 分钟」可读；取消确认三节点与常规行混排。</p>
+      </div>
+    </div>
+    <div class="col col--after">
+      <h3>After · icon + 状态词 + 时长 + 两个 icon 按钮</h3>
+      <div class="strip-demo">
+        <div class="s-after">
+          <span class="s-icon"></span>
+          <span class="s-label">已暂停</span>
+          <span class="s-dur">已记录 31 分钟</span>
+          <span class="s-spacer"></span>
+          <button class="s-btn" type="button" aria-label="继续执行" title="继续执行">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+          </button>
+          <button class="s-btn" type="button" aria-label="查看目标摘要" title="查看目标摘要（目标正文在摘要与侧栏）">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </button>
+        </div>
+        <p class="s-note">目标正文移除（置顶摘要首分区与侧栏已完整展示）；时长格式化为分钟；取消确认保持内联但仅展开时占用第二行，文案合并为一句（T-01）。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 设计说明 ================= -->
+<footer class="proto-notes">
+  <details>
+    <summary>设计说明（独立于产品 UI 的评审脚注）</summary>
+    <ul>
+      <li><b>对照范围</b>：Before 面板逐条复刻 goal-inspector.css 现状值（gap 14 / padding 18 / 13px / anywhere / 裸按钮无 hover），After 为修复提案；两面板共享同一份模拟数据与状态切换。</li>
+      <li><b>G-01</b>：After 采用 SubagentRunDetailContent 同款滚动容器模式（flex-1 min-h-0 overflow-y-auto + 细滚动条 + overscroll-behavior:contain），并把动作按钮固定在底部动作栏，滚动不丢失。</li>
+      <li><b>G-02 修正说明</b>：经 src/lib/goal.ts:280-294 谓词核实，当前状态机动作行最多 2 个按钮，340px 下不实际溢出——本示例演示的是健壮性修复（flex-wrap + 按钮 white-space:nowrap + anywhere 收敛到正文），非真实溢出复现。</li>
+      <li><b>G-03</b>：按钮三层体系 primary/secondary/ghost，含 hover / :active scale(0.97) / focus-visible / transition（--dur-fast）。落地时应直接复用生产 Button 组件变体，而非示例内重写。</li>
+      <li><b>tone token（C-01）</b>：示例将 #3478d4/#d97706/rgb(4 143 101) 统一声明为 --goal-tone-* 语义变量并提供暗色覆盖；当前生产在 index.css:6823-6827 与 6930 两处重复硬编码。</li>
+      <li><b>badge 与色块的 color-mix 数值</b>为演示值；按 DESIGN_LANGUAGE L206-219，落地前须经真实界面预览确认不比邻近组件更黑更重。</li>
+      <li><b>T-A/T-F</b>：一行提示文案为提案（每状态 ≤16 字），机制长句进 ? 浮层；预算改结构化双行 + 进度条 + 「已耗尽」chip，毫秒拼接文案移除。</li>
+      <li><b>未演示</b>：edit 视图（textarea min-height 修复方向：min(260px, 40vh) + 外层滚动）、外壳问题 G-16（另开 feature）、真实 IME/焦点/屏幕阅读器行为。</li>
+      <li>本文件自包含（无外部资源/网络调用），仅为设计对齐用途，不构成生产代码。</li>
+    </ul>
+  </details>
+</footer>
+
+<script>
+(function () {
+  'use strict'
+
+  var STATES = {
+    paused: {
+      statusText: '已暂停',
+      toneVar: 'var(--goal-tone-warning)',
+      hint: '已暂停——继续前需确认追加预算与范围',
+      objective: '重构用户中心登录流程：替换旧会话接口、补齐双因子登录分支，并通过全部六条验收标准',
+      blocker: '时间预算已耗尽',
+      summary: '已完成旧接口替换与登录主路径改造；双因子分支剩余异常提示与回归验证未完成，等待追加预算后继续。',
+      updatedAt: '14:32（3 分钟前）',
+      criteria: [
+        { desc: '旧会话接口全部替换并通过编译检查', status: 'pass', statusText: '已通过', evidence: [{ tool: 'run_command', desc: 'npm run build 通过，0 error', id: 'tc_9f21', time: '14:02', iso: '2026-09-10T06:02:41.000Z' }] },
+        { desc: '双因子登录分支异常提示完整', status: 'pending', statusText: '待处理', evidence: [] },
+        { desc: '回归验证：登录成功率 ≥ 99.5%', status: 'pending', statusText: '待处理', evidence: [] }
+      ],
+      budget: { usedIter: 8, maxIter: 16, usedMin: 30, maxMin: 60, iterExhausted: false, minExhausted: true },
+      scope: ['仅限 src/auth 与相关测试', '不改数据库 schema', '不引入新依赖'],
+      notes: [
+        { title: '继续执行', body: '恢复暂停或受阻的目标需要确认；预算耗尽时需先确认追加额度。' },
+        { title: '暂停与取消', body: '暂停或取消不会回滚已完成的改动（取消确认时再提示一次）。' },
+        { title: '范围', body: '中途新要求需先暂停、修改目标并重新确认，范围不会悄悄扩大。' }
+      ],
+      confirm: { line: '追加 30 分钟（仅时间维度已耗尽）', sub: '保留已用 8 轮与全部证据；追加后仍不足则保持暂停。', primary: '追加并继续', secondary: '继续暂停' },
+      actions: [ { kind: 'primary', label: '追加预算并继续' }, { kind: 'ghost', label: '取消目标' } ]
+    },
+    review: {
+      statusText: '待复核',
+      toneVar: 'var(--goal-tone-warning)',
+      hint: '待复核——「验收通过」记录人工确认，「继续执行」交回模型推进',
+      objective: '重构用户中心登录流程：替换旧会话接口、补齐双因子登录分支，并通过全部六条验收标准',
+      blocker: '',
+      summary: '六条验收标准中五条已通过并附工具证据；回归验证一条未达标，请复核后决定验收或继续修复。',
+      updatedAt: '15:07（刚刚）',
+      criteria: [
+        { desc: '旧会话接口全部替换并通过编译检查', status: 'pass', statusText: '已通过', evidence: [{ tool: 'run_command', desc: 'npm run build 通过，0 error', id: 'tc_9f21', time: '14:02', iso: '2026-09-10T06:02:41.000Z' }] },
+        { desc: '双因子登录分支异常提示完整', status: 'pass', statusText: '已通过', evidence: [{ tool: 'grep_files', desc: '异常分支文案 4/4 命中', id: 'tc_a103', time: '14:40', iso: '2026-09-10T06:40:03.000Z' }] },
+        { desc: '回归验证：登录成功率 ≥ 99.5%', status: 'review', statusText: '待复核', evidence: [{ tool: 'run_command', desc: '压测 99.3%，未达 99.5% 阈值', id: 'tc_c744', time: '15:01', iso: '2026-09-10T07:01:55.000Z' }] }
+      ],
+      budget: { usedIter: 8, maxIter: 8, usedMin: 27, maxMin: 30, iterExhausted: true, minExhausted: false },
+      scope: ['仅限 src/auth 与相关测试', '不改数据库 schema', '不引入新依赖'],
+      notes: [
+        { title: '验收通过', body: '记录你对当前结果的确认；未机器验证的项按人工验收记录，不会伪装成机器通过。' },
+        { title: '继续执行', body: '把目标交回模型继续推进，不代表验收通过。' },
+        { title: '取消', body: '取消目标不会回滚它已经改动的文件。' }
+      ],
+      confirm: null,
+      actions: [ { kind: 'primary', label: '验收通过' }, { kind: 'secondary', label: '继续执行' }, { kind: 'ghost', label: '取消目标' } ]
+    }
+  }
+
+  var stateKey = 'paused'
+
+  function esc (s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  }
+
+  function renderBefore (d) {
+    var criteriaHtml = d.criteria.map(function (c) {
+      var ev = c.evidence.map(function (e) {
+        return '<details><summary>证据 · ' + esc(e.tool) + '</summary><p>' + esc(e.desc) +
+          '<br><code>' + esc(e.id) + '</code><br><time>' + esc(e.iso) + '</time></p></details>'
+      }).join('')
+      return '<div style="display:flex;flex-direction:column;gap:4px"><p>' + esc(c.desc) +
+        ' <span class="b-meta">· ' + esc(c.statusText) + '</span></p>' + ev + '</div>'
+    }).join('')
+    var notes = ['goalPauseCancelNote', 'goalResumeNote', 'goalScopeChangeNote'].map(function (k) {
+      var map = {
+        goalPauseCancelNote: '暂停或取消不会回滚已完成的改动。',
+        goalResumeNote: '恢复暂停或受阻的目标需要确认。',
+        goalScopeChangeNote: '中途新要求需先暂停、修改目标并重新确认，范围不会悄悄扩大。'
+      }
+      return '<p class="b-note">' + esc(map[k]) + '</p>'
+    }).join('')
+    var blocker = d.blocker ? '<p role="status">' + esc(d.blocker) + '</p>' : ''
+    var actions = d.actions.map(function (a) { return '<button type="button">' + esc(a.label) + '</button>' }).join('')
+    return '' +
+      '<div class="b-goal">' +
+        '<nav><button type="button" aria-pressed="true">进度</button><button type="button" aria-pressed="false">编辑目标</button></nav>' +
+        '<div class="b-status">' + esc(d.statusText) + '<span class="mk" title="G-06：字号 16/13/12 混用，h3 无样式裸继承 13px">6</span></div>' +
+        '<h2>' + esc(d.objective) + '<span class="mk" title="G-07：正文节点零样式平铺，无 tone 层级">7</span></h2>' +
+        blocker +
+        '<p>' + esc(d.summary) + '</p>' +
+        '<h3>验收标准<span class="mk" title="G-08：状态为纯文本 · 已通过，无语义色">8</span></h3>' +
+        criteriaHtml +
+        '<details><summary>范围 · 预算<span class="mk" title="G-14：无展开指示">14</span></summary>' +
+          '<ul>' + d.scope.map(function (s) { return '<li>' + esc(s) + '</li>' }).join('') + '</ul>' +
+          '<p>预算: 8 次迭代 · 30 分钟</p><p>已用: ' + d.budget.usedIter + ' 次迭代 · ' + d.budget.usedMin + ' 分钟</p>' +
+          '<p><time>2026-09-10T06:41:22.000Z</time><span class="mk" title="G-09：ISO 原始串与毫秒数值未本地化">9</span></p>' +
+        '</details>' +
+        notes +
+        '<div class="b-actions">' + actions + '<span class="mk" title="G-02：无 flex-wrap + anywhere 断行；G-03：裸按钮无 hover/active">2·3</span></div>' +
+      '</div>'
+  }
+
+  function renderAfter (d) {
+    var criteriaHtml = d.criteria.map(function (c, i) {
+      var ev = c.evidence.map(function (e) {
+        return '<details><summary>证据 · ' + esc(e.tool) + '</summary><div>' + esc(e.desc) +
+          ' · <code>' + esc(e.id) + '</code> · <time>' + esc(e.time) + '</time></div></details>'
+      }).join('')
+      return '<div class="a-criterion"><span class="badge badge--' + esc(c.status) + '">' + esc(c.statusText) + '</span>' +
+        '<div class="desc">' + esc(c.desc) + ev + '</div></div>'
+    }).join('')
+    var notesPopover = d.notes.map(function (n) {
+      return '<span><b>' + esc(n.title) + '</b>：' + esc(n.body) + '</span>'
+    }).join('')
+    var iterTone = d.budget.iterExhausted ? 'var(--goal-tone-warning)' : 'var(--goal-tone-info)'
+    var minTone = d.budget.minExhausted ? 'var(--goal-tone-warning)' : 'var(--goal-tone-info)'
+    var confirmHtml = d.confirm
+      ? '<div class="a-confirm">' +
+          '<div class="row"><b>' + esc(d.confirm.line) + '</b><span class="sub">' + esc(d.confirm.sub) + '</span></div>' +
+          '<div class="ops"><button class="btn btn--primary" type="button">' + esc(d.confirm.primary) + '</button>' +
+          '<button class="btn btn--ghost" type="button">' + esc(d.confirm.secondary) + '</button></div>' +
+        '</div>'
+      : ''
+    var blockerHtml = d.blocker
+      ? '<div class="a-blocker"><span class="mk mk--ok" title="G-07 修复：blocker tone 化">✓</span>' + esc(d.blocker) + '</div>'
+      : ''
+    var actionsHtml = d.actions.map(function (a, i) {
+      return '<button class="btn btn--' + esc(a.kind) + '" type="button"' + (i === d.actions.length - 1 && a.kind === 'ghost' ? ' disabled title="演示：危险操作默认弱化"' : '') + '>' + esc(a.label) + '</button>'
+    }).join('')
+    return '' +
+      '<div class="a-goal" style="--tone:' + d.toneVar + '">' +
+        '<div class="a-scroll">' +
+          '<div class="seg"><button type="button" aria-pressed="true">进度</button><button type="button" aria-pressed="false">编辑目标</button></div>' +
+          '<div class="a-statusrow"><span class="a-dot"></span><b>' + esc(d.statusText) + '</b><span class="pop">' +
+            '<button class="qbtn" type="button" data-note-toggle aria-label="查看状态说明">?</button>' +
+            '<div class="pop__body" hidden>' + notesPopover + '</div></span>' +
+            '<time>' + esc(d.updatedAt) + '</time></div>' +
+          '<div class="a-objective">' + esc(d.objective) + '</div>' +
+          blockerHtml +
+          '<p class="a-summary">' + esc(d.summary) + '</p>' +
+          '<div class="a-sectiontitle">验收标准</div>' +
+          '<div class="a-criteria">' + criteriaHtml + '</div>' +
+          '<div class="a-sectiontitle">预算</div>' +
+          '<div class="a-budget">' +
+            '<div class="a-budget-row"><span class="lbl">轮次</span><span class="meter"><i style="width:' + Math.round(d.budget.usedIter / d.budget.maxIter * 100) + '%;--meter-tone:' + iterTone + '"></i></span>' +
+              '<span class="val">' + d.budget.usedIter + '<em>/' + d.budget.maxIter + ' 轮</em></span>' +
+              (d.budget.iterExhausted ? '<span class="chip">已耗尽</span>' : '') + '</div>' +
+            '<div class="a-budget-row"><span class="lbl">时长</span><span class="meter"><i style="width:' + Math.round(d.budget.usedMin / d.budget.maxMin * 100) + '%;--meter-tone:' + minTone + '"></i></span>' +
+              '<span class="val">' + d.budget.usedMin + '<em>/' + d.budget.maxMin + ' 分钟</em></span>' +
+              (d.budget.minExhausted ? '<span class="chip">已耗尽</span>' : '') + '</div>' +
+          '</div>' +
+          '<details class="a-scope"><summary>范围（' + d.scope.length + ' 项）</summary><ul>' +
+            d.scope.map(function (s) { return '<li>' + esc(s) + '</li>' }).join('') + '</ul></details>' +
+          confirmHtml +
+          '<div class="a-hint"><span>' + esc(d.hint) + '</span><span class="pop">' +
+            '<button class="qbtn" type="button" data-note-toggle aria-label="查看机制说明">?</button>' +
+            '<div class="pop__body" hidden>' + notesPopover + '</div></span></div>' +
+        '</div>' +
+        '<div class="a-actionbar">' + actionsHtml + '<span class="who">更新于 ' + esc(d.updatedAt) + '</span></div>' +
+      '</div>'
+  }
+
+  function render () {
+    var d = STATES[stateKey]
+    document.getElementById('panel-before').innerHTML = renderBefore(d)
+    document.getElementById('panel-after').innerHTML = renderAfter(d)
+  }
+
+  function setActive (ids, activeId) {
+    ids.forEach(function (id) {
+      var el = document.getElementById(id)
+      el.setAttribute('aria-pressed', String(id === activeId))
+      el.classList.toggle('is-active', id === activeId)
+    })
+  }
+
+  document.getElementById('theme-toggle').addEventListener('click', function () {
+    var root = document.documentElement
+    var dark = root.getAttribute('data-theme') === 'dark'
+    if (dark) { root.removeAttribute('data-theme'); this.textContent = '🌙 暗色' }
+    else { root.setAttribute('data-theme', 'dark'); this.textContent = '☀️ 亮色' }
+  })
+
+  document.getElementById('w340').addEventListener('click', function () {
+    document.getElementById('stage').setAttribute('data-width', '340')
+    setActive(['w340', 'w420'], 'w340')
+  })
+  document.getElementById('w420').addEventListener('click', function () {
+    document.getElementById('stage').setAttribute('data-width', '420')
+    setActive(['w340', 'w420'], 'w420')
+  })
+  document.getElementById('st-paused').addEventListener('click', function () {
+    stateKey = 'paused'; setActive(['st-paused', 'st-review'], 'st-paused'); render()
+  })
+  document.getElementById('st-review').addEventListener('click', function () {
+    stateKey = 'review'; setActive(['st-paused', 'st-review'], 'st-review'); render()
+  })
+
+  /* ? 浮层：点击切换 / 点击外部关闭 / Escape 关闭 */
+  document.addEventListener('click', function (event) {
+    var toggle = event.target.closest ? event.target.closest('[data-note-toggle]') : null
+    document.querySelectorAll('.pop__body:not([hidden])').forEach(function (body) {
+      if (!toggle || !body.parentElement.contains(toggle)) body.hidden = true
+    })
+    if (toggle) {
+      var body = toggle.parentElement.querySelector('.pop__body')
+      if (body) body.hidden = !body.hidden
+    }
+  })
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') {
+      document.querySelectorAll('.pop__body:not([hidden])').forEach(function (body) { body.hidden = true })
+    }
+  })
+
+  render()
+})()
+</script>
+</body>
+</html>

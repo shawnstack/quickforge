@@ -117,6 +117,19 @@ describe('shared conversation context reference safety', () => {
     expect(mocks.runPrompt).not.toHaveBeenCalled()
   })
 
+  it('rejects /goal before restoring or prompting in a shared conversation', async () => {
+    const { handleSharedConversationApi } = await import('../../../server/routes/shared-conversation.mjs')
+
+    await expect(handleSharedConversationApi(
+      request('POST', { content: '/goal Ship goal mode' }),
+      response(),
+      new URL('http://localhost/api/shared/share-1/message'),
+    )).rejects.toMatchObject({ statusCode: 409, errorCode: 'GOAL_UNAVAILABLE' })
+
+    expect(mocks.restoreAgent).not.toHaveBeenCalled()
+    expect(mocks.runPrompt).not.toHaveBeenCalled()
+  })
+
   it('strips contextReferences but preserves selectedCapabilities in shared session history', async () => {
     const selectedCapabilities = [{ type: 'plugin', pluginName: 'documents', name: 'documents', label: 'Documents' }]
     mocks.getSessionState.mockReturnValue({

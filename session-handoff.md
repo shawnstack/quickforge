@@ -1,3 +1,76 @@
+## 当前交接：retry-preserve-tool-history（done，实现与全量自动验证完成；浏览器未验收）
+
+- 目标：用户提出「点重试会清掉对话、丢掉已执行 tools 调用，模型上下文对已改文件无感知」，确认按方案 A（按失败阶段分流）改造重试语义——被重试回合已产生 `toolResult` 时保留整段历史并在末尾追加一条「继续」用户消息续跑，纯文本失败仍走截断重生成。新增独立 feature，无依赖。
+- 调研要点：现状是刻意的「原地重生成」（前端 `useChatActions.ts` slice + 服务端 `continueSession` slice），副作用是丢弃失败轮已完成的工具调用；pi-ai 会把 `stopReason: error/aborted` 的 assistant 整条跳过，所以收益只在保住工具记录。只改服务端会坏（服务端消息数多于本地 → split 位置合并永久错位，summary 对账只在服务端更少时自愈），因此前端必须同步去掉截断并乐观追加同一条消息（role+timestamp 对齐）。
+- 实现：`src/lib/message-utils.ts` 新增 `hasToolResultsAfter`；`src/hooks/useChatActions.ts` `retryFromMessage` 分流；`src/lib/server-agent.ts` `continue(appendMessage?)`（照 `steer` 的乐观 push + `message_start` + 失败回滚，Cloud 模型补 `quickforgeClientMessageId`）；`src/lib/deferred-session-agent.ts` 透传；`server/agent-manager.mjs` 新增 `normalizeRetryAppendMessage` 与 `continueSession(sessionId, modelAccessContext, appendMessage)` 追加模式（canonical capabilities/refs 覆盖 details、新 timestamp、服务端新铸 logical id）；`server/routes/agent.mjs` continue 路由读可选 body `{message}`。未传 `message` 时截断逻辑逐字保留，ACP/其他调用方零影响。
+- 改动文件（16个）：`server/agent-manager.mjs`、`server/routes/agent.mjs`、`src/hooks/useChatActions.ts`、`src/lib/server-agent.ts`、`src/lib/deferred-session-agent.ts`、`src/lib/message-utils.ts`、`tests/server/agent-manager.context-references.test.mjs`、`tests/frontend/server-agent.test.ts`、`tests/frontend/message-utils.test.ts`、`docs/wiki/server/README.md`、`docs/wiki/server/routes/README.md`、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 `npx vitest run tests/server/agent-manager.context-references.test.mjs tests/frontend/server-agent.test.ts tests/frontend/message-utils.test.ts tests/frontend/message-actions.test.ts tests/server/routes/agent.test.mjs tests/server/agent-manager.external-sync.test.mjs` 退出码 0（5 files / 244 tests passed）；`npm run test` 退出码 0（322 files / 3617 tests passed，较上轮 +1 file/+6 tests）；`npm run lint` 退出码 0（仅既有 `server/cloud/identity.mjs:92` warning）；`npm run build` 退出码 0（仅既有 KaTeX 字体与 chunk 体积 warning）。覆盖追加模式保留 `toolResult` 且模型上下文仍含工具结果、timestamp 与 canonical references、无 `message` 时仍截断、前端乐观追加与请求体、失败回滚。
+- Blocker/限制：无实现或自动验证阻断。done 不代表真实浏览器/真实模型验收；未验证项为 provider 对连续两条 user 消息的接受度（自动压缩 summary 是既有同形态先例，未线上验证）。追加正文复用 i18n `errorContinueMessage`，随当时语言持久化。发送失败仍走 `retryFailedPrompt` 原样重发；分享页重试仍为 no-op。
+- Notes：既有 `retryFromMessage` 可对任意 user 消息重试而服务端始终取最后一条 user 消息的口径不一致，未在本轮扩大处理。未新增/升级依赖，未手工修改 `dist/`、`package-dist/`、`package-offline/`（build 正常刷新 dist），无 Git commit/tag/push/发布。
+- 下一步：加载新前端后实测一次「多步工具中断 → 点重试」，确认 provider 接受追加消息且工具历史保留；改动未提交。
+
+---
+
+## 上一轮交接：goal-parallel-sessions（done，实现与全量自动验证完成；浏览器未验收）
+
+- 目标：用户确认将 Goal 互斥由「同一工作区最多一个活跃 goal」改为「同一会话最多一个活跃 goal」；不同会话（含共享同一合成默认工作区的全部全局对话、两个 projectId 指向同一目录的场景）可各自持有活跃 goal 并真正并行执行，`/goal` 不再返回工作区冲突 409。依赖 `goal-stage-order-target-icon`（done），其历史 diff 与下文全部记录原样保留。
+- 实现：删除 `GOAL_WORKSPACE_CONFLICT`(409)、`findWorkspaceGoalConflict`/`assertWorkspaceFree`/`workspaceKeyForSession`/`workspaceKeyForMetadata`/`activeSessionGoal`、`goalWorkspaceKey`/`normalizeWorkspaceKey`，以及 `agent-manager` 只为该互斥注入的 `resolveWorkspaceRoot` 与 runner 侧对应依赖；start/confirm/resume/revise/extend_resume 由按 sessionId 串行的 admission 队列执行锁内 re-check + 提交所有权，同会话 `session.goal` 读写不交错、不同会话互不阻塞。
+- X1 修复：`startGoalPlanning` 的「本会话已有活跃 goal」检查与 `clearGoalTermination` 移入会话锁内（此前在锁外，同会话并发 `/goal` 存在双写窗口）。
+- 改动文件：`server/{agent-goal-runner,agent-goal-state,agent-manager}.mjs`、`server/agent-persistence.mjs`（仅一处陈旧注释）、`tests/server/{agent-goal-runner,agent-goal-state}.test.mjs`、`docs/wiki/README.md`、`docs/wiki/server/README.md`（wiki 由另一 subagent 完成）；本轮另同步 `CHANGELOG.md` 与三状态文件。
+- 验证：父 Agent 实跑定向 `npx vitest run tests/server/agent-goal-runner.test.mjs tests/server/agent-goal-state.test.mjs tests/server/agent-goal-manager.test.mjs tests/server/routes/agent.goal.test.mjs` 退出码 0（4 files / 176 tests passed）；`npm run test` 退出码 0（321 files / 3611 tests passed）；`npm run lint` 退出码 0（仅既有 `server/cloud/identity.mjs:92` no-useless-assignment warning）；`npm run build` 退出码 0（仅既有 KaTeX 字体解析与 chunk 体积 warning）。覆盖同会话第二个 goal 被拒、不同会话与同路径两个 projectId 各自开 goal、两个不同会话并发 start 均成功且各持 own goal、同会话并发两次 `/goal` 恰好一个成功且 persistSession 仅 1 次；grep 确认删除符号零残留引用。
+- Blocker/限制：无实现或自动验证阻断；done 表示实现与全量自动验证完成，未做真实浏览器/真实模型验收。语义变更：同一工作区（尤其全局对话共享的默认工作区目录）可同时有多个 goal 并行跑工具，可能互相写文件或执行命令，互不隔离；「别的对话已有活跃 goal」的 409 提示与持久化 metadata 冲突扫描复核逻辑永久移除。
+- Notes：`docs/reviews` 下历史评审文档按历史保留原样；未新增/升级依赖，未手工修改 `dist/`、`package-dist/`、`package-offline/`（build 正常刷新 dist），无 Git commit/tag/push/发布。发现但未修的无关问题：无。
+- 下一步：父 Agent 最终审查后补真实浏览器验证（多对话并行开 goal、同会话并发 `/goal` 只成功一个）；改动未提交。
+
+---
+
+## 上一轮交接：goal-stage-order-target-icon（done，实现与针对性自动验证完成；浏览器未测）
+
+- 目标：用户已授权的阶段分隔线顺序与 Goal 靶心图标调整，依赖 `goal-stage-divider-live-sync`（done）；divider `order: 3` 排在 actions `order: 2` 下方，新共享 `GoalIcon` 为 24 viewBox、currentColor、2px 双圆箭中靶心线条 SVG。摘要行、胶囊 Goal 段、Inspector Tab/溢出菜单共四身份入口复用；其他状态图标、导航及执行逻辑不变。
+- 改动文件（源码与测试10个）：`src/index.css`、`src/components/goal-icon.tsx`、`src/components/git/{GoalSummarySection,GitToolsPinnedSummary}.tsx`、`src/components/workspace/WorkspaceInspector.tsx`、`tests/frontend/{goal-icon,goal-iteration-divider,goal-summary-section,git-tools-pinned-summary,workspace-inspector-tabs}.test.ts`；另有 `docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`，完整14路径见 feature。此收尾委派仅编辑 Wiki 与三状态文件。
+- 验证：实现委派及父 Agent 复跑定向9文件/196测试通过；委派 `npm run lint` 退出0，仅既有 `server/cloud/identity.mjs:92` warning，tsc通过。父 Agent 独立复跑 `npm run lint` 退出0，仅既有 `server/cloud/identity.mjs:92` warning；`npx --no-install tsc -b --pretty false` 退出0；本委派仅做 JSON、唯一ID、依赖、14文件路径、历史保留及 `git diff --check` 检查。
+- Blocker/限制：实现与已执行针对性自动验证无阻断；父 Agent 最终审查待收尾。done 不表示真实浏览器通过，CSS/fallback与SVG/入口契约测试不替代真实布局、窄屏/主题/焦点/读屏或模型实测。未跑全量 test/build，无依赖/生成产物/Git commit/tag/push/发布。
+- Notes：全部旧 feature、历史、既有未提交 diff 及前轮 `docs/reviews/goal-ux-ui-review.zh-CN.md`、`design-mockups/goal-ux-ui-optimization.html` 保留，不修其他评审问题。Wiki 仅补视觉顺序和共享图标职责，不改 server/架构总览；SVG 本身已是所需小图标，无需新解释图。
+- 下一步：父 Agent 完成最终审查后交付；补真实浏览器确认操作栏下方分隔线及四入口图标的亮暗/窄屏观感。改动未提交。
+
+---
+
+## 当前交接：goal-ux-ui-review-prototype（done，仅评审交付与自动验证完成）
+
+- 目标/交付：依赖 `goal-stage-divider-live-sync`（done），接续复核完善轮初已存在的未跟踪报告与原型草稿，非从零新建。`docs/reviews/goal-ux-ui-review.zh-CN.md` 提供完整旅程评审、G01–G11、文案/信息架构与分阶段建议；`design-mockups/goal-ux-ui-optimization.html` 为九场景模拟交互，已有交接/状态 SVG。
+- 改动文件：上述报告、原型及 `feature_list.json`、`progress.md`、`session-handoff.md`；本次收尾仅四文件（报告验证段 + 三状态），不动原型或其他文件。原型此前仅修 planning 同 scene 重新保存 timer 复用，generation + revision guard 隔离旧回调；生产问题未修。
+- 验证：父 Agent Node 内联 `vm.Script`、71 唯一 ID、18 HTML 引用、零外部资源、9 场景、4 种规划双屏障、预算/编辑冲突、G01–G11 映射检查退出 0；28 组 fake DOM 事件及 timer guard 通过；定向 Vitest 8 文件/187 测试退出 0，完整命令在报告。委派 6 项虚拟时钟及负对照通过，不混入父级 28 组。
+- Blocker/限制：交付无自动验证阻断；done 只表示评审交付与自动验证，不代表 G01–G11 产品缺陷修复或真实浏览器通过，不预写本 Goal 运行状态 completed。fake DOM 不是浏览器；无可用真实 browser/Playwright 通道，不装依赖；真实模型、布局、焦点/读屏仍未实测。本轮未跑全量 test/lint/build。
+- Notes/边界：父级首次静态检查操作数字面顺序断言写反，更正检查重跑退出 0；委派长命令包装失败拆短后通过，非生产测试失败。所有旧 feature、历史与既有改动保留；不改生产代码/测试/Wiki/依赖/生成产物，无 Git 提交/tag/push/发布。纯提案未改变现行契约、架构或公共入口，Wiki 无需更新。
+- 下一步：父 Agent 整合交付；另开独立生产修复优先 G01/G02/G04，并按报告补真实浏览器与采纳后回归。报告与原型仍未跟踪、改动未提交，不把旧评审缺陷标为解决。
+
+---
+
+## 当前交接：goal-stage-divider-live-sync（done，实现与全量自动验证完成）
+
+- 目标：Goal 规划/执行分隔线实时可见且持久化；依赖 `goal-plan-handoff-fix`（done）。该轮历史 diff、旧 feature 状态及无关问题全部保留，本轮不扩范围。
+- 实现契约：planning/execution marker，legacy 无 kind 按 execution；规划 iteration 可 0 但 UI 不显示轮数。有效 plan 正常轮末+保存成功才「计划已就绪」，completed 同屏障；staged pair + 消息数组/长度/条目引用 guard，settling 拒绝 runPrompt，冲突保留 live history 暂停、取消优先。内部 forceMessagesReplace 保存非尾 assistant marker，不绕 CAS；chunked 派发前 canPersist 再验。
+- 同步契约：split state/GET 稀疏 goalIterationMarkers 不传正文，索引+身份校验，最新 snapshot 在后到消息后重放；full metadata 不放宽正文 streaming 门禁。专用本地 message_metadata_updated 刷新 Host 窗口消息/装饰，不清 process、不恢复 draft；marker 实际变化推进消息 watermark，goal_updated 不推进。
+- 改动文件：server/{agent-goal-runner,agent-manager,agent-persistence,agent-session-events,session-state-service}.mjs；src/components/chat/{ChatPanelHost.tsx,panel-decoration/goal-iteration-divider.ts}；src/lib/{i18n,server-agent}.ts；tests/server/{agent-goal-runner,agent-session-events,session-state-service}.test.mjs；tests/frontend/{goal-iteration-divider,message-actions,server-agent}.test.ts；docs/wiki/{server,src/lib,src/components}/README.md 与三状态文件。完整 21 文件清单见 feature_list.json；上轮独有 system-prompt/对应测试、server/tools Wiki、runtime 新测试不计入本次。本次收尾委派仅更新三状态文件；Wiki 现行契约此前已同步，无需再改。
+- 验证：父 Agent 最终实跑 npm run test 退出0，320 files/3605 tests 通过；npm run lint 退出0，仅既有 server/cloud/identity.mjs:92 warning；npm run build 退出0，仅既有 KaTeX 字体/chunk warning。此前联合定向 13 files/502 tests 通过；文档委派 JSON 解析、feature 依赖/唯一性、21 文件路径、HEAD 旧历史保留校验与 git diff --check 均通过，本次不重跑生产测试。
+- 复审：父 Agent 已审查并整合 staged 消息冲突、split 分页打断重放、full streaming marker 独立采纳三个竞态修正；正文 streaming 门禁不放宽。
+- Blocker/Notes：无实现或自动验证阻断，done 表示实现与全量自动验证完成。浏览器 c7 明确未实测，无现成浏览器通道（无 playwright 等工具，仅 electron runtime），不冒称现场模型/刷新/视觉验收，也不以人审阻塞自动验证结论；历史无关问题保留。完全存储故障/任意 I/O 崩溃窗口不保证补偿持久化。
+- 边界/下一步：考虑 SVG 后复用现有细线/SVG 无需额外图；无依赖、Git 提交/发布或手工产物。加载新服务/前端后可真 UI 观察规划/执行、刷新、暂停取消与窄屏主题；新规划 marker 不会回填无 marker 旧记录。改动未提交，上轮 diff 保留。
+
+---
+
+## 当前交接：goal-plan-handoff-fix（done，修复与全量自动验证通过）
+
+- 目标：防止 plan 后同一规划轮的执行期报告覆盖计划、阻断自动执行；阶段门禁改用 `isGoalPlanning(session)` 或未确认 awaiting_confirmation，重复 plan 原有拒绝保持。system prompt 明确显式 `/goal` 目标范围授权、不重复确认，必要澄清/工具审批/安全与正常轮末持久化不变。
+- 改动文件：server/{agent-goal-runner,system-prompt}.mjs、tests/server/{agent-goal-runner,system-prompt}.test.mjs、新 tests/server/agent-goal-runtime.test.mjs、docs/wiki/server/README.md、docs/wiki/server/tools/README.md、三状态文件；本委派只同步后五个文档/状态文件，历史全部保留。
+- 测试覆盖：真实 pi Agent + manager + SQLite 与脚本模型；prompt/persist 两种先后顺序均等双屏障后恰好一次 execution，必要 ask 不自动回答；runner 多组阶段和取消/失败保护。
+- 父 Agent 实跑：定向20 files/390 tests通过；npm run lint退出0，仅既有identity.mjs:92 warning；npm run build退出0，仅KaTeX/fonts/chunk警告。最终全量 npm run test 退出0：320 files/3475 tests通过（含 runtime 失败路径清理修正）；父 Agent 审查及独立只读复审完成。
+- Blocker/边界：无自动验证阻断；不声称现场会话根因已确认或真实模型/浏览器通过。Notes：调度门禁静默返回为静态风险，未复现未修，不扩范围。
+- 无 UI/历史文案变更，不需 src Wiki；考虑 SVG 后采用简短流程文字。无依赖/手工产物/Git提交或发布；build 正常生成 dist，但 Git 无产物修改。
+- 下一步：改动未提交；重启加载新服务代码后可验证新 Goal。旧阻塞 Goal 不自动重放，需显式继续；真实模型与浏览器未实测。
+
+---
+
 ## 当前交接：goal-changes-commit（in_progress，提交准备快照）
 
 - 目标：用户已授权提交并推送既有 42 个 Goal 文件；子任务只 commit，父 Agent 负责 push/远端核验。分支 dev，上游 origin/dev；不读取凭据/远端 URL 配置，不 reset/rebase/force/pull，不创建 tag。

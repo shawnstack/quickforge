@@ -109,7 +109,7 @@ function clearPersistDegraded(session) {
  * the other writer — never fake success by clobbering it.
  * @returns {{state: object, metadata: object, revision: number, stateVersion: number} | null}
  */
-async function persistAuthoritativeSessionState(session, sessionData, metadata) {
+async function persistAuthoritativeSessionState(session, sessionData, metadata, options = {}) {
   const sessionId = session.sessionId
   const maxAttempts = 3
   let lastConflict = null
@@ -133,7 +133,10 @@ async function persistAuthoritativeSessionState(session, sessionData, metadata) 
         state: persistedState,
         metadata: mergedMetadata,
         expectedRevision: session.persistedStorageRevision ?? existing?.revision ?? 0,
+        forceMessagesReplace: options.forceMessagesReplace === true,
+        canPersist: options.canPersist,
       })
+      if (!saved) return null
       session.persistedStateJson = canonicalStateJson(stripStorageOwnedStateFields(saved.state))
       // F9 split bookkeeping: the savePair plan tells us exactly which
       // representation was written, so the conflict-detection counters stay in
@@ -295,15 +298,15 @@ async function persistSessionUnlocked(session, options = {}) {
       usageBefore: contextCompaction.usageBefore,
     } : undefined,
     idleRetention: session.idleRetention || undefined,
-    // Compact projection so workspace exclusivity can be checked without
-    // materializing session bodies; the body stays authoritative.
+    // Compact goal projection for session lists and summaries; materializing
+    // every session body is unnecessary because the body stays authoritative.
     goal: goalMetadataSummary(goalBody),
   }
 
   // Write body + metadata as one authoritative SQLite transaction.
   let persistedMetadata
   try {
-    const saved = await persistAuthoritativeSessionState(session, sessionData, metadata)
+    const saved = await persistAuthoritativeSessionState(session, sessionData, metadata, options)
     if (!saved) return null
     session.persistedStorageRevision = saved.revision
     session.persistedStateVersion = saved.stateVersion

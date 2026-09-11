@@ -23,6 +23,17 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('For multi-step work, use a brief plan.')
   })
 
+  it('exempts explicitly authorized /goal execution from repeated confirmation without bypassing planning or safety gates', () => {
+    const prompt = composeSystemPrompt()
+    const confirmationRule = prompt.split('\n').find((line) => line.startsWith('- Before taking action, confirm with the user.'))
+    expect(confirmationRule).toContain('Exception: an explicit /goal request authorizes automatic execution within that goal\'s scope')
+    expect(confirmationRule).toContain('do not ask for plan confirmation again')
+    expect(confirmationRule).toContain('only after the read-only planning turn ends normally and durable persistence succeeds')
+    expect(confirmationRule).toContain('Still ask necessary questions for ambiguous requirements')
+    expect(confirmationRule).toContain('do not bypass tool approvals or safety boundaries')
+    expect(prompt).toContain('Do not assume requirements. If ambiguous, state assumptions or ask.')
+  })
+
   it('agent approval hook explicitly exempts todo_write and goal_report without classifying them as safe reads', async () => {
     const source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../../server/agent-manager.mjs', import.meta.url), 'utf8'))
     expect(source).toContain("if (toolName === 'ask_user' || toolName === 'todo_write' || toolName === 'goal_report') return undefined")

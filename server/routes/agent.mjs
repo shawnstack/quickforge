@@ -439,8 +439,11 @@ export async function handleAgentApi(req, res, url, context = {}) {
   }
 
   // POST /api/agents/:sessionId/continue — continue generation from last message (retry)
+  // An optional body { message } retries by appending that user message instead of
+  // trimming the transcript, used when the failed turn already produced tool results.
   if (req.method === 'POST' && subPath === 'continue') {
-    const result = await continueSession(sessionId, context)
+    const body = await readJsonBody(req)
+    const result = await continueSession(sessionId, context, body?.message)
     sendJson(res, 200, result)
     return
   }

@@ -4,8 +4,6 @@ import { agentSessions } from '../../server/agent-session-store.mjs'
 const mocks = vi.hoisted(() => ({
   persistSession: vi.fn(async () => ({ id: 'persisted' })),
   emitSessionEvent: vi.fn(),
-  readStore: vi.fn(async () => ({})),
-  readSessionStateRecord: vi.fn(() => null),
   refreshTools: vi.fn(async () => {}),
   pendingApproval: vi.fn(() => null),
   pendingAsk: vi.fn(() => null),
@@ -19,8 +17,6 @@ vi.mock('../../server/agent-session-events.mjs', () => ({
 }))
 vi.mock('../../server/approval-store.mjs', () => ({ getPendingApprovalForSession: mocks.pendingApproval }))
 vi.mock('../../server/ask-store.mjs', () => ({ getPendingAskForSession: mocks.pendingAsk }))
-vi.mock('../../server/storage.mjs', () => ({ readStore: mocks.readStore }))
-vi.mock('../../server/session-state-service.mjs', () => ({ readSessionStateRecord: mocks.readSessionStateRecord }))
 vi.mock('../../server/tools/definitions.mjs', () => ({
   goalReportTool: { name: 'goal_report', label: 'Report goal progress', description: 'x', parameters: {} },
 }))
@@ -195,6 +191,239 @@ describe('goal runner', () => {
     expect(session.goal).toMatchObject({ status: 'running', planConfirmed: true, budget: { maxActiveDurationMs: null } })
     expect(session.goal.usage.activeDurationMs).toBeGreaterThanOrEqual(9_000_000)
     await vi.waitFor(() => expect(session.agent.prompt).toHaveBeenCalledTimes(1))
+    await handleGoalAction(session, 'cancel')
+  })
+
+  it.each(['blocked', 'needs_review', 'progress', 'complete', 'plan'])('rejects %s after plan submission without changing the plan or preventing automatic execution', async (action) => {
+    const session = makeSession()
+    await startedGoal(session)
+    const run = beginGoalRun(session, 'planning')
+    await planGoal(session)
+    const submitted = structuredClone(session.goal)
+    const report = {
+      action, summary: 'Replacement', blocker: 'Waiting for confirmation',
+      criteria: [{ description: 'Replacement criterion' }], scope: ['other/'],
+      criterionUpdates: [{ id: 'c1', status: 'failed' }],
+    }
+    const rejection = action === 'plan' ? 'only valid while planning' : 'execution starts automatically after normal run end and durable persistence'
+    const persistCalls = mocks.persistSession.mock.calls.length
+    await expect(createGoalReportTool(session).execute('late-report', report)).rejects.toThrow(rejection)
+    expect(session.goal).toEqual(submitted)
+    expect(session.goalRun).toBe(run)
+    expect(run.pendingDisposition).toBeFalsy()
+    expect(run.verificationBlocker).toBeFalsy()
+    expect(mocks.persistSession).toHaveBeenCalledTimes(persistCalls)
+    expect(session.agent.prompt).not.toHaveBeenCalled()
+
+    const gate = deferred()
+    mocks.persistSession.mockImplementationOnce(() => gate.promise)
+    const finishing = finishGoalRun(session, { status: 'idle' })
+    await Promise.resolve()
+    expect(session.goalRun).toBeNull()
+    const settling = structuredClone(session.goal)
+    await expect(createGoalReportTool(session).execute('settling-report', report)).rejects.toThrow(rejection)
+    expect(session.goal).toEqual(settling)
+    expect(session.agent.prompt).not.toHaveBeenCalled()
+    gate.resolve({ id: 'saved' })
+    await finishing
+    expect(session.goal).toMatchObject({ status: 'running', planConfirmed: true, criteria: submitted.criteria, summary: submitted.summary, scope: submitted.scope })
+    await vi.waitFor(() => expect(session.agent.prompt).toHaveBeenCalledTimes(1))
+    expect(session.goalRun.kind).toBe('execution')
+    await handleGoalAction(session, 'cancel')
+  })
+
+  it.each(['blocked', 'needs_review', 'progress', 'complete'])('rejects %s for an unconfirmed submitted plan without a planning run', async (action) => {
+    const session = makeSession()
+    await startedGoal(session)
+    await planGoal(session)
+    expect(session.goalRun).toBeNull()
+    const submitted = structuredClone(session.goal)
+    await expect(createGoalReportTool(session).execute('late-report', {
+      action, summary: 'Do not replace', blocker: 'Waiting for confirmation',
+    })).rejects.toThrow('execution starts automatically after normal run end and durable persistence')
+    expect(session.goal).toEqual(submitted)
+    expect(session.agent.prompt).not.toHaveBeenCalled()
+  })
+
+  it.each(['blocked', 'needs_review'])('still accepts a genuine execution-phase %s report', async (action) => {
+    const session = makeSession()
+    await confirmedGoal(session)
+    session.agent.prompt.mockClear()
+    beginGoalRun(session, 'execution')
+    await createGoalReportTool(session).execute('execution-blocker', {
+      action, summary: 'Cannot verify yet', blocker: 'Missing test environment',
+    })
+    expect(session.goal).toMatchObject({ status: 'blocked', blocker: 'Missing test environment', summary: 'Cannot verify yet' })
+    await finishGoalRun(session, { status: 'idle' })
+    expect(session.goal.status).toBe('blocked')
+    expect(session.goalContinuationPending).toBe(false)
+    expect(session.agent.prompt).not.toHaveBeenCalled()
+  })
+
+  it.each(['abort', 'cancel', 'ask'])('preserves %s after plan submission', async (action) => {
+    const session = makeSession()
+    await startedGoal(session)
+    beginGoalRun(session, 'planning')
+    await planGoal(session)
+    if (action === 'ask') {
+      expect(goalPlanningToolBlockReason(session, 'ask_user', {})).toBeNull()
+      await notifyGoalAskRequested(session)
+      await notifyGoalAskOutcome(session, { skipped: true })
+    } else if (action === 'abort') {
+      await notifyGoalAbort(session)
+    } else {
+      await handleGoalAction(session, action)
+    }
+    await finishGoalRun(session, { status: 'idle' })
+    expect(session.goal.status).toBe(action === 'cancel' ? 'cancelled' : 'paused')
+    expect(session.goalContinuationPending).toBe(false)
+    expect(session.agent.prompt).not.toHaveBeenCalled()
+  })
+
+  it('stages the planning marker until durable settlement without execution usage', async () => {
+    const session = makeSession()
+    session.agent.state.messages.push({ role: 'assistant', content: 'old' })
+    await startedGoal(session)
+    beginGoalRun(session, 'planning')
+    session.agent.state.messages.push({ role: 'user', content: 'plan' }, { role: 'assistant', content: 'plan result' }, toolResult('plan'))
+    await planGoal(session)
+    expect(session.agent.state.messages[2].details).toBeUndefined()
+    const syncMessages = vi.fn()
+    configureGoalRunner({ syncMessages })
+    const gate = deferred()
+    mocks.persistSession.mockImplementationOnce(() => gate.promise)
+    const finishing = finishGoalRun(session, { status: 'idle' })
+    await Promise.resolve()
+    const staged = mocks.persistSession.mock.lastCall[1]
+    expect(staged.goal.status).toBe('running')
+    expect(staged.forceMessagesReplace).toBe(true)
+    expect(staged.canPersist()).toBe(true)
+    expect(staged.messages[2].details.quickforgeGoalIteration).toMatchObject({ kind: 'planning', iteration: 0, outcome: 'running' })
+    expect(session.goal.status).toBe('awaiting_confirmation')
+    expect(session.agent.state.messages[2].details).toBeUndefined()
+    expect(syncMessages).not.toHaveBeenCalled()
+    gate.resolve({ id: 'saved' })
+    await finishing
+    expect(session.goal.usage.iterations).toBe(0)
+    expect(session.agent.state.messages[0].details).toBeUndefined()
+    expect(session.agent.state.messages[2].details.quickforgeGoalIteration).toMatchObject({ kind: 'planning', iteration: 0, outcome: 'running' })
+    expect(syncMessages).toHaveBeenCalledWith(session)
+    await handleGoalAction(session, 'cancel')
+  })
+
+  it.each(['planning', 'completed'].flatMap((kind) =>
+    ['append', 'array', 'item', 'clear'].map((mutation) => [kind, mutation]),
+  ))('does not overwrite live messages after %s settlement sees %s mutation', async (kind, mutation) => {
+    const session = kind === 'completed' ? await reportedRun() : makeSession()
+    if (kind === 'planning') {
+      await startedGoal(session)
+      beginGoalRun(session, 'planning')
+      session.agent.state.messages.push({ role: 'assistant', content: 'plan result' })
+      await planGoal(session)
+    }
+    const prompts = session.agent.prompt.mock.calls.length
+    const gate = deferred()
+    mocks.persistSession.mockClear()
+    mocks.persistSession.mockImplementationOnce(() => gate.promise)
+    const finishing = finishGoalRun(session, { status: 'idle' })
+    await Promise.resolve()
+    const staged = mocks.persistSession.mock.lastCall[1]
+    expect(staged.canPersist()).toBe(true)
+    if (mutation === 'append') session.agent.state.messages.push({ role: 'user', content: 'unexpected append' })
+    if (mutation === 'array') session.agent.state.messages = [...session.agent.state.messages]
+    if (mutation === 'item') session.agent.state.messages[0] = { role: 'user', content: 'replacement history' }
+    if (mutation === 'clear') session.agent.state.messages = []
+    const live = session.agent.state.messages
+    const contents = live.map((message) => message.content)
+    const allowed = staged.canPersist()
+    // Even if a write was already dispatched, settlement must not publish or
+    // replace live messages. The safe fallback persists only the current live state.
+    gate.resolve({ id: 'saved' })
+    await finishing
+    expect(allowed).toBe(false)
+    expect(session.agent.state.messages).toBe(live)
+    expect(live.map((message) => message.content)).toEqual(contents)
+    expect(session.goal).toMatchObject({ status: 'paused', blocker: 'persist_failed' })
+    expect(mocks.persistSession).toHaveBeenCalledTimes(2)
+    expect(mocks.persistSession.mock.lastCall[1]).toMatchObject({ forceMessagesReplace: true })
+    expect(mocks.persistSession.mock.lastCall[1]?.messages).toBeUndefined()
+    expect(session.goalContinuationPending).toBe(false)
+    expect(session.agent.prompt).toHaveBeenCalledTimes(prompts)
+  })
+
+  it.each(['planning', 'completed'].flatMap((kind) =>
+    ['cancel', 'abort'].map((intent) => [kind, intent]),
+  ))('keeps %s settlement termination %s ahead of a message conflict', async (kind, intent) => {
+    const session = kind === 'completed' ? await reportedRun() : makeSession()
+    if (kind === 'planning') {
+      await startedGoal(session)
+      beginGoalRun(session, 'planning')
+      session.agent.state.messages.push({ role: 'assistant', content: 'plan result' })
+      await planGoal(session)
+    }
+    const gate = deferred()
+    mocks.persistSession.mockImplementationOnce(() => gate.promise)
+    const finishing = finishGoalRun(session, { status: 'idle' })
+    session.agent.state.messages.push({ role: 'user', content: 'new live message' })
+    const live = session.agent.state.messages
+    if (intent === 'cancel') await handleGoalAction(session, 'cancel')
+    else await notifyGoalAbort(session)
+    gate.resolve({ id: 'saved' })
+    await finishing
+    expect(session.agent.state.messages).toBe(live)
+    expect(live.at(-1).content).toBe('new live message')
+    expect(session.goal.status).toBe(intent === 'cancel' ? 'cancelled' : 'paused')
+    if (intent === 'abort') expect(session.goal.blocker).toBe('user_aborted')
+    expect(session.goalContinuationPending).toBe(false)
+  })
+
+  it('still synchronizes durable completion when refreshing tools fails', async () => {
+    const session = await reportedRun()
+    const syncMessages = vi.fn()
+    configureGoalRunner({ syncMessages })
+    mocks.refreshTools.mockRejectedValueOnce(new Error('refresh failed'))
+    await finishGoalRun(session, { status: 'idle' })
+    expect(session.goal.status).toBe('completed')
+    expect(session.agent.state.messages[2].details.quickforgeGoalIteration).toMatchObject({ kind: 'execution', outcome: 'completed' })
+    expect(syncMessages).toHaveBeenCalledWith(session)
+    expect(mocks.emitSessionEvent).toHaveBeenCalledWith(session, expect.objectContaining({ type: 'goal_updated', goal: session.goal }))
+  })
+
+  it.each(['cancel', 'abort', 'persist_failure'])('does not publish staged planning success after %s', async (intent) => {
+    const session = makeSession()
+    await startedGoal(session)
+    beginGoalRun(session, 'planning')
+    session.agent.state.messages.push({ role: 'assistant', content: 'plan result' })
+    await planGoal(session)
+    const gate = deferred()
+    mocks.persistSession.mockImplementationOnce(() => gate.promise)
+    const finishing = finishGoalRun(session, { status: 'idle' })
+    await Promise.resolve()
+    expect(session.agent.state.messages[0].details).toBeUndefined()
+    if (intent === 'cancel') await handleGoalAction(session, 'cancel')
+    if (intent === 'abort') await notifyGoalAbort(session)
+    gate.resolve(intent === 'persist_failure' ? null : { id: 'saved' })
+    await finishing
+    expect(session.goal.status).toBe(intent === 'cancel' ? 'cancelled' : 'paused')
+    expect(session.agent.state.messages[0].details.quickforgeGoalIteration).toMatchObject({ kind: 'planning', outcome: session.goal.status })
+    expect(session.goalContinuationPending).toBe(false)
+  })
+
+  it.each(['no_plan', 'error', 'aborted', 'persist', 'no_messages'])('never marks planning successful for %s', async (ending) => {
+    const session = makeSession()
+    session.agent.state.messages.push({ role: 'assistant', content: 'old' })
+    await startedGoal(session)
+    beginGoalRun(session, 'planning')
+    if (ending !== 'no_messages') session.agent.state.messages.push({ role: 'assistant', content: 'new' })
+    if (ending !== 'no_plan') await planGoal(session)
+    if (ending === 'persist') await failGoalRunOnPersist(session)
+    else await finishGoalRun(session, { status: ['error', 'aborted'].includes(ending) ? ending : 'idle' })
+    expect(session.agent.state.messages[0].details).toBeUndefined()
+    if (ending !== 'no_messages') {
+      const marker = session.agent.state.messages[1].details.quickforgeGoalIteration
+      expect(marker.kind).toBe('planning')
+      expect(marker.outcome).not.toBe('running')
+    }
     await handleGoalAction(session, 'cancel')
   })
 
@@ -579,8 +808,6 @@ describe('goal runner', () => {
     mocks.pendingAsk.mockReturnValue(null)
     mocks.pendingTools.mockReturnValue([])
     mocks.persistSession.mockResolvedValue({ id: 'persisted' })
-    mocks.readStore.mockResolvedValue({})
-    mocks.readSessionStateRecord.mockReturnValue(null)
     configureGoalRunner({
       beginTurn: () => 'turn-1',
       endTurn: () => {},
@@ -611,29 +838,29 @@ describe('goal runner', () => {
     expect(mocks.emitSessionEvent).toHaveBeenCalledWith(session, expect.objectContaining({ type: 'goal_updated', goal: session.goal }))
   })
 
-  it('rejects a second goal in the same session and in the same workspace', async () => {
+  it('keeps at most one active goal per session and allows other sessions', async () => {
     const session = makeSession()
     await startedGoal(session)
     expect((await startGoalPlanning(session, 'another')).error).toContain('already has an active goal')
 
+    // Another session owns its own goal: global chats share the same synthetic
+    // default workspace, and goals now run in parallel instead of exclusivity.
     const other = makeSession({ sessionId: 'goal-session-2' })
-    other.goal = session.goal
-    expect((await startGoalPlanning(makeSession({ sessionId: 'goal-session-3' }), 'third')).error)
-      .toContain('already has an active goal in another chat')
+    const result = await startGoalPlanning(other, 'concurrent')
+    expect(result.error).toBeUndefined()
+    expect(other.goal).toMatchObject({ objective: 'concurrent', status: 'planning', sessionId: 'goal-session-2' })
+    expect(other.goal.id).not.toBe(session.goal.id)
   })
 
-  it('detects a workspace conflict through persisted metadata and the authoritative body', async () => {
-    mocks.readStore.mockResolvedValue({
-      'goal-session-other': { id: 'goal-session-other', scope: 'global', goal: { id: 'goal_x', status: 'awaiting_confirmation' } },
-    })
-    mocks.readSessionStateRecord.mockReturnValue({ state: { goal: { id: 'goal_x', status: 'awaiting_confirmation' } } })
-    const session = makeSession({ sessionId: 'goal-session-4' })
-    expect((await startGoalPlanning(session, 'blocked')).error).toContain('another chat')
+  it('ignores an active goal owned by another session in the same workspace', async () => {
+    const other = makeSession({ sessionId: 'goal-session-other' })
+    await startedGoal(other, 'other goal')
 
-    // Stale metadata (the stored goal is already finished) must not block.
-    mocks.readSessionStateRecord.mockReturnValue({ state: { goal: { id: 'goal_x', status: 'cancelled' } } })
-    const free = makeSession({ sessionId: 'goal-session-5' })
-    expect((await startGoalPlanning(free, 'allowed')).error).toBeUndefined()
+    const session = makeSession({ sessionId: 'goal-session-4' })
+    const result = await startGoalPlanning(session, 'allowed')
+    expect(result.error).toBeUndefined()
+    expect(session.goal).toMatchObject({ objective: 'allowed', status: 'planning', sessionId: 'goal-session-4' })
+    expect(session.goal.id).not.toBe(other.goal.id)
   })
 
   it('does not offer goal mode to ACP / channel sessions', async () => {
@@ -1270,17 +1497,17 @@ describe('goal runner', () => {
     expect(session.agent.prompt).not.toHaveBeenCalled()
   })
 
-  it('serializes concurrent goal starts in the same workspace', async () => {
+  it('allows concurrent goal starts in different sessions', async () => {
     const a = makeSession({ sessionId: 'goal-concurrent-a' })
     const b = makeSession({ sessionId: 'goal-concurrent-b' })
     const results = await Promise.all([startGoalPlanning(a, 'A'), startGoalPlanning(b, 'B')])
-    const errors = results.filter((result) => result.error)
-    expect(errors).toHaveLength(1)
-    expect(errors[0].error).toContain('another chat')
-    expect([a.goal, b.goal].filter(Boolean)).toHaveLength(1)
+    expect(results.map((result) => result.error)).toEqual([undefined, undefined])
+    expect(a.goal).toMatchObject({ objective: 'A', status: 'planning', sessionId: 'goal-concurrent-a' })
+    expect(b.goal).toMatchObject({ objective: 'B', status: 'planning', sessionId: 'goal-concurrent-b' })
+    expect(a.goal.id).not.toBe(b.goal.id)
   })
 
-  it('treats two projectIds on the same workspace path as one workspace', async () => {
+  it('allows two projectIds on the same workspace path to start one goal each', async () => {
     const a = makeSession({
       sessionId: 'goal-path-a',
       scope: 'project',
@@ -1294,7 +1521,22 @@ describe('goal runner', () => {
       projectContext: { workspaceRoot: 'c:\\ws\\shared' },
     })
     expect((await startGoalPlanning(a, 'A')).error).toBeUndefined()
-    expect((await startGoalPlanning(b, 'B')).error).toContain('another chat')
+    expect((await startGoalPlanning(b, 'B')).error).toBeUndefined()
+    expect(b.goal).toMatchObject({ objective: 'B', status: 'planning', sessionId: 'goal-path-b' })
+    expect(a.goal.id).not.toBe(b.goal.id)
+  })
+
+  it('serializes two concurrent goal starts on the same session to exactly one goal', async () => {
+    const session = makeSession()
+    const results = await Promise.all([startGoalPlanning(session, 'first'), startGoalPlanning(session, 'second')])
+    const failures = results.filter((result) => result.error)
+    expect(failures).toHaveLength(1)
+    expect(failures[0].error).toContain('already has an active goal')
+    expect(results.filter((result) => result.commandPrompt)).toHaveLength(1)
+    // The loser must not have overwritten the committed goal.
+    expect(session.goal).toMatchObject({ status: 'planning', sessionId: session.sessionId })
+    expect(['first', 'second']).toContain(session.goal.objective)
+    expect(mocks.persistSession).toHaveBeenCalledTimes(1)
   })
 
   it('adds only one budget tranche and remains durably paused if usage still exhausts it', async () => {

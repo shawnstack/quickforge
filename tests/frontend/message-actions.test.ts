@@ -48,6 +48,7 @@ type FakeNode = {
   disabled: boolean
   style: Record<string, string>
   children: FakeNode[]
+  readonly lastElementChild: FakeNode | null
   parentElement: FakeNode | null
   onclick?: ((event: { stopPropagation(): void }) => void) | null
   append: (...items: FakeNode[]) => void
@@ -112,6 +113,7 @@ function createFakeElement(tagName = 'div'): FakeNode {
     disabled: false,
     style: {} as Record<string, string>,
     children,
+    get lastElementChild() { return children.at(-1) ?? null },
     parentElement: null as FakeNode | null,
     onclick: null as ((event: { stopPropagation(): void }) => void) | null,
     append(...items: FakeNode[]) {
@@ -151,6 +153,9 @@ function createFakeElement(tagName = 'div'): FakeNode {
       node.listeners[type] = (node.listeners[type] ?? []).filter((candidate) => candidate !== listener)
     },
     querySelector(selector: string) {
+      if (selector.startsWith(':scope > ')) {
+        return children.find((child) => matchesSelector(child, selector.slice(':scope > '.length))) ?? null
+      }
       const alternatives = selector.split(',').map((part) => part.trim())
       for (const alternative of alternatives) {
         const found = descendants(node, alternative)[0]
@@ -256,6 +261,7 @@ describe('assistant message actions', () => {
   beforeEach(() => {
     vi.stubGlobal('document', {
       createElement: createFakeElement,
+      createElementNS: (_namespace: string, tagName: string) => createFakeElement(tagName),
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     })
@@ -268,6 +274,44 @@ describe('assistant message actions', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it.each(['assistant', 'user'])('syncs a completed planning task into an existing %s host without rebuilding messages', (role) => {
+    const host = role === 'user' ? createUserMessageElement().element : createFakeElement('assistant-message')
+    const messageList = createFakeElement('message-list')
+    messageList.append(host)
+    const panel = createFakeElement('div')
+    panel.append(messageList)
+    const message: Record<string, unknown> = {
+      role, content: role === 'user' ? 'internal planning' : [{ type: 'text', text: 'Plan' }],
+      ...(role === 'user' ? { metadata: { quickforgeGoalRun: 'planning' } } : {}),
+    }
+    const decorate = () => decorateMessages({
+      panel: panel as unknown as HTMLElement, getMessages: () => [message] as never,
+      isStreaming: () => false, onCopyAnswer: vi.fn(), onRollbackFromMessage: vi.fn(),
+      onForkFromMessage: vi.fn(), onRetryFromMessage: vi.fn(),
+    })
+    decorate()
+    expect(host.querySelector('.quickforge-goal-iteration-divider')).toBeNull()
+    message.details = JSON.parse(JSON.stringify({ quickforgeGoalIteration: {
+      goalId: 'old-goal', kind: 'planning', iteration: 0, outcome: 'running',
+    } }))
+    decorate() // Immediate sync after task completion, no message-list reconstruction.
+    const divider = host.querySelector('.quickforge-goal-iteration-divider')!
+    expect(divider?.querySelector('span')?.textContent).toBe('goalPlanningLabel · goalPlanningReady')
+    host.append(createFakeElement())
+    decorate()
+    decorate()
+    expect(messageList.children).toEqual([host])
+    expect(host.querySelectorAll('.quickforge-goal-iteration-divider')).toEqual([divider])
+    expect(host.lastElementChild).toBe(divider)
+    if (role === 'user') {
+      expect(host.className).toContain('quickforge-goal-internal-user-message')
+      expect(host.querySelector('.quickforge-message-actions')).toBeNull()
+    }
+    message.details = {}
+    decorate()
+    expect(host.querySelector('.quickforge-goal-iteration-divider')).toBeNull()
   })
 
   it('keeps internal user hosts and original offsets, removes actions, and reverses on DOM reuse', () => {

@@ -279,6 +279,21 @@ describe('workspace inspector tabs persistence', () => {
     expect(inspectorSource).toContain("Bot, Check, ChevronDown")
   })
 
+  it('selects the shared Goal icon in both tab entry source contracts, retaining other icon fallbacks', () => {
+    const source = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+    expect(source).toContain("import { GoalIcon } from '@/components/goal-icon'")
+    const menu = source.slice(source.indexOf('{tabListOpen ? ('), source.indexOf('<DndContext'))
+    const strip = source.slice(source.indexOf('<SortableContext'), source.indexOf('</SortableContext>'))
+    for (const entry of [menu, strip]) {
+      expect(entry).toContain("const Icon = tab.kind === 'goal' ? GoalIcon : item?.icon")
+      expect(entry).toContain('<Icon className=')
+      expect(entry).toContain('<FileIcon path={filePath}')
+      expect(entry).toContain("tab.kind === 'subagent'")
+      expect(entry).toContain('<Bot className=')
+      expect(entry).toContain('<Code2 className=')
+    }
+  })
+
   it('reorders tabs by id without changing their contents', () => {
     const tabs: WorkspacePanelTab[] = [
       { id: 'files-1', kind: 'files' },

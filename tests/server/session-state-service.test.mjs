@@ -65,6 +65,35 @@ describe('session state service facade (storage v2)', () => {
     await rm(directory, { recursive: true, force: true })
   })
 
+  it.each([false, true])('explicit marker replacement persists a non-tail/non-mid assistant (CAS=%s)', async (cas) => {
+    const state = initialRecord().state
+    state.messages = Array.from({ length: 8 }, (_, index) => ({ role: index === 6 ? 'assistant' : 'toolResult', content: String(index) }))
+    const first = await saveSessionStatePair({ state, expectedRevision: 0 })
+    const marker = { goalId: 'goal', kind: 'planning', iteration: 0, outcome: 'running', finishedAt: 1 }
+    state.messages[6] = { ...state.messages[6], details: { quickforgeGoalIteration: marker } }
+    const saved = await saveSessionStatePair({ state, expectedRevision: cas ? first.revision : null, forceMessagesReplace: true })
+    expect(saved.messageStoragePlan).toBe('replace')
+    expect((await readSessionStateValue('one')).messages[6].details.quickforgeGoalIteration).toEqual(marker)
+    if (cas) {
+      await expect(saveSessionStatePair({ state, expectedRevision: first.revision, forceMessagesReplace: true })).rejects.toMatchObject({ errorCode: 'SESSION_STATE_CONFLICT' })
+    }
+    // Ordinary unchanged saves retain the cheap body-only path.
+    expect((await saveSessionStatePair({ state, expectedRevision: saved.revision })).messageStoragePlan).toBe('body-only')
+  })
+
+  it('rechecks termination intent after chunked marker encoding before writing', async () => {
+    const state = initialRecord().state
+    state.messages = Array.from({ length: 120 }, (_, index) => ({ role: 'assistant', content: String(index) }))
+    const first = await saveSessionStatePair({ state, expectedRevision: 0 })
+    state.messages[118] = { ...state.messages[118], details: { quickforgeGoalIteration: { kind: 'planning', iteration: 0, outcome: 'running' } } }
+    let allowed = true
+    const saving = saveSessionStatePair({ state, expectedRevision: first.revision, forceMessagesReplace: true, canPersist: () => allowed })
+    allowed = false
+    expect(await saving).toBeNull()
+    expect(repository.findBySessionId('one').revision).toBe(first.revision)
+    expect((await readSessionStateValue('one')).messages[118].details).toBeUndefined()
+  })
+
   it('is always authoritative and reports a constant authoritative state', async () => {
     repository.save(initialRecord(), { expectedRevision: 0 })
     expect(isSessionStateAuthoritative()).toBe(true)

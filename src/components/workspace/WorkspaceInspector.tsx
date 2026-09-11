@@ -29,6 +29,7 @@ import { MonacoCodeViewer } from './MonacoCodeViewer'
 import { MonacoDiffViewer } from './MonacoDiffViewer'
 import { countDiffLines } from './diff-line-counts'
 import { FileIcon } from './file-icon'
+import { GoalIcon } from '@/components/goal-icon'
 import { findBrowserTabToReuse, panelTabFilePath } from './workspace-tab-file-path'
 import { getGitFileDiff, getGitStatus, getWorkspaceChildren, getWorkspaceFile, getWorkspaceFileMeta, openWorkspaceExternal, restoreAllGitChanges, restoreGitFile, searchWorkspace, stageAllGitChanges, stageGitFile, unstageAllGitChanges, unstageGitFile } from './workspace-api'
 import { WorkspaceChangesList } from './WorkspaceChangesList'
@@ -1974,7 +1975,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                   <div className="max-h-[min(25rem,calc(100dvh-10rem))] overflow-y-auto overscroll-contain">
                     {panelTabs.map((tab) => {
                       const item = panelTabMeta(tab)
-                      const Icon = item?.icon
+                      const Icon = tab.kind === 'goal' ? GoalIcon : item?.icon
                       const filePath = panelTabFilePath(tab)
                       const active = tab.id === activePanelTabId
                       const label = panelTabLabel(tab, project?.name)
@@ -2053,7 +2054,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
               <div className={cn('quickforge-inspector-tab-strip flex h-8 min-w-0 flex-1 items-center gap-1 overflow-x-auto', draggingPanelTabId && 'cursor-grabbing')}>
                 {panelTabs.map((tab, index) => {
                   const item = panelTabMeta(tab)
-                  const Icon = item?.icon
+                  const Icon = tab.kind === 'goal' ? GoalIcon : item?.icon
                   const filePath = panelTabFilePath(tab)
                   const active = tab.id === activePanelTabId
                   const label = panelTabLabel(tab, project?.name)

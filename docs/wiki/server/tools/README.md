@@ -40,6 +40,12 @@
 
 `generate_image` 当前已从 `workspaceTools` 移除，不再向 Agent 或 `GET /api/tools` 暴露。相关 handler、图片生成模块、会话资产路由与前端渲染仍保留，仅用于兼容历史会话。
 
+### Goal 报告阶段与授权
+
+显式 `/goal` 已授权目标范围内自动执行，不再重复请求计划确认；必要澄清、工具审批与安全边界仍生效。只读规划 → `goal_report plan` → 正常轮末与持久化双屏障 → 自动 execution；plan 工具返回不代表已进入执行期。
+
+`agent-goal-runner.mjs` 以 `isGoalPlanning(session)`（包含当前与结算中的 planning run）或未确认 awaiting_confirmation 拒绝执行期报告。即使 plan 已把 goal 状态改为 awaiting_confirmation，同一规划轮也不能调用 `progress` / `blocked` / `needs_review` / `complete` 覆盖计划；重复 plan 仍由既有门禁拒绝。执行轮 `needs_review` 转 blocked 的契约不变。真正必要的 `ask_user` 继续等待用户回答，不由自动交接代答或跳过；取消、异常及持久化失败不启动执行。
+
 ## index.mjs
 
 实现每个工具的 execute handler。

@@ -25,6 +25,8 @@ describe('Goal summary navigation', () => {
     expect(html.match(/<button\b/g)).toHaveLength(1)
     expect(html).toContain('执行中')
     expect(html).toContain(goal.objective)
+    expect(html).toContain('class="quickforge-goal-icon size-3.5 shrink-0"')
+    expect(html).not.toContain('lucide-target')
     expect(html).toContain('1/2 项验收标准')
     expect(html).toContain(goal.summary)
     expect(html).not.toMatch(/textarea|progressbar|<details/)

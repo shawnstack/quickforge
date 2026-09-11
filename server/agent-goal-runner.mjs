@@ -2,9 +2,9 @@
  * Goal mode runner — session-bound, bounded multi-round execution.
  *
  * Design constraints (see the feature contract):
- * - A goal is bound to exactly one QuickForge main-chat session; the workspace
- *   (project, or the synthetic default workspace for global chats) holds at
- *   most one active goal at a time.
+ * - A goal is bound to exactly one QuickForge main-chat session. A session holds
+ *   at most one active goal at a time; different sessions — including global
+ *   chats sharing the same workspace directory — may run goals in parallel.
  * - Planning runs are forced read-only by reusing the `/plan` permission
  *   whitelist; only after normal planning settlement and persistence does
  *   execution use the session's normal access mode and approval flow.
@@ -23,8 +23,6 @@
  */
 
 import { logger } from './utils/logger.mjs'
-import { readStore } from './storage.mjs'
-import { readSessionStateRecord } from './session-state-service.mjs'
 import { emitSessionEvent, runtimePendingToolCalls } from './agent-session-events.mjs'
 import { persistSession } from './agent-persistence.mjs'
 import { getPendingApprovalForSession } from './approval-store.mjs'
@@ -77,9 +75,6 @@ let runnerDeps = {
   endTurn: () => {},
   refreshTools: async () => {},
   syncMessages: () => {},
-  // Resolves the normalized workspace root for a persisted session candidate
-  // (metadata only carries scope/projectId). Injected by agent-manager.
-  resolveWorkspaceRoot: async () => null,
 }
 
 export function configureGoalRunner(deps = {}) {
@@ -114,11 +109,6 @@ export function isGoalModeAvailable(session, requestSource = null) {
 
 export function sessionGoal(session) {
   return session?.goal || null
-}
-
-export function activeSessionGoal(session) {
-  const goal = session?.goal
-  return goal && goalState.isGoalActiveStatus(goal.status) ? goal : null
 }
 
 export function isGoalPlanning(session) {
@@ -235,7 +225,7 @@ function emitGoalUpdated(session) {
  * the failure instead of pretending the action succeeded. Internal run
  * transitions keep the new (safe) state and simply never continue.
  */
-async function commitGoal(session, nextGoal, { revertOnFailure = false } = {}) {
+async function commitGoal(session, nextGoal, { revertOnFailure = false, forceMessagesReplace = false } = {}) {
   const previous = session.goal
   // Cancel is terminal and must never be overwritten by an older settlement that
   // captured a running/paused snapshot before the cancel arrived. Clearing the
@@ -248,10 +238,12 @@ async function commitGoal(session, nextGoal, { revertOnFailure = false } = {}) {
   const wasActive = Boolean(previous && goalState.isGoalActiveStatus(previous.status))
   const isActive = Boolean(nextGoal && goalState.isGoalActiveStatus(nextGoal.status))
   session.goal = nextGoal
-  markGoalIteration(session, nextGoal)
+  const markerChanged = markGoalIteration(session, nextGoal)
   let persisted = null
   try {
-    persisted = await persistSession(session)
+    persisted = markerChanged || forceMessagesReplace
+      ? await persistSession(session, { forceMessagesReplace: true })
+      : await persistSession(session)
   } catch (error) {
     logger.error(`Failed to persist goal for session ${session.sessionId}:`, error, { sessionId: session.sessionId })
   }
@@ -263,8 +255,8 @@ async function commitGoal(session, nextGoal, { revertOnFailure = false } = {}) {
     }
     if (session.goalSettlingRun && session.goal === nextGoal && !goalState.isGoalTerminalStatus(nextGoal?.status)) {
       session.goal = goalState.setGoalStatus(nextGoal, 'paused', { blocker: 'persist_failed' })
-      markGoalIteration(session, session.goal)
-      try { await persistSession(session) } catch { /* best effort; never continue */ }
+      const fallbackMarkerChanged = markGoalIteration(session, session.goal)
+      try { await persistSession(session, { forceMessagesReplace: fallbackMarkerChanged || forceMessagesReplace }) } catch { /* best effort; never continue */ }
       runnerDeps.syncMessages(session)
     }
     emitGoalUpdated(session)
@@ -284,46 +276,66 @@ async function commitGoal(session, nextGoal, { revertOnFailure = false } = {}) {
 
 function markGoalIteration(session, goal, messages = session.agent?.state?.messages) {
   const run = session.goalSettlingRun || (goal?.status === 'cancelled' ? session.goalRun : null)
-  if (run?.kind !== 'execution' || !Array.isArray(messages)) return
+  if (!['planning', 'execution'].includes(run?.kind) || !Array.isArray(messages)) return false
   let anchor = -1
   for (let index = messages.length - 1; index >= run.messageStart; index--) {
     if (messages[index]?.role === 'assistant') { anchor = index; break }
     if (anchor < 0 && messages[index]?.role === 'user') anchor = index
   }
-  if (anchor < 0) return
+  if (anchor < 0) return false
   const message = messages[anchor]
   messages[anchor] = { ...message, details: {
     ...message.details,
     quickforgeGoalIteration: {
-      goalId: run.goalId, iteration: run.iteration,
+      goalId: run.goalId, kind: run.kind, iteration: run.iteration,
       outcome: run.failed && ['running', 'verifying'].includes(goal.status) ? 'error' : goal.status,
       blocker: goal.blocker || null, finishedAt: Date.now(),
     },
   } }
+  return true
 }
 
-async function commitCompletedGoal(session, next, abortGeneration) {
+// Planning success and completion share the same private snapshot barrier.
+async function commitSettledGoal(session, next, abortGeneration) {
   const previous = session.goal
-  const canPersist = () => session.goal === previous
+  const canSettle = () => session.goal === previous
     && (session.goalAbortGeneration || 0) === abortGeneration
     && !session.abortPending && !goalStats(session).pauseRequested
     && !goalTerminationIntent(session)
-  if (!canPersist()) { await settleGoalTermination(session); return false }
+  if (!canSettle()) { await settleGoalTermination(session); return false }
+  // Capture array identity, length and item identities separately from the staged
+  // marker. Never clone message bodies or replay a stale transcript over live edits.
+  const liveMessages = session.agent?.state?.messages
+  const snapshot = [...(liveMessages || [])]
+  const messagesUnchanged = () => session.agent?.state?.messages === liveMessages
+    && (liveMessages?.length || 0) === snapshot.length
+    && snapshot.every((message, index) => liveMessages[index] === message)
+  const canPersist = () => canSettle() && messagesUnchanged()
   // Keep the live goal active throughout I/O: abort/cancel still have authority.
-  const messages = [...(session.agent?.state?.messages || [])]
-  markGoalIteration(session, next, messages)
+  const messages = [...snapshot]
+  const markerChanged = markGoalIteration(session, next, messages)
   let persisted = null
-  try { persisted = await persistSession(session, { goal: next, messages, canPersist }) } catch (error) {
-    logger.error(`Failed to persist completed goal for session ${session.sessionId}:`, error)
+  try { persisted = await persistSession(session, { goal: next, messages, canPersist, forceMessagesReplace: markerChanged }) } catch (error) {
+    logger.error(`Failed to persist settled goal for session ${session.sessionId}:`, error)
   }
-  if (!canPersist()) { await settleGoalTermination(session); return false }
+  if (!canSettle()) { await settleGoalTermination(session); return false }
+  if (!messagesUnchanged()) {
+    // A concurrent message writer invalidated the staged pair. Pause once and
+    // force-save only the current live history (even after a clear/no anchor).
+    await commitGoal(session, goalState.setGoalStatus(session.goal, 'paused', { blocker: 'persist_failed' }), { forceMessagesReplace: true })
+    return false
+  }
   if (!persisted) {
     await pauseGoalWithBlocker(session, 'persist_failed', previous)
     return false
   }
   session.goal = next
   session.agent.state.messages = messages
-  await runnerDeps.refreshTools(session)
+  try {
+    await runnerDeps.refreshTools(session)
+  } catch (error) {
+    logger.warn(`Failed to refresh tools after goal change for session ${session.sessionId}: ${error?.message || error}`)
+  }
   emitGoalUpdated(session)
   runnerDeps.syncMessages(session)
   return true
@@ -340,106 +352,33 @@ function usageOnly(goal, { iterations = 0, durationMs = 0 } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace exclusivity
+// Session goal admission
 // ---------------------------------------------------------------------------
 
-// Per-workspace admission queue. `assertWorkspaceFree` + `commitGoal` is a
-// read-modify-write over the workspace's goal ownership, so start/confirm/
-// resume/revise must run strictly one at a time for the same workspace; the
-// normalized workspace path is the key so two projectIds pointing at the same
-// directory cannot race past each other.
-const workspaceGoalQueues = new Map()
+// Per-session admission queue: `re-check session.goal` + `commitGoal` is a
+// read-modify-write over the session's goal, so start/confirm/resume/revise must
+// run strictly one at a time for the same session. Different sessions never
+// share a key and therefore never block each other (goals run in parallel).
+const sessionGoalQueues = new Map()
 
-function withWorkspaceGoalLock(key, operation) {
-  const previous = workspaceGoalQueues.get(key) ?? Promise.resolve()
+function withGoalSessionLock(key, operation) {
+  const previous = sessionGoalQueues.get(key) ?? Promise.resolve()
   const result = previous.catch(() => undefined).then(operation)
   const tail = result.then(() => undefined, () => undefined)
-  workspaceGoalQueues.set(key, tail)
+  sessionGoalQueues.set(key, tail)
   tail.then(() => {
-    if (workspaceGoalQueues.get(key) === tail) workspaceGoalQueues.delete(key)
+    if (sessionGoalQueues.get(key) === tail) sessionGoalQueues.delete(key)
   })
   return result
 }
 
-/** Normalized workspace key for a live session (falls back to scope/projectId). */
-export async function workspaceKeyForSession(session) {
-  const root = session?.projectContext?.workspaceRoot
-    || await runnerDeps.resolveWorkspaceRoot(session || {}).catch(() => null)
-  return goalState.goalWorkspaceKey({ ...session, workspaceRoot: root })
-}
-
-async function workspaceKeyForMetadata(meta) {
-  const root = await runnerDeps.resolveWorkspaceRoot(meta || {}).catch(() => null)
-  return goalState.goalWorkspaceKey({ ...meta, workspaceRoot: root })
-}
-
 /**
- * At most one active goal per workspace. Live sessions are authoritative; for
- * sessions that are not in memory (restart, other window) the persisted
- * metadata projection is used as a candidate list and each candidate is then
- * verified against its authoritative stored body, so stale metadata cannot
- * block a workspace forever. Candidates are matched by normalized workspace
- * path when it can be resolved, with projectId equality as a fallback for
- * metadata written before a workspace root was recorded.
+ * Serialized per-session admission: the read-modify-write over `session.goal`
+ * must not interleave with another action on the same session. Different
+ * sessions never block each other (goals may run in parallel).
  */
-export async function findWorkspaceGoalConflict(session) {
-  const key = await workspaceKeyForSession(session)
-  for (const [sessionId, other] of agentSessions) {
-    if (sessionId === session.sessionId) continue
-    if (goalState.goalWorkspaceKey({
-      ...other,
-      workspaceRoot: other.projectContext?.workspaceRoot || null,
-    }) !== key) continue
-    if (activeSessionGoal(other)) return { sessionId, source: 'memory' }
-  }
-
-  let metadata
-  try {
-    metadata = await readStore('sessions-metadata')
-  } catch (error) {
-    logger.warn(`Failed to read session metadata for goal exclusivity: ${error?.message || error}`)
-    return null
-  }
-  for (const [sessionId, meta] of Object.entries(metadata || {})) {
-    if (sessionId === session.sessionId || agentSessions.has(sessionId)) continue
-    if (!meta?.goal || !goalState.isGoalActiveStatus(meta.goal.status)) continue
-    const candidateKey = await workspaceKeyForMetadata(meta)
-    const sameWorkspace = candidateKey === key
-      || (meta.projectId && meta.projectId === session.projectId)
-    if (!sameWorkspace) continue
-    let storedGoal
-    try {
-      storedGoal = goalState.normalizeGoalState(readSessionStateRecord(sessionId)?.state?.goal, { sessionId })
-    } catch {
-      storedGoal = null
-    }
-    if (storedGoal && goalState.isGoalActiveStatus(storedGoal.status)) return { sessionId, source: 'storage' }
-  }
-  return null
-}
-
-async function assertWorkspaceFree(session) {
-  const conflict = await findWorkspaceGoalConflict(session)
-  if (conflict) {
-    throw requestError(
-      `Workspace already has an active goal in another chat (${conflict.sessionId}). Finish, pause or cancel it first.`,
-      409,
-      'GOAL_WORKSPACE_CONFLICT',
-    )
-  }
-}
-
-/**
- * Serialized workspace admission: check exclusivity and run the ownership
- * change while holding the workspace lock, so two concurrent requests can never
- * both observe a free workspace and both commit an active goal.
- */
-async function withWorkspaceAdmission(session, operation) {
-  const key = await workspaceKeyForSession(session)
-  return withWorkspaceGoalLock(key, async () => {
-    await assertWorkspaceFree(session)
-    return operation()
-  })
+async function withSessionGoalAdmission(session, operation) {
+  return withGoalSessionLock(session.sessionId, operation)
 }
 
 // ---------------------------------------------------------------------------
@@ -723,7 +662,11 @@ async function settleGoalRunSafely(session, info) {
  * keep running after the user stopped it.
  */
 async function commitGoalAndContinue(session, next, kind, abortGeneration) {
-  if (!(await commitGoal(session, next))) return false
+  const planningSuccess = session.goalSettlingRun?.kind === 'planning' && next.status === 'running'
+  const persisted = planningSuccess
+    ? await commitSettledGoal(session, next, abortGeneration)
+    : await commitGoal(session, next)
+  if (!persisted) return false
   if ((session.goalAbortGeneration || 0) !== abortGeneration) {
     // A termination (abort or cancel) arrived while the persist was in flight:
     // settle to the user's intent and never schedule another round.
@@ -842,7 +785,7 @@ export async function finishGoalRun(session, info = {}) {
           await pauseGoalWithBlocker(session, 'verification_failed', next)
           return
         }
-        await commitCompletedGoal(session, disposition, abortGeneration)
+        await commitSettledGoal(session, disposition, abortGeneration)
       } else {
         await commitGoal(session, disposition)
       }
@@ -952,17 +895,22 @@ export async function startGoalPlanning(session, objective, requestSource = null
   if (session.agent?.state?.isStreaming || session.abortPending) {
     return { error: 'The session is still running. Stop it or wait for it to finish before setting a goal.' }
   }
-  const existing = session.goal
-  if (existing && goalState.isGoalActiveStatus(existing.status)) {
-    return {
-      error: `This chat already has an active goal (${existing.status}). Pause, cancel or revise it from the goal card before starting a new one.`,
-    }
-  }
-  // A brand-new goal starts with a clean termination state: a previous cancel
-  // must not make the commit guard refuse this fresh goal.
-  clearGoalTermination(session)
   try {
-    await withWorkspaceAdmission(session, async () => {
+    await withSessionGoalAdmission(session, async () => {
+      // Re-check under the session lock: a concurrent `/goal` on this same
+      // session may have committed an active goal while we waited for admission.
+      const active = session.goal
+      if (active && goalState.isGoalActiveStatus(active.status)) {
+        throw requestError(
+          `This chat already has an active goal (${active.status}). Pause, cancel or revise it from the goal card before starting a new one.`,
+          409,
+          'GOAL_ACTIVE',
+        )
+      }
+      // A brand-new goal starts with a clean termination state: a previous cancel
+      // must not make the commit guard refuse this fresh goal. Cleared inside the
+      // lock so it can never wipe another request's termination intent.
+      clearGoalTermination(session)
       const next = goalState.createGoalState({ sessionId: session.sessionId, objective: text })
       await commitGoal(session, next, { revertOnFailure: true })
     })
@@ -1008,7 +956,7 @@ async function extendResumeGoal(session, options) {
     throw requestError('extend_resume requires goalId and a positive integer expectedRevision only.', 400, 'GOAL_ACTION_INVALID')
   }
   let kind
-  await withWorkspaceAdmission(session, async () => {
+  await withSessionGoalAdmission(session, async () => {
     const goal = session.goal
     if (goal?.id !== options.goalId || goal?.revision !== options.expectedRevision) {
       throw requestError('The goal changed. Refresh before trying again.', 409, 'GOAL_REVISION_CONFLICT')
@@ -1044,8 +992,8 @@ async function confirmGoal(session, goal) {
     throw requestError(`Cannot confirm a goal in status ${goal.status}.`, 409, 'GOAL_ACTION_INVALID')
   }
   assertQuiescent(session)
-  await withWorkspaceAdmission(session, async () => {
-    // Re-check under the workspace lock: a concurrent action may have moved the
+  await withSessionGoalAdmission(session, async () => {
+    // Re-check under the session lock: a concurrent action may have moved the
     // goal (or cancelled it) while we waited for admission.
     if (!goalState.goalCanConfirm(session.goal?.status)) {
       throw requestError(`Cannot confirm a goal in status ${session.goal?.status ?? goal.status}.`, 409, 'GOAL_ACTION_INVALID')
@@ -1098,7 +1046,7 @@ async function resumeGoal(session, goal) {
     )
   }
   let status
-  await withWorkspaceAdmission(session, async () => {
+  await withSessionGoalAdmission(session, async () => {
     if (!goalState.goalCanResume(session.goal?.status)) {
       throw requestError(`Cannot resume a goal in status ${session.goal?.status ?? goal.status}.`, 409, 'GOAL_ACTION_INVALID')
     }
@@ -1183,7 +1131,7 @@ async function reviseGoal(session, goal, objective) {
     throw requestError(`Revise requires a quiescent goal (awaiting_confirmation, paused or blocked); current status is ${goal.status}.`, 409, 'GOAL_ACTION_INVALID')
   }
   assertQuiescent(session)
-  await withWorkspaceAdmission(session, async () => {
+  await withSessionGoalAdmission(session, async () => {
     if (!goalState.isGoalEditableStatus(session.goal?.status)) {
       throw requestError(`Revise requires a quiescent goal (awaiting_confirmation, paused or blocked); current status is ${session.goal?.status ?? goal.status}.`, 409, 'GOAL_ACTION_INVALID')
     }
@@ -1385,8 +1333,11 @@ async function applyGoalReport(session, params) {
     return goalReportResult(session, `Plan recorded with ${next.criteria.length} acceptance criteria. End this read-only planning turn; execution starts automatically after normal run end and durable persistence.`)
   }
 
-  if (planning) {
-    throw goalReportError(`goal_report action="${action}" is not valid while planning; use action="plan".`)
+  if (isGoalPlanning(session) || (goal.status === 'awaiting_confirmation' && goal.planConfirmed !== true)) {
+    const guidance = planning
+      ? 'use action="plan".'
+      : 'The plan is already submitted. End this read-only planning turn; execution starts automatically after normal run end and durable persistence.'
+    throw goalReportError(`goal_report action="${action}" is not valid while planning; ${guidance}`)
   }
 
   const evidence = Array.isArray(params.evidence) ? params.evidence : []

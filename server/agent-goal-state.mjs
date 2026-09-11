@@ -14,7 +14,6 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import path from 'node:path'
 
 export const GOAL_STATUSES = [
   'planning',
@@ -551,7 +550,7 @@ export function goalProgressSignature(goal) {
   })
 }
 
-/** Compact metadata projection used for cross-session workspace locking. */
+/** Compact goal projection for session lists and summaries; the body stays authoritative. */
 export function goalMetadataSummary(goal) {
   if (!goal) return undefined
   return { id: goal.id, status: goal.status, updatedAt: goal.updatedAt }
@@ -582,24 +581,6 @@ export function goalUsageWithRun(goal, { iterations = 0, durationMs = 0 } = {}) 
     iterations: Math.max(0, goal.usage.iterations + Math.trunc(iterations)),
     activeDurationMs: Math.max(0, goal.usage.activeDurationMs + Math.max(0, durationMs)),
   }
-}
-
-/**
- * Cross-platform workspace key. A resolved path (lowercased, like
- * `sameProjectPath`) is authoritative because two different projectIds can point
- * at the same directory; the scope/projectId form is only a fallback for
- * sessions whose workspace root is unknown.
- */
-export function normalizeWorkspaceKey(workspaceRoot) {
-  if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) return null
-  return `path:${path.resolve(workspaceRoot).toLowerCase()}`
-}
-
-/** Same-workspace key: every global chat shares the synthetic default workspace. */
-export function goalWorkspaceKey({ scope = 'global', projectId = null, workspaceRoot = null } = {}) {
-  const pathKey = normalizeWorkspaceKey(workspaceRoot)
-  if (pathKey) return pathKey
-  return scope === 'project' && projectId ? `project:${projectId}` : 'global'
 }
 
 export function isValidGoalId(value) {

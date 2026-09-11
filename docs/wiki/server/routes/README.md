@@ -79,6 +79,7 @@ Agent 会话管理核心路由。
 - `POST /api/agents/:sessionId/title` — 手动重命名会话；同步更新服务端活跃状态与持久化数据，优先于待完成的 AI 标题
 - `POST /api/agents/:sessionId/abort` — 中止运行
 - `POST /api/agents/:sessionId/steer` — 引导 Agent
+- `POST /api/agents/:sessionId/continue` — 重试/续跑；无 body 时截断最后 user message 之后的内容原地重生成，带 `{message}` 时保留整段历史并在末尾追加该 user 消息后继续运行（只采用客户端的 role/content/timestamp/attachments，details 由服务端按 canonical capabilities/contextReferences 覆盖，非 user 或空正文返回 400），用于失败轮已产生 `toolResult` 的场景
 - `POST /api/agents/:sessionId/follow-up` — 后续处理
 - `DELETE /api/agents/:sessionId` — 销毁 Agent
 - `POST /api/agents/:sessionId/access-mode` — 切换 Agent 权限模式（`default` / `full-access`）

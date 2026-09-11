@@ -1,6 +1,66 @@
 {
   "features": [
     {
+      "id": "retry-preserve-tool-history",
+      "name": "重试保留已完成工具调用：按 toolResult 分流为追加式续跑",
+      "status": "done",
+      "dependencies": [],
+      "approach": "用户确认方案 A（按分流改）：重试不再无条件截断历史。前端 retryFromMessage 用新增纯函数 hasToolResultsAfter(messages, index) 判定被重试回合是否已产生 toolResult——是则保留整段历史，在末尾追加一条「继续」用户消息（复用既有 i18n errorContinueMessage，中「继续」/英 Continue）后调 ServerAgent.continue(appendMessage)（照 steer 的乐观 push + message_start + HTTP 失败回滚模式，Cloud 模型补新的 quickforgeClientMessageId）；否则保持原有 slice(index+1) + 截断重生成。服务端 continueSession(sessionId, modelAccessContext, appendMessage) 在收到 appendMessage 时走追加模式：经 normalizeRetryAppendMessage 校验非 user 或空正文返回 400，只采用客户端 role/content/timestamp/attachments，再用 withCanonicalContextReferences/withCanonicalSelectedCapabilities 覆盖 details（capabilities/refs 仍从最后一条 user message 重新校验），prepareCloudUserMessage 新铸 logical id，messages.concat 后 agent.continue()。未传 message 时截断逻辑逐字保留，ACP/其他调用方零影响。路由 POST /api/agents/:id/continue 读可选 body {message}。",
+      "files": ["server/agent-manager.mjs", "server/routes/agent.mjs", "src/hooks/useChatActions.ts", "src/lib/server-agent.ts", "src/lib/deferred-session-agent.ts", "src/lib/message-utils.ts", "tests/server/agent-manager.context-references.test.mjs", "tests/frontend/server-agent.test.ts", "tests/frontend/message-utils.test.ts", "docs/wiki/server/README.md", "docs/wiki/server/routes/README.md", "docs/wiki/src/components/README.md", "docs/wiki/src/lib/README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "父 Agent 实跑：定向 npx vitest run tests/server/agent-manager.context-references.test.mjs tests/frontend/server-agent.test.ts tests/frontend/message-utils.test.ts tests/frontend/message-actions.test.ts tests/server/routes/agent.test.mjs tests/server/agent-manager.external-sync.test.mjs 退出码 0（244 tests passed）；npm run test 退出码 0（322 files / 3617 tests passed，较上轮 +1 file/+6 tests）；npm run lint 退出码 0（仅既有 server/cloud/identity.mjs:92 no-useless-assignment warning）；npm run build 退出码 0（仅既有 KaTeX 字体解析与 chunk 体积 warning）。新增用例覆盖：追加模式保留 toolResult 且 transformContext 仍能看到工具结果、追加消息 timestamp 保留 + contextReferences 重新校验写入 details、无 message 时仍截断（既有用例保持通过）、前端乐观追加 + 请求体 {message}、HTTP 失败回滚乐观副本。",
+      "boundaries": "done 表示实现与全量自动验证完成，未做真实浏览器/真实模型验收。已知未验证项：provider 对连续两条 user 消息的接受度仓库内无测试（自动压缩 summary 是既有同形态先例但未线上验证），建议加载新前端后实测一次「多步工具中断 → 点重试」。分流判据是「被重试回合之后存在 toolResult」，因此纯文本失败仍走截断重生成（历史更干净、避免人造消息），发送失败仍走既有 retryFailedPrompt 原样重发。追加消息正文复用既有 i18n errorContinueMessage，文案随当时语言写入会话历史。turnId 归因、压缩点判断、Goal 409 门禁沿用原逻辑。仅改上述文件，未新增/升级依赖，未手工修改 dist/、package-dist/、package-offline/（build 正常刷新 dist），无 Git commit/tag/push/发布。"
+    },
+    {
+      "id": "goal-parallel-sessions",
+      "name": "Goal 会话级互斥：多对话并行执行与同会话并发双写修复",
+      "status": "done",
+      "dependencies": ["goal-stage-order-target-icon"],
+      "approach": "用户确认：彻底移除\"同一工作区最多一个活跃 goal\"互斥，改为会话级互斥——同一会话最多一个活跃 goal（保留），不同会话（含共享同一合成默认工作区的全部全局对话、两个 projectId 指向同一目录的场景）可各自持有活跃 goal 并真正并行执行，/goal 不再返回工作区冲突 409。start/confirm/resume/revise/extend_resume 由按 sessionId 串行的 admission 队列执行\"锁内 re-check + 提交所有权\"，保证同会话读-改-写 session.goal 不交错，不同会话互不阻塞。删除 GOAL_WORKSPACE_CONFLICT(409)、findWorkspaceGoalConflict/assertWorkspaceFree/workspaceKeyForSession/workspaceKeyForMetadata/activeSessionGoal、goalWorkspaceKey/normalizeWorkspaceKey，以及 agent-manager 中只为该互斥注入的 resolveWorkspaceRoot 与 runner 侧对应依赖。顺带修复设计评审已知 X1：startGoalPlanning 的\"本会话已有活跃 goal\"检查与 clearGoalTermination 移入会话锁内（此前检查在锁外，同会话并发 /goal 存在双写窗口）。",
+      "files": ["server/agent-goal-runner.mjs", "server/agent-goal-state.mjs", "server/agent-persistence.mjs", "server/agent-manager.mjs", "tests/server/agent-goal-runner.test.mjs", "tests/server/agent-goal-state.test.mjs", "docs/wiki/README.md", "docs/wiki/server/README.md", "CHANGELOG.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "父 Agent 实跑：定向 npx vitest run tests/server/agent-goal-runner.test.mjs tests/server/agent-goal-state.test.mjs tests/server/agent-goal-manager.test.mjs tests/server/routes/agent.goal.test.mjs 退出码 0（4 files / 176 tests passed）；npm run test 退出码 0（321 files / 3611 tests passed）；npm run lint 退出码 0（仅既有 server/cloud/identity.mjs:92 no-useless-assignment warning）；npm run build 退出码 0（仅既有 KaTeX 字体解析与 chunk 体积 warning）。测试覆盖：同会话第二个 goal 被拒、不同会话与同路径两个 projectId 均可各自开 goal、两个不同会话并发 start 均成功且各持 own goal、同会话并发两次 /goal 恰好一个成功且 persistSession 仅 1 次。grep 确认删除符号在生产/测试/src 内零残留引用。",
+      "boundaries": "done 表示实现与自动验证完成，未做真实浏览器/真实模型验收。语义变更：同一工作区（尤其全局对话共享的默认工作区目录）可同时有多个 goal 并行跑工具，可能互相写文件或执行命令，互不隔离；\"别的对话已有活跃 goal\"的 409 提示与持久化 metadata 冲突扫描复核逻辑永久移除。仅改上述文件；agent-persistence.mjs 仅一处陈旧注释（workspace exclusivity → goal 投影用途）。未新增/升级依赖，未手工修改 dist/、package-dist/、package-offline/（build 正常刷新 dist），无 Git commit/tag/push/发布；docs/reviews 下历史评审文档按历史保留原样。"
+    },
+    {
+      "id": "goal-stage-order-target-icon",
+      "name": "Goal 阶段分隔线视觉顺序与共享靶心身份图标",
+      "status": "done",
+      "dependencies": ["goal-stage-divider-live-sync"],
+      "approach": "用户已授权生产调整。index.css以divider order:3排在消息actions order:2下方，保持正文/过程→操作栏→阶段分隔线；新GoalIcon为24viewBox、currentColor、2px双圆箭中靶心线条SVG，复用在GoalSummarySection摘要、GitToolsPinnedSummary胶囊及WorkspaceInspector Tab/溢出菜单共四身份入口。其他状态图标、导航与执行逻辑不动；追加CSS/fallback及图标入口回归。",
+      "files": ["src/index.css", "src/components/goal-icon.tsx", "src/components/git/GoalSummarySection.tsx", "src/components/git/GitToolsPinnedSummary.tsx", "src/components/workspace/WorkspaceInspector.tsx", "tests/frontend/goal-icon.test.ts", "tests/frontend/goal-iteration-divider.test.ts", "tests/frontend/goal-summary-section.test.ts", "tests/frontend/git-tools-pinned-summary.test.ts", "tests/frontend/workspace-inspector-tabs.test.ts", "docs/wiki/src/components/README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "实现委派及父Agent复跑定向9文件/196测试通过；委派npm run lint退出0，仅既有server/cloud/identity.mjs:92 warning，tsc通过。父Agent独立复跑npm run lint退出0，仅既有server/cloud/identity.mjs:92 warning；npx --no-install tsc -b --pretty false退出0。本次文档委派仅检查JSON、唯一ID、依赖、14文件路径、旧历史保留及git diff --check，不重跑生产测试。",
+      "boundaries": "done仅表示实现与针对性自动验证完成，不表示真实浏览器通过。未做浏览器视觉/窄屏/主题/焦点/读屏或真实模型验证；未跑全量test/build，无依赖、生成产物、Git提交/tag/push/发布。本轮实际源码与测试10文件+components Wiki+三状态文件；保留全部既有未提交diff、旧feature及前轮review/HTML，不修其他评审问题。Wiki仅局部补视觉顺序与共享图标职责，不改server/架构总览。SVG已是所需小图标，无需新解释图；下一步父Agent完成最终审查，再补浏览器验收。"
+    },
+    {
+      "id": "goal-ux-ui-review-prototype",
+      "name": "Goal UX/UI 评审与交互优化原型复核交付",
+      "status": "done",
+      "dependencies": ["goal-stage-divider-live-sync"],
+      "approach": "接续复核完善本轮初已存在的未跟踪报告与原型草稿，非从零新建；评审当前入口、聊天、控制条、摘要、Inspector、历史与恢复旅程，区分代码确认/源码风险/设计建议，交付G01–G11及九场景自包含HTML。仅原型修复planning同scene重新保存timer复用，以generation+revision guard隔离旧回调；复用原型交接/状态SVG，不改生产契约。",
+      "files": ["docs/reviews/goal-ux-ui-review.zh-CN.md", "design-mockups/goal-ux-ui-optimization.html", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "父Agent实跑：Node内联vm.Script、71唯一ID、18HTML引用、零外部资源、9场景、4种规划双屏障、预算/编辑冲突、G01–G11映射检查退出0；28组fake DOM事件及timer guard通过；定向Vitest8文件/187测试退出0，完整命令见报告。委派6项虚拟时钟及负对照通过，单列不混入父级28组。首次静态检查操作数字面顺序断言写反，更正检查重跑退出0；委派长命令包装失败拆短后通过，非生产测试失败。",
+      "boundaries": "done仅表示评审交付与自动验证完成，不表示生产缺陷修复或真实浏览器通过，不预写本Goal运行状态completed。fake DOM不是浏览器；真实browser/Playwright/模型/布局/读屏未实测，不安装依赖；本轮未跑全量test/lint/build，不改生产代码/测试/Wiki/依赖/生成产物，无Git提交/tag/push/发布。纯提案未改架构/公共入口/现行契约，Wiki无需更新；全部旧feature及历史文本保留。下一步独立生产修复优先G01/G02/G04，另补真实浏览器验证。"
+    },
+    {
+      "id": "goal-stage-divider-live-sync",
+      "name": "Goal 规划/执行阶段分隔线与实时元数据同步",
+      "status": "done",
+      "dependencies": ["goal-plan-handoff-fix"],
+      "approach": "planning/execution marker，legacy无kind按execution；规划iteration可0但UI不显示轮数，仅有效plan正常轮末+保存成功显示计划已就绪，completed同屏障。staged goal/messages pair与数组/逐条引用guard，settling拒绝runPrompt，冲突保留live history暂停、取消优先。内部forceMessagesReplace保存非尾assistant marker、不绕CAS，chunked派发前再验canPersist。split state/GET稀疏marker按索引和身份合并、最新snapshot在后到消息后重放；full metadata不放宽正文streaming门禁。本地message_metadata_updated只刷新Host装饰、不清process或恢复draft；marker实际变化推进消息watermark，goal_updated不推进。",
+      "files": ["server/agent-goal-runner.mjs", "server/agent-manager.mjs", "server/agent-persistence.mjs", "server/agent-session-events.mjs", "server/session-state-service.mjs", "src/components/chat/ChatPanelHost.tsx", "src/components/chat/panel-decoration/goal-iteration-divider.ts", "src/lib/i18n.ts", "src/lib/server-agent.ts", "tests/server/agent-goal-runner.test.mjs", "tests/server/agent-session-events.test.mjs", "tests/server/session-state-service.test.mjs", "tests/frontend/goal-iteration-divider.test.ts", "tests/frontend/message-actions.test.ts", "tests/frontend/server-agent.test.ts", "docs/wiki/server/README.md", "docs/wiki/src/lib/README.md", "docs/wiki/src/components/README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "父Agent最终实跑：npm run test退出0，320 files/3605 tests通过；npm run lint退出0，仅既有server/cloud/identity.mjs:92 warning；npm run build退出0，仅既有KaTeX字体/chunk warning。此前联合定向13 files/502 tests通过。父Agent已审查并整合复审三个竞态修正：staged消息冲突、split分页打断重放、full streaming marker独立采纳且不放宽正文门禁。文档委派JSON解析、feature依赖/唯一性、21文件路径、HEAD旧历史保留校验与git diff --check均通过；本次仅收尾三状态文件，不重复运行生产测试。",
+      "boundaries": "done表示实现与全量自动验证完成，改动未提交；仅本次分隔线feature，保留goal-plan-handoff-fix全部历史diff及其他feature/无关问题。文件清单按当前Git核实，system-prompt、其测试、server/tools wiki与runtime新测试归上轮。浏览器c7明确未实测，无现成浏览器通道（无playwright等工具、仅electron runtime），不冒称现场模型验收，也不以人审阻塞自动验证结论。加载新服务/前端后可真UI观察；新规划marker不会回填无marker旧记录。考虑SVG后复用现有细线/SVG无需额外图；无依赖、Git提交/发布或手工生成产物。完全存储故障/任意I/O崩溃窗口不保证补偿持久化。"
+    },
+    {
+      "id": "goal-plan-handoff-fix",
+      "name": "Goal 规划报告阶段与自动执行交接修复",
+      "status": "done",
+      "dependencies": ["goal-auto-start-unlimited-time"],
+      "approach": "报告阶段不再仅看 goal.status===planning：isGoalPlanning(session) 或未确认 awaiting_confirmation 拒绝执行期报告，防止 plan 后同一规划轮的 blocked/needs_review 覆盖计划并阻止自动执行；重复 plan 原已拒绝。system prompt 明确显式 /goal 授权目标范围内自动执行、不重复确认，保留必要澄清、工具审批、安全边界与正常轮末持久化屏障。",
+      "files": ["server/agent-goal-runner.mjs", "server/system-prompt.mjs", "tests/server/agent-goal-runner.test.mjs", "tests/server/system-prompt.test.mjs", "tests/server/agent-goal-runtime.test.mjs", "docs/wiki/server/README.md", "docs/wiki/server/tools/README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "父 Agent 已实跑定向20 files/390 tests通过；npm run lint退出0，仅既有server/cloud/identity.mjs:92 warning；npm run build退出0，仅KaTeX/fonts/chunk警告。新增真实pi Agent+manager+SQLite、脚本模型runtime测试，覆盖prompt/persist两种先后顺序均等双屏障后恰好一次execution、必要ask不自动回答；runner覆盖多组阶段及取消/失败保护。最终全量npm run test退出0：320 files/3475 tests通过（含runtime失败路径清理修正）；父Agent审查与独立只读复审完成。",
+      "boundaries": "done表示本次修复与自动验证完成，改动未提交；未确认现场会话根因，脚本模型runtime不等于真实模型/浏览器验收。无UI或历史文案变更，不需src wiki；考虑SVG后采用简短流程文字。保留全部历史feature；调度门禁静默返回仅静态风险，未复现未修复。无依赖、手工产物、Git提交或发布；build正常生成dist但Git无产物修改。"
+    },
+    {
       "id": "goal-changes-commit",
       "name": "Goal 会话改动提交与推送交接",
       "status": "in_progress",

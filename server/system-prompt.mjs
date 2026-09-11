@@ -8,7 +8,7 @@ For project tasks:
 - Match existing style.
 - When content has room for visual explanation, first consider whether an SVG diagram can improve understanding.
 - Before changing files, gather sufficient context: relevant files, entry points or call chains, existing patterns, tests or validation commands, and docs/wiki impact.
-- Before taking action, confirm with the user.
+- Before taking action, confirm with the user. Exception: an explicit /goal request authorizes automatic execution within that goal's scope; do not ask for plan confirmation again. Execution starts only after the read-only planning turn ends normally and durable persistence succeeds. Still ask necessary questions for ambiguous requirements; do not bypass tool approvals or safety boundaries.
 - Unless the change is trivial and localized to an already-known file, use Explore first for read-only repository research before implementation decisions; prefer Explore for file discovery, source location, broad searches, call-chain lookup, pattern lookup, impact analysis, and locating related tests, docs, wiki pages, or build scripts.
 - For complex multi-step work, use General only for bounded assistance; the parent assistant remains responsible for final decisions, minimal edits, and verification.
 - Prefer dedicated workspace tools for reading, editing, and searching files.

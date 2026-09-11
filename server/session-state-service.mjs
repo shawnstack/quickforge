@@ -213,10 +213,13 @@ async function assembleState(record) {
 // - body-only: messages are unchanged (or absent); only the body is saved.
 // - replace: full message rewrite (first save / truncation / in-place edit).
 // - append: only the new tail rows are written (incremental).
-function messageStoragePlan(state, existing) {
+function messageStoragePlan(state, existing, { forceMessagesReplace = false } = {}) {
   const incoming = state?.messages
   if (incoming === undefined) return { mode: 'body-only' }
   if (!Array.isArray(incoming)) throw new TypeError('state.messages must be an array')
+  // Explicit goal marker edits can sit outside the tail/middle probes. Only
+  // those callers request replacement; normal persists retain the cheap plan.
+  if (forceMessagesReplace) return { mode: 'replace', messages: incoming }
   if (!existing) return { mode: 'replace', messages: incoming }
   if (incoming.length === 0) return { mode: 'replace', messages: incoming }
   const storedCount = repository().messageCount({ scope: existing.scope, projectId: existing.projectId, sessionId: existing.sessionId })
@@ -243,6 +246,8 @@ function messageStoragePlan(state, existing) {
 }
 
 async function savePairWithPlan(state, metadata, options, plan, existing) {
+  // Recheck after chunked encoding yields, before dispatching the CAS write.
+  if (options.canPersist && !options.canPersist()) return null
   const sessionId = options.sessionId ?? state?.id ?? metadata?.id
   const record = synchronize(state, metadata, sessionId, existing)
   const finalMetadata = { ...record.metadata }
@@ -284,7 +289,7 @@ async function savePairWithPlan(state, metadata, options, plan, existing) {
 async function savePair(state, metadata, options = {}) {
   const sessionId = options.sessionId ?? state?.id ?? metadata?.id
   const existing = options.fallback ?? (sessionId ? repository().findBySessionId(sessionId) : null)
-  const plan = messageStoragePlan(state, existing)
+  const plan = messageStoragePlan(state, existing, options)
   return savePairWithPlan(state, metadata, options, plan, existing)
 }
 
@@ -305,7 +310,7 @@ async function savePairChunked(state, metadata, options = {}) {
   // persisted row count — the write stays at the call-time snapshot.
   const messages = Array.isArray(state?.messages) ? state.messages.slice() : state?.messages
   const snapshotState = messages === state?.messages ? state : { ...state, messages }
-  const plan = messageStoragePlan(snapshotState, existing)
+  const plan = messageStoragePlan(snapshotState, existing, options)
   if (plan.mode !== 'replace' && plan.mode !== 'append') {
     return savePairWithPlan(state, metadata, options, plan, existing)
   }
@@ -468,12 +473,13 @@ export function readSessionMetadataBuckets() {
   return [...buckets.values()]
 }
 
-export async function saveSessionStatePair({ state, metadata, expectedRevision = null, expectedStateVersion = null } = {}) {
+export async function saveSessionStatePair({ state, metadata, expectedRevision = null, expectedStateVersion = null, forceMessagesReplace = false, canPersist } = {}) {
   const resolvedMetadata = metadata ?? deriveMetadata(state)
+  const options = { expectedRevision, expectedStateVersion, forceMessagesReplace, canPersist }
   if (expectedRevision === null || expectedRevision === undefined) {
-    return savePair(state, resolvedMetadata, { expectedRevision, expectedStateVersion })
+    return savePair(state, resolvedMetadata, options)
   }
-  return savePairChunked(state, resolvedMetadata, { expectedRevision, expectedStateVersion })
+  return savePairChunked(state, resolvedMetadata, options)
 }
 
 export async function saveSessionBody(sessionId, value, { expectedRevision = null } = {}) {

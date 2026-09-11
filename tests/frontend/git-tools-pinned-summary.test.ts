@@ -492,6 +492,8 @@ describe('GitToolsPinnedSummary goal section', () => {
     expect(html).toContain('quickforge-goal-summary')
     expect(html).toContain('收敛 Goal 到置顶摘要')
     expect(html).toContain('执行中')
+    expect(html).toContain('quickforge-goal-icon')
+    expect(html).not.toContain('lucide-target')
     // No git repo, todo list or subagent run is required for the summary.
     expect(appSource).toContain('|| Boolean(pinnedSummaryGoal)')
     expect(appSource).toContain('goal={pinnedSummaryGoal}')
@@ -511,7 +513,10 @@ describe('GitToolsPinnedSummary goal section', () => {
     // Goal-first capsule with a real status and accepted-criteria count, capped
     // density for the remaining segments.
     expect(summarySource.indexOf("key: 'goal'")).toBeLessThan(summarySource.indexOf("key: 'tasks'"))
-    expect(summarySource).toContain('<Target className="size-3.5"')
+    expect(summarySource).toContain("import { GoalIcon } from '@/components/goal-icon'")
+    const goalCapsule = summarySource.slice(summarySource.indexOf("key: 'goal'"), summarySource.indexOf('if (todos.length > 0)'))
+    expect(goalCapsule).toContain('<GoalIcon className="size-3.5" aria-hidden="true" />')
+    expect(summarySource).not.toContain('<Target')
     expect(summarySource).toContain("t('goalCriteriaProgress', { completed: goalPassedCriteria, total: goalView.criteria.length })")
     expect(summarySource).toContain('return goalView ? segments.slice(0, 3) : segments')
     // Terminal goals stay reviewable: the section is never gated on an active status.

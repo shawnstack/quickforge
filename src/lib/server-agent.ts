@@ -731,6 +731,43 @@ export type FileContextReference = {
 
 export type PromptCapabilitySelection = SelectedCapability
 
+type GoalIterationMarkerSnapshot = {
+  index: number
+  role: string
+  id?: string
+  timestamp?: number
+  quickforgeGoalIteration: Record<string, unknown>
+}
+
+/** Apply only to a verifiable identity at its original position, never clamp or append. */
+function mergeGoalIterationMarkers(messages: AgentMessage[], markers: GoalIterationMarkerSnapshot[] | undefined, replay = false): AgentMessage[] {
+  if (!Array.isArray(markers)) return messages
+  let result = messages
+  for (const entry of markers) {
+    if (!entry || !Number.isInteger(entry.index) || entry.index < 0) continue
+    const message = result[entry.index] as (AgentMessage & { id?: string; timestamp?: number; details?: Record<string, unknown> }) | undefined
+    if (!message || message.role !== entry.role) continue
+    const hasId = typeof entry.id === 'string' && entry.id.length > 0
+    const hasTimestamp = typeof entry.timestamp === 'number' && Number.isFinite(entry.timestamp)
+    if ((!hasId && !hasTimestamp) || (hasId && message.id !== entry.id)
+      || (hasTimestamp && message.timestamp !== entry.timestamp)) continue
+    const marker = entry.quickforgeGoalIteration
+    if (!marker || typeof marker !== 'object' || Array.isArray(marker)
+      || (marker.kind !== undefined && marker.kind !== 'planning' && marker.kind !== 'execution')) continue
+    const currentMarker = message.details?.quickforgeGoalIteration as Record<string, unknown> | undefined
+    // A later message may already carry newer metadata. During replay only
+    // replace an existing marker when the snapshot proves it finished later.
+    if (currentMarker && replay && !(typeof currentMarker.finishedAt === 'number' && typeof marker.finishedAt === 'number'
+      && marker.finishedAt > currentMarker.finishedAt)) continue
+    if (currentMarker && typeof currentMarker.finishedAt === 'number' && typeof marker.finishedAt === 'number'
+      && currentMarker.finishedAt > marker.finishedAt) continue
+    if (JSON.stringify(currentMarker) === JSON.stringify(marker)) continue
+    if (result === messages) result = messages.slice()
+    result[entry.index] = { ...message, details: { ...message.details, quickforgeGoalIteration: marker } } as AgentMessage
+  }
+  return result
+}
+
 export type ServerAgentStateSnapshot = {
   sessionId?: string
   scope?: 'global' | 'project'
@@ -748,6 +785,8 @@ export type ServerAgentStateSnapshot = {
   messages?: AgentMessage[]
   /** Lightweight summary replacing `messages` on split-session state frames. */
   messagesSummary?: { count?: number }
+  /** Sparse, identity-checked goal metadata retained on split state snapshots. */
+  goalIterationMarkers?: GoalIterationMarkerSnapshot[]
   systemPrompt?: string
   model?: Model<Api>
   thinkingLevel?: ThinkingLevel
@@ -982,6 +1021,9 @@ export class ServerAgent {
    * stale data from overwriting fresher SSE-driven updates.
    */
   private stateVersion = 0
+  // Retain accepted marker metadata for identity-checked replay as anchors arrive;
+  // goal_updated deliberately does not advance either message guard.
+  private latestGoalIterationMarkers?: GoalIterationMarkerSnapshot[]
 
   constructor(config: ServerAgentConfig) {
     this.sessionId = config.sessionId
@@ -1418,13 +1460,59 @@ export class ServerAgent {
   /**
    * Continue generation from the current last message (retry / regenerate).
    * The last message must be a user or tool-result message.
+   *
+   * Passing `appendMessage` retries by appending that user message instead of
+   * trimming the failed turn, so tool calls the failed turn already completed
+   * stay in the model transcript. The optimistic copy is reconciled in place by
+   * `upsertMessage` via role+timestamp, exactly like `steer()`.
    */
-  async continue(): Promise<void> {
+  async continue(appendMessage?: AgentMessage): Promise<void> {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/continue`
-    const res = await fetch(url, { method: 'POST' })
-    if (!res.ok) {
-      const payload = await res.json().catch(() => null) as ServerErrorPayload | null
-      throw new Error(serverErrorMessage(payload, `Failed to continue: HTTP ${res.status}`))
+    let optimistic: AgentMessage | undefined
+    if (appendMessage) {
+      let message = appendMessage as unknown as Record<string, unknown>
+      const metadata = message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata)
+        ? message.metadata as Record<string, unknown>
+        : {}
+      if (isManagedQuickForgeCloudModel(this.state.model)
+        && (typeof metadata.quickforgeClientMessageId !== 'string' || !metadata.quickforgeClientMessageId)) {
+        message = {
+          ...message,
+          metadata: {
+            ...metadata,
+            quickforgeClientMessageId: `qfcm_${randomId()}`,
+          },
+        }
+      }
+      optimistic = message as unknown as AgentMessage
+      this.state.messages = [...this.state.messages, optimistic]
+      this.emitToListeners({ type: 'message_start', message: optimistic } as unknown as AgentEvent)
+    }
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        ...(optimistic
+          ? {
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ message: optimistic }),
+            }
+          : {}),
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null) as ServerErrorPayload | null
+        throw new Error(serverErrorMessage(payload, `Failed to continue: HTTP ${res.status}`))
+      }
+    } catch (error) {
+      // Roll back the optimistic copy so the UI never shows a message the
+      // server never accepted.
+      if (optimistic) {
+        const index = this.state.messages.indexOf(optimistic)
+        if (index >= 0) {
+          this.state.messages = [...this.state.messages.slice(0, index), ...this.state.messages.slice(index + 1)]
+          this.emitToListeners({ type: 'message_start' } as unknown as AgentEvent)
+        }
+      }
+      throw error
     }
     this.state.isStreaming = true
     this.state.errorMessage = undefined
@@ -1738,6 +1826,40 @@ export class ServerAgent {
     )
   }
 
+  private notifyMessageMetadataChanged(): void {
+    this.emitToListeners({ type: 'message_metadata_updated' } as unknown as AgentEvent)
+    this.scheduleSessionMessageCacheWrite()
+  }
+
+  private acceptFullGoalIterationMarkerSnapshot(messages: AgentMessage[]): void {
+    const markers: GoalIterationMarkerSnapshot[] = []
+    messages.forEach((value, index) => {
+      const message = value as AgentMessage & { id?: string; timestamp?: number; details?: Record<string, unknown> }
+      const marker = message.details?.quickforgeGoalIteration
+      if (marker && typeof marker === 'object' && !Array.isArray(marker)) {
+        markers.push({ index, role: message.role, id: message.id, timestamp: message.timestamp, quickforgeGoalIteration: marker as Record<string, unknown> })
+      }
+    })
+    this.acceptGoalIterationMarkerSnapshot(markers)
+  }
+
+  private acceptGoalIterationMarkerSnapshot(markers?: GoalIterationMarkerSnapshot[]): void {
+    if (Array.isArray(markers)) this.latestGoalIterationMarkers = markers
+    this.applyGoalIterationMarkers(markers)
+  }
+
+  private replayGoalIterationMarkers(): void {
+    this.applyGoalIterationMarkers(this.latestGoalIterationMarkers, true)
+  }
+
+  private applyGoalIterationMarkers(markers?: GoalIterationMarkerSnapshot[], replay = false): void {
+    const messages = mergeGoalIterationMarkers(this.state.messages, markers, replay)
+    if (messages === this.state.messages) return
+    this.state.messages = messages
+    this.stateVersion++
+    this.notifyMessageMetadataChanged()
+  }
+
   // --- SSE event handling ---
 
   private handleSseEvent(event: Record<string, unknown>) {
@@ -1753,7 +1875,7 @@ export class ServerAgent {
         // Guard against SSE reconnect overwriting client messages with a stale
         // server snapshot: only accept server messages if the client has none
         // (initial load) or if the server has at least as many messages.
-        const s = event as { source?: string; systemPrompt?: string; messages?: AgentMessage[]; messagesSummary?: { count?: number }; model?: Model<Api>; thinkingLevel?: ThinkingLevel; tools?: unknown[]; accessMode?: AgentAccessMode; yoloMode?: boolean; isStreaming?: boolean; status?: string; pendingToolCalls?: string[]; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null; pendingToolApproval?: ServerAgentPendingToolApproval | null; pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null; pendingAsk?: ServerAgentPendingAsk | null; persistDegraded?: boolean; goal?: GoalState | null }
+        const s = event as ServerAgentStateSnapshot
         if (s.source !== undefined) {
           this.sessionSource = s.source || undefined
         }
@@ -1761,13 +1883,14 @@ export class ServerAgent {
           this.state.systemPrompt = s.systemPrompt
         }
         if (s.messages && (s.messages.length > this.state.messages.length || (!this.state.isStreaming && s.messages.length === this.state.messages.length))) {
-          this.state.messages = s.messages
-          this.stateVersion++
-        } else if (!s.messages && s.messagesSummary) {
-          // Split session: state frames carry only a count summary; fetch and
-          // merge the missing tail asynchronously.
-          void this.reconcileMessagesFromSummary(s.messagesSummary)
+          if (JSON.stringify(this.state.messages) !== JSON.stringify(s.messages)) {
+            this.state.messages = s.messages
+            this.stateVersion++
+            this.notifyMessageMetadataChanged()
+          }
         }
+        // Streaming protects the body, not identity-checked final metadata.
+        if (s.messages) this.acceptFullGoalIterationMarkerSnapshot(s.messages)
         if (s.model) {
           this.state.model = s.model
         }
@@ -1831,6 +1954,12 @@ export class ServerAgent {
           this.stateVersion++
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
         }
+        if (!s.messages && s.messagesSummary) {
+          this.acceptGoalIterationMarkerSnapshot(s.goalIterationMarkers)
+          // Reapply inside the reconcile's version guard after missing messages
+          // arrive. Capture after this frame's own lifecycle writes.
+          void this.reconcileMessagesFromSummary(s.messagesSummary, s.goalIterationMarkers)
+        }
         return
       }
 
@@ -1860,6 +1989,7 @@ export class ServerAgent {
             typeof endEvent.messagesAfter === 'number' ? endEvent.messagesAfter : this.state.messages.length,
             endEvent.messages ?? [],
           )
+          this.replayGoalIterationMarkers()
           this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
           this.state.isStreaming = false
           this.state.streamingMessage = undefined
@@ -1884,6 +2014,7 @@ export class ServerAgent {
         }
         if (endEvent.messages && endEvent.messages.length >= this.state.messages.length) {
           this.state.messages = endEvent.messages
+          this.replayGoalIterationMarkers()
           this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
           this.state.isStreaming = false
           this.state.streamingMessage = undefined
@@ -1917,6 +2048,7 @@ export class ServerAgent {
         const msgEvent = event as { message?: AgentMessage; messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesSummary?: { count?: number }; contextUsage?: ServerAgentContextUsage | null }
         if (msgEvent.message) {
           this.state.messages = upsertMessage(this.state.messages, msgEvent.message)
+          this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
@@ -1928,6 +2060,7 @@ export class ServerAgent {
             typeof msgEvent.messagesAfter === 'number' ? msgEvent.messagesAfter : this.state.messages.length,
             msgEvent.messages ?? [],
           )
+          this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
@@ -1935,6 +2068,7 @@ export class ServerAgent {
         }
         if (msgEvent.messages && msgEvent.messages.length >= this.state.messages.length) {
           this.state.messages = msgEvent.messages
+          this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
@@ -1961,6 +2095,7 @@ export class ServerAgent {
         const msgEvent = event as { messages?: AgentMessage[]; contextUsage?: ServerAgentContextUsage | null }
         if (msgEvent.messages && msgEvent.messages.length >= this.state.messages.length) {
           this.state.messages = msgEvent.messages
+          this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
           this.emitToListeners(event as unknown as AgentEvent)
@@ -1994,6 +2129,7 @@ export class ServerAgent {
           this.state.streamingMessage = undefined
           this.stateVersion++
         }
+        this.replayGoalIterationMarkers()
         if (replacedEvent.contextCompaction !== undefined) {
           this.state.contextCompaction = replacedEvent.contextCompaction
         }
@@ -2273,32 +2409,49 @@ export class ServerAgent {
    * that already advanced this.stateVersion) discards the result — the newer
    * event is authoritative.
    */
-  private async reconcileMessagesFromSummary(summary: { count?: number }): Promise<void> {
+  private async reconcileMessagesFromSummary(summary: { count?: number }, markers?: GoalIterationMarkerSnapshot[], forceMessages = false): Promise<void> {
     const versionBefore = this.stateVersion
     const localCount = this.state.messages.length
+    const isCurrent = () => versionBefore === this.stateVersion
+      && (!markers || markers === this.latestGoalIterationMarkers)
+    const finish = () => {
+      const versionAfterMessages = this.stateVersion
+      // An ordinary agent_end page can win the race against a marker page.
+      // Replay the latest accepted snapshot, never the request's captured one.
+      this.replayGoalIterationMarkers()
+      if (markers && versionAfterMessages !== versionBefore && this.stateVersion === versionAfterMessages) {
+        this.notifyMessageMetadataChanged()
+      }
+    }
+    if (!forceMessages && markers && summary.count === localCount) {
+      finish()
+      return
+    }
 
     if (typeof summary.count === 'number' && summary.count < localCount) {
       // Server truncated below the local count (rollback/clear/compaction):
       // the incremental tail does not apply — refetch everything and replace.
       const all = await this.fetchAllMessagesFromServer()
-      if (versionBefore !== this.stateVersion || all.length === 0) return
+      if (!isCurrent() || all.length === 0) return
       this.state.messages = all
       this.state.contextUsage = null
       this.stateVersion++
+      finish()
       return
     }
 
     const after = localCount
     const page = await this.fetchMessagesFromServer(after)
-    if (versionBefore !== this.stateVersion || !page) return
+    if (!isCurrent() || !page) return
     if (page.count < after) {
       // Server has fewer messages than the client assumed (rollback without a
       // summary count update): full refetch replace.
       const all = await this.fetchAllMessagesFromServer()
-      if (versionBefore !== this.stateVersion || all.length === 0) return
+      if (!isCurrent() || all.length === 0) return
       this.state.messages = all
       this.state.contextUsage = null
       this.stateVersion++
+      finish()
       return
     }
     if (page.messages.length > 0) {
@@ -2306,6 +2459,7 @@ export class ServerAgent {
       this.state.contextUsage = null
       this.stateVersion++
     }
+    finish()
   }
 
   private async _doRefreshStateFromServer(options?: { notify?: boolean; forceMessages?: boolean }) {
@@ -2367,10 +2521,14 @@ export class ServerAgent {
         ),
       )
       if (shouldReplaceMessages && state.messages) {
-        this.state.messages = state.messages
+        if (JSON.stringify(this.state.messages) !== JSON.stringify(state.messages)) {
+          this.state.messages = state.messages
+          this.stateVersion++
+          this.notifyMessageMetadataChanged()
+        }
         this.state.contextUsage = state.contextUsage !== undefined ? state.contextUsage : null
-        this.stateVersion++
       } else if (!state.messages && state.messagesSummary) {
+        this.acceptGoalIterationMarkerSnapshot(state.goalIterationMarkers)
         // Split session: the state frame only carries a count summary. Fetch
         // and merge the missing tail (or refetch all when the server
         // truncated). The reconcile itself snapshots stateVersion before the
@@ -2383,9 +2541,10 @@ export class ServerAgent {
           // in sync — skip the /messages fetch. forceMessages keeps the
           // explicit syncState behaviour unchanged.
         } else {
-          await this.reconcileMessagesFromSummary(state.messagesSummary)
+          await this.reconcileMessagesFromSummary(state.messagesSummary, state.goalIterationMarkers, options?.forceMessages)
         }
       }
+      if (state.messages) this.acceptFullGoalIterationMarkerSnapshot(state.messages)
       if (state.systemPrompt !== undefined) {
         this.state.systemPrompt = state.systemPrompt
       }
@@ -2513,7 +2672,7 @@ export class ServerAgent {
     // full message list; materialize the conversation through the paginated
     // messages channel so the restore frame itself stays small.
     if (!Array.isArray(snapshot.messages) && snapshot.messagesSummary) {
-      snapshot.messages = await fetchAllSessionMessages(baseUrl, sessionId)
+      snapshot.messages = mergeGoalIterationMarkers(await fetchAllSessionMessages(baseUrl, sessionId), snapshot.goalIterationMarkers)
     }
     const agent = new ServerAgent({
       sessionId,
@@ -2586,7 +2745,7 @@ export class ServerAgent {
       if (stateRes.ok) serverState = body ?? {}
     } catch { /* ignore */ }
     if (!Array.isArray(serverState.messages) && (serverState as { messagesSummary?: unknown }).messagesSummary) {
-      serverState.messages = await fetchAllSessionMessages(baseUrl, sessionId)
+      serverState.messages = mergeGoalIterationMarkers(await fetchAllSessionMessages(baseUrl, sessionId), (serverState as ServerAgentStateSnapshot).goalIterationMarkers)
     }
 
     const agent = new ServerAgent({

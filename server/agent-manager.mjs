@@ -172,19 +172,6 @@ configureGoalRunner({
   // the tool set is rebuilt whenever that flips (created/confirmed/finished).
   refreshTools: (session) => rebuildSessionTools(session),
   syncMessages: (session) => emitSessionEvent(session, { type: 'state', ...getSessionState(session.sessionId) }),
-  // Workspace exclusivity keys on the normalized workspace path (two projectIds
-  // can point at the same directory). Persisted metadata only carries
-  // scope/projectId, so the runner asks the manager to resolve the path.
-  resolveWorkspaceRoot: async ({ scope, projectId } = {}) => {
-    if (scope === 'project' && projectId) {
-      try {
-        return (await projectContextFromId(projectId))?.workspaceRoot || null
-      } catch {
-        return null
-      }
-    }
-    return defaultGlobalWorkspaceContext()?.workspaceRoot || null
-  },
 })
 
 function wrapSubagentToolDefinition(definition, parentSessionId) {
@@ -1161,7 +1148,9 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
-  if (session.agent.state.isStreaming || session.abortPending) {
+  // Settlement owns the transcript even after streaming stops. Reject before
+  // command resolution: text-only /skill and /clear bypass the active-goal gate.
+  if (session.agent.state.isStreaming || session.abortPending || session.goalRunSettling) {
     throw Object.assign(new Error('Generation is still running. Stop it or wait until it finishes.'), {
       statusCode: 409,
       errorCode: 'GENERATION_ALREADY_RUNNING',
@@ -1318,14 +1307,45 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
 }
 
 /**
- * Continue generation from the current last message (must be a user or
- * tool-result message).  Used by the retry button to regenerate a response
- * in-place without appending a new user message.
- *
- * Trims messages to keep up to and including the last user message,
- * removing the assistant response that follows it.
+ * Validate the user message a client asks to append when retrying a turn that
+ * already produced tool results. Only the role, content, timestamp and
+ * attachments are taken from the client: capabilities and context references
+ * are re-derived on the server, and the logical message id is minted fresh by
+ * `prepareCloudUserMessage` so the appended turn never reuses the previous
+ * turn's idempotency key.
  */
-export async function continueSession(sessionId, modelAccessContext = null) {
+function normalizeRetryAppendMessage(message) {
+  const role = message?.role
+  if (role !== 'user' && role !== 'user-with-attachments') {
+    throw Object.assign(new Error('Retry append requires a user message.'), { statusCode: 400 })
+  }
+  const content = message?.content
+  const hasContent = typeof content === 'string'
+    ? content.trim().length > 0
+    : Array.isArray(content) && content.length > 0
+  if (!hasContent) {
+    throw Object.assign(new Error('Retry append requires non-empty message content.'), { statusCode: 400 })
+  }
+  const timestamp = Number.isFinite(message?.timestamp) && message.timestamp > 0 ? message.timestamp : Date.now()
+  const next = { role, content, timestamp }
+  if (Array.isArray(message?.attachments)) next.attachments = message.attachments
+  return next
+}
+
+/**
+ * Continue generation from the current last message (must be a user or
+ * tool-result message).  Used by the retry button.
+ *
+ * Two modes:
+ *  - plain retry: trims messages to keep up to and including the last user
+ *    message, removing the assistant response that follows it, then regenerates
+ *    in place.
+ *  - append retry (caller passes `appendMessage`): the whole history is kept and
+ *    the given user message is appended instead, so tool calls the failed turn
+ *    already completed stay in the model transcript and the model does not redo
+ *    its side effects.
+ */
+export async function continueSession(sessionId, modelAccessContext = null, appendMessage = null) {
   const session = agentSessions.get(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
@@ -1374,12 +1394,25 @@ export async function continueSession(sessionId, modelAccessContext = null) {
     canonicalSelectedCapabilities,
   )
   const commandState = await resolveCommandState(session, canonicalLastUserMessage, null, requestSource)
-  const continuedUserMessage = prepareCloudUserMessage(session, commandState.userMessage ?? canonicalLastUserMessage)
-  const trimmedMessages = messages.slice(0, lastUserIndex).concat(continuedUserMessage)
+  // Append mode: the client asks to keep the failed turn and add one user
+  // message after it, so the tool calls that already ran stay in the transcript.
+  const appendedUserMessage = appendMessage
+    ? withCanonicalSelectedCapabilities(
+        withCanonicalContextReferences(normalizeRetryAppendMessage(appendMessage), canonicalContextReferences),
+        canonicalSelectedCapabilities,
+      )
+    : null
+  const continuedUserMessage = prepareCloudUserMessage(
+    session,
+    appendedUserMessage ?? commandState.userMessage ?? canonicalLastUserMessage,
+  )
+  const trimmedMessages = appendedUserMessage
+    ? messages.concat(continuedUserMessage)
+    : messages.slice(0, lastUserIndex).concat(continuedUserMessage)
   updateSessionMessages(session, trimmedMessages)
   const compactedUpToIndex = Number(session.contextCompaction?.compactedUpToIndex) || 0
   if (lastUserIndex < compactedUpToIndex) {
-    // 重试点越过压缩点，摘要覆盖的历史被截断，压缩失效
+    // 重试点越过压缩点，摘要覆盖的历史被截断（或按追加模式保留），压缩失效
     resetSessionCompaction(session)
   } else {
     // 重试点位于压缩点之后，摘要仍然有效，保留压缩上下文

@@ -6,6 +6,14 @@
 
 包含前端工具模块，涵盖存储、聊天逻辑、本地工具、国际化、设置选项卡等。
 
+## Goal 分隔线元数据实时同步
+
+- `server-agent.ts` 对 split SSE state / GET state 的 `goalIterationMarkers` 做窄合并：只接收原索引存在且 role、可用 id/timestamp 匹配的条目，至少须有 id 或 timestamp 可验证；不追加消息、不移动锚点、不替换正文或无关 details。未知 kind 拒绝，legacy 无 kind 保留 execution 兼容。
+- 最新 marker snapshot 留存，在后到的 message/agent end、增量或全量消息对账合并后重放；重放不覆盖已存在的更新 marker（按 finishedAt 守卫）。snapshot 后到也立即合并已有消息，避免相同 message count 导致分隔线直到刷新才出现。full state 同样可独立合并 metadata，但不放宽 streaming 期间正文替换门禁。
+- 仅 marker 实际变化才替换必要消息条目、推进消息 watermark，并发出专用本地 `message_metadata_updated`。不是伪造 `messages_replaced`：`ChatPanelHost` 仅刷新窗口消息和装饰，不清 streaming process groups、不触发 composer draft 恢复。`goal_updated` 仍只走独立 Goal 水位、不推进消息 watermark。
+- `i18n.ts` 提供规划/执行阶段文案；规划 iteration 可为 0，但不展示执行轮数。「计划已就绪」只消费服务端正常提交 plan 轮末与成功保存后的 marker，complete 工具成功也不冒充 completed。服务端 staged pair / CAS / 取消优先屏障见 [服务端契约](../../server/README.md#goal-自动完成与迭代记录)。
+- 相关验证：`tests/frontend/server-agent.test.ts`、`goal-iteration-divider.test.ts`、`message-actions.test.ts`；自动测试不等同真实浏览器或现场模型验收。考虑 SVG 后复用现有细线/SVG 图标，无需额外流程图。
+
 ## Goal 报告工具呈现契约
 
 - `local-tools.ts` 导入时注册 `goal_report`，不依赖 `/api/tools` 返回该会话专属工具。复用 local-tool shell、summary、状态图标与原生 details；默认展开结构化历史摘要、验收标准和范围，可折叠。
@@ -131,7 +139,7 @@
 
 **关键功能**:
 - SSE 事件流管理（`GlobalAgentSseClient`）
-- 消息发送/接收；`steer(message)` 乐观显示——立即把 steering user 消息追加进本地 state 并发 `message_start`，服务端在下一工具轮边界注入同一消息（同 role+timestamp）经 `message_end` 回显后由 `upsertMessage` 原位替换不重复，HTTP 失败则回滚乐观副本并重新通知面板；prompt HTTP 请求失败时先回滚未被服务端接收的乐观 user message，再追加符合消息契约的 assistant error message（具体 `errorMessage`、`stopReason:'error'`、当前模型字段、零 usage 与 timestamp），并以 `agent_end` 的 `status:'error'` / `errorMessage` 结束本地运行，让聊天区直接显示服务端返回的具体原因；该合成错误消息同时挂客户端专用 `quickforgeFailedPrompt`（未被服务端接收的原始消息），`retryFailedPrompt(errorEntry)` 据此在非流式时移除该错误消息、把 stash 中的 `selectedCapabilities`/`contextReferences` 预置回 nextPrompt*（避免 prompt 空快照逻辑剥除 details）后原样重发，供「错误旁继续按钮」区分「重发未送达消息」与「发继续消息」两种语义
+- 消息发送/接收；`steer(message)` 乐观显示——立即把 steering user 消息追加进本地 state 并发 `message_start`，服务端在下一工具轮边界注入同一消息（同 role+timestamp）经 `message_end` 回显后由 `upsertMessage` 原位替换不重复，HTTP 失败则回滚乐观副本并重新通知面板；prompt HTTP 请求失败时先回滚未被服务端接收的乐观 user message，再追加符合消息契约的 assistant error message（具体 `errorMessage`、`stopReason:'error'`、当前模型字段、零 usage 与 timestamp），并以 `agent_end` 的 `status:'error'` / `errorMessage` 结束本地运行，让聊天区直接显示服务端返回的具体原因；该合成错误消息同时挂客户端专用 `quickforgeFailedPrompt`（未被服务端接收的原始消息），`retryFailedPrompt(errorEntry)` 据此在非流式时移除该错误消息、把 stash 中的 `selectedCapabilities`/`contextReferences` 预置回 nextPrompt*（避免 prompt 空快照逻辑剥除 details）后原样重发，供「错误旁继续按钮」区分「重发未送达消息」与「发继续消息」两种语义。`continue(appendMessage?)` 可选追加：不带参数时保持服务端截断重生成；带 `appendMessage` 时把该消息（Cloud 模型下先补 `quickforgeClientMessageId`）乐观追加进本地 state 并发 `message_start`（与 `steer` 同一模式），连同请求体 `{ message }` 发给服务端，服务端保留历史并在末尾追加后续跑，HTTP 失败则回滚乐观副本再抛出；`deferred-session-agent` 透传该参数
 - Agent 状态管理（创建、单次恢复、销毁）；`ServerAgent.restore()` 支持 `AbortSignal`，从 `/api/agents/:sessionId/restore` 一次取得完整权威快照，取消的旧会话请求不会创建 SSE；页面刷新或 SSE 重连时会从服务端 state 恢复运行中工具的临时 `toolResult`（含 subagent `details.messages`）和 `pendingToolCalls`
 - ask_user 提问流：`ask_user_required`/`ask_user_answered` SSE 事件维护 `state.pendingAsk`（随 state 快照与 SSE state 帧恢复），`answerAsk(askId, {answers, skipped})` POST `/api/agents/:id/answer-ask` 回传后清空 pending；回答以纯文本作为 ask_user 工具结果回给模型
 - Goal 模式客户端：`state.goal` 由会话快照、SSE `goal_updated` 与 `updateGoal(action, objective?)`（POST `/api/agents/:id/goal`，30s 超时，超时抛错让卡片解除 pending）维护。权威排序分两层：同一 goal id 以 `revision` 为准，旧 revision 不回退；跨 id 或 `null` 清空以请求前捕获的 goal 变更水位 `goalSeq` 守卫，异步响应只有在期间没有更新的 goal 落地时才被采纳（相同回显不推进水位）；响应缺少 `goal` 字段时保留现状而非清空。`deferred-session-agent` 同步代理 `updateGoal` 并在新会话/重置时清空 `goal`。相同回显不推进水位，且只有**真正改变** goal 的快照才向订阅者广播 `goal_updated`（`/state` 刷新同样带请求前水位，输给更新的 goal 快照时不上报）。goal 帧与 goal 通知一律**不**推进消息 `stateVersion`：goal 不改消息，推进会作废在途的消息对账并丢消息。`/state` 刷新的消息版本早退路径只对「同 goal id + 严格更高 revision + 请求前捕获的 `goalSeq` 未被期间落地的 goal 改变」的 goal 快照独立采纳（`adoptNewerRevisionGoalFromSnapshot`），跨 id 替换与 `null` 清空不越过消息版本 guard，仍由正常路径与 `goalSeq` 水位裁定

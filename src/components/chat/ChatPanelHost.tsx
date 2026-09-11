@@ -1754,8 +1754,10 @@ export function ChatPanelHost({
         ;(agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null
         scheduleDecorateRef.current?.()
       }
-      if (eventType === 'auto_compact_completed' || eventType === 'messages_replaced') {
-        releaseStreamingProcessGroups(panel)
+      if (eventType === 'auto_compact_completed' || eventType === 'messages_replaced' || eventType === 'message_metadata_updated') {
+        // Metadata only needs rendering/decoration; preserve process groups and
+        // do not invoke the messages_replaced draft restoration above.
+        if (eventType !== 'message_metadata_updated') releaseStreamingProcessGroups(panel)
         const agentInterface = getAgentInterface()
         agentInterface?.requestUpdate?.()
         scheduleDecorateRef.current?.()

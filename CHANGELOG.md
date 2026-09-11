@@ -18,6 +18,7 @@ All notable changes to QuickForge will be documented in this file.
 - Raised the default Goal duration budget from 30 to 120 minutes (iterations stay at 8); `extend_resume` follows the same default and now adds 120 minutes per confirmation, while existing goals keep their original budget.
 - Redesigned the Goal inspector sidebar: scrollable content with a pinned action bar, segmented progress/edit switch, layered Button variants, status-tone header with localized timestamps, criterion status badges, budget meters with exhausted chips, and long notes collapsed behind a single "?" popover instead of stacked paragraphs.
 - Simplified the goal control strip above the composer to a compact row (status + recorded duration + icon actions): the objective text moved out to the pinned summary and inspector, duration is formatted in minutes, and the cancel confirmation shows one sentence.
+- Relaxed Goal exclusivity from workspace-level to session-level: multiple conversations (including global ones that share the default workspace, and projects pointing at the same directory) can each hold an active goal and run in parallel, and `/goal` no longer returns 409 because another conversation has an active goal; concurrent `/goal` calls in the same session still admit only one, with start/confirm/resume/revise/extend_resume serialized per session so same-session goal state cannot interleave.
 
 ## [2.0.0] - 2026-09-09
 

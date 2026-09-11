@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
 import { initializePiStorage } from '@/lib/pi-chat'
@@ -7,6 +8,7 @@ import { t } from '@/lib/i18n'
 import {
   copyTextToClipboard,
   draftTextFromUserMessage,
+  hasToolResultsAfter,
   rollbackStartIndexFromMessage,
   shouldSaveSession,
   generateTitle,
@@ -283,14 +285,30 @@ export function useChatActions({
     const message = messages[messageIndex]
     if (message.role !== 'user' && message.role !== 'user-with-attachments') return
 
-    // Trim local messages to keep the user message (server will do the same)
-    const nextMessages = messages.slice(0, messageIndex + 1)
-    setCurrentAgentMessages(nextMessages)
-    setChatPanelRevision((value) => value + 1)
+    // A failed turn that already ran tools must not be trimmed: dropping it would
+    // erase those tool calls from the model transcript, so the model would redo
+    // side effects (file edits, commands) it already performed. Retry by keeping
+    // the whole history and appending a short continuation message instead.
+    const ranTools = hasToolResultsAfter(messages, messageIndex)
 
-    // Continue generation from the user message (server trims + regenerates in place)
     try {
-      await currentAgent.continue()
+      if (ranTools) {
+        const continueMessage = {
+          role: 'user',
+          content: t('errorContinueMessage'),
+          timestamp: Date.now(),
+        } as unknown as AgentMessage
+        // `continue` appends the optimistic copy itself (see ServerAgent.continue).
+        await currentAgent.continue(continueMessage)
+        setChatPanelRevision((value) => value + 1)
+      } else {
+        // Trim local messages to keep the user message (server will do the same)
+        setCurrentAgentMessages(messages.slice(0, messageIndex + 1))
+        setChatPanelRevision((value) => value + 1)
+
+        // Continue generation from the user message (server trims + regenerates in place)
+        await currentAgent.continue()
+      }
     } catch (error) {
       logger.error('Failed to retry:', error)
       void showAlert(error instanceof Error ? error.message : t('retryFailed'))

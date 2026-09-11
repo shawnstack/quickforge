@@ -47,6 +47,20 @@ export function draftTextFromUserMessage(message: AgentMessage) {
     : textFromContentBlocks(message.content, '\n\n')
 }
 
+/**
+ * Whether the turn that starts at `messageIndex` already produced tool results.
+ *
+ * Retrying such a turn by trimming it would drop those tool calls from the model
+ * transcript: the model would no longer know the side effects (file edits,
+ * commands) it already performed and could repeat them. The retry path therefore
+ * appends a continuation message instead of trimming.
+ */
+export function hasToolResultsAfter(messages: AgentMessage[], messageIndex: number) {
+  return messages
+    .slice(messageIndex + 1)
+    .some((message) => message.role === 'toolResult')
+}
+
 export async function copyTextToClipboard(text: string) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text)

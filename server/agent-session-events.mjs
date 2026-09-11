@@ -88,19 +88,38 @@ function emitSessionEvent(session, event) {
 /**
  * F9 split-message SSE frames: split sessions never ship the full `messages`
  * array over SSE. `state` frames carry a lightweight `messagesSummary`
- * ({ count }) instead; message_end/agent_end/messages_replaced frames carry
+ * ({ count }) and sparse `goalIterationMarkers` instead; the latter retains
+ * same-count metadata changes on reconnect without shipping message bodies.
+ * message_end/agent_end/messages_replaced frames carry
  * only the tail that the client has not yet seen (`messagesAfter` +
  * `messages` + `messagesIncremental`), with a `messagesSummary` for the total.
  * Non-split sessions keep the legacy full-array payloads byte-for-byte, so
  * older clients and non-split sessions are unaffected. `stateVersion` is
  * never modified here.
  */
+// Sparse metadata, never message bodies or unrelated details. Identity is
+// checked at the exact index by clients; markers cannot append messages.
+function goalIterationMarkers(messages) {
+  return messages.flatMap((message, index) => {
+    const marker = message?.details?.quickforgeGoalIteration
+    if (!isRecord(marker)) return []
+    return [{
+      index,
+      role: message.role,
+      ...(typeof message.id === 'string' ? { id: message.id } : {}),
+      ...(Number.isFinite(message.timestamp) ? { timestamp: message.timestamp } : {}),
+      quickforgeGoalIteration: marker,
+    }]
+  })
+}
+
 function transformSplitSessionEvent(session, event) {
   if (session.persistedMessageStorage !== 'split' || !event || typeof event !== 'object') return event
   if (event.type === 'state') {
     if (!Array.isArray(event.messages)) return event
     const next = { ...event }
     const count = next.messages.length
+    next.goalIterationMarkers = goalIterationMarkers(next.messages)
     delete next.messages
     next.messagesSummary = { count }
     return next
@@ -133,6 +152,7 @@ export function stripSplitSessionState(state) {
   if (!Array.isArray(state.messages)) return state
   const next = { ...state }
   const count = next.messages.length
+  next.goalIterationMarkers = goalIterationMarkers(next.messages)
   delete next.messages
   next.messagesSummary = { count }
   return next

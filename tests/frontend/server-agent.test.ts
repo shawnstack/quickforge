@@ -335,6 +335,77 @@ describe('ServerAgent', () => {
     }
   })
 
+  it('appends the retry continuation message optimistically and sends it to the server', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ sessionId: 'session-1', status: 'running' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [
+          { role: 'user', content: 'edit the file' },
+          { role: 'assistant', content: [{ type: 'toolCall', id: 'call-1', name: 'edit' }], stopReason: 'toolUse' },
+          { role: 'toolResult', toolCallId: 'call-1', toolName: 'edit', content: [{ type: 'text', text: 'done' }], isError: false },
+          { role: 'assistant', content: [{ type: 'text', text: '' }], stopReason: 'error', errorMessage: 'upstream failed' },
+        ] as AgentMessage[],
+      },
+    })
+
+    try {
+      const continuation = { role: 'user', content: '继续', timestamp: 1_700_000_000_000 } as AgentMessage
+      await agent.continue(continuation)
+
+      // The failed turn is kept and the continuation is appended instead of trimming.
+      expect(agent.state.messages).toHaveLength(5)
+      expect(agent.state.messages[2]).toMatchObject({ role: 'toolResult', toolCallId: 'call-1' })
+      expect(agent.state.messages[4]).toMatchObject({ role: 'user', content: '继续', timestamp: 1_700_000_000_000 })
+      expect(agent.state.isStreaming).toBe(true)
+
+      const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/continue'))
+      expect(call).toBeTruthy()
+      expect(call?.[1]?.method).toBe('POST')
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+        message: { role: 'user', content: '继续', timestamp: 1_700_000_000_000 },
+      })
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('rolls back the optimistic continuation message when the retry request fails', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'Generation is still running.', code: 'GENERATION_ALREADY_RUNNING' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [
+          { role: 'user', content: 'hello' },
+          { role: 'assistant', content: [{ type: 'text', text: '' }], stopReason: 'error', errorMessage: 'boom' },
+        ] as AgentMessage[],
+      },
+    })
+
+    try {
+      await expect(
+        agent.continue({ role: 'user', content: '继续', timestamp: 1 } as AgentMessage),
+      ).rejects.toThrow()
+      expect(agent.state.messages).toHaveLength(2)
+      expect(agent.state.messages[1]).toMatchObject({ role: 'assistant' })
+      expect(agent.state.isStreaming).toBe(false)
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('shows the concrete prompt HTTP error after rolling back the optimistic user message', async () => {
     const errorMessage = 'Selected model is not configured in QuickForge.'
     const fetchMock = vi.fn().mockResolvedValue({
@@ -1570,6 +1641,233 @@ describe('ServerAgent', () => {
       evidence: [],
       updatedAt: '2026-01-01T00:00:00.000Z',
     }
+
+    it.each(['split', 'full'])('notifies same-count %s goal markers after goal_updated, idempotently', async (storage) => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messages: [], count: 1 }) }))
+      const message = { role: 'assistant', timestamp: 123, content: [{ type: 'text', text: 'answer' }], details: { keep: true } }
+      const marker = { goalId: 'goal-1', kind: 'planning', iteration: 0, outcome: 'running', finishedAt: 456 }
+      const agent = await createServerAgent({ sessionId: 'session-1', initialState: { messages: [message] as AgentMessage[], stateVersion: 1 } })
+      const events: Array<Record<string, unknown>> = []
+      agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      const localVersion = () => (agent as unknown as { stateVersion: number }).stateVersion
+      try {
+        const source = latestEventSource()
+        const before = localVersion()
+        source.emit('goal_updated', { sessionId: 'session-1', stateVersion: 2, goal: { ...sampleGoal, status: 'running', revision: 3 } })
+        expect(localVersion()).toBe(before)
+        const frame = {
+          sessionId: 'session-1', stateVersion: 3,
+          ...(storage === 'split'
+            ? { messagesSummary: { count: 1 }, goalIterationMarkers: [{ index: 0, role: 'assistant', timestamp: 123, quickforgeGoalIteration: marker }] }
+            : { messages: [{ ...message, details: { ...message.details, quickforgeGoalIteration: marker } }] }),
+        }
+        source.emit('state', frame)
+        await flushAllAsync()
+        expect(agent.state.messages).toHaveLength(1)
+        expect(agent.state.messages[0]).toMatchObject({ details: { keep: true, quickforgeGoalIteration: marker } })
+        expect(events.filter((event) => event.type === 'message_metadata_updated')).toHaveLength(1)
+        expect(events.some((event) => event.type === 'messages_replaced')).toBe(false)
+        expect(localVersion()).toBeGreaterThan(before)
+        const applied = localVersion()
+        source.emit('state', frame)
+        source.emit('state', { ...frame, stateVersion: 1 })
+        await flushAllAsync()
+        expect(events.filter((event) => event.type === 'message_metadata_updated')).toHaveLength(1)
+        expect(localVersion()).toBe(applied)
+      } finally { agent.dispose() }
+    })
+
+    it.each(['ordinary-first', 'marker-first'])('replays latest markers when competing reconciles return %s', async (order) => {
+      const ordinary = deferred<unknown>()
+      const metadata = deferred<unknown>()
+      vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(ordinary.promise).mockReturnValueOnce(metadata.promise))
+      const message = { id: 'a1', role: 'assistant', timestamp: 100, content: 'answer' }
+      const marker = { kind: 'execution', outcome: 'completed', finishedAt: 500 }
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const source = latestEventSource()
+        source.emit('agent_end', { sessionId: 'session-1', stateVersion: 1, messagesSummary: { count: 1 } })
+        source.emit('state', { sessionId: 'session-1', stateVersion: 2, messagesSummary: { count: 1 }, goalIterationMarkers: [{ index: 0, id: 'a1', role: 'assistant', timestamp: 100, quickforgeGoalIteration: marker }] })
+        const resolve = (pending: ReturnType<typeof deferred<unknown>>) => pending.resolve({ ok: true, json: async () => ({ messages: [message], count: 1 }) })
+        resolve(order === 'ordinary-first' ? ordinary : metadata)
+        await flushAllAsync()
+        resolve(order === 'ordinary-first' ? metadata : ordinary)
+        await flushAllAsync()
+        expect(agent.state.messages).toEqual([{ ...message, details: { quickforgeGoalIteration: marker } }])
+      } finally { agent.dispose() }
+    })
+
+    it.each(['message_end', 'messages_replaced', 'agent_end', 'turn_end'])('replays markers on marker-free %s before stale reconcile returns', async (type) => {
+      const pending = deferred<unknown>()
+      vi.stubGlobal('fetch', vi.fn().mockReturnValue(pending.promise))
+      const message = { id: 'a1', role: 'assistant', timestamp: 100, content: 'newer' }
+      const marker = { kind: 'execution', outcome: 'completed', finishedAt: 500 }
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const source = latestEventSource()
+        source.emit('state', { sessionId: 'session-1', stateVersion: 2, messagesSummary: { count: 1 }, goalIterationMarkers: [{ index: 0, id: 'a1', role: 'assistant', timestamp: 100, quickforgeGoalIteration: marker }] })
+        source.emit(type, { sessionId: 'session-1', stateVersion: 3, ...(type === 'message_end' ? { message } : { messages: [message] }) })
+        expect(agent.state.messages[0]).toMatchObject({ content: 'newer', details: { quickforgeGoalIteration: marker } })
+        pending.resolve({ ok: true, json: async () => ({ messages: [{ ...message, content: 'stale' }], count: 1 }) })
+        await flushAllAsync()
+        expect(agent.state.messages[0]).toMatchObject({ content: 'newer', details: { quickforgeGoalIteration: marker } })
+      } finally { agent.dispose() }
+    })
+
+    it.each(['SSE', 'GET'])('merges full %s markers while preserving same-count streaming content', async (transport) => {
+      const message = { id: 'a1', role: 'assistant', timestamp: 100, content: 'live', details: { keep: true } }
+      const marker = { kind: 'execution', outcome: 'completed', finishedAt: 500 }
+      const snapshot = { sessionId: 'session-1', stateVersion: 2, isStreaming: false, messages: [{ ...message, content: 'snapshot', details: { quickforgeGoalIteration: marker } }] }
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => snapshot }))
+      const agent = await createServerAgent({ sessionId: 'session-1', initialState: { messages: [message] as AgentMessage[], isStreaming: true } })
+      const events: Array<Record<string, unknown>> = []
+      agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      try {
+        if (transport === 'SSE') latestEventSource().emit('state', snapshot)
+        else await (agent as unknown as { refreshStateFromServer: () => Promise<void> }).refreshStateFromServer()
+        expect(agent.state.isStreaming).toBe(false)
+        expect(agent.state.messages).toEqual([{ ...message, details: { keep: true, quickforgeGoalIteration: marker } }])
+        expect(events.filter((event) => event.type === 'message_metadata_updated')).toHaveLength(1)
+      } finally { agent.dispose() }
+    })
+
+    it.each(['SSE', 'GET'])('rejects mismatched full %s marker identities while streaming', async (transport) => {
+      const message = { id: 'a1', role: 'assistant', timestamp: 100, content: 'live' }
+      const snapshot = { sessionId: 'session-1', stateVersion: 2, isStreaming: false, messages: [{ ...message, id: 'different', details: { quickforgeGoalIteration: { kind: 'execution', finishedAt: 500 } } }] }
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => snapshot }))
+      const agent = await createServerAgent({ sessionId: 'session-1', initialState: { messages: [message] as AgentMessage[], isStreaming: true } })
+      try {
+        if (transport === 'SSE') latestEventSource().emit('state', snapshot)
+        else await (agent as unknown as { refreshStateFromServer: () => Promise<void> }).refreshStateFromServer()
+        expect(agent.state.messages).toEqual([message])
+      } finally { agent.dispose() }
+    })
+
+    it.each(['cleared', 'newer', 'different-identity'])('replays only the latest matching snapshot on replacement (%s)', async (mode) => {
+      const pending = deferred<unknown>()
+      vi.stubGlobal('fetch', vi.fn().mockReturnValue(pending.promise))
+      const message = { id: 'a1', role: 'assistant', timestamp: 100, content: 'answer' }
+      const marker = { kind: 'execution', outcome: 'completed', finishedAt: 500 }
+      const newer = { ...marker, outcome: 'paused', finishedAt: 600 }
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const source = latestEventSource()
+        const snapshot = { sessionId: 'session-1', stateVersion: 2, messagesSummary: { count: 1 }, goalIterationMarkers: [{ index: 0, id: 'a1', role: 'assistant', timestamp: 100, quickforgeGoalIteration: marker }] }
+        source.emit('state', snapshot)
+        if (mode !== 'different-identity') source.emit('state', { ...snapshot, stateVersion: 3, goalIterationMarkers: mode === 'cleared' ? [] : [{ ...snapshot.goalIterationMarkers[0], quickforgeGoalIteration: newer }] })
+        const replacement = mode === 'different-identity' ? { ...message, id: 'a2' } : message
+        source.emit('messages_replaced', { sessionId: 'session-1', stateVersion: 4, messages: [replacement] })
+        pending.resolve({ ok: true, json: async () => ({ messages: [message], count: 1 }) })
+        await flushAllAsync()
+        expect(agent.state.messages).toEqual([mode === 'newer' ? { ...message, details: { quickforgeGoalIteration: newer } } : replacement])
+      } finally { agent.dispose() }
+    })
+
+    it('adopts markers from a same-version split GET reconnect snapshot without message fetch', async () => {
+      const message = { role: 'assistant', timestamp: 100, content: 'answer' }
+      const marker = { goalId: 'goal-1', kind: 'execution', iteration: 1, outcome: 'completed', finishedAt: 500 }
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ stateVersion: 2, messagesSummary: { count: 1 }, goalIterationMarkers: [{ index: 0, role: 'assistant', timestamp: 100, quickforgeGoalIteration: marker }] }) })
+      vi.stubGlobal('fetch', fetchMock)
+      const agent = await createServerAgent({ sessionId: 'session-1', initialState: { messages: [message] as AgentMessage[], stateVersion: 2 } })
+      const events: Array<Record<string, unknown>> = []
+      agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      try {
+        await (agent as unknown as { refreshStateFromServer: () => Promise<void> }).refreshStateFromServer()
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect(agent.state.messages[0]).toMatchObject({ details: { quickforgeGoalIteration: marker } })
+        expect(events.filter((event) => event.type === 'message_metadata_updated')).toHaveLength(1)
+      } finally { agent.dispose() }
+    })
+
+    it.each([false, true])('restores split snapshot markers without regressing a newer messages page (newer=%s)', async (newer) => {
+      const marker = { goalId: 'goal-1', kind: 'execution', iteration: 1, outcome: 'completed', finishedAt: 500 }
+      const pageMarker = { ...marker, outcome: 'paused', finishedAt: 600 }
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, status: 200, json: async () => url.endsWith('/restore')
+        ? { sessionId: 'session-1', stateVersion: 2, messagesSummary: { count: 1 }, goalIterationMarkers: [{ index: 0, role: 'assistant', timestamp: 100, quickforgeGoalIteration: marker }] }
+        : { messages: [{ role: 'assistant', timestamp: 100, content: 'answer', ...(newer ? { details: { quickforgeGoalIteration: pageMarker } } : {}) }], count: 1 } })))
+      const { ServerAgent } = await import('../../src/lib/server-agent')
+      const { agent, snapshot } = await ServerAgent.restore('session-1')
+      try {
+        expect(agent.state.messages[0]).toMatchObject({ details: { quickforgeGoalIteration: newer ? pageMarker : marker } })
+        expect(snapshot.messages).toEqual(agent.state.messages)
+      } finally { agent.dispose() }
+    })
+
+    it.each(['planning', 'execution', undefined])('restores %s markers from GET state after missing messages reconcile', async (kind) => {
+      const marker = { goalId: 'goal-1', ...(kind ? { kind } : {}), iteration: 1, outcome: 'completed', finishedAt: 500 }
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, status: 200, json: async () => url.endsWith('/state')
+        ? { stateVersion: 2, messagesSummary: { count: 1 }, goalIterationMarkers: [{ index: 0, role: 'assistant', id: 'a1', timestamp: 100, quickforgeGoalIteration: marker }] }
+        : { messages: [{ id: 'a1', role: 'assistant', timestamp: 100, content: 'answer' }], count: 1 } })))
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      const events: Array<Record<string, unknown>> = []
+      agent.subscribe((event) => events.push(event as Record<string, unknown>))
+      try {
+        await agent.syncState()
+        expect(agent.state.messages).toHaveLength(1)
+        expect(agent.state.messages[0]).toMatchObject({ details: { quickforgeGoalIteration: marker } })
+        expect(events.filter((event) => event.type === 'message_metadata_updated')).toHaveLength(1)
+      } finally { agent.dispose() }
+    })
+
+    it.each([
+      { index: -1, role: 'assistant', timestamp: 100 },
+      { index: 9, role: 'assistant', timestamp: 100 },
+      { index: 0.5, role: 'assistant', timestamp: 100 },
+      { index: 0, role: 'user', timestamp: 100 },
+      { index: 0, role: 'assistant', timestamp: 999 },
+      { index: 0, role: 'assistant', timestamp: 100, id: 'other' },
+      { index: 0, role: 'assistant' },
+    ])('ignores invalid marker position or identity: %j', async (identity) => {
+      const message = { id: 'a1', role: 'assistant', timestamp: 100, content: 'answer' }
+      const agent = await createServerAgent({ sessionId: 'session-1', initialState: { messages: [message] as AgentMessage[] } })
+      try {
+        latestEventSource().emit('state', { sessionId: 'session-1', stateVersion: 2, messagesSummary: { count: 1 }, goalIterationMarkers: [{ ...identity, quickforgeGoalIteration: { kind: 'execution' } }] })
+        await flushAllAsync()
+        expect(agent.state.messages).toEqual([message])
+      } finally { agent.dispose() }
+    })
+
+    it.each(['goal', 'message', 'snapshot'])('guards missing-message marker reconcile against concurrent %s updates', async (concurrent) => {
+      const pending = deferred<unknown>()
+      const nextPending = deferred<unknown>()
+      vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(pending.promise).mockReturnValueOnce(nextPending.promise))
+      const marker = { goalId: 'goal-1', kind: 'execution', iteration: 1, outcome: 'completed', finishedAt: 500 }
+      const message = { role: 'assistant', timestamp: 100, content: 'answer' }
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const source = latestEventSource()
+        const snapshot = { sessionId: 'session-1', stateVersion: 2, messagesSummary: { count: 1 }, goalIterationMarkers: [{ index: 0, role: 'assistant', timestamp: 100, quickforgeGoalIteration: marker }] }
+        source.emit('state', snapshot)
+        if (concurrent === 'goal') source.emit('goal_updated', { sessionId: 'session-1', stateVersion: 3, goal: sampleGoal })
+        if (concurrent === 'message') source.emit('message_end', { sessionId: 'session-1', stateVersion: 3, message: { ...message, content: 'newer', details: { quickforgeGoalIteration: { ...marker, outcome: 'paused' } } } })
+        if (concurrent === 'snapshot') source.emit('state', { ...snapshot, stateVersion: 3, goalIterationMarkers: [] })
+        pending.resolve({ ok: true, json: async () => ({ messages: [message], count: 1 }) })
+        await flushAllAsync()
+        if (concurrent === 'goal') expect(agent.state.messages[0]).toMatchObject({ details: { quickforgeGoalIteration: marker } })
+        if (concurrent === 'message') expect(agent.state.messages[0]).toMatchObject({ content: 'newer', details: { quickforgeGoalIteration: { outcome: 'paused' } } })
+        if (concurrent === 'snapshot') {
+          expect(agent.state.messages).toHaveLength(0)
+          nextPending.resolve({ ok: true, json: async () => ({ messages: [message], count: 1 }) })
+          await flushAllAsync()
+          expect(agent.state.messages).toEqual([message])
+        }
+      } finally { agent.dispose() }
+    })
+
+    it.each([2, 4])('does not let deferred GET v%s overwrite newer same-count SSE metadata', async (stateVersion) => {
+      const pending = deferred<unknown>()
+      vi.stubGlobal('fetch', vi.fn().mockReturnValue(pending.promise))
+      const message = { role: 'assistant', timestamp: 100, content: 'answer' }
+      const agent = await createServerAgent({ sessionId: 'session-1', initialState: { messages: [message] as AgentMessage[] } })
+      try {
+        const refresh = agent.syncState()
+        const marker = { kind: 'execution', outcome: 'completed', finishedAt: 500 }
+        latestEventSource().emit('state', { sessionId: 'session-1', stateVersion: 3, messagesSummary: { count: 1 }, goalIterationMarkers: [{ index: 0, role: 'assistant', timestamp: 100, quickforgeGoalIteration: marker }] })
+        pending.resolve({ ok: true, status: 200, json: async () => ({ stateVersion, messages: [message] }) })
+        await refresh
+        expect(agent.state.messages[0]).toMatchObject({ details: { quickforgeGoalIteration: marker } })
+      } finally { agent.dispose() }
+    })
 
     it('adopts the goal from state frames and clears it on an explicit null', async () => {
       const agent = await createServerAgent({ sessionId: 'session-1' })

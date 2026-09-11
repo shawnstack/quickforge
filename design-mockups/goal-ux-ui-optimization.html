@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goal UX / UI · 交互优化原型</title>
+<style>
+/* 字体、圆角、轻阴影及动效来自 src/index.css；配色为无依赖原型的语义 fallback。 */
+:root{color-scheme:light;--background:#fff;--foreground:#374151;--muted:#f3f4f6;--muted-foreground:#647084;--border:#e2e5e9;--accent:#edf2fa;--primary:#365b95;--success:#28735a;--warning:#895c1f;--danger:#a13838;--radius:.5rem;--shadow-quickforge:0 10px 26px -18px rgb(15 23 42 / .48);--quickforge-dur-fast:120ms;--quickforge-ease-out:cubic-bezier(.2,0,0,1);--inspector-width:340px;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:13px}
+:root[data-theme="dark"]{color-scheme:dark;--background:#191c22;--foreground:#d0d5de;--muted:#222730;--muted-foreground:#a2adbe;--border:#363e4b;--accent:#28374d;--primary:#a0bfee;--success:#8ccbb2;--warning:#e0be83;--danger:#f2aaaa}
+*{box-sizing:border-box}body{margin:0;background:var(--background);color:var(--foreground);line-height:1.65}button,input,textarea,select{font:inherit;color:inherit}button,select{border:1px solid var(--border);border-radius:6px;background:var(--background);padding:5px 9px;min-height:34px}button,summary,select{cursor:pointer}button{transition:background var(--quickforge-dur-fast) var(--quickforge-ease-out)}button:hover{background:var(--muted)}button:disabled{opacity:.5;cursor:not-allowed}button.primary{background:var(--accent);color:var(--primary)}button.danger:hover,.confirm .danger{color:var(--danger)}:focus-visible{outline:2px solid var(--primary);outline-offset:3px}[hidden]{display:none!important}h1,h2,h3,p{margin:0}h1{font-size:15px}h2{font-size:14px}h3{font-size:13px;font-weight:600}small,.muted{color:var(--muted-foreground);font-size:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.between{justify-content:space-between}.stack>*+*{margin-top:12px}.toolbar{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:center;flex-wrap:wrap}.toolbar h1{margin-right:auto}.notice{padding:8px 20px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted-foreground)}.workspace{display:grid;grid-template-columns:minmax(0,1fr) var(--inspector-width);max-width:1400px;margin:auto;min-height:720px}.workspace.closed{grid-template-columns:1fr}.chat{padding:20px 28px;min-width:0;display:flex;flex-direction:column;gap:24px}.summary{display:block;text-align:left;border:0;border-bottom:1px solid var(--border);border-radius:0;width:100%;padding:0 0 14px}.summary strong,.summary span{display:block}.summary span{font-size:12px;color:var(--muted-foreground)}.transcript{flex:1;min-height:270px}.message{margin:12px 0 22px;max-width:680px}.message .author{font-size:12px;color:var(--muted-foreground);margin-bottom:6px}.user-message{background:var(--muted);border-radius:var(--radius);padding:12px 14px;margin-left:auto}.divider{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted-foreground);margin:20px 0}.divider:before,.divider:after{content:"";height:1px;background:var(--border);flex:1}.icon{width:15px;height:15px;vertical-align:-2px;flex-shrink:0}.pending{padding:14px;border:1px solid var(--border);border-radius:var(--radius);scroll-margin:20px}.pending:focus{outline:2px solid var(--primary)}.controlbar{border-top:1px solid var(--border);padding-top:12px}.controlbar .state{margin-right:auto}.composer{border:1px solid var(--border);border-radius:var(--radius);padding:12px;box-shadow:var(--shadow-quickforge)}textarea,input{width:100%;background:var(--background);border:1px solid var(--border);border-radius:6px;padding:9px}textarea{resize:vertical;min-height:100px}.composer textarea{min-height:56px;border:0;padding:0}.inspector{border-left:1px solid var(--border);padding:18px;min-width:0}.tabs{display:flex;gap:8px;border-bottom:1px solid var(--border);padding:14px 0 10px;margin-bottom:16px}.tabs button{border:0}.tabs button[aria-selected="true"]{color:var(--primary);background:var(--accent)}.section{padding:14px 0;border-bottom:1px solid var(--border)}.section:first-child{padding-top:0}.criteria{padding:0;list-style:none}.criteria li{display:flex;gap:8px;margin:10px 0}.passed{color:var(--success)}progress{width:100%;height:6px;accent-color:var(--success)}details{font-size:12px}details p,details ul{margin-top:8px}summary{color:var(--muted-foreground);padding:4px 0}.callout,.confirm{padding:10px 12px;background:var(--muted);border-radius:6px}.confirm{border:1px solid var(--border);margin-top:10px}.error{color:var(--danger)}.warning{color:var(--warning)}.field{display:block;margin-bottom:6px}.footer{max-width:1400px;padding:18px 24px;margin:auto;border-top:1px solid var(--border)}.map{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:10px;padding-left:20px}.flow{width:100%;max-width:560px;height:auto;color:var(--muted-foreground)}.live{min-height:24px;padding:0 20px;color:var(--primary);font-size:12px}.narrow{max-width:420px;grid-template-columns:minmax(0,1fr);min-height:0}.narrow .chat{padding:16px}.narrow .inspector{border-left:0;border-top:1px solid var(--border)}
+@media(max-width:760px){.workspace{grid-template-columns:minmax(0,1fr);min-height:0}.chat{padding:16px}.inspector{border-left:0;border-top:1px solid var(--border)}.toolbar,.notice{padding-left:14px;padding-right:14px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<header class="toolbar">
+<h1>QuickForge <span class="muted">/ Goal 交互实验室</span></h1>
+<label for="scene">场景</label><select id="scene">
+<option value="planning">planning · 只读规划</option><option value="running" selected>running · 执行中</option><option value="input">input · 等待回答</option><option value="approval">approval · 等待工具审批</option><option value="paused">paused · 已暂停 / 恢复</option><option value="blocked">blocked · 无法验证</option><option value="budget">budget · 轮次耗尽</option><option value="edit-conflict">edit-conflict · 编辑冲突</option><option value="completed">completed · 已完成</option>
+</select>
+<button id="theme" type="button" aria-pressed="false">深色主题</button>
+<label for="width">侧栏</label><select id="width"><option value="340">340 px</option><option value="420">420 px</option></select>
+<button id="narrow" type="button" aria-pressed="false">窄屏预览</button>
+</header>
+<p class="notice">交互原型 · 所有目标、状态、证据与审批均为模拟数据。无网络、API 或真实文件操作；切换场景会重置草稿，刷新不保留数据。</p>
+<div id="live" class="live" role="status" aria-live="polite"></div>
+<main id="workspace" class="workspace">
+<section class="chat" aria-label="Goal 聊天">
+<button id="summary" class="summary" type="button" aria-controls="inspector"><strong id="summaryTitle">Goal · 优化任务列表的键盘体验</strong><span id="summaryMeta"></span></button>
+<div class="transcript" id="transcript">
+<article class="message user-message"><p class="author">你 · 入口授权</p><p>/goal 优化任务列表的键盘体验，补充测试。仅修改任务列表相关文件，不新增依赖。</p></article>
+<details><summary>入口授权与执行边界</summary><p>显式 /goal 已授权目标范围内自动执行。规划整轮只读，正常结束且计划持久化成功后自动执行；不再要求计划确认或人工验收。必要澄清、工具审批和安全边界仍有效。</p>
+<svg class="flow" viewBox="0 0 550 42" role="img" aria-label="目标授权，进入只读规划，正常轮末并保存成功，自动执行"><g fill="none" stroke="currentColor"><path d="M82 21h28m110 0h28m162 0h28"/><path d="m104 17 6 4-6 4m138-8 6 4-6 4m184-8 6 4-6 4"/></g><g fill="currentColor" font-size="12"><text x="0" y="25">/goal 授权</text><text x="118" y="25">只读规划</text><text x="255" y="25">正常轮末 + 保存</text><text x="448" y="25">自动执行</text></g></svg></details>
+<div id="history"></div>
+<div id="stageDivider" class="divider"></div>
+<article class="message"><p class="author">QuickForge · 模拟助手</p><p id="assistantText"></p></article>
+<section id="pending" class="pending stack" tabindex="-1" aria-labelledby="pendingTitle" hidden>
+<h2 id="pendingTitle"></h2><p id="pendingText"></p>
+<div id="questionActions" hidden><label class="field" for="answer">你的回答</label><input id="answer" placeholder="例如：上下键移动，Enter 打开任务" aria-describedby="answerError"><p id="answerError" class="error" role="alert" hidden>请填写回答后再发送。</p><button id="sendAnswer" type="button" class="primary">发送回答（模拟）</button></div>
+<div id="approvalActions" class="row" hidden><button id="approve" type="button" class="primary">允许本次（模拟）</button><button id="deny" type="button">拒绝（模拟）</button></div>
+</section>
+</div>
+<div class="controlbar row" aria-label="Goal 控制条"><span id="controlState" class="state"></span><button id="pause" type="button">暂停</button><button id="resume" type="button" aria-describedby="dirtyNote">继续</button><button id="budgetNav" type="button" aria-controls="progressPanel" hidden>追加轮次…</button><button id="viewError" type="button" hidden>查看错误详情</button><button id="edit" type="button" aria-controls="inspector">编辑</button><button id="cancel" type="button" class="danger">取消 Goal</button></div>
+<div id="cancelConfirm" class="confirm stack" hidden><p>取消将停止本次 Goal，保留已有记录，不标记完成。</p><div class="row"><button id="confirmCancel" type="button" class="danger">确认取消</button><button id="keepGoal" type="button">返回</button></div></div>
+<div class="composer"><label class="field muted" for="chatDraft">聊天输入（展示区，不发送到模型）</label><textarea id="chatDraft" placeholder="必要问题请使用上方对应的回答区域。"></textarea><small>Goal 控制始终可见；进度与目标编辑集中在 Inspector。</small></div>
+</section>
+<aside id="inspector" class="inspector" aria-labelledby="inspectorTitle">
+<div class="row between"><h2 id="inspectorTitle">Goal Inspector</h2><button id="closeInspector" type="button" aria-label="关闭 Goal Inspector">关闭</button></div>
+<div class="tabs" role="tablist" aria-label="Goal 视图"><button id="tabProgress" role="tab" aria-selected="true" aria-controls="progressPanel" type="button">进度</button><button id="tabEdit" role="tab" aria-selected="false" aria-controls="editPanel" tabindex="-1" type="button">编辑目标</button></div>
+<section id="progressPanel" role="tabpanel" aria-labelledby="tabProgress" tabindex="0">
+<div id="dirtyNote" class="callout stack" hidden><p>有未保存草稿；下方仍显示已保存目标的进度。请先保存或放弃草稿，再继续、解除阻塞或追加轮次；暂停与取消仍可用。</p><button id="backToDraft" type="button">返回草稿</button></div>
+<section class="section stack"><h3 id="goalTitle"></h3><p id="stateReason" class="muted" tabindex="-1"></p><button id="locateTodo" type="button" class="primary" hidden>前往聊天处理待办</button><button id="retryBlocked" type="button" hidden>模拟障碍已解除并继续</button></section>
+<section class="section"><div class="row between"><h3>必要准则</h3><span id="requiredCount" class="passed"></span></div><progress id="requiredProgress" max="3" value="2" aria-label="必要准则已通过数量"></progress><ul id="requiredList" class="criteria"></ul><details id="evidence"><summary id="evidenceSummary">查看验证证据（模拟）</summary><p id="evidenceText"></p><p class="muted">证据只代表本原型数据；未验证不得标为通过。完成不依赖人工验收。</p></details></section>
+<section class="section"><h3>可选改进 <span class="muted">不计入必要准则统计</span></h3><p class="muted">○ 增加快捷键动画提示 · 尚未实施</p></section>
+<section class="section stack"><h3>执行预算</h3><p id="budgetText"></p><p class="muted">累计用时 04:32 · 时间上限：无限</p><details><summary>轮次不是完成率 · 帮助</summary><p>轮次仅表示资源消耗，不代表实现进度。默认 8 轮；仅轮次耗尽时可追加 8 轮，保留同一 Goal 的计划、证据与累计用量。防空转、重复失败和单工具超时保护不变。</p></details><button id="extend" type="button" hidden>追加 8 轮并继续…</button><div id="budgetConfirm" class="confirm stack" hidden><p id="budgetConfirmText"></p><div class="row"><button id="confirmBudget" type="button" class="primary">确认追加并继续</button><button id="dismissBudget" type="button">暂不追加</button></div></div></section>
+<details class="section"><summary>状态与恢复帮助</summary><p>有计划继续执行，无计划重新规划。暂停不是失败；阻塞需先解除原因。旧快照不会因打开界面而自动执行。历史记录保留当时事实，不因当前暂停、取消或失败改写。</p></details>
+</section>
+<section id="editPanel" role="tabpanel" aria-labelledby="tabEdit" tabindex="0" hidden>
+<form id="editForm" class="stack" novalidate>
+<label class="field" for="goalDraft">目标说明 <span class="muted">必填</span></label><textarea id="goalDraft" rows="5" aria-describedby="editHelp editError"></textarea>
+<p id="editHelp" class="muted">保持范围：任务列表相关文件；不新增依赖。保存修改会生成新计划，不直接延用旧计划。</p>
+<p id="editError" class="error" role="alert" hidden></p>
+<div id="conflictNote" class="callout stack" hidden><p>其他客户端更新了目标。草稿已保留，当前禁止覆盖保存。</p><button id="reloadLatest" type="button">载入最新版本（保留草稿）</button></div>
+<p id="draftState" class="muted"></p>
+<div class="row"><button id="save" type="submit" class="primary">保存并重新规划</button><button id="discard" type="button">放弃草稿</button></div>
+<div id="editConfirm" class="confirm stack" hidden><p>先暂停当前运行；模拟收到已暂停状态后保存修改，再进入只读规划。规划正常结束且保存成功后自动执行。</p><div class="row"><button id="confirmEdit" type="button" class="primary">暂停并保存修改</button><button id="dismissEdit" type="button">继续编辑</button></div></div>
+<details><summary>编辑与未保存草稿帮助</summary><p>切换进度不会丢失草稿，暂停与取消仍可用。关闭侧栏撤销未确认操作但保留草稿。冲突需先载入最新版本；此原型不模拟跨客户端原子写入。</p></details>
+</form>
+</section>
+</aside>
+</main>
+<footer class="footer"><details><summary>优化说明 · G01–G11 对照</summary><ul class="map">
+<li><strong>G01 入口授权</strong>：/goal 即范围授权，正常轮末保存后自动执行。</li><li><strong>G02 编辑重规划</strong>：运行中先确认暂停保存，随后重新 planning。</li><li><strong>G03 恢复</strong>：有计划续跑，无计划重规划；耗尽预算单独确认。</li><li><strong>G04 正确导航</strong>：摘要打开进度，编辑打开编辑器；控制条“追加轮次…”仅定位预算操作。</li><li><strong>G05 帮助折叠</strong>：证据、规则与解释使用 details 渐进披露。</li><li><strong>G06 键盘错误按钮</strong>：原生“查看错误详情”定位目标错误、回答错误或阻塞原因，保留可见焦点。</li><li><strong>G07 dirty</strong>：草稿跨视图保留；未保存时禁止继续、解除阻塞及追加预算，暂停取消仍可用。</li><li><strong>G08 定位待办</strong>：问题与审批跳到聊天、滚动并聚焦。</li><li><strong>G09 历史</strong>：正常规划轮末且保存成功才追加“规划 · 计划已就绪”；当前阶段不是轮末，旧记录不随当前状态改写。</li><li><strong>G10 状态图标</strong>：规划、运行、等待、暂停、阻塞、取消、完成各自匹配。</li><li><strong>G11 required 统计</strong>：仅必要准则计数；可选与轮次预算独立展示。</li>
+</ul><p class="muted">仅设计提案，未修改产品实现。SVG 用于解释规划交接与状态，不以装饰替代文字。</p></details></footer>
+<script>
+(function () {
+  'use strict';
+  var labels = {
+    planning: ['◇', '只读规划', '正在只读分析范围；模拟规划将在约 2 秒后正常结束并持久化，随后自动执行。'],
+    running: ['▷', '执行中', '已完成键盘导航与焦点修复，正在补充回归测试。'],
+    input: ['?', '等待回答', '有一个必要问题待回答；请前往聊天中的问题，不是编辑目标。'],
+    approval: ['▣', '等待工具审批', '请求运行测试命令；审批发生在聊天，不等于确认计划。'],
+    paused: ['Ⅱ', '已暂停', '运行已停止推进。可以继续同一 Goal，或编辑目标后重新规划。'],
+    blocked: ['!', '已阻塞', '测试环境不可用，无法验证最后一项必要准则；未将其标为通过。'],
+    budget: ['⌛', '轮次耗尽', '已用完 8 轮。追加轮次需明确确认，不重置累计用量。'],
+    'edit-conflict': ['!', '编辑冲突 · 已暂停', '目标已被其他客户端更新，先载入最新版本；你的草稿仍保留。'],
+    completed: ['✓', '已完成', '必要准则均有模拟工具证据；正常轮末与持久化成功后自动完成。请回顾证据，无需人工验收。'],
+    cancelled: ['×', '已取消', '已停止此 Goal，保留历史与已有证据；不视为完成。']
+  };
+  var paths = { planning: 'M8 2l6 6-6 6-6-6z', running: 'M5 2l9 6-9 6z', input: 'M5 5a3 3 0 1 1 5 2c-2 1-2 2-2 3M8 13v1', approval: 'M8 1l6 3v4c0 3-6 6-6 6S2 11 2 8V4z', paused: 'M5 2v12M11 2v12', blocked: 'M8 2v8M8 13v1', budget: 'M3 2h10M3 14h10M4 2v3l8 6v3M12 2v3l-8 6v3', 'edit-conflict': 'M8 2v8M8 13v1', completed: 'M2 8l4 4 8-9', cancelled: 'M3 3l10 10M13 3L3 13' };
+  var state, timer = null, planningGeneration = 0;
+  var hasDOM = typeof document !== 'undefined' && typeof document.getElementById === 'function';
+  function createState(scene) {
+    if (!labels[scene] || scene === 'cancelled') scene = 'running';
+    var title = '优化任务列表的键盘体验';
+    return { scene: scene, title: title, draft: scene === 'edit-conflict' ? title + '，补充 Esc 返回行为' : title, dirty: scene === 'edit-conflict', conflict: scene === 'edit-conflict', hasPlan: scene !== 'planning', used: scene === 'budget' ? 8 : scene === 'planning' ? 0 : 3, limit: 8, requiredPassed: scene === 'completed' ? 3 : scene === 'planning' ? 0 : 2, tab: scene === 'edit-conflict' ? 'edit' : 'progress', inspector: true, confirm: null, error: '', errorTarget: '', history: scene === 'planning' ? [] : ['规划 · 计划已就绪'], revision: 1 };
+  }
+  function transition(current, action, value) {
+    var next = Object.assign({}, current, { history: current.history.slice(), error: '', errorTarget: '' });
+    if (next.dirty && ['resume', 'resolveBlock', 'requestBudget', 'extend'].includes(action)) {
+      next.error = '有未保存草稿，请先保存或放弃草稿，再继续或追加轮次。暂停与取消仍可用。'; next.errorTarget = 'draft'; next.confirm = null; return next;
+    }
+    if (action === 'draft') { next.draft = value; next.dirty = value !== next.title; next.confirm = null; }
+    if (action === 'tab') { next.tab = value; next.inspector = true; next.confirm = null; next.error = current.error; next.errorTarget = current.errorTarget; }
+    if (action === 'close') { next.inspector = false; next.confirm = null; }
+    if (action === 'pause' && ['planning', 'running', 'input', 'approval'].includes(next.scene)) { next.resumeScene = next.scene; next.scene = 'paused'; next.confirm = null; }
+    if (action === 'resume' && next.scene === 'paused') next.scene = ['input', 'approval'].includes(next.resumeScene) ? next.resumeScene : next.hasPlan ? 'running' : 'planning';
+    if (action === 'resolveBlock' && next.scene === 'blocked') next.scene = next.hasPlan ? 'running' : 'planning';
+    if (action === 'requestCancel' && !['completed', 'cancelled'].includes(next.scene)) next.confirm = 'cancel';
+    if (action === 'cancel' && next.confirm === 'cancel') { next.scene = 'cancelled'; next.confirm = null; }
+    if (action === 'dismiss') next.confirm = null;
+    if (action === 'requestBudget' && next.scene === 'budget') next.confirm = 'budget';
+    if (action === 'extend' && next.scene === 'budget' && next.confirm === 'budget') { next.limit += 8; next.scene = next.hasPlan ? 'running' : 'planning'; next.confirm = null; }
+    if (action === 'answer' && next.scene === 'input') { if (String(value || '').trim()) next.scene = 'running'; else next.error = '请填写回答后再发送。'; }
+    if (action === 'approve' && next.scene === 'approval') next.scene = 'running';
+    if (action === 'deny' && next.scene === 'approval') next.scene = 'blocked';
+    if (action === 'reload' && next.conflict) { next.title = '优化任务列表的键盘体验（最新：包含 Esc 返回）'; next.conflict = false; next.scene = 'paused'; next.revision += 1; next.dirty = next.draft !== next.title; }
+    if (action === 'discard') { next.draft = next.title; next.dirty = false; next.confirm = null; }
+    if (action === 'save' || action === 'confirmEdit') {
+      if (['completed', 'cancelled'].includes(next.scene)) next.error = '此 Goal 已结束，不能修改。';
+      else if (next.conflict) next.error = '请先载入最新版本，草稿不会丢失。';
+      else if (!next.draft.trim()) next.error = '目标说明不能为空。';
+      else if (next.dirty) {
+        var active = ['planning', 'running', 'input', 'approval'].includes(next.scene);
+        if (active && !(action === 'confirmEdit' && next.confirm === 'edit')) next.confirm = 'edit';
+        else {
+          if (active) { next.scene = 'paused'; next.history.push('运行已暂停 · 编辑保存'); }
+          next.title = next.draft.trim(); next.draft = next.title; next.dirty = false; next.hasPlan = false; next.requiredPassed = 0; next.scene = 'planning'; next.confirm = null; next.tab = 'progress'; next.revision += 1;
+        }
+      }
+    }
+    if (action === 'finishPlanning' && next.scene === 'planning' && value && value.normalEnd && value.persisted) {
+      next.hasPlan = true; next.history.push('规划 · 计划已就绪'); next.scene = next.used >= next.limit ? 'budget' : 'running';
+    }
+    if (next.error && !next.errorTarget) next.errorTarget = action === 'answer' ? 'answer' : 'draft';
+    return next;
+  }
+  function el(id) { return document.getElementById(id); }
+  function text(id, value) { el(id).textContent = value; }
+  function show(id, visible) { el(id).hidden = !visible; }
+  function icon(scene) { return '<svg class="icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="' + paths[scene] + '"></path></svg>'; }
+  function announce(message) { if (hasDOM) text('live', message); }
+  function render() {
+    if (!hasDOM) return;
+    var info = labels[state.scene], completed = state.scene === 'completed', ended = completed || state.scene === 'cancelled';
+    if (state.scene !== 'cancelled') el('scene').value = state.scene;
+    text('summaryTitle', 'Goal · ' + state.title);
+    text('summaryMeta', info[1] + ' · 必要准则 ' + state.requiredPassed + '/3 · 打开进度 →');
+    text('goalTitle', state.title); text('stateReason', info[2]); text('assistantText', info[2]);
+    el('stageDivider').className = ended ? 'divider' : 'row muted';
+    el('stageDivider').innerHTML = icon(state.scene) + '<span>' + (ended ? completed ? '执行轮末 · 已完成（正常结束且保存成功）' : '终止记录 · 已取消（非正常轮末，不代表完成）' : '当前阶段（非轮末） · ' + info[1] + (state.scene === 'running' ? ' · 第 ' + (state.used + 1) + ' 轮' : '')) + '</span>';
+    el('controlState').innerHTML = icon(state.scene) + ' ' + info[1] + ' <span class="muted">· 04:32</span>';
+    el('history').replaceChildren();
+    state.history.forEach(function (entry) { var node = document.createElement('p'); node.className = 'divider'; node.textContent = '◇ ' + entry; el('history').appendChild(node); });
+    var pending = ['input', 'approval'].includes(state.scene);
+    show('pending', pending); show('questionActions', state.scene === 'input'); show('approvalActions', state.scene === 'approval');
+    text('pendingTitle', state.scene === 'input' ? '待回答 · 键盘操作范围' : '待审批 · 运行测试');
+    text('pendingText', state.scene === 'input' ? '是否包含上下键移动与 Enter 打开？请补充期望行为。' : '工具：run_command · npm run test -- task-list · 仅本次测试命令。');
+    show('answerError', state.errorTarget === 'answer'); el('answer').setAttribute('aria-invalid', String(state.errorTarget === 'answer'));
+    show('locateTodo', pending); text('locateTodo', state.scene === 'input' ? '前往聊天回答问题 →' : '前往聊天处理审批 →');
+    show('retryBlocked', state.scene === 'blocked');
+    show('pause', ['planning', 'running', 'input', 'approval'].includes(state.scene)); show('resume', state.scene === 'paused');
+    show('budgetNav', state.scene === 'budget'); show('viewError', !!state.error || state.conflict || state.scene === 'blocked');
+    ['resume', 'retryBlocked', 'extend', 'confirmBudget'].forEach(function (id) { el(id).disabled = state.dirty; el(id).setAttribute('aria-describedby', 'dirtyNote'); });
+    el('cancel').disabled = ended; el('edit').disabled = ended;
+    show('cancelConfirm', state.confirm === 'cancel'); show('inspector', state.inspector); el('workspace').classList.toggle('closed', !state.inspector);
+    ['progress', 'edit'].forEach(function (tab) { var id = tab === 'progress' ? 'tabProgress' : 'tabEdit'; el(id).setAttribute('aria-selected', String(state.tab === tab)); el(id).tabIndex = state.tab === tab ? 0 : -1; show(tab + 'Panel', state.tab === tab); });
+    show('dirtyNote', state.dirty); text('requiredCount', state.requiredPassed + ' / 3 已通过'); el('requiredProgress').value = state.requiredPassed;
+    el('requiredList').replaceChildren();
+    ['上下键导航与 Enter 打开', '焦点可见且不丢失', '任务列表回归测试通过'].forEach(function (criterion, index) { var li = document.createElement('li'); var passed = index < state.requiredPassed; li.textContent = (passed ? '✓ 已通过 · ' : '○ 待验证 · ') + criterion; if (passed) li.className = 'passed'; el('requiredList').appendChild(li); });
+    text('evidenceSummary', completed ? '完成证据回顾（模拟）' : '查看验证证据（模拟）');
+    text('evidenceText', completed ? '工具结果 demo-test-03：任务列表回归测试 12/12 通过；demo-keyboard-02：键盘导航与焦点检查通过。最终报告正常结束并保存成功。' : state.requiredPassed ? 'demo-keyboard-02：导航与焦点检查通过。任务列表回归测试尚未获得通过证据。' : '当前计划尚未生成，无可验证的执行证据。');
+    text('budgetText', '已用 ' + state.used + ' / ' + state.limit + ' 轮 · 剩余 ' + (state.limit - state.used) + ' 轮（资源预算）');
+    show('extend', state.scene === 'budget'); show('budgetConfirm', state.confirm === 'budget'); text('budgetConfirmText', '轮次上限 ' + state.limit + ' → ' + (state.limit + 8) + '。保留已用 ' + state.used + ' 轮、累计时间及证据，恢复同一 Goal。');
+    if (el('goalDraft').value !== state.draft) el('goalDraft').value = state.draft;
+    show('conflictNote', state.conflict); show('editError', state.errorTarget === 'draft' && state.tab === 'edit'); text('editError', state.error);
+    el('goalDraft').setAttribute('aria-invalid', String(state.errorTarget === 'draft' && state.tab === 'edit'));
+    text('draftState', state.dirty ? '● 有未保存修改 · 已保存版本 v' + state.revision : '所有修改已保存 · v' + state.revision);
+    el('save').disabled = !state.dirty || state.conflict || ended; el('discard').disabled = !state.dirty; show('editConfirm', state.confirm === 'edit');
+  }
+  function schedulePlanning() {
+    var generation = ++planningGeneration, revision = state.revision;
+    if (timer !== null && hasDOM) window.clearTimeout(timer);
+    timer = null;
+    if (hasDOM && state.scene === 'planning') timer = window.setTimeout(function () {
+      if (generation !== planningGeneration || revision !== state.revision || state.scene !== 'planning') return;
+      dispatch('finishPlanning', { normalEnd: true, persisted: true });
+    }, 2200);
+  }
+  function dispatch(action, value) {
+    var before = state.scene, revision = state.revision;
+    state = transition(state, action, value); render();
+    if (before !== state.scene || (state.scene === 'planning' && revision !== state.revision)) schedulePlanning();
+    if (before !== state.scene) announce(labels[state.scene][1] + '（模拟）');
+    else if (state.error) announce(state.error);
+    return getState();
+  }
+  function loadScene(scene) { state = createState(scene); render(); if (hasDOM) { el('evidence').open = scene === 'completed'; el('answer').value = ''; } schedulePlanning(); announce('已载入模拟场景：' + labels[state.scene][1]); return getState(); }
+  function getState() { return JSON.parse(JSON.stringify(state)); }
+  function openTab(tab) { dispatch('tab', tab); if (hasDOM) el(tab === 'edit' ? 'goalDraft' : 'tabProgress').focus(); }
+  function locatePending() {
+    if (!hasDOM) return;
+    var target = el('pending'); target.scrollIntoView({ block: 'center', behavior: 'auto' }); target.focus(); announce('已定位到聊天中的' + (state.scene === 'input' ? '问题' : '工具审批'));
+  }
+  function locateBudget() {
+    openTab('progress');
+    if (hasDOM && state.scene === 'budget') { el('extend').scrollIntoView({ block: 'center', behavior: 'auto' }); el(state.dirty ? 'backToDraft' : 'extend').focus(); announce(state.dirty ? '请先保存或放弃草稿，再追加轮次。' : '已定位追加轮次；尚未追加，需明确确认。'); }
+  }
+  function locateError() {
+    if (state.errorTarget === 'answer') { locatePending(); el('answer').focus(); }
+    else if (state.errorTarget === 'draft' || state.conflict) { openTab('edit'); el('goalDraft').scrollIntoView({ block: 'center', behavior: 'auto' }); }
+    else if (state.scene === 'blocked') { openTab('progress'); el('stateReason').scrollIntoView({ block: 'center', behavior: 'auto' }); el('stateReason').focus(); }
+  }
+  function bind(id, fn) { el(id).addEventListener('click', fn); }
+  state = createState('running');
+  window.goalUxDemo = { createState: createState, transition: transition, getState: getState, dispatch: dispatch, loadScene: loadScene, render: render, openTab: openTab, locatePending: locatePending, finishPlanning: function (normalEnd, persisted) { return dispatch('finishPlanning', { normalEnd: normalEnd, persisted: persisted }); } };
+  if (!hasDOM) return;
+  el('scene').addEventListener('change', function (event) { loadScene(event.target.value); });
+  bind('theme', function () { var dark = document.documentElement.dataset.theme !== 'dark'; document.documentElement.dataset.theme = dark ? 'dark' : 'light'; el('theme').setAttribute('aria-pressed', String(dark)); text('theme', dark ? '浅色主题' : '深色主题'); });
+  el('width').addEventListener('change', function (event) { document.documentElement.style.setProperty('--inspector-width', event.target.value + 'px'); });
+  bind('narrow', function () { var narrow = el('workspace').classList.toggle('narrow'); el('narrow').setAttribute('aria-pressed', String(narrow)); announce(narrow ? '窄屏 420px：Inspector 位于聊天下方，可滚动访问。' : '已恢复自适应布局。'); });
+  bind('summary', function () { openTab('progress'); }); bind('edit', function () { openTab('edit'); });
+  bind('tabProgress', function () { openTab('progress'); }); bind('tabEdit', function () { dispatch('tab', 'edit'); el('tabEdit').focus(); });
+  ['tabProgress', 'tabEdit'].forEach(function (id) { el(id).addEventListener('keydown', function (event) { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); var tab = event.key === 'Home' ? 'progress' : event.key === 'End' ? 'edit' : state.tab === 'edit' ? 'progress' : 'edit'; dispatch('tab', tab); el(tab === 'edit' ? 'tabEdit' : 'tabProgress').focus(); } }); });
+  bind('closeInspector', function () { dispatch('close'); el('summary').focus(); }); bind('backToDraft', function () { openTab('edit'); }); bind('locateTodo', locatePending);
+  bind('pause', function () { dispatch('pause'); el(state.dirty ? 'edit' : 'resume').focus(); }); bind('resume', function () { dispatch('resume'); if (!el('pause').hidden) el('pause').focus(); });
+  bind('budgetNav', locateBudget); bind('viewError', locateError);
+  bind('retryBlocked', function () { dispatch('resolveBlock'); if (!el('pause').hidden) el('pause').focus(); });
+  bind('cancel', function () { dispatch('requestCancel'); el('confirmCancel').focus(); }); bind('confirmCancel', function () { dispatch('cancel'); el('summary').focus(); }); bind('keepGoal', function () { dispatch('dismiss'); el('cancel').focus(); });
+  bind('extend', function () { dispatch('requestBudget'); if (state.confirm === 'budget') el('confirmBudget').focus(); }); bind('confirmBudget', function () { dispatch('extend'); el('tabProgress').focus(); }); bind('dismissBudget', function () { dispatch('dismiss'); el('extend').focus(); });
+  bind('sendAnswer', function () { dispatch('answer', el('answer').value); el(state.error ? 'answer' : 'pause').focus(); }); bind('approve', function () { dispatch('approve'); el('pause').focus(); }); bind('deny', function () { dispatch('deny'); el('summary').focus(); });
+  el('goalDraft').addEventListener('input', function (event) { dispatch('draft', event.target.value); });
+  el('editForm').addEventListener('submit', function (event) { event.preventDefault(); dispatch('save'); el(state.error ? 'goalDraft' : state.confirm === 'edit' ? 'confirmEdit' : 'tabProgress').focus(); });
+  bind('confirmEdit', function () { dispatch('confirmEdit'); el(state.error ? 'goalDraft' : 'tabProgress').focus(); }); bind('dismissEdit', function () { dispatch('dismiss'); el('goalDraft').focus(); });
+  bind('discard', function () { dispatch('discard'); el('goalDraft').focus(); }); bind('reloadLatest', function () { dispatch('reload'); el('goalDraft').focus(); announce('已载入最新版本，草稿保留；请核对后保存。'); });
+  render();
+}());
+</script>
+</body>
+</html>

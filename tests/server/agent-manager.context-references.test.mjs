@@ -244,6 +244,35 @@ describe('agent file context references', () => {
     expect(session.agent.state.messages).toHaveLength(2)
   })
 
+  it('keeps the failed turn and appends a continuation message when the retry follows a tool result', async () => {
+    await writeFile(path.join(workspaceRoot, 'src', 'retry-append.ts'), 'export const value = 1\n')
+    const refs = [{ type: 'file', projectId: 'project-1', path: 'src/retry-append.ts', name: 'retry-append.ts' }]
+    const messages = [
+      { role: 'user', content: 'edit the file', details: { contextReferences: refs } },
+      { role: 'assistant', content: [{ type: 'toolCall', id: 'call-1', name: 'edit' }], stopReason: 'toolUse' },
+      { role: 'toolResult', toolCallId: 'call-1', toolName: 'edit', content: [{ type: 'text', text: 'done' }], isError: false },
+      { role: 'assistant', content: [{ type: 'text', text: '' }], stopReason: 'error', errorMessage: 'upstream failed' },
+    ]
+    const session = await createProjectSession('context-retry-append', messages)
+    const { continueSession, getSessionState } = await import('../../server/agent-manager.mjs')
+
+    await continueSession(session.sessionId, null, { role: 'user', content: '继续', timestamp: 1_700_000_000_000 })
+    await vi.waitFor(() => expect(session.activeTransientContextPrompt).toBeNull())
+
+    const next = getSessionState(session.sessionId).messages
+    // Nothing is trimmed: the completed tool call stays in the transcript, so the
+    // model does not redo the side effect it already performed.
+    expect(next).toHaveLength(messages.length + 1)
+    expect(next[1]).toMatchObject({ role: 'assistant' })
+    expect(next[2]).toMatchObject({ role: 'toolResult', toolCallId: 'call-1' })
+    expect(next[3]).toMatchObject({ role: 'assistant', stopReason: 'error' })
+    // The appended turn keeps the client identity but re-derives the references.
+    expect(next[4]).toMatchObject({ role: 'user', content: '继续', timestamp: 1_700_000_000_000 })
+    expect(next[4].details.contextReferences).toEqual(refs)
+    // The model therefore sees the whole history, tool result included.
+    expect(MockAgent.instances[0].lastTransformedMessages.some((message) => message.role === 'toolResult')).toBe(true)
+  })
+
   it('scopes a fresh rollback turn id to each retry run and clears it when the run ends', async () => {
     const session = await createProjectSession('context-retry-turn-id', [
       { role: 'user', content: 'inspect' },

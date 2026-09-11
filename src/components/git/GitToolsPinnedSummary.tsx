@@ -15,12 +15,12 @@ import {
   Maximize2,
   Minimize2,
   SlidersHorizontal,
-  Target,
   X,
   XCircle,
 } from 'lucide-react'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import { GoalSummarySection } from '@/components/git/GoalSummarySection'
+import { GoalIcon } from '@/components/goal-icon'
 import type { TodoWriteItem, TodoWriteStatus } from '@/components/chat/panel-decoration'
 import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
 import { buildGoalCardViewModel } from '@/components/chat/panel-decoration/goal-card'
@@ -235,7 +235,7 @@ export function GitToolsPinnedSummary({
         aria: `${t('goalTitle')} ${t(goalView.statusKey as AppTextKey)} ${t('goalCriteriaProgress', { completed: goalPassedCriteria, total: goalView.criteria.length })}`,
         content: (
           <>
-            <Target className="size-3.5" aria-hidden="true" />
+            <GoalIcon className="size-3.5" aria-hidden="true" />
             <span className="max-w-[8.5rem] truncate text-foreground/88">{goalView.objective || t('goalObjectiveEmpty')}</span>
             <span>{t(goalView.statusKey as AppTextKey)}</span>
             <span>{goalPassedCriteria}/{goalView.criteria.length}</span>

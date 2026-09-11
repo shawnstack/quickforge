@@ -15,7 +15,6 @@ import {
   goalProgressSignature,
   goalStatusAfterRestore,
   goalUsageWithRun,
-  goalWorkspaceKey,
   isGoalActiveStatus,
   isGoalEditableStatus,
   isGoalTerminalStatus,
@@ -224,17 +223,10 @@ describe('goal state model', () => {
     expect(goalAfterRestore(null)).toBeNull()
   })
 
-  it('projects metadata and workspace keys', () => {
+  it('projects the metadata summary', () => {
     const goal = plannedGoal()
     expect(goalMetadataSummary(goal)).toEqual({ id: goal.id, status: 'awaiting_confirmation', updatedAt: goal.updatedAt })
     expect(goalMetadataSummary(null)).toBeUndefined()
-    expect(goalWorkspaceKey({ scope: 'project', projectId: 'p1' })).toBe('project:p1')
-    expect(goalWorkspaceKey({ scope: 'global', projectId: 'p1' })).toBe('global')
-    // A normalized path wins over projectId, so two projectIds on the same
-    // directory share one workspace.
-    expect(goalWorkspaceKey({ workspaceRoot: 'C:/WS/Dir' })).toBe(goalWorkspaceKey({ workspaceRoot: 'c:\\ws\\dir' }))
-    expect(goalWorkspaceKey({ scope: 'project', projectId: 'p1', workspaceRoot: 'C:/WS/Dir' }))
-      .toBe(goalWorkspaceKey({ scope: 'project', projectId: 'p2', workspaceRoot: 'c:/ws/dir' }))
   })
 
   it('defaults criteria to required consistently when normalizing and planning', () => {

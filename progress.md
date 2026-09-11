@@ -1,3 +1,14 @@
+## goal-report-tone-card（done，实现与定向自动验证完成；浏览器视觉为人工判断项未实测）
+
+- 当前目标：将上一轮已验收的 goal 工具对话显示设计（tone 卡片 + 靶心图标 + 状态化验收标准 + scope chip + blocker 警示框）落进生产代码，依赖 `goal-report-renderer`（done），不推进其他 feature。
+- 实现：`goal-report-history.ts` 新增 `criteriaDetails`（description + status，status 归一 pending/passed/failed/needs_review），`criteria` 字符串数组保留兼容；`local-tools.ts` 的 `GoalReportToolRenderer` 给 details 加 `data-tone` 与 `quickforge-goal-report-tool` class，类型图标由 `todo_write` 换成靶心 `GoalIcon`（内联 SVG），验收标准按状态渲染通过/失败/待审/待定四种图标，scope 改 mono chip，blocker 加 tone 左框，保持 shell/summary/status/空 plan-action mount 契约不变；`src/index.css` 新增 `.quickforge-goal-report-tool` 的 5 个 tone 选择器、左侧 3px 强调条、tone 色 label、criteria 四态配色、scope chip 与 blocker 样式。
+- 文件（8 个）：`src/lib/goal-report-history.ts`、`src/lib/local-tools.ts`、`src/index.css`、`tests/frontend/goal-report-renderer.test.ts`、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。前三者源码改动为本 feature 的范围，本会话续跑时已在工作树中。
+- 已验（父 Agent 实跑）：`npx vitest run tests/frontend/goal-report-renderer.test.ts` 退出码 0（34 tests passed，新增 criteriaDetails 归一、data-tone、靶心图标、scope chip、blocker 与四态图标断言）；`npm run lint` 退出码 0（仅既有 `server/cloud/identity.mjs:92` no-useless-assignment warning）；`npx --no-install tsc -b --pretty false` 退出码 0；`git diff --check` 通过。
+- Notes/边界：done 表示实现与定向自动验证完成，浏览器视觉（c8）为人工判断项，未做真实浏览器/窄屏/主题/焦点验收。仅改上述文件，未改后端/无关文件，未新增/升级依赖，未手工修改 `dist/`、`package-dist/`、`package-offline/`，无 Git commit/tag/push/发布。新 renderer 方法内联在类内以通过 VM 测试。工作树中另有无关联的既有未跟踪文件（`docs/design/goal-*`、`goal-demo/`、`iter-demo/`）来自设计阶段，本 feature 未触碰。
+- 下一步：浏览器打开一次真实 goal_report 历史消息验收视觉（c8）；改动未提交。
+
+---
+
 ## retry-preserve-tool-history（done，实现与全量自动验证完成；浏览器未验收）
 
 - 当前目标：用户提出「点重试会清掉对话、丢掉已执行 tools 调用，模型上下文对已改文件无感知」，确认按方案 A（按失败阶段分流）改造重试语义：被重试回合已产生 `toolResult` 时保留历史并追加一条「继续」用户消息续跑，纯文本失败仍截断重生成。依赖无（新增独立 feature），不推进其他 feature。

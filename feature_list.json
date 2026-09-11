@@ -1,6 +1,16 @@
 {
   "features": [
     {
+      "id": "goal-report-tone-card",
+      "name": "Goal 报告工具对话卡 tone 视觉与状态化验收标准",
+      "status": "done",
+      "dependencies": ["goal-report-renderer"],
+      "approach": "按已验收的 goal 工具对话显示设计落地生产，最小改动复用 goal-card tone 语言：goal-report-history.ts 新增 criteriaDetails（description+status，status 归一 pending/passed/failed/needs_review）并保留 criteria 字符串数组；local-tools.ts 的 GoalReportToolRenderer 给 details 加 data-tone 与 quickforge-goal-report-tool class、类型图标换靶心 GoalIcon（内联 SVG）、验收标准按状态渲染四种图标、scope 改 mono chip、blocker 加 tone 左框，保持 shell/summary/status/空 plan-action mount 契约；index.css 新增 .quickforge-goal-report-tool 的 5 个 tone 选择器、左侧 3px 强调条、tone 色 label、criteria 四态配色、scope chip 与 blocker 样式。",
+      "files": ["src/lib/goal-report-history.ts", "src/lib/local-tools.ts", "src/index.css", "tests/frontend/goal-report-renderer.test.ts", "docs/wiki/src/lib/README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "父 Agent 实跑：npx vitest run tests/frontend/goal-report-renderer.test.ts 退出码 0（34 tests passed，新增 criteriaDetails 归一、data-tone/target 图标/scope chip/blocker 与四态图标断言）；npm run lint 退出码 0（仅既有 server/cloud/identity.mjs:92 no-useless-assignment warning）；npx --no-install tsc -b --pretty false 退出码 0；git diff --check 通过。",
+      "boundaries": "done 表示实现与定向自动验证完成，浏览器视觉（c8）为人工判断项未实测。仅改上述 8 文件，未改后端/无关文件，未新增/升级依赖，未手工修改 dist/package-dist/package-offline，无 Git commit/tag/push/发布。新 renderer 方法内联在类内以通过 VM 测试。"
+    },
+    {
       "id": "retry-preserve-tool-history",
       "name": "重试保留已完成工具调用：按 toolResult 分流为追加式续跑",
       "status": "done",

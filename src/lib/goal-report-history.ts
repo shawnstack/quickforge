@@ -13,6 +13,13 @@ function texts(value: unknown): string[] {
   return Array.isArray(value) ? value.map(text).filter(Boolean) : []
 }
 
+type GoalReportCriterionStatus = 'pending' | 'passed' | 'failed' | 'needs_review'
+
+function goalReportCriterionStatus(value: unknown): GoalReportCriterionStatus {
+  const status = text(value)
+  return status === 'passed' || status === 'failed' || status === 'needs_review' ? status : 'pending'
+}
+
 const actionKeys: Record<string, AppTextKey> = {
   plan: 'goalReportPlan',
   progress: 'goalReportProgress',
@@ -31,8 +38,14 @@ export function buildGoalReportHistoryViewModel(params: unknown, result: unknown
     ? 'error' : isStreaming ? 'running' : result ? 'done' : 'called'
   const goal = status === 'done' && details.type === 'goal_report_result' ? record(details.goal) : {}
   const summary = text(goal.summary)
-  const criteria = Array.isArray(goal.criteria)
-    ? goal.criteria.map((item) => text(record(item).description)).filter(Boolean) : []
+  const criteriaDetails: Array<{ description: string; status: GoalReportCriterionStatus }> = Array.isArray(goal.criteria)
+    ? goal.criteria.map((item) => {
+        const rec = record(item)
+        const description = text(rec.description)
+        return { description, status: goalReportCriterionStatus(rec.status) }
+      }).filter((item) => item.description)
+    : []
+  const criteria = criteriaDetails.map((item) => item.description)
   const scope = texts(goal.scope)
   // Do not infer a recorded plan from request arguments or a legacy prose result.
   const recordedPlan = action === 'plan' && Boolean(summary) && criteria.length > 0
@@ -52,7 +65,7 @@ export function buildGoalReportHistoryViewModel(params: unknown, result: unknown
   return {
     status, summaryKey, resultKey,
     actionKey: Object.hasOwn(actionKeys, action) ? actionKeys[action] : 'goalReportAction' as AppTextKey,
-    action, summary, criteria, scope, blocker: text(goal.blocker),
+    action, summary, criteria, criteriaDetails, scope, blocker: text(goal.blocker),
     // Legacy/non-plan prose remains readable, but is not interpreted as state.
     outputText: recordedPlan || jsonOutput || status === 'running' || status === 'called' ? '' : outputText,
   }

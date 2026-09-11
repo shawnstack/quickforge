@@ -1046,6 +1046,27 @@ class AskUserToolRenderer {
 }
 
 class GoalReportToolRenderer {
+  private toneFor(view: ReturnType<typeof buildGoalReportHistoryViewModel>): string {
+    if (view.status === 'error') return 'danger'
+    if (view.status === 'running') return 'active'
+    if (view.action === 'complete') return 'success'
+    if (view.action === 'blocked' || view.action === 'needs_review') return 'warning'
+    if (view.action === 'progress') return 'active'
+    return 'info'
+  }
+
+  private goalIcon() {
+    return html`<svg class="quickforge-tool-type-icon shrink-0 text-muted-foreground/60" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg>`
+  }
+
+  private criterionStatusIcon(status: string) {
+    const cls = 'quickforge-goal-report-criterion-icon shrink-0'
+    if (status === 'passed') return html`<svg class=${cls} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 12 2.5 2.5L16 9"/></svg>`
+    if (status === 'failed') return html`<svg class=${cls} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg>`
+    if (status === 'needs_review') return html`<svg class=${cls} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>`
+    return html`<svg class=${cls} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>`
+  }
+
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const view = buildGoalReportHistoryViewModel(params, result, isStreaming)
     const timing = extractQuickForgeTiming(result?.details)
@@ -1055,27 +1076,33 @@ class GoalReportToolRenderer {
     const output = detailed ? stringifyValue(result?.content) : ''
     const detailsKey = toolDetailsStateKey('goal_report', params, result?.details)
     const detailsOpen = toolDetailsOpen.get(detailsKey) ?? true
+    const tone = this.toneFor(view)
+    const criteriaItems: Array<{ description: string; status: string }> = view.criteriaDetails.length
+      ? view.criteriaDetails
+      : view.criteria.map((description) => ({ description, status: 'pending' }))
     return {
       isCustom: true,
       content: html`
         <div class="quickforge-local-tool-shell">
-          <details class="group/tool quickforge-local-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
+          <details class="group/tool quickforge-local-tool quickforge-goal-report-tool" data-tone=${tone} ?open=${detailsOpen} @toggle=${(event: Event) => {
             if (event.isTrusted) rememberToolDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
           }}>
             <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
-              ${renderToolIcon('todo_write')}
+              ${this.goalIcon()}
               <span class="quickforge-tool-title min-w-0">
                 <span class="quickforge-tool-label">${t(view.summaryKey)}<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${t(view.actionKey)}${view.actionKey === 'goalReportAction' && view.action ? ` · ${view.action}` : ''}</span></span>
                 <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
                 ${renderStatus(view.status, timing)}
               </span>
             </summary>
-            <div class="mt-3 space-y-3 min-w-0 [overflow-wrap:anywhere]">
+            <div class="quickforge-goal-report-tool-body mt-3 space-y-3 min-w-0 [overflow-wrap:anywhere]">
               <div class="text-xs text-muted-foreground">${t(view.resultKey)}</div>
               ${view.summary ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalSummaryLabel')}</div><div class="whitespace-pre-wrap">${view.summary}</div></div>` : nothing}
-              ${view.criteria.length ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalCriteriaLabel')}</div><ol class="list-decimal pl-5 space-y-1">${view.criteria.map((criterion) => html`<li class="whitespace-pre-wrap">${criterion}</li>`)}</ol></div>` : nothing}
-              ${view.scope.length ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalScopeLabel')}</div><ul class="list-disc pl-5 space-y-1">${view.scope.map((item) => html`<li class="whitespace-pre-wrap">${item}</li>`)}</ul></div>` : nothing}
-              ${view.blocker ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalBlockerLabel')}</div><div class="whitespace-pre-wrap">${view.blocker}</div></div>` : nothing}
+              ${criteriaItems.length ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalCriteriaLabel')}</div><div class="quickforge-goal-report-criteria">${criteriaItems.map((item) => html`
+                <div class="quickforge-goal-report-criterion" data-status=${item.status}>${this.criterionStatusIcon(item.status)}<span class="whitespace-pre-wrap">${item.description}</span></div>
+              `)}</div></div>` : nothing}
+              ${view.scope.length ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalScopeLabel')}</div><div class="quickforge-goal-report-scope">${view.scope.map((item) => html`<span class="quickforge-goal-report-scope-chip">${item}</span>`)}</div></div>` : nothing}
+              ${view.blocker ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalBlockerLabel')}</div><div class="quickforge-goal-report-blocker whitespace-pre-wrap">${view.blocker}</div></div>` : nothing}
               <div data-quickforge-goal-plan-action></div>
               ${!detailed && view.outputText ? html`<div class="whitespace-pre-wrap">${view.outputText}</div>` : nothing}
               ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}

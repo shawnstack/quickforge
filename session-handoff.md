@@ -1,4 +1,15 @@
-## 当前交接：retry-preserve-tool-history（done，实现与全量自动验证完成；浏览器未验收）
+## 当前交接：goal-report-tone-card（done，实现与定向自动验证完成；浏览器视觉为人工判断项未实测）
+
+- 目标：把上一轮已验收的 goal 工具对话显示设计（tone 卡片 + 靶心图标 + 状态化验收标准 + scope chip + blocker 警示框）落进生产，依赖 `goal-report-renderer`（done）。
+- 改动文件（8 个）：`src/lib/goal-report-history.ts`（新增 `criteriaDetails` 并保留 `criteria`）、`src/lib/local-tools.ts`（`GoalReportToolRenderer` 加 `data-tone`/`quickforge-goal-report-tool`、靶心 `GoalIcon`、四态准则图标、scope chip、blocker 警示框）、`src/index.css`（`.quickforge-goal-report-tool` 5 个 tone 选择器 + 3px 强调条 + 四态配色 + chip/blocker 样式）、`tests/frontend/goal-report-renderer.test.ts`（新增断言）、`docs/wiki/src/lib/README.md` 与三状态文件。前三者源码改动为本 feature 范围，续跑时已在工作树。
+- 验证：`npx vitest run tests/frontend/goal-report-renderer.test.ts` 退出码 0（34 tests passed）；`npm run lint` 退出码 0（仅既有 `server/cloud/identity.mjs:92` warning）；`npx --no-install tsc -b --pretty false` 退出码 0；`git diff --check` 通过。
+- Blocker/限制：无实现或自动验证阻断。done 不表示浏览器视觉通过（c8 人工判断项）；未做真实浏览器/窄屏/主题/焦点验收。
+- Notes：新 renderer 方法内联在类内以通过 VM 测试；未改后端/无关文件、未新增/升级依赖、未手工改 `dist/`/`package-dist/`/`package-offline/`、无 commit/tag/push/发布。工作树中无关联的既有未跟踪文件（`docs/design/goal-*`、`goal-demo/`、`iter-demo/`）为设计阶段遗留，本 feature 未触碰。
+- 下一步：浏览器打开真实 goal_report 历史消息验收视觉（c8）；改动未提交。
+
+---
+
+## 上一轮交接：retry-preserve-tool-history（done，实现与全量自动验证完成；浏览器未验收）
 
 - 目标：用户提出「点重试会清掉对话、丢掉已执行 tools 调用，模型上下文对已改文件无感知」，确认按方案 A（按失败阶段分流）改造重试语义——被重试回合已产生 `toolResult` 时保留整段历史并在末尾追加一条「继续」用户消息续跑，纯文本失败仍走截断重生成。新增独立 feature，无依赖。
 - 调研要点：现状是刻意的「原地重生成」（前端 `useChatActions.ts` slice + 服务端 `continueSession` slice），副作用是丢弃失败轮已完成的工具调用；pi-ai 会把 `stopReason: error/aborted` 的 assistant 整条跳过，所以收益只在保住工具记录。只改服务端会坏（服务端消息数多于本地 → split 位置合并永久错位，summary 对账只在服务端更少时自愈），因此前端必须同步去掉截断并乐观追加同一条消息（role+timestamp 对齐）。

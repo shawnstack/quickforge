@@ -16,13 +16,13 @@
 
 ## Goal 报告工具呈现契约
 
-- `local-tools.ts` 导入时注册 `goal_report`，不依赖 `/api/tools` 返回该会话专属工具。复用 local-tool shell、summary、状态图标与原生 details；默认展开结构化历史摘要、验收标准和范围，可折叠。
-- `goal-report-history.ts` 只读取成功结果 `details.type: goal_report_result` 内的 `goal`，不把请求参数、旧英文正文或当前 Goal 当成已记录计划。plan 有摘要与有效准则才显示「计划已生成」；快照为 awaiting_confirmation 时明确显示「当时等待确认」，不声称当前仍需确认。
+- `local-tools.ts` 导入时注册 `goal_report`，不依赖 `/api/tools` 返回该会话专属工具。复用 local-tool shell、summary、状态图标与原生 details；默认展开结构化历史摘要、验收标准和范围，可折叠。卡体带 `data-tone`（info/active/warning/success/danger，语义与 goal-card 一致），类型图标换成靶心 `GoalIcon`（内联 SVG），验收标准按 `criteriaDetails` 状态渲染通过/失败/待审/待定四种图标，范围改 mono chip，阻塞原因加 tone 左框。
+- `goal-report-history.ts` 只读取成功结果 `details.type: goal_report_result` 内的 `goal`，不把请求参数、旧英文正文或当前 Goal 当成已记录计划。plan 有摘要与有效准则才显示「计划已生成」；快照为 awaiting_confirmation 时明确显示「当时等待确认」，不声称当前仍需确认。`criteriaDetails` 把每项准则归一为 description + status（pending/passed/failed/needs_review），`criteria` 字符串数组保留兼容。
 - running/error/缺失结果不展示成功快照；progress/blocked/needs_review/complete 等动作保留报告语义与摘要、阻塞原因，尤其 complete 工具成功不等于目标已完成。旧结果正文按纯文本回退，不解析成 Goal 状态，完整 JSON 仅详细模式显示。
 - Renderer 只展示历史内容，不生成计划确认 mount 或按钮；`ChatPanelHost` 的 controller 接线保留为 inert 兼容接口，不派发任何操作，以避免本轮扩展到装饰生命周期重构。自动执行只由服务端正常规划轮末持久化屏障触发。
 - 当前 UI 无计划确认或最终验收入口；历史 awaiting_confirmation 只表示当时事实，历史 human evidence/accept API 保留兼容。必要提问、工具审批、预算追加确认、暂停/取消与编辑仍可用。
-- 这是客户端预检，不新增后端 CAS；HTTP 已发之后跨客户端替换目标仍是既有 confirm API 边界，不能撤回/保证原子性。缺身份、旧消息或无法证明最新计划时不展示动作，可经 Inspector 使用现有入口。所有不可信正文使用 Lit 文本绑定或 textContent，不使用 HTML 注入；中英 key 成对维护，复用轻量工具样式，不新增视觉体系或 CSS 色值。
-- 验证见 `tests/frontend/goal-report-renderer.test.ts`（纯模型与真实 renderer class 的惰性模板捕获）；不是浏览器 CSS/焦点/屏幕阅读器验收。考虑过 SVG，本契约短列表比新图更直接，继续复用既有 SVG 图标。
+- 这是客户端预检，不新增后端 CAS；HTTP 已发之后跨客户端替换目标仍是既有 confirm API 边界，不能撤回/保证原子性。缺身份、旧消息或无法证明最新计划时不展示动作，可经 Inspector 使用现有入口。所有不可信正文使用 Lit 文本绑定或 textContent，不使用 HTML 注入；中英 key 成对维护。tone 卡片复用 goal-card 既有 tone 变量与四态准则配色，不新开视觉体系。
+- 验证见 `tests/frontend/goal-report-renderer.test.ts`（纯模型与真实 renderer class 的惰性模板捕获）；不是浏览器 CSS/焦点/屏幕阅读器验收。目标图标与准则状态图标均为内联细线 SVG，无新增外部资源。
 
 ---
 

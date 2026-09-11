@@ -6989,6 +6989,104 @@ html.dark .quickforge-assistant-artifact-card-rollback:hover:not(:disabled) {
 .quickforge-goal-card[data-tone="success"] { --quickforge-goal-tone: rgb(4 143 101); }
 .quickforge-goal-card[data-tone="danger"] { --quickforge-goal-tone: var(--destructive); }
 
+/* Goal report tool card in conversation: applies the goal tone language
+   (left accent, tone-colored label, status-aware criteria icons) while staying
+   a collapsible tool summary inside the message list. */
+.quickforge-goal-report-tool {
+  --quickforge-goal-tone: #3478d4;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 0.125rem);
+  background: color-mix(in oklab, var(--background) 96%, var(--muted));
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+
+.quickforge-goal-report-tool::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--quickforge-goal-tone);
+}
+
+.quickforge-goal-report-tool[data-tone="info"] { --quickforge-goal-tone: #3478d4; }
+.quickforge-goal-report-tool[data-tone="active"] { --quickforge-goal-tone: #3478d4; }
+.quickforge-goal-report-tool[data-tone="warning"] { --quickforge-goal-tone: #d97706; }
+.quickforge-goal-report-tool[data-tone="success"] { --quickforge-goal-tone: rgb(4 143 101); }
+.quickforge-goal-report-tool[data-tone="danger"] { --quickforge-goal-tone: var(--destructive); }
+
+.quickforge-goal-report-tool > .quickforge-tool-summary {
+  padding: 0.625rem 0.875rem 0.625rem 1rem;
+}
+
+.quickforge-goal-report-tool > .quickforge-tool-summary .quickforge-tool-label {
+  color: var(--quickforge-goal-tone);
+  font-weight: 600;
+}
+
+.quickforge-goal-report-tool-body {
+  padding: 0 0.875rem 0.75rem 1rem;
+}
+
+.quickforge-goal-report-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+}
+
+.quickforge-goal-report-criterion {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.quickforge-goal-report-criterion-icon {
+  width: 14px;
+  height: 14px;
+  margin-top: 0.1875rem;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+
+.quickforge-goal-report-criterion[data-status="passed"] .quickforge-goal-report-criterion-icon {
+  color: rgb(4 143 101);
+}
+
+html.dark .quickforge-goal-report-criterion[data-status="passed"] .quickforge-goal-report-criterion-icon {
+  color: rgb(110 231 183);
+}
+
+.quickforge-goal-report-criterion[data-status="failed"] .quickforge-goal-report-criterion-icon {
+  color: var(--destructive);
+}
+
+.quickforge-goal-report-criterion[data-status="needs_review"] .quickforge-goal-report-criterion-icon {
+  color: #d97706;
+}
+
+.quickforge-goal-report-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.quickforge-goal-report-scope-chip {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.125rem 0.5rem;
+  background: color-mix(in oklab, var(--background) 80%, var(--muted));
+}
+
+.quickforge-goal-report-blocker {
+  border-left: 2px solid var(--quickforge-goal-tone);
+  border-radius: 0 0.375rem 0.375rem 0;
+  background: color-mix(in oklab, var(--quickforge-goal-tone) 6%, transparent);
+  padding: 0.25rem 0.625rem;
+}
+
 .quickforge-goal-head {
   display: flex;
   align-items: center;

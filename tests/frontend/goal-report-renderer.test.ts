@@ -38,8 +38,28 @@ function render(params: unknown, output: unknown, streaming = false, detailed = 
 describe('goal_report history view model', () => {
   it('reads successful plan summary, criteria and scope from result, never request', () => {
     const view = build({ action: 'plan', summary: 'unapplied input' }, result())
-    expect(view).toMatchObject({ status: 'done', summaryKey: 'goalReportPlanRecorded', resultKey: 'goalReportWasWaiting', summary: plan.summary, criteria: ['Tests pass'], scope: plan.scope, outputText: '' })
+    expect(view).toMatchObject({ status: 'done', summaryKey: 'goalReportPlanRecorded', resultKey: 'goalReportWasWaiting', summary: plan.summary, criteria: ['Tests pass'], criteriaDetails: [{ description: 'Tests pass', status: 'pending' }], scope: plan.scope, outputText: '' })
     expect(build({ action: 'plan' }, result({ ...plan, status: 'running' })).resultKey).toBe('goalReportHistoricalResult')
+  })
+
+  it('normalizes criterion status into criteriaDetails while keeping criteria text', () => {
+    const view = build({ action: 'plan' }, result({ ...plan, criteria: [
+      { description: 'Passed item', status: 'passed' },
+      { description: 'Failed item', status: 'failed' },
+      { description: 'Review item', status: 'needs_review' },
+      { description: 'Pending item', status: 'pending' },
+      { description: 'Unknown status', status: 'bogus' },
+      { description: 'No status' },
+    ]}))
+    expect(view.criteria).toEqual(['Passed item', 'Failed item', 'Review item', 'Pending item', 'Unknown status', 'No status'])
+    expect(view.criteriaDetails).toEqual([
+      { description: 'Passed item', status: 'passed' },
+      { description: 'Failed item', status: 'failed' },
+      { description: 'Review item', status: 'needs_review' },
+      { description: 'Pending item', status: 'pending' },
+      { description: 'Unknown status', status: 'pending' },
+      { description: 'No status', status: 'pending' },
+    ])
   })
 
   it.each([
@@ -89,9 +109,36 @@ describe('goal_report registered renderer', () => {
     expect(view.values).toContain('goalReportWasWaiting')
     expect(view.values).toContain('Tests pass')
     expect(view.values).toContain('Renderer only')
+    expect(view.templates).toContain('quickforge-goal-report-tool')
+    expect(view.templates).toContain('data-tone=')
+    expect(view.values).toContain('info')
+    expect(view.templates).toContain('<circle cx="10" cy="14" r="8"/>')
+    expect(view.templates).toContain('<path d="M21 3 10 14"/>')
+    expect(view.values).toContain('quickforge-goal-report-criterion-icon shrink-0')
+    expect(view.templates).toContain('quickforge-goal-report-scope-chip')
     expect(view.codeBlocks).toEqual([])
     expect(view.templates).not.toContain('<button')
     expect(block).not.toMatch(/updateGoal|dispatchEvent|unsafeHTML|innerHTML|@click/)
+  })
+
+  it('renders tone card with status-aware criterion icons and blocker accent', () => {
+    const view = render({ action: 'blocked' }, result({ ...plan, blocker: 'Dependency unavailable', criteria: [
+      { description: 'Passed', status: 'passed' },
+      { description: 'Failed', status: 'failed' },
+      { description: 'Review', status: 'needs_review' },
+      { description: 'Pending', status: 'bogus' },
+    ]}))
+    expect(view.values).toContain('warning')
+    expect(view.templates).toContain('d="m8 12 2.5 2.5L16 9"')
+    expect(view.templates).toContain('M15 9l-6 6')
+    expect(view.templates).toContain('M12 8v4')
+    expect(view.templates).toContain('<circle cx="12" cy="12" r="9"/>')
+    expect(view.values).toContain('passed')
+    expect(view.values).toContain('failed')
+    expect(view.values).toContain('needs_review')
+    expect(view.values).toContain('pending')
+    expect(view.templates).toContain('quickforge-goal-report-blocker')
+    expect(view.values).toContain('Dependency unavailable')
   })
 
   it.each([

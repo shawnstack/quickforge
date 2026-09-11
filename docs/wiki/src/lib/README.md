@@ -1,6 +1,20 @@
+## Goal 当前契约：自动执行与无限累计时间
+
+规划整轮只读，正常轮末及持久化成功后自动执行，不需要计划确认。新 Goal 的 maxActiveDurationMs 为 JSON null（无限），累计用时仍记录，默认轮次8，保留防空转/重复失败、工具审批、必要提问、暂停取消及单工具超时。旧快照不自动执行或改写终态；显式 resume/extend_resume/revise 移除旧时间上限，extend_resume 保留 CAS 且只给耗尽轮次 +8。有计划恢复 running，无计划重新 planning。complete 保留可信证据与正常轮末持久化屏障；needs_review 报告改为 blocked 并说明无法验证原因，不伪造 passed。历史 human evidence 与 accept API 兼容。当前聊天 controller 不再生成确认按钮，Inspector/card 不提供验收动作；历史 renderer 保留当时事实。
+
 # `src/lib/` — 前端工具库
 
 包含前端工具模块，涵盖存储、聊天逻辑、本地工具、国际化、设置选项卡等。
+
+## Goal 报告工具呈现契约
+
+- `local-tools.ts` 导入时注册 `goal_report`，不依赖 `/api/tools` 返回该会话专属工具。复用 local-tool shell、summary、状态图标与原生 details；默认展开结构化历史摘要、验收标准和范围，可折叠。
+- `goal-report-history.ts` 只读取成功结果 `details.type: goal_report_result` 内的 `goal`，不把请求参数、旧英文正文或当前 Goal 当成已记录计划。plan 有摘要与有效准则才显示「计划已生成」；快照为 awaiting_confirmation 时明确显示「当时等待确认」，不声称当前仍需确认。
+- running/error/缺失结果不展示成功快照；progress/blocked/needs_review/complete 等动作保留报告语义与摘要、阻塞原因，尤其 complete 工具成功不等于目标已完成。旧结果正文按纯文本回退，不解析成 Goal 状态，完整 JSON 仅详细模式显示。
+- Renderer 只展示历史内容，不生成计划确认 mount 或按钮；`ChatPanelHost` 的 controller 接线保留为 inert 兼容接口，不派发任何操作，以避免本轮扩展到装饰生命周期重构。自动执行只由服务端正常规划轮末持久化屏障触发。
+- 当前 UI 无计划确认或最终验收入口；历史 awaiting_confirmation 只表示当时事实，历史 human evidence/accept API 保留兼容。必要提问、工具审批、预算追加确认、暂停/取消与编辑仍可用。
+- 这是客户端预检，不新增后端 CAS；HTTP 已发之后跨客户端替换目标仍是既有 confirm API 边界，不能撤回/保证原子性。缺身份、旧消息或无法证明最新计划时不展示动作，可经 Inspector 使用现有入口。所有不可信正文使用 Lit 文本绑定或 textContent，不使用 HTML 注入；中英 key 成对维护，复用轻量工具样式，不新增视觉体系或 CSS 色值。
+- 验证见 `tests/frontend/goal-report-renderer.test.ts`（纯模型与真实 renderer class 的惰性模板捕获）；不是浏览器 CSS/焦点/屏幕阅读器验收。考虑过 SVG，本契约短列表比新图更直接，继续复用既有 SVG 图标。
 
 ---
 
@@ -11,7 +25,7 @@
 | `pi-chat.ts` | 365 | Pi Chat 初始化和模型管理 |
 | `goal.ts` | 310 | Goal 模式前后端共享契约：状态/准则/证据/预算类型、防御归一化（容忍旧服务端缺字段、坏项丢弃）、状态语义纯函数（终态/活跃/旋转、可编辑/可确认/可暂停/可恢复/可接受、`goalAcceptanceCheck` 与时长整分钟展示） |
 | `goal-ui.ts` | — | Goal UI 共享 store：按 `sessionId + goalId` 管理 pending / dirty / error 与草稿；运行中可保留草稿，外部 objective 冲突保留 dirty 文本；dirty 允许 `revise` / `pause` / `cancel`，其余动作受守卫；挂载钉键/释放与 LRU 保留草稿，导航事件携带 progress/edit 打开侧栏 |
-| `goal-edit.ts` | — | 目标安全保存编排：确认 pause、限时等待权威 paused 且非 streaming，再 revise；校验 session/goal/基线，支持取消只读等待，不重试 POST、不自动恢复执行 |
+| `goal-edit.ts` | — | 目标安全保存编排：确认 pause、限时等待权威 paused 且非 streaming，再 revise；校验 session/goal/基线，支持取消只读等待，不重试 POST、客户端不另发 confirm/resume；服务端 revise 的新规划正常持久化后自动执行 |
 | `server-agent.ts` | 2323 | Server Agent — 服务端 Agent 客户端 |
 | `selected-capabilities.ts` | 82 | 用户本轮插件选择的前端统一规范化/快照：合法类型与字符串边界、`type+pluginName+name` 去重、顺序保持、最多 4 项，持久化/历史读取快照均剥离 description |
 | `deferred-session-agent.ts` | 302 | 新会话首条消息前的延迟 Agent 代理：本地先渲染乐观消息，`prompt()` 时才创建真实 `ServerAgent`，并把暂存的 capabilities / contextReferences / promptMode 转发给真实 Agent |
@@ -21,7 +35,8 @@
 | `app-settings-cache.ts` | 启动 Settings 快照 store（F14）：追踪键白名单（language/外观/字号/工具展示）、结构校验读取（坏条目删除）、>4KB 跳写；`HttpStorageBackend.set` 经 `updateAppSettingSnapshotFromStorageSet` 写通，IndexedDB 不可用全程 no-op |
 | `provider-keys-cache.ts` | Provider keys 前端内存缓存：provider→key 模块级 Map（null=已确认无 key）+ in-flight 并发去重；`HttpStorageBackend` 对 provider-keys store 读穿/写通（set/delete/clear 后广播），备份导入统一失效；跨标签经 BroadcastChannel('quickforge-sync') 'provider-keys-changed' 广播互失效（sourceTabId 自忽略），通道不可用静默降级 |
 | `shared-server-agent.ts` | 488 | 共享会话 Agent 客户端 |
-| `local-tools.ts` | 1294 | 前端本地工具渲染器注册；含 `todo_write` 专用历史 renderer |
+| `local-tools.ts` | — | 前端本地工具渲染器注册；含 `todo_write`、`goal_report` 专用历史 renderer |
+| `goal-report-history.ts` | — | Goal 工具历史只读投影：成功 `details.type === 'goal_report_result'` 的 goal 提取摘要/验收/范围；错误、运行中与缺失结果不冒充计划成功 |
 | `todo-write-history.ts` | 90 | TodoWrite 历史工具消息视图模型：区分 running/error/success/clear/neutral，并从成功 `toolResult.details.todos` 提取已应用快照 |
 | `share-client.ts` | 148 | 分享功能客户端 API |
 | `slash-catalog.ts` | 102 | 斜杠菜单目录客户端：并行拉取 `/api/skills?available=true`（可带 projectId）与 `/api/agent-profiles`（可带 projectId），agents 过滤 `enabledAsSubagent === true`；任一失败/非 200/形状异常整体返回 null 静默降级；按 projectId 模块级缓存成功结果 |
@@ -128,7 +143,7 @@
 - `goal.ts` 提供 `extend_resume`、`GoalActionOptions`、真实 usage/预算耗尽维度与默认增量投影；`planConfirmed` 防御归一化与服务端一致：planning/awaiting_confirmation 为 false，其他状态优先显式布尔值，旧缺字段仅以 usage.iterations > 0 推断。
 - `ServerAgent.updateGoal(action, objective?, options?)` 与 deferred 代理透传追加选项；HTTP 仅发送 `{action:'extend_resume', goalId, expectedRevision}`，expectedRevision 必须为正 safe integer，不发送 signal 或客户端预算。确认时捕获旧 goalId/revision，严格快照预检仍绑定此旧 revision，不能读到新 revision 后悄悄重绑提交。
 - 失败后做权威快照对账，不盲重发追加 POST；冲突、超时或响应丢失不等于服务端未追加。只读预检可取消，关闭 Inspector 仅取消尚未发送的 POST；已发 POST 不可撤回，须等待请求结算后释放共享 pending 锁。需要再次追加时由用户查看新快照并重新确认。
-- 服务端才拥有预算/恢复状态决策：耗尽维度 +8 轮/+120 分钟，usage/计划证据保留；加额仍不足保持 paused，不调度；足够后无计划 planning、未确认 awaiting_confirmation、已确认 running。其他旧动作不因新契约获得 CAS。相关回归为 `tests/frontend/{goal-state,goal-ui,goal-budget-inspector,server-agent,goal-control-strip,goal-card,goal-card-controller}.test.ts`。
+- 服务端才拥有预算/恢复状态决策：仅耗尽轮次 +8，并移除旧时间上限，usage/计划证据保留；加额仍不足保持 paused，不调度；足够后无计划 planning、有计划 running（不需要确认）。其他旧动作不因新契约获得 CAS。相关回归为 `tests/frontend/{goal-state,goal-ui,goal-budget-inspector,server-agent,goal-control-strip,goal-card,goal-card-controller}.test.ts`。
 - 文件撤销独立于消息回滚：`getFileRollbackPreview(signal?)` GET `/rollback-files/preview`（30s 超时）取得整批及每项独立 revision；旧服务端缺少每项 revision 时禁用单项操作。`rollbackFiles(revision, signal?)` POST `/rollback-files` 提交整批 `{revision}`；`rollbackFile(path, revision, signal?)` POST `/rollback-file` 提交选中项 `{path, revision}`，不回退整批接口（两者均 60s 超时）。校验响应结构及 HTTP/status 配对：单项接受 200 / `partial` 或 `completed`，整批接受 200 / `completed`，两者均接受 409 / `blocked`、500 / `failed`，返回结构化 `ServerFileRollbackResult`（含实际恢复/删除计数、errors 与剩余 preview）。`partial` 仅表示本次单项成功，不能触发整体「已撤销」；普通兄弟项冲突/legacy 不阻止安全单项，但全局 reason 仍禁用，整批要求剩余全安全。传输失败、超时、取消或异常响应不能证明服务端未写入，交给文件撤销弹窗展示“结果未确认”，不自动重试执行。轮级撤销客户端（per-turn-artifact-cards）：`getTurnRollbackPreview(turnIds, signal?)` GET `/rollback-turn/preview?turnIds=t1,t2`（逗号分隔，30s 超时；空集合防御——无 turnId 的轮不发起请求、直接按预检失败拒绝）返回 `{revision, turnIds, canRollback, files:[{path, relativePath, safe, reason, action, created, beforeBytes, afterBytes}]}`（`turnIds` 回显请求集合）；`rollbackTurn(turnIds, revision, signal?)` POST `/rollback-turn` 提交 `{turnIds, revision}`（60s 超时，空集合防御同口径）返回 `ServerTurnRollbackResult`（`{status, rolledBack, conflicts, errors, preview}`），200 接受 `completed` / `partial`，另接受 409 / `blocked`、500 / `failed`；错误对象携带 HTTP `status` 供 UI 区分 conflict 与未确认。
 - 系统提示词加载
 - Agent 权限模式切换

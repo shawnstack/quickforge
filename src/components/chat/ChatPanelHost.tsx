@@ -58,6 +58,7 @@ import {
   runGoalUiAction,
   subscribeGoalUi,
 } from '@/lib/goal-ui'
+import { createGoalPlanConfirmationController } from './panel-decoration/goal-plan-confirmation'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
@@ -758,6 +759,21 @@ export function ChatPanelHost({
           },
         })
       : null
+    const goalPlanConfirmation = sideChatMode ? null : createGoalPlanConfirmationController({
+      panel,
+      enabled: () => effectiveCapabilities.goal && !('shareId' in agent)
+        && (agent as AgentWithGoal).sessionSource !== 'acp',
+      getGoal: () => (agent as AgentWithGoal).state.goal ?? null,
+      getSessionId: () => agent.sessionId,
+      getMessages: () => agent.state.messages,
+      isStreaming: () => agent.state.isStreaming,
+      onConfirm: async () => {
+        const target = agent as AgentWithGoal
+        if (typeof target.updateGoal !== 'function') throw new Error(t('goalUnavailable'))
+        await target.updateGoal('confirm')
+        scheduleDecorateRef.current?.()
+      },
+    })
     // 全局 Agent SSE 弱网重连提示（消息流末尾居中轻量行）；Side Chat 使用
     // 独立的 NDJSON 流、不共享该连接，因此不挂此装饰。
     const reconnectNotice = sideChatMode ? null : createReconnectNoticeController({ panel })
@@ -1246,6 +1262,7 @@ export function ChatPanelHost({
 
       try {
         goalStrip?.update()
+        goalPlanConfirmation?.update()
       } catch (error) {
         logger.warn('Failed to update goal control strip:', error)
       }
@@ -1811,6 +1828,7 @@ export function ChatPanelHost({
       taskLauncher?.dispose()
       todoWriteSummary.cleanup()
       goalStrip?.cleanup()
+      goalPlanConfirmation?.cleanup()
       reconnectNotice?.destroy()
       unreachableStrip?.destroy()
       modelRetryNotice?.destroy()

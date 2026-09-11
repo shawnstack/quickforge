@@ -147,7 +147,7 @@ export function GoalInspectorContent({ goal, sessionId, onAction, onSave, active
   const running = goal.status === 'running' || goal.status === 'verifying'
   const editable = !isGoalTerminal(goal.status) && (goalIsEditable(goal.status) || running)
   const iterationExhausted = goal.usage.iterations >= goal.budget.maxIterations
-  const durationExhausted = goal.usage.activeDurationMs >= goal.budget.maxActiveDurationMs
+  const durationExhausted = goal.budget.maxActiveDurationMs !== null && goal.usage.activeDurationMs >= goal.budget.maxActiveDurationMs
   const save = async (pauseConfirmed = false) => {
     if (!active || !editable || !dirty || conflict || !text.trim() || ui.pending || saveController.current) return
     if (running && !pauseConfirmed) { setConfirmPause(true); return }
@@ -228,8 +228,8 @@ export function GoalInspectorContent({ goal, sessionId, onAction, onSave, active
             </div>
             <div className="quickforge-goal-inspector-budget-row" data-exhausted={durationExhausted}>
               <span className="quickforge-goal-inspector-budget-label">{t('goalBudgetDurationLabel')}</span>
-              <div className="quickforge-goal-inspector-meter"><div className="quickforge-goal-inspector-meter-fill" style={{ width: `${meterPercent(goal.usage.activeDurationMs, goal.budget.maxActiveDurationMs)}%` }} /></div>
-              <span className="quickforge-goal-inspector-budget-value">{goalDurationMinutes(goal.usage.activeDurationMs)}<em>/{goalDurationMinutes(goal.budget.maxActiveDurationMs)}</em></span>
+              {goal.budget.maxActiveDurationMs !== null && <div className="quickforge-goal-inspector-meter"><div className="quickforge-goal-inspector-meter-fill" style={{ width: `${meterPercent(goal.usage.activeDurationMs, goal.budget.maxActiveDurationMs)}%` }} /></div>}
+              <span className="quickforge-goal-inspector-budget-value">{goalDurationMinutes(goal.usage.activeDurationMs)}<em>/{goal.budget.maxActiveDurationMs === null ? t('goalUnlimitedTime') : goalDurationMinutes(goal.budget.maxActiveDurationMs)}</em></span>
               {durationExhausted && <span className="quickforge-goal-inspector-chip">{t('goalBudgetExhausted')}</span>}
             </div>
           </div>

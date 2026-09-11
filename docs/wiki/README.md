@@ -1,3 +1,7 @@
+## Goal 当前契约：自动执行与无限累计时间
+
+规划整轮只读，正常轮末及持久化成功后自动执行，不需要计划确认。新 Goal 的 maxActiveDurationMs 为 JSON null（无限），累计用时仍记录，默认轮次8，保留防空转/重复失败、工具审批、必要提问、暂停取消及单工具超时。旧快照不自动执行或改写终态；显式 resume/extend_resume/revise 移除旧时间上限，extend_resume 保留 CAS 且只给耗尽轮次 +8。有计划恢复 running，无计划重新 planning。complete 保留可信证据与正常轮末持久化屏障；needs_review 报告改为 blocked 并说明无法验证原因，不伪造 passed。历史 human evidence 与 accept API 兼容。当前聊天 controller 不再生成确认按钮，Inspector/card 不提供验收动作；历史 renderer 保留当时事实。
+
 # 速构 QuickForge — Wiki 文档
 
 > AI chat application with Agent access modes for local workspace tools.
@@ -49,7 +53,7 @@ quickforge/
 - **ACP Agent**: `quickforge acp` 通过 `@agentclientprotocol/sdk` 的 `AgentSideConnection` 暴露 stdio ACP Agent，桥接现有 `server/agent-manager.mjs` 会话和工具事件。
 - **数据存储**: 本地 `~/.quickforge/` 目录 (config / storage / cache / logs)
 - **Agent 权限模式**: 默认权限允许读取/搜索当前 workspace，并对写入、命令、MCP/Plugin 等可能影响系统的工具请求审批；完全访问权限等同开发者授权，在既有 workspace 沙箱和敏感文件限制内自动执行工具
-- **Goal 模式**: 主聊天可用 `/goal <目标>` 设定带可验收标准的目标——先只读规划、由用户确认，再在有限轮次/时长预算内执行；模型只能提交绑定真实工具结果的证据、不能自行验收，结果以 `needs_review` 交给用户 `accept` 或 `resume` 继续（共享会话、ACP 与定时任务不可用）。生产 UI 不挂完整 Goal 卡：输入框上方运行条显示真实状态、服务端已记录累计时长与取消 / 暂停或继续 / 编辑三个 icon（按状态与 pending 门禁）；置顶摘要 Goal 首分区为两行纯导航，点击打开 Workspace Inspector 的 progress 视图。`GoalInspectorContent` 集中展示进度、验收与阶段动作，并提供 edit 目标编辑器；Goal Tab 按 session + goal 复用，仅运行时保留、不持久化。`goal-ui.ts` 保留运行中草稿与外部冲突的 dirty 文本，dirty 仍允许 pause/cancel；`goal-edit.ts` 运行中保存先经确认 pause，再等权威 paused 且非 streaming 后 revise。关闭侧栏会取消尚未派发的后续保存，已发 POST 不能撤回；预算耗尽可经侧栏内联确认追加耗尽维度的默认额度并恢复同一 Goal，保留累计 usage 与计划证据；仅新增 `extend_resume` 动作使用 goalId/revision CAS，其他动作（包括 revise）仍无客户端 revision CAS，不保证跨客户端原子性。详见 [服务端预算恢复契约](server/README.md#goal-预算追加与恢复) 与 [客户端编排](src/lib/README.md#goal-预算追加客户端契约)
+- **Goal 模式**: 主聊天可用 `/goal <目标>` 设定带可验收标准的目标——先整轮只读规划，正常轮末持久化后自动在有限轮次内执行（累计时间无限）；模型只能提交绑定真实工具结果的证据；`complete` 经证据检查、本轮正常结束及消息/最终状态持久化成功后自动 `completed`，不需人工 accept；无法自动验证时 `needs_review` 报告落 `blocked` 并说明原因，不要求人工签字（共享会话、ACP 与定时任务不可用）。生产 UI 不挂完整 Goal 卡：输入框上方运行条显示真实状态、服务端已记录累计时长与取消 / 暂停或继续 / 编辑三个 icon（按状态与 pending 门禁）；置顶摘要 Goal 首分区为两行纯导航，点击打开 Workspace Inspector 的 progress 视图。`GoalInspectorContent` 集中展示进度、验收与阶段动作，并提供 edit 目标编辑器；Goal Tab 按 session + goal 复用，仅运行时保留、不持久化。`goal-ui.ts` 保留运行中草稿与外部冲突的 dirty 文本，dirty 仍允许 pause/cancel；`goal-edit.ts` 运行中保存先经确认 pause，再等权威 paused 且非 streaming 后 revise。关闭侧栏会取消尚未派发的后续保存，已发 POST 不能撤回；预算耗尽可经侧栏内联确认仅给耗尽轮次追加 8 轮并移除旧时间上限并恢复同一 Goal，保留累计 usage 与计划证据；仅新增 `extend_resume` 动作使用 goalId/revision CAS，其他动作（包括 revise）仍无客户端 revision CAS，不保证跨客户端原子性。详见 [服务端预算恢复契约](server/README.md#goal-预算追加与恢复) 与 [客户端编排](src/lib/README.md#goal-预算追加客户端契约)
 - **多模型供应商**: OpenAI 兼容 `/v1/chat/completions` 和 Anthropic Messages API
 
 ## 快速链接

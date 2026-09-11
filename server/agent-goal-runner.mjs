@@ -6,14 +6,14 @@
  *   (project, or the synthetic default workspace for global chats) holds at
  *   most one active goal at a time.
  * - Planning runs are forced read-only by reusing the `/plan` permission
- *   whitelist; only after the user confirms does execution fall back to the
- *   session's normal access mode and approval flow.
+ *   whitelist; only after normal planning settlement and persistence does
+ *   execution use the session's normal access mode and approval flow.
  * - Continuations keep the full history and start a fresh turn id; they are
  *   scheduled only after the previous run really finished AND its final state
  *   was persisted successfully (fail-closed: a failed persist pauses the goal).
- * - The model can never accept its own work: `goal_report action:"complete"`
- *   validates evidence bound to real successful tool results and then hands the
- *   goal to the user as `needs_review`. Only a user `resume` completes it.
+ * - `goal_report action:"complete"` validates evidence bound to real successful
+ *   tool results. Normal run-end and durable persistence are required before
+ *   automatic completion; subjective criteria can still use `needs_review`.
  * - No progress, repeated failures, rejected/timed-out approvals and skipped
  *   questions pause the goal instead of continuing forever.
  *
@@ -76,6 +76,7 @@ let runnerDeps = {
   beginTurn: () => null,
   endTurn: () => {},
   refreshTools: async () => {},
+  syncMessages: () => {},
   // Resolves the normalized workspace root for a persisted session candidate
   // (metadata only carries scope/projectId). Injected by agent-manager.
   resolveWorkspaceRoot: async () => null,
@@ -121,7 +122,7 @@ export function activeSessionGoal(session) {
 }
 
 export function isGoalPlanning(session) {
-  return session?.goal?.status === 'planning'
+  return session?.goal?.status === 'planning' || session?.goalRun?.kind === 'planning' || session?.goalSettlingRun?.kind === 'planning'
 }
 
 export function isGoalRunActive(session) {
@@ -241,12 +242,13 @@ async function commitGoal(session, nextGoal, { revertOnFailure = false } = {}) {
   // goal (null) and committing another terminal state stay allowed; a fresh goal
   // resets the intent before it commits (see startGoalPlanning / beginGoalRun).
   if (session.goalTerminationKind === 'cancel'
-    && nextGoal && !goalState.isGoalTerminalStatus(nextGoal.status)) {
+    && nextGoal && nextGoal.status !== 'cancelled') {
     return false
   }
   const wasActive = Boolean(previous && goalState.isGoalActiveStatus(previous.status))
   const isActive = Boolean(nextGoal && goalState.isGoalActiveStatus(nextGoal.status))
   session.goal = nextGoal
+  markGoalIteration(session, nextGoal)
   let persisted = null
   try {
     persisted = await persistSession(session)
@@ -259,6 +261,12 @@ async function commitGoal(session, nextGoal, { revertOnFailure = false } = {}) {
       if (session.goal === nextGoal) session.goal = previous
       throw requestError('Failed to persist the goal. Try again.', 503, 'SESSION_PERSIST_FAILED')
     }
+    if (session.goalSettlingRun && session.goal === nextGoal && !goalState.isGoalTerminalStatus(nextGoal?.status)) {
+      session.goal = goalState.setGoalStatus(nextGoal, 'paused', { blocker: 'persist_failed' })
+      markGoalIteration(session, session.goal)
+      try { await persistSession(session) } catch { /* best effort; never continue */ }
+      runnerDeps.syncMessages(session)
+    }
     emitGoalUpdated(session)
     return false
   }
@@ -270,6 +278,54 @@ async function commitGoal(session, nextGoal, { revertOnFailure = false } = {}) {
     }
   }
   emitGoalUpdated(session)
+  if (session.goalSettlingRun || (nextGoal?.status === 'cancelled' && session.goalRun)) runnerDeps.syncMessages(session)
+  return true
+}
+
+function markGoalIteration(session, goal, messages = session.agent?.state?.messages) {
+  const run = session.goalSettlingRun || (goal?.status === 'cancelled' ? session.goalRun : null)
+  if (run?.kind !== 'execution' || !Array.isArray(messages)) return
+  let anchor = -1
+  for (let index = messages.length - 1; index >= run.messageStart; index--) {
+    if (messages[index]?.role === 'assistant') { anchor = index; break }
+    if (anchor < 0 && messages[index]?.role === 'user') anchor = index
+  }
+  if (anchor < 0) return
+  const message = messages[anchor]
+  messages[anchor] = { ...message, details: {
+    ...message.details,
+    quickforgeGoalIteration: {
+      goalId: run.goalId, iteration: run.iteration,
+      outcome: run.failed && ['running', 'verifying'].includes(goal.status) ? 'error' : goal.status,
+      blocker: goal.blocker || null, finishedAt: Date.now(),
+    },
+  } }
+}
+
+async function commitCompletedGoal(session, next, abortGeneration) {
+  const previous = session.goal
+  const canPersist = () => session.goal === previous
+    && (session.goalAbortGeneration || 0) === abortGeneration
+    && !session.abortPending && !goalStats(session).pauseRequested
+    && !goalTerminationIntent(session)
+  if (!canPersist()) { await settleGoalTermination(session); return false }
+  // Keep the live goal active throughout I/O: abort/cancel still have authority.
+  const messages = [...(session.agent?.state?.messages || [])]
+  markGoalIteration(session, next, messages)
+  let persisted = null
+  try { persisted = await persistSession(session, { goal: next, messages, canPersist }) } catch (error) {
+    logger.error(`Failed to persist completed goal for session ${session.sessionId}:`, error)
+  }
+  if (!canPersist()) { await settleGoalTermination(session); return false }
+  if (!persisted) {
+    await pauseGoalWithBlocker(session, 'persist_failed', previous)
+    return false
+  }
+  session.goal = next
+  session.agent.state.messages = messages
+  await runnerDeps.refreshTools(session)
+  emitGoalUpdated(session)
+  runnerDeps.syncMessages(session)
   return true
 }
 
@@ -390,6 +446,9 @@ async function withWorkspaceAdmission(session, operation) {
 // Prompts
 // ---------------------------------------------------------------------------
 
+const GOAL_CHAT_OUTPUT_RULES = `The UI owns goal status and iteration announcements. Do not repeat the round number, announce continuing or replanning, or narrate submitting complete / waiting for settlement in chat.
+Keep substantive analysis, necessary questions, concrete blockers, and a concise final summary of actual work and verification. Never claim the goal is completed before the server's normal-end and persistence barrier.`
+
 export function goalPlanningPrompt(goal) {
   return `<goal_planning objective="${escapeXmlAttribute(goal.objective)}">
 Plan this goal before any execution. This planning turn is READ-ONLY: you may read files, search, load skills and delegate read-only research subagents, but you must not write files, run commands, use MCP/plugin tools, or start the work.
@@ -400,8 +459,9 @@ Then call goal_report exactly once with action="plan" providing:
 - summary: a concise plan (steps, order, validation commands).
 
 Rules:
-- Do not start executing. The user must confirm the plan first.
+- Do not execute during this planning turn. Execution starts automatically only after this turn ends normally and is durably saved; no plan confirmation is required.
 - Keep the objective exactly as given; scope changes require the user to revise the goal.
+${GOAL_CHAT_OUTPUT_RULES}
 </goal_planning>`
 }
 
@@ -429,10 +489,11 @@ ${evidence}
 Continue executing this goal now. Work in small verified steps and call goal_report(action="progress") whenever the plan or evidence changes:
 - Evidence must reference the toolCallId of a real, successful tool result from this session (read_file, run_command, tests, build...). goal_report/todo_write/ask_user results are not evidence.
 - A criterion may only be marked "passed" when it has evidence bound to such a tool result. Never mark a criterion passed on your own judgement.
-- Criteria that need human judgement stay "needs_review".
+- Never fabricate passes for unverifiable criteria. Report blocked with a concrete verification limitation, or ask a necessary question; do not request a final human sign-off.
 - Completed todos are not acceptance evidence.
 - If you are blocked (missing access, failing environment, ambiguous requirement), call goal_report(action="blocked") with a concrete blocker instead of looping.
-- When every required criterion is verified, call goal_report(action="complete"). A human still has to accept the result; do not claim the goal is done.
+- When every required criterion is verified, call goal_report(action="complete") and end this turn. The server completes the goal automatically after a normal run end and durable persistence; do not claim completion before that barrier.
+${GOAL_CHAT_OUTPUT_RULES}
 </goal_continuation>`
 }
 
@@ -464,7 +525,7 @@ function assertGoalBudget(goal) {
 }
 
 function budgetRemainingMs(goal) {
-  return Math.max(0, goal.budget.maxActiveDurationMs - goal.usage.activeDurationMs)
+  return goal.budget.maxActiveDurationMs === null ? null : Math.max(0, goal.budget.maxActiveDurationMs - goal.usage.activeDurationMs)
 }
 
 /**
@@ -485,6 +546,9 @@ export function beginGoalRun(session, kind = 'execution') {
     startedAt: Date.now(),
     signature: goalState.goalProgressSignature(session.goal),
     watchdog: null,
+    goalId: goal.id,
+    iteration: session.goal.usage.iterations,
+    messageStart: session.agent?.state?.messages?.length || 0,
   }
   const remaining = budgetRemainingMs(session.goal)
   if (remaining > 0) {
@@ -501,18 +565,6 @@ async function handleBudgetTimeout(session, run) {
   if (session.goalRun !== run) return
   const goal = session.goal
   if (!goal || !goalState.isGoalActiveStatus(goal.status)) return
-  if (run.pendingDisposition) {
-    // The model already reported the result; the run is only still open. Settle
-    // it to the disposition instead of pausing a verified goal.
-    logger.warn(`Goal for session ${session.sessionId} hit its duration budget after reporting completion; handing off for review`, { sessionId: session.sessionId })
-    await commitGoal(session, goalState.clearGoalBlocker(goal, { status: run.pendingDisposition }))
-    try {
-      session.agent?.abort?.()
-    } catch {
-      // best effort
-    }
-    return
-  }
   goalStats(session).pauseRequested = true
   logger.warn(`Goal for session ${session.sessionId} exceeded its active-duration budget; pausing`, { sessionId: session.sessionId })
   await commitGoal(session, goalState.setGoalStatus(goal, 'pausing', { blocker: 'duration_budget', blockerHint: GOAL_BUDGET_HINT }))
@@ -713,6 +765,7 @@ export async function finishGoalRun(session, info = {}) {
   // Close the settlement window: goalRun is already gone, so a user abort
   // arriving while the final state persists must still be observable.
   session.goalRunSettling = true
+  session.goalSettlingRun = run
   if (run.watchdog) clearTimeout(run.watchdog)
   try {
     const current = session.goal
@@ -724,14 +777,6 @@ export async function finishGoalRun(session, info = {}) {
 
     if (goalState.isGoalTerminalStatus(next.status)) {
       await commitGoal(session, next)
-      return
-    }
-    if (run.pendingDisposition) {
-      // goal_report already validated completion/needs_review; only now that the
-      // run truly finished (and persisted) is the goal handed to the user, so the
-      // card can never be clicked while the turn is still writing.
-      stats.pauseRequested = false
-      await commitGoal(session, goalState.clearGoalBlocker(next, { status: run.pendingDisposition }))
       return
     }
     const endStatus = info.status || 'idle'
@@ -759,13 +804,29 @@ export async function finishGoalRun(session, info = {}) {
       return
     }
     const exhausted = goalState.goalBudgetExhausted(next)
-    if (exhausted.exhausted) {
-      await pauseGoalWithBlocker(session, exhausted.reason, next, GOAL_BUDGET_HINT)
+    // Duration is a hard deadline; iteration usage only gates another round.
+    // In particular, a verified success on the last admitted round may complete.
+    if (next.budget.maxActiveDurationMs !== null && next.usage.activeDurationMs >= next.budget.maxActiveDurationMs) {
+      await pauseGoalWithBlocker(session, 'duration_budget', next, GOAL_BUDGET_HINT)
+      return
+    }
+    // A verification hand-off must not turn an error/question into an automatic retry.
+    if (run.verificationBlocker) {
+      await commitGoal(session, goalState.setGoalStatus(next, 'blocked', { blocker: run.verificationBlocker }))
       return
     }
     if (endStatus === 'error' || info.error) {
+      if (run.kind === 'planning' && next.status === 'awaiting_confirmation') {
+        await pauseGoalWithBlocker(session, 'planning_failed', next)
+        return
+      }
+      run.failed = true
       stats.consecutiveFailures += 1
       stats.noProgressRuns += 1
+      if (exhausted.exhausted) {
+        await pauseGoalWithBlocker(session, exhausted.reason, next, GOAL_BUDGET_HINT)
+        return
+      }
       if (stats.consecutiveFailures >= MAX_CONSECUTIVE_GOAL_FAILURES) {
         await pauseGoalWithBlocker(session, 'repeated_failures', next)
         return
@@ -774,6 +835,24 @@ export async function finishGoalRun(session, info = {}) {
       return
     }
     stats.consecutiveFailures = 0
+    if (run.pendingDisposition) {
+      const disposition = goalState.clearGoalBlocker(next, { status: run.pendingDisposition })
+      if (run.pendingDisposition === 'completed') {
+        if (!goalState.goalCompletionCheck(next).ok) {
+          await pauseGoalWithBlocker(session, 'verification_failed', next)
+          return
+        }
+        await commitCompletedGoal(session, disposition, abortGeneration)
+      } else {
+        await commitGoal(session, disposition)
+      }
+      return
+    }
+
+    if (exhausted.exhausted) {
+      await pauseGoalWithBlocker(session, exhausted.reason, next, GOAL_BUDGET_HINT)
+      return
+    }
 
     if (run.kind === 'planning' && next.status === 'planning') {
       stats.planningAttempts += 1
@@ -785,7 +864,17 @@ export async function finishGoalRun(session, info = {}) {
       return
     }
 
-    // Waiting states and hand-offs stop the loop: the next move is the user's.
+    // A submitted plan stays read-only until this normal, persisted run end.
+    if (run.kind === 'planning' && next.status === 'awaiting_confirmation') {
+      stats.planningAttempts = 0
+      await commitGoalAndContinue(session, goalState.clearGoalBlocker(next, {
+        status: 'running', planConfirmed: true,
+        budget: { ...next.budget, maxActiveDurationMs: null },
+      }), 'execution', abortGeneration)
+      return
+    }
+
+    // Waiting states and hand-offs stop the loop.
     if (next.status === 'awaiting_confirmation' || next.status === 'needs_review' || next.status === 'blocked'
       || next.status === 'paused' || next.status === 'awaiting_input' || next.status === 'awaiting_approval') {
       if (next.status === 'awaiting_confirmation') stats.planningAttempts = 0
@@ -801,6 +890,7 @@ export async function finishGoalRun(session, info = {}) {
     }
     await commitGoalAndContinue(session, next, 'execution', abortGeneration)
   } finally {
+    session.goalSettlingRun = null
     session.goalRunSettling = false
   }
 }
@@ -813,6 +903,7 @@ export async function finishGoalRun(session, info = {}) {
 export async function failGoalRunOnPersist(session) {
   const run = session.goalRun
   if (!run) return
+  session.goalSettlingRun = run
   session.goalRun = null
   session.goalRunSettling = true
   if (run.watchdog) clearTimeout(run.watchdog)
@@ -823,6 +914,7 @@ export async function failGoalRunOnPersist(session) {
     logger.warn(`Goal run for session ${session.sessionId} finished without a durable persist; pausing`, { sessionId: session.sessionId })
     await commitGoal(session, goalState.setGoalStatus(usageOnly(goal, { durationMs: Math.max(0, Date.now() - run.startedAt) }), 'paused', { blocker: 'persist_failed' }))
   } finally {
+    session.goalSettlingRun = null
     session.goalRunSettling = false
   }
 }
@@ -933,12 +1025,12 @@ async function extendResumeGoal(session, options) {
     }
     const budget = { ...goal.budget }
     if (goal.usage.iterations >= budget.maxIterations) budget.maxIterations += goalState.GOAL_BUDGET_DEFAULTS.maxIterations
-    if (goal.usage.activeDurationMs >= budget.maxActiveDurationMs) budget.maxActiveDurationMs += goalState.GOAL_BUDGET_DEFAULTS.maxActiveDurationMs
+    budget.maxActiveDurationMs = null
     const exhausted = goalState.goalBudgetExhausted({ ...goal, budget })
     const status = exhausted.exhausted ? 'paused' : goalResumeStatus(goal)
     const next = exhausted.exhausted
       ? goalState.setGoalStatus(goal, 'paused', { budget, blocker: exhausted.reason, blockerHint: GOAL_BUDGET_HINT })
-      : goalState.clearGoalBlocker(goal, { budget, status })
+      : goalState.clearGoalBlocker(goal, { budget, status, planConfirmed: status === 'running' })
     await commitGoal(session, next, { revertOnFailure: true })
     kind = status === 'planning' ? 'planning' : status === 'running' ? 'execution' : null
     resetGoalStats(session)
@@ -959,9 +1051,10 @@ async function confirmGoal(session, goal) {
       throw requestError(`Cannot confirm a goal in status ${session.goal?.status ?? goal.status}.`, 409, 'GOAL_ACTION_INVALID')
     }
     assertQuiescent(session)
-    assertGoalBudget(session.goal)
+    const resumed = withUnlimitedTime(session.goal)
+    assertGoalBudget(resumed)
     resetGoalStats(session)
-    const next = goalState.clearGoalBlocker(session.goal, { status: 'running', planConfirmed: true })
+    const next = goalState.clearGoalBlocker(resumed, { status: 'running', planConfirmed: true })
     await commitGoal(session, next, { revertOnFailure: true })
   })
   scheduleGoalContinuation(session, 'execution')
@@ -980,9 +1073,13 @@ async function pauseGoal(session, goal) {
   return session.goal
 }
 
+function withUnlimitedTime(goal) {
+  return { ...goal, budget: { ...goal.budget, maxActiveDurationMs: null } }
+}
+
 function goalResumeStatus(goal) {
   if (!goal.criteria.length) return 'planning'
-  return goalState.goalPlanConfirmed(goal) ? 'running' : 'awaiting_confirmation'
+  return 'running'
 }
 
 async function resumeGoal(session, goal) {
@@ -990,7 +1087,7 @@ async function resumeGoal(session, goal) {
     throw requestError(`Cannot resume a goal in status ${goal.status}.`, 409, 'GOAL_ACTION_INVALID')
   }
   assertQuiescent(session)
-  const budget = goalState.goalBudgetExhausted(goal)
+  const budget = goalState.goalBudgetExhausted(withUnlimitedTime(goal))
   if (budget.exhausted) {
     // Resuming would burn the next round and immediately pause again. The
     // accumulated usage is never reset (revise must not bypass the budget).
@@ -1006,10 +1103,11 @@ async function resumeGoal(session, goal) {
       throw requestError(`Cannot resume a goal in status ${session.goal?.status ?? goal.status}.`, 409, 'GOAL_ACTION_INVALID')
     }
     assertQuiescent(session)
-    assertGoalBudget(session.goal)
+    const resumed = withUnlimitedTime(session.goal)
+    assertGoalBudget(resumed)
     resetGoalStats(session)
-    status = goalResumeStatus(session.goal)
-    await commitGoal(session, goalState.clearGoalBlocker(session.goal, { status }), { revertOnFailure: true })
+    status = goalResumeStatus(resumed)
+    await commitGoal(session, goalState.clearGoalBlocker(resumed, { status, planConfirmed: status === 'running' }), { revertOnFailure: true })
   })
   if (status !== 'awaiting_confirmation') scheduleGoalContinuation(session, status === 'planning' ? 'planning' : 'execution')
   return session.goal
@@ -1090,12 +1188,11 @@ async function reviseGoal(session, goal, objective) {
       throw requestError(`Revise requires a quiescent goal (awaiting_confirmation, paused or blocked); current status is ${session.goal?.status ?? goal.status}.`, 409, 'GOAL_ACTION_INVALID')
     }
     assertQuiescent(session)
-    assertGoalBudget(session.goal)
+    const revised = withUnlimitedTime(session.goal)
+    assertGoalBudget(revised)
     resetGoalStats(session)
-    // Old plan, evidence and passed criteria are dropped: a revised objective is
-    // planned again read-only and must be confirmed by the user. Usage is kept
-    // on purpose so revise cannot be used to bypass the goal budget.
-    await commitGoal(session, goalState.resetGoalPlan(session.goal, text), { revertOnFailure: true })
+    // Replanning is read-only; cumulative iteration usage is preserved.
+    await commitGoal(session, goalState.resetGoalPlan(revised, text), { revertOnFailure: true })
   })
   resetGoalToolEvidence(session)
   scheduleGoalContinuation(session, 'planning')
@@ -1266,7 +1363,7 @@ async function applyGoalReport(session, params) {
     throw goalReportError(`The goal is ${goal.status}; goal_report is no longer accepted.`)
   }
   if (session.goalRun?.pendingDisposition) {
-    throw goalReportError('The goal result was already reported for this run. Stop here; the user reviews it when the turn finishes.')
+    throw goalReportError('The goal result was already reported for this run. Stop here; settlement requires normal run end and durable persistence.')
   }
   const action = typeof params.action === 'string' ? params.action : ''
   const planning = goal.status === 'planning'
@@ -1285,7 +1382,7 @@ async function applyGoalReport(session, params) {
     if (next.criteria.length === 0) throw goalReportError('goal_report action="plan" requires criteria with a description.')
     goalStats(session).planningAttempts = 0
     await commitGoal(session, next)
-    return goalReportResult(session, `Plan recorded with ${next.criteria.length} acceptance criteria. Waiting for user confirmation before execution.`)
+    return goalReportResult(session, `Plan recorded with ${next.criteria.length} acceptance criteria. End this read-only planning turn; execution starts automatically after normal run end and durable persistence.`)
   }
 
   if (planning) {
@@ -1317,8 +1414,11 @@ async function applyGoalReport(session, params) {
   }
 
   if (action === 'needs_review') {
-    return settleGoalReportDisposition(session, next, 'needs_review',
-      'Goal handed to the user for review. Do not call more tools or claim completion.')
+    const reason = typeof params.blocker === 'string' && params.blocker.trim()
+      ? params.blocker.trim() : `Unable to verify criteria automatically: ${next.criteria.filter((entry) => entry.required && entry.status !== 'passed').map((entry) => entry.description).join('; ') || 'verification evidence unavailable'}`
+    if (session.goalRun) session.goalRun.verificationBlocker = reason
+    await commitGoal(session, goalState.setGoalStatus(next, 'blocked', { blocker: reason }))
+    return goalReportResult(session, `Goal blocked: ${reason}. Obtain missing evidence or ask a necessary question; no human sign-off is required.`)
   }
 
   if (action === 'complete') {
@@ -1327,19 +1427,17 @@ async function applyGoalReport(session, params) {
       // Fail closed: the model cannot self-approve. Nothing is committed.
       throw goalReportError(`goal_report action="complete" rejected: ${check.reason}. Verify the criteria with real tool results, or use action="blocked"/"needs_review".`)
     }
-    return settleGoalReportDisposition(session, next, 'needs_review',
-      'All required criteria are verified. Stop here: the goal is handed to the user for explicit acceptance when this turn finishes (accept, resume to keep working, or cancel).')
+    return settleGoalReportDisposition(session, next, 'completed',
+      `All required criteria are verified. Stop here: the goal completes automatically only after this turn ends normally and its final state is persisted.\n${GOAL_CHAT_OUTPUT_RULES}`)
   }
 
   throw goalReportError(`Unsupported goal_report action: ${action || '(missing)'}`)
 }
 
 /**
- * Record the run's report disposition instead of publishing `needs_review`
- * immediately. While a run is still in flight the goal stays active/verifying
- * and the rest of the turn is read-only; finishGoalRun publishes the final
- * needs_review state only after the run truly ended and persisted, so the user
- * can only click accept/resume on a quiescent goal.
+ * Record the disposition without publishing completion while a run is active.
+ * The rest of the turn is read-only; finishGoalRun applies the normal-end,
+ * termination and persistence barriers before publishing the final state.
  */
 async function settleGoalReportDisposition(session, next, disposition, message) {
   if (session.goalRun) {
@@ -1347,8 +1445,7 @@ async function settleGoalReportDisposition(session, next, disposition, message) 
     await commitGoal(session, goalState.setGoalStatus(next, 'verifying'))
     return goalReportResult(session, message)
   }
-  await commitGoal(session, goalState.setGoalStatus(next, disposition))
-  return goalReportResult(session, message)
+  throw goalReportError('Goal completion/review requires an active run and its normal run-end persistence barrier.')
 }
 
 export function createGoalReportTool(sessionOrGetter) {
@@ -1399,6 +1496,10 @@ export function goalPlanningToolBlockReason(session, toolName, args = {}) {
  * before the user reviews a quiescent goal.
  */
 export function goalRunSettlementToolBlockReason(session, toolName) {
+  if (session?.goalRun?.verificationBlocker) {
+    if (GOAL_SETTLEMENT_ALLOWED_TOOLS.has(toolName) || toolName === 'ask_user') return null
+    return `Goal verification is blocked; ${toolName} is not allowed before an explicit resume.`
+  }
   if (!session?.goalRun?.pendingDisposition) return null
   if (GOAL_SETTLEMENT_ALLOWED_TOOLS.has(toolName)) return null
   return `The goal result is already reported; ${toolName} is not allowed while the turn finishes.`

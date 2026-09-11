@@ -171,6 +171,7 @@ configureGoalRunner({
   // The goal_report tool only exists while the session has an active goal, so
   // the tool set is rebuilt whenever that flips (created/confirmed/finished).
   refreshTools: (session) => rebuildSessionTools(session),
+  syncMessages: (session) => emitSessionEvent(session, { type: 'state', ...getSessionState(session.sessionId) }),
   // Workspace exclusivity keys on the normalized workspace path (two projectIds
   // can point at the same directory). Persisted metadata only carries
   // scope/projectId, so the runner asks the manager to resolve the path.
@@ -508,7 +509,7 @@ async function afterGoalRunPersisted(session, persisted, endStatus) {
     try {
       await promptSettled
     } catch {
-      // The run's failure is settled below; the barrier only orders cleanup.
+      endStatus = 'error'
     }
   }
   if (!persisted) {

@@ -1,4 +1,22 @@
+## Goal 当前契约：自动执行与无限累计时间
+
+规划整轮只读，正常轮末及持久化成功后自动执行，不需要计划确认。新 Goal 的 maxActiveDurationMs 为 JSON null（无限），累计用时仍记录，默认轮次8，保留防空转/重复失败、工具审批、必要提问、暂停取消及单工具超时。旧快照不自动执行或改写终态；显式 resume/extend_resume/revise 移除旧时间上限，extend_resume 保留 CAS 且只给耗尽轮次 +8。有计划恢复 running，无计划重新 planning。complete 保留可信证据与正常轮末持久化屏障；needs_review 报告改为 blocked 并说明无法验证原因，不伪造 passed。历史 human evidence 与 accept API 兼容。当前聊天 controller 不再生成确认按钮，Inspector/card 不提供验收动作；历史 renderer 保留当时事实。
+
 # `src/components/` — React 组件
+
+## Goal 内部运行消息呈现
+
+`goal-internal-message.ts` 仅认 `role=user` 且 `metadata.quickforgeGoalRun` 严格为 `execution` / `planning`，不按中文正文猜测。`message-actions.ts` 可逆/幂等标记专用 class 并移除内部动作；CSS 隐藏正文、操作与空白（display:none，不留可聚焦隐藏按钮），保留 user-message DOM 宿主作为分轮边界与原索引锚点。有直接子级迭代分隔线时只显示分隔线；已折叠为空的 assistant source 同样保留直接分隔线。真实用户同文本不隐藏，实质 assistant 不按字符串删改。
+
+ServerAgent、converter、displayEntries 与 Goal 计划确认仍使用完整消息；不改变模型上下文/历史持久化、复制/回滚/fork 的索引契约。带合法 metadata 的历史自动生效，无 metadata 的旧正文不迁移、不清洗。此为渲染后 DOM 装饰：首次渲染到装饰间的短暂闪现、虚拟窗口高度估算/滚动与窄屏真实布局尚需浏览器验收；CSS `:has` 依赖现代浏览器。fake DOM 与 CSS 契约测试不等于真实焦点/屏幕阅读器验证。
+
+## Goal 聊天计划确认
+
+`panel-decoration/goal-plan-confirmation.ts` 目前仅保留无操作兼容接口（currentGoalPlan 返回 null，update/cleanup 不操作 DOM、不派发 confirm）。`ChatPanelHost` 的既有接线暂留以避免本次扩展到装饰生命周期重构；renderer 不再生成动作 mount。自动执行仅由服务端正常规划轮末持久化屏障触发，历史计划不能授权当前动作。后续可独立删除这组无用接线与兼容模块；本轮没有运行时确认入口。详见 [Goal 报告工具呈现契约](../lib/README.md#goal-报告工具呈现契约)。
+
+## Goal 迭代聊天分隔线
+
+`panel-decoration/goal-iteration-divider.ts` 读取消息持久化 details.quickforgeGoalIteration，在消息根末尾、过程折叠外幂等装饰两侧细线与灰色图标文字。文案按真实 outcome/blocker 区分继续执行、完成、失败重试、暂停、阻塞、预算耗尽与人工复核；不依赖当前 Goal，不新增聊天消息。自动 completed 不提供 accept，显式 needs_review 转 blocked；旧记录只展示历史事实，不提供验收按钮。
 
 ## 主聊天快捷任务
 
@@ -32,7 +50,7 @@ components/
 │   ├── slash-invocation-chip.ts    # Slash 选中态 chip：输入框内联覆盖层控制器 + 消息流 chip 共享元素 (541 行)
 │   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
 │   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (380 行)
-│   ├── panel-decoration/goal-card.ts # Goal 卡：纯视图模型 + 原生 DOM 控制器（状态/准则/证据/预算、confirm/revise/pause/resume/accept/cancel）；生产主路径已不再挂载，保留为兼容入口与摘要分区共用的视图模型
+│   ├── panel-decoration/goal-card.ts # Goal 卡：纯视图模型 + 原生 DOM 控制器（状态/准则/证据/预算、revise/pause/resume/extend_resume/cancel）；生产主路径已不再挂载，保留为兼容入口与摘要分区共用的视图模型
 │   ├── panel-decoration/goal-control-strip.ts # Goal 运行条：状态词 + 已记录累计时长（≥1 分钟按分钟显示）+ 取消/暂停或继续/编辑 icon（不渲染目标正文），挂在 composer shell 首位
 │   ├── panel-decoration/subagent-running-indicator.ts # Composer 当前会话 Subagent 运行 Bot 图标+数量角标指示、运行列表 diff 更新与 Inspector 跳转桥接 (322 行)
 │   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 (174 行)
@@ -117,7 +135,7 @@ components/
 - 置顶摘要 Goal 首分区在 Git/任务/智能体之前，保留 goal-only 挂载与胶囊 Goal 首段。`GoalSummarySection` 仅以两行显示目标和真实状态/验收计数，整行点击打开侧栏 progress，不再内嵌完整详情、编辑器或阶段动作；样式在 `git/goal-summary.css`。
 - `GoalInspectorContent` 的 progress/edit 共用 `lib/goal-ui.ts` pending/dirty/error/草稿。progress 视图形态：内容区独立滚动（`min-h-0 flex-1 overflow-y-auto`，对齐其他 Inspector Tab）+ 底部固定动作栏（border-top，不随滚动消失）；顶部为分段导航（进度/编辑目标，segmented 样式与动作按钮分层）、tone 状态行（tone 圆点 + 状态词 + 本地化更新时间 + 「?」说明浮层，浮层承接原 Note 机制说明，点击/Escape/外点关闭）；目标原文 15px 标题、blocker 警示条、summary muted；验收标准带语义 badge（passed=success/failed=destructive/pending=muted/needs_review=warning）与证据折叠（▸ 展开指示、时间本地化）；预算为双行计量条（轮次/时长 已用/上限 + 静态 meter，耗尽维度加「已耗尽」chip），范围独立折叠；Note 收敛为单行状态提示（按状态映射 goalHint*）+ 内嵌「?」浮层；动作按钮复用 Button 组件变体分层（主=默认、次=secondary、弱=ghost），edit 视图 footer（更新时间/撤销/保存）同样固定底部，textarea `min-height: min(260px, 40vh)`。运行中也可写草稿；关闭或响应式重挂保留文本，外部 objective 变化时保留 dirty 草稿并显示冲突，不静默覆盖。运行中保存要求确认暂停，`lib/goal-edit.ts` 在共享 revise 锁内 pause → 等权威 paused 且非 streaming → revise，不自动 confirm/resume、不重试 POST。关闭 Inspector 时 `useLayoutEffect` 在关闭提交阶段中止后续只读等待/尚未发送的 revise，不等退场动画卸载；已发送 POST 不能撤回，仍需等待请求结算再释放共享锁。侧栏样式在 `workspace/goal-inspector.css`；真实浏览器布局、焦点与 IME 尚待验收。
 - 导航沿用 `quickforge:open-goal-summary`，携带 `progress`/`edit`，由 `App` 校验当前 session + goal 后打开 Workspace Inspector。Goal Tab 按 session + goal 复用，仅运行时保留、不写入 localStorage；切换会话隔离，过期请求不串入新会话。主会话仍排除 ACP，控制条另受 `capabilities.goal`、共享页与 side-chat 门禁。保存由 App 绑定 `refreshGoalForSave` 的单次严格权威快照读取，不借用后台重试/降级快照；既有 revise 等动作无客户端 revision CAS，前端预检不保证跨客户端原子性；发现冲突或请求失败时保留草稿报错。仅 `extend_resume` 新动作有 goalId/revision CAS。
-- 预算耗尽时，运行条的继续入口导航到 Inspector progress，不直接派发旧 resume；`GoalInspectorContent` 提供额度内联确认（带边框/浅底/内边距的视觉容器），预算 usage/上限由双行计量条结构化展示（时长耗尽判断不靠整分钟取整），确认组只保留本次耗尽维度的 +8 轮/+120 分钟增量一行（goalBudgetGrant）与仍不足提示，原毫秒拼接文案已移除；按钮为主 goalConfirm + ghost goalKeepWorking。确认绑定打开确认行时的旧 goalId/revision，快照变化需重新确认，pending/dirty 禁止提交。请求前严格预检，失败后对账而非盲重发；关闭侧栏只取消未发送 POST，已发送等待结算，不能宣称撤回。额度和计划确认状态由服务端决定，未确认计划仍需 confirm，不借追加自动批准。沿用现有内联确认/焦点模式，真实浏览器视觉、IME/焦点尚未验收；回归见 `tests/frontend/goal-budget-inspector.test.ts`、`goal-control-strip.test.ts` 与 `server-agent.test.ts`。
+- 预算耗尽时，运行条的继续入口导航到 Inspector progress，不直接派发旧 resume；`GoalInspectorContent` 提供额度内联确认（带边框/浅底/内边距的视觉容器），预算 usage/上限由双行计量条结构化展示（null 时长显示无限及累计用时，不计算百分比；旧数值时长耗尽判断不靠整分钟取整），确认组只保留本次仅耗尽轮次 +8、移除旧时间上限的说明一行（goalBudgetGrant）与仍不足提示，原毫秒拼接文案已移除；按钮为主 goalConfirm + ghost goalKeepWorking。确认绑定打开确认行时的旧 goalId/revision，快照变化需重新确认，pending/dirty 禁止提交。请求前严格预检，失败后对账而非盲重发；关闭侧栏只取消未发送 POST，已发送等待结算，不能宣称撤回。额度和执行状态由服务端决定，有计划即可恢复 running，不再要求 confirm。沿用现有内联确认/焦点模式，真实浏览器视觉、IME/焦点尚未验收；回归见 `tests/frontend/goal-budget-inspector.test.ts`、`goal-control-strip.test.ts` 与 `server-agent.test.ts`。
 - `ChatPanelHost` 通过独立的 `approvalReadOnly` / `approvalReadOnlyMessage` 控制审批可操作性，不与消息发送 `readOnly` 混用。分享页即使具有 operate 权限也只读展示实时审批，并提示回到分享者原始对话处理；刷新无法恢复分享页既有 pending 审批是当前已知限制。
 - `context-usage.ts` 的模型旁上下文用量环在紧凑态使用固定 32px flex 槽位，环本身保持 14px 并居中；槽位在模型按钮前插入，避免环的视觉尺寸参与模型/发送控件布局。百分比和用量计算保持不变。
 - 消息回滚、分叉、复制功能

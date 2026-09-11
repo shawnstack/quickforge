@@ -1,6 +1,76 @@
 {
   "features": [
     {
+      "id": "goal-changes-commit",
+      "name": "Goal 会话改动提交与推送交接",
+      "status": "in_progress",
+      "dependencies": ["goal-auto-start-unlimited-time"],
+      "approach": "用户已授权提交并推送。本轮仅整理既有42个Goal源码、测试、Wiki、review及状态文件，明确路径暂存并创建一个commit；父Agent负责push及远端核验。保留历史记录，不新增依赖、不碰生成产物、不建tag。",
+      "verification": "本次提交前实跑：npm run test退出0，319 files/3457 tests passed；npm run lint退出0，仅既有server/cloud/identity.mjs:92 warning；npx --no-install tsc -b --pretty false退出0；git diff --check通过。状态同步后再次JSON/diff及暂存区范围校验。",
+      "boundaries": "本记录为提交准备快照，不预写commit哈希或声称push完成。真实浏览器验收和历史评审问题仍保留；本轮不修复生产代码。提交结果以Git实际输出和父Agent交接为准。"
+    },
+    {
+      "id": "goal-auto-start-unlimited-time",
+      "name": "Goal自动执行与无限累计时间",
+      "status": "done",
+      "dependencies": [
+        "goal-hide-internal-run-messages"
+      ],
+      "approach": "已实现规划正常轮末持久化后自动执行、null无限时间、显式恢复移除旧上限、needs_review落blocked、当前UI无计划确认或验收按钮。保留8轮/CAS/审批/必要提问/暂停取消/单工具超时。",
+      "verification": "收尾定向2 files/107 tests通过；npm run test退出0：319 files/3457 tests passed；npm run lint退出0，仅既有identity.mjs:92 warning；npx tsc -b --pretty false退出0；git diff --check通过。覆盖duration-only resume、null预算SSR无NaN、planning最终persist只读、needs_review必要提问及idle/error结束不续跑。",
+      "boundaries": "done仅表示实现与全量自动验证完成，父Agent最终审查/真实浏览器待验收。Wiki七入口正文逐条同步；保留inert chat confirmation controller/Host接线避免扩展生命周期重构，不派发confirm。历史review与其他feature不改；无build/依赖/生成产物/Git提交。"
+    },
+    {
+      "id": "goal-hide-internal-run-messages",
+      "name": "隐藏 Goal 内部续跑与重规划消息，保留轮次分隔线",
+      "status": "done",
+      "dependencies": ["goal-chat-plan-confirmation"],
+      "approach": "用户已确认。窄metadata predicate+可逆class仅隐藏合法内部user正文/操作/空白，保留DOM分轮边界与原消息索引、模型上下文、完整历史及计划确认。直接user divider和空assistant source divider可见。共享prompt约束禁止重复状态播报但保留实质输出。考虑SVG后复用现有divider无新图/依赖。",
+      "files": ["src/components/chat/panel-decoration/goal-internal-message.ts", "src/components/chat/panel-decoration/message-actions.ts", "src/index.css", "server/agent-goal-runner.mjs", "tests/frontend/goal-internal-message.test.ts", "tests/frontend/message-actions.test.ts", "tests/frontend/goal-iteration-divider.test.ts", "tests/server/agent-goal-runner.test.mjs", "docs/wiki/server/README.md", "docs/wiki/src/components/README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "定向vitest8 files/329 tests通过；npm run lint退出0仅既有identity.mjs:92 warning；npx tsc -b --pretty false退出0。覆盖metadata合法/缺失/unknown、同文本、DOM复用、分轮输入/offset/fork/copy、历史user divider、prompt与complete结果契约。",
+      "boundaries": "done为实现与自动验证完成，父Agent最终审查/浏览器待验收。DOM装饰前短暂闪现、窗口高度估算/滚动、CSS :has实际布局及焦点/屏幕阅读器未实测；提示词不保证模型百分百遵守，不按字符串删除助手内容。不迁移旧正文，不修其他评审问题；保留旧feature及全部既有改动，无build/生成产物/依赖/Git提交或发布。"
+    },
+    {
+      "id": "goal-chat-plan-confirmation",
+      "name": "聊天内最新 Goal 计划确认并开始执行",
+      "status": "done",
+      "dependencies": ["goal-report-renderer"],
+      "approach": "已获用户确认。renderer仅提供空动作mount，ChatPanelHost注入当前agent给独立controller；消息最新plan toolCallId/成功结果revision/session/goal/计划指纹含criterion IDs共同验证，未确认允许轮末+1 revision不严格相等。复用goal-ui confirm/pending/dirty/error和updateGoal，streaming等待，明确planConfirmed才显示计划已确认；旧DOM/handler/cleanup重验，无全局agent，不移动process节点。侧栏及strip门禁保留。考虑SVG后采用现有轻量工具按钮与短契约。",
+      "files": ["src/components/chat/panel-decoration/goal-plan-confirmation.ts", "src/components/chat/ChatPanelHost.tsx", "src/lib/local-tools.ts", "src/lib/i18n.ts", "tests/frontend/goal-plan-confirmation.test.ts", "tests/frontend/goal-report-renderer.test.ts", "docs/wiki/src/lib/README.md", "docs/wiki/src/components/README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "定向vitest 9 files/295 tests通过（新controller/host contract21，renderer32）；npm run lint退出0仅既有identity.mjs:92 warning；npx tsc -b --pretty false退出0；git diff --check通过。",
+      "boundaries": "done表示实现与自动验证完成，父Agent最终审查待办。fake DOM/模板/host源码契约测试非浏览器，真实窄屏/亮暗/焦点/屏幕阅读器/刷新待验收。未新增后端CAS，已发HTTP跨客户端替换仍既有边界；保守门禁对无法证明最新的旧记录隐藏聊天动作，Inspector仍在。保留全部既有修改及其他feature状态，无build/生成产物/依赖/commit/tag/push/发布。"
+    },
+    {
+      "id": "goal-report-renderer",
+      "name": "Goal 报告工具结构化历史呈现",
+      "status": "done",
+      "dependencies": ["goal-auto-complete-iteration-divider"],
+      "approach": "用户确认的最小修复：注册 goal_report 专属 renderer，复用 local-tool shell/summary/details/图标与状态样式。默认展开历史计划摘要、验收标准、范围；成功计划已生成/当时等待确认与当前 Goal 分离。其他 action 只显示报告语义，完整 JSON 仅详细模式；无历史确认按钮，操作留 Inspector。纯 viewmodel 防御缺字段与错误形状，Lit 文本绑定与任意位置换行防 HTML 注入及长文本溢出。考虑 SVG 后复用已有图标，不新增解释图。",
+      "files": ["src/lib/local-tools.ts", "src/lib/goal-report-history.ts", "src/lib/i18n.ts", "tests/frontend/goal-report-renderer.test.ts", "docs/wiki/src/lib/README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "npx vitest run 定向8 files / 121 tests通过（新renderer31）；npm run lint退出码0，仅既有server/cloud/identity.mjs:92 warning；npx tsc -b --pretty false退出码0；git diff --check通过。覆盖注册、plan running/success/error、malformed/legacy、所有非plan action、详细JSON、无历史动作、Lit文本绑定；回归todo_write/ask_user/local-tools。",
+      "boundaries": "done仅表示实现与自动验证完成，未做真实浏览器窄屏/亮暗主题/焦点/屏幕阅读器/刷新或新Goal实测。模板测试执行真实renderer类但用惰性绑定捕获，不宣称浏览器escaping或布局实测。保留先前全部工作树改动和其他feature状态；不修其他评审问题、不改后端或CSS、不build生成产物、无依赖/commit/tag/push/发布操作。"
+    },
+    {
+      "id": "goal-auto-complete-validation",
+      "name": "Goal 自动完成与迭代分隔线审查及自动验证报告",
+      "status": "done",
+      "dependencies": ["goal-auto-complete-iteration-divider"],
+      "approach": "用户授权仅验证和报告；核读当前服务端结算、证据与 UI 装饰/导航路径，产出问题分级及完整流程检查清单，不修改生产或测试。已考虑 SVG，问题表与清单更适合本任务，不新增图。",
+      "files": ["docs/reviews/goal-auto-complete-validation.zh-CN.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "父 Agent 本次 npx vitest run 16 files / 472 tests 退出码0，完整可复跑命令及逐文件计数见报告。Node 纯函数复现 passed→failed→passed 无新 evidence，goalCompletionCheck ok:true；非真实模型复现。已核读问题引用。正常边界含末轮完成、异常不完成、真实 SQLite completed/marker 恢复。",
+      "boundaries": "done仅表示审查与自动验证完成；浏览器needs-review，c6待人工。高S1旧证据复用；中S2 needs_review persist中abort意图未复核、S3 refreshTools reject阻断完成通知、U1预算入口误开edit、U2浮层宽度风险、U3空宿主可能隐藏divider；低U4 aria名称错位、U5错误span无键盘入口、U6整链重复移动。静态风险未动态复现，查出不代表修复，不能声称observer无限循环。无专用browser工具，playwright/puppeteer/jsdom/happy-dom不可resolve，electron未启动，不装依赖或建harness。保留所有历史feature状态；无生产/测试/生成产物或Git发布操作；报告足够，无需修改wiki现行契约。"
+    },
+    {
+      "id": "goal-auto-complete-iteration-divider",
+      "name": "Goal 正常轮末持久化后自动完成与历史迭代分隔线",
+      "status": "done",
+      "dependencies": ["goal-ui-p0-budget-120"],
+      "approach": "保留计划确认/审批/可信证据检查；complete 待正常轮末与最终持久化后自动 completed，完成 I/O 时保持 live verifying 以接受 abort/cancel；execution details.quickforgeGoalIteration 本轮 assistant/user 锚点与 state 事件同步，聊天根末尾轻量分隔线。",
+      "files": ["server/agent-goal-runner.mjs", "server/agent-manager.mjs", "server/agent-persistence.mjs", "server/tools/definitions.mjs", "src/components/chat/panel-decoration/goal-iteration-divider.ts", "src/components/chat/panel-decoration/assistant-artifact-card.ts", "src/components/chat/panel-decoration/message-actions.ts", "src/index.css", "src/lib/i18n.ts", "tests/server/agent-goal-runner.test.mjs", "tests/server/agent-goal-manager.test.mjs", "tests/frontend/goal-iteration-divider.test.ts", "docs/wiki/README.md", "docs/wiki/server/README.md", "docs/wiki/server/tools/README.md", "docs/wiki/src/components/README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "复审修复最后一轮边界：第8轮证据成功可completed；error/aborted/时长超限/双预算/未完成仍paused且不续跑。npm run test退出码0：316 files / 3397 tests passed；npm run lint退出码0，仅既有server/cloud/identity.mjs:92 warning；npx tsc -b --pretty false退出码0。补真实SQLite完成状态与消息marker恢复断言、分隔线重复装饰移回根末尾及JSON历史恢复。既有完成persist中abort/cancel/failure回归通过。",
+      "boundaries": "done表示实现与自动验证完成，明确无浏览器视觉/真实刷新/新Goal验收。按要求未运行build，无依赖/生成产物/Git发布变更。完全存储故障只能安全内存暂停，不保证持久化；无本轮消息不污染前轮。审查commitCompletedGoal前后意图守卫与persistSession锁内canPersist，取消/abort后补偿保存遵循既有串行锁；不承诺任意I/O崩溃窗口的跨操作原子性。"
+    },
+    {
       "id": "goal-design-review",
       "name": "Goal 功能设计评审（状态机/预算/证据/执行持久化/API/前端契约/设计债核实）",
       "status": "needs-review",

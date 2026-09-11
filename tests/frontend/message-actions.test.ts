@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assistantActionDisplayIndexes } from '../../src/components/chat/panel-decoration/message-action-visibility'
+import { decorateProcessBlocks } from '../../src/components/chat/panel-decoration/process-folding'
 import { decorateMessages, decorateUserContextChips } from '../../src/components/chat/panel-decoration/message-actions'
 import { createTurnErrorTracker } from '../../src/components/chat/panel-decoration/turn-error-state'
 import { parseSlashInvocationPrefix, planSlashChipText } from '../../src/components/chat/slash-invocation-chip'
@@ -267,6 +268,47 @@ describe('assistant message actions', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('keeps internal user hosts and original offsets, removes actions, and reverses on DOM reuse', () => {
+    const internal = createUserMessageElement().element
+    const user = createUserMessageElement().element
+    const assistant = createFakeElement('assistant-message')
+    const messageList = createFakeElement('message-list')
+    messageList.append(internal, user, assistant)
+    const panel = createFakeElement('div')
+    panel.append(messageList)
+    const onRollbackFromMessage = vi.fn()
+    const onForkFromMessage = vi.fn()
+    const onCopyAnswer = vi.fn()
+    const messages = [
+      { role: 'user', content: '继续执行目标（第 2/8 轮）', metadata: { quickforgeGoalRun: 'execution' } },
+      { role: 'user', content: '继续执行目标（第 2/8 轮）' },
+      { role: 'assistant', content: [{ type: 'text', text: 'substantive answer' }] },
+    ]
+    const decorate = () => decorateMessages({
+      panel: panel as unknown as HTMLElement, getMessages: () => messages as never,
+      messageIndexOffset: 10, isStreaming: () => false, onCopyAnswer,
+      onRollbackFromMessage, onForkFromMessage, onRetryFromMessage: vi.fn(),
+    })
+    decorate()
+    decorate()
+    expect(messageList.children).toEqual([internal, user, assistant])
+    expect(vi.mocked(decorateProcessBlocks).mock.calls.at(-1)?.[1]).toEqual([internal, user, assistant])
+    expect(internal.className).toContain('quickforge-goal-internal-user-message')
+    expect(internal.querySelector('.quickforge-message-actions')).toBeNull()
+    expect(user.className).not.toContain('quickforge-goal-internal-user-message')
+    user.querySelector('button[data-quickforge-action="copy"]')?.onclick?.({ stopPropagation() {} })
+    expect(onCopyAnswer).toHaveBeenCalledWith(messages[1].content)
+    assistant.querySelector('button[data-quickforge-action="fork"]')?.onclick?.({ stopPropagation() {} })
+    expect(onForkFromMessage).toHaveBeenCalledWith(12)
+    delete messages[0].metadata
+    decorate()
+    expect(internal.className).not.toContain('quickforge-goal-internal-user-message')
+    expect(internal.querySelector('.quickforge-message-actions')).not.toBeNull()
+    messages[0].metadata = { quickforgeGoalRun: 'planning' }
+    decorate()
+    expect(internal.querySelector('.quickforge-message-actions')).toBeNull()
   })
 
   it('only shows actions on the final assistant message of each completed turn', () => {

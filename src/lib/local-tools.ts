@@ -32,6 +32,7 @@ import {
 import { decorateSubagentProcessBlocks } from '@/components/chat/panel-decoration'
 import { buildAskAnswerText } from '@/components/chat/panel-decoration/ask-user-card'
 import { buildTodoWriteHistoryViewModel } from '@/lib/todo-write-history'
+import { buildGoalReportHistoryViewModel } from '@/lib/goal-report-history'
 
 type ToolResultLike = {
   toolCallId?: string
@@ -1044,6 +1045,50 @@ class AskUserToolRenderer {
   }
 }
 
+class GoalReportToolRenderer {
+  render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
+    const view = buildGoalReportHistoryViewModel(params, result, isStreaming)
+    const timing = extractQuickForgeTiming(result?.details)
+    const detailed = getCachedToolDisplaySettings().toolDisplayMode === 'detailed'
+    const input = detailed ? stringifyValue(params) : ''
+    const details = detailed ? stringifyValue(result?.details) : ''
+    const output = detailed ? stringifyValue(result?.content) : ''
+    const detailsKey = toolDetailsStateKey('goal_report', params, result?.details)
+    const detailsOpen = toolDetailsOpen.get(detailsKey) ?? true
+    return {
+      isCustom: true,
+      content: html`
+        <div class="quickforge-local-tool-shell">
+          <details class="group/tool quickforge-local-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
+            if (event.isTrusted) rememberToolDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
+          }}>
+            <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
+              ${renderToolIcon('todo_write')}
+              <span class="quickforge-tool-title min-w-0">
+                <span class="quickforge-tool-label">${t(view.summaryKey)}<span class="quickforge-tool-summary-detail text-muted-foreground/70"> · ${t(view.actionKey)}${view.actionKey === 'goalReportAction' && view.action ? ` · ${view.action}` : ''}</span></span>
+                <svg class="quickforge-tool-chevron shrink-0 group-open/tool:rotate-90" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                ${renderStatus(view.status, timing)}
+              </span>
+            </summary>
+            <div class="mt-3 space-y-3 min-w-0 [overflow-wrap:anywhere]">
+              <div class="text-xs text-muted-foreground">${t(view.resultKey)}</div>
+              ${view.summary ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalSummaryLabel')}</div><div class="whitespace-pre-wrap">${view.summary}</div></div>` : nothing}
+              ${view.criteria.length ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalCriteriaLabel')}</div><ol class="list-decimal pl-5 space-y-1">${view.criteria.map((criterion) => html`<li class="whitespace-pre-wrap">${criterion}</li>`)}</ol></div>` : nothing}
+              ${view.scope.length ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalScopeLabel')}</div><ul class="list-disc pl-5 space-y-1">${view.scope.map((item) => html`<li class="whitespace-pre-wrap">${item}</li>`)}</ul></div>` : nothing}
+              ${view.blocker ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalBlockerLabel')}</div><div class="whitespace-pre-wrap">${view.blocker}</div></div>` : nothing}
+              <div data-quickforge-goal-plan-action></div>
+              ${!detailed && view.outputText ? html`<div class="whitespace-pre-wrap">${view.outputText}</div>` : nothing}
+              ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
+              ${details ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${details} language="json"></code-block></div>` : nothing}
+              ${output ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('output')}</div><code-block .code=${output} language="json"></code-block></div>` : nothing}
+            </div>
+          </details>
+        </div>
+      `,
+    }
+  }
+}
+
 class TodoWriteToolRenderer {
   render(
     params: Record<string, unknown> | undefined,
@@ -1210,6 +1255,7 @@ registerToolRenderer('run_subagent', new SubagentToolRenderer())
 registerToolRenderer('generate_image', new GenerateImageToolRenderer())
 registerToolRenderer('todo_write', todoWriteToolRenderer)
 registerToolRenderer('ask_user', new AskUserToolRenderer())
+registerToolRenderer('goal_report', new GoalReportToolRenderer())
 
 // Tool execution is entirely server-side. The ChatPanel never calls .execute()
 // on client-side tools — it only reads state.tools for display purposes.

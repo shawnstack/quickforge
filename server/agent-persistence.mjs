@@ -182,10 +182,10 @@ async function persistAuthoritativeSessionState(session, sessionData, metadata) 
 /**
  * Persist session data to storage.
  */
-async function persistSessionUnlocked(session) {
+async function persistSessionUnlocked(session, options = {}) {
   const { sessionId, agent, scope, projectId, source, channelId, channelName, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, modelRef, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
-  const messages = agent.state.messages
-  const goalBody = session.goal || null
+  const messages = options.messages ?? agent.state.messages
+  const goalBody = options.goal === undefined ? session.goal || null : options.goal
 
   // Empty sessions are cleaned up — except when a goal exists: a goal (and the
   // card the user is interacting with) must survive even before any message is
@@ -338,13 +338,16 @@ async function persistSessionUnlocked(session) {
 const SLOW_PERSIST_LOG_MS = 200
 
 // 内部共享导出（模块拆分临时暴露，随 persistence 块迁移后收回）
-export async function persistSession(session) {
+export async function persistSession(session, options = {}) {
   const startedAt = performance.now()
   // Serialize per session (per-row revision CAS guarantees correctness);
   // cross-session persists run independently instead of piling onto one
   // global chain that also gates destroyAgent.
   const lockKey = `session:${session.sessionId}`
-  const result = await withSessionPersistenceLock(() => persistSessionUnlocked(session), lockKey)
+  const result = await withSessionPersistenceLock(() => {
+    if (options.canPersist && !options.canPersist()) return null
+    return persistSessionUnlocked(session, options)
+  }, lockKey)
   const durationMs = performance.now() - startedAt
   if (durationMs >= SLOW_PERSIST_LOG_MS) {
     logger.warn(`Session ${session.sessionId} persist took ${Math.round(durationMs)}ms (queue wait + write)`, {

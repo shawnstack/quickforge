@@ -352,7 +352,7 @@ describe('goal card DOM controller', () => {
     input.value = 'Changed objective'
     input.dispatch('input')
 
-    const confirm = buttonByText(s.root()!, 'goalConfirm')!
+    const confirm = buttonByText(s.root()!, 'goalResume')!
     expect(confirm.disabled).toBe(true)
     confirm.click()
     expect(s.onAction).not.toHaveBeenCalled()
@@ -360,11 +360,11 @@ describe('goal card DOM controller', () => {
     // Restoring the original text re-arms confirm and parks revise again.
     input.value = 'Ship the goal UI'
     input.dispatch('input')
-    expect(buttonByText(s.root()!, 'goalConfirm')!.disabled).toBe(false)
+    expect(buttonByText(s.root()!, 'goalResume')!.disabled).toBe(false)
     expect(buttonByText(s.root()!, 'goalRevise')!.disabled).toBe(true)
 
-    buttonByText(s.root()!, 'goalConfirm')!.click()
-    expect(s.onAction).toHaveBeenCalledWith('confirm', undefined)
+    buttonByText(s.root()!, 'goalResume')!.click()
+    expect(s.onAction).toHaveBeenCalledWith('resume', undefined)
   })
 
   it('refuses a stale confirm click while the draft has unsubmitted edits', () => {
@@ -374,7 +374,7 @@ describe('goal card DOM controller', () => {
 
     // A reference captured before typing must not be able to confirm the old
     // objective: the click itself re-checks the live draft.
-    const staleConfirm = buttonByText(s.root()!, 'goalConfirm')!
+    const staleConfirm = buttonByText(s.root()!, 'goalResume')!
     const input = textarea(s.root()!)!
     input.value = 'Unsubmitted revision'
     input.dispatch('input')
@@ -397,7 +397,7 @@ describe('goal card DOM controller', () => {
     expect(s.onAction).not.toHaveBeenCalled()
     expect(textarea(s.root()!)).toBeUndefined()
     expect(byClass(s.root()!, 'quickforge-goal-objective')!.textContent).toBe('Ship the goal UI')
-    expect(buttonByText(s.root()!, 'goalConfirm')!.disabled).toBe(false)
+    expect(buttonByText(s.root()!, 'goalResume')!.disabled).toBe(false)
   })
 
   it('blocks a duplicate mouse submit and Ctrl+Enter while a revision is in flight', async () => {
@@ -453,10 +453,9 @@ describe('goal card DOM controller', () => {
       evidence: [{ id: 'e1', description: 'npm run build', toolCallId: 'call-1' }],
     })
     ready.controller.update()
-    expect(buttonByText(ready.root()!, 'goalAccept')!.disabled).toBe(false)
+    expect(buttonByText(ready.root()!, 'goalAccept')).toBeUndefined()
     expect(buttonByText(ready.root()!, 'goalContinue')).toBeTruthy()
-    buttonByText(ready.root()!, 'goalAccept')!.click()
-    expect(ready.onAction).toHaveBeenCalledWith('accept', undefined)
+    expect(ready.onAction).not.toHaveBeenCalled()
 
     // Continue never accepts: it posts resume so the goal goes back to work.
     const continuing = setup({ status: 'needs_review' })
@@ -473,10 +472,7 @@ describe('goal card DOM controller', () => {
     })
     blocked.controller.update()
 
-    const accept = buttonByText(blocked.root()!, 'goalAccept')!
-    expect(accept.disabled).toBe(true)
-    expect(accept.title).toBe('goalNeedsReviewBlockedNote')
-    accept.click()
+    expect(buttonByText(blocked.root()!, 'goalAccept')).toBeUndefined()
     expect(blocked.onAction).not.toHaveBeenCalled()
 
     // Continue stays available: the goal can still go back to the model.

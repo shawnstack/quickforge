@@ -63,7 +63,7 @@ describe('goal state model', () => {
       criteria: [],
       scope: [],
       summary: '',
-      budget: { maxIterations: 8, maxActiveDurationMs: 120 * 60 * 1000 },
+      budget: { maxIterations: 8, maxActiveDurationMs: null },
       usage: { iterations: 0, activeDurationMs: 0 },
       evidence: [],
     })
@@ -202,10 +202,10 @@ describe('goal state model', () => {
       exhausted: true,
       reason: 'iteration_budget',
     })
-    expect(goalBudgetExhausted({ ...goal, usage: { iterations: 1, activeDurationMs: goal.budget.maxActiveDurationMs } })).toEqual({
-      exhausted: true,
-      reason: 'duration_budget',
-    })
+    expect(goalBudgetExhausted({ ...goal, usage: { iterations: 1, activeDurationMs: 90_000_000 } })).toEqual({ exhausted: false, reason: null })
+    expect(normalizeGoalState(JSON.parse(JSON.stringify(goal))).budget.maxActiveDurationMs).toBeNull()
+    const legacy = { ...goal, status: 'completed', budget: { ...goal.budget, maxActiveDurationMs: 7200000 } }
+    expect(goalAfterRestore(normalizeGoalState(legacy))).toMatchObject({ status: 'completed', budget: { maxActiveDurationMs: 7200000 } })
   })
 
   it('maps in-flight statuses to paused on restore and keeps the rest', () => {

@@ -47,7 +47,7 @@ export type GoalEvidence = {
 
 export type GoalBudget = {
   maxIterations: number
-  maxActiveDurationMs: number
+  maxActiveDurationMs: number | null
 }
 
 export type GoalUsage = {
@@ -94,13 +94,13 @@ export type GoalActionOptions = { goalId: string; expectedRevision: number; sign
 /** Only exhausted dimensions receive one default grant; usage is never reset. */
 export function goalBudgetExtension(goal: GoalState) {
   const iterations = goal.usage.iterations >= goal.budget.maxIterations ? 8 : 0
-  const activeDurationMs = goal.usage.activeDurationMs >= goal.budget.maxActiveDurationMs ? 120 * 60_000 : 0
+  const activeDurationMs = 0
+  const legacyDurationExhausted = goal.budget.maxActiveDurationMs !== null && goal.usage.activeDurationMs >= goal.budget.maxActiveDurationMs
   return {
     iterations,
     activeDurationMs,
-    exhausted: iterations > 0 || activeDurationMs > 0,
-    stillExhausted: goal.usage.iterations >= goal.budget.maxIterations + iterations
-      || goal.usage.activeDurationMs >= goal.budget.maxActiveDurationMs + activeDurationMs,
+    exhausted: iterations > 0 || legacyDurationExhausted,
+    stillExhausted: goal.usage.iterations >= goal.budget.maxIterations + iterations,
   }
 }
 
@@ -222,7 +222,8 @@ export function normalizeGoalState(raw: unknown): (GoalState & { planConfirmed: 
     summary: stringValue(raw.summary),
     budget: {
       maxIterations: Math.max(0, Math.trunc(finiteNumber(budget.maxIterations))),
-      maxActiveDurationMs: Math.max(0, finiteNumber(budget.maxActiveDurationMs)),
+      maxActiveDurationMs: typeof budget.maxActiveDurationMs === 'number' && Number.isFinite(budget.maxActiveDurationMs)
+        ? Math.max(0, budget.maxActiveDurationMs) : null,
     },
     usage: {
       iterations: Math.max(0, Math.trunc(finiteNumber(usage.iterations))),
@@ -278,7 +279,8 @@ export function goalIsEditable(status: GoalStatus): boolean {
 }
 
 export function goalCanConfirm(status: GoalStatus): boolean {
-  return status === 'awaiting_confirmation'
+  void status // Kept for API compatibility; current UI never requests confirmation.
+  return false
 }
 
 export function goalCanPause(status: GoalStatus): boolean {
@@ -286,7 +288,7 @@ export function goalCanPause(status: GoalStatus): boolean {
 }
 
 export function goalCanResume(status: GoalStatus): boolean {
-  return status === 'paused' || status === 'blocked' || status === 'needs_review'
+  return status === 'awaiting_confirmation' || status === 'paused' || status === 'blocked' || status === 'needs_review'
 }
 
 export function goalCanCancel(status: GoalStatus): boolean {
@@ -325,7 +327,7 @@ export function goalCanAccept(goal: GoalState): boolean {
 }
 
 /** Duration is always presented as whole minutes; never as a fake percentage. */
-export function goalDurationMinutes(ms: number): number {
-  if (!Number.isFinite(ms) || ms <= 0) return 0
+export function goalDurationMinutes(ms: number | null): number {
+  if (ms === null || !Number.isFinite(ms) || ms <= 0) return 0
   return Math.max(1, Math.round(ms / 60_000))
 }

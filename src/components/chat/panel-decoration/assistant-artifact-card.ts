@@ -589,7 +589,7 @@ const EXPANDED_FLAG = 'quickforgeArtifactCardExpanded'
 function syncAnchor(hostElement: HTMLElement) {
   const actions = Array.from(hostElement.querySelectorAll<HTMLElement>('.quickforge-message-actions'))
     .find((candidate) => candidate.parentElement === hostElement)
-  return actions ?? null
+  return actions ?? hostElement.querySelector<HTMLElement>(':scope > .quickforge-goal-iteration-divider') ?? null
 }
 
 /** 一个轮的挂卡目标：该轮产物（已按卡片口径过滤）+ 轮标识（该轮全部 turnId，轮级撤销用）。 */

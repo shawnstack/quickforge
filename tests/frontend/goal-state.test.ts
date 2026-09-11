@@ -42,14 +42,14 @@ describe('goalBudgetExtension', () => {
   it.each([
     [2, 120_000, 0, 0, false],
     [10, 120_000, 8, 0, false],
-    [2, 600_000, 0, 7_200_000, false],
-    [10, 600_000, 8, 7_200_000, false],
-    [18, 600_000, 8, 7_200_000, true],
-    [10, 7_800_000, 8, 7_200_000, true],
+    [2, 600_000, 0, 0, false],
+    [10, 600_000, 8, 0, false],
+    [18, 600_000, 8, 0, true],
+    [10, 7_800_000, 8, 0, false],
   ])('grants exhausted dimensions only (%s iterations / %s ms)', (usedIterations, usedDuration, iterations, activeDurationMs, stillExhausted) => {
     const state = goal({ usage: { iterations: usedIterations as number, activeDurationMs: usedDuration as number } })
     const before = JSON.stringify(state)
-    expect(goalBudgetExtension(state)).toEqual({ iterations, activeDurationMs, exhausted: !!(iterations || activeDurationMs), stillExhausted })
+    expect(goalBudgetExtension(state)).toEqual({ iterations, activeDurationMs, exhausted: !!iterations || Number(usedDuration) >= 600_000, stillExhausted })
     expect(JSON.stringify(state)).toBe(before)
     expect(isGoalAction('extend_resume')).toBe(true)
   })
@@ -262,10 +262,10 @@ describe('goal status semantics', () => {
   })
 
   it('gates each action to the states that allow it', () => {
-    expect(all.filter(goalCanConfirm)).toEqual(['awaiting_confirmation'])
+    expect(all.filter(goalCanConfirm)).toEqual([])
     expect(all.filter(goalIsEditable)).toEqual(['awaiting_confirmation', 'paused', 'blocked'])
     expect(all.filter(goalCanPause)).toEqual(['running', 'verifying'])
-    expect(all.filter(goalCanResume)).toEqual(['paused', 'blocked', 'needs_review'])
+    expect(all.filter(goalCanResume)).toEqual(['awaiting_confirmation', 'paused', 'blocked', 'needs_review'])
     expect(all.filter(goalCanCancel)).toEqual([
       'planning', 'awaiting_confirmation', 'running', 'verifying', 'awaiting_input',
       'awaiting_approval', 'pausing', 'paused', 'blocked', 'needs_review',

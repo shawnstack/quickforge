@@ -48,9 +48,9 @@ describe('buildGoalCardViewModel', () => {
       tone: 'info',
       spinning: false,
       editable: true,
-      confirmable: true,
+      confirmable: false,
       pausable: false,
-      resumable: false,
+      resumable: true,
       cancellable: true,
       noteKeys: ['goalConfirmNote'],
     })
@@ -116,16 +116,16 @@ describe('buildGoalCardViewModel', () => {
     // needs_review always offers both actions; acceptance is the human sign-off,
     // continuing hands the goal back to the model without accepting.
     const review = buildGoalCardViewModel(goal({ status: 'needs_review' }))
-    expect(review).toMatchObject({ tone: 'warning', resumable: true, cancellable: true, accepting: true, acceptBlocked: false, continuing: true })
-    expect(review.noteKeys).toEqual(['goalNeedsReviewNote', 'goalNeedsReviewAcceptNote', 'goalNeedsReviewContinueNote'])
+    expect(review).toMatchObject({ tone: 'warning', resumable: true, cancellable: true, accepting: false, acceptBlocked: false, continuing: true })
+    expect(review.noteKeys).toEqual(['goalNeedsReviewContinueNote'])
 
     // A failed required criterion disables acceptance and explains why.
     const blocked = buildGoalCardViewModel(goal({
       status: 'needs_review',
       criteria: [{ id: 'c1', description: 'Builds', required: true, status: 'failed', evidenceIds: [] }],
     }))
-    expect(blocked).toMatchObject({ accepting: true, acceptBlocked: true, continuing: true })
-    expect(blocked.noteKeys).toEqual(['goalNeedsReviewNote', 'goalNeedsReviewBlockedNote', 'goalNeedsReviewContinueNote'])
+    expect(blocked).toMatchObject({ accepting: false, acceptBlocked: true, continuing: true })
+    expect(blocked.noteKeys).toEqual(['goalNeedsReviewContinueNote'])
 
     // Human-accepted evidence keeps the gate open; a toolCallId is not required.
     const accepted = buildGoalCardViewModel(goal({
@@ -133,8 +133,8 @@ describe('buildGoalCardViewModel', () => {
       criteria: [{ id: 'c1', description: 'Builds', required: true, status: 'needs_review', evidenceIds: ['e1'] }],
       evidence: [{ id: 'e1', description: 'reviewed by hand', source: 'human', acceptedAt: '2026-01-02T00:00:00.000Z' }],
     }))
-    expect(accepted).toMatchObject({ accepting: true, acceptBlocked: false, continuing: true })
-    expect(accepted.noteKeys).toContain('goalNeedsReviewAcceptNote')
+    expect(accepted).toMatchObject({ accepting: false, acceptBlocked: false, continuing: true })
+    expect(accepted.evidence[0].source).toBe('human')
   })
 
   it('presents budget and usage as counts and whole minutes only', () => {

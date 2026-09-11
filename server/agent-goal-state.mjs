@@ -48,7 +48,7 @@ const IN_FLIGHT_STATUSES = new Set([
 
 export const GOAL_BUDGET_DEFAULTS = Object.freeze({
   maxIterations: 8,
-  maxActiveDurationMs: 120 * 60 * 1000,
+  maxActiveDurationMs: null,
 })
 
 export const GOAL_MAX_OBJECTIVE_CHARS = 4000
@@ -114,7 +114,7 @@ export function goalCanPause(status) {
 }
 
 export function goalCanResume(status) {
-  return status === 'paused' || status === 'blocked' || status === 'needs_review'
+  return status === 'awaiting_confirmation' || status === 'paused' || status === 'blocked' || status === 'needs_review'
 }
 
 function isRecord(value) {
@@ -209,7 +209,8 @@ export function normalizeGoalState(raw, { sessionId = null } = {}) {
     summary: text(raw.summary, GOAL_MAX_SUMMARY_CHARS),
     budget: {
       maxIterations: nonNegativeInt(budget.maxIterations, GOAL_BUDGET_DEFAULTS.maxIterations),
-      maxActiveDurationMs: Math.max(0, finiteNumber(budget.maxActiveDurationMs, GOAL_BUDGET_DEFAULTS.maxActiveDurationMs)),
+      maxActiveDurationMs: typeof budget.maxActiveDurationMs === 'number' && Number.isFinite(budget.maxActiveDurationMs)
+        ? Math.max(0, budget.maxActiveDurationMs) : null,
     },
     usage: {
       iterations: nonNegativeInt(usage.iterations),
@@ -255,10 +256,7 @@ export function createGoalState({ sessionId, objective, budget = null, now = Dat
     summary: '',
     budget: {
       maxIterations: nonNegativeInt(budget?.maxIterations, GOAL_BUDGET_DEFAULTS.maxIterations) || GOAL_BUDGET_DEFAULTS.maxIterations,
-      maxActiveDurationMs: Math.max(
-        finiteNumber(budget?.maxActiveDurationMs, GOAL_BUDGET_DEFAULTS.maxActiveDurationMs),
-        GOAL_BUDGET_DEFAULTS.maxActiveDurationMs,
-      ),
+      maxActiveDurationMs: null,
     },
     usage: { iterations: 0, activeDurationMs: 0 },
     evidence: [],
@@ -536,7 +534,7 @@ export function goalCompletionCheck(goal) {
 
 export function goalBudgetExhausted(goal) {
   if (goal.usage.iterations >= goal.budget.maxIterations) return { exhausted: true, reason: 'iteration_budget' }
-  if (goal.usage.activeDurationMs >= goal.budget.maxActiveDurationMs) return { exhausted: true, reason: 'duration_budget' }
+  if (goal.budget.maxActiveDurationMs !== null && goal.usage.activeDurationMs >= goal.budget.maxActiveDurationMs) return { exhausted: true, reason: 'duration_budget' }
   return { exhausted: false, reason: null }
 }
 

@@ -172,12 +172,12 @@ describe('goal mode through the agent manager', () => {
       expect(agentManager.getSessionState(sessionId).goal.status).toBe('awaiting_confirmation')
       expect(repository.findBySessionId(sessionId).state.goal.status).toBe('awaiting_confirmation')
 
-      // Ending the planning run must not start an execution round.
+      // Normal persisted planning automatically starts bounded execution.
       session.agent.autoEnd = true
       await session.agent.emit({ type: 'agent_end', messages: [] })
-      await new Promise((resolve) => setTimeout(resolve, 20))
-      expect(session.agent.prompts).toHaveLength(1)
-      expect(session.goal.status).toBe('awaiting_confirmation')
+      await vi.waitFor(() => expect(session.goal.status).toBe('paused'))
+      expect(session.agent.prompts).toHaveLength(3)
+      expect(session.goal.blocker).toBe('no_progress')
     } finally {
       await agentManager.destroyAgent(sessionId)
     }
@@ -190,9 +190,7 @@ describe('goal mode through the agent manager', () => {
       await agentManager.runPrompt(sessionId, '/goal Ship goal mode')
       await toolByName(session, 'goal_report').execute('call-plan', PLAN)
 
-      const { handleGoalAction } = await import('../../server/agent-goal-runner.mjs')
-      await handleGoalAction(session, 'confirm')
-      expect(session.goal.status).toBe('running')
+      // Execution starts automatically after the planning settlement.
 
       // Two execution rounds run, each without progress, then the goal pauses
       // instead of looping forever.
@@ -369,23 +367,16 @@ describe('goal mode through the agent manager', () => {
     }
   })
 
-  it('hands a completed goal to the user only after the run truly ends', async () => {
+  it('auto-completes only after the run ends and restores its durable iteration marker', async () => {
     const sessionId = 'goal-manager-complete-defer'
     const session = await createSession(sessionId)
-    const { handleGoalAction } = await import('../../server/agent-goal-runner.mjs')
     try {
       // Settle the planning run, then keep the execution run open.
       session.agent.autoEnd = false
       await agentManager.runPrompt(sessionId, '/goal Ship goal mode')
       await toolByName(session, 'goal_report').execute('call-plan', PLAN)
-      session.agent.autoEnd = true
       await session.agent.emit({ type: 'agent_end', messages: [] })
-      await vi.waitFor(() => expect(session.goalRun ?? null).toBeNull())
-      expect(session.goal.status).toBe('awaiting_confirmation')
-
-      session.agent.autoEnd = false
-      await handleGoalAction(session, 'confirm')
-      await vi.waitFor(() => expect(session.goalRun).not.toBeNull())
+      await vi.waitFor(() => expect(session.goalRun?.kind).toBe('execution'))
 
       // Real event path: the manager records the successful verification tool.
       await session.agent.emit({
@@ -405,8 +396,16 @@ describe('goal mode through the agent manager', () => {
       expect(session.goal.status).not.toBe('needs_review')
 
       await session.agent.emit({ type: 'agent_end', messages: [] })
-      await vi.waitFor(() => expect(session.goal?.status).toBe('needs_review'))
+      await vi.waitFor(() => expect(session.goal?.status).toBe('completed'))
       expect(session.goalRun).toBeNull()
+      const marker = session.agent.state.messages.at(-1).details.quickforgeGoalIteration
+      expect(marker).toMatchObject({ goalId: session.goal.id, iteration: 1, outcome: 'completed' })
+      expect(repository.findBySessionId(sessionId).state.goal.status).toBe('completed')
+      await agentManager.destroyAgent(sessionId)
+      const restored = await agentManager.restoreAgent(sessionId)
+      expect(restored.goal.status).toBe('completed')
+      expect(restored.agent.state.messages.at(-1).details.quickforgeGoalIteration).toEqual(marker)
+      expect(restored.agent.prompts).toHaveLength(0)
     } finally {
       await agentManager.destroyAgent(sessionId)
     }
@@ -444,8 +443,6 @@ describe('goal mode through the agent manager', () => {
     try {
       await agentManager.runPrompt(sessionId, '/goal Ship goal mode')
       await toolByName(session, 'goal_report').execute('call-plan', PLAN)
-      const { handleGoalAction } = await import('../../server/agent-goal-runner.mjs')
-      await handleGoalAction(session, 'confirm')
       await vi.waitFor(() => expect(session.goal.status).toBe('paused'), { timeout: 10_000 })
 
       // Each execution round ran with its own goal command state: a finished

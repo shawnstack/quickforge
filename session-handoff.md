@@ -1,4 +1,78 @@
-## 当前交接：goal-design-review Goal 功能设计评审（needs-review，待用户评审采纳）
+## 当前交接：goal-changes-commit（in_progress，提交准备快照）
+
+- 目标：用户已授权提交并推送既有 42 个 Goal 文件；子任务只 commit，父 Agent 负责 push/远端核验。分支 dev，上游 origin/dev；不读取凭据/远端 URL 配置，不 reset/rebase/force/pull，不创建 tag。
+- 本轮修改仅 feature_list.json、progress.md、session-handoff.md 追加提交准备与验证记录；其余既有 Goal server/src/tests/wiki/review 内容保留。明确路径暂存，提交前复核完整暂存差异。
+- 实跑验证：npm run test 退出0（319 files/3457 tests）；npm run lint 退出0（仅既有 identity.mjs:92 warning）；npx --no-install tsc -b --pretty false 退出0；git diff --check通过。状态同步后再次 JSON 与 diff 校验。
+- 边界：本段写于 commit 前，不预填哈希，不宣称 push 完成；真实 commit hash/status 由工具输出回报。无依赖/生成产物/build/npm 发布操作。真实浏览器验收及历史评审问题未解决。
+- Notes：Wiki 的 renderer 无 mount 描述与保留空 mount 的源码有偏差，无运行时确认按钮；本次不修生产或 Wiki。首次分号组合只读 git 命令被当参数拒绝，已拆为单命令成功执行，不影响验证结果。
+- 下一步：创建单个 commit 后父 Agent 执行 push 并核验远端；完成后同步最终状态。
+
+---
+
+## goal-auto-start-unlimited-time（done，实现与全量自动验证完成；浏览器待验收）
+
+- 实现：planning 整轮及最终 persist 窗口只读，正常持久化后自动执行；新 Goal null 无限累计时间，usage 保留；resume/extend/revise 移除旧时间上限，extend 仅耗尽轮次 +8 且保留 CAS。当前 UI 无计划确认/验收，Inspector 显示无限与累计用时。
+- 收尾：补 goalRun 清除后的 planning 最后持久化窗口只读门禁；needs_review→blocked 本轮仅 read_file/grep_files/必要 ask_user，禁止写/命令/委派/goal_report，问答与 error 结束均不续跑，不伪造 passed。历史 human evidence/accept API 保留。
+- 验证：定向 2 files/107 tests；全量 npm run test 退出0，319 files/3457 tests passed；npm run lint 退出0，仅既有 server/cloud/identity.mjs:92 warning；npx tsc -b --pretty false 退出0；git diff --check通过。补 duration-only resume、null预算SSR无NaN、planning persist只读、needs_review提问后idle/error不续跑。
+- 文档：逐条同步 Wiki 总入口/server/routes/tools/src/lib/components 现行段落，不改历史 reviews/features。保留 inert chat confirmation controller 与 Host 接线，避免扩大装饰生命周期清理；无 DOM/confirm 派发，非运行时确认入口。
+- 边界/下一步：父 Agent 最终审查与浏览器真实模型/刷新/暂停取消/窄屏主题/焦点验收待办；done 仅表示实现与自动验证完成。其他历史评审问题未修。无 build、依赖/生成产物变更、Git commit/tag/push/发布。
+
+---
+
+## 当前交接：goal-hide-internal-run-messages（done，实现与自动验证完成；父 Agent 最终审查待办）
+
+- 目标：隐藏合法metadata execution/planning内部user正文/操作/空白，保留user DOM分轮边界、原消息索引、模型上下文和历史；保留user回退/空assistant source直接divider。普通同文本不隐藏，class可逆，计划确认仍读完整messages。
+- 文件：goal-internal-message.ts（新）、message-actions.ts、index.css、agent-goal-runner.mjs、新internal测试、message-actions/divider/runner测试、server/components wiki、三状态文件。保留旧改动及所有旧feature状态。
+- 验证：定向8 files/329 tests通过；npm run lint退出0仅既有identity.mjs:92 warning；npx tsc -b --pretty false退出0。不build、不依赖变更/生成产物、不commit/tag/push/发布。
+- Blocker/边界：无自动验证阻断；父Agent最终审查待办。渲染后装饰不能保证零闪现，窗口高度估算/滚动与CSS :has真实布局、焦点/屏幕阅读器待浏览器验证。提示词不能保证模型百分百不重复；不按字符串删助手内容，不迁移旧无metadata正文。
+- 下一步：父Agent审查CSS及完整消息/原索引契约；用户浏览器验收自动续跑、重新规划、无assistant回退divider、刷新历史、窄屏/亮暗与键盘导航。
+
+---
+
+## 当前交接：goal-chat-plan-confirmation（done，实现与自动验证完成；父 Agent 最终审查待办）
+
+- 当前目标：最新有效 Goal plan 聊天内确认执行；历史快照不可执行，侧栏动作保留。新 controller `src/components/chat/panel-decoration/goal-plan-confirmation.ts` 由 ChatPanelHost 注入当前agent，renderer仅空mount；同Goal revise仍按最新toolCallId/revision和计划内容/criterion IDs验证，未确认允许轮末+1 revision。
+- 改动文件：新controller、ChatPanelHost.tsx、local-tools.ts、i18n.ts、新goal-plan-confirmation.test.ts、goal-report-renderer.test.ts、docs/wiki/src/lib/README.md、docs/wiki/src/components/README.md、三状态文件。旧修改与feature状态全部保留。
+- 验证：定向9 files/295 tests通过（controller/host21，renderer32）；npm run lint退出0仅既有identity.mjs:92 warning；npx tsc -b --pretty false退出0；git diff --check通过。不build、不新增依赖/生成产物、不commit/tag/push/发布。
+- Blocker/边界：无自动验证阻断；父Agent最终审查待办。fake DOM及host源码契约不等于浏览器；真实规划结束、HTTP/SSE时序、窄屏主题/焦点/屏幕阅读器/刷新待人工。没有新增后端CAS，已发HTTP跨客户端替换仍既有边界；无法证明最新记录时保守隐藏聊天入口、Inspector不变。
+- 下一步：父Agent审查身份/时序门禁与工具mount实际Lit行为，用户浏览器验收；done不表示浏览器已验收。
+
+---
+
+## 当前交接：goal-report-renderer（done，实现与自动验证完成；浏览器待验收）
+
+- 目标：用户确认的 Goal 计划确认工具样式最小修复，专属 renderer 已注册，默认结构化历史计划内容，JSON 只在详细模式。非 plan 动作只作历史报告，运行中/失败/缺失结果不冒充成功，不新增历史确认操作，当前状态与动作仍在 Inspector。
+- 改动文件：`src/lib/local-tools.ts`、`src/lib/goal-report-history.ts`、`src/lib/i18n.ts`、`tests/frontend/goal-report-renderer.test.ts`、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。保留全部旧改动/旧feature状态；无其他评审修复或后端/CSS改动。
+- 验证：定向 vitest 8 files / 121 tests通过（新renderer31）；npm run lint退出码0，只有既有identity.mjs:92 warning；npx tsc -b --pretty false退出码0；git diff --check通过。模板测试非真实浏览器。
+- Blocker：无实现或自动验证阻断；浏览器窄屏/长文本/亮暗主题/折叠键盘焦点/屏幕阅读器、真实刷新/新Goal尚未验收。
+- 下一步：父Agent审查整合；用户按真实规划确认流程查看工具样式及历史「当时等待确认」文案。不build生成产物、不依赖变更、不commit/tag/push/发布；done不表示浏览器已验收。
+
+---
+
+## 当前交接：goal-auto-complete-validation（done，仅审查与自动验证完成；浏览器 needs-review）
+
+- 当前目标：用户授权的 Goal 自动完成/迭代分隔线验证报告已产出，不修缺陷；依赖 `goal-auto-complete-iteration-divider`，所有既有 feature 状态保留。
+- 本次改动文件：`docs/reviews/goal-auto-complete-validation.zh-CN.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。历史记录原样保留在下方；报告足够，无需修改 Wiki 现行契约。
+- 验证：父 Agent 本次 16 files / 472 tests 退出码 0（完整命令/计数见报告）；Node 纯函数复现 S1：passed→failed→passed 无新 evidence 仍 goalCompletionCheck ok:true，非真实模型。末轮完成、异常不完成、SQLite marker 恢复测试通过，不代表整条浏览器流程通过。
+- Notes / 未修复：高 S1 旧证据复用；中 S2 needs_review persist 中 abort 意图未复核、S3 refreshTools reject 阻断完成通知（静态）；中 U1 预算入口误开 edit、U2 浮层极窄/裁切风险、U3 空宿主隐藏 divider 风险；低 U4 aria 名称、U5 click span 键盘缺口、U6 整链重复移末尾。observer suppression 存在，不声称无限循环；旧评审未重新核实项不混入新结论。
+- Blocker：浏览器 c6 待人工；无专用 browser 工具，playwright/puppeteer/jsdom/happy-dom 不可 resolve，electron 有但未启动；不装依赖、不新建 harness。没有截图/真实布局/IME/屏幕阅读器验收结果。
+- 下一步：父 Agent 整合交付；用户确认独立修复项，优先 S1 与 S2/S3 回归、U1 导航、U2/U3 真实浏览器复现；按报告 c1-c8 补人工验收。done 只表示审查与自动验证完成，发现问题并未修复。
+- 边界：不改生产/测试/生成产物，不作 Git 提交或发布；本次只报告与状态同步，考虑 SVG 后采用问题表/清单。
+
+---
+
+## 当前交接：goal-auto-complete-iteration-divider（done，自动验证完成；无浏览器验收）
+
+- 目标：Goal 有证据正常结束且最终状态持久化后自动完成；execution 每轮历史分隔线。
+- 修改：runner/manager/persistence/tools definitions；前端 goal-iteration-divider/message-actions/index.css/i18n；3测试文件；4wiki；三状态文件。详见 feature_list。本轮复审仅追加runner末轮预算修复、3测试增强、server wiki及三状态同步，保留其他现有改动。
+- 复审结论：第maxIterations轮验证成功可completed，预算只阻止下一轮；错误/abort/时长超限不能自动完成。commitCompletedGoal完成前后意图守卫、persistSession锁内canPersist及取消后串行补偿保存无新增阻断。分隔线按消息持久化元数据恢复，不依赖当前Goal；幂等且其他装饰追加内容后重置到根末尾。
+- 验证：npm run test退出码0，316 files / 3397 tests passed；npm run lint退出码0，仅既有server/cloud/identity.mjs:92 warning；npx tsc -b --pretty false退出码0。按要求未build，无依赖或生成产物变更，无Git提交。
+- Blocker：无实现/自动验证阻断；完全存储故障/任意I/O崩溃窗口不保证补偿持久化。
+- 下一步：父Agent整合结果；用户浏览器视觉、真实刷新与新Goal验收尚未进行，done不代表浏览器已验收。
+
+---
+
+## 上一轮交接：goal-design-review Goal 功能设计评审（needs-review，待用户评审采纳）
 
 - 当前目标：对当前 Goal 功能做设计层评审（与 UI 评审互补），产出报告 + 状态机图，纯只读零生产改动（git status 核实仅新增 2 交付物 + 3 状态文件）。
 - 产物：`docs/reviews/goal-design-review.zh-CN.md`（七维度 + 高2/中8/低10 问题分级 + 设计债 8 条核实 + P0/P1/P2 建议，全部 文件:行号 亲读核实）+ `docs/reviews/goal-state-diagram.svg`（13 状态，node 校验零缺失 + XML well-formed）。

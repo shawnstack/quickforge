@@ -40,6 +40,8 @@ const {
   createGoalReportTool,
   failGoalRunOnPersist,
   finishGoalRun,
+  goalPlanningPrompt,
+  goalContinuationPrompt,
   goalPlanningToolBlockReason,
   goalRunSettlementToolBlockReason,
   handleGoalAction,
@@ -52,6 +54,16 @@ const {
   recordGoalToolExecution,
   startGoalPlanning,
 } = await import('../../server/agent-goal-runner.mjs')
+
+it('planning and continuation delegate announcements to UI while preserving substantive output and completion barrier', () => {
+  const goal = { objective: 'test', criteria: [], evidence: [], scope: [], status: 'running' }
+  for (const prompt of [goalPlanningPrompt(goal), goalContinuationPrompt(goal, 2, 8)]) {
+    expect(prompt).toContain('Do not repeat the round number, announce continuing or replanning')
+    expect(prompt).toContain('submitting complete / waiting for settlement')
+    expect(prompt).toContain('Keep substantive analysis, necessary questions, concrete blockers, and a concise final summary')
+    expect(prompt).toContain('Never claim the goal is completed before')
+  }
+})
 
 function toolResult(toolCallId, { isError = false, toolName = 'run_command' } = {}) {
   return { role: 'toolResult', toolCallId, toolName, content: [{ type: 'text', text: 'ok' }], isError }
@@ -140,16 +152,17 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
-function completedGoalBody(session) {
-  // Drive a goal to needs_review with real evidence, exactly like the model
-  // would: the tool execution is recorded first, then reported as evidence.
+async function completedGoalBody(session, action = 'complete') {
+  beginGoalRun(session, 'execution')
   trustTool(session, 'tool-1')
-  return createGoalReportTool(session).execute('call-complete', {
-    action: 'complete',
+  const result = await createGoalReportTool(session).execute('call-complete', {
+    action,
     summary: 'All done',
     evidence: [{ id: 'e1', description: 'tests passed', toolCallId: 'tool-1' }],
     criterionUpdates: [{ id: 'c1', status: 'passed', evidenceIds: ['e1'] }],
   })
+  await finishGoalRun(session, { status: 'idle' })
+  return result
 }
 
 function extendGoal(session, options = {}) {
@@ -159,19 +172,230 @@ function extendGoal(session, options = {}) {
 }
 
 describe('goal runner', () => {
+  it('auto-starts a persisted normal plan, staying read-only through the planning turn without a duration watchdog', async () => {
+    const session = makeSession()
+    await startedGoal(session)
+    const run = beginGoalRun(session, 'planning')
+    expect(run.watchdog).toBeNull()
+    run.startedAt -= 9_000_000
+    await planGoal(session)
+    expect(goalPlanningToolBlockReason(session, 'write_file', {})).toBeTruthy()
+    expect(session.agent.prompt).not.toHaveBeenCalled()
+    const gate = deferred()
+    mocks.persistSession.mockImplementationOnce(() => gate.promise)
+    const finishing = finishGoalRun(session, { status: 'idle' })
+    await Promise.resolve()
+    expect(session.agent.prompt).not.toHaveBeenCalled()
+    expect(session.goalRun).toBeNull()
+    expect(goalPlanningToolBlockReason(session, 'write_file', {})).toBeTruthy()
+    expect(goalPlanningToolBlockReason(session, 'run_command', {})).toBeTruthy()
+    expect(goalPlanningToolBlockReason(session, 'read_file', {})).toBeNull()
+    gate.resolve({ id: 'saved' })
+    await finishing
+    expect(session.goal).toMatchObject({ status: 'running', planConfirmed: true, budget: { maxActiveDurationMs: null } })
+    expect(session.goal.usage.activeDurationMs).toBeGreaterThanOrEqual(9_000_000)
+    await vi.waitFor(() => expect(session.agent.prompt).toHaveBeenCalledTimes(1))
+    await handleGoalAction(session, 'cancel')
+  })
+
+  it.each(['error', 'aborted', 'persist'])('does not auto-start a submitted plan after %s', async (ending) => {
+    const session = makeSession()
+    await startedGoal(session)
+    beginGoalRun(session, 'planning')
+    await planGoal(session)
+    if (ending === 'persist') await failGoalRunOnPersist(session)
+    else await finishGoalRun(session, { status: ending })
+    expect(session.goal.status).toBe('paused')
+    expect(session.goalContinuationPending).toBe(false)
+    expect(session.agent.prompt).not.toHaveBeenCalled()
+  })
+
+  it.each(['abort', 'cancel', 'failure'])('does not auto-start when planning final persist races %s', async (intent) => {
+    const session = makeSession()
+    await startedGoal(session)
+    beginGoalRun(session, 'planning')
+    await planGoal(session)
+    const gate = deferred()
+    mocks.persistSession.mockImplementationOnce(() => gate.promise)
+    const finishing = finishGoalRun(session, { status: 'idle' })
+    await Promise.resolve()
+    if (intent === 'abort') await notifyGoalAbort(session)
+    if (intent === 'cancel') await handleGoalAction(session, 'cancel')
+    gate.resolve(intent === 'failure' ? null : { id: 'saved' })
+    await finishing
+    expect(session.goal.status).toBe(intent === 'cancel' ? 'cancelled' : 'paused')
+    expect(session.goalContinuationPending).toBe(false)
+    expect(session.agent.prompt).not.toHaveBeenCalled()
+  })
+
+  it('resumes a legacy duration-only pause without resetting usage or adding iterations', async () => {
+    const session = makeSession()
+    await confirmedGoal(session)
+    session.goal.status = 'paused'
+    session.goal.blocker = 'duration_budget'
+    session.goal.budget.maxActiveDurationMs = 1000
+    session.goal.usage.activeDurationMs = 2000
+    const iterations = session.goal.usage.iterations
+    const resumed = await handleGoalAction(session, 'resume')
+    expect(resumed).toMatchObject({ status: 'running', budget: { maxIterations: 8, maxActiveDurationMs: null }, usage: { iterations, activeDurationMs: 2000 } })
+    expect(resumed.blocker).toBeFalsy()
+    await handleGoalAction(session, 'cancel')
+  })
+
+  it.each(['idle', 'error'])('keeps needs_review blocked after a necessary question and %s ending', async (status) => {
+    const session = makeSession()
+    await confirmedGoal(session)
+    const prompts = session.agent.prompt.mock.calls.length
+    beginGoalRun(session, 'execution')
+    await createGoalReportTool(session).execute('review', { action: 'needs_review', blocker: 'Missing verification access' })
+    for (const tool of ['write_file', 'run_command', 'run_subagent', 'goal_report']) {
+      expect(goalRunSettlementToolBlockReason(session, tool)).toBeTruthy()
+    }
+    expect(goalRunSettlementToolBlockReason(session, 'ask_user')).toBeNull()
+    expect(goalRunSettlementToolBlockReason(session, 'read_file')).toBeNull()
+    await notifyGoalAskRequested(session)
+    await notifyGoalAskOutcome(session)
+    expect(goalRunSettlementToolBlockReason(session, 'write_file')).toBeTruthy()
+    await finishGoalRun(session, { status })
+    expect(session.goal).toMatchObject({ status: 'blocked', blocker: 'Missing verification access', evidence: [] })
+    expect(session.goal.criteria[0].status).toBe('pending')
+    expect(session.goalContinuationPending).toBe(false)
+    expect(session.agent.prompt).toHaveBeenCalledTimes(prompts)
+  })
+
+  it('reports unverifiable criteria as blocked without human acceptance or fabricated passes', async () => {
+    const session = makeSession()
+    await confirmedGoal(session)
+    beginGoalRun(session, 'execution')
+    await createGoalReportTool(session).execute('review', { action: 'needs_review', summary: 'Cannot verify subjective appearance' })
+    expect(session.goal.status).toBe('blocked')
+    expect(session.goal.blocker).toContain('Unable to verify')
+    expect(session.goal.criteria[0].status).toBe('pending')
+    expect(session.goal.evidence).toEqual([])
+    await finishGoalRun(session, { status: 'idle' })
+    expect(session.goal.status).toBe('blocked')
+  })
+
+  async function reportedRun() {
+    const session = makeSession()
+    await confirmedGoal(session)
+    session.agent.state.messages.push({ role: 'assistant', content: 'previous' })
+    beginGoalRun(session, 'execution')
+    session.agent.state.messages.push({ role: 'user', content: 'continue' }, { role: 'assistant', content: 'done' })
+    trustTool(session, 'tool-1')
+    const result = await createGoalReportTool(session).execute('complete', {
+      action: 'complete', summary: 'done',
+      evidence: [{ id: 'e1', description: 'tests', toolCallId: 'tool-1' }],
+      criterionUpdates: [{ id: 'c1', status: 'passed', evidenceIds: ['e1'] }],
+    })
+    expect(JSON.stringify(result)).toContain('submitting complete / waiting for settlement')
+    expect(JSON.stringify(result)).toContain('Never claim the goal is completed before')
+    return session
+  }
+
+  it.each(['error', 'aborted'])('never completes a reported run ending %s', async (status) => {
+    const session = await reportedRun()
+    session.goalContinuationPending = true
+    await finishGoalRun(session, { status })
+    expect(session.goal.status).not.toBe('completed')
+    expect(session.agent.state.messages[0].details).toBeUndefined()
+    expect(session.agent.state.messages[2].details.quickforgeGoalIteration.outcome).toBe(status === 'error' ? 'error' : 'paused')
+  })
+
+  it('keeps completion private until durable and synchronizes its message marker', async () => {
+    const session = await reportedRun()
+    const syncMessages = vi.fn()
+    configureGoalRunner({ syncMessages })
+    const gate = deferred()
+    mocks.persistSession.mockImplementationOnce(async (_session, options) => {
+      expect(options.goal.status).toBe('completed')
+      expect(options.messages[2].details.quickforgeGoalIteration.outcome).toBe('completed')
+      return gate.promise
+    })
+    const finishing = finishGoalRun(session, { status: 'idle' })
+    expect(session.goal.status).toBe('verifying')
+    expect(session.agent.state.messages[2].details).toBeUndefined()
+    gate.resolve({ id: 'persisted' })
+    await finishing
+    expect(session.goal.status).toBe('completed')
+    expect(session.agent.state.messages[2].details.quickforgeGoalIteration).toMatchObject({ goalId: session.goal.id, iteration: 2, outcome: 'completed' })
+    expect(syncMessages).toHaveBeenCalledWith(session)
+  })
+
+  it.each(['abort', 'cancel', 'persist_failure'])('fails closed when %s arrives during completion persistence', async (intent) => {
+    const session = await reportedRun()
+    const gate = deferred()
+    mocks.persistSession.mockImplementationOnce(() => gate.promise)
+    const finishing = finishGoalRun(session, { status: 'idle' })
+    if (intent === 'abort') await notifyGoalAbort(session)
+    if (intent === 'cancel') await handleGoalAction(session, 'cancel')
+    gate.resolve(intent === 'persist_failure' ? null : { id: 'persisted' })
+    await finishing
+    expect(session.goal.status).toBe(intent === 'cancel' ? 'cancelled' : 'paused')
+    expect(session.agent.state.messages[2].details.quickforgeGoalIteration.outcome).not.toBe('completed')
+    expect(session.goalContinuationPending).toBe(false)
+  })
+
+  it('completes verified success on the final admitted iteration', async () => {
+    const session = await reportedRun()
+    session.goal.usage.iterations = session.goal.budget.maxIterations
+    session.goalRun.iteration = session.goal.budget.maxIterations
+    await finishGoalRun(session, { status: 'idle' })
+    expect(session.goal.status).toBe('completed')
+    expect(session.agent.state.messages[2].details.quickforgeGoalIteration).toMatchObject({ iteration: 8, outcome: 'completed' })
+  })
+
+  it.each(['error', 'aborted', 'duration', 'both', 'unfinished'])('does not complete the last iteration when %s', async (ending) => {
+    const session = await reportedRun()
+    session.goal.usage.iterations = session.goal.budget.maxIterations
+    if (ending === 'duration' || ending === 'both') {
+      session.goal.budget.maxActiveDurationMs = 7200000 // Legacy live finite budget.
+      session.goal.usage.activeDurationMs = 7200000
+    }
+    if (ending === 'duration') session.goal.usage.iterations = 2
+    if (ending === 'unfinished') session.goalRun.pendingDisposition = null
+    await finishGoalRun(session, { status: ending === 'error' || ending === 'aborted' ? ending : 'idle' })
+    expect(session.goal.status).toBe('paused')
+    expect(session.goal.blocker).toBe(ending === 'aborted' ? 'user_aborted' : ending === 'duration' || ending === 'both' ? 'duration_budget' : 'iteration_budget')
+    expect(session.goalContinuationPending).toBe(false)
+  })
+
+  it('anchors user-only rounds locally and leaves previous assistants untouched', async () => {
+    const session = await reportedRun()
+    session.agent.state.messages.pop()
+    await finishGoalRun(session, { status: 'idle' })
+    expect(session.agent.state.messages[0].details).toBeUndefined()
+    expect(session.agent.state.messages[1].details.quickforgeGoalIteration.outcome).toBe('completed')
+  })
+
+  it('pauses with a marker when the initial run persist fails', async () => {
+    const session = await reportedRun()
+    await failGoalRunOnPersist(session)
+    expect(session.goal).toMatchObject({ status: 'paused', blocker: 'persist_failed' })
+    expect(session.agent.state.messages[2].details.quickforgeGoalIteration.outcome).toBe('paused')
+  })
+
+  it('does not complete without an active run', async () => {
+    const session = await reportedRun()
+    clearTimeout(session.goalRun.watchdog)
+    session.goalRun = null
+    await expect(createGoalReportTool(session).execute('complete', { action: 'complete' })).rejects.toThrow('active run')
+  })
+
   it.each(['duration', 'iterations', 'both'])('extends only exhausted limits (%s), preserving progress and usage', async (dimension) => {
     const session = makeSession()
     await startedGoal(session)
     await planGoal(session)
     session.goal.status = 'paused'
     session.goal.planConfirmed = true // Fixture represents an already confirmed execution plan.
+    session.goal.budget.maxActiveDurationMs = 7200000 // Legacy limit is removed, not extended.
     session.goal.usage = { iterations: dimension === 'duration' ? 2 : 8, activeDurationMs: dimension === 'iterations' ? 100 : 7200000 }
     session.goal.evidence = [{ id: 'e1', description: 'Saved result' }]
     const previous = structuredClone(session.goal)
     const next = await extendGoal(session)
     expect(next).toMatchObject({ id: previous.id, criteria: previous.criteria, evidence: previous.evidence, summary: previous.summary, scope: previous.scope, usage: previous.usage, status: 'running' })
     expect(next.revision).toBe(previous.revision + 1)
-    expect(next.budget).toEqual({ maxIterations: dimension === 'duration' ? 8 : 16, maxActiveDurationMs: dimension === 'iterations' ? 7200000 : 14400000 })
+    expect(next.budget).toEqual({ maxIterations: dimension === 'duration' ? 8 : 16, maxActiveDurationMs: null })
     await handleGoalAction(session, 'cancel')
   })
 
@@ -217,13 +441,14 @@ describe('goal runner', () => {
     const session = makeSession()
     await startedGoal(session)
     session.goal.status = 'blocked'
+    session.goal.budget.maxActiveDurationMs = 7200000
     session.goal.usage.activeDurationMs = 7200000
     const expectedRevision = session.goal.revision
     const results = await Promise.allSettled([extendGoal(session, { expectedRevision }), extendGoal(session, { expectedRevision })])
     expect(results.map((result) => result.status)).toEqual(['fulfilled', 'rejected'])
     expect(results[1].reason.errorCode).toBe('GOAL_REVISION_CONFLICT')
     expect(session.goal.status).toBe('planning')
-    expect(session.goal.budget.maxActiveDurationMs).toBe(14400000)
+    expect(session.goal.budget.maxActiveDurationMs).toBeNull()
     await handleGoalAction(session, 'cancel')
     await expect(extendGoal(session, { expectedRevision })).rejects.toMatchObject({ errorCode: 'GOAL_REVISION_CONFLICT' })
   })
@@ -252,7 +477,7 @@ describe('goal runner', () => {
     session[busy] = null
   })
 
-  it.each(['completed', 'failed', 'cancelled', 'running', 'awaiting_confirmation'])('rejects extension from %s', async (status) => {
+  it.each(['completed', 'failed', 'cancelled', 'running'])('rejects extension from %s', async (status) => {
     const session = makeSession()
     await startedGoal(session)
     session.goal.status = status
@@ -299,10 +524,11 @@ describe('goal runner', () => {
     run.startedAt -= 1200
     await planGoal(session)
     await finishGoalRun(session, { status: 'idle' })
-    expect(session.goal.status).toBe('awaiting_confirmation')
+    expect(session.goal.status).toBe('running')
     expect(session.goal.usage.iterations).toBe(0)
     expect(session.goal.usage.activeDurationMs).toBeGreaterThanOrEqual(1200)
     const usage = { ...session.goal.usage }
+    await handleGoalAction(session, 'pause')
     await handleGoalAction(session, 'revise', 'Revised objective')
     expect(session.goal.usage).toEqual(usage)
     await handleGoalAction(session, 'cancel')
@@ -314,11 +540,9 @@ describe('goal runner', () => {
     const run = beginGoalRun(session, 'planning')
     run.startedAt -= 7200000
     await finishGoalRun(session, { status: 'error' })
-    expect(session.goal).toMatchObject({ status: 'paused', blocker: 'duration_budget', usage: { iterations: 0 } })
+    expect(session.goal).toMatchObject({ status: 'planning', usage: { iterations: 0 }, budget: { maxActiveDurationMs: null } })
     expect(session.goal.usage.activeDurationMs).toBeGreaterThanOrEqual(7200000)
-    expect(session.goalContinuationPending).toBe(false)
-    await extendGoal(session)
-    expect(session.goal.status).toBe('planning')
+    expect(session.goalContinuationPending).toBe(true)
     await handleGoalAction(session, 'cancel')
   })
 
@@ -341,12 +565,12 @@ describe('goal runner', () => {
     await startedGoal(session)
     await planGoal(session)
     session.goal.budget.maxActiveDurationMs = 0
-    const previous = structuredClone(session.goal)
+    const usage = structuredClone(session.goal.usage)
     expect(() => beginGoalRun(session, 'planning')).toThrow('budget exhausted')
-    await expect(handleGoalAction(session, 'confirm')).rejects.toMatchObject({ errorCode: 'GOAL_BUDGET_EXHAUSTED' })
-    await expect(handleGoalAction(session, 'revise', 'New objective')).rejects.toMatchObject({ errorCode: 'GOAL_BUDGET_EXHAUSTED' })
-    expect(session.goal).toEqual(previous)
-    expect(session.agent.prompt).not.toHaveBeenCalled()
+    await handleGoalAction(session, 'revise', 'New objective')
+    expect(session.goal.budget.maxActiveDurationMs).toBeNull()
+    expect(session.goal.usage).toEqual(usage)
+    await handleGoalAction(session, 'cancel')
   })
 
   beforeEach(() => {
@@ -484,12 +708,11 @@ describe('goal runner', () => {
     })).rejects.toThrow('cannot be passed without evidence')
 
     const result = await completedGoalBody(session)
-    expect(result.content[0].text).toContain('handed to the user for explicit acceptance')
-    expect(session.goal.status).toBe('needs_review')
-    expect(session.goal.status).not.toBe('completed')
+    expect(result.content[0].text).toContain('completes automatically')
+    expect(session.goal.status).toBe('completed')
   })
 
-  it('completes only through explicit human acceptance, never resume', async () => {
+  it('retains explicit human acceptance for needs_review', async () => {
     const session = makeSession()
     await startedGoal(session)
     await planGoal(session, [
@@ -503,9 +726,10 @@ describe('goal runner', () => {
     await finishGoalRun(session, { status: 'idle' })
     session.goalContinuationPending = false
 
+    beginGoalRun(session, 'execution')
     trustTool(session, 'tool-1')
     await createGoalReportTool(session).execute('call-complete', {
-      action: 'complete',
+      action: 'needs_review',
       summary: 'All done',
       evidence: [{ id: 'e1', description: 'tests passed', toolCallId: 'tool-1' }],
       criterionUpdates: [
@@ -513,8 +737,9 @@ describe('goal runner', () => {
         { id: 'c2', status: 'needs_review' },
       ],
     })
-    expect(session.goal.status).toBe('needs_review')
-
+    await finishGoalRun(session, { status: 'idle' })
+    expect(session.goal.status).toBe('blocked')
+    session.goal.status = 'needs_review' // Persisted legacy review remains compatible with accept.
     session.agent.prompt.mockClear()
     const goal = await handleGoalAction(session, 'accept')
     expect(goal.status).toBe('completed')
@@ -534,8 +759,8 @@ describe('goal runner', () => {
   it('resume of a verified needs_review goal keeps executing instead of completing', async () => {
     const session = makeSession()
     await confirmedGoal(session)
-    await completedGoalBody(session)
-    expect(session.goal.status).toBe('needs_review')
+    await completedGoalBody(session, 'needs_review')
+    expect(session.goal.status).toBe('blocked')
 
     session.agent.prompt.mockClear()
     const goal = await handleGoalAction(session, 'resume')
@@ -565,8 +790,10 @@ describe('goal runner', () => {
   it('resumes a needs_review goal into another round when criteria are not verified', async () => {
     const session = makeSession()
     await confirmedGoal(session)
+    beginGoalRun(session, 'execution')
     await createGoalReportTool(session).execute('call-1', { action: 'needs_review', summary: 'needs a look' })
-    expect(session.goal.status).toBe('needs_review')
+    await finishGoalRun(session, { status: 'idle' })
+    expect(session.goal.status).toBe('blocked')
 
     await handleGoalAction(session, 'resume')
     expect(session.goal.status).toBe('running')
@@ -889,7 +1116,7 @@ describe('goal runner', () => {
     })).rejects.toThrow('human acceptance evidence can only be recorded by the user')
   })
 
-  it('defers needs_review until the run truly finished and blocks further writes', async () => {
+  it('defers automatic completion until the run truly finished and blocks further writes', async () => {
     const session = makeSession()
     await confirmedGoal(session)
     beginGoalRun(session, 'execution')
@@ -900,7 +1127,7 @@ describe('goal runner', () => {
       evidence: [{ id: 'e1', description: 'tests', toolCallId: 'tool-1' }],
       criterionUpdates: [{ id: 'c1', status: 'passed', evidenceIds: ['e1'] }],
     })
-    expect(result.content[0].text).toContain('when this turn finishes')
+    expect(result.content[0].text).toContain('ends normally')
     expect(session.goal.status).toBe('verifying')
     expect(session.goal.status).not.toBe('needs_review')
     expect(goalRunSettlementToolBlockReason(session, 'write_file')).toContain('not allowed')
@@ -909,7 +1136,7 @@ describe('goal runner', () => {
     await expect(createGoalReportTool(session).execute('call-2', { action: 'progress', summary: 'more' }))
       .rejects.toThrow('already reported')
     await finishGoalRun(session, { status: 'idle' })
-    expect(session.goal.status).toBe('needs_review')
+    expect(session.goal.status).toBe('completed')
   })
 
   it('keeps the run and goal alive when cancel cannot persist', async () => {
@@ -921,7 +1148,7 @@ describe('goal runner', () => {
     await expect(handleGoalAction(session, 'cancel')).rejects.toMatchObject({ errorCode: 'SESSION_PERSIST_FAILED' })
     expect(session.goal.status).toBe('running')
     expect(session.goalRun).toBe(run)
-    expect(run.watchdog).not.toBeNull()
+    expect(run.watchdog).toBeNull()
     expect(session.goalContinuationPending).toBe(false)
     // The termination intent must roll back too: a later settlement must not
     // treat the failed cancel as a user stop.
@@ -1081,13 +1308,13 @@ describe('goal runner', () => {
       goalId: session.goal.id, expectedRevision: session.goal.revision,
     })
     await extend()
-    expect(session.goal).toMatchObject({ status: 'paused', budget: { maxIterations: 16, maxActiveDurationMs: 14_400_000 }, usage })
+    expect(session.goal).toMatchObject({ status: 'paused', budget: { maxIterations: 16, maxActiveDurationMs: null }, usage })
     expect(session.goal.blocker).toContain('budget')
     expect(session.goal.blockerHint).toContain('extend_resume')
     expect(session.goalContinuationPending).toBe(false)
     expect(mocks.persistSession).toHaveBeenLastCalledWith(session)
     await extend()
-    expect(session.goal).toMatchObject({ status: 'paused', budget: { maxIterations: 24, maxActiveDurationMs: 21_600_000 }, usage })
+    expect(session.goal).toMatchObject({ status: 'paused', budget: { maxIterations: 24, maxActiveDurationMs: null }, usage })
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(session.agent.prompt).not.toHaveBeenCalled()
   })
@@ -1098,7 +1325,8 @@ describe('goal runner', () => {
     await startedGoal(session)
     beginGoalRun(session, 'planning')
     await planGoal(session)
-    session.goalRun.startedAt = Date.now() - session.goal.budget.maxActiveDurationMs
+    session.goal.budget.maxActiveDurationMs = 7200000
+    session.goalRun.startedAt = Date.now() - 7200000
     await finishGoalRun(session, { status: 'idle' })
     expect(session.goal).toMatchObject({ status: 'paused', planConfirmed: false })
     const criteria = session.goal.criteria
@@ -1106,10 +1334,9 @@ describe('goal runner', () => {
     await handleGoalAction(session, 'extend_resume', undefined, null, {
       goalId: session.goal.id, expectedRevision: session.goal.revision,
     })
-    expect(session.goal).toMatchObject({ status: 'awaiting_confirmation', planConfirmed: false, criteria })
-    expect(session.goalContinuationPending).toBe(false)
+    expect(session.goal).toMatchObject({ status: 'running', planConfirmed: true, criteria, budget: { maxActiveDurationMs: null } })
+    expect(session.goalContinuationPending).toBe(true)
     expect(session.agent.prompt).not.toHaveBeenCalled()
-    await handleGoalAction(session, 'confirm')
     expect(session.goal).toMatchObject({ status: 'running', planConfirmed: true })
     await notifyGoalAbort(session)
   })
@@ -1125,9 +1352,10 @@ describe('goal runner', () => {
     session.goal = goalAfterRestore(normalizeGoalState(JSON.parse(JSON.stringify(session.goal))))
     expect(session.goal.usage.iterations).toBeGreaterThan(0)
     await handleGoalAction(session, 'resume')
-    expect(session.goal).toMatchObject({ status: 'awaiting_confirmation', planConfirmed: false, summary: 'New plan' })
-    expect(session.goalContinuationPending).toBe(false)
+    expect(session.goal).toMatchObject({ status: 'running', planConfirmed: true, summary: 'New plan' })
+    expect(session.goalContinuationPending).toBe(true)
     expect(session.agent.prompt).not.toHaveBeenCalled()
+    await handleGoalAction(session, 'cancel')
   })
 
   it('safely requests confirmation for legacy paused plans with no execution history', async () => {
@@ -1137,8 +1365,9 @@ describe('goal runner', () => {
     delete session.goal.planConfirmed
     session.goal.status = 'paused'
     await handleGoalAction(session, 'resume')
-    expect(session.goal.status).toBe('awaiting_confirmation')
-    expect(session.goalContinuationPending).toBe(false)
+    expect(session.goal.status).toBe('running')
+    expect(session.goalContinuationPending).toBe(true)
+    await handleGoalAction(session, 'cancel')
   })
 
   it('refuses to resume a budget-exhausted goal and points at extend_resume', async () => {

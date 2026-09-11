@@ -132,9 +132,7 @@ function noteKeysForStatus(goal: GoalState): string[] {
     case 'needs_review':
       // Both actions are always offered; the note explains what each one means.
       // A failed required criterion disables acceptance and says why.
-      return goalAcceptanceCheck(goal).ok
-        ? ['goalNeedsReviewNote', 'goalNeedsReviewAcceptNote', 'goalNeedsReviewContinueNote']
-        : ['goalNeedsReviewNote', 'goalNeedsReviewBlockedNote', 'goalNeedsReviewContinueNote']
+      return ['goalNeedsReviewContinueNote']
     case 'completed':
       return ['goalCompletedNote']
     case 'failed':
@@ -165,7 +163,7 @@ export function buildGoalCardViewModel(goal: GoalState): GoalCardViewModel {
     pausable: goalCanPause(goal.status),
     resumable: goalCanResume(goal.status),
     cancellable: goalCanCancel(goal.status),
-    accepting: acceptance !== null,
+    accepting: false,
     acceptBlocked: acceptance !== null && !acceptance.ok,
     continuing: acceptance !== null,
     noteKeys: noteKeysForStatus(goal),
@@ -542,7 +540,7 @@ export function createGoalCardController(deps: GoalCardDeps): GoalCardController
       stats.className = 'quickforge-goal-stats'
       const budget = document.createElement('span')
       budget.className = 'quickforge-goal-stat'
-      budget.textContent = `${t('goalBudgetLabel')}: ${t('goalBudgetValue', { iterations: view.budget.iterations, minutes: view.budget.minutes })}`
+      budget.textContent = `${t('goalBudgetLabel')}: ${t('goalBudgetValue', { iterations: view.budget.iterations, minutes: goal.budget.maxActiveDurationMs === null ? t('goalUnlimitedTime') : view.budget.minutes })}`
       const usage = document.createElement('span')
       usage.className = 'quickforge-goal-stat'
       usage.textContent = `${t('goalUsageLabel')}: ${t('goalUsageValue', { iterations: view.usage.iterations, minutes: view.usage.minutes })}`
@@ -626,7 +624,7 @@ export function createGoalCardController(deps: GoalCardDeps): GoalCardController
     if (view.editable) {
       if (!editing) {
         actionButtons.push({
-          label: view.confirmable ? t('goalEditObjective') : t('goalRevise'),
+          label: goal.status === 'awaiting_confirmation' ? t('goalEditObjective') : t('goalRevise'),
           kind: 'ghost',
           disabled: pending,
           onClick: () => {
@@ -692,8 +690,9 @@ export function createGoalCardController(deps: GoalCardDeps): GoalCardController
       actionButtons.push({
         label: t('goalResume'),
         kind: 'primary',
-        disabled: pending,
-        onClick: () => runAction(goal, 'resume'),
+        disabled: pending || dirty,
+        disabledForDraft: (nextDirty) => pending || nextDirty,
+        onClick: () => { if (!objectiveDirty()) void runAction(goal, 'resume') },
       })
     }
     if (view.cancellable) {

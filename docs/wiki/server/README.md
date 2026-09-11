@@ -2,6 +2,16 @@
 
 后端使用原生 Node.js HTTP 服务器（无 Express 等框架依赖）。提供 REST API、WebSocket、SSE 事件流、Agent 管理和存储服务。
 
+## Goal 内部提示与聊天输出（现行契约）
+
+自动 execution / planning user 消息继续带 `metadata.quickforgeGoalRun`，原样保留模型上下文与持久化，只在客户端按合法 metadata 隐藏正文和操作；不清洗历史文本。`goalPlanningPrompt`、`goalContinuationPrompt` 与成功 complete 工具结果共享输出约束：轮次、继续、重新规划、提交 complete / 等待结算的播报交给 UI，不在聊天重复；保留实质分析、必要问题、具体阻塞原因与实际工作/验证的简洁总结。正常轮末与持久化完成之前不得声称 Goal 已 completed。提示词只能约束模型，不能百分百保证无重复；客户端不按字符串删助手消息。
+
+## Goal 自动完成与迭代记录（现行契约）
+
+`goal_report complete` 只记录待结算意图并进入 verifying；保留工具审批与原有可信工具证据检查。只有 execution 正常结束、消息 flush 成功、无中止/暂停/时长超限（轮次额度仅阻止下一轮，第 maxIterations 轮验证成功仍可完成），且最终完成状态与消息同次持久化成功后，才发布 completed（不需 accept）。完成持久化期间内存仍为 verifying，abort/cancel 可阻止完成；失败暂停且不调度。显式 needs_review 转 blocked，不假造证据；历史 human evidence 与 accept API 兼容，当前 UI 不提供验收按钮。
+
+execution 轮末以 `details.quickforgeGoalIteration = {goalId, iteration, outcome, blocker, finishedAt}` 记录在本 run 最新 assistant，无 assistant 回退本轮 user，不触碰前轮。随会话 CAS body 保存，结算后经既有 `state` 事件同步消息（单独 goal_updated 不同步消息）。历史记录独立于当前 Goal，刷新/新 Goal 不丢。没有本轮可见消息时不伪造前轮标记。存储完全不可用时只能内存显示安全暂停，不能保证持久化。
+
 ## 目录结构
 
 ```
@@ -137,9 +147,9 @@ server/
 ### Goal 预算追加与恢复
 
 - `extend_resume` 仅接受 `{action:'extend_resume', goalId, expectedRevision}`；`goalId` 为非空字符串、`expectedRevision` 为正 safe integer，不接受客户端预算值或其他字段。仅此动作在工作区 admission 锁内校验 goalId/revision CAS，旧请求返回 409 `GOAL_REVISION_CONFLICT`，不会重复追加；不可泛称所有 Goal 动作都有客户端 CAS。
-- 仅静止、可恢复且预算已耗尽的目标可追加。只给已耗尽维度增加默认额度：轮次 +8、累计活跃时长 +120 分钟；两者耗尽则都加。保留 goal 身份、累计 usage、计划/准则/证据/已有进度。预算及恢复状态在同次 persist 成功后才允许调度，失败回退；若加一次仍不足，保持 `paused` 与预算 blocker，不调度，用户需基于新 revision 再确认。存量 goal 保留创建时的旧预算，预算耗尽后 `extend_resume` 按当前默认值追加（旧 30 分钟目标首次追加将直接 +120 分钟）。
-- 额度足够后的恢复分支：无计划（无 criteria）→ `planning`；计划未确认 → `awaiting_confirmation`（不调度）；已确认 → `running`。`planConfirmed` 随 goal body 持久化，新目标为 false，仅用户 `confirm` 设置 true，`revise`/新 `plan` 清 false，暂停/重启保留。旧记录兼容以 `goalPlanConfirmed` 为准：planning/awaiting_confirmation 强制 false；其他状态优先明确布尔值，缺字段时仅以 `usage.iterations > 0` 推断。
-- runner 的统一预算 gate 覆盖确认/恢复、调度/开始轮次及结算，不让错误路径越额续跑；模型报告不是用户确认或自动验收。旧 `resume` 耗尽仍 409，提示新出口而非绕过预算。
+- 仅静止、可恢复且预算已耗尽的目标可追加；只给耗尽轮次 +8，旧时间上限移除为 JSON `null`，不追加分钟。保留 goal 身份、累计 usage、计划/准则/证据。预算及恢复状态同次 persist 成功后才调度；加一次轮次仍不足则保持 paused，不调度。
+- 额度足够后无 criteria → planning，有计划 → running 并记录 planConfirmed（当前含义为执行已获准，不再要求人工确认）。resume/extend_resume/revise 移除旧时间上限与 duration blocker；仅轮次耗尽阻止 resume/revise。awaiting_confirmation 兼容旧记录，允许显式 resume；恢复历史本身不自动运行、不修改终态事实。
+- 新计划正常轮末且持久化成功后自动执行；工具返回到轮末仍按 planning goalRun 强制只读。异常、中止、取消、持久化失败不得启动执行。轮次 gate 与防空转/重复失败保护保留。
 - 相关回归：`tests/server/agent-goal-state.test.mjs`、`agent-goal-runner.test.mjs`、`agent-goal-manager.test.mjs`、`tests/server/routes/agent.goal.test.mjs`。
 
 ### Goal 模式（agent-goal-state.mjs / agent-goal-runner.mjs）
@@ -147,13 +157,13 @@ server/
 **用途**: 主聊天（QuickForge main chat）的 `/goal <目标>` 有界多轮执行。状态模型是纯函数（无 I/O、无会话/存储/SSE 依赖），runner 把它与既有会话/持久化/事件模块组合起来；`agent-manager.mjs` 只调用 runner 导出的 hook。
 
 - **可用范围**：仅 QuickForge 主聊天。ACP 会话与渠道会话（持久化 `source`）、定时任务、共享会话（请求级 `source:'shared'`）均不可用；请求级来源只拒绝该次请求，不会永久关掉 owner 的 goal 能力。
-- **流程**：`/goal <目标>` → 只读规划（复用 `/plan` 权限白名单，`goal_report action:"plan"` 提交准则/范围/摘要）→ `awaiting_confirmation` → 用户 `confirm` → 有限轮执行 → `needs_review` → 用户 `accept` 完成或 `resume` 继续。模型无法自行完成目标：`goal_report action:"complete"` 只校验证据后把目标交回用户为 `needs_review`。
-- **预算**：默认最多 8 轮、累计活跃时长 120 分钟（`GOAL_BUDGET_DEFAULTS`；时长下限为 120 分钟）。`revise` 刻意保留累计用量，因此修改目标不能绕过预算；预算耗尽后旧 `resume` 仍返回 409 `GOAL_BUDGET_EXHAUSTED`，但新增 `extend_resume` 可在明确确认后追加额度恢复同一目标（见下方契约），不再要求取消新建。
+- **流程**：`/goal` → 只读规划 → plan 内部 awaiting_confirmation 过渡 → 正常轮末与持久化屏障 → 自动 running → complete 可信证据检查及正常轮末持久化 → completed。当前 needs_review 报告落 blocked 并说明无法验证原因，不伪造 passed，不要求人工签字；历史 human evidence 与旧 accept API 保留。
+- **预算**：默认 8 轮，无累计时间限制（maxActiveDurationMs: null）；新 Goal 不创建 duration watchdog，累计用时继续记录。恢复历史保持旧数值，显式 resume/extend_resume/revise 才移除旧时间上限；不使用 Infinity 或巨型 timer。单工具超时、审批、必要提问、暂停取消仍保留。
 - **生命周期纪律**：每轮结束只有在运行真正结束且最终状态持久化成功后才调度下一轮（fail-closed：持久化失败则暂停为 `paused`/`blocker:'persist_failed'`）；`goalRun` 结算窗口用显式 barrier（`activePromptPromise`）与 abort generation 观测用户中止，避免 aborted 后仍继续。goal body 随会话 CAS 权威快照持久化，metadata 只存 `{id,status,updatedAt}` 投影；重启时 in-flight 状态统一映射为 `paused`，**不自动重放**任何轮次。
 - **工作区互斥**：同一工作区（按规范化路径 key，`path.resolve` + 小写；无法解析时回退 scope/projectId）同时最多一个活跃 goal。start/confirm/resume/revise 经按工作区串行的 admission 队列执行"检查互斥 + 提交所有权"，两个并发请求不会同时观察到空闲并各自提交活跃 goal；内存会话优先，其余经持久化 metadata 候选再回读权威 body 复核，陈旧 metadata 不会永久占锁。
-- **用户动作**：`POST /api/agents/:sessionId/goal` 的 `confirm` / `pause` / `resume` / `cancel` / `revise`（需新 `objective`）/ `accept`（仅 `needs_review`）。`pause` 在忙时先置 `pausing`；`cancel` 终止并持久化后拆除 run/watchdog（失败则保持活跃以便重试）；`resume` 只继续执行，从不隐式完成目标。
+- **用户动作**：`POST /api/agents/:sessionId/goal` 的 `confirm` / `pause` / `resume` / `cancel` / `revise`（需新 `objective`）/ `accept`（仅兼容旧 `needs_review`；当前 UI 不提供 confirm/accept，规划自动执行）。`pause` 在忙时先置 `pausing`；`cancel` 终止并持久化后拆除 run/watchdog（失败则保持活跃以便重试）；`resume` 只继续执行，从不隐式完成目标。
 - **人审与证据**：`goal_report` 是会话专用工具，仅在会话有活跃 goal 时注入，不进入 `workspaceTools`/`GET /api/tools`，也没有 REST handler。证据只能引用真实成功工具结果的 `toolCallId`（`run_command` 还要求 exit code 0 且无中止/超时/信号；`read_file`/`grep_files` 只要求传输成功），控制面/委派/Skill/记忆类工具永不作为证据；工具成功只是证据来源，不等于目标的语义验证。`accept` 由用户 API 写入 `source:'human'` 证据与 `acceptedAt`/`humanAcceptedAt`，模型无法伪造；required 准则为 `failed` 时拒绝接受，需先 `resume` 修复。
-- **与其他机制的关系**：规划轮只读（无写/命令/MCP/插件，子 Agent 仅只读）；报告 `complete`/`needs_review` 后本轮剩余只允许只读检查；活跃 goal 期间普通 prompt/retry/steer/follow-up/消息回滚均被拒（`GOAL_ACTIVE`），终止后随下一条普通消息清除卡片；审批/ask/用户停止会驱动 goal 状态（`awaiting_approval`/`awaiting_input`/`paused`）。Goal 模式不会自动执行文件撤销或 git 提交/发布，这些仍由用户显式操作。
+- **与其他机制的关系**：规划轮只读（无写/命令/MCP/插件，子 Agent 仅只读）；报告 `complete` 后本轮剩余只允许只读检查；needs_review 转 blocked 后只允许 read_file/grep_files 与必要 ask_user，本轮不允许更多写入、命令、委派或 goal_report，问答或错误结束均不自动续跑；活跃 goal 期间普通 prompt/retry/steer/follow-up/消息回滚均被拒（`GOAL_ACTIVE`），终止后随下一条普通消息清除卡片；审批/ask/用户停止会驱动 goal 状态（`awaiting_approval`/`awaiting_input`/`paused`）。Goal 模式不会自动执行文件撤销或 git 提交/发布，这些仍由用户显式操作。
 
 ### acp/ — ACP Agent 适配层
 

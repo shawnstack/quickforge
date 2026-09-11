@@ -27,14 +27,20 @@ afterEach(() => { state.confirmation = null; clearGoalUi(goal.sessionId, goal.id
 applyAppLanguageFromSnapshot('en')
 
 describe('budget confirmation SSR', () => {
+  it('renders a null duration budget as unlimited without invalid meter values', () => {
+    const html = render({ budget: { maxIterations: 8, maxActiveDurationMs: null }, usage: { iterations: 1, activeDurationMs: 9_000_000 } })
+    expect(html).toContain('Unlimited')
+    expect(html).not.toMatch(/NaN|Infinity|width:null|width:undefined/)
+    expect(html).not.toContain('Exhausted')
+  })
   it('shows plan confirmation, not running actions, after an unconfirmed resume response', () => {
     const html = render({ status: 'awaiting_confirmation', planConfirmed: false })
-    expect(html).toContain('Awaiting confirmation')
+    expect(html).toContain('Plan ready')
     // The scroll container and pinned bottom action bar structure (G-01).
     expect(html).toContain('quickforge-goal-inspector-scroll')
     expect(html).toContain('quickforge-goal-inspector-footer')
-    expect(html).toMatch(/<button[^>]*>Confirm goal<\/button>/)
-    expect(html).not.toContain('Add budget and continue')
+    expect(html).not.toMatch(/<button[^>]*>Confirm goal<\/button>/)
+    expect(html).toContain('Add budget and continue')
     expect(html).not.toContain('>Resume</button>')
   })
 
@@ -54,7 +60,7 @@ describe('budget confirmation SSR', () => {
     expect(initial).not.toContain('role="group"')
     expect(confirmed).toContain('role="group"')
     // The grant line replaces the old raw-millisecond concatenation (G-09).
-    expect(confirmed).toContain('This confirmation adds 120 minutes / 8 iterations')
+    expect(confirmed).toContain('Add 8 iterations only if exhausted; remove the legacy time limit')
     expect(confirmed).not.toContain('1800000')
     // Structured budget meters carry the usage/limit, not raw milliseconds.
     expect(confirmed.match(/quickforge-goal-inspector-meter-fill" style="width:100%"/g)).toHaveLength(2)

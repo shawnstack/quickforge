@@ -1,6 +1,23 @@
 @import "@earendil-works/pi-web-ui/app.css";
 @import "tailwindcss";
 
+.quickforge-goal-iteration-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.quickforge-goal-iteration-divider::before,
+.quickforge-goal-iteration-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+.quickforge-goal-iteration-divider svg { width: 0.875rem; height: 0.875rem; flex-shrink: 0; }
+
+
 @theme {
   --radius: 0.5rem;
   /* Design-language light shadow token. Use via `shadow-quickforge` for inputs, hover/active feedback, and popovers. */
@@ -3341,7 +3358,23 @@ assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickfo
   display: none !important;
 }
 
-.quickforge-process-source-empty {
+/* Retain message hosts for ordering/turn boundaries, but no internal bubble,
+   actions or blank space. A run without an assistant can put its divider here. */
+user-message.quickforge-goal-internal-user-message:not(:has(> .quickforge-goal-iteration-divider)),
+.quickforge-process-source-empty:not(:has(> .quickforge-goal-iteration-divider)) {
+  display: none !important;
+}
+
+user-message.quickforge-goal-internal-user-message:has(> .quickforge-goal-iteration-divider),
+.quickforge-process-source-empty:has(> .quickforge-goal-iteration-divider) {
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+
+user-message.quickforge-goal-internal-user-message > :not(.quickforge-goal-iteration-divider),
+.quickforge-process-source-empty:has(> .quickforge-goal-iteration-divider) > :not(.quickforge-goal-iteration-divider) {
   display: none !important;
 }
 

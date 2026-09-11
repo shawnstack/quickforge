@@ -23,6 +23,8 @@ import { createFileReferenceChip } from '../file-reference-suggestions'
 import { createCapabilityChip } from '../capability-suggestions'
 import { selectedCapabilitiesFromDetails } from '@/lib/selected-capabilities'
 import { syncAssistantArtifactCard } from './assistant-artifact-card'
+import { syncGoalIterationDivider } from './goal-iteration-divider'
+import { syncGoalInternalMessage } from './goal-internal-message'
 import { removeRollbackConfirmPopover, showRollbackConfirmPopover } from './rollback-confirm-popover'
 import { decorateTurnErrorRow, isErrorMessage } from './turn-error-row'
 import { turnErrorKeyOf, type TurnErrorTracker } from './turn-error-state'
@@ -426,7 +428,14 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
   messageElements.forEach((element, displayIndex) => {
     const entry = displayEntries[displayIndex]
+    const internalGoalMessage = syncGoalInternalMessage(element, entry?.message)
     if (!entry) return
+    // Keep the user-message host as a process-turn boundary and index anchor.
+    // Its divider is synced below even when there is no assistant in this run.
+    if (internalGoalMessage) {
+      element.querySelector('.quickforge-message-actions')?.remove()
+      return
+    }
 
     element.classList.add('group', 'relative')
     element.classList.toggle('quickforge-assistant-message', entry.message.role === 'assistant')
@@ -628,6 +637,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   }
   decorateProcessBlocks(panel, processMessageElements, streaming)
   decorateSubagentProcessBlocks(panel)
+  getPrimaryMessageElements(panel).forEach((element, index) => {
+    syncGoalIterationDivider(element, displayEntries[index]?.message.details)
+  })
   decorateMarkdownSvgCodeBlocks(panel, isStreaming())
   decorateMarkdownMermaidCodeBlocks(panel, isStreaming())
   if (enableTerminalCommandActions) {

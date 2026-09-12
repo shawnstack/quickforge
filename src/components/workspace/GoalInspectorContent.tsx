@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { getAppStorage } from '@earendil-works/pi-web-ui'
 import { buildGoalCardViewModel } from '@/components/chat/panel-decoration/goal-card'
 import { Button } from '@/components/ui/button'
 import { goalBudgetExtension, goalDurationMinutes, goalIsEditable, isGoalTerminal, type GoalAction, type GoalActionOptions, type GoalState, type GoalStatus } from '@/lib/goal'
+import { DEFAULT_GOAL_SETTINGS, loadGoalSettings } from '@/lib/goal-settings'
 import { getGoalUiState, releaseGoalUi, retainGoalUi, runGoalUiAction, setGoalUiDraft, subscribeGoalUi } from '@/lib/goal-ui'
 import { t, type AppTextKey } from '@/lib/i18n'
 import './goal-inspector.css'
@@ -81,7 +83,15 @@ export function GoalInspectorContent({ goal, sessionId, onAction, onSave, active
   const [ui, setUi] = useState(() => getGoalUiState(sessionId, goal.id))
   const [confirmPause, setConfirmPause] = useState(false)
   const [budgetConfirmation, setBudgetConfirmation] = useState<GoalActionOptions | null>(null)
-  const extension = goalBudgetExtension(goal)
+  const [goalGrantIterations, setGoalGrantIterations] = useState(DEFAULT_GOAL_SETTINGS.maxIterations)
+  useEffect(() => {
+    let cancelled = false
+    loadGoalSettings(getAppStorage())
+      .then((settings) => { if (!cancelled) setGoalGrantIterations(settings.maxIterations) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  const extension = goalBudgetExtension(goal, goalGrantIterations)
   const confirmationCurrent = budgetConfirmation?.goalId === goal.id && budgetConfirmation.expectedRevision === goal.revision
   const confirmationScope = JSON.stringify([active, sessionId, goal.id, view])
   const [previousScope, setPreviousScope] = useState(confirmationScope)

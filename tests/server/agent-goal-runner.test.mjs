@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   pendingApproval: vi.fn(() => null),
   pendingAsk: vi.fn(() => null),
   pendingTools: vi.fn(() => []),
+  resolveGoalMaxIterations: vi.fn(async () => 20),
 }))
 
 vi.mock('../../server/agent-persistence.mjs', () => ({ persistSession: mocks.persistSession }))
@@ -25,6 +26,7 @@ vi.mock('../../server/agent-profile-schema.mjs', () => ({
     value || (tools.includes('write_file') ? 'code-edit' : 'readonly-research')
   ),
 }))
+vi.mock('../../server/goal-settings.mjs', () => ({ resolveGoalMaxIterations: mocks.resolveGoalMaxIterations }))
 vi.mock('../../server/utils/logger.mjs', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
@@ -466,7 +468,7 @@ describe('goal runner', () => {
     session.goal.usage.activeDurationMs = 2000
     const iterations = session.goal.usage.iterations
     const resumed = await handleGoalAction(session, 'resume')
-    expect(resumed).toMatchObject({ status: 'running', budget: { maxIterations: 8, maxActiveDurationMs: null }, usage: { iterations, activeDurationMs: 2000 } })
+    expect(resumed).toMatchObject({ status: 'running', budget: { maxIterations: 20, maxActiveDurationMs: null }, usage: { iterations, activeDurationMs: 2000 } })
     expect(resumed.blocker).toBeFalsy()
     await handleGoalAction(session, 'cancel')
   })
@@ -571,7 +573,7 @@ describe('goal runner', () => {
     session.goalRun.iteration = session.goal.budget.maxIterations
     await finishGoalRun(session, { status: 'idle' })
     expect(session.goal.status).toBe('completed')
-    expect(session.agent.state.messages[2].details.quickforgeGoalIteration).toMatchObject({ iteration: 8, outcome: 'completed' })
+    expect(session.agent.state.messages[2].details.quickforgeGoalIteration).toMatchObject({ iteration: 20, outcome: 'completed' })
   })
 
   it.each(['error', 'aborted', 'duration', 'both', 'unfinished'])('does not complete the last iteration when %s', async (ending) => {
@@ -618,13 +620,28 @@ describe('goal runner', () => {
     session.goal.status = 'paused'
     session.goal.planConfirmed = true // Fixture represents an already confirmed execution plan.
     session.goal.budget.maxActiveDurationMs = 7200000 // Legacy limit is removed, not extended.
-    session.goal.usage = { iterations: dimension === 'duration' ? 2 : 8, activeDurationMs: dimension === 'iterations' ? 100 : 7200000 }
+    session.goal.usage = { iterations: dimension === 'duration' ? 2 : 20, activeDurationMs: dimension === 'iterations' ? 100 : 7200000 }
     session.goal.evidence = [{ id: 'e1', description: 'Saved result' }]
     const previous = structuredClone(session.goal)
     const next = await extendGoal(session)
     expect(next).toMatchObject({ id: previous.id, criteria: previous.criteria, evidence: previous.evidence, summary: previous.summary, scope: previous.scope, usage: previous.usage, status: 'running' })
     expect(next.revision).toBe(previous.revision + 1)
-    expect(next.budget).toEqual({ maxIterations: dimension === 'duration' ? 8 : 16, maxActiveDurationMs: null })
+    expect(next.budget).toEqual({ maxIterations: dimension === 'duration' ? 20 : 40, maxActiveDurationMs: null })
+    await handleGoalAction(session, 'cancel')
+  })
+
+  it('builds the new-goal budget and each extension tranche from the configured settings', async () => {
+    const session = makeSession()
+    mocks.resolveGoalMaxIterations
+      .mockImplementationOnce(async () => 5) // createGoalState budget
+      .mockImplementationOnce(async () => 5) // extend_resume tranche
+    await startedGoal(session)
+    expect(session.goal.budget).toEqual({ maxIterations: 5, maxActiveDurationMs: null })
+    session.goal.status = 'paused'
+    session.goal.usage.iterations = 5
+    const next = await extendGoal(session)
+    expect(next.budget).toEqual({ maxIterations: 10, maxActiveDurationMs: null })
+    expect(next.status).toBe('planning')
     await handleGoalAction(session, 'cancel')
   })
 
@@ -632,17 +649,17 @@ describe('goal runner', () => {
     const session = makeSession()
     await startedGoal(session)
     session.goal.status = 'paused'
-    session.goal.usage.iterations = 8
+    session.goal.usage.iterations = 20
     mocks[pending].mockReturnValue(pending === 'pendingTools' ? [{}] : {})
     await expect(extendGoal(session)).rejects.toMatchObject({ errorCode: 'GOAL_SESSION_BUSY' })
-    expect(session.goal.budget.maxIterations).toBe(8)
+    expect(session.goal.budget.maxIterations).toBe(20)
   })
 
   it('keeps cancellation when extension persistence fails concurrently', async () => {
     const session = makeSession()
     await startedGoal(session)
     session.goal.status = 'paused'
-    session.goal.usage.iterations = 8
+    session.goal.usage.iterations = 20
     const gate = deferred()
     mocks.persistSession.mockImplementationOnce(() => gate.promise)
     const extension = extendGoal(session)
@@ -686,7 +703,7 @@ describe('goal runner', () => {
     const session = makeSession()
     await startedGoal(session)
     session.goal.status = 'paused'
-    session.goal.usage.iterations = 8
+    session.goal.usage.iterations = 20
     const previous = structuredClone(session.goal)
     mocks.persistSession.mockResolvedValueOnce(null)
     await expect(extendGoal(session)).rejects.toMatchObject({ errorCode: 'SESSION_PERSIST_FAILED' })
@@ -732,16 +749,16 @@ describe('goal runner', () => {
     await planGoal(session)
     session.goal.status = 'needs_review'
     session.goal.planConfirmed = true // Review is reached after confirmed execution.
-    session.goal.usage = { iterations: 8, activeDurationMs: 1200 }
+    session.goal.usage = { iterations: 20, activeDurationMs: 1200 }
     const gate = deferred()
     mocks.persistSession.mockImplementationOnce(() => gate.promise)
     const extension = extendGoal(session)
-    await vi.waitFor(() => expect(session.goal.budget.maxIterations).toBe(16))
+    await vi.waitFor(() => expect(session.goal.budget.maxIterations).toBe(40))
     expect(session.agent.prompt).not.toHaveBeenCalled()
     gate.resolve({ id: 'persisted' })
     await extension
     await vi.waitFor(() => expect(session.agent.prompt).toHaveBeenCalledTimes(1))
-    expect(session.goal.usage).toEqual({ iterations: 9, activeDurationMs: 1200 })
+    expect(session.goal.usage).toEqual({ iterations: 21, activeDurationMs: 1200 })
     expect(session.goalRun.kind).toBe('execution')
     await handleGoalAction(session, 'cancel')
   })
@@ -775,13 +792,13 @@ describe('goal runner', () => {
     await handleGoalAction(session, 'cancel')
   })
 
-  it('allows the eighth execution but never starts a ninth after error', async () => {
+  it('allows the twentieth execution but never starts a twenty-first after error', async () => {
     const session = makeSession()
     await startedGoal(session)
     session.goal.status = 'running'
-    session.goal.usage.iterations = 7
+    session.goal.usage.iterations = 19
     expect(beginGoalRun(session)).toBeTruthy()
-    expect(session.goal.usage.iterations).toBe(8)
+    expect(session.goal.usage.iterations).toBe(20)
     await finishGoalRun(session, { status: 'error' })
     expect(session.goal.blocker).toBe('iteration_budget')
     expect(session.goalContinuationPending).toBe(false)
@@ -1096,11 +1113,11 @@ describe('goal runner', () => {
   it('stops on budget exhaustion instead of continuing forever', async () => {
     const session = makeSession()
     await confirmedGoal(session)
-    session.goal = { ...session.goal, usage: { iterations: 7, activeDurationMs: 0 } }
+    session.goal = { ...session.goal, usage: { iterations: 19, activeDurationMs: 0 } }
     session.goalContinuationPending = true // isolate the accounting from scheduling
     resetRunStats(session)
     beginGoalRun(session, 'execution')
-    expect(session.goal.usage.iterations).toBe(8)
+    expect(session.goal.usage.iterations).toBe(20)
     await finishGoalRun(session, { status: 'idle' })
     expect(session.goal).toMatchObject({ status: 'paused', blocker: 'iteration_budget' })
   })
@@ -1544,19 +1561,19 @@ describe('goal runner', () => {
     await confirmedGoal(session)
     await handleGoalAction(session, 'pause')
     session.agent.prompt.mockClear()
-    session.goal.usage = { iterations: 24, activeDurationMs: 21_600_000 }
+    session.goal.usage = { iterations: 60, activeDurationMs: 54_000_000 }
     const usage = { ...session.goal.usage }
     const extend = () => handleGoalAction(session, 'extend_resume', undefined, null, {
       goalId: session.goal.id, expectedRevision: session.goal.revision,
     })
     await extend()
-    expect(session.goal).toMatchObject({ status: 'paused', budget: { maxIterations: 16, maxActiveDurationMs: null }, usage })
+    expect(session.goal).toMatchObject({ status: 'paused', budget: { maxIterations: 40, maxActiveDurationMs: null }, usage })
     expect(session.goal.blocker).toContain('budget')
     expect(session.goal.blockerHint).toContain('extend_resume')
     expect(session.goalContinuationPending).toBe(false)
     expect(mocks.persistSession).toHaveBeenLastCalledWith(session)
     await extend()
-    expect(session.goal).toMatchObject({ status: 'paused', budget: { maxIterations: 24, maxActiveDurationMs: null }, usage })
+    expect(session.goal).toMatchObject({ status: 'paused', budget: { maxIterations: 60, maxActiveDurationMs: null }, usage })
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(session.agent.prompt).not.toHaveBeenCalled()
   })
@@ -1616,12 +1633,12 @@ describe('goal runner', () => {
     const session = makeSession()
     await confirmedGoal(session)
     await handleGoalAction(session, 'pause')
-    session.goal = { ...session.goal, usage: { iterations: 8, activeDurationMs: 0 } }
+    session.goal = { ...session.goal, usage: { iterations: 20, activeDurationMs: 0 } }
     await expect(handleGoalAction(session, 'resume')).rejects.toMatchObject({
       statusCode: 409,
       errorCode: 'GOAL_BUDGET_EXHAUSTED',
       message: expect.stringContaining('Use extend_resume'),
     })
-    expect(session.goal.usage.iterations).toBe(8)
+    expect(session.goal.usage.iterations).toBe(20)
   })
 })

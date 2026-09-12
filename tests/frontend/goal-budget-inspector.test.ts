@@ -17,7 +17,7 @@ const goal: GoalState = {
   id: 'budget-goal', sessionId: 'budget-session', revision: 7, objective: 'Ship', status: 'paused',
   criteria: [], evidence: [], scope: [], summary: '', updatedAt: '',
   budget: { maxIterations: 8, maxActiveDurationMs: 1_800_000 },
-  usage: { iterations: 16, activeDurationMs: 1_800_000 },
+  usage: { iterations: 28, activeDurationMs: 1_800_000 },
 }
 const render = (patch: Partial<GoalState> = {}) => renderToStaticMarkup(createElement(GoalInspectorContent, {
   goal: { ...goal, ...patch }, sessionId: goal.sessionId, active: true, view: 'progress',
@@ -61,7 +61,7 @@ describe('budget confirmation SSR', () => {
     expect(initial).not.toContain('role="group"')
     expect(confirmed).toContain('role="group"')
     // The grant line replaces the old raw-millisecond concatenation (G-09).
-    expect(confirmed).toContain('Add 8 iterations only if exhausted; remove the legacy time limit')
+    expect(confirmed).toContain('Add 20 iterations only if exhausted; remove the legacy time limit')
     expect(confirmed).not.toContain('1800000')
     // Structured budget meters carry the usage/limit, not raw milliseconds.
     expect(confirmed.match(/quickforge-goal-inspector-meter-fill" style="width:100%"/g)).toHaveLength(2)

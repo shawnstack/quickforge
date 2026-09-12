@@ -31,6 +31,7 @@ import { agentSessions } from './agent-session-store.mjs'
 import { normalizeCapabilityPolicy } from './agent-profile-schema.mjs'
 import { goalReportTool } from './tools/definitions.mjs'
 import * as goalState from './agent-goal-state.mjs'
+import { resolveGoalMaxIterations } from './goal-settings.mjs'
 
 export const GOAL_PLANNING_PERMISSIONS = Object.freeze({ allowEdit: false, allowCommands: false, allowSubagents: true })
 // Planning must stay read-only even for full-access sessions: no commands, no
@@ -911,7 +912,12 @@ export async function startGoalPlanning(session, objective, requestSource = null
       // must not make the commit guard refuse this fresh goal. Cleared inside the
       // lock so it can never wipe another request's termination intent.
       clearGoalTermination(session)
-      const next = goalState.createGoalState({ sessionId: session.sessionId, objective: text })
+      const maxIterations = await resolveGoalMaxIterations()
+      const next = goalState.createGoalState({
+        sessionId: session.sessionId,
+        objective: text,
+        budget: { maxIterations, maxActiveDurationMs: null },
+      })
       await commitGoal(session, next, { revertOnFailure: true })
     })
   } catch (error) {
@@ -971,8 +977,10 @@ async function extendResumeGoal(session, options) {
     if (!goalState.goalBudgetExhausted(goal).exhausted) {
       throw requestError('Goal budget is not exhausted. Use resume instead.', 409, 'GOAL_BUDGET_NOT_EXHAUSTED')
     }
+    // Each extension adds one full settings-configured tranche (default budget).
+    const extendBy = await resolveGoalMaxIterations()
     const budget = { ...goal.budget }
-    if (goal.usage.iterations >= budget.maxIterations) budget.maxIterations += goalState.GOAL_BUDGET_DEFAULTS.maxIterations
+    if (goal.usage.iterations >= budget.maxIterations) budget.maxIterations += extendBy
     budget.maxActiveDurationMs = null
     const exhausted = goalState.goalBudgetExhausted({ ...goal, budget })
     const status = exhausted.exhausted ? 'paused' : goalResumeStatus(goal)

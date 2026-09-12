@@ -22,6 +22,10 @@ import {
   saveAutoCompactSettings,
 } from '@/lib/auto-compact-settings'
 import {
+  loadGoalSettings,
+  saveGoalSettings,
+} from '@/lib/goal-settings'
+import {
   loadAutoArchiveSettings,
   saveAutoArchiveSettings,
 } from '@/lib/auto-archive-settings'
@@ -143,6 +147,8 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
   private autoCompactThresholdPercent = 80
   private autoCompactThresholdPercentInput = '80'
   private autoCompactKeepRecentTurns = 0
+  private goalMaxIterations = 20
+  private goalMaxIterationsInput = '20'
   private autoArchiveEnabled = false
   private systemNotificationsEnabled = false
   private systemNotificationPermission: SystemNotificationPermission = 'unsupported'
@@ -202,12 +208,13 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
 
     try {
       const storage = getAppStorage()
-      const [localModels, catalogModels, defaults, toolDisplaySettings, autoCompactSettings, autoArchiveSettings] = await Promise.all([
+      const [localModels, catalogModels, defaults, toolDisplaySettings, autoCompactSettings, goalSettings, autoArchiveSettings] = await Promise.all([
         getSelectableConfiguredModels(storage),
         loadModelCatalog().catch(() => []),
         loadDefaultOptions(storage),
         loadToolDisplaySettings(storage),
         loadAutoCompactSettings(storage),
+        loadGoalSettings(storage),
         loadAutoArchiveSettings(storage),
       ])
       const baseModels = catalogModels.length ? catalogModels : localModels
@@ -243,6 +250,8 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
       this.autoCompactThresholdPercent = autoCompactSettings.thresholdPercent
       this.autoCompactThresholdPercentInput = String(autoCompactSettings.thresholdPercent)
       this.autoCompactKeepRecentTurns = autoCompactSettings.keepRecentTurns
+      this.goalMaxIterations = goalSettings.maxIterations
+      this.goalMaxIterationsInput = String(goalSettings.maxIterations)
       this.autoArchiveEnabled = autoArchiveSettings.enabled
       this.systemNotificationsEnabled = isSystemNotificationsEnabled()
       this.systemNotificationPermission = await getSystemNotificationPermission()
@@ -420,6 +429,30 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
     this.autoCompactKeepRecentTurns = normalized
     this.requestUpdate()
     void this.saveAutoCompactOptions()
+  }
+
+  private updateGoalMaxIterations(value: string) {
+    this.goalMaxIterationsInput = value
+    const parsed = Number(value)
+    if (value !== '' && Number.isFinite(parsed)) {
+      this.goalMaxIterations = parsed
+    }
+    this.saved = false
+    this.requestUpdate()
+  }
+
+  private commitGoalMaxIterations() {
+    const parsed = Number(this.goalMaxIterationsInput)
+    if (!Number.isFinite(parsed)) {
+      this.goalMaxIterationsInput = String(this.goalMaxIterations)
+      this.requestUpdate()
+      return
+    }
+    const normalized = Math.max(1, Math.min(100, Math.round(parsed)))
+    this.goalMaxIterations = normalized
+    this.goalMaxIterationsInput = String(normalized)
+    this.requestUpdate()
+    void this.saveGoalOptions()
   }
 
   private markSaved(message = t('defaultOptionsSaved')) {
@@ -809,6 +842,16 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
     }
   }
 
+  private async saveGoalOptions() {
+    try {
+      await saveGoalSettings(getAppStorage(), { maxIterations: this.goalMaxIterations })
+      this.markSaved()
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : t('requestFailed')
+      this.requestUpdate()
+    }
+  }
+
   private async saveAutoArchiveOptions() {
     try {
       await saveAutoArchiveSettings(getAppStorage(), { enabled: this.autoArchiveEnabled })
@@ -1159,6 +1202,26 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
                 @input=${(event: Event) => this.updateAutoCompactKeepRecentTurns((event.target as HTMLInputElement).value)}
                 @change=${() => this.commitAutoCompactKeepRecentTurns()}
                 @blur=${() => this.commitAutoCompactKeepRecentTurns()}
+              />
+            </div>
+          </div>
+
+          <div class="quickforge-settings-row">
+            <div class="quickforge-settings-row-main">
+              <div class="quickforge-settings-row-title">${t('goalMaxIterations')}</div>
+              <div class="quickforge-settings-row-description">${t('goalMaxIterationsDescription')}</div>
+            </div>
+            <div class="quickforge-settings-row-control">
+              <input
+                class="quickforge-settings-input quickforge-settings-number-input"
+                type="number"
+                min="1"
+                max="100"
+                step="1"
+                .value=${this.goalMaxIterationsInput}
+                @input=${(event: Event) => this.updateGoalMaxIterations((event.target as HTMLInputElement).value)}
+                @change=${() => this.commitGoalMaxIterations()}
+                @blur=${() => this.commitGoalMaxIterations()}
               />
             </div>
           </div>

@@ -41,17 +41,23 @@ function goal(overrides: Partial<GoalState> = {}): GoalState {
 describe('goalBudgetExtension', () => {
   it.each([
     [2, 120_000, 0, 0, false],
-    [10, 120_000, 8, 0, false],
+    [10, 120_000, 20, 0, false],
     [2, 600_000, 0, 0, false],
-    [10, 600_000, 8, 0, false],
-    [18, 600_000, 8, 0, true],
-    [10, 7_800_000, 8, 0, false],
+    [10, 600_000, 20, 0, false],
+    [32, 600_000, 20, 0, true],
+    [10, 7_800_000, 20, 0, false],
   ])('grants exhausted dimensions only (%s iterations / %s ms)', (usedIterations, usedDuration, iterations, activeDurationMs, stillExhausted) => {
     const state = goal({ usage: { iterations: usedIterations as number, activeDurationMs: usedDuration as number } })
     const before = JSON.stringify(state)
     expect(goalBudgetExtension(state)).toEqual({ iterations, activeDurationMs, exhausted: !!iterations || Number(usedDuration) >= 600_000, stillExhausted })
     expect(JSON.stringify(state)).toBe(before)
     expect(isGoalAction('extend_resume')).toBe(true)
+  })
+
+  it('honors an explicit iteration grant, defaulting to 20', () => {
+    const state = goal({ usage: { iterations: 16, activeDurationMs: 0 } })
+    expect(goalBudgetExtension(state)).toEqual({ iterations: 20, activeDurationMs: 0, exhausted: true, stillExhausted: false })
+    expect(goalBudgetExtension(state, 5)).toEqual({ iterations: 5, activeDurationMs: 0, exhausted: true, stillExhausted: true })
   })
 })
 

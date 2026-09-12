@@ -91,9 +91,12 @@ export type GoalAction = 'confirm' | 'pause' | 'resume' | 'extend_resume' | 'can
 /** Identity and revision captured by the explicit budget confirmation. */
 export type GoalActionOptions = { goalId: string; expectedRevision: number; signal?: AbortSignal }
 
-/** Only exhausted dimensions receive one default grant; usage is never reset. */
-export function goalBudgetExtension(goal: GoalState) {
-  const iterations = goal.usage.iterations >= goal.budget.maxIterations ? 8 : 0
+/**
+ * Only exhausted dimensions receive one default grant; usage is never reset.
+ * `grantIterations` is the configured Goal extension size (default 20).
+ */
+export function goalBudgetExtension(goal: GoalState, grantIterations = 20) {
+  const iterations = goal.usage.iterations >= goal.budget.maxIterations ? grantIterations : 0
   const activeDurationMs = 0
   const legacyDurationExhausted = goal.budget.maxActiveDurationMs !== null && goal.usage.activeDurationMs >= goal.budget.maxActiveDurationMs
   return {

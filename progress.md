@@ -1,3 +1,14 @@
+## goal-configurable-iterations（done，实现与定向自动验证完成；浏览器未实测）
+
+- 当前目标：goal 最大轮次默认 8→20，并可在设置·常规页配置该轮次（注意样式与项目匹配），新增独立 feature 无依赖，不推进其他 feature。
+- 实现：① 服务端——`agent-goal-state.mjs` GOAL_BUDGET_DEFAULTS.maxIterations 8→20（存量 goal 不改写）；新增 `server/goal-settings.mjs`（settings 键 `goal-settings`，clamp 1–100，fail-open 回落 20，DEFAULT 派生自 GOAL_BUDGET_DEFAULTS）；`startGoalPlanning` 锁内读配置显式传 budget；`extendResumeGoal` 追加量改用配置值（原 `+= GOAL_BUDGET_DEFAULTS`）；客户端 API 传 budget 仍被拒。② 前端——新增 `src/lib/goal-settings.ts`（仿 auto-compact-settings.ts）；`default-options-settings-tab.ts` 常规页主 section 新增「Goal 最大轮次」数值行（复用 quickforge-settings-* 既有 class 与 autoCompactThresholdPercent 暂存+clamp 提交模式，零新增 CSS）；`i18n.ts` 新增 goalMaxIterations(+Description) en+zh；`goal.ts` goalBudgetExtension(goal, grantIterations=20) 去硬编码 8；`GoalInspectorContent.tsx` useEffect 读配置使追加确认展示配置增量。
+- 文件（25 个）：源码 8（3 新增）+ 测试 7（1 新增）+ wiki 7 + 三状态文件，清单见 feature_list.json。
+- 已验（父 Agent 实跑）：合并定向 vitest 10 文件 238/238 通过（manager 日志可见 round 0/20 新默认生效）；`npm run lint` 0 error（仅既有 identity.mjs:92 warning）；`npx tsc -b` 0 error；`npm run build` 成功（仅既有 KaTeX/chunk 警告）。实现由两个 general subagent 并行完成（服务端/前端无文件交集），父 Agent 亲读全部核心 diff 复审（startGoalPlanning/extendResumeGoal 接线、双端 goal-settings 契约一致、设置行零新增 CSS）。
+- Notes/边界：done 表示实现与定向自动验证完成，真实浏览器视觉（设置行观感、窄屏、中英文）未实测。extend 追加量与配置值同源（与默认值解耦属评审 B4 另开 feature）；runner 测试 mock goal-settings 保持 hermetic（真实存储路径 manager/runtime 覆盖，agent-goal-runtime 15/15 通过）。wiki 7 处「默认 8 轮 / +8」已全部更新。未新增依赖，未手工修改生成产物（build 正常刷新 dist），无 Git 提交/发布。
+- 下一步：浏览器验收设置·常规页新行（观感/窄屏/中英文）；验收后可考虑 commit。
+
+---
+
 ## goal-p0-fixes（done，实现与定向自动验证完成；浏览器未实测）
 
 - 当前目标：落地 goal-display-interaction-review 评审报告的 P0 三项（用户指示「修复p0」），新增独立 feature 无依赖，不推进其他 feature。

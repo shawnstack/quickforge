@@ -20,7 +20,7 @@ describe('automatic Goal planning compatibility', () => {
     const goal = normalizeGoalState({ id: 'goal', status: 'paused', budget: { maxIterations: 8, maxActiveDurationMs: null }, usage: { iterations: 8, activeDurationMs: 99_000_000 } })!
     expect(goal.budget.maxActiveDurationMs).toBeNull()
     expect(normalizeGoalState(JSON.parse(JSON.stringify(goal)))!.budget.maxActiveDurationMs).toBeNull()
-    expect(goalBudgetExtension(goal)).toEqual({ iterations: 8, activeDurationMs: 0, exhausted: true, stillExhausted: false })
+    expect(goalBudgetExtension(goal)).toEqual({ iterations: 20, activeDurationMs: 0, exhausted: true, stillExhausted: false })
     goal.usage.iterations = 1
     expect(goalBudgetExtension(goal).exhausted).toBe(false)
     goal.budget.maxActiveDurationMs = 7200000

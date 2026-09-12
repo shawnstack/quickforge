@@ -46,7 +46,7 @@ const IN_FLIGHT_STATUSES = new Set([
 ])
 
 export const GOAL_BUDGET_DEFAULTS = Object.freeze({
-  maxIterations: 8,
+  maxIterations: 20,
   maxActiveDurationMs: null,
 })
 

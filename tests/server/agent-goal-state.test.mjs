@@ -62,7 +62,7 @@ describe('goal state model', () => {
       criteria: [],
       scope: [],
       summary: '',
-      budget: { maxIterations: 8, maxActiveDurationMs: null },
+      budget: { maxIterations: 20, maxActiveDurationMs: null },
       usage: { iterations: 0, activeDurationMs: 0 },
       evidence: [],
     })
@@ -197,7 +197,7 @@ describe('goal state model', () => {
   it('reports budget exhaustion from accumulated usage only', () => {
     const goal = plannedGoal()
     expect(goalBudgetExhausted(goal).exhausted).toBe(false)
-    expect(goalBudgetExhausted({ ...goal, usage: { iterations: 8, activeDurationMs: 0 } })).toEqual({
+    expect(goalBudgetExhausted({ ...goal, usage: { iterations: 20, activeDurationMs: 0 } })).toEqual({
       exhausted: true,
       reason: 'iteration_budget',
     })
@@ -205,6 +205,19 @@ describe('goal state model', () => {
     expect(normalizeGoalState(JSON.parse(JSON.stringify(goal))).budget.maxActiveDurationMs).toBeNull()
     const legacy = { ...goal, status: 'completed', budget: { ...goal.budget, maxActiveDurationMs: 7200000 } }
     expect(goalAfterRestore(normalizeGoalState(legacy))).toMatchObject({ status: 'completed', budget: { maxActiveDurationMs: 7200000 } })
+  })
+
+  it('keeps a persisted iteration budget instead of rewriting it to the new default', () => {
+    const goal = plannedGoal({ budget: { maxIterations: 8, maxActiveDurationMs: 30 * 60 * 1000 } })
+    const restored = normalizeGoalState(JSON.parse(JSON.stringify(goal)))
+    expect(restored.budget).toEqual({ maxIterations: 8, maxActiveDurationMs: 30 * 60 * 1000 })
+    expect(goalBudgetExhausted({ ...restored, usage: { iterations: 8, activeDurationMs: 0 } })).toEqual({
+      exhausted: true,
+      reason: 'iteration_budget',
+    })
+    // Missing/invalid budgets only fall back to the (new) default.
+    const fallback = normalizeGoalState({ ...goal, budget: { maxIterations: 'nope' } })
+    expect(fallback.budget.maxIterations).toBe(20)
   })
 
   it('maps in-flight statuses to paused on restore and keeps the rest', () => {

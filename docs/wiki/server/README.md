@@ -159,7 +159,7 @@ server/
 ### Goal 预算追加与恢复
 
 - `extend_resume` 仅接受 `{action:'extend_resume', goalId, expectedRevision}`；`goalId` 为非空字符串、`expectedRevision` 为正 safe integer，不接受客户端预算值或其他字段。仅此动作在会话 admission 锁内校验 goalId/revision CAS，旧请求返回 409 `GOAL_REVISION_CONFLICT`，不会重复追加；不可泛称所有 Goal 动作都有客户端 CAS。
-- 仅静止、可恢复且预算已耗尽的目标可追加；只给耗尽轮次 +8，旧时间上限移除为 JSON `null`，不追加分钟。保留 goal 身份、累计 usage、计划/准则/证据。预算及恢复状态同次 persist 成功后才调度；加一次轮次仍不足则保持 paused，不调度。
+- 仅静止、可恢复且预算已耗尽的目标可追加；只给耗尽轮次追加一轮满额配置预算（`server/goal-settings.mjs` 读 settings store 键 `goal-settings`，整数 clamp 1–100，缺省/读取失败回落 20），旧时间上限移除为 JSON `null`，不追加分钟。保留 goal 身份、累计 usage、计划/准则/证据。预算及恢复状态同次 persist 成功后才调度；加一次轮次仍不足则保持 paused，不调度。
 - 额度足够后无 criteria → planning，有计划 → running 并记录 planConfirmed（当前含义为执行已获准，不再要求人工确认）。resume/extend_resume/revise 移除旧时间上限与 duration blocker；仅轮次耗尽阻止 resume/revise。awaiting_confirmation 兼容旧记录，允许显式 resume；恢复历史本身不自动运行、不修改终态事实。
 - 新计划正常轮末且持久化成功后自动执行；工具返回到轮末仍按 planning goalRun 强制只读。异常、中止、取消、持久化失败不得启动执行。轮次 gate 与防空转/重复失败保护保留。
 - 相关回归：`tests/server/agent-goal-state.test.mjs`、`agent-goal-runner.test.mjs`、`agent-goal-manager.test.mjs`、`tests/server/routes/agent.goal.test.mjs`。
@@ -170,7 +170,7 @@ server/
 
 - **可用范围**：仅 QuickForge 主聊天。ACP 会话与渠道会话（持久化 `source`）、定时任务、共享会话（请求级 `source:'shared'`）均不可用；请求级来源只拒绝该次请求，不会永久关掉 owner 的 goal 能力。
 - **流程**：`/goal` → 只读规划 → plan 内部 awaiting_confirmation 过渡 → 正常轮末与持久化屏障 → 自动 running → complete 可信证据检查及正常轮末持久化 → completed。当前 needs_review 报告落 blocked 并说明无法验证原因，不伪造 passed，不要求人工签字；历史 human evidence 与旧 accept API 保留。
-- **预算**：默认 8 轮，无累计时间限制（maxActiveDurationMs: null）；新 Goal 不创建 duration watchdog，累计用时继续记录。恢复历史保持旧数值，显式 resume/extend_resume/revise 才移除旧时间上限；不使用 Infinity 或巨型 timer。单工具超时、审批、必要提问、暂停取消仍保留。
+- **预算**：默认 20 轮（settings 键 `goal-settings` 可配置，设置·常规页「Goal 最大轮次」数值项写入，整数 clamp 1–100，读取失败回落 20；新建 goal 预算与追加额度同源），无累计时间限制（maxActiveDurationMs: null）；新 Goal 不创建 duration watchdog，累计用时继续记录。恢复历史保持旧数值，显式 resume/extend_resume/revise 才移除旧时间上限；不使用 Infinity 或巨型 timer。单工具超时、审批、必要提问、暂停取消仍保留。
 - **生命周期纪律**：每轮结束只有在运行真正结束且最终状态持久化成功后才调度下一轮（fail-closed：持久化失败则暂停为 `paused`/`blocker:'persist_failed'`）；`goalRun` 结算窗口用显式 barrier（`activePromptPromise`）与 abort generation 观测用户中止，避免 aborted 后仍继续。goal body 随会话 CAS 权威快照持久化，metadata 只存 `{id,status,updatedAt}` 投影；重启时 in-flight 状态统一映射为 `paused`，**不自动重放**任何轮次。
 - **会话级准入**：同一会话同时最多一个活跃 goal；不同会话（含共享同一工作区的多个全局对话、两个 projectId 指向同一目录）互不阻塞、可并行执行，`/goal` 不再返回工作区冲突 409。start/confirm/resume/revise/extend_resume 经按 `sessionId` 串行的 admission 队列执行"锁内 re-check + 提交所有权"，同会话并发请求不会各自提交活跃 goal；锁内 re-check 后只允许一个成功，其余返回 `already has an active goal`。
 - **用户动作**：`POST /api/agents/:sessionId/goal` 的 `confirm` / `pause` / `resume` / `cancel` / `revise`（需新 `objective`）/ `accept`（仅兼容旧 `needs_review`；当前 UI 不提供 confirm/accept，规划自动执行）。`pause` 在忙时先置 `pausing`；`cancel` 终止并持久化后拆除 run/watchdog（失败则保持活跃以便重试）；`resume` 只继续执行，从不隐式完成目标。

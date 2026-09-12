@@ -1,4 +1,15 @@
-## 当前交接：goal-p0-fixes（done，实现与定向自动验证完成；浏览器未实测）
+## 当前交接：goal-configurable-iterations（done，实现与定向自动验证完成；浏览器未实测）
+
+- 目标：goal 最大轮次默认 8→20，并可在设置·常规页配置（样式与项目匹配）。
+- 改动（25 个文件，3 新增）：`server/agent-goal-state.mjs`（GOAL_BUDGET_DEFAULTS 8→20）、`server/goal-settings.mjs`（新增：settings 键 `goal-settings`、clamp 1–100、fail-open 回落 20）、`server/agent-goal-runner.mjs`（startGoalPlanning 锁内读配置传 budget；extendResumeGoal 追加量用配置值）、`src/lib/goal-settings.ts`（新增）、`src/lib/default-options-settings-tab.ts`（常规页新增「Goal 最大轮次」数值行，零新增 CSS）、`src/lib/goal.ts`（goalBudgetExtension 参数化默认 20）、`src/lib/i18n.ts`（goalMaxIterations(+Description) en+zh）、`src/components/workspace/GoalInspectorContent.tsx`（useEffect 读配置展示追加增量）、测试 7 文件（server goal-settings 新增、state/runner 断言 8/16/24→20/40/60 重推、frontend 镜像 +8→+20、settings-normalizers 新用例）、wiki 7 文件（契约速记行 ×4 + README:56 + server 预算段 + routes/src/lib/src 段落）与三状态文件。
+- 验证（父 Agent 实跑）：合并定向 vitest 10 文件 238/238 通过（manager 日志 round 0/20 生效；agent-goal-runtime 15/15）；`npm run lint` 0 error（仅既有 warning）；`npx tsc -b` 0；`npm run build` 成功。实现由两个 general subagent 并行（服务端/前端），父 Agent 亲读 diff 复审。
+- Blocker：无。
+- Notes：extend 追加量与配置值同源（解耦属评审 B4）；存量 goal 已持久化 maxIterations 不改写；settings 读取失败 fail-open 回落 20。未新增依赖、无 Git 提交。
+- 下一步：浏览器验收设置·常规页新行（观感/窄屏/中英文）；验收后可考虑 commit。
+
+---
+
+## 上一轮交接：goal-p0-fixes（done，实现与定向自动验证完成；浏览器未实测）
 
 - 目标：落地 Goal 显示交互评审报告的 P0 三项（用户指示「修复p0」）。
 - 改动（9 个文件）：`goal-control-strip.ts`（openSummary(view) 参数化：预算耗尽 resume → 'progress' 对齐 wiki :148；编辑 icon 保持 'edit'、aria/title 换 goalEditObjective）、`goal-iteration-divider.ts`（execution error/blocked/cancelled 轮换警示叹号，budget/completed/paused/needs_review 保留对勾）、`i18n.ts`（六组 key en+zh 去确认承诺：goalCommandDescription/goalResumeNote/goalScopeChangeNote/goalHintPaused/goalPauseSaveNote/goalReportWasWaiting）、两个测试（strip 预算耗尽 WithArgs('progress') + aria 断言、divider 新增 3 组 execution 图标用例）、wiki components README :19 补图标语义、三状态文件。

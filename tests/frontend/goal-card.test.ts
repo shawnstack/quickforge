@@ -372,7 +372,12 @@ describe('goal card i18n and styling', () => {
   it('styles the control strip as a minimal in-flow row reusing the goal tone tokens', () => {
     const block = css.slice(css.indexOf('/* Goal control strip'), css.indexOf('/* Goal mode card'))
     const rootRule = block.match(/\.quickforge-goal-strip\s*\{[^}]*\}/)?.[0] ?? ''
-    expect(rootRule).toMatch(/width:\s*100%/)
+    // The strip hugs its content (capped at the composer width) instead of
+    // stretching across the whole composer shell.
+    expect(rootRule).toMatch(/width:\s*fit-content/)
+    expect(rootRule).toMatch(/max-width:\s*100%/)
+    // Auto side margins center the fit-content row under the composer.
+    expect(rootRule).toMatch(/margin:\s*0\s+auto\s+0\.375rem/)
     expect(rootRule).toMatch(/flex:\s*none/)
     expect(rootRule).toContain('--quickforge-goal-tone')
     expect(rootRule).not.toMatch(/position:\s*(?:fixed|absolute)/)

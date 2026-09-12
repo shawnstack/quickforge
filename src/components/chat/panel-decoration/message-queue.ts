@@ -172,6 +172,7 @@ function isQueueAnchorFollower(element: Element | null): boolean {
   return Boolean(
     element
     && (element.classList.contains('quickforge-todo-summary')
+      || element.classList.contains('quickforge-goal-strip')
       || element.classList.contains('message-editor')
       || isSuggestionMenu(element)),
   )
@@ -256,9 +257,9 @@ export function createMessageQueuePanelController({
     const suggestionMenu = Array.from(composerShell.children).find((element) => isSuggestionMenu(element))
     const insertionTarget = suggestionMenu ?? editor
     if (!insertionTarget) return false
-    // Stable once settled: menu / editor / todo-summary sitting right after us
-    // are all legal followers, otherwise both anchored controllers would flip
-    // relative positions on every decorate pass.
+    // Stable once settled: menu / editor / todo-summary / goal strip sitting
+    // right after us are all legal followers, otherwise the anchored
+    // controllers would flip relative positions on every decorate pass.
     if (root.parentElement !== composerShell || !isQueueAnchorFollower(root.nextElementSibling)) {
       composerShell.insertBefore(root, insertionTarget)
     }

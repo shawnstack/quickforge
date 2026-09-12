@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GoalAction, GoalState } from '../../src/lib/goal'
 import { buildGoalControlStripView, createGoalControlStripController } from '../../src/components/chat/panel-decoration/goal-control-strip'
 
-// The strip only needs t() at render time. Keeping the identity mapping lets the
-// tests assert on the i18n keys the row actually renders.
+// The strip only needs t() at render time. Appending the params keeps the
+// tests assertable on the values the row actually renders (e.g. the recorded
+// duration seconds) while still showing the i18n key.
 vi.mock('@/lib/i18n', () => ({
-  t: (key: string) => key,
+  t: (key: string, params?: Record<string, string | number>) => (params ? `${key} ${JSON.stringify(params)}` : key),
 }))
 
 // ---------------------------------------------------------------------------
@@ -53,6 +54,15 @@ class FakeElement {
 
   get firstElementChild(): FakeElement | null {
     return this.children[0] ?? null
+  }
+
+  get nextElementSibling(): FakeElement | null {
+    if (!this.parentElement) return null
+    return this.parentElement.children[this.parentElement.children.indexOf(this) + 1] ?? null
+  }
+
+  classList = {
+    contains: (name: string) => this.className.split(/\s+/).includes(name),
   }
 
   setAttribute(name: string, value: string): void {
@@ -293,6 +303,8 @@ describe('buildGoalControlStripView', () => {
     expect(buildGoalControlStripView(goal({ status: 'planning' }))).toMatchObject({
       statusKey: 'goalStatusPlanning',
       primaryAction: 'none',
+      // The checklist icon for planning stays still; only busy states spin.
+      spinning: false,
     })
     // `pausing` keeps the pause affordance so it can render it disabled.
     expect(buildGoalControlStripView(goal({ status: 'pausing' }))).toMatchObject({
@@ -345,13 +357,14 @@ describe('goal control strip DOM controller', () => {
     s.controller.cleanup()
   })
 
-  it('mounts a compact single row as the first in-flow sibling of the composer', () => {
+  it('mounts a compact single row directly above the composer editor', () => {
     const s = setup({ status: 'running' })
     s.controller.update()
     const root = s.root()
     expect(root).toBeTruthy()
     expect(root!.tagName).toBe('section')
-    expect(s.composerShell.firstElementChild).toBe(root)
+    expect(s.composerShell.children).toEqual([root, s.editor])
+    expect(root!.nextElementSibling).toBe(s.editor)
     expect(root!.dataset.status).toBe('running')
     expect(root!.getAttribute('aria-label')).toBe('goalTitle')
 
@@ -368,17 +381,49 @@ describe('goal control strip DOM controller', () => {
     // A second update must not duplicate or move the row.
     s.controller.update()
     expect(s.composerShell.children.filter((child) => child.className.includes('quickforge-goal-strip'))).toHaveLength(1)
-    expect(s.composerShell.firstElementChild).toBe(root)
+    expect(s.composerShell.children).toEqual([root, s.editor])
   })
 
-  it('keeps the row above a sibling anchor instead of jumping in front of it', () => {
+  it('shows the checklist icon for planning and awaiting confirmation', () => {
+    const s = setup({ status: 'planning' })
+    s.controller.update()
+    const icon = byClass(s.root()!, 'quickforge-goal-strip-icon')!
+    // A plan in progress (or waiting for its confirmation) reads as a
+    // checklist, not as the generic info circle.
+    expect(icon.innerHTML).toContain('<rect x="3" y="5" width="6" height="6" rx="1"/>')
+    expect(icon.innerHTML).toContain('<path d="m3 17 2 2 4-4"/>')
+    expect(icon.innerHTML).not.toContain('<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/>')
+
+    s.state.goal = goal({ status: 'awaiting_confirmation' })
+    s.controller.update()
+    expect(byClass(s.root()!, 'quickforge-goal-strip-icon')!.innerHTML).toContain('<rect x="3" y="5" width="6" height="6" rx="1"/>')
+
+    // Running keeps the clock-style active icon.
+    s.state.goal = goal({ status: 'running' })
+    s.controller.update()
+    expect(byClass(s.root()!, 'quickforge-goal-strip-icon')!.innerHTML).not.toContain('<rect x="3" y="5" width="6" height="6" rx="1"/>')
+  })
+
+  it('keeps the row directly above the editor behind a queued-message anchor', () => {
     const s = setup({ status: 'running' })
     const queue = new FakeElement('section')
     queue.className = 'quickforge-msg-queue'
     s.composerShell.insertBefore(queue, s.editor)
     s.controller.update()
-    expect(s.composerShell.children[0]).toBe(s.root())
-    expect(s.composerShell.children[1]).toBe(queue)
+    expect(s.composerShell.children).toEqual([queue, s.root(), s.editor])
+  })
+
+  it('keeps the row above the suggestion menu that sits adjacent to the editor', () => {
+    const s = setup({ status: 'running' })
+    const menu = new FakeElement('div')
+    menu.className = 'quickforge-command-suggestions'
+    s.composerShell.insertBefore(menu, s.editor)
+    s.controller.update()
+    expect(s.composerShell.children).toEqual([s.root(), menu, s.editor])
+
+    // Controller updates must not move the strip between the menu and editor.
+    s.controller.update()
+    expect(s.composerShell.children).toEqual([s.root(), menu, s.editor])
   })
 
   it('hides for a missing, terminal or gated goal', () => {
@@ -433,7 +478,9 @@ describe('goal control strip DOM controller', () => {
     const s = setup({ status: 'paused', usage: { iterations: 999, activeDurationMs: 0 } })
     s.controller.update()
     actionButton(s.root()!, 'resume')!.click()
-    expect(s.goalUi.requestOpenGoalSummary).toHaveBeenCalled()
+    // The budget confirmation group only renders in the Inspector progress
+    // view; the wiki contract keeps this entry pointing there, never at edit.
+    expect(s.goalUi.requestOpenGoalSummary).toHaveBeenCalledWith('session-1', 'goal-1', 'progress')
     expect(s.goalUi.runGoalUiAction).not.toHaveBeenCalled()
     expect(s.onAction).not.toHaveBeenCalled()
     s.controller.cleanup()
@@ -442,14 +489,71 @@ describe('goal control strip DOM controller', () => {
   it('formats the recorded duration in minutes past the first minute and in seconds below it', () => {
     const s = setup({ status: 'running', usage: { iterations: 4, activeDurationMs: 61 * 60_000 } })
     s.controller.update()
-    expect(byClass(s.root()!, 'quickforge-goal-strip-duration')!.textContent).toBe('goalRecordedDurationMinutes')
+    expect(byClass(s.root()!, 'quickforge-goal-strip-duration')!.textContent).toBe('goalRecordedDurationMinutes {"minutes":61}')
     // Exactly one minute still reads as a minute, not "60 seconds".
     s.state.goal = goal({ status: 'running', usage: { iterations: 4, activeDurationMs: 60_000 } })
     s.controller.update()
-    expect(byClass(s.root()!, 'quickforge-goal-strip-duration')!.textContent).toBe('goalRecordedDurationMinutes')
+    expect(byClass(s.root()!, 'quickforge-goal-strip-duration')!.textContent).toBe('goalRecordedDurationMinutes {"minutes":1}')
     s.state.goal = goal({ status: 'running', usage: { iterations: 4, activeDurationMs: 59_000 } })
     s.controller.update()
-    expect(byClass(s.root()!, 'quickforge-goal-strip-duration')!.textContent).toBe('goalRecordedDuration')
+    expect(byClass(s.root()!, 'quickforge-goal-strip-duration')!.textContent).toBe('goalRecordedDuration {"seconds":59}')
+  })
+
+  it('advances the recorded duration every second while the goal is active', () => {
+    vi.useFakeTimers()
+    try {
+      // The server settles usage.activeDurationMs only per run: a planning
+      // round reports 0, so the strip must interpolate locally.
+      const s = setup({ status: 'planning', usage: { iterations: 0, activeDurationMs: 0 } })
+      s.controller.update()
+      const duration = byClass(s.root()!, 'quickforge-goal-strip-duration')!
+      expect(duration.textContent).toBe('goalRecordedDuration {"seconds":0}')
+      expect(vi.getTimerCount()).toBe(1)
+
+      vi.advanceTimersByTime(2_000)
+      expect(duration.textContent).toBe('goalRecordedDuration {"seconds":2}')
+
+      // A fresh snapshot re-anchors the interpolation; the ticker continues
+      // from the new server value (59s + 1s crosses into the first minute).
+      s.state.goal = goal({ status: 'running', revision: 4, usage: { iterations: 1, activeDurationMs: 59_000 } })
+      s.controller.update()
+      expect(duration.textContent).toBe('goalRecordedDuration {"seconds":59}')
+      vi.advanceTimersByTime(1_000)
+      expect(duration.textContent).toBe('goalRecordedDurationMinutes {"minutes":1}')
+
+      // Removing the goal or ending it clears the ticker with the row.
+      s.state.goal = null
+      s.controller.update()
+      expect(s.root()).toBeNull()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears the duration ticker when the goal turns terminal or the strip is cleaned up', () => {
+    vi.useFakeTimers()
+    try {
+      const s = setup({ status: 'running', usage: { iterations: 4, activeDurationMs: 300_000 } })
+      s.controller.update()
+      const duration = byClass(s.root()!, 'quickforge-goal-strip-duration')!
+      expect(vi.getTimerCount()).toBe(1)
+
+      s.state.goal = goal({ status: 'completed', usage: { iterations: 4, activeDurationMs: 300_000 } })
+      s.controller.update()
+      expect(s.root()).toBeNull()
+      expect(vi.getTimerCount()).toBe(0)
+
+      // A fresh active row starts exactly one new ticker; cleanup releases it.
+      s.state.goal = goal({ status: 'running', usage: { iterations: 4, activeDurationMs: 300_000 } })
+      s.controller.update()
+      expect(vi.getTimerCount()).toBe(1)
+      s.controller.cleanup()
+      expect(vi.getTimerCount()).toBe(0)
+      expect(duration.textContent).toBe('goalRecordedDurationMinutes {"minutes":5}')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps the inline cancel confirmation to a single sentence', () => {
@@ -641,7 +745,12 @@ describe('goal control strip DOM controller', () => {
   it('opens the summary from the icon and from the short error, even while pending', async () => {
     const s = setup({ status: 'running' })
     s.controller.update()
-    actionButton(s.root()!, 'open')!.click()
+    const open = actionButton(s.root()!, 'open')!
+    // The icon navigates to the editor view, so its accessible name says edit,
+    // not a generic summary label (the pinned summary owns that wording).
+    expect(open.getAttribute('aria-label')).toBe('goalEditObjective')
+    expect(open.title).toBe('goalEditObjective')
+    open.click()
     expect(s.goalUi.requestOpenGoalSummary).toHaveBeenCalledWith('session-1', 'goal-1', 'edit')
 
     s.goalUi.setState('session-1', 'goal-1', { pending: true, error: 'Tool failed' })

@@ -27,9 +27,10 @@ afterEach(() => { state.confirmation = null; clearGoalUi(goal.sessionId, goal.id
 applyAppLanguageFromSnapshot('en')
 
 describe('budget confirmation SSR', () => {
-  it('renders a null duration budget as unlimited without invalid meter values', () => {
+  it('hides the duration budget row when unlimited, without invalid meter values', () => {
     const html = render({ budget: { maxIterations: 8, maxActiveDurationMs: null }, usage: { iterations: 1, activeDurationMs: 9_000_000 } })
-    expect(html).toContain('Unlimited')
+    expect(html).not.toContain('Unlimited')
+    expect(html).not.toContain('Elapsed (min)')
     expect(html).not.toMatch(/NaN|Infinity|width:null|width:undefined/)
     expect(html).not.toContain('Exhausted')
   })

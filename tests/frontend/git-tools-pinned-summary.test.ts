@@ -440,6 +440,7 @@ describe('GitToolsPinnedSummary source contract', () => {
       'pinnedSummaryCapsuleAgentsAria',
       'pinnedSummaryCapsuleFallbackAria',
       'pinnedSummaryCapsuleSeparator',
+      'pinnedGoalTitle',
     ]) {
       expect(i18nSource.match(new RegExp(`${key}:`, 'g'))).toHaveLength(2)
     }
@@ -490,8 +491,13 @@ describe('GitToolsPinnedSummary goal section', () => {
   it('stays mounted for a goal-only session and renders the goal section', () => {
     const html = renderSummary({ goal: goalState, goalSessionId: 'session-1', onGoalAction: async () => {} })
     expect(html).toContain('quickforge-goal-summary')
+    // The goal renders as a titled group like the git/tasks sections.
+    expect(html).toContain('aria-labelledby="pinned-goal-title"')
+    expect(html).toContain('id="pinned-goal-title"')
+    expect(html).toContain('<span>1/1</span>')
     expect(html).toContain('收敛 Goal 到置顶摘要')
     expect(html).toContain('执行中')
+    expect(html).toContain('构建通过')
     expect(html).toContain('quickforge-goal-icon')
     expect(html).not.toContain('lucide-target')
     // No git repo, todo list or subagent run is required for the summary.
@@ -510,6 +516,11 @@ describe('GitToolsPinnedSummary goal section', () => {
     expect(goalIndex).toBeGreaterThan(-1)
     expect(goalIndex).toBeLessThan(summarySource.indexOf('{hasGitSection && status && projectId ? ('))
     expect(summarySource).toContain("<GoalSummarySection goal={goal} sessionId={goalSessionId} onAction={onGoalAction} />")
+    // The goal group itself (title + criteria + navigation) is owned by the
+    // section component, matching the pinned git/tasks group structure.
+    expect(goalSectionSource).toContain('<section aria-labelledby="pinned-goal-title">')
+    expect(goalSectionSource).toContain('id="pinned-goal-title"')
+    expect(goalSectionSource).toContain("t('pinnedGoalTitle')")
     // Goal-first capsule with a real status and accepted-criteria count, capped
     // density for the remaining segments.
     expect(summarySource.indexOf("key: 'goal'")).toBeLessThan(summarySource.indexOf("key: 'tasks'"))

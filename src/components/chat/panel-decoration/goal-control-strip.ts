@@ -2,6 +2,7 @@ import { t, type AppTextKey } from '@/lib/i18n'
 import {
   goalCanCancel,
   goalBudgetExtension,
+  isGoalActive,
   isGoalSpinning,
   isGoalTerminal,
   type GoalAction,
@@ -140,7 +141,9 @@ export function buildGoalControlStripView(goal: GoalState): GoalControlStripView
 }
 
 const STATUS_ICON: Record<GoalCardTone, string> = {
-  info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>',
+  // planning / awaiting_confirmation show a checklist: the plan (and its
+  // pending confirmation) is the headline, not a generic info circle.
+  info: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>',
   active: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   warning: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
   success: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg>',
@@ -159,6 +162,13 @@ function blockedTitle(view: GoalControlStripView, ui: GoalControlStripUiState): 
   if (ui.dirty) return t('goalUnsavedChanges')
   if (view.status === 'pausing') return t('goalStatusPausing')
   return ''
+}
+
+/** Minutes read better than raw seconds; sub-minute activity keeps seconds. */
+function formatRecordedDuration(activeDurationMs: number): string {
+  return activeDurationMs >= 60_000
+    ? t('goalRecordedDurationMinutes', { minutes: Math.floor(activeDurationMs / 60_000) })
+    : t('goalRecordedDuration', { seconds: Math.floor(activeDurationMs / 1_000) })
 }
 
 export function createGoalControlStripController(deps: GoalControlStripDeps): GoalControlStripController {
@@ -197,6 +207,14 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
   let subscribedSession = ''
   let subscribedGoal = ''
   let unsubscribe: (() => void) | null = null
+  // The server settles usage.activeDurationMs only when a run ends, so the
+  // strip interpolates the recorded duration locally between snapshots: the
+  // anchor resets on every fresh snapshot and a 1s ticker refreshes just the
+  // duration node — never the whole row, which would re-trigger the live
+  // status label.
+  let durationTicker: ReturnType<typeof setInterval> | null = null
+  let durationAnchorMs = 0
+  let durationAnchorAt = 0
   // Monotonic token isolating async action results: a stale response may only
   // repaint the strip while it still belongs to the same session/goal.
   let actionToken = 0
@@ -220,6 +238,25 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
     unsubscribe = null
     subscribedSession = ''
     subscribedGoal = ''
+  }
+
+  const stopDurationTicker = () => {
+    if (durationTicker === null) return
+    clearInterval(durationTicker)
+    durationTicker = null
+  }
+
+  const startDurationTicker = () => {
+    if (durationTicker !== null) return
+    durationTicker = setInterval(() => {
+      const goal = getGoal()
+      if (!nodes || !goal || !isGoalActive(goal.status)) {
+        stopDurationTicker()
+        return
+      }
+      const elapsed = durationAnchorMs + Math.max(0, Date.now() - durationAnchorAt)
+      nodes.duration.textContent = formatRecordedDuration(elapsed)
+    }, 1_000)
   }
 
   /**
@@ -247,6 +284,8 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
 
   /** Detaches the row (and its nodes) without touching the subscription. */
   const detachRoot = () => {
+    // No row means no duration to keep interpolating.
+    stopDurationTicker()
     const hadFocus = root !== null && focusIsWithin(root)
     root?.remove()
     root = null
@@ -269,10 +308,10 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
   }
 
   /** Opens the summary of the row currently on screen — never a stale goal. */
-  const openSummary = () => {
+  const openSummary = (view: 'progress' | 'edit' = 'edit') => {
     if (!renderedGoal) return
     if (getSessionId() !== renderedSession || getGoal()?.id !== renderedGoal) return
-    goalUi.requestOpenGoalSummary(renderedSession, renderedGoal, 'edit')
+    goalUi.requestOpenGoalSummary(renderedSession, renderedGoal, view)
   }
 
   const runAction = async (action: 'pause' | 'resume', sessionId: string, goalId: string) => {
@@ -294,17 +333,23 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
     renderCurrent()
   }
 
-  const ensureRoot = (composerShell: HTMLElement) => {
+  const ensureRoot = (composerShell: HTMLElement, editor: HTMLElement) => {
     if (!root) {
       root = document.createElement('section')
       root.className = 'quickforge-goal-strip'
       root.setAttribute('aria-label', t('goalTitle'))
     }
-    // The strip stays the first in-flow sibling of the composer shell: the
-    // TodoWrite summary / queued-message anchors only tolerate each other, so a
-    // new sibling must never land between them.
-    if (root.parentElement !== composerShell || composerShell.firstElementChild !== root) {
-      composerShell.insertBefore(root, composerShell.firstElementChild)
+    const suggestionMenu = Array.from(composerShell.children).find((element) => (
+      element.classList.contains('quickforge-command-suggestions')
+      || element.classList.contains('quickforge-file-reference-suggestions')
+    ))
+    const insertionTarget = suggestionMenu ?? editor
+    // The strip hugs the editor (or the suggestion menu floating above it):
+    // the strip is the last writer of the decorate sequence, so whenever an
+    // earlier sibling squeezes it away it re-settles by the end of the same
+    // cycle — no other follower needs to be tolerated here.
+    if (root.parentElement !== composerShell || root.nextElementSibling !== insertionTarget) {
+      composerShell.insertBefore(root, insertionTarget)
     }
   }
 
@@ -342,8 +387,10 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
     const open = document.createElement('button')
     open.type = 'button'
     open.className = 'quickforge-goal-strip-action quickforge-goal-strip-action--open'
-    open.setAttribute('aria-label', t('goalOpenSummary'))
-    open.title = t('goalOpenSummary')
+    // The icon navigates to the editor view, so its accessible name says edit,
+    // not a generic summary label (the pinned summary owns that wording).
+    open.setAttribute('aria-label', t('goalEditObjective'))
+    open.title = t('goalEditObjective')
     open.innerHTML = ACTION_ICON.open
     open.addEventListener('click', (event) => {
       event.preventDefault()
@@ -402,7 +449,9 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
       if (button.disabled || !renderedAction) return
       const goal = getGoal()
       if (renderedAction === 'resume' && goal && goalBudgetExtension(goal).exhausted) {
-        openSummary()
+        // The budget confirmation group only renders in the progress view;
+        // the wiki contract keeps this entry pointing there, not at edit.
+        openSummary('progress')
         return
       }
       void runAction(renderedAction, renderedSession, renderedGoal)
@@ -417,11 +466,10 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
     if (!host || !strip) return
     const { icon, label, error, spacer, open, duration, cancel, confirm, keep, cancelNote } = strip
     if (renderedSession !== sessionId || renderedGoal !== view.id) cancelConfirmation = false
-    // Minutes read better than raw seconds; sub-minute activity keeps seconds.
+    // A fresh paint implies a fresh server snapshot (see renderCurrent): the
+    // ticker adds elapsed time on top of this value.
     const activeDurationMs = getGoal()?.usage.activeDurationMs ?? 0
-    duration.textContent = activeDurationMs >= 60_000
-      ? t('goalRecordedDurationMinutes', { minutes: Math.floor(activeDurationMs / 60_000) })
-      : t('goalRecordedDuration', { seconds: Math.floor(activeDurationMs / 1_000) })
+    duration.textContent = formatRecordedDuration(activeDurationMs)
     cancel.disabled = ui.pending || !goalCanCancel(view.status)
     confirm.disabled = ui.pending
     keep.disabled = ui.pending
@@ -522,7 +570,7 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
       detachRoot()
       return
     }
-    ensureRoot(composerShell)
+    ensureRoot(composerShell, editor)
 
     const sessionId = getSessionId()
     // Identity-bound subscription: a session/goal switch must never leak the
@@ -549,7 +597,14 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
     })
     if (nextSignature === signature) return
     signature = nextSignature
+    // Fresh server snapshot: re-anchor the interpolated duration here (not in
+    // paint) so the ticker keeps counting from this exact usage value.
+    durationAnchorMs = goal.usage.activeDurationMs
+    durationAnchorAt = Date.now()
     paint(view, sessionId, ui)
+    // The row is visible, so the goal is non-terminal: keep the recorded
+    // duration moving between snapshots. detachRoot/reset stops the ticker.
+    if (nodes) startDurationTicker()
   }
 
   return {

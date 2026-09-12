@@ -20,16 +20,29 @@ afterEach(() => clearGoalUi(goal.sessionId, goal.id))
 applyAppLanguageFromSnapshot('zh')
 
 describe('Goal summary navigation', () => {
-  it('renders one two-line entry with real status/title/count, without editor or action stack', () => {
+  it('renders a titled group with the planned criteria and one navigation entry', () => {
     const html = render()
+    expect(html).toContain('aria-labelledby="pinned-goal-title"')
+    expect(html).toContain('id="pinned-goal-title"')
+    expect(html).toContain('<span>目标</span>')
+    // The passed/total count moved into the group header, tasks-style.
+    expect(html).toContain('<span>1/2</span>')
     expect(html.match(/<button\b/g)).toHaveLength(1)
     expect(html).toContain('执行中')
     expect(html).toContain(goal.objective)
     expect(html).toContain('class="quickforge-goal-icon size-3.5 shrink-0"')
     expect(html).not.toContain('lucide-target')
-    expect(html).toContain('1/2 项验收标准')
     expect(html).toContain(goal.summary)
+    // The planned criteria render as read-only rows inside the group.
+    expect(html).toContain('构建通过')
+    expect(html).toContain('窄屏可用')
     expect(html).not.toMatch(/textarea|progressbar|<details/)
+  })
+  it('keeps the title and navigation row when the goal has no criteria yet', () => {
+    const html = render({ ...goal, criteria: [] })
+    expect(html).toContain('aria-labelledby="pinned-goal-title"')
+    expect(html).toContain('<span>0/0</span>')
+    expect(html).toContain(goal.objective)
     expect(html).not.toContain('构建通过')
   })
   it('prioritizes blockers over summaries', () => {

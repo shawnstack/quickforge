@@ -251,8 +251,9 @@ export function normalizeGoalState(raw: unknown): (GoalState & { planConfirmed: 
 // --- Status semantics shared by the card and its tests ---------------------
 
 const TERMINAL_STATUSES = new Set<GoalStatus>(['completed', 'failed', 'cancelled'])
+// Planning shows a static checklist: the list itself does not spin — only
+// busy states (running, verifying, waiting, pausing) animate their icon.
 const SPINNING_STATUSES = new Set<GoalStatus>([
-  'planning',
   'running',
   'verifying',
   'awaiting_input',

@@ -28,9 +28,14 @@ export function syncGoalIterationDivider(element: HTMLElement, details: unknown)
             : outcome === 'needs_review' ? t('goalIterationReview')
               : outcome === 'error' ? t('goalIterationError') : t('goalIterationPaused')
   const text = `${planning ? t('goalPlanningLabel') : t('goalIterationNumber', { count: String(marker.iteration) })} · ${label}`
-  // A planning failure must not inherit the successful round's checkmark.
+  // A failed or halted round must not wear the successful round's checkmark:
+  // planning warns until it settles, and execution error/blocked/cancelled
+  // outcomes read as warnings. Budget pauses stay recoverable (checkmark).
+  const warningOutcome = planning
+    ? outcome !== 'running'
+    : outcome === 'error' || outcome === 'blocked' || outcome === 'cancelled'
   const iconMarkup = '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.5"/>'
-    + (planning && outcome !== 'running'
+    + (warningOutcome
       ? '<path d="M12 7v6m0 3v1" fill="none" stroke="currentColor" stroke-width="1.5"/>'
       : '<path d="m8 12 3 3 5-6" fill="none" stroke="currentColor" stroke-width="1.5"/>')
   if (!divider) {

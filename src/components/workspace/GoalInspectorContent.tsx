@@ -226,12 +226,13 @@ export function GoalInspectorContent({ goal, sessionId, onAction, onSave, active
               <span className="quickforge-goal-inspector-budget-value">{goal.usage.iterations}<em>/{goal.budget.maxIterations}</em></span>
               {iterationExhausted && <span className="quickforge-goal-inspector-chip">{t('goalBudgetExhausted')}</span>}
             </div>
-            <div className="quickforge-goal-inspector-budget-row" data-exhausted={durationExhausted}>
+            {/* Unlimited duration carries no budget to compare against: the row stays hidden. */}
+            {goal.budget.maxActiveDurationMs !== null && <div className="quickforge-goal-inspector-budget-row" data-exhausted={durationExhausted}>
               <span className="quickforge-goal-inspector-budget-label">{t('goalBudgetDurationLabel')}</span>
-              {goal.budget.maxActiveDurationMs !== null && <div className="quickforge-goal-inspector-meter"><div className="quickforge-goal-inspector-meter-fill" style={{ width: `${meterPercent(goal.usage.activeDurationMs, goal.budget.maxActiveDurationMs)}%` }} /></div>}
-              <span className="quickforge-goal-inspector-budget-value">{goalDurationMinutes(goal.usage.activeDurationMs)}<em>/{goal.budget.maxActiveDurationMs === null ? t('goalUnlimitedTime') : goalDurationMinutes(goal.budget.maxActiveDurationMs)}</em></span>
+              <div className="quickforge-goal-inspector-meter"><div className="quickforge-goal-inspector-meter-fill" style={{ width: `${meterPercent(goal.usage.activeDurationMs, goal.budget.maxActiveDurationMs)}%` }} /></div>
+              <span className="quickforge-goal-inspector-budget-value">{goalDurationMinutes(goal.usage.activeDurationMs)}<em>/{goalDurationMinutes(goal.budget.maxActiveDurationMs)}</em></span>
               {durationExhausted && <span className="quickforge-goal-inspector-chip">{t('goalBudgetExhausted')}</span>}
-            </div>
+            </div>}
           </div>
           <details className="quickforge-goal-inspector-scope"><summary>{t('goalScopeLabel')}</summary><ul>{model.scope.map((scope, index) => <li key={index}>{scope}</li>)}</ul></details>
           {budgetConfirmation && <div role="group" aria-label={t('goalExtendResume')} className="quickforge-goal-inspector-confirm" onKeyDown={(event) => {

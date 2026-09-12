@@ -1,3 +1,38 @@
+## goal-p0-fixes（done，实现与定向自动验证完成；浏览器未实测）
+
+- 当前目标：落地 goal-display-interaction-review 评审报告的 P0 三项（用户指示「修复p0」），新增独立 feature 无依赖，不推进其他 feature。
+- 实现：① ND-03——`goal-control-strip.ts` openSummary 参数化，预算耗尽 resume 分支传 'progress'（追加确认组所在视图，对齐 wiki components README:148 既有契约，此前实现固定 'edit' 与 wiki 矛盾）；编辑 icon 保持 'edit' 且 aria/title 换 goalEditObjective（U4：名称与目的地一致）。② G10——`goal-iteration-divider.ts` 叹号条件扩到 execution error/blocked/cancelled（warningOutcome 派生），completed/running/verifying/paused/needs_review/budget 阻断保留对勾。③ ND-04——i18n 六组 key en+zh 值改写去「确认」承诺（goalCommandDescription/goalResumeNote/goalScopeChangeNote/goalHintPaused/goalPauseSaveNote/goalReportWasWaiting），key 名不变。
+- 文件（9 个）：`src/components/chat/panel-decoration/{goal-control-strip,goal-iteration-divider}.ts`、`src/lib/i18n.ts`、`tests/frontend/{goal-control-strip,goal-iteration-divider}.test.ts`、`docs/wiki/src/components/README.md`、三状态文件。
+- 已验（父 Agent 实跑）：定向 vitest 7 文件 194/194 通过（divider 44→67、strip 24→28 含新增断言，既有 open→'edit' 断言不回退）；`npm run lint` 0 error（仅既有 identity.mjs:92 warning）；`npx tsc -b` 0；node 断言 i18n 十组旧措辞零残留、十二条新措辞齐备；JSON.parse 通过；归属脚本确认本轮 prod 改动仅限清单。
+- Notes/边界：done 表示实现与定向自动验证完成，真实浏览器（aria 播报、图标观感、窄屏）未实测。goalOpenSummary key 仍被摘要导航/error span 正确消费；六组 key 名不变保证兼容。未新增依赖，未改 server/dist/package-dist/package-offline，无 Git 提交/发布。
+- 下一步：浏览器验收后可考虑 commit；评审报告 P1/P2 项待用户后续选择。
+
+---
+
+## goal-display-interaction-review（needs-review，纯评审交付与自动验证完成，待用户评审采纳）
+
+- 当前目标：评审 Goal 功能「显示与交互」层的可优化点，产出 `docs/reviews/goal-display-interaction-review.zh-CN.md`，不修改生产代码；新增独立评审 feature（无依赖），不推进其他 feature。基线为 goal-ui-live-ticker-grouped-summary 及其续报微调之后的当前工作树。
+- 方法：两路 explore 只读调研（7 surface 现状地图 + 历史评审约 60 条编号对照）→ 父 Agent 亲读全部关键源码引用并复核 12 项历史「待复核」→ 撰写报告。
+- 核心发现：P0 三项——ND-03 预算耗尽 resume 落点错视图（aria 承诺追加确认、openSummary 固定 edit、确认组只在 progress，goal-control-strip.ts:311-315/:443-446 vs GoalInspectorContent.tsx:238-248）、ND-04 六组 i18n 文案仍承诺已废除的人工确认（入口 goalCommandDescription i18n.ts:388/:2182 等）、G10 执行期失败轮分隔线对勾；P1——ND-05「上方的卡片」语境失效、ND-07 时长 floor/round 口径矛盾、ND-13 错误行无键盘、C-01 tone 色值 4 组+散点、ND-08 置顶摘要无终态过滤；P2——ND-01 accept 恒不可达、ND-02 goal-card.ts 822 行死代码+空壳 plan-confirmation+≥14 死 i18n key 等。ND-06 定性修正：Inspector 无限时长行隐藏为续报微调有意决策（测试锁定），残留仅 wiki 未同步+终态无时长回显（低）。报告含历史编号全量对照表（12 项待复核全部给出源码结论）与撞号说明（G-10≠G10、S-01≠S1）；K-01 重新定性（聊天卡退役后双显不存在，残留为 ND-05 语境错误）；G-16 前两点确认（pr-[5.5rem] WorkspaceInspector.tsx:1957、hover:bg-black :2097）。
+- 文件（4 个）：`docs/reviews/goal-display-interaction-review.zh-CN.md`（新交付物）+ 三状态文件。
+- 已验：父 Agent 亲读核实报告全部 文件:行号 引用；node JSON.parse feature_list.json 通过；grep 报告结构断言（7 surface 小节/对照表/撞号说明/P0P1P2）齐备；git status --porcelain 仅 4 个预期文件，src/server/tests/dist/package-dist/package-offline 零变更。docs-only 未跑 npm test/lint/build（无测试影响面）。
+- 重新规划轮复核（结论交付，goal 重新规划后第 4 轮）：3 个 P0 依据 node 断言在当前工作树仍成立（goal-control-strip.ts openSummary 固定 'edit'、i18n.ts:388 仍含 confirmation、divider 仅 planning 失败换叹号）；归属验证脚本通过——untracked 仅本 goal 交付文件、server/dist/package-dist/package-offline 零变更、17 个非本轮 prod M 全部归属（13 个前序续报清单 + 4 个并行会话布局修复 message-queue/todo-write-summary 的 goal-strip 兄弟容忍逻辑，diff 抽查确认非本轮评审内容），unexpected=0；chat 已交付结论（一句话总评 + P0 三项 + 采纳路径）。上一轮 c6 快照断言 blocked 的教训已吸收：本轮断言直接写成归属形式并全部可验证。
+- Notes/边界：needs-review 表示评审交付与自动验证完成，全部建议未实施，采纳后另开生产 feature。时序/布局类风险（U3/U6/G05/U2）静态推断未动态复现；真实浏览器视觉不在本轮范围。死代码清理（ND-02）涉及契约测试（tests/frontend/goal-card.test.ts:281 断言 Host 不挂载），建议独立 feature 单独评审测试影响。Notes（协作）：本轮撰写期间发现其他会话对 goal-ui-live-ticker-grouped-summary 的续报微调（无限时长行隐藏等）已入工作树，报告已按最新状态引用并修正 ND-06 定性。
+- 下一步：用户评审报告（优先采纳 P0 三项）；采纳后按建议清单开生产 feature。
+
+---
+
+## goal-ui-live-ticker-grouped-summary（done，实现与定向自动验证完成；含续报微调 Inspector 无限时长行隐藏；浏览器视觉未实测）
+
+- 当前目标：用户要求的三项 goal 模式 UI 修复（goal 运行条时长实时递增、规划中清单图标、置顶摘要 Goal 分组化）+ 续报微调（Inspector 累计用时上限无限时整行隐藏），新增独立 feature 无依赖，不推进其他 feature。
+- 实现：1) `goal-control-strip.ts` 新增 1s interval ticker——以每次服务端快照的 `usage.activeDurationMs` 为锚点（快照到达时重置 `durationAnchorMs`/`durationAnchorAt`），显示锚点值 + 自快照到达起的流逝时间，服务端结算值仍为最终基准；goal 移除、转 terminal 或 detachRoot 即停并清理，再挂载重新锚定。推翻 wiki 旧约束「不以挂载时间或浏览器计时伪造实时用量」（原约束导致规划轮进行中时长冻结在 0 秒）。2) `STATUS_ICON.info`（仅 planning/awaiting_confirmation 使用）由圆圈+i info 图标换为 list-todo 清单 SVG（复选框+勾+三条线），`goal-control-strip.ts` 与 `goal-card.ts` 两处副本同步。3) `GoalSummarySection.tsx` 从无标题两行导航按钮改为与 Git/Tasks 组一致的带标题分组（`section aria-labelledby="pinned-goal-title"`，标题「Goal/目标」+ passed/total 计数），组内按序渲染规划 criteria todos（状态 icon：passed→CheckCircle2 绿 / failed→XCircle destructive / needs_review→Clock3 琥珀 / pending→Circle 弱化，passed 加 line-through），保留打开 Inspector 的导航按钮；`i18n.ts` 新增 pinnedGoalTitle（en Goal / zh 目标）。`GitToolsPinnedSummary.tsx` 零改动。4) 续报微调：`GoalInspectorContent.tsx` 预算区「累计用时（分钟）」行在 `maxActiveDurationMs === null`（goal 模式时间上限恒无限）时整行隐藏，不再显示「N/无限」；有限上限行为不变；`goalUnlimitedTime` i18n key 保留（goal-card.ts 聊天卡片仍在用）。5) 续报微调二：`goal.ts` 的 `SPINNING_STATUSES` 移除 `planning`（清单图标静止，仅 running/verifying/awaiting_input/awaiting_approval/pausing 忙碌态旋转，strip 与卡片共享语义）；`.quickforge-goal-strip` 宽度由 `width: 100%` 改 `fit-content` + `max-width: 100%`，运行条随内容自适应收缩不再占满 composer shell 全宽。6) 续报微调三：goal strip 锚点从 composer shell 首位改为 `suggestionMenu ?? editor` 紧前（紧贴输入框，任务摘要出现时仍在输入框上方紧邻）；todo-write-summary 的 isSettled 与 message-queue 的 isQueueAnchorFollower 均新增容忍 `quickforge-goal-strip` 后继，最终稳定顺序 `[msg-queue] [todo-summary] [goal-strip] [建议菜单?] message-editor`，三装饰器零 DOM flip。7) 续报微调四：`.quickforge-goal-strip` margin 改 `0 auto 0.375rem`，fit-content 宽度下左右 auto margin 在 composer shell 内水平居中。
+- 文件（22 个）：`src/components/chat/panel-decoration/{goal-control-strip,goal-card,todo-write-summary,message-queue}.ts`、`src/components/git/GoalSummarySection.tsx`、`src/components/workspace/GoalInspectorContent.tsx`、`src/lib/{i18n,goal}.ts`、`src/index.css`、`tests/frontend/{goal-control-strip,goal-summary-section,git-tools-pinned-summary,goal-budget-inspector,goal-card,goal-state,todo-write-summary,message-queue}.test.ts`、`docs/wiki/src/components/README.md`、`docs/wiki/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 已验：定向 vitest 5 文件 120/120 tests 通过（goal-control-strip ticker 递增/清理/再锚点与新 icon 断言、goal-summary-section criteria 渲染断言（原 not.toContain 反转）、git-tools-pinned-summary 分组 section/标题契约）；`npm run lint` 0 error；`npm run build` 成功。续报微调另验：定向 vitest 3 文件 45/45 通过（goal-budget-inspector 8 用例含新「hides the duration budget row when unlimited」断言，原 toContain('Unlimited') 反转为 not.toContain 并补 not.toContain('Elapsed (min)')）；eslint 两改动文件通过；`tsc -b` 通过。续报微调二另验：定向 vitest 3 文件 83/83 通过（goal-state spinning 分类契约移除 planning、goal-control-strip planning 视图补 spinning:false 断言、goal-card CSS 宽度契约改 fit-content+max-width）；eslint 四改动文件通过；`tsc -b` 通过。续报微调三另验：定向 vitest 3 文件 68/68 通过（goal-control-strip 锚定 editor/menu 紧前、todo-write-summary 容忍 goal-strip 后继场景、message-queue follower 集合契约）；eslint 六改动文件通过；`tsc -b` 通过。续报微调四另验：定向 vitest 2 文件 50/50 通过（goal-card CSS 契约新增 margin 居中断言）；eslint 改动文件 0 error；`npm run build` 成功。
+- Notes/边界：done 表示实现与定向自动验证完成，真实浏览器视觉（窄屏/主题/焦点/读屏）未实测。服务端结算值为最终基准，ticker 仅做快照间插值显示，不改变服务端 usage 记录语义；wiki「≥1 分钟按分钟向下取整」规则保留。未新增/升级依赖，未手工修改 `dist/`、`package-dist/`、`package-offline/`（build 正常刷新 dist），无 Git commit/tag/push/发布。
+- 下一步：无待办；可选后续为真实浏览器视觉验收。改动未提交。
+
+---
+
 ## goal-report-tone-card（done，实现与定向自动验证完成；浏览器视觉为人工判断项未实测）
 
 - 当前目标：将上一轮已验收的 goal 工具对话显示设计（tone 卡片 + 靶心图标 + 状态化验收标准 + scope chip + blocker 警示框）落进生产代码，依赖 `goal-report-renderer`（done），不推进其他 feature。

@@ -272,6 +272,21 @@ describe('TodoWrite composer summary controller', () => {
     expect(env.editor.previousElementSibling).toBe(env.root())
   })
 
+  it('keeps the summary in place when the goal strip sits between it and the editor', () => {
+    const env = createEnv([quickForgeResult([todo('Work', 'in_progress')])])
+    env.controller.update()
+    const strip = new FakeElement()
+    strip.className = 'quickforge-goal-strip'
+    env.composerShell.insertBefore(strip, env.editor)
+    env.controller.update()
+
+    // The goal strip legally hugs the editor; the summary tolerates it instead
+    // of swapping positions on every decorate pass.
+    expect(env.composerShell.children).toEqual([env.root(), strip, env.editor, env.stats])
+    expect(env.root()?.nextElementSibling).toBe(strip)
+    expect(strip.nextElementSibling).toBe(env.editor)
+  })
+
   it('preserves state and placement when the composer shell is rebuilt', () => {
     const env = createEnv([quickForgeResult([todo('Work', 'in_progress')])], { suggestionMenu: 'file' })
     env.controller.update()

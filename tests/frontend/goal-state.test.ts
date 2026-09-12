@@ -252,7 +252,7 @@ describe('goal status semantics', () => {
       expect(isGoalStatus(status)).toBe(true)
       expect(isGoalTerminal(status)).toBe(['completed', 'failed', 'cancelled'].includes(status))
       expect(isGoalSpinning(status)).toBe([
-        'planning', 'running', 'verifying', 'awaiting_input', 'awaiting_approval', 'pausing',
+        'running', 'verifying', 'awaiting_input', 'awaiting_approval', 'pausing',
       ].includes(status))
       // Terminal states are never active; every non-terminal state is active.
       expect(isGoalActive(status)).toBe(!isGoalTerminal(status))

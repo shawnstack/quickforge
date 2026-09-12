@@ -73,6 +73,29 @@ it.each([
   expect(divider?.children[0].innerHTML).not.toContain('m8 12 3 3 5-6')
 })
 
+it.each(['error', 'blocked', 'cancelled'])('marks execution %s rounds with the warning exclamation instead of the checkmark', (outcome) => {
+  const root = new Element()
+  syncGoalIterationDivider(root as unknown as HTMLElement, { quickforgeGoalIteration: { goalId: 'goal', kind: 'execution', iteration: 2, outcome } })
+  const svg = root.lastElementChild!.children[0]
+  expect(svg.innerHTML).toContain('M12 7v6m0 3v1')
+  expect(svg.innerHTML).not.toContain('m8 12 3 3 5-6')
+})
+
+it.each(['completed', 'running', 'verifying', 'paused', 'needs_review'])('keeps the checkmark for execution %s rounds', (outcome) => {
+  const root = new Element()
+  syncGoalIterationDivider(root as unknown as HTMLElement, { quickforgeGoalIteration: { goalId: 'goal', kind: 'execution', iteration: 2, outcome } })
+  const svg = root.lastElementChild!.children[0]
+  expect(svg.innerHTML).toContain('m8 12 3 3 5-6')
+  expect(svg.innerHTML).not.toContain('M12 7v6m0 3v1')
+})
+
+it('keeps the checkmark for a recoverable budget pause', () => {
+  const root = new Element()
+  syncGoalIterationDivider(root as unknown as HTMLElement, { quickforgeGoalIteration: { goalId: 'goal', kind: 'execution', iteration: 2, outcome: 'paused', blocker: 'iteration_budget' } })
+  const svg = root.lastElementChild!.children[0]
+  expect(svg.innerHTML).toContain('m8 12 3 3 5-6')
+})
+
 it.each(['paused', 'blocked', 'cancelled', 'error'])('preserves planning %s even with a stale budget blocker', (outcome) => {
   const root = new Element()
   syncGoalIterationDivider(root as unknown as HTMLElement, {

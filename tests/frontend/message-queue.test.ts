@@ -213,6 +213,12 @@ describe('message queue source contracts', () => {
     expect(barrelSource).toContain("export { createMessageQueuePanelController } from './panel-decoration/message-queue'")
   })
 
+  it('keeps the queue stable when the goal strip sits between it and the editor', () => {
+    // The goal strip legally hugs the editor; the queue tolerates it as a
+    // follower instead of swapping positions on every decorate pass.
+    expect(controllerSource).toContain("element.classList.contains('quickforge-goal-strip')")
+  })
+
   it('gates steering per capabilities and ships both languages', () => {
     expect(capabilitiesSource).toContain('messageSteering: boolean')
     expect(capabilitiesSource.indexOf('messageSteering: true'))

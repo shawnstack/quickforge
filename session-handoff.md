@@ -1,4 +1,27 @@
-## 当前交接：pinned-summary-subagent-finished-show-all（done，实现与定向自动验证完成；浏览器未实测）
+## 当前交接：goal-inspector-hint-popover-width（done，修复与定向验证完成；浏览器未实测）
+
+- 目标：修复右侧 Goal Tab 状态行「已完成」旁 ？ 提示浮层文字竖排（一字一行）。
+- 改动（2+3 文件）：`goal-inspector.css`——position:relative 由 18px ？ 锚点（规则已删）移到状态行，pop-body 宽度 `min(290px,100%)` → `max-content + max-width:min(290px, calc(100vw - 48px))`（根因：100% 按 18px 包含块解析导致逐字换行竖排）；`GoalInspectorContent.tsx`——状态行 GoalHintPopover 移到 time 之后（续修：用户反馈浮层未紧贴 icon；？ 落行末后浮层右缘与 icon 右缘任意面板宽度精确对齐、不裁剪）。
+- 验证：定向 vitest goal-inspector-lifecycle + goal-budget-inspector 13/13（两轮复跑）；tsc -b 0 error；git diff --check 通过；两轮 diff 亲读复审。
+- Blocker：无。
+- Notes：基于并行会话 release-v2.1.0 提交（22fe294）之后基线，当前未提交改动仅本修复 CSS + 三状态文件。浏览器视觉为人工验收项。
+- 下一步：浏览器点 ？ 验收横排显示；可随下次发布提交。
+
+---
+
+## 上一轮交接：release-v2.1.0（done，Git 发布完成；npm publish 待用户手动执行）
+
+- 目标：按用户指令「发布一个版本 2.1.0」完成 minor 发布（v2.0.0..HEAD 17 个提交的 dev 全量，不含 Android），遵循 docs/architecture/patch-release-runbook.zh-CN.md 手动流程（minor 版本号由用户显式指定）。
+- 改动（4+3 文件）：`package.json`/`package-lock.json`（2.0.0→2.1.0）、`CHANGELOG.md`（[2.1.0] - 2026-09-13 章节补全 17 提交内容 + Released 小节含离线包路径与安装命令）、`README.md`（当前版本徽章 2.1.0）+ 三状态文件。
+- 验证：`npm run test` 323 files / 3649 tests 全过；`npm run lint` 0 error（仅既有 identity.mjs:92 warning）；`npm run build` 成功（仅既有 KaTeX/chunk 警告）；`package-offline/shawnstack-quickforge-2.1.0.tgz` 已生成（7.5 MB / 471 files / 版本 2.1.0）。
+- Git：commit `22fe294`（4 文件）+ tag `v2.1.0` + master ff-only 快进，dev/master/tags 已全部推送；HEAD=22fe294 四 ref 同步，推送后工作区干净（状态文件本轮更新除外）。
+- Blocker：无。npm 未登录（npm whoami ENEEDAUTH），publish 留给用户（需先 `npm login`）。
+- Notes：本条目与 progress/feature_list 的状态更新未提交，下个 feature 会话顺带提交；GitHub Release（Desktop Build 工作流由 v* tag 触发）非本轮范围；未手工修改 dist/package-dist/package-offline。
+- 下一步：用户手动 `npm login` + `npm publish`（命令见本轮会话总结）；继续下一个 feature。
+
+---
+
+## 上一轮交接：pinned-summary-subagent-finished-show-all（done，实现与定向自动验证完成；浏览器未实测）
 
 - 目标：落地置顶摘要「智能体 · 已结束」调研报告方案 A（用户采纳）：真实计数 + 展开显示全部 + 提取轻量化。
 - 改动（7+3 文件）：`src/lib/subagent-run-detail.ts`（MAX_TERMINAL_SUBAGENT_RUNS=100 常量、clamp 1..5→1..100、buildSubagentRunPayload 可选 lightweight：traceMessages/input/details 置空跳过全量 stringify，status/error 本地推导，默认行为零变化）、`src/App.tsx`（提取显式传上限常量）、`src/components/git/GitToolsPinnedSummary.tsx`（删 slice(0,3)）、两测试文件（clamp 1..100 + 105 条截断 + 轻量契约 + 5 条 finished 计数/源码断言）、wiki 两段（components/README.md 已结束段、lib/README.md 提取函数段）、三状态文件。

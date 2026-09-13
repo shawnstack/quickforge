@@ -1,3 +1,26 @@
+## goal-inspector-hint-popover-width（done，修复与定向验证完成；浏览器未实测）
+
+- 当前目标：修复用户报告的右侧 Goal Tab「已完成」旁 ？ 提示浮层竖排文字。
+- 根因：`goal-inspector.css` 的 `.quickforge-goal-inspector-pop` 只包住 18px ？ 按钮，pop-body `width:min(290px,100%)` 的 100% 按该包含块解析 → 实宽 ≈18px 逐字换行；且 ？ 左侧时间戳使 right:0 锚点易左溢裁剪。
+- 实现（两轮）：首轮纯 CSS——position:relative 移到 `.quickforge-goal-inspector-status`、删 `.quickforge-goal-inspector-pop` 规则、pop-body 改 `width:max-content; max-width:min(290px, calc(100vw - 48px))`（根因：100% 按仅 18px 宽的 ？ 包含块解析导致逐字换行竖排）。续修（用户反馈未紧贴 icon）——`GoalInspectorContent.tsx` 状态行把 GoalHintPopover 移到 time 之后，？ 落在行末；浮层右缘与 ？ icon 右缘在任意面板宽度（340–1200px）精确对齐且不裁剪（从 ？ 右展 290px 在默认 380px 面板会溢出，故采用行末方案）。
+- 文件（5 个）：goal-inspector.css、GoalInspectorContent.tsx + 三状态文件。
+- 已验：定向 vitest 2 文件 13/13（两轮各复跑）；`npx --no-install tsc -b` 0 error（含 TSX 改动）；git diff --check 通过；两轮 diff 亲读复审。
+- Notes/边界：基于并行会话 release-v2.1.0 提交（22fe294）之后的基线；浏览器视觉为人工验收项（点 ？ 确认横排+右对齐）；极窄面板 <322px 左缘理论轻微裁剪属可接受边界。未新增依赖、无 Git 提交。
+- 下一步：浏览器验收后可考虑随下次发布提交。
+
+---
+
+## release-v2.1.0（done，Git 发布完成；npm publish 待用户手动执行）
+
+- 当前目标：按用户指令「发布一个版本 2.1.0」发布 minor 版本（v2.0.0..HEAD 共 17 个提交的 dev 全量，不含 Android）。
+- 内容：版本号 2.0.0→2.1.0（npm version --no-git-tag-version）；CHANGELOG [Unreleased] 转正为 [2.1.0] - 2026-09-13 并补全 17 个提交内容（Goal 模式/无限时长+默认 20 轮可配置/会话级并行/阶段分隔线/轮级文件撤销/subagent 模型与思考等级/重试保留工具历史/OpenCode harness 移除 breaking/Agent Profile 保存修复等），按最终状态修正旧 Unreleased 中已过时的预算描述，Released 小节含离线包路径与安装命令；README 当前版本徽章 2.1.0。
+- 验证：npm run test 全量 323 files / 3649 tests 全过；npm run lint 0 error（仅既有 identity.mjs:92 warning）；npm run build 成功（仅既有 KaTeX/chunk 警告）；runtime/offline 包生成并 npm pack（package-offline/shawnstack-quickforge-2.1.0.tgz，7.5 MB / 471 files，版本核验 2.1.0）。
+- Git：发布 commit 22fe294（4 文件：package.json/package-lock.json/CHANGELOG.md/README.md，husky pre-commit lint 通过）；tag v2.1.0；master 以 ff-only 快进与 dev 同步；dev/master/tags 已推送远端（首三次因 github.com 443 不可达失败，网络恢复后成功）；推送后核验 HEAD=22fe294 四 ref 同步、工作区干净。
+- Notes：npm whoami 未登录（ENEEDAUTH），按手册不执行 npm publish，留给用户（先 npm login）；本三状态文件更新未提交，随下轮 feature 会话提交；GitHub Release（v* tag 触发 Desktop Build 工作流）不在本轮范围；未手工修改生成目录。
+- 下一步：用户 npm login 后执行 npm publish（命令已提供）；下个 feature 会话顺带提交状态文件。
+
+---
+
 ## pinned-summary-subagent-finished-show-all（done，实现与定向自动验证完成；浏览器未实测）
 
 - 当前目标：落地调研报告（docs/reviews/pinned-summary-subagent-finished-count.zh-CN.md 第六节）方案 A——置顶摘要「智能体 · 已结束」真实计数 + 展开显示全部 + 提取轻量化（用户已采纳）。

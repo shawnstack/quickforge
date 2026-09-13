@@ -65,8 +65,11 @@
 
 .quickforge-goal-inspector-seg button:active { transform: scale(0.97); }
 
-/* G-07/G-09: tone dot + status word + localized time + ? popover. */
+/* G-07/G-09: tone dot + status word + localized time + ? popover. The ? sits
+   at the row end and the row is the popover's containing block, so the tip's
+   right edge hugs the icon's right edge at any panel width (340px+). */
 .quickforge-goal-inspector-status {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -107,15 +110,16 @@
 
 .quickforge-goal-inspector-qbtn:active { transform: scale(0.97); }
 
-.quickforge-goal-inspector-pop { position: relative; }
-
 .quickforge-goal-inspector-pop-body {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
   z-index: 30;
   display: flex;
-  width: min(290px, 100%);
+  /* max-content instead of min(290px, 100%): 100% resolved against the tiny
+     18px ? anchor squeezed the tip to one character per line. */
+  width: max-content;
+  max-width: min(290px, calc(100vw - 48px));
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;

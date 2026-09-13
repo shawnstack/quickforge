@@ -198,8 +198,8 @@ export function GoalInspectorContent({ goal, sessionId, onAction, onSave, active
         <div className="quickforge-goal-inspector-status" role="status">
           <span className="quickforge-goal-inspector-status-dot" aria-hidden="true" />
           <span className="quickforge-goal-inspector-status-word">{t(model.statusKey as AppTextKey)}</span>
-          {notes.length > 0 && <GoalHintPopover notes={notes} label={t('goalHintDetails')} />}
           <time dateTime={goal.updatedAt}>{formatGoalTime(goal.updatedAt)}</time>
+          {notes.length > 0 && <GoalHintPopover notes={notes} label={t('goalHintDetails')} />}
         </div>
         {ui.error && <p role="alert">{ui.error}</p>}
         {view === 'edit' ? <>

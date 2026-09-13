@@ -1,6 +1,26 @@
 {
   "features": [
     {
+      "id": "goal-inspector-hint-popover-width",
+      "name": "Goal 侧边栏 ？ 提示浮层竖排文字修复",
+      "status": "done",
+      "dependencies": [],
+      "approach": "用户报告右侧 Workspace Inspector → Goal Tab 状态行「已完成」旁 ? 按钮的提示浮层文字竖排（一字一行）。根因（goal-inspector.css）：.quickforge-goal-inspector-pop 是只包住 18px ? 按钮的 position:relative 锚点，.quickforge-goal-inspector-pop-body 的 width:min(290px,100%) 中 100% 按该包含块解析 → 实际宽度 ≈18px，说明文字逐字换行变竖排。首轮修复（纯 CSS）：position:relative 移到 .quickforge-goal-inspector-status（状态行成为包含块）+ 删除 .quickforge-goal-inspector-pop 规则 + pop-body 宽度改 width:max-content、max-width:min(290px, calc(100vw - 48px))。用户续报浮层未紧贴 ? icon（行锚定 right:0 时浮层右缘对齐行右缘，宽面板下与左侧 ? 相距甚远；且从 ? 处右展 290px 在默认 380px 面板（内容宽 348）即溢出裁剪）。续修：GoalInspectorContent.tsx 状态行 JSX 把 GoalHintPopover 移到 time 之后（? 落在行末、紧邻行右缘），time 的 margin-left:auto 保持——浮层右缘与 ? icon 右缘在任意面板宽度（340–1200px）精确对齐、不再裁剪；GoalHintPopover 组件本身零改动。",
+      "files": ["src/components/workspace/goal-inspector.css", "src/components/workspace/GoalInspectorContent.tsx", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "两轮合计：定向 npx vitest run tests/frontend/goal-inspector-lifecycle.test.ts tests/frontend/goal-budget-inspector.test.ts 13/13 通过（续修后复跑；lifecycle 的 css scroll/footer/actions 契约断言不受影响，无测试锁定状态行 JSX 顺序）；npx --no-install tsc -b --pretty false 0 error（续修含 TSX 改动后复跑）；git diff --check 通过；父 Agent 亲读两轮 diff 复审。浏览器视觉为人工验收项。",
+      "boundaries": "done 表示修复与定向验证完成，真实浏览器视觉未实测（建议在 Goal Tab 点击状态行 ? 确认说明横排显示、右对齐、不再竖排）。极窄面板（<322px）时浮层左缘理论上仍可能轻微裁剪（max-width 未相对面板宽度解析），属可接受边界。实施于并行会话 release-v2.1.0 提交（22fe294）之后，基于该基线。未新增依赖、无 Git 提交。"
+    },
+    {
+      "id": "release-v2.1.0",
+      "name": "发布准备 v2.1.0（当前 dev 全量，不含 Android）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "按用户指令「发布一个版本 2.1.0」以 v2.0.0..HEAD（17 个提交）的当前 dev 全量内容发布 minor 版本 2.1.0：发布前检查确认 dev 分支工作区干净、最新 tag v2.0.0、package.json 版本 2.0.0；使用 npm version 2.1.0 --no-git-tag-version 更新根包版本；人工整理 CHANGELOG 2.1.0 章节（[Unreleased] 转正并按最终状态修正 Goal 预算描述：无限累计时长 + 默认 20 轮可配置；补全 Goal 模式/会话级并行/阶段分隔线/轮级文件撤销/subagent 模型与思考等级/重试保留工具历史/Agent Profile 保存修复/OpenCode harness 移除等 17 个提交内容，保留 Released 小节含离线包路径与安装命令）并更新 README 当前版本徽章；发布范围不含 Android。",
+      "files": ["package.json", "package-lock.json", "CHANGELOG.md", "README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "发布硬门禁全部通过：npm run test 全量 323 files / 3649 tests 全过；npm run lint 0 errors（仅既有 server/cloud/identity.mjs:92 warning）；npm run build 成功（仅既有 KaTeX 字体与 chunk 体积 warning）。runtime/offline 包已生成并核验（package-offline/shawnstack-quickforge-2.1.0.tgz：版本 2.1.0、7.5 MB packed / 24.7 MB unpacked / 471 files）；husky pre-commit lint 通过；master 以快进方式（git fetch . dev:master）与 dev 同步；发布 commit 22fe294 与 v2.1.0 tag 已创建并推送（首三次推送因 github.com 443 不可达失败，网络恢复后成功）；推送后核验 HEAD=22fe294 带 tag、dev/master/origin 全部同步、工作区干净。",
+      "boundaries": "发布完成（Git 侧）。npm 未登录（npm whoami ENEEDAUTH），npm publish 留给用户手动执行（需先 npm login）；本条目与 progress/session-handoff 的状态文件更新本身未提交，随下个 feature/会话提交；未修改 android/、docs/wiki/ 或手工修改生成目录 dist/package-dist/package-offline；GitHub Release（Desktop Build 工作流由 v* tag 触发）不在本轮范围。"
+    },
+    {
       "id": "pinned-summary-subagent-finished-show-all",
       "name": "置顶摘要「智能体 · 已结束」真实计数并展开显示全部（方案 A）",
       "status": "done",

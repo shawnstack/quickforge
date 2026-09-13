@@ -2,7 +2,29 @@
 
 All notable changes to QuickForge will be documented in this file.
 
-## [Unreleased]
+## [2.1.0] - 2026-09-13
+
+### Added
+
+- Added Goal mode: `/goal <objective>` starts a read-only planning round and then executes automatically once the plan is saved at a normal turn end; evidence binds only real successful tool results, `complete` requires trusted evidence plus successful persistence, and goals that cannot be verified automatically land as `blocked` with reasons instead of waiting for a manual sign-off.
+- Added unlimited cumulative Goal time with a configurable iteration budget: new goals run without an active-duration cap while the running strip shows the server-settled duration live via a 1-second interpolation ticker; the iteration budget defaults to 20 and is configurable (1–100) in Settings → General, and exhausted budgets can be extended in place per confirmation.
+- Added Goal UI surfaces: persisted planning/execution stage dividers that live-sync across reloads, a shared target-style Goal icon for the pinned summary, capsule and Inspector entries, a grouped pinned-summary Goal section with criterion statuses and real finished-subagent counts (expanding shows all finished runs, up to 100), goal_report/todo_write tool cards aligned to the message font system with a lightly framed expanded body, and a P0 polish pass covering budget-extension navigation, failure-round divider icons and confirmation-copy drift.
+- Added per-turn artifact cards and turn-level file rollback: per-session file backups now keep versioned snapshots tagged with turn and tool-call IDs, and the rollback dialog supports undoing a single turn's file changes, including single-file rollback.
+- Added subagent run details showing the resolved model and thinking level in a centered meta line above the task description, including inherited-model resolution on the server.
+- Added a new-chat task launcher with template plugin switching and randomized time-of-day greetings.
+
+### Changed
+
+- Redesigned the Goal inspector sidebar: scrollable content with a pinned action bar, segmented progress/edit switch, layered Button variants, status-tone header with localized timestamps, criterion status badges, budget meters with exhausted chips, and long notes collapsed behind a single "?" popover instead of stacked paragraphs.
+- Simplified the goal control strip above the composer to a compact row (status + recorded duration + icon actions): the objective text moved out to the pinned summary and inspector, the recorded duration ticks up live and the strip anchors directly above the composer, and the cancel confirmation shows one sentence.
+- Relaxed Goal exclusivity from workspace-level to session-level: multiple conversations (including global ones that share the default workspace, and projects pointing at the same directory) can each hold an active goal and run in parallel, and `/goal` no longer returns 409 because another conversation has an active goal; concurrent `/goal` calls in the same session still admit only one, with start/confirm/resume/revise/extend_resume serialized per session so same-session goal state cannot interleave.
+- Retrying a turn that already produced tool results now keeps the full history and appends a short "Continue" message to resume, instead of truncating the conversation and losing completed tool calls; pure-text failures still regenerate in place.
+- Simplified the reasoning-model label.
+
+### Fixed
+
+- Fixed built-in Agent Profile saves silently doing nothing: the 2-hour built-in runtime limit tripped the 60-minute form-cap guard without feedback; the save guard now matches the button's disabled condition.
+- Fixed sidebar session rows so the whole row is clickable, with overlay guards against accidental clicks.
 
 ### Removed
 
@@ -13,12 +35,22 @@ All notable changes to QuickForge will be documented in this file.
 
 - Existing OpenCode sessions degrade to QuickForge sessions on restore with no forward compatibility; persisted `harness`, `harnessSessionId`, and `openCodeUsage` fields are dropped. `.opencode/` directory ecosystem compatibility (skills, commands, AGENTS.md discovery) and QuickForge's own ACP Agent capability (`@agentclientprotocol/sdk`, `server/acp/`) are kept.
 
-### Changed
+### Upgrade Notes
 
-- Raised the default Goal duration budget from 30 to 120 minutes (iterations stay at 8); `extend_resume` follows the same default and now adds 120 minutes per confirmation, while existing goals keep their original budget.
-- Redesigned the Goal inspector sidebar: scrollable content with a pinned action bar, segmented progress/edit switch, layered Button variants, status-tone header with localized timestamps, criterion status badges, budget meters with exhausted chips, and long notes collapsed behind a single "?" popover instead of stacked paragraphs.
-- Simplified the goal control strip above the composer to a compact row (status + recorded duration + icon actions): the objective text moved out to the pinned summary and inspector, duration is formatted in minutes, and the cancel confirmation shows one sentence.
-- Relaxed Goal exclusivity from workspace-level to session-level: multiple conversations (including global ones that share the default workspace, and projects pointing at the same directory) can each hold an active goal and run in parallel, and `/goal` no longer returns 409 because another conversation has an active goal; concurrent `/goal` calls in the same session still admit only one, with start/confirm/resume/revise/extend_resume serialized per session so same-session goal state cannot interleave.
+- The existing Node.js requirement remains `>=22.19.0`; no dependency reinstall beyond the normal package upgrade is required.
+- Existing OpenCode sessions degrade to QuickForge sessions on restore (see Breaking Changes); `.opencode/` ecosystem compatibility and the ACP Agent capability are kept.
+- Existing goals keep their original budgets; new goals default to 20 iterations with unlimited accumulated time, configurable in Settings → General.
+- This release preparation covers the current `dev` application/runtime scope. Android builds and Android artifacts are not included.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.1.0` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.1.0.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.1.0.tgz
+  ```
 
 ## [2.0.0] - 2026-09-09
 

@@ -218,7 +218,7 @@ export function GitToolsPinnedSummary({
   const todoSignature = todos.map((todo) => `${todo.status}:${todo.content}`).join('\n')
   const showAllTasks = expanded && expandedTasksSignature === todoSignature
   const visibleTodos = showAllTasks ? todos : todos.slice(0, 3)
-  const visibleSubagentRuns = finishedSubagentRuns.slice(0, 3)
+  const visibleSubagentRuns = finishedSubagentRuns
   const desktopDraggable = desktopViewport && !mobileShell
   const desktopMode: DesktopMode = expanded ? 'panel' : capsuleVisible ? 'capsule' : 'closed'
   const floatingSummaryVisible = desktopDraggable ? desktopMode !== 'closed' : expanded

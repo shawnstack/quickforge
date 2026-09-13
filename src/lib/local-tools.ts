@@ -1046,15 +1046,6 @@ class AskUserToolRenderer {
 }
 
 class GoalReportToolRenderer {
-  private toneFor(view: ReturnType<typeof buildGoalReportHistoryViewModel>): string {
-    if (view.status === 'error') return 'danger'
-    if (view.status === 'running') return 'active'
-    if (view.action === 'complete') return 'success'
-    if (view.action === 'blocked' || view.action === 'needs_review') return 'warning'
-    if (view.action === 'progress') return 'active'
-    return 'info'
-  }
-
   private goalIcon() {
     return html`<svg class="quickforge-tool-type-icon shrink-0 text-muted-foreground/60" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg>`
   }
@@ -1075,8 +1066,7 @@ class GoalReportToolRenderer {
     const details = detailed ? stringifyValue(result?.details) : ''
     const output = detailed ? stringifyValue(result?.content) : ''
     const detailsKey = toolDetailsStateKey('goal_report', params, result?.details)
-    const detailsOpen = toolDetailsOpen.get(detailsKey) ?? true
-    const tone = this.toneFor(view)
+    const detailsOpen = toolDetailsOpen.get(detailsKey) ?? detailed
     const criteriaItems: Array<{ description: string; status: string }> = view.criteriaDetails.length
       ? view.criteriaDetails
       : view.criteria.map((description) => ({ description, status: 'pending' }))
@@ -1084,7 +1074,7 @@ class GoalReportToolRenderer {
       isCustom: true,
       content: html`
         <div class="quickforge-local-tool-shell">
-          <details class="group/tool quickforge-local-tool quickforge-goal-report-tool" data-tone=${tone} ?open=${detailsOpen} @toggle=${(event: Event) => {
+          <details class="group/tool quickforge-local-tool quickforge-goal-report-tool" ?open=${detailsOpen} @toggle=${(event: Event) => {
             if (event.isTrusted) rememberToolDetailsOpen(detailsKey, (event.currentTarget as HTMLDetailsElement).open)
           }}>
             <summary class="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">

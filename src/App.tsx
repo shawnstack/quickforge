@@ -35,6 +35,7 @@ import { t } from '@/lib/i18n'
 import { pickNewChatGreetingKey } from '@/lib/new-chat-greeting'
 import { cn } from '@/lib/utils'
 import {
+  MAX_TERMINAL_SUBAGENT_RUNS,
   OPEN_SUBAGENT_RUN_EVENT,
   extractLatestTerminalSubagentRuns,
   extractRunningSubagentRuns,
@@ -564,6 +565,8 @@ function MainApp() {
     agentManager.agent?.state.pendingToolCalls,
     getCachedToolDisplaySettings().toolDisplayMode,
     t,
+    // 置顶摘要展开显示全部已结束 run，防御上限 MAX_TERMINAL_SUBAGENT_RUNS。
+    MAX_TERMINAL_SUBAGENT_RUNS,
   // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
   ), [agentManager.agent, pinnedSummaryRevision])
   const pinnedSummaryRunningSubagentRuns = useMemo(() => extractRunningSubagentRuns(

@@ -9,6 +9,7 @@ vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }
 
 import { GitToolsPinnedSummary } from '../../src/components/git/GitToolsPinnedSummary'
 import type { GoalState } from '../../src/lib/goal'
+import type { SubagentRunPayload } from '../../src/lib/subagent-run-detail'
 
 const summarySource = readFileSync(new URL('../../src/components/git/GitToolsPinnedSummary.tsx', import.meta.url), 'utf8')
 const goalSectionSource = readFileSync(new URL('../../src/components/git/GoalSummarySection.tsx', import.meta.url), 'utf8')
@@ -426,6 +427,8 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(summarySource).toContain("t('pinnedViewAllTasks'")
     expect(summarySource).toContain('setFinishedSubagentRunsCollapsed((value) => !value)')
     expect(summarySource).toContain('aria-expanded={!finishedSubagentRunsCollapsed}')
+    // Finished subagent rows are no longer truncated to the first 3 runs.
+    expect(summarySource).not.toContain('finishedSubagentRuns.slice(0, 3)')
   })
 
   it('defines matching three-state and capsule aria keys in both languages', () => {
@@ -565,5 +568,39 @@ describe('GitToolsPinnedSummary goal section', () => {
     expect(appSource).toContain('goalUnavailable')
     // The inspector is still the only suspended/closed owner: no new mode flag.
     expect(appSource).not.toContain('goalSummaryMode')
+  })
+
+  it('counts every finished subagent run in the expanded summary title and renders them untruncated', () => {
+    const finishedRun = (index: number): SubagentRunPayload => ({
+      runId: `run-${index}`,
+      canonicalToolCallId: `run-${index}`,
+      name: 'explore',
+      label: 'Explore',
+      task: `Investigate module ${index}`,
+      context: '',
+      expectedOutput: '',
+      status: 'done',
+      statusLabel: 'Explore completed',
+      timing: { durationMs: 1200 + index },
+      allowedTools: [],
+      traceMessages: [],
+      tools: [],
+      pendingToolCalls: [],
+      input: '',
+      details: '',
+      output: `Done ${index}`,
+      errorMessage: '',
+      detailed: false,
+      fingerprint: `run-${index}`,
+    })
+    const html = renderSummary({ finishedSubagentRuns: Array.from({ length: 5 }, (_, index) => finishedRun(index)) })
+    // The finished section stays collapsed by default in static markup, but its
+    // title counter is the real total instead of a capped 3.
+    expect(html).toContain('已结束 · 5')
+    expect(html).toContain('智能体')
+    // Row rendering is covered by source contract: the visible list is derived
+    // from the full finishedSubagentRuns array without truncation.
+    expect(summarySource).toContain('const visibleSubagentRuns = finishedSubagentRuns')
+    expect(summarySource).not.toContain('finishedSubagentRuns.slice(0, 3)')
   })
 })

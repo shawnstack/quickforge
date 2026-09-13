@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goal 计划工具卡 · 字体一致性设计稿</title>
+<style>
+/* ============================================================================
+   设计稿（无依赖原型）· 数据均为模拟。
+   字体栈、字号体系、行高、圆角、轻阴影、tone 卡片配方、动效 token
+   均复刻自 src/index.css（行号见问题分析表）；配色为无依赖原型的语义 fallback，
+   接近 pi-web-ui :root/.dark（参照 design-mockups/todo-capsule-summary.html:31-59）。
+   本稿不改产品实现，仅提出 goal 期间计划工具调用卡片（goal_report / todo_write）
+   与对话正文字体一致的风格方案。
+   ============================================================================ */
+:root{
+  color-scheme: light;
+  /* 语义色 fallback（近似 pi-web-ui） */
+  --background: oklch(100% 0 0);
+  --foreground: oklch(20% 0 0);
+  --muted: oklch(97% 0 0);
+  --muted-foreground: oklch(55.6% 0 0);
+  --border: oklch(91.5% 0 0);
+  --primary: oklch(45% 0.12 260);
+  --destructive: oklch(55% 0.2 27);
+  --radius: 0.5rem;
+  /* 字体栈（src/index.css:49-55） */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  /* 动效 token（src/index.css:57-69） */
+  --quickforge-dur-fast: 120ms;
+  --quickforge-dur-base: 180ms;
+  --quickforge-ease-out: cubic-bezier(0.2, 0, 0, 1);
+  /* ===== 模拟设置（对应产品两套字号） ===== */
+  /* 界面字号：产品中写入 root.style.fontSize（src/lib/font-size-settings.ts:91），默认 13px；
+     本稿用 CSS 变量模拟 html{font-size}（src/index.css:117-119）对 rem 基准的影响 */
+  --mock-interface-font-size: 13px;
+  /* 消息字号：产品 token --quickforge-message-font-size（src/lib/font-size-settings.ts:92-93 运行时写入，
+     src/index.css:2628-2632 消费），默认 13px；提案中工具卡正文显式引用它 */
+  --quickforge-message-font-size: 13px;
+  --quickforge-message-line-height: 1.625;
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --background: oklch(19% 0.01 260);
+  --foreground: oklch(94% 0 0);
+  --muted: oklch(26% 0.012 260);
+  --muted-foreground: oklch(70.8% 0 0);
+  --border: oklch(34% 0.014 260);
+  --primary: oklch(78% 0.09 250);
+  --destructive: oklch(68% 0.16 27);
+}
+*{ box-sizing: border-box }
+body{ margin: 0; background: var(--background); color: var(--foreground); line-height: 1.625;
+  transition: background-color var(--quickforge-dur-base) var(--quickforge-ease-out) }
+button, select, input{ font: inherit; color: inherit }
+button, select{ border: 1px solid var(--border); border-radius: 6px; background: var(--background);
+  padding: 4px 10px; min-height: 30px; cursor: pointer;
+  transition: background-color var(--quickforge-dur-fast) var(--quickforge-ease-out) }
+button:hover{ background: var(--muted) }
+button[aria-pressed="true"]{ background: color-mix(in oklab, var(--primary) 14%, var(--background));
+  border-color: color-mix(in oklab, var(--primary) 40%, var(--border)) }
+:focus-visible{ outline: 2px solid var(--primary); outline-offset: 2px }
+[hidden]{ display: none !important }
+h1, h2, h3, p, ul{ margin: 0 }
+ul{ padding-left: 1.2em }
+
+/* ===== 顶栏与提示 ===== */
+.toolbar{ display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 20px;
+  border-bottom: 1px solid var(--border) }
+.toolbar h1{ font-size: 15px; font-weight: 600; margin-right: auto }
+.toolbar .group{ display: flex; align-items: center; gap: 6px }
+.toolbar label{ font-size: 12px; color: var(--muted-foreground) }
+.toolbar output{ font-size: 12px; min-width: 3.2em; font-variant-numeric: tabular-nums }
+input[type="range"]{ accent-color: var(--primary); padding: 0; border: 0; min-height: 0 }
+.notice{ padding: 7px 20px; border-bottom: 1px solid var(--border); font-size: 12px;
+  color: var(--muted-foreground) }
+.live{ min-height: 34px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 6px 20px; font-size: 12px; color: var(--muted-foreground);
+  animation: qf-fade var(--quickforge-dur-base) var(--quickforge-ease-out) }
+.live .pill{ border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px;
+  font-variant-numeric: tabular-nums }
+.live .pill.ok{ color: oklch(55% 0.12 155); border-color: color-mix(in oklab, oklch(55% 0.12 155) 35%, var(--border)) }
+.live .pill.bad{ color: var(--destructive); border-color: color-mix(in oklab, var(--destructive) 35%, var(--border)) }
+@keyframes qf-fade{ from{ opacity: 0; transform: translateY(2px) } to{ opacity: 1; transform: none } }
+
+/* ===== 舞台：模拟对话区（以对话正文为视觉基准） ===== */
+.stage{ max-width: 860px; margin: 0 auto; padding: 22px 24px 30px; display: flex;
+  flex-direction: column; gap: 14px }
+.author{ font-size: 12px; color: var(--muted-foreground); margin-bottom: 4px }
+/* 用户气泡（复刻 src/index.css:2146-2164 的克制样式） */
+.bubble--user{ align-self: flex-end; max-width: 78%;
+  background: color-mix(in oklab, var(--muted) 62%, transparent);
+  border-radius: 1.125rem 1.125rem 0.375rem 1.125rem; padding: 9px 14px }
+/* 对话正文：本稿的视觉基准，走消息字号 token（index.css:2628-2637 同款规则） */
+.bubble--assistant{ align-self: flex-start; max-width: 100%; padding: 0 2px;
+  color: var(--foreground) }
+.bubble--assistant .md{ font-size: var(--quickforge-message-font-size);
+  line-height: var(--quickforge-message-line-height, 1.625); overflow-wrap: anywhere }
+.bubble--user .md{ font-size: var(--quickforge-message-font-size); line-height: 1.625 }
+
+/* 变体容器（提案 / 现状复刻 / 并排） */
+.variant{ display: flex; flex-direction: column; gap: 10px;
+  animation: qf-fade var(--quickforge-dur-base) var(--quickforge-ease-out) }
+body[data-view="proposal"] .variant[data-v="legacy"],
+body[data-view="legacy"] .variant[data-v="proposal"]{ display: none }
+body[data-view="both"] .variant{ position: relative }
+.variant-tag{ align-self: flex-start; font-size: 11px; color: var(--muted-foreground);
+  border: 1px dashed var(--border); border-radius: 999px; padding: 1px 9px;
+  letter-spacing: 0.02em }
+body:not([data-view="both"]) .variant-tag{ display: none }
+
+/* ============================================================================
+   工具卡骨架：复刻 quickforge-local-tool-shell > details.quickforge-local-tool
+   （src/lib/local-tools.ts:1086-1113 / 1138-1154），结构、内边距、卡片配方
+   与 goal tone（index.css:6997-7090）一致；仅字号规则分「现状 / 提案」两套。
+   ============================================================================ */
+.tool-shell{ }
+.tool{ position: relative; overflow: hidden; border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 0.125rem);
+  background: color-mix(in oklab, var(--background) 96%, var(--muted));
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04) }
+.tool::before{ content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
+  background: var(--tone) }
+.tool[data-tone="info"], .tool[data-tone="active"]{ --tone: #3478d4 }
+.tool[data-tone="warning"]{ --tone: #d97706 }
+.tool[data-tone="success"]{ --tone: rgb(4 143 101) }
+.tool[data-tone="danger"]{ --tone: var(--destructive) }
+.tool.plain{ overflow: visible }           /* todo_write 卡：无 tone 边条（无专属 CSS） */
+.tool.plain::before{ content: none }
+.tool > summary{ display: flex; cursor: pointer; list-style: none; align-items: center;
+  gap: 8px; user-select: none; padding: 0.625rem 0.875rem 0.625rem 1rem;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font-weight: 400; line-height: 1.5 }
+.tool > summary::-webkit-details-marker{ display: none }
+.tool > summary:hover{ background: color-mix(in oklab, var(--muted) 55%, transparent) }
+.tool .type-icon{ width: 14px; height: 14px; flex: 0 0 auto;
+  color: color-mix(in oklab, var(--muted-foreground) 60%, transparent) }
+.tool .title{ display: inline-flex; min-width: 0; align-items: center; gap: 4px; flex: 0 1 auto }
+.tool .label{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--tone); font-weight: 600 }
+.tool.plain .label{ color: inherit; font-weight: 600 }
+.tool .detail{ color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  font-weight: 400 }
+.tool .chevron{ width: 14px; height: 14px; flex: 0 0 auto;
+  transition: transform var(--quickforge-dur-fast) var(--quickforge-ease-out) }
+.tool[open] > summary .chevron{ transform: rotate(90deg) }
+.tool .status{ margin-left: auto; font-size: 11px;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 8px }
+.tool-body{ padding: 0 0.875rem 0.75rem 1rem; display: flex; flex-direction: column;
+  gap: 12px; min-width: 0; overflow-wrap: anywhere }
+.tool-body .result-hint{ color: var(--muted-foreground) }
+.section-label{ font-weight: 500; color: var(--muted-foreground); margin-bottom: 4px }
+.criterion{ display: flex; align-items: flex-start; gap: 8px }
+.criteria{ display: flex; flex-direction: column; gap: 5px }
+.criterion svg{ width: 14px; height: 14px; flex: 0 0 auto; margin-top: 0.1875rem;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent) }
+.criterion[data-status="passed"] svg{ color: rgb(4 143 101) }
+:root[data-theme="dark"] .criterion[data-status="passed"] svg{ color: rgb(110 231 183) }
+.criterion[data-status="failed"] svg{ color: var(--destructive) }
+.criterion[data-status="needs_review"] svg{ color: #d97706 }
+.scope{ display: flex; flex-wrap: wrap; gap: 6px }
+.scope-chip{ font-family: var(--font-mono); color: var(--muted-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 2px 8px; background: color-mix(in oklab, var(--background) 80%, var(--muted)) }
+.blocker{ border-left: 2px solid var(--tone); border-radius: 0 0.375rem 0.375rem 0;
+  background: color-mix(in oklab, var(--tone) 6%, transparent); padding: 4px 10px }
+.code-pre{ margin: 0; font-family: var(--font-mono); white-space: pre-wrap;
+  border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+  background: color-mix(in oklab, var(--background) 92%, var(--muted));
+  padding: 8px 10px; color: var(--muted-foreground) }
+
+/* ---- 现状复刻：字号全部跟随「界面字号」rem 基准（html{font-size:13px}，index.css:117-119） ---- */
+.variant[data-v="legacy"] .tool > summary{ font-size: calc(var(--mock-interface-font-size) * 0.875) }
+.variant[data-v="legacy"] .tool-body{ font-size: calc(var(--mock-interface-font-size) * 1); line-height: 1.5 }
+.variant[data-v="legacy"] .section-label{ font-size: calc(var(--mock-interface-font-size) * 0.75) }
+.variant[data-v="legacy"] .scope-chip{ font-size: calc(var(--mock-interface-font-size) * 0.7) }
+.variant[data-v="legacy"] .code-pre{ font-size: calc(var(--mock-interface-font-size) * 0.75) }
+
+/* ---- 提案：工具卡字号统一以「消息字号」为基准（对齐 DESIGN_LANGUAGE.md「正文统一」） ----
+   正文 = var(--quickforge-message-font-size) × 1.625 行高（与 markdown 正文同规则）；
+   摘要行维持现状 0.875 比例（默认 13px 下 ≈11.4px，视觉零回归）；
+   节标签由 0.75 → 0.8 比例微调（13px 下 9.75px → 10.4px，避免低于 10px 的可读下限）；
+   scope chip 保留 mono 路径语义，字号并入节标签层级（0.8）。 */
+.variant[data-v="proposal"] .tool > summary{ font-size: calc(var(--quickforge-message-font-size) * 0.875) }
+.variant[data-v="proposal"] .tool-body{ font-size: var(--quickforge-message-font-size);
+  line-height: var(--quickforge-message-line-height, 1.625) }
+.variant[data-v="proposal"] .section-label{ font-size: calc(var(--quickforge-message-font-size) * 0.8) }
+.variant[data-v="proposal"] .scope-chip{ font-size: calc(var(--quickforge-message-font-size) * 0.8) }
+.variant[data-v="proposal"] .code-pre{ font-size: calc(var(--quickforge-message-font-size) * 0.8) }
+
+/* ===== 问题分析 ===== */
+.analysis{ max-width: 860px; margin: 0 auto; width: 100%; border-top: 1px solid var(--border);
+  padding: 18px 24px 6px }
+.analysis h2{ font-size: 14px; font-weight: 600; margin-bottom: 10px }
+.analysis .intro{ font-size: 12.5px; color: var(--muted-foreground); margin-bottom: 12px }
+.analysis details{ border-bottom: 1px solid var(--border); padding: 8px 0 }
+.analysis details:last-child{ border-bottom: 0 }
+.analysis summary{ cursor: pointer; font-size: 13px; font-weight: 600;
+  display: flex; gap: 8px; align-items: baseline }
+.analysis summary .pid{ color: var(--destructive); font-variant-numeric: tabular-nums;
+  flex: 0 0 auto }
+.analysis details > div{ padding: 8px 0 4px 30px; font-size: 12.5px; display: flex;
+  flex-direction: column; gap: 6px }
+.analysis .evidence{ font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--muted-foreground); border-left: 2px solid var(--border);
+  padding: 2px 0 2px 10px; white-space: pre-line }
+.analysis .fix{ color: oklch(55% 0.12 155) }
+:root[data-theme="dark"] .analysis .fix{ color: oklch(78% 0.12 155) }
+
+/* ===== 页脚：渐进披露的新旧对照与提案落点 ===== */
+.footer{ max-width: 860px; margin: 0 auto; width: 100%; border-top: 1px solid var(--border);
+  padding: 16px 24px 26px }
+.footer details{ font-size: 12.5px }
+.footer summary{ cursor: pointer; font-weight: 600; font-size: 13px }
+.footer .table{ margin-top: 10px; overflow-x: auto }
+.footer table{ border-collapse: collapse; width: 100%; min-width: 560px }
+.footer th, .footer td{ text-align: left; vertical-align: top; padding: 6px 10px;
+  border-bottom: 1px solid var(--border); font-size: 12.5px }
+.footer th{ color: var(--muted-foreground); font-weight: 500; font-size: 12px }
+.footer td.pid{ font-variant-numeric: tabular-nums; white-space: nowrap }
+.footer code{ font-family: var(--font-mono); font-size: 11.5px;
+  background: color-mix(in oklab, var(--muted) 62%, transparent); border-radius: 4px;
+  padding: 1px 5px }
+.footer .note{ margin-top: 10px; color: var(--muted-foreground); font-size: 12px }
+
+@media (max-width: 760px){
+  .stage{ padding: 16px 14px 24px }
+  .toolbar{ gap: 8px; padding: 10px 14px }
+  .live{ padding: 6px 14px }
+  .analysis, .footer{ padding-left: 14px; padding-right: 14px }
+}
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{ animation: none !important; transition: none !important;
+    scroll-behavior: auto !important }
+}
+</style>
+</head>
+<body data-view="proposal">
+
+<header class="toolbar">
+  <h1>Goal 计划工具卡 · 字体一致性设计稿</h1>
+  <span class="group" role="radiogroup" aria-label="渲染风格">
+    <button type="button" id="viewProposal" aria-pressed="true">提案风格</button>
+    <button type="button" id="viewLegacy" aria-pressed="false">现状复刻</button>
+    <button type="button" id="viewBoth" aria-pressed="false">并排对比</button>
+  </span>
+  <span class="group">
+    <label for="scene">Goal 阶段</label>
+    <select id="scene">
+      <option value="plan" selected>plan · 提交计划</option>
+      <option value="running">running · 执行进度</option>
+      <option value="completed">completed · 自动完成</option>
+      <option value="blocked">blocked · 无法验证</option>
+    </select>
+  </span>
+  <span class="group">
+    <button type="button" id="expandAll" aria-pressed="true">全部展开</button>
+    <button type="button" id="theme" aria-pressed="false">深色主题</button>
+  </span>
+  <span class="group">
+    <label for="uiSize">界面字号</label>
+    <input type="range" id="uiSize" min="11" max="17" step="1" value="13">
+    <output id="uiSizeOut" for="uiSize">13px</output>
+  </span>
+  <span class="group">
+    <label for="msgSize">消息字号</label>
+    <input type="range" id="msgSize" min="11" max="17" step="1" value="13">
+    <output id="msgSizeOut" for="msgSize">13px</output>
+  </span>
+  <span class="group">
+    <button type="button" id="repro">复现不一致</button>
+    <button type="button" id="reset">恢复默认</button>
+  </span>
+</header>
+
+<p class="notice">无依赖原型 · 卡片结构、内边距与配色复刻自 <code>src/index.css</code> / <code>src/lib/local-tools.ts</code>，数据全部为模拟。拖动「消息字号 / 界面字号」可复现两套字号体系分叉；提案卡正文显式引用 <code>--quickforge-message-font-size</code>，始终与对话正文一致。</p>
+<div id="live" class="live" role="status" aria-live="polite"></div>
+
+<main class="stage" aria-label="模拟对话">
+
+  <article>
+    <p class="author">你 · 入口授权</p>
+    <div class="bubble--user"><p class="md">/goal 修复任务列表的键盘导航并补充回归测试。仅修改任务列表相关文件，不新增依赖。</p></div>
+  </article>
+
+  <article>
+    <p class="author">QuickForge · 模拟助手（对话正文＝视觉基准）</p>
+    <div class="bubble--assistant">
+      <p class="md">已进入只读规划。我会先梳理任务列表组件与现有测试的调用链，再提交带验收标准的计划；规划轮正常结束并持久化成功后自动开始执行。</p>
+    </div>
+  </article>
+
+  <!-- 提案风格 -->
+  <section class="variant" data-v="proposal" aria-label="提案风格卡片">
+    <span class="variant-tag">提案 · 跟随「消息字号」＝与对话正文一致</span>
+    <div id="goalCardProposal"></div>
+    <div id="todoCardProposal"></div>
+  </section>
+
+  <!-- 现状复刻 -->
+  <section class="variant" data-v="legacy" aria-label="现状复刻卡片">
+    <span class="variant-tag">现状 · 跟随「界面字号」＝与对话正文分属两套体系</span>
+    <div id="goalCardLegacy"></div>
+    <div id="todoCardLegacy"></div>
+  </section>
+
+  <article>
+    <p class="author">QuickForge · 模拟助手（规划后的正文）</p>
+    <div class="bubble--assistant">
+      <p class="md">计划已就绪：验收标准聚焦键盘导航的三类行为与回归测试，范围收敛在任务列表相关文件。执行期间每次 goal_report 进度更新都会出现在上方卡片中。</p>
+    </div>
+  </article>
+</main>
+
+<section class="analysis" aria-labelledby="analysisTitle">
+  <h2 id="analysisTitle">问题分析 · 计划工具调用与对话正文的字体不一致</h2>
+  <p class="intro">goal 期间的计划工具调用（goal_report / todo_write 卡片）渲染在对话流内（light DOM，可直接受全局样式影响），但字号走的是「界面字号」rem 体系，而对话正文走「消息字号」token 体系；默认 13/13 时两者恰好相同，一旦在设置中分开调整立即分叉。以下每条均附源码证据。</p>
+
+  <details open>
+    <summary><span class="pid">P01</span>字号双轨制：卡片正文跟随界面字号，对话正文跟随消息字号</summary>
+    <div>
+      <p>卡片正文（目标摘要、验收项、blocker、输出）无任何显式字号规则，继承 rem 基准＝界面字号；对话正文走 <code>--quickforge-message-font-size</code>，由设置页独立写入。两轨一旦分叉，同一条消息流内出现两种正文字号。</p>
+      <p class="evidence">src/index.css:117-119  html { font-size: 13px }（界面字号 rem 基准）
+src/index.css:7030-7032  .quickforge-goal-report-tool-body { padding… }（仅内边距，无字号）
+src/index.css:2628-2632  markdown-block { font-size: var(--quickforge-message-font-size, 14px) }
+src/lib/font-size-settings.ts:11-19,79-99  两个设置项（默认均 13px）分别写入 root.style.fontSize 与 --quickforge-message-font-size</p>
+      <p class="fix">提案 S01/S04：工具卡正文显式改用 var(--quickforge-message-font-size)。</p>
+    </div>
+  </details>
+
+  <details>
+    <summary><span class="pid">P02</span>卡片内部层级混乱：0.875rem / 0.75rem / 1rem 多套并存</summary>
+    <div>
+      <p>同一张卡片内：摘要行 0.875rem、节标签 0.75rem（text-xs）、正文 1rem，全部锚定界面字号；goal 运行条、todo 胶囊又各自使用 0.75rem/650、0.8125rem、0.6875rem。没有一套以「对话正文」为基准，视觉轴不齐。</p>
+      <p class="evidence">src/index.css:3056-3064  .quickforge-local-tool > .quickforge-tool-summary { font-size: 0.875rem; font-weight: 400; line-height: 1.5 }
+src/lib/local-tools.ts:1099-1105  节标签使用 Tailwind text-xs（＝0.75rem）
+src/index.css:6888-6893  goal strip label 0.75rem / weight 650
+src/index.css:7685-7697, 7746-7750  todo 胶囊 0.8125rem 与 0.6875rem</p>
+      <p class="fix">提案 S02：层级保留（弱化比例不变），基准统一换成消息字号：正文 ×1、摘要行 ×0.875、节标签 ×0.8。</p>
+    </div>
+  </details>
+
+  <details>
+    <summary><span class="pid">P03</span>行高差异：正文 1.625 vs 卡片 1.5（未显式声明）</summary>
+    <div>
+      <p>对话正文 p/li 显式 1.625；工具卡摘要行 1.5，卡片正文则完全未设置行高（继承预检 1.5）。中英混排多行验收项与同一屏的正文行距观感不一致。</p>
+      <p class="evidence">src/index.css:2634-2637  markdown-block :where(p, li) { line-height: var(--quickforge-message-line-height, 1.625) }
+src/index.css:3063  tool summary line-height: 1.5；tool-body 无行高规则（src/index.css:7030-7032）</p>
+      <p class="fix">提案 S03：卡片正文/验收项/blocker 行高对齐 1.625；摘要行保持 1.5（单行操作行，紧凑可接受）。</p>
+    </div>
+  </details>
+
+  <details>
+    <summary><span class="pid">P04</span>同类问题已有先例修复，goal 卡片被遗漏</summary>
+    <div>
+      <p>Subagent 运行详情正文曾因同一原因（不经 quickforge-* 装饰、字号掉回界面字号）被显式补齐，注释写明「避免与主对话字号不一致」；goal_report / todo_write 卡片没有对应规则，属同一缺口。</p>
+      <p class="evidence">src/index.css:2639-2648  subagent-run-detail-body markdown-block { font-size: var(--quickforge-message-font-size, 14px) }（含注释）</p>
+      <p class="fix">提案 S04：为计划工具卡补同模式规则，落点见页脚对照表。</p>
+    </div>
+  </details>
+
+  <details>
+    <summary><span class="pid">P05</span>局部异质元素：scope chip 游离于两套体系之外</summary>
+    <div>
+      <p>范围 chip 使用 mono 字体（路径语义，可保留）但字号 0.7rem 独立锚定界面字号，是卡片内唯一显式指定 font-family 的文本；font-family 主链路（--font-sans，含 PingFang SC / Microsoft YaHei / Noto Sans CJK SC 回退）本身一致，问题集中在字号基准。</p>
+      <p class="evidence">src/index.css:7075-7083  .quickforge-goal-report-scope-chip { font-family: var(--font-mono); font-size: 0.7rem }
+src/index.css:49-55  --font-sans / --font-mono 字体栈定义</p>
+      <p class="fix">提案 S05：chip 保留 mono 语义，字号并入节标签层级（消息字号 ×0.8）。</p>
+    </div>
+  </details>
+</section>
+
+<footer class="footer">
+  <details>
+    <summary>新旧对照 · 问题 → 方案逐条对应</summary>
+    <div class="table">
+      <table>
+        <caption class="sr-only" style="position:absolute;left:-9999px">问题与方案对照表</caption>
+        <thead><tr><th scope="col">编号</th><th scope="col">现状问题</th><th scope="col">提案方案</th><th scope="col">落点（建议）</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="pid">P01 → S01</td>
+            <td>卡片正文继承界面字号（rem），与对话正文（消息字号 token）分属两套体系</td>
+            <td>工具卡正文 <code>font-size: var(--quickforge-message-font-size, 14px)</code>，与 markdown 正文同规则</td>
+            <td><code>.quickforge-goal-report-tool-body</code></td>
+          </tr>
+          <tr>
+            <td class="pid">P02 → S02</td>
+            <td>摘要 0.875rem / 节标签 0.75rem / 正文 1rem 多套并存，锚定界面字号</td>
+            <td>层级保留、基准切换：正文 ×1，摘要行 ×0.875（默认 13px 下 ≈11.4px，零视觉回归），节标签 ×0.8（9.75px → 10.4px，越过 10px 可读下限）</td>
+            <td><code>.quickforge-local-tool > .quickforge-tool-summary</code>、节标签类</td>
+          </tr>
+          <tr>
+            <td class="pid">P03 → S03</td>
+            <td>卡片正文未声明行高（实际 1.5），与正文 1.625 不一致</td>
+            <td>卡片正文 / 验收项 / blocker 行高 1.625；摘要行保持 1.5</td>
+            <td><code>.quickforge-goal-report-tool-body</code>、<code>.quickforge-goal-report-criterion</code></td>
+          </tr>
+          <tr>
+            <td class="pid">P04 → S04</td>
+            <td>同类缺口已在 subagent 详情修复（显式补消息字号），计划卡遗漏</td>
+            <td>补齐与 <code>subagent-run-detail-body</code> 相同模式的消息字号规则并注明原因</td>
+            <td><code>src/index.css</code> goal-report/todo 卡片区段</td>
+          </tr>
+          <tr>
+            <td class="pid">P05 → S05</td>
+            <td>scope chip mono + 0.7rem 独立锚定</td>
+            <td>保留 mono 路径语义，字号并入节标签层级（消息字号 ×0.8）</td>
+            <td><code>.quickforge-goal-report-scope-chip</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">影响面：摘要行规则作用于全部工具卡（quickforge-local-tool / mcp / subagent），默认 13/13 时尺寸与现状完全一致，仅当用户分开调整两个字号设置后行为才分叉——分叉方向是「与对话正文一致」，符合 DESIGN_LANGUAGE.md「以对话区为视觉基准 / 正文统一」。本稿仅为设计提案，未修改任何产品代码。</p>
+  </details>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  var state = { view: 'proposal', scene: 'plan', theme: 'light', uiSize: 13, msgSize: 13, expanded: true };
+
+  /* 模拟 goal_report 各阶段的视图数据（结构对应 local-tools.ts buildGoalReportHistoryViewModel） */
+  var scenes = {
+    plan: {
+      tone: 'info', label: 'Goal 报告 · 提交计划', detail: ' · plan', status: '已完成 · 1.2s',
+      resultHint: '计划已持久化；规划轮正常结束，持久化成功后自动开始执行。',
+      summary: '修复任务列表的键盘导航：方向键移动选中项、Enter 打开任务、Esc 返回列表，并补充对应回归测试。仅修改任务列表相关文件，不新增依赖。',
+      criteria: [
+        { d: '方向键 ↑/↓ 在任务列表内移动选中项，焦点环可见', s: 'pending' },
+        { d: 'Enter 打开选中任务，Esc 返回列表且不丢失焦点', s: 'pending' },
+        { d: '任务列表相关回归测试全部通过（针对性子集）', s: 'pending' }
+      ],
+      scope: ['src/components/task-list/**', 'tests/task-list.test.tsx', 'docs/wiki/src.md'],
+      blocker: null
+    },
+    running: {
+      tone: 'active', label: 'Goal 报告 · 执行进度', detail: ' · progress', status: '运行中 · 3/5 轮',
+      resultHint: '键盘导航实现完成，正在补充回归测试。',
+      summary: '已完成方向键移动与 Enter 打开的实现；Esc 返回行为与回归测试进行中。',
+      criteria: [
+        { d: '方向键 ↑/↓ 在任务列表内移动选中项，焦点环可见', s: 'passed' },
+        { d: 'Enter 打开选中任务，Esc 返回列表且不丢失焦点', s: 'pending' },
+        { d: '任务列表相关回归测试全部通过（针对性子集）', s: 'pending' }
+      ],
+      scope: ['src/components/task-list/**', 'tests/task-list.test.tsx'],
+      blocker: null
+    },
+    completed: {
+      tone: 'success', label: 'Goal 报告 · 自动完成', detail: ' · complete', status: '已完成 · 5/5 轮',
+      resultHint: '全部验收标准均绑定真实工具结果通过；轮末持久化成功，自动完成，无需人工验收。',
+      summary: '键盘导航三类行为均已实现并通过针对性回归测试；改动收敛在任务列表相关文件，未新增依赖。',
+      criteria: [
+        { d: '方向键 ↑/↓ 在任务列表内移动选中项，焦点环可见', s: 'passed' },
+        { d: 'Enter 打开选中任务，Esc 返回列表且不丢失焦点', s: 'passed' },
+        { d: '任务列表相关回归测试全部通过（针对性子集）', s: 'passed' }
+      ],
+      scope: ['src/components/task-list/**', 'tests/task-list.test.tsx', 'docs/wiki/src.md'],
+      blocker: null
+    },
+    blocked: {
+      tone: 'warning', label: 'Goal 报告 · 无法验证', detail: ' · blocked', status: '已阻塞 · 4/5 轮',
+      resultHint: '一项标准无法自动验证，按契约转为 blocked，不伪造通过。',
+      summary: '实现已完成；最后一项验收因测试环境不可用无法验证。',
+      criteria: [
+        { d: '方向键 ↑/↓ 在任务列表内移动选中项，焦点环可见', s: 'passed' },
+        { d: 'Enter 打开选中任务，Esc 返回列表且不丢失焦点', s: 'passed' },
+        { d: '任务列表相关回归测试全部通过（针对性子集）', s: 'needs_review' }
+      ],
+      scope: ['tests/task-list.test.tsx'],
+      blocker: '测试环境不可用：npm run test 连续两次因环境原因失败（非代码改动导致），无法验证回归测试通过；未将该标准标记为通过。'
+    }
+  };
+
+  var iconCheck = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 12 2.5 2.5L16 9"/></svg>';
+  var iconCross = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg>';
+  var iconInfo = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>';
+  var iconCircle = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>';
+  var iconGoal = '<svg class="type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg>';
+  var iconTodo = '<svg class="type-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h12"/><path d="M3 12h12"/><path d="M3 19h9"/><path d="m16 15 2 2 4-4"/></svg>';
+  var chevron = '<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
+
+  function statusIcon(s) {
+    return s === 'passed' ? iconCheck : s === 'failed' ? iconCross : s === 'needs_review' ? iconInfo : iconCircle;
+  }
+  function esc(text) {
+    return String(text).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function goalCard(scene, open) {
+    var s = scenes[scene];
+    var criteria = s.criteria.map(function (c) {
+      return '<div class="criterion" data-status="' + c.s + '">' + statusIcon(c.s) +
+        '<span class="whitespace-pre-wrap">' + esc(c.d) + '</span></div>';
+    }).join('');
+    var scope = s.scope.map(function (p) {
+      return '<span class="scope-chip">' + esc(p) + '</span>';
+    }).join('');
+    return '' +
+      '<div class="tool-shell">' +
+        '<details class="tool"' + (open ? ' open' : '') + ' data-tone="' + s.tone + '">' +
+          '<summary>' + iconGoal +
+            '<span class="title"><span class="label">' + s.label + '</span>' +
+            '<span class="detail">' + s.detail + '</span>' + chevron + '</span>' +
+            '<span class="status">' + s.status + '</span>' +
+          '</summary>' +
+          '<div class="tool-body">' +
+            '<div class="result-hint">' + s.resultHint + '</div>' +
+            '<div><div class="section-label">目标摘要</div><div>' + esc(s.summary) + '</div></div>' +
+            '<div><div class="section-label">验收标准</div><div class="criteria">' + criteria + '</div></div>' +
+            '<div><div class="section-label">范围</div><div class="scope">' + scope + '</div></div>' +
+            (s.blocker ? '<div><div class="section-label">阻塞原因</div><div class="blocker">' + esc(s.blocker) + '</div></div>' : '') +
+          '</div>' +
+        '</details>' +
+      '</div>';
+  }
+
+  var todoJson = '{\n  "todos": [\n    { "content": "梳理任务列表组件与调用链", "status": "completed" },\n    { "content": "实现方向键移动与焦点环", "status": "completed" },\n    { "content": "实现 Enter 打开与 Esc 返回", "status": "in_progress" },\n    { "content": "补充任务列表回归测试", "status": "pending" },\n    { "content": "同步 docs/wiki 相关条目", "status": "pending" }\n  ]\n}';
+
+  function todoCard(open) {
+    return '' +
+      '<div class="tool-shell">' +
+        '<details class="tool plain"' + (open ? ' open' : '') + '>' +
+          '<summary>' + iconTodo +
+            '<span class="title"><span class="label">任务清单已更新</span>' +
+            '<span class="detail"> · 5 项 · 1 项完成</span>' + chevron + '</span>' +
+            '<span class="status">已完成 · 0.4s</span>' +
+          '</summary>' +
+          '<div class="tool-body">' +
+            '<div><div class="section-label">输入</div><pre class="code-pre">' + esc(todoJson) + '</pre></div>' +
+          '</div>' +
+        '</details>' +
+      '</div>';
+  }
+
+  function render() {
+    var open = state.expanded;
+    document.getElementById('goalCardProposal').innerHTML = goalCard(state.scene, open);
+    document.getElementById('todoCardProposal').innerHTML = todoCard(open);
+    document.getElementById('goalCardLegacy').innerHTML = goalCard(state.scene, open);
+    document.getElementById('todoCardLegacy').innerHTML = todoCard(open);
+  }
+
+  function renderLive() {
+    var el = document.getElementById('live');
+    var msg = state.msgSize, ui = state.uiSize;
+    var legacyBody = ui, proposalBody = msg;
+    var drift = msg - ui;
+    var html = '<span class="pill">对话正文 ' + msg + 'px（消息字号）</span>' +
+      '<span class="pill">界面字号 ' + ui + 'px</span>' +
+      '<span class="pill' + (legacyBody === msg ? ' ok' : ' bad') + '">现状卡片正文 ' + legacyBody + 'px' +
+        (legacyBody === msg ? ' · 一致' : ' · 偏差 ' + (drift > 0 ? '+' : '') + drift + 'px') + '</span>' +
+      '<span class="pill ok">提案卡片正文 ' + proposalBody + 'px · 始终一致</span>';
+    if (legacyBody !== msg) {
+      html += '<span>↑ 正在复现 P01：两套字号体系分叉，同一消息流出现两种正文字号。</span>';
+    } else {
+      html += '<span>默认 13/13 时现状与提案视觉相同；拖动任一字号滑杆可对比差异。</span>';
+    }
+    el.innerHTML = html;
+  }
+
+  function applySizes() {
+    var root = document.documentElement;
+    root.style.setProperty('--mock-interface-font-size', state.uiSize + 'px');
+    root.style.setProperty('--quickforge-message-font-size', state.msgSize + 'px');
+    document.getElementById('uiSizeOut').textContent = state.uiSize + 'px';
+    document.getElementById('msgSizeOut').textContent = state.msgSize + 'px';
+    document.getElementById('uiSize').value = String(state.uiSize);
+    document.getElementById('msgSize').value = String(state.msgSize);
+    renderLive();
+  }
+
+  function setView(view) {
+    state.view = view;
+    document.body.setAttribute('data-view', view);
+    [['viewProposal', 'proposal'], ['viewLegacy', 'legacy'], ['viewBoth', 'both']].forEach(function (pair) {
+      document.getElementById(pair[0]).setAttribute('aria-pressed', String(view === pair[1]));
+    });
+  }
+
+  document.getElementById('viewProposal').addEventListener('click', function () { setView('proposal'); });
+  document.getElementById('viewLegacy').addEventListener('click', function () { setView('legacy'); });
+  document.getElementById('viewBoth').addEventListener('click', function () { setView('both'); });
+
+  document.getElementById('scene').addEventListener('change', function (e) {
+    state.scene = e.target.value;
+    render();
+  });
+
+  document.getElementById('theme').addEventListener('click', function (e) {
+    state.theme = state.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', state.theme);
+    e.currentTarget.setAttribute('aria-pressed', String(state.theme === 'dark'));
+    e.currentTarget.textContent = state.theme === 'dark' ? '浅色主题' : '深色主题';
+  });
+
+  document.getElementById('expandAll').addEventListener('click', function (e) {
+    state.expanded = !state.expanded;
+    e.currentTarget.setAttribute('aria-pressed', String(state.expanded));
+    e.currentTarget.textContent = state.expanded ? '全部收起' : '全部展开';
+    render();
+  });
+
+  document.getElementById('uiSize').addEventListener('input', function (e) {
+    state.uiSize = Number(e.target.value);
+    applySizes();
+  });
+  document.getElementById('msgSize').addEventListener('input', function (e) {
+    state.msgSize = Number(e.target.value);
+    applySizes();
+  });
+
+  document.getElementById('repro').addEventListener('click', function () {
+    state.uiSize = 13;
+    state.msgSize = 16;   /* 模拟用户只调大「消息字号」：正文放大，现状卡片不动 */
+    applySizes();
+  });
+  document.getElementById('reset').addEventListener('click', function () {
+    state.uiSize = 13;
+    state.msgSize = 13;
+    applySizes();
+  });
+
+  render();
+  applySizes();
+  setView('proposal');
+})();
+</script>
+</body>
+</html>

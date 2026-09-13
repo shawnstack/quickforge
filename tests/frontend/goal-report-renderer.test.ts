@@ -99,19 +99,18 @@ describe('goal_report history view model', () => {
 })
 
 describe('goal_report registered renderer', () => {
-  it('registers a custom renderer with shared shell, status, and default structured content', () => {
+  it('registers a custom renderer with shared shell, status, and collapsed-by-default structured content', () => {
     expect(source).toContain("registerToolRenderer('goal_report', new GoalReportToolRenderer())")
     const view = render({ action: 'plan' }, result())
     expect(view.rendered.isCustom).toBe(true)
     expect(view.templates).toContain('quickforge-local-tool-shell')
     expect(view.templates).toContain('quickforge-tool-summary')
-    expect(view.values).toContain(true) // default open, criteria visible
+    expect(view.values).toContain(false) // default collapsed, same as other tools
     expect(view.values).toContain('goalReportWasWaiting')
     expect(view.values).toContain('Tests pass')
     expect(view.values).toContain('Renderer only')
     expect(view.templates).toContain('quickforge-goal-report-tool')
-    expect(view.templates).toContain('data-tone=')
-    expect(view.values).toContain('info')
+    expect(view.templates).not.toContain('data-tone=')
     expect(view.templates).toContain('<circle cx="10" cy="14" r="8"/>')
     expect(view.templates).toContain('<path d="M21 3 10 14"/>')
     expect(view.values).toContain('quickforge-goal-report-criterion-icon shrink-0')
@@ -121,14 +120,13 @@ describe('goal_report registered renderer', () => {
     expect(block).not.toMatch(/updateGoal|dispatchEvent|unsafeHTML|innerHTML|@click/)
   })
 
-  it('renders tone card with status-aware criterion icons and blocker accent', () => {
+  it('renders status-aware criterion icons and blocker accent', () => {
     const view = render({ action: 'blocked' }, result({ ...plan, blocker: 'Dependency unavailable', criteria: [
       { description: 'Passed', status: 'passed' },
       { description: 'Failed', status: 'failed' },
       { description: 'Review', status: 'needs_review' },
       { description: 'Pending', status: 'bogus' },
     ]}))
-    expect(view.values).toContain('warning')
     expect(view.templates).toContain('d="m8 12 2.5 2.5L16 9"')
     expect(view.templates).toContain('M15 9l-6 6')
     expect(view.templates).toContain('M12 8v4')
@@ -182,5 +180,49 @@ describe('goal_report registered renderer', () => {
     const keys = [...i18n.matchAll(/\b(goalReport\w+):/g)].map((match) => match[1])
     expect(new Set(keys).size).toBe(13)
     for (const key of new Set(keys)) expect(keys.filter((item) => item === key)).toHaveLength(2)
+  })
+})
+
+describe('goal_report tool card message font contract', () => {
+  const indexCss = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+  const summaryBlock = indexCss.slice(
+    indexCss.indexOf('.quickforge-local-tool > .quickforge-tool-summary,'),
+    indexCss.indexOf('.quickforge-tool-title,'),
+  )
+  const bodyBlock = indexCss.slice(
+    indexCss.indexOf('.quickforge-goal-report-tool-body'),
+    indexCss.indexOf('.quickforge-goal-report-criteria'),
+  )
+
+  it('scales the tool summary line with the message font size (×0.875), not the interface rem base', () => {
+    expect(summaryBlock).toContain('font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875)')
+    expect(summaryBlock).toContain('line-height: 1.5')
+    expect(summaryBlock).not.toContain('font-size: 0.875rem')
+  })
+
+  it('aligns the card body text with the message font size and line height', () => {
+    expect(bodyBlock).toContain('font-size: var(--quickforge-message-font-size, 14px)')
+    expect(bodyBlock).toContain('line-height: var(--quickforge-message-line-height, 1.625)')
+  })
+
+  it('frames the expanded body content with the shared code-block border recipe', () => {
+    expect(bodyBlock).toContain('border: 1px solid var(--border)')
+    expect(bodyBlock).toContain('border-radius: var(--radius)')
+    expect(bodyBlock).toContain('padding: 0.625rem 0.875rem')
+    expect(bodyBlock).not.toContain('box-shadow')
+    expect(bodyBlock).not.toContain('background:')
+  })
+
+  it('keeps section labels and scope chips on the message font scale (×0.8); chip stays mono', () => {
+    expect(indexCss).toMatch(
+      /\.quickforge-goal-report-tool-body \.text-xs,[\s\S]*?\.quickforge-todo-history-tool > div \.text-xs \{[\s\S]*?font-size: calc\(var\(--quickforge-message-font-size, 14px\) \* 0\.8\);/,
+    )
+    const chipBlock = indexCss.slice(
+      indexCss.indexOf('.quickforge-goal-report-scope-chip'),
+      indexCss.indexOf('.quickforge-goal-report-blocker'),
+    )
+    expect(chipBlock).toContain('font-family: var(--font-mono)')
+    expect(chipBlock).toContain('font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8)')
+    expect(chipBlock).not.toContain('0.7rem')
   })
 })

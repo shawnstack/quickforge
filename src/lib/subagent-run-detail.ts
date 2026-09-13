@@ -98,6 +98,9 @@ export type SubagentRunListener = (payload: SubagentRunPayload) => void
 /** 实时快照缓存上限：超过后按插入顺序淘汰最旧运行，避免长期会话内存泄漏。 */
 export const MAX_SUBAGENT_RUN_SNAPSHOTS = 100
 
+/** 置顶摘要已结束 subagent 的防御性提取上限。 */
+export const MAX_TERMINAL_SUBAGENT_RUNS = 100
+
 /**
  * 轻量实时 store：发布 payload、按 runId 获取最新快照、订阅更新、指纹去重。
  * 纯内存实现、不依赖 DOM/React，便于单元测试；不做轮询，事件到达即发布。
@@ -608,8 +611,9 @@ function collectRunSubagentToolCalls(messages: readonly SubagentRunMessageLike[]
 }
 
 /**
- * 从当前消息分支提取最近结束的 run_subagent。仅扫描传入消息，不依赖全局运行 store。
+ * 从当前消息分支提取最近结束的 run_subagent，返回轻量载荷。仅扫描传入消息，不依赖全局运行 store。
  * toolResult 时间戳优先用于排序；缺失时回退其在当前分支中的消息索引。
+ * limit 语义为 1..MAX_TERMINAL_SUBAGENT_RUNS（非法值回退默认 3）。
  */
 export function extractLatestTerminalSubagentRuns(
   messages: readonly SubagentRunMessageLike[],
@@ -637,7 +641,7 @@ export function extractLatestTerminalSubagentRuns(
         : undefined,
       details: message.details,
     }
-    const payload = buildSubagentRunPayload(args, result, false, toolDisplayMode, t, toolCallId)
+    const payload = buildSubagentRunPayload(args, result, false, toolDisplayMode, t, toolCallId, { lightweight: true })
     if (payload.status !== 'done' && payload.status !== 'error') continue
     terminal.push({ payload, timestamp: typeof message.timestamp === 'number' ? message.timestamp : undefined, index })
   }
@@ -651,7 +655,7 @@ export function extractLatestTerminalSubagentRuns(
 
   const result: SubagentRunPayload[] = []
   const seen = new Set<string>()
-  const boundedLimit = Math.min(5, Math.max(1, Number.isFinite(limit) ? Math.floor(limit) : 3))
+  const boundedLimit = Math.min(MAX_TERMINAL_SUBAGENT_RUNS, Math.max(1, Number.isFinite(limit) ? Math.floor(limit) : 3))
   for (const item of terminal) {
     const canonicalId = item.payload.canonicalToolCallId || item.payload.runId
     if (!canonicalId || seen.has(canonicalId)) continue
@@ -689,6 +693,10 @@ export function extractRunningSubagentRuns(
  * 从 run_subagent 的 params/result.details 构建规范化载荷。
  * 聊天摘要与 Workspace Inspector 运行详情 Tab 共用此函数，保证状态和内容一致。
  * toolCallId 为可选显式稳定 run id（SSE 事件路径传入父工具调用 id）。
+ * options.lightweight=true 时返回轻量载荷（traceMessages/input/details 置空占位），
+ * 仅供置顶摘要列表使用：status/error 仍按完整结果本地推导，其余字段照常保留；
+ * 点击打开时 Inspector 优先 subagentRunStore 快照，未命中时详情缺 trace/input/details。
+ * 默认（不传或 false）返回完整载荷，行为与轻量化之前完全一致。
  */
 export function buildSubagentRunPayload(
   params: Record<string, unknown> | undefined,
@@ -697,7 +705,9 @@ export function buildSubagentRunPayload(
   toolDisplayMode: SubagentToolDisplayMode,
   t: SubagentRunI18n,
   toolCallId?: string,
+  options?: { lightweight?: boolean },
 ): SubagentRunPayload {
+  const lightweight = options?.lightweight === true
   const details = isRecord(result?.details) ? result.details : undefined
   const name = typeof params?.subagent === 'string'
     ? params.subagent
@@ -731,11 +741,11 @@ export function buildSubagentRunPayload(
     timing: extractQuickForgeTiming(result?.details),
     toolCalls: typeof details?.toolCalls === 'number' ? details.toolCalls : undefined,
     allowedTools: stringArrayFromUnknown(details?.allowedTools),
-    traceMessages,
+    traceMessages: lightweight ? [] : traceMessages,
     tools: arrayFromUnknown(details?.tools),
     pendingToolCalls: stringArrayFromUnknown(details?.pendingToolCalls),
-    input: stringifyValue(params),
-    details: stringifyValue(result?.details),
+    input: lightweight ? '' : stringifyValue(params),
+    details: lightweight ? '' : stringifyValue(result?.details),
     output,
     ...error,
     model: subagentRunModelFromDetails(details?.model),

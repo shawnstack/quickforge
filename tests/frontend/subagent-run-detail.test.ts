@@ -3,6 +3,7 @@ import type { SubagentRunI18n, SubagentRunPayload, SubagentRunStatus, SubagentTo
 import {
   MAX_SUBAGENT_RUN_SNAPSHOTS,
   MAX_SUBAGENT_TOOL_SUMMARY_RUNS,
+  MAX_TERMINAL_SUBAGENT_RUNS,
   SUBAGENT_TOOL_SUMMARY_MAX_LENGTH,
   SubagentRunEventPublisher,
   SubagentRunStore,
@@ -109,16 +110,77 @@ describe('terminal subagent run extraction', () => {
     expect(runs.map((run) => run.task)).toEqual(['New', 'Old'])
   })
 
-  it('clamps limit to 1..5 and follows the current rollback message array', () => {
+  it('clamps limit to 1..MAX_TERMINAL_SUBAGENT_RUNS and follows the current rollback message array', () => {
+    expect(MAX_TERMINAL_SUBAGENT_RUNS).toBe(100)
     const messages = Array.from({ length: 7 }, (_, index) => [
       call(`id-${index}`, `Task ${index}`),
       result(`id-${index}`, { timestamp: index }),
     ]).flat()
-    expect(extractLatestTerminalSubagentRuns(messages, [], 'compact', t, 99)).toHaveLength(5)
+    expect(extractLatestTerminalSubagentRuns(messages, [], 'compact', t, 99)).toHaveLength(7)
     expect(extractLatestTerminalSubagentRuns(messages, [], 'compact', t, 0)).toHaveLength(1)
+
+    const overflow = Array.from({ length: 105 }, (_, index) => [
+      call(`overflow-${index}`, `Task ${index}`),
+      result(`overflow-${index}`, { timestamp: index }),
+    ]).flat()
+    expect(extractLatestTerminalSubagentRuns(overflow, [], 'compact', t, MAX_TERMINAL_SUBAGENT_RUNS + 50)).toHaveLength(MAX_TERMINAL_SUBAGENT_RUNS)
 
     const rolledBack = messages.slice(0, 4)
     expect(extractLatestTerminalSubagentRuns(rolledBack, [], 'compact', t).map((run) => run.task)).toEqual(['Task 1', 'Task 0'])
+  })
+
+  it('returns lightweight payloads while keeping identity, status, timing and output', () => {
+    const runs = extractLatestTerminalSubagentRuns([
+      call('done-1', 'Find the entry point'),
+      {
+        role: 'toolResult',
+        toolName: 'run_subagent',
+        toolCallId: 'done-1',
+        timestamp: 100,
+        content: [{ type: 'text', text: 'Found the entry' }],
+        details: {
+          label: 'Explore',
+          messages: [
+            { role: 'assistant', content: [{ type: 'text', text: 'Plan' }] },
+            { role: 'toolResult', toolCallId: 'missing', content: [] },
+          ],
+          quickforgeTiming: { durationMs: 1200 },
+        },
+      },
+      call('error-1', 'Summarize', 'general'),
+      {
+        role: 'toolResult',
+        toolName: 'run_subagent',
+        toolCallId: 'error-1',
+        timestamp: 200,
+        isError: true,
+        content: [{ type: 'text', text: 'build failed' }],
+      },
+    ], [], 'compact', t)
+
+    expect(runs.map((run) => run.runId)).toEqual(['error-1', 'done-1'])
+
+    const done = runs[1]
+    expect(done.canonicalToolCallId).toBe('done-1')
+    expect(done.name).toBe('explore')
+    expect(done.label).toBe('Explore')
+    expect(done.task).toBe('Find the entry point')
+    // 状态推导使用本地完整结果（details.messages 过滤后的 trace），不受轻量载荷影响。
+    expect(done.status).toBe('done')
+    expect(done.statusLabel).toBe('Explore completed')
+    expect(done.timing?.durationMs).toBe(1200)
+    expect(done.output).toBe('Found the entry')
+
+    const error = runs[0]
+    expect(error.status).toBe('error')
+    expect(error.errorMessage).toBe('build failed')
+
+    // 轻量契约：置顶摘要列表的 payload 不携带 trace/input/details。
+    for (const run of runs) {
+      expect(run.traceMessages).toEqual([])
+      expect(run.input).toBe('')
+      expect(run.details).toBe('')
+    }
   })
 })
 

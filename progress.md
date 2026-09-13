@@ -1,3 +1,59 @@
+## pinned-summary-subagent-finished-show-all（done，实现与定向自动验证完成；浏览器未实测）
+
+- 当前目标：落地调研报告（docs/reviews/pinned-summary-subagent-finished-count.zh-CN.md 第六节）方案 A——置顶摘要「智能体 · 已结束」真实计数 + 展开显示全部 + 提取轻量化（用户已采纳）。
+- 实现：①`subagent-run-detail.ts` 新增 `MAX_TERMINAL_SUBAGENT_RUNS=100`，clamp 1..5→1..100（默认 limit=3 不动），extract 传 `{ lightweight: true }`；`buildSubagentRunPayload` 新增可选 `options.lightweight`——payload 的 traceMessages=[]、input/details=''（跳过全量 trace stringify），status/error 本地完整推导、output/timing 等照常，默认行为零变化。②`App.tsx` 显式传上限常量。③`GitToolsPinnedSummary.tsx` 删 `slice(0,3)`，标题/胶囊计数自动真实化（零新增 i18n）。④两测试文件更新+新增（clamp 1..100、105 条截到 100、轻量契约、5 条 finished 静态渲染计数断言、源码断言 slice 移除）。⑤wiki 两段同步。点击兼容：Inspector 仍优先 store 完整快照，仅 >100 旧 run 详情降级。
+- 文件（10 个）：源码 3 + 测试 2 + wiki 2 + 三状态文件。
+- 已验（父 Agent 实跑）：亲读全部 diff 复审；定向 vitest 7 文件 352/352（subagent-run-detail 100 含新用例、git-tools-pinned-summary 31、server-agent 138、subagent-running-indicator 11、workspace-inspector-request 7、process-folding 49、tool-artifacts-and-events 16）；`npx --no-install tsc -b` 0 error；`npm run lint` 0 error（仅既有 identity.mjs:92 warning）；`git diff --check` 通过；grep wiki 旧措辞「最近优先取 3 项」「1–5 条」零残留；feature_list.json JSON.parse 通过。
+- Notes/边界：done 表示实现与定向自动验证完成，浏览器视觉未实测（建议 >3 个已结束 subagent 会话验证展开全部/真实计数/点击详情完整/面板滚动）。store 未命中旧 run 详情降级为无 trace/input/details（文档化边界）。实施期间并行会话完成 goal-report-flat-style、goal-report-expanded-body-frame，与本 feature 无文件交集。未新增依赖、未手工改生成产物、无 Git 提交。
+- 下一步：浏览器验收；验收后可考虑 commit。
+
+---
+
+## pinned-summary-subagent-finished-review（needs-review，纯调研+方案交付完成；待用户选择方案）
+
+- 当前目标：调研置顶摘要「智能体 · 已结束」小节为何只显示 3 个（用户判断应有更多）并给出修复方案，产出 `docs/reviews/pinned-summary-subagent-finished-count.zh-CN.md`，不修改生产代码。
+- 根因（父 Agent 亲读核实全部引用）：显示侧三层截断叠加+计数口径失真，数据源（server 会话消息、`ServerAgent.state.messages`）零截断——①`App.tsx:562` 未传 limit 走默认 3（`subagent-run-detail.ts:619`）；②提取层硬钳制 1..5（`:654`，测试 `subagent-run-detail.test.ts:112-122` 锁定）；③UI `visibleSubagentRuns.slice(0,3)` 与展开态无关（`GitToolsPinnedSummary.tsx:221/:864`）；④标题「已结束 · N」（`:857`）与胶囊计数（`:227/:271-282`）用截断后长度。"3"是 feature 逐代继承的实现边界（mockup 演示数据恰 3 条，「查看全部」机制只设计给任务组），非产品决策；`extractLatestTerminalSubagentRuns` 全仓唯一生产调用方为 `App.tsx:562`。
+- 方案：A（推荐）真实计数+展开显示全部，必做配套=提取轻量化（跳过全量 trace stringify，置顶摘要行只消费 label/name/task/status/timing/canonicalToolCallId；须保留非 canonical 历史 run Inspector fallback 字段，报告 6.1 推荐 b）；B 仅提高上限；C 仅修计数口径。实施设计/影响面/验证见报告第六~八节。
+- 文件（4 个）：报告 + 三状态文件。
+- 已验：报告全部 文件:行号 引用亲读核实；全仓 grep 确认唯一生产调用方；node JSON.parse feature_list.json 通过（first id 正确）；git status 前后基线对比 src/server/tests 零新增改动（既有 M 为前序/并行 feature 遗留）。docs-only 未跑 npm test/lint/build。
+- Notes/边界：needs-review 表示待用户在 A/B/C 中决策，全部方案未实施；撰写期间并行会话完成 goal-report-tool-flat-style（local-tools.ts/index.css/goal-report-renderer.test.ts/wiki lib），与本调研引用文件无交集。运行中小节与任务组无此问题（对照旁证）。
+- 下一步：用户选择方案（建议 A）；采纳后按报告第六节实施设计开生产 feature。
+
+---
+
+## goal-report-expanded-body-frame（done，实现与全量自动验证完成；浏览器视觉未实测）
+
+- 当前目标：按用户要求「goal_report 点开才见内容 可以用框框起来 参考其他的设计」，为展开内容区加轻量边框，复用项目已有 code-block 框配方；新增独立 feature 无依赖。
+- 实现：调研确认先例为 code-block 组件自带框（`@mariozechner/mini-lit/dist/CodeBlock.js:64`：border border-border rounded-lg overflow-hidden，无背景无阴影）；`src/index.css` 的 `.quickforge-goal-report-tool-body` 增加 `border: 1px solid var(--border)` + `border-radius: var(--radius)` + `padding: 0.625rem 0.875rem`（附配方来源注释）；details 收起时内容隐藏，框仅点开后可见（不改模板、不动收起态摘要行）；消息字号契约保留。测试：goal-report-renderer.test.ts 新增框契约用例（border/radius/padding + not box-shadow/background）。wiki 呈现契约行同步。
+- 文件（6 个）：`src/index.css`、`tests/frontend/goal-report-renderer.test.ts`、`docs/wiki/src/lib/README.md`、三状态文件。
+- 已验（父 Agent 实跑）：node 源码断言 8/8 PASS；定向 vitest 2 文件 46/46（goal-report-renderer 38 含新用例）；`npm run test` 全量 323 文件 / 3647 tests 通过；`npm run lint` 0 error（仅既有 warning）；`npm run build` 成功（仅既有 KaTeX/chunk 警告）。
+- Notes/边界：done 表示实现与自动验证完成，浏览器视觉未实测（收起一行灰色摘要、展开内容区带轻框）。详细模式下 body 内 code-block 自带框形成嵌套（层级语义，接受）。未新增依赖，未手工修改生成产物（build 正常刷新 dist），无 Git 提交/发布。
+- 下一步：浏览器点开真实 goal_report 历史卡验收观感；验收后可考虑 commit。
+
+---
+
+## goal-report-tool-flat-style（done，实现与全量自动验证完成；浏览器视觉未实测）
+
+- 当前目标：按用户反馈「默认收起和其他工具保持一致 不需要框选」修订 goal_report 工具卡形态：默认收起、去掉 tone 卡框与染色（经确认：染色 label 完全去掉与普通工具一致；展开内容状态化视觉保留），新增独立 feature 无依赖。
+- 实现：`local-tools.ts` GoalReportToolRenderer 默认收起（`?? true` → `?? detailed`，与 todo_write 一致）、删 `data-tone` 属性与 `toneFor` 死代码；`index.css` 删 `.quickforge-goal-report-tool` 卡片配方（border/bg/shadow/::before 3px 左条）、5 个 data-tone 变量选择器、summary/body padding 特化、label tone 染色，class 保留为标记；blocker 警示条 `var(--quickforge-goal-tone)` → 固定 `#d97706`（blocked 语境原 tone 即 warning）；上一 feature 的消息字号契约（body 字号/行高 token）保留。测试同步：goal-report-renderer.test.ts 默认收起断言（`toContain(false)`）+ `not.toContain('data-tone=')`、删 info/warning tone 断言、用例名去 tone card。wiki `docs/wiki/src/lib/README.md` 呈现契约两行同步。
+- 文件（7 个）：`src/lib/local-tools.ts`、`src/index.css`、`tests/frontend/goal-report-renderer.test.ts`、`docs/wiki/src/lib/README.md`、三状态文件。
+- 已验（父 Agent 实跑）：node 残留断言 10/10 PASS（tone 卡移除干净、保留项完整：标记 class/字号契约/blocker 固定色/goal-card 侧 tone 不受影响）；定向 vitest 3 文件 67/67 通过；`npm run test` 全量 323 文件 / 3646 tests 通过；`npm run lint` 0 error（仅既有 identity.mjs:92 warning）；`npm run build` 成功（仅既有 KaTeX/chunk 警告）。
+- Notes/边界：done 表示实现与自动验证完成，真实浏览器视觉未实测（建议查看真实 goal_report 历史卡确认：默认收起、摘要行 muted 灰与普通工具一致、展开后仅内容区状态视觉）。tone 体系仅在 goal-report 工具卡上移除；`.quickforge-goal-card`（Inspector 常驻卡）与 goal strip 的 tone 未动。`quickforge-goal-report-tool` class 保留为标记（无样式规则），后续可按需清理。未新增依赖，未手工修改生成产物（build 正常刷新 dist），无 Git 提交/发布。
+- 下一步：浏览器验收真实历史卡观感；验收后可考虑 commit。
+
+---
+
+## goal-plan-tool-card-font-consistency（done，实现与全量自动验证完成；浏览器视觉未实测）
+
+- 当前目标：把上一 goal 已交付的设计稿 `design-mockups/goal-plan-tool-card-redesign.html`（S01–S05）落进生产：goal 期间计划工具调用卡（goal_report/todo_write）字号由「界面字号 rem 体系」切换到「消息字号」体系，与对话正文一致；新增独立 feature 无依赖，不推进其他 feature。
+- 实现（纯 CSS，不改 local-tools.ts 模板，规避 goal-report-renderer 模板串断言）：① 工具卡摘要行组规则 font-size `0.875rem` → `calc(var(--quickforge-message-font-size, 14px) * 0.875)`（默认 13/13 下 ≈11.4px 与旧值一致，零视觉回归；line-height 1.5 保留，附注释）；② `.quickforge-goal-report-tool-body` 增加 `font-size: var(--quickforge-message-font-size, 14px)` + `line-height: var(--quickforge-message-line-height, 1.625)`（与 subagent-run-detail-body 先例同模式+注释）；③ 新增 unlayered 覆盖规则 `.quickforge-goal-report-tool-body .text-xs, .quickforge-todo-history-tool > div .text-xs` → `calc(×0.8)`（压过 Tailwind text-xs utility，遵循 index.css 文件末尾 unlayered 惯例；`> div` 直接子组合器避开 summary 行内 renderTiming 的 text-xs；13px 下节标签 9.75px→10.4px 越过 10px 可读下限）；④ `.quickforge-goal-report-scope-chip` 字号 `0.7rem` → `calc(×0.8)`，保留 `var(--font-mono)` 路径语义。测试：`goal-report-renderer.test.ts` 新增 'goal_report tool card message font contract' describe 3 用例锁定契约。
+- 文件（5 个）：`src/index.css`、`tests/frontend/goal-report-renderer.test.ts`、三状态文件。
+- 已验（父 Agent 实跑）：定向 vitest 3 文件 48/48 通过（goal-report-renderer 37 含新增 3 契约用例；首跑 1 失败为断言 slice 起点误命中上一条 padding 规则且新注释含旧值字样，改精确选择器与 `not.toContain('font-size: 0.875rem')` 后通过）；`npm run test` 全量 323 文件 / 3646 tests 通过；`npm run lint` 0 error（仅既有 identity.mjs:92 warning）；`npm run build` 成功（仅既有 KaTeX/chunk 警告）；node 源码断言 10/10 PASS；`git diff --check` 通过；git status 改动面仅 src/index.css + goal-report-renderer.test.ts（M）+ 上一 goal 设计稿（??）。
+- Notes/边界：done 表示实现与自动验证完成，真实浏览器视觉未实测（建议设置·外观分开调整界面/消息字号，查看真实 goal_report/todo_write 历史卡验证一致性）。Process 折叠时间线 summary 行（index.css:2882/:3015 的 0.875rem）不在设计稿范围未动，可另开 feature 统一。summary 行规则全局作用于 local/mcp/subagent 全部工具卡（默认 13/13 零视觉回归，分开调整后分叉方向为与对话正文一致，符合 DESIGN_LANGUAGE.md「以对话区为视觉基准」）。wiki 未更新：纯样式字号行为变更，非架构/职责/入口变更。未新增依赖，未手工修改生成产物（build 正常刷新 dist），无 Git 提交/发布。
+- 下一步：浏览器验收（分开调整两个字号设置 + 真实历史卡）；验收后可考虑 commit。
+
+---
+
 ## goal-configurable-iterations（done，实现与定向自动验证完成；浏览器未实测）
 
 - 当前目标：goal 最大轮次默认 8→20，并可在设置·常规页配置该轮次（注意样式与项目匹配），新增独立 feature 无依赖，不推进其他 feature。

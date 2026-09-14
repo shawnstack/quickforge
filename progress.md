@@ -10,7 +10,15 @@
 
 ---
 
-## release-v2.1.0（done，Git 发布完成；npm publish 待用户手动执行）
+## release-v2.1.0（done：Git/CI 完成；npm 等待双重验证）
+
+- 最终状态（覆盖下方初始发布记录）：本轮实时核验远端 dev/master/v2.1.0 与 HEAD 为 `baaa041cc2a37e49038da46cec4c7d2ca6272f59`；本地 master 仍为 `9ded6c0`，并非四 ref 同步。发布提交 `6ad3489`，CI 测试修复 `6252e2d`（固定中文）及 `baaa041`（sleep 5→20ms，保留 >=5 断言）。
+- 当前 HEAD 重跑硬门禁：test 323 文件 / 3649 全过，lint/build 退出 0；仅既有 identity.mjs:92、KaTeX/chunk warning。CI [34797256759](https://github.com/shawnstack/quickforge/actions/runs/34797256759) 与 Desktop Build [34797259067](https://github.com/shawnstack/quickforge/actions/runs/34797259067) 网页 Success，完整 SHA 匹配；API 限流。
+- 包核验：`package-offline/shawnstack-quickforge-2.1.0.tgz`，7486125 bytes / 471 文件，SHA1 `7c952caa07a39971fdd4dbf74acd899238495d0c`；402 个 dist/server/bin 文件与当前构建逐字节一致，无需重打。
+- npm：已登录 shawnstack，用户明确授权发布；实际 publish 退出 1（EOTP），需用户本地完成双重验证，尚未确认 npm 发布成功。下一步：`npm publish ./package-offline/shawnstack-quickforge-2.1.0.tgz --access public --registry=https://registry.npmjs.org/`，随后核对 npm view version/dist-tags。
+- Notes：三状态文件更新未提交，未再次移动 tag；未知零字节文件 `x[1])` 未触碰。无架构/公共入口变化，无需同步 Wiki。
+
+### 初始发布阶段记录（最终状态以上方为准）
 
 - 当前目标：按用户指令「发布一个版本 2.1.0」发布 minor 版本（v2.0.0..HEAD 共 17 个提交的 dev 全量，不含 Android）。
 - 内容：版本号 2.0.0→2.1.0（npm version --no-git-tag-version）；CHANGELOG [Unreleased] 转正为 [2.1.0] - 2026-09-13 并补全 17 个提交内容（Goal 模式/无限时长+默认 20 轮可配置/会话级并行/阶段分隔线/轮级文件撤销/subagent 模型与思考等级/重试保留工具历史/OpenCode harness 移除 breaking/Agent Profile 保存修复等），按最终状态修正旧 Unreleased 中已过时的预算描述，Released 小节含离线包路径与安装命令；README 当前版本徽章 2.1.0。

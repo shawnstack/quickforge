@@ -1,4 +1,30 @@
-## 当前交接：goal-inspector-hint-popover-width（done，修复与定向验证完成；浏览器未实测）
+## 当前交接：release-v2.1.0（Git/CI 完成；npm 等待双重验证）
+
+- 最终提交：`baaa041cc2a37e49038da46cec4c7d2ca6272f59`；本轮实时 `git ls-remote` 确认远端 dev/master/v2.1.0 均为该提交，本地 dev/HEAD/tag 一致；本地 master 仍为 `9ded6c0`，未移动。
+- 发布提交 `6ad3489`；CI 修复 `6252e2d` 固定测试中文，`baaa041` 将 runtime-diagnostics 等待 5ms 改为 20ms，保留 elapsedMs >= 5 断言。
+- 当前 HEAD 重新验证：npm run test 323 文件 / 3649 测试全部通过；lint/build 均退出 0。既有 warning：identity.mjs:92、KaTeX 字体和大 chunk。
+- GitHub 网页核验完整 SHA 匹配且 Success：[CI](https://github.com/shawnstack/quickforge/actions/runs/34797256759)、[Desktop Build](https://github.com/shawnstack/quickforge/actions/runs/34797259067)。公开 API 限流，以上依据 run 网页。
+- 离线包：`package-offline/shawnstack-quickforge-2.1.0.tgz`，7,486,125 bytes、471 文件，SHA-1 `7c952caa07a39971fdd4dbf74acd899238495d0c`；其中 402 个 dist/server/bin 文件与当前构建逐字节一致，未重打包。
+- npm：whoami 已成功（shawnstack），用户已明确授权；实际 publish 退出 1，报 EOTP，需要用户在本地完成双重验证，尚未确认发布成功。
+- 下一步：用户本地执行 `npm publish ./package-offline/shawnstack-quickforge-2.1.0.tgz --access public --registry=https://registry.npmjs.org/` 并输入验证码，然后用 `npm view @shawnstack/quickforge version` 和 `npm view @shawnstack/quickforge dist-tags` 核验。验证码不应发送到聊天。
+- 本轮仅补三份状态记录，未提交、未再次移动 tag；未知零字节文件 `x[1])` 未触碰。无架构或公共入口变化，无需更新 Wiki。
+
+---
+
+## 历史交接：release-v2.1.0-retag（以下为 6252e2d 阶段记录，已被顶部最终状态取代）
+
+- 目标：用户指令「发布 2.1.0 版本」，确认 v2.1.0 上轮已发布 Git 但远端 tag 实际未推成功（远端最新 tag 仅 v2.0.0），用户选择「移动 tag 到最新提交」将 a21d3bc（？ 浮层修复）纳入 2.1.0 重新发布；随后用户报「单元测试没过」，核实为 GitHub Actions CI（Linux）失败，修复后再次移动 tag。
+- CI 失败根因：`tests/frontend/git-tools-pinned-summary.test.ts` 两个用例断言中文文案（`执行中`/`已结束 · 5`），而 `src/lib/i18n.ts:3852` 默认语言跟随 `navigator.language`——本地 Windows zh-CN 渲染中文通过，CI Linux en-US 渲染英文失败（node ≥21 全局 navigator 按系统 locale）。属测试对宿主语言的隐式依赖，非产品缺陷；该失败自 22fe294（上轮发布提交）即存在。
+- 改动（1+2 文件）：`CHANGELOG.md`（[2.1.0] Fixed 补 ？ 浮层修复一行，commit 6ad3489）；`tests/frontend/git-tools-pinned-summary.test.ts`（import `applyAppLanguageFromSnapshot` + describe 级 beforeAll 固定 'zh'，commit 6252e2d）；本交接条目。
+- 验证：两轮 `npm run test` 323 files / 3649 tests 全过；`npm run lint` 0 error（仅既有 identity.mjs:92 warning）；`npm run build` 成功；定向 31/31。`package-offline/shawnstack-quickforge-2.1.0.tgz` 于 6ad3489 生成（7.5 MB / 471 files / shasum 7c952caa…），测试文件不进 npm 包（files 不含 tests/），tarball 无需重打。
+- Git：`6ad3489`（chore(release)）+ `6252e2d`（test 修复）；tag v2.1.0 两移（22fe294→6ad3489→6252e2d），第二次远端 +v2.1.0 强推；dev/master/tag 均指向 6252e2d。
+- Blocker：待确认本次 push 后 CI 转绿（推送时间 01:44 UTC，CI 约 3-5 分钟；上两次 CI 结论：6ad3489/22fe294 failure、9ded6c0 success）。npm 未登录（E401），publish 留给用户。
+- Notes：Desktop Build 由 v2.1.0 tag 触发，6ad3489 那次已 success 并创建 GitHub Release（"Create GitHub Release" success），tag 强推会再次触发；旧 Release 对象仍存在，必要时人工核对 GitHub Release 页面内容与资产。CI annotations API（check-runs）可匿名定位失败测试，无需 admin。本条目未提交，下个 feature 会话顺带提交。
+- 下一步：确认 CI 绿后，用户手动 `npm login` + `npm publish`（命令见本轮会话总结）；继续下一个 feature。
+
+---
+
+## 上一轮交接：goal-inspector-hint-popover-width（done，修复与定向验证完成；浏览器未实测）
 
 - 目标：修复右侧 Goal Tab 状态行「已完成」旁 ？ 提示浮层文字竖排（一字一行）。
 - 改动（2+3 文件）：`goal-inspector.css`——position:relative 由 18px ？ 锚点（规则已删）移到状态行，pop-body 宽度 `min(290px,100%)` → `max-content + max-width:min(290px, calc(100vw - 48px))`（根因：100% 按 18px 包含块解析导致逐字换行竖排）；`GoalInspectorContent.tsx`——状态行 GoalHintPopover 移到 time 之后（续修：用户反馈浮层未紧贴 icon；？ 落行末后浮层右缘与 icon 右缘任意面板宽度精确对齐、不裁剪）。

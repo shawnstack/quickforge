@@ -146,7 +146,9 @@ describe('runtime diagnostics', () => {
     const diagnostics = await loadDiagnostics()
 
     diagnostics.beginHttpRequest({ method: 'POST', path: '/api/agent/chat' })
-    await sleep(5)
+    // Sleep well past the asserted floor: wall-clock truncation and timer
+    // jitter on loaded CI runners can shave 1-2ms off a 5ms sleep.
+    await sleep(20)
 
     const snapshot = diagnostics.getRuntimeDiagnosticsSnapshot()
     expect(snapshot.http.inFlightCount).toBe(1)

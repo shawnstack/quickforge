@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeAll } from 'vitest'
 
 // The real i18n module pulls in pi-web-ui, which requires a browser DOM; the
 // source contracts below only need the app translation keys to exist.
 vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
 
 import { GitToolsPinnedSummary } from '../../src/components/git/GitToolsPinnedSummary'
+import { applyAppLanguageFromSnapshot } from '../../src/lib/i18n'
 import type { GoalState } from '../../src/lib/goal'
 import type { SubagentRunPayload } from '../../src/lib/subagent-run-detail'
 
@@ -28,6 +29,14 @@ function desktopWidgetBlock() {
 }
 
 describe('GitToolsPinnedSummary source contract', () => {
+  beforeAll(() => {
+    // Pin the rendered language to zh: the i18n default follows
+    // navigator.language, which is zh on a local Chinese Windows machine but
+    // en on CI runners, so untranslated assertions must not depend on the
+    // host locale.
+    applyAppLanguageFromSnapshot('zh')
+  })
+
   it('keeps the summary mounted only while the real desktop Inspector sidebar suspends it', () => {
     expect(appSource).toContain("window.matchMedia('(min-width: 1024px)')")
     expect(appSource).toContain('const canSuspendPinnedSummaryOnInspectorOpen = useMemo(')

@@ -25,6 +25,7 @@ All notable changes to QuickForge will be documented in this file.
 
 - Fixed built-in Agent Profile saves silently doing nothing: the 2-hour built-in runtime limit tripped the 60-minute form-cap guard without feedback; the save guard now matches the button's disabled condition.
 - Fixed sidebar session rows so the whole row is clickable, with overlay guards against accidental clicks.
+- Fixed the Goal inspector status-row "?" hint popover rendering one character per line; it now opens from the end of the status row and hugs the icon's right edge without clipping.
 
 ### Removed
 

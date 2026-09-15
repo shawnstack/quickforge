@@ -1,12 +1,23 @@
-## 当前交接：release-v2.1.0（Git/CI 完成；npm 等待双重验证）
+## 最新交接：state-records-closeout（done，2026-09-15）
+
+- 目标已完成：多会话成果汇总提交 `ace9930` 已推送 origin/dev（本地与远端同步，历史线性）。推送前全量验证通过：npm run test 353 files / 4037 passed + 1 skipped、npm run lint 0 error（仅既有 coverage 3 warning）、npm run build 成功（仅既有 KaTeX/chunk warning）。
+- 推送冲突处理：远端 dev 已含 v2.1.0 发布 4 提交（6ad3489/6252e2d/baaa041/e5775be），rebase 后三状态文件冲突；解决方式：主文件以本仓归档后的版本为主体，远端 release-v2.1.0 收尾记录插回主文件（见下方历史交接），其余远端历史条目本已在 docs/archive。冲突解决后定向复跑远端改动的两个测试文件 46/46 通过。
+- 发布闭环：npm 2.1.0 已确认发布成功——2026-09-15 实查 registry `npm view @shawnstack/quickforge version/dist-tags` = 2.1.0 / latest=2.1.0（用户已完成双重验证发布）。下方 release-v2.1.0 历史交接中的「npm 等待双重验证」为当时状态，已被本节取代。
+- 改动文件（本轮记录收尾）：feature_list.json、progress.md、session-handoff.md（新增 batch-commit-push-2026-09-15 done 条目与本收尾记录，release-v2.1.0 条目 npm 结论更新为已发布）。
+- Blocker：无。遗留待办（非阻塞）：① 远端 master 落后 dev 1 个提交（ace9930），需要时可 `git fetch . dev:master` 快进后推送；② `.playwright-mcp/`、`server.name`、`test-screenshot.png` 三个本地运行产物保持未跟踪，未改 .gitignore；③ 磁盘上存在带尾随空格的 `.playwright-browsers ` 幻影目录导致 git status 恒报 warning，无害，可用 WSL 等工具删除。
+- Notes：此前各历史记录中的「未提交/无 Git 操作/改动未提交」表述均已被 ace9930 汇总提交覆盖，不再逐段改写。feature_list.json 主列表 17 条全部 done，无 in_progress/needs-review。下方旧记录仅供历史追溯。
+
+---
+
+## 历史交接：release-v2.1.0（Git/CI/npm 发布全部完成）
 
 - 最终提交：`baaa041cc2a37e49038da46cec4c7d2ca6272f59`；本轮实时 `git ls-remote` 确认远端 dev/master/v2.1.0 均为该提交，本地 dev/HEAD/tag 一致；本地 master 仍为 `9ded6c0`，未移动。
 - 发布提交 `6ad3489`；CI 修复 `6252e2d` 固定测试中文，`baaa041` 将 runtime-diagnostics 等待 5ms 改为 20ms，保留 elapsedMs >= 5 断言。
 - 当前 HEAD 重新验证：npm run test 323 文件 / 3649 测试全部通过；lint/build 均退出 0。既有 warning：identity.mjs:92、KaTeX 字体和大 chunk。
 - GitHub 网页核验完整 SHA 匹配且 Success：[CI](https://github.com/shawnstack/quickforge/actions/runs/34797256759)、[Desktop Build](https://github.com/shawnstack/quickforge/actions/runs/34797259067)。公开 API 限流，以上依据 run 网页。
 - 离线包：`package-offline/shawnstack-quickforge-2.1.0.tgz`，7,486,125 bytes、471 文件，SHA-1 `7c952caa07a39971fdd4dbf74acd899238495d0c`；其中 402 个 dist/server/bin 文件与当前构建逐字节一致，未重打包。
-- npm：whoami 已成功（shawnstack），用户已明确授权；实际 publish 退出 1，报 EOTP，需要用户在本地完成双重验证，尚未确认发布成功。
-- 下一步：用户本地执行 `npm publish ./package-offline/shawnstack-quickforge-2.1.0.tgz --access public --registry=https://registry.npmjs.org/` 并输入验证码，然后用 `npm view @shawnstack/quickforge version` 和 `npm view @shawnstack/quickforge dist-tags` 核验。验证码不应发送到聊天。
+- npm：whoami 已成功（shawnstack），用户已明确授权；当时 publish 退出 1 报 EOTP。（已闭环：用户完成双重验证后发布成功，2026-09-15 实查 registry version=2.1.0、latest=2.1.0。）
+- 下一步（已闭环）：npm publish 已完成，registry 实查结果见顶部收尾交接，无需再执行。验证码不应发送到聊天。
 - 本轮仅补三份状态记录（当时未提交，后随汇总提交 rebase 并入 dev）、未再次移动 tag；未知零字节文件 `x[1])` 未触碰。无架构或公共入口变化，无需更新 Wiki。
 
 ---
@@ -24,7 +35,7 @@
 
 ---
 
-## 最新交接：retry-error-only-continue（done，2026-09-15）
+## 历史交接：retry-error-only-continue（done，2026-09-15）
 
 - 目标已完成：修复「普通对话重试按钮发送『继续』」。行为契约：回合以错误结束（回合内 assistant stopReason='error' 且 errorMessage 非空）→ 重试保留全量历史并追加「继续」；正常回合 → 重试裁剪历史重发原消息。
 - 改动文件：`src/lib/message-utils.ts`（删 hasToolResultsAfter、新增 turnEndedWithError）、`src/hooks/useChatActions.ts`（retryFromMessage 换判定+注释）、`src/components/chat/panel-decoration/turn-error-state.ts`（仅头注释）、`tests/frontend/message-utils.test.ts`（6 新用例）、`tests/frontend/turn-error-state.test.ts`（仅注释）及三状态文件。

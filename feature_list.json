@@ -1,6 +1,20 @@
 {
   "features": [
     {
+      "id": "batch-commit-push-2026-09-15",
+      "name": "多会话成果汇总提交推送与发布收尾记录（状态收尾）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "按用户指令把此前多个并行会话累积的全部未提交成果（约 90 个修改 + 60 个新文件）以单个汇总提交落地：提交前完整跑 test/lint/build；排除 .playwright-mcp/、server.name、test-screenshot.png 三个本地运行产物（保持未跟踪，未改 .gitignore）。推送时远端 dev 已有 v2.1.0 发布 4 提交，rebase 整合并解决三状态文件冲突：主文件以本仓归档后版本为主体，远端 release-v2.1.0 收尾记录插回主文件保留待办可见性，其余历史条目本已在 docs/archive。收尾核实 npm 2.1.0 已发布成功并更新三状态记录。",
+      "files": [
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "汇总提交前全量链式 npm run test（353 files / 4037 passed + 1 skipped）、npm run lint（0 error，仅既有 3 个 coverage 目录 warning）、npm run build（成功，仅既有 KaTeX/chunk warning）exit 0；rebase 冲突解决后 feature_list.json JSON 解析通过、git diff --check 无残留标记、远端改动两测试文件定向复跑 46/46 通过；npm registry 实查 version=2.1.0、dist-tags.latest=2.1.0。",
+      "boundaries": "提交 ace9930（rebase 前哈希 465a7ca）已推送 origin/dev，本地与远端同步、历史线性；master 仍落后 dev 1 个提交未同步；.playwright-mcp/、server.name、test-screenshot.png 三个本地运行产物保持未跟踪；此前历史记录中的『未提交/无 Git 操作』表述已被本次汇总提交覆盖，不逐一改写。"
+    },
+    {
       "id": "retry-error-only-continue",
       "name": "普通对话重试语义修复（仅报错回合发『继续』）",
       "status": "done",
@@ -35,7 +49,7 @@
         "session-handoff.md"
       ],
       "verification": "发布硬门禁全部通过：npm run test 全量 323 files / 3649 tests 全过；npm run lint 0 errors（仅既有 server/cloud/identity.mjs:92 warning）；npm run build 成功（仅既有 KaTeX 字体与 chunk 体积 warning）。runtime/offline 包已生成并核验（package-offline/shawnstack-quickforge-2.1.0.tgz：版本 2.1.0、7.5 MB packed / 24.7 MB unpacked / 471 files）；husky pre-commit lint 通过；master 以快进方式（git fetch . dev:master）与 dev 同步；发布 commit 22fe294 与 v2.1.0 tag 已创建并推送（首三次推送因 github.com 443 不可达失败，网络恢复后成功）；推送后核验 HEAD=22fe294 带 tag、dev/master/origin 全部同步、工作区干净。",
-      "boundaries": "最终收尾状态覆盖上述初始发布记录：Git 发布完成，HEAD/dev/远端 dev/远端 master/v2.1.0 实查为 baaa041cc2a37e49038da46cec4c7d2ca6272f59；本地 master 仍为 9ded6c0。发布提交 6ad3489，测试修复 6252e2d（固定中文）和 baaa041（计时等待余量）。当前 HEAD 重跑 test 323 文件/3649 全过、lint/build 退出 0（既有 warning）。CI run 34797256759、Desktop Build run 34797259067 网页 Success 且完整 SHA 匹配。离线包 7486125 bytes/471 文件，SHA1 7c952caa07a39971fdd4dbf74acd899238495d0c，402 个 dist/server/bin 文件与当前构建一致。npm 已登录 shawnstack 且用户授权，但 publish 返回 EOTP，尚未确认发布成功；下一步用户本地完成双重验证发布并核对版本/dist-tags，命令见 session-handoff.md。本三状态文件未提交，不再移动 tag；未知空文件 x[1]) 未触碰。未改 Android、依赖或架构/公共入口，无需更新 Wiki，未手工修改生成目录。（该收尾记录随后随汇总提交 rebase 并入 dev。）"
+      "boundaries": "最终收尾状态覆盖上述初始发布记录：Git 发布完成，HEAD/dev/远端 dev/远端 master/v2.1.0 实查为 baaa041cc2a37e49038da46cec4c7d2ca6272f59；本地 master 仍为 9ded6c0。发布提交 6ad3489，测试修复 6252e2d（固定中文）和 baaa041（计时等待余量）。当前 HEAD 重跑 test 323 文件/3649 全过、lint/build 退出 0（既有 warning）。CI run 34797256759、Desktop Build run 34797259067 网页 Success 且完整 SHA 匹配。离线包 7486125 bytes/471 文件，SHA1 7c952caa07a39971fdd4dbf74acd899238495d0c，402 个 dist/server/bin 文件与当前构建一致。npm 发布已完成：用户本地完成双重验证后 publish 成功，2026-09-15 实查 registry `version=2.1.0`、`dist-tags.latest=2.1.0`。本三状态文件未提交，不再移动 tag；未知空文件 x[1]) 未触碰。未改 Android、依赖或架构/公共入口，无需更新 Wiki，未手工修改生成目录。（该收尾记录随后随汇总提交 rebase 并入 dev。）"
     },
     {
       "id": "goal-persisted-attachment-paths",

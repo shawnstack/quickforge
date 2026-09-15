@@ -1,3 +1,12 @@
+## batch-commit-push-2026-09-15（done，多会话成果汇总提交推送与发布收尾）
+
+- 按用户指令将此前多个并行会话的全部未提交成果以单个汇总提交落地并推送：提交 `ace9930`（142 文件，+17132/−9840）已同步 origin/dev；推送前全量 test 353 files / 4037 passed + 1 skipped、lint 0 error（仅既有 coverage 3 warning）、build 成功（仅既有 KaTeX/chunk warning）。
+- 推送 rebase：远端 dev 含 v2.1.0 发布 4 提交，三状态文件冲突按「本仓归档后版本为主体 + 远端 release 收尾记录插回主文件」解决，其余远端历史条目本已在 docs/archive；冲突解决后定向复跑远端改动两测试文件 46/46 通过。
+- 发布收尾：npm 2.1.0 已确认发布成功，2026-09-15 实查 registry `version=2.1.0`、`dist-tags.latest=2.1.0`；下方 release-v2.1.0 段的「npm 等待双重验证」为当时状态，已闭环。
+- Notes：`.playwright-mcp/`、`server.name`、`test-screenshot.png` 本地产物未提交也未 ignore；远端 master 落后 dev 1 提交待按需快进；此前历史记录中「未提交/无 Git 操作」表述已被 ace9930 覆盖，不逐段改写。
+
+---
+
 ## retry-error-only-continue（done，2026-09-15）
 
 - 用户报告：普通对话点「重试」按钮实际发送的是「继续」。调研确认根因：`retryFromMessage`（useChatActions.ts）用 `hasToolResultsAfter` 判定——回合只要跑过工具就追加发 i18n `errorContinueMessage`（『继续』），成功回合也命中，与按钮语义错位（该分支随 commit 835bebc「重试保留工具历史」引入，原为防副作用重放）。
@@ -9,12 +18,12 @@
 
 ---
 
-## release-v2.1.0（done：Git/CI 完成；npm 等待双重验证）
+## release-v2.1.0（done：Git/CI/npm 发布全部完成）
 
 - 最终状态（覆盖初始发布记录，初始阶段记录已随 2026-09-15 全量归档移入 docs/archive/progress-archive.md）：本轮实时核验远端 dev/master/v2.1.0 与 HEAD 为 `baaa041cc2a37e49038da46cec4c7d2ca6272f59`；本地 master 仍为 `9ded6c0`，并非四 ref 同步。发布提交 `6ad3489`，CI 测试修复 `6252e2d`（固定中文）及 `baaa041`（sleep 5→20ms，保留 >=5 断言）。
 - 当前 HEAD 重跑硬门禁：test 323 文件 / 3649 全过，lint/build 退出 0；仅既有 identity.mjs:92、KaTeX/chunk warning。CI [34797256759](https://github.com/shawnstack/quickforge/actions/runs/34797256759) 与 Desktop Build [34797259067](https://github.com/shawnstack/quickforge/actions/runs/34797259067) 网页 Success，完整 SHA 匹配；API 限流。
 - 包核验：`package-offline/shawnstack-quickforge-2.1.0.tgz`，7486125 bytes / 471 文件，SHA1 `7c952caa07a39971fdd4dbf74acd899238495d0c`；402 个 dist/server/bin 文件与当前构建逐字节一致，无需重打。
-- npm：已登录 shawnstack，用户明确授权发布；实际 publish 退出 1（EOTP），需用户本地完成双重验证，尚未确认 npm 发布成功。下一步：`npm publish ./package-offline/shawnstack-quickforge-2.1.0.tgz --access public --registry=https://registry.npmjs.org/`，随后核对 npm view version/dist-tags。
+- npm：已登录 shawnstack，用户明确授权发布；当时 publish 退出 1（EOTP）。（已闭环：用户完成双重验证后发布成功，2026-09-15 实查 registry version=2.1.0、latest=2.1.0。）
 - Notes：三状态文件更新当时未提交（后随汇总提交 rebase 并入 dev），未再次移动 tag；未知零字节文件 `x[1])` 未触碰。无架构/公共入口变化，无需同步 Wiki。
 
 ---

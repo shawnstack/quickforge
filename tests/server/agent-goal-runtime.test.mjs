@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 
 // Keep the real Agent, manager, runner, tools and SQLite. Only the model stream
@@ -65,6 +66,7 @@ function responseStream(model, content) {
 
 describe('goal runtime with the real Agent and SQLite', () => {
   let tmpDir
+  const tmpDirs = []
   let previousDataDir
   let manager
   let repository
@@ -79,7 +81,8 @@ describe('goal runtime with the real Agent and SQLite', () => {
     session = null
     unsubscribe = null
     previousDataDir = process.env.QUICKFORGE_DATA_DIR
-    tmpDir = await mkdtemp(path.join(process.cwd(), '.goal-runtime-'))
+    tmpDir = await mkdtemp(path.join(os.tmpdir(), '.goal-runtime-'))
+    tmpDirs.push(tmpDir)
     process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
     await mkdir(path.join(tmpDir, 'workspace'))
     vi.resetModules()
@@ -156,6 +159,14 @@ describe('goal runtime with the real Agent and SQLite', () => {
     }
     // Do not replace the original wait/assertion error with a cleanup error.
     if (errors.length > 0) throw errors[0]
+  })
+
+  // Safety net: afterEach removes each temp dir, but on Windows a late async
+  // server-log flush can recreate the data/logs path after removal, so remove
+  // every created directory once more when the run ends.
+  afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    for (const directory of tmpDirs) await rm(directory, { recursive: true, force: true })
   })
 
   function gate() {
@@ -370,6 +381,7 @@ describe('goal runtime with the real Agent and SQLite', () => {
     expect(result('plan').isError).toBe(false)
     expect(result('wait-confirmation').isError).toBe(true)
     expect(result('wait-confirmation').content[0].text).toMatch(/planning|plan is already submitted/i)
+    expect(result('wait-confirmation').details).toMatchObject({ type: 'goal_report_error', code: 'GOAL_REPORT_PLANNING_ONLY' })
     expect(session.goal).toMatchObject({ status: 'awaiting_confirmation', planConfirmed: false })
     expect(repository.findBySessionId(session.sessionId).state.goal.status).toBe('awaiting_confirmation')
     expect(finalSaveFinished).toBe(false)

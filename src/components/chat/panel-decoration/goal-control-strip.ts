@@ -10,6 +10,7 @@ import {
   type GoalStatus,
 } from '@/lib/goal'
 import type { GoalCardTone } from './goal-card'
+import { goalStatusIcon } from './icons'
 
 /**
  * Goal control strip — the compact goal affordance above the composer.
@@ -138,16 +139,6 @@ export function buildGoalControlStripView(goal: GoalState): GoalControlStripView
     primaryAction: primaryActionForStatus(goal.status),
     budgetExhausted: goalBudgetExtension(goal).exhausted,
   }
-}
-
-const STATUS_ICON: Record<GoalCardTone, string> = {
-  // planning / awaiting_confirmation show a checklist: the plan (and its
-  // pending confirmation) is the headline, not a generic info circle.
-  info: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>',
-  active: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-  warning: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
-  success: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg>',
-  danger: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg>',
 }
 
 const ACTION_ICON = {
@@ -486,7 +477,7 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
       ? 'quickforge-goal-strip-icon quickforge-goal-strip-icon--spinning'
       : 'quickforge-goal-strip-icon'
     if (icon.className !== iconClass) icon.className = iconClass
-    const statusIcon = STATUS_ICON[view.tone]
+    const statusIcon = goalStatusIcon[view.tone]
     if (icon.innerHTML !== statusIcon) icon.innerHTML = statusIcon
 
     // Assign only on an actual change: rewriting the same string still makes

@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+coverage
 desktop-dist
 desktop-dist-*/
 package-dist
@@ -24,6 +25,7 @@ _tmp_*.txt
 _layout-repro.html
 _repro-*.png
 nul
+.goal-runtime-*
 .env
 .env.local
 .env.*.local

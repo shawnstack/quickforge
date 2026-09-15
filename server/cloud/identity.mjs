@@ -89,7 +89,7 @@ export class CloudIdentityManager {
       throw new CloudApiError('QuickForge Cloud is already connected to an account.', { status: 409, code: 'cloud_account_already_connected' })
     }
     if (record.rotateInstallationBeforeRegistration) {
-      record = await this.store.rotateInstallation()
+      await this.store.rotateInstallation()
     }
     record = await this.store.ensureInstallation()
     if (!record.installationId || !record.publicKey) {

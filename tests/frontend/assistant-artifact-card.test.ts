@@ -197,12 +197,11 @@ describe('assistant artifact card contract', () => {
     expect(app).not.toContain('<FileRollbackDialog')
     expect(app).toContain('rollbackTurnFromArtifactCard = useCallback((turnIds: string[]) => {')
     expect(app).toContain('turnIds.length === 0) return')
-    // 文案 key：中英成对保留轮级三件；assistantArtifactRollbackAll 已删，
-    // 旧 key assistantArtifactRollback（确认弹层标题等）保留。
+    // 文案 key：中英成对保留轮级三件；assistantArtifactRollbackAll 及旧
+    // assistantArtifactRollback 系（确认弹层标题等）已删。
     expect(i18n).not.toContain('assistantArtifactRollbackAll')
     expect(i18n).toContain('assistantArtifactRollbackTurn:')
     expect(i18n).toContain('assistantArtifactRollbackDone:')
-    expect(i18n).toContain('assistantArtifactRollback:')
 
     // 轮内 turnIds 集合链路：提取器输出集合 → 卡片按钮（turnIds 非空才渲染，
     // 点击传数组）→ ChatPanelHost 透传数组签名。
@@ -361,7 +360,6 @@ describe('assistant artifact card contract', () => {
       'assistantArtifactPreview',
       'assistantArtifactReveal',
       'assistantArtifactReview',
-      'assistantArtifactRollbackConfirmDescription',
     ]) expect(i18n).toContain(`${key}:`)
     // 旧摘要/详情表面及其 key 一并移除。
     for (const legacy of [

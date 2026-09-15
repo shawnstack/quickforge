@@ -10,9 +10,9 @@
 
 ServerAgent、converter、displayEntries 与 Goal 计划确认仍使用完整消息；不改变模型上下文/历史持久化、复制/回滚/fork 的索引契约。带合法 metadata 的历史自动生效，无 metadata 的旧正文不迁移、不清洗。此为渲染后 DOM 装饰：首次渲染到装饰间的短暂闪现、虚拟窗口高度估算/滚动与窄屏真实布局尚需浏览器验收；CSS `:has` 依赖现代浏览器。fake DOM 与 CSS 契约测试不等于真实焦点/屏幕阅读器验证。
 
-## Goal 聊天计划确认
+## Goal 聊天计划确认（兼容模块已移除）
 
-`panel-decoration/goal-plan-confirmation.ts` 目前仅保留无操作兼容接口（currentGoalPlan 返回 null，update/cleanup 不操作 DOM、不派发 confirm）。`ChatPanelHost` 的既有接线暂留以避免本次扩展到装饰生命周期重构；renderer 不再生成动作 mount。自动执行仅由服务端正常规划轮末持久化屏障触发，历史计划不能授权当前动作。后续可独立删除这组无用接线与兼容模块；本轮没有运行时确认入口。详见 [Goal 报告工具呈现契约](../lib/README.md#goal-报告工具呈现契约)。
+原 `panel-decoration/goal-plan-confirmation.ts` 无操作兼容模块、`ChatPanelHost` 的死接线与 `goal-card.ts` 内不再挂载的 DOM 控制器（createGoalCardController）已在僵尸代码清理中整体删除；goal_report renderer 不再输出计划动作 mount。自动执行仅由服务端正常规划轮末持久化屏障触发，历史计划不能授权当前动作；运行时无确认入口。`goal-card.ts` 仅保留 viewmodel（buildGoalCardViewModel，供置顶摘要/Goal Tab/Inspector 三 surface 消费）。详见 [Goal 报告工具呈现契约](../lib/README.md#goal-报告工具呈现契约)。
 
 ## Goal 迭代聊天分隔线
 
@@ -27,6 +27,10 @@ ServerAgent、converter、displayEntries 与 Goal 计划确认仍使用完整消
 ## Goal 共享身份图标
 
 `goal-icon.tsx` 的 `GoalIcon` 仅负责 Goal 身份识别：24×24 viewBox、`currentColor`、2px 圆头圆角线条的双圆靶与指向靶心箭头，默认 `aria-hidden`，沿用入口既有尺寸与主题。复用于 `GoalSummarySection` 摘要行、`GitToolsPinnedSummary` 胶囊 Goal 段，以及 `WorkspaceInspector` 的 Goal Tab 与溢出菜单四处入口；状态、完成、暂停、重试等图标及 Goal 执行/导航逻辑不变。验证见 `goal-icon`、`goal-summary-section`、`git-tools-pinned-summary`、`workspace-inspector-tabs` 与 `goal-iteration-divider` 前端测试；SVG 本身已是所需小图标，无需额外解释图，真实浏览器观感尚未验收。
+
+## Goal blocker 与预算提示本地化
+
+`panel-decoration/goal-card.ts` 的 `BLOCKER_KEY` 覆盖全部服务端 blocker 机器码（`iteration_budget` / `duration_budget` / `persist_failed` / `user_aborted` / `planning_failed` / `repeated_failures` / `verification_failed` / `planning_incomplete` / `no_progress` / `run_did_not_finish` / `continuation_failed` / `approval_timeout` / `approval_rejected` / `ask_skipped`），并对状态恢复路径按整句英文持久化的 `Server restarted while the goal was in flight; resume to continue.` 做整句特判（映射 `goalBlockerRestarted`）；未知码或模型自由文本 blocker 回退服务端原文。`GOAL_BUDGET_HINT_TEXT` 是服务端固定预算耗尽提示的前端镜像常量，`localizedGoalBlockerHint()` 仅在 `blockerHint` 与该常量全等时显示本地化 `goalBlockerBudgetHint`，其余 hint 透传。`buildGoalCardViewModel` 统一产出本地化 `blocker` / `blockerHint`，goal-card controller、`GoalInspectorContent` 与 `GoalSummarySection` 三个消费面均经该视图模型自动获得本地化文案，无需各自处理。
 
 ## 主聊天快捷任务
 
@@ -162,6 +166,8 @@ components/
 
 ### WorkspaceInspector.tsx / SubagentRunDetailContent.tsx
 
+布局编排由同目录 `useInspectorLayout.ts` 承担：state、viewport、visibility、width、actions 分阶段 hooks 在入口原位置调用，保持与树加载/请求/tab effects 的相对顺序。主宽度仍使用全局 v2 存储键，340px 下限、75% 视口/1200px/剩余会话宽度上限；导航宽度仍为140–400px。保留180ms关闭、240ms全屏动画、双resize RAF合并/取消、body样式及监听清理。JSX/props不变。tab state/复用/排序/关闭/订阅及持久化 effects 由 `useInspectorTabs.ts` 分阶段调用，继续复用 `workspace-inspector-tabs.ts` 的存储序列化与运行时tab规则。请求scope guard、共享 `updatePanelTab` 及文件缓存留入口；缓存回调保持原project-only身份，初始化存储快照只读一次。`inspector-tabs-hooks.test.ts` 保护tab复用、关闭邻居、session隔离与deferred晋升。Git review 的状态/派生/actions、按需加载及内联 diff 由 `useInspectorGit.ts` 承担；Review 首次激活才加载，force 取消旧请求，失败只手动重试，旧请求通过共享 project guard 隔离，无工作区变更的 diff 错误转为空态。guard owner、跨域 reset/卸载 abort 以及 diff reader 的跨 tab 编排仍在入口；不在此次拆分重建缓存或更改错误策略。`inspector-git-hooks.test.ts` 保护按需加载、旧响应、force、过滤及确认/actions。`inspector-layout-hooks.test.ts` 执行真实phase hooks并保护这些时序；无DOM测试运行器不代表浏览器或React StrictMode验收。
+
 - subagent 单次运行详情是 Workspace Inspector 的一种运行时 Tab，与文件、审查、终端、浏览器 Tab 并存，可独立切换、排序和关闭。
 - 点击聊天中的 subagent 摘要会派发 `quickforge:open-subagent-run`；同一 `runId` 复用并激活已有 Tab，不同运行创建独立 Tab。无项目的全局会话也可打开 subagent Tab。
 - 聊天中不再使用 `<details>` 展开完整过程；任务、上下文、期望输出、过程 message-list 和结果统一在 Tab 中显示。Tab 继续遵循工具显示配置并复用原详情样式：`concise / compact` 保持简洁，`detailed` 才额外展示工具调用统计、允许工具以及 input/details JSON。
@@ -200,7 +206,10 @@ components/
 
 - 定时任务管理页面，包含 Tasks / History 两个页签
 - 创建/编辑/删除/手动触发定时任务
-- 支持多种调度类型: once / daily / weekly / monthly / interval / cron
+- 手动频次分段按钮支持 once / interval / daily / weekly / monthly / cron；默认 daily，无需先调用 AI。周频次多选，间隔支持正整数分钟/小时/天和首次执行时间，月日期 1–31（不存在日期取月底），Cron 可直接编辑。
+- `src/lib/scheduled-task-form.ts` 负责历史字段回填、按频次校验与净化请求；旧 `weekDay` 和仅中文 rule 的 interval 可编辑，保存不再强制转换成 cron。AI 是可选辅助，成功解析切到 Cron；手动修改清除旧解析确认，避免显示过期规则/下次时间。
+- 编辑器即时展示当前规则摘要；准确下次执行时间由服务端保存时计算，未在浏览器假装预测服务端时区。日期时间输入使用设备时区并转 ISO；日/周/月/Cron 按服务端时区，页面有明确提示。提交/解析中禁用编辑区，错误保留草稿。
+- 保留现有页内编辑布局；单次/间隔的日期草稿独立，AI 解析后也保留手动草稿。解析与保存共用同步互斥门禁，失效编辑器不接收迟到解析；任务操作按 taskId 去重并显示禁用态，失败/取消确认解锁。
 - 任务运行历史查看
 - AI 模型选择、参数配置
 - 定时任务可选择执行 Agent；任务卡片、详情和运行历史展示 Agent 信息

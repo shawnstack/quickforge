@@ -1,3 +1,5 @@
+import { createSessionQueries } from './agent-session-queries.mjs'
+export { approveToolCall, rejectToolCall, approveAutoCompact, rejectAutoCompact, answerAsk } from './agent-approval-responses.mjs'
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { Agent } from '@earendil-works/pi-agent-core'
@@ -47,15 +49,9 @@ import {
   safeReadTools,
   pendingApprovals,
   pendingAutoCompactApprovals,
-  getPendingApprovalForSession,
-  getPendingAutoCompactApprovalForSession,
   commandToolPermissionError,
   createCommandToolPermissions,
 } from './approval-store.mjs'
-import {
-  pendingAsks,
-  getPendingAskForSession,
-} from './ask-store.mjs'
 
 export { getPendingAskForSession, normalizeAskQuestions } from './ask-store.mjs'
 import {
@@ -98,26 +94,14 @@ import {
 } from './agent-goal-runner.mjs'
 import { isGoalActiveStatus, isGoalTerminalStatus, goalAfterRestore, normalizeGoalState } from './agent-goal-state.mjs'
 
-// 访问模式常量与归一化 helper（原独立常量模块随外部运行时接入的删除一并收回至此）。
-const AGENT_ACCESS_MODE_DEFAULT = 'default'
-const AGENT_ACCESS_MODE_FULL_ACCESS = 'full-access'
-
-function normalizeAccessMode(value, fallback = AGENT_ACCESS_MODE_DEFAULT) {
-  if (value === AGENT_ACCESS_MODE_DEFAULT || value === AGENT_ACCESS_MODE_FULL_ACCESS) return value
-  if (value === true || value === 'true') return AGENT_ACCESS_MODE_FULL_ACCESS
-  if (value === false || value === 'false') return AGENT_ACCESS_MODE_DEFAULT
-  if (fallback !== value) return normalizeAccessMode(fallback, AGENT_ACCESS_MODE_DEFAULT)
-  return AGENT_ACCESS_MODE_DEFAULT
-}
-
-function yoloModeFromAccessMode(accessMode) {
-  return normalizeAccessMode(accessMode) === AGENT_ACCESS_MODE_FULL_ACCESS
-}
-
-// 内部共享导出（agent-subagent-runner 临时 subagent 能力策略检查使用）
-export function hasFullAccess(session) {
-  return normalizeAccessMode(session?.accessMode, session?.yoloMode) === AGENT_ACCESS_MODE_FULL_ACCESS
-}
+import {
+  AGENT_ACCESS_MODE_DEFAULT,
+  AGENT_ACCESS_MODE_FULL_ACCESS,
+  normalizeAccessMode,
+  yoloModeFromAccessMode,
+  hasFullAccess,
+} from './agent-access-mode.mjs'
+export { hasFullAccess }
 
 import {
   agentEvents,
@@ -156,6 +140,10 @@ const sessionTurnIds = new Map()
 export function currentSessionTurnId(sessionId) {
   return sessionTurnIds.get(sessionId) || null
 }
+
+export const { getSessionState, isSessionFileRollbackBusy, getSessionStatus, tryAcquireSse, isSseConnected, releaseSse, getSessionEventBus } = createSessionQueries({
+  sessionGoal, messagesWithRuntimeToolExecutions, runtimePendingToolCalls, getSessionContextUsage,
+})
 
 // Goal continuations keep the full history and start a fresh turn id; the goal
 // runner gets the turn helpers injected so it never imports this module.
@@ -752,7 +740,13 @@ export async function createAgent(sessionId, config = {}) {
       restoreReasoningContentInPayload(payload, session?.lastTransformedContextMessages || agent.state.messages, agent.state.model)
     },
     transformContext: (messages, signal) => transformSessionContext(session, messages, signal),
-    afterToolCall: async ({ toolCall, isError }) => {
+    afterToolCall: async ({ toolCall, isError, result }) => {
+      // goal_report reports validation failures as a returned result
+      // (`isError: true`, details carry the stable code) instead of throwing,
+      // because pi-agent-core keeps only the message of a thrown tool error.
+      // The executor marks only thrown errors, so promote the returned flag to
+      // keep the toolResult message an error result with its details intact.
+      if (toolCall?.name === 'goal_report' && result?.isError === true) return { isError: true }
       if (!isError || toolCall?.name !== 'run_subagent') return undefined
       const details = takeStashedSubagentErrorDetails(toolCall?.id)
       return details ? { details } : undefined
@@ -1620,129 +1614,6 @@ export async function syncSessionFromStorage(sessionId) {
 }
 
 /**
- * Get the current state of a session (for page refresh recovery).
- */
-export function getSessionState(sessionId) {
-  const session = agentSessions.get(sessionId)
-  if (!session) return null
-
-  const messages = messagesWithRuntimeToolExecutions(session)
-  return {
-    sessionId: session.sessionId,
-    scope: session.scope,
-    projectId: session.projectId,
-    source: session.source || undefined,
-    channelId: session.channelId || undefined,
-    channelName: session.channelName || undefined,
-    accessMode: session.accessMode,
-    yoloMode: session.yoloMode,
-    systemPrompt: session.agent.state.systemPrompt,
-    model: session.model,
-    modelRef: session.modelRef || undefined,
-    thinkingLevel: session.thinkingLevel,
-    title: session.title,
-    titleSource: session.titleSource,
-    createdAt: session.createdAt,
-    lastModified: session.lastModified,
-    stateVersion: session.stateVersion || 0,
-    messageStorage: session.persistedMessageStorage === 'split' ? 'split' : undefined,
-    status: session.status,
-    startedAt: session.startedAt,
-    finishedAt: session.finishedAt,
-    tools: session.agent.state.tools,
-    messages,
-    pendingToolCalls: runtimePendingToolCalls(session),
-    contextCompaction: session.contextCompaction,
-    contextUsage: getSessionContextUsage(session),
-    pendingToolApproval: getPendingApprovalForSession(session.sessionId),
-    pendingAutoCompactApproval: getPendingAutoCompactApprovalForSession(session.sessionId),
-    pendingAsk: getPendingAskForSession(session.sessionId),
-    isStreaming: session.abortPending ? false : session.agent.state.isStreaming,
-    errorMessage: session.agent.state.errorMessage,
-    persistDegraded: session.persistDegraded ? true : undefined,
-    goal: sessionGoal(session),
-  }
-}
-
-/**
- * Get a lightweight status snapshot for SSE-first state recovery.
- */
-// Unlike the UI status snapshot, abortPending must remain busy until the
-// underlying stream/tools actually stop. Used by file rollback under its lock.
-export function isSessionFileRollbackBusy(sessionId) {
-  const session = agentSessions.get(sessionId)
-  return Boolean(session && (
-    session.agent?.state?.isStreaming || session.abortPending ||
-    runtimePendingToolCalls(session).length || getPendingApprovalForSession(sessionId)
-  ))
-}
-
-export function getSessionStatus(sessionId) {
-  const session = agentSessions.get(sessionId)
-  if (!session) return null
-
-  const messages = session.agent.state.messages || []
-  const lastMessage = messages[messages.length - 1]
-  return {
-    sessionId: session.sessionId,
-    scope: session.scope,
-    projectId: session.projectId,
-    source: session.source || undefined,
-    channelId: session.channelId || undefined,
-    channelName: session.channelName || undefined,
-    title: session.title,
-    createdAt: session.createdAt,
-    lastModified: session.lastModified,
-    stateVersion: session.stateVersion || 0,
-    status: session.status,
-    startedAt: session.startedAt,
-    finishedAt: session.finishedAt,
-    isStreaming: session.abortPending ? false : session.agent.state.isStreaming,
-    errorMessage: session.agent.state.errorMessage,
-    messageCount: messages.length,
-    lastMessageTimestamp: lastMessage?.timestamp ?? null,
-    persistDegraded: session.persistDegraded ? true : undefined,
-    goal: sessionGoal(session),
-  }
-}
-
-/**
- * Try to claim the SSE slot for a session. Returns true if acquired, false if
- * another tab already holds the SSE connection for this session.
- */
-export function tryAcquireSse(sessionId) {
-  const session = agentSessions.get(sessionId)
-  if (!session || session.sseConnected) return false
-  session.sseConnected = true
-  return true
-}
-
-/**
- * Check whether a session already has an active SSE connection, without
- * acquiring it. For use by lightweight HEAD probes.
- */
-export function isSseConnected(sessionId) {
-  const session = agentSessions.get(sessionId)
-  return session ? session.sseConnected : false
-}
-
-/**
- * Release the SSE slot for a session.
- */
-export function releaseSse(sessionId) {
-  const session = agentSessions.get(sessionId)
-  if (session) session.sseConnected = false
-}
-
-/**
- * Get the event bus for a session (for SSE connections).
- */
-export function getSessionEventBus(sessionId) {
-  const session = agentSessions.get(sessionId)
-  return session?.eventBus ?? null
-}
-
-/**
  * Destroy an agent session.
  */
 export async function destroyAgent(sessionId) {
@@ -1868,72 +1739,6 @@ async function restoreAgentUnlocked(sessionId) {
     if (err?.statusCode === 503) throw err
     return null
   }
-}
-
-/**
- * Approve a pending tool call, allowing it to execute.
- */
-export function approveToolCall(sessionId, toolCallId) {
-  const approval = pendingApprovals.get(toolCallId)
-  if (!approval || approval.sessionId !== sessionId) {
-    throw Object.assign(new Error('No pending approval for this tool call'), { statusCode: 404 })
-  }
-  approval.resolve(true)
-  return { approved: true, toolCallId }
-}
-
-/**
- * Reject a pending tool call, skipping its execution.
- */
-export function rejectToolCall(sessionId, toolCallId) {
-  const approval = pendingApprovals.get(toolCallId)
-  if (!approval || approval.sessionId !== sessionId) {
-    throw Object.assign(new Error('No pending approval for this tool call'), { statusCode: 404 })
-  }
-  approval.resolve(false)
-  return { rejected: true, toolCallId }
-}
-
-export function approveAutoCompact(sessionId, approvalId) {
-  const approval = pendingAutoCompactApprovals.get(approvalId)
-  if (!approval || approval.sessionId !== sessionId) {
-    throw Object.assign(new Error('No pending auto compact approval for this session'), { statusCode: 404 })
-  }
-  approval.resolve(true)
-  return { approved: true, approvalId }
-}
-
-export function rejectAutoCompact(sessionId, approvalId) {
-  const approval = pendingAutoCompactApprovals.get(approvalId)
-  if (!approval || approval.sessionId !== sessionId) {
-    throw Object.assign(new Error('No pending auto compact approval for this session'), { statusCode: 404 })
-  }
-  approval.resolve(false)
-  return { rejected: true, approvalId }
-}
-
-/**
- * Resolve a pending ask_user call with the user's answers (or a skip).
- * `answers` is an array aligned with the ask's questions:
- * `[{ choices: string[], custom?: string }]`.
- */
-export function answerAsk(sessionId, askId, { answers, skipped = false } = {}) {
-  const ask = pendingAsks.get(askId)
-  if (!ask || ask.sessionId !== sessionId) {
-    throw Object.assign(new Error('No pending ask for this session'), { statusCode: 404 })
-  }
-  const normalizedAnswers = (Array.isArray(answers) ? answers : []).slice(0, ask.questions.length).map((answer) => ({
-    choices: (Array.isArray(answer?.choices) ? answer.choices : [])
-      .filter((choice) => typeof choice === 'string')
-      .map((choice) => choice.slice(0, 500))
-      .slice(0, 8),
-    ...(typeof answer?.custom === 'string' && answer.custom.trim()
-      ? { custom: answer.custom.slice(0, 4000) }
-      : {}),
-  }))
-  if (skipped) ask.finish({ skipped: true })
-  else ask.finish({ answers: normalizedAnswers })
-  return { answered: true, askId, skipped: !!skipped }
 }
 
 export function abortToolCall(sessionId, toolCallId) {

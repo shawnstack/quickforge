@@ -28,6 +28,18 @@
 
 ---
 
+## App 三域编排（phase hooks）
+
+| 模块 | 职责 / 调用阶段 |
+|------|----------------|
+| [useAppTerminal.ts](../../../../src/hooks/useAppTerminal.ts) | state/ref 独立初始化；原晚期位置订阅 Markdown 命令，保留 remote 拒绝、确认流程、递增 ID 与匹配回执消费、监听清理 |
+| [useAppGit.ts](../../../../src/hooks/useAppGit.ts) | 顶栏 Git state、full status 请求与旧结果隔离、0ms 初刷、工具结束 400ms force debounce、checkout/toast；菜单 click/blur 清理由独立晚期 hook 承担 |
+| [useAppLoadingTransitions.ts](../../../../src/hooks/useAppLoadingTransitions.ts) | state/minimum/loading effects/actions/exit 分阶段调用；1350ms splash 最短展示、280ms退出与会话淡出、双 RAF 延后加载、token 防旧回调和卸载取消 |
+
+这些模块由 `MainApp` 实际调用，不重建 `useAppBootstrap` / `useAgentManager`。拆开 phase 是为了保持与其他 hooks/effects 的原相对顺序，不能为了集中调用而一并移到组件顶部。Git 与聊天文件请求仍共用 App 的 `currentToolProjectIdRef`，跨域 scope invalidation 留 App；URL 恢复/写入仍由既有 Bootstrap/AgentManager 管理，JSX及产品时序不变。
+
+保护测试：`tests/frontend/app-domain-hooks.test.ts` 调用真实 hooks，覆盖命令消费、异步旧结果、定时器/监听清理及过渡时序。`helpers/hook-lifecycle.ts` 提供无 DOM 的同步测试运行器（稳定 setter/ref/callback、commit 后 effects、先 cleanup 后 setup）；不是 React StrictMode、并发或浏览器 E2E 验收。默认 CI 不依赖本地搬迁快照；显式 `QF_APP_BASELINE_TEST=1` 仅用于保存原 App 的本地审计重放。
+
 ## 核心 Hooks 说明
 
 ### useAppBootstrap.ts (257 行)

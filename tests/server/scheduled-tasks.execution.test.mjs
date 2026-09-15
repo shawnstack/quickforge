@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { Readable } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
@@ -120,6 +121,10 @@ vi.mock('../../server/agent-profiles.mjs', () => ({
   agentProfileSnapshot: vi.fn((profile) => ({ id: profile.id, label: profile.label })),
 }))
 
+vi.mock('../../server/model-catalog.mjs', () => ({
+  resolveModelBinding: vi.fn(async () => ({ model: { id: 'test', provider: 'test' }, modelRef: { id: 'test', provider: 'test' } })),
+}))
+
 vi.mock('../../server/project-config.mjs', () => ({
   readProjectConfig: vi.fn(async () => ({ projects: [] })),
   projectContextFromId: vi.fn(),
@@ -231,7 +236,251 @@ afterEach(async () => {
   await fs.rm(tempDir, { recursive: true, force: true })
 })
 
+describe('scheduled task manual schedule API', () => {
+  async function edit(task, patch) {
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    await storage.atomicUpdate('scheduled-tasks', (data) => ({ ...data, [task.id]: task }))
+    const req = Readable.from([Buffer.from(JSON.stringify({ task: patch }))])
+    req.method = 'PUT'
+    const response = mockResponse()
+    await routes.handleScheduledTasksApi(req, response, new URL(`http://localhost/api/scheduled-tasks/${task.id}`))
+    return response.body.task
+  }
+  const baseTask = () => ({ id: 'manual', title: 'task', instruction: 'do work', scheduleType: 'daily', executeTime: '09:00', status: 'paused', runs: [] })
+
+  it.each(['once', 'interval', 'daily', 'weekly', 'monthly', 'cron'])('creates %s directly through POST', async (scheduleType) => {
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    const task = { ...baseTask(), scheduleType, executeAt: new Date(Date.now() + 3600000).toISOString(), intervalValue: 30, intervalUnit: 'minute', weekDays: [1, 3], monthDay: 31, cronExpression: '0 9 * * 1,3' }
+    const req = Readable.from([Buffer.from(JSON.stringify({ task }))])
+    req.method = 'POST'
+    const response = mockResponse()
+    await routes.handleScheduledTasksApi(req, response, new URL('http://localhost/api/scheduled-tasks'))
+    expect(response.status).toBe(200)
+    expect(response.body.task.scheduleType).toBe(scheduleType)
+    expect(new Date(response.body.task.nextRunAt).getTime()).toBeGreaterThan(Date.now())
+    if (scheduleType !== 'cron') expect(response.body.task.cronExpression).toBeUndefined()
+    if (scheduleType !== 'interval') expect(response.body.task.intervalValue).toBeUndefined()
+  })
+
+  it.each([
+    { scheduleType: 'interval', intervalValue: 150000000000, intervalUnit: 'minute' },
+    { scheduleType: 'cron', cronExpression: '0 9 * * 0-7' },
+    { scheduleType: 'cron', cronExpression: '0 9 * * 1,7' },
+  ])('rejects invalid new schedules before persistence: %j', async (schedule) => {
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    const task = { ...baseTask(), ...schedule, executeAt: new Date(Date.now() + 3600000).toISOString() }
+    const req = Readable.from([Buffer.from(JSON.stringify({ task }))])
+    req.method = 'POST'
+    await expect(routes.handleScheduledTasksApi(req, mockResponse(), new URL('http://localhost/api/scheduled-tasks'))).rejects.toMatchObject({ statusCode: 400 })
+    expect(mocks.stores.get('scheduled-tasks')).toBeUndefined()
+  })
+
+  it('keeps unchanged historical cron editable but validates a replacement strictly', async () => {
+    const legacy = { ...baseTask(), scheduleType: 'cron', cronExpression: '0 9 * * 0-7' }
+    const renamed = await edit(legacy, { title: 'renamed', cronExpression: legacy.cronExpression })
+    expect(renamed.cronExpression).toBe(legacy.cronExpression)
+    expect(new Date(renamed.nextRunAt).getTime()).toBeGreaterThan(Date.now())
+    await expect(edit(renamed, { cronExpression: '0 10 * * 0-7' })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('saves structured intervals, preserves past anchors on edit, and clears stale cron/calendar fields', async () => {
+    const executeAt = new Date(Date.now() + 3600000).toISOString()
+    const task = await edit({ ...baseTask(), cronExpression: '0 9 * * *', weekDays: [1] }, { scheduleType: 'interval', intervalValue: 2, intervalUnit: 'hour', executeAt, enabled: false })
+    expect(task).toMatchObject({ scheduleType: 'interval', intervalValue: 2, intervalUnit: 'hour', executeAt, nextRunAt: executeAt, status: 'paused' })
+    expect(task.cronExpression).toBeUndefined()
+    expect(task.weekDays).toBeUndefined()
+    expect(task.executeTime).toBeUndefined()
+    const oldAnchor = new Date(Date.now() - 5 * 3600000).toISOString()
+    const updated = await edit({ ...task, executeAt: oldAnchor }, { title: 'renamed' })
+    expect(updated.executeAt).toBe(oldAnchor)
+    expect(new Date(updated.nextRunAt).getTime()).toBe(new Date(oldAnchor).getTime() + 6 * 3600000)
+    const daily = await edit(updated, { scheduleType: 'daily', executeTime: '10:00' })
+    expect(daily.intervalValue).toBeUndefined()
+    expect(daily.intervalUnit).toBeUndefined()
+    expect(daily.executeAt).toBeUndefined()
+  })
+
+  it('supports weekly multi-select and old weekDay updates, cleaning fields on type switch', async () => {
+    const task = await edit(baseTask(), { scheduleType: 'weekly', weekDays: [5, 1, 5], weekDay: 0 })
+    expect(task.weekDays).toEqual([1, 5])
+    expect(task.weekDay).toBe(1)
+    expect(task.scheduleRule).toContain('周一、周五')
+    const legacy = await edit(task, { weekDay: 0 })
+    expect(legacy.weekDays).toEqual([0])
+    const monthly = await edit(legacy, { scheduleType: 'monthly', monthDay: 31 })
+    expect(monthly.weekDays).toBeUndefined()
+    expect(monthly.weekDay).toBeUndefined()
+    expect(monthly.monthDay).toBe(31)
+  })
+
+  it('preserves once semantics and accepts editable cron lists', async () => {
+    const executeAt = new Date(Date.now() + 3600000).toISOString()
+    const once = await edit(baseTask(), { scheduleType: 'once', executeAt })
+    expect(once.nextRunAt).toBe(executeAt)
+    const cron = await edit(once, { scheduleType: 'cron', cronExpression: '0 9 * * 1,3', scheduleRule: '0 9 * * 1,3' })
+    expect(cron.executeAt).toBeUndefined()
+    expect(cron.cronExpression).toBe('0 9 * * 1,3')
+  })
+
+  it.each([
+    { scheduleType: 'interval', intervalValue: 0, intervalUnit: 'minute' },
+    { scheduleType: 'interval', intervalValue: 2, intervalUnit: 'second' },
+    { scheduleType: 'interval', intervalValue: 2, intervalUnit: 'hour', executeAt: '2020-01-01' },
+    { scheduleType: 'interval', intervalValue: 150000000000, intervalUnit: 'minute', executeAt: '+200000-01-01T00:00:00.000Z' },
+    { scheduleType: 'cron', cronExpression: '0 9 * * 0-7' },
+    { scheduleType: 'weekly', weekDays: [] },
+    { scheduleType: 'weekly', weekDays: [7] },
+    { scheduleType: 'cron', cronExpression: '0 99 * * *' },
+    { scheduleType: 'once', executeAt: 'invalid' },
+  ])('rejects invalid schedule %j with HTTP 400', async (patch) => {
+    await expect(edit(baseTask(), patch)).rejects.toMatchObject({ statusCode: 400 })
+  })
+})
+
+describe('scheduled task scheduler ticks', () => {
+  let routes
+  const minuteMs = 60000
+  const anchor = new Date('2026-01-01T00:00:00.000Z').getTime()
+  const taskId = 'tick-cadence'
+  const currentTask = () => mocks.stores.get('scheduled-tasks')[taskId]
+
+  beforeEach(async () => {
+    // These tests advance wall time as well as timers, unlike the manual-run suite.
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(anchor)
+    routes = await import('../../server/routes/scheduled-tasks.mjs')
+    mocks.stores.set('scheduled-tasks', { [taskId]: {
+      id: taskId, title: 'cadence', instruction: 'run', scheduleType: 'interval',
+      intervalValue: 1, intervalUnit: 'minute', executeAt: new Date(anchor).toISOString(),
+      nextRunAt: new Date(anchor).toISOString(), scheduleRule: '每隔 1 分钟',
+      executionMode: 'serial', status: 'enabled', runs: [],
+    } })
+  })
+
+  afterEach(() => routes.stopScheduledTaskRunner())
+
+  async function waitForRun(count) {
+    return waitFor(() => {
+      const task = currentTask()
+      const sessionId = task.runs[0]?.sessionId
+      return task.runs.length === count && mocks.eventBuses.get(sessionId)?.listenerCount('agent_event') === 1 ? task.runs[0] : null
+    }, `scheduled run ${count}`)
+  }
+
+  async function finish(run) {
+    const session = mocks.sessions.get(run.sessionId)
+    const messages = [{ role: 'assistant', content: [{ type: 'text', text: 'finished' }] }]
+    session.agent.state.messages = messages
+    mocks.eventBuses.get(run.sessionId).emit('agent_event', { type: 'agent_end', status: 'idle', messages })
+    session.agent.resolveContinue()
+    await waitFor(() => currentTask().runs.find((value) => value.id === run.id)?.status === 'success', 'scheduled completion')
+  }
+
+  async function action(name) {
+    const response = mockResponse()
+    await routes.handleScheduledTasksApi({ method: 'POST' }, response, new URL(`http://localhost/api/scheduled-tasks/${taskId}/${name}`))
+    expect(response.status).toBe(200)
+    return response.body.task
+  }
+
+  it('advances parallel schedule slots at start and preserves cadence across overlapping completions', async () => {
+    currentTask().executionMode = 'parallel'
+    routes.startScheduledTaskRunner()
+    const first = await waitForRun(1)
+    expect(first).toMatchObject({ trigger: 'schedule', scheduledAt: new Date(anchor).toISOString(), status: 'running' })
+    expect(currentTask().nextRunAt).toBe(new Date(anchor + minuteMs).toISOString())
+
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(currentTask().runs).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(30000)
+    const second = await waitForRun(2)
+    expect(second).toMatchObject({ trigger: 'schedule', scheduledAt: new Date(anchor + minuteMs).toISOString() })
+    expect(currentTask().currentRunIds).toHaveLength(2)
+    const nextRunAt = new Date(anchor + 2 * minuteMs).toISOString()
+    expect(currentTask().nextRunAt).toBe(nextRunAt)
+    await finish(first)
+    expect(currentTask().currentRunIds).toEqual([second.id])
+    expect(currentTask().nextRunAt).toBe(nextRunAt)
+    await finish(second)
+    expect(currentTask().currentRunIds).toEqual([])
+    expect(currentTask().nextRunAt).toBe(nextRunAt)
+    expect(currentTask().runs).toHaveLength(2)
+  })
+
+  it('skips elapsed slots after a long serial run instead of replaying or drifting', async () => {
+    routes.startScheduledTaskRunner()
+    const first = await waitForRun(1)
+    await vi.advanceTimersByTimeAsync(150000)
+    expect(currentTask().runs).toHaveLength(1)
+    expect(currentTask().nextRunAt).toBe(new Date(anchor).toISOString())
+    await finish(first)
+    expect(currentTask().nextRunAt).toBe(new Date(anchor + 3 * minuteMs).toISOString())
+    await vi.advanceTimersByTimeAsync(29999)
+    expect(currentTask().runs).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    const second = await waitForRun(2)
+    expect(second).toMatchObject({ trigger: 'schedule', scheduledAt: new Date(anchor + 3 * minuteMs).toISOString() })
+    await finish(second)
+    expect(currentTask().nextRunAt).toBe(new Date(anchor + 4 * minuteMs).toISOString())
+  })
+
+  it.each(['serial', 'parallel'])('does not replay missed %s interval slots on pause/resume', async (executionMode) => {
+    currentTask().executionMode = executionMode
+    currentTask().nextRunAt = new Date(anchor + minuteMs).toISOString()
+    await action('pause')
+    routes.startScheduledTaskRunner()
+    await vi.advanceTimersByTimeAsync(150000)
+    expect(currentTask().runs).toHaveLength(0)
+    const resumed = await action('resume')
+    expect(resumed.nextRunAt).toBe(new Date(anchor + 3 * minuteMs).toISOString())
+    await vi.advanceTimersByTimeAsync(29999)
+    expect(currentTask().runs).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(1)
+    const run = await waitForRun(1)
+    expect(run).toMatchObject({ trigger: 'schedule', scheduledAt: resumed.nextRunAt })
+    await finish(run)
+    expect(currentTask().nextRunAt).toBe(new Date(anchor + 4 * minuteMs).toISOString())
+  })
+
+  it('continues scheduling historical clipped cron ranges after execution and resume', async () => {
+    const due = new Date(2026, 0, 5, 9)
+    vi.setSystemTime(due)
+    Object.assign(currentTask(), { scheduleType: 'cron', cronExpression: '0 9 * * 0-7', nextRunAt: due.toISOString() })
+    routes.startScheduledTaskRunner()
+    const run = await waitForRun(1)
+    await finish(run)
+    expect(currentTask()).toMatchObject({ status: 'enabled', nextRunAt: new Date(2026, 0, 6, 9).toISOString() })
+    await action('pause')
+    vi.setSystemTime(new Date(2026, 0, 8, 10))
+    const resumed = await action('resume')
+    expect(resumed.nextRunAt).toBe(new Date(2026, 0, 9, 9).toISOString())
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(currentTask().runs).toHaveLength(1)
+  })
+})
+
 describe('scheduled task execution lifecycle', () => {
+  it.each(['serial', 'parallel'])('keeps interval cadence after a %s run finishes', async (executionMode) => {
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    const anchor = Date.now() - 5 * 60000
+    await storage.atomicUpdate('scheduled-tasks', (data) => ({ ...data, cadence: {
+      id: 'cadence', title: 'cadence', instruction: 'run', scheduleType: 'interval',
+      intervalValue: 2, intervalUnit: 'minute', executeAt: new Date(anchor).toISOString(),
+      nextRunAt: new Date(anchor + 4 * 60000).toISOString(), scheduleRule: '每隔 2 分钟',
+      executionMode, status: 'enabled', runs: [],
+    } }))
+    mocks.nextAgentMode = 'success'
+    expect((await runTask(routes, 'cadence')).status).toBe(200)
+    const task = await waitFor(async () => {
+      const current = (await storage.readStore('scheduled-tasks')).cadence
+      return current.runs[0]?.status === 'success' ? current : null
+    })
+    expect(new Date(task.nextRunAt).getTime()).toBe(anchor + 6 * 60000)
+    expect(task.status).toBe('enabled')
+  })
+
   it('aborts timed out runs and clears listeners and active run state', async () => {
     const storage = await import('../../server/storage.mjs')
     const routes = await import('../../server/routes/scheduled-tasks.mjs')

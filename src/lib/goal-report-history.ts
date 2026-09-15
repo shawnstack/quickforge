@@ -1,4 +1,4 @@
-import type { AppTextKey } from './i18n'
+import { t, type AppTextKey } from './i18n'
 
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -26,6 +26,27 @@ const actionKeys: Record<string, AppTextKey> = {
   blocked: 'goalReportBlocked',
   needs_review: 'goalReportReview',
   complete: 'goalReportComplete',
+}
+
+// Machine error codes the server reports on a rejected goal_report call
+// (details.type === 'goal_report_error'); a known code replaces the server's
+// English reason text with localized copy in the history view.
+const GOAL_REPORT_ERROR_KEY: Record<string, AppTextKey> = {
+  GOAL_REPORT_FIELD_REQUIRED: 'goalReportErrorFieldRequired',
+  GOAL_REPORT_EVIDENCE_UNKNOWN: 'goalReportErrorEvidenceUnknown',
+  GOAL_REPORT_NO_GOAL: 'goalReportErrorNoGoal',
+  GOAL_REPORT_INACTIVE: 'goalReportErrorInactive',
+  GOAL_REPORT_ALREADY_REPORTED: 'goalReportErrorAlreadyReported',
+  GOAL_REPORT_PLAN_INVALID_STATUS: 'goalReportErrorPlanInvalidStatus',
+  GOAL_REPORT_PLAN_NO_CRITERIA: 'goalReportErrorPlanNoCriteria',
+  GOAL_REPORT_PLAN_TOO_MANY_CRITERIA: 'goalReportErrorPlanTooManyCriteria',
+  GOAL_REPORT_PLAN_CRITERION_DESCRIPTION: 'goalReportErrorPlanCriterionDescription',
+  GOAL_REPORT_PLANNING_ONLY: 'goalReportErrorPlanningOnly',
+  GOAL_REPORT_REJECTED: 'goalReportErrorRejected',
+  GOAL_REPORT_COMPLETE_REJECTED: 'goalReportErrorCompleteRejected',
+  GOAL_REPORT_UNSUPPORTED_ACTION: 'goalReportErrorUnsupportedAction',
+  GOAL_REPORT_NO_RUN: 'goalReportErrorNoRun',
+  GOAL_REPORT_NO_SESSION: 'goalReportErrorNoSession',
 }
 
 /** A tool-result audit snapshot, never the live Goal or an action surface. */
@@ -56,10 +77,16 @@ export function buildGoalReportHistoryViewModel(params: unknown, result: unknown
   const resultKey: AppTextKey = historicalWaiting ? 'goalReportWasWaiting'
     : status === 'done' ? 'goalReportHistoricalResult' : 'goalReportNoResult'
   const content = Array.isArray(output.content) ? output.content : []
-  const outputText = content.map((block) => {
+  let outputText = content.map((block) => {
     const item = record(block)
     return item.type === 'text' ? text(item.text) : ''
   }).filter(Boolean).join('\n')
+  // A machine-rejected goal_report carries its reason code in details; a known
+  // code shows localized copy instead of the server's English sentence. Missing
+  // or unknown codes (legacy data, aborted/timed-out calls) pass through as-is.
+  const errorCode = details.type === 'goal_report_error' ? text(details.code) : ''
+  const errorKey = status === 'error' && errorCode ? GOAL_REPORT_ERROR_KEY[errorCode] : undefined
+  if (errorKey) outputText = t(errorKey)
   let jsonOutput = false
   try { JSON.parse(outputText); jsonOutput = true } catch { /* Legacy prose is safe plain text. */ }
   return {

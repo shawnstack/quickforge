@@ -8,7 +8,7 @@ import { t } from '@/lib/i18n'
 import {
   copyTextToClipboard,
   draftTextFromUserMessage,
-  hasToolResultsAfter,
+  turnEndedWithError,
   rollbackStartIndexFromMessage,
   shouldSaveSession,
   generateTitle,
@@ -285,14 +285,15 @@ export function useChatActions({
     const message = messages[messageIndex]
     if (message.role !== 'user' && message.role !== 'user-with-attachments') return
 
-    // A failed turn that already ran tools must not be trimmed: dropping it would
-    // erase those tool calls from the model transcript, so the model would redo
-    // side effects (file edits, commands) it already performed. Retry by keeping
-    // the whole history and appending a short continuation message instead.
-    const ranTools = hasToolResultsAfter(messages, messageIndex)
+    // A turn that ended with an error may already have run tools: trimming it would
+    // erase those tool calls from the model transcript, so the model would redo side
+    // effects (file edits, commands) it already performed. Failed turns are retried
+    // by keeping the whole history and appending a short continuation message, while
+    // successfully completed turns are trimmed and the original message is resent.
+    const turnFailed = turnEndedWithError(messages, messageIndex)
 
     try {
-      if (ranTools) {
+      if (turnFailed) {
         const continueMessage = {
           role: 'user',
           content: t('errorContinueMessage'),

@@ -8,7 +8,6 @@ vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
 }))
 
-const cardSource = readFileSync(new URL('../../src/components/chat/panel-decoration/goal-card.ts', import.meta.url), 'utf8')
 const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
 const decorationSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
 const commandsSource = readFileSync(new URL('../../src/components/chat/command-suggestions.ts', import.meta.url), 'utf8')
@@ -108,23 +107,23 @@ describe('buildGoalCardViewModel', () => {
     expect(buildGoalCardViewModel(goal({ status: 'awaiting_approval' })).noteKeys).toEqual(['goalAwaitingApprovalNote'])
   })
 
-  it('shows completed and offers accept + continue in needs_review', () => {
+  it('shows completed and offers continue in needs_review', () => {
     const completed = buildGoalCardViewModel(goal({ status: 'completed' }))
-    expect(completed).toMatchObject({ tone: 'success', cancellable: false, resumable: false, accepting: false, acceptBlocked: false, continuing: false })
+    expect(completed).toMatchObject({ tone: 'success', cancellable: false, resumable: false, acceptBlocked: false, continuing: false })
     expect(completed.noteKeys).toEqual(['goalCompletedNote'])
 
-    // needs_review always offers both actions; acceptance is the human sign-off,
-    // continuing hands the goal back to the model without accepting.
+    // needs_review offers only continue — there is no accept action; continuing
+    // hands the goal back to the model without accepting.
     const review = buildGoalCardViewModel(goal({ status: 'needs_review' }))
-    expect(review).toMatchObject({ tone: 'warning', resumable: true, cancellable: true, accepting: false, acceptBlocked: false, continuing: true })
+    expect(review).toMatchObject({ tone: 'warning', resumable: true, cancellable: true, acceptBlocked: false, continuing: true })
     expect(review.noteKeys).toEqual(['goalNeedsReviewContinueNote'])
 
-    // A failed required criterion disables acceptance and explains why.
+    // A failed required criterion still blocks acceptance; continue is offered.
     const blocked = buildGoalCardViewModel(goal({
       status: 'needs_review',
       criteria: [{ id: 'c1', description: 'Builds', required: true, status: 'failed', evidenceIds: [] }],
     }))
-    expect(blocked).toMatchObject({ accepting: false, acceptBlocked: true, continuing: true })
+    expect(blocked).toMatchObject({ acceptBlocked: true, continuing: true })
     expect(blocked.noteKeys).toEqual(['goalNeedsReviewContinueNote'])
 
     // Human-accepted evidence keeps the gate open; a toolCallId is not required.
@@ -133,7 +132,7 @@ describe('buildGoalCardViewModel', () => {
       criteria: [{ id: 'c1', description: 'Builds', required: true, status: 'needs_review', evidenceIds: ['e1'] }],
       evidence: [{ id: 'e1', description: 'reviewed by hand', source: 'human', acceptedAt: '2026-01-02T00:00:00.000Z' }],
     }))
-    expect(accepted).toMatchObject({ accepting: false, acceptBlocked: false, continuing: true })
+    expect(accepted).toMatchObject({ acceptBlocked: false, continuing: true })
     expect(accepted.evidence[0].source).toBe('human')
   })
 
@@ -182,6 +181,47 @@ describe('buildGoalCardViewModel', () => {
     expect(custom.blocker).toBe('Missing access')
   })
 
+  it('localizes the machine blocker codes and the recovery restart sentence', () => {
+    const codes: Array<[string, string]> = [
+      ['persist_failed', 'goalBlockerPersistFailed'],
+      ['user_aborted', 'goalBlockerUserAborted'],
+      ['planning_failed', 'goalBlockerPlanningFailed'],
+      ['repeated_failures', 'goalBlockerRepeatedFailures'],
+      ['verification_failed', 'goalBlockerVerificationFailed'],
+      ['planning_incomplete', 'goalBlockerPlanningIncomplete'],
+      ['no_progress', 'goalBlockerNoProgress'],
+      ['run_did_not_finish', 'goalBlockerRunDidNotFinish'],
+      ['continuation_failed', 'goalBlockerContinuationFailed'],
+      ['approval_timeout', 'goalBlockerApprovalTimeout'],
+      ['approval_rejected', 'goalBlockerApprovalRejected'],
+      ['ask_skipped', 'goalBlockerAskSkipped'],
+    ]
+    for (const [code, key] of codes) {
+      expect(buildGoalCardViewModel(goal({ status: 'blocked', blocker: code })).blocker).toBe(key)
+    }
+    // The server's state-recovery path persists this fixed English sentence, not
+    // a machine code, so the sentence itself is matched.
+    expect(buildGoalCardViewModel(goal({
+      status: 'blocked',
+      blocker: 'Server restarted while the goal was in flight; resume to continue.',
+    })).blocker).toBe('goalBlockerRestarted')
+
+    // Unknown codes and free text keep the server string as-is.
+    expect(buildGoalCardViewModel(goal({ status: 'blocked', blocker: 'missing_token' })).blocker).toBe('missing_token')
+  })
+
+  it('localizes the fixed budget-exhaustion hint and passes every other hint through', () => {
+    const budgetHint = 'Budget exhausted. Use extend_resume to add the default budget to exhausted limits and continue this goal; accumulated usage and progress are preserved.'
+    const view = buildGoalCardViewModel(goal({ status: 'paused', blocker: 'duration_budget', blockerHint: budgetHint }))
+    expect(view.blocker).toBe('goalBlockerDurationBudget')
+    expect(view.blockerHint).toBe('goalBlockerBudgetHint')
+
+    // Any other server hint (legacy copy included) is shown verbatim.
+    expect(buildGoalCardViewModel(goal({ status: 'paused', blockerHint: 'Budget exhausted. Cancel this goal and start a new one.' })).blockerHint)
+      .toBe('Budget exhausted. Cancel this goal and start a new one.')
+    expect(buildGoalCardViewModel(goal({ status: 'paused' })).blockerHint).toBe('')
+  })
+
   it('labels real server human-acceptance evidence and prefers the trusted tool name', async () => {
     const {
       createGoalState,
@@ -211,74 +251,9 @@ describe('buildGoalCardViewModel', () => {
   })
 })
 
-describe('goal card controller wiring', () => {
-  it('is a DOM controller with update/cleanup and identity-bound async actions', () => {
-    expect(cardSource).toContain('export function createGoalCardController')
-    expect(cardSource).toContain('update() {')
-    expect(cardSource).toContain('cleanup() {')
-    expect(cardSource).toContain('const sessionId = getSessionId()')
-    expect(cardSource).toContain('const targetGoalId = goal.id')
-    // Async results are isolated by a monotonic token, not just session/goal id.
-    expect(cardSource).toContain('const token = ++actionToken')
-    expect(cardSource).toContain('if (token !== actionToken) return')
-    // Same-goal updates keep expansion/editing intent; a new goal resets it.
-    expect(cardSource).toContain('const sameGoal = goalId === goal.id')
-    expect(cardSource).toContain('editBaseObjective')
-    // Keyboard: Escape cancels the edit, Ctrl/Cmd+Enter submits the revision.
-    expect(cardSource).toContain("event.key === 'Escape'")
-    expect(cardSource).toContain("event.key === 'Enter' && (event.ctrlKey || event.metaKey)")
-    // Repeated clicks are blocked while an action is in flight.
-    expect(cardSource).toContain('if (pending) return')
-    expect(cardSource).toContain('button.disabled = action.disabled')
-    expect(cardSource).toContain('if (button.disabled) return')
-    // needs_review exposes an explicit acceptance vs continue action, and the
-    // disabled accept explains why a required failure blocks it.
-    expect(cardSource).toContain("t('goalAccept')")
-    expect(cardSource).toContain("t('goalContinue')")
-    expect(cardSource).toContain('view.acceptBlocked')
-    expect(cardSource).toContain("t('goalNeedsReviewBlockedNote')")
-    expect(cardSource).toContain("runAction(goal, 'accept')")
-    expect(cardSource).toContain("runAction(goal, 'resume')")
-    // Human-accepted evidence is labelled, never rendered as a machine pass.
-    expect(cardSource).toContain("entry.source === 'human'")
-    expect(cardSource).toContain('entry.acceptedAt')
-    expect(cardSource).toContain("t('goalEvidenceHumanAccepted')")
-    // The trusted server tool name is preferred over the raw tool call id.
-    expect(cardSource).toContain('entry.toolName || entry.toolCallId')
-    // Failures keep the card and surface the error.
-    expect(cardSource).toContain("message.setAttribute('role', 'alert')")
-    expect(cardSource).toContain('goalActionFailed')
-    // No fabricated percentage anywhere.
-    expect(cardSource).not.toContain('%')
-  })
-
-  it('is accessible and reuses the composer flow without an absolute overlay', () => {
-    expect(cardSource).toContain("root.setAttribute('aria-label', t('goalTitle'))")
-    expect(cardSource).toContain("expandButton.setAttribute('aria-expanded', String(expanded))")
-    expect(cardSource).toContain("expandButton.setAttribute('aria-label'")
-    expect(cardSource).toContain("statusLabel.setAttribute('aria-live', 'polite')")
-    expect(cardSource).toContain("document.createElement('button')")
-    expect(cardSource).toContain('composerShell.insertBefore(root, composerShell.firstElementChild)')
-    expect(cardSource).toContain('root?.remove()')
-  })
-
-  it('never authorizes tools — approval and ask cards stay the only gates', () => {
-    expect(cardSource).not.toContain('onApprove')
-    expect(cardSource).not.toContain('onReject')
-    expect(cardSource).not.toContain('injectApprovalCard')
-    expect(cardSource).not.toContain('injectAskUserCard')
-  })
-
-  it('is exported through the panel decoration facade', () => {
-    expect(decorationSource).toContain('createGoalCardController')
-    expect(decorationSource).toContain('buildGoalCardViewModel')
-  })
-
+describe('goal wiring in the chat host', () => {
   it('mounts the compact control strip in ChatPanelHost behind the goal capability with full cleanup', () => {
     expect(hostSource).toContain('createGoalControlStripController({')
-    // The full DOM card is kept for its view-model / tests but is no longer
-    // mounted in production.
-    expect(hostSource).not.toContain('createGoalCardController')
     expect(hostSource).toContain('effectiveCapabilities.goal')
     expect(hostSource).toContain("!('shareId' in agent)")
     // OpenCode/ACP sessions cannot use goal mode (server rejects it); the gate
@@ -298,8 +273,6 @@ describe('goal card controller wiring', () => {
   it('exposes the control strip through the panel decoration facade', () => {
     expect(decorationSource).toContain('createGoalControlStripController')
     expect(decorationSource).toContain('buildGoalControlStripView')
-    // The full card stays exported for its view-model and A-side consumers.
-    expect(decorationSource).toContain('createGoalCardController')
   })
 
   it('adds the /goal built-in command that only completes text until sent', () => {
@@ -330,19 +303,27 @@ describe('goal card i18n and styling', () => {
     'goalStatusRunning', 'goalStatusVerifying', 'goalStatusAwaitingInput', 'goalStatusAwaitingApproval',
     'goalStatusPausing', 'goalStatusPaused', 'goalStatusBlocked', 'goalStatusNeedsReview',
     'goalStatusCompleted', 'goalStatusFailed', 'goalStatusCancelled', 'goalCriterionPending',
-    'goalCriterionPassed', 'goalCriterionFailed', 'goalCriterionNeedsReview', 'goalCriterionRequired',
-    'goalObjectiveLabel', 'goalObjectiveEmpty', 'goalCriteriaLabel', 'goalScopeLabel', 'goalBudgetLabel',
-    'goalBudgetValue', 'goalUsageLabel', 'goalUsageValue', 'goalEvidenceLabel', 'goalEvidenceCount',
-    'goalBlockerLabel', 'goalBlockerIterationBudget', 'goalBlockerDurationBudget', 'goalSummaryLabel', 'goalExpand', 'goalCollapse', 'goalConfirm', 'goalRevise',
-    'goalEditObjective', 'goalEditCancel', 'goalPause', 'goalResume', 'goalCancel', 'goalActionSubmitting',
+    'goalCriterionPassed', 'goalCriterionFailed', 'goalCriterionNeedsReview',
+    'goalObjectiveEmpty', 'goalCriteriaLabel', 'goalScopeLabel', 'goalBudgetLabel',
+    'goalEvidenceLabel',
+    'goalBlockerLabel', 'goalBlockerIterationBudget', 'goalBlockerDurationBudget',
+    'goalBlockerPersistFailed', 'goalBlockerUserAborted', 'goalBlockerPlanningFailed',
+    'goalBlockerRepeatedFailures', 'goalBlockerVerificationFailed', 'goalBlockerPlanningIncomplete',
+    'goalBlockerNoProgress', 'goalBlockerRunDidNotFinish', 'goalBlockerContinuationFailed',
+    'goalBlockerApprovalTimeout', 'goalBlockerApprovalRejected', 'goalBlockerAskSkipped',
+    'goalBlockerRestarted', 'goalBlockerBudgetHint',
+    'goalErrorActive', 'goalErrorSessionBusy', 'goalErrorBudgetExhausted', 'goalErrorRevisionConflict',
+    'goalErrorBudgetNotExhausted', 'goalErrorObjectiveRequired', 'goalErrorActionInvalid',
+    'goalErrorNotFound', 'goalErrorUnavailable', 'goalErrorSessionNotFound', 'goalErrorPersistFailed',
+    'goalSummaryLabel', 'goalConfirm',
+    'goalEditObjective', 'goalPause', 'goalResume', 'goalCancel',
     'goalActionFailed', 'goalUnavailable', 'goalConfirmNote', 'goalPauseCancelNote', 'goalResumeNote',
     'goalScopeChangeNote', 'goalAwaitingInputNote', 'goalAwaitingApprovalNote', 'goalPausingNote',
-    'goalNeedsReviewNote', 'goalNeedsReviewAcceptNote', 'goalNeedsReviewBlockedNote',
-    'goalNeedsReviewContinueNote', 'goalAccept', 'goalContinue', 'goalEvidenceHumanAccepted',
+    'goalNeedsReviewContinueNote',
     'goalCompletedNote', 'goalFailedNote', 'goalCancelledNote',
-    'goalOpenSummary', 'goalMoreActions', 'goalCancelConfirmTitle', 'goalCancelConfirmMessage',
+    'goalOpenSummary', 'goalCancelConfirmTitle', 'goalCancelConfirmMessage',
     'goalKeepWorking', 'goalSaveObjective', 'goalUnsavedChanges', 'goalActionInProgress',
-    'goalCriteriaProgress', 'goalSummaryDetails',
+    'goalCriteriaProgress',
   ]
 
   it('defines every goal string in both languages', () => {
@@ -356,21 +337,8 @@ describe('goal card i18n and styling', () => {
     expect(i18nSource).toContain("goalScopeChangeNote:")
   })
 
-  it('styles an in-flow card with focus, responsive and reduced-motion handling', () => {
-    const block = css.slice(css.indexOf('/* Goal mode card'), css.indexOf('/* TodoWrite task summary'))
-    const rootRule = block.match(/\.quickforge-goal-card\s*\{[^}]*\}/)?.[0] ?? ''
-    expect(rootRule).toMatch(/width:\s*100%/)
-    expect(rootRule).toMatch(/flex:\s*none/)
-    expect(rootRule).not.toMatch(/position:\s*(?:fixed|absolute)/)
-    expect(block).not.toMatch(/linear-gradient|radial-gradient/)
-    expect(block).toContain('.quickforge-goal-expand:focus-visible')
-    expect(block).toMatch(/@media \(max-width: 640px\)/)
-    expect(block).toMatch(/@media \(prefers-reduced-motion: reduce\)/)
-    expect(block).toContain('quickforge-goal-spin')
-  })
-
   it('styles the control strip as a minimal in-flow row reusing the goal tone tokens', () => {
-    const block = css.slice(css.indexOf('/* Goal control strip'), css.indexOf('/* Goal mode card'))
+    const block = css.slice(css.indexOf('/* Goal control strip'), css.indexOf('/* Goal 报告工具卡'))
     const rootRule = block.match(/\.quickforge-goal-strip\s*\{[^}]*\}/)?.[0] ?? ''
     // The strip hugs its content (capped at the composer width) instead of
     // stretching across the whole composer shell.

@@ -60,7 +60,6 @@ export const GOAL_MAX_CRITERION_DESCRIPTION_CHARS = 500
 export const GOAL_MAX_EVIDENCE_DESCRIPTION_CHARS = 500
 export const GOAL_MAX_SCOPE_ENTRY_CHARS = 200
 
-const GOAL_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 // `accept` is the explicit human acceptance of a needs_review goal. It is the
 // only action that may turn a criterion into a human-accepted pass.
 const GOAL_ACTIONS = new Set(['confirm', 'pause', 'resume', 'extend_resume', 'cancel', 'revise', 'accept'])
@@ -83,10 +82,6 @@ export function isGoalTerminalStatus(status) {
 
 export function isGoalActiveStatus(status) {
   return isGoalStatus(status) && !TERMINAL_STATUSES.has(status)
-}
-
-export function isGoalInFlightStatus(status) {
-  return IN_FLIGHT_STATUSES.has(status)
 }
 
 /** Objective may be replaced (revise) from these quiescent states only. */
@@ -154,6 +149,25 @@ function normalizeCriterion(raw) {
   }
 }
 
+function normalizeGoalAttachment(raw) {
+  if (!isRecord(raw)) return null
+  const path = text(raw.path, 4096)
+  const fileName = text(raw.fileName, 512)
+  if (!fileName && !path) return null
+  return {
+    ...(text(raw.id, 128) ? { id: text(raw.id, 128) } : {}),
+    type: text(raw.type, 64) || 'document',
+    ...(fileName ? { fileName } : {}),
+    ...(text(raw.mimeType, 128) ? { mimeType: text(raw.mimeType, 128) } : {}),
+    ...(typeof raw.size === 'number' && Number.isFinite(raw.size) && raw.size >= 0 ? { size: raw.size } : {}),
+    ...(typeof raw.characterCount === 'number' && Number.isFinite(raw.characterCount) && raw.characterCount >= 0
+      ? { characterCount: raw.characterCount }
+      : {}),
+    ...(path ? { path } : {}),
+    ...(text(raw.source, 64) ? { source: text(raw.source, 64) } : {}),
+  }
+}
+
 function normalizeEvidence(raw) {
   if (!isRecord(raw)) return null
   const id = text(raw.id, 64)
@@ -194,6 +208,9 @@ export function normalizeGoalState(raw, { sessionId = null } = {}) {
     sessionId: resolvedSessionId,
     revision: nonNegativeInt(raw.revision),
     objective: text(raw.objective, GOAL_MAX_OBJECTIVE_CHARS),
+    attachments: Array.isArray(raw.attachments)
+      ? raw.attachments.map(normalizeGoalAttachment).filter(Boolean).slice(0, 32)
+      : [],
     status: raw.status,
     planConfirmed: goalPlanConfirmed(raw),
     criteria: Array.isArray(raw.criteria)
@@ -241,7 +258,7 @@ function withGoal(goal, patch, now = Date.now()) {
   }
 }
 
-export function createGoalState({ sessionId, objective, budget = null, now = Date.now() } = {}) {
+export function createGoalState({ sessionId, objective, budget = null, attachments = [], now = Date.now() } = {}) {
   const createdAt = new Date(now).toISOString()
   return {
     id: `goal_${randomUUID()}`,
@@ -249,6 +266,9 @@ export function createGoalState({ sessionId, objective, budget = null, now = Dat
     revision: 1,
     planConfirmed: false,
     objective: text(objective, GOAL_MAX_OBJECTIVE_CHARS),
+    attachments: Array.isArray(attachments)
+      ? attachments.map(normalizeGoalAttachment).filter(Boolean).slice(0, 32)
+      : [],
     status: 'planning',
     criteria: [],
     scope: [],
@@ -581,8 +601,4 @@ export function goalUsageWithRun(goal, { iterations = 0, durationMs = 0 } = {}) 
     iterations: Math.max(0, goal.usage.iterations + Math.trunc(iterations)),
     activeDurationMs: Math.max(0, goal.usage.activeDurationMs + Math.max(0, durationMs)),
   }
-}
-
-export function isValidGoalId(value) {
-  return typeof value === 'string' && GOAL_ID_PATTERN.test(value)
 }

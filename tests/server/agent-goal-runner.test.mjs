@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { agentSessions } from '../../server/agent-session-store.mjs'
+import * as goalState from '../../server/agent-goal-state.mjs'
 
 const mocks = vi.hoisted(() => ({
   persistSession: vi.fn(async () => ({ id: 'persisted' })),
@@ -52,6 +53,18 @@ const {
   recordGoalToolExecution,
   startGoalPlanning,
 } = await import('../../server/agent-goal-runner.mjs')
+
+it('planning and continuation include persisted attachment paths', () => {
+  const goal = {
+    objective: 'test',
+    attachments: [{ fileName: 'notes.txt', path: 'C:\\Users\\test\\notes.txt' }],
+    criteria: [], evidence: [], scope: [], status: 'running',
+  }
+  for (const prompt of [goalPlanningPrompt(goal), goalContinuationPrompt(goal, 2, 8)]) {
+    expect(prompt).toContain('C:\\Users\\test\\notes.txt')
+    expect(prompt).toContain('notes.txt')
+  }
+})
 
 it('planning and continuation delegate announcements to UI while preserving substantive output and completion barrier', () => {
   const goal = { objective: 'test', criteria: [], evidence: [], scope: [], status: 'running' }
@@ -208,8 +221,12 @@ describe('goal runner', () => {
       criterionUpdates: [{ id: 'c1', status: 'failed' }],
     }
     const rejection = action === 'plan' ? 'only valid while planning' : 'execution starts automatically after normal run end and durable persistence'
+    const errorCode = action === 'plan' ? 'GOAL_REPORT_PLAN_INVALID_STATUS' : 'GOAL_REPORT_PLANNING_ONLY'
     const persistCalls = mocks.persistSession.mock.calls.length
-    await expect(createGoalReportTool(session).execute('late-report', report)).rejects.toThrow(rejection)
+    const lateReport = await createGoalReportTool(session).execute('late-report', report)
+    expect(lateReport.isError).toBe(true)
+    expect(lateReport.content[0].text).toContain(rejection)
+    expect(lateReport.details).toEqual({ type: 'goal_report_error', code: errorCode })
     expect(session.goal).toEqual(submitted)
     expect(session.goalRun).toBe(run)
     expect(run.pendingDisposition).toBeFalsy()
@@ -223,7 +240,10 @@ describe('goal runner', () => {
     await Promise.resolve()
     expect(session.goalRun).toBeNull()
     const settling = structuredClone(session.goal)
-    await expect(createGoalReportTool(session).execute('settling-report', report)).rejects.toThrow(rejection)
+    const settlingReport = await createGoalReportTool(session).execute('settling-report', report)
+    expect(settlingReport.isError).toBe(true)
+    expect(settlingReport.content[0].text).toContain(rejection)
+    expect(settlingReport.details).toEqual({ type: 'goal_report_error', code: errorCode })
     expect(session.goal).toEqual(settling)
     expect(session.agent.prompt).not.toHaveBeenCalled()
     gate.resolve({ id: 'saved' })
@@ -240,9 +260,12 @@ describe('goal runner', () => {
     await planGoal(session)
     expect(session.goalRun).toBeNull()
     const submitted = structuredClone(session.goal)
-    await expect(createGoalReportTool(session).execute('late-report', {
+    const lateReport = await createGoalReportTool(session).execute('late-report', {
       action, summary: 'Do not replace', blocker: 'Waiting for confirmation',
-    })).rejects.toThrow('execution starts automatically after normal run end and durable persistence')
+    })
+    expect(lateReport.isError).toBe(true)
+    expect(lateReport.content[0].text).toContain('execution starts automatically after normal run end and durable persistence')
+    expect(lateReport.details).toEqual({ type: 'goal_report_error', code: 'GOAL_REPORT_PLANNING_ONLY' })
     expect(session.goal).toEqual(submitted)
     expect(session.agent.prompt).not.toHaveBeenCalled()
   })
@@ -610,7 +633,10 @@ describe('goal runner', () => {
     const session = await reportedRun()
     clearTimeout(session.goalRun.watchdog)
     session.goalRun = null
-    await expect(createGoalReportTool(session).execute('complete', { action: 'complete' })).rejects.toThrow('active run')
+    const result = await createGoalReportTool(session).execute('complete', { action: 'complete' })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('active run')
+    expect(result.details).toEqual({ type: 'goal_report_error', code: 'GOAL_REPORT_NO_RUN' })
   })
 
   it.each(['duration', 'iterations', 'both'])('extends only exhausted limits (%s), preserving progress and usage', async (dimension) => {
@@ -887,6 +913,23 @@ describe('goal runner', () => {
     await expect(handleGoalAction(acp, 'confirm')).rejects.toMatchObject({ statusCode: 409, errorCode: 'GOAL_UNAVAILABLE' })
   })
 
+  it('returns a stable errorCode for every /goal command failure', async () => {
+    const session = makeSession()
+    expect(await startGoalPlanning(session, '   ')).toEqual({ error: 'Usage: /goal <objective>', errorCode: 'GOAL_COMMAND_USAGE' })
+    const long = 'x'.repeat(goalState.GOAL_MAX_OBJECTIVE_CHARS + 1)
+    expect(await startGoalPlanning(session, long)).toEqual({
+      error: `Goal objective must be at most ${goalState.GOAL_MAX_OBJECTIVE_CHARS} characters.`,
+      errorCode: 'GOAL_COMMAND_OBJECTIVE_TOO_LONG',
+    })
+    const acp = makeSession({ sessionId: 'acp-session-code', source: 'acp' })
+    expect(await startGoalPlanning(acp, 'nope')).toMatchObject({ errorCode: 'GOAL_COMMAND_UNAVAILABLE' })
+    const running = makeSession({ sessionId: 'goal-session-running' })
+    running.agent.state.isStreaming = true
+    expect(await startGoalPlanning(running, 'nope')).toMatchObject({ errorCode: 'GOAL_COMMAND_SESSION_RUNNING' })
+    await startedGoal(session)
+    expect(await startGoalPlanning(session, 'another')).toMatchObject({ errorCode: 'GOAL_ACTIVE' })
+  })
+
   it('records the plan as awaiting_confirmation and only then allows execution', async () => {
     const session = makeSession()
     await startedGoal(session)
@@ -935,21 +978,29 @@ describe('goal runner', () => {
     await confirmedGoal(session)
     const tool = createGoalReportTool(session)
 
-    await expect(tool.execute('call-1', { action: 'complete', summary: 'done' }))
-      .rejects.toThrow('required acceptance criteria are not verified')
-    await expect(tool.execute('call-2', {
+    const rejected = await tool.execute('call-1', { action: 'complete', summary: 'done' })
+    expect(rejected.isError).toBe(true)
+    expect(rejected.content[0].text).toContain('required acceptance criteria are not verified')
+    expect(rejected.details).toEqual({ type: 'goal_report_error', code: 'GOAL_REPORT_COMPLETE_REJECTED' })
+    const unknownEvidence = await tool.execute('call-2', {
       action: 'complete',
       summary: 'done',
       evidence: [{ id: 'e1', description: 'fake', toolCallId: 'missing-tool' }],
-    })).rejects.toThrow('unknown toolCallId')
+    })
+    expect(unknownEvidence.isError).toBe(true)
+    expect(unknownEvidence.content[0].text).toContain('unknown toolCallId')
+    expect(unknownEvidence.details).toEqual({ type: 'goal_report_error', code: 'GOAL_REPORT_EVIDENCE_UNKNOWN' })
     // A criterion cannot be passed by claim alone, even with a valid tool id.
     trustTool(session, 'tool-1')
-    await expect(tool.execute('call-3', {
+    const unverifiedClaim = await tool.execute('call-3', {
       action: 'complete',
       summary: 'done',
       evidence: [{ id: 'e1', description: 'tests', toolCallId: 'tool-1' }],
       criterionUpdates: [{ id: 'c1', status: 'passed', evidenceIds: [] }],
-    })).rejects.toThrow('cannot be passed without evidence')
+    })
+    expect(unverifiedClaim.isError).toBe(true)
+    expect(unverifiedClaim.content[0].text).toContain('cannot be passed without evidence')
+    expect(unverifiedClaim.details).toEqual({ type: 'goal_report_error', code: 'GOAL_REPORT_REJECTED' })
 
     const result = await completedGoalBody(session)
     expect(result.content[0].text).toContain('completes automatically')
@@ -1277,11 +1328,14 @@ describe('goal runner', () => {
     // The transcript contains an old successful tool result, but no
     // tool_execution_end was recorded for the current goal version.
     session.agent.state.messages = [toolResult('tool-old')]
-    await expect(createGoalReportTool(session).execute('call-1', {
+    const result = await createGoalReportTool(session).execute('call-1', {
       action: 'progress',
       summary: 'old',
       evidence: [{ id: 'e1', description: 'old', toolCallId: 'tool-old' }],
-    })).rejects.toThrow('unknown toolCallId: tool-old')
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('unknown toolCallId: tool-old')
+    expect(result.details).toEqual({ type: 'goal_report_error', code: 'GOAL_REPORT_EVIDENCE_UNKNOWN' })
   })
 
   it('never trusts delegation/skill/control-plane tool results as evidence', async () => {
@@ -1294,11 +1348,14 @@ describe('goal runner', () => {
     trustTool(session, 'ask-1', { toolName: 'ask_user' })
     trustTool(session, 'goal-1', { toolName: 'goal_report' })
     for (const toolCallId of ['sub-1', 'todo-1', 'skill-1', 'mem-1', 'ask-1', 'goal-1']) {
-      await expect(createGoalReportTool(session).execute(`call-${toolCallId}`, {
+      const result = await createGoalReportTool(session).execute(`call-${toolCallId}`, {
         action: 'progress',
         summary: 'x',
         evidence: [{ id: 'e1', description: 'x', toolCallId }],
-      })).rejects.toThrow(`unknown toolCallId: ${toolCallId}`)
+      })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain(`unknown toolCallId: ${toolCallId}`)
+      expect(result.details).toEqual({ type: 'goal_report_error', code: 'GOAL_REPORT_EVIDENCE_UNKNOWN' })
     }
   })
 
@@ -1316,17 +1373,21 @@ describe('goal runner', () => {
     recordGoalToolExecution(session, { toolCallId: 'no-result', toolName: 'run_command', isError: false })
 
     const tool = createGoalReportTool(session)
-    await expect(tool.execute('call-ok', {
+    const accepted = await tool.execute('call-ok', {
       action: 'progress',
       summary: 'x',
       evidence: [{ id: 'e-ok', description: 'x', toolCallId: 'ok-1' }],
-    })).resolves.toBeDefined()
+    })
+    expect(accepted.isError).toBeUndefined()
     for (const toolCallId of ['code-1', 'code-null', 'signal-1', 'timeout-1', 'abort-1', 'no-result']) {
-      await expect(tool.execute(`call-${toolCallId}`, {
+      const result = await tool.execute(`call-${toolCallId}`, {
         action: 'progress',
         summary: 'x',
         evidence: [{ id: `e-${toolCallId}`, description: 'x', toolCallId }],
-      })).rejects.toThrow(`unknown toolCallId: ${toolCallId}`)
+      })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain(`unknown toolCallId: ${toolCallId}`)
+      expect(result.details).toEqual({ type: 'goal_report_error', code: 'GOAL_REPORT_EVIDENCE_UNKNOWN' })
     }
   })
 
@@ -1353,11 +1414,14 @@ describe('goal runner', () => {
       evidence: [{ id: 'e1', description: 'tests', toolCallId: 'tool-1' }],
     })
     expect(session.goal.evidence[0]).toMatchObject({ id: 'e1', toolCallId: 'tool-1', toolName: 'run_command' })
-    await expect(createGoalReportTool(session).execute('call-2', {
+    const fabricated = await createGoalReportTool(session).execute('call-2', {
       action: 'progress',
       summary: 'x',
       evidence: [{ id: 'e2', description: 'human', toolCallId: 'tool-1', source: 'human' }],
-    })).rejects.toThrow('human acceptance evidence can only be recorded by the user')
+    })
+    expect(fabricated.isError).toBe(true)
+    expect(fabricated.content[0].text).toContain('human acceptance evidence can only be recorded by the user')
+    expect(fabricated.details).toEqual({ type: 'goal_report_error', code: 'GOAL_REPORT_REJECTED' })
   })
 
   it('defers automatic completion until the run truly finished and blocks further writes', async () => {
@@ -1377,8 +1441,10 @@ describe('goal runner', () => {
     expect(goalRunSettlementToolBlockReason(session, 'write_file')).toContain('not allowed')
     expect(goalRunSettlementToolBlockReason(session, 'goal_report')).toContain('not allowed')
     expect(goalRunSettlementToolBlockReason(session, 'read_file')).toBeNull()
-    await expect(createGoalReportTool(session).execute('call-2', { action: 'progress', summary: 'more' }))
-      .rejects.toThrow('already reported')
+    const reported = await createGoalReportTool(session).execute('call-2', { action: 'progress', summary: 'more' })
+    expect(reported.isError).toBe(true)
+    expect(reported.content[0].text).toContain('already reported')
+    expect(reported.details).toEqual({ type: 'goal_report_error', code: 'GOAL_REPORT_ALREADY_REPORTED' })
     await finishGoalRun(session, { status: 'idle' })
     expect(session.goal.status).toBe('completed')
   })

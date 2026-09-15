@@ -24,6 +24,14 @@ planning / execution 轮末以 `details.quickforgeGoalIteration = {goalId, kind,
 
 结算经既有 `state` 同步；split SSE state 与 GET `/state`（以及 restore/初始快照）只附 `messagesSummary` 和稀疏 `goalIterationMarkers`，不发送消息正文或无关 details。每项包含原始 index、role、可用 id/timestamp 与 marker；客户端按索引和身份校验合并，不追加消息、不猜锚点，保存最新 snapshot 并在后到的消息合并后重放。full state 的 metadata 更新也不放宽正文 streaming 替换门禁。marker 实际改变客户端消息时推进消息 watermark；单独 `goal_updated` 只走独立 Goal 水位，不推进消息 watermark。客户端装饰事件见 [前端同步契约](../src/lib/README.md#goal-分隔线元数据实时同步)。
 
+## Goal 错误码与文案本地化（现行契约）
+
+`goal_report` 校验失败以「返回式错误结果」代替 throw：`createGoalReportTool.execute` 捕获 `goalReportError(message, code)`（全部 15 处附稳定机器码：`GOAL_REPORT_FIELD_REQUIRED` / `GOAL_REPORT_EVIDENCE_UNKNOWN` / `GOAL_REPORT_NO_GOAL` / `GOAL_REPORT_INACTIVE` / `GOAL_REPORT_ALREADY_REPORTED` / `GOAL_REPORT_PLAN_INVALID_STATUS` / `GOAL_REPORT_PLAN_NO_CRITERIA` / `GOAL_REPORT_PLAN_TOO_MANY_CRITERIA` / `GOAL_REPORT_PLAN_CRITERIA_DESCRIPTION` / `GOAL_REPORT_PLANNING_ONLY` / `GOAL_REPORT_REJECTED` / `GOAL_REPORT_COMPLETE_REJECTED` / `GOAL_REPORT_UNSUPPORTED_ACTION` / `GOAL_REPORT_NO_RUN` / `GOAL_REPORT_NO_SESSION`）后返回 `{ isError: true, content: [英文原文 text], details: { type: 'goal_report_error', code } }`，模型可见英文正文不变——pi-agent-core 对 throw 只保留 message，返回式结果才能保留携带机器码的 details。执行器只把 throw 标记为错误、忽略返回对象的 `isError`，因此 `agent-manager.mjs` 的 `afterToolCall` 对 goal_report 的返回式错误提升 isError 标记，toolResult 仍是带 details 的错误结果；前端按 `details.code` 映射本地化文案（见 [前端报告契约](../src/lib/README.md#goal-报告工具呈现契约)）。
+
+`/goal` 命令错误本地化：`startGoalPlanning` 失败返回 `{ error, errorCode }`（`GOAL_COMMAND_USAGE` / `GOAL_COMMAND_OBJECTIVE_TOO_LONG` / `GOAL_COMMAND_UNAVAILABLE` / `GOAL_COMMAND_SESSION_RUNNING`，catch 透传 requestError 携带的 `GOAL_ACTIVE` / `SESSION_PERSIST_FAILED`）；`agent-prompt-commands.mjs` 的 `goalCommandState` 对失败结果经新增 `server/goal-command-messages.mjs` 的 `goalCommandText` 按 `settings.language`（仅 `'zh'` 命中映射时）在 `textResponse` 输出中文，读取设置失败或未知码 fail-open 返回英文原文（服务端首个语言感知模块）；已持久化的历史消息保留当时语言，不回溯改写。
+
+goal 路由错误补机器码：`POST /api/agents/:sessionId/goal` 对非法 action（400）与会话不存在（404）在错误上附 `errorCode`（`GOAL_ACTION_INVALID` / `SESSION_NOT_FOUND`），错误 body 经 `utils/response.mjs` 的 `sendError` 序列化为 `{ error, code }`；`GOAL_UNAVAILABLE`（409）与 goal runner `requestError` 的既有错误码同一路径下发。
+
 ## 目录结构
 
 ```
@@ -39,6 +47,8 @@ server/
 ├── agent-persistence.mjs     # 会话持久化（CAS 权威快照 / debounce / 降级标记）
 ├── agent-goal-state.mjs      # Goal 模式纯状态模型（状态机 / 预算 / 证据与验收校验 / 恢复映射）
 ├── agent-goal-runner.mjs     # Goal 模式 runner（会话绑定有限轮执行 / 会话内单活跃 goal 串行 + 多会话并行 / 用户动作 / goal_report）
+├── goal-command-messages.mjs # /goal 命令错误文案按 settings.language 本地化（fail-open 英文）
+├── goal-settings.mjs         # Goal 默认预算设置（settings 键 goal-settings，clamp 1–100）
 ├── session-file-backups.mjs  # 会话级文件影子备份（变更摘要 / 安全回滚 / 轮级回滚）
 ├── auto-archive.mjs          # 超过 30 天未更新对话的自动归档 runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
@@ -114,7 +124,9 @@ server/
 - `models.mjs` 只向浏览器返回无密钥模型描述，过滤 `available:false`，指定 catalog ID 未命中时强制刷新一次；真实 Cloud Token 和上游地址仅在 Node 请求期间注入。
 - 主聊天消息使用公开的 `metadata.quickforgeClientMessageId` 标识逻辑消息；真正的 Cloud Chat `Idempotency-Key` 以 `sessionId + messageId` 绑定在 `~/.quickforge/storage/security/cloud-chat-idempotency/` 私有 sidecar 中，不进入 Session JSON、浏览器状态或通用备份。同消息的 Provider 网络重试、`/continue` 和重启恢复后重新生成复用同一 UUID，不同消息使用不同 UUID；AI HTTP 调试日志会脱敏该 Header。
 
-### agent-manager.mjs (约 1966 行)
+### agent-manager.mjs
+
+**本次职责拆分**：访问模式纯归一化位于 `agent-access-mode.mjs`；状态快照、回滚忙碌判定和 SSE 槽查询位于 `agent-session-queries.mjs`；审批与 ask 应答位于 `agent-approval-responses.mjs`。facade 保留原有导出集合，query factory 显式注入 Goal/事件投影，三个模块均不反向导入 manager。状态仍由原 session/approval/ask stores 唯一持有；`abortToolCall`、生命周期和模型/标题更新留在 manager，未改变行为。搬迁前后 `agent-manager-domains`、exports contract 及 manager/Goal/审批相关 19 文件 297 用例通过。
 
 **用途**: Agent 生命周期编排与 facade。后端最复杂的模块；agent-manager-module-split 拆分后职责按模块收口，agent-manager.mjs 保留会话生命周期编排（createAgent/runPrompt/abort/restore/destroy/fork、SSE 管理、模型/权限/标题更新）并作为 facade re-export 公共 API，消费方 import 路径不变。agent_end 事件订阅里对失败回合合成尾部错误消息（`appendAssistantErrorMessageOnce`，仅 `state.errorMessage` 存在时；concurrent-run 拒绝等少数路径不经过 handleRunFailure）——用户主动停止（`signal.aborted`）不算失败：pi-agent-core 已落 `stopReason:'aborted'` 终态消息（前端灰色「已停止」），此时跳过合成并清 `state.errorMessage`，状态面板不把用户停止报成 error；非用户中止的失败（超时/HTTP 等）仍照常合成错误消息。
 
@@ -363,16 +375,16 @@ server/
 
 ### mcp/ — MCP Client 集成
 
-**用途**: 管理全局 stdio MCP Server，并把外部 MCP tools 适配为 QuickForge Agent tools。
+**用途**: 管理全局 MCP Server，并把 MCP tools 适配为 QuickForge Agent tools。Playwright 仅预置普通 stdio 配置，复用现有连接、审批和设置界面，不包含额外 runtime 或浏览器管理。
 
 **核心文件**:
 - `mcp/tool-name.mjs` — MCP server canonical 规则与工具名 sanitize/encode/parse helper；registry 生成名称与 context usage 严格回退判定共用，避免规则漂移。
-- `mcp/config.mjs` — MCP Server 配置读写和校验，配置存放在独立的 `mcp` store（`config/mcp-servers.json`，内部 key 仍为 `mcpServers`）；兼容 `mcpServers` JSON 导入、`type`/`transport` 和远程 `headers` 配置。
+- `mcp/config.mjs` — MCP Server 配置读写和校验，配置存放在独立的 `mcp` store（`config/mcp-servers.json`，内部 key 仍为 `mcpServers`）；兼容 `mcpServers` JSON 导入、`type`/`transport` 和远程 `headers` 配置；缺少同名服务时动态返回默认关闭的 `playwright` 预置，读取不写 store；已有同名配置完整优先。读取时仅为规范化名称 `playwright` 派生 `builtin: true`，不信任输入中的 builtin 字段，也不将该标记落盘。首次启停在原子更新内持久化；删除 Playwright 在名称规范化后、进入 `atomicUpdate` 前返回 409，普通 MCP 删除行为不变。批量 replace 遗漏 Playwright 时，后续读取仍返回关闭的预置项；已存满 50 项时，首次启停或保存 Playwright 返回 409，避免挤掉其他服务。
 - `mcp/registry.mjs` — stdio/SSE/Streamable HTTP 连接生命周期、工具发现、工具调用转发、关闭清理；支持全量刷新（`refreshMcpConnections`，对 error 状态有重试退避；可选 `reconnectDisconnected:true` 让 `disconnected` 连接也走 delete+close+重连，供后台刷新恢复被动断开的 server）和单 server 强制重连（`reconnectMcpServer`，绕过退避）；`createMcpToolDefinitions` 可选 `waitForConnections:false`：立即用当前连接快照（仅已连接 server）生成定义并 fire-and-forget 后台刷新；`subscribeMcpToolsetChanged(callback)` 返回退订函数，每次刷新完成后比较已连接 server 工具集签名（`${serverName}::${toolName}` 排序 join），变化时通知订阅者（无订阅者只更新基线）；single-flight 刷新期间 options 以首个调用方为准；连接、工具发现或工具调用超时后会取消请求并关闭异常 transport，后续调用再重连。
 - `routes/mcp.mjs` — `/api/mcp/servers`（列表与 upsert 单个）、`/api/mcp/config`（批量导入 merge/replace）、`/api/mcp/reconnect/:name`（单 server 重连）、启停开关与删除等管理接口。
 
 **行为约束**:
-- 当前支持 `stdio`、`sse` 和 Streamable HTTP (`http`) transport。
+- 当前支持 `stdio`、`sse` 和 Streamable HTTP (`http`) transport。Playwright 预置命令为 `npx -y @playwright/mcp@latest`，不追加浏览器参数（上游默认可见窗口）；设置卡片以中性“内置”标签标记，隐藏删除按钮，仍可编辑、启停、重连；服务端同时拒绝删除，不能仅通过绕过 UI 删除预置服务。后端机器需有 Node/npm，首次启动通常需要网络，缺少浏览器按上游提示处理；npm/Desktop 不捆绑 Playwright 或浏览器，不提供离线保证。
 - MCP 工具注入时使用 `mcp__{serverName}__{toolName}` 命名空间，避免和内置工具重名。
 - YOLO 关闭时，MCP 工具调用需要用户审批；YOLO 开启时允许直接调用。
 - restore 非阻塞 MCP：`POST /api/agents/:id/restore` 及经 `restoreAgent` 的回落入口（state/messages/status/SSE）以连接快照构建 MCP 工具，不等待（重）连接；`waitForConnections:false` 触发的后台刷新会以 `reconnectDisconnected:true` 重连被动断开的 server，工具集签名变化时通知订阅者（agent-manager 据此重建活跃会话工具），配合服务启动后的 MCP 预热共同保证恢复会话最终拿到完整工具集。

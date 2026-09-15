@@ -24,6 +24,12 @@
 - 这是客户端预检，不新增后端 CAS；HTTP 已发之后跨客户端替换目标仍是既有 confirm API 边界，不能撤回/保证原子性。缺身份、旧消息或无法证明最新计划时不展示动作，可经 Inspector 使用现有入口。所有不可信正文使用 Lit 文本绑定或 textContent，不使用 HTML 注入；中英 key 成对维护。工具卡不再使用 tone 变量/染色（与其他工具行一致），准则四态图标配色保留。
 - 验证见 `tests/frontend/goal-report-renderer.test.ts`（纯模型与真实 renderer class 的惰性模板捕获）；不是浏览器 CSS/焦点/屏幕阅读器验收。目标图标与准则状态图标均为内联细线 SVG，无新增外部资源。
 
+## Goal 错误文案本地化消费契约
+
+- `server-agent.ts` 的 `updateGoal` 对非 2xx 响应解析 body 的 `code` 字段并挂到抛出 Error 的 `.code`（message 仍取 `payload.error`，缺失时兜底 `Failed to update goal: HTTP <status>`，行为不变）；不识别的 code 原样保留，由展示层决定映射。
+- `goal-ui.ts` 新增 `GOAL_ACTION_ERROR_KEY`（11 个静态码：`GOAL_ACTIVE` / `GOAL_SESSION_BUSY` / `GOAL_BUDGET_EXHAUSTED` / `GOAL_REVISION_CONFLICT` / `GOAL_BUDGET_NOT_EXHAUSTED` / `GOAL_OBJECTIVE_REQUIRED` / `GOAL_ACTION_INVALID` / `GOAL_NOT_FOUND` / `GOAL_UNAVAILABLE` / `SESSION_NOT_FOUND` / `SESSION_PERSIST_FAILED`，i18n `goalError*` 中英成对）与 `goalActionErrorMessage(error)`：已知码显示本地化文案，未知/无码回退 Error 的英文 message，再兜底通用 `goalActionFailed`；`runGoalUiAction` 失败统一走该函数，动作面不各自翻译。
+- `goal-report-history.ts` 按 `details.type === 'goal_report_error'` 的 `details.code` 映射 15 个 `goalReportError*` key 显示本地化正文；无 code / 未知码（含历史旧数据与 `aborted` / `timedOut`）透传服务端原文，不猜语义。服务端错误契约见 [Goal 错误码与文案本地化](../../server/README.md#goal-错误码与文案本地化现行契约)。
+
 ---
 
 | 文件 | 行数 | 用途 |
@@ -34,7 +40,10 @@
 | `goal.ts` | 310 | Goal 模式前后端共享契约：状态/准则/证据/预算类型、防御归一化（容忍旧服务端缺字段、坏项丢弃）、状态语义纯函数（终态/活跃/旋转、可编辑/可确认/可暂停/可恢复/可接受、`goalAcceptanceCheck` 与时长整分钟展示） |
 | `goal-ui.ts` | — | Goal UI 共享 store：按 `sessionId + goalId` 管理 pending / dirty / error 与草稿；运行中可保留草稿，外部 objective 冲突保留 dirty 文本；dirty 允许 `revise` / `pause` / `cancel`，其余动作受守卫；挂载钉键/释放与 LRU 保留草稿，导航事件携带 progress/edit 打开侧栏 |
 | `goal-edit.ts` | — | 目标安全保存编排：确认 pause、限时等待权威 paused 且非 streaming，再 revise；校验 session/goal/基线，支持取消只读等待，不重试 POST、客户端不另发 confirm/resume；服务端 revise 的新规划正常持久化后自动执行 |
-| `server-agent.ts` | 2323 | Server Agent — 服务端 Agent 客户端 |
+| `server-agent.ts` | 2271 | Server Agent — 会话状态、消息对账、watchdog、事件边界与公共兼容入口 |
+| `server-agent-types.ts` | 266 | 共享类型与事件边界：ServerAgentLocalEvent、只读 type?: unknown 的 ServerAgentWireEvent；无运行时依赖 |
+| `server-agent-http.ts` | 16 | `fetchJsonWithTimeout`：请求超时、外部取消转发、JSON 解析与资源清理 |
+| `global-agent-sse-client.ts` | 340 | 全局 SSE 单例、按会话分发、连接状态订阅、重连退避与健康探测 |
 | `selected-capabilities.ts` | 82 | 用户本轮插件选择的前端统一规范化/快照：合法类型与字符串边界、`type+pluginName+name` 去重、顺序保持、最多 4 项，持久化/历史读取快照均剥离 description |
 | `deferred-session-agent.ts` | 302 | 新会话首条消息前的延迟 Agent 代理：本地先渲染乐观消息，`prompt()` 时才创建真实 `ServerAgent`，并把暂存的 capabilities / contextReferences / promptMode 转发给真实 Agent |
 | `indexeddb-cache.ts` | 通用 IndexedDB 只读缓存封装：惰性单例 open、条目级 schemaVersion、LRU+字节双预算淘汰、全部异常静默降级（供会话消息/工作区/设置快照等缓存层复用） |
@@ -133,12 +142,14 @@
 - `getCloudUsage()` / `getCloudInstallations()` 读取额度与设备。
 - `revokeCloudInstallation()` / `logoutCloud()` 管理设备生命周期；当前设备退出的远端撤销顺序由 Node 保证。
 
-### server-agent.ts (2323 行)
+### server-agent.ts (2236 行)
 
 **用途**: `ServerAgent` 类 — 与服务端 Agent 通信的客户端。
 
+**拆分边界（本 feature 已完成限定范围）**：`server-agent-types.ts` 承载 18 个原公共类型及内部 `GoalIterationMarkerSnapshot`，并定义 `ServerAgentLocalEvent`（本地明确轻通知联合）与仅含 `readonly type?: unknown`、无万能索引的 `ServerAgentWireEvent`；`server-agent-http.ts` 提供无项目模块依赖的 HTTP helper；`global-agent-sse-client.ts` 管理 SSE 传输、全局单例、重连及健康探测。单向依赖为 `server-agent.ts → global-agent-sse-client.ts → server-agent-http.ts`，主类也直接使用 HTTP helper；抽离模块不反向依赖主类。旧 `server-agent.ts` 保留 type/value re-export，消费方导入路径兼容。`subscribeEvents` 是本地事件与未校验 wire 对象的诚实入口；旧 `subscribe` 保持原签名，仅在 legacy wrapper 有一处 `event as AgentEvent` 兼容边界，不声称已校验。12 处 wire 原样转发与本地 typed emit 分离；Map 保持原 Set 的 identity、插入顺序、live iteration、异常隔离与 dispose 语义。会话 watchdog（5s 检查、15s 静默恢复）、状态/消息对账及事件派发仍在主类；20 处散布的 AgentEvent 断言已收敛为 1 处有意兼容边界，但不等于所有其他 cast 消除。此处线性依赖用文字即可说明，无需新增 SVG。
+
 **关键功能**:
-- SSE 事件流管理（`GlobalAgentSseClient`）
+- SSE 事件流通过独立 `global-agent-sse-client.ts` 的 `GlobalAgentSseClient` 管理；会话恢复 watchdog 仍由 `ServerAgent` 负责
 - 消息发送/接收；`steer(message)` 乐观显示——立即把 steering user 消息追加进本地 state 并发 `message_start`，服务端在下一工具轮边界注入同一消息（同 role+timestamp）经 `message_end` 回显后由 `upsertMessage` 原位替换不重复，HTTP 失败则回滚乐观副本并重新通知面板；prompt HTTP 请求失败时先回滚未被服务端接收的乐观 user message，再追加符合消息契约的 assistant error message（具体 `errorMessage`、`stopReason:'error'`、当前模型字段、零 usage 与 timestamp），并以 `agent_end` 的 `status:'error'` / `errorMessage` 结束本地运行，让聊天区直接显示服务端返回的具体原因；该合成错误消息同时挂客户端专用 `quickforgeFailedPrompt`（未被服务端接收的原始消息），`retryFailedPrompt(errorEntry)` 据此在非流式时移除该错误消息、把 stash 中的 `selectedCapabilities`/`contextReferences` 预置回 nextPrompt*（避免 prompt 空快照逻辑剥除 details）后原样重发，供「错误旁继续按钮」区分「重发未送达消息」与「发继续消息」两种语义。`continue(appendMessage?)` 可选追加：不带参数时保持服务端截断重生成；带 `appendMessage` 时把该消息（Cloud 模型下先补 `quickforgeClientMessageId`）乐观追加进本地 state 并发 `message_start`（与 `steer` 同一模式），连同请求体 `{ message }` 发给服务端，服务端保留历史并在末尾追加后续跑，HTTP 失败则回滚乐观副本再抛出；`deferred-session-agent` 透传该参数
 - Agent 状态管理（创建、单次恢复、销毁）；`ServerAgent.restore()` 支持 `AbortSignal`，从 `/api/agents/:sessionId/restore` 一次取得完整权威快照，取消的旧会话请求不会创建 SSE；页面刷新或 SSE 重连时会从服务端 state 恢复运行中工具的临时 `toolResult`（含 subagent `details.messages`）和 `pendingToolCalls`
 - ask_user 提问流：`ask_user_required`/`ask_user_answered` SSE 事件维护 `state.pendingAsk`（随 state 快照与 SSE state 帧恢复），`answerAsk(askId, {answers, skipped})` POST `/api/agents/:id/answer-ask` 回传后清空 pending；回答以纯文本作为 ask_user 工具结果回给模型
@@ -151,7 +162,7 @@
 - `goal.ts` 提供 `extend_resume`、`GoalActionOptions`、真实 usage/预算耗尽维度与默认增量投影；`planConfirmed` 防御归一化与服务端一致：planning/awaiting_confirmation 为 false，其他状态优先显式布尔值，旧缺字段仅以 usage.iterations > 0 推断。
 - `ServerAgent.updateGoal(action, objective?, options?)` 与 deferred 代理透传追加选项；HTTP 仅发送 `{action:'extend_resume', goalId, expectedRevision}`，expectedRevision 必须为正 safe integer，不发送 signal 或客户端预算。确认时捕获旧 goalId/revision，严格快照预检仍绑定此旧 revision，不能读到新 revision 后悄悄重绑提交。
 - 失败后做权威快照对账，不盲重发追加 POST；冲突、超时或响应丢失不等于服务端未追加。只读预检可取消，关闭 Inspector 仅取消尚未发送的 POST；已发 POST 不可撤回，须等待请求结算后释放共享 pending 锁。需要再次追加时由用户查看新快照并重新确认。
-- 服务端才拥有预算/恢复状态决策：仅耗尽轮次追加配置轮次（settings key `goal-settings`，整数 clamp 1–100，缺省/读取失败回落 20；前端镜像 `src/lib/goal-settings.ts`，追加确认增量经 `goalBudgetExtension(goal, grant)` 展示配置值），并移除旧时间上限，usage/计划证据保留；加额仍不足保持 paused，不调度；足够后无计划 planning、有计划 running（不需要确认）。其他旧动作不因新契约获得 CAS。相关回归为 `tests/frontend/{goal-state,goal-ui,goal-budget-inspector,server-agent,goal-control-strip,goal-card,goal-card-controller}.test.ts`。
+- 服务端才拥有预算/恢复状态决策：仅耗尽轮次追加配置轮次（settings key `goal-settings`，整数 clamp 1–100，缺省/读取失败回落 20；前端镜像 `src/lib/goal-settings.ts`，追加确认增量经 `goalBudgetExtension(goal, grant)` 展示配置值），并移除旧时间上限，usage/计划证据保留；加额仍不足保持 paused，不调度；足够后无计划 planning、有计划 running（不需要确认）。其他旧动作不因新契约获得 CAS。相关回归为 `tests/frontend/{goal-state,goal-ui,goal-budget-inspector,server-agent,goal-control-strip,goal-card}.test.ts`。
 - 文件撤销独立于消息回滚：`getFileRollbackPreview(signal?)` GET `/rollback-files/preview`（30s 超时）取得整批及每项独立 revision；旧服务端缺少每项 revision 时禁用单项操作。`rollbackFiles(revision, signal?)` POST `/rollback-files` 提交整批 `{revision}`；`rollbackFile(path, revision, signal?)` POST `/rollback-file` 提交选中项 `{path, revision}`，不回退整批接口（两者均 60s 超时）。校验响应结构及 HTTP/status 配对：单项接受 200 / `partial` 或 `completed`，整批接受 200 / `completed`，两者均接受 409 / `blocked`、500 / `failed`，返回结构化 `ServerFileRollbackResult`（含实际恢复/删除计数、errors 与剩余 preview）。`partial` 仅表示本次单项成功，不能触发整体「已撤销」；普通兄弟项冲突/legacy 不阻止安全单项，但全局 reason 仍禁用，整批要求剩余全安全。传输失败、超时、取消或异常响应不能证明服务端未写入，交给文件撤销弹窗展示“结果未确认”，不自动重试执行。轮级撤销客户端（per-turn-artifact-cards）：`getTurnRollbackPreview(turnIds, signal?)` GET `/rollback-turn/preview?turnIds=t1,t2`（逗号分隔，30s 超时；空集合防御——无 turnId 的轮不发起请求、直接按预检失败拒绝）返回 `{revision, turnIds, canRollback, files:[{path, relativePath, safe, reason, action, created, beforeBytes, afterBytes}]}`（`turnIds` 回显请求集合）；`rollbackTurn(turnIds, revision, signal?)` POST `/rollback-turn` 提交 `{turnIds, revision}`（60s 超时，空集合防御同口径）返回 `ServerTurnRollbackResult`（`{status, rolledBack, conflicts, errors, preview}`），200 接受 `completed` / `partial`，另接受 409 / `blocked`、500 / `failed`；错误对象携带 HTTP `status` 供 UI 区分 conflict 与未确认。
 - 系统提示词加载
 - Agent 权限模式切换

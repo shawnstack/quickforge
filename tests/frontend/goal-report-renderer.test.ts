@@ -1,8 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+// The view model now needs t() at runtime for localized error copy; the real
+// i18n module pulls in pi-web-ui, which requires a browser DOM.
+vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
+
 import { buildGoalReportHistoryViewModel as build } from '../../src/lib/goal-report-history'
+import { applyAppLanguageFromSnapshot, t } from '../../src/lib/i18n'
 
 const source = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
 const block = source.slice(source.indexOf('class GoalReportToolRenderer'), source.indexOf('class TodoWriteToolRenderer'))
@@ -96,6 +102,38 @@ describe('goal_report history view model', () => {
     expect(build({ action: 'plan' }, { content: [{ type: 'text', text: 'Legacy report' }] }).outputText).toBe('Legacy report')
     expect(build({}, { content: [{ type: 'text', text: '{"raw":true}' }] }).outputText).toBe('')
   })
+
+  it('localizes machine goal_report errors and passes unknown or missing codes through', () => {
+    applyAppLanguageFromSnapshot('en')
+    const rejected = {
+      isError: true,
+      details: { type: 'goal_report_error', code: 'GOAL_REPORT_NO_GOAL' },
+      content: [{ type: 'text', text: 'There is no active goal in this session.' }],
+    }
+    // A known machine code replaces the server's English sentence.
+    expect(build({ action: 'complete' }, rejected).outputText).toBe(t('goalReportErrorNoGoal'))
+    expect(build({ action: 'complete' }, rejected).outputText)
+      .toBe('There is no active goal in this session.')
+
+    // Missing or unknown codes (legacy data, aborted/timed-out calls) pass through.
+    const unknownCode = {
+      isError: true,
+      details: { type: 'goal_report_error', code: 'GOAL_REPORT_LEGACY' },
+      content: [{ type: 'text', text: 'Legacy English reason' }],
+    }
+    expect(build({ action: 'complete' }, unknownCode).outputText).toBe('Legacy English reason')
+    const aborted = {
+      isError: true,
+      details: { type: 'goal_report_error', aborted: true },
+      content: [{ type: 'text', text: 'Call was aborted' }],
+    }
+    expect(build({ action: 'complete' }, aborted).outputText).toBe('Call was aborted')
+
+    // The localized copy follows the app language, not the server text.
+    applyAppLanguageFromSnapshot('zh')
+    expect(build({ action: 'complete' }, rejected).outputText).toBe('本会话没有进行中的目标。')
+    applyAppLanguageFromSnapshot('en')
+  })
 })
 
 describe('goal_report registered renderer', () => {
@@ -152,12 +190,6 @@ describe('goal_report registered renderer', () => {
     expect(view.values).not.toContain('Plan recorded. Waiting for user confirmation.')
   })
 
-  it('reserves an empty action mount without wiring a global agent or historical handler', () => {
-    const view = render({ action: 'plan' }, result())
-    expect(view.templates).toContain('<div data-quickforge-goal-plan-action></div>')
-    expect(view.templates).not.toContain('@click')
-  })
-
   it('limits raw input/details/output JSON to detailed mode', () => {
     const view = render({ action: 'plan', raw: 'request' }, result(), false, true)
     expect(view.codeBlocks).toHaveLength(3)
@@ -178,8 +210,10 @@ describe('goal_report registered renderer', () => {
 
   it('provides paired translations for every report label', () => {
     const keys = [...i18n.matchAll(/\b(goalReport\w+):/g)].map((match) => match[1])
-    expect(new Set(keys).size).toBe(13)
+    expect(new Set(keys).size).toBe(28)
     for (const key of new Set(keys)) expect(keys.filter((item) => item === key)).toHaveLength(2)
+    expect(i18n).toContain("goalReportErrorNoGoal: 'There is no active goal in this session.'")
+    expect(i18n).toContain("goalReportErrorNoGoal: '本会话没有进行中的目标。'")
   })
 })
 

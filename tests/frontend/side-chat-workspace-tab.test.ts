@@ -13,6 +13,7 @@ import {
 
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 const inspectorSource = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+const tabSource = readFileSync(new URL('../../src/components/workspace/useInspectorTabs.ts', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 const clientSource = readFileSync(new URL('../../src/components/workspace/side-chat-client.ts', import.meta.url), 'utf8')
 const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
@@ -42,7 +43,7 @@ describe('Workspace side chat tab', () => {
     ]
     expect(serializePanelTabs(tabs, 'side-chat-2').tabs).toEqual([{ id: 'files-1', kind: 'files' }])
     expect(normalizePersistedPanelTabs([{ id: 'side-chat-1', kind: 'side-chat' }])).toEqual([])
-    expect(inspectorSource).toContain("kind === 'review' || kind === 'side-chat'")
+    expect(tabSource).toContain("kind === 'review' || kind === 'side-chat'")
   })
 
   it('keeps stable agent/text memory and clears both on destructive lifecycles', () => {
@@ -53,9 +54,9 @@ describe('Workspace side chat tab', () => {
     expect(appSource).toContain('sideChatAgent.reset()')
     expect(appSource).toContain('sideChatAgent.setContext({ sessionId: agentManager.currentSessionId, model })')
     expect(appSource).toContain('sideChatEnabled={Boolean(agentManager.currentSessionId) && !needsModelSetup}')
-    expect(inspectorSource).toContain("if (closingTab?.kind === 'side-chat') clearSideChat()")
-    expect(inspectorSource).toContain("if (activeTab.kind !== 'side-chat' && panelTabs.some((tab) => tab.kind === 'side-chat')) clearSideChat()")
-    expect(inspectorSource).toContain("if (panelTabs.some((tab) => tab.kind === 'side-chat')) clearSideChat()")
+    expect(tabSource).toContain("if (closingTab?.kind === 'side-chat') clearSideChat()")
+    expect(tabSource).toContain("if (activeTab.kind !== 'side-chat' && panelTabs.some((tab) => tab.kind === 'side-chat')) clearSideChat()")
+    expect(tabSource).toContain("if (panelTabs.some((tab) => tab.kind === 'side-chat')) clearSideChat()")
     expect(appSource).not.toContain('useSideChatModelActions')
     expect(appSource).not.toContain('onOpenSideChatModelSelector')
     expect(inspectorSource).not.toContain('onSideChatRevisionChange')
@@ -72,8 +73,8 @@ describe('Workspace side chat tab', () => {
     expect(inspectorSource).toContain("&& (sideChatEnabled || item.kind !== 'side-chat')")
     expect(inspectorSource).toContain('{availablePanelTabItems.map((item) => {')
     expect(inspectorSource).toContain('onClick={() => openPanelTab(item.kind, viewFromPanelKind(item.kind))}')
-    expect(inspectorSource).toContain("const existing = kind === 'review' || kind === 'side-chat'")
-    expect(inspectorSource).toContain('? panelTabs.find((tab) => tab.kind === kind)')
+    expect(tabSource).toContain("const existing = kind === 'review' || kind === 'side-chat'")
+    expect(tabSource).toContain('? panelTabs.find((tab) => tab.kind === kind)')
     expect(inspectorSource).toContain("activePanelTab?.kind !== 'side-chat'")
   })
 

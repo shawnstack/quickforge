@@ -8,6 +8,7 @@ export type McpTool = {
 
 export type McpServer = {
   name: string
+  builtin?: boolean
   enabled: boolean
   transport: McpTransport
   url?: string

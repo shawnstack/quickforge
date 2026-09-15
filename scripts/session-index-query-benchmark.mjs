@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { applySqliteMigrations } from '../server/sqlite/migrations.mjs'
 import { createSessionIndexRepository } from '../server/sqlite/session-index-repository.mjs'
-import { canonicalSessionMetadata, sessionMetadataDigest } from '../server/session-index-service.mjs'
+import { createSessionStateRepository } from '../server/sqlite/session-state-repository.mjs'
 
 const counts = process.argv.slice(2).map(Number).filter((value) => Number.isSafeInteger(value) && value > 0)
 if (counts.length === 0) counts.push(1_000, 10_000)
@@ -31,6 +31,15 @@ function elapsedMs(start) {
   return Number(process.hrtime.bigint() - start) / 1_000_000
 }
 
+// The state repository stores metadata as canonical JSON (sorted keys, no
+// undefined values) and listPage returns JSON.parse of that string, so the
+// in-memory baseline must be canonicalized the same way to compare equal.
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize)
+  if (value === null || typeof value !== 'object') return value
+  return Object.fromEntries(Object.keys(value).sort().filter((key) => value[key] !== undefined).map((key) => [key, canonicalize(value[key])]))
+}
+
 function jsonPage(values, limit, offset) {
   const copy = values.filter((value) => value.messageCount !== 0 && !value.archivedAt)
   copy.sort((left, right) => {
@@ -50,40 +59,47 @@ try {
     const database = new DatabaseSync(path.join(directory, `${count}.sqlite3`))
     try {
       applySqliteMigrations(database)
+      // Storage v2: the index repository is a read-only query facade over the
+      // authoritative sessions table, so rows are seeded through the state
+      // repository (metadata is a plain object; sessions.message_count is
+      // derived from the stored message rows, never trusted from metadata).
+      const stateRepository = createSessionStateRepository(handle(database))
       const repository = createSessionIndexRepository(handle(database))
       const values = []
-      const rows = []
-      const indexedAt = new Date().toISOString()
       for (let index = 0; index < count; index += 1) {
         const scope = index % 3 === 0 ? 'global' : 'project'
         const projectId = scope === 'project' ? `project-${index % 20}` : null
         const sessionId = `session-${String(index).padStart(7, '0')}`
-        const metadata = canonicalSessionMetadata({
+        const messageCount = index % 17 === 0 ? 0 : 1
+        const metadata = {
           id: sessionId,
           scope,
           ...(projectId ? { projectId } : {}),
+          stateVersion: 1,
           title: `Session ${index}`,
-          messageCount: index % 17 === 0 ? 0 : 1,
+          messageCount,
           createdAt: new Date(Date.UTC(2026, 0, 1) + index * 1_000).toISOString(),
           lastModified: new Date(Date.UTC(2026, 0, 1) + index * 2_000).toISOString(),
           ...(index % 97 === 0 ? { pinnedAt: new Date(Date.UTC(2026, 6, 1) + index * 1_000).toISOString() } : {}),
           ...(index % 101 === 0 ? { archivedAt: new Date(Date.UTC(2026, 7, 1) + index * 1_000).toISOString() } : {}),
-        }, { scope, projectId, sessionId })
-        values.push(metadata)
-        rows.push({
-          scope, projectId, sessionId,
-          createdAt: metadata.createdAt,
-          lastModified: metadata.lastModified,
-          messageCount: metadata.messageCount,
-          pinnedAt: metadata.pinnedAt ?? null,
-          archivedAt: metadata.archivedAt ?? null,
-          stateVersion: null,
+        }
+        stateRepository.save({
+          scope,
+          ...(projectId ? { projectId } : {}),
+          sessionId,
+          stateVersion: 1,
+          state: {
+            id: sessionId,
+            scope,
+            ...(projectId ? { projectId } : {}),
+            stateVersion: 1,
+            title: metadata.title,
+            messages: messageCount === 0 ? [] : [{ role: 'user', content: 'hello' }],
+          },
           metadata,
-          metadataDigest: sessionMetadataDigest(metadata),
-          indexedAt,
-        })
+        }, { expectedRevision: 0 })
+        values.push(canonicalize(metadata))
       }
-      repository.replaceAll(rows)
       const options = { scopeMode: 'all', archive: 'exclude', pinnedOnly: false, sort: 'lastModified', direction: 'desc', limit: 20, offset: 200 }
       repository.listPage(options)
       const jsonStart = process.hrtime.bigint()

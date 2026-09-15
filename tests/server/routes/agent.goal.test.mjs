@@ -94,7 +94,7 @@ describe('agent goal route', () => {
       request({ action: 'explode' }),
       response(),
       new URL('http://localhost/api/agents/session-1/goal'),
-    )).rejects.toMatchObject({ statusCode: 400 })
+    )).rejects.toMatchObject({ statusCode: 400, errorCode: 'GOAL_ACTION_INVALID' })
     expect(mocks.handleGoalAction).not.toHaveBeenCalled()
   })
 
@@ -105,7 +105,7 @@ describe('agent goal route', () => {
       request({ action: 'pause' }),
       response(),
       new URL('http://localhost/api/agents/session-1/goal'),
-    )).rejects.toMatchObject({ statusCode: 404 })
+    )).rejects.toMatchObject({ statusCode: 404, errorCode: 'SESSION_NOT_FOUND' })
   })
 
   it('forwards the exact extend_resume CAS body and returns the authoritative goal', async () => {

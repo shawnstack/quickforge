@@ -71,6 +71,9 @@ import { useAgentManager } from '@/hooks/useAgentManager'
 import { useSessionPagination } from '@/hooks/useSessionPagination'
 import { useTaskToasts } from '@/hooks/useTaskToasts'
 import { useAppBootstrap } from '@/hooks/useAppBootstrap'
+import { useAppTerminal, useAppTerminalState } from '@/hooks/useAppTerminal'
+import { useAppGit, useAppGitMenu, useAppGitState } from '@/hooks/useAppGit'
+import { useAppLoadingState, useAppStartupMinimum, useAppLoadingEffects, useAppLoadingTransitions, useAppStartupExit } from '@/hooks/useAppLoadingTransitions'
 import { useUpdateCheck } from '@/hooks/useUpdateCheck'
 import { useModelActions } from '@/hooks/useModelActions'
 import { useCloudModels } from '@/hooks/useCloudModels'
@@ -83,7 +86,6 @@ import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ServerAgent } from '@/lib/server-agent'
 import { logger } from '@/lib/logger'
-import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
 import { TUNNEL_RECOVERED_EVENT, type TunnelRecoveredEventDetail } from '@/lib/tunnel-recovery'
 import {
   loadSidebarSectionOrder,
@@ -100,23 +102,21 @@ import {
 } from '@/lib/sidebar-session-sort-mode'
 import { getDeletedProjectRecoveryDecision } from '@/lib/deleted-project-recovery'
 import { isCurrentProjectRequest } from '@/lib/project-request-guard'
-import { shouldRefreshTitleGitStatusOnToolEnd } from '@/lib/title-git-status-refresh'
-import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
+import { showAlert } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import { GitCommitPushDialog } from '@/components/git/GitCommitPushDialog'
 import { GitToolsPinnedSummary } from '@/components/git/GitToolsPinnedSummary'
 import { GitGraphDialog } from '@/components/git/GitGraphDialog'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
-import { checkoutGitBranch, getGitStatus, openWorkspaceExternal, resolveWorkspacePath } from '@/components/workspace/workspace-api'
+import { openWorkspaceExternal, resolveWorkspacePath } from '@/components/workspace/workspace-api'
 import type { WorkspaceExternalOpenTarget } from '@/components/workspace/workspace-api'
 import {
   shouldHandleWorkspaceInspectorRequest,
   workspaceInspectorRuntimeScopeMatches,
 } from '@/components/workspace/workspace-inspector-request'
-import type { GitStatusResponse, WorkspaceInspectorOpenRequestInput, WorkspaceInspectorRuntimeScope } from '@/components/workspace/workspace-types'
+import type { WorkspaceInspectorOpenRequestInput, WorkspaceInspectorRuntimeScope } from '@/components/workspace/workspace-types'
 import { SideChatAgent } from '@/components/workspace/side-chat-agent'
-import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import { turnRollbackKey, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { artifactPreviewMode, collectToolResultToolCallIds, documentFormatFromPath, findBestPreviewableArtifact, isNewlyPresentedArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
@@ -150,9 +150,6 @@ const SettingsWorkspacePage = lazy(() =>
 )
 
 const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
-const STARTUP_SPLASH_MIN_DURATION_MS = 1350
-const STARTUP_SPLASH_EXIT_DURATION_MS = 280
-const CONVERSATION_TRANSITION_DURATION_MS = 280
 
 function LazyPanelFallback() {
   return <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">{t('loading')}</div>
@@ -225,11 +222,6 @@ type ChannelRefreshEvent = {
   metadata?: QuickForgeSessionMetadata
 }
 
-type ExecuteMarkdownCommandEvent = CustomEvent<{
-  command?: unknown
-  confirm?: unknown
-  dangerous?: unknown
-}>
 
 function isBackgroundTaskStatus(value: unknown): value is BackgroundTaskStatus {
   return value === 'idle' || value === 'running' || value === 'error' || value === 'aborted'
@@ -302,8 +294,8 @@ function MainApp() {
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const [desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen] = useState(false)
-  const [pendingTerminalCommand, setPendingTerminalCommand] = useState<PendingTerminalCommand | null>(null)
-  const [terminalDockOpen, setTerminalDockOpen] = useState(false)
+  const terminalState = useAppTerminalState()
+  const { pendingTerminalCommand, setPendingTerminalCommand, terminalDockOpen, setTerminalDockOpen } = terminalState
   const [workspaceInspectorFullscreen, setWorkspaceInspectorFullscreen] = useState(false)
   const [sideChatAgent] = useState(() => new SideChatAgent({ model: buildConnectionModel(DEFAULT_CONNECTION) }))
   const [sideChatRevision, setSideChatRevision] = useState(0)
@@ -336,32 +328,21 @@ function MainApp() {
   // 校准补尾出现的 toolResult 会视为新产物（可接受）。
   const autoPreviewHistoryRef = useRef<{ sessionId?: string; toolCallIds: Set<string> }>({ sessionId: undefined, toolCallIds: new Set() })
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
-  const [titleGitStatus, setTitleGitStatus] = useState<GitStatusResponse | undefined>()
-  const titleGitRequestIdRef = useRef(0)
-  const titleGitAbortRef = useRef<AbortController | null>(null)
+  const gitState = useAppGitState()
+  const { titleGitStatus, setTitleGitStatus, titleGitRequestIdRef, titleGitAbortRef, branchMenuOpen, setBranchMenuOpen, gitToolsExpanded, setGitToolsExpanded, gitCommitDialogOpen, setGitCommitDialogOpen, gitGraphOpen, setGitGraphOpen } = gitState
   const currentToolProjectIdRef = useRef<string | undefined>(undefined)
   const workspaceInspectorScopeRef = useRef<WorkspaceInspectorRuntimeScope>({
     projectId: 'global-workspace',
     runtimeScopeId: '',
   })
-  const [branchMenuOpen, setBranchMenuOpen] = useState(false)
-  const [gitToolsExpanded, setGitToolsExpanded] = useState(false)
   const [pinnedSummaryRevision, setPinnedSummaryRevision] = useState(0)
-  const [gitCommitDialogOpen, setGitCommitDialogOpen] = useState(false)
-  const [gitGraphOpen, setGitGraphOpen] = useState(false)
   const [externalProjectIds, setExternalProjectIds] = useState<Set<string>>(() => new Set())
-  const terminalCommandIdRef = useRef(0)
   const workspaceInspectorRequestIdRef = useRef(0)
   const chatFileRequestIdRef = useRef(0)
-  const sessionTransitionTokenRef = useRef(0)
-  const pendingSessionLoadCancelRef = useRef<(() => void) | undefined>(undefined)
+  const loadingState = useAppLoadingState()
+  const { startupSplashDone, startupSplashExited, visibleLoadingSessionId, renderedLoadingSessionId } = loadingState
   const recoveringDeletedToolProjectIdRef = useRef<string | undefined>(undefined)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
-  const [startupSplashDone, setStartupSplashDone] = useState(false)
-  const [startupSplashExited, setStartupSplashExited] = useState(false)
-  const [visibleLoadingSessionId, setVisibleLoadingSessionId] = useState<string>()
-  const visibleLoadingSessionIdRef = useRef<string | undefined>(undefined)
-  const [renderedLoadingSessionId, setRenderedLoadingSessionId] = useState<string>()
   const { toasts, handleTaskComplete: addTaskCompletionToast, addToast, dismissToast } = useTaskToasts()
   const handleTaskComplete = useCallback((sessionId: string, title: string, status: BackgroundTaskStatus) => {
     addTaskCompletionToast(sessionId, title, status)
@@ -469,10 +450,7 @@ function MainApp() {
     void initializeSystemNotifications()
   }, [])
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setStartupSplashDone(true), STARTUP_SPLASH_MIN_DURATION_MS)
-    return () => window.clearTimeout(timer)
-  }, [])
+  useAppStartupMinimum(loadingState)
 
   const handleContextUsageDisplayChange = useCallback((sessionId: string, info: ContextUsageDisplayInfo) => {
     setCurrentSessionHoverInfo((current) => {
@@ -597,32 +575,7 @@ function MainApp() {
   }, [pinnedSummaryGoal, pinnedSummaryGoalSessionId])
 
 
-  useEffect(() => {
-    const loadingSessionId = agentManager.loadingSessionId
-    if (!loadingSessionId || visibleLoadingSessionIdRef.current === loadingSessionId) return undefined
-    const timer = window.setTimeout(() => {
-      if (visibleLoadingSessionIdRef.current === loadingSessionId) return
-      pendingSessionLoadCancelRef.current?.()
-      pendingSessionLoadCancelRef.current = undefined
-      sessionTransitionTokenRef.current += 1
-      setRenderedLoadingSessionId(undefined)
-      visibleLoadingSessionIdRef.current = loadingSessionId
-      setVisibleLoadingSessionId(loadingSessionId)
-    }, 0)
-    return () => window.clearTimeout(timer)
-  }, [agentManager.loadingSessionId])
-
-  useEffect(() => {
-    const visibleSessionId = visibleLoadingSessionIdRef.current
-    if (!visibleSessionId || renderedLoadingSessionId !== visibleSessionId) return undefined
-
-    const fadeTimer = window.setTimeout(() => {
-      if (visibleLoadingSessionIdRef.current !== visibleSessionId) return
-      visibleLoadingSessionIdRef.current = undefined
-      setVisibleLoadingSessionId(undefined)
-    }, CONVERSATION_TRANSITION_DURATION_MS)
-    return () => window.clearTimeout(fadeTimer)
-  }, [agentManager.loadingSessionId, renderedLoadingSessionId, visibleLoadingSessionId])
+  useAppLoadingEffects({ ...loadingState, loadingSessionId: agentManager.loadingSessionId })
 
   // Destructure stable values for use in dependency arrays
   const {
@@ -647,68 +600,9 @@ function MainApp() {
     titleGitAbortRef.current?.abort()
     titleGitAbortRef.current = null
     chatFileRequestIdRef.current += 1
-  }, [agentManager.currentRuntimeScopeId, agentManager.currentToolProject?.id])
+  }, [agentManager.currentRuntimeScopeId, agentManager.currentToolProject?.id, titleGitAbortRef, titleGitRequestIdRef])
 
-  const beginSessionTransition = useCallback((sessionId: string) => {
-    if (!sessionId || sessionId === currentSessionIdRef.current) return undefined
-    pendingSessionLoadCancelRef.current?.()
-    pendingSessionLoadCancelRef.current = undefined
-    const token = sessionTransitionTokenRef.current + 1
-    sessionTransitionTokenRef.current = token
-    setRenderedLoadingSessionId(undefined)
-    visibleLoadingSessionIdRef.current = sessionId
-    setVisibleLoadingSessionId(sessionId)
-    return token
-  }, [currentSessionIdRef])
-
-  const cancelSessionTransition = useCallback((sessionId: string, token?: number) => {
-    if (token !== undefined && sessionTransitionTokenRef.current !== token) return
-    if (visibleLoadingSessionIdRef.current !== sessionId) return
-    pendingSessionLoadCancelRef.current?.()
-    pendingSessionLoadCancelRef.current = undefined
-    sessionTransitionTokenRef.current += 1
-    visibleLoadingSessionIdRef.current = undefined
-    setRenderedLoadingSessionId(undefined)
-    setVisibleLoadingSessionId(undefined)
-  }, [])
-
-  const handleSessionInitialRenderReady = useCallback((sessionId: string) => {
-    if (visibleLoadingSessionIdRef.current !== sessionId) return
-    pendingSessionLoadCancelRef.current = undefined
-    setRenderedLoadingSessionId(sessionId)
-  }, [])
-
-  const handleSessionInitialRenderError = useCallback((sessionId: string, error: unknown) => {
-    logger.error('Failed to render conversation:', error)
-    cancelSessionTransition(sessionId)
-    addToast({
-      sessionId,
-      title: t('conversationLoadFailed'),
-      status: 'error',
-    })
-  }, [addToast, cancelSessionTransition])
-
-  const scheduleSessionLoad = useCallback((sessionId: string, load: () => Promise<boolean>) => {
-    const token = beginSessionTransition(sessionId)
-    if (token === undefined) {
-      pendingSessionLoadCancelRef.current?.()
-      pendingSessionLoadCancelRef.current = undefined
-      sessionTransitionTokenRef.current += 1
-      void load()
-      return
-    }
-    pendingSessionLoadCancelRef.current = scheduleAfterPaint(() => {
-      pendingSessionLoadCancelRef.current = undefined
-      if (sessionTransitionTokenRef.current !== token || visibleLoadingSessionIdRef.current !== sessionId) return
-      void load().then((loaded) => {
-        if (!loaded) cancelSessionTransition(sessionId, token)
-      })
-    })
-  }, [beginSessionTransition, cancelSessionTransition])
-
-  useEffect(() => () => {
-    pendingSessionLoadCancelRef.current?.()
-  }, [])
+  const { handleSessionInitialRenderReady, handleSessionInitialRenderError, scheduleSessionLoad } = useAppLoadingTransitions({ ...loadingState, currentSessionIdRef, addToast })
 
   const handleToastClick = useCallback(
     (sessionId: string) => {
@@ -777,107 +671,14 @@ function MainApp() {
     requestWorkspaceInspector({ projectId, kind: 'review', view: 'changes' })
   }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
 
-  const refreshTitleGitStatus = useCallback(async (force = false) => {
-    const projectId = agentManager.currentToolProject?.id
-    const requestId = titleGitRequestIdRef.current + 1
-    titleGitRequestIdRef.current = requestId
-    titleGitAbortRef.current?.abort()
-    const controller = new AbortController()
-    titleGitAbortRef.current = controller
-    if (!projectId) {
-      setTitleGitStatus(undefined)
-      return undefined
-    }
-    try {
-      // 工具执行结束后的刷新要反映刚发生的仓库变化，必须绕过 1s 结果缓存。
-      // 注意：titleGitStatus 同时供 GitToolsPinnedSummary / GitCommitPushDialog 消费，
-      // 它们需要 files[].additions/deletions，因此这里必须走 full（不能传 light）。
-      const status = await getGitStatus(projectId, controller.signal, { force })
-      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, titleGitRequestIdRef.current)) return undefined
-      setTitleGitStatus(status)
-      return status
-    } catch (error) {
-      if (controller.signal.aborted) return undefined
-      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, titleGitRequestIdRef.current)) return undefined
-      logger.warn('Failed to refresh title git status:', error)
-      setTitleGitStatus(undefined)
-      return undefined
-    } finally {
-      if (titleGitAbortRef.current === controller) titleGitAbortRef.current = null
-    }
-  }, [agentManager.currentToolProject?.id])
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => { void refreshTitleGitStatus() }, 0)
-    return () => window.clearTimeout(timer)
-  }, [refreshTitleGitStatus])
-
-  useEffect(() => {
-    let refreshTimer: number | undefined
-    const unsubscribe = subscribeToAgentEvents((event) => {
-      if (!shouldRefreshTitleGitStatusOnToolEnd(
-        event,
-        currentSessionIdRef.current,
-        currentToolProjectIdRef.current,
-      )) return
-
-      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
-      refreshTimer = window.setTimeout(() => {
-        refreshTimer = undefined
-        void refreshTitleGitStatus(true)
-      }, 400)
-    })
-
-    return () => {
-      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
-      unsubscribe()
-    }
-  }, [agentManager.currentSessionId, currentSessionIdRef, refreshTitleGitStatus])
-
-  const handleCheckoutTitleBranch = useCallback(async (branch: string) => {
-    const projectId = agentManager.currentToolProject?.id
-    if (!projectId) return
-    const requestId = titleGitRequestIdRef.current + 1
-    titleGitRequestIdRef.current = requestId
-    try {
-      const status = await checkoutGitBranch(projectId, branch)
-      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, titleGitRequestIdRef.current)) return
-      setTitleGitStatus(status)
-      setBranchMenuOpen(false)
-      addToast({
-        sessionId: agentManager.currentSessionId ?? '',
-        title: t('gitBranchSwitched'),
-        status: 'idle',
-        message: branch,
-      })
-    } catch (error) {
-      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, titleGitRequestIdRef.current)) return
-      logger.error('Failed to checkout git branch:', error)
-      void showAlert(error instanceof Error ? error.message : t('gitCheckoutFailed'))
-      throw error
-    }
-  }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
-
-  const handleBranchCreated = useCallback((status: GitStatusResponse) => {
-    setTitleGitStatus(status)
-    setBranchMenuOpen(false)
-    addToast({
-      sessionId: agentManager.currentSessionId ?? '',
-      title: t('gitBranchCreated'),
-      status: 'idle',
-      message: status.branch ?? '',
-    })
-  }, [addToast, agentManager.currentSessionId])
-
-  const handleGitOperationCompleted = useCallback((status: GitStatusResponse) => {
-    setTitleGitStatus(status)
-    addToast({
-      sessionId: agentManager.currentSessionId ?? '',
-      title: t('gitOperationCompleted'),
-      status: 'idle',
-      message: status.branch ?? '',
-    })
-  }, [addToast, agentManager.currentSessionId])
+  const { refreshTitleGitStatus, handleCheckoutTitleBranch, handleBranchCreated, handleGitOperationCompleted } = useAppGit({
+    ...gitState,
+    projectId: agentManager.currentToolProject?.id,
+    currentSessionId: agentManager.currentSessionId,
+    currentSessionIdRef,
+    currentToolProjectIdRef,
+    addToast,
+  })
 
   const openLocalFilePathFromChat = useCallback(async (filePath: string) => {
     const sessionId = agentManager.currentSessionId ?? 'local'
@@ -1258,11 +1059,7 @@ function MainApp() {
   const updateCheck = useUpdateCheck(storageRef, ready)
   const startupReady = ready && startupSplashDone && Boolean(agentManager.agent || needsModelSetup)
 
-  useEffect(() => {
-    if (!startupReady) return undefined
-    const timer = window.setTimeout(() => setStartupSplashExited(true), STARTUP_SPLASH_EXIT_DURATION_MS)
-    return () => window.clearTimeout(timer)
-  }, [startupReady])
+  useAppStartupExit({ ...loadingState, startupReady })
 
   useEffect(() => {
     if (!ready) return undefined
@@ -1415,7 +1212,7 @@ function MainApp() {
         recoveringDeletedToolProjectIdRef.current = undefined
         logger.error('Failed to recover after the current project was deleted:', error)
       })
-  }, [activeProject, agentManager.currentToolProject?.id, projects, ready, setArtifactPreviewOpen, setWorkspaceInspectorRequest, startDeferredSession])
+  }, [activeProject, agentManager.currentToolProject?.id, projects, ready, setArtifactPreviewOpen, setPendingTerminalCommand, setTerminalDockOpen, setWorkspaceInspectorRequest, startDeferredSession])
 
   const { setAccessMode } = useAgentAccessActions({
     storageRef,
@@ -1584,62 +1381,9 @@ function MainApp() {
     }
   }, [ui, ui.conversationMenuOpen])
 
-  useEffect(() => {
-    if (!branchMenuOpen) return
-    const closeMenu = () => setBranchMenuOpen(false)
-    window.addEventListener('click', closeMenu)
-    window.addEventListener('blur', closeMenu)
-    return () => {
-      window.removeEventListener('click', closeMenu)
-      window.removeEventListener('blur', closeMenu)
-    }
-  }, [branchMenuOpen])
+  useAppGitMenu(gitState)
 
-  useEffect(() => {
-    const handleExecuteMarkdownCommand = (event: Event) => {
-      if (remoteClient) {
-        void showAlert('远程客户端不能使用服务端终端')
-        return
-      }
-      const detail = (event as ExecuteMarkdownCommandEvent).detail
-      const command = typeof detail?.command === 'string' ? detail.command.trim() : ''
-      if (!command) return
-
-      const run = async () => {
-        const requiresConfirm = Boolean(detail?.confirm || detail?.dangerous)
-        if (requiresConfirm) {
-          const confirmed = await showConfirm({
-            title: t('confirmExecuteCommandTitle'),
-            description: detail?.dangerous ? t('confirmExecuteDangerousCommand') : t('confirmExecuteMultipleCommands'),
-            confirmLabel: t('executeInTerminal'),
-            cancelLabel: t('cancel'),
-            variant: detail?.dangerous ? 'destructive' : 'default',
-          })
-          if (!confirmed) return
-        }
-
-        setArtifactPreviewOpen(false)
-        setTerminalDockOpen(true)
-        setPendingTerminalCommand({
-          id: ++terminalCommandIdRef.current,
-          command,
-          execute: true,
-        })
-      }
-
-      void run().catch((error) => {
-        logger.error('Failed to execute markdown command:', error)
-        void showAlert(error instanceof Error ? error.message : t('terminalCommandExecuteFailed'))
-      })
-    }
-
-    window.addEventListener('quickforge:execute-markdown-command', handleExecuteMarkdownCommand)
-    return () => window.removeEventListener('quickforge:execute-markdown-command', handleExecuteMarkdownCommand)
-  }, [remoteClient, setArtifactPreviewOpen])
-
-  const handlePendingTerminalCommandHandled = useCallback((id: number) => {
-    setPendingTerminalCommand((current) => current?.id === id ? null : current)
-  }, [])
+  const { handlePendingTerminalCommandHandled } = useAppTerminal({ ...terminalState, remoteClient, setArtifactPreviewOpen })
 
   const handleDismissFirstUseGuide = useCallback(() => {
     ui.setFirstUseGuideDismissed(true)

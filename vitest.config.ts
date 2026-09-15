@@ -11,5 +11,23 @@ export default defineConfig({
     include: ['tests/**/*.test.{mjs,ts}'],
     globals: true,
     testTimeout: 15_000,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      include: ['server/**/*.mjs', 'src/**/*.{ts,tsx}'],
+      exclude: [
+        'coverage/**',
+        'tests/**',
+        'node_modules/**',
+        'dist/**',
+        'package-dist/**',
+        'package-offline/**',
+        'vendor/**',
+        'android/**',
+        'desktop-dist/**',
+        '**/*.d.ts',
+        '**/*.d.mts',
+      ],
+    },
   },
 })

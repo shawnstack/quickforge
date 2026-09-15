@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createTurnErrorTracker, turnErrorKeyOf } from '../../src/components/chat/panel-decoration/turn-error-state'
 
-// 回合错误重试循环状态机：计数只由 UI 层持有（retryFromMessage 会把旧错误从
-// 消息历史里裁剪掉），语义见模块头注释。
+// 回合错误重试循环状态机：计数只由 UI 层持有（错误回合的重试现在保留历史、
+// 追加「继续」，点击与计数不在消息数据里），语义见模块头注释。
 
 describe('turn error tracker', () => {
   const firstKey = turnErrorKeyOf({ errorMessage: 'AI stream idle timeout after 60000ms', timestamp: 1 })
@@ -34,7 +34,7 @@ describe('turn error tracker', () => {
   it('resets once streaming recovers, even while the retried error is still presented', () => {
     const tracker = createTurnErrorTracker()
     tracker.noteRetryClicked(firstKey)
-    // 重试成功：错误被裁剪后开始流式 → 清零。
+    // 重试成功：追加的「继续」开始流式 → 清零。
     expect(tracker.observe(false, true, '')).toEqual({ retrying: false, escalated: false, retryCount: 0 })
     expect(tracker.observe(true, false, secondKey)).toEqual({ retrying: false, escalated: false, retryCount: 0 })
   })

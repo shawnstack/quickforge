@@ -35,6 +35,7 @@ export function McpServerCard({ server, toggling, reconnecting, onToggle, onEdit
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <div className="truncate text-sm font-medium text-foreground/90">{server.name}</div>
+            {server.builtin ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{t('mcpBuiltIn')}</span> : null}
             <span className={cn('rounded-full px-2 py-0.5 text-[11px]', statusClass(server.status))}>{server.status || 'unknown'}</span>
             <span className="text-[11px] text-muted-foreground/60">{t('mcpToolsCount', { count: totalCount })}</span>
           </div>
@@ -74,9 +75,11 @@ export function McpServerCard({ server, toggling, reconnecting, onToggle, onEdit
           <Button type="button" variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={() => onEdit(server)} aria-label={t('editTask')} title={t('editTask')}>
             <Edit3 className="size-4" />
           </Button>
-          <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => onDelete(server.name)} aria-label={t('delete')} title={t('delete')}>
-            <Trash2 className="size-4" />
-          </Button>
+          {!server.builtin ? (
+            <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => onDelete(server.name)} aria-label={t('delete')} title={t('delete')}>
+              <Trash2 className="size-4" />
+            </Button>
+          ) : null}
         </div>
       </div>
       {visibleTools.length > 0 ? (

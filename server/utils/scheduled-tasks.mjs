@@ -66,6 +66,41 @@ export function nextWeeklyRun(weekDay, executeTime, base = new Date()) {
   return next
 }
 
+export function normalizeWeekDays(value) {
+  if (!Array.isArray(value) || value.length === 0 || value.some((day) => typeof day !== 'number' || !Number.isInteger(day) || day < 0 || day > 6)) {
+    throw requestError('weekDays must be a non-empty array of integers between 0 and 6')
+  }
+  return [...new Set(value)].sort((a, b) => a - b)
+}
+
+export function nextWeeklyDaysRun(weekDays, executeTime, base = new Date()) {
+  return new Date(Math.min(...normalizeWeekDays(weekDays).map((day) => nextWeeklyRun(day, executeTime, base).getTime())))
+}
+
+export function normalizeInterval(task) {
+  // Historical tasks only stored a Chinese rule. Explicit fields always take precedence.
+  const legacy = String(task.scheduleRule || '').match(/每隔\s*(\d+)\s*(分钟|小时|天)/)
+  const intervalValue = task.intervalValue !== undefined ? task.intervalValue : Number(legacy?.[1] ?? 30)
+  const intervalUnit = task.intervalUnit !== undefined ? task.intervalUnit : ({ 分钟: 'minute', 小时: 'hour', 天: 'day' }[legacy?.[2]] || 'minute')
+  const unitMs = { minute: minuteMs, hour: hourMs, day: dayMs }[intervalUnit]
+  if (typeof intervalValue !== 'number' || !Number.isSafeInteger(intervalValue) || intervalValue <= 0 || !unitMs || !Number.isSafeInteger(intervalValue * unitMs)) {
+    throw requestError('intervalValue must be a positive integer and intervalUnit must be minute, hour, or day')
+  }
+  return { intervalValue, intervalUnit, intervalMs: intervalValue * unitMs }
+}
+
+export function nextIntervalRun(task, base = new Date()) {
+  const { intervalMs } = normalizeInterval(task)
+  const anchor = new Date(task.executeAt ?? task.nextRunAt ?? base).getTime()
+  if (!Number.isFinite(anchor)) throw requestError('executeAt is invalid')
+  // A future anchor is not enough: the first recurring slot must also be representable.
+  if (!Number.isFinite(new Date(anchor + intervalMs).getTime())) throw requestError('interval is out of range')
+  const steps = anchor > base.getTime() ? 0 : Math.floor((base.getTime() - anchor) / intervalMs) + 1
+  const next = new Date(anchor + steps * intervalMs)
+  if (!Number.isFinite(next.getTime())) throw requestError('interval is out of range')
+  return next
+}
+
 function monthlyCandidate(year, month, monthDay, executeTime) {
   const targetDay = Number(monthDay)
   if (!Number.isInteger(targetDay) || targetDay < 1 || targetDay > 31) {
@@ -84,7 +119,7 @@ export function nextMonthlyRun(monthDay, executeTime, base = new Date()) {
   return next
 }
 
-function parseCronField(field, min, max) {
+function parseCronField(field, min, max, strict) {
   if (field === '*') return { any: true, values: [] }
   const values = new Set()
   for (const part of field.split(',')) {
@@ -92,28 +127,40 @@ function parseCronField(field, min, max) {
       const step = Number(part.slice(2))
       if (!Number.isInteger(step) || step <= 0) return null
       for (let value = min; value <= max; value += step) values.add(value)
+    } else if (/^\d+\/\d+$/.test(part)) {
+      const [start, step] = part.split('/').map(Number)
+      if (start < min || start > max || !Number.isInteger(step) || step <= 0) return null
+      for (let value = start; value <= max; value += step) values.add(value)
     } else if (/^\d+-\d+$/.test(part)) {
       const [start, end] = part.split('-').map(Number)
+      if (strict && (start < min || end > max || start > end)) return null
+      // Historical schedules clipped ranges (notably weekday 0-7) to the field bounds.
       for (let value = Math.max(start, min); value <= Math.min(end, max); value += 1) values.add(value)
     } else if (/^\d+$/.test(part)) {
       const value = Number(part)
       if (value >= min && value <= max) values.add(value)
-    }
+      else if (strict) return null
+    } else if (strict) return null
   }
-  return { any: false, values: [...values] }
+  return values.size ? { any: false, values: [...values] } : null
 }
 
-function parseCronExpression(cronExpression) {
+function parseCronExpression(cronExpression, strict = false) {
   const fields = String(cronExpression || '').trim().split(/\s+/)
   if (fields.length !== 5) return null
   const rules = [
-    parseCronField(fields[0], 0, 59),
-    parseCronField(fields[1], 0, 23),
-    parseCronField(fields[2], 1, 31),
-    parseCronField(fields[3], 1, 12),
-    parseCronField(fields[4], 0, 6),
+    parseCronField(fields[0], 0, 59, strict),
+    parseCronField(fields[1], 0, 23, strict),
+    parseCronField(fields[2], 1, 31, strict),
+    parseCronField(fields[3], 1, 12, strict),
+    parseCronField(fields[4], 0, 6, strict),
   ]
   return rules.every(Boolean) ? rules : null
+}
+
+// Validate new input strictly without changing execution of already persisted schedules.
+export function isValidCronExpression(cronExpression) {
+  return Boolean(parseCronExpression(cronExpression, true))
 }
 
 function cronRulesMatch(date, rules) {

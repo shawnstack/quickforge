@@ -55,11 +55,23 @@ export type GoalUsage = {
   activeDurationMs: number
 }
 
+export type GoalAttachment = {
+  id?: string
+  type: string
+  fileName?: string
+  mimeType?: string
+  size?: number
+  characterCount?: number
+  path?: string
+  source?: string
+}
+
 export type GoalState = {
   id: string
   sessionId: string
   revision: number
   objective: string
+  attachments?: GoalAttachment[]
   status: GoalStatus
   /** Server-owned plan consent; optional only for legacy callers/payloads. */
   planConfirmed?: boolean
@@ -323,11 +335,6 @@ export function goalAcceptanceCheck(goal: GoalState): { ok: boolean; reason: str
     return { ok: false, reason: `required acceptance criteria failed: ${failed.map((criterion) => criterion.id).join(', ')}` }
   }
   return { ok: true, reason: '' }
-}
-
-/** `accept` is offered (and accepted by the server) only for `needs_review`. */
-export function goalCanAccept(goal: GoalState): boolean {
-  return goalAcceptanceCheck(goal).ok
 }
 
 /** Duration is always presented as whole minutes; never as a fake percentage. */

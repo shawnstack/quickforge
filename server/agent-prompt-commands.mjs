@@ -16,6 +16,7 @@ import {
 } from './custom-commands.mjs'
 import { messageText } from './message-converters.mjs'
 import { startGoalPlanning } from './agent-goal-runner.mjs'
+import { goalCommandText } from './goal-command-messages.mjs'
 
 const QUICKFORGE_COMMAND_DETAILS_KEY = 'quickforgeCommand'
 
@@ -73,8 +74,10 @@ function planCommandState(userMessage, args) {
  * plain text response, exactly like other internal commands.
  */
 async function goalCommandState(session, userMessage, args, requestSource = null) {
-  const result = await startGoalPlanning(session, args, requestSource)
-  if (result?.error) return { textResponse: result.error }
+  const result = await startGoalPlanning(session, args, requestSource, {
+    attachments: Array.isArray(userMessage?.attachments) ? userMessage.attachments : [],
+  })
+  if (result?.error) return { textResponse: await goalCommandText(result) }
   return {
     userMessage,
     commandPrompt: result.commandPrompt,

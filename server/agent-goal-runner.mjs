@@ -116,10 +116,6 @@ export function isGoalPlanning(session) {
   return session?.goal?.status === 'planning' || session?.goalRun?.kind === 'planning' || session?.goalSettlingRun?.kind === 'planning'
 }
 
-export function isGoalRunActive(session) {
-  return Boolean(session?.goalRun)
-}
-
 function goalStats(session) {
   if (!session.goalStats) {
     session.goalStats = { consecutiveFailures: 0, noProgressRuns: 0, planningAttempts: 0, pauseRequested: false }
@@ -389,6 +385,16 @@ async function withSessionGoalAdmission(session, operation) {
 const GOAL_CHAT_OUTPUT_RULES = `The UI owns goal status and iteration announcements. Do not repeat the round number, announce continuing or replanning, or narrate submitting complete / waiting for settlement in chat.
 Keep substantive analysis, necessary questions, concrete blockers, and a concise final summary of actual work and verification. Never claim the goal is completed before the server's normal-end and persistence barrier.`
 
+function goalAttachmentPrompt(goal) {
+  if (!Array.isArray(goal.attachments) || !goal.attachments.length) return ''
+  const entries = goal.attachments.map((attachment) => {
+    const fileName = attachment.fileName || '(unnamed attachment)'
+    const path = attachment.path || '(no readable path recorded)'
+    return `- ${fileName}: ${path}`
+  }).join('\n')
+  return `\n\nAttached reference files (read these when needed):\n${entries}`
+}
+
 export function goalPlanningPrompt(goal) {
   return `<goal_planning objective="${escapeXmlAttribute(goal.objective)}">
 Plan this goal before any execution. This planning turn is READ-ONLY: you may read files, search, load skills and delegate read-only research subagents, but you must not write files, run commands, use MCP/plugin tools, or start the work.
@@ -400,7 +406,7 @@ Then call goal_report exactly once with action="plan" providing:
 
 Rules:
 - Do not execute during this planning turn. Execution starts automatically only after this turn ends normally and is durably saved; no plan confirmation is required.
-- Keep the objective exactly as given; scope changes require the user to revise the goal.
+- Keep the objective exactly as given; scope changes require the user to revise the goal.${goalAttachmentPrompt(goal)}
 ${GOAL_CHAT_OUTPUT_RULES}
 </goal_planning>`
 }
@@ -424,7 +430,7 @@ Acceptance criteria:
 ${criteria}
 
 Evidence:
-${evidence}
+${evidence}${goalAttachmentPrompt(goal)}
 
 Continue executing this goal now. Work in small verified steps and call goal_report(action="progress") whenever the plan or evidence changes:
 - Evidence must reference the toolCallId of a real, successful tool result from this session (read_file, run_command, tests, build...). goal_report/todo_write/ask_user results are not evidence.
@@ -886,15 +892,15 @@ function assertQuiescent(session) {
  * `/goal <objective>` — create the goal and start the read-only planning run.
  * Returns `{ error }` (rendered as a text response) or `{ commandPrompt }`.
  */
-export async function startGoalPlanning(session, objective, requestSource = null) {
+export async function startGoalPlanning(session, objective, requestSource = null, { attachments = [] } = {}) {
   const text = typeof objective === 'string' ? objective.trim() : ''
-  if (!text) return { error: 'Usage: /goal <objective>' }
+  if (!text) return { error: 'Usage: /goal <objective>', errorCode: 'GOAL_COMMAND_USAGE' }
   if (text.length > goalState.GOAL_MAX_OBJECTIVE_CHARS) {
-    return { error: `Goal objective must be at most ${goalState.GOAL_MAX_OBJECTIVE_CHARS} characters.` }
+    return { error: `Goal objective must be at most ${goalState.GOAL_MAX_OBJECTIVE_CHARS} characters.`, errorCode: 'GOAL_COMMAND_OBJECTIVE_TOO_LONG' }
   }
-  if (!isGoalModeAvailable(session, requestSource)) return { error: 'Goal mode is only available in a QuickForge main chat.' }
+  if (!isGoalModeAvailable(session, requestSource)) return { error: 'Goal mode is only available in a QuickForge main chat.', errorCode: 'GOAL_COMMAND_UNAVAILABLE' }
   if (session.agent?.state?.isStreaming || session.abortPending) {
-    return { error: 'The session is still running. Stop it or wait for it to finish before setting a goal.' }
+    return { error: 'The session is still running. Stop it or wait for it to finish before setting a goal.', errorCode: 'GOAL_COMMAND_SESSION_RUNNING' }
   }
   try {
     await withSessionGoalAdmission(session, async () => {
@@ -916,12 +922,15 @@ export async function startGoalPlanning(session, objective, requestSource = null
       const next = goalState.createGoalState({
         sessionId: session.sessionId,
         objective: text,
+        attachments,
         budget: { maxIterations, maxActiveDurationMs: null },
       })
       await commitGoal(session, next, { revertOnFailure: true })
     })
   } catch (error) {
-    return { error: error.message }
+    // requestError failures carry a stable errorCode; anything else degrades to
+    // the plain message without inventing a code.
+    return error.errorCode ? { error: error.message, errorCode: error.errorCode } : { error: error.message }
   }
   resetGoalStats(session)
   resetGoalToolEvidence(session)
@@ -1278,15 +1287,16 @@ function trustedToolCallNames(session, goal) {
   return trusted
 }
 
-function goalReportError(message) {
+function goalReportError(message, code) {
   const error = new Error(message)
   error.statusCode = 400
+  error.goalReportCode = code
   return error
 }
 
 function requireText(value, field, max) {
   const text = typeof value === 'string' ? value.trim() : ''
-  if (!text) throw goalReportError(`goal_report requires a non-empty ${field}.`)
+  if (!text) throw goalReportError(`goal_report requires a non-empty ${field}.`, 'GOAL_REPORT_FIELD_REQUIRED')
   return text.length > max ? text.slice(0, max) : text
 }
 
@@ -1300,6 +1310,7 @@ function validateEvidenceToolCalls(session, goal, evidence) {
   if (invalid.length > 0) {
     throw goalReportError(
       `goal_report evidence must reference successful tool results from this goal; unknown toolCallId: ${[...new Set(invalid)].join(', ')}. Run the verification command first.`,
+      'GOAL_REPORT_EVIDENCE_UNKNOWN',
     )
   }
   return available
@@ -1314,28 +1325,28 @@ function goalReportResult(session, text) {
 
 async function applyGoalReport(session, params) {
   const goal = session.goal
-  if (!goal) throw goalReportError('There is no active goal in this session.')
+  if (!goal) throw goalReportError('There is no active goal in this session.', 'GOAL_REPORT_NO_GOAL')
   if (!goalState.isGoalActiveStatus(goal.status)) {
-    throw goalReportError(`The goal is ${goal.status}; goal_report is no longer accepted.`)
+    throw goalReportError(`The goal is ${goal.status}; goal_report is no longer accepted.`, 'GOAL_REPORT_INACTIVE')
   }
   if (session.goalRun?.pendingDisposition) {
-    throw goalReportError('The goal result was already reported for this run. Stop here; settlement requires normal run end and durable persistence.')
+    throw goalReportError('The goal result was already reported for this run. Stop here; settlement requires normal run end and durable persistence.', 'GOAL_REPORT_ALREADY_REPORTED')
   }
   const action = typeof params.action === 'string' ? params.action : ''
   const planning = goal.status === 'planning'
 
   if (action === 'plan') {
-    if (!planning) throw goalReportError(`goal_report action="plan" is only valid while planning; the goal is ${goal.status}.`)
+    if (!planning) throw goalReportError(`goal_report action="plan" is only valid while planning; the goal is ${goal.status}.`, 'GOAL_REPORT_PLAN_INVALID_STATUS')
     const criteria = Array.isArray(params.criteria) ? params.criteria : []
     if (criteria.length === 0) {
-      throw goalReportError('goal_report action="plan" requires at least one acceptance criterion.')
+      throw goalReportError('goal_report action="plan" requires at least one acceptance criterion.', 'GOAL_REPORT_PLAN_NO_CRITERIA')
     }
     if (criteria.length > goalState.GOAL_MAX_CRITERIA) {
-      throw goalReportError(`goal_report supports at most ${goalState.GOAL_MAX_CRITERIA} acceptance criteria.`)
+      throw goalReportError(`goal_report supports at most ${goalState.GOAL_MAX_CRITERIA} acceptance criteria.`, 'GOAL_REPORT_PLAN_TOO_MANY_CRITERIA')
     }
     const summary = requireText(params.summary, 'summary', goalState.GOAL_MAX_SUMMARY_CHARS)
     const next = goalState.applyGoalPlan(goal, { criteria, scope: params.scope, summary })
-    if (next.criteria.length === 0) throw goalReportError('goal_report action="plan" requires criteria with a description.')
+    if (next.criteria.length === 0) throw goalReportError('goal_report action="plan" requires criteria with a description.', 'GOAL_REPORT_PLAN_CRITERIA_DESCRIPTION')
     goalStats(session).planningAttempts = 0
     await commitGoal(session, next)
     return goalReportResult(session, `Plan recorded with ${next.criteria.length} acceptance criteria. End this read-only planning turn; execution starts automatically after normal run end and durable persistence.`)
@@ -1345,7 +1356,7 @@ async function applyGoalReport(session, params) {
     const guidance = planning
       ? 'use action="plan".'
       : 'The plan is already submitted. End this read-only planning turn; execution starts automatically after normal run end and durable persistence.'
-    throw goalReportError(`goal_report action="${action}" is not valid while planning; ${guidance}`)
+    throw goalReportError(`goal_report action="${action}" is not valid while planning; ${guidance}`, 'GOAL_REPORT_PLANNING_ONLY')
   }
 
   const evidence = Array.isArray(params.evidence) ? params.evidence : []
@@ -1356,7 +1367,7 @@ async function applyGoalReport(session, params) {
     criterionUpdates: params.criterionUpdates,
     trustedToolNames,
   })
-  if (progressed.errors.length > 0) throw goalReportError(`goal_report rejected: ${progressed.errors.join('; ')}`)
+  if (progressed.errors.length > 0) throw goalReportError(`goal_report rejected: ${progressed.errors.join('; ')}`, 'GOAL_REPORT_REJECTED')
   let next = progressed.goal
 
   if (action === 'progress') {
@@ -1384,13 +1395,13 @@ async function applyGoalReport(session, params) {
     const check = goalState.goalCompletionCheck(next)
     if (!check.ok) {
       // Fail closed: the model cannot self-approve. Nothing is committed.
-      throw goalReportError(`goal_report action="complete" rejected: ${check.reason}. Verify the criteria with real tool results, or use action="blocked"/"needs_review".`)
+      throw goalReportError(`goal_report action="complete" rejected: ${check.reason}. Verify the criteria with real tool results, or use action="blocked"/"needs_review".`, 'GOAL_REPORT_COMPLETE_REJECTED')
     }
     return settleGoalReportDisposition(session, next, 'completed',
       `All required criteria are verified. Stop here: the goal completes automatically only after this turn ends normally and its final state is persisted.\n${GOAL_CHAT_OUTPUT_RULES}`)
   }
 
-  throw goalReportError(`Unsupported goal_report action: ${action || '(missing)'}`)
+  throw goalReportError(`Unsupported goal_report action: ${action || '(missing)'}`, 'GOAL_REPORT_UNSUPPORTED_ACTION')
 }
 
 /**
@@ -1404,7 +1415,7 @@ async function settleGoalReportDisposition(session, next, disposition, message) 
     await commitGoal(session, goalState.setGoalStatus(next, 'verifying'))
     return goalReportResult(session, message)
   }
-  throw goalReportError('Goal completion/review requires an active run and its normal run-end persistence barrier.')
+  throw goalReportError('Goal completion/review requires an active run and its normal run-end persistence barrier.', 'GOAL_REPORT_NO_RUN')
 }
 
 export function createGoalReportTool(sessionOrGetter) {
@@ -1413,8 +1424,23 @@ export function createGoalReportTool(sessionOrGetter) {
     ...goalReportTool,
     execute: async (_toolCallId, params) => {
       const session = getSession()
-      if (!session) throw goalReportError('No active session for goal_report.')
-      return applyGoalReport(session, params || {})
+      if (!session) throw goalReportError('No active session for goal_report.', 'GOAL_REPORT_NO_SESSION')
+      try {
+        return await applyGoalReport(session, params || {})
+      } catch (error) {
+        // goal_report validation failures become returned error results instead
+        // of throws: pi-agent-core keeps only the message of a thrown tool
+        // error, while a returned result preserves the details carrying the
+        // stable code. Anything unexpected still propagates unchanged.
+        if (error?.goalReportCode && error.statusCode === 400) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: error.message }],
+            details: { type: 'goal_report_error', code: error.goalReportCode },
+          }
+        }
+        throw error
+      }
     },
   }
 }

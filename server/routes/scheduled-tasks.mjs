@@ -18,12 +18,14 @@ import {
 import {
   dayMs,
   formatLocalDateTime,
-  hourMs,
-  minuteMs,
+  nextIntervalRun,
+  normalizeInterval,
+  normalizeWeekDays,
+  nextWeeklyDaysRun,
   nextCronRun,
+  isValidCronExpression,
   nextDailyRun,
   nextMonthlyRun,
-  nextWeeklyRun,
   normalizeExecutionMode,
   parseExecuteTime,
   timeFromDate,
@@ -32,8 +34,7 @@ import {
 const STORE = 'scheduled-tasks'
 const RUN_CHECK_INTERVAL_MS = 30 * 1000
 const MAX_RUN_HISTORY_PER_TASK = 200
-const cronRegex = /^(\*|\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}|\*\/\d{1,2})(\s+(\*|\d{1,2}|\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}|\*\/\d{1,2})){4}$/
-const editableScheduleTypes = new Set(['once', 'daily', 'weekly', 'monthly'])
+const editableScheduleTypes = new Set(['once', 'interval', 'daily', 'weekly', 'monthly'])
 const weekDayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
 let schedulerTimer = null
@@ -108,7 +109,11 @@ function parseDateTime(value, fieldName) {
 function scheduleRuleFor(task) {
   if (task.scheduleType === 'once') return `单次 ${formatLocalDateTime(new Date(task.executeAt ?? task.nextRunAt))}`
   if (task.scheduleType === 'daily') return `每天 ${task.executeTime}`
-  if (task.scheduleType === 'weekly') return `每周${weekDayNames[Number(task.weekDay ?? 1)].replace('周', '')} ${task.executeTime}`
+  if (task.scheduleType === 'weekly') return `${(task.weekDays ?? [Number(task.weekDay ?? 1)]).map((day) => weekDayNames[day]).join('、')} ${task.executeTime}`
+  if (task.scheduleType === 'interval') {
+    const { intervalValue, intervalUnit } = normalizeInterval(task)
+    return `每隔 ${intervalValue} ${{ minute: '分钟', hour: '小时', day: '天' }[intervalUnit]}`
+  }
   if (task.scheduleType === 'monthly') return `每月 ${task.monthDay} 号 ${task.executeTime}`
   return task.scheduleRule || task.cronExpression || '定时执行'
 }
@@ -193,7 +198,7 @@ async function parseScheduledTaskInstructionWithAi(instruction, modelInput, thin
     const parsed = normalizeAiJson(content)
     if (!parsed) return { needMoreInfo: true, question: 'AI 没有返回有效 JSON，请重试或换一个模型。' }
     if (parsed.question) return { needMoreInfo: true, question: String(parsed.question) }
-    if (!cronRegex.test(String(parsed.cronExpression || '').trim())) {
+    if (!isValidCronExpression(parsed.cronExpression)) {
       return { needMoreInfo: true, question: 'AI 未能生成有效的 cron 表达式，请补充更明确的执行时间。' }
     }
     const nextRun = nextCronRun(String(parsed.cronExpression).trim())
@@ -216,6 +221,16 @@ async function parseScheduledTaskInstructionWithAi(instruction, modelInput, thin
 }
 
 function normalizeTaskInput(input, existing = {}) {
+  const normalized = normalizeTaskSchedule(input, existing)
+  return {
+    intervalValue: undefined,
+    intervalUnit: undefined,
+    weekDays: undefined,
+    ...normalized,
+  }
+}
+
+function normalizeTaskSchedule(input, existing = {}) {
   const title = nonEmptyString(input?.title ?? existing.title, 'title').slice(0, 80)
   const instruction = nonEmptyString(input?.instruction ?? existing.instruction, 'instruction')
   const scheduleType = String(input?.scheduleType ?? existing.scheduleType ?? 'daily')
@@ -224,7 +239,8 @@ function normalizeTaskInput(input, existing = {}) {
 
   if (scheduleType === 'cron') {
     const cronExpression = String(input?.cronExpression ?? existing.cronExpression ?? '').trim()
-    if (!cronRegex.test(cronExpression)) throw requestError('cronExpression is invalid')
+    const unchangedCron = existing.scheduleType === 'cron' && cronExpression === existing.cronExpression
+    if (!unchangedCron && !isValidCronExpression(cronExpression)) throw requestError('cronExpression is invalid')
     const nextRunAt = nextCronRun(cronExpression)?.toISOString()
     if (!nextRunAt) throw requestError('Unable to calculate next cron run')
     return {
@@ -233,7 +249,7 @@ function normalizeTaskInput(input, existing = {}) {
       agentId,
       executionMode,
       scheduleType: 'cron',
-      scheduleRule: String(input?.scheduleRule ?? existing.scheduleRule ?? cronExpression).trim(),
+      scheduleRule: String(input?.scheduleRule ?? (existing.scheduleType === 'cron' && existing.cronExpression === cronExpression ? existing.scheduleRule : undefined) ?? cronExpression).trim(),
       cronExpression,
       executeAt: undefined,
       executeTime: undefined,
@@ -243,7 +259,24 @@ function normalizeTaskInput(input, existing = {}) {
     }
   }
 
-  if (!editableScheduleTypes.has(scheduleType)) throw requestError('scheduleType must be once, daily, weekly, or monthly')
+  if (!editableScheduleTypes.has(scheduleType)) throw requestError('scheduleType must be once, interval, daily, weekly, monthly, or cron')
+
+  if (scheduleType === 'interval') {
+    if (existing.scheduleType !== 'interval' && (input?.intervalValue === undefined || input?.intervalUnit === undefined || !input?.executeAt)) {
+      throw requestError('intervalValue, intervalUnit, and executeAt are required for interval schedules')
+    }
+    const { intervalValue, intervalUnit } = normalizeInterval({ ...existing, ...input })
+    const executeAt = parseDateTime(input?.executeAt ?? existing.executeAt ?? input?.nextRunAt ?? existing.nextRunAt, 'executeAt')
+    const unchangedAnchor = existing.scheduleType === 'interval' && executeAt.toISOString() === (existing.executeAt ?? existing.nextRunAt)
+    if (!unchangedAnchor && executeAt.getTime() <= Date.now()) throw requestError('executeAt must be in the future')
+    const intervalTask = { intervalValue, intervalUnit, executeAt: executeAt.toISOString(), scheduleType }
+    return {
+      title, instruction, agentId, executionMode, ...intervalTask,
+      scheduleRule: scheduleRuleFor(intervalTask),
+      cronExpression: undefined, executeTime: undefined, weekDay: undefined, monthDay: undefined,
+      nextRunAt: nextIntervalRun(intervalTask).toISOString(),
+    }
+  }
 
   if (scheduleType === 'once') {
     const executeAt = parseDateTime(input?.executeAt ?? input?.nextRunAt ?? existing.executeAt ?? existing.nextRunAt, 'executeAt')
@@ -285,15 +318,17 @@ function normalizeTaskInput(input, existing = {}) {
   }
 
   if (scheduleType === 'weekly') {
-    const weekDay = Number(input?.weekDay ?? existing.weekDay ?? 1)
-    const nextRunAt = nextWeeklyRun(weekDay, executeTime).toISOString()
+    const weekDays = normalizeWeekDays(input?.weekDays !== undefined ? input.weekDays : input?.weekDay !== undefined ? [Number(input.weekDay)] : existing.weekDays ?? [Number(existing.weekDay ?? 1)])
+    const weekDay = weekDays[0]
+    const nextRunAt = nextWeeklyDaysRun(weekDays, executeTime).toISOString()
     return {
       title,
       instruction,
       agentId,
       executionMode,
       scheduleType,
-      scheduleRule: `每${weekDayNames[weekDay]} ${executeTime}`,
+      scheduleRule: `${weekDays.map((day) => weekDayNames[day]).join('、')} ${executeTime}`,
+      weekDays,
       cronExpression: undefined,
       executeAt: undefined,
       executeTime,
@@ -326,14 +361,9 @@ function calculateNextRun(task, base = new Date()) {
     return nextCronRun(task.cronExpression, base)?.toISOString()
   }
   if (task.scheduleType === 'once') return undefined
-  if (task.scheduleType === 'interval') {
-    const interval = task.scheduleRule.match(/每隔\s*(\d+)\s*(分钟|小时)/)
-    const amount = Number(interval?.[1] ?? '30')
-    const unit = interval?.[2] ?? '分钟'
-    return new Date(base.getTime() + amount * (unit === '小时' ? hourMs : minuteMs)).toISOString()
-  }
+  if (task.scheduleType === 'interval') return nextIntervalRun(task, base).toISOString()
   if (task.scheduleType === 'daily' && task.executeTime) return nextDailyRun(task.executeTime, base).toISOString()
-  if (task.scheduleType === 'weekly' && task.executeTime) return nextWeeklyRun(task.weekDay ?? 1, task.executeTime, base).toISOString()
+  if (task.scheduleType === 'weekly' && task.executeTime) return nextWeeklyDaysRun(task.weekDays ?? [Number(task.weekDay ?? 1)], task.executeTime, base).toISOString()
   if (task.scheduleType === 'monthly' && task.executeTime) return nextMonthlyRun(task.monthDay ?? 1, task.executeTime, base).toISOString()
 
   const current = new Date(task.nextRunAt)

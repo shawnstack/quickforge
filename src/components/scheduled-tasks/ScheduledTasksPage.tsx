@@ -1,6 +1,6 @@
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Bot, Brain, CheckCircle2, Clock3, Edit3, Eye, Folder, MoreHorizontal, Search, Sparkles, Trash2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -14,7 +14,7 @@ import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 
-type ScheduleType = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval' | 'cron'
+import { buildSchedulePayload, scheduleFormFromTask, scheduleValidationError, type ScheduleFields, type ScheduleForm, type ScheduleType, type IntervalUnit } from '@/lib/scheduled-task-form'
 type TaskStatus = 'enabled' | 'paused' | 'running' | 'failed' | 'completed'
 type RunStatus = 'running' | 'success' | 'failed'
 type ExecutionMode = 'serial' | 'parallel'
@@ -44,7 +44,7 @@ type ScheduledTaskRun = {
   agentLabel?: string | null
 }
 
-type ScheduledTask = {
+type ScheduledTask = ScheduleFields & {
   id: string
   title: string
   instruction: string
@@ -93,7 +93,7 @@ type HistoryPayload = {
 }
 
 type ParsedTask = Pick<ScheduledTask, 'title' | 'instruction' | 'scheduleType' | 'scheduleRule' | 'cronExpression' | 'nextRunAt'>
-type FormState = {
+type FormState = ScheduleForm & {
   scheduleText: string
   title: string
   instruction: string
@@ -138,6 +138,7 @@ function truncateContent(value: string, max = 20) {
 
 function defaultForm(): FormState {
   return {
+    ...scheduleFormFromTask(),
     scheduleText: '',
     title: '',
     instruction: '',
@@ -165,6 +166,7 @@ function defaultHistoryFilters(): HistoryFilters {
 
 function formFromTask(task: ScheduledTask): FormState {
   return {
+    ...scheduleFormFromTask(task),
     scheduleText: [task.scheduleRule, task.instruction].filter(Boolean).join('\n'),
     title: task.title,
     instruction: task.instruction,
@@ -178,8 +180,15 @@ function formFromTask(task: ScheduledTask): FormState {
 }
 
 function parsedTaskToForm(task: ParsedTask, current: FormState): FormState {
+  const parsedSchedule = scheduleFormFromTask(task)
   return {
     ...current,
+    ...parsedSchedule,
+    onceExecuteAt: current.scheduleType === 'once' ? current.executeAt : current.onceExecuteAt,
+    intervalExecuteAt: current.scheduleType === 'interval' ? current.executeAt : current.intervalExecuteAt,
+    intervalValue: task.scheduleType === 'interval' ? parsedSchedule.intervalValue : current.intervalValue,
+    intervalUnit: task.scheduleType === 'interval' ? parsedSchedule.intervalUnit : current.intervalUnit,
+    originalExecuteAt: task.scheduleType === 'interval' ? parsedSchedule.originalExecuteAt : current.originalExecuteAt,
     title: task.title,
     instruction: task.instruction,
     cronExpression: task.cronExpression ?? '',
@@ -193,10 +202,7 @@ function buildTaskPayload(form: FormState) {
   return {
     title: form.title.trim(),
     instruction: form.instruction.trim(),
-    scheduleType: 'cron',
-    scheduleRule: form.scheduleRule.trim() || form.cronExpression.trim(),
-    cronExpression: form.cronExpression.trim(),
-    nextRunAt: form.nextRunAt,
+    ...buildSchedulePayload(form),
     enabled: form.enabled,
     agentId: form.agentId || null,
     executionMode: form.executionMode,
@@ -220,7 +226,7 @@ type ScheduledTasksPageProps = {
 }
 
 function formIsValid(form: FormState) {
-  return Boolean(form.title.trim() && form.instruction.trim() && form.cronExpression.trim())
+  return Boolean(form.title.trim() && form.instruction.trim() && !scheduleValidationError(form))
 }
 
 function statusLabel(status: TaskStatus | RunStatus) {
@@ -275,7 +281,17 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([])
+  const [pendingTaskIds, setPendingTaskIds] = useState<Set<string>>(() => new Set())
+  const editorBusyRef = useRef(false)
+  const editorGenerationRef = useRef(0)
+  const editorOpenRef = useRef(false)
+  const pendingTaskIdsRef = useRef(new Set<string>())
   const defaultProjectId = projects[0]?.id ?? ''
+
+  useEffect(() => () => {
+    editorGenerationRef.current += 1
+    editorOpenRef.current = false
+  }, [])
 
   useEffect(() => {
     if (!openMenuTaskId) return
@@ -409,6 +425,23 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   const detailTask = useMemo(() => tasks.find((task) => task.id === detailTaskId) ?? null, [detailTaskId, tasks])
   const enabledCount = useMemo(() => tasks.filter((task) => task.status === 'enabled').length, [tasks])
   const totalHistoryPages = Math.max(1, Math.ceil(historyPayload.total / historyPayload.pageSize))
+  const scheduleError = scheduleValidationError(form)
+  const frequencyOptions: { value: ScheduleType; label: string }[] = [
+    { value: 'once', label: t('taskFrequencyOnce') },
+    { value: 'interval', label: t('taskFrequencyInterval') },
+    { value: 'daily', label: t('taskFrequencyDaily') },
+    { value: 'weekly', label: t('taskFrequencyWeekly') },
+    { value: 'monthly', label: t('taskFrequencyMonthly') },
+    { value: 'cron', label: 'Cron' },
+  ]
+  const weekLabels = [t('taskSunday'), t('taskMonday'), t('taskTuesday'), t('taskWednesday'), t('taskThursday'), t('taskFriday'), t('taskSaturday')]
+  const scheduleInputClass = 'mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring'
+  const scheduleSummary = form.scheduleType === 'cron' ? form.cronExpression
+    : form.scheduleType === 'once' ? `${t('taskFrequencyOnce')} · ${formatDateTime(form.executeAt)}`
+    : form.scheduleType === 'interval' ? `${t('taskIntervalValue')} ${form.intervalValue} ${{ minute: t('taskUnitMinute'), hour: t('taskUnitHour'), day: t('taskUnitDay') }[form.intervalUnit]} · ${t('taskFirstExecution')} ${formatDateTime(form.executeAt)}`
+    : form.scheduleType === 'weekly' ? `${[...form.weekDays].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((day) => weekLabels[day]).join(' / ')} · ${form.executeTime}`
+    : form.scheduleType === 'monthly' ? `${t('taskFrequencyMonthly')} · ${form.monthDay} · ${form.executeTime}`
+    : `${t('taskFrequencyDaily')} · ${form.executeTime}`
 
   function agentLabel(agentId?: string | null) {
     if (!agentId) return t('defaultAgent')
@@ -416,7 +449,19 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   }
 
   function updateForm<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((current) => ({ ...current, [key]: value }))
+    if (editorBusyRef.current) return
+    setForm((current) => {
+      const next = { ...current, [key]: value, nextRunAt: '', scheduleRule: '' }
+      if (key === 'scheduleType') {
+        if (current.scheduleType === 'once') next.onceExecuteAt = current.executeAt
+        if (current.scheduleType === 'interval') next.intervalExecuteAt = current.executeAt
+        if (value === 'once') next.executeAt = next.onceExecuteAt
+        if (value === 'interval') next.executeAt = next.intervalExecuteAt
+      }
+      return next
+    })
+    setParsedTask(null)
+    setQuestion('')
   }
 
   function updateHistoryFilter<K extends keyof HistoryFilters>(key: K, value: HistoryFilters[K]) {
@@ -436,14 +481,23 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   }
 
   function openCreateDialog() {
+    if (editorBusyRef.current) return
+    editorGenerationRef.current += 1
+    editorOpenRef.current = true
     resetEditor()
     setDialogOpen(true)
   }
 
-  function closeDialog() {
-    if (loading) return
+  function finishEditor() {
+    editorGenerationRef.current += 1
+    editorOpenRef.current = false
     setDialogOpen(false)
     resetEditor()
+  }
+
+  function closeDialog() {
+    if (editorBusyRef.current) return
+    finishEditor()
   }
 
   function applyHistoryFilters() {
@@ -477,7 +531,9 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
 
   async function handleParse() {
     const scheduleText = form.scheduleText.trim()
-    if (!scheduleText) return
+    if (editorBusyRef.current || !editorOpenRef.current || !selectedModel || !scheduleText) return
+    editorBusyRef.current = true
+    const generation = editorGenerationRef.current
     setLoading(true)
     setError('')
     try {
@@ -485,6 +541,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
         method: 'POST',
         body: JSON.stringify({ instruction: scheduleText, modelRef: selectedModel ? modelReferenceFromModel(selectedModel) : undefined, model: selectedModel, thinkingLevel }),
       })
+      if (!editorOpenRef.current || editorGenerationRef.current !== generation) return
       if (result.needMoreInfo || !result.task) {
         setQuestion(result.question || '请补充任务信息。')
         setParsedTask(null)
@@ -495,14 +552,17 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
       setParsedTask(task)
       setForm((current) => parsedTaskToForm(task, current))
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('requestFailed'))
+      if (editorOpenRef.current && editorGenerationRef.current === generation) setError(err instanceof Error ? err.message : t('requestFailed'))
     } finally {
+      editorBusyRef.current = false
       setLoading(false)
     }
   }
 
   async function handleSave() {
-    if (!formIsValid(form)) return
+    if (editorBusyRef.current || !editorOpenRef.current || !selectedModel || !formIsValid(form)) return
+    editorBusyRef.current = true
+    const generation = editorGenerationRef.current
     setLoading(true)
     setError('')
     try {
@@ -526,17 +586,21 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
           body: JSON.stringify(payload),
         })
       }
-      closeDialog()
+      if (editorOpenRef.current && editorGenerationRef.current === generation) finishEditor()
       await loadTasks()
       if (activeTab === 'history') await loadHistory(appliedHistoryFilters)
     } catch (err) {
       setError(err instanceof Error ? err.message : t('requestFailed'))
     } finally {
+      editorBusyRef.current = false
       setLoading(false)
     }
   }
 
   function startEdit(task: ScheduledTask) {
+    if (editorBusyRef.current || pendingTaskIdsRef.current.has(task.id)) return
+    editorGenerationRef.current += 1
+    editorOpenRef.current = true
     setOpenMenuTaskId(null)
     setEditingTaskId(task.id)
     setForm(formFromTask(task))
@@ -550,18 +614,21 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   }
 
   async function taskAction(taskId: string, action: 'run' | 'pause' | 'resume' | 'delete') {
+    if (pendingTaskIdsRef.current.has(taskId) || editorBusyRef.current) return
+    pendingTaskIdsRef.current.add(taskId)
+    setPendingTaskIds(new Set(pendingTaskIdsRef.current))
     setError('')
     setOpenMenuTaskId(null)
-    if (action === 'delete') {
-      const confirmed = await showConfirm({
-        description: t('confirmDeleteTask'),
-        confirmLabel: t('confirmDelete'),
-        cancelLabel: t('cancel'),
-        variant: 'destructive',
-      })
-      if (!confirmed) return
-    }
     try {
+      if (action === 'delete') {
+        const confirmed = await showConfirm({
+          description: t('confirmDeleteTask'),
+          confirmLabel: t('confirmDelete'),
+          cancelLabel: t('cancel'),
+          variant: 'destructive',
+        })
+        if (!confirmed) return
+      }
       if (action === 'delete') {
         await requestJson(`/api/scheduled-tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
         if (editingTaskId === taskId) closeDialog()
@@ -573,6 +640,9 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
       if (activeTab === 'history') await loadHistory(appliedHistoryFilters)
     } catch (err) {
       setError(err instanceof Error ? err.message : t('requestFailed'))
+    } finally {
+      pendingTaskIdsRef.current.delete(taskId)
+      setPendingTaskIds(new Set(pendingTaskIdsRef.current))
     }
   }
 
@@ -599,11 +669,11 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
       <div className="border-b border-border px-6 py-5">
         <div className="flex flex-wrap items-center justify-end gap-3">
           {dialogOpen || detailTask ? (
-            <Button variant="outline" onClick={() => { if (dialogOpen) closeDialog(); else setDetailTaskId(null) }}>
+            <Button variant="outline" disabled={dialogOpen && loading} onClick={() => { if (dialogOpen) closeDialog(); else setDetailTaskId(null) }}>
               <ArrowLeft className="mr-1 size-4" />{t('back')}
             </Button>
           ) : (
-            <Button onClick={openCreateDialog}>{t('createTask')}</Button>
+            <Button onClick={openCreateDialog} disabled={loading}>{t('createTask')}</Button>
           )}
         </div>
         {!dialogOpen && !detailTask ? (
@@ -632,7 +702,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
           {/* ===== 编辑/新建任务视图 ===== */}
           {dialogOpen ? (
             <>
-              <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+              <fieldset disabled={loading} aria-busy={loading} className="min-w-0 rounded-xl border border-border bg-card p-5 space-y-4 disabled:opacity-60">
                 <h2 className="inline-flex items-center gap-1.5 text-base font-semibold text-foreground">
                   {editingTask ? t('editTask') : t('createTask')}
                   <InfoTip label={t('quickAiParseTask')} />
@@ -666,26 +736,41 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                     />
                   </label>
 
-                  <div className="block text-sm font-medium text-foreground">
-                    {t('executionRule')}
-                    <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 text-sm text-muted-foreground">
-                      {form.scheduleRule || '-'}
+                  <fieldset className="min-w-0 sm:col-span-2" disabled={loading}>
+                    <legend className="mb-2 text-sm font-medium text-foreground">{t('taskFrequency')}</legend>
+                    <div className="flex flex-wrap gap-1 rounded-lg bg-muted/40 p-1">
+                      {frequencyOptions.map((option) => (
+                        <button key={option.value} type="button" aria-pressed={form.scheduleType === option.value} onClick={() => updateForm('scheduleType', option.value)} className={cn('flex-1 rounded-md px-3 py-2 text-sm transition-colors focus-visible:outline-ring', form.scheduleType === option.value ? 'bg-background text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                          {option.label}
+                        </button>
+                      ))}
                     </div>
-                  </div>
-
-                  <div className="block text-sm font-medium text-foreground">
-                    cron
-                    <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 font-mono text-sm text-muted-foreground">
-                      {form.cronExpression || '-'}
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {form.scheduleType === 'interval' ? <>
+                        <label className="text-sm">{t('taskIntervalValue')}<input type="number" min="1" step="1" className={scheduleInputClass} value={form.intervalValue} onChange={(event) => updateForm('intervalValue', event.target.value)} /></label>
+                        <label className="text-sm">{t('taskIntervalUnit')}<select className={scheduleInputClass} value={form.intervalUnit} onChange={(event) => updateForm('intervalUnit', event.target.value as IntervalUnit)}>
+                          <option value="minute">{t('taskUnitMinute')}</option><option value="hour">{t('taskUnitHour')}</option><option value="day">{t('taskUnitDay')}</option>
+                        </select></label>
+                      </> : null}
+                      {form.scheduleType === 'once' || form.scheduleType === 'interval' ? <label className="text-sm sm:col-span-2">{form.scheduleType === 'interval' ? t('taskFirstExecution') : t('taskExecutionDate')}
+                        <input type="datetime-local" className={scheduleInputClass} value={form.executeAt} onChange={(event) => updateForm('executeAt', event.target.value)} />
+                      </label> : null}
+                      {['daily', 'weekly', 'monthly'].includes(form.scheduleType) ? <label className="text-sm">{t('taskExecutionTime')}<input type="time" className={scheduleInputClass} value={form.executeTime} onChange={(event) => updateForm('executeTime', event.target.value)} /></label> : null}
+                      {form.scheduleType === 'weekly' ? <fieldset className="sm:col-span-2">
+                        <legend className="mb-2 text-sm">{t('taskRepeatDays')}</legend>
+                        <div className="flex flex-wrap gap-2">{[1, 2, 3, 4, 5, 6, 0].map((day) => <button key={day} type="button" aria-pressed={form.weekDays.includes(day)} className={cn('rounded-md border px-3 py-2 text-sm', form.weekDays.includes(day) ? 'border-ring bg-muted text-foreground' : 'border-input text-muted-foreground')} onClick={() => updateForm('weekDays', form.weekDays.includes(day) ? form.weekDays.filter((value) => value !== day) : [...form.weekDays, day])}>{weekLabels[day]}</button>)}</div>
+                      </fieldset> : null}
+                      {form.scheduleType === 'monthly' ? <label className="text-sm">{t('taskMonthDay')}<input type="number" min="1" max="31" step="1" className={scheduleInputClass} value={form.monthDay} onChange={(event) => updateForm('monthDay', event.target.value)} /><span className="mt-1 block text-xs text-muted-foreground">{t('taskMonthDayHelp')}</span></label> : null}
+                      {form.scheduleType === 'cron' ? <label className="text-sm sm:col-span-2">{t('taskCronExpression')}<input className={cn(scheduleInputClass, 'font-mono')} value={form.cronExpression} onChange={(event) => updateForm('cronExpression', event.target.value)} placeholder="0 9 * * 1-5" /><span className="mt-1 block text-xs text-muted-foreground">{t('taskCronHelp')}</span></label> : null}
                     </div>
-                  </div>
-
-                  <div className="block text-sm font-medium text-foreground">
-                    {t('nextExecutionTime')}
-                    <div className="mt-1 flex h-10 items-center rounded-md border border-input bg-muted/20 px-3 text-sm text-muted-foreground">
-                      {formatDateTime(form.nextRunAt)}
-                    </div>
-                  </div>
+                    <p className="mt-3 text-xs text-muted-foreground">{t('taskScheduleTimezoneHelp')}</p>
+                    {form.scheduleType === 'interval' ? <p className="mt-1 text-xs text-muted-foreground">{t('taskIntervalHelp')}</p> : null}
+                    {scheduleError ? <p role="alert" className="mt-2 text-sm text-destructive">{t(scheduleError)}</p> : <div aria-live="polite" className="mt-3 rounded-md bg-muted/30 px-3 py-2">
+                      <div className="text-xs text-muted-foreground">{t('executionRule')}</div>
+                      <p className="mt-1 text-sm text-foreground">{scheduleSummary}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{t('taskScheduleSavePreview')}</p>
+                    </div>}
+                  </fieldset>
 
                   <label className="block text-sm font-medium text-foreground sm:col-span-2">
                     <span className="inline-flex items-center gap-1.5">
@@ -799,7 +884,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                 ) : null}
 
                 {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
-              </div>
+              </fieldset>
 
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={closeDialog} disabled={loading}>{t('cancel')}</Button>
@@ -855,9 +940,9 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
               <div className="border-t border-border px-5 py-4">
                 <div className="flex flex-wrap justify-end gap-2">
                   {detailTask.lastSessionId ? <Button variant="outline" onClick={() => onOpenSession?.(detailTask.lastSessionId!)}>{t('viewConversation')}</Button> : null}
-                  <Button variant="outline" disabled={!canRunTaskNow(detailTask)} onClick={() => void taskAction(detailTask.id, 'run')}><Zap className="mr-1 size-3.5" />{t('executeNow')}</Button>
-                  <Button variant="outline" disabled={taskHasRunningRuns(detailTask)} onClick={() => startEdit(detailTask)}><Edit3 className="mr-1 size-3.5" />{t('editTask')}</Button>
-                  <Button variant="destructive" disabled={taskHasRunningRuns(detailTask)} onClick={() => void taskAction(detailTask.id, 'delete')}><Trash2 className="mr-1 size-3.5" />{t('deleteTask')}</Button>
+                  <Button variant="outline" disabled={pendingTaskIds.has(detailTask.id) || !canRunTaskNow(detailTask)} onClick={() => taskAction(detailTask.id, 'run')}><Zap className="mr-1 size-3.5" />{t('executeNow')}</Button>
+                  <Button variant="outline" disabled={pendingTaskIds.has(detailTask.id) || taskHasRunningRuns(detailTask)} onClick={() => startEdit(detailTask)}><Edit3 className="mr-1 size-3.5" />{t('editTask')}</Button>
+                  <Button variant="destructive" disabled={pendingTaskIds.has(detailTask.id) || taskHasRunningRuns(detailTask)} onClick={() => taskAction(detailTask.id, 'delete')}><Trash2 className="mr-1 size-3.5" />{t('deleteTask')}</Button>
                 </div>
               </div>
             </div>
@@ -884,7 +969,8 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       </div>
                     ) : tasks.map((task) => {
                       const taskEnabled = task.status === 'enabled'
-                      const switchDisabled = task.status === 'completed'
+                      const taskPending = pendingTaskIds.has(task.id)
+                      const switchDisabled = taskPending || task.status === 'completed'
                       const taskRunning = taskHasRunningRuns(task)
                       return (
                         <div key={task.id} className="relative cursor-pointer rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/15" onClick={() => setDetailTaskId(task.id)}>
@@ -902,27 +988,27 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                                 aria-checked={taskEnabled}
                                 disabled={switchDisabled}
                                 className={cn('relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60', taskEnabled ? 'bg-emerald-500' : 'bg-muted-foreground/30')}
-                                onClick={() => void taskAction(task.id, task.status === 'paused' ? 'resume' : 'pause')}
+                                onClick={() => taskAction(task.id, task.status === 'paused' ? 'resume' : 'pause')}
                                 title={task.status === 'paused' ? t('enable') : t('pauseTask')}
                               >
                                 <span className={cn('absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform', taskEnabled ? 'translate-x-5' : 'translate-x-0')} />
                               </button>
                               <div className="relative">
-                                <Button variant="ghost" size="icon" onClick={() => setOpenMenuTaskId(openMenuTaskId === task.id ? null : task.id)} title={t('moreActions')}>
+                                <Button variant="ghost" size="icon" disabled={taskPending} onClick={() => setOpenMenuTaskId(openMenuTaskId === task.id ? null : task.id)} title={t('moreActions')}>
                                   <MoreHorizontal className="size-4" />
                                 </Button>
                                 {openMenuTaskId === task.id ? (
                                   <div className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-popover py-1 text-sm shadow-quickforge">
-                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={!canRunTaskNow(task)} onClick={() => void taskAction(task.id, 'run')}>
+                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={taskPending || !canRunTaskNow(task)} onClick={() => taskAction(task.id, 'run')}>
                                       <Zap className="size-3.5" />{t('executeNow')}
                                     </button>
-                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={taskRunning} onClick={() => startEdit(task)}>
+                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={taskPending || taskRunning} onClick={() => startEdit(task)}>
                                       <Edit3 className="size-3.5" />{t('editTask')}
                                     </button>
                                     <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted" onClick={() => { setOpenMenuTaskId(null); setDetailTaskId(task.id) }}>
                                       <Eye className="size-3.5" />{t('viewDetails')}
                                     </button>
-                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={taskRunning} onClick={() => void taskAction(task.id, 'delete')}>
+                                    <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={taskPending || taskRunning} onClick={() => taskAction(task.id, 'delete')}>
                                       <Trash2 className="size-3.5" />{t('deleteTask')}
                                     </button>
                                   </div>

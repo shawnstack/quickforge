@@ -216,12 +216,14 @@ export async function handleAgentApi(req, res, url, context = {}) {
     if (!isGoalAction(action)) {
       const error = new Error('Invalid goal action. Expected one of: confirm, pause, resume, extend_resume, cancel, revise, accept')
       error.statusCode = 400
+      error.errorCode = 'GOAL_ACTION_INVALID'
       throw error
     }
     const session = await restoreAgent(sessionId)
     if (!session) {
       const error = new Error('Session not found')
       error.statusCode = 404
+      error.errorCode = 'SESSION_NOT_FOUND'
       throw error
     }
     // Dynamic import: the goal runner pulls in the persistence/storage chain,

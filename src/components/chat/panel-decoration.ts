@@ -37,8 +37,8 @@ export type { ApprovalCardDeps, ToolApprovalSource } from './panel-decoration/ap
 export { injectApprovalCard, removeApprovalCard } from './panel-decoration/approval-card'
 export type { AskUserCardDeps } from './panel-decoration/ask-user-card'
 export { injectAskUserCard, removeAskUserCard } from './panel-decoration/ask-user-card'
-export type { GoalCardController, GoalCardDeps, GoalCardViewModel, GoalCardTone, GoalCardCriteriaView } from './panel-decoration/goal-card'
-export { buildGoalCardViewModel, createGoalCardController } from './panel-decoration/goal-card'
+export type { GoalCardViewModel, GoalCardTone, GoalCardCriteriaView } from './panel-decoration/goal-card'
+export { buildGoalCardViewModel } from './panel-decoration/goal-card'
 export type {
   GoalControlStripController,
   GoalControlStripDeps,

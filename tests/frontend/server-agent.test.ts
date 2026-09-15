@@ -1964,6 +1964,29 @@ describe('ServerAgent', () => {
       } finally { agent.dispose(); clearGoalUi('session-1', initial.id) }
     })
 
+    it('attaches the machine error code to the thrown goal-action HTTP failure', async () => {
+      const response = (body: unknown, status: number) => ({ ok: status === 200, status, json: async () => body })
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const fetchMock = vi.fn().mockResolvedValueOnce(response({ error: 'x', code: 'GOAL_ACTIVE' }, 409))
+        vi.stubGlobal('fetch', fetchMock)
+        await expect(agent.updateGoal('pause')).rejects.toMatchObject({ message: 'x', code: 'GOAL_ACTIVE' })
+      } finally { agent.dispose() }
+    })
+
+    it('keeps the goal-action HTTP failure code-less when the body has no code', async () => {
+      const response = (body: unknown, status: number) => ({ ok: status === 200, status, json: async () => body })
+      const agent = await createServerAgent({ sessionId: 'session-1' })
+      try {
+        const fetchMock = vi.fn().mockResolvedValueOnce(response({ error: 'x' }, 409))
+        vi.stubGlobal('fetch', fetchMock)
+        const failure = await agent.updateGoal('pause').then(() => null, (error: unknown) => error)
+        expect(failure).toBeInstanceOf(Error)
+        expect((failure as Error).message).toBe('x')
+        expect('code' in (failure as object)).toBe(false)
+      } finally { agent.dispose() }
+    })
+
     describe('extend_resume', () => {
       const exhausted = { ...sampleGoal, status: 'paused', usage: { iterations: 99, activeDurationMs: 99_000_000 } }
       const options = { goalId: exhausted.id, expectedRevision: exhausted.revision }

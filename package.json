@@ -100,13 +100,12 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
-    "docx-preview": "0.3.7",
-    "pdfjs-dist": "5.4.394",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "@vitest/coverage-v8": "^4.1.8",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "docx-preview": "0.3.7",
     "electron": "^39.2.7",
     "electron-builder": "^26.0.12",
     "eslint": "^10.2.1",
@@ -118,6 +117,8 @@
     "lucide-react": "^1.11.0",
     "mermaid": "^11.16.0",
     "monaco-editor": "^0.55.1",
+    "node-pty": "^1.1.0",
+    "pdfjs-dist": "5.4.394",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-markdown": "^10.1.0",
@@ -128,6 +129,6 @@
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10",
     "vitest": "^4.1.8",
-    "node-pty": "^1.1.0"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

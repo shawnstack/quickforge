@@ -90,6 +90,8 @@ QuickForge 不绑定单一模型厂商。你可以连接 OpenAI-compatible 或 A
 
 桌面应用内置 QuickForge 运行时，日常使用无需额外安装全局 `qf` 命令。MCP Server、外部编辑器等扩展能力仍可能依赖相应的本地程序。
 
+QuickForge 预置 Playwright MCP 配置，默认关闭。在「设置 → MCP 服务」启用后，通过 `npx -y @playwright/mcp@latest` 启动，浏览器沿用上游默认的可见窗口模式。已有同名配置和启用状态保持不变；设置卡片标记为“内置”，不可删除，但仍可编辑、启停和重连。后端所在机器需要 Node/npm，首次启动通常需要联网下载包，浏览器缺失时按上游提示安装；QuickForge 不捆绑 MCP 包或浏览器，也不承诺离线开箱即用。
+
 ### 方式二：通过 npm 安装
 
 需要 [Node.js 22.19+](https://nodejs.org/) 和 npm：

@@ -50,6 +50,14 @@ describe('Goal summary navigation', () => {
     expect(html).toContain('预算已耗尽')
     expect(html).not.toContain(goal.summary)
   })
+  it('localizes the fixed budget-exhaustion hint the server writes', () => {
+    const html = render({
+      ...goal,
+      blocker: 'duration_budget',
+      blockerHint: 'Budget exhausted. Use extend_resume to add the default budget to exhausted limits and continue this goal; accumulated usage and progress are preserved.',
+    })
+    expect(html).toContain('预算已耗尽。可使用 extend_resume 为已耗尽的预算追加默认额度并继续该目标；累计用时与进度都会保留。')
+  })
 })
 
 describe('Goal Inspector', () => {

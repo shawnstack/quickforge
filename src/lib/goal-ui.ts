@@ -23,7 +23,7 @@
  * by any surface.
  */
 
-import { t } from '@/lib/i18n'
+import { t, type AppTextKey } from '@/lib/i18n'
 import { type GoalAction, type GoalState } from '@/lib/goal'
 
 /** Bridge event: a Goal surface asks the app shell to reveal the pinned summary. */
@@ -362,6 +362,36 @@ export function syncGoalUiState(sessionId: string, goal: GoalState | null | unde
   }
 }
 
+// Machine error codes the goal action endpoint reports with its HTTP error
+// body; a known code replaces the server's English message with localized copy.
+const GOAL_ACTION_ERROR_KEY: Record<string, AppTextKey> = {
+  GOAL_ACTIVE: 'goalErrorActive',
+  GOAL_SESSION_BUSY: 'goalErrorSessionBusy',
+  GOAL_BUDGET_EXHAUSTED: 'goalErrorBudgetExhausted',
+  GOAL_REVISION_CONFLICT: 'goalErrorRevisionConflict',
+  GOAL_BUDGET_NOT_EXHAUSTED: 'goalErrorBudgetNotExhausted',
+  GOAL_OBJECTIVE_REQUIRED: 'goalErrorObjectiveRequired',
+  GOAL_ACTION_INVALID: 'goalErrorActionInvalid',
+  GOAL_NOT_FOUND: 'goalErrorNotFound',
+  GOAL_UNAVAILABLE: 'goalErrorUnavailable',
+  SESSION_NOT_FOUND: 'goalErrorSessionNotFound',
+  SESSION_PERSIST_FAILED: 'goalErrorPersistFailed',
+}
+
+/**
+ * Map a goal-action failure to user-facing copy: a known machine error code
+ * wins over the raw message (the server's message is English); anything else
+ * keeps the previous behaviour — an Error message, or the generic failure key.
+ */
+export function goalActionErrorMessage(error: unknown): string {
+  const code = error !== null && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
+    ? (error as { code: string }).code
+    : ''
+  const key = code ? GOAL_ACTION_ERROR_KEY[code] : undefined
+  if (key) return t(key)
+  return error instanceof Error && error.message ? error.message : t('goalActionFailed')
+}
+
 /**
  * Run one goal action through the shared lock.
  *
@@ -403,7 +433,7 @@ export async function runGoalUiAction(
   try {
     await execute()
   } catch (error) {
-    failure = error instanceof Error && error.message ? error.message : t('goalActionFailed')
+    failure = goalActionErrorMessage(error)
   }
 
   // A newer request owns this key now: the late settlement must not unlock it.

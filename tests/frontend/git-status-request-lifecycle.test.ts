@@ -4,6 +4,7 @@ import { getGitStatus, stageGitFile } from '../../src/components/workspace/works
 
 const apiSource = readFileSync(new URL('../../src/components/workspace/workspace-api.ts', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const appGitSource = readFileSync(new URL('../../src/hooks/useAppGit.ts', import.meta.url), 'utf8')
 const panelHostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
 
 function stubPendingFetch() {
@@ -179,11 +180,11 @@ describe('git status callers release connections', () => {
   })
 
   it('App title refresh aborts the previous request and passes its own signal', () => {
-    expect(appSource).toContain('titleGitAbortRef.current?.abort()\n    const controller = new AbortController()')
+    expect(appGitSource).toContain('titleGitAbortRef.current?.abort()\n    const controller = new AbortController()')
     // 工具执行结束后的刷新绕过 1s 结果缓存（force）；titleGitStatus 同时供
     // GitToolsPinnedSummary / GitCommitPushDialog 消费，需要 files[].additions/deletions，故走 full。
-    expect(appSource).toContain('getGitStatus(projectId, controller.signal, { force })')
-    expect(appSource).toContain('if (controller.signal.aborted) return undefined')
+    expect(appGitSource).toContain('getGitStatus(projectId, controller.signal, { force })')
+    expect(appGitSource).toContain('if (controller.signal.aborted) return undefined')
   })
 
   it('App aborts the in-flight title request when the project scope changes', () => {

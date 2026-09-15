@@ -208,7 +208,8 @@ describe('workspace inspector tabs persistence', () => {
     expect(appSource).toContain('runtimeScopeId={workspaceInspectorRuntimeScopeId}')
     expect(managerSource).toContain('attachTaskToView(task, previousAgent.sessionId)')
     expect(managerSource).toContain('const runtimeScopeId = deferredAgent.sessionId')
-    expect(inspectorSource).toContain('writePersistedPanelTabs(projectId, sessionId, panelTabs, activePanelTabId, readerNavigationVisible)')
+    expect(inspectorSource).toContain('useInspectorTabsEffects({ ...tabState, projectId, sessionId })')
+    expect(readFileSync(new URL('../../src/components/workspace/useInspectorTabs.ts', import.meta.url), 'utf8')).toContain('writePersistedPanelTabs(projectId, sessionId, panelTabs, activePanelTabId, readerNavigationVisible)')
   })
 
   it('scopes async Inspector requests to the originating runtime and invalidates chat-file resolution on session changes', () => {
@@ -217,7 +218,7 @@ describe('workspace inspector tabs persistence', () => {
 
     expect(appSource).toContain('setWorkspaceInspectorRequest({ ...request, scope, id: workspaceInspectorRequestIdRef.current })')
     expect(appSource).toContain('workspaceInspectorRuntimeScopeMatches(requestScope, workspaceInspectorScopeRef.current)')
-    expect(appSource).toContain('[agentManager.currentRuntimeScopeId, agentManager.currentToolProject?.id]')
+    expect(appSource).toContain('[agentManager.currentRuntimeScopeId, agentManager.currentToolProject?.id, titleGitAbortRef, titleGitRequestIdRef]')
     expect(inspectorSource).toContain("{ projectId: projectId ?? 'global-workspace', runtimeScopeId }")
   })
 

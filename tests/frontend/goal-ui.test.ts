@@ -285,6 +285,22 @@ describe('goal-ui failure and cleanup', () => {
     expect(getGoalUiState(SESSION, GOAL).error).toBeNull()
   })
 
+  it('maps a machine error code to localized copy and keeps unknown codes on the message', async () => {
+    // A known server code replaces the (English) message with localized copy.
+    const coded = new Error('This chat already has an active goal.')
+    ;(coded as Error & { code?: string }).code = 'GOAL_ACTIVE'
+    await runGoalUiAction(SESSION, GOAL, 'confirm', async () => { throw coded })
+    expect(getGoalUiState(SESSION, GOAL).error).toBe(t('goalErrorActive'))
+
+    // An unknown code falls back to the Error message, non-Errors to the generic key.
+    const unknown = new Error('server offline')
+    ;(unknown as Error & { code?: string }).code = 'GOAL_SOMETHING_NEW'
+    await runGoalUiAction(SESSION, GOAL, 'confirm', async () => { throw unknown })
+    expect(getGoalUiState(SESSION, GOAL).error).toBe('server offline')
+    await runGoalUiAction(SESSION, GOAL, 'confirm', async () => { throw { code: 'GOAL_ACTIVE' } })
+    expect(getGoalUiState(SESSION, GOAL).error).toBe(t('goalErrorActive'))
+  })
+
   it('never unlocks a real in-flight request on unmount, but clears draft and error', async () => {
     const gate = deferred()
     const running = runGoalUiAction(SESSION, GOAL, 'resume', () => gate.promise)

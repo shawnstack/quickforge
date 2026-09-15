@@ -57,11 +57,11 @@ describe('session index F7 lifecycle and query boundary', () => {
   })
 
   it('persists metadata stateVersion while backup format remains JSON-only', async () => {
-    const [agentManager, backup] = await Promise.all([
-      readFile(agentManagerSourceUrl, 'utf8'),
+    const [sessionQueries, backup] = await Promise.all([
+      readFile(new URL('../../server/agent-session-queries.mjs', import.meta.url), 'utf8'),
       readFile(backupSourceUrl, 'utf8'),
     ])
-    expect(agentManager).toContain('stateVersion: session.stateVersion || 0')
+    expect(sessionQueries).toContain('stateVersion: session.stateVersion || 0')
     expect(backup).toContain('stateVersion: session.stateVersion')
     expect(backup).not.toContain('session_index')
     expect(backup).not.toContain('sessionIndex')

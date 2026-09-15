@@ -19,7 +19,8 @@ describe('Mobile H5 fullscreen adaptation', () => {
 
   it('shows the Workspace Inspector as a fullscreen overlay on narrow viewports', () => {
     expect(inspectorSource).toContain('quickforge-workspace-inspector-fullscreen z-20')
-    expect(inspectorSource).toContain("matchMedia('(min-width: 1024px)')")
+    const layoutSource = readFileSync(new URL('../../src/components/workspace/useInspectorLayout.ts', import.meta.url), 'utf8')
+    expect(layoutSource).toContain("matchMedia('(min-width: 1024px)')")
     expect(inspectorSource).toContain('visible && !fullscreen && !mobileOverlay ? (')
     expect(inspectorSource).toContain('visible && !fullscreen && !mobileOverlay ? {')
   })

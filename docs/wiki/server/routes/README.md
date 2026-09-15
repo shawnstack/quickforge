@@ -30,7 +30,11 @@
 | `lan-access.mjs` | 201 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 107 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
-| `workspace.mjs` | 1614 | 工作区文件浏览、产物预览静态读取、Git 变更检查、单文件/批量暂存与还原、分支操作、AI 提交信息生成、提交/推送和提交图谱（`server/index.mjs` 通过 `/api/git/*` 统一分发） |
+| `workspace.mjs` | 594 | HTTP 路由适配与原有 17 个公共导出的兼容入口；调用下列 workspace 服务，不重复实现业务函数 |
+| `workspace-git-service.mjs` | 681 | Git 子进程、查询/解析、暂存还原、提交推送、AI 提交信息；保留取消/超时和错误语义 |
+| `workspace-browser-service.mjs` | 527 | 目录树/children、分页排序、rg 与回退搜索、严格项目 mention 浏览 |
+| `workspace-file-service.mjs` | 193 | 文本读取、语言/MIME、预览安全校验与 ETag、外部路径打开；本机 HTTP 门禁仍在入口 |
+| `workspace-request-control.mjs` | 42 | 请求取消信号和清理、AbortError识别、原进程树终止；Git/browser共同使用 |
 | `channels.mjs` | 外部渠道管理、SSE 状态/会话变更事件、仅 localhost + `x-quickforge-action: channel-event` 可调用的内部事件 relay，以及仅 localhost + `x-quickforge-action: channel-action` 可打开已注册渠道日志目录的 `POST /api/channels/:id/open-logs` |
 | `cloud.mjs` | QuickForge Cloud 本地 BFF：状态、正式账户 Device Flow、模型、额度、设备撤销和安全退出 |
 | `static.mjs` | 89 | 静态文件服务；`index.html` 与可替换的 APK 下载使用 `no-cache`，其余构建资产长期缓存 |
@@ -202,6 +206,23 @@ Agent Profile 管理路由。
 - `POST /api/scheduled-tasks/:id/run` — 手动触发任务
 
 **调度引擎**: 内置调度器（`startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。任务新建/更新保存 `modelRef + model` 展示快照；执行时以后台授权上下文从当前统一目录重新解析，Cloud 失效或自定义 Provider 已删除时拒绝运行，永不使用旧 transport 快照。任务可通过 `agentId` 绑定 Agent Profile；执行时会追加 profile 系统提示词、限制工具白名单，并在运行历史中记录 `agentId`、`agentLabel` 和 `agentSnapshot`。每个任务可配置 `executionMode`：默认 `serial`，同一任务已有运行实例时跳过新的到期执行；`parallel` 允许同一任务重叠执行。不同任务之间始终并行触发。达到 Agent Profile 运行时限后会调用 `abortRun()`，并以有界等待清理 timeout、Agent 事件监听器、内存/持久化运行 ID；循环任务超时后暂停，已保存的任务会话仍保留供查看。
+
+**手动频次请求契约**（POST / PUT 的 `task`）：
+
+| scheduleType | 频次字段 | 语义 |
+|---|---|---|
+| once | `executeAt`（ISO 日期时间） | 新执行时间必须在未来；仅一次 |
+| interval | `intervalValue` 正整数、`intervalUnit: minute/hour/day`、`executeAt` | 新建/切换到间隔时三字段必填；首次执行必须在未来；编辑同一间隔可保留原始过去锚点 |
+| daily | `executeTime: HH:mm` | 服务端本地时间 |
+| weekly | `weekDays: number[]`、`executeTime` | 非空、0–6、去重排序；保留 `weekDay` 兼容旧客户端（请求有 weekDays 优先，否则显式 weekDay 可覆盖旧数组），返回 weekDay 为首项 |
+| monthly | `monthDay: 1..31`、`executeTime` | 缺日取当月最后一天 |
+| cron | `cronExpression` | 五字段；支持通配、逗号列表、范围、`*/n` 与数字起点步长；新表达式严格校验，列表裸 `*` 拒绝；历史表达式运行及未改表达式的编辑保留旧范围裁剪/有效项匹配兼容 |
+
+- 间隔校验同时检查首次锚点加一个间隔后的 Date 可表示性，避免可保存但首次推进溢出。真实 scheduler tick 回归覆盖并行启动推进、串行长任务跳槽和暂停/恢复。
+
+- 间隔以 executeAt 为锚点取严格晚于计算基准的下一槽位，错过的槽位跳过、不积压补跑；一天固定 24 小时。历史仅有中文 scheduleRule 的 interval 仍回退解析分钟/小时/天，以原 nextRunAt 补锚点；显式结构化字段优先。每 30 秒检查到期任务，非精确秒级触发。
+- 类型切换显式清除无关频次字段，客户端提交的 nextRunAt 不作为常规循环规则；一次任务保留旧 nextRunAt 入参兼容。Cron 日期和星期沿用现有 AND 匹配及最多 366 天搜索窗口；并非完整 Unix Cron 实现。
+- 时间算法位于 `server/utils/scheduled-tasks.mjs`；测试见 `tests/server/scheduled-tasks.test.mjs`、`scheduled-tasks.execution.test.mjs` 和前端 `scheduled-task-form` / `scheduled-tasks-page` tests。
 
 ## shares.mjs (90 行)
 

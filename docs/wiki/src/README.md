@@ -46,6 +46,8 @@ src/
 
 **用途**: 应用主组件，协调所有子组件和 hooks。
 
+终端请求、顶栏 Git 编排、启动/会话加载过渡已分别移入 `useAppTerminal.ts`、`useAppGit.ts`、`useAppLoadingTransitions.ts`（参见 [hooks 导航](hooks/README.md#app-三域编排phase-hooks)）。各模块按 state/effects/actions 分阶段调用，保留原 effect 相对顺序；跨域 project scope 失效处理、JSX、URL 基础 hooks 仍由原入口持有，不新增 context 或重建既有基础 hooks。
+
 **核心状态**:
 - `storageRef` — 存储实例引用
 - `activeModelRef` — 当前活动模型

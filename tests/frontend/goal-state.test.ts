@@ -3,7 +3,6 @@ import {
   GOAL_STATUSES,
   goalAcceptanceCheck,
   goalBudgetExtension,
-  goalCanAccept,
   goalCanCancel,
   goalCanConfirm,
   goalCanPause,
@@ -294,7 +293,7 @@ describe('goal status semantics', () => {
   })
 })
 
-describe('goalAcceptanceCheck / goalCanAccept', () => {
+describe('goalAcceptanceCheck', () => {
   const passedCriterion = { id: 'c1', description: 'Builds', required: true, status: 'passed' as const, evidenceIds: ['e1'] }
   const evidence = { id: 'e1', description: 'npm run build', toolCallId: 'call-1' }
   const failedCriterion = { id: 'c1', description: 'Builds', required: true, status: 'failed' as const, evidenceIds: [] }
@@ -334,12 +333,6 @@ describe('goalAcceptanceCheck / goalCanAccept', () => {
       status: 'needs_review',
       criteria: [{ ...failedCriterion, required: false }],
     })).ok).toBe(true)
-  })
-
-  it('only needs_review can be accepted', () => {
-    expect(goalCanAccept(goal({ status: 'needs_review', criteria: [] }))).toBe(true)
-    expect(goalCanAccept(goal({ status: 'running', criteria: [] }))).toBe(false)
-    expect(goalCanAccept(goal({ status: 'needs_review', criteria: [failedCriterion] }))).toBe(false)
   })
 })
 

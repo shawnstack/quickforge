@@ -1,3 +1,6 @@
+import { useInspectorGitState, useInspectorGit, useInspectorReviewSelection, useInspectorGitDemand, isNoWorkingTreeChangesError, type ReviewFilter } from './useInspectorGit'
+import { useInspectorTabsState, useInspectorTabsEffects, useInspectorTabsActions, viewFromPanelKind } from './useInspectorTabs'
+import { useInspectorLayoutState, useInspectorViewport, useInspectorVisibility, useInspectorWidth, useInspectorLayoutActions, WORKSPACE_INSPECTOR_MIN_WIDTH, getInspectorMaxWidth, NAV_PANEL_MIN_WIDTH, NAV_PANEL_MAX_WIDTH } from './useInspectorLayout'
 import { Bot, Check, ChevronDown, ChevronRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, MessageCircle, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import {
@@ -6,8 +9,6 @@ import {
   closestCenter,
   useSensor,
   useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -22,7 +23,7 @@ import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { ProjectOpenMenu } from '@/components/project/ProjectOpenMenu'
-import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
+import { showAlert } from '@/components/ui/confirm-dialog'
 import { WebPreviewContent } from '@/components/preview/WebPreviewContent'
 import { MarkdownReader } from './MarkdownReader'
 import { MonacoCodeViewer } from './MonacoCodeViewer'
@@ -30,8 +31,8 @@ import { MonacoDiffViewer } from './MonacoDiffViewer'
 import { countDiffLines } from './diff-line-counts'
 import { FileIcon } from './file-icon'
 import { GoalIcon } from '@/components/goal-icon'
-import { findBrowserTabToReuse, panelTabFilePath } from './workspace-tab-file-path'
-import { getGitFileDiff, getGitStatus, getWorkspaceChildren, getWorkspaceFile, getWorkspaceFileMeta, openWorkspaceExternal, restoreAllGitChanges, restoreGitFile, searchWorkspace, stageAllGitChanges, stageGitFile, unstageAllGitChanges, unstageGitFile } from './workspace-api'
+import { panelTabFilePath } from './workspace-tab-file-path'
+import { getGitFileDiff, getWorkspaceChildren, getWorkspaceFile, getWorkspaceFileMeta, openWorkspaceExternal, searchWorkspace, } from './workspace-api'
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
 import { WorkspaceDocumentContent } from './WorkspaceDocumentContent'
@@ -40,7 +41,7 @@ import { TerminalDock } from '@/components/terminal/TerminalDock'
 import { SubagentRunDetailContent } from './SubagentRunDetailContent'
 import { SideChatTabContent, type SideChatComposerDraftMemory } from './SideChatTabContent'
 import type { SideChatAgent } from './side-chat-agent'
-import { subagentRunStore, type SubagentRunPayload } from '@/lib/subagent-run-detail'
+import { subagentRunStore } from '@/lib/subagent-run-detail'
 import { resolveServerCacheKey } from '@/lib/session-message-cache'
 import {
   isWorkspaceDirectoryCacheFresh,
@@ -54,7 +55,7 @@ import {
 } from '@/lib/workspace-cache'
 import type { PendingTerminalCommand } from '@/components/terminal/terminal-api'
 import type { DocumentFormat } from './artifact-preview-utils'
-import type { GitChangedFile, GitFileDiffResponse, WorkspaceFileResponse, WorkspaceInspectorOpenRequest, WorkspacePanelView, WorkspaceTreeNode } from './workspace-types'
+import type { GitChangedFile, GitFileDiffResponse, WorkspaceFileResponse, WorkspaceInspectorOpenRequest, WorkspaceTreeNode } from './workspace-types'
 import {
   missingWorkspaceTreePaths,
   normalizeWorkspaceTreePath,
@@ -68,33 +69,23 @@ import {
 } from './workspace-tree-state'
 import {
   beginWorkspaceSearch,
-  shouldLoadWorkspaceGit,
   shouldLoadWorkspaceTreeRoot,
   shouldShowWorkspaceGitRetry,
   workspaceRefreshTarget,
   workspaceSearchEntriesForQuery,
   workspaceSearchResultCanOpen,
-  type WorkspaceGitLoadStatus,
   type WorkspaceSearchState,
 } from './workspace-inspector-on-demand-state'
 import { shouldHandleWorkspaceInspectorRequest } from './workspace-inspector-request'
 import {
   createWorkspaceInspectorProjectGuard,
-  nextPanelTabIndexFromTabs,
-  readPersistedPanelTabs,
-  reorderPanelTabs,
-  updateSubagentRunTab,
-  upsertSubagentRunTab,
-  writePersistedPanelTabs,
 } from './workspace-inspector-tabs'
 import type {
-  PersistedWorkspaceInspectorTabs,
   ReaderMode,
   ReaderTab,
   WorkspaceInspectorProjectToken,
   WorkspacePanelPrimaryTabKind,
   WorkspacePanelTab,
-  WorkspacePanelTabKind,
 } from './workspace-inspector-tabs'
 
 import { GoalInspectorContent, type GoalInspectorBinding } from './GoalInspectorContent'
@@ -130,20 +121,9 @@ type WorkspaceInspectorProps = {
   leftSidebarWidth?: number
 }
 
-function getDesktopTitlebarHeight() {
-  if (typeof window === 'undefined') return 0
-  const raw = window.getComputedStyle(document.body).getPropertyValue('--quickforge-desktop-titlebar-height').trim()
-  if (!raw) return 0
-  const value = Number.parseFloat(raw)
-  return Number.isFinite(value) ? value : 0
-}
-
 function readerTabId(mode: ReaderMode, path: string) {
   return mode === 'browser' ? 'browser' : `${mode}:${path}`
 }
-
-type ReviewFilter = 'unstaged' | 'staged' | 'all' | 'last'
-type GitChangeAction = 'restore' | 'stage' | 'unstage'
 
 type WorkspacePanelTabMeta = {
   kind: WorkspacePanelPrimaryTabKind
@@ -168,10 +148,6 @@ const REVIEW_FILTER_ITEMS: { value: ReviewFilter; label: string }[] = [
 ]
 
 const PANEL_TAB_BY_KIND = Object.fromEntries(PANEL_TAB_ITEMS.map((item) => [item.kind, item])) as Record<WorkspacePanelPrimaryTabKind, WorkspacePanelTabMeta>
-
-function viewFromPanelKind(kind: WorkspacePanelPrimaryTabKind): WorkspacePanelView {
-  return kind === 'review' ? 'changes' : kind === 'side-chat' ? 'files' : kind
-}
 
 function browserTabLabel(previewUrl: string) {
   const value = previewUrl.trim()
@@ -242,43 +218,6 @@ function SortablePanelTab({ id, children }: {
   )
 }
 
-const WORKSPACE_INSPECTOR_MIN_WIDTH = 340
-const WORKSPACE_INSPECTOR_DEFAULT_WIDTH = 380
-const WORKSPACE_INSPECTOR_MAX_WIDTH = 1200
-const WORKSPACE_INSPECTOR_MAX_VIEWPORT_RATIO = 0.75
-const WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH = 640
-const WORKSPACE_INSPECTOR_WIDTH_STORAGE_KEY = 'quickforge_workspaceInspectorWidth_v2'
-const NAV_PANEL_MIN_WIDTH = 140
-const NAV_PANEL_DEFAULT_WIDTH = 200
-const NAV_PANEL_MAX_WIDTH = 400
-
-function getInspectorMaxWidth(leftSidebarWidth = 0, conversationMinWidth = 0) {
-  if (typeof window === 'undefined') return WORKSPACE_INSPECTOR_MAX_WIDTH
-  const availableWidth = window.innerWidth - leftSidebarWidth - conversationMinWidth - 1
-  return Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, Math.min(
-    WORKSPACE_INSPECTOR_MAX_WIDTH,
-    window.innerWidth * WORKSPACE_INSPECTOR_MAX_VIEWPORT_RATIO,
-    availableWidth,
-  ))
-}
-
-function clampInspectorWidth(width: number, leftSidebarWidth = 0, conversationMinWidth = 0) {
-  return Math.min(getInspectorMaxWidth(leftSidebarWidth, conversationMinWidth), Math.max(WORKSPACE_INSPECTOR_MIN_WIDTH, width))
-}
-
-function readPersistedInspectorWidth(leftSidebarWidth = 0, conversationMinWidth = 0): number {
-  if (typeof window === 'undefined') return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
-  try {
-    const raw = window.localStorage.getItem(WORKSPACE_INSPECTOR_WIDTH_STORAGE_KEY)
-    if (!raw) return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
-    const value = Number(raw)
-    if (!Number.isFinite(value)) return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
-    return clampInspectorWidth(value, leftSidebarWidth, conversationMinWidth)
-  } catch {
-    return WORKSPACE_INSPECTOR_DEFAULT_WIDTH
-  }
-}
-
 function normalizeWorkspacePath(path: string | undefined, projectRoot?: string) {
   const raw = path?.trim()
   if (!raw) return ''
@@ -318,9 +257,6 @@ function readerDiffText(diff: GitFileDiffResponse) {
 // 服务端 /api/git/file-diff 对无工作区变更的文件固定返回 404 'File has no working tree changes'
 // （server/routes/workspace.mjs）。产物卡的「N 个文件已更改」是会话累计口径，文件被
 // commit/revert/撤销后 Git 工作区已无变更；该 404 转为友好空态而不是红色错误。
-function isNoWorkingTreeChangesError(err: unknown) {
-  return err instanceof Error && err.message === 'File has no working tree changes'
-}
 
 function InlineReader({ project, path, mode, file, diff, loading, error, noChanges, navigationVisible, onNavigationVisibleChange, allowExternalOpen = true, onOpenCurrentFile }: {
   project?: ProjectInfo
@@ -691,18 +627,10 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [treeRefreshing, setTreeRefreshing] = useState(false)
   const [searchState, setSearchState] = useState<WorkspaceSearchState>(() => beginWorkspaceSearch(''))
-  const [changes, setChanges] = useState<GitChangedFile[]>([])
-  const [gitBranch, setGitBranch] = useState<string>()
-  const [isGitRepository, setIsGitRepository] = useState(false)
-  const [gitLoadStatus, setGitLoadStatus] = useState<WorkspaceGitLoadStatus>('idle')
-  const [gitError, setGitError] = useState<string>()
+  const gitState = useInspectorGitState()
+  const { changes, setChanges, gitBranch, setGitBranch, isGitRepository, setIsGitRepository, gitLoadStatus, setGitLoadStatus, gitError, setGitError, reviewFilter, setReviewFilter, expandedDiffPath, expandedDiff, expandedDiffLoading, expandedDiffError, expandedDiffNoChanges, pendingGitAction, gitControllerRef } = gitState
+
   const [filter, setFilter] = useState('')
-  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('unstaged')
-  const [expandedDiffPath, setExpandedDiffPath] = useState<string>()
-  const [expandedDiff, setExpandedDiff] = useState<GitFileDiffResponse>()
-  const [expandedDiffLoading, setExpandedDiffLoading] = useState(false)
-  const [expandedDiffError, setExpandedDiffError] = useState<string>()
-  const [expandedDiffNoChanges, setExpandedDiffNoChanges] = useState(false)
 
   const canUseTerminal = Boolean(onShowGlobalTerminal)
   const availablePanelTabItems = useMemo(
@@ -712,45 +640,18 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     )),
     [canUseTerminal, sideChatEnabled],
   )
-  const initialPanelTabStateRef = useRef<PersistedWorkspaceInspectorTabs | undefined>(undefined)
-  if (!initialPanelTabStateRef.current) {
-    initialPanelTabStateRef.current = project?.id ? readPersistedPanelTabs(project.id, sessionId) : { tabs: [], readerNavigationVisible: true }
-  }
-  const [panelTabs, setPanelTabs] = useState<WorkspacePanelTab[]>(() => {
-    const tabs = initialPanelTabStateRef.current?.tabs ?? []
-    return canUseTerminal ? tabs : tabs.filter((tab) => tab.kind !== 'terminal')
-  })
-  const [activePanelTabId, setActivePanelTabId] = useState<string | undefined>(() => initialPanelTabStateRef.current?.activePanelTabId)
-  const [draggingPanelTabId, setDraggingPanelTabId] = useState<string>()
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [tabListOpen, setTabListOpen] = useState(false)
+  const tabState = useInspectorTabsState({ project, sessionId, canUseTerminal })
+  const { panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, draggingPanelTabId, menuOpen, setMenuOpen, tabListOpen, setTabListOpen, readerNavigationVisible, setReaderNavigationVisible, openPanelTabRef, openSubagentRunTabRef } = tabState
+
   const [reviewFilterOpen, setReviewFilterOpen] = useState(false)
-  const [pendingGitAction, setPendingGitAction] = useState<{ action: GitChangeAction; path?: string }>()
-  const [leftWidth, setLeftWidth] = useState(NAV_PANEL_DEFAULT_WIDTH)
-  const [readerNavigationVisible, setReaderNavigationVisible] = useState(() => initialPanelTabStateRef.current?.readerNavigationVisible !== false)
-  const [isNavResizing, setIsNavResizing] = useState(false)
-  const [mounted, setMounted] = useState(open)
-  const [visible, setVisible] = useState(false)
-  const [narrowViewport, setNarrowViewport] = useState(false)
-  const mobileOverlay = narrowViewport && mounted
-  const [width, setWidth] = useState(() => readPersistedInspectorWidth(leftSidebarWidth, conversationMinWidth))
-  const [isResizing, setIsResizing] = useState(false)
-  const [fullscreen, setFullscreen] = useState(false)
-  const [fullscreenAnimating, setFullscreenAnimating] = useState(false)
-  const asideRef = useRef<HTMLElement | null>(null)
+
+  const layoutState = useInspectorLayoutState({ open, leftSidebarWidth, conversationMinWidth })
+  const { leftWidth, isNavResizing, mounted, visible, mobileOverlay, width, isResizing, fullscreen, fullscreenAnimating, asideRef } = layoutState
+
   const menuRef = useRef<HTMLDivElement | null>(null)
   const tabListRef = useRef<HTMLDivElement | null>(null)
   const reviewFilterRef = useRef<HTMLDivElement | null>(null)
-  const navResizeDragRef = useRef<{ startX: number; startWidth: number; currentWidth: number } | null>(null)
-  const navResizeFrameRef = useRef<number | null>(null)
-  const resizeDragRef = useRef<{ startX: number; startWidth: number; currentWidth: number } | null>(null)
-  const resizeFrameRef = useRef<number | null>(null)
-  const fullscreenAnimationRef = useRef<Animation | null>(null)
-  const fullscreenExitActionRef = useRef<(() => void) | null>(null)
-  const previousBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(null)
-  const nextPanelTabIndexRef = useRef(nextPanelTabIndexFromTabs(initialPanelTabStateRef.current?.tabs ?? []))
-  const openPanelTabRef = useRef<((kind: WorkspacePanelPrimaryTabKind, nextView?: WorkspacePanelView, options?: { url?: string; readerTab?: ReaderTab }) => WorkspacePanelTab) | undefined>(undefined)
-  const openSubagentRunTabRef = useRef<((payload: SubagentRunPayload) => void) | undefined>(undefined)
+
   const openFileTabRef = useRef<((path: string) => void) | undefined>(undefined)
   const openDocumentTabRef = useRef<((path: string, format: DocumentFormat) => void) | undefined>(undefined)
   const openDiffTabRef = useRef<((path: string, switchToChanges: boolean) => void) | undefined>(undefined)
@@ -761,24 +662,16 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
   const refreshedReaderIdsRef = useRef<Set<string>>(new Set())
   // 本次挂载内已恢复 expandedPaths 的项目：防止重复恢复（项目切换后自然允许新项目恢复）。
   const restoredExpandedProjectRef = useRef<string | undefined>(undefined)
-  const expandedDiffRequestRef = useRef(0)
+
   const treeGenerationRef = useRef(0)
   const treeRequestsRef = useRef<Map<string, AbortController>>(new Map())
   const treeRemovedPathsRef = useRef<Set<string>>(new Set())
   const searchControllerRef = useRef<AbortController | null>(null)
   const searchTimerRef = useRef<number | null>(null)
-  const gitControllerRef = useRef<AbortController | null>(null)
 
   // 窄视口检测：1024px 对应 Tailwind lg 断点，<lg 时 Inspector 以全屏覆盖展示。
   // 防御式写法是为了兼容 vitest node 环境下无 matchMedia。
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return undefined
-    const query = window.matchMedia('(min-width: 1024px)')
-    const update = () => setNarrowViewport(!query.matches)
-    update()
-    query.addEventListener('change', update)
-    return () => query.removeEventListener('change', update)
-  }, [])
+  useInspectorViewport({ ...layoutState, open, onFullscreenChange, leftSidebarWidth, conversationMinWidth, activePanelTab: undefined, activeReaderTabId: undefined })
 
   useEffect(() => {
     const guard = projectGuardRef.current
@@ -791,9 +684,11 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
       treeRemovedPaths.clear()
       searchControllerRef.current?.abort()
       if (searchTimerRef.current !== null) window.clearTimeout(searchTimerRef.current)
+      // Abort the latest controller at cleanup, not a render-time snapshot.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       gitControllerRef.current?.abort()
     }
-  }, [])
+  }, [gitControllerRef])
 
   const projectId = project?.id
   if (projectId) projectGuardRef.current.token(projectId)
@@ -822,103 +717,13 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
   const navView: 'overview' | 'files' | 'changes' = activePanelTab?.kind === 'review'
     ? activePanelTab.reviewView === 'review' ? 'overview' : 'changes'
     : 'files'
-  const gitStatuses = useMemo(() => {
-    const map: Record<string, GitChangedFile> = {}
-    for (const file of changes) map[file.path] = file
-    return map
-  }, [changes])
+  const lastRunPaths = useMemo(() => lastRunChangePaths(artifacts, project?.path), [artifacts, project?.path])
 
-  const changedPaths = useMemo(() => {
-    const paths = new Set<string>()
-    for (const file of changes) {
-      paths.add(file.path)
-      if (file.oldPath) paths.add(file.oldPath)
-    }
-    return paths
-  }, [changes])
+  const { gitStatuses, changedPaths, gitLoading, reviewFiles, selectedReviewFile, handleStageFile, handleStageAll, handleUnstageFile, handleUnstageAll, handleRestoreFile, handleRestoreAll, loadGitStatus, toggleReviewDiff } = useInspectorGit({ ...gitState, projectId, projectGuardRef, lastRunPaths })
 
   const rootEntries = workspaceTreeDirectory(treeState, '.').entries
   const trimmedFilter = filter.trim()
   const displayedEntries = trimmedFilter.length >= 2 ? workspaceSearchEntriesForQuery(searchState, trimmedFilter) : rootEntries
-  const gitLoading = gitLoadStatus === 'loading'
-
-  const lastRunPaths = useMemo(() => lastRunChangePaths(artifacts, project?.path), [artifacts, project?.path])
-
-  const reviewFiles = useMemo(() => {
-    if (reviewFilter === 'staged') return changes.filter((file) => file.staged)
-    if (reviewFilter === 'all') return changes
-    if (reviewFilter === 'last') return changes.filter((file) => lastRunPaths.has(file.path) || (file.oldPath ? lastRunPaths.has(file.oldPath) : false))
-    return changes.filter((file) => file.unstaged || file.status === 'untracked' || file.conflict || file.status === 'conflicted')
-  }, [changes, lastRunPaths, reviewFilter])
-  const selectedReviewFile = expandedDiffPath
-    ? reviewFiles.find((file) => file.path === expandedDiffPath)
-    : undefined
-
-  function applyGitStatus(statusResponse: { files: GitChangedFile[]; branch?: string; isGitRepository: boolean }) {
-    setChanges(statusResponse.files)
-    setGitBranch(statusResponse.branch)
-    setIsGitRepository(statusResponse.isGitRepository)
-    setGitLoadStatus('loaded')
-    setGitError(undefined)
-  }
-
-  async function runGitAction(action: GitChangeAction, path: string | undefined, operation: () => Promise<{ files: GitChangedFile[]; branch?: string; isGitRepository: boolean }>, fallbackError: string) {
-    setPendingGitAction({ action, path })
-    try {
-      const statusResponse = await operation()
-      applyGitStatus(statusResponse)
-    } catch (err) {
-      await showAlert(err instanceof Error ? err.message : fallbackError)
-    } finally {
-      setPendingGitAction(undefined)
-    }
-  }
-
-  async function handleStageFile(file: GitChangedFile) {
-    if (!projectId) return
-    await runGitAction('stage', file.path, () => stageGitFile(projectId, file.path), t('workspaceStageFailed'))
-  }
-
-  async function handleStageAll() {
-    if (!projectId) return
-    await runGitAction('stage', undefined, () => stageAllGitChanges(projectId), t('workspaceStageFailed'))
-  }
-
-  async function handleUnstageFile(file: GitChangedFile) {
-    if (!projectId) return
-    await runGitAction('unstage', file.path, () => unstageGitFile(projectId, file.path), t('workspaceUnstageFailed'))
-  }
-
-  async function handleUnstageAll() {
-    if (!projectId) return
-    await runGitAction('unstage', undefined, () => unstageAllGitChanges(projectId), t('workspaceUnstageFailed'))
-  }
-
-  async function handleRestoreFile(file: GitChangedFile) {
-    if (!projectId) return
-    const confirmed = await showConfirm({
-      title: t('workspaceRestoreConfirmTitle'),
-      description: t('workspaceRestoreFileConfirm', { path: file.path }),
-      confirmLabel: t('workspaceRestoreFile'),
-      cancelLabel: t('cancel'),
-      variant: 'destructive',
-    })
-    if (!confirmed) return
-    await runGitAction('restore', file.path, () => restoreGitFile(projectId, file.path), t('workspaceRestoreFailed'))
-  }
-
-  async function handleRestoreAll() {
-    if (!projectId) return
-    const confirmed = await showConfirm({
-      title: t('workspaceRestoreConfirmTitle'),
-      description: t('workspaceRestoreAllConfirm'),
-      confirmLabel: t('workspaceRestoreAll'),
-      cancelLabel: t('cancel'),
-      variant: 'destructive',
-    })
-    if (!confirmed) return
-    await runGitAction('restore', undefined, () => restoreAllGitChanges(projectId), t('workspaceRestoreFailed'))
-  }
 
   function handleOpenChangedFile(file: GitChangedFile) {
     if (file.status === 'deleted') return
@@ -946,46 +751,9 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     }
   }
 
-  useEffect(() => {
-    if (!expandedDiffPath || reviewFiles.some((file) => file.path === expandedDiffPath)) return
-    setExpandedDiffPath(undefined)
-    setExpandedDiff(undefined)
-    setExpandedDiffError(undefined)
-    setExpandedDiffLoading(false)
-    setExpandedDiffNoChanges(false)
-  }, [expandedDiffPath, reviewFiles])
+  useInspectorReviewSelection({ ...gitState, reviewFiles })
 
-  useEffect(() => {
-    if (open) {
-      let disposed = false
-      queueMicrotask(() => {
-        if (disposed) return
-        setMounted(true)
-        window.requestAnimationFrame(() => {
-          if (!disposed) setVisible(true)
-        })
-      })
-      return () => { disposed = true }
-    }
-
-    let disposed = false
-    queueMicrotask(() => {
-      if (!disposed) setVisible(false)
-    })
-    const timer = window.setTimeout(() => setMounted(false), 180)
-    if (fullscreen) {
-      fullscreenAnimationRef.current?.cancel()
-      fullscreenExitActionRef.current = null
-      setFullscreen(false)
-      setFullscreenAnimating(false)
-      onFullscreenChange?.(false)
-      asideRef.current?.removeAttribute('style')
-    }
-    return () => {
-      disposed = true
-      window.clearTimeout(timer)
-    }
-  }, [fullscreen, onFullscreenChange, open])
+  useInspectorVisibility({ ...layoutState, open, onFullscreenChange, leftSidebarWidth, conversationMinWidth, activePanelTab: activePanelTab, activeReaderTabId: activeReaderTabId })
 
   useEffect(() => {
     if (!menuOpen && !tabListOpen && !reviewFilterOpen) return undefined
@@ -1008,7 +776,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
       document.removeEventListener('pointerdown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [menuOpen, reviewFilterOpen, tabListOpen])
+  }, [menuOpen, reviewFilterOpen, setMenuOpen, setTabListOpen, tabListOpen])
 
   useEffect(() => {
     if (!open || !shouldHandleWorkspaceInspectorRequest(
@@ -1045,40 +813,13 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
       openPanelTabRef.current?.(request.kind, viewFromPanelKind(request.kind))
     }
     onRequestHandled?.(request.id)
-  }, [goalBinding, onRequestHandled, open, projectId, request, runtimeScopeId, sideChatEnabled])
+  }, [goalBinding, onRequestHandled, open, openPanelTabRef, openSubagentRunTabRef, projectId, request, runtimeScopeId, setActivePanelTabId, setPanelTabs, setReaderNavigationVisible, sideChatEnabled])
   // 持久化工作区宽度：拖拽或自动展开后都写入，刷新后保持上次宽度
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(WORKSPACE_INSPECTOR_WIDTH_STORAGE_KEY, String(width))
-    } catch {
-      /* ignore quota / privacy mode */
-    }
-  }, [width])
+  useInspectorWidth({ ...layoutState, open, onFullscreenChange, leftSidebarWidth, conversationMinWidth, activePanelTab: activePanelTab, activeReaderTabId: activeReaderTabId })
 
   // 窗口尺寸变化时把已存宽度重新夹到当前视口允许的上限内（全屏/窄视口覆盖模式下不动）。
-  useEffect(() => {
-    const syncWidthToViewport = () => {
-      if (fullscreen || mobileOverlay) return
-      setWidth((current) => clampInspectorWidth(current, leftSidebarWidth, conversationMinWidth))
-    }
-    window.addEventListener('resize', syncWidthToViewport)
-    syncWidthToViewport()
-    return () => window.removeEventListener('resize', syncWidthToViewport)
-  }, [conversationMinWidth, fullscreen, leftSidebarWidth, mobileOverlay])
-
-  const expandInspectorToMax = useCallback(() => {
-    setWidth((current) => (current < WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH
-      ? clampInspectorWidth(WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH, leftSidebarWidth, conversationMinWidth)
-      : current))
-  }, [conversationMinWidth, leftSidebarWidth])
 
   // 打开文件、文档、网页、终端或 subagent 运行详情时自动拉宽到固定宽度（手动拖动上限更高，见 getInspectorMaxWidth）。
-  useEffect(() => {
-    if (!visible || fullscreen) return
-    const viewingContent = activePanelTab?.kind === 'browser' || activePanelTab?.kind === 'document' || activePanelTab?.kind === 'terminal' || activePanelTab?.kind === 'subagent' || Boolean(activeReaderTabId)
-    if (!viewingContent) return
-    expandInspectorToMax()
-  }, [activePanelTab?.kind, activeReaderTabId, visible, fullscreen, expandInspectorToMax])
 
   const loadTreeDirectory = useCallback(async (rawPath: string, options: { append?: boolean; force?: boolean; cursor?: string } = {}) => {
     if (!projectId) return false
@@ -1171,28 +912,6 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     }
   }, [projectId, treeState])
 
-  const loadGitStatus = useCallback(async (force = false) => {
-    if (!projectId) return
-    if (gitControllerRef.current && !force) return
-    gitControllerRef.current?.abort()
-    const controller = new AbortController()
-    gitControllerRef.current = controller
-    const projectToken = projectGuardRef.current.token(projectId)
-    setGitLoadStatus('loading')
-    setGitError(undefined)
-    try {
-      const statusResponse = await getGitStatus(projectId, controller.signal, { force })
-      if (controller.signal.aborted || !projectGuardRef.current.isCurrent(projectToken)) return
-      applyGitStatus(statusResponse)
-    } catch (err) {
-      if (controller.signal.aborted || !projectGuardRef.current.isCurrent(projectToken)) return
-      setGitError(err instanceof Error ? err.message : t('workspaceLoadFailed'))
-      setGitLoadStatus('error')
-    } finally {
-      if (gitControllerRef.current === controller) gitControllerRef.current = null
-    }
-  }, [projectId])
-
   function toggleTreeDirectory(path: string) {
     const normalized = normalizeWorkspaceTreePath(path)
     const expanded = expandedPaths.has(normalized)
@@ -1274,10 +993,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     void loadTreeDirectory('.')
   }, [loadTreeDirectory, open, projectId, treeState])
 
-  useEffect(() => {
-    if (!projectId || activePanelTab?.kind !== 'review') return
-    if (shouldLoadWorkspaceGit(gitLoadStatus)) void loadGitStatus()
-  }, [activePanelTab?.kind, gitLoadStatus, loadGitStatus, projectId])
+  useInspectorGitDemand({ ...gitState, projectId, activePanelTab, loadGitStatus })
 
   useEffect(() => {
     const query = filter.trim()
@@ -1320,7 +1036,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
       searchTimerRef.current = null
     }
     gitControllerRef.current?.abort()
-  }, [projectId])
+  }, [gitControllerRef, projectId, setChanges, setGitBranch, setGitError, setGitLoadStatus, setIsGitRepository])
 
   // 恢复上次会话的目录树展开状态：打开且项目有效时仅做一次（ref 防重复）。
   // 已缓存的目录会命中 loadTreeDirectory 的缓存 seed；缓存 miss 的目录走网络（可接受）。
@@ -1339,24 +1055,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     })()
   }, [open, projectId, loadTreeDirectory])
 
-  useEffect(() => {
-    // 实时更新订阅：ServerAgent 的 tool_execution_* SSE 与 local-tools 的渲染回填
-    // 都发布到 subagentRunStore。仅更新已打开且 runId 匹配、指纹不同的 Tab；
-    // 无匹配 Tab 时返回原数组，避免无意义的 setState。
-    return subagentRunStore.subscribe((payload) => {
-      setPanelTabs((current) => updateSubagentRunTab(current, payload))
-    })
-  }, [])
-
-  useEffect(() => {
-    if (!projectId) return
-    writePersistedPanelTabs(projectId, sessionId, panelTabs, activePanelTabId, readerNavigationVisible)
-  }, [activePanelTabId, panelTabs, projectId, readerNavigationVisible, sessionId])
-
-  useEffect(() => {
-    if (!activePanelTabId || panelTabs.some((tab) => tab.id === activePanelTabId)) return
-    setActivePanelTabId(panelTabs[0]?.id)
-  }, [activePanelTabId, panelTabs])
+  useInspectorTabsEffects({ ...tabState, projectId, sessionId })
 
   // 文件读取统一入口：先读缓存快照——命中则立即写回 tab 并后台用 meta 校准
   // （一致即结束；不一致再全量重拉并覆写缓存）；未命中则直接请求并写缓存。
@@ -1404,6 +1103,8 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
       if (!projectGuardRef.current.isCurrent(projectToken)) return
       applyError(err)
     }
+  // Preserve the original project-only cache callback identity; updatePanelTab only closes over the stable setter.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
   useEffect(() => {
@@ -1429,115 +1130,10 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     }
   }, [panelTabs, projectId, loadReaderFileFromCacheOrServer])
 
-  function createPanelTab(kind: WorkspacePanelTabKind, options?: { url?: string; readerTab?: ReaderTab; document?: { path: string; format: DocumentFormat }; reviewView?: 'review' | 'changes' }): WorkspacePanelTab {
-    const id = `${kind}-${nextPanelTabIndexRef.current++}`
-    if (kind === 'browser') return { id, kind, url: options?.url || '' }
-    if (kind === 'document') return { id, kind, document: options?.document }
-    if (kind === 'reader') return { id, kind, readerTabs: options?.readerTab ? [options.readerTab] : [], activeReaderTabId: options?.readerTab?.id }
-    if (kind === 'files' || kind === 'review') {
-      return { id, kind, ...(kind === 'review' ? { reviewView: options?.reviewView || 'changes' } : {}), readerTabs: options?.readerTab ? [options.readerTab] : [], activeReaderTabId: options?.readerTab?.id }
-    }
-    return { id, kind }
-  }
-
-  function createReaderPanelTab(readerTab: ReaderTab): WorkspacePanelTab {
-    return createPanelTab('reader', { readerTab })
-  }
+  const { createPanelTab, createReaderPanelTab, openPanelTab, activatePanelTab, handlePanelTabDragStart, finishPanelTabDrag, handlePanelTabDragEnd, closePanelTab, closeOtherPanelTabs, closeAllPanelTabs } = useInspectorTabsActions({ ...tabState, onClearSideChat, onOpenChange, updatePanelTab })
 
   function updatePanelTab(id: string, updater: (tab: WorkspacePanelTab) => WorkspacePanelTab) {
     setPanelTabs((prev) => prev.map((tab) => tab.id === id ? updater(tab) : tab))
-  }
-
-  function openPanelTab(kind: WorkspacePanelPrimaryTabKind, nextView: WorkspacePanelView = viewFromPanelKind(kind), options?: { url?: string; readerTab?: ReaderTab }) {
-    const existing = kind === 'review' || kind === 'side-chat'
-      ? panelTabs.find((tab) => tab.kind === kind)
-      : kind === 'browser' && options?.url
-        ? findBrowserTabToReuse(panelTabs, options.url)
-        : undefined
-    const targetTab = existing || createPanelTab(kind, { ...options, ...(kind === 'review' ? { reviewView: nextView === 'review' ? 'review' : 'changes' } : {}) })
-    if (!existing) setPanelTabs((prev) => [...prev, targetTab])
-    if (existing?.kind === 'review') {
-      updatePanelTab(existing.id, (tab) => ({ ...tab, reviewView: nextView === 'review' ? 'review' : 'changes' }))
-    }
-    if (existing?.kind === 'browser') {
-      // 重复预览同一文件：复用已有 tab 并递增 reloadNonce，由 WebPreviewContent 触发 iframe 重载。
-      updatePanelTab(existing.id, (tab) => ({ ...tab, reloadNonce: (tab.reloadNonce ?? 0) + 1 }))
-    }
-    setActivePanelTabId(targetTab.id)
-    setMenuOpen(false)
-    return targetTab
-  }
-  openPanelTabRef.current = openPanelTab
-
-  function openSubagentRunTab(payload: SubagentRunPayload) {
-    const nextId = `subagent-${nextPanelTabIndexRef.current}`
-    const result = upsertSubagentRunTab(panelTabs, payload, nextId)
-    if (result.created) nextPanelTabIndexRef.current += 1
-    setPanelTabs(result.tabs)
-    setActivePanelTabId(result.tabId)
-    setMenuOpen(false)
-  }
-  openSubagentRunTabRef.current = openSubagentRunTab
-
-  function activatePanelTab(tab: WorkspacePanelTab) {
-    setActivePanelTabId(tab.id)
-  }
-
-  function handlePanelTabDragStart(event: DragStartEvent) {
-    setDraggingPanelTabId(event.active.id as string)
-    setMenuOpen(false)
-    setTabListOpen(false)
-  }
-
-  function finishPanelTabDrag() {
-    setDraggingPanelTabId(undefined)
-  }
-
-  function handlePanelTabDragEnd(event: DragEndEvent) {
-    finishPanelTabDrag()
-    const { active, over } = event
-    if (!over) return
-    setPanelTabs((prev) => reorderPanelTabs(prev, active.id as string, over.id as string))
-  }
-
-  function clearSideChat() {
-    onClearSideChat()
-  }
-
-  function closePanelTab(id: string) {
-    const closingTab = panelTabs.find((tab) => tab.id === id)
-    if (closingTab?.kind === 'side-chat') clearSideChat()
-    setPanelTabs((prev) => {
-      const index = prev.findIndex((tab) => tab.id === id)
-      const next = prev.filter((tab) => tab.id !== id)
-      if (next.length === 0) {
-        setActivePanelTabId(undefined)
-        onOpenChange(false)
-        return next
-      }
-      if (activePanelTabId === id) {
-        const nextActive = next[index] ?? next[index - 1]
-        setActivePanelTabId(nextActive?.id)
-      }
-      return next
-    })
-  }
-
-  function closeOtherPanelTabs() {
-    const activeTab = panelTabs.find((tab) => tab.id === activePanelTabId) ?? panelTabs[0]
-    if (!activeTab) return
-    if (activeTab.kind !== 'side-chat' && panelTabs.some((tab) => tab.kind === 'side-chat')) clearSideChat()
-    setPanelTabs([activeTab])
-    setActivePanelTabId(activeTab.id)
-    setTabListOpen(false)
-  }
-
-  function closeAllPanelTabs() {
-    if (panelTabs.some((tab) => tab.kind === 'side-chat')) clearSideChat()
-    setPanelTabs([])
-    setActivePanelTabId(undefined)
-    setTabListOpen(false)
-    onOpenChange(false)
   }
 
   function selectPreviewFile(path: string) {
@@ -1650,278 +1246,11 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     await loadDiffIntoReaderTab(targetTab.id, id, path, projectToken)
   }
 
-  async function toggleReviewDiff(path: string) {
-    if (!projectId) return
-    const projectToken = projectGuardRef.current.token(projectId)
-    if (expandedDiffPath === path) {
-      expandedDiffRequestRef.current += 1
-      setExpandedDiffPath(undefined)
-      setExpandedDiff(undefined)
-      setExpandedDiffError(undefined)
-      setExpandedDiffLoading(false)
-      setExpandedDiffNoChanges(false)
-      return
-    }
-
-    const requestId = expandedDiffRequestRef.current + 1
-    expandedDiffRequestRef.current = requestId
-    setExpandedDiffPath(path)
-    setExpandedDiff(undefined)
-    setExpandedDiffError(undefined)
-    setExpandedDiffLoading(true)
-    setExpandedDiffNoChanges(false)
-    try {
-      const diff = await getGitFileDiff(projectId, path)
-      if (expandedDiffRequestRef.current !== requestId || !projectGuardRef.current.isCurrent(projectToken)) return
-      setExpandedDiff(diff)
-      setExpandedDiffNoChanges(false)
-    } catch (err) {
-      if (expandedDiffRequestRef.current !== requestId || !projectGuardRef.current.isCurrent(projectToken)) return
-      if (isNoWorkingTreeChangesError(err)) {
-        // 同 openDiffTab：无工作区变更的 404 转为友好空态，不显示红色错误。
-        setExpandedDiffError(undefined)
-        setExpandedDiffNoChanges(true)
-      } else {
-        setExpandedDiffError(err instanceof Error ? err.message : t('workspaceOpenDiffFailed'))
-        setExpandedDiffNoChanges(false)
-      }
-    } finally {
-      if (expandedDiffRequestRef.current === requestId && projectGuardRef.current.isCurrent(projectToken)) setExpandedDiffLoading(false)
-    }
-  }
-
   async function selectDiffInPlace(path: string) {
     await openDiffTab(path, false)
   }
 
-  function startResizing(event: React.PointerEvent<HTMLDivElement>) {
-    resizeDragRef.current = { startX: event.clientX, startWidth: width, currentWidth: width }
-    previousBodyStyleRef.current = {
-      cursor: document.body.style.cursor,
-      userSelect: document.body.style.userSelect,
-    }
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    setIsResizing(true)
-    event.preventDefault()
-    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* ignore */ }
-  }
-
-  function resize(event: React.PointerEvent<HTMLDivElement>) {
-    const start = resizeDragRef.current
-    const aside = asideRef.current
-    if (!start || !aside) return
-    start.currentWidth = clampInspectorWidth(start.startWidth + start.startX - event.clientX, leftSidebarWidth, conversationMinWidth)
-    if (resizeFrameRef.current !== null) return
-    resizeFrameRef.current = window.requestAnimationFrame(() => {
-      resizeFrameRef.current = null
-      const current = resizeDragRef.current
-      if (!current || !asideRef.current) return
-      asideRef.current.style.width = `${current.currentWidth}px`
-    })
-  }
-
-  function stopResizing(event: React.PointerEvent<HTMLDivElement>) {
-    const finalWidth = resizeDragRef.current?.currentWidth
-    resizeDragRef.current = null
-    if (resizeFrameRef.current !== null) {
-      window.cancelAnimationFrame(resizeFrameRef.current)
-      resizeFrameRef.current = null
-    }
-    if (typeof finalWidth === 'number') {
-      if (asideRef.current) asideRef.current.style.width = `${finalWidth}px`
-      setWidth(finalWidth)
-    }
-    const previousBodyStyle = previousBodyStyleRef.current
-    if (previousBodyStyle) {
-      document.body.style.cursor = previousBodyStyle.cursor
-      document.body.style.userSelect = previousBodyStyle.userSelect
-      previousBodyStyleRef.current = null
-    }
-    setIsResizing(false)
-    try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* ignore */ }
-  }
-
-  function startNavResizing(event: React.PointerEvent<HTMLDivElement>) {
-    navResizeDragRef.current = { startX: event.clientX, startWidth: leftWidth, currentWidth: leftWidth }
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    setIsNavResizing(true)
-    event.preventDefault()
-    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* ignore */ }
-  }
-
-  function navResize(event: React.PointerEvent<HTMLDivElement>) {
-    const start = navResizeDragRef.current
-    if (!start) return
-    start.currentWidth = Math.min(
-      NAV_PANEL_MAX_WIDTH,
-      Math.max(NAV_PANEL_MIN_WIDTH, start.startWidth + start.startX - event.clientX),
-    )
-    if (navResizeFrameRef.current !== null) return
-    navResizeFrameRef.current = window.requestAnimationFrame(() => {
-      navResizeFrameRef.current = null
-      const current = navResizeDragRef.current
-      if (current) setLeftWidth(current.currentWidth)
-    })
-  }
-
-  function stopNavResizing(event: React.PointerEvent<HTMLDivElement>) {
-    const finalWidth = navResizeDragRef.current?.currentWidth
-    navResizeDragRef.current = null
-    if (navResizeFrameRef.current !== null) {
-      window.cancelAnimationFrame(navResizeFrameRef.current)
-      navResizeFrameRef.current = null
-    }
-    if (typeof finalWidth === 'number') setLeftWidth(finalWidth)
-    document.body.style.cursor = ''
-    document.body.style.userSelect = ''
-    setIsNavResizing(false)
-    try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* ignore */ }
-  }
-
-  const toggleFullscreen = useCallback((afterExit?: () => void) => {
-    const aside = asideRef.current
-    if (!aside) {
-      const nextFullscreen = !fullscreen
-      setFullscreen(nextFullscreen)
-      onFullscreenChange?.(nextFullscreen)
-      if (!nextFullscreen) afterExit?.()
-      return
-    }
-
-    if (fullscreen && afterExit) fullscreenExitActionRef.current = afterExit
-    fullscreenAnimationRef.current?.cancel()
-    const rect = aside.getBoundingClientRect()
-    const viewportWidth = window.innerWidth
-    const titlebarHeight = getDesktopTitlebarHeight()
-    const viewportHeight = window.innerHeight - titlebarHeight
-    const fullscreenTop = `${titlebarHeight}px`
-    const fullscreenHeight = `${viewportHeight}px`
-    const easing = 'cubic-bezier(0.22, 1, 0.36, 1)'
-    setFullscreenAnimating(true)
-
-    if (!fullscreen) {
-      window.requestAnimationFrame(() => {
-        const currentAside = asideRef.current
-        if (!currentAside) return
-        Object.assign(currentAside.style, {
-          position: 'fixed',
-          left: `${rect.left}px`,
-          top: `${rect.top}px`,
-          right: 'auto',
-          bottom: 'auto',
-          width: `${rect.width}px`,
-          height: `${rect.height}px`,
-          minWidth: '0px',
-          maxWidth: 'none',
-          zIndex: '40',
-        })
-        const animation = currentAside.animate(
-          [
-            { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` },
-            { left: '0px', top: fullscreenTop, width: `${viewportWidth}px`, height: fullscreenHeight },
-          ],
-          { duration: 240, easing, fill: 'forwards' },
-        )
-        fullscreenAnimationRef.current = animation
-        animation.onfinish = () => {
-          fullscreenAnimationRef.current = null
-          setFullscreen(true)
-          onFullscreenChange?.(true)
-          window.requestAnimationFrame(() => {
-            animation.cancel()
-            currentAside.removeAttribute('style')
-            window.requestAnimationFrame(() => setFullscreenAnimating(false))
-          })
-        }
-        animation.oncancel = () => {
-          fullscreenAnimationRef.current = null
-          fullscreenExitActionRef.current = null
-          setFullscreenAnimating(false)
-        }
-      })
-      return
-    }
-
-    window.requestAnimationFrame(() => {
-      const currentAside = asideRef.current
-      if (!currentAside) return
-      Object.assign(currentAside.style, {
-        position: 'fixed',
-        left: '0px',
-        top: fullscreenTop,
-        right: 'auto',
-        bottom: 'auto',
-        width: `${rect.width}px`,
-        height: fullscreenHeight,
-        zIndex: '40',
-      })
-      const targetLeft = viewportWidth - width
-      const animation = currentAside.animate(
-        [
-          { left: '0px', top: fullscreenTop, width: `${rect.width}px`, height: fullscreenHeight },
-          { left: `${targetLeft}px`, top: fullscreenTop, width: `${width}px`, height: fullscreenHeight },
-        ],
-        { duration: 240, easing, fill: 'forwards' },
-      )
-      fullscreenAnimationRef.current = animation
-      animation.onfinish = () => {
-        fullscreenAnimationRef.current = null
-        setFullscreen(false)
-        onFullscreenChange?.(false)
-        const exitAction = fullscreenExitActionRef.current
-        fullscreenExitActionRef.current = null
-        window.requestAnimationFrame(() => {
-          animation.cancel()
-          currentAside.style.position = ''
-          currentAside.style.left = ''
-          currentAside.style.top = ''
-          currentAside.style.right = ''
-          currentAside.style.bottom = ''
-          currentAside.style.height = ''
-          currentAside.style.zIndex = ''
-          currentAside.style.width = `${width}px`
-          currentAside.style.minWidth = `${WORKSPACE_INSPECTOR_MIN_WIDTH}px`
-          currentAside.style.maxWidth = `${getInspectorMaxWidth(leftSidebarWidth, conversationMinWidth)}px`
-          window.requestAnimationFrame(() => {
-            setFullscreenAnimating(false)
-            exitAction?.()
-          })
-        })
-      }
-      animation.oncancel = () => {
-        fullscreenAnimationRef.current = null
-        fullscreenExitActionRef.current = null
-        setFullscreenAnimating(false)
-      }
-    })
-  }, [conversationMinWidth, fullscreen, leftSidebarWidth, onFullscreenChange, width])
-
-  useEffect(() => {
-    if (!fullscreen) return undefined
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') toggleFullscreen()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [fullscreen, toggleFullscreen])
-
-  useEffect(() => () => {
-    onFullscreenChange?.(false)
-  }, [onFullscreenChange])
-
-  useEffect(() => () => {
-    if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current)
-    if (navResizeFrameRef.current !== null) window.cancelAnimationFrame(navResizeFrameRef.current)
-    fullscreenAnimationRef.current?.cancel()
-    if (asideRef.current) asideRef.current.removeAttribute('style')
-    const previousBodyStyle = previousBodyStyleRef.current
-    if (previousBodyStyle) {
-      document.body.style.cursor = previousBodyStyle.cursor
-      document.body.style.userSelect = previousBodyStyle.userSelect
-    }
-  }, [])
+  const { startResizing, resize, stopResizing, startNavResizing, navResize, stopNavResizing, toggleFullscreen } = useInspectorLayoutActions({ ...layoutState, open, onFullscreenChange, leftSidebarWidth, conversationMinWidth, activePanelTab: activePanelTab, activeReaderTabId: activeReaderTabId })
 
   if (!mounted) return null
 

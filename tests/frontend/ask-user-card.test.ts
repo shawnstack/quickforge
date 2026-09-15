@@ -118,6 +118,7 @@ describe('ask-user card wiring', () => {
   const css = readFileSync('src/index.css', 'utf8')
   const host = readFileSync('src/components/chat/ChatPanelHost.tsx', 'utf8')
   const serverAgent = readFileSync('src/lib/server-agent.ts', 'utf8')
+  const sseClient = readFileSync('src/lib/global-agent-sse-client.ts', 'utf8')
   const i18n = readFileSync('src/lib/i18n.ts', 'utf8')
   const card = readFileSync('src/components/chat/panel-decoration/ask-user-card.ts', 'utf8')
   const localTools = readFileSync('src/lib/local-tools.ts', 'utf8')
@@ -191,7 +192,7 @@ describe('ask-user card wiring', () => {
   })
 
   it('server-agent registers the events, state field, and answer API', () => {
-    expect(serverAgent).toContain("'ask_user_required', 'ask_user_answered'")
+    expect(sseClient).toContain("'ask_user_required', 'ask_user_answered'")
     expect(serverAgent).toContain('pendingAsk')
     expect(serverAgent).toContain('/answer-ask')
   })

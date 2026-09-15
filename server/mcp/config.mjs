@@ -6,6 +6,22 @@ const MCP_CONFIG_KEY = 'mcpServers'
 const MAX_SERVERS = 50
 const MAX_ARGS = 100
 const MAX_ENV_KEYS = 100
+const PLAYWRIGHT_PRESET = { name: 'playwright', enabled: false, command: 'npx', args: ['-y', '@playwright/mcp@latest'] }
+
+function withPlaywrightPreset(servers) {
+  return servers.some((server) => server.name === PLAYWRIGHT_PRESET.name)
+    ? servers
+    : [normalizeMcpServerConfig(PLAYWRIGHT_PRESET), ...servers]
+}
+
+function assertPlaywrightCapacity(servers, name) {
+  if (name === PLAYWRIGHT_PRESET.name && servers.length >= MAX_SERVERS
+    && !servers.some((server) => server.name === name)) {
+    const error = new Error(`MCP server capacity reached (${MAX_SERVERS}); remove a server before adding playwright.`)
+    error.statusCode = 409
+    throw error
+  }
+}
 
 function isPlainObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
@@ -164,7 +180,9 @@ export function normalizeMcpServers(value) {
 
 export async function readMcpServers() {
   const mcp = await readStore('mcp')
-  return normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])
+  return withPlaywrightPreset(normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])).map((server) => (
+    server.name === PLAYWRIGHT_PRESET.name ? { ...server, builtin: true } : server
+  ))
 }
 
 export async function writeMcpServers(servers) {
@@ -179,6 +197,7 @@ export async function upsertMcpServer(server) {
   const normalized = normalizeMcpServerConfig(server)
   return atomicUpdate('mcp', (mcp) => {
     const servers = normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])
+    assertPlaywrightCapacity(servers, normalized.name)
     const index = servers.findIndex((item) => item.name === normalized.name)
     const next = { ...normalized, updatedAt: new Date().toISOString() }
     if (index >= 0) servers[index] = next
@@ -190,6 +209,11 @@ export async function upsertMcpServer(server) {
 
 export async function deleteMcpServer(name) {
   const normalizedName = normalizeName(name)
+  if (normalizedName === PLAYWRIGHT_PRESET.name) {
+    const error = new Error('Built-in MCP server cannot be deleted: playwright')
+    error.statusCode = 409
+    throw error
+  }
   return atomicUpdate('mcp', (mcp) => {
     mcp[MCP_CONFIG_KEY] = normalizeMcpServers(mcp?.[MCP_CONFIG_KEY]).filter((server) => server.name !== normalizedName)
     return mcp
@@ -199,7 +223,9 @@ export async function deleteMcpServer(name) {
 export async function setMcpServerEnabled(name, enabled) {
   const normalizedName = normalizeName(name)
   return atomicUpdate('mcp', (mcp) => {
-    const servers = normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])
+    const persisted = normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])
+    assertPlaywrightCapacity(persisted, normalizedName)
+    const servers = normalizedName === PLAYWRIGHT_PRESET.name ? withPlaywrightPreset(persisted) : persisted
     const index = servers.findIndex((server) => server.name === normalizedName)
     if (index < 0) {
       const error = new Error(`MCP server not found: ${normalizedName}`)

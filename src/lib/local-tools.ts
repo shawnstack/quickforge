@@ -1093,7 +1093,6 @@ class GoalReportToolRenderer {
               `)}</div></div>` : nothing}
               ${view.scope.length ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalScopeLabel')}</div><div class="quickforge-goal-report-scope">${view.scope.map((item) => html`<span class="quickforge-goal-report-scope-chip">${item}</span>`)}</div></div>` : nothing}
               ${view.blocker ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('goalBlockerLabel')}</div><div class="quickforge-goal-report-blocker whitespace-pre-wrap">${view.blocker}</div></div>` : nothing}
-              <div data-quickforge-goal-plan-action></div>
               ${!detailed && view.outputText ? html`<div class="whitespace-pre-wrap">${view.outputText}</div>` : nothing}
               ${input ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('input')}</div><code-block .code=${input} language="json"></code-block></div>` : nothing}
               ${details ? html`<div><div class="mb-1 text-xs font-medium text-muted-foreground">${t('details')}</div><code-block .code=${details} language="json"></code-block></div>` : nothing}

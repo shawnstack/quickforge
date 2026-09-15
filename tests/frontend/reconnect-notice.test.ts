@@ -153,7 +153,7 @@ vi.mock('@/lib/i18n', () => ({
 const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
 const noticeSource = readFileSync(new URL('../../src/components/chat/panel-decoration/reconnect-notice.ts', import.meta.url), 'utf8')
 const barrelSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
-const agentSource = readFileSync(new URL('../../src/lib/server-agent.ts', import.meta.url), 'utf8')
+const agentSource = readFileSync(new URL('../../src/lib/global-agent-sse-client.ts', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
 
@@ -448,7 +448,7 @@ describe('reconnect notice source contracts', () => {
     expect(hostSource).toContain('createReconnectNoticeController,\n')
   })
 
-  it('server-agent exposes the connection-state API with a 10-attempt cap', () => {
+  it('global SSE client exposes the connection-state API with a 10-attempt cap', () => {
     expect(agentSource).toContain('MAX_SSE_RECONNECT_ATTEMPTS = 10')
     expect(agentSource).toContain('SSE_HEALTH_PROBE_TIMEOUT_MS')
     expect(agentSource).toContain('subscribeConnectionState')

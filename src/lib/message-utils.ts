@@ -48,17 +48,25 @@ export function draftTextFromUserMessage(message: AgentMessage) {
 }
 
 /**
- * Whether the turn that starts at `messageIndex` already produced tool results.
+ * Whether the turn started by the user message at `messageIndex` ended with an error.
  *
- * Retrying such a turn by trimming it would drop those tool calls from the model
- * transcript: the model would no longer know the side effects (file edits,
- * commands) it already performed and could repeat them. The retry path therefore
- * appends a continuation message instead of trimming.
+ * A failed turn may already have run tools: retrying it by trimming the history would
+ * drop those tool calls from the model transcript, so the model would redo side
+ * effects (file edits, commands) it already performed. Retrying a failed turn
+ * therefore keeps the whole history and appends a continuation message, while
+ * successfully completed turns are trimmed and regenerated.
  */
-export function hasToolResultsAfter(messages: AgentMessage[], messageIndex: number) {
-  return messages
-    .slice(messageIndex + 1)
-    .some((message) => message.role === 'toolResult')
+export function turnEndedWithError(messages: AgentMessage[], messageIndex: number) {
+  for (let index = messageIndex + 1; index < messages.length; index++) {
+    const message = messages[index]
+    if (message.role === 'user' || message.role === 'user-with-attachments') break
+    if (message.role !== 'assistant') continue
+    const { stopReason, errorMessage } = message as { stopReason?: unknown; errorMessage?: unknown }
+    if (stopReason === 'error' && typeof errorMessage === 'string' && errorMessage.length > 0) {
+      return true
+    }
+  }
+  return false
 }
 
 export async function copyTextToClipboard(text: string) {

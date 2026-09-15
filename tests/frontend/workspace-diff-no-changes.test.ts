@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 // WorkspaceInspector/InlineDiffPreview 是依赖 Monaco/i18n 浏览器链路的 React 组件，
 // 这里按 assistant-artifact-card.test.ts 的源码契约风格断言（不做 DOM 挂载）。
 const inspector = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+const gitReview = readFileSync(new URL('../../src/components/workspace/useInspectorGit.ts', import.meta.url), 'utf8')
 const changesList = readFileSync(new URL('../../src/components/workspace/WorkspaceChangesList.tsx', import.meta.url), 'utf8')
 const diffPreview = readFileSync(new URL('../../src/components/workspace/WorkspaceInlineDiffPreview.tsx', import.meta.url), 'utf8')
 const api = readFileSync(new URL('../../src/components/workspace/workspace-api.ts', import.meta.url), 'utf8')
@@ -19,7 +20,7 @@ describe('workspace diff 404 no-working-tree-changes empty state', () => {
 
   it('maps the file-diff 404 to a noChanges reader tab instead of an error', () => {
     // 服务端固定 message（server/routes/workspace.mjs 的 404 分支）。
-    expect(inspector).toContain("err.message === 'File has no working tree changes'")
+    expect(gitReview).toContain("err.message === 'File has no working tree changes'")
     // ReaderTab 携带 noChanges 标记。
     expect(tabs).toContain('noChanges?: boolean')
     // openDiffTab：404 → noChanges:true 且 error 清空；成功时 noChanges 复位。
@@ -44,7 +45,7 @@ describe('workspace diff 404 no-working-tree-changes empty state', () => {
   it('flows the inline review path through toggleReviewDiff and the changes list', () => {
     // Review 面板内联展开：404 时清 error、置 noChanges；成功与其他错误复位。
     expect(inspector).toContain('expandedDiffNoChanges')
-    expect(inspector).toMatch(/setExpandedDiffError\(undefined\)[\s\S]*?setExpandedDiffNoChanges\(true\)/)
+    expect(gitReview).toMatch(/setExpandedDiffError\(undefined\)[\s\S]*?setExpandedDiffNoChanges\(true\)/)
     expect(inspector).toContain('expandedNoChanges={expandedDiffNoChanges}')
     // WorkspaceChangesList 透传给 WorkspaceInlineDiffPreview。
     expect(changesList).toContain('expandedNoChanges?: boolean')

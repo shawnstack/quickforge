@@ -15,7 +15,6 @@ import {
   normalizeSelectedCapabilities,
   selectedCapabilitiesFromDetails,
   withSelectedCapabilitiesSnapshot,
-  type SelectedCapability,
 } from '@/lib/selected-capabilities'
 import { SubagentRunEventPublisher } from '@/lib/subagent-run-detail'
 import {
@@ -24,27 +23,62 @@ import {
   writeSessionMessageSnapshot,
   type SessionMessageSnapshotEntry,
 } from '@/lib/session-message-cache'
+import { fetchJsonWithTimeout } from './server-agent-http'
+import { globalAgentSseClient } from './global-agent-sse-client'
+import type {
+  ActiveAgentStatus,
+  ServerAgentContextCompaction,
+  ServerAgentContextUsage,
+  ServerAgentPendingToolApproval,
+  ServerAgentPendingAutoCompactApproval,
+  ServerAgentPendingAsk,
+  ServerAgentAskAnswer,
+  ServerAgentConfig,
+  ServerFileRollbackPreview,
+  ServerFileRollbackResult,
+  ServerTurnRollbackPreview,
+  ServerTurnRollbackResult,
+  ServerRollbackResult,
+  FileContextReference,
+  PromptCapabilitySelection,
+  GoalIterationMarkerSnapshot,
+  ServerAgentStateSnapshot,
+  ServerAgentEvent,
+  ServerAgentLocalEvent,
+  ServerAgentWireEvent,
+} from './server-agent-types'
 
-// ---------------------------------------------------------------------------
-// SSE client for receiving events from the server
-// ---------------------------------------------------------------------------
+export {
+  MAX_SSE_RECONNECT_ATTEMPTS,
+  subscribeToAgentEvents,
+  subscribeSseConnectionState,
+  getSseConnectionState,
+  requestSseReconnectNow,
+} from './global-agent-sse-client'
 
-// Resolve the direct backend URL for SSE connections.
-// In dev mode the API server runs on a different port than Vite. By connecting
-// SSE directly to the backend we avoid exhausting the browser's HTTP/1.1
-// per-origin connection limit (6 in Chrome) through the Vite proxy.
-declare const __QUICKFORGE_SERVER_PORT__: string | undefined
-
-function getDirectBackendUrl(): string {
-  // Vite replaces __QUICKFORGE_SERVER_PORT__ at build time via define in vite.config.ts
-  const serverPort = typeof __QUICKFORGE_SERVER_PORT__ !== 'undefined' ? __QUICKFORGE_SERVER_PORT__ : ''
-  if (serverPort && serverPort !== location.port) {
-    return `${location.protocol}//127.0.0.1:${serverPort}`
-  }
-  return ''
-}
-
-type SseHandler = (event: Record<string, unknown>) => void
+export type {
+  SseConnectionStatus,
+  ActiveAgentStatus,
+  ServerAgentContextCompaction,
+  ServerAgentContextUsageBreakdown,
+  ServerAgentContextUsage,
+  ServerAgentPendingToolApproval,
+  ServerAgentPendingAutoCompactApproval,
+  ServerAgentPendingAsk,
+  ServerAgentAskAnswer,
+  ServerAgentConfig,
+  ServerFileRollbackPreview,
+  ServerFileRollbackResult,
+  ServerTurnRollbackPreview,
+  ServerTurnRollbackResult,
+  ServerRollbackResult,
+  FileContextReference,
+  PromptCapabilitySelection,
+  ServerAgentStateSnapshot,
+  ServerAgentEvent,
+  ServerAgentLocalEvent,
+  ServerAgentWireEvent,
+} from './server-agent-types'
 
 const SSE_WATCHDOG_INTERVAL_MS = 5000
 const SSE_SILENCE_RECOVERY_MS = 15000
@@ -53,20 +87,6 @@ const STATE_REQUEST_TIMEOUT_MS = 30000
 // A goal action must never hang the card: bound it so a stuck request rejects
 // (and the card's pending state is released) instead of waiting forever.
 const GOAL_ACTION_TIMEOUT_MS = 30000
-// 重连期间对 /api/health 的后台探测超时：后端整体是否可达（unreachable）与 bootId（重启检测）。
-const SSE_HEALTH_PROBE_TIMEOUT_MS = 5000
-
-// 自动重连上限：超过后停止退避重试并通知 UI（用户仍可手动重试）。
-// 例外：健康检查确认后端整体不可达（serverUnreachable）时不设上限，持续自动重试。
-export const MAX_SSE_RECONNECT_ATTEMPTS = 10
-
-// 连接状态广播：弱网断流期间 UI 据此显示「重新连接中… n/10」等提示。
-// reconnecting.unreachableSince：健康探测确认后端不可达的起始时刻（ms），
-// UI 据此计算断开时长与提示分层阈值；恢复/重试/断开时清除。
-export type SseConnectionStatus =
-  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number; unreachable?: boolean; unreachableSince?: number }
-  | { status: 'connected'; recovered: boolean; restarted?: boolean }
-  | { status: 'failed'; maxAttempts: number }
 
 const SERVER_ERROR_TRANSLATIONS: Partial<Record<string, AppTextKey>> = {
   GENERATION_ALREADY_RUNNING: 'generationAlreadyRunning',
@@ -125,324 +145,9 @@ function appendAssistantErrorMessageOnce(
   return [...messages, error]
 }
 
-async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number, init: RequestInit = {}): Promise<{ response: Response; body?: T }> {
-  const controller = new AbortController()
-  const externalSignal = init.signal
-  const abortFromExternal = () => controller.abort(externalSignal?.reason)
-  if (externalSignal?.aborted) abortFromExternal()
-  else externalSignal?.addEventListener('abort', abortFromExternal, { once: true })
-  const timeout = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const response = await fetch(url, { ...init, signal: controller.signal })
-    const body = await response.json().catch(() => undefined) as T | undefined
-    return { response, body }
-  } finally {
-    clearTimeout(timeout)
-    externalSignal?.removeEventListener('abort', abortFromExternal)
-  }
-}
-
-class GlobalAgentSseClient {
-  private eventSource: EventSource | null = null
-  private handlersBySession = new Map<string, Set<SseHandler>>()
-  private baseUrl = ''
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private reconnectDelay = 1000
-  private reconnectAttempts = 0
-  // 健康检查探测：后端整体不可达标志（true 时重连无上限）与最近一次已知 bootId 基线。
-  private serverUnreachable = false
-  private serverUnreachableSince: number | undefined
-  private lastKnownBootId: string | undefined
-  private healthProbeInFlight = false
-  private connectionHandlers = new Set<(status: SseConnectionStatus) => void>()
-  private lastConnectionStatus: SseConnectionStatus | null = null
-  private directBaseUrl = getDirectBackendUrl()
-  private fallbackBaseUrl = ''
-
-  subscribe(sessionId: string, baseUrl: string, handler: SseHandler): () => void {
-    this.fallbackBaseUrl = baseUrl
-    const nextBaseUrl = this.directBaseUrl || this.fallbackBaseUrl
-    if (!this.eventSource || this.baseUrl !== nextBaseUrl) {
-      this.disconnect()
-      this.baseUrl = nextBaseUrl
-      this.connect()
-    }
-
-    let handlers = this.handlersBySession.get(sessionId)
-    if (!handlers) {
-      handlers = new Set()
-      this.handlersBySession.set(sessionId, handlers)
-    }
-    handlers.add(handler)
-
-    return () => {
-      const currentHandlers = this.handlersBySession.get(sessionId)
-      currentHandlers?.delete(handler)
-      if (currentHandlers?.size === 0) {
-        this.handlersBySession.delete(sessionId)
-      }
-      if (this.handlersBySession.size === 0 && this.globalHandlers.size === 0) {
-        this.disconnect()
-      }
-    }
-  }
-
-  private globalHandlers = new Set<SseHandler>()
-
-  subscribeAll(baseUrl: string, handler: SseHandler): () => void {
-    this.fallbackBaseUrl = baseUrl
-    const nextBaseUrl = this.directBaseUrl || this.fallbackBaseUrl
-    if (!this.eventSource || this.baseUrl !== nextBaseUrl) {
-      this.disconnect()
-      this.baseUrl = nextBaseUrl
-      this.connect()
-    }
-
-    this.globalHandlers.add(handler)
-
-    return () => {
-      this.globalHandlers.delete(handler)
-      if (this.handlersBySession.size === 0 && this.globalHandlers.size === 0) {
-        this.disconnect()
-      }
-    }
-  }
-
-  private connect() {
-    const url = `${this.baseUrl}/api/agents/events`
-    this.eventSource = new EventSource(url)
-
-    this.eventSource.onopen = () => {
-      this.reconnectDelay = 1000
-      const recovered = this.reconnectAttempts > 0
-      if (recovered) {
-        this.reconnectAttempts = 0
-        this.serverUnreachable = false
-        this.serverUnreachableSince = undefined
-        this.setConnectionStatus({ status: 'connected', recovered: true })
-      }
-      // 连上后取一次 bootId：与基线不同说明后端在断连期间重启过，补播 restarted 提示；
-      // 首次连接（无基线）只记录基线。连上后到达的探测结果不影响 unreachable 语义。
-      this.probeBootIdAfterConnect(recovered)
-    }
-
-    const eventTypes = [
-      'state', 'agent_start', 'agent_end', 'message_start', 'message_end',
-      'turn_start', 'turn_end', 'message_update',
-      'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
-      'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
-      'tool_approval_required', 'ask_user_required', 'ask_user_answered', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
-      'persist_degraded', 'model_stream_retry', 'goal_updated',
-      'sessions-changed',
-    ]
-
-    const handleMessage = (eventType?: string) => (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data) as Record<string, unknown>
-        const sessionId = data.sessionId as string | undefined
-        if (!sessionId && eventType !== 'scheduled_task_notification') return
-        const event = eventType ? { type: eventType, ...data } : data
-        if (sessionId) this.emit(sessionId, event)
-        else this.emitGlobal(event)
-      } catch {
-        // ignore
-      }
-    }
-
-    this.eventSource.onmessage = handleMessage()
-    for (const eventType of eventTypes) {
-      this.eventSource.addEventListener(eventType, handleMessage(eventType))
-    }
-
-    this.eventSource.onerror = () => {
-      this.eventSource?.close()
-      this.eventSource = null
-
-      if (this.baseUrl === this.directBaseUrl && this.fallbackBaseUrl !== this.directBaseUrl) {
-        this.baseUrl = this.fallbackBaseUrl
-        // 直连后端失败切换到同源代理属于即时恢复，计一次尝试但不进入倒计时。
-        this.noteReconnectAttempt(0)
-        this.connect()
-        return
-      }
-
-      this.scheduleReconnect()
-    }
-  }
-
-  /** 记录一次重连尝试；超过上限时通知失败并停止自动重试。
-   *  例外：健康检查确认后端整体不可达（serverUnreachable）时不设上限，
-   *  持续退避重试（封顶 30s）直到后端恢复。 */
-  private noteReconnectAttempt(waitMs: number): boolean {
-    this.reconnectAttempts += 1
-    if (this.reconnectAttempts > MAX_SSE_RECONNECT_ATTEMPTS && !this.serverUnreachable) {
-      this.setConnectionStatus({ status: 'failed', maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS })
-      return false
-    }
-    this.setConnectionStatus({
-      status: 'reconnecting',
-      attempt: this.reconnectAttempts,
-      maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS,
-      nextRetryAt: Date.now() + waitMs,
-      ...this.unreachableStatusFields(),
-    })
-    return true
-  }
-
-  /** 不可达态在 reconnecting 广播上附加的增量字段（含不可达起始时刻）。 */
-  private unreachableStatusFields(): { unreachable?: true; unreachableSince?: number } {
-    if (!this.serverUnreachable) return {}
-    return this.serverUnreachableSince === undefined
-      ? { unreachable: true }
-      : { unreachable: true, unreachableSince: this.serverUnreachableSince }
-  }
-
-  private scheduleReconnect() {
-    if (this.reconnectTimer || (this.handlersBySession.size === 0 && this.globalHandlers.size === 0)) return
-    if (!this.noteReconnectAttempt(this.reconnectDelay)) return
-    // 进入重连流程后 fire-and-forget 探测一次 /api/health：后端不可达时 UI 切换提示并无上限重试。
-    this.probeHealthInBackground()
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null
-      if (this.handlersBySession.size === 0 && this.globalHandlers.size === 0) return
-      this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000)
-      this.connect()
-    }, this.reconnectDelay)
-  }
-
-  /** 探测 /api/health：后端整体是否可达（ok:true）及 bootId（重启检测）；异常/超时一律视为不可达。 */
-  private async probeHealth(): Promise<{ reachable: boolean; bootId?: string }> {
-    try {
-      const { response, body } = await fetchJsonWithTimeout<{ ok?: boolean; bootId?: unknown }>(
-        `${this.baseUrl}/api/health`,
-        SSE_HEALTH_PROBE_TIMEOUT_MS,
-        { cache: 'no-store' },
-      )
-      return {
-        reachable: response.ok && body?.ok === true,
-        bootId: typeof body?.bootId === 'string' ? body.bootId : undefined,
-      }
-    } catch {
-      return { reachable: false }
-    }
-  }
-
-  /** 重连期间的后台探测（single-flight：进行中就跳过）。 */
-  private probeHealthInBackground(): void {
-    if (this.healthProbeInFlight) return
-    this.healthProbeInFlight = true
-    void this.probeHealth().then(
-      (result) => {
-        this.healthProbeInFlight = false
-        if (result.bootId) this.lastKnownBootId = result.bootId
-        const current = this.lastConnectionStatus
-        // 竞态防护：结果返回时已不在重连中（已连上/进入 failed/已断开）则只保留 bootId 更新。
-        if (current?.status !== 'reconnecting') return
-        const wasUnreachable = this.serverUnreachable
-        this.serverUnreachable = !result.reachable
-        if (this.serverUnreachable && !wasUnreachable) {
-          this.serverUnreachableSince = Date.now()
-        } else if (!this.serverUnreachable) {
-          this.serverUnreachableSince = undefined
-        }
-        this.setConnectionStatus({
-          status: 'reconnecting',
-          attempt: current.attempt,
-          maxAttempts: current.maxAttempts,
-          nextRetryAt: current.nextRetryAt,
-          ...this.unreachableStatusFields(),
-        })
-      },
-      () => {
-        // probeHealth 自带兜底 catch，这里仅防御性复位 single-flight 标志。
-        this.healthProbeInFlight = false
-      },
-    )
-  }
-
-  /** 连上后的 bootId 探测：与已知基线不同则补播一次 restarted 提示（首次连接仅记录基线）。 */
-  private probeBootIdAfterConnect(recovered: boolean): void {
-    void this.probeHealth().then(
-      (result) => {
-        const bootId = result.bootId
-        if (!bootId) return
-        const previousBootId = this.lastKnownBootId
-        this.lastKnownBootId = bootId
-        if (recovered && previousBootId !== undefined && previousBootId !== bootId) {
-          this.setConnectionStatus({ status: 'connected', recovered: true, restarted: true })
-        }
-      },
-      () => {
-        // 同上：probeHealth 不会 reject，仅防御。
-      },
-    )
-  }
-
-  private setConnectionStatus(status: SseConnectionStatus) {
-    this.lastConnectionStatus = status
-    for (const handler of this.connectionHandlers) {
-      try { handler(status) } catch { /* ignore */ }
-    }
-  }
-
-  subscribeConnectionState(handler: (status: SseConnectionStatus) => void): () => void {
-    this.connectionHandlers.add(handler)
-    return () => { this.connectionHandlers.delete(handler) }
-  }
-
-  getConnectionStatus(): SseConnectionStatus | null {
-    return this.lastConnectionStatus
-  }
-
-  /** 手动重试：清掉退避状态立即重连（UI「立即重试」按钮）。 */
-  retryNow(): void {
-    this.disconnect()
-    if (this.handlersBySession.size === 0 && this.globalHandlers.size === 0) return
-    this.connect()
-  }
-
-  private emitGlobal(event: Record<string, unknown>) {
-    for (const handler of this.globalHandlers) {
-      try { handler(event) } catch { /* ignore */ }
-    }
-  }
-
-  private emit(sessionId: string, event: Record<string, unknown>) {
-    this.emitGlobal(event)
-    const handlers = this.handlersBySession.get(sessionId)
-    if (!handlers) return
-    for (const handler of handlers) {
-      try { handler(event) } catch { /* ignore */ }
-    }
-  }
-
-  private disconnect() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-    this.eventSource?.close()
-    this.eventSource = null
-    this.reconnectAttempts = 0
-    this.reconnectDelay = 1000
-    this.serverUnreachable = false
-    this.serverUnreachableSince = undefined
-    this.lastConnectionStatus = null
-  }
-}
-
-const globalAgentSseClient = new GlobalAgentSseClient()
-
 // ---------------------------------------------------------------------------
 // Runtime status helpers for sidebar indicators
 // ---------------------------------------------------------------------------
-
-export type ActiveAgentStatus = {
-  sessionId: string
-  status: string
-  title?: string
-  scope?: string
-}
 
 // 合并同一 baseUrl 在短时间窗口内的并发轮询请求（in-flight 去抖）。
 // 仅合并并发、不缓存结果数据：窗口外或请求完成后下次调用重新请求，
@@ -476,156 +181,9 @@ export function fetchActiveAgentStatuses(baseUrl = ''): Promise<ActiveAgentStatu
   return promise
 }
 
-export function subscribeToAgentEvents(handler: SseHandler, baseUrl = ''): () => void {
-  return globalAgentSseClient.subscribeAll(baseUrl, handler)
-}
-
-/** 订阅全局 Agent SSE 的连接状态（断连重试进度、成功恢复、重试上限）。 */
-export function subscribeSseConnectionState(handler: (status: SseConnectionStatus) => void): () => void {
-  return globalAgentSseClient.subscribeConnectionState(handler)
-}
-
-/** 当前连接状态快照；无连接活动时为 null。 */
-export function getSseConnectionState(): SseConnectionStatus | null {
-  return globalAgentSseClient.getConnectionStatus()
-}
-
-/** 用户手动触发立即重连（重置退避与计数）。 */
-export function requestSseReconnectNow(): void {
-  globalAgentSseClient.retryNow()
-}
-
-export type ServerAgentContextCompaction = {
-  summaryMessage?: AgentMessage
-  compactedUpToIndex?: number
-  keepRecentTurns?: number
-  compactedAt?: string
-  usageBefore?: unknown
-  thresholdPercent?: number
-}
-
-export type ServerAgentContextUsageBreakdown = {
-  systemPromptTokens?: number
-  messagesTokens?: number
-  toolsTokens?: number
-  skillsTokens?: number
-  mcpTokens?: number
-  providerUsageTokens?: number
-  trailingTokens?: number
-  lastUsageIndex?: number | null
-  localEstimatedContextTokens?: number
-}
-
-export type ServerAgentContextUsage = {
-  contextWindow: number
-  inputTokens: number
-  estimatedInputTokens: number
-  knownInputTokens?: number
-  providerContextTokens?: number
-  inputTokenSource?: 'provider' | 'estimated' | 'mixed'
-  totalTokens: number
-  percent: number
-  isCompacted?: boolean
-  compactedUpToIndex?: number
-  originalMessageCount?: number
-  effectiveMessageCount?: number
-  breakdown?: ServerAgentContextUsageBreakdown
-}
-
-export type ServerAgentPendingToolApproval = {
-  toolCallId: string
-  toolName: string
-  args: Record<string, unknown>
-  source?: {
-    type?: string
-    subagent?: string
-    label?: string
-    sessionId?: string
-  }
-  requestedAt?: number
-  expiresAt?: number
-}
-
-export type ServerAgentPendingAutoCompactApproval = {
-  approvalId: string
-  usage?: { percent?: number }
-  thresholdPercent?: number
-  keepRecentTurns?: number
-  requestedAt?: number
-  expiresAt?: number
-}
-
-export type ServerAgentPendingAsk = {
-  askId: string
-  toolCallId?: string
-  questions: Array<{
-    question: string
-    multiSelect?: boolean
-    allowCustom?: boolean
-    options?: Array<{ label: string; description?: string }>
-  }>
-  requestedAt?: number
-  expiresAt?: number
-}
-
-export type ServerAgentAskAnswer = {
-  choices?: string[]
-  custom?: string
-}
-
 // ---------------------------------------------------------------------------
 // ServerAgent - Agent-compatible proxy that delegates to the server
 // ---------------------------------------------------------------------------
-
-export type ServerAgentConfig = {
-  sessionId: string
-  baseUrl?: string
-  initialState?: {
-    systemPrompt?: string
-    model?: Model<Api>
-    thinkingLevel?: ThinkingLevel
-    messages?: AgentMessage[]
-    tools?: unknown[]
-    accessMode?: AgentAccessMode
-    yoloMode?: boolean
-    isStreaming?: boolean
-    pendingToolCalls?: string[]
-    errorMessage?: string
-    contextCompaction?: ServerAgentContextCompaction | null
-    contextUsage?: ServerAgentContextUsage | null
-    pendingToolApproval?: ServerAgentPendingToolApproval | null
-    pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
-    pendingAsk?: ServerAgentPendingAsk | null
-    persistDegraded?: boolean
-    goal?: GoalState | null
-    stateVersion?: number
-    /** Session source; `'acp'` marks OpenCode/ACP clients where goal mode is unavailable. */
-    source?: string
-  }
-}
-
-export type ServerFileRollbackPreview = {
-  revision: string
-  canRollback: boolean
-  files: Array<{
-    path: string
-    relativePath: string
-    /** Absent on older servers; individual rollback must stay disabled. */
-    revision?: string
-    action: 'restore' | 'delete'
-    safe: boolean
-    reason: string
-  }>
-  reason?: string
-}
-
-export type ServerFileRollbackResult = {
-  status: 'partial' | 'completed' | 'blocked' | 'failed'
-  restored: number
-  removedCreated: number
-  errors: Array<{ path: string; message: string }>
-  preview: ServerFileRollbackPreview
-}
 
 function isFileRollbackPreview(value: unknown): value is ServerFileRollbackPreview {
   if (!value || typeof value !== 'object') return false
@@ -648,30 +206,6 @@ function isFileRollbackResult(value: unknown): value is ServerFileRollbackResult
     && Array.isArray(result.errors) && result.errors.every((error) => error
       && typeof error.path === 'string' && typeof error.message === 'string')
     && isFileRollbackPreview(result.preview)
-}
-
-/** 每轮产物卡「撤销本轮」的预检结果（GET rollback-turn/preview）。 */
-export type ServerTurnRollbackPreview = {
-  revision: string
-  /** 回显请求的整轮 turnId 集合（一轮 = 原 run + 重试 run 的全部 turnId）。 */
-  turnIds: string[]
-  files: Array<{
-    path: string
-    safe: boolean
-    reason: string | null
-    action: 'restore' | 'delete'
-    /** 该轮新建（true → 撤销即删除）；其余为轮内修改（撤销即恢复到轮前内容）。 */
-    created?: boolean
-    beforeBytes?: number | null
-    afterBytes?: number | null
-  }>
-}
-
-/** 轮级撤销执行结果（POST rollback-turn）：conflicts 为被跳过的冲突文件。 */
-export type ServerTurnRollbackResult = {
-  status: 'completed' | 'partial'
-  rolledBack: Array<{ path: string; action: 'restore' | 'delete' }>
-  conflicts: Array<{ path: string; reason: string | null }>
 }
 
 function isTurnRollbackPreview(value: unknown): value is ServerTurnRollbackPreview {
@@ -705,40 +239,6 @@ function turnRollbackApiError(status: number, message: string): Error & { status
   return error
 }
 
-export type ServerRollbackResult = {
-  ok: boolean
-  rollbackIndex: number
-  session: {
-    messages?: AgentMessage[]
-    systemPrompt?: string
-    model?: Model<Api>
-    thinkingLevel?: ThinkingLevel
-    tools?: unknown[]
-    accessMode?: AgentAccessMode
-    yoloMode?: boolean
-    isStreaming?: boolean
-    errorMessage?: string
-    contextCompaction?: ServerAgentContextCompaction | null
-    contextUsage?: ServerAgentContextUsage | null
-  }
-}
-
-export type FileContextReference = {
-  type: 'file'
-  projectId: string
-  path: string
-}
-
-export type PromptCapabilitySelection = SelectedCapability
-
-type GoalIterationMarkerSnapshot = {
-  index: number
-  role: string
-  id?: string
-  timestamp?: number
-  quickforgeGoalIteration: Record<string, unknown>
-}
-
 /** Apply only to a verifiable identity at its original position, never clamp or append. */
 function mergeGoalIterationMarkers(messages: AgentMessage[], markers: GoalIterationMarkerSnapshot[] | undefined, replay = false): AgentMessage[] {
   if (!Array.isArray(markers)) return messages
@@ -766,45 +266,6 @@ function mergeGoalIterationMarkers(messages: AgentMessage[], markers: GoalIterat
     result[entry.index] = { ...message, details: { ...message.details, quickforgeGoalIteration: marker } } as AgentMessage
   }
   return result
-}
-
-export type ServerAgentStateSnapshot = {
-  sessionId?: string
-  scope?: 'global' | 'project'
-  projectId?: string | null
-  source?: 'acp'
-  channelId?: string
-  channelName?: string
-  title?: string
-  createdAt?: string
-  status?: string
-  startedAt?: string | null
-  finishedAt?: string | null
-  stateVersion?: number
-  messageStorage?: 'split'
-  messages?: AgentMessage[]
-  /** Lightweight summary replacing `messages` on split-session state frames. */
-  messagesSummary?: { count?: number }
-  /** Sparse, identity-checked goal metadata retained on split state snapshots. */
-  goalIterationMarkers?: GoalIterationMarkerSnapshot[]
-  systemPrompt?: string
-  model?: Model<Api>
-  thinkingLevel?: ThinkingLevel
-  accessMode?: AgentAccessMode
-  yoloMode?: boolean
-  tools?: unknown[]
-  contextCompaction?: ServerAgentContextCompaction | null
-  contextUsage?: ServerAgentContextUsage | null
-  pendingToolApproval?: ServerAgentPendingToolApproval | null
-  pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
-  pendingAsk?: ServerAgentPendingAsk | null
-  pendingToolCalls?: string[]
-  isStreaming?: boolean
-  errorMessage?: string
-  /** Server failed to persist recent messages after CAS conflicts. */
-  persistDegraded?: boolean
-  /** Goal mode state; null/absent means the session has no active goal. */
-  goal?: GoalState | null
 }
 
 // ---------------------------------------------------------------------------
@@ -979,7 +440,12 @@ export class ServerAgent {
    */
   sessionSource?: string
 
-  private listeners = new Set<(event: AgentEvent) => void>()
+  // One identity-keyed collection preserves Set deduplication, insertion order,
+  // live iteration and unsubscribe semantics across both subscription APIs.
+  private listeners = new Map<
+    ((event: AgentEvent) => void) | ((event: ServerAgentEvent) => void),
+    (event: ServerAgentEvent) => void
+  >()
   private unsubscribeSse: (() => void) | undefined
   private baseUrl: string
   private disposed = false
@@ -1077,8 +543,23 @@ export class ServerAgent {
 
   // --- Agent-compatible interface ---
 
+  /**
+   * Legacy upstream pi UI adapter. The signature is retained for compatibility,
+   * but custom notifications and unvalidated SSE payloads are NOT all AgentEvents.
+   * New consumers should use subscribeEvents and guard wire payload fields.
+   */
   subscribe(listener: (event: AgentEvent) => void): () => void {
-    this.listeners.add(listener)
+    if (!this.listeners.has(listener)) {
+      // The sole unsafe legacy event boundary: preserve the old callback contract
+      // and original object, without claiming the wire event has been validated.
+      this.listeners.set(listener, (event) => { listener(event as AgentEvent) })
+    }
+    return () => { this.listeners.delete(listener) }
+  }
+
+  /** Subscribe to local notifications and opaque, unvalidated SSE objects. */
+  subscribeEvents(listener: (event: ServerAgentEvent) => void): () => void {
+    if (!this.listeners.has(listener)) this.listeners.set(listener, listener)
     return () => { this.listeners.delete(listener) }
   }
 
@@ -1165,12 +646,12 @@ export class ServerAgent {
       : optimisticDetailsMessage) as unknown as AgentMessage
     this.state.messages = [...this.state.messages, agentMessage]
     this.state.contextUsage = null
-    this.emitToListeners({ type: 'message_start', message: agentMessage } as unknown as AgentEvent)
+    this.emitToListeners({ type: 'message_start', message: agentMessage })
 
     if (!this.state.isStreaming) {
       this.state.isStreaming = true
       this.state.errorMessage = undefined
-      this.emitToListeners({ type: 'agent_start' } as AgentEvent)
+      this.emitToListeners({ type: 'agent_start' })
     }
 
     // Send to server (with timeout to avoid hanging indefinitely)
@@ -1203,13 +684,13 @@ export class ServerAgent {
       this.state.isStreaming = false
       this.state.streamingMessage = undefined
       this.stopStateWatchdog()
-      this.emitToListeners({ type: 'error', error: message } as unknown as AgentEvent)
+      this.emitToListeners({ type: 'error', error: message })
       this.emitToListeners({
         type: 'agent_end',
         messages: this.state.messages,
         errorMessage: message,
         status: 'error',
-      } as unknown as AgentEvent)
+      })
     })
     this.startStateWatchdog()
   }
@@ -1258,7 +739,7 @@ export class ServerAgent {
   async steer(message: AgentMessage): Promise<void> {
     if (this.disposed) return
     this.state.messages = [...this.state.messages, message]
-    this.emitToListeners({ type: 'message_start', message } as unknown as AgentEvent)
+    this.emitToListeners({ type: 'message_start', message })
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/steer`
     try {
       const response = await fetch(url, {
@@ -1276,7 +757,7 @@ export class ServerAgent {
       const index = this.state.messages.indexOf(message)
       if (index >= 0) {
         this.state.messages = [...this.state.messages.slice(0, index), ...this.state.messages.slice(index + 1)]
-        this.emitToListeners({ type: 'message_start' } as unknown as AgentEvent)
+        this.emitToListeners({ type: 'message_start' })
       }
       throw err
     }
@@ -1486,7 +967,7 @@ export class ServerAgent {
       }
       optimistic = message as unknown as AgentMessage
       this.state.messages = [...this.state.messages, optimistic]
-      this.emitToListeners({ type: 'message_start', message: optimistic } as unknown as AgentEvent)
+      this.emitToListeners({ type: 'message_start', message: optimistic })
     }
     try {
       const res = await fetch(url, {
@@ -1509,7 +990,7 @@ export class ServerAgent {
         const index = this.state.messages.indexOf(optimistic)
         if (index >= 0) {
           this.state.messages = [...this.state.messages.slice(0, index), ...this.state.messages.slice(index + 1)]
-          this.emitToListeners({ type: 'message_start' } as unknown as AgentEvent)
+          this.emitToListeners({ type: 'message_start' })
         }
       }
       throw error
@@ -1651,9 +1132,9 @@ export class ServerAgent {
     // in the meantime; otherwise the newer goal already owns the card.
     const capture = { seq: this.goalSeq }
     let res: Response
-    let payload: { goal?: unknown; error?: string } | undefined
+    let payload: { goal?: unknown; error?: string; code?: string } | undefined
     try {
-      ({ response: res, body: payload } = await fetchJsonWithTimeout<{ goal?: unknown; error?: string }>(
+      ({ response: res, body: payload } = await fetchJsonWithTimeout<{ goal?: unknown; error?: string; code?: string }>(
         url,
         GOAL_ACTION_TIMEOUT_MS,
         {
@@ -1673,7 +1154,10 @@ export class ServerAgent {
     }
     if (!res.ok) {
       await reconcileExtension()
-      throw new Error(payload?.error || `Failed to update goal: HTTP ${res.status}`)
+      const error = new Error(payload?.error || `Failed to update goal: HTTP ${res.status}`)
+      // Machine error codes let the UI map the failure to localized copy.
+      if (typeof payload?.code === 'string' && payload.code) (error as Error & { code?: string }).code = payload.code
+      throw error
     }
     if (payload && Object.prototype.hasOwnProperty.call(payload, 'goal')) {
       const goalResult = this.adoptGoalState(normalizeGoalState(payload.goal), capture)
@@ -1746,7 +1230,7 @@ export class ServerAgent {
    * does not use this helper — it forwards the raw frame exactly once.
    */
   private notifyGoalChanged(): void {
-    this.emitToListeners({ type: 'goal_updated', goal: this.state.goal ?? null } as unknown as AgentEvent)
+    this.emitToListeners({ type: 'goal_updated', goal: this.state.goal ?? null })
   }
 
   /**
@@ -1827,7 +1311,7 @@ export class ServerAgent {
   }
 
   private notifyMessageMetadataChanged(): void {
-    this.emitToListeners({ type: 'message_metadata_updated' } as unknown as AgentEvent)
+    this.emitToListeners({ type: 'message_metadata_updated' })
     this.scheduleSessionMessageCacheWrite()
   }
 
@@ -1949,10 +1433,10 @@ export class ServerAgent {
         // Emit the correct lifecycle event so the sidebar green dot stays in sync
         if (s.isStreaming) {
           this.state.errorMessage = undefined
-          this.emitToListeners({ type: 'agent_start' } as AgentEvent)
+          this.emitToListeners({ type: 'agent_start' })
         } else if (wasStreaming) {
           this.stateVersion++
-          this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+          this.emitToListeners({ type: 'agent_end', messages: this.state.messages })
         }
         if (!s.messages && s.messagesSummary) {
           this.acceptGoalIterationMarkerSnapshot(s.goalIterationMarkers)
@@ -1998,7 +1482,7 @@ export class ServerAgent {
           this.state.pendingAsk = null
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
           this.stateVersion++
-          this.emitToListeners(event as unknown as AgentEvent)
+          this.forwardWireEvent(event)
           return
         }
         if (endEvent.messagesSummary && !Array.isArray(endEvent.messages)) {
@@ -2008,7 +1492,7 @@ export class ServerAgent {
             this.state.pendingToolApproval = null
             this.state.pendingAutoCompactApproval = null
             if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
-            this.emitToListeners(event as unknown as AgentEvent)
+            this.forwardWireEvent(event)
           })
           return
         }
@@ -2023,7 +1507,7 @@ export class ServerAgent {
           this.state.pendingAsk = null
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
           this.stateVersion++
-          this.emitToListeners(event as unknown as AgentEvent)
+          this.forwardWireEvent(event)
           return
         }
 
@@ -2035,7 +1519,7 @@ export class ServerAgent {
           this.state.pendingAutoCompactApproval = null
           this.state.pendingAsk = null
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
-          this.emitToListeners(event as unknown as AgentEvent)
+          this.forwardWireEvent(event)
         })
         return
       }
@@ -2051,7 +1535,7 @@ export class ServerAgent {
           this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
-          this.emitToListeners(event as unknown as AgentEvent)
+          this.forwardWireEvent(event)
           return
         }
         if (msgEvent.messagesIncremental) {
@@ -2063,7 +1547,7 @@ export class ServerAgent {
           this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
-          this.emitToListeners(event as unknown as AgentEvent)
+          this.forwardWireEvent(event)
           return
         }
         if (msgEvent.messages && msgEvent.messages.length >= this.state.messages.length) {
@@ -2071,18 +1555,18 @@ export class ServerAgent {
           this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
-          this.emitToListeners(event as unknown as AgentEvent)
+          this.forwardWireEvent(event)
           return
         }
         if (msgEvent.messagesSummary) {
           void this.reconcileMessagesFromSummary(msgEvent.messagesSummary).finally(() => {
-            this.emitToListeners(event as unknown as AgentEvent)
+            this.forwardWireEvent(event)
           })
           return
         }
         // No messages in event — refresh from server as last resort
         void this.refreshStateFromServer().finally(() => {
-          this.emitToListeners(event as unknown as AgentEvent)
+          this.forwardWireEvent(event)
         })
         return
       }
@@ -2098,11 +1582,11 @@ export class ServerAgent {
           this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
-          this.emitToListeners(event as unknown as AgentEvent)
+          this.forwardWireEvent(event)
           return
         }
         void this.refreshStateFromServer().finally(() => {
-          this.emitToListeners(event as unknown as AgentEvent)
+          this.forwardWireEvent(event)
         })
         return
       }
@@ -2272,11 +1756,19 @@ export class ServerAgent {
     }
 
     // Forward event to subscribers
-    this.emitToListeners(event as unknown as AgentEvent)
+    this.forwardWireEvent(event)
   }
 
-  private emitToListeners(event: AgentEvent) {
-    for (const listener of this.listeners) {
+  private emitToListeners(event: ServerAgentLocalEvent): void {
+    this.dispatchEvent(event)
+  }
+
+  private forwardWireEvent(event: ServerAgentWireEvent): void {
+    this.dispatchEvent(event)
+  }
+
+  private dispatchEvent(event: ServerAgentEvent): void {
+    for (const listener of this.listeners.values()) {
       try { listener(event) } catch { /* ignore */ }
     }
   }
@@ -2333,7 +1825,7 @@ export class ServerAgent {
         if (res.status === 404 && this.state.isStreaming) {
           this.state.isStreaming = false
           this.stopStateWatchdog()
-          this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+          this.emitToListeners({ type: 'agent_end', messages: this.state.messages })
         }
         return
       }
@@ -2361,7 +1853,7 @@ export class ServerAgent {
           this.state.pendingToolApproval = null
           this.state.pendingAutoCompactApproval = null
           this.state.pendingAsk = null
-          this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+          this.emitToListeners({ type: 'agent_end', messages: this.state.messages })
         }
         return
       }
@@ -2480,7 +1972,7 @@ export class ServerAgent {
         if (res.status === 404 && this.state.isStreaming) {
           this.state.isStreaming = false
           this.stopStateWatchdog()
-          this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+          this.emitToListeners({ type: 'agent_end', messages: this.state.messages })
         }
         return
       }
@@ -2597,7 +2089,7 @@ export class ServerAgent {
         if (state.isStreaming) {
           this.state.errorMessage = undefined
           if (!wasStreaming) {
-            this.emitToListeners({ type: 'agent_start' } as AgentEvent)
+            this.emitToListeners({ type: 'agent_start' })
           }
         } else {
           this.stopStateWatchdog()
@@ -2607,7 +2099,7 @@ export class ServerAgent {
         }
         if (options?.notify && wasStreaming && !state.isStreaming) {
           this.stateVersion++
-          this.emitToListeners({ type: 'agent_end', messages: this.state.messages } as AgentEvent)
+          this.emitToListeners({ type: 'agent_end', messages: this.state.messages })
           return
         }
       }
@@ -2615,10 +2107,10 @@ export class ServerAgent {
         if (state.isStreaming && shouldReplaceMessages) {
           const message = this.state.messages[this.state.messages.length - 1]
           if (message) {
-            this.emitToListeners({ type: 'message_update', message } as unknown as AgentEvent)
+            this.emitToListeners({ type: 'message_update', message })
           }
         } else if (!state.isStreaming) {
-          this.emitToListeners({ type: 'message_end' } as unknown as AgentEvent)
+          this.emitToListeners({ type: 'message_end' })
         }
       }
     } catch {

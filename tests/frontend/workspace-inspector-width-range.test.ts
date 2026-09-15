@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const source = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+const inspector = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../../src/components/workspace/useInspectorLayout.ts', import.meta.url), 'utf8')
 
 describe('workspace inspector width range constants', () => {
   it('declares the min width, dynamic max cap, viewport ratio and auto expand width', () => {
@@ -9,8 +10,8 @@ describe('workspace inspector width range constants', () => {
     expect(source).toContain('const WORKSPACE_INSPECTOR_MAX_WIDTH = 1200')
     expect(source).toContain('const WORKSPACE_INSPECTOR_MAX_VIEWPORT_RATIO = 0.75')
     expect(source).toContain('const WORKSPACE_INSPECTOR_AUTO_EXPAND_WIDTH = 640')
-    expect(source).toContain('conversationMinWidth?: number')
-    expect(source).toContain('leftSidebarWidth?: number')
+    expect(inspector).toContain('conversationMinWidth?: number')
+    expect(inspector).toContain('leftSidebarWidth?: number')
   })
 
   it('derives the max width from the viewport with an absolute cap and a min-width floor', () => {
@@ -30,8 +31,8 @@ describe('workspace inspector width range constants', () => {
   })
 
   it('renders aside maxWidth and separator aria-valuemax from getInspectorMaxWidth', () => {
-    expect(source).toContain('visible && !fullscreen && !mobileOverlay ? { width, minWidth: WORKSPACE_INSPECTOR_MIN_WIDTH, maxWidth: getInspectorMaxWidth(leftSidebarWidth, conversationMinWidth) } : undefined')
-    expect(source).toMatch(/aria-valuemin=\{WORKSPACE_INSPECTOR_MIN_WIDTH\}\s*\n\s*aria-valuemax=\{getInspectorMaxWidth\(leftSidebarWidth, conversationMinWidth\)\}/)
+    expect(inspector).toContain('visible && !fullscreen && !mobileOverlay ? { width, minWidth: WORKSPACE_INSPECTOR_MIN_WIDTH, maxWidth: getInspectorMaxWidth(leftSidebarWidth, conversationMinWidth) } : undefined')
+    expect(inspector).toMatch(/aria-valuemin=\{WORKSPACE_INSPECTOR_MIN_WIDTH\}\s*\n\s*aria-valuemax=\{getInspectorMaxWidth\(leftSidebarWidth, conversationMinWidth\)\}/)
   })
 
   it('re-clamps stored width on window resize while skipping fullscreen and mobile overlay', () => {

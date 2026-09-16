@@ -2,8 +2,11 @@ import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
 import { AI_SCHEDULED_TASK_PARSE_TOTAL_TIMEOUT_MS, DEFAULT_AI_MAX_RETRIES } from '../ai-provider-options.mjs'
 import { readJsonBody, sendJson, decodeSegment } from '../utils/response.mjs'
 import { readStore, atomicUpdate } from '../storage.mjs'
-import { createAgent, getSessionEventBus, agentEvents, persistSessionState, abortRun } from '../agent-manager.mjs'
+import { createAgent, getSessionEventBus, agentEvents, runPrompt, abortRun } from '../agent-manager.mjs'
 import { agentProfileSnapshot, getAgentProfile } from '../agent-profiles.mjs'
+import { parseInternalCommandInvocation } from '../custom-commands.mjs'
+import { sessionGoal, waitForGoalCompletion } from '../agent-goal-runner.mjs'
+import { agentSessions } from '../agent-session-store.mjs'
 import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
 import { logger } from '../utils/logger.mjs'
 import { resolveModelBinding } from '../model-catalog.mjs'
@@ -681,11 +684,9 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       content: [{ type: 'text', text: task.instruction }],
       timestamp: Date.now(),
     }
-    session.agent.state.messages = [...session.agent.state.messages, userMessage]
     session.status = 'running'
     session.startedAt = startedAt
     session.finishedAt = null
-    await persistSessionState(session)
     agentEvents.emit('agent_event', {
       sessionId,
       type: 'scheduled_task_started',
@@ -717,6 +718,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
     else await syncAuthoritativeRun(resolvedTask, runId, 'resolved')
     onStarted?.({ taskId: task.id, runId, sessionId })
 
+    const goalRequested = parseInternalCommandInvocation(userMessage)?.type === 'goal'
     const eventBus = getSessionEventBus(sessionId)
     const runtimeLimitMs = Math.max(1000, Math.min(Number(executionAgent?.maxRuntimeMs || 60 * 60 * 1000), 60 * 60 * 1000))
     let timeout = null
@@ -726,7 +728,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
     const finished = new Promise((resolve) => {
       resolveFinished = resolve
       handler = (event) => {
-        if (event.type !== 'agent_end') return
+        if (goalRequested || event.type !== 'agent_end') return
         const errorMessage = event.errorMessage || session.agent.state.errorMessage
         const aborted = session.status === 'aborted' || session.agent.state.messages.some((message) => message?.role === 'assistant' && message?.stopReason === 'aborted')
         resolve({
@@ -736,21 +738,36 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
           messages: event.messages ?? session.agent.state.messages,
         })
       }
-      eventBus?.on('agent_event', handler)
+      if (!goalRequested) eventBus?.on('agent_event', handler)
     })
 
     const runPromise = (async () => {
       try {
-        await session.agent.continue()
-      } catch (continueError) {
-        if (continueError?.message !== 'Request was aborted' && continueError?.message !== 'Scheduled task aborted') {
-          throw continueError
+        await runPrompt(sessionId, userMessage, [], null, null, { source: 'scheduled', allowCloud: true })
+      } catch (promptError) {
+        if (promptError?.message !== 'Request was aborted' && promptError?.message !== 'Scheduled task aborted') {
+          throw promptError
+        }
+      }
+      if (goalRequested) {
+        // runPrompt returns after admission, not after its first model turn. Use
+        // the current session: command admission/storage sync owns its goal.
+        const goal = sessionGoal(agentSessions.get(sessionId))
+        if (!goal) throw new Error('定时任务未能创建 Goal，请查看关联会话中的提示。')
+        const completion = await waitForGoalCompletion(sessionId, goal.id)
+        return {
+          ok: completion.goal.status === 'completed',
+          aborted: completion.goal.status === 'cancelled',
+          error: completion.goal.status === 'completed' ? undefined : (completion.goal.blocker || `Goal ${completion.goal.status}`),
+          messages: completion.messages,
         }
       }
       return finished
     })()
     const timeoutPromise = new Promise((resolve) => {
-      timeout = setTimeout(() => resolve({ timedOut: true }), runtimeLimitMs)
+      // Goals retain their own iteration/safety budgets and per-tool timeouts,
+      // not the ordinary scheduled task/Profile total wall-clock limit.
+      if (!goalRequested) timeout = setTimeout(() => resolve({ timedOut: true }), runtimeLimitMs)
     })
 
     let result

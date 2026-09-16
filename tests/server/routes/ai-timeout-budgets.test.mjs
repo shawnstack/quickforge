@@ -51,11 +51,15 @@ vi.mock('../../../server/agent-profiles.mjs', () => ({
   updateCustomAgentProfile: vi.fn(),
 }))
 
+vi.mock('../../../server/custom-commands.mjs', () => ({ parseInternalCommandInvocation: vi.fn(() => null) }))
+vi.mock('../../../server/agent-goal-runner.mjs', () => ({ sessionGoal: vi.fn(() => null), waitForGoalCompletion: vi.fn() }))
+
 vi.mock('../../../server/agent-manager.mjs', () => ({
   createAgent: vi.fn(),
   getSessionEventBus: vi.fn(() => ({ on: vi.fn(), emit: vi.fn(), off: vi.fn() })),
   agentEvents: { on: vi.fn(), emit: vi.fn(), off: vi.fn() },
   persistSessionState: vi.fn(async () => {}),
+  runPrompt: vi.fn(),
   abortRun: vi.fn(),
 }))
 

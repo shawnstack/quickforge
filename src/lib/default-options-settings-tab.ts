@@ -1173,6 +1173,7 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
                 min="50"
                 max="95"
                 step="1"
+                aria-label=${t('autoCompactThresholdPercent')}
                 .value=${this.autoCompactThresholdPercentInput}
                 ?disabled=${!this.autoCompactEnabled}
                 @input=${(event: Event) => this.updateAutoCompactThresholdPercent((event.target as HTMLInputElement).value)}
@@ -1197,6 +1198,7 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
                 min="0"
                 max="20"
                 step="1"
+                aria-label=${t('autoCompactKeepRecentTurns')}
                 .value=${String(this.autoCompactKeepRecentTurns)}
                 ?disabled=${!this.autoCompactEnabled}
                 @input=${(event: Event) => this.updateAutoCompactKeepRecentTurns((event.target as HTMLInputElement).value)}
@@ -1218,6 +1220,7 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
                 min="1"
                 max="100"
                 step="1"
+                aria-label=${t('goalMaxIterations')}
                 .value=${this.goalMaxIterationsInput}
                 @input=${(event: Event) => this.updateGoalMaxIterations((event.target as HTMLInputElement).value)}
                 @change=${() => this.commitGoalMaxIterations()}

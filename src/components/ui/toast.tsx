@@ -85,7 +85,10 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
 
   return (
     <div
-      role="alert"
+      // Errors deserve the assertive `alert` role; success/running updates are
+      // polite status messages so screen readers do not interrupt the user.
+      role={isError ? 'alert' : 'status'}
+      aria-live={isError ? undefined : 'polite'}
       onClick={() => onClick(toast.sessionId)}
       className={cn(
         'pointer-events-auto flex w-80 cursor-pointer items-start gap-3 rounded-xl border border-border bg-background p-3 shadow-quickforge transition-[translate,opacity] ease-(--quickforge-ease-out) motion-reduce:transition-none',

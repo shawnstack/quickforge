@@ -1,3 +1,46 @@
+## scheduled-tasks-goal-support（done，2026-09-16）
+
+- 当前 feature：定时任务可触发 Goal，并复用既有 `runPrompt`→runner，不新增执行器；主聊天与 scheduled 支持，ACP/channel/shared 仍拒绝。
+- 契约：`waitForGoalCompletion` 复用 runner 持久化终态屏障与 idle，只有 `completed` 才 schedule 成功；`paused`/`blocked`、预算耗尽与 awaiting 仍为 running 并保留 serial。关联聊天可 resume/cancel，静止后的 cancelled/failed 才失败。
+- Goal 豁免普通 1h/Profile 墙钟超时；审批、轮次、工具超时不提升或取消。普通任务不变；重启沿用 stale-run failed，Goal paused 不自动重放。Profile 获准的 `goal_report` 不受 workspace 白名单滤除，但不扩展 workspace 能力；goal waiter 避免 idle eviction。
+- 父 Agent 最终验证：8 文件 309 tests 全过（commands 24、runner 146），7 个相关源/测试 ESLint 零 warning、`tsc -b --pretty false` 通过。包含真实自动 tick 与手动 Goal、多轮不提前完成、persist 延迟/失败、暂停恢复、取消等底层 idle、独立并行、普通/Profile 超时区分及销毁注册竞态。未跑全量 test/build、未调用真实模型，自动入口测试使用真实 scheduler/manager/runner/storage 与模拟 Agent。
+- 实现文件见 feature_list：runner 增加可复用 completion waiter，manager 保活与 Profile 控制工具接通，scheduled 仅适配完整 Goal 等待；补消息快照与结束前禁止替换 Goal，避免结果污染。销毁前后/缺失 session 注册已补 5 项边界测试。
+- Notes：未新增依赖、未改 UI 或生成产物、未在当前仓库 commit/tag/push。保留并行指令/附件改动及全部历史记录，旧拒绝契约由本节覆盖。原 timer/active-ID/手动请求 pending 不扩展修复。既有 ai-timeout-budgets 夹具会在系统临时目录 Git init/commit，subagent 首次执行后发现并停止复跑；本次仅补依赖 mock 并 lint，不宣称该文件修复后测试通过。父验证将 TEMP/TMP/TMPDIR 指向工作区。旧 waitForGoalIdle 的底层 wait 无硬 deadline、外部存储直接同步 terminal 不登记 completion 属后续评估，不在此扩展。
+- Wiki 已同步；考虑 SVG 后采用紧凑文字契约，无需新增图。下一步可重启所运行的源码服务后用 `/goal 刚刚提交了什么代码` 做实际模型验收；本轮不主动重启当前服务。
+
+---
+
+## scheduled-tasks-command-support（done，2026-09-15）
+
+- 目标已完成：定时触发与手动运行均走统一 `runPrompt`，支持既有内置 slash command、Skill 与项目自定义命令；解析、权限和可用性规则沿用普通 prompt 链，Goal 仍拒绝，工具审批不变。
+- 生产改动仅 `server/routes/scheduled-tasks.mjs`：去掉首消息预 append/persist，改用 `runPrompt`；首消息由统一 prompt 流程持久化，不再保证 `onStarted` 前落盘。
+- 测试：更新 `tests/server/scheduled-tasks.execution.test.mjs`（44 tests）；新增 `tests/server/scheduled-tasks.commands.test.mjs`（10 tests），使用真实 manager/resolver/storage，仅 mock 底层 Agent。覆盖普通消息仅一次、plan 权限、custom 参数、skill、help/goal、clear/summary/compact 短路与 prompt reject。
+- 验证：父 Agent 定向 7 文件 196 tests 全部通过；父 Agent 对 3 个改动源/测试文件最终定向 ESLint 通过（0 warning）。本次未跑全量 test/build，不将并行会话的全量结果认领为本次验证。
+- 文档：routes Wiki 仅补简洁指令执行契约；几句文字足够，无需 SVG 或文档重构。三状态新增本 feature，保留并行与历史章节。
+- Notes：此前 timer 恢复、active ID、手动请求悬挂问题按用户要求未修，不扩大范围。无 UI、依赖、生成产物修改或 Git 写操作，改动未提交。
+
+---
+
+## ui-ux-review-optimization（done，2026-09-16）
+
+- 目标：全面评审并优化 UI 与交互设计（视觉/交互/状态完整性/无障碍/操作安全性），问题明确、风险可控的直接实施。
+- 评审：以真实用户数据实例（本地 5176 + Playwright MCP）实测主界面、设置 17 tab、定时任务、MCP、确认弹窗与移动 375px 视口，产出分级问题清单 docs/reviews/app-ui-ux-review-2026-09-15.zh-CN.md（B01-B12，6 张截图 review-01~06 佐证）；B12（任务卡片整卡 div onClick 键盘不可达）有更多操作菜单补偿，保留现状。
+- 修复（11 项）：confirm-dialog 模块级互斥 + focus trap + 关闭后焦点恢复；备份替换导入 destructive；移动 drawer Escape/焦点移入/恢复；ReactSettingsTab 延迟卸载（消除设置 tab 切换的 React sync-unmount 报错）；switch 可访问名称（MCP/定时任务）；toast 语义分级（error=alert 其余 status/polite）；常规页 3 数字输入 aria-label；执行模式下拉 label 与冒号统一；折叠项目不暴露 loading 占位。i18n en/zh 成对新增（mcpEnabledSwitchLabel/executionAgentLabel 等）。
+- 验证：父 Agent 亲读全部 diff 复审；定向 vitest 4 文件 32/32（新增 tests/frontend/confirm-dialog.test.ts 6 例）、tsc -b、11 文件 ESLint exit 0；Playwright 复查：弹窗初始焦点取消/Enter 走取消/Tab 循环/Escape 关闭、4 次 tab 切换 0 console error、switch 标签语义一致、375px 无溢出、drawer 焦点与 Escape 正常；全量 test 355 files/4053 passed+1 skipped、lint 0 error（既有 3 coverage warning）、build 成功（既有 chunk warning）。
+- 边界：破坏性流程（备份替换导入、真实删除）只打开弹窗后取消，未在真实数据执行确认；toast 成功态未触发真实任务通知；pi-web-ui 外部包不可控部分未纳入；对比度抽样。docs/wiki/src/components/README.md 已同步 confirm-dialog 行为契约与 toast 语义。
+- Notes：工作区存在多路并行未提交改动，本 feature 不认领不回退——server/routes/scheduled-tasks.mjs + tests/server/scheduled-tasks.execution.test.mjs（runPrompt 分发，另一会话）、goal-attachment-missing-marker 系列；两者均含于全量 4053 通过内。评审期 vite dev 进程后期异常终止（404/CONNECTION_RESET）属环境问题；实际验证改用运行中的生产实例（服务 dist）。B12 与「项目删除语义待确认」记录在评审文档，不做扩大修改。
+
+---
+## goal-attachment-missing-marker（done，2026-09-15）
+
+- 自主选题（用户授权休息期间推进一项低风险高价值改进）：并行 Explore 三候选后选定本项。未选理由：审批迟到 approve（生产不可达：超时即删 Map 条目，路由 404 + goal 状态机双守卫）、/plan 权限前置缺口（所有赋值路径均设置 permissions，不可达）、MCP 名称 lowercase（纯 UX 文案级）价值不足；subagent 测试缺口"评审高-2"系静态检索误判（见下方勘误）。本项为可复现正确性问题且是 goal-persisted-attachment-paths 明确遗留的边界。
+- 修复：`server/agent-goal-runner.mjs` 的 goalAttachmentPrompt 注入前 `existsSync` 检查：文件缺失 → `(attachment file no longer available: <原路径>)`；path 空 → 原 `(no readable path recorded)`；存在 → 原样注入路径。新增 `import { existsSync } from 'node:fs'`。
+- 测试：`tests/server/agent-goal-runner.test.mjs` 既有附件用例改用 `os.tmpdir()` 真实临时文件（原假路径 `C:\Users\test\notes.txt` 不测可读性）；新增文件缺失失效标注用例（断言精确标注 + `not.toContain` 防可用形式裸注入）与空 path 用例（固化既有行为）；夹具 mkdtemp + 登记 + afterAll rmSync force，不触碰 process.cwd()。
+- 验证：父 Agent 亲读全部 diff 复审后独立重跑；定向 vitest 141/141、两文件 node --check、npx eslint 0 error 均 exit 0；测试后 os.tmpdir() 与仓库根 goal-attachment-* 零残留（仓库根仅存 .goal-runtime-refactor-baseline 为前次 Goal 特意保留基线，非本次产生）；package.json/package-lock.json 无 diff；无 Git 操作。
+- Notes（遗留与勘误）：① 附件文件存在但位于 workspace 外（`~/.quickforge/cache/global/tmp/conversations/...`）时模型 read_file 必然 403（`server/utils/workspace.mjs` resolveWorkspacePath 无附件豁免）——沙箱豁免 vs 内容内联需产品决策，未做；② 失效状态持久化进 goal.attachments 需动 schema，未做；③ `server/message-converters.mjs` 普通消息附件内联读取失败静默返回空串，独立范围；④ 勘误：zombie-code-safe-cleanup Notes 中"可选补强 agent-subagent-runner 行为测试与 SQLite worker 冒烟（评审高-2）"大部分为静态检索误判——`tests/server/agent-manager.subagents.test.mjs`（14 用例）已通过 createAgent→run_subagent tool.execute() 真实驱动 runner 本体，`tests/server/sqlite/session-state-worker.test.mjs`（6 用例）已是真实 worker_threads+SQLite 冒烟；残余缺口仅 subagent 工具审批编排（type:'subagent' 元数据）、maxToolCalls 超限 block、前置校验 400 三项，价值中低，未补。
+
+---
+
 ## batch-commit-push-2026-09-15（done，多会话成果汇总提交推送与发布收尾）
 
 - 按用户指令将此前多个并行会话的全部未提交成果以单个汇总提交落地并推送：提交 `ace9930`（142 文件，+17132/−9840）已同步 origin/dev；推送前全量 test 353 files / 4037 passed + 1 skipped、lint 0 error（仅既有 coverage 3 warning）、build 成功（仅既有 KaTeX/chunk warning）。

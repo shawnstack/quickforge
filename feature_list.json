@@ -1,6 +1,84 @@
 {
   "features": [
     {
+      "id": "scheduled-tasks-goal-support",
+      "name": "定时任务支持 Goal 自动执行",
+      "status": "done",
+      "dependencies": ["scheduled-tasks-command-support"],
+      "approach": "在既有定时任务 runPrompt→Goal runner 链上支持 Goal；主聊天与 scheduled 支持，ACP/channel/shared 仍拒绝。waitForGoalCompletion 复用 runner 的持久化终态屏障与 idle，completed 才算成功，paused/blocked/预算/awaiting 保留 running 与 serial，并关联聊天 resume/cancel。复用控制工具 goal_report，不扩大 Profile 的 workspace 能力；Goal 不套普通定时总超时。",
+      "files": ["server/agent-goal-runner.mjs", "server/agent-manager.mjs", "server/routes/scheduled-tasks.mjs", "tests/server/agent-goal-runner.test.mjs", "tests/server/scheduled-tasks.commands.test.mjs", "tests/server/scheduled-tasks.execution.test.mjs", "tests/server/routes/ai-timeout-budgets.test.mjs", "docs/wiki/README.md", "docs/wiki/server/README.md", "docs/wiki/server/routes/README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "父 Agent 最终定向 8 文件 309 tests 全通过（含 commands 24、runner 146），覆盖真实自动 scheduler tick、手动入口、多轮/持久化屏障、取消等待 idle、暂停恢复、并行隔离、超时区分、销毁注册竞态及新 Goal 准入。7 个相关源/测试文件 ESLint 零 warning，tsc -b 通过；未跑全量 test/build 或真实模型任务。",
+      "boundaries": "无依赖/UI/生成产物修改，无当前仓库 commit/tag/push。保留并行 runPrompt 和附件改动，历史拒绝契约由本条覆盖。重启仍旧运行 failed、Goal paused，不自动重放；旧 timer/active-ID/手动 pending 缺陷不扩展修复。ai-timeout-budgets 仅补 mock 并 lint，修复后未重跑其含临时 Git 提交的夹具；首次 subagent 执行该既有夹具触及系统临时目录，父后续验证将 TEMP/TMP/TMPDIR 限定工作区。"
+    },
+
+    {
+      "id": "scheduled-tasks-command-support",
+      "name": "定时任务复用统一 prompt 指令执行链",
+      "status": "done",
+      "dependencies": [],
+      "approach": "仅在 server/routes/scheduled-tasks.mjs 去掉首消息预 append/persist，改走 runPrompt；定时触发与手动运行复用内置 slash command、Skill、项目自定义命令的既有解析、权限与可用性规则。首消息由统一 prompt 流程持久化，不再保证 onStarted 前落盘。",
+      "files": [
+        "server/routes/scheduled-tasks.mjs",
+        "tests/server/scheduled-tasks.execution.test.mjs",
+        "tests/server/scheduled-tasks.commands.test.mjs",
+        "docs/wiki/server/routes/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "父 Agent 定向 7 文件 196 tests 全部通过，含 execution 44 与新增 commands 10；commands 使用真实 manager/resolver/storage，仅 mock 底层 Agent，覆盖普通消息仅一次、plan 权限、custom 参数、skill、help/goal、clear/summary/compact 短路和 prompt reject。父 Agent 对 3 个改动源/测试文件最终定向 ESLint 通过（0 warning）；本次未跑全量 test/build，不冒称全仓验证通过。",
+      "boundaries": "Goal 仍对定时任务来源拒绝，工具审批不变；此前 timer 恢复、active ID 和手动请求悬挂问题按用户要求未处理。无 UI、依赖、生成产物修改或 Git 写操作，改动未提交；Wiki 仅补几句执行契约，无需 SVG 或文档重构，保留其他 feature 与历史记录。"
+    },
+    {
+      "id": "ui-ux-review-optimization-2026-09-16",
+      "name": "UI/UX 全面评审与交互优化（浏览器实测 + B01-B11 修复）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "以真实用户数据实例（本地 5176，v2.1.0 dist + Playwright MCP）实测评审主界面/设置 17 tab/定时任务/MCP/确认弹窗/移动 375px 视口，产出分级问题清单（docs/reviews/app-ui-ux-review-2026-09-15.zh-CN.md，B01-B12，含 6 张截图证据），随后实施 11 项修复：P0 确认弹窗模块级互斥（并发按取消 resolve）+ Tab focus trap + 关闭后焦点恢复（confirm-dialog.tsx）、备份替换导入改 destructive variant；P1 移动 drawer Escape+焦点移入/恢复（App.tsx）、ReactSettingsTab 延迟卸载消除 React sync-unmount 报错（react-settings-tabs.tsx）、switch 可访问名称修复（MCP/定时任务，i18n 新增 en/zh key）、toast 语义分级（error=alert，其余=status polite）；P2 常规页 3 个数字输入 aria-label、执行模式下拉 label+冒号统一、折叠项目不再暴露 loading 占位（ChatSidebar）。B12（任务卡片 div onClick 键盘不可达）有更多操作菜单补偿，保留现状不改交互结构。",
+      "files": [
+        "docs/reviews/app-ui-ux-review-2026-09-15.zh-CN.md",
+        "review-01-main-desktop.png",
+        "review-02-main-loaded.png",
+        "review-03-sidebar-expanded.png",
+        "review-04-settings-general.png",
+        "review-05-stacked-dialogs.png",
+        "review-06-mobile-375.png",
+        "src/components/ui/confirm-dialog.tsx",
+        "src/components/ui/toast.tsx",
+        "src/lib/backup-settings-tab.ts",
+        "src/lib/react-settings-tabs.tsx",
+        "src/App.tsx",
+        "src/components/sidebar/ChatSidebar.tsx",
+        "src/components/scheduled-tasks/ScheduledTasksPage.tsx",
+        "src/components/mcp/mcp-server-card.tsx",
+        "src/lib/default-options-settings-tab.ts",
+        "src/lib/i18n.ts",
+        "docs/wiki/src/components/README.md",
+        "tests/frontend/confirm-dialog.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "父 Agent 亲读全部修复 diff 复审；定向 vitest 4 文件 32/32（confirm-dialog 6 新增 + i18n 快照 + mcp 卡片 + 定时任务页）、tsc -b、11 个修改文件 ESLint 全部 exit 0；Playwright 浏览器复查（真实实例 5176）：destructive 弹窗初始焦点=取消、Enter 走取消不确认、Tab/Shift+Tab 循环、Escape 关闭，4 次设置 tab 切换 0 console error，switch aria-label 语义一致（任务/MCP），3 个数字输入 label 存在，折叠项目 0 处 loading 占位，375px 无横向溢出、drawer 焦点移入+Escape 关闭；全量 npm run test 355 files / 4053 passed + 1 skipped、npm run lint 0 errors（仅既有 coverage 3 warnings）、npm run build 成功（仅既有 chunk warning），均 exit 0。",
+      "boundaries": "B02（备份替换导入）与真实删除等破坏性流程未在真实数据上执行确认操作（只打开后取消），以代码复核+弹窗行为复查代替；B08 toast 未触发真实成功任务通知，以代码+单测验证；pi-web-ui 外部包 ChatPanel 内部 UI 不可控未纳入；对比度为抽样计算非全量扫描。工作区并行改动不认领不回退：server/routes/scheduled-tasks.mjs 与 tests/server/scheduled-tasks.execution.test.mjs 的 runPrompt 分发（另一并行会话，全量测试含其改动自洽通过）、goal-attachment-missing-marker 相关文件。dev server（vite dev 5176）评审后期异常终止属环境问题，与源码无关；运行中生产实例（server 进程启动时已加载旧模块）不受磁盘 server 改动影响。"
+    },
+    {
+      "id": "goal-attachment-missing-marker",
+      "name": "Goal 附件失效标注（提示词注入前存在性检查）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "自主选题（用户授权休息期间低风险高价值改进；三候选并行 Explore 后选定）。接续 goal-persisted-attachment-paths 的遗留边界：goalAttachmentPrompt 注入附件路径前零检查，文件被清理/过期后规划与续跑提示词仍声称附件可读，模型按路径读取得到无解释的 ENOENT。修复：注入前 existsSync 检查，文件缺失时输出 `(attachment file no longer available: <原路径>)`（保留原路径供追溯），path 字段缺失维持原 '(no readable path recorded)'，文件存在时行为不变；函数保持非导出、同步风格，import 按仓库 node:fs 命名导入惯例。",
+      "files": [
+        "server/agent-goal-runner.mjs",
+        "tests/server/agent-goal-runner.test.mjs",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "父 Agent 亲读全部 diff 复审后独立重跑：定向 vitest tests/server/agent-goal-runner.test.mjs 141/141 通过（既有附件用例改用 os.tmpdir() 真实临时文件，新增文件缺失失效标注与空 path 两用例）；两文件 node --check 与 npx eslint 0 error 均 exit 0；测试运行后 os.tmpdir() 与仓库根 goal-attachment-* 残留为 0（仓库根仅存 .goal-runtime-refactor-baseline 为此前 Goal 特意保留的诊断基线，非本次产生）；package.json/package-lock.json 无 diff。",
+      "boundaries": "纯 server 提示词逻辑：不改公共接口、不改 goal 持久化 schema、无数据迁移、无依赖变更、无 UI 改动；docs/wiki 全目录无附件相关既有记载，按计划无需同步；无 Git 操作。遗留（需产品决策，未做）：① 附件文件存在但位于 workspace 外（~/.quickforge/cache/...）时 read_file 仍被 403 沙箱拦截（resolveWorkspacePath 无附件豁免，isSessionTextAttachmentPath 接线是记录在案的待决策项）；② 失效状态未持久化进 goal.attachments（动 schema）；③ message-converters.mjs 普通消息附件内联读取失败静默返回空串。"
+    },
+    {
       "id": "batch-commit-push-2026-09-15",
       "name": "多会话成果汇总提交推送与发布收尾记录（状态收尾）",
       "status": "done",

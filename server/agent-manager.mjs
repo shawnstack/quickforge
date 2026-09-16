@@ -87,6 +87,7 @@ import {
   finishGoalRun,
   goalPlanningToolBlockReason,
   goalRunSettlementToolBlockReason,
+  hasGoalCompletionWaiter,
   notifyGoalAbort,
   recordGoalToolExecution,
   sessionGoal,
@@ -279,8 +280,9 @@ export async function createServerTools(projectId, projectContext, skillsContext
   // Goal mode: only while the session has an active goal, and never for
   // subagents (goalSession is the parent main-chat session or a resolver).
   if (includeGoalTool && goalSession) {
-    const goalTool = createGoalReportTool(goalSession)
-    if (isAllowed(goalTool)) tools.push(goalTool)
+    // Goal control-plane reporting does not grant workspace capabilities; keep
+    // it available for admitted goals even with a Profile tool whitelist.
+    tools.push(createGoalReportTool(goalSession))
   }
 
   if (includeMcpTools) {
@@ -310,6 +312,8 @@ async function rebuildSessionTools(session) {
           allowedToolNames: profileToolNames,
           includeSubagentTool: false,
           includeMcpTools: false,
+          includeGoalTool: goalActive,
+          goalSession: goalActive ? session : null,
           parentSessionId: session.sessionId,
           sessionId: session.sessionId,
           scope: session.scope,
@@ -511,7 +515,7 @@ export function resetIdleTimer(session) {
   if (isIdleRetainedSession(session)) return
 
   session.idleTimer = setTimeout(() => {
-    if (session.status === 'running') {
+    if (session.status === 'running' || hasGoalCompletionWaiter(session.sessionId)) {
       logger.info(`Session ${session.sessionId} idle timer fired but still running, resetting...`, { sessionId: session.sessionId, status: session.status })
       resetIdleTimer(session)
       return
@@ -689,6 +693,8 @@ export async function createAgent(sessionId, config = {}) {
           includeSubagentTool: false,
           includeMcpTools: false,
           mcpWaitForConnections,
+          includeGoalTool: Boolean(initialGoal && isGoalActiveStatus(initialGoal.status)),
+          goalSession: initialGoal && isGoalActiveStatus(initialGoal.status) ? () => agentSessions.get(sessionId) : null,
           parentSessionId: sessionId,
           sessionId,
           scope,

@@ -215,6 +215,9 @@ class BackupSettingsTab extends SettingsTab {
         : t('backupImportMergeConfirm'),
       confirmLabel: t('confirmImportSelected'),
       cancelLabel: t('cancel'),
+      // Replace mode overwrites current settings: destructive keeps the focus
+      // on cancel and blocks confirming via a stray Enter press.
+      variant: this.pendingImport.mode === 'replace' ? 'destructive' : 'default',
     })
     if (!confirmed) return
 

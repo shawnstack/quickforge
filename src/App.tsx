@@ -1572,6 +1572,27 @@ function MainApp() {
     ui.setMobileSidebarOpen(false)
   }, [ui])
 
+  // The mobile sidebar drawer is role=dialog + aria-modal, so Escape must
+  // close it, keyboard focus must move into it while open, and it must be
+  // restored to the opener when it closes.
+  const mobileSidebarDrawerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!ui.mobileSidebarOpen) return
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    mobileSidebarDrawerRef.current?.focus()
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeMobileSidebar()
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('keydown', handleKey)
+      if (previouslyFocused && previouslyFocused.isConnected) previouslyFocused.focus()
+    }
+  }, [ui.mobileSidebarOpen, closeMobileSidebar])
+
   const loadSessionFromSidebar = useCallback((sessionId: string) => {
     closeMobileSidebar()
     loadSessionWithTransition(sessionId)
@@ -1906,7 +1927,13 @@ function MainApp() {
       />
 
       {ui.mobileSidebarOpen ? (
-        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true">
+        <div
+          ref={mobileSidebarDrawerRef}
+          tabIndex={-1}
+          className="fixed inset-0 z-50 outline-none md:hidden"
+          role="dialog"
+          aria-modal="true"
+        >
           <button
             type="button"
             className="absolute inset-0 bg-background/65 backdrop-blur-sm"

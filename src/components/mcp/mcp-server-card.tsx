@@ -51,6 +51,7 @@ export function McpServerCard({ server, toggling, reconnecting, onToggle, onEdit
             type="button"
             role="switch"
             aria-checked={server.enabled}
+            aria-label={t('mcpEnabledSwitchLabel', { name: server.name })}
             disabled={toggling}
             className={cn('relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60', server.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/30')}
             onClick={() => onToggle(server)}

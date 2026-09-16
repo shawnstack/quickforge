@@ -44,9 +44,18 @@ class ReactSettingsTab extends SettingsTab {
   }
 
   override disconnectedCallback() {
-    this.root?.unmount()
-    this.root = undefined
     super.disconnectedCallback()
+    // The parent React tree removes this element during its own render/commit,
+    // so unmounting the React root synchronously here triggers React's
+    // "synchronously unmount a root while React was already rendering" error.
+    // Defer to a macrotask and skip when the element reconnected in between,
+    // in which case the existing root stays valid and is simply reused.
+    window.setTimeout(() => {
+      if (!this.isConnected && this.root) {
+        this.root.unmount()
+        this.root = undefined
+      }
+    }, 0)
   }
 
   override render(): TemplateResult {

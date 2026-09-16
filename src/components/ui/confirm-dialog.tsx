@@ -42,6 +42,7 @@ function MessageDialog({
   onCancel: () => void
 }) {
   const focusRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const resolvedRef = useRef(false)
 
   const resolveCancelOnce = useCallback(() => {
@@ -73,6 +74,31 @@ function MessageDialog({
         }
         if (primary) runAction(primary)
       }
+      if (event.key === 'Tab') {
+        // Focus trap: the dialog is aria-modal, so keyboard focus must not
+        // escape to the background content while it is open.
+        const dialog = dialogRef.current
+        if (!dialog) return
+        const focusables = Array.from(
+          dialog.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter((el) => el.offsetParent !== null || el === document.activeElement)
+        if (focusables.length === 0) return
+        const first = focusables[0]
+        const last = focusables[focusables.length - 1]
+        const active = document.activeElement
+        const focusInsideDialog = active instanceof HTMLElement && dialog.contains(active)
+        if (event.shiftKey) {
+          if (active === first || !focusInsideDialog) {
+            event.preventDefault()
+            last.focus()
+          }
+        } else if (active === last || !focusInsideDialog) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
@@ -86,6 +112,7 @@ function MessageDialog({
       }}
     >
       <div
+        ref={dialogRef}
         className={cn(
           'quickforge-dialog-panel-in w-full max-w-[420px] rounded-2xl border border-border bg-background p-5 shadow-quickforge',
         )}
@@ -116,31 +143,57 @@ function MessageDialog({
   )
 }
 
+// Module-level mutex: message dialogs are modal, so a second dialog must never
+// stack on top of a live one. Rapid double clicks on a destructive entry point
+// used to open two overlapping dialogs that could both be confirmed.
+let messageDialogActive = false
+
 function renderMessageDialog<T>(
+  rejectedWith: () => T,
   build: (resolve: (value: T) => void) => ReactElement,
 ): Promise<T> {
+  if (messageDialogActive) {
+    // Another message dialog is already open: treat this request as cancelled
+    // instead of stacking a second modal layer.
+    return Promise.resolve(rejectedWith())
+  }
+  messageDialogActive = true
   return new Promise((resolve) => {
     const container = document.createElement('div')
     document.body.appendChild(container)
+    // Restore focus to the trigger when the dialog closes; without this the
+    // focus fell back to <body> and keyboard users lost their place.
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
 
     const root = createRoot(container)
 
     function cleanup() {
       root.unmount()
-      setTimeout(() => container.remove(), 0)
+      setTimeout(() => {
+        container.remove()
+        if (previouslyFocused && previouslyFocused.isConnected) previouslyFocused.focus()
+      }, 0)
     }
 
     function handleResolve(value: T) {
+      messageDialogActive = false
       cleanup()
       resolve(value)
     }
 
-    root.render(build(handleResolve))
+    try {
+      root.render(build(handleResolve))
+    } catch (error) {
+      messageDialogActive = false
+      cleanup()
+      throw error
+    }
   })
 }
 
 export function showConfirm(options: ConfirmOptions): Promise<boolean> {
-  return renderMessageDialog((resolve) => (
+  return renderMessageDialog(() => false, (resolve) => (
     <MessageDialog
       title={options.title}
       description={options.description}
@@ -168,7 +221,7 @@ export function showConfirm(options: ConfirmOptions): Promise<boolean> {
 
 export function showAlert(options: AlertOptions | string): Promise<void> {
   const normalized = typeof options === 'string' ? { description: options } : options
-  return renderMessageDialog((resolve) => (
+  return renderMessageDialog<void>(() => undefined, (resolve) => (
     <MessageDialog
       title={normalized.title}
       description={normalized.description}

@@ -781,6 +781,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring"
                       value={form.executionMode}
                       onChange={(event) => updateForm('executionMode', event.target.value as ExecutionMode)}
+                      aria-label={t('taskExecutionMode')}
                     >
                       <option value="serial">{t('taskExecutionModeSerial')}</option>
                       <option value="parallel">{t('taskExecutionModeParallel')}</option>
@@ -857,7 +858,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       className="h-8 max-w-[220px] rounded-md border border-transparent bg-transparent pl-7 pr-2 text-xs text-muted-foreground outline-none hover:bg-background focus:border-ring"
                       value={form.agentId}
                       onChange={(event) => updateForm('agentId', event.target.value)}
-                      title={t('executionAgent')}
+                      title={t('executionAgentLabel')}
                     >
                       <option value="">{t('defaultAgent')}</option>
                       {agentProfiles.map((agent) => (
@@ -986,6 +987,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                                 type="button"
                                 role="switch"
                                 aria-checked={taskEnabled}
+                                aria-label={t('taskEnabledSwitch')}
                                 disabled={switchDisabled}
                                 className={cn('relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60', taskEnabled ? 'bg-emerald-500' : 'bg-muted-foreground/30')}
                                 onClick={() => taskAction(task.id, task.status === 'paused' ? 'resume' : 'pause')}

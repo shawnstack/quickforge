@@ -1,3 +1,46 @@
+## 最新交接：scheduled-tasks-goal-support（done，2026-09-16）
+
+- 当前目标：定时任务可触发 Goal 且复用既有 `runPrompt`→runner；主聊天与 scheduled 支持，ACP/channel/shared 仍拒绝，不新增执行器。
+- 现行契约：`waitForGoalCompletion` 复用 runner 持久化终态屏障与 idle，completed 才 schedule 成功；paused/blocked/预算/awaiting 仍 running 并保留 serial；关联聊天可 resume/cancel，静止后的 cancelled/failed 才失败。Goal 豁免普通 1h/Profile 墙钟超时，但审批/轮次/工具超时不提升或取消；普通任务不变。
+- 运行与能力边界：重启沿用 stale-run failed，Goal paused 不自动重放；Profile 获准的 `goal_report` 不受 workspace 白名单滤除，但 workspace 能力不扩展；goal waiter 避免 idle eviction。
+- 文件：生产为 `server/agent-goal-runner.mjs`、`server/agent-manager.mjs`、`server/routes/scheduled-tasks.mjs`；测试为 runner/commands/execution/ai-timeout-budgets，后者只补 mock；同步三个 Wiki 与三状态。精确清单见 `feature_list.json`；依赖 `scheduled-tasks-command-support`（done），保留既有并行改动。
+- 验证：父最终 8 文件 309 tests 通过（包含真实自动 tick；模拟底层 Agent），7 文件 ESLint 零 warning、tsc -b 通过。复审发现的销毁注册竞态已修并加 5 个 runner 边界测试；旧 Goal 等待结束前拒绝新 Goal 替换，并保存终态消息快照。未跑全量 test/build、真实模型/UI 验收。
+- Blocker：无。下一步：重启所运行的源码服务后验证定时 `/goal 刚刚提交了什么代码`；本轮未重启服务。暂停/受阻可打开关联聊天恢复或取消，串行不会提前启动下一次。
+- Notes：无当前仓库 Git 提交/推送、依赖或生成产物修改。ai-timeout-budgets 首次由 subagent 运行既有系统临时 Git fixture 后发现边界，补 mock 后未重跑（已 lint）；父后续测试临时目录限定工作区。其它 feature 历史拒绝表述由本条覆盖，不批量改写；原调度器遗留缺陷未扩展修复。
+
+---
+
+## 最新交接：scheduled-tasks-command-support（done，2026-09-15）
+
+- 当前目标已完成：定时/手动执行统一走 `runPrompt`，复用内置 slash command、Skill、项目自定义命令的既有解析、权限与可用性；Goal 仍拒绝，工具审批不变。
+- 改动文件：`server/routes/scheduled-tasks.mjs`（唯一生产改动：去掉预 append/persist，改用 runPrompt）、`tests/server/scheduled-tasks.execution.test.mjs`、新增 `tests/server/scheduled-tasks.commands.test.mjs`、`docs/wiki/server/routes/README.md` 与 feature_list.json/progress.md/session-handoff.md。
+- 验证：父 Agent 定向 7 文件 196 tests 全过，含 execution 44、commands 10；commands 使用真实 manager/resolver/storage、mock 底层 Agent，覆盖普通一次、plan 权限、custom 参数、skill、help/goal、clear/summary/compact 短路及 prompt reject。父 Agent 对 3 个改动源/测试文件最终定向 ESLint 通过（0 warning）；本次未跑全量 test/build。
+- 契约变化：首消息由统一 prompt 流程持久化，不再保证 `onStarted` 前落盘；Wiki 已同步，短文字足够，无需 SVG。
+- Blocker：无；实现与定向验证完成。下一步可重启运行中的源码服务，以实际任务指令检查效果；本轮未运行真实模型任务。改动未提交，无 Git 写操作。
+- Notes：此前 timer 恢复、active ID、手动请求悬挂问题按用户要求未处理，不继续顺带修复。无 UI、依赖、生成产物修改；并行 UI/Goal 等成果与历史章节保留、不认领。
+
+---
+
+## 最新交接：ui-ux-review-optimization（done，2026-09-16）
+
+- 目标已完成：UI/UX 全面评审（真实实例 + Playwright 实测，问题清单 B01-B12 见 docs/reviews/app-ui-ux-review-2026-09-15.zh-CN.md）与 11 项修复（B01-B11）全部落地并验证；B12 保留现状（有菜单补偿）。
+- 改动文件：confirm-dialog.tsx（互斥+focus trap+焦点恢复）、toast.tsx（语义分级）、backup-settings-tab.ts（replace 导入 destructive）、react-settings-tabs.tsx（延迟卸载）、App.tsx（移动 drawer Escape/焦点）、ChatSidebar.tsx（折叠占位）、ScheduledTasksPage.tsx + mcp-server-card.tsx（switch/下拉可访问名称）、default-options-settings-tab.ts（数字输入 label）、i18n.ts（en/zh 新 key）、docs/wiki/src/components/README.md、新增 tests/frontend/confirm-dialog.test.ts 与评审文档/截图。
+- 验证：定向 vitest 32/32、tsc -b、11 文件 ESLint、Playwright 复查（弹窗键盘全项、tab 切换 0 error、switch 标签、375px 布局/drawer）全过；全量 test 355 files / 4053 passed + 1 skipped、lint 0 error（既有 coverage 3 warning）、build 成功，均 exit 0。
+- Blocker：无。未验证项及原因见评审文档第五节（真实破坏性确认、真实成功 toast、外部包 ChatPanel、全量对比度扫描）。
+- Notes：工作区有多路并行未提交改动（scheduled-tasks runPrompt 分发、goal-attachment-missing-marker 等），本 goal 不认领不回退，均含于全量通过内；运行中生产实例（5176）服务 dist，server 端磁盘改动不影响其进程。新会话恢复时先读 docs/reviews/app-ui-ux-review-2026-09-15.zh-CN.md。遗留可选项（不阻塞）：B12 键盘可达性重构、统一 EmptyState/ErrorState 组件、skeleton 推广——均为记录在案的未来方向，非本轮承诺。
+
+---
+
+## 最新交接：goal-attachment-missing-marker（done，2026-09-15）
+
+- 目标已完成：Goal 附件文件缺失/过期时不再静默——`server/agent-goal-runner.mjs` 的 goalAttachmentPrompt 注入前 `existsSync` 检查，缺失时提示词标注 `(attachment file no longer available: <原路径>)`；path 为空、文件存在两分支行为不变。
+- 改动文件：`server/agent-goal-runner.mjs`、`tests/server/agent-goal-runner.test.mjs`（+2 新用例、既有附件用例改 os.tmpdir() 真实临时文件）、feature_list.json/progress.md/session-handoff.md。
+- 验证：定向 vitest 141/141、两文件 node --check、eslint 0 error 全部 exit 0；os.tmpdir() 零残留；package.json/package-lock.json 无 diff；无 Git 操作（HEAD `bd55a0d` 未变）。
+- Blocker：无。遗留（需产品决策，详见 progress.md 本 feature Notes）：① 附件在 workspace 外时 read_file 403（沙箱豁免 vs 内容内联）；② 失效状态持久化进 goal.attachments（动 schema）；③ message-converters 普通消息附件静默空串。另：subagent 评审"高-2"测试缺口系静态误判，勘误已记入 progress.md Notes。
+- Notes：本 feature 开始前工作区已存在其他并行会话未提交改动（UI review、scheduled-tasks 等），均未触碰；docs/wiki 无附件既有记载，未新增 wiki 内容。下方旧记录仅供历史追溯。
+
+---
+
 ## 最新交接：state-records-closeout（done，2026-09-15）
 
 - 目标已完成：多会话成果汇总提交 `ace9930` 已推送 origin/dev（本地与远端同步，历史线性）。推送前全量验证通过：npm run test 353 files / 4037 passed + 1 skipped、npm run lint 0 error（仅既有 coverage 3 warning）、npm run build 成功（仅既有 KaTeX/chunk warning）。

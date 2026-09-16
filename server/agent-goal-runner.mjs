@@ -22,8 +22,9 @@
  * the exported hooks.
  */
 
+import { existsSync } from 'node:fs'
 import { logger } from './utils/logger.mjs'
-import { emitSessionEvent, runtimePendingToolCalls } from './agent-session-events.mjs'
+import { agentEvents, emitSessionEvent, runtimePendingToolCalls } from './agent-session-events.mjs'
 import { persistSession } from './agent-persistence.mjs'
 import { getPendingApprovalForSession } from './approval-store.mjs'
 import { getPendingAskForSession } from './ask-store.mjs'
@@ -89,27 +90,122 @@ export function configureGoalRunner(deps = {}) {
 // `shared` is a request-scoped model access overlay written by the shared
 // conversation route on every prompt. It must never become the session's
 // permanent identity, otherwise the owner's main chat would lose goal mode for
-// good after any shared visitor typed a message. Real session-bound sources
-// (acp/scheduled) are the session's identity and stay rejected.
+// good after any shared visitor typed a message. Scheduled sessions use the same
+// goal runner as main chats; ACP/channel sources stay rejected.
 const REQUEST_SCOPED_MODEL_SOURCES = new Set(['shared'])
 
 /**
- * Goal mode is only available in a QuickForge main chat. ACP / channel sessions
+ * Goal mode is available in main chats and scheduled sessions. ACP / channel sessions
  * carry a persistent `source`; the current request may also carry a
  * request-scoped source (the shared conversation route), which must be rejected
  * for that request only — never permanently disabled for the owner.
  */
 export function isGoalModeAvailable(session, requestSource = null) {
   if (!session) return false
-  if (session.source) return false
-  if (requestSource) return false
+  if (session.source && session.source !== 'scheduled') return false
+  if (requestSource && requestSource !== 'scheduled') return false
   const boundSource = session.modelAccessContext?.source
-  if (boundSource && !REQUEST_SCOPED_MODEL_SOURCES.has(boundSource)) return false
+  if (boundSource && boundSource !== 'scheduled' && !REQUEST_SCOPED_MODEL_SOURCES.has(boundSource)) return false
   return true
 }
 
 export function sessionGoal(session) {
   return session?.goal || null
+}
+
+// A goal_updated event is not itself a durability acknowledgement (failed
+// commits emit it too). Retain only terminal snapshots behind the runner's
+// existing commit barriers, independently of live goal object identity.
+const durableTerminalGoals = new WeakMap()
+const stoppedGoalSessions = new WeakSet()
+const goalCompletionWaiters = new Map()
+
+function recordDurableGoal(session, goal) {
+  if (goalState.isGoalTerminalStatus(goal?.status)) {
+    durableTerminalGoals.set(session, { goal, messages: [...(session.agent.state.messages || [])] })
+  }
+}
+
+export function hasGoalCompletionWaiter(sessionId) {
+  return Boolean(goalCompletionWaiters.get(sessionId)?.size)
+}
+
+/**
+ * Observe one admitted goal, not one agent turn. Nonterminal states deliberately
+ * have no timeout/polling: paused goals can wait for user action indefinitely.
+ * Terminal commits still wait for the real Agent to become idle, since cancel
+ * publishes its durable state BEFORE calling abort. Only this runner owns those
+ * lifecycle details; consumers must not interpret agent_end as goal completion.
+ */
+export function waitForGoalCompletion(sessionId, goalId) {
+  if (!goalId) return Promise.reject(new Error('No goal was created for this run.'))
+  const session = agentSessions.get(sessionId)
+  if (!session) return Promise.reject(new Error('Goal session was removed before completion.'))
+  let waiters = goalCompletionWaiters.get(sessionId)
+  if (!waiters) { waiters = new Set(); goalCompletionWaiters.set(sessionId, waiters) }
+  return new Promise((resolve, reject) => {
+    let checking = false
+    let finished = false
+    const cleanup = () => {
+      finished = true
+      agentEvents.removeListener('agent_event', onEvent)
+      waiters.delete(dispose)
+      if (!waiters.size) goalCompletionWaiters.delete(sessionId)
+    }
+    const dispose = () => {
+      if (finished) return
+      cleanup()
+      // Retain the original session even after removal/replacement. Never release
+      // a caller's serial slot until its underlying Agent has actually stopped.
+      void Promise.resolve().then(async () => {
+        while (!await waitForGoalIdle(session)) { /* keep waiting for abort */ }
+        reject(new Error('Goal session was removed before completion.'))
+      })
+    }
+    waiters.add(dispose)
+    const check = async () => {
+      if (checking || finished) return
+      if (agentSessions.get(sessionId) !== session || stoppedGoalSessions.has(session)) {
+        dispose()
+        return
+      }
+      const terminal = durableTerminalGoals.get(session)
+      if (terminal?.goal.id !== goalId) {
+        if (session.goal?.id !== goalId) dispose()
+        return
+      }
+      checking = true
+      try {
+        // No wall-clock deadline: releasing a serial slot while an aborted tool
+        // is still executing would allow overlapping workspace mutations.
+        while (!finished) {
+          const idle = await waitForGoalIdle(session)
+          if (finished) return
+          if (agentSessions.get(sessionId) !== session || stoppedGoalSessions.has(session)) {
+            dispose()
+            return
+          }
+          if (idle && !session.goalRun && !session.goalRunSettling && !session.activePromptPromise) {
+            cleanup()
+            resolve(terminal)
+            return
+          }
+          await new Promise((done) => setTimeout(done, GOAL_CONTINUATION_POLL_MS).unref?.())
+        }
+      } catch (error) {
+        cleanup()
+        reject(error)
+      }
+    }
+    const onEvent = (event) => {
+      if (event.sessionId === sessionId) void check()
+    }
+    if (stoppedGoalSessions.has(session)) dispose()
+    else {
+      agentEvents.on('agent_event', onEvent)
+      void check()
+    }
+  })
 }
 
 export function isGoalPlanning(session) {
@@ -259,6 +355,7 @@ async function commitGoal(session, nextGoal, { revertOnFailure = false, forceMes
     emitGoalUpdated(session)
     return false
   }
+  recordDurableGoal(session, nextGoal)
   if (wasActive !== isActive) {
     try {
       await runnerDeps.refreshTools(session)
@@ -328,6 +425,7 @@ async function commitSettledGoal(session, next, abortGeneration) {
   }
   session.goal = next
   session.agent.state.messages = messages
+  recordDurableGoal(session, next)
   try {
     await runnerDeps.refreshTools(session)
   } catch (error) {
@@ -389,7 +487,9 @@ function goalAttachmentPrompt(goal) {
   if (!Array.isArray(goal.attachments) || !goal.attachments.length) return ''
   const entries = goal.attachments.map((attachment) => {
     const fileName = attachment.fileName || '(unnamed attachment)'
-    const path = attachment.path || '(no readable path recorded)'
+    const path = typeof attachment.path === 'string' && attachment.path ? attachment.path : ''
+    if (!path) return `- ${fileName}: (no readable path recorded)`
+    if (!existsSync(path)) return `- ${fileName}: (attachment file no longer available: ${path})`
     return `- ${fileName}: ${path}`
   }).join('\n')
   return `\n\nAttached reference files (read these when needed):\n${entries}`
@@ -907,6 +1007,11 @@ export async function startGoalPlanning(session, objective, requestSource = null
       // Re-check under the session lock: a concurrent `/goal` on this same
       // session may have committed an active goal while we waited for admission.
       const active = session.goal
+      // A terminal goal can still own a scheduled serial run until Agent idle.
+      // Do not let a replacement goal capture that run's waiter or transcript.
+      if (hasGoalCompletionWaiter(session.sessionId)) {
+        throw requestError('The previous goal is still settling. Wait for it to finish before starting a new one.', 409, 'GOAL_ACTIVE')
+      }
       if (active && goalState.isGoalActiveStatus(active.status)) {
         throw requestError(
           `This chat already has an active goal (${active.status}). Pause, cancel or revise it from the goal card before starting a new one.`,
@@ -1256,6 +1361,9 @@ export async function notifyGoalAbort(session) {
 /** destroyAgent: drop runtime-only goal bookkeeping without touching storage. */
 export function stopGoalForSession(session) {
   if (!session) return
+  stoppedGoalSessions.add(session)
+  for (const dispose of goalCompletionWaiters.get(session.sessionId) || []) dispose()
+  durableTerminalGoals.delete(session)
   const run = session.goalRun
   if (run?.watchdog) clearTimeout(run.watchdog)
   session.goalRun = null

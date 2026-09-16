@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { Readable } from 'node:stream'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -42,7 +42,7 @@ vi.mock('../../server/scheduled-runs-cutover.mjs', () => ({
 }))
 
 vi.mock('../../server/storage.mjs', () => ({
-  storageDir: path.join(os.tmpdir(), 'quickforge-scheduled-tasks-test-storage'),
+  storageDir: path.join(process.env.QUICKFORGE_DATA_DIR, 'storage'),
   ensureStorage: vi.fn(async () => {}),
   readStore: vi.fn(async (name) => structuredClone(mocks.stores.get(name) || {})),
   atomicUpdate: vi.fn(async (name, updater) => {
@@ -52,6 +52,11 @@ vi.mock('../../server/storage.mjs', () => ({
     return structuredClone(next)
   }),
 }))
+
+// Goal admission/settlement is exercised with the real manager in commands.test;
+// these scheduler-only tests intentionally isolate all prompt dependencies.
+vi.mock('../../server/custom-commands.mjs', () => ({ parseInternalCommandInvocation: vi.fn(() => null) }))
+vi.mock('../../server/agent-goal-runner.mjs', () => ({ sessionGoal: vi.fn(() => null), waitForGoalCompletion: vi.fn() }))
 
 vi.mock('../../server/agent-manager.mjs', async () => {
   const { EventEmitter } = await import('node:events')
@@ -69,7 +74,14 @@ vi.mock('../../server/agent-manager.mjs', async () => {
   return {
     agentEvents: mocks.agentEvents,
     getSessionEventBus: vi.fn((sessionId) => eventBusFor(sessionId)),
-    persistSessionState: vi.fn(async () => {}),
+    runPrompt: vi.fn((sessionId, message) => {
+      const session = mocks.sessions.get(sessionId)
+      // Only model dispatch is mocked here; real command parsing has its own suite.
+      expect(session.agent.state.messages).toEqual([])
+      session.agent.state.messages.push(message)
+      if (mocks.nextAgentMode === 'dispatched') return { sessionId, status: 'running' }
+      return session.agent.continue()
+    }),
     createAgent: vi.fn(async (sessionId, options) => {
       let settleContinue
       const continuePromise = new Promise((resolve, reject) => {
@@ -131,7 +143,28 @@ vi.mock('../../server/project-config.mjs', () => ({
 }))
 
 let tempDir
+let fixtureRoot
 let previousDataDir
+let previousHome
+let previousUserProfile
+
+beforeAll(async () => {
+  fixtureRoot = await fs.mkdtemp(path.join(process.cwd(), '.tmp-scheduled-execution-'))
+  previousHome = process.env.HOME
+  previousUserProfile = process.env.USERPROFILE
+  process.env.HOME = fixtureRoot
+  process.env.USERPROFILE = fixtureRoot
+  vi.spyOn(os, 'homedir').mockReturnValue(fixtureRoot)
+})
+
+afterAll(async () => {
+  vi.restoreAllMocks()
+  if (previousHome === undefined) delete process.env.HOME
+  else process.env.HOME = previousHome
+  if (previousUserProfile === undefined) delete process.env.USERPROFILE
+  else process.env.USERPROFILE = previousUserProfile
+  await fs.rm(fixtureRoot, { recursive: true, force: true })
+})
 
 function mockResponse() {
   return {
@@ -191,7 +224,7 @@ async function runTask(routes, taskId) {
 }
 
 beforeEach(async () => {
-  tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-scheduled-lifecycle-'))
+  tempDir = await fs.mkdtemp(path.join(fixtureRoot, 'case-'))
   previousDataDir = process.env.QUICKFORGE_DATA_DIR
   process.env.QUICKFORGE_DATA_DIR = tempDir
   mocks.sessions.clear()
@@ -461,6 +494,51 @@ describe('scheduled task scheduler ticks', () => {
 })
 
 describe('scheduled task execution lifecycle', () => {
+  it('dispatches once through runPrompt and captures synchronous agent_end', async () => {
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    const manager = await import('../../server/agent-manager.mjs')
+    manager.runPrompt.mockClear()
+    await createRecurringTask(storage)
+    mocks.nextAgentMode = 'success'
+
+    const response = await runTask(routes, 'task-lifecycle')
+    const sessionId = response.body.task.lastSessionId
+    const task = await waitFor(async () => {
+      const current = (await storage.readStore('scheduled-tasks'))['task-lifecycle']
+      return current.runs[0]?.status === 'success' ? current : null
+    }, 'synchronous completion')
+
+    expect(manager.runPrompt).toHaveBeenCalledExactlyOnceWith(sessionId, {
+      role: 'user',
+      content: [{ type: 'text', text: '执行生命周期测试' }],
+      timestamp: expect.any(Number),
+    }, [], null, null, { source: 'scheduled', allowCloud: true })
+    expect(mocks.sessions.get(sessionId).agent.state.messages.filter((message) => message.role === 'user')).toHaveLength(1)
+    expect(task.runs[0].aiResult).toBe('正常完成结果')
+    expect(mocks.eventBuses.get(sessionId).listenerCount('agent_event')).toBe(0)
+  })
+
+  it('waits for agent_end after runPrompt returns from dispatch', async () => {
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    await createRecurringTask(storage)
+    mocks.nextAgentMode = 'dispatched'
+
+    const response = await runTask(routes, 'task-lifecycle')
+    const sessionId = response.body.task.lastSessionId
+    const eventBus = mocks.eventBuses.get(sessionId)
+    await waitFor(() => eventBus?.listenerCount('agent_event') === 1)
+    await vi.advanceTimersByTimeAsync(0)
+    expect((await storage.readStore('scheduled-tasks'))['task-lifecycle'].runs[0].status).toBe('running')
+
+    const messages = [{ role: 'assistant', content: [{ type: 'text', text: 'delayed completion' }] }]
+    eventBus.emit('agent_event', { type: 'agent_end', messages })
+    await waitFor(async () => (await storage.readStore('scheduled-tasks'))['task-lifecycle'].runs[0].status === 'success')
+    expect((await storage.readStore('scheduled-tasks'))['task-lifecycle'].runs[0].aiResult).toBe('delayed completion')
+    expect(eventBus.listenerCount('agent_event')).toBe(0)
+  })
+
   it.each(['serial', 'parallel'])('keeps interval cadence after a %s run finishes', async (executionMode) => {
     const storage = await import('../../server/storage.mjs')
     const routes = await import('../../server/routes/scheduled-tasks.mjs')

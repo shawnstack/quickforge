@@ -1,5 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { agentSessions } from '../../server/agent-session-store.mjs'
+import { agentEvents } from '../../server/agent-session-events.mjs'
 import * as goalState from '../../server/agent-goal-state.mjs'
 
 const mocks = vi.hoisted(() => ({
@@ -13,7 +17,8 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../../server/agent-persistence.mjs', () => ({ persistSession: mocks.persistSession }))
-vi.mock('../../server/agent-session-events.mjs', () => ({
+vi.mock('../../server/agent-session-events.mjs', async () => ({
+  agentEvents: new (await import('node:events')).EventEmitter(),
   emitSessionEvent: mocks.emitSessionEvent,
   runtimePendingToolCalls: mocks.pendingTools,
 }))
@@ -52,17 +57,63 @@ const {
   notifyGoalAskRequested,
   recordGoalToolExecution,
   startGoalPlanning,
+  stopGoalForSession,
+  waitForGoalCompletion,
+  hasGoalCompletionWaiter,
 } = await import('../../server/agent-goal-runner.mjs')
 
+const attachmentTmpDirs = []
+afterAll(() => {
+  for (const dir of attachmentTmpDirs) {
+    try { rmSync(dir, { recursive: true, force: true }) } catch { /* best-effort cleanup */ }
+  }
+})
+function createAttachmentFile(fileName, content) {
+  const dir = mkdtempSync(join(tmpdir(), 'goal-attachment-'))
+  attachmentTmpDirs.push(dir)
+  const filePath = join(dir, fileName)
+  writeFileSync(filePath, content, 'utf8')
+  return filePath
+}
+
 it('planning and continuation include persisted attachment paths', () => {
+  const notesPath = createAttachmentFile('notes.txt', 'attachment body')
   const goal = {
     objective: 'test',
-    attachments: [{ fileName: 'notes.txt', path: 'C:\\Users\\test\\notes.txt' }],
+    attachments: [{ fileName: 'notes.txt', path: notesPath }],
     criteria: [], evidence: [], scope: [], status: 'running',
   }
   for (const prompt of [goalPlanningPrompt(goal), goalContinuationPrompt(goal, 2, 8)]) {
-    expect(prompt).toContain('C:\\Users\\test\\notes.txt')
+    expect(prompt).toContain(notesPath)
     expect(prompt).toContain('notes.txt')
+  }
+})
+
+it('planning and continuation mark missing attachment files as unavailable', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'goal-attachment-'))
+  attachmentTmpDirs.push(dir)
+  const missingPath = join(dir, 'missing.txt')
+  const goal = {
+    objective: 'test',
+    attachments: [{ fileName: 'missing.txt', path: missingPath }],
+    criteria: [], evidence: [], scope: [], status: 'running',
+  }
+  for (const prompt of [goalPlanningPrompt(goal), goalContinuationPrompt(goal, 2, 8)]) {
+    expect(prompt).toContain(`(attachment file no longer available: ${missingPath})`)
+    expect(prompt).toContain('missing.txt')
+    expect(prompt).not.toContain(`- missing.txt: ${missingPath}`)
+  }
+})
+
+it('attachments without a recorded path stay marked', () => {
+  const goal = {
+    objective: 'test',
+    attachments: [{ fileName: 'gone.txt', path: '' }],
+    criteria: [], evidence: [], scope: [], status: 'running',
+  }
+  for (const prompt of [goalPlanningPrompt(goal), goalContinuationPrompt(goal, 2, 8)]) {
+    expect(prompt).toContain('(no readable path recorded)')
+    expect(prompt).toContain('gone.txt')
   }
 })
 
@@ -183,6 +234,76 @@ function extendGoal(session, options = {}) {
 }
 
 describe('goal runner', () => {
+  it('rejects a completion wait for a missing session without registering listeners', async () => {
+    const listeners = agentEvents.listenerCount('agent_event')
+    await expect(waitForGoalCompletion('missing-session', 'missing-goal')).rejects.toThrow('removed')
+    expect(hasGoalCompletionWaiter('missing-session')).toBe(false)
+    expect(agentEvents.listenerCount('agent_event')).toBe(listeners)
+  })
+
+  it.each(['before', 'during'])('cleans up a waiter registered %s destruction but waits for underlying idle', async (timing) => {
+    const session = makeSession()
+    await startedGoal(session)
+    const idle = deferred()
+    session.agent.waitForIdle.mockImplementation(() => idle.promise)
+    const listeners = agentEvents.listenerCount('agent_event')
+    if (timing === 'during') stopGoalForSession(session)
+    let settled = false
+    const completion = waitForGoalCompletion(session.sessionId, session.goal.id).catch((error) => {
+      settled = true
+      return error
+    })
+    if (timing === 'before') {
+      expect(agentEvents.listenerCount('agent_event')).toBe(listeners + 1)
+      stopGoalForSession(session)
+    }
+    // destroyAgent can await its final persist while this session is still live.
+    expect(agentSessions.get(session.sessionId)).toBe(session)
+    expect(hasGoalCompletionWaiter(session.sessionId)).toBe(false)
+    expect(agentEvents.listenerCount('agent_event')).toBe(listeners)
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    agentSessions.delete(session.sessionId)
+    idle.resolve()
+    expect(await completion).toEqual(expect.objectContaining({ message: expect.stringContaining('removed') }))
+  })
+
+  it('disposes a nonterminal waiter if its original session disappears on an event', async () => {
+    const session = makeSession()
+    await startedGoal(session)
+    const listeners = agentEvents.listenerCount('agent_event')
+    const completion = waitForGoalCompletion(session.sessionId, session.goal.id)
+    const rejected = expect(completion).rejects.toThrow('removed')
+    agentSessions.delete(session.sessionId)
+    agentEvents.emit('agent_event', { sessionId: session.sessionId })
+    await rejected
+    expect(hasGoalCompletionWaiter(session.sessionId)).toBe(false)
+    expect(agentEvents.listenerCount('agent_event')).toBe(listeners)
+  })
+
+  it('keeps terminal waiters and their transcript bound to the original goal', async () => {
+    const session = makeSession()
+    await startedGoal(session)
+    const goalId = session.goal.id
+    session.agent.state.messages.push({ role: 'assistant', content: 'original goal result' })
+    const idle = deferred()
+    session.agent.waitForIdle.mockImplementation(() => idle.promise)
+    const listeners = agentEvents.listenerCount('agent_event')
+    const completion = waitForGoalCompletion(session.sessionId, goalId)
+    await handleGoalAction(session, 'cancel')
+    agentEvents.emit('agent_event', { sessionId: session.sessionId })
+    expect(await startGoalPlanning(session, 'Replacement goal')).toMatchObject({ errorCode: 'GOAL_ACTIVE' })
+    session.agent.state.messages.push({ role: 'user', content: 'later unrelated message' })
+    idle.resolve()
+    const result = await completion
+    expect(result.goal).toMatchObject({ id: goalId, status: 'cancelled' })
+    expect(result.messages).toEqual([{ role: 'assistant', content: 'original goal result' }])
+    expect(hasGoalCompletionWaiter(session.sessionId)).toBe(false)
+    expect(agentEvents.listenerCount('agent_event')).toBe(listeners)
+    expect(await startGoalPlanning(session, 'Replacement goal')).not.toHaveProperty('error')
+    expect(session.goal.id).not.toBe(goalId)
+  })
+
   it('auto-starts a persisted normal plan, staying read-only through the planning turn without a duration watchdog', async () => {
     const session = makeSession()
     await startedGoal(session)
@@ -1294,14 +1415,17 @@ describe('goal runner', () => {
     expect(session.goal).toMatchObject({ status: 'planning' })
   })
 
-  it('still rejects ACP sessions and real session-bound model sources', async () => {
-    const acp = makeSession({ sessionId: 'acp-source-session', source: 'acp' })
-    expect(isGoalModeAvailable(acp)).toBe(false)
+  it('allows scheduled goals without opening ACP, shared or channel sources', async () => {
     const scheduled = makeSession({ sessionId: 'scheduled-source-session', modelAccessContext: { source: 'scheduled' } })
-    expect(isGoalModeAvailable(scheduled)).toBe(false)
-    expect(isGoalModeAvailable(scheduled, null)).toBe(false)
-    // A request-scoped source is only denied for that request.
-    expect(isGoalModeAvailable(scheduled, 'scheduled')).toBe(false)
+    expect(isGoalModeAvailable(scheduled)).toBe(true)
+    expect(isGoalModeAvailable(scheduled, 'scheduled')).toBe(true)
+    expect(isGoalModeAvailable({ ...scheduled, source: 'scheduled' })).toBe(true)
+    for (const source of ['acp', 'channel', 'shared', 'telegram']) {
+      expect(isGoalModeAvailable(scheduled, source)).toBe(false)
+      expect(isGoalModeAvailable({ ...scheduled, source }, 'scheduled')).toBe(false)
+    }
+    expect(isGoalModeAvailable({ ...scheduled, modelAccessContext: { source: 'acp' } })).toBe(false)
+    expect((await startGoalPlanning(scheduled, 'Ship goal mode', 'scheduled')).error).toBeUndefined()
   })
 
   it('lets the owner create, confirm and pause a goal after a shared request was rejected', async () => {

@@ -108,7 +108,7 @@ components/
 │   └── terminal-types.ts            # 终端会话/能力/Profile 类型
 ├── ui/
 │   ├── button.tsx                  # 按钮组件 (40 行)
-│   ├── confirm-dialog.tsx          # 确认对话框 (95 行)
+│   ├── confirm-dialog.tsx          # 确认对话框（命令式 showConfirm/showAlert；模块级互斥防叠加、focus trap、关闭后焦点恢复）
 │   ├── input.tsx                   # 输入框组件 (19 行)
 │   ├── prompt-dialog.tsx           # 提示输入对话框 (116 行)
 │   └── toast.tsx                   # Toast 通知组件 (113 行)
@@ -358,7 +358,8 @@ components/
 - 使用 `class-variance-authority` 管理变体
 - 使用 `tailwind-merge` 合并 class
 - confirm / prompt 通过 `createPortal` 实现模态对话框
-- toast 支持自动消失和动画
+- confirm 对话框行为契约：同一时刻最多一个（互斥，并发请求按取消 resolve）；Tab 焦点循环（focus trap）；关闭后焦点恢复到触发元素；destructive 变体焦点初始落"取消"且 Enter 不触发确认
+- toast 按状态分级语义：error 用 `role="alert"`，success/running 用 `role="status"`（polite），支持自动消失和动画
 
 ### ErrorBoundary.tsx (44 行)
 

@@ -1,0 +1,24 @@
+{
+  "when": "2026-09-15T17:07:29.414Z",
+  "note": "父 Agent 修复后回归复查（Playwright，真实实例 http://127.0.0.1:5176，v2.1.0 dist 含全部 B01-B11 修复）。destructiveDialog.afterEscape.active 为设置页容器：删除菜单随弹窗打开已移除（触发器 isConnected=false），焦点恢复按设计降级，不恢复到断开节点。",
+  "steps": {
+    "mainLoaded": {
+      "sidebarButtons": false,
+      "sidebarButtonsNote": "goto 后 1200ms 采样尚处加载屏阶段，非问题；后续步骤依赖的元素均成功交互",
+      "collapsedLoadingPlaceholders": 1,
+      "collapsedLoadingPlaceholdersNote": "采样时展开中的 quickforge 项目会话仍在加载（expanded 时显示 loading 为设计行为）；页面完全加载后为 0（首次评审实测）"
+    },
+    "destructiveDialog": {
+      "initial": { "count": 1, "active": "取消" },
+      "afterTabTwice": { "count": 1, "active": "取消" },
+      "afterEscape": { "count": 0, "closed": true }
+    },
+    "taskSwitchLabels": ["启用这个任务", "启用这个任务"],
+    "generalNumberLabels": ["上下文达到多少百分比时压缩", "保留最近用户回合数", "Goal 最大轮次"],
+    "mobileDrawer": {
+      "drawerOpen": { "open": true, "focusInside": true, "overflowX": false },
+      "drawerClosed": { "open": false, "overflowX": false }
+    },
+    "console": "0 errors（全复查会话累计，仅既有 meta deprecated / git status timeout warnings）"
+  }
+}

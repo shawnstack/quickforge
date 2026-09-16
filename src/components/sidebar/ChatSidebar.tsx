@@ -1647,10 +1647,16 @@ export const ChatSidebar = memo(function ChatSidebar({
                                 <div className={collapseInnerClass}>
                                   <div className="mt-0.5 space-y-0.5 pl-8">
                                     {projectSessions.length === 0 && !loaded ? (
-                                      <div className="flex items-center px-2 py-1.5 text-xs text-muted-foreground/55">
-                                        <Loader2 className="mr-1.5 size-3 animate-spin" />
-                                        {t('loadingChatWorkspace')}
-                                      </div>
+                                      // Hidden while collapsed: the collapsed panel only hides
+                                      // visually (grid-rows 0fr), and this placeholder would
+                                      // otherwise stay exposed to screen readers for every
+                                      // not-yet-loaded project.
+                                      expanded ? (
+                                        <div className="flex items-center px-2 py-1.5 text-xs text-muted-foreground/55">
+                                          <Loader2 className="mr-1.5 size-3 animate-spin" />
+                                          {t('loadingChatWorkspace')}
+                                        </div>
+                                      ) : null
                                     ) : projectSessions.length === 0 && projectLoading(item.id) ? (
                                       <div className="flex items-center px-2 py-1.5 text-xs text-muted-foreground/55">
                                         <Loader2 className="mr-1.5 size-3 animate-spin" />

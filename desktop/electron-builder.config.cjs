@@ -27,8 +27,11 @@ module.exports = {
     desktopName: 'quickforge',
   },
   win: {
-    target: 'nsis',
+    target: ['nsis', 'portable'],
     icon: 'desktop/assets/icon.ico',
+  },
+  portable: {
+    artifactName: 'QuickForge-Portable-${version}.exe',
   },
   nsis: {
     oneClick: false,

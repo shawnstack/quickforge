@@ -1,3 +1,13 @@
+## 最新交接：desktop-portable-exe（done，2026-09-16）
+
+- 目标已完成：Windows 桌面打包新增免安装 portable exe，随 `desktop:build:win` 与 tag 触发的 Desktop Build CI 自动产出并上传 GitHub Release。
+- 改动文件：`desktop/electron-builder.config.cjs`（win target 加 portable + artifactName `QuickForge-Portable-${version}.exe`）、`docs/wiki/root-config.md`、feature_list.json 未动（用户直提需求，非列表 feature）、progress.md、session-handoff.md。
+- 验证：本地 `desktop:build:win` 完整构建通过，双产物 `QuickForge Setup 2.1.0.exe` + `QuickForge-Portable-2.1.0.exe`（各约 109 MB）；配置加载与定向 ESLint 通过。
+- Blocker：无。portable 与安装版共享 `%APPDATA%` 用户数据（Electron 默认）；不经过 nsis-patch/installer.nsh。
+- Notes：无新依赖、无 Git 操作；下一个 tag 发布时 CI 将自动携带 portable exe 进 Release，无需额外步骤。
+
+---
+
 ## 最新交接：scheduled-tasks-goal-support（done，2026-09-16）
 
 - 当前目标：定时任务可触发 Goal 且复用既有 `runPrompt`→runner；主聊天与 scheduled 支持，ACP/channel/shared 仍拒绝，不新增执行器。

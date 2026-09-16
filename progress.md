@@ -1,3 +1,13 @@
+## desktop-portable-exe（done，2026-09-16）
+
+- 用户直接需求：Windows 桌面打包时同时产出免安装 portable exe。方案：electron-builder win target 增加 `portable`，随 `desktop:build:win` 自动产出，无需改 package.json / CI（`desktop-dist/*.exe` 通配已覆盖，Release 资产名不冲突）。
+- 改动文件：`desktop/electron-builder.config.cjs`（`win.target: ['nsis','portable']` + `portable.artifactName: 'QuickForge-Portable-${version}.exe'`）；`docs/wiki/root-config.md`（Desktop 脚本条目补 portable 说明）；三状态文件。
+- 验证：配置 require 加载字段正确；本地 `npm run desktop:build:win` 完整通过，产出 `QuickForge Setup 2.1.0.exe`（109,371,633 B）与 `QuickForge-Portable-2.1.0.exe`（109,129,258 B）双产物；`npx eslint desktop/electron-builder.config.cjs` exit 0。未跑全量 test（无源码/测试改动，构建链已含 `npm run build`）。
+- 行为说明：portable 免安装、双击即用，与安装版共享 `%APPDATA%` 用户数据；不经过 `nsis-patch/apply.mjs` 与 `installer.nsh`（仅 NSIS 安装器路径）。CI tag 构建将自动把 portable exe 上传至 GitHub Release。
+- Notes：无新依赖、无 UI 改动、未触碰 dist/package-dist/package-offline（desktop-dist 为 electron-builder 生成物）；无 Git 操作。
+
+---
+
 ## scheduled-tasks-goal-support（done，2026-09-16）
 
 - 当前 feature：定时任务可触发 Goal，并复用既有 `runPrompt`→runner，不新增执行器；主聊天与 scheduled 支持，ACP/channel/shared 仍拒绝。
@@ -288,3 +298,12 @@
 - 报告 C3 所称重复 test 配置有误：`vite.config.ts` 没有 test 段。报告其余未经验证结论仅是静态建议，不视为已证实问题；不扩展当前 feature。
 - 构建仍有既有 KaTeX/font/chunk warning。自动测试通过不等于真实浏览器或现场 SSE 弱网验收；剩余 20 处事件断言仍是当前工作的未完成边界。
 - 并行 zombie cleanup 的历史 flake、Android 未验证及产品待决策事项继续按原节保留；本轮不修改其代码、测试或状态结论。工作树含大量并行/前序未提交改动，无 Git commit/tag/push。
+
+---
+
+## goal-runtime-residue-sweep（done，2026-09-16 存量一次性清理）
+
+- 现状：仓库根发现 162 个 `.goal-runtime-*` 残留目录（09-11: 85 / 09-12: 22 / 09-14: 55），每个仅 `data/logs/server-*.log`（共约 116KB）。全部早于修复提交 `ace9930`（09-15 23:41），修复后无新增。
+- 处置：一次性删除全部 162 个，删除后仓库根与 `os.tmpdir()` 均验证 0 残留；无源码/测试改动，无需跑验证命令；Git 状态无新增变化（`.gitignore:28` 已忽略该模式）。
+- 勘误：`feature_list.json` p0-goal-runtime-testdir-hygiene（done）中"删除 109 个、repo root 与 os.tmpdir() 均为 0 残留"的验证记录与事实不符——本次实际清理出 162 个，说明当时的删除/验证未覆盖全部。
+- Notes：仓库根另发现 0 字节未跟踪文件 `x[1])`（09-14 9:57 创建，疑似命令转义事故产物），未删除，待后续决策。

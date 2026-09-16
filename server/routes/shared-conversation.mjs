@@ -420,7 +420,7 @@ export async function handleSharedConversationApi(req, res, url, context = {}) {
       allowCurrentHidden: true,
       legacySnapshot: body?.model,
     })
-    sendJson(res, 200, updateSessionModel(record.sessionId, sanitizeModel(binding.model), binding.modelRef))
+    sendJson(res, 200, await updateSessionModel(record.sessionId, sanitizeModel(binding.model), binding.modelRef))
     return
   }
 
@@ -434,7 +434,7 @@ export async function handleSharedConversationApi(req, res, url, context = {}) {
       throw error
     }
     await restoreAgent(record.sessionId)
-    sendJson(res, 200, updateSessionThinkingLevel(record.sessionId, thinkingLevel))
+    sendJson(res, 200, await updateSessionThinkingLevel(record.sessionId, thinkingLevel))
     return
   }
 

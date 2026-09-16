@@ -12,6 +12,8 @@ class MockAgent {
       isStreaming: false,
     }
     this.listeners = new Set()
+    this.continue = vi.fn(async () => {})
+    this.prompt = vi.fn(async () => {})
   }
 
   subscribe(listener) {
@@ -168,6 +170,189 @@ describe('agent persist in authoritative session state', () => {
       expect(restored.persistedStorageRevision).toBe(record.revision)
       expect(restored.persistedStateVersion).toBe(3)
       expect(restored.persistedStateJson).toEqual(expect.any(String))
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  async function evictSession(sessionId, { messages = firstMessage(), goal = null, compactedUpToIndex = 0 } = {}) {
+    const model = { provider: 'cold-provider', id: 'cold-model', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
+    await storageModule.writeStore('custom-providers', {
+      'cold-provider': { id: 'cold-provider', models: [model] },
+    })
+    const session = await agentManager.createAgent(sessionId, { scope: 'global', model, messages, systemPrompt: '' })
+    if (goal) session.goal = goal
+    if (compactedUpToIndex) session.contextCompaction = {
+      summaryMessage: { role: 'user', content: 'Earlier history summary' },
+      compactedUpToIndex,
+      sourceMessageCount: messages.length,
+    }
+    await agentManager.persistSessionState(session)
+    await agentManager.destroyAgent(sessionId)
+    expect(agentManager.getSessionState(sessionId)).toBeNull()
+    expect(session.agent.continue).not.toHaveBeenCalled()
+    expect(session.agent.prompt).not.toHaveBeenCalled()
+    return session
+  }
+
+  it.each([false, true])('continues a cold session without losing history outside retry semantics (append=%s)', async (append) => {
+    const sessionId = 'cold-continue'
+    const messages = [
+      ...firstMessage(),
+      { role: 'assistant', content: [{ type: 'toolCall', id: 'call-1', name: 'edit_file', arguments: {} }] },
+      { role: 'toolResult', toolCallId: 'call-1', toolName: 'edit_file', content: [{ type: 'text', text: 'done' }] },
+      { role: 'assistant', content: [], stopReason: 'error', errorMessage: 'upstream failed' },
+    ]
+    await evictSession(sessionId, { messages })
+    try {
+      expect(await agentManager.continueSession(sessionId, null, append ? { role: 'user', content: '继续' } : null))
+        .toEqual({ sessionId, status: 'running' })
+      const restored = await agentManager.restoreAgent(sessionId)
+      const next = restored.agent.state.messages
+      expect(next).toHaveLength(append ? 5 : 1)
+      if (append) {
+        expect(next.slice(0, 4)).toEqual(messages)
+        expect(next[4]).toMatchObject({ role: 'user', content: '继续' })
+      } else expect(next[0]).toEqual(messages[0])
+      expect(restored.agent.continue).toHaveBeenCalledTimes(1)
+      expect(restored.agent.prompt).not.toHaveBeenCalled()
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it.each([[7, 6, true], [3, 2, false]])('rolls back cold compacted history at %s', async (index, count, keepCompaction) => {
+    const sessionId = 'cold-rollback'
+    const messages = Array.from({ length: 8 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `message-${i}` }))
+    await evictSession(sessionId, { messages, compactedUpToIndex: 4 })
+    try {
+      const result = await agentManager.rollbackSessionMessages(sessionId, index)
+      expect(result.rollbackIndex).toBe(count)
+      expect(result.session.messages).toEqual(messages.slice(0, count))
+      const restored = await agentManager.restoreAgent(sessionId)
+      if (keepCompaction) expect(restored.contextCompaction.compactedUpToIndex).toBe(4)
+      else expect(restored.contextCompaction).toBeNull()
+      expect(restored.agent.continue).not.toHaveBeenCalled()
+      expect(restored.agent.prompt).not.toHaveBeenCalled()
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it.each([
+    ['updateSessionAccessMode', 'full-access', { accessMode: 'full-access', yoloMode: true }],
+    ['updateSessionYoloMode', true, { accessMode: 'full-access', yoloMode: true }],
+    ['updateSessionModel', { provider: 'cold-provider', id: 'next-model' }, { model: { provider: 'cold-provider', id: 'next-model' } }],
+    ['updateSessionThinkingLevel', 'high', { thinkingLevel: 'high' }],
+  ])('restores a cold session for %s without starting generation', async (operation, value, expected) => {
+    const sessionId = 'cold-settings'
+    await evictSession(sessionId)
+    try {
+      expect(await agentManager[operation](sessionId, value)).toMatchObject({ sessionId, ...expected })
+      const restored = await agentManager.restoreAgent(sessionId)
+      expect(agentManager.getSessionState(sessionId)).toMatchObject(expected)
+      expect(restored.agent.state.messages).toEqual(firstMessage())
+      expect(restored.agent.continue).not.toHaveBeenCalled()
+      expect(restored.agent.prompt).not.toHaveBeenCalled()
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('keeps the warm setter path in memory instead of synchronizing storage', async () => {
+    const sessionId = 'warm-settings'
+    await evictSession(sessionId)
+    const session = await agentManager.restoreAgent(sessionId)
+    const { configureSessionStateService } = await import('../../server/session-state-service.mjs')
+    configureSessionStateService({ repository: { ...repository, findBySessionId() { throw new Error('warm setter must not read storage') } } })
+    try {
+      await expect(agentManager.updateSessionThinkingLevel(sessionId, 'high')).resolves.toMatchObject({ thinkingLevel: 'high' })
+      await expect(agentManager.updateSessionModel(sessionId, session.model)).resolves.toMatchObject({ model: session.model })
+      expect(session.agent.state.messages).toEqual(firstMessage())
+    } finally {
+      configureSessionStateService({ repository })
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it.each(['continueSession', 'rollbackSessionMessages'])('restores a cold Goal before enforcing the %s guard', async (operation) => {
+    const sessionId = 'cold-goal'
+    const { createGoalState } = await import('../../server/agent-goal-state.mjs')
+    await evictSession(sessionId, { goal: createGoalState({ sessionId, objective: 'Keep the goal isolated' }) })
+    try {
+      await expect(agentManager[operation](sessionId, 0)).rejects.toMatchObject({ statusCode: 409, errorCode: 'GOAL_ACTIVE' })
+      const restored = await agentManager.restoreAgent(sessionId)
+      expect(restored.goal.status).toBe('paused')
+      expect(restored.agent.state.messages).toEqual(firstMessage())
+      expect(restored.agent.continue).not.toHaveBeenCalled()
+      expect(restored.agent.prompt).not.toHaveBeenCalled()
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it.each(['continueSession', 'rollbackSessionMessages', 'updateSessionAccessMode', 'updateSessionYoloMode', 'updateSessionModel', 'updateSessionThinkingLevel'])('keeps genuine missing sessions as 404 for %s', async (operation) => {
+    await expect(agentManager[operation]('missing-session')).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it.each([500, 503])('does not turn storage restore failure %s into not-found and retries after single-flight failure', async (statusCode) => {
+    const sessionId = 'cold-storage-failure'
+    await evictSession(sessionId)
+    const original = Object.assign(new Error('internal storage detail'), { statusCode, errorCode: 'STORAGE_UNAVAILABLE' })
+    const { configureSessionStateService } = await import('../../server/session-state-service.mjs')
+    configureSessionStateService({ repository: { ...repository, findBySessionId() { throw original } } })
+    const a = agentManager.restoreAgent(sessionId)
+    const b = agentManager.restoreAgent(sessionId)
+    expect(a).toBe(b)
+    const results = await Promise.allSettled([a, b])
+    for (const result of results) {
+      expect(result.status).toBe('rejected')
+      if (statusCode === 503) expect(result.reason).toBe(original)
+      else expect(result.reason).toMatchObject({ statusCode: 500, errorCode: 'SESSION_RESTORE_FAILED', message: 'Failed to restore session. Please try again.', cause: original })
+    }
+    expect(agentManager.getSessionState(sessionId)).toBeNull()
+    configureSessionStateService({ repository })
+    try {
+      expect(await agentManager.restoreAgent(sessionId)).not.toBeNull()
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('allows the current hidden model on the main model route after cold restore', async () => {
+    const sessionId = 'cold-hidden-model'
+    const previous = await evictSession(sessionId)
+    const model = { ...previous.model, quickforgeHidden: true }
+    await storageModule.writeStore('custom-providers', {
+      'cold-provider': { id: 'cold-provider', models: [model] },
+    })
+    const { Readable } = await import('node:stream')
+    const { handleAgentApi } = await import('../../server/routes/agent.mjs')
+    const req = Readable.from([Buffer.from(JSON.stringify({ model }))])
+    req.method = 'POST'
+    req.headers = {}
+    const res = { writeHead: vi.fn(), end: vi.fn() }
+    try {
+      await handleAgentApi(req, res, new URL(`http://localhost/api/agents/${sessionId}/model`))
+      expect(res.writeHead).toHaveBeenCalledWith(200, expect.any(Object))
+      expect(JSON.parse(res.end.mock.calls[0][0])).toMatchObject({ sessionId, model: { id: model.id, quickforgeHidden: true } })
+      expect(agentManager.getSessionState(sessionId).messages).toEqual(firstMessage())
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('surfaces safe construction failures and permits the next cold operation to retry', async () => {
+    const sessionId = 'cold-construction-failure'
+    await evictSession(sessionId)
+    const registry = await import('../../server/mcp/registry.mjs')
+    registry.createMcpToolDefinitions.mockRejectedValueOnce(new Error('internal tool construction detail'))
+    await expect(agentManager.updateSessionThinkingLevel(sessionId, 'high')).rejects.toMatchObject({
+      statusCode: 500, errorCode: 'SESSION_RESTORE_FAILED', message: 'Failed to restore session. Please try again.',
+    })
+    expect(agentManager.getSessionState(sessionId)).toBeNull()
+    try {
+      expect(await agentManager.updateSessionThinkingLevel(sessionId, 'high')).toEqual({ sessionId, thinkingLevel: 'high' })
     } finally {
       await agentManager.destroyAgent(sessionId)
     }

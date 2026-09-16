@@ -1033,7 +1033,8 @@ export function rollbackStartIndexFromMessage(messages, messageIndex) {
 }
 
 export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
-  const session = agentSessions.get(sessionId)
+  let session = agentSessions.get(sessionId)
+  if (!session) session = await restoreAgent(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
@@ -1346,7 +1347,8 @@ function normalizeRetryAppendMessage(message) {
  *    its side effects.
  */
 export async function continueSession(sessionId, modelAccessContext = null, appendMessage = null) {
-  const session = agentSessions.get(sessionId)
+  let session = agentSessions.get(sessionId)
+  if (!session) session = await restoreAgent(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
@@ -1743,7 +1745,10 @@ async function restoreAgentUnlocked(sessionId) {
   } catch (err) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })
     if (err?.statusCode === 503) throw err
-    return null
+    throw Object.assign(new Error('Failed to restore session. Please try again.', { cause: err }), {
+      statusCode: 500,
+      errorCode: 'SESSION_RESTORE_FAILED',
+    })
   }
 }
 
@@ -1857,7 +1862,8 @@ export async function updateSessionTitle(sessionId, title) {
 }
 
 export async function updateSessionAccessMode(sessionId, accessMode) {
-  const session = agentSessions.get(sessionId)
+  let session = agentSessions.get(sessionId)
+  if (!session) session = await restoreAgent(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
@@ -1883,8 +1889,9 @@ export async function updateSessionYoloMode(sessionId, yoloMode) {
  * Does NOT force persistence — normal lifecycle events (message_end, agent_end) will persist
  * the updated model.
  */
-export function updateSessionModel(sessionId, model, modelRef = null) {
-  const session = agentSessions.get(sessionId)
+export async function updateSessionModel(sessionId, model, modelRef = null) {
+  let session = agentSessions.get(sessionId)
+  if (!session) session = await restoreAgent(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }
@@ -1903,8 +1910,9 @@ export function updateSessionModel(sessionId, model, modelRef = null) {
 /**
  * Update the thinking level for an existing session.
  */
-export function updateSessionThinkingLevel(sessionId, thinkingLevel) {
-  const session = agentSessions.get(sessionId)
+export async function updateSessionThinkingLevel(sessionId, thinkingLevel) {
+  let session = agentSessions.get(sessionId)
+  if (!session) session = await restoreAgent(sessionId)
   if (!session) {
     throw Object.assign(new Error('Session not found'), { statusCode: 404 })
   }

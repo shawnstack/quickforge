@@ -406,14 +406,20 @@ export async function handleAgentApi(req, res, url, context = {}) {
   // POST /api/agents/:sessionId/model — update session model
   if (req.method === 'POST' && subPath === 'model') {
     const body = await readJsonBody(req)
-    const currentModel = getSessionState(sessionId)?.model
+    let state = getSessionState(sessionId)
+    if (!state) {
+      const session = await restoreAgent(sessionId)
+      if (!session) throw Object.assign(new Error('Session not found'), { statusCode: 404 })
+      state = getSessionState(sessionId)
+    }
+    const currentModel = state?.model
     const binding = await resolveModelBinding(body, {
       context,
       currentModel,
       allowCurrentHidden: true,
       legacySnapshot: body?.model,
     })
-    const result = updateSessionModel(sessionId, binding.model, binding.modelRef)
+    const result = await updateSessionModel(sessionId, binding.model, binding.modelRef)
     sendJson(res, 200, result)
     return
   }
@@ -427,7 +433,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
       error.statusCode = 400
       throw error
     }
-    const result = updateSessionThinkingLevel(sessionId, thinkingLevel)
+    const result = await updateSessionThinkingLevel(sessionId, thinkingLevel)
     sendJson(res, 200, result)
     return
   }

@@ -205,15 +205,18 @@ components/
 ### ScheduledTasksPage.tsx
 
 - 定时任务管理页面，包含 Tasks / History 两个页签
+- 任务列表为紧凑行列表（不再是卡片网格）：规则列自 md 断点起显示，下次/最近时间列自 lg 断点起显示；详情使用紧凑定义列表，历史筛选压缩为单行控件；编辑表单按 DESIGN_LANGUAGE 去除透明度 hack 并收紧密度
 - 创建/编辑/删除/手动触发定时任务
-- 手动频次分段按钮支持 once / interval / daily / weekly / monthly / cron；默认 daily，无需先调用 AI。周频次多选，间隔支持正整数分钟/小时/天和首次执行时间，月日期 1–31（不存在日期取月底），Cron 可直接编辑。
+- 频次下拉框支持 once / interval / daily / weekly / monthly / cron；默认 daily，无需先调用 AI。周频次多选，间隔支持正整数分钟/小时/天和首次执行时间，月日期 1–31（不存在日期取月底），Cron 可直接编辑。
 - `src/lib/scheduled-task-form.ts` 负责历史字段回填、按频次校验与净化请求；旧 `weekDay` 和仅中文 rule 的 interval 可编辑，保存不再强制转换成 cron。AI 是可选辅助，成功解析切到 Cron；手动修改清除旧解析确认，避免显示过期规则/下次时间。
 - 编辑器即时展示当前规则摘要；准确下次执行时间由服务端保存时计算，未在浏览器假装预测服务端时区。日期时间输入使用设备时区并转 ISO；日/周/月/Cron 按服务端时区，页面有明确提示。提交/解析中禁用编辑区，错误保留草稿。
 - 保留现有页内编辑布局；单次/间隔的日期草稿独立，AI 解析后也保留手动草稿。解析与保存共用同步互斥门禁，失效编辑器不接收迟到解析；任务操作按 taskId 去重并显示禁用态，失败/取消确认解锁。
 - 任务运行历史查看
 - AI 模型选择、参数配置
-- 定时任务可选择执行 Agent；任务卡片、详情和运行历史展示 Agent 信息
+- 定时任务可选择执行 Agent；任务行、详情和运行历史展示 Agent 信息
 - 每个定时任务可配置执行模式：默认串行，避免同一任务重叠执行；可切换为并行以允许同一任务重叠运行，不同任务之间仍并行触发
+- 任务行 MoreHorizontal 操作菜单采用 portal（createPortal 至 document.body）+ fixed z-50 + 锚点定位模式（对齐 AgentProfilesPage）：视口钳制与空间不足时上方翻转，click/blur/scroll/resize/Escape 关闭，避免被多层 overflow 祖先裁剪
+- 编辑表单与 AgentProfilesPage 表单模式对齐：AI 解析区弱化为辅助块（outline sm 按钮 + 解析结果上移），模型/思考/项目/智能体由 icon-only 工具条升格为标准 label 字段，预览收紧行，操作按钮置于卡片 footer，返回按钮左移
 
 ### AgentProfilesPage.tsx
 

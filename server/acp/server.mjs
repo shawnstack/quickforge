@@ -558,9 +558,9 @@ async function selectSessionModel(sessionId, value) {
     },
   )
   const model = binding.model
-  updateSessionModel(sessionId, model, binding.modelRef)
+  await updateSessionModel(sessionId, model, binding.modelRef)
   const thinkingLevel = model.reasoning === true ? state.thinkingLevel : 'off'
-  if (thinkingLevel !== state.thinkingLevel) updateSessionThinkingLevel(sessionId, thinkingLevel)
+  if (thinkingLevel !== state.thinkingLevel) await updateSessionThinkingLevel(sessionId, thinkingLevel)
   return { configOptions: await sessionConfigOptions(model, thinkingLevel) }
 }
 
@@ -569,7 +569,7 @@ async function selectSessionThinkingLevel(sessionId, value) {
   if (!state) throw new Error('Session not found')
   if (!isThinkingLevel(value)) throw new Error(`Unknown thinking level: ${value}`)
   if (value !== 'off' && state.model?.reasoning !== true) throw new Error('The selected model does not support reasoning.')
-  updateSessionThinkingLevel(sessionId, value)
+  await updateSessionThinkingLevel(sessionId, value)
   return { configOptions: await sessionConfigOptions(state.model, value) }
 }
 

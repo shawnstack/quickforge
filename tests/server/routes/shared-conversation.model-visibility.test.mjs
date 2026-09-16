@@ -153,6 +153,24 @@ describe('shared conversation context reference safety', () => {
 })
 
 describe('shared conversation model visibility', () => {
+  it('waits for the asynchronous thinking setter response', async () => {
+    const manager = await import('../../../server/agent-manager.mjs')
+    manager.updateSessionThinkingLevel.mockResolvedValueOnce({ sessionId: 'session-1', thinkingLevel: 'high' })
+    const { handleSharedConversationApi } = await import('../../../server/routes/shared-conversation.mjs')
+    const res = response()
+    await handleSharedConversationApi(request('POST', { thinkingLevel: 'high' }), res, new URL('http://localhost/api/shared/share-1/thinking-level'))
+    expect(JSON.parse(res.body)).toEqual({ sessionId: 'session-1', thinkingLevel: 'high' })
+  })
+
+  it('propagates shared SSE restore failures before sending stream headers', async () => {
+    const error = Object.assign(new Error('Failed to restore session. Please try again.'), { statusCode: 500, errorCode: 'SESSION_RESTORE_FAILED' })
+    mocks.restoreAgent.mockRejectedValueOnce(error)
+    const { handleSharedConversationApi } = await import('../../../server/routes/shared-conversation.mjs')
+    const res = response()
+    await expect(handleSharedConversationApi(request('GET'), res, new URL('http://localhost/api/shared/share-1/events'))).rejects.toBe(error)
+    expect(res.status).toBeUndefined()
+  })
+
   it('lists selectable models plus only the current hidden binding', async () => {
     const { handleSharedConversationApi } = await import('../../../server/routes/shared-conversation.mjs')
     const res = response()
@@ -176,7 +194,7 @@ describe('shared conversation model visibility', () => {
       new URL('http://localhost/api/shared/share-1/model'),
     )).rejects.toMatchObject({ statusCode: 400 })
 
-    mocks.updateSessionModel.mockReturnValue({ model: currentHiddenModel })
+    mocks.updateSessionModel.mockResolvedValue({ model: currentHiddenModel })
     const res = response()
     await handleSharedConversationApi(
       request('POST', { model: currentHiddenModel }),
@@ -184,6 +202,7 @@ describe('shared conversation model visibility', () => {
       new URL('http://localhost/api/shared/share-1/model'),
     )
 
+    expect(JSON.parse(res.body)).toEqual({ model: currentHiddenModel })
     expect(mocks.updateSessionModel).toHaveBeenCalledWith(
       'session-1',
       expect.objectContaining({ id: 'current-hidden' }),

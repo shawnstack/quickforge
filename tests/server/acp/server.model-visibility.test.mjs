@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   getSessionState: vi.fn(),
   readStore: vi.fn(),
   restoreAgent: vi.fn(),
+  updateSessionModel: vi.fn(),
+  updateSessionThinkingLevel: vi.fn(),
   defaultWorkspaceRoot: '',
 }))
 
@@ -22,8 +24,8 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   rejectToolCall: vi.fn(),
   restoreAgent: mocks.restoreAgent,
   runPrompt: vi.fn(),
-  updateSessionModel: vi.fn(),
-  updateSessionThinkingLevel: vi.fn(),
+  updateSessionModel: mocks.updateSessionModel,
+  updateSessionThinkingLevel: mocks.updateSessionThinkingLevel,
 }))
 
 vi.mock('../../../server/project-config.mjs', () => ({
@@ -71,6 +73,8 @@ beforeEach(async () => {
   mocks.getSessionState.mockReset()
   mocks.readStore.mockReset()
   mocks.restoreAgent.mockReset()
+  mocks.updateSessionModel.mockReset()
+  mocks.updateSessionThinkingLevel.mockReset()
   mocks.defaultWorkspaceRoot = ''
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'quickforge-acp-model-'))
 })
@@ -95,6 +99,45 @@ function configureStores({ activeModel = hiddenModel } = {}) {
 }
 
 describe('ACP model visibility', () => {
+  it('waits for model and automatic thinking reset setters before completing selection', async () => {
+    configureStores()
+    mocks.getSessionState.mockReturnValue({ model: hiddenModel, thinkingLevel: 'high', messages: [] })
+    const { createQuickForgeAcpAgent } = await import('../../../server/acp/server.mjs')
+    const agent = await createQuickForgeAcpAgent()
+    // Read the public value encoding instead of duplicating the ACP model ID format.
+    const workspace = path.join(tmpDir, 'workspace')
+    await fs.mkdir(workspace)
+    mocks.restoreAgent.mockResolvedValue({ projectId: null })
+    const loaded = await agent.loadSession({ sessionId: 'existing', cwd: workspace })
+    const value = loaded.configOptions.find((option) => option.id === 'quickforge.model').options
+      .flatMap((group) => group.options).find((option) => option.name === 'Provider A / visible').value
+    let finishModel
+    let finishThinking
+    mocks.updateSessionModel.mockImplementationOnce(() => new Promise((resolve) => { finishModel = resolve }))
+    mocks.updateSessionThinkingLevel.mockImplementationOnce(() => new Promise((resolve) => { finishThinking = resolve }))
+    let settled = false
+    const pending = agent.setSessionConfigOption({ sessionId: 'existing', configId: 'quickforge.model', value }).then((result) => { settled = true; return result })
+    await vi.waitFor(() => expect(finishModel).toBeTypeOf('function'))
+    expect(mocks.updateSessionThinkingLevel).not.toHaveBeenCalled()
+    expect(settled).toBe(false)
+    finishModel({ model: visibleModel })
+    await vi.waitFor(() => expect(finishThinking).toBeTypeOf('function'))
+    expect(settled).toBe(false)
+    finishThinking({ thinkingLevel: 'off' })
+    const result = await pending
+    expect(result.configOptions.find((option) => option.id === 'quickforge.thinkingLevel').currentValue).toBe('off')
+  })
+
+  it('awaits explicit thinking changes and propagates setter rejection', async () => {
+    configureStores()
+    mocks.getSessionState.mockReturnValue({ model: { ...visibleModel, reasoning: true }, thinkingLevel: 'off' })
+    const error = Object.assign(new Error('Failed to restore session. Please try again.'), { statusCode: 500 })
+    mocks.updateSessionThinkingLevel.mockRejectedValueOnce(error)
+    const { createQuickForgeAcpAgent } = await import('../../../server/acp/server.mjs')
+    const agent = await createQuickForgeAcpAgent()
+    await expect(agent.setSessionConfigOption({ sessionId: 'existing', configId: 'quickforge.thinkingLevel', value: 'high' })).rejects.toBe(error)
+  })
+
   it('does not let a stale active-model snapshot select a hidden model for a new session', async () => {
     configureStores({ activeModel: { ...hiddenModel, quickforgeHidden: undefined } })
     const workspace = path.join(tmpDir, 'workspace')

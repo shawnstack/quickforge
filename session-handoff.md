@@ -1,3 +1,34 @@
+## 最新交接：scheduled-tasks-ui-optimization（done，2026-09-16，含第二轮用户反馈修复）
+
+- 当前目标：已完成 scheduled-tasks-ui-optimization 两轮迭代——第一轮：ScheduledTasksPage.tsx 单文件重构，任务列表由 2 列卡片网格改为紧凑行列表（规则列 md 起、时间列 lg 起），编辑表单/详情/历史筛选按 DESIGN_LANGUAGE.md 去除透明度 hack 并收紧密度；第二轮（用户反馈修复）：①层级修复——任务行 MoreHorizontal 菜单由 absolute z-20 内联改为 createPortal(document.body)+fixed z-50+锚点定位（视口钳制/上方翻转/click/blur/scroll/resize/Escape 关闭），对齐 AgentProfilesPage，修复被 4 层 overflow 祖先裁剪；②编辑表单对齐 AgentProfilesPage 模式——AI 解析弱化为辅助块（outline sm 按钮+解析结果上移）、模型/思考/项目/智能体由 icon-only 工具条升格为标准 label 字段、预览收紧行、操作按钮入卡内 footer、返回按钮左移。i18n/状态机/API 不变。
+- 改动文件：src/components/scheduled-tasks/ScheduledTasksPage.tsx + 本批文档（docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md）。
+- 验证：两轮均为定向 vitest tests/frontend/scheduled-tasks-page.test.ts 18/18、tsc --noEmit、eslint 全部通过；第二轮测试断言零改动。
+- Blocker：无。
+- 下一步：无固定待办；注意仓库存在大量历史会话未提交改动（server/、tests/、docs/wiki/ 等约 18 个文件），非本次改动，后续会话勿误认或误动。
+
+---
+
+## 最新交接：scheduled-task-frequency-select（done，2026-09-16）
+
+- 当前目标已完成：定时任务编辑器执行频次改为下拉框选择（纯前端渲染层，数据模型/校验函数/服务端不变）。
+- 改动文件：src/components/scheduled-tasks/ScheduledTasksPage.tsx（频次 select 复用 taskExecutionMode 结构，cron label 走 i18n）、src/lib/i18n.ts（en/zh 新增 taskFrequencyCron='Cron'）、tests/frontend/scheduled-tasks-page.test.ts（11 处切换改走 select onChange）、docs/wiki/src/components/README.md、feature_list.json/progress.md/session-handoff.md。
+- 验证：定向 vitest 3 文件 49/49（page 18 / form 29 / i18n snapshot 2）；npm run test 全量 355 files / 4111 passed + 1 skipped、npm run lint 0 error（仅既有 coverage 3 warnings）、npm run build 成功（仅既有 KaTeX/chunk warnings），全部 exit 0。
+- Blocker：无。改动未提交，未触碰 dist/package-dist/package-offline，无依赖变更。
+- 下一步：无待办；如需可做浏览器视觉验收（频次下拉框与既有 select 样式一致性）。
+
+---
+
+## 最新交接：cold-session-operation-restore（done，2026-09-16）
+
+- 当前目标：Session not found 冷会话操作修复已完成；独立只读审查通过且父Agent已接受结论，无阻塞，feature_list本feature标记done，不推进其他feature。
+- 改动：4个生产文件（agent-manager、routes/agent、routes/shared-conversation、acp/server）；5个测试文件（persist-session-state、routes/agent、shared-conversation.model-visibility、acp/server.model-visibility、share-store.rollback-atomic）；server/routes两份Wiki及三状态文件。完整清单见feature_list。
+- 关键契约：仅内存缺失才restore；model/thinking异步结果需await；主model恢复先于当前隐藏模型binding解析。无记录才404；恢复故障500/SESSION_RESTORE_FAILED安全文案，503原样。single-flight/finally、idle、Goal、原重试裁剪/追加语义不变。SSE既有await链已审查并回归，share-store仅404fallback未改。
+- 验证：定向10文件143 tests全过（新增35例）；改动9个源码/测试ESLint零warning；npm run lint通过（既有coverage3 warnings）；npm run build通过（既有KaTeX/chunk warnings）。TEMP/TMP/TMPDIR全部在工作区.tmp-session-restore。父Agent确认143项定向测试与lint/build通过足够本次范围；未跑全量test、真实模型或浏览器验收，不作模型永不重放工具承诺。
+- Blocker：无；独立只读审查与父Agent最终验收已通过。下一步：本feature无待完成实现；若需要实际客户端验证，由用户自行重启源码服务后验收，本轮未重启运行实例。
+- 未提交：全部本feature修改未提交，无commit/tag/push/依赖修改/手工生成目录编辑，dist仅正常build生成且无跟踪diff；现有未跟踪.playwright-mcp/保持不动。本轮生成的测试专用临时目录已移除，未清理其他用户文件。
+
+---
+
 ## 最新交接：desktop-portable-exe（done，2026-09-16）
 
 - 目标已完成：Windows 桌面打包新增免安装 portable exe，随 `desktop:build:win` 与 tag 触发的 Desktop Build CI 自动产出并上传 GitHub Release。

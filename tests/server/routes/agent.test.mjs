@@ -173,6 +173,62 @@ describe('agent prompt route', () => {
   })
 })
 
+describe('agent asynchronous setters and restore failures', () => {
+  beforeEach(() => {
+    mocks.restoreAgent.mockReset()
+    mocks.getSessionState.mockReset()
+    mocks.getSessionEventBus.mockReset()
+  })
+
+  it('waits for the model setter before returning its result', async () => {
+    const manager = await import('../../../server/agent-manager.mjs')
+    const catalog = await import('../../../server/model-catalog.mjs')
+    const model = { provider: 'mock', id: 'mock-model' }
+    const binding = vi.spyOn(catalog, 'resolveModelBinding').mockResolvedValue({ model, modelRef: null })
+    mocks.getSessionState.mockReturnValue({ model })
+    let finish
+    manager.updateSessionModel.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    try {
+      const pending = handleAgentApi(request({ model }), res, new URL('http://localhost/api/agents/session-1/model'))
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+      expect(res.status).toBe(0)
+      finish({ sessionId: 'session-1', model })
+      await pending
+      expect(JSON.parse(res.body)).toEqual({ sessionId: 'session-1', model })
+      expect(mocks.restoreAgent).not.toHaveBeenCalled()
+    } finally {
+      binding.mockRestore()
+    }
+  })
+
+  it('waits for the thinking setter before returning its result', async () => {
+    const manager = await import('../../../server/agent-manager.mjs')
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    let finish
+    manager.updateSessionThinkingLevel.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    const res = response()
+    const pending = handleAgentApi(request({ thinkingLevel: 'high' }), res, new URL('http://localhost/api/agents/session-1/thinking-level'))
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    expect(res.status).toBe(0)
+    finish({ sessionId: 'session-1', thinkingLevel: 'high' })
+    await pending
+    expect(JSON.parse(res.body)).toEqual({ sessionId: 'session-1', thinkingLevel: 'high' })
+  })
+
+  it.each([['POST', 'restore'], ['GET', 'state'], ['GET', 'messages'], ['GET', 'stream'], ['HEAD', 'stream'], ['POST', 'model']])('propagates restore errors before writing %s /%s headers', async (method, subPath) => {
+    const error = Object.assign(new Error('Failed to restore session. Please try again.'), { statusCode: 500, errorCode: 'SESSION_RESTORE_FAILED' })
+    mocks.restoreAgent.mockRejectedValue(error)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const req = request({ model: { provider: 'mock', id: 'mock-model' } })
+    req.method = method
+    const res = response()
+    await expect(handleAgentApi(req, res, new URL(`http://localhost/api/agents/session-1/${subPath}`))).rejects.toBe(error)
+    expect(res.status).toBe(0)
+  })
+})
+
 describe('agent text attachment routes', () => {
   beforeEach(() => {
     attachmentMocks.createTextAttachment.mockReset()

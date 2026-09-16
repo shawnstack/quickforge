@@ -1,6 +1,50 @@
 {
   "features": [
     {
+      "id": "scheduled-tasks-ui-optimization",
+      "name": "定时任务页面 UI 布局优化",
+      "status": "done",
+      "dependencies": [],
+      "approach": "单文件重构 ScheduledTasksPage.tsx：任务列表由 2 列卡片网格改为紧凑行列表（规则列 md 断点起、时间列 lg 断点起）；编辑表单、详情（紧凑定义列表）与历史筛选（压缩）按 DESIGN_LANGUAGE.md 去除透明度 hack 并收紧密度。i18n、状态机与 API 不变。第二轮（用户反馈修复）：层级修复——任务行 MoreHorizontal 菜单由 absolute z-20 内联改为 createPortal(document.body)+fixed z-50+锚点定位（视口钳制/上方翻转/click/blur/scroll/resize/Escape 关闭），对齐 AgentProfilesPage，修复被 4 层 overflow 祖先裁剪；编辑表单对齐 AgentProfiles 模式——AI 解析弱化为辅助块（outline sm 按钮+解析结果上移）、模型/思考/项目/智能体由 icon-only 工具条升格为标准 label 字段、预览收紧行、操作按钮入卡内 footer、返回按钮左移。仍仅改 ScheduledTasksPage.tsx。",
+      "files": [
+        "src/components/scheduled-tasks/ScheduledTasksPage.tsx",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-16：定向 npx vitest run tests/frontend/scheduled-tasks-page.test.ts 18/18 通过；tsc --noEmit 通过；ScheduledTasksPage.tsx ESLint 通过。第二轮同轮重跑 vitest 18/18、tsc --noEmit、eslint 全过，测试断言零改动。",
+      "boundaries": "仅前端单组件渲染层与匹配文档；无 i18n、状态机、API、服务端或依赖变更；未触碰 dist/package-dist/package-offline；无 Git 操作。仓库存在大量历史会话未提交改动（server/、tests/、docs/wiki/ 等约 18 个文件），非本次改动，未触碰。"
+    },
+    {
+      "id": "scheduled-task-frequency-select",
+      "name": "定时任务执行频次改为下拉框选择",
+      "status": "done",
+      "dependencies": [],
+      "approach": "纯前端渲染层：ScheduledTasksPage 执行频次由分段按钮组改为原生 select，复用 taskExecutionMode 的 label + scheduleInputClass + aria-label 结构（可访问名称 t('taskFrequency')），移除 legend、保留外层 fieldset 的 loading 禁用分组；frequencyOptions 直接渲染为 <option>，cron label 走新 i18n key taskFrequencyCron（en/zh 成对 'Cron'）不再硬编码。updateForm 切换逻辑、按频次子字段渲染、数据模型与服务端不变。",
+      "files": [
+        "src/components/scheduled-tasks/ScheduledTasksPage.tsx",
+        "src/lib/i18n.ts",
+        "tests/frontend/scheduled-tasks-page.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-16：定向 vitest 3 文件 49/49（scheduled-tasks-page 18、scheduled-task-form 29、i18n-language-snapshot 2）；npm run test 全量 355 files / 4111 passed + 1 skipped；npm run lint 0 error（仅既有 coverage 3 warnings）；npm run build 成功（仅既有 KaTeX/chunk warnings），均 exit 0。",
+      "boundaries": "仅前端渲染层与匹配测试/文档/三状态文件；无数据模型、校验函数、服务端或依赖变更；未触碰 dist/package-dist/package-offline（build 正常生成 dist）；无 Git commit。"
+    },
+    {
+      "id": "cold-session-operation-restore",
+      "name": "修复 idle 回收后会话操作误报 Session not found",
+      "status": "done",
+      "dependencies": [],
+      "approach": "continue/rollback/access/yolo/model/thinking 优先内存，缺失才 await restoreAgent；model/thinking 改 async 并等待主路由/shared/ACP 调用。主 model 在 binding 解析前恢复以保留当前隐藏模型。只有存储确认缺失返回 null；503 保留，其余恢复异常日志后转安全 500/SESSION_RESTORE_FAILED；single-flight/finally、idle、Goal 与重试历史契约不变。",
+      "files": ["server/agent-manager.mjs", "server/routes/agent.mjs", "server/routes/shared-conversation.mjs", "server/acp/server.mjs", "tests/server/agent-manager.persist-session-state.test.mjs", "tests/server/routes/agent.test.mjs", "tests/server/routes/shared-conversation.model-visibility.test.mjs", "tests/server/acp/server.model-visibility.test.mjs", "tests/server/share-store.rollback-atomic.test.mjs", "docs/wiki/server/README.md", "docs/wiki/server/routes/README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "General 实现并定向验证 10 files / 143 tests 全通过（含新增35例）；9个改动源码/测试 ESLint 无 warning；npm run lint 通过（既有 coverage 3 warnings）；npm run build 通过（既有 KaTeX/chunk warnings）。所有验证 TEMP/TMP/TMPDIR 限定工作区。独立只读审查通过，无阻塞；父 Agent 已接受审查结论，确认143项定向测试与lint/build通过足够本次范围。未跑全量test、真实模型或浏览器验收，未重启运行实例，改动未提交。",
+      "boundaries": "无依赖、UI、commit/tag/push 或手工生成目录修改。正常 build 生成 dist 不纳入diff；保留用户未跟踪 .playwright-mcp/。share-store 404 fallback 未改，新增500/503不吞错回归。恢复不会自行生成，continue仅按既有请求生成一次；不承诺真实模型永不重复调用工具。"
+    },
+    {
       "id": "scheduled-tasks-goal-support",
       "name": "定时任务支持 Goal 自动执行",
       "status": "done",

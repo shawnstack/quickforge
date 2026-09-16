@@ -1,3 +1,35 @@
+## scheduled-tasks-ui-optimization（done，2026-09-16）
+
+- 目标：定时任务页面 UI 布局优化——任务列表由 2 列卡片网格改为紧凑行列表，编辑表单/详情/历史筛选按 DESIGN_LANGUAGE.md 去除透明度 hack 并收紧密度；i18n/状态机/API 不变。
+- 改动文件：src/components/scheduled-tasks/ScheduledTasksPage.tsx（单文件重构）、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- 验证：定向 npx vitest run tests/frontend/scheduled-tasks-page.test.ts 18/18 通过；tsc --noEmit 通过；ScheduledTasksPage.tsx ESLint 通过。
+- 第二轮（用户反馈修复）：层级修复——任务行 MoreHorizontal 菜单由 absolute z-20 内联改为 createPortal(document.body)+fixed z-50+锚点定位（视口钳制/上方翻转/click/blur/scroll/resize/Escape 关闭），对齐 AgentProfilesPage，修复被 4 层 overflow 祖先裁剪；编辑表单对齐 AgentProfilesPage 表单模式——AI 解析弱化为辅助块（outline sm 按钮+解析结果上移）、模型/思考/项目/智能体由 icon-only 工具条升格为标准 label 字段、预览收紧行、操作按钮入卡内 footer、返回按钮左移。仍仅改 src/components/scheduled-tasks/ScheduledTasksPage.tsx。
+- 第二轮验证：vitest tests/frontend/scheduled-tasks-page.test.ts 18/18、tsc --noEmit、eslint 全部通过，测试断言零改动。
+- Notes：无新依赖、无生成产物修改、无 Git 操作。仓库存在大量历史会话未提交改动（server/、tests/、docs/wiki/ 等约 18 个文件），非本次改动，未触碰。
+
+---
+
+## scheduled-task-frequency-select（done，2026-09-16）
+
+- 目标：定时任务编辑器「执行频次」由六枚分段按钮（aria-pressed button 组）改为原生下拉框，控件形态与执行模式等既有 select 一致，行为与数据不变。
+- 实现：ScheduledTasksPage 复用 taskExecutionMode select 结构——`<label className="block text-sm font-medium text-foreground">{t('taskFrequency')}<select className={scheduleInputClass} aria-label={t('taskFrequency')}>`；frequencyOptions 原样渲染为 `<option>`，cron label 改用新 i18n key `taskFrequencyCron`（en/zh 成对，值均为 'Cron'），不再硬编码；移除原 legend（可见名称改由 label 提供），保留外层 fieldset 的 `disabled={loading}` 分组（测试仍断言 pending 时 fieldset 禁用）。updateForm 的 scheduleType 切换逻辑（once/interval 日期草稿保存恢复、清 nextRunAt/scheduleRule、清 AI 解析态）与按频次子字段渲染零改动。
+- 测试：tests/frontend/scheduled-tasks-page.test.ts 11 处频次切换由 `button('taskFrequencyX').props.onClick?.()` 改为 `change('taskFrequency', '<type>')`，经 select onChange 触发同一 updateForm；其余断言不变。
+- 验证：定向 vitest 3 文件 49/49 通过（scheduled-tasks-page 18、scheduled-task-form 29、i18n-language-snapshot 2）；全量 npm run test 355 files / 4111 passed + 1 skipped、npm run lint 0 error（仅既有 coverage 3 warnings）、npm run build 成功（仅既有 KaTeX/chunk warnings），均 exit 0。
+- Notes：无新依赖、无生成产物手工修改（build 正常生成 dist）、无 Git 操作；docs/wiki/src/components/README.md「手动频次分段按钮」同步改为「频次下拉框」。i18n 快照测试不校验 key 清单，en/zh 成对新增即可。
+
+---
+
+## cold-session-operation-restore（done，2026-09-16）
+
+- 用户已批准目标：修复普通会话 idle 回收后 continue/rollback/access/yolo/model/thinking 误报 Session not found；限定本 feature，不改 idle、Goal 或重试历史语义。
+- 实现：manager 按 updateSessionTitle 模式先用内存、缺失 await restoreAgent；model/thinking 转 async，主路由/shared/ACP 所有生产调用补 await。主 model 先恢复再取 currentModel/解析 binding，保留当前隐藏模型规则。restore 只有读到无记录才 null，503 原样保留，其他异常记录原日志并抛安全500/SESSION_RESTORE_FAILED（cause 保留内部原因）。pending single-flight 与 finally 清除不变。
+- 调用链复核：所有 restore 调用均 await 或由 async 返回；主 SSE GET/HEAD 与 shared SSE 在发送头前 await，上层已有错误传播，无需额外修改。share-store 的仅404存储fallback不变，新增500/503不得fallback测试。Wiki 两处补短文字，无需SVG。
+- 验证：工作区 `.tmp-session-restore` 作为所有验证 TEMP/TMP/TMPDIR。最终十文件定向 vitest 143/143通过（新增35例）；包含真实SQLite持久化→destroy→内存为空→直接操作、continue两模式历史、压缩点前后rollback、设置不启动生成、冷Goal409、缺失404、存储/构建故障500、原503、并发失败后重试、热setter不读存储、主model冷隐藏模型及异步setter/SSE传播。9个改动源码/测试定向ESLint无warning；npm run lint退出0（既有coverage3 warnings）；npm run build退出0（既有KaTeX/chunk warnings）。独立只读审查通过，无阻塞；父Agent已接受审查结论，确认143项定向测试与lint/build通过足够本次范围，feature标记done。未跑全量test、真实模型或浏览器验收，未重启运行实例。
+- Notes：首轮新故障注入用vi.spyOn冻结repository导致2例夹具失败，已改用既有spread wrapper模式并全部复跑通过。一次git grep单引号在Windows shell失败，已用兼容-e参数复核。测试异步日志/Node缓存产生的本次专用临时目录残留已清理，仅删除本轮创建目录，不涉及用户数据；无其他无关故障需扩范围。
+- 边界：不承诺真实模型永不重复调用工具；无新依赖、无UI改动、无commit/tag/push；未手工编辑生成目录，正常build产物不纳入diff；用户 `.playwright-mcp/` 保留未跟踪。改动文件见feature_list，本次未提交。
+
+---
+
 ## desktop-portable-exe（done，2026-09-16）
 
 - 用户直接需求：Windows 桌面打包时同时产出免安装 portable exe。方案：electron-builder win target 增加 `portable`，随 `desktop:build:win` 自动产出，无需改 package.json / CI（`desktop-dist/*.exe` 通配已覆盖，Release 资产名不冲突）。

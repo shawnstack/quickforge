@@ -81,6 +81,19 @@ describe('shared conversation rollback in authoritative mode', () => {
     await rm(tmpDir, { recursive: true, force: true })
   })
 
+  it.each([500, 503])('does not fall back to storage rollback after restore failure %s', async (statusCode) => {
+    const sessionId = 'shared-restore-failure'
+    const messages = [{ role: 'user', content: 'keep' }, { role: 'assistant', content: 'keep response' }]
+    await storageModule.writeSessionValue(sessionId, { id: sessionId, scope: 'global', messages })
+    const { rollbackSessionMessages } = await import('../../server/agent-manager.mjs')
+    const error = Object.assign(new Error('Failed to restore session. Please try again.'), { statusCode, errorCode: 'SESSION_RESTORE_FAILED' })
+    rollbackSessionMessages.mockRejectedValueOnce(error)
+    const before = atomicWrites()
+    await expect(shareStore.rollbackSharedSessionMessages({ sessionId }, 1)).rejects.toBe(error)
+    expect(atomicWrites()).toBe(before)
+    expect((await readSessionStateValue(sessionId)).messages).toEqual(messages)
+  })
+
   it('rolls back body + metadata in one atomic session record update', async () => {
     const sessionId = 'shared-one'
     const messages = [

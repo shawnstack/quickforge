@@ -2,6 +2,12 @@
 
 后端使用原生 Node.js HTTP 服务器（无 Express 等框架依赖）。提供 REST API、WebSocket、SSE 事件流、Agent 管理和存储服务。
 
+## 冷会话操作与恢复错误
+
+普通会话 idle 回收只释放内存，不删除已持久化历史。`continueSession`、`rollbackSessionMessages` 与 access/yolo/model/thinking 设置先用内存会话，缺失才 `await restoreAgent`，不强制同步热会话、不额外启动生成；重试的裁剪/追加语义、压缩回滚和 Goal 守卫不变。model/thinking setter 为异步接口，调用方必须等待结果。
+
+`restoreAgent` 仅在存储确认无记录时返回 `null`；原 503 保留，其他读取/构建失败记录内部日志后抛出安全通用错误（500 / `SESSION_RESTORE_FAILED`），不误报 404 或泄漏内部细节。同会话并发恢复仍 single-flight，成功或失败后均清除 pending，允许重试。
+
 ## Goal 内部提示与聊天输出（现行契约）
 
 自动 execution / planning user 消息继续带 `metadata.quickforgeGoalRun`，原样保留模型上下文与持久化，只在客户端按合法 metadata 隐藏正文和操作；不清洗历史文本。`goalPlanningPrompt`、`goalContinuationPrompt` 与成功 complete 工具结果共享输出约束：轮次、继续、重新规划、提交 complete / 等待结算的播报交给 UI，不在聊天重复；保留实质分析、必要问题、具体阻塞原因与实际工作/验证的简洁总结。正常轮末与持久化完成之前不得声称 Goal 已 completed。提示词只能约束模型，不能百分百保证无重复；客户端不按字符串删助手消息。

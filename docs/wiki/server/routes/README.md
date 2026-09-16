@@ -68,6 +68,8 @@
 
 ## agent.mjs (558 行)
 
+冷会话的 continue/rollback/access-mode/yolo-mode/model/thinking-level 操作由 manager 按需恢复，不要求客户端先调用 restore。主 model 路由在读取当前模型和解析 binding 前恢复，保留当前隐藏模型可继续使用的 `allowCurrentHidden` 规则；主路由、共享路由与 ACP 均等待异步 model/thinking setter。真正缺失仍 404；恢复失败为 500 / `SESSION_RESTORE_FAILED`（响应 `code`），已有 503 原样传播；SSE 在恢复完成前不发送流头。共享 rollback 的存储 fallback 仍仅接受 404，不吞掉恢复故障。
+
 Agent 会话管理核心路由。
 
 **主要端点**:

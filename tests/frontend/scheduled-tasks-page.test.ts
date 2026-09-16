@@ -120,7 +120,7 @@ describe('ScheduledTasksPage manual frequency interactions', () => {
 
   it('switches frequencies, toggles weekdays, blocks empty selection, and strips inactive values on save', async () => {
     open()
-    button('taskFrequencyWeekly').props.onClick?.()
+    change('taskFrequency', 'weekly')
     expect(button('taskMonday').props['aria-pressed']).toBe(true)
     button('taskMonday').props.onClick?.()
     expect(button('confirmCreate').props.disabled).toBe(true)
@@ -136,7 +136,7 @@ describe('ScheduledTasksPage manual frequency interactions', () => {
 
   it('validates interval input and posts first execution in ISO form', async () => {
     open()
-    button('taskFrequencyInterval').props.onClick?.()
+    change('taskFrequency', 'interval')
     change('taskIntervalValue', '0')
     expect(button('confirmCreate').props.disabled).toBe(true)
     change('taskIntervalValue', '2')
@@ -246,24 +246,24 @@ describe('ScheduledTasksPage manual frequency interactions', () => {
 
   it('retains independent once and interval date drafts across frequency changes and AI parsing', async () => {
     open()
-    button('taskFrequencyOnce').props.onClick?.()
+    change('taskFrequency', 'once')
     change('taskExecutionDate', '2099-01-02T10:00')
-    button('taskFrequencyInterval').props.onClick?.()
+    change('taskFrequency', 'interval')
     expect(input('taskFirstExecution').props.value).not.toBe('2099-01-02T10:00')
     change('taskFirstExecution', '2099-02-03T11:00')
     change('taskIntervalValue', '7')
-    button('taskFrequencyOnce').props.onClick?.()
+    change('taskFrequency', 'once')
     expect(input('taskExecutionDate').props.value).toBe('2099-01-02T10:00')
-    button('taskFrequencyDaily').props.onClick?.()
-    button('taskFrequencyInterval').props.onClick?.()
+    change('taskFrequency', 'daily')
+    change('taskFrequency', 'interval')
     expect(input('taskFirstExecution').props.value).toBe('2099-02-03T11:00')
     expect(input('taskIntervalValue').props.value).toBe('7')
     change('taskScheduleDescriptionLabel', 'every weekday')
     harness.fetch.mockResolvedValueOnce(parsedResponse)
     await button('aiParseTask').props.onClick?.()
-    button('taskFrequencyOnce').props.onClick?.()
+    change('taskFrequency', 'once')
     expect(input('taskExecutionDate').props.value).toBe('2099-01-02T10:00')
-    button('taskFrequencyInterval').props.onClick?.()
+    change('taskFrequency', 'interval')
     expect(input('taskFirstExecution').props.value).toBe('2099-02-03T11:00')
     expect(input('taskIntervalValue').props.value).toBe('7')
   })
@@ -274,9 +274,9 @@ describe('ScheduledTasksPage manual frequency interactions', () => {
     harness.states[4] = 'old'
     button('editTask').props.onClick?.()
     const originalDraft = input('taskFirstExecution').props.value
-    button('taskFrequencyOnce').props.onClick?.()
+    change('taskFrequency', 'once')
     change('taskExecutionDate', '2099-01-02T10:00')
-    button('taskFrequencyInterval').props.onClick?.()
+    change('taskFrequency', 'interval')
     expect(input('taskFirstExecution').props.value).toBe(originalDraft)
     await button('saveTask').props.onClick?.()
     expect(JSON.parse(harness.fetch.mock.calls[0][1].body).task.executeAt).toBe(anchor)

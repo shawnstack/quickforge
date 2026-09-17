@@ -1,3 +1,14 @@
+## 最新交接：lan-access-info-tip（done，2026-09-18）
+
+- 当前目标已完成：局域网访问设置 tab 7 处静态说明（enabled/passwordStatus/activeDevices/urls/allowFull/sessionTtl/actions 对应的 *Description 文案）由常驻段落收敛到各节标题旁 quickforge-info-tip，对齐 default-options-settings-tab.ts 模式与 DESIGN_LANGUAGE.md「辅助说明应收拢」。
+- 改动文件：src/lib/lan-access-settings-tab.ts、progress.md、session-handoff.md。
+- 验证：eslint 通过、npm run build 通过（仅既有 warning）；无现有相关测试。
+- Blocker：无。
+- 下一步：无待办；改动未提交，commit 时机由用户决定。
+- Notes：纯 UI 文案收敛，docs/wiki 无需更新；feature_list.json 未动（非其 feature 项）；无 Git 操作。
+
+---
+
 ## 最新交接：dead-code-cleanup-round2（done，2026-09-17）
 
 - 当前状态：死代码清理 round2 **已执行完毕、全量验证通过、待提交**——用户确认删除 15 组、K8 保留；`npm run test` 354 files / 4101 passed + 1 skipped（exit 0）、`npm run lint` 0 errors（仅既有 coverage 3 warnings）、`npm run build` exit 0（仅既有 KaTeX/chunk warning）。报告已追加「五、执行结果」节（`docs/reports/dead-code-candidates-2026-09-16.zh-CN.md`）。

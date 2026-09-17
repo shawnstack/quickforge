@@ -1,3 +1,13 @@
+## lan-access-info-tip（done，2026-09-18）
+
+- 目标：局域网访问设置 tab 的 7 处静态说明文字（lanAccessEnabledDescription、lanAccessPasswordStatusDescription、lanAccessActiveDevicesDescription、lanAccessUrlsDescription、lanAccessAllowFullDescription、lanAccessSessionTtlDescription、lanAccessActionsDescription）由常驻段落收敛到各节标题旁 quickforge-info-tip，参考 default-options-settings-tab.ts 既有模式，符合 DESIGN_LANGUAGE.md「辅助说明应收拢」规范；纯 UI 文案收纳，行为不变。
+- 改动文件：src/lib/lan-access-settings-tab.ts、progress.md、session-handoff.md。
+- 验证：npx eslint 通过；npm run build 通过（仅既有 KaTeX/chunk warning）；无现有相关测试，未新增测试。
+- Blocker：无。
+- Notes：纯 UI 文案收敛，无架构/公共入口/发布流程变化，docs/wiki 无需更新；非 feature_list.json feature 项，feature_list.json 未动；无 Git 提交。
+
+---
+
 ## dead-code-cleanup-round2（done，2026-09-17）
 
 - 目标：死代码清理 round2——`cleanup/dead-code` 分支（基线 `dev@10ecfebe8e6b29cf40f010e2df40efc70653003c`）四区扫描产出 18 项候选（报告 `docs/reports/dead-code-candidates-2026-09-16.zh-CN.md`），用户逐项确认后执行删除。

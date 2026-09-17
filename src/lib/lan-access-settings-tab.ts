@@ -260,22 +260,28 @@ class LanAccessSettingsTab extends SettingsTab {
         <section class="quickforge-settings-section" aria-label=${t('lanAccessStatus')}>
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main">
-              <div class="quickforge-settings-row-title">${t('lanAccessEnabled')}</div>
-              <div class="quickforge-settings-row-description">${t('lanAccessEnabledDescription')}</div>
+              <div class="quickforge-settings-row-title">
+                ${t('lanAccessEnabled')}
+                <quickforge-info-tip .label=${t('lanAccessEnabledDescription')}></quickforge-info-tip>
+              </div>
             </div>
             <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${this.enabled ? t('enabled') : t('disabled')}</div>
           </div>
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main">
-              <div class="quickforge-settings-row-title">${t('lanAccessPassword')}</div>
-              <div class="quickforge-settings-row-description">${t('lanAccessPasswordStatusDescription')}</div>
+              <div class="quickforge-settings-row-title">
+                ${t('lanAccessPassword')}
+                <quickforge-info-tip .label=${t('lanAccessPasswordStatusDescription')}></quickforge-info-tip>
+              </div>
             </div>
             <div class="quickforge-settings-row-control quickforge-settings-readonly-value">${this.hasPassword ? t('configured') : t('notConfigured')}</div>
           </div>
           <div class="quickforge-settings-row quickforge-settings-row-top">
             <div class="quickforge-settings-row-main">
-              <div class="quickforge-settings-row-title">${t('lanAccessActiveDevices', { count: this.activeTokenCount })}</div>
-              <div class="quickforge-settings-row-description">${t('lanAccessActiveDevicesDescription')}</div>
+              <div class="quickforge-settings-row-title">
+                ${t('lanAccessActiveDevices', { count: this.activeTokenCount })}
+                <quickforge-info-tip .label=${t('lanAccessActiveDevicesDescription')}></quickforge-info-tip>
+              </div>
             </div>
           </div>
           <div class="quickforge-settings-nested-list quickforge-lan-device-list">
@@ -306,8 +312,10 @@ class LanAccessSettingsTab extends SettingsTab {
           </div>
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main">
-              <div class="quickforge-settings-row-title">${t('lanAccessUrls')}</div>
-              <div class="quickforge-settings-row-description">${t('lanAccessUrlsDescription')}</div>
+              <div class="quickforge-settings-row-title">
+                ${t('lanAccessUrls')}
+                <quickforge-info-tip .label=${t('lanAccessUrlsDescription')}></quickforge-info-tip>
+              </div>
             </div>
             <div class="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-settings-readonly-value">
               ${this.lanUrls.length ? this.lanUrls.map((url) => html`<div>${url}</div>`) : '-'}
@@ -318,8 +326,10 @@ class LanAccessSettingsTab extends SettingsTab {
         <section class="quickforge-settings-section" aria-label=${t('lanAccess')}>
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main">
-              <div class="quickforge-settings-row-title">${t('lanAccessAllowFull')}</div>
-              <div class="quickforge-settings-row-description">${t('lanAccessAllowFullDescription')}</div>
+              <div class="quickforge-settings-row-title">
+                ${t('lanAccessAllowFull')}
+                <quickforge-info-tip .label=${t('lanAccessAllowFullDescription')}></quickforge-info-tip>
+              </div>
             </div>
             <div class="quickforge-settings-row-control">
               ${this.renderSwitch(this.enabled, (checked) => this.updateEnabled(checked), this.saving)}
@@ -377,8 +387,10 @@ class LanAccessSettingsTab extends SettingsTab {
 
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main">
-              <div class="quickforge-settings-row-title">${t('lanAccessSessionTtl')}</div>
-              <div class="quickforge-settings-row-description">${t('lanAccessSessionTtlDescription')}</div>
+              <div class="quickforge-settings-row-title">
+                ${t('lanAccessSessionTtl')}
+                <quickforge-info-tip .label=${t('lanAccessSessionTtlDescription')}></quickforge-info-tip>
+              </div>
             </div>
             <div class="quickforge-settings-row-control">
               <select class="quickforge-settings-select" .value=${String(this.sessionTtlHours)} @change=${(event: Event) => this.updateTtl((event.target as HTMLSelectElement).value)}>
@@ -392,8 +404,10 @@ class LanAccessSettingsTab extends SettingsTab {
 
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main">
-              <div class="quickforge-settings-row-title">${t('lanAccessActions')}</div>
-              <div class="quickforge-settings-row-description">${t('lanAccessActionsDescription')}</div>
+              <div class="quickforge-settings-row-title">
+                ${t('lanAccessActions')}
+                <quickforge-info-tip .label=${t('lanAccessActionsDescription')}></quickforge-info-tip>
+              </div>
             </div>
             <div class="quickforge-settings-row-control quickforge-settings-row-control-wide">
               <button class="quickforge-settings-button quickforge-settings-button-primary" type="button" ?disabled=${this.saving} @click=${() => this.saveSettings()}>

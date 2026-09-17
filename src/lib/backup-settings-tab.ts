@@ -453,8 +453,6 @@ class BackupSettingsTab extends SettingsTab {
             `)}
           </div>
 
-          <div class="quickforge-settings-note">${t('conversationBackupExcluded')}</div>
-
           <div class="quickforge-settings-row">
             <div class="quickforge-settings-row-main">
               <div class="quickforge-settings-row-title">${t('exportBackup')}</div>

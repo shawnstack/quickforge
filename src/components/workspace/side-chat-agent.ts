@@ -5,7 +5,7 @@ import { modelReferenceFromModel, type ModelReference } from '@/lib/model-refere
 import { streamSideChat, type SideChatMessage, type SideChatStreamOptions } from './side-chat-client'
 
 export const MAX_SIDE_CHAT_MESSAGES = 40
-export const MAX_SIDE_CHAT_INPUT_CHARS = 12_000
+const MAX_SIDE_CHAT_INPUT_CHARS = 12_000
 export const MAX_SIDE_CHAT_REQUEST_CHARS = 200_000
 
 const EMPTY_USAGE: Usage = {
@@ -30,7 +30,7 @@ type SideChatRun = {
   started: boolean
 }
 
-export type SideChatAgentState = Omit<AgentState, 'tools' | 'pendingToolCalls'> & {
+type SideChatAgentState = Omit<AgentState, 'tools' | 'pendingToolCalls'> & {
   tools: []
   pendingToolCalls: Set<string>
   accessMode: AgentAccessMode

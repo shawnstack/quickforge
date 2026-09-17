@@ -9,7 +9,7 @@ type ModelReference = {
   baseUrl?: string
 }
 
-export function normalizeModelBaseUrl(value?: string) {
+function normalizeModelBaseUrl(value?: string) {
   return (value ?? '').trim().replace(/\/$/, '')
 }
 

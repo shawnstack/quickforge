@@ -1,4 +1,4 @@
-export const MERMAID_SOURCE_MAX_LENGTH = 100_000
+const MERMAID_SOURCE_MAX_LENGTH = 100_000
 
 const UNSAFE_SVG_MARKUP_PATTERN = /<\s*(script|foreignObject|iframe|object|embed)\b|\son[a-z]+\s*=|(?:javascript|vbscript|data\s*:\s*text\/html)\s*:/i
 const EXTERNAL_RESOURCE_ATTRIBUTE_PATTERN = /\b(?:href|xlink:href|src)\s*=\s*(["'])\s*(?:https?:)?\/\//i

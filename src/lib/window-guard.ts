@@ -13,9 +13,9 @@
 export const WINDOW_GUARD_LOCK_NAME = 'quickforge-app-window'
 
 /** 刷新竞态重试等待时长 */
-export const WINDOW_GUARD_RETRY_DELAY_MS = 400
+const WINDOW_GUARD_RETRY_DELAY_MS = 400
 /** 刷新竞态最大重试次数（不含首次尝试） */
-export const WINDOW_GUARD_MAX_RETRIES = 2
+const WINDOW_GUARD_MAX_RETRIES = 2
 
 /** navigator.locks 的最小结构类型（便于测试注入） */
 type WindowGuardLocks = {
@@ -26,17 +26,17 @@ type WindowGuardLocks = {
   ): Promise<unknown>
 }
 
-export type WindowGuardTimerHandle = number
-export type WindowGuardSetTimeout = (handler: () => void, timeout: number) => WindowGuardTimerHandle
+type WindowGuardTimerHandle = number
+type WindowGuardSetTimeout = (handler: () => void, timeout: number) => WindowGuardTimerHandle
 
-export type WindowGuardDeps = {
+type WindowGuardDeps = {
   locks?: WindowGuardLocks
   setTimeout?: WindowGuardSetTimeout
   retryDelayMs?: number
   maxRetries?: number
 }
 
-export type WindowGuardResult =
+type WindowGuardResult =
   | { status: 'unsupported' }
   | { status: 'granted' }
   | { status: 'blocked' }

@@ -2,8 +2,8 @@ import { t } from '@/lib/i18n'
 import { ensureComposerContextChips, syncComposerContextChipsAriaLabel, type ComposerDraft, type FileContextReference, type MessageEditorElement } from './chat-utils'
 import { capabilityIcons, folderIcon } from './capability-icons'
 
-export type FileMentionEntry = { name: string; path: string; type: 'file' | 'directory' }
-export type FileMentionToken = { start: number; end: number; query: string }
+type FileMentionEntry = { name: string; path: string; type: 'file' | 'directory' }
+type FileMentionToken = { start: number; end: number; query: string }
 
 type FileReferenceSuggestionsOptions = {
   panel: HTMLElement

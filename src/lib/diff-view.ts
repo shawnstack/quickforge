@@ -5,8 +5,8 @@
  * 纯函数、零 DOM 依赖，renderDiff 消费其结果。
  */
 
-export type DiffLineKind = 'ctx' | 'add' | 'del'
-export type DiffTextFormat = 'unified' | 'raw'
+type DiffLineKind = 'ctx' | 'add' | 'del'
+type DiffTextFormat = 'unified' | 'raw'
 
 export interface DiffLineRow {
   kind: DiffLineKind
@@ -16,7 +16,7 @@ export interface DiffLineRow {
   newNo: number | null
 }
 
-export interface DiffGapRow {
+interface DiffGapRow {
   kind: 'gap'
   /** 间隙内未展示的未变更行数（由相邻 hunk 头行号差计算） */
   count: number
@@ -33,7 +33,7 @@ export function diffLineNumber(row: DiffLineRow): number | null {
   return row.newNo ?? row.oldNo
 }
 
-export interface DiffFileInfo {
+interface DiffFileInfo {
   path: string
   isNewFile: boolean
 }

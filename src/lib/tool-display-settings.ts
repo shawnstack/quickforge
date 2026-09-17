@@ -4,7 +4,7 @@ const TOOL_DISPLAY_SETTINGS_KEY = 'tool-display-settings'
 
 export type ToolDisplayMode = 'compact' | 'detailed'
 
-export type ToolDisplaySettings = {
+type ToolDisplaySettings = {
   toolDisplayMode: ToolDisplayMode
   showContextUsage: boolean
 }

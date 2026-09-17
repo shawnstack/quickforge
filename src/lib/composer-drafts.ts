@@ -222,7 +222,7 @@ export function rememberConsumedRestoredDraftId(
   }
 }
 
-export type ComposerDraftRestoreGuard = {
+type ComposerDraftRestoreGuard = {
   version: () => number
   isCurrent: (version: number) => boolean
   invalidate: () => number

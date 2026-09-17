@@ -37,7 +37,7 @@ import { slashIcons } from './slash-icons'
 import { t } from '@/lib/i18n'
 import type { MessageEditorElement } from './chat-utils'
 
-export type SlashInvocationKind = 'skill' | 'agent'
+type SlashInvocationKind = 'skill' | 'agent'
 
 export type SlashInvocation = {
   kind: SlashInvocationKind
@@ -76,7 +76,7 @@ export function slashInvocationPrefixMatches(text: string, cmd: string): boolean
 }
 
 /** 消息流首文本节点的剥前缀计划：prefix 为被剥掉的精确字符（含紧随一个空格），rest 为剩余正文。 */
-export type SlashChipTextPlan = {
+type SlashChipTextPlan = {
   invocation: SlashInvocation
   prefix: string
   rest: string
@@ -124,7 +124,7 @@ export function createSlashChipElement(invocation: SlashInvocation): HTMLElement
 // 控制器（浏览器路径；DOM 能力经 env 注入以便 node 单测）
 // ---------------------------------------------------------------------------
 
-export type SlashChipTextMetrics = {
+type SlashChipTextMetrics = {
   fontFamily: string
   fontSize: string
   fontWeight: string
@@ -217,7 +217,7 @@ const defaultEnv: SlashChipEnv = {
   },
 }
 
-export type SlashInvocationChip = {
+type SlashInvocationChip = {
   /** 进入选中态并挂覆盖层（显式选中 / 自动 engage 共用；重置 dismissed）。 */
   engage(invocation: SlashInvocation): void
   isActive(): boolean

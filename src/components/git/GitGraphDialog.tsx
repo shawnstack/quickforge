@@ -7,7 +7,7 @@ import type { GitLogCommit, GitLogDecoration } from '@/components/workspace/work
 import { getDateLocale, t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-export type GitGraphDialogProps = {
+type GitGraphDialogProps = {
   projectId: string
   projectName: string
   onClose: () => void

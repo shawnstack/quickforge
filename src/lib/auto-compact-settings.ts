@@ -2,7 +2,7 @@ import type { AppStorage } from '@earendil-works/pi-web-ui'
 
 export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
 
-export type AutoCompactSettings = {
+type AutoCompactSettings = {
   enabled: boolean
   thresholdPercent: number
   keepRecentTurns: number

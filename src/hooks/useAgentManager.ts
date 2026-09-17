@@ -29,7 +29,7 @@ import { disposeAgentTask, selectAgentTaskEvictions, touchAgentTask } from '@/li
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { t } from '@/lib/i18n'
 
-export interface AgentManagerDeps {
+interface AgentManagerDeps {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof import('@/lib/pi-chat').initializePiStorage>> | null>
   activeModelRef: React.MutableRefObject<Model<Api>>
   agentAccessModeRef: React.MutableRefObject<AgentAccessMode>

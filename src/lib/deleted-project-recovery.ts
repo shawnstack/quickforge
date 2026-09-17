@@ -1,11 +1,11 @@
 import type { ProjectInfo } from '@/lib/types'
 
-export type DeletedProjectRecoveryDecision =
+type DeletedProjectRecoveryDecision =
   | { type: 'none' }
   | { type: 'project'; deletedProjectId: string; project: ProjectInfo }
   | { type: 'global'; deletedProjectId: string }
 
-export type DeletedProjectRecoveryInput = {
+type DeletedProjectRecoveryInput = {
   ready: boolean
   currentToolProjectId?: string
   projects: readonly ProjectInfo[]

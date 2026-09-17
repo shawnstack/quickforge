@@ -6,7 +6,7 @@ export type CloudDetailError = {
   unavailable: boolean
 }
 
-export type CloudDetailsState = {
+type CloudDetailsState = {
   usage?: CloudUsage
   models: Model<Api>[]
   errors: {
@@ -16,7 +16,7 @@ export type CloudDetailsState = {
   loading: boolean
 }
 
-export type CloudDetailsAction =
+type CloudDetailsAction =
   | { type: 'begin' }
   | { type: 'replace'; state: CloudDetailsState }
   | { type: 'clear' }
@@ -61,7 +61,7 @@ export async function loadCloudAccountDetails(
   }
 }
 
-export type CloudAccountContentVisibility = {
+type CloudAccountContentVisibility = {
   showDeviceFlow: boolean
   showDisconnectedActions: boolean
   showDetails: boolean
@@ -82,7 +82,7 @@ export function canRebuildCloudIdentity(status: CloudStatus | undefined, changed
   return Boolean(status?.hasSession && (changedUrl || status.sessionServiceMismatch))
 }
 
-export type CloudIdentitySwitchResult =
+type CloudIdentitySwitchResult =
   | { status: 'success'; config: CloudServiceConfig }
   | { status: 'url-save-failed'; error: unknown }
 

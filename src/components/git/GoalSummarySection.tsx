@@ -7,7 +7,7 @@ import { t, type AppTextKey } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import './goal-summary.css'
 
-export type GoalSummarySectionProps = {
+type GoalSummarySectionProps = {
   goal: GoalState
   sessionId: string
   onAction?: (action: GoalAction, objective?: string) => Promise<unknown>

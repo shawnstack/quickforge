@@ -149,7 +149,7 @@ export async function unlockSharedConversation(shareId: string, password = '') {
   })
 }
 
-export type SharedModelProvider = {
+type SharedModelProvider = {
   id?: string
   name: string
   type?: string

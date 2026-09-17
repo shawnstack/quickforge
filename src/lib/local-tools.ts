@@ -919,7 +919,7 @@ function askUserQuestionsFromParams(params: Record<string, unknown> | undefined)
   return typeof params?.question === 'string' && params.question.trim() ? [params.question] : []
 }
 
-export type AskUserReviewRows = {
+type AskUserReviewRows = {
   questions: { question: string }[]
   answers: ({ choices?: string[]; custom?: string } | undefined)[]
   skipped: boolean

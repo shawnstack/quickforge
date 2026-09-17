@@ -4,7 +4,7 @@ const UPDATE_CHECK_SETTINGS_KEY = 'update-check-settings'
 
 export type UpdateCheckFrequency = 'startup' | 'daily' | 'weekly' | 'off'
 
-export type UpdateCheckSettings = {
+type UpdateCheckSettings = {
   frequency: UpdateCheckFrequency
   /** ISO timestamp of the last successful background check. */
   lastCheckAt: string | null

@@ -86,7 +86,7 @@ const emptyForm = (): ProviderForm => ({
   models: [emptyModelForm()],
 })
 
-export class CustomProvidersOnlyTab extends SettingsTab {
+class CustomProvidersOnlyTab extends SettingsTab {
   private providers: CustomProvider[] = []
   private form: ProviderForm = emptyForm()
   private editingProviderId: string | undefined

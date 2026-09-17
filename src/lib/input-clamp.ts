@@ -28,7 +28,7 @@ export type InputClampLabels = {
   expanded(): string
 }
 
-export const INPUT_CLAMP_LINES = 6
+const INPUT_CLAMP_LINES = 6
 /** 展开/收起按钮占用的底部安全区；仅 overflowing 内容启用，fits 内容不留空白。 */
 export const INPUT_CLAMP_CONTROL_SAFE_AREA_PX = 30
 /** 过渡时长；与 index.css 中 .quickforge-input-clamp 的 transition 保持一致。 */
@@ -80,7 +80,7 @@ export type InputClampEnv = {
   clearTimeout(token: unknown): void
 }
 
-export type InputClampControllerOptions = {
+type InputClampControllerOptions = {
   box: InputClampBox
   env: InputClampEnv
   /** 正文定高（六行 + 原有纵向 chrome），用于判断 fits；每次同步时读取。 */
@@ -191,7 +191,7 @@ export class InputClampController {
 // ---------------------------------------------------------------------------
 
 /** 展开按钮的 chevron 图标（收起向下，展开态由 CSS 旋转 180°）。 */
-export const INPUT_CLAMP_TOGGLE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>'
+const INPUT_CLAMP_TOGGLE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>'
 
 const controllerCache = new WeakMap<HTMLElement, InputClampController>()
 const labelsCache = new WeakMap<HTMLElement, InputClampLabels>()
@@ -303,7 +303,7 @@ function controllerFor(box: HTMLElement, labels: InputClampLabels): InputClampCo
 }
 
 /** 同步一个收起盒子：度量 → 应用状态（幂等，可重复调用）。 */
-export function syncInputClampBox(box: HTMLElement, labels: InputClampLabels): void {
+function syncInputClampBox(box: HTMLElement, labels: InputClampLabels): void {
   controllerFor(box, labels).sync()
 }
 
@@ -313,7 +313,7 @@ export function syncInputClampBoxes(root: ParentNode, labels: InputClampLabels):
 }
 
 /** 切换展开/收起，返回切换后的展开态。 */
-export function toggleInputClampBox(box: HTMLElement): boolean {
+function toggleInputClampBox(box: HTMLElement): boolean {
   const controller = controllerCache.get(box)
   if (!controller) return false
   controller.toggle()

@@ -20,7 +20,7 @@ export const DEFAULT_FONT_SIZE_SETTINGS: FontSizeSettings = {
 
 export const FONT_SIZE_SETTINGS_CHANGED_EVENT = 'quickforge:font-size-settings-changed'
 
-export type FixedFontMetrics = {
+type FixedFontMetrics = {
   fontSize: number
   lineHeight: number
 }

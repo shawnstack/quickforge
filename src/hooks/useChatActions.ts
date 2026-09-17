@@ -47,7 +47,7 @@ function clearSessionQueryParam() {
   window.history.replaceState({}, '', url)
 }
 
-export type StartNewChatResult = 'created' | 'reused' | 'cancelled'
+type StartNewChatResult = 'created' | 'reused' | 'cancelled'
 
 export function useChatActions({
   storageRef,

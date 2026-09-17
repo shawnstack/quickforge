@@ -44,7 +44,7 @@ export type GoalSummaryOpenDetail = {
  * shared dirty lock, instead of stranding the goal behind a draft nobody can
  * reach.
  */
-export type GoalUiDraft = {
+type GoalUiDraft = {
   /** Server baseline; a mismatch is a retained conflict, never safe to overwrite. */
   objective: string
   /** Live textarea text (equal to `objective` until the first edit). */
@@ -53,7 +53,7 @@ export type GoalUiDraft = {
   editing: boolean
 }
 
-export type GoalUiState = {
+type GoalUiState = {
   /** A real request is in flight: no surface may start another one. */
   pending: boolean
   /** An unsaved draft blocks confirm/resume/accept, never pause/cancel/revise. */
@@ -383,7 +383,7 @@ const GOAL_ACTION_ERROR_KEY: Record<string, AppTextKey> = {
  * wins over the raw message (the server's message is English); anything else
  * keeps the previous behaviour — an Error message, or the generic failure key.
  */
-export function goalActionErrorMessage(error: unknown): string {
+function goalActionErrorMessage(error: unknown): string {
   const code = error !== null && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
     ? (error as { code: string }).code
     : ''

@@ -15,15 +15,15 @@
  */
 
 /** 排队超过该阈值即视为「慢排队」并告警（ms）。 */
-export const DIAGNOSTICS_SLOW_QUEUE_MS = 500
+const DIAGNOSTICS_SLOW_QUEUE_MS = 500
 /** 同一 path 的告警节流窗口（ms）。 */
 export const DIAGNOSTICS_WARN_THROTTLE_MS = 30_000
 /** 会话内保留的最近慢排队样本条数。 */
-export const DIAGNOSTICS_SLOW_SAMPLE_LIMIT = 50
+const DIAGNOSTICS_SLOW_SAMPLE_LIMIT = 50
 /** 报告中「慢排队 / 慢请求 / 按路径」榜单条数。 */
-export const DIAGNOSTICS_REPORT_TOP_LIMIT = 5
+const DIAGNOSTICS_REPORT_TOP_LIMIT = 5
 /** 告警节流表清理间隔（ms）。 */
-export const DIAGNOSTICS_WARN_PRUNE_INTERVAL_MS = 60_000
+const DIAGNOSTICS_WARN_PRUNE_INTERVAL_MS = 60_000
 
 /** 包装后的 fetch 上的标记，用于保证重复包装幂等。 */
 const FETCH_WRAPPED_FLAG = '__quickforgeConnectionDiagnostics'
@@ -41,7 +41,7 @@ export type DiagnosticsResourceEntry = {
 }
 
 /** 单条请求样本。 */
-export type DiagnosticsSample = {
+type DiagnosticsSample = {
   /** 请求路径（URL 的 pathname，解析失败时退化为原始 URL）。 */
   path: string
   /** 原始 URL。 */
@@ -53,7 +53,7 @@ export type DiagnosticsSample = {
 }
 
 /** 按路径聚合的统计。 */
-export type DiagnosticsPathStat = {
+type DiagnosticsPathStat = {
   path: string
   count: number
   /** 累计排队时长（ms，即各次 queueMs 之和）。 */
@@ -62,7 +62,7 @@ export type DiagnosticsPathStat = {
   maxDurationMs: number
 }
 
-export type DiagnosticsSummary = {
+type DiagnosticsSummary = {
   /** 输入条目总数。 */
   total: number
   /** 命中 isTrackedUrl 的条目数。 */
@@ -77,7 +77,7 @@ export type DiagnosticsSummary = {
   queueWarnCount: number
 }
 
-export type SummarizeResourceEntriesOptions = {
+type SummarizeResourceEntriesOptions = {
   /** 同源判定基准（通常是 `location.href`）。 */
   base?: string
   /** 慢排队阈值（ms），默认 DIAGNOSTICS_SLOW_QUEUE_MS。 */
@@ -150,7 +150,7 @@ export function summarizeResourceEntries(
   }
 }
 
-export type DiagnosticsConsole = {
+type DiagnosticsConsole = {
   warn: (...args: unknown[]) => void
 }
 
@@ -160,7 +160,7 @@ export type DiagnosticsObserverEntryList = {
 }
 
 /** PerformanceObserver 的最小结构（便于注入）。 */
-export type DiagnosticsObserverHandle = {
+type DiagnosticsObserverHandle = {
   observe(options: { type: 'resource'; buffered?: boolean }): void
   disconnect(): void
 }
@@ -232,7 +232,7 @@ const NOOP_SESSION: BrowserConnectionDiagnosticsSession = {
 }
 
 /** 采集开关：`VITE_QUICKFORGE_DIAGNOSTICS=0` 关闭。 */
-export function isBrowserDiagnosticsEnabled(): boolean {
+function isBrowserDiagnosticsEnabled(): boolean {
   return import.meta.env?.VITE_QUICKFORGE_DIAGNOSTICS !== '0'
 }
 

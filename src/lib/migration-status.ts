@@ -27,9 +27,9 @@ export const MIGRATION_POLL_INTERVAL_MS = 2000
 // before giving up (a single transient failure keeps the loop polling).
 export const MIGRATION_POLL_FAILURE_LIMIT = 3
 
-export type MigrationWindowState = 'migrating' | 'ready' | 'failed'
+type MigrationWindowState = 'migrating' | 'ready' | 'failed'
 
-export type MigrationDomainStatus = {
+type MigrationDomainStatus = {
   phase: string
   runCount?: number
   stateCount?: number
@@ -127,7 +127,7 @@ export async function fetchMigrationStatus(baseUrl = ''): Promise<MigrationStatu
   }
 }
 
-export type MigrationGateOutcome =
+type MigrationGateOutcome =
   | { state: 'ready' }
   | { state: 'failed'; startupError?: string }
   | { state: 'cancelled' }

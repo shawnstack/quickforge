@@ -3,17 +3,17 @@ export type PinnedSummaryPosition = {
   y: number
 }
 
-export type PinnedSummarySize = {
+type PinnedSummarySize = {
   width: number
   height: number
 }
 
-export type PinnedSummaryAnchorRect = {
+type PinnedSummaryAnchorRect = {
   bottom: number
   right: number
 }
 
-export type ResolvePinnedSummaryInitialPositionInput = {
+type ResolvePinnedSummaryInitialPositionInput = {
   anchorRect?: PinnedSummaryAnchorRect
   fallbackRect: PinnedSummaryPosition & { right: number }
   targetSize: PinnedSummarySize
@@ -21,14 +21,14 @@ export type ResolvePinnedSummaryInitialPositionInput = {
 
 export type PinnedSummaryLayoutMode = 'panel' | 'capsule'
 
-export type PinnedSummaryLayout = {
+type PinnedSummaryLayout = {
   position: PinnedSummaryPosition
   panelMaxHeight: number
 }
 
 export const PINNED_SUMMARY_INITIAL_GAP = 10
 export const PINNED_SUMMARY_INITIAL_RIGHT_INSET = 12
-export const PINNED_SUMMARY_VIEWPORT_INSET = 12
+const PINNED_SUMMARY_VIEWPORT_INSET = 12
 // 40px drag header + enough room for one compact section/row and its bottom padding.
 export const PINNED_SUMMARY_PANEL_MIN_HEIGHT = 180
 
@@ -116,7 +116,7 @@ export function resolvePinnedSummaryLayout(
 
 export type PinnedSummaryOutsideAction = 'stay' | 'close'
 
-export type PinnedSummarySuspensionInput = {
+type PinnedSummarySuspensionInput = {
   inspectorOpen: boolean
   desktopInspectorViewport: boolean
   mobileShell: boolean

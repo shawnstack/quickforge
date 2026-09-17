@@ -5,9 +5,6 @@ import { handleMcpApi } from '../../../server/routes/mcp.mjs'
 const mocks = vi.hoisted(() => ({
   refreshAllSessionTools: vi.fn(),
   normalizeMcpServerConfig: vi.fn(),
-  normalizeMcpServers: vi.fn(),
-  readMcpServers: vi.fn(),
-  writeMcpServers: vi.fn(),
   upsertMcpServer: vi.fn(),
   deleteMcpServer: vi.fn(),
   setMcpServerEnabled: vi.fn(),
@@ -27,9 +24,6 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
 
 vi.mock('../../../server/mcp/config.mjs', () => ({
   normalizeMcpServerConfig: mocks.normalizeMcpServerConfig,
-  normalizeMcpServers: mocks.normalizeMcpServers,
-  readMcpServers: mocks.readMcpServers,
-  writeMcpServers: mocks.writeMcpServers,
   upsertMcpServer: mocks.upsertMcpServer,
   deleteMcpServer: mocks.deleteMcpServer,
   setMcpServerEnabled: mocks.setMcpServerEnabled,
@@ -86,16 +80,13 @@ async function api(method, pathname, body) {
 describe('mcp route', () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset()
-    mocks.normalizeMcpServers.mockImplementation((value) => (Array.isArray(value) ? value : []))
     mocks.getMcpStatus.mockResolvedValue([{ name: 'srv', connected: true }])
     mocks.refreshMcpConnections.mockResolvedValue(undefined)
     mocks.refreshAllSessionTools.mockResolvedValue(2)
     mocks.upsertMcpServer.mockImplementation(async (server) => server)
-    mocks.readMcpServers.mockResolvedValue([{ name: 'saved' }])
     mocks.reconnectMcpServer.mockResolvedValue(undefined)
     mocks.deleteMcpServer.mockResolvedValue(undefined)
     mocks.setMcpServerEnabled.mockResolvedValue(undefined)
-    mocks.writeMcpServers.mockResolvedValue(undefined)
   })
 
   it('returns the wrapped mcp status without refreshing connections', async () => {
@@ -129,37 +120,6 @@ describe('mcp route', () => {
     expect(response.body.saved).toEqual(bare)
   })
 
-  it('merges config imports by upserting each server', async () => {
-    const servers = [{ name: 'one' }, { name: 'two' }]
-    const response = await api('PUT', '/api/mcp/config', { servers })
-
-    expect(mocks.normalizeMcpServers).toHaveBeenCalledWith(servers)
-    expect(mocks.upsertMcpServer).toHaveBeenCalledTimes(2)
-    expect(mocks.upsertMcpServer).toHaveBeenNthCalledWith(1, { name: 'one' })
-    expect(mocks.upsertMcpServer).toHaveBeenNthCalledWith(2, { name: 'two' })
-    expect(mocks.writeMcpServers).not.toHaveBeenCalled()
-    expect(response.status).toBe(200)
-    expect(response.body.refreshedSessions).toBe(2)
-  })
-
-  it('replaces the whole config when mode is replace', async () => {
-    const servers = [{ name: 'only' }]
-    const response = await api('PUT', '/api/mcp/config', { servers, mode: 'replace' })
-
-    expect(mocks.writeMcpServers).toHaveBeenCalledTimes(1)
-    expect(mocks.writeMcpServers).toHaveBeenCalledWith(servers)
-    expect(mocks.upsertMcpServer).not.toHaveBeenCalled()
-    expect(response.status).toBe(200)
-  })
-
-  it('accepts the mcpServers field name for config imports', async () => {
-    const mcpServers = [{ name: 'legacy' }]
-    await api('PUT', '/api/mcp/config', { mcpServers })
-
-    expect(mocks.normalizeMcpServers).toHaveBeenCalledWith(mcpServers)
-    expect(mocks.upsertMcpServer).toHaveBeenCalledWith({ name: 'legacy' })
-  })
-
   it('decodes server names and only enables on strict true', async () => {
     await api('PUT', '/api/mcp/servers/name%20one/enabled', { enabled: true })
     expect(mocks.setMcpServerEnabled).toHaveBeenCalledWith('name one', true)
@@ -189,13 +149,6 @@ describe('mcp route', () => {
     await expect(api('DELETE', '/api/mcp/servers/playwright')).rejects.toBe(error)
     expect(mocks.refreshMcpConnections).not.toHaveBeenCalled()
     expect(mocks.refreshAllSessionTools).not.toHaveBeenCalled()
-  })
-
-  it('returns the raw stored config', async () => {
-    const response = await api('GET', '/api/mcp/config')
-    expect(response.status).toBe(200)
-    expect(response.body).toEqual({ servers: [{ name: 'saved' }] })
-    expect(mocks.readMcpServers).toHaveBeenCalledTimes(1)
   })
 
   it('falls through to 404 for unmatched routes', async () => {

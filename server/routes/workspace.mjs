@@ -1,6 +1,5 @@
 import { projectContextFromId, registeredProjectContextFromId } from '../project-config.mjs'
 import {
-  createWorkspacePathValidator,
   resolveWorkspacePath,
   assertSafeWorkspacePath,
   toWorkspaceRelative,
@@ -31,11 +30,9 @@ import {
   commitAndPushGitChanges,
 } from './workspace-git-service.mjs'
 import {
-  buildTreeForDirectory,
   listWorkspaceChildren,
   searchWorkspace,
   listWorkspaceMentionChildren,
-  searchWorkspaceMentions,
 } from './workspace-browser-service.mjs'
 import {
   statWorkspaceTextFile,
@@ -75,13 +72,6 @@ async function projectContextFromUrl(url) {
   return projectContextFromId(projectId)
 }
 
-async function handleWorkspaceTree(req, res, url) {
-  const context = await projectContextFromUrl(url)
-  const validateWorkspacePath = await createWorkspacePathValidator(context)
-  const tree = await buildTreeForDirectory(context.workspaceRoot, context, { count: 0 }, validateWorkspacePath)
-  sendJson(res, 200, { root: context.project.name, tree })
-}
-
 async function handleWorkspaceChildren(req, res, url) {
   const context = await projectContextFromUrl(url)
   sendJson(res, 200, await listWorkspaceChildren(context, url.searchParams.get('path') || '.', {
@@ -117,19 +107,6 @@ async function handleWorkspaceMentionChildren(req, res, url) {
   }
   const context = await registeredProjectContextFromId(projectId)
   sendJson(res, 200, await listWorkspaceMentionChildren(context, url.searchParams.get('path') || '.'))
-}
-
-async function handleWorkspaceMentionSearch(req, res, url) {
-  const projectId = url.searchParams.get('projectId')
-  if (!projectId) {
-    const error = new Error('projectId is required')
-    error.statusCode = 400
-    throw error
-  }
-  const context = await registeredProjectContextFromId(projectId)
-  sendJson(res, 200, await searchWorkspaceMentions(context, url.searchParams.get('query') || '', {
-    limit: url.searchParams.get('limit'),
-  }))
 }
 
 async function handleWorkspaceFile(req, res, url) {
@@ -475,10 +452,6 @@ async function handleGitCommitAndPush(req, res) {
 }
 
 export async function handleWorkspaceApi(req, res, url, requestContext = {}) {
-  if (req.method === 'GET' && url.pathname === '/api/workspace/tree') {
-    await handleWorkspaceTree(req, res, url)
-    return
-  }
   if (req.method === 'GET' && url.pathname === '/api/workspace/children') {
     await handleWorkspaceChildren(req, res, url)
     return
@@ -489,10 +462,6 @@ export async function handleWorkspaceApi(req, res, url, requestContext = {}) {
   }
   if (req.method === 'GET' && url.pathname === '/api/workspace/mention-children') {
     await handleWorkspaceMentionChildren(req, res, url)
-    return
-  }
-  if (req.method === 'GET' && url.pathname === '/api/workspace/mention-search') {
-    await handleWorkspaceMentionSearch(req, res, url)
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/workspace/file') {

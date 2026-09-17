@@ -43,7 +43,7 @@ export function upsertGoalTab(tabs: WorkspacePanelTab[], goal: NonNullable<Works
   return { tabs: existing ? tabs.map((entry) => entry.id === id ? tab : entry) : [...tabs, tab], activePanelTabId: id }
 }
 
-export type PersistedWorkspacePanelTab = Pick<WorkspacePanelTab, 'id' | 'kind' | 'url' | 'reviewView' | 'terminalSessionId' | 'document'> & {
+type PersistedWorkspacePanelTab = Pick<WorkspacePanelTab, 'id' | 'kind' | 'url' | 'reviewView' | 'terminalSessionId' | 'document'> & {
   reader?: {
     mode: 'file'
     path: string
@@ -226,7 +226,7 @@ export function reorderPanelTabs(tabs: WorkspacePanelTab[], activeId: string, ov
   return reordered
 }
 
-export function findSubagentRunTab(tabs: readonly WorkspacePanelTab[], runId: string) {
+function findSubagentRunTab(tabs: readonly WorkspacePanelTab[], runId: string) {
   return tabs.find((tab) => tab.kind === 'subagent' && tab.subagentRun?.runId === runId)
 }
 

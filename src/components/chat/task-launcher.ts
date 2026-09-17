@@ -4,7 +4,7 @@ import { capabilityIcons } from './capability-icons'
 import type { createCapabilitySuggestions } from './capability-suggestions'
 
 export const taskIds = ['explore', 'develop', 'review', 'fix', 'weekly', 'data', 'ppt', 'word'] as const
-export type TaskId = typeof taskIds[number]
+type TaskId = typeof taskIds[number]
 const plugins: Partial<Record<TaskId, string>> = { weekly: 'documents', data: 'spreadsheets', ppt: 'presentations', word: 'documents' }
 const developmentIcons = {
   explore: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',

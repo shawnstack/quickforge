@@ -15,7 +15,7 @@ export type FileContextReference = {
   path: string
 }
 
-export type ComposerCapabilitySelection = {
+type ComposerCapabilitySelection = {
   type: 'plugin' | 'skill' | 'tool' | 'command'
   pluginName: string
   name: string
@@ -42,17 +42,9 @@ export type CommandSuggestionElement = HTMLDivElement & {
   __quickforgeDismissHandler?: (event: Event) => void
 }
 
-export type CapabilitySuggestionElement = HTMLDivElement & {
-  __quickforgeDismissHandler?: (event: Event) => void
-}
-
 export type CommandTextareaElement = HTMLTextAreaElement & {
   __quickforgeCommandCompleteHandler?: (event: KeyboardEvent) => void
   __quickforgePlanModeHandler?: (event: KeyboardEvent) => void
-}
-
-export type CapabilityTextareaElement = HTMLTextAreaElement & {
-  __quickforgeCapabilityCompleteHandler?: (event: KeyboardEvent) => void
 }
 
 export type AgentInterfaceElement = HTMLElement & {
@@ -79,7 +71,7 @@ export type CustomCommandSummary = {
   pluginName?: string
 }
 
-export type MessageUsage = {
+type MessageUsage = {
   input?: number
   output?: number
   totalTokens?: number
@@ -208,7 +200,7 @@ export function safeJson(value: unknown): string {
   }
 }
 
-export function estimateTextTokens(text: string) {
+function estimateTextTokens(text: string) {
   const value = String(text || '')
   if (!value) return 0
   const cjkChars = value.match(/[\u3400-\u9fff\uf900-\ufaff]/g)?.length ?? 0
@@ -216,7 +208,7 @@ export function estimateTextTokens(text: string) {
   return Math.ceil(cjkChars + otherChars / 3.5)
 }
 
-export function textFromUnknown(value: unknown): string {
+function textFromUnknown(value: unknown): string {
   if (!value) return ''
   if (typeof value === 'string') return value
   if (Array.isArray(value)) {
@@ -234,7 +226,7 @@ export function textFromUnknown(value: unknown): string {
   return String(value)
 }
 
-export function estimateMessageTokens(message: MessageWithUsage) {
+function estimateMessageTokens(message: MessageWithUsage) {
   const parts = [message.role ?? '', textFromUnknown(message.content)]
   if (message.toolName) parts.push(message.toolName)
   if (message.toolCallId) parts.push(message.toolCallId)
@@ -242,7 +234,7 @@ export function estimateMessageTokens(message: MessageWithUsage) {
   return estimateTextTokens(parts.filter(Boolean).join('\n'))
 }
 
-export function estimateHistoryTokens(systemPrompt: string, messages: MessageWithUsage[], tools: unknown = []) {
+function estimateHistoryTokens(systemPrompt: string, messages: MessageWithUsage[], tools: unknown = []) {
   return estimateTextTokens(systemPrompt)
     + messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
     + estimateTextTokens(safeJson(tools))
@@ -267,11 +259,11 @@ export function formatMessageTime(timestamp: number) {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-export function hasCompactSummary(message: MessageWithUsage) {
+function hasCompactSummary(message: MessageWithUsage) {
   return message.role === 'user' && textFromUnknown(message.content).includes('<compact_summary>')
 }
 
-export function latestCompactTimestamp(messages: MessageWithUsage[]) {
+function latestCompactTimestamp(messages: MessageWithUsage[]) {
   let timestamp = 0
   for (const message of messages) {
     if (hasCompactSummary(message)) timestamp = Math.max(timestamp, messageTimestamp(message))

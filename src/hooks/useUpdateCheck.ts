@@ -10,9 +10,9 @@ import { logger } from '@/lib/logger'
 
 type PiStorage = Awaited<ReturnType<typeof initializePiStorage>>
 
-export type UpdateCheckStatus = 'idle' | 'checking' | 'done' | 'error'
+type UpdateCheckStatus = 'idle' | 'checking' | 'done' | 'error'
 
-export type UpdateCheckResult = {
+type UpdateCheckResult = {
   status: UpdateCheckStatus
   currentVersion?: string
   latestVersion?: string
@@ -20,7 +20,7 @@ export type UpdateCheckResult = {
   updateAvailable: boolean
 }
 
-export type UpdateCheckInfo = {
+type UpdateCheckInfo = {
   result: UpdateCheckResult
   /** Dismiss the current new-version reminder (persists ignoredVersion). */
   dismissUpdate: () => void

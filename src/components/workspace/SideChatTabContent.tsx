@@ -8,7 +8,7 @@ export type SideChatComposerDraftMemory = {
   set: (text: string) => void
 }
 
-export type SideChatTabContentProps = {
+type SideChatTabContentProps = {
   agent: SideChatAgent
   inputMemory: SideChatComposerDraftMemory
   revision: number

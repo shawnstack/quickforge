@@ -4,29 +4,14 @@ import os from 'node:os'
 import path from 'node:path'
 
 const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
-const QUICKFORGE_LATEST_RELEASE_API_URL = 'https://api.github.com/repos/shawnstack/quickforge/releases/latest'
 const DEFAULT_REGISTRY_URL = 'https://registry.npmjs.org/'
 
-// 外部更新检查（npm registry / GitHub Releases）是应用中最慢的调用。
+// 外部更新检查（npm registry）是应用中最慢的调用。
 const UPDATE_CHECK_COOLDOWN_MS = 5 * 60 * 1000
-const updateCheckCooldowns = new Map() // key -> { at, promise }（checkDesktopRelease 沿用）
 // npm 运行时检查改为进程内状态机：快照接口永不等网络，必要时在后台刷新，
 // HTTP 请求不再阻塞在 registry 调用上，网络失败也不再以 500 暴露给前端。
 const UPDATE_CHECK_ERROR_RETRY_MS = 30 * 1000
 const updateCheckStates = new Map() // key -> { status, result, error, checkedAt, promise }
-
-function cooldownLoad(key, loader) {
-  const now = Date.now()
-  const entry = updateCheckCooldowns.get(key)
-  if (entry && now - entry.at < UPDATE_CHECK_COOLDOWN_MS) return entry.promise
-
-  const promise = Promise.resolve().then(loader)
-  updateCheckCooldowns.set(key, { at: now, promise })
-  promise.catch(() => {
-    if (updateCheckCooldowns.get(key)?.promise === promise) updateCheckCooldowns.delete(key)
-  })
-  return promise
-}
 
 function normalizeRepositoryUrl(value) {
   if (!value || typeof value !== 'string') return ''
@@ -258,48 +243,6 @@ export function checkForUpdates(projectRoot) {
   const fresh = entry.status === 'ok' && Date.now() - entry.checkedAt < UPDATE_CHECK_COOLDOWN_MS
   if (fresh) return Promise.resolve(entry.result)
   return startUpdateCheck(entry, projectRoot)
-}
-
-export function checkDesktopRelease(projectRoot) {
-  return cooldownLoad(`desktop:${projectRoot}`, async () => {
-    const pkg = await getPackageInfo(projectRoot)
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 5000)
-
-    try {
-      const response = await fetch(QUICKFORGE_LATEST_RELEASE_API_URL, {
-        headers: {
-          accept: 'application/vnd.github+json',
-          'user-agent': `${pkg.name || 'quickforge'}-desktop-update-check`,
-        },
-        signal: controller.signal,
-      })
-
-      if (!response.ok) throw new Error(`GitHub releases returned HTTP ${response.status}`)
-
-      const release = await response.json()
-      const latestVersion = release?.tag_name || release?.name
-      if (!latestVersion || typeof latestVersion !== 'string') throw new Error('latest release version not found in GitHub response')
-
-      const comparison = compareVersions(pkg.version, latestVersion)
-      return {
-        ...pkg,
-        channel: 'desktop-app',
-        distribution: 'github-releases',
-        currentVersion: pkg.version,
-        latestVersion,
-        updateAvailable: comparison < 0,
-        localVersionIsNewer: comparison > 0,
-        releaseUrl: release?.html_url || QUICKFORGE_RELEASES_URL,
-        installable: false,
-      }
-    } catch (error) {
-      if (error.name === 'AbortError') throw new Error('request timeout', { cause: error })
-      throw error
-    } finally {
-      clearTimeout(timeout)
-    }
-  })
 }
 
 function getNpmCommand() {

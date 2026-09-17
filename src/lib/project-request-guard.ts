@@ -1,4 +1,4 @@
-export type ProjectRequestToken = Readonly<{
+type ProjectRequestToken = Readonly<{
   projectId: string
   requestId: number
 }>

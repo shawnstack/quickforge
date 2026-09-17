@@ -1,7 +1,7 @@
 import { CloudClientError } from './cloud-client'
 import { getAppLanguage, t } from './i18n'
 
-export type CloudErrorFallback = 'cloudLoadFailed' | 'cloudConnectionFailed' | 'cloudRequestFailed'
+type CloudErrorFallback = 'cloudLoadFailed' | 'cloudConnectionFailed' | 'cloudRequestFailed'
 
 export function cloudErrorMessage(error: unknown, fallback: CloudErrorFallback = 'cloudRequestFailed') {
   if (!(error instanceof CloudClientError)) return t(fallback)

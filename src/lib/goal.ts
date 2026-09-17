@@ -50,12 +50,12 @@ export type GoalBudget = {
   maxActiveDurationMs: number | null
 }
 
-export type GoalUsage = {
+type GoalUsage = {
   iterations: number
   activeDurationMs: number
 }
 
-export type GoalAttachment = {
+type GoalAttachment = {
   id?: string
   type: string
   fileName?: string
@@ -98,7 +98,7 @@ export type GoalState = {
  * records `human` evidence for criteria the user confirms without machine
  * verification. `resume` from `needs_review` only continues execution.
  */
-export type GoalAction = 'confirm' | 'pause' | 'resume' | 'extend_resume' | 'cancel' | 'revise' | 'accept'
+export type GoalAction = 'pause' | 'resume' | 'extend_resume' | 'cancel' | 'revise' | 'accept'
 
 /** Identity and revision captured by the explicit budget confirmation. */
 export type GoalActionOptions = { goalId: string; expectedRevision: number; signal?: AbortSignal }
@@ -142,7 +142,7 @@ export const GOAL_CRITERION_STATUSES: readonly GoalCriterionStatus[] = [
   'needs_review',
 ]
 
-const GOAL_ACTIONS: readonly GoalAction[] = ['confirm', 'pause', 'resume', 'extend_resume', 'cancel', 'revise', 'accept']
+const GOAL_ACTIONS: readonly GoalAction[] = ['pause', 'resume', 'extend_resume', 'cancel', 'revise', 'accept']
 
 export function isGoalAction(value: unknown): value is GoalAction {
   return typeof value === 'string' && (GOAL_ACTIONS as readonly string[]).includes(value)
@@ -292,11 +292,6 @@ export function isGoalSpinning(status: GoalStatus): boolean {
 /** Objective may be edited (revise) and re-confirmed from these states. */
 export function goalIsEditable(status: GoalStatus): boolean {
   return status === 'awaiting_confirmation' || status === 'paused' || status === 'blocked'
-}
-
-export function goalCanConfirm(status: GoalStatus): boolean {
-  void status // Kept for API compatibility; current UI never requests confirmation.
-  return false
 }
 
 export function goalCanPause(status: GoalStatus): boolean {

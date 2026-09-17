@@ -9,14 +9,14 @@
 import { computeCacheKey, IndexedDbCache } from '@/lib/indexeddb-cache'
 import { resolveServerCacheKey } from '@/lib/session-message-cache'
 
-export const APP_SETTINGS_SNAPSHOT_SCHEMA_VERSION = 1
+const APP_SETTINGS_SNAPSHOT_SCHEMA_VERSION = 1
 /** 追踪的 settings 键白名单：只缓存启动预应用需要的四个键。 */
-export const APP_SETTING_SNAPSHOT_KEYS = ['language', 'appearance-settings', 'font-size-settings', 'tool-display-settings'] as const
-export type AppSettingSnapshotKey = (typeof APP_SETTING_SNAPSHOT_KEYS)[number]
+const APP_SETTING_SNAPSHOT_KEYS = ['language', 'appearance-settings', 'font-size-settings', 'tool-display-settings'] as const
+type AppSettingSnapshotKey = (typeof APP_SETTING_SNAPSHOT_KEYS)[number]
 /** 单值 JSON 序列化超过该长度则跳写，避免条目预算被超大值占满。 */
 export const APP_SETTING_SNAPSHOT_MAX_VALUE_BYTES = 4 * 1024
 
-export type AppSettingSnapshotEntry = {
+type AppSettingSnapshotEntry = {
   schemaVersion: number
   key: AppSettingSnapshotKey
   /** 允许任意 JSON 值（含 null），合法性由各消费方的 normalize 兜底。 */

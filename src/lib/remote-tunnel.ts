@@ -1,14 +1,14 @@
 import { registerPlugin } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
 
-export type RemoteTunnelStateKind = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
+type RemoteTunnelStateKind = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
 export type RemoteTunnelState = {
   state: RemoteTunnelStateKind
   error?: string
 }
 
-export type RemoteTunnelServiceInfo = {
+type RemoteTunnelServiceInfo = {
   id?: string
   name?: string
   port?: number
@@ -22,11 +22,11 @@ export type RemoteTunnelDevice = {
   services?: RemoteTunnelServiceInfo[]
 }
 
-export type RemoteTunnelDeviceList = {
+type RemoteTunnelDeviceList = {
   items: RemoteTunnelDevice[]
 }
 
-export type RemoteTunnelToken = {
+type RemoteTunnelToken = {
   accessToken: string
   refreshToken: string
   cloudUrl: string
@@ -59,7 +59,7 @@ export type RemoteTunnelHasSession = {
  * 连接成功后原生层在 127.0.0.1:18080 开本地 TCP 隧道，HTTP 流量注入
  * X-QuickForge-Tunnel: 1 请求头；WebView 应导航到 http://127.0.0.1:18080/?quickforgeRemote=1。
  */
-export interface RemoteTunnelPlugin {
+interface RemoteTunnelPlugin {
   setToken(options: RemoteTunnelToken): Promise<void>
   hasSession(): Promise<RemoteTunnelHasSession>
   signOut(): Promise<void>

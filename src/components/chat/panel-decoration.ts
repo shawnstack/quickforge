@@ -90,7 +90,7 @@ export {
 
 // --- Editor decoration ---
 
-export type EditorDecorationDeps = {
+type EditorDecorationDeps = {
   panel: HTMLElement
   isStreaming: () => boolean
   isWaiting?: () => boolean

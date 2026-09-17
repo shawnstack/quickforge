@@ -217,7 +217,7 @@ export function extractSessionArtifacts(messages: AgentMessage[] | undefined): A
 }
 
 /** 按轮切片的产物提取结果（每轮产物卡的口径）。 */
-export type AiTurnArtifacts = {
+type AiTurnArtifacts = {
   /**
    * 该轮首条 user 消息（user / user-with-attachments）在完整消息数组中的下标；
    * 首条 user 之前的残余内容（如上下文压缩后的半轮片段）归入 userIndex = -1 的前置组。

@@ -59,7 +59,7 @@ function registerNativeSessionOpener(): void {
  * background, so task completion notifications still arrive on the lock screen
  * or while another app is open.
  */
-export function syncNativeNotificationService(): void {
+function syncNativeNotificationService(): void {
   const bridge = nativeNotificationBridge()
   if (!bridge?.setNotificationService) return
   const serverUrl = window.location.origin

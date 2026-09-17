@@ -1,11 +1,11 @@
-export type PluginToolSummary = {
+type PluginToolSummary = {
   name: string
   quickForgeName: string
   label?: string
   description?: string
 }
 
-export type PluginPathContribution = {
+type PluginPathContribution = {
   path: string
 }
 

@@ -1,6 +1,6 @@
 export const SIDEBAR_SECTION_ORDER_STORAGE_KEY = 'quickforge:sidebar-section-order:v1'
 
-export const SIDEBAR_SECTION_IDS = ['projects', 'tasks'] as const
+const SIDEBAR_SECTION_IDS = ['projects', 'tasks'] as const
 
 export type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number]
 export type SidebarSectionOrder = SidebarSectionId[]

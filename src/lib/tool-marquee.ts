@@ -20,7 +20,7 @@ export const MARQUEE_END_PAUSE_MS = 1000
 export const MARQUEE_RESTART_PAUSE_MS = 1000
 /** 纵向切换滚动：时长与缓动（与 diff 里程计同族）。 */
 export const MARQUEE_ROLL_DURATION_MS = 260
-export const MARQUEE_ROLL_EASING = 'cubic-bezier(.22, 1, .36, 1)'
+const MARQUEE_ROLL_EASING = 'cubic-bezier(.22, 1, .36, 1)'
 
 export type ToolMarqueeSpan = {
   textContent: string
@@ -33,7 +33,7 @@ export type ToolMarqueeSpan = {
 }
 
 /** 纵向滚动的目标（视图元素）：只需可写的 transform 与 visibility。 */
-export type ToolMarqueeRollElement = {
+type ToolMarqueeRollElement = {
   style: {
     transform: string
     visibility: string
@@ -46,7 +46,7 @@ export type ToolMarqueeView = {
   readonly movingSpan: ToolMarqueeSpan
 }
 
-export type ToolMarqueeHost = {
+type ToolMarqueeHost = {
   /** 两个等价视图：当前展示其一，另一个在 text 切换时作为新文本的滚入位。 */
   readonly views: [ToolMarqueeView, ToolMarqueeView]
   getClientWidth(): number

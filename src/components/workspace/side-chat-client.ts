@@ -1,6 +1,6 @@
 import type { ModelReference } from '@/lib/model-reference'
 
-export type SideChatRole = 'user' | 'assistant'
+type SideChatRole = 'user' | 'assistant'
 
 export type SideChatMessage = {
   role: SideChatRole
@@ -8,7 +8,7 @@ export type SideChatMessage = {
   timestamp?: number
 }
 
-export type SideChatStreamRequest = {
+type SideChatStreamRequest = {
   sessionId?: string
   modelRef?: ModelReference
   messages: SideChatMessage[]
@@ -47,7 +47,7 @@ function serializeModelReference(modelRef: ModelReference): ModelReference {
   }
 }
 
-export function serializeSideChatRequest(request: SideChatStreamRequest): SideChatStreamRequest {
+function serializeSideChatRequest(request: SideChatStreamRequest): SideChatStreamRequest {
   return {
     ...(typeof request.sessionId === 'string' && request.sessionId.trim() ? { sessionId: request.sessionId.trim() } : {}),
     ...(request.modelRef ? { modelRef: serializeModelReference(request.modelRef) } : {}),

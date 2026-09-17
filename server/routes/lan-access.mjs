@@ -1,12 +1,10 @@
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { getLanUrls } from '../utils/network.mjs'
 import { logger } from '../utils/logger.mjs'
-import { parseCookies } from '../share-store.mjs'
 import {
   issueLanAccessToken,
   lanAccessCookieName,
   readLanAccessStatus,
-  revokeLanAccessToken,
   revokeLanAccessTokenById,
   revokeLanAccessTokens,
   updateLanAccessSettings,
@@ -85,10 +83,6 @@ function setLanCookie(res, token, maxAge) {
     'Path=/',
   ].join('; ')
   res.setHeader('Set-Cookie', cookie)
-}
-
-function clearLanCookie(res) {
-  res.setHeader('Set-Cookie', `${lanAccessCookieName()}=; HttpOnly; SameSite=Lax; Max-Age=0; Path=/`)
 }
 
 function requireLocal(context) {
@@ -412,14 +406,6 @@ export async function handleLanAccessApi(req, res, url, context = {}) {
       }
       throw error
     }
-    return
-  }
-
-  if (req.method === 'POST' && pathname === '/api/lan-access/logout') {
-    const token = parseCookies(req.headers.cookie).get(lanAccessCookieName())
-    await revokeLanAccessToken(token)
-    clearLanCookie(res)
-    sendJson(res, 200, { ok: true })
     return
   }
 

@@ -17,7 +17,7 @@ export type UpdateCheckPayload = {
   checkedAt?: string
 }
 
-export type UpdateCheckOutcome =
+type UpdateCheckOutcome =
   | { kind: 'ok'; payload: UpdateCheckPayload }
   | { kind: 'error'; message?: string }
 

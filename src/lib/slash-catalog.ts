@@ -7,12 +7,12 @@
  * commands-only menu (null result) without blocking the composer.
  */
 
-export type SlashCatalogSkill = {
+type SlashCatalogSkill = {
   name: string
   description?: string
 }
 
-export type SlashCatalogAgent = {
+type SlashCatalogAgent = {
   name: string
   label?: string
   description?: string

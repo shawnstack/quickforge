@@ -1,17 +1,17 @@
 export const SIDEBAR_SESSION_DISPLAY_STEP = 5
 
-export type SidebarSessionShowMoreInput = {
+type SidebarSessionShowMoreInput = {
   visibleCount: number
   loadedCount: number
   hasMore: boolean
 }
 
-export type SidebarSessionShowMoreAction = {
+type SidebarSessionShowMoreAction = {
   targetVisibleCount: number
   requiresLoad: boolean
 }
 
-export type SidebarSessionShowMoreState = {
+type SidebarSessionShowMoreState = {
   generations: Map<string, number>
   pendingGenerations: Map<string, number>
 }

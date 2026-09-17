@@ -1,6 +1,42 @@
 {
   "features": [
     {
+      "id": "dead-code-cleanup-round2",
+      "name": "死代码清理 round2（四区扫描 18 项候选 + 确认执行 15 组删除）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "两阶段。扫描（2026-09-16）：分支 cleanup/dead-code（基线 dev@10ecfebe8e6b29cf40f010e2df40efc70653003c）四区扫描——入口白名单（bin/server 入口、supervisor、maintenance、worker、ACP、前端入口与 lazy 目标、desktop）+ 动态引用排查（spawn/Worker/createRequire/plugins manifest/变量与字符串 import）+ grep 排除生成目录，产出 18 项候选报告 docs/reports/dead-code-candidates-2026-09-16.zh-CN.md。执行（2026-09-17）：用户确认删除 15 组、K8 保留——K1-K6 死/兼容路由（server/routes workspace/system/mcp/lan-access.mjs + server/index.mjs 分发注册 + server/utils/package-update.mjs 孤儿链 cooldownLoad/updateCheckCooldowns/QUICKFORGE_LATEST_RELEASE_API_URL + 同步测试与 wiki 路由/browser-cache-strategy/server README 文档）；K7 前端 confirm 恒假链（goal.ts goalCanConfirm 与 'confirm' 字面量、goal-card.ts confirmable、GoalInspectorContent.tsx 恒假分支，3 个前端测试剔除恒假断言；goalConfirm i18n key 因 extend_resume 活跃消费保留，server 端 API 未动）；K9 删 server/cloud/index.mjs + tests/server/cloud/index.test.mjs 整文件；O1 删 .playwright-mcp/（59 文件）+ .gitignore 条目；O2 删 $null；DEP1 删 @emnapi/core、@emnapi/runtime devDependencies 声明（传递依赖保留）；D1+D2 删 android SignalReconnectBackoff.kt + 测试 + docs/design/remote-access-p2p.md 3 处同步；D3 删 scripts/prune-offline-package.cjs + wiki scripts/README 同步；A1-A3 零引用导出清理共处理 220 项（217 项去 export + 3 项删类型 ConfiguredModel/CapabilitySuggestionElement/CapabilityTextareaElement），其中 3 项（serializePanelTabs/browserTabFilePath/decorateUserContextChips）因 tests 实际引用恢复 export，净清理 217 项、92 个 src 文件。K8 isSessionTextAttachmentPath 安全预留待产品决策保留。",
+      "files": [
+        "server/routes/workspace.mjs",
+        "server/routes/system.mjs",
+        "server/routes/mcp.mjs",
+        "server/routes/lan-access.mjs",
+        "server/index.mjs",
+        "server/utils/package-update.mjs",
+        "server/cloud/index.mjs（整文件删除）",
+        "src/（git 实改 93 文件：A1-A3 导出清理 92 文件 + K7 恒假链 3 文件，2 文件重叠）",
+        "tests/（git 实改 10 文件：server 7——routes/mcp、routes/lan-access、mention 相关 3、utils/package-update、cloud/index 整文件删除；前端 3——goal-card/goal-state/server-agent）",
+        "package.json",
+        "package-lock.json",
+        ".gitignore",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/utils/README.md",
+        "docs/architecture/browser-cache-strategy.zh-CN.md",
+        "docs/wiki/scripts/README.md",
+        "docs/design/remote-access-p2p.md",
+        "android/app/src/main/java/com/quickforge/mobile/remote/SignalReconnectBackoff.kt（删除）",
+        "android/app/src/test/java/com/quickforge/mobile/remote/SignalReconnectBackoffTest.kt（删除）",
+        "scripts/prune-offline-package.cjs（删除）",
+        "docs/reports/dead-code-candidates-2026-09-16.zh-CN.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-17 执行后：npm run test 全量 354 files / 4101 passed + 1 skipped（exit 0）；npm run lint 0 errors（仅既有 coverage 3 warnings）；npm run build exit 0（仅既有 KaTeX/chunk warning）。删除过程中回归一次：A 批审计漏报 tests 对 3 个符号（serializePanelTabs/browserTabFilePath/decorateUserContextChips）的实际引用，18 用例失败，恢复 export 后修复并全量复验通过。Android 侧为零引用纯删除，未跑 gradle，仅静态验证。改动未提交（cleanup/dead-code 分支，待用户决定 commit 时机）。",
+      "boundaries": "保留：K8 isSessionTextAttachmentPath（待产品决策）、process-tree.mjs（收敛目标）、goalConfirm i18n key（extend_resume 活跃消费）、benchmark/vendor 脚本；server 端 confirm API 未动；@emnapi 传递依赖保留。无 Git commit/tag/push；未手工触碰 dist/package-dist/package-offline；Android 未跑 gradle。"
+    },
+    {
       "id": "scheduled-tasks-ui-optimization",
       "name": "定时任务页面 UI 布局优化",
       "status": "done",

@@ -9,18 +9,18 @@
  * - 条目级 SCHEMA_VERSION：结构升级后旧条目读取即 miss，无需迁移。
  */
 
-export const CACHE_DB_NAME = 'quickforge-cache'
-export const CACHE_STORE_NAME = 'entries'
+const CACHE_DB_NAME = 'quickforge-cache'
+const CACHE_STORE_NAME = 'entries'
 export const CACHE_SCHEMA_VERSION = 1
 
 /** 淘汰策略候选条目元数据。 */
-export type CacheEvictionCandidate = {
+type CacheEvictionCandidate = {
   key: string
   bytes: number
   lastUsed: number
 }
 
-export type IndexedDbCacheEntry<T = unknown> = {
+type IndexedDbCacheEntry<T = unknown> = {
   key: string
   value: T
   schemaVersion: number
@@ -98,14 +98,14 @@ type MinimalIdbDatabaseLike = {
 }
 
 /** factory 返回宿主 indexedDB；返回 null/undefined 视为不可用。 */
-export type IndexedDbCacheFactory = () => MinimalIdbFactoryLike | null | undefined
+type IndexedDbCacheFactory = () => MinimalIdbFactoryLike | null | undefined
 
 const defaultFactory: IndexedDbCacheFactory = () => {
   const indexedDB = (globalThis as { indexedDB?: unknown }).indexedDB
   return (indexedDB as MinimalIdbFactoryLike | undefined) ?? undefined
 }
 
-export type IndexedDbCacheOptions = {
+type IndexedDbCacheOptions = {
   dbName?: string
   storeName?: string
   maxEntries?: number

@@ -2,7 +2,7 @@ import type { AppStorage } from '@earendil-works/pi-web-ui'
 
 export const AUTO_ARCHIVE_SETTINGS_KEY = 'auto-archive-settings'
 
-export type AutoArchiveSettings = {
+type AutoArchiveSettings = {
   enabled: boolean
 }
 

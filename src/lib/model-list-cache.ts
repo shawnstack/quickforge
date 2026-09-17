@@ -2,7 +2,7 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 
 const STORAGE_KEY = 'quickforge:model-list-cache:v1'
 const SCHEMA_VERSION = 1
-export const MODEL_LIST_CACHE_TTL_MS = 10 * 60 * 1000
+const MODEL_LIST_CACHE_TTL_MS = 10 * 60 * 1000
 
 type ModelListCacheEntry = {
   v: number

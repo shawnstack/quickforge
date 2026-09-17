@@ -289,7 +289,7 @@ const TEXT_ATTACHMENT_TILE_BOUND_FLAG = 'quickforgeTextAttachmentBound'
  * （流式期每 rAF 全量扫描、DOM 元素被 Lit 按 index 复用），必须幂等：
  * 每 tile 只安装一个读取当前路径的监听。
  */
-export function decorateTextAttachmentTiles(
+function decorateTextAttachmentTiles(
   element: HTMLElement,
   attachments: Array<{ path?: string }>,
   onOpenLocalFilePath?: (path: string) => void,

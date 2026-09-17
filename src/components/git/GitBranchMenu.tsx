@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import { showPrompt } from '@/components/ui/prompt-dialog'
 import { showAlert } from '@/components/ui/confirm-dialog'
 
-export type GitBranchMenuProps = {
+type GitBranchMenuProps = {
   projectId: string
   currentBranch?: string
   dirtyCount?: number

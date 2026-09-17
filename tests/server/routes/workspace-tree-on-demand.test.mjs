@@ -367,7 +367,7 @@ describe('workspace search', () => {
 })
 
 describe('workspace on-demand route wiring', () => {
-  it('keeps children and search fallback behavior but rejects unknown projects for mention-search', async () => {
+  it('keeps children and search fallback behavior but rejects unknown projects for mention-children', async () => {
     const context = await createWorkspace()
     setDefaultWorkspaceRoot(context.workspaceRoot)
     await writeFile(path.join(context.workspaceRoot, 'route-match.txt'), 'route')
@@ -404,16 +404,6 @@ describe('workspace on-demand route wiring', () => {
       { method: 'GET' },
       mockRes(),
       new URL('http://localhost/api/workspace/mention-children?projectId=unknown&path=.'),
-    )).rejects.toMatchObject({
-      statusCode: 404,
-      errorCode: 'PROJECT_NOT_FOUND',
-      message: 'Unknown project',
-    })
-
-    await expect(handleWorkspaceApi(
-      { method: 'GET' },
-      mockRes(),
-      new URL('http://localhost/api/workspace/mention-search?projectId=unknown&query=route&limit=1'),
     )).rejects.toMatchObject({
       statusCode: 404,
       errorCode: 'PROJECT_NOT_FOUND',

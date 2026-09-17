@@ -387,7 +387,7 @@ server/
 - `mcp/tool-name.mjs` — MCP server canonical 规则与工具名 sanitize/encode/parse helper；registry 生成名称与 context usage 严格回退判定共用，避免规则漂移。
 - `mcp/config.mjs` — MCP Server 配置读写和校验，配置存放在独立的 `mcp` store（`config/mcp-servers.json`，内部 key 仍为 `mcpServers`）；兼容 `mcpServers` JSON 导入、`type`/`transport` 和远程 `headers` 配置；缺少同名服务时动态返回默认关闭的 `playwright` 预置，读取不写 store；已有同名配置完整优先。读取时仅为规范化名称 `playwright` 派生 `builtin: true`，不信任输入中的 builtin 字段，也不将该标记落盘。首次启停在原子更新内持久化；删除 Playwright 在名称规范化后、进入 `atomicUpdate` 前返回 409，普通 MCP 删除行为不变。批量 replace 遗漏 Playwright 时，后续读取仍返回关闭的预置项；已存满 50 项时，首次启停或保存 Playwright 返回 409，避免挤掉其他服务。
 - `mcp/registry.mjs` — stdio/SSE/Streamable HTTP 连接生命周期、工具发现、工具调用转发、关闭清理；支持全量刷新（`refreshMcpConnections`，对 error 状态有重试退避；可选 `reconnectDisconnected:true` 让 `disconnected` 连接也走 delete+close+重连，供后台刷新恢复被动断开的 server）和单 server 强制重连（`reconnectMcpServer`，绕过退避）；`createMcpToolDefinitions` 可选 `waitForConnections:false`：立即用当前连接快照（仅已连接 server）生成定义并 fire-and-forget 后台刷新；`subscribeMcpToolsetChanged(callback)` 返回退订函数，每次刷新完成后比较已连接 server 工具集签名（`${serverName}::${toolName}` 排序 join），变化时通知订阅者（无订阅者只更新基线）；single-flight 刷新期间 options 以首个调用方为准；连接、工具发现或工具调用超时后会取消请求并关闭异常 transport，后续调用再重连。
-- `routes/mcp.mjs` — `/api/mcp/servers`（列表与 upsert 单个）、`/api/mcp/config`（批量导入 merge/replace）、`/api/mcp/reconnect/:name`（单 server 重连）、启停开关与删除等管理接口。
+- `routes/mcp.mjs` — `/api/mcp/servers`（列表与 upsert 单个）、`/api/mcp/reconnect/:name`（单 server 重连）、启停开关与删除等管理接口。
 
 **行为约束**:
 - 当前支持 `stdio`、`sse` 和 Streamable HTTP (`http`) transport。Playwright 预置命令为 `npx -y @playwright/mcp@latest`，不追加浏览器参数（上游默认可见窗口）；设置卡片以中性“内置”标签标记，隐藏删除按钮，仍可编辑、启停、重连；服务端同时拒绝删除，不能仅通过绕过 UI 删除预置服务。后端机器需有 Node/npm，首次启动通常需要网络，缺少浏览器按上游提示处理；npm/Desktop 不捆绑 Playwright 或浏览器，不提供离线保证。

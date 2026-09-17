@@ -15,7 +15,7 @@ type ComposerPlusPopoverElement = HTMLDivElement & {
   __quickforgeDismissHandler?: (event: Event) => void
 }
 
-export type ComposerPlusMenuDeps = {
+type ComposerPlusMenuDeps = {
   panel: HTMLElement
   editor: MessageEditorElement
   leftControls: HTMLElement

@@ -4,7 +4,6 @@ import {
   goalAcceptanceCheck,
   goalBudgetExtension,
   goalCanCancel,
-  goalCanConfirm,
   goalCanPause,
   goalCanResume,
   goalDurationMinutes,
@@ -267,7 +266,6 @@ describe('goal status semantics', () => {
   })
 
   it('gates each action to the states that allow it', () => {
-    expect(all.filter(goalCanConfirm)).toEqual([])
     expect(all.filter(goalIsEditable)).toEqual(['awaiting_confirmation', 'paused', 'blocked'])
     expect(all.filter(goalCanPause)).toEqual(['running', 'verifying'])
     expect(all.filter(goalCanResume)).toEqual(['awaiting_confirmation', 'paused', 'blocked', 'needs_review'])
@@ -278,9 +276,10 @@ describe('goal status semantics', () => {
   })
 
   it('accepts every goal action, including the explicit human accept', () => {
-    for (const action of ['confirm', 'pause', 'resume', 'cancel', 'revise', 'accept'] as const) {
+    for (const action of ['pause', 'resume', 'cancel', 'revise', 'accept'] as const) {
       expect(isGoalAction(action)).toBe(true)
     }
+    expect(isGoalAction('confirm')).toBe(false)
     expect(isGoalAction('approve')).toBe(false)
     expect(isGoalAction(undefined)).toBe(false)
   })

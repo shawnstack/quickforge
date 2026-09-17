@@ -1,3 +1,14 @@
+## 最新交接：dead-code-cleanup-round2（done，2026-09-17）
+
+- 当前状态：死代码清理 round2 **已执行完毕、全量验证通过、待提交**——用户确认删除 15 组、K8 保留；`npm run test` 354 files / 4101 passed + 1 skipped（exit 0）、`npm run lint` 0 errors（仅既有 coverage 3 warnings）、`npm run build` exit 0（仅既有 KaTeX/chunk warning）。报告已追加「五、执行结果」节（`docs/reports/dead-code-candidates-2026-09-16.zh-CN.md`）。
+- 分支/基线：`cleanup/dead-code`，基线 `dev@10ecfebe8e6b29cf40f010e2df40efc70653003c`（=当前 HEAD `10ecfeb`，分支无 commit）；全部清理改动 + 4 个记录文件均未提交。
+- 改动范围：server（routes 4 文件、index.mjs、utils/package-update.mjs、cloud/index.mjs 整删）、src 93 文件（A 批 92 + K7 3，2 文件重叠）、tests 10 文件（server 7 含 cloud 整删 + 前端 3）、package.json/package-lock.json/.gitignore、docs 6 文件、android 2 文件（删除）、scripts 1 文件（删除）+ 4 个记录文件；完整清单见 feature_list.json 与 `git status`。
+- Blocker：无。
+- 下一步：用户自行决定何时 commit（本会话禁止 commit/push）；K8 isSessionTextAttachmentPath 待产品决策（附件沙箱豁免接线点）；Android 未跑 gradle（零引用纯删除，静态验证）。
+- Notes：goalConfirm i18n key 保留（extend_resume 活跃消费）；A 批审计曾漏报 tests 对 3 个符号（serializePanelTabs/browserTabFilePath/decorateUserContextChips）的引用致 18 用例回归，恢复 export 后修复并复验；K1-K6 的 server 端 confirm 处理与 `process-tree.mjs`、benchmark/vendor 脚本均保留。
+
+---
+
 ## 最新交接：scheduled-tasks-ui-optimization（done，2026-09-16，含第二轮用户反馈修复）
 
 - 当前目标：已完成 scheduled-tasks-ui-optimization 两轮迭代——第一轮：ScheduledTasksPage.tsx 单文件重构，任务列表由 2 列卡片网格改为紧凑行列表（规则列 md 起、时间列 lg 起），编辑表单/详情/历史筛选按 DESIGN_LANGUAGE.md 去除透明度 hack 并收紧密度；第二轮（用户反馈修复）：①层级修复——任务行 MoreHorizontal 菜单由 absolute z-20 内联改为 createPortal(document.body)+fixed z-50+锚点定位（视口钳制/上方翻转/click/blur/scroll/resize/Escape 关闭），对齐 AgentProfilesPage，修复被 4 层 overflow 祖先裁剪；②编辑表单对齐 AgentProfilesPage 模式——AI 解析弱化为辅助块（outline sm 按钮+解析结果上移）、模型/思考/项目/智能体由 icon-only 工具条升格为标准 label 字段、预览收紧行、操作按钮入卡内 footer、返回按钮左移。i18n/状态机/API 不变。

@@ -1,4 +1,4 @@
-export type PreviewIssueKind =
+type PreviewIssueKind =
   | 'not-found'
   | 'unsupported'
   | 'too-large'

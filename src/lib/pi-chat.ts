@@ -33,12 +33,7 @@ const CLOUD_MODEL_RESOLUTION_TIMEOUT_MS = 5_000
 
 export { isModelSelectable } from '@/lib/model-visibility'
 
-export type ConfiguredModel<TApi extends Api = Api> = Model<TApi> & {
-  /** QuickForge-only visibility flag. Missing values remain visible for backward compatibility. */
-  quickforgeHidden?: boolean
-}
-
-export type ConnectionForm = {
+type ConnectionForm = {
   id?: string
   name: string
   baseUrl: string
@@ -52,14 +47,14 @@ export type ConnectionForm = {
   supportsImages?: boolean
 }
 
-export type StoreBundle = {
+type StoreBundle = {
   settings: SettingsStore
   providerKeys: ProviderKeysStore
   sessions: SessionsStore
   customProviders: CustomProvidersStore
 }
 
-export type DefaultOptions = {
+type DefaultOptions = {
   model?: Model<Api>
   thinkingLevel?: ThinkingLevel
 }
@@ -300,7 +295,7 @@ function isUsableModel(model: unknown): model is Model<Api> {
   return Boolean(candidate?.id && candidate.provider && candidate.api && candidate.baseUrl)
 }
 
-export function configuredModelsFromProviders(providers: CustomProvider[]): Model<Api>[] {
+function configuredModelsFromProviders(providers: CustomProvider[]): Model<Api>[] {
   return providers
     .flatMap((provider) => provider.models ?? [])
     .filter(isUsableModel)

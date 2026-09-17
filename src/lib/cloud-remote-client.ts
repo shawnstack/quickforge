@@ -7,10 +7,10 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core'
 export const CLOUD_API_DEFAULT_BASE_URL = 'http://42.194.187.88:8080'
 
 /** 手机端 OAuth Device Flow 常量（与云侧 clientId/platform 白名单对齐）。 */
-export const CLOUD_MOBILE_CLIENT_ID = 'quickforge-mobile'
-export const CLOUD_MOBILE_CLIENT_VERSION = '1.0.0'
-export const CLOUD_MOBILE_INSTALLATION_NAME = '手机 (Android)'
-export const CLOUD_MOBILE_PLATFORM = 'android'
+const CLOUD_MOBILE_CLIENT_ID = 'quickforge-mobile'
+const CLOUD_MOBILE_CLIENT_VERSION = '1.0.0'
+const CLOUD_MOBILE_INSTALLATION_NAME = '手机 (Android)'
+const CLOUD_MOBILE_PLATFORM = 'android'
 
 const DEVICE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
 const REFRESH_GRANT_TYPE = 'refresh_token'
@@ -31,7 +31,7 @@ export type Account = {
  * 登录/注册结果。云侧现状：POST /v1/accounts/login|register 仅确认设备授权并返回账号信息
  * （无令牌），令牌由 device flow 发起方经 /oauth/token 兑换，故 accessToken/refreshToken 为空。
  */
-export type CloudRemoteSession = {
+type CloudRemoteSession = {
   accessToken: string
   refreshToken: string
   expiresIn?: number
@@ -40,7 +40,7 @@ export type CloudRemoteSession = {
 }
 
 /** 手机端发起的 Device Flow 授权上下文；私钥仅内存持有（不落盘），供后续 PoP 签名使用。 */
-export type CloudRemoteDeviceAuthorization = {
+type CloudRemoteDeviceAuthorization = {
   deviceCode: string
   userCode: string
   interval: number
@@ -49,7 +49,7 @@ export type CloudRemoteDeviceAuthorization = {
 }
 
 /** /oauth/token（device_code / refresh_token grant）成功响应（TokenSet）。 */
-export type CloudRemoteTokenSet = {
+type CloudRemoteTokenSet = {
   accessToken: string
   refreshToken: string
   tokenType: string
@@ -68,7 +68,7 @@ export type CloudRemoteDevice = {
 }
 
 /** TURN 临时凭据（POST /v1/remote/turn-credentials）。 */
-export type CloudRemoteTurnCredentials = {
+type CloudRemoteTurnCredentials = {
   urls: string[]
   username: string
   credential: string

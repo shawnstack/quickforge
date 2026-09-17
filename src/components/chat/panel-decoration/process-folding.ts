@@ -18,7 +18,7 @@ type ProcessNodeSegment<T> = {
   items: T[]
 }
 
-export type ProcessStageSection<T> = {
+type ProcessStageSection<T> = {
   kind: 'detail' | 'stage'
   items: T[]
 }
@@ -30,7 +30,7 @@ type GroupedProcessNode = {
   sourceNextSibling: ChildNode | null
 }
 
-export type ProcessToolSummary = {
+type ProcessToolSummary = {
   count: number
   errorCount: number
   commandsOnly: boolean
@@ -77,7 +77,7 @@ function rememberProcessExpandedState(panel: HTMLElement, key: string, expanded:
   if (oldestKey) states.delete(oldestKey)
 }
 
-export type ProcessGroupAnchorSource = {
+type ProcessGroupAnchorSource = {
   connected: boolean
 }
 
@@ -85,7 +85,7 @@ export function processGroupAnchorIndex(sources: ProcessGroupAnchorSource[]) {
   return sources.findIndex((source) => source.connected)
 }
 
-export type ProcessGroupTargetSource = {
+type ProcessGroupTargetSource = {
   streaming: boolean
   hasGroup: boolean
 }
@@ -262,7 +262,7 @@ export function summarizeProcessTools(toolMessages: ArrayLike<ToolMessageElement
   }
 }
 
-export type ProcessStageSummary = {
+type ProcessStageSummary = {
   toolCallCount: number
   commandCount: number
   editedFileCount: number
@@ -383,7 +383,7 @@ function toolsIconMarkup() {
   return '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="m7 9 3 3-3 3"/><path d="M13 15h4"/></svg>'
 }
 
-export type ProcessThinkingChild = {
+type ProcessThinkingChild = {
   quickforgeIcon?: boolean
   markedChevron?: boolean
   markedLabel?: boolean

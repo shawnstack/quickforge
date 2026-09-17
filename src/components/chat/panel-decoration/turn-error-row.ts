@@ -36,7 +36,7 @@ const ERROR_ESCALATE_CLASS = 'quickforge-error-escalate'
 const ERROR_DETAILS_CLASS = 'quickforge-error-details'
 const ERROR_DETAILS_OPEN_CLASS = 'quickforge-error-details-open'
 
-export type TurnErrorRowOptions = {
+type TurnErrorRowOptions = {
   message: MessageWithUsage
   /** 尾部终态错误：唯一挂载重试 / 详情 / 升级提示的位置 */
   terminal: boolean

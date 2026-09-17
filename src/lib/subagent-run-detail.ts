@@ -31,10 +31,10 @@ export type SubagentToolDisplayMode = 'concise' | 'compact' | 'detailed'
 
 export type SubagentRunI18n = (key: AppTextKey, params?: Record<string, string | number>) => string
 
-export type SubagentRunErrorSource = 'trace' | 'output' | 'details' | 'fallback'
+type SubagentRunErrorSource = 'trace' | 'output' | 'details' | 'fallback'
 
 /** 本次 subagent 运行实际使用的模型；继承时 provider/id 为父会话模型，并带 inherited: true。 */
-export type SubagentRunModel = {
+type SubagentRunModel = {
   mode: 'inherit' | 'fixed'
   inherited?: boolean
   provider?: string
@@ -46,7 +46,7 @@ export type SubagentRunModel = {
 }
 
 /** 本次运行实际生效的思考等级；inherit 已在服务端解析为具体等级，模型不支持推理时为 off。 */
-export type SubagentRunThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh'
+type SubagentRunThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh'
 
 export type SubagentRunPayload = {
   /** 稳定运行 id：新消息以显式 toolCallId / toolResult 顶层 toolCallId / details.toolCallId 为主键；details.sessionId 仅历史兼容 fallback；旧消息回退 `${name}:${task}`。 */
@@ -85,7 +85,7 @@ export type SubagentRunPayload = {
 }
 
 /** 点击 subagent 运行摘要时派发的桥接事件 detail。 */
-export type SubagentRunOpenRequest = {
+type SubagentRunOpenRequest = {
   runId: string
   payload?: SubagentRunPayload
 }
@@ -93,7 +93,7 @@ export type SubagentRunOpenRequest = {
 export const OPEN_SUBAGENT_RUN_EVENT = 'quickforge:open-subagent-run'
 
 /** subagent 运行载荷的实时订阅者。 */
-export type SubagentRunListener = (payload: SubagentRunPayload) => void
+type SubagentRunListener = (payload: SubagentRunPayload) => void
 
 /** 实时快照缓存上限：超过后按插入顺序淘汰最旧运行，避免长期会话内存泄漏。 */
 export const MAX_SUBAGENT_RUN_SNAPSHOTS = 100
@@ -311,7 +311,7 @@ export function subagentRunTraceMessagesForDisplay(
 }
 
 /** 从外层 result 与 trace 最终 assistant 终态推导状态；内部错误/中止优先于不准确的 running/done。 */
-export function subagentRunStatus(
+function subagentRunStatus(
   result: ToolResultLike | undefined,
   isStreaming?: boolean,
   traceMessages: unknown[] = [],
@@ -330,14 +330,14 @@ export function subagentRunStatus(
 }
 
 /** 与 local-tools.ts 的 subagentLabel 一致：优先 details.label，内置名回落。 */
-export function subagentRunLabel(name: string, details: unknown, t: SubagentRunI18n): string {
+function subagentRunLabel(name: string, details: unknown, t: SubagentRunI18n): string {
   if (isRecord(details) && typeof details.label === 'string' && details.label) return details.label
   if (name === 'general') return t('subagentGeneral')
   if (name === 'explore') return t('subagentExplore')
   return name || t('runSubagent')
 }
 
-export function subagentRunStatusLabel(status: SubagentRunStatus, label: string, t: SubagentRunI18n): string {
+function subagentRunStatusLabel(status: SubagentRunStatus, label: string, t: SubagentRunI18n): string {
   if (status === 'running') return t('subagentRunning', { name: label })
   if (status === 'done') return t('subagentCompleted', { name: label })
   if (status === 'error') return t('subagentFailed', { name: label })
@@ -440,7 +440,7 @@ export function subagentRunFingerprint(payload: Omit<SubagentRunPayload, 'finger
  * task/context/expectedOutput → 运行信息 → 详细摘要 → trace → 错误正文 → 非重复 output → input → details。
  * 渲染器按此顺序输出；单元测试直接断言该顺序。
  */
-export type SubagentRunBodyBlock = 'task' | 'meta' | 'summary' | 'trace' | 'error' | 'output' | 'input' | 'details'
+type SubagentRunBodyBlock = 'task' | 'meta' | 'summary' | 'trace' | 'error' | 'output' | 'input' | 'details'
 
 export function subagentRunBodyBlocks(
   payload: Pick<
@@ -830,7 +830,7 @@ export function subagentRunPayloadFromToolEvent(
   return payload
 }
 
-export type SubagentRunEventPublisherOptions = {
+type SubagentRunEventPublisherOptions = {
   /** 数据 store；默认全局 subagentRunStore（测试可传入独立实例，避免污染全局单例）。 */
   store?: SubagentRunStore
   /** i18n；默认返回 key 本身，真实调用方（ServerAgent / local-tools）传入全局 t。 */

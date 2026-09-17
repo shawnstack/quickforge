@@ -2,7 +2,6 @@ import { t, type AppTextKey } from '@/lib/i18n'
 import {
   goalAcceptanceCheck,
   goalCanCancel,
-  goalCanConfirm,
   goalCanPause,
   goalCanResume,
   goalDurationMinutes,
@@ -50,7 +49,6 @@ export type GoalCardViewModel = {
   /** Human-readable explanation of the blocker (e.g. budget exhaustion). */
   blockerHint: string
   editable: boolean
-  confirmable: boolean
   pausable: boolean
   resumable: boolean
   cancellable: boolean
@@ -182,7 +180,6 @@ export function buildGoalCardViewModel(goal: GoalState): GoalCardViewModel {
     blocker: blockerText(goal),
     blockerHint: localizedGoalBlockerHint(goal.blockerHint),
     editable: goalIsEditable(goal.status),
-    confirmable: goalCanConfirm(goal.status),
     pausable: goalCanPause(goal.status),
     resumable: goalCanResume(goal.status),
     cancellable: goalCanCancel(goal.status),

@@ -9,7 +9,7 @@ import ideaIconUrl from '@/assets/icons/idea.svg'
 import type { MessageWithUsage } from '../chat-utils'
 import { positionFixedDropdown } from './floating-position'
 
-export const ASSISTANT_ARTIFACT_CARD_CLASS = 'quickforge-assistant-artifact-card'
+const ASSISTANT_ARTIFACT_CARD_CLASS = 'quickforge-assistant-artifact-card'
 export const ASSISTANT_FILE_CARD_CLASS = 'quickforge-assistant-file-card'
 
 const INCLUDED_SOURCES = new Set<AiTurnArtifact['source']>(['write_file', 'edit_file', 'present_files'])

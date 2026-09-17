@@ -1,12 +1,12 @@
-export type TodoWriteHistoryStatus = 'running' | 'done' | 'error' | 'called'
-export type TodoWriteHistorySummaryKey =
+type TodoWriteHistoryStatus = 'running' | 'done' | 'error' | 'called'
+type TodoWriteHistorySummaryKey =
   | 'todoWriteHistoryRunning'
   | 'todoWriteHistoryFailed'
   | 'todoWriteHistorySummary'
   | 'todoWriteHistoryCleared'
   | 'todoWriteHistoryNeutral'
 
-export type TodoWriteHistoryItem = {
+type TodoWriteHistoryItem = {
   content: string
   status: 'pending' | 'in_progress' | 'completed'
 }
@@ -16,7 +16,7 @@ type TodoWriteHistoryResult = {
   details?: unknown
 }
 
-export type TodoWriteHistoryViewModel = {
+type TodoWriteHistoryViewModel = {
   status: TodoWriteHistoryStatus
   summaryKey: TodoWriteHistorySummaryKey
   summaryParams?: { completed: number; total: number }

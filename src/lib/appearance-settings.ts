@@ -4,7 +4,7 @@ const APPEARANCE_SETTINGS_KEY = 'appearance-settings'
 
 export type AppTheme = 'light' | 'dark'
 
-export type AppearanceSettings = {
+type AppearanceSettings = {
   theme: AppTheme
 }
 

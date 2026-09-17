@@ -1957,7 +1957,6 @@ describe('ServerAgent', () => {
         expect(getGoalUiState('session-1', initial.id)).toMatchObject({ pending: false, error: null })
         expect(agent.state.goal).toMatchObject(returned)
         const model = buildGoalCardViewModel(agent.state.goal!)
-        expect(model.confirmable).toBe(false)
         expect(model.resumable).toBe(status === 'paused' || status === 'awaiting_confirmation')
         expect(model.pausable).toBe(false)
         expect(fetchMock.mock.calls.filter((call) => call[1]?.method === 'POST')).toHaveLength(1)

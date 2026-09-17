@@ -37,7 +37,6 @@
 | 信令 | `android/.../remote/SignalClient.kt` | okhttp WebSocket 客户端与 `SignalMessage` 编解码 |
 | 帧协议 | `android/.../remote/TunnelFrames.kt` | DataChannel 帧编解码（与 Go 端 `internal/remote/protocol/frames.go` 一致） |
 | 背压 | `android/.../remote/BackpressureGate.kt` | `bufferedAmount` 高/低水位门（纯逻辑，可 JVM 单测） |
-| 信令退避 | `android/.../remote/SignalReconnectBackoff.kt` | 信令重挂 1/2/4/8 秒封顶策略（纯逻辑，可 JVM 单测） |
 | 前端契约 | `src/lib/remote-tunnel.ts` | JS 侧插件类型与接口（契约见 §3） |
 | 前端覆盖层 | `src/components/mobile/RemoteTunnelOverlay.tsx` | 断线提示/重试/返回设备列表；驱动恢复流程 |
 | 前端恢复 | `src/lib/tunnel-recovery.ts` | probe + 对账 + `quickforge:tunnel-recovered` 事件 + reload 兜底 |
@@ -262,7 +261,7 @@ P2/P3 复用现有信令消息格式，不增加旧客户端无法识别的必�
 
 | 层 | 位置 | 覆盖 |
 | --- | --- | --- |
-| JVM 单测 | `BackpressureGate` / `SignalReconnectBackoff`（纯逻辑，无 Android 依赖） | 高低水位迟滞、非法水位参数；信令重挂立即重试与 1/2/4/8 秒封顶退避 |
+| JVM 单测 | `BackpressureGate`（纯逻辑，无 Android 依赖） | 高低水位迟滞、非法水位参数 |
 | 前端单测 | `tests/frontend/tunnel-recovery.test.ts` | probe 未就绪 deferred；对账失败重试一次；waitUntil 全部成功/任一 reject/超时；无监听者 reload；事件派发抛错；防重入 |
 | 服务端集成 | `tests/server/index.tunnel-host.integration.test.mjs` | 127.0.0.1:18080 + 隧道头可信；`localhost:18080` 拒绝；`/api/health` 隧道可达 |
 | 原生链路 | 手动/真机（Android 壳 + 云信令 + qf-agent） | 登录→设备列表→connect→18080 加载→断网重连→免刷新恢复 |
@@ -271,7 +270,7 @@ P2/P3 复用现有信令消息格式，不增加旧客户端无法识别的必�
 
 ## 9. 相关文件索引
 
-- 原生：`android/app/src/main/java/com/quickforge/mobile/remote/`（RemoteTunnel.kt / RemoteTunnelService.kt / SignalClient.kt / CloudApi.kt / CloudAccountStore.kt / TunnelFrames.kt / BackpressureGate.kt / SignalReconnectBackoff.kt）
+- 原生：`android/app/src/main/java/com/quickforge/mobile/remote/`（RemoteTunnel.kt / RemoteTunnelService.kt / SignalClient.kt / CloudApi.kt / CloudAccountStore.kt / TunnelFrames.kt / BackpressureGate.kt）
 - 前端：`src/lib/remote-tunnel.ts`、`src/components/mobile/RemoteTunnelOverlay.tsx`、`src/lib/tunnel-recovery.ts`、`src/App.tsx`、`src/lib/mobile-server.ts`
 - 服务端：`server/index.mjs`（隧道信任 + `/api/health`）、`server/routes/agent.mjs`（`/api/agents`）
 - 配置：`capacitor.config.ts`（allowNavigation / cleartext）、`android/app/build.gradle`（WebRTC/okhttp 依赖）

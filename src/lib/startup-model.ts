@@ -14,7 +14,7 @@ function normalizedBaseUrl(value: string) {
   return String(value || '').trim().replace(/\/$/, '')
 }
 
-export function sameStartupModel(left: ModelLike, right: ModelLike) {
+function sameStartupModel(left: ModelLike, right: ModelLike) {
   const leftRef = left.quickforgeModelRef
   const rightRef = right.quickforgeModelRef
   if (leftRef?.source && rightRef?.source && leftRef.source === rightRef.source) {

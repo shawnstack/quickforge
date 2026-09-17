@@ -3,7 +3,7 @@ import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 export type ArtifactKind = 'html' | 'image' | 'markdown' | 'code' | 'pdf' | 'docx' | 'excel' | 'unknown'
 export type DocumentFormat = 'pdf' | 'docx' | 'excel'
 
-export type PresentedArtifact = {
+type PresentedArtifact = {
   id: string
   path: string
   title?: string

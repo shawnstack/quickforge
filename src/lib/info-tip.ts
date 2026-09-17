@@ -209,5 +209,3 @@ const tagName = 'quickforge-info-tip'
 if (!customElements.get(tagName)) {
   customElements.define(tagName, QuickforgeInfoTip)
 }
-
-export type { QuickforgeInfoTip }

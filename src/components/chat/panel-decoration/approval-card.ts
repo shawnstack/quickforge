@@ -2,9 +2,9 @@ import { t } from '@/lib/i18n'
 import type { MessageWithUsage } from '../chat-utils'
 import { buildInlineDiff, buildInlinePreview, escapeHtml } from './html'
 
-export type ApprovalCardTone = 'warning' | 'info'
+type ApprovalCardTone = 'warning' | 'info'
 
-export type ApprovalCardCopy = {
+type ApprovalCardCopy = {
   status?: string
   title?: string
   risk?: string
@@ -52,7 +52,7 @@ type ApprovalCardModelInput = {
   translate?: Translate
 }
 
-export type ApprovalCardDisplayModel = {
+type ApprovalCardDisplayModel = {
   tone: ApprovalCardTone
   status: string
   title: string

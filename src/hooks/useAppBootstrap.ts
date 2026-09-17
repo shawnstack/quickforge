@@ -62,7 +62,7 @@ type UseAppBootstrapOptions = {
 // 'service' keeps the generic local-service-unavailable wording, 'migration'
 // means the server's startup maintenance window (storage migration) failed
 // and `detail` carries the server-side startupError verbatim.
-export type StartupError = {
+type StartupError = {
   message: string
   kind: 'service' | 'migration'
   detail?: string

@@ -1,4 +1,4 @@
-export type QuickForgeModelVisibility = {
+type QuickForgeModelVisibility = {
   quickforgeHidden?: boolean
 }
 

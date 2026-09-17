@@ -12,7 +12,7 @@ export type SelectedCapability = {
   description?: string
 }
 
-export type SelectedCapabilitySnapshot = Omit<SelectedCapability, 'description'>
+type SelectedCapabilitySnapshot = Omit<SelectedCapability, 'description'>
 
 const SELECTED_CAPABILITY_TYPES = new Set<SelectedCapability['type']>(['plugin', 'skill', 'tool', 'command'])
 

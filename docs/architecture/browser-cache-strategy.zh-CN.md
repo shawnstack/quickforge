@@ -14,8 +14,8 @@
 
 | 级别 | 判定标准 | 典型接口 |
 |---|---|---|
-| A 强缓存 | 数据几乎不变，有明确失效信号 | `/api/system/about`、`/api/system/network`、`/api/terminal/capabilities`、`/api/agent-profiles/available-tools`、`/api/filesystem/roots`、`/api/mcp/config`、`/api/plugins`、`/api/tools`、`/api/instructions` |
-| B 短 TTL | 低频变化，可接受短暂陈旧 | `/api/project`、`/api/project/commands`、`/api/system/status`、`/api/system/terminal-shell`、`/api/skills/*`、`/api/scheduled-tasks*`、`/api/storage/index`、`/api/system/update/check` |
+| A 强缓存 | 数据几乎不变，有明确失效信号 | `/api/system/about`、`/api/system/network`、`/api/terminal/capabilities`、`/api/agent-profiles/available-tools`、`/api/filesystem/roots`、`/api/plugins`、`/api/tools`、`/api/instructions` |
+| B 短 TTL | 低频变化，可接受短暂陈旧 | `/api/project`、`/api/project/commands`、`/api/system/terminal-shell`、`/api/skills/*`、`/api/scheduled-tasks*`、`/api/storage/index`、`/api/system/update/check` |
 | C 不缓存 | 易变/个性化/轮询 | `/api/agents`、`/api/agents/:id/{state,status}`、`/api/git/*`、`/api/workspace/*`、`/api/storage/key/:key`、`/api/storage/quota`、`/api/health` |
 | D 禁止缓存 | 写操作/SSE/文件流/鉴权 | 所有 POST/PUT/PATCH/DELETE、`/api/agents/events`、`/share/*/events`、`/api/backup/export`、LAN 鉴权 |
 | E 协商缓存 | 可按文件版本精确判定变化，须每次回源校验 | `/api/workspace/preview` |
@@ -44,7 +44,7 @@
 
 ### 4. 服务端更新检查冷却（`server/utils/package-update.mjs`）
 
-`checkForUpdates` / `checkDesktopRelease` 增加进程内冷却缓存（TTL 5 分钟）：
+`checkForUpdates` 增加进程内冷却缓存（TTL 5 分钟）：
 
 - 并发调用共享同一 Promise（in-flight 合并）；
 - **失败不缓存**，下次调用立即重试；

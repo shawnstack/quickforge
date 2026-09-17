@@ -10,7 +10,7 @@ import type { WorkspaceTreeNode } from '@/components/workspace/workspace-types'
 import { computeCacheKey, IndexedDbCache } from '@/lib/indexeddb-cache'
 import { resolveServerCacheKey } from '@/lib/session-message-cache'
 
-export const WORKSPACE_CACHE_SCHEMA_VERSION = 1
+const WORKSPACE_CACHE_SCHEMA_VERSION = 1
 /** 目录快照新鲜阈值：TTL 内直接采用缓存（零网络），过期则先渲染再后台校准。 */
 export const DIRECTORY_TTL_MS = 30_000
 /** 内容超过该长度的文件不写入缓存，防止字节预算被超大文件耗尽。 */
@@ -19,7 +19,7 @@ export const WORKSPACE_FILE_MAX_CACHE_CONTENT_LENGTH = 1024 * 1024
 const WORKSPACE_CACHE_MAX_ENTRIES = 240
 const WORKSPACE_CACHE_MAX_BYTES = 32 * 1024 * 1024
 
-export type WorkspaceDirectoryCacheEntry = {
+type WorkspaceDirectoryCacheEntry = {
   schemaVersion: number
   projectId: string
   path: string
@@ -29,13 +29,13 @@ export type WorkspaceDirectoryCacheEntry = {
   fetchedAt: number
 }
 
-export type WorkspaceExpandedCacheEntry = {
+type WorkspaceExpandedCacheEntry = {
   schemaVersion: number
   projectId: string
   expandedPaths: string[]
 }
 
-export type WorkspaceFileCacheEntry = {
+type WorkspaceFileCacheEntry = {
   schemaVersion: number
   projectId: string
   path: string
@@ -47,12 +47,12 @@ export type WorkspaceFileCacheEntry = {
 }
 
 /** 文件元信息（来自 GET /file 或 GET /file?meta=1），用于校验缓存快照。 */
-export type WorkspaceFileMetaLike = {
+type WorkspaceFileMetaLike = {
   size?: number
   mtimeMs?: number
 }
 
-export type WorkspaceFileCacheInput = {
+type WorkspaceFileCacheInput = {
   path: string
   content: string
   size: number

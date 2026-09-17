@@ -36,7 +36,7 @@ function goal(overrides: Partial<GoalState> = {}): GoalState {
 }
 
 describe('buildGoalCardViewModel', () => {
-  it('keeps the confirmation card editable and confirmable', () => {
+  it('keeps the confirmation card editable', () => {
     const view = buildGoalCardViewModel(goal({
       status: 'awaiting_confirmation',
       criteria: [{ id: 'c1', description: 'Builds', required: true, status: 'pending', evidenceIds: [] }],
@@ -47,7 +47,6 @@ describe('buildGoalCardViewModel', () => {
       tone: 'info',
       spinning: false,
       editable: true,
-      confirmable: false,
       pausable: false,
       resumable: true,
       cancellable: true,
@@ -69,7 +68,6 @@ describe('buildGoalCardViewModel', () => {
       tone: 'active',
       spinning: true,
       editable: false,
-      confirmable: false,
       pausable: true,
       resumable: false,
       cancellable: true,

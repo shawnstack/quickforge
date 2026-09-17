@@ -137,7 +137,7 @@ function pruneStore(store: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(sessions.slice(0, MAX_STORED_MESSAGE_QUEUE_SESSIONS))
 }
 
-export function isRealQueueSessionId(sessionId: string | undefined): boolean {
+function isRealQueueSessionId(sessionId: string | undefined): boolean {
   return Boolean(sessionId && !sessionId.startsWith('pending-'))
 }
 

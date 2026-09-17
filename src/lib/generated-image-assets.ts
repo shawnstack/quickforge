@@ -1,10 +1,10 @@
-export type GeneratedImageAsset = {
+type GeneratedImageAsset = {
   assetId: string
   mimeType: string
   size: number
 }
 
-export type GeneratedImageDetails = {
+type GeneratedImageDetails = {
   type: 'generated_image_result'
   sessionId: string
   prompt: string

@@ -14,11 +14,6 @@ export async function handleSystemApi(req, res, url, context) {
     return
   }
 
-  if (req.method === 'GET' && url.pathname === '/api/system/update/desktop') {
-    sendJson(res, 200, await context.checkDesktopRelease())
-    return
-  }
-
   if (req.method === 'POST' && url.pathname === '/api/system/update') {
     if (!isAuthenticatedAppClient(context)) {
       const error = new Error('Update requires a local or authenticated remote client')
@@ -54,11 +49,6 @@ export async function handleSystemApi(req, res, url, context) {
 
     const result = await context.requestRestart()
     sendJson(res, 202, result)
-    return
-  }
-
-  if (req.method === 'GET' && url.pathname === '/api/system/status') {
-    sendJson(res, 200, await context.getSystemStatus())
     return
   }
 

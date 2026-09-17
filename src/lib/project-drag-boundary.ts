@@ -1,6 +1,6 @@
 import type { Transform } from '@dnd-kit/utilities'
 
-export type ProjectDragRect = {
+type ProjectDragRect = {
   top: number
   bottom: number
 }

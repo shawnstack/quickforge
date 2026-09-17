@@ -3,7 +3,7 @@
  * 从 local-tools.ts 提取，聊天工具卡片与 subagent 当前工具跑马灯共用同一套摘要规则。
  */
 
-export type ToolParamSummaryResult = {
+type ToolParamSummaryResult = {
   details?: unknown
 }
 

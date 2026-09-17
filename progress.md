@@ -1,3 +1,14 @@
+## dead-code-cleanup-round2（done，2026-09-17）
+
+- 目标：死代码清理 round2——`cleanup/dead-code` 分支（基线 `dev@10ecfebe8e6b29cf40f010e2df40efc70653003c`）四区扫描产出 18 项候选（报告 `docs/reports/dead-code-candidates-2026-09-16.zh-CN.md`），用户逐项确认后执行删除。
+- 扫描（2026-09-16）：入口白名单 + 动态引用排查 + grep 排除生成目录，产出 A1-A3 前端死类型/死导出、K1-K9 server 兼容路由/恒假链/孤儿模块、O1/O2/DEP1/D1/D2/D3 杂项共 18 项候选；本轮零删除、仅固化报告与三状态。
+- 执行（2026-09-17）：用户确认删除 15 组、K8 保留。K1-K6 死/兼容路由（server/routes 4 文件 + `server/index.mjs` 分发注册 + `server/utils/package-update.mjs` 孤儿链 cooldownLoad/updateCheckCooldowns/QUICKFORGE_LATEST_RELEASE_API_URL + 对应测试用例与 wiki 路由/browser-cache-strategy/server README 文档同步）；K7 前端 confirm 恒假链（goal.ts goalCanConfirm+'confirm' 字面量、goal-card.ts confirmable、GoalInspectorContent.tsx 恒假分支，3 个前端测试剔除恒假断言；server 端 API 未动）；K9 `server/cloud/index.mjs`+测试整文件删除；O1 `.playwright-mcp/` 59 文件+`.gitignore` 条目、O2 `$null`；DEP1 删 `@emnapi/core`/`@emnapi/runtime` 声明（传递依赖保留）；D1+D2 `SignalReconnectBackoff.kt`+测试+design 文档 3 处；D3 `prune-offline-package.cjs`+wiki scripts 同步；A1-A3 零引用导出清理共处理 220 项（217 项去 export + 3 项删类型），净清理 217 项、92 个 src 文件。
+- 验证：删除中回归一次（A 批审计漏报 tests 引用，18 用例失败，恢复 serializePanelTabs/browserTabFilePath/decorateUserContextChips 的 export 后修复）；最终 `npm run test` 354 files / 4101 passed + 1 skipped（exit 0）、`npm run lint` 0 errors（仅既有 coverage 3 warnings）、`npm run build` exit 0（仅既有 KaTeX/chunk warning）。Android 零引用纯删除，未跑 gradle（静态验证）。
+- Blocker：无。改动未提交（`cleanup/dead-code` 分支），commit 时机由用户决定。
+- Notes：K8（isSessionTextAttachmentPath）保留待产品决策（附件沙箱豁免接线点）；goalConfirm i18n key 活跃保留（extend_resume 消费）；A 批审计曾漏报 tests 引用致 18 用例回归，已修复并复验；Android 未跑 gradle；git 实改 src 93 文件、tests 10 文件（server 7 + 前端 3），与 A 批 92/K7 3 存在重叠。
+
+---
+
 ## scheduled-tasks-ui-optimization（done，2026-09-16）
 
 - 目标：定时任务页面 UI 布局优化——任务列表由 2 列卡片网格改为紧凑行列表，编辑表单/详情/历史筛选按 DESIGN_LANGUAGE.md 去除透明度 hack 并收紧密度；i18n/状态机/API 不变。

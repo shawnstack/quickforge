@@ -8,7 +8,7 @@
 import { getDirectBackendBaseUrl } from '@/lib/backend-url'
 import { computeCacheKey, IndexedDbCache } from '@/lib/indexeddb-cache'
 
-export const SESSION_MESSAGE_SNAPSHOT_SCHEMA_VERSION = 1
+const SESSION_MESSAGE_SNAPSHOT_SCHEMA_VERSION = 1
 const DEFAULT_WRITE_DEBOUNCE_MS = 1500
 
 export type SessionMessageSnapshotEntry = {
@@ -22,7 +22,7 @@ export type SessionMessageSnapshotEntry = {
   savedAt: number
 }
 
-export type SessionMessageWritePayload = {
+type SessionMessageWritePayload = {
   stateVersion: number
   messages: unknown[]
   snapshot: Record<string, unknown>

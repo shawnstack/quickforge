@@ -4,7 +4,7 @@ function normalizedBaseUrl(value?: string) {
   return (value ?? '').trim().replace(/\/$/, '')
 }
 
-export function sameAvailableModel(a: Model<Api>, b: Model<Api>) {
+function sameAvailableModel(a: Model<Api>, b: Model<Api>) {
   return a.id === b.id
     && a.provider === b.provider
     && a.api === b.api

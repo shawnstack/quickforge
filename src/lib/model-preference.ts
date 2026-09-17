@@ -1,7 +1,7 @@
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { modelReferenceFromModel, type ModelReference } from './model-reference'
 
-export type StoredModelPreference = {
+type StoredModelPreference = {
   modelRef?: ModelReference
   modelSnapshot?: Model<Api>
 }

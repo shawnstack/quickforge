@@ -87,7 +87,7 @@ export function openWorkspaceExternal(projectId: string, path: string, target: W
 const GIT_STATUS_TIMEOUT_MS = 20_000
 
 /** git status 结果短 TTL 缓存：命中即返回，避免同一项目在短时间内被多个面板重复请求。 */
-export const GIT_STATUS_CACHE_TTL_MS = 1000
+const GIT_STATUS_CACHE_TTL_MS = 1000
 
 type GitStatusCacheEntry = { value: GitStatusResponse; expiresAt: number }
 

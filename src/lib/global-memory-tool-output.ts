@@ -1,4 +1,4 @@
-export type MemoryToolOutputTextKey = 'memoryContentEmpty' | 'memoryContentSaved'
+type MemoryToolOutputTextKey = 'memoryContentEmpty' | 'memoryContentSaved'
 
 type MemoryToolResultLike = {
   isError?: boolean

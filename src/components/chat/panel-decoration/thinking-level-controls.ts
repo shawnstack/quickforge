@@ -13,7 +13,7 @@ type EditorModelState = {
   requestUpdate?: () => void
 }
 
-export function isQuickForgeThinkingLevel(value: unknown): value is QuickForgeThinkingLevel {
+function isQuickForgeThinkingLevel(value: unknown): value is QuickForgeThinkingLevel {
   return typeof value === 'string' && (THINKING_LEVELS as string[]).includes(value)
 }
 

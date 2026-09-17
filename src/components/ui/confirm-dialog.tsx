@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client'
 import { Button, type ButtonProps } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-export type ConfirmOptions = {
+type ConfirmOptions = {
   title?: string
   description: string
   confirmLabel?: string
@@ -14,7 +14,7 @@ export type ConfirmOptions = {
   variant?: 'default' | 'destructive'
 }
 
-export type AlertOptions = {
+type AlertOptions = {
   title?: string
   description: string
   confirmLabel?: string

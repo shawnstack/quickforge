@@ -2,7 +2,7 @@ import type { AppStorage } from '@earendil-works/pi-web-ui'
 
 export const GOAL_SETTINGS_KEY = 'goal-settings'
 
-export type GoalSettings = {
+type GoalSettings = {
   maxIterations: number
 }
 

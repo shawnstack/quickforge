@@ -1,9 +1,9 @@
 import type { WorkspaceTreeNode } from './workspace-types'
 
-export type WorkspaceTreeDirectoryStatus = 'idle' | 'loading' | 'loaded' | 'error'
-export type WorkspaceTreeRequestMode = 'replace' | 'append'
+type WorkspaceTreeDirectoryStatus = 'idle' | 'loading' | 'loaded' | 'error'
+type WorkspaceTreeRequestMode = 'replace' | 'append'
 
-export type WorkspaceTreeDirectoryState = {
+type WorkspaceTreeDirectoryState = {
   entries: WorkspaceTreeNode[]
   status: WorkspaceTreeDirectoryStatus
   error?: string
@@ -15,7 +15,7 @@ export type WorkspaceTreeDirectoryState = {
 
 export type WorkspaceTreeState = Record<string, WorkspaceTreeDirectoryState>
 
-export type WorkspaceTreeAction =
+type WorkspaceTreeAction =
   | { type: 'reset' }
   | { type: 'request'; path: string; generation: number; append?: boolean; cursor?: string }
   | { type: 'success'; path: string; generation: number; entries: WorkspaceTreeNode[]; nextCursor: string | null; append?: boolean }
@@ -41,7 +41,7 @@ export function workspaceTreeParentPath(input: string): string | undefined {
   return index < 0 ? '.' : path.slice(0, index)
 }
 
-export function workspaceTreeDepth(input: string): number {
+function workspaceTreeDepth(input: string): number {
   const path = normalizeWorkspaceTreePath(input)
   return path === '.' ? 0 : path.split('/').length
 }

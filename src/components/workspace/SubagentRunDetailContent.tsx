@@ -3,7 +3,7 @@ import type { ComponentType, Ref } from 'react'
 import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
 import { SubagentRunDetailBodyElement } from '@/lib/local-tools'
 
-export type SubagentRunDetailContentProps = {
+type SubagentRunDetailContentProps = {
   payload?: SubagentRunPayload
 }
 

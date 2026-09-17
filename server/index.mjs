@@ -52,7 +52,7 @@ import { logger, flushLogger } from './utils/logger.mjs'
 import { beginHttpRequest, endHttpRequest, getRuntimeDiagnosticsSnapshot, startRuntimeDiagnostics, stopRuntimeDiagnostics } from './runtime-diagnostics.mjs'
 import { agentEvents } from './agent-session-events.mjs'
 import { installProcessErrorHandlers } from './utils/process-error-guards.mjs'
-import { getPackageInfo, checkForUpdates, getUpdateCheckState, checkDesktopRelease } from './utils/package-update.mjs'
+import { getPackageInfo, checkForUpdates, getUpdateCheckState } from './utils/package-update.mjs'
 import { installAiHttpLogger } from './ai-http-logger.mjs'
 import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
 import { parseCookies } from './share-store.mjs'
@@ -505,7 +505,7 @@ async function handleApi(req, res, url, requestContext = {}) {
   }
 
   // Project workspace inspector routes
-  if (pathname === '/api/workspace/tree' || pathname === '/api/workspace/children' || pathname === '/api/workspace/search' || pathname === '/api/workspace/mention-children' || pathname === '/api/workspace/mention-search' || pathname === '/api/workspace/file' || pathname === '/api/workspace/resolve-path' || pathname === '/api/workspace/open-external' || pathname.startsWith('/api/workspace/preview/')) {
+  if (pathname === '/api/workspace/children' || pathname === '/api/workspace/search' || pathname === '/api/workspace/mention-children' || pathname === '/api/workspace/file' || pathname === '/api/workspace/resolve-path' || pathname === '/api/workspace/open-external' || pathname.startsWith('/api/workspace/preview/')) {
     await handleWorkspaceApi(req, res, url, requestContext)
     return
   }
@@ -552,13 +552,11 @@ async function handleApi(req, res, url, requestContext = {}) {
   }
 
   // System routes
-  if (pathname === '/api/system/status' || pathname === '/api/system/restart' || pathname === '/api/system/network' || pathname === '/api/system/network-proxy' || pathname === '/api/system/network-proxy/refresh' || pathname === '/api/system/terminal-shell' || pathname === '/api/system/about' || pathname === '/api/system/update/check' || pathname === '/api/system/update/desktop' || pathname === '/api/system/update') {
+  if (pathname === '/api/system/restart' || pathname === '/api/system/network' || pathname === '/api/system/network-proxy' || pathname === '/api/system/network-proxy/refresh' || pathname === '/api/system/terminal-shell' || pathname === '/api/system/about' || pathname === '/api/system/update/check' || pathname === '/api/system/update') {
     await handleSystemApi(req, res, url, {
-      getSystemStatus: () => getSystemStatus(requestContext),
       requestRestart,
       getPackageInfo: () => getPackageInfo(projectRoot),
       getUpdateCheckState: (force) => getUpdateCheckState(projectRoot, { force }),
-      checkDesktopRelease: () => checkDesktopRelease(projectRoot),
       updateQuickForge,
       isLocalRequest: requestContext.isLocalRequest === true,
       remoteAuthorized: requestContext.remoteAuthorized === true,

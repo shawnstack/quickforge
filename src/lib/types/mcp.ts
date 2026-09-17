@@ -1,6 +1,6 @@
 export type McpTransport = 'stdio' | 'sse' | 'http'
 
-export type McpTool = {
+type McpTool = {
   name: string
   quickForgeName: string
   description?: string

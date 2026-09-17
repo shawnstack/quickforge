@@ -1,8 +1,8 @@
 import type { AppStorage } from '@earendil-works/pi-web-ui'
 
-export const MEMORY_SETTINGS_KEY = 'memory-settings'
+const MEMORY_SETTINGS_KEY = 'memory-settings'
 
-export type MemorySettings = {
+type MemorySettings = {
   enabled: boolean
 }
 

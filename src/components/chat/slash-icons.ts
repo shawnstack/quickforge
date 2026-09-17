@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { BookOpen, Bot, SquareTerminal, type LucideIcon } from 'lucide-react'
 
-export type SlashIconKind = 'command' | 'skill' | 'agent'
+type SlashIconKind = 'command' | 'skill' | 'agent'
 
 const SLASH_ICON_COMPONENTS = {
   command: SquareTerminal,

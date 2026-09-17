@@ -5,7 +5,6 @@ import path from 'node:path'
 import {
   compareVersions,
   checkForUpdates,
-  checkDesktopRelease,
   fetchLatestVersion,
   getUpdateCheckState,
   resolveRegistry,
@@ -277,27 +276,6 @@ describe('package update utilities', () => {
       resolveLast({ ok: true, json: async () => ({ 'dist-tags': { latest: '1.2.0' } }) })
       await untilUpdateStatus(projectRoot, 'ok')
       expect(getUpdateCheckState(projectRoot).latestVersion).toBe('1.2.0')
-    })
-  })
-
-  describe('checkDesktopRelease', () => {
-    it('checks GitHub Releases without returning an npm install command', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          tag_name: 'v9.9.9',
-          html_url: 'https://github.com/shawnstack/quickforge/releases/tag/v9.9.9',
-        }),
-      })
-
-      const result = await checkDesktopRelease(process.cwd())
-
-      expect(result.channel).toBe('desktop-app')
-      expect(result.distribution).toBe('github-releases')
-      expect(result.updateAvailable).toBe(true)
-      expect(result.installable).toBe(false)
-      expect(result.installCommand).toBeUndefined()
-      expect(result.releaseUrl).toBe('https://github.com/shawnstack/quickforge/releases/tag/v9.9.9')
     })
   })
 })

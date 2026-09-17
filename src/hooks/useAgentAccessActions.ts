@@ -9,7 +9,7 @@ import type { AgentAccessMode } from '@/lib/types'
 
 const isFullAccessMode = (mode: AgentAccessMode) => mode === 'full-access'
 
-export type UseAgentAccessActionsOptions = {
+type UseAgentAccessActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
   agentAccessModeRef: React.MutableRefObject<AgentAccessMode>
   setAgentAccessMode: React.Dispatch<React.SetStateAction<AgentAccessMode>>

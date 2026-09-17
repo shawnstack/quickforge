@@ -85,6 +85,5 @@
 - `fetchLatestVersion(packageName)` — 请求 `{registry}/{package}` packument 取 `dist-tags.latest`（5 秒超时）；CLI `qf check-update` 也复用此函数（bin 侧先初始化网络代理再委托，不再自带副本）
 - `getUpdateCheckState(projectRoot, { force })` — npm 运行时更新检查的**非阻塞快照**（HTTP `GET /api/system/update/check` 使用）：同步返回 `{ status: 'checking' | 'ok' | 'error', ...结果, checkError?, checkedAt }`，永不等网络；结果过期（5 分钟冷却）、尚未检查或失败退避（30 秒）到期时在后台触发刷新，`force: true`（对应 `?force=1`，手动检查）跳过缓存与退避；网络失败只落在快照的 `error` 状态，不再向 HTTP 层抛出 500
 - `checkForUpdates(projectRoot)` — 显式等待最新检查结果（`POST /api/system/update` 更新流程使用）：成功结果走 5 分钟冷却缓存复用并与快照状态机共享同一后台 Promise，失败直接抛出（更新流程需要如实知道失败）
-- `checkDesktopRelease(projectRoot)` — 桌面渠道更新检查（GitHub Releases API，同样 5 秒超时 + 冷却）
 - `compareVersions()` — 语义化版本比较（含 prerelease 排序）
 - `installLatestVersion()` — spawn `npm install -g <pkg>@latest`（npm runtime 更新执行链使用）

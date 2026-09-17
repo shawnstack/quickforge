@@ -28,12 +28,12 @@ export type TunnelRecoveredEventDetail = {
   waitUntil: (task: Promise<unknown>) => void
 }
 
-export type TunnelRecoveryResult =
+type TunnelRecoveryResult =
   | { status: 'recovered' }
   | { status: 'reloaded' }
   | { status: 'deferred'; reason: 'probe-failed' | 'in-flight' }
 
-export type TunnelRecoveryDeps = {
+type TunnelRecoveryDeps = {
   /** 探测本地隧道端口是否可访问（由 RemoteTunnelOverlay 注入 probeTunnel）。 */
   probe: () => Promise<boolean>
   /** 对账用的 fetch 实现（测试可注入）。默认 globalThis.fetch。 */

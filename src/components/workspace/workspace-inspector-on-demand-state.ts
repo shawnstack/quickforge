@@ -1,7 +1,7 @@
 import type { WorkspaceTreeNode } from './workspace-types'
 
 export type WorkspaceGitLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
-export type WorkspaceSearchStatus = 'idle' | 'debouncing' | 'loading' | 'loaded' | 'error'
+type WorkspaceSearchStatus = 'idle' | 'debouncing' | 'loading' | 'loaded' | 'error'
 
 export type WorkspaceSearchState = {
   query: string

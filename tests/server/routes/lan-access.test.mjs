@@ -75,23 +75,4 @@ describe('LAN access routes', () => {
     )
     expect(JSON.parse(revokeRes.body)).toMatchObject({ ok: true, activeTokenCount: 0, activeDevices: [] })
   })
-
-  it('removes the server session when a LAN client logs out', async () => {
-    const store = await import('../../../server/lan-access-store.mjs')
-    const { handleLanAccessApi } = await import('../../../server/routes/lan-access.mjs')
-    await store.updateLanAccessSettings({ enabled: true, password: 'password123', sessionTtlHours: 12 })
-    const session = await store.issueLanAccessToken('password123')
-
-    const logoutRes = response()
-    await handleLanAccessApi(
-      request('POST', undefined, { cookie: `${store.lanAccessCookieName()}=${encodeURIComponent(session.token)}` }),
-      logoutRes,
-      new URL('http://localhost/api/lan-access/logout'),
-      { isLocalRequest: false, port: 5176 },
-    )
-
-    expect(logoutRes.headers['set-cookie']).toContain('Max-Age=0')
-    await expect(store.verifyLanAccessToken(session.token)).resolves.toBe(false)
-    await expect(store.readLanAccessStatus()).resolves.toMatchObject({ activeTokenCount: 0 })
-  })
 })

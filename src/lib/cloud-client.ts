@@ -1,6 +1,6 @@
 import type { Api, Model } from '@earendil-works/pi-ai'
 
-export type CloudMode = 'local' | 'guest' | 'account' // 'guest' retained only for legacy stored sessions
+type CloudMode = 'local' | 'guest' | 'account' // 'guest' retained only for legacy stored sessions
 export type CloudConfigSource = 'saved' | 'env' | 'default'
 
 const CLOUD_ACTION_HEADER = 'x-quickforge-action'
@@ -32,16 +32,16 @@ export type CloudServiceConfig = {
   configurationError?: string
 }
 
-export type CloudRemoteStatusValue = 'disabled' | 'unavailable' | 'stopped' | 'starting' | 'authorizing' | 'running' | 'conflict' | 'error'
+type CloudRemoteStatusValue = 'disabled' | 'unavailable' | 'stopped' | 'starting' | 'authorizing' | 'running' | 'conflict' | 'error'
 
-export type CloudAutoApprovalStatus = 'none' | 'armed' | 'pending' | 'consumed' | 'failed' | 'expired'
+type CloudAutoApprovalStatus = 'none' | 'armed' | 'pending' | 'consumed' | 'failed' | 'expired'
 
-export type CloudRemoteAutoApproval = {
+type CloudRemoteAutoApproval = {
   status: CloudAutoApprovalStatus
   error?: string | null
 }
 
-export type CloudRemoteStatus = {
+type CloudRemoteStatus = {
   enabled: boolean
   status: CloudRemoteStatusValue
   serverUrl?: string | null
@@ -59,9 +59,9 @@ export type CloudConnectionTest = {
   ready?: unknown
 }
 
-export type CloudDeviceFlowResult = 'pending' | 'slow_down' | 'denied' | 'expired' | 'network' | 'success'
+type CloudDeviceFlowResult = 'pending' | 'slow_down' | 'denied' | 'expired' | 'network' | 'success'
 
-export type CloudPendingDeviceFlow = {
+type CloudPendingDeviceFlow = {
   userCode: string
   verificationUri: string
   verificationUriComplete?: string
@@ -90,7 +90,7 @@ export type CloudStatus = {
   configurationError?: string
 }
 
-export type CloudAccount = {
+type CloudAccount = {
   id?: string
   email?: string
   plan?: string
@@ -106,7 +106,7 @@ export type CloudUsage = {
   [key: string]: unknown
 }
 
-export type CloudInstallation = {
+type CloudInstallation = {
   id: string
   installationId?: string
   name?: string
@@ -224,5 +224,3 @@ export function revokeCloudInstallation(installationId: string, signal?: AbortSi
 export function logoutCloud(signal?: AbortSignal) {
   return requestCloudJson<{ ok: boolean; mode: CloudMode }>('/api/cloud/logout', { method: 'POST', signal })
 }
-
-export { requestCloudJson }

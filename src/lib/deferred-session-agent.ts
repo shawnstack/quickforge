@@ -5,7 +5,6 @@ import type { ServerAgent, ServerAgentContextCompaction, ServerAgentContextUsage
 import type { AgentAccessMode, ChatScope, ProjectInfo } from '@/lib/types'
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import type { GoalAction, GoalActionOptions, GoalState } from '@/lib/goal'
-import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { randomId } from '@/lib/random-id'
 import { normalizeSelectedCapabilities, withSelectedCapabilitiesSnapshot } from '@/lib/selected-capabilities'
 
@@ -250,28 +249,16 @@ export class DeferredSessionAgent {
   }
 
   private normalizePromptInput(input: string | AgentMessage | AgentMessage[]): AgentMessage {
-    let message: AgentMessage
     if (typeof input === 'string') {
-      message = { role: 'user', content: input, timestamp: Date.now() } as AgentMessage
-    } else if (Array.isArray(input)) {
+      return { role: 'user', content: input, timestamp: Date.now() } as AgentMessage
+    }
+    if (Array.isArray(input)) {
       const lastUser = [...input].reverse().find(
         (candidate) => candidate.role === 'user' || candidate.role === 'user-with-attachments',
       )
-      message = (lastUser ?? input[input.length - 1]) as AgentMessage
-    } else {
-      message = input
+      return (lastUser ?? input[input.length - 1]) as AgentMessage
     }
-
-    const metadata = (message as AgentMessage & { metadata?: Record<string, unknown> }).metadata
-    if (!isManagedQuickForgeCloudModel(this.state.model)
-      || (metadata && typeof metadata.quickforgeClientMessageId === 'string' && metadata.quickforgeClientMessageId)) return message
-    return {
-      ...message,
-      metadata: {
-        ...(metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {}),
-        quickforgeClientMessageId: `qfcm_${randomId()}`,
-      },
-    } as unknown as AgentMessage
+    return input
   }
 
   private emitToListeners(event: AgentEvent): void {

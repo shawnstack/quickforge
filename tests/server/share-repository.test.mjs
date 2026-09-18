@@ -48,7 +48,6 @@ function share(overrides = {}) {
     scope: overrides.scope || 'global',
     projectId: overrides.scope === 'project' ? overrides.projectId || 'project-a' : undefined,
     authVersion: 1,
-    allowCloudUsage: false,
     createdAt: now(),
     updatedAt: now(),
     accessCount: 0,
@@ -139,7 +138,7 @@ describe('share repository and schema v8', () => {
       access_count, last_accessed_at, created_from_host, last_updated_from_host, revision, extra_json
     ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, NULL, 1, '{}')`)
       .run(older.id, older.sessionId, older.permission, older.titleSnapshot, older.scope,
-        older.authVersion, older.allowCloudUsage ? 1 : 0, older.createdAt, older.updatedAt, older.accessCount)
+        older.authVersion, 0, older.createdAt, older.updatedAt, older.accessCount)
 
     // A later create for the same session updates the current share, supersedes
     // the other active record and issues new tokens in the same transaction.
@@ -250,7 +249,7 @@ describe('share repository and schema v8', () => {
       access_count, last_accessed_at, created_from_host, last_updated_from_host, revision, extra_json
     ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, NULL, 1, '{}')`)
       .run(legacy.id, legacy.sessionId, legacy.permission, legacy.titleSnapshot, legacy.scope,
-        legacy.authVersion, legacy.allowCloudUsage ? 1 : 0, legacy.createdAt, legacy.updatedAt, legacy.accessCount)
+        legacy.authVersion, 0, legacy.createdAt, legacy.updatedAt, legacy.accessCount)
     repository.create(share({ sessionId: 'list-b' }), { expectedRevision: 0 })
     const listBId = repository.list({ sessionId: 'list-b' })[0].id
 

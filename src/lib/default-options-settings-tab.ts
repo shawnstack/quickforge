@@ -9,9 +9,6 @@ import {
   mergeAvailableModels,
   saveDefaultOptions,
 } from '@/lib/pi-chat'
-import { getCloudModels, getCloudStatus } from '@/lib/cloud-client'
-import { CLOUD_STATE_CHANGED_EVENT } from '@/hooks/useCloudModels'
-import { logger } from '@/lib/logger'
 import {
   loadToolDisplaySettings,
   saveToolDisplaySettings,
@@ -135,8 +132,6 @@ const deleteIcon = html`
 export class DefaultOptionsSettingsTab extends SettingsTab {
   private models: AnyModel[] = []
   private selectedModel?: AnyModel
-  private autoSelectedModelKey = ''
-  private loadSettingsGeneration = 0
 
   private defaultOptionsSavePromise: Promise<void> = Promise.resolve()
   private thinkingLevel: ThinkingLevel = 'off'
@@ -175,33 +170,13 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
   override connectedCallback() {
     super.connectedCallback()
     void this.loadSettings()
-    window.addEventListener(CLOUD_STATE_CHANGED_EVENT, this.handleCloudStateChanged)
   }
 
   override disconnectedCallback() {
-    window.removeEventListener(CLOUD_STATE_CHANGED_EVENT, this.handleCloudStateChanged)
     super.disconnectedCallback?.()
   }
 
-  private handleCloudStateChanged = () => {
-    // QuickForge Cloud models become visible after login and disappear after
-    // logout, so reload the default-options form when the cloud state changes.
-    void this.loadSettings()
-  }
-
-  private async loadCloudModels(): Promise<Model<Api>[]> {
-    try {
-      const status = await getCloudStatus()
-      if (!status.configured || status.enabled === false || status.mode === 'local' || !status.hasSession) return []
-      return await getCloudModels()
-    } catch (error) {
-      logger.warn('Failed to load QuickForge Cloud models for default options:', error)
-      return []
-    }
-  }
-
   private async loadSettings() {
-    const generation = ++this.loadSettingsGeneration
     this.loading = true
     this.error = ''
     this.requestUpdate()
@@ -223,25 +198,6 @@ export class DefaultOptionsSettingsTab extends SettingsTab {
       this.selectedModel = defaults.model
         ? models.find((model) => modelKey(model) === modelKey(defaults.model!)) ?? models[0]
         : models[0]
-      this.autoSelectedModelKey = this.selectedModel ? modelKey(this.selectedModel) : ''
-      // QuickForge Cloud models load in the background: render the catalog and
-      // local models first, then merge the Cloud catalog once it arrives. The
-      // generation guard keeps a superseded load (newer loadSettings run or a
-      // cloud-state reload) from overwriting newer state.
-      void this.loadCloudModels().then((cloudModels) => {
-        if (generation !== this.loadSettingsGeneration) return
-        const merged = mergeAvailableModels(baseModels, cloudModels)
-        this.models = merged
-        // Re-resolve the automatic selection against the merged catalog, but
-        // leave a manually changed selection untouched.
-        if (!this.selectedModel || modelKey(this.selectedModel) === this.autoSelectedModelKey) {
-          this.selectedModel = defaults.model
-            ? merged.find((model) => modelKey(model) === modelKey(defaults.model!)) ?? merged[0]
-            : merged[0]
-          this.autoSelectedModelKey = this.selectedModel ? modelKey(this.selectedModel) : ''
-        }
-        this.requestUpdate()
-      })
       this.thinkingLevel = defaults.thinkingLevel ?? defaultThinkingLevelForModel(this.selectedModel)
       this.toolDisplayMode = toolDisplaySettings.toolDisplayMode
       this.showContextUsage = toolDisplaySettings.showContextUsage

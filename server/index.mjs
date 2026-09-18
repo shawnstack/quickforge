@@ -43,10 +43,7 @@ import { handleWorkspaceApi, handleGitApi } from './routes/workspace.mjs'
 import { handleTerminalApi, handleTerminalUpgrade } from './routes/terminal.mjs'
 import { handleChannelsApi } from './routes/channels.mjs'
 import { handleModelsApi } from './routes/models.mjs'
-import { handleCloudApi } from './routes/cloud.mjs'
 import { handleSideChatApi } from './routes/side-chat.mjs'
-import { readCloudServiceConfig } from './cloud/service-config.mjs'
-import { startQfAgent, stopQfAgent, getQfAgentStatus } from './cloud/qf-agent-process.mjs'
 import { serveStatic } from './routes/static.mjs'
 import { logger, flushLogger } from './utils/logger.mjs'
 import { beginHttpRequest, endHttpRequest, getRuntimeDiagnosticsSnapshot, startRuntimeDiagnostics, stopRuntimeDiagnostics } from './runtime-diagnostics.mjs'
@@ -89,10 +86,6 @@ const vitePort = Number(process.env.QUICKFORGE_VITE_PORT || 5176)
 let restartInProgress = false
 let updateInProgress = false
 let shutdownPromise = null
-let shutdownStarted = false
-let qfAgentStartPromise = null
-let boundServerPort = null
-let startupInitializationPromise = null
 
 // Register process-level error guards as early as possible so a crash during
 // module top-level evaluation or the awaited startup phase is still logged
@@ -189,9 +182,7 @@ function closeHttpServer() {
 }
 
 async function shutdownRuntime() {
-  shutdownStarted = true
   try {
-    await stopQfAgent()
     stopScheduledTaskRunner()
     stopAutoArchiveRunner()
     stopRuntimeDiagnostics()
@@ -333,25 +324,6 @@ async function updateQuickForge() {
   }
 }
 
-async function applyCloudServiceConfig(cloudConfig, { urlChanged = false, autoApprovalPolicy } = {}) {
-  if (shutdownStarted) return null
-  if (!cloudConfig.enabled || !cloudConfig.valid) {
-    if (!cloudConfig.valid) logger.warn(`QuickForge remote agent was not started: ${cloudConfig.configurationError || 'invalid Cloud configuration'}`)
-    return stopQfAgent({ disabled: true })
-  }
-  if (!boundServerPort) return null
-  const agentStatus = getQfAgentStatus()
-  if (urlChanged || agentStatus.status === 'disabled' || agentStatus.enabled === false) await stopQfAgent()
-  return startQfAgent({
-    serverUrl: `http://127.0.0.1:${boundServerPort}/`,
-    ownerPid: process.pid,
-    cloudUrl: cloudConfig.cloudUrl,
-    // undefined → 'auto'：server 启动恢复等本机生命周期允许自动 arm；
-    // 'manual'：认证远程客户端触发的配置变更不自动批准。
-    autoApprovalPolicy,
-  })
-}
-
 // --- Route dispatching ---
 async function handleApi(req, res, url, requestContext = {}) {
   const pathname = url.pathname
@@ -450,17 +422,6 @@ async function handleApi(req, res, url, requestContext = {}) {
   // Agent profiles
   if (pathname === '/api/agent-profiles' || pathname.startsWith('/api/agent-profiles/')) {
     await handleAgentProfilesApi(req, res, url, requestContext)
-    return
-  }
-
-  // QuickForge Cloud account and managed models (local or authenticated Tailscale requests).
-  if (pathname === '/api/cloud' || pathname.startsWith('/api/cloud/')) {
-    await handleCloudApi(req, res, url, {
-      isLocalRequest: requestContext.isLocalRequest === true,
-      remoteAddress: requestContext.remoteAddress,
-      remoteAuthorized: requestContext.remoteAuthorized === true,
-      onCloudServiceConfigChanged: applyCloudServiceConfig,
-    })
     return
   }
 
@@ -655,22 +616,8 @@ function isAllowedHostHeader(value) {
   return allowedHosts.has(parsed.hostname) && hostPort === expectedPort
 }
 
-const trustedTunnelSocket = Symbol('trustedTunnelSocket')
-
-function isTunnelClientRequest(req) {
-  if (
-    isLoopbackAddress(req.socket.remoteAddress)
-    && req.headers['x-quickforge-tunnel'] === '1'
-    && req.headers.host === '127.0.0.1:18080'
-  ) {
-    req.socket[trustedTunnelSocket] = true
-  }
-  return req.socket[trustedTunnelSocket] === true
-}
-
-function isAllowedRequestHost(req, isTunnelClient) {
+function isAllowedRequestHost(req) {
   return isAllowedHostHeader(req.headers.host)
-    || (isTunnelClient && req.headers.host === '127.0.0.1:18080')
 }
 
 function isLanAccessBootstrapPath(pathname) {
@@ -746,10 +693,7 @@ const server = createServer(async (req, res) => {
   })
 
   const remoteAddress = req.socket.remoteAddress
-  // 云远程访问（RemoteTunnel）：agent 与 qf 同机时流量经 127.0.0.1 回环进入并携带
-  // X-QuickForge-Tunnel: 1。仅该可信隧道允许手机本地入口 127.0.0.1:18080 作为 Host。
-  const isTunnelClient = isTunnelClientRequest(req)
-  if (!isAllowedRequestHost(req, isTunnelClient)) {
+  if (!isAllowedRequestHost(req)) {
     res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({ error: 'Forbidden host' }))
     return
@@ -771,9 +715,8 @@ const server = createServer(async (req, res) => {
   }
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || `${host}:${port}`}`)
-    // 隧道请求视为“已认证远程客户端”：认证通过，但本地能力按远程请求裁剪。
-    const isRemoteRequest = isTunnelClient || !isLoopbackAddress(remoteAddress)
-    const remoteAuthorized = isRemoteRequest ? (isTunnelClient ? true : await isAuthorizedRemoteRequest(req)) : true
+    const isRemoteRequest = !isLoopbackAddress(remoteAddress)
+    const remoteAuthorized = isRemoteRequest ? await isAuthorizedRemoteRequest(req) : true
 
     if (isRemoteRequest && !remoteAuthorized && !isLanAccessBootstrapPath(url.pathname) && !isSharePath(url.pathname) && !isStaticAssetPath(url.pathname)) {
       if (url.pathname.startsWith('/api/')) {
@@ -814,7 +757,6 @@ const server = createServer(async (req, res) => {
         isLocalRequest: !isRemoteRequest,
         remoteAddress,
         remoteAuthorized,
-        tunnelClient: isTunnelClient,
       })
       return
     }
@@ -857,8 +799,7 @@ function writeAndDestroySocket(socket, statusLine) {
 }
 
 server.on('upgrade', (req, socket, head) => {
-  const isTunnelClient = isTunnelClientRequest(req)
-  if (!isAllowedRequestHost(req, isTunnelClient)) {
+  if (!isAllowedRequestHost(req)) {
     writeAndDestroySocket(socket, 'HTTP/1.1 403 Forbidden')
     return
   }
@@ -867,8 +808,7 @@ server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || `${host}:${port}`}`)
     if (url.pathname.startsWith('/api/terminal/sessions/')) {
       handleTerminalUpgrade(req, socket, head, url, {
-        // 隧道流量同样是远程客户端：终端 WebSocket 保持禁止。
-        isLocalRequest: isLoopbackAddress(req.socket.remoteAddress) && !isTunnelClient,
+        isLocalRequest: isLoopbackAddress(req.socket.remoteAddress),
       })
       return
     }
@@ -990,7 +930,7 @@ async function runStartupInitialization() {
 if (getStartupState() !== STARTUP_STATES.FAILED) {
   // Fire-and-forget: never blocks listen; the promise always settles and the
   // handlers below flip the startup state for the gate and health endpoint.
-  startupInitializationPromise = runStartupInitialization().then(() => {
+  void runStartupInitialization().then(() => {
     setStartupState(STARTUP_STATES.READY)
     logger.info('QuickForge startup initialization complete.')
   }).catch((error) => {
@@ -1016,7 +956,6 @@ server.on('error', (error) => {
 server.listen(port, host, () => {
   const address = server.address()
   const boundPort = typeof address === 'object' && address ? address.port : port
-  boundServerPort = boundPort
   logger.info(`QuickForge local API: http://${host}:${boundPort}`)
   if (shareLanEnabled) {
     const lanUrls = getLanUrls(boundPort)
@@ -1032,20 +971,6 @@ server.listen(port, host, () => {
   refreshMcpConnections().catch((error) => {
     logger.warn(`MCP connection warmup failed: ${error?.message || error}`)
   })
-
-  const pending = (async () => {
-    // The remote agent talks to the local business API: hold it back until the
-    // background startup chain settles so it never races the maintenance gate.
-    if (startupInitializationPromise) await startupInitializationPromise
-    if (getStartupState() === STARTUP_STATES.FAILED) return null
-    return applyCloudServiceConfig(await readCloudServiceConfig({ strict: false }))
-  })().catch((error) => {
-    if (!shutdownStarted) logger.warn(`QuickForge remote agent failed to start: ${error?.message || error}`)
-    return null
-  }).finally(() => {
-    if (qfAgentStartPromise === pending) qfAgentStartPromise = null
-  })
-  qfAgentStartPromise = pending
 
   if (isDev) {
     startVite()

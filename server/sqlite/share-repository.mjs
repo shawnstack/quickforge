@@ -23,7 +23,7 @@ const SHARE_COLUMNS = `
 const KNOWN_FIELDS = new Set([
   'id', 'sessionId', 'permission', 'titleSnapshot', 'scope', 'projectId',
   'passwordHash', 'passwordSalt', 'passwordVersion', 'authVersion',
-  'allowCloudUsage', 'createdAt', 'updatedAt', 'expiresAt', 'revokedAt',
+  'createdAt', 'updatedAt', 'expiresAt', 'revokedAt',
   'supersededAt', 'accessCount', 'lastAccessedAt', 'createdFromHost',
   'lastUpdatedFromHost', 'tokens', 'tokenHash', 'tokenIssuedAt', 'tokenExpiresAt',
 ])
@@ -171,7 +171,6 @@ export function normalizeShareRecord(input) {
     passwordSalt,
     passwordVersion,
     authVersion,
-    allowCloudUsage: input.allowCloudUsage === true,
     createdAt,
     updatedAt,
     expiresAt: optionalTimestamp(input.expiresAt, 'expiresAt'),
@@ -207,7 +206,6 @@ export function shareRecordDigest(record) {
     passwordSalt: record.passwordSalt,
     passwordVersion: record.passwordVersion,
     authVersion: record.authVersion,
-    allowCloudUsage: record.allowCloudUsage === true,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     expiresAt: record.expiresAt,
@@ -262,7 +260,6 @@ function mapShareRow(row) {
     passwordSalt: row.password_salt ?? undefined,
     passwordVersion: row.password_version === null ? undefined : Number(row.password_version),
     authVersion: Number(row.auth_version),
-    allowCloudUsage: row.allow_cloud_usage === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     expiresAt: row.expires_at ?? undefined,
@@ -338,7 +335,7 @@ function insertShareRow(database, record, revision, createdAt, updatedAt, statem
     record.id, record.sessionId, record.permission,
     record.titleSnapshot ?? null, record.scope, record.projectId ?? null,
     record.passwordHash ?? null, record.passwordSalt ?? null, record.passwordVersion ?? null,
-    record.authVersion, record.allowCloudUsage === true ? 1 : 0,
+    record.authVersion, 0,
     createdAt, updatedAt,
     record.expiresAt ?? null, record.revokedAt ?? null, record.supersededAt ?? null,
     record.accessCount || 0, record.lastAccessedAt ?? null,
@@ -491,7 +488,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
           lastUpdatedFromHost: record.lastUpdatedFromHost || timestamp,
           authVersion: nextAuthVersion,
           tokens: nextTokens,
-          allowCloudUsage: record.permission === 'operate' && record.allowCloudUsage === true,
           supersededAt: undefined,
           revokedAt: undefined,
         }
@@ -542,8 +538,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       if (nextPermission !== 'read' && nextPermission !== 'operate') throw invalid('Invalid share permission')
       const willHavePassword = passwordProvided ? Boolean(changes.passwordHash) : Boolean(existing.passwordHash)
       if (nextPermission === 'operate' && !willHavePassword) throw invalid('Editable shares require a non-empty password')
-      const nextAllowCloudUsage = nextPermission === 'operate'
-        && (changes.allowCloudUsage === undefined ? existing.allowCloudUsage : changes.allowCloudUsage === true)
       const nextScope = changes.scope === undefined ? existing.scope : changes.scope
       if (nextScope !== 'global' && nextScope !== 'project') throw invalid('Invalid share scope')
       if (nextScope === 'project' && !(changes.projectId || existing.projectId)) throw invalid('Project shares require a project id')
@@ -556,7 +550,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
         scope: nextScope,
         projectId: nextScope === 'project' ? (changes.projectId ?? existing.projectId) : undefined,
         expiresAt: changes.expiresAt === undefined ? existing.expiresAt : optionalTimestamp(changes.expiresAt, 'expiresAt'),
-        allowCloudUsage: nextAllowCloudUsage,
         lastUpdatedFromHost: changes.lastUpdatedFromHost === undefined ? existing.lastUpdatedFromHost : changes.lastUpdatedFromHost,
         updatedAt: timestamp,
         authVersion: passwordProvided ? (existing.authVersion || 1) + 1 : existing.authVersion,

@@ -468,9 +468,9 @@ async function atomicSessionStateUpdateViaFacade(facade, sessionId, updateFn) {
 }
 
 // Session delete: the authoritative row removal commits first, then the
-// sidecar cleanup (assets + cloud chat idempotency keys) runs best-effort and
-// never rolls the delete back — the ordering the JSON mirror drain used to
-// provide, inlined now that there is no mirror.
+// sidecar cleanup (assets) runs best-effort and never rolls the delete back —
+// the ordering the JSON mirror drain used to provide, inlined now that there
+// is no mirror.
 async function deleteSessionStateViaFacade(facade, sessionId) {
   const record = facade.readSessionStateRecord(sessionId)
   const bucket = record ? (record.scope === 'project' ? { scope: 'project', projectId: record.projectId } : { scope: 'global' }) : null
@@ -482,10 +482,6 @@ async function deleteSessionStateViaFacade(facade, sessionId) {
         const { deleteSessionAssets } = await import('./session-assets.mjs')
         await deleteSessionAssets(bucket, sessionId)
       } catch { /* Sidecars are best-effort after the authoritative commit. */ }
-      try {
-        const { deleteCloudChatIdempotencySession } = await import('./cloud/chat-idempotency-store.mjs')
-        await deleteCloudChatIdempotencySession(sessionId)
-      } catch { /* Best-effort after the authoritative commit. */ }
     }
   }
   return deleted
@@ -670,8 +666,8 @@ export async function writeSessionValueWithMetadata(sessionId, value) {
 
 /**
  * Delete an entire session (body + metadata): one SQLite transaction; sidecar
- * cleanup (assets, cloud chat idempotency) runs best-effort afterwards and
- * failures never roll back the committed session delete.
+ * cleanup (assets) runs best-effort afterwards and failures never roll back
+ * the committed session delete.
  */
 export async function deleteSessionWithMetadata(sessionId) {
   const facade = await sessionStateFacade()
@@ -695,8 +691,8 @@ export async function applySessionBatch(operations) {
   if (!Array.isArray(operations) || operations.length === 0) throw new TypeError('Session batch operations are required')
   const facade = await sessionStateFacade()
   // Resolve buckets for the deletions before the transaction so sidecar
-  // cleanup (assets, cloud chat idempotency) can run after the commit —
-  // best-effort, never rolling the batch back.
+  // cleanup (assets) can run after the commit — best-effort, never rolling
+  // the batch back.
   const deletedRecords = []
   for (const operation of operations) {
     if (operation?.type !== 'delete' || operation?.store !== 'sessions') continue
@@ -710,10 +706,6 @@ export async function applySessionBatch(operations) {
       const { deleteSessionAssets } = await import('./session-assets.mjs')
       await deleteSessionAssets(bucket, record.sessionId)
     } catch { /* Sidecars are best-effort after the authoritative commit. */ }
-    try {
-      const { deleteCloudChatIdempotencySession } = await import('./cloud/chat-idempotency-store.mjs')
-      await deleteCloudChatIdempotencySession(record.sessionId)
-    } catch { /* Best-effort after the authoritative commit. */ }
   }
   bumpStoreRevision('sessions-metadata')
   return result

@@ -163,12 +163,12 @@ You can:
 
 Model selection rules:
 
-- QuickForge uses one server-side model catalog for selectable custom models and QuickForge Cloud models. Selectors consistently use public labels and never expose API keys, tokens, or request headers.
-- Main chat, default model settings, Agent Profiles (including AI Fill), scheduled tasks, ACP, and editable shared conversations use the same catalog. New bindings persist a model reference; execution resolves the current Provider or Cloud configuration on the server, so a client-submitted Base URL cannot override the transport.
-- New selection lists exclude hidden models and Cloud entries marked `available:false`. Hidden models are also excluded from new-session and new-task default candidates.
+- QuickForge uses one server-side model catalog for selectable custom models. Selectors consistently use public labels and never expose API keys, tokens, or request headers.
+- Main chat, default model settings, Agent Profiles (including AI Fill), scheduled tasks, ACP, and editable shared conversations use the same catalog. New bindings persist a model reference; execution resolves the current Provider configuration on the server, so a client-submitted Base URL cannot override the transport.
+- New selection lists exclude hidden models. Hidden models are also excluded from new-session and new-task default candidates.
 - Existing conversations, profiles, scheduled tasks, and ACP sessions keep their current hidden-model binding. Editors still show the current value, but after switching away the hidden model cannot be selected again.
 - Invalid saved active/default preferences may fall back when starting a new conversation. Explicit Profile, task, or historical conversation bindings fail instead of silently switching models.
-- Editable shares cannot use the owner's QuickForge Cloud models or quota unless the owner explicitly enables Cloud usage. Read-only shares never execute a model.
+- Read-only shares never execute a model.
 - If no model is configured, QuickForge shows the first-run model setup guide.
 
 #### Reasoning / Thinking models
@@ -302,17 +302,6 @@ Do not modify files yet. Read the relevant code first, explain your plan, and wa
 ```
 
 ---
-
-### Sign in or register an account
-
-In **Settings → QuickForge Cloud**:
-
-1. From local mode, choose **Sign in or register** to start Device Flow directly. No temporary guest is created.
-2. Open the Cloud verification page and register or sign in there. Email and password go only to the Cloud page; QuickForge never reads or stores them.
-3. QuickForge shows the device code and countdown and polls automatically. Refreshing the page or restarting the local service resumes the pending flow.
-4. Cancel, denial, expiration, or temporary network failure keeps the local/unsigned-in state. After success, the account email and plan are shown.
-
-Do not change the Cloud URL while sign-in is pending. The flow is bound to the service URL where it was created.
 
 ## P3: Troubleshooting and Maintenance
 

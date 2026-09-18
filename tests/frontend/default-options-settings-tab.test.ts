@@ -20,7 +20,7 @@ const piChatMocks = vi.hoisted(() => ({
   defaultThinkingLevelForModel: vi.fn(() => 'off'),
   getSelectableConfiguredModels: vi.fn(),
   loadDefaultOptions: vi.fn(),
-  mergeAvailableModels: vi.fn((base: unknown[], cloud: unknown[] = []) => [...base, ...cloud]),
+  mergeAvailableModels: vi.fn((base: unknown[], extra: unknown[] = []) => [...base, ...extra]),
   saveDefaultOptions: vi.fn(async () => undefined),
 }))
 
@@ -28,15 +28,9 @@ const modelReferenceMocks = vi.hoisted(() => ({
   loadModelCatalog: vi.fn(),
 }))
 
-const cloudClientMocks = vi.hoisted(() => ({
-  getCloudStatus: vi.fn(),
-  getCloudModels: vi.fn(),
-}))
-
 vi.mock('@earendil-works/pi-web-ui', () => piWebUiMocks)
 vi.mock('@/lib/pi-chat', () => piChatMocks)
 vi.mock('@/lib/model-reference', () => modelReferenceMocks)
-vi.mock('@/lib/cloud-client', () => cloudClientMocks)
 vi.mock('@/lib/logger', () => ({ logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 vi.mock('@/lib/tool-display-settings', () => ({
   loadToolDisplaySettings: vi.fn(async () => ({ toolDisplayMode: 'compact', showContextUsage: false })),
@@ -65,7 +59,6 @@ vi.mock('@/lib/system-notifications', () => ({
   showTaskSystemNotification: vi.fn(),
 }))
 vi.mock('@/components/ui/confirm-dialog', () => ({ showConfirm: vi.fn(async () => false) }))
-vi.mock('@/hooks/useCloudModels', () => ({ CLOUD_STATE_CHANGED_EVENT: 'quickforge:cloud-state-changed' }))
 vi.mock('../../src/lib/info-tip', () => ({}))
 vi.mock('../../src/lib/quickforge-settings-select', () => ({}))
 
@@ -77,19 +70,9 @@ const baseModel = {
 const secondBaseModel = {
   id: 'second', name: 'Second', provider: 'custom', api: 'openai-completions', baseUrl: 'https://base.example/v1',
 } as Model<Api>
-const cloudModel = {
-  id: 'cloud-fast', name: 'Cloud Fast', provider: 'quickforge-cloud', api: 'openai-completions',
-  baseUrl: 'quickforge://cloud/cloud-fast', quickforgeModelSource: 'cloud', quickforgeCatalogId: 'cloud-fast',
-} as Model<Api>
 
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((next) => { resolve = next })
-  return { promise, resolve }
-}
-
-async function flushMicrotasks() {
-  for (let index = 0; index < 10; index += 1) await Promise.resolve()
+function modelKey(model: Model<Api>) {
+  return JSON.stringify([model.provider, model.id, model.api, (model.baseUrl ?? '').trim().replace(/\/$/, '')])
 }
 
 type TestTab = DefaultOptionsSettingsTab & {
@@ -104,7 +87,7 @@ function createTab(): TestTab {
   return new DefaultOptionsSettingsTab() as TestTab
 }
 
-describe('default options settings tab incremental Cloud merge', () => {
+describe('default options settings tab local model catalog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
@@ -113,40 +96,35 @@ describe('default options settings tab incremental Cloud merge', () => {
     piChatMocks.getSelectableConfiguredModels.mockResolvedValue([])
     piChatMocks.loadDefaultOptions.mockResolvedValue({})
     modelReferenceMocks.loadModelCatalog.mockResolvedValue([baseModel, secondBaseModel])
-    cloudClientMocks.getCloudStatus.mockResolvedValue({ configured: true, mode: 'account', hasSession: true })
   })
 
-  it('renders catalog models first and merges the slow Cloud catalog in the background', async () => {
-    piChatMocks.loadDefaultOptions.mockResolvedValue({ model: cloudModel })
-    const cloudCatalog = deferred<Model<Api>[]>()
-    cloudClientMocks.getCloudModels.mockImplementationOnce(() => cloudCatalog.promise)
-
-    const tab = createTab()
-    const loaded = tab.loadSettings()
-    await loaded
-    expect(tab.loading).toBe(false)
-    expect(tab.models).toEqual([baseModel, secondBaseModel])
-    // The Cloud default is not in the catalog yet, so the first automatic pick falls back.
-    expect(tab.selectedModel).toBe(baseModel)
-
-    cloudCatalog.resolve([cloudModel])
-    await flushMicrotasks()
-    expect(tab.models).toEqual([baseModel, secondBaseModel, cloudModel])
-    expect(tab.selectedModel).toBe(cloudModel)
-  })
-
-  it('keeps a manually changed selection when the Cloud catalog arrives late', async () => {
-    const cloudCatalog = deferred<Model<Api>[]>()
-    cloudClientMocks.getCloudModels.mockImplementationOnce(() => cloudCatalog.promise)
+  it('auto-selects the saved default from the catalog', async () => {
+    piChatMocks.loadDefaultOptions.mockResolvedValue({ model: secondBaseModel })
 
     const tab = createTab()
     await tab.loadSettings()
-    tab.updateModel(JSON.stringify([secondBaseModel.provider, secondBaseModel.id, secondBaseModel.api, secondBaseModel.baseUrl]))
-    expect(tab.selectedModel).toBe(secondBaseModel)
 
-    cloudCatalog.resolve([cloudModel])
-    await flushMicrotasks()
-    expect(tab.models).toEqual([baseModel, secondBaseModel, cloudModel])
+    expect(tab.loading).toBe(false)
+    expect(tab.models).toEqual([baseModel, secondBaseModel])
+    expect(tab.selectedModel).toBe(secondBaseModel)
+  })
+
+  it('falls back to the first catalog model when the saved default is missing', async () => {
+    piChatMocks.loadDefaultOptions.mockResolvedValue({ model: { ...baseModel, id: 'removed' } as Model<Api> })
+
+    const tab = createTab()
+    await tab.loadSettings()
+
+    expect(tab.models).toEqual([baseModel, secondBaseModel])
+    expect(tab.selectedModel).toBe(baseModel)
+  })
+
+  it('updates the manual selection immediately', async () => {
+    const tab = createTab()
+    await tab.loadSettings()
+
+    tab.updateModel(modelKey(secondBaseModel))
+
     expect(tab.selectedModel).toBe(secondBaseModel)
   })
 })

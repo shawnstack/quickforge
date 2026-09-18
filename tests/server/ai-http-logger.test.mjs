@@ -5,12 +5,7 @@ import path from 'node:path'
 
 const mocks = vi.hoisted(() => ({
   streamSimple: vi.fn(),
-  resolveManagedCloudProvider: vi.fn(),
   logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-}))
-
-vi.mock('../../server/cloud/runtime.mjs', () => ({
-  resolveManagedCloudProvider: mocks.resolveManagedCloudProvider,
 }))
 
 vi.mock('@earendil-works/pi-ai/compat', () => ({
@@ -89,7 +84,6 @@ describe('AI stream deadline', () => {
     vi.resetModules()
     vi.useFakeTimers()
     mocks.streamSimple.mockReset()
-    mocks.resolveManagedCloudProvider.mockReset()
     for (const method of Object.values(mocks.logger)) method.mockReset()
     mocks.streamSimple.mockReturnValue(controlledStream().stream)
   })
@@ -102,81 +96,7 @@ describe('AI stream deadline', () => {
     vi.restoreAllMocks()
   })
 
-  it('resolves managed cloud models lazily and ignores client-controlled transport fields', async () => {
-    mocks.resolveManagedCloudProvider.mockResolvedValue({
-      model: {
-        id: 'qf-fast',
-        provider: 'quickforge-cloud',
-        api: 'openai-completions',
-        baseUrl: 'https://cloud.example.com/v1',
-      },
-      apiKey: 'memory-access-token',
-    })
-    mocks.streamSimple.mockReturnValue({
-      result: async () => ({ stopReason: 'stop' }),
-      async *[Symbol.asyncIterator]() {},
-    })
-    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
-    const stream = streamSimpleWithAiHttpLogging({
-      id: 'qf-fast',
-      provider: 'quickforge-cloud',
-      quickforgeModelSource: 'cloud',
-      quickforgeCatalogId: 'qf-fast',
-      baseUrl: 'https://attacker.example/v1',
-      headers: { Authorization: 'steal' },
-    }, { systemPrompt: '', messages: [], tools: [] })
-
-    await expect(stream.result()).resolves.toMatchObject({ stopReason: 'stop' })
-    expect(mocks.resolveManagedCloudProvider).toHaveBeenCalledTimes(1)
-    const [resolvedModel, , resolvedOptions] = mocks.streamSimple.mock.calls[0]
-    expect(resolvedModel.baseUrl).toBe('https://cloud.example.com/v1')
-    expect(resolvedModel.headers['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/)
-    expect(resolvedModel.headers).not.toHaveProperty('Authorization')
-    expect(resolvedOptions.apiKey).toBe('memory-access-token')
-  })
-
-  it('reuses the persisted Cloud key for the same logical message and separates different messages', async () => {
-    mocks.resolveManagedCloudProvider.mockResolvedValue({
-      model: {
-        id: 'qf-fast',
-        provider: 'quickforge-cloud',
-        api: 'openai-completions',
-        baseUrl: 'https://cloud.example.com/v1',
-      },
-      apiKey: 'memory-access-token',
-    })
-    mocks.streamSimple.mockReturnValue({
-      result: async () => ({ stopReason: 'stop' }),
-      async *[Symbol.asyncIterator]() {},
-    })
-    const model = {
-      id: 'qf-fast',
-      provider: 'quickforge-cloud',
-      quickforgeModelSource: 'cloud',
-      quickforgeCatalogId: 'qf-fast',
-    }
-    const contextFor = (messageId) => ({
-      systemPrompt: '',
-      messages: [{
-        role: 'user',
-        content: 'hello',
-        metadata: { quickforgeClientMessageId: messageId },
-      }],
-      tools: [],
-    })
-    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
-
-    await streamSimpleWithAiHttpLogging(model, contextFor('qfcm-message-1'), { sessionId: 'session-1' }).result()
-    await streamSimpleWithAiHttpLogging(model, contextFor('qfcm-message-1'), { sessionId: 'session-1' }).result()
-    await streamSimpleWithAiHttpLogging(model, contextFor('qfcm-message-2'), { sessionId: 'session-1' }).result()
-
-    const keys = mocks.streamSimple.mock.calls.map(([resolvedModel]) => resolvedModel.headers['Idempotency-Key'])
-    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/)
-    expect(keys[1]).toBe(keys[0])
-    expect(keys[2]).not.toBe(keys[0])
-  })
-
-  it('keeps non-Cloud provider headers unchanged', async () => {
+  it('keeps provider headers unchanged', async () => {
     mocks.streamSimple.mockReturnValue({
       result: async () => ({ stopReason: 'stop' }),
       async *[Symbol.asyncIterator]() {},
@@ -188,7 +108,6 @@ describe('AI stream deadline', () => {
       { sessionId: 'session-1' },
     ).result()
 
-    expect(mocks.resolveManagedCloudProvider).not.toHaveBeenCalled()
     expect(mocks.streamSimple.mock.calls[0][0].headers).toEqual({ 'X-Test': 'yes' })
   })
 
@@ -394,45 +313,6 @@ describe('AI stream deadline', () => {
     await vi.advanceTimersByTimeAsync(1)
     await rejection
     expect(mocks.streamSimple).toHaveBeenCalledTimes(1)
-  })
-
-  it('uses a fresh idempotency key for the managed-cloud retry attempt', async () => {
-    mocks.resolveManagedCloudProvider.mockResolvedValue({
-      model: {
-        id: 'qf-fast',
-        provider: 'quickforge-cloud',
-        api: 'openai-completions',
-        baseUrl: 'https://cloud.example.com/v1',
-      },
-      apiKey: 'memory-access-token',
-    })
-    mocks.streamSimple.mockReturnValueOnce(controlledStream().stream).mockReturnValueOnce(controlledStream().stream)
-    const { streamSimpleWithAiHttpLogging } = await import('../../server/ai-http-logger.mjs')
-    const model = {
-      id: 'qf-fast',
-      provider: 'quickforge-cloud',
-      quickforgeModelSource: 'cloud',
-      quickforgeCatalogId: 'qf-fast',
-    }
-    // 不带 quickforgeClientMessageId：两次尝试都走随机幂等键路径，避免真实
-    // fs 持久化让第一次链的完成时序在 fake timers 下不可控。
-    const context = {
-      systemPrompt: '',
-      messages: [{ role: 'user', content: 'hello' }],
-      tools: [],
-    }
-    const stream = streamSimpleWithAiHttpLogging(model, context, { sessionId: 'session-retry', idleTimeoutMs: 1000 })
-    stream.result()
-
-    await vi.advanceTimersByTimeAsync(1000)
-    // lazyStream 的多级 promise 链在微任务里才真正调用 streamSimple。
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(mocks.streamSimple).toHaveBeenCalledTimes(2)
-    const keys = mocks.streamSimple.mock.calls.map(([resolvedModel]) => resolvedModel.headers['Idempotency-Key'])
-    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/)
-    expect(keys[1]).toMatch(/^[0-9a-f-]{36}$/)
-    expect(keys[1]).not.toBe(keys[0])
   })
 
   it('resets the post-content idle budget after each event, then fails without retrying', async () => {

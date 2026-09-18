@@ -1,5 +1,6 @@
 import { SettingsTab } from '@earendil-works/pi-web-ui'
 import { html, type TemplateResult } from 'lit'
+import { showPrompt } from '@/components/ui/prompt-dialog'
 import { t } from '@/lib/i18n'
 import type { ProjectInfo } from '@/lib/types'
 import './info-tip'
@@ -175,6 +176,14 @@ class ProjectCommandsSettingsTab extends SettingsTab {
     }
   }
 
+  private resolvePrimaryCommandDir() {
+    const firstLine = this.commandDir
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0)
+    return firstLine || '.ai/commands'
+  }
+
   private async openCommandDir() {
     if (!this.project) return
     this.error = ''
@@ -183,7 +192,7 @@ class ProjectCommandsSettingsTab extends SettingsTab {
     try {
       await this.request('/api/project/open-path', {
         method: 'POST',
-        body: JSON.stringify({ path: '.ai/commands', projectId: this.project.id }),
+        body: JSON.stringify({ path: this.resolvePrimaryCommandDir(), projectId: this.project.id }),
       })
     } catch (error) {
       this.error = error instanceof Error ? error.message : t('requestFailed')
@@ -193,21 +202,26 @@ class ProjectCommandsSettingsTab extends SettingsTab {
 
   private async createCommand() {
     if (!this.project) return
-    const name = window.prompt(t('newCommandPrompt'))
-    if (!name?.trim()) return
+    const name = await showPrompt({
+      title: t('newCommandPrompt'),
+      placeholder: t('newCommandNamePlaceholder'),
+      confirmLabel: t('createCommand'),
+      cancelLabel: t('cancel'),
+    })
+    if (!name) return
     this.error = ''
     this.message = ''
     this.requestUpdate()
     try {
       const result = await this.request<{ ok: boolean; reason?: string; name?: string }>(
         '/api/project/command',
-        { method: 'POST', body: JSON.stringify({ name: name.trim(), projectId: this.project.id }) },
+        { method: 'POST', body: JSON.stringify({ name, projectId: this.project.id }) },
       )
       if (result.ok) {
-        this.message = t('commandCreated', { name: result.name ?? name.trim() })
+        this.message = t('commandCreated', { name: result.name ?? name })
         await this.loadCommands()
       } else if (result.reason === 'exists') {
-        this.error = t('commandAlreadyExists', { name: result.name ?? name.trim() })
+        this.error = t('commandAlreadyExists', { name: result.name ?? name })
       } else {
         this.error = t('invalidCommandName')
       }

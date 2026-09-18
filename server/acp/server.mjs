@@ -469,7 +469,7 @@ function thinkingLevelConfigOption(currentModel = null, currentThinkingLevel = '
 }
 
 async function readConfiguredModels() {
-  return listModelCatalog({ context: { source: 'acp', allowCloud: true } })
+  return listModelCatalog({ context: { source: 'acp' } })
 }
 
 async function readSelectableConfiguredModels() {
@@ -478,7 +478,7 @@ async function readSelectableConfiguredModels() {
 
 async function readActiveModel() {
   const settings = await readStore('settings').catch(() => ({}))
-  return resolveImplicitModelPreference(settings?.['active-model'], { source: 'acp', allowCloud: true })
+  return resolveImplicitModelPreference(settings?.['active-model'], { source: 'acp' })
 }
 
 async function resolveInitialModel() {
@@ -551,7 +551,7 @@ async function selectSessionModel(sessionId, value) {
   const binding = await resolveModelBinding(
     { modelRef: selected.quickforgeModelRef, model: selected },
     {
-      context: { source: 'acp', allowCloud: true },
+      context: { source: 'acp' },
       currentModel: state.model,
       allowCurrentHidden: true,
       legacySnapshot: selected,
@@ -636,7 +636,7 @@ async function createQuickForgeSession(params = {}) {
   const binding = model
     ? await resolveModelBinding(
         { modelRef: model.quickforgeModelRef, model },
-        { context: { source: 'acp', allowCloud: true }, legacySnapshot: model },
+        { context: { source: 'acp' }, legacySnapshot: model },
       )
     : null
   const thinkingLevel = await resolveInitialThinkingLevel(binding?.model || model)
@@ -650,7 +650,7 @@ async function createQuickForgeSession(params = {}) {
     yoloMode: false,
     model: binding?.model || model,
     modelRef: binding?.modelRef || null,
-    modelAccessContext: { source: 'acp', allowCloud: true },
+    modelAccessContext: { source: 'acp' },
     thinkingLevel,
     title: 'ACP session',
     idleRetention: 'always',

@@ -140,11 +140,6 @@ export function normalizeModelReference(input, metadata = {}) {
 export function validateModelReference(modelRef) {
   const ref = modelRef || AGENT_PROFILE_MODEL_INHERIT
   if (ref.mode !== 'fixed') return { ...AGENT_PROFILE_MODEL_INHERIT }
-  if (ref.source === 'cloud') {
-    const catalogId = ref.catalogId || ref.modelId
-    if (!catalogId) throw requestError('Fixed Cloud agent model requires catalogId')
-    return { mode: 'fixed', source: 'cloud', catalogId }
-  }
   if (ref.source === 'custom') {
     if (!ref.providerId || !ref.modelId) throw requestError('Fixed custom agent model requires providerId and modelId')
     return { mode: 'fixed', source: 'custom', providerId: ref.providerId, modelId: ref.modelId }
@@ -203,18 +198,16 @@ export async function resolveAgentProfileModel(profile, parentModel, _readStore,
   }
 
   const validRef = validateModelReference(ref)
-  const modelRef = validRef.source === 'cloud'
-    ? { version: 1, source: 'cloud', catalogId: validRef.catalogId }
-    : validRef.source === 'custom'
-      ? { version: 1, source: 'custom', providerId: validRef.providerId, modelId: validRef.modelId }
-      : {
-          version: 1,
-          source: 'legacy-custom',
-          provider: validRef.provider,
-          modelId: validRef.modelId,
-          ...(validRef.api ? { api: validRef.api } : {}),
-          ...(validRef.baseUrl ? { baseUrl: validRef.baseUrl } : {}),
-        }
+  const modelRef = validRef.source === 'custom'
+    ? { version: 1, source: 'custom', providerId: validRef.providerId, modelId: validRef.modelId }
+    : {
+        version: 1,
+        source: 'legacy-custom',
+        provider: validRef.provider,
+        modelId: validRef.modelId,
+        ...(validRef.api ? { api: validRef.api } : {}),
+        ...(validRef.baseUrl ? { baseUrl: validRef.baseUrl } : {}),
+      }
   const binding = await resolveModelBinding({ modelRef }, {
     context,
     currentModel: parentModel,

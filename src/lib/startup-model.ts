@@ -1,12 +1,10 @@
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { isManagedQuickForgeCloudModel } from './managed-cloud-model'
 
 type ModelLike = Pick<Model<Api>, 'id' | 'provider' | 'api' | 'baseUrl'> & {
   quickforgeModelRef?: {
     source?: string
     providerId?: string
     modelId?: string
-    catalogId?: string
   }
 }
 
@@ -18,7 +16,6 @@ function sameStartupModel(left: ModelLike, right: ModelLike) {
   const leftRef = left.quickforgeModelRef
   const rightRef = right.quickforgeModelRef
   if (leftRef?.source && rightRef?.source && leftRef.source === rightRef.source) {
-    if (leftRef.source === 'cloud') return leftRef.catalogId === rightRef.catalogId
     if (leftRef.source === 'custom') {
       return leftRef.providerId === rightRef.providerId && leftRef.modelId === rightRef.modelId
     }
@@ -49,13 +46,7 @@ export function chooseStartupModel(
 export function chooseNewSessionModel(
   requestedModel: Model<Api>,
   configuredModels: ReadonlyArray<Model<Api>>,
-  cloudModels: ReadonlyArray<Model<Api>>,
 ): Model<Api> | null {
-  if (!isManagedQuickForgeCloudModel(requestedModel)) {
-    return configuredModels.find((candidate) => sameStartupModel(candidate, requestedModel))
-      ?? chooseStartupModel([...configuredModels, ...cloudModels])
-  }
-
-  const matchedCloudModel = cloudModels.find((candidate) => sameStartupModel(candidate, requestedModel))
-  return matchedCloudModel ?? chooseStartupModel([...configuredModels, ...cloudModels])
+  return configuredModels.find((candidate) => sameStartupModel(candidate, requestedModel))
+    ?? chooseStartupModel(configuredModels)
 }

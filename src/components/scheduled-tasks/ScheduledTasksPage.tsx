@@ -12,7 +12,6 @@ import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage,
 import { isModelSelectable } from '@/lib/model-visibility'
 import { t } from '@/lib/i18n'
 import { loadModelCatalog, modelReferenceFromModel } from '@/lib/model-reference'
-import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 
@@ -381,9 +380,6 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
         const defaultOptions = await loadDefaultOptions(storage)
         const savedDefault = defaultOptions.model && isModelSelectable(defaultOptions.model)
           ? selectableModels.find((model) => modelsEqual(model, defaultOptions.model))
-            || (isManagedQuickForgeCloudModel(defaultOptions.model)
-              ? selectableModels.find((model) => (model as AnyModel & { quickforgeCatalogId?: string }).quickforgeCatalogId === (defaultOptions.model as AnyModel & { quickforgeCatalogId?: string }).quickforgeCatalogId)
-              : undefined)
           : undefined
         const activeModel = savedDefault ?? selectableModels[0]
         if (cancelled) return

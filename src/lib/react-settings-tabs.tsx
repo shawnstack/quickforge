@@ -23,9 +23,6 @@ const ScheduledTasksPage = lazy(() =>
 const ShareLinksSettingsPage = lazy(() =>
   import('@/components/share/ShareLinksSettingsPage').then((module) => ({ default: module.ShareLinksSettingsPage })),
 )
-const CloudAccountSettingsPage = lazy(() =>
-  import('@/components/cloud/CloudAccountSettingsPage').then((module) => ({ default: module.CloudAccountSettingsPage })),
-)
 
 type ReactSettingsTabRender = () => React.ReactNode
 
@@ -133,14 +130,6 @@ export function createScheduledTasksSettingsTab() {
   return createReactSettingsTab(t('scheduledTasks'), () => (
     <SettingsPanel>
       <ScheduledTasksPage onOpenSession={openScheduledTaskSession} />
-    </SettingsPanel>
-  ))
-}
-
-export function createCloudAccountSettingsTab() {
-  return createReactSettingsTab(t('cloudAccount'), () => (
-    <SettingsPanel>
-      <CloudAccountSettingsPage />
     </SettingsPanel>
   ))
 }

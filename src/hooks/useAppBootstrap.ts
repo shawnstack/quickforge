@@ -22,23 +22,9 @@ import { readAppSettingSnapshotValue, writeAppSettingSnapshotValue } from '@/lib
 import { resolveServerCacheKey } from '@/lib/session-message-cache'
 import type { AgentAccessMode } from '@/lib/types'
 import { chooseStartupModel } from '@/lib/startup-model'
-import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { disposeAllAgentTasks } from '@/lib/agent-task-retention'
-
-// Restoring a persisted QuickForge Cloud model must not stall startup on a
-// slow or unreachable Cloud catalog: after this deadline the load degrades to
-// an empty catalog and the existing local fallback takes over.
-const CLOUD_MODEL_RESOLUTION_TIMEOUT_MS = 5_000
-
-function cloudModelsWithDeadline(cloudModelsPromise: Promise<Model<Api>[]>): Promise<Model<Api>[]> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const deadline = new Promise<Model<Api>[]>((resolve) => {
-    timer = setTimeout(() => resolve([]), CLOUD_MODEL_RESOLUTION_TIMEOUT_MS)
-  })
-  return Promise.race([cloudModelsPromise, deadline]).finally(() => clearTimeout(timer))
-}
 
 type UseAppBootstrapOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -51,9 +37,6 @@ type UseAppBootstrapOptions = {
   initAgentAccessMode: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => Promise<AgentAccessMode>
   createAgent: AgentManager['createAgent']
   loadSession: AgentManager['loadSession']
-  loadCloudModels: () => Promise<Model<Api>[]>
-  readCachedCloudModels: () => readonly Model<Api>[]
-  isCloudModelsLoaded: () => boolean
   setNeedsModelSetup: React.Dispatch<React.SetStateAction<boolean>>
   onStorageReady?: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => void
 }
@@ -79,9 +62,6 @@ export function useAppBootstrap({
   initAgentAccessMode,
   createAgent,
   loadSession,
-  loadCloudModels,
-  readCachedCloudModels,
-  isCloudModelsLoaded,
   setNeedsModelSetup,
   onStorageReady,
 }: UseAppBootstrapOptions) {
@@ -99,9 +79,6 @@ export function useAppBootstrap({
     initAgentAccessMode,
     createAgent,
     loadSession,
-    loadCloudModels,
-    readCachedCloudModels,
-    isCloudModelsLoaded,
     setNeedsModelSetup,
     onStorageReady,
   })
@@ -112,9 +89,6 @@ export function useAppBootstrap({
       initAgentAccessMode,
       createAgent,
       loadSession,
-      loadCloudModels,
-      readCachedCloudModels,
-      isCloudModelsLoaded,
       setNeedsModelSetup,
       onStorageReady,
     }
@@ -130,9 +104,6 @@ export function useAppBootstrap({
         initAgentAccessMode: initAccessMode,
         createAgent: create,
         loadSession: restoreSession,
-        loadCloudModels: loadCloud,
-        readCachedCloudModels: readCachedCloud,
-        isCloudModelsLoaded: isCloudLoaded,
         setNeedsModelSetup: setModelSetup,
         onStorageReady: onReady,
       } = depsRef.current
@@ -213,28 +184,10 @@ export function useAppBootstrap({
         agentAccessModeRef.current = savedAccessMode
 
         const defaultOptions = await loadDefaultOptions(storage)
-        let initialModel: Model<Api> | null = null
-        const cloudModelsPromise = loadCloud().catch((error) => {
-          logger.warn('Failed to restore QuickForge Cloud models:', error)
-          return []
-        })
         const configuredModels = await getSelectableConfiguredModels(storage)
         const savedModel = await loadActiveModel(storage)
-        const persistedCloudModel = isManagedQuickForgeCloudModel(defaultOptions.model)
-          || isManagedQuickForgeCloudModel(savedModel)
-        let cloudModels = readCachedCloud()
-        if (persistedCloudModel) {
-          // Leave StartupSplash before the remote catalog resolves, but do not create an
-          // Agent until the persisted Cloud snapshot has been checked against that catalog.
-          if (!isCloudLoaded()) {
-            setModelSetup(true)
-            setReady(true)
-          }
-          cloudModels = await cloudModelsWithDeadline(cloudModelsPromise)
-          if (cancelled) return
-        }
-        initialModel = chooseStartupModel(
-          mergeAvailableModels(configuredModels, cloudModels),
+        const initialModel = chooseStartupModel(
+          mergeAvailableModels(configuredModels, []),
           defaultOptions.model,
           savedModel,
         )

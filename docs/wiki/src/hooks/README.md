@@ -1,6 +1,6 @@
 # `src/hooks/` — 自定义 React Hooks
 
-包含 19 个自定义 React Hook，用于封装应用状态管理和业务逻辑。
+包含 18 个自定义 React Hook，用于封装应用状态管理和业务逻辑。
 
 ---
 
@@ -9,7 +9,6 @@
 | [useAppBootstrap.ts](../../src/hooks/useAppBootstrap.ts) | 257 | 应用启动引导：Settings 快照预应用（SWR）+ Storage 初始化 + 设置校准 + 会话恢复 |
 | [useAgentManager.ts](../../src/hooks/useAgentManager.ts) | 537 | Agent 生命周期管理：创建、加载、切换会话 |
 | [useChatActions.ts](../../src/hooks/useChatActions.ts) | 311 | 聊天操作：发送消息、回滚、分叉、复制 |
-| [useCloudModels.ts](../../src/hooks/useCloudModels.ts) | 139 | Cloud 状态、模型目录缓存与失效 |
 | [useModelActions.ts](../../src/hooks/useModelActions.ts) | 232 | 模型操作：选择模型、切换访问模式、管理工具 |
 | [useSessionActions.ts](../../src/hooks/useSessionActions.ts) | 105 | 会话操作：归档、置顶、重命名、刷新 |
 | [useSessionPagination.ts](../../src/hooks/useSessionPagination.ts) | 429 | 会话分页加载；`refreshSessions()` 带 `REFRESH_SESSIONS_MERGE_MS`（250ms）in-flight 合并——窗口内重复调用复用同一轮 Promise，合并进来的 `broadcast` 需求仍在轮尾触发一次广播 |
@@ -49,9 +48,8 @@
 2. `initializePiStorage()` 完成 health 检查并构造 Storage 后端；随后 fire-and-forget 刷新会话列表
 3. 串行服务器校准并覆盖预应用值：`initializeAppLanguage` → `loadToolDisplaySettings` → `loadAndApplyAppearanceSettings` → `loadAndApplyFontSizeSettings`
 4. 加载项目列表与活跃项目、Agent 访问模式与默认选项
-5. 按需提前预取 QuickForge Cloud 模型目录（启动时一次，通常不 await）；持久化 Cloud 模型启动时最多等待 5 秒，超时后按本地目录回退，不阻塞启动
-6. 模型目录/active-model 决策后创建启动会话；URL 携带 `?session=` 时统一委托 `useAgentManager.loadSession()` 走可取消的单次服务端恢复链路
-7. 校准后的 4 个设置值回写本地快照（成功路径 best-effort），随后标记 `ready`；标记模型是否已配置（`needsModelSetup`）
+5. 模型目录/active-model 决策后创建启动会话；URL 携带 `?session=` 时统一委托 `useAgentManager.loadSession()` 走可取消的单次服务端恢复链路
+6. 校准后的 4 个设置值回写本地快照（成功路径 best-effort），随后标记 `ready`；标记模型是否已配置（`needsModelSetup`）
 
 ### useAgentManager.ts (537 行)
 
@@ -73,17 +71,11 @@
 - `forkFromMessage(index)` — 从指定消息分叉新对话
 - `copyAnswer(text)` — 复制回答到剪贴板
 
-### useCloudModels.ts (139 行)
-
-- `loadCloudModels()` 先读取 `GET /api/cloud/status`，只有已配置且存在 Session 时才加载公开模型目录；不会自动注册。
-- 加载失败后 30 秒内负缓存：非 `refresh` 调用直接返回 `[]`，不再对不可达的 Cloud 重复发请求；成功后清除，显式 `refresh` 不受影响。
-- 监听 `quickforge:cloud-state-changed`，中止旧请求并清空内存模型缓存；配置切换、身份 reset 或退出后不会继续复用旧目录。
-
 ### useModelActions.ts (232 行)
 
 模型/供应商配置操作:
 - `openModelSetup()` — 打开设置对话框
-- `selectModel(model)` — 切换当前模型；聊天模型选择器只合并未隐藏的自定义模型与 Cloud 模型
+- `selectModel(model)` — 切换当前模型；聊天模型选择器只显示未隐藏的自定义模型
 - 初始化/切换活动模型
 - Agent 访问模式与 workspace 工具的启用/禁用同步
 

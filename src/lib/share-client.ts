@@ -16,7 +16,6 @@ export type ConversationShare = {
   accessCount?: number
   lastAccessedAt?: string
   hasPassword?: boolean
-  allowCloudUsage?: boolean
   url?: string
 }
 
@@ -62,7 +61,6 @@ export async function createConversationShare(input: {
   permission: SharePermission
   password?: string
   expiresAt?: string
-  allowCloudUsage?: boolean
 }) {
   return request<{
     ok: boolean
@@ -112,7 +110,6 @@ export async function updateConversationShare(shareId: string, input: {
   permission?: SharePermission
   password?: string
   expiresAt?: string
-  allowCloudUsage?: boolean
 }) {
   return request<{ ok: boolean; share: ConversationShare }>(`/api/shares/${encodeURIComponent(shareId)}/update`, {
     method: 'POST',

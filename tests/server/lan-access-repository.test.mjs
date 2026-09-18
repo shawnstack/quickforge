@@ -50,7 +50,6 @@ function share(overrides = {}) {
     scope: overrides.scope || 'global',
     projectId: overrides.scope === 'project' ? overrides.projectId || 'project-a' : undefined,
     authVersion: 1,
-    allowCloudUsage: false,
     createdAt: now(),
     updatedAt: now(),
     accessCount: 0,

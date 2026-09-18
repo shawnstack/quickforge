@@ -186,7 +186,7 @@ try {
   await writeFile(sharesFile, `${JSON.stringify({
     qfs_seedshare000000000001: {
       id: 'qfs_seedshare000000000001', sessionId: 'seed', permission: 'read', titleSnapshot: 'Seed',
-      scope: 'global', authVersion: 1, allowCloudUsage: false,
+      scope: 'global', authVersion: 1,
       createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', accessCount: 0,
     },
   })}\n`, 'utf8')

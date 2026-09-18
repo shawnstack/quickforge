@@ -7,7 +7,6 @@ import { resolveModelBinding } from '../model-catalog.mjs'
 
 function profileModelReference(model) {
   if (!model || model.mode !== 'fixed') return null
-  if (model.source === 'cloud') return { version: 1, source: 'cloud', catalogId: model.catalogId || model.modelId }
   if (model.source === 'custom') return { version: 1, source: 'custom', providerId: model.providerId, modelId: model.modelId }
   return {
     version: 1,
@@ -28,9 +27,7 @@ async function canonicalizeProfileModel(body, current, context) {
   const ref = binding.modelRef
   return {
     ...body,
-    model: ref.source === 'cloud'
-      ? { mode: 'fixed', source: 'cloud', catalogId: ref.catalogId }
-      : { mode: 'fixed', source: 'custom', providerId: ref.providerId, modelId: ref.modelId },
+    model: { mode: 'fixed', source: 'custom', providerId: ref.providerId, modelId: ref.modelId },
   }
 }
 import {

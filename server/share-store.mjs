@@ -104,7 +104,6 @@ function publicShareRecord(record) {
     accessCount: record.accessCount || 0,
     lastAccessedAt: record.lastAccessedAt,
     hasPassword: Boolean(record.passwordHash),
-    allowCloudUsage: record.allowCloudUsage === true,
   }
 }
 
@@ -233,7 +232,6 @@ export async function createConversationShare({
   permission,
   password,
   expiresAt,
-  allowCloudUsage = false,
   titleSnapshot,
   scope,
   projectId,
@@ -283,7 +281,6 @@ export async function createConversationShare({
         titleSnapshot: titleSnapshot || current?.titleSnapshot || 'New chat',
         scope: scope === 'project' ? 'project' : 'global',
         projectId: scope === 'project' ? projectId : undefined,
-        allowCloudUsage: permission === 'operate' && allowCloudUsage === true,
         expiresAt: expiresAt || undefined,
         createdAt: current?.createdAt || timestamp,
         updatedAt: timestamp,
@@ -300,7 +297,6 @@ export async function createConversationShare({
       if (current) {
         const lifecycleChanged = Boolean(current.revokedAt)
           || String(current.expiresAt || '') !== String(created.expiresAt || '')
-          || current.allowCloudUsage === true !== (created.allowCloudUsage === true)
           || (passwordProvided && (current.authVersion || 1) !== (created.authVersion || 1))
         if (lifecycleChanged) emitConversationShareInvalidated(current.id, 'updated')
       }
@@ -342,7 +338,6 @@ export async function createConversationShare({
         updatedAt: now,
         supersededAt: undefined,
         expiresAt: expiresAt || undefined,
-        allowCloudUsage: permission === 'operate' && allowCloudUsage === true,
         revokedAt: undefined,
         titleSnapshot: titleSnapshot || existing.titleSnapshot || 'New chat',
         scope: scope === 'project' ? 'project' : 'global',
@@ -365,7 +360,6 @@ export async function createConversationShare({
       }
       const lifecycleChanged = Boolean(existing.revokedAt)
         || String(existing.expiresAt || '') !== String(record.expiresAt || '')
-        || existing.allowCloudUsage === true !== (record.allowCloudUsage === true)
         || (passwordProvided && existing.authVersion !== record.authVersion)
       data[record.id] = record
       await writeShareStoreFile(data)
@@ -385,7 +379,6 @@ export async function createConversationShare({
       updatedAt: now,
       supersededAt: undefined,
       expiresAt: expiresAt || undefined,
-      allowCloudUsage: permission === 'operate' && allowCloudUsage === true,
       revokedAt: undefined,
       titleSnapshot: titleSnapshot || 'New chat',
       scope: scope === 'project' ? 'project' : 'global',
@@ -533,7 +526,7 @@ export async function updateConversationShareExpiration(shareId, expiresAt) {
   })
 }
 
-export async function updateConversationShare(shareId, { permission, password, expiresAt, allowCloudUsage } = {}) {
+export async function updateConversationShare(shareId, { permission, password, expiresAt } = {}) {
   assertSafeShareId(shareId)
   const passwordProvided = typeof password === 'string'
   const normalizedPassword = passwordProvided ? password.trim() : undefined
@@ -555,14 +548,12 @@ export async function updateConversationShare(shareId, { permission, password, e
       }
       const updated = repository.update(shareId, {
         permission,
-        allowCloudUsage,
         ...(expiresAt !== undefined ? { expiresAt } : {}),
         ...passwordInfo,
       })
       requestShareJsonMirrorDrain()
       const lifecycleChanged = (permission !== undefined && permission !== existing.permission)
         || (expiresAt !== undefined && String(existing.expiresAt || '') !== String(expiresAt || ''))
-        || (allowCloudUsage !== undefined && (existing.allowCloudUsage === true) !== (allowCloudUsage === true))
         || passwordProvided
       if (lifecycleChanged) emitConversationShareInvalidated(shareId, 'updated')
       return publicShareRecord(updated)
@@ -588,10 +579,7 @@ export async function updateConversationShare(shareId, { permission, password, e
       error.statusCode = 400
       throw error
     }
-    const nextAllowCloudUsage = nextPermission === 'operate'
-      && (allowCloudUsage === undefined ? record.allowCloudUsage === true : allowCloudUsage === true)
     const lifecycleChanged = nextPermission !== record.permission
-      || nextAllowCloudUsage !== (record.allowCloudUsage === true)
       || (expiresAt !== undefined && String(record.expiresAt || '') !== String(expiresAt || ''))
       || passwordProvided
     if (passwordProvided) {
@@ -601,7 +589,6 @@ export async function updateConversationShare(shareId, { permission, password, e
       clearShareTokens(record)
     }
     record.permission = nextPermission
-    record.allowCloudUsage = nextAllowCloudUsage
     if (expiresAt !== undefined) record.expiresAt = expiresAt || undefined
     record.updatedAt = new Date().toISOString()
     data[shareId] = record

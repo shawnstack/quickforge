@@ -137,9 +137,6 @@ export function buildEnv(options = {}) {
   if (options.workspaceDir) env.QUICKFORGE_WORKSPACE_DIR = path.resolve(options.workspaceDir)
   if (options.vitePort) env.QUICKFORGE_VITE_PORT = String(options.vitePort)
   if (options.terminal === false) env.QUICKFORGE_TERMINAL = '0'
-  if (options.qfAgentPath) env.QUICKFORGE_QF_AGENT_PATH = path.resolve(options.qfAgentPath)
-  if (options.qfAgentIdentityDir) env.QUICKFORGE_QF_AGENT_IDENTITY_DIR = path.resolve(options.qfAgentIdentityDir)
-  if (options.qfAgentEnabled !== undefined) env.QUICKFORGE_QF_AGENT_ENABLED = options.qfAgentEnabled === false ? '0' : '1'
   if (options.runtimeKind) env.QUICKFORGE_RUNTIME_KIND = String(options.runtimeKind)
   if (options.allowRemote || shareLan) env.QUICKFORGE_ALLOW_REMOTE = '1'
   delete env.ELECTRON_RUN_AS_NODE

@@ -36,7 +36,6 @@
 | `workspace-file-service.mjs` | 193 | 文本读取、语言/MIME、预览安全校验与 ETag、外部路径打开；本机 HTTP 门禁仍在入口 |
 | `workspace-request-control.mjs` | 42 | 请求取消信号和清理、AbortError识别、原进程树终止；Git/browser共同使用 |
 | `channels.mjs` | 外部渠道管理、SSE 状态/会话变更事件、仅 localhost + `x-quickforge-action: channel-event` 可调用的内部事件 relay，以及仅 localhost + `x-quickforge-action: channel-action` 可打开已注册渠道日志目录的 `POST /api/channels/:id/open-logs` |
-| `cloud.mjs` | QuickForge Cloud 本地 BFF：状态、正式账户 Device Flow、模型、额度、设备撤销和安全退出 |
 | `static.mjs` | 89 | 静态文件服务；`index.html` 与可替换的 APK 下载使用 `no-cache`，其余构建资产长期缓存 |
 
 ### system.mjs
@@ -48,21 +47,6 @@
 - `POST /api/system/network-proxy/refresh` — 重新读取操作系统代理并关闭旧连接。
 
 “跟随系统”不读取代理环境变量冒充系统代理：Desktop inline 使用 Electron/Chromium 系统代理；CLI/SDK 使用原生 Windows、macOS SystemConfiguration 和 Linux GNOME/libproxy 能力。自定义 PAC 地址仅 Desktop inline 支持；其他运行环境会拒绝保存，并且读取到已有 PAC 配置时不会静默直连。localhost 始终直连。
-
-### cloud.mjs
-
-已通过 LAN 密码认证的客户端可以使用本地 Cloud BFF，不再按 Tailscale IPv4、IPv6、普通 LAN 或公网地址分类。远程客户端使用的是宿主机 Cloud 身份与额度。未认证远端请求会先由全局 LAN 层返回 HTTP 401；请求到达 Cloud 路由但不满足认证边界时返回 HTTP 403 / `cloud_local_only`。所有非安全写方法还要求 `x-quickforge-action: cloud-action`，带 JSON body 的写接口要求 `Content-Type: application/json`，以阻止浏览器跨站简单请求绕过预检。
-
-- `GET /api/cloud/config` — 返回规范化 Cloud URL、来源与配置错误，不返回凭据。
-- `PUT /api/cloud/config` — 保存 URL 并使 Cloud runtime 失效；活动 Session 必须与凭据中绑定的 `sessionCloudUrl` 一致，旧版未绑定 Session 也会以 HTTP 409 / `cloud_session_active` 安全拒绝。
-- `POST /api/cloud/test-connection` — 使用一次性 Client 检查 health/ready，不创建身份、初始化 runtime 或发送 Token。
-- `POST /api/cloud/identity/reset` — 需显式确认；仅清本地 Session、轮换 installation 并使 runtime 失效，不联系旧/新服务。
-- `GET /api/cloud/status` — 返回本地安全摘要，不自动注册；Session URL 不匹配或旧 Session 缺失绑定时带 `sessionServiceMismatch` 供 UI 提示重建身份。
-- Refresh、Logout、模型、额度和设备等 Token 操作发现 Session URL 不匹配或缺失时返回 HTTP 409 / `cloud_session_service_mismatch`，并在发送旧 Refresh Token 前拒绝。
-- `POST /api/cloud/device/start|poll|cancel` — 正式账户 Device Flow；local 的 start 直接 ensure installation 并 authorizeDevice。`deviceCode` 仅保存在 Node 私有凭据文件；页面刷新/本地重启后由 status 恢复公开 pending 摘要。pending/slow_down/network 保留流程，denied/expired/cancel 清 pending 并保留原 local/遗留 guest 状态，成功原子写入账户 Token、保留 installation 并清模型缓存。
-- `GET /api/cloud/models|usage|installations` — 返回公开模型、额度和设备列表。上游请求超时映射为 HTTP 504 / `cloud_timeout`，网络不可达映射为 HTTP 502 / `cloud_unreachable`，两者均带 `retryable: true`，不再落入全局 500 兜底。
-- `DELETE /api/cloud/installations/:id` — 撤销指定设备。
-- `POST /api/cloud/logout` — 先撤销云端当前 installation，再清理本地 Session；远端失败时请求失败且本地凭据保留。
 
 ---
 
@@ -189,7 +173,7 @@ Agent Profile 管理路由。
 统一模型目录与自定义模型连接测试路由。
 
 **主要端点**:
-- `GET /api/models/catalog` — 返回当前请求上下文可使用的公开模型目录。每个条目携带版本化 `quickforgeModelRef`；不返回 API Key、Cloud Token 或请求 Header，普通 LAN 请求不包含 Cloud。
+- `GET /api/models/catalog` — 返回当前可使用的公开自定义模型目录。每个条目携带版本化 `quickforgeModelRef`；不返回 API Key 或请求 Header。
 - `POST /api/models/test-connection` — 用当前配置（Base URL、API Key、模型 ID）发送最小请求验证连通性。请求体 `{ model, apiKey? }`（`model` 为完整模型对象，`apiKey` 可选，用于测试尚未保存的配置）；成功返回 `{ ok: true }`，失败返回 `{ ok: false, error }`。错误统一以 HTTP 200 返回，便于前端统一解析。探测的 AI 调用总预算 60 秒（`AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS`），超时按连通失败返回。
 
 ## scheduled-tasks.mjs (949 行)
@@ -207,7 +191,7 @@ Agent Profile 管理路由。
 - `POST /api/scheduled-tasks/:id/resume` — 恢复任务
 - `POST /api/scheduled-tasks/:id/run` — 手动触发任务
 
-**调度引擎**: 内置调度器（`startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。任务新建/更新保存 `modelRef + model` 展示快照；执行时以后台授权上下文从当前统一目录重新解析，Cloud 失效或自定义 Provider 已删除时拒绝运行，永不使用旧 transport 快照。任务可通过 `agentId` 绑定 Agent Profile；执行时会追加 profile 系统提示词、限制工具白名单，并在运行历史中记录 `agentId`、`agentLabel` 和 `agentSnapshot`。每个任务可配置 `executionMode`：默认 `serial`，同一任务已有运行实例时跳过新的到期执行；`parallel` 允许同一任务重叠执行。不同任务之间始终并行触发。达到 Agent Profile 运行时限后会调用 `abortRun()`，并以有界等待清理 timeout、Agent 事件监听器、内存/持久化运行 ID；循环任务超时后暂停，已保存的任务会话仍保留供查看。
+**调度引擎**: 内置调度器（`startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。任务新建/更新保存 `modelRef + model` 展示快照；执行时以后台授权上下文从当前统一目录重新解析，自定义 Provider 已删除时拒绝运行，永不使用旧 transport 快照。任务可通过 `agentId` 绑定 Agent Profile；执行时会追加 profile 系统提示词、限制工具白名单，并在运行历史中记录 `agentId`、`agentLabel` 和 `agentSnapshot`。每个任务可配置 `executionMode`：默认 `serial`，同一任务已有运行实例时跳过新的到期执行；`parallel` 允许同一任务重叠执行。不同任务之间始终并行触发。达到 Agent Profile 运行时限后会调用 `abortRun()`，并以有界等待清理 timeout、Agent 事件监听器、内存/持久化运行 ID；循环任务超时后暂停，已保存的任务会话仍保留供查看。
 
 **任务指令契约**：定时触发与手动运行都复用统一 `runPrompt`；内置 slash command、Skill 和项目自定义命令沿用既有解析、权限与可用性规则，定时任务来源仍拒绝 Goal，工具审批不变。首条用户消息由统一 prompt 流程持久化，路由不再预先 append/persist，因此不再保证首消息在 `onStarted` 前落盘。指令回归见 `tests/server/scheduled-tasks.commands.test.mjs`。
 
@@ -239,14 +223,14 @@ Agent Profile 管理路由。
 - `POST /api/shares/:shareId/disable` — 停用分享，立即清除认证令牌并关闭已有共享 SSE
 - `POST /api/shares/:shareId/restore` — 按请求中的 `expiresAt` 恢复分享；恢复前验证原会话仍存在
 - `POST /api/shares/:shareId/expiration` — 修改仍有效分享的有效期，并关闭旧 SSE 使客户端按新配置重连
-- `POST /api/shares/:shareId/update` — 编辑仍有效分享的权限、密码、有效期和 `allowCloudUsage`；Cloud 默认关闭，只能由本机或已认证 Tailscale 管理端显式开启，修改会使旧共享状态失效
+- `POST /api/shares/:shareId/update` — 编辑仍有效分享的权限、密码和有效期，修改会使旧共享状态失效
 - `DELETE /api/shares/:shareId/permanent` — 永久删除分享记录并关闭已有共享 SSE
 
 ## side-chat.mjs
 
 - `POST /api/side-chat/stream` — 接受 `{sessionId?, modelRef, messages}`，返回 `application/x-ndjson`：`meta`、增量 `delta`、终态 `done` 或流内 `error`。
 - 有 `sessionId` 时只接受当前已激活的主会话，并通过 `getSessionState` 读取权威消息、模型、thinking 与 `contextCompaction`；压缩会话使用既有 `buildAutoCompactLoopMessages` 语义。路由不会恢复/创建/驱逐 Agent，也不会调用 `runPrompt`、ACP 或任何持久化写入口。
-- 主会话沿用服务端权威模型绑定，`modelRef` 通过统一 Model Catalog 重新解析，Cloud 继续服从请求认证上下文。
+- 主会话沿用服务端权威模型绑定，`modelRef` 通过统一 Model Catalog 重新解析。
 - 模型上下文固定 `tools: []`，系统提示明确只读问答；主线上下文先复用 `buildAutoCompactLoopMessages` 与 `serverConvertToLlm`，再投影为仅含 user/assistant 纯文本的消息，忽略 system/tool/toolCall/thinking/非文本块与全部 details，并从最新向前按 120,000 字符确定性裁剪；存在 compact summary 时最多预留 20,000 字符尽量保留。侧聊历史最多 40 条、单条 12,000 字符；主线与侧聊上下文合计不超过 200,000 字符。任何 `toolcall_*` 或 `stopReason: toolUse` 都 fail closed；流随客户端断开中止，响应 `no-store + nosniff`。
 
 ## shared-conversation.mjs (444 行)
@@ -257,7 +241,7 @@ Agent Profile 管理路由。
 - `GET /api/shared/:shareId/meta` — 获取分享元数据
 - `POST /api/shared/:shareId/unlock` — 密码解锁并写入分享 Cookie
 - `GET /api/shared/:shareId/session` — 获取共享会话快照
-- `GET /api/shared/:shareId/models` — 从统一 Model Catalog 获取可操作分享可用的公开模型；Cloud 仅在分享记录显式 `allowCloudUsage: true` 时出现
+- `GET /api/shared/:shareId/models` — 从统一 Model Catalog 获取可操作分享可用的公开模型
 - `GET /api/shared/:shareId/events` — 订阅共享会话 SSE
 - `POST /api/shared/:shareId/message` — 发送消息；非空 `contextReferences` 返回稳定错误 `CONTEXT_REFERENCES_UNSUPPORTED_SHARED`，共享 session/state/SSE 清洗会剥离历史消息 `details.contextReferences`，防止 owner 项目相对路径泄露
 - `POST /api/shared/:shareId/model` — 更新模型

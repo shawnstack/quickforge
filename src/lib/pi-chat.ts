@@ -17,7 +17,6 @@ import { filterSelectableModels } from '@/lib/model-visibility'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { chooseNewSessionModel, chooseStartupModel } from '@/lib/startup-model'
-import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import { loadModelCatalog, type ModelReference } from '@/lib/model-reference'
 import { modelFromStoredPreference, storedModelPreference } from '@/lib/model-preference'
 import type { AgentAccessMode } from '@/lib/types'
@@ -29,7 +28,6 @@ const AGENT_ACCESS_MODE_PROJECT_PREFIX = 'agent-access-mode-project:'
 const YOLO_MODE_SETTING_KEY = 'yolo-mode'
 const YOLO_MODE_PROJECT_PREFIX = 'yolo-mode-project:'
 const DEFAULT_OPTIONS_SETTING_KEY = 'default-options'
-const CLOUD_MODEL_RESOLUTION_TIMEOUT_MS = 5_000
 
 export { isModelSelectable } from '@/lib/model-visibility'
 
@@ -343,20 +341,6 @@ function findConfiguredModel(storage: AppStorage, model: Model<Api>) {
 }
 
 /**
- * Bound a Cloud catalog load with a short deadline. A slow or unreachable
- * Cloud service must not stall new-session creation: after the deadline the
- * catalog degrades to an empty list and callers fall back to configured
- * models. Rejections still propagate to the caller.
- */
-function loadCloudModelsWithDeadline(loadCloudModels: () => Promise<Model<Api>[]>): Promise<Model<Api>[]> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const deadline = new Promise<Model<Api>[]>((resolve) => {
-    timer = setTimeout(() => resolve([]), CLOUD_MODEL_RESOLUTION_TIMEOUT_MS)
-  })
-  return Promise.race([loadCloudModels(), deadline]).finally(() => clearTimeout(timer))
-}
-
-/**
  * Resolve a persisted model snapshot against the current custom-model settings.
  *
  * Sessions store a full model object. Older sessions may therefore keep stale
@@ -381,21 +365,11 @@ export async function resolveConfiguredModel(storage: AppStorage, model: Model<A
 export async function resolveNewSessionModel(
   storage: AppStorage | null,
   model: Model<Api>,
-  loadCloudModels: () => Promise<Model<Api>[]>,
 ): Promise<Model<Api>> {
-  if (!storage && !isManagedQuickForgeCloudModel(model)) return normalizeModelForProvider(model)
+  if (!storage) return normalizeModelForProvider(model)
 
-  let cloudModels: Model<Api>[] = []
-  if (isManagedQuickForgeCloudModel(model)) {
-    try {
-      cloudModels = await loadCloudModelsWithDeadline(loadCloudModels)
-    } catch (error) {
-      logger.warn('Failed to load QuickForge Cloud models for new session:', error)
-    }
-  }
-
-  const configuredModels = storage ? await getSelectableConfiguredModels(storage) : []
-  const resolvedModel = chooseNewSessionModel(model, configuredModels, cloudModels)
+  const configuredModels = await getSelectableConfiguredModels(storage)
+  const resolvedModel = chooseNewSessionModel(model, configuredModels)
   if (resolvedModel) return resolvedModel
 
   throw new Error('No available model can be used to create a new session.')

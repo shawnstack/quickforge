@@ -76,7 +76,6 @@ describe('share-store authoritative lifecycle', () => {
       titleSnapshot: 'Legacy',
       scope: 'global',
       authVersion: 1,
-      allowCloudUsage: false,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
       accessCount: 0,
@@ -88,7 +87,7 @@ describe('share-store authoritative lifecycle', () => {
       access_count, last_accessed_at, created_from_host, last_updated_from_host, revision, extra_json
     ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL, NULL, 1, '{}')`)
       .run(legacy.id, legacy.sessionId, legacy.permission, legacy.titleSnapshot, legacy.scope,
-        legacy.authVersion, legacy.allowCloudUsage ? 1 : 0, legacy.createdAt, legacy.updatedAt, legacy.accessCount)
+        legacy.authVersion, 0, legacy.createdAt, legacy.updatedAt, legacy.accessCount)
 
     const promoted = await shareStore.createConversationShare({
       sessionId: 'session-a',

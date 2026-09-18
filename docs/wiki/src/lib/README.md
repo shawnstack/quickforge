@@ -60,7 +60,6 @@
 | `composer-drafts.ts` | 241 | Composer 本地草稿：正文、结构化文件 `contextReferences` 与结构化能力 `selectedCapabilities` 按 session/project key 写入 localStorage；能力选择防御规范化、按 `type+pluginName+name` 去重且最多 4 个；正文为空但有 refs/capabilities 仍保留草稿，附件不持久化 |
 | `message-queue.ts` | 172 | 流式期 Composer 消息队列：纯函数入队/删除/编辑/置顶/拖拽重排 moveQueuedMessage（20 条上限、单条 2000 字符）与 per-session localStorage 持久化（含 paused 标记、无 localStorage 安全降级）；插队经 `ServerAgent.steer`（乐观显示） |
 | `startup-model.ts` | 主聊天启动模型的当前目录精确匹配与安全回退 |
-| `cloud-client.ts` | QuickForge Cloud 本地 BFF 客户端和公开配置/状态/额度/设备类型 |
 | `http-storage-backend.ts` | 286 | HTTP Storage Backend 实现；`set` 成功后 fire-and-forget 写通启动设置快照（`app-settings-cache`）；provider-keys store 挂接 `provider-keys-cache` 内存缓存（get/has 读穿、set/delete/clear 写通 + 跨标签广播，fake/override 短路不污染缓存） |
 | `types.ts` | 82 | 类型定义 |
 | `utils.ts` | 6 | 通用工具函数（cn） |
@@ -69,7 +68,7 @@
 | `custom-model-selector.ts` | 590 | 自定义模型选择器；主聊天可通过可选无参回调在桌面浮层与移动抽屉底部显示“自定义模型”，点击先关闭选择器再打开设置，未传回调的共享对话/表单复用场景不显示 |
 | `custom-providers-only-tab.ts` | 565 | 自定义供应商设置选项卡 |
 | `backup-settings-tab.ts` | 备份与恢复设置选项卡：按设置数据项选择导出内容（不包含对话），上传后预览有效/异常数据项，并支持按项替换或合并恢复 |
-| `default-options-settings-tab.ts` | 257 | 常规设置选项卡（语言、默认模型、网络代理、上下文和终端 Shell）；先用统一目录/本地模型渲染，Cloud 模型在后台加载后增量合并 |
+| `default-options-settings-tab.ts` | 257 | 常规设置选项卡（语言、默认模型、网络代理、上下文和终端 Shell） |
 | `lan-access-settings-tab.ts` | 227 | LAN 共享设置选项卡 |
 | `patch-thinking-selector.ts` | 117 | 思考模式选择器修补 |
 | `clipboard-polyfill.ts` | 51 | 剪贴板 API polyfill |
@@ -117,9 +116,9 @@
 **功能**:
 - `initializePiStorage()` — 初始化存储后端
 - `loadDefaultOptions()` / `saveDefaultOptions()` — 默认选项管理
-- `getConfiguredModels()` — 通过同源 `GET /api/models/catalog` 获取统一公开目录，包含当前可用的自定义模型和 QuickForge Cloud 模型；失败时仅为本机旧环境回退 Provider store。`getSelectableConfiguredModels()` 统一排除 `quickforgeHidden: true`。
+- `getConfiguredModels()` — 通过同源 `GET /api/models/catalog` 获取统一公开目录，包含当前可用的自定义模型；失败时仅为本机旧环境回退 Provider store。`getSelectableConfiguredModels()` 统一排除 `quickforgeHidden: true`。
 - `saveActiveModel()` / `saveDefaultOptions()` — 写入展示快照并附带版本化 `quickforgeModelRef`，执行 transport 仍由服务端解析。
-- `loadInitialConfiguredModel()` / `resolveNewSessionModel()` — 新会话只从当前可选择目录解析默认、active 或请求模型；已隐藏、已删除或失效的模型不会成为新会话候选。Cloud 目录加载以 5 秒为上限，超时降级为空目录并回退已配置模型。
+- `loadInitialConfiguredModel()` / `resolveNewSessionModel()` — 新会话只从当前可选择目录解析默认、active 或请求模型；已隐藏、已删除或失效的模型不会成为新会话候选。
 - `resolveConfiguredModel()` — 已有会话、分支等持久化绑定按完整模型身份恢复，可继续使用后来被隐藏的模型。
 - DeepSeek V4 推理兼容性处理
 
@@ -127,20 +126,9 @@
 
 **用途**: 前端版本化 ModelRef 与统一目录客户端。
 
-- `ModelReference` 区分 `custom(providerId + modelId)`、`cloud(catalogId)` 和旧自定义快照兼容引用。
+- `ModelReference` 区分 `custom(providerId + modelId)` 和旧自定义快照兼容引用。
 - `modelReferenceFromModel()` 为 Agent、Profile、任务和共享切换生成持久化引用。
-- `loadModelCatalog()` 读取同源 `/api/models/catalog`，不读取 Provider Key 或 Cloud Token。
-
-### cloud-client.ts
-
-**用途**: 封装同源 `/api/cloud/*` 本地 BFF，只处理公开配置、连接测试、状态、模型、额度和设备数据，不在浏览器持有 Cloud Token。
-
-- `getCloudConfig()` / `updateCloudConfig()` 管理独立受管服务 URL；`testCloudConnection()` 仅请求 Node BFF 做 health/ready 检查。
-- `resetCloudIdentity()` 发送固定危险确认值，由 Node 清本地 Session 并轮换 installation；错误通过 `CloudClientError.code` 保留（包括保存配置时的 `cloud_session_active`，以及 Token 操作时的 `cloud_session_service_mismatch`）。
-- `getCloudStatus()` 只读取本地安全摘要，不触发注册；可恢复公开的 pending Device Flow，但不包含 `deviceCode`。
-- `startCloudDeviceFlow()` / `pollCloudDeviceFlow()` / `cancelCloudDeviceFlow()` 使用受保护 JSON 写接口完成正式账户状态机，浏览器不提交邮箱、密码或 deviceCode。
-- `getCloudUsage()` / `getCloudInstallations()` 读取额度与设备。
-- `revokeCloudInstallation()` / `logoutCloud()` 管理设备生命周期；当前设备退出的远端撤销顺序由 Node 保证。
+- `loadModelCatalog()` 读取同源 `/api/models/catalog`，不读取 Provider Key。
 
 ### server-agent.ts (2236 行)
 
@@ -150,7 +138,7 @@
 
 **关键功能**:
 - SSE 事件流通过独立 `global-agent-sse-client.ts` 的 `GlobalAgentSseClient` 管理；会话恢复 watchdog 仍由 `ServerAgent` 负责
-- 消息发送/接收；`steer(message)` 乐观显示——立即把 steering user 消息追加进本地 state 并发 `message_start`，服务端在下一工具轮边界注入同一消息（同 role+timestamp）经 `message_end` 回显后由 `upsertMessage` 原位替换不重复，HTTP 失败则回滚乐观副本并重新通知面板；prompt HTTP 请求失败时先回滚未被服务端接收的乐观 user message，再追加符合消息契约的 assistant error message（具体 `errorMessage`、`stopReason:'error'`、当前模型字段、零 usage 与 timestamp），并以 `agent_end` 的 `status:'error'` / `errorMessage` 结束本地运行，让聊天区直接显示服务端返回的具体原因；该合成错误消息同时挂客户端专用 `quickforgeFailedPrompt`（未被服务端接收的原始消息），`retryFailedPrompt(errorEntry)` 据此在非流式时移除该错误消息、把 stash 中的 `selectedCapabilities`/`contextReferences` 预置回 nextPrompt*（避免 prompt 空快照逻辑剥除 details）后原样重发，供「错误旁继续按钮」区分「重发未送达消息」与「发继续消息」两种语义。`continue(appendMessage?)` 可选追加：不带参数时保持服务端截断重生成；带 `appendMessage` 时把该消息（Cloud 模型下先补 `quickforgeClientMessageId`）乐观追加进本地 state 并发 `message_start`（与 `steer` 同一模式），连同请求体 `{ message }` 发给服务端，服务端保留历史并在末尾追加后续跑，HTTP 失败则回滚乐观副本再抛出；`deferred-session-agent` 透传该参数
+- 消息发送/接收；`steer(message)` 乐观显示——立即把 steering user 消息追加进本地 state 并发 `message_start`，服务端在下一工具轮边界注入同一消息（同 role+timestamp）经 `message_end` 回显后由 `upsertMessage` 原位替换不重复，HTTP 失败则回滚乐观副本并重新通知面板；prompt HTTP 请求失败时先回滚未被服务端接收的乐观 user message，再追加符合消息契约的 assistant error message（具体 `errorMessage`、`stopReason:'error'`、当前模型字段、零 usage 与 timestamp），并以 `agent_end` 的 `status:'error'` / `errorMessage` 结束本地运行，让聊天区直接显示服务端返回的具体原因；该合成错误消息同时挂客户端专用 `quickforgeFailedPrompt`（未被服务端接收的原始消息），`retryFailedPrompt(errorEntry)` 据此在非流式时移除该错误消息、把 stash 中的 `selectedCapabilities`/`contextReferences` 预置回 nextPrompt*（避免 prompt 空快照逻辑剥除 details）后原样重发，供「错误旁继续按钮」区分「重发未送达消息」与「发继续消息」两种语义。`continue(appendMessage?)` 可选追加：不带参数时保持服务端截断重生成；带 `appendMessage` 时把该消息乐观追加进本地 state 并发 `message_start`（与 `steer` 同一模式），连同请求体 `{ message }` 发给服务端，服务端保留历史并在末尾追加后续跑，HTTP 失败则回滚乐观副本再抛出；`deferred-session-agent` 透传该参数
 - Agent 状态管理（创建、单次恢复、销毁）；`ServerAgent.restore()` 支持 `AbortSignal`，从 `/api/agents/:sessionId/restore` 一次取得完整权威快照，取消的旧会话请求不会创建 SSE；页面刷新或 SSE 重连时会从服务端 state 恢复运行中工具的临时 `toolResult`（含 subagent `details.messages`）和 `pendingToolCalls`
 - ask_user 提问流：`ask_user_required`/`ask_user_answered` SSE 事件维护 `state.pendingAsk`（随 state 快照与 SSE state 帧恢复），`answerAsk(askId, {answers, skipped})` POST `/api/agents/:id/answer-ask` 回传后清空 pending；回答以纯文本作为 ask_user 工具结果回给模型
 - Goal 模式客户端：`state.goal` 由会话快照、SSE `goal_updated` 与 `updateGoal(action, objective?)`（POST `/api/agents/:id/goal`，30s 超时，超时抛错让卡片解除 pending）维护。权威排序分两层：同一 goal id 以 `revision` 为准，旧 revision 不回退；跨 id 或 `null` 清空以请求前捕获的 goal 变更水位 `goalSeq` 守卫，异步响应只有在期间没有更新的 goal 落地时才被采纳（相同回显不推进水位）；响应缺少 `goal` 字段时保留现状而非清空。`deferred-session-agent` 同步代理 `updateGoal` 并在新会话/重置时清空 `goal`。相同回显不推进水位，且只有**真正改变** goal 的快照才向订阅者广播 `goal_updated`（`/state` 刷新同样带请求前水位，输给更新的 goal 快照时不上报）。goal 帧与 goal 通知一律**不**推进消息 `stateVersion`：goal 不改消息，推进会作废在途的消息对账并丢消息。`/state` 刷新的消息版本早退路径只对「同 goal id + 严格更高 revision + 请求前捕获的 `goalSeq` 未被期间落地的 goal 改变」的 goal 快照独立采纳（`adoptNewerRevisionGoalFromSnapshot`），跨 id 替换与 `null` 清空不越过消息版本 guard，仍由正常路径与 `goalSeq` 水位裁定
@@ -344,7 +332,7 @@
 | `backup-settings-tab.ts` | 数据备份导出和导入 |
 | `default-options-settings-tab.ts` | 设置默认模型、语言、思考级别、Tool 展示、上下文用量显示、上下文管理和终端 Shell；默认 Shell 从系统识别列表选择，并支持自定义命令或路径 |
 | `about-settings-tab.ts` | 关于信息、更新检查/执行（经 `update-check-poll.ts` 轮询，手动检查 force 跳过服务端缓存），以及后端服务重启 |
-| `project-commands-settings-tab.ts` | 项目命令目录配置 + 命令预览 + 新建命令 |
+| `project-commands-settings-tab.ts` | 项目命令目录配置 + 命令预览 + 新建命令（showPrompt 弹窗输入名称）+ 打开命令目录（取 commandDir 首个配置目录，未配置时回退 .ai/commands） |
 | `archived-conversations-settings-tab.ts` | 已归档对话的恢复和永久删除 |
 | `react-settings-tabs.tsx` | 将 Agent、Skills、MCP、插件、定时任务和分享链接管理等 React 页面适配为设置 Tab |
 | `share-client.ts` | 分享链接创建、列表、编辑（权限/密码/有效期）、停用、恢复、永久删除及状态推导 API |

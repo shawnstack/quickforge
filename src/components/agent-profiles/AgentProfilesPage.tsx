@@ -28,7 +28,6 @@ type RiskLevel = 'safe' | 'dangerous'
 type AgentModelRef =
   | { mode: 'inherit' }
   | ({ mode: 'fixed' } & (
-      | { source: 'cloud'; catalogId: string }
       | { source: 'custom'; providerId: string; modelId: string }
       | { source?: 'legacy-custom'; provider: string; modelId: string; api?: string; baseUrl?: string }
     ))
@@ -105,7 +104,6 @@ function modelRefFromOption(value: string): AgentModelRef {
 
 function modelRefToOption(model?: AgentModelRef) {
   if (!model || model.mode !== 'fixed') return ''
-  if (model.source === 'cloud') return JSON.stringify({ version: 1, source: 'cloud', catalogId: model.catalogId })
   if (model.source === 'custom') return JSON.stringify({ version: 1, source: 'custom', providerId: model.providerId, modelId: model.modelId })
   return JSON.stringify({
     version: 1,

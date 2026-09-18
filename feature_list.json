@@ -1,6 +1,57 @@
 {
   "features": [
     {
+      "id": "remove-cloud-service",
+      "name": "完全移除 QuickForge Cloud 云服务（服务端 + 前端 + 测试 + 文档同步）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "三阶段执行。目标：完全移除 QuickForge Cloud 云服务代码与界面。阶段A（服务端）：删除 server/cloud/ 全部 10 个模块与 routes/cloud.mjs（/api/cloud/* BFF），解除 server/index.mjs、agent-manager.mjs、access-policy.mjs、ai-http-logger.mjs（移除托管模型懒解析/幂等键注入）、model-catalog.mjs（目录仅剩自定义 Provider，不再识别 cloud 引用）、routes/{models,scheduled-tasks,shared-conversation,shares,agent-profiles}.mjs、share-store.mjs、sqlite/share-repository.mjs、storage.mjs、acp/server.mjs、public-api.mjs、agent-profile-schema.mjs 的云耦合点。阶段B（前端）：删除 cloud/CloudAccountSettingsPage.tsx、cloud-account-settings-state.ts、mobile/CloudRemotePage.tsx、mobile/RemoteTunnelOverlay.tsx、hooks/useCloudModels.ts、lib/{cloud-client,cloud-error-message,cloud-remote-client,managed-cloud-model,remote-tunnel,tunnel-recovery}.ts；App.tsx、settings-tabs.ts、SettingsWorkspacePage.tsx、MobileServerConnectPage.tsx（仅局域网/Tailscale 直连）、pi-chat.ts、startup-model.ts、model-reference.ts、server-agent.ts、i18n.ts、index.css 等同步去云化并删除云词条。阶段C（本阶段）：删除云专属文档 5 个（architecture/quickforge-cloud-client、architecture/cloud-admin-console、design/remote-access-p2p、design/cloud-admin-console-wireframe.svg、design-mockups/cloud-url-row-redesign.html）；android-remote-client.zh-CN.md 顶部加状态说明（云服务已移除、Android 原生云代码暂留、云远程不可用）；wiki 6 页（server、server/routes、src、src/lib、src/hooks、src/components README）删除全部云描述（cloud/ 目录行、cloud.mjs 小节、useCloudModels、cloud-client、CloudAccountSettingsPage、allowCloudUsage、云幂等键/懒解析等）；user-guide zh/en 删云模型规则语句与「正式账户登录与注册」章节（目录锚点无需调整）。关键决策：①分享 SQLite 列 allow_cloud_usage 保留不迁移（API 不再接收/返回 allowCloudUsage）；②旧云模型引用（source:'cloud'）在统一 resolver 中自然降级失败（model_not_configured），不做数据清理；③Android 原生云代码与 capacitor.config.ts 保留暂留待后续清理；④遗留本地云数据（cloud-identity.json 等）不主动清理。",
+      "files": [
+        "server/cloud/*（10 文件删除）",
+        "server/routes/cloud.mjs（删除）",
+        "server/（index/agent-manager/access-policy/ai-http-logger/model-catalog/public-api/agent-profile-schema/storage/share-store 等 12 文件去云耦合）",
+        "src/（删除 11 个云组件/库/hook 文件；App/设置页/移动连接页/pi-chat/startup-model/model-reference/server-agent/i18n/index.css 等 24 文件去云化）",
+        "tests/（删除 cloud 前后端测试 21 文件；修复 model-catalog/shares/share-*/server-agent/default-options/scheduled-tasks 等相关测试）",
+        "docs/architecture/quickforge-cloud-client.zh-CN.md（删除）",
+        "docs/architecture/cloud-admin-console.zh-CN.md（删除）",
+        "docs/design/remote-access-p2p.md（删除）",
+        "docs/design/cloud-admin-console-wireframe.svg（删除）",
+        "design-mockups/cloud-url-row-redesign.html（删除）",
+        "docs/architecture/android-remote-client.zh-CN.md（顶部状态说明）",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/src/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/hooks/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/user-guide.zh-CN.md",
+        "docs/user-guide.en-US.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-18 全量：npm run test 333 files / 3900 passed + 1 skipped（exit 0）；npm run lint 0 errors（仅既有 coverage 3 warnings）；npm run build exit 0（仅既有 KaTeX/chunk warnings）。残留扫描：src/、server/、docs/wiki/、docs/user-guide* 无 QuickForge Cloud 云服务残留引用（保留项：第三方云 LLM 提供商翻译、lucide 图标、SQLite allow_cloud_usage 列、android/、capacitor.config.ts、CHANGELOG、docs/archive、历史 reviews/reports、android-remote-client 状态说明）。改动未提交（dev 工作区），与并行会话 project-commands-settings-ux 未提交改动共存。",
+      "boundaries": "未清理遗留本地数据（cloud-identity.json、cloud-chat-idempotency/ 等用户目录文件）；Android 原生云代码与 capacitor.config.ts 保留待后续单独清理；package-dist/package-offline 未重新生成（下次打包时自然更新）；CHANGELOG、docs/archive、docs/reviews、docs/reports、share-token-storage-migration.zh-CN.md 历史记录未动；无 Git commit/tag/push；未手工触碰 dist/（build 正常生成）。"
+    },
+    {
+      "id": "project-commands-settings-ux",
+      "name": "设置-项目命令 UI 交互优化（新建命令弹窗 + 打开目录取配置）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-17 纯前端交互优化（两处）：project-commands-settings-tab.ts 新建命令由 window.prompt 改为 showPrompt 弹窗（en/zh 成对新增 i18n key newCommandNamePlaceholder）；打开命令目录由硬编码 .ai/commands 改为读取 commandDir 配置首个非空行，未配置时回退 .ai/commands。新增 tests/frontend/project-commands-settings-tab.test.ts 7 用例，docs/wiki/src/lib/README.md 设置选项卡表格同步行为描述。",
+      "files": [
+        "src/lib/project-commands-settings-tab.ts",
+        "src/lib/i18n.ts",
+        "tests/frontend/project-commands-settings-tab.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-17：定向 vitest 9 用例通过（含新增 7 例）；相关文件 eslint 0 错；tsc -b 通过。",
+      "boundaries": "仅前端 tab 交互与 i18n 文案，服务端命令目录解析未改——新建命令仍固定落盘 .ai/commands，与打开目录取 commandDir 首行存在不对称（记入 progress.md Notes）；该 tab 其余 UX 问题（来源标注、编辑/删除、目录选择器、提示不自动消失）未在本次范围。未触碰 dist/package-dist/package-offline；无 Git commit。"
+    },
+    {
       "id": "dead-code-cleanup-round2",
       "name": "死代码清理 round2（四区扫描 18 项候选 + 确认执行 15 组删除）",
       "status": "done",

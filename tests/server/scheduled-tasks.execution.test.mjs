@@ -513,7 +513,7 @@ describe('scheduled task execution lifecycle', () => {
       role: 'user',
       content: [{ type: 'text', text: '执行生命周期测试' }],
       timestamp: expect.any(Number),
-    }, [], null, null, { source: 'scheduled', allowCloud: true })
+    }, [], null, null, { source: 'scheduled' })
     expect(mocks.sessions.get(sessionId).agent.state.messages.filter((message) => message.role === 'user')).toHaveLength(1)
     expect(task.runs[0].aiResult).toBe('正常完成结果')
     expect(mocks.eventBuses.get(sessionId).listenerCount('agent_event')).toBe(0)

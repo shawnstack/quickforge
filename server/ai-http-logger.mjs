@@ -3,8 +3,6 @@ import path from 'node:path'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { streamSimple } from '@earendil-works/pi-ai/compat'
-import { resolveManagedCloudProvider } from './cloud/runtime.mjs'
-import { ensureCloudChatIdempotencyKey } from './cloud/chat-idempotency-store.mjs'
 import {
   DEFAULT_AI_STREAM_FIRST_EVENT_TIMEOUT_MS,
   DEFAULT_AI_STREAM_IDLE_TIMEOUT_MS,
@@ -513,27 +511,6 @@ function wrapStreamWithTimeouts(createStream, timeoutController, {
   }
 }
 
-function lazyStream(streamPromise) {
-  return {
-    result: () => streamPromise.then((stream) => stream.result()),
-    [Symbol.asyncIterator]() {
-      let iteratorPromise
-      const iterator = () => {
-        iteratorPromise ||= streamPromise.then((stream) => stream[Symbol.asyncIterator]())
-        return iteratorPromise
-      }
-      return {
-        next: async () => (await iterator()).next(),
-        return: async () => {
-          const resolved = await iterator()
-          if (typeof resolved.return === 'function') return resolved.return()
-          return { value: undefined, done: true }
-        },
-      }
-    },
-  }
-}
-
 function createProviderStream(model, context, options) {
   return aiHttpLogEnabled
     ? aiHttpContext.run({
@@ -545,29 +522,6 @@ function createProviderStream(model, context, options) {
         model: model?.id,
       }, () => streamSimple(model, context, options))
     : streamSimple(model, context, options)
-}
-
-const CLIENT_MESSAGE_ID_FIELD = 'quickforgeClientMessageId'
-
-function logicalMessageIdFromContext(context) {
-  const messages = Array.isArray(context?.messages) ? context.messages : []
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index]
-    if (message?.role !== 'user' && message?.role !== 'user-with-attachments') continue
-    const metadata = message.metadata
-    const messageId = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
-      ? metadata[CLIENT_MESSAGE_ID_FIELD]
-      : undefined
-    return typeof messageId === 'string' && messageId ? messageId : undefined
-  }
-  return undefined
-}
-
-async function managedCloudIdempotencyKey(context, options) {
-  const messageId = logicalMessageIdFromContext(context)
-  return options.sessionId && messageId
-    ? ensureCloudChatIdempotencyKey(options.sessionId, messageId)
-    : randomUUID()
 }
 
 export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
@@ -603,38 +557,14 @@ export function streamSimpleWithAiHttpLogging(model, context, options = {}) {
   // 每次尝试独立的 abort controller：零内容重试换流时打断上一次的挂起连接，
   // 而 total timeout 的 timeoutController 跨尝试共享（总时长不因重试重置）。
   let attemptController = null
-  let attemptCount = 0
   const createStream = () => {
     attemptController?.abort()
     attemptController = new AbortController()
-    attemptCount += 1
     const effectiveOptions = {
       ...baseOptions,
       signal: combineAbortSignals(parentSignal, timeoutController.signal, attemptController.signal),
     }
-    const managedCloud = model?.provider === 'quickforge-cloud' && model?.quickforgeModelSource === 'cloud'
-    if (!managedCloud) return createProviderStream(model, context, effectiveOptions)
-    // 重试尝试换新的幂等键：同一 key 重放已中断的流，供应商语义不可控。
-    const keyPromise = attemptCount === 1
-      ? managedCloudIdempotencyKey(context, effectiveOptions)
-      : Promise.resolve(randomUUID())
-    return lazyStream(Promise.all([
-      resolveManagedCloudProvider(model, effectiveOptions.signal),
-      keyPromise,
-    ]).then(([resolved, idempotencyKey]) => createProviderStream(
-      {
-        ...resolved.model,
-        headers: {
-          ...(resolved.model.headers || {}),
-          'Idempotency-Key': idempotencyKey,
-        },
-      },
-      context,
-      {
-        ...effectiveOptions,
-        apiKey: resolved.apiKey,
-      },
-    )))
+    return createProviderStream(model, context, effectiveOptions)
   }
   return wrapStreamWithTimeouts(createStream, timeoutController, {
     idleTimeoutMs,

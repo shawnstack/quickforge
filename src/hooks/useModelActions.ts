@@ -12,7 +12,6 @@ import {
   getSelectableConfiguredModels,
 } from '@/lib/pi-chat'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
-import type { ModelSelectorHandle } from '@/lib/custom-model-selector'
 import {
   readCachedModelList,
   readCachedModelListStale,
@@ -36,9 +35,6 @@ type UseModelActionsOptions = {
   setRestoredDraft: React.Dispatch<React.SetStateAction<RestoredDraft | undefined>>
   notifySettingsChanged: () => void
   openSettingsPage: (initialTab: SettingsInitialTab, customProvider?: string) => void
-  loadCloudModels: () => Promise<Model<Api>[]>
-  readCachedCloudModels: () => readonly Model<Api>[]
-  isCloudModelsLoaded: () => boolean
 }
 
 export function useModelActions({
@@ -52,9 +48,6 @@ export function useModelActions({
   setRestoredDraft,
   notifySettingsChanged,
   openSettingsPage,
-  loadCloudModels,
-  readCachedCloudModels,
-  isCloudModelsLoaded,
 }: UseModelActionsOptions) {
   const activateConfiguredModel = useCallback(async () => {
     const storage = storageRef.current
@@ -175,38 +168,20 @@ export function useModelActions({
     }
 
     const openSelector = (customModels: Model<Api>[]) => {
-      const availableModels = mergeAvailableModels(customModels, readCachedCloudModels())
+      const availableModels = mergeAvailableModels(customModels, [])
 
       if (availableModels.length === 0) {
-        if (isCloudModelsLoaded()) {
-          showEmptyModelConfirmation()
-          return
-        }
-
-        void loadCloudModels()
-          .then((loadedCloudModels) => {
-            const loadedModels = mergeAvailableModels(customModels, loadedCloudModels)
-            if (loadedModels.length === 0) {
-              if (isCloudModelsLoaded()) showEmptyModelConfirmation()
-              return
-            }
-            openSelectorWithModels(customModels, loadedModels, false)
-          })
-          .catch((error) => {
-            logger.warn('Failed to load QuickForge Cloud models:', error)
-          })
+        showEmptyModelConfirmation()
         return
       }
 
-      openSelectorWithModels(customModels, availableModels, true)
+      openSelectorWithModels(availableModels)
     }
 
     const openSelectorWithModels = (
-      customModels: Model<Api>[],
       availableModels: Model<Api>[],
-      refreshCloudModels: boolean,
     ) => {
-      const selector: ModelSelectorHandle | null = openCustomOnlyModelSelector(
+      openCustomOnlyModelSelector(
         currentAgent.state.model ?? activeModelRef.current,
         availableModels,
         (model) => {
@@ -236,7 +211,6 @@ export function useModelActions({
           })
         },
         async (model) => {
-          if (model.provider === 'quickforge-cloud') return
           openSettingsDialog('customModels', model.provider)
         },
         {
@@ -244,19 +218,9 @@ export function useModelActions({
           onOpenModelSettings: openModelSettings,
         },
       )
-
-      if (!refreshCloudModels) return
-      void loadCloudModels()
-        .then((loadedCloudModels) => {
-          if (!selector?.isOpen()) return
-          selector.updateModels(mergeAvailableModels(customModels, loadedCloudModels))
-        })
-        .catch((error) => {
-          logger.warn('Failed to load QuickForge Cloud models:', error)
-        })
     }
 
-    // 有本地缓存时同步打开；否则本地目录完成后打开，不等待 Cloud 请求。
+    // 有本地缓存时同步打开；否则本地目录加载完成后打开。
     const cachedCustomModels = readCachedModelList()
     if (cachedCustomModels) {
       openSelector(cachedCustomModels)
@@ -282,9 +246,6 @@ export function useModelActions({
     setRestoredDraft,
     openModelSettings,
     openSettingsDialog,
-    loadCloudModels,
-    readCachedCloudModels,
-    isCloudModelsLoaded,
   ])
 
   return {

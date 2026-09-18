@@ -29,7 +29,6 @@ function shareRecord(overrides = {}) {
     titleSnapshot: overrides.titleSnapshot || 'Shared session',
     scope: 'global',
     authVersion: 1,
-    allowCloudUsage: false,
     createdAt: now,
     updatedAt: now,
     accessCount: 0,

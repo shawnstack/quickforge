@@ -26,9 +26,6 @@ export type SideChatStreamOptions = {
 }
 
 function serializeModelReference(modelRef: ModelReference): ModelReference {
-  if (modelRef.source === 'cloud') {
-    return { version: 1, source: 'cloud', catalogId: String(modelRef.catalogId) }
-  }
   if (modelRef.source === 'custom') {
     return {
       version: 1,

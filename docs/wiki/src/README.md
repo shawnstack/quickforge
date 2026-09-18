@@ -8,14 +8,13 @@
 src/
 ├── components/          # React 组件
 │   ├── chat/            # 聊天面板（含多个子模块）
-│   ├── cloud/           # 账户与云服务设置页
 │   ├── preview/          # 网页预览内容组件（iframe 加载本地 dev server URL）
 │   ├── scheduled-tasks/ # 定时任务页面
 │   ├── share/           # 对话分享
 │   ├── sidebar/         # 侧边栏
 │   ├── terminal/         # xterm.js 多终端 Dock
 │   ├── ui/              # 基础 UI 组件
-├── hooks/               # 自定义 React Hooks (19 个)
+├── hooks/               # 自定义 React Hooks (18 个)
 ├── lib/                 # 前端工具库 (87 个模块)
 ├── App.tsx              # 主应用组件 (625 行)
 ├── index.css            # 全局样式 (5345 行)
@@ -35,10 +34,10 @@ src/
 - 从 `react-dom/client` 创建根节点
 - 应用全局 CSS（`index.css`）
 - 调用 `patchThinkingSelector()` 修补 pi-web-ui 的模型选择器
-- 设置界面由 `components/settings/SettingsWorkspacePage.tsx` 以工作区式布局承载：左侧复用侧边栏背景与导航风格，右侧复用主对话区域背景；`hooks/useModelActions.ts` 负责打开设置页并选择初始 tab，`lib/settings-tabs.ts` 组装多个 `SettingsTab`，包含账户与云服务、模型、Agent、MCP、插件、定时任务和分享链接等管理页；「账户与云服务」由 `components/cloud/CloudAccountSettingsPage.tsx` 配置独立受管 Cloud URL、测试 health/ready，并展示额度与公开模型目录（远程访问状态、云身份状态行与设备管理 UI 已下线）；跨 URL 且存在 Session 时要求先退出或明确确认本地重建身份，不会把旧 Refresh Token 发到新服务；退出先完成远端撤销，重新体验会轮换安装密钥并创建新游客，不恢复旧额度；「分享链接」由 `components/share/ShareLinksSettingsPage.tsx` 统一管理当前实例全部对话分享，支持搜索、复制、打开、停用、按新有效期恢复和永久删除；其中“常规”页包含默认模型、工具展示、上下文管理、超过 30 天未更新对话的自动归档、网络代理和终端 Shell 配置；网络代理提供直连、跟随操作系统真实代理、手动 HTTP(S) 地址和 PAC 地址四种模式，自定义 PAC 地址仅 Desktop 支持，本地 API 始终直连；自动归档默认关闭，归档记录不会删除，可在“已归档对话”页查看和恢复；`lib/channels-settings-tab.ts` 的“渠道”页用于管理本地外部应用 bridge（当前内置微信渠道，通过 `weixin-acp` 接入 `qf acp`，默认使用全局默认工作区，也可选择已有项目启动；外部 ACP 会话持久化后通过 `sessions-changed` 事件（经 `GET /api/agents/events` 全局流转发）精准更新侧边栏，不使用固定轮询）；底部包含 `lib/about-settings-tab.ts` 的“关于”页，用于展示 GitHub、检查 npm 更新、触发本机外部更新器和重启后端服务；更新/重启期间页面轮询 `/api/health`，服务重启后自动刷新
+- 设置界面由 `components/settings/SettingsWorkspacePage.tsx` 以工作区式布局承载：左侧复用侧边栏背景与导航风格，右侧复用主对话区域背景；`hooks/useModelActions.ts` 负责打开设置页并选择初始 tab，`lib/settings-tabs.ts` 组装多个 `SettingsTab`，包含模型、Agent、MCP、插件、定时任务和分享链接等管理页；「分享链接」由 `components/share/ShareLinksSettingsPage.tsx` 统一管理当前实例全部对话分享，支持搜索、复制、打开、停用、按新有效期恢复和永久删除；其中“常规”页包含默认模型、工具展示、上下文管理、超过 30 天未更新对话的自动归档、网络代理和终端 Shell 配置；网络代理提供直连、跟随操作系统真实代理、手动 HTTP(S) 地址和 PAC 地址四种模式，自定义 PAC 地址仅 Desktop 支持，本地 API 始终直连；自动归档默认关闭，归档记录不会删除，可在“已归档对话”页查看和恢复；`lib/channels-settings-tab.ts` 的“渠道”页用于管理本地外部应用 bridge（当前内置微信渠道，通过 `weixin-acp` 接入 `qf acp`，默认使用全局默认工作区，也可选择已有项目启动；外部 ACP 会话持久化后通过 `sessions-changed` 事件（经 `GET /api/agents/events` 全局流转发）精准更新侧边栏，不使用固定轮询）；底部包含 `lib/about-settings-tab.ts` 的“关于”页，用于展示 GitHub、检查 npm 更新、触发本机外部更新器和重启后端服务；更新/重启期间页面轮询 `/api/health`，服务重启后自动刷新
 - 调用 `applyClipboardPolyfill()` 应用剪贴板兼容处理
 - 生产环境注册 `/sw.js`，启用轻量 PWA 安装和前端静态资源缓存；Capacitor 原生环境不注册 Service Worker
-- Android 薄壳入口由 `components/mobile/MobileServerConnectPage.tsx`、`components/mobile/CloudRemotePage.tsx` 与 `lib/mobile-server.ts` 提供：启动后先由用户选择云账户或服务器连接方式；服务器选择页以已保存列表为主，点击服务器行才会连接，`lastUsedUrl` 仅用于显示“上次使用”标记。添加表单仅在首次使用或主动添加时展开；表单会提示支持的 Tailscale 地址范围并预览规范化地址，别名编辑与删除收拢在服务器管理区，删除前需要确认。连接地址仅接受 `.ts.net` MagicDNS 完整域名或 Tailscale `100.64.0.0/10` 地址，远端页面继续保持页面、REST、SSE 和 LAN Cookie 同源；云账户检测到已有原生会话时需用户点击“继续当前登录”后才加载设备，也可清理本地会话后使用其他账号；侧栏底部可通过当前地址返回服务器选择页
+- Android 薄壳入口由 `components/mobile/MobileServerConnectPage.tsx` 与 `lib/mobile-server.ts` 提供：启动后先由用户选择服务器连接方式（局域网 / Tailscale 直连）；服务器选择页以已保存列表为主，点击服务器行才会连接，`lastUsedUrl` 仅用于显示“上次使用”标记。添加表单仅在首次使用或主动添加时展开；表单会提示支持的 Tailscale 地址范围并预览规范化地址，别名编辑与删除收拢在服务器管理区，删除前需要确认。连接地址仅接受 `.ts.net` MagicDNS 完整域名或 Tailscale `100.64.0.0/10` 地址，远端页面继续保持页面、REST、SSE 和 LAN Cookie 同源；侧栏底部可通过当前地址返回服务器选择页
 - 渲染前调用 `lib/window-guard.ts` 的 `acquireAppWindowGuard()`（Web Locks 严格单窗口，ifAvailable 抢锁很快）：granted/unsupported 正常渲染 App；blocked 窗口只渲染 `WindowGuardNotice` 拦截页——不加载 App、不建立 SSE 连接，纯静态提示用户关闭本窗口并回到已有窗口使用（不提供关闭按钮：浏览器不允许脚本关闭手动打开的标签页）
 - 在 `<StrictMode>` 中渲染 `<App />` 组件
 

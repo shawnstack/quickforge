@@ -8,49 +8,25 @@ const customProviders = [{
   ],
 }]
 
-const cloudModel = {
-  id: 'cloud-fast',
-  name: 'Cloud Fast',
-  provider: 'quickforge-cloud',
-  api: 'openai-completions',
-  baseUrl: 'quickforge://cloud/cloud-fast',
-  quickforgeModelSource: 'cloud',
-  quickforgeCatalogId: 'cloud-fast',
-}
-
-const cloudRuntime = {
-  enabled: true,
-  config: { enabled: true, baseUrl: new URL('https://cloud.test/') },
-  models: {
-    list: vi.fn(async () => [cloudModel]),
-    resolve: vi.fn(async () => ({ publicModel: cloudModel })),
-  },
-}
-
 vi.mock('../../server/storage.mjs', () => ({
   readStore: vi.fn(async (name) => name === 'custom-providers' ? customProviders : {}),
-}))
-
-vi.mock('../../server/cloud/runtime.mjs', () => ({
-  getCloudRuntime: vi.fn(async () => cloudRuntime),
 }))
 
 describe('model catalog', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('lists selectable custom and Cloud models with canonical references', async () => {
+  it('lists selectable custom models with canonical references', async () => {
     const { listModelCatalog } = await import('../../server/model-catalog.mjs')
     const models = await listModelCatalog({ context: { isLocalRequest: true } })
-    expect(models.map((model) => model.id)).toEqual(['visible', 'cloud-fast'])
+    expect(models.map((model) => model.id)).toEqual(['visible'])
     expect(models[0].quickforgeModelRef).toEqual({ version: 1, source: 'custom', providerId: 'provider-one', modelId: 'visible' })
-    expect(models[1].quickforgeModelRef).toEqual({ version: 1, source: 'cloud', catalogId: 'cloud-fast' })
   })
 
   it('keeps only the current hidden binding and prevents another hidden selection', async () => {
     const { listModelCatalog, resolveModelBinding } = await import('../../server/model-catalog.mjs')
     const current = customProviders[0].models[1]
     const models = await listModelCatalog({ context: { isLocalRequest: true }, currentModel: current })
-    expect(models.map((model) => model.id)).toEqual(['hidden', 'visible', 'cloud-fast'])
+    expect(models.map((model) => model.id)).toEqual(['hidden', 'visible'])
 
     await expect(resolveModelBinding({
       modelRef: { version: 1, source: 'custom', providerId: 'provider-one', modelId: 'hidden' },
@@ -61,62 +37,26 @@ describe('model catalog', () => {
     }, { context: { isLocalRequest: true }, currentModel: current, allowCurrentHidden: true })).resolves.toMatchObject({ model: current })
   })
 
-  it('allows Cloud for authenticated remote clients and denies untrusted share contexts', async () => {
+  it('keeps the persisted current model even when it is no longer listed', async () => {
+    const { listModelCatalog } = await import('../../server/model-catalog.mjs')
+    const currentModel = { id: 'removed', provider: 'Provider One', api: 'openai-completions', baseUrl: 'https://removed.example/v1' }
+    const models = await listModelCatalog({ context: { isLocalRequest: true }, currentModel })
+    expect(models.map((model) => model.id)).toEqual(['removed', 'visible'])
+    expect(models[0].quickforgeModelRef).toEqual({
+      version: 1,
+      source: 'legacy-custom',
+      provider: 'Provider One',
+      modelId: 'removed',
+      api: 'openai-completions',
+      baseUrl: 'https://removed.example/v1',
+    })
+  })
+
+  it('rejects a legacy cloud reference as an invalid model reference', async () => {
     const { resolveModelBinding } = await import('../../server/model-catalog.mjs')
-    const input = { modelRef: { version: 1, source: 'cloud', catalogId: 'cloud-fast' } }
-    await expect(resolveModelBinding(input, {
-      context: { isLocalRequest: false, remoteAddress: '192.168.1.10', remoteAuthorized: true },
-    })).resolves.toMatchObject({ model: cloudModel })
-    await expect(resolveModelBinding(input, {
-      context: { isLocalRequest: false, remoteAuthorized: false },
-    })).rejects.toMatchObject({ statusCode: 403, code: 'cloud_access_denied' })
-    await expect(resolveModelBinding(input, {
-      context: { isLocalRequest: true, source: 'shared', allowCloud: false },
-    })).rejects.toMatchObject({ statusCode: 403, code: 'cloud_access_denied' })
-  })
-
-  it('hides and rejects Cloud models while the service switch is off', async () => {
-    const { listModelCatalog, resolveModelBinding } = await import('../../server/model-catalog.mjs')
-    cloudRuntime.enabled = false
-    cloudRuntime.config.enabled = false
-    try {
-      const models = await listModelCatalog({ context: { isLocalRequest: true } })
-      expect(models.every((model) => model.id !== 'cloud-fast')).toBe(true)
-      await expect(resolveModelBinding({
-        modelRef: { version: 1, source: 'cloud', catalogId: 'cloud-fast' },
-      }, { context: { isLocalRequest: true } })).rejects.toMatchObject({ statusCode: 503, code: 'cloud_disabled' })
-    } finally {
-      cloudRuntime.enabled = true
-      cloudRuntime.config.enabled = true
-    }
-  })
-
-  it('still includes Cloud models when the catalog resolves within the short deadline', async () => {
-    const { listModelCatalog } = await import('../../server/model-catalog.mjs')
-    const models = await listModelCatalog({ context: { isLocalRequest: true }, cloudWaitMs: 2_000 })
-    expect(models.map((model) => model.id)).toEqual(['visible', 'cloud-fast'])
-  })
-
-  it('degrades to local models when the Cloud catalog stalls past the short deadline', async () => {
-    const { listModelCatalog } = await import('../../server/model-catalog.mjs')
-    cloudRuntime.models.list.mockImplementationOnce(() => new Promise(() => {}))
-    const startedAt = Date.now()
-    const models = await listModelCatalog({ context: { isLocalRequest: true }, cloudWaitMs: 20 })
-    expect(Date.now() - startedAt).toBeLessThan(1_000)
-    expect(models.map((model) => model.id)).toEqual(['visible'])
-  })
-
-  it('keeps a late Cloud catalog failure in the background instead of surfacing an unhandled rejection', async () => {
-    const { listModelCatalog } = await import('../../server/model-catalog.mjs')
-    let rejectModels
-    cloudRuntime.models.list.mockImplementationOnce(() => new Promise((_resolve, reject) => {
-      rejectModels = reject
-    }))
-    const models = await listModelCatalog({ context: { isLocalRequest: true }, cloudWaitMs: 20 })
-    expect(models.map((model) => model.id)).toEqual(['visible'])
-
-    rejectModels(new Error('cloud catalog failed'))
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await expect(resolveModelBinding({
+      modelRef: { version: 1, source: 'cloud', catalogId: 'cloud-fast' },
+    }, { context: { isLocalRequest: true } })).rejects.toMatchObject({ code: 'invalid_model_reference' })
   })
 
   it('does not trust custom transport submitted with a canonical reference', async () => {

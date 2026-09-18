@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ArrowRight, Check, ChevronRight, Cloud, MoreHorizontal, Pencil, Plus, Server, ShieldCheck, Trash2, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronRight, MoreHorizontal, Pencil, Plus, Server, ShieldCheck, Trash2, X } from 'lucide-react'
 import {
   buildMobileServerAppUrl,
   normalizeTailscaleServerUrl,
@@ -7,8 +7,6 @@ import {
   saveMobileServerSettings,
   type MobileServerSettings,
 } from '@/lib/mobile-server'
-import { CloudRemotePage } from '@/components/mobile/CloudRemotePage'
-import { RemoteTunnel, type RemoteTunnelHasSession } from '@/lib/remote-tunnel'
 
 /** 跳转前连接动画的最小展示时长，避免“点击即跳转”让用户感知不到正在建立连接。 */
 const CONNECT_ANIMATION_MS = 800
@@ -26,14 +24,6 @@ export function MobileServerConnectPage() {
   const [editingUrl, setEditingUrl] = useState<string | null>(null)
   const [editingAlias, setEditingAlias] = useState('')
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null)
-  // “服务器列表”保留 Tailscale 直连；“云账户”为云远程访问（RemoteTunnel 隧道）。
-  // 支持 ?tab=servers|cloud 指定初始选中项（远程页面侧边栏“返回连接页”入口携带）。
-  const [activeTab, setActiveTab] = useState<'servers' | 'cloud'>(() => {
-    const tab = new URLSearchParams(location.search).get('tab')
-    return tab === 'servers' ? 'servers' : 'cloud'
-  })
-  // 云账户登录态（挂载时静默探测，Web 预览等非 Capacitor 环境插件不可用则保持未登录态）。
-  const [cloudSession, setCloudSession] = useState<RemoteTunnelHasSession>({ signedIn: false })
 
   // 连接动画展示完成后跳转到目标服务器；组件卸载（如用户按返回键）时取消跳转。
   useEffect(() => {
@@ -43,21 +33,6 @@ export function MobileServerConnectPage() {
     }, CONNECT_ANIMATION_MS)
     return () => window.clearTimeout(timer)
   }, [connectingUrl])
-
-  // 挂载时探测云账户会话，用于 tab 上的已登录徽章。
-  useEffect(() => {
-    let active = true
-    RemoteTunnel.hasSession()
-      .then((session) => {
-        if (active) setCloudSession(session)
-      })
-      .catch(() => {
-        // 原生插件暂不可用时静默降级（Web 预览等场景）。
-      })
-    return () => {
-      active = false
-    }
-  }, [])
 
   const normalizedPreview = useMemo(() => {
     if (!serverUrl.trim()) return ''
@@ -197,36 +172,6 @@ export function MobileServerConnectPage() {
   return (
     <main className="min-h-dvh bg-background px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-foreground">
       <div className="mx-auto w-full max-w-md">
-        <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-muted/40 p-1" role="tablist" aria-label="连接方式">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'servers'}
-            className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition-colors ${activeTab === 'servers' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setActiveTab('servers')}
-          >
-            <Server className="size-4" aria-hidden="true" />
-            服务器列表
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'cloud'}
-            className={`flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1.5 py-1.5 text-sm font-medium transition-colors ${activeTab === 'cloud' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setActiveTab('cloud')}
-          >
-            <span className="flex items-center justify-center gap-1.5">
-              <Cloud className="size-4" aria-hidden="true" />
-              云账户
-            </span>
-            {cloudSession.signedIn && cloudSession.email ? (
-              <span className="block w-full max-w-full truncate text-center text-xs leading-tight text-muted-foreground/80">{cloudSession.email}</span>
-            ) : null}
-          </button>
-        </div>
-        {activeTab === 'cloud' ? (
-          <CloudRemotePage onSessionChange={setCloudSession} />
-        ) : (
         <section className="mx-auto w-full max-w-md">
         <header className="mb-8 flex items-start gap-3.5">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-background shadow-quickforge">
@@ -466,7 +411,6 @@ export function MobileServerConnectPage() {
           </section>
         ) : null}
         </section>
-        )}
       </div>
 
       {deletingUrl ? (

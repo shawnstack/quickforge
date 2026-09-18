@@ -1,3 +1,26 @@
+## 最新交接：remove-cloud-service（done，2026-09-18）
+
+- 当前目标已完成（待提交）：完全移除 QuickForge Cloud 云服务。阶段A（服务端：server/cloud/ 10 模块 + routes/cloud.mjs 删除及 16 个耦合文件去云）、阶段B（前端：11 个云组件/库/hook 删除及 24 文件去云化 + 21 个云测试删除/相关测试修复）、阶段C（文档同步 + 项目记录 + 全量验证）均完成。
+- 阶段C改动文件：删除 5 个云专属文档（docs/architecture/quickforge-cloud-client.zh-CN.md、docs/architecture/cloud-admin-console.zh-CN.md、docs/design/remote-access-p2p.md、docs/design/cloud-admin-console-wireframe.svg、design-mockups/cloud-url-row-redesign.html）；docs/architecture/android-remote-client.zh-CN.md 顶部状态说明（云服务已移除、Android 原生云代码暂留、云远程不可用）；docs/wiki/{server,server/routes,src,src/lib,src/hooks,src/components}/README.md 去云；docs/user-guide.{zh-CN,en-US}.md 删云章节；feature_list.json / progress.md / session-handoff.md 追加记录。
+- 验证：全量 test（333 files / 3900 passed + 1 skipped）、lint（0 errors，仅既有 coverage 3 warnings）、build（exit 0，仅既有 KaTeX/chunk warnings）全部通过；残留扫描 src/、server/、docs/wiki/、docs/user-guide* 无云服务残留引用（保留项见 feature_list boundaries）。
+- 并行会话共存：project-commands-settings-ux 未提交改动（src/lib/project-commands-settings-tab.ts、src/lib/i18n.ts、tests/frontend/project-commands-settings-tab.test.ts、docs/wiki/src/lib/README.md、三状态文件）保持原样，本 feature 只做增量追加/局部编辑，未覆盖重写。
+- Blocker：无。
+- 下一步：① Android 原生云代码（android/、capacitor.config.ts 相关云部分）待后续单独清理；② package-dist/package-offline 待下次打包时再生成（本次未重新打包）；③ 用户决定提交时机（改动未提交，无 Git 操作）；④ 遗留本地云数据（cloud-identity.json 等）不主动清理，待产品决策。
+- Notes：关键决策——分享 SQLite 列 allow_cloud_usage 保留；旧云模型引用自然降级（model_not_configured）；docs/wiki/README.md 无指向被删文档的链接，未修改。
+
+---
+
+## 最新交接：project-commands-settings-ux（done，2026-09-17）
+
+- 当前目标已完成（待提交）：设置-项目命令 tab UI 交互优化——新建命令由 window.prompt 改为 showPrompt 弹窗（en/zh 新增 newCommandNamePlaceholder）；打开命令目录由硬编码 .ai/commands 改为取 commandDir 配置首个非空行（空则回退 .ai/commands）。
+- 改动文件：src/lib/project-commands-settings-tab.ts、src/lib/i18n.ts、tests/frontend/project-commands-settings-tab.test.ts（新增 7 用例）、feature_list.json、progress.md、docs/wiki/src/lib/README.md、session-handoff.md。
+- 验证：定向 vitest 9 用例通过；eslint 0 错；tsc -b 通过。
+- Blocker：无。
+- 下一步：用户决定是否连同死代码清理改动一起提交（当前 dev 分支工作区尚有上次会话死代码清理的未提交改动）。
+- Notes：打开目录取 commandDir 首行与新建命令固定落盘 .ai/commands 存在不对称（服务端行为，未改）；该 tab 其余 UX 问题（来源标注、编辑/删除、目录选择器、提示不自动消失）未在本次范围。无 Git 操作。
+
+---
+
 ## 最新交接：lan-access-info-tip（done，2026-09-18）
 
 - 当前目标已完成：局域网访问设置 tab 7 处静态说明（enabled/passwordStatus/activeDevices/urls/allowFull/sessionTtl/actions 对应的 *Description 文案）由常驻段落收敛到各节标题旁 quickforge-info-tip，对齐 default-options-settings-tab.ts 模式与 DESIGN_LANGUAGE.md「辅助说明应收拢」。

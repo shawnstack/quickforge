@@ -1,7 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readSessionValue } from '../storage.mjs'
 import { getLanUrls } from '../utils/network.mjs'
-import { isAuthenticatedAppClient } from '../access-policy.mjs'
 import {
   createConversationShare,
   deleteConversationShare,
@@ -52,12 +51,6 @@ export async function handleSharesApi(req, res, url, context = { isLocalRequest:
     const passwordProvided = typeof body?.password === 'string'
     const password = passwordProvided ? body.password.trim() : undefined
     const expiresAt = typeof body?.expiresAt === 'string' && body.expiresAt ? body.expiresAt : undefined
-    const allowCloudUsage = permission === 'operate' && body?.allowCloudUsage === true
-    if (allowCloudUsage && !isAuthenticatedAppClient(context)) {
-      const error = new Error('QuickForge Cloud sharing can only be enabled locally or from an authenticated remote client.')
-      error.statusCode = 403
-      throw error
-    }
 
     const session = sessionId ? await readSessionValue(sessionId) : null
     if (!session) {
@@ -71,7 +64,6 @@ export async function handleSharesApi(req, res, url, context = { isLocalRequest:
       permission,
       password: passwordProvided ? password : undefined,
       expiresAt,
-      allowCloudUsage,
       titleSnapshot: session.title,
       scope: session.scope,
       projectId: session.projectId,
@@ -135,13 +127,7 @@ export async function handleSharesApi(req, res, url, context = { isLocalRequest:
       const permission = body?.permission
       const password = typeof body?.password === 'string' ? body.password : undefined
       const expiresAt = typeof body?.expiresAt === 'string' && body.expiresAt ? body.expiresAt : undefined
-      const allowCloudUsage = body?.allowCloudUsage
-      if (allowCloudUsage === true && !isAuthenticatedAppClient(context)) {
-        const error = new Error('QuickForge Cloud sharing can only be enabled locally or from an authenticated remote client.')
-        error.statusCode = 403
-        throw error
-      }
-      const share = await updateConversationShare(shareId, { permission, password, expiresAt, allowCloudUsage })
+      const share = await updateConversationShare(shareId, { permission, password, expiresAt })
       sendJson(res, 200, { ok: true, share })
       return
     }

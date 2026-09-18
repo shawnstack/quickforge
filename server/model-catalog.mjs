@@ -1,6 +1,3 @@
-import { isAuthenticatedAppClient } from './access-policy.mjs'
-import { getCloudRuntime } from './cloud/runtime.mjs'
-import { isManagedCloudModel } from './cloud/models.mjs'
 import { readStore } from './storage.mjs'
 
 export const MODEL_REFERENCE_VERSION = 1
@@ -56,20 +53,8 @@ function configuredEntries(providers) {
   })
 }
 
-export function cloudAllowedForContext(context = {}) {
-  if (context.source === 'shared') return context.allowCloud === true
-  if (context.allowCloud === false) return false
-  if (context.allowCloud === true || context.source === 'acp' || context.source === 'scheduled') return true
-  return isAuthenticatedAppClient(context)
-}
-
 export function modelReferenceFromSnapshot(model, providers = []) {
   if (!model || typeof model !== 'object') return null
-  if (isManagedCloudModel(model)) {
-    const catalogId = String(model.quickforgeCatalogId || model.id || '').trim()
-    return catalogId ? { version: MODEL_REFERENCE_VERSION, source: 'cloud', catalogId } : null
-  }
-
   const matched = configuredEntries(providers).find((entry) => sameModel(entry.model, model))
   if (matched?.providerId) {
     return {
@@ -96,10 +81,6 @@ export function modelReferenceFromSnapshot(model, providers = []) {
 export function normalizeModelReference(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const source = String(value.source || '').trim()
-  if (source === 'cloud') {
-    const catalogId = String(value.catalogId || value.quickforgeCatalogId || value.modelId || '').trim()
-    return catalogId ? { version: MODEL_REFERENCE_VERSION, source: 'cloud', catalogId } : null
-  }
   if (source === 'custom') {
     const providerId = String(value.providerId || '').trim()
     const modelId = String(value.modelId || value.id || '').trim()
@@ -124,41 +105,12 @@ export function normalizeModelReference(value) {
   return null
 }
 
-const CLOUD_MODELS_CATALOG_WAIT_MS = 2_000
-
-function resolveWithDeadline(promise, waitMs) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(undefined), waitMs)
-    promise.then(
-      (value) => { clearTimeout(timer); resolve(value) },
-      () => { clearTimeout(timer); resolve(undefined) },
-    )
-  })
-}
-
-async function listCloudModels(context, { refresh = false, waitMs = CLOUD_MODELS_CATALOG_WAIT_MS } = {}) {
-  if (!cloudAllowedForContext(context)) return []
-  try {
-    const runtime = await getCloudRuntime()
-    if (!runtime?.enabled) return []
-    const cloudModels = runtime.models.list(undefined, { refresh })
-    // Do not block the catalog on a slow upstream: degrade to an empty Cloud
-    // list after the short deadline. The underlying promise keeps running and
-    // still refreshes the identity cache, so the next request hits it (60s TTL).
-    cloudModels.catch(() => undefined)
-    const models = await resolveWithDeadline(cloudModels, waitMs)
-    return (models ?? []).filter((model) => model?.quickforgeCatalogId)
-  } catch {
-    return []
-  }
-}
-
 export async function listModelCatalog({
-  context = {},
+  // `context` is accepted for API compatibility (callers thread request context
+  // through); it no longer influences the custom-model catalog.
+  context: _context = {},
   includeHidden = false,
   currentModel = null,
-  refreshCloud = false,
-  cloudWaitMs = CLOUD_MODELS_CATALOG_WAIT_MS,
 } = {}) {
   const providers = await configuredProviders()
   const custom = configuredEntries(providers)
@@ -175,38 +127,12 @@ export async function listModelCatalog({
       custom.unshift(custom.splice(currentIndex, 1)[0])
     }
   }
-  const cloud = (await listCloudModels(context, { refresh: refreshCloud, waitMs: cloudWaitMs }))
-    .map((model) => publicModel(model, {
-      version: MODEL_REFERENCE_VERSION,
-      source: 'cloud',
-      catalogId: model.quickforgeCatalogId,
-    }))
 
-  if (currentModel && ![...custom, ...cloud].some((model) => sameModel(model, currentModel))) {
+  if (currentModel && !custom.some((model) => sameModel(model, currentModel))) {
     const ref = modelReferenceFromSnapshot(currentModel, providers)
-    if (ref) return [publicModel(currentModel, ref), ...custom, ...cloud]
+    if (ref) return [publicModel(currentModel, ref), ...custom]
   }
-  return [...custom, ...cloud]
-}
-
-async function resolveCloud(ref, context) {
-  if (!cloudAllowedForContext(context)) {
-    throw requestError('QuickForge Cloud is not available from this client.', 403, 'cloud_access_denied')
-  }
-  const runtime = await getCloudRuntime()
-  if (!runtime?.enabled) {
-    const disabled = runtime?.config?.baseUrl && runtime?.config?.enabled !== true
-    throw requestError(
-      disabled ? 'QuickForge Cloud is disabled.' : 'QuickForge Cloud is not configured.',
-      503,
-      disabled ? 'cloud_disabled' : 'cloud_not_configured',
-    )
-  }
-  return (await runtime.models.resolve({
-    provider: 'quickforge-cloud',
-    quickforgeModelSource: 'cloud',
-    quickforgeCatalogId: ref.catalogId,
-  })).publicModel
+  return [...custom]
 }
 
 function findCustomByReference(ref, entries) {
@@ -223,7 +149,7 @@ function findCustomByReference(ref, entries) {
 }
 
 export async function resolveModelBinding(input, {
-  context = {},
+  context: _context = {},
   currentModel = null,
   allowCurrentHidden = false,
   forExecution = false,
@@ -237,11 +163,6 @@ export async function resolveModelBinding(input, {
     : (!explicitRef && input && typeof input === 'object' && input.id ? input : legacySnapshot)
   const ref = explicitRef || modelReferenceFromSnapshot(snapshot, providers)
   if (!ref) throw requestError('A valid model reference is required.', 400, 'invalid_model_reference')
-
-  if (ref.source === 'cloud') {
-    const model = await resolveCloud(ref, context)
-    return { model, modelRef: ref }
-  }
 
   const configured = findCustomByReference(ref, entries)
   if (configured) {
@@ -268,7 +189,6 @@ export async function resolveImplicitModelPreference(value, context = {}) {
     const matched = catalog.find((model) => {
       const candidate = normalizeModelReference(model.quickforgeModelRef)
       if (!candidate || candidate.source !== ref.source) return false
-      if (ref.source === 'cloud') return candidate.catalogId === ref.catalogId
       if (ref.source === 'custom') return candidate.providerId === ref.providerId && candidate.modelId === ref.modelId
       return false
     })

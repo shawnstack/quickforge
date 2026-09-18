@@ -1,3 +1,13 @@
+## remove-cloud-service（done，2026-09-18）
+
+- 目标：完全移除 QuickForge Cloud 云服务——服务端 `server/cloud/`、`/api/cloud/*` BFF 与全部耦合点；前端云库/组件/设置页/移动云 tab/词条/样式；配套测试删除与修复；文档/wiki/用户指南同步。
+- 改动文件：阶段A/B（服务端+前端+测试，见 feature_list.json 完整清单）；阶段C（本阶段）：删除 docs/architecture/quickforge-cloud-client.zh-CN.md、docs/architecture/cloud-admin-console.zh-CN.md、docs/design/remote-access-p2p.md、docs/design/cloud-admin-console-wireframe.svg、design-mockups/cloud-url-row-redesign.html 共 5 个云专属文档；docs/architecture/android-remote-client.zh-CN.md 顶部加状态说明（云服务已移除、Android 原生云代码暂留待后续清理、云远程功能不可用、正文保留作历史参考）；wiki 6 页去云（server/README：删目录树 cloud/ 行与 cloud 小节、AI 流包装层云幂等键/懒解析、ACP/远端访问/Git 提交 Cloud 表述；server/routes/README：删 cloud.mjs 表行与小节、models/shares/side-chat/shared-conversation/scheduled-tasks 云语句与 allowCloudUsage；src/README：删 cloud/ 目录、设置页云 tab、Android 云账户入口（更新为仅局域网/Tailscale 直连）、hooks 19→18；src/lib/README：删 cloud-client 条目与小节、pi-chat/model-reference/default-options/startup 云描述；src/hooks/README：删 useCloudModels 条目与小节、启动步骤云预取；src/components/README：删 cloud/ 目录行与 CloudAccountSettingsPage 小节）；docs/user-guide.zh-CN.md 与 en-US.md 删云模型规则语句与「正式账户登录与注册/Sign in or register」章节（编号 1-11 与目录锚点不受影响）；feature_list.json、progress.md、session-handoff.md。
+- 验证：2026-09-18 全量 npm run test 333 files / 3900 passed + 1 skipped（exit 0）；npm run lint 0 errors（仅既有 coverage 3 warnings）；npm run build exit 0（仅既有 KaTeX/chunk warnings）。残留扫描：docs/wiki 与 user-guide* 无 cloud/云服务/云账户/云模型/allowCloud 残留（grep 复核）。
+- Blocker：无。
+- Notes：关键决策——①分享 SQLite 列 allow_cloud_usage 保留（API 不再接收/返回 allowCloudUsage）；②旧云模型引用（source:'cloud'）自然降级为 model_not_configured，不清理数据；③Android 原生云代码与 capacitor.config.ts 保留暂留待后续清理；④遗留本地云数据（cloud-identity.json 等）不主动清理。docs/wiki/README.md 首页经查无指向被删文档的链接，无需修改。改动未提交，与并行会话 project-commands-settings-ux 未提交改动（project-commands-settings-tab.ts、i18n.ts、tests/frontend/project-commands-settings-tab.test.ts、docs/wiki/src/lib/README.md 及三状态文件）共存，仅做增量追加/局部编辑。
+
+---
+
 ## lan-access-info-tip（done，2026-09-18）
 
 - 目标：局域网访问设置 tab 的 7 处静态说明文字（lanAccessEnabledDescription、lanAccessPasswordStatusDescription、lanAccessActiveDevicesDescription、lanAccessUrlsDescription、lanAccessAllowFullDescription、lanAccessSessionTtlDescription、lanAccessActionsDescription）由常驻段落收敛到各节标题旁 quickforge-info-tip，参考 default-options-settings-tab.ts 既有模式，符合 DESIGN_LANGUAGE.md「辅助说明应收拢」规范；纯 UI 文案收纳，行为不变。
@@ -5,6 +15,16 @@
 - 验证：npx eslint 通过；npm run build 通过（仅既有 KaTeX/chunk warning）；无现有相关测试，未新增测试。
 - Blocker：无。
 - Notes：纯 UI 文案收敛，无架构/公共入口/发布流程变化，docs/wiki 无需更新；非 feature_list.json feature 项，feature_list.json 未动；无 Git 提交。
+
+---
+
+## project-commands-settings-ux（done，2026-09-17）
+
+- 目标：设置-项目命令 tab 两项交互优化——新建命令由 window.prompt 改为 showPrompt 弹窗（en/zh 新增 newCommandNamePlaceholder 占位文案）；打开命令目录由硬编码 .ai/commands 改为取 commandDir 配置首个非空行（空则回退 .ai/commands）。
+- 改动文件：src/lib/project-commands-settings-tab.ts、src/lib/i18n.ts、tests/frontend/project-commands-settings-tab.test.ts（新增 7 用例）、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- 验证：定向 vitest 9 用例通过；eslint 0 错；tsc -b 通过。
+- Blocker：无。
+- Notes：① 打开目录取 commandDir 首行与新建命令固定落盘 .ai/commands 存在不对称（服务端行为，未改）；② 该 tab 其余 UX 问题（来源标注、编辑/删除、目录选择器、提示不自动消失）未在本次范围。
 
 ---
 

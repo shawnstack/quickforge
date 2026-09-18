@@ -6,7 +6,6 @@ import {
   Bot,
   CalendarClock,
   ChevronRight,
-  Cloud,
   Database,
   DownloadCloud,
   Globe2,
@@ -38,7 +37,6 @@ type SettingsWorkspacePageProps = {
 
 const SETTINGS_TAB_ICONS = {
   appearance: Palette,
-  cloudAccount: Cloud,
   defaults: SlidersHorizontal,
   memory: Brain,
   customModels: Database,

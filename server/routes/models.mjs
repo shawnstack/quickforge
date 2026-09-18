@@ -51,7 +51,7 @@ async function probeModelConnection(model, apiKeyOverride) {
 
 export async function handleModelsApi(req, res, url, context = {}) {
   if (req.method === 'GET' && url.pathname === '/api/models/catalog') {
-    sendJson(res, 200, { models: await listModelCatalog({ context, refreshCloud: url.searchParams.get('refresh') === 'true' }) })
+    sendJson(res, 200, { models: await listModelCatalog({ context }) })
     return
   }
 

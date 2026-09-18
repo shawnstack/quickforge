@@ -9,7 +9,6 @@ import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import type { SideChatAgent } from '@/components/workspace/side-chat-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
-import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
 import type { AgentInterfaceElement, ComposerDraft, CustomCommandSummary, MessageWithUsage } from './chat-utils'
 import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
@@ -1461,11 +1460,7 @@ export function ChatPanelHost({
         ? async () => true
         : !propsRef.current.capabilities.clientApiKeyCheck || propsRef.current.bypassClientApiKeyCheck
         ? async () => true
-        : (provider: string) => (
-            isManagedQuickForgeCloudModel(agent.state.model)
-              ? Promise.resolve(true)
-              : ApiKeyPromptDialog.prompt(provider)
-          ),
+        : (provider: string) => ApiKeyPromptDialog.prompt(provider),
       onBeforeSend: () => {
         taskLauncher?.hide()
         taskLauncherStateRef.current.dismiss?.()

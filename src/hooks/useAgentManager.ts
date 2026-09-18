@@ -40,7 +40,6 @@ interface AgentManagerDeps {
   sessions: QuickForgeSessionMetadata[]
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
   updateSessionTitle: (sessionId: string, title: string) => void
-  loadCloudModels: () => Promise<Model<Api>[]>
   onTaskComplete?: (sessionId: string, title: string, status: BackgroundTaskStatus) => void
 }
 
@@ -94,7 +93,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     switchActiveProject,
     refreshSessions,
     updateSessionTitle,
-    loadCloudModels,
   } = deps
 
   // --- Refs (stable) ---
@@ -242,7 +240,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         : await resolveNewSessionModel(
             storage,
             requestedOrDefaultModel as Model<Api>,
-            loadCloudModels,
           )
       const resolvedThinkingLevel = requestedThinkingLevel ?? defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
       activeModelRef.current = resolvedModel
@@ -384,7 +381,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
       return nextAgent
     },
-    [attachTaskToView, disposeDetachedAgent, pruneIdleTasks, refreshSessions, syncSessionUI, updateSessionTitle, loadCloudModels, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode],
+    [attachTaskToView, disposeDetachedAgent, pruneIdleTasks, refreshSessions, syncSessionUI, updateSessionTitle, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode],
   )
 
   const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo; shouldAttachToView?: () => boolean }) => {
@@ -395,7 +392,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     const resolvedModel = await resolveNewSessionModel(
       storage,
       requestedOrDefaultModel as Model<Api>,
-      loadCloudModels,
     )
     const resolvedThinkingLevel = defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
     activeModelRef.current = resolvedModel
@@ -445,7 +441,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     // 否则它会滞留在 taskMap 里直到下一次 create/load 事件。
     pruneIdleTasks(undefined)
     return deferredAgent
-  }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, loadCloudModels, pruneIdleTasks, storageRef, agentAccessModeRef])
+  }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, pruneIdleTasks, storageRef, agentAccessModeRef])
 
   // --- Load a persisted session ---
   const performLoadSession = useCallback(

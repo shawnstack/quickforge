@@ -651,7 +651,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       ? await resolveModelBinding(
           task.modelRef ? { modelRef: task.modelRef } : { model: task.model },
           {
-            context: { source: 'scheduled', allowCloud: true },
+            context: { source: 'scheduled' },
             currentModel: task.model,
             allowCurrentHidden: true,
             forExecution: true,
@@ -673,7 +673,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       yoloMode,
       model: binding?.model || task.model,
       modelRef: binding?.modelRef || task.modelRef || null,
-      modelAccessContext: { source: 'scheduled', allowCloud: true },
+      modelAccessContext: { source: 'scheduled' },
       thinkingLevel: task.thinkingLevel,
       title: `[定时任务] ${task.title}`,
       agentProfile: executionAgent,
@@ -743,7 +743,7 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
 
     const runPromise = (async () => {
       try {
-        await runPrompt(sessionId, userMessage, [], null, null, { source: 'scheduled', allowCloud: true })
+        await runPrompt(sessionId, userMessage, [], null, null, { source: 'scheduled' })
       } catch (promptError) {
         if (promptError?.message !== 'Request was aborted' && promptError?.message !== 'Scheduled task aborted') {
           throw promptError

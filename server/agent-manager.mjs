@@ -355,37 +355,6 @@ const ABORT_IDLE_WAIT_TIMEOUT_MS = 3000
 // （暂存状态与 stash/take 访问器已收口至 agent-session-store.mjs）
 
 
-const CLIENT_MESSAGE_ID_FIELD = 'quickforgeClientMessageId'
-
-function isManagedCloudModel(model) {
-  return model?.provider === 'quickforge-cloud' && model?.quickforgeModelSource === 'cloud'
-}
-
-function objectMetadata(message) {
-  const metadata = message?.metadata
-  return metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {}
-}
-
-function logicalMessageId(message) {
-  const value = objectMetadata(message)[CLIENT_MESSAGE_ID_FIELD]
-  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : undefined
-}
-
-function messageWithLogicalId(message) {
-  if (!message || typeof message !== 'object' || logicalMessageId(message)) return message
-  return {
-    ...message,
-    metadata: {
-      ...objectMetadata(message),
-      [CLIENT_MESSAGE_ID_FIELD]: `qfcm_${randomUUID()}`,
-    },
-  }
-}
-
-function prepareCloudUserMessage(session, message) {
-  return isManagedCloudModel(session?.model) ? messageWithLogicalId(message) : message
-}
-
 function applyActiveCommandPrompt(messages, commandPrompt) {
   if (!commandPrompt) return messages
 
@@ -984,10 +953,7 @@ export async function createAgent(sessionId, config = {}) {
     if (event.type === 'message_end') {
       const isUserMessage = event.message?.role === 'user' || event.message?.role === 'user-with-attachments'
       const isInitialUserMessage = isUserMessage && (event.isInitialUserMessage === true || session.agent.state.messages.length === 1)
-      const requiresDurableCloudMessage = isUserMessage && isManagedCloudModel(session.model) && Boolean(logicalMessageId(event.message))
-      if (isInitialUserMessage || requiresDurableCloudMessage) {
-        // Persist every managed Cloud user message before the provider stream starts,
-        // so its logical ID survives a process restart and resolves to the same private key.
+      if (isInitialUserMessage) {
         try {
           const metadata = await flushSessionPersist(session)
           if (metadata && isInitialUserMessage) {
@@ -1223,7 +1189,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   }
   if (commandState.goalRun) beginGoalRun(session, commandState.goalRun.kind)
 
-  const userMessage = prepareCloudUserMessage(session, resolvedUserMessage)
+  const userMessage = resolvedUserMessage
 
   // Set a meaningful fallback immediately. The AI title request starts only
   // after the first user message has been persisted by the message_end handler.
@@ -1310,10 +1276,8 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
 /**
  * Validate the user message a client asks to append when retrying a turn that
  * already produced tool results. Only the role, content, timestamp and
- * attachments are taken from the client: capabilities and context references
- * are re-derived on the server, and the logical message id is minted fresh by
- * `prepareCloudUserMessage` so the appended turn never reuses the previous
- * turn's idempotency key.
+ * attachments are taken from the client; capabilities and context references
+ * are re-derived on the server.
  */
 function normalizeRetryAppendMessage(message) {
   const role = message?.role
@@ -1404,10 +1368,7 @@ export async function continueSession(sessionId, modelAccessContext = null, appe
         canonicalSelectedCapabilities,
       )
     : null
-  const continuedUserMessage = prepareCloudUserMessage(
-    session,
-    appendedUserMessage ?? commandState.userMessage ?? canonicalLastUserMessage,
-  )
+  const continuedUserMessage = appendedUserMessage ?? commandState.userMessage ?? canonicalLastUserMessage
   const trimmedMessages = appendedUserMessage
     ? messages.concat(continuedUserMessage)
     : messages.slice(0, lastUserIndex).concat(continuedUserMessage)
@@ -1419,9 +1380,6 @@ export async function continueSession(sessionId, modelAccessContext = null, appe
   } else {
     // 重试点位于压缩点之后，摘要仍然有效，保留压缩上下文
     session.lastTransformedContextMessages = null
-  }
-  if (isManagedCloudModel(session.model) && logicalMessageId(continuedUserMessage)) {
-    await flushSessionPersist(session)
   }
 
   resetIdleTimer(session)
@@ -1533,9 +1491,9 @@ export function steerAgent(sessionId, message) {
   }
   assertNoActiveGoal(session, 'steer the run')
 
-  const agentMessage = prepareCloudUserMessage(session, typeof message === 'string'
+  const agentMessage = typeof message === 'string'
     ? { role: 'user', content: message, timestamp: Date.now() }
-    : message)
+    : message
 
   session.agent.steer(agentMessage)
   return { sessionId, steered: true }
@@ -1551,9 +1509,9 @@ export function followUpAgent(sessionId, message) {
   }
   assertNoActiveGoal(session, 'queue a follow-up')
 
-  const agentMessage = prepareCloudUserMessage(session, typeof message === 'string'
+  const agentMessage = typeof message === 'string'
     ? { role: 'user', content: message, timestamp: Date.now() }
-    : message)
+    : message
 
   session.agent.followUp(agentMessage)
   return { sessionId, followUp: true }

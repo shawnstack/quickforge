@@ -76,7 +76,6 @@ import { useAppGit, useAppGitMenu, useAppGitState } from '@/hooks/useAppGit'
 import { useAppLoadingState, useAppStartupMinimum, useAppLoadingEffects, useAppLoadingTransitions, useAppStartupExit } from '@/hooks/useAppLoadingTransitions'
 import { useUpdateCheck } from '@/hooks/useUpdateCheck'
 import { useModelActions } from '@/hooks/useModelActions'
-import { useCloudModels } from '@/hooks/useCloudModels'
 import { useChatActions } from '@/hooks/useChatActions'
 import { useProjectActions } from '@/hooks/useProjectActions'
 import { useSessionActions } from '@/hooks/useSessionActions'
@@ -86,7 +85,6 @@ import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ServerAgent } from '@/lib/server-agent'
 import { logger } from '@/lib/logger'
-import { TUNNEL_RECOVERED_EVENT, type TunnelRecoveredEventDetail } from '@/lib/tunnel-recovery'
 import {
   loadSidebarSectionOrder,
   reorderSidebarSections,
@@ -121,8 +119,7 @@ import { subscribeToAgentEvents } from '@/lib/server-agent'
 import { turnRollbackKey, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { artifactPreviewMode, collectToolResultToolCallIds, documentFormatFromPath, findBestPreviewableArtifact, isNewlyPresentedArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
-import { RemoteTunnelOverlay } from '@/components/mobile/RemoteTunnelOverlay'
-import { isCloudTunnelClient, isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
+import { isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
 import { initializeSystemNotifications, showTaskSystemNotification } from '@/lib/system-notifications'
 import {
   shouldClosePinnedSummaryBeforeInspectorOpen,
@@ -244,13 +241,11 @@ function channelEventProjectId(event: ChannelRefreshEvent) {
 
 function MainApp() {
   const remoteClient = isRemoteQuickForgeClient()
-  const cloudTunnelClient = isCloudTunnelClient()
   const mobileShell = isMobileShell()
-  const cloudModels = useCloudModels(true)
   const mobileServerUrl = mobileShell ? window.location.origin : undefined
   const mobileServerAlias = mobileShell ? readMobileServerAliasFromUrl() : undefined
-  // 远程客户端（云隧道 / 局域网直连）侧边栏“返回连接页”入口：云隧道回云账户设备，直连回局域网服务器。
-  const openServerPicker = () => openMobileServerPicker(cloudTunnelClient ? 'cloud' : 'servers')
+  // 移动壳“返回连接页”入口：直连回局域网/Tailscale 服务器列表。
+  const openServerPicker = () => openMobileServerPicker('servers')
   // --- Top-level refs (owned by App) ---
   const storageRef = useRef<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const activeModelRef = useRef<Model<Api>>(buildConnectionModel(DEFAULT_CONNECTION))
@@ -471,7 +466,6 @@ function MainApp() {
     sessions: allLoadedSessions,
     refreshSessions,
     updateSessionTitle,
-    loadCloudModels: cloudModels.loadCloudModels,
     onTaskComplete: handleTaskComplete,
   })
   const workspaceInspectorProjectId = agentManager.currentToolProject?.id ?? 'global-workspace'
@@ -960,42 +954,6 @@ function MainApp() {
     return () => window.removeEventListener(OPEN_SUBAGENT_RUN_EVENT, handler as EventListener)
   }, [openSubagentRun])
 
-  // 隧道恢复免刷新对账：监听 quickforge:tunnel-recovered，同步当前会话与后台任务的
-  // 真实服务端状态；全部成功才允许免刷新恢复，任一 syncState 失败会 reject waitUntil，
-  // 由协调器整页刷新兜底。
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<TunnelRecoveredEventDetail>).detail
-      if (!detail || typeof detail.waitUntil !== 'function') return
-      const reconcilePromise = (async () => {
-        const agents = new Set<ServerAgent>()
-        const currentAgent = agentRef.current
-        if (currentAgent instanceof ServerAgent) agents.add(currentAgent)
-        for (const task of taskMapRef.current.values()) {
-          if (task.agent instanceof ServerAgent) agents.add(task.agent)
-        }
-        await Promise.all(
-          [...agents].map(async (agent) => {
-            try {
-              // syncState 当前会把网络异常视为可恢复并在内部吞掉；先显式验证每个
-              // 活动会话状态端点，确保真正无法对账时 waitUntil 能 reject 并触发 reload。
-              const response = await fetch(`/api/agents/${encodeURIComponent(agent.sessionId)}/state`, { cache: 'no-store' })
-              if (!response.ok) throw new Error(`HTTP ${response.status}`)
-              await agent.syncState()
-            } catch (error) {
-              logger.error('Tunnel recovery failed to sync agent state:', error)
-              throw error
-            }
-          }),
-        )
-        await refreshSessions({ broadcast: true })
-      })()
-      detail.waitUntil(reconcilePromise)
-    }
-    window.addEventListener(TUNNEL_RECOVERED_EVENT, handler as EventListener)
-    return () => window.removeEventListener(TUNNEL_RECOVERED_EVENT, handler as EventListener)
-  }, [agentRef, taskMapRef, refreshSessions])
-
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
       if (isScheduledTaskStarted(event)) {
@@ -1049,9 +1007,6 @@ function MainApp() {
     initAgentAccessMode,
     createAgent,
     loadSession: loadAgentSession,
-    loadCloudModels: cloudModels.loadCloudModels,
-    readCachedCloudModels: cloudModels.readCachedCloudModels,
-    isCloudModelsLoaded: cloudModels.isCloudModelsLoaded,
     setNeedsModelSetup,
     onStorageReady: setStorage,
   })
@@ -1317,9 +1272,6 @@ function MainApp() {
     setRestoredDraft,
     notifySettingsChanged: crossTab.notifySettingsChanged,
     openSettingsPage,
-    loadCloudModels: cloudModels.loadCloudModels,
-    readCachedCloudModels: cloudModels.readCachedCloudModels,
-    isCloudModelsLoaded: cloudModels.isCloudModelsLoaded,
   })
 
   const closeSettingsPage = useCallback(() => {
@@ -1913,9 +1865,9 @@ function MainApp() {
         onStartNewDefaultChat={startNewDefaultSession}
         onStartNewGlobalChat={startNewExplicitGlobalSession}
         onOpenSettings={openDefaultOptionsSettings}
-        currentServerUrl={cloudTunnelClient ? '云账户远程访问' : mobileServerUrl}
+        currentServerUrl={mobileServerUrl}
         currentServerAlias={mobileServerAlias}
-        onOpenServer={mobileShell || cloudTunnelClient ? openServerPicker : undefined}
+        onOpenServer={mobileShell ? openServerPicker : undefined}
         updateAvailable={updateCheck.result.updateAvailable}
         latestVersion={updateCheck.result.latestVersion}
         currentVersion={updateCheck.result.currentVersion}
@@ -2012,9 +1964,9 @@ function MainApp() {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()
               }}
-              currentServerUrl={cloudTunnelClient ? '云账户远程访问' : mobileServerUrl}
+              currentServerUrl={mobileServerUrl}
               currentServerAlias={mobileServerAlias}
-              onOpenServer={mobileShell || cloudTunnelClient ? () => {
+              onOpenServer={mobileShell ? () => {
                 closeMobileSidebar()
                 openServerPicker()
               } : undefined}
@@ -2366,8 +2318,6 @@ function MainApp() {
       onDismiss={dismissToast}
       onClick={handleToastClick}
     />
-    {/* 远程客户端断线覆盖层：组件内部自行判断远程模式，桌面端/壳页面不渲染。 */}
-    <RemoteTunnelOverlay />
     </>
   )
 }

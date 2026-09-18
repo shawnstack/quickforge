@@ -418,7 +418,7 @@ describe('goal mode through the agent manager', () => {
       // Shared visitor: /goal is rejected before any goal state exists. The
       // request-scoped model access overlay is recorded on the session, but it
       // must stay request-scoped.
-      await agentManager.runPrompt(sessionId, '/goal Ship goal mode', [], null, null, { source: 'shared', allowCloud: false })
+      await agentManager.runPrompt(sessionId, '/goal Ship goal mode', [], null, null, { source: 'shared' })
       expect(session.goal).toBeNull()
       expect(session.agent.prompts).toHaveLength(0)
       expect(session.modelAccessContext).toMatchObject({ source: 'shared' })

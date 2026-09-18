@@ -54,7 +54,6 @@ function publicSharePayload(record) {
     scope: record.scope,
     projectId: record.projectId,
     hasPassword: Boolean(record.passwordHash),
-    allowCloudUsage: record.allowCloudUsage === true,
   }
 }
 
@@ -356,7 +355,7 @@ export async function handleSharedConversationApi(req, res, url, context = {}) {
     assertOperate(record)
     const session = await sharedSessionPayload(record)
     const models = await listModelCatalog({
-      context: { ...context, allowCloud: record.allowCloudUsage === true },
+      context,
       currentModel: session.model,
     })
     const providers = []
@@ -403,7 +402,7 @@ export async function handleSharedConversationApi(req, res, url, context = {}) {
       [],
       body?.command,
       null,
-      { ...context, allowCloud: record.allowCloudUsage === true, source: 'shared' },
+      { ...context, source: 'shared' },
     )
     sendJson(res, 200, result)
     return
@@ -415,7 +414,7 @@ export async function handleSharedConversationApi(req, res, url, context = {}) {
     await restoreAgent(record.sessionId)
     const currentModel = getSessionState(record.sessionId)?.model
     const binding = await resolveModelBinding(body, {
-      context: { ...context, allowCloud: record.allowCloudUsage === true, source: 'shared' },
+      context: { ...context, source: 'shared' },
       currentModel,
       allowCurrentHidden: true,
       legacySnapshot: body?.model,

@@ -7,8 +7,6 @@ import { normalizeGoalState, goalBudgetExtension, type GoalActionOptions, type G
 import { t, type AppTextKey } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { modelReferenceFromModel } from './model-reference'
-import { isManagedQuickForgeCloudModel } from '@/lib/managed-cloud-model'
-import { randomId } from '@/lib/random-id'
 import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import {
@@ -602,20 +600,6 @@ export class ServerAgent {
       message = input as unknown as Record<string, unknown>
     }
 
-    const metadata = message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata)
-      ? message.metadata as Record<string, unknown>
-      : {}
-    if (isManagedQuickForgeCloudModel(this.state.model)
-      && (typeof metadata.quickforgeClientMessageId !== 'string' || !metadata.quickforgeClientMessageId)) {
-      message = {
-        ...message,
-        metadata: {
-          ...metadata,
-          quickforgeClientMessageId: `qfcm_${randomId()}`,
-        },
-      }
-    }
-
     const selectedCapabilities = normalizeSelectedCapabilities(this.nextPromptCapabilities)
     const contextReferences = this.nextPromptContextReferences
     const selectedCommand = this.planMode ? { type: 'plan' as const } : undefined
@@ -949,23 +933,8 @@ export class ServerAgent {
    */
   async continue(appendMessage?: AgentMessage): Promise<void> {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/continue`
-    let optimistic: AgentMessage | undefined
-    if (appendMessage) {
-      let message = appendMessage as unknown as Record<string, unknown>
-      const metadata = message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata)
-        ? message.metadata as Record<string, unknown>
-        : {}
-      if (isManagedQuickForgeCloudModel(this.state.model)
-        && (typeof metadata.quickforgeClientMessageId !== 'string' || !metadata.quickforgeClientMessageId)) {
-        message = {
-          ...message,
-          metadata: {
-            ...metadata,
-            quickforgeClientMessageId: `qfcm_${randomId()}`,
-          },
-        }
-      }
-      optimistic = message as unknown as AgentMessage
+    const optimistic: AgentMessage | undefined = appendMessage
+    if (optimistic) {
       this.state.messages = [...this.state.messages, optimistic]
       this.emitToListeners({ type: 'message_start', message: optimistic })
     }

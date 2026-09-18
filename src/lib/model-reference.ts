@@ -1,9 +1,7 @@
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { isManagedQuickForgeCloudModel } from './managed-cloud-model'
 
 export type ModelReference =
   | { version: 1; source: 'custom'; providerId: string; modelId: string }
-  | { version: 1; source: 'cloud'; catalogId: string }
   | { version: 1; source: 'legacy-custom'; provider: string; modelId: string; api?: string; baseUrl?: string }
 
 type ModelWithReference = Model<Api> & { quickforgeModelRef?: ModelReference }
@@ -11,10 +9,6 @@ type ModelWithReference = Model<Api> & { quickforgeModelRef?: ModelReference }
 export function modelReferenceFromModel(model: Model<Api>): ModelReference {
   const existing = (model as ModelWithReference).quickforgeModelRef
   if (existing) return existing
-  if (isManagedQuickForgeCloudModel(model)) {
-    const catalogId = String((model as Model<Api> & { quickforgeCatalogId?: string }).quickforgeCatalogId || model.id)
-    return { version: 1, source: 'cloud', catalogId }
-  }
   return {
     version: 1,
     source: 'legacy-custom',

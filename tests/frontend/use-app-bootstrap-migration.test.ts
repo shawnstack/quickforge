@@ -81,9 +81,6 @@ vi.mock('@/lib/appearance-settings', () => ({
 vi.mock('@/lib/startup-model', () => ({
   chooseStartupModel: (models: Model<Api>[]) => models[0] ?? null,
 }))
-vi.mock('@/lib/managed-cloud-model', () => ({
-  isManagedQuickForgeCloudModel: () => false,
-}))
 vi.mock('@/lib/logger', () => ({ logger: loggerMocks }))
 vi.mock('@/lib/random-id', () => ({ randomId: () => 'startup-session' }))
 vi.mock('@/lib/agent-task-retention', () => ({ disposeAllAgentTasks: vi.fn() }))
@@ -141,9 +138,6 @@ function useBootstrapEnv(options?: { storageRef?: { current: unknown } }) {
     initAgentAccessMode: vi.fn(async () => 'default'),
     createAgent: createAgent as never,
     loadSession: vi.fn(async () => false) as never,
-    loadCloudModels: vi.fn(async () => []),
-    readCachedCloudModels: () => [],
-    isCloudModelsLoaded: () => false,
     setNeedsModelSetup: vi.fn(),
   })
   return { createAgent, storageRef, retryBootstrap: boot.retryBootstrap }

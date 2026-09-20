@@ -240,8 +240,10 @@ describe('TodoWrite composer summary controller', () => {
     expect(env.root()?.parentElement).toBe(env.composerShell)
     expect(env.root()?.parentElement).not.toBe(env.scrollContent)
     expect(env.scrollContent.children).toEqual([env.streaming, env.messageList])
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    expect(env.body()?.hidden).toBe(true)
+    env.toggle()?.click()
     expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
-    expect(env.body()?.hidden).toBe(false)
     expect(env.root()?.querySelectorAll('.quickforge-todo-summary-item')).toHaveLength(1)
   })
 
@@ -291,14 +293,14 @@ describe('TodoWrite composer summary controller', () => {
     const env = createEnv([quickForgeResult([todo('Work', 'in_progress')])], { suggestionMenu: 'file' })
     env.controller.update()
     env.toggle()?.click()
-    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
 
     const { nextShell, nextMenu, nextEditor, nextStats } = env.rebuildShell({ withMenu: true })
     env.controller.update()
 
     expect(nextShell.children).toEqual([env.root(), nextMenu, nextEditor, nextStats])
     expect(nextEditor.previousElementSibling).toBe(nextMenu)
-    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('does not display when message-editor is missing', () => {
@@ -311,7 +313,7 @@ describe('TodoWrite composer summary controller', () => {
     const env = createEnv([quickForgeResult([todo('Work', 'in_progress')])])
     env.controller.update()
     env.toggle()?.click()
-    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
 
     env.removeEditor()
     env.controller.update()
@@ -320,7 +322,7 @@ describe('TodoWrite composer summary controller', () => {
     const rebuiltEditor = env.rebuildEditor()
     env.controller.update()
     expect(env.composerShell.children).toEqual([env.root(), rebuiltEditor, env.stats])
-    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('self-heals after the composer editor is rebuilt and preserves a manually expanded state', () => {
@@ -347,6 +349,8 @@ describe('TodoWrite composer summary controller', () => {
   it('keeps the user collapsed after a new unfinished snapshot and briefly marks it updated', () => {
     const env = createEnv([quickForgeResult([todo('One', 'in_progress')])])
     env.controller.update()
+    env.toggle()?.click()
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
     env.toggle()?.click()
     expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
 
@@ -401,7 +405,7 @@ describe('TodoWrite composer summary controller', () => {
 
     env.setMessages([quickForgeResult([todo('Fresh', 'pending')])])
     env.controller.update()
-    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('removes and resets on rollback to no snapshot', () => {
@@ -414,7 +418,7 @@ describe('TodoWrite composer summary controller', () => {
 
     env.setMessages([quickForgeResult([todo('Fresh', 'pending')])])
     env.controller.update()
-    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('true')
+    expect(env.toggle()?.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('cleanup clears timers, listeners, and DOM', () => {

@@ -1,6 +1,22 @@
 {
   "features": [
     {
+      "id": "todo-capsule-default-collapsed",
+      "name": "任务胶囊默认收起，点击才展开",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-20 单文件行为变更：todo-write-summary.ts update() 内移除「首个含未完成项快照自动展开」分支（原 if (isFirstSnapshot) expanded = counts.completed !== counts.total），任何新快照下 expanded 保持默认 false，仅用户点击 toggle（handleToggle）才展开；原 else if 提为独立 if——「全部完成自动收起」（counts.completed === counts.total → expanded = false）统一适用所有快照，「用户手动展开/收起状态跨快照保留」契约不变。isFirstSnapshot 变量保留：仍被 showUpdatedMarker 门控使用（仅非首个新快照显示 updated 标记）。测试 6 处最小适配：首用例断言默认收起（'false'）+ 补点击展开（'true'）；shell 重建、编辑器移除两用例的用户态断言翻转为 'true'（默认收起后单次点击即展开，仍验证用户态保留）；「keeps the user collapsed」用例改双击建立用户收起态；空快照重置与回滚两用例的新首快照断言改 'false'；「starts collapsed when the first snapshot is fully completed」等其余用例语义不变未动。",
+      "files": [
+        "src/components/chat/panel-decoration/todo-write-summary.ts",
+        "tests/frontend/todo-write-summary.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-20：npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts → 2 files / 32 passed（exit 0）；npx tsc -b → exit 0；npx eslint 两改动文件 → exit 0。未跑全量 test/build（小改动定向验证）。",
+      "boundaries": "仅任务胶囊展开默认值行为，不改 DOM 结构/样式/i18n/服务端；「全部完成时自动收起」与「用户手动状态跨快照保留」契约不变；updated 标记仅首个快照不显示的既有行为不变（isFirstSnapshot 保留使用）。docs/wiki 未动（交互默认值微调，不改模块职责/公共入口）。无 Git 操作，未触碰 dist/、package-dist/、package-offline/。"
+    },
+    {
       "id": "remove-cloud-service",
       "name": "完全移除 QuickForge Cloud 云服务（服务端 + 前端 + 测试 + 文档同步）",
       "status": "done",

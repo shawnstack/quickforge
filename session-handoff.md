@@ -1,4 +1,14 @@
-## 当前交接：聊天路径链接改 icon+basename、hover 显示全路径（2026-09-20）
+## 当前交接：任务胶囊默认收起、点击才展开（2026-09-20）
+
+- 当前目标（已完成）：`todo-write-summary.ts` update() 移除「首个含未完成项快照自动展开」分支（原 `if (isFirstSnapshot) expanded = counts.completed !== counts.total`），任何新快照下 expanded 保持默认 false，仅用户点击 toggle（handleToggle）才展开；原 else if 提为独立 if——「全部完成自动收起」（`counts.completed === counts.total → expanded = false`）统一适用所有快照；用户手动展开/收起状态跨快照保留契约不变。isFirstSnapshot 变量保留（仍被 :324 门控 showUpdatedMarker——仅非首个新快照显示 updated 标记）。
+- 改动文件：`src/components/chat/panel-decoration/todo-write-summary.ts`（update() 内 +1 -2：删自动展开分支、else if 提为 if）、`tests/frontend/todo-write-summary.test.ts`（6 处适配：首用例默认收起断言 + 点击展开 'true'；shell 重建/编辑器移除两用例用户态断言翻转为 'true'；user-collapsed 用例改双击建立收起态；空快照重置与回滚新首快照断言 'false'）、`feature_list.json`（新增 todo-capsule-default-collapsed，done）、`progress.md`、`session-handoff.md`。
+- 验证：`npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts` → **2 files / 32 passed（exit 0）**；`npx tsc -b` → **exit 0**；`npx eslint`（2 改动文件）→ **exit 0**。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 验收默认收起形态——新 todo_write 快照出现时胶囊收起（aria-expanded false / body hidden）、点击 toggle 展开、全部完成自动收起、手动展开状态跨快照与编辑器重建保留、updated 标记仍仅非首快照出现；② 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：聊天路径链接改 icon+basename、hover 显示全路径（2026-09-20）
 
 - 当前目标（已完成）：`local-file-path-links.ts` 的 `createLocalFilePathLink` 正文从完整路径文本改为「文件图标 + basename」——img（src=fileIconUrl(pathValue)，与工具卡摘要区 FileIcon 同源；alt=''、draggable=false、aria-hidden）+ span（artifactFileName(pathValue)）；`button.title = pathValue`（hover 显示完整路径）；aria-label 保持 `t('openLocalFileWithPath', { path })`；dataset.quickforgeFilePath / onclick / className（quickforge-file-path-link）不变。CSS：`.quickforge-file-path-link` 改 inline-flex + align-items:center + gap:0.25rem + vertical-align:baseline，新增 `.quickforge-file-path-link img { 0.875rem; flex-shrink:0 }`；蓝色/下划线/underline-offset/hover color-mix 保留。
 - 改动文件：`src/components/chat/panel-decoration/local-file-path-links.ts`（+13 -3：2 个 import + createLocalFilePathLink 重写）、`src/index.css`（.quickforge-file-path-link 布局 + 新增 img 规则）、`tests/frontend/local-file-path-links.test.ts`（file-icon-assets mock、FakeElement 补 img 属性、linkParts helper、断言升级）、`tests/frontend/decorator-copy-i18n.test.ts`（去 `t('openLocalFile')` 断言、加 `button.title = pathValue`）、`progress.md`、`session-handoff.md`。

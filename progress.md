@@ -1,3 +1,17 @@
+## 2026-09-20 · 任务胶囊默认收起，点击才展开
+
+- Goal：聊天面板任务胶囊（todo-write-summary.ts，todo_write 工具快照摘要）默认收起，仅用户点击 toggle 才展开；保留「全部完成快照自动收起」与「用户手动展开/收起状态跨快照保留」既有契约。
+- 改动文件：
+  - `src/components/chat/panel-decoration/todo-write-summary.ts`：update() 内移除「首个含未完成项快照自动展开」分支（原 `if (isFirstSnapshot) expanded = counts.completed !== counts.total`），原 `else if` 提为独立 `if`——`if (counts.completed === counts.total) expanded = false` 统一适用所有快照；expanded 默认 false（:124）与 handleToggle 点击翻转（:159-162）不变。isFirstSnapshot 定义保留：仍被 :324 `if (isNewSnapshot && !isFirstSnapshot) showUpdatedMarker()` 使用（仅非首个新快照显示 updated 标记）。
+  - `tests/frontend/todo-write-summary.test.ts`：6 处最小适配——① 首用例断言默认收起（aria-expanded 'false'、body.hidden true）+ 补点击展开 'true' 断言；② shell 重建用例（:294/:301）用户态断言翻转为 'true'（默认收起后单次点击即展开，仍验证用户态跨重建保留）；③ 编辑器移除用例（:314/:323）同翻转为 'true'；④ 「keeps the user collapsed after a new unfinished snapshot」用例改双击（展开→收起）建立用户收起态，后续断言不变；⑤ 空快照重置用例（:404）与 ⑥ 回滚用例（:417）新首快照断言 'true' → 'false'。「starts collapsed when the first snapshot is fully completed」「auto-collapses every fully completed snapshot」「self-heals ... preserves a manually expanded state」等用例语义不变，未动。
+  - `feature_list.json`（新增 todo-capsule-default-collapsed，done）、`progress.md`、`session-handoff.md`。
+- 验证：`npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts` → 2 files / 32 passed（exit 0）；`npx tsc -b` → exit 0；`npx eslint src/components/chat/panel-decoration/todo-write-summary.ts tests/frontend/todo-write-summary.test.ts` → exit 0。未跑全量 test/build（小改动定向验证）。
+- Notes（只记录，不扩范围）：
+  - a) 真机确认默认收起形态（新任务列表出现时胶囊收起、点击展开、全部完成自动收起、手动展开状态跨快照保留、updated 标记仅非首快照出现）待用户验收。
+  - b) 本轮无 Git 操作，无依赖变更，未触碰 dist/、package-dist/、package-offline/；docs/wiki 未动（交互默认值微调，不改模块职责/公共入口）。
+
+---
+
 ## 2026-09-20 · 聊天路径链接改 icon+basename、hover 显示全路径
 
 - Goal：对话正文中本地文件路径链接（button.quickforge-file-path-link，panel-decoration/local-file-path-links.ts 生成）正文从「完整路径文本」改为「文件图标 + basename」，完整路径收进 title（hover 原生提示）与 aria-label；图标与工具卡摘要区（renderToolFileSummary 的 FileIcon）同源（fileIconUrl）。

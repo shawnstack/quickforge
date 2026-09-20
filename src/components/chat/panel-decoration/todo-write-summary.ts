@@ -312,8 +312,7 @@ export function createTodoWriteSummaryController({
       const isFirstSnapshot = snapshotKey === ''
       if (isNewSnapshot) {
         const counts = todoWriteCounts(snapshot.todos)
-        if (isFirstSnapshot) expanded = counts.completed !== counts.total
-        else if (counts.completed === counts.total) expanded = false
+        if (counts.completed === counts.total) expanded = false
         snapshotKey = nextSnapshotKey
       }
       if (contentChanged) snapshotSignature = nextSignature

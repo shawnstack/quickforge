@@ -1,8 +1,21 @@
 import type { MessageWithUsage } from '../chat-utils'
 import { assistantText } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
+import { artifactFileName } from '@/components/workspace/artifact-preview-utils'
+import { fileIconUrl } from '@/components/workspace/file-icon-assets'
 
-const LOCAL_FILE_PATH_REGEX = /[A-Za-z]:[\\/][^\s"'<>`]+|(?:\/Users|\/home|\/workspace|\/mnt|\/Volumes)\/[^\s"'<>`]+/g
+// 三条备选分支（绝对路径优先，避免相对分支在绝对路径内部产生子串匹配）：
+// 1. Windows 盘符绝对路径：`D:\x\y.md` / `D:/x/y.md`；
+// 2. Unix 常见家目录/挂载点前缀的绝对路径；
+// 3. 工作区相对路径：≥2 段、`/` 或 `\` 分隔（可混用）：
+//    首段 [A-Za-z0-9_-]+（不含点，排除 example.com / v1.2 这类形态），
+//    中间段 [A-Za-z0-9_.-]+，末段必须带扩展名（basename 允许多个点，如 chat.test.ts、
+//    patch-release-runbook.zh-CN.md），扩展名 1-8 位字母数字。
+// 整体前置的行后行断言 (?<![\w./\\:-]) 对三条分支统一生效，排除前面紧跟
+// 单词字符/点/分隔符/冒号的起点：防 URL 子串（https://example.com/a.ts 的 s:// 与
+// example.com/a.ts 两处）、盘符/Unix 路径内部重复匹配（D:\x\src）与版本号（v1.2/file）误伤。
+const LOCAL_FILE_PATH_REGEX =
+  /(?<![\w./\\:-])(?:[A-Za-z]:[\\/][^\s"'<>`]+|(?:\/Users|\/home|\/workspace|\/mnt|\/Volumes)\/[^\s"'<>`]+|[A-Za-z0-9_-]+(?:[\\/][A-Za-z0-9_.-]+)*[\\/][A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,8})/g
 const TRAILING_PATH_PUNCTUATION = new Set(['.', ',', ';', ':', '!', '?', ')', ']', '}', '>', '。', '，', '；', '：', '！', '？', '）', '】', '》'])
 const SKIP_LOCAL_PATH_SELECTOR = [
   'pre',
@@ -28,13 +41,22 @@ function trimTrailingPathPunctuation(value: string) {
   return { path: value.slice(0, end), suffix: value.slice(end) }
 }
 
+// 按钮正文只展示「文件图标 + basename」，完整路径收进 title（hover 提示）与
+// aria-label（读屏可达），图标与工具卡摘要区（renderToolFileSummary）同源。
 function createLocalFilePathLink(pathValue: string, onOpenLocalFilePath: (path: string) => void) {
   const button = document.createElement('button')
   button.type = 'button'
   button.className = 'quickforge-file-path-link'
   button.dataset.quickforgeFilePath = pathValue
-  button.textContent = pathValue
-  button.title = t('openLocalFile')
+  button.title = pathValue
+  const icon = document.createElement('img')
+  icon.src = fileIconUrl(pathValue)
+  icon.alt = ''
+  icon.draggable = false
+  icon.setAttribute('aria-hidden', 'true')
+  const label = document.createElement('span')
+  label.textContent = artifactFileName(pathValue)
+  button.append(icon, label)
   button.setAttribute('aria-label', t('openLocalFileWithPath', { path: pathValue }))
   button.onclick = (event) => {
     event.preventDefault()
@@ -49,8 +71,9 @@ function collectLocalFilePathTextNodes(root: HTMLElement) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const text = node.textContent ?? ''
-      if (!LOCAL_FILE_PATH_REGEX.test(text)) return NodeFilter.FILTER_REJECT
+      // 全局正则带 lastIndex 状态：先归零再 test，避免上一次匹配的残留位置让本节点漏判。
       LOCAL_FILE_PATH_REGEX.lastIndex = 0
+      if (!LOCAL_FILE_PATH_REGEX.test(text)) return NodeFilter.FILTER_REJECT
       const parent = node.parentElement
       if (!parent || parent.closest(SKIP_LOCAL_PATH_SELECTOR)) return NodeFilter.FILTER_REJECT
       return NodeFilter.FILTER_ACCEPT

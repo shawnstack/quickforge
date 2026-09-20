@@ -51,10 +51,6 @@ function render(initialTab: SettingsInitialTab = 'appearance', customProvider?: 
   return lifecycle.render(() => nodes(SettingsWorkspacePage({ initialTab, customProvider, onBack })))
 }
 function content(tree: TestNode[]) { return tree.find((node) => node.type === ReactSettingsTabContent)! }
-function search(tree: TestNode[], value: string) {
-  const input = tree.find((node) => node.type === 'input')!
-  ;(input.props.onChange as (event: unknown) => void)({ target: { value } })
-}
 
 describe('pure React settings registry', () => {
   it('preserves all sixteen ordered keys, names, descriptions and initial provider', () => {
@@ -126,25 +122,6 @@ describe('React settings workspace navigation', () => {
     expect(tree.find((node) => node.props['aria-current'] === 'page') && text(tree.find((node) => node.props['aria-current'] === 'page'))).toBe('en:customModels')
   })
 
-  it('searches keys, translated names/descriptions, restores selection, and handles no results', () => {
-    let tree = render('memory')
-    search(tree, ' backupRestoreDescription ')
-    tree = render('memory')
-    expect(content(tree).props.tabKey).toBe('backup')
-    search(tree, '')
-    tree = render('memory')
-    expect(content(tree).props.tabKey).toBe('memory')
-    search(tree, 'SCHEDULEDTASKS')
-    tree = render('memory')
-    expect(content(tree).props.tabKey).toBe('scheduledTasks')
-    search(tree, 'not-a-setting')
-    tree = render('memory')
-    // 无结果：内容区整体只剩占位符；已访问过的常驻 tab 仍挂载但保持隐藏（旧版只做 DOM detach）
-    expect(tree.some((node) => node.props.hidden === false)).toBe(false)
-    expect(tree.some((node) => node.type === ReactSettingsTabContent && node.props.active === true)).toBe(false)
-    expect(text(tree)).toContain('en:noSettingsResults')
-  })
-
   it('keeps the custom providers tab mounted but hidden across switches, preserving unsaved form state', () => {
     const onBack = vi.fn()
     let tree = render('customModels', undefined, onBack)
@@ -178,7 +155,7 @@ describe('React settings workspace navigation', () => {
     expect(tree.filter((node) => node.props.hidden === true)).toHaveLength(0)
   })
 
-  it('keeps visited persistent tab hosts mounted while the search has no results', () => {
+  it('keeps visited persistent tab hosts mounted under the same key after switching tabs', () => {
     const onBack = vi.fn()
     let tree = render('customModels', undefined, onBack)
     const hostOf = (key: string) => tree.find((node) => node.key === key && node.props.hidden !== undefined)
@@ -186,21 +163,22 @@ describe('React settings workspace navigation', () => {
     // 常驻挂载的依据：createSettingsTabs 生成的稳定 key（同一 key 即同一组件实例，不被卸载重建）
     const mountedKey = hostOf('customModels')?.key
     expect(contents('customModels')).toHaveLength(1)
+    expect(contents('customModels')[0].props.active).toBe(true)
 
-    // 搜索无结果：host 仍在树中但 hidden，已访问的常驻 tab 不被卸载（旧版只做 DOM detach）
-    search(tree, 'not-a-setting')
+    // 切到其它 tab：已访问的常驻 tab host 保持挂载、仅以 hidden 隐藏（旧版只做 DOM detach）
+    click(tree.find((node) => node.type === 'button' && text(node) === 'en:memory')!)
     tree = render('customModels', undefined, onBack)
-    expect(text(tree)).toContain('en:noSettingsResults')
     expect(hostOf('customModels')?.props.hidden).toBe(true)
     expect(hostOf('customModels')?.key).toBe(mountedKey)
     expect(nodes(hostOf('customModels')).some((node) => node.type === ReactSettingsTabContent && node.props.tabKey === 'customModels')).toBe(true)
     expect(contents('customModels')).toHaveLength(1)
-    // 未访问过的常驻 tab 不会被占位符分支提前挂载
+    expect(contents('customModels')[0].props.active).toBe(false)
+    // 未访问过的常驻 tab 不会被提前挂载
     expect(contents('defaults')).toHaveLength(0)
     expect(contents('about')).toHaveLength(0)
 
-    // 恢复搜索：同一 key 的 host 重新可见，hidden 标记清除
-    search(tree, '')
+    // 切回：同一 key 的 host 重新可见，hidden 标记清除
+    click(tree.find((node) => node.type === 'button' && text(node) === 'en:customModels')!)
     tree = render('customModels', undefined, onBack)
     expect(hostOf('customModels')?.props.hidden).toBe(false)
     expect(hostOf('customModels')?.key).toBe(mountedKey)

@@ -1,4 +1,75 @@
-## 当前交接：self-hosted-chat-ui 第二十二轮·回归修复：send/stop 按钮装饰层 replaceSvg 替换 React 拥有的 svg 导致 removeChild NotFoundError（2026-09-20，分支 ui）
+## 当前交接：聊天路径链接改 icon+basename、hover 显示全路径（2026-09-20）
+
+- 当前目标（已完成）：`local-file-path-links.ts` 的 `createLocalFilePathLink` 正文从完整路径文本改为「文件图标 + basename」——img（src=fileIconUrl(pathValue)，与工具卡摘要区 FileIcon 同源；alt=''、draggable=false、aria-hidden）+ span（artifactFileName(pathValue)）；`button.title = pathValue`（hover 显示完整路径）；aria-label 保持 `t('openLocalFileWithPath', { path })`；dataset.quickforgeFilePath / onclick / className（quickforge-file-path-link）不变。CSS：`.quickforge-file-path-link` 改 inline-flex + align-items:center + gap:0.25rem + vertical-align:baseline，新增 `.quickforge-file-path-link img { 0.875rem; flex-shrink:0 }`；蓝色/下划线/underline-offset/hover color-mix 保留。
+- 改动文件：`src/components/chat/panel-decoration/local-file-path-links.ts`（+13 -3：2 个 import + createLocalFilePathLink 重写）、`src/index.css`（.quickforge-file-path-link 布局 + 新增 img 规则）、`tests/frontend/local-file-path-links.test.ts`（file-icon-assets mock、FakeElement 补 img 属性、linkParts helper、断言升级）、`tests/frontend/decorator-copy-i18n.test.ts`（去 `t('openLocalFile')` 断言、加 `button.title = pathValue`）、`progress.md`、`session-handoff.md`。
+- openLocalFile key：仅 local-file-path-links.ts 一处消费（本轮移除），i18n.ts en/zh 词条按最小改动保留未删；docs/wiki 未动（视觉变更不改模块职责，词条亦未删）；feature_list.json 未动（本轮任务范围仅状态文件两项）。
+- 验证：`npx vitest run tests/frontend/local-file-path-links.test.ts tests/frontend/decorator-copy-i18n.test.ts tests/frontend/message-actions.test.ts` → **3 files / 61 passed（exit 0）**；`npm run lint` → **0 errors（exit 0）**。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 确认链接形态：icon+basename 与正文基线对齐、图标 0.875rem、hover tooltip 显示完整路径、下划线仅作用于 span 文本（不划到图标）、light/dark 蓝色与 hover 变淡不回归；② 可选清理轮：删除 i18n.ts 中已无消费方的 `openLocalFile` 词条（en/zh 成对）；③ 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：local-file-path-links 正则 lastIndex 状态污染加固（2026-09-20）
+
+- 当前目标（已完成）：消除 `LOCAL_FILE_PATH_REGEX`（g 标志全局正则）在文本节点过滤 `.test()` 上的状态依赖——把 `lastIndex = 0` 重置移到 `.test()` 之前（每次匹配前重置），避免任何残留偏移让后续短文本节点漏判、路径不链接化。exec 循环（linkLocalFilePathTextNode）既有前置重置不变；未去 g 标志。
+- 改动文件：`src/components/chat/panel-decoration/local-file-path-links.ts`（仅 acceptNode 内 3 行：注释 + 重置前移，+2 -1）、`tests/frontend/local-file-path-links.test.ts`（新增 4 用例回归测试，Node + 最小 Fake DOM）、`progress.md`、`session-handoff.md`。docs/wiki 未动（实现细节加固，不改模块职责/公共入口）；feature_list.json 未动（bug 修复轮次）。
+- 验证：`npx vitest run tests/frontend/local-file-path-links.test.ts tests/frontend/message-actions.test.ts tests/frontend/decorator-copy-i18n.test.ts` → 3 files / 56 passed（exit 0）；`npm run lint` → 0 error 0 warning（exit 0）；变异验证通过（删除重置行后「短节点漏判」两用例准确变红）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 复测聊天路径链接化；若仍有漏链，优先排查 decorateLocalFilePathLinks 的 signature 短路（markdown 重渲染但签名不变时跳过再装饰）与路径位于 pre/code 被设计跳过的情形（已记入 progress.md Notes）；② 上一轮蓝色样式真机验收仍在等待用户确认。
+
+---
+
+## 历史交接：聊天文件路径链接改蓝色（2026-09-20）
+
+- 当前目标（已完成）：聊天正文中的本地文件路径链接（`button.quickforge-file-path-link`，由 panel-decoration/local-file-path-links.ts 生成、点击经 App.tsx openLocalFilePathFromChat 打开阅读）改为蓝色：light 模式 Tailwind v4 blue-600（oklch(0.546 0.245 262.881)）、dark 模式 blue-400（oklch(0.707 0.165 254.624)），经 `--quickforge-file-path-link-color` 变量下发、`html.dark` 作用域覆盖；underline、text-underline-offset 2px、hover 变淡（color-mix 80%）保留。
+- 改动文件：`src/index.css`（仅 `.quickforge-file-path-link` / `html.dark` 覆盖 / `:hover` 三段，+9 -2）、`feature_list.json`（新增 chat-file-path-link-blue，done）、`progress.md`、`session-handoff.md`。未动 local-file-path-links.ts、message-actions.ts 与任何跳转/门控逻辑；docs/wiki 未动（纯配色变更，不改模块职责/公共入口）。
+- 验证：`npx vitest run tests/frontend/decorator-copy-i18n.test.ts tests/frontend/message-actions.test.ts` → 2 files / 52 passed（exit 0）；`npm run lint` → 0 errors（exit 0）；grep tests/ 无该类名或 CSS 颜色断言。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 真机确认 light/dark 两模式下路径链接为蓝色、下划线偏移不变、hover 变淡；② 上一轮真机验收清单（摘要区文件元素 hover 仅文件名下划线、工具卡 FileIcon 形态与跳转）仍待用户验收。
+
+---
+
+## 历史交接：摘要区文件元素 hover 反馈微调——仅文件名下划线、不变色（2026-09-20）
+
+- 当前目标（已完成）：`renderToolFileSummary` 可点击（可预览）时的 hover 行为由「整元素透明度变淡」改为「仅 basename 文本下划线」：button class 移除 `transition-opacity hover:opacity-70`、改 `group cursor-pointer`；文件名 span 加 `underline-offset-4 group-hover:underline`（分组 hover 保证悬停按钮任意位置（含图标）都只给文件名 span 下划线，图标不下划线、颜色与透明度不变；对齐 MarkdownReader 链接 `underline-offset-4 hover:underline` 模式）。静态不可预览分支无 `group` 祖先，下划线类为惰性（src 全库无其他 `group` 类，无碰撞）。
+- 改动文件：`src/lib/tool-renderers/shared.tsx`（renderToolFileSummary class 调整 + 注释同步）、`tests/frontend/tool-renderer-file-icon.test.ts`（新增 hover 断言用例，12 用例）、`progress.md`、`session-handoff.md`。docs/wiki 与 feature_list.json 未动（纯样式微调，不改模块职责与公共入口）。
+- 验证：`npx vitest run tests/frontend/tool-renderer-file-icon.test.ts` → 12/12（exit 0）；`npx tsc -b` → exit 0；`npx eslint` 两改动文件 → exit 0。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 真机确认 hover 下划线形态（仅文件名下划线、图标不变色）；② 上一轮真机验收清单（FileIcon + basename 形态、title 完整路径、可预览点击跳转、绝对路径/~ 路径静态不可点击）仍待用户验收。
+
+---
+
+## 历史交接：工具卡摘要区文件图标（眼睛按钮去重 + read_file 纳入 + 绝对路径静态化）（2026-09-20）
+
+- 当前目标（已完成）：write_file / edit_file / read_file 三工具卡摘要区渲染 `renderToolFileSummary`——FileIcon（与 workspace 文件树统一）+ 仅 basename 的整体元素，hover title 显示完整路径；路径可预览时整体可点击，经 `previewArtifactClickHandler`（preventDefault + stopPropagation 阻断 summary 折叠后派发 `PREVIEW_ARTIFACT_EVENT` = quickforge:preview-artifact）交 App.tsx openArtifactPreview 跳转阅读，与 `renderPreviewButton` 共用同一入口；不可预览时仅静态展示。`renderPreviewButton` 仅剩 present_files——write/edit 眼睛按钮已移除（与摘要区文件名点击去重；present_files 多文件摘要保留独立按钮）。read_file 绝对路径 / `~` 路径静态不可点击（`isNonWorkspaceClickablePath`：`~`、`/`、`\`、盘符前缀）——服务端 workspace 边界（isInside(workspaceRoot)）致工作区外路径 403 且 `~` 不展开，渲染层无工作区根无法区分工作区内绝对路径，有意不猜路径展开。其余工具保持 `summarizeParams` 纯文本摘要。
+- 改动文件：`src/lib/tool-renderers/shared.tsx`（renderPreviewButton 收窄 present_files、renderToolFileSummary 扩 read_file、新增 isNonWorkspaceClickablePath、resolvePreviewableArtifact read_file 分支）、`src/lib/tool-renderers/local-workspace-tool-renderer.tsx`（read_file 摘要接入）、`tests/frontend/tool-renderer-file-icon.test.ts`（重写 11 用例）、`tests/frontend/local-tool-running-sweep.test.ts`（扫描标记恢复）、`docs/wiki/src/lib/README.md`（tool-renderers/shared.tsx 条目同步）、`feature_list.json`（tool-card-file-icon，done，描述同步）、`progress.md`、`session-handoff.md`。
+- 验证：新增/重写测试 11/11、相关测试 26/26（含 local-tool-running-sweep）、`npx tsc -b`、eslint 改动文件全部 exit 0；`feature_list.json` JSON.parse 校验通过。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 真机确认摘要区交互（FileIcon + basename 形态、title 完整路径、可预览点击跳转、绝对路径/~ 路径静态不可点击）。
+
+---
+
+## 历史交接：工具卡摘要区文件图标+文件名 + 点击跳转阅读（2026-09-20，用户澄清重构轮）
+
+- 当前目标（已完成）：工具图标 `renderToolIcon` 保持不变；write_file / edit_file 工具卡摘要区（summary 标题后「 · 」详情）改为 `renderToolFileSummary`——FileIcon（与 workspace 文件树统一）+ 仅 basename 的整体元素，hover title 显示完整路径；路径可预览时整体可点击，经 `previewArtifactClickHandler`（preventDefault + stopPropagation 阻断 summary 折叠后派发 `PREVIEW_ARTIFACT_EVENT` = quickforge:preview-artifact）交 App.tsx openArtifactPreview 跳转阅读，与 `renderPreviewButton` 共用同一入口；不可预览时仅静态展示。其余工具保持 `summarizeParams` 纯文本摘要。
+- 改动文件：`src/lib/tool-renderers/shared.tsx`（删 `renderToolSummaryIcon`，新增导出 `renderToolFileSummary`）、`src/lib/tool-renderers/local-workspace-tool-renderer.tsx`（write_file/edit_file 摘要改用 `renderToolFileSummary`，工具图标不动）、`tests/frontend/tool-renderer-file-icon.test.ts`（重写 8 用例）、`tests/frontend/local-tool-running-sweep.test.ts`（扫描标记恢复）、`docs/wiki/src/lib/README.md`（tool-renderers/shared.tsx 条目改为 `renderToolFileSummary` 澄清后方案）、`feature_list.json`（tool-card-file-icon，done，描述同步澄清后方案）、`progress.md`、`session-handoff.md`。
+- 验证：新增/重写测试 8/8、相关测试 26/26（含 local-tool-running-sweep）、`npx tsc -b`、eslint 全部 exit 0；`feature_list.json` JSON.parse 校验通过。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 真机确认摘要区交互（FileIcon + basename 形态、title 完整路径、点击跳转预览、不可预览仅静态）；② read_file 是否也加文件类型图标可后续评估。
+
+---
+
+## 历史交接：移除设置页顶部搜索框及相关代码（2026-09-20）
+
+- 当前目标（已完成）：移除设置界面顶部搜索框（桌面侧栏 + 移动端主菜单两处）及其相关代码。
+- 改动文件：`src/components/settings/SettingsWorkspacePage.tsx`（删两处搜索框 JSX、`Search` import、`settingsSearchQuery`/`normalizedSettingsSearchQuery`/`filteredSettingsItems`/`visibleTabIndex`/`hasSettingsResults` 搜索状态与过滤联动、三处无结果占位；恢复 `settings.items` + `activeTabIndex` 语义；STATE_PRESERVING tab host 常驻挂载契约保留）、`src/lib/i18n.ts`（en/zh 成对删 `searchSettings`/`noSettingsResults`）、`tests/frontend/settings-workspace-react.test.ts`（删 search helper 与纯搜索用例；混合用例改写为"keeps visited persistent tab hosts mounted under the same key after switching tabs"）、`progress.md`、`feature_list.json`、`session-handoff.md`。
+- 验证：`npx vitest run tests/frontend/settings-workspace-react.test.ts` → 11 passed（exit 0）；`npx vitest run tests/frontend/decorator-copy-i18n.test.ts tests/frontend/settings-workspace-react.test.ts` → 18 passed（exit 0，en/zh 键对等通过）；`npx tsc -b` → exit 0；`npx eslint`（3 改动文件）→ exit 0。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 真机打开设置页，确认桌面/移动两处搜索框已消失、tab 切换与移动端钻取正常；② 遗留待办见 progress.md 第二十二轮 Notes（装饰层英文 'Stop'、`button:last-child` 锚定）与第二十一/二十轮遗留项不变。
+
+---
+
+## 历史交接：self-hosted-chat-ui 第二十二轮·回归修复：send/stop 按钮装饰层 replaceSvg 替换 React 拥有的 svg 导致 removeChild NotFoundError（2026-09-20，分支 ui）
 
 - 当前目标（已完成，feature 保持 **done**）：修复用户报障（主聊天面板「出错了/重试/刷新页面」ErrorBoundary，发送进入流式瞬间崩溃）。真机 componentStack 取证：`svg → Button → MessageEditor (Fg) → ChatSurface → ChatPanelHost`，removeChild NotFoundError。根因：`panel-decoration/send-stop-button.ts` 用 `replaceSvg`（oldSvg.replaceWith）物理替换 React 拥有的按钮内 svg，isStreaming 翻转时 React 卸载自己记录的子树即崩。修复（方案 A'，用户授权）：图标与基础 class 收编进 React——`MessageEditor.tsx` send 分支内联 arrow-up svg（path `M12 19V5` + `m5 12 7-7 7 7`、strokeWidth 2.4，删 rotate wrapper 与 lucide Send）、stop 分支内联实心 rect svg（x=6 y=6 12×12 rx=2，删 lucide Square），两 Button 挂 `quickforge-send-button` / `quickforge-stop-button`；`send-stop-button.ts` 改纯状态装饰（只 toggle `--waiting`、title/aria、capture stop handler），不再动 DOM 结构。
 - 改动文件：`src/components/chat/surface/MessageEditor.tsx`、`src/components/chat/panel-decoration/send-stop-button.ts`、`tests/frontend/send-stop-button.test.ts`（删 replaceSvg mock + 基础 class 归属新用例）、`tests/frontend/chat-surface-editor.test.ts`（新增 React-owned svg/base class 用例）、`progress.md`、`session-handoff.md`。
@@ -610,3 +681,24 @@
 - 验证（全部 exit 0）：定向 5 文件 116 tests；全量 `npm run test` 364 files / 4347 passed + 1 skipped；`npm run lint`；`npm run build`（含 tsc -b，仅既有 KaTeX/node:fs/chunk warning）。
 - Blocker：无。
 - 下一步：浏览器真机验收 subagent 运行期 spinner 不再闪烁；关注理论边界（整表替换产生「行身份不变但行内 part 收缩」时新 gate 不释放，详见 progress.md 本轮条目）。无 Git commit；未改生成产物与依赖。
+
+---
+
+## 当前交接：local-file-path-relative-links（done，2026-09-20 聊天相对路径链接化）
+
+- 目标：`panel-decoration/local-file-path-links.ts` 在保留绝对路径匹配与 SKIP 容器/回调链不变的前提下，把工作区相对路径（`src/App.tsx`、`docs/wiki/README.md`、`tests\\frontend\\chat.test.ts` 等）也链接化。
+- 改动文件：`src/components/chat/panel-decoration/local-file-path-links.ts`（LOCAL_FILE_PATH_REGEX 扩展为三分支 alternation + 统一前置行后行断言守卫 `(?<![\\w./\\:-])` + 规则注释；尾部标点修剪与 lastIndex 归零逻辑不动）；`tests/frontend/local-file-path-links.test.ts`（4→9 用例：相对路径链接化/不误伤/绝对路径单次匹配/pre·code 跳过/lastIndex 回归）；`progress.md`、`session-handoff.md`。docs/wiki 无该模块条目、无「仅绝对路径」表述，无需同步（源文件已补注释）。
+- 设计要点：相对分支首段不含点、中间段可含点、末段必须带 1-8 位扩展名且 basename 允许多点（`chat.test.ts` 完整链接化所需，与任务规格字面末段 `[A-Za-z0-9_-]+` 的有意偏差）；统一守卫顺带修复存量误伤——旧盘符分支会把 `https://` 中的 `s://example.com/a.ts` 链接化，现 URL 整体不链接化。
+- 验证（exit 0）：定向 vitest 3 files / 61 passed（local-file-path-links 9 + message-actions 45 + decorator-copy-i18n 7）；`npm run lint` 0 error。未跑全量 test/build（定向验证，grep 确认无其他测试引用该装饰器）。
+- Blocker：无。
+- 下一步：可选——真机验收相对路径点击可打开（服务端 resolveWorkspacePath 相对解析已有服务端测试覆盖）；如后续发现误伤/漏匹配样本，调相对分支字符类即可，三分支结构无需动。无 Git commit；未改生成产物与依赖。
+
+---
+
+## 当前交接：server-resolve-path-relative-fix（done，2026-09-20 修复点击相对路径链接报错）
+
+- 目标：修复点击聊天中相对路径链接报 "Only absolute paths are supported"——前一轮 `local-file-path-relative-links` 已把相对路径链接化，但服务端 resolve-path 路由只放行绝对路径。
+- 改动文件：`server/routes/workspace.mjs`（删除 `handleWorkspaceResolvePath` 的 `path.isAbsolute` 守卫段与随之无引用的 `node:path` 导入；其余逻辑不动，越界 403/敏感路径校验由 `resolveWorkspacePath`/`assertSafeWorkspacePath` 继续承担）；新增 `tests/server/routes/workspace-resolve-path.test.mjs`（3 用例：相对路径 200+relativePath、`../outside` 403、workspace 内绝对路径 200）；`progress.md`、`session-handoff.md`。
+- 验证（exit 0）：定向 vitest 新测试 + tests/server/utils/workspace.test.mjs → 2 files / 56 passed；`npm run lint` 0 error。未跑全量 test/build（服务端改动面仅此一个 handler 删守卫，定向覆盖路由 + util 语义）。
+- Blocker：无。
+- 下一步：**用户需手动重启 dev server 后验收**（`npm run dev` 是纯 `node server/index.mjs --dev`，无 nodemon/watch，server .mjs 改动不自动重载；dev 模式内嵌 Vite 只热更前端）。无 Git commit；未改生成产物与依赖。

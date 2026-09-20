@@ -14,6 +14,7 @@ import {
   renderStatus,
   renderTerminateCommandButton,
   renderToolChevron,
+  renderToolFileSummary,
   renderToolIcon,
   stringifyValue,
   toolDisplayDetailed,
@@ -43,7 +44,11 @@ export class LocalWorkspaceToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const status = toolStatus(result, isStreaming)
     const timing = extractQuickForgeTiming(result?.details)
-    const summary = summarizeParams(this.toolName, params, result)
+    // write_file / edit_file / read_file 摘要区渲染 FileIcon + basename 的整体元素（见
+    // renderToolFileSummary）；其余工具保持 summarizeParams 纯文本摘要。
+    const summary = (this.toolName === 'write_file' || this.toolName === 'edit_file' || this.toolName === 'read_file')
+      ? renderToolFileSummary(this.toolName, params)
+      : summarizeParams(this.toolName, params, result)
     const detailed = toolDisplayDetailed()
     const input = detailed ? stringifyValue(params) : ''
     const output = toolOutputText(this.toolName, params, result, isStreaming)

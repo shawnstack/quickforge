@@ -3030,11 +3030,17 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
 }
 
 .quickforge-file-path-link {
-  display: inline;
+  /* 图标 + basename 并排（icon 为 0.875rem 的 img，flex-shrink 防挤压） */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  vertical-align: baseline;
   border: 0;
   padding: 0;
   background: transparent;
-  color: var(--primary);
+  /* Tailwind v4 blue-600 */
+  --quickforge-file-path-link-color: oklch(0.546 0.245 262.881);
+  color: var(--quickforge-file-path-link-color);
   font: inherit;
   text-align: inherit;
   text-decoration-line: underline;
@@ -3042,8 +3048,19 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
   cursor: pointer;
 }
 
+.quickforge-file-path-link img {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+}
+
+html.dark .quickforge-file-path-link {
+  /* Tailwind v4 blue-400 */
+  --quickforge-file-path-link-color: oklch(0.707 0.165 254.624);
+}
+
 .quickforge-file-path-link:hover {
-  color: color-mix(in oklab, var(--primary) 80%, transparent);
+  color: color-mix(in oklab, var(--quickforge-file-path-link-color) 80%, transparent);
 }
 
 .quickforge-user-message .user-message-container :where(p, ul, ol, pre, blockquote):first-child,

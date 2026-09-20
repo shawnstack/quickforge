@@ -20,9 +20,9 @@ const contextUsageSource = readFileSync(
 beforeEach(() => applyAppLanguageFromSnapshot('en'))
 
 describe('decorator copy goes through i18n', () => {
-  it('translates the local file path link title and aria-label', () => {
-    expect(localFilePathSource).toContain("t('openLocalFile')")
+  it('translates the local file path link aria-label and keeps the path as title', () => {
     expect(localFilePathSource).toContain("t('openLocalFileWithPath', { path: pathValue })")
+    expect(localFilePathSource).toContain('button.title = pathValue')
     expect(localFilePathSource).not.toContain("'Open file'")
     expect(localFilePathSource).not.toContain('`Open file ${pathValue}`')
   })

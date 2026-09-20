@@ -7,7 +7,6 @@ import {
 import { sendJson, readJsonBody } from '../utils/response.mjs'
 import { promises as fs } from 'node:fs'
 import { logger } from '../utils/logger.mjs'
-import path from 'node:path'
 import { resolveModelBinding } from '../model-catalog.mjs'
 import { createRequestAbortState, isAbortError } from './workspace-request-control.mjs'
 import {
@@ -209,11 +208,6 @@ async function handleWorkspaceResolvePath(req, res) {
   }
   if (!inputPath) {
     const error = new Error('path is required')
-    error.statusCode = 400
-    throw error
-  }
-  if (!path.isAbsolute(inputPath)) {
-    const error = new Error('Only absolute paths are supported')
     error.statusCode = 400
     throw error
   }

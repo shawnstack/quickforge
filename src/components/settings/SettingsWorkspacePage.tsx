@@ -14,7 +14,6 @@ import {
   Link2,
   Palette,
   Puzzle,
-  Search,
   Server,
   Share2,
   SlidersHorizontal,
@@ -74,32 +73,9 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
   // 移动端钻取导航：null = 主菜单，非 null = 二级页（对应 tab index）
   const [mobileDetail, setMobileDetail] = useState<number | null>(null)
   const activeTabIndex = selectedTabIndex ?? defaultTabIndex
-  const [settingsSearchQuery, setSettingsSearchQuery] = useState('')
-  const normalizedSettingsSearchQuery = settingsSearchQuery.trim().toLowerCase()
-  const filteredSettingsItems = useMemo(() => {
-    return settings.items
-      .map((item, index) => ({ item, index }))
-      .filter(({ item }) => {
-        if (!normalizedSettingsSearchQuery) return true
-        const searchText = [item.key, item.getTabName(), item.getDescription?.() ?? ''].join(' ').toLowerCase()
-        return searchText.includes(normalizedSettingsSearchQuery)
-      })
-  }, [settings.items, normalizedSettingsSearchQuery])
-
-  // 搜索联动：命中后内容区自动切到第一个匹配项，清空搜索回到原 tab
-  const visibleTabIndex = useMemo(() => {
-    if (!normalizedSettingsSearchQuery) return activeTabIndex
-    const first = filteredSettingsItems[0]
-    if (!first) return activeTabIndex
-    return filteredSettingsItems.some(({ index }) => index === activeTabIndex) ? activeTabIndex : first.index
-  }, [activeTabIndex, filteredSettingsItems, normalizedSettingsSearchQuery])
-
-  const activeItem = settings.items[visibleTabIndex] ?? settings.items[0]
+  const activeItem = settings.items[activeTabIndex] ?? settings.items[0]
   const activeDescription = activeItem?.getDescription?.()
   const ActiveIcon = activeItem ? SETTINGS_TAB_ICONS[activeItem.key] : undefined
-  // 搜索无结果时旧版只是把 tab 元素从 host 摘除（detach），元素实例与页内中间态仍保留；
-  // 因此内容区 host 始终渲染、仅以 hidden 隐藏，占位符独立渲染在其后。
-  const hasSettingsResults = filteredSettingsItems.length > 0
 
   // 有页内中间态的 tab：首次激活后保持挂载，切走时仅以 hidden 隐藏而非卸载，
   // 对齐旧版 tab 元素常驻、切回仅刷新数据的语义；其它 tab 维持切换即卸载的现状。
@@ -116,7 +92,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
   // 切换 tab / 进入二级页时内容区滚动复位
   useEffect(() => {
     contentRef.current?.scrollTo({ top: 0 })
-  }, [visibleTabIndex, mobileDetail])
+  }, [activeTabIndex, mobileDetail])
 
   return (
     <div className="flex h-screen min-h-0 supports-[height:100dvh]:h-dvh bg-[var(--quickforge-sidebar-bg)] text-foreground">
@@ -133,22 +109,12 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
             </span>
             <span className="truncate text-sm leading-5">返回工作区</span>
           </button>
-          <div className="quickforge-settings-inline-field mt-3">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" aria-hidden="true" />
-            <input
-              value={settingsSearchQuery}
-              onChange={(event) => setSettingsSearchQuery(event.target.value)}
-              placeholder={t('searchSettings')}
-              aria-label={t('searchSettings')}
-              className="quickforge-settings-input"
-            />
-          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-4">
           <nav className="space-y-1" aria-label={t('settings')}>
-            {filteredSettingsItems.map(({ item, index }) => {
-              const active = index === visibleTabIndex
+            {settings.items.map((item, index) => {
+              const active = index === activeTabIndex
               const Icon = SETTINGS_TAB_ICONS[item.key]
               return (
                 <button
@@ -175,9 +141,6 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
                 </button>
               )
             })}
-            {filteredSettingsItems.length === 0 ? (
-              <div className="px-2 py-3 text-sm">{t('noSettingsResults')}</div>
-            ) : null}
           </nav>
         </div>
       </aside>
@@ -209,22 +172,9 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
         </header>
 
         <div className={cn('flex min-h-0 flex-1 flex-col md:hidden', mobileDetail !== null && 'hidden')}>
-          <div className="shrink-0 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_30%,transparent)] px-3 py-2">
-            <div className="quickforge-settings-inline-field">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" aria-hidden="true" />
-              <input
-                value={settingsSearchQuery}
-                onChange={(event) => setSettingsSearchQuery(event.target.value)}
-                placeholder={t('searchSettings')}
-                aria-label={t('searchSettings')}
-                className="quickforge-settings-input"
-              />
-            </div>
-          </div>
-
           <nav className="quickforge-settings-mobile-list" aria-label={t('settings')}>
             <div className="quickforge-settings-mobile-list-card">
-              {filteredSettingsItems.map(({ item, index }) => {
+              {settings.items.map((item, index) => {
                 const Icon = SETTINGS_TAB_ICONS[item.key]
                 return (
                   <button
@@ -244,9 +194,6 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
                   </button>
                 )
               })}
-              {filteredSettingsItems.length === 0 ? (
-                <div className="px-2 py-8 text-center text-sm">{t('noSettingsResults')}</div>
-              ) : null}
             </div>
           </nav>
         </div>
@@ -258,9 +205,9 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
         >
           <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col">
             {activeItem ? (
-              <div className="quickforge-settings-tab-host min-h-0 flex-1" hidden={!hasSettingsResults}>
+              <div className="quickforge-settings-tab-host min-h-0 flex-1">
                 {settings.items.map((item) => {
-                  const isActive = hasSettingsResults && item.key === activeItem.key
+                  const isActive = item.key === activeItem.key
                   if (STATE_PRESERVING_TAB_KEYS.has(item.key)) {
                     if (!isActive && !visitedStatePreservingTabs.has(item.key)) return null
                     // 常驻 tab 始终保持挂载：hidden 只是视觉隐藏，React state 不丢；
@@ -275,11 +222,6 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
                 })}
               </div>
             ) : null}
-            {hasSettingsResults ? null : (
-              <div className="rounded-xl border border-dashed border-[color-mix(in_oklab,var(--border)_70%,transparent)] p-8 text-center text-sm">
-                {t('noSettingsResults')}
-              </div>
-            )}
           </div>
         </section>
         <button

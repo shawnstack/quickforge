@@ -6,7 +6,8 @@ import { HIGHLIGHT_TOKEN_CLASSES, highlightCode } from '@/lib/code-highlight'
 import { copyTextToClipboard } from '@/lib/message-utils'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { type QuickForgeToolTiming } from '@/lib/tool-execution-events'
-import { artifactPreviewMode, type ArtifactKind } from '@/components/workspace/artifact-preview-utils'
+import { artifactFileName, artifactPreviewMode, type ArtifactKind } from '@/components/workspace/artifact-preview-utils'
+import { FileIcon } from '@/components/workspace/file-icon'
 import { formatManageGlobalMemoryOutput } from '@/lib/global-memory-tool-output'
 import { ToolMarqueeController, type ToolMarqueeEnv, type ToolMarqueeView } from '@/lib/tool-marquee'
 import { parseDiffFileInfo, parseDiffRows, diffLineNumber, type DiffRow } from '@/lib/diff-view'
@@ -406,25 +407,27 @@ export function renderToolChevron() {
 function statusIconClass(status: ToolStatusKey) {
   if (status === 'error') return 'text-destructive'
   if (status === 'running') return 'text-primary animate-spin'
-  if (status === 'done') return 'text-emerald-600 dark:text-emerald-500'
   return 'text-muted-foreground'
 }
 
 export function renderStatusIcon(status: ToolStatusKey) {
+  if (status === 'done') return null
   const className = `quickforge-tool-status-icon shrink-0 ${statusIconClass(status)}`
   const label = t(status)
 
   if (status === 'running') return <svg className={className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label={label}><path d="M21 12a9 9 0 1 1-6.2-8.6" /></svg>
-  if (status === 'done') return <svg className={className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label={label}><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1" /><path d="m9 11 3 3L22 4" /></svg>
   if (status === 'error') return <svg className={className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label={label}><circle cx="12" cy="12" r="10" /><path d="m15 9-6 6" /><path d="m9 9 6 6" /></svg>
   return <svg className={className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label={label}><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" /></svg>
 }
 
 export function renderStatus(status: ToolStatusKey, timing: QuickForgeToolTiming | undefined) {
+  const icon = renderStatusIcon(status)
+  const timingElement = renderTiming(timing, status)
+  if (icon === null && timingElement === null) return null
   const metaClass = status === 'done' ? 'quickforge-tool-meta-hover' : 'quickforge-tool-meta-important'
   return (
     <span className={`${metaClass} shrink-0 inline-flex items-center gap-1.5`} title={t(status)}>
-      {renderStatusIcon(status)}{renderTiming(timing, status)}
+      {icon}{timingElement}
     </span>
   )
 }
@@ -545,13 +548,27 @@ function previewableArtifact(path: string, kind?: string): PreviewableArtifact |
   return artifactPreviewMode(path, normalizedKind) ? { path, kind: normalizedKind } : undefined
 }
 
+/** read_file 摘要点击预览的绝对路径护栏（兼容 / 与 \ 分隔符、盘符与 ~ 前缀）。 */
+function isNonWorkspaceClickablePath(path: string) {
+  return path.startsWith('~') || path.startsWith('/') || path.startsWith('\\') || /^[a-zA-Z]:[\\/]/.test(path)
+}
+
 // 从工具参数中解析出可展示的文件（若存在）。
-// write_file/edit_file 取单个已知文件；present_files 按 defaultPreview 优先，
-// 否则取第一个可在 Browser 或 Reader 中打开的文件。找不到则不渲染按钮。
+// write_file/edit_file/read_file 取单个已知文件；present_files 按 defaultPreview 优先，
+// 否则取第一个可在 Browser 或 Reader 中打开的文件。找不到则不渲染按钮/不可点击。
+// read_file 的 path 可能是工作区外的绝对路径（如 ~/.claude/CLAUDE.md、盘符路径）：
+// 预览链路（App.tsx openArtifactPreview → 工作区文件 API）只认工作区内路径——
+// 工作区外绝对路径会被服务端 403 拒绝，`~` 前缀也不会被展开；渲染层拿不到
+// 工作区根目录、无法区分「工作区内绝对路径」，故绝对路径一律视为不可预览。
 function resolvePreviewableArtifact(toolName: string, params: Record<string, unknown> | undefined): PreviewableArtifact | undefined {
   if (toolName === 'write_file' || toolName === 'edit_file') {
     const path = params && 'path' in params && typeof params.path === 'string' ? params.path : ''
     return path ? previewableArtifact(path) : undefined
+  }
+  if (toolName === 'read_file') {
+    const path = params && 'path' in params && typeof params.path === 'string' ? params.path : ''
+    if (!path || isNonWorkspaceClickablePath(path)) return undefined
+    return previewableArtifact(path)
   }
   if (toolName === 'present_files') {
     const files = params && Array.isArray(params.files) ? params.files : []
@@ -579,7 +596,22 @@ function resolvePreviewableArtifact(toolName: string, params: Record<string, unk
   return undefined
 }
 
+/** 预览点击桥接：预览按钮与摘要行文件图标共用同一入口——先
+ * preventDefault + stopPropagation 阻断 summary 的 details 折叠开关，
+ * 再经 window CustomEvent 派发给 App.tsx 的 openArtifactPreview。 */
+function previewArtifactClickHandler(artifact: PreviewableArtifact) {
+  return (event: { preventDefault(): void; stopPropagation(): void }) => {
+    event.preventDefault()
+    event.stopPropagation()
+    window.dispatchEvent(new CustomEvent(PREVIEW_ARTIFACT_EVENT, { detail: artifact }))
+  }
+}
+
 export function renderPreviewButton(toolName: string, params: Record<string, unknown> | undefined) {
+  // 摘要区文件元素（write_file / edit_file / read_file）整体即预览入口（见
+  // renderToolFileSummary），右侧眼睛按钮仅保留 present_files——多文件摘要
+  // 无法整体充当入口，需要独立按钮。
+  if (toolName !== 'present_files') return null
   const artifact = resolvePreviewableArtifact(toolName, params)
   if (!artifact) return null
   return (
@@ -588,12 +620,40 @@ export function renderPreviewButton(toolName: string, params: Record<string, unk
       className="shrink-0 inline-flex size-5 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
       title={t('previewArtifact')}
       aria-label={t('previewArtifact')}
-      onClick={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        window.dispatchEvent(new CustomEvent(PREVIEW_ARTIFACT_EVENT, { detail: artifact }))
-      }}
+      onClick={previewArtifactClickHandler(artifact)}
     ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg></button>
+  )
+}
+
+// write_file / edit_file / read_file 摘要区的文件元素：与工作区文件管理同源的 Material
+// 文件类型图标 + 仅文件名（basename，兼容 / 与 \ 分隔符）作为一个整体渲染，
+// 可见文本不含目录与完整路径；hover title 保留完整路径（信息不丢失）。
+// 路径可预览（resolvePreviewableArtifact 有值）时整体即预览入口，复用
+// previewArtifactClickHandler（阻断 summary 折叠开关后派发预览事件）；
+// 不可预览时静态展示、不可点击。其余工具摘要保持纯文本完整路径不变。
+// 预览入口的 hover 反馈克制为仅 basename 文本下划线（group-hover 定位到
+// 文件名 span，图标不下划线），颜色与透明度保持不变。
+export function renderToolFileSummary(toolName: 'write_file' | 'edit_file' | 'read_file', params: Record<string, unknown> | undefined) {
+  const path = params && typeof params.path === 'string' && params.path ? params.path : ''
+  if (!path) return null
+  const artifact = resolvePreviewableArtifact(toolName, params)
+  const className = 'quickforge-tool-file-summary inline-flex min-w-0 max-w-full items-center gap-1'
+  const content = (
+    <>
+      <FileIcon path={path} className="size-3.5 shrink-0" />
+      <span className="min-w-0 truncate underline-offset-4 group-hover:underline">{artifactFileName(path)}</span>
+    </>
+  )
+  if (!artifact) {
+    return <span className={className} title={path}>{content}</span>
+  }
+  return (
+    <button
+      type="button"
+      className={`${className} group cursor-pointer`}
+      title={path}
+      onClick={previewArtifactClickHandler(artifact)}
+    >{content}</button>
   )
 }
 

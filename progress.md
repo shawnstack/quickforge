@@ -1,3 +1,30 @@
+## 2026-09-20 · Hooks 事件钩子：会话/工具事件触发命令或 Webhook（前后端实现 + 集成收尾）
+
+- Goal：设置页新增「Hooks」：按 Agent 事件（agent_start / agent_end / tool_execution_start / tool_execution_end / tool_approval_required / error）自动执行本地命令或发送 Webhook；提供总开关、Hook 增删改/启停、编辑器内手动测试与最近执行记录列表。HTML 原型 `design-mockups/hooks-settings.html` → 前后端并行实现 → 本轮集成核对与收尾。
+- 集成核对结论（收尾轮逐项核对前后端契约）：
+  - ① `POST /api/hooks/test`：server 返回 `{ execution }` 信封，前端 runTest 原按裸 record 解析（测试结果会恒显示 timeout 标签、无耗时/输出）→ **修正前端**：`HooksSettingsTab.tsx` 改按信封解析并对缺失/非对象按请求失败处理；前端测试 mock 同步改为信封 + `event:'test'`。
+  - ② `GET /api/hooks/executions`：server `{ executions }` 与前端解析一致 ✓。
+  - ③ 存储键：双端均为 `'hooks-settings'`（server/hooks/hooks-settings.mjs 与 src/lib/hooks-settings.ts）✓。
+  - ④ ExecutionRecord 字段：status 枚举 `success/error/timeout` 双端一致 ✓；`event` 类型对齐为 `HookEvent | 'test'`（手动测试记录的合成事件），执行日志事件标签查找处补 `'test'` 守卫。
+  - ⑤ 刷新链路：前端 `saveHooksSettings` → `storage.settings.set` → `HttpStorageBackend.set` → `PUT /api/storage/settings/key/hooks-settings` → server `routes/storage.mjs`（`store === 'settings' && key === HOOKS_SETTINGS_KEY` 共享常量）→ `refreshHooksSettings()`（fail-open）✓。
+  - ⑥ i18n：HooksSettingsTab + lib 全部 73 个 t()/标签 key 在 en/zh 成对存在 ✓。
+- 改动文件（收尾轮）：
+  - `src/components/settings/tabs/HooksSettingsTab.tsx`：runTest 信封解析；`event === 'test'` 守卫；8 处白名单外透明度语义色类（bg-muted/40 ×2、bg-muted/70、hover:bg-muted/60 ×2、hover:bg-muted/55 ×2、border-foreground/25、hover:border-foreground/20 ×2 共 10 条违规类）改为视觉等价 `color-mix(in_oklab,var(--x)_NN%,transparent)` 任意值写法。
+  - `src/lib/hooks-settings.ts`：`HookExecutionRecord.event: HookEvent | 'test'`（附注释）。
+  - `tests/frontend/hooks-settings-tab.test.ts`：测试端点 mock 改为 `{ execution: {...} }` 信封、`event: 'test'`。
+  - 文档：`docs/wiki/server/README.md`（目录树 + `### hooks/ — Hooks 事件钩子` 小节）、`docs/wiki/server/routes/README.md`（表格行 + `## hooks.mjs` 小节）、`docs/wiki/src/lib/README.md`（hooks-settings.ts 表格条目 + 设置选项卡清单加 Hooks 与页面说明）。
+  - `feature_list.json`（新增 hooks-agent-events，done）、`progress.md`、`session-handoff.md`。
+  - （本 feature 前序轮已含：server/hooks/*、server/routes/hooks.mjs、server/index.mjs、server/routes/storage.mjs 接线；src/lib/hooks-settings.ts、HooksSettingsTab.tsx、settings-tabs.ts、react-settings-tabs.tsx、SettingsWorkspacePage.tsx、i18n.ts；五个测试文件；design-mockups/hooks-settings.html。）
+- 验证：针对性 `npx vitest run tests/server/hooks tests/server/routes/hooks.test.mjs tests/frontend/hooks-settings.test.ts tests/frontend/hooks-settings-tab.test.ts tests/frontend/settings-workspace-react.test.ts` → **6 files / 59 passed（exit 0）**；全量 `npm run test` → **373 files / 4431 passed + 1 skipped（exit 0）**（首轮 1 失败：semantic-color-class-parity 报 HooksSettingsTab 白名单外档位，修正后定向 6 files / 51 passed、全量复跑通过）；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**（HooksSettingsTab chunk 25.29 kB，仅既有警告）。
+- Notes（只记录，不扩范围）：
+  - a) 遗留：执行记录仅内存 50 条不持久化（重启清空）；V1 无项目限定、无拦截语义（纯通知）；编辑 Modal 无完整 focus trap（Escape/外点关闭已有）。
+  - b) 待真机 `npm run dev` 验收：设置 → Hooks 页面新增/编辑/测试/开关，观察执行记录。
+  - c) 本轮无 Git 操作，无依赖变更，未触碰 package-dist/、package-offline/（dist/ 仅由 npm run build 生成）。
+
+---
+
+
+
 ## 2026-09-20 · 修复：新添加项目行“新建对话”无反应（空白 deferred 会话误判复用）
 
 - Goal：新添加项目后不刷新，点该项目行“新建对话”无反应。根因：startNewProjectChat（src/hooks/useChatActions.ts）的 reusableBlankSession 判断只比较 activeProjectRef（UI 选中态），不校验当前 DeferredSessionAgent 实际绑定的项目；添加项目流程只更新 activeProject 不替换 agent，旧项目的空白 deferred 会话被误判为可复用 → 静默 return 'reused'，不建会话；刷新后 bootstrap 重建 agent 与 activeProject 对齐所以正常。
@@ -23,6 +50,7 @@
   - `feature_list.json`（新增 send-anchor-user-message-top，done）、`progress.md`、`session-handoff.md`。
 - 验证：`npx vitest run tests/frontend/scroll-sync.test.ts` → 10 passed；`tests/frontend/chat-surface-behavior-alignment.test.ts` + `tests/frontend/scroll-to-bottom-button.test.ts` → 17 passed（护栏回归）；`npx tsc -b` → exit 0；eslint（改动文件）→ exit 0。未跑全量 test/build（小改动定向验证）。
 - 微调（同 feature 内，真机验收反馈「锚定后消息顶部与上方标题区域贴得太近」）：`scroll-sync.ts` 新增模块常量 `ANCHOR_TOP_OFFSET = 12`，锚定目标 scrollTop = 消息顶部偏移 − 12px（clamp ≥ 0）；spacer 初始高度与动态收缩公式共用同一锚定目标值，所需垫高随边距自动调整（目标下移 12px 即少垫 12px），「内容底贴视口底时 scrollTop 恒等于锚定值」不变量保持。`tests/frontend/scroll-sync.test.ts` 期望值同步（初始 spacer 120→108px、收缩 80→56px、锚定位 900→888/380→368，新增 12px 边距断言语义）；定向验证 vitest 10 passed、`npx tsc -b` exit 0、eslint 改动文件 exit 0；`docs/wiki/src/components/README.md` scroll-sync 小节两份副本补「锚定位置留 12px 顶部边距」。feature_list.json 未动（同一 feature 内微调）。
+- 修复（同 feature 内，偶发失效：发送后消息不在视口内，只读调研定位三类竞态）：① `enableWithAnchor()` 不再依赖固定双 rAF（scheduleAfterPaint 依赖移除）——调用时记录容器内已存在的最后一条 `.qf-user-message`，按帧 rAF 轮询等待出现「不同于发送前那条」的最后一条用户消息（发送前无任何用户消息则等第一条出现），找到后锚定；超时 1000ms（`ANCHOR_WAIT_TIMEOUT_MS`）回退 `enable()` 贴底并停止轮询（治 H2：React 提交晚于双 rAF 时锚错上一轮消息）；② 锚定跟随改为消息实时位置驱动——spacer 存活期（锚定激活态）每次 ResizeObserver 更新重导出：msgTopDoc = 消息 rect.top − 容器 rect.top + scrollTop，target = max(0, msgTopDoc − 12)，spacer = max(0, target + clientHeight − contentHeight)，spacer >0 写 scrollTop = target，归零即移除 spacer 退出锚定回贴底；目标消息 isConnected=false 时静默清理退出（治 H1/H3：锚定测量落在 fold 释放/重折叠过渡几何、视口钉死发送时 scrollTop 永不自愈）；③ `src/index.css` 给 `.qf-chat-panel > .qf-scroll-container` 加 `overflow-anchor: none`，关闭浏览器原生滚动锚定互扰。`tests/frontend/scroll-sync.test.ts` 锚定用例重写（10→14：新增晚于双 rAF 出现仍锚定 / 超时回退贴底 / 上方内容收缩展开 scrollTop 跟随（消息 top 恢复 12px）/ 节点移除清理不报错 / 连续 enableWithAnchor 重置锚定最新消息；既有用例按新机制调整期望），mock 改为按帧推进虚拟时钟（16ms/帧，驱动超时）+ 用户消息 rect 随 scrollTop 联动 + 可变消息列表。验证：`npx vitest run tests/frontend/scroll-sync.test.ts` → 14 passed；护栏 chat-surface-behavior-alignment + scroll-to-bottom-button → 17 passed；CSS 契约（chat-surface-css-contract + chat-compact-controls）→ 37 passed；`npx tsc -b` exit 0；eslint（scroll-sync.ts + 测试）exit 0。`docs/wiki/src/components/README.md` scroll-sync 小节两份副本机制描述同步（322→391 行）。feature_list.json 未动（同 feature 缺陷修复）。
 - Notes（只记录，不扩范围）：
   - a) 待真机 `npm run dev` 验收：主聊天页发送后用户消息应出现在可视区顶部、回复增长期间稳在顶部、超过一屏后自然被推走、手动上滚不受影响。
   - b) 侧边聊天/分享页回归确认行为不变。
@@ -1104,3 +1132,12 @@
 - 验证（exit 0）：`npx vitest run tests/server/routes/workspace-resolve-path.test.mjs tests/server/utils/workspace.test.mjs` → 2 files / 56 passed（含既有 util 53 用例）；`npm run lint` → 0 error。未跑全量 test/build（服务端改动面仅删一个前置守卫，定向覆盖路由 + util 语义）。
 - dev 重启结论：`npm run dev` = `node server/index.mjs --dev`，纯 node 进程（无 nodemon/watch；dev 模式仅内嵌启动 Vite dev server 负责前端），server/*.mjs 改动不会自动重载——**用户需手动重启 dev server 后再验收**。
 - 无 Git commit/tag/push；未改 `dist/`、`package-dist/`、`package-offline/`；无新增依赖；未改 feature_list.json（bug 修复轮次，feature 全 done）。
+
+---
+
+## hooks-timeout-max-300（done，2026-09-20 Hooks 超时上限 120→300 秒）
+
+- 需求：用户需要 5 分钟 Hooks 超时；`timeoutSeconds` 上限从 120s 提升到 300s（下限 1、默认 10 不变），前后端同构保持。
+- 改动（4 文件 + 本记录）：`src/lib/hooks-settings.ts` 与 `server/hooks/hooks-settings.mjs` 的 `MAX_HOOK_TIMEOUT_SECONDS` 120→300；`tests/frontend/hooks-settings.test.ts` clamp 断言 999→300，补 300 合法 / 301 截断边界，loadHooksSettings 用例期望值 120→300；docs/wiki 两处「timeout clamp 1–120s」同步为 1–300s（`docs/wiki/src/lib/README.md`、`docs/wiki/server/README.md`）。`HooksSettingsTab.tsx` 输入框 max 引用常量自动生效；`src/lib/i18n.ts` grep 无「120 秒 / 1-120」文案（零命中），无需改动。
+- 验证（exit 0）：`npx vitest run tests/frontend/hooks-settings.test.ts tests/frontend/hooks-settings-tab.test.ts tests/server/hooks tests/server/routes/hooks.test.mjs` → 5 files / 48 passed；`npx tsc -b --pretty false` 通过；改动文件 `npx eslint`（src/lib/hooks-settings.ts、tests/frontend/hooks-settings.test.ts、server/hooks/hooks-settings.mjs）0 错误。
+- 无 Git commit/tag/push；未改 `dist/`、`package-dist/`、`package-offline/`、`design-mockups/`；无新增依赖；未改 feature_list.json（小改动轮次，feature 全 done）。

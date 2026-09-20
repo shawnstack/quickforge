@@ -1,4 +1,26 @@
-## 当前交接：修复新添加项目行“新建对话”无反应（2026-09-20）
+## 当前交接：修复发送后用户消息锚定偶发失效（2026-09-20）
+
+- 当前目标（已实现，待真机复测）：主聊天页「发送后用户消息锚定可视区顶部（12px 边距）」偶发失效（消息不在视口内）的健壮性修复，对外行为不变。三类竞态修复：① H2——`enableWithAnchor()` 弃用固定双 rAF（移除 scheduleAfterPaint 依赖），改为记录发送前最后一条 `.qf-user-message` 后按帧 rAF 轮询等待「新出现的」最后一条用户消息（无历史则等第一条），超时 1000ms 回退 `enable()` 贴底；② H1/H3——锚定激活期（spacer 存活期）不再钉死发送时 scrollTop，每次 ResizeObserver 更新以消息实时位置重导出 target/spacer（msgTopDoc = rect 差 + scrollTop；spacer = max(0, target + clientHeight − contentHeight)，>0 写 scrollTop = target），布局变化（折叠释放/重折叠、装饰注入、上方增减）下一帧自动校正；spacer 归零退出锚定回贴底；msgEl.isConnected=false 静默清理不报错；③ 浏览器原生滚动锚定互扰——`src/index.css` 给 `.qf-chat-panel > .qf-scroll-container` 加 `overflow-anchor: none`。
+- 改动文件：`src/components/chat/scroll-sync.ts`（等待轮询 + 实时位置驱动锚定，322→391 行）、`src/index.css`（+1 规则）、`tests/frontend/scroll-sync.test.ts`（锚定用例重写 10→14，mock 虚拟时钟按帧推进 + rect 随 scrollTop 联动 + 可变消息列表）、`docs/wiki/src/components/README.md`（scroll-sync 小节两份副本 + 树条目行数同步）、`progress.md`、`session-handoff.md`。feature_list.json 未动（同 feature 内缺陷修复）。
+- 验证：`npx vitest run tests/frontend/scroll-sync.test.ts` → **14 passed（exit 0）**；护栏 `tests/frontend/chat-surface-behavior-alignment.test.ts` + `tests/frontend/scroll-to-bottom-button.test.ts` → **17 passed（exit 0）**；CSS 契约（chat-surface-css-contract + chat-compact-controls）→ **37 passed（exit 0）**；`npx tsc -b --pretty false` → **exit 0**；eslint（scroll-sync.ts + 测试文件）→ **exit 0**。未跑全量 test/build（定向验证）。
+- 实现取舍（偏离规格说明）：未启用锚定激活期常驻 rAF 跟随循环——识别的失效场景（fold 释放/重折叠、装饰注入、内容增减、H3 直写）均伴随被观察元素高度变化、由既有 ResizeObserver（观察滚动容器 + `.max-w-3xl` 内容列 + composer dock）在下一帧驱动 `refreshAnchor` 校正，避免 spacer 长存活时（短回复场景）每帧无条件 rect 读取；「总高度不变的内容上移/下移互换」类布局变化不在覆盖内（评估为极罕见，未引入常驻循环）。等待阶段轮询在找到目标或超时后即结束。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 复测偶发失效场景：主线程拥塞时连续发送（消息应仍锚定顶部 12px、1s 内未出现则回退贴底）、长会话带过程折叠的回合发送（折叠重算后消息不应停在视口外）、回复增长超屏自然推走、手动上滚不受影响；② 侧边聊天/分享页回归确认行为不变；③ 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：Hooks 事件钩子功能收尾完成（2026-09-20）
+
+- 当前目标（已完成，待真机验收）：设置页「Hooks」功能——按 Agent 事件（agent_start / agent_end / tool_execution_start / tool_execution_end / tool_approval_required / error）自动执行本地命令或发送 Webhook。前后端并行实现完成后，本轮做集成接缝核对、文档 wiki 同步、状态文件与全量验证。
+- 接缝核对结论：① `/api/hooks/test` server 返回 `{ execution }` 信封而前端按裸 record 解析（测试结果会恒显示 timeout 标签）→ 已修正前端按信封解析；② `/api/hooks/executions` `{ executions }` 双端一致；③ 存储键双端均 `'hooks-settings'`；④ status 枚举 `success/error/timeout` 双端一致，`HookExecutionRecord.event` 类型对齐为 `HookEvent | 'test'`；⑤ 刷新链路（settings.set → PUT /api/storage/settings/key/hooks-settings → refreshHooksSettings，fail-open）✓；⑥ i18n 73 key en/zh 成对 ✓。另修正 HooksSettingsTab 10 处白名单外透明度语义色类为 color-mix 任意值写法（semantic-color-class-parity 护栏）。
+- 改动文件（收尾轮）：`src/components/settings/tabs/HooksSettingsTab.tsx`（信封解析 + 'test' 守卫 + 8 处类名）、`src/lib/hooks-settings.ts`（event 类型）、`tests/frontend/hooks-settings-tab.test.ts`（信封 mock）、`docs/wiki/server/README.md`、`docs/wiki/server/routes/README.md`、`docs/wiki/src/lib/README.md`、`feature_list.json`（新增 hooks-agent-events，done）、`progress.md`、`session-handoff.md`。（feature 全量文件清单见 feature_list.json hooks-agent-events 条目。）
+- 验证：针对性 Hooks 测试 → **6 files / 59 passed（exit 0）**；全量 `npm run test` → **373 files / 4431 passed + 1 skipped（exit 0）**；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**（HooksSettingsTab chunk 25.29 kB，仅既有警告）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 验收：设置 → Hooks 页面新增/编辑/测试/开关，观察执行记录（命令 Hook 建议用无副作用命令如 `node -e "..."`）；② 遗留（V1 有意不做，见 feature boundaries）：执行记录仅内存 50 条不持久化、无项目限定、无拦截语义、Modal 无完整 focus trap；③ 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：修复新添加项目行“新建对话”无反应（2026-09-20）
 
 - 当前目标（已完成，待真机验收）：startNewProjectChat（`src/hooks/useChatActions.ts`）的 reusableBlankSession 判断只比较 activeProjectRef（UI 选中态），添加新项目流程只更新 activeProject 不替换 agent，导致旧项目的空白 DeferredSessionAgent 被误判为可复用 → 静默 return 'reused' 不建会话（点项目行“新建对话”无反应；刷新后 bootstrap 重建 agent 与 activeProject 对齐才正常）。修复：在 `instanceof DeferredSessionAgent` 分支之后增加 `currentAgent.project?.id === nextProject.id` 附加条件（+1 行，校验 agent 实际绑定项目）。
 - 改动文件：`src/hooks/useChatActions.ts`（reusableBlankSession +1 条件）、`tests/frontend/project-new-chat-reuse-guard.test.ts`（新增 3 用例：源码契约断言 / 行为用例「agent 绑定项目 B、activeProject 为 C → 'created' 且 startDeferredSession 收到项目 C、不触发 switchActiveProject」/ 复用保留用例）、`feature_list.json`（新增 fix-project-new-chat-reuse，done）、`progress.md`、`session-handoff.md`。

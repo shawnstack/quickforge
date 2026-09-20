@@ -6,10 +6,11 @@
  * scrolls back to the bottom.
  */
 
-import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
-
 /** Fixed gap kept between the anchored message top and the viewport top (px). */
 const ANCHOR_TOP_OFFSET = 12
+
+/** Upper bound for the per-frame wait of the freshly sent user message. */
+const ANCHOR_WAIT_TIMEOUT_MS = 1000
 
 type ScrollSyncOptions = {
   panel: HTMLElement
@@ -100,18 +101,35 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
   // `scrollHeight - clientHeight`, which pins the message *bottom* to the
   // viewport bottom. A transparent spacer appended after the content column
   // pads the scroll height exactly enough to make the anchored target
-  // reachable (`maxScrollTop === userTop - ANCHOR_TOP_OFFSET`). While the
-  // assistant reply grows below the message, the spacer shrinks by the same
-  // amount so the total scroll height stays constant — tail-following then
-  // pins `scrollTop === anchorScrollTop`: the message stays just below the
-  // viewport top (fixed `ANCHOR_TOP_OFFSET` gap) while the reply fills the
-  // viewport below it. Once the spacer is exhausted it is
-  // removed and plain tail-following resumes (the message is pushed up
-  // naturally). The spacer carries no message content, so `data-message-index`
-  // anchors and windowed rendering stay unaffected.
+  // reachable (`maxScrollTop === userTop - ANCHOR_TOP_OFFSET`).
+  //
+  // Two send-time races used to strand the message off-screen; both are
+  // handled here:
+  // - The optimistic append may commit later than any fixed double-rAF wait
+  //   (busy main thread), which used to make the anchor grab the *previous*
+  //   turn's message. `enableWithAnchor` instead records the pre-send last
+  //   user message and polls per animation frame until a different element
+  //   holds the last `.qf-user-message` slot (or the first one appears in a
+  //   fresh chat), falling back to plain bottom-following on timeout.
+  // - The anchor never pins a scroll position captured at send time: every
+  //   update re-derives the target from the message's *live* geometry, so
+  //   layout shifts around the send (process-fold release → re-fold,
+  //   decoration injections, content changes above the message) are absorbed
+  //   on the next update instead of leaving the viewport pinned to a stale
+  //   document offset. The invariant is always "content bottom pinned to the
+  //   viewport bottom with the message top ANCHOR_TOP_OFFSET below the
+  //   viewport top": spacer = max(0, target + clientHeight − contentHeight)
+  //   and scrollTop = target. When the spacer reaches 0, the content below
+  //   the message already fills the viewport: the spacer is removed and
+  //   plain tail-following resumes (the message is pushed up naturally).
+  //
+  // The spacer carries no message content, so `data-message-index` anchors
+  // and windowed rendering stay unaffected. `src/index.css` additionally
+  // disables the browser's native overflow-anchor on the scroll container so
+  // it cannot counter-shift these scrollTop writes.
   let anchorSpacer: HTMLDivElement | undefined
   let anchorSpacerHeight = 0
-  let anchorScrollTop = 0
+  let anchorMessage: HTMLElement | undefined
   let cancelPendingAnchor: (() => void) | undefined
 
   const removeAnchorSpacer = () => {
@@ -120,88 +138,124 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
     anchorSpacerHeight = 0
   }
 
-  /** Compensate content growth below the anchored message (RO-driven). */
-  const updateAnchorSpacer = (scrollContainer: HTMLElement) => {
-    if (!anchorSpacer || !anchorSpacer.isConnected) {
-      removeAnchorSpacer()
+  /** Leave the anchor-active state; optionally resume plain tail-following. */
+  const exitAnchor = (followTail: boolean) => {
+    removeAnchorSpacer()
+    anchorMessage = undefined
+    if (followTail && autoScrollEnabled) scheduleScrollToBottom()
+  }
+
+  /**
+   * Re-anchor against the live geometry of the anchored message. Runs on
+   * ResizeObserver updates while the anchor is active (spacer lifetime);
+   * rect reads happen only here, never outside it.
+   */
+  const refreshAnchor = (scrollContainer: HTMLElement) => {
+    if (!anchorMessage) return
+    if (!anchorMessage.isConnected) {
+      // The node was replaced or the session rebuilt: drop the anchor
+      // quietly and let plain tail-following take over.
+      exitAnchor(true)
       return
     }
+    const containerTop = scrollContainer.getBoundingClientRect().top
+    const messageTop = anchorMessage.getBoundingClientRect().top
+    // Document-space top of the message: invariant under scrolling, shifts
+    // when layout above the message changes. Re-derived on every update.
+    const messageTopDoc = messageTop - containerTop + scrollContainer.scrollTop
+    const anchorTarget = Math.max(0, messageTopDoc - ANCHOR_TOP_OFFSET)
     // Scroll height without the spacer = content that must fit
-    // `anchorScrollTop + clientHeight` for maxScrollTop to stay at the
-    // anchored message top.
+    // `anchorTarget + clientHeight` for the message to stay pinned.
     const contentHeight = scrollContainer.scrollHeight - anchorSpacerHeight
-    const nextHeight = Math.max(0, anchorScrollTop + scrollContainer.clientHeight - contentHeight)
-    if (nextHeight === 0) {
-      // The reply filled the viewport: drop the spacer and resume plain
-      // tail-following from here.
-      removeAnchorSpacer()
-      if (autoScrollEnabled) scheduleScrollToBottom()
+    const nextSpacerHeight = Math.max(0, anchorTarget + scrollContainer.clientHeight - contentHeight)
+    if (nextSpacerHeight === 0) {
+      exitAnchor(true)
       return
     }
-    if (Math.abs(nextHeight - anchorSpacerHeight) >= 0.5) {
-      anchorSpacerHeight = nextHeight
-      anchorSpacer.style.height = `${nextHeight}px`
+    if (!anchorSpacer || !anchorSpacer.isConnected) {
+      if (anchorSpacer) removeAnchorSpacer()
+      const spacer = document.createElement('div')
+      spacer.style.height = `${nextSpacerHeight}px`
+      spacer.setAttribute('data-quickforge-anchor-spacer', '')
+      spacer.setAttribute('aria-hidden', 'true')
+      const contentColumn = scrollContainer.querySelector<HTMLElement>('.max-w-3xl')
+      ;(contentColumn ?? scrollContainer).appendChild(spacer)
+      anchorSpacer = spacer
+      anchorSpacerHeight = nextSpacerHeight
+    } else if (Math.abs(nextSpacerHeight - anchorSpacerHeight) >= 0.5) {
+      anchorSpacerHeight = nextSpacerHeight
+      anchorSpacer.style.height = `${nextSpacerHeight}px`
+    }
+    // Bottom-pinning write: with the spacer in place maxScrollTop ===
+    // anchorTarget, so this is exactly the tail-following position. Skipped
+    // while the user scrolled away (the spacer still compensates).
+    if (autoScrollEnabled && Math.abs(scrollContainer.scrollTop - anchorTarget) > 0.5) {
+      scrollContainer.scrollTop = anchorTarget
+      lastScrollTop = scrollContainer.scrollTop
     }
   }
 
   /**
-   * Send-path variant of `enable()` (opt-in): after the next paint — the
-   * optimistic user-message append commits with it — anchor the last
-   * `.qf-user-message` just below the top of the scroll viewport (fixed
-   * `ANCHOR_TOP_OFFSET` gap), then keep following the tail (see the spacer
-   * notes above). Falls back to plain bottom-following when the message or
-   * the scroll container cannot be found.
+   * Send-path variant of `enable()` (opt-in): wait for the optimistic user
+   * message to appear in the DOM (per-frame poll, bounded by a timeout),
+   * then anchor it just below the top of the scroll viewport (fixed
+   * `ANCHOR_TOP_OFFSET` gap) and keep following the tail (see the spacer
+   * notes above). Falls back to plain bottom-following when the message
+   * never shows up or the scroll container cannot be found.
    */
   const enableWithAnchor = () => {
     cancelPendingAnchor?.()
-    cancelPendingAnchor = scheduleAfterPaint(() => {
-      cancelPendingAnchor = undefined
-      const scrollContainer = findScrollContainer()
-      if (!scrollContainer) {
-        enableAutoScroll()
-        return
-      }
-      // Reset any residual spacer from a previous turn before measuring.
-      removeAnchorSpacer()
-      const userMessages = scrollContainer.querySelectorAll<HTMLElement>('.qf-user-message')
-      const lastUserMessage = userMessages[userMessages.length - 1]
-      if (!lastUserMessage) {
-        enableAutoScroll()
-        return
-      }
-      const containerTop = scrollContainer.getBoundingClientRect().top
-      const messageTop = lastUserMessage.getBoundingClientRect().top
-      // Anchor the message slightly below the viewport top. The initial spacer
-      // height below and the shrink formula both key off this same target, so
-      // the bottom-pinning invariant holds and the spacer padding
-      // self-adjusts for the offset.
-      anchorScrollTop = Math.max(
-        0,
-        scrollContainer.scrollTop + messageTop - containerTop - ANCHOR_TOP_OFFSET,
-      )
-      // Pad the scroll height so the anchor target becomes exactly reachable.
-      // A message taller than the viewport clamps to its topmost reachable
-      // position (spacer stays 0).
-      const spacerHeight = Math.max(
-        0,
-        anchorScrollTop + scrollContainer.clientHeight - scrollContainer.scrollHeight,
-      )
-      if (spacerHeight > 0) {
-        const spacer = document.createElement('div')
-        spacer.style.height = `${spacerHeight}px`
-        spacer.setAttribute('data-quickforge-anchor-spacer', '')
-        spacer.setAttribute('aria-hidden', 'true')
-        const contentColumn = scrollContainer.querySelector<HTMLElement>('.max-w-3xl')
-        ;(contentColumn ?? scrollContainer).appendChild(spacer)
-        anchorSpacer = spacer
-        anchorSpacerHeight = spacerHeight
-      }
-      // The browser clamps scrollTop to maxScrollTop, which the spacer made
-      // equal to the anchor target (or the topmost reachable position).
-      scrollContainer.scrollTop = anchorScrollTop
-      lastScrollTop = scrollContainer.scrollTop
+    cancelPendingAnchor = undefined
+    // Reset any residual anchor state from a previous turn before waiting.
+    exitAnchor(false)
+    const scrollContainer = findScrollContainer()
+    if (!scrollContainer) {
       enableAutoScroll()
-    })
+      return
+    }
+    // The message appended by this send must differ from the last user
+    // message that already existed when the send started.
+    const previousMessages = scrollContainer.querySelectorAll<HTMLElement>('.qf-user-message')
+    const previousLast = previousMessages[previousMessages.length - 1]
+    const startedAt = window.performance.now()
+    let frame: number | undefined
+    const stopWaiting = () => {
+      if (frame !== undefined) {
+        window.cancelAnimationFrame(frame)
+        frame = undefined
+      }
+      if (cancelPendingAnchor === stopWaiting) cancelPendingAnchor = undefined
+    }
+    cancelPendingAnchor = stopWaiting
+    const poll = () => {
+      frame = undefined
+      // A newer wait (or cleanup) replaced this one: stand down. The token
+      // check also covers hosts where cancelAnimationFrame cannot retract an
+      // already-queued callback.
+      if (cancelPendingAnchor !== stopWaiting) return
+      if (window.performance.now() - startedAt >= ANCHOR_WAIT_TIMEOUT_MS) {
+        stopWaiting()
+        enableAutoScroll()
+        return
+      }
+      const container = findScrollContainer()
+      if (!container) {
+        stopWaiting()
+        enableAutoScroll()
+        return
+      }
+      const messages = container.querySelectorAll<HTMLElement>('.qf-user-message')
+      const last = messages[messages.length - 1]
+      if (last && last !== previousLast) {
+        stopWaiting()
+        anchorMessage = last
+        refreshAnchor(container)
+        enableAutoScroll()
+        return
+      }
+      frame = window.requestAnimationFrame(poll)
+    }
+    frame = window.requestAnimationFrame(poll)
   }
 
   // --- Event handlers ---
@@ -284,12 +338,14 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
     scrollContainer.addEventListener('touchstart', handleTouchStart, { passive: true })
     scrollContainer.addEventListener('touchmove', handleTouchMove, { passive: true })
     scrollResizeObserver = new ResizeObserver(() => {
-      // Content growth below the anchored message shrinks the spacer first,
-      // so the bottom-pinning write below lands on the compensated
+      // While the anchor is active, re-derive the target from the message's
+      // live position first: layout shifts above the message (fold release /
+      // re-fold, decorations) and content growth below it are both absorbed
+      // here, and the bottom-pinning write below lands on the compensated
       // maxScrollTop (the anchored message top) instead of pushing past it.
-      if (anchorSpacer) {
+      if (anchorMessage) {
         const observed = findScrollContainer()
-        if (observed) updateAnchorSpacer(observed)
+        if (observed) refreshAnchor(observed)
       }
       if (autoScrollEnabled) scheduleScrollToBottom()
     })
@@ -305,6 +361,7 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
     cancelPendingAnchor?.()
     cancelPendingAnchor = undefined
     removeAnchorSpacer()
+    anchorMessage = undefined
     const scrollContainer = findScrollContainer()
     scrollContainer?.removeEventListener('scroll', handleScroll)
     scrollContainer?.removeEventListener('wheel', handleWheel)

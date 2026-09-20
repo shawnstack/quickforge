@@ -2222,6 +2222,14 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
 
 /* ------------------------------------------------------------------ */
 /* Chat messages: only customize user's outgoing bubble; assistant/tool rendering keeps the shared surface defaults. */
+/* Chat scroll container: scroll-sync.ts drives all programmatic anchoring
+   (the sent-message top pinning relies on a compensated spacer + explicit
+   scrollTop writes). Native browser scroll anchoring would counter-shift
+   those writes, so it is disabled on the main scroller only. */
+.qf-chat-panel > .qf-scroll-container {
+  overflow-anchor: none;
+}
+
 .qf-chat-panel > .qf-scroll-container > .max-w-3xl,
 .qf-chat-panel > .shrink-0 > .max-w-3xl {
   max-width: min(var(--quickforge-chat-content-max-width), calc(100% - 2rem)) !important;

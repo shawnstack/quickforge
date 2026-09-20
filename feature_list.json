@@ -1,6 +1,41 @@
 {
   "features": [
     {
+      "id": "hooks-agent-events",
+      "name": "Hooks 事件钩子：会话/工具事件触发命令或 Webhook（设置页 + server 引擎）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-20 完整 feature（HTML 原型 → 前后端并行实现 → 集成收尾）。server：server/hooks/ 三模块——hooks-settings.mjs（settings 键 'hooks-settings' 的规范化与 fail-open 读取，动作二选一 command/webhook，非法动作 Hook 整体丢弃，超时 clamp 1–120s）；hook-engine.mjs（订阅 agentEvents 总线 6 种事件：agent_start / agent_end / tool_execution_start / tool_execution_end / tool_approval_required / error，按总开关+单 Hook 开关+事件订阅过滤后 fire-and-forget 执行，内存执行记录最近 50 条、silentOnFailure 失败不入日志，模块级设置缓存启动加载）；hook-executor.mjs（命令 spawn(shell) + terminateProcessTree 超时清理、输出截尾 4000 字符；Webhook fetch 支持自定义 header/body 模板，POST 默认 JSON 上下文；{{variable}} 占位符替换未知置空；全部失败模式收敛为 record（status: success/error/timeout）不抛出）。REST：routes/hooks.mjs（GET /api/hooks/executions 返回 {executions}；POST /api/hooks/test 以合成 event:'test' 上下文执行、返回 {execution} 信封且不入执行日志；isAuthenticatedAppClient 403 门禁）；index.mjs 接线（/api/hooks/* 分发 + timedStartupStep('hook-engine') 启动）；storage.mjs 在 PUT settings/hooks-settings 后调 refreshHooksSettings() 刷新引擎缓存（fail-open，不影响写盘）。前端：src/lib/hooks-settings.ts（键/类型/规范化与 server 同构）；HooksSettingsTab.tsx（总开关 + Hook 列表增删改/启停/删除确认，编辑器含事件多选、命令与 Webhook 二选一、变量插入、自定义 header+body、超时+静默失败高级项、手动测试；执行记录列表可刷新、失败可展开输出；乐观更新+失败回滚）；接线 settings-tabs.ts / react-settings-tabs.tsx / SettingsWorkspacePage 图标；i18n en/zh 成对。集成收尾修正三处：runTest 改按 server {execution} 信封解析（原裸 record 解析会导致测试结果恒落到 timeout 标签且无耗时/输出）；HookExecutionRecord.event 类型对齐为 HookEvent | 'test'（执行日志事件标签查找处补 'test' 守卫）；HooksSettingsTab 8 处旧产物白名单外的透明度修饰语义色类（bg-muted/40、bg-muted/70、hover:bg-muted/55/60、border-foreground/25、hover:border-foreground/20）改为视觉等价的 color-mix(in_oklab,...) 任意值写法，通过 semantic-color-class-parity 护栏。",
+      "files": [
+        "design-mockups/hooks-settings.html",
+        "server/hooks/hooks-settings.mjs",
+        "server/hooks/hook-engine.mjs",
+        "server/hooks/hook-executor.mjs",
+        "server/routes/hooks.mjs",
+        "server/index.mjs",
+        "server/routes/storage.mjs",
+        "src/lib/hooks-settings.ts",
+        "src/components/settings/tabs/HooksSettingsTab.tsx",
+        "src/lib/settings-tabs.ts",
+        "src/lib/react-settings-tabs.tsx",
+        "src/components/settings/SettingsWorkspacePage.tsx",
+        "src/lib/i18n.ts",
+        "tests/server/hooks/hook-engine.test.mjs",
+        "tests/server/hooks/hook-executor.test.mjs",
+        "tests/server/routes/hooks.test.mjs",
+        "tests/frontend/hooks-settings.test.ts",
+        "tests/frontend/hooks-settings-tab.test.ts",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-20：集成针对性 npx vitest run tests/server/hooks tests/server/routes/hooks.test.mjs tests/frontend/hooks-settings.test.ts tests/frontend/hooks-settings-tab.test.ts tests/frontend/settings-workspace-react.test.ts → 6 files / 59 passed（exit 0）；全量 npm run test → 373 files / 4431 passed + 1 skipped（exit 0；首轮 1 失败为 semantic-color-class-parity 护栏报 HooksSettingsTab 10 处白名单外语义色档位，改为 color-mix 任意值后定向复跑 6 files / 51 passed、全量复跑通过）；npm run lint → exit 0（0 errors）；npm run build → exit 0（HooksSettingsTab 独立 chunk 25.29 kB，仅既有 pi-ai externalization / chunk size 警告）。",
+      "boundaries": "V1 有意不做（遗留）：执行记录仅内存 50 条不持久化（重启清空）；Hook 无项目限定（全局触发）；无拦截语义（纯通知，不阻止/改写 Agent 事件流）；编辑 Modal 无完整 focus trap（Escape/外点关闭已有）。不改 Agent 事件流本身；不新增依赖；无 Git 操作；未触碰 dist/、package-dist/、package-offline/（dist 为 build 命令生成产物）。"
+    },
+    {
       "id": "fix-project-new-chat-reuse",
       "name": "修复新添加项目行“新建对话”无反应（空白 deferred 会话误判复用）",
       "status": "done",

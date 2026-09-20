@@ -109,12 +109,16 @@ describe('scroll sync sent-message anchor', () => {
 
   /**
    * Anchor-flavored environment. Default geometry: viewport 200px, content
-   * 980px, the last user message spans content offsets 900..980 (its top sits
-   * 80px above the viewport top once tail-following pins the bottom).
+   * 980px, the sent user message spans content offsets 900..980. The mock
+   * keeps `getBoundingClientRect` consistent with scrollTop (messageDocTop
+   * is the stable document-space offset) and exposes a mutable user-message
+   * list so each test controls when the optimistic append lands in the DOM
+   * (and which element holds the last slot).
    */
-  function createAnchorEnv(options: { userMessageRect?: { top: number; height: number } | null } = {}) {
-    const userMessageRect = options.userMessageRect ?? { top: -80, height: 80 }
+  function createAnchorEnv(options: { messageDocTop?: number } = {}) {
+    let messageDocTop = options.messageDocTop ?? 900
     const listeners = new Map<string, EventListener>()
+    let userMessages: { isConnected: boolean; detach: () => void; getBoundingClientRect: () => { top: number; height: number } }[] = []
     let spacerConnected = false
     const spacer = {
       style: { height: '' },
@@ -123,7 +127,6 @@ describe('scroll sync sent-message anchor', () => {
       remove: vi.fn(() => { spacerConnected = false }),
     }
     const column = { appendChild: vi.fn(() => { spacerConnected = true }) }
-    const userMessage = { getBoundingClientRect: () => ({ ...userMessageRect }) }
     const scrollContainer = {
       scrollTop: 0,
       scrollHeight: 980,
@@ -131,7 +134,7 @@ describe('scroll sync sent-message anchor', () => {
       addEventListener: vi.fn((type: string, listener: EventListener) => listeners.set(type, listener)),
       removeEventListener: vi.fn(),
       querySelector: vi.fn((selector: string) => (selector === '.max-w-3xl' ? column : null)),
-      querySelectorAll: vi.fn((selector: string) => (selector === '.qf-user-message' ? [userMessage] : [])),
+      querySelectorAll: vi.fn((selector: string) => (selector === '.qf-user-message' ? [...userMessages] : [])),
       getBoundingClientRect: () => ({ top: 0 }),
     }
     const panel = {
@@ -143,6 +146,24 @@ describe('scroll sync sent-message anchor', () => {
       scrollContainer,
       column,
       spacer,
+      get userMessage() { return userMessages[userMessages.length - 1] },
+      /** The optimistic user message commits into the DOM (a fresh node). */
+      appendUserMessage() {
+        let connected = true
+        const message = {
+          get isConnected() { return connected },
+          detach() { connected = false },
+          getBoundingClientRect: () => ({ top: messageDocTop - scrollContainer.scrollTop, height: 80 }),
+        }
+        userMessages = [...userMessages, message]
+      },
+      detachUserMessage() {
+        userMessages[userMessages.length - 1]?.detach()
+      },
+      /** Simulate a layout shift above the message (e.g. fold re-fold). */
+      shiftMessageDocTop(next: number) {
+        messageDocTop = next
+      },
       dispatch(type: string, event: Partial<Event> = {}) {
         listeners.get(type)?.(event as Event)
       },
@@ -155,17 +176,21 @@ describe('scroll sync sent-message anchor', () => {
 
   beforeEach(() => {
     const frames: FrameRequestCallback[] = []
+    let now = 1000
     vi.stubGlobal('window', {
-      performance: { now: () => 1000 },
+      performance: { now: () => now },
       requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => {
         frames.push(callback)
         return frames.length
       }),
       cancelAnimationFrame: vi.fn(),
     })
+    // One flushed frame == one 60fps tick; the wait loop's 1000ms timeout
+    // expires after ~63 flushed frames.
     flushFrame = () => {
+      now += 16
       const callbacks = frames.splice(0)
-      for (const callback of callbacks) callback(16)
+      for (const callback of callbacks) callback(now)
     }
     resizeCallback = undefined
     vi.stubGlobal('ResizeObserver', class {
@@ -181,11 +206,14 @@ describe('scroll sync sent-message anchor', () => {
     vi.stubGlobal('document', originalDocument)
   })
 
-  /** setup + enableWithAnchor + the two frames the after-paint anchor waits. */
+  /**
+   * setup + enableWithAnchor + the optimistic message committing + the frame
+   * in which the wait loop finds and anchors it.
+   */
   function anchor(sync: ReturnType<typeof createScrollSync>) {
     sync.setup()
     sync.enableWithAnchor()
-    flushFrame()
+    env.appendUserMessage()
     flushFrame()
   }
 
@@ -200,14 +228,69 @@ describe('scroll sync sent-message anchor', () => {
     expect(env.spacer.style.height).toBe('108px')
     expect(env.spacer.setAttribute).toHaveBeenCalledWith('data-quickforge-anchor-spacer', '')
     expect(env.scrollContainer.scrollTop).toBe(888)
+    expect(env.userMessage.getBoundingClientRect().top).toBe(12)
     expect(sync.isEnabled).toBe(true)
+  })
+
+  it('keeps waiting for the message when it commits later than a double rAF', () => {
+    const sync = createScrollSync({ panel: env.panel })
+    sync.setup()
+    sync.enableWithAnchor()
+
+    // The optimistic append is late (busy main thread): the old fixed
+    // double-rAF deadline has passed and nothing must be anchored yet.
+    flushFrame()
+    flushFrame()
+    expect(env.column.appendChild).not.toHaveBeenCalled()
+
+    // The message lands on a later frame; the wait loop still picks it up.
+    env.appendUserMessage()
+    flushFrame()
+    expect(env.column.appendChild).toHaveBeenCalledWith(env.spacer)
+    expect(env.spacer.style.height).toBe('108px')
+    expect(env.scrollContainer.scrollTop).toBe(888)
+  })
+
+  it('falls back to plain bottom-following when no user message appears before the wait timeout', () => {
+    const sync = createScrollSync({ panel: env.panel })
+    sync.setup()
+    sync.enableWithAnchor()
+
+    // >1000ms of frames without the message: fallback to enable().
+    for (let i = 0; i < 70; i += 1) flushFrame()
+    expect(env.column.appendChild).not.toHaveBeenCalled()
+    expect(sync.isEnabled).toBe(true)
+    expect(env.scrollContainer.scrollTop).toBe(980)
+  })
+
+  it('follows the message live when content above it shrinks and expands again', () => {
+    const sync = createScrollSync({ panel: env.panel })
+    anchor(sync)
+
+    // Process groups above the message re-fold: content shrinks by 60px and
+    // the message document offset moves up by the same amount. (The mock's
+    // scrollHeight is the total including the 108px spacer.)
+    env.scrollContainer.scrollHeight = 1028
+    env.shiftMessageDocTop(840)
+    resizeCallback?.([], {} as ResizeObserver)
+    expect(env.scrollContainer.scrollTop).toBe(828)
+    expect(env.spacer.style.height).toBe('108px')
+    expect(env.userMessage.getBoundingClientRect().top).toBe(12)
+    expect(env.spacer.remove).not.toHaveBeenCalled()
+
+    // The groups expand back: the viewport re-follows the new position.
+    env.scrollContainer.scrollHeight = 1088
+    env.shiftMessageDocTop(900)
+    resizeCallback?.([], {} as ResizeObserver)
+    expect(env.scrollContainer.scrollTop).toBe(888)
+    expect(env.userMessage.getBoundingClientRect().top).toBe(12)
   })
 
   it('shrinks the spacer as the reply grows and removes it once exhausted', () => {
     const sync = createScrollSync({ panel: env.panel })
     anchor(sync)
 
-    // Reply grows 40px below the message (content 980→1020, spacer still 108).
+    // Reply grows below the message (content 980→1032, spacer still 108).
     env.scrollContainer.scrollHeight = 1140
     resizeCallback?.([], {} as ResizeObserver)
     expect(env.spacer.style.height).toBe('56px')
@@ -240,28 +323,48 @@ describe('scroll sync sent-message anchor', () => {
     expect(env.scrollContainer.scrollTop).toBe(888)
   })
 
-  it('falls back to plain bottom-following when no user message is found', () => {
-    env.scrollContainer.querySelectorAll = vi.fn(() => [])
+  it('writes no spacer when the sent message is taller than the viewport', () => {
+    // Message spans content offsets 380..980 (600px tall > 200px viewport).
+    env = createAnchorEnv({ messageDocTop: 380 })
     const sync = createScrollSync({ panel: env.panel })
     anchor(sync)
 
+    // The 600px of content below the message top exceeds the 200px viewport,
+    // so the anchor target is reachable without padding: the anchor exits
+    // immediately and plain tail-following owns the position (the mock does
+    // not clamp scrollTop, a real browser pins to maxScrollTop).
     expect(env.column.appendChild).not.toHaveBeenCalled()
-    expect(sync.isEnabled).toBe(true)
-    flushFrame()
     expect(env.scrollContainer.scrollTop).toBe(980)
+    expect(sync.isEnabled).toBe(true)
   })
 
-  it('writes no spacer when the sent message is taller than the viewport', () => {
-    env = createAnchorEnv({ userMessageRect: { top: -600, height: 600 } })
+  it('exits the anchor without throwing when the anchored message node is removed', () => {
     const sync = createScrollSync({ panel: env.panel })
     anchor(sync)
 
-    // Message top at content offset 380 (980 - 600), anchor target 368
-    // (380 - 12): the 600px of content below it exceeds the 200px viewport,
-    // so no padding is needed for the anchor.
-    expect(env.column.appendChild).not.toHaveBeenCalled()
-    expect(env.scrollContainer.scrollTop).toBe(368)
+    env.detachUserMessage()
+    expect(() => resizeCallback?.([], {} as ResizeObserver)).not.toThrow()
+    expect(env.spacer.remove).toHaveBeenCalled()
     expect(sync.isEnabled).toBe(true)
+    // No dangling anchor state: later updates take the plain follow path.
+    expect(() => resizeCallback?.([], {} as ResizeObserver)).not.toThrow()
+  })
+
+  it('resets state and re-anchors to the newest message on a second enableWithAnchor', () => {
+    const sync = createScrollSync({ panel: env.panel })
+    anchor(sync)
+    expect(env.scrollContainer.scrollTop).toBe(888)
+
+    // A second send before any cleanup: the active spacer is torn down and
+    // the wait restarts against the *current* last user message.
+    sync.enableWithAnchor()
+    expect(env.spacer.remove).toHaveBeenCalled()
+
+    env.appendUserMessage()
+    flushFrame()
+    expect(env.column.appendChild).toHaveBeenCalledTimes(2)
+    expect(env.spacer.style.height).toBe('108px')
+    expect(env.scrollContainer.scrollTop).toBe(888)
   })
 
   it('cancels a pending anchor and removes an active spacer on cleanup', () => {
@@ -275,7 +378,7 @@ describe('scroll sync sent-message anchor', () => {
 
     sync.setup()
     sync.enableWithAnchor()
-    flushFrame()
+    env.appendUserMessage()
     flushFrame()
     expect(env.column.appendChild).toHaveBeenCalled()
     sync.cleanup()

@@ -67,7 +67,7 @@ components/
 │   ├── panel-decoration/goal-card.ts # Goal 卡：纯视图模型 + 原生 DOM 控制器（状态/准则/证据/预算、revise/pause/resume/extend_resume/cancel）；生产主路径已不再挂载，保留为兼容入口与摘要分区共用的视图模型
 │   ├── panel-decoration/goal-control-strip.ts # Goal 运行条：状态词 + 已记录累计时长（服务端快照为锚点、1s ticker 插值实时递增，≥1 分钟按分钟显示）+ 取消/暂停或继续/编辑 icon（不渲染目标正文），锚定在 message-editor 紧前（建议菜单弹出时贴建议菜单）
 │   ├── panel-decoration/subagent-running-indicator.ts # Composer 当前会话 Subagent 运行 Bot 图标+数量角标指示、运行列表 diff 更新与 Inspector 跳转桥接 (322 行)
-│   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 + 发送后用户消息置顶锚定（opt-in）(322 行)
+│   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 + 发送后用户消息置顶锚定（opt-in）(391 行)
 │   ├── windowed-messages.ts        # 超长会话窗口化控制器（只渲染最近 3 轮，向上滚动逐页加载更早轮次；ChatSurface 以 enabled:false 构造，默认一次性渲染完整对话）
 │   └── surface/                    # 自研 React 聊天面板核心（self-hosted-chat-ui；T5 起由 ChatPanelHost 挂载）
 │       ├── ChatSurface.tsx         # 顶层组件：props 合并 ChatPanel+AgentInterface 契约（agent/enable*/onApiKeyRequired/onBeforeSend/onCostClick/onModelSelect），ref 暴露 setInput/setAutoScroll；订阅 AgentEvent 维护快照；sendMessage 流程（本地 providerKeys 检查→onApiKeyRequired→onBeforeSend→清空编辑器→prompt/user-with-attachments）
@@ -293,11 +293,11 @@ components/
 - Assistant Markdown 中的 ```svg 和 ```mermaid 代码块会在流式输出结束后默认进入安全图片预览，可在代码块右上角切换预览/源码；Mermaid 按需加载并在失败时保留源码
 - `panel-decoration/ask-user-card.ts` 是 ask_user 工具的交互卡（与审批卡同族的注入式卡片，`data-ask-id` + displaySignature 去重）：向导式多问题（单选点选自动进下一问；多选或含自由输入的问句另有显式「下一问」前进，导航按钮统一在卡片底部操作行——上一问/下一问/提交/跳过同行，注入时创建常驻、renderStep 按问型显隐）；自由输入为可叠加补充——展开不清空已选 choices，选项与补充可共存，textarea Enter 确认前进（Shift+Enter 换行），回执按「选项 + 补充」合并显示；末步回执摘要统一提交，每行「修改」按钮直达该题回改，与「上一问」同走 renderStep 并 disarmSkip）；「跳过」语义为跳过全部提问（服务端 skipped 回传后所有问题按未回答处理），两步确认防误触丢答案（首击仅切换为确认文案，5s 未复击或 back/提交/自动前进时自动复位，armed 下再击才真正跳过）；提交/跳过经 `onAnswerAsk` 回调（App → server-agent `answerAsk` → `POST /api/agents/:id/answer-ask`）放行服务端 pending Promise；回答后卡片移除，ask_user 调用作为普通工具消息留在消息流由既有折叠机制收纳；readOnly/share 视图禁用并提示
 
-**scroll-sync.ts** (322 行)
+**scroll-sync.ts** (391 行)
 - 自动滚动同步管理
 - 新消息时自动滚到底部；用户主动上滚时暂停自动滚动
 - 用户滚回底部时重新启用自动滚动
-- 发送后用户消息置顶锚定（opt-in，仅主聊天）：`enableWithAnchor()` 是发送路径专用的 `enable()` 变体——下一帧 paint（乐观追加的用户消息已提交 DOM）后把最后一条 `.qf-user-message` 锚定到滚动可视区顶部（锚定位置留 12px 顶部边距：锚定目标 scrollTop = 消息顶部偏移 − 12px、clamp ≥ 0，spacer 初始高度与动态收缩公式共用该锚定目标，所需垫高随边距自动调整、贴底不变量保持）。实现：在内容列（`.max-w-3xl`）尾部追加透明 spacer（`data-quickforge-anchor-spacer`、aria-hidden）恰好垫高 scrollHeight，使 maxScrollTop 等于该消息顶部偏移（消息高于视口时钳到可达的最顶位置，spacer 为 0），浏览器对 scrollTop 的钳位即落位；随后回复在消息下方增长时，既有 ResizeObserver 先按内容增量同步收缩 spacer（总 scrollHeight 保持不变，贴底跟随写入恰好钉在锚点上），spacer 收缩到 0 即移除并退回普通贴底跟随。spacer 不承载消息内容，`data-message-index` 锚点与窗口化渲染不受影响；找不到用户消息或滚动容器时回退普通贴底；cleanup 与重挂清除残余 spacer。宿主接线：`ChatPanelHost` 仅在 `anchorSentUserMessage`（默认 false，仅 App.tsx 主聊天开启）时于 `onBeforeSend` 调用该变体，Side Chat / 分享页不受影响。
+- 发送后用户消息置顶锚定（opt-in，仅主聊天）：`enableWithAnchor()` 是发送路径专用的 `enable()` 变体——调用时先记录容器内已存在的最后一条 `.qf-user-message`，随后按帧（rAF）轮询等待出现「新出现的」最后一条用户消息（发送前无任何用户消息则等待第一条），找到后将其锚定到滚动可视区顶部（锚定位置留 12px 顶部边距：锚定目标 scrollTop = 消息顶部偏移 − 12px、clamp ≥ 0）；轮询超过 1000ms 仍未出现则回退 `enable()` 普通贴底并停止轮询（修复 React 提交晚于固定双 rAF 时锚错上一轮消息的竞态）。锚定激活期（spacer 存活期）不再钉死发送时捕获的 scrollTop，而是每次更新（既有 ResizeObserver 触发时）以目标消息实时位置重导出锚定：msgTopDoc = 消息 rect.top − 容器 rect.top + scrollTop，target = max(0, msgTopDoc − 12)，spacer = max(0, target + clientHeight − contentHeight)；spacer > 0 时写 scrollTop = target（保持「内容底贴视口底、消息钉在顶部下方 12px」不变量），布局变化（过程折叠释放/重折叠、装饰层注入、上方内容增减）在下一帧自动被吸收校正；spacer 归零（内容已满屏）即移除并退出锚定、恢复普通贴底跟随（消息自然被推走）；目标消息节点被替换/移除（isConnected=false）时静默清理 spacer、退出锚定不报错。spacer 为透明占位（`data-quickforge-anchor-spacer`、aria-hidden）不承载消息内容，`data-message-index` 锚点与窗口化渲染不受影响；`src/index.css` 给 `.qf-scroll-container` 关闭浏览器原生 overflow-anchor 避免互扰；cleanup 与再次 enableWithAnchor 均取消等待、清除残余 spacer 并重置锚定状态。宿主接线：`ChatPanelHost` 仅在 `anchorSentUserMessage`（默认 false，仅 App.tsx 主聊天开启）时于 `onBeforeSend` 调用该变体，Side Chat / 分享页不受影响。
 - 上翻较深时的“回到底部”悬浮按钮（`panel-decoration/scroll-to-bottom-button.ts`）复用同一滚动容器的 scroll 监听独立判定显隐，点击后经 `scrollSync.enable()` 恢复尾部跟随；显隐阈值（280px 出 / 120px 消）与 scroll-sync 的 `isNearBottom`（80px）体系对齐但各自独立
 
 ### 自研 React 聊天面板核心 (`chat/surface/`)
@@ -385,7 +385,7 @@ components/
 │   ├── panel-decoration/goal-card.ts # Goal 卡：纯视图模型 + 原生 DOM 控制器（状态/准则/证据/预算、revise/pause/resume/extend_resume/cancel）；生产主路径已不再挂载，保留为兼容入口与摘要分区共用的视图模型
 │   ├── panel-decoration/goal-control-strip.ts # Goal 运行条：状态词 + 已记录累计时长（服务端快照为锚点、1s ticker 插值实时递增，≥1 分钟按分钟显示）+ 取消/暂停或继续/编辑 icon（不渲染目标正文），锚定在 message-editor 紧前（建议菜单弹出时贴建议菜单）
 │   ├── panel-decoration/subagent-running-indicator.ts # Composer 当前会话 Subagent 运行 Bot 图标+数量角标指示、运行列表 diff 更新与 Inspector 跳转桥接 (322 行)
-│   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 + 发送后用户消息置顶锚定（opt-in）(322 行)
+│   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 + 发送后用户消息置顶锚定（opt-in）(391 行)
 │   ├── windowed-messages.ts        # 超长会话窗口化控制器（只渲染最近 3 轮，向上滚动逐页加载更早轮次；ChatSurface 以 enabled:false 构造，默认一次性渲染完整对话）
 │   └── surface/                    # 自研 React 聊天面板核心（self-hosted-chat-ui；T5 起由 ChatPanelHost 挂载）
 │       ├── ChatSurface.tsx         # 顶层组件：props 合并 ChatPanel+AgentInterface 契约（agent/enable*/onApiKeyRequired/onBeforeSend/onCostClick/onModelSelect），ref 暴露 setInput/setAutoScroll；订阅 AgentEvent 维护快照；sendMessage 流程（本地 providerKeys 检查→onApiKeyRequired→onBeforeSend→清空编辑器→prompt/user-with-attachments）
@@ -611,11 +611,11 @@ components/
 - Assistant Markdown 中的 ```svg 和 ```mermaid 代码块会在流式输出结束后默认进入安全图片预览，可在代码块右上角切换预览/源码；Mermaid 按需加载并在失败时保留源码
 - `panel-decoration/ask-user-card.ts` 是 ask_user 工具的交互卡（与审批卡同族的注入式卡片，`data-ask-id` + displaySignature 去重）：向导式多问题（单选点选自动进下一问；多选或含自由输入的问句另有显式「下一问」前进，导航按钮统一在卡片底部操作行——上一问/下一问/提交/跳过同行，注入时创建常驻、renderStep 按问型显隐）；自由输入为可叠加补充——展开不清空已选 choices，选项与补充可共存，textarea Enter 确认前进（Shift+Enter 换行），回执按「选项 + 补充」合并显示；末步回执摘要统一提交，每行「修改」按钮直达该题回改，与「上一问」同走 renderStep 并 disarmSkip）；「跳过」语义为跳过全部提问（服务端 skipped 回传后所有问题按未回答处理），两步确认防误触丢答案（首击仅切换为确认文案，5s 未复击或 back/提交/自动前进时自动复位，armed 下再击才真正跳过）；提交/跳过经 `onAnswerAsk` 回调（App → server-agent `answerAsk` → `POST /api/agents/:id/answer-ask`）放行服务端 pending Promise；回答后卡片移除，ask_user 调用作为普通工具消息留在消息流由既有折叠机制收纳；readOnly/share 视图禁用并提示
 
-**scroll-sync.ts** (322 行)
+**scroll-sync.ts** (391 行)
 - 自动滚动同步管理
 - 新消息时自动滚到底部；用户主动上滚时暂停自动滚动
 - 用户滚回底部时重新启用自动滚动
-- 发送后用户消息置顶锚定（opt-in，仅主聊天）：`enableWithAnchor()` 是发送路径专用的 `enable()` 变体——下一帧 paint（乐观追加的用户消息已提交 DOM）后把最后一条 `.qf-user-message` 锚定到滚动可视区顶部（锚定位置留 12px 顶部边距：锚定目标 scrollTop = 消息顶部偏移 − 12px、clamp ≥ 0，spacer 初始高度与动态收缩公式共用该锚定目标，所需垫高随边距自动调整、贴底不变量保持）。实现：在内容列（`.max-w-3xl`）尾部追加透明 spacer（`data-quickforge-anchor-spacer`、aria-hidden）恰好垫高 scrollHeight，使 maxScrollTop 等于该消息顶部偏移（消息高于视口时钳到可达的最顶位置，spacer 为 0），浏览器对 scrollTop 的钳位即落位；随后回复在消息下方增长时，既有 ResizeObserver 先按内容增量同步收缩 spacer（总 scrollHeight 保持不变，贴底跟随写入恰好钉在锚点上），spacer 收缩到 0 即移除并退回普通贴底跟随。spacer 不承载消息内容，`data-message-index` 锚点与窗口化渲染不受影响；找不到用户消息或滚动容器时回退普通贴底；cleanup 与重挂清除残余 spacer。宿主接线：`ChatPanelHost` 仅在 `anchorSentUserMessage`（默认 false，仅 App.tsx 主聊天开启）时于 `onBeforeSend` 调用该变体，Side Chat / 分享页不受影响。
+- 发送后用户消息置顶锚定（opt-in，仅主聊天）：`enableWithAnchor()` 是发送路径专用的 `enable()` 变体——调用时先记录容器内已存在的最后一条 `.qf-user-message`，随后按帧（rAF）轮询等待出现「新出现的」最后一条用户消息（发送前无任何用户消息则等待第一条），找到后将其锚定到滚动可视区顶部（锚定位置留 12px 顶部边距：锚定目标 scrollTop = 消息顶部偏移 − 12px、clamp ≥ 0）；轮询超过 1000ms 仍未出现则回退 `enable()` 普通贴底并停止轮询（修复 React 提交晚于固定双 rAF 时锚错上一轮消息的竞态）。锚定激活期（spacer 存活期）不再钉死发送时捕获的 scrollTop，而是每次更新（既有 ResizeObserver 触发时）以目标消息实时位置重导出锚定：msgTopDoc = 消息 rect.top − 容器 rect.top + scrollTop，target = max(0, msgTopDoc − 12)，spacer = max(0, target + clientHeight − contentHeight)；spacer > 0 时写 scrollTop = target（保持「内容底贴视口底、消息钉在顶部下方 12px」不变量），布局变化（过程折叠释放/重折叠、装饰层注入、上方内容增减）在下一帧自动被吸收校正；spacer 归零（内容已满屏）即移除并退出锚定、恢复普通贴底跟随（消息自然被推走）；目标消息节点被替换/移除（isConnected=false）时静默清理 spacer、退出锚定不报错。spacer 为透明占位（`data-quickforge-anchor-spacer`、aria-hidden）不承载消息内容，`data-message-index` 锚点与窗口化渲染不受影响；`src/index.css` 给 `.qf-scroll-container` 关闭浏览器原生 overflow-anchor 避免互扰；cleanup 与再次 enableWithAnchor 均取消等待、清除残余 spacer 并重置锚定状态。宿主接线：`ChatPanelHost` 仅在 `anchorSentUserMessage`（默认 false，仅 App.tsx 主聊天开启）时于 `onBeforeSend` 调用该变体，Side Chat / 分享页不受影响。
 - 上翻较深时的“回到底部”悬浮按钮（`panel-decoration/scroll-to-bottom-button.ts`）复用同一滚动容器的 scroll 监听独立判定显隐，点击后经 `scrollSync.enable()` 恢复尾部跟随；显隐阈值（280px 出 / 120px 消）与 scroll-sync 的 `isNearBottom`（80px）体系对齐但各自独立
 
 ### 自研 React 聊天面板核心 (`chat/surface/`)

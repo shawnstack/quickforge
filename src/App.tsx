@@ -2185,6 +2185,8 @@ function MainApp() {
                       onRestoredDraftConsumed={consumeRestoredDraft}
                       newChatEmptyState={showNewChatEmptyState}
                       taskLauncherEnabled
+                      // 主聊天页专属：发送后把该条用户消息锚定到可视区顶部（侧聊/分享页不传）。
+                      anchorSentUserMessage
                       taskLauncherVisible={taskLauncherAgent !== null && taskLauncherAgent === agentManager.agent
                         && agentManager.agent instanceof DeferredSessionAgent && !agentManager.currentSessionId && showNewChatEmptyState}
                       onTaskLauncherDismiss={invalidateTaskLauncher}

@@ -1,6 +1,58 @@
 {
   "features": [
     {
+      "id": "fix-project-new-chat-reuse",
+      "name": "修复新添加项目行“新建对话”无反应（空白 deferred 会话误判复用）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-20 单点 bug 修复：startNewProjectChat（src/hooks/useChatActions.ts）的 reusableBlankSession 判断链只比较 activeProjectRef（UI 选中态），未校验当前 DeferredSessionAgent 实际绑定的项目；添加新项目流程只更新 activeProject 不替换 agent，导致旧项目的空白 deferred 会话被误判为可复用 → 静默 return 'reused' 不建会话，刷新后 bootstrap 重建 agent 与 activeProject 对齐才恢复正常。修复：在 instanceof DeferredSessionAgent 分支之后增加 `currentAgent.project?.id === nextProject.id` 作为附加条件（仅 +1 行，matchesCurrentProject 之外的 agent 实际绑定校验）。新增 tests/frontend/project-new-chat-reuse-guard.test.ts（3 用例）：源码契约断言（reusable 判断须含 agent 项目绑定校验，且位于 instanceof 之后、reusable return 之前）；行为用例（agent 绑定项目 B、activeProject 为 C 时点击项目 C 行 → 返回 'created' 且 startDeferredSession 收到 {scope:'project', project C}、switchActiveProject 不触发）；复用保留用例（agent 与 activeProject 同为 C 的空白会话 → 仍返回 'reused' 不重建）。测试以 vi.mock('react') 令 useCallback 原样返回回调、mock 重依赖（pi-chat/confirm-dialog/i18n），并按项目惯例以 vi.stubGlobal 提供 node 环境下的最小 fake window（clearSessionQueryParam 需要）。",
+      "files": [
+        "src/hooks/useChatActions.ts",
+        "tests/frontend/project-new-chat-reuse-guard.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-20：npx vitest run tests/frontend/project-new-chat-reuse-guard.test.ts + 相关既有（sidebar-new-chat-routing / deferred-session-agent / workspace-inspector-tabs）→ 4 files / 34 passed（exit 0）；npx tsc -b → exit 0；npx eslint 两改动文件 → exit 0。未跑全量 test/build（小改动定向验证）。",
+      "boundaries": "仅 startNewProjectChat 的 reusableBlankSession 判断加项目绑定校验；全局对话判断（startNewGlobalChat）无项目绑定语义不改；startDeferredSession / switchActiveProject / useChatActions 其余逻辑不动。docs/wiki 未动（单条件 bug 修复，不改模块职责/公共入口）。无 Git 操作，未触碰 dist/、package-dist/、package-offline/。"
+    },
+    {
+      "id": "send-anchor-user-message-top",
+      "name": "主聊天页：发送消息后用户消息锚定滚动到可视区顶部",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-20 单 feature，仅主聊天页滚动行为：ChatPanelHost 新增可选 prop anchorSentUserMessage（默认关闭），App.tsx 仅主聊天面板传入开启，侧边聊天与分享页不传、行为不变。scroll-sync.ts 新增发送后锚定——发送后将最新 .qf-user-message 滚动定位到可视区顶部；消息列表末尾插入 spacer 补偿高度（使用户消息能停驻顶部而非立即被回复顶走），回复流式增长期间随内容高度动态收缩 spacer，归零后移除锚定并退回现有贴底跟随逻辑；用户上滚时禁用跟随但保留 spacer（不跳变、不抢滚动），会话切换/组件卸载时清理锚定状态与 spacer。",
+      "files": [
+        "src/components/chat/scroll-sync.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/App.tsx",
+        "tests/frontend/scroll-sync.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-20：npx vitest run tests/frontend/scroll-sync.test.ts → 10 passed；tests/frontend/chat-surface-behavior-alignment.test.ts + tests/frontend/scroll-to-bottom-button.test.ts → 17 passed（护栏回归，贴底跟随/回到底部按钮行为不变）；npx tsc -b → exit 0；npx eslint（改动文件）→ exit 0。未跑全量 test/build（小改动定向验证）。",
+      "boundaries": "仅主聊天页发送后滚动锚定行为（scroll-sync.ts 锚定实现 + ChatPanelHost prop 接线 + App.tsx 主面板开启）；贴底跟随既有逻辑不改（spacer 归零后退回原路径）；侧边聊天与分享页不传 prop，行为不变；会话切换/卸载清理，不留残留 spacer。docs/wiki 未动（滚动行为微调，不改模块职责/公共入口）。无 Git 操作，未触碰 dist/、package-dist/、package-offline/。"
+    },
+    {
+      "id": "todo-tool-card-structured-list",
+      "name": "todo_write 工具卡展开显示结构化任务列表",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-20 单 feature：todo_write 工具卡展开体由 JSON-only 改为结构化任务列表，并修复 compact 模式展开为空的问题。todo-write-tool-renderer.tsx 展开体插入 ul.quickforge-todo-history-list，每 li 含状态图标（in_progress 半填充圆 / completed 实心勾 / pending 空心圆）+ sr-only 状态文本 + content 文本；compact 模式同样渲染（修复此前展开为空）；snapshot 为空回退 JSON-only；>5 项时滚动容器 max-height 7.5rem。src/index.css 新增 .quickforge-todo-history-* 系列：text-xs 走既有字号契约 calc(var(--quickforge-message-font-size,14px)*0.8)；in_progress 半填充圆 + accent color-mix 配方（与聊天胶囊一致）；completed 实心勾 emerald（light rgb(4 143 101) / dark rgb(110 231 183)）+ 弱化 + line-through；pending 空心圆；li hover color-mix muted 55%（无位移、无边框、无阴影）；SVG mask 用模块级 id 计数器防多卡串扰。设计决策：不加进度条（用户拍板）；类名 quickforge-todo-history-list 避开测试禁用的 quickforge-todo-summary-list。新增设计稿 design-mockups/todo-tool-card-structured.html。tests/frontend/todo-write-renderer.test.ts 新增 2 用例共 10（结构化列表断言 + CSS 配方断言，保留原 not.toContain 断言）。",
+      "files": [
+        "src/lib/tool-renderers/todo-write-tool-renderer.tsx",
+        "src/index.css",
+        "tests/frontend/todo-write-renderer.test.ts",
+        "design-mockups/todo-tool-card-structured.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-20：npx vitest run tests/frontend/todo-write-renderer.test.ts → 10 passed；tests/frontend/todo-write-summary.test.ts → 24 passed（2 files / 34 passed，exit 0）；相邻 CSS 契约测试 → 142 passed（exit 0）；npx tsc -b → exit 0；npx eslint（改动文件）→ exit 0；全量 npm run test → 367 files / 4374 passed + 1 skipped（exit 0）。未跑 npm run build。",
+      "boundaries": "仅 todo_write 工具卡展开体渲染层与配套 CSS/测试/设计稿；聊天面板 todo 胶囊（todo-write-summary.ts）不改；不加进度条；类名 quickforge-todo-history-list 避开测试禁用的 quickforge-todo-summary-list；compact 模式同样渲染修复展开为空。docs/wiki 未动（单工具卡展开体渲染变更，不改模块职责/公共入口）。无 Git 操作，未触碰 dist/、package-dist/、package-offline/。"
+    },
+    {
       "id": "sidebar-main-divider-1px",
       "name": "侧边栏与对话区主分割线改 1px 可见",
       "status": "done",

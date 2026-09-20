@@ -7518,6 +7518,86 @@ html.dark .quickforge-goal-report-criterion[data-status="passed"] .quickforge-go
   padding: 0.25rem 0.625rem;
 }
 
+/* todo_write 工具卡展开体的结构化任务列表（行结构复刻置顶摘要任务小节
+   GitToolsPinnedSummary.tsx:802-809：状态图标 + sr-only 状态 + 任务文本）。
+    列表容器挂 text-xs，由上方 .quickforge-todo-history-tool > div .text-xs 契约
+    跟随消息字号（×0.8）缩放，不引入新字号体系。图标/文字色复用聊天内 todo 胶囊
+    （.quickforge-todo-summary-item--*）的既有配方；hover 仅轻背景
+    （settings 下拉选项已验证的 muted 55% 配方），无位移无边框无阴影。
+    设计稿：design-mockups/todo-tool-card-structured.html。 */
+.quickforge-todo-history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+/* 项数 >5 时限高滚动，与胶囊 .quickforge-todo-summary-list 同 7.5rem 基准 */
+.quickforge-todo-history-list--scrollable {
+  max-height: 7.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.quickforge-todo-history-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.3rem 0.375rem;
+  border-radius: 0.375rem;
+  line-height: 1.4;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  transition: background-color 140ms ease;
+}
+
+.quickforge-todo-history-item:hover {
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+}
+
+.quickforge-todo-history-status-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-top: 0.0625rem;
+  color: var(--muted-foreground);
+}
+
+.quickforge-todo-history-status-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* in_progress：半填充圆 + accent（胶囊 .quickforge-todo-summary-item--in_progress
+   同配方），文字保持正常字重不加粗 */
+.quickforge-todo-history-item--in_progress .quickforge-todo-history-status-icon {
+  color: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+}
+
+/* completed：实心勾与置顶摘要 / 胶囊共用 emerald 完成语义，文字弱化 + 删除线 */
+.quickforge-todo-history-item--completed .quickforge-todo-history-status-icon {
+  color: rgb(4 143 101);
+}
+
+html.dark .quickforge-todo-history-item--completed .quickforge-todo-history-status-icon {
+  color: rgb(110 231 183);
+}
+
+.quickforge-todo-history-content {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.quickforge-todo-history-item--completed .quickforge-todo-history-content {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
 /* TodoWrite task summary: an in-flow sibling immediately above the composer.
    Collapsed it shrinks to a centered progress capsule; expanding morphs it
    into the header row of the full list. All animation timing lives in CSS —

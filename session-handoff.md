@@ -1,4 +1,34 @@
-## 当前交接：主结构分割线强度统一加深 34% → 60%（2026-09-20 第四轮）
+## 当前交接：修复新添加项目行“新建对话”无反应（2026-09-20）
+
+- 当前目标（已完成，待真机验收）：startNewProjectChat（`src/hooks/useChatActions.ts`）的 reusableBlankSession 判断只比较 activeProjectRef（UI 选中态），添加新项目流程只更新 activeProject 不替换 agent，导致旧项目的空白 DeferredSessionAgent 被误判为可复用 → 静默 return 'reused' 不建会话（点项目行“新建对话”无反应；刷新后 bootstrap 重建 agent 与 activeProject 对齐才正常）。修复：在 `instanceof DeferredSessionAgent` 分支之后增加 `currentAgent.project?.id === nextProject.id` 附加条件（+1 行，校验 agent 实际绑定项目）。
+- 改动文件：`src/hooks/useChatActions.ts`（reusableBlankSession +1 条件）、`tests/frontend/project-new-chat-reuse-guard.test.ts`（新增 3 用例：源码契约断言 / 行为用例「agent 绑定项目 B、activeProject 为 C → 'created' 且 startDeferredSession 收到项目 C、不触发 switchActiveProject」/ 复用保留用例）、`feature_list.json`（新增 fix-project-new-chat-reuse，done）、`progress.md`、`session-handoff.md`。
+- 验证：`npx vitest run` 新增测试 + 相关既有（sidebar-new-chat-routing / deferred-session-agent / workspace-inspector-tabs）→ **4 files / 34 passed（exit 0）**；`npx tsc -b` → **exit 0**；`npx eslint`（两改动文件）→ **exit 0**。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 验收：添加新项目后不刷新，点该项目行“新建对话”应直接新建绑定该项目的空白会话；空白态下再次点击应复用（返回 reused 属正常）；② 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：主聊天页发送后用户消息锚定到可视区顶部（2026-09-20）
+
+- 当前目标（已实现，待真机验收）：主聊天页发送消息后，最新 `.qf-user-message` 滚动定位到可视区顶部；消息列表末尾插入 spacer 补偿高度，回复流式增长期间动态收缩，归零后退回现有贴底跟随；用户上滚时禁用跟随但保留 spacer；会话切换/卸载清理。经 ChatPanelHost 新可选 prop `anchorSentUserMessage`（默认关闭）接线，仅 App.tsx 主聊天面板开启；侧边聊天与分享页行为不变。真机验收反馈微调：锚定位置在用户消息顶部与可视区顶部之间留 12px 固定边距（`scroll-sync.ts` 模块常量 `ANCHOR_TOP_OFFSET = 12`，spacer 初始/收缩公式共用同一锚定目标、随边距自动调整），tests/frontend/scroll-sync.test.ts 期望值同步、docs/wiki scroll-sync 小节两份副本已更新。
+- 改动文件：`src/components/chat/scroll-sync.ts`（发送后锚定实现）、`src/components/chat/ChatPanelHost.tsx`（新 prop anchorSentUserMessage，默认关闭）、`src/App.tsx`（主聊天面板开启）、`tests/frontend/scroll-sync.test.ts`（10 用例）、`feature_list.json`（新增 send-anchor-user-message-top，done）、`progress.md`、`session-handoff.md`。
+- 验证：`npx vitest run tests/frontend/scroll-sync.test.ts` → **10 passed**；`tests/frontend/chat-surface-behavior-alignment.test.ts` + `tests/frontend/scroll-to-bottom-button.test.ts` → **17 passed**（护栏回归）；`npx tsc -b` → **exit 0**；eslint（改动文件）→ **exit 0**。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 用户真机 `npm run dev` 验收：主聊天页发送后用户消息应出现在可视区顶部（消息顶部与可视区顶之间留 12px 边距）、回复增长期间稳在顶部、超过一屏后自然被推走、手动上滚不受影响；② 侧边聊天/分享页回归确认行为不变；③ 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：todo_write 工具卡展开显示结构化任务列表（2026-09-20）
+
+- 当前目标（已实现，待真机验收）：todo_write 工具卡展开体由 JSON-only 改为结构化任务列表——`ul.quickforge-todo-history-list`，li 含状态图标（in_progress 半填充圆 + accent / completed 实心勾 emerald + 弱化 + line-through / pending 空心圆）+ sr-only 状态文本 + content；>5 项滚动容器 max-height 7.5rem；compact 模式同样渲染（修复展开为空）；snapshot 空回退 JSON-only。设计决策：不加进度条；类名 quickforge-todo-history-list 避开测试禁用的 quickforge-todo-summary-list。
+- 改动文件：`src/lib/tool-renderers/todo-write-tool-renderer.tsx`、`src/index.css`（.quickforge-todo-history-* 系列，text-xs 走字号契约，hover 无位移无边框无阴影，SVG mask 模块级计数器防串扰）、`tests/frontend/todo-write-renderer.test.ts`（10 用例，新增 2）、`design-mockups/todo-tool-card-structured.html`（设计稿）、`feature_list.json`（新增 todo-tool-card-structured-list，done）、`progress.md`、`session-handoff.md`。
+- 验证：`npx vitest run tests/frontend/todo-write-renderer.test.ts` → **10 passed**；`tests/frontend/todo-write-summary.test.ts` → **24 passed**；相邻 CSS 契约测试 → **142 passed**；`npx tsc -b` → **exit 0**；eslint 改动文件 → **exit 0**；全量 `npm run test` → **367 files / 4374 passed + 1 skipped（exit 0）**。未跑 npm run build。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 验收：工具卡展开三态视觉（in_progress/completed/pending）、hover 反馈、>5 项滚动、暗色主题 completed 色；验收通过即关闭本 feature；② 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：主结构分割线强度统一加深 34% → 60%（2026-09-20 第四轮）
 
 - 当前目标（已完成）：用户反馈「线颜色不够深」。主结构分割线集合（DESIGN_LANGUAGE.md 统一强度约束）全组由 `color-mix(in_oklab,var(--border) 34%,transparent)` 加深为 60%，共 5 处：App.tsx :1989 对话区 `<main>` md:border-l/t 颜色类、:1991 对话 header `border-b` 颜色类；ChatSidebar.tsx :1927 footer `border-t` 颜色类；SettingsWorkspacePage.tsx :148 设置区 `<main>` 颜色类、:149 设置 header 颜色类（同步 `border-b-[0.5px]` → `border-b`，1px 与对话 header 宽度统一）。DESIGN_LANGUAGE.md「分割线要统一」小节补充当前统一配方（1px + 60%）与全组同步原则。
 - 保留清单（非主结构线，不动）：App.tsx:2230 检查器 w-px（30% + sidebar-bg 混色）；WorkspaceInspector / WorkspaceInlineDiffPreview / WorkspaceChangesList / WebPreviewContent / ProjectOpenMenu / GitToolsPinnedSummary / GitGraphDialog / GitCommitPushDialog / GitBranchMenu / AttachmentPreview 的 34%/35%/38% 内部细线、弹层边框、0.5px 表格线。完整清单见 progress.md 本轮条目。

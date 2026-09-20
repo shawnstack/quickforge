@@ -50,7 +50,7 @@ ServerAgent、converter、displayEntries 与 Goal 计划确认仍使用完整消
 components/
 ├── chat/
 │   ├── ChatConversationSurface.tsx # 主聊天与 Side Chat 共用的薄 conversation 布局/背景壳 (16 行)
-│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1809 行)
+│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1857 行)
 │   ├── ModelSetupEmptyState.tsx    # 模型未配置时的空状态引导 (43 行)
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (340 行)
 │   ├── FileRollbackDialog.tsx      # 撤销确认弹窗：FileRollbackDialog（会话级+单文件撤销，组件保留但无挂载入口）+ TurnRollbackDialog（轮级，产物卡唯一撤销入口），App 仅挂载 TurnRollbackDialog (267 行)
@@ -67,7 +67,7 @@ components/
 │   ├── panel-decoration/goal-card.ts # Goal 卡：纯视图模型 + 原生 DOM 控制器（状态/准则/证据/预算、revise/pause/resume/extend_resume/cancel）；生产主路径已不再挂载，保留为兼容入口与摘要分区共用的视图模型
 │   ├── panel-decoration/goal-control-strip.ts # Goal 运行条：状态词 + 已记录累计时长（服务端快照为锚点、1s ticker 插值实时递增，≥1 分钟按分钟显示）+ 取消/暂停或继续/编辑 icon（不渲染目标正文），锚定在 message-editor 紧前（建议菜单弹出时贴建议菜单）
 │   ├── panel-decoration/subagent-running-indicator.ts # Composer 当前会话 Subagent 运行 Bot 图标+数量角标指示、运行列表 diff 更新与 Inspector 跳转桥接 (322 行)
-│   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 (174 行)
+│   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 + 发送后用户消息置顶锚定（opt-in）(322 行)
 │   ├── windowed-messages.ts        # 超长会话窗口化控制器（只渲染最近 3 轮，向上滚动逐页加载更早轮次；ChatSurface 以 enabled:false 构造，默认一次性渲染完整对话）
 │   └── surface/                    # 自研 React 聊天面板核心（self-hosted-chat-ui；T5 起由 ChatPanelHost 挂载）
 │       ├── ChatSurface.tsx         # 顶层组件：props 合并 ChatPanel+AgentInterface 契约（agent/enable*/onApiKeyRequired/onBeforeSend/onCostClick/onModelSelect），ref 暴露 setInput/setAutoScroll；订阅 AgentEvent 维护快照；sendMessage 流程（本地 providerKeys 检查→onApiKeyRequired→onBeforeSend→清空编辑器→prompt/user-with-attachments）
@@ -137,7 +137,7 @@ components/
 
 ## 核心组件说明
 
-### ChatConversationSurface.tsx / ChatPanelHost.tsx (16 / 1809 行)
+### ChatConversationSurface.tsx / ChatPanelHost.tsx (16 / 1857 行)
 
 - `ChatConversationSurface` 是主聊天与 Side Chat 共用的极薄 conversation 显示壳，只统一 `relative / flex / min-h-0 / flex-1 / flex-col / overflow-hidden` 和 `--quickforge-main-bg` 背景；不复制 `ChatPanelHost`，不包含业务逻辑或 Side Chat 专属 class/style。
 - App 主聊天在共享壳上继续叠加既有 `quickforge-empty-chat` 与 `quickforge-conversation-enter`，Hero、`NewChatProjectPicker`、`ErrorBoundary`、`Suspense` 和首次使用引导层级保持不变。Side Chat 使用同一壳包住同一 `ChatPanelHost`，普通空白空状态不显示 Hero、项目选择器或引导文案；两者仅因实际容器宽度不同而走同一响应式布局规则。
@@ -167,6 +167,7 @@ components/
 - 任务摘要的数据提取覆盖当前消息分支中 `todo_write` 成功 `toolResult.details.todos` 快照。错误、畸形或未完成工具结果不覆盖已有有效快照。每次 TodoWrite 工具调用本身仍作为普通历史工具消息留在既有过程折叠中；Composer Dock 摘要只反映最新成功快照。
 - 对话消息渲染（窗口化默认关闭）：`windowed-messages.ts` 仍是纯控制器（不再对 `message-list` 原型打补丁），窗口状态由 `ChatSurface` 的 React state/ref 承接；控制器能力完整保留——超过 `WINDOW_ENABLE_TURNS`(6) 轮、`WINDOW_ENABLE_MESSAGES`(48) 条消息或 `WINDOW_ENABLE_CONTENT_CHARS`(约 80000) 字符时启用，只渲染最近 `WINDOW_TURNS`(3) 轮，向上滚动到顶经 `loadMoreMessages` 每页再补 `WINDOW_PAGE_TURNS`(3) 轮并按锚点消息的 `data-message-index` 还原滚动位置，回到底部 `resetToTail` 恢复跟随尾部；pinned 历史窗口在流式新增轮次时保持不动，历史缩短（回滚 / 上下文压缩）时按可用轮数钳制；窗口按 turn 边界切分并补齐窗口内 assistant `toolCall` 引用的 `toolResult`（toolResult 不单独渲染，仅作 `toolCallId` 内联查找）。但 `ChatSurface` 以 `createMessageWindow({ enabled: false })` 构造控制器（**窗口化默认关闭**，对齐移除前的 `ChatPanelHost`），一次性渲染完整对话，使左侧轮次导航能直接滚动到已存在的 DOM 节点；`enabled:false` 为显式透传模式，`ChatSurface` 仍通过 ref 暴露 `getWindowMessages` / `getWindowStart` / `loadMoreMessages` / `showMessageIndex`，配合 `setAutoScroll` 控制回尾；子代理 process 消息列表不受影响。装饰层读同一批消息并接收 `messageIndexOffset = getWindowStart()`（关闭态恒为 0），`MessageList` 给已渲染消息节点写全量索引 `data-message-index`、给列表根写 `data-window-start`，回滚、重试、复制与上下文压缩提示继续使用全量索引。
 - 主对话页提供左侧用户轮次导航（`turn-navigation.ts`）：每条用户消息对应一个节点，轮次数据始终来自全量消息，当前轮次按窗口起点（`data-window-start`）与实际渲染的 `.qf-user-message` 位置随滚动高亮；悬停或键盘聚焦节点时显示截断的用户消息与该轮最后一条 assistant 消息（Final Answer），点击先经 `ChatSurface.showMessageIndex(messageIndex)` 把窗口移动到目标轮并等待 React 布局提交，再平滑定位到对应用户消息节点。分享页默认不显示该导航，移动端隐藏。
+- 发送后用户消息置顶锚定（opt-in）：`ChatPanelHost` 新增 `anchorSentUserMessage` prop（默认 false），仅 `App.tsx` 主聊天页显式开启；发送路径（`onBeforeSend`）在清空编辑器前由 `scrollSync.enableWithAnchor()` 替代 `enable()`，把最新用户消息锚定到滚动可视区顶部、随回复增长收缩 spacer、归零后退回贴底跟随（机制见 scroll-sync 条目）。Side Chat 与分享页不传该 prop，维持原贴底跟随。
 - 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储；正文为空但有结构化文件引用或插件 chip 也视为草稿，`text`、`contextReferences` 与内部字段 `selectedCapabilities` 按项目/会话 draft key 隔离并持久化：插件选择会防御规范化、按 `type+pluginName+name` 去重且最多 4 个；普通附件仍不持久化。回滚、模型切换等外部恢复草稿按一次性事件消费，发送、编辑或 Session 切换会取消旧的延迟恢复任务；已消费恢复草稿 ID 使用有界 Set，发送或明确清空会立即删除运行时与持久化草稿。
 - `mode="side-chat"` 仍复用同一个自研 React 面板（`ChatSurface` → `MessageList` / `MessageEditor`），并复用消息装饰、Markdown/代码块、复制、滚动同步、Composer Enter/Shift+Enter/IME、发送/停止、流式等待和轮次导航；mode 不生成任何视觉 class/style。Side Chat 继续显示主聊天原有的 `+`、模型、Access 及历史操作控件，但以原生 disabled 状态呈现——模型按钮恢复为「可见但禁用」语义：保留原位置、原布局占位与既有样式，既不隐藏也不替换为只读文本；textarea、发送、停止与复制保持可用。显式 `SIDE_CHAT_CAPABILITIES` 全 false，并关闭 Slash、插件、文件引用、附件、Plan 快捷键、context usage/compaction、工具审批、终端执行等行为；Host 同时跳过草稿 localStorage、Git、artifacts、通知和审批/ask 等副作用，`toolsFactory` 返回空数组。Side Chat 与主聊天共用同一批本地渲染器（`tool-renderer-registry.ts`），不存在包级注册表冲突；模型与 Access 菜单清理按当前 panel/anchor 限定，避免流式装饰干扰主聊天。主模式继续沿用原能力与本地工具工厂。
 
@@ -292,10 +293,11 @@ components/
 - Assistant Markdown 中的 ```svg 和 ```mermaid 代码块会在流式输出结束后默认进入安全图片预览，可在代码块右上角切换预览/源码；Mermaid 按需加载并在失败时保留源码
 - `panel-decoration/ask-user-card.ts` 是 ask_user 工具的交互卡（与审批卡同族的注入式卡片，`data-ask-id` + displaySignature 去重）：向导式多问题（单选点选自动进下一问；多选或含自由输入的问句另有显式「下一问」前进，导航按钮统一在卡片底部操作行——上一问/下一问/提交/跳过同行，注入时创建常驻、renderStep 按问型显隐）；自由输入为可叠加补充——展开不清空已选 choices，选项与补充可共存，textarea Enter 确认前进（Shift+Enter 换行），回执按「选项 + 补充」合并显示；末步回执摘要统一提交，每行「修改」按钮直达该题回改，与「上一问」同走 renderStep 并 disarmSkip）；「跳过」语义为跳过全部提问（服务端 skipped 回传后所有问题按未回答处理），两步确认防误触丢答案（首击仅切换为确认文案，5s 未复击或 back/提交/自动前进时自动复位，armed 下再击才真正跳过）；提交/跳过经 `onAnswerAsk` 回调（App → server-agent `answerAsk` → `POST /api/agents/:id/answer-ask`）放行服务端 pending Promise；回答后卡片移除，ask_user 调用作为普通工具消息留在消息流由既有折叠机制收纳；readOnly/share 视图禁用并提示
 
-**scroll-sync.ts** (174 行)
+**scroll-sync.ts** (322 行)
 - 自动滚动同步管理
 - 新消息时自动滚到底部；用户主动上滚时暂停自动滚动
 - 用户滚回底部时重新启用自动滚动
+- 发送后用户消息置顶锚定（opt-in，仅主聊天）：`enableWithAnchor()` 是发送路径专用的 `enable()` 变体——下一帧 paint（乐观追加的用户消息已提交 DOM）后把最后一条 `.qf-user-message` 锚定到滚动可视区顶部（锚定位置留 12px 顶部边距：锚定目标 scrollTop = 消息顶部偏移 − 12px、clamp ≥ 0，spacer 初始高度与动态收缩公式共用该锚定目标，所需垫高随边距自动调整、贴底不变量保持）。实现：在内容列（`.max-w-3xl`）尾部追加透明 spacer（`data-quickforge-anchor-spacer`、aria-hidden）恰好垫高 scrollHeight，使 maxScrollTop 等于该消息顶部偏移（消息高于视口时钳到可达的最顶位置，spacer 为 0），浏览器对 scrollTop 的钳位即落位；随后回复在消息下方增长时，既有 ResizeObserver 先按内容增量同步收缩 spacer（总 scrollHeight 保持不变，贴底跟随写入恰好钉在锚点上），spacer 收缩到 0 即移除并退回普通贴底跟随。spacer 不承载消息内容，`data-message-index` 锚点与窗口化渲染不受影响；找不到用户消息或滚动容器时回退普通贴底；cleanup 与重挂清除残余 spacer。宿主接线：`ChatPanelHost` 仅在 `anchorSentUserMessage`（默认 false，仅 App.tsx 主聊天开启）时于 `onBeforeSend` 调用该变体，Side Chat / 分享页不受影响。
 - 上翻较深时的“回到底部”悬浮按钮（`panel-decoration/scroll-to-bottom-button.ts`）复用同一滚动容器的 scroll 监听独立判定显隐，点击后经 `scrollSync.enable()` 恢复尾部跟随；显隐阈值（280px 出 / 120px 消）与 scroll-sync 的 `isNearBottom`（80px）体系对齐但各自独立
 
 ### 自研 React 聊天面板核心 (`chat/surface/`)
@@ -303,7 +305,7 @@ components/
 self-hosted-chat-ui T3 交付、T5 已完成集成挂载的 React 版聊天面板组件树，行为对齐原外部包的 `ChatPanel` + `AgentInterface` 组件树（包已卸载，实现全为 React），`ChatPanelHost` 已渲染 `ChatSurface`（panel-decoration/CSS 已切换到 qf-* 选择器）。关键决策与契约：
 
 - **不注册框架自定义元素**：React 版使用标准 HTML 标签 + 复刻原包内 class 链（user-message-container、thinking-block/thinking-header、工具卡 border/bg-card 配方等），并新增 `qf-*` hook class（qf-chat-panel/qf-message-list/qf-user-message/qf-assistant-message/qf-tool-message/qf-message-editor/qf-usage-bar/qf-streaming-message 等）供 T5 批量切换 CSS 与装饰层 querySelector；T5 起 `src/index.css` 与 `panel-decoration` 已切到这批 `qf-*` 选择器。
-- **ChatSurface**（forwardRef）：props 为合并契约 `{agent?, enableAttachments/enableModelSelector/enableThinkingSelector, onApiKeyRequired?, onBeforeSend?, onCostClick?, onModelSelect?}`，ref 暴露 `setInput(text, attachments?)` / `setAutoScroll(enabled)`；`useEffect` 订阅 `agent.subscribe`（message_start/update/end、turn_start/end、agent_start/end、messages_replaced、message_metadata_updated 触发 `readAgentSnapshot` 拷贝 state——messages/tools/isStreaming/pendingToolCalls/streamingMessage/model/thinkingLevel；后两者覆盖 ServerAgent 回滚/清空/压缩原地替换 `state.messages` 与仅元数据刷新，白名单判断经 `isSnapshotRefreshEvent` 导出供测试）；`runSendMessage` 纯流程对齐包内 sendMessage：空输入（无附件，`attachments` 为 undefined 也拦截）或 isStreaming 直接返回 → `getAppStorage().providerKeys.get(provider)`（`@/storage` 本地存储层）→ 无 key 调 `onApiKeyRequired(provider)` 返回 false 中止（无 handler 则 onError 提示中止）→ await 后复核 isStreaming，仍流式则静默丢弃本次发送 → `onBeforeSend` → 清空编辑器 + 恢复自动滚动 → 有附件构造 `{role:'user-with-attachments',content,attachments,timestamp}` 走 `agent.prompt()`，否则 `prompt(string)`；无模型（`chatNoModelSet`）与 prompt 拒绝（`chatSendFailed`，经 `restoreEditor` 回填文本+附件）都走 onError（宿主接线为 console.error + `window.alert`，沿用 MessageEditor 的 alert 提示惯例）而非裸 throw。自动滚动沿用包内启发式（内容 ResizeObserver 跟底、上滚 >50px 停用、距底 <10px 恢复、发送时重新启用）。模型选择按钮无内置弹窗，由宿主 `onModelSelect` 决定。
+- **ChatSurface**（forwardRef）：props 为合并契约 `{agent?, enableAttachments/enableModelSelector/enableThinkingSelector, onApiKeyRequired?, onBeforeSend?, onCostClick?, onModelSelect?}`，ref 暴露 `setInput(text, attachments?)` / `setAutoScroll(enabled)`；`useEffect` 订阅 `agent.subscribe`（message_start/update/end、turn_start/end、agent_start/end、messages_replaced、message_metadata_updated 触发 `readAgentSnapshot` 拷贝 state——messages/tools/isStreaming/pendingToolCalls/streamingMessage/model/thinkingLevel；后两者覆盖 ServerAgent 回滚/清空/压缩原地替换 `state.messages` 与仅元数据刷新，白名单判断经 `isSnapshotRefreshEvent` 导出供测试）；`runSendMessage` 纯流程对齐包内 sendMessage：空输入（无附件，`attachments` 为 undefined 也拦截）或 isStreaming 直接返回 → `getAppStorage().providerKeys.get(provider)`（`@/storage` 本地存储层）→ 无 key 调 `onApiKeyRequired(provider)` 返回 false 中止（无 handler 则 onError 提示中止）→ await 后复核 isStreaming，仍流式则静默丢弃本次发送 → `onBeforeSend` → 清空编辑器 + 恢复自动滚动 → 有附件构造 `{role:'user-with-attachments',content,attachments,timestamp}` 走 `agent.prompt()`，否则 `prompt(string)`；无模型（`chatNoModelSet`）与 prompt 拒绝（`chatSendFailed`，经 `restoreEditor` 回填文本+附件）都走 onError（宿主接线为 console.error + `window.alert`，沿用 MessageEditor 的 alert 提示惯例）而非裸 throw。自动滚动沿用包内启发式（内容 ResizeObserver 跟底、上滚 >50px 停用、距底 <10px 恢复、发送时重新启用）；主聊天发送的「用户消息置顶锚定」变体由宿主侧 `scroll-sync.ts` 的 `enableWithAnchor()` 承担（经 `onBeforeSend` 触发、在 surface 自身恢复贴底后的下一帧定位接管，surface 自身行为不变，详见 scroll-sync 条目）。模型选择按钮无内置弹窗，由宿主 `onModelSelect` 决定。
 - **MessageList 构建规则**与包内一致：`artifact` 消息跳过（仅会话持久化）；`toolResult` 本体不渲染、按 `toolCallId` 收进 Map 内联进发起调用的 assistant；`user`/`user-with-attachments` → UserMessage；`assistant` → AssistantMessage。pending 工具行始终由消息列表渲染（message_end 前后同一 DOM 节点，spinner 不闪；MessageList 无 isStreaming prop）；ChatSurface 流式容器内的 AssistantMessage 改传 `hidePendingToolCalls` 隐藏自己那份（避免双行，流式期间工具卡不显示、出现在 message_end）。流式容器复刻包内行为：streaming assistant 消息 + `animate-pulse` 光标。
 - **AssistantMessage** 分块严格按源顺序渲染：text→MarkdownBlock、thinking→ThinkingBlock（空 trim 跳过）、toolCall→ToolMessage（`aborted = stopReason==='aborted' && 无 result`）；尾部 usage 行（`formatUsage` 同包内 `↑12 ↓3k R8k $0.0123` 格式，onCostClick 存在时为按钮）、error 红块与 aborted 斜体提示。
 - **ToolMessage 消费本地 registry**（`src/lib/tool-renderer-registry.ts`）：`ToolRenderResult.content` 为纯 `ReactNode`；React 渲染器返回 ReactNode 直接渲染（isCustom 免卡片包裹，否则包默认卡），无渲染器时回退到 React 默认工具卡（状态图标 + Input/Output JSON 预览）。
@@ -366,7 +368,7 @@ ServerAgent、converter、displayEntries 与 Goal 计划确认仍使用完整消
 components/
 ├── chat/
 │   ├── ChatConversationSurface.tsx # 主聊天与 Side Chat 共用的薄 conversation 布局/背景壳 (16 行)
-│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1809 行)
+│   ├── ChatPanelHost.tsx           # 聊天面板宿主 (1857 行)
 │   ├── ModelSetupEmptyState.tsx    # 模型未配置时的空状态引导 (43 行)
 │   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (340 行)
 │   ├── FileRollbackDialog.tsx      # 撤销确认弹窗：FileRollbackDialog（会话级+单文件撤销，组件保留但无挂载入口）+ TurnRollbackDialog（轮级，产物卡唯一撤销入口），App 仅挂载 TurnRollbackDialog (267 行)
@@ -383,7 +385,7 @@ components/
 │   ├── panel-decoration/goal-card.ts # Goal 卡：纯视图模型 + 原生 DOM 控制器（状态/准则/证据/预算、revise/pause/resume/extend_resume/cancel）；生产主路径已不再挂载，保留为兼容入口与摘要分区共用的视图模型
 │   ├── panel-decoration/goal-control-strip.ts # Goal 运行条：状态词 + 已记录累计时长（服务端快照为锚点、1s ticker 插值实时递增，≥1 分钟按分钟显示）+ 取消/暂停或继续/编辑 icon（不渲染目标正文），锚定在 message-editor 紧前（建议菜单弹出时贴建议菜单）
 │   ├── panel-decoration/subagent-running-indicator.ts # Composer 当前会话 Subagent 运行 Bot 图标+数量角标指示、运行列表 diff 更新与 Inspector 跳转桥接 (322 行)
-│   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 (174 行)
+│   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 + 发送后用户消息置顶锚定（opt-in）(322 行)
 │   ├── windowed-messages.ts        # 超长会话窗口化控制器（只渲染最近 3 轮，向上滚动逐页加载更早轮次；ChatSurface 以 enabled:false 构造，默认一次性渲染完整对话）
 │   └── surface/                    # 自研 React 聊天面板核心（self-hosted-chat-ui；T5 起由 ChatPanelHost 挂载）
 │       ├── ChatSurface.tsx         # 顶层组件：props 合并 ChatPanel+AgentInterface 契约（agent/enable*/onApiKeyRequired/onBeforeSend/onCostClick/onModelSelect），ref 暴露 setInput/setAutoScroll；订阅 AgentEvent 维护快照；sendMessage 流程（本地 providerKeys 检查→onApiKeyRequired→onBeforeSend→清空编辑器→prompt/user-with-attachments）
@@ -453,7 +455,7 @@ components/
 
 ## 核心组件说明
 
-### ChatConversationSurface.tsx / ChatPanelHost.tsx (16 / 1809 行)
+### ChatConversationSurface.tsx / ChatPanelHost.tsx (16 / 1857 行)
 
 - `ChatConversationSurface` 是主聊天与 Side Chat 共用的极薄 conversation 显示壳，只统一 `relative / flex / min-h-0 / flex-1 / flex-col / overflow-hidden` 和 `--quickforge-main-bg` 背景；不复制 `ChatPanelHost`，不包含业务逻辑或 Side Chat 专属 class/style。
 - App 主聊天在共享壳上继续叠加既有 `quickforge-empty-chat` 与 `quickforge-conversation-enter`，Hero、`NewChatProjectPicker`、`ErrorBoundary`、`Suspense` 和首次使用引导层级保持不变。Side Chat 使用同一壳包住同一 `ChatPanelHost`，普通空白空状态不显示 Hero、项目选择器或引导文案；两者仅因实际容器宽度不同而走同一响应式布局规则。
@@ -483,6 +485,7 @@ components/
 - 任务摘要的数据提取覆盖当前消息分支中 `todo_write` 成功 `toolResult.details.todos` 快照。错误、畸形或未完成工具结果不覆盖已有有效快照。每次 TodoWrite 工具调用本身仍作为普通历史工具消息留在既有过程折叠中；Composer Dock 摘要只反映最新成功快照。
 - 对话消息渲染（窗口化默认关闭）：`windowed-messages.ts` 仍是纯控制器（不再对 `message-list` 原型打补丁），窗口状态由 `ChatSurface` 的 React state/ref 承接；控制器能力完整保留——超过 `WINDOW_ENABLE_TURNS`(6) 轮、`WINDOW_ENABLE_MESSAGES`(48) 条消息或 `WINDOW_ENABLE_CONTENT_CHARS`(约 80000) 字符时启用，只渲染最近 `WINDOW_TURNS`(3) 轮，向上滚动到顶经 `loadMoreMessages` 每页再补 `WINDOW_PAGE_TURNS`(3) 轮并按锚点消息的 `data-message-index` 还原滚动位置，回到底部 `resetToTail` 恢复跟随尾部；pinned 历史窗口在流式新增轮次时保持不动，历史缩短（回滚 / 上下文压缩）时按可用轮数钳制；窗口按 turn 边界切分并补齐窗口内 assistant `toolCall` 引用的 `toolResult`（toolResult 不单独渲染，仅作 `toolCallId` 内联查找）。但 `ChatSurface` 以 `createMessageWindow({ enabled: false })` 构造控制器（**窗口化默认关闭**，对齐移除前的 `ChatPanelHost`），一次性渲染完整对话，使左侧轮次导航能直接滚动到已存在的 DOM 节点；`enabled:false` 为显式透传模式，`ChatSurface` 仍通过 ref 暴露 `getWindowMessages` / `getWindowStart` / `loadMoreMessages` / `showMessageIndex`，配合 `setAutoScroll` 控制回尾；子代理 process 消息列表不受影响。装饰层读同一批消息并接收 `messageIndexOffset = getWindowStart()`（关闭态恒为 0），`MessageList` 给已渲染消息节点写全量索引 `data-message-index`、给列表根写 `data-window-start`，回滚、重试、复制与上下文压缩提示继续使用全量索引。
 - 主对话页提供左侧用户轮次导航（`turn-navigation.ts`）：每条用户消息对应一个节点，轮次数据始终来自全量消息，当前轮次按窗口起点（`data-window-start`）与实际渲染的 `.qf-user-message` 位置随滚动高亮；悬停或键盘聚焦节点时显示截断的用户消息与该轮最后一条 assistant 消息（Final Answer），点击先经 `ChatSurface.showMessageIndex(messageIndex)` 把窗口移动到目标轮并等待 React 布局提交，再平滑定位到对应用户消息节点。分享页默认不显示该导航，移动端隐藏。
+- 发送后用户消息置顶锚定（opt-in）：`ChatPanelHost` 新增 `anchorSentUserMessage` prop（默认 false），仅 `App.tsx` 主聊天页显式开启；发送路径（`onBeforeSend`）在清空编辑器前由 `scrollSync.enableWithAnchor()` 替代 `enable()`，把最新用户消息锚定到滚动可视区顶部、随回复增长收缩 spacer、归零后退回贴底跟随（机制见 scroll-sync 条目）。Side Chat 与分享页不传该 prop，维持原贴底跟随。
 - 草稿恢复支持；Composer 草稿持久化由 `src/lib/composer-drafts.ts` 直接使用浏览器 `localStorage`，不再经过 `AppStorage/settings` 或后端存储；正文为空但有结构化文件引用或插件 chip 也视为草稿，`text`、`contextReferences` 与内部字段 `selectedCapabilities` 按项目/会话 draft key 隔离并持久化：插件选择会防御规范化、按 `type+pluginName+name` 去重且最多 4 个；普通附件仍不持久化。回滚、模型切换等外部恢复草稿按一次性事件消费，发送、编辑或 Session 切换会取消旧的延迟恢复任务；已消费恢复草稿 ID 使用有界 Set，发送或明确清空会立即删除运行时与持久化草稿。
 - `mode="side-chat"` 仍复用同一个自研 React 面板（`ChatSurface` → `MessageList` / `MessageEditor`），并复用消息装饰、Markdown/代码块、复制、滚动同步、Composer Enter/Shift+Enter/IME、发送/停止、流式等待和轮次导航；mode 不生成任何视觉 class/style。Side Chat 继续显示主聊天原有的 `+`、模型、Access 及历史操作控件，但以原生 disabled 状态呈现——模型按钮恢复为「可见但禁用」语义：保留原位置、原布局占位与既有样式，既不隐藏也不替换为只读文本；textarea、发送、停止与复制保持可用。显式 `SIDE_CHAT_CAPABILITIES` 全 false，并关闭 Slash、插件、文件引用、附件、Plan 快捷键、context usage/compaction、工具审批、终端执行等行为；Host 同时跳过草稿 localStorage、Git、artifacts、通知和审批/ask 等副作用，`toolsFactory` 返回空数组。Side Chat 与主聊天共用同一批本地渲染器（`tool-renderer-registry.ts`），不存在包级注册表冲突；模型与 Access 菜单清理按当前 panel/anchor 限定，避免流式装饰干扰主聊天。主模式继续沿用原能力与本地工具工厂。
 
@@ -608,10 +611,11 @@ components/
 - Assistant Markdown 中的 ```svg 和 ```mermaid 代码块会在流式输出结束后默认进入安全图片预览，可在代码块右上角切换预览/源码；Mermaid 按需加载并在失败时保留源码
 - `panel-decoration/ask-user-card.ts` 是 ask_user 工具的交互卡（与审批卡同族的注入式卡片，`data-ask-id` + displaySignature 去重）：向导式多问题（单选点选自动进下一问；多选或含自由输入的问句另有显式「下一问」前进，导航按钮统一在卡片底部操作行——上一问/下一问/提交/跳过同行，注入时创建常驻、renderStep 按问型显隐）；自由输入为可叠加补充——展开不清空已选 choices，选项与补充可共存，textarea Enter 确认前进（Shift+Enter 换行），回执按「选项 + 补充」合并显示；末步回执摘要统一提交，每行「修改」按钮直达该题回改，与「上一问」同走 renderStep 并 disarmSkip）；「跳过」语义为跳过全部提问（服务端 skipped 回传后所有问题按未回答处理），两步确认防误触丢答案（首击仅切换为确认文案，5s 未复击或 back/提交/自动前进时自动复位，armed 下再击才真正跳过）；提交/跳过经 `onAnswerAsk` 回调（App → server-agent `answerAsk` → `POST /api/agents/:id/answer-ask`）放行服务端 pending Promise；回答后卡片移除，ask_user 调用作为普通工具消息留在消息流由既有折叠机制收纳；readOnly/share 视图禁用并提示
 
-**scroll-sync.ts** (174 行)
+**scroll-sync.ts** (322 行)
 - 自动滚动同步管理
 - 新消息时自动滚到底部；用户主动上滚时暂停自动滚动
 - 用户滚回底部时重新启用自动滚动
+- 发送后用户消息置顶锚定（opt-in，仅主聊天）：`enableWithAnchor()` 是发送路径专用的 `enable()` 变体——下一帧 paint（乐观追加的用户消息已提交 DOM）后把最后一条 `.qf-user-message` 锚定到滚动可视区顶部（锚定位置留 12px 顶部边距：锚定目标 scrollTop = 消息顶部偏移 − 12px、clamp ≥ 0，spacer 初始高度与动态收缩公式共用该锚定目标，所需垫高随边距自动调整、贴底不变量保持）。实现：在内容列（`.max-w-3xl`）尾部追加透明 spacer（`data-quickforge-anchor-spacer`、aria-hidden）恰好垫高 scrollHeight，使 maxScrollTop 等于该消息顶部偏移（消息高于视口时钳到可达的最顶位置，spacer 为 0），浏览器对 scrollTop 的钳位即落位；随后回复在消息下方增长时，既有 ResizeObserver 先按内容增量同步收缩 spacer（总 scrollHeight 保持不变，贴底跟随写入恰好钉在锚点上），spacer 收缩到 0 即移除并退回普通贴底跟随。spacer 不承载消息内容，`data-message-index` 锚点与窗口化渲染不受影响；找不到用户消息或滚动容器时回退普通贴底；cleanup 与重挂清除残余 spacer。宿主接线：`ChatPanelHost` 仅在 `anchorSentUserMessage`（默认 false，仅 App.tsx 主聊天开启）时于 `onBeforeSend` 调用该变体，Side Chat / 分享页不受影响。
 - 上翻较深时的“回到底部”悬浮按钮（`panel-decoration/scroll-to-bottom-button.ts`）复用同一滚动容器的 scroll 监听独立判定显隐，点击后经 `scrollSync.enable()` 恢复尾部跟随；显隐阈值（280px 出 / 120px 消）与 scroll-sync 的 `isNearBottom`（80px）体系对齐但各自独立
 
 ### 自研 React 聊天面板核心 (`chat/surface/`)
@@ -619,7 +623,7 @@ components/
 self-hosted-chat-ui T3 交付、T5 已完成集成挂载的 React 版聊天面板组件树，行为对齐原外部包的 `ChatPanel` + `AgentInterface` 组件树（包已卸载，实现全为 React），`ChatPanelHost` 已渲染 `ChatSurface`（panel-decoration/CSS 已切换到 qf-* 选择器）。关键决策与契约：
 
 - **不注册框架自定义元素**：React 版使用标准 HTML 标签 + 复刻原包内 class 链（user-message-container、thinking-block/thinking-header、工具卡 border/bg-card 配方等），并新增 `qf-*` hook class（qf-chat-panel/qf-message-list/qf-user-message/qf-assistant-message/qf-tool-message/qf-message-editor/qf-usage-bar/qf-streaming-message 等）供 T5 批量切换 CSS 与装饰层 querySelector；T5 起 `src/index.css` 与 `panel-decoration` 已切到这批 `qf-*` 选择器。
-- **ChatSurface**（forwardRef）：props 为合并契约 `{agent?, enableAttachments/enableModelSelector/enableThinkingSelector, onApiKeyRequired?, onBeforeSend?, onCostClick?, onModelSelect?}`，ref 暴露 `setInput(text, attachments?)` / `setAutoScroll(enabled)`；`useEffect` 订阅 `agent.subscribe`（message_start/update/end、turn_start/end、agent_start/end、messages_replaced、message_metadata_updated 触发 `readAgentSnapshot` 拷贝 state——messages/tools/isStreaming/pendingToolCalls/streamingMessage/model/thinkingLevel；后两者覆盖 ServerAgent 回滚/清空/压缩原地替换 `state.messages` 与仅元数据刷新，白名单判断经 `isSnapshotRefreshEvent` 导出供测试）；`runSendMessage` 纯流程对齐包内 sendMessage：空输入（无附件，`attachments` 为 undefined 也拦截）或 isStreaming 直接返回 → `getAppStorage().providerKeys.get(provider)`（`@/storage` 本地存储层）→ 无 key 调 `onApiKeyRequired(provider)` 返回 false 中止（无 handler 则 onError 提示中止）→ await 后复核 isStreaming，仍流式则静默丢弃本次发送 → `onBeforeSend` → 清空编辑器 + 恢复自动滚动 → 有附件构造 `{role:'user-with-attachments',content,attachments,timestamp}` 走 `agent.prompt()`，否则 `prompt(string)`；无模型（`chatNoModelSet`）与 prompt 拒绝（`chatSendFailed`，经 `restoreEditor` 回填文本+附件）都走 onError（宿主接线为 console.error + `window.alert`，沿用 MessageEditor 的 alert 提示惯例）而非裸 throw。自动滚动沿用包内启发式（内容 ResizeObserver 跟底、上滚 >50px 停用、距底 <10px 恢复、发送时重新启用）。模型选择按钮无内置弹窗，由宿主 `onModelSelect` 决定。
+- **ChatSurface**（forwardRef）：props 为合并契约 `{agent?, enableAttachments/enableModelSelector/enableThinkingSelector, onApiKeyRequired?, onBeforeSend?, onCostClick?, onModelSelect?}`，ref 暴露 `setInput(text, attachments?)` / `setAutoScroll(enabled)`；`useEffect` 订阅 `agent.subscribe`（message_start/update/end、turn_start/end、agent_start/end、messages_replaced、message_metadata_updated 触发 `readAgentSnapshot` 拷贝 state——messages/tools/isStreaming/pendingToolCalls/streamingMessage/model/thinkingLevel；后两者覆盖 ServerAgent 回滚/清空/压缩原地替换 `state.messages` 与仅元数据刷新，白名单判断经 `isSnapshotRefreshEvent` 导出供测试）；`runSendMessage` 纯流程对齐包内 sendMessage：空输入（无附件，`attachments` 为 undefined 也拦截）或 isStreaming 直接返回 → `getAppStorage().providerKeys.get(provider)`（`@/storage` 本地存储层）→ 无 key 调 `onApiKeyRequired(provider)` 返回 false 中止（无 handler 则 onError 提示中止）→ await 后复核 isStreaming，仍流式则静默丢弃本次发送 → `onBeforeSend` → 清空编辑器 + 恢复自动滚动 → 有附件构造 `{role:'user-with-attachments',content,attachments,timestamp}` 走 `agent.prompt()`，否则 `prompt(string)`；无模型（`chatNoModelSet`）与 prompt 拒绝（`chatSendFailed`，经 `restoreEditor` 回填文本+附件）都走 onError（宿主接线为 console.error + `window.alert`，沿用 MessageEditor 的 alert 提示惯例）而非裸 throw。自动滚动沿用包内启发式（内容 ResizeObserver 跟底、上滚 >50px 停用、距底 <10px 恢复、发送时重新启用）；主聊天发送的「用户消息置顶锚定」变体由宿主侧 `scroll-sync.ts` 的 `enableWithAnchor()` 承担（经 `onBeforeSend` 触发、在 surface 自身恢复贴底后的下一帧定位接管，surface 自身行为不变，详见 scroll-sync 条目）。模型选择按钮无内置弹窗，由宿主 `onModelSelect` 决定。
 - **MessageList 构建规则**与包内一致：`artifact` 消息跳过（仅会话持久化）；`toolResult` 本体不渲染、按 `toolCallId` 收进 Map 内联进发起调用的 assistant；`user`/`user-with-attachments` → UserMessage；`assistant` → AssistantMessage。pending 工具行始终由消息列表渲染（message_end 前后同一 DOM 节点，spinner 不闪；MessageList 无 isStreaming prop）；ChatSurface 流式容器内的 AssistantMessage 改传 `hidePendingToolCalls` 隐藏自己那份（避免双行，流式期间工具卡不显示、出现在 message_end）。流式容器复刻包内行为：streaming assistant 消息 + `animate-pulse` 光标。
 - **AssistantMessage** 分块严格按源顺序渲染：text→MarkdownBlock、thinking→ThinkingBlock（空 trim 跳过）、toolCall→ToolMessage（`aborted = stopReason==='aborted' && 无 result`）；尾部 usage 行（`formatUsage` 同包内 `↑12 ↓3k R8k $0.0123` 格式，onCostClick 存在时为按钮）、error 红块与 aborted 斜体提示。
 - **ToolMessage 消费本地 registry**（`src/lib/tool-renderer-registry.ts`）：`ToolRenderResult.content` 为纯 `ReactNode`；React 渲染器返回 ReactNode 直接渲染（isCustom 免卡片包裹，否则包默认卡），无渲染器时回退到 React 默认工具卡（状态图标 + Input/Output JSON 预览）。

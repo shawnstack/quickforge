@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>todo_write 工具卡 · 结构化展开设计稿</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: oklch(96.5% 0 0);
+    color: oklch(24% 0 0);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .page { max-width: 54rem; margin: 0 auto; padding: 2.5rem 1.25rem 4.5rem; }
+  .page-head h1 { font-size: 1.15rem; margin: 0 0 0.35rem; }
+  .page-head p { margin: 0; color: oklch(45% 0 0); font-size: 0.85rem; }
+
+  /* ===== 顶部说明区：设计决策 ===== */
+  .decisions { margin: 1.2rem 0 1.6rem; border: 1px solid oklch(88% 0 0); border-radius: 0.75rem; background: #fff; padding: 1rem 1.25rem; }
+  .decisions h2 { font-size: 0.95rem; margin: 0 0 0.5rem; }
+  .decisions ol { margin: 0; padding-left: 1.3rem; font-size: 0.82rem; color: oklch(30% 0 0); }
+  .decisions li { margin: 0.3rem 0; }
+  .decisions code { background: oklch(94% 0 0); border-radius: 4px; padding: 0.05rem 0.3rem; font-size: 0.78rem; }
+
+  /* ===== 舞台：应用语义 token（与 pi-web-ui :root 一致），本稿只做默认浅色 ===== */
+  .stage {
+    --background: oklch(100% 0 0);
+    --foreground: oklch(14.5% 0 0);
+    --primary: oklch(20.5% 0 0);
+    --muted: oklch(97% 0 0);
+    --muted-foreground: oklch(55.6% 0 0);
+    --ring: oklch(70.8% 0 0);
+    --radius: 0.5rem;
+    --line: color-mix(in oklab, var(--foreground) 9%, transparent);
+    /* 聊天内 todo 胶囊 in_progress 图标的 accent 配方（index.css:7794-7796） */
+    --accent-strong: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+    /* 工具卡卡片底（index.css 工具卡配方，goal-plan 设计稿同款） */
+    --tool-bg: color-mix(in oklab, var(--background) 96%, var(--muted));
+    /* 默认「消息字号」13px：摘要行 = ×0.875 ≈ 11.4px（index.css:3473） */
+    --msg-font: 13px;
+
+    font-size: 13px;
+    color: var(--foreground);
+    background: var(--background);
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+    padding: 1.4rem 1.1rem 1.15rem;
+    box-shadow: 0 1px 3px oklch(0% 0 0 / 5%);
+  }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+  /* ===== 模拟对话上下文 ===== */
+  .chat-context { display: flex; flex-direction: column; gap: 0.55rem; padding: 0 0.15rem 1rem; }
+  .bubble { max-width: 74%; font-size: 0.8125rem; line-height: 1.5; }
+  .bubble--user {
+    align-self: flex-end;
+    background: color-mix(in oklab, var(--muted) 62%, transparent);
+    color: var(--foreground);
+    border-radius: 0.75rem 0.75rem 0.25rem 0.75rem;
+    padding: 0.45rem 0.7rem;
+  }
+  .bubble--assistant { align-self: flex-start; color: color-mix(in oklab, var(--foreground) 88%, var(--muted-foreground)); padding: 0 0.1rem; }
+
+  .demo-stack { display: flex; flex-direction: column; gap: 1.1rem; }
+  .variant-tag { align-self: flex-start; font-size: 0.6875rem; color: var(--muted-foreground); border: 1px dashed var(--line); border-radius: 999px; padding: 1px 9px; letter-spacing: 0.02em; margin-bottom: 0.35rem; }
+
+  /* ============================================================================
+     工具卡骨架：复刻 quickforge-local-tool-shell > details.quickforge-local-tool
+     （todo-write-tool-renderer.tsx / index.css:3444-3476 / goal-plan 设计稿同款）。
+     todo_write 卡无 tone 左侧色条（plain）。
+     ============================================================================ */
+  .tool {
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: calc(var(--radius) + 0.125rem);
+    background: var(--tool-bg);
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+  }
+  .tool > summary {
+    display: flex; cursor: pointer; list-style: none; align-items: center;
+    gap: 8px; user-select: none; -webkit-user-select: none;
+    padding: 0.625rem 0.875rem 0.625rem 1rem;
+    color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    font-weight: 400; line-height: 1.5;
+    font-size: calc(var(--msg-font) * 0.875);
+    min-height: 1.625rem;
+    transition: background-color 140ms ease;
+  }
+  .tool > summary::-webkit-details-marker { display: none; }
+  .tool > summary:hover { background: color-mix(in oklab, var(--muted) 55%, transparent); }
+  .tool .type-icon { width: 0.875rem; height: 0.875rem; flex: 0 0 auto; color: var(--muted-foreground); }
+  .tool .type-icon svg { width: 100%; height: 100%; display: block; }
+  .tool .title { display: inline-flex; min-width: 0; align-items: center; gap: 0.25rem; flex: 0 1 auto; }
+  .tool .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool .chevron {
+    width: 0.875rem; height: 0.875rem; flex: 0 0 auto;
+    color: var(--muted-foreground); opacity: 0.62; pointer-events: none;
+    transition: transform 160ms ease, opacity 140ms ease;
+  }
+  .tool > summary:hover .chevron { opacity: 1; }
+  .tool[open] > summary .chevron { transform: rotate(90deg); }
+  /* done 状态耗时：hover 摘要行才可见（quickforge-tool-meta-hover，index.css:3774-3790） */
+  .tool .meta-hover {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 0.375rem;
+    margin-left: auto; padding-left: 8px;
+    font-size: 0.6875rem; color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+    visibility: hidden; opacity: 0;
+    transition: visibility 0s linear 140ms, opacity 140ms ease;
+  }
+  .tool > summary:hover .meta-hover,
+  .tool > summary:focus-visible .meta-hover { visibility: visible; opacity: 1; transition-delay: 0s; }
+
+  .tool-body { padding: 0 0.875rem 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; overflow-wrap: anywhere; }
+
+  /* ===== 结构化任务列表（本稿新增落点，实现类名用 quickforge-todo-history-* 前缀）=====
+     行结构复刻置顶摘要任务小节（GitToolsPinnedSummary.tsx:802-809）：
+     「状态图标 + 文本（+ sr-only 状态）」；字号按工具卡紧凑基准收为 text-xs。 */
+  .todo-list { display: flex; flex-direction: column; gap: 0.125rem; margin: 0; padding: 0; list-style: none; }
+  .todo-list.is-scrollable { max-height: 7.5rem; overflow-y: auto; overscroll-behavior: contain; }
+  .todo-item {
+    display: flex; align-items: flex-start; gap: 0.5rem;
+    min-height: 1.625rem;
+    padding: 0.3rem 0.375rem;
+    border-radius: 0.375rem;
+    font-size: 0.75rem; line-height: 1.4;
+    color: color-mix(in oklab, var(--foreground) 88%, transparent);
+    transition: background-color 140ms ease;
+  }
+  .todo-item:hover, .todo-item.is-hover { background: color-mix(in oklab, var(--muted) 55%, transparent); }
+  .todo-item-icon { display: inline-flex; flex: 0 0 auto; width: 0.875rem; height: 0.875rem; margin-top: 0.0625rem; color: var(--muted-foreground); }
+  .todo-item-icon svg { width: 100%; height: 100%; display: block; }
+  /* in_progress：半填充圆 + accent（胶囊 quickforge-todo-summary-item--in_progress 同配方），文本正常字重 */
+  .todo-item--in_progress .todo-item-icon { color: var(--accent-strong); }
+  /* completed：实心勾 + emerald（置顶摘要 / 胶囊共用完成语义），文字弱化 + 删除线 */
+  .todo-item--completed .todo-item-icon { color: rgb(4 143 101); }
+  .todo-item--completed .todo-item-text {
+    color: var(--muted-foreground);
+    text-decoration: line-through; text-decoration-thickness: 1px;
+  }
+  .todo-item-text { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }
+
+  /* spinner 备选图标（运行语境） */
+  .spin { animation: qf-spin 1s linear infinite; }
+  @keyframes qf-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+  /* ===== Input / Details JSON 块（现状保留，todo-write-tool-renderer.tsx:50-51） ===== */
+  .section-label { font-size: 0.75rem; font-weight: 500; color: var(--muted-foreground); margin-bottom: 0.25rem; }
+  .code-pre {
+    margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    white-space: pre-wrap; font-size: 0.7rem; line-height: 1.5;
+    border: 1px solid var(--line); border-radius: calc(var(--radius) - 2px);
+    background: color-mix(in oklab, var(--background) 92%, var(--muted));
+    padding: 8px 10px; color: var(--muted-foreground);
+  }
+
+  /* ===== hover 行态演示标注 ===== */
+  .hover-note { font-size: 0.6875rem; color: var(--accent-strong); white-space: nowrap; margin-top: 0.0625rem; }
+
+  /* ===== 状态图例 ===== */
+  .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; padding: 0.2rem 0.1rem 0.1rem; }
+  .legend-item { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: color-mix(in oklab, var(--foreground) 80%, var(--muted-foreground)); }
+  .legend-item .todo-item-icon { margin-top: 0; }
+  .legend-item em { font-style: normal; color: var(--muted-foreground); font-size: 0.6875rem; }
+
+  /* ===== 底部场景对照表 ===== */
+  .spec { margin-top: 2.6rem; }
+  .spec h2 { font-size: 0.95rem; margin: 0 0 0.6rem; }
+  .spec table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
+  .spec th, .spec td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid oklch(88% 0 0); }
+  .spec th { color: oklch(45% 0 0); font-weight: 600; }
+  .spec ul { margin: 0.8rem 0 0; padding-left: 1.2rem; font-size: 0.82rem; color: oklch(30% 0 0); }
+  .spec li { margin: 0.25rem 0; }
+  .spec code { background: oklch(94% 0 0); border-radius: 4px; padding: 0.05rem 0.3rem; font-size: 0.78rem; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <h1>todo_write 工具卡 · 结构化展开设计稿</h1>
+    <p>修复：聊天内「更新任务清单」工具卡展开后只有 JSON、没有结构化任务列表；compact 模式展开为空。展开体补结构化列表，视觉模式与置顶摘要任务小节 / 聊天内 todo 胶囊同源。</p>
+  </header>
+
+  <section class="decisions" aria-label="设计决策">
+    <h2>设计决策</h2>
+    <ol>
+      <li><strong>行结构复用置顶摘要任务小节</strong>（<code>GitToolsPinnedSummary.tsx:802-809</code>）：每行 = 状态图标 + 任务文本（+ <code>sr-only</code> 状态文案）；图标 14px 与工具卡 type-icon / 状态图标同尺寸体系。</li>
+      <li><strong>字号按工具卡基准收紧</strong>：置顶摘要行是 <code>text-sm</code>（面板语境），工具卡展开体取 <code>text-xs</code>（0.75rem / 行高 1.4 / 行高 26px 对齐摘要行 rhythm），更符合 DESIGN_LANGUAGE「紧凑一致、辅助信息弱化」。</li>
+      <li><strong>三状态规则</strong>：pending = 空心圆（muted-foreground）；in_progress = <em>半填充圆 + accent</em>（<code>color-mix(in oklab, var(--primary) 78%, var(--foreground))</code>，与聊天内胶囊 <code>quickforge-todo-summary-item--in_progress</code> 同配方）+ 正常字重；completed = 实心勾 + emerald <code>rgb(4 143 101)</code>（置顶摘要与胶囊共用的完成语义色）+ 文字 <code>text-muted-foreground</code> 弱化 + 1px 删除线。</li>
+      <li><strong>in_progress 备选</strong>（见状态图例）：spinner（运行语境、与工具状态图标 <code>animate-spin</code> 同源）；amber 时钟（置顶摘要面板内现案 <code>Clock3 text-amber-600</code>）。主案选「半填充圆 + accent」：静态不转、无色彩噪点，且与聊天内胶囊同为聊天流内的 todo 展示，视觉模式统一。</li>
+      <li><strong>compact / detailed 差异</strong>：compact 展开 = 仅结构化列表（修复展开为空）；detailed 展开 = 列表在上 + 保留现状 Input / Details JSON 块在下（结构不变，仅前插列表）。</li>
+      <li><strong>进度条不采用</strong>：进度已在摘要行「更新任务清单 · 3/5 已完成」中；进度环是输入框上方胶囊的形态锚点（独立组件语义），复制进工具卡会引入新视觉模式（DESIGN_LANGUAGE「不引入新视觉模式」）。</li>
+      <li><strong>类名避让</strong>：实现落点新增类沿用渲染器既有 <code>quickforge-todo-history-*</code> 前缀（如 <code>quickforge-todo-history-list / -item</code>），不复用胶囊摘要的 <code>quickforge-todo-summary-*</code>（<code>tests/frontend/todo-write-renderer.test.ts:61</code> 明确禁止渲染器包含 <code>quickforge-todo-summary-list</code>）。</li>
+      <li><strong>hover 行态</strong>：仅加轻背景 <code>color-mix(in oklab, var(--muted) 55%, transparent)</code>（工具摘要行 / subagent 摘要按钮同配方），无位移、无逐行边框阴影；列表超 5 项时 <code>max-height: 7.5rem</code> 内滚动（对齐胶囊规则）。深浅色本稿只做默认浅色，token 全部走语义变量。</li>
+    </ol>
+  </section>
+
+  <main class="stage" aria-label="模拟对话">
+    <div class="chat-context">
+      <div class="bubble bubble--user">聊天里的「更新任务清单」卡片展开后看不到任务列表，帮我改成结构化展示。</div>
+      <div class="bubble bubble--assistant">好的。渲染器已有 snapshot 视图模型（≤20 项），我先把展开体补上结构化任务列表，三种状态与置顶摘要同一套视觉规则。</div>
+    </div>
+
+    <div class="demo-stack">
+
+      <!-- 场景 a + b：收起态摘要行（点击可展开看结构化列表，同一张卡交互演示） -->
+      <section aria-label="场景 a 收起态 / 场景 b 展开态">
+        <span class="variant-tag">场景 a · 收起态摘要行（点击可展开 → 场景 b）</span>
+        <details class="tool">
+          <summary>
+            <span class="type-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </span>
+            <span class="title">
+              <span class="label">更新任务清单 · 2/5 已完成</span>
+              <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </span>
+            <span class="meta-hover" title="已完成">0.4s</span>
+          </summary>
+          <div class="tool-body">
+            <ul class="todo-list">
+              <li class="todo-item todo-item--completed">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" style="stroke: var(--tool-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                <span class="todo-item-text">梳理 todo_write 渲染器与视图模型调用链</span>
+                <span class="sr-only">已完成</span>
+              </li>
+              <li class="todo-item todo-item--completed">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" style="stroke: var(--tool-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                <span class="todo-item-text">确认 snapshot 校验规则（≤20 项 / 200 字符）</span>
+                <span class="sr-only">已完成</span>
+              </li>
+              <li class="todo-item todo-item--in_progress">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/></svg></span>
+                <span class="todo-item-text">产出结构化展开设计稿</span>
+                <span class="sr-only">进行中</span>
+              </li>
+              <li class="todo-item">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></span>
+                <span class="todo-item-text">实现渲染器结构化展开体</span>
+                <span class="sr-only">未开始</span>
+              </li>
+              <li class="todo-item">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></span>
+                <span class="todo-item-text">补充前端渲染测试</span>
+                <span class="sr-only">未开始</span>
+              </li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <!-- 场景 c：compact 模式展开 = 仅结构化列表（修复现状展开为空） -->
+      <section aria-label="场景 c compact 展开">
+        <span class="variant-tag">场景 c · compact 模式展开 = 仅结构化列表（修复「展开为空」）</span>
+        <details class="tool" open>
+          <summary>
+            <span class="type-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </span>
+            <span class="title">
+              <span class="label">更新任务清单 · 2/5 已完成</span>
+              <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </span>
+            <span class="meta-hover" title="已完成">0.4s</span>
+          </summary>
+          <div class="tool-body">
+            <ul class="todo-list">
+              <li class="todo-item todo-item--completed">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" style="stroke: var(--tool-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                <span class="todo-item-text">梳理 todo_write 渲染器与视图模型调用链</span>
+              </li>
+              <li class="todo-item todo-item--completed">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" style="stroke: var(--tool-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                <span class="todo-item-text">确认 snapshot 校验规则（≤20 项 / 200 字符）</span>
+              </li>
+              <li class="todo-item todo-item--in_progress">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/></svg></span>
+                <span class="todo-item-text">产出结构化展开设计稿</span>
+              </li>
+              <li class="todo-item">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></span>
+                <span class="todo-item-text">实现渲染器结构化展开体</span>
+              </li>
+              <li class="todo-item">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></span>
+                <span class="todo-item-text">补充前端渲染测试</span>
+              </li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <!-- 场景 d：detailed 模式展开 = 结构化列表在上 + Input / Details JSON 在下（现状保留） -->
+      <section aria-label="场景 d detailed 展开">
+        <span class="variant-tag">场景 d · detailed 模式展开 = 列表在上 + Input / Details JSON 在下</span>
+        <details class="tool" open>
+          <summary>
+            <span class="type-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </span>
+            <span class="title">
+              <span class="label">更新任务清单 · 2/5 已完成</span>
+              <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </span>
+            <span class="meta-hover" title="已完成">0.4s</span>
+          </summary>
+          <div class="tool-body">
+            <ul class="todo-list">
+              <li class="todo-item todo-item--completed">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" style="stroke: var(--tool-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                <span class="todo-item-text">梳理 todo_write 渲染器与视图模型调用链</span>
+              </li>
+              <li class="todo-item todo-item--completed">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" style="stroke: var(--tool-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                <span class="todo-item-text">确认 snapshot 校验规则（≤20 项 / 200 字符）</span>
+              </li>
+              <li class="todo-item todo-item--in_progress">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/></svg></span>
+                <span class="todo-item-text">产出结构化展开设计稿</span>
+              </li>
+              <li class="todo-item">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></span>
+                <span class="todo-item-text">实现渲染器结构化展开体</span>
+              </li>
+              <li class="todo-item">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></span>
+                <span class="todo-item-text">补充前端渲染测试</span>
+              </li>
+            </ul>
+            <div>
+              <div class="section-label">输入</div>
+              <pre class="code-pre">{
+  "todos": [
+    { "content": "梳理 todo_write 渲染器与视图模型调用链", "status": "completed" },
+    { "content": "确认 snapshot 校验规则（≤20 项 / 200 字符）", "status": "completed" },
+    { "content": "产出结构化展开设计稿", "status": "in_progress" },
+    { "content": "实现渲染器结构化展开体", "status": "pending" },
+    { "content": "补充前端渲染测试", "status": "pending" }
+  ]
+}</pre>
+            </div>
+            <div>
+              <div class="section-label">详情</div>
+              <pre class="code-pre">{
+  "todos": [
+    { "content": "梳理 todo_write 渲染器与视图模型调用链", "status": "completed" },
+    { "content": "确认 snapshot 校验规则（≤20 项 / 200 字符）", "status": "completed" },
+    { "content": "产出结构化展开设计稿", "status": "in_progress" },
+    { "content": "实现渲染器结构化展开体", "status": "pending" },
+    { "content": "补充前端渲染测试", "status": "pending" }
+  ],
+  "timing": { "startedAt": 1758355200000, "durationMs": 412 }
+}</pre>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <!-- 场景 e：hover 行态演示 + 三状态图例（含 in_progress 备选图标） -->
+      <section aria-label="场景 e hover 行态与状态图例">
+        <span class="variant-tag">场景 e · hover 行态（第三行强制 hover）+ 三状态图例与备选图标</span>
+        <details class="tool" open>
+          <summary>
+            <span class="type-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </span>
+            <span class="title">
+              <span class="label">更新任务清单 · 2/5 已完成</span>
+              <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </span>
+            <span class="meta-hover" title="已完成">0.4s</span>
+          </summary>
+          <div class="tool-body">
+            <ul class="todo-list">
+              <li class="todo-item todo-item--completed">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" style="stroke: var(--tool-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                <span class="todo-item-text">已完成行：文字弱化 + 删除线（其余行可真实 hover 感受行态）</span>
+              </li>
+              <li class="todo-item todo-item--in_progress">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/></svg></span>
+                <span class="todo-item-text">进行中行：半填充圆 + accent，文本正常字重</span>
+              </li>
+              <li class="todo-item is-hover">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></span>
+                <span class="todo-item-text">hover 行态：仅轻背景，无位移 / 无边框 / 无阴影</span>
+                <span class="hover-note">← hover</span>
+              </li>
+            </ul>
+            <div class="legend" aria-label="状态图例">
+              <span class="legend-item">
+                <span class="todo-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></span>
+                pending 空心圆 <em>· muted</em>
+              </span>
+              <span class="legend-item">
+                <span class="todo-item-icon" aria-hidden="true" style="color: var(--accent-strong)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none"/></svg></span>
+                in_progress 半填充圆 <em>· 主案 · accent</em>
+              </span>
+              <span class="legend-item">
+                <span class="todo-item-icon" aria-hidden="true" style="color: var(--accent-strong)"><svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg></span>
+                spinner <em>· in_progress 备选</em>
+              </span>
+              <span class="legend-item">
+                <span class="todo-item-icon" aria-hidden="true" style="color: oklch(66.6% 0.179 58.318)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+                amber 时钟 <em>· in_progress 备选（置顶摘要现案）</em>
+              </span>
+              <span class="legend-item">
+                <span class="todo-item-icon" aria-hidden="true" style="color: rgb(4 143 101)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" style="stroke: var(--tool-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                completed 实心勾 <em>· emerald + 弱化删除线</em>
+              </span>
+            </div>
+          </div>
+        </details>
+      </section>
+
+    </div>
+  </main>
+
+  <section class="spec">
+    <h2>场景对照</h2>
+    <table>
+      <thead>
+        <tr><th>场景</th><th>演示内容</th><th>对应卡片</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>a</td><td>收起态摘要行：「更新任务清单 · 2/5 已完成」+ chevron；耗时 0.4s 随摘要行 hover 浮现（meta-hover 现状行为）</td><td>第 1 张（收起）</td></tr>
+        <tr><td>b</td><td>展开态结构化任务列表：5 条任务混合三状态；行 = 状态图标 + 文本 + sr-only 状态</td><td>第 1 张（点击展开）</td></tr>
+        <tr><td>c</td><td>compact 模式展开 = 仅结构化列表，修复现状「展开为空」</td><td>第 2 张</td></tr>
+        <tr><td>d</td><td>detailed 模式展开 = 列表在上 + Input / Details JSON 块在下（现状结构保留）</td><td>第 3 张</td></tr>
+        <tr><td>e</td><td>hover 行态（轻背景、不跳动）+ 三状态图例 + in_progress 备选图标（spinner / amber 时钟）</td><td>第 4 张</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li>数据契约：<code>buildTodoWriteHistoryViewModel</code> 的 <code>snapshot</code>（<code>{content, status}[]</code>，≤20 项）；快照缺失（running / error / 校验失败）时展开体回退现状 JSON-only，不渲染空列表。</li>
+      <li>实现落点：<code>todo-write-tool-renderer.tsx</code> 展开体在 Input 块前插入结构化列表（<code>viewModel.snapshot</code> 非空时）；新增样式走 <code>index.css</code> 的 <code>.quickforge-todo-history-list / -item</code> 系列，避开 <code>quickforge-todo-summary-*</code> 既有命名。</li>
+      <li>本稿为纯设计稿（无依赖静态 HTML），未修改任何 <code>src/</code> 源码；深浅色仅演示默认浅色主题。</li>
+    </ul>
+  </section>
+</div>
+</body>
+</html>

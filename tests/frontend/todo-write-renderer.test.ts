@@ -61,6 +61,44 @@ describe('TodoWrite history renderer', () => {
     expect(block).not.toContain('quickforge-todo-summary-list')
   })
 
+  it('expands to a structured todo history list for every status in both display modes', () => {
+    const block = todoWriteRenderer.slice(todoWriteRenderer.indexOf('export class TodoWriteToolRenderer'))
+    const file = todoWriteRenderer
+    // 展开体含结构化列表：ul + 状态类名 + 任务文本 + sr-only 状态文案（复用置顶摘要状态 i18n 键）
+    expect(block).toContain('quickforge-todo-history-list')
+    expect(block).toContain('quickforge-todo-history-item--${todo.status}')
+    expect(block).toContain('{todo.content}')
+    expect(file).toContain("t('todoWriteStatusCompleted')")
+    expect(file).toContain("t('todoWriteStatusInProgress')")
+    expect(file).toContain("t('todoWriteStatusPending')")
+    expect(file).toContain('sr-only')
+    // detailed 模式列表在上、Input/Details JSON 在下
+    expect(block.indexOf('quickforge-todo-history-list')).toBeLessThan(block.indexOf("renderCodeBlock(input, 'json')"))
+    // compact 展开非空：列表仅受 snapshot 约束，detailed 只 gate input/details 取值（2 处）
+    expect(block).toMatch(/\{todos \? \(/)
+    expect(block.match(/\bdetailed \?/g) ?? []).toHaveLength(2)
+    // snapshot 缺失/为空时不渲染列表
+    expect(block).toContain('viewModel.snapshot && viewModel.snapshot.length > 0')
+  })
+
+  it('styles the structured todo history list with shared state recipes and bounded scrolling', () => {
+    const list = css.slice(css.indexOf('.quickforge-todo-history-list'))
+    expect(list).toMatch(/^\.quickforge-todo-history-list\s*\{[\s\S]*?list-style:\s*none;/)
+    expect(css).toMatch(/\.quickforge-todo-history-list--scrollable\s*\{[\s\S]*?max-height:\s*7\.5rem;[\s\S]*?overflow-y:\s*auto;/)
+    // in_progress 复用胶囊 accent 配方；completed 复用 emerald 完成语义（含暗色）
+    expect(css).toMatch(/\.quickforge-todo-history-item--in_progress \.quickforge-todo-history-status-icon\s*\{[\s\S]*?color:\s*color-mix\(in oklab, var\(--primary\) 78%, var\(--foreground\)\);/)
+    expect(css).toMatch(/\.quickforge-todo-history-item--completed \.quickforge-todo-history-status-icon\s*\{[\s\S]*?color:\s*rgb\(4 143 101\);/)
+    expect(css).toMatch(/html\.dark \.quickforge-todo-history-item--completed \.quickforge-todo-history-status-icon\s*\{[\s\S]*?color:\s*rgb\(110 231 183\);/)
+    expect(css).toMatch(/\.quickforge-todo-history-item--completed \.quickforge-todo-history-content\s*\{[\s\S]*?text-decoration:\s*line-through;[\s\S]*?text-decoration-thickness:\s*1px;/)
+    // hover 仅轻背景（已验证 muted 55% 配方），无位移/边框/阴影
+    const itemBody = css.match(/\n\.quickforge-todo-history-item\s*\{[^}]*\}/)?.[0] ?? ''
+    const hoverBody = css.match(/\.quickforge-todo-history-item:hover\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(hoverBody).toContain('background:')
+    expect(itemBody + hoverBody).not.toMatch(/box-shadow|\bborder:|\btransform:/)
+    // 列表字号跟随消息字号：容器挂 text-xs，由 .quickforge-todo-history-tool > div .text-xs 收敛（×0.8）
+    expect(css).toMatch(/\.quickforge-todo-history-tool > div \.text-xs\s*\{[\s\S]*?calc\(var\(--quickforge-message-font-size, 14px\) \* 0\.8\)/)
+  })
+
   it('adds every bilingual audit-summary state', () => {
     for (const key of [
       'todoWriteHistoryRunning',

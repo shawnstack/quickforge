@@ -1,3 +1,52 @@
+## 2026-09-20 · 修复：新添加项目行“新建对话”无反应（空白 deferred 会话误判复用）
+
+- Goal：新添加项目后不刷新，点该项目行“新建对话”无反应。根因：startNewProjectChat（src/hooks/useChatActions.ts）的 reusableBlankSession 判断只比较 activeProjectRef（UI 选中态），不校验当前 DeferredSessionAgent 实际绑定的项目；添加项目流程只更新 activeProject 不替换 agent，旧项目的空白 deferred 会话被误判为可复用 → 静默 return 'reused'，不建会话；刷新后 bootstrap 重建 agent 与 activeProject 对齐所以正常。
+- 改动文件：
+  - `src/hooks/useChatActions.ts`：startNewProjectChat 的 reusableBlankSession 判断链在 `currentAgent instanceof DeferredSessionAgent` 分支之后增加 `currentAgent.project?.id === nextProject.id`（+1）。
+  - `tests/frontend/project-new-chat-reuse-guard.test.ts`：新增 3 用例——源码契约（reusable 判断含 agent 项目绑定校验且位于 instanceof 之后）、行为（agent 绑定项目 B、activeProject 为 C → 'created' 且 startDeferredSession 收到项目 C、不触发 switchActiveProject）、复用保留（agent 与 activeProject 同为 C 的空白会话 → 'reused'）。
+  - `feature_list.json`（新增 fix-project-new-chat-reuse，done）、`progress.md`、`session-handoff.md`。
+- 验证：`npx vitest run tests/frontend/project-new-chat-reuse-guard.test.ts tests/frontend/sidebar-new-chat-routing.test.ts tests/frontend/deferred-session-agent.test.ts tests/frontend/workspace-inspector-tabs.test.ts` → 4 files / 34 passed（exit 0）；`npx tsc -b` → exit 0；`npx eslint`（两改动文件）→ exit 0。未跑全量 test/build（小改动定向验证）。
+- Notes（只记录，不扩范围）：
+  - a) 待真机 `npm run dev` 验收：添加新项目后不刷新，点该项目行“新建对话”应直接新建绑定该项目的空白会话；空白态下再次点击应复用（返回 reused 属正常）。
+  - b) 本轮无 Git 操作，无依赖变更，未触碰 dist/、package-dist/、package-offline/；docs/wiki 未动（单条件 bug 修复，不改模块职责/公共入口）。
+
+---
+
+## 2026-09-20 · 主聊天页：发送消息后用户消息锚定滚动到可视区顶部
+
+- Goal：主聊天页发送消息后，最新用户消息滚动定位到可视区顶部（而非被新回复顶走）；回复增长期间稳在顶部，内容超过一屏后自然被推走，spacer 归零后退回现有贴底跟随；手动上滚不受影响。
+- 改动文件：
+  - `src/components/chat/scroll-sync.ts`：新增发送后锚定——最新 `.qf-user-message` 滚动定位到可视区顶部；消息列表末尾插入 spacer 补偿高度，回复流式增长期间随内容高度动态收缩，归零后退回现有贴底跟随；用户上滚时禁用跟随但保留 spacer；会话切换/卸载清理。
+  - `src/components/chat/ChatPanelHost.tsx`：新增可选 prop `anchorSentUserMessage`（默认关闭）。
+  - `src/App.tsx`：仅主聊天面板开启 `anchorSentUserMessage`；侧边聊天与分享页不传，行为不变。
+  - `tests/frontend/scroll-sync.test.ts`：10 用例。
+  - `feature_list.json`（新增 send-anchor-user-message-top，done）、`progress.md`、`session-handoff.md`。
+- 验证：`npx vitest run tests/frontend/scroll-sync.test.ts` → 10 passed；`tests/frontend/chat-surface-behavior-alignment.test.ts` + `tests/frontend/scroll-to-bottom-button.test.ts` → 17 passed（护栏回归）；`npx tsc -b` → exit 0；eslint（改动文件）→ exit 0。未跑全量 test/build（小改动定向验证）。
+- 微调（同 feature 内，真机验收反馈「锚定后消息顶部与上方标题区域贴得太近」）：`scroll-sync.ts` 新增模块常量 `ANCHOR_TOP_OFFSET = 12`，锚定目标 scrollTop = 消息顶部偏移 − 12px（clamp ≥ 0）；spacer 初始高度与动态收缩公式共用同一锚定目标值，所需垫高随边距自动调整（目标下移 12px 即少垫 12px），「内容底贴视口底时 scrollTop 恒等于锚定值」不变量保持。`tests/frontend/scroll-sync.test.ts` 期望值同步（初始 spacer 120→108px、收缩 80→56px、锚定位 900→888/380→368，新增 12px 边距断言语义）；定向验证 vitest 10 passed、`npx tsc -b` exit 0、eslint 改动文件 exit 0；`docs/wiki/src/components/README.md` scroll-sync 小节两份副本补「锚定位置留 12px 顶部边距」。feature_list.json 未动（同一 feature 内微调）。
+- Notes（只记录，不扩范围）：
+  - a) 待真机 `npm run dev` 验收：主聊天页发送后用户消息应出现在可视区顶部、回复增长期间稳在顶部、超过一屏后自然被推走、手动上滚不受影响。
+  - b) 侧边聊天/分享页回归确认行为不变。
+  - c) 本轮无 Git 操作，无依赖变更，未触碰 dist/、package-dist/、package-offline/；docs/wiki 未动（滚动行为微调，不改模块职责/公共入口）。
+
+---
+
+## 2026-09-20 · todo_write 工具卡展开显示结构化任务列表
+
+- Goal：todo_write 工具卡展开体由 JSON-only 改为结构化任务列表（状态图标 + 文本），并修复 compact 模式展开为空的问题。
+- 改动文件：
+  - `src/lib/tool-renderers/todo-write-tool-renderer.tsx`：展开体插入结构化任务列表 `ul.quickforge-todo-history-list`，li 含状态图标（in_progress 半填充圆 / completed 实心勾 / pending 空心圆）+ sr-only 状态文本 + content；compact 模式同样渲染（修复展开为空）；snapshot 空回退 JSON-only；>5 项滚动容器 max-height 7.5rem。
+  - `src/index.css`：新增 `.quickforge-todo-history-*` 系列——text-xs 走既有字号契约 `calc(var(--quickforge-message-font-size,14px)*0.8)`；in_progress 半填充圆 + accent color-mix 配方（与聊天胶囊一致）；completed 实心勾 emerald（light `rgb(4 143 101)` / dark `rgb(110 231 183)`）+ 弱化 + line-through；pending 空心圆；hover color-mix muted 55%（无位移、无边框、无阴影）；SVG mask 模块级 id 计数器防多卡串扰。
+  - `tests/frontend/todo-write-renderer.test.ts`：新增 2 用例共 10（结构化列表断言 + CSS 配方断言，保留原 not.toContain 断言）。
+  - `design-mockups/todo-tool-card-structured.html`（新增设计稿）。
+  - `feature_list.json`（新增 todo-tool-card-structured-list，done）、`progress.md`、`session-handoff.md`。
+- 设计决策：in_progress 采用半填充圆 + accent（与聊天胶囊一致，用户拍板）；不加进度条；类名 quickforge-todo-history-list 避开测试禁用的 quickforge-todo-summary-list。
+- 验证：`npx vitest run tests/frontend/todo-write-renderer.test.ts` → 10 passed；`tests/frontend/todo-write-summary.test.ts` → 24 passed；相邻 CSS 契约测试 → 142 passed；`npx tsc -b` → exit 0；`npx eslint`（改动文件）→ exit 0；全量 `npm run test` → **367 files / 4374 passed + 1 skipped（exit 0）**。未跑 npm run build。
+- Notes（只记录，不扩范围）：
+  - a) 待真机验收：`npm run dev` 下查看工具卡展开三态视觉、hover、>5 项滚动、暗色主题 completed 色。
+  - b) 本轮无 Git 操作，无依赖变更，未触碰 dist/、package-dist/、package-offline/；docs/wiki 未动（单工具卡展开体渲染变更，不改模块职责/公共入口）。
+
+---
+
 ## 2026-09-20 · 主结构分割线强度统一加深 34% → 60%
 
 - Goal：用户反馈「线颜色不够深」（浅色主题 --border oklch(0.922) 偏亮，34% 混透明太淡）。DESIGN_LANGUAGE.md 要求主结构分割线统一强度，因此全组同步 34% → 60%，并统一设置 header 底线宽度为 1px。

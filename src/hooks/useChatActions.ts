@@ -103,6 +103,7 @@ export function useChatActions({
     const matchesCurrentProject = activeProjectRef.current?.id === nextProject.id
     const reusableBlankSession = matchesCurrentProject
       && currentAgent instanceof DeferredSessionAgent
+      && currentAgent.project?.id === nextProject.id
       && !currentAgent.state.isStreaming
       && currentAgent.state.messages.length === 0
       && currentChatScopeRef.current === 'project'

@@ -193,6 +193,11 @@ type ChatPanelHostProps = {
   newChatEmptyState?: boolean
   /** Opt-in only for App's main conversation; shared and Side Chat stay unchanged. */
   taskLauncherEnabled?: boolean
+  /**
+   * 发送消息后把该条用户消息锚定到滚动可视区顶部（仅主聊天页开启；
+   * 侧边聊天 / 分享页不传，维持原贴底跟随行为）。
+   */
+  anchorSentUserMessage?: boolean
   taskLauncherVisible?: boolean
   onTaskLauncherDismiss?: () => void
   showTurnNavigation?: boolean
@@ -292,6 +297,7 @@ export function ChatPanelHost({
   allowModelControls = true,
   newChatEmptyState = false,
   taskLauncherEnabled = false,
+  anchorSentUserMessage = false,
   taskLauncherVisible = false,
   onTaskLauncherDismiss,
   showTurnNavigation = true,
@@ -673,7 +679,10 @@ export function ChatPanelHost({
         cmdSuggestions.remove()
         composerDraftsRef.current.delete(currentDraftKey)
         void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
-        scrollSync.enable()
+        // 锚定开启时改为「用户消息置顶 + spacer 补偿跟随」（DOM 提交后定位，
+        // 找不到用户消息时内部回退贴底）；否则维持原贴底行为。
+        if (anchorSentUserMessage) scrollSync.enableWithAnchor()
+        else scrollSync.enable()
       },
     }
 
@@ -1760,7 +1769,7 @@ export function ChatPanelHost({
       // unmounts on its own; decorations injected into it are dropped with
       // the subtree.
     }
-  }, [agent, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, taskLauncherEnabled, effectiveCapabilities.capabilitySuggestions, effectiveCapabilities.goal, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
+  }, [agent, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, taskLauncherEnabled, anchorSentUserMessage, effectiveCapabilities.capabilitySuggestions, effectiveCapabilities.goal, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
 
   useEffect(() => {
     const host = hostRef.current

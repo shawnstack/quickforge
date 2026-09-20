@@ -1182,7 +1182,7 @@ export const ChatSidebar = memo(function ChatSidebar({
     <aside
       ref={asideRef}
       className={cn(
-        'relative z-10 min-h-0 shrink-0 overflow-hidden border-r-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-[var(--quickforge-sidebar-bg)] transition-[width] duration-200 ease-out motion-reduce:transition-none',
+        'relative z-10 min-h-0 shrink-0 overflow-hidden bg-[var(--quickforge-sidebar-bg)] transition-[width] duration-200 ease-out motion-reduce:transition-none',
         isMobile ? 'flex h-full w-full flex-col' : 'hidden md:flex md:flex-col',
         !isMobile && !sidebarOpen ? 'w-14' : undefined,
         isResizing && 'transition-none',
@@ -1924,7 +1924,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         </div>
       ) : null}
 
-      <div className="mt-auto shrink-0 border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 py-3">
+      <div className="mt-auto shrink-0 border-t border-[color-mix(in_oklab,var(--border)_60%,transparent)] px-3 py-3">
         {updateAvailable && latestVersion ? (
           <button
             type="button"

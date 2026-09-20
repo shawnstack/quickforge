@@ -36,6 +36,8 @@
 
 主结构分割线（左侧功能区与对话区之间的竖线、顶部栏与内容区之间的横线）应该统一使用同一套强度。
 
+当前统一配方：1px 宽度 + `color-mix(in_oklab,var(--border)_60%,transparent)`（App.tsx 对话区包裹线/对话 header 底线、ChatSidebar footer 顶线、SettingsWorkspacePage 包裹线/设置 header 底线共用）。调整强度时需全组同步，不要只改个别位置。
+
 不要不同位置用不同强度的分割线，否则页面结构会显得不统一、不齐整。
 
 ---

@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "sidebar-main-divider-1px",
+      "name": "侧边栏与对话区主分割线改 1px 可见",
+      "status": "done",
+      "dependencies": [],
+      "approach": "四轮样式调整（2026-09-20）。第一轮：ChatSidebar.tsx 根 <aside>（约 :1185）右边框 border-r-[0.5px] → border-r（1px）。第二轮（最终方案，用户反馈竖线无视圆角贯穿到顶、弧段处仅颜色区分）：分割线从侧边栏移到对话区 <main> 自身沿圆角绘制——App.tsx 对话区 <main>（约 :1988-1990）追加 md:border-l md:border-t border-[color-mix(in_oklab,var(--border)_60%,transparent)]，border 沿 md:rounded-tl-2xl 圆角轮廓包裹（左侧竖线 → 弧线绕过左上角 → 顶部横线）；ChatSidebar.tsx <aside> 同步移除 border-r 与同色 border-[color-mix(...)] 两类（撤掉竖线，避免与 main 左边框叠成双线），其余类保留。border-l/border-t 带 md: 前缀（移动端无圆角无线），颜色类无前缀（无 border-width 时不生效）。第三轮（设置页同步，用户确认）：SettingsWorkspacePage.tsx 设置区 <main>（约 :148）className 追加同样的 md:border-l md:border-t（与 App.tsx 对话区写法完全一致），border 沿其 md:rounded-tl-2xl 圆角轮廓包裹；其 <aside>（:99）本就无 border-r，无需撤线。第四轮（用户反馈「线颜色不够深」，34%→60% 全局统一）：主结构分割线集合强度统一由 color-mix(in_oklab,var(--border) 34%,transparent) 加深为 60%——App.tsx 对话区 main（:1989）md:border-l/t 颜色类、App.tsx 对话 header（:1991）border-b 颜色类、ChatSidebar.tsx footer（:1927）border-t 颜色类、SettingsWorkspacePage.tsx main（:148）颜色类、SettingsWorkspacePage.tsx 设置 header（:149）颜色类并由 border-b-[0.5px] 改 border-b（1px，与对话 header 宽度统一）；检查器 w-px 分隔（30%+sidebar-bg 混色）及消息/卡片/弹层内部细线（34%/35%/38%）非主结构分割线，一律不动。DESIGN_LANGUAGE.md「分割线要统一」小节同步写明当前统一配方（1px + 60%）。",
+      "files": [
+        "src/App.tsx",
+        "src/components/sidebar/ChatSidebar.tsx",
+        "src/components/settings/SettingsWorkspacePage.tsx",
+        "DESIGN_LANGUAGE.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-20（第二轮·最终方案后）：npx tsc --noEmit → exit 0；npx eslint src/App.tsx src/components/sidebar/ChatSidebar.tsx → exit 0；npx vitest run 9 个 ChatSidebar 相关前端测试（mobile-fullscreen-adaptation/project-drag-boundary/motion-design/sidebar-new-chat-routing/sidebar-section-order/sidebar-session-action-alignment/sidebar-section-header-hit-area/project-row-hit-area/session-row-hit-area）→ 9 files / 79 passed（exit 0）；grep tests/ 无 rounded-tl-2xl / main 边框类断言（无需测试适配）。2026-09-20（第三轮·设置页同步后）：npx tsc --noEmit → exit 0；npx eslint src/components/settings/SettingsWorkspacePage.tsx → exit 0；npx vitest run tests/frontend/settings-workspace-react.test.ts → 1 file / 11 passed（exit 0）。2026-09-20（第四轮·34%→60% 统一加深后）：npx tsc --noEmit → exit 0；npx eslint src/App.tsx src/components/sidebar/ChatSidebar.tsx src/components/settings/SettingsWorkspacePage.tsx → exit 0；npx vitest run 12 个 sidebar/settings/app 相关前端测试（sidebar-new-chat-routing/sidebar-section-header-hit-area/sidebar-section-order/sidebar-session-action-alignment/sidebar-session-display-limit/sidebar-session-sort-mode/settings-workspace-react/settings-react-infrastructure/app-domain-hooks/app-settings-cache/use-app-bootstrap-migration/use-app-bootstrap-snapshot）→ 12 files / 111 passed（exit 0）。未跑全量 test/build（小改动定向验证）。",
+      "boundaries": "第四轮共 5 处类名修改（App.tsx :1989/:1991、ChatSidebar.tsx :1927、SettingsWorkspacePage.tsx :148/:149），均为颜色强度 34%→60%；仅 SettingsWorkspacePage.tsx :149 同步 border-b-[0.5px]→border-b（1px 宽度统一）；非主结构线（检查器 w-px 30%+sidebar-bg、WorkspaceInspector/GitGraphDialog/GitBranchMenu/WorkspaceInlineDiffPreview/AttachmentPreview 等内部细线）不动。移动端（md 以下）无圆角无线，桌面端对话区与设置页分割线均沿圆角轮廓包裹；侧边栏宽度切换过渡、收起态行为不变；docs/wiki 未动（纯样式微调，不改模块职责/公共入口），DESIGN_LANGUAGE.md 仅同步既有配方强度描述。无 Git 操作，未触碰 dist/、package-dist/、package-offline/。"
+    },
+    {
       "id": "todo-capsule-default-collapsed",
       "name": "任务胶囊默认收起，点击才展开",
       "status": "done",

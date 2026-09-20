@@ -1,4 +1,35 @@
-## 当前交接：任务胶囊默认收起、点击才展开（2026-09-20）
+## 当前交接：主结构分割线强度统一加深 34% → 60%（2026-09-20 第四轮）
+
+- 当前目标（已完成）：用户反馈「线颜色不够深」。主结构分割线集合（DESIGN_LANGUAGE.md 统一强度约束）全组由 `color-mix(in_oklab,var(--border) 34%,transparent)` 加深为 60%，共 5 处：App.tsx :1989 对话区 `<main>` md:border-l/t 颜色类、:1991 对话 header `border-b` 颜色类；ChatSidebar.tsx :1927 footer `border-t` 颜色类；SettingsWorkspacePage.tsx :148 设置区 `<main>` 颜色类、:149 设置 header 颜色类（同步 `border-b-[0.5px]` → `border-b`，1px 与对话 header 宽度统一）。DESIGN_LANGUAGE.md「分割线要统一」小节补充当前统一配方（1px + 60%）与全组同步原则。
+- 保留清单（非主结构线，不动）：App.tsx:2230 检查器 w-px（30% + sidebar-bg 混色）；WorkspaceInspector / WorkspaceInlineDiffPreview / WorkspaceChangesList / WebPreviewContent / ProjectOpenMenu / GitToolsPinnedSummary / GitGraphDialog / GitCommitPushDialog / GitBranchMenu / AttachmentPreview 的 34%/35%/38% 内部细线、弹层边框、0.5px 表格线。完整清单见 progress.md 本轮条目。
+- 改动文件：`src/App.tsx`（2 处颜色类）、`src/components/sidebar/ChatSidebar.tsx`（1 处颜色类）、`src/components/settings/SettingsWorkspacePage.tsx`（2 处：颜色类 + 宽度）、`DESIGN_LANGUAGE.md`（分割线配方同步）、`feature_list.json`（sidebar-main-divider-1px 追加第四轮）、`progress.md`、`session-handoff.md`。
+- 验证：`npx tsc --noEmit` → **exit 0**；`npx eslint src/App.tsx src/components/sidebar/ChatSidebar.tsx src/components/settings/SettingsWorkspacePage.tsx` → **exit 0**；`npx vitest run` 12 个 sidebar/settings/app 相关前端测试 → **12 files / 111 passed（exit 0）**。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 确认 light/dark 两模式下 60% 强度适宜（浅色足够可见、dark 不过重）、对话区/设置页/侧边栏 footer 三组线观感一致；② 非主结构内部细线（34%/35%/38%）是否跟随加深待用户另行决策；③ 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：主分割线沿圆角包裹——对话区 + 设置页同步（2026-09-20）
+
+- 当前目标（已完成）：分割线沿 `md:rounded-tl-2xl` 圆角轮廓包裹（左侧竖线 → 弧线绕过左上角 → 顶部横线）。App.tsx 对话区 `<main>`（约 :1988-1990）className 追加 `md:border-l md:border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)]`（border-l/border-t 带 md: 前缀——移动端无圆角无线；颜色类无前缀，无 border-width 时不生效）；ChatSidebar.tsx 根 `<aside>`（约 :1185）移除 `border-r` 与同色 border-[color-mix(...)] 两类（撤掉竖线，避免与 main 左边框叠成双线），其余类保留。本轮（用户确认）设置页同步：SettingsWorkspacePage.tsx 设置区 `<main>`（约 :148）className 追加同样 3 类（与 App.tsx 写法完全一致）；其 `<aside>`（:99）本无 border-r，无需撤线。强度 1px + color-mix(in_oklab,var(--border) 34%,transparent) 与主结构分割线统一（DESIGN_LANGUAGE.md）。
+- 改动文件：`src/App.tsx`（main +3 类）、`src/components/sidebar/ChatSidebar.tsx`（aside -2 类）、`src/components/settings/SettingsWorkspacePage.tsx`（main +3 类）、`feature_list.json`（更新既有 sidebar-main-divider-1px 为三轮方案，files 补 App.tsx 与 SettingsWorkspacePage.tsx）、`progress.md`、`session-handoff.md`。
+- 验证：`npx tsc --noEmit` → **exit 0**；`npx eslint src/App.tsx src/components/sidebar/ChatSidebar.tsx src/components/settings/SettingsWorkspacePage.tsx` → **exit 0**；ChatSidebar 相关 9 个测试文件 → **9 files / 79 passed（exit 0）**；`npx vitest run tests/frontend/settings-workspace-react.test.ts` → **1 file / 11 passed（exit 0）**；grep tests/ 无 `rounded-tl-2xl` / main 边框类断言（无需测试适配）。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 确认 light/dark 两模式下对话区与设置页边线沿圆角包裹（连续、不贯穿到顶）、侧边栏宽度切换/收起态不回归；② 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：侧边栏与对话区主分割线改 1px 可见（2026-09-20）
+
+- 当前目标（已完成）：ChatSidebar.tsx 根 `<aside>`（约 :1185）右边框由 `border-r-[0.5px]` 改为 `border-r`（1px），使对话区与左侧对话历史侧边栏之间出现一条可见浅色边界线；边框色配方 `border-[color-mix(in_oklab,var(--border)_34%,transparent)]` 与其余全部类不变，与 App.tsx 对话区 header 底线（`border-b` 同配方 1px）统一主结构分割线强度（DESIGN_LANGUAGE.md）。
+- 改动文件：`src/components/sidebar/ChatSidebar.tsx`（仅 :1185 一处类名，+1 -1）、`feature_list.json`（新增 sidebar-main-divider-1px，done）、`progress.md`、`session-handoff.md`。
+- 验证：`npx tsc --noEmit` → **exit 0**；`npx eslint src/components/sidebar/ChatSidebar.tsx` → **exit 0**；`npx vitest run` 9 个 ChatSidebar 相关测试文件（mobile-fullscreen-adaptation / project-drag-boundary / motion-design / sidebar-new-chat-routing / sidebar-section-order / sidebar-session-action-alignment / sidebar-section-header-hit-area / project-row-hit-area / session-row-hit-area）→ **9 files / 79 passed（exit 0）**。未跑全量 test/build（小改动定向验证）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 确认 light/dark 两模式下侧边栏右缘 1px 分割线可见、强度适宜、宽度切换过渡不回归；② 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：任务胶囊默认收起、点击才展开（2026-09-20）
 
 - 当前目标（已完成）：`todo-write-summary.ts` update() 移除「首个含未完成项快照自动展开」分支（原 `if (isFirstSnapshot) expanded = counts.completed !== counts.total`），任何新快照下 expanded 保持默认 false，仅用户点击 toggle（handleToggle）才展开；原 else if 提为独立 if——「全部完成自动收起」（`counts.completed === counts.total → expanded = false`）统一适用所有快照；用户手动展开/收起状态跨快照保留契约不变。isFirstSnapshot 变量保留（仍被 :324 门控 showUpdatedMarker——仅非首个新快照显示 updated 标记）。
 - 改动文件：`src/components/chat/panel-decoration/todo-write-summary.ts`（update() 内 +1 -2：删自动展开分支、else if 提为 if）、`tests/frontend/todo-write-summary.test.ts`（6 处适配：首用例默认收起断言 + 点击展开 'true'；shell 重建/编辑器移除两用例用户态断言翻转为 'true'；user-collapsed 用例改双击建立收起态；空快照重置与回滚新首快照断言 'false'）、`feature_list.json`（新增 todo-capsule-default-collapsed，done）、`progress.md`、`session-handoff.md`。

@@ -145,8 +145,8 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
         </div>
       </aside>
 
-      <main className="relative flex min-w-0 flex-1 flex-col bg-[var(--quickforge-main-bg)] md:overflow-hidden md:rounded-tl-2xl">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 pr-4 md:px-5">
+      <main className="relative flex min-w-0 flex-1 flex-col bg-[var(--quickforge-main-bg)] md:overflow-hidden md:rounded-tl-2xl md:border-l md:border-t border-[color-mix(in_oklab,var(--border)_60%,transparent)]">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_60%,transparent)] px-3 pr-4 md:px-5">
           <Button
             variant="ghost"
             size="icon"

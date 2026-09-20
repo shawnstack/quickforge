@@ -8,7 +8,6 @@ vi.mock('react', async () => {
   const actual = await vi.importActual<typeof import('react')>('react')
   return { ...actual, useState: (initial: unknown) => actual.useState(initial === null ? state.confirmation : initial) }
 })
-vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
 import { GoalInspectorContent } from '../../src/components/workspace/GoalInspectorContent'
 import { applyAppLanguageFromSnapshot } from '../../src/lib/i18n'
 import { clearGoalUi, setGoalUiDraft } from '../../src/lib/goal-ui'

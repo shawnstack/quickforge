@@ -1,3 +1,433 @@
+## self-hosted-chat-ui（done，2026-09-20 第二十二轮·回归修复：send/stop 按钮装饰层 replaceSvg 替换 React 拥有的 svg 导致 removeChild NotFoundError）
+
+- 目标/结论：feature 保持 done。修复用户报障（主聊天面板「出错了/重试/刷新页面」ErrorBoundary 兜底，与第二十一轮同症状不同根因）。症状：发送消息进入流式（isStreaming 翻转）瞬间整个聊天面板崩进 ErrorBoundary。真机取证：componentStack 逐帧 `svg → Button → MessageEditor (Fg) → ChatSurface → ChatPanelHost`，报错 removeChild NotFoundError。根因：`panel-decoration/send-stop-button.ts` 在 streaming 分支用 `replaceSvg`（`chat-utils.ts`，`oldSvg.replaceWith`）把 React 拥有的按钮内 lucide svg 物理替换为装饰层自建 svg；isStreaming 翻转时 React 按自己记录的子树卸载旧 svg，removeChild 找不到节点抛 NotFoundError。全仓仅此一处 replaceSvg 打在 React 拥有节点上。修复（方案 A'，用户授权）：① `MessageEditor.tsx` 发送分支删除 rotate(-45deg) wrapper div 与 lucide Send，直接内联渲染装饰层同款 arrow-up svg（viewBox 24、fill none、stroke currentColor、strokeWidth 2.4、linecap/linejoin round，path `M12 19V5` 与 `m5 12 7-7 7 7` 逐字符一致）；stop 分支删除 lucide Square，内联实心方块 svg（rect x=6 y=6 width=12 height=12 rx=2、fill currentColor）；两个 Button 的 className 分别挂 `quickforge-send-button` / `quickforge-stop-button` 基础 class（与 h-8 w-8 一起经 cn 合并，variant/size/disabled/title/onClick/onAbort 逻辑不动）。② `send-stop-button.ts` 改为纯状态装饰（不触碰 React 拥有的 DOM 结构）：删除两处 replaceSvg、rotate wrapper transform 清理、dataset.quickforgeSendIcon 幂等守卫、基础 class 的增删（基础 class 归 React，装饰层只 toggle `quickforge-stop-button--waiting` 等状态）；保留 disabled=false、title/aria 'Stop' 更新、capture 阶段 pointerdown+click stop handler（preventDefault + stopPropagation + stopImmediatePropagation + removeCommandSuggestions + abort）。非新能力；视觉零变化（同一 svg 字符串、同一 CSS 锚点，`index.css` 未动）。
+- 改动文件：`src/components/chat/surface/MessageEditor.tsx`（两个按钮分支内联 svg + 基础 class）、`src/components/chat/panel-decoration/send-stop-button.ts`（改写为状态装饰）、`tests/frontend/send-stop-button.test.ts`（适配：删除 replaceSvg mock（模块已不引用）、删除 dataset 守卫断言、新增「never adds or removes the React-owned base classes」用例、恢复用例改为「drops the stop decoration」、stop handler 断言补 removeCommandSuggestions）、`tests/frontend/chat-surface-editor.test.ts`（新增「renders React-owned arrow-up / stop-square icons with the base classes」用例锁定两分支 svg path/rect 与基础 class 归属）+ 本轮文档（`progress.md`、`session-handoff.md`）。
+- 验证：定向 `npx vitest run tests/frontend/send-stop-button.test.ts tests/frontend/chat-surface-editor.test.ts tests/frontend/chat-compact-controls.test.ts tests/frontend/composer-control-hover.test.ts` → **4 files / 38 passed（exit 0，send-stop-button 6 例、chat-surface-editor 17 例含新增 1 例）**；`npx tsc -b` → **exit 0**；`npm run lint` → **0 errors / 3 warnings（exit 0，均为 coverage/ 生成目录既有）**。
+- Notes（只记录，不扩范围）：
+  - a) 装饰层 stop 分支 title/aria 仍硬编码英文 'Stop'（React 层已是 t('stop') 本地化；装饰层覆写在非英文 locale 下会显示英文）。
+  - b) 装饰层仍以 `rightControls` 的 `button:last-child` 锚定动作按钮，右侧控制行结构变化会静默失锚（脆弱但现状可用）。
+  - c) wiki 未更新：`docs/wiki/src/components/README.md` 对 `send-stop-button.ts` 仅有目录级列举、未记录其图标替换行为，本次所有权收编后条目仍准确；`chat-utils.ts` 的 replaceSvg 描述（供其他装饰器使用）不变。
+  - d) 真机复验建议：发送→流式→停止/终态往返数次，确认面板不再落 ErrorBoundary 且 send/stop 图标、等待环、hover 样式与修复前一致。
+  - 本轮无 Git 操作，未触碰 dist/、package-dist/、package-offline/；无依赖变更。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-20 第二十一轮·回归修复：流式终态翻转未释放过程组导致 removeChild NotFoundError）
+
+- 目标/结论：feature 保持 done。修复用户报障（主聊天面板出现「出错了/重试/刷新页面」ErrorBoundary 兜底）。症状：agent 终态（agent_end / message_end / turn_end / abort / 404 轮询）时 React 删除流式容器（`.qf-streaming-message`）子树对已被 process-folding 搬进 `.quickforge-process-group` 的节点调 removeChild 抛 NotFoundError。根因：第十九轮 P0-B 的 `shouldReleaseProcessGroups` 门控只比较 messages 数组身份——终态事件可只翻转 `isStreaming` 或清空 `streamingMessage` 而 messages 身份不变（`readAgentSnapshot` 复用上一身份），门控跳过释放，React 随后卸载流式容器即踩所有权租约。修复（方案 A，最小改动）：门控扩展为 `ProcessGroupReleaseGate`（messages 身份 + `isStreaming` 翻转 + 流式行 presence 翻转——`streamingAssistant` 每帧浅拷贝出新对象，故比较 presence 而非对象身份），任一命中即释放；三者均未变的纯流式帧仍跳过（不回退第十九轮优化）；`MessageArea` 把既有 `isStreaming`/`streamingAssistant` props 透传给 `ProcessGroupReleaseBoundary`（新增同名 props），同步更新 ChatSurface.tsx 两处契约注释与 process-folding.ts 释放契约注释（补终态翻转例外）。非新能力。
+- 改动文件：`src/components/chat/surface/ChatSurface.tsx`（`shouldReleaseProcessGroups` 改对象 gate 签名 + 新增 `ProcessGroupReleaseGate` 类型；boundary props 扩展 + `getSnapshotBeforeUpdate` 传 prevProps/this.props 整体比较；MessageArea JSX 透传两个新 props；两处契约注释更新）、`src/components/chat/panel-decoration/process-folding.ts`（仅 `releaseProcessGroups` doc 注释补终态翻转例外）、`tests/frontend/process-folding-ownership.test.ts`（改写「keeps the release decision identity-based」为对象 gate 断言 + 补终态翻转/presence 翻转/纯流式帧不释放断言；新增 `reactRemoveChild` fake（模拟 React removeChild 对非直接子节点抛 NotFoundError）与 3 个回归用例）+ 本轮文档（`progress.md`、`session-handoff.md`）。
+- 验证：`npx tsc -b` → **exit 0**；定向 `npx vitest run tests/frontend/process-folding-ownership.test.ts tests/frontend/process-folding.test.ts tests/frontend/thinking-header-adoption.test.ts` → **3 files / 77 passed（exit 0，ownership 18 例含新增 3 例）**；相邻护栏 `npx vitest run tests/frontend/chat-surface-render.test.ts tests/frontend/chat-surface-message-list.test.ts tests/frontend/process-folding-incremental.test.ts` → **3 files / 38 passed（exit 0）**；`npm run lint` → **0 errors / 3 warnings（exit 0，均为 coverage/ 生成目录既有）**。
+- Notes（只记录，不扩范围）：
+  - a) 理论边缘场景未覆盖：`atTail` 翻转（流式容器挂载条件是 `isStreaming && atTail`）而窗口 messages 身份不变时门控仍会跳过——实际 atTail 变化几乎总伴随窗口重建（loadMore/showMessageIndex/resetToTail 均换新数组），本次未纳入 gate；若真机复现可再扩。
+  - b) `docs/wiki/src/components/README.md` 两处 process-folding 所有权租约段落描述的「`getSnapshotBeforeUpdate` 调 `releaseProcessGroups`」整体契约不变（第十九轮引入的身份门控本就未写入 wiki），本次不更新 wiki。
+  - c) 真机复验建议：复现原报障场景（流式中途 abort / 404 轮询翻转终态），确认主聊天面板不再落 ErrorBoundary。
+  - 本轮无 Git 操作，未触碰 dist/、package-dist/、package-offline/；无依赖变更。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-19 第二十轮·性能修复：subagent 工具行 spinner 闪烁修复）
+
+- 目标/结论：feature 保持 done。修复 subagent 工具行 spinner 闪烁（工具运行中/结束时 spinner 重启、事件交错中间帧灰点闪一帧）。七组修复：① pending 工具行渲染所有权统一到 MessageList——`MessageList` 移除 `isStreaming` prop，pending 工具卡在 message_end 前后由消息列表持续渲染（同一 DOM 节点，跨容器迁移重挂消失），`ChatSurface` 流式容器内的 `AssistantMessage` 改传 `hidePendingToolCalls` 隐藏自己那份（不双行）；`SubagentRunDetailContent.tsx` 同步简化、`subagent-trace-structure.ts` 注释与镜像规则对齐。② 消息行 key 由 index 回退改为内容指纹——`content-parts.ts` 的 `messageRenderIdentity`（签名改单参）无 timestamp 时以首个有意义内容分块的有界前缀（64 字符）+ 附件 id 的 FNV-1a 指纹为身份，永不按数组位置（滑窗/全量替换不再重挂未触碰行），调用者同步更新。③ `ToolMessage` React.memo 化（R18 Notes ② 落地）。④ message_end 时无 toolResult 的 toolCallId 合成进 pendingToolCalls——`src/lib/tool-execution-events.ts` 新增纯函数 `toolCallIdsWithoutToolResult`，`shared-server-agent.ts` / `server-agent.ts` 的 event.message 分支接入，消除事件交错中间帧 pending=false 的灰点闪烁。⑤ `process-folding.ts` full 重建路径新增「纯工具后缀追加」增量分支（`appendProcessToolSuffix`）——结构变化但组仍存活时只搬新增行、已有行原地不动（避免重启其正在运行的 CSS keyframes），非纯后缀追加仍走全量重建兜底。⑥ `SubagentRunDetailContent.tsx` 的 pendingToolCalls Set 身份稳定化（`stablePendingToolCalls`：内容未变复用同一 Set 身份，不击穿 MessageList 下游 memo）。⑦ `src/lib/subagent-run-detail.ts` 的 `subagentRunPayloadFromToolEvent` 增加 `previousPayload`——running 帧缺 details 字段按字段回填上一载荷（事件自带值优先），消除 done→running 回跳。非新能力。
+- 改动文件：`src/components/chat/surface/ChatSurface.tsx`、`src/components/chat/surface/MessageList.tsx`、`src/components/chat/surface/AssistantMessage.tsx`、`src/components/chat/surface/ToolMessage.tsx`、`src/components/chat/surface/content-parts.ts`、`src/components/chat/panel-decoration/process-folding.ts`、`src/components/workspace/SubagentRunDetailContent.tsx`、`src/components/workspace/subagent-trace-structure.ts`、`src/lib/tool-execution-events.ts`、`src/lib/subagent-run-detail.ts`、`src/lib/shared-server-agent.ts`、`src/lib/server-agent.ts`；测试：`tests/frontend/chat-surface-message-list.test.ts`（扩充）、`tests/frontend/chat-surface-render.test.ts`（扩充）、`tests/frontend/chat-surface-tool-message.test.ts`（扩充）、`tests/frontend/subagent-trace-flicker.test.ts`（扩充）、`tests/frontend/tool-pending-interleaved-frames.test.ts`（新增）、`tests/frontend/process-folding-incremental.test.ts`（新增）、`tests/frontend/subagent-run-detail.test.ts`（扩充）+ 本轮文档（`progress.md`、`session-handoff.md`、`feature_list.json`、`docs/wiki/src/components/README.md` 两处副本、`docs/wiki/src/lib/README.md`）。
+- 验证：全量 `npm run test` → **363 files / 4334 passed + 1 skipped（exit 0，44.02s）**；`npm run lint` → **0 errors / 3 warnings（exit 0，21s）**（3 条 warning 均在 `coverage/` 生成产物，仓库既有）；`npm run build` → **exit 0（2.65s）**（仅既有 chunk 体积与 pi-ai node:fs externalize 警告）。修复前定向测试全绿（见 session-handoff.md）。
+- Notes（只记录，不扩范围）：
+  - a) `agent_end`/error 事件不清理 pendingToolCalls，异常终止时 spinner 可能残留（既有缺陷，本次未动）。
+  - b) `server-agent.ts` message_end 的 messagesIncremental/全量 messages 分支未接入 pendingToolCalls 合成逻辑（本次只接了 event.message 分支）。
+  - c) release 边界释放场景（messages identity 变化 / SubagentTrace 签名变化）仍走一次全量重建，但同帧完成且已有行不搬出文档；真机 keyframes 是否重启仍待确认（延续第十三轮 progress.md:93-96 待确认项）。
+  - d) 行为权衡：流式期间工具卡不可见，出现在 message_end（原 streaming 容器渲染路径移除，由 MessageList 统一渲染）。
+  - e) ToolMessage memo（R18 Notes ②）已解决。
+  - f) R13 遗留②（结构变化重启 animate-*）已通过增量分支缓解。
+  - 本轮无 Git 操作，未手工修改 dist/、package-dist/、package-offline/（dist 仅由 `npm run build` 正常产出）。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-19 第十九轮·性能修复：轮次导航跳转卡顿第二轮——DOM/decorate 层根因）
+
+- 目标/结论：feature 保持 done。修复轮次导航跳转卡顿第二轮（R2 轮）——DOM/decorate 层根因，四项修复：P0-A `process-folding.ts` decorateProcessBlocks 的 `canShortCircuit` 放宽为 `!isActiveTurn`（非流式指纹命中也 skip，消除每次跳转的全量 restore+refold）；P0-B `ChatSurface.tsx` `ProcessGroupReleaseBoundary` 新增 `shouldReleaseProcessGroups` 门控（messages identity 未变跳过全量 release，消除流式期间每帧 release→refold 振荡）；P1-A `turn-navigation.ts` `updateActiveFromScroll` 加 rAF 合帧 + 元素/ordinal 缓存；P1-B `message-actions.ts` `decorateMessages` 行级指纹短路 + `ensureMessageTime` 比较后写 + `getPrimaryMessageElements` 复用（3 次→1 次）。非新能力。
+- 改动文件：`src/components/chat/panel-decoration/process-folding.ts`、`src/components/chat/surface/ChatSurface.tsx`、`src/components/chat/turn-navigation.ts`、`src/components/chat/panel-decoration/message-actions.ts`；测试：`tests/frontend/process-folding.test.ts`（改写 2 例）、`tests/frontend/process-folding-ownership.test.ts`（新增 3 例）、`tests/frontend/turn-navigation.test.ts`（新增 3 例）、`tests/frontend/message-actions.test.ts`（新增 3 例）+ 本轮文档（`progress.md`、`session-handoff.md`、`feature_list.json`）。
+- 验证：`npx tsc -b` → exit 0；`npx vitest run` 全量 **361 files / 4312 passed（exit 0）**；`npx eslint` 改动文件 **0 问题**。
+- Notes（只记录，不扩范围）：① `tests/server/session-state-messages.test.mjs` 的「multi-process append CAS winner」用例在全量并发下偶发 flaky（时序敏感，单独重跑通过，与本次改动无关）；② 真机流畅度待用户验证；③ 备用后续项：流式 markdown 稳定段落拆分、ToolMessage memo、R3（agent_start 中断程序滚动）、R2（overflow-anchor）。本轮无 Git 操作，未触碰 dist/、package-dist/、package-offline/。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-19 第十八轮·性能修复：轮次导航跳转卡顿——流式重渲染）
+
+- 目标/结论：feature 保持 done。修复轮次导航跳转卡顿（R1）——流式期间每个 agent 事件都触发 ChatSurface 全量 React 提交（每事件新快照对象 → MessageArea 与全部消息行重渲染），smooth 滚动动画掉帧。三项修复：F1a `readAgentSnapshot(agent, previous?)` 快照身份复用——无可观察变化时复用上一快照的数组/集合身份并原样返回上一快照对象，`setSnapshot` 直接 bail out；F1b `UserMessage`/`AssistantMessage` 加 `memo`（已完成行只在自身消息对象被替换时重渲染），配套 `MessageList.tsx` 的 `toolResultsById` useMemo 化（每渲染新 Map 会击穿 memo 比较）；F1c `publishWindow` 跳过无可观察变化的窗口提交（`publishedWindowRef` 同时防同批次双提交）。非新能力。
+- 改动文件：`src/components/chat/surface/ChatSurface.tsx`（F1a + F1c）、`src/components/chat/surface/UserMessage.tsx`（memo）、`src/components/chat/surface/AssistantMessage.tsx`（memo）、`src/components/chat/surface/MessageList.tsx`（toolResultsById useMemo 化）、`tests/frontend/chat-surface-render.test.ts`（新增 snapshot identity reuse 4 用例）+ 本轮文档（`progress.md`、`session-handoff.md`、`feature_list.json`）。
+- 验证：`npx tsc -b` → exit 0；vitest 全量前端 2458 例通过；eslint 全过。真机轮次跳转流畅度需用户手动验证。
+- Notes（只记录，不扩范围）：① F1a 依赖「ServerAgent 不原地变更已发布消息」的不可变 upsert 契约（原地变更会让复用身份静默丢更新；契约已在 `ChatSurface.tsx` 注释说明）；② `ToolMessage` 未 memo，可作后续优化项；③ R3（agent_start 中断程序滚动）与 R2（overflow-anchor）未修，待真机 profile 验证后决定优先级。本轮无 Git 操作，未触碰 dist/、package-dist/、package-offline/。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-19 第十七轮·恢复 KaTeX 数学公式渲染）
+
+- 目标/结论：恢复移除 pi-web-ui 时丢失的聊天数学公式渲染（用户授权，feature 保持 done）。只新增 1 个依赖 katex（devDependencies ^0.16.47，与 mermaid 传递依赖去重为单一 0.16.47 副本；不引入 remark-math/rehype-katex——不支持行内反斜杠圆括号定界符且美元规则与旧版不一致）。三段式自研：①`src/lib/chat-math.ts` preprocessLatexDelimiters 在进 react-markdown 前把 \(...\)/\[...\] 换成 QFMTHI/QFMTHB 十六进制占位 token（markdown 会把反斜杠当转义吃掉；LaTeX 存 token map；跳过 fenced（```/~~~ 围栏含长度与闭合匹配）、indented（行首 4 空格/tab）、inline code（同行反引号配对））；②rehypeQfMath rehype 插件把占位 token、行内 $...$、块级 $$...$$（行首锚定；行中 `a $$x$$ b` 保持字面量，旧版 parity）换成 qf-math 元素（跳过 code/pre 子树；行内护栏：内容不含 $ 与换行、开闭 $ 不双写、开 $ 后与闭 $ 前非空白——「价格 $5 和 $6 之间」不误渲染；仅含单个块级公式的段落被公式元素替换，避免 div 嵌 p）；③`src/components/chat/surface/KatexMath.tsx`（katex.renderToString：throwOnError:false、displayMode、output:'html' 对齐旧版；display 外层 my-4；异常回退红色等宽原文；React.memo；组件内 import katex/dist/katex.min.css，照 TerminalPane 引 xterm.css 先例）。
+- 接线与构建：`Markdown.tsx` content 先过 preprocessLatexDelimiters，rehypePlugins 加 [rehypeQfMath, { tokens}]，components 加 'qf-math': KatexMath（自定义 tag 断言到 Components 类型）；`vite.config.ts` manualChunks 加 katex 分组（照既有分组先例，按模块 id 判断）；`src/index.css` 头部注释修订为「KaTeX 选择器已由组件内引入恢复」（未改任何样式规则）。
+- 改动文件：package.json / package-lock.json（katex ^0.16.47）、src/lib/chat-math.ts（新增，纯 TS 可单测）、src/components/chat/surface/KatexMath.tsx（新增）、src/components/chat/surface/Markdown.tsx、vite.config.ts、src/index.css（仅注释）、tests/frontend/chat-math.test.ts（新增 8 用例：行内美元/独占段落双美元/反斜杠定界符占位 token/行中双美元字面量/fenced+indented+inline code 不渲染/货币不误渲染/katex-error 可见回退/组件 catch 回退）+ 本轮文档四件套。
+- 验证：定向 `npx vitest run tests/frontend/chat-math.test.ts tests/frontend/chat-markdown-parity.test.ts tests/frontend/chat-surface-css-contract.test.ts` → **3 files / 38 passed（exit 0）**；相邻护栏 `npx vitest run tests/frontend/chat-surface-render.test.ts tests/frontend/chat-code-block.test.ts tests/frontend/chat-surface-behavior-alignment.test.ts tests/frontend/subagent-run-detail-react.test.ts` → **4 files / 67 passed（exit 0）**；`npm run lint` → **0 errors / 3 warnings（exit 0，均为 coverage/ 既有）**；`npm run build` → **exit 0**（仅既有 chunk 体积与 pi-ai node:fs externalize 警告），产物确认：katex 独立 chunk `dist/assets/katex-*.js`（259.24KB / gzip 77.49KB，由 ChatPanelHost 与 index chunk 引用、不进首屏主 chunk）+ `katex-*.css`（28.8KB）+ **59 个 KaTeX_*.woff2/woff/ttf 字体**。
+- Notes：①`npm i -D katex` 默认解析到 0.18.7，会与 mermaid 的 ^0.16.45 形成双副本（lock 两条目 + 嵌套 node_modules），按任务书「提升 mermaid 传递依赖为直接依赖」意图改钉 ^0.16.45 档，npm 最终去重为单一 node_modules/katex@0.16.47；lock 相对会话前仅 katex 版本变化。②实测 katex 0.16：未知命令（如 \fracc）输出内联红字（无 katex-error class），语法错误（如 x^）才输出 katex-error——测试按实际输出断言。③已知局限：公式定界符在 rehype 阶段处理，公式内含 markdown 强调字符（* 等）可能被 markdown 语法拆分而不渲染（旧 marked 在源码层处理无此问题）；含 markdown 块级结构的公式同理。④未跑全量 `npm run test`（定向验证，符合项目规则）；未触碰 dist/（仅 build 正常产出）、package-dist/、package-offline/；无 git commit。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-19 第十六轮·迁移缺口修复：SSE 流式正文 / 工具卡实时渲染）
+
+- 目标/结论：修复 React ChatSurface 迁移留下的两个缺口（诊断已定位、用户确认都修），feature 保持 done。① 缺口 A（流式正文消失）：`src/lib/server-agent.ts` handleSseEvent 的 `message_update` 分支此前只 forwardWireEvent 转发、不写 `state.streamingMessage`（全文件 9 处对该字段均为 `= undefined`），React ChatSurface（readAgentSnapshot 依赖该字段）渲染不出流式正文；现对齐 `shared-server-agent.ts:404-406` 写入 `event.message`（缺省帧防御：不动现有流）。② 缺口 B（工具过程显示慢）：`src/components/chat/surface/ChatSurface.tsx` 的 SUBSCRIBED_EVENTS 白名单缺 `tool_execution_start/update/end`，导致 isSnapshotRefreshEvent 不触发 syncSnapshot、React 不重渲染，工具卡要等下一条 message 事件才出现；现已加入（ServerAgent 侧本就即时 upsert state.messages/pendingToolCalls 并转发）。
+- 清理路径补齐：`message_end`（原有 4 个分支均不清理）与 `turn_end`（防御：无前置 message_end 的帧）现在都会将 `state.streamingMessage` 置回 undefined；`agent_end` 原有清理保持不变；`messages_replaced`、错误路径（prompt catch）、`reset()` 的既有清理未动。`noteSseEvent` 的 stateVersion 单调守卫在 handleSseEvent 入口处先行拦截过期帧，不影响新写入逻辑（新写入只发生在被接受的帧上）。
+- 改动文件：`src/lib/server-agent.ts`（message_update 独立 case 写入 + message_end/turn_end 清理）、`src/components/chat/surface/ChatSurface.tsx`（SUBSCRIBED_EVENTS 增 3 个 tool_execution_* + 注释）、`tests/frontend/server-agent.test.ts`（新增 2 用例：message_update 写入/message_end+agent_end 清理/缺省帧防御；turn_end 无数据帧清理；并把原 :411 的 streamingMessage 断言升级为先经 SSE 帧置值再验证失败 prompt 路径清理）、`tests/frontend/chat-surface-render.test.ts`（新增 1 用例：tool_execution_* 触发 snapshot 刷新）。
+- 验证：`npx vitest run tests/frontend/server-agent.test.ts tests/frontend/chat-surface-render.test.ts` → **2 files / 150 passed（exit 0）**；`npm run lint` → **0 errors / 3 warnings（exit 0，均为 coverage/ 生成目录既有）**；`npx tsc -b` → **exit 0**。未跑全量 test/build（小改动定向验证，符合项目规则）。
+- Notes：无新问题发现。未触碰 dist/、package-dist/、package-offline/；无依赖变更；无 git commit。
+
+---
+
+## goal-workflow-test（goal 流程测试，2026-09-19，非 feature）
+
+- 目标/结论：测试 goal 流程闭环（只读规划 → 自动执行 → 证据验收），非 feature 开发；`feature_list.json` 28 项全部 done，无新增/变更 feature 状态。会话启动上下文恢复完成：`docs/wiki/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：`npm run lint` → **退出码 0（0 errors，3 warnings 均位于 `coverage/` 生成产物，仓库既有）**。无代码改动，未运行 test/build。
+- 改动文件：仅 `session-handoff.md`、`progress.md` 的本会话记录条目；无源码、依赖、生成产物改动。
+- Notes：无。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-19 第十五轮·一手证据复评 + 自修：语义色死类判据 / 折叠默认值 / 复制反馈 / API Key 探测 / 聚焦反馈）
+
+- 目标/结论：feature 保持 done。本轮对「移除 pi-web-ui/mini-lit/lit 的迁移」做一手证据复评 + 自修（不采信前轮结论，基线为 HEAD `3e10f58` + 移除前构建产物 `package-dist/dist/assets/index-B1G0LqYR.css`）。评审报告：`docs/reviews/self-hosted-chat-ui-parity-recheck.zh-CN.md`。非新 feature。
+- 决定性判据（判断「删除语义色透明度类」是否回归的唯一标准）：HEAD `3e10f58` 的 `src/index.css` **没有**语义色 `--color-*` 映射 → 源码自写的语义色透明度类（`text-foreground/90`、`hover:bg-muted/45`、`bg-border/70` …）在移除依赖前**不会被 Tailwind 生成**（dead，删除无视觉影响）；旧产物 `package-dist/dist/assets/index-B1G0LqYR.css` 的 `@layer utilities` 里真实存在的语义色工具类只有 **78 个**（`109` 处选择器）。工作区新增 `@theme inline` 全量映射后这些类会真实生效——第八轮用户反馈的「文字变淡」根因即在此，故新代码**不得**再使用白名单之外的透明度档位。护栏：新增 `tests/frontend/semantic-color-class-parity.test.ts` 固化该契约；**白名单变更前必须重新核对旧/新产物**。
+- 自修清单（5 项）：
+  - ① 折叠语义回退旧版：`src/components/chat/panel-decoration/process-folding.ts` 顶层过程组默认展开值 = `isAgentStreaming`（导出 `processGroupDefaultExpanded(isAgentStreaming)`）；内层阶段默认收起（`processStageDefaultExpanded()` 返回 false）；工具组默认展开值 = `toolDisplayMode === 'detailed'`（compact 默认收起，导出 `processToolGroupDefaultExpanded(mode)`）。saved state 仍优先；fail-visible 契约不变（不得对 `.thinking-header` 写 `display:none`）。
+  - ② code-block 复制反馈：对齐旧 `copy-button` 的 `showText` 行为——复制后图标换 Check **并**显示可见文本（i18n `copied` / 已复制），`title` / `aria-label` 恒为 `copy`，2000ms 复位；新增导出组件 `CodeBlockCopyButton`（此前只有图标对勾，图标按钮上不构成反馈）。
+  - ③ Markdown：链接无条件 `target="_blank" rel="noopener noreferrer"`（对齐旧 `<markdown-block>` 渲染器，不区分协议）；表格外包 `overflow-x-auto my-2 border border-border rounded`（对齐旧渲染器，宽表格横向滚动、不再撑破消息列）。
+  - ④ API Key 对话框恢复「保存前探测」：本地 `custom-providers` 存储的该 provider 模型优先（保留 headers）、`/api/models/catalog` 兜底、两者都没有该 provider 模型时直接保存；探测失败**不写入** `providerKeys`、显示 `✗ Invalid` 且 5000ms 复位；请求中按钮显示 `Testing...` 并禁用；关闭后焦点恢复到打开前的元素。i18n 新增 key `apiKeyPromptInvalid`。
+  - ⑤ `ui/Input` 聚焦反馈：由 dead 的 `focus-visible:border-primary` 改为白名单组合 `focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring`（性质为**有意补齐**：与移除依赖前的实际渲染不同——旧组合是死类，该输入框此前不渲染聚焦边框）。
+- 改动文件：`src/components/chat/panel-decoration/process-folding.ts`、`src/components/chat/surface/CodeBlock.tsx`、`src/components/chat/surface/Markdown.tsx`、`src/components/chat/surface/ApiKeyPromptDialog.tsx`、`src/components/ui/input.tsx`、`src/lib/i18n.ts`、`tests/frontend/semantic-color-class-parity.test.ts`（新增）等（实现细节以并行任务的落地为准）+ 本轮文档（`progress.md`、`session-handoff.md`、`feature_list.json`、`docs/wiki/src/README.md`、`docs/wiki/src/components/README.md` 两处副本、`docs/wiki/src/lib/README.md`）。
+- 验证（2026-09-19 收尾轮一手）：全量 `npm run test` → **359 files / 4282 passed + 1 skipped（exit 0，45.08s）**；`npm run lint`（`eslint .`）→ **0 error / 3 warnings（exit 0）**，3 条 warning 均在 `coverage/` 生成产物（仓库既有）；`npm run build`（`tsc -b && vite build`）→ **exit 0**（2.64s；新产物 `dist/assets/index-CWWfUxx8.css`，327,333 B；仅既有 chunk 体积与 `node:fs` externalize 警告）。定向护栏/契约测试见评审报告 §6（5 文件 125 passed + `code-highlight.test.ts` 51 passed）。
+- 构建产物核对（收尾轮一手）：白名单外 **20 个带透明度语义色类全部是「幽灵类」**——`src/**` 出现 0 次，字符串来源为 `coverage/**`（迁移前快照，最大来源）、`.goal-runtime-refactor-baseline/**`、`docs/**`（含报告自身）、`docs/archive/*`、`docs/wiki/**`、`feature_list.json`、`progress.md`、`session-handoff.md`、`DESIGN_LANGUAGE.md`、`design-mockups/**`、`tests/**`；无 DOM 使用 ⇒ **不影响真实渲染**（仅体积与核查噪音）。非透明度差集 5 条：`accent-foreground`/`accent-primary`（`accent-color` 工具类，非语义色用法）、`border-ring`/`ring-ring`（裸类无使用；`ring-ring` 的另一来源是仓库根垃圾文件 `0)n++`，本轮已删）、`focus-visible:border-primary`（HEAD 的死类写法被文档/记录文本重新喂回构建，无 DOM 使用）。本轮新增/恢复的 `.focus-visible\:border-ring`、`.border-destructive\/50`、`.bg-muted\/30`、`.bg-background\/90`、`.hover\:bg-muted` 均在新产物中真实生成（详见评审报告 §3.5/§6/§8）。
+- **用户未在评审窗口内裁决 → 默认保留当前实现**（与既有用户要求的冲突记录如下，勿当回归；精确回退路径见评审报告 §6.1）：自修①「折叠默认值回退旧语义」与 **R10（第十轮·需求纠正）记录的用户明确提出要求**冲突——`progress.md:124-135` 原文：标题「第十轮·需求纠正：思考正文默认折叠 + **折叠组三层默认展开**」、`:126`「**用户澄清**——思考正文应默认折叠，真正问题是**折叠组默认收起导致「思考和工具都不显示」**」、`:129`「② **折叠组三层默认展开（核心需求：思考块与工具行默认可见）**：……顶层过程组……`processGroupDefaultExpanded()`（恒 true，历史回合也默认展开）；内层阶段 `processStageDefaultExpanded()` false→true；工具组 resolve 的 defaultExpanded 由 `detailed` 改 `true`」、`:135`「三层默认展开后长会话默认高度变大，属预期行为变更（**与用户需求一致**）」；`session-handoff.md:48-50` 同源记录「过程折叠组三层（顶层过程组/内层阶段/工具组）**默认展开**……**历史回合同样默认展开**」。本轮按复评结论把三层默认值回退为旧语义（= 对齐移除依赖前的渲染），**用户未在评审窗口内裁决 → 默认保留当前实现**（未发现 R10 之后有修订该要求的用户记录）；背景事实：R10 要求的动机（折叠组默认收起导致思考/工具都不显示）根因已在 R12 定位并修复（思考头接管失败 + 「等接管」的隐藏规则），现已具备 fail-visible 契约。**精确回退路径（若用户要求恢复 R10）**：`src/components/chat/panel-decoration/process-folding.ts` 三处——`processGroupDefaultExpanded`（:556-558）及其调用处传参（:693）、`processStageDefaultExpanded()` 的返回值（:561-563）、工具组 resolve 的第四个参数（:652-658，值来自 `processToolGroupDefaultExpanded` :621-623/:646）改回恒 `true`；并同步 `tests/frontend/process-folding.test.ts` 3 例断言（:131-135 / :137-141 / :437-443）。`ui/Input` 聚焦环（`src/components/ui/input.tsx:9`，有意补齐）同属「未获裁决 → 默认保留」，回退 = 删 `focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring` 三个类、只保留 `focus-visible:outline-none`。详见评审报告「6.1 与既有用户要求的冲突/待裁决」（行号均为收尾轮实测）。
+- Notes（只记录，不扩范围）：
+  - 侧栏/设置页等处的 `hover:bg-muted/45`、`bg-background/50`、`bg-border/70`、`text-muted-foreground/70`、`text-foreground/90` 一类删除属**正确删除**（旧版本 dead、无视觉影响），不应记为回归。
+  - `docs/wiki/src/components/README.md` 存在整页重复副本（第二份自 315 行起）：仅登记，不修。
+  - `WorkspaceFileTree.tsx` / `WorkspaceChangesList.tsx` 等处残留 `isSelected ? '' : ''` 空类分支：旧版本就无视觉区分，本轮保持最小改动未清理。
+  - Markdown 代码块根边距 `my-2` vs 旧外层 `mt-2`：已评估，未改。
+  - 未决/待验收：① KaTeX 未移植（公式纯文本）；② hljs 自动识别等价性；③ 真实浏览器人工验收清单——思考行与折叠默认状态、hover/focus、下拉定位与关闭、modal 焦点、复制反馈、长表格横向滚动、代码块着色、输入框聚焦、移动端遮罩；④ 字号在「界面字号 ≠ 消息字号」时的条件性差异。
+  - 仓库根垃圾文件已清理（收尾轮）：`!o.has(x))`（0 字节，早前删除）、`0)n++`（117 字节，内容是坏命令回显 `--- focus-related selectors in baseline CSS --- / skip / --- focus-visible:ring-2 / ring-ring uniqueness count ---`）、`console.log(l))`（0 字节）均已删除，空目录 `-p` 已删；`_tmp_head/`（空目录）、`.dev-ui-review/`（含 `fulltest-2.log`）只记录不动。`0)n++` 曾被 Tailwind 内容探测扫到、在新构建里生成幽灵类 `.ring-ring`（已标注于报告 §3.5/§8-14）。本轮未做 Git 操作，未手工修改 `dist/`、`package-dist/`、`package-offline/`（`dist/` 仅由 `npm run build` 正常产出）。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-19 第十三轮·根因修复：subagent 运行详情面板运行时闪烁）
+
+- 目标/结论：feature 保持 done。用户反馈：Workspace Inspector 的 **subagent 运行详情面板运行时持续闪烁**，观感是「整段消息内容重建（代码块、SVG/图片重新渲染）」。非新能力，三条根因 + 一条次要项全部定位并修复；未重构主面板行为语义（`ChatSurface` 的 release 边界、`MessageArea` memo、过程折叠算法均未改）。
+- 根因 1（面板每轮 commit 无条件 release + 跨帧重折叠）：`SubagentRunDetailContent.tsx` 的 `SubagentTrace.getSnapshotBeforeUpdate` 之前**无条件**调 `releaseProcessGroups(root)`，`componentDidUpdate` 用 `setTimeout(0)` 重折叠。后果双杀：① 释放后到重折叠之间浏览器会画出一帧「未折叠」态；② `releaseProcessGroups` 会 `group.remove()` 并删除指纹/节点序列缓存（`process-folding.ts:1000-1018`），导致 `processTurnUpdateMode` 的 `update`/`skip` 快路径（`process-folding.ts:1195-1206`、`1234-1238`）**永不可达**，每轮恒走 `full` 全量重建（把每个节点再搬一次）。服务端每 ~150ms 推一次快照 ⇒ 连续闪烁。
+  - 修法（a）：新增纯函数 `src/components/workspace/subagent-trace-structure.ts#subagentTraceStructureSignature(messages)`——镜像渲染规则算出「消息行（含行身份 `role:timestamp`）+ 每条 assistant 实际渲染出的 part」的结构签名（`MessageList` 只渲染 user/user-with-attachments/assistant；`AssistantMessage` 走 `content-parts.ts#assistantContentParts`，空白 text/thinking 不渲染、toolCall 用 id 记）。`getSnapshotBeforeUpdate` 先比对新旧签名，**未变则不释放**；`shouldComponentUpdate` 对同一个 payload 对象直接 bail out（Inspector 的 tab 切换/resize/host revision 等无关重渲染不再进来）。`pendingToolCalls` **刻意不入签名**：subagent 列表取 `isStreaming={false}`（没有独立流式容器，未完成工具卡必须渲染），工具起止只重绘工具卡内部，入签名会导致每轮快照都释放+重折叠，正是要修的抖动。
+  - 修法（b）：重折叠改为**同一提交内同步执行**（`componentDidUpdate` 直接调 `decorateProcessBlocks`，删掉 `setTimeout(0)` 与 `timer` 字段）。同步执行的前提是折叠读到的 DOM 属性必须是本次提交的值：`AssistantMessage`/`ToolMessage` 的 DOM 属性镜像（`bridge.message` / `bridge.toolCall` / `bridge.result` …）从 `useEffect` 改为 **`useLayoutEffect`**——React 布局阶段按「先子后父」提交，`SubagentTrace.componentDidUpdate`（父）晚于后代的 layout effect，因此 `processTurnFingerprint` 读到的是本次 message/toolCall，不会因读到上一轮值而恒判指纹不匹配、反而退化成全量重建。
+  - 修法（c）：保留 revision 作废语义（`componentWillUnmount` 自增 + 释放）并加 `decorating` 单飞标志（折叠会搬节点，嵌套 pass 不得交错）。
+- 根因 2（React key 不稳 → 卸载重挂）：① `MessageList.tsx` 用 `msg:${messageIndexOffset + index}`：服务端运行期 trace 是 `latestMessages.slice(-50)` 滑窗（`server/agent-subagent-runner.mjs:347`），窗口一滑，**每个下标都换成了另一条消息** → 全部消息行一起重渲染（`AssistantMessage` 也随之全部重算）。改用 `content-parts.ts#messageRenderKeys`：以消息身份 `role:timestamp`（toolResult 用 `toolCallId`，无 timestamp 回退下标，重复身份加 `#n` 后缀保唯一）作 key，滑窗只卸载被移出的那一条。② `AssistantMessage.tsx` 用「非空 parts 的序号」做 key（`text-${orderedParts.length}` / `thinking-${...}`）：空 chunk 被过滤时后面所有 key 位移 → `MarkdownBlock`/`ThinkingBlock`/`CodeBlock` 整批卸载重挂（重挂会重跑挂载期探测与高亮、mermaid 重渲染、SVG data URL 重 decode）。改用 `message.content` 的**原始索引**（`text:N` / `thinking:N`，toolCall 仍用 `tool:<id>`），并把「哪些分块会渲染 + key」抽成共享纯投影 `content-parts.ts`（组件与结构签名同源，不再各写一份过滤规则）。
+- 根因 3（子面板缺流式闸门 → 飞行中的代码块反复渲染预览）：`CodeBlock.tsx` 之前用 DOM 探测（`closest('.qf-streaming-message')`）判断是否流式；主面板的在飞消息在 `.qf-streaming-message` 容器内故预览被关，而子面板根是 `.quickforge-subagent-trace`（无该祖先）→ 每 150ms 更新都重渲染 mermaid/SVG 预览（预览 `<img>` 还随每次结构重建重新 decode）。
+  - 修法：`surface-context.ts` 新增 **`AssistantStreamingContext`**（+`useAssistantStreaming()`），流式状态**显式传入**不再探测 DOM——`ChatSurface` 在 `.qf-streaming-message` 容器内提供 `true`（消息列表内仍是默认 `false`，语义与旧探测一致），`SubagentTrace` 用它包住 `MessageList` 并传 `payload.status === 'running'`。`CodeBlock` 的 `streaming = isStreaming prop ?? context`（`isAssistant` 仍按 `.qf-assistant-message` 祖先探测，那是结构性判断且子面板本就命中）。顺带给 `CodeBlock` 加 `memo`（props 是原始值；上下文变化仍会穿透 memo 触发重渲染）。
+  - 注意（未改契约）：子面板的 `MessageList` 仍取 `isStreaming={false}`——该 prop 在 `MessageList` 里表示「是否有独立流式容器接管未完成工具卡」（`hidePendingToolCalls`），子面板没有那个容器，若照搬 `status === 'running'` 会让运行中的工具卡消失（既有回归用例 `subagent-run-detail-react.test.ts` 的 "keeps pending tools visible while running" 钉住了这条）。
+- 根因 4（次要，随手修）：`SubagentRunBody` 的 `syncInputClampBoxes` effect 依赖 `[payload]`（每轮快照都是新对象）→ 每轮 dispose + 重测，任务说明块抖动。改为依赖真正影响 clamp 的稳定值 `[runId, task, context, expectedOutput]`。
+- 新增测试：
+  - `tests/frontend/subagent-trace-flicker.test.ts`（新增 8 用例）：① 结构签名忽略「分块内文本增长」「不渲染的空白 chunk」「toolResult/artifact 行」，但对新增 part / 新增消息行 / 流式态翻转敏感；② 直接驱动 `SubagentTrace` 生命周期（DOM 桩 + mock 折叠层）断言——结构未变时 `releaseProcessGroups` **不被调用**、结构变了调用 1 次、`shouldComponentUpdate` 对同一 payload 返回 false、`decorateProcessBlocks` 在 `componentDidUpdate` 内**同步**发生（fake timers 前进 100ms 后调用次数不变，钉住「不再 setTimeout」）；③ mock `MessageList` 反查 context，断言 trace 运行中提供 `AssistantStreamingContext=true` 且列表自身 `isStreaming=false`。
+  - `tests/frontend/chat-surface-message-list.test.ts`（+5 用例）：滑窗前后幸存消息 key 不变、重复身份去重且首个不变、toolResult 用 `toolCallId`、assistant 分块按源索引生成 key（空 thinking 进出不再位移后续 key）、pending 过滤只由 `hidePendingToolCalls` 决定。
+  - `tests/frontend/chat-code-block.test.ts`（+1 用例）：同一个 SVG 代码块在 `AssistantStreamingContext=true` 下不渲染预览（只有源码），`false` 下恢复预览——证明闸门已改为上下文显式传入而不是任何 DOM 祖先探测（SSR 环境本来就没有祖先）。
+  - `tests/frontend/chat-surface-behavior-alignment.test.ts`（+1 用例）：源码级钉住主面板 `.qf-streaming-message` 容器由 `AssistantStreamingContext.Provider value={true}` 包裹。
+- 改动文件：`src/components/chat/surface/content-parts.ts`（新增）、`src/components/workspace/subagent-trace-structure.ts`（新增）、`src/components/workspace/SubagentRunDetailContent.tsx`、`src/components/chat/surface/MessageList.tsx`、`src/components/chat/surface/AssistantMessage.tsx`、`src/components/chat/surface/ToolMessage.tsx`、`src/components/chat/surface/CodeBlock.tsx`、`src/components/chat/surface/ChatSurface.tsx`、`src/components/chat/surface/surface-context.ts`、`tests/frontend/subagent-trace-flicker.test.ts`（新增）、`tests/frontend/chat-surface-message-list.test.ts`、`tests/frontend/chat-code-block.test.ts`、`tests/frontend/chat-surface-behavior-alignment.test.ts` + 本轮文档（`progress.md`、`session-handoff.md`、`docs/wiki/src/components/README.md` 两处副本）。
+- 验证：定向 `npx vitest run tests/frontend/subagent-run-detail-react.test.ts tests/frontend/subagent-run-detail.test.ts tests/frontend/subagent-process-trace.test.ts tests/frontend/chat-surface-message-list.test.ts tests/frontend/chat-surface-render.test.ts tests/frontend/chat-surface-behavior-alignment.test.ts tests/frontend/process-folding.test.ts tests/frontend/process-folding-ownership.test.ts tests/frontend/chat-surface-css-contract.test.ts tests/frontend/subagent-trace-flicker.test.ts tests/frontend/chat-code-block.test.ts` → **11 files / 275 passed（exit 0）**；随后完整 `npm run test` → **357 files / 4235 passed + 1 skipped（exit 0）**（较 R12 的 356 files / 4220 passed 增加 1 文件 15 例＝本轮 4 个测试文件的新增用例）；`npx tsc -b --pretty false` → **exit 0**；`npm run lint` → **0 error / 3 warnings**（均在 `coverage/` 生成产物，仓库既有）；`npm run build` → **exit 0**（仅既有 chunk 体积与 `node:fs` externalize 警告）。
+- 文档同步：`docs/wiki/src/components/README.md` 两处副本——surface 树补 `content-parts.ts` 与 `AssistantStreamingContext`、`MessageList`/`AssistantMessage` 行补 key 契约、`CodeBlock` 行补 memo 与流式门控来源、`workspace` 树补 `subagent-trace-structure.ts`、「process-folding 所有权租约」段补「只在结构变了才释放 + 同提交内同步重折叠 + 镜像改 `useLayoutEffect`」、「SubagentRunDetailContent」段补独立流式 surface 与 clamp 依赖。`feature_list.json` 未动（feature 自 R10 起恒为 done，本轮为既有 feature 的运行时回归修复，无状态变化）。`docs/wiki/src/lib/README.md` 未动：本轮没有 lib 层新契约（`content-parts.ts` / `subagent-trace-structure.ts` 都在 components 目录树内）。
+- Notes（只记录，不扩范围 / 需真机确认）：
+  - **需真机确认①：同步重折叠是否彻底消除「未折叠帧」。** node 环境无 jsdom（仓库 v4 无 DOM 测试运行器），「子 layout effect 先于父 `componentDidUpdate`」是 React 的布局阶段语义保证而非本项目实测；若真机上仍能看到结构性变更（新增 part/新增消息行/运行结束）的一次闪动，应先用 DevTools Performance 录制确认是 release 落帧还是 CSS keyframes 重启，再决定是否进一步做「释放与重折叠合并」。
+  - **需真机确认②：节点搬动是否重启 CSS 动画。** `releaseProcessGroups` + 重新 `createTurnProcessGroup` 会把节点从原父容器移出再插入新组，DOM 移出/插入是否重启 `animate-*`（`ThinkingBlock` 的 shimmer、`animate-pulse` 光标）取决于浏览器实现，本地无 jsdom 无法断言；本轮把发生频率从「每 150ms」降到「结构变化时」，但结构变化那一次仍可能重启动画。
+  - **需真机确认③：`shouldComponentUpdate` 的语义边界。** 它按 payload 对象身份 bail out；语言切换走 `window.location.reload()`（`i18n.ts:3402`）故无影响，但若将来出现「不换 payload 对象却需要重渲染」的宿主路径（如就地改写 payload 字段），该门控会吞掉更新——届时应按签名或显式 revision 放宽。
+  - 结构性变更（新增 part / 新增消息行）仍会释放 + 全量重建：本轮只把触发条件从「每轮」收紧到「结构真的变了」，未改 `process-folding` 的 full 路径本身；运行结束时 `isAgentStreaming=false` 使 `canShortCircuit=false`，`processTurnUpdateMode` 必然返回 `full`，该次重建属既有设计。
+  - `MessageList` 行 key 依赖消息 `timestamp`：无 timestamp 的消息回退下标（滑窗时该行仍会重挂）；若将来出现无时间戳的服务端消息，应补稳定 id 而不是依赖索引。
+  - 本轮未做 Git 操作，未手工修改 `dist/`、`package-dist/`、`package-offline/`（`dist/` 仅 `npm run build` 正常产出）。
+- 2026-09-19 复查修复（第十三轮复审结论落实，feature 保持 done）：
+  - 阻塞项 1（`getSnapshotBeforeUpdate` 门控晚一拍）：`SubagentTrace.getSnapshotBeforeUpdate` 之前把**形参当本次的新 props** 用——而 React 的契约是「形参是**上一轮已提交的 `prevProps`**，本次提交的新 props 已在 `this.props`」。于是它比较的是**上一轮**的签名：结构真正变了的那次 commit **不释放**，要下一次 commit 才释放，React 在结构变化那次就会围着仍被折叠组持有的节点做 insert/remove。改为在 `getSnapshotBeforeUpdate` 内读 `this.props.payload` 计算签名，与 `this.structure`（表示上一轮已提交 DOM 对应的载荷签名）比较，变了才释放并更新 `this.structure`；补注释说明该 React 契约与「为何必须读 `this.props` 而非形参」。
+  - 阻塞项 2（签名里的 `isStreaming` 位）：`subagent-trace-structure.ts#subagentTraceStructureSignature` 之前把 `isStreaming`（`payload.status === 'running'`）计入签名，与同文件「运行结束开启预览属内容型更新、不应释放」的注释自相矛盾，且运行结束会多一次 release+全量重建。**选择删除该位**（并去掉函数的第二个参数）。理由：签名描述的是「哪些 DOM 节点存在」，而流式态只影响已存在节点内部的渲染细节（trace 恒以 `isStreaming={false}` 渲染 `MessageList`，运行结束只把已渲染节点内的代码块预览打开、不增删行/part）；把它计入只会把一次内容型更新升级为一次全量重建——恰是要修的抖动。
+  - 小项 3（tool 分块 key 兜底）：`content-parts.ts#assistantContentParts` 的 toolCall key 之前恒为 `tool:${chunk.id}`，原始 trace 载荷缺 id 时会产出重复的 `tool:undefined`，同一次渲染内 key 冲突。改为非空字符串 id 才用 `tool:${chunk.id}`，否则回退 `tool:${index}`（与 `text:N`/`thinking:N` 同构，同一消息内唯一）。
+  - 小项 4（wiki 文档矛盾）：`docs/wiki/src/components/README.md` 两处副本（:181 / :497）之前仍写「`SubagentTrace` 在每次提交前用 `getSnapshotBeforeUpdate` 调 `releaseProcessGroups(root)`」，与 :313/:629 的新描述及实现矛盾。改为「只在结构签名变化时释放 + 同提交内同步重折叠」。
+  - 小项 5（隐式耦合说明）：`subagent-trace-structure.ts` 签名函数注释补明——该门控成立的前提是 trace 的 `MessageList` 恒传 `isStreaming=false`（pending 工具卡始终渲染、pending 过滤不进签名）；若将来改为传入真实流式标志，`MessageList` 会按 `hidePendingToolCalls` 隐藏未完成工具卡，工具起止将变成真实的行/part 变化，此时必须同步把 `pendingToolCalls` 纳入签名。
+  - 测试更新：`tests/frontend/subagent-trace-flicker.test.ts`——按 React 真实约定驱动生命周期（先 `instance.props = { payload: next }`、再以 **prev props** 调 `getSnapshotBeforeUpdate`），把「结构变化那一拍」的断言改成真能防 off-by-one 的写法（用例改名 `releases on the commit whose structure changed (no off-by-one)`），并新增 `does not treat the running→done flip as a structural change`、把「流式态翻转改变签名」断言移除；`tests/frontend/chat-surface-message-list.test.ts` 新增缺 id toolCall 的 key 回退断言（`tool:0` / `tool:1` / `tool:call-1`）。
+  - 护栏有效性取证：把 `getSnapshotBeforeUpdate` 临时改回错误写法（用形参）后单跑 `subagent-trace-flicker.test.ts` → **1 failed / 8 passed**（恰是 `releases on the commit whose structure changed (no off-by-one)`），恢复修复后 **9/9 passed**。
+  - 验证：定向 `npx vitest run tests/frontend/subagent-trace-flicker.test.ts tests/frontend/chat-surface-message-list.test.ts tests/frontend/process-folding.test.ts tests/frontend/process-folding-ownership.test.ts tests/frontend/subagent-run-detail-react.test.ts tests/frontend/subagent-run-detail.test.ts tests/frontend/chat-code-block.test.ts` → **7 files / 238 passed（exit 0）**；完整 `npm run test` → **358 files / 4258 passed + 1 skipped（exit 0）**；`npm run lint` → **0 error / 3 warnings（coverage/ 既有）**；`npm run build` → **exit 0**（仅既有 chunk 体积与 `node:fs` externalize 警告）。
+  - Notes（只记录，不扩范围 / 需真机确认）：① 复查修复后「结构变化那一次仍会 release + 全量重建」属既有 `process-folding` full 路径设计，未改；② 移除 `isStreaming` 位后运行结束不再触发 release/重建，代码块预览切换仍在已渲染节点内部由 React patch（内容型更新，预期）；③ 首跑 `npm run lint` 曾命中**另一会话并发新建**的 `tests/frontend/chat-surface-api-key-dialog.test.ts` 的半写状态（`Parsing error: '}' expected`），单文件 `eslint` 与随后重跑全量 lint 均 **0 error**，判定为并发写入竞态，非本轮改动；④ 本轮未做 Git 操作，未触碰生成产物。
+- 2026-09-19 硬化（第十四轮复审放行后落实，feature 保持 done，最小改动）：
+  - 硬化 1（崩溃路径，中低概率）：`subagent-trace-structure.ts#subagentTraceStructureSignature` 之前行 token 只含 `role`，不含**行身份**。服务端运行期 trace 是 `latestMessages.slice(-50)` 滑窗（`server/agent-subagent-runner.mjs`），窗口用「连续同形 assistant 行」替换被移出的行时（role 序列与 part 形态相同、仅身份不同），签名不变 ⇒ **不释放**；而被替换的行可能是过程组锚点行（`process-folding.ts#createTurnProcessGroup` / `processGroupAnchorIndex`），组内夹带其它行搬来的节点，脱离后 `releaseProcessGroups` 走 `shouldRestoreGroupedProcessNode`（节点仍连接但已不在组内）只清折叠标记不归还 ⇒ 之后 React `removeChild` 抛 `NotFoundError`。修法：把行身份 token 补入签名——`content-parts.ts` 新增导出 `messageRenderIdentity`（`messageRenderKeys` 背后的同一身份：`role:timestamp`，无 timestamp 回退 `#index`），签名对每条渲染行取该身份（assistant 行写成 `identity[part,part]`）。刻意保持「文本增长 / toolResult 到达 / running→done」不入签名：这些仍是内容型更新，入签名会退回「每 150ms 释放」的抖动。
+  - 硬化 2（tool 分块 key 撞）：`content-parts.ts#assistantContentParts` 的无 id toolCall 兜底 key 由 `tool:${index}` 改为 `tool#${index}`——原形态会与「id 恰为纯数字」的分块撞 key（如 id='1' → `tool:1`，另一无 id 分块 index=1 → `tool:1`，同一渲染内冲突）。
+  - 硬化 3（注释一致性）：`content-parts.ts` 头注原写「assistant 每个 part 都按源索引 key」，与 tool 分块按 id key 的实现不符；改为「text/thinking 用源索引、toolCall 用 id、缺 id 用不会与 id 形态冲突的源索引兜底」。
+  - 硬化 4（文档陈旧）：本文件第 5 行早前仍写 `subagentTraceStructureSignature(messages, isStreaming)`（两参），与实现（单参）矛盾；改为单参描述。
+  - 测试（新增/更新）：`tests/frontend/subagent-trace-flicker.test.ts` 新增 3 例——① 滑窗把「同形 assistant 行」换成不同身份必须改变签名（并在 `SubagentTrace` 生命周期层断言该 commit 真的 `releaseProcessGroups`）；② 同窗口内仅文本增长签名不变；③ toolResult 到达签名不变。`tests/frontend/chat-surface-message-list.test.ts` 更新无 id toolCall 期望为 `tool#0` / `tool#1` / `tool:call-1`，并新增「数字 id（id='1'）与无 id 分块混合」唯一性断言（`tool:1` 与 `tool#1` 不撞）。
+  - 护栏有效性取证：把签名临时改回「只含 role」的旧写法后单跑 `subagent-trace-flicker.test.ts` → **2 failed / 10 passed**（恰是两条新增滑窗用例：签名都是 `user|assistant[text:0]` 无差异、`releaseProcessGroups` 被调 0 次），恢复后 **12/12 passed**。
+  - 验证：定向 `npx vitest run tests/frontend/subagent-trace-flicker.test.ts tests/frontend/chat-surface-message-list.test.ts tests/frontend/subagent-run-detail-react.test.ts` → **3 files / 32 passed（exit 0）**；完整 `npm run test` → **359 files / 4267 passed + 1 skipped（exit 0）**（较复查修复后 358 files / 4258 增加：本硬化 +4 例，其余为并发会话新增文件/用例）；`npm run lint` → **0 error / 3 warnings（coverage/ 生成产物，仓库既有）**；`npm run build` → **exit 0**（仅既有 chunk 体积与 `node:fs` externalize 警告）。
+  - Notes（只记录，不扩范围 / 需真机）：① 行身份 token 依赖消息 `timestamp`，无 timestamp 时回退下标（与 `MessageList` 行 key 同源）——服务端 trace 消息若无时间戳，该行滑窗时仍会重挂、且仍可能漏判释放，属既有边界；② 本轮只补「行身份」这一位，未改 `process-folding` 的释放/归还算法；③ 未做 Git 操作，未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-19 第十二轮·根因修复：思考头接管永远失败 + fail-visible 契约）
+
+- 目标/结论：feature 保持 done。本轮为第十二轮·根因修复：R9/R11 连续两轮改 CSS 都没能让主 Agent 面板的思考行回来，真正根因不在 CSS——装饰层的「思考头接管」从来就没成功过。本轮修接管（chevron 识别兼容「自身即 svg」+ 去掉 `instanceof HTMLElement` 过滤）并把「等接管」的隐藏彻底删掉（fail-visible）。非新能力。
+- 真正根因（症状 ↔ 改动对应，链路逐段可复现）：
+  - ① `src/components/chat/panel-decoration/process-folding.ts:434`（改前）`Array.from(header.children).filter((child): child is HTMLElement => child instanceof HTMLElement)`：React `ThinkingBlock` 的 chevron 是 lucide `<ChevronRight>` 的 **`<svg>` 本体**（`ThinkingBlock.tsx:29`，header.children = `[svg, span]`），而 **SVGElement 不是 HTMLElement** → chevron 被整条过滤掉。
+  - ② 同文件 `:439`（改前）`hasSvg: Boolean(child.querySelector('svg'))` 只查**后代**：`svg` 匹配不到自身 → 即便不过滤，`processThinkingChildIndexes`（`:413-426`）也拿不到 chevron；chevronIndex=undefined → `:444` `if (!chevron || !label) return` 提前退出。
+  - ③ 结果：`header.className = 'thinking-header quickforge-process-thinking-header'`（`:467`）永不执行 → 而 `src/index.css:3610-3612`（改前）`.qf-chat-panel .quickforge-process-body .qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header) { display: none }` 把它永久隐藏；R10 把 ThinkingBlock 改回默认折叠（折叠态只渲染 header）后，整块思考消失。**这也解释了 R9（面板级隐藏）/R11（收紧为过程组级隐藏）为何无效——隐藏规则不管挂在哪一级，接管都从未成功。**
+  - ④ 副产物：即便 ① 修好，`chevron.className = '...'`（改前 `:448`）对 SVG 也不成立——`SVGElement.className` 是只读的 `SVGAnimatedString`，严格模式（ESM）赋值直接抛 `TypeError`，会连带炸掉整轮装饰。
+- 修复（2 项 + 1 处导出）：
+  - ① 接管兼容两种 chevron 形态（`process-folding.ts`）：`children` 直接取 `Array.from(header.children)`（children 本就只含元素子级，且注释明确「node 测试环境无 HTMLElement 全局，用结构检查而非 instanceof」的既有约定，这里连结构检查都不需要），类型放宽为 `Array<HTMLElement | SVGElement>`；`ProcessThinkingChild` 新增 `selfSvg`（`child.tagName.toLowerCase() === 'svg'`），chevron 判定改为 `markedChevron ?? (selfSvg || hasSvg)`（保留 `hasSvg` 兼容旧 thinking-block 自定义元素把 svg 包在 span 里的形态）；`rotated` 判定不变（`rotate-90` / `quickforge-process-thinking-chevron-expanded`），对 svg 自身 `classList` 同样生效。chevron/label 的类改写改走 `setAttribute('class', ...)`（HTML/SVG 两形态通吃，且避开只读 `className`）。
+  - ② fail-visible（`src/index.css`）：**删除** `:3610-3612` 的 `display: none` 规则，原位置改成契约注释（记录 R9/R11/R12 的教训：任何「等接管」的隐藏都会把「接管失败」变成「思考静默消失」，宁可显示 React 原生「Thinking...」行）。删除后未接管状态显示同一位置的原生 header（非空白），R9 的 28px 空白诉求由接管后规则 `.quickforge-process-body .qf-thinking-block > .quickforge-process-thinking-header { display:flex; min-height:1.625rem }` 承担，接管成功后无空白、无装饰前双头（装饰复用同一 header 元素）。
+  - ③ 导出 `decorateProcessThinkingBlocks`（实现未改，仅加 doc 注释说明接管契约）供集成护栏直接跑真实接管路径。
+- 护栏测试（关键：此前**没有任何**测试跑过真实接管路径，这正是 bug 存活两轮的原因）：
+  - 新增 `tests/frontend/thinking-header-adoption.test.ts`（6 用例）：项目 vitest 跑 node 环境无 jsdom，按仓库既有约定（`process-folding-ownership.test.ts` / `slash-invocation-chip.test.ts`）手写最小 fake DOM，但刻意复刻真实 DOM 最要命的一条语义——**`SVGElement` 与 `HTMLElement` 是互不 `instanceof` 的兄弟类**；用 React 真实形态建树（`.qf-chat-panel > .qf-message-list > .qf-assistant-message > .px-4.flex.flex-col > .quickforge-process-group > .quickforge-process-body > .qf-thinking-block.thinking-block > button.thinking-header > [svg, span]`，`svg` 是 `FakeSvgElement`）后断言：header 拿到 `thinking-header quickforge-process-thinking-header`、children 重排为 `[SPAN(icon), SPAN(label), SVG(chevron)]`、`label.textContent === 'processThinking'`、chevron 的 class 属性为 `quickforge-process-thinking-chevron`（`rotate-90` 时追加 `quickforge-process-thinking-chevron-expanded` 且原 utility 类被清掉）、二次装饰幂等（同一批节点、仅 1 个 icon）、旧 span 包裹形态仍被接管、组外 thinking 块不受影响。**先在未修复源码上跑：4/6 失败**（header 仍是原始 utility 类、children 仍是 `[SVG, SPAN]`、rotate-90 留在原类上），修复后 6/6 通过。
+  - `tests/frontend/process-folding.test.ts`：新增 2 例——`selfSvg` 形态识别（`{selfSvg:true}` + label → chevronIndex 0 / labelIndex 1）与 `selfSvg + rotated` → `chevronExpanded: true`。
+  - `tests/frontend/chat-surface-css-contract.test.ts`：R11 那条「隐藏规则必须带 `.quickforge-process-body` 限定」的护栏改为 fail-visible 契约——`expect(css).not.toMatch(/\.thinking-header\b[^{}]*\{[^}]*display:\s*none/)`（任何针对 `.thinking-header` 的 display 隐藏都不得存在）＋ 断言 R11 的旧组合选择器（`.qf-chat-panel .quickforge-process-body .qf-thinking-block > .thinking-header`）不得回流；兜底可见规则与接管规则 `display:flex` 断言保留。
+- 与前两轮的关系：R9 为解决「原生头占 28px 空白」引入面板级 `display:none`；R11 发现未接管头被误伤、把隐藏收紧到过程组级（承认「未接管必须可见」）；R12 查明接管从未成功，把隐藏彻底删除——R9 的空白诉求转由「接管成功」满足，R11 的「未接管可见」由 fail-visible 契约强制。
+- 改动文件：`src/components/chat/panel-decoration/process-folding.ts`（children 取法 + `selfSvg` + `setAttribute('class')` + 导出与注释）、`src/index.css`（删 `display:none` + 契约注释）、`tests/frontend/thinking-header-adoption.test.ts`（新增）、`tests/frontend/process-folding.test.ts`（+2 用例）、`tests/frontend/chat-surface-css-contract.test.ts`（护栏改写）+ 本轮文档（`progress.md`、`session-handoff.md`、`docs/wiki/src/components/README.md` 两处副本的 process-folding 段）。
+- 验证：定向 `npx vitest run tests/frontend/process-folding.test.ts tests/frontend/process-folding-ownership.test.ts tests/frontend/thinking-header-adoption.test.ts tests/frontend/chat-surface-css-contract.test.ts tests/frontend/chat-surface-render.test.ts tests/frontend/chat-surface-behavior-alignment.test.ts tests/frontend/subagent-run-detail.test.ts`（见 `session-handoff.md` 终态数字）；随后完整 `npm run test`、`npm run lint`、`npm run build`。护栏有效性另以「修复前跑新护栏 4 例失败 → 修复后 6/6 通过」取证。
+- 文档同步：`docs/wiki/src/components/README.md` 两处副本的 process-folding 段补「思考头接管契约 + fail-visible 原则」（含 `selfSvg`/`hasSvg` 两形态、`setAttribute('class')` 的原因、禁止 display 隐藏）；`progress.md`/`session-handoff.md` 更新；`feature_list.json` 未动（feature 自 R10 起恒为 done）。
+- Notes（只记录，不扩范围）：
+  - 未接管原生 header 的字号残余差异（R11 遗留项）本轮未动：fail-visible 后它理论上仍可能短暂可见，值为 React `text-sm`（= `--text-sm` = 1rem = 界面字号，默认 13px），与统一后的 11.375px 行字号不同；接管成功后该 header className 被重置、不再走兜底规则。
+  - `.quickforge-process-thinking-chevron svg { width/height: 1rem }` 这类「后代 svg」规则对「自身即 svg」的接管形态不再命中，但同级 `.quickforge-process-thinking-chevron { width/height: 1rem }` 已直接作用在 svg 上，尺寸与旧 span 包裹形态一致（1rem），未额外改动 CSS。
+  - 真实浏览器观感（面板内思考行恢复、接管后行高/字号/chevron 行为、默认字号无回归）仍待人工验收；本轮无 Git 写操作，未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-19 第十一轮·用户反馈回归修复：主 Agent 面板思考行不可见 + 思考行/工具行字号不一致）
+
+- 目标/结论：feature 保持 done。本轮为第十一轮·用户反馈回归修复：用户报告 ① 主 Agent 对话里看不到思考行（subagent 运行详情可见）；② 同一屏思考行与工具行字号不一致。均为 CSS 契约问题，非新能力，未改组件逻辑。
+- 修复 2 项（症状 ↔ 改动对应）：
+  - ① 主 Agent 面板思考行不可见：根因是 R9 引入的 `.qf-chat-panel .qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header) { display: none }` 是**面板级**隐藏，而标记类 `.quickforge-process-thinking-header` 的唯一写入点是 `src/components/chat/panel-decoration/process-folding.ts:467`（`decorateProcessThinkingBlocks`，只对已折进 `.quickforge-process-group` 的元素执行，唯一调用点 `updateProcessGroup` 的 708 行）。装饰层未接管的原生头因此被永久 `display:none`；R10 把 ThinkingBlock 回退默认折叠（`ThinkingBlock.tsx:19` `useState(false)`，折叠态只渲染 header）后，这类思考块整块消失。改法（收紧而非删除）：`src/index.css` 该规则的 `.qf-thinking-block` 前加 `.quickforge-process-body` 祖先限定——只有「已被搬进过程组、等待装饰层接管」的原生头继续 `display:none`（保留 R9「不占 28px 空白」的诉求，未改回 `visibility:hidden`），未成组/未接管的原生头落到紧随其后的兜底可见样式（只改色/hover/chevron，无 `display` 声明）。
+  - ① 核对（无需放宽）：装饰层取头用 `:scope.qf-thinking-block > .thinking-header`（`process-folding.ts:431`），React `ThinkingBlock` 渲染的 header 始终是 `.qf-thinking-block` 的直接子级；搬入的节点一律 append 进 `.quickforge-process-body`（`populateProcessGroup` 的 body、`populateProcessContainer` 的 `.quickforge-process-stage-body` / `.quickforge-process-tools-body`），即 header 永远在 `.quickforge-process-body` 之内，故接管后的可见性规则 `.quickforge-process-body .qf-thinking-block > .quickforge-process-thinking-header` 命中全部实际位置，选择器未放宽。
+  - ② 思考行与工具行字号不一致：同一屏两套基准——思考行/过程摘要行走 `0.875rem`（界面字号 rem 根），工具行（`index.css` 3445-3455 的既有表达式）走 `calc(var(--quickforge-message-font-size, 14px) * 0.875)`（消息字号）；两设置项独立，默认 R=M=13px 时数值相同故默认看不出，用户调大消息字号即漂移。统一到消息字号基准：`src/index.css` 三处替换——接管后的思考行（`.quickforge-process-body .qf-thinking-block > .quickforge-process-thinking-header`）、`.quickforge-process-summary`、`.quickforge-process-stage-summary, .quickforge-process-tools-summary` 的 `font-size: 0.875rem` → `calc(var(--quickforge-message-font-size, 14px) * 0.875)`。
+  - ② 默认下已存在的逃逸（补漏）：兜底工具卡首行（`ToolMessage.tsx:84` 的 `text-sm`）与 generate_image 首行（`generate-image-tool-renderer.tsx:21` 的 `text-sm`）逃逸到 1rem。把两条同级 DOM 形态选择器 `.quickforge-tool-message > .space-y-2 > .quickforge-tool-summary`、`.quickforge-tool-message > .quickforge-generated-image-tool > .quickforge-tool-summary` 并入工具摘要行既有规则（`index.css` 3445-3455）。该规则不受 `.qf-chat-panel` 限制，面板外（subagent 运行详情等）同步取同一基准，语义一致；顺带修正压平后（`.quickforge-process-body` 内）这两行字色仍是全浓度 `text-muted-foreground`、与相邻工具行 88% mix 不一致的既有偏差。
+  - ② 去 `!important` 的理由：接管后的 header className 已被装饰层重置为 `thinking-header quickforge-process-thinking-header`（不再有 `text-sm` 等 utility），且该规则 unlayered（层叠优先于 `@layer utilities`），无竞争故删掉 `font-size: ... !important`；R10 默认折叠语义与装饰层覆盖范围均未改动。
+  - ② 零视觉回归核算：默认（界面字号 = 消息字号 = 13px）下 `0.875rem` = 11.375px、`calc(13px * 0.875)` = 11.375px，三处替换数值不变；兜底卡/generate_image 首行由 `text-sm`（= `--text-sm` = 1rem = 13px，**原本就不等于工具行的 11.375px**）改为 11.375px，属本轮要修的默认不一致。
+- 护栏测试：`tests/frontend/chat-surface-css-contract.test.ts` 新增两个 describe（6 用例）——① `thinking header visibility contract`：断言隐藏规则必须带 `.qf-chat-panel .quickforge-process-body` 祖先限定（`not.toMatch` 面板级裸规则，防契约再次回归）、兜底规则只改色/hover 无 `display` 声明（未接管 header 可见）、接管规则 `display: flex` 命中 `.quickforge-process-body .qf-thinking-block > .quickforge-process-thinking-header`，并用 `renderToStaticMarkup(ThinkingBlock)` 钉住「header 是 `.qf-thinking-block` 直接子级」这一 CSS ⇄ DOM 结构前提；② `chat row font scale contract`：过程摘要 / 阶段与工具组摘要 / 接管后思考行必须含 `font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875)` 且不含 `font-size: 0.875rem`，兜底卡与 generate_image 首行必须被工具摘要行规则的选择器覆盖。
+- 改动文件：`src/index.css`（4 处字号基准 + 1 处隐藏规则作用域收紧 + 注释）、`tests/frontend/chat-surface-css-contract.test.ts`（+6 用例）+ 本轮文档（`progress.md`、`session-handoff.md`、`docs/wiki/src/README.md` 字号体系段）。
+- 验证：定向 `npx vitest run tests/frontend/chat-surface-css-contract.test.ts tests/frontend/goal-report-renderer.test.ts tests/frontend/process-folding.test.ts tests/frontend/chat-surface-render.test.ts tests/frontend/chat-surface-behavior-alignment.test.ts tests/frontend/subagent-run-detail.test.ts` → **6 files / 228 passed（exit 0）**；护栏有效性另用 node 直接对旧/新 CSS 文本复核（旧的面板级裸规则被 `not.toMatch` 命中、新规则命中、旧 `font-size: 0.875rem !important` 已消失）；全量 `npm run test` → **355 files / 4212 passed + 1 skipped（exit 0）**（较 R10 的 4206 passed 增加 6 例＝本轮护栏）；`npm run lint` → **0 error / 3 warnings**（coverage/ 既有）；`npm run build` → **exit 0**（仅既有 chunk 体积与 `node:fs` externalize 警告），并抽查构建产物 `dist/assets/index-*.css` 确认 4 处 `font-size:calc(var(--quickforge-message-font-size,14px) * .875)`、收紧后的隐藏规则与新增的两条工具行选择器均已落到产物。
+- 文档同步：`docs/wiki/src/README.md` 的「字号体系」段补一句——聊天区内与消息同屏的过程摘要行 / 接管后思考行 / 工具摘要行（含兜底工具卡与 generate_image 首行）统一取 `calc(var(--quickforge-message-font-size, 14px) * 0.875)`，不再依赖界面字号 rem 根。`docs/wiki/src/components/README.md` 的 process-folding 段落未记载思考头的可见性契约（只写折叠默认值/所有权租约），本轮为实现级 CSS 修复，不改该段；`feature_list.json` 未动（feature 自 R10 起恒为 done，本轮无状态变化）。
+- Notes（只记录，不扩范围）：
+  - 未接管根因「运行时确认项」：装饰层未接管（或被 React 重挂导致 class 丢失）的**具体触发时机**本轮未在真实浏览器中取证——静态证据只能确定「未接管的原生头此前被面板级规则隐藏」，收紧作用域后这类 header 一律可见（不再整块消失），但为何主 Agent 面板存在长期未接管的 header（装饰层未跑 vs 节点被重挂）仍需运行时确认；若确认是 React 重挂丢失装饰，应单独立项修装饰幂等，而非继续放宽 CSS。
+  - 未接管原生 header 的字号残余差异：兜底可见的原生 header 仍走 React `text-sm`（= `--text-sm` = 1rem = 界面字号，默认 13px），与统一后的 11.375px 行字号不同；本轮按「不擅自改兜底规则」的最小改动原则未动，若真实浏览器确认未接管 header 会长期可见，应把兜底规则也纳入消息字号基准（待评估项）。
+  - 思考正文 markdown 字号（`index.css:3788` 的 `.qf-chat-panel .qf-thinking-block > .qf-markdown-block.text-sm { font-size: 0.875rem }`）同样游走在界面字号基准上：用户只提「行」的字号，本轮**未改**（待评估项——若一并统一，需确认展开态思考正文与消息正文的字号意图，避免与 `--quickforge-message-font-size` 的正文口径混淆）。
+  - `--quickforge-message-font-size` 的 fallback `14px` 沿用既有工具行表达式；仅在变量未写入根节点时（如极早期渲染/无 JS 设置写入）才会比旧 `0.875rem`（界面字号基准）偏大，与工具行既有行为一致，未改。
+  - 本轮未做 Git 操作，未手工修改 `dist/`、`package-dist/`、`package-offline/`（`dist/` 仅 `npm run build` 正常产出）；真实浏览器观感（面板内思考行重新可见、行字号一致性、默认字号下无回归）仍待人工验收。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-19 第十轮·需求纠正：思考正文默认折叠 + 折叠组三层默认展开）
+
+- 目标/结论：feature 保持 done。本轮为第十轮·需求纠正：第九轮把「思考内容默认展示」误解为 ThinkingBlock（思考正文）默认展开；用户澄清——思考正文应默认折叠，真正问题是折叠组默认收起导致「思考和工具都不显示」。非新能力。
+- 修复 2 项（症状 ↔ 改动对应）：
+  - ① 思考正文回退默认折叠：`src/components/chat/surface/ThinkingBlock.tsx` `useState(true)` → `useState(false)`（第九轮④反向修正），组件注释同步改写；护栏断言 `tests/frontend/chat-surface-render.test.ts` 改为反向——默认渲染含 `qf-thinking-block` 与 header 文案（`thinkingBlockLabel`='Thinking...'）但不含思考正文文本（'internal reasoning trace'）。
+  - ② 折叠组三层默认展开（核心需求：思考块与工具行默认可见）：`src/components/chat/panel-decoration/process-folding.ts` 三处默认值翻转——顶层过程组 `syncProcessGroupExpandedState` 第 4 参由 `isAgentStreaming` 改为新提取的 `processGroupDefaultExpanded()`（恒 true，历史回合也默认展开）；内层阶段 `processStageDefaultExpanded()` false→true；工具组 resolve 的 defaultExpanded 由 `detailed` 改 `true`（显示模式不再决定组展开，`detailed` 仍用于 displayMode dataset 与状态失效判定）。不动 `createProcessGroup`/`createProcessToolsGroup`/`createProcessStage` 的初始值（同步路径必经 resolve，初始值仅为瞬态）。语义保留：saved state 优先（`resolveProcessExpandedState`，用户手动收起后不被 default 覆盖）、「default 展开且无 saved 时一次性持久化」照旧。
+  - 同步测试期望：`tests/frontend/process-folding.test.ts` 阶段默认值用例期望 false→true、用例名 collapsed→expanded（saved 优先断言不变，其余 `resolveProcessExpandedState` 断言未动）。
+- i18n 文案修正（描述失实同步）：`toolDisplayModeDescription` en/zh 不再表述「简洁默认收起/详细默认展开」，改为两模式只差渲染细节（摘要 vs 完整参数/details）、工具组两模式均默认展开。
+- Wiki 同步：`docs/wiki/src/components/README.md` 两处重复副本的 process-folding 段「运行中和已完成阶段均默认收起」→「均默认展开（顶层过程组与更内层工具摘要组同样默认展开，用户手动收起后按回合记忆）」；`docs/wiki/src/lib/README.md` `tool-display-settings.ts` 条目同步（简洁/详细只差渲染细节 + 组默认展开）。
+- 改动文件：`src/components/chat/surface/ThinkingBlock.tsx`、`src/components/chat/panel-decoration/process-folding.ts`、`src/lib/i18n.ts`、`tests/frontend/chat-surface-render.test.ts`、`tests/frontend/process-folding.test.ts`、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md` + 本轮文档（`progress.md`、`session-handoff.md`）。
+- 验证：定向 `npx vitest run`（process-folding / process-folding-ownership / chat-surface-render / chat-surface-behavior-alignment / chat-surface-message-list / subagent-run-detail / motion-design）7 files / 198 passed；全量 `npm run test` **355 files / 4206 passed + 1 skipped（exit 0）**——首次全量出现 `tests/server/session-state-messages.test.mjs` 多进程 CAS 用例失败（与第九轮 `session-state-repository` 同族的并发时序 flake），单跑该文件 9/9 通过、随后全量复跑通过；`npm run lint` **0 error / 3 warnings（coverage/ 既有）**；`npm run build` **exit 0**（仅既有 chunk 体积 / node:fs externalize 警告）。
+- Notes（只记录，不扩范围）：① 折叠状态记忆容量与淘汰照旧（`PROCESS_EXPANDED_STATE_LIMIT`）；② 三层默认展开后长会话默认高度变大，属预期行为变更（与用户需求一致），真实浏览器未实测观感。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-19 第九轮·用户反馈回归修复：打字闪烁/工具行高/思考间距 + 思考内容默认展示）
+
+- 目标/结论：feature 保持 done。本轮为第九轮·用户反馈回归修复：用户报告 3 项样式/行为回归（输入框打字时过程折叠组闪烁展开、工具行高四套不齐、思考块与工具/正文间距过大）+ 1 项新需求（思考内容默认展示），非新能力。
+- 修复 4 项（症状 ↔ 改动对应）：
+  - ① 打字闪烁（`ProcessGroupReleaseBoundary` 每次随 `ChatSurface` commit 重渲染、在 `getSnapshotBeforeUpdate` 同步解散全部 `.quickforge-process-group`，重折叠要等下一 rAF，展开形态落帧）：`src/components/chat/surface/ChatSurface.tsx` 新增 memo 化 `MessageArea`（props 只含消息快照输入 + 稳定 ref/callback；`toolResultsById` 改 `useMemo`、`getReleaseRoot` 改 `useCallback`），boundary 移入其内——composer 打字等与消息无关的 commit 在 memo 比较处 bail out，不再触发 release；agent 事件照常经 snapshot 驱动重渲染 boundary 并刷新装饰。同步改写 boundary 类注释与 `release()` 注释（原"most commits release nothing"与实际不符）。核对 `ChatPanelHost.tsx` 各触发点（agent 事件 1570-1574、agent_start 1546-1547、scheduleToolInterfaceUpdate 1385-1393）decorate rAF 均先于 scroll rAF 注册，scroll-sync.ts ResizeObserver 路径的 scroll rAF 落在 decorate rAF 之后的下一帧——顺序本已正确，无需调整。
+  - ② 工具行高统一（组内 details>summary 26px vs run_subagent/generate_image/默认卡 18.4px、组外无 min-height）：`src/lib/tool-renderers/generate-image-tool-renderer.tsx` 与 `src/components/chat/surface/ToolMessage.tsx`（DefaultToolCardBody 首行）补挂 `.quickforge-tool-summary` 类；`src/index.css` 将组内 `details > summary` 规则替换为面板作用域 `.qf-chat-panel .quickforge-tool-summary { min-height: 1.625rem }`（不限元素类型，组内/组外统一；面板外维持自适应）；压平区新增 `.quickforge-process-body .qf-tool-message > .space-y-2 pre` 清除默认卡内部 pre 的 border/p-2/底色（`> .space-y-2` 精确锚定默认卡体，渲染器 details 内代码块不受影响）。
+  - ③ 思考/工具间距（`.qf-chat-panel .qf-thinking-block > .thinking-header:not(...)` visibility:hidden 占 28px 空白 + 组外 gap-3 vs 组内 0.25-0.375rem）：`src/index.css` 该规则改 `display: none`（装饰复用同一 header 元素并加 `.quickforge-process-thinking-header`，不存在装饰前双头，仅消除空白占位）；`src/components/chat/surface/AssistantMessage.tsx` 正文列 `gap-3` → `gap-1.5`（0.375rem，对齐组内节奏上沿），过程组折叠语义不变。
+  - ④ 展示思考内容（新需求）：`src/components/chat/surface/ThinkingBlock.tsx` `useState(false)` → `useState(true)`，思考内容默认在 DOM（面板内由过程组 header/组折叠管理可见性，组外直接展示）；新增护栏断言 `tests/frontend/chat-surface-render.test.ts`（renderToStaticMarkup 断言 thinking 文本默认出现在标记中）。
+- 同步测试期望：`tests/frontend/chat-surface-css-contract.test.ts` 钉死的 `gap-3 px-4` 标记更新为 `gap-1.5 px-4`（gap 变更为 ③ 的预期行为）。
+- 改动文件：`src/components/chat/surface/ChatSurface.tsx`、`src/components/chat/surface/AssistantMessage.tsx`、`src/components/chat/surface/ThinkingBlock.tsx`、`src/components/chat/surface/ToolMessage.tsx`、`src/lib/tool-renderers/generate-image-tool-renderer.tsx`、`src/index.css`、`tests/frontend/chat-surface-render.test.ts`、`tests/frontend/chat-surface-css-contract.test.ts` + 本轮文档（`progress.md`、`session-handoff.md`）。
+- 验证：定向 `npx vitest run`（process-folding / process-folding-ownership / chat-surface-render / chat-surface-behavior-alignment / chat-surface-message-list / subagent-run-detail / motion-design）7 files / 198 passed；全量 `npm run test` **355 files / 4206 passed + 1 skipped（exit 0）**；`npm run lint` **0 error / 3 warnings（coverage/ 既有）**；`npm run build` **exit 0**（仅既有 chunk 体积 / node:fs externalize 警告）。中途一次全量出现 `tests/server/session-state-repository.test.mjs` 多进程 CAS 用例失败，单跑 17/17 通过、随后全量复跑通过——并发时序 flake，与前端改动无交集，记录不扩范围。
+- Wiki：`docs/wiki` 无 chat 面行为契约条目（ChatSurface/过程折叠/ThinkingBlock/工具行高均未被记载），本轮为实现级回归修复，无需同步 wiki。
+- Notes（只记录，不扩范围）：① memo 化后 `onCostClick` 若由外部传入不稳定引用会退化回旧行为（boundary 随外部 commit 重渲染），当前唯一挂载点 `ChatPanelHost` 未传该 prop，无实际影响；② 打字闪烁修复未动 `streamingOnly` 变体（`process-folding.ts:979`），memo 化方案已覆盖验收标准。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-18 第八轮·用户反馈回归修复：死类复活致文字变淡）
+
+- 目标/结论：feature 保持 done。本轮为第八轮·用户反馈回归修复：用户报告移除 pi-web-ui 后设置页与左侧项目列表文字变淡，定位为“死类复活”机制并批量修复，非新能力。
+- 根因（死类复活）：源码中的分数透明度工具类（text-foreground/80~92、text-muted-foreground/55~76、hover:text-*、focus:border-ring 等共 161 个类）在旧版是死类——旧本地构建无对应 `--color-*` 映射、pi-web-ui 包仅带 text-muted-foreground/50，元素实际继承全浓度前景色；迁移后本地 `@theme inline` 语义色映射使这些类真实生效为半透明。证据：旧编译 CSS `package-dist/dist/assets/index-B1G0LqYR.css` 中无这些类。
+- 修复：按审计表（3e10f58 已有用法 ∧ 旧编译 CSS 无该类 → 移除）从 36 个文件移除 549 处类 token，恢复旧渲染；迁移新代码（chat/surface、tool-renderers、settings/tabs 等）145 处保留；text-muted-foreground/50 等旧已生效类保留。更新 6 个测试文件期望。
+- 验证：死类残留 grep 0；`npx tsc -b` 通过；`npm run test` **355 files 全通过 / 4205 passed + 1 skipped（exit 0）**；`npm run lint` **0 error / 3 warnings（coverage/ 既有）**；`npm run build` 成功。抽查 ChatSidebar/SettingsWorkspacePage/MarkdownReader 确认形态正确。
+- Notes（只记录，不扩范围）：
+  - `tests/frontend/settings-workspace-react.test.ts` 并行高负载下偶发 2 例失败（单独运行及多轮全量均过，与类名改动无关）。
+  - 仓库根 3 个此前误生成的未跟踪文件（`$($a`、`5`、`pruned)`）已在收尾轮按精确路径删除；本条目落盘时实测仓库根无此 3 文件。
+  - 动态拼接类名（如模板字符串内拼接）可能漏检，属已知限制。
+  - 遗留小项（无害，未改）：`SettingsWorkspacePage.tsx:169` 空三元死代码、`ChatSidebar` :477/478 模板串尾随空格。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-18 第八轮独立评审：窗口化对齐 + 设置页常驻 + diff/标点/复制反馈修复）
+
+- 目标/结论：feature 保持 done。本轮为第八轮独立评审：以 HEAD `3e10f58` + 移除前构建产物为基线从零取证、不采信前七轮结论，自查自修 9 项回归（含 2 项行为语义、2 项测试护栏之外的 CSS 缺口），非新能力。
+- 取证基线：**不采信前几轮结论**，独立从零取证——旧实现取 `HEAD`（= `3e10f58`，即移除 pi-web-ui/mini-lit/lit 之前）的 `git show`，旧 CSS/行为取移除前构建产物 `package-dist/dist/assets/index-B1G0LqYR.css`（含 pi-web-ui 0.75.3 app.css 注入部分）与 `package-dist/dist`、`package-offline/dist` 内的旧 bundle；不可考证项（pi-web-ui shadow DOM 内部行为）如实标注，不猜测。
+- 本轮修复 9 项：
+  - ① 长会话消息窗口化：`src/components/chat/surface/ChatSurface.tsx:272-274` 改为 `createMessageWindow({ enabled: false })`（带注释说明“先渲染完整对话，让轮次导航直接滚到已有 DOM 节点”），恢复移除前“始终全量渲染 DOM”的行为；旧证据 `HEAD:src/components/chat/ChatPanelHost.tsx:654-657`；`loadMoreMessages`/`showMessageIndex`/`getWindowStart`/`data-window-start` 契约全部保留（`getWindowMessages`/`getWindowStart` 仍读 `committedWindowRef`）。护栏：`tests/frontend/chat-surface-behavior-alignment.test.ts:83-93`（`describe('message windowing stays off for turn navigation')` 断言含 `enabled: false` 且不含 `createMessageWindow()`）。
+  - ② 设置页 tab 切换丢失页内中间态：`src/components/settings/SettingsWorkspacePage.tsx:56-68` 定义 `STATE_PRESERVING_TAB_KEYS`（7 个：`customModels`/`defaults`/`backup`/`archivedConversations`/`lanAccess`/`channels`/`about`），`:260-275` 这 7 个 tab 首次激活后常驻挂载 + `hidden` 隐藏 + `cloneElement(item.content, { active: isActive })` 注入 `active`；6 个有生命周期的 tab（defaults/customModels/archivedConversations/lanAccess/channels/about）在重新激活时重载数据（各 tab `if (active === false) return` + `}, [active])` 依赖，backup 旧版无生命周期钩子故不注入）；channels 非激活断开 SSE；搜索无结果时 `:261` 内容区 host 仍渲染（`hidden={!hasSettingsResults}`），已访问的常驻 tab 保持挂载。对应旧行为 = Lit 元素 detach/attach + `connectedCallback` 重载（旧证据 `HEAD:src/components/settings/SettingsWorkspacePage.tsx:57-71`）。回归：`tests/frontend/settings-workspace-react.test.ts`（`forwards the workspace active flag into the tabs that can be reactivated`、`stops the state-preserving tabs while hidden and reloads them on reactivation`、`reloads the custom providers list whenever the tab is reactivated`、`keeps visited persistent tab hosts mounted while the search has no results` 等）。
+  - ③ ```diff 围栏增删底色：`src/lib/code-highlight.ts:42-46/63-67` 新增 `addition`/`deletion` token 与 `qf-hl-addition`/`qf-hl-deletion` class，diff 分支按旧 hljs `Diff` 顺序（meta→comment→addition→deletion，`:1443-1491`）重写；`src/index.css:8005-8008`（亮色）/`:8021-8024`（暗色）新增 `--qf-hl-addition/deletion-bg|fg`，取值逐字等于旧 `--syntax-addition/deletion-*`；`:8036-8037` 新增 `.qf-hl-addition` / `.qf-hl-deletion` 规则（前景 + 底色成对，对齐旧 `.hljs-addition` / `.hljs-deletion`）。护栏：`tests/frontend/chat-surface-css-contract.test.ts:230-252`。
+  - ④ 标点颜色：删除 `--qf-hl-punct` 变量与 `.qf-hl-punct` 规则（旧 CSS 无 `.hljs-punctuation`，标点与 plain 段一并继承正文色，`src/index.css:7980-7990` 头注已写明）；`punct` token 保留在 tokenizer 内（仅不产出样式 class）。护栏：`tests/frontend/chat-surface-css-contract.test.ts:254-258`（断言无 `--qf-hl-punct:` 也无 `.qf-hl-punct {`）。
+  - ⑤ 代码块复制反馈时长：标题栏复制按钮 2000ms（旧 mini-lit `copy-button` 重置间隔，`src/components/chat/surface/CodeBlock.tsx:40-44` 注释 + `COPY_BUTTON_FEEDBACK_MS`）、⋯ 菜单复制动作 1200ms（旧装饰层 `showCopiedFeedback`，旧证据 `HEAD:src/components/chat/panel-decoration/code-blocks.ts:33`；`CodeBlock.tsx:45-50` 注释 + `MENU_COPY_FEEDBACK_MS`）；`copyFeedback` 记录自己的 `durationMs` 并由重置定时器读回（`CodeBlock.tsx:264-266/314-319/334-340`），单一共享常量无法再把两条路径合并。护栏：`tests/frontend/chat-code-block.test.ts:257-266`。
+  - ⑥ 代码块 ⋯ 菜单互斥范围：恢复为同一 `.qf-markdown-block` 内互斥（旧 `block.closest('markdown-block')`），`CodeBlock.tsx:189-195` 用 `detailsRef.current?.closest('.qf-markdown-block') ?? document` 作为 CustomEvent（`quickforge:code-block-menu-open`）派发作用域；外部点击 / Escape 仍是 document 级（`:196`）。
+  - ⑦ 无信息串围栏的语言标签：恢复旧显示（无语言 → `text`，保留原始大小写），`src/components/chat/surface/Markdown.tsx:85-91`（无 info string 时传 `language="text"`，注释对齐旧 markdown 层行为）+ `CodeBlock.tsx:68-76`（`codeBlockLanguageLabel` 仅在空语言时回退 `plaintext`，显示不做大小写折叠）。护栏：`tests/frontend/chat-code-block.test.ts:64-68/326-330`（断言标题栏渲染 `>text</span>`、无 `language-plaintext`）。
+  - ⑧ 列表项间距：核实旧 CSS 的 `ul`/`ol` 两条 `:not(:last-child)` 规则与新规则等价 → **未改动**（属取证确认，非遗漏）。
+  - ⑨ 本轮同时补齐的护栏断言（只加测试，不改行为）：`tests/frontend/chat-surface-css-contract.test.ts`（`--qf-hl-addition/deletion-*` 旧值锁定 + 无 `--qf-hl-punct`）、`tests/frontend/chat-surface-render.test.ts:131-134`（`data-window-start="0"` 偏移透传）、`tests/frontend/chat-code-block.test.ts`（菜单 1200ms / 标题栏 2000ms；无语言 → `text`）、`tests/frontend/settings-workspace-react.test.ts`（常驻挂载与重新激活重载契约）。
+- 有意变更/保留（本轮取证确认，不复刻，需用户决策者单列）：
+  - 未知/未注册语言不再像 hljs `highlightAuto` 那样猜测着色（自研 tokenizer 覆盖 16 种语言，其余整块 plain）→ 属能力边界，**需用户决策**是否扩大语言表。
+  - KaTeX 数学公式渲染随 pi-web-ui 移除（`$…$`）→ 现按纯文本渲染，恢复需新增 katex 依赖，**需用户决策**。
+  - color-mix 的旧浏览器回退（旧 CSS 有 `@supports` 双写，新实现仅 color-mix 一半）——现代浏览器无影响。
+  - 附件解析新增安全上限（zip 炸弹 / 文本 2MB / PDF 500 页 / 超时）——有意加固。
+  - 设置下拉控件修复了旧版“按键打开后多走一格”的缺陷——有意变更。
+  - 工具卡折叠记忆 key 由内容寻址改为 `toolCall.id`、容量 200→100——有意变更。
+  - KaTeX/hljs 等被移除组件相关的 CSS（web-component 选择器、`.katex`、`.hljs-*` 通用类）不再存在——预期。
+- 不可考证项：pi-web-ui 包（含 shadow DOM）内部行为；旧包已从 `node_modules` 卸载，`pi-web-ui` 0.75.3 的运行时内部实现只能经旧构建产物间接推断。
+- 验证：`npm run test` **355 files 全通过 / 4205 passed + 1 skipped（exit 0，50.71s）**；`npm run lint` **0 error / 3 warnings（exit 0；3 个 warning 全部来自 `coverage/` 生成目录的 Unused eslint-disable 指令，非源码）**；三者由父 Agent 统一执行：`npm run build` **exit 0（vite built in 2.68s）**，仅 chunk >500kB 与 `node:fs` externalize 两处既有 stderr 警告（无新增告警）。本轮为独立评审的源/测试同步轮——源与测试修复与其验证属同一轮，本条目的文档落盘本身未改源码/测试（收尾轮的注释改写另见下方 Notes ①）。
+- 未闭环（不阻塞 done，各自可单独立项）：① 真实浏览器 / Electron 视觉验收仍未执行（窗口化恢复为全量渲染后的长会话滚动、设置页常驻 tab 的隐藏/重载、diff 增删底色与标点色、复制反馈时长）；② KaTeX 公式渲染决策；③ `highlightAuto` 式未知语言猜测着色决策。
+- Notes（只记录，不扩范围）：① `src/components/chat/panel-decoration/message-actions.ts:143-149` 的过时注释（“React ChatSurface still windows the conversation”）已在收尾轮改写为现状表述（窗口控制器保留但以 `enabled:false` 创建、`getWindowStart()` 恒为 0、装饰层拿到完整消息数组），纯注释、无逻辑改动；② 仓库根 3 个评审转义残留文件 `$($a`（1195 字节旧 CSS 抽取片段）、`5`（1386 字节旧 CSS 变量块 MAP）、`pruned)`（679 字节 color token 比对输出）已在收尾轮经 node `fs.readFileSync` 只读确认内容 + `fs.unlinkSync` 按精确路径删除，`git status --porcelain -uall` 复核无异常名残留；③ 本条目落盘时未做 Git 写操作，未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-18 第七轮独立评审：从零取证修复 7 项回归）
+
+- 目标/结论：feature 保持 done。本轮为第七轮独立评审：以 3e10f58 + pi-web-ui 0.75.3 app.css 为基线从零取证、不采信前六轮结论，自查自修 7 项回归，非新能力。
+- 评审方法：3e10f58 旧实现（git show）+ `package-dist/dist/assets/index-B1G0LqYR.css`（含 pi-web-ui 0.75.3 app.css）从零取证，不采信前轮结论。
+- 本轮修复 7 项：
+  - ① `src/index.css` markdown 链接 hover 恢复 `@media(hover:hover)` 包裹 + `@supports` color-mix fallback 结构。
+  - ② `CodeBlock.tsx` 菜单复制源码不再关菜单（copied 反馈可见，download/模式切换仍关）。
+  - ③ 代码块菜单互斥经 document 级 CustomEvent（`quickforge:code-block-menu-open`）恢复（含键盘路径）。
+  - ④ shell 块按钮顺序恢复 [复制][运行]。
+  - ⑤ 运行按钮恢复 assistant 门控（`shellBlock && runInTerminalEnabled && assistant`）。
+  - ⑥ `tool-renderers/shared.tsx` 的 `renderCodeBlock` 改用 code-highlight 高亮 + 1200ms copied 反馈（新增 `ToolCodeBlock` 组件）；`ToolDetails` 增加模块级 LRU(100) 开合记忆，跨 remount 持久。
+  - ⑦ `SettingsWorkspacePage.tsx` customModels tab 首次激活后保持 mounted（hidden 隐藏，`index.css` 补 `[hidden]` display:none 规则），未保存表单跨 tab 保留。
+- 新增/调整测试：chat-surface-css-contract、chat-code-block、tool-renderer-code-block.test.ts（新）、tool-renderer-shared-state.test.ts（新）、settings-workspace-react。
+- 不改项清单（本轮取证确认，非遗漏；**已被第八轮推翻**：diff 增删高亮 token 缺失、标点 color-mix 混色约淡 28% 两项已在第八轮修复，见上方第八轮条目 ③④）：
+  - CSS：~~diff 增删高亮 token 缺失~~；~~标点 color-mix 混色约淡 28%~~；复制按钮图标化弱化 hover 反馈；KaTeX 移除；代码块底外距 my-2；图片圆角新增；`:host` 规则移除（light DOM 验证无影响）；`--color-text-primary` 旧即无效。
+  - 交互：SVG/mermaid 预览模式语言标题栏消失；run 按钮 stopPropagation 移除（无消费方）；`data-quickforge-action`→`data-qf-action` 契约变更；thinking-selector patch 改 prop；side-chat renderer 隔离随注册表本地化消除；number input 新增 Enter 提交并修复双提交；全 tab Suspense 瞬时 loading；info-tip/SettingsSelect/SettingsSwitch aria 增强；turn-navigation reject 路径保守化；流式期已提交消息 mermaid 预览不再强制移除；source 变化保留 preview/source 模式（旧重置为 preview）；装饰 pass 不再强制收起菜单；滚动意图收紧 A1/A3（触摸长惯性到顶不翻页边界）；~~窗口化重开 B1/F4/B5 连带（待真实浏览器验收）~~（**已被第八轮推翻**：`ChatSurface` 恢复 `createMessageWindow({ enabled: false })`，不再窗口化，见上方第八轮条目 ①）。
+  - 不可考证：pi-web-ui 包内部行为；AbortedMessage 无历史记录。
+- 验证：`npm run test` 355 files / 4190 passed + 1 skipped（scheduled-tasks 未触发既有 flake）；`npm run lint` 0 error / 3 warnings（coverage/ 既有）；`npm run build` 成功（2.83s）；依赖 diff 干净——package.json 仅移除 pi-web-ui/mini-lit/lit + 新增 jszip(dev)，lock 26 项移除 / 0 新增 / 0 升级。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-18 第六轮一致性评审：移除 pi-web-ui 前后全面对比清单落盘）
+
+- 目标/结论：feature 保持 done。本轮为第六轮独立一致性评审：全面对比移除 pi-web-ui/mini-lit/lit 前后的 CSS 与交互，确认仅需修复 2 项并扩充契约测试、落盘对比清单，非新能力。
+- 评审方法：对比 3e10f58 旧 `src/index.css`（git show）+ `package-dist/dist/assets/index-B1G0LqR.css`（其中 pi-web-ui app.css 注入部分）+ 旧 panel-decoration 源码三源对照。
+- 一致项（等值迁移/逐字一致，未改动）：链接 a/a:hover color-mix 80% 无 offset/transition；表格无斑马纹、无 thead 规则；行内代码取值；`--qf-hl-*` 对齐 `--syntax-*`；对话框 keyframes 180ms；`--quickforge-dur-*`/ease token；主题 token；滚动条（含 thumb:hover 透明，与旧版逐字相同）；conversation-enter/waiting-enter/waiting-dot/composer 160ms/svg 菜单 160ms 逐字一致；markdown 排版；`--text-sm--line-height`。
+- 交互保留：panel-decoration 36 个装饰器全保留（command-suggestions、message-queue、plan-mode-controls、editor-bindings、composer-plus-menu、send-stop-button、scroll-to-bottom-button、message-actions、process-folding、input-clamp、local-file-path-links、ask-user/approval、agent-access-menu）；SettingsSelect 全键盘交互等价；MessageEditor Enter/IME/Escape 等价；scroll-sync/windowed-messages 契约不变。
+- 本轮修复 2 项：
+  - ① `.animate-shimmer` 补 `@media (prefers-reduced-motion: reduce) { animation: none; }` 豁免（对齐 DESIGN_LANGUAGE「所有 keyframes 必须有 prefers-reduced-motion 降级」约束，`src/index.css`，就近放在 shimmer 规则旁并带注释）。
+  - ② `.qf-markdown-block :not(pre) > code` 补 `line-height: var(--text-sm--line-height);`（对齐旧 `.markdown-content code:not(.hljs)` 的行高取值，放在 font-size 之后并加注释，`src/index.css`）。
+- 契约测试扩充：`tests/frontend/chat-surface-css-contract.test.ts` 新增行内 code 字号+行高断言；`tests/frontend/motion-design.test.ts` 新增 `.animate-shimmer` 的 reduced-motion `animation: none` 豁免断言。
+- 已知边界（不可考证/有意保留）：ApiKeyPromptDialog 的 pi-web-ui 原版动画/焦点陷阱不可考证（保持无动画，与旧版 app.css 无 dialog keyframes 一致）；code-block 折叠细节在旧 shadow DOM 内不可考证（现 max-h-96 滚动）；KaTeX 随包移除；pi-web-ui shadow DOM 内部样式不可取证。
+- 验证：定向 `npx vitest run tests/frontend/chat-surface-css-contract.test.ts tests/frontend/motion-design.test.ts` **2 files / 30 passed**（motion-design 14、css-contract 16，各含本轮新增 1 例）；全量 `npm run test` 353 files / 4173 passed + 1 skipped、`npm run lint` 0 error / 3 warnings（coverage/ 生成目录，既有）、`npm run build` 成功。
+- Notes（不扩范围）：
+  - SettingsSelect `disabled && expanded` 时存在 render 期 setState 反模式（旧版同源逻辑，行为等价，未改）。
+  - moveSelectFocus 未聚焦态 ArrowUp 落点新旧微差：新版落末项，已有测试锁定。
+  - plan-mode-controls 与 local-file-path-links 缺专门键盘交互测试。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-18 评审轮：对比移除 pi-web-ui 前后交互与 CSS，自查自修）
+
+- 目标/结论：feature 保持 done。本轮为第五轮独立评审：对比移除 pi-web-ui 前后的交互与 CSS，自查自修 5 项回归，非新能力。
+- 评审方法：基线 3e10f58（git show 取旧实现）+ `package-dist/dist/assets/index-B1G0LqYR.css` 旧 CSS 对比源 + pi-web-ui 0.75.3 npm tarball 取证。
+- 修复 5 项：
+  - ① `.qf-markdown-block a:hover` 恢复 `color-mix(in oklab, var(--primary) 80%, transparent)` 变色；链接去掉 underline-offset-4。
+  - ② markdown 表格恢复旧样式：去卡片容器、恢复竖向列分隔线、muted 表头、0.5rem padding、左对齐 semibold，值照抄旧 `.markdown-content` 规则（`src/index.css` + `Markdown.tsx`）。
+  - ③ `ApiKeyPromptDialog` 补 Escape 关闭：`isDialogEscapeKey` 纯函数 + window keydown 监听 + 单测（`tests/frontend/chat-surface-api-key-dialog.test.ts`）。
+  - ④ 代码高亮 `--qf-hl-*` 配色对齐旧 `--syntax-*`：keyword/string/comment/tag 直配、function←entity、number/property/attr←constant、builtin←variable；heading/list/diff± 无对应 token，记为已知差异。
+  - ⑤ ThinkingBlock 自带 header 兜底观感对齐装饰层：88%/86% color-mix、chevron hover 渐显（`src/index.css`）。
+- 一致项结论（等值迁移/逐 token 一致，未改动）：滚动行为、code block 交互（shell 语言集/危险命令正则/SVG/mermaid 防竞态）、composer 全链路、消息操作与 retry 可见性、主题 token、滚动条、动画、消息气泡。
+- 误报澄清：composer 内联控件装饰层仍注入全部 quickforge-* class，旧 CSS 非 dead code。
+- 验证：定向 vitest 7 files / 102 passed（含 api-key-dialog 新增 Escape 用例、css-contract 链接/表格断言扩充）+ 改动 TS 文件 eslint 0 error；全量 `npm run test` 353 files / 4171 passed + 1 skipped、`npm run lint` 0 error / 3 warnings（coverage/ 生成目录）、`npm run build` 成功。`feature_list.json` 状态未变，本轮 5 个改动文件均已在其 files 数组中，无需重复登记；JSON.parse 复验通过。
+- Notes：
+  - 装饰层锚定 `.flex.gap-2.items-center` 与 `textContent.includes(model.id)` 无契约测试保护，未来 JSX 重构会静默失效，建议单独小项加固。
+  - 附件 tile 容器 gap-2 与旧 margin 规则叠加，旧容器间距不可考。
+  - `ApiKeyPromptDialog` Save 不再联网验证 key（有意简化）；Enter 提交为新增增强。
+  - a:hover 未包 `@media(hover:hover)`（与仓内其他 hover 规则风格一致）。
+  - color-mix fallback 全量移除（现代浏览器无影响）。
+
+---
+
+## self-hosted-chat-ui（done，2026-09-18 移除 pi-web-ui 后 CSS/交互回归修复轮）
+
+- 目标/结论：feature 保持 done。本轮修的是 React 聊天面相对旧 pi-web-ui 的真实回归，不是新能力。
+- 修复：
+  - Markdown 排版：`src/index.css` 恢复 unlayered `.qf-markdown-block` 标题/段落/列表/引用/链接/code/hr；文件头注释纠正 `.markdown-content` 不是 unused web-component CSS。字号选择器补 `.qf-assistant-message` / `.qf-user-message`；用量条隐藏改 `.quickforge-composer + .qf-usage-bar`；窄屏气泡与 first/last margin reset 补 `.qf-user-message`。
+  - `Markdown.tsx` 工具类对齐（underline / my-4 list / hr my-8 / inline `bg-muted`），不加 h1–h6/p 组件。
+  - 双滚动所有权：删除 ChatSurface 的 `< 10px` 监听与无 atTail 检查的 ResizeObserver 贴底；layout 仅在 `autoScrollRef && atTail` 跟随；`ChatPanelHost` 的 `onReachTop` 用 `beginProgrammaticScroll` 包 `loadMoreMessages`。窗口化保持开启。
+  - loadMore 的 programmatic-scroll 守卫改为等窗口 commit/scrollTop 还原后再 end，不再用双 rAF。
+  - `message-actions.ts` 注释改为「React surface 仍窗口化，host 传 getWindowStart()」。
+- 有意不移植：KaTeX、artifacts 面板、highlight.js 调色板；未做真实浏览器 QA。
+- 验证：定向 vitest **7 files / 84 passed**；改动 TS 文件 eslint **0 error**。未改 `feature_list.json` 状态。未跑全量 test/lint/build。
+
+---
+
+## self-hosted-chat-ui（历史：done，2026-09-18 T1-T9 全量自研收尾）
+
+- 目标/结论：T1-T9 全部落地并收尾，feature 置 done。@earendil-works/pi-web-ui、@mariozechner/mini-lit、lit 三个 UI 运行时依赖已卸载，聊天面板、工具渲染、存储层、设置页、i18n、附件解析全量自研，包内无残留往返。迁移前基线 342 files / 3964 tests（阶段中途曾记录 340 files / 3947 passed + 1 skipped，已被本轮覆盖）。
+- 最终架构：
+  - 存储层 `src/storage/`：`AppStorage` + 4 个 Store（settings、provider-keys、sessions（含姊妹 sessions-metadata）、custom-providers），`StorageBackend`/`StorageTransaction` 为纯契约接口；唯一后端实现仍是 `src/lib/http-storage-backend.ts`（本地服务 HTTP 持久化，含 provider-keys 内存缓存），`SessionsStore` 双 store 事务聚合为单次 `/api/storage/batch`；模块级单例 `getAppStorage()/setAppStorage()`，`pi-chat.ts` 与 `SharedConversationPage` 各自构造后注册同一实例。
+  - 工具渲染 registry：`src/lib/tool-renderer-registry.ts`（模块内 Map）+ `src/lib/tool-renderers/*`，`render()` 返回 `{ content: ReactNode, isCustom }`，class 链与 DOM 结构逐字复刻原 html 模板；不再有包级 process-wide 注册表，因此删除 `side-chat-renderer-isolation.ts` 及对应测试。
+  - React surface：`src/components/chat/surface/`（18 文件：第一轮复核新增 `CodeBlock.tsx`，第二轮复核删除死组件 `AbortedMessage.tsx`，对齐轮新增 `surface-context.ts`），ChatSurface 取代旧 `ChatPanel` + `AgentInterface`（消息列表/composer/流式/思考块/工具消息/代码块/usage/附件/API key 弹窗），沿用既有 class 链以兼容共享 CSS 与 panel-decoration；`ChatPanelHost` 内化 panel-decoration 接线；`scroll-sync.ts` 与 `windowed-messages.ts` 契约不变（窗口化控制器保留原行为）。
+  - 设置页：`src/components/settings/tabs/*` + `SettingsSelect`/`settings-select-state`；旧 `src/lib/*-settings-tab.ts`（13 文件）与 `info-tip.ts`/`quickforge-settings-select.ts`/`patch-thinking-selector.ts` 删除。
+  - 主题：`src/index.css` 不再 `@import "@earendil-works/pi-web-ui/app.css"`（87KB 预构建 bundle），本地重建 tokens/Tailwind 语义色/body 基线/滚动条/shimmer，取值不变；`vite.config.ts` 删除 lit-vendor、pi-web-ui、@mariozechner 的 manualChunks。
+  - 附件：`attachment-loader.ts` 本地解析 PPTX/DOCX；Markdown 走 react-markdown + remark-gfm。
+- 关键决定：**显式声明 jszip（^3.10.1）为直接依赖**，而不是继续依靠传递依赖——pi-web-ui 已卸载，PPTX/DOCX 解析需要稳定的直接依赖边界与可复现的 lock；这是本次唯一的新增依赖（同时卸载 3 个包，package.json 与 package-lock.json 保持一致）。jszip 落在 `package.json` 的 `devDependencies`（与 react/react-markdown 等其他前端依赖一致，最终由 Vite 打进 bundle），`package-lock.json` 中已按 `^3.10.1` 解析到 jszip 3.10.1，声明与 lock 同源、无隐式传递依赖。
+- 验证（2026-09-18 终态，R1-R11 复核修复后复跑）：`npm run test` **349 files / 4067 passed + 1 skipped**（exit 0；迁移前基线 342 files / 3964 tests，上一轮收尾记录的 347 files / 4022 passed + 1 skipped 已被本轮覆盖）；`npm run lint` **0 errors / 3 warnings**（3 个 warning 全部来自 `coverage/` 生成目录的 eslint-disable 指令，非源码）；`npm run build` **成功**（exit 0，tsc -b + vite build，仅既有 chunk 体积 warning）。体积：dist/assets 合计 **16.34MB → 13.93MB**（本轮按当前 dist 复算 = 14606882 字节；pi-web-ui 3.58MB chunk 与 lit-vendor chunk 消失）；`dist/index.html` 首屏 modulepreload **6.48MB → 2.80MB**（本轮复算 11 个 modulepreload link 合计 = 2936844 字节；上一轮收尾复算为 13.94MB / 2.82MB，差异来自本轮源码微调后的重新构建）。依赖：package.json 与 package-lock.json 一致，卸载 @earendil-works/pi-web-ui / @mariozechner/mini-lit / lit，仅新增 jszip（^3.10.1）直接依赖。文档：wiki 新增 `docs/wiki/src/storage/README.md`，更新 src/、src/components/、src/lib/ 与 root-config。
+- 本轮复核修复（R1-R11 回归 + 三处小缺陷）：迁移落地后经独立复核发现并修复 11 项回归——① **代码块能力 React 化**：新增 `src/components/chat/surface/CodeBlock.tsx`，删除 `src/components/chat/panel-decoration/code-blocks.ts` 的 DOM/Lit 装饰实现，复制按钮、终端执行（含流式禁用与危险命令标记）、SVG 预览（仅 assistant 消息的自包含 SVG）、mermaid 工具栏与流式降级在 React 侧重建（配 `tests/frontend/chat-code-block.test.ts`）；② **composer DOM 契约**：`panel-decoration/editor-bindings.ts` 恢复 composer 卡片/输入区选择器与事件契约（`tests/frontend/editor-bindings.test.ts` 新增 167 行断言）；③ **附件 tile 选择器**：`surface/AttachmentTile.tsx` 修正 tile 选择器；④ **surface 文案 i18n**：`src/lib/i18n.ts` 键增补，surface/composer 文案改走词典；⑤ **思考等级口径**：统一 thinking level 取值口径；⑥ **侧边会话模型按钮**：`ChatPanelHost.tsx` 模型按钮显示判断；⑦ **过程折叠所有权租约**：`panel-decoration/process-folding.ts` 与 ChatSurface 的 `ProcessGroupReleaseBoundary` 引入所有权交还语义（`releaseProcessGroups` 只回收 React 当前不持有的节点；`message-queue.ts`/`assistant-waiting-bubble.ts` 随 DOM 契约同步修正），新增 `tests/frontend/process-folding-ownership.test.ts`。三处小缺陷一并修复：双转义换行、硬编码中文、死选择器。
+- 遗留风险/未做：① 未做真实浏览器或 Electron 客户端验收——主题 token 视觉、滚动锚定与 scroll-sync、附件预览（PPTX/DOCX/图片）、长会话窗口化、设置各 tab 仅在 jsdom + 单测层面覆盖；② pi-web-ui 内置 artifacts 面板未一对一等价复刻（HEAD 版仅在 side-chat 分支 `panel.artifactsPanel?.remove()`，面板与 `artifacts` 工具渲染器均由包内置提供），当前只有 `onArtifactsChange` + `extractSessionArtifacts` 抽取链路 → App 工作区产物/预览路径；原包已卸载无法逐项比对，如确需该能力应单独立项；③ KaTeX/highlight.js/旧 web-component 选择器随 app.css 移除，新 Markdown 未引入公式与代码高亮渲染。
+- Notes：本轮收尾只改 `feature_list.json`、`progress.md`、`session-handoff.md` 三个文档，未改源码/测试；JSON 已用 node `JSON.parse` 复验通过。
+  - 环境备注：`init.sh` 为 CRLF 换行（21 行 CRLF、0 行纯 LF），在 Git Bash/WSL 下直接 `bash init.sh` 可能因 `\r` 报错；本轮未运行 init.sh，直接执行 `npm run test/lint/build`。
+  - 根目录由本轮迁移期间的命令转义事故产生的若干 0 字节未跟踪文件已清理（非本 feature 产物）。
+  - 本轮终态刷新（同样只改 `feature_list.json`、`progress.md`、`session-handoff.md`，未改源码/测试）：补充 R1-R11 回归修复与三处小缺陷记录，verification 更新为终态数字；`feature_list.json` 已用 node `JSON.parse` 复验通过。
+  - 待定项：附件 tile 的 `title` 仍用全角冒号拼接（英文界面显示为 `...：path`），分隔符本地化待产品决策。
+  - 后续可立项项：① 真实浏览器/Electron 客户端验收（composer 卡片观感、CodeBlock 交互、窗口化滚动锚定、附件预览、暗色组合、过程折叠所有权租约在真实 React commit 时序下的表现）；② pi-web-ui 内置 artifacts 面板的等价能力（当前 QuickForge 不产出 artifact 角色消息，仅保留 `onArtifactsChange`/`extractSessionArtifacts` 链路，历史数据若含该类消息不可见）。
+- 第二轮复核修复（M1/M2/L1/L5/L6 + 终态清理，仍只改三个状态文件，未改源码）：
+  - M1/M2 **CSS ⇄ DOM 结构契约失效**：`src/index.css` 中按「消息根的直接子级」书写的两条规则（assistant 用量行隐藏、用户气泡右对齐）在迁移到 React 层级后静默失效（旧层级选择器不报错），按同一层级重建 CSS 与组件结构；新增 `tests/frontend/chat-surface-css-contract.test.ts`，对同一份契约同时断言 CSS 与 `renderToStaticMarkup` 渲染结构（`AssistantMessage`/`UserMessage`）。
+  - L1 **失效装饰与假契约测试**：删除已失效的子代理装饰函数及其假契约测试 `tests/frontend/decorate-subagent-process.test.ts`（原测试只断言源码字符串，不反映真实行为）。
+  - L5/L6 **文案 i18n 化**：`src/components/chat/panel-decoration/local-file-path-links.ts`（openLocalFile/openLocalFileWithPath）、`src/components/chat/context-usage.ts`（gitBranchLabel）去硬编码英文改走词典，surface 与装饰层文案补齐词条，`src/lib/tool-renderers/shared.tsx` 的 `run_command` 输出标签（Command/STDOUT/STDERR/Status/Exit code）本地化，`src/lib/i18n.ts` 键增补；新增 `tests/frontend/decorator-copy-i18n.test.ts` 覆盖装饰层文案与工具卡状态/命令输出标签的中英双语言。
+  - 其他清理：删除死组件 `src/components/chat/surface/AbortedMessage.tsx`（surface 由 18 文件变为 17 文件）、修正过时注释与硬编码。
+  - 既定约定：`appTranslations` 的 en/zh 键集合必须一致（当前 **1649/1649**，由 `tests/frontend/decorator-copy-i18n.test.ts` 断言键集合相等）；文案断言前显式固定语言（`applyAppLanguageFromSnapshot('en'/'zh')`），避免依赖机器 `navigator.language`。
+- 终态验证（2026-09-18，**覆盖上文「R1-R11 复核修复后」的 349 files / 4067 等阶段数字**）：`npm run test` **350 files / 4078 passed + 1 skipped**（exit 0）、`npm run lint` **0 errors / 3 warnings**（3 个 warning 全部来自 `coverage/` 生成目录的 eslint-disable 指令，非源码）、`npx tsc -b` **通过（无输出）**、`npm run build` **成功**（exit 0，built in 2.47s，仅既有 chunk 体积 warning）；体积：dist/assets **16.34MB → 13.93MB**（本轮复算 14607927 字节 / 255 文件）、`dist/index.html` 首屏 11 个 modulepreload **6.48MB → 2.80MB**（2938650 字节）；i18n en/zh 键对齐 **1649/1649**（原记 1643/1643 为误记，已于本轮全面评审自查自修轮更正）。
+- 终态遗留项：① 注释旧命名已清理——`src/components/chat/windowed-messages.ts`（第 26/30 行）与 `src/components/chat/surface/MessageList.tsx`（第 10 行）的 `<message-list>` / “the package implementation” 已改为 React `MessageList` 现状表述（第 8 行保留 “legacy `<message-list>`” 溯源说明），仅为注释、无行为影响；② 真实浏览器/Electron 验收仍未做（同下文可立项项①）；③ 聊天 Markdown 代码块**无语法高亮**（highlight.js 随依赖移除，见 feature_list boundaries）；④ 如后续需要发布，按 `docs/architecture/patch-release-runbook.zh-CN.md` 走 patch 版本流程（发布前必须完整通过 test/lint/build）；⑤ artifacts 面板等价能力与附件 tile 全角冒号本地化仍待产品决策。
+- 未提交：无 Git 写操作，未 commit/tag/push，全部改动留在工作区；未手工修改 dist/、package-dist/、package-offline/。
+- 对齐轮（第三轮独立复核，2026-09-18，源码/测试/文档/状态文件一并更新）：
+  - 附件预览安全加固 10 项：Markdown 渲染结果超链接净化（`isAllowedAttachmentHref` 白名单 + 危险 href 置 `#` + 全链接 `rel=noopener noreferrer`/`target=_blank` 硬化 + 携带可疑标记的 style 元素移除）、zip 解压条目数与解压后体积上限、超长内容截断、PDF 渲染页数上限、渲染超时、Excel 50 列/5000 行采样与稀疏 `!ref` 收窄（i18n 截断提示）、预览 ErrorBoundary、下载容错、pdfjs `isEvalSupported:false`（attachment-loader 与 AttachmentPreview 两处）；回归 `tests/frontend/attachment-preview-security.test.ts`。
+  - 行为对齐 5 项 + 3 项小修：模型切换经 `chatPanelRevision` 刷新快照（`readAgentSnapshot` 读活 state，原地换模型不再漏刷新）、composer 挂载一次性聚焦（对齐 legacy firstUpdated，不随重渲染抢焦点）、side-chat/只读面板终端命令门控改 `surface-context.ts` 的 `CommandActionsEnabledContext`（宿主按 `!sideChatMode && !readOnly` 提供，默认 fail-closed，不再按 composer DOM 探测）、`onInitialRenderReady` 渲染屏障双 rAF、滚动恢复阈值放宽；另修菜单定位回调读旧值与死参数清理。回归 `tests/frontend/chat-surface-behavior-alignment.test.ts`（5 例）。
+  - 样式对齐 3 项：MCP/subagent 工具渲染器 `isCustom:true` 压平默认卡片包裹、渲染器根级样式重置、UsageBar button 样式覆盖。
+  - 存储：`SessionsStore.updateTitle` 双 store（sessions + sessions-metadata）单事务原子化 + 幂等守卫，中途失败不再产生标题分叉；并修相关测试隔离。
+  - 自研语法高亮：新增 `src/lib/code-highlight.ts`（1459 行，零新依赖）——16 组语言（javascript/jsx、typescript/tsx、json、bash/sh、python、css/scss/less、html/xml/svg、sql、java、c、cpp、go、rust、yaml、markdown、diff）单遍线性 sticky-regex tokenizer（O(n)、无嵌套量词防回溯灾难）、`MAX_HIGHLIGHT_LENGTH`=200KB 护栏、未知语言回退纯文本；`CodeBlock.tsx` 消费（`qf-hl-*` token class），关闭「无语法高亮」迁移缺口。已知局限（阅读级启发式）：JS/TS 模板串插值不再分词、正则字面量按前置显著 token 启发式（含 `/` 字符类可提前截断）、JSX/Rust 嵌套注释与 bash heredoc/YAML block scalar 近似、流式中未闭合串/注释吞到行/块尾并随文本到达自愈。回归 `tests/frontend/code-highlight.test.ts`。
+  - 对齐轮终态验证（2026-09-18，覆盖上文 350 files / 4078 等阶段数字）：`npm run test` **353 files / 4159 passed + 1 skipped**（exit 0）、`npm run lint` **0 errors / 3 warnings**（全部为 coverage/ 生成目录的 Unused eslint-disable 指令，非源码）、`npx tsc -b` **通过（无输出）**、`npm run build` **成功**（exit 0，built in 3.19s，仅既有 chunk 体积 warning 与 pi-ai node:fs externalize 提示）；体积：dist/assets **14637992 字节 / 255 文件（约 13.96MB）**、`dist/index.html` 首屏 11 个 modulepreload 合计 **2939761 字节（约 2.80MB）**；对齐轮零新增依赖。
+  - 垃圾清理与文档同步：仓库根 0 字节异常名文件 `')`（前会话命令转义事故遗留、git 未跟踪）经 node fs 确认 size=0 后 unlink；git status 复核无其它 0 字节/异常名文件（`skills/skill-creator/scripts/__init__.py` 为被跟踪的合法 Python 包标记，保留）。wiki 同步：`docs/wiki/src/README.md`（决策记录改「语法高亮已自研补齐」，保留 KaTeX 边界）、`docs/wiki/src/components/README.md`（CodeBlock 条目 + surface-context 门控 + 目录树补 surface-context.ts）、`docs/wiki/src/lib/README.md`（新增 code-highlight.ts 表格条目）；`feature_list.json` approach（⑪对齐轮）/boundaries（关闭「无语法高亮」②⑦与 KaTeX/syntax-highlight 段，保留 KaTeX 缺失边界）/verification（终态数字）/files（+5 路径：code-highlight.ts、surface-context.ts 与三个新测试，核对存在且无重复）已同步，JSON.parse 复验通过。
+  - 对齐轮遗留（backlog，不阻塞 done）：① 流式性能三叠加优化 backlog（待单独立项）；② 7 个设置 tab 无专属测试（依赖 settings-react-harness 共享回归）；③ Excel 预览未虚拟化（5000 行采样上限兜底，超大表仍可能卡顿）；④ pi-ai 1.6MB 独立 chunk 未懒加载（可后续 code-split）；⑤ 真实浏览器/Electron 验收清单仍未执行（composer 观感、CodeBlock 交互、高亮着色视觉、滚动锚定、附件预览、暗色组合）。
+- 全面评审 + 自查自修轮（第四轮独立复核，2026-09-18，源码/测试/文档/状态文件一并更新，覆盖上文 353 files / 4159 等阶段数字）：
+  - 竞态与时序：`src/components/chat/surface/MessageEditor.tsx` 改用 `attachmentsRef` 消除 `addFiles` 异步竞态（连续选择/粘贴附件不再丢文件）；`surface/ChatSurface.tsx` 的 effect 依赖收敛为 `[agent]`、清理冗余 `resumeTail`、prompt 转发按是否重载分流并补注释。
+  - 渲染：`surface/AssistantMessage.tsx` 去掉 Fragment 的 index key（改用消息内稳定 key）。
+  - 安全：`surface/AttachmentPreview.tsx` 的 docx 后置 sanitize 补 `img[src]` 协议校验；`surface/Markdown.tsx` 新增 `isSafeMarkdownImageSrc`（拦截 `javascript:`/`data:` 等危险 scheme）。
+  - 无障碍：`MessageEditor` 的 thinking select 与 file input 补 `aria-label`；`src/components/settings/settings-select-state.ts` 未聚焦时 ArrowUp 落最后一项（与聚焦态口径一致）；`surface/UserMessage.tsx`/`surface/AttachmentOverlay.tsx` 测试钩子类名补注释。
+  - 死代码与契约：`src/index.css` 删 3 处死选择器（含 `settings-dialog`/`settings-tab` 旧 Lit 契约残留）；`src/storage/stores/sessions-store.ts` 删零引用的 `deleteSession` 别名（被测试引用的 3 个别名保留并加注释）；`src/storage/types.ts` 的 preview 注释修正为 last assistant / 200 chars；`src/lib/http-storage-backend.ts` 对 2xx 但非法 JSON 抛明确 Error（不再静默返回空）；`src/lib/local-tools.ts` 补 MCP 渲染器先到先得注释；`src/App.tsx` 的 `PREVIEW_ARTIFACT_EVENT` 注释指向修正；`src/lib/subagent-run-detail.ts`/`input-clamp.ts`/`server-agent.ts`/`src/components/workspace/useInspectorTabs.ts` 共 9 处过时注释修正；`docs/bug/frontend-bugs.md` 的 F-03 标注失效。
+  - 类型与高亮：`MessageEditor.tsx` 的 `EditorFileLike` 放宽为 `{ size: number }`（与调用方实际传入形状一致）；`src/lib/code-highlight.ts` 给 JSX 插值递归加深度上限 32（含既有 round-trip bug 修正）。
+  - i18n 与清理：`src/lib/i18n.ts` 3 行缩进 5→4 空格；删除仓库根 0 字节垃圾文件 `m[1])`（命令转义事故遗留、未跟踪）。
+  - 新增/扩充测试：code-highlight 深嵌套畸形输入 3 例、settings-select 未聚焦方向键 1 例、MarkdownBlock image safety 3 例、attachment-preview-security 的 `sanitizeAttachmentImages` 1 例 + `FakeImage` fixture。
+  - 验证（2026-09-18 本轮终态）：`npx tsc -b` **0 错误**；`npm run test` 全量 **353 files 全通过 / 4168 passed + 1 skipped**；`npm run lint` **0 error / 3 warning**（全部来自 `coverage/` 生成目录，可接受）；`npm run build` **成功**（3.49s）。
+  - Notes：
+    - 已知偶发 flake（与本次改动无关）：`tests/server/scheduled-tasks.commands.test.mjs` 第 192/593 行用例在高负载全量并行下偶发失败——均为 `vi.waitFor` 的 10s wall-clock 等待在 SQLite/IO 尖峰下超时，复跑即过；该测试与被测 server 源文件都不在本轮改动范围内。
+    - i18n 键数更正：实测 `appTranslations` en/zh 均为 **1649/1649**；上文第二轮记录写的 1643/1643 为误记，已在上文就地更正。
+    - `feature_list.json` 中本 feature 的 `files` 数组（131 项）**非穷尽**，实际改动约 143 个文件，数组只登记主要路径。
+    - 未处理/记 Notes 项（不阻塞 done，各自可单独立项）：① tool-renderers 各渲染器类未 `implements ToolRenderer`（类型安全弱化，仅靠 registry 契约约束）；② CodeBlock 预览图放大无键盘可达 + lightbox 无焦点捕获/归还；③ `ApiKeyPromptDialog` 无 Escape 关闭且输入框未 autofocus；④ docx-preview 第三方属性复制面未逐行审计。
+
+---
+
+## self-hosted-chat-ui（历史阶段：in_progress，2026-09-18 T6 通知修复；结论已被上方 done 记录取代）
+
+- 当前目标：按已授权方案一次性移除 pi-web-ui/mini-lit/lit，保留前序全部改动；阶段进度 **T1-T5 完成、T6 进行中、T7-T9 待办**，不标 done。T6 新 settings tabs 尚待完成接入及整体验证。
+- 本次改动：`src/components/settings/tabs/DefaultOptionsSettingsTab.tsx` 区分通知持久化函数别名与 React state setter；关闭落盘 false，授权落盘 true，拒绝/prompt/unsupported/异常回滚 false，加载检测旧启用值权限失效时也清理落盘。保留旧请求前启用的 native 初始化顺序；授权期间开关 disabled，最终 UI 与持久化一致。
+- 定向 lint 首次发现本 tab 迁移遗留的 render refs 与 mount effect 规则错误；限定本文件处理：镜像只由加载与事件更新，渲染改读 state，代理 finally 清 saving；一次性异步加载仅保留有理由的局部 effect lint 例外。未修改 shared、设置入口、其他 tab 或依赖。
+- 新独立测试 `tests/frontend/default-options-settings-react.test.ts` 13 例直接驱动新 React tab 渲染回调，并使用真实通知 localStorage 持久化；覆盖权限/开关/异常/初始恢复/测试通知，以及已加载兄弟设置保存和代理连续刷新。旧 tab 测试未重写。
+- 验证：`npx vitest run tests/frontend/default-options-settings-react.test.ts tests/frontend/system-notifications.test.ts` **2 files / 31 passed**；组件与新测试定向 ESLint **exit 0，无 warning**。此前 **340 files / 3947 passed + 1 skipped 仅为历史阶段验证**，不能当作当前最终状态；最终全量 test/lint/build、浏览器验收未完成。
+- Notes：新旧 tab 静态翻译键集合一致，未发现明显丢失翻译；发现 3 个数字输入旧 native change+blur 提交现为 React onChange 编辑+onBlur 提交，Enter/步进器提交时机待 T6 整体接入时确认，不在通知修复内扩大交互变更。native 系统权限/真实通知仍需实际客户端验收。本次局部通知修复不改变公共入口，独立 wiki/SVG 无需新增；整体迁移的 wiki/依赖收尾待后续阶段。无 Git 写操作或生成产物修改，所有无关历史记录保留。
+
+---
+
 ## remove-cloud-service（done，2026-09-18）
 
 - 目标：完全移除 QuickForge Cloud 云服务——服务端 `server/cloud/`、`/api/cloud/*` BFF 与全部耦合点；前端云库/组件/设置页/移动云 tab/词条/样式；配套测试删除与修复；文档/wiki/用户指南同步。
@@ -150,7 +580,7 @@
 - 当前 HEAD 重跑硬门禁：test 323 文件 / 3649 全过，lint/build 退出 0；仅既有 identity.mjs:92、KaTeX/chunk warning。CI [34797256759](https://github.com/shawnstack/quickforge/actions/runs/34797256759) 与 Desktop Build [34797259067](https://github.com/shawnstack/quickforge/actions/runs/34797259067) 网页 Success，完整 SHA 匹配；API 限流。
 - 包核验：`package-offline/shawnstack-quickforge-2.1.0.tgz`，7486125 bytes / 471 文件，SHA1 `7c952caa07a39971fdd4dbf74acd899238495d0c`；402 个 dist/server/bin 文件与当前构建逐字节一致，无需重打。
 - npm：已登录 shawnstack，用户明确授权发布；当时 publish 退出 1（EOTP）。（已闭环：用户完成双重验证后发布成功，2026-09-15 实查 registry version=2.1.0、latest=2.1.0。）
-- Notes：三状态文件更新当时未提交（后随汇总提交 rebase 并入 dev），未再次移动 tag；未知零字节文件 `x[1])` 未触碰。无架构/公共入口变化，无需同步 Wiki。
+- Notes：三状态文件更新当时未提交（后随汇总提交 rebase 并入 dev），未再次移动 tag；未知零字节文件 `x[1])` 已由后续会话清理。无架构/公共入口变化，无需同步 Wiki。
 
 ---
 
@@ -379,4 +809,29 @@
 - 现状：仓库根发现 162 个 `.goal-runtime-*` 残留目录（09-11: 85 / 09-12: 22 / 09-14: 55），每个仅 `data/logs/server-*.log`（共约 116KB）。全部早于修复提交 `ace9930`（09-15 23:41），修复后无新增。
 - 处置：一次性删除全部 162 个，删除后仓库根与 `os.tmpdir()` 均验证 0 残留；无源码/测试改动，无需跑验证命令；Git 状态无新增变化（`.gitignore:28` 已忽略该模式）。
 - 勘误：`feature_list.json` p0-goal-runtime-testdir-hygiene（done）中"删除 109 个、repo root 与 os.tmpdir() 均为 0 残留"的验证记录与事实不符——本次实际清理出 162 个，说明当时的删除/验证未覆盖全部。
-- Notes：仓库根另发现 0 字节未跟踪文件 `x[1])`（09-14 9:57 创建，疑似命令转义事故产物），未删除，待后续决策。
+- Notes：仓库根另发现 0 字节未跟踪文件 `x[1])`（09-14 9:57 创建，疑似命令转义事故产物），后续会话已清理。
+
+- 2026-09-19 视觉修正：移除 `src/lib/tool-renderers/` 6 个文件共 11 处 `text-muted-foreground/60|70` 透明度后缀，统一为全浓度 `text-muted-foreground`，恢复工具行摘要旧版视觉（新 Tailwind `@theme inline` 使透明度真实生效导致偏淡）；`src/components/chat/surface/AttachmentPreview.tsx` 另有 6 处同类命中（/60~/75，新装饰层）仅记录未改。验证：8 个 tool-renderer 相关测试文件 95 用例通过，`npm run lint` 通过（仅 coverage/ 既有 3 warning）；无测试断言受影响，feature_list.json 未改，无 Git commit。
+
+---
+
+## turn-error-row-react-ownership（done，2026-09-19 修复 removeChild NotFoundError）
+
+- 问题（用户报障）：点「重试」或刷新后浏览器抛 `Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node`，冒泡到 ErrorBoundary。
+- 根因：`src/components/chat/panel-decoration/turn-error-row.ts` 把 React 渲染的错误红块（`AssistantMessage.tsx:118-122` 的 `div.bg-destructive/10`）当作装饰层自己的行复用：`row.className = ...` 覆盖 React className、`row.replaceChildren()` 删除 React 的 `<strong>` 与文本节点，并把 escalate/details 追加到其父级。React fiber 仍视这些子节点为己有，重渲染/卸载时执行 `removeChild` 即抛错。
+- 改动（2 源码/测试文件 + 1 新测试 + wiki）：`turn-error-row.ts` 红块改为**只读**——仅内联 `style.display='none'` 隐藏（不改 className、不动子节点、不移除）；行改为装饰层自建的 `.quickforge-error-line` 兄弟节点（首次创建、之后复用，retrying 加 `.quickforge-error-retrying`），retry/details/escalate 全部挂在装饰层节点上；错误解除时清理行 + escalate + details。`decorateTurnErrorRow` 与所有导出/类型签名不变，escalate/details 仍挂 assistant 宿主（`div.qf-assistant-message`）作兄弟节点。视觉等价：改前是**替换** className 为 `quickforge-error-line`，故行样式本就完全来自该类（`index.css:6542-6707`：flex/缩进/图标/文字/按钮/升级/详情），无需补类。
+- 新增测试：`tests/frontend/turn-error-row-ownership.test.ts`（6 用例，结构 fake DOM，无 jsdom）：红块子节点/value 与 className 装饰后不变、被 `display:none` 隐藏、行只创建一次且重复 decorate 复用、点击重试仍调用 onRetry 且不删 React 子节点、escalate/details 是宿主兄弟节点、错误解除后清理。既有 `message-actions.test.ts` 的 turn error row 契约断言同步到装饰行（红块保持原样）。
+- 验证（全部 exit 0）：`npx vitest run tests/frontend/turn-error-row-ownership.test.ts tests/frontend/message-actions.test.ts tests/frontend/error-messages.test.ts tests/frontend/turn-error-state.test.ts` → 4 files / 69 passed；`npm run test` → 360 files / 4288 passed + 1 skipped；`npm run lint` → 0 error（仅 coverage/ 既有 3 warning）；`npm run build`（含 `tsc -b`）→ 通过（仅既有 KaTeX/node:fs/chunk warning）。
+- 未决风险：行改为 append 到 assistant 宿主的末尾（替代原来的原位改写），错误红块本就在渲染尾部，视觉顺序等价；若未来错误红块之后出现新的 React 尾部节点，装饰行会落在其前而非原位——当前 surface 无此结构。装饰层仍不接管 React 节点，process-folding 等其它装饰器未改。
+- 无 Git commit/tag/push；未改 `dist/`、`package-dist/`、`package-offline/`；无新增依赖。
+
+---
+
+## process-group-release-structural-gate（done，2026-09-20 修复 subagent 运行期 spinner 闪烁）
+
+- 问题（根因已由前序分析定位）：subagent 运行期间 `tool_execution_update`（子代理工具 start/end 立即发、trace ~150ms 节流）每次让 messages 数组换引用，`ChatSurface.tsx` 的 `ProcessGroupReleaseBoundary` 仅凭 `prevMessages !== nextMessages` 就整组释放存活 process 折叠组，下一 rAF decorate 走全量重建把节点搬回——两次 DOM 搬动重启 pending 工具行的 `animate-spin`。
+- 改动（叠加在并行会话的 streaming-terminal gate 之上，未回退其成果）：`shouldReleaseProcessGroups` 的 messages 信号从数组引用收窄为消息行结构渲染身份序列——直接复用 `content-parts.ts#messageRenderKeys`（与 MessageList 行 key 同一实现，防漂移），长度或任一 key 不同才 release；key 结果按数组引用 WeakMap 缓存（`getSnapshotBeforeUpdate` 每次渲染调用，避免每帧重建 Map）；messages 缺失仍防御性 release。并行会话新增的 `isStreaming` 翻转 / streamingAssistant 出现-清空信号原样保留。同步更新 ChatSurface.tsx 与 process-folding.ts 的契约注释、docs/wiki/src/components/README.md 两处副本。
+- 新增测试：`tests/frontend/chat-surface-release-gate.test.ts`（10 用例：引用变化但结构不变不 release、toolResult 原位重插不 release、新增/删除/重排/换身份 release、重复身份 occurrence 后缀稳定、无时间戳指纹前缀稳定语义、终态翻转仍 release、缺 gate/messages 防御 release、缓存一致性）；并行会话新加的 `process-folding-ownership.test.ts` 中 2 个以空数组占位断言旧 identity 语义的用例已按新契约修正数据与断言。
+- 验证（全部 exit 0）：定向 5 文件 116 tests 通过；`npm run test` 364 files / 4347 passed + 1 skipped；`npm run lint` 通过；`npm run build`（含 tsc -b）通过（仅既有 KaTeX/node:fs/chunk warning）。
+- 未决风险（语义收窄的理论边界，未发现真实触发路径）：整表替换类写入（`messages_replaced`/watchdog state 对账/`message_end` 全量回填）若产生「行身份序列完全相同但某行内容 part 结构收缩」的数组，新 gate 不释放，React 行内 removeChild/insertBefore 可能打到被折叠节点。已核查现有写入方（rollback/clear/compaction 改变行身份或长度、tool_execution 只原位重插 toolResult、metadata 更新不改结构），未发现该形态；如未来出现 removeChild NotFoundError 回归，优先检查此类写入。
+- 无 Git commit/tag/push；未改 `dist/`、`package-dist/`、`package-offline/`；无新增依赖；未改 feature_list.json（全部 done，本轮为 bug 修复轮次）。

@@ -124,7 +124,7 @@ function todoStatusLabel(status: TodoWriteStatus) {
 function TodoStatusIcon({ status }: { status: TodoWriteStatus }) {
   if (status === 'completed') return <CheckCircle2 className="size-4 text-emerald-600" />
   if (status === 'in_progress') return <Clock3 className="size-4 text-amber-600" />
-  return <Circle className="size-4 text-muted-foreground/65" />
+  return <Circle className="size-4" />
 }
 
 function formatDuration(payload: SubagentRunPayload) {
@@ -236,7 +236,7 @@ export function GitToolsPinnedSummary({
         content: (
           <>
             <GoalIcon className="size-3.5" aria-hidden="true" />
-            <span className="max-w-[8.5rem] truncate text-foreground/88">{goalView.objective || t('goalObjectiveEmpty')}</span>
+            <span className="max-w-[8.5rem] truncate">{goalView.objective || t('goalObjectiveEmpty')}</span>
             <span>{t(goalView.statusKey as AppTextKey)}</span>
             <span>{goalPassedCriteria}/{goalView.criteria.length}</span>
           </>
@@ -742,7 +742,7 @@ export function GitToolsPinnedSummary({
         <section aria-labelledby="pinned-environment-title">
           <div id="pinned-environment-title" className="mb-2 pr-8 text-xs font-medium text-muted-foreground">{t('gitToolsTitle')}</div>
           <div className="space-y-1 text-sm">
-            <button type="button" className={cn('hidden h-11 w-full items-center gap-3 rounded-2xl px-2.5 text-left text-foreground/88 transition-colors hover:bg-muted/45 hover:text-foreground md:flex', mobileShell && 'md:hidden')} onClick={onOpenChanges}>
+            <button type="button" className={cn('hidden h-11 w-full items-center gap-3 rounded-2xl px-2.5 text-left transition-colors hover:text-foreground md:flex', mobileShell && 'md:hidden')} onClick={onOpenChanges}>
               <FileDiff className="size-4 shrink-0 text-muted-foreground" />
               <span className="flex-1 font-medium">{t('gitToolsChanges')}</span>
               <span className="font-medium text-emerald-600">+{totals.additions}</span>
@@ -750,7 +750,7 @@ export function GitToolsPinnedSummary({
             </button>
 
             <div className="relative">
-              <button ref={branchRowRef} type="button" className="flex h-11 w-full items-center gap-3 rounded-2xl px-2.5 text-left text-foreground/88 transition-colors hover:bg-muted/45 hover:text-foreground" onClick={toggleBranchMenu} aria-expanded={branchMenuOpen}>
+              <button ref={branchRowRef} type="button" className="flex h-11 w-full items-center gap-3 rounded-2xl px-2.5 text-left transition-colors hover:text-foreground" onClick={toggleBranchMenu} aria-expanded={branchMenuOpen}>
                 <GitBranch className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate font-medium">{status.branch || t('unknown')}</span>
                 <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', branchMenuOpen && 'rotate-180')} />
@@ -785,7 +785,7 @@ export function GitToolsPinnedSummary({
               ) : null}
             </div>
 
-            <button type="button" className="flex h-11 w-full items-center gap-3 rounded-2xl px-2.5 text-left text-foreground/88 transition-colors hover:bg-muted/45 hover:text-foreground" onClick={onOpenCommitPush}>
+            <button type="button" className="flex h-11 w-full items-center gap-3 rounded-2xl px-2.5 text-left transition-colors hover:text-foreground" onClick={onOpenCommitPush}>
               <SlidersHorizontal className="size-4 shrink-0 text-muted-foreground" />
               <span className="font-medium">{t('gitToolsCommitOrPush')}</span>
             </button>
@@ -801,7 +801,7 @@ export function GitToolsPinnedSummary({
           </div>
           <div className="space-y-1">
             {visibleTodos.map((todo, index) => (
-              <div key={`${todo.content}:${index}`} className="flex min-h-9 items-center gap-2.5 px-1.5 text-sm text-foreground/88">
+              <div key={`${todo.content}:${index}`} className="flex min-h-9 items-center gap-2.5 px-1.5 text-sm">
                 <span className="shrink-0" aria-hidden="true"><TodoStatusIcon status={todo.status} /></span>
                 <span className={cn('min-w-0 flex-1 truncate', todo.status === 'completed' && 'text-muted-foreground line-through')}>{todo.content}</span>
                 <span className="sr-only">{todoStatusLabel(todo.status)}</span>
@@ -809,7 +809,7 @@ export function GitToolsPinnedSummary({
             ))}
           </div>
           {todos.length > 3 ? (
-            <button type="button" className="mt-1 rounded-lg px-1.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground" onClick={() => setExpandedTasksSignature(showAllTasks ? undefined : todoSignature)} aria-expanded={showAllTasks}>
+            <button type="button" className="mt-1 rounded-lg px-1.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground" onClick={() => setExpandedTasksSignature(showAllTasks ? undefined : todoSignature)} aria-expanded={showAllTasks}>
               {showAllTasks ? t('pinnedCollapseTasks') : t('pinnedViewAllTasks', { count: todos.length })}
             </button>
           ) : null}
@@ -823,7 +823,7 @@ export function GitToolsPinnedSummary({
           </div>
           {runningSubagentRuns.length > 0 ? (
             <div className="mb-2">
-              <div className="mb-1 px-1.5 text-[11px] text-muted-foreground/85">{t('pinnedSubagentsRunningSection')}</div>
+              <div className="mb-1 px-1.5 text-[11px]">{t('pinnedSubagentsRunningSection')}</div>
               <div className="space-y-1">
                 {runningSubagentRuns.map((payload) => {
                   const label = payload.label || payload.name || t('subagentGeneral')
@@ -831,13 +831,13 @@ export function GitToolsPinnedSummary({
                     <button
                       key={payload.canonicalToolCallId || payload.runId}
                       type="button"
-                      className="flex min-h-11 w-full items-center gap-2.5 rounded-2xl px-1.5 text-left transition-colors hover:bg-muted/45"
+                      className="flex min-h-11 w-full items-center gap-2.5 rounded-2xl px-1.5 text-left transition-colors"
                       onClick={() => onOpenSubagentRun(payload)}
                       aria-label={t('pinnedSubagentOpenAria', { name: label, task: payload.task })}
                     >
-                      <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground/65" aria-hidden="true" />
+                      <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden="true" />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-foreground/88">{label}</span>
+                        <span className="block truncate text-sm font-medium">{label}</span>
                         <span className="block truncate text-xs text-muted-foreground">{payload.task}</span>
                       </span>
                     </button>
@@ -850,14 +850,14 @@ export function GitToolsPinnedSummary({
             <div>
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-3 rounded-lg px-1.5 py-1 text-[11px] text-muted-foreground/85 transition-colors hover:bg-muted/45 hover:text-foreground"
+                className="flex w-full items-center justify-between gap-3 rounded-lg px-1.5 py-1 text-[11px] transition-colors hover:text-foreground"
                 onClick={() => setFinishedSubagentRunsCollapsed((value) => !value)}
                 aria-expanded={!finishedSubagentRunsCollapsed}
               >
                 <span>{t('pinnedSubagentsFinishedSection')} · {finishedSubagentRuns.length}</span>
                 {finishedSubagentRunsCollapsed
-                  ? <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/85" aria-hidden="true" />
-                  : <ChevronDown className="size-3.5 shrink-0 text-muted-foreground/85" aria-hidden="true" />}
+                  ? <ChevronRight className="size-3.5 shrink-0" aria-hidden="true" />
+                  : <ChevronDown className="size-3.5 shrink-0" aria-hidden="true" />}
               </button>
               {!finishedSubagentRunsCollapsed ? (
                 <div className="mt-1 space-y-1">
@@ -868,7 +868,7 @@ export function GitToolsPinnedSummary({
                       <button
                         key={payload.canonicalToolCallId || payload.runId}
                         type="button"
-                        className="flex min-h-11 w-full items-center gap-2.5 rounded-2xl px-1.5 text-left transition-colors hover:bg-muted/45"
+                        className="flex min-h-11 w-full items-center gap-2.5 rounded-2xl px-1.5 text-left transition-colors"
                         onClick={() => onOpenSubagentRun(payload)}
                         aria-label={t('pinnedSubagentOpenAria', { name: label, task: payload.task })}
                       >
@@ -876,10 +876,10 @@ export function GitToolsPinnedSummary({
                           ? <XCircle className="size-4 shrink-0 text-destructive" />
                           : <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />}
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-foreground/88">{label}</span>
+                          <span className="block truncate text-sm font-medium">{label}</span>
                           <span className="block truncate text-xs text-muted-foreground">{payload.task}</span>
                         </span>
-                        {duration ? <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{duration}</span> : <Bot className="size-3.5 shrink-0 text-muted-foreground/65" />}
+                        {duration ? <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{duration}</span> : <Bot className="size-3.5 shrink-0" />}
                       </button>
                     )
                   })}
@@ -933,7 +933,7 @@ export function GitToolsPinnedSummary({
         <button
           ref={capsuleMainRef}
           type="button"
-          className="quickforge-pinned-summary-capsule-main group flex min-w-0 flex-1 items-center gap-2 rounded-l-full py-1 pl-2.5 text-left transition-colors hover:bg-muted/30"
+          className="quickforge-pinned-summary-capsule-main group flex min-w-0 flex-1 items-center gap-2 rounded-l-full py-1 pl-2.5 text-left transition-colors"
           onClick={() => {
             if (suppressClickRef.current) return
             openDesktopPanel()
@@ -946,17 +946,17 @@ export function GitToolsPinnedSummary({
         >
           {capsuleSegments.map((segment, index) => (
             <span key={segment.key} className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap text-xs font-medium tabular-nums text-muted-foreground">
-              {index > 0 ? <span className="h-3.5 w-px shrink-0 bg-foreground/15" aria-hidden="true" /> : null}
+              {index > 0 ? <span className="h-3.5 w-px shrink-0" aria-hidden="true" /> : null}
               {segment.content}
             </span>
           ))}
-          <span className="ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors group-hover:bg-muted/40 group-hover:text-muted-foreground group-focus-visible:bg-muted/40 group-focus-visible:text-muted-foreground" aria-hidden="true">
+          <span className="ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-full transition-colors" aria-hidden="true">
             <Maximize2 className="size-3.5" />
           </span>
         </button>
         <button
           type="button"
-          className="quickforge-pinned-summary-capsule-close mr-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
+          className="quickforge-pinned-summary-capsule-close mr-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
           onClick={(event) => {
             event.stopPropagation()
             closeSummary({ focusTrigger: true })
@@ -987,10 +987,10 @@ export function GitToolsPinnedSummary({
         >
           <GripHorizontal className="size-4" aria-hidden="true" />
           <span className="flex-1">{t('pinnedSummaryDrag')}</span>
-          <button ref={desktopPanelMinimizeRef} type="button" className="inline-flex size-8 items-center justify-center rounded-full text-foreground/85 transition-colors hover:bg-muted" onClick={() => minimizeDesktopPanel()} aria-label={t('pinnedSummaryMinimize')} title={t('pinnedSummaryMinimize')} tabIndex={desktopMode === 'panel' ? 0 : -1}>
+          <button ref={desktopPanelMinimizeRef} type="button" className="inline-flex size-8 items-center justify-center rounded-full transition-colors hover:bg-muted" onClick={() => minimizeDesktopPanel()} aria-label={t('pinnedSummaryMinimize')} title={t('pinnedSummaryMinimize')} tabIndex={desktopMode === 'panel' ? 0 : -1}>
             <Minimize2 className="size-4" aria-hidden="true" />
           </button>
-          <button type="button" className="inline-flex size-8 items-center justify-center rounded-full text-foreground/85 transition-colors hover:bg-muted" onClick={() => closeSummary({ focusTrigger: true })} aria-label={t('pinnedSummaryClose')} title={t('pinnedSummaryClose')} tabIndex={desktopMode === 'panel' ? 0 : -1}>
+          <button type="button" className="inline-flex size-8 items-center justify-center rounded-full transition-colors hover:bg-muted" onClick={() => closeSummary({ focusTrigger: true })} aria-label={t('pinnedSummaryClose')} title={t('pinnedSummaryClose')} tabIndex={desktopMode === 'panel' ? 0 : -1}>
             <X className="size-4" aria-hidden="true" />
           </button>
         </div>
@@ -1044,8 +1044,8 @@ export function GitToolsPinnedSummary({
           ref={topTriggerRef}
           type="button"
           className={cn(
-            'inline-flex size-9 items-center justify-center rounded-2xl bg-transparent text-muted-foreground/85 transition-colors hover:bg-muted/45 hover:text-foreground/90',
-            floatingSummaryVisible && 'bg-muted/45 text-foreground/90',
+            'inline-flex size-9 items-center justify-center rounded-2xl bg-transparent transition-colors',
+            floatingSummaryVisible && '',
           )}
           onClick={toggleSummaryFromToolbar}
           aria-label={t('togglePinnedSummary')}
@@ -1065,7 +1065,7 @@ export function GitToolsPinnedSummary({
               mobileShell && 'md:fixed md:inset-x-2 md:right-auto md:top-14 md:max-h-[calc(100dvh-4rem)] md:w-auto md:overflow-y-auto lg:inset-x-2 lg:right-auto lg:top-14',
             )}
           >
-            <button type="button" className="absolute right-3 top-3 z-10 inline-flex size-8 items-center justify-center rounded-full text-foreground/85 transition-colors hover:bg-muted" onClick={() => closeSummary()} aria-label={t('pinnedSummaryClose')} title={t('pinnedSummaryClose')}>
+            <button type="button" className="absolute right-3 top-3 z-10 inline-flex size-8 items-center justify-center rounded-full transition-colors hover:bg-muted" onClick={() => closeSummary()} aria-label={t('pinnedSummaryClose')} title={t('pinnedSummaryClose')}>
               <X className="size-4" />
             </button>
             {summarySections}

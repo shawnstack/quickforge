@@ -132,7 +132,7 @@ export function createFileReferenceSuggestions({
 
   const suggestionsElement = () => panel.querySelector<FileSuggestionElement>('.quickforge-file-reference-suggestions')
   const readEditor = () => {
-    const editor = panel.querySelector<MessageEditorElement>('message-editor')
+    const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
     const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
     const text = editor?.value ?? textarea?.value ?? ''
     return { editor, textarea, text }
@@ -397,7 +397,7 @@ export function createFileReferenceSuggestions({
   }
 
   const cleanupTextareaHandler = () => {
-    const textarea = panel.querySelector<FileTextareaElement>('message-editor textarea')
+    const textarea = panel.querySelector<FileTextareaElement>('.qf-message-editor textarea')
     if (!textarea) return
     composing = false
     if (textarea.__quickforgeFileReferenceHandler) textarea.removeEventListener('keydown', textarea.__quickforgeFileReferenceHandler, true)

@@ -249,7 +249,7 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
             }}
             placeholder={t('gitCommitMessagePlaceholder')}
             disabled={Boolean(busy)}
-            className="min-h-40 w-full resize-none bg-transparent pr-12 text-base leading-7 text-foreground/90 outline-none placeholder:text-muted-foreground/72 disabled:opacity-60"
+            className="min-h-40 w-full resize-none bg-transparent pr-12 text-base leading-7 outline-none disabled:opacity-60"
           />
           <button
             type="button"
@@ -268,7 +268,7 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
 
         <div className="border-t border-[color-mix(in_oklab,var(--border)_24%,transparent)] px-6 py-3 text-sm">
           <div className="flex items-center justify-between gap-4">
-            <label className="flex min-w-0 items-center gap-3 text-foreground/92">
+            <label className="flex min-w-0 items-center gap-3">
               <button
                 type="button"
                 className={cn(
@@ -309,7 +309,7 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
           ) : null}
         </div>
 
-        {refreshing ? <div className="mx-6 mb-3 rounded-2xl bg-muted/55 px-4 py-3 text-sm text-muted-foreground">{t('gitRefreshingStatus')}</div> : null}
+        {refreshing ? <div className="mx-6 mb-3 rounded-2xl px-4 py-3 text-sm text-muted-foreground">{t('gitRefreshingStatus')}</div> : null}
         {detached ? <div className="mx-6 mb-3 rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{t('gitDetachedHeadBlocked')}</div> : null}
         {pushError ? (
           <div className="mx-6 mb-3 rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -322,21 +322,21 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
 
         <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-6 py-4">
           {pushError ? (
-            <button type="button" className="flex h-12 w-full items-center gap-3 rounded-2xl bg-muted/70 px-3 text-left transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45" disabled={Boolean(busy) || detached} onClick={() => void runAction('push')}>
+            <button type="button" className="flex h-12 w-full items-center gap-3 rounded-2xl px-3 text-left transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45" disabled={Boolean(busy) || detached} onClick={() => void runAction('push')}>
               {busy === 'push' ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <ArrowUpFromLine className="size-4 shrink-0 text-muted-foreground" />}
               <span>{t('gitRetryPush')}</span>
             </button>
           ) : (
             <div className="space-y-1.5 text-base">
-              <button type="button" className="flex h-11 w-full items-center gap-3 rounded-2xl px-3 text-left transition-colors hover:bg-muted/55 disabled:cursor-not-allowed disabled:opacity-45" disabled={Boolean(busy) || !canCommit} onClick={() => void runAction('commit')}>
+              <button type="button" className="flex h-11 w-full items-center gap-3 rounded-2xl px-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45" disabled={Boolean(busy) || !canCommit} onClick={() => void runAction('commit')}>
                 {busy === 'commit' ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <GitCommitHorizontal className="size-4 shrink-0 text-muted-foreground" />}
                 <span>{t('gitCommitOnly')}</span>
               </button>
-              <button type="button" className="flex h-12 w-full items-center gap-3 rounded-2xl bg-muted/70 px-3 text-left transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45" disabled={Boolean(busy) || !canCommit} onClick={() => void runAction('commit-push')}>
+              <button type="button" className="flex h-12 w-full items-center gap-3 rounded-2xl px-3 text-left transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45" disabled={Boolean(busy) || !canCommit} onClick={() => void runAction('commit-push')}>
                 {busy === 'commit-push' ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <UploadCloud className="size-4 shrink-0 text-muted-foreground" />}
                 <span className="flex-1">{t('gitCommitAndPush')}</span>
               </button>
-              <button type="button" className="flex h-11 w-full items-center gap-3 rounded-2xl px-3 text-left text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35" disabled={Boolean(busy) || refreshing || detached} onClick={() => void runAction('push')}>
+              <button type="button" className="flex h-11 w-full items-center gap-3 rounded-2xl px-3 text-left text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35" disabled={Boolean(busy) || refreshing || detached} onClick={() => void runAction('push')}>
                 {busy === 'push' ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <ArrowUpFromLine className="size-4 shrink-0 text-muted-foreground" />}
                 <span>{t('gitPushOnly')}</span>
               </button>

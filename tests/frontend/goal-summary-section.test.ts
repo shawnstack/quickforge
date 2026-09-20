@@ -1,7 +1,6 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
+import { afterEach, describe, expect, it } from 'vitest'
 import { GoalSummarySection } from '../../src/components/git/GoalSummarySection'
 import { GoalInspectorContent } from '../../src/components/workspace/GoalInspectorContent'
 import { applyAppLanguageFromSnapshot } from '../../src/lib/i18n'

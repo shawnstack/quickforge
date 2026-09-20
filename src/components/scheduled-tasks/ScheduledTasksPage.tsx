@@ -451,7 +451,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
     { value: 'cron', label: t('taskFrequencyCron') },
   ]
   const weekLabels = [t('taskSunday'), t('taskMonday'), t('taskTuesday'), t('taskWednesday'), t('taskThursday'), t('taskFriday'), t('taskSaturday')]
-  const scheduleInputClass = 'mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring'
+  const scheduleInputClass = 'mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none'
   const scheduleSummary = form.scheduleType === 'cron' ? form.cronExpression
     : form.scheduleType === 'once' ? `${t('taskFrequencyOnce')} · ${formatDateTime(form.executeAt)}`
     : form.scheduleType === 'interval' ? `${t('taskIntervalValue')} ${form.intervalValue} ${{ minute: t('taskUnitMinute'), hour: t('taskUnitHour'), day: t('taskUnitDay') }[form.intervalUnit]} · ${t('taskFirstExecution')} ${formatDateTime(form.executeAt)}`
@@ -742,7 +742,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                   {editingTask ? t('editTask') : t('createTask')}
                 </h2>
 
-                <div className="rounded-2xl border border-border bg-muted/20 p-3">
+                <div className="rounded-2xl border border-border p-3">
                   <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
                     <Sparkles className="size-4 text-primary" />
                     {t('aiParseTask')}
@@ -751,7 +751,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                   <label className="block text-sm font-medium text-foreground">
                     {t('taskScheduleDescriptionLabel')}
                     <textarea
-                      className="mt-1 min-h-24 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
+                      className="mt-1 min-h-24 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground"
                       value={form.scheduleText}
                       onChange={(event) => updateForm('scheduleText', event.target.value)}
                       placeholder={t('taskScheduleDescriptionPlaceholder')}
@@ -766,7 +766,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                 </div>
 
                 {parsedTask ? (
-                  <div className="rounded-xl border border-border bg-background/60 p-3 text-sm">
+                  <div className="rounded-xl border border-border p-3 text-sm">
                     <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
                       <CheckCircle2 className="size-4 text-emerald-600" />
                       {t('aiParsed')}
@@ -785,7 +785,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                   <label className="block text-sm font-medium text-foreground">
                     {t('taskTitleLabel')}
                     <input
-                      className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring"
+                      className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none"
                       value={form.title}
                       onChange={(event) => updateForm('title', event.target.value)}
                       placeholder={t('taskTitlePlaceholder')}
@@ -819,7 +819,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       {['daily', 'weekly', 'monthly'].includes(form.scheduleType) ? <label className="block text-sm font-medium text-foreground">{t('taskExecutionTime')}<input type="time" className={scheduleInputClass} value={form.executeTime} onChange={(event) => updateForm('executeTime', event.target.value)} /></label> : null}
                       {form.scheduleType === 'weekly' ? <fieldset className="sm:col-span-2">
                         <legend className="mb-2 text-sm font-medium text-foreground">{t('taskRepeatDays')}</legend>
-                        <div className="flex flex-wrap gap-2">{[1, 2, 3, 4, 5, 6, 0].map((day) => <button key={day} type="button" aria-pressed={form.weekDays.includes(day)} className={cn('rounded-md border px-3 py-2 text-sm', form.weekDays.includes(day) ? 'border-ring bg-muted text-foreground' : 'border-input text-muted-foreground')} onClick={() => updateForm('weekDays', form.weekDays.includes(day) ? form.weekDays.filter((value) => value !== day) : [...form.weekDays, day])}>{weekLabels[day]}</button>)}</div>
+                        <div className="flex flex-wrap gap-2">{[1, 2, 3, 4, 5, 6, 0].map((day) => <button key={day} type="button" aria-pressed={form.weekDays.includes(day)} className={cn('rounded-md border px-3 py-2 text-sm', form.weekDays.includes(day) ? 'bg-muted text-foreground' : 'border-input text-muted-foreground')} onClick={() => updateForm('weekDays', form.weekDays.includes(day) ? form.weekDays.filter((value) => value !== day) : [...form.weekDays, day])}>{weekLabels[day]}</button>)}</div>
                       </fieldset> : null}
                       {form.scheduleType === 'monthly' ? <label className="block text-sm font-medium text-foreground">{t('taskMonthDay')}<input type="number" min="1" max="31" step="1" className={scheduleInputClass} value={form.monthDay} onChange={(event) => updateForm('monthDay', event.target.value)} /><span className="mt-1 block text-xs text-muted-foreground">{t('taskMonthDayHelp')}</span></label> : null}
                       {form.scheduleType === 'cron' ? <label className="block text-sm font-medium text-foreground sm:col-span-2">{t('taskCronExpression')}<input className={cn(scheduleInputClass, 'font-mono')} value={form.cronExpression} onChange={(event) => updateForm('cronExpression', event.target.value)} placeholder="0 9 * * 1-5" /><span className="mt-1 block text-xs text-muted-foreground">{t('taskCronHelp')}</span></label> : null}
@@ -838,7 +838,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       <InfoTip label={t('taskExecutionModeHelp')} />
                     </span>
                     <select
-                      className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:border-ring"
+                      className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none"
                       value={form.executionMode}
                       onChange={(event) => updateForm('executionMode', event.target.value as ExecutionMode)}
                       aria-label={t('taskExecutionMode')}
@@ -912,7 +912,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                   <label className="block text-sm font-medium text-foreground sm:col-span-2">
                     {t('promptContentLabel')}
                     <textarea
-                      className="mt-1 min-h-28 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
+                      className="mt-1 min-h-28 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground"
                       value={form.instruction}
                       onChange={(event) => updateForm('instruction', event.target.value)}
                       placeholder={t('promptContentPlaceholder')}
@@ -925,7 +925,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                   {t('taskEnabledSwitch')}
                 </label>
 
-                {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+                {error ? <div className="rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
               </fieldset>
 
               <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
@@ -950,7 +950,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                     <div className="mb-1 font-medium text-foreground">{t('taskContent')}</div>
                     <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-muted p-3 text-muted-foreground">{detailTask.instruction}</pre>
                   </div>
-                  <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+                  <div className="grid gap-y-1.5 sm:grid-cols-2">
                     <div className="flex min-w-0 items-baseline gap-2">
                       <span className="shrink-0 text-xs text-muted-foreground">{t('executionRule')}</span>
                       <span className="truncate text-sm text-foreground">{detailTask.scheduleRule}</span>
@@ -1021,7 +1021,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
           ) : (
             /* ===== 列表 / 历史视图 ===== */
             <>
-              {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+              {error ? <div className="rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
 
               {activeTab === 'tasks' ? (
                 <>
@@ -1040,13 +1040,13 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       const taskPending = pendingTaskIds.has(task.id)
                       const switchDisabled = taskPending || task.status === 'completed'
                       return (
-                        <div key={task.id} className="flex cursor-pointer items-center gap-3 border-b border-border px-4 py-2.5 transition-colors last:border-b-0 hover:bg-muted/50" onClick={() => setDetailTaskId(task.id)}>
+                        <div key={task.id} className="flex cursor-pointer items-center gap-3 border-b border-border px-4 py-2.5 transition-colors last:border-b-0" onClick={() => setDetailTaskId(task.id)}>
                           <div className="min-w-0 flex-1">
                             <h3 className="truncate text-sm font-medium text-foreground">{task.title}</h3>
                             <p className="mt-0.5 truncate text-xs text-muted-foreground">{truncateContent(task.instruction, 20)}</p>
                           </div>
-                          <div className="hidden w-40 shrink-0 truncate text-xs text-muted-foreground md:block">{task.scheduleRule}</div>
-                          <div className="hidden w-44 shrink-0 space-y-0.5 text-xs text-muted-foreground lg:block">
+                          <div className="hidden shrink-0 truncate text-xs text-muted-foreground md:block">{task.scheduleRule}</div>
+                          <div className="hidden shrink-0 space-y-0.5 text-xs text-muted-foreground lg:block">
                             <p className="truncate">{t('lastExecution')}{formatDateTime(task.lastRunAt)}</p>
                             <p className="truncate">{t('nextExecution')}{formatDateTime(task.nextRunAt)}</p>
                           </div>
@@ -1136,7 +1136,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       <div className="p-6 text-center text-sm text-muted-foreground">{t('noExecutionHistory')}</div>
                     ) : historyPayload.runs.map((run) => (
                       <div key={`${run.taskId}:${run.id}`} className="border-b border-border last:border-b-0">
-                        <button type="button" className="grid w-full min-w-[600px] grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/50" onClick={() => { const key = `${run.taskId}:${run.id}`; setExpandedRunId(expandedRunId === key ? null : key) }}>
+                        <button type="button" className="grid w-full min-w-[600px] grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 px-4 py-2.5 text-left text-sm transition-colors" onClick={() => { const key = `${run.taskId}:${run.id}`; setExpandedRunId(expandedRunId === key ? null : key) }}>
                           <span className="min-w-0 truncate text-foreground">{run.taskTitle}</span>
                           <span><span className={cn('rounded-full px-2 py-0.5 text-xs', statusClass(run.status))}>{statusLabel(run.status)}</span></span>
                           <span className="text-muted-foreground">{run.trigger === 'manual' ? t('manualRun') : t('autoRun')}</span>
@@ -1187,7 +1187,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
           <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted" onClick={() => { setOpenMenuTaskId(null); setDetailTaskId(openMenuTask.id) }}>
             <Eye className="size-3.5" />{t('viewDetails')}
           </button>
-          <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-muted-foreground transition-colors hover:bg-muted hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50" disabled={pendingTaskIds.has(openMenuTask.id) || taskHasRunningRuns(openMenuTask)} onClick={() => taskAction(openMenuTask.id, 'delete')}>
+          <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={pendingTaskIds.has(openMenuTask.id) || taskHasRunningRuns(openMenuTask)} onClick={() => taskAction(openMenuTask.id, 'delete')}>
             <Trash2 className="size-3.5" />{t('deleteTask')}
           </button>
         </div>,

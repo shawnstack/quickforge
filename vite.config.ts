@@ -42,11 +42,6 @@ export default defineConfig({
               id.includes('node_modules/scheduler/')) {
             return 'react-vendor'
           }
-          // Lit — web component runtime
-          if (id.includes('node_modules/lit/') || id.includes('node_modules/lit-html/') ||
-              id.includes('node_modules/@lit/') || id.includes('node_modules/lit-element/')) {
-            return 'lit-vendor'
-          }
           // Icons — large, rarely changes
           if (id.includes('node_modules/lucide-react/')) {
             return 'icons'
@@ -55,19 +50,15 @@ export default defineConfig({
           if (id.includes('node_modules/@xterm/')) {
             return 'xterm'
           }
-          if (id.includes('node_modules/@earendil-works/pi-web-ui/')) {
-            return 'pi-web-ui'
-          }
           if (id.includes('node_modules/@earendil-works/pi-agent-core/')) {
             return 'pi-agent-core'
           }
           if (id.includes('node_modules/@earendil-works/pi-ai/')) {
             return 'pi-ai'
           }
-          // pi-ai dynamic provider chunks support
-          if (id.includes('node_modules/@mariozechner/')) {
-            // Keep provider-specific splits the SDK already does via dynamic import
-            return
+          // KaTeX — math rendering for the chat markdown surface
+          if (id.includes('node_modules/katex/')) {
+            return 'katex'
           }
           // CSS utilities
           if (id.includes('node_modules/clsx/') || id.includes('node_modules/class-variance-authority/') ||

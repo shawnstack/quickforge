@@ -23,15 +23,15 @@ function hasAssistantContent(message: MessageWithUsage) {
 }
 
 function getPrimaryMessageList(panel: HTMLElement) {
-  return panel.querySelector<HTMLElement>('message-list')
+  return panel.querySelector<HTMLElement>('.qf-message-list')
 }
 
 function getPrimaryMessageElements(panel: HTMLElement) {
   const messageList = getPrimaryMessageList(panel)
   if (!messageList) return []
 
-  return Array.from(messageList.querySelectorAll<HTMLElement>('user-message, assistant-message'))
-    .filter((element) => element.closest('message-list') === messageList)
+  return Array.from(messageList.querySelectorAll<HTMLElement>('.qf-user-message, .qf-assistant-message'))
+    .filter((element) => element.closest('.qf-message-list') === messageList)
 }
 
 const ASSISTANT_WAITING_SELECTOR = '.quickforge-assistant-waiting'
@@ -42,12 +42,15 @@ function removeAssistantWaitingBubble(panel: HTMLElement) {
 
 function assistantElementHasVisibleContent(element: HTMLElement) {
   // Check for thinking-block or tool-message that is NOT already inside a process-body
-  const processElements = element.querySelectorAll('thinking-block, tool-message')
+  const processElements = element.querySelectorAll('.qf-thinking-block, .qf-tool-message')
   for (const el of processElements) {
     if (!el.closest('.quickforge-process-body')) return true
   }
-  // Check for markdown-block or code-block that is NOT inside a process-body
-  const mdBlocks = element.querySelectorAll<HTMLElement>('markdown-block, code-block')
+  // Check for markdown-block that is NOT inside a process-body. Fenced code is
+  // rendered by React inside `.qf-markdown-block` (surface/Markdown.tsx →
+  // CodeBlock), so the markdown container already covers code-only content;
+  // the legacy `<code-block>` custom element no longer exists.
+  const mdBlocks = element.querySelectorAll<HTMLElement>('.qf-markdown-block')
   for (const block of mdBlocks) {
     if (block.closest('.quickforge-process-body')) continue
     if ((block.textContent ?? '').trim().length > 0) return true
@@ -91,7 +94,7 @@ export function syncAssistantWaitingBubble(deps: AssistantWaitingBubbleDeps) {
   const lastUserElement = messageElements[lastUserDisplayIndex]
   const hasVisibleAssistantAfterLastUser = messageElements
     .slice(lastUserDisplayIndex + 1)
-    .some((element) => element.matches('assistant-message') && assistantElementHasVisibleContent(element))
+    .some((element) => element.matches('.qf-assistant-message') && assistantElementHasVisibleContent(element))
 
   if (!lastUserElement || hasAssistantAfterLastUser || hasVisibleAssistantAfterLastUser) {
     existing?.remove()

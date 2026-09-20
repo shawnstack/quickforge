@@ -879,7 +879,7 @@ function MainApp() {
     setWorkspaceInspectorRequest(undefined)
   }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen, setWorkspaceInspectorRequest])
 
-  // 监听工具卡片预览按钮的桥接事件（事件名与 local-tools.ts 的 PREVIEW_ARTIFACT_EVENT 对应），
+  // 监听工具卡片预览按钮的桥接事件（事件名与 tool-renderers/shared.tsx 的 PREVIEW_ARTIFACT_EVENT 对应），
   // 转调 openArtifactPreview，复用与自动预览完全一致的逻辑。
   useEffect(() => {
     if (!openArtifactPreview) return
@@ -1635,7 +1635,7 @@ function MainApp() {
     <div className="quickforge-desktop-titlebar fixed left-0 right-0 top-0 z-40 hidden h-8 items-center px-2">
       <button
         type="button"
-        className="quickforge-desktop-titlebar-trigger inline-flex h-8 translate-y-1 items-center gap-2.5 rounded-none px-3 text-[13px] font-medium leading-none text-foreground/90 transition-colors hover:bg-accent hover:text-accent-foreground"
+        className="quickforge-desktop-titlebar-trigger inline-flex h-8 translate-y-1 items-center gap-2.5 rounded-none px-3 text-[13px] font-medium leading-none transition-colors hover:bg-accent hover:text-accent-foreground"
         onClick={(event) => {
           event.stopPropagation()
           setDesktopTitlebarMenuOpen((open) => !open)
@@ -1757,7 +1757,7 @@ function MainApp() {
           aria-label={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
           title={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
           className={cn(
-            'rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40',
+            'rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40',
             terminalDockOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
           )}
         >
@@ -1783,7 +1783,7 @@ function MainApp() {
         aria-label={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         title={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
         className={cn(
-          'rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40 inline-flex',
+          'rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40 inline-flex',
           workspaceInspectorOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
         )}
       >
@@ -1888,7 +1888,7 @@ function MainApp() {
         >
           <button
             type="button"
-            className="absolute inset-0 bg-background/65 backdrop-blur-sm"
+            className="absolute inset-0 backdrop-blur-sm"
             onClick={closeMobileSidebar}
             aria-label={t('toggleSidebar')}
           />
@@ -1996,7 +1996,7 @@ function MainApp() {
           <div className="min-w-0 flex-1">
             <div className="flex max-w-full min-w-0 items-center gap-2">
               <div className="min-w-0">
-                <div className="min-w-0 truncate text-sm font-semibold text-foreground/92">{sessionTitle(agentManager.currentTitle, currentSessionMetadata?.channelName)}</div>
+                <div className="min-w-0 truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle, currentSessionMetadata?.channelName)}</div>
                 {agentManager.currentToolProject?.name || (titleGitStatus?.isGitRepository && titleGitStatus.branch) ? (
                   <div className="mt-0.5 flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-xs leading-none text-muted-foreground sm:hidden">
                     {agentManager.currentToolProject?.name ? (
@@ -2015,7 +2015,7 @@ function MainApp() {
                 ) : null}
               </div>
               {!mobileShell && agentManager.currentToolProject?.name ? (
-                <div className="hidden h-9 max-w-[220px] shrink-0 items-center gap-2 rounded-full bg-muted/55 px-3 text-sm text-foreground/88 md:inline-flex" title={agentManager.currentToolProject.name}>
+                <div className="hidden h-9 max-w-[220px] shrink-0 items-center gap-2 rounded-full px-3 text-sm md:inline-flex" title={agentManager.currentToolProject.name}>
                   <Folder className="size-4 text-muted-foreground" />
                   <span className="min-w-0 truncate">{agentManager.currentToolProject.name}</span>
                 </div>
@@ -2024,7 +2024,7 @@ function MainApp() {
                 <div className="relative hidden shrink-0 md:block" onClick={(event) => event.stopPropagation()}>
                   <button
                     type="button"
-                    className="inline-flex h-9 max-w-[220px] items-center gap-2 rounded-full bg-muted/55 px-3 text-sm text-foreground/88 transition-colors hover:bg-muted"
+                    className="inline-flex h-9 max-w-[220px] items-center gap-2 rounded-full px-3 text-sm transition-colors hover:bg-muted"
                     onClick={() => setBranchMenuOpen((value) => !value)}
                     aria-label={t('gitBranchMenu')}
                     aria-expanded={branchMenuOpen}
@@ -2056,7 +2056,7 @@ function MainApp() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn(ui.conversationMenuOpen && 'bg-muted/45 text-foreground/90')}
+                  className={cn(ui.conversationMenuOpen && '')}
                   onClick={() => ui.setConversationMenuOpen((value) => !value)}
                   disabled={!agentManager.currentSessionId || needsModelSetup}
                   aria-label={t('moreOptions')}
@@ -2077,7 +2077,7 @@ function MainApp() {
                     <button
                       type="button"
                       role="menuitem"
-                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm transition-colors hover:bg-muted"
                       onClick={handleToggleCurrentSessionPinned}
                     >
                       {currentSessionPinned ? <PinOff className="size-[18px]" /> : <Pin className="size-[18px]" />}
@@ -2086,7 +2086,7 @@ function MainApp() {
                     <button
                       type="button"
                       role="menuitem"
-                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm transition-colors hover:bg-muted"
                       onClick={handleRenameCurrentSession}
                     >
                       <Pencil className="size-[18px]" />
@@ -2095,7 +2095,7 @@ function MainApp() {
                     <button
                       type="button"
                       role="menuitem"
-                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm transition-colors hover:bg-muted"
                       onClick={handleShareCurrentSession}
                     >
                       <Share2 className="size-[18px]" />
@@ -2104,7 +2104,7 @@ function MainApp() {
                     <button
                       type="button"
                       role="menuitem"
-                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm transition-colors hover:bg-muted"
                       onClick={handleArchiveCurrentSession}
                     >
                       <Archive className="size-[18px]" />

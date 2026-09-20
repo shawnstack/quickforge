@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpStorageBackend } from '../../src/lib/http-storage-backend'
 import { clearProviderKeysCache } from '../../src/lib/provider-keys-cache'
-// Direct file import: the package exports map only exposes the full UI bundle
-// (Lit/pdfjs), which is unnecessary for the store classes.
-// @ts-expect-error package subpath is not in the exports map
-import { SessionsStore } from '../../node_modules/@earendil-works/pi-web-ui/dist/storage/stores/sessions-store.js'
+import { SessionsStore } from '../../src/storage/stores/sessions-store'
 
 const settingsSnapshotMocks = vi.hoisted(() => ({
   updateAppSettingSnapshotFromStorageSet: vi.fn(async () => undefined),

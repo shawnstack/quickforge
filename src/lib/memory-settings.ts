@@ -1,4 +1,4 @@
-import type { AppStorage } from '@earendil-works/pi-web-ui'
+import type { AppStorage } from '@/storage'
 
 const MEMORY_SETTINGS_KEY = 'memory-settings'
 

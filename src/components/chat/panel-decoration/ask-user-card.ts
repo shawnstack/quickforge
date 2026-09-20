@@ -326,9 +326,9 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
   setSubmitting(false)
   renderStep()
 
-  const messageList = panel.querySelector('message-list')
+  const messageList = panel.querySelector('.qf-message-list')
   if (messageList) messageList.append(card)
-  else panel.querySelector('agent-interface')?.append(card)
+  else panel.querySelector('.qf-chat-panel')?.append(card)
   card.scrollIntoView({ behavior: 'smooth', block: 'end' })
 }
 

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 
-// t 的真实实现依赖 pi-web-ui 浏览器 DOM；这里用确定性桩同时校验 key 与插值参数。
+// 这里用确定性桩回显 key 与插值参数，便于同时校验两者。
 vi.mock('@/lib/i18n', () => ({
   t: (key: string, params?: Record<string, string | number>) =>
     (params ? `${key} ${JSON.stringify(params)}` : key),
@@ -41,7 +41,7 @@ describe('translateErrorMessage', () => {
 })
 
 describe('known error translation wiring contracts', () => {
-  it('rewrites the pi-web-ui error block into the one-line error row with the translated message', () => {
+  it('rewrites the red error block into the one-line error row with the translated message', () => {
     const source = readFileSync(new URL('../../src/components/chat/panel-decoration/turn-error-row.ts', import.meta.url), 'utf8')
     expect(source).toContain("querySelector<HTMLElement>('.bg-destructive\\\\/10')")
     expect(source).toContain('const translated = translateErrorMessage(raw)')
@@ -56,7 +56,7 @@ describe('known error translation wiring contracts', () => {
   })
 
   it('translates the subagent error reason card at render time', () => {
-    const source = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
+    const source = readFileSync(new URL('../../src/components/workspace/SubagentRunDetailContent.tsx', import.meta.url), 'utf8')
     expect(source).toContain("import { translateErrorMessage } from '@/lib/error-messages'")
     expect(source).toContain("translateErrorMessage(payload.errorMessage) || t('subagentErrorUnavailable')")
   })

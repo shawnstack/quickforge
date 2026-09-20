@@ -1,7 +1,6 @@
 import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
 import { McpServerCard } from '../../src/components/mcp/mcp-server-card'
 import { applyAppLanguageFromSnapshot, t } from '../../src/lib/i18n'
 import type { McpServer } from '../../src/lib/types/mcp'

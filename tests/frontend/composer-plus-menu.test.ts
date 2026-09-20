@@ -11,8 +11,7 @@ vi.mock('@/components/plugins/plugin-api', () => ({
   loadPlugins: vi.fn(),
 }))
 
-// The real i18n module pulls in pi-web-ui/pdfjs which requires a browser DOM;
-// composer-plus-menu only needs t() for labels.
+// Deterministic t stub — composer-plus-menu only needs t() for labels.
 vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
 }))

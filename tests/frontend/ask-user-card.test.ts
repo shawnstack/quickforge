@@ -36,17 +36,19 @@ describe('buildAskDisplaySignature', () => {
 })
 
 describe('askUserReviewRowsFromDetails', () => {
-  // local-tools.ts registers renderers at import time and pulls the heavy
-  // pi-web-ui tree; lift the transpiled pure function instead (same approach
-  // as local-tools-lit-reactivity.test.ts).
-  const localToolsSource = readFileSync('src/lib/local-tools.ts', 'utf8')
+  // T4：askUserReviewRowsFromDetails 已随 AskUserToolRenderer 迁至
+  // tool-renderers/ask-user-tool-renderer.tsx（React）。该模块树经 shared.tsx
+  // 间接拉入 i18n 与 React 渲染器，无法在 node 测试直接 import，继续沿用 transpile
+  // 提取纯函数的做法。
+  const askUserRendererSource = readFileSync('src/lib/tool-renderers/ask-user-tool-renderer.tsx', 'utf8')
 
   function extractTranspiledFunction(name: string): string {
-    const output = ts.transpileModule(localToolsSource, {
-      fileName: 'local-tools.ts',
+    const output = ts.transpileModule(askUserRendererSource, {
+      fileName: 'ask-user-tool-renderer.tsx',
       compilerOptions: {
         module: ts.ModuleKind.ESNext,
         target: ts.ScriptTarget.ES2023,
+        jsx: ts.JsxEmit.React,
       },
     }).outputText
     const sourceFile = ts.createSourceFile('local-tools.js', output, ts.ScriptTarget.ES2023, true, ts.ScriptKind.JS)
@@ -122,6 +124,8 @@ describe('ask-user card wiring', () => {
   const i18n = readFileSync('src/lib/i18n.ts', 'utf8')
   const card = readFileSync('src/components/chat/panel-decoration/ask-user-card.ts', 'utf8')
   const localTools = readFileSync('src/lib/local-tools.ts', 'utf8')
+  // T4：AskUserToolRenderer 实现已迁至 tool-renderers/ask-user-tool-renderer.tsx（React）。
+  const askUserRenderer = readFileSync('src/lib/tool-renderers/ask-user-tool-renderer.tsx', 'utf8')
 
   it('styles every card building block', () => {
     for (const selector of [
@@ -153,30 +157,31 @@ describe('ask-user card wiring', () => {
 
   it('local-tools registers an ask_user renderer that follows tool display settings', () => {
     expect(localTools).toContain("registerToolRenderer('ask_user'")
-    expect(localTools).toContain('class AskUserToolRenderer')
+    expect(askUserRenderer).toContain('class AskUserToolRenderer')
     // The renderer must gate input/details on the tool display mode like the
-    // other built-in renderers.
-    const rendererBlock = localTools.slice(localTools.indexOf('class AskUserToolRenderer'), localTools.indexOf('class TodoWriteToolRenderer'))
-    expect(rendererBlock).toContain("toolDisplaySettings.toolDisplayMode === 'detailed'")
+    // other built-in renderers (shared.tsx 的 toolDisplayDetailed() 内部即
+    // toolDisplayMode === 'detailed' 判定)。
+    const rendererBlock = askUserRenderer.slice(askUserRenderer.indexOf('class AskUserToolRenderer'))
+    expect(rendererBlock).toContain('const detailed = toolDisplayDetailed()')
   })
 
   it('history tool messages reuse the review receipt layout for resolved asks', () => {
     // The renderer reads the structured answers persisted in toolResult.details
     // and renders read-only review rows (same receipt styles as the submit
     // step, minus the edit button) for answered and skipped calls.
-    expect(localTools).toContain("import { buildAskAnswerText } from '@/components/chat/panel-decoration/ask-user-card'")
-    expect(localTools).toContain('const review = askUserReviewRowsFromDetails(result?.details)')
-    expect(localTools).toContain('const reviewActive = review !== null && !detailed')
+    expect(askUserRenderer).toContain("import { buildAskAnswerText } from '@/components/chat/panel-decoration/ask-user-card'")
+    expect(askUserRenderer).toContain('const review = askUserReviewRowsFromDetails(result?.details)')
+    expect(askUserRenderer).toContain('const reviewActive = review !== null && !detailed')
     // Non-detailed resolved asks drop both the raw question list and the
     // output text block; detailed mode keeps the raw view.
-    expect(localTools).toContain("const output = reviewActive ? '' : resultText(result)")
-    expect(localTools).toContain('questions.length && !detailed && review === null')
-    const rendererBlock = localTools.slice(localTools.indexOf('class AskUserToolRenderer'), localTools.indexOf('class TodoWriteToolRenderer'))
-    expect(rendererBlock).toContain('class="quickforge-ask-review"')
-    expect(rendererBlock).toContain('class="quickforge-ask-review-row"')
-    expect(rendererBlock).toContain('class="quickforge-ask-review-content"')
-    expect(rendererBlock).toContain('class="quickforge-ask-review-question"')
-    expect(rendererBlock).toContain('class="quickforge-ask-review-answer"')
+    expect(askUserRenderer).toContain("const output = reviewActive ? '' : resultText(result)")
+    expect(askUserRenderer).toContain('questions.length && !detailed && review === null')
+    const rendererBlock = askUserRenderer.slice(askUserRenderer.indexOf('class AskUserToolRenderer'))
+    expect(rendererBlock).toContain('className="quickforge-ask-review"')
+    expect(rendererBlock).toContain('className="quickforge-ask-review-row"')
+    expect(rendererBlock).toContain('className="quickforge-ask-review-content"')
+    expect(rendererBlock).toContain('className="quickforge-ask-review-question"')
+    expect(rendererBlock).toContain('className="quickforge-ask-review-answer"')
     expect(rendererBlock).toContain("buildAskAnswerText(review.answers[index]) || t('askUserUnanswered')")
     expect(rendererBlock).toContain('askUserSkipReasonText(review.skipReason)')
     // History rows are read-only — the card's edit button must not appear.
@@ -184,11 +189,11 @@ describe('ask-user card wiring', () => {
   })
 
   it('maps ask_user skip reasons to dedicated i18n copy', () => {
-    expect(localTools).toContain('const ASK_USER_SKIP_REASON_KEYS')
-    expect(localTools).toContain("timeout: 'askUserSkipReasonTimeout'")
-    expect(localTools).toContain("aborted: 'askUserSkipReasonAborted'")
-    expect(localTools).toContain("'no-questions': 'askUserSkipReasonNoQuestions'")
-    expect(localTools).toContain("'askUserSkipReasonUser'")
+    expect(askUserRenderer).toContain('const ASK_USER_SKIP_REASON_KEYS')
+    expect(askUserRenderer).toContain("timeout: 'askUserSkipReasonTimeout'")
+    expect(askUserRenderer).toContain("aborted: 'askUserSkipReasonAborted'")
+    expect(askUserRenderer).toContain("'no-questions': 'askUserSkipReasonNoQuestions'")
+    expect(askUserRenderer).toContain("'askUserSkipReasonUser'")
   })
 
   it('server-agent registers the events, state field, and answer API', () => {

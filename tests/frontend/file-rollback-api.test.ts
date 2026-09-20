@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
 import { ServerAgent } from '../../src/lib/server-agent'
 
 const preview = {

@@ -570,7 +570,7 @@ function buildCardPlans(
 }
 
 /**
- * 孤儿卡清理：只删不在任何有效轮宿主内的卡（宿主被 Lit 重渲染摘除、轮产物随
+ * 孤儿卡清理：只删不在任何有效轮宿主内的卡（宿主被 重新渲染摘除、轮产物随
  * 压缩/回滚消失、或没有任何轮再有产物）；宿主内的卡由各宿主的签名幂等更新负责。
  */
 function removeOrphanArtifactCards(panel: HTMLElement, validHosts: ReadonlySet<HTMLElement>) {
@@ -583,7 +583,7 @@ function removeOrphanArtifactCards(panel: HTMLElement, validHosts: ReadonlySet<H
   orphans.forEach((card) => card.remove())
 }
 
-/** 展开态跨装饰保留：挂在宿主消息元素 dataset 上（Lit 复用元素，比卡片本身活得久）。 */
+/** 展开态跨装饰保留：挂在宿主消息元素 dataset 上（元素复用，比卡片本身活得久）。 */
 const EXPANDED_FLAG = 'quickforgeArtifactCardExpanded'
 
 function syncAnchor(hostElement: HTMLElement) {
@@ -610,7 +610,7 @@ export function syncAssistantArtifactCard(deps: ArtifactCardDeps) {
 
   // 每轮一张卡，显示「该轮新增」产物：按 user 边界切片提取（提取跑在完整
   // messages 上——产物来自 toolResult.details，displayEntries 过滤掉了它们）。
-  // 轮与展示分段按边界消息对象对齐（Lit 复用/窗口裁剪下引用不变）。
+  // 轮与展示分段按边界消息对象对齐（元素复用/窗口裁剪下引用不变）。
   const turnByBoundary = new Map<MessageWithUsage, TurnCardTarget>()
   let leadingTurn: TurnCardTarget | undefined
   for (const turn of extractTurnArtifacts(messages as unknown as AgentMessage[])) {

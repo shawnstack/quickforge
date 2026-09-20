@@ -220,7 +220,7 @@ export function SkillsManagerPanel({
     <>
       <div className="quickforge-settings-divider p-3">
         <div className="quickforge-settings-inline-field">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -250,7 +250,7 @@ export function SkillsManagerPanel({
           filteredSkills.map((skill) => {
             const checked = selectedSkills.has(skill.name)
             return (
-              <div key={skill.name} className={cn('quickforge-settings-list-item', checked && 'bg-muted/12')}>
+              <div key={skill.name} className={cn('quickforge-settings-list-item', checked && '')}>
                 <div className="quickforge-settings-list-item-main">
                   <div className="quickforge-settings-row-title">{skill.displayName || skill.name}</div>
                   {skill.description ? (
@@ -341,7 +341,7 @@ export function SkillsManagerPanel({
               <div className="quickforge-settings-row-description mb-3">Triggers: {skillContent.triggers.join(', ')}</div>
             ) : null}
             {skillContent.instructions ? (
-              <pre className="whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 px-4 py-3 font-mono text-sm leading-6 text-foreground/80">
+              <pre className="whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 px-4 py-3 font-mono text-sm leading-6">
                 {skillContent.instructions}
               </pre>
             ) : (

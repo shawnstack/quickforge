@@ -11,7 +11,7 @@
 |---|------|------|
 | F-01 | `src/lib/server-agent.ts`, `src/lib/shared-server-agent.ts` | 核对后当前代码已在 SSE/state 同步时设置 syncing flag；无需额外修改，原问题已不存在 |
 | F-02 | `src/lib/deferred-session-agent.ts` | `DeferredSessionAgent.dispose()` 后清理异步创建完成的 real agent |
-| F-03 | `src/lib/patch-thinking-selector.ts` | `patchThinkingSelector` 增加最长等待时间，避免无限 `setTimeout` 轮询 |
+| F-03 | `src/lib/patch-thinking-selector.ts` | 文件已随 Lit UI 移除而删除，本条目失效（保留仅作历史记录） |
 | F-07 | `src/components/terminal/TerminalDock.tsx` | 初始终端 session 异步创建完成后若组件已卸载，立即请求删除服务端 session |
 | F-09 | `src/lib/server-agent.ts` | SSE reconnect timer 执行时再次检查是否仍有 handler |
 | F-10 | `src/hooks/useCrossTabSync.ts` | BroadcastChannel 不可用或构造失败时优雅降级，保留 visibility refresh |

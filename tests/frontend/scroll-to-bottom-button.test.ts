@@ -100,7 +100,7 @@ function createEnv() {
   let shellAvailable = true
   const panel = {
     querySelector: (selector: string) => {
-      if (selector === 'agent-interface .overflow-y-auto') return scrollContainer
+      if (selector === '.qf-chat-panel .qf-scroll-container') return scrollContainer
       if (selector === '.quickforge-composer-shell') return shellAvailable ? shell : null
       return null
     },

@@ -256,13 +256,13 @@ export function createSlashInvocationChip(options: { panel: HTMLElement; env?: P
   let stopShellResizeObserve: (() => void) | null = null
 
   const readText = () => {
-    const currentEditor = panel.querySelector<MessageEditorElement>('message-editor')
+    const currentEditor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
     const currentTextarea = currentEditor?.querySelector<HTMLTextAreaElement>('textarea')
     return currentEditor?.value ?? currentTextarea?.value ?? ''
   }
 
   const resolveTargets = () => {
-    editor = panel.querySelector<MessageEditorElement>('message-editor')
+    editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
     textarea = editor?.querySelector<HTMLTextAreaElement>('textarea') ?? null
     shell = (editor?.closest('.quickforge-composer-shell') as HTMLElement | null) ?? null
     return Boolean(editor && textarea && shell)
@@ -484,7 +484,7 @@ export function createSlashInvocationChip(options: { panel: HTMLElement; env?: P
       teardown()
       return
     }
-    // 自愈：外部（React/Lit 重渲染、装饰层重跑）可能移除覆盖层或重建 textarea。
+    // 自愈：外部（React/重新渲染、装饰层重跑）可能移除覆盖层或重建 textarea。
     // 文本仍匹配时重建挂载而非放弃选中态，保证打字过程中 chip 不消失。
     if (!overlay || !overlay.isConnected || !textarea || (typeof textarea.isConnected === 'boolean' && !textarea.isConnected)) {
       detachListeners()

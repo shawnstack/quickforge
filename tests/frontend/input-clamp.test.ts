@@ -190,14 +190,14 @@ describe('InputClampController', () => {
 
 describe('input clamp wiring sources', () => {
   const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
-  const localToolsSource = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
+  const localToolsSource = readFileSync(new URL('../../src/components/workspace/SubagentRunDetailContent.tsx', import.meta.url), 'utf8')
   const messageActionsSource = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
   const inputClampSource = readFileSync(new URL('../../src/lib/input-clamp.ts', import.meta.url), 'utf8')
   const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 
   it('lightens the user message bubble per theme: 6% dark default and 3% in light theme', () => {
     expect(css).toMatch(/--quickforge-input-clamp-bg:\s*color-mix\(in oklab,\s*var\(--primary\) 6%,\s*var\(--card\)/)
-    expect(css).toMatch(/html:not\(\.dark\) user-message \.user-message-container,[\s\S]*?--quickforge-input-clamp-bg:\s*color-mix\(in oklab,\s*var\(--primary\) 3%,\s*var\(--card\)/)
+    expect(css).toMatch(/html:not\(\.dark\) \.qf-user-message \.user-message-container,[\s\S]*?--quickforge-input-clamp-bg:\s*color-mix\(in oklab,\s*var\(--primary\) 3%,\s*var\(--card\)/)
     expect(css).not.toMatch(/user-message-container[^{]*\{[^{}]*--primary\) 10%/s)
   })
 
@@ -226,13 +226,13 @@ describe('input clamp wiring sources', () => {
     expect(css).toMatch(/\.quickforge-input-clamp-toggle\s*\{[\s\S]*?border-radius:\s*999px/)
   })
 
-  it('preserves line breaks only on explicit subagent field values, not the Lit container whitespace', () => {
+  it('preserves line breaks only on explicit subagent field values, not the container whitespace', () => {
     expect(css).toMatch(/\.quickforge-subagent-task\.quickforge-input-clamp\s*\{[\s\S]*?border-radius:\s*1\.125rem 1\.125rem 0\.375rem 1\.125rem/)
     expect(css).not.toMatch(/\.quickforge-subagent-task\.quickforge-input-clamp\s*\{[^{}]*white-space:\s*pre-wrap/s)
     expect(css).toMatch(/\.quickforge-subagent-task-value\s*\{\s*white-space:\s*pre-wrap/)
-    expect(localToolsSource.match(/class="quickforge-subagent-task-value"/g)).toHaveLength(3)
+    expect(localToolsSource.match(/className="quickforge-subagent-task-value"/g)).toHaveLength(3)
     expect(localToolsSource).toMatch(/quickforge-subagent-task quickforge-input-clamp" data-quickforge-input-clamp="true"/)
-    expect(localToolsSource).toMatch(/syncInputClampBoxes\(this, subagentInputClampLabels\)/)
+    expect(localToolsSource).toMatch(/syncInputClampBoxes\(element, inputClampLabels\)/)
   })
 
   it('decorates only plain user messages in the chat decoration pass', () => {

@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// The store needs t() for its refusal/failure copy; the real i18n module pulls
-// in pi-web-ui, which requires a browser DOM. Stubbing the translation bundle
-// keeps the real keys/params contract testable in the node environment.
-vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
 
 import {
   MAX_RETAINED_GOAL_DRAFTS,

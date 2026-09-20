@@ -2,7 +2,6 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
-vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
 import { FileRollbackDialogContent, TurnRollbackDialogContent } from '../../src/components/chat/FileRollbackDialog'
 import { applyAppLanguageFromSnapshot } from '../../src/lib/i18n'
 import { createFileRollbackController, createTurnRollbackController, type FileRollbackState, type TurnRollbackState } from '../../src/components/chat/file-rollback-state'

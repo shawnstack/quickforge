@@ -206,7 +206,7 @@ export function WebPreviewContent({ url, onUrlChange, projectId, externalReloadT
           <Button type="button" variant="ghost" size="icon" onClick={refreshPreview} disabled={!previewUrl} aria-label={t('refreshPreview')} title={t('refreshPreview')}>
             <RefreshCw className="size-4" />
           </Button>
-          <label className="mx-auto flex h-9 min-w-0 max-w-xl flex-1 items-center rounded-full border border-[color-mix(in_oklab,var(--border)_42%,transparent)] bg-muted/30 px-3 text-sm text-muted-foreground/65 focus-within:bg-background focus-within:text-foreground/85">
+          <label className="mx-auto flex h-9 min-w-0 max-w-xl flex-1 items-center rounded-full border border-[color-mix(in_oklab,var(--border)_42%,transparent)] bg-muted/30 px-3 text-sm">
             <span className="sr-only">{t('previewUrl')}</span>
             <input
               value={draftUrl}
@@ -215,7 +215,7 @@ export function WebPreviewContent({ url, onUrlChange, projectId, externalReloadT
                 if (error) setError('')
               }}
               placeholder={t('previewUrlPlaceholder')}
-              className="min-w-0 flex-1 bg-transparent text-center text-sm text-foreground/85 outline-none placeholder:text-muted-foreground/55"
+              className="min-w-0 flex-1 bg-transparent text-center text-sm outline-none"
             />
           </label>
           <Button type="button" variant="ghost" size="icon" onClick={openInBrowser} disabled={!previewUrl} aria-label={t('openInBrowser')} title={t('openInBrowser')}>
@@ -232,7 +232,7 @@ export function WebPreviewContent({ url, onUrlChange, projectId, externalReloadT
                   <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => setZoom((value) => Math.max(50, value - 10))} aria-label={t('zoomOut')} title={t('zoomOut')}>
                     <Minus className="size-4" />
                   </Button>
-                  <button type="button" className="min-w-14 rounded-lg px-2 py-1 text-sm font-medium text-foreground/85 hover:bg-muted/50" onClick={() => setZoom(100)} title={t('resetZoom')}>
+                  <button type="button" className="min-w-14 rounded-lg px-2 py-1 text-sm font-medium" onClick={() => setZoom(100)} title={t('resetZoom')}>
                     {zoom}%
                   </button>
                   <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => setZoom((value) => Math.min(200, value + 10))} aria-label={t('zoomIn')} title={t('zoomIn')}>
@@ -246,11 +246,11 @@ export function WebPreviewContent({ url, onUrlChange, projectId, externalReloadT
         {error ? <div className="text-xs text-destructive">{error}</div> : null}
       </div>
 
-      <div className="min-h-0 flex-1 bg-muted/10">
+      <div className="min-h-0 flex-1">
         {activePreviewIssue ? (
           <PreviewErrorState issue={activePreviewIssue} onRetry={refreshPreview} />
         ) : checkingPreview ? (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground/75">
+          <div className="flex h-full items-center justify-center text-sm">
             <RefreshCw className="mr-2 size-4 animate-spin" />
             {t('previewChecking')}
           </div>
@@ -268,9 +268,9 @@ export function WebPreviewContent({ url, onUrlChange, projectId, externalReloadT
           </div>
         ) : (
           <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-            <Globe className="size-20 stroke-[1.55] text-muted-foreground/75" />
-            <div className="mt-8 text-xl font-semibold tracking-tight text-foreground/88">{t('noPreviewUrlTitle')}</div>
-            <div className="mt-4 max-w-xs text-base leading-6 text-muted-foreground/82">{t('noPreviewUrlDescription')}</div>
+            <Globe className="size-20 stroke-[1.55]" />
+            <div className="mt-8 text-xl font-semibold tracking-tight">{t('noPreviewUrlTitle')}</div>
+            <div className="mt-4 max-w-xs text-base leading-6">{t('noPreviewUrlDescription')}</div>
           </div>
         )}
       </div>

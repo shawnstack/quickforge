@@ -45,10 +45,10 @@ export function MermaidDiagram({ source }: MermaidDiagramProps) {
   const showSource = currentMode === 'source' || currentState.error
 
   return (
-    <figure className="my-5 overflow-hidden rounded-xl border border-border bg-muted/20">
+    <figure className="my-5 overflow-hidden rounded-xl border border-border">
       <figcaption className="flex min-h-9 items-center justify-between gap-3 border-b border-border px-3 py-1.5">
-        <span className="font-mono text-[11px] text-muted-foreground/65">mermaid</span>
-        <span className="inline-flex items-center gap-1 rounded-md bg-background/70 p-0.5">
+        <span className="font-mono text-[11px]">mermaid</span>
+        <span className="inline-flex items-center gap-1 rounded-md p-0.5">
           <button
             type="button"
             className="rounded px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
@@ -70,7 +70,7 @@ export function MermaidDiagram({ source }: MermaidDiagramProps) {
       </figcaption>
 
       {loading ? (
-        <div className="flex min-h-28 items-center justify-center px-4 py-8 text-xs text-muted-foreground/70" role="status">
+        <div className="flex min-h-28 items-center justify-center px-4 py-8 text-xs" role="status">
           {t('mermaidRendering')}
         </div>
       ) : showSource ? (
@@ -79,7 +79,7 @@ export function MermaidDiagram({ source }: MermaidDiagramProps) {
           <pre className="overflow-auto p-4 text-[12px] leading-5"><code>{source}</code></pre>
         </>
       ) : (
-        <div className="flex min-h-28 justify-center overflow-auto bg-background/45 p-4">
+        <div className="flex min-h-28 justify-center overflow-auto p-4">
           <img className="h-auto max-w-full object-contain" src={currentState.dataUrl} alt={t('mermaidPreviewLabel')} />
         </div>
       )}

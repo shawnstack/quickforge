@@ -1,5 +1,210 @@
-@import "@earendil-works/pi-web-ui/app.css";
 @import "tailwindcss";
+
+/*
+ * ---------------------------------------------------------------------------
+ * Self-hosted theme foundation
+ * ---------------------------------------------------------------------------
+ *
+ * The design tokens, the Tailwind semantic colour mappings, the body baseline,
+ * the global thin scrollbar and the thinking "shimmer" animation used to come
+ * from a prebuilt Tailwind bundle (87 KB) imported at the top of this file. It
+ * also shipped roughly 500 selectors that only the removed web-component UI
+ * ever used (highlight.js, `.user-message-container` orange gradients, …).
+ * Those stay intentionally unported — with one later exception: the KaTeX
+ * stylesheet is imported again (`katex/dist/katex.min.css`, inside
+ * src/components/chat/surface/KatexMath.tsx), so chat math renders once
+ * more and the `katex-*` selectors ship without re-porting this file.
+ * `.markdown-content` was chat-body
+ * typography (headings / paragraphs / lists / quotes), not unused
+ * web-component CSS; it is re-implemented below as unlayered
+ * `.qf-markdown-block` rules.
+ *
+ * QuickForge's chat surface is React now, so the unused selectors are gone and
+ * only the parts that are actually rendered are re-implemented here. Values are
+ * unchanged and nothing is re-designed: where a value is still the effective
+ * one it is kept verbatim; where QuickForge deliberately overrides it further
+ * down this file, that override keeps winning.
+ *
+ * Everything in this block is intentionally *unlayered*. Tailwind v4 compiles
+ * local `@theme` / `@layer base` rules into `@layer theme` / `@layer base`, and
+ * unlayered declarations beat any `@layer`, so `@theme` values can neither
+ * replace nor be replaced by these tokens. This mirrors how the old prebuilt
+ * bundle injected them (and why the token overrides further down live in a plain
+ * `:root`, see the comment there).
+ */
+
+/*
+ * Body baseline. `html { font-size }` is driven by the interface-font-size
+ * setting (src/lib/font-size-settings.ts) so rem-based tokens scale with it,
+ * while body text itself stays at 16px — the value the prebuilt stylesheet set.
+ * The antialiasing is part of the type rendering, not a redesign.
+ */
+body {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Global thin scrollbars; relied on by `.quickforge-inspector-tab-strip` and by
+   the `[&::-webkit-scrollbar]:hidden` opt-outs documented at the bottom of this
+   file. `var(--border)` is the same colour the package's `--color-border` held. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) rgba(0, 0, 0, 0);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0);
+}
+
+/* Tailwind preflight gives `<button>` the default arrow cursor; dialog buttons
+   (fixed inset-0 overlays) keep the pointer. */
+.fixed.inset-0 button[aria-label*='Close'],
+.fixed.inset-0 button[type='button'] {
+  cursor: pointer;
+}
+
+/* Thinking text shimmer, consumed by `.animate-shimmer` in ThinkingBlock. */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* DESIGN_LANGUAGE 约束：所有 keyframes 必须有 prefers-reduced-motion 降级。 */
+@media (prefers-reduced-motion: reduce) {
+  .animate-shimmer {
+    animation: none;
+  }
+}
+
+/* User message pill. The visible recipe (background, border, radius, shadow) is
+   owned by `.qf-user-message .user-message-container` below; only the package
+   declarations it does not reset are kept, so the element keeps its positioning
+   context and its theme transition. */
+.user-message-container {
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Light theme tokens (values from the previous theme defaults). */
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.4 0.18 240);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.81 0.1 252);
+  --chart-2: oklch(53.553% 0.02798 259.829);
+  --chart-3: oklch(0.55 0.22 263);
+  --chart-4: oklch(0.49 0.22 264);
+  --chart-5: oklch(0.42 0.18 266);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+  /* Font stacks: kept for parity, the QuickForge stacks below win (same origin,
+     later source order). */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol", "Noto Color Emoji";
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  /* 0.625rem is the effective radius today: this unlayered value beats the
+     `@theme { --radius: 0.5rem }` design token below, which Tailwind compiles
+     into `@layer theme`. Keep it as-is to avoid a global radius change. */
+  --radius: 0.625rem;
+  --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
+  --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
+  --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 2px 4px -1px hsl(0 0% 0% / 0.1);
+  --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 4px 6px -1px hsl(0 0% 0% / 0.1);
+  --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 8px 10px -1px hsl(0 0% 0% / 0.1);
+  --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+}
+
+/* Dark theme tokens; `.dark` is toggled on <html> by applyAppearanceSettings. */
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.269 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.371 0 0);
+  --accent-foreground: oklch(0.75 0.18 85);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.275 0 0);
+  --input: oklch(0.325 0 0);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.81 0.1 252);
+  --chart-2: oklch(0.62 0.19 260);
+  --chart-3: oklch(0.55 0.22 263);
+  --chart-4: oklch(0.49 0.22 264);
+  --chart-5: oklch(0.42 0.18 266);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.275 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+}
 
 .quickforge-goal-iteration-divider {
   /* Message actions use order: 2; the stage boundary belongs below them. */
@@ -27,14 +232,72 @@
 }
 
 /*
- * Overrides for design tokens that pi-web-ui injects.
+ * Tailwind semantic mappings, self-hosted (previously pulled in through the
+ * prebuilt bundle's app.css).
  *
- * IMPORTANT: pi-web-ui's app.css emits its theme via *unlayered* `:root,:host{}`,
- * while Tailwind compiles a local `@theme` block into `@layer theme`. Per the CSS
+ * Without these, utilities such as `bg-background`, `text-foreground`,
+ * `border-border`, `bg-card`, `text-muted-foreground`, `bg-primary` or
+ * `shadow-md` are unknown to Tailwind and get dropped from the build. `inline`
+ * keeps the upstream behaviour: the utility emits `var(--background)` directly
+ * instead of routing through a `--color-*` indirection.
+ *
+ * Entries are declared verbatim even when unused — Tailwind only emits the ones
+ * a generated utility actually references.
+ *
+ * Deliberately NOT mapped here (they were never effective for QuickForge):
+ * - `--radius-sm/-md/-lg/-xl`: the prebuilt bundle pruned its own radius
+ *   mappings, so `rounded-*` has always used Tailwind's default scale.
+ *   Mapping them onto `calc(var(--radius) ± n)` would silently resize every
+ *   rounded corner.
+ * - `--shadow-*`: same story — `shadow-*` always used Tailwind's defaults.
+ *   (`--shadow-*` values themselves are still self-hosted above as plain
+ *   `:root` tokens, which is what the package's unlayered `:root` did.)
+ * - `--font-family-*`: vestigial aliases, no QuickForge class consumes them.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/*
+ * Overrides for the self-hosted design tokens declared at the top of this file.
+ *
+ * IMPORTANT: those tokens are emitted as *unlayered* `:root{}` / `.dark{}`, while
+ * Tailwind compiles a local `@theme` block into `@layer theme`. Per the CSS
  * cascade, unlayered declarations beat any `@layer`, so overrides written inside
- * `@theme` are silently overridden by pi-web-ui's values. Overrides therefore
- * live in this unlayered `:root`: it appears textually after the `@import` of
- * pi-web-ui, so within the same (unlayered) origin the later declaration wins.
+ * `@theme` are silently overridden by the token values. Overrides therefore live
+ * in this unlayered `:root`: it appears textually after the token block, so
+ * within the same (unlayered) origin the later declaration wins.
  */
 :root {
   /* `--text-sm` is the body baseline; it deliberately equals `--text-base` (1rem)
@@ -70,9 +333,9 @@
 }
 
 /*
- * pi-web-ui ships prebuilt Tailwind utilities, but our local Tailwind build is
- * emitted after that import. For SettingsDialog's desktop sidebar, the earlier
- * `md:block` can otherwise be overridden by our later `.hidden` utility.
+ * For SettingsDialog's desktop sidebar, `md:block` must win over the `.hidden`
+ * toggle. Pin it in an unlayered media query so no utilities-layer rule emitted
+ * later in the bundle can override it.
  */
 @media (width >= 48rem) {
   .md\:block {
@@ -139,9 +402,9 @@ html.quickforge-mobile-native :where(
   .quickforge-context-compaction-text,
   .quickforge-settings-row-description,
   .quickforge-settings-readonly-value,
-  markdown-block,
-  thinking-block,
-  tool-message
+  .qf-markdown-block,
+  .qf-thinking-block,
+  .qf-tool-message
 ) {
   -webkit-user-select: text;
   user-select: text;
@@ -647,18 +910,18 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
   top: var(--quickforge-desktop-titlebar-height, 0px);
 }
 
-body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
-  top: var(--quickforge-desktop-titlebar-height, 0px);
-}
-
+/* Settings tab content host: `> *` is the height contract for every tab
+   implementation rendered inside; min-height keeps the tab area filling
+   the host even when a tab page is short. */
 .quickforge-settings-tab-host > * {
   display: block;
   min-height: 100%;
 }
 
-.quickforge-settings-tab-host settings-tab,
-.quickforge-settings-tab-host .quickforge-react-settings-tab {
-  height: 100%;
+/* Stateful tabs stay mounted while inactive; the height contract above would
+   otherwise override the hidden attribute's display:none. */
+.quickforge-settings-tab-host > [hidden] {
+  display: none;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1958,9 +2221,9 @@ body.quickforge-desktop-app settings-dialog > .fixed.inset-0 {
 }
 
 /* ------------------------------------------------------------------ */
-/* Chat messages: only customize user's outgoing bubble; assistant/tool rendering stays pi-web-ui default. */
-pi-chat-panel agent-interface > .flex.flex-col.h-full > .flex-1.overflow-y-auto > .max-w-3xl,
-pi-chat-panel agent-interface > .flex.flex-col.h-full > .shrink-0 > .max-w-3xl {
+/* Chat messages: only customize user's outgoing bubble; assistant/tool rendering keeps the shared surface defaults. */
+.qf-chat-panel > .qf-scroll-container > .max-w-3xl,
+.qf-chat-panel > .shrink-0 > .max-w-3xl {
   max-width: min(var(--quickforge-chat-content-max-width), calc(100% - 2rem)) !important;
 }
 
@@ -2089,17 +2352,27 @@ pi-chat-panel agent-interface > .flex.flex-col.h-full > .shrink-0 > .max-w-3xl {
   }
 }
 
-/* Hide pi-web-ui token/cost usage lines, e.g. "↑3.6k ↓246 R...".
+/* Hide the token/cost usage lines, e.g. "↑3.6k ↓246 R...".
  * Keep message.usage data intact for context usage, metadata, and debugging.
+ *
+ * DOM 契约（React 聊天面板）：用量行是 assistant 消息根的直接子级并带
+ * `qf-usage-line` hook class —— `div.qf-assistant-message > div.qf-usage-line`
+ * （宿主传 onCostClick 时为 button）；装饰层加在同一个根节点上的
+ * `.quickforge-assistant-message` 不需要再写一份孪生选择器。
+ * subagent 过程列表（`.quickforge-subagent-trace[data-quickforge-subagent-process="true"]`
+ * 里的 `.qf-message-list`）复用同一套消息组件，用后代形式覆盖其包裹层级。
+ * 第三段锚定 composer 紧随的汇总行（React: 装饰层挂 `quickforge-composer` 的
+ * `.qf-message-editor` + 紧随的 `.qf-usage-bar` hook class，不再依赖
+ * Tailwind utility 链式选择器），只隐藏该行的 token/cost 文本
+ * （span，宿主传 onCostClick 时为 button），保留 `quickforge-context-usage[-label]`
+ * 与 `quickforge-git-branch-inline`
+ * （context-usage.ts 把 git 分支徽标插进该行的 `.ml-auto.items-center`）。
  */
-.quickforge-assistant-message > div > .px-4.mt-2.text-xs.text-muted-foreground,
-message-list[data-quickforge-subagent-process="true"]
-  assistant-message
-  > div
-  > .px-4.mt-2.text-xs.text-muted-foreground,
-.quickforge-composer + .text-xs.text-muted-foreground.flex.justify-between.items-center.h-5
+.qf-assistant-message > .qf-usage-line,
+[data-quickforge-subagent-process="true"] .qf-assistant-message .qf-usage-line,
+.quickforge-composer + .qf-usage-bar
   > .ml-auto.items-center
-  > span:not(.quickforge-context-usage):not(.quickforge-context-usage-label):not(.quickforge-git-branch-inline) {
+  > :is(span, button):not(.quickforge-context-usage):not(.quickforge-context-usage-label):not(.quickforge-git-branch-inline) {
   display: none !important;
 }
 
@@ -2113,9 +2386,14 @@ message-list[data-quickforge-subagent-process="true"]
   flex-direction: column !important;
 }
 
-.quickforge-user-message > div.flex.justify-start {
+/* 用户气泡右对齐：React 根 `div.qf-user-message.flex.justify-start.mx-4` 自身就是
+ * 行容器（旧 DOM 的内层 `div.flex.justify-start` 已不存在），并被上面的规则改成
+ * 列方向；因此把气泡作为列方向的 flex item 靠右，宽度按内容收缩，最大宽度仍由
+ * 下方 `.qf-user-message .user-message-container` 的 max-width 约束（不放大）。
+ * 操作行（order 2）与过程分隔线（DOM 首位）顺序不变。 */
+.qf-user-message > .user-message-container {
   order: 1;
-  justify-content: flex-end !important;
+  align-self: flex-end;
 }
 
 .quickforge-assistant-message > .quickforge-message-actions {
@@ -2128,7 +2406,7 @@ message-list[data-quickforge-subagent-process="true"]
   align-self: flex-end;
 }
 
-user-message .user-message-container,
+.qf-user-message .user-message-container,
 .quickforge-user-message .user-message-container {
   /* 气泡背景（渐隐遮罩/展开按钮复用同色）：浓度比原 10% 调浅，浅色主题见下方 3% 覆盖 */
   --quickforge-input-clamp-bg: color-mix(in oklab, var(--primary) 6%, var(--card));
@@ -2143,7 +2421,7 @@ user-message .user-message-container,
 }
 
 /* 浅色主题：纯白底上混灰极易显脏，浓度降到 3% */
-html:not(.dark) user-message .user-message-container,
+html:not(.dark) .qf-user-message .user-message-container,
 html:not(.dark) .quickforge-user-message .user-message-container {
   --quickforge-input-clamp-bg: color-mix(in oklab, var(--primary) 3%, var(--card));
 }
@@ -2265,7 +2543,7 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
   align-self: center;
 }
 
-/* 手动停止（stopReason=aborted）的 assistant 状态行：装饰层把 pi-web-ui 渲染的
+/* 手动停止（stopReason=aborted）的 assistant 状态行：装饰层把 surface 渲染的
    红色斜体 "Request aborted" span 改写为灰色「已停止」，并补齐与正文一致的
    px-4 缩进与上间距（design-mockups/assistant-stopped-message-preview.html 方案①）。
    字号沿用节点自带的 text-sm（应用根覆盖下与正文同号）。 */
@@ -2274,13 +2552,6 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
   margin-top: 6px;
   padding: 0 1rem;
   color: var(--muted-foreground);
-}
-
-.quickforge-svg-code-toolbar {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  margin-left: auto;
 }
 
 .quickforge-sidebar-session-time {
@@ -2370,31 +2641,6 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
   width: 0.95rem;
   height: 0.95rem;
   pointer-events: none;
-}
-
-.quickforge-svg-code-block > div:first-child {
-  position: relative;
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-.quickforge-svg-code-block > div:first-child > div:first-child.quickforge-svg-code-toolbar-floating {
-  position: absolute;
-  z-index: 2;
-  top: 0.75rem;
-  right: 0.35rem;
-  padding: 0 !important;
-  background: transparent !important;
-}
-
-.quickforge-svg-code-block > div:first-child > div:first-child.quickforge-svg-code-toolbar-floating > span {
-  display: none !important;
-}
-
-.quickforge-svg-code-block > div:first-child > div:first-child:not(.quickforge-svg-code-toolbar-floating) {
-  padding-right: 0 !important;
-  padding-left: 0 !important;
 }
 
 .quickforge-svg-code-preview {
@@ -2610,25 +2856,176 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
   }
 }
 
-.quickforge-assistant-message markdown-block,
-.quickforge-user-message markdown-block {
+/* 聊天正文排版：对齐已移除的 pi-web-ui `.markdown-content` 规则。
+ * 必须写在 unlayered 里，才能压过 Tailwind preflight 对 h1–h6/p 的
+ * `font-size:inherit; font-weight:inherit; margin:0` 折叠。
+ * 不照搬 MarkdownReader（那是工作区阅读器字号，不是对话气泡）。 */
+.qf-markdown-block :where(h1, h2, h3, h4, h5, h6) {
+  font-weight: var(--font-weight-semibold, 600);
+}
+.qf-markdown-block h1 {
+  margin-top: calc(var(--spacing, 0.25rem) * 5);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+  font-size: var(--text-2xl, 1.5rem);
+  line-height: var(--text-2xl--line-height, 2rem);
+}
+.qf-markdown-block h2 {
+  margin-top: calc(var(--spacing, 0.25rem) * 4);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+  font-size: var(--text-xl, 1.25rem);
+  line-height: var(--text-xl--line-height, 1.75rem);
+}
+.qf-markdown-block h3 {
+  margin-top: calc(var(--spacing, 0.25rem) * 3);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+  font-size: var(--text-lg, 1.125rem);
+  line-height: var(--text-lg--line-height, 1.75rem);
+}
+.qf-markdown-block h4 {
+  margin-top: calc(var(--spacing, 0.25rem) * 3);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+  font-size: var(--text-base, 1rem);
+  line-height: var(--text-base--line-height, 1.5rem);
+}
+.qf-markdown-block h5 {
+  margin-top: calc(var(--spacing, 0.25rem) * 2);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 1);
+  font-size: var(--text-sm, 0.875rem);
+  line-height: var(--text-sm--line-height, 1.25rem);
+}
+.qf-markdown-block h6 {
+  margin-top: calc(var(--spacing, 0.25rem) * 2);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 1);
+  font-size: var(--text-xs, 0.75rem);
+  line-height: var(--text-xs--line-height, 1rem);
+}
+.qf-markdown-block p {
+  margin-top: calc(var(--spacing, 0.25rem) * 4);
+  max-width: 100%;
+  line-height: var(--quickforge-message-line-height, var(--leading-relaxed, 1.625));
+}
+.qf-markdown-block p:first-child {
+  margin-top: 0;
+}
+.qf-markdown-block a {
+  color: var(--primary);
+  text-decoration-line: underline;
+}
+/* 链接 hover 对齐旧 `.markdown-content a:hover` 的结构：外层 @media(hover:hover)
+ * 让触屏（hover:none）设备点击后不残留粘滞变色；内部先回退 var(--primary)，
+ * 支持 color-mix 的浏览器再经 @supports 渐进增强为 80% 透明度。 */
+@media (hover: hover) {
+  .qf-markdown-block a:hover {
+    color: var(--primary);
+  }
+  @supports (color: color-mix(in lab, red, red)) {
+    .qf-markdown-block a:hover {
+      color: color-mix(in oklab, var(--primary) 80%, transparent);
+    }
+  }
+}
+.qf-markdown-block strong {
+  font-weight: var(--font-weight-semibold, 600);
+}
+.qf-markdown-block em {
+  font-style: italic;
+}
+.qf-markdown-block :where(ul, ol) {
+  margin-block: calc(var(--spacing, 0.25rem) * 4);
+  padding-left: calc(var(--spacing, 0.25rem) * 6);
+}
+.qf-markdown-block ul { list-style-type: disc; }
+.qf-markdown-block ol { list-style-type: decimal; }
+.qf-markdown-block :where(ul, ol) > :not(:last-child) {
+  margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+}
+.qf-markdown-block li {
+  line-height: var(--quickforge-message-line-height, var(--leading-relaxed, 1.625));
+}
+.qf-markdown-block li > :is(ul, ol) {
+  margin-top: calc(var(--spacing, 0.25rem) * 2);
+  margin-bottom: 0;
+}
+.qf-markdown-block li > p { margin-bottom: calc(var(--spacing, 0.25rem) * 2); }
+.qf-markdown-block li > p:last-child { margin-bottom: 0; }
+.qf-markdown-block blockquote {
+  margin-block: calc(var(--spacing, 0.25rem) * 4);
+  border-left: 4px solid var(--border);
+  padding-left: calc(var(--spacing, 0.25rem) * 4);
+  color: var(--muted-foreground);
+}
+/* 行内 code 的行高对齐旧 `.markdown-content code:not(.hljs)`
+ * 的 `line-height: var(--tw-leading, var(--text-sm--line-height))` 取值。 */
+.qf-markdown-block :not(pre) > code {
+  background-color: var(--muted);
+  padding-inline: calc(var(--spacing, 0.25rem) * 1.5);
+  padding-block: calc(var(--spacing, 0.25rem) * 0.5);
+  font-size: var(--text-sm, 0.875rem);
+  line-height: var(--text-sm--line-height);
+  color: var(--foreground);
+  border-radius: 0.25rem;
+}
+.qf-markdown-block hr {
+  margin-block: calc(var(--spacing, 0.25rem) * 8);
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* 表格样式沿用旧 .markdown-content 的规则（迁移前 Tailwind border 工具类展开）：
+ * th/td 右/下 1px 边框，末列清右框、末行清下框。 */
+.qf-markdown-block table {
+  margin: calc(var(--spacing, 0.25rem) * 0);
+  border-collapse: collapse;
+  width: 100%;
+}
+.qf-markdown-block th {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background-color: var(--muted);
+  padding: calc(var(--spacing, 0.25rem) * 2);
+  text-align: left;
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--foreground);
+}
+.qf-markdown-block th:last-child {
+  border-right-width: 0;
+}
+.qf-markdown-block td {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: calc(var(--spacing, 0.25rem) * 2);
+  color: var(--foreground);
+}
+.qf-markdown-block td:last-child {
+  border-right-width: 0;
+}
+.qf-markdown-block tr:last-child td {
+  border-bottom-width: 0;
+}
+
+.quickforge-assistant-message .qf-markdown-block,
+.quickforge-user-message .qf-markdown-block,
+.qf-assistant-message .qf-markdown-block,
+.qf-user-message .qf-markdown-block {
   font-size: var(--quickforge-message-font-size, 14px);
   overflow-wrap: anywhere;
 }
 
-.quickforge-assistant-message markdown-block :where(p, li),
-.quickforge-user-message markdown-block :where(p, li) {
+.quickforge-assistant-message .qf-markdown-block :where(p, li),
+.quickforge-user-message .qf-markdown-block :where(p, li),
+.qf-assistant-message .qf-markdown-block :where(p, li),
+.qf-user-message .qf-markdown-block :where(p, li) {
   line-height: var(--quickforge-message-line-height, 1.625);
 }
 
 /* Subagent 运行详情 Tab 的过程消息不经 decorateMessages 的 quickforge-* 类装饰，
    这里显式应用与主对话一致的消息字体配置，避免与主对话字号不一致。 */
-subagent-run-detail-body markdown-block {
+.quickforge-subagent-trace .qf-markdown-block {
   font-size: var(--quickforge-message-font-size, 14px);
   overflow-wrap: anywhere;
 }
 
-subagent-run-detail-body markdown-block :where(p, li) {
+.quickforge-subagent-trace .qf-markdown-block :where(p, li) {
   line-height: var(--quickforge-message-line-height, 1.625);
 }
 
@@ -2649,11 +3046,13 @@ subagent-run-detail-body markdown-block :where(p, li) {
   color: color-mix(in oklab, var(--primary) 80%, transparent);
 }
 
-.quickforge-user-message .user-message-container :where(p, ul, ol, pre, blockquote):first-child {
+.quickforge-user-message .user-message-container :where(p, ul, ol, pre, blockquote):first-child,
+.qf-user-message .user-message-container :where(p, ul, ol, pre, blockquote):first-child {
   margin-top: 0;
 }
 
-.quickforge-user-message .user-message-container :where(p, ul, ol, pre, blockquote):last-child {
+.quickforge-user-message .user-message-container :where(p, ul, ol, pre, blockquote):last-child,
+.qf-user-message .user-message-container :where(p, ul, ol, pre, blockquote):last-child {
   margin-bottom: 0;
 }
 
@@ -2816,11 +3215,11 @@ subagent-run-detail-body markdown-block :where(p, li) {
   animation-delay: 0.28s;
 }
 
-streaming-message-container > div:has(> span.animate-pulse:only-child) {
+.qf-streaming-message:has(> span.animate-pulse:only-child) {
   display: none !important;
 }
 
-pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-container:not(.hidden) > div > span.animate-pulse {
+.qf-chat-panel[data-quickforge-agent-streaming="true"] .qf-streaming-message:not(.hidden) > span.animate-pulse {
   display: none !important;
 }
 
@@ -2864,7 +3263,8 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   background: transparent;
   color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
   cursor: pointer;
-  font-size: 0.875rem;
+  /* 过程摘要行跟随「消息字号」基准（×0.875，默认 R=M=13px 下 = 11.375px＝原 0.875rem）。 */
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875);
   line-height: 1.5;
   text-align: left;
   transition: color 160ms ease;
@@ -2974,7 +3374,7 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   position: relative;
 }
 
-.quickforge-process-body :is(thinking-block, tool-message, markdown-block) {
+.quickforge-process-body :is(.qf-thinking-block, .qf-tool-message, .qf-markdown-block) {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -2997,7 +3397,8 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   background: transparent;
   color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
   cursor: pointer;
-  font-size: 0.875rem;
+  /* 阶段/工具组摘要行同样跟随「消息字号」基准（×0.875，默认 13px 下 = 11.375px）。 */
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875);
   line-height: 1.5;
   text-align: left;
   transition: color 160ms ease;
@@ -3040,10 +3441,16 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
 
 /* 工具卡摘要行字号跟随「消息字号」基准（×0.875，默认 13px 下 ≈11.4px 与旧 0.875rem 一致，
    零视觉回归），避免与对话正文分属两套字号体系而在设置分开调整时漂移。
-   设计稿：design-mockups/goal-plan-tool-card-redesign.html（S02）。 */
+   设计稿：design-mockups/goal-plan-tool-card-redesign.html（S02）。
+   后两条选择器按同级 DOM 形态（ToolMessage 兜底卡 DefaultToolCardBody 的 `.space-y-2`、
+   generate-image-tool-renderer 的 `.quickforge-generated-image-tool`）收拢首行：它们虽已在
+   R9 补挂 `.quickforge-tool-summary`，但自带 `text-sm` 让首行逃逸到 1rem，字号与其余工具行
+   不一致。本规则不受 `.qf-chat-panel` 限制，面板外运行详情同步取同一基准（语义保持一致）。 */
 .quickforge-local-tool > .quickforge-tool-summary,
 .quickforge-mcp-tool > .quickforge-tool-summary,
-.quickforge-subagent-tool > .quickforge-tool-summary {
+.quickforge-subagent-tool > .quickforge-tool-summary,
+.quickforge-tool-message > .space-y-2 > .quickforge-tool-summary,
+.quickforge-tool-message > .quickforge-generated-image-tool > .quickforge-tool-summary {
   color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
   font-family: var(--font-sans);
   font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875);
@@ -3196,11 +3603,52 @@ pi-chat-panel[data-quickforge-agent-streaming="true"] streaming-message-containe
   outline-offset: 2px;
 }
 
-pi-chat-panel thinking-block > .thinking-block > .thinking-header:not(.quickforge-process-thinking-header) {
-  visibility: hidden;
+/* 「接管失败必须可见」（fail-visible，勿破坏）：思考 header 的可见性完全交给装饰层接管
+ * （decorateProcessThinkingBlocks 给过程组内的 header 补 .quickforge-process-thinking-header），
+ * 这里不设任何 display:none 兜底。
+ *
+ * 历史教训（R9/R11 的面板级隐藏、R11 的 `.qf-chat-panel .quickforge-process-body
+ * .qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header)` 过程组级隐藏）
+ * 都建立在「装饰层一定会接管」这一假设上，而接管曾因 chevron 识别不到（React header 的
+ * 子级就是 <svg> 本体，既非 HTMLElement 也 querySelector 不到自身）而静默 return，
+ * 于是被隐藏的原生头永远不会被接管 —— 整块思考永久消失（R10 起默认折叠只渲染 header）。
+ * 所以：宁可让未接管的原生头显示一行 React 原生「Thinking...」，也不要静默隐藏。
+ * 隐藏规则一旦回流，就会把「接管失败」重新变成「思考消失」这种无声故障。 */
+
+/* 未接管的自带 header 的兜底观感（面板外如 Subagent 运行详情，以及面板内装饰层未接管的
+ * 原生 header）：文字弱化、悬停回暖，chevron 仅在悬停/聚焦时浮现——写法对齐装饰层接管版，
+ * :not(.quickforge-process-thinking-header) 保证不影响已接管的 header。 */
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header) {
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  transition: color 160ms ease;
 }
 
-.quickforge-process-body thinking-block > .thinking-block > .quickforge-process-thinking-header {
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header):hover {
+  color: color-mix(in oklab, var(--foreground) 86%, transparent);
+}
+
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header) > svg {
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    visibility 0s linear 140ms,
+    opacity 140ms ease;
+}
+
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header):hover > svg,
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header):focus-visible > svg,
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header):focus-within > svg {
+  visibility: visible;
+  opacity: 1;
+  transition-delay: 0s;
+}
+
+/* 接管后的思考行跟随「消息字号」基准（×0.875），与工具行（3439 起）同一表达式，
+ * 避免两套字号体系在设置分开调整时漂移；默认 R=M=13px 下 = 11.375px，与原 0.875rem
+ * 数值相同（零视觉回归）。装饰层已把 header className 重置为
+ * `thinking-header quickforge-process-thinking-header`，无 text-sm 等 utility 竞争，
+ * 且本规则 unlayered（优先于 @layer utilities），故不再需要 !important。 */
+.quickforge-process-body .qf-thinking-block > .quickforge-process-thinking-header {
   display: flex;
   min-height: 1.625rem;
   box-sizing: border-box;
@@ -3211,13 +3659,13 @@ pi-chat-panel thinking-block > .thinking-block > .thinking-header:not(.quickforg
   color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
   cursor: pointer;
   font-family: var(--font-sans);
-  font-size: 0.875rem !important;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875);
   font-weight: 400;
   line-height: 1.5;
   transition: color 160ms ease;
 }
 
-.quickforge-process-body thinking-block > .thinking-block > .quickforge-process-thinking-header:hover {
+.quickforge-process-body .qf-thinking-block > .quickforge-process-thinking-header:hover {
   color: color-mix(in oklab, var(--foreground) 86%, transparent);
 }
 
@@ -3275,8 +3723,11 @@ pi-chat-panel thinking-block > .thinking-block > .thinking-header:not(.quickforg
   transition-delay: 0s;
 }
 
-pi-chat-panel tool-message > div:first-child:has(.quickforge-tool-summary),
-.quickforge-process-body tool-message > div:first-child {
+/* 工具行压平（React 结构迁移后卡框类在 .qf-tool-message 根上，不再有内层卡 div）：
+ * 摘要行工具（local / MCP / subagent）的渲染器以 isCustom 输出，根本身无卡框——
+ * 等价于旧版 `> div:first-child` 重置后的扁平无边框行；无渲染器的兜底工具卡在
+ * 面板内保留卡片外观，仅在被过程折叠组收进 .quickforge-process-body 时压平。 */
+.quickforge-process-body .qf-tool-message {
   padding: 0 !important;
   border: 0 !important;
   border-radius: 0 !important;
@@ -3285,7 +3736,21 @@ pi-chat-panel tool-message > div:first-child:has(.quickforge-tool-summary),
   color: inherit;
 }
 
-.quickforge-process-body tool-message details > summary {
+/* 压平连带清除兜底卡内部的 pre 卡框（border / p-2 / bg-muted），否则压平后的
+ * 组里会浮出无外框的灰色代码块；渲染器自己的代码块在 details 展开区内，不受影响。 */
+.quickforge-process-body .qf-tool-message > .space-y-2 pre {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+/* 工具摘要行统一行高（R9）：不再按元素类型区分——details>summary、subagent 的
+ * button、generate_image 与兜底卡的首行 div 都挂 .quickforge-tool-summary，
+ * 面板内（组内 + 组外）统一 1.625rem，与过程思考头行对齐；面板外（运行详情
+ * 等）维持内容自适应。 */
+.qf-chat-panel .quickforge-tool-summary {
+  box-sizing: border-box;
   min-height: 1.625rem;
 }
 
@@ -3312,11 +3777,11 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
   opacity: 1;
 }
 
-.quickforge-process-body tool-message details > .mt-3.space-y-3 {
+.quickforge-process-body .qf-tool-message details > .mt-3.space-y-3 {
   margin-top: 0.375rem !important;
 }
 
-.quickforge-process-body thinking-block > .thinking-block > markdown-block {
+.quickforge-process-body .qf-thinking-block > .qf-markdown-block {
   margin-top: 0.375rem;
   font-family: var(--font-sans);
   max-height: min(60vh, 20rem);
@@ -3324,11 +3789,11 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
   overscroll-behavior: contain;
 }
 
-pi-chat-panel thinking-block > .thinking-block > markdown-block > .text-sm {
+.qf-chat-panel .qf-thinking-block > .qf-markdown-block.text-sm {
   font-size: 0.875rem;
 }
 
-pi-chat-panel thinking-block > .thinking-block > markdown-block > .text-sm :where(p, li) {
+.qf-chat-panel .qf-thinking-block > .qf-markdown-block.text-sm :where(p, li) {
   line-height: 1.6;
 }
 
@@ -3344,18 +3809,18 @@ pi-chat-panel thinking-block > .thinking-block > markdown-block > .text-sm :wher
   display: none;
 }
 
-assistant-message :is(thinking-block, tool-message, markdown-block)[data-quickforge-process-folded="true"]:not([data-quickforge-process-final-summary="true"]):not(.quickforge-process-body :is(thinking-block, tool-message, markdown-block)) {
+.qf-assistant-message :is(.qf-thinking-block, .qf-tool-message, .qf-markdown-block)[data-quickforge-process-folded="true"]:not([data-quickforge-process-final-summary="true"]):not(.quickforge-process-body :is(.qf-thinking-block, .qf-tool-message, .qf-markdown-block)) {
   display: none !important;
 }
 
 /* Retain message hosts for ordering/turn boundaries, but no internal bubble,
    actions or blank space. A run without an assistant can put its divider here. */
-user-message.quickforge-goal-internal-user-message:not(:has(> .quickforge-goal-iteration-divider)),
+.qf-user-message.quickforge-goal-internal-user-message:not(:has(> .quickforge-goal-iteration-divider)),
 .quickforge-process-source-empty:not(:has(> .quickforge-goal-iteration-divider)) {
   display: none !important;
 }
 
-user-message.quickforge-goal-internal-user-message:has(> .quickforge-goal-iteration-divider),
+.qf-user-message.quickforge-goal-internal-user-message:has(> .quickforge-goal-iteration-divider),
 .quickforge-process-source-empty:has(> .quickforge-goal-iteration-divider) {
   display: block !important;
   margin: 0 !important;
@@ -3363,13 +3828,14 @@ user-message.quickforge-goal-internal-user-message:has(> .quickforge-goal-iterat
   min-height: 0 !important;
 }
 
-user-message.quickforge-goal-internal-user-message > :not(.quickforge-goal-iteration-divider),
+.qf-user-message.quickforge-goal-internal-user-message > :not(.quickforge-goal-iteration-divider),
 .quickforge-process-source-empty:has(> .quickforge-goal-iteration-divider) > :not(.quickforge-goal-iteration-divider) {
   display: none !important;
 }
 
 @media (width < 48rem) {
-  .quickforge-user-message .user-message-container {
+  .quickforge-user-message .user-message-container,
+  .qf-user-message .user-message-container {
     max-width: min(86%, 45rem) !important;
   }
 }
@@ -4948,7 +5414,7 @@ html.dark .quickforge-subagent-running-badge {
   }
 }
 
-.quickforge-composer attachment-tile + attachment-tile {
+.quickforge-composer .qf-attachment-tile + .qf-attachment-tile {
   margin-left: 0.125rem;
 }
 
@@ -6073,7 +6539,7 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
 }
 
 /* Turn terminal error: one-line lightweight row (design-mockups/conversation-error-retry.html).
-   Rewrites pi-web-ui's red error block (bg-destructive/10) in place into the same
+   Rewrites the surface's red error block (bg-destructive/10) in place into the same
    lightweight-row vocabulary as the stopped label / reconnect notice — red stays only
    on the warning icon and the single line of text; escalation reuses the
    persist-degraded amber; the retrying transition reuses the reconnect spinner. */
@@ -6953,8 +7419,9 @@ html.dark .quickforge-assistant-artifact-card-rollback:hover:not(:disabled) {
    mono scope chip、blocker 警示条。quickforge-goal-report-tool 仅作标记 class
    （模板契约与测试锚点），不承载卡片样式。 */
 .quickforge-goal-report-tool-body {
-  /* 展开内容框：复用 code-block 的框配方（border + rounded-lg，见
-     @mariozechner/mini-lit CodeBlock.js 的 border border-border rounded-lg），
+  /* 展开内容框：复用 React 代码块的框配方（border + rounded-lg，见
+     surface/CodeBlock.tsx 与 tool-renderers/shared.tsx#renderCodeBlock 的
+     `qf-code-block` 框），
      无背景无阴影；details 收起时内容隐藏，框仅点开后可见。 */
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -7473,7 +7940,7 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
 /*
  * Workspace Inspector 顶部 Tab 条：隐藏原生横向滚动条。
  *
- * 必须写成 unlayered 规则。pi-web-ui 的 app.css 用 unlayered `*{scrollbar-width:thin}`
+ * 必须写成 unlayered 规则。本文件顶部用 unlayered `*{scrollbar-width:thin}`
  * 与 `::-webkit-scrollbar{width:8px;height:8px}` 定义全局滚动条，而层叠中 unlayered 规则
  * 优先于任何 @layer —— Tailwind 生成的 utilities 位于 @layer utilities，因此
  * `[scrollbar-width:none]` / `[&::-webkit-scrollbar]:hidden` 会被全局 thin 覆盖；
@@ -7549,3 +8016,62 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
 }
 
 .quickforge-goal-strip-duration { flex-shrink: 0; color: var(--muted-foreground); font-size: 11px; }
+
+/* ---------------------------------------------------------------------------
+ * Code-block syntax highlighting tokens (src/lib/code-highlight.ts)
+ * ---------------------------------------------------------------------------
+ *
+ * Palette mirrors the legacy `--syntax-*` tokens from the highlight.js era,
+ * so highlighted code keeps the pre-migration look. Known differences: the
+ * lightweight tokenizer has no heading / list-marker counterparts; plain
+ * segments render as bare text nodes and punctuation spans stay unstyled —
+ * the legacy palette had no `.hljs-punctuation` rule either, so both inherit
+ * the body colour (no `--qf-hl-punct` entry, no `.qf-hl-plain` rule).
+ * `property`/`attr` fall into the legacy `--syntax-constant` bucket, and diff
+ * fences keep the legacy `.hljs-addition` / `.hljs-deletion` foreground +
+ * backdrop pair.
+ */
+:root {
+  --qf-hl-comment: oklch(54% 0.019 247.858);
+  --qf-hl-string: oklch(29.6% 0.103 244.038);
+  --qf-hl-keyword: oklch(57.7% 0.245 27.325);
+  --qf-hl-number: oklch(43.5% 0.141 237.016);
+  --qf-hl-function: oklch(51.1% 0.136 307.715);
+  --qf-hl-builtin: oklch(60.8% 0.178 54.291);
+  --qf-hl-property: oklch(43.5% 0.141 237.016);
+  --qf-hl-tag: oklch(40.3% 0.111 145.348);
+  --qf-hl-attr: oklch(43.5% 0.141 237.016);
+  --qf-hl-addition-bg: oklch(98.4% 0.029 166.113);
+  --qf-hl-addition-fg: oklch(40.3% 0.111 145.348);
+  --qf-hl-deletion-bg: oklch(98.1% 0.025 17.672);
+  --qf-hl-deletion-fg: oklch(43.1% 0.183 27.522);
+}
+
+.dark {
+  --qf-hl-comment: oklch(62.6% 0.025 247.858);
+  --qf-hl-string: oklch(78.6% 0.08 237.016);
+  --qf-hl-keyword: oklch(69.8% 0.159 21.174);
+  --qf-hl-number: oklch(73.2% 0.137 237.016);
+  --qf-hl-function: oklch(79.2% 0.124 307.715);
+  --qf-hl-builtin: oklch(74% 0.141 54.291);
+  --qf-hl-property: oklch(73.2% 0.137 237.016);
+  --qf-hl-tag: oklch(81.2% 0.159 145.348);
+  --qf-hl-attr: oklch(73.2% 0.137 237.016);
+  --qf-hl-addition-bg: oklch(18.8% 0.06 166.113);
+  --qf-hl-addition-fg: oklch(87% 0.147 145.348);
+  --qf-hl-deletion-bg: oklch(23.3% 0.129 17.672);
+  --qf-hl-deletion-fg: oklch(92% 0.067 17.672);
+}
+
+.qf-hl-comment { color: var(--qf-hl-comment); }
+.qf-hl-string { color: var(--qf-hl-string); }
+.qf-hl-keyword { color: var(--qf-hl-keyword); }
+.qf-hl-number { color: var(--qf-hl-number); }
+.qf-hl-function { color: var(--qf-hl-function); }
+.qf-hl-builtin { color: var(--qf-hl-builtin); }
+.qf-hl-property { color: var(--qf-hl-property); }
+.qf-hl-tag { color: var(--qf-hl-tag); }
+.qf-hl-attr { color: var(--qf-hl-attr); }
+.qf-hl-addition { color: var(--qf-hl-addition-fg); background-color: var(--qf-hl-addition-bg); }
+.qf-hl-deletion { color: var(--qf-hl-deletion-fg); background-color: var(--qf-hl-deletion-bg); }
+

@@ -69,6 +69,11 @@ describe('motion design tokens and primitives', () => {
     const guardBlock = css.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.quickforge-dialog-backdrop-in,\s*\.quickforge-dialog-panel-in,\s*\.quickforge-sidebar-label-in,\s*\.quickforge-menu-in,\s*\.quickforge-list-item-in \{\s*animation: none;/)
     expect(guardBlock).not.toBeNull()
   })
+
+  it('exempts the thinking shimmer keyframes under prefers-reduced-motion', () => {
+    const css = readSource('../../src/index.css')
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.animate-shimmer \{\s*animation: none;\s*\}/)
+  })
 })
 
 describe('motion design batch 2', () => {

@@ -7,15 +7,14 @@ import {
   type DiffLineRow,
 } from '../../src/lib/diff-view'
 
-const localTools = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
+// T4：diff 渲染已迁至 tool-renderers/shared.tsx（React），
+// LocalWorkspaceToolRenderer 在 local-workspace-tool-renderer.tsx。
+const shared = readFileSync(new URL('../../src/lib/tool-renderers/shared.tsx', import.meta.url), 'utf8')
+const localRendererSource = readFileSync(new URL('../../src/lib/tool-renderers/local-workspace-tool-renderer.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
-const renderDiffSource = localTools.slice(
-  localTools.indexOf('function renderDiffRow'),
-  localTools.indexOf('function formatDuration'),
-)
-const localRendererSource = localTools.slice(
-  localTools.indexOf('class LocalWorkspaceToolRenderer'),
-  localTools.indexOf('function askUserQuestionsFromParams'),
+const renderDiffSource = shared.slice(
+  shared.indexOf('function renderInlineDiffStats'),
+  shared.indexOf('async function terminateCommand'),
 )
 
 const EDIT_DIFF = [
@@ -145,15 +144,15 @@ describe('parseDiffRows', () => {
 
 describe('diff rendering source contract', () => {
   it('renders static summary counts as separately colored text without badge styling', () => {
-    const statsSource = localTools.slice(
-      localTools.indexOf('function renderInlineDiffStats'),
-      localTools.indexOf('function renderDiffRow'),
+    const statsSource = shared.slice(
+      shared.indexOf('function renderInlineDiffStats'),
+      shared.indexOf('function renderDiffRow'),
     )
-    expect(statsSource).toContain('<span class="quickforge-diff-stats-add">+${addedLines}</span>')
-    expect(statsSource).toContain('<span class="quickforge-diff-stats-del">−${removedLines}</span>')
+    expect(statsSource).toContain('<span className="quickforge-diff-stats-add">+{addedLines}</span>')
+    expect(statsSource).toContain('<span className="quickforge-diff-stats-del">−{removedLines}</span>')
     expect(statsSource).not.toContain('quickforge-tool-meta-hover')
-    expect(localTools).toContain("typeof candidate.addedLines === 'number' || typeof candidate.removedLines === 'number'")
-    expect(localTools).not.toContain('quickforge-diff-counter')
+    expect(shared).toContain("typeof candidate.addedLines === 'number' || typeof candidate.removedLines === 'number'")
+    expect(shared).not.toContain('quickforge-diff-counter')
     expect(css).toMatch(/\.quickforge-diff-stats-add\s*\{[^}]*color:/s)
     expect(css).toMatch(/\.quickforge-diff-stats-del\s*\{[^}]*color:/s)
     expect(css).toMatch(/html\.dark \.quickforge-diff-stats-add\s*\{[^}]*color:/s)
@@ -189,11 +188,11 @@ describe('diff rendering source contract', () => {
       renderDiffSource.indexOf('function renderDiffRow'),
       renderDiffSource.indexOf('function renderDiff('),
     )
-    expect(rowTemplate.match(/class="quickforge-diff-ln"/g)).toHaveLength(1)
-    expect(rowTemplate).toContain('${diffLineNumber(row) ?? \'\'}')
-    expect(rowTemplate).not.toContain('${row.oldNo')
-    expect(rowTemplate).not.toContain('${row.newNo')
-    expect(rowTemplate).toContain("aria-label=${t('diffOmittedLines', { count: row.count })}")
+    expect(rowTemplate.match(/className="quickforge-diff-ln"/g)).toHaveLength(1)
+    expect(rowTemplate).toContain("{diffLineNumber(row) ?? ''}")
+    expect(rowTemplate).not.toContain('row.oldNo')
+    expect(rowTemplate).not.toContain('row.newNo')
+    expect(rowTemplate).toContain("aria-label={t('diffOmittedLines', { count: row.count })}")
     expect(rowTemplate).toContain('>⋯</div>')
     expect(rowTemplate).not.toContain('quickforge-diff-gap-dots')
     expect(rowTemplate).not.toContain("<span>${t('diffOmittedLines'")
@@ -201,9 +200,9 @@ describe('diff rendering source contract', () => {
   })
 
   it('uses short state copy in both locales', () => {
-    expect(localTools).toContain("t('diffNewFile')")
-    expect(localTools).toContain("t('diffTruncated')")
-    expect(localTools).toContain("t('diffNoChanges')")
+    expect(shared).toContain("t('diffNewFile')")
+    expect(shared).toContain("t('diffTruncated')")
+    expect(shared).toContain("t('diffNoChanges')")
     const i18n = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
     expect(i18n).toContain("diffNewFile: 'new file'")
     expect(i18n).toContain("diffTruncated: 'truncated'")

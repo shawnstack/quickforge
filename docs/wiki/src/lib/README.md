@@ -21,7 +21,7 @@
 - running/error/缺失结果不展示成功快照；progress/blocked/needs_review/complete 等动作保留报告语义与摘要、阻塞原因，尤其 complete 工具成功不等于目标已完成。旧结果正文按纯文本回退，不解析成 Goal 状态，完整 JSON 仅详细模式显示。
 - Renderer 只展示历史内容，不生成计划确认 mount 或按钮；`ChatPanelHost` 的 controller 接线保留为 inert 兼容接口，不派发任何操作，以避免本轮扩展到装饰生命周期重构。自动执行只由服务端正常规划轮末持久化屏障触发。
 - 当前 UI 无计划确认或最终验收入口；历史 awaiting_confirmation 只表示当时事实，历史 human evidence/accept API 保留兼容。必要提问、工具审批、预算追加确认、暂停/取消与编辑仍可用。
-- 这是客户端预检，不新增后端 CAS；HTTP 已发之后跨客户端替换目标仍是既有 confirm API 边界，不能撤回/保证原子性。缺身份、旧消息或无法证明最新计划时不展示动作，可经 Inspector 使用现有入口。所有不可信正文使用 Lit 文本绑定或 textContent，不使用 HTML 注入；中英 key 成对维护。工具卡不再使用 tone 变量/染色（与其他工具行一致），准则四态图标配色保留。
+- 这是客户端预检，不新增后端 CAS；HTTP 已发之后跨客户端替换目标仍是既有 confirm API 边界，不能撤回/保证原子性。缺身份、旧消息或无法证明最新计划时不展示动作，可经 Inspector 使用现有入口。所有不可信正文经 React 文本节点或 textContent 输出，不使用 HTML 注入；中英 key 成对维护。工具卡不再使用 tone 变量/染色（与其他工具行一致），准则四态图标配色保留。
 - 验证见 `tests/frontend/goal-report-renderer.test.ts`（纯模型与真实 renderer class 的惰性模板捕获）；不是浏览器 CSS/焦点/屏幕阅读器验收。目标图标与准则状态图标均为内联细线 SVG，无新增外部资源。
 
 ## Goal 错误文案本地化消费契约
@@ -34,7 +34,7 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `i18n.ts` | 3443 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload） |
+| `i18n.ts` | 3342 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload）；surface 文案统一走 `appTranslations.en/zh`，新增/修改 surface 文案必须同时补中英键 |
 | `error-messages.ts` | 42 | 已知上游代码异常文案的展示层国际化：`translateErrorMessage(message)` 以「精确/参数正则 → i18n key」规则表映射 pi-ai（Request was aborted、流异常结束）、ai-http-logger（AI stream idle/total timeout）、undici fetch failed 与 server-agent prompt HTTP 兜底等已知英文异常串；数据层保持原文（持久化、appendAssistantErrorMessageOnce 去重、subagent trace 去重都依赖原始文本），仅在展示层（message-actions 错误红块装饰、local-tools subagent 错误原因卡）调用；未匹配的动态正文原样显示 |
 | `pi-chat.ts` | 365 | Pi Chat 初始化和模型管理 |
 | `goal.ts` | 310 | Goal 模式前后端共享契约：状态/准则/证据/预算类型、防御归一化（容忍旧服务端缺字段、坏项丢弃）、状态语义纯函数（终态/活跃/旋转、可编辑/可确认/可暂停/可恢复/可接受、`goalAcceptanceCheck` 与时长整分钟展示） |
@@ -52,7 +52,10 @@
 | `app-settings-cache.ts` | 启动 Settings 快照 store（F14）：追踪键白名单（language/外观/字号/工具展示）、结构校验读取（坏条目删除）、>4KB 跳写；`HttpStorageBackend.set` 经 `updateAppSettingSnapshotFromStorageSet` 写通，IndexedDB 不可用全程 no-op |
 | `provider-keys-cache.ts` | Provider keys 前端内存缓存：provider→key 模块级 Map（null=已确认无 key）+ in-flight 并发去重；`HttpStorageBackend` 对 provider-keys store 读穿/写通（set/delete/clear 后广播），备份导入统一失效；跨标签经 BroadcastChannel('quickforge-sync') 'provider-keys-changed' 广播互失效（sourceTabId 自忽略），通道不可用静默降级 |
 | `shared-server-agent.ts` | 488 | 共享会话 Agent 客户端 |
-| `local-tools.ts` | — | 前端本地工具渲染器注册；含 `todo_write`、`goal_report` 专用历史 renderer |
+| `local-tools.ts` | 257 | QuickForge 工具渲染器注册入口（仅注册逻辑）：导入时注册全部 React 渲染器（见 `tool-renderers/`），`getLocalWorkspaceTools` 透传服务端工具元数据并幂等注册 MCP 渲染器；渲染实现全部在 `tool-renderers/`，subagent 运行详情由 React 组件 `components/workspace/SubagentRunDetailContent.tsx` 承担 |
+| `tool-renderers/` | — | QuickForge 工具渲染器 React 实现集（按工具分文件，由原 local-tools 内联模板迁为 React）：`shared.tsx` 承载共用纯函数、attribute 驱动自定义元素（`quickforge-elapsed-time` / `quickforge-tool-marquee`）与 React 节点工厂（图标/状态/diff/按钮/code-block）；`local-workspace-tool-renderer.tsx`（本地工作区工具通用卡）、`subagent-tool-renderer.tsx`、`generate-image-tool-renderer.tsx`、`ask-user-tool-renderer.tsx`（含 `askUserReviewRowsFromDetails` 回执行提取）、`goal-report-tool-renderer.tsx`、`todo-write-tool-renderer.tsx`、`mcp-tool-renderer.tsx`（含 `parseMcpToolName`）；`index.ts` 统一导出。渲染器 `render()` 返回 `{ content: ReactNode, isCustom }`，class 链与 DOM 结构逐字复刻原模板 |
+| `tool-renderer-registry.ts` | — | 纯本地工具渲染器 registry（self-hosted-chat-ui T2/T8）：模块级 `Map<string, ToolRenderer>`，`registerToolRenderer` 覆盖同名注册、`getToolRenderer` 立即返回、未知工具返回 `undefined`（无任何包级回退）；`ToolRenderResult.content` 为纯 `ReactNode`，无 DOM 宿主、无跨会话共享渲染器，chat / side chat / subagent trace 共用同一批实现 |
+| `code-highlight.ts` | 1532 | 自研聊天代码块语法高亮（无新依赖，对齐轮补齐 highlight.js 移除后的迁移缺口）：每语言族一个单遍线性 sticky-regex tokenizer（O(n)、无嵌套量词，防回溯灾难），16 组既有语言（javascript/jsx、typescript/tsx、json、bash/sh、python、css/scss/less、html/xml/svg、sql、java、c、cpp、go、rust、yaml、markdown、diff）+ 对齐轮新增 9 组（toml、ini、dockerfile、makefile、powershell、graphql、protobuf、nginx、apache），共 25 组（别名见 `LANGUAGE_ALIASES`），token → `qf-hl-*` class（13 个 token：comment/string/keyword/number/function/builtin/property/punct/tag/attr/addition/deletion/plain；其中 `punct` 与 `plain` 无独立样式——旧调色板没有 `.hljs-punctuation` 规则，故不声明 `--qf-hl-punct` 变量、标点与 plain 段一并继承正文字色；`addition`/`deletion` 对应旧 `.hljs-addition`/`.hljs-deletion` 的前景+底色对，`--qf-hl-addition/deletion-bg|fg` 逐字等于旧 `--syntax-addition/deletion-*` 的亮/暗取值）；diff fence 严格按旧 highlight.js `Diff` 语法顺序 meta（hunk 头与 `***`/`---` 范围头，复用 `--qf-hl-number` 即旧 `.hljs-meta` 的 `--syntax-constant` 色）→ 注释（`Index: `/`index`/`===`/`---`/`*** `/`+++`/`diff --git` 整行、15 星分隔行）→ `+`/`!` 增行 → `-` 删行；超过 `MAX_HIGHLIGHT_LENGTH`（200KB）回退单一 plain 段；未注册的语言名改走保守通用回退 `tokenizeGeneric`（不再整块纯文本，纯文本仅限 `text`/`plaintext`/`txt`、空名与无判别 token 的输入；仍不做 hljs 式语言自动猜测）。已知局限为阅读级近似：JS/TS 模板串插值不再分词、正则字面量按前置显著 token 启发式（含 `/` 的字符类可提前截断）、JSX/Rust 嵌套注释与 bash heredoc/YAML block scalar 近似、流式中未闭合串/注释吞到行/块尾并随文本到达自愈。供 `chat/surface/CodeBlock.tsx` 消费；回归 `tests/frontend/code-highlight.test.ts` |
 | `goal-report-history.ts` | — | Goal 工具历史只读投影：成功 `details.type === 'goal_report_result'` 的 goal 提取摘要/验收/范围；错误、运行中与缺失结果不冒充计划成功 |
 | `todo-write-history.ts` | 90 | TodoWrite 历史工具消息视图模型：区分 running/error/success/clear/neutral，并从成功 `toolResult.details.todos` 提取已应用快照 |
 | `share-client.ts` | 148 | 分享功能客户端 API |
@@ -66,11 +69,6 @@
 | `message-utils.ts` | 95 | 消息处理工具 |
 | `mermaid-renderer.ts` | 共享 Mermaid 动态加载、SVG 安全检查和渲染工具 |
 | `custom-model-selector.ts` | 590 | 自定义模型选择器；主聊天可通过可选无参回调在桌面浮层与移动抽屉底部显示“自定义模型”，点击先关闭选择器再打开设置，未传回调的共享对话/表单复用场景不显示 |
-| `custom-providers-only-tab.ts` | 565 | 自定义供应商设置选项卡 |
-| `backup-settings-tab.ts` | 备份与恢复设置选项卡：按设置数据项选择导出内容（不包含对话），上传后预览有效/异常数据项，并支持按项替换或合并恢复 |
-| `default-options-settings-tab.ts` | 257 | 常规设置选项卡（语言、默认模型、网络代理、上下文和终端 Shell） |
-| `lan-access-settings-tab.ts` | 227 | LAN 共享设置选项卡 |
-| `patch-thinking-selector.ts` | 117 | 思考模式选择器修补 |
 | `clipboard-polyfill.ts` | 51 | 剪贴板 API polyfill |
 | `logger.ts` | 56 | 前端日志工具 |
 | `update-check-poll.ts` | 71 | 更新检查轮询助手：`requestUpdateCheck()` 对非阻塞的 `GET /api/system/update/check` 状态快照做有界轮询（默认 10 次 × 1s，可注入 fetch/sleep 单测）到 `ok`/`error` 终态，失败一律返回 `{ kind: 'error' }` 不抛出（fetch/sleep 可注入）；`force` 仅首次请求带 `?force=1`；兼容不带 `status` 字段的旧服务端 payload |
@@ -78,11 +76,11 @@
 | `window-guard.ts` | 118 | Web Locks 严格单窗口守卫（纯锁守卫）：`acquireAppWindowGuard` 以 `ifAvailable` 抢锁（持锁成功时 request promise 因回调永不结束不会结算，成功判定只依赖 acquired 标志）；同窗口刷新竞态按 400ms×2 重试后判 blocked（blocked 窗口由 main.tsx 渲染拦截页）；Web Locks 不可用降级放行（unsupported，BroadcastChannel 等不再是依赖） |
 | `browser-connection-diagnostics.ts` | 631 | 浏览器侧连接池 / 请求排队诊断采集器：`PerformanceObserver` 采同源资源计时（排队 = `requestStart - startTime`），包装 `window.fetch` 统计 in-flight 与常驻长连接（SSE / NDJSON，clone 分支观测结束、不改原响应体），排队超阈值 `console.warn`（同 path 节流 30s），`window.__quickforgePerf()` 输出报告并异步拉取 `GET /api/diagnostics`；`VITE_QUICKFORGE_DIAGNOSTICS=0` 关闭 |
 | `tool-display-settings.ts` | 40 | Tool 与上下文用量展示设置 |
-| `tool-execution-events.ts` | 120 | 工具执行事件处理 |
+| `tool-execution-events.ts` | 163 | 工具执行事件处理（类型/消息合并 + `toolCallIdsWithoutToolResult` pendingToolCalls 合成） |
 | `tool-param-summary.ts` | 工具参数→摘要文案纯函数：`summarizeParams`（自 local-tools 提取，按工具名取 command/path/query 等生成单行摘要）、`normalizeToolArguments`（toolCall arguments 归一化，兼容 JSON 字符串）、`truncateSummary`；工具卡片与 subagent 跑马灯共用同一套规则 |
 | `tool-marquee.ts` | subagent 摘要卡「当前工具」跑马灯动画控制：`ToolMarqueeController`（DOM/定时器/动画经参数注入可单测）——容器内双视图（各含 static+moving span，宿主定高一行），溢出且非 reduced-motion 时 WAAPI 横向循环（35px/s 滚动→端部停顿→回弹），同值刷新不打断；text 切换时旧视图向上滚出、新视图自下滚入（`MARQUEE_ROLL_DURATION_MS`=260ms + 里程计同族缓动，滚动期间旧视图横向动画不中断，结束后按既有 400ms 起始延迟重建横向循环，滚动中再遇新文本先就地结算再重滚），reduced-motion/首次出现/终态退化为直切，常量与侧栏会话标题跑马灯一致 |
 | `input-clamp.ts` | 长输入内容定高收起（聊天用户消息气泡 + subagent 详情任务块共用，设计稿 `design-mockups/input-clamp-expand.html`）：`InputClampController`（DOM 能力注入可单测）管理 data 属性状态机与内联 max-height 过渡（220ms，展开结束后置 none，reduced-motion 直切）；正文阈值按元素 computed line-height × 6 行 + 纵向 padding/border 计算（随字号设置缩放），overflowing 内容额外显示 30px 流内按钮安全区，确保展开/收起按钮不覆盖正文，fits 内容隐藏安全区、渐隐与按钮且不留空白；i18n 标签由调用方注入（模块不 import i18n，保持 node 环境可测）；DOM 装饰入口 `decorateUserMessageInputClamp`（聊天装饰）与 `syncInputClampBoxes`（subagent 详情 updated 后） |
-| `diff-view.ts` | write/edit 工具 diff 的结构化解析纯函数：`parseDiffRows` 支持 unified（含无 hunk 的 pseudo-unified）与 raw 新文件文本，保留 old/new 解析行号并由渲染层按 del→oldNo、add→newNo、ctx→newNo（防御性回退 oldNo）显示单列智能行号，剥离 unified 的 +/- 前缀、保留 raw 首字符、计算 hunk 间 gap，并在显式截断状态下忽略精确尾标记；`parseDiffFileInfo` 从标准 unified 文件头提取路径与 `/dev/null` 新文件语义。`local-tools.ts` 复用该结果渲染两列共享 grid / `display: contents` 行视图与横向长行背景，摘要以静态绿色 `+N` / 红色 `−N` 文字显示，gap 可见内容仅为 `⋯`，不做字符级 token/LCS/`<mark>` 标记 |
+| `diff-view.ts` | write/edit 工具 diff 的结构化解析纯函数：`parseDiffRows` 支持 unified（含无 hunk 的 pseudo-unified）与 raw 新文件文本，保留 old/new 解析行号并由渲染层按 del→oldNo、add→newNo、ctx→newNo（防御性回退 oldNo）显示单列智能行号，剥离 unified 的 +/- 前缀、保留 raw 首字符、计算 hunk 间 gap，并在显式截断状态下忽略精确尾标记；`parseDiffFileInfo` 从标准 unified 文件头提取路径与 `/dev/null` 新文件语义。`tool-renderers/shared.tsx`（T4 前在 local-tools.ts）复用该结果渲染两列共享 grid / `display: contents` 行视图与横向长行背景，摘要以静态绿色 `+N` / 红色 `−N` 文字显示，gap 可见内容仅为 `⋯`，不做字符级 token/LCS/`<mark>` 标记 |
 | `sidebar-session-sort-mode.ts` | 左侧会话时间线排序偏好的 `localStorage` 安全读写，刷新后恢复且不参与后端同步 |
 | `sidebar-session-display.ts` | 左侧 Projects 时间线、项目会话与 Tasks 的五条递增展示纯行为：计算下一展示目标、判断是否需要请求下一页，并以 timeline/global/project 各 key 的 pending generation 合并快速重复点击；仅在异步加载确认新增数据且 generation 仍有效时提交展示数量，重置会使在途旧请求失效，失败保持原数量并允许重试 |
 | `sidebar-section-order.ts` | 左侧 Projects / Tasks 顶层区块顺序的 `localStorage` 安全读写与纯函数排序：规范化缺失、重复和外来 ID，固定映射 `tasks` 到现有 conversations UI；桌面/移动共用 App 状态，置顶区不参与排序 |
@@ -90,7 +88,6 @@
 | `chat-capabilities.ts` | 聊天页面 capability 静态表与页面策略 resolver：`QUICKFORGE_CHAT_CAPABILITIES` 主会话默认全开；`SIDE_CHAT_UI_CAPABILITIES`（兼容别名 `SIDE_CHAT_CAPABILITIES`）为全 false 的可执行能力表，Side Chat 仍复用主控件布局，但由共享装饰层将不支持控件原生禁用，服务端固定 `tools: []` 作为安全边界；`applyChatPagePolicy` 在其上叠加分享页 `readOnly` / `disableFork` 策略收窄 rollback/retry/forkFromMessage/attachments 等，`shouldSendComposerInput` 按 `attachments` 能力与文本/附件输入判定可发送 |
 | `cross-tab-events.ts` | 跨标签 BroadcastChannel `'quickforge-sync'` 通信的稳定 per-tab source id：`getCrossTabSyncSourceId()` 返回模块级随机 id，用于广播时自忽略本 tab 的消息 |
 | `system-notifications.ts` | 浏览器 Notification/Service Worker、Electron Desktop 原生通知与 Capacitor Android 本地通知统一适配；管理默认开启的设备偏好、权限、安卓远程浏览器首次发送授权、后台展示、点击打开会话和短时去重 |
-| `info-tip.ts` | 134 | 统一问号说明浮层 Web Component |
 | `pinned-summary-drag.ts` | 152 | 置顶摘要桌面浮动摘要的纯状态/拖动/布局 helper：`resolvePinnedSummaryInitialPosition` 仅为无历史位置的首次 desktop 定位解析主对话 header 锚点（`x = header.right - targetWidth - 12px`、`y = ceil(header.bottom) + 10px`，header 不可用时先回退 toolbar root rect，toolbar root 也不可用时再回退 widget rect）；`resolvePinnedSummaryLayout` 统一处理首次定位后、panel/capsule 切换、resize、drag 与 Inspector resume 的 viewport 安全策略——横向 12px inset，capsule 常规 clamp；panel 优先保留当前 y，并返回当前位置到 viewport bottom 12px 的 `panelMaxHeight`，让 flex 内容区滚动，只有下方不足 `PINNED_SUMMARY_PANEL_MIN_HEIGHT=180` 时才向上调整，极矮 viewport 使用全部安全区域，不按整屏自然高度上移。组件契约中 `panelMaxHeight` 只在 panel mode 更新/消费；ResizeObserver 若与拖动并发，必须以 `dragRef.current.current` 作为布局 position，不能用尚未收敛的拖动起点覆盖 max-height，结束/取消再由统一 drag cleanup 收敛。`getPinnedSummaryOutsideAction` API 已简化为 desktop `stay` / mobile `close`，不再存在 desktop minimize action；desktop 组件结构上不安装摘要级 outside/Escape listener，mobile/mobileShell 仍使用 close。`shouldSuspendPinnedSummary` 判定 Inspector 已打开时是否进入 `>=1024px` 且非 `mobileShell` 的真实桌面右侧栏暂停；`shouldClosePinnedSummaryBeforeInspectorOpen` 的参数明确表示“即将打开 Inspector 时是否具备暂停/保留能力”；另含兼容的矩形 clamp 与 4px 拖动阈值。供 `App` / `GitToolsPinnedSummary` 共用，配套纯函数测试 `tests/frontend/pinned-summary-drag.test.ts` |
 | `new-chat-greeting.ts` | 31 | 新对话空状态欢迎语的时段选择纯函数：`getNewChatGreetingSlot(hour)` 按本地小时映射 morning(06–11)/afternoon(12–17)/evening(18–22)/lateNight(23–05)，越界与 NaN 归一化；`getNewChatGreetingKeys(slot)` 返回该时段 3 个 i18n key，`pickNewChatGreetingKey(date, random)` 随机取 key（random 可注入便于单测）；`NEW_CHAT_GREETING_FALLBACK_KEY` 指向 `newChatEmptyTitle` 兜底。`src/App.tsx` 以 `useMemo([showNewChatEmptyState])` 锁定随机结果，避免重渲染抖动 |
 
@@ -98,7 +95,7 @@
 
 ## 核心模块
 
-### i18n.ts (3357 行)
+### i18n.ts (3342 行)
 
 **用途**: 国际化支持。包含中英文翻译字典和应用语言管理。
 
@@ -106,8 +103,10 @@
 - 支持 `en` / `zh` 两种语言
 - 提供 `t()` 翻译函数
 - 语言初始化/应用函数
-- 与 `pi-web-ui` 的翻译集成
+- 翻译字典本地维护（无外部包依赖），语言偏好经 `AppStorage` 的 settings store 持久化
 - 日期区域设置
+- **surface 文案统一走 `appTranslations`**：聊天 surface（`MessageEditor` / `ThinkingBlock` / `AssistantMessage` / `ToolMessage` / `AttachmentTile` / `AttachmentOverlay` / `AttachmentPreview` / `ApiKeyPromptDialog` / `CodeBlock` / `ChatSurface`）不再硬编码文案，全部调用 `t()`；新增或修改 surface 文案**必须同时补齐 `appTranslations.en` 与 `appTranslations.zh` 的同名键**（中英成对维护），并优先复用既有键（`thinking*` / `input` / `output` / `stop` / `close` / `save` / `cancel` / `composerPlaceholder`、```svg 与 ```mermaid 预览、`executeInTerminal`、`moreActions` 等）。装饰层可见文案同规则（`openLocalFile` / `gitBranchLabel` / `toolCommand*` 等）。
+- **测试约定（文案断言固定语言）**：surface 组件的 `renderToStaticMarkup` 断言因默认语言回退 `navigator.language`（中文机器上即 zh），必须在测试内固定语言（文件级 `beforeEach(applyAppLanguageFromSnapshot('en'))`），另保留一处 zh 断言覆盖本地化生效；见 `tests/frontend/chat-surface-editor.test.ts` 与其余 `chat-surface-*.test.ts`。
 
 ### pi-chat.ts (365 行)
 
@@ -195,15 +194,29 @@
 
 ### local-tools.ts
 
-**用途**: 在 `pi-web-ui` 中注册本地工具渲染器；`run_command` 运行中会显示图标按钮，通过 `/api/agents/:sessionId/abort-tool` 手动结束当前命令；`run_subagent` 在聊天中只展示名称、状态和耗时摘要，运行期间在状态标签与 spinner/耗时之间渲染 `quickforge-tool-marquee` 自定义元素（attribute 驱动，仿 `quickforge-elapsed-time` 模式），以跑马灯滚动显示子代理当前正在执行的工具（`工具名 · 参数摘要`，多个 pending 用 ` · ` 连接，见 `currentSubagentToolSummariesWithMemory`：工具间隙——上一个工具已结束、下一个尚未开始时 pending 为空，回放该 run 最近一次非空摘要，避免工作过程显示闪空，直至下一个工具摘要出现或运行结束；工具摘要切换时双视图纵向滚动——旧摘要向上滚出、新摘要自下滚入 260ms，横向滚动与纵向滚动两轴独立互不打断；溢出自动循环滚动、不溢出静态、reduced-motion 降级为省略号，动画逻辑在 `tool-marquee.ts`），跑马灯只占用剩余弹性空间不遮挡标签与状态；点击整个摘要通过 `window` CustomEvent（`OPEN_SUBAGENT_RUN_EVENT`，事件名 `quickforge:open-subagent-run`）在 `WorkspaceInspector` 中打开或激活该次运行的独立 Tab，不再内联展开完整过程；renderer 会把 toolResult 顶层 `toolCallId` 显式传给 `buildSubagentRunPayload()`，确保临时/最终消息都使用父工具调用 canonical ID；缺少 canonical ID 的 `called/running` 摘要禁用、不打开且不进入全局 store，已完成历史消息仍可用 `sessionId/name:task` fallback 直接打开，但不会发布到 store；运行详情由 `renderSubagentRunBody` 渲染并通过 Lit 宿主元素 `subagent-run-detail-body` 嵌入工作区 Tab，遵循工具显示配置（`concise / compact` 简洁显示，`detailed` 额外展示工具统计、允许工具和 input/details）；详情顶部任务说明块（task/context/expectedOutput）复用用户消息气泡视觉（同边框/圆角/阴影/文字规格，见 `input-clamp.ts`），三个值节点分别保留任务文本中的原始换行（不对外层 Lit 模板启用 pre-wrap，避免模板缩进形成额外空白），长内容做定高收起——超出约 6 行裁掉不滚动、底部渐隐 + 居中「展开/收起」按钮，并用仅 overflowing 内容显示的 30px 流内安全区避免按钮覆盖正文，宿主每次渲染后经 `syncInputClampBoxes` 幂等度量，状态走 data 属性可跨实时更新存活；任务说明块上方独立一行居中渲染「运行信息」行（`meta` block，不受 `detailed` 门控）：只显示模型名（`subagentRunModelLabel`，provider/id 优先、缺失时回落 name）与思考等级（`subagentThinkingLevelLabelKey` 复用主 Agent 五档文案），两者用 `·` 分隔，不显示标签与继承标记；宿主每次渲染后调度 `decorateSubagentProcessBlocks`（`panel-decoration/message-actions.ts`），对内部过程 message-list 应用与聊天一致的 process folding / 过程分组装饰与交互（幂等、不重复叠加、卸载随 DOM 回收）；`run_subagent` renderer 仅回填 canonical 安全快照：首次可发布，或以恢复出的 done/error 修正 store 中已有 called/running，其他已有快照仍以 `ServerAgent` 的 `tool_execution_*` SSE 为权威；canonical 摘要点击时可取 store 最新同 ID 载荷，非 canonical 历史摘要始终使用当前 renderer 载荷；聊天摘要按钮具备 hover / focus-visible 反馈与 `aria-label`/`title` 可访问语义；`generate_image` 的 renderer 仅为历史会话兼容，以独立结果块展示既有会话图片资产，并根据普通页或 `/share/:shareId` 自动构造同源资源 URL；`write_file`/`edit_file` 在摘要中默认显示静态绿色 `+N` / 红色 `−N` 文字，running 的 count-only partial 只展示计数、不误报“无变化”；展开正文仅在 `details.diff.text` 为字符串时渲染，并由 `diff-view.ts` 按 format 解析 unified（含无 hunk 的 pseudo-unified）或 raw 文本，按 del→oldNo、add→newNo、ctx→newNo（防御性回退 oldNo）显示单列智能行号，hunk gap 可见内容仅为 `⋯`，并保留“已截断”“新文件”短状态。新建空文件通过 `details.created` 显式传入新文件语义，与“无变化”同时显示；视图保留两列共享 grid、`display: contents` 和横向长行背景，不重复标题/路径/计数 chip，也不做字符级 token/LCS/`<mark>` 标记；`ask_user` 由 `AskUserToolRenderer` 渲染（summary「N 问 · 首问」，问号图标；pending/旧消息非 detailed 展开时列出问题清单），已回答/跳过的历史消息展开复用回执确认步样式——`askUserReviewRowsFromDetails(details)` 从持久化 toolResult.details 提取规范化 questions/answers/skipped/skipReason，按 `.quickforge-ask-review` 只读行渲染（复用 `buildAskAnswerText` 合并答案、未答显示占位、无「修改」按钮，跳过态行区顶部带跳过原因行，reason→i18n 四映射 timeout/aborted/no-questions/用户跳过），非 detailed 模式省略 output 文本块；`detailed` 模式一律维持 input JSON + output 原文视图。
+**用途**: QuickForge 工具渲染器注册入口。渲染器实现全部为 React（见 `tool-renderers/`），本文件不再含渲染逻辑：
 
-`todo_write` 使用专用 `TodoWriteToolRenderer`。历史摘要只陈述历史事件：运行中（running）、失败/中止/超时（error）、成功更新任务清单（success，显示完成数）、成功清空任务清单（clear），以及只有调用、成功结果缺少有效快照或旧数据形状不完整（neutral，不宣称已更新）。它不声称与当前 Composer Dock 摘要同步，因为当前 UI 由当前消息分支独立恢复。成功历史在非 `detailed` 模式默认只显示事件摘要，不重复渲染完整 Todo 列表；`detailed` 才显示 input/details JSON。
+- **注册**：导入时注册本地工作区工具（`manage_global_memory` / `read_file` / `grep_files` / `write_file` / `edit_file` / `run_command` / `present_files` / `activate_skill` / `read_skill_resource`）、`run_subagent`、`generate_image`、`todo_write`、`ask_user`、`goal_report`；`getLocalWorkspaceTools(tools)` 仅透传服务端工具元数据（工具定义只在服务端 `server/tools/definitions.mjs` 与 `GET /api/tools`），并对 `mcp__server__tool` 名称按需幂等注册 `McpToolRenderer`（label 取服务端 label 或剥除 `[MCP:...]` 前缀的 description）。
+- **subagent 运行详情（React）**：Workspace Inspector 的运行详情由 `components/workspace/SubagentRunDetailContent.tsx` 渲染（纯逻辑与实时 store 见 `subagent-run-detail.ts`，展示层级遵循 `subagentRunBodyBlocks`），渲染后由 `syncInputClampBoxes` 幂等度量收起态；过程装饰由 `SubagentTrace` 自身承担（`getSnapshotBeforeUpdate` 释放过程组 + `componentDidUpdate` 对 `.qf-message-list` 调 `decorateProcessBlocks`），不再经由 `message-actions` 的共享入口；本文件不再提供任何详情模板或耗时徽标（耗时徽标见 `tool-renderers/shared` 的 `renderTiming`）。
 
-**支持的工具渲染**: `run_subagent`, `read_file`, `grep_files`, `write_file`, `edit_file`, `run_command`, `present_files`, `activate_skill`, `read_skill_resource`, `ask_user`, `todo_write`；另保留 `generate_image` renderer，仅用于历史会话兼容。
+### tool-renderers/
+
+**用途**: QuickForge 工具渲染器的 React 实现集（由原 local-tools 内联模板逐个迁出）。各渲染器 `render(params, result, isStreaming)` 返回 `{ content: ReactNode, isCustom }`，由 React ChatSurface 的 ToolMessage 直接渲染；class 链与 DOM 结构逐字复刻原模板（CSS 与 DOM 装饰层依赖这些类名），内联 SVG 图标仅属性名驼峰化；代码与日志输出直接渲染 React DOM（`qf-code-block` / `qf-console-block` class 链），不再是 `code-block` / `console-block` 自定义元素（仅 `quickforge-elapsed-time` / `quickforge-tool-marquee` 仍是 attribute 驱动的自定义元素）。聊天消息里的 fenced 代码块由 `components/chat/surface/CodeBlock.tsx` 承担（标题栏/复制/```svg 预览/```mermaid/终端执行），`renderCodeBlock` 只服务工具卡内的代码输出。
+
+- `shared.tsx` — 共用构件：纯函数（`toolStatus` / `stringifyValue` / `resultText` / `toolOutputText` / `getDiffDetails` / `formatDuration` 等）、attribute 驱动自定义元素（`quickforge-elapsed-time` 耗时徽标、`quickforge-tool-marquee` 跑马灯宿主，动画时序在 `tool-marquee.ts`）、React 节点工厂（`renderToolIcon` / `renderToolChevron` / `renderStatus` / `renderDiff` / `renderDiffRow` / `renderInlineDiffStats` / `renderTerminateCommandButton` / `renderPreviewButton` / `renderCodeBlock` / `renderConsoleBlock`）、折叠状态记忆（`rememberToolDetailsOpen`，按 toolCall id 键控、模块级 LRU 上限 100 条，跨 remount 保留用户开合）与 `toolDisplayDetailed()` detailed 门控。
+- `local-workspace-tool-renderer.tsx` — 本地工作区工具通用卡：shell + summary（图标 + 标题 + 折叠箭头 + diff 统计 + 状态，运行中标签挂 `quickforge-tool-running-sweep` 跑马灯排除区之外的扫光）+ 展开区（input/output/diff/details，`run_command` 用 console-block）+ `quickforge-tool-actions`（预览 / 终止命令）。
+- `subagent-tool-renderer.tsx` — run_subagent 摘要卡：点击派发 `OPEN_SUBAGENT_RUN_EVENT` 打开 Inspector 运行 Tab（canonical 可取 store 最新同 ID 快照，历史 fallback 用当前载荷）；运行期在标签与状态之间渲染 `quickforge-tool-marquee` 显示当前工具摘要（工具间隙回放最近非空摘要防闪空）；renderer 仅按 `shouldPublishSubagentRunPayload` 回填 canonical 安全快照，SSE 实时路径权威（发布/打开规则见 `subagent-run-detail.ts`）。
+- `ask-user-tool-renderer.tsx` — ask_user 卡：pending 展开列问题清单；已答/跳过历史复用回执确认步样式（`askUserReviewRowsFromDetails` 从持久化 details 提取规范化 questions/answers/skipped/skipReason，`buildAskAnswerText` 合并答案，跳过态带 reason 行），非 detailed 省略 output 文本块。
+- `goal-report-tool-renderer.tsx` / `todo-write-tool-renderer.tsx` — 历史只读投影（视图模型见 `goal-report-history.ts` / `todo-write-history.ts`），默认折叠、detailed 附原始 JSON。
+- `generate-image-tool-renderer.tsx` — 历史会话兼容的图片结果块（普通页与 `/share/:shareId` 同源 URL）。
+- `mcp-tool-renderer.tsx` — MCP 动态渲染器（summary 行 server / 原名 / 参数摘要，`parseMcpToolName` 解析 `mcp__server__tool`）。
+- `index.ts` — 统一导出，`local-tools.ts` 注册入口消费。
+
+**registry 语义**：注册统一走 `tool-renderer-registry.ts` 的 `registerToolRenderer`——模块级 `Map` 存 React 渲染器，chat / side chat / subagent trace 经 `getToolRenderer` 取同一批实现；无包级 registry、无 DOM 宿主桥、无双管线。渲染行为契约（diff 单列智能行号 / ask_user 回执 / todo_write 摘要 / 跑马灯动画）的验证见 `tests/frontend/diff-view.test.ts`、`ask-user-card.test.ts`、`todo-write-renderer.test.ts`、`tool-marquee.test.ts`、`local-tool-running-sweep.test.ts` 等。
 
 ### todo-write-history.ts
 
-**用途**: 为 TodoWrite 历史工具消息构建不依赖 DOM/Lit/i18n 的视图模型，供 `todo_write` 工具消息消费。
+**用途**: 为 TodoWrite 历史工具消息构建不依赖 DOM/React/i18n 的视图模型，供 `todo_write` 工具消息消费。
 
 - 状态先按工具生命周期判定：`isStreaming` 为 running；`isError`、`details.aborted` 或 `details.timedOut` 为 error；存在终态 result 为 success 候选；只有调用无结果为 neutral。
 - 仅信任成功 `toolResult.details.todos` 作为已应用快照，复用严格三态、最多 20 项、非空内容的规范化边界。
@@ -211,7 +224,7 @@
 
 ### subagent-run-detail.ts
 
-**用途**: subagent 单次运行详情的纯逻辑（不依赖 DOM/Lit/React/i18n 运行时，`t` 由调用方注入）。`extractLatestTerminalSubagentRuns()` 用于顶部置顶摘要：只扫描调用方传入的当前消息分支，按 `toolCallId` 配对 assistant `run_subagent` 调用与 `toolResult`，排除当前 `pendingToolCalls`，复用 `buildSubagentRunPayload()` 规范化后仅保留 done/error；按终态结果 timestamp 最近优先（缺失时回退消息索引）、canonical ID 去重并限制最近 1–`MAX_TERMINAL_SUBAGENT_RUNS`（100）条，且返回轻量载荷（traceMessages/input/details 留空；点击打开时 Inspector 优先取 `subagentRunStore` 快照，未命中时详情缺 trace/input/details），明确不枚举全局 `subagentRunStore`，因此切换会话、回滚或恢复时列表跟随当前分支重算。`buildSubagentRunPayload()` 把 run_subagent 的 params/result.details 规范化为 Workspace Inspector 运行 Tab 使用的统一载荷（稳定 run id 以 `toolCallId`（显式参数、toolResult 顶层字段或 `details.toolCallId`）为主键，`details.sessionId` 仅作历史兼容 fallback，两者都没有时回退 `${name}:${task}`；同时携带 `canonicalToolCallId`，并生成状态/状态文案/耗时/工具调用数/允许工具/过滤后的过程消息/input/details JSON/内容指纹，以及从 `details.model`/`details.thinkingLevel` 解析出的运行信息 `model`/`thinkingLevel`——非法或缺失时为 `undefined`，`model` 的 `provider/id` 已由服务端在继承模式下补全）。`canPublishSubagentRunPayload()` 仅允许 canonical 载荷进入全局 store；`canOpenSubagentRunPayload()` 允许 canonical 任意状态以及无 canonical 的 done/error 历史载荷打开；`shouldPublishSubagentRunPayload()` 允许 renderer 首次发布 canonical 快照，或用恢复出的 done/error 修正已有 called/running，其他已有快照保持 SSE 权威；`resolveSubagentRunPayloadForOpen()` 仅为 canonical 点击选取 store 最新同 ID 快照，历史 fallback 始终返回当前 renderer 载荷。`subagentRunFingerprint()` 用于实时更新去重且包含 `canonicalToolCallId`，`normalizeOpenSubagentRunRequest()` 校验打开事件 detail；`currentSubagentToolSummaries()` 是聊天摘要卡「当前工具」跑马灯的数据源：`pendingToolCalls`（toolCall id）× `traceMessages`（assistant content 的 toolCall chunk）求交集，按 trace 顺序返回 `工具名 · 参数摘要`（`summarizeParams` 生成、`SUBAGENT_TOOL_SUMMARY_MAX_LENGTH`=80 截断、arguments 经 `normalizeToolArguments` 归一化），无 pending 或 chunk 缺失时为空列表；`currentSubagentToolSummariesWithMemory()` 是渲染层实际使用的带记忆版本：非 running 一律空列表，fresh 非空时经 `SubagentToolSummaryMemory`（按 runId 的有界 `Map`，`MAX_SUBAGENT_TOOL_SUMMARY_RUNS`=100，插入序 FIFO 淘汰、已存在 key 更新不改变淘汰顺序、remember 忽略空 runId/空列表、支持 clear）记住并返回，running 且 fresh 为空（工具间隙、pending 未流出的瞬时）回放该 run 最近一次非空摘要，保持跑马灯连续直到下一个工具出现或运行结束；`subagentRunBodyBlocks()` 是运行详情内部块顺序（task/context/expectedOutput → 运行信息 meta（有可显示的模型标识（provider/id/name）或 `thinkingLevel` 时，不受 detailed 门控；渲染时位于任务说明块上方独立一行）→ 详细摘要 → trace → 无 trace 时 output → input/details）的单一事实来源，与 Git 历史最终态一致；`subagentRunModelLabel()` / `subagentThinkingLevelLabelKey()` 是「运行信息」行的展示纯函数（前者 provider/id 优先、回落 name，后者复用主 Agent 思考等级 i18n key）；`SubagentRunStore` 是有界（`MAX_SUBAGENT_RUN_SNAPSHOTS`=100）的内存快照 store，支持 publish（指纹去重、订阅者异常隔离）/get/subscribe/clear（clear 仅清快照、保留订阅），全局单例 `subagentRunStore` 供 ServerAgent 实时发布与 Workspace Inspector 订阅；`subagentRunPayloadFromToolEvent()` 是 tool_execution_start/update/end 事件到载荷的纯转换（isStreaming 区分运行/终态、args 缓存回填、previousTiming 回填、isError 归 error）；`SubagentRunEventPublisher` 是 ServerAgent 持有的 SSE 事件发布器，按 toolCallId 缓存 run_subagent 的 args/toolName（start 缓存、end 清理），用规范化 start 事件（带 partialResult）发布，update/end 缺 args/toolName 时回填缓存，previousTiming 取 store 中同 runId 上一次载荷；Workspace Inspector Tab 严格按相同 `runId` 更新/upsert，不执行 fallback 迁移。
+**用途**: subagent 单次运行详情的纯逻辑（不依赖 DOM/框架/React/i18n 运行时，`t` 由调用方注入）。`extractLatestTerminalSubagentRuns()` 用于顶部置顶摘要：只扫描调用方传入的当前消息分支，按 `toolCallId` 配对 assistant `run_subagent` 调用与 `toolResult`，排除当前 `pendingToolCalls`，复用 `buildSubagentRunPayload()` 规范化后仅保留 done/error；按终态结果 timestamp 最近优先（缺失时回退消息索引）、canonical ID 去重并限制最近 1–`MAX_TERMINAL_SUBAGENT_RUNS`（100）条，且返回轻量载荷（traceMessages/input/details 留空；点击打开时 Inspector 优先取 `subagentRunStore` 快照，未命中时详情缺 trace/input/details），明确不枚举全局 `subagentRunStore`，因此切换会话、回滚或恢复时列表跟随当前分支重算。`buildSubagentRunPayload()` 把 run_subagent 的 params/result.details 规范化为 Workspace Inspector 运行 Tab 使用的统一载荷（稳定 run id 以 `toolCallId`（显式参数、toolResult 顶层字段或 `details.toolCallId`）为主键，`details.sessionId` 仅作历史兼容 fallback，两者都没有时回退 `${name}:${task}`；同时携带 `canonicalToolCallId`，并生成状态/状态文案/耗时/工具调用数/允许工具/过滤后的过程消息/input/details JSON/内容指纹，以及从 `details.model`/`details.thinkingLevel` 解析出的运行信息 `model`/`thinkingLevel`——非法或缺失时为 `undefined`，`model` 的 `provider/id` 已由服务端在继承模式下补全）。`canPublishSubagentRunPayload()` 仅允许 canonical 载荷进入全局 store；`canOpenSubagentRunPayload()` 允许 canonical 任意状态以及无 canonical 的 done/error 历史载荷打开；`shouldPublishSubagentRunPayload()` 允许 renderer 首次发布 canonical 快照，或用恢复出的 done/error 修正已有 called/running，其他已有快照保持 SSE 权威；`resolveSubagentRunPayloadForOpen()` 仅为 canonical 点击选取 store 最新同 ID 快照，历史 fallback 始终返回当前 renderer 载荷。`subagentRunFingerprint()` 用于实时更新去重且包含 `canonicalToolCallId`，`normalizeOpenSubagentRunRequest()` 校验打开事件 detail；`currentSubagentToolSummaries()` 是聊天摘要卡「当前工具」跑马灯的数据源：`pendingToolCalls`（toolCall id）× `traceMessages`（assistant content 的 toolCall chunk）求交集，按 trace 顺序返回 `工具名 · 参数摘要`（`summarizeParams` 生成、`SUBAGENT_TOOL_SUMMARY_MAX_LENGTH`=80 截断、arguments 经 `normalizeToolArguments` 归一化），无 pending 或 chunk 缺失时为空列表；`currentSubagentToolSummariesWithMemory()` 是渲染层实际使用的带记忆版本：非 running 一律空列表，fresh 非空时经 `SubagentToolSummaryMemory`（按 runId 的有界 `Map`，`MAX_SUBAGENT_TOOL_SUMMARY_RUNS`=100，插入序 FIFO 淘汰、已存在 key 更新不改变淘汰顺序、remember 忽略空 runId/空列表、支持 clear）记住并返回，running 且 fresh 为空（工具间隙、pending 未流出的瞬时）回放该 run 最近一次非空摘要，保持跑马灯连续直到下一个工具出现或运行结束；`subagentRunBodyBlocks()` 是运行详情内部块顺序（task/context/expectedOutput → 运行信息 meta（有可显示的模型标识（provider/id/name）或 `thinkingLevel` 时，不受 detailed 门控；渲染时位于任务说明块上方独立一行）→ 详细摘要 → trace → 无 trace 时 output → input/details）的单一事实来源，与 Git 历史最终态一致；`subagentRunModelLabel()` / `subagentThinkingLevelLabelKey()` 是「运行信息」行的展示纯函数（前者 provider/id 优先、回落 name，后者复用主 Agent 思考等级 i18n key）；`SubagentRunStore` 是有界（`MAX_SUBAGENT_RUN_SNAPSHOTS`=100）的内存快照 store，支持 publish（指纹去重、订阅者异常隔离）/get/subscribe/clear（clear 仅清快照、保留订阅），全局单例 `subagentRunStore` 供 ServerAgent 实时发布与 Workspace Inspector 订阅；`subagentRunPayloadFromToolEvent()` 是 tool_execution_start/update/end 事件到载荷的纯转换（isStreaming 区分运行/终态、args 缓存回填、previousTiming 回填、isError 归 error；另带 `previousPayload` 回填——running 帧缺 details 字段（如 pendingToolCalls/messages）时按字段回填上一载荷且事件自带值优先，保证同 run 内状态单调不回跳（工具行不闪 done）；终态 details 无元数据时整份回填上一载荷的 trace/元数据）；`SubagentRunEventPublisher` 是 ServerAgent 持有的 SSE 事件发布器，按 toolCallId 缓存 run_subagent 的 args/toolName（start 缓存、end 清理），用规范化 start 事件（带 partialResult）发布，update/end 缺 args/toolName 时回填缓存，previousTiming 取 store 中同 runId 上一次载荷；Workspace Inspector Tab 严格按相同 `runId` 更新/upsert，不执行 fallback 迁移。
 
 - 服务端运行期 `tool_execution_update` 的 `details.messages` 只携带最近 50 条消息（`SUBAGENT_TRACE_MESSAGES_LIMIT`），并附 `messagesTotal` 总条数；终态 `toolResult` 的 `details.messages` 保持全量，运行结束后查看完整过程不受影响。前端消费方只依赖尾部消息（跑马灯/trace 过滤/指纹），截尾对实时渲染不可见。
 
@@ -248,7 +261,7 @@
 - 缓存值三态：`string`=已缓存 key、`null`=已确认无 key（服务端 miss 返回 200 `{value:null}`）、`undefined`=未缓存。
 - 模块级 Map + in-flight Promise 表：同 provider 并发 miss 只发一次 load；load 失败不缓存（finally 清理，允许重试）。
 - 模块级单例而非 backend 实例字段：全局 AppStorage 会被多处 `initializePiStorage` 重建。
-- 失效路径：backend set/delete/clear 写穿、备份导入（`backup-settings-tab.ts` 绕过 backend 直写服务端，成功后统一 `clearProviderKeysCache` + 广播）、跨标签 `BroadcastChannel('quickforge-sync')` `provider-keys-changed`（与 `useCrossTabSync` 共用频道、sourceTabId 自忽略、未知类型互相安全忽略）。
+- 失效路径：backend set/delete/clear 写穿、备份导入（`components/settings/tabs/BackupSettingsTab.tsx` 绕过 backend 直写服务端，成功后统一 `clearProviderKeysCache` + 广播）、跨标签 `BroadcastChannel('quickforge-sync')` `provider-keys-changed`（与 `useCrossTabSync` 共用频道、sourceTabId 自忽略、未知类型互相安全忽略）。
 - 通道惰性建立（首次产生缓存项或广播时）而非 import 期：Node 测试环境未关闭通道会挂住事件循环（建立时 `unref` 兜底），且缓存为空时不存在跨标签过期窗口；BroadcastChannel 不可用/监听器异常静默降级。
 
 ### types.ts (82 行)
@@ -283,9 +296,9 @@
 
 ### tool-display-settings.ts
 
-**用途**: 工具展示设置管理。支持“简洁 / 详细”模式：简洁模式隐藏原始 Tool JSON 并默认收起详情；详细模式显示完整参数和 details，并默认展开工具调用。上下文用量显示设置也保存在该配置中。
+**用途**: 工具展示设置管理。支持“简洁 / 详细”模式：简洁模式隐藏原始 Tool JSON、显示简洁摘要；详细模式显示完整参数和 details。折叠默认值回退旧语义（`components/chat/panel-decoration/process-folding.ts`）：顶层过程组默认展开值 = `isAgentStreaming`（只有正在流式的回合默认展开，历史回合默认收起，见导出的 `processGroupDefaultExpanded(isAgentStreaming)`）；内层阶段默认收起（`processStageDefaultExpanded()` 返回 false）；更内层工具摘要组默认展开值 = `toolDisplayMode === 'detailed'`（compact 默认收起，见导出的 `processToolGroupDefaultExpanded(mode)`）。三层默认值均不覆盖 saved state（用户手动展开/收起后按回合记忆，`resolveProcessExpandedState`）；`detailed` 同时仍用于 displayMode dataset 与状态失效判定。可见性契约不变：禁止任何针对 `.thinking-header` 的 `display:none`（fail-visible，接管失败时宁可显示 React 原生「Thinking...」行）。上下文用量显示设置也保存在该配置中。
 
-### tool-execution-events.ts (120 行)
+### tool-execution-events.ts (163 行)
 
 **用途**: 工具执行事件类型定义和消息合并工具。
 
@@ -293,6 +306,7 @@
 - `QuickForgeToolTiming` / `ToolExecutionEvent` 类型
 - `upsertMessage()` — 根据 `toolCallId` 合并或替换工具结果消息
 - `toolStartEventWithPartialResult()` / `upsertToolResult()` — 在运行中工具结果里保留计时、`sessionId` 和 `toolCallId`，用于前端展示耗时和结束运行中的 `run_command`。
+- `toolCallIdsWithoutToolResult()` — message_end 时返回 assistant 消息中尚无任何 toolResult（partial 或终态）的 toolCallId，由 `shared-server-agent.ts` / `server-agent.ts` 的 event.message 分支合入 pendingToolCalls，使 `tool_execution_*` 与 `message_end` 事件交错的中间帧仍按 pending 渲染（否则 pending=false + 无 result 会闪一帧 idle 灰点再被 tool_execution_start 拉回 running）；已有结果（成功或错误）的 id 一律排除，绝不把 done/error 行推回 running。
 
 ### system-notifications.ts
 
@@ -306,38 +320,14 @@
 - 浏览器通知点击由 Service Worker 聚焦同源窗口并发消息，页面监听消息后派发已有会话打开事件；原生通知点击也复用该会话打开逻辑。通知正文不包含完整 AI 输出。
 - 不提供 Web Push/FCM；普通浏览器页面或原生 App 无法继续接收现有 SSE 时，不保证任务完成通知。
 
-### info-tip.ts (134 行)
-
-**用途**: 统一的问号说明浮层组件，封装为 Web Component `<quickforge-info-tip>`。用于将大段辅助说明收拢到标题/字段旁的 `?` 图标中，hover / focus / click 时展开。
-
-**特性**:
-- 基于 `LitElement`，使用 light DOM（`createRenderRoot` 返回 `this`），Tailwind class 与全局 CSS 变量直接生效。
-- 渲染弱化 `?` 图标；hover（150ms 延迟）/ focus 展开，click 切换，外部 pointerdown / Escape 关闭。
-- 仅 `label` 属性（说明文案，为空则不弹出）；`aria-label` / `aria-expanded` / `role="tooltip"` 支持可访问性。
-- 幂等注册（`customElements.get` 守卫）。
-- 双端可用：Lit 模板用 `.label` 属性绑定，React 用 `label` prop。
-
-**样式**: 定义在 `src/index.css`（`.quickforge-info-tip*`），复用全局 `--popover` / `--border` 变量与轻阴影，不引入新的视觉模式。
-
-**首个使用点**: `project-commands-settings-tab.ts`（标题旁收拢 `projectCommandsDescription`）。设计约定见 `DESIGN_LANGUAGE.md`「辅助说明统一使用 `<quickforge-info-tip>`」。
-
 ## 设置选项卡
 
-所有设置选项卡继承自 `@earendil-works/pi-web-ui` 的 `SettingsTab` 类，使用 Lit HTML 渲染。
+设置页已全部自研为 React：`settings-tabs.ts` 组装 tab 定义，`react-settings-tabs.tsx` 按 tabKey 懒加载渲染，页面文件位于 `src/components/settings/tabs/`（Appearance / DefaultOptions / Memory / CustomProviders / Backup / ArchivedConversations / LanAccess / About / ProjectCommands / Channels，共享 `shared.tsx` 与 `SettingsNumberInput.tsx`，下拉复用 `../SettingsSelect.tsx`）。无 `SettingsTab` 基类、无自定义元素渲染、无命令式桥（`extends SettingsTab` / `replaceChildren` / `createRoot` 由 `tests/frontend/settings-workspace-react.test.ts` 守卫）。
 
 | 文件 | 用途 |
 |------|------|
-| `custom-providers-only-tab.ts` | 自定义模型供应商的完整 CRUD 管理界面 |
-| `lan-access-settings-tab.ts` | LAN 共享设置（启用/禁用、密码、会话 TTL），仅展示当前仍有访问权限、可以踢出的局域网设备摘要、IP 与有效期，并支持逐个或全部踢出 |
-| `backup-settings-tab.ts` | 数据备份导出和导入 |
-| `default-options-settings-tab.ts` | 设置默认模型、语言、思考级别、Tool 展示、上下文用量显示、上下文管理和终端 Shell；默认 Shell 从系统识别列表选择，并支持自定义命令或路径 |
-| `about-settings-tab.ts` | 关于信息、更新检查/执行（经 `update-check-poll.ts` 轮询，手动检查 force 跳过服务端缓存），以及后端服务重启 |
-| `project-commands-settings-tab.ts` | 项目命令目录配置 + 命令预览 + 新建命令（showPrompt 弹窗输入名称）+ 打开命令目录（取 commandDir 首个配置目录，未配置时回退 .ai/commands） |
-| `archived-conversations-settings-tab.ts` | 已归档对话的恢复和永久删除 |
-| `react-settings-tabs.tsx` | 将 Agent、Skills、MCP、插件、定时任务和分享链接管理等 React 页面适配为设置 Tab |
+| `react-settings-tabs.tsx` | 设置页 React 内容分发：按 tabKey 懒加载 `components/settings/tabs/*` 与 Agent / Skills / MCP / 插件 / 定时任务 / 分享链接等管理页 |
 | `share-client.ts` | 分享链接创建、列表、编辑（权限/密码/有效期）、停用、恢复、永久删除及状态推导 API |
-| `channels-settings-tab.ts` | 渠道设置选项卡：展示名称、状态、简述、工作区与启动/停止/登录操作，仅在存在二维码内容时展示扫码入口，同时保留错误提示，并通过“打开日志文件夹”访问后端持久化渠道日志 |
-| `patch-thinking-selector.ts` | 修补 pi-web-ui 的模型选择器 |
 | `custom-model-selector.ts` | 自定义模型选择器；主聊天通过可选无参设置回调显示桌面/移动底部入口，复用场景未传回调时保持隐藏 |
 
 ### message-utils.ts (95 行)

@@ -84,7 +84,7 @@ export function ProjectOpenMenu({ project, disabled, disabledTargets, targetDisa
       >
         <button
           type="button"
-          className="flex h-full w-8 items-center justify-center bg-background/90 transition-colors hover:bg-muted/25 disabled:pointer-events-none"
+          className="flex h-full w-8 items-center justify-center bg-background/90 transition-colors disabled:pointer-events-none"
           disabled={unavailable || selectedTargetDisabled}
           onClick={handleOpenSelectedTarget}
           aria-label={selectedOpenLabel}
@@ -94,7 +94,7 @@ export function ProjectOpenMenu({ project, disabled, disabledTargets, targetDisa
         </button>
         <button
           type="button"
-          className="flex h-full w-7 items-center justify-center border-l border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-muted/18 transition-colors hover:bg-muted/35 disabled:pointer-events-none"
+          className="flex h-full w-7 items-center justify-center border-l border-[color-mix(in_oklab,var(--border)_34%,transparent)] transition-colors disabled:pointer-events-none"
           disabled={unavailable}
           onClick={() => setOpen((value) => !value)}
           aria-label={t('chooseWorkspaceOpenTarget')}
@@ -102,7 +102,7 @@ export function ProjectOpenMenu({ project, disabled, disabledTargets, targetDisa
           aria-haspopup="menu"
           aria-expanded={open}
         >
-          <ChevronDown className={cn('size-3.5 text-muted-foreground/85 transition-transform', open && 'rotate-180 text-foreground/85')} />
+          <ChevronDown className={cn('size-3.5 transition-transform', open && 'rotate-180 ')} />
         </button>
       </div>
       {open && project ? (

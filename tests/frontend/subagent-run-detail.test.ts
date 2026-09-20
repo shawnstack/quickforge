@@ -1161,6 +1161,75 @@ describe('subagentRunPayloadFromToolEvent', () => {
     expect(payload?.timing?.durationMs).toBe(5)
   })
 
+  it('backfills missing pendingToolCalls on running frames from the previous payload', () => {
+    const previous = testPayload('call-9', 'running', {
+      canonicalToolCallId: 'call-9',
+      pendingToolCalls: ['inner-1'],
+      details: JSON.stringify({ toolCallId: 'call-9', messages: [], pendingToolCalls: ['inner-1'] }),
+    })
+    const update = {
+      toolCallId: 'call-9',
+      toolName: 'run_subagent',
+      partialResult: { content: [], details: { toolCallId: 'call-9', messages: [] } },
+    }
+    const payload = subagentRunPayloadFromToolEvent(update, true, { subagent: 'explore', task: 'T' }, 'concise', t, previous)
+    expect(payload?.status).toBe('running')
+    expect(payload?.pendingToolCalls).toEqual(['inner-1'])
+  })
+
+  it('keeps event-provided pendingToolCalls over the previous payload on running frames', () => {
+    const previous = testPayload('call-9', 'running', {
+      canonicalToolCallId: 'call-9',
+      pendingToolCalls: ['inner-1'],
+      details: JSON.stringify({ toolCallId: 'call-9', messages: [], pendingToolCalls: ['inner-1'] }),
+    })
+    const update = {
+      toolCallId: 'call-9',
+      toolName: 'run_subagent',
+      partialResult: { content: [], details: { toolCallId: 'call-9', messages: [], pendingToolCalls: [] } },
+    }
+    const payload = subagentRunPayloadFromToolEvent(update, true, { subagent: 'explore', task: 'T' }, 'concise', t, previous)
+    expect(payload?.status).toBe('running')
+    expect(payload?.pendingToolCalls).toEqual([])
+  })
+
+  it('restores the previous details when a running update carries no partialResult', () => {
+    const previous = testPayload('call-9', 'running', {
+      canonicalToolCallId: 'call-9',
+      pendingToolCalls: ['inner-1'],
+      details: JSON.stringify({ toolCallId: 'call-9', messages: [], pendingToolCalls: ['inner-1'] }),
+    })
+    const payload = subagentRunPayloadFromToolEvent(
+      { toolCallId: 'call-9', toolName: 'run_subagent' },
+      true,
+      { subagent: 'explore', task: 'T' },
+      'concise',
+      t,
+      previous,
+    )
+    expect(payload?.status).toBe('running')
+    expect(payload?.pendingToolCalls).toEqual(['inner-1'])
+  })
+
+  it('does not resurrect previous pendingToolCalls on a terminal frame with its own details', () => {
+    const previous = testPayload('call-9', 'running', {
+      canonicalToolCallId: 'call-9',
+      pendingToolCalls: ['inner-1'],
+      details: JSON.stringify({ toolCallId: 'call-9', messages: [], pendingToolCalls: ['inner-1'] }),
+    })
+    const endEvent = {
+      toolCallId: 'call-9',
+      toolName: 'run_subagent',
+      result: {
+        content: [{ type: 'text', text: 'done' }],
+        details: { toolCallId: 'call-9', quickforgeTiming: { startedAt: 100, finishedAt: 200 } },
+      },
+    }
+    const payload = subagentRunPayloadFromToolEvent(endEvent, false, { subagent: 'explore', task: 'T' }, 'concise', t, previous)
+    expect(payload?.status).toBe('done')
+    expect(payload?.pendingToolCalls).toEqual([])
+  })
+
   it('marks an end event with isError as error and without as done', () => {
     const endEvent = {
       toolCallId: 'call-9',
@@ -1285,6 +1354,26 @@ describe('SubagentRunEventPublisher', () => {
     expect(failed?.status).toBe('error')
     expect(failed?.errorMessage).toBe('Provider failed')
     expect(failed?.errorSource).toBe('output')
+  })
+
+  it('keeps pending tool calls running across updates that omit them', () => {
+    const store = new SubagentRunStore()
+    const publisher = createPublisher(store)
+    publisher.handleToolStart(startEvent)
+    publisher.handleToolUpdate({
+      toolCallId: 'call-9',
+      partialResult: {
+        content: [],
+        details: { toolCallId: 'call-9', messages: [], pendingToolCalls: ['inner-1'] },
+      },
+    })
+    publisher.handleToolUpdate({
+      toolCallId: 'call-9',
+      partialResult: { content: [], details: { toolCallId: 'call-9', messages: [] } },
+    })
+    const payload = store.get('call-9')
+    expect(payload?.status).toBe('running')
+    expect(payload?.pendingToolCalls).toEqual(['inner-1'])
   })
 
   it('clears the cache after end so later updates are ignored', () => {

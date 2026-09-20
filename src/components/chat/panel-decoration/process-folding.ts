@@ -45,11 +45,31 @@ type AssistantMessageElement = HTMLElement & {
 const PROCESS_GROUP_SELECTOR = '.quickforge-process-group'
 const PROCESS_BODY_SELECTOR = '.quickforge-process-body'
 const PROCESS_TOOLS_SELECTOR = '.quickforge-process-tools'
-const PROCESS_TOOLS_BODY_SELECTOR = '.quickforge-process-tools-body'
+const PROCESS_TOOLS_BODY_CLASS = 'quickforge-process-tools-body'
+const PROCESS_TOOLS_BODY_SELECTOR = `.${PROCESS_TOOLS_BODY_CLASS}`
 const PROCESS_STAGE_SELECTOR = '.quickforge-process-stage'
 const PROCESS_STAGE_BODY_SELECTOR = '.quickforge-process-stage-body'
-const PROCESS_NODE_SELECTOR = 'thinking-block, tool-message'
-const PROCESS_DETAIL_NODE_SELECTOR = 'thinking-block, tool-message, markdown-block'
+const PROCESS_NODE_SELECTOR = 'thinking-block, tool-message, .qf-thinking-block, .qf-tool-message'
+const PROCESS_DETAIL_NODE_SELECTOR = 'thinking-block, tool-message, markdown-block, .qf-thinking-block, .qf-tool-message, .qf-markdown-block'
+const MESSAGE_LIST_SCOPE_SELECTOR = 'message-list, .qf-message-list'
+
+/** Dual kind check: legacy elements (tag names) and the React chat surface (qf-* classes). */
+function isProcessNodeKind(node: Node, kind: 'tool-message' | 'thinking-block' | 'markdown-block' | 'assistant-message' | 'user-message'): boolean {
+  // 结构检查而非 instanceof HTMLElement：node 测试环境无 HTMLElement 全局，
+  // 且 fake 节点也非其实例；文本/注释节点没有 tagName，天然被排除。
+  const element = node as Partial<HTMLElement> | null
+  if (!element || typeof element.tagName !== 'string') return false
+  if (element.tagName.toLowerCase() === kind) return true
+  return element.classList?.contains(`qf-${kind}`) ?? false
+}
+
+/** Stable structural kind for fingerprints (React surface renders qf-* divs). */
+function processNodeKind(node: HTMLElement): string {
+  if (isProcessNodeKind(node, 'tool-message')) return 'tool-message'
+  if (isProcessNodeKind(node, 'thinking-block')) return 'thinking-block'
+  if (isProcessNodeKind(node, 'markdown-block')) return 'markdown-block'
+  return node.tagName.toLowerCase()
+}
 const PROCESS_FINAL_SUMMARY_ATTR = 'data-quickforge-process-final-summary'
 const PROCESS_FOLDED_ATTR = 'data-quickforge-process-folded'
 const PROCESS_EXPANDED_STATE_LIMIT = 500
@@ -228,7 +248,7 @@ export function isProcessToolsGroupMember(toolName: string) {
 }
 
 function isGroupableProcessTool(node: HTMLElement) {
-  return node.tagName.toLowerCase() === 'tool-message'
+  return isProcessNodeKind(node, 'tool-message')
     && isProcessToolsGroupMember(toolNameFromMessage(node as ToolMessageElement))
 }
 
@@ -312,7 +332,7 @@ function processGroupLabel(
 ) {
   const groupedNodes = groupedProcessNodes(group).map(({ node }) => node)
   const toolMessages = groupedNodes.filter(
-    (node): node is ToolMessageElement => node.tagName.toLowerCase() === 'tool-message',
+    (node): node is ToolMessageElement => isProcessNodeKind(node, 'tool-message'),
   )
   const starts = [
     ...assistants.map((assistant) => timestampFromUnknown(assistant.message?.timestamp)),
@@ -352,16 +372,16 @@ function processGroupLabel(
 }
 
 function assistantMessageList(assistant: AssistantMessageElement) {
-  return assistant.closest('message-list')
+  return assistant.closest(MESSAGE_LIST_SCOPE_SELECTOR)
 }
 
 function processDetailIsInAssistantScope(node: HTMLElement, assistant: AssistantMessageElement) {
-  return node.closest('message-list') === assistantMessageList(assistant) && isTopLevelProcessDetail(node)
+  return node.closest(MESSAGE_LIST_SCOPE_SELECTOR) === assistantMessageList(assistant) && isTopLevelProcessDetail(node)
 }
 
 function processGroupsOwnedByAssistant(assistant: AssistantMessageElement) {
   return Array.from(assistant.querySelectorAll<ProcessGroupElement>(PROCESS_GROUP_SELECTOR))
-    .filter((group) => group.closest('assistant-message') === assistant)
+    .filter((group) => group.closest('assistant-message, .qf-assistant-message') === assistant)
 }
 
 function assistantContentContainer(assistant: AssistantMessageElement) {
@@ -387,6 +407,9 @@ type ProcessThinkingChild = {
   quickforgeIcon?: boolean
   markedChevron?: boolean
   markedLabel?: boolean
+  /** 子节点自身就是 chevron 的 <svg>：React `ThinkingBlock` 的 header 子级是 [svg, span]。 */
+  selfSvg?: boolean
+  /** 子节点内部含 chevron 的 <svg>：旧 thinking-block 自定义元素把 svg 包在 span 里。 */
   hasSvg?: boolean
   rotated?: boolean
 }
@@ -396,7 +419,7 @@ export function processThinkingChildIndexes(children: ProcessThinkingChild[]) {
     .map((child, index) => ({ child, index }))
     .filter(({ child }) => !child.quickforgeIcon)
   const chevron = candidates.find(({ child }) => child.markedChevron)
-    ?? candidates.find(({ child }) => child.hasSvg)
+    ?? candidates.find(({ child }) => child.selfSvg || child.hasSvg)
   const label = candidates.find(({ child, index }) => child.markedLabel && index !== chevron?.index)
     ?? candidates.find(({ index }) => index !== chevron?.index)
   return {
@@ -406,17 +429,29 @@ export function processThinkingChildIndexes(children: ProcessThinkingChild[]) {
   }
 }
 
-function decorateProcessThinkingBlocks(group: ProcessGroupElement) {
-  group.querySelectorAll<HTMLElement>('thinking-block').forEach((thinkingBlock) => {
+/**
+ * 思考头接管契约（勿破坏）：过程组内被搬移的 React `ThinkingBlock` 原生头必须在这里
+ * 补上 `quickforge-process-thinking-header` 并重排为 [icon, label, chevron]，可见性规则
+ * 才认得它。导出供 `tests/frontend/thinking-header-adoption.test.ts` 用真实 React DOM
+ * 形态（header.children = [svg, span]）跑接管路径。
+ */
+export function decorateProcessThinkingBlocks(group: ProcessGroupElement) {
+  group.querySelectorAll<HTMLElement>('thinking-block, .qf-thinking-block').forEach((thinkingBlock) => {
     if (thinkingBlock.closest(PROCESS_GROUP_SELECTOR) !== group) return
-    const header = thinkingBlock.querySelector<HTMLElement>(':scope > .thinking-block > .thinking-header')
+    const header = thinkingBlock.querySelector<HTMLElement>(':scope > .thinking-block > .thinking-header, :scope.qf-thinking-block > .thinking-header')
     if (!header) return
 
-    const children = Array.from(header.children).filter((child): child is HTMLElement => child instanceof HTMLElement)
+    // header.children 只含元素子级，这里不能用 `instanceof HTMLElement` 过滤：React
+    // `ThinkingBlock` 的 chevron 就是 <svg> 本体，而 SVGElement 不是 HTMLElement，
+    // 被过滤掉后 `querySelector('svg')` 也匹配不到自身，chevron 永远识别不到，
+    // 接管提前 return —— header 拿不到 quickforge-process-thinking-header（历史上叠加
+    // 面板级 display:none 就把整块思考永久隐藏）。
+    const children = Array.from(header.children) as Array<HTMLElement | SVGElement>
     const { chevronIndex, labelIndex, chevronExpanded } = processThinkingChildIndexes(children.map((child) => ({
       quickforgeIcon: child.dataset.quickforgeThinkingRole === 'icon' || child.classList.contains('quickforge-process-thinking-icon'),
       markedChevron: child.dataset.quickforgeThinkingRole === 'chevron',
       markedLabel: child.dataset.quickforgeThinkingRole === 'label',
+      selfSvg: child.tagName.toLowerCase() === 'svg',
       hasSvg: Boolean(child.querySelector('svg')),
       rotated: child.classList.contains('rotate-90') || child.classList.contains('quickforge-process-thinking-chevron-expanded'),
     })))
@@ -426,9 +461,11 @@ function decorateProcessThinkingBlocks(group: ProcessGroupElement) {
 
     chevron.dataset.quickforgeThinkingRole = 'chevron'
     label.dataset.quickforgeThinkingRole = 'label'
-    chevron.className = 'quickforge-process-thinking-chevron'
+    // SVGElement.className 是只读的 SVGAnimatedString（严格模式下赋值直接抛错），
+    // 接管必须写 class 属性：两种形态（span 包裹 / svg 本体）都适用。
+    chevron.setAttribute('class', 'quickforge-process-thinking-chevron')
     chevron.classList.toggle('quickforge-process-thinking-chevron-expanded', chevronExpanded)
-    label.className = 'quickforge-process-thinking-label'
+    label.setAttribute('class', 'quickforge-process-thinking-label')
     label.textContent = t('processThinking')
 
     let icon = children.find((child) => (
@@ -516,6 +553,12 @@ function createProcessGroup() {
   return group
 }
 
+/** 顶层过程组默认展开值：只有正在流式的回合默认展开（旧语义），历史回合默认收起；用户手动展开/收起后由 saved state 优先（resolveProcessExpandedState）。 */
+export function processGroupDefaultExpanded(isAgentStreaming: boolean) {
+  return isAgentStreaming
+}
+
+/** 内层阶段默认收起（旧语义）；只有显式 saved state 为展开时才展开。 */
 export function processStageDefaultExpanded() {
   return false
 }
@@ -551,7 +594,7 @@ function updateProcessStageGroups(
     stage.dataset.expanded = String(expanded)
     const stageStreaming = isAgentStreaming && index === stages.length - 1
     stageLabel.textContent = processStageLabel(summarizeProcessStageTools(
-      stageBody.querySelectorAll<ToolMessageElement>('tool-message'),
+      stageBody.querySelectorAll<ToolMessageElement>('tool-message, .qf-tool-message'),
     ), stageStreaming)
     stageBody.id = stageBodyId
     stageSummary.setAttribute('aria-controls', stageBodyId)
@@ -575,8 +618,13 @@ export function processToolGroupStateKey(processKey: string, firstToolId: string
     : `${processKey}:tools:${index}`
 }
 
+/** 工具组（连续工具行）默认展开值：只有 `detailed` 显示模式默认展开（旧语义），默认设置 `compact` 收起。 */
+export function processToolGroupDefaultExpanded(toolDisplayMode: string) {
+  return toolDisplayMode === 'detailed'
+}
+
 function toolGroupStateKey(processKey: string, tools: HTMLElement, index: number) {
-  const toolMessages = Array.from(tools.querySelectorAll<ToolMessageElement>('tool-message'))
+  const toolMessages = Array.from(tools.querySelectorAll<ToolMessageElement>('tool-message, .qf-tool-message'))
   return processToolGroupStateKey(processKey, toolMessages[0]?.toolCall?.id, index)
 }
 
@@ -588,7 +636,7 @@ function updateProcessToolsGroups(panel: HTMLElement, processKey: string, group:
     const toolsLabel = tools.querySelector<HTMLElement>('.quickforge-process-tools-label')
     if (!toolsBody || !toolsSummary || !toolsLabel) return
 
-    const summary = summarizeProcessTools(toolsBody.querySelectorAll<ToolMessageElement>(':scope > tool-message'))
+    const summary = summarizeProcessTools(toolsBody.querySelectorAll<ToolMessageElement>(' :scope > tool-message, :scope > .qf-tool-message'))
     tools.hidden = summary.count === 0
     if (summary.count === 0) return
 
@@ -596,7 +644,7 @@ function updateProcessToolsGroups(panel: HTMLElement, processKey: string, group:
     const toolsBodyId = `quickforge-${toolsKey.replace(/[^a-z0-9_-]+/gi, '-')}`
     toolsBody.id = toolsBodyId
     toolsSummary.setAttribute('aria-controls', toolsBodyId)
-    const detailed = getCachedToolDisplaySettings().toolDisplayMode === 'detailed'
+    const detailed = processToolGroupDefaultExpanded(getCachedToolDisplaySettings().toolDisplayMode)
     const displayMode = detailed ? 'detailed' : 'compact'
     const previousToolsKey = tools.dataset.quickforgeProcessKey
     const previousDisplayMode = tools.dataset.quickforgeToolDisplayMode
@@ -606,6 +654,7 @@ function updateProcessToolsGroups(panel: HTMLElement, processKey: string, group:
       getProcessExpandedStates(panel).get(toolsKey),
       previousToolsKey === toolsKey && previousDisplayMode === displayMode,
       tools.dataset.expanded === 'true',
+      // 工具组默认展开值由显示模式决定（旧语义）：detailed 默认展开，compact 默认收起。
       detailed,
     )
     tools.dataset.expanded = String(expanded)
@@ -642,7 +691,7 @@ function updateProcessGroup(
   group: ProcessGroupElement,
   isAgentStreaming: boolean,
 ) {
-  syncProcessGroupExpandedState(panel, group, processKey, isAgentStreaming)
+  syncProcessGroupExpandedState(panel, group, processKey, processGroupDefaultExpanded(isAgentStreaming))
   group.dataset.streaming = String(isAgentStreaming)
   const body = group.querySelector<HTMLElement>(`:scope > ${PROCESS_BODY_SELECTOR}`)
   const summary = group.querySelector<HTMLButtonElement>('.quickforge-process-summary')
@@ -692,18 +741,18 @@ function setProcessFlag(node: HTMLElement, attr: string, enabled: boolean) {
 }
 
 export function isTopLevelProcessDetail(node: HTMLElement) {
-  const processScope = node.closest('message-list')
+  const processScope = node.closest(MESSAGE_LIST_SCOPE_SELECTOR)
   const parentProcessDetail = node.parentElement?.closest(PROCESS_DETAIL_NODE_SELECTOR)
-  return !parentProcessDetail || parentProcessDetail.closest('message-list') !== processScope
+  return !parentProcessDetail || parentProcessDetail.closest(MESSAGE_LIST_SCOPE_SELECTOR) !== processScope
 }
 
 function markdownCandidates(target: AssistantMessageElement) {
   const processScope = assistantMessageList(target)
-  return Array.from(target.querySelectorAll<HTMLElement>('markdown-block'))
+  return Array.from(target.querySelectorAll<HTMLElement>('markdown-block, .qf-markdown-block'))
     .filter((node) => {
-      if (node.closest('message-list') !== processScope) return false
+      if (node.closest(MESSAGE_LIST_SCOPE_SELECTOR) !== processScope) return false
       const parentProcessNode = node.parentElement?.closest(PROCESS_NODE_SELECTOR)
-      return !parentProcessNode || parentProcessNode.closest('message-list') !== processScope
+      return !parentProcessNode || parentProcessNode.closest(MESSAGE_LIST_SCOPE_SELECTOR) !== processScope
     })
 }
 
@@ -742,7 +791,7 @@ function markFinalSummaryMarkdown(target: AssistantMessageElement, finalSummaryM
 function hasTurnProcessSignals(assistants: AssistantMessageElement[]) {
   return assistants.length > 1 || assistants.some((assistant) => (
     Array.from(assistant.querySelectorAll<HTMLElement>(PROCESS_NODE_SELECTOR))
-      .some((node) => node.closest('message-list') === assistantMessageList(assistant))
+      .some((node) => node.closest(MESSAGE_LIST_SCOPE_SELECTOR) === assistantMessageList(assistant))
   ))
 }
 
@@ -783,7 +832,7 @@ function collectFoldableProcessNodes(
   return selectFoldableProcessItems(
     collectProcessTimeline(assistants),
     (item) => item.node === finalSummaryMarkdown,
-    (item) => item.node.tagName.toLowerCase() === 'markdown-block',
+    (item) => isProcessNodeKind(item.node, 'markdown-block'),
     canFoldMarkdown,
   )
 }
@@ -836,10 +885,25 @@ function groupedProcessNodes(group: ProcessGroupElement): GroupedProcessNode[] {
       .filter((node) => node.closest(PROCESS_GROUP_SELECTOR) === group)
       .map((node) => ({
         node,
-        sourceAssistant: group.closest<AssistantMessageElement>('assistant-message') ?? group.parentElement as AssistantMessageElement,
+        sourceAssistant: group.closest<AssistantMessageElement>('assistant-message, .qf-assistant-message') ?? group.parentElement as AssistantMessageElement,
         sourceParent: group.parentElement,
         sourceNextSibling: group,
       }))
+}
+
+/**
+ * Nodes of a group in the order they must be re-inserted.
+ *
+ * Tracked nodes were moved out of their container in document order and each
+ * keeps its own `sourceNextSibling`, which may still live inside the group — so
+ * they have to go back in reverse order (inserting the first one would point at
+ * a node the container does not own yet). Untracked fallback items all point at
+ * the group element itself, so document order is the only order that does not
+ * reverse them.
+ */
+function groupedProcessRestoreOrder(group: ProcessGroupElement): GroupedProcessNode[] {
+  const tracked = groupedProcessNodeSequences.get(group)
+  return tracked ? [...tracked].reverse() : groupedProcessNodes(group)
 }
 
 function restoreGroupedProcessNode(item: GroupedProcessNode, group: ProcessGroupElement) {
@@ -867,16 +931,16 @@ export function shouldDiscardGroupedProcessNode(sourceStillCurrent: boolean, has
 
 function groupedProcessNodeHasCurrentReplacement(item: GroupedProcessNode) {
   if (!item.sourceAssistant.isConnected) return false
-  const tagName = item.node.tagName.toLowerCase()
-  const toolCallId = tagName === 'tool-message'
+  const nodeKind = processNodeKind(item.node)
+  const toolCallId = nodeKind === 'tool-message'
     ? (item.node as ToolMessageElement).toolCall?.id
     : undefined
   return Array.from(item.sourceAssistant.querySelectorAll<HTMLElement>(PROCESS_NODE_SELECTOR))
     .filter((node) => node !== item.node && !node.closest(PROCESS_GROUP_SELECTOR))
     .filter((node) => processDetailIsInAssistantScope(node, item.sourceAssistant))
     .some((node) => {
-      if (node.tagName.toLowerCase() !== tagName) return false
-      if (tagName !== 'tool-message' || !toolCallId) return true
+      if (processNodeKind(node) !== nodeKind) return false
+      if (nodeKind !== 'tool-message' || !toolCallId) return true
       return (node as ToolMessageElement).toolCall?.id === toolCallId
     })
 }
@@ -892,7 +956,7 @@ function restoreProcessTurn(assistants: AssistantMessageElement[], discardStaleS
   for (const assistant of assistants) {
     assistant.classList.remove('quickforge-process-source-empty')
     processGroupsOwnedByAssistant(assistant).forEach((group) => {
-      groupedProcessNodes(group).slice().reverse().forEach((item) => {
+      groupedProcessRestoreOrder(group).forEach((item) => {
         if (discardStaleStreamingNodes && shouldDiscardGroupedProcessNode(
           currentAssistants.has(item.sourceAssistant),
           groupedProcessNodeHasCurrentReplacement(item),
@@ -908,17 +972,94 @@ function restoreProcessTurn(assistants: AssistantMessageElement[], discardStaleS
   }
 }
 
-export function releaseStreamingProcessGroups(panel: HTMLElement) {
-  panel.querySelectorAll<ProcessGroupElement>(`${PROCESS_GROUP_SELECTOR}[data-streaming="true"]`).forEach((group) => {
+export type ProcessGroupReleaseStats = {
+  /** Groups dissolved by this pass. */
+  groups: number
+  /** Moved nodes handed back to the position React rendered them in. */
+  restored: number
+  /** Moved nodes dropped because React already replaced or unmounted them. */
+  dropped: number
+}
+
+/**
+ * Ownership hand-back for React-rendered message nodes.
+ *
+ * Folding re-parents nodes React owns (`thinking-block` / `tool-message` /
+ * `markdown-block` and their `qf-*` replacements) into decoration-owned process
+ * groups. React keeps modelling those nodes as direct children of the container
+ * it rendered, so as soon as a group holds them React's insert / reorder /
+ * remove on that container would target nodes that are no longer its direct
+ * children (a `NotFoundError` on `removeChild` / `insertBefore`).
+ *
+ * The contract is therefore: React hands the nodes back *before* it mutates the
+ * subtree, and the decoration layer re-folds the committed DOM afterwards.
+ * Boundaries that guarantee the "before" half:
+ * - `ProcessGroupReleaseBoundary` in the chat surface (every commit that
+ *   changed the message rows' structural render identities — the
+ *   `messageRenderKeys` sequence — and every streaming-terminal flip,
+ *   `isStreaming` swapped or the streaming partial cleared; pure streaming
+ *   frames and structure-preserving array swaps, e.g. a re-upserted
+ *   toolResult row, skip).
+ * - `SubagentTrace` in the run-detail inspector (snapshot before update +
+ *   unmount).
+ *
+ * Invariants kept by this function:
+ * - Idempotent: a second call finds no process group and does nothing.
+ * - Never resurrects stale nodes: nodes React detached, or re-created outside
+ *   the group, are dropped from the bookkeeping and left untouched, so a
+ *   release can never move or remove a node React currently owns.
+ */
+export function releaseProcessGroups(root: HTMLElement, streamingOnly = false): ProcessGroupReleaseStats {
+  const stats: ProcessGroupReleaseStats = { groups: 0, restored: 0, dropped: 0 }
+  const selector = streamingOnly ? `${PROCESS_GROUP_SELECTOR}[data-streaming="true"]` : PROCESS_GROUP_SELECTOR
+  root.querySelectorAll<ProcessGroupElement>(selector).forEach((group) => {
+    stats.groups += 1
     const groupedNodes = groupedProcessNodes(group)
     const sourceAssistants = new Set(groupedNodes.map((item) => item.sourceAssistant))
-    const owner = group.closest<AssistantMessageElement>('assistant-message')
+    const owner = group.closest<AssistantMessageElement>('assistant-message, .qf-assistant-message')
     if (owner) sourceAssistants.add(owner)
     sourceAssistants.forEach((assistant) => assistant.classList.remove('quickforge-process-source-empty'))
-    groupedNodes.slice().reverse().forEach((item) => restoreGroupedProcessNode(item, group))
+    groupedProcessRestoreOrder(group).forEach((item) => {
+      if (releaseGroupedProcessNode(item, group)) stats.restored += 1
+      else stats.dropped += 1
+    })
     groupedProcessNodeSequences.delete(group)
     group.remove()
   })
+  return stats
+}
+
+/**
+ * True when the release must hand a moved node back to React.
+ *
+ * `false` means "leave the node exactly where it is": React already detached it
+ * (React unmounted/replaced it) or already rendered it back into the container
+ * itself. Restoring in either case would resurrect a dead node or move a node
+ * React owns to a stale position.
+ */
+export function shouldRestoreGroupedProcessNode(nodeConnected: boolean, nodeInsideGroup: boolean) {
+  return nodeConnected && nodeInsideGroup
+}
+
+/**
+ * Hand a single moved node back to React.
+ *
+ * Returns `false` when the node was dropped instead of restored.
+ */
+function releaseGroupedProcessNode(item: GroupedProcessNode, group: ProcessGroupElement) {
+  const connected = item.node.isConnected === true
+  if (!shouldRestoreGroupedProcessNode(connected, connected && group.contains(item.node))) {
+    // Only drop the folding flag so CSS cannot keep hiding a node the group no
+    // longer owns; the node itself is never moved or removed here.
+    if (connected) setProcessFlag(item.node, PROCESS_FOLDED_ATTR, false)
+    return false
+  }
+  restoreGroupedProcessNode(item, group)
+  return true
+}
+
+export function releaseStreamingProcessGroups(panel: HTMLElement) {
+  return releaseProcessGroups(panel, true)
 }
 
 export function processNodeSequenceIsCurrent(
@@ -982,7 +1123,7 @@ function populateProcessGroup(group: ProcessGroupElement, items: GroupedProcessN
 
   const sections = splitProcessStageSections(
     items,
-    (item) => item.node.tagName.toLowerCase() === 'markdown-block',
+    (item) => isProcessNodeKind(item.node, 'markdown-block'),
   )
   for (const section of sections) {
     if (section.kind === 'detail') {
@@ -1021,6 +1162,48 @@ function createTurnProcessGroup(
   return populateProcessGroup(group, items) ? group : null
 }
 
+/**
+ * 组仍存活时的增量收尾：时间线只在末尾多出连续可分组工具行时，不整组释放重建，
+ * 而是把新行逐个搬进既有工具组，已有行节点保持原 DOM 位置不动。
+ *
+ * 全量重建（restoreProcessTurn + createTurnProcessGroup）会把每个已有行节点再搬
+ * 一次；DOM 节点被搬动会重启节点上仍在运行的 CSS keyframes（如 pending 工具行的
+ * animate-spin），这正是结构变化帧的闪烁来源。流式增长恰好都是「后缀追加」——
+ * 上一序列是当前序列的连通前缀、且新增项全部是可分组工具——此时组的 DOM 结构
+ * 与全量重建的结果完全一致，只是新行晚到。
+ *
+ * 返回 false（调用方走全量重建兜底）的其它情形：无前次序列、前缀不匹配（重排 /
+ * 替换 / 中插）、前缀节点已不归本组持有或已被 React 在组外重建出同 id 替身
+ * （重建路径的 discard 逻辑会丢弃旧节点，增量追加则会双行）、以及尾部不是本组
+ * 最后一个工具组的最后一行（期望结构超出纯后缀追加能表达的范围）。
+ */
+function appendProcessToolSuffix(group: ProcessGroupElement, currentNodes: GroupedProcessNode[]) {
+  const previous = groupedProcessNodeSequences.get(group)
+  const appendStart = previous ? processToolSuffixAppendStart(previous, currentNodes) : undefined
+  if (!previous || appendStart === undefined) return false
+
+  const nodesStillOwned = previous.every((item) => (
+    group.contains(item.node) && !groupedProcessNodeHasCurrentReplacement(item)
+  ))
+  if (!nodesStillOwned) return false
+
+  const tail = previous[previous.length - 1].node
+  const toolsBody = tail.parentElement
+  if (
+    !toolsBody
+    || !toolsBody.classList.contains(PROCESS_TOOLS_BODY_CLASS)
+    || toolsBody.closest(PROCESS_GROUP_SELECTOR) !== group
+    || toolsBody.children[toolsBody.children.length - 1] !== tail
+  ) return false
+
+  currentNodes.slice(appendStart).forEach(({ node }) => {
+    setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
+    toolsBody.append(node)
+  })
+  groupedProcessNodeSequences.set(group, currentNodes)
+  return true
+}
+
 export function assistantProcessSourceHasVisibleError(
   message: (MessageWithUsage & { stopReason?: string; errorMessage?: string }) | undefined,
 ) {
@@ -1033,8 +1216,8 @@ export function assistantProcessSourceHasVisibleError(
 function updateEmptyProcessSources(assistants: AssistantMessageElement[]) {
   for (const assistant of assistants) {
     const hasVisibleContent = assistantProcessSourceHasVisibleError(assistant.message) || Boolean(
-      Array.from(assistant.querySelectorAll<HTMLElement>('markdown-block, thinking-block, tool-message, .quickforge-process-group, .quickforge-approval-card'))
-        .some((node) => node.closest('message-list') === assistantMessageList(assistant)),
+      Array.from(assistant.querySelectorAll<HTMLElement>('.qf-markdown-block, .qf-thinking-block, .qf-tool-message, markdown-block, thinking-block, tool-message, .quickforge-process-group, .quickforge-approval-card'))
+        .some((node) => node.closest(MESSAGE_LIST_SCOPE_SELECTOR) === assistantMessageList(assistant)),
     )
     assistant.classList.toggle('quickforge-process-source-empty', !hasVisibleContent)
   }
@@ -1043,10 +1226,13 @@ function updateEmptyProcessSources(assistants: AssistantMessageElement[]) {
 /**
  * Structural fingerprint of a turn's foldable content.
  *
- * Used to short-circuit re-decoration of already-grouped, non-streaming turns.
- * During streaming only the trailing turn changes, so every preceding turn's
- * fingerprint stays stable frame-to-frame — letting us skip the expensive
- * markdown-block scanning and node moving until the content really changes.
+ * Used to short-circuit re-decoration of already-grouped turns that are not
+ * the live one — during streaming every preceding turn, and in static passes
+ * (navigation jumps, metadata refreshes) every completed turn. Content
+ * changes only reach the DOM through a structural commit that releases the
+ * groups first (see ProcessGroupReleaseBoundary), so a surviving group whose
+ * fingerprint still matches is guaranteed to be unchanged since its last pass
+ * and skipping is behavior-preserving.
  * Folded nodes remain descendants of the assistant element (they live inside
  * the process group, which is itself inside the assistant), so the counts are
  * unaffected by grouping and the fingerprint is stable before/after a pass.
@@ -1055,10 +1241,10 @@ function processTurnFingerprint(assistants: AssistantMessageElement[]): string {
   const assistantIndexes = new Map(assistants.map((assistant, index) => [assistant, index]))
   const parts = collectProcessTimeline(assistants).map(({ node, sourceAssistant }) => {
     const assistantIndex = assistantIndexes.get(sourceAssistant) ?? 0
-    const tagName = node.tagName.toLowerCase()
-    if (tagName !== 'tool-message') return `${assistantIndex}:${tagName}`
+    const nodeKind = processNodeKind(node)
+    if (nodeKind !== 'tool-message') return `${assistantIndex}:${nodeKind}`
     const toolMessage = node as ToolMessageElement
-    return `${assistantIndex}:${tagName}:${toolMessage.toolCall?.id ?? toolNameFromMessage(toolMessage)}`
+    return `${assistantIndex}:${nodeKind}:${toolMessage.toolCall?.id ?? toolNameFromMessage(toolMessage)}`
   })
   return `${assistants.length}|${parts.join('|')}`
 }
@@ -1116,6 +1302,15 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
     return
   }
 
+  // 结构变化但组仍存活时优先增量收尾：只搬新增行，已有行原地不动（避免重启其
+  // 正在运行的 CSS keyframes）。非纯后缀追加的结构变化由下方全量重建兜底。
+  if (existingGroup && appendProcessToolSuffix(existingGroup, currentNodes)) {
+    existingGroup.dataset.quickforgeProcessFp = fingerprint
+    updateProcessGroup(panel, processKey, assistants, existingGroup, isAgentStreaming)
+    updateEmptyProcessSources(assistants)
+    return
+  }
+
   restoreProcessTurn(assistants, true)
   const restoredCanFoldMarkdown = hasTurnProcessSignals(assistants)
   const restoredFinalSummary = restoredCanFoldMarkdown
@@ -1138,12 +1333,12 @@ export function decorateProcessBlocks(
   isAgentStreaming: boolean,
 ) {
   const lastMessage = orderedMessages[orderedMessages.length - 1]
-  const isLastMessageAssistant = lastMessage?.tagName.toLowerCase() === 'assistant-message'
+  const isLastMessageAssistant = isProcessNodeKind(lastMessage, 'assistant-message')
 
   const turns: AssistantMessageElement[][] = []
   let currentAssistants: AssistantMessageElement[] = []
   for (const message of orderedMessages) {
-    if (message.tagName.toLowerCase() === 'user-message') {
+    if (isProcessNodeKind(message, 'user-message')) {
       if (currentAssistants.length > 0) turns.push(currentAssistants)
       currentAssistants = []
       continue
@@ -1154,6 +1349,8 @@ export function decorateProcessBlocks(
 
   turns.forEach((assistants, index) => {
     const isActiveTurn = isAgentStreaming && isLastMessageAssistant && index === turns.length - 1
-    decorateProcessTurn(panel, assistants, isActiveTurn, index, isAgentStreaming && !isActiveTurn)
+    // Only the live turn must keep reconciling; every other turn — streaming
+    // historical or fully static — skips when its fingerprint still matches.
+    decorateProcessTurn(panel, assistants, isActiveTurn, index, !isActiveTurn)
   })
 }

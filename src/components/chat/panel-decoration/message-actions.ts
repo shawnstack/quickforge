@@ -2,12 +2,6 @@ import type { MessageWithUsage } from '../chat-utils'
 import { formatMessageTime, messageTimestamp, replaceSvg } from '../chat-utils'
 import { assistantText, draftTextFromUserMessage } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
-import {
-  closeSvgCodeBlockMenus,
-  decorateMarkdownCommandBlocks,
-  decorateMarkdownMermaidCodeBlocks,
-  decorateMarkdownSvgCodeBlocks,
-} from './code-blocks'
 import { decorateProcessBlocks } from './process-folding'
 import {
   copiedIcon,
@@ -85,12 +79,14 @@ function createMessageTime(timestamp: number): HTMLElement | null {
 const STOPPED_LABEL_CLASS = 'quickforge-message-stopped-label'
 
 /**
- * pi-web-ui 对手动停止的 assistant 消息渲染 <span class="text-sm
+ * 手动停止的 assistant 消息渲染 <span class="text-sm
  * text-destructive italic">Request aborted</span>——红色斜体英文，且不带 px-4
- * 缩进贴在消息区左缘。展示层改写为灰色「已停止」并补齐与正文左缘对齐（设计稿
- * design-mockups/assistant-stopped-message-preview.html 方案①）；pi-web-ui 与
- * 数据不动，红色语义保留给错误。只匹配 assistant 渲染根 div 的直接子级 span，
- * 避免误伤 tool 卡内部同款 aborted 标签（process-folding 另有自己的状态文案）。
+ * 缩进贴在消息区左缘。React surface（AssistantMessage.tsx）里该 span 是
+ * div.qf-assistant-message 的直接子级；其余渲染路径（subagent 过程列表）可能多包一层容器。展示层改写为灰色「已停止」并补齐与正文
+ * 左缘对齐（设计稿 design-mockups/assistant-stopped-message-preview.html
+ * 方案①）；数据不动，红色语义保留给错误。只匹配 assistant 渲染根的直接或
+ * 一级嵌套子 span，避免误伤 tool 卡内部同款 aborted 标签（process-folding
+ * 另有自己的状态文案）。
  */
 function decorateAssistantStoppedText(element: HTMLElement, message: MessageWithUsage) {
   if (message.role !== 'assistant') return
@@ -99,7 +95,7 @@ function decorateAssistantStoppedText(element: HTMLElement, message: MessageWith
   let span = element.querySelector<HTMLElement>(`.${STOPPED_LABEL_CLASS}`)
   if (!span) {
     span = Array.from(element.querySelectorAll<HTMLElement>('span.text-sm.text-destructive.italic'))
-      .find((candidate) => candidate.parentElement?.parentElement === element) ?? null
+      .find((candidate) => candidate.parentElement === element || candidate.parentElement?.parentElement === element) ?? null
     if (!span) return
     span.classList.remove('text-destructive', 'italic')
     span.classList.add(STOPPED_LABEL_CLASS)
@@ -145,10 +141,13 @@ export type MessageDecorationDeps = {
   panel: HTMLElement
   getMessages: () => MessageWithUsage[]
   /**
-   * When the conversation is windowed (see windowed-messages.ts), `getMessages`
-   * returns only the visible window. This offset (the full-array index of the
-   * first windowed message) is added back so rollback / retry / fork still
-   * receive full-array indices.
+   * Windowing offset: the window controller is kept (the React ChatSurface
+   * creates it with `enabled: false`) and the host still passes
+   * `getWindowStart()`, but since the surface renders the complete conversation
+   * the decoration layer always receives the full message array and this offset
+   * stays 0. Decoration index math keeps adding it so actions (rollback /
+   * retry / copy) address full-conversation indices, not a window-local
+   * ordinal, if windowing is ever switched back on.
    */
   messageIndexOffset?: number
   isStreaming: () => boolean
@@ -179,18 +178,17 @@ export type MessageDecorationDeps = {
   allowRetry?: boolean
   historyActionsDisabled?: boolean
   readOnly?: boolean
-  enableTerminalCommandActions?: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
 }
 
 function getPrimaryMessageList(panel: HTMLElement) {
-  return panel.querySelector<HTMLElement>('message-list')
+  return panel.querySelector<HTMLElement>('.qf-message-list')
 }
 
 function getMessageElements(messageList: HTMLElement) {
-  return Array.from(messageList.querySelectorAll<HTMLElement>('user-message, assistant-message'))
-    .filter((element) => element.closest('message-list') === messageList)
+  return Array.from(messageList.querySelectorAll<HTMLElement>('user-message, assistant-message, .qf-user-message, .qf-assistant-message'))
+    .filter((element) => element.closest('message-list, .qf-message-list') === messageList)
 }
 
 function getPrimaryMessageElements(panel: HTMLElement) {
@@ -198,12 +196,77 @@ function getPrimaryMessageElements(panel: HTMLElement) {
   return messageList ? getMessageElements(messageList) : []
 }
 
+/**
+ * 行级装饰短路标记（dataset）：值 = 该行全部装饰输入的指纹。指纹未变则整行
+ * 跳过，省去每行 5-10 次 DOM 查询与重复装饰（流式期每 rAF 全量扫描的主要成本）。
+ * 指纹在装饰前写入：中途异常时下一周期仍会重试整行装饰。
+ */
+const DECORATED_KEY_FLAG = 'quickforgeDecoratedKey'
+
+/**
+ * decorateMessages 行级短路的轻量消息指纹：覆盖行内装饰实际读取的字段
+ * （role / timestamp / stopReason / errorMessage / attachments 路径 /
+ * details / metadata / content）。content 只取结构摘要（字符串长度或分块
+ * 数 + 每块类型与文本长度）——消息列表只渲染已完成的消息，内容定稿后原地
+ * 追加必然改变块数或长度，无需整段字符串化长回答。
+ */
+export function messageDecorationFingerprint(message: MessageWithUsage): string {
+  const record = message as Record<string, unknown>
+  const attachments = Array.isArray(record.attachments)
+    ? record.attachments.map((attachment) =>
+        attachment && typeof attachment === 'object' ? String((attachment as Record<string, unknown>).path ?? '') : '',
+      ).join('\u0000')
+    : ''
+  return [
+    String(record.role ?? ''),
+    String(messageTimestamp(message)),
+    String(record.stopReason ?? ''),
+    String(record.errorMessage ?? ''),
+    attachments,
+    stableDetailString(record.details),
+    stableDetailString(record.metadata),
+    contentFingerprint(record.content),
+  ].join('\u0001')
+}
+
+/** 无法稳定字符串化（循环引用等）时返回哨兵值，让该行每周期退化为全量装饰。 */
+function stableDetailString(value: unknown): string {
+  if (value === undefined) return '\u0002u'
+  try {
+    return JSON.stringify(value) ?? '\u0002n'
+  } catch {
+    return '\u0002c'
+  }
+}
+
+function contentFingerprint(content: unknown): string {
+  if (typeof content === 'string') return `s:${content.length}`
+  if (!Array.isArray(content)) return typeof content
+  return `a:${content.map((chunk) => {
+    if (!chunk || typeof chunk !== 'object') return typeof chunk
+    const record = chunk as Record<string, unknown>
+    const kind = typeof record.type === 'string' ? record.type : '?'
+    const body = typeof record.text === 'string' ? record.text : typeof record.thinking === 'string' ? record.thinking : ''
+    const id = typeof record.id === 'string' ? record.id : ''
+    return `${kind}(${body.length})${id}`
+  }).join(',')}`
+}
+
+/**
+ * 每面板的装饰代数：getMessages() 数组引用（或窗口偏移）变化即递增。数组
+ * 引用稳定 ⇔ React 表面未重渲染消息列表（R1 F1a），行 DOM 不变；引用变化
+ * 时全行重算，覆盖 React 重建行子树的场景。行内原地变更（details/metadata）
+ * 由 {@link messageDecorationFingerprint} 单独覆盖。
+ */
+type DecorationPanelGate = { messages: unknown; offset: number; generation: number }
+const decorationPanelGates = new WeakMap<HTMLElement, DecorationPanelGate>()
+
 function getStreamingAssistantMessage(panel: HTMLElement) {
   const messageList = getPrimaryMessageList(panel)
   const streamingContainer = messageList?.parentElement?.querySelector<HTMLElement>(
-    ':scope > streaming-message-container:not(.hidden)',
+    ':scope > .qf-streaming-message:not(.hidden)',
   )
-  return streamingContainer?.querySelector<HTMLElement>(':scope > div > assistant-message') ?? null
+  return streamingContainer?.querySelector<HTMLElement>(':scope > .qf-assistant-message') ?? null
 }
 
 /** 消息流 slash chip 标记（存在即说明此前装饰过；dataset 携带被剥掉的前缀文本）。 */
@@ -229,7 +292,7 @@ function findFirstContentTextNode(root: Node): Text | null {
  * 复制行为不受影响（copy 走 draftTextFromUserMessage 原文，前缀完整保留）。
  *
  * 还原以 chip 自身为单位：每个 chip 的 dataset 记录被剥掉的精确前缀字符，重装饰时
- * 先移除 chip 并把前缀写回首文本节点，再按当前文本重新应用或仅还原——Lit 重渲染
+ * 先移除 chip 并把前缀写回首文本节点，再按当前文本重新应用或仅还原——重新渲染
  * 整体替换 markdown 子树时 chip 已随之消失、文本节点本就是原文，天然幂等。
  */
 function decorateUserSlashInvocationChip(element: HTMLElement, message: Parameters<typeof draftTextFromUserMessage>[0]) {
@@ -286,7 +349,7 @@ const TEXT_ATTACHMENT_TILE_BOUND_FLAG = 'quickforgeTextAttachmentBound'
  * 用户消息内 qf 临时文本附件装饰：按附件顺序对齐 attachment-tile，绑定
  * 「系统文件管理器打开」点击；完整路径只放 tile 的 hover 提示，消息内
  * 不展示路径文字行（清理旧版本装饰遗留的行）。装饰周期高频重复执行
- * （流式期每 rAF 全量扫描、DOM 元素被 Lit 按 index 复用），必须幂等：
+ * （流式期每 rAF 全量扫描、DOM 元素被按 index 复用），必须幂等：
  * 每 tile 只安装一个读取当前路径的监听。
  */
 function decorateTextAttachmentTiles(
@@ -295,13 +358,13 @@ function decorateTextAttachmentTiles(
   onOpenLocalFilePath?: (path: string) => void,
 ) {
   element.querySelectorAll<HTMLElement>('.quickforge-text-attachment-path').forEach((row) => row.remove())
-  const tiles = Array.from(element.querySelectorAll<HTMLElement>('attachment-tile'))
+  const tiles = Array.from(element.querySelectorAll<HTMLElement>('.qf-attachment-tile'))
   attachments.forEach((attachment, attachmentIndex) => {
     const attachmentPath = attachment?.path
     if (!attachmentPath) return
     const tile = tiles[attachmentIndex]
     if (!tile) return
-    tile.setAttribute('title', `点击在系统文件管理器中打开：${attachmentPath}`)
+    tile.setAttribute('title', `${t('openAttachmentInFileManagerHint')}：${attachmentPath}`)
     tile.dataset[TEXT_ATTACHMENT_TILE_PATH_FLAG] = attachmentPath
     if (tile.dataset[TEXT_ATTACHMENT_TILE_BOUND_FLAG] === '1') return
     tile.dataset[TEXT_ATTACHMENT_TILE_BOUND_FLAG] = '1'
@@ -335,22 +398,6 @@ export function decorateUserContextChips(element: HTMLElement, message: MessageW
   if (!existing) container.prepend(chips)
 }
 
-/**
- * 对 panel 内的 subagent 过程 message-list 应用与聊天主列表一致的
- * process folding 装饰。聊天主流程由 decorateMessages 调用；Workspace
- * Inspector 的 subagent 运行详情侧栏在每次渲染后复用本函数，保证两边
- * 的过程分组/折叠交互与视觉完全一致（重复调用是幂等的）。
- */
-export function decorateSubagentProcessBlocks(panel: HTMLElement) {
-  panel.querySelectorAll<HTMLElement>('message-list[data-quickforge-subagent-process="true"]').forEach((messageList) => {
-    decorateProcessBlocks(
-      messageList,
-      getMessageElements(messageList),
-      messageList.dataset.quickforgeSubagentStreaming === 'true',
-    )
-  })
-}
-
 export function decorateMessages(deps: MessageDecorationDeps) {
   const {
     panel,
@@ -376,16 +423,22 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     allowRetry = true,
     historyActionsDisabled = false,
     readOnly = false,
-    enableTerminalCommandActions = true,
     rollbackConfirmTitle = t('rollbackConfirmTitle'),
     rollbackConfirmDescription = t('rollbackConfirm'),
   } = deps
 
-  const displayEntries = getMessages()
+  const messagesSnapshot = getMessages()
+  const displayEntries = messagesSnapshot
     .map((message, index) => ({ message, index: index + messageIndexOffset }))
     .filter(({ message }) => {
       return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
     })
+
+  let decorationGate = decorationPanelGates.get(panel)
+  if (!decorationGate || decorationGate.messages !== messagesSnapshot || decorationGate.offset !== messageIndexOffset) {
+    decorationGate = { messages: messagesSnapshot, offset: messageIndexOffset, generation: (decorationGate?.generation ?? 0) + 1 }
+    decorationPanelGates.set(panel, decorationGate)
+  }
 
   const lastUserEntry = (() => {
     for (let i = displayEntries.length - 1; i >= 0; i--) {
@@ -412,6 +465,25 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     : { retrying: false, escalated: false, retryCount: 0 }
   const assistantActionIndexes = assistantActionDisplayIndexes(displayEntries.map(({ message }) => message), streaming)
 
+  // 行级短路的会话级输入（decorate 入参中影响行装饰的全部布尔位 + 重试循环状态）。
+  const rowFlagsKey = [
+    streaming ? 1 : 0,
+    trailingTurnAborted ? 1 : 0,
+    readOnly ? 1 : 0,
+    historyActionsDisabled ? 1 : 0,
+    allowRollback ? 1 : 0,
+    allowRetry ? 1 : 0,
+    disableFork ? 1 : 0,
+    onOpenLocalFilePath ? 1 : 0,
+    onRetryAfterError ? 1 : 0,
+    turnErrorTracker ? 1 : 0,
+    onSwitchModel ? 1 : 0,
+    turnErrorView.retrying ? 1 : 0,
+    turnErrorView.escalated ? 1 : 0,
+    turnErrorView.retryCount,
+  ].join('')
+  const lastUserIndex = lastUserEntry ? lastUserEntry.index : -1
+
   const createCopyButton = (getText: () => string) => {
     const title = t('copy')
     return createIconActionButton('copy', title, copyIcon, async (button) => {
@@ -430,6 +502,27 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     const entry = displayEntries[displayIndex]
     const internalGoalMessage = syncGoalInternalMessage(element, entry?.message)
     if (!entry) return
+    const showAssistantActions = entry.message.role !== 'assistant' || assistantActionIndexes.has(displayIndex)
+    const isLastUserRow = !readOnly
+      && (allowRetry || historyActionsDisabled)
+      && entry.index === lastUserIndex
+      && entry.message.role !== 'assistant'
+      && !trailingTurnAborted
+    const decorationKey = [
+      decorationGate.generation,
+      displayIndex,
+      entry.index,
+      displayEntries.length,
+      showAssistantActions ? 1 : 0,
+      isLastUserRow ? 1 : 0,
+      rowFlagsKey,
+      messageDecorationFingerprint(entry.message),
+    ].join('|')
+    // 行级短路：消息指纹与会话级交互状态都未变（且消息数组代数稳定 ⇔ React
+    // 表面未重建行）则整行跳过。跳过仅作用于行内装饰；artifact 卡 / process
+    // 折叠 / goal 分隔线等行外同步照常执行。
+    if (element.dataset[DECORATED_KEY_FLAG] === decorationKey) return
+    element.dataset[DECORATED_KEY_FLAG] = decorationKey
     // Keep the user-message host as a process-turn boundary and index anchor.
     // Its divider is synced below even when there is no assistant in this run.
     if (internalGoalMessage) {
@@ -458,7 +551,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       const existingTime = actionsContainer.querySelector<HTMLElement>('.quickforge-message-time')
       if (messageTimeValue > 0) {
         if (existingTime) {
-          existingTime.textContent = formatMessageTime(messageTimeValue)
+          // formatMessageTime 是时间戳的纯函数：文本一致时跳过写回，避免重复布局失效。
+          const expectedTime = formatMessageTime(messageTimeValue)
+          if (existingTime.textContent !== expectedTime) existingTime.textContent = expectedTime
           return
         }
         const time = createMessageTime(messageTimeValue)
@@ -503,7 +598,6 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
     const actionsClass = `quickforge-message-actions pointer-events-none mt-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${entry.message.role === 'assistant' ? 'px-4 justify-start' : 'mx-4 justify-end'}`
     const existingActions = element.querySelector<HTMLElement>('.quickforge-message-actions')
-    const showAssistantActions = entry.message.role !== 'assistant' || assistantActionIndexes.has(displayIndex)
     if (!showAssistantActions) {
       existingActions?.remove()
       return
@@ -538,10 +632,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
       // Manage retry button visibility: only show on the last user message
       const existingRetry = existingActions.querySelector<HTMLButtonElement>('button[data-quickforge-action="retry"]')
-      const isLastUser = !readOnly && (allowRetry || historyActionsDisabled) && lastUserEntry && entry.index === lastUserEntry.index && entry.message.role !== 'assistant' && !trailingTurnAborted
-      if (existingRetry && !isLastUser) {
+      if (existingRetry && !isLastUserRow) {
         existingRetry.remove()
-      } else if (!existingRetry && isLastUser) {
+      } else if (!existingRetry && isLastUserRow) {
         const retryButton = createIconActionButton('retry', t('retry'), retryIcon, () => {
           onRetryFromMessage(entry.index)
         })
@@ -615,7 +708,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   syncAssistantArtifactCard({
     panel,
     displayEntries,
-    messageElements: getPrimaryMessageElements(panel),
+    // 行循环不会增删消息行本身，直接复用周期开头捕获的行集合，
+    // 省去一次全列表 querySelectorAll。
+    messageElements,
     // 产物提取需要全量消息（窗口化时 getMessages 只返回可见窗口）。
     messages: getArtifactMessages?.() ?? getMessages(),
     streaming,
@@ -626,7 +721,6 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     onRevealFile,
   })
 
-  closeSvgCodeBlockMenus(panel)
   const processMessageElements = [...messageElements]
   if (streaming) {
     const streamingAssistant = getStreamingAssistantMessage(panel)
@@ -636,15 +730,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     }
   }
   decorateProcessBlocks(panel, processMessageElements, streaming)
-  decorateSubagentProcessBlocks(panel)
-  getPrimaryMessageElements(panel).forEach((element, index) => {
+  messageElements.forEach((element, index) => {
     syncGoalIterationDivider(element, displayEntries[index]?.message.details)
   })
-  decorateMarkdownSvgCodeBlocks(panel, isStreaming())
-  decorateMarkdownMermaidCodeBlocks(panel, isStreaming())
-  if (enableTerminalCommandActions) {
-    decorateMarkdownCommandBlocks(panel, isStreaming())
-  } else {
-    panel.querySelectorAll('[data-quickforge-action="execute-markdown-command"]').forEach((button) => button.remove())
-  }
 }

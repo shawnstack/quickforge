@@ -3,7 +3,6 @@ import { t } from '../../src/lib/i18n'
 import { saveGoalObjective, type SaveGoalObjectiveOptions } from '../../src/lib/goal-edit'
 import { normalizeGoalState, type GoalStatus } from '../../src/lib/goal'
 
-vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
 import { clearGoalUi, getGoalUiState, runGoalUiAction, setGoalUiDraft } from '../../src/lib/goal-ui'
 
 function setup(status: GoalStatus = 'running', isStreaming = true) {

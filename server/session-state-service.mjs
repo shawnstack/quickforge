@@ -600,10 +600,11 @@ export async function atomicSessionMetadataStateUpdate(scope, projectId, updateF
 
 export async function applySessionBatch(operations) {
   if (!Array.isArray(operations) || operations.length === 0) throw new TypeError('Session batch operations are required')
-  // pi-web-ui's SessionsStore.delete() emits a `sessions` delete AND a
-  // `sessions-metadata` delete for the same key in one transaction. The
-  // metadata delete is subsumed by the grouped full delete (idempotent no-op);
-  // only a metadata delete without a paired body delete stays rejected.
+  // SessionsStore.delete() (src/storage/stores/sessions-store.ts) emits a
+  // `sessions` delete AND a `sessions-metadata` delete for the same key in one
+  // transaction. The metadata delete is subsumed by the grouped full delete
+  // (idempotent no-op); only a metadata delete without a paired body delete
+  // stays rejected.
   const fullDeleteKeys = new Set(
     operations
       .filter((operation) => operation?.type === 'delete' && operation?.store === 'sessions')

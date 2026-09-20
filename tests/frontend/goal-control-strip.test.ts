@@ -240,13 +240,13 @@ function createFakeGoalUi() {
 
 function setup(initial: Partial<GoalState> = {}) {
   const panel = new FakeElement('div')
-  const editor = new FakeElement('message-editor')
+  const editor = Object.assign(new FakeElement('div'), { className: 'qf-message-editor' })
   const textarea = new FakeElement('textarea')
   editor.append(textarea)
   editor.queryMap.set('textarea', textarea)
   const composerShell = new FakeElement('div')
   composerShell.append(editor)
-  panel.queryMap.set('message-editor', editor)
+  panel.queryMap.set('.qf-message-editor', editor)
 
   const state = { goal: goal(initial) as GoalState | null, sessionId: 'session-1' }
   const goalUi = createFakeGoalUi()
@@ -836,10 +836,10 @@ describe('goal control strip DOM controller', () => {
     const goalId = 'it-goal'
 
     const panel = new FakeElement('div')
-    const editor = new FakeElement('message-editor')
+    const editor = Object.assign(new FakeElement('div'), { className: 'qf-message-editor' })
     const composerShell = new FakeElement('div')
     composerShell.append(editor)
-    panel.queryMap.set('message-editor', editor)
+    panel.queryMap.set('.qf-message-editor', editor)
 
     const state = { goal: goal({ id: goalId, sessionId, status: 'running' }) as GoalState | null }
     const onAction = vi.fn(async () => undefined)

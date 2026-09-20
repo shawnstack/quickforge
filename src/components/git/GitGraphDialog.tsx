@@ -27,7 +27,7 @@ function formatCommitDate(value: string) {
 function decorationClass(decoration: GitLogDecoration) {
   if (decoration.type === 'head') return 'border-amber-500 text-foreground'
   if (decoration.type === 'tag') return 'border-emerald-600 text-emerald-700 dark:text-emerald-300'
-  if (decoration.type === 'remote') return 'border-border bg-muted/40 text-muted-foreground'
+  if (decoration.type === 'remote') return 'border-border text-muted-foreground'
   return 'border-border bg-muted/30 text-muted-foreground'
 }
 
@@ -100,7 +100,7 @@ export function GitGraphDialog({ projectId, projectName, onClose }: GitGraphDial
           </Button>
         </div>
 
-        <div className="grid shrink-0 grid-cols-[72px_minmax(360px,1fr)_160px_140px_120px] border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-muted/20 text-sm font-medium text-muted-foreground">
+        <div className="grid shrink-0 grid-cols-[72px_minmax(360px,1fr)_160px_140px_120px] border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] text-sm font-medium text-muted-foreground">
           <div className="border-r-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-5 py-3">{t('graphColumn')}</div>
           <div className="border-r-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-5 py-3">{t('description')}</div>
           <div className="border-r-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-5 py-3">{t('date')}</div>
@@ -119,20 +119,20 @@ export function GitGraphDialog({ projectId, projectName, onClose }: GitGraphDial
           ) : rows.length === 0 ? (
             <div className="m-5 rounded-2xl border border-border bg-muted/30 p-5 text-sm text-muted-foreground">{t('noGitCommits')}</div>
           ) : rows.map((commit, index) => {
-            const highlighted = commit.decorations.some((decoration) => decoration.type === 'head' || decoration.name === 'HEAD')
+            const highlighted = commit.decorations.some((decoration) => decoration.type === 'head' || decoration.name ==='HEAD')
             return (
               <div
                 key={commit.hash}
                 className={cn(
                   'grid min-h-14 grid-cols-[72px_minmax(360px,1fr)_160px_140px_120px] border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] text-sm',
-                  highlighted ? 'bg-muted/28' : 'bg-background',
+                  highlighted ? '' : 'bg-background',
                 )}
               >
                 <CommitGraphCell index={index} isLast={index === rows.length - 1} />
                 <div className="flex min-w-0 items-center gap-2 px-5 py-3">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     {commit.decorations.map((decoration) => <CommitDecoration key={`${commit.hash}:${decoration.type}:${decoration.name}`} decoration={decoration} />)}
-                    <span className="min-w-0 break-words text-foreground/90">{commit.subject}</span>
+                    <span className="min-w-0 break-words">{commit.subject}</span>
                   </div>
                 </div>
                 <div className="flex items-center border-l-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-5 py-3 text-muted-foreground">{formatCommitDate(commit.date)}</div>

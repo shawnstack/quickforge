@@ -75,7 +75,7 @@ export function createReconnectNoticeController(deps: { panel: HTMLElement }): R
   }
 
   function ensureNotice(state: 'reconnecting' | 'reconnected' | 'failed' | 'unreachable'): HTMLElement | null {
-    const messageList = panel.querySelector<HTMLElement>('message-list')
+    const messageList = panel.querySelector<HTMLElement>('.qf-message-list')
     if (!messageList) return null
 
     let notice = findNotice()
@@ -240,7 +240,7 @@ export function createReconnectNoticeController(deps: { panel: HTMLElement }): R
     sync: () => {
       if (disposed) return
       // 成功态提示由 dismiss 计时器自行移除；同步只处理仍在进行的
-      // reconnecting/failed：消息列表被 Lit 重建后把提示重新挂回末尾。
+      // reconnecting/failed：消息列表被重建后把提示重新挂回末尾。
       const current = getSseConnectionState()
       if (!current || current.status === 'connected') return
       const notice = findNotice()
@@ -249,7 +249,7 @@ export function createReconnectNoticeController(deps: { panel: HTMLElement }): R
         apply(current)
         return
       }
-      const messageList = panel.querySelector<HTMLElement>('message-list')
+      const messageList = panel.querySelector<HTMLElement>('.qf-message-list')
       if (messageList && notice.parentElement !== messageList) messageList.append(notice)
     },
     destroy: () => {

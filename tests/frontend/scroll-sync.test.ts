@@ -16,11 +16,9 @@ function createEnv() {
     querySelector: vi.fn(() => null),
   }
   const setAutoScroll = vi.fn()
-  const agentInterface = { setAutoScroll }
   const panel = {
     querySelector: vi.fn((selector: string) => {
-      if (selector === 'agent-interface .overflow-y-auto') return scrollContainer
-      if (selector === 'agent-interface') return agentInterface
+      if (selector === '.qf-scroll-container') return scrollContainer
       return null
     }),
   } as unknown as HTMLElement
@@ -53,32 +51,33 @@ afterEach(() => {
 })
 
 describe('scroll sync programmatic navigation', () => {
-  it('does not load older messages when programmatic navigation reaches the top', () => {
+  it('keeps auto-scroll disabled when programmatic navigation reaches the top', () => {
     const env = createEnv()
-    const onReachTop = vi.fn()
-    const sync = createScrollSync({ panel: env.panel, onReachTop })
+    const sync = createScrollSync({ panel: env.panel, setAutoScroll: env.setAutoScroll })
     sync.setup()
 
     const end = sync.beginProgrammaticScroll()
     env.scrollContainer.scrollTop = 0
     env.dispatch('scroll')
 
-    expect(onReachTop).not.toHaveBeenCalled()
     expect(sync.isEnabled).toBe(false)
     end()
   })
 
-  it('still loads older messages when a real user scrolls to the top', () => {
+  it('forwards the auto-scroll flag to the React ChatSurface handle', () => {
     const env = createEnv()
-    const onReachTop = vi.fn()
-    const sync = createScrollSync({ panel: env.panel, onReachTop })
+    const sync = createScrollSync({ panel: env.panel, setAutoScroll: env.setAutoScroll })
     sync.setup()
 
+    expect(env.setAutoScroll).toHaveBeenCalledWith(true)
+
+    // Real user scroll-up (wheel + scroll while away from the bottom).
     env.dispatch('wheel', { deltaY: -1 } as Partial<WheelEvent>)
     env.scrollContainer.scrollTop = 0
     env.dispatch('scroll')
 
-    expect(onReachTop).toHaveBeenCalledTimes(1)
+    expect(sync.isEnabled).toBe(false)
+    expect(env.setAutoScroll).toHaveBeenLastCalledWith(false)
   })
 
   it('keeps smooth scrolling while the programmatic guard is active until completion', () => {
@@ -92,7 +91,7 @@ describe('scroll sync programmatic navigation', () => {
 
   it('does not re-enable auto-scroll while a programmatic jump passes near the bottom', () => {
     const env = createEnv()
-    const sync = createScrollSync({ panel: env.panel })
+    const sync = createScrollSync({ panel: env.panel, setAutoScroll: env.setAutoScroll })
     sync.setup()
 
     const end = sync.beginProgrammaticScroll()

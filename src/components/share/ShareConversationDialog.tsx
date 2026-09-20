@@ -155,7 +155,7 @@ export function ShareConversationDialog({
               </div>
             ) : null}
 
-            {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+            {error ? <div className="rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
 
             {shares.length ? (
               <div>

@@ -6,7 +6,7 @@ import type { McpServer } from '@/lib/types/mcp'
 
 function statusClass(status?: string) {
   if (status === 'connected') return 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
-  if (status === 'error') return 'bg-destructive/12 text-destructive'
+  if (status === 'error') return 'text-destructive'
   if (status === 'disabled') return 'bg-muted text-muted-foreground'
   return 'bg-amber-500/12 text-amber-700 dark:text-amber-300'
 }
@@ -34,12 +34,12 @@ export function McpServerCard({ server, toggling, reconnecting, onToggle, onEdit
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="truncate text-sm font-medium text-foreground/90">{server.name}</div>
+            <div className="truncate text-sm font-medium">{server.name}</div>
             {server.builtin ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{t('mcpBuiltIn')}</span> : null}
             <span className={cn('rounded-full px-2 py-0.5 text-[11px]', statusClass(server.status))}>{server.status || 'unknown'}</span>
-            <span className="text-[11px] text-muted-foreground/60">{t('mcpToolsCount', { count: totalCount })}</span>
+            <span className="text-[11px]">{t('mcpToolsCount', { count: totalCount })}</span>
           </div>
-          <div className="mt-1 truncate text-xs text-muted-foreground/65">
+          <div className="mt-1 truncate text-xs">
             {server.transport === 'stdio'
               ? `${server.command} ${(server.args || []).join(' ')}`
               : server.url}
@@ -86,10 +86,10 @@ export function McpServerCard({ server, toggling, reconnecting, onToggle, onEdit
       {visibleTools.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {visibleTools.map((tool) => (
-            <span key={tool.quickForgeName} className="rounded-md bg-muted/28 px-1.5 py-0.5 text-[11px] text-muted-foreground/75" title={tool.quickForgeName}>{tool.name}</span>
+            <span key={tool.quickForgeName} className="rounded-md px-1.5 py-0.5 text-[11px]" title={tool.quickForgeName}>{tool.name}</span>
           ))}
           {hiddenCount > 0 ? (
-            <span className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/55">{t('mcpMoreTools', { count: hiddenCount })}</span>
+            <span className="rounded-md px-1.5 py-0.5 text-[11px]">{t('mcpMoreTools', { count: hiddenCount })}</span>
           ) : null}
         </div>
       ) : null}

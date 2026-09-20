@@ -173,7 +173,7 @@ function isQueueAnchorFollower(element: Element | null): boolean {
     element
     && (element.classList.contains('quickforge-todo-summary')
       || element.classList.contains('quickforge-goal-strip')
-      || element.classList.contains('message-editor')
+      || element.classList.contains('qf-message-editor')
       || isSuggestionMenu(element)),
   )
 }
@@ -244,7 +244,7 @@ export function createMessageQueuePanelController({
     return items[items.length - 1] ?? null
   }
 
-  const getEditor = () => panel.querySelector<HTMLElement>('message-editor')
+  const getEditor = () => panel.querySelector<HTMLElement>('.qf-message-editor')
 
   const ensureRoot = () => {
     const editor = getEditor()

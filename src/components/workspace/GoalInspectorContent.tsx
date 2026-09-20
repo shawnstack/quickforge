@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { getAppStorage } from '@earendil-works/pi-web-ui'
+import { getAppStorage } from '@/storage'
 import { buildGoalCardViewModel } from '@/components/chat/panel-decoration/goal-card'
 import { Button } from '@/components/ui/button'
 import { goalBudgetExtension, goalDurationMinutes, goalIsEditable, isGoalTerminal, type GoalAction, type GoalActionOptions, type GoalState, type GoalStatus } from '@/lib/goal'

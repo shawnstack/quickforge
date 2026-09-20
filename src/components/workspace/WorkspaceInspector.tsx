@@ -341,14 +341,14 @@ function InlineReader({ project, path, mode, file, diff, loading, error, noChang
         ) : null}
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-sm" title={breadcrumbTitle || title}>
           {project?.name ? (
-            <span className="shrink-0 truncate text-muted-foreground/75">{project.name}</span>
+            <span className="shrink-0 truncate">{project.name}</span>
           ) : null}
           {pathSegments.map((segment, index) => {
             const isCurrentFile = index === pathSegments.length - 1
             return (
               <div key={`${segment}-${index}`} className={cn('flex min-w-0 items-center gap-1.5', isCurrentFile ? 'min-w-0' : 'shrink-0')}>
-                {(project?.name || index > 0) ? <ChevronRight className="size-4 shrink-0 text-muted-foreground/55" /> : null}
-                <span className={cn('truncate', isCurrentFile ? 'font-medium text-foreground/92' : 'text-muted-foreground/75')}>
+                {(project?.name || index > 0) ? <ChevronRight className="size-4 shrink-0" /> : null}
+                <span className={cn('truncate', isCurrentFile ? 'font-medium ' : '')}>
                   {segment}
                 </span>
               </div>
@@ -359,7 +359,7 @@ function InlineReader({ project, path, mode, file, diff, loading, error, noChang
           {isMarkdown ? (
             <button
               type="button"
-              className="inline-flex h-8 items-center rounded-xl px-2.5 text-sm font-medium text-foreground/82 transition-colors hover:bg-muted/30 hover:text-foreground"
+              className="inline-flex h-8 items-center rounded-xl px-2.5 text-sm font-medium transition-colors hover:text-foreground"
               onClick={() => {
                 setMarkdownMode((value) => value === 'preview' ? 'source' : 'preview')
                 setMenuOpen(false)
@@ -372,7 +372,7 @@ function InlineReader({ project, path, mode, file, diff, loading, error, noChang
             <Button
               variant="ghost"
               size="icon"
-              className={cn('size-8 rounded-xl text-muted-foreground/75', menuOpen && 'bg-muted/45 text-foreground/90')}
+              className={cn('size-8 rounded-xl', menuOpen && '')}
               onClick={() => setMenuOpen((value) => !value)}
               aria-label={t('readerMoreActions')}
               title={t('readerMoreActions')}
@@ -385,27 +385,27 @@ function InlineReader({ project, path, mode, file, diff, loading, error, noChang
               <div className="absolute right-0 top-10 z-50 w-56 rounded-2xl border border-[color-mix(in_oklab,var(--border)_38%,transparent)] bg-popover p-1.5 text-popover-foreground shadow-quickforge" role="menu" aria-label={t('readerMoreActions')}>
                 <button
                   type="button"
-                  className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-foreground/86 transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                  className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
                   onClick={() => void copyToClipboard('path', title)}
                   disabled={!title}
                   role="menuitem"
                 >
-                  {copied === 'path' ? <Check className="size-4 shrink-0" /> : <Copy className="size-4 shrink-0 text-muted-foreground/80" />}
+                  {copied === 'path' ? <Check className="size-4 shrink-0" /> : <Copy className="size-4 shrink-0" />}
                   <span>{t('copyPath')}</span>
                 </button>
                 <button
                   type="button"
-                  className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-foreground/86 transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                  className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
                   onClick={() => void copyToClipboard('content', copyableContent)}
                   disabled={!copyableContent}
                   role="menuitem"
                 >
-                  {copied === 'content' ? <Check className="size-4 shrink-0" /> : <Copy className="size-4 shrink-0 text-muted-foreground/80" />}
+                  {copied === 'content' ? <Check className="size-4 shrink-0" /> : <Copy className="size-4 shrink-0" />}
                   <span>{mode === 'file' ? t('copyFileContent') : t('copyDiffContent')}</span>
                 </button>
                 <button
                   type="button"
-                  className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-foreground/86 transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                  className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
                   onClick={() => {
                     setWordWrap((value) => !value)
                     setMenuOpen(false)
@@ -414,9 +414,9 @@ function InlineReader({ project, path, mode, file, diff, loading, error, noChang
                   role="menuitemcheckbox"
                   aria-checked={wordWrap}
                 >
-                  <CornerDownLeft className="size-4 shrink-0 text-muted-foreground/80" />
+                  <CornerDownLeft className="size-4 shrink-0" />
                   <span className="min-w-0 flex-1">{t('enableWordWrap')}</span>
-                  {wordWrap ? <Check className="size-4 shrink-0 text-muted-foreground/80" /> : null}
+                  {wordWrap ? <Check className="size-4 shrink-0" /> : null}
                 </button>
               </div>
             ) : null}
@@ -424,7 +424,7 @@ function InlineReader({ project, path, mode, file, diff, loading, error, noChang
           <Button
             variant="ghost"
             size="icon"
-            className={cn('size-8 rounded-xl text-muted-foreground/75', navigationVisible && 'bg-muted/45 text-foreground/90')}
+            className={cn('size-8 rounded-xl', navigationVisible && '')}
             onClick={() => onNavigationVisibleChange(!navigationVisible)}
             aria-label={navigationVisible ? t('hideFileNavigation') : t('showFileNavigation')}
             title={navigationVisible ? t('hideFileNavigation') : t('showFileNavigation')}
@@ -444,10 +444,10 @@ function InlineReader({ project, path, mode, file, diff, loading, error, noChang
         </div>
       </div>
       <div className="min-h-0 flex-1 bg-background">
-        {loading ? <div className="p-4 text-sm text-muted-foreground/70">{t('openingReader')}</div> : null}
+        {loading ? <div className="p-4 text-sm">{t('openingReader')}</div> : null}
         {!loading && noChanges ? (
           <div className="p-4">
-            <div className="text-sm text-muted-foreground/70">{t('workspaceFileNoWorkingTreeChanges')}</div>
+            <div className="text-sm">{t('workspaceFileNoWorkingTreeChanges')}</div>
             {onOpenCurrentFile ? (
               <Button
                 variant="outline"
@@ -510,24 +510,24 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
   return (
     <div className="space-y-3 p-2">
       <div className="rounded-lg border border-border bg-background px-3 py-3">
-        <div className="flex items-center gap-2 text-xs font-semibold text-foreground/90">
+        <div className="flex items-center gap-2 text-xs font-semibold">
           <Code2 className="size-3.5 text-emerald-600 dark:text-emerald-500" />
           {t('workspaceCurrentArtifacts')}
         </div>
         {artifacts.length === 0 ? (
-          <div className="mt-2 text-xs leading-5 text-muted-foreground/70">{t('workspaceNoArtifacts')}</div>
+          <div className="mt-2 text-xs leading-5">{t('workspaceNoArtifacts')}</div>
         ) : (
           <div className="mt-3 space-y-3">
             {fileArtifacts.length ? (
               <div className="space-y-1.5">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{t('workspaceFiles')} {fileArtifacts.length}</div>
+                <div className="text-[11px] font-medium uppercase tracking-wide">{t('workspaceFiles')} {fileArtifacts.length}</div>
                 {fileArtifacts.slice(0, 8).map((artifact) => {
                   const path = artifact.path
                   const canPreview = isBrowserPreviewablePath(path) || isDocumentPreviewablePath(path)
                   const canViewDiff = changedPaths.has(path)
                   const hasDiff = typeof artifact.addedLines === 'number' || typeof artifact.removedLines === 'number'
                   return (
-                    <div key={artifact.id} className="group flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-xs text-foreground/85 transition-colors hover:bg-muted/20">
+                    <div key={artifact.id} className="group flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors">
                       <FileIcon path={path} className="size-3.5 shrink-0" />
                       <button
                         type="button"
@@ -543,7 +543,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
                           <span className="ml-1 text-red-600 dark:text-red-400">-{artifact.removedLines ?? 0}</span>
                         </span>
                       ) : null}
-                      <span className="shrink-0 rounded-full bg-muted/30 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70">{artifact.kind}</span>
+                      <span className="shrink-0 rounded-full bg-muted/30 px-1.5 py-0.5 text-[10px] font-medium">{artifact.kind}</span>
                       {canPreview ? (
                         <button
                           type="button"
@@ -557,7 +557,7 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
                       ) : null}
                       <button
                         type="button"
-                        className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70 opacity-0 transition-opacity hover:bg-muted/25 group-hover:opacity-100"
+                        className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium opacity-0 transition-opacity group-hover:opacity-100"
                         onClick={() => canViewDiff ? onSelectDiff(path) : onSelectFile(path)}
                       >
                         {canViewDiff ? t('workspaceViewDiff') : t('artifactPreviewViewSource')}
@@ -565,14 +565,14 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
                     </div>
                   )
                 })}
-                {fileArtifacts.length > 8 ? <div className="px-2 text-[11px] text-muted-foreground/60">+{fileArtifacts.length - 8}</div> : null}
+                {fileArtifacts.length > 8 ? <div className="px-2 text-[11px]">+{fileArtifacts.length - 8}</div> : null}
               </div>
             ) : null}
             {commandArtifacts.length ? (
               <div className="space-y-1.5">
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60 transition-colors hover:bg-muted/15 hover:text-foreground/75"
+                  className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-[11px] font-medium uppercase tracking-wide transition-colors"
                   onClick={() => setCommandsOpen((value) => !value)}
                   aria-expanded={commandsOpen}
                 >
@@ -584,21 +584,21 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
                     {commandArtifacts.map((artifact, index) => {
                       const expanded = expandedCommandIds.has(artifact.id)
                       return (
-                        <div key={artifact.id} className="rounded-md bg-muted/15 text-[11px] text-muted-foreground/80">
+                        <div key={artifact.id} className="rounded-md text-[11px]">
                           <button
                             type="button"
-                            className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors hover:bg-muted/20"
+                            className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors"
                             onClick={() => toggleCommand(artifact.id)}
                             aria-expanded={expanded}
                           >
                             <ChevronDown className={cn('size-3 shrink-0 transition-transform', expanded ? '' : '-rotate-90')} />
-                            <span className="shrink-0 font-medium text-muted-foreground/65">#{index + 1}</span>
+                            <span className="shrink-0 font-medium">#{index + 1}</span>
                             <span className="min-w-0 flex-1 truncate font-mono">{artifact.command}</span>
                           </button>
                           {expanded ? (
                             <div className="space-y-1 px-2 pb-2 pt-1.5">
-                              <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-foreground/80">{artifact.command}</pre>
-                              {artifact.outputFile ? <div className="text-[10px] text-muted-foreground/65">{t('workspaceCommandOutput')}: <span className="font-mono">{artifact.outputFile}</span></div> : null}
+                              <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-5">{artifact.command}</pre>
+                              {artifact.outputFile ? <div className="text-[10px]">{t('workspaceCommandOutput')}: <span className="font-mono">{artifact.outputFile}</span></div> : null}
                             </div>
                           ) : null}
                         </div>
@@ -612,9 +612,9 @@ function WorkspaceOverview({ project, artifacts, changesCount, changedPaths, isG
         )}
       </div>
 
-      <div className="rounded-lg border border-border bg-muted/10 px-3 py-3">
-        <div className="text-xs font-medium text-foreground/85">{project?.name ?? t('noProjectSelected')}</div>
-        <div className="mt-1 text-[11px] text-muted-foreground/65">
+      <div className="rounded-lg border border-border px-3 py-3">
+        <div className="text-xs font-medium">{project?.name ?? t('noProjectSelected')}</div>
+        <div className="mt-1 text-[11px]">
           {isGitRepository ? `${t('workspaceCurrentBranch')}: ${gitBranch || t('unknown')} · ${changesCount} ${t('workspaceChangeCount')}` : t('workspaceNotGitRepository')}
         </div>
       </div>
@@ -1290,7 +1290,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
             <div ref={tabListRef} className="relative shrink-0">
               <button
                 type="button"
-                className="flex size-9 items-center justify-center rounded-xl bg-transparent text-muted-foreground/85 transition-colors hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90"
+                className="flex size-9 items-center justify-center rounded-xl bg-transparent transition-colors hover:bg-[var(--quickforge-sidebar-hover-bg)]"
                 onClick={() => setTabListOpen((value) => !value)}
                 aria-label={t('rightPanelOpenTabsTitle')}
                 title={t('rightPanelOpenTabsTitle')}
@@ -1316,7 +1316,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                             'group flex h-10 w-full items-center gap-2 rounded-xl px-2 transition-colors',
                             active
                               ? 'bg-[var(--quickforge-sidebar-active-bg)] text-foreground'
-                              : 'text-foreground/86 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground',
+                              : 'hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground',
                           )}
                           role="none"
                         >
@@ -1330,12 +1330,12 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                             role="menuitem"
                             title={title}
                           >
-                            {filePath ? <FileIcon path={filePath} className="size-4 shrink-0" /> : tab.kind === 'subagent' ? <Bot className="size-4 shrink-0 text-muted-foreground/80" /> : Icon ? <Icon className="size-4 shrink-0 text-muted-foreground/80" /> : <Code2 className="size-4 shrink-0 text-muted-foreground/80" />}
+                            {filePath ? <FileIcon path={filePath} className="size-4 shrink-0" /> : tab.kind === 'subagent' ? <Bot className="size-4 shrink-0" /> : Icon ? <Icon className="size-4 shrink-0" /> : <Code2 className="size-4 shrink-0" />}
                             <span className="min-w-0 flex-1 truncate">{label}</span>
                           </button>
                           <button
                             type="button"
-                            className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 opacity-70 transition-colors hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                            className="inline-flex size-7 shrink-0 items-center justify-center rounded-full opacity-70 transition-colors hover:bg-destructive/10 group-hover:opacity-100"
                             onClick={(event) => {
                               event.stopPropagation()
                               closePanelTab(tab.id)
@@ -1351,7 +1351,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                   <div className="mt-2 border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] pt-2">
                     <button
                       type="button"
-                      className="flex h-9 w-full items-center rounded-xl px-3 text-left text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                      className="flex h-9 w-full items-center rounded-xl px-3 text-left text-sm font-medium transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                       onClick={closeOtherPanelTabs}
                       disabled={panelTabs.length <= 1}
                       role="menuitem"
@@ -1360,7 +1360,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                     </button>
                     <button
                       type="button"
-                      className="flex h-9 w-full items-center rounded-xl px-3 text-left text-sm font-medium text-foreground/80 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      className="flex h-9 w-full items-center rounded-xl px-3 text-left text-sm font-medium transition-colors hover:bg-destructive/10"
                       onClick={closeAllPanelTabs}
                       role="menuitem"
                     >
@@ -1398,8 +1398,8 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                             className={cn(
                               'group flex h-8 max-w-40 cursor-grab items-center gap-2 rounded-xl px-3 text-[13px] font-medium transition-[background-color,color,box-shadow] active:cursor-grabbing',
                               active
-                                ? 'bg-[color-mix(in_oklab,var(--muted)_86%,transparent)] text-foreground/82 hover:bg-[color-mix(in_oklab,var(--muted)_86%,transparent)]'
-                                : 'text-muted-foreground/45 hover:bg-[color-mix(in_oklab,var(--muted)_72%,transparent)] hover:text-muted-foreground/72',
+                                ? 'bg-[color-mix(in_oklab,var(--muted)_86%,transparent)] hover:bg-[color-mix(in_oklab,var(--muted)_86%,transparent)]'
+                                : 'hover:bg-[color-mix(in_oklab,var(--muted)_72%,transparent)]',
                               isDragging && 'shadow-quickforge',
                             )}
                             onClick={() => {
@@ -1412,11 +1412,11 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                             {filePath ? (
                               <FileIcon path={filePath} className={cn('size-4 shrink-0 transition-opacity', active ? 'opacity-100' : 'opacity-55 group-hover:opacity-85')} />
                             ) : tab.kind === 'subagent' ? (
-                              <Bot className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
+                              <Bot className={cn('size-4 shrink-0', active ? '' : '')} />
                             ) : Icon ? (
-                              <Icon className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
+                              <Icon className={cn('size-4 shrink-0', active ? '' : '')} />
                             ) : (
-                              <Code2 className={cn('size-4 shrink-0', active ? 'text-foreground/74' : 'text-muted-foreground/45 group-hover:text-muted-foreground/72')} />
+                              <Code2 className={cn('size-4 shrink-0', active ? '' : '')} />
                             )}
                             <span className="min-w-0 truncate">{label}</span>
                             <span
@@ -1459,7 +1459,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                   variant="ghost"
                   size="icon"
                   type="button"
-                  className="rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40"
+                  className="rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40"
                   onClick={() => setMenuOpen((value) => !value)}
                   aria-label={t('rightPanelAddTab')}
                   title={t('rightPanelAddTab')}
@@ -1479,12 +1479,12 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                         type="button"
                         className={cn(
                           'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium transition-colors',
-                          active ? 'bg-muted/55 text-foreground' : 'text-foreground/86 hover:bg-muted/34 hover:text-foreground',
+                          active ? 'text-foreground' : 'hover:text-foreground',
                         )}
                         onClick={() => openPanelTab(item.kind, viewFromPanelKind(item.kind))}
                         role="menuitem"
                       >
-                        <Icon className="size-4 shrink-0 text-muted-foreground/80" />
+                        <Icon className="size-4 shrink-0" />
                         <span className="min-w-0 flex-1 truncate">{item.label}</span>
                       </button>
                     )
@@ -1496,7 +1496,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
             <Button
               variant="ghost"
               size="icon"
-              className="shrink-0 rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40"
+              className="shrink-0 rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40"
               disabled={fullscreenAnimating}
               onClick={() => toggleFullscreen()}
               aria-label={fullscreen ? t('workspaceExitFullscreen') : t('workspaceFullscreen')}
@@ -1510,7 +1510,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                   variant="ghost"
                   size="icon"
                   className={cn(
-                    'shrink-0 rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40',
+                    'shrink-0 rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40',
                     globalTerminalOpen && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground',
                   )}
                   disabled={fullscreenAnimating || !onShowGlobalTerminal}
@@ -1538,13 +1538,13 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
 
         <div className={cn('flex min-h-0 flex-1 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
           {!project?.id && activePanelTab?.kind !== 'goal' && activePanelTab?.kind !== 'subagent' && activePanelTab?.kind !== 'side-chat' ? (
-            <div className="p-4 text-sm text-muted-foreground/70">{t('workspaceSelectProject')}</div>
+            <div className="p-4 text-sm">{t('workspaceSelectProject')}</div>
           ) : !activePanelTab ? (
             <div className="flex min-h-0 flex-1 items-center justify-center px-5">
               <div className="w-full max-w-[26rem] space-y-4">
                 <div className="text-center font-sans">
-                  <div className="text-lg font-semibold leading-tight tracking-[-0.01em] text-foreground/90">{t('rightPanelOpenTabsTitle')}</div>
-                  <div className="mt-2 text-sm leading-5 text-muted-foreground/70">{t('rightPanelOpenTabsDescription')}</div>
+                  <div className="text-lg font-semibold leading-tight tracking-[-0.01em]">{t('rightPanelOpenTabsTitle')}</div>
+                  <div className="mt-2 text-sm leading-5">{t('rightPanelOpenTabsDescription')}</div>
                 </div>
                 <div className="space-y-2">
                   {availablePanelTabItems.map((item) => {
@@ -1553,13 +1553,13 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                       <button
                         key={item.kind}
                         type="button"
-                        className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-muted/60 px-4 py-3 text-left transition-colors hover:bg-muted/72 active:bg-muted/82"
+                        className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-muted/60 px-4 py-3 text-left transition-colors"
                         onClick={() => openPanelTab(item.kind, viewFromPanelKind(item.kind))}
                       >
-                        <Icon className="size-4 shrink-0 text-muted-foreground/78" />
+                        <Icon className="size-4 shrink-0" />
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-foreground/90">{item.label}</div>
-                          <div className="mt-0.5 text-xs leading-4 text-muted-foreground/60">{item.description}</div>
+                          <div className="text-sm font-medium">{item.label}</div>
+                          <div className="mt-0.5 text-xs leading-4">{item.description}</div>
                         </div>
                       </button>
                     )
@@ -1631,9 +1631,9 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                   ) : isFilesLanding ? (
                     <div className="flex min-h-0 flex-1 items-center justify-center px-6">
                       <div className="max-w-sm text-center">
-                        <Folder className="mx-auto size-8 stroke-[1.6] text-muted-foreground/35" />
-                        <div className="mt-3 text-sm font-medium text-foreground/85">{t('workspaceOpenFileTitle')}</div>
-                        <div className="mt-1 text-xs leading-5 text-muted-foreground/60">{t('workspaceOpenFileDescription')}</div>
+                        <Folder className="mx-auto size-8 stroke-[1.6]" />
+                        <div className="mt-3 text-sm font-medium">{t('workspaceOpenFileTitle')}</div>
+                        <div className="mt-1 text-xs leading-5">{t('workspaceOpenFileDescription')}</div>
                       </div>
                     </div>
                   ) : null}
@@ -1649,7 +1649,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                   aria-valuenow={leftWidth}
                   className={cn(
                     'group relative z-10 w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors',
-                    isNavResizing ? 'bg-primary/30' : 'hover:bg-[color-mix(in_oklab,var(--border)_52%,transparent)]',
+                    isNavResizing ? '' : 'hover:bg-[color-mix(in_oklab,var(--border)_52%,transparent)]',
                   )}
                   onPointerDown={startNavResizing}
                   onPointerMove={navResize}
@@ -1661,7 +1661,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
               {showNavigationPanel ? (
                 <div
                   className={cn(
-                    'flex min-h-0 min-w-0 flex-col bg-muted/20',
+                    'flex min-h-0 min-w-0 flex-col',
                     hasReaderPane ? 'shrink-0 border-l-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)]' : 'flex-1',
                   )}
                   style={hasReaderPane ? { width: leftWidth, minWidth: NAV_PANEL_MIN_WIDTH, maxWidth: NAV_PANEL_MAX_WIDTH } : undefined}
@@ -1683,18 +1683,18 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                     {navView === 'files' ? (
                       <>
                         <div className="mb-2 flex items-center gap-1">
-                          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md border-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-2.5 py-2 text-sm text-muted-foreground/65 focus-within:text-foreground/85">
+                          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md border-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-2.5 py-2 text-sm">
                             <Search className="size-4 shrink-0" />
                             <input
                               value={filter}
                               onChange={(event) => setFilter(event.target.value)}
                               placeholder={t('workspaceFilterFiles')}
-                              className="min-w-0 flex-1 bg-transparent text-sm text-foreground/85 outline-none placeholder:text-muted-foreground/50"
+                              className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                             />
                           </label>
                           <button
                             type="button"
-                            className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground/72 transition-colors hover:bg-muted/30 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                             onClick={() => {
                               if (workspaceRefreshTarget(filter) === 'search') void runWorkspaceSearch(filter)
                               else void refreshWorkspace()
@@ -1706,22 +1706,22 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                             <RefreshCw className={cn('size-3.5', (treeRefreshing || searchState.status === 'loading') && 'animate-spin')} />
                           </button>
                         </div>
-                        {filter.trim().length === 1 ? <div className="px-2 py-2 text-xs text-muted-foreground/60">{t('workspaceSearchMinChars')}</div> : null}
+                        {filter.trim().length === 1 ? <div className="px-2 py-2 text-xs">{t('workspaceSearchMinChars')}</div> : null}
                         {searchState.status === 'error' ? (
                           <div className="flex items-start gap-2 px-2 py-2 text-xs text-destructive">
                             <span className="min-w-0 flex-1">{searchState.error || t('workspaceLoadFailed')}</span>
                             <button
                               type="button"
-                              className="shrink-0 rounded-md px-1.5 py-0.5 font-medium text-foreground/75 hover:bg-muted/45 hover:text-foreground"
+                              className="shrink-0 rounded-md px-1.5 py-0.5 font-medium hover:text-foreground"
                               onClick={() => void runWorkspaceSearch(filter)}
                             >
                               {t('retry')}
                             </button>
                           </div>
                         ) : null}
-                        {searchState.status === 'debouncing' || searchState.status === 'loading' ? <div className="px-2 py-2 text-xs text-muted-foreground/70">{t('workspaceSearching')}</div> : null}
-                        {searchState.status === 'loaded' && displayedEntries.length === 0 ? <div className="px-2 py-3 text-sm text-muted-foreground/70">{t('workspaceNoSearchResults')}</div> : null}
-                        {searchState.status === 'loaded' && searchState.truncated ? <div className="px-2 py-1 text-xs text-muted-foreground/60">{t('workspaceSearchTruncated')}</div> : null}
+                        {searchState.status === 'debouncing' || searchState.status === 'loading' ? <div className="px-2 py-2 text-xs">{t('workspaceSearching')}</div> : null}
+                        {searchState.status === 'loaded' && displayedEntries.length === 0 ? <div className="px-2 py-3 text-sm">{t('workspaceNoSearchResults')}</div> : null}
+                        {searchState.status === 'loaded' && searchState.truncated ? <div className="px-2 py-1 text-xs">{t('workspaceSearchTruncated')}</div> : null}
                         {trimmedFilter.length < 2 || (searchState.status === 'loaded' && displayedEntries.length > 0) ? (
                           <WorkspaceFileTree
                             treeState={trimmedFilter.length >= 2 ? { '.': { entries: displayedEntries, status: 'loaded', nextCursor: null, generation: 0 } } : treeState}
@@ -1751,28 +1751,28 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                           <div>{gitError || t('workspaceLoadFailed')}</div>
                           <button
                             type="button"
-                            className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-xl border border-[color-mix(in_oklab,var(--border)_45%,transparent)] bg-background px-3 text-xs font-medium text-foreground/82 transition-colors hover:bg-muted/30"
+                            className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-xl border border-[color-mix(in_oklab,var(--border)_45%,transparent)] bg-background px-3 text-xs font-medium transition-colors"
                             onClick={() => void loadGitStatus(true)}
                           >
                             <RefreshCw className="size-3.5" />
                             {t('retry')}
                           </button>
                         </div>
-                      ) : gitLoading ? <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceLoading')}</div> : isGitRepository
+                      ) : gitLoading ? <div className="px-2 py-3 text-xs">{t('workspaceLoading')}</div> : isGitRepository
                         ? (
                           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                             <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1.5 pb-2">
                               <div ref={reviewFilterRef} className="relative min-w-24 flex-1">
                                 <button
                                   type="button"
-                                  className="inline-flex h-8 w-full min-w-0 max-w-full items-center gap-2 rounded-xl border border-[color-mix(in_oklab,var(--border)_45%,transparent)] bg-background px-3 text-sm font-medium text-foreground/86 transition-colors hover:border-border/60 hover:bg-muted/30 hover:text-foreground"
+                                  className="inline-flex h-8 w-full min-w-0 max-w-full items-center gap-2 rounded-xl border border-[color-mix(in_oklab,var(--border)_45%,transparent)] bg-background px-3 text-sm font-medium transition-colors hover:text-foreground"
                                   onClick={() => setReviewFilterOpen((value) => !value)}
                                   aria-haspopup="menu"
                                   aria-expanded={reviewFilterOpen}
                                   title={t('workspaceReviewFilter')}
                                 >
                                   <span className="min-w-0 flex-1 truncate text-left">{REVIEW_FILTER_ITEMS.find((item) => item.value === reviewFilter)?.label}</span>
-                                  <ChevronDown className={cn('size-3.5 shrink-0 text-muted-foreground/70 transition-transform', reviewFilterOpen && 'rotate-180')} />
+                                  <ChevronDown className={cn('size-3.5 shrink-0 transition-transform', reviewFilterOpen && 'rotate-180')} />
                                 </button>
                                 {reviewFilterOpen ? (
                                   <div className="absolute left-0 top-10 z-40 w-48 rounded-2xl border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-popover p-1.5 shadow-quickforge" role="menu" aria-label={t('workspaceReviewFilter')}>
@@ -1784,7 +1784,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                                           type="button"
                                           className={cn(
                                             'flex h-9 w-full items-center gap-2 rounded-xl px-2.5 text-left text-sm font-medium transition-colors',
-                                            active ? 'bg-muted/55 text-foreground' : 'text-foreground/82 hover:bg-muted/34 hover:text-foreground',
+                                            active ? 'text-foreground' : 'hover:text-foreground',
                                           )}
                                           onClick={() => {
                                             setReviewFilter(item.value)
@@ -1794,7 +1794,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                                           aria-checked={active}
                                         >
                                           <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                                          {active ? <Check className="size-3.5 shrink-0 text-muted-foreground/80" /> : null}
+                                          {active ? <Check className="size-3.5 shrink-0" /> : null}
                                         </button>
                                       )
                                     })}
@@ -1804,7 +1804,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                               <div className="ml-auto flex shrink-0 items-center gap-1">
                                 <button
                                   type="button"
-                                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground/72 transition-colors hover:bg-muted/30 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-60"
+                                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                                   onClick={() => void loadGitStatus(true)}
                                   disabled={gitLoading}
                                   aria-label={t('refreshWorkspace')}
@@ -1825,7 +1825,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                                 {onOpenCommitPush ? (
                                   <button
                                     type="button"
-                                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground/72 transition-colors hover:bg-muted/30 hover:text-foreground/85"
+                                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-xl transition-colors"
                                     onClick={onOpenCommitPush}
                                     aria-label={t('gitToolsCommitOrPush')}
                                     title={t('gitToolsCommitOrPush')}
@@ -1858,7 +1858,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
 
                           </div>
                         )
-                        : <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceNotGitRepository')}</div>
+                        : <div className="px-2 py-3 text-xs">{t('workspaceNotGitRepository')}</div>
                     ) : null}
                   </div>
                 </div>

@@ -267,7 +267,7 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
 
   /** The nearest sensible landing spot when the strip itself disappears. */
   const focusComposerEditor = () => {
-    const editor = panel.querySelector<HTMLElement>('message-editor')
+    const editor = panel.querySelector<HTMLElement>('.qf-message-editor')
     if (!editor) return
     const target = editor.querySelector<HTMLElement>('textarea') ?? editor
     target.focus()
@@ -555,7 +555,7 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
       reset()
       return
     }
-    const editor = panel.querySelector<HTMLElement>('message-editor')
+    const editor = panel.querySelector<HTMLElement>('.qf-message-editor')
     const composerShell = editor?.parentElement
     if (!composerShell) {
       detachRoot()

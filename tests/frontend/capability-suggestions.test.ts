@@ -33,7 +33,6 @@ function node(tag = 'div') {
       this.parentElement = null
     },
     querySelector(selector: string): ReturnType<typeof node> | null {
-      if (selector === 'message-editor') return children.find((child) => child.tagName === 'MESSAGE-EDITOR') ?? null
       const tagName = selector.startsWith('.') ? '' : selector.toUpperCase()
       const className = selector.startsWith('.') ? selector.slice(1) : ''
       for (const child of children) {
@@ -69,7 +68,8 @@ describe('plugin capability controller', () => {
   async function setupTasks() {
     vi.mocked(loadPlugins).mockResolvedValue({ plugins: ['documents', 'spreadsheets', 'presentations', 'custom'].map((name) => ({ ...plugin, name })) as never, searchPaths: [], errors: [] })
     const panel = node()
-    const editor = node('message-editor')
+    const editor = node('div')
+    editor.className = 'qf-message-editor'
     const card = node()
     card.append(node('textarea'))
     editor.append(card)
@@ -175,7 +175,8 @@ describe('plugin capability controller', () => {
 
   it('does not use @ text and consumes only an explicit + selection once', async () => {
     const panel = node()
-    const editor = node('message-editor')
+    const editor = node('div')
+    editor.className = 'qf-message-editor'
     const inputCard = node()
     const textarea = node('textarea')
     inputCard.append(textarea)
@@ -203,7 +204,8 @@ describe('plugin capability controller', () => {
 
   it('keeps file chips while resyncing the shared row inside the input card', async () => {
     const panel = node()
-    const editor = node('message-editor')
+    const editor = node('div')
+    editor.className = 'qf-message-editor'
     const inputCard = node()
     const textarea = node('textarea')
     const chips = node()

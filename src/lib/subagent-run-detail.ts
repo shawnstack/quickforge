@@ -1,5 +1,5 @@
 /**
- * subagent 运行详情的纯逻辑与实时 store（不依赖 DOM/Lit/React/i18n 运行时，便于单元测试）。
+ * subagent 运行详情的纯逻辑与实时 store（不依赖 DOM/框架/React/i18n 运行时，便于单元测试）。
  *
  * 稳定 run id：新消息以 run_subagent 父工具调用的 `toolCallId` 为主键。
  * tool_execution_start 的 partialResult.details 已带 toolCallId（此时 sessionId 是父
@@ -10,12 +10,13 @@
  * （无任何 id 的历史消息安全回退）。
  *
  * 实时数据流：ServerAgent 在 tool_execution_start/update/end SSE 路径主动构建载荷
- * 并发布到 subagentRunStore；local-tools 的渲染器只在聊天重渲染（含恢复会话回填）时
- * 发布到同一 store，由内容指纹去重，避免重复；Workspace Inspector 订阅 store 按 runId
- * 更新已打开的 Tab。不依赖 ChatPanelHost rAF 或 ToolRenderer.render 作为主通道。
+ * 并发布到 subagentRunStore；tool-renderers/subagent-tool-renderer 的渲染器只在
+ * 聊天重渲染（含恢复会话回填）时发布到同一 store，由内容指纹去重，避免重复；
+ * Workspace Inspector 订阅 store 按 runId 更新已打开的 Tab。不依赖 ChatPanelHost
+ * rAF 或 ToolRenderer.render 作为主通道。
  *
- * i18n 通过 t 参数注入（由 local-tools.ts / server-agent.ts 传入真实 t 函数），
- * 保持本模块可测试。
+ * i18n 通过 t 参数注入（由 tool-renderers/subagent-tool-renderer.tsx /
+ * server-agent.ts 传入真实 t 函数），保持本模块可测试。
  */
 
 import type { AppTextKey } from '@/lib/i18n'
@@ -63,7 +64,7 @@ export type SubagentRunPayload = {
   timing?: QuickForgeToolTiming
   toolCalls?: number
   allowedTools: string[]
-  /** 已按 subagentProcessTraceMessages 过滤、可直接交给 message-list 的过程消息。 */
+  /** 已按 subagentProcessTraceMessages 过滤、可直接交给 MessageList 组件的过程消息。 */
   traceMessages: unknown[]
   tools: unknown[]
   pendingToolCalls: string[]
@@ -154,8 +155,8 @@ export class SubagentRunStore {
 }
 
 /**
- * 全局单例：ServerAgent 的 SSE 事件路径与 local-tools 的聊天渲染回填路径共用，
- * Workspace Inspector 订阅它实现实时更新。
+ * 全局单例：ServerAgent 的 SSE 事件路径与 tool-renderers/subagent-tool-renderer
+ * 的聊天渲染回填路径共用，Workspace Inspector 订阅它实现实时更新。
  */
 export const subagentRunStore = new SubagentRunStore()
 
@@ -329,7 +330,7 @@ function subagentRunStatus(
   return result ? 'done' : 'called'
 }
 
-/** 与 local-tools.ts 的 subagentLabel 一致：优先 details.label，内置名回落。 */
+/** subagent 标签：优先 details.label，内置名回落（聊天摘要卡与详情页共用本实现）。 */
 function subagentRunLabel(name: string, details: unknown, t: SubagentRunI18n): string {
   if (isRecord(details) && typeof details.label === 'string' && details.label) return details.label
   if (name === 'general') return t('subagentGeneral')
@@ -764,6 +765,16 @@ export function normalizeOpenSubagentRunRequest(detail: unknown): SubagentRunOpe
   return { runId, payload }
 }
 
+/** 解析上一次载荷 details JSON 为可回填对象；非 JSON / 非对象时无法安全合并，返回 undefined。 */
+function subagentRunDetailsRecord(previousPayload: Pick<SubagentRunPayload, 'details'>): Record<string, unknown> | undefined {
+  try {
+    const parsed = previousPayload.details ? JSON.parse(previousPayload.details) : undefined
+    return isRecord(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * 从 tool_execution_start/update/end 事件构建 subagent 运行载荷（纯函数，便于单测）。
  * - 必须使用事件 args 作为 params、partialResult/result 作为结果；
@@ -771,7 +782,9 @@ export function normalizeOpenSubagentRunRequest(detail: unknown): SubagentRunOpe
  * - update/end 缺 args 时由调用方按 toolCallId 恢复 start 的 args 传入 cachedArgs，
  *   保证 task/context/expectedOutput 不丢；
  * - end 的 isError 合并进 result，使 aborted/timedOut/error 正确归为 error；
- * - previousPayload：事件本身缺少终态 details/messages 时回填上一次载荷的 trace/元数据；
+ * - previousPayload：running 帧缺 details 字段（如 pendingToolCalls/messages）时按字段
+ *   回填上一次载荷（事件自带值优先，保证同 run 内状态单调不回跳，工具行不闪 done）；
+ *   终态 details 无元数据时整份回填上一次载荷的 trace/元数据；
  *   quickforgeTiming 仍以事件自带值优先。
  * 非 run_subagent 或无法取得 args 时返回 undefined。
  */
@@ -787,14 +800,23 @@ export function subagentRunPayloadFromToolEvent(
   const args = isRecord(event.args) ? event.args as Record<string, unknown> : cachedArgs
   if (!args) return undefined
   let rawResult = isStreaming ? event.partialResult : event.result
-  if (!isStreaming && previousPayload) {
-    let previousDetails: Record<string, unknown> | undefined
-    try {
-      const parsed = previousPayload.details ? JSON.parse(previousPayload.details) : undefined
-      if (isRecord(parsed)) previousDetails = parsed
-    } catch {
-      // 非 JSON details 无法安全合并，保留终态原值。
+  if (isStreaming && previousPayload) {
+    const previousDetails = subagentRunDetailsRecord(previousPayload)
+    if (previousDetails) {
+      const runningDetails = isRecord(rawResult) && isRecord(rawResult.details) ? rawResult.details : undefined
+      const missingDetails: Record<string, unknown> = {}
+      for (const key of Object.keys(previousDetails)) {
+        if (!runningDetails || !(key in runningDetails)) missingDetails[key] = previousDetails[key]
+      }
+      if (Object.keys(missingDetails).length > 0) {
+        rawResult = isRecord(rawResult)
+          ? { ...rawResult, details: { ...missingDetails, ...runningDetails } }
+          : { content: [], details: missingDetails }
+      }
     }
+  }
+  if (!isStreaming && previousPayload) {
+    const previousDetails = subagentRunDetailsRecord(previousPayload)
     const terminalDetails = isRecord(rawResult) && isRecord(rawResult.details) ? rawResult.details : undefined
     const hasTerminalMetadata = Boolean(terminalDetails && Object.keys(terminalDetails).length > 0)
     if (previousDetails && !hasTerminalMetadata) {
@@ -833,7 +855,7 @@ export function subagentRunPayloadFromToolEvent(
 type SubagentRunEventPublisherOptions = {
   /** 数据 store；默认全局 subagentRunStore（测试可传入独立实例，避免污染全局单例）。 */
   store?: SubagentRunStore
-  /** i18n；默认返回 key 本身，真实调用方（ServerAgent / local-tools）传入全局 t。 */
+  /** i18n；默认返回 key 本身，真实调用方（ServerAgent / tool-renderers/subagent-tool-renderer）传入全局 t。 */
   t?: SubagentRunI18n
   /** 当前工具显示模式；默认 concise。 */
   getToolDisplayMode?: () => SubagentToolDisplayMode
@@ -841,8 +863,8 @@ type SubagentRunEventPublisherOptions = {
 
 /**
  * tool_execution_start/update/end SSE 事件 → subagentRunStore 的实时发布器。
- * ServerAgent 持有它并在 tool_execution_* 分支调用，与 local-tools 的聊天渲染回填
- * 完全解耦（发布不依赖 ToolRenderer.render 被调用）。
+ * ServerAgent 持有它并在 tool_execution_* 分支调用，与 tool-renderers/subagent-tool-renderer
+ * 的聊天渲染回填完全解耦（发布不依赖 ToolRenderer.render 被调用）。
  * - start：仅 run_subagent 参与；按 toolCallId 缓存 args 与 toolName，并用
  *   toolStartEventWithPartialResult 生成带 partialResult 的规范事件再构建载荷；
  * - update：事件缺 args/toolName 时回填缓存；previous payload 取 store 中同 runId

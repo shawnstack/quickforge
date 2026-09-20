@@ -157,13 +157,13 @@ export function MobileServerConnectPage() {
         aria-live="polite"
       >
         <div className="relative flex size-24 items-center justify-center" aria-hidden="true">
-          <span className="absolute inset-0 animate-ping rounded-full bg-primary/15" />
+          <span className="absolute inset-0 animate-ping rounded-full" />
           <span className="absolute inset-0 animate-ping rounded-full bg-primary/10 [animation-delay:0.45s]" />
           <div className="relative flex size-14 items-center justify-center rounded-2xl border border-border bg-background shadow-quickforge">
-            <Server className="size-6 text-foreground/75" />
+            <Server className="size-6" />
           </div>
         </div>
-        <p className="mt-9 text-sm font-medium text-foreground/85">正在建立连接…</p>
+        <p className="mt-9 text-sm font-medium">正在建立连接…</p>
         <p className="mt-2 w-full max-w-xs truncate text-center font-mono text-xs text-muted-foreground">{connectingLabel}</p>
       </main>
     )
@@ -175,7 +175,7 @@ export function MobileServerConnectPage() {
         <section className="mx-auto w-full max-w-md">
         <header className="mb-8 flex items-start gap-3.5">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-background shadow-quickforge">
-            <Server className="size-5 text-foreground/75" aria-hidden="true" />
+            <Server className="size-5" aria-hidden="true" />
           </div>
           <div className="min-w-0 pt-0.5">
             <h1 className="text-lg font-semibold tracking-tight">连接 QuickForge</h1>
@@ -187,7 +187,7 @@ export function MobileServerConnectPage() {
           <section aria-labelledby="quickforge-mobile-saved-servers">
             <div className="mb-2.5 flex items-center justify-between px-1">
               <h2 id="quickforge-mobile-saved-servers" className="text-xs font-medium text-muted-foreground">已保存的服务器</h2>
-              <span className="text-xs text-muted-foreground/70">{settings.urls.length} 台</span>
+              <span className="text-xs">{settings.urls.length} 台</span>
             </div>
 
             <div className="overflow-hidden rounded-2xl border border-border bg-background">
@@ -201,11 +201,11 @@ export function MobileServerConnectPage() {
                     <div className="flex min-h-[68px] items-stretch gap-1 p-1.5">
                       <button
                         type="button"
-                        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-muted/45 active:bg-muted/65"
+                        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors"
                         onClick={() => connectServer(url)}
                         title={`连接 ${alias || url}`}
                       >
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted/45 text-muted-foreground">
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground">
                           <Server className="size-4" aria-hidden="true" />
                         </span>
                         <span className="min-w-0 flex-1">
@@ -217,11 +217,11 @@ export function MobileServerConnectPage() {
                           </span>
                           <span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{url}</span>
                         </span>
-                        <ChevronRight className="size-4 shrink-0 text-muted-foreground/65" aria-hidden="true" />
+                        <ChevronRight className="size-4 shrink-0" aria-hidden="true" />
                       </button>
                       <button
                         type="button"
-                        className="inline-flex w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground active:bg-muted/65"
+                        className="inline-flex w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:text-foreground"
                         onClick={() => {
                           setManagingUrl(isManaging ? null : url)
                           if (isManaging) cancelEditAlias()
@@ -254,12 +254,12 @@ export function MobileServerConnectPage() {
                                 if (event.key === 'Escape') cancelEditAlias()
                               }}
                               placeholder="例如：公司开发机"
-                              className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
+                              className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] focus:shadow-quickforge"
                             />
                             <div className="mt-2.5 flex justify-end gap-2">
                               <button
                                 type="button"
-                                className="inline-flex h-9 items-center justify-center rounded-xl px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                                className="inline-flex h-9 items-center justify-center rounded-xl px-3 text-sm text-muted-foreground transition-colors hover:text-foreground"
                                 onClick={cancelEditAlias}
                               >
                                 取消
@@ -278,7 +278,7 @@ export function MobileServerConnectPage() {
                           <div className="grid grid-cols-2 gap-2">
                             <button
                               type="button"
-                              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl text-sm text-foreground/80 transition-colors hover:bg-muted/60"
+                              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl text-sm transition-colors"
                               onClick={() => startEditAlias(url)}
                             >
                               <Pencil className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -286,7 +286,7 @@ export function MobileServerConnectPage() {
                             </button>
                             <button
                               type="button"
-                              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl text-sm text-foreground/80 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl text-sm transition-colors hover:bg-destructive/10"
                               onClick={() => setDeletingUrl(url)}
                             >
                               <Trash2 className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -304,7 +304,7 @@ export function MobileServerConnectPage() {
             {!showAddForm ? (
               <button
                 type="button"
-                className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/45 active:bg-muted/65"
+                className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-medium transition-colors"
                 onClick={openAddForm}
               >
                 <Plus className="size-4" aria-hidden="true" />
@@ -330,7 +330,7 @@ export function MobileServerConnectPage() {
               {settings.urls.length > 0 ? (
                 <button
                   type="button"
-                  className="rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground"
+                  className="rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
                   onClick={() => {
                     resetAddForm()
                     setShowAddForm(false)
@@ -344,7 +344,7 @@ export function MobileServerConnectPage() {
             <form className="rounded-2xl border border-border bg-background p-5 shadow-quickforge" onSubmit={connect}>
               <div className="mb-5 flex gap-2.5 rounded-xl bg-muted/30 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
                 <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                <p>仅支持 Tailnet 内的 <span className="font-mono text-foreground/75">.ts.net</span> 或 <span className="font-mono text-foreground/75">100.64.0.0/10</span> 地址，未填写端口时默认使用 5176。</p>
+                <p>仅支持 Tailnet 内的 <span className="font-mono">.ts.net</span> 或 <span className="font-mono">100.64.0.0/10</span> 地址，未填写端口时默认使用 5176。</p>
               </div>
 
               <label className="block text-sm font-medium" htmlFor="quickforge-mobile-server">
@@ -363,11 +363,11 @@ export function MobileServerConnectPage() {
                   setSaved(false)
                 }}
                 placeholder="devbox.example.ts.net"
-                className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
+                className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] focus:shadow-quickforge"
               />
               {normalizedPreview ? (
                 <p className="mt-2 break-all text-xs text-muted-foreground">
-                  将连接到 <span className="font-mono text-foreground/70">{normalizedPreview}</span>
+                  将连接到 <span className="font-mono">{normalizedPreview}</span>
                 </p>
               ) : (
                 <p className="mt-2 text-xs text-muted-foreground">请确保手机与服务器已登录同一个 Tailnet。</p>
@@ -388,7 +388,7 @@ export function MobileServerConnectPage() {
                   setSaved(false)
                 }}
                 placeholder="例如：公司开发机"
-                className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus:border-foreground/30 focus:shadow-quickforge"
+                className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] focus:shadow-quickforge"
               />
 
               {error ? <p className="mt-3 text-sm text-destructive" role="alert">{error}</p> : null}
@@ -402,7 +402,7 @@ export function MobileServerConnectPage() {
               </button>
               <button
                 type="button"
-                className="mt-2 inline-flex h-10 w-full items-center justify-center rounded-xl text-sm text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground active:bg-muted/65"
+                className="mt-2 inline-flex h-10 w-full items-center justify-center rounded-xl text-sm text-muted-foreground transition-colors hover:text-foreground"
                 onClick={() => addServer(false)}
               >
                 仅保存，稍后连接
@@ -423,7 +423,7 @@ export function MobileServerConnectPage() {
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button
                 type="button"
-                className="inline-flex h-11 items-center justify-center rounded-xl border border-border text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/45"
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-border text-sm font-medium transition-colors"
                 onClick={() => setDeletingUrl(null)}
               >
                 取消

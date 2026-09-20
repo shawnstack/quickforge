@@ -157,7 +157,7 @@ function ShareEditDialog({
             </select>
           </label>
 
-          {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+          {error ? <div className="rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
         </div>
 
         <div className="shrink-0 border-t border-border px-5 py-4">
@@ -201,7 +201,7 @@ function ShareActionsSheet({
           ) : (
             <Button variant="ghost" className="w-full justify-start" onClick={() => onAction('restore')}><RefreshCw className="mr-2 size-4" />{t('restoreShare')}</Button>
           )}
-          <Button variant="ghost" className="w-full justify-start hover:text-destructive" onClick={() => onAction('delete')}><Trash2 className="mr-2 size-4" />{t('deleteShare')}</Button>
+          <Button variant="ghost" className="w-full justify-start" onClick={() => onAction('delete')}><Trash2 className="mr-2 size-4" />{t('deleteShare')}</Button>
         </div>
         <Button variant="outline" className="mt-3 w-full" onClick={onClose}>{t('cancel')}</Button>
       </div>
@@ -365,7 +365,7 @@ export function ShareLinksSettingsPage() {
       <div className="quickforge-settings-section">
         <div className="quickforge-settings-toolbar">
           <div className="quickforge-settings-inline-field max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60" aria-hidden="true" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" aria-hidden="true" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -450,7 +450,7 @@ export function ShareLinksSettingsPage() {
                         <RefreshCw className="mr-2 size-4" />{t('restoreShare')}
                       </Button>
                     )}
-                    <Button variant="ghost" size="icon" className="hover:text-destructive" onClick={() => void deleteShare(share)} disabled={busy} aria-label={t('deleteShare')} title={t('deleteShare')}>
+                    <Button variant="ghost" size="icon" className="" onClick={() => void deleteShare(share)} disabled={busy} aria-label={t('deleteShare')} title={t('deleteShare')}>
                       <Trash2 className="size-4" />
                     </Button>
                   </div>

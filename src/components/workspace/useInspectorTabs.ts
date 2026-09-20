@@ -49,8 +49,8 @@ type TabState = ReturnType<typeof useInspectorTabsState>
 
 export function useInspectorTabsEffects({ panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, readerNavigationVisible, projectId, sessionId }: TabState & { projectId?: string; sessionId?: string }) {
   useEffect(() => {
-    // 实时更新订阅：ServerAgent 的 tool_execution_* SSE 与 local-tools 的渲染回填
-    // 都发布到 subagentRunStore。仅更新已打开且 runId 匹配、指纹不同的 Tab；
+    // 实时更新订阅：ServerAgent 的 tool_execution_* SSE 与 tool-renderers/subagent-tool-renderer
+    // 的渲染回填都发布到 subagentRunStore。仅更新已打开且 runId 匹配、指纹不同的 Tab；
     // 无匹配 Tab 时返回原数组，避免无意义的 setState。
     return subagentRunStore.subscribe((payload) => {
       setPanelTabs((current) => updateSubagentRunTab(current, payload))

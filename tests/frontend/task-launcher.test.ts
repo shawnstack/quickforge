@@ -4,7 +4,6 @@ import type { ComposerDraft } from '../../src/components/chat/chat-utils'
 import type { createCapabilitySuggestions } from '../../src/components/chat/capability-suggestions'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
-vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {} } }))
 
 function setup(enabled = true) {
   let draft: ComposerDraft = { text: '', attachments: [], contextReferences: [], selectedCapabilities: [] }

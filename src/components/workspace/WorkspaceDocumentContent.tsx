@@ -34,7 +34,7 @@ function previewIssueFromError(path: string, error: unknown) {
 
 function WorkspaceDocumentLoading() {
   return (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground/75">
+    <div className="flex h-full items-center justify-center text-sm">
       <RefreshCw className="mr-2 size-4 animate-spin" />
       {t('workspaceDocumentLoading')}
     </div>
@@ -101,10 +101,10 @@ function PdfPage({ pdf, pageNumber }: { pdf: Pick<PDFDocumentProxy, 'getPage'>; 
 
   return (
     <div ref={hostRef} className="relative flex min-h-48 w-full flex-col items-center rounded-xl border border-[color-mix(in_oklab,var(--border)_42%,transparent)] bg-background p-3 shadow-sm">
-      <div className="mb-2 text-[11px] font-medium text-muted-foreground/65">{t('workspacePdfPage', { page: pageNumber })}</div>
+      <div className="mb-2 text-[11px] font-medium">{t('workspacePdfPage', { page: pageNumber })}</div>
       {error ? <div className="p-6 text-sm text-destructive">{error}</div> : null}
       {!error ? <canvas ref={canvasRef} className={cn('max-w-full bg-white', !rendered && 'min-h-40')} /> : null}
-      {!error && !rendered ? <div className="absolute text-xs text-muted-foreground/65">{t('workspaceDocumentLoading')}</div> : null}
+      {!error && !rendered ? <div className="absolute text-xs">{t('workspaceDocumentLoading')}</div> : null}
     </div>
   )
 }
@@ -135,7 +135,7 @@ function PdfDocument({ data }: { data: ArrayBuffer }) {
   if (error) return <div className="p-6 text-sm text-destructive">{error}</div>
   if (!pdf) return <WorkspaceDocumentLoading />
   return (
-    <div className="h-full overflow-auto bg-muted/10 px-4 py-5">
+    <div className="h-full overflow-auto px-4 py-5">
       <div className="mx-auto flex max-w-[72rem] flex-col gap-5">
         {Array.from({ length: pdf.numPages }, (_, index) => <PdfPage key={index + 1} pdf={pdf} pageNumber={index + 1} />)}
       </div>
@@ -176,7 +176,7 @@ function DocxDocument({ data }: { data: ArrayBuffer }) {
 
   if (error) return <div className="p-6 text-sm text-destructive">{error}</div>
   return (
-    <div className="h-full overflow-auto bg-muted/10 px-4 py-5">
+    <div className="h-full overflow-auto px-4 py-5">
       <div ref={styleRef} />
       <div className="quickforge-docx-scope mx-auto max-w-[72rem] overflow-hidden rounded-xl border border-[color-mix(in_oklab,var(--border)_42%,transparent)] bg-background shadow-sm">
         <div ref={bodyRef} />
@@ -228,28 +228,28 @@ function ExcelDocument({ data }: { data: ArrayBuffer }) {
   if (!sheet) return <WorkspaceDocumentLoading />
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[color-mix(in_oklab,var(--border)_42%,transparent)] bg-muted/15 px-3 py-2">
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[color-mix(in_oklab,var(--border)_42%,transparent)] px-3 py-2">
         {sheets.map((item, index) => (
           <button
             key={`${item.name}-${index}`}
             type="button"
-            className={cn('h-8 shrink-0 rounded-xl px-3 text-xs font-medium transition-colors', index === activeSheet ? 'bg-muted/70 text-foreground' : 'text-muted-foreground/70 hover:bg-muted/35 hover:text-foreground/90')}
+            className={cn('h-8 shrink-0 rounded-xl px-3 text-xs font-medium transition-colors', index === activeSheet ? 'text-foreground' : '')}
             onClick={() => { setSheetState({ data, sheet: index, page: 0 }) }}
           >
             {item.name}
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-auto bg-muted/5">
+      <div className="min-h-0 flex-1 overflow-auto">
         <table className="min-w-full border-separate border-spacing-0 text-left text-xs">
           <tbody>
             {visibleRows.map((row, rowIndex) => (
               <tr key={page * EXCEL_PAGE_SIZE + rowIndex}>
-                <th className="sticky left-0 z-10 w-12 border-b border-r border-border/45 bg-muted/35 px-2 py-1.5 text-right font-mono font-normal text-muted-foreground/60">
+                <th className="sticky left-0 z-10 w-12 border-b border-r px-2 py-1.5 text-right font-mono font-normal">
                   {page * EXCEL_PAGE_SIZE + rowIndex + 1}
                 </th>
                 {Array.from({ length: columnCount }, (_, columnIndex) => (
-                  <td key={columnIndex} className="max-w-80 whitespace-pre-wrap break-words border-b border-r border-border/35 bg-background px-2.5 py-1.5 align-top text-foreground/82">
+                  <td key={columnIndex} className="max-w-80 whitespace-pre-wrap break-words border-b border-r bg-background px-2.5 py-1.5 align-top">
                     {row[columnIndex] ?? ''}
                   </td>
                 ))}
@@ -258,7 +258,7 @@ function ExcelDocument({ data }: { data: ArrayBuffer }) {
           </tbody>
         </table>
       </div>
-      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[color-mix(in_oklab,var(--border)_42%,transparent)] px-3 py-2 text-xs text-muted-foreground/70">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[color-mix(in_oklab,var(--border)_42%,transparent)] px-3 py-2 text-xs">
         <div className="min-w-0 truncate">
           {t('workspaceExcelRows', { shown: Math.min(sheet.rows.length, (page + 1) * EXCEL_PAGE_SIZE), total: sheet.totalRows })}
           {sheet.truncated ? ` · ${t('workspaceExcelTruncated', { count: EXCEL_MAX_ROWS })}` : ''}
@@ -319,9 +319,9 @@ export function WorkspaceDocumentContent({ projectId, path, format, reloadNonce 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_42%,transparent)] px-3">
-        <FileText className="size-4 shrink-0 text-muted-foreground/70" />
-        <div className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/88" title={path}>{path}</div>
-        <Button variant="ghost" size="icon" className="size-8 rounded-xl text-muted-foreground/75" onClick={reload} aria-label={t('refreshPreview')} title={t('refreshPreview')}>
+        <FileText className="size-4 shrink-0" />
+        <div className="min-w-0 flex-1 truncate text-sm font-medium" title={path}>{path}</div>
+        <Button variant="ghost" size="icon" className="size-8 rounded-xl" onClick={reload} aria-label={t('refreshPreview')} title={t('refreshPreview')}>
           <RefreshCw className="size-4" />
         </Button>
       </div>

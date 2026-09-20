@@ -80,7 +80,7 @@ export function WorkspaceChangesList({
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
       <div className="min-h-0 min-w-0 flex-1 overflow-auto px-2 pb-20 pt-1">
         {files.length === 0 ? (
-          <div className="px-3 py-4 text-xs text-muted-foreground/70">{emptyMessage}</div>
+          <div className="px-3 py-4 text-xs">{emptyMessage}</div>
         ) : (
           <div className="min-w-0 divide-y divide-[color-mix(in_oklab,var(--border)_28%,transparent)]">
             {files.map((file) => {
@@ -104,7 +104,7 @@ export function WorkspaceChangesList({
                   <div
                     className={cn(
                       'grid min-h-[40px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl transition-colors',
-                      isSelected ? 'bg-muted/40' : 'hover:bg-muted/24',
+                      isSelected ? '' : '',
                     )}
                   >
                     <button
@@ -115,7 +115,7 @@ export function WorkspaceChangesList({
                       aria-expanded={isSelected}
                     >
                       <FileIcon path={file.path} className="size-[15px] shrink-0" />
-                      <span className="min-w-0 truncate font-medium leading-[18px] text-foreground/90">{fileName}</span>
+                      <span className="min-w-0 truncate font-medium leading-[18px]">{fileName}</span>
                       {typeof file.additions === 'number' && typeof file.deletions === 'number' ? (
                         <span className="min-w-[64px] shrink-0 whitespace-nowrap text-right font-mono text-sm font-medium leading-[18px]">
                           <span className="text-emerald-600 dark:text-emerald-500">+{file.additions}</span>
@@ -124,10 +124,10 @@ export function WorkspaceChangesList({
                       ) : <span className="min-w-[64px]" />}
                     </button>
 
-                    <div className="flex shrink-0 items-center gap-1 pr-2 text-muted-foreground/55 opacity-80 transition-opacity group-hover:opacity-100">
+                    <div className="flex shrink-0 items-center gap-1 pr-2 opacity-80 transition-opacity group-hover:opacity-100">
                       <button
                         type="button"
-                        className="inline-flex size-[26px] items-center justify-center rounded-full transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+                        className="inline-flex size-[26px] items-center justify-center rounded-full transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
                         onClick={() => onRestoreFile?.(file)}
                         disabled={restoreDisabled}
                         aria-label={t('workspaceRestoreFile')}
@@ -152,7 +152,7 @@ export function WorkspaceChangesList({
                       </button>
                       <button
                         type="button"
-                        className="inline-flex size-[26px] items-center justify-center rounded-full transition-colors hover:bg-muted/35 hover:text-foreground/85 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="inline-flex size-[26px] items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                         onClick={() => onOpenFile?.(file)}
                         disabled={openDisabled}
                         aria-label={t('workspaceOpenFileInNewTab')}
@@ -177,7 +177,7 @@ export function WorkspaceChangesList({
         <div className="pointer-events-auto inline-flex max-w-full items-center gap-1 rounded-full border border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background/95 p-1 shadow-quickforge">
           <button
             type="button"
-            className="inline-flex h-8 min-w-0 items-center gap-2 rounded-full px-3 text-sm font-medium text-muted-foreground/78 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-8 min-w-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
             onClick={onRestoreAll}
             disabled={!onRestoreAll || files.length === 0 || hasPendingAction}
             aria-label={t('workspaceRestoreAll')}
@@ -189,7 +189,7 @@ export function WorkspaceChangesList({
           <button
             type="button"
             className={cn(
-              'inline-flex h-8 min-w-0 items-center gap-2 rounded-full px-3 text-sm font-medium text-muted-foreground/78 transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+              'inline-flex h-8 min-w-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40',
               showUnstageAll
                 ? 'hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-500'
                 : 'hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-500',

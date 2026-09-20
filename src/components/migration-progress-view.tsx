@@ -15,10 +15,10 @@ const MIGRATION_DOMAINS = [
 // No new colors are introduced.
 const PHASE_DOT_CLASSES = {
   pending: 'bg-border',
-  running: 'quickforge-migration-dot-active bg-foreground',
-  finalizing: 'quickforge-migration-dot-active bg-foreground',
-  done: 'bg-foreground',
-  unknown: 'border border-muted-foreground/40',
+  running: 'quickforge-migration-dot-active ',
+  finalizing: 'quickforge-migration-dot-active ',
+  done: '',
+  unknown: 'border',
 } as const
 
 type MigrationStage = keyof typeof PHASE_DOT_CLASSES
@@ -43,7 +43,7 @@ export function MigrationProgressView({ status }: { status: MigrationStatus }) {
             return (
               <li key={domain.key} className="flex items-center gap-2.5 text-xs">
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PHASE_DOT_CLASSES[stage]}`} aria-hidden="true" />
-                <span className="flex-1 text-left text-foreground/90">{t(domain.label)}</span>
+                <span className="flex-1 text-left">{t(domain.label)}</span>
                 <span className="text-muted-foreground">{t(`migration.phase.${stage}`)}</span>
               </li>
             )

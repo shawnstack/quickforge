@@ -369,7 +369,8 @@ describe('ToolMarqueeController', () => {
 })
 
 const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
-const localToolsSource = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
+// T4：QuickForgeToolMarquee 已随渲染器公共构件迁至 tool-renderers/shared.tsx。
+const sharedRendererSource = readFileSync(new URL('../../src/lib/tool-renderers/shared.tsx', import.meta.url), 'utf8')
 
 function cssRule(selector: string) {
   const pattern = `\n${selector} {`
@@ -433,11 +434,11 @@ class FakeHTMLElement implements FakeMarqueeElement {
 }
 
 function quickForgeToolMarqueeClass() {
-  const output = ts.transpileModule(localToolsSource, {
-    fileName: 'local-tools.ts',
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2023 },
+  const output = ts.transpileModule(sharedRendererSource, {
+    fileName: 'shared.tsx',
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2023, jsx: ts.JsxEmit.React },
   }).outputText
-  const sourceFile = ts.createSourceFile('local-tools.js', output, ts.ScriptTarget.ES2023, true, ts.ScriptKind.JS)
+  const sourceFile = ts.createSourceFile('shared.js', output, ts.ScriptTarget.ES2023, true, ts.ScriptKind.JS)
   const declaration = sourceFile.statements.find(
     (statement): statement is ts.ClassDeclaration => ts.isClassDeclaration(statement)
       && statement.name?.text === 'QuickForgeToolMarquee',
@@ -461,6 +462,9 @@ function quickForgeToolMarqueeClass() {
   }
   const factory = new Function(
     'HTMLElement',
+    // shared.tsx 中自定义元素统一继承模块级 customElementBase（node 环境兜底空基类），
+    // 提取出的类文本需注入同一符号才能在测试内求值。
+    'customElementBase',
     'document',
     'ResizeObserver',
     'ToolMarqueeController',
@@ -469,6 +473,7 @@ function quickForgeToolMarqueeClass() {
     `${declaration.getText(sourceFile)}; return QuickForgeToolMarquee`,
   )
   const Marquee = factory(
+    FakeHTMLElement,
     FakeHTMLElement,
     { createElement: () => new FakeHTMLElement() },
     FakeResizeObserver,

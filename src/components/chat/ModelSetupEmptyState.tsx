@@ -17,7 +17,7 @@ export function ModelSetupEmptyState({ onAddModel, onUseExample }: ModelSetupEmp
         <h2 className="mt-4 text-lg font-medium text-foreground">{t('modelSetupTitle')}</h2>
         <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">{t('modelSetupDescription')}</p>
 
-        <div className="mt-5 grid gap-3 rounded-xl border border-border bg-muted/20 p-4 text-left text-sm">
+        <div className="mt-5 grid gap-3 rounded-xl border border-border p-4 text-left text-sm">
           <div className="flex gap-3">
             <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
             <span className="text-muted-foreground">{t('modelSetupSupports')}</span>

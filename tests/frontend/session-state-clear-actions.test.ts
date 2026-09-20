@@ -76,7 +76,7 @@ describe('session state clear actions', () => {
   })
 
   it('serializes archivedAt:null for both session and metadata restore payloads', () => {
-    const source = readFileSync('src/lib/archived-conversations-settings-tab.ts', 'utf8')
+    const source = readFileSync('src/components/settings/tabs/ArchivedConversationsSettingsTab.tsx', 'utf8')
     const functionSource = extractTranspiledFunction(source, 'withClearedArchivedAt')
     const withClearedArchivedAt = Function(`"use strict"; ${functionSource}; return withClearedArchivedAt`)() as (
       value: Record<string, unknown>,

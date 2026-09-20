@@ -1,27 +1,5 @@
-/**
- * Windowed message rendering for very long conversations.
- *
- * The chat message list is rendered by the third-party `message-list` web
- * component (from @earendil-works/pi-web-ui), which builds the DOM for the
- * whole `messages` array with no paging or virtualization. Very long
- * conversations (hundreds of tool-heavy messages) therefore become expensive
- * to render and scroll.
- *
- * This module installs a thin wrapper around the `message-list` element's
- * `messages` property setter: full message arrays keep flowing in exactly as
- * before (SSE `state` events, `/state` snapshots, streaming updates), but only
- * the most recent window (a tail slice measured in *turns*) is actually
- * handed to the element. When the user scrolls to the top, earlier turns are
- * loaded incrementally (see ChatPanelHost + scroll-sync `onReachTop`).
- *
- * A "turn" is one user message plus everything that follows it up to (not
- * including) the next user message — the assistant reply and any tool calls /
- * results in between. Small conversations bypass windowing; it is enabled when
- * the history exceeds the turn, message-count, or approximate content-size
- * thresholds below.
- */
-
-import type { AgentMessage } from '@earendil-works/pi-agent-core'
+/** Pure turn-based window controller; React owns rendering and scroll state. */
+import type { AgentMessage } from './surface/ChatTypes'
 
 /** Conversations with at most this many turns render exactly as before. */
 export const WINDOW_ENABLE_TURNS = 6
@@ -45,11 +23,11 @@ type MessageWindowOptions = {
 }
 
 export type MessageWindowController = {
-  /** Feed the full message array; returns the array that should be assigned to <message-list>. */
+  /** Feed the full message array; returns the window array to render in `MessageList`. */
   setFullMessages(messages: AgentMessage[]): AgentMessage[]
   /** Full-array index of the first rendered message (used to offset rollback/retry indices). */
   getWindowStart(): number
-  /** The window array currently assigned to <message-list> (turn slice + required toolResults). */
+  /** The window array currently rendered by `MessageList` (turn slice + required toolResults). */
   getWindowMessages(): AgentMessage[]
   /** Whether windowing is active for the current conversation. */
   isEnabled(): boolean
@@ -258,66 +236,3 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
   }
 }
 
-// ---------------------------------------------------------------------------
-// <message-list> messages setter interception
-// ---------------------------------------------------------------------------
-
-type MessageListElementLike = HTMLElement & { messages: AgentMessage[] }
-
-let patched = false
-let activeWindow: MessageWindowController | null = null
-
-function messageListPrototype(): { prototype: Record<string, unknown> } | null {
-  const ctor = customElements.get('message-list')
-  return ctor ? (ctor as unknown as { prototype: Record<string, unknown> }) : null
-}
-
-/**
- * Install (once, globally) a wrapper around `message-list`'s `messages`
- * setter. Every assignment — from AgentInterface rendering, SSE state events,
- * HTTP snapshots — goes through the active window controller. Sub-agent
- * process message lists opt out via the `data-quickforge-subagent-process`
- * attribute so their rendering is untouched.
- */
-export function installMessageListWindow(getWindow: () => MessageWindowController | null) {
-  activeWindow = getWindow()
-  if (patched) return
-
-  const tryInstall = () => {
-    const proto = messageListPrototype()
-    if (!proto) return false
-    const descriptor = Object.getOwnPropertyDescriptor(proto, 'messages')
-    if (!descriptor || typeof descriptor.set !== 'function') return false
-
-    patched = true
-    const nativeSet = descriptor.set
-    Object.defineProperty(proto, 'messages', {
-      ...descriptor,
-      set(this: MessageListElementLike, value: AgentMessage[]) {
-        const window = activeWindow
-        const isSubagentList = this.hasAttribute('data-quickforge-subagent-process')
-        if (window && !isSubagentList) {
-          if (window.isAssignedWindow(value)) {
-            // Internal re-assignment (loadMore): pass straight through.
-            nativeSet.call(this, value)
-            return
-          }
-          nativeSet.call(this, window.setFullMessages(value))
-          return
-        }
-        nativeSet.call(this, value)
-      },
-    })
-    return true
-  }
-
-  if (!tryInstall()) {
-    void customElements.whenDefined('message-list').then(() => {
-      tryInstall()
-    })
-  }
-}
-
-export function uninstallMessageListWindow(window: MessageWindowController) {
-  if (activeWindow === window) activeWindow = null
-}

@@ -34,7 +34,7 @@ export function createScrollToBottomButton({ panel, onJumpSettled }: ScrollToBot
   let unread = 0
 
   const findScrollContainer = () =>
-    panel.querySelector<HTMLElement>('agent-interface .overflow-y-auto')
+    panel.querySelector<HTMLElement>('.qf-chat-panel .qf-scroll-container')
 
   const distanceFromBottom = () => {
     if (!scrollContainer) return 0

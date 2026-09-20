@@ -36,11 +36,14 @@ describe('Electron desktop notification security structure', () => {
   })
 
   it('does not persistently disable the default-on preference while permission is not granted', () => {
-    const source = readFileSync(new URL('../../src/lib/default-options-settings-tab.ts', import.meta.url), 'utf8')
-    const loadSettingsGuard = source.match(/if \(this\.systemNotificationsEnabled && this\.systemNotificationPermission !== 'granted'\) \{([\s\S]*?)\n\s*\}/)?.[1]
+    // The settings tab is a React component now; assert the same contract on the
+    // live implementation: loading with a non-granted permission only flips the
+    // in-memory switch and never writes the "disabled" preference back to storage.
+    const source = readFileSync(new URL('../../src/components/settings/tabs/DefaultOptionsSettingsTab.tsx', import.meta.url), 'utf8')
+    const loadSettingsGuard = source.match(/if \(nextNotificationsEnabled && permission !== 'granted'\) \{([\s\S]*?)\n\s*\}/)?.[1]
 
-    expect(loadSettingsGuard).toContain('this.systemNotificationsEnabled = false')
-    expect(loadSettingsGuard).not.toContain('setSystemNotificationsEnabled(false)')
+    expect(loadSettingsGuard).toContain('nextNotificationsEnabled = false')
+    expect(loadSettingsGuard).not.toContain('persistSystemNotificationsEnabled')
   })
 
   it('packages the complete desktop directory including the preload', () => {

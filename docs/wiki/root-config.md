@@ -57,7 +57,7 @@
 - 插件: `@vitejs/plugin-react`, `@tailwindcss/vite`
 - 开发代理: `/api` → `http://127.0.0.1:32176`
 - 路径别名: `@/` → `src/`
-- 构建分包: `react-vendor`, `lit-vendor`, `icons`, `css-utils`
+- 构建分包: `react-vendor`, `icons`, `xterm`, `pi-agent-core`, `pi-ai`, `css-utils`；monaco-editor 不设 manual chunk，沿动态 import 边界自然隔离为异步 chunk
 - SSE 支持: 禁用 Vite 代理的 SSE 超时
 
 ### TypeScript 配置

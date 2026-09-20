@@ -96,6 +96,39 @@ export function toolStartEventWithPartialResult(event: ToolExecutionEvent, sessi
   }
 }
 
+/**
+ * Tool-call ids an assistant `message_end` commits that still lack any
+ * toolResult (partial or final) in `messages`.
+ *
+ * `tool_execution_start` can land after the assistant message carrying the
+ * call is committed (the server finalizes the message before executing its
+ * calls, and interleaved frames can also commit the call first). In that
+ * window the tool row would otherwise flash: pending=false + no result
+ * renders the idle `called` dot, then bounces back to the running spinner
+ * once `tool_execution_start` adds the id to `pendingToolCalls`. Callers add
+ * the returned ids to `pendingToolCalls` so the row keeps rendering running;
+ * `tool_execution_end` removes them as usual. Ids that already have any
+ * result — partial from start/update, final (success or error) — are
+ * excluded so done/error rows are never pushed back to a running state.
+ */
+export function toolCallIdsWithoutToolResult(message: AgentMessage, messages: AgentMessage[]): string[] {
+  if (message.role !== 'assistant') return []
+  const content = (message as { content?: unknown }).content
+  if (!Array.isArray(content)) return []
+  const ids: string[] = []
+  for (const chunk of content) {
+    if (!chunk || typeof chunk !== 'object') continue
+    if ((chunk as { type?: unknown }).type !== 'toolCall') continue
+    const id = (chunk as { id?: unknown }).id
+    if (typeof id !== 'string' || !id) continue
+    const hasResult = messages.some(
+      (item) => item.role === 'toolResult' && (item as { toolCallId?: unknown }).toolCallId === id,
+    )
+    if (!hasResult) ids.push(id)
+  }
+  return ids
+}
+
 export function upsertToolResult(messages: AgentMessage[], event: ToolExecutionEvent, partial: boolean): AgentMessage[] {
   if (!event.toolCallId || !event.toolName) return messages
   const result = partial ? event.partialResult : event.result

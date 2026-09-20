@@ -219,6 +219,13 @@ describe('message queue source contracts', () => {
     expect(controllerSource).toContain("element.classList.contains('quickforge-goal-strip')")
   })
 
+  it('treats the composer editor as a legal queue follower', () => {
+    // `classList.contains` compares bare class names; the dotted literal never
+    // matches, which would re-anchor the queue on every decorate pass.
+    expect(controllerSource).toContain("element.classList.contains('qf-message-editor')")
+    expect(controllerSource).not.toContain("classList.contains('.qf-message-editor')")
+  })
+
   it('gates steering per capabilities and ships both languages', () => {
     expect(capabilitiesSource).toContain('messageSteering: boolean')
     expect(capabilitiesSource.indexOf('messageSteering: true'))

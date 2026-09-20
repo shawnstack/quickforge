@@ -18,7 +18,7 @@ export function FirstUseGuideCard({
   onDismiss,
 }: FirstUseGuideCardProps) {
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/35 p-3 backdrop-blur-sm sm:p-6">
+    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center p-3 backdrop-blur-sm sm:p-6">
       <div className="pointer-events-auto w-full max-w-4xl rounded-2xl border border-border bg-background/95 p-5 shadow-quickforge backdrop-blur-md sm:p-6">
         <div className="flex items-start gap-3">
           <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -36,15 +36,15 @@ export function FirstUseGuideCard({
             </div>
 
             <div className="mt-4 grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
-              <div className="flex gap-2.5 rounded-xl border border-border/70 bg-muted/15 p-3">
+              <div className="flex gap-2.5 rounded-xl border p-3">
                 <Settings2 className="mt-0.5 size-4 shrink-0 text-primary" />
                 <span>{t('firstUseGuideStepModel')}</span>
               </div>
-              <div className="flex gap-2.5 rounded-xl border border-border/70 bg-muted/15 p-3">
+              <div className="flex gap-2.5 rounded-xl border p-3">
                 <FolderPlus className="mt-0.5 size-4 shrink-0 text-primary" />
                 <span>{t('firstUseGuideStepProject')}</span>
               </div>
-              <div className="flex gap-2.5 rounded-xl border border-border/70 bg-muted/15 p-3">
+              <div className="flex gap-2.5 rounded-xl border p-3">
                 <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
                 <span>{t('firstUseGuideStepPlan')}</span>
               </div>

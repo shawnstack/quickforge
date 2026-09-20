@@ -1,11 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi, beforeAll } from 'vitest'
+import { describe, expect, it, beforeAll } from 'vitest'
 
-// The real i18n module pulls in pi-web-ui, which requires a browser DOM; the
-// source contracts below only need the app translation keys to exist.
-vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
 
 import { GitToolsPinnedSummary } from '../../src/components/git/GitToolsPinnedSummary'
 import { applyAppLanguageFromSnapshot } from '../../src/lib/i18n'
@@ -251,8 +248,8 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(capsuleMain).toContain('className="quickforge-pinned-summary-capsule-main group')
     expect(capsuleMain).toContain('openDesktopPanel()')
     expect(capsuleMain).toContain('inline-flex size-7 shrink-0 items-center justify-center rounded-full')
-    expect(capsuleMain).toContain('group-hover:bg-muted/40')
-    expect(capsuleMain).toContain('group-focus-visible:bg-muted/40')
+    expect(capsuleMain).not.toContain('group-hover:bg-muted/40')
+    expect(capsuleMain).not.toContain('group-focus-visible:bg-muted/40')
     expect(capsuleMain).toContain('aria-hidden="true"')
     expect(capsuleMain).toContain('<Maximize2 className="size-3.5" />')
     expect(capsuleMain.match(/<button/g)).toHaveLength(1)
@@ -277,9 +274,10 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(summarySource).toContain("key: 'fallback'")
   })
 
-  it('renders dividers only between actual segments using foreground/15', () => {
+  it('renders dividers only between actual segments without dead opacity classes', () => {
     expect(summarySource).toContain('capsuleSegments.map((segment, index) => (')
-    expect(summarySource).toContain('index > 0 ? <span className="h-3.5 w-px shrink-0 bg-foreground/15"')
+    expect(summarySource).toContain('index > 0 ? <span className="h-3.5 w-px shrink-0"')
+    expect(summarySource).not.toContain('bg-foreground/15')
     expect(summarySource).not.toContain('border-border/60')
   })
 

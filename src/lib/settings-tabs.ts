@@ -1,65 +1,38 @@
-import type { SettingsTab } from '@earendil-works/pi-web-ui'
-import { createCustomProvidersOnlyTab } from '@/lib/custom-providers-only-tab'
-import { createAppearanceSettingsTab } from '@/lib/appearance-settings-tab'
-import { createDefaultOptionsSettingsTab } from '@/lib/default-options-settings-tab'
-import { createMemorySettingsTab } from '@/lib/memory-settings-tab'
-import { createBackupSettingsTab } from '@/lib/backup-settings-tab'
-import { createArchivedConversationsSettingsTab } from '@/lib/archived-conversations-settings-tab'
-import { createLanAccessSettingsTab } from '@/lib/lan-access-settings-tab'
-import { createAboutSettingsTab } from '@/lib/about-settings-tab'
-import { createProjectCommandsSettingsTab } from '@/lib/project-commands-settings-tab'
-import { createChannelsSettingsTab } from '@/lib/channels-settings-tab'
+import { createElement } from 'react'
+import { ReactSettingsTabContent } from '@/lib/react-settings-tabs'
 import { t } from '@/lib/i18n'
-import {
-  createAgentProfilesSettingsTab,
-  createMcpSettingsTab,
-  createPluginsSettingsTab,
-  createScheduledTasksSettingsTab,
-  createShareLinksSettingsTab,
-  createSkillsSettingsTab,
-} from '@/lib/react-settings-tabs'
 
-export type SettingsInitialTab =
-  | 'appearance'
-  | 'defaults'
-  | 'memory'
-  | 'customModels'
-  | 'agents'
-  | 'skills'
-  | 'mcp'
-  | 'plugins'
-  | 'scheduledTasks'
-  | 'projectCommands'
-  | 'backup'
-  | 'archivedConversations'
-  | 'shareLinks'
-  | 'channels'
-  | 'lanAccess'
-  | 'about'
+// Keep the existing navigation order and resolve translations at render/search time.
+const settingsTabDefinitions = [
+  { key: 'appearance', name: 'appearance', description: 'appearanceDescription' },
+  { key: 'defaults', name: 'defaultOptions', description: 'defaultOptionsDescription' },
+  { key: 'memory', name: 'memory', description: 'memoryDescription' },
+  { key: 'customModels', name: 'customModels', description: 'customModelsDescription' },
+  { key: 'agents', name: 'agentsTab', description: 'agentsDescription' },
+  { key: 'skills', name: 'skills', description: 'globalSkillsDescription' },
+  { key: 'mcp', name: 'mcpServers', description: undefined },
+  { key: 'plugins', name: 'plugins', description: undefined },
+  { key: 'scheduledTasks', name: 'scheduledTasks', description: 'scheduledTasksDescription' },
+  { key: 'projectCommands', name: 'projectCommands', description: 'projectCommandsDescription' },
+  { key: 'backup', name: 'backupRestore', description: 'backupRestoreDescription' },
+  { key: 'archivedConversations', name: 'archivedConversations', description: 'archivedConversationsDescription' },
+  { key: 'shareLinks', name: 'shareLinks', description: 'shareLinksDescription' },
+  { key: 'channels', name: 'channels', description: 'channelsDescription' },
+  { key: 'lanAccess', name: 'lanAccess', description: 'lanAccessDescription' },
+  { key: 'about', name: 'about', description: 'aboutQuickForgeDescription' },
+] as const
+
+export type SettingsInitialTab = typeof settingsTabDefinitions[number]['key']
 
 export function createSettingsTabs(customProvider?: string) {
-  const tabs = [
-    { key: 'appearance', tab: createAppearanceSettingsTab(), getDescription: () => t('appearanceDescription') },
-    { key: 'defaults', tab: createDefaultOptionsSettingsTab(), getDescription: () => t('defaultOptionsDescription') },
-    { key: 'memory', tab: createMemorySettingsTab(), getDescription: () => t('memoryDescription') },
-    { key: 'customModels', tab: createCustomProvidersOnlyTab(customProvider), getDescription: () => t('customModelsDescription') },
-    { key: 'agents', tab: createAgentProfilesSettingsTab(), getDescription: () => t('agentsDescription') },
-    { key: 'skills', tab: createSkillsSettingsTab(), getDescription: () => t('globalSkillsDescription') },
-    { key: 'mcp', tab: createMcpSettingsTab(), getDescription: undefined },
-    { key: 'plugins', tab: createPluginsSettingsTab(), getDescription: undefined },
-    { key: 'scheduledTasks', tab: createScheduledTasksSettingsTab(), getDescription: () => t('scheduledTasksDescription') },
-    { key: 'projectCommands', tab: createProjectCommandsSettingsTab(), getDescription: () => t('projectCommandsDescription') },
-    { key: 'backup', tab: createBackupSettingsTab(), getDescription: () => t('backupRestoreDescription') },
-    { key: 'archivedConversations', tab: createArchivedConversationsSettingsTab(), getDescription: () => t('archivedConversationsDescription') },
-    { key: 'shareLinks', tab: createShareLinksSettingsTab(), getDescription: () => t('shareLinksDescription') },
-    { key: 'channels', tab: createChannelsSettingsTab(), getDescription: () => t('channelsDescription') },
-    { key: 'lanAccess', tab: createLanAccessSettingsTab(), getDescription: () => t('lanAccessDescription') },
-    { key: 'about', tab: createAboutSettingsTab(), getDescription: () => t('aboutQuickForgeDescription') },
-  ] as const satisfies readonly { key: SettingsInitialTab; tab: SettingsTab; getDescription?: () => string }[]
-
+  const items = settingsTabDefinitions.map(({ key, name, description }) => ({
+    key,
+    getTabName: () => t(name),
+    getDescription: description ? () => t(description) : undefined,
+    content: createElement(ReactSettingsTabContent, { key: `${key}:${customProvider ?? ''}`, tabKey: key, customProvider }),
+  }))
   return {
-    items: [...tabs],
-    tabs: tabs.map((item) => item.tab),
-    indexOf: (key: SettingsInitialTab) => tabs.findIndex((item) => item.key === key),
+    items,
+    indexOf: (key: SettingsInitialTab) => items.findIndex((item) => item.key === key),
   }
 }

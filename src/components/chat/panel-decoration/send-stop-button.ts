@@ -1,6 +1,14 @@
 import type { QuickForgeActionButton } from '../chat-utils'
-import { replaceSvg } from '../chat-utils'
 
+/**
+ * Streaming-state decoration for the composer's action button.
+ *
+ * React owns the button's DOM (base class, icon svg, title); this layer only
+ * decorates state: the waiting ring, the stop title/aria, and the
+ * capture-phase stop handler that aborts on pointerdown. It must never
+ * replace or restructure React-owned children — grafting a foreign svg used
+ * to make React's commit throw NotFoundError when isStreaming flipped.
+ */
 export function syncSendStopButton(options: {
   rightControls: HTMLElement
   isStreaming: () => boolean
@@ -21,13 +29,9 @@ export function syncSendStopButton(options: {
 
   if (isStreaming()) {
     actionButton.disabled = false
-    actionButton.classList.remove('quickforge-send-button')
-    actionButton.classList.add('quickforge-stop-button')
     actionButton.classList.toggle('quickforge-stop-button--waiting', isWaiting ? isWaiting() : false)
     actionButton.title = 'Stop'
     actionButton.setAttribute('aria-label', 'Stop')
-    delete actionButton.dataset.quickforgeSendIcon
-    replaceSvg(actionButton, '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>')
     if (!actionButton.__quickforgeStopHandler) {
       actionButton.__quickforgeStopHandler = (event: Event) => {
         event.preventDefault()
@@ -41,18 +45,6 @@ export function syncSendStopButton(options: {
     }
   } else {
     removeStopHandler()
-    actionButton.classList.remove('quickforge-stop-button')
     actionButton.classList.remove('quickforge-stop-button--waiting')
-    actionButton.classList.add('quickforge-send-button')
-    if (actionButton.dataset.quickforgeSendIcon !== 'arrow-up') {
-      actionButton.dataset.quickforgeSendIcon = 'arrow-up'
-      replaceSvg(actionButton, '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>')
-      // Remove the Lit element's rotate(-45deg) wrapper so our upward arrow stays pointing up
-      const svg = actionButton.querySelector('svg')
-      const wrapper = svg?.parentElement
-      if (wrapper && wrapper !== actionButton && wrapper.style.transform) {
-        wrapper.style.transform = ''
-      }
-    }
   }
 }

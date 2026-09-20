@@ -10,8 +10,7 @@ import {
   type SlashInvocation,
 } from '../../src/components/chat/slash-invocation-chip'
 
-// The real i18n module pulls in pi-web-ui which requires a browser DOM;
-// slash-invocation-chip only needs t() for the chip aria-label.
+// Deterministic t stub — slash-invocation-chip only needs t() for the chip aria-label.
 vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
 }))
@@ -218,7 +217,8 @@ function createEnv(envOverrides: Partial<SlashChipEnv> = {}): TestEnv {
   textarea.selectionStart = 0
   textarea.selectionEnd = 0
 
-  const editor = createFakeElement('message-editor')
+  const editor = createFakeElement('div')
+  editor.className = 'qf-message-editor'
   editor.value = ''
   editor.append(textarea)
 
@@ -614,7 +614,7 @@ describe('slash invocation chip controller', () => {
     expect(h.ghostText()).toBe(' task two')
   })
 
-  it('update: re-resolves the textarea when Lit rebuilt the editor internals', () => {
+  it('update: re-resolves the textarea when the editor internals were rebuilt', () => {
     const h = installDocument()
     h.setText('/agent explore task')
     h.chip.engage(agentInvocation)
@@ -711,7 +711,8 @@ describe('slash invocation chip controller', () => {
 
   it('engage without a composer shell or textarea is a safe no-op', () => {
     const textarea = createFakeElement('textarea')
-    const editor = createFakeElement('message-editor')
+    const editor = createFakeElement('div')
+    editor.className = 'qf-message-editor'
     editor.append(textarea)
     const panel = createFakeElement('div')
     panel.append(editor) // no .quickforge-composer-shell ancestor

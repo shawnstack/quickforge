@@ -1,4 +1,4 @@
-import type { AppStorage } from '@earendil-works/pi-web-ui'
+import type { AppStorage } from '@/storage'
 
 export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
 

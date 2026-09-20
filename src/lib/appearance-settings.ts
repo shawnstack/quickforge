@@ -1,4 +1,4 @@
-import type { AppStorage } from '@earendil-works/pi-web-ui'
+import type { AppStorage } from '@/storage'
 
 const APPEARANCE_SETTINGS_KEY = 'appearance-settings'
 
@@ -23,8 +23,12 @@ export function normalizeAppearanceSettings(value: unknown): AppearanceSettings 
 /**
  * Apply an appearance setting to the DOM.
  * Theme switching works by toggling the `dark` class on <html>: the light/dark
- * semantic tokens and `dark:` variants are already shipped by pi-web-ui's app.css.
- * `color-scheme` keeps native scrollbars and form controls in sync with the theme.
+ * semantic tokens are self-hosted by `src/index.css` (unlayered `:root` / `.dark`
+ * blocks, copied verbatim from the theme defaults they replaced).
+ * Tailwind's `dark:` variants are unaffected by this toggle — with no custom
+ * variant registered they keep their default `prefers-color-scheme` media query,
+ * i.e. they follow the OS setting. `color-scheme` keeps native scrollbars and
+ * form controls in sync with the theme.
  */
 export function applyAppearanceSettings(settings: AppearanceSettings) {
   if (typeof document === 'undefined') return

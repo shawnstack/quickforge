@@ -150,7 +150,7 @@ export function createCapabilitySuggestions({
   }
 
   const syncChips = () => {
-    const editor = panel.querySelector<MessageEditorElement>('message-editor')
+    const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
     if (!editor) return
     const existing = editor.querySelector<HTMLElement>('.quickforge-context-chips')
     if (selected.size === 0 && !existing?.querySelector('.quickforge-file-reference-chip')) {
@@ -165,7 +165,7 @@ export function createCapabilitySuggestions({
         const key = selectedCapabilityKey(capability)
         selected.delete(key)
         if (templateCapabilityKey === key) templateCapabilityKey = undefined
-        const editor = panel.querySelector<MessageEditorElement>('message-editor')
+        const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
         if (editor) {
           const capabilities = [...selected.values()]
           editor.selectedCapabilities = capabilities
@@ -186,7 +186,7 @@ export function createCapabilitySuggestions({
     const key = selectedCapabilityKey(capability)
     if (templateCapabilityKey === key) templateCapabilityKey = undefined
     selected = new Map(normalizeSelectedCapabilities([...selected.values(), capability]).map((item) => [selectedCapabilityKey(item), item]))
-    const editor = panel.querySelector<MessageEditorElement>('message-editor')
+    const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
     if (editor) {
       const capabilities = [...selected.values()]
       editor.selectedCapabilities = capabilities
@@ -214,7 +214,7 @@ export function createCapabilitySuggestions({
     const result = normalizeSelectedCapabilities([...selected.values()])
     selected = new Map()
     templateCapabilityKey = undefined
-    const editor = panel.querySelector<MessageEditorElement>('message-editor')
+    const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
     if (editor) editor.selectedCapabilities = []
     emitSelection()
     syncChips()
@@ -225,7 +225,7 @@ export function createCapabilitySuggestions({
   const restoreSelectedCapabilities = (capabilities: SelectedCapability[]) => {
     templateCapabilityKey = undefined
     selected = new Map(normalizeSelectedCapabilities(capabilities).map((capability) => [selectedCapabilityKey(capability), capability]))
-    const editor = panel.querySelector<MessageEditorElement>('message-editor')
+    const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
     if (editor) editor.selectedCapabilities = [...selected.values()]
     emitSelection()
     syncChips()

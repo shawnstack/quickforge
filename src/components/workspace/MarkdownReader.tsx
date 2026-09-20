@@ -28,13 +28,13 @@ function codeLanguage(className: string | undefined) {
 
 function createMarkdownComponents(projectId: string | undefined, path: string): Components {
   return {
-    h1: ({ children }) => <h1 className="mt-8 mb-3 border-b border-border pb-3 text-3xl font-semibold tracking-tight text-foreground/95">{children}</h1>,
-    h2: ({ children }) => <h2 className="mt-8 mb-3 border-b border-border pb-2 text-2xl font-semibold tracking-tight text-foreground/95">{children}</h2>,
-    h3: ({ children }) => <h3 className="mt-8 mb-3 text-xl font-semibold text-foreground/95">{children}</h3>,
-    h4: ({ children }) => <h4 className="mt-8 mb-3 text-lg font-semibold text-foreground/95">{children}</h4>,
-    h5: ({ children }) => <h5 className="mt-8 mb-3 text-base font-semibold text-foreground/95">{children}</h5>,
-    h6: ({ children }) => <h6 className="mt-8 mb-3 text-base font-semibold text-foreground/95">{children}</h6>,
-    p: ({ children }) => <p className="my-4 text-foreground/86">{children}</p>,
+    h1: ({ children }) => <h1 className="mt-8 mb-3 border-b border-border pb-3 text-3xl font-semibold tracking-tight">{children}</h1>,
+    h2: ({ children }) => <h2 className="mt-8 mb-3 border-b border-border pb-2 text-2xl font-semibold tracking-tight">{children}</h2>,
+    h3: ({ children }) => <h3 className="mt-8 mb-3 text-xl font-semibold">{children}</h3>,
+    h4: ({ children }) => <h4 className="mt-8 mb-3 text-lg font-semibold">{children}</h4>,
+    h5: ({ children }) => <h5 className="mt-8 mb-3 text-base font-semibold">{children}</h5>,
+    h6: ({ children }) => <h6 className="mt-8 mb-3 text-base font-semibold">{children}</h6>,
+    p: ({ children }) => <p className="my-4">{children}</p>,
     a: ({ href, children }) => (
       <a
         className="text-primary underline-offset-4 hover:underline"
@@ -58,7 +58,7 @@ function createMarkdownComponents(projectId: string | undefined, path: string): 
         />
       )
     },
-    blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border pl-4 text-muted-foreground/85">{children}</blockquote>,
+    blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border pl-4">{children}</blockquote>,
     ul: ({ children, className }) => <ul className={`my-4 list-disc space-y-1 pl-6 ${className ?? ''}`}>{children}</ul>,
     ol: ({ children, className }) => <ol className={`my-4 list-decimal space-y-1 pl-6 ${className ?? ''}`}>{children}</ol>,
     li: ({ children, className }) => <li className={className}>{children}</li>,
@@ -68,11 +68,11 @@ function createMarkdownComponents(projectId: string | undefined, path: string): 
         <table className="w-full border-collapse text-left text-sm">{children}</table>
       </div>
     ),
-    thead: ({ children }) => <thead className="bg-muted/25 text-foreground/90">{children}</thead>,
+    thead: ({ children }) => <thead className="">{children}</thead>,
     tbody: ({ children }) => <tbody>{children}</tbody>,
-    tr: ({ children }) => <tr className="border-t border-border/70 first:border-t-0">{children}</tr>,
+    tr: ({ children }) => <tr className="border-t first:border-t-0">{children}</tr>,
     th: ({ children }) => <th className="border-b border-border px-3 py-2 font-semibold">{children}</th>,
-    td: ({ children }) => <td className="px-3 py-2 align-top text-foreground/85">{children}</td>,
+    td: ({ children }) => <td className="px-3 py-2 align-top">{children}</td>,
     pre: ({ children }) => {
       const codeElement = isValidElement<CodeElementProps>(children) ? children : undefined
       const language = codeLanguage(codeElement?.props.className)
@@ -80,19 +80,19 @@ function createMarkdownComponents(projectId: string | undefined, path: string): 
       if (isMermaidLanguage(language)) return <MermaidDiagram source={source} />
 
       return (
-        <figure className="my-5 overflow-hidden rounded-xl border border-border bg-muted/20">
-          {language ? <figcaption className="border-b border-border px-3 py-1.5 font-mono text-[11px] text-muted-foreground/65">{language}</figcaption> : null}
+        <figure className="my-5 overflow-hidden rounded-xl border border-border">
+          {language ? <figcaption className="border-b border-border px-3 py-1.5 font-mono text-[11px]">{language}</figcaption> : null}
           <pre className="overflow-auto p-4 text-[12px] leading-5 [&_code]:rounded-none [&_code]:bg-transparent [&_code]:p-0">{children}</pre>
         </figure>
       )
     },
     code: ({ className, children }) => (
-      <code className={`${className ?? ''} rounded bg-muted/35 px-1 py-0.5 font-mono text-[0.85em] text-foreground/90`}>
+      <code className={`${className ?? ''} rounded px-1 py-0.5 font-mono text-[0.85em]`}>
         {children}
       </code>
     ),
     input: ({ type, checked, disabled }) => type === 'checkbox' ? (
-      <input className="mr-2 align-middle accent-primary" type="checkbox" checked={checked} disabled={disabled ?? true} readOnly />
+      <input className="mr-2 align-middle" type="checkbox" checked={checked} disabled={disabled ?? true} readOnly />
     ) : null,
   }
 }
@@ -107,12 +107,12 @@ export function MarkdownReader({ projectId, path, content, language, mode, wordW
           <MonacoCodeViewer path={path} content={content} language={language} wordWrap={wordWrap} />
         ) : (
           <div className="h-full overflow-auto bg-background">
-            <article className="quickforge-markdown-reader mx-auto max-w-3xl px-8 py-7 text-sm leading-7 text-foreground/88">
+            <article className="quickforge-markdown-reader mx-auto max-w-3xl px-8 py-7 text-sm leading-7">
               {content.trim() ? (
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} skipHtml>
                   {content}
                 </ReactMarkdown>
-              ) : <p className="text-muted-foreground/70">This Markdown file is empty.</p>}
+              ) : <p className="">This Markdown file is empty.</p>}
             </article>
           </div>
         )}

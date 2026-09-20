@@ -19,7 +19,7 @@ import {
  * 「立即重试」 button and an expandable recovery guide: just the action row
  * matching the detected runtime environment (desktop / mobile / CLI) plus
  * the server log path — kept to two rows on purpose.
- * Removed as soon as the connection recovers; survives Lit rebuilds via the
+ * Removed as soon as the connection recovers; survives list rebuilds via the
  * decorate-pass sync() (the controller remembers the expanded state).
  */
 
@@ -95,7 +95,7 @@ export function createUnreachableStripController(deps: { panel: HTMLElement }): 
   /** Composer 锚点：message-editor 外层 dock（decorateEditor 挂 .quickforge-composer-dock）。
    *  条插在 dock 之前，位于滚动容器外、任何滚动位置都可见。 */
   function stripAnchor(): HTMLElement | null {
-    const editor = panel.querySelector<HTMLElement>('message-editor')
+    const editor = panel.querySelector<HTMLElement>('.qf-message-editor')
     if (!editor) return null
     return editor.parentElement?.parentElement ?? editor
   }
@@ -181,7 +181,7 @@ export function createUnreachableStripController(deps: { panel: HTMLElement }): 
       strip = buildStrip()
       renderedEpisodeSince = undefined
     }
-    // Lit 重建后重新插回 composer dock 之前；位置已正确时不移动（避免重启进入动画）。
+    // 重建后重新插回 composer dock 之前；位置已正确时不移动（避免重启进入动画）。
     if (strip.parentElement !== anchor.parentElement || strip.nextElementSibling !== anchor) {
       anchor.before(strip)
     }

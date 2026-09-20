@@ -48,11 +48,11 @@ function alignBoundaryToUserTurn(messages: MessageWithUsage[], messageIndex: num
 }
 
 function getPrimaryMessageElements(panel: HTMLElement) {
-  const messageList = panel.querySelector<HTMLElement>('message-list')
+  const messageList = panel.querySelector<HTMLElement>('.qf-message-list')
   if (!messageList) return []
 
-  return Array.from(messageList.querySelectorAll<HTMLElement>('user-message, assistant-message'))
-    .filter((element) => element.closest('message-list') === messageList)
+  return Array.from(messageList.querySelectorAll<HTMLElement>('.qf-user-message, .qf-assistant-message'))
+    .filter((element) => element.closest('.qf-message-list') === messageList)
 }
 
 function insertBeforeMessageElement(panel: HTMLElement, messages: MessageWithUsage[], messageIndex: number, notice: HTMLElement) {
@@ -71,7 +71,7 @@ function insertBeforeMessageElement(panel: HTMLElement, messages: MessageWithUsa
     displayIndex += 1
   }
 
-  const messageList = panel.querySelector('message-list')
+  const messageList = panel.querySelector('.qf-message-list')
   if (messageList && messageList.firstElementChild !== notice) messageList.prepend(notice)
 }
 

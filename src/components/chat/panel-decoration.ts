@@ -8,7 +8,6 @@
 
 import type { CapabilitySuggestion } from './capability-suggestions'
 import type {
-  AgentInterfaceElement,
   MessageEditorElement,
 } from './chat-utils'
 import { t } from '@/lib/i18n'
@@ -61,7 +60,7 @@ export { decorateAssistantArtifactCard, syncAssistantArtifactCard } from './pane
 export { releaseStreamingProcessGroups } from './panel-decoration/process-folding'
 
 export type { MessageDecorationDeps } from './panel-decoration/message-actions'
-export { decorateMessages, decorateSubagentProcessBlocks } from './panel-decoration/message-actions'
+export { decorateMessages } from './panel-decoration/message-actions'
 export { syncAssistantWaitingBubble } from './panel-decoration/assistant-waiting-bubble'
 export { createScrollToBottomButton } from './panel-decoration/scroll-to-bottom-button'
 export {
@@ -167,7 +166,6 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     planMode,
     workspaceToolsEnabled,
     readOnly,
-    allowModelControls,
     planModeEnabled,
     accessModeEnabled,
     commandSuggestionsEnabled,
@@ -199,7 +197,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     onOpenLocalFilePath,
   } = deps
 
-  const editor = panel.querySelector<MessageEditorElement>('message-editor')
+  const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
   editor?.classList.add('quickforge-composer')
   editor?.parentElement?.classList.add('quickforge-composer-shell')
   editor?.parentElement?.parentElement?.classList.add('quickforge-composer-dock')
@@ -236,13 +234,9 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   if (planModeEnabled) setupPlanModeControls(editor, planMode, onTogglePlanMode)
   else removePlanModeControls(editor)
 
-  const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
-  if (agentInterface) {
-    const shouldRequestUpdate = agentInterface.enableModelSelector !== allowModelControls
-    agentInterface.enableModelSelector = allowModelControls
-    agentInterface.enableThinkingSelector = false
-    if (shouldRequestUpdate) agentInterface.requestUpdate?.()
-  }
+  // The React ChatSurface receives enableModelSelector/enableThinkingSelector
+  // as props from ChatPanelHost; the decoration layer no longer flips legacy
+  // element properties here.
 
   const editorRows = editor?.querySelectorAll<HTMLElement>('.flex.gap-2.items-center')
   const leftControls = editorRows?.[0]

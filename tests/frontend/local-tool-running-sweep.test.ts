@@ -1,12 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const localTools = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
+// T4：LocalWorkspaceToolRenderer 已迁至 tool-renderers/local-workspace-tool-renderer.tsx（React）；
+// 折叠箭头/图标等 SVG 类名随 renderToolChevron 落在 shared.tsx。
+const rendererSource = readFileSync(new URL('../../src/lib/tool-renderers/local-workspace-tool-renderer.tsx', import.meta.url), 'utf8')
+const sharedSource = readFileSync(new URL('../../src/lib/tool-renderers/shared.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
 const cssRules = css.replace(/\/\*[\s\S]*?\*\//g, '')
-const renderer = localTools.slice(
-  localTools.indexOf('class LocalWorkspaceToolRenderer'),
-  localTools.indexOf('function askUserQuestionsFromParams'),
+const renderer = rendererSource.slice(
+  rendererSource.indexOf('export class LocalWorkspaceToolRenderer'),
 )
 
 function ruleFor(selector: string) {
@@ -21,11 +23,11 @@ function ruleFor(selector: string) {
 
 describe('ordinary local tool running sweep wiring', () => {
   it('adds the sweep class only to the running label and keeps non-visual busy semantics', () => {
-    expect(renderer).toContain("aria-busy=${status === 'running' ? 'true' : nothing}")
-    expect(renderer).toContain("<span class=${status === 'running' ? 'quickforge-tool-label quickforge-tool-running-sweep' : 'quickforge-tool-label'}>")
+    expect(renderer).toContain("aria-busy={status === 'running' ? 'true' : undefined}")
+    expect(renderer).toContain("<span className={status === 'running' ? 'quickforge-tool-label quickforge-tool-running-sweep' : 'quickforge-tool-label'}>")
     expect(renderer.match(/quickforge-tool-running-sweep/g)).toHaveLength(1)
 
-    const labelStart = renderer.indexOf("<span class=${status === 'running'")
+    const labelStart = renderer.indexOf("<span className={status === 'running'")
     const labelEnd = renderer.indexOf('</span>', labelStart)
     expect(labelStart).toBeGreaterThan(-1)
     expect(labelEnd).toBeGreaterThan(labelStart)
@@ -33,7 +35,6 @@ describe('ordinary local tool running sweep wiring', () => {
 
     for (const excludedArea of [
       'renderToolIcon(this.toolName)',
-      'quickforge-tool-chevron',
       'renderInlineDiffStats',
       'quickforge-tool-actions',
     ]) {
@@ -41,16 +42,21 @@ describe('ordinary local tool running sweep wiring', () => {
       expect(line).toBeDefined()
       expect(line).not.toContain('quickforge-tool-running-sweep')
     }
+    // 折叠箭头的 SVG 类名在 shared.tsx 的 renderToolChevron 中；排除区断言
+    // 跟随实际源码位置（跑马灯不得染上箭头图标）。
+    const chevronLine = sharedSource.split('\n').find((candidate) => candidate.includes('quickforge-tool-chevron'))
+    expect(chevronLine).toBeDefined()
+    expect(chevronLine).not.toContain('quickforge-tool-running-sweep')
   })
 
   it('skips renderStatus while running and preserves it for done, error, and called states', () => {
-    expect(renderer).toContain("${status === 'running' ? nothing : renderStatus(status, timing)}")
-    expect(renderer).not.toMatch(/^\s*\$\{renderStatus\(status, timing\)\}\s*$/m)
+    expect(renderer).toContain("{status === 'running' ? null : renderStatus(status, timing)}")
+    expect(renderer).not.toMatch(/^\s*\{renderStatus\(status, timing\)\}\s*$/m)
   })
 
   it('keeps run_command output expansion and termination behavior unchanged', () => {
-    expect(renderer).toContain("this.toolName === 'run_command' ? html`<console-block")
-    expect(renderer).toContain('${renderTerminateCommandButton(this.toolName, status, result?.details)}')
+    expect(renderer).toContain("this.toolName === 'run_command' ? renderConsoleBlock(output, variant) : renderCodeBlock(output, 'text')")
+    expect(renderer).toContain('{renderTerminateCommandButton(this.toolName, status, result?.details)}')
   })
 })
 
@@ -82,7 +88,7 @@ describe('ordinary local tool running sweep CSS', () => {
 
     expect(mediaStart).toBeGreaterThan(-1)
     expect(reducedMotion).toMatch(/\.quickforge-tool-running-sweep::after\s*\{[^}]*content:\s*none[^}]*animation:\s*none/s)
-    expect(reducedMotion).not.toMatch(/background:|box-shadow:|filter:|text-shadow:/)
+    expect(reducedMotion).not.toMatch(/background:|box-shadow|filter|text-shadow:/)
   })
 
   it('preserves ordinary title flex sizing and label ellipsis', () => {

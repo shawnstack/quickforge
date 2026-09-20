@@ -103,13 +103,13 @@ export function GitBranchMenu({
     <div className={cn('quickforge-menu-in absolute left-0 top-10 z-40 w-[340px] origin-top-left overflow-hidden rounded-2xl border border-border bg-popover shadow-quickforge', className)} style={style} onClick={(event) => event.stopPropagation()}>
       <div className="border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] p-3">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" />
           <Input
             ref={searchRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t('searchBranches')}
-            className="h-10 rounded-xl border-transparent bg-background pl-9 text-sm shadow-none focus-visible:border-border"
+            className="h-10 rounded-xl border-transparent bg-background pl-9 text-sm shadow-none"
           />
         </div>
       </div>
@@ -117,7 +117,7 @@ export function GitBranchMenu({
       {onOpenChanges ? (
         <button
           type="button"
-          className={cn('flex w-full items-center justify-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 py-3 text-sm text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground', openChangesClassName)}
+          className={cn('flex w-full items-center justify-center gap-2 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-3 py-3 text-sm text-muted-foreground transition-colors hover:text-foreground', openChangesClassName)}
           onClick={onOpenChanges}
         >
           <span>{t('uncommittedChanges')}</span>
@@ -132,9 +132,9 @@ export function GitBranchMenu({
             <span>{t('loading')}</span>
           </div>
         ) : error ? (
-          <div className="rounded-xl bg-muted/40 px-3 py-4 text-sm text-muted-foreground">{error}</div>
+          <div className="rounded-xl px-3 py-4 text-sm text-muted-foreground">{error}</div>
         ) : visibleBranches.length === 0 ? (
-          <div className="rounded-xl bg-muted/40 px-3 py-4 text-sm text-muted-foreground">{t('noBranchesFound')}</div>
+          <div className="rounded-xl px-3 py-4 text-sm text-muted-foreground">{t('noBranchesFound')}</div>
         ) : visibleBranches.map((branch) => {
           const active = branch.current || branch.name === currentBranch
           const busy = busyBranch === branch.name
@@ -144,7 +144,7 @@ export function GitBranchMenu({
               type="button"
               className={cn(
                 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors',
-                active ? 'bg-muted text-foreground' : 'text-foreground/88 hover:bg-muted/70',
+                active ? 'bg-muted text-foreground' : '',
               )}
               onClick={() => void handleCheckout(branch)}
               disabled={active || Boolean(busyBranch)}
@@ -163,7 +163,7 @@ export function GitBranchMenu({
           {onCreated ? (
             <button
               type="button"
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/88 transition-colors hover:bg-muted/70"
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors"
               onClick={() => void handleCreateBranch()}
               disabled={Boolean(busyBranch)}
             >
@@ -174,7 +174,7 @@ export function GitBranchMenu({
           {onOpenGraph ? (
             <button
               type="button"
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground/88 transition-colors hover:bg-muted/70"
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors"
               onClick={onOpenGraph}
             >
               <GitGraph className="size-4 text-muted-foreground" />

@@ -119,7 +119,7 @@ function collapseUnmodifiedRows(rows: DiffLine[]) {
 function lineClassName(kind: DiffLine['kind']) {
   if (kind === 'add') return 'bg-emerald-500/12 text-foreground'
   if (kind === 'delete') return 'bg-red-500/12 text-foreground'
-  return 'bg-background text-foreground/90'
+  return 'bg-background'
 }
 
 function linePrefix(kind: DiffLine['kind']) {
@@ -132,7 +132,7 @@ function DiffContentLine({ row }: { row: DiffLine }) {
   const lineNumber = row.kind === 'delete' ? row.oldLine : row.newLine ?? row.oldLine
   return (
     <div className={cn('grid w-max min-w-full grid-cols-[3rem_auto] text-[13px] leading-6', lineClassName(row.kind))}>
-      <span className={cn('select-none pr-3 text-right font-mono', row.kind === 'delete' && 'text-red-600 dark:text-red-500', row.kind === 'add' && 'text-emerald-600 dark:text-emerald-500', row.kind === 'context' && 'text-muted-foreground/62')}>{lineNumber ?? ''}</span>
+      <span className={cn('select-none pr-3 text-right font-mono', row.kind === 'delete' && 'text-red-600 dark:text-red-500', row.kind === 'add' && 'text-emerald-600 dark:text-emerald-500', row.kind === 'context' && '')}>{lineNumber ?? ''}</span>
       <code className="whitespace-pre pr-4 font-mono">
         <span className={cn('mr-3 select-none', row.kind === 'add' && 'text-emerald-600 dark:text-emerald-500', row.kind === 'delete' && 'text-red-600 dark:text-red-500')}>{linePrefix(row.kind)}</span>
         {row.text || ' '}
@@ -159,12 +159,12 @@ export function WorkspaceInlineDiffPreview({ diff, loading, error, noChanges }: 
   }, [diff])
 
   if (loading) {
-    return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm text-muted-foreground/70">{t('workspaceLoadingDiff')}</div>
+    return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm">{t('workspaceLoadingDiff')}</div>
   }
 
   // 会话累计口径的文件被 commit/revert 后 Git 工作区已无变更：本地化空态（列表行已有打开文件入口，不放按钮）。
   if (noChanges) {
-    return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm text-muted-foreground/70">{t('workspaceFileNoWorkingTreeChanges')}</div>
+    return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm">{t('workspaceFileNoWorkingTreeChanges')}</div>
   }
 
   if (error) {
@@ -172,15 +172,15 @@ export function WorkspaceInlineDiffPreview({ diff, loading, error, noChanges }: 
   }
 
   if (!diff) {
-    return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm text-muted-foreground/70">{t('workspaceNoDiffPreview')}</div>
+    return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm">{t('workspaceNoDiffPreview')}</div>
   }
 
   if (!rows) {
-    return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm text-muted-foreground/70">{t('workspaceDiffTooLarge')}</div>
+    return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm">{t('workspaceDiffTooLarge')}</div>
   }
 
   if (rows.length === 0) {
-    return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm text-muted-foreground/70">{t('workspaceNoDiffPreview')}</div>
+    return <div className="border-t border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-3 py-4 text-sm">{t('workspaceNoDiffPreview')}</div>
   }
 
   return (
@@ -195,7 +195,7 @@ export function WorkspaceInlineDiffPreview({ diff, loading, error, noChanges }: 
                 <div className="grid w-full min-w-0 grid-cols-[3rem_minmax(0,1fr)] gap-1 py-1 pr-4">
                   <button
                     type="button"
-                    className="flex h-12 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground/75 transition-colors hover:bg-muted/78 hover:text-foreground/80"
+                    className="flex h-12 items-center justify-center rounded-lg bg-muted/60 transition-colors"
                     onClick={() => {
                       setExpandedGroupsByDiff((current) => toggleExpandedGroup(current, diffKey, row.id))
                     }}
@@ -206,7 +206,7 @@ export function WorkspaceInlineDiffPreview({ diff, loading, error, noChanges }: 
                   </button>
                   <button
                     type="button"
-                    className="flex h-12 items-center rounded-lg bg-muted/60 px-4 text-left text-base font-medium text-muted-foreground/80 transition-colors hover:bg-muted/78 hover:text-foreground/80"
+                    className="flex h-12 items-center rounded-lg bg-muted/60 px-4 text-left text-base font-medium transition-colors"
                     onClick={() => {
                       setExpandedGroupsByDiff((current) => toggleExpandedGroup(current, diffKey, row.id))
                     }}

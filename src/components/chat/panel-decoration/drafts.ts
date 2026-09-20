@@ -5,7 +5,7 @@ import type {
 import { hasDraft } from '../chat-utils'
 
 export function readComposerDraft(panel: HTMLElement): ComposerDraft {
-  const editor = panel.querySelector<MessageEditorElement>('message-editor')
+  const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
   const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
   const text = editor?.value ?? textarea?.value ?? ''
   const attachments = editor?.attachments ? [...editor.attachments] : []
@@ -36,7 +36,7 @@ export function restoreComposerDraft(
     contextReferences: draft.contextReferences ? [...draft.contextReferences] : [],
     selectedCapabilities: draft.selectedCapabilities ? [...draft.selectedCapabilities] : [],
   }
-  const editor = panel.querySelector<MessageEditorElement>('message-editor')
+  const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
   const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
   if (!editor && !textarea) return false
 

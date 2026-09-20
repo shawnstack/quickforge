@@ -300,7 +300,7 @@ export function createTodoWriteSummaryController({
         return
       }
       const { snapshot, key: nextSnapshotKey } = latest
-      const editor = panel.querySelector<HTMLElement>('message-editor')
+      const editor = panel.querySelector<HTMLElement>('.qf-message-editor')
       if (!editor?.parentElement) {
         removeRoot()
         return

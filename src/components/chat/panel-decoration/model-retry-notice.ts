@@ -36,7 +36,7 @@ export function createModelRetryNoticeController(deps: { panel: HTMLElement }): 
   }
 
   function ensureNotice(): HTMLElement | null {
-    const messageList = panel.querySelector<HTMLElement>('message-list')
+    const messageList = panel.querySelector<HTMLElement>('.qf-message-list')
     if (!messageList) return null
 
     let notice = findNotice()
@@ -102,7 +102,7 @@ export function createModelRetryNoticeController(deps: { panel: HTMLElement }): 
         if (next) render(next, lastInfo.attempt, lastInfo.maxAttempts)
         return
       }
-      const messageList = panel.querySelector<HTMLElement>('message-list')
+      const messageList = panel.querySelector<HTMLElement>('.qf-message-list')
       if (messageList && notice.parentElement !== messageList) messageList.append(notice)
     },
     destroy: () => {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Copy } from 'lucide-react'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { AppStorage, CustomProvidersStore, ProviderKeysStore, SessionsStore, SettingsStore, setAppStorage } from '@earendil-works/pi-web-ui'
+import { AppStorage, CustomProvidersStore, ProviderKeysStore, SessionsStore, SettingsStore, setAppStorage } from '@/storage'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
@@ -75,7 +75,9 @@ function installSharedPageStorage(shareId: string, model?: Model<Api>) {
   stores.providerKeys.setBackend(backend)
   stores.sessions.setBackend(backend)
   stores.customProviders.setBackend(backend)
-  setAppStorage(new AppStorage(stores.settings, stores.providerKeys, stores.sessions, stores.customProviders, backend))
+  const storage = new AppStorage(stores.settings, stores.providerKeys, stores.sessions, stores.customProviders, backend)
+  setAppStorage(storage)
+  // 分享页同样要注册本页存储实例，供页面内组件经 getAppStorage() 读取
 }
 
 export function SharedConversationPage({ shareId }: { shareId: string }) {
@@ -215,11 +217,11 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter') void unlock() }}
-            className="mt-5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+            className="mt-5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none"
             placeholder="密码"
             autoFocus
           />
-          {error ? <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+          {error ? <div className="mt-3 rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
           <Button className="mt-5 w-full" onClick={() => void unlock()} disabled={loading || !password.trim()}>
             {loading ? t('loading') : '用密码打开分享对话'}
           </Button>

@@ -1,22 +1,19 @@
 /**
- * Scroll synchronization for the ChatPanel.
+ * Scroll synchronization for the chat surface.
  *
  * Manages auto-scroll behavior: scrolls to bottom on new content unless the
  * user has explicitly scrolled up.  Re-enables auto-scroll when the user
  * scrolls back to the bottom.
  */
 
-import type { AgentInterfaceElement } from './chat-utils'
-
 type ScrollSyncOptions = {
   panel: HTMLElement
-  /** Fired when the user scrolls the conversation all the way to the top (from a lower position). */
+  /** Forward the auto-scroll flag to the React ChatSurface handle. */
+  setAutoScroll?: (enabled: boolean) => void
   onReachTop?: () => void
-  /** Fired when auto-scroll is re-enabled after the user returns to the bottom. */
-  onAutoScrollEnabled?: () => void
 }
 
-export function createScrollSync({ panel, onReachTop, onAutoScrollEnabled }: ScrollSyncOptions) {
+export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyncOptions) {
   let autoScrollEnabled = true
   let autoScrollFrame: number | undefined
   let lastScrollTop = 0
@@ -29,14 +26,13 @@ export function createScrollSync({ panel, onReachTop, onAutoScrollEnabled }: Scr
   const userScrollIntentMs = 500
 
   const findScrollContainer = () =>
-    panel.querySelector<HTMLElement>('agent-interface .overflow-y-auto')
+    panel.querySelector<HTMLElement>('.qf-scroll-container')
 
   const isNearBottom = (element: HTMLElement) =>
     element.scrollHeight - element.scrollTop - element.clientHeight <= 80
 
   const setPanelAutoScroll = (enabled: boolean) => {
-    const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
-    agentInterface?.setAutoScroll?.(enabled)
+    setAutoScroll?.(enabled)
   }
 
   const recentlyUserScrolled = () => {
@@ -89,7 +85,6 @@ export function createScrollSync({ panel, onReachTop, onAutoScrollEnabled }: Scr
   const enableAutoScroll = () => {
     autoScrollEnabled = true
     setPanelAutoScroll(true)
-    onAutoScrollEnabled?.()
     scheduleScrollToBottom()
   }
 
@@ -104,12 +99,6 @@ export function createScrollSync({ panel, onReachTop, onAutoScrollEnabled }: Scr
       lastScrollTop = currentScrollTop
       return
     }
-    // Scrolled all the way to the top from a lower position → load earlier messages.
-    // Guarded by `lastScrollTop > 0` so it only fires once per traversal, not on
-    // every remaining scroll event while pinned at the top.
-    if (currentScrollTop <= 0 && lastScrollTop > 0) {
-      onReachTop?.()
-    }
     const userInitiatedScrollUp = scrollingUp && recentlyUserScrolled()
     if (scrollingUp && autoScrollEnabled && !userInitiatedScrollUp && !isNearBottom(scrollContainer)) {
       lastScrollTop = currentScrollTop
@@ -118,7 +107,8 @@ export function createScrollSync({ panel, onReachTop, onAutoScrollEnabled }: Scr
     }
     if (userInitiatedScrollUp) {
       disableAutoScroll()
-    } else if (isNearBottom(scrollContainer)) {
+      if (currentScrollTop <= 0 && lastScrollTop > 0) onReachTop?.()
+    } else if (currentScrollTop > lastScrollTop + 1 && recentlyUserScrolled() && isNearBottom(scrollContainer)) {
       autoScrollEnabled = true
       setPanelAutoScroll(true)
     }
@@ -126,7 +116,12 @@ export function createScrollSync({ panel, onReachTop, onAutoScrollEnabled }: Scr
   }
 
   const handleWheel = (event: WheelEvent) => {
-    if (event.deltaY < 0) markUserScrollUp()
+    markPossibleUserScroll()
+    if (event.deltaY < 0) {
+      markUserScrollUp()
+      // Short pages may already be at the top and cannot emit a scroll event.
+      if ((findScrollContainer()?.scrollTop ?? 1) <= 0 && programmaticScrollDepth === 0) onReachTop?.()
+    }
   }
 
   const handlePointerDown = (event: PointerEvent) => {
@@ -134,6 +129,7 @@ export function createScrollSync({ panel, onReachTop, onAutoScrollEnabled }: Scr
   }
 
   const handleKeyDown = (event: KeyboardEvent) => {
+    markPossibleUserScroll()
     if (event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home') markUserScrollUp()
   }
 
@@ -144,6 +140,7 @@ export function createScrollSync({ panel, onReachTop, onAutoScrollEnabled }: Scr
   const handleTouchMove = (event: TouchEvent) => {
     const currentTouchY = event.touches[0]?.clientY
     if (currentTouchY === undefined || lastTouchY === undefined) return
+    markPossibleUserScroll()
     if (currentTouchY > lastTouchY + 1) markUserScrollUp()
     lastTouchY = currentTouchY
   }

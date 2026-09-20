@@ -1,13 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 
-// The project's vitest setup runs in a node environment without jsdom;
-// replaceSvg touches `document`, so it is stubbed while the rest of
-// chat-utils stays real.
-vi.mock('../../src/components/chat/chat-utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/components/chat/chat-utils')>()
-  return { ...actual, replaceSvg: vi.fn() }
-})
-
 import { syncSendStopButton } from '../../src/components/chat/panel-decoration/send-stop-button'
 import type { QuickForgeActionButton } from '../../src/components/chat/chat-utils'
 
@@ -31,7 +23,6 @@ function createEnv() {
     disabled: true,
     title: '',
     classList: new FakeClassList(),
-    dataset: {} as Record<string, string>,
     __quickforgeStopHandler: undefined as ((event: Event) => void) | undefined,
     addEventListener: (type: string, handler: unknown, capture?: unknown) => {
       listeners.push({ type, handler, capture: Boolean(capture) })
@@ -41,7 +32,6 @@ function createEnv() {
       if (index >= 0) listeners.splice(index, 1)
     },
     setAttribute: (name: string, value: string) => { attributes[name] = value },
-    querySelector: () => null,
   }
   const rightControls = {
     querySelector: (selector: string) => (selector === 'button:last-child' ? button : null),
@@ -71,13 +61,9 @@ describe('syncSendStopButton', () => {
   it('renders the waiting ring while streaming without assistant output', () => {
     const env = createEnv()
 
-    // Seed the send-state marker so the stop branch runs against a "was send" button.
-    env.button.dataset.quickforgeSendIcon = 'arrow-up'
     env.sync({ isStreaming: true, isWaiting: () => true })
 
-    expect(env.button.classList.contains('quickforge-stop-button')).toBe(true)
     expect(env.button.classList.contains('quickforge-stop-button--waiting')).toBe(true)
-    expect(env.button.classList.contains('quickforge-send-button')).toBe(false)
     expect(env.button.disabled).toBe(false)
     expect(env.button.title).toBe('Stop')
     expect(env.attributes['aria-label']).toBe('Stop')
@@ -94,13 +80,28 @@ describe('syncSendStopButton', () => {
     } as unknown as Event
     handler?.(stopEvent)
     expect(env.abort).toHaveBeenCalledTimes(1)
+    expect(env.removeCommandSuggestions).toHaveBeenCalledTimes(1)
+  })
+
+  it('never adds or removes the React-owned base classes', () => {
+    const env = createEnv()
+
+    env.sync({ isStreaming: true, isWaiting: () => true })
+    // React renders the base class on the button; the decoration layer must
+    // not duplicate it or strip the send class (it would fight React's
+    // className writes).
+    expect(env.button.classList.contains('quickforge-send-button')).toBe(false)
+    expect(env.button.classList.contains('quickforge-stop-button')).toBe(false)
+
+    env.sync({ isStreaming: false })
+    expect(env.button.classList.contains('quickforge-send-button')).toBe(false)
+    expect(env.button.classList.contains('quickforge-stop-button')).toBe(false)
   })
 
   it('leaves the waiting class off once assistant output started', () => {
     const env = createEnv()
     env.sync({ isStreaming: true, isWaiting: () => false })
 
-    expect(env.button.classList.contains('quickforge-stop-button')).toBe(true)
     expect(env.button.classList.contains('quickforge-stop-button--waiting')).toBe(false)
   })
 
@@ -118,19 +119,15 @@ describe('syncSendStopButton', () => {
 
     env.sync({ isStreaming: true, isWaiting: () => false })
     expect(env.button.classList.contains('quickforge-stop-button--waiting')).toBe(false)
-    expect(env.button.classList.contains('quickforge-stop-button')).toBe(true)
   })
 
-  it('restores the send button (and drops the waiting ring) when streaming ends', () => {
+  it('drops the stop decoration when streaming ends', () => {
     const env = createEnv()
     env.sync({ isStreaming: true, isWaiting: () => true })
 
     env.sync({ isStreaming: false, isWaiting: () => true })
 
-    expect(env.button.classList.contains('quickforge-stop-button')).toBe(false)
     expect(env.button.classList.contains('quickforge-stop-button--waiting')).toBe(false)
-    expect(env.button.classList.contains('quickforge-send-button')).toBe(true)
-    expect(env.button.dataset.quickforgeSendIcon).toBe('arrow-up')
     // Capture-phase stop handlers are removed again.
     expect(env.listeners.filter((entry) => entry.capture)).toHaveLength(0)
   })

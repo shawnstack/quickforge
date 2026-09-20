@@ -101,7 +101,7 @@ const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 
 
 function buildPanel() {
   const panel = new FakeElement()
-  const messageList = new FakeElement('message-list')
+  const messageList = Object.assign(new FakeElement('div'), { className: 'qf-message-list' })
   panel.append(messageList)
   return { panel, messageList }
 }
@@ -172,7 +172,7 @@ describe('model retry notice controller', () => {
 
     controller.show(1, 2)
     messageList.remove()
-    const newList = new FakeElement('message-list')
+    const newList = Object.assign(new FakeElement('div'), { className: 'qf-message-list' })
     panel.append(newList)
     controller.sync()
 
@@ -226,7 +226,7 @@ describe('model retry notice source contracts', () => {
   })
 
   it('notice appends to the end of message-list and never uses innerHTML for text', () => {
-    expect(noticeSource).toContain(`panel.querySelector<HTMLElement>('message-list')`)
+    expect(noticeSource).toContain(`panel.querySelector<HTMLElement>('.qf-message-list')`)
     expect(noticeSource).toContain('messageList.append(notice)')
     const innerHtmlLines = noticeSource.split('\n').filter((line) => line.includes('.innerHTML ='))
     expect(innerHtmlLines).toHaveLength(1)

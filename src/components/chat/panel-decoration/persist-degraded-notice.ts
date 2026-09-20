@@ -32,6 +32,6 @@ export function syncPersistDegradedNotice(deps: PersistDegradedNoticeDeps) {
   notice.setAttribute('role', 'alert')
   notice.innerHTML = `<span class="quickforge-persist-degraded-dot" aria-hidden="true"></span><span class="quickforge-persist-degraded-text">${escapeHtml(text)}</span>`
 
-  const messageList = panel.querySelector('message-list')
+  const messageList = panel.querySelector('.qf-message-list')
   if (messageList && messageList.firstElementChild !== notice) messageList.prepend(notice)
 }

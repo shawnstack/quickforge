@@ -222,7 +222,7 @@ export function ProjectDirectoryPicker({
             </div>
           </form>
 
-          {error ? <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+          {error ? <div className="rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
 
           <div className="rounded-md border border-border">
             <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
@@ -279,7 +279,7 @@ export function ProjectDirectoryPicker({
               {parentPath ? (
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted/28 disabled:opacity-50"
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm disabled:opacity-50"
                   onClick={() => loadDirectory(parentPath)}
                   disabled={loading || submitting || creatingFolder}
                 >
@@ -296,7 +296,7 @@ export function ProjectDirectoryPicker({
                 <button
                   key={directory.path}
                   type="button"
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted/28 disabled:opacity-50"
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm disabled:opacity-50"
                   onClick={() => loadDirectory(directory.path)}
                   disabled={loading || submitting || creatingFolder}
                   title={directory.path}

@@ -480,7 +480,7 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
     }
     const existingGitBranch = panel.querySelector<HTMLElement>('.quickforge-git-branch-inline')
     const statsRight = renderInline
-      ? panel.querySelector('message-editor')?.parentElement?.querySelector<HTMLElement>('.ml-auto.items-center')
+      ? panel.querySelector('.qf-message-editor')?.parentElement?.querySelector<HTMLElement>('.ml-auto.items-center')
       : null
     const modelButton = renderModelRing
       ? panel.querySelector<HTMLElement>('.quickforge-model-trigger')
@@ -495,7 +495,7 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
       if (!renderModelRing) removeContextUsageVisual()
     } else if (gitBranch && statsRight) {
       const gitBranchLabel = `${gitBranchIcon}<span style="max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(gitBranch)}</span>`
-      const gitBranchTitle = `Git branch: ${gitBranch}`
+      const gitBranchTitle = t('gitBranchLabel', { branch: gitBranch })
       if (existingGitBranch) {
         if (existingGitBranch.dataset.quickforgeGitBranch !== gitBranch) {
           existingGitBranch.innerHTML = gitBranchLabel

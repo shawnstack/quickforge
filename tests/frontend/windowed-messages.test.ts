@@ -106,7 +106,7 @@ describe('message windowing (by turns)', () => {
     const rendered = window.setFullMessages(full)
 
     expect(window.isEnabled()).toBe(true)
-    // 50 turns → window shows the last 10 turns: 2 messages per turn × 10.
+    // 50 turns → window shows the last 3 turns: 2 messages per turn × 10.
     expect(rendered).toHaveLength(WINDOW_TURNS * 2)
     expect(rendered[0]).toBe(full[full.length - WINDOW_TURNS * 2])
     expect(rendered[rendered.length - 1]).toBe(full[full.length - 1])
@@ -167,7 +167,7 @@ describe('message windowing (by turns)', () => {
 
     const grown = [...full, userMessage(50), assistantMessage(50)]
     window.setFullMessages(grown)
-    // 51 turns → window = last 10 turns.
+    // 51 turns → window = last 3 turns.
     expect(window.getWindowStart()).toBe(grown.length - WINDOW_TURNS * 2)
   })
 
@@ -181,13 +181,13 @@ describe('message windowing (by turns)', () => {
     const rolledBack = full.slice(0, 60)
     const rendered = window.setFullMessages(rolledBack)
     expect(rendered).toHaveLength(WINDOW_TURNS * 2)
-    // 30 turns → tail start is turn 20; clamped pinned ordinal must not exceed it.
+    // 30 turns → tail start is turn 27; clamped pinned ordinal must not exceed it.
     expect(window.getWindowStart()).toBeLessThanOrEqual(60 - WINDOW_TURNS * 2)
   })
 
   it('keeps every toolResult paired with its assistant inside the window', () => {
     const window = createMessageWindow()
-    // 30 tool-calling turns → 90 messages; window = last 10 turns.
+    // 30 tool-calling turns → 90 messages; window = last 3 turns.
     const full = turns(30, { withToolCalls: true })
     const rendered = window.setFullMessages(full)
 
@@ -201,7 +201,7 @@ describe('message windowing (by turns)', () => {
       .filter((chunk) => chunk?.type === 'toolCall')
       .filter((chunk) => !resultByCallId.has(chunk.id))
     expect(missing).toEqual([])
-    // The window covers exactly 10 turns (3 messages per tool-calling turn).
+    // The window covers exactly 3 turns (3 messages per tool-calling turn).
     expect(rendered).toHaveLength(WINDOW_TURNS * 3)
   })
 

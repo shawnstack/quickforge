@@ -377,6 +377,14 @@ describe('ServerAgent', () => {
     agent.subscribe((event) => events.push(event as unknown as Record<string, unknown>))
 
     try {
+      // Seed a live partial from an SSE stream: the failed prompt path must
+      // clear it together with the rest of the optimistic streaming state.
+      latestEventSource().emit('message_update', {
+        sessionId: 'session-1',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'stale partial' }] },
+      })
+      expect(agent.state.streamingMessage).toMatchObject({ role: 'assistant' })
+
       await agent.prompt('hello')
       expect(agent.state.messages).toEqual([
         { role: 'assistant', content: 'ready' },
@@ -745,6 +753,64 @@ describe('ServerAgent', () => {
       })
 
       expect(agent.state.messages).toEqual([{ role: 'user', content: 'current' }])
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('exposes SSE message_update frames on state.streamingMessage and clears them on message_end', async () => {
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [{ role: 'user', content: 'go' }] as AgentMessage[],
+        isStreaming: true,
+        stateVersion: 1,
+      },
+    })
+
+    try {
+      const source = latestEventSource()
+      const partial = { role: 'assistant', timestamp: 1, content: [{ type: 'text', text: 'partial body' }] } as AgentMessage
+      source.emit('message_update', { sessionId: 'session-1', stateVersion: 2, message: partial })
+      expect(agent.state.streamingMessage).toStrictEqual(partial)
+
+      // A frame without `message` (older server) never clobbers the stream.
+      source.emit('message_update', { sessionId: 'session-1', stateVersion: 2 })
+      expect(agent.state.streamingMessage).toStrictEqual(partial)
+
+      const final = { ...partial, content: [{ type: 'text', text: 'final body' }] } as AgentMessage
+      source.emit('message_end', { sessionId: 'session-1', stateVersion: 3, message: final })
+      expect(agent.state.messages.at(-1)).toStrictEqual(final)
+      expect(agent.state.streamingMessage).toBeUndefined()
+
+      // agent_end keeps the cleanup invariant.
+      source.emit('agent_end', { sessionId: 'session-1', stateVersion: 4, messages: [...agent.state.messages] })
+      expect(agent.state.streamingMessage).toBeUndefined()
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('clears a lingering streaming message on turn_end without message data', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+    vi.stubGlobal('fetch', fetchMock)
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        messages: [{ role: 'user', content: 'go' }] as AgentMessage[],
+        isStreaming: true,
+        stateVersion: 1,
+      },
+    })
+
+    try {
+      const source = latestEventSource()
+      const partial = { role: 'assistant', timestamp: 1, content: [{ type: 'text', text: 'partial body' }] } as AgentMessage
+      source.emit('message_update', { sessionId: 'session-1', stateVersion: 2, message: partial })
+      expect(agent.state.streamingMessage).toStrictEqual(partial)
+
+      source.emit('turn_end', { sessionId: 'session-1', stateVersion: 3 })
+      expect(agent.state.streamingMessage).toBeUndefined()
     } finally {
       agent.dispose()
     }

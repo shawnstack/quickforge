@@ -10,7 +10,7 @@ function createPanel(): FakePanel {
   const panel = {
     editor: undefined,
     isConnected: true,
-    querySelector: (selector: string) => selector === 'message-editor' ? panel.editor ?? null : null,
+    querySelector: (selector: string) => selector === '.qf-message-editor' ? panel.editor ?? null : null,
   }
   return panel as unknown as FakePanel
 }

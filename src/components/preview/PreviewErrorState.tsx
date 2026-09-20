@@ -23,9 +23,9 @@ export function PreviewErrorState({ issue, onRetry }: PreviewErrorStateProps) {
 
   return (
     <div className="flex h-full flex-col items-center justify-center overflow-auto px-8 py-10 text-center">
-      <Icon className="size-20 shrink-0 stroke-[1.55] text-muted-foreground/75" />
-      <div className="mt-8 text-xl font-semibold tracking-tight text-foreground/88">{t(presentation.title)}</div>
-      <div className="mt-4 max-w-md text-base leading-6 text-muted-foreground/82">{t(presentation.description)}</div>
+      <Icon className="size-20 shrink-0 stroke-[1.55]" />
+      <div className="mt-8 text-xl font-semibold tracking-tight">{t(presentation.title)}</div>
+      <div className="mt-4 max-w-md text-base leading-6">{t(presentation.description)}</div>
 
       {issue.retryable && onRetry ? (
         <Button type="button" variant="outline" size="sm" className="mt-6" onClick={onRetry}>
@@ -34,32 +34,32 @@ export function PreviewErrorState({ issue, onRetry }: PreviewErrorStateProps) {
         </Button>
       ) : null}
 
-      <details className="mt-6 w-full max-w-xl rounded-xl border border-[color-mix(in_oklab,var(--border)_55%,transparent)] bg-background/65 text-left text-sm text-muted-foreground">
-        <summary className="cursor-pointer select-none px-4 py-3 font-medium text-foreground/78 marker:text-muted-foreground">
+      <details className="mt-6 w-full max-w-xl rounded-xl border border-[color-mix(in_oklab,var(--border)_55%,transparent)] text-left text-sm text-muted-foreground">
+        <summary className="cursor-pointer select-none px-4 py-3 font-medium">
           {t('previewErrorDetails')}
         </summary>
-        <dl className="space-y-3 border-t border-border/60 px-4 py-3">
+        <dl className="space-y-3 border-t px-4 py-3">
           {typeof issue.status === 'number' ? (
             <div>
-              <dt className="text-xs text-muted-foreground/70">{t('previewErrorStatusCode')}</dt>
-              <dd className="mt-1 font-mono text-xs text-foreground/82">{issue.status}</dd>
+              <dt className="text-xs">{t('previewErrorStatusCode')}</dt>
+              <dd className="mt-1 font-mono text-xs">{issue.status}</dd>
             </div>
           ) : null}
           {issue.code ? (
             <div>
-              <dt className="text-xs text-muted-foreground/70">{t('previewErrorCode')}</dt>
-              <dd className="mt-1 break-all font-mono text-xs text-foreground/82">{issue.code}</dd>
+              <dt className="text-xs">{t('previewErrorCode')}</dt>
+              <dd className="mt-1 break-all font-mono text-xs">{issue.code}</dd>
             </div>
           ) : null}
           {issue.path ? (
             <div>
-              <dt className="text-xs text-muted-foreground/70">{t('previewErrorFilePath')}</dt>
-              <dd className="mt-1 break-all font-mono text-xs text-foreground/82">{issue.path}</dd>
+              <dt className="text-xs">{t('previewErrorFilePath')}</dt>
+              <dd className="mt-1 break-all font-mono text-xs">{issue.path}</dd>
             </div>
           ) : null}
           <div>
-            <dt className="text-xs text-muted-foreground/70">{t('previewErrorRawMessage')}</dt>
-            <dd className="mt-1 whitespace-pre-wrap break-all font-mono text-xs leading-5 text-foreground/82">{issue.error}</dd>
+            <dt className="text-xs">{t('previewErrorRawMessage')}</dt>
+            <dd className="mt-1 whitespace-pre-wrap break-all font-mono text-xs leading-5">{issue.error}</dd>
           </div>
         </dl>
       </details>

@@ -53,8 +53,8 @@ class FakeElement {
   removeEventListener(type: string) { this.listeners.delete(type) }
   dispatchKey(event: KeyboardEvent) { this.listeners.get('keydown')?.(event) }
   querySelector<T>(selector: string): T | null {
-    if (selector === 'message-editor textarea') return this.find((child) => child.tagName === 'textarea') as T ?? null
-    if (selector === 'message-editor') return this.find((child) => child.tagName === 'message-editor') as T ?? null
+    if (selector === '.qf-message-editor textarea') return this.find((child) => child.tagName === 'textarea') as T ?? null
+    if (selector === '.qf-message-editor') return this.find((child) => child.className.split(/\s+/).includes('qf-message-editor')) as T ?? null
     if (selector.startsWith('.')) return this.find((child) => child.className.split(/\s+/).includes(selector.slice(1))) as T ?? null
     return this.find((child) => child.tagName === selector) as T ?? null
   }
@@ -73,7 +73,7 @@ class FakeElement {
 function createEnv(fetchImpl = vi.fn()) {
   const panel = new FakeElement('div')
   const shell = new FakeElement('div')
-  const editor = new FakeElement('message-editor')
+  const editor = Object.assign(new FakeElement('div'), { className: 'qf-message-editor' })
   const inputCard = new FakeElement('div')
   const textarea = new FakeElement('textarea')
   inputCard.append(textarea)

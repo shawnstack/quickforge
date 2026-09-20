@@ -1,126 +1,64 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { TemplateResult } from 'lit'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { harness, nodes } from './settings-react-harness'
 
-const piWebUiMocks = vi.hoisted(() => ({
-  getAppStorage: vi.fn(),
-  requestUpdate: vi.fn(),
-}))
-
-vi.mock('@earendil-works/pi-web-ui', () => ({
-  getAppStorage: piWebUiMocks.getAppStorage,
-  SettingsTab: class {
-    requestUpdate() {
-      piWebUiMocks.requestUpdate()
-    }
-  },
-}))
-vi.mock('@/lib/appearance-settings', () => ({
-  getCurrentTheme: () => 'light',
-  loadAppearanceSettings: vi.fn(async () => ({ theme: 'light' })),
-  saveAppearanceSettings: vi.fn(async () => undefined),
-}))
+vi.mock('react', async (original) => ({ ...await original<typeof import('react')>(), ...(await import('./settings-react-harness')).hooks }))
+const storageSet = vi.fn(async () => undefined)
+vi.mock('@/storage', () => ({ getAppStorage: () => ({ settings: { get: async () => null, set: storageSet } }) }))
+vi.mock('@/lib/appearance-settings', () => ({ getCurrentTheme: () => 'light', loadAppearanceSettings: async () => ({ theme: 'light' }), saveAppearanceSettings: vi.fn() }))
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
-vi.mock('../../src/lib/info-tip', () => ({}))
+vi.mock('@/components/ui/info-tip', () => ({ InfoTip: () => null }))
+import { AppearanceSettingsTab, FontSizeSlider } from '../../src/components/settings/tabs/AppearanceSettingsTab'
 
 const properties = new Map<string, string>()
-const fakeDocument = {
-  documentElement: {
-    style: {
-      fontSize: '',
-      setProperty: (name: string, value: string) => properties.set(name, value),
-      getPropertyValue: (name: string) => properties.get(name) ?? '',
-    },
-  },
-  createElement: () => ({ style: {}, remove: () => undefined }),
-  createTreeWalker: () => ({}),
-  createComment: () => ({}),
+const style = { fontSize: '', setProperty: (key: string, value: string) => properties.set(key, value), getPropertyValue: (key: string) => properties.get(key) ?? '' }
+function render() { harness.begin(); return nodes(AppearanceSettingsTab()) }
+async function mount() {
+  render()
+  harness.effects.forEach((effect) => effect())
+  await vi.waitFor(() => expect(render().filter((node) => node.type === FontSizeSlider)).toHaveLength(2))
 }
-
-let registeredTab: new () => TestTab
-vi.stubGlobal('document', fakeDocument)
-vi.stubGlobal('window', new EventTarget())
-vi.stubGlobal('customElements', {
-  get: () => undefined,
-  define: (_name: string, constructor: new () => TestTab) => {
-    registeredTab = constructor
-  },
+beforeEach(() => {
+  harness.reset(); vi.clearAllMocks(); storageSet.mockReset(); storageSet.mockResolvedValue(undefined); properties.clear(); style.fontSize = ''
+  vi.stubGlobal('document', { documentElement: { style } })
+  vi.stubGlobal('window', new EventTarget())
 })
+afterEach(() => vi.unstubAllGlobals())
 
-await import('../../src/lib/appearance-settings-tab')
-
-type SliderTemplate = TemplateResult & { values: unknown[] }
-type TestTab = {
-  interfaceFontSizePx: number
-  messageFontSizePx: number
-  updateInterfaceFontSize: (value: string) => void
-  updateMessageFontSize: (value: string) => void
-  renderFontSizeSlider: (
-    label: string,
-    note: string | null,
-    value: number,
-    onInput: (value: string) => void,
-  ) => SliderTemplate
-}
-
-function sliderHandlers(template: SliderTemplate) {
-  const handlers = template.values.filter((value): value is (event?: Event) => unknown => typeof value === 'function')
-  expect(handlers).toHaveLength(2)
-  return { onInput: handlers[0], onChange: handlers[1] }
-}
-
-describe('appearance settings font size sliders', () => {
-  const storageSet = vi.fn(async () => undefined)
-
-  beforeEach(() => {
-    properties.clear()
-    fakeDocument.documentElement.style.fontSize = ''
-    storageSet.mockClear()
-    piWebUiMocks.requestUpdate.mockClear()
-    piWebUiMocks.getAppStorage.mockReturnValue({ settings: { set: storageSet } })
-  })
-
-  it.each([
-    {
-      name: 'interface',
-      value: 16,
-      bindInput: (tab: TestTab) => (next: string) => tab.updateInterfaceFontSize(next),
-      expected: { interfaceFontSizePx: 16, messageFontSizePx: 13 },
+describe('React appearance settings font size sliders', () => {
+  it.each([[0, 16, { interfaceFontSizePx: 16, messageFontSizePx: 13 }], [1, 17, { interfaceFontSizePx: 13, messageFontSizePx: 17 }]] as const)(
+    'slider %s keeps input local then applies CSS before persistence finishes', async (index, value, expected) => {
+      await mount()
+      storageSet.mockClear()
+      const slider = () => render().filter((node) => node.type === FontSizeSlider)[index]
+      slider().props.onInput(String(value))
+      expect(slider().props.value).toBe(value)
+      expect(storageSet).not.toHaveBeenCalled()
+      expect(style.fontSize).toBe('')
+      let finish!: () => void
+      storageSet.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve }))
+      slider().props.onCommit(String(value))
+      expect(storageSet).toHaveBeenCalledWith('font-size-settings', expected)
+      expect(style.fontSize).toBe(`${expected.interfaceFontSizePx}px`)
+      expect(properties.get('--quickforge-message-font-size')).toBe(`${expected.messageFontSizePx}px`)
+      finish()
     },
-    {
-      name: 'message',
-      value: 17,
-      bindInput: (tab: TestTab) => (next: string) => tab.updateMessageFontSize(next),
-      expected: { interfaceFontSizePx: 13, messageFontSizePx: 17 },
-    },
-  ])('$name slider keeps input local and applies immediately on change', async ({ value, bindInput, expected }) => {
-    const tab = new registeredTab()
-    const template = tab.renderFontSizeSlider('label', null, 13, bindInput(tab))
-    const { onInput, onChange } = sliderHandlers(template)
+  )
 
-    onInput({ target: { value: String(value) } } as unknown as Event)
-
-    expect(tab.interfaceFontSizePx).toBe(expected.interfaceFontSizePx)
-    expect(tab.messageFontSizePx).toBe(expected.messageFontSizePx)
-    expect(piWebUiMocks.requestUpdate).toHaveBeenCalledOnce()
-    expect(storageSet).not.toHaveBeenCalled()
-    expect(fakeDocument.documentElement.style.fontSize).toBe('')
-    expect(properties.get('--quickforge-message-font-size')).toBeUndefined()
-
-    let finishPersist!: () => void
-    storageSet.mockImplementationOnce(() => new Promise<void>((resolve) => {
-      finishPersist = resolve
-    }))
-    const saving = onChange()
-
-    expect(storageSet).toHaveBeenCalledOnce()
-    expect(storageSet).toHaveBeenCalledWith('font-size-settings', expected)
-    expect(fakeDocument.documentElement.style.fontSize).toBe(`${expected.interfaceFontSizePx}px`)
-    expect(properties.get('--quickforge-message-font-size')).toBe(`${expected.messageFontSizePx}px`)
-
-    finishPersist()
-    await saving
-
-    expect(fakeDocument.documentElement.style.fontSize).toBe(`${expected.interfaceFontSizePx}px`)
-    expect(properties.get('--quickforge-message-font-size')).toBe(`${expected.messageFontSizePx}px`)
+  it('attaches a native change listener, not a continuous React onChange save', () => {
+    const input = Object.assign(new EventTarget(), { value: '18' })
+    const onInput = vi.fn(); const onCommit = vi.fn()
+    harness.begin()
+    const tree = FontSizeSlider({ value: 13, onInput, onCommit })
+    harness.refs[0].current = input
+    const cleanups = harness.effects.map((effect) => effect())
+    tree.props.onInput({ currentTarget: { value: '18' } })
+    expect(onInput).toHaveBeenCalledWith('18')
+    expect(onCommit).not.toHaveBeenCalled()
+    input.dispatchEvent(new Event('change'))
+    expect(onCommit).toHaveBeenCalledWith('18')
+    expect(onCommit).toHaveBeenCalledOnce()
+    cleanups.forEach((cleanup) => cleanup?.())
+    input.dispatchEvent(new Event('change'))
+    expect(onCommit).toHaveBeenCalledOnce()
   })
 })

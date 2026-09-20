@@ -1,9 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-// i18n.ts 运行时只从 pi-web-ui 引入 translations；用最小桩替代完整 UI bundle。
-vi.mock('@earendil-works/pi-web-ui', () => ({
-  translations: { en: {}, zh: {} },
-}))
 
 import {
   getNewChatGreetingKeys,

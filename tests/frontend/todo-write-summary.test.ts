@@ -151,9 +151,9 @@ function createEnv(initialMessages: unknown[], {
 }: { withEditor?: boolean; suggestionMenu?: 'command' | 'file' } = {}) {
   const scrollContent = new FakeElement()
   const streaming = new FakeElement()
-  streaming.className = 'streaming-message-container'
+  streaming.className = 'qf-streaming-message'
   const messageList = new FakeElement()
-  messageList.className = 'message-list'
+  messageList.className = 'qf-message-list'
   scrollContent.append(streaming, messageList)
   const composerDock = new FakeElement()
   composerDock.className = 'quickforge-composer-dock'
@@ -164,7 +164,7 @@ function createEnv(initialMessages: unknown[], {
     ? 'quickforge-command-suggestions'
     : 'quickforge-file-reference-suggestions'
   const editor = new FakeElement()
-  editor.className = 'message-editor'
+  editor.className = 'qf-message-editor'
   const stats = new FakeElement()
   stats.className = 'composer-stats'
   if (withEditor) composerShell.append(...(menu ? [menu, editor, stats] : [editor, stats]))
@@ -209,7 +209,7 @@ function createEnv(initialMessages: unknown[], {
         ? 'quickforge-file-reference-suggestions'
         : 'quickforge-command-suggestions'
       const nextEditor = new FakeElement()
-      nextEditor.className = 'message-editor'
+      nextEditor.className = 'qf-message-editor'
       const nextStats = new FakeElement()
       nextStats.className = 'composer-stats'
       nextShell.append(...(nextMenu ? [nextMenu, nextEditor, nextStats] : [nextEditor, nextStats]))
@@ -219,7 +219,7 @@ function createEnv(initialMessages: unknown[], {
     },
     rebuildEditor() {
       const nextEditor = new FakeElement()
-      nextEditor.className = 'message-editor'
+      nextEditor.className = 'qf-message-editor'
       composerShell.insertBefore(nextEditor, stats)
       return nextEditor
     },

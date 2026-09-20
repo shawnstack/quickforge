@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 
-// The real i18n module pulls in pi-web-ui, which needs a browser DOM.
+// Deterministic t stub: keys are echoed verbatim.
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
 
 import { turnEndedWithError } from '../../src/lib/message-utils'

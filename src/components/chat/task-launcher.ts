@@ -181,7 +181,7 @@ export function createTaskLauncher(options: Omit<Options, 'notify'> & { panel: H
     sync: () => {
       if (options.visible && !options.visible()) { dismissed = false; detach(); return }
       if (!visible()) { detach(); return }
-      const shell = options.panel.querySelector('message-editor')?.parentElement
+      const shell = options.panel.querySelector('.qf-message-editor')?.parentElement
       if (shell && root.parentElement !== shell) shell.prepend(root)
       grid.querySelectorAll('button').forEach((button) => {
         const disabled = !options.ready()

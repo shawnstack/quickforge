@@ -512,14 +512,14 @@ export function AgentProfilesPage() {
 
           <div className="px-5 py-4">
             <div className="space-y-4">
-              <div className="rounded-2xl border border-border bg-muted/20 p-3">
+              <div className="rounded-2xl border border-border p-3">
                 <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
                   <Sparkles className="size-4 text-primary" />
                   {t('aiFillAgent')}
                   <InfoTip label={t('aiFillAgentDescription')} />
                 </div>
                 <textarea
-                  className="min-h-20 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/65 focus:border-ring disabled:opacity-60"
+                  className="min-h-20 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors disabled:opacity-60"
                   value={aiFillInstruction}
                   disabled={definitionReadonly || aiFillLoading}
                   onChange={(event) => setAiFillInstruction(event.target.value)}
@@ -535,15 +535,15 @@ export function AgentProfilesPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm font-medium text-foreground">
                   {t('agentName')}
-                  <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.name} disabled={definitionReadonly} onChange={(event) => updateAgentForm('name', event.target.value)} placeholder="reviewer" />
+                  <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none disabled:opacity-60" value={agentForm.name} disabled={definitionReadonly} onChange={(event) => updateAgentForm('name', event.target.value)} placeholder="reviewer" />
                 </label>
                 <label className="block text-sm font-medium text-foreground">
                   {t('agentLabel')}
-                  <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.label} disabled={definitionReadonly} onChange={(event) => updateAgentForm('label', event.target.value)} placeholder={t('agentLabelPlaceholder')} />
+                  <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none disabled:opacity-60" value={agentForm.label} disabled={definitionReadonly} onChange={(event) => updateAgentForm('label', event.target.value)} placeholder={t('agentLabelPlaceholder')} />
                 </label>
               </div>
               {editingAgent ? (
-                <div className="rounded-xl border border-border bg-muted/20 px-3 py-2 text-sm">
+                <div className="rounded-xl border border-border px-3 py-2 text-sm">
                   <div className="text-xs font-medium text-muted-foreground">{t('agentSourcePath')}</div>
                   <div className="mt-1 truncate font-mono text-xs text-foreground" title={editingAgent.source ? `${editingAgent.source}${editingAgent.relativePath ? ` · ${editingAgent.relativePath}` : ''}` : undefined}>
                     {editingAgent.source ? `${editingAgent.source}${editingAgent.relativePath ? ` · ${editingAgent.relativePath}` : ''}` : editingAgent.builtin ? t('builtinAgent') : '-'}
@@ -552,23 +552,23 @@ export function AgentProfilesPage() {
               ) : null}
               <label className="block text-sm font-medium text-foreground">
                 {t('agentDescription')}
-                <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.description} disabled={definitionReadonly} onChange={(event) => updateAgentForm('description', event.target.value)} />
+                <input className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none disabled:opacity-60" value={agentForm.description} disabled={definitionReadonly} onChange={(event) => updateAgentForm('description', event.target.value)} />
               </label>
               <label className="block text-sm font-medium text-foreground">
                 {t('agentSystemPrompt')}
-                <textarea className="mt-1 min-h-36 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.systemPrompt} disabled={definitionReadonly} onChange={(event) => updateAgentForm('systemPrompt', event.target.value)} />
+                <textarea className="mt-1 min-h-36 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none disabled:opacity-60" value={agentForm.systemPrompt} disabled={definitionReadonly} onChange={(event) => updateAgentForm('systemPrompt', event.target.value)} />
               </label>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm font-medium text-foreground">
                   {t('agentModelMode')}
-                  <select className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.modelMode} disabled={modelReadonly} onChange={(event) => updateAgentForm('modelMode', event.target.value as AgentFormState['modelMode'])}>
+                  <select className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none disabled:opacity-60" value={agentForm.modelMode} disabled={modelReadonly} onChange={(event) => updateAgentForm('modelMode', event.target.value as AgentFormState['modelMode'])}>
                     <option value="inherit">{t('agentModelInherit')}</option>
                     <option value="fixed">{t('agentModelFixed')}</option>
                   </select>
                 </label>
                 <label className="block text-sm font-medium text-foreground">
                   {t('agentFixedModel')}
-                  <select className="quickforge-model-select-desktop mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={fixedModelSelectValue} disabled={modelReadonly || agentForm.modelMode !== 'fixed'} onChange={(event) => updateAgentForm('fixedModelValue', event.target.value)}>
+                  <select className="quickforge-model-select-desktop mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none disabled:opacity-60" value={fixedModelSelectValue} disabled={modelReadonly || agentForm.modelMode !== 'fixed'} onChange={(event) => updateAgentForm('fixedModelValue', event.target.value)}>
                     <option value="">{t('agentModelInherit')}</option>
                     {fixedModelOptions.map((model) => (
                       <option key={modelOptionValue(model)} value={modelOptionValue(model)}>{modelLabel(model)}</option>
@@ -576,7 +576,7 @@ export function AgentProfilesPage() {
                   </select>
                   <button
                     type="button"
-                    className="quickforge-model-select-mobile mt-1 flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm text-left outline-none focus:border-ring disabled:opacity-60"
+                    className="quickforge-model-select-mobile mt-1 flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm text-left outline-none disabled:opacity-60"
                     disabled={modelReadonly || agentForm.modelMode !== 'fixed'}
                     onClick={openFixedModelSheet}
                   >
@@ -588,7 +588,7 @@ export function AgentProfilesPage() {
               <label className="block text-sm font-medium text-foreground">
                 {t('agentThinkingLevel')}
                 <select
-                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60"
+                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none disabled:opacity-60"
                   value={fixedModelDisablesThinking && agentForm.thinkingLevel !== 'inherit' ? 'off' : agentForm.thinkingLevel}
                   disabled={modelReadonly || fixedModelDisablesThinking}
                   onChange={(event) => updateAgentForm('thinkingLevel', event.target.value as AgentThinkingLevel)}
@@ -608,7 +608,7 @@ export function AgentProfilesPage() {
                 <div className="mb-2 text-sm font-medium text-foreground">{t('allowedTools')}</div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {availableTools.map((tool) => (
-                    <label key={tool.name} className="flex items-start gap-2 rounded-xl border border-border bg-muted/20 p-3 text-sm disabled:opacity-60">
+                    <label key={tool.name} className="flex items-start gap-2 rounded-xl border border-border p-3 text-sm disabled:opacity-60">
                       <input type="checkbox" className="mt-1" disabled={definitionReadonly} checked={agentForm.allowedTools.includes(tool.name)} onChange={() => toggleAgentTool(tool.name)} />
                       <span>
                         <span className="font-medium text-foreground">{tool.label}</span>
@@ -628,7 +628,7 @@ export function AgentProfilesPage() {
                     min={MIN_RUNTIME_MINUTES}
                     max={MAX_RUNTIME_MINUTES}
                     step="any"
-                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60"
+                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none disabled:opacity-60"
                     value={agentForm.maxRuntimeMinutes}
                     disabled={definitionReadonly}
                     onChange={(event) => updateAgentForm('maxRuntimeMinutes', event.target.value)}
@@ -637,7 +637,7 @@ export function AgentProfilesPage() {
                 </label>
                 <label className="block text-sm font-medium text-foreground">
                   {t('maxToolCalls')}
-                  <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring disabled:opacity-60" value={agentForm.maxToolCalls} disabled={definitionReadonly} onChange={(event) => updateAgentForm('maxToolCalls', event.target.value)} />
+                  <input type="number" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none disabled:opacity-60" value={agentForm.maxToolCalls} disabled={definitionReadonly} onChange={(event) => updateAgentForm('maxToolCalls', event.target.value)} />
                 </label>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -654,7 +654,7 @@ export function AgentProfilesPage() {
                 <input type="checkbox" checked={agentForm.enabledAsSubagent} disabled={definitionReadonly} onChange={(event) => updateAgentForm('enabledAsSubagent', event.target.checked)} />
                 {t('enabledAsSubagent')}
               </label>
-              {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+              {error ? <div className="rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
             </div>
           </div>
 

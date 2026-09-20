@@ -1,7 +1,72 @@
 import type { MessageEditorElement } from '../chat-utils'
 import { shouldSendComposerInput } from '@/lib/chat-capabilities'
+import { t } from '@/lib/i18n'
 
 const LARGE_PASTE_ATTACHMENT_THRESHOLD = 3000
+
+/** 命中次数不足时重试的节奏（首个 rAF 之外的兜底），全部命中即取消。 */
+const TEXT_ATTACHMENT_DECORATION_RETRY_DELAYS = [0, 50, 150, 300, 600]
+
+/**
+ * Composer 大段粘贴文本附件 tile 装饰：给最后一块 `.qf-attachment-tile`
+ * 挂上「系统文件管理器中打开」提示与点击劫持（path 存在 dataset，点击时读取，
+ * 路径变化无需重绑；bound 保证每 tile 只安装一个监听，重复装饰幂等）。
+ *
+ * React 提交附件列表是异步的（onFilesChange → setState → 渲染），一次性
+ * `setTimeout(0)` 可能在 DOM 提交前跑空，因此沿用草稿恢复的「先执行 + rAF/定时
+ * 重试」策略：命中即取消，未命中按固定节奏重试有限次后放弃。
+ *
+ * 导出仅供测试（tests/frontend/editor-bindings.test.ts 驱动重试与幂等）。
+ */
+export function decorateComposerTextAttachmentTile(
+  editor: MessageEditorElement,
+  path: string,
+  onOpenLocalFilePath?: (path: string) => void,
+): () => void {
+  let cancelled = false
+  let animationFrame: number | undefined
+  const timers = new Set<number>()
+
+  const cancel = () => {
+    cancelled = true
+    if (animationFrame !== undefined) window.cancelAnimationFrame(animationFrame)
+    animationFrame = undefined
+    timers.forEach((timer) => window.clearTimeout(timer))
+    timers.clear()
+  }
+
+  const apply = () => {
+    if (cancelled) return
+    const tile = editor.querySelector<HTMLElement>('.qf-attachment-tile:last-of-type')
+    if (!tile) return
+    tile.setAttribute('title', `${t('openAttachmentInFileManager')}：${path}`)
+    tile.dataset.quickforgeTextAttachmentPath = path
+    if (tile.dataset.quickforgeTextAttachmentBound !== '1') {
+      tile.dataset.quickforgeTextAttachmentBound = '1'
+      // 持久劫持点击（不能 once：第二次点击会落回自带的附件预览），
+      // 每 tile 只安装一个读取当前路径的监听。
+      tile.addEventListener('click', (clickEvent) => {
+        clickEvent.stopPropagation()
+        const currentPath = tile.dataset.quickforgeTextAttachmentPath
+        if (currentPath) onOpenLocalFilePath?.(currentPath)
+      }, true)
+    }
+    cancel()
+  }
+
+  apply()
+  if (!cancelled) {
+    animationFrame = window.requestAnimationFrame(apply)
+    for (const delay of TEXT_ATTACHMENT_DECORATION_RETRY_DELAYS) {
+      const timer = window.setTimeout(() => {
+        timers.delete(timer)
+        apply()
+      }, delay)
+      timers.add(timer)
+    }
+  }
+  return cancel
+}
 
 export function bindEditorCallbacks(options: {
   editor: MessageEditorElement | null
@@ -77,27 +142,14 @@ export function bindEditorCallbacks(options: {
           if (!payload.attachment) throw new Error('Missing attachment')
           const attachment = payload.attachment as { path?: string }
           editor.attachments = [...(editor.attachments ?? []), payload.attachment]
-          if (attachment.path) {
-            window.setTimeout(() => {
-              const tile = editor.querySelector<HTMLElement>('attachment-tile:last-of-type')
-              if (!tile) return
-              tile.setAttribute('title', `在系统文件管理器中打开：${attachment.path}`)
-              tile.dataset.quickforgeTextAttachmentPath = attachment.path
-              // 持久劫持点击（不能 once：第二次点击会落回 pi 自带的附件预览），
-              // 每 tile 只安装一个读取当前路径的监听。
-              if (tile.dataset.quickforgeTextAttachmentBound === '1') return
-              tile.dataset.quickforgeTextAttachmentBound = '1'
-              tile.addEventListener('click', (clickEvent) => {
-                clickEvent.stopPropagation()
-                const currentPath = tile.dataset.quickforgeTextAttachmentPath
-                if (currentPath) onOpenLocalFilePath?.(currentPath)
-              }, true)
-            }, 0)
-          }
           onFilesChange(editor.attachments)
           editor.requestUpdate?.()
+          // 附件列表由 React 异步提交（见函数注释）；装饰在提交后自行收敛。
+          if (attachment.path) {
+            decorateComposerTextAttachmentTile(editor, attachment.path, onOpenLocalFilePath)
+          }
         }).catch(() => {
-          editor.value = `${currentText}${currentText ? '\\n\\n' : ''}${text}`
+          editor.value = `${currentText}${currentText ? '\n\n' : ''}${text}`
           editor.requestUpdate?.()
         })
       }

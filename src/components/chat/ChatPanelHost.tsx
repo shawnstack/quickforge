@@ -1,22 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import {
-  ApiKeyPromptDialog,
-  ChatPanel,
-} from '@earendil-works/pi-web-ui'
+import { ChatSurface, promptApiKey } from './surface'
+import type { ChatSurfaceProps } from './surface'
+import type { WindowedChatSurfaceHandle } from './surface/ChatSurface'
 import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, FileContextReference } from '@/lib/server-agent'
 import type { GoalAction, GoalActionOptions, GoalState } from '@/lib/goal'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import type { SideChatAgent } from '@/components/workspace/side-chat-agent'
 import { getLocalWorkspaceTools } from '@/lib/local-tools'
-import type { AgentInterfaceElement, ComposerDraft, CustomCommandSummary, MessageWithUsage } from './chat-utils'
+import type { ComposerDraft, CustomCommandSummary, MessageWithUsage } from './chat-utils'
 import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
-import {
-  createMessageWindow,
-  installMessageListWindow,
-  uninstallMessageListWindow,
-} from './windowed-messages'
 import { createCommandSuggestions } from './command-suggestions'
 import { fetchSlashCatalog } from '@/lib/slash-catalog'
 import { createCapabilitySuggestions } from './capability-suggestions'
@@ -67,7 +61,6 @@ import type { WorkspaceExternalOpenTarget } from '../workspace/workspace-api'
 import { requestAndroidRemoteSystemNotificationPermissionOnce } from '@/lib/system-notifications'
 import type { ChatCapabilities } from '@/lib/chat-capabilities'
 import { applyChatPagePolicy, QUICKFORGE_CHAT_CAPABILITIES, SIDE_CHAT_UI_CAPABILITIES } from '@/lib/chat-capabilities'
-import { withPreservedArtifactsRenderer } from './side-chat-renderer-isolation'
 import type { ChatScope, ProjectInfo, RestoredDraft, AgentAccessMode } from '@/lib/types'
 import {
   buildComposerDraftKey,
@@ -85,11 +78,6 @@ import {
 } from '@/lib/message-queue'
 
 type AgentLike = ServerAgent | SharedServerAgent | DeferredSessionAgent | SideChatAgent
-
-type MessageListElement = HTMLElement & {
-  messages: unknown[]
-  updateComplete?: Promise<unknown>
-}
 
 type AgentWithContextCompaction = AgentLike & {
   state: AgentLike['state'] & {
@@ -312,6 +300,8 @@ export function ChatPanelHost({
   capabilities = QUICKFORGE_CHAT_CAPABILITIES,
 }: ChatPanelHostProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
+  const surfaceRef = useRef<WindowedChatSurfaceHandle | null>(null)
+  const surfaceSendHooksRef = useRef<{ onBeforeSend?: () => void | Promise<void> } | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
   const restoredDraftRef = useRef<RestoredDraft | undefined>(undefined)
   const composerDraftsRef = useRef<Map<string, ComposerDraft>>(new Map())
@@ -538,6 +528,13 @@ export function ChatPanelHost({
   const restoreSideChatDraftRef = useRef<(() => void) | null>(null)
   const scrollSyncRef = useRef<ReturnType<typeof createScrollSync> | null>(null)
   const scheduleDecorateRef = useRef<(() => void) | null>(null)
+  /**
+   * Coalesced re-decoration requests that come from the React surface instead of
+   * the mutation observer: window pagination, and the process-fold ownership
+   * hand-back (the surface releases moved nodes before its commit and asks for
+   * the re-fold here, so both halves land in the same unpainted interval).
+   */
+  const requestSurfaceDecorate = useCallback(() => scheduleDecorateRef.current?.(), [])
   const taskLauncherStateRef = useRef({ visible: taskLauncherVisible, dismiss: onTaskLauncherDismiss })
   useLayoutEffect(() => {
     taskLauncherStateRef.current = { visible: taskLauncherVisible, dismiss: onTaskLauncherDismiss }
@@ -587,7 +584,7 @@ export function ChatPanelHost({
     if (!hasDraft(draft)) return
     if (consumedRestoredDraftIdsRef.current.has(draft.id)) return
 
-    const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+    const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
     const currentDraft = editor
       ? {
           text: editor.value ?? editor.querySelector<HTMLTextAreaElement>('textarea')?.value ?? '',
@@ -603,7 +600,6 @@ export function ChatPanelHost({
 
     draftRestoreGuardRef.current.invalidate()
     cancelRestoredDraftRestore()
-    const agentInterface = panel.querySelector<HTMLElement & { updateComplete?: Promise<unknown> }>('agent-interface')
     restoredDraftRestoreRef.current = scheduleComposerDraftRestore(panel, draft, composerDraftsRef.current, key, {
       shouldApply: () => (
         !consumedRestoredDraftIdsRef.current.has(draft.id)
@@ -618,21 +614,23 @@ export function ChatPanelHost({
         lastAppliedRestoredDraftRef.current = { id: draft.id, text: draft.text }
         consumeRestoredDraft(draft.id)
       },
-      updateComplete: agentInterface?.updateComplete,
     })
   }, [cancelRestoredDraftRestore, consumeRestoredDraft])
 
   // =========================================================================
-  // Main effect: create the ChatPanel and wire up all subsystems.
+  // Main effect: wire up all subsystems against the React ChatSurface DOM.
   // ONLY re-runs when `agent` changes — all other prop changes are picked up
-  // via propsRef or the decoration trigger effect below.
+  // via propsRef or the decoration trigger effect below. The ChatSurface
+  // itself is keyed by sessionId in JSX, so a session switch mounts a fresh
+  // DOM subtree (equivalent to the old per-agent `new ChatPanel()`).
   // =========================================================================
   useEffect(() => {
     const host = hostRef.current
     if (!host || !agent) return
+    const panel = host.querySelector<HTMLElement>('.qf-chat-panel')
+    if (!panel) return
     const draftRestoreGuard = draftRestoreGuardRef.current
     const readyComposerPanels = readyComposerPanelsRef.current
-    const panel = new ChatPanel()
     setPlanMode(false)
     const sessionId = agent.sessionId
     // 回合错误重试循环状态机（计数 / 重试中 / 升级态）：随主 effect 重建即换
@@ -651,68 +649,46 @@ export function ChatPanelHost({
     let processHandoffGeneration = 0
     let cancelInitialRenderReady: (() => void) | undefined
 
-    // Render the complete conversation up front so turn navigation can scroll
-    // directly to existing DOM nodes without replacing the message window.
-    const windowLayer = createMessageWindow({ enabled: false })
-    installMessageListWindow(() => windowLayer)
-
-    // --- Scroll sync subsystem ---
-    let loadMoreInFlight = false
-    const loadMoreMessages = () => {
-      if (disposed || loadMoreInFlight) return
-      if (!windowLayer.hasMore()) return
-      const list = panel.querySelector<MessageListElement>('message-list')
-      const scrollContainer = panel.querySelector<HTMLElement>('agent-interface .overflow-y-auto')
-      if (!list || !scrollContainer) return
-
-      // Anchor: the first user/assistant message at or above the viewport top.
-      // After the window shifts, the same ordinal element is used to restore
-      // the scroll position so the user's reading spot does not jump.
-      const items = Array.from(list.querySelectorAll<HTMLElement>('user-message, assistant-message'))
-        .filter((element) => element.closest('message-list') === list)
-      const containerTop = scrollContainer.getBoundingClientRect().top
-      let anchorIndex = -1
-      let anchorTop = 0
-      for (let i = 0; i < items.length; i++) {
-        const rect = items[i].getBoundingClientRect()
-        if (rect.bottom > containerTop) {
-          anchorIndex = i
-          anchorTop = rect.top
-          break
+    // Expose the panel-level send hooks to the ChatSurface props (defined in
+    // the component body). Props are bound at render time, the effect runs
+    // after mount, and user-triggered sends always happen later — so the ref
+    // handoff is always populated before the first send.
+    surfaceSendHooksRef.current = {
+      onBeforeSend: () => {
+        taskLauncher?.hide()
+        taskLauncherStateRef.current.dismiss?.()
+        if (sideChatMode) {
+          sideChatInputMemory?.set('')
+          scrollSync.enable()
+          return
         }
-      }
-
-      const scrollTopBefore = scrollContainer.scrollTop
-      const nextWindow = windowLayer.loadMore()
-      if (!nextWindow) return
-      loadMoreInFlight = true
-      list.messages = nextWindow
-
-      const restoreScroll = () => {
-        window.requestAnimationFrame(() => {
-          loadMoreInFlight = false
-          if (disposed) return
-          if (anchorIndex >= 0) {
-            const newItems = Array.from(list.querySelectorAll<HTMLElement>('user-message, assistant-message'))
-            const anchor = newItems[anchorIndex]
-            if (anchor) {
-              scrollContainer.scrollTop = scrollTopBefore + (anchor.getBoundingClientRect().top - anchorTop)
-            }
-          }
-          scheduleDecorateRef.current?.()
-        })
-      }
-      void (list.updateComplete ?? Promise.resolve()).then(restoreScroll, restoreScroll)
+        draftRestoreGuard.invalidate()
+        cancelRestoredDraftRestore()
+        const draft = restoredDraftRef.current
+        if (draft && (!draft.sessionId || draft.sessionId === sessionId)) {
+          consumeRestoredDraft(draft.id)
+        }
+        cancelPendingDraftSave()
+        composerClearedForSend = true
+        cmdSuggestions.remove()
+        composerDraftsRef.current.delete(currentDraftKey)
+        void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
+        scrollSync.enable()
+      },
     }
 
+    // --- Scroll sync subsystem ---
     const scrollSync = createScrollSync({
       panel,
+      setAutoScroll: (enabled) => surfaceRef.current?.setAutoScroll(enabled),
       onReachTop: () => {
-        loadMoreMessages()
-      },
-      onAutoScrollEnabled: () => {
-        // Back at the bottom → the window should follow the tail again.
-        windowLayer.resetToTail()
+        // End the guard after loadMoreMessages restores scrollTop in the
+        // window-commit layout callback, or immediately if it no-ops.
+        // beginProgrammaticScroll is refcounted, so a no-op loadMore that
+        // resolves immediately still pairs begin/end correctly even if
+        // another page is in flight.
+        const endProgrammaticScroll = scrollSync.beginProgrammaticScroll()
+        void Promise.resolve(surfaceRef.current?.loadMoreMessages()).finally(endProgrammaticScroll)
       },
     })
     scrollSyncRef.current = scrollSync
@@ -722,7 +698,7 @@ export function ChatPanelHost({
       onJumpSettled: () => {
         // Only resume tail-following when the jump actually landed near the
         // bottom; anything else means the user redirected the scroll.
-        const container = panel.querySelector<HTMLElement>('agent-interface .overflow-y-auto')
+        const container = panel.querySelector<HTMLElement>('.qf-chat-panel .qf-scroll-container')
         if (!container) return
         const distance = container.scrollHeight - container.scrollTop - container.clientHeight
         if (distance <= 120) scrollSync.enable()
@@ -906,7 +882,7 @@ export function ChatPanelHost({
     const restoreSideChatDraft = () => {
       if (!sideChatMode) return
       const text = sideChatInputMemory?.get() ?? ''
-      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
       const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
       if (editor) {
         editor.value = text
@@ -953,7 +929,7 @@ export function ChatPanelHost({
     }
     const updateSideChatInputMemory = (text?: string) => {
       if (!sideChatMode) return
-      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
       const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
       sideChatInputMemory?.set(text ?? editor?.value ?? textarea?.value ?? '')
     }
@@ -978,7 +954,7 @@ export function ChatPanelHost({
         updateSideChatInputMemory(value)
         return
       }
-      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
       const attachments = editor?.attachments ? [...editor.attachments] : []
       const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
       const selectedCapabilities = capabilitySuggestions.snapshotSelectedCapabilities()
@@ -987,7 +963,7 @@ export function ChatPanelHost({
     const handleEditorFilesChange = (files: unknown[]) => {
       handleComposerInteraction()
       composerClearedForSend = false
-      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
       if (sideChatMode) {
         if (editor) {
           editor.attachments = []
@@ -1004,10 +980,7 @@ export function ChatPanelHost({
       const selectedCapabilities = capabilitySuggestions.snapshotSelectedCapabilities()
       updateComposerDraft({ text, attachments: files ? [...files] : [], contextReferences, selectedCapabilities })
 
-      const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
-      agentInterface?.requestUpdate?.()
       window.requestAnimationFrame(() => scheduleDecorateRef.current?.())
-      void agentInterface?.updateComplete?.then(() => scheduleDecorateRef.current?.())
     }
 
     const syncProcessStreamingState = () => {
@@ -1053,16 +1026,10 @@ export function ChatPanelHost({
 
       syncProcessStreamingState()
 
-      // Windowed view of the conversation for decoration alignment: when the
-      // message list renders only a tail window, the decoration must align
-      // against the same window (full-array indices are restored via offset).
-      const displayMessages = (): MessageWithUsage[] => {
-        if (windowLayer.isEnabled()) {
-          return windowLayer.getWindowMessages() as unknown as MessageWithUsage[]
-        }
-        return agent.state.messages as MessageWithUsage[]
-      }
-      const messageIndexOffset = windowLayer.isEnabled() ? windowLayer.getWindowStart() : 0
+      // Read the committed React window, not a newer SSE snapshot whose DOM
+      // has not committed yet. Extras are lookup-only toolResults.
+      const displayMessages = (): MessageWithUsage[] => (surfaceRef.current?.getWindowMessages() ?? []) as MessageWithUsage[]
+      const messageIndexOffset = surfaceRef.current?.getWindowStart() ?? 0
 
       const props = propsRef.current
       if (!sideChatMode) {
@@ -1115,7 +1082,6 @@ export function ChatPanelHost({
           allowRetry: props.capabilities.retry,
           historyActionsDisabled: sideChatMode,
           readOnly: props.readOnly,
-          enableTerminalCommandActions: !sideChatMode && !props.readOnly,
           rollbackConfirmTitle: props.rollbackConfirmTitle,
           rollbackConfirmDescription: props.rollbackConfirmDescription,
         })
@@ -1205,12 +1171,12 @@ export function ChatPanelHost({
             const capabilities = props.capabilities.capabilitySuggestions
               ? capabilitySuggestions.consumeSelectedCapabilities()
               : []
-            const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+            const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
             const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
             const promptAgent = agent as AgentWithCapabilityPrompt
             promptAgent.setNextPromptCapabilities?.(capabilities)
             promptAgent.setNextPromptContextReferences?.(contextReferences, () => {
-              const currentEditor = panel.querySelector<import('./chat-utils').MessageEditorElement>('message-editor')
+              const currentEditor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
               if (!currentEditor) return
               currentEditor.contextReferences = (currentEditor.contextReferences ?? []).filter((reference) => !contextReferences.some(
                 (sent) => sent.projectId === reference.projectId && sent.path === reference.path,
@@ -1221,13 +1187,10 @@ export function ChatPanelHost({
             })
           },
         })
-        if (props.allowModelControls && props.capabilities.thinkingSelection && !props.onModelSelect) {
-          const agentInterface = panel.querySelector<AgentInterfaceElement>('agent-interface')
-          if (agentInterface && agentInterface.enableThinkingSelector !== true) {
-            agentInterface.enableThinkingSelector = true
-            agentInterface.requestUpdate?.()
-          }
-        }
+        // The native thinking selector stays hidden in the React surface
+        // (enableThinkingSelector=false); the QuickForge thinking control is
+        // injected by the decoration layer (thinking-level-controls), exactly
+        // like the previous patch-thinking-selector({hideSelector:true}) setup.
       } catch { /* continue to todo summary */ }
 
       try {
@@ -1379,8 +1342,7 @@ export function ChatPanelHost({
       scrollSync.setup()
       scrollBottomButton.setup()
       if (scrollSync.isEnabled) {
-        // Auto-scroll is active → the window should follow the tail again.
-        windowLayer.resetToTail()
+        // Auto-scroll is active → follow the tail again.
         scrollSync.scheduleScrollToBottom()
       }
     }
@@ -1417,7 +1379,6 @@ export function ChatPanelHost({
     }
     // Expose for the decoration trigger effect
     decorateFnRef.current = runDecorate
-    const getAgentInterface = () => panel.querySelector<AgentInterfaceElement>('agent-interface')
     const scheduleToolInterfaceUpdate = () => {
       if (toolUpdateScheduled) return
       toolUpdateScheduled = true
@@ -1425,11 +1386,9 @@ export function ChatPanelHost({
         toolUpdateScheduled = false
         if (disposed) return
         syncProcessStreamingState()
-        const agentInterface = getAgentInterface()
-        agentInterface?.requestUpdate?.()
-        void (agentInterface?.updateComplete ?? Promise.resolve()).then(() => {
-          if (!disposed) runDecorate()
-        })
+        // The React surface re-renders from agent snapshots on its own; the
+        // rAF gives that commit time to land before decoration re-aligns.
+        runDecorate()
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
       })
     }
@@ -1437,8 +1396,6 @@ export function ChatPanelHost({
     const scheduleProcessHandoff = () => {
       const generation = ++processHandoffGeneration
       panel.dataset.quickforgeProcessHandoff = String(generation)
-      const agentInterface = getAgentInterface()
-      agentInterface?.requestUpdate?.()
       scheduleDecorateRef.current?.()
       window.requestAnimationFrame(() => {
         if (!disposed && processHandoffGeneration === generation) scheduleDecorateRef.current?.()
@@ -1451,46 +1408,27 @@ export function ChatPanelHost({
           if (!disposed && processHandoffGeneration === generation) scheduleDecorateRef.current?.()
         })
       }
-      void (agentInterface?.updateComplete ?? Promise.resolve()).then(finishProcessHandoff, finishProcessHandoff)
+      window.requestAnimationFrame(finishProcessHandoff)
     }
 
     // --- Initialize panel ---
-    const setPanelAgent = () => panel.setAgent(agent as unknown as Parameters<typeof panel.setAgent>[0], {
-      onApiKeyRequired: sideChatMode
-        ? async () => true
-        : !propsRef.current.capabilities.clientApiKeyCheck || propsRef.current.bypassClientApiKeyCheck
-        ? async () => true
-        : (provider: string) => ApiKeyPromptDialog.prompt(provider),
-      onBeforeSend: () => {
-        taskLauncher?.hide()
-        taskLauncherStateRef.current.dismiss?.()
-        if (sideChatMode) {
-          sideChatInputMemory?.set('')
-          scrollSync.enable()
-          return
-        }
-        draftRestoreGuard.invalidate()
-        cancelRestoredDraftRestore()
-        const draft = restoredDraftRef.current
-        if (draft && (!draft.sessionId || draft.sessionId === sessionId)) {
-          consumeRestoredDraft(draft.id)
-        }
-        cancelPendingDraftSave()
-        composerClearedForSend = true
-        cmdSuggestions.remove()
-        composerDraftsRef.current.delete(currentDraftKey)
-        void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
-        scrollSync.enable()
-      },
-      onModelSelect: sideChatMode ? undefined : () => {
-        const anchor = panel.querySelector<HTMLElement>('.quickforge-model-trigger')
-        propsRef.current.onModelSelect?.(anchor ?? undefined)
-      },
-      toolsFactory: () => sideChatMode ? [] : getLocalWorkspaceTools(agent.state.tools),
+    // Register MCP tool renderers for this session's tool list (the side
+    // effect of getLocalWorkspaceTools); the React ToolMessage resolves
+    // renderers through the same registry. Display metadata comes straight
+    // from agent.state.tools, so there is no toolsFactory equivalent.
+    getLocalWorkspaceTools(agent.state.tools)
+    // Barrier replacing the legacy `await agentInterface.updateComplete`:
+    // the surface's DOM is committed by the time this effect runs, and the
+    // nested rAF pair waits for the first paint to settle before the
+    // initialization body (and the `scheduleAfterPaint`-based
+    // onInitialRenderReady notify below) runs — semantically aligned with
+    // updateComplete + afterPaint. `Promise.resolve()` fired the notify on a
+    // bare microtask, before the surface had painted.
+    const initializePanel = new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => resolve())
+      })
     })
-    const initializePanel = sideChatMode
-      ? withPreservedArtifactsRenderer(setPanelAgent)
-      : setPanelAgent()
 
     void initializePanel.then(() => {
       if (disposed) return
@@ -1522,7 +1460,6 @@ export function ChatPanelHost({
             taskLauncher?.sync()
           }
           cancelRestoredDraftRestore()
-          const agentInterface = panel.querySelector<HTMLElement & { updateComplete?: Promise<unknown> }>('agent-interface')
           restoredDraftRestoreRef.current = scheduleComposerDraftRestore(panel, draftToRestore, composerDraftsRef.current, currentDraftKey, {
             shouldApply: () => (
               !disposed
@@ -1537,7 +1474,6 @@ export function ChatPanelHost({
               readyComposerPanelsRef.current.add(panel)
               taskLauncher?.sync()
             },
-            updateComplete: agentInterface?.updateComplete,
           })
         }
       }
@@ -1559,12 +1495,6 @@ export function ChatPanelHost({
         }
       }
 
-      if (sideChatMode) {
-        panel.artifactsPanel?.remove()
-        panel.artifactsPanel = undefined
-        panel.requestUpdate()
-      }
-
       // Observe DOM changes for re-decoration
       observer = new MutationObserver(() => {
         if (suppressObserverMutations) return
@@ -1572,38 +1502,36 @@ export function ChatPanelHost({
       })
       observer.observe(panel, { childList: true, subtree: true })
 
-      // Defer initial decoration to the next animation frame so the Lit
-      // component has time to finish its first render. Without this the
-      // approval card (and other decorations) may be injected into a DOM
-      // that is not yet fully laid out, causing style discrepancies.
+      // Defer initial decoration to the next animation frame so the React
+      // surface's first paint has settled. Without this the approval card
+      // (and other decorations) may be injected into a DOM that is not yet
+      // fully laid out, causing style discrepancies.
       window.requestAnimationFrame(() => {
         if (disposed) return
         runDecorate()
       })
 
-      const agentInterface = getAgentInterface()
       const notifyInitialRenderReady = () => {
         if (disposed) return
         cancelInitialRenderReady = scheduleAfterPaint(() => {
           if (!disposed) propsRef.current.onInitialRenderReady?.(sessionId)
         })
       }
-      void (agentInterface?.updateComplete ?? Promise.resolve()).then(notifyInitialRenderReady, notifyInitialRenderReady)
+      notifyInitialRenderReady()
     }, (error: unknown) => {
       if (disposed) return
       logger.error('Failed to initialize chat panel:', error)
       propsRef.current.onInitialRenderError?.(sessionId, error)
     })
 
-    host.replaceChildren(panel)
     if (showTurnNavigation) {
       turnNavigation = createTurnNavigation({
         host,
         panel,
         getMessages: () => agent.state.messages as import('@earendil-works/pi-agent-core').AgentMessage[],
         isStreaming: () => agent.state.isStreaming,
-        windowLayer,
         beginProgrammaticScroll: scrollSync.beginProgrammaticScroll,
+        showMessageIndex: (index) => surfaceRef.current?.showMessageIndex(index) ?? Promise.resolve(),
         onWindowChanged: () => scheduleDecorateRef.current?.(),
       })
     }
@@ -1736,11 +1664,8 @@ export function ChatPanelHost({
         // Metadata only needs rendering/decoration; preserve process groups and
         // do not invoke the messages_replaced draft restoration above.
         if (eventType !== 'message_metadata_updated') releaseStreamingProcessGroups(panel)
-        const agentInterface = getAgentInterface()
-        agentInterface?.requestUpdate?.()
         scheduleDecorateRef.current?.()
         window.requestAnimationFrame(() => scheduleDecorateRef.current?.())
-        void agentInterface?.updateComplete?.then(() => scheduleDecorateRef.current?.())
       }
       if (eventType === 'auto_compact_failed') {
         // Keep the failure visible in diagnostics without interrupting the current answer.
@@ -1820,7 +1745,6 @@ export function ChatPanelHost({
         saveStoredMessageQueueState(sessionId, messageQueue.getState())
       }
       messageQueue.cleanup()
-      uninstallMessageListWindow(windowLayer)
       unsubscribeScrollEvents()
       observer?.disconnect()
       if (decorateFrame !== undefined) {
@@ -1831,7 +1755,10 @@ export function ChatPanelHost({
       }
       decorateFnRef.current = null
       restoreSideChatDraftRef.current = null
-      panel.remove()
+      surfaceSendHooksRef.current = null
+      // The ChatSurface DOM itself is owned by React (keyed per session) and
+      // unmounts on its own; decorations injected into it are dropped with
+      // the subtree.
     }
   }, [agent, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, taskLauncherEnabled, effectiveCapabilities.capabilitySuggestions, effectiveCapabilities.goal, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
 
@@ -1866,10 +1793,6 @@ export function ChatPanelHost({
   useEffect(() => {
     decorateFnRef.current?.()
     if (sideChatMode) restoreSideChatDraftRef.current?.()
-    // model/thinkingLevel 等状态已通过 agent.state 写入，但 Lit 组件不会自动感知
-    // 外部对 state.model 的直接赋值，需要手动触发重渲染才能刷新模型名称等 UI。
-    const ai = hostRef.current?.querySelector('agent-interface') as { requestUpdate?: () => void } | null
-    ai?.requestUpdate?.()
   }, [sideChatMode, agentAccessMode, planMode, workspaceToolsEnabled, gitBranch, disableFork, readOnly, approvalReadOnly, approvalReadOnlyMessage, allowModelControls, capabilities, revision, rolledBackTurns])
 
   // Draft restoration trigger
@@ -1880,10 +1803,45 @@ export function ChatPanelHost({
     const sessionId = (agent as ServerAgent | SharedServerAgent | null)?.sessionId ?? ''
     if (draft.sessionId && draft.sessionId !== sessionId) return
     if (consumedRestoredDraftIdsRef.current.has(draft.id)) return
-    const panel = hostRef.current.querySelector('pi-chat-panel')
+    const panel = hostRef.current.querySelector('.qf-chat-panel')
     if (!panel) return
     restoreDraftForSession(panel as HTMLElement, draft, sessionId, draftKeyRef.current)
   }, [sideChatMode, restoredDraft, agent, restoreDraftForSession])
 
-  return <div ref={hostRef} className="quickforge-chat-panel-host min-h-0 flex-1 overflow-hidden" />
+  return (
+    <div ref={hostRef} className="quickforge-chat-panel-host min-h-0 flex-1 overflow-hidden">
+      {agent ? (
+        <ChatSurface
+          key={agent.sessionId}
+          ref={surfaceRef}
+          onWindowChanged={requestSurfaceDecorate}
+          onProcessGroupsReleased={requestSurfaceDecorate}
+          agent={agent as unknown as ChatSurfaceProps['agent']}
+          enableAttachments={effectiveCapabilities.attachments}
+          // Side Chat keeps the model trigger rendered (the shared decoration
+          // renders it in a native disabled state) — mirrors HEAD's
+          // `allowModelControls: sideChatMode || (...)` contract.
+          enableModelSelector={sideChatMode || (allowModelControls && effectiveCapabilities.modelSelection)}
+          enableThinkingSelector={false}
+          readOnly={readOnly}
+          // Host-driven snapshot refresh (model switch without agent events).
+          chatPanelRevision={revision}
+          // Terminal command actions on code blocks: legacy
+          // `enableTerminalCommandActions` gate — never in Side Chat or
+          // read-only views.
+          commandActionsEnabled={!sideChatMode && !readOnly}
+          onApiKeyRequired={
+            sideChatMode || !effectiveCapabilities.clientApiKeyCheck || bypassClientApiKeyCheck
+              ? undefined
+              : (provider: string) => promptApiKey(provider)
+          }
+          onBeforeSend={() => surfaceSendHooksRef.current?.onBeforeSend?.()}
+          onModelSelect={sideChatMode ? undefined : () => {
+            const anchor = hostRef.current?.querySelector<HTMLElement>('.quickforge-model-trigger') ?? undefined
+            propsRef.current.onModelSelect?.(anchor)
+          }}
+        />
+      ) : null}
+    </div>
+  )
 }

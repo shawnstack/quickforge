@@ -4,8 +4,7 @@ import { createCommandSuggestions } from '../../src/components/chat/command-sugg
 import type { CommandTextareaElement, CustomCommandSummary, MessageEditorElement } from '../../src/components/chat/chat-utils'
 import type { SlashCatalog } from '../../src/lib/slash-catalog'
 
-// The real i18n module pulls in pi-web-ui which requires a browser DOM;
-// command-suggestions only needs t() for group labels / descriptions.
+// Deterministic t stub — command-suggestions only needs t() for group labels / descriptions.
 vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
 }))
@@ -231,7 +230,8 @@ function createEnv(loadSlashCatalog?: () => Promise<SlashCatalog | null>): TestE
   textarea.selectionStart = 0
   textarea.selectionEnd = 0
 
-  const editor = createFakeElement('message-editor')
+  const editor = createFakeElement('div')
+  editor.className = 'qf-message-editor'
   editor.value = ''
   editor.attachments = []
   editor.append(textarea)
@@ -245,8 +245,8 @@ function createEnv(loadSlashCatalog?: () => Promise<SlashCatalog | null>): TestE
   panel.append(shell)
   const baseQuerySelector = panel.querySelector
   panel.querySelector = (selector: string) => {
-    if (selector === 'message-editor') return editor
-    if (selector === 'message-editor textarea') return textarea
+    if (selector === '.qf-message-editor') return editor
+    if (selector === '.qf-message-editor textarea') return textarea
     return baseQuerySelector(selector)
   }
 

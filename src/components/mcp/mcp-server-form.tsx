@@ -9,11 +9,11 @@ import {
   type McpServerFormData,
 } from '@/lib/mcp-helpers'
 
-const labelClass = 'mb-1 block text-xs text-muted-foreground/72'
+const labelClass = 'mb-1 block text-xs'
 const textareaClass =
-  'min-h-20 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-ring'
+  'min-h-20 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 font-mono text-xs text-foreground outline-none'
 const selectClass =
-  'flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus:border-ring'
+  'flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none'
 
 type McpServerFormProps = {
   value: McpServerFormData
@@ -28,7 +28,7 @@ export function McpServerForm({ value, onChange, isEdit, disabled }: McpServerFo
 
   return (
     <div className="space-y-3 p-3">
-      <div className="text-xs text-muted-foreground/60">
+      <div className="text-xs">
         {isEdit ? t('mcpEditServer') : t('mcpAddServer')}
       </div>
       <div>

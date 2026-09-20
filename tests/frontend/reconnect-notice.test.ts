@@ -159,7 +159,7 @@ const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 
 
 function buildPanel() {
   const panel = new FakeElement()
-  const messageList = new FakeElement('message-list')
+  const messageList = Object.assign(new FakeElement('div'), { className: 'qf-message-list' })
   panel.append(messageList)
   return { panel, messageList }
 }
@@ -410,9 +410,9 @@ describe('reconnect notice controller', () => {
     connectionState.emit({ status: 'reconnecting', attempt: 5, maxAttempts: 10, nextRetryAt: Date.now() })
     expect(messageList.querySelector('.quickforge-reconnect')).not.toBeNull()
 
-    // Simulate a Lit rebuild: the old list (with the notice) is replaced.
+    // Simulate a list rebuild: the old list (with the notice) is replaced.
     messageList.remove()
-    const newList = new FakeElement('message-list')
+    const newList = Object.assign(new FakeElement('div'), { className: 'qf-message-list' })
     panel.append(newList)
     controller.sync()
 
@@ -456,7 +456,7 @@ describe('reconnect notice source contracts', () => {
   })
 
   it('notice appends to the end of message-list and never uses innerHTML for text', () => {
-    expect(noticeSource).toContain(`panel.querySelector<HTMLElement>('message-list')`)
+    expect(noticeSource).toContain(`panel.querySelector<HTMLElement>('.qf-message-list')`)
     expect(noticeSource).toContain('messageList.append(notice)')
     // 文案一律走 textContent/createElement，innerHTML 仅限静态 SVG 常量。
     const innerHtmlLines = noticeSource.split('\n').filter((line) => line.includes('.innerHTML ='))

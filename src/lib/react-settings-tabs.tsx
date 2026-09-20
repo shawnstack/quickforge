@@ -1,143 +1,63 @@
-/* eslint-disable react-refresh/only-export-components */
-import { lazy, Suspense } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
-import { SettingsTab } from '@earendil-works/pi-web-ui'
-import { html, type TemplateResult } from 'lit'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { t } from '@/lib/i18n'
 
-const AgentProfilesPage = lazy(() =>
-  import('@/components/agent-profiles/AgentProfilesPage').then((module) => ({ default: module.AgentProfilesPage })),
-)
-const McpServersPanel = lazy(() =>
-  import('@/components/mcp-servers-dialog').then((module) => ({ default: module.McpServersPanel })),
-)
-const SkillsManagerPanel = lazy(() =>
-  import('@/components/skills-dialog').then((module) => ({ default: module.SkillsManagerPanel })),
-)
-const PluginsPage = lazy(() =>
-  import('@/components/plugins/PluginsPage').then((module) => ({ default: module.PluginsPage })),
-)
-const ScheduledTasksPage = lazy(() =>
-  import('@/components/scheduled-tasks/ScheduledTasksPage').then((module) => ({ default: module.ScheduledTasksPage })),
-)
-const ShareLinksSettingsPage = lazy(() =>
-  import('@/components/share/ShareLinksSettingsPage').then((module) => ({ default: module.ShareLinksSettingsPage })),
-)
+const AppearanceSettingsTab = lazy(() => import('@/components/settings/tabs/AppearanceSettingsTab').then((m) => ({ default: m.AppearanceSettingsTab })))
+const DefaultOptionsSettingsTab = lazy(() => import('@/components/settings/tabs/DefaultOptionsSettingsTab').then((m) => ({ default: m.DefaultOptionsSettingsTab })))
+const MemorySettingsTab = lazy(() => import('@/components/settings/tabs/MemorySettingsTab').then((m) => ({ default: m.MemorySettingsTab })))
+const CustomProvidersSettingsTab = lazy(() => import('@/components/settings/tabs/CustomProvidersSettingsTab').then((m) => ({ default: m.CustomProvidersSettingsTab })))
+const BackupSettingsTab = lazy(() => import('@/components/settings/tabs/BackupSettingsTab').then((m) => ({ default: m.BackupSettingsTab })))
+const ArchivedConversationsSettingsTab = lazy(() => import('@/components/settings/tabs/ArchivedConversationsSettingsTab').then((m) => ({ default: m.ArchivedConversationsSettingsTab })))
+const LanAccessSettingsTab = lazy(() => import('@/components/settings/tabs/LanAccessSettingsTab').then((m) => ({ default: m.LanAccessSettingsTab })))
+const AboutSettingsTab = lazy(() => import('@/components/settings/tabs/AboutSettingsTab').then((m) => ({ default: m.AboutSettingsTab })))
+const ProjectCommandsSettingsTab = lazy(() => import('@/components/settings/tabs/ProjectCommandsSettingsTab').then((m) => ({ default: m.ProjectCommandsSettingsTab })))
+const ChannelsSettingsTab = lazy(() => import('@/components/settings/tabs/ChannelsSettingsTab').then((m) => ({ default: m.ChannelsSettingsTab })))
+const AgentProfilesPage = lazy(() => import('@/components/agent-profiles/AgentProfilesPage').then((m) => ({ default: m.AgentProfilesPage })))
+const McpServersPanel = lazy(() => import('@/components/mcp-servers-dialog').then((m) => ({ default: m.McpServersPanel })))
+const SkillsManagerPanel = lazy(() => import('@/components/skills-dialog').then((m) => ({ default: m.SkillsManagerPanel })))
+const PluginsPage = lazy(() => import('@/components/plugins/PluginsPage').then((m) => ({ default: m.PluginsPage })))
+const ScheduledTasksPage = lazy(() => import('@/components/scheduled-tasks/ScheduledTasksPage').then((m) => ({ default: m.ScheduledTasksPage })))
+const ShareLinksSettingsPage = lazy(() => import('@/components/share/ShareLinksSettingsPage').then((m) => ({ default: m.ShareLinksSettingsPage })))
 
-type ReactSettingsTabRender = () => React.ReactNode
-
-class ReactSettingsTab extends SettingsTab {
-  tabName = ''
-  renderReact?: ReactSettingsTabRender
-  private root?: Root
-
-  override getTabName(): string {
-    return this.tabName
-  }
-
-  override connectedCallback() {
-    super.connectedCallback()
-    void this.updateComplete.then(() => this.mountReact())
-  }
-
-  override disconnectedCallback() {
-    super.disconnectedCallback()
-    // The parent React tree removes this element during its own render/commit,
-    // so unmounting the React root synchronously here triggers React's
-    // "synchronously unmount a root while React was already rendering" error.
-    // Defer to a macrotask and skip when the element reconnected in between,
-    // in which case the existing root stays valid and is simply reused.
-    window.setTimeout(() => {
-      if (!this.isConnected && this.root) {
-        this.root.unmount()
-        this.root = undefined
-      }
-    }, 0)
-  }
-
-  override render(): TemplateResult {
-    return html`<div class="quickforge-react-settings-tab h-full min-h-0"></div>`
-  }
-
-  private mountReact() {
-    const container = this.querySelector<HTMLElement>('.quickforge-react-settings-tab')
-    if (!container || !this.renderReact) return
-    this.root ??= createRoot(container)
-    this.root.render(this.renderReact())
-  }
-}
-
-const tagName = 'quickforge-react-settings-tab'
-
-if (!customElements.get(tagName)) {
-  customElements.define(tagName, ReactSettingsTab)
-}
-
-function createReactSettingsTab(tabName: string, renderReact: ReactSettingsTabRender) {
-  const element = document.createElement(tagName) as ReactSettingsTab
-  element.tabName = tabName
-  element.renderReact = renderReact
-  return element
-}
-
-function SettingsPanel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="quickforge-settings-stack h-full min-h-[30rem]">
-      <Suspense fallback={<div className="quickforge-settings-note">{t('loading')}</div>}>
-        {children}
-      </Suspense>
-    </div>
-  )
+function SettingsPanel({ children }: { children: ReactNode }) {
+  return <div className="quickforge-settings-stack h-full min-h-[30rem]">{children}</div>
 }
 
 function openScheduledTaskSession(sessionId: string) {
   window.dispatchEvent(new CustomEvent('quickforge:open-session-from-settings', { detail: { sessionId } }))
 }
 
-export function createAgentProfilesSettingsTab() {
-  return createReactSettingsTab(t('agentsTab'), () => (
-    <SettingsPanel>
-      <AgentProfilesPage />
-    </SettingsPanel>
-  ))
+// Lazy components stay module-scoped so rerendering the workspace never remounts a tab.
+// `active` mirrors the legacy tab element staying mounted while detached: the stateful
+// tabs use it to stop background work and reload data when they are reactivated.
+const tabContent = {
+  appearance: () => <AppearanceSettingsTab />,
+  defaults: (_customProvider?: string, active?: boolean) => <DefaultOptionsSettingsTab active={active} />,
+  memory: () => <MemorySettingsTab />,
+  customModels: (customProvider?: string, active?: boolean) => <CustomProvidersSettingsTab customProvider={customProvider} active={active} />,
+  agents: () => <SettingsPanel><AgentProfilesPage /></SettingsPanel>,
+  skills: () => <SettingsPanel><SkillsManagerPanel active scope="global" embedded onSaved={() => undefined} /></SettingsPanel>,
+  mcp: () => <SettingsPanel><McpServersPanel active /></SettingsPanel>,
+  plugins: () => <SettingsPanel><PluginsPage /></SettingsPanel>,
+  scheduledTasks: () => <SettingsPanel><ScheduledTasksPage onOpenSession={openScheduledTaskSession} /></SettingsPanel>,
+  projectCommands: () => <ProjectCommandsSettingsTab />,
+  backup: () => <BackupSettingsTab />,
+  archivedConversations: (_customProvider?: string, active?: boolean) => <ArchivedConversationsSettingsTab active={active} />,
+  shareLinks: () => <SettingsPanel><ShareLinksSettingsPage /></SettingsPanel>,
+  channels: (_customProvider?: string, active?: boolean) => <ChannelsSettingsTab active={active} />,
+  lanAccess: (_customProvider?: string, active?: boolean) => <LanAccessSettingsTab active={active} />,
+  about: (_customProvider?: string, active?: boolean) => <AboutSettingsTab active={active} />,
 }
 
-export function createSkillsSettingsTab() {
-  return createReactSettingsTab(t('skills'), () => (
-    <SettingsPanel>
-      <SkillsManagerPanel active scope="global" embedded onSaved={() => undefined} />
-    </SettingsPanel>
-  ))
+export type ReactSettingsTabContentProps = {
+  tabKey: keyof typeof tabContent
+  customProvider?: string
+  active?: boolean
 }
 
-export function createMcpSettingsTab() {
-  return createReactSettingsTab(t('mcpServers'), () => (
-    <SettingsPanel>
-      <McpServersPanel active />
-    </SettingsPanel>
-  ))
-}
-
-export function createPluginsSettingsTab() {
-  return createReactSettingsTab(t('plugins'), () => (
-    <SettingsPanel>
-      <PluginsPage />
-    </SettingsPanel>
-  ))
-}
-
-export function createScheduledTasksSettingsTab() {
-  return createReactSettingsTab(t('scheduledTasks'), () => (
-    <SettingsPanel>
-      <ScheduledTasksPage onOpenSession={openScheduledTaskSession} />
-    </SettingsPanel>
-  ))
-}
-
-export function createShareLinksSettingsTab() {
-  return createReactSettingsTab(t('shareLinks'), () => (
-    <SettingsPanel>
-      <ShareLinksSettingsPage />
-    </SettingsPanel>
-  ))
+export function ReactSettingsTabContent({ tabKey, customProvider, active }: ReactSettingsTabContentProps) {
+  return (
+    <Suspense fallback={<div className="quickforge-settings-note">{t('loading')}</div>}>
+      {tabContent[tabKey](customProvider, active)}
+    </Suspense>
+  )
 }

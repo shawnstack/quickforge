@@ -3,6 +3,12 @@
 // or tsc -b alone would not validate these @ts-expect-error contracts.
 import type { AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core'
 import type { ServerAgent, ServerAgentEvent, ServerAgentLocalEvent, ServerAgentWireEvent } from '../../src/lib/server-agent'
+// `CustomAgentMessages` (the `user-with-attachments` / `artifact` roles) is
+// augmented by ChatTypes.ts, which the real app build picks up as part of src/.
+// This standalone program only has the fixture as a root name, so the
+// augmentation has to be imported explicitly or `AgentMessage['role']` loses
+// those members and server-agent.ts / tool-execution-events.ts fail TS2367.
+import '../../src/components/chat/surface/ChatTypes'
 
 declare const agent: ServerAgent
 declare const message: AgentMessage

@@ -2,12 +2,13 @@ import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assistantActionDisplayIndexes } from '../../src/components/chat/panel-decoration/message-action-visibility'
 import { decorateProcessBlocks } from '../../src/components/chat/panel-decoration/process-folding'
-import { decorateMessages, decorateUserContextChips } from '../../src/components/chat/panel-decoration/message-actions'
+import { decorateMessages, decorateUserContextChips, messageDecorationFingerprint } from '../../src/components/chat/panel-decoration/message-actions'
+import { formatMessageTime } from '../../src/components/chat/chat-utils'
+import { decorateUserMessageInputClamp } from '@/lib/input-clamp'
 import { createTurnErrorTracker } from '../../src/components/chat/panel-decoration/turn-error-state'
 import { parseSlashInvocationPrefix, planSlashChipText } from '../../src/components/chat/slash-invocation-chip'
 
-// The real i18n module pulls in pi-web-ui which requires a browser DOM;
-// slash-invocation-chip only needs t() for the chip aria-label.
+// Deterministic t stub — this suite only needs t() for the chip aria-label.
 vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
 }))
@@ -19,13 +20,6 @@ vi.mock('../../src/components/chat/chat-utils', async (importOriginal) => {
 
 vi.mock('@/lib/input-clamp', () => ({
   decorateUserMessageInputClamp: vi.fn(),
-}))
-
-vi.mock('../../src/components/chat/panel-decoration/code-blocks', () => ({
-  closeSvgCodeBlockMenus: vi.fn(),
-  decorateMarkdownCommandBlocks: vi.fn(),
-  decorateMarkdownMermaidCodeBlocks: vi.fn(),
-  decorateMarkdownSvgCodeBlocks: vi.fn(),
 }))
 
 vi.mock('../../src/components/chat/panel-decoration/process-folding', () => ({
@@ -181,7 +175,7 @@ function createFakeElement(tagName = 'div'): FakeNode {
     closest(selector: string) {
       let current: FakeNode | null = node
       while (current) {
-        if (matchesSelector(current, selector)) return current
+        if (selector.split(',').map((part) => part.trim()).some((alternative) => matchesSelector(current, alternative))) return current
         current = current.parentElement
       }
       return null
@@ -225,10 +219,29 @@ function createFakeElement(tagName = 'div'): FakeNode {
   return node
 }
 
+// 镜像 React surface 的消息宿主（标准 HTML 标签 + qf-* class）。
+function createMessageListElement() {
+  const messageList = createFakeElement('div')
+  messageList.className = 'qf-message-list'
+  return messageList
+}
+
+function createUserMessageHost() {
+  const element = createFakeElement('div')
+  element.className = 'qf-user-message'
+  return element
+}
+
+function createAssistantMessageHost() {
+  const element = createFakeElement('div')
+  element.className = 'qf-assistant-message'
+  return element
+}
+
 function createUserMessageElement() {
-  const element = createFakeElement('user-message')
+  const element = createUserMessageHost()
   const container = createFakeElement('div')
-  container.className = 'user-message-container'
+  container.className = 'user-message-container qf-user-message-bubble'
   element.append(container)
   return { element, container }
 }
@@ -239,7 +252,7 @@ function decorateOptions(
   onCopyAnswer = vi.fn(),
   historyActionsDisabled = false,
 ) {
-  const messageList = createFakeElement('message-list')
+  const messageList = createMessageListElement()
   messageList.append(element)
   const panel = createFakeElement('div')
   panel.append(messageList)
@@ -277,8 +290,8 @@ describe('assistant message actions', () => {
   })
 
   it.each(['assistant', 'user'])('syncs a completed planning task into an existing %s host without rebuilding messages', (role) => {
-    const host = role === 'user' ? createUserMessageElement().element : createFakeElement('assistant-message')
-    const messageList = createFakeElement('message-list')
+    const host = role === 'user' ? createUserMessageElement().element : createAssistantMessageHost()
+    const messageList = createMessageListElement()
     messageList.append(host)
     const panel = createFakeElement('div')
     panel.append(messageList)
@@ -317,8 +330,8 @@ describe('assistant message actions', () => {
   it('keeps internal user hosts and original offsets, removes actions, and reverses on DOM reuse', () => {
     const internal = createUserMessageElement().element
     const user = createUserMessageElement().element
-    const assistant = createFakeElement('assistant-message')
-    const messageList = createFakeElement('message-list')
+    const assistant = createAssistantMessageHost()
+    const messageList = createMessageListElement()
     messageList.append(internal, user, assistant)
     const panel = createFakeElement('div')
     panel.append(messageList)
@@ -400,8 +413,8 @@ describe('assistant message actions', () => {
     const userContainer = createFakeElement('div')
     userContainer.className = 'user-message-container'
     user.append(userContainer)
-    const assistant = createFakeElement('assistant-message')
-    const messageList = createFakeElement('message-list')
+    const assistant = createAssistantMessageHost()
+    const messageList = createMessageListElement()
     messageList.append(user, assistant)
     const panel = createFakeElement('div')
     panel.append(messageList)
@@ -432,8 +445,8 @@ describe('assistant message actions', () => {
 
   it('hides the retry button on the last user message when the turn was stopped by the user', () => {
     const user = createUserMessageElement().element
-    const assistant = createFakeElement('assistant-message')
-    const messageList = createFakeElement('message-list')
+    const assistant = createAssistantMessageHost()
+    const messageList = createMessageListElement()
     messageList.append(user, assistant)
     const panel = createFakeElement('div')
     panel.append(messageList)
@@ -468,6 +481,104 @@ describe('assistant message actions', () => {
 
     expect(css).not.toMatch(
       /message-list\s+(?:user-message|assistant-message)[^{}]*\{[^{}]*content-visibility\s*:/s,
+    )
+  })
+
+  it('skips rewriting the message time when the formatted text is unchanged', () => {
+    const user = createUserMessageElement().element
+    const message = { role: 'user', content: 'question', timestamp: 1_750_000_000_000 }
+    const messageList = createMessageListElement()
+    messageList.append(user)
+    const panel = createFakeElement('div')
+    panel.append(messageList)
+    const decorate = (messages: Record<string, unknown>[]) => decorateMessages({
+      panel: panel as unknown as HTMLElement,
+      getMessages: () => messages as never,
+      isStreaming: () => false,
+      onCopyAnswer: vi.fn(),
+      onRollbackFromMessage: vi.fn(),
+      onRetryFromMessage: vi.fn(),
+      onForkFromMessage: vi.fn(),
+      disableFork: false,
+    })
+
+    decorate([message])
+    const actions = user.querySelector('.quickforge-message-actions')
+    expect(actions).not.toBeNull()
+    const createdTime = actions?.querySelector('.quickforge-message-time')
+    expect(createdTime?.textContent).toBe(formatMessageTime(1_750_000_000_000))
+
+    // 用带写入计数的替身接管时间 span（getter 返回当前期望文本）。
+    const timeWrites: string[] = []
+    const spyTime = createFakeElement('span')
+    spyTime.className = 'quickforge-message-time'
+    let currentText = createdTime?.textContent ?? ''
+    Object.defineProperty(spyTime, 'textContent', {
+      get: () => currentText,
+      set: (value: string) => {
+        timeWrites.push(value)
+        currentText = value
+      },
+    })
+    createdTime?.remove()
+    actions?.prepend(spyTime)
+
+    // 新数组引用触发行重装饰，但时间文本一致 → 不写回（省一次 DOM 写入）。
+    decorate([{ ...message }])
+    expect(timeWrites).toEqual([])
+    expect(actions?.querySelector('.quickforge-message-time')).toBe(spyTime)
+  })
+
+  it('skips rows whose decoration fingerprint is unchanged and re-decorates on input changes', () => {
+    const { element } = createUserMessageElement()
+    const message = { role: 'user', content: 'question', timestamp: 1_750_000_000_000 }
+    const messageList = createMessageListElement()
+    messageList.append(element)
+    const panel = createFakeElement('div')
+    panel.append(messageList)
+    let currentMessages: Record<string, unknown>[] = [message]
+    const decorate = () => decorateMessages({
+      panel: panel as unknown as HTMLElement,
+      getMessages: () => currentMessages as never,
+      isStreaming: () => false,
+      onCopyAnswer: vi.fn(),
+      onRollbackFromMessage: vi.fn(),
+      onRetryFromMessage: vi.fn(),
+      onForkFromMessage: vi.fn(),
+      disableFork: false,
+    })
+
+    const clamp = vi.mocked(decorateUserMessageInputClamp)
+    clamp.mockClear()
+    decorate()
+    expect(clamp).toHaveBeenCalledTimes(1)
+    // 同数组引用 + 同消息指纹 + 同交互状态 → 行级短路，整行跳过。
+    decorate()
+    decorate()
+    expect(clamp).toHaveBeenCalledTimes(1)
+
+    // 原地修改 details（数组引用不变）→ 指纹变化 → 行重新装饰。
+    message.details = { quickforgeGoalIteration: { goalId: 'g', kind: 'planning', iteration: 0, outcome: 'running' } }
+    decorate()
+    expect(clamp).toHaveBeenCalledTimes(2)
+
+    // 消息数组引用变化（React 表面重建窗口）→ 代数递增 → 重新装饰。
+    currentMessages = [{ ...message }]
+    decorate()
+    expect(clamp).toHaveBeenCalledTimes(3)
+  })
+
+  it('fingerprints message content structurally without serializing full text', () => {
+    const base = { role: 'assistant', timestamp: 5, content: [{ type: 'text', text: 'a long answer body' }] }
+    expect(messageDecorationFingerprint(base as never)).toBe(messageDecorationFingerprint({ ...base } as never))
+    expect(messageDecorationFingerprint(base as never)).not.toBe(
+      messageDecorationFingerprint({ ...base, stopReason: 'aborted' } as never),
+    )
+    expect(messageDecorationFingerprint(base as never)).not.toBe(
+      messageDecorationFingerprint({ ...base, content: [{ type: 'text', text: 'a long answer body2' }] } as never),
+    )
+    expect(messageDecorationFingerprint(base as never)).not.toBe(
+      messageDecorationFingerprint({ ...base, details: { marker: 1 } } as never),
     )
   })
 })
@@ -506,20 +617,18 @@ describe('turn error row', () => {
     }
   }
 
-  // 镜像 pi-web-ui AssistantMessage 渲染根：assistant-message > div > 红块
-  // （Messages.js：div.bg-destructive/10 + <strong>Error:</strong> + 文本）。
+  // 镜像 React AssistantMessage 渲染根：div.qf-assistant-message > 红块
+  // （div.bg-destructive/10 + <strong>Error:</strong> + 文本，直接子级）。
   function createErrorElement() {
-    const element = createFakeElement('assistant-message')
-    const root = createFakeElement('div')
+    const element = createAssistantMessageHost()
     const block = createFakeElement('div')
     block.className = 'mx-4 mt-3 p-3 bg-destructive/10 text-destructive rounded-lg text-sm overflow-hidden'
-    root.append(block)
-    element.append(root)
-    return { element, root, block }
+    element.append(block)
+    return { element, block }
   }
 
   function buildPanel(elements: FakeNode[]) {
-    const messageList = createFakeElement('message-list')
+    const messageList = createMessageListElement()
     messageList.append(...elements)
     const panel = createFakeElement('div')
     panel.append(messageList)
@@ -553,13 +662,19 @@ describe('turn error row', () => {
     const { element, block } = createErrorElement()
     decorateErrorPanel([user, element], [{ role: 'user', content: 'question' }, errorMessageFixture()])
 
-    expect(block.className).toBe('quickforge-error-line')
+    // React 红块保持原样（className / 子节点都不动），只被内联样式隐藏。
+    expect(block.className).toContain('bg-destructive/10')
+    expect(block.style.display).toBe('none')
+    // 行是装饰层自建节点，承载现有 UI。
+    const row = element.querySelector('.quickforge-error-line')
+    expect(row).not.toBeNull()
+    expect(row?.parentElement).toBe(element)
     // t 被模拟为返回 key：译文 key 拼进行文本（真实运行是本地化文案）。
-    expect(block.querySelector('.quickforge-error-text')?.textContent).toBe('errorLinePrefix · errorAiStreamIdleTimeout')
-    const retry = block.querySelector('button[data-quickforge-action="error-retry"]')
+    expect(row?.querySelector('.quickforge-error-text')?.textContent).toBe('errorLinePrefix · errorAiStreamIdleTimeout')
+    const retry = row?.querySelector('button[data-quickforge-action="error-retry"]')
     expect(retry?.getAttribute('aria-label')).toBe('retry')
     expect(retry?.disabled).toBe(false)
-    expect(block.querySelector('button[data-quickforge-action="error-details"]')).not.toBeNull()
+    expect(row?.querySelector('button[data-quickforge-action="error-details"]')).not.toBeNull()
 
     const details = element.querySelector('.quickforge-error-details')
     expect(details?.querySelector('pre')?.textContent).toBe('AI stream idle timeout after 60000ms')
@@ -573,14 +688,15 @@ describe('turn error row', () => {
     const onRetryAfterError = vi.fn()
     const onRetryFromMessage = vi.fn()
     const user = createUserMessageElement().element
-    const { element, block } = createErrorElement()
+    const { element } = createErrorElement()
     const messages = [{ role: 'user', content: 'question' }, errorMessageFixture()]
     decorateErrorPanel([user, element], messages, { onRetryAfterError, onRetryFromMessage })
 
-    block.querySelector('button[data-quickforge-action="error-retry"]')?.onclick?.({ stopPropagation() {} })
+    const row = element.querySelector('.quickforge-error-line')
+    row?.querySelector('button[data-quickforge-action="error-retry"]')?.onclick?.({ stopPropagation() {} })
 
-    expect(block.className).toContain('quickforge-error-retrying')
-    expect(block.querySelector('.quickforge-error-text')?.textContent).toBe('errorRetryingLabel')
+    expect(row?.className).toContain('quickforge-error-retrying')
+    expect(row?.querySelector('.quickforge-error-text')?.textContent).toBe('errorRetryingLabel')
     expect(onRetryAfterError).toHaveBeenCalledTimes(1)
     const [errorEntry, fallbackRetry] = onRetryAfterError.mock.calls[0] as [unknown, () => void]
     expect(errorEntry).toBe(messages.at(-1))
@@ -593,7 +709,7 @@ describe('turn error row', () => {
     const onSwitchModel = vi.fn()
     const tracker = createTurnErrorTracker()
     const user = createUserMessageElement().element
-    const { element, block } = createErrorElement()
+    const { element } = createErrorElement()
     const decorate = (errorMessage: Record<string, unknown>) => decorateErrorPanel(
       [user, element],
       [{ role: 'user', content: 'question' }, errorMessage],
@@ -601,11 +717,12 @@ describe('turn error row', () => {
     )
 
     decorate(errorMessageFixture())
-    block.querySelector('button[data-quickforge-action="error-retry"]')?.onclick?.({ stopPropagation() {} })
+    const row = element.querySelector('.quickforge-error-line')
+    row?.querySelector('button[data-quickforge-action="error-retry"]')?.onclick?.({ stopPropagation() {} })
     // 重试失败：新错误（不同 timestamp）→ 错误行恢复 + 琥珀升级提示。
     decorate(errorMessageFixture({ timestamp: 1_750_000_100_000 }))
 
-    expect(block.className).not.toContain('quickforge-error-retrying')
+    expect(row?.className).not.toContain('quickforge-error-retrying')
     const escalate = element.querySelector('.quickforge-error-escalate')
     expect(escalate).not.toBeNull()
     // fake DOM 的 textContent 不聚合子文本节点，dataset 记录了当前展示文案。
@@ -623,10 +740,15 @@ describe('turn error row', () => {
     ])
 
     decorate()
-    const firstChildren = [...block.children]
+    const row = element.querySelector('.quickforge-error-line')
+    const firstChildren = row ? [...row.children] : []
+    const reactChildren = [...block.children]
     decorate()
-    expect(block.children).toHaveLength(firstChildren.length)
-    expect(block.querySelector('button[data-quickforge-action="error-retry"]')).not.toBeNull()
+    // 不重复创建、不每轮删掉重建装饰行。
+    expect(element.querySelectorAll('.quickforge-error-line')).toEqual([row])
+    expect(row?.children).toEqual(firstChildren)
+    expect(row?.querySelector('button[data-quickforge-action="error-retry"]')).not.toBeNull()
+    expect(block.children).toEqual(reactChildren)
   })
 
   it('clears companions once the element no longer renders an error message', () => {
@@ -634,13 +756,15 @@ describe('turn error row', () => {
     const { element, block } = createErrorElement()
     decorateErrorPanel([user, element], [{ role: 'user', content: 'question' }, errorMessageFixture()])
     expect(element.querySelector('.quickforge-error-details')).not.toBeNull()
+    expect(element.querySelector('.quickforge-error-line')).not.toBeNull()
 
-    // Lit 重渲染移除红块后，消息变为普通 assistant：伴随元素全部清理。
+    // 重新渲染移除红块后，消息变为普通 assistant：行与伴随元素全部清理。
     block.remove()
     decorateErrorPanel([user, element], [
       { role: 'user', content: 'question' },
       { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
     ])
+    expect(element.querySelector('.quickforge-error-line')).toBeNull()
     expect(element.querySelector('.quickforge-error-details')).toBeNull()
     expect(element.querySelector('.quickforge-error-escalate')).toBeNull()
   })
@@ -655,32 +779,38 @@ describe('turn error row', () => {
       { role: 'user', content: 'next' },
     ])
 
-    expect(block.className).toBe('quickforge-error-line')
-    expect(block.querySelector('.quickforge-error-text')).not.toBeNull()
-    expect(block.querySelector('button[data-quickforge-action="error-retry"]')).toBeNull()
-    expect(block.querySelector('button[data-quickforge-action="error-details"]')).toBeNull()
+    const row = element.querySelector('.quickforge-error-line')
+    expect(row).not.toBeNull()
+    expect(row?.querySelector('.quickforge-error-text')).not.toBeNull()
+    expect(row?.querySelector('button[data-quickforge-action="error-retry"]')).toBeNull()
+    expect(row?.querySelector('button[data-quickforge-action="error-details"]')).toBeNull()
     expect(element.querySelector('.quickforge-error-details')).toBeNull()
+    // 历史错误同样只隐藏 React 红块，不改写它。
+    expect(block.style.display).toBe('none')
+    expect(block.className).toContain('bg-destructive/10')
   })
 
   it('shows the raw message inline without a details toggle when no translation rule matches', () => {
     const user = createUserMessageElement().element
-    const { element, block } = createErrorElement()
+    const { element } = createErrorElement()
     decorateErrorPanel([user, element], [
       { role: 'user', content: 'question' },
       errorMessageFixture({ errorMessage: 'Something unexpected happened' }),
     ])
 
-    expect(block.querySelector('.quickforge-error-text')?.textContent).toBe('errorLinePrefix · Something unexpected happened')
-    expect(block.querySelector('button[data-quickforge-action="error-details"]')).toBeNull()
+    const row = element.querySelector('.quickforge-error-line')
+    expect(row?.querySelector('.quickforge-error-text')?.textContent).toBe('errorLinePrefix · Something unexpected happened')
+    expect(row?.querySelector('button[data-quickforge-action="error-details"]')).toBeNull()
     expect(element.querySelector('.quickforge-error-details')).toBeNull()
   })
 
   it('toggles the details block open and closed in place', () => {
     const user = createUserMessageElement().element
-    const { element, block } = createErrorElement()
+    const { element } = createErrorElement()
     decorateErrorPanel([user, element], [{ role: 'user', content: 'question' }, errorMessageFixture()])
 
-    const toggle = block.querySelector('button[data-quickforge-action="error-details"]')
+    const toggle = element.querySelector('.quickforge-error-line')
+      ?.querySelector('button[data-quickforge-action="error-details"]')
     toggle?.onclick?.({ stopPropagation() {} })
     const details = element.querySelector('.quickforge-error-details')
     expect(details?.className).toContain('quickforge-error-details-open')
@@ -697,13 +827,13 @@ describe('turn error row', () => {
     ['no retry handler', { onRetryAfterError: undefined }],
   ])('hides the retry button when %s', (_name, options) => {
     const user = createUserMessageElement().element
-    const { element, block } = createErrorElement()
+    const { element } = createErrorElement()
     decorateErrorPanel([user, element], [
       { role: 'user', content: 'question' },
       errorMessageFixture(),
     ], options)
 
-    expect(block.querySelector('button[data-quickforge-action="error-retry"]')).toBeNull()
+    expect(element.querySelector('.quickforge-error-line')?.querySelector('button[data-quickforge-action="error-retry"]')).toBeNull()
   })
 
   it.each([
@@ -711,13 +841,13 @@ describe('turn error row', () => {
     ['restricted history actions', { historyActionsDisabled: true }],
   ])('disables the retry button while %s', (_name, options) => {
     const user = createUserMessageElement().element
-    const { element, block } = createErrorElement()
+    const { element } = createErrorElement()
     decorateErrorPanel([user, element], [
       { role: 'user', content: 'question' },
       errorMessageFixture(),
     ], options)
 
-    expect(block.querySelector('button[data-quickforge-action="error-retry"]')?.disabled).toBe(true)
+    expect(element.querySelector('.quickforge-error-line')?.querySelector('button[data-quickforge-action="error-retry"]')?.disabled).toBe(true)
   })
 
   it('ships the turn-error rewrite contract across wiring, copy, and styles', () => {
@@ -778,19 +908,17 @@ describe('assistant stopped label decoration', () => {
     }
   }
 
-  // 镜像 pi-web-ui AssistantMessage 渲染根：<assistant-message> > div > …
+  // 镜像 React AssistantMessage 渲染根：div.qf-assistant-message > …（span 直接子级）
   function createAssistantMessageElement() {
-    const element = createFakeElement('assistant-message')
-    const root = createFakeElement('div')
-    element.append(root)
-    return { element, root }
+    const element = createAssistantMessageHost()
+    return { element, root: element }
   }
 
   function decorateStoppedPanel(
     elements: FakeNode[],
     messages: Record<string, unknown>[],
   ) {
-    const messageList = createFakeElement('message-list')
+    const messageList = createMessageListElement()
     messageList.append(...elements)
     const panel = createFakeElement('div')
     panel.append(messageList)
@@ -839,9 +967,10 @@ describe('assistant stopped label decoration', () => {
 
   it('ships the stopped-label rewrite contract: scoped discovery, class swap, and styling', () => {
     const source = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
-    // 发现路径限定 assistant 渲染根的直接子级，避免误伤 tool 卡内同款 aborted 标签
+    // 发现路径限定 assistant 渲染根的直接或一级嵌套子级（React 直接子级 /
+    // 遗留 pi 渲染根多包一层），避免误伤 tool 卡内同款 aborted 标签
     expect(source).toContain("querySelectorAll<HTMLElement>('span.text-sm.text-destructive.italic')")
-    expect(source).toContain('candidate.parentElement?.parentElement === element')
+    expect(source).toContain('candidate.parentElement === element || candidate.parentElement?.parentElement === element')
     expect(source).toContain("classList.remove('text-destructive', 'italic')")
     expect(source).toContain('span.dataset.quickforgeStoppedLabel === label')
     expect(source).toMatch(/decorateAssistantStoppedText\(element, entry\.message\)/)
@@ -1064,7 +1193,8 @@ describe('text attachment tile decoration', () => {
   function createUserMessageWithTiles(tileCount: number) {
     const { element } = createUserMessageElement()
     const tiles = Array.from({ length: tileCount }, () => {
-      const tile = createFakeElement('attachment-tile')
+      const tile = createFakeElement('div')
+      tile.className = 'qf-attachment-tile'
       element.append(tile)
       return tile
     })
@@ -1072,7 +1202,7 @@ describe('text attachment tile decoration', () => {
   }
 
   function decorateAttachmentPanel(element: FakeNode, message: Record<string, unknown>, onOpenLocalFilePath: ReturnType<typeof vi.fn>) {
-    const messageList = createFakeElement('message-list')
+    const messageList = createMessageListElement()
     messageList.append(element)
     const panel = createFakeElement('div')
     panel.append(messageList)
@@ -1109,7 +1239,8 @@ describe('text attachment tile decoration', () => {
 
     // 消息内不展示路径文字行，完整路径只在 tile 的 hover 提示里。
     expect(element.querySelectorAll('.quickforge-text-attachment-path')).toHaveLength(0)
-    expect(tiles[0].getAttribute('title')).toBe(`点击在系统文件管理器中打开：${attachmentPath}`)
+    // i18n is stubbed key-identity in this suite (see the top-of-file mock).
+    expect(tiles[0].getAttribute('title')).toBe(`openAttachmentInFileManagerHint：${attachmentPath}`)
 
     clickTile(tiles[0])
     expect(onOpenLocalFilePath).toHaveBeenCalledTimes(1)

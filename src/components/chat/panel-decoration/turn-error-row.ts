@@ -8,11 +8,18 @@ import { turnErrorKeyOf, type TurnErrorTracker, type TurnErrorView } from './tur
 /**
  * 回合终态错误的一行式轻量错误行（design-mockups/conversation-error-retry.html）。
  *
- * pi-web-ui 把失败的回合渲染为红色错误块（`div.bg-destructive/10` +
- * `<strong>Error:</strong>` + 原始英文 errorMessage）。本装饰器在同一位置把它
- * 原地改写为与「已停止 / 重新连接中 / 模型重试中」同族的轻量行：
+ * 聊天面板把失败的回合渲染为红色错误块（`div.bg-destructive/10` +
+ * `<strong>Error:</strong>` + 原始英文 errorMessage）。本装饰器不触碰该 React
+ * 节点（子节点 / className 都保持 React 原状），只把它内联 `display:none` 隐藏，
+ * 并在其旁插入一个**装饰层自建**的、与「已停止 / 重新连接中 / 模型重试中」同族的
+ * 轻量行：
  *
  *     ⚠ 生成失败 · <译文或原文>  [重试] [详情]
+ *
+ * 所有权边界（修复 `removeChild` NotFoundError）：React 仍把红块及其子节点当作
+ * 自己渲染的节点，装饰层一旦 `replaceChildren` / 改 className / 移除红块，React
+ * 重渲染或卸载时就会对已不存在的子节点执行 `removeChild` 而崩溃。因此：红块只读、
+ * 只隐藏；行 / 重试 / 详情 / 升级提示全部是装饰层自建节点。
  *
  * - 数据层 `errorMessage` 原文不动（持久化 / 去重 / trace 比较依赖原文）；
  * - 「重试」常显在错误旁（不依赖 hover），「详情」就地展开 mono 原文——仅在
@@ -82,7 +89,7 @@ function createRetryButton(options: TurnErrorRowOptions): HTMLElement {
     if (button.disabled) return
     options.tracker?.noteRetryClicked(turnErrorKeyOf(options.message))
     // 立即切换到「正在重试…」呈现（后续 decorate 周期经 view 维持同一状态）。
-    const host = button.closest<HTMLElement>('assistant-message')
+    const host = button.closest<HTMLElement>('assistant-message, .qf-assistant-message')
     if (host) {
       decorateTurnErrorRow(host, {
         ...options,
@@ -106,7 +113,7 @@ function createDetailsToggle(): HTMLElement {
   toggle.append(document.createTextNode(t('errorDetailsLabel')))
   toggle.onclick = (event) => {
     event.stopPropagation()
-    const host = toggle.closest<HTMLElement>('assistant-message')
+    const host = toggle.closest<HTMLElement>('assistant-message, .qf-assistant-message')
     const details = host?.querySelector<HTMLElement>(`.${ERROR_DETAILS_CLASS}`)
     if (!details) return
     const open = details.classList.toggle(ERROR_DETAILS_OPEN_CLASS)
@@ -161,8 +168,10 @@ function applyRowChildren(row: HTMLElement, options: TurnErrorRowOptions, displa
 export function decorateTurnErrorRow(element: HTMLElement, options: TurnErrorRowOptions) {
   const { message, terminal, view } = options
 
+  const existingRow = element.querySelector<HTMLElement>(`.${ERROR_LINE_CLASS}`)
   if (!isErrorMessage(message)) {
-    // 消息不再是错误（Lit 重渲染移除了红块）：清掉我们追加的伴随元素。
+    // 消息不再是错误（React 移除了红块）：清掉装饰层自建的伴随元素与行。
+    existingRow?.remove()
     element.querySelector(`.${ERROR_ESCALATE_CLASS}`)?.remove()
     element.querySelector(`.${ERROR_DETAILS_CLASS}`)?.remove()
     return
@@ -172,12 +181,18 @@ export function decorateTurnErrorRow(element: HTMLElement, options: TurnErrorRow
   const translated = translateErrorMessage(raw)
   const display = translated || raw
 
-  // Lit 渲染的红块优先（新渲染尚未改写）；已有改写行则复用。
+  // React 渲染的红块归 React 所有：只读它、仅用内联样式隐藏，绝不改写其
+  // 子节点 / className，也不从 React 容器里移除 / 替换它（否则 React 卸载或
+  // 重渲染时 removeChild 会抛 NotFoundError）。
   const block = element.querySelector<HTMLElement>('.bg-destructive\\/10')
-  const existing = element.querySelector<HTMLElement>(`.${ERROR_LINE_CLASS}`)
-  if (block && existing && block !== existing) existing.remove()
-  const row = block ?? existing
-  if (!row) return
+  if (block) block.style.display = 'none'
+
+  // 行本体是装饰层自建节点（红块的兄弟节点）：首次 decorate 创建，之后复用。
+  const row = existingRow ?? document.createElement('div')
+  if (!existingRow) {
+    row.className = ERROR_LINE_CLASS
+    element.append(row)
+  }
 
   const signature = rowPresentationSignature(options, display)
   if (row.dataset.quickforgeErrorSignature !== signature) {
@@ -187,7 +202,8 @@ export function decorateTurnErrorRow(element: HTMLElement, options: TurnErrorRow
     element.querySelector(`.${ERROR_DETAILS_CLASS}`)?.classList.remove(ERROR_DETAILS_OPEN_CLASS)
   }
 
-  // 伴随元素挂在红块父级（assistant 渲染根 div）末尾：行 → 升级提示 → 详情。
+  // 伴随元素挂在 assistant 渲染根（React 的 div.qf-assistant-message）末尾：
+  // 行 → 升级提示 → 详情，均为装饰层自建节点，不动 React 自己的子节点。
   const host = row.parentElement ?? element
   const previousEscalate = element.querySelector<HTMLElement>(`.${ERROR_ESCALATE_CLASS}`)
   const previousDetails = element.querySelector<HTMLElement>(`.${ERROR_DETAILS_CLASS}`)

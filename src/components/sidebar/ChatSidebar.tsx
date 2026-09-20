@@ -221,7 +221,7 @@ function LoadMoreSentinel({ onLoadMore, enabled }: { onLoadMore: () => void; ena
   if (!enabled) return null
   return (
     <div ref={ref} className="flex items-center justify-center py-1">
-      <Loader2 className="size-3 animate-spin text-muted-foreground/45" />
+      <Loader2 className="size-3 animate-spin" />
     </div>
   )
 }
@@ -250,7 +250,7 @@ function SessionDisplayControls({
       type="button"
       className={cn(
         sidebarSessionRowBaseClass,
-        'w-full px-2 text-muted-foreground/50 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-muted-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-45',
+        'w-full px-2 text-muted-foreground/50 hover:bg-[var(--quickforge-sidebar-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-45',
       )}
       onClick={onShowMore}
       disabled={loading}
@@ -472,24 +472,24 @@ export const ChatSidebar = memo(function ChatSidebar({
   const iconHoverShadowClass = ''
   const rowClass = `${sidebarSessionRowBaseClass} ${sidebarOpen ? 'px-2' : 'justify-center px-0'} ${rowHoverShadowClass}`
   const footerRowClass = `group relative flex items-center gap-2 overflow-hidden py-1.5 text-left transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarOpen ? 'px-2' : 'justify-center px-0'}`
-  const activeRowClass = `${sidebarActiveBgClass} text-foreground/84 shadow-[0_8px_22px_-20px_rgb(15_23_42_/_0.32)]`
-  const projectActiveRowClass = `text-foreground/80 ${sidebarHoverBgClass}`
-  const inactiveRowClass = `text-muted-foreground/68 ${sidebarHoverBgClass} hover:text-foreground/80`
-  const sessionInactiveRowClass = `text-muted-foreground/70 ${sidebarHoverBgClass} hover:text-foreground/82`
-  const iconSlotClass = 'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/55 transition-colors group-hover:text-foreground/70'
-  const iconButtonClass = `size-7 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow,opacity] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
+  const activeRowClass = `${sidebarActiveBgClass} shadow-[0_8px_22px_-20px_rgb(15_23_42_/_0.32)]`
+  const projectActiveRowClass = `${sidebarHoverBgClass}`
+  const inactiveRowClass = `${sidebarHoverBgClass} `
+  const sessionInactiveRowClass = `${sidebarHoverBgClass} `
+  const iconSlotClass = 'inline-flex size-6 shrink-0 items-center justify-center rounded-full transition-colors'
+  const iconButtonClass = `size-7 shrink-0 rounded-full transition-[background-color,color,box-shadow,opacity] duration-160 ease-out ${sidebarHoverBgClass} ${iconHoverShadowClass}`
   const sectionActionButtonClass = `quickforge-sidebar-section-icon ${iconButtonClass} pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
   const actionOverlayBaseClass = 'pointer-events-none absolute inset-y-0 right-2 z-20 flex items-center rounded-r-lg bg-gradient-to-l from-[var(--quickforge-sidebar-hover-bg)] via-[var(--quickforge-sidebar-hover-bg)]/95 to-transparent pl-4 opacity-0 transition-opacity duration-160'
   const actionOverlayClass = `${actionOverlayBaseClass} gap-1 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
   const projectActionOverlayClass = `${actionOverlayBaseClass} gap-px group-hover:pointer-events-auto group-hover:opacity-100`
-  const overlayIconButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
-  const overlayArchiveButtonClass = `size-6 shrink-0 rounded-full text-muted-foreground/55 transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} hover:text-foreground/85 ${iconHoverShadowClass}`
+  const overlayIconButtonClass = `size-6 shrink-0 rounded-full transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} ${iconHoverShadowClass}`
+  const overlayArchiveButtonClass = `size-6 shrink-0 rounded-full transition-[background-color,color,box-shadow] duration-160 ease-out ${sidebarHoverBgClass} ${iconHoverShadowClass}`
   const sessionTitleClass = sidebarSessionTitleClass
   const sessionButtonClass = 'flex min-w-0 flex-1 items-center gap-1 text-left'
   const sessionTitleRowClass = 'flex min-w-0 flex-1 items-center gap-1 truncate'
   const sessionTimeSlotContent = (session: QuickForgeSessionMetadata, timeText: string) => {
     if (sessionTaskStatus(session) === 'running') {
-      return <Loader2 className="inline-block size-3 animate-spin text-muted-foreground/55" aria-label="运行中" />
+      return <Loader2 className="inline-block size-3 animate-spin" aria-label="运行中" />
     }
     if (completedSessionIds.has(session.id)) {
       return <span className="inline-block size-1.5 rounded-full bg-emerald-500" aria-label="未读" />
@@ -497,16 +497,16 @@ export const ChatSidebar = memo(function ChatSidebar({
     return timeText
   }
   const sessionMetaHoverHiddenClass = 'group-hover:pointer-events-none group-hover:opacity-0 group-focus-within:pointer-events-none group-focus-within:opacity-0'
-  const activeSessionTitleClass = 'font-[350] text-foreground/84'
-  const activeProjectTitleClass = 'font-[350] text-foreground/80'
+  const activeSessionTitleClass = 'font-[350]'
+  const activeProjectTitleClass = 'font-[350]'
   const timeClass = 'quickforge-sidebar-session-time w-11 shrink-0 whitespace-nowrap text-right text-[11px] leading-4 transition-opacity duration-160'
-  const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center bg-background/50 px-4 pt-[12vh] backdrop-blur-sm'
+  const searchDialogClass = 'fixed inset-0 z-50 flex items-start justify-center px-4 pt-[12vh] backdrop-blur-sm'
   const projectMenuClass = 'fixed z-50 min-w-48 overflow-hidden rounded-lg border border-border bg-background p-1 shadow-quickforge'
   const viewSortMenuClass = 'fixed z-50 overflow-hidden rounded-2xl border border-border bg-background p-1.5 shadow-quickforge'
   const viewSortMenuSectionLabelClass = 'px-3 pb-1 pt-2 text-xs font-[350] leading-4 text-muted-foreground/50'
-  const viewSortMenuItemClass = 'flex w-full items-center gap-3 whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted/45'
+  const viewSortMenuItemClass = 'flex w-full items-center gap-3 whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-sm transition-colors'
   const sessionHoverTipClass = 'pointer-events-none fixed z-50 w-[min(24rem,calc(100vw-1rem))] max-w-sm rounded-2xl border border-border bg-popover px-4 py-3 text-left shadow-quickforge'
-  const sessionHoverTipMetaClass = 'mt-2 flex items-center gap-2 text-sm leading-5 text-muted-foreground/72'
+  const sessionHoverTipMetaClass = 'mt-2 flex items-center gap-2 text-sm leading-5'
   const isMobile = variant === 'mobile'
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -1201,8 +1201,8 @@ export const ChatSidebar = memo(function ChatSidebar({
           aria-valuemax={getSidebarMaxWidth()}
           aria-valuenow={Math.round(sidebarWidth)}
           className={cn(
-            'group absolute inset-y-0 right-0 z-30 w-2 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-border/20',
-            isResizing && 'bg-border/25',
+            'group absolute inset-y-0 right-0 z-30 w-2 cursor-col-resize touch-none bg-transparent transition-colors',
+            isResizing && '',
           )}
           onDoubleClick={resetSidebarWidth}
           onPointerDown={startResizing}
@@ -1211,7 +1211,7 @@ export const ChatSidebar = memo(function ChatSidebar({
           onPointerCancel={stopResizing}
         >
           <span className={cn(
-            'absolute inset-y-0 right-0 w-px bg-border/70 opacity-0 transition-opacity',
+            'absolute inset-y-0 right-0 w-px opacity-0 transition-opacity',
             isResizing ? 'opacity-100' : 'group-hover:opacity-100',
           )} />
         </div>
@@ -1444,16 +1444,16 @@ export const ChatSidebar = memo(function ChatSidebar({
                   <div ref={projectsDragBoundaryRef}>
                     <div className="space-y-0.5">
                       {projects.length === 0 ? (
-                        <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noProjects')}</div>
+                        <div className="px-3 py-3 text-xs">{t('noProjects')}</div>
                       ) : sessionViewMode === 'timeline' ? (
                         timelineSessions.length === 0 ? (
                           projectTimelineLoading ? (
-                            <div className="flex items-center px-3 py-3 text-xs text-muted-foreground/55">
+                            <div className="flex items-center px-3 py-3 text-xs">
                               <Loader2 className="mr-1.5 size-3 animate-spin" />
                               {t('loadingChatWorkspace')}
                             </div>
                           ) : (
-                            <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noConversations')}</div>
+                            <div className="px-3 py-3 text-xs">{t('noConversations')}</div>
                           )
                         ) : (
                           <>
@@ -1652,18 +1652,18 @@ export const ChatSidebar = memo(function ChatSidebar({
                                       // otherwise stay exposed to screen readers for every
                                       // not-yet-loaded project.
                                       expanded ? (
-                                        <div className="flex items-center px-2 py-1.5 text-xs text-muted-foreground/55">
+                                        <div className="flex items-center px-2 py-1.5 text-xs">
                                           <Loader2 className="mr-1.5 size-3 animate-spin" />
                                           {t('loadingChatWorkspace')}
                                         </div>
                                       ) : null
                                     ) : projectSessions.length === 0 && projectLoading(item.id) ? (
-                                      <div className="flex items-center px-2 py-1.5 text-xs text-muted-foreground/55">
+                                      <div className="flex items-center px-2 py-1.5 text-xs">
                                         <Loader2 className="mr-1.5 size-3 animate-spin" />
                                         {t('loadingChatWorkspace')}
                                       </div>
                                     ) : projectSessions.length === 0 && !projectHasMore(item.id) ? (
-                                      <div className="px-2 py-1.5 text-xs text-muted-foreground/55">{t('noConversations')}</div>
+                                      <div className="px-2 py-1.5 text-xs">{t('noConversations')}</div>
                                     ) : (
                                       <>
                                         {projectSessions.slice(0, projectVisibleCounts[item.id] ?? SIDEBAR_SESSION_DISPLAY_STEP).map((session) => {
@@ -1819,7 +1819,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               <div className={collapseInnerClass}>
                 <div className="pb-2">
                   {globalSessions.length === 0 && !globalHasMore ? (
-                    <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noSavedConversations')}</div>
+                    <div className="px-3 py-3 text-xs">{t('noSavedConversations')}</div>
                   ) : (
                     <div className="space-y-0.5">
                       {visibleGlobalSessions.map((session) => {
@@ -1930,13 +1930,13 @@ export const ChatSidebar = memo(function ChatSidebar({
             type="button"
             className={cn(
               footerRowClass,
-              'relative mb-2 w-full border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10',
+              'relative mb-2 w-full border bg-primary/5 text-primary',
             )}
             onClick={onOpenUpdate}
             aria-label={t('newVersionAvailable', { version: latestVersion })}
             title={t('newVersionAvailable', { version: latestVersion })}
           >
-            <span className={cn(iconSlotClass, 'text-primary/80')}>
+            <span className={cn(iconSlotClass, '')}>
               <DownloadCloud className="size-4" />
             </span>
             {sidebarOpen ? (
@@ -1945,7 +1945,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                   {t('newVersionAvailable', { version: latestVersion })}
                 </span>
                 {currentVersion ? (
-                  <span className="block truncate text-[11px] leading-tight text-primary/70">
+                  <span className="block truncate text-[11px] leading-tight">
                     {t('newVersionAvailableSub', { current: currentVersion })}
                   </span>
                 ) : null}
@@ -1953,7 +1953,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             ) : null}
             {sidebarOpen && onDismissUpdate ? (
               <span
-                className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] text-primary/60 transition-colors hover:bg-primary/15 hover:text-primary"
+                className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] transition-colors"
                 role="button"
                 tabIndex={0}
                 onClick={(event) => {
@@ -2019,16 +2019,16 @@ export const ChatSidebar = memo(function ChatSidebar({
             className={sessionHoverTipClass}
             style={{ left: hoveredSessionTip.x, top: hoveredSessionTip.y, transform: 'translateY(-50%)' }}
           >
-            <div className="whitespace-normal break-words text-sm font-medium leading-5 text-foreground/92">{sessionTitle(session.title, session.channelName)}</div>
+            <div className="whitespace-normal break-words text-sm font-medium leading-5">{sessionTitle(session.title, session.channelName)}</div>
             {showRuntimeInfo && currentSessionHoverInfo?.gitBranch ? (
               <div className={sessionHoverTipMetaClass}>
-                <GitBranch className="size-4 shrink-0 text-muted-foreground/60" />
+                <GitBranch className="size-4 shrink-0" />
                 <span className="truncate">{currentSessionHoverInfo.gitBranch}</span>
               </div>
             ) : null}
             {showRuntimeInfo && currentSessionHoverInfo?.context ? (
               <div className={sessionHoverTipMetaClass} title={currentSessionHoverInfo.context.title}>
-                <Gauge className="size-4 shrink-0 text-muted-foreground/60" />
+                <Gauge className="size-4 shrink-0" />
                 <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: currentSessionHoverInfo.context.color }} />
                 <span className="truncate">{currentSessionHoverInfo.context.label}</span>
               </div>
@@ -2054,9 +2054,9 @@ export const ChatSidebar = memo(function ChatSidebar({
             className={viewSortMenuItemClass}
             onClick={() => selectViewMode('project')}
           >
-            <Folder className="size-4 shrink-0 text-muted-foreground/70" />
+            <Folder className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{t('sidebarViewByProject')}</span>
-            {sessionViewMode === 'project' ? <Check className="size-4 shrink-0 text-muted-foreground/70" /> : <span className="size-4 shrink-0" />}
+            {sessionViewMode === 'project' ? <Check className="size-4 shrink-0" /> : <span className="size-4 shrink-0" />}
           </button>
           <button
             type="button"
@@ -2065,9 +2065,9 @@ export const ChatSidebar = memo(function ChatSidebar({
             className={viewSortMenuItemClass}
             onClick={() => selectViewMode('timeline')}
           >
-            <Clock className="size-4 shrink-0 text-muted-foreground/70" />
+            <Clock className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{t('sidebarViewTimeline')}</span>
-            {sessionViewMode === 'timeline' ? <Check className="size-4 shrink-0 text-muted-foreground/70" /> : <span className="size-4 shrink-0" />}
+            {sessionViewMode === 'timeline' ? <Check className="size-4 shrink-0" /> : <span className="size-4 shrink-0" />}
           </button>
           <div className="my-1 border-t" style={{ borderColor: 'color-mix(in oklab, var(--muted-foreground) 50%, transparent)' }} />
           <div className={viewSortMenuSectionLabelClass}>{t('sortBy')}</div>
@@ -2078,9 +2078,9 @@ export const ChatSidebar = memo(function ChatSidebar({
             className={viewSortMenuItemClass}
             onClick={() => selectSortMode('updatedAt')}
           >
-            <Clock className="size-4 shrink-0 text-muted-foreground/70" />
+            <Clock className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{t('sortByUpdatedAt')}</span>
-            {sessionSortMode === 'updatedAt' ? <Check className="size-4 shrink-0 text-muted-foreground/70" /> : <span className="size-4 shrink-0" />}
+            {sessionSortMode === 'updatedAt' ? <Check className="size-4 shrink-0" /> : <span className="size-4 shrink-0" />}
           </button>
           <button
             type="button"
@@ -2089,9 +2089,9 @@ export const ChatSidebar = memo(function ChatSidebar({
             className={viewSortMenuItemClass}
             onClick={() => selectSortMode('createdAt')}
           >
-            <CalendarPlus className="size-4 shrink-0 text-muted-foreground/70" />
+            <CalendarPlus className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{t('sortByCreatedAt')}</span>
-            {sessionSortMode === 'createdAt' ? <Check className="size-4 shrink-0 text-muted-foreground/70" /> : <span className="size-4 shrink-0" />}
+            {sessionSortMode === 'createdAt' ? <Check className="size-4 shrink-0" /> : <span className="size-4 shrink-0" />}
           </button>
         </div>,
         document.body,
@@ -2106,7 +2106,7 @@ export const ChatSidebar = memo(function ChatSidebar({
           {onOpenProjectInExplorer ? (
             <button
               type="button"
-              className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+              className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
               title={t('openInExplorer')}
               aria-label={t('openInExplorer')}
               onClick={() => {
@@ -2114,19 +2114,19 @@ export const ChatSidebar = memo(function ChatSidebar({
                 onOpenProjectInExplorer(openProjectMenuProject)
               }}
             >
-              <FolderOpen className="size-4 shrink-0 text-muted-foreground/70" />
+              <FolderOpen className="size-4 shrink-0" />
               <span>{t('openFolder')}</span>
             </button>
           ) : null}
           <button
             type="button"
-            className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm text-foreground/86 transition-colors hover:bg-muted"
+            className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
             onClick={() => {
               closeProjectMenu()
               onOpenProjectSkills(openProjectMenuProject)
             }}
           >
-            <Puzzle className="size-4 shrink-0 text-muted-foreground/70" />
+            <Puzzle className="size-4 shrink-0" />
             <span>{t('manageProjectSkills')}</span>
           </button>
           {confirmingDeleteProjectId === openProjectMenuProject.id ? (
@@ -2157,7 +2157,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         <div className={searchDialogClass} role="dialog" aria-modal="true" onMouseDown={() => setSearchOpen(false)}>
           <div className="w-full max-w-xl rounded-2xl border border-border bg-popover p-3 shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
             <div className="flex items-center gap-2 rounded-xl border border-input bg-background px-3 py-2">
-              <Search className="size-4 shrink-0 text-muted-foreground/60" />
+              <Search className="size-4 shrink-0" />
               <input
                 ref={searchInputRef}
                 value={searchQuery}
@@ -2166,7 +2166,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                   if (event.key === 'Escape') setSearchOpen(false)
                 }}
                 placeholder={t('searchDialog')}
-                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/45"
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none"
               />
             </div>
             <div className="mt-2 max-h-[50vh] overflow-y-auto">
@@ -2177,20 +2177,20 @@ export const ChatSidebar = memo(function ChatSidebar({
                       key={session.id}
                       type="button"
                       aria-busy={loadingSessionId === session.id}
-                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors hover:bg-muted/28"
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors"
                       onClick={() => selectSearchResult(session.id)}
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm text-foreground/90">{sessionTitle(session.title, session.channelName)}</span>
-                        <span className="block truncate text-[11px] text-muted-foreground/55">{projectName || t('normalChat')} · {formatSessionTime(session.lastModified)}</span>
+                        <span className="block truncate text-sm">{sessionTitle(session.title, session.channelName)}</span>
+                        <span className="block truncate text-[11px]">{projectName || t('normalChat')} · {formatSessionTime(session.lastModified)}</span>
                       </span>
                     </button>
                   ))
                 ) : (
-                  <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('noSearchResults')}</div>
+                  <div className="px-3 py-3 text-xs">{t('noSearchResults')}</div>
                 )
               ) : (
-                <div className="px-3 py-3 text-xs text-muted-foreground/55">{t('searchHint')}</div>
+                <div className="px-3 py-3 text-xs">{t('searchHint')}</div>
               )}
             </div>
           </div>

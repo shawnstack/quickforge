@@ -3,8 +3,8 @@
  *
  * navigator.clipboard is only available in secure contexts (HTTPS / localhost).
  * This polyfill provides a fallback using document.execCommand('copy') so that
- * all code paths — including third-party web components like
- * `<copy-button>` from `@mariozechner/mini-lit` — work even over plain HTTP.
+ * every copy path — including third-party web components that call
+ * navigator.clipboard — keeps working over plain HTTP.
  */
 
 function fallbackWriteText(text: string): Promise<void> {

@@ -258,10 +258,10 @@ function findKeepBoundaryTarget(panel: HTMLElement, messages: MessageWithUsage[]
   const keep = Math.min(keepRecentTurns, userTurnStarts.length)
   const boundaryIndex = userTurnStarts[userTurnStarts.length - keep]
 
-  const messageList = panel.querySelector('message-list')
+  const messageList = panel.querySelector('.qf-message-list')
   if (!messageList) return null
-  const elements = Array.from(messageList.querySelectorAll<HTMLElement>('user-message, assistant-message'))
-    .filter((element) => element.closest('message-list') === messageList)
+  const elements = Array.from(messageList.querySelectorAll<HTMLElement>('.qf-user-message, .qf-assistant-message'))
+    .filter((element) => element.closest('.qf-message-list') === messageList)
 
   let displayIndex = 0
   for (let i = 0; i <= boundaryIndex; i++) {
@@ -435,13 +435,13 @@ export function injectApprovalCard(
   const keepBoundaryTarget = deps.keepRecentTurns
     ? findKeepBoundaryTarget(panel, deps.getMessages?.() ?? [], deps.keepRecentTurns)
     : null
-  const messageList = panel.querySelector('message-list')
+  const messageList = panel.querySelector('.qf-message-list')
   if (keepBoundaryTarget) {
     keepBoundaryTarget.before(card)
   } else if (messageList) {
     messageList.append(card)
   } else {
-    panel.querySelector('agent-interface')?.append(card)
+    panel.querySelector('.qf-chat-panel')?.append(card)
   }
 
   if (!keepBoundaryTarget) card.scrollIntoView({ behavior: 'smooth', block: 'end' })

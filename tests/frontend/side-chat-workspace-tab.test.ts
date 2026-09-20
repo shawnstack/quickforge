@@ -21,7 +21,8 @@ const decorationSource = readFileSync(new URL('../../src/components/chat/panel-d
 const messageActionsSource = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
 const surfaceSource = readFileSync(new URL('../../src/components/chat/ChatConversationSurface.tsx', import.meta.url), 'utf8')
 const sideChatContentSource = readFileSync(new URL('../../src/components/workspace/SideChatTabContent.tsx', import.meta.url), 'utf8')
-const rendererIsolationSource = readFileSync(new URL('../../src/components/chat/side-chat-renderer-isolation.ts', import.meta.url), 'utf8')
+const chatSurfaceSource = readFileSync(new URL('../../src/components/chat/surface/ChatSurface.tsx', import.meta.url), 'utf8')
+const codeBlockSource = readFileSync(new URL('../../src/components/chat/surface/CodeBlock.tsx', import.meta.url), 'utf8')
 
 const allDisabledCapabilities = Object.fromEntries(
   Object.keys(QUICKFORGE_CHAT_CAPABILITIES).map((key) => [key, false]),
@@ -32,7 +33,7 @@ describe('Workspace side chat tab', () => {
     expect(appSource).toContain('disabled={needsModelSetup}\n        aria-label={workspaceInspectorOpen')
     expect(appSource).not.toContain('disabled={!agentManager.currentToolProject?.id || needsModelSetup}\n        aria-label={workspaceInspectorOpen')
     expect(appSource).toContain('agentManager.currentToolProject?.id || agentManager.currentSessionId || workspaceInspectorOpen')
-    expect(appSource).toContain("'rounded-[10px] text-muted-foreground/85 hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground/90 disabled:opacity-40 inline-flex'")
+    expect(appSource).toContain("'rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40 inline-flex'")
     expect(appSource).not.toContain('lg:inline-flex')
   })
 
@@ -109,18 +110,22 @@ describe('Workspace side chat tab', () => {
     })
   })
 
-  it('preserves the main artifacts renderer around Side Chat panel initialization', () => {
-    expect(hostSource).toContain('withPreservedArtifactsRenderer(setPanelAgent)')
-    expect(rendererIsolationSource).toContain("getToolRenderer('artifacts')")
-    expect(rendererIsolationSource).toContain("registerToolRenderer('artifacts', existingRenderer")
-    expect(rendererIsolationSource).toContain('finally')
-    expect(hostSource).toContain('panel.artifactsPanel?.remove()')
-    expect(hostSource).toContain('panel.artifactsPanel = undefined')
+  it('drops the package artifacts panel: no renderer isolation, artifact role never renders', () => {
+    // QuickForge never produces package artifact-role messages (tools execute
+    // server-side; no sandboxUrlProvider), so the React surface keeps only
+    // the artifact-role skip in MessageList and the old renderer-isolation dance
+    // (withPreservedArtifactsRenderer + panel.artifactsPanel removal) is gone.
+    expect(hostSource).not.toContain('withPreservedArtifactsRenderer')
+    expect(hostSource).not.toContain('artifactsPanel')
+    expect(chatSurfaceSource).not.toContain('ArtifactsPanel')
   })
 
   it('keeps native main controls visible but disabled without disabling send or stop', () => {
     expect(hostSource).toContain('disabledControls: sideChatMode')
     expect(hostSource).toContain('allowModelControls: sideChatMode ||')
+    // The React surface renders the model trigger; the shared decoration then
+    // disables it (the decoration's allowModelControls OR is HEAD semantics).
+    expect(hostSource).toContain('enableModelSelector={sideChatMode || (allowModelControls && effectiveCapabilities.modelSelection)}')
     expect(decorationSource).toContain('export function disableComposerControls')
     expect(decorationSource).toContain("panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline')")
     expect(decorationSource).toContain("panel.querySelector<HTMLButtonElement>('.quickforge-model-trigger')")
@@ -141,9 +146,9 @@ describe('Workspace side chat tab', () => {
     expect(hostSource).toContain('enabled: !sideChatMode && canUseFileReferenceSuggestions')
     expect(hostSource).toContain('if (sideChatMode) return')
     expect(hostSource).toContain("sideChatInputMemory?.set('')")
-    expect(hostSource).toContain('toolsFactory: () => sideChatMode ? []')
+    expect(hostSource).toContain('getLocalWorkspaceTools(agent.state.tools)')
     expect(hostSource).toContain('renderModelRing: !sideChatMode')
-    expect(hostSource).toContain('onModelSelect: sideChatMode ? undefined')
+    expect(hostSource).toContain('onModelSelect={sideChatMode ? undefined')
     expect(decorationSource).toContain('if (fileReferenceSuggestionsEnabled) setupFileReferenceTextareaHandler(editor)')
     expect(decorationSource).toContain('if (planModeEnabled) setupPlanModeControls(editor, planMode, onTogglePlanMode)')
     expect(decorationSource).toContain('removePlanModeControls(editor)')
@@ -157,6 +162,20 @@ describe('Workspace side chat tab', () => {
     expect(messageActionsSource).toContain('retryButton.disabled = historyActionsDisabled || isStreaming()')
     expect(messageActionsSource).toContain('actions.append(copyBtn)')
     expect(messageActionsSource).not.toMatch(/copyBtn\.disabled\s*=/)
+  })
+
+  it('hides code-block terminal command actions in side chat and read-only panels', () => {
+    // Legacy gate: enableTerminalCommandActions = !sideChat && !readOnly.
+    // The React surface receives it as a prop and hands it to CodeBlock via
+    // context — the old composer-DOM probe wrongly showed the button in side
+    // chat (which also renders a composer).
+    expect(hostSource).toContain('commandActionsEnabled={!sideChatMode && !readOnly}')
+    expect(hostSource).not.toMatch(/enableTerminalCommandActions\s*:/)
+    expect(messageActionsSource).not.toContain('enableTerminalCommandActions')
+    expect(chatSurfaceSource).toContain('commandActionsEnabled = true')
+    expect(chatSurfaceSource).toContain('CommandActionsEnabledContext.Provider value={commandActionsEnabled}')
+    expect(codeBlockSource).toContain('useCommandActionsEnabled()')
+    expect(codeBlockSource).not.toContain("querySelector('.qf-message-editor')")
   })
 
   it('keeps the independent NDJSON client with abort support', () => {

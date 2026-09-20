@@ -149,10 +149,10 @@ export function useModelActions({
         : document.querySelector<HTMLElement>('.quickforge-model-trigger')
 
     const textarea = document.querySelector<HTMLTextAreaElement>(
-      'agent-interface message-editor textarea',
+      '.qf-chat-panel .qf-message-editor textarea',
     )
     const messageEditor = document.querySelector<HTMLElement & { attachments?: unknown[] }>(
-      'agent-interface message-editor',
+      '.qf-chat-panel .qf-message-editor',
     )
     const currentInput = textarea?.value ?? ''
     const currentAttachments = messageEditor?.attachments ? [...messageEditor.attachments] : []

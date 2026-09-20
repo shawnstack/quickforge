@@ -1,6 +1,5 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { t } from '../../lib/i18n'
-import type { MessageWindowController } from './windowed-messages'
 import { buildConversationTurns, isTurnUserMessage, shouldShowTurnNavigation, type ConversationTurn } from './turn-navigation-data'
 
 export { buildConversationTurns } from './turn-navigation-data'
@@ -12,14 +11,25 @@ type TurnNavigationOptions = {
   panel: HTMLElement
   getMessages: () => AgentMessage[]
   isStreaming: () => boolean
-  windowLayer: MessageWindowController
   beginProgrammaticScroll: () => () => void
   onWindowChanged: () => void
+  showMessageIndex?: (index: number) => Promise<void>
 }
 
-type MessageListElement = HTMLElement & {
+/**
+ * Layout-independent inputs of {@link updateActiveFromScroll}: everything the
+ * O(M×T) ordinal mapping and the `.qf-user-message` querySelectorAll scan
+ * depend on. Scroll events fire many times per frame; caching these until the
+ * rendered window or the turn model changes keeps the per-event cost down to
+ * the getBoundingClientRect loop.
+ */
+type ScrollMeasureCache = {
+  list: HTMLElement
   messages: AgentMessage[]
-  updateComplete?: Promise<unknown>
+  windowStart: number
+  turns: ConversationTurn[]
+  userElements: HTMLElement[]
+  renderedTurnOrdinals: number[]
 }
 
 function textPreview(text: string, fallback: string) {
@@ -32,9 +42,9 @@ export function createTurnNavigation({
   panel,
   getMessages,
   isStreaming,
-  windowLayer,
   beginProgrammaticScroll,
   onWindowChanged,
+  showMessageIndex,
 }: TurnNavigationOptions) {
   const rail = document.createElement('nav')
   rail.className = 'quickforge-turn-navigation'
@@ -57,6 +67,8 @@ export function createTurnNavigation({
   let jumpGeneration = 0
   let endProgrammaticScroll: (() => void) | null = null
   let cancelScrollCompletion: (() => void) | null = null
+  let scrollMeasureFrame: number | undefined
+  let scrollMeasureCache: ScrollMeasureCache | null = null
 
   const clearShowTimer = () => {
     if (showTimer === undefined) return
@@ -156,18 +168,24 @@ export function createTurnNavigation({
 
   const updateActiveFromScroll = () => {
     const container = scrollContainer
-    const list = panel.querySelector<MessageListElement>('message-list')
+    const list = panel.querySelector<HTMLElement>('.qf-message-list')
     if (!container || !list || turns.length === 0) return
 
     const messages = getMessages()
-    const renderedMessages = windowLayer.isEnabled() ? windowLayer.getWindowMessages() : messages
-    const renderedTurnOrdinals = renderedMessages
-      .map((message) => isUserMessage(message) ? messages.indexOf(message) : -1)
-      .filter((messageIndex) => messageIndex >= 0)
-      .map((messageIndex) => turns.findIndex((turn) => turn.messageIndex === messageIndex))
-      .filter((ordinal) => ordinal >= 0)
-    const userElements = Array.from(list.querySelectorAll<HTMLElement>('user-message'))
-      .filter((element) => element.closest('message-list') === list)
+    const windowStart = Number(list.dataset.windowStart) || 0
+    let cache = scrollMeasureCache
+    if (!cache || cache.list !== list || cache.messages !== messages || cache.windowStart !== windowStart || cache.turns !== turns) {
+      const renderedTurnOrdinals = messages
+        .map((message, index) => index >= windowStart && isUserMessage(message) ? index : -1)
+        .filter((messageIndex) => messageIndex >= 0)
+        .map((messageIndex) => turns.findIndex((turn) => turn.messageIndex === messageIndex))
+        .filter((ordinal) => ordinal >= 0)
+      const userElements = Array.from(list.querySelectorAll<HTMLElement>('.qf-user-message'))
+        .filter((element) => element.closest('.qf-message-list') === list)
+      cache = { list, messages, windowStart, turns, userElements, renderedTurnOrdinals }
+      scrollMeasureCache = cache
+    }
+    const { userElements, renderedTurnOrdinals } = cache
     if (userElements.length === 0 || renderedTurnOrdinals.length === 0) return
 
     const threshold = container.getBoundingClientRect().top + Math.min(120, container.clientHeight * 0.2)
@@ -179,18 +197,28 @@ export function createTurnNavigation({
     setActiveOrdinal(renderedTurnOrdinals[Math.min(visibleIndex, renderedTurnOrdinals.length - 1)])
   }
 
+  // Scroll events fire several times per frame during smooth scrolling; coalesce
+  // the measurement into one animation-frame pass (same pattern as scroll-sync).
+  const measureActiveFromScrollEvent = () => {
+    if (scrollMeasureFrame !== undefined) return
+    scrollMeasureFrame = window.requestAnimationFrame(() => {
+      scrollMeasureFrame = undefined
+      updateActiveFromScroll()
+    })
+  }
+
   const attachScrollContainer = () => {
-    const next = panel.querySelector<HTMLElement>('agent-interface .overflow-y-auto')
+    const next = panel.querySelector<HTMLElement>('.qf-scroll-container')
     if (next === scrollContainer) return
-    scrollContainer?.removeEventListener('scroll', updateActiveFromScroll)
+    scrollContainer?.removeEventListener('scroll', measureActiveFromScrollEvent)
     scrollContainer = next
-    scrollContainer?.addEventListener('scroll', updateActiveFromScroll, { passive: true })
+    scrollContainer?.addEventListener('scroll', measureActiveFromScrollEvent, { passive: true })
   }
 
   const scrollToTurn = (ordinal: number) => {
     const turn = turns[ordinal]
-    const list = panel.querySelector<MessageListElement>('message-list')
-    const container = panel.querySelector<HTMLElement>('agent-interface .overflow-y-auto')
+    const list = panel.querySelector<HTMLElement>('.qf-message-list')
+    const container = panel.querySelector<HTMLElement>('.qf-scroll-container')
     if (!turn || !list || !container) return
 
     hideTooltip()
@@ -224,24 +252,21 @@ export function createTurnNavigation({
         window.clearTimeout(timeoutId)
       }
     }
-    const nextWindow = windowLayer.showMessageIndex(turn.messageIndex)
-    if (nextWindow && list.messages !== nextWindow) list.messages = nextWindow
-
+    // Wait for React's layout commit before measuring the newly selected window.
     const finish = () => {
       window.requestAnimationFrame(() => {
         if (generation !== jumpGeneration) return
         const messages = getMessages()
-        const renderedMessages = windowLayer.isEnabled() ? windowLayer.getWindowMessages() : messages
-        const targetIndex = renderedMessages.findIndex((message) => message === messages[turn.messageIndex])
-        if (targetIndex < 0) {
+        const targetIndex = turn.messageIndex
+        if (!messages[targetIndex]) {
           finishProgrammaticScroll()
           return
         }
-        const userBeforeTarget = renderedMessages
-          .slice(0, targetIndex + 1)
+        const userBeforeTarget = messages
+          .slice(Number(list.dataset.windowStart) || 0, targetIndex + 1)
           .filter(isUserMessage).length - 1
-        const target = Array.from(list.querySelectorAll<HTMLElement>('user-message'))
-          .filter((element) => element.closest('message-list') === list)[userBeforeTarget]
+        const target = Array.from(list.querySelectorAll<HTMLElement>('.qf-user-message'))
+          .filter((element) => element.closest('.qf-message-list') === list)[userBeforeTarget]
         if (!target) {
           finishProgrammaticScroll()
           return
@@ -259,7 +284,8 @@ export function createTurnNavigation({
         onWindowChanged()
       })
     }
-    void (list.updateComplete ?? Promise.resolve()).then(finish, finish)
+    if (showMessageIndex) void showMessageIndex(turn.messageIndex).then(finish, finishProgrammaticScroll)
+    else finish()
   }
 
   const renderNodes = () => {
@@ -294,6 +320,10 @@ export function createTurnNavigation({
   }
 
   const update = () => {
+    // The decorate cycle that calls update() may have rebuilt message rows in
+    // between (decorate / process re-fold); drop the scroll-measure cache so
+    // the next measurement rescans the (possibly changed) DOM.
+    scrollMeasureCache = null
     turns = buildConversationTurns(getMessages(), isStreaming())
     const signature = turns.map((turn) => `${turn.messageIndex}:${turn.userText}`).join('|')
     if (signature !== nodeSignature) {
@@ -320,7 +350,12 @@ export function createTurnNavigation({
       endProgrammaticScroll?.()
       endProgrammaticScroll = null
       hideTooltip()
-      scrollContainer?.removeEventListener('scroll', updateActiveFromScroll)
+      if (scrollMeasureFrame !== undefined) {
+        window.cancelAnimationFrame(scrollMeasureFrame)
+        scrollMeasureFrame = undefined
+      }
+      scrollMeasureCache = null
+      scrollContainer?.removeEventListener('scroll', measureActiveFromScrollEvent)
       document.removeEventListener('keydown', handleDocumentKeyDown)
       window.removeEventListener('resize', handleViewportChange)
       rail.remove()

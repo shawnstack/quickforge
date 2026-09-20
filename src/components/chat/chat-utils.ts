@@ -2,12 +2,16 @@
  * Shared types, DOM utilities, and token estimation for chat panel modules.
  *
  * Extracted from ChatPanelHost.tsx to reduce coupling and improve testability.
- * All functions are pure or operate on explicit inputs — no React or Lit dependencies.
+ * All functions are pure or operate on explicit inputs — no React or framework runtime dependencies.
  */
 
 // ---------------------------------------------------------------------------
-// Element types (narrowed HTMLElement subtypes for Web Component interop)
+// Element types (narrowed HTMLElement subtypes for the chat surface bridge)
 // ---------------------------------------------------------------------------
+// The React ChatSurface (surface/ChatSurface.tsx) installs the
+// MessageEditorElement property surface on the `.qf-message-editor` root
+// node; the panel-decoration layer keeps consuming it like the old
+// `<message-editor>` element.
 
 export type FileContextReference = {
   type: 'file'
@@ -28,9 +32,12 @@ export type MessageEditorElement = HTMLElement & {
   attachments?: unknown[]
   contextReferences?: FileContextReference[]
   selectedCapabilities?: ComposerCapabilitySelection[]
+  currentModel?: { id?: string; provider?: string; reasoning?: boolean }
+  thinkingLevel?: string
   onInput?: (value: string) => void
   onSend?: (input: string, attachments: unknown[]) => void
   onFilesChange?: (files: unknown[]) => void
+  onThinkingChange?: (level: string) => void
   requestUpdate?: () => void
   __quickforgePlanBaseOnSend?: (input: string, attachments: unknown[]) => void
   __quickforgePlanWrappedOnSend?: (input: string, attachments: unknown[]) => void
@@ -45,15 +52,6 @@ export type CommandSuggestionElement = HTMLDivElement & {
 export type CommandTextareaElement = HTMLTextAreaElement & {
   __quickforgeCommandCompleteHandler?: (event: KeyboardEvent) => void
   __quickforgePlanModeHandler?: (event: KeyboardEvent) => void
-}
-
-export type AgentInterfaceElement = HTMLElement & {
-  setInput?: (text: string, attachments?: unknown[]) => void
-  setAutoScroll?: (enabled: boolean) => void
-  requestUpdate?: () => void
-  updateComplete?: Promise<unknown>
-  enableModelSelector?: boolean
-  enableThinkingSelector?: boolean
 }
 
 export type QuickForgeActionButton = HTMLButtonElement & {
@@ -102,8 +100,8 @@ export type ComposerDraft = {
 // ---------------------------------------------------------------------------
 
 /**
- * Replace an element's inner SVG without touching sibling nodes (e.g. Lit
- * comment markers).  If the element already contains an <svg>, only that
+ * Replace an element's inner SVG without touching sibling nodes (e.g. framework
+ * markers).  If the element already contains an <svg>, only that
  * child is replaced; otherwise the new SVG is appended.
  */
 export function replaceSvg(parent: HTMLElement, svgString: string) {
@@ -121,7 +119,7 @@ export function replaceSvg(parent: HTMLElement, svgString: string) {
 
 /**
  * Set an element's content from an HTML string, preserving any non-Element
- * children (comment markers, text nodes) that may be Lit internals.
+ * children (comment markers, text nodes) that mark decoration boundaries.
  * Only element children from the string are grafted in; existing element
  * children are cleared first.
  */
@@ -129,7 +127,7 @@ export function patchContent(parent: HTMLElement, html: string) {
   const template = document.createElement('template')
   template.innerHTML = html
   const incoming = Array.from(template.content.children)
-  // Remove existing element children but keep comment / text nodes (Lit markers).
+  // Remove existing element children but keep comment / text nodes (markup markers).
   for (const child of Array.from(parent.children)) {
     child.remove()
   }

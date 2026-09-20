@@ -178,10 +178,10 @@ const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 
 /** Composer 真实 DOM：panel > [message-list, dock > shell > message-editor]。 */
 function buildPanel() {
   const panel = new FakeElement()
-  const messageList = new FakeElement('message-list')
+  const messageList = Object.assign(new FakeElement('div'), { className: 'qf-message-list' })
   const dock = new FakeElement('div')
   const shell = new FakeElement('div')
-  const editor = new FakeElement('message-editor')
+  const editor = Object.assign(new FakeElement('div'), { className: 'qf-message-editor' })
   panel.append(messageList, dock)
   dock.append(shell)
   shell.append(editor)
@@ -253,7 +253,7 @@ describe('unreachable strip controller', () => {
 
     // 插在 composer dock 之前（滚动容器外、任何滚动位置可见）。
     expect(strip.parentElement).toBe(panel)
-    expect(strip.nextElementSibling?.querySelector('message-editor')).not.toBeNull()
+    expect(strip.nextElementSibling?.querySelector('.qf-message-editor')).not.toBeNull()
 
     controller.destroy()
   })
@@ -295,7 +295,7 @@ describe('unreachable strip controller', () => {
     expect(help.getAttribute('data-open')).toBe('true')
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
 
-    // 模拟 Lit 重建：条被移除后 decorate 周期 sync() 重新插回，展开状态保留。
+    // 模拟 重建：条被移除后 decorate 周期 sync() 重新插回，展开状态保留。
     strip.remove()
     controller.sync()
     const rebuilt = panel.querySelector('.quickforge-unreachable-strip')!

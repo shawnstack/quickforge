@@ -43,7 +43,7 @@ function createElement(): FakeElement {
     nextElementSibling: null,
     setAttribute: vi.fn(),
     querySelector: () => null,
-    closest: (selector) => selector === 'message-list' ? element.parent : null,
+    closest: (selector) => selector === '.qf-message-list' ? element.parent : null,
     before: (notice) => insertBefore(element, notice),
     remove: () => removeElement(element),
   }
@@ -91,7 +91,7 @@ function createPanel(messageCount: number) {
 
   const panel = {
     querySelector: (selector: string) => {
-      if (selector === 'message-list') return messageList
+      if (selector === '.qf-message-list') return messageList
       if (selector === '.quickforge-context-compaction-notice') {
         return messageList.children.find((element) => element.className === 'quickforge-context-compaction-notice') ?? null
       }

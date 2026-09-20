@@ -3,18 +3,13 @@ import { describe, expect, it } from 'vitest'
 import { buildTodoWriteHistoryViewModel } from '../../src/lib/todo-write-history'
 
 const source = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
+// T4：TodoWriteToolRenderer 已迁至 tool-renderers/todo-write-tool-renderer.tsx（React）。
+const todoWriteRenderer = readFileSync(new URL('../../src/lib/tool-renderers/todo-write-tool-renderer.tsx', import.meta.url), 'utf8')
 const host = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
 const i18n = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 
 const todo = (content: string, status: 'pending' | 'in_progress' | 'completed') => ({ content, status })
-
-function classBlock(name: string, nextName: string) {
-  const start = source.indexOf(`class ${name}`)
-  const end = source.indexOf(`class ${nextName}`, start + 1)
-  if (start < 0 || end < 0) throw new Error(`Renderer block ${name} not found`)
-  return source.slice(start, end)
-}
 
 describe('TodoWrite history view model', () => {
   it('reports running and error without claiming a pinned-summary sync', () => {
@@ -55,12 +50,14 @@ describe('TodoWrite history view model', () => {
 
 describe('TodoWrite history renderer', () => {
   it('registers the native todo_write renderer and keeps history summary-only outside detailed mode', () => {
-    const block = classBlock('TodoWriteToolRenderer', 'McpToolRenderer')
+    const block = todoWriteRenderer.slice(todoWriteRenderer.indexOf('export class TodoWriteToolRenderer'))
     expect(source).toContain("registerToolRenderer('todo_write', todoWriteToolRenderer)")
-    expect(block).toContain("toolDisplaySettings.toolDisplayMode === 'detailed'")
+    expect(block).toContain('const detailed = toolDisplayDetailed()')
     expect(block).toContain('buildTodoWriteHistoryViewModel')
     expect(block).toContain('renderStatus(status, timing)')
-    expect(block).toContain('language="json"')
+    // detailed 模式附原始 input/details JSON（renderCodeBlock 的 language 参数）。
+    expect(block).toContain("renderCodeBlock(input, 'json')")
+    expect(block).toContain("renderCodeBlock(details, 'json')")
     expect(block).not.toContain('quickforge-todo-summary-list')
   })
 

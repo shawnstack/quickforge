@@ -97,7 +97,7 @@ export function createCommandSuggestions({
     panel.querySelector<CommandSuggestionElement>('.quickforge-command-suggestions')
 
   const readComposerText = () => {
-    const editor = panel.querySelector<MessageEditorElement>('message-editor')
+    const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
     const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
     return editor?.value ?? textarea?.value ?? ''
   }
@@ -140,7 +140,7 @@ export function createCommandSuggestions({
   }
 
   const insertEntryIntoComposer = (entry: SlashEntry) => {
-    const editor = panel.querySelector<MessageEditorElement>('message-editor')
+    const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
     const text = entry.insertText
     restoreDraftIntoComposer({
       text,
@@ -334,7 +334,7 @@ export function createCommandSuggestions({
       : (catalog?.agents ?? []).some((agent) => agent.name === invocation.name)
 
   const update = (value?: string) => {
-    const editor = panel.querySelector<MessageEditorElement>('message-editor')
+    const editor = panel.querySelector<MessageEditorElement>('.qf-message-editor')
     const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
     if (value !== undefined) menuDismissedUntilExplicitUpdate = false
     const text = value ?? readComposerText()
@@ -481,7 +481,7 @@ export function createCommandSuggestions({
 
   const cleanupTextareaHandler = () => {
     removeMenu()
-    const completeTextarea = panel.querySelector<CommandTextareaElement>('message-editor textarea')
+    const completeTextarea = panel.querySelector<CommandTextareaElement>('.qf-message-editor textarea')
     if (completeTextarea?.__quickforgeCommandCompleteHandler) {
       completeTextarea.removeEventListener('keydown', completeTextarea.__quickforgeCommandCompleteHandler, true)
     }

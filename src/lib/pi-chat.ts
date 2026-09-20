@@ -9,7 +9,7 @@ import {
   setAppStorage,
   type CustomProvider,
   type StorageBackend,
-} from '@earendil-works/pi-web-ui'
+} from '@/storage'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { clearModelListCache } from '@/lib/model-list-cache'
 import { mergeModelGroups } from '@/lib/model-aggregation'
@@ -221,16 +221,53 @@ async function createStorageBackend(options?: ConstructorParameters<typeof HttpS
   return new HttpStorageBackend('', options)
 }
 
-export async function initializePiStorage(options: { blockedStores?: Iterable<string> } = {}) {
-  const stores = createStores()
-  const backend = await createStorageBackend(options.blockedStores)
+type InitializePiStorageOptions = { blockedStores?: Iterable<string> }
 
-  attachBackend(stores, backend)
+// 幂等守卫：全局 AppStorage 只由首次成功调用创建并 setAppStorage。
+// 后续懒加载调用点（AgentProfilesPage / GitCommitPushDialog /
+// ScheduledTasksPage 等）复用首个实例，不再重建 4 Store+backend，
+// 也不再重复 setAppStorage——否则会静默顶掉外部安装的特化实例
+// （如 SharedConversationPage 的 installSharedPageStorage），并让
+// 各处缓存的 store 引用与全局实例脱钩（provider-keys-cache 依赖此语义）。
+// 首次失败不缓存：服务暂不可用时，后续调用仍可重试。
+let initializedStorage: AppStorage | null = null
+let initializedOptionsKey: string | null = null
+let initializeStorageInFlight: Promise<AppStorage> | null = null
 
-  const storage = new AppStorage(stores.settings, stores.providerKeys, stores.sessions, stores.customProviders, backend)
-  setAppStorage(storage)
+function initializeOptionsKey(options: InitializePiStorageOptions): string {
+  return [...new Set(options.blockedStores ?? [])].sort().join(',')
+}
 
-  return storage
+export async function initializePiStorage(options: InitializePiStorageOptions = {}): Promise<AppStorage> {
+  if (initializedStorage) {
+    // 首建实例优先（first-writer-wins）：静默按新 options 重建等于复活
+    // 被覆盖的全局状态 bug，故仅告警并返回首个实例。
+    if (initializeOptionsKey(options) !== initializedOptionsKey) {
+      logger.warn('initializePiStorage was called again with different options; returning the first initialized instance.')
+    }
+    return initializedStorage
+  }
+  if (initializeStorageInFlight) return initializeStorageInFlight
+
+  const pending = (async () => {
+    try {
+      const stores = createStores()
+      const backend = await createStorageBackend(options.blockedStores)
+
+      attachBackend(stores, backend)
+
+      const storage = new AppStorage(stores.settings, stores.providerKeys, stores.sessions, stores.customProviders, backend)
+      setAppStorage(storage)
+      initializedStorage = storage
+      initializedOptionsKey = initializeOptionsKey(options)
+
+      return storage
+    } finally {
+      initializeStorageInFlight = null
+    }
+  })()
+  initializeStorageInFlight = pending
+  return pending
 }
 
 type StoredDefaultOptions = {

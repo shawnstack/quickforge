@@ -78,7 +78,7 @@ function WorkspaceTreeRows({ entries, depth, props }: {
         <button
           type="button"
           className={`group flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors ${
-            isSelected ? 'bg-muted/28 text-foreground/90' : 'text-muted-foreground/72 hover:bg-muted/20 hover:text-foreground/85'
+            isSelected ? '' : ''
           }`}
           style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
           onClick={() => {
@@ -111,7 +111,7 @@ function WorkspaceTreeRows({ entries, depth, props }: {
               tabIndex={0}
               aria-label={t('openPreview')}
               title={t('openPreview')}
-              className="-mr-1 shrink-0 rounded p-0.5 text-muted-foreground/60 opacity-0 transition-opacity hover:bg-muted/40 hover:text-foreground/85 focus-visible:opacity-100 focus-visible:text-foreground/85 focus-visible:outline-none group-hover:opacity-100"
+              className="-mr-1 shrink-0 rounded p-0.5 opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
               onClick={(event) => {
                 event.stopPropagation()
                 props.onPreviewFile?.(node.path)
@@ -133,7 +133,7 @@ function WorkspaceTreeRows({ entries, depth, props }: {
             {directory.status === 'error' ? (
               <div className="py-1 text-xs text-destructive" style={{ paddingLeft: `${1.75 + depth * 0.75}rem` }}>
                 <div className="truncate" title={directory.error}>{directory.error || t('workspaceLoadFailed')}</div>
-                <button type="button" className="mt-1 text-xs font-medium text-foreground/75 hover:text-foreground" onClick={() => {
+                <button type="button" className="mt-1 text-xs font-medium hover:text-foreground" onClick={() => {
                   const retry = workspaceTreeRetryRequest(directory)
                   if (retry.append) props.onLoadMore(nodePath)
                   else props.onRetryDirectory(nodePath)
@@ -141,13 +141,13 @@ function WorkspaceTreeRows({ entries, depth, props }: {
               </div>
             ) : null}
             {directory.status === 'loaded' && directory.entries.length === 0 ? (
-              <div className="py-1 text-xs text-muted-foreground/55" style={{ paddingLeft: `${1.75 + depth * 0.75}rem` }}>{t('workspaceEmptyDirectory')}</div>
+              <div className="py-1 text-xs" style={{ paddingLeft: `${1.75 + depth * 0.75}rem` }}>{t('workspaceEmptyDirectory')}</div>
             ) : null}
             <WorkspaceTreeRows entries={directory.entries} depth={depth + 1} props={props} />
             {workspaceTreeCanLoadMore(props.treeState, nodePath) ? (
               <button
                 type="button"
-                className="my-1 text-xs font-medium text-muted-foreground/70 hover:text-foreground disabled:opacity-50"
+                className="my-1 text-xs font-medium hover:text-foreground disabled:opacity-50"
                 style={{ marginLeft: `${1.75 + depth * 0.75}rem` }}
                 disabled={directory.status === 'loading'}
                 onClick={() => props.onLoadMore(nodePath)}
@@ -168,7 +168,7 @@ export function WorkspaceFileTree(props: WorkspaceFileTreeProps) {
     return (
       <div className="px-2 py-3 text-sm text-destructive">
         <div>{root.error || t('workspaceLoadFailed')}</div>
-        <button type="button" className="mt-2 text-xs font-medium text-foreground/75 hover:text-foreground" onClick={() => {
+        <button type="button" className="mt-2 text-xs font-medium hover:text-foreground" onClick={() => {
           const retry = workspaceTreeRetryRequest(root)
           if (retry.append) props.onLoadMore('.')
           else props.onRetryDirectory('.')
@@ -177,17 +177,17 @@ export function WorkspaceFileTree(props: WorkspaceFileTreeProps) {
     )
   }
   if (root.status === 'loading' && props.rootEntries.length === 0) {
-    return <div className="px-2 py-3 text-xs text-muted-foreground/70">{t('workspaceLoading')}</div>
+    return <div className="px-2 py-3 text-xs">{t('workspaceLoading')}</div>
   }
   if (root.status === 'loaded' && props.rootEntries.length === 0) {
-    return <div className="px-2 py-3 text-sm text-muted-foreground/70">{t('workspaceNoFilesToDisplay')}</div>
+    return <div className="px-2 py-3 text-sm">{t('workspaceNoFilesToDisplay')}</div>
   }
   return (
     <div className="space-y-0.5">
       {root.status === 'error' ? (
         <div className="px-2 py-1 text-xs text-destructive">
           <span>{root.error || t('workspaceLoadFailed')}</span>{' '}
-          <button type="button" className="font-medium text-foreground/75 hover:text-foreground" onClick={() => {
+          <button type="button" className="font-medium hover:text-foreground" onClick={() => {
             const retry = workspaceTreeRetryRequest(root)
             if (retry.append) props.onLoadMore('.')
             else props.onRetryDirectory('.')
@@ -198,7 +198,7 @@ export function WorkspaceFileTree(props: WorkspaceFileTreeProps) {
       {workspaceTreeCanLoadMore(props.treeState, '.') ? (
         <button
           type="button"
-          className="my-1 ml-2 text-xs font-medium text-muted-foreground/70 hover:text-foreground disabled:opacity-50"
+          className="my-1 ml-2 text-xs font-medium hover:text-foreground disabled:opacity-50"
           disabled={root.status === 'loading'}
           onClick={() => props.onLoadMore('.')}
         >

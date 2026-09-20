@@ -6,7 +6,7 @@ import type { SharePermission } from '@/lib/share-client'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { modelReferenceFromModel } from './model-reference'
-import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
+import { toolStartEventWithPartialResult, toolCallIdsWithoutToolResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
 export type SharedSessionState = {
   sessionId?: string
@@ -407,6 +407,14 @@ export class SharedServerAgent {
       case 'message_end':
         if (event.message) {
           this.state.messages = upsertMessage(this.state.messages, event.message)
+          // Keep committed tool calls without any result pending so they keep
+          // rendering running: tool_execution_start may arrive only after this
+          // frame, and a missing pending entry would flash the idle 'called'
+          // dot for one frame before the spinner returns.
+          const pendingIds = toolCallIdsWithoutToolResult(event.message, this.state.messages)
+          if (pendingIds.length) {
+            this.state.pendingToolCalls = new Set([...this.state.pendingToolCalls, ...pendingIds])
+          }
         }
         this.state.contextUsage = 'contextUsage' in event ? event.contextUsage as ServerAgentContextUsage | null : null
         this.state.streamingMessage = undefined

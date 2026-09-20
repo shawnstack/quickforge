@@ -404,10 +404,10 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
   }
 
   const connectionDotClassName = (session: TerminalSession, status?: TerminalConnectionStatus) => {
-    if (session.exited || status === 'exited' || status === 'unavailable') return 'bg-muted-foreground/40'
+    if (session.exited || status === 'exited' || status === 'unavailable') return ''
     if (status === 'connected') return 'bg-emerald-500/80'
     if (status === 'connecting' || status === 'reconnecting') return 'bg-amber-500/80'
-    return 'bg-destructive/70'
+    return ''
   }
 
   const startDragging = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -463,7 +463,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
     >
       {!fullscreen && !isPanel ? (
         <div
-          className="h-1 cursor-row-resize bg-transparent hover:bg-border"
+          className="h-1 cursor-row-resize bg-transparent"
           onPointerDown={startDragging}
           onPointerMove={drag}
           onPointerUp={stopDragging}
@@ -471,12 +471,12 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
         />
       ) : null}
       <div className="flex h-9 items-center gap-1 border-b border-border px-2">
-        <SquareTerminal className="size-4 shrink-0 text-muted-foreground/60" />
+        <SquareTerminal className="size-4 shrink-0" />
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           {displaySessions.map((session) => {
             const sessionHeaderClassName = cn(
-              'flex max-w-44 shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground/72',
-              activeSession?.id === session.id && 'bg-muted/28 text-foreground/90',
+              'flex max-w-44 shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs',
+              activeSession?.id === session.id && '',
             )
             if (singlePanelSession) {
               return (
@@ -490,7 +490,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
               <button
                 key={session.id}
                 type="button"
-                className={cn(sessionHeaderClassName, 'hover:bg-muted/20 hover:text-foreground/85')}
+                className={cn(sessionHeaderClassName, '')}
                 onClick={() => setActiveSessionId(session.id)}
                 title={`${session.name} — ${session.cwd}`}
               >
@@ -499,7 +499,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
                 <span
                   role="button"
                   tabIndex={0}
-                  className="ml-1 rounded-sm p-0.5 opacity-60 hover:bg-background hover:opacity-100"
+                  className="ml-1 rounded-sm p-0.5 opacity-60 hover:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation()
                     void closeSession(session.id)
@@ -524,7 +524,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
           <div className="flex items-center overflow-hidden rounded-md border border-border bg-background">
             <button
               type="button"
-              className="inline-flex h-7 w-7 items-center justify-center text-foreground/85 transition-colors hover:bg-muted/20 disabled:pointer-events-none disabled:opacity-50"
+              className="inline-flex h-7 w-7 items-center justify-center transition-colors disabled:pointer-events-none disabled:opacity-50"
               onClick={() => void createSession(sessions)}
               disabled={createDisabled}
               title={defaultProfile ? t('terminalNewWithProfile', { name: defaultProfile.name }) : t('terminalNew')}
@@ -535,7 +535,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
             {shellProfiles.length > 0 ? (
               <button
                 type="button"
-                className="inline-flex h-7 w-7 items-center justify-center border-l border-border text-muted-foreground/72 transition-colors hover:bg-muted/20 hover:text-foreground/85 disabled:pointer-events-none disabled:opacity-50"
+                className="inline-flex h-7 w-7 items-center justify-center border-l border-border transition-colors disabled:pointer-events-none disabled:opacity-50"
                 onClick={() => setShellMenuOpen((open) => !open)}
                 disabled={createDisabled}
                 title={t('terminalSelectShell')}
@@ -551,24 +551,24 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
               'absolute right-0 z-30 w-64 overflow-hidden rounded-lg border border-border bg-background p-1.5 shadow-[0_16px_38px_-22px_rgb(15_23_42_/_0.65)]',
               isPanel ? 'top-9' : 'bottom-9',
             )}>
-              <div className="px-2 pb-1.5 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{t('terminalNewWith')}</div>
+              <div className="px-2 pb-1.5 pt-1 text-[11px] font-medium uppercase tracking-wide">{t('terminalNewWith')}</div>
               {shellProfiles.map((profile) => {
                 return (
                   <button
                     key={profile.id}
                     type="button"
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground/80 hover:bg-muted/20 hover:text-foreground/90"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs"
                     onClick={() => {
                       setShellMenuOpen(false)
                       void createSession(sessions, profile.id)
                     }}
                   >
-                    <span className="inline-flex size-5 shrink-0 items-center justify-center rounded bg-muted/20 text-[10px] text-muted-foreground/70">
+                    <span className="inline-flex size-5 shrink-0 items-center justify-center rounded text-[10px]">
                       {profile.name.slice(0, 1).toUpperCase()}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{profile.name}</span>
-                      <span className="block truncate font-mono text-[11px] text-muted-foreground/55">{profile.command}</span>
+                      <span className="block truncate font-mono text-[11px]">{profile.command}</span>
                     </span>
                   </button>
                 )
@@ -600,7 +600,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
             <span className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
-                className="rounded px-1.5 py-0.5 font-medium text-foreground/80 hover:bg-muted/40"
+                className="rounded px-1.5 py-0.5 font-medium"
                 onClick={() => void startNewTerminal(activeSession.id)}
                 disabled={creating}
               >
@@ -608,7 +608,7 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
               </button>
               <button
                 type="button"
-                className="rounded px-1.5 py-0.5 font-medium text-muted-foreground hover:bg-muted/40"
+                className="rounded px-1.5 py-0.5 font-medium text-muted-foreground"
                 onClick={() => void closeSession(activeSession.id)}
               >
                 {t('close')}
@@ -625,19 +625,19 @@ export function TerminalDock({ project, onCollapse, pendingCommand, onPendingCom
           ) : null}
         </div>
       ) : visibleStatus ? (
-        <div className="border-b border-border px-3 py-1.5 text-xs text-muted-foreground/70">{visibleStatus}</div>
+        <div className="border-b border-border px-3 py-1.5 text-xs">{visibleStatus}</div>
       ) : null}
       <div className={cn('min-h-0 bg-background', isPanel && 'flex-1')} style={terminalBodyHeight === undefined ? undefined : { height: terminalBodyHeight }}>
         {loading ? (
-          <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground/60">
+          <div className="flex h-full items-center justify-center gap-2 text-xs">
             <Loader2 className="size-4 animate-spin" /> {t('terminalStarting')}
           </div>
         ) : capabilities && !capabilities.enabled ? (
-          <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground/60">
+          <div className="flex h-full items-center justify-center px-4 text-center text-xs">
             {capabilities.reason || t('terminalUnavailable')}
           </div>
         ) : sessions.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-xs text-muted-foreground/60">
+          <div className="flex h-full items-center justify-center text-xs">
             {t('terminalNoSessions')}
           </div>
         ) : (

@@ -3,7 +3,7 @@
  *
  * 两个使用方共用一套结构：
  * - 聊天用户消息气泡（message-actions 装饰 .user-message-container）；
- * - subagent 运行详情顶部任务说明块（local-tools renderSubagentRunBody）。
+ * - subagent 运行详情顶部任务说明块（SubagentRunDetailContent）。
  *
  * 行为约定：
  * - 收起态容器 max-height 取「行高 × INPUT_CLAMP_LINES + 纵向 padding/border + 底部按钮安全区」（按元素
@@ -15,12 +15,12 @@
  * - 展开/收起为 max-height 过渡（INPUT_CLAMP_TRANSITION_MS，与 index.css 的
  *   .quickforge-input-clamp transition 保持同步），展开动画结束后置 none 以便内容继续
  *   变化；prefers-reduced-motion 直切终态；
- * - 状态用 data 属性表达（data-quickforge-clamped / expanded / fits），Lit 模板重渲染
- *   不会清除它们，注入的遮罩/按钮也与 Lit 模板 part 无关，可跨实时更新存活。
+ * - 状态用 data 属性表达（data-quickforge-clamped / expanded / fits），React 重渲染
+ *   不会清除它们，注入的遮罩/按钮也不在 React 管理的节点树内，可跨实时更新存活。
  *
  * 纯逻辑与控制器部分通过结构化类型注入 DOM 能力（node 环境可单测，同 tool-marquee）；
  * decorate、sync、toggle 系列函数是浏览器路径的 DOM 装饰入口。i18n 标签同样由调用方
- * 注入（本模块不 import i18n，避免其运行时依赖 pi-web-ui 阻断 node 环境单测）。
+ * 注入（本模块不 import i18n，标签由调用方注入，保持自包含与 node 环境可测）。
  */
 
 export type InputClampLabels = {
@@ -310,6 +310,13 @@ function syncInputClampBox(box: HTMLElement, labels: InputClampLabels): void {
 /** 同步 root 下所有收起盒子（聊天重渲染 / subagent 详情 updated 后调用）。 */
 export function syncInputClampBoxes(root: ParentNode, labels: InputClampLabels): void {
   root.querySelectorAll<HTMLElement>('[data-quickforge-input-clamp]').forEach((box) => syncInputClampBox(box, labels))
+}
+
+/** React 详情卸载时取消展开动画的延时工作。 */
+export function disposeInputClampBoxes(root: ParentNode): void {
+  root.querySelectorAll<HTMLElement>('[data-quickforge-input-clamp]').forEach((box) => {
+    controllerCache.get(box)?.dispose()
+  })
 }
 
 /** 切换展开/收起，返回切换后的展开态。 */

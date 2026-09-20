@@ -1,4 +1,4 @@
-import type { AppStorage } from '@earendil-works/pi-web-ui'
+import type { AppStorage } from '@/storage'
 
 const FONT_SIZE_SETTINGS_KEY = 'font-size-settings'
 const FONT_SIZE_FORCE_13PX_MIGRATION_KEY = 'font-size-settings-force-13px-v1'

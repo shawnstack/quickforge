@@ -122,8 +122,8 @@ function MessageDialog({
         aria-describedby="message-dialog-description"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        {title ? <h2 id="message-dialog-title" className="text-base font-semibold text-foreground/90">{title}</h2> : null}
-        <p id="message-dialog-description" className={cn('text-sm leading-6 text-muted-foreground/72', title ? 'mt-2' : undefined)}>{description}</p>
+        {title ? <h2 id="message-dialog-title" className="text-base font-semibold">{title}</h2> : null}
+        <p id="message-dialog-description" className={cn('text-sm leading-6', title ? 'mt-2' : undefined)}>{description}</p>
         <div className="mt-6 flex justify-end gap-2">
           {actions.map((action, index) => (
             <Button

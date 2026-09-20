@@ -18,7 +18,7 @@ function CriterionStatusIcon({ status }: { status: GoalCriterionStatus }) {
   if (status === 'passed') return <CheckCircle2 className="size-4 text-emerald-600" />
   if (status === 'failed') return <XCircle className="size-4 text-destructive" />
   if (status === 'needs_review') return <Clock3 className="size-4 text-amber-600" />
-  return <Circle className="size-4 text-muted-foreground/65" />
+  return <Circle className="size-4" />
 }
 
 /**
@@ -38,7 +38,7 @@ export function GoalSummarySection({ goal, sessionId }: GoalSummarySectionProps)
       {view.criteria.length > 0 ? (
         <div className="mb-1 space-y-1">
           {view.criteria.map((criterion) => (
-            <div key={criterion.id} className="flex min-h-9 items-center gap-2.5 px-1.5 text-sm text-foreground/88">
+            <div key={criterion.id} className="flex min-h-9 items-center gap-2.5 px-1.5 text-sm">
               <span className="shrink-0" aria-hidden="true"><CriterionStatusIcon status={criterion.status} /></span>
               <span className={cn('min-w-0 flex-1 truncate', criterion.status === 'passed' && 'text-muted-foreground line-through')}>{criterion.description}</span>
               <span className="sr-only">{t(criterion.statusKey as AppTextKey)}</span>

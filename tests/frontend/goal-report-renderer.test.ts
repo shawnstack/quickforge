@@ -1,44 +1,36 @@
 import { readFileSync } from 'node:fs'
-import { runInNewContext } from 'node:vm'
-import ts from 'typescript'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+import type { ReactElement } from 'react'
 
-// The view model now needs t() at runtime for localized error copy; the real
-// i18n module pulls in pi-web-ui, which requires a browser DOM.
-vi.mock('@earendil-works/pi-web-ui', () => ({ translations: { en: {}, zh: {} } }))
+
+// 显示模式按用例切换（渲染器经 tool-renderers/shared 的 toolDisplayDetailed 读取）。
+const toolDisplay = vi.hoisted(() => ({ mode: 'default' as 'default' | 'detailed' }))
+vi.mock('@/lib/tool-display-settings', () => ({
+  getCachedToolDisplaySettings: () => ({ toolDisplayMode: toolDisplay.mode }),
+}))
 
 import { buildGoalReportHistoryViewModel as build } from '../../src/lib/goal-report-history'
 import { applyAppLanguageFromSnapshot, t } from '../../src/lib/i18n'
+import { GoalReportToolRenderer } from '../../src/lib/tool-renderers/goal-report-tool-renderer'
 
-const source = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
-const block = source.slice(source.indexOf('class GoalReportToolRenderer'), source.indexOf('class TodoWriteToolRenderer'))
+// T4：渲染器已 React 化（tool-renderers/goal-report-tool-renderer.tsx），
+// 注册仍在 local-tools.ts；block 是渲染器实现源码（交互面审查锚点）。
+const localToolsSource = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../../src/lib/tool-renderers/goal-report-tool-renderer.tsx', import.meta.url), 'utf8')
 const i18n = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 const plan = { summary: 'Ship a focused fix', criteria: [{ description: 'Tests pass' }], scope: ['Renderer only'], status: 'awaiting_confirmation' }
 const result = (goal: unknown = plan) => ({ details: { type: 'goal_report_result', goal }, content: [{ type: 'text', text: 'Plan recorded. Waiting for user confirmation.' }] })
 
-// Execute the real renderer class with inert template captures (not a browser DOM).
+applyAppLanguageFromSnapshot('en')
+
+// Execute the real React renderer and serialize its output (server rendering,
+// no browser DOM needed; handlers are inert under renderToStaticMarkup).
 function render(params: unknown, output: unknown, streaming = false, detailed = false) {
-  const templates: string[] = []
-  const values: unknown[] = []
-  const codeBlocks: string[] = []
-  const html = (strings: TemplateStringsArray, ...bindings: unknown[]) => {
-    templates.push(strings.join(''))
-    values.push(...bindings)
-    if (strings.join('').includes('<code-block')) codeBlocks.push(String(bindings[1]))
-    return { strings, bindings }
-  }
-  const Renderer = runInNewContext(ts.transpileModule(`${block}\nGoalReportToolRenderer`, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022 },
-  }).outputText, {
-    buildGoalReportHistoryViewModel: build, extractQuickForgeTiming: () => undefined,
-    getCachedToolDisplaySettings: () => ({ toolDisplayMode: detailed ? 'detailed' : 'default' }),
-    stringifyValue: (value: unknown) => value == null ? '' : JSON.stringify(value),
-    toolDetailsStateKey: () => 'key', toolDetailsOpen: new Map(), rememberToolDetailsOpen: () => {},
-    html, nothing: null, t: (key: string) => key, renderToolIcon: () => null,
-    renderStatus: (status: string) => status,
-  })
-  const rendered = new Renderer().render(params, output, streaming)
-  return { rendered, templates: templates.join('\n'), values, codeBlocks }
+  toolDisplay.mode = detailed ? 'detailed' : 'default'
+  const rendered = new GoalReportToolRenderer().render(params as Record<string, unknown> | undefined, output as Parameters<GoalReportToolRenderer['render']>[1], streaming)
+  const markup = renderToStaticMarkup(rendered.content as ReactElement)
+  return { rendered, markup, codeBlocks: markup.match(/class="qf-code-block\b/g) ?? [] }
 }
 
 describe('goal_report history view model', () => {
@@ -138,24 +130,25 @@ describe('goal_report history view model', () => {
 
 describe('goal_report registered renderer', () => {
   it('registers a custom renderer with shared shell, status, and collapsed-by-default structured content', () => {
-    expect(source).toContain("registerToolRenderer('goal_report', new GoalReportToolRenderer())")
+    expect(localToolsSource).toContain("registerToolRenderer('goal_report', new GoalReportToolRenderer())")
     const view = render({ action: 'plan' }, result())
     expect(view.rendered.isCustom).toBe(true)
-    expect(view.templates).toContain('quickforge-local-tool-shell')
-    expect(view.templates).toContain('quickforge-tool-summary')
-    expect(view.values).toContain(false) // default collapsed, same as other tools
-    expect(view.values).toContain('goalReportWasWaiting')
-    expect(view.values).toContain('Tests pass')
-    expect(view.values).toContain('Renderer only')
-    expect(view.templates).toContain('quickforge-goal-report-tool')
-    expect(view.templates).not.toContain('data-tone=')
-    expect(view.templates).toContain('<circle cx="10" cy="14" r="8"/>')
-    expect(view.templates).toContain('<path d="M21 3 10 14"/>')
-    expect(view.values).toContain('quickforge-goal-report-criterion-icon shrink-0')
-    expect(view.templates).toContain('quickforge-goal-report-scope-chip')
+    expect(view.markup).toContain('quickforge-local-tool-shell')
+    expect(view.markup).toContain('quickforge-tool-summary')
+    // default collapsed, same as other tools: React omits the open attribute
+    expect(view.markup).toContain('<details class="group/tool quickforge-local-tool quickforge-goal-report-tool"')
+    expect(view.markup).not.toContain('open=')
+    expect(view.markup).toContain(t('goalReportWasWaiting'))
+    expect(view.markup).toContain('Tests pass')
+    expect(view.markup).toContain('Renderer only')
+    expect(view.markup).not.toContain('data-tone=')
+    expect(view.markup).toContain('<circle cx="10" cy="14" r="8"></circle>')
+    expect(view.markup).toContain('<path d="M21 3 10 14"></path>')
+    expect(view.markup).toContain('quickforge-goal-report-criterion-icon shrink-0')
+    expect(view.markup).toContain('quickforge-goal-report-scope-chip')
     expect(view.codeBlocks).toEqual([])
-    expect(view.templates).not.toContain('<button')
-    expect(block).not.toMatch(/updateGoal|dispatchEvent|unsafeHTML|innerHTML|@click/)
+    expect(view.markup).not.toContain('<button')
+    expect(source).not.toMatch(/updateGoal|dispatchEvent|unsafeHTML|innerHTML|onClick/)
   })
 
   it('renders status-aware criterion icons and blocker accent', () => {
@@ -165,16 +158,16 @@ describe('goal_report registered renderer', () => {
       { description: 'Review', status: 'needs_review' },
       { description: 'Pending', status: 'bogus' },
     ]}))
-    expect(view.templates).toContain('d="m8 12 2.5 2.5L16 9"')
-    expect(view.templates).toContain('M15 9l-6 6')
-    expect(view.templates).toContain('M12 8v4')
-    expect(view.templates).toContain('<circle cx="12" cy="12" r="9"/>')
-    expect(view.values).toContain('passed')
-    expect(view.values).toContain('failed')
-    expect(view.values).toContain('needs_review')
-    expect(view.values).toContain('pending')
-    expect(view.templates).toContain('quickforge-goal-report-blocker')
-    expect(view.values).toContain('Dependency unavailable')
+    expect(view.markup).toContain('d="m8 12 2.5 2.5L16 9"')
+    expect(view.markup).toContain('M15 9l-6 6')
+    expect(view.markup).toContain('M12 8v4')
+    expect(view.markup).toContain('<circle cx="12" cy="12" r="9"></circle>')
+    expect(view.markup).toContain('data-status="passed"')
+    expect(view.markup).toContain('data-status="failed"')
+    expect(view.markup).toContain('data-status="needs_review"')
+    expect(view.markup).toContain('data-status="pending"')
+    expect(view.markup).toContain('quickforge-goal-report-blocker')
+    expect(view.markup).toContain('Dependency unavailable')
   })
 
   it.each([
@@ -183,29 +176,30 @@ describe('goal_report registered renderer', () => {
     [{ isError: true, content: [{ type: 'text', text: 'Plan rejected' }] }, false, 'error', 'goalReportFailed'],
   ])('renders pending/error status without a generated-plan title (%s)', (output, streaming, status, title) => {
     const view = render({ action: 'plan' }, output, streaming)
-    expect(view.values).toContain(status)
-    expect(view.values).toContain(title)
-    expect(view.values).not.toContain('goalReportPlanRecorded')
-    expect(view.values).not.toContain('goalReportWasWaiting')
-    expect(view.values).not.toContain('Plan recorded. Waiting for user confirmation.')
+    // 状态图标 aria-label 携带状态词条，标题使用中性 goal_report 文案
+    expect(view.markup).toContain(`aria-label="${t(status as 'called' | 'running' | 'error')}"`)
+    expect(view.markup).toContain(t(title as 'goalReportTitle'))
+    expect(view.markup).not.toContain(t('goalReportPlanRecorded'))
+    expect(view.markup).not.toContain(t('goalReportWasWaiting'))
+    expect(view.markup).not.toContain('Plan recorded. Waiting for user confirmation.')
   })
 
   it('limits raw input/details/output JSON to detailed mode', () => {
     const view = render({ action: 'plan', raw: 'request' }, result(), false, true)
     expect(view.codeBlocks).toHaveLength(3)
-    expect(view.codeBlocks.join('\n')).toContain('goal_report_result')
-    expect(view.codeBlocks.join('\n')).toContain('request')
-    expect(view.codeBlocks.join('\n')).toContain('Plan recorded.')
+    expect(view.markup).toContain('goal_report_result')
+    expect(view.markup).toContain('request')
+    expect(view.markup).toContain('Plan recorded.')
   })
 
-  it('binds untrusted HTML as Lit text, with wrap-safe layout rather than HTML parsing', () => {
+  it('binds untrusted HTML as text, with wrap-safe layout rather than HTML parsing', () => {
     const unsafe = '<img src=x onerror=alert(1)>' + 'x'.repeat(10000)
     const view = render({ action: 'plan' }, result({ ...plan, summary: unsafe, criteria: [{ description: unsafe }], scope: [unsafe] }))
-    expect(view.values.filter((v) => v === unsafe)).toHaveLength(3)
-    expect(view.templates).not.toContain('<img')
-    expect(view.templates).toContain('[overflow-wrap:anywhere]')
-    expect(view.templates).toContain('min-w-0 [overflow-wrap:anywhere]')
-    expect(view.templates).toContain('class="whitespace-pre-wrap"')
+    expect(view.markup).not.toContain('<img')
+    expect(view.markup).toContain('&lt;img')
+    expect(view.markup).toContain('[overflow-wrap:anywhere]')
+    expect(view.markup).toContain('min-w-0 [overflow-wrap:anywhere]')
+    expect(view.markup).toContain('whitespace-pre-wrap')
   })
 
   it('provides paired translations for every report label', () => {

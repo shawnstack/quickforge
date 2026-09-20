@@ -75,7 +75,7 @@
 
 | 接口 | 建议 TTL | 前置条件 |
 |---|---|---|
-| `/api/system/about` | 60s | 前端 `about-settings-tab.ts` 去掉 `cache: 'no-store'`；接受升级后 ≤60s 的版本信息陈旧 |
+| `/api/system/about` | 60s | 前端 `src/components/settings/tabs/AboutSettingsTab.tsx` 去掉 `cache: 'no-store'`；接受升级后 ≤60s 的版本信息陈旧 |
 | `/api/system/network` | 300s | 前端调用点去 no-store；LAN 设置变更后需失效 |
 | `/api/agent-profiles/available-tools` | 300s | 前端调用点去 no-store；MCP/插件变更后失效 |
 | `/api/filesystem/roots` | 300s | 前端调用点去 no-store；磁盘变化后失效 |

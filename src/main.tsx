@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client'
 import { LucideProvider } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import './index.css'
-import { patchThinkingSelector } from '@/lib/patch-thinking-selector'
 import { applyClipboardPolyfill } from '@/lib/clipboard-polyfill'
 import { isMobileShell } from '@/lib/mobile-server'
 import { logger } from '@/lib/logger'
@@ -16,7 +15,6 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { WindowGuardNotice } from '@/components/WindowGuardNotice'
 import App from './App.tsx'
 
-patchThinkingSelector({ hideSelector: true })
 // 浏览器侧连接池诊断：DevTools 里执行 window.__quickforgePerf() 可查看请求排队与常驻长连接；
 // 同时异步拉取服务端 GET /api/diagnostics 快照，便于区分「浏览器侧排队」与「服务端阻塞」。
 startBrowserConnectionDiagnostics()

@@ -1,4 +1,4 @@
-import type { StorageBackend, StorageTransaction } from '@earendil-works/pi-web-ui'
+import type { StorageBackend, StorageTransaction } from '@/storage'
 import { updateAppSettingSnapshotFromStorageSet } from '@/lib/app-settings-cache'
 import {
   broadcastProviderKeysChanged,
@@ -94,6 +94,12 @@ export class HttpStorageBackend implements StorageBackend {
 
     if (!response.ok) {
       throw new Error(payload?.error || `Local storage request failed: ${response.status}`)
+    }
+
+    // 2xx 但 body 非法 JSON 属协议违规：显式抛错，避免调用方在 null 载荷上
+    // 读 payload.value 时得到难定位的裸 TypeError。
+    if (payload === null) {
+      throw new Error(`Local storage response was not valid JSON: ${path} (status ${response.status})`)
     }
 
     return payload as T

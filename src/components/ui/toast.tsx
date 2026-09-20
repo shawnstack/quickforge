@@ -106,7 +106,7 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground/90">
+        <p className="truncate text-sm font-medium">
           {toast.title}
         </p>
         <p className="mt-0.5 line-clamp-3 text-xs text-muted-foreground">
@@ -120,7 +120,7 @@ function Toast({ toast, onDismiss, onClick }: ToastProps) {
           e.stopPropagation()
           handleDismiss()
         }}
-        className="shrink-0 rounded-md p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground"
+        className="shrink-0 rounded-md p-0.5 transition-colors hover:text-foreground"
         aria-label={t('close')}
       >
         <X className="size-4" />

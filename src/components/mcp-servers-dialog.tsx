@@ -225,10 +225,10 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
               <ArrowLeft className="size-4" />
               {t('mcpConfiguredServers')}
             </button>
-            <span className="text-sm font-medium text-foreground/90">{isEdit ? t('mcpEditServer') : t('mcpAddServer')}</span>
+            <span className="text-sm font-medium">{isEdit ? t('mcpEditServer') : t('mcpAddServer')}</span>
           </div>
         </div>
-        {error ? <div className="m-6 mb-0 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+        {error ? <div className="m-6 mb-0 rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
         <div className="min-h-0 flex-1 overflow-y-auto p-6">
           <div className="mx-auto max-w-5xl space-y-5">
             <div className="flex border-b border-border">
@@ -238,8 +238,8 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
                 className={cn(
                   'flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors',
                   activeTab === 'form'
-                    ? 'border-b-2 border-primary text-foreground/90 -mb-px'
-                    : 'text-muted-foreground/60 hover:text-foreground/85',
+                    ? 'border-b-2 border-primary -mb-px'
+                    : '',
                 )}
               >
                 <Server className="size-3.5" />
@@ -251,8 +251,8 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
                 className={cn(
                   'flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors',
                   activeTab === 'json'
-                    ? 'border-b-2 border-primary text-foreground/90 -mb-px'
-                    : 'text-muted-foreground/60 hover:text-foreground/85',
+                    ? 'border-b-2 border-primary -mb-px'
+                    : '',
                 )}
               >
                 <FileJson className="size-3.5" />
@@ -271,15 +271,15 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
               ) : (
                 <div className="space-y-2">
                   <textarea
-                    className="min-h-96 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-ring"
+                    className="min-h-96 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 font-mono text-xs text-foreground outline-none"
                     value={jsonText}
                     onChange={(event) => onJsonTextChange(event.target.value)}
                     spellCheck={false}
                   />
                   {jsonError ? (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{jsonError}</div>
+                    <div className="rounded-md border bg-destructive/10 px-3 py-2 text-xs text-destructive">{jsonError}</div>
                   ) : null}
-                  <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground/90">
+                  <div className="inline-flex items-center gap-1.5 text-[11px] font-medium">
                     {t('mcpTabJson')}
                     <InfoTip label={t('mcpImportConfigDescription')} />
                   </div>
@@ -305,14 +305,14 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
     <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden bg-background', className)}>
       <div className="border-b border-border px-6 py-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-medium text-foreground/90">{t('mcpConfiguredServers')}</h3>
+          <h3 className="text-sm font-medium">{t('mcpConfiguredServers')}</h3>
           <Button type="button" variant="ghost" size="sm" onClick={startAdd}>
             <Plus className="mr-1.5 size-3.5" />
             {t('mcpAddServer')}
           </Button>
         </div>
       </div>
-      {error ? <div className="m-6 mb-0 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+      {error ? <div className="m-6 mb-0 rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-5xl space-y-5">
@@ -323,7 +323,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
               {t('loading')}
             </div>
           ) : servers.length === 0 ? (
-            <div className="rounded-lg border border-border bg-muted/15 p-4 text-sm text-muted-foreground/72">{t('mcpNoServersDescription')}</div>
+            <div className="rounded-lg border border-border p-4 text-sm">{t('mcpNoServersDescription')}</div>
           ) : (
             servers.map((server) => (
               <McpServerCard

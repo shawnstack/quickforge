@@ -368,11 +368,11 @@ describe('batch route endpoint (POST /api/storage/batch)', () => {
     })
   })
 
-  // pi-web-ui's SessionsStore.delete() commits a `sessions` delete plus a
+  // SessionsStore.delete() commits a `sessions` delete plus a
   // `sessions-metadata` delete for the same key in one transaction. The
   // settings page "archived conversations" permanent delete (and the empty
   // session rollback in useChatActions) both send this exact shape.
-  it('accepts the pi-web-ui two-operation delete as one transaction', async () => {
+  it('accepts the two-operation delete as one transaction', async () => {
     await withAuthoritativeFacade(async ({ routeModule, storageModule, repository }) => {
       await storageModule.writeSessionValue('del', sessionBody('del'))
       expect(repository.findBySessionId('del')).not.toBeNull()

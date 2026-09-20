@@ -7,7 +7,7 @@ import { normalizeGoalState, goalBudgetExtension, type GoalActionOptions, type G
 import { t, type AppTextKey } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { modelReferenceFromModel } from './model-reference'
-import { toolStartEventWithPartialResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
+import { toolStartEventWithPartialResult, toolCallIdsWithoutToolResult, upsertMessage, upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import {
   normalizeSelectedCapabilities,
@@ -472,7 +472,7 @@ export class ServerAgent {
   /**
    * tool_execution_start/update/end SSE 事件 → subagentRunStore 的实时发布器：
    * 按 toolCallId 缓存 run_subagent 的 args/toolName，start/update/end 每次发布最新
-   * 载荷到 subagentRunStore（与 local-tools 的聊天渲染回填解耦），end 后清理缓存。
+   * 载荷到 subagentRunStore（与 tool-renderers/subagent-tool-renderer 的聊天渲染回填解耦），end 后清理缓存。
    */
   private readonly subagentRunPublisher = new SubagentRunEventPublisher({
     t,
@@ -1499,8 +1499,20 @@ export class ServerAgent {
         // this message in local state lets pending run_command cards render
         // immediately instead of waiting for a full state refresh.
         const msgEvent = event as { message?: AgentMessage; messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesSummary?: { count?: number }; contextUsage?: ServerAgentContextUsage | null }
+        // The partial body this stream was rendering is finalized by this
+        // frame (carried by it or refetched below), so drop it to avoid
+        // rendering the same message twice (list + streaming container).
+        this.state.streamingMessage = undefined
         if (msgEvent.message) {
           this.state.messages = upsertMessage(this.state.messages, msgEvent.message)
+          // Keep committed tool calls without any result pending so they keep
+          // rendering running: tool_execution_start may arrive only after this
+          // frame, and a missing pending entry would flash the idle 'called'
+          // dot for one frame before the spinner returns.
+          const pendingIds = toolCallIdsWithoutToolResult(msgEvent.message, this.state.messages)
+          if (pendingIds.length) {
+            this.state.pendingToolCalls = new Set([...this.state.pendingToolCalls, ...pendingIds])
+          }
           this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
@@ -1546,6 +1558,10 @@ export class ServerAgent {
         // Do not upsert event.message here, otherwise it can duplicate the
         // assistant message after tool results.
         const msgEvent = event as { messages?: AgentMessage[]; contextUsage?: ServerAgentContextUsage | null }
+        // Defensive: message_end normally cleared the partial body already,
+        // but a turn_end without a preceding message_end must not leave the
+        // last streamed message duplicated in the streaming container.
+        this.state.streamingMessage = undefined
         if (msgEvent.messages && msgEvent.messages.length >= this.state.messages.length) {
           this.state.messages = msgEvent.messages
           this.replayGoalIterationMarkers()
@@ -1673,9 +1689,18 @@ export class ServerAgent {
         break
       }
 
+      case 'message_update': {
+        // Mirror SharedServerAgent (see shared-server-agent.ts): the live
+        // partial body must be exposed on state.streamingMessage so the React
+        // chat surface can render streaming text. A frame without `message`
+        // (older server) is forwarded as-is without touching the stream.
+        const updateEvent = event as { message?: AgentMessage }
+        if (updateEvent.message) this.state.streamingMessage = updateEvent.message
+        break
+      }
+
       case 'auto_compact_failed':
       case 'message_start':
-      case 'message_update':
       case 'turn_start':
       case 'auto_compact_threshold_reached':
         // Forward as-is

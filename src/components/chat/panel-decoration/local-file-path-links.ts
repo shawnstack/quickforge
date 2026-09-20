@@ -1,5 +1,6 @@
 import type { MessageWithUsage } from '../chat-utils'
 import { assistantText } from '@/lib/message-utils'
+import { t } from '@/lib/i18n'
 
 const LOCAL_FILE_PATH_REGEX = /[A-Za-z]:[\\/][^\s"'<>`]+|(?:\/Users|\/home|\/workspace|\/mnt|\/Volumes)\/[^\s"'<>`]+/g
 const TRAILING_PATH_PUNCTUATION = new Set(['.', ',', ';', ':', '!', '?', ')', ']', '}', '>', '。', '，', '；', '：', '！', '？', '）', '】', '》'])
@@ -12,7 +13,9 @@ const SKIP_LOCAL_PATH_SELECTOR = [
   'input',
   'select',
   'thinking-block',
+  '.qf-thinking-block',
   'tool-message',
+  '.qf-tool-message',
   '.quickforge-file-path-link',
   '.quickforge-message-actions',
   '.quickforge-process-group',
@@ -31,8 +34,8 @@ function createLocalFilePathLink(pathValue: string, onOpenLocalFilePath: (path: 
   button.className = 'quickforge-file-path-link'
   button.dataset.quickforgeFilePath = pathValue
   button.textContent = pathValue
-  button.title = 'Open file'
-  button.setAttribute('aria-label', `Open file ${pathValue}`)
+  button.title = t('openLocalFile')
+  button.setAttribute('aria-label', t('openLocalFileWithPath', { path: pathValue }))
   button.onclick = (event) => {
     event.preventDefault()
     event.stopPropagation()
@@ -90,7 +93,7 @@ function linkLocalFilePathTextNode(node: Text, onOpenLocalFilePath: (path: strin
 }
 
 export function decorateLocalFilePathLinks(element: HTMLElement, message: MessageWithUsage, onOpenLocalFilePath: (path: string) => void) {
-  const markdownBlocks = Array.from(element.querySelectorAll<HTMLElement>('markdown-block'))
+  const markdownBlocks = Array.from(element.querySelectorAll<HTMLElement>('markdown-block, .qf-markdown-block'))
   const markdownTextLength = markdownBlocks.reduce((total, block) => total + (block.textContent?.length ?? 0), 0)
   const messageTextLength = assistantText(message as Parameters<typeof assistantText>[0]).length
   const signature = `${String(message.timestamp ?? '')}:${messageTextLength}:${markdownBlocks.length}:${markdownTextLength}`

@@ -6,12 +6,14 @@ import {
   isTopLevelProcessDetail,
   processGroupAnchorIndex,
   processFinishedAtFromMessages,
+  processGroupDefaultExpanded,
   processGroupTargetIndex,
   processNodeSequenceIsCurrent,
   processStatusLabel,
   processStageDefaultExpanded,
   processStageLabel,
   processStageStateKey,
+  processToolGroupDefaultExpanded,
   processThinkingChildIndexes,
   processToolGroupStateKey,
   processToolSuffixAppendStart,
@@ -79,15 +81,22 @@ describe('process streaming updates', () => {
     expect(processTurnUpdateMode(true, false, true, true)).toBe('update')
   })
 
-  it('skips stable historical turns while another turn is streaming', () => {
+  it('skips already-grouped non-live turns when their fingerprint still matches', () => {
+    // 第一个参数在调用点是该 turn 的 isActiveTurn；canShortCircuit 由调用点以
+    // `!isActiveTurn` 传入。同一条 skip 快路径既覆盖流式中的历史 turn，
+    // 也覆盖非流式（静态）装饰下的已完成 turn：指纹命中即内容未变。
     expect(processTurnUpdateMode(false, true, true, true)).toBe('skip')
   })
 
-  it('fully reconciles completed turns even when their fingerprint matches', () => {
+  it('fully rebuilds when the fingerprint no longer matches or no group survives', () => {
+    expect(processTurnUpdateMode(false, true, true, false)).toBe('full')
+    expect(processTurnUpdateMode(false, true, false, true)).toBe('full')
+    // 函数级保守默认：调用方未提供短路标记时仍走全量重建
+    // （新语义下 canShortCircuit = !isActiveTurn，调用点不再产生该输入）。
     expect(processTurnUpdateMode(false, false, true, true)).toBe('full')
   })
 
-  it('fully rebuilds a streaming process when Lit replaced the grouped nodes', () => {
+  it('fully rebuilds a streaming process when a re-render replaced the grouped nodes', () => {
     expect(processTurnUpdateMode(true, false, true, true, false)).toBe('full')
     expect(processNodeSequenceIsCurrent(
       [{ node: { isConnected: false }, sourceAssistant: 'assistant-a' }],
@@ -124,6 +133,18 @@ describe('process streaming updates', () => {
     expect(resolveProcessExpandedState(true, true, true, false)).toBe(true)
     expect(resolveProcessExpandedState(false, true, false, false)).toBe(false)
     expect(resolveProcessExpandedState(undefined, true, true, false)).toBe(true)
+  })
+
+  it('defaults the top-level process group from the agent streaming state', () => {
+    // 旧语义：只有正在流式的回合默认展开，历史回合默认收起。
+    expect(processGroupDefaultExpanded(true)).toBe(true)
+    expect(processGroupDefaultExpanded(false)).toBe(false)
+  })
+
+  it('defaults tool groups from the tool display mode (compact collapses count)', () => {
+    // 旧语义：只有 `detailed` 显示模式默认展开工具组；默认设置 `compact` 收起。
+    expect(processToolGroupDefaultExpanded('detailed')).toBe(true)
+    expect(processToolGroupDefaultExpanded('compact')).toBe(false)
   })
 
   it('uses mode defaults for tool groups while preserving explicit state within the same mode', () => {
@@ -293,12 +314,28 @@ describe('process folding order', () => {
     ])).toEqual({ chevronIndex: 2, labelIndex: 1, chevronExpanded: false })
   })
 
-  it('finds the native Thinking chevron by its svg when Lit replaces marker classes', () => {
+  it('finds the native Thinking chevron by its svg when a re-render replaces marker classes', () => {
     expect(processThinkingChildIndexes([
       { quickforgeIcon: true, hasSvg: true },
       {},
       { hasSvg: true },
     ])).toEqual({ chevronIndex: 2, labelIndex: 1, chevronExpanded: false })
+  })
+
+  it('recognizes a chevron that is the svg itself (React ThinkingBlock header children)', () => {
+    // React header 的子级就是 [svg(ChevronRight), span]：svg 本体不是 HTMLElement，
+    // 也 querySelector 不到自身，必须由 selfSvg 分支识别（否则接管永远提前 return）。
+    expect(processThinkingChildIndexes([
+      { selfSvg: true },
+      { markedLabel: true },
+    ])).toEqual({ chevronIndex: 0, labelIndex: 1, chevronExpanded: false })
+  })
+
+  it('carries the expanded state of a self-svg chevron', () => {
+    expect(processThinkingChildIndexes([
+      { selfSvg: true, rotated: true },
+      {},
+    ])).toEqual({ chevronIndex: 0, labelIndex: 1, chevronExpanded: true })
   })
 
   it('preserves the native Thinking expanded state when removing upstream classes', () => {
@@ -404,9 +441,11 @@ describe('nested process stage groups', () => {
     ])
   })
 
-  it('defaults both running and completed inner stages to collapsed', () => {
+  it('keeps inner stages collapsed by default (legacy semantics) unless state says otherwise', () => {
+    // 旧语义：阶段默认收起；只有显式 saved state 为展开时才展开。
     expect(processStageDefaultExpanded()).toBe(false)
     expect(resolveProcessExpandedState(undefined, false, true, processStageDefaultExpanded())).toBe(false)
+    expect(resolveProcessExpandedState(undefined, true, false, processStageDefaultExpanded())).toBe(false)
     expect(resolveProcessExpandedState(true, false, false, processStageDefaultExpanded())).toBe(true)
   })
 

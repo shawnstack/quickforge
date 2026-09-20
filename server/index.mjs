@@ -31,6 +31,7 @@ import { handleAgentApi } from './routes/agent.mjs'
 import { handleAgentProfilesApi } from './routes/agent-profiles.mjs'
 import { handleScheduledTasksApi, recoverStaleScheduledTaskRuns, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
 import { startAutoArchiveRunner, stopAutoArchiveRunner } from './auto-archive.mjs'
+import { startHookEngine, stopHookEngine } from './hooks/hook-engine.mjs'
 import { handleBackupApi } from './routes/backup.mjs'
 import { handleSystemApi } from './routes/system.mjs'
 import { handleSharesApi } from './routes/shares.mjs'
@@ -39,6 +40,7 @@ import { handleSessionAssetsApi } from './routes/session-assets.mjs'
 import { handleLanAccessApi, renderLanUnlockPage } from './routes/lan-access.mjs'
 import { handleMcpApi } from './routes/mcp.mjs'
 import { handlePluginsApi } from './routes/plugins.mjs'
+import { handleHooksApi } from './routes/hooks.mjs'
 import { handleWorkspaceApi, handleGitApi } from './routes/workspace.mjs'
 import { handleTerminalApi, handleTerminalUpgrade } from './routes/terminal.mjs'
 import { handleChannelsApi } from './routes/channels.mjs'
@@ -185,6 +187,7 @@ async function shutdownRuntime() {
   try {
     stopScheduledTaskRunner()
     stopAutoArchiveRunner()
+    stopHookEngine()
     stopRuntimeDiagnostics()
     stopVite()
     await shutdownAgentManager()
@@ -540,6 +543,12 @@ async function handleApi(req, res, url, requestContext = {}) {
     await handleTerminalApi(req, res, url, {
       isLocalRequest: requestContext.isLocalRequest === true,
     })
+    return
+  }
+
+  // Hooks routes
+  if (pathname === '/api/hooks' || pathname.startsWith('/api/hooks/')) {
+    await handleHooksApi(req, res, url, requestContext)
     return
   }
 
@@ -924,6 +933,7 @@ async function runStartupInitialization() {
   setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
   startScheduledTaskRunner()
   startAutoArchiveRunner()
+  await timedStartupStep('hook-engine', () => startHookEngine())
   startRuntimeDiagnostics()
 }
 

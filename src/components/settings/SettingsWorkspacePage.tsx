@@ -18,6 +18,7 @@ import {
   Share2,
   SlidersHorizontal,
   SquareTerminal,
+  Webhook,
   type LucideIcon,
 } from 'lucide-react'
 import { cloneElement, useEffect, useMemo, useRef, useState } from 'react'
@@ -44,6 +45,7 @@ const SETTINGS_TAB_ICONS = {
   plugins: Puzzle,
   scheduledTasks: CalendarClock,
   projectCommands: SquareTerminal,
+  hooks: Webhook,
   backup: DownloadCloud,
   archivedConversations: Archive,
   shareLinks: Link2,

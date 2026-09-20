@@ -1,6 +1,8 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore, writeStore, atomicUpdate, getComparable, getStoreRevision, readSessionStoreScoped, readSessionValue, writeSessionValueWithMetadata, deleteSessionWithMetadata, applySessionBatch, readSessionKeys, hasSession, ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir } from '../storage.mjs'
 import { AUTO_ARCHIVE_SETTINGS_KEY, archiveInactiveSessions, normalizeAutoArchiveSettings } from '../auto-archive.mjs'
+import { HOOKS_SETTINGS_KEY } from '../hooks/hooks-settings.mjs'
+import { refreshHooksSettings } from '../hooks/hook-engine.mjs'
 import { listSessions, refreshAllSessionModels, destroyAgent } from '../agent-manager.mjs'
 import { logger } from '../utils/logger.mjs'
 import { directorySize } from '../utils/workspace.mjs'
@@ -367,6 +369,15 @@ export async function handleStorageApi(req, res, url, context = { isLocalRequest
       })
       if (store === 'settings' && key === AUTO_ARCHIVE_SETTINGS_KEY && normalizeAutoArchiveSettings(body?.value).enabled) {
         await archiveInactiveSessions()
+      }
+      // Hooks engine settings cache refresh: fail-open so a broken settings
+      // payload never fails the storage write itself (auto-archive precedent).
+      if (store === 'settings' && key === HOOKS_SETTINGS_KEY) {
+        try {
+          await refreshHooksSettings()
+        } catch (error) {
+          logger.error('Failed to refresh hooks settings after update:', error)
+        }
       }
       if (store === 'custom-providers') {
         try {

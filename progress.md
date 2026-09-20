@@ -1,3 +1,42 @@
+## 2026-09-20 · HooksSettingsTab 三项 UI 收敛：去总开关 / 去执行记录刷新按钮 / 说明文字收入 ? InfoTip
+
+- Goal：按 DESIGN_LANGUAGE「辅助说明应收拢到 `?` 浮层」与用户决策，对 Hooks 设置页做三项收敛：① 移除「启用 Hooks」总开关行（schema/normalize/保存链路保留 `enabled` 字段，server 引擎继续依赖）；② 移除执行记录 RotateCw 手动刷新按钮（保留 mount GET 加载、失败重试与展开输出）；③ section 级平铺说明文字收进标题旁 InfoTip。
+- 改动文件：`src/components/settings/tabs/HooksSettingsTab.tsx`：
+  - ① 删除总开关行（含 `hooksEnabledDescription`）；组件移除 `enabled` state，persist 乐观回滚仅覆盖 hooks；所有保存调用 `persist({ enabled: true, hooks })` ——存量 `enabled=false` 在下次任意保存（增删改/启停）时重置为 true，server 端不因旧存量 false 而失效；load 时不再回填 enabled（不产生非必要写盘）。Hook 级开关/增删改/测试/执行记录行为不变。
+  - ② 删除执行记录 header 的 RotateCw 刷新按钮（`hooksExecutionsRefresh`），`loadExecutions` 保留（mount 加载 + 失败 retry 按钮复用）。
+  - ③ Hooks 标题旁新增 `<InfoTip label={t('hooksTabInfo')}>`（机制说明：事件触发→命令/Webhook、异步执行不影响会话），删除原平铺 `hooksTabDescription` 行；执行记录标题旁新增 `<InfoTip label={t('hooksExecutionsInfo')}>`（仅保留最近 50 条、服务重启后清空，与 server hook-engine 内存记录契约一致），删除平铺 `hooksExecutionsDescription`；空态一行文案（`hooksEmpty`/`hooksExecutionsEmpty`）与弹窗内操作提示（`hooksInsertVariable`）按设计语言保留。布局：header（自带 border-b）后直接接列表行（border-b 模式不变），与其它 tab 一致，无需 CSS 调整。
+- `src/lib/i18n.ts`（en/zh 成对）：新增 `hooksTabInfo`、`hooksExecutionsInfo`；删除仅被移除 UI 引用的 `hooksEnabledDescription`、`hooksExecutionsRefresh`、`hooksExecutionsDescription`；`hooksTabDescription`（settings-tabs 工作区 header InfoTip 引用）、`hooksEnabled`（Hook 行开关 aria-label）、`refresh`（其它组件引用）保留。
+- `tests/frontend/hooks-settings-tab.test.ts`：首个用例改为断言无总开关（SettingsSwitch 数量 = Hook 数）；总开关切换/回滚两用例改写为 Hook 级开关版本（payload 断言 `enabled: true`）；新增「存量 enabled=false 下次保存重置为 true」用例；执行记录失败重试用例改为 mount 即失败（不再依赖已删除的刷新按钮触发）。`tests/frontend/hooks-settings.test.ts`（normalize/保存链路保留 enabled 语义）零改动通过。
+- 验证：`npx vitest run tests/frontend/hooks-settings-tab.test.ts tests/frontend/hooks-settings.test.ts tests/frontend/settings-workspace-react.test.ts tests/frontend/semantic-color-class-parity.test.ts` → **4 files / 35 passed（exit 0）**；`npx tsc -b --pretty false` → **exit 0**；`npx eslint src/components/settings/tabs/HooksSettingsTab.tsx src/lib/i18n.ts` → **0 errors（exit 0）**。
+- Notes（只记录，不扩范围）：
+  - a) `docs/wiki/src/lib/README.md` Hooks 页描述仍含「总开关 / 可刷新」字样，属文档同步项，超出本轮授权路径（src/**、tests/frontend/**），待主会话决策更新。
+  - b) 存量 `enabled=false` 的用户在未做任何保存前 hooks 仍不执行（沿用旧值），首次保存后强制回到 true——已在组件注释与测试中固化该语义。
+  - c) 本轮无 Git 操作、无依赖变更，未触碰 dist/、package-dist/、package-offline/；server 端零改动。
+
+---
+
+## 2026-09-20 · HooksSettingsTab 样式对齐 DESIGN_LANGUAGE / 原型（10 项自评审清单修复）
+
+- Goal：对 Hooks 设置页组件做样式自评审收敛，逐项对齐 DESIGN_LANGUAGE.md、设置页既有惯例与原型，不改行为逻辑与 aria 语义。
+- 改动文件：`src/components/settings/tabs/HooksSettingsTab.tsx`（仅样式类名，10 项）：
+  - ① 执行记录行间分割线 `var(--border)_54%` → `_78%`（与同页 hook 行 78% 对齐）。
+  - ② hook 行首开关容器 `quickforge-settings-row-control`（min-width 11rem + justify-end 导致开关右推）→ 轻容器 `shrink-0 flex items-center`，开关紧贴行左缘（对齐原型与 CustomProvidersSettingsTab 列表行）；aria-label 关联不变。
+  - ③ 9 处散落的 `duration-150` / 无时长 `transition-colors` / `transition-[background-color,border-color,color]`（L492/509/590/598/650/701/706/770/775）统一补 `duration-[160ms] ease-[cubic-bezier(0.2,0,0,1)]`（settings 系列 160ms ease-out 惯例）。
+  - ④ 测试运行成功结果条：中性灰（muted 40% + text-muted-foreground）→ success 色系 `bg-[color-mix(in_oklab,#10b981_12%,transparent)] text-[color-mix(in_oklab,#047857_86%,var(--foreground))]`（精确对齐 index.css badge-success 配方；失败态保持 bg-destructive/10 + text-destructive 不变）。
+  - ⑤ 9 处手搓表单标签 `text-[0.8125rem] font-medium` → 复用 `quickforge-settings-form-label`。
+  - ⑥ 弹窗描述 `text-xs` → `text-[0.8125rem] text-muted-foreground`。
+  - ⑦ 弹窗标题 `font-semibold`(600) → `font-[520]`（app 弹窗 520 惯例，对齐 skills-dialog/settings-row-title）。
+  - ⑧ 执行记录行 hover 背景 muted 18% → 26%（与同页 quickforge-settings-row hover 一致）。
+  - ⑨ 展开 output `<pre>` 与测试结果条（testError/testResult）新挂载补纯 opacity 淡入：复用既有 `quickforge-list-item-in` 类（base 180ms + ease-out token + prefers-reduced-motion 降级，无需 motion-safe 前缀）。
+  - ⑩ 圆角对齐原型：output 块 rounded-lg → rounded-[0.625rem]；事件芯片容器 rounded-xl → rounded-[0.625rem]；变量芯片 rounded-md → rounded-lg。
+- 验证：`npx vitest run tests/frontend/hooks-settings-tab.test.ts tests/frontend/hooks-settings.test.ts tests/frontend/semantic-color-class-parity.test.ts tests/frontend/settings-workspace-react.test.ts` → **4 files / 34 passed（exit 0）**（结构/类名调整未触及任何测试断言，无需改测试）；`npx tsc -b --pretty false` → **exit 0**；`npx eslint src/components/settings/tabs/HooksSettingsTab.tsx` → **0 errors（exit 0）**。
+- Notes（只记录，不扩范围）：
+  - a) 任务摘要中「success 文字 78% 左右」按权威来源 index.css badge-success 实际配方取 86%（`#047857 86%,var(--foreground)`），与 `.quickforge-settings-message` 一致。
+  - b) 待真机 `npm run dev` 验收：hook 行开关位置、执行记录 hover/分割线、编辑弹窗标题/标签/事件芯片、测试结果条 success 绿色与淡入。
+  - c) 本轮无 Git 操作、无依赖变更、未触碰 dist/、package-dist/、package-offline/；docs/wiki 未动（纯组件内样式类调整，不改模块职责/公共入口）。
+
+---
+
 ## 2026-09-20 · Hooks 事件钩子：会话/工具事件触发命令或 Webhook（前后端实现 + 集成收尾）
 
 - Goal：设置页新增「Hooks」：按 Agent 事件（agent_start / agent_end / tool_execution_start / tool_execution_end / tool_approval_required / error）自动执行本地命令或发送 Webhook；提供总开关、Hook 增删改/启停、编辑器内手动测试与最近执行记录列表。HTML 原型 `design-mockups/hooks-settings.html` → 前后端并行实现 → 本轮集成核对与收尾。

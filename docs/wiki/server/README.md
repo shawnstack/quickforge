@@ -64,6 +64,7 @@ server/
 ├── network-proxy.mjs         # 直连、真实系统代理与手动 HTTP(S) 代理运行时
 ├── skills.mjs                # Agent Skills 管理和加载 (553 行)
 ├── channels/                 # 通用渠道管理（外部应用 bridge 进程，如微信 weixin-acp）
+├── hooks/                    # Hooks 事件钩子（设置规范化 / 事件引擎 / 命令与 Webhook 执行器）
 ├── mcp/                      # MCP Client 配置、连接和工具适配
 ├── plugins/                  # 本地插件 manifest、加载和工具适配
 ├── share-store.mjs           # 分享数据存储 (432 行)
@@ -293,6 +294,14 @@ server/
 - 超过 30 天且非空、非运行中的对话写入与手动归档相同的 `archivedAt`；不会删除会话数据。
 - 普通会话索引默认排除带 `archivedAt` 的记录；“已归档对话”页可查看、恢复或永久删除。
 - 关闭开关只停止后续自动归档，不恢复已有归档。
+
+### hooks/ — Hooks 事件钩子
+
+**用途**: 按 Agent 事件触发用户配置的命令或 Webhook（设置页「Hooks」）。事件流：`agent-session-events` 的 `agentEvents` 全局总线 → `hook-engine` 过滤（总开关 / 单 Hook 开关 / 事件订阅）→ `hook-executor` fire-and-forget 执行 → 内存执行记录（不阻塞、不反向影响 Agent 事件流）。
+
+- `hooks-settings.mjs` — 设置规范化与 fail-open 读取：settings 键 `hooks-settings`（`{enabled, hooks[]}`），与前端 `src/lib/hooks-settings.ts` 保持同构；动作二选一（command 需非空命令 / webhook 需 http(s) URL），非法动作的 Hook 整体丢弃，坏数据回落默认（enabled + 空 hooks），超时 clamp 1–300s（默认 10s）。
+- `hook-engine.mjs` — 事件引擎：订阅 `agent_event`，支持 6 种事件（`agent_start` / `agent_end` / `tool_execution_start` / `tool_execution_end` / `tool_approval_required` / `error`），从会话 `projectContext` 解析 `{{session.project}}` / `{{session.projectPath}}` 变量。模块级设置缓存在启动时加载（fail-open），此后每次 `hooks-settings` PUT 由 `routes/storage.mjs` 调 `refreshHooksSettings()` 刷新（刷新失败只记日志、不影响写盘本身）；执行记录仅内存保留最近 50 条（`silentOnFailure` Hook 的失败记录不入日志），不持久化。`startHookEngine` / `stopHookEngine` 挂在启动初始化链（`timedStartupStep('hook-engine')`）。
+- `hook-executor.mjs` — 执行器：命令经 `spawn(shell:true)`（输出截尾 4000 字符，超时由 `terminateProcessTree` SIGTERM→SIGKILL 兜底）；Webhook 经 `fetch`（POST 默认发送 JSON 事件上下文，支持自定义 header 与 body 模板）。`{{variable}}` 占位符替换，未知变量置空。所有失败模式（非零退出、非 2xx、超时、spawn 崩溃）收敛为执行记录（`status: 'success' | 'error' | 'timeout'`），从不 throw。REST 见 [routes/hooks.mjs](routes/README.md#hooksmjs-45-行)；手动测试用合成 `event:'test'` 上下文，不入执行日志。
 
 ### global-memory.mjs
 

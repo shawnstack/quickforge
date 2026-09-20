@@ -1,0 +1,1558 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuickForge · Hooks 设置（交互原型）</title>
+<!--
+  QuickForge「Hooks」设置页交互原型
+  - 单文件自包含：内联 CSS/JS，无外部依赖、无网络请求，双击即可打开
+  - 视觉 token 对齐 src/index.css（light sidebar #f3f4f6/#e5e7eb/#d9dee7，dark 经 color-mix 派生）
+  - 右上角「浅色 | 深色」切换仅为原型评审用，非真实功能
+-->
+<style>
+  /* ============ tokens（对齐 src/index.css） ============ */
+  :root {
+    color-scheme: light;
+    --qf-bg: oklch(1 0 0);
+    --qf-fg: oklch(0.205 0 0);
+    --qf-muted: oklch(0.97 0 0);
+    --qf-muted-fg: oklch(0.556 0 0);
+    --qf-accent: oklch(0.97 0 0);
+    --qf-border: oklch(0.922 0 0);
+    --qf-ring: oklch(0.708 0 0);
+    --qf-destructive: oklch(0.577 0.245 27.325);
+    --qf-destructive-fg: oklch(1 0 0);
+    --qf-success: oklch(0.58 0.13 152);
+
+    --qf-sidebar-bg: #f3f4f6;
+    --qf-sidebar-hover-bg: #e5e7eb;
+    --qf-sidebar-active-bg: #d9dee7;
+    --qf-main-bg: #ffffff;
+
+    --qf-card-border: color-mix(in oklab, var(--qf-border) 86%, transparent);
+    --qf-card-bg: color-mix(in oklab, var(--qf-bg) 96%, var(--qf-muted));
+    --qf-divider: color-mix(in oklab, var(--qf-border) 60%, transparent);
+    --qf-divider-row: color-mix(in oklab, var(--qf-border) 78%, transparent);
+    --qf-row-hover: color-mix(in oklab, var(--qf-muted) 26%, transparent);
+
+    --qf-panel-shadow: 0 16px 48px -24px rgb(15 23 42 / 0.35), 0 2px 8px -4px rgb(15 23 42 / 0.12);
+    --qf-pop-shadow: 0 12px 32px -16px rgb(15 23 42 / 0.3), 0 2px 6px -3px rgb(15 23 42 / 0.1);
+    --qf-hover-shadow: 0 8px 20px -18px rgb(15 23 42 / 0.35);
+    --qf-active-shadow: 0 8px 22px -20px rgb(15 23 42 / 0.32);
+    --qf-input-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+
+    --qf-ease: cubic-bezier(0.2, 0, 0, 1);
+    --font-sans: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  html.dark {
+    color-scheme: dark;
+    --qf-bg: oklch(0.145 0 0);
+    --qf-fg: oklch(0.985 0 0);
+    --qf-muted: oklch(0.269 0 0);
+    --qf-muted-fg: oklch(0.708 0 0);
+    --qf-accent: oklch(0.371 0 0);
+    --qf-border: oklch(0.275 0 0);
+    --qf-ring: oklch(0.556 0 0);
+    --qf-destructive: oklch(0.704 0.191 22.216);
+    --qf-destructive-fg: oklch(0.985 0 0);
+    --qf-success: oklch(0.74 0.14 152);
+
+    /* 暗色侧栏 token 沿用 app 的 color-mix 派生方式 */
+    --qf-sidebar-bg: color-mix(in oklab, var(--qf-bg) 94%, var(--qf-muted));
+    --qf-sidebar-hover-bg: color-mix(in oklab, var(--qf-muted) 74%, transparent);
+    --qf-sidebar-active-bg: color-mix(in oklab, var(--qf-accent) 78%, var(--qf-muted));
+    --qf-main-bg: var(--qf-bg);
+
+    --qf-panel-shadow: 0 16px 48px -20px rgb(0 0 0 / 0.6), 0 2px 8px -4px rgb(0 0 0 / 0.4);
+    --qf-pop-shadow: 0 12px 32px -14px rgb(0 0 0 / 0.55), 0 2px 6px -3px rgb(0 0 0 / 0.35);
+    --qf-hover-shadow: 0 8px 20px -18px rgb(0 0 0 / 0.6);
+    --qf-active-shadow: 0 8px 22px -20px rgb(0 0 0 / 0.55);
+    --qf-input-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  }
+
+  /* ============ base ============ */
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    overflow: hidden;
+    background: var(--qf-sidebar-bg);
+    color: color-mix(in oklab, var(--qf-fg) 92%, transparent);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 180ms var(--qf-ease);
+  }
+  button { font-family: inherit; }
+  svg { display: block; }
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--qf-ring) 70%, transparent);
+    outline-offset: 2px;
+  }
+
+  /* ============ 侧栏 ============ */
+  .sidebar {
+    display: flex;
+    width: 320px;
+    height: 100%;
+    flex-shrink: 0;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--qf-sidebar-bg);
+    transition: background-color 180ms var(--qf-ease);
+  }
+  .sidebar-top { flex-shrink: 0; padding: 0.75rem 0.75rem 0.5rem; }
+  .back-btn {
+    position: relative;
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+    padding: 0.375rem 0.5rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    cursor: pointer;
+    transition: background-color 160ms ease-out, box-shadow 160ms ease-out;
+  }
+  .back-btn:hover { background: var(--qf-sidebar-hover-bg); box-shadow: var(--qf-hover-shadow); }
+  .back-btn .icon-circle {
+    display: inline-flex;
+    width: 1.5rem; height: 1.5rem;
+    align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .side-nav-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 1rem 0.75rem; }
+  .side-nav { display: flex; flex-direction: column; gap: 0.25rem; }
+  .tab-btn {
+    position: relative;
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.625rem;
+    overflow: hidden;
+    padding: 0.375rem 0.5rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: color-mix(in oklab, var(--qf-fg) 82%, transparent);
+    text-align: left;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    cursor: pointer;
+    transition: background-color 160ms ease-out, box-shadow 160ms ease-out, color 160ms ease-out;
+  }
+  .tab-btn:hover { background: var(--qf-sidebar-hover-bg); box-shadow: var(--qf-hover-shadow); }
+  .tab-btn.active {
+    background: var(--qf-sidebar-active-bg);
+    color: var(--qf-fg);
+    font-weight: 500;
+    box-shadow: var(--qf-active-shadow);
+  }
+  .tab-btn .tab-icon {
+    display: inline-flex;
+    width: 1.25rem; height: 1.25rem;
+    align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .tab-btn .tab-icon svg { width: 1rem; height: 1rem; }
+
+  /* ============ 主区 ============ */
+  .main {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    height: 100%;
+    flex: 1;
+    flex-direction: column;
+    overflow: hidden;
+    border-left: 1px solid var(--qf-divider);
+    border-top: 1px solid var(--qf-divider);
+    border-radius: 1rem 0 0 0;
+    background: var(--qf-main-bg);
+    transition: background-color 180ms var(--qf-ease);
+  }
+  .main-header {
+    display: flex;
+    height: 3.5rem;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--qf-divider);
+    padding: 0 1.25rem;
+  }
+  .main-header > svg { width: 1rem; height: 1rem; flex-shrink: 0; color: color-mix(in oklab, var(--qf-fg) 85%, transparent); }
+  .main-header .header-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--qf-fg);
+  }
+  .content-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 1.75rem 2rem; }
+  .content-inner { width: 100%; max-width: 58rem; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; }
+
+  /* ============ 设置卡片 ============ */
+  .settings-section {
+    overflow: hidden;
+    border: 1px solid var(--qf-card-border);
+    border-radius: 1rem;
+    background: var(--qf-card-bg);
+  }
+  .settings-list-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem 0.875rem;
+    border-bottom: 1px solid var(--qf-divider-row);
+  }
+  .settings-list-header .list-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    color: color-mix(in oklab, var(--qf-fg) 92%, transparent);
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+  .settings-list-header .list-desc {
+    margin-top: 0.25rem;
+    color: color-mix(in oklab, var(--qf-muted-fg) 86%, transparent);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
+  .count-hint { flex-shrink: 0; color: var(--qf-muted-fg); font-size: 0.75rem; padding-top: 0.125rem; }
+
+  .settings-row {
+    display: flex;
+    min-height: 5rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--qf-divider-row);
+    transition: background-color 160ms ease-out;
+  }
+  .settings-row:last-child, .hook-row:last-child, .log-row:last-child { border-bottom: 0; }
+  .settings-row:hover, .hook-row:hover { background: var(--qf-row-hover); }
+
+  .row-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    color: color-mix(in oklab, var(--qf-fg) 92%, transparent);
+    font-size: 0.9375rem;
+    font-weight: 520;
+    line-height: 1.4;
+  }
+  .row-desc {
+    margin-top: 0.25rem;
+    color: color-mix(in oklab, var(--qf-muted-fg) 86%, transparent);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
+  .row-control { display: flex; align-items: center; gap: 0.625rem; flex-shrink: 0; }
+
+  /* ---- hook 行 ---- */
+  .hook-row { justify-content: flex-start; gap: 1rem; padding: 0.875rem 1.25rem; }
+  .hook-row.confirming { background: color-mix(in oklab, var(--qf-destructive) 5%, transparent); }
+  .hook-row.confirming:hover { background: color-mix(in oklab, var(--qf-destructive) 7%, transparent); }
+  .row-info { min-width: 0; flex: 1; }
+  .row-title-line { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .tag {
+    flex-shrink: 0;
+    padding: 0.0625rem 0.5rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--qf-muted) 70%, transparent);
+    color: color-mix(in oklab, var(--qf-muted-fg) 92%, transparent);
+    font-size: 0.6875rem;
+    line-height: 1.125rem;
+    white-space: nowrap;
+  }
+  .row-summary {
+    display: block;
+    margin-top: 0.3rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: color-mix(in oklab, var(--qf-muted-fg) 92%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+  .hook-row.is-off .row-title { color: color-mix(in oklab, var(--qf-fg) 55%, transparent); }
+  .hook-row.is-off .tag, .hook-row.is-off .row-summary { opacity: 0.6; }
+  .row-actions { display: flex; align-items: center; gap: 0.25rem; flex-shrink: 0; }
+  .confirm-del { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+
+  .section-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid var(--qf-divider);
+  }
+
+  /* ---- 执行记录行 ---- */
+  .log-row { border-bottom: 1px solid var(--qf-divider-row); }
+  .log-row:hover { background: var(--qf-row-hover); }
+  .log-line {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3rem;
+    padding: 0.5rem 1.25rem;
+  }
+  .log-time {
+    flex-shrink: 0;
+    width: 2.75rem;
+    color: var(--qf-muted-fg);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+  .log-name { flex-shrink: 0; font-size: 0.8125rem; font-weight: 520; color: color-mix(in oklab, var(--qf-fg) 90%, transparent); }
+  .log-duration {
+    margin-left: auto;
+    flex-shrink: 0;
+    color: var(--qf-muted-fg);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+  .log-status { display: inline-flex; align-items: center; gap: 0.375rem; flex-shrink: 0; font-size: 0.75rem; }
+  .status-dot { width: 0.375rem; height: 0.375rem; border-radius: 999px; }
+  .status-ok .status-dot { background: var(--qf-success); }
+  .status-ok { color: color-mix(in oklab, var(--qf-success) 80%, var(--qf-fg)); }
+  .status-fail .status-dot { background: var(--qf-destructive); }
+  .status-fail { color: color-mix(in oklab, var(--qf-destructive) 85%, var(--qf-fg)); }
+  .log-output-wrap { padding: 0 1.25rem 0.75rem 4.75rem; }
+  .log-output {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    overflow-x: auto;
+    border-radius: 0.625rem;
+    background: color-mix(in oklab, var(--qf-muted) 38%, transparent);
+    color: color-mix(in oklab, var(--qf-muted-fg) 92%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    animation: qf-fade-in 180ms var(--qf-ease);
+  }
+  /* ============ 按钮 ============ */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    height: 2.125rem;
+    padding: 0 0.875rem;
+    border: 1px solid transparent;
+    border-radius: 0.625rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 160ms ease-out, color 160ms ease-out, border-color 160ms ease-out, transform 120ms ease-out;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.6; cursor: default; }
+  .btn svg { width: 0.875rem; height: 0.875rem; }
+  .btn-primary { background: var(--qf-fg); color: var(--qf-bg); }
+  .btn-primary:hover:not(:disabled) { background: color-mix(in oklab, var(--qf-fg) 88%, var(--qf-muted-fg)); }
+  .btn-secondary {
+    border-color: var(--qf-card-border);
+    background: transparent;
+    color: color-mix(in oklab, var(--qf-fg) 90%, transparent);
+  }
+  .btn-secondary:hover:not(:disabled) { background: color-mix(in oklab, var(--qf-muted) 55%, transparent); }
+  .btn-danger { background: var(--qf-destructive); color: var(--qf-destructive-fg); }
+  .btn-danger:hover:not(:disabled) { background: color-mix(in oklab, var(--qf-destructive) 86%, #000); }
+  .btn-sm { height: 1.75rem; padding: 0 0.625rem; font-size: 0.75rem; }
+
+  .icon-btn {
+    display: inline-flex;
+    width: 2rem; height: 2rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 0.625rem;
+    background: transparent;
+    color: color-mix(in oklab, var(--qf-muted-fg) 88%, transparent);
+    cursor: pointer;
+    transition: background-color 160ms ease-out, color 160ms ease-out;
+  }
+  .icon-btn:active { transform: scale(0.97); }
+  .icon-btn svg { width: 1rem; height: 1rem; }
+  .icon-btn:hover { background: color-mix(in oklab, var(--qf-muted) 72%, transparent); color: var(--qf-fg); }
+  .icon-btn.danger-hover:hover {
+    background: color-mix(in oklab, var(--qf-destructive) 10%, transparent);
+    color: var(--qf-destructive);
+  }
+
+  .text-btn {
+    margin: 0;
+    padding: 2px 5px;
+    border: 0;
+    border-radius: 0.375rem;
+    background: none;
+    font-size: 0.75rem;
+    color: color-mix(in oklab, var(--qf-muted-fg) 92%, transparent);
+    cursor: pointer;
+    transition: color 160ms ease-out, background-color 160ms ease-out;
+  }
+  .text-btn:hover { background: color-mix(in oklab, var(--qf-muted) 60%, transparent); color: var(--qf-fg); }
+
+  /* ============ 开关 ============ */
+  .switch { position: relative; display: inline-flex; flex-shrink: 0; }
+  .switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+  .switch .track {
+    position: relative;
+    display: block;
+    width: 2.25rem; height: 1.25rem;
+    border: 1px solid color-mix(in oklab, var(--qf-border) 70%, transparent);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--qf-muted-fg) 28%, transparent);
+    transition: background-color 160ms ease-out, border-color 160ms ease-out;
+  }
+  .switch .track::after {
+    content: "";
+    position: absolute;
+    top: 50%; left: 0.125rem;
+    width: 0.875rem; height: 0.875rem;
+    border-radius: 999px;
+    background: var(--qf-bg);
+    box-shadow: 0 1px 3px rgb(15 23 42 / 0.3);
+    transform: translateY(-50%);
+    transition: transform 160ms var(--qf-ease), background-color 160ms ease-out;
+  }
+  .switch input:checked ~ .track { background: var(--qf-fg); border-color: var(--qf-fg); }
+  .switch input:checked ~ .track::after { transform: translateX(1.125rem) translateY(-50%); }
+  .switch input:focus-visible ~ .track { outline: 2px solid color-mix(in oklab, var(--qf-ring) 70%, transparent); outline-offset: 2px; }
+  .switch.sm .track { width: 2rem; height: 1.125rem; }
+  .switch.sm .track::after { width: 0.8125rem; height: 0.8125rem; }
+  .switch.sm input:checked ~ .track::after { transform: translateX(0.9375rem) translateY(-50%); }
+
+  /* ============ InfoTip ============ */
+  .info-tip-trigger {
+    display: inline-flex;
+    width: 1.5rem; height: 1.5rem;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: color-mix(in oklab, var(--qf-muted-fg) 85%, transparent);
+    cursor: pointer;
+    transition: background-color 160ms ease-out, color 160ms ease-out;
+  }
+  .info-tip-trigger:hover { background: color-mix(in oklab, var(--qf-muted) 70%, transparent); color: var(--qf-fg); }
+  .info-tip-trigger svg { width: 0.875rem; height: 0.875rem; }
+  .info-tip-popover {
+    position: fixed;
+    z-index: 9999;
+    max-width: min(20rem, calc(100vw - 2rem));
+    padding: 0.6rem 0.75rem;
+    border: 1px solid color-mix(in oklab, var(--qf-border) 72%, transparent);
+    border-radius: 0.6rem;
+    background: var(--qf-bg);
+    box-shadow: var(--qf-pop-shadow);
+    color: color-mix(in oklab, var(--qf-fg) 88%, transparent);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    animation: qf-fade-in 180ms var(--qf-ease);
+  }
+
+  /* ============ 主题切换（原型评审用） ============ */
+  .theme-switch {
+    position: fixed;
+    top: 0.625rem;
+    right: 0.75rem;
+    z-index: 60;
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--qf-card-border);
+    border-radius: 999px;
+    background: var(--qf-bg);
+    box-shadow: var(--qf-pop-shadow);
+  }
+  .theme-switch button {
+    padding: 3px 10px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    font-size: 0.6875rem;
+    color: var(--qf-muted-fg);
+    cursor: pointer;
+    transition: background-color 160ms ease-out, color 160ms ease-out;
+  }
+  .theme-switch button:hover { color: var(--qf-fg); }
+  .theme-switch button.active {
+    background: color-mix(in oklab, var(--qf-fg) 9%, transparent);
+    color: var(--qf-fg);
+    font-weight: 500;
+  }
+
+  /* ============ 弹窗 ============ */
+  .qf-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 1.25rem;
+  }
+  .qf-modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgb(15 23 42 / 0.32);
+    opacity: 0;
+    transition: opacity 180ms ease-out;
+  }
+  .qf-modal-panel {
+    position: relative;
+    display: flex;
+    width: min(40rem, 100%);
+    max-height: calc(100dvh - 2.5rem);
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--qf-card-border);
+    border-radius: 1rem;
+    background: var(--qf-bg);
+    box-shadow: var(--qf-panel-shadow);
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+    transition: opacity 280ms var(--qf-ease), transform 280ms var(--qf-ease);
+  }
+  .qf-modal.open .qf-modal-overlay { opacity: 1; }
+  .qf-modal.open .qf-modal-panel { opacity: 1; transform: none; }
+  .qf-modal.closing .qf-modal-overlay { opacity: 0; transition-duration: 140ms; }
+  .qf-modal.closing .qf-modal-panel {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+    transition-duration: 140ms;
+    transition-timing-function: ease-out;
+  }
+  .qf-modal-head {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid var(--qf-divider);
+  }
+  .qf-modal-head h2 { margin: 0; font-size: 0.9375rem; font-weight: 600; color: var(--qf-fg); }
+  .qf-modal-body {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 1rem;
+    overflow-y: auto;
+    padding: 1rem 1.25rem;
+  }
+  .qf-modal-foot {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid var(--qf-divider);
+  }
+  .foot-right { display: flex; gap: 0.5rem; }
+
+  /* ---- 表单 ---- */
+  .field { display: flex; flex-direction: column; }
+  .field-label {
+    margin-bottom: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 520;
+    color: color-mix(in oklab, var(--qf-fg) 88%, transparent);
+  }
+  .input {
+    width: 100%;
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--qf-card-border);
+    border-radius: 0.625rem;
+    background: transparent;
+    color: var(--qf-fg);
+    font-family: inherit;
+    font-size: 0.875rem;
+    box-shadow: var(--qf-input-shadow);
+    transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
+  }
+  .input::placeholder { color: color-mix(in oklab, var(--qf-muted-fg) 70%, transparent); }
+  .input:focus {
+    outline: none;
+    border-color: color-mix(in oklab, var(--qf-ring) 55%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--qf-ring) 20%, transparent), var(--qf-input-shadow);
+  }
+  .input.mono { font-family: var(--font-mono); font-size: 0.8125rem; }
+  .input[aria-invalid="true"] { border-color: color-mix(in oklab, var(--qf-destructive) 65%, transparent); }
+  .input[aria-invalid="true"]:focus {
+    border-color: color-mix(in oklab, var(--qf-destructive) 65%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--qf-destructive) 16%, transparent), var(--qf-input-shadow);
+  }
+  textarea.input {
+    height: auto;
+    min-height: 3.75rem;
+    padding: 0.5rem 0.625rem;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    resize: vertical;
+  }
+  .field-error { margin-top: 0.25rem; font-size: 0.75rem; color: var(--qf-destructive); animation: qf-fade-in 180ms var(--qf-ease); }
+
+  /* 事件芯片 */
+  .event-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.25rem;
+    border: 1px solid transparent;
+    border-radius: 0.625rem;
+    transition: border-color 160ms ease-out;
+  }
+  .event-chips[aria-invalid="true"] { border-color: color-mix(in oklab, var(--qf-destructive) 50%, transparent); }
+  .chip {
+    padding: 0.25rem 0.625rem;
+    border: 1px solid var(--qf-card-border);
+    border-radius: 0.5rem;
+    background: transparent;
+    color: color-mix(in oklab, var(--qf-muted-fg) 92%, transparent);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: background-color 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out;
+  }
+  .chip:active { transform: scale(0.97); }
+  .chip:hover { color: var(--qf-fg); border-color: color-mix(in oklab, var(--qf-fg) 20%, var(--qf-border)); }
+  .chip.selected {
+    border-color: color-mix(in oklab, var(--qf-fg) 26%, var(--qf-border));
+    background: color-mix(in oklab, var(--qf-muted) 72%, transparent);
+    color: var(--qf-fg);
+    font-weight: 500;
+  }
+
+  /* 变量芯片 */
+  .vars { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; margin-top: 0.5rem; }
+  .vars-hint { margin-right: 0.25rem; font-size: 0.6875rem; color: color-mix(in oklab, var(--qf-muted-fg) 85%, transparent); }
+  .var-chip {
+    padding: 1px 0.5rem;
+    border: 1px solid var(--qf-card-border);
+    border-radius: 0.5rem;
+    background: transparent;
+    color: color-mix(in oklab, var(--qf-muted-fg) 95%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    cursor: pointer;
+    transition: background-color 160ms ease-out, color 160ms ease-out, border-color 160ms ease-out;
+  }
+  .var-chip:hover { background: color-mix(in oklab, var(--qf-muted) 60%, transparent); color: var(--qf-fg); border-color: color-mix(in oklab, var(--qf-fg) 20%, var(--qf-border)); }
+  .var-chip:active { transform: scale(0.97); }
+
+  /* 分段控件 */
+  .seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--qf-card-border);
+    border-radius: 0.625rem;
+    background: color-mix(in oklab, var(--qf-muted) 45%, transparent);
+  }
+  .seg button {
+    padding: 0.25rem 0.75rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: color-mix(in oklab, var(--qf-muted-fg) 92%, transparent);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: background-color 160ms ease-out, color 160ms ease-out, box-shadow 160ms ease-out;
+  }
+  .seg button:hover { color: var(--qf-fg); }
+  .seg button.active {
+    background: var(--qf-bg);
+    color: var(--qf-fg);
+    font-weight: 500;
+    box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
+  }
+  html.dark .seg button.active { background: oklch(0.32 0 0); box-shadow: 0 1px 3px rgb(0 0 0 / 0.4); }
+  .seg.seg-sm button { padding: 2px 0.625rem; font-size: 0.75rem; }
+
+  /* 折叠区 */
+  .collapse-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    border: 0;
+    border-radius: 0.375rem;
+    background: none;
+    font-size: 0.8125rem;
+    font-weight: 520;
+    color: color-mix(in oklab, var(--qf-muted-fg) 95%, transparent);
+    cursor: pointer;
+    transition: color 160ms ease-out, background-color 160ms ease-out;
+  }
+  .collapse-toggle:hover { color: var(--qf-fg); background: color-mix(in oklab, var(--qf-muted) 55%, transparent); }
+  .collapse-toggle .chev { width: 0.875rem; height: 0.875rem; transition: transform 180ms var(--qf-ease); }
+  .collapse-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+  .collapse-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    margin-top: 0.75rem;
+    padding-left: 0.25rem;
+    animation: qf-fade-in 180ms var(--qf-ease);
+  }
+
+  /* 勾选框 */
+  .check { position: relative; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; cursor: pointer; }
+  .check input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+  .check .box {
+    display: inline-flex;
+    width: 1rem; height: 1rem;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border: 1px solid color-mix(in oklab, var(--qf-border) 92%, transparent);
+    border-radius: 0.375rem;
+    background: var(--qf-bg);
+    box-shadow: var(--qf-input-shadow);
+    transition: background-color 120ms ease-out, border-color 120ms ease-out;
+  }
+  .check .box svg { width: 0.75rem; height: 0.75rem; color: var(--qf-bg); opacity: 0; transform: scale(0.7); transition: opacity 120ms ease-out, transform 120ms ease-out; }
+  .check input:checked ~ .box { background: var(--qf-fg); border-color: var(--qf-fg); }
+  .check input:checked ~ .box svg { opacity: 1; transform: none; }
+  .check input:focus-visible ~ .box { outline: 2px solid color-mix(in oklab, var(--qf-ring) 70%, transparent); outline-offset: 1px; }
+
+  .field-inline { display: flex; align-items: center; gap: 0.75rem; }
+  .field-inline .input { width: 5.5rem; height: 2rem; }
+
+  /* 测试运行结果 */
+  .test-result {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.625rem;
+    background: color-mix(in oklab, var(--qf-success) 12%, transparent);
+    color: color-mix(in oklab, var(--qf-success) 78%, var(--qf-fg));
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    animation: qf-fade-in 180ms var(--qf-ease);
+  }
+  .spinner {
+    display: inline-block;
+    width: 0.875rem; height: 0.875rem;
+    flex-shrink: 0;
+    border: 2px solid color-mix(in oklab, currentColor 30%, transparent);
+    border-top-color: currentColor;
+    border-radius: 999px;
+    animation: qf-spin 0.7s linear infinite;
+  }
+
+  /* ============ toast ============ */
+  .toast {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 1.25rem;
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.875rem;
+    border: 1px solid var(--qf-card-border);
+    border-radius: 0.75rem;
+    background: var(--qf-bg);
+    box-shadow: var(--qf-pop-shadow);
+    font-size: 0.8125rem;
+    color: color-mix(in oklab, var(--qf-fg) 90%, transparent);
+    opacity: 0;
+    transform: translateY(6px);
+    pointer-events: none;
+    transition: opacity 180ms var(--qf-ease), transform 180ms var(--qf-ease);
+  }
+  .toast.show { opacity: 1; transform: none; }
+  .toast.hiding { opacity: 0; transform: translateY(6px); transition-duration: 140ms; }
+  .toast svg { width: 0.875rem; height: 0.875rem; color: var(--qf-success); }
+
+  /* ============ 动画 ============ */
+  @keyframes qf-fade-in { from { opacity: 0; } }
+  @keyframes qf-spin { to { transform: rotate(1turn); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* ============ 移动端（简单降级） ============ */
+  @media (max-width: 880px) {
+    .sidebar { display: none; }
+    .main { border-radius: 0; border-left: 0; border-top: 0; }
+    .content-scroll { padding: 1.25rem 1rem; }
+    .hook-row { flex-wrap: wrap; }
+    .log-line { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- 原型评审用主题切换（非真实功能） -->
+  <div class="theme-switch" role="group" aria-label="主题切换（原型评审用）" title="原型评审用主题切换，非真实功能">
+    <button type="button" id="themeLight" class="active" aria-pressed="true">浅色</button>
+    <button type="button" id="themeDark" aria-pressed="false">深色</button>
+  </div>
+
+  <!-- ================= 左侧设置导航 ================= -->
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <button type="button" class="back-btn" id="backBtn" aria-label="返回工作区">
+        <span class="icon-circle">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+        </span>
+        <span>返回工作区</span>
+      </button>
+    </div>
+    <div class="side-nav-scroll">
+      <nav class="side-nav" aria-label="设置">
+        <button type="button" class="tab-btn" data-tab="general">
+          <span class="tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span>
+          <span>通用</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="appearance">
+          <span class="tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg></span>
+          <span>外观</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="customModels">
+          <span class="tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></span>
+          <span>模型</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="defaults">
+          <span class="tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg></span>
+          <span>默认选项</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="projectCommands">
+          <span class="tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg></span>
+          <span>项目命令</span>
+        </button>
+        <button type="button" class="tab-btn active" data-tab="hooks" aria-current="page">
+          <span class="tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+          <span>Hooks</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="scheduledTasks">
+          <span class="tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg></span>
+          <span>计划任务</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="backup">
+          <span class="tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg></span>
+          <span>备份与恢复</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="about">
+          <span class="tab-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></span>
+          <span>关于</span>
+        </button>
+      </nav>
+    </div>
+  </aside>
+
+  <!-- ================= 右侧主区 ================= -->
+  <main class="main">
+    <header class="main-header">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      <span class="header-title">Hooks</span>
+      <button type="button" class="info-tip-trigger" id="infoTipTrigger" aria-label="帮助" aria-expanded="false">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+      </button>
+    </header>
+
+    <section class="content-scroll">
+      <div class="content-inner">
+
+        <!-- ======== Section 1：Hooks ======== -->
+        <section class="settings-section" aria-labelledby="hooksSectionTitle">
+          <div class="settings-list-header">
+            <div>
+              <div class="list-title" id="hooksSectionTitle">Hooks</div>
+              <div class="list-desc">在会话与工具事件发生时自动执行本地命令或发送 Webhook 通知</div>
+            </div>
+            <span class="count-hint" id="hookCount">3 个 Hook</span>
+          </div>
+
+          <div class="settings-row">
+            <div>
+              <span class="row-title">启用 Hooks</span>
+              <div class="row-desc">总开关，关闭后所有 Hook 都不再执行</div>
+            </div>
+            <div class="row-control">
+              <label class="switch">
+                <input type="checkbox" role="switch" id="masterToggle" checked aria-label="启用 Hooks">
+                <span class="track" aria-hidden="true"></span>
+              </label>
+            </div>
+          </div>
+
+          <div id="hookList"><!-- JS 渲染 --></div>
+
+          <div class="section-foot">
+            <button type="button" class="btn btn-secondary" id="addHookBtn">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+              添加 Hook
+            </button>
+          </div>
+        </section>
+
+        <!-- ======== Section 2：执行记录 ======== -->
+        <section class="settings-section" aria-labelledby="logSectionTitle">
+          <div class="settings-list-header">
+            <div>
+              <div class="list-title" id="logSectionTitle">执行记录</div>
+              <div class="list-desc">最近执行的 Hook 结果</div>
+            </div>
+            <span class="count-hint">最近 4 条</span>
+          </div>
+
+          <div id="logList">
+            <div class="log-row">
+              <div class="log-line">
+                <span class="log-time">10:42</span>
+                <span class="log-name">构建失败通知</span>
+                <span class="tag">发生错误</span>
+                <span class="log-duration">0.4s</span>
+                <span class="log-status status-ok"><span class="status-dot" aria-hidden="true"></span>成功</span>
+              </div>
+            </div>
+            <div class="log-row">
+              <div class="log-line">
+                <span class="log-time">10:41</span>
+                <span class="log-name">工具审计上报</span>
+                <span class="tag">工具执行后</span>
+                <span class="log-duration">0.2s</span>
+                <span class="log-status status-ok"><span class="status-dot" aria-hidden="true"></span>成功</span>
+              </div>
+            </div>
+            <div class="log-row">
+              <div class="log-line">
+                <span class="log-time">10:39</span>
+                <span class="log-name">会话结束提醒</span>
+                <span class="tag">会话结束</span>
+                <span class="log-duration">0.1s</span>
+                <span class="log-status status-fail"><span class="status-dot" aria-hidden="true"></span>失败</span>
+                <button type="button" class="text-btn" data-toggle-output aria-expanded="false">查看输出</button>
+              </div>
+              <div class="log-output-wrap" hidden>
+                <pre class="log-output">/bin/sh: notify-send: command not found
+Hook「会话结束提醒」在 0.1s 后退出，退出码 127</pre>
+              </div>
+            </div>
+            <div class="log-row">
+              <div class="log-line">
+                <span class="log-time">09:58</span>
+                <span class="log-name">构建失败通知</span>
+                <span class="tag">发生错误</span>
+                <span class="log-duration">0.3s</span>
+                <span class="log-status status-ok"><span class="status-dot" aria-hidden="true"></span>成功</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- InfoTip 浮层 -->
+  <div class="info-tip-popover" id="infoTipPop" role="tooltip" hidden>在会话与工具事件发生时自动执行本地命令或发送 Webhook 通知</div>
+
+  <!-- toast -->
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+    <span id="toastText">已保存</span>
+  </div>
+  <!-- ================= 添加 / 编辑 Hook 弹窗 ================= -->
+  <div class="qf-modal" id="hookModal" hidden>
+    <div class="qf-modal-overlay" aria-hidden="true"></div>
+    <div class="qf-modal-panel" role="dialog" aria-modal="true" aria-labelledby="hookModalTitle">
+      <div class="qf-modal-head">
+        <div>
+          <h2 id="hookModalTitle">添加 Hook</h2>
+          <p class="row-desc" id="hookModalDesc">配置事件触发时执行的命令或 Webhook</p>
+        </div>
+        <button type="button" class="icon-btn" data-close-modal aria-label="关闭">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+
+      <form id="hookForm" class="qf-modal-body" novalidate>
+        <div class="field">
+          <label class="field-label" for="f-name">名称</label>
+          <input class="input" id="f-name" type="text" placeholder="例如：构建失败通知" aria-describedby="err-name">
+          <p class="field-error" id="err-name" hidden></p>
+        </div>
+
+        <div class="field">
+          <span class="field-label" id="eventChipsLabel">触发事件（可多选）</span>
+          <div class="event-chips" id="eventChips" role="group" aria-labelledby="eventChipsLabel" aria-describedby="err-events">
+            <button type="button" class="chip" data-event="session_start" aria-pressed="false">会话开始</button>
+            <button type="button" class="chip" data-event="session_end" aria-pressed="false">会话结束</button>
+            <button type="button" class="chip" data-event="tool_before" aria-pressed="false">工具执行前</button>
+            <button type="button" class="chip" data-event="tool_after" aria-pressed="false">工具执行后</button>
+            <button type="button" class="chip" data-event="approval" aria-pressed="false">需要审批</button>
+            <button type="button" class="chip" data-event="error" aria-pressed="false">发生错误</button>
+          </div>
+          <p class="field-error" id="err-events" hidden></p>
+        </div>
+
+        <div class="field">
+          <span class="field-label">动作类型</span>
+          <div class="seg" id="actionSeg" role="group" aria-label="动作类型">
+            <button type="button" data-action-type="command" class="active" aria-pressed="true">运行命令</button>
+            <button type="button" data-action-type="webhook" aria-pressed="false">发送 Webhook</button>
+          </div>
+        </div>
+
+        <div id="paneCommand" class="field">
+          <label class="field-label" for="f-command">命令</label>
+          <input class="input mono" id="f-command" type="text" placeholder='notify-send "QuickForge" "{{message}}"' aria-describedby="err-command" spellcheck="false">
+          <div class="vars" id="varChips">
+            <span class="vars-hint">点击插入变量</span>
+            <button type="button" class="var-chip" data-var="{{session.id}}">{{session.id}}</button>
+            <button type="button" class="var-chip" data-var="{{session.project}}">{{session.project}}</button>
+            <button type="button" class="var-chip" data-var="{{tool.name}}">{{tool.name}}</button>
+            <button type="button" class="var-chip" data-var="{{message}}">{{message}}</button>
+          </div>
+          <p class="field-error" id="err-command" hidden></p>
+        </div>
+
+        <div id="paneWebhook" class="field" hidden>
+          <label class="field-label" for="f-url">URL</label>
+          <input class="input mono" id="f-url" type="text" placeholder="https://example.com/hooks/quickforge" aria-describedby="err-url" spellcheck="false">
+          <p class="field-error" id="err-url" hidden></p>
+          <div class="field" style="margin-top: 0.875rem;">
+            <span class="field-label">请求方法</span>
+            <div class="seg seg-sm" id="methodSeg" role="group" aria-label="请求方法">
+              <button type="button" data-method="POST" class="active" aria-pressed="true">POST</button>
+              <button type="button" data-method="GET" aria-pressed="false">GET</button>
+            </div>
+          </div>
+          <button type="button" class="collapse-toggle" data-collapse="webhookExtra" aria-expanded="false" style="margin-top: 0.75rem;">
+            自定义 Header / Body
+            <svg class="chev" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="collapse-content" id="webhookExtra" hidden>
+            <div class="field">
+              <label class="field-label" for="f-headers">请求头（JSON，可选）</label>
+              <textarea class="input" id="f-headers" rows="3" placeholder='{"X-Api-Key": "..."}' spellcheck="false"></textarea>
+            </div>
+            <div class="field">
+              <label class="field-label" for="f-body">请求体（JSON，可选）</label>
+              <textarea class="input" id="f-body" rows="3" placeholder='{"event": "{{event}}", "message": "{{message}}"}' spellcheck="false"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <button type="button" class="collapse-toggle" data-collapse="advanced" aria-expanded="false">
+            高级选项
+            <svg class="chev" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="collapse-content" id="advanced" hidden>
+            <div class="field-inline">
+              <label class="field-label" for="f-timeout" style="margin: 0;">超时（秒）</label>
+              <input class="input" id="f-timeout" type="number" min="1" max="600" value="10">
+            </div>
+            <label class="check">
+              <input type="checkbox" id="f-silent">
+              <span class="box"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>
+              失败时静默（不提示错误）
+            </label>
+            <label class="check">
+              <input type="checkbox" id="f-project">
+              <span class="box"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>
+              仅当前项目生效
+            </label>
+          </div>
+        </div>
+      </form>
+
+      <div class="qf-modal-testwrap" id="testResultWrap" style="padding: 0 1.25rem  0.75rem;" hidden>
+        <div class="test-result" id="testResult"></div>
+      </div>
+
+      <div class="qf-modal-foot">
+        <button type="button" class="btn btn-secondary" id="testRunBtn">测试运行</button>
+        <div class="foot-right">
+          <button type="button" class="btn btn-secondary" data-close-modal>取消</button>
+          <button type="submit" form="hookForm" class="btn btn-primary">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (sel, root) { return (root || document).querySelector(sel); };
+  var $ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+  var esc = function (s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
+
+  var ICONS = {
+    pencil: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>',
+    trash: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>'
+  };
+
+  var EVENT_LABEL = {
+    session_start: '会话开始',
+    session_end: '会话结束',
+    tool_before: '工具执行前',
+    tool_after: '工具执行后',
+    approval: '需要审批',
+    error: '发生错误'
+  };
+
+  var hooks = [
+    { id: 'h1', name: '构建失败通知', events: ['error'], type: 'command', command: 'notify-send "QuickForge" "{{session.project}} 出错"', url: '', method: 'POST', headers: '', body: '', timeout: 10, silent: false, projectOnly: false, enabled: true },
+    { id: 'h2', name: '工具审计上报', events: ['tool_after'], type: 'webhook', command: '', url: 'http://localhost:9800/audit', method: 'POST', headers: '', body: '', timeout: 10, silent: false, projectOnly: false, enabled: true },
+    { id: 'h3', name: '会话结束提醒', events: ['session_end', 'session_start'], type: 'command', command: 'qf notify done --session {{session.id}}', url: '', method: 'POST', headers: '', body: '', timeout: 10, silent: false, projectOnly: false, enabled: false }
+  ];
+  var nextId = 4;
+  var confirmDeleteId = null;
+  var editingId = null;
+  var lastFocused = null;
+
+  function findHook(id) {
+    for (var i = 0; i < hooks.length; i++) { if (hooks[i].id === id) return hooks[i]; }
+    return null;
+  }
+
+  /* ================= toast ================= */
+  var toastEl = $('#toast');
+  var toastHideTimer = null;
+  function showToast(msg) {
+    clearTimeout(toastHideTimer);
+    $('#toastText').textContent = msg;
+    toastEl.hidden = false;
+    toastEl.classList.remove('hiding');
+    requestAnimationFrame(function () { toastEl.classList.add('show'); });
+    toastHideTimer = setTimeout(function () {
+      toastEl.classList.remove('show');
+      toastEl.classList.add('hiding');
+      toastHideTimer = setTimeout(function () { toastEl.hidden = true; }, 160);
+    }, 1800);
+  }
+
+  /* ================= 主题 ================= */
+  var themeLight = $('#themeLight');
+  var themeDark = $('#themeDark');
+  function setTheme(dark) {
+    document.documentElement.classList.toggle('dark', dark);
+    themeLight.classList.toggle('active', !dark);
+    themeLight.setAttribute('aria-pressed', String(!dark));
+    themeDark.classList.toggle('active', dark);
+    themeDark.setAttribute('aria-pressed', String(dark));
+  }
+  themeLight.addEventListener('click', function () { setTheme(false); });
+  themeDark.addEventListener('click', function () { setTheme(true); });
+
+  /* ================= Hook 列表 ================= */
+  var hookList = $('#hookList');
+  function hookSummary(h) { return h.type === 'command' ? h.command : h.method + ' ' + h.url; }
+
+  function renderHooks() {
+    $('#hookCount').textContent = hooks.length + ' 个 Hook';
+    hookList.innerHTML = hooks.map(function (h) {
+      var tag = h.events.map(function (e) { return EVENT_LABEL[e] || e; }).join(' · ');
+      var summary = hookSummary(h);
+      var confirming = confirmDeleteId === h.id;
+      var actions = confirming
+        ? '<span class="confirm-del">' +
+            '<button type="button" class="text-btn" data-act="cancel-del">取消</button>' +
+            '<button type="button" class="btn btn-danger btn-sm" data-act="confirm-del">确认删除</button>' +
+          '</span>'
+        : '<span class="row-actions">' +
+            '<button type="button" class="icon-btn" data-act="edit" aria-label="编辑 ' + esc(h.name) + '" title="编辑">' + ICONS.pencil + '</button>' +
+            '<button type="button" class="icon-btn danger-hover" data-act="del" aria-label="删除 ' + esc(h.name) + '" title="删除">' + ICONS.trash + '</button>' +
+          '</span>';
+      return '<div class="settings-row hook-row' + (h.enabled ? '' : ' is-off') + (confirming ? ' confirming' : '') + '" data-id="' + h.id + '">' +
+        '<label class="switch sm">' +
+          '<input type="checkbox" role="switch" data-act="toggle"' + (h.enabled ? ' checked' : '') + ' aria-label="启用 ' + esc(h.name) + '">' +
+          '<span class="track" aria-hidden="true"></span>' +
+        '</label>' +
+        '<div class="row-info">' +
+          '<div class="row-title-line"><span class="row-title">' + esc(h.name) + '</span><span class="tag">' + esc(tag) + '</span></div>' +
+          '<code class="row-summary" title="' + esc(summary) + '">' + esc(summary) + '</code>' +
+        '</div>' +
+        actions +
+      '</div>';
+    }).join('');
+  }
+  renderHooks();
+
+  hookList.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!btn) return;
+    var act = btn.getAttribute('data-act');
+    var row = btn.closest('.hook-row');
+    var h = row ? findHook(row.getAttribute('data-id')) : null;
+    if (!h) return;
+    if (act === 'edit') { openModal(h.id); }
+    else if (act === 'del') { confirmDeleteId = h.id; renderHooks(); }
+    else if (act === 'cancel-del') { confirmDeleteId = null; renderHooks(); }
+    else if (act === 'confirm-del') {
+      hooks = hooks.filter(function (x) { return x.id !== h.id; });
+      confirmDeleteId = null;
+      renderHooks();
+      showToast('已删除');
+    }
+  });
+
+  hookList.addEventListener('change', function (e) {
+    var input = e.target;
+    if (input.getAttribute && input.getAttribute('data-act') !== 'toggle') return;
+    var row = input.closest('.hook-row');
+    var h = row ? findHook(row.getAttribute('data-id')) : null;
+    if (!h) return;
+    h.enabled = input.checked;
+    row.classList.toggle('is-off', !h.enabled);
+    showToast('已保存');
+  });
+
+  $('#masterToggle').addEventListener('change', function () { showToast('已保存'); });
+  $('#addHookBtn').addEventListener('click', function () { openModal(null); });
+  $('#backBtn').addEventListener('click', function () { showToast('原型内无跳转'); });
+  $('.tab-btn').forEach(function (btn) {
+    if (btn.getAttribute('data-tab') === 'hooks') return;
+    btn.addEventListener('click', function () { showToast('原型仅演示 Hooks 页'); });
+  });
+
+  /* ================= 弹窗 ================= */
+  var modal = $('#hookModal');
+  var form = $('#hookForm');
+  var nameInput = $('#f-name');
+  var commandInput = $('#f-command');
+  var urlInput = $('#f-url');
+  var timeoutInput = $('#f-timeout');
+  var silentInput = $('#f-silent');
+  var projectInput = $('#f-project');
+  var headersInput = $('#f-headers');
+  var bodyInput = $('#f-body');
+  var eventChips = $('#eventChips');
+  var actionSeg = $('#actionSeg');
+  var methodSeg = $('#methodSeg');
+  var paneCommand = $('#paneCommand');
+  var paneWebhook = $('#paneWebhook');
+  var testBtn = $('#testRunBtn');
+  var testResultWrap = $('#testResultWrap');
+  var testResult = $('#testResult');
+  var testing = false;
+  var modalOpen = false;
+
+  function setActionType(type) {
+    $('#actionSeg button').forEach(function (b) {
+      var on = b.getAttribute('data-action-type') === type;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+    paneCommand.hidden = type !== 'command';
+    paneWebhook.hidden = type !== 'webhook';
+  }
+  function setMethod(m) {
+    $('#methodSeg button').forEach(function (b) {
+      var on = b.getAttribute('data-method') === m;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+  }
+  function getActionType() {
+    var b = $('#actionSeg button.active');
+    return b ? b.getAttribute('data-action-type') : 'command';
+  }
+  function getMethod() {
+    var b = $('#methodSeg button.active');
+    return b ? b.getAttribute('data-method') : 'POST';
+  }
+  function selectedEvents() {
+    return $('.chip.selected', eventChips).map(function (c) { return c.getAttribute('data-event'); });
+  }
+
+  function clearErrors() {
+    [nameInput, commandInput, urlInput].forEach(function (el) { el.removeAttribute('aria-invalid'); });
+    eventChips.removeAttribute('aria-invalid');
+    $('#err-name').hidden = true;
+    $('#err-events').hidden = true;
+    $('#err-command').hidden = true;
+    $('#err-url').hidden = true;
+  }
+  function setError(el, errEl, msg) {
+    el.setAttribute('aria-invalid', 'true');
+    errEl.textContent = msg;
+    errEl.hidden = false;
+  }
+
+  function openModal(id) {
+    editingId = id;
+    clearErrors();
+    testResultWrap.hidden = true;
+    var h = id ? findHook(id) : null;
+    $('#hookModalTitle').textContent = h ? '编辑 Hook' : '添加 Hook';
+    $('#hookModalDesc').textContent = h ? '修改触发事件与动作配置' : '配置事件触发时执行的命令或 Webhook';
+    nameInput.value = h ? h.name : '';
+    $('.chip', eventChips).forEach(function (chip) {
+      var on = !!h && h.events.indexOf(chip.getAttribute('data-event')) >= 0;
+      chip.classList.toggle('selected', on);
+      chip.setAttribute('aria-pressed', String(on));
+    });
+    setActionType(h ? h.type : 'command');
+    setMethod(h ? h.method : 'POST');
+    commandInput.value = h ? h.command : '';
+    urlInput.value = h ? h.url : '';
+    headersInput.value = h ? h.headers : '';
+    bodyInput.value = h ? h.body : '';
+    timeoutInput.value = h ? String(h.timeout) : '10';
+    silentInput.checked = h ? h.silent : false;
+    projectInput.checked = h ? h.projectOnly : false;
+    $('.collapse-toggle').forEach(function (t) { t.setAttribute('aria-expanded', 'false'); });
+    $('.collapse-content').forEach(function (c) { c.hidden = true; });
+
+    lastFocused = document.activeElement;
+    modal.hidden = false;
+    modal.classList.remove('closing');
+    requestAnimationFrame(function () { modal.classList.add('open'); });
+    modalOpen = true;
+    nameInput.focus();
+  }
+
+  function closeModal() {
+    if (!modalOpen) return;
+    modalOpen = false;
+    modal.classList.remove('open');
+    modal.classList.add('closing');
+    setTimeout(function () {
+      modal.hidden = true;
+      modal.classList.remove('closing');
+    }, 150);
+    if (lastFocused && lastFocused.focus) lastFocused.focus();
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (testing) return;
+    clearErrors();
+    var type = getActionType();
+    var state = {
+      name: nameInput.value.trim(),
+      events: selectedEvents(),
+      type: type,
+      command: commandInput.value.trim(),
+      url: urlInput.value.trim(),
+      method: getMethod(),
+      headers: headersInput.value,
+      body: bodyInput.value,
+      timeout: Math.max(1, parseInt(timeoutInput.value, 10) || 10),
+      silent: silentInput.checked,
+      projectOnly: projectInput.checked
+    };
+    var firstBad = null;
+    if (!state.name) { setError(nameInput, $('#err-name'), '请输入名称'); if (!firstBad) firstBad = nameInput; }
+    if (!state.events.length) { setError(eventChips, $('#err-events'), '请至少选择一个触发事件'); if (!firstBad) firstBad = eventChips; }
+    if (type === 'command' && !state.command) { setError(commandInput, $('#err-command'), '请输入要执行的命令'); if (!firstBad) firstBad = commandInput; }
+    if (type === 'webhook' && !state.url) { setError(urlInput, $('#err-url'), '请输入 Webhook URL'); if (!firstBad) firstBad = urlInput; }
+    if (firstBad) { firstBad.focus(); return; }
+
+    if (editingId) {
+      var h = findHook(editingId);
+      if (h) {
+        var enabled = h.enabled;
+        Object.assign(h, state);
+        h.enabled = enabled;
+      }
+    } else {
+      state.id = 'h' + (nextId++);
+      state.enabled = true;
+      hooks.push(state);
+    }
+    confirmDeleteId = null;
+    renderHooks();
+    closeModal();
+    showToast('已保存');
+  });
+
+  [[nameInput, 'name'], [commandInput, 'command'], [urlInput, 'url']].forEach(function (pair) {
+    pair[0].addEventListener('input', function () {
+      pair[0].removeAttribute('aria-invalid');
+      var err = $('#err-' + pair[1]);
+      if (err) err.hidden = true;
+    });
+  });
+
+  eventChips.addEventListener('click', function (e) {
+    var chip = e.target.closest ? e.target.closest('.chip') : null;
+    if (!chip) return;
+    chip.classList.toggle('selected');
+    chip.setAttribute('aria-pressed', String(chip.classList.contains('selected')));
+    if (selectedEvents().length) {
+      eventChips.removeAttribute('aria-invalid');
+      $('#err-events').hidden = true;
+    }
+  });
+
+  $('#varChips').addEventListener('click', function (e) {
+    var chip = e.target.closest ? e.target.closest('.var-chip') : null;
+    if (!chip) return;
+    commandInput.value += chip.getAttribute('data-var');
+    commandInput.removeAttribute('aria-invalid');
+    $('#err-command').hidden = true;
+    commandInput.focus();
+  });
+
+  actionSeg.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('button') : null;
+    if (btn) setActionType(btn.getAttribute('data-action-type'));
+  });
+  methodSeg.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('button') : null;
+    if (btn) setMethod(btn.getAttribute('data-method'));
+  });
+
+  $('.collapse-toggle').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var target = document.getElementById(btn.getAttribute('data-collapse'));
+      if (!target) return;
+      var expanded = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', String(!expanded));
+      target.hidden = expanded;
+    });
+  });
+
+  /* ---- 测试运行（模拟） ---- */
+  var testBtnLabel = testBtn.innerHTML;
+  testBtn.addEventListener('click', function () {
+    if (testing) return;
+    testing = true;
+    testResultWrap.hidden = true;
+    testBtn.disabled = true;
+    testBtn.innerHTML = '<span class="spinner" aria-hidden="true"></span>测试运行';
+    setTimeout(function () {
+      testing = false;
+      testBtn.disabled = false;
+      testBtn.innerHTML = testBtnLabel;
+      testResult.textContent = getActionType() === 'command'
+        ? '✓ 测试成功 · 耗时 0.4s · 退出码 0'
+        : '✓ 测试成功 · HTTP 200 OK · 耗时 0.4s';
+      testResultWrap.hidden = false;
+    }, 800);
+  });
+
+  /* ---- 弹窗关闭 ---- */
+  modal.addEventListener('click', function (e) {
+    if (e.target === modal || (e.target.classList && e.target.classList.contains('qf-modal-overlay'))) closeModal();
+  });
+  $('[data-close-modal]').forEach(function (b) { b.addEventListener('click', closeModal); });
+
+  function trapFocus(e) {
+    var focusables = $('.qf-modal-panel button, .qf-modal-panel input, .qf-modal-panel select, .qf-modal-panel textarea, .qf-modal-panel [href]')
+      .filter(function (el) { return !el.disabled && el.offsetParent !== null; });
+    if (!focusables.length) return;
+    var first = focusables[0];
+    var last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+    else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (modalOpen) {
+      if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
+      if (e.key === 'Tab') trapFocus(e);
+    } else if (e.key === 'Escape') {
+      hideTipNow();
+    }
+  });
+
+  /* ================= 执行记录展开 ================= */
+  $('#logList').addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('[data-toggle-output]') : null;
+    if (!btn) return;
+    var row = btn.closest('.log-row');
+    var wrap = row ? row.querySelector('.log-output-wrap') : null;
+    if (!wrap) return;
+    var open = !wrap.hidden;
+    wrap.hidden = open;
+    btn.setAttribute('aria-expanded', String(!open));
+    btn.textContent = open ? '查看输出' : '收起输出';
+  });
+
+  /* ================= InfoTip ================= */
+  var tipTrigger = $('#infoTipTrigger');
+  var tipPop = $('#infoTipPop');
+  var tipTimer = null;
+  var tipOpen = false;
+
+  function positionTip() {
+    var rect = tipTrigger.getBoundingClientRect();
+    var w = tipPop.offsetWidth;
+    var h = tipPop.offsetHeight;
+    var left = Math.max(8, Math.min(rect.left, window.innerWidth - w - 8));
+    var top = rect.bottom + 6;
+    if (top + h > window.innerHeight - 8) {
+      var above = rect.top - 6 - h;
+      if (above > 8) top = above;
+    }
+    tipPop.style.top = Math.round(top) + 'px';
+    tipPop.style.left = Math.round(left) + 'px';
+  }
+  function showTip() {
+    clearTimeout(tipTimer);
+    tipPop.hidden = false;
+    positionTip();
+    tipOpen = true;
+    tipTrigger.setAttribute('aria-expanded', 'true');
+  }
+  function hideTipNow() {
+    clearTimeout(tipTimer);
+    tipPop.hidden = true;
+    tipOpen = false;
+    tipTrigger.setAttribute('aria-expanded', 'false');
+  }
+  function hideTip(delay) {
+    clearTimeout(tipTimer);
+    if (delay) { tipTimer = setTimeout(hideTipNow, delay); return; }
+    hideTipNow();
+  }
+
+  tipTrigger.addEventListener('mouseenter', function () { tipTimer = setTimeout(showTip, 150); });
+  tipTrigger.addEventListener('mouseleave', function () { hideTip(120); });
+  tipTrigger.addEventListener('focus', showTip);
+  tipTrigger.addEventListener('blur', function () { hideTip(120); });
+  tipTrigger.addEventListener('click', function () { if (tipOpen) { hideTipNow(); } else { showTip(); } });
+  document.addEventListener('pointerdown', function (e) {
+    if (!tipOpen) return;
+    if (tipTrigger.contains(e.target) || tipPop.contains(e.target)) return;
+    hideTipNow();
+  });
+  window.addEventListener('resize', function () { if (tipOpen) positionTip(); });
+})();
+</script>
+</body>
+</html>

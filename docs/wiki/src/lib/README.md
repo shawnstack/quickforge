@@ -45,6 +45,7 @@
 | `server-agent-http.ts` | 16 | `fetchJsonWithTimeout`：请求超时、外部取消转发、JSON 解析与资源清理 |
 | `global-agent-sse-client.ts` | 340 | 全局 SSE 单例、按会话分发、连接状态订阅、重连退避与健康探测 |
 | `selected-capabilities.ts` | 82 | 用户本轮插件选择的前端统一规范化/快照：合法类型与字符串边界、`type+pluginName+name` 去重、顺序保持、最多 4 项，持久化/历史读取快照均剥离 description |
+| `hooks-settings.ts` | 185 | Hooks 设置前端镜像：`HOOKS_SETTINGS_KEY`（`hooks-settings`）、事件枚举（6 种）/变量表、`HookConfig` / `HooksSettings` / `HookExecutionRecord` 类型（record 的 `event` 兼容手动测试合成事件 `'test'`，status 枚举 `success`/`error`/`timeout`）、timeout clamp 1–300s（默认 10s）、`normalizeHooksSettings` 防御规范化（非法动作 Hook 整体丢弃）、`load/saveHooksSettings` 经 AppStorage settings store 读写（PUT 后由 server 触发引擎缓存刷新）；服务端契约见 [server/hooks/](../../server/README.md#hooks--hooks-事件钩子) |
 | `deferred-session-agent.ts` | 302 | 新会话首条消息前的延迟 Agent 代理：本地先渲染乐观消息，`prompt()` 时才创建真实 `ServerAgent`，并把暂存的 capabilities / contextReferences / promptMode 转发给真实 Agent |
 | `indexeddb-cache.ts` | 通用 IndexedDB 只读缓存封装：惰性单例 open、条目级 schemaVersion、LRU+字节双预算淘汰、全部异常静默降级（供会话消息/工作区/设置快照等缓存层复用） |
 | `session-message-cache.ts` | 会话消息只读快照 store（F12）：`resolveServerCacheKey`（baseUrl→直连后端→origin）、结构校验读取、per-key debounce 写入 + stateVersion 高水位守卫、IndexedDB 不可用全程 no-op |
@@ -322,7 +323,7 @@
 
 ## 设置选项卡
 
-设置页已全部自研为 React：`settings-tabs.ts` 组装 tab 定义，`react-settings-tabs.tsx` 按 tabKey 懒加载渲染，页面文件位于 `src/components/settings/tabs/`（Appearance / DefaultOptions / Memory / CustomProviders / Backup / ArchivedConversations / LanAccess / About / ProjectCommands / Channels，共享 `shared.tsx` 与 `SettingsNumberInput.tsx`，下拉复用 `../SettingsSelect.tsx`）。无 `SettingsTab` 基类、无自定义元素渲染、无命令式桥（`extends SettingsTab` / `replaceChildren` / `createRoot` 由 `tests/frontend/settings-workspace-react.test.ts` 守卫）。
+设置页已全部自研为 React：`settings-tabs.ts` 组装 tab 定义，`react-settings-tabs.tsx` 按 tabKey 懒加载渲染，页面文件位于 `src/components/settings/tabs/`（Appearance / DefaultOptions / Memory / CustomProviders / Backup / ArchivedConversations / LanAccess / About / ProjectCommands / Hooks / Channels，共享 `shared.tsx` 与 `SettingsNumberInput.tsx`，下拉复用 `../SettingsSelect.tsx`）。无 `SettingsTab` 基类、无自定义元素渲染、无命令式桥（`extends SettingsTab` / `replaceChildren` / `createRoot` 由 `tests/frontend/settings-workspace-react.test.ts` 守卫）。Hooks 页（`HooksSettingsTab.tsx`）无总开关：说明文字收进标题行 `InfoTip`，提供 Hook 增删改与 Hook 级启停、编辑器内手动测试（`POST /api/hooks/test`，按 `{execution}` 信封解析）与最近执行记录列表（`GET /api/hooks/executions`，随页面 mount 加载、加载失败可重试，可展开失败输出）；存量 `enabled: false` 在下次保存时重置为 `true`（server 引擎仍按该字段过滤）。
 
 | 文件 | 用途 |
 |------|------|

@@ -14,6 +14,7 @@ const settingsTabDefinitions = [
   { key: 'plugins', name: 'plugins', description: undefined },
   { key: 'scheduledTasks', name: 'scheduledTasks', description: 'scheduledTasksDescription' },
   { key: 'projectCommands', name: 'projectCommands', description: 'projectCommandsDescription' },
+  { key: 'hooks', name: 'hooksTab', description: 'hooksTabDescription' },
   { key: 'backup', name: 'backupRestore', description: 'backupRestoreDescription' },
   { key: 'archivedConversations', name: 'archivedConversations', description: 'archivedConversationsDescription' },
   { key: 'shareLinks', name: 'shareLinks', description: 'shareLinksDescription' },

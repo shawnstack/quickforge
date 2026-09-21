@@ -1,14 +1,11 @@
 import { Edit3, Loader2, RotateCw, Trash2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
-import { cn } from '@/lib/utils'
 import type { McpServer } from '@/lib/types/mcp'
 
-function statusClass(status?: string) {
-  if (status === 'connected') return 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
-  if (status === 'error') return 'text-destructive'
-  if (status === 'disabled') return 'bg-muted text-muted-foreground'
-  return 'bg-amber-500/12 text-amber-700 dark:text-amber-300'
+function statusBadgeClass(status?: string) {
+  if (status === 'connected') return 'quickforge-settings-badge-success'
+  if (status === 'error') return 'quickforge-settings-badge-danger'
+  return 'quickforge-settings-badge-muted'
 }
 
 const VISIBLE_TOOLS = 12
@@ -30,69 +27,79 @@ export function McpServerCard({ server, toggling, reconnecting, onToggle, onEdit
   const canReconnect = server.enabled && server.status !== 'connected'
 
   return (
-    <div className="rounded-lg border border-border p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="truncate text-sm font-medium">{server.name}</div>
-            {server.builtin ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{t('mcpBuiltIn')}</span> : null}
-            <span className={cn('rounded-full px-2 py-0.5 text-[11px]', statusClass(server.status))}>{server.status || 'unknown'}</span>
-            <span className="text-[11px]">{t('mcpToolsCount', { count: totalCount })}</span>
-          </div>
-          <div className="mt-1 truncate text-xs">
-            {server.transport === 'stdio'
-              ? `${server.command} ${(server.args || []).join(' ')}`
-              : server.url}
-          </div>
-          {server.error ? <div className="mt-1 text-xs text-destructive">{server.error}</div> : null}
+    <div className="quickforge-settings-list-item">
+      <div className="quickforge-settings-list-item-main">
+        <div className="quickforge-settings-row-title">{server.name}</div>
+        <div className="quickforge-settings-row-description quickforge-settings-mono break-all">
+          {server.transport === 'stdio'
+            ? `${server.command} ${(server.args || []).join(' ')}`
+            : server.url}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={server.enabled}
+        <div className="quickforge-settings-meta">
+          {server.builtin ? <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('mcpBuiltIn')}</span> : null}
+          <span className={`quickforge-settings-badge ${statusBadgeClass(server.status)}`}>{server.status || 'unknown'}</span>
+          <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('mcpToolsCount', { count: totalCount })}</span>
+        </div>
+        {server.error ? <div className="quickforge-settings-alert mt-3">{server.error}</div> : null}
+        {visibleTools.length > 0 ? (
+          <div className="quickforge-settings-meta">
+            {visibleTools.map((tool) => (
+              <code key={tool.quickForgeName} className="quickforge-settings-command-name" title={tool.quickForgeName}>{tool.name}</code>
+            ))}
+            {hiddenCount > 0 ? (
+              <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('mcpMoreTools', { count: hiddenCount })}</span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      <div className="quickforge-settings-list-item-actions quickforge-settings-icon-actions">
+        <label
+          className="quickforge-settings-switch"
+          aria-disabled={toggling ? 'true' : 'false'}
+          title={server.enabled ? t('pauseTask') : t('enable')}
+        >
+          <input
+            type="checkbox"
+            checked={server.enabled}
             aria-label={t('mcpEnabledSwitchLabel', { name: server.name })}
             disabled={toggling}
-            className={cn('relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60', server.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/30')}
-            onClick={() => onToggle(server)}
-            title={server.enabled ? t('pauseTask') : t('enable')}
+            onChange={() => onToggle(server)}
+          />
+          <span aria-hidden="true" />
+        </label>
+        {canReconnect ? (
+          <button
+            className="quickforge-settings-icon-action"
+            type="button"
+            onClick={() => onReconnect(server.name)}
+            disabled={reconnecting}
+            aria-label={t('mcpReconnectServer')}
+            title={t('mcpReconnectServer')}
           >
-            <span className={cn('absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform', server.enabled ? 'translate-x-5' : 'translate-x-0')} />
+            {reconnecting ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />}
           </button>
-          {canReconnect ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
-              onClick={() => onReconnect(server.name)}
-              disabled={reconnecting}
-              aria-label={t('mcpReconnectServer')}
-              title={t('mcpReconnectServer')}
-            >
-              {reconnecting ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />}
-            </Button>
-          ) : null}
-          <Button type="button" variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={() => onEdit(server)} aria-label={t('editTask')} title={t('editTask')}>
-            <Edit3 className="size-4" />
-          </Button>
-          {!server.builtin ? (
-            <Button type="button" variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => onDelete(server.name)} aria-label={t('delete')} title={t('delete')}>
-              <Trash2 className="size-4" />
-            </Button>
-          ) : null}
-        </div>
+        ) : null}
+        <button
+          className="quickforge-settings-icon-action"
+          type="button"
+          onClick={() => onEdit(server)}
+          aria-label={t('editTask')}
+          title={t('editTask')}
+        >
+          <Edit3 className="size-4" />
+        </button>
+        {/* builtin 也渲染删除按钮（disabled 灰色），保证所有卡片操作区按钮数量一致、图标列对齐；服务端另有 409 删除保护 */}
+        <button
+          className="quickforge-settings-icon-action quickforge-settings-icon-action-danger"
+          type="button"
+          onClick={() => onDelete(server.name)}
+          disabled={server.builtin}
+          aria-label={server.builtin ? t('mcpBuiltinNoDelete') : t('delete')}
+          title={server.builtin ? t('mcpBuiltinNoDelete') : t('delete')}
+        >
+          <Trash2 className="size-4" />
+        </button>
       </div>
-      {visibleTools.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {visibleTools.map((tool) => (
-            <span key={tool.quickForgeName} className="rounded-md px-1.5 py-0.5 text-[11px]" title={tool.quickForgeName}>{tool.name}</span>
-          ))}
-          {hiddenCount > 0 ? (
-            <span className="rounded-md px-1.5 py-0.5 text-[11px]">{t('mcpMoreTools', { count: hiddenCount })}</span>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   )
 }

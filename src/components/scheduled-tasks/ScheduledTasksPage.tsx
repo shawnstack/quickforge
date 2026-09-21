@@ -3,8 +3,7 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, CheckCircle2, Edit3, Eye, MoreHorizontal, Search, Sparkles, Trash2, Zap } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ArrowLeft, CheckCircle2, Clock, Edit3, Eye, Loader2, MessageSquare, MoreHorizontal, Plus, Search, Sparkles, Trash2, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
 import { includeCurrentModel, modelIdentityKey, sameModelIdentity } from '@/lib/model-identity'
@@ -246,11 +245,12 @@ function statusLabel(status: TaskStatus | RunStatus) {
   return t('taskFailed')
 }
 
-function statusClass(status: TaskStatus | RunStatus) {
-  if (status === 'enabled' || status === 'success') return 'bg-emerald-500/10 text-emerald-700'
-  if (status === 'running') return 'bg-blue-500/10 text-blue-700'
-  if (status === 'paused') return 'bg-amber-500/10 text-amber-700'
-  return 'bg-muted text-muted-foreground'
+function statusBadgeClass(status: TaskStatus | RunStatus) {
+  if (status === 'enabled' || status === 'success') return 'quickforge-settings-badge-success'
+  if (status === 'running') return 'quickforge-settings-badge-info'
+  if (status === 'paused') return 'quickforge-settings-badge-warning'
+  if (status === 'failed') return 'quickforge-settings-badge-danger'
+  return 'quickforge-settings-badge-muted'
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -262,7 +262,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     },
   })
   const payload = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(payload?.error || '请求失败')
+  if (!response.ok) throw new Error(payload?.error || t('requestFailed'))
   return payload as T
 }
 
@@ -287,7 +287,6 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   const [appliedHistoryFilters, setAppliedHistoryFilters] = useState<HistoryFilters>(() => defaultHistoryFilters())
   const [historyPayload, setHistoryPayload] = useState<HistoryPayload>({ runs: [], total: 0, page: 1, pageSize: 10 })
   const [historyLoading, setHistoryLoading] = useState(false)
-  const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([])
   const [pendingTaskIds, setPendingTaskIds] = useState<Set<string>>(() => new Set())
   const editorBusyRef = useRef(false)
@@ -451,7 +450,6 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
     { value: 'cron', label: t('taskFrequencyCron') },
   ]
   const weekLabels = [t('taskSunday'), t('taskMonday'), t('taskTuesday'), t('taskWednesday'), t('taskThursday'), t('taskFriday'), t('taskSaturday')]
-  const scheduleInputClass = 'mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none'
   const scheduleSummary = form.scheduleType === 'cron' ? form.cronExpression
     : form.scheduleType === 'once' ? `${t('taskFrequencyOnce')} · ${formatDateTime(form.executeAt)}`
     : form.scheduleType === 'interval' ? `${t('taskIntervalValue')} ${form.intervalValue} ${{ minute: t('taskUnitMinute'), hour: t('taskUnitHour'), day: t('taskUnitDay') }[form.intervalUnit]} · ${t('taskFirstExecution')} ${formatDateTime(form.executeAt)}`
@@ -559,7 +557,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
       })
       if (!editorOpenRef.current || editorGenerationRef.current !== generation) return
       if (result.needMoreInfo || !result.task) {
-        setQuestion(result.question || '请补充任务信息。')
+        setQuestion(result.question || t('taskNeedMoreInfo'))
         setParsedTask(null)
         return
       }
@@ -681,270 +679,268 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
     }
   }
 
-  function renderRunDetails(run: ScheduledTaskRun) {
+  function renderRunConversationAction(run: ScheduledTaskRun) {
     return (
-      <div className="mt-2 space-y-2 text-xs text-muted-foreground">
-        {run.sessionId ? (
-          <Button variant="outline" size="sm" onClick={() => onOpenSession?.(run.sessionId!)}>
-            {t('viewConversation')}
-          </Button>
-        ) : null}
-        <div>{t('executionAgent')}{run.agentLabel || agentLabel(run.agentId)}</div>
-        {run.warning ? <div className="text-amber-600">{run.warning}</div> : null}
-        {run.inputContent ? <div><div className="font-medium text-foreground">{t('runInputContent')}</div><pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap">{run.inputContent}</pre></div> : null}
-        {run.aiResult || run.result ? <div><div className="font-medium text-foreground">{t('runAiResult')}</div><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap">{run.aiResult || run.result}</pre></div> : null}
-        {run.errorMessage ? <div className="text-destructive">{run.errorMessage}</div> : null}
-        {run.durationMs ? <div>{t('runDuration')}{run.durationMs}ms</div> : null}
-      </div>
+      <button
+        className="quickforge-settings-icon-action"
+        type="button"
+        disabled={!run.sessionId}
+        title={run.sessionId ? t('viewConversation') : t('runNoSession')}
+        aria-label={run.sessionId ? t('viewConversation') : t('runNoSession')}
+        onClick={() => { if (run.sessionId) onOpenSession?.(run.sessionId) }}
+      >
+        <MessageSquare className="size-4" />
+      </button>
     )
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="border-b border-border px-6 py-5">
-        <div className={cn('flex flex-wrap items-center gap-3', dialogOpen || detailTask ? 'justify-between' : 'justify-end')}>
-          {dialogOpen || detailTask ? (
-            <Button variant="outline" disabled={dialogOpen && loading} onClick={() => { if (dialogOpen) closeDialog(); else setDetailTaskId(null) }}>
-              <ArrowLeft className="mr-1 size-4" />{t('back')}
-            </Button>
-          ) : (
-            <Button onClick={openCreateDialog} disabled={loading}>{t('createTask')}</Button>
-          )}
-        </div>
-        {!dialogOpen && !detailTask ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={cn('rounded-full px-4 py-2 text-sm font-medium transition-colors', activeTab === 'tasks' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground')}
-            onClick={() => setActiveTab('tasks')}
-          >
-            {t('taskListTab')} <span className="opacity-80">{tasks.length}</span>
-          </button>
-          <button
-            type="button"
-            className={cn('rounded-full px-4 py-2 text-sm font-medium transition-colors', activeTab === 'history' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground')}
-            onClick={() => { setActiveTab('history'); void loadHistory(appliedHistoryFilters) }}
-          >
-            {t('executionHistoryTab')}
-          </button>
-        </div>
-        ) : null}
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-5xl space-y-4">
-
-          {/* ===== 编辑/新建任务视图 ===== */}
-          {dialogOpen ? (
-            <div className="min-w-0 rounded-xl border border-border bg-card">
-              <fieldset disabled={loading} aria-busy={loading} className="space-y-4 p-4 disabled:opacity-60">
-                <h2 className="text-base font-semibold text-foreground">
-                  {editingTask ? t('editTask') : t('createTask')}
-                </h2>
-
-                <div className="rounded-2xl border border-border p-3">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-                    <Sparkles className="size-4 text-primary" />
-                    {t('aiParseTask')}
-                    <InfoTip label={t('quickAiParseTask')} />
-                  </div>
-                  <label className="block text-sm font-medium text-foreground">
-                    {t('taskScheduleDescriptionLabel')}
-                    <textarea
-                      className="mt-1 min-h-24 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground"
-                      value={form.scheduleText}
-                      onChange={(event) => updateForm('scheduleText', event.target.value)}
-                      placeholder={t('taskScheduleDescriptionPlaceholder')}
-                    />
-                  </label>
-                  {question ? <p className="mt-2 text-sm text-amber-600">{question}</p> : null}
-                  <div className="mt-2 flex justify-end">
-                    <Button variant="outline" size="sm" onClick={handleParse} disabled={loading || !selectedModel || !form.scheduleText.trim()}>
-                      <Sparkles className="mr-1 size-3.5" />{t('aiParseTask')}
-                    </Button>
-                  </div>
-                </div>
-
-                {parsedTask ? (
-                  <div className="rounded-xl border border-border p-3 text-sm">
-                    <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
-                      <CheckCircle2 className="size-4 text-emerald-600" />
-                      {t('aiParsed')}
-                    </div>
-                    <div className="grid gap-2 text-muted-foreground sm:grid-cols-2">
-                      <div>{t('taskName')}<span className="text-foreground">{parsedTask.title}</span></div>
-                      <div>{t('executionRule')}<span className="text-foreground">{parsedTask.scheduleRule}</span></div>
-                      <div>cron：<span className="font-mono text-foreground">{parsedTask.cronExpression ?? '-'}</span></div>
-                      <div>{t('nextExecutionTime')}<span className="text-foreground">{formatDateTime(parsedTask.nextRunAt)}</span></div>
-                      <div className="sm:col-span-2">{t('aiInstruction')}<span className="text-foreground">{parsedTask.instruction}</span></div>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block text-sm font-medium text-foreground">
-                    {t('taskTitleLabel')}
-                    <input
-                      className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none"
-                      value={form.title}
-                      onChange={(event) => updateForm('title', event.target.value)}
-                      placeholder={t('taskTitlePlaceholder')}
-                    />
-                  </label>
-
-                  <fieldset className="min-w-0 sm:col-span-2" disabled={loading}>
-                    <label className="block text-sm font-medium text-foreground">
-                      {t('taskFrequency')}
-                      <select
-                        className={scheduleInputClass}
-                        value={form.scheduleType}
-                        onChange={(event) => updateForm('scheduleType', event.target.value as ScheduleType)}
-                        aria-label={t('taskFrequency')}
-                      >
-                        {frequencyOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                      {form.scheduleType === 'interval' ? <>
-                        <label className="block text-sm font-medium text-foreground">{t('taskIntervalValue')}<input type="number" min="1" step="1" className={scheduleInputClass} value={form.intervalValue} onChange={(event) => updateForm('intervalValue', event.target.value)} /></label>
-                        <label className="block text-sm font-medium text-foreground">{t('taskIntervalUnit')}<select className={scheduleInputClass} value={form.intervalUnit} onChange={(event) => updateForm('intervalUnit', event.target.value as IntervalUnit)}>
-                          <option value="minute">{t('taskUnitMinute')}</option><option value="hour">{t('taskUnitHour')}</option><option value="day">{t('taskUnitDay')}</option>
-                        </select></label>
-                      </> : null}
-                      {form.scheduleType === 'once' || form.scheduleType === 'interval' ? <label className="block text-sm font-medium text-foreground sm:col-span-2">{form.scheduleType === 'interval' ? t('taskFirstExecution') : t('taskExecutionDate')}
-                        <input type="datetime-local" className={scheduleInputClass} value={form.executeAt} onChange={(event) => updateForm('executeAt', event.target.value)} />
-                      </label> : null}
-                      {['daily', 'weekly', 'monthly'].includes(form.scheduleType) ? <label className="block text-sm font-medium text-foreground">{t('taskExecutionTime')}<input type="time" className={scheduleInputClass} value={form.executeTime} onChange={(event) => updateForm('executeTime', event.target.value)} /></label> : null}
-                      {form.scheduleType === 'weekly' ? <fieldset className="sm:col-span-2">
-                        <legend className="mb-2 text-sm font-medium text-foreground">{t('taskRepeatDays')}</legend>
-                        <div className="flex flex-wrap gap-2">{[1, 2, 3, 4, 5, 6, 0].map((day) => <button key={day} type="button" aria-pressed={form.weekDays.includes(day)} className={cn('rounded-md border px-3 py-2 text-sm', form.weekDays.includes(day) ? 'bg-muted text-foreground' : 'border-input text-muted-foreground')} onClick={() => updateForm('weekDays', form.weekDays.includes(day) ? form.weekDays.filter((value) => value !== day) : [...form.weekDays, day])}>{weekLabels[day]}</button>)}</div>
-                      </fieldset> : null}
-                      {form.scheduleType === 'monthly' ? <label className="block text-sm font-medium text-foreground">{t('taskMonthDay')}<input type="number" min="1" max="31" step="1" className={scheduleInputClass} value={form.monthDay} onChange={(event) => updateForm('monthDay', event.target.value)} /><span className="mt-1 block text-xs text-muted-foreground">{t('taskMonthDayHelp')}</span></label> : null}
-                      {form.scheduleType === 'cron' ? <label className="block text-sm font-medium text-foreground sm:col-span-2">{t('taskCronExpression')}<input className={cn(scheduleInputClass, 'font-mono')} value={form.cronExpression} onChange={(event) => updateForm('cronExpression', event.target.value)} placeholder="0 9 * * 1-5" /><span className="mt-1 block text-xs text-muted-foreground">{t('taskCronHelp')}</span></label> : null}
-                    </div>
-                    <p className="mt-3 text-xs text-muted-foreground">{t('taskScheduleTimezoneHelp')}</p>
-                    {form.scheduleType === 'interval' ? <p className="mt-1 text-xs text-muted-foreground">{t('taskIntervalHelp')}</p> : null}
-                    {scheduleError ? <p role="alert" className="mt-2 text-sm text-destructive">{t(scheduleError)}</p> : <div aria-live="polite" className="mt-2 rounded-md bg-muted px-3 py-2">
-                      <div className="text-xs text-muted-foreground">{t('executionRule')}</div>
-                      <p className="mt-1 text-sm text-foreground">{scheduleSummary}</p>
-                    </div>}
-                  </fieldset>
-
-                  <label className="block text-sm font-medium text-foreground sm:col-span-2">
-                    <span className="inline-flex items-center gap-1.5">
-                      {t('taskExecutionMode')}
-                      <InfoTip label={t('taskExecutionModeHelp')} />
-                    </span>
-                    <select
-                      className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none"
-                      value={form.executionMode}
-                      onChange={(event) => updateForm('executionMode', event.target.value as ExecutionMode)}
-                      aria-label={t('taskExecutionMode')}
-                    >
-                      <option value="serial">{t('taskExecutionModeSerial')}</option>
-                      <option value="parallel">{t('taskExecutionModeParallel')}</option>
-                    </select>
-                  </label>
-
-                  <label className="block text-sm font-medium text-foreground">
-                    {t('taskModel')}
-                    <select
-                      className={scheduleInputClass}
-                      value={selectedModel ? modelIdentityKey(selectedModel) : ''}
-                      onChange={(event) => {
-                        const nextModel = modelOptions.find((model) => modelIdentityKey(model) === event.target.value)
-                        setSelectedModel(nextModel)
-                        setThinkingLevel(defaultThinkingLevelForModel(nextModel))
-                      }}
-                    >
-                      {modelOptions.length === 0 ? <option value="">{t('noModelAvailable')}</option> : null}
-                      {modelOptions.map((model) => (
-                        <option key={modelIdentityKey(model)} value={modelIdentityKey(model)}>
-                          {modelLabel(model)}{modelsEqual(model, selectedModel) ? ' ✓' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="block text-sm font-medium text-foreground">
-                    {t('taskThinking')}
-                    <select
-                      className={scheduleInputClass}
-                      value={thinkingLevel}
-                      onChange={(event) => setThinkingLevel(event.target.value as ThinkingLevel)}
-                    >
-                      {THINKING_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label()}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="block text-sm font-medium text-foreground">
-                    {t('taskProjectLabel')}
-                    <select
-                      className={scheduleInputClass}
-                      value={selectedProjectId}
-                      onChange={(event) => setSelectedProjectId(event.target.value)}
-                    >
-                      <option value="">{t('noProjectBound')}</option>
-                      {projects.map((project) => (
-                        <option key={project.id} value={project.id}>{project.name}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="block text-sm font-medium text-foreground">
-                    {t('executionAgentLabel')}
-                    <select
-                      className={scheduleInputClass}
-                      value={form.agentId}
-                      onChange={(event) => updateForm('agentId', event.target.value)}
-                    >
-                      <option value="">{t('defaultAgent')}</option>
-                      {agentProfiles.map((agent) => (
-                        <option key={agent.id} value={agent.id}>{agent.label}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="block text-sm font-medium text-foreground sm:col-span-2">
-                    {t('promptContentLabel')}
-                    <textarea
-                      className="mt-1 min-h-28 w-full resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground"
-                      value={form.instruction}
-                      onChange={(event) => updateForm('instruction', event.target.value)}
-                      placeholder={t('promptContentPlaceholder')}
-                    />
-                  </label>
-                </div>
-
-                <label className="flex items-center gap-2 text-sm text-foreground">
-                  <input type="checkbox" checked={form.enabled} onChange={(event) => updateForm('enabled', event.target.checked)} />
-                  {t('taskEnabledSwitch')}
-                </label>
-
-                {error ? <div className="rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
-              </fieldset>
-
-              <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
-                <Button variant="outline" onClick={closeDialog}>{t('cancel')}</Button>
-                <Button onClick={handleSave} disabled={loading || !selectedModel || !formIsValid(form)}>
-                  {editingTask ? t('saveTask') : t('confirmCreate')}
-                </Button>
-              </div>
+    <>
+      {/* ===== 编辑/新建任务视图 ===== */}
+      {dialogOpen ? (
+        <section className="quickforge-settings-section" aria-label={editingTask ? t('editTask') : t('createTask')}>
+          <div className="quickforge-settings-toolbar">
+            <button
+              className="quickforge-settings-button quickforge-settings-button-secondary"
+              type="button"
+              disabled={loading}
+              onClick={closeDialog}
+            >
+              <ArrowLeft className="mr-2 size-4" />{t('back')}
+            </button>
+            <div className="quickforge-settings-row-main">
+              <div className="quickforge-settings-row-title">{editingTask ? t('editTask') : t('createTask')}</div>
+              <div className="quickforge-settings-row-description">{t('scheduledTasksDescription')}</div>
             </div>
-          ) : detailTask ? (
-            /* ===== 任务详情视图 ===== */
-            <div className="rounded-xl border border-border bg-card">
-              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
-                <div>
-                  <h2 className="text-base font-semibold text-foreground">{detailTask.title}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{detailTask.scheduleRule}</p>
+          </div>
+
+          <fieldset disabled={loading} aria-busy={loading} className="quickforge-settings-form-grid sm:grid-cols-2 disabled:opacity-60">
+            <label className="quickforge-settings-form-row sm:col-span-2">
+              <span className="quickforge-settings-form-label">
+                <Sparkles className="size-4 text-primary" />
+                {t('taskScheduleDescriptionLabel')}
+                <InfoTip label={t('quickAiParseTask')} />
+              </span>
+              <textarea
+                className="quickforge-settings-textarea"
+                value={form.scheduleText}
+                onChange={(event) => updateForm('scheduleText', event.target.value)}
+                placeholder={t('taskScheduleDescriptionPlaceholder')}
+              />
+            </label>
+            {question ? <div className="quickforge-settings-warning sm:col-span-2">{question}</div> : null}
+            <div className="flex justify-end sm:col-span-2">
+              <button
+                className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
+                type="button"
+                onClick={handleParse}
+                disabled={loading || !selectedModel || !form.scheduleText.trim()}
+              >
+                {loading ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}{t('aiParseTask')}
+              </button>
+            </div>
+
+            {parsedTask ? (
+              <div className="quickforge-settings-message sm:col-span-2">
+                <div className="mb-2 flex items-center gap-2 font-medium">
+                  <CheckCircle2 className="size-4" />
+                  {t('aiParsed')}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div>{t('taskName')}<span className="text-foreground">{parsedTask.title}</span></div>
+                  <div>{t('executionRule')}<span className="text-foreground">{parsedTask.scheduleRule}</span></div>
+                  <div>{t('taskCronExpression')}<span className="quickforge-settings-mono text-foreground">{parsedTask.cronExpression ?? '-'}</span></div>
+                  <div>{t('nextExecutionTime')}<span className="text-foreground">{formatDateTime(parsedTask.nextRunAt)}</span></div>
+                  <div className="sm:col-span-2">{t('aiInstruction')}<span className="text-foreground">{parsedTask.instruction}</span></div>
                 </div>
               </div>
-              <div className="px-5 py-4">
+            ) : null}
+
+            <label className="quickforge-settings-form-row">
+              <span className="quickforge-settings-form-label">{t('taskTitleLabel')}</span>
+              <input
+                className="quickforge-settings-input"
+                value={form.title}
+                onChange={(event) => updateForm('title', event.target.value)}
+                placeholder={t('taskTitlePlaceholder')}
+              />
+            </label>
+
+            <fieldset className="quickforge-settings-form-row sm:col-span-2" disabled={loading}>
+              <label className="quickforge-settings-form-row">
+                <span className="quickforge-settings-form-label">{t('taskFrequency')}</span>
+                <select
+                  className="quickforge-settings-select"
+                  value={form.scheduleType}
+                  onChange={(event) => updateForm('scheduleType', event.target.value as ScheduleType)}
+                  aria-label={t('taskFrequency')}
+                >
+                  {frequencyOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {form.scheduleType === 'interval' ? <>
+                  <label className="quickforge-settings-form-row"><span className="quickforge-settings-form-label">{t('taskIntervalValue')}</span><input type="number" min="1" step="1" className="quickforge-settings-input" value={form.intervalValue} onChange={(event) => updateForm('intervalValue', event.target.value)} /></label>
+                  <label className="quickforge-settings-form-row"><span className="quickforge-settings-form-label">{t('taskIntervalUnit')}</span><select className="quickforge-settings-select" value={form.intervalUnit} onChange={(event) => updateForm('intervalUnit', event.target.value as IntervalUnit)}>
+                    <option value="minute">{t('taskUnitMinute')}</option><option value="hour">{t('taskUnitHour')}</option><option value="day">{t('taskUnitDay')}</option>
+                  </select></label>
+                </> : null}
+                {form.scheduleType === 'once' || form.scheduleType === 'interval' ? <label className="quickforge-settings-form-row sm:col-span-2"><span className="quickforge-settings-form-label">{form.scheduleType === 'interval' ? t('taskFirstExecution') : t('taskExecutionDate')}</span>
+                  <input type="datetime-local" className="quickforge-settings-input" value={form.executeAt} onChange={(event) => updateForm('executeAt', event.target.value)} />
+                </label> : null}
+                {['daily', 'weekly', 'monthly'].includes(form.scheduleType) ? <label className="quickforge-settings-form-row"><span className="quickforge-settings-form-label">{t('taskExecutionTime')}</span><input type="time" className="quickforge-settings-input" value={form.executeTime} onChange={(event) => updateForm('executeTime', event.target.value)} /></label> : null}
+                {form.scheduleType === 'weekly' ? <fieldset className="sm:col-span-2">
+                  <legend className="quickforge-settings-form-label mb-2">{t('taskRepeatDays')}</legend>
+                  <div className="quickforge-settings-segmented flex-wrap">{[1, 2, 3, 4, 5, 6, 0].map((day) => <button key={day} type="button" aria-pressed={form.weekDays.includes(day)} className={cn('quickforge-settings-segmented-option', form.weekDays.includes(day) && 'quickforge-settings-segmented-option-active')} onClick={() => updateForm('weekDays', form.weekDays.includes(day) ? form.weekDays.filter((value) => value !== day) : [...form.weekDays, day])}>{weekLabels[day]}</button>)}</div>
+                </fieldset> : null}
+                {form.scheduleType === 'monthly' ? <label className="quickforge-settings-form-row"><span className="quickforge-settings-form-label">{t('taskMonthDay')}</span><input type="number" min="1" max="31" step="1" className="quickforge-settings-input" value={form.monthDay} onChange={(event) => updateForm('monthDay', event.target.value)} /><span className="text-xs text-muted-foreground">{t('taskMonthDayHelp')}</span></label> : null}
+                {form.scheduleType === 'cron' ? <label className="quickforge-settings-form-row sm:col-span-2"><span className="quickforge-settings-form-label">{t('taskCronExpression')}</span><input className="quickforge-settings-input quickforge-settings-mono" value={form.cronExpression} onChange={(event) => updateForm('cronExpression', event.target.value)} placeholder="0 9 * * 1-5" /><span className="text-xs text-muted-foreground">{t('taskCronHelp')}</span></label> : null}
+              </div>
+              <p className="text-xs text-muted-foreground">{t('taskScheduleTimezoneHelp')}</p>
+              {form.scheduleType === 'interval' ? <p className="text-xs text-muted-foreground">{t('taskIntervalHelp')}</p> : null}
+              {scheduleError ? <p role="alert" className="quickforge-settings-alert">{t(scheduleError)}</p> : <div aria-live="polite" className="quickforge-settings-note">
+                <div className="text-xs text-muted-foreground">{t('executionRule')}</div>
+                <p className="mt-1 text-sm text-foreground">{scheduleSummary}</p>
+              </div>}
+            </fieldset>
+
+            <label className="quickforge-settings-form-row sm:col-span-2">
+              <span className="quickforge-settings-form-label">
+                {t('taskExecutionMode')}
+                <InfoTip label={t('taskExecutionModeHelp')} />
+              </span>
+              <select
+                className="quickforge-settings-select"
+                value={form.executionMode}
+                onChange={(event) => updateForm('executionMode', event.target.value as ExecutionMode)}
+                aria-label={t('taskExecutionMode')}
+              >
+                <option value="serial">{t('taskExecutionModeSerial')}</option>
+                <option value="parallel">{t('taskExecutionModeParallel')}</option>
+              </select>
+            </label>
+
+            <label className="quickforge-settings-form-row">
+              <span className="quickforge-settings-form-label">{t('taskModel')}</span>
+              <select
+                className="quickforge-settings-select"
+                value={selectedModel ? modelIdentityKey(selectedModel) : ''}
+                onChange={(event) => {
+                  const nextModel = modelOptions.find((model) => modelIdentityKey(model) === event.target.value)
+                  setSelectedModel(nextModel)
+                  setThinkingLevel(defaultThinkingLevelForModel(nextModel))
+                }}
+              >
+                {modelOptions.length === 0 ? <option value="">{t('noModelAvailable')}</option> : null}
+                {modelOptions.map((model) => (
+                  <option key={modelIdentityKey(model)} value={modelIdentityKey(model)}>
+                    {modelLabel(model)}{modelsEqual(model, selectedModel) ? ' ✓' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="quickforge-settings-form-row">
+              <span className="quickforge-settings-form-label">{t('taskThinking')}</span>
+              <select
+                className="quickforge-settings-select"
+                value={thinkingLevel}
+                onChange={(event) => setThinkingLevel(event.target.value as ThinkingLevel)}
+              >
+                {THINKING_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label()}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="quickforge-settings-form-row">
+              <span className="quickforge-settings-form-label">{t('taskProjectLabel')}</span>
+              <select
+                className="quickforge-settings-select"
+                value={selectedProjectId}
+                onChange={(event) => setSelectedProjectId(event.target.value)}
+              >
+                <option value="">{t('noProjectBound')}</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="quickforge-settings-form-row">
+              <span className="quickforge-settings-form-label">{t('executionAgentLabel')}</span>
+              <select
+                className="quickforge-settings-select"
+                value={form.agentId}
+                onChange={(event) => updateForm('agentId', event.target.value)}
+              >
+                <option value="">{t('defaultAgent')}</option>
+                {agentProfiles.map((agent) => (
+                  <option key={agent.id} value={agent.id}>{agent.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="quickforge-settings-form-row sm:col-span-2">
+              <span className="quickforge-settings-form-label">{t('promptContentLabel')}</span>
+              <textarea
+                className="quickforge-settings-textarea"
+                value={form.instruction}
+                onChange={(event) => updateForm('instruction', event.target.value)}
+                placeholder={t('promptContentPlaceholder')}
+              />
+            </label>
+
+            <div className="flex items-center gap-3 sm:col-span-2">
+              <label className="quickforge-settings-switch" aria-disabled={loading ? 'true' : 'false'}>
+                <input
+                  type="checkbox"
+                  checked={form.enabled}
+                  aria-label={t('taskEnabledSwitch')}
+                  onChange={(event) => updateForm('enabled', event.currentTarget.checked)}
+                />
+                <span aria-hidden="true" />
+              </label>
+              <span className="quickforge-settings-form-label">{t('taskEnabledSwitch')}</span>
+            </div>
+
+            {error ? <div className="quickforge-settings-alert sm:col-span-2">{error}</div> : null}
+          </fieldset>
+
+          <div className="quickforge-settings-row">
+            <div className="quickforge-settings-row-main" />
+            <div className="quickforge-settings-row-control">
+              <button className="quickforge-settings-button quickforge-settings-button-secondary" type="button" onClick={closeDialog}>{t('cancel')}</button>
+              <button className="quickforge-settings-button quickforge-settings-button-primary" type="button" onClick={handleSave} disabled={loading || !selectedModel || !formIsValid(form)}>
+                {loading ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                {editingTask ? t('saveTask') : t('confirmCreate')}
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : detailTask ? (
+            /* ===== 任务详情视图 ===== */
+            <section className="quickforge-settings-section" aria-label={detailTask.title}>
+              <div className="quickforge-settings-toolbar">
+                <button
+                  className="quickforge-settings-button quickforge-settings-button-secondary"
+                  type="button"
+                  onClick={() => setDetailTaskId(null)}
+                >
+                  <ArrowLeft className="mr-2 size-4" />{t('back')}
+                </button>
+                <div className="quickforge-settings-row-main">
+                  <div className="quickforge-settings-row-title">{detailTask.title}</div>
+                  <div className="quickforge-settings-row-description">{detailTask.scheduleRule}</div>
+                  <div className="quickforge-settings-meta">
+                    <span className={cn('quickforge-settings-badge', statusBadgeClass(detailTask.status))}>{statusLabel(detailTask.status)}</span>
+                    <span className="quickforge-settings-badge quickforge-settings-badge-muted">{executionModeLabel(detailTask.executionMode)}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="p-5">
                 <div className="space-y-4 text-sm">
                   <div>
                     <div className="mb-1 font-medium text-foreground">{t('taskContent')}</div>
@@ -960,8 +956,8 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       <span className="truncate text-sm text-foreground">{executionModeLabel(detailTask.executionMode)}</span>
                     </div>
                     <div className="flex min-w-0 items-baseline gap-2">
-                      <span className="shrink-0 text-xs text-muted-foreground">cron</span>
-                      <span className="truncate font-mono text-sm text-foreground">{detailTask.cronExpression ?? '-'}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">{t('taskCronExpression')}</span>
+                      <span className="truncate quickforge-settings-mono text-sm text-foreground">{detailTask.cronExpression ?? '-'}</span>
                     </div>
                     <div className="flex min-w-0 items-baseline gap-2">
                       <span className="shrink-0 text-xs text-muted-foreground">{t('lastExecution')}</span>
@@ -997,172 +993,223 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                       <div className="mb-2 font-medium text-foreground">{t('recentExecutions')}</div>
                       <div className="space-y-2">
                         {detailTask.runs.slice(0, 5).map((run) => (
-                          <details key={`${detailTask.id}:${run.id}`} className="rounded-lg bg-muted p-2 text-xs text-muted-foreground">
-                            <summary className="cursor-pointer text-foreground">
-                              {formatDateTime(run.startedAt)} · {run.trigger === 'manual' ? t('manualRun') : t('autoRun')} · {statusLabel(run.status)}
-                            </summary>
-                            {renderRunDetails(run)}
-                          </details>
+                          <div key={`${detailTask.id}:${run.id}`} className="flex items-center justify-between gap-3 rounded-lg bg-muted px-3 py-2 text-sm">
+                            <span className="flex min-w-0 flex-wrap items-center gap-2">
+                              <span className="text-muted-foreground">{formatDateTime(run.startedAt)}</span>
+                              <span className={cn('quickforge-settings-badge', statusBadgeClass(run.status))}>{statusLabel(run.status)}</span>
+                            </span>
+                            {renderRunConversationAction(run)}
+                          </div>
                         ))}
                       </div>
                     </div>
                   ) : null}
                 </div>
               </div>
-              <div className="border-t border-border px-5 py-4">
-                <div className="flex flex-wrap justify-end gap-2">
-                  {detailTask.lastSessionId ? <Button variant="outline" onClick={() => onOpenSession?.(detailTask.lastSessionId!)}>{t('viewConversation')}</Button> : null}
-                  <Button variant="outline" disabled={pendingTaskIds.has(detailTask.id) || !canRunTaskNow(detailTask)} onClick={() => taskAction(detailTask.id, 'run')}><Zap className="mr-1 size-3.5" />{t('executeNow')}</Button>
-                  <Button variant="outline" disabled={pendingTaskIds.has(detailTask.id) || taskHasRunningRuns(detailTask)} onClick={() => startEdit(detailTask)}><Edit3 className="mr-1 size-3.5" />{t('editTask')}</Button>
-                  <Button variant="destructive" disabled={pendingTaskIds.has(detailTask.id) || taskHasRunningRuns(detailTask)} onClick={() => taskAction(detailTask.id, 'delete')}><Trash2 className="mr-1 size-3.5" />{t('deleteTask')}</Button>
+              <div className="quickforge-settings-row">
+                <div className="quickforge-settings-row-main" />
+                <div className="quickforge-settings-row-control flex-wrap">
+                  {detailTask.lastSessionId ? <button className="quickforge-settings-button quickforge-settings-button-secondary" type="button" onClick={() => onOpenSession?.(detailTask.lastSessionId!)}>{t('viewConversation')}</button> : null}
+                  <button className="quickforge-settings-button quickforge-settings-button-secondary" type="button" disabled={pendingTaskIds.has(detailTask.id) || !canRunTaskNow(detailTask)} onClick={() => taskAction(detailTask.id, 'run')}><Zap className="mr-2 size-4" />{t('executeNow')}</button>
+                  <button className="quickforge-settings-button quickforge-settings-button-secondary" type="button" disabled={pendingTaskIds.has(detailTask.id) || taskHasRunningRuns(detailTask)} onClick={() => startEdit(detailTask)}><Edit3 className="mr-2 size-4" />{t('editTask')}</button>
+                  <button className="quickforge-settings-button quickforge-settings-button-danger" type="button" disabled={pendingTaskIds.has(detailTask.id) || taskHasRunningRuns(detailTask)} onClick={() => taskAction(detailTask.id, 'delete')}><Trash2 className="mr-2 size-4" />{t('deleteTask')}</button>
                 </div>
               </div>
-            </div>
+            </section>
           ) : (
             /* ===== 列表 / 历史视图 ===== */
-            <>
-              {error ? <div className="rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+            <section className="quickforge-settings-section" aria-label={t('scheduledTasks')}>
+              <div className="quickforge-settings-toolbar">
+                <div className="quickforge-settings-row-main">
+                  <div className="quickforge-settings-row-title">
+                    <Clock className="size-4 text-primary" />
+                    {t('scheduledTasks')}
+                  </div>
+                  <div className="quickforge-settings-row-description">{t('scheduledTasksDescription')}</div>
+                  <div className="quickforge-settings-meta">
+                    <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('tasksCount', { total: tasks.length, enabled: enabledCount })}</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="quickforge-settings-segmented">
+                    <button
+                      className={cn('quickforge-settings-segmented-option', activeTab === 'tasks' && 'quickforge-settings-segmented-option-active')}
+                      type="button"
+                      aria-pressed={activeTab === 'tasks'}
+                      onClick={() => setActiveTab('tasks')}
+                    >
+                      {t('taskListTab')}
+                    </button>
+                    <button
+                      className={cn('quickforge-settings-segmented-option', activeTab === 'history' && 'quickforge-settings-segmented-option-active')}
+                      type="button"
+                      aria-pressed={activeTab === 'history'}
+                      onClick={() => { setActiveTab('history'); void loadHistory(appliedHistoryFilters) }}
+                    >
+                      {t('executionHistoryTab')}
+                    </button>
+                  </div>
+                  <button
+                    className="quickforge-settings-button quickforge-settings-button-primary"
+                    type="button"
+                    onClick={openCreateDialog}
+                    disabled={loading}
+                  >
+                    <Plus className="mr-2 size-4" />{t('createTask')}
+                  </button>
+                </div>
+              </div>
+
+              {error ? <div className="quickforge-settings-alert quickforge-settings-warning-attached">{error}</div> : null}
 
               {activeTab === 'tasks' ? (
-                <>
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <h2 className="text-sm font-medium text-foreground">{t('taskList')}</h2>
-                    <p className="text-xs text-muted-foreground">{t('tasksCount', { total: tasks.length, enabled: enabledCount })}</p>
-                  </div>
-
-                  <div className="overflow-hidden rounded-xl border border-border bg-card">
-                    {tasks.length === 0 ? (
-                      <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-                        {t('noScheduledTasks')}
-                      </div>
-                    ) : tasks.map((task) => {
-                      const taskEnabled = task.status === 'enabled'
-                      const taskPending = pendingTaskIds.has(task.id)
-                      const switchDisabled = taskPending || task.status === 'completed'
-                      return (
-                        <div key={task.id} className="flex cursor-pointer items-center gap-3 border-b border-border px-4 py-2.5 transition-colors last:border-b-0" onClick={() => setDetailTaskId(task.id)}>
-                          <div className="min-w-0 flex-1">
-                            <h3 className="truncate text-sm font-medium text-foreground">{task.title}</h3>
-                            <p className="mt-0.5 truncate text-xs text-muted-foreground">{truncateContent(task.instruction, 20)}</p>
-                          </div>
-                          <div className="hidden shrink-0 truncate text-xs text-muted-foreground md:block">{task.scheduleRule}</div>
-                          <div className="hidden shrink-0 space-y-0.5 text-xs text-muted-foreground lg:block">
-                            <p className="truncate">{t('lastExecution')}{formatDateTime(task.lastRunAt)}</p>
-                            <p className="truncate">{t('nextExecution')}{formatDateTime(task.nextRunAt)}</p>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1" onClick={(event) => event.stopPropagation()}>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={taskEnabled}
-                              aria-label={t('taskEnabledSwitch')}
-                              disabled={switchDisabled}
-                              className={cn('relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60', taskEnabled ? 'bg-emerald-500' : 'bg-muted-foreground/30')}
-                              onClick={() => taskAction(task.id, task.status === 'paused' ? 'resume' : 'pause')}
-                              title={task.status === 'paused' ? t('enable') : t('pauseTask')}
-                            >
-                              <span className={cn('absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform', taskEnabled ? 'translate-x-5' : 'translate-x-0')} />
-                            </button>
-                            <Button variant="ghost" size="icon" disabled={taskPending} onClick={(event) => toggleTaskMenu(event, task.id)} title={t('moreActions')} aria-label={t('moreActions')} aria-haspopup="menu" aria-expanded={openMenuTaskId === task.id}>
-                              <MoreHorizontal className="size-4" />
-                            </Button>
-                          </div>
+                tasks.length === 0 ? (
+                  <div className="quickforge-settings-empty-row">{t('noScheduledTasks')}</div>
+                ) : tasks.map((task) => {
+                  const taskEnabled = task.status === 'enabled'
+                  const taskPending = pendingTaskIds.has(task.id)
+                  const switchDisabled = taskPending || task.status === 'completed'
+                  return (
+                    <div key={task.id} className="quickforge-settings-list-item cursor-pointer" onClick={() => setDetailTaskId(task.id)}>
+                      <div className="quickforge-settings-list-item-main">
+                        <div className="quickforge-settings-row-title" title={task.title}>{task.title}</div>
+                        <div className="quickforge-settings-row-description" title={task.instruction}>{truncateContent(task.instruction, 20)}</div>
+                        <div className="quickforge-settings-meta">
+                          <span className={cn('quickforge-settings-badge', statusBadgeClass(task.status))}>{statusLabel(task.status)}</span>
+                          <span className="quickforge-settings-badge quickforge-settings-badge-muted quickforge-settings-mono">{task.scheduleRule}</span>
+                          <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('lastExecution')}{formatDateTime(task.lastRunAt)}</span>
+                          <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('nextExecution')}{formatDateTime(task.nextRunAt)}</span>
                         </div>
-                      )
-                    })}
-                  </div>
-                </>
+                      </div>
+                      <div className="quickforge-settings-list-item-actions quickforge-settings-icon-actions" onClick={(event) => event.stopPropagation()}>
+                        <label
+                          className="quickforge-settings-switch"
+                          aria-disabled={switchDisabled ? 'true' : 'false'}
+                          title={task.status === 'paused' ? t('enable') : t('pauseTask')}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={taskEnabled}
+                            aria-label={t('taskEnabledSwitch')}
+                            disabled={switchDisabled}
+                            onChange={() => taskAction(task.id, task.status === 'paused' ? 'resume' : 'pause')}
+                          />
+                          <span aria-hidden="true" />
+                        </label>
+                        <button
+                          className="quickforge-settings-icon-action"
+                          type="button"
+                          disabled={taskPending}
+                          onClick={(event) => toggleTaskMenu(event, task.id)}
+                          title={t('moreActions')}
+                          aria-label={t('moreActions')}
+                          aria-haspopup="menu"
+                          aria-expanded={openMenuTaskId === task.id}
+                        >
+                          <MoreHorizontal className="size-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
               ) : (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-border bg-card p-3">
-                    <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
-                      <Search className="size-4" />{t('historyFilters')}
+                <>
+                  <div className="quickforge-settings-form-grid sm:grid-cols-2 md:grid-cols-3">
+                    <div className="quickforge-settings-form-label sm:col-span-2 md:col-span-3">
+                      <Search className="size-4" />
+                      {t('historyFilters')}
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
-                      <label className="block text-xs font-medium text-muted-foreground">
-                        {t('taskName')}
-                        <select className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.taskId} onChange={(event) => updateHistoryFilter('taskId', event.target.value)}>
-                          <option value="">{t('allTasks')}</option>
-                          {tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}
-                        </select>
-                      </label>
-                      <label className="block text-xs font-medium text-muted-foreground">
-                        {t('status')}
-                        <select className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.status} onChange={(event) => updateHistoryFilter('status', event.target.value as HistoryFilters['status'])}>
-                          <option value="">{t('allStatuses')}</option>
-                          <option value="running">{t('executionRunning')}</option>
-                          <option value="success">{t('executionSuccess')}</option>
-                          <option value="failed">{t('taskFailed')}</option>
-                        </select>
-                      </label>
-                      <label className="block text-xs font-medium text-muted-foreground">
-                        {t('triggerType')}
-                        <select className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.trigger} onChange={(event) => updateHistoryFilter('trigger', event.target.value as HistoryFilters['trigger'])}>
-                          <option value="">{t('allTriggers')}</option>
-                          <option value="schedule">{t('autoRun')}</option>
-                          <option value="manual">{t('manualRun')}</option>
-                        </select>
-                      </label>
-                      <label className="block text-xs font-medium text-muted-foreground">
-                        {t('startTime')}
-                        <input type="datetime-local" className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.startedFrom} onChange={(event) => updateHistoryFilter('startedFrom', event.target.value)} />
-                      </label>
-                      <label className="block text-xs font-medium text-muted-foreground">
-                        {t('endTime')}
-                        <input type="datetime-local" className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.startedTo} onChange={(event) => updateHistoryFilter('startedTo', event.target.value)} />
-                      </label>
-                      <label className="block text-xs font-medium text-muted-foreground">
-                        {t('keyword')}
-                        <input className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground" value={historyFilters.keyword} onChange={(event) => updateHistoryFilter('keyword', event.target.value)} placeholder={t('keywordPlaceholder')} />
-                      </label>
-                    </div>
-                    <div className="mt-2 flex justify-end gap-2">
-                      <Button variant="outline" onClick={resetHistoryFilters}>{t('reset')}</Button>
-                      <Button onClick={applyHistoryFilters}>{t('query')}</Button>
+                    <label className="quickforge-settings-form-row">
+                      <span className="quickforge-settings-form-label">{t('taskName')}</span>
+                      <select className="quickforge-settings-select" value={historyFilters.taskId} onChange={(event) => updateHistoryFilter('taskId', event.target.value)}>
+                        <option value="">{t('allTasks')}</option>
+                        {tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}
+                      </select>
+                    </label>
+                    <label className="quickforge-settings-form-row">
+                      <span className="quickforge-settings-form-label">{t('status')}</span>
+                      <select className="quickforge-settings-select" value={historyFilters.status} onChange={(event) => updateHistoryFilter('status', event.target.value as HistoryFilters['status'])}>
+                        <option value="">{t('allStatuses')}</option>
+                        <option value="running">{t('executionRunning')}</option>
+                        <option value="success">{t('executionSuccess')}</option>
+                        <option value="failed">{t('taskFailed')}</option>
+                      </select>
+                    </label>
+                    <label className="quickforge-settings-form-row">
+                      <span className="quickforge-settings-form-label">{t('triggerType')}</span>
+                      <select className="quickforge-settings-select" value={historyFilters.trigger} onChange={(event) => updateHistoryFilter('trigger', event.target.value as HistoryFilters['trigger'])}>
+                        <option value="">{t('allTriggers')}</option>
+                        <option value="schedule">{t('autoRun')}</option>
+                        <option value="manual">{t('manualRun')}</option>
+                      </select>
+                    </label>
+                    <label className="quickforge-settings-form-row">
+                      <span className="quickforge-settings-form-label">{t('startTime')}</span>
+                      <input type="datetime-local" className="quickforge-settings-input" value={historyFilters.startedFrom} onChange={(event) => updateHistoryFilter('startedFrom', event.target.value)} />
+                    </label>
+                    <label className="quickforge-settings-form-row">
+                      <span className="quickforge-settings-form-label">{t('endTime')}</span>
+                      <input type="datetime-local" className="quickforge-settings-input" value={historyFilters.startedTo} onChange={(event) => updateHistoryFilter('startedTo', event.target.value)} />
+                    </label>
+                    <label className="quickforge-settings-form-row">
+                      <span className="quickforge-settings-form-label">{t('keyword')}</span>
+                      <input className="quickforge-settings-input" value={historyFilters.keyword} onChange={(event) => updateHistoryFilter('keyword', event.target.value)} placeholder={t('keywordPlaceholder')} />
+                    </label>
+                  </div>
+
+                  <div className="quickforge-settings-row">
+                    <div className="quickforge-settings-row-main" />
+                    <div className="quickforge-settings-row-control">
+                      <button className="quickforge-settings-button quickforge-settings-button-secondary" type="button" onClick={resetHistoryFilters}>{t('reset')}</button>
+                      <button className="quickforge-settings-button quickforge-settings-button-primary" type="button" onClick={applyHistoryFilters}>{t('query')}</button>
                     </div>
                   </div>
 
-                  <div className="overflow-x-auto rounded-xl border border-border bg-card">
-                    <div className="grid min-w-[600px] grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 border-b border-border px-4 py-2 text-xs font-medium text-muted-foreground">
+                  <div className="overflow-x-auto">
+                    <div className="grid min-w-[600px] grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr_auto] gap-3 border-b border-border px-5 py-2.5 text-xs font-medium text-muted-foreground">
                       <span>{t('taskName')}</span>
                       <span>{t('status')}</span>
                       <span>{t('triggerType')}</span>
                       <span>{t('startTime')}</span>
                       <span>{t('runDuration')}</span>
+                      <span />
                     </div>
                     {historyLoading ? (
-                      <div className="p-6 text-center text-sm text-muted-foreground">{t('loading')}</div>
+                      <div className="quickforge-settings-empty-row inline-flex items-center gap-2">
+                        <Loader2 className="size-4 animate-spin" />
+                        {t('loading')}
+                      </div>
                     ) : historyPayload.runs.length === 0 ? (
-                      <div className="p-6 text-center text-sm text-muted-foreground">{t('noExecutionHistory')}</div>
+                      <div className="quickforge-settings-empty-row">{t('noExecutionHistory')}</div>
                     ) : historyPayload.runs.map((run) => (
-                      <div key={`${run.taskId}:${run.id}`} className="border-b border-border last:border-b-0">
-                        <button type="button" className="grid w-full min-w-[600px] grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 px-4 py-2.5 text-left text-sm transition-colors" onClick={() => { const key = `${run.taskId}:${run.id}`; setExpandedRunId(expandedRunId === key ? null : key) }}>
-                          <span className="min-w-0 truncate text-foreground">{run.taskTitle}</span>
-                          <span><span className={cn('rounded-full px-2 py-0.5 text-xs', statusClass(run.status))}>{statusLabel(run.status)}</span></span>
-                          <span className="text-muted-foreground">{run.trigger === 'manual' ? t('manualRun') : t('autoRun')}</span>
-                          <span className="text-muted-foreground">{formatDateTime(run.startedAt)}</span>
-                          <span className="text-muted-foreground">{run.durationMs ? `${run.durationMs}ms` : '-'}</span>
-                        </button>
-                        {expandedRunId === `${run.taskId}:${run.id}` ? <div className="border-t border-border bg-muted px-4 py-2.5">{renderRunDetails(run)}</div> : null}
+                      <div key={`${run.taskId}:${run.id}`} className="grid min-w-[600px] grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.7fr_auto] items-center gap-3 border-b border-border px-5 py-3 text-left text-sm transition-colors last:border-b-0 hover:bg-muted">
+                        <span className="min-w-0 truncate text-foreground">{run.taskTitle}</span>
+                        <span><span className={cn('quickforge-settings-badge', statusBadgeClass(run.status))}>{statusLabel(run.status)}</span></span>
+                        <span className="text-muted-foreground">{run.trigger === 'manual' ? t('manualRun') : t('autoRun')}</span>
+                        <span className="text-muted-foreground">{formatDateTime(run.startedAt)}</span>
+                        <span className="text-muted-foreground">{run.durationMs ? `${run.durationMs}ms` : '-'}</span>
+                        <span className="flex justify-end">
+                          {renderRunConversationAction(run)}
+                        </span>
                       </div>
                     ))}
-                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-sm text-muted-foreground">
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-sm text-muted-foreground">
                       <span>{t('paginationSummary', { page: historyPayload.page, pages: totalHistoryPages, total: historyPayload.total })}</span>
                       <div className="flex items-center gap-2">
-                        <select className="h-8 rounded-md border border-input bg-background px-2 text-sm" value={historyPayload.pageSize} onChange={(event) => changeHistoryPageSize(Number(event.target.value))}>
-                          {[10, 20, 50, 100].map((size) => <option key={size} value={size}>{t('pageSize', { size })}</option>)}
-                        </select>
-                        <Button variant="outline" size="sm" disabled={historyPayload.page <= 1} onClick={() => changeHistoryPage(historyPayload.page - 1)}>{t('previousPage')}</Button>
-                        <Button variant="outline" size="sm" disabled={historyPayload.page >= totalHistoryPages} onClick={() => changeHistoryPage(historyPayload.page + 1)}>{t('nextPage')}</Button>
+                        <div className="w-24">
+                          <select className="quickforge-settings-select" value={historyPayload.pageSize} onChange={(event) => changeHistoryPageSize(Number(event.target.value))}>
+                            {[10, 20, 50, 100].map((size) => <option key={size} value={size}>{t('pageSize', { size })}</option>)}
+                          </select>
+                        </div>
+                        <button className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact" type="button" disabled={historyPayload.page <= 1} onClick={() => changeHistoryPage(historyPayload.page - 1)}>{t('previousPage')}</button>
+                        <button className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact" type="button" disabled={historyPayload.page >= totalHistoryPages} onClick={() => changeHistoryPage(historyPayload.page + 1)}>{t('nextPage')}</button>
                       </div>
                     </div>
                   </div>
-                </div>
+                </>
               )}
-            </>
+            </section>
           )}
-        </div>
-      </div>
 
       {openMenuTask ? createPortal(
         <div
@@ -1179,21 +1226,21 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
           onClick={(event) => event.stopPropagation()}
         >
           <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={pendingTaskIds.has(openMenuTask.id) || !canRunTaskNow(openMenuTask)} onClick={() => taskAction(openMenuTask.id, 'run')}>
-            <Zap className="size-3.5" />{t('executeNow')}
+            <Zap className="size-4" />{t('executeNow')}
           </button>
           <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={pendingTaskIds.has(openMenuTask.id) || taskHasRunningRuns(openMenuTask)} onClick={() => startEdit(openMenuTask)}>
-            <Edit3 className="size-3.5" />{t('editTask')}
+            <Edit3 className="size-4" />{t('editTask')}
           </button>
           <button className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted" onClick={() => { setOpenMenuTaskId(null); setDetailTaskId(openMenuTask.id) }}>
-            <Eye className="size-3.5" />{t('viewDetails')}
+            <Eye className="size-4" />{t('viewDetails')}
           </button>
           <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={pendingTaskIds.has(openMenuTask.id) || taskHasRunningRuns(openMenuTask)} onClick={() => taskAction(openMenuTask.id, 'delete')}>
-            <Trash2 className="size-3.5" />{t('deleteTask')}
+            <Trash2 className="size-4" />{t('deleteTask')}
           </button>
         </div>,
         document.body,
       ) : null}
 
-    </div>
+    </>
   )
 }

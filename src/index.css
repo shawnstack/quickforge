@@ -1943,7 +1943,12 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
   transition: background-color 160ms ease-out, color 160ms ease-out;
 }
 
-.quickforge-settings-icon-action:hover {
+.quickforge-settings-icon-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.quickforge-settings-icon-action:not(:disabled):hover {
   background: color-mix(in oklab, var(--muted) 42%, transparent);
   color: color-mix(in oklab, var(--foreground) 86%, transparent);
 }
@@ -1952,7 +1957,7 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
   color: color-mix(in oklab, #10b981 84%, var(--foreground));
 }
 
-.quickforge-settings-icon-action-danger:hover {
+.quickforge-settings-icon-action-danger:not(:disabled):hover {
   background: color-mix(in oklab, var(--destructive) 12%, transparent);
   color: var(--destructive);
 }

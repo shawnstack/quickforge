@@ -5,7 +5,14 @@ import { McpServerCard } from '../../src/components/mcp/mcp-server-card'
 import { applyAppLanguageFromSnapshot, t } from '../../src/lib/i18n'
 import type { McpServer } from '../../src/lib/types/mcp'
 
-type NodeProps = { children?: ReactNode; onClick?: () => void; role?: string; 'aria-label'?: string }
+type NodeProps = {
+  children?: ReactNode
+  onClick?: () => void
+  onChange?: () => void
+  role?: string
+  disabled?: boolean
+  'aria-label'?: string
+}
 function elements(node: ReactNode): ReactElement<NodeProps>[] {
   if (Array.isArray(node)) return node.flatMap(elements)
   if (!isValidElement<NodeProps>(node)) return []
@@ -17,33 +24,53 @@ function props(builtin = true) {
 }
 
 describe('MCP builtin card', () => {
-  it.each(['zh', 'en'] as const)('renders builtin badge without a delete button in %s', (language) => {
+  it.each(['zh', 'en'] as const)('renders builtin badge with a disabled delete button in %s', (language) => {
     applyAppLanguageFromSnapshot(language)
     const html = renderToStaticMarkup(createElement(McpServerCard, props()))
     expect(html).toContain(t('mcpBuiltIn'))
-    expect(html).not.toContain(`aria-label="${t('delete')}"`)
+    expect(html).toContain('quickforge-settings-badge-muted')
+    expect(html).toContain('quickforge-settings-badge-danger')
+    expect(html).toContain(`aria-label="${t('mcpBuiltinNoDelete')}"`)
+    expect(html).toContain('disabled=""')
     expect(html).toContain(`aria-label="${t('editTask')}"`)
-    expect(html).toContain('role="switch"')
+    expect(html).toContain('quickforge-settings-switch')
+    expect(html).toContain(`aria-label="${t('mcpEnabledSwitchLabel', { name: 'playwright' })}"`)
     expect(html).toContain(`aria-label="${t('mcpReconnectServer')}"`)
+    expect(html).toContain('quickforge-settings-icon-action')
   })
   it('keeps actual edit, toggle and reconnect handlers for builtin services', () => {
     const p = props()
     const nodes = elements(McpServerCard(p))
-    nodes.find((n) => n.props.role === 'switch')!.props.onClick!()
+    nodes.find((n) => n.props['aria-label'] === t('mcpEnabledSwitchLabel', { name: 'playwright' }))!.props.onChange!()
     nodes.find((n) => n.props['aria-label'] === t('editTask'))!.props.onClick!()
     nodes.find((n) => n.props['aria-label'] === t('mcpReconnectServer'))!.props.onClick!()
     expect(p.onToggle).toHaveBeenCalledWith(p.server)
     expect(p.onEdit).toHaveBeenCalledWith(p.server)
     expect(p.onReconnect).toHaveBeenCalledWith('playwright')
     expect(p.onDelete).not.toHaveBeenCalled()
+    expect(nodes.find((n) => n.props['aria-label'] === t('mcpBuiltinNoDelete'))!.props.disabled).toBe(true)
   })
-  it('keeps the delete button and handler for ordinary services', () => {
+  it('keeps the delete button enabled with its handler for ordinary services', () => {
     const p = props(false)
     const html = renderToStaticMarkup(createElement(McpServerCard, p))
     expect(html).not.toContain(t('mcpBuiltIn'))
     expect(html).toContain(`aria-label="${t('delete')}"`)
-    elements(McpServerCard(p)).find((n) => n.props['aria-label'] === t('delete'))!.props.onClick!()
+    expect(html).not.toContain(`aria-label="${t('mcpBuiltinNoDelete')}"`)
+    expect(html).toContain('quickforge-settings-icon-action-danger')
+    const deleteButton = elements(McpServerCard(p)).find((n) => n.props['aria-label'] === t('delete'))!
+    expect(deleteButton.props.disabled).toBe(false)
+    deleteButton.props.onClick!()
     expect(p.onDelete).toHaveBeenCalledWith('custom')
+  })
+  it('uses muted badge for connected and disabled statuses', () => {
+    for (const status of ['connected', 'disabled', 'connecting']) {
+      const p = props()
+      p.server.status = status
+      const html = renderToStaticMarkup(createElement(McpServerCard, p))
+      expect(html).toContain('quickforge-settings-badge-muted')
+      if (status === 'connected') expect(html).toContain('quickforge-settings-badge-success')
+      else expect(html).not.toContain('quickforge-settings-badge-success')
+    }
   })
   it.each([{ enabled: false, status: 'disabled' }, { enabled: true, status: 'connected' }])('retains reconnect visibility conditions: $status', (state) => {
     const p = props()

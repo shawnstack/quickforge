@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowLeft, FileJson, Loader2, Plus, Server } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
@@ -215,131 +214,154 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
   const isEdit = Boolean(editTarget)
   const canSave = Boolean(draft.name.trim()) && Boolean(draft.transport === 'stdio' ? draft.command.trim() : draft.url.trim())
 
+  const renderEditorTabs = () => (
+    <div className="quickforge-settings-form-grid">
+      <div className="quickforge-settings-segmented">
+        <button
+          className={`quickforge-settings-segmented-option${activeTab === 'form' ? ' quickforge-settings-segmented-option-active' : ''}`}
+          type="button"
+          aria-pressed={activeTab === 'form' ? 'true' : 'false'}
+          onClick={() => switchTab('form')}
+        >
+          <Server className="size-4" />
+          {t('mcpTabServer')}
+        </button>
+        <button
+          className={`quickforge-settings-segmented-option${activeTab === 'json' ? ' quickforge-settings-segmented-option-active' : ''}`}
+          type="button"
+          aria-pressed={activeTab === 'json' ? 'true' : 'false'}
+          onClick={() => switchTab('json')}
+        >
+          <FileJson className="size-4" />
+          {t('mcpTabJson')}
+        </button>
+      </div>
+    </div>
+  )
+
   // ===== 编辑视图 =====
   if (editMode) {
     return (
-      <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden bg-background', className)}>
-        <div className="border-b border-border px-6 py-5">
-          <div className="flex items-center justify-between gap-2">
-            <button type="button" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground" onClick={exitEditMode}>
-              <ArrowLeft className="size-4" />
-              {t('mcpConfiguredServers')}
-            </button>
-            <span className="text-sm font-medium">{isEdit ? t('mcpEditServer') : t('mcpAddServer')}</span>
+      <section className={cn('quickforge-settings-section', className)} aria-label={isEdit ? t('mcpEditServer') : t('mcpAddServer')}>
+        <div className="quickforge-settings-toolbar">
+          <button
+            className="quickforge-settings-button quickforge-settings-button-secondary"
+            type="button"
+            onClick={exitEditMode}
+            disabled={saving}
+          >
+            <ArrowLeft className="mr-2 size-4" />
+            {t('back')}
+          </button>
+          <div className="quickforge-settings-row-main">
+            <div className="quickforge-settings-row-title">{isEdit ? t('mcpEditServer') : t('mcpAddServer')}</div>
+            <div className="quickforge-settings-row-description">{t('mcpServersDescription')}</div>
           </div>
         </div>
-        {error ? <div className="m-6 mb-0 rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
-          <div className="mx-auto max-w-5xl space-y-5">
-            <div className="flex border-b border-border">
-              <button
-                type="button"
-                onClick={() => switchTab('form')}
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors',
-                  activeTab === 'form'
-                    ? 'border-b-2 border-primary -mb-px'
-                    : '',
-                )}
-              >
-                <Server className="size-3.5" />
-                {t('mcpTabServer')}
-              </button>
-              <button
-                type="button"
-                onClick={() => switchTab('json')}
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors',
-                  activeTab === 'json'
-                    ? 'border-b-2 border-primary -mb-px'
-                    : '',
-                )}
-              >
-                <FileJson className="size-3.5" />
+
+        {error ? <div className="quickforge-settings-alert quickforge-settings-warning-attached">{error}</div> : null}
+
+        {renderEditorTabs()}
+
+        {activeTab === 'form' ? (
+          <McpServerForm
+            value={draft}
+            onChange={onDraftChange}
+            isEdit={isEdit}
+            disabled={saving}
+          />
+        ) : (
+          <div className="quickforge-settings-form-grid">
+            <div className="quickforge-settings-form-row">
+              <span className="quickforge-settings-form-label">
                 {t('mcpTabJson')}
-              </button>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {activeTab === 'form' ? (
-                <McpServerForm
-                  value={draft}
-                  onChange={onDraftChange}
-                  isEdit={isEdit}
-                  disabled={saving}
-                />
-              ) : (
-                <div className="space-y-2">
-                  <textarea
-                    className="min-h-96 w-full resize-y rounded-md border border-input bg-background px-2 py-1.5 font-mono text-xs text-foreground outline-none"
-                    value={jsonText}
-                    onChange={(event) => onJsonTextChange(event.target.value)}
-                    spellCheck={false}
-                  />
-                  {jsonError ? (
-                    <div className="rounded-md border bg-destructive/10 px-3 py-2 text-xs text-destructive">{jsonError}</div>
-                  ) : null}
-                  <div className="inline-flex items-center gap-1.5 text-[11px] font-medium">
-                    {t('mcpTabJson')}
-                    <InfoTip label={t('mcpImportConfigDescription')} />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2 border-t border-border pt-3">
-              <Button type="button" variant="outline" size="sm" onClick={exitEditMode} disabled={saving}>{t('cancel')}</Button>
-              <Button type="button" size="sm" onClick={() => { void saveServer() }} disabled={saving || !canSave}>
-                {saving ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : null}
-                {t('save')}
-              </Button>
+                <InfoTip label={t('mcpImportConfigDescription')} />
+              </span>
+              <textarea
+                className="quickforge-settings-textarea quickforge-settings-mono min-h-96"
+                value={jsonText}
+                onChange={(event) => onJsonTextChange(event.target.value)}
+                spellCheck={false}
+                disabled={saving}
+              />
+              {jsonError ? <div className="quickforge-settings-alert">{jsonError}</div> : null}
             </div>
           </div>
+        )}
+
+        <div className="quickforge-settings-row">
+          <div className="quickforge-settings-row-main" />
+          <div className="quickforge-settings-row-control">
+            <button
+              className="quickforge-settings-button quickforge-settings-button-secondary"
+              type="button"
+              onClick={exitEditMode}
+              disabled={saving}
+            >
+              {t('cancel')}
+            </button>
+            <button
+              className="quickforge-settings-button quickforge-settings-button-primary"
+              type="button"
+              onClick={() => { void saveServer() }}
+              disabled={saving || !canSave}
+            >
+              {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              {t('save')}
+            </button>
+          </div>
         </div>
-      </div>
+      </section>
     )
   }
 
   // ===== 服务器列表视图（默认） =====
   return (
-    <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden bg-background', className)}>
-      <div className="border-b border-border px-6 py-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-medium">{t('mcpConfiguredServers')}</h3>
-          <Button type="button" variant="ghost" size="sm" onClick={startAdd}>
-            <Plus className="mr-1.5 size-3.5" />
-            {t('mcpAddServer')}
-          </Button>
+    <section className={cn('quickforge-settings-section', className)} aria-label={t('mcpConfiguredServers')}>
+      <div className="quickforge-settings-toolbar">
+        <div className="quickforge-settings-row-main">
+          <div className="quickforge-settings-row-title">
+            <Server className="size-4 text-primary" />
+            {t('mcpConfiguredServers')}
+          </div>
+          <div className="quickforge-settings-row-description">{t('mcpServersDescription')}</div>
+          <div className="quickforge-settings-meta">
+            <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('mcpServersCount', { count: servers.length })}</span>
+          </div>
         </div>
+        <button
+          className="quickforge-settings-button quickforge-settings-button-primary"
+          type="button"
+          onClick={startAdd}
+        >
+          <Plus className="mr-2 size-4" />
+          {t('mcpAddServer')}
+        </button>
       </div>
-      {error ? <div className="m-6 mb-0 rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-5xl space-y-5">
+      {error ? <div className="quickforge-settings-alert quickforge-settings-warning-attached">{error}</div> : null}
 
-          {loading && servers.length === 0 ? (
-            <div className="flex items-center justify-center gap-2 rounded-lg border border-border py-8 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              {t('loading')}
-            </div>
-          ) : servers.length === 0 ? (
-            <div className="rounded-lg border border-border p-4 text-sm">{t('mcpNoServersDescription')}</div>
-          ) : (
-            servers.map((server) => (
-              <McpServerCard
-                key={server.name}
-                server={server}
-                toggling={togglingNames.has(server.name)}
-                reconnecting={reconnectingName === server.name}
-                onToggle={(target) => { void toggleServerEnabled(target) }}
-                onEdit={startEdit}
-                onDelete={(name) => { void deleteServer(name) }}
-                onReconnect={(name) => { void reconnectServer(name) }}
-              />
-            ))
-          )}
+      {loading && servers.length === 0 ? (
+        <div className="quickforge-settings-empty-row inline-flex items-center gap-2">
+          <Loader2 className="size-4 animate-spin" />
+          {t('loading')}
         </div>
-      </div>
-    </div>
+      ) : servers.length === 0 ? (
+        <div className="quickforge-settings-empty-row">{t('mcpNoServersDescription')}</div>
+      ) : (
+        servers.map((server) => (
+          <McpServerCard
+            key={server.name}
+            server={server}
+            toggling={togglingNames.has(server.name)}
+            reconnecting={reconnectingName === server.name}
+            onToggle={(target) => { void toggleServerEnabled(target) }}
+            onEdit={startEdit}
+            onDelete={(name) => { void deleteServer(name) }}
+            onReconnect={(name) => { void reconnectServer(name) }}
+          />
+        ))
+      )}
+    </section>
   )
 }

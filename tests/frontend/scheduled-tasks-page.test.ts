@@ -26,7 +26,7 @@ vi.mock('../../src/components/ui/confirm-dialog', () => ({ showConfirm: vi.fn() 
 import { ScheduledTasksPage } from '../../src/components/scheduled-tasks/ScheduledTasksPage'
 import { showConfirm } from '../../src/components/ui/confirm-dialog'
 
-type Node = ReactElement<{ children?: unknown; onClick?: () => unknown; onChange?: (event: { target: { value: string } }) => void; value?: unknown; type?: string; disabled?: boolean; 'aria-pressed'?: boolean }>
+type Node = ReactElement<{ children?: unknown; onClick?: () => unknown; onChange?: (event: { target: { value: string } }) => void; value?: unknown; type?: string; disabled?: boolean; checked?: boolean; 'aria-pressed'?: boolean; 'aria-label'?: string }>
 function nodes(tree: unknown): Node[] {
   if (Array.isArray(tree)) return tree.flatMap(nodes)
   if (!tree || typeof tree !== 'object' || !('props' in tree)) return []
@@ -39,11 +39,11 @@ function text(tree: unknown): string {
   if (tree && typeof tree === 'object' && 'props' in tree) return text((tree as Node).props.children)
   return ''
 }
-function render() {
+function render(onOpenSession?: (sessionId: string) => void) {
   harness.cursor = 0
   harness.refCursor = 0
   harness.effects = []
-  return nodes(ScheduledTasksPage({}))
+  return nodes(ScheduledTasksPage({ onOpenSession }))
 }
 function button(label: string) {
   const result = render().find((node) => node.props.onClick && text(node.props.children) === label)
@@ -324,14 +324,14 @@ describe('ScheduledTasksPage manual frequency interactions', () => {
 
   it('allows independent task actions while disabling only the pending task switch', async () => {
     harness.states[0] = [taskFixture, { ...taskFixture, id: 'other' }]
-    const taskSwitches = render().filter((node) => (node.props as { role?: string }).role === 'switch')
+    const taskSwitches = render().filter((node) => node.type === 'input' && node.props.type === 'checkbox' && node.props['aria-label'] === 'taskEnabledSwitch')
     const pending = deferred<typeof parsedResponse>()
     harness.fetch.mockReturnValueOnce(pending.promise)
-    const first = taskSwitches[0].props.onClick?.()
-    await taskSwitches[0].props.onClick?.()
-    const renderedSwitches = render().filter((node) => (node.props as { role?: string }).role === 'switch')
+    const first = taskSwitches[0].props.onChange?.({ target: { value: '' } })
+    await taskSwitches[0].props.onChange?.({ target: { value: '' } })
+    const renderedSwitches = render().filter((node) => node.type === 'input' && node.props.type === 'checkbox' && node.props['aria-label'] === 'taskEnabledSwitch')
     expect(renderedSwitches.map((node) => node.props.disabled)).toEqual([true, false])
-    await taskSwitches[1].props.onClick?.()
+    await taskSwitches[1].props.onChange?.({ target: { value: '' } })
     expect(harness.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(2)
     pending.resolve(parsedResponse)
     await first
@@ -347,5 +347,76 @@ describe('ScheduledTasksPage manual frequency interactions', () => {
     await button('confirmCreate').props.onClick?.()
     expect(harness.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(2)
     expect(button('createTask').props.disabled).not.toBe(true)
+  })
+})
+
+describe('ScheduledTasksPage task detail recent executions', () => {
+  it('renders compact run rows with per-run view-conversation actions and no run detail fields', () => {
+    harness.states[0] = [{
+      ...taskFixture,
+      lastSessionId: 'session-last',
+      runs: [
+        { id: 'run-a', status: 'success', trigger: 'schedule', startedAt: '2026-01-01T00:00:00Z', durationMs: 12, sessionId: 'session-a', agentLabel: 'Agent X', inputContent: 'secret input', aiResult: 'secret result' },
+        { id: 'run-b', status: 'failed', trigger: 'manual', startedAt: '2026-01-02T00:00:00Z', errorMessage: 'boom', warning: 'careful' },
+      ],
+    }]
+    harness.states[4] = 'old'
+    const opened: string[] = []
+    const tree = render((sessionId) => { opened.push(sessionId) })
+    const actions = tree.filter((node) => node.props['aria-label'] === 'viewConversation' || node.props['aria-label'] === 'runNoSession')
+    expect(actions).toHaveLength(2)
+    expect(actions[0].props['aria-label']).toBe('viewConversation')
+    expect(actions[0].props.disabled).toBe(false)
+    actions[0].props.onClick?.()
+    expect(opened).toEqual(['session-a'])
+    expect(actions[1].props['aria-label']).toBe('runNoSession')
+    expect(actions[1].props.disabled).toBe(true)
+    actions[1].props.onClick?.()
+    expect(opened).toEqual(['session-a'])
+    const rendered = text(tree)
+    expect(rendered).toContain('recentExecutions')
+    expect(rendered).toContain('executionSuccess')
+    expect(rendered).toContain('taskFailed')
+    expect(rendered).not.toContain('runInputContent')
+    expect(rendered).not.toContain('runAiResult')
+    expect(rendered).not.toContain('secret input')
+    expect(rendered).not.toContain('secret result')
+    expect(rendered).not.toContain('Agent X')
+    expect(rendered).not.toContain('boom')
+    expect(rendered).not.toContain('careful')
+    expect(rendered).not.toContain('12ms')
+    expect(tree.some((node) => node.type === 'summary')).toBe(false)
+  })
+})
+
+describe('ScheduledTasksPage execution history rows', () => {
+  it('renders plain rows with a per-run view-conversation action and no expandable details', () => {
+    harness.states[1] = 'history'
+    harness.states[18] = {
+      runs: [
+        { id: 'run-a', taskId: 'task-1', taskTitle: 'Task A', status: 'success', trigger: 'manual', startedAt: '2026-01-01T00:00:00Z', durationMs: 12, sessionId: 'session-a' },
+        { id: 'run-b', taskId: 'task-1', taskTitle: 'Task B', status: 'failed', trigger: 'schedule', startedAt: '2026-01-02T00:00:00Z', errorMessage: 'boom' },
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 10,
+    }
+    const opened: string[] = []
+    const tree = render((sessionId) => { opened.push(sessionId) })
+    const actions = tree.filter((node) => node.props['aria-label'] === 'viewConversation' || node.props['aria-label'] === 'runNoSession')
+    expect(actions).toHaveLength(2)
+    expect(actions[0].props['aria-label']).toBe('viewConversation')
+    expect(actions[0].props.disabled).toBe(false)
+    actions[0].props.onClick?.()
+    expect(opened).toEqual(['session-a'])
+    expect(actions[1].props['aria-label']).toBe('runNoSession')
+    expect(actions[1].props.disabled).toBe(true)
+    actions[1].props.onClick?.()
+    expect(opened).toEqual(['session-a'])
+    const rendered = text(tree)
+    expect(rendered).not.toContain('runInputContent')
+    expect(rendered).not.toContain('runAiResult')
+    expect(rendered).not.toContain('executionAgent')
+    expect(rendered).not.toContain('boom')
   })
 })

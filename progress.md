@@ -1192,3 +1192,12 @@
 - 改动（4 文件 + 本记录）：`src/lib/hooks-settings.ts` 与 `server/hooks/hooks-settings.mjs` 的 `MAX_HOOK_TIMEOUT_SECONDS` 120→300；`tests/frontend/hooks-settings.test.ts` clamp 断言 999→300，补 300 合法 / 301 截断边界，loadHooksSettings 用例期望值 120→300；docs/wiki 两处「timeout clamp 1–120s」同步为 1–300s（`docs/wiki/src/lib/README.md`、`docs/wiki/server/README.md`）。`HooksSettingsTab.tsx` 输入框 max 引用常量自动生效；`src/lib/i18n.ts` grep 无「120 秒 / 1-120」文案（零命中），无需改动。
 - 验证（exit 0）：`npx vitest run tests/frontend/hooks-settings.test.ts tests/frontend/hooks-settings-tab.test.ts tests/server/hooks tests/server/routes/hooks.test.mjs` → 5 files / 48 passed；`npx tsc -b --pretty false` 通过；改动文件 `npx eslint`（src/lib/hooks-settings.ts、tests/frontend/hooks-settings.test.ts、server/hooks/hooks-settings.mjs）0 错误。
 - 无 Git commit/tag/push；未改 `dist/`、`package-dist/`、`package-offline/`、`design-mockups/`；无新增依赖；未改 feature_list.json（小改动轮次，feature 全 done）。
+
+---
+
+## user-message-actions-right-align（done，2026-09-21 修复用户消息操作 icon 行未与气泡右缘对齐）
+
+- 问题：用户消息气泡（`align-self: flex-end` 贴行容器右缘）下方的操作 icon 行来自 `message-actions.ts` user 分支的 Tailwind `mx-4`，其右侧 1rem margin 仍在，导致 icon 行右缘比气泡右缘缩进 16px。
+- 修复（最小改动）：`src/index.css` 的 `.quickforge-user-message .quickforge-message-actions` 规则在既有 `margin-left: auto;` 基础上新增 `margin-right: 0;`（覆盖 Tailwind `mx-4` 的右 margin）；未动 2402/2412 等被契约测试锁定的规则，未改 `message-actions.ts`。
+- 验证（exit 0）：`npx vitest run tests/frontend/chat-surface-css-contract.test.ts tests/frontend/message-actions.test.ts` → 2 files / 71 passed。
+- 无 Git commit/tag/push；未改 `dist/`、`package-dist/`、`package-offline/`；无新增依赖；未改 feature_list.json（UI 微调轮次，feature 全 done）。

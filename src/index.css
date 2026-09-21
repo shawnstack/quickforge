@@ -2436,6 +2436,7 @@ html:not(.dark) .quickforge-user-message .user-message-container {
 
 .quickforge-user-message .quickforge-message-actions {
   margin-left: auto;
+  margin-right: 0;
 }
 
 /* --- 长输入定高收起（聊天用户消息气泡 + subagent 任务块，设计稿 design-mockups/input-clamp-expand.html） ---

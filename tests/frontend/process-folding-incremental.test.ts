@@ -281,15 +281,22 @@ function groupOf(tree: TurnTree) {
   return tree.content.querySelector('.quickforge-process-group')
 }
 
+/** 折叠动画壳层：工具行现在挂在 tools-body 内的 inner 里（body 直接子级只有 inner）。 */
+function innerOf(body: FakeNode | null | undefined) {
+  return body?.querySelector('.quickforge-process-body-inner') as FakeNode
+}
+
 describe('process folding incremental suffix fold (full path, surviving group)', () => {
   it('appends new tool rows into the existing tools group without moving the rows it owns', () => {
     const tree = turnTree()
     decorateProcessBlocks(tree.panel, [tree.assistant], true)
     const group = groupOf(tree)
     const toolsBody = group?.querySelector('.quickforge-process-tools-body') as FakeNode
+    const toolsInner = innerOf(toolsBody)
     const fingerprint = group?.dataset.quickforgeProcessFp
     expect(group?.parentNode).toBe(tree.content)
-    expect(toolsBody.children).toEqual([tree.tool1, tree.tool2])
+    expect(toolsBody.children).toEqual([toolsInner])
+    expect(toolsInner.children).toEqual([tree.tool1, tree.tool2])
 
     // 结构变化但没有释放（React 只在消息列表层追加了一条新 assistant 行）：
     // 新回合消息带来第三条工具行。
@@ -302,10 +309,10 @@ describe('process folding incremental suffix fold (full path, surviving group)',
     // 同一个组、同一个工具组容器：已有行节点一次都没有被搬动（搬动会重启
     // 行内 CSS keyframes），只有新行被增量插入。
     expect(group?.parentNode).toBe(tree.content)
-    expect(tree.tool1.parentNode).toBe(toolsBody)
-    expect(tree.tool2.parentNode).toBe(toolsBody)
-    expect(tool3.parentNode).toBe(toolsBody)
-    expect(toolsBody.children).toEqual([tree.tool1, tree.tool2, tool3])
+    expect(tree.tool1.parentNode).toBe(toolsInner)
+    expect(tree.tool2.parentNode).toBe(toolsInner)
+    expect(tool3.parentNode).toBe(toolsInner)
+    expect(toolsInner.children).toEqual([tree.tool1, tree.tool2, tool3])
     expect(tool3.hasAttribute('data-quickforge-process-folded')).toBe(true)
     expect(group?.dataset.quickforgeProcessFp).not.toBe(fingerprint)
 
@@ -313,9 +320,9 @@ describe('process folding incremental suffix fold (full path, surviving group)',
     // 任何节点都不再被搬动。
     decorateProcessBlocks(tree.panel, [tree.assistant, assistant2], true)
     expect(group?.parentNode).toBe(tree.content)
-    expect(tree.tool1.parentNode).toBe(toolsBody)
-    expect(tree.tool2.parentNode).toBe(toolsBody)
-    expect(tool3.parentNode).toBe(toolsBody)
+    expect(tree.tool1.parentNode).toBe(toolsInner)
+    expect(tree.tool2.parentNode).toBe(toolsInner)
+    expect(tool3.parentNode).toBe(toolsInner)
   })
 
   it('falls back to the full rebuild when the change is not a tool suffix append', () => {
@@ -323,7 +330,7 @@ describe('process folding incremental suffix fold (full path, surviving group)',
     decorateProcessBlocks(tree.panel, [tree.assistant], true)
     const group = groupOf(tree)
     const toolsBody = group?.querySelector('.quickforge-process-tools-body') as FakeNode
-    expect(toolsBody.children).toEqual([tree.tool1, tree.tool2])
+    expect(innerOf(toolsBody).children).toEqual([tree.tool1, tree.tool2])
 
     // 末尾新增的不是工具行而是思考块：纯后缀追加无法表达，必须全量重建。
     const assistant2 = tree.list.append(el('div', 'qf-assistant-message'))
@@ -336,7 +343,7 @@ describe('process folding incremental suffix fold (full path, surviving group)',
     expect(rebuilt).not.toBe(group)
     const rebuiltBody = rebuilt?.querySelector('.quickforge-process-tools-body') as FakeNode
     expect(rebuiltBody).not.toBe(toolsBody)
-    expect(rebuiltBody.children).toEqual([tree.tool1, tree.tool2])
+    expect(innerOf(rebuiltBody).children).toEqual([tree.tool1, tree.tool2])
     // 思考块作为 detail 段与工具组同处重建后的组内。
     expect(rebuilt?.querySelector('.qf-thinking-block')?.closest('.quickforge-process-group')).toBe(rebuilt)
   })
@@ -351,7 +358,7 @@ describe('process folding incremental suffix fold (full path, surviving group)',
     decorateProcessBlocks(tree.panel, [tree.assistant, assistant2], true)
     const group = groupOf(tree)
     const toolsBody = group?.querySelector('.quickforge-process-tools-body') as FakeNode
-    expect(toolsBody.children).toEqual([tree.tool1, tree.tool2, tool3])
+    expect(innerOf(toolsBody).children).toEqual([tree.tool1, tree.tool2, tool3])
 
     // 尾部整条消息（连同其工具行）被移除：当前序列短于前次序列，
     // 增量路径拒绝，回到全量重建。
@@ -362,7 +369,7 @@ describe('process folding incremental suffix fold (full path, surviving group)',
     const rebuilt = groupOf(tree)
     expect(rebuilt).not.toBe(group)
     const rebuiltBody = rebuilt?.querySelector('.quickforge-process-tools-body') as FakeNode
-    expect(rebuiltBody.children).toEqual([tree.tool1, tree.tool2])
+    expect(innerOf(rebuiltBody).children).toEqual([tree.tool1, tree.tool2])
     expect(tool3.isConnected).toBe(false)
   })
 })

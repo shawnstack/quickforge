@@ -3377,18 +3377,45 @@ html.dark .quickforge-file-path-link {
   transform: rotate(90deg);
 }
 
-.quickforge-process-body,
 .quickforge-process-stage,
-.quickforge-process-stage-body,
 .quickforge-process-step,
-.quickforge-process-tools,
-.quickforge-process-tools-body {
+.quickforge-process-tools {
   display: flex;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
   flex-direction: column;
   gap: 0.25rem;
+}
+
+/* 折叠组三个 body 用 grid-template-rows 0fr↔1fr 做高度过渡（无需测量内容高度，
+   先例见 .quickforge-assistant-artifact-card-details）。展开（进入）用
+   --quickforge-dur-base；收起态在下方用更快的 --quickforge-dur-exit 覆盖。 */
+.quickforge-process-body,
+.quickforge-process-stage-body,
+.quickforge-process-tools-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  gap: 0.25rem;
+  transition:
+    grid-template-rows var(--quickforge-dur-base) var(--quickforge-ease-out),
+    visibility 0s linear 0s;
+}
+
+/* 动画壳层：body 的 grid 行 track 塌到 0fr 靠它 min-height:0 + overflow:hidden
+   裁切；行内容（step/stage/工具行）全部挂在这里，body 直接子级只有它。 */
+.quickforge-process-body-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 1;
+  transition: opacity var(--quickforge-dur-base) var(--quickforge-ease-out);
 }
 
 .quickforge-process-body {
@@ -3823,16 +3850,47 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
   line-height: 1.6;
 }
 
+/* 收起态（退出）：grid 行 track 塌到 0fr，visibility 延迟到收起完成后再隐藏
+   （0fr 区内的按钮不可被 Tab 聚焦）；退出比展开快（DESIGN_LANGUAGE）。 */
 .quickforge-process-tools[data-expanded="false"] > .quickforge-process-tools-body {
-  display: none;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--quickforge-dur-exit) var(--quickforge-ease-out),
+    visibility 0s linear var(--quickforge-dur-exit);
 }
 
 .quickforge-process-stage[data-expanded="false"] > .quickforge-process-stage-body {
-  display: none;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--quickforge-dur-exit) var(--quickforge-ease-out),
+    visibility 0s linear var(--quickforge-dur-exit);
 }
 
 .quickforge-process-group[data-expanded="false"] > .quickforge-process-body {
-  display: none;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--quickforge-dur-exit) var(--quickforge-ease-out),
+    visibility 0s linear var(--quickforge-dur-exit);
+}
+
+/* 收起态下 inner 随高度一起淡出，同样用更快的退出时长。 */
+.quickforge-process-tools[data-expanded="false"] > .quickforge-process-tools-body > .quickforge-process-body-inner,
+.quickforge-process-stage[data-expanded="false"] > .quickforge-process-stage-body > .quickforge-process-body-inner,
+.quickforge-process-group[data-expanded="false"] > .quickforge-process-body > .quickforge-process-body-inner {
+  opacity: 0;
+  transition-duration: var(--quickforge-dur-exit);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-process-body,
+  .quickforge-process-stage-body,
+  .quickforge-process-tools-body,
+  .quickforge-process-body-inner {
+    transition: none;
+  }
 }
 
 .qf-assistant-message :is(.qf-thinking-block, .qf-tool-message, .qf-markdown-block)[data-quickforge-process-folded="true"]:not([data-quickforge-process-final-summary="true"]):not(.quickforge-process-body :is(.qf-thinking-block, .qf-tool-message, .qf-markdown-block)) {

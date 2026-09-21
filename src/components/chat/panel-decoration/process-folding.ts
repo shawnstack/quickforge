@@ -47,6 +47,7 @@ const PROCESS_BODY_SELECTOR = '.quickforge-process-body'
 const PROCESS_TOOLS_SELECTOR = '.quickforge-process-tools'
 const PROCESS_TOOLS_BODY_CLASS = 'quickforge-process-tools-body'
 const PROCESS_TOOLS_BODY_SELECTOR = `.${PROCESS_TOOLS_BODY_CLASS}`
+const PROCESS_BODY_INNER_CLASS = 'quickforge-process-body-inner'
 const PROCESS_STAGE_SELECTOR = '.quickforge-process-stage'
 const PROCESS_STAGE_BODY_SELECTOR = '.quickforge-process-stage-body'
 const PROCESS_NODE_SELECTOR = 'thinking-block, tool-message, .qf-thinking-block, .qf-tool-message'
@@ -486,6 +487,22 @@ export function decorateProcessThinkingBlocks(group: ProcessGroupElement) {
   })
 }
 
+/**
+ * 折叠组 body 的动画壳层：grid-template-rows 0fr↔1fr 高度过渡要求全部行内容
+ * 挂在一个 min-height:0 的 inner 下（body 的 grid 行 track 才能塌到 0），所以
+ * 三个 body 的直接子级只有 inner，工具行 / step / stage 全部 append 进 inner。
+ * 幂等：body 已有 inner 时直接返回，不重复创建。
+ */
+function ensureProcessBodyInner(body: HTMLElement) {
+  for (const child of Array.from(body.children)) {
+    if (child.classList.contains(PROCESS_BODY_INNER_CLASS)) return child as HTMLElement
+  }
+  const inner = document.createElement('div')
+  inner.className = PROCESS_BODY_INNER_CLASS
+  body.append(inner)
+  return inner
+}
+
 function createProcessToolsGroup() {
   const tools = document.createElement('div')
   tools.className = 'quickforge-process-tools'
@@ -506,6 +523,7 @@ function createProcessToolsGroup() {
 
   const toolsBody = document.createElement('div')
   toolsBody.className = 'quickforge-process-tools-body'
+  ensureProcessBodyInner(toolsBody)
   tools.append(toolsSummary, toolsBody)
   return tools
 }
@@ -527,6 +545,7 @@ function createProcessStage() {
 
   const body = document.createElement('div')
   body.className = 'quickforge-process-stage-body'
+  ensureProcessBodyInner(body)
   stage.append(summary, body)
   return stage
 }
@@ -548,6 +567,7 @@ function createProcessGroup() {
 
   const body = document.createElement('div')
   body.className = 'quickforge-process-body'
+  ensureProcessBodyInner(body)
 
   group.append(summary, body)
   return group
@@ -636,7 +656,9 @@ function updateProcessToolsGroups(panel: HTMLElement, processKey: string, group:
     const toolsLabel = tools.querySelector<HTMLElement>('.quickforge-process-tools-label')
     if (!toolsBody || !toolsSummary || !toolsLabel) return
 
-    const summary = summarizeProcessTools(toolsBody.querySelectorAll<ToolMessageElement>(' :scope > tool-message, :scope > .qf-tool-message'))
+    // 工具行在 tools-body 的动画壳层 inner 里，body 的直接子级只有 inner，
+    // 因此后代查询与原 `:scope >` 直接子级查询等价（inner 内不会嵌套工具组）。
+    const summary = summarizeProcessTools(toolsBody.querySelectorAll<ToolMessageElement>('tool-message, .qf-tool-message'))
     tools.hidden = summary.count === 0
     if (summary.count === 0) return
 
@@ -1101,9 +1123,10 @@ function populateProcessContainer(container: HTMLElement, items: GroupedProcessN
       const tools = createProcessToolsGroup()
       const toolsBody = tools.querySelector<HTMLElement>(PROCESS_TOOLS_BODY_SELECTOR)
       if (!toolsBody) continue
+      const toolsInner = ensureProcessBodyInner(toolsBody)
       segment.items.forEach(({ node }) => {
         setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
-        toolsBody.append(node)
+        toolsInner.append(node)
       })
       step.append(tools)
       continue
@@ -1114,7 +1137,7 @@ function populateProcessContainer(container: HTMLElement, items: GroupedProcessN
       step.append(node)
     })
   }
-  container.append(step)
+  ensureProcessBodyInner(container).append(step)
 }
 
 function populateProcessGroup(group: ProcessGroupElement, items: GroupedProcessNode[]) {
@@ -1135,7 +1158,7 @@ function populateProcessGroup(group: ProcessGroupElement, items: GroupedProcessN
     const stageBody = stage.querySelector<HTMLElement>(PROCESS_STAGE_BODY_SELECTOR)
     if (!stageBody) continue
     populateProcessContainer(stageBody, section.items)
-    body.append(stage)
+    ensureProcessBodyInner(body).append(stage)
   }
   groupedProcessNodeSequences.set(group, items)
   return processBodyHasContent(group)
@@ -1188,17 +1211,23 @@ function appendProcessToolSuffix(group: ProcessGroupElement, currentNodes: Group
   if (!nodesStillOwned) return false
 
   const tail = previous[previous.length - 1].node
-  const toolsBody = tail.parentElement
+  // 工具行挂在 tools-body 的动画壳层 inner 里（见 ensureProcessBodyInner）：
+  // 校验链 tail → inner → tools-body → group 与「inner 的最后一个子节点是 tail」
+  // 一起，保证增量只 append 新行、已有行不被搬动（防闪烁关键路径）。
+  const toolsInner = tail.parentElement
+  const toolsBody = toolsInner?.parentElement
   if (
-    !toolsBody
+    !toolsInner
+    || !toolsInner.classList.contains(PROCESS_BODY_INNER_CLASS)
+    || !toolsBody
     || !toolsBody.classList.contains(PROCESS_TOOLS_BODY_CLASS)
     || toolsBody.closest(PROCESS_GROUP_SELECTOR) !== group
-    || toolsBody.children[toolsBody.children.length - 1] !== tail
+    || toolsInner.children[toolsInner.children.length - 1] !== tail
   ) return false
 
   currentNodes.slice(appendStart).forEach(({ node }) => {
     setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
-    toolsBody.append(node)
+    toolsInner.append(node)
   })
   groupedProcessNodeSequences.set(group, currentNodes)
   return true

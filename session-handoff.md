@@ -1,4 +1,14 @@
-## 当前交接：Hooks 执行记录持久化 + 分页收尾完成（2026-09-21）
+## 当前交接：对话 tools（process 折叠组）展开/收缩动效平滑化（2026-09-21）
+
+- 当前目标（已完成，待真机验收）：process 折叠组三层 body（顶层过程组 / 内层 stage / 工具组）的展开/收缩由「display:none 直接切显隐」改为平滑高度过渡。`process-folding.ts` 新增 `quickforge-process-body-inner` 动画壳层（`PROCESS_BODY_INNER_CLASS` + `ensureProcessBodyInner` 幂等 helper；`createProcessToolsGroup` / `createProcessStage` / `createProcessGroup` / `populateProcessContainer` / `populateProcessGroup` / `appendProcessToolSuffix` 增量路径 / `updateProcessToolsGroups` 统计查询全部接线 inner；release / restore 未动）；`index.css` 三个 body 由共享 flex 规则拆出改 `display:grid` + `grid-template-rows 1fr`（先例 `.quickforge-assistant-artifact-card-details`），收起态 0fr + visibility 延迟隐藏，展开 `--quickforge-dur-base` 180ms / 收起 `--quickforge-dur-exit` 140ms + 同 ease-out，inner opacity 淡入淡出，`prefers-reduced-motion` 降级；原三条 display:none 收起规则删除，旧版 folded 兜底未动。
+- 改动文件：`src/components/chat/panel-decoration/process-folding.ts`、`src/index.css`、`tests/frontend/process-folding-incremental.test.ts`（断言改 inner 维度 + body 直接子级只有 inner 护栏）、`feature_list.json`（新增 process-fold-grid-animation，done）、`progress.md`、`session-handoff.md`。
+- 验证：process-folding 三件套 + subagent-process-trace → **4 files / 76 passed（exit 0）**；chat-surface-tool-message + chat-surface-css-contract + thinking-header-adoption → **3 files / 39 passed（exit 0）**；message-actions → **45 passed（exit 0）**；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**。未跑全量 `npm run test`（定向验证）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 验收动效手感：折叠组展开/收缩高度过渡平滑（展开 180ms / 收起 140ms + ease-out）、无闪烁、收起后 0fr 区内不可 Tab 聚焦、`prefers-reduced-motion` 下直接切换；② 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：Hooks 执行记录持久化 + 分页收尾完成（2026-09-21）
 
 - 当前目标（已完成）：Hooks 执行记录升级为持久化 + 分页：store `hook-executions`（`storage/hook-executions.json` 根数组；内存 buffer 权威、上限 300 条索引 0 最新、启动 fail-open 加载 + 3s 防抖落盘 + stop flush）；`GET /api/hooks/executions?limit=&offset=` 返回 `{executions,total,limit,offset}` 信封（limit 默认 20 clamp 1–100、offset 默认 0、缺省/不可解析回落默认、越界空页 total 不变）；前端 Hooks 页执行记录 20 条/页分页（页码/总数摘要、上下翻页、失败重试保留当前页）。上一轮已写入源码/测试/wiki 并重启 server 但无报告；本会话核实实际完成度、补齐三个状态文件并跑全量验证。
 - 改动文件：源码/测试/wiki 上轮已就绪（`server/storage.mjs` rootArrayStores、`server/hooks/hook-engine.mjs`、`server/routes/hooks.mjs`、`src/components/settings/tabs/HooksSettingsTab.tsx`、`src/lib/i18n.ts`、3 个测试文件、3 个 wiki README，全量清单见 feature_list.json hooks-agent-events 条目）；本会话补 `feature_list.json` / `progress.md` / `session-handoff.md`。

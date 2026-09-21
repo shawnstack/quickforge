@@ -1,3 +1,18 @@
+## 2026-09-21 · 对话 tools（process 折叠组）展开/收缩动效平滑化
+
+- Goal：对话 tools 过程折叠组（process-folding 三层：顶层过程组 / 内层 stage / 工具组）的展开/收缩由「display:none 直接切显隐」改为平滑高度过渡，动效平滑、避免闪烁。
+- 改动文件：
+  - `src/components/chat/panel-decoration/process-folding.ts`：新增 `quickforge-process-body-inner` 动画壳层——`PROCESS_BODY_INNER_CLASS` 常量 + `ensureProcessBodyInner(body)` 幂等 helper（body 已有 inner 直接返回）；`createProcessToolsGroup` / `createProcessStage` / `createProcessGroup` 三个 body 创建即挂 inner；`populateProcessContainer` / `populateProcessGroup`（step / stage 挂 inner）；`appendProcessToolSuffix` 增量路径校验链扩为 tail → inner → tools-body → group（且 inner 最后子节点为 tail，保证增量只 append 新行、已有行不搬动——防闪烁关键路径）；`updateProcessToolsGroups` 统计查询适配 inner 维度。release / restore 未动。
+  - `src/index.css`：三个 body（`.quickforge-process-body` / `.quickforge-process-stage-body` / `.quickforge-process-tools-body`）由共享 flex 规则拆出改为 `display:grid; grid-template-rows:1fr`（先例 `.quickforge-assistant-artifact-card-details`，无需测量内容高度）；收起态 `[data-expanded="false"] > body` 为 0fr + `visibility:hidden` 延迟到收起动画结束后切换（0fr 区内按钮不可 Tab 聚焦）；展开走 `--quickforge-dur-base`（180ms）、收起用更快的 `--quickforge-dur-exit`（140ms）+ 同 ease-out token；inner 随高度 opacity 淡入淡出；`prefers-reduced-motion: reduce` 降级为无过渡；原三条 display:none 收起规则删除，旧版 `data-quickforge-process-folded` 兜底未动。
+  - `tests/frontend/process-folding-incremental.test.ts`：断言改为 inner 维度 + 「body 直接子级只有 inner」护栏。
+  - `feature_list.json`（新增 process-fold-grid-animation，done）、`progress.md`、`session-handoff.md`。
+- 验证：`npx vitest run` process-folding 三件套（process-folding / process-folding-ownership / process-folding-incremental）+ subagent-process-trace → **4 files / 76 passed（exit 0）**；chat-surface-tool-message + chat-surface-css-contract + thinking-header-adoption → **3 files / 39 passed（exit 0）**；message-actions → **45 passed（exit 0）**；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**。未跑全量 `npm run test`（定向验证）。
+- Notes（只记录，不扩范围）：
+  - a) process 折叠动效手感待真机验收（展开 180ms / 收起 140ms 时长与 ease 曲线观感）。
+  - b) 本轮无 Git 操作、无依赖变更，未触碰 dist/、package-dist/、package-offline/（dist 为 build 命令生成产物）；docs/wiki 未动（装饰层动画实现细化，不改模块职责/公共入口）。
+
+---
+
 ## 2026-09-21 · Hooks 执行记录持久化 + 分页（增强轮收尾）
 
 - Goal：Hooks 执行记录由「内存 50 条、重启清空」升级为持久化 + 分页：store `hook-executions`（`storage/hook-executions.json`，文件根为纯 JSON 数组），内存 buffer 为权威读路径，上限 300 条（索引 0 最新，尾部裁最旧），启动 fail-open 加载 + push 后 3s 防抖（unref）落盘 + `stopHookEngine` flush；`GET /api/hooks/executions` 增 `limit`/`offset` 分页，返回 `{executions,total,limit,offset}` 信封（limit 默认 20、clamp 1–100；offset 默认 0；缺省/不可解析回落默认；越界 offset 空页但 total 不变）；前端 Hooks 页执行记录列表改 20 条/页分页（页码/总数摘要 + 上下翻页，mount 加载、失败重试保留当前页）。本轮为收尾核实：源码/测试/wiki/server 重启上轮已就绪但未报告，本会话逐项核实、补齐状态文件并跑全量验证。

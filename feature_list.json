@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "process-fold-grid-animation",
+      "name": "对话 tools（process 折叠组）展开/收缩动效平滑化（grid 高度过渡 + 增量路径保留）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-21 单 feature：process-folding 三层折叠组（顶层过程组 .quickforge-process-body / 内层 stage .quickforge-process-stage-body / 工具组 .quickforge-process-tools-body）的展开/收缩由「display:none 直接切显隐」改为平滑高度过渡，消除闪烁。src/components/chat/panel-decoration/process-folding.ts 新增 quickforge-process-body-inner 动画壳层——PROCESS_BODY_INNER_CLASS 常量 + ensureProcessBodyInner(body) 幂等 helper（body 已有 inner 直接返回）；createProcessToolsGroup / createProcessStage / createProcessGroup 三个 body 创建即挂 inner，populateProcessContainer / populateProcessGroup（step / stage 挂 inner）、appendProcessToolSuffix 增量路径（校验链扩为 tail → inner → tools-body → group 且 inner 最后子节点为 tail，保证增量只 append 新行、已有行不搬动——防闪烁关键路径）、updateProcessToolsGroups 统计查询适配 inner 维度；release / restore 未动。src/index.css 三个 body 由共享 flex 规则拆出改为 display:grid + grid-template-rows 1fr（先例 .quickforge-assistant-artifact-card-details，无需测量内容高度），收起态 0fr + visibility 延迟隐藏（收起动画结束后才切 hidden，0fr 区内按钮不可 Tab 聚焦），展开 --quickforge-dur-base 180ms / 收起 --quickforge-dur-exit 140ms（退出更快）+ 同 ease-out token，inner opacity 淡入淡出，prefers-reduced-motion 降级无过渡；原三条 display:none 收起规则删除，旧版 data-quickforge-process-folded 兜底未动。tests/frontend/process-folding-incremental.test.ts 断言改为 inner 维度 + 「body 直接子级只有 inner」护栏。",
+      "files": [
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "src/index.css",
+        "tests/frontend/process-folding-incremental.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-21：npx vitest run process-folding 三件套（process-folding / process-folding-ownership / process-folding-incremental）+ subagent-process-trace → 4 files / 76 passed（exit 0）；chat-surface-tool-message + chat-surface-css-contract + thinking-header-adoption → 3 files / 39 passed（exit 0）；message-actions → 45 passed（exit 0）；npm run lint → exit 0（0 errors）；npm run build → exit 0。未跑全量 npm run test（定向验证）。",
+      "boundaries": "仅 process 折叠组三层 body 的展开/收缩动画与 inner 壳层接线；release / restore 所有权租约逻辑未动；旧版 data-quickforge-process-folded display:none 兜底未动；其余折叠组样式与 thinking-header 接管链不改。docs/wiki 未动（装饰层动画实现细化，不改模块职责/公共入口）。遗留：CSS 动效手感（展开 180ms / 收起 140ms）待真机验收。无 Git 操作，未触碰 dist/、package-dist/、package-offline/（dist 为 build 命令生成产物）。"
+    },
+    {
       "id": "hooks-agent-events",
       "name": "Hooks 事件钩子：会话/工具事件触发命令或 Webhook（设置页 + server 引擎）",
       "status": "done",

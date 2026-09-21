@@ -460,6 +460,33 @@ export function decorateProcessThinkingBlocks(group: ProcessGroupElement) {
     const label = labelIndex === undefined ? undefined : children[labelIndex]
     if (!chevron || !label) return
 
+    let icon = children.find((child) => (
+      child.dataset.quickforgeThinkingRole === 'icon'
+      || child.classList.contains('quickforge-process-thinking-icon')
+    ))
+
+    /*
+     * 幂等短路（接管契约见上，勿破坏）：流式期间本函数每帧重跑，下方写路径会
+     * 每帧重写 label.textContent（销毁重建文本节点）并 prepend/append 重排 header
+     * 子级，与点击事件派发竞态（点击“思考过程”文字无法展开；同问题的先例见
+     * shouldToggleProcessSummary 的 pointerdown 优先策略）。header 已接管、三个
+     * 槽位类名就位、文案一致且子级顺序已是 [icon, label, chevron] 时，跳过全部
+     * DOM 写操作。React 重渲染会整体重写 chevron/label 的 class 属性，届时下列
+     * 条件自然失效，回落到完整接管路径恢复装饰状态。
+     */
+    if (
+      icon
+      && header.classList.contains('quickforge-process-thinking-header')
+      && icon.classList.contains('quickforge-process-thinking-icon')
+      && label.classList.contains('quickforge-process-thinking-label')
+      && chevron.classList.contains('quickforge-process-thinking-chevron')
+      && label.textContent === t('processThinking')
+      && header.children.length === 3
+      && header.children[0] === icon
+      && header.children[1] === label
+      && header.children[2] === chevron
+    ) return
+
     chevron.dataset.quickforgeThinkingRole = 'chevron'
     label.dataset.quickforgeThinkingRole = 'label'
     // SVGElement.className 是只读的 SVGAnimatedString（严格模式下赋值直接抛错），
@@ -469,10 +496,6 @@ export function decorateProcessThinkingBlocks(group: ProcessGroupElement) {
     label.setAttribute('class', 'quickforge-process-thinking-label')
     label.textContent = t('processThinking')
 
-    let icon = children.find((child) => (
-      child.dataset.quickforgeThinkingRole === 'icon'
-      || child.classList.contains('quickforge-process-thinking-icon')
-    ))
     if (!icon) {
       icon = document.createElement('span')
       icon.setAttribute('aria-hidden', 'true')

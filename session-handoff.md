@@ -1,4 +1,13 @@
-## 当前交接：定时任务详情视图「最近执行」精简——与历史 tab 同规格，仅保留跳转（2026-09-21）
+## 当前交接：修复运行中点击「思考过程」文字无法展开思考块（2026-09-21）
+
+- 当前目标（已完成，待真机验收）：流式（运行中）期间点击思考块 header 的「思考过程」文字无法展开。根因：`decorateProcessThinkingBlocks` 流式期间每帧重跑写路径（重写 `label.textContent` + prepend/append 重排 header 子级）与 click 事件派发竞态。修复：① `src/components/chat/surface/ThinkingBlock.tsx` header 按钮新增 `onPointerDown` 切换（不 preventDefault，保留原生 focus 等默认行为），`onClick` 仅 `e.detail === 0`（键盘 Enter/Space 或程序触发）时切换、`e.detail > 0`（真实鼠标 pointerdown 之后重复派发的 click）忽略——对齐 `shouldToggleProcessSummary` 的 pointerdown 优先先例；② `src/components/chat/panel-decoration/process-folding.ts` `decorateProcessThinkingBlocks` 幂等 no-op：header 已接管、三槽位类名就位、文案一致且子级顺序已是 `[icon, label, chevron]` 时短路 return，跳过全部 DOM 写操作，消除流式期间每帧 DOM churn（React 重渲染重写 class 属性后条件自然失效、回落完整接管）。
+- 改动文件：`src/components/chat/surface/ThinkingBlock.tsx`、`src/components/chat/panel-decoration/process-folding.ts`、`tests/frontend/thinking-header-adoption.test.ts`（新增幂等 no-op 用例）、`tests/frontend/thinking-block-interaction.test.ts`（新建 3 用例）、`docs/wiki/src/components/README.md`（思考头接管契约条目两份副本）、`docs/wiki/src/lib/README.md`（tool-display-settings 条目交叉引用）、`feature_list.json`（新增 thinking-header-streaming-click-fix，done）、`progress.md`、`session-handoff.md`。
+- 验证：定向 `npx vitest run`（thinking / process 相关）→ **7 files / 132 passed（exit 0）**；`npx eslint` 改动文件 → **exit 0**；`npx tsc -b` → **exit 0**。未跑全量 test/build（定向验证）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 验收：运行中（流式）点击「思考过程」文字可展开/收起思考块；header 聚焦时键盘 Enter/Space 可切换；运行结束后点击同样正常；② 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+## 历史交接：定时任务详情视图「最近执行」精简——与历史 tab 同规格，仅保留跳转（2026-09-21）
 
 - 当前目标（已完成，待真机验收）：任务列表点击进入的「任务详情视图」里「最近执行」区域与上轮历史 tab 同规格精简——每条 run 由 `<details>/<summary>` 展开结构（展开体 renderRunDetails：执行 Agent/warning/输入内容/AI 结果/错误信息/耗时）改为紧凑行：`rounded-lg bg-muted` 行内「开始时间 + 状态 badge」+ 行尾「查看对话」icon-action 跳转按钮（有 sessionId enabled、无 sessionId disabled 灰 + t('runNoSession')，常驻渲染宽度稳定）；触发方式与全部 run 明细字段不再渲染（会话里仍可见）。组件统一：抽出 `renderRunConversationAction(run)` 共用渲染函数，历史 tab 行尾与详情视图 run 行同一实现。`renderRunDetails` 整体删除；i18n EN/ZH 成对删除 `runInputContent`/`runAiResult`（grep 确认无引用）；`executionAgent`（详情任务信息网格）/`runDuration`（历史表头）保留。详情视图其余部分（返回/标题/scheduleRule/状态与模式 badge/任务内容/任务信息网格/编辑/删除 danger/lastSessionId 跳转）零改动。
 - 改动文件：`src/components/scheduled-tasks/ScheduledTasksPage.tsx`（+18 -30：紧凑 run 行 + 共用跳转按钮函数 + 删 renderRunDetails）、`src/lib/i18n.ts`（EN/ZH 删 runInputContent/runAiResult）、`tests/frontend/scheduled-tasks-page.test.ts`（+39 新增详情视图用例：enabled/disabled 语义 + 点击跳转 + 明细不出现护栏 + 无 summary 节点）、`feature_list.json`（scheduled-tasks-history-compact-rows 条目追加第二轮）、`progress.md`、`session-handoff.md`。

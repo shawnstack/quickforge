@@ -93,6 +93,11 @@ class FakeNode {
   connectedRoot = false
   private html = ''
   private text = ''
+  /** 每次赋值 textContent 都视为销毁重建文本节点（真实 DOM 语义）；幂等断言用它确认文本节点未被替换。 */
+  textIdentity: object | null = null
+  /** append/prepend 对子级列表的写入次数；幂等断言用它确认子级未被移动。 */
+
+  childListWrites = 0
 
   constructor(tagName: string, className = '') {
     this.tagName = tagName.toUpperCase()
@@ -121,6 +126,7 @@ class FakeNode {
 
   set textContent(value: string) {
     this.text = value
+    this.textIdentity = {}
   }
 
   get parentElement(): FakeNode | null {
@@ -159,6 +165,7 @@ class FakeNode {
   }
 
   append(...nodes: FakeNode[]): FakeNode {
+    this.childListWrites += nodes.length
     nodes.forEach((node) => {
       node.parentNode?.detach(node)
       node.parentNode = this
@@ -168,6 +175,7 @@ class FakeNode {
   }
 
   prepend(...nodes: FakeNode[]): FakeNode {
+    this.childListWrites += nodes.length
     nodes.reverse().forEach((node) => {
       node.parentNode?.detach(node)
       node.parentNode = this
@@ -351,6 +359,26 @@ describe('thinking header adoption (React DOM shape)', () => {
       expect(tree.header.children[index]).toBe(child)
     })
     expect(tree.header.children.filter((child) => child.dataset.quickforgeThinkingRole === 'icon')).toHaveLength(1)
+    expect(tree.header.className).toBe('thinking-header quickforge-process-thinking-header')
+  })
+
+  it('is a full no-op on an already-adopted header (streaming reruns do not churn the DOM)', () => {
+    const tree = reactThinkingTree()
+
+    decorateProcessThinkingBlocks(tree.group)
+    const labelTextNode = tree.label.textIdentity
+    const headerChildListWrites = tree.header.childListWrites
+
+    decorateProcessThinkingBlocks(tree.group)
+
+    // 幂等短路：label 文本节点未被销毁重建（身份引用不变）、header 子级未被
+    // append/prepend 重排 —— 流式期间每帧重跑不再与点击事件派发竞态。
+    expect(tree.label.textIdentity).toBe(labelTextNode)
+    expect(tree.header.childListWrites).toBe(headerChildListWrites)
+    expect(tree.header.children.map((child) => child.tagName)).toEqual(['SPAN', 'SPAN', 'SVG'])
+    expect(tree.header.children[1]).toBe(tree.label)
+    expect(tree.header.children[2]).toBe(tree.chevron)
+    expect(tree.label.textContent).toBe('processThinking')
     expect(tree.header.className).toBe('thinking-header quickforge-process-thinking-header')
   })
 

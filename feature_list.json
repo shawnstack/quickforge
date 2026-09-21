@@ -1,6 +1,26 @@
 {
   "features": [
     {
+      "id": "thinking-header-streaming-click-fix",
+      "name": "修复运行中（流式）点击「思考过程」文字无法展开思考块（header pointerdown 优先切换 + decorateProcessThinkingBlocks 幂等 no-op）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-21 单点 bug 修复。根因：流式期间 decorateProcessThinkingBlocks 每帧重跑，其写路径每帧重写 label.textContent（销毁重建文本节点）并 prepend/append 重排 header 子级，与点击事件派发竞态——点击「思考过程」文字时 click 目标节点被重建/搬移，React onClick 不触发，思考块无法展开。修复双管齐下：① src/components/chat/surface/ThinkingBlock.tsx header 按钮新增 onPointerDown 切换（不 preventDefault，保留原生 focus 等默认行为），onClick 改为 e.detail > 0 时 return（真实鼠标 pointerdown 之后重复派发的 click，已由 pointerdown 处理）、detail === 0 时切换（键盘 Enter/Space 或程序触发），对齐 process-folding.ts shouldToggleProcessSummary 的 pointerdown 优先先例；② process-folding.ts decorateProcessThinkingBlocks 幂等化：header 已接管（quickforge-process-thinking-header）、icon/label/chevron 三槽位类名就位、label 文案一致（t('processThinking')）且子级顺序已是 [icon, label, chevron] 时短路 return，跳过全部 DOM 写操作，消除流式期间每帧 DOM churn；React 重渲染整体重写 chevron/label 的 class 属性后短路条件自然失效，回落完整接管路径。测试：tests/frontend/thinking-header-adoption.test.ts 新增幂等 no-op 用例（is a full no-op on an already-adopted header）；新建 tests/frontend/thinking-block-interaction.test.ts 3 用例（pointerdown 切换且不 preventDefault / pointerdown 后 click detail=1 不二次切换 / click detail=0 仍切换），沿用仓库「手写最小 fake 表面」约定（直调组件函数取 header props 事件处理器，经 React development 构建的 client internals 注入 useState 桩，node 环境无 jsdom 合成事件）。",
+      "files": [
+        "src/components/chat/surface/ThinkingBlock.tsx",
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "tests/frontend/thinking-header-adoption.test.ts",
+        "tests/frontend/thinking-block-interaction.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-21：定向 npx vitest run（thinking / process 相关 7 files）→ 7 files / 132 passed（exit 0，含新文件 thinking-block-interaction.test.ts 3 用例与 thinking-header-adoption.test.ts 新增幂等 no-op 用例）；npx eslint 改动文件 → exit 0；npx tsc -b → exit 0。未跑全量 test/build（定向验证）。",
+      "boundaries": "仅 ThinkingBlock header 按钮交互（pointerdown 优先切换）与 decorateProcessThinkingBlocks 幂等短路两处；shouldToggleProcessSummary 既有实现零改动（仅对齐其先例语义）；思考块默认收起、接管形态 [icon, label, chevron] 与 fail-visible 可见性契约（禁止 .thinking-header display:none）不变；process/stage/tools 三层折叠与所有权租约不涉及。无依赖变更、无 Git 操作，未触碰 dist/、package-dist/、package-offline/。"
+    },
+    {
       "id": "scheduled-tasks-history-compact-rows",
       "name": "定时任务执行历史行 + 任务详情视图最近执行精简：移除展开详情、仅保留「查看对话」跳转",
       "status": "done",

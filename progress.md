@@ -1,3 +1,20 @@
+## 2026-09-21 · 修复运行中点击「思考过程」文字无法展开（thinking header pointerdown 优先 + 装饰幂等 no-op）
+
+- Goal：流式（运行中）状态下点击思考块 header 的「思考过程」文字无法展开思考块。根因：`decorateProcessThinkingBlocks` 在流式期间每帧重跑，其写路径每帧重写 `label.textContent`（销毁重建文本节点）并 prepend/append 重排 header 子级，与点击事件派发竞态——click 的目标节点被重建/搬移，React onClick 打不上。
+- 改动文件：
+  - `src/components/chat/surface/ThinkingBlock.tsx`：header 按钮新增 `onPointerDown` 切换（不 preventDefault，保留原生 focus 等默认行为）；`onClick` 改为 `e.detail > 0` 时 return（真实鼠标 pointerdown 之后重复派发的 click，已由 pointerdown 处理）、`detail === 0` 时切换（键盘 Enter/Space 或程序触发）——对齐 `process-folding.ts` `shouldToggleProcessSummary` 的 pointerdown 优先先例。
+  - `src/components/chat/panel-decoration/process-folding.ts`：`decorateProcessThinkingBlocks` 幂等化——header 已接管（`quickforge-process-thinking-header`）、icon/label/chevron 三槽位类名就位、label 文案一致（`t('processThinking')`）且子级顺序已是 `[icon, label, chevron]` 时短路 return，跳过全部 DOM 写操作，消除流式期间每帧 DOM churn；React 重渲染整体重写 chevron/label 的 class 属性后短路条件自然失效，回落完整接管路径恢复装饰状态。
+  - `tests/frontend/thinking-header-adoption.test.ts`：新增幂等 no-op 用例（`is a full no-op on an already-adopted header (streaming reruns do not churn the DOM)`）。
+  - `tests/frontend/thinking-block-interaction.test.ts`（新建，3 用例）：pointerdown 切换且不 preventDefault / pointerdown 后 click detail=1 不二次切换 / click detail=0 仍切换；沿用仓库「手写最小 fake 表面」约定（直调组件函数取 header props 事件处理器，经 React development 构建的 client internals 注入 useState 桩）。
+  - `docs/wiki/src/components/README.md`（思考头接管契约条目两份副本补 pointerdown 优先 + 幂等 no-op 说明）、`docs/wiki/src/lib/README.md`（tool-display-settings 条目补交叉引用）、`feature_list.json`（新增 thinking-header-streaming-click-fix，done）、`session-handoff.md`。
+- 验证：定向 `npx vitest run`（thinking / process 相关）→ **7 files / 132 passed（exit 0）**；`npx eslint` 改动文件 → **exit 0**；`npx tsc -b` → **exit 0**。未跑全量 test/build（定向验证）。
+- Notes（只记录，不扩范围）：
+  - a) `shouldToggleProcessSummary` 既有实现零改动（仅对齐其先例语义）；思考块默认收起、接管形态 `[icon, label, chevron]` 与 fail-visible 可见性契约（禁止 `.thinking-header` display:none）不变。
+  - b) 待真机验收：运行中点击「思考过程」文字可展开/收起；header 聚焦时键盘 Enter/Space 可切换（detail=0 路径）；运行结束后点击同样正常。
+  - c) 本轮无 Git 操作、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
+
+---
+
 ## 2026-09-21 · 定时任务详情视图「最近执行」精简（与历史 tab 同规格，仅保留跳转）
 
 - Goal：上轮历史 tab 已精简为紧凑行 + 「查看对话」跳转，任务详情视图「最近执行」仍是 <details>/<summary> 展开结构（展开体 renderRunDetails 渲染执行 Agent/warning/输入内容/AI 结果/错误信息/耗时大段字段），本轮同规格精简：每条 run 只保留紧凑信息（时间 + 状态 badge）+ 行尾「查看对话」icon-action 跳转按钮；会话里已能看到全部内容。

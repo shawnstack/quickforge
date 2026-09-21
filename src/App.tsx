@@ -100,6 +100,7 @@ import {
 } from '@/lib/sidebar-session-sort-mode'
 import { getDeletedProjectRecoveryDecision } from '@/lib/deleted-project-recovery'
 import { isCurrentProjectRequest } from '@/lib/project-request-guard'
+import { openSessionFromSettings } from '@/lib/open-session-from-settings'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
@@ -605,15 +606,6 @@ function MainApp() {
     },
     [loadAgentSession, scheduleSessionLoad],
   )
-
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ sessionId?: unknown }>).detail
-      if (typeof detail?.sessionId === 'string') handleToastClick(detail.sessionId)
-    }
-    window.addEventListener('quickforge:open-session-from-settings', handler)
-    return () => window.removeEventListener('quickforge:open-session-from-settings', handler)
-  }, [handleToastClick])
 
   const consumeRestoredDraft = useCallback((id: number) => {
     setRestoredDraft((current) => current?.id === id ? undefined : current)
@@ -1281,6 +1273,32 @@ function MainApp() {
       void activateConfiguredModel().catch((error) => logger.error('Failed to activate configured model:', error))
     }
   }, [activateConfiguredModel, agentRef, needsModelSetup, ui])
+
+  // 定时任务历史「查看对话」与系统通知点击共用的跳转：预检会话存在性，
+  // 不存在时留在当前页提示；存在时关闭设置页再加载会话（加载失败兜底提示）。
+  const handleOpenSessionFromSettings = useCallback(
+    (sessionId: string) => {
+      void openSessionFromSettings({
+        sessionId,
+        closeSettingsPage,
+        scheduleSessionLoad,
+        loadSession: loadAgentSession,
+        onMissingSession: () => {
+          void showAlert(t('sessionNotFound'))
+        },
+      })
+    },
+    [closeSettingsPage, loadAgentSession, scheduleSessionLoad],
+  )
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: unknown }>).detail
+      if (typeof detail?.sessionId === 'string') handleOpenSessionFromSettings(detail.sessionId)
+    }
+    window.addEventListener('quickforge:open-session-from-settings', handler)
+    return () => window.removeEventListener('quickforge:open-session-from-settings', handler)
+  }, [handleOpenSessionFromSettings])
 
   const openDesktopAbout = useCallback(() => {
     setDesktopTitlebarMenuOpen(false)

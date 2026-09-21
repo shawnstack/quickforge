@@ -1,6 +1,94 @@
 {
   "features": [
     {
+      "id": "scheduled-tasks-history-compact-rows",
+      "name": "定时任务执行历史行 + 任务详情视图最近执行精简：移除展开详情、仅保留「查看对话」跳转",
+      "status": "done",
+      "dependencies": [],
+      "approach": "两轮完成。第一轮（2026-09-21）：历史 tab 行不可展开——删除 expandedRunId 展开状态与整行点击展开，历史行改普通 div grid（5 信息列不变）+ 行尾第 6 auto 列 MessageSquare icon-action 按钮；无 sessionId 时 disabled 灰 + title/aria-label 切 t('runNoSession')（宽度稳定），onClick sessionId 守卫双保险。第二轮（2026-09-21）：任务详情视图「最近执行」同规格精简——原本每条 run 为 <details>/<summary> 展开结构（summary：时间·触发方式·状态 + 展开体 renderRunDetails 渲染执行 Agent/warning/输入内容/AI 结果/错误信息/耗时大段字段），改为紧凑行：rounded-lg bg-muted 行内「formatDateTime(startedAt) + 状态 badge（statusBadgeClass/statusLabel）」+ 行尾「查看对话」icon-action 跳转按钮（与历史行完全同款语义：有 sessionId enabled、无 sessionId disabled 灰 + t('runNoSession')，常驻渲染宽度稳定；触发方式 manualRun/autoRun 与明细字段全部移除）；详情视图其余部分（返回按钮、标题/scheduleRule、状态/执行模式 badge、任务内容/任务信息网格、编辑入口、删除按钮 button-danger、「最近一次会话」lastSessionId 跳转）零改动。组件复用统一：抽出 renderRunConversationAction(run) 渲染函数，历史 tab 行尾与详情视图 run 行共用同一实现（按钮 className/disabled/title/aria-label/onClick/MessageSquare icon 完全一致）。死代码清理：renderRunDetails 无剩余调用点整体删除；i18n key 逐个 grep 全仓库——runInputContent/runAiResult 仅被 renderRunDetails 引用，EN/ZH 成对删除；executionAgent 保留（详情视图任务信息网格仍引用）；runDuration 保留（历史 tab 表头仍引用）。测试：scheduled-tasks-page.test.ts 新增详情视图用例（states[4]=detailTaskId 进详情视图）：有 sessionId 按钮 aria-label=viewConversation 且 enabled、点击 onOpenSession('session-a')；无 sessionId 按钮 aria-label=runNoSession 且 disabled、点击无副作用；断言紧凑信息保留（recentExecutions/executionSuccess/taskFailed badge 文案）且明细字段不出现（runInputContent/runAiResult/secret input/secret result/Agent X/boom/careful/12ms）+ 无 <summary> 节点护栏；上轮历史 tab 用例零改动通过（按钮改由共用函数渲染，断言语义不变）。",
+      "files": [
+        "src/components/scheduled-tasks/ScheduledTasksPage.tsx",
+        "src/lib/i18n.ts",
+        "tests/frontend/scheduled-tasks-page.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "第二轮 2026-09-21：npx vitest run tests/frontend/scheduled-tasks-page.test.ts → 1 file / 20 passed（exit 0，19 既有 + 1 新增详情视图用例）；npx tsc -b → exit 0；npx eslint 三改动文件 → exit 0；npm run test → 374 files / 4480 passed + 1 skipped（exit 0，scheduled-tasks.commands.test.mjs flaky 本轮未复现）；npm run lint → exit 0；npm run build → exit 0（ScheduledTasksPage chunk 41.73 kB，仅既有 chunk size 警告）。第一轮：19 passed / 374 files / 4479 passed + 1 skipped / lint 0 / build 0。",
+      "boundaries": "仅精简「历史」tab 展开详情与「任务详情视图最近执行」两处 run 明细展示；run 明细内容在会话里仍可见（「查看对话」跳转）；任务详情视图任务级信息（任务内容/规则/cron/执行 Agent/项目/模型/思考/创建时间）保留；不动 server/ 端、onOpenSession 跳转链路（open-session-from-settings）、筛选/分页/加载/空态；ScheduledTaskRun 类型字段保留（API 数据契约）；无依赖变更；不新增 CSS（复用既有 icon-action :disabled 样式）；未手工触碰 dist/、package-dist/、package-offline/。"
+    },
+    {
+      "id": "scheduled-tasks-open-session-jump",
+      "name": "定时任务历史「查看对话」跳转完整体验（关闭设置页 + 会话不存在友好提示）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-21 实现跳转闭环。此前链路 ScheduledTasksPage onOpenSession → CustomEvent 'quickforge:open-session-from-settings' → App.tsx 监听 → handleToastClick → scheduleSessionLoad，存在两个缺口：设置页不自动关闭、会话不存在时静默（performLoadSession 仅 logger.error + return false）。实现：① 新增纯逻辑模块 src/lib/open-session-from-settings.ts 导出 openSessionFromSettings(options)（依赖注入 closeSettingsPage / scheduleSessionLoad / loadSession / onMissingSession 回调）：空 sessionId 直接 return；`getAppStorage().sessions.getMetadata(sessionId)` 预检（先例 ArchivedConversationsSettingsTab.tsx:119-122），为 null → onMissingSession() 后 return（设置页保持打开，用户留在历史记录页）；预检本身抛错仅 logger.error 不阻断跳转；存在 → closeSettingsPage() + scheduleSessionLoad(sessionId, wrapped-load)，wrapped load 内 `await loadSession(sessionId)` 返回 false 时 onMissingSession() 兜底（覆盖本地有元数据但服务端 restore 404 场景，server/routes/agent.mjs 返回 404 'Session not found'），返回值透传给 scheduleSessionLoad 供其 cancelSessionTransition。② App.tsx：事件监听（原 609-616 经 handleToastClick）改为专用 handleOpenSessionFromSettings useCallback（依赖 [closeSettingsPage, loadAgentSession, scheduleSessionLoad]），onMissingSession → `void showAlert(t('sessionNotFound'))`；因依赖 closeSettingsPage（定义于其后），handler + useEffect 整体移至 closeSettingsPage 之后（hook 顺序静态、跨渲染一致）；handleToastClick 本身不动（ToastContainer 点击场景不受影响）；showAlert/t 均 App.tsx 既有 import。系统通知点击（system-notifications.ts openSession dispatch 同名事件）同样受益于预检与提示；closeSettingsPage 在设置页未开时调用无害（setSettingsDialogOpen(false)/setSettingsCustomProvider(undefined) 为 useState setter 幂等，React bailout 不重渲染；仅 needsModelSetup || !agentRef 时触发 activateConfiguredModel 兜底）。③ i18n 复用既有 sessionNotFound（EN: Conversation not found. / ZH: 未找到该对话。），不新增 key。④ 测试：全仓库无 App 组件级测试基建（App.tsx 2342 行零测试引用，渲染需 mock 数十模块过重），按任务预案将 handler 核心逻辑抽为纯函数模块；新增 tests/frontend/open-session-from-settings.test.ts 5 用例（mock @/storage getAppStorage + logger，参照 system-notifications.test.ts 模式）：空 id 不做任何事；元数据 null → onMissingSession 调用且不 close/不 load；元数据存在 → close 调用 + scheduleSessionLoad 携正确 sessionId + load 回调调 loadSession 且返回 true 不提示；load 返回 false → 兜底 onMissingSession；getMetadata 抛错 → 仍 close + schedule。",
+      "files": [
+        "src/lib/open-session-from-settings.ts",
+        "src/App.tsx",
+        "tests/frontend/open-session-from-settings.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-21：npx vitest run tests/frontend/open-session-from-settings.test.ts → 1 file / 5 passed（exit 0）；npm run test → 374 files / 4478 passed + 1 skipped（exit 0，scheduled-tasks.commands.test.mjs flaky 本轮未复现）；npm run lint → exit 0；npm run build → exit 0（仅既有 chunk size 警告）。",
+      "boundaries": "不动 server/ 端；不动 ScheduledTasksPage（按钮与事件 dispatch 已存在）；不动 dist/、package-dist/、package-offline/；无依赖变更；不重构无关代码（handleToastClick / ToastContainer 场景零改动）。"
+    },
+    {
+      "id": "scheduled-tasks-ui-design-system-alignment",
+      "name": "定时任务设置页 UI 对齐 quickforge-settings 统一设计系统",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-21 重构（与 MCP 轮完全同构）：ScheduledTasksPage 从离群旧模式（自制 rounded-xl border bg-card 容器/头部、自制 pill tab、自制 emerald switch、ui/Button ghost/outline/destructive 按钮自制 badge）对齐到 quickforge-settings-* 设计系统。页面自建滚动容器（flex overflow-hidden + p-6 + max-w-5xl）移除，改为单 section.quickforge-settings-section 直接由宿主 SettingsPanel 的 quickforge-settings-stack 承载（同 MCP）。三视图改造：① 列表/历史视图——toolbar（row-main：Clock 图标 size-4 text-primary + t('scheduledTasks') 标题 + t('scheduledTasksDescription') 描述 + badge-muted t('tasksCount') 计数；右侧 quickforge-settings-segmented 任务列表/执行历史双 tab（aria-pressed，点击逻辑逐字保留含 loadHistory）+ primary Plus「新建任务」）；任务行 → quickforge-settings-list-item（cursor-pointer 点击进详情保留 + list-item-main：row-title/row-description/meta badge 行（状态 badge + scheduleRule mono badge-muted + 上次/下次执行 badge-muted）+ list-item-actions）；自制 emerald switch → quickforge-settings-switch（label+checkbox，保留 aria-label t('taskEnabledSwitch')、启停 title、pause/resume API 调用与 disabled 条件）；Button ghost icon → quickforge-settings-icon-action（MoreHorizontal size-4，menu 定位逻辑不动）；空态 empty-row；错误 quickforge-settings-alert warning-attached。② 历史视图——筛选卡 → quickforge-settings-form-grid(sm:grid-cols-2 md:grid-cols-3) + form-row/form-label + settings-select/input 六控件；底部 quickforge-settings-row + row-control（重置 secondary | 查询 primary）；表头/行保持 grid 表格结构（px-5、hover:bg-muted），状态 pill → badge 语义色，加载态 empty-row + Loader2 animate-spin，分页按钮 → button-secondary-compact、页大小 select 包 w-24 容器用 settings-select。③ 编辑/新建视图——toolbar（返回 secondary ArrowLeft + row-main 标题/描述）；保留 fieldset disabled={loading}（aria-busy，测试契约）改 quickforge-settings-form-grid sm:grid-cols-2；AI 快速解析块 → form-row（Sparkles size-4 text-primary + InfoTip）+ settings-textarea，解析按钮 → button-secondary-compact（loading 显示 Loader2 spin）；追问 → settings-warning；解析成功卡 → settings-message（#10b981 配方）；周重复选择自制按钮组 → quickforge-settings-segmented(-option/-option-active)（保留 aria-pressed + onClick）；执行规则摘要 → settings-note；表单控件全部 → settings-input/-select/-textarea(+mono)/form-row/form-label；启用 checkbox → quickforge-settings-switch + form-label 文案；底部 quickforge-settings-row + row-control（取消 secondary | 保存 primary + Loader2，禁用逻辑逐字保留）。④ 任务详情视图——section + toolbar（返回 + row-main 标题/scheduleRule + 状态/执行模式 badge）+ 正文 + 底部 row-control（查看对话/立即执行/编辑 secondary + 删除 button-danger 仅 hover 红，disabled 条件逐字保留）。杂项：statusClass() → statusBadgeClass()（enabled/success→success、running→info、paused→warning、failed→danger、completed→muted 语义映射）；删除 emerald/blue/amber 自制配色与 bg-destructive/10 斜杠写法（semantic-color-class-parity 白名单内）；门户菜单图标 size-3.5→size-4（结构/定位不动）；硬编码中文 '请求失败'→t('requestFailed')（既有 key）、'请补充任务信息。'→新 key taskNeedMoreInfo（EN/ZH 同步）、'cron：'/'cron'→t('taskCronExpression')。测试：tests/frontend/scheduled-tasks-page.test.ts 适配——任务行 switch 由 role='switch' button 断言改为 input[type=checkbox][aria-label=taskEnabledSwitch] 的 disabled/onChange 断言（语义保留：仅 pending 任务禁用、互不阻塞），Node 类型补 checked/'aria-label'；其余 17 个用例（编辑/创建/频率切换/AI 解析/防抖去重/删除确认等）零改动通过。功能逻辑零改动：所有 useState/useRef/useEffect 次序与数量、API 调用、防抖、确认弹窗、菜单定位、分页逻辑逐字未动。",
+      "files": [
+        "src/components/scheduled-tasks/ScheduledTasksPage.tsx",
+        "src/lib/i18n.ts",
+        "tests/frontend/scheduled-tasks-page.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-21：npx vitest run scheduled-tasks-page + scheduled-task-form + semantic-color-class-parity → 3 files / 50 passed（exit 0）；npx tsc -b → exit 0；npx eslint 三改动文件 → exit 0；npm run test → 373 files / 4473 passed + 1 skipped（exit 0，scheduled-tasks.commands.test.mjs 本轮未复现 flaky）；npm run lint → exit 0；npm run build → exit 0（ScheduledTasksPage chunk 42.62 kB，仅既有 chunk size 警告）。",
+      "boundaries": "仅定时任务设置页 UI（单文件组件 + i18n 一对 key + 对应前端测试）；scheduled-tasks/ 目录无其他嵌套组件文件（已核实仅 ScheduledTasksPage.tsx）；不改 server/ 端、不动 dist/、package-dist/、package-offline/（dist 为 build 生成产物）、无依赖变更、无 Git 操作；不新增 CSS（全部复用既有 quickforge-settings-* 与上轮 icon-action :disabled/:not(:disabled) 守卫）。"
+    },
+    {
+      "id": "mcp-settings-ui-design-system-alignment",
+      "name": "MCP 服务设置 UI 对齐 quickforge-settings 统一设计系统",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-21 重构：MCP 设置面板从离群旧模式（自制 Tailwind 卡片 + emerald 自制开关 + ui/Button ghost icon 按钮）对齐到项目统一 quickforge-settings-* 设计系统，基准 CustomProvidersSettingsTab.tsx（列表+toolbar+list-item+表单页模式），辅助参考 PluginsPage（加载/空态/empty-row）与 AgentProfilesPage（行内 switch 启停+行操作）。mcp-servers-dialog.tsx：列表视图改为 quickforge-settings-section + quickforge-settings-toolbar（row-main：Server 图标 size-4 text-primary + 标题 + 描述 + badge-muted 服务计数；右侧 primary「添加服务」按钮），服务行由 McpServerCard 以 quickforge-settings-list-item 渲染，加载态 empty-row + Loader2 animate-spin、空态 empty-row、错误 quickforge-settings-alert（warning-attached）；编辑视图保留表单/JSON 双 tab，切换改 quickforge-settings-segmented(-option/-option-active)（带 aria-pressed），底部操作改 quickforge-settings-row + row-control（取消 secondary / 保存 primary，禁用逻辑保留）；不再重复 stack（宿主 react-settings-tabs SettingsPanel 已包 quickforge-settings-stack）。mcp-server-card.tsx：仅渲染 list-item-main（row-title + row-description(mono) + meta badge 行）+ list-item-actions；自制 emerald 开关改 quickforge-settings-switch（保留 aria-label t('mcpEnabledSwitchLabel') 与启停 title）；text-[11px] 自制徽标改 quickforge-settings-badge-*（connected→success 配方、error→danger、connecting/disabled/unknown→muted、builtin「内置」→muted、工具数→muted，工具名清单改 quickforge-settings-command-name code chips）；操作按钮 ui/Button ghost icon 改 quickforge-settings-icon-action（重连/编辑），删除用 -danger 变体（默认不红仅 hover 红）；builtin 时隐藏删除、保留编辑/启停/重连。mcp-server-form.tsx：labelClass/textareaClass 局部常量删除，改 quickforge-settings-form-grid / -form-row / -form-label + quickforge-settings-input / -textarea(+mono) / -select；transport stdio/http 分支逻辑不变；标题行移除（由编辑视图 toolbar 承载）。i18n：EN/ZH 同步新增 mcpServersDescription、mcpServersCount 两 key，无新增硬编码文案。硬性约束：无 /NN 语义色透明度类（semantic-color-class-parity 护栏通过）；危险图标默认不红仅 hover 红；图标统一 size-4。功能全保留：启停 PUT enabled、重连 reconnect、编辑（表单+JSON 双向同步）、删除 showConfirm 确认、builtin 删除隐藏保护；server/ 端、mcp-helpers.ts 逻辑未动。 追加修复轮（2026-09-21，用户反馈对齐）：① mcp-server-card.tsx 删除按钮改为所有卡片统一渲染（icon-action -danger），builtin 时 disabled 禁用（灰色、不可点击），aria-label/title 改用新 i18n key mcpBuiltinNoDelete（EN: Built-in services cannot be deleted；ZH: 内置服务不可删除），onClick 保留、由原生 disabled 拦截（与重连按钮 disabled={reconnecting} 同模式），后端 409 builtin 删除保护不变；② 修复内置 Playwright 与普通卡片操作区图标列不对齐：list-item-actions 为 flex 0 0 auto 右对齐、宽度随内容变化，builtin 此前少渲染一个删除按钮导致各卡片编辑/删除图标 x 位置错位，删除按钮常驻后所有卡片操作区按钮结构一致（重连按钮仍按 canReconnect 状态条件渲染，语义保留）；meta badge 行（builtin 徽标+状态+工具数同一 flex 行 gap 0.375rem）与图标统一 size-4 本已对齐，未改结构；③ index.css 在 icon-action 规则就近新增 .quickforge-settings-icon-action:disabled（cursor not-allowed + opacity 0.58，沿用 .quickforge-settings-button:disabled 既有模式），两条 hover 规则补 :not(:disabled) 守卫（禁用态无 hover 反馈，与 button-danger 既有守卫一致；顺带修正 skills-dialog/hooks 等处已存在的 disabled icon-action 按钮误显 hover 反馈）。",
+      "files": [
+        "src/components/mcp-servers-dialog.tsx",
+        "src/components/mcp/mcp-server-card.tsx",
+        "src/components/mcp/mcp-server-form.tsx",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/mcp-server-card.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-21：npx vitest run tests/frontend/mcp-server-card.test.ts tests/frontend/semantic-color-class-parity.test.ts → 2 files / 10 passed（exit 0）；npm run test → 373 files / 4473 passed + 1 skipped（exit 0；注：前两次全量在 scheduled-tasks.commands.test.mjs 偶发不同用例超时 flaky，单跑该文件 24/24 通过、stash 本次改动后及第三次全量均 373/373 通过，与本前端 UI 改动无关）；npm run lint → exit 0；npm run build → exit 0（6.09s）。 追加修复轮验证（2026-09-21）：npx vitest run mcp-server-card + semantic-color-class-parity → 2 files / 10 passed（exit 0）；npm run test → 373 files / 4473 passed + 1 skipped（exit 0）；npm run lint → exit 0；npm run build → exit 0。",
+      "boundaries": "仅 MCP 设置 UI 三组件 + i18n 两 key + 对应前端测试；不改 server/ 端、不改 mcp-helpers.ts 逻辑、不动 dist/、package-dist/、package-offline/、无依赖变更、无 Git 操作；相关 scheduled-tasks flaky 只记录不扩范围修复。"
+    },
+    {
+      "id": "subagent-summary-hide-running-status-icon",
+      "name": "移除 run_subagent 摘要卡运行时加载 icon（运行中隐藏状态区）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-21 单点视觉调整：聊天流中外层 run_subagent 摘要卡（src/lib/tool-renderers/subagent-tool-renderer.tsx renderSubagentRunSummary）在运行中不再渲染 shared.tsx 的 renderStatus 状态区（旋转弧形 spinner icon + 耗时徽标）——第 51 行改为 `{payload.status === 'running' ? null : renderStatus(payload.status, payload.timing)}`，与 local-workspace-tool-renderer.tsx:78 既有模式完全一致；运行态仍由 statusLabel 文案 + quickforge-tool-marquee 跑马灯表达（DESIGN_LANGUAGE 运行状态保留文字说明不受影响）。shared.tsx 的 renderStatus/renderStatusIcon 未动（其他工具渲染器共用，行为不变）；终态（done/error/called）状态区渲染不变。测试：chat-surface-css-contract.test.ts 既有 subagent 摘要卡用例旁新增最小断言用例（pending=true 运行中：含 quickforge-subagent-tool、statusLabel span 非空（语言无关正则）、不含 quickforge-tool-status-icon 与 animate-spin）；chat-surface-render.test.ts 的 pending 卡 animate-spin 断言核实走的是默认工具卡 ToolStatusIcon（该测试未注册渲染器），与本次改动无关，未改。docs/wiki/src/lib/README.md:209 subagent-tool-renderer 条目同步（「标签与状态之间」改为「标签之后」+ 运行中隐藏状态区说明）；docs/wiki/src/components/README.md 无相关描述未动。",
+      "files": [
+        "src/lib/tool-renderers/subagent-tool-renderer.tsx",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-21：npx vitest run chat-surface-render + chat-surface-css-contract + tool-renderer-registry + subagent-run-detail-react + local-tool-running-sweep → 5 files / 62 passed（exit 0）；npx eslint src/lib/tool-renderers/subagent-tool-renderer.tsx tests/frontend/chat-surface-css-contract.test.ts → exit 0（0 errors）。未跑全量 test/build（定向验证）。",
+      "boundaries": "仅 run_subagent 摘要卡运行中隐藏状态区（icon+耗时）；shared.tsx renderStatus 共用实现未动（local-workspace / mcp / ask-user 等其他渲染器不受影响）；终态状态区渲染不变；chat-surface-render.test.ts 未改（其 animate-spin 断言源自默认工具卡，与本改动无关）。无 Git 操作、无依赖变更，未触碰 dist/、package-dist/、package-offline/。"
+    },
+    {
       "id": "process-fold-grid-animation",
       "name": "对话 tools（process 折叠组）展开/收缩动效平滑化（grid 高度过渡 + 增量路径保留）",
       "status": "done",

@@ -21,7 +21,7 @@
 | `skills.mjs` | 213 | Skills 管理 |
 | `agent-profiles.mjs` | 236 | Agent Profile 管理 API，支持 AI 填充基础定义 |
 | `models.mjs` | 68 | 自定义模型连接测试 |
-| `hooks.mjs` | 45 | Hooks 手动测试与最近执行记录查询 |
+| `hooks.mjs` | 53 | Hooks 手动测试与最近执行记录查询 |
 | `scheduled-tasks.mjs` | 949 | 定时任务管理，支持绑定 Agent Profile 与配置单任务执行模式 |
 | `shares.mjs` | 90 | 分享管理 |
 | `side-chat.mjs` | 独立、内存态 Side Chat 的纯模型 NDJSON 流路由；读取当前主会话上下文但固定 `tools: []`，不调用或写入主 Agent；纯文本安全投影在服务端最终模型解析后物化为 pi-ai 合法 user/assistant 消息，assistant 使用服务端模型字段与完整零 usage/cost |
@@ -177,12 +177,12 @@ Agent Profile 管理路由。
 - `GET /api/models/catalog` — 返回当前可使用的公开自定义模型目录。每个条目携带版本化 `quickforgeModelRef`；不返回 API Key 或请求 Header。
 - `POST /api/models/test-connection` — 用当前配置（Base URL、API Key、模型 ID）发送最小请求验证连通性。请求体 `{ model, apiKey? }`（`model` 为完整模型对象，`apiKey` 可选，用于测试尚未保存的配置）；成功返回 `{ ok: true }`，失败返回 `{ ok: false, error }`。错误统一以 HTTP 200 返回，便于前端统一解析。探测的 AI 调用总预算 60 秒（`AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS`），超时按连通失败返回。
 
-## hooks.mjs (45 行)
+## hooks.mjs (53 行)
 
 Hooks 设置页配套路由（引擎见 [server/hooks/](../README.md#hooks--hooks-事件钩子)）。仅本机或已认证远程客户端可访问，其余返回 403。
 
 **主要端点**:
-- `GET /api/hooks/executions` — 返回 `{executions}`：内存态最近 50 条执行记录（不持久化，重启清空）。
+- `GET /api/hooks/executions?limit=&offset=` — 分页查询执行记录，返回 `{executions, total, limit, offset}` 信封：`executions` 为该页记录（newest-first），`total` 为执行日志全量条数；`limit` 默认 20、clamp 1–100，`offset` 默认 0，缺省或不可解析参数回落默认值，越界 offset 返回空页但 `total` 不变。记录由引擎持久化到 store `hook-executions`（上限 300 条，内存 buffer 权威），重启后保留。
 - `POST /api/hooks/test` — `{hook}` 手动测试：服务端 `normalizeHook` 校验（动作不可用返回 400），以合成 `event:'test'` 上下文执行一次并返回 `{execution}` 记录（带 `test:true`），不写入执行日志。
 
 ## scheduled-tasks.mjs (949 行)

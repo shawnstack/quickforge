@@ -4,7 +4,12 @@ vi.mock('react', async (original) => ({ ...await original<typeof import('react')
 const storageValues = new Map<string, unknown>()
 const storageSet = vi.fn(async (key: string, value: unknown) => { storageValues.set(key, value) })
 vi.mock('@/storage', () => ({ getAppStorage: () => ({ settings: { get: async (key: string) => storageValues.get(key), set: storageSet } }) }))
-vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
+vi.mock('@/lib/i18n', () => ({
+  // paginationSummary 按真实 zh 模板插值，便于断言页码计算。
+  t: (key: string, params?: Record<string, string | number>) => key === 'paginationSummary' && params
+    ? `第 ${params.page} / ${params.pages} 页，共 ${params.total} 条`
+    : key,
+}))
 vi.mock('@/components/ui/info-tip', () => ({ InfoTip: () => null }))
 const confirmMock = vi.hoisted(() => vi.fn())
 vi.mock('@/components/ui/confirm-dialog', () => ({ showConfirm: confirmMock }))
@@ -44,19 +49,40 @@ const executionSuccess = {
   durationMs: 380,
   status: 'success',
 }
+const executionPageTwo = {
+  id: 'exec-p2',
+  hookId: 'hook-1',
+  hookName: 'Build notify',
+  event: 'error',
+  startedAt: '2026-01-01T09:12:00.000Z',
+  durationMs: 260,
+  status: 'success',
+}
+const executionPageThree = {
+  id: 'exec-p3',
+  hookId: 'hook-1',
+  hookName: 'Build notify',
+  event: 'error',
+  startedAt: '2026-01-01T08:05:00.000Z',
+  durationMs: 520,
+  status: 'success',
+}
 
 function render() { harness.begin(); return nodes(HooksSettingsTab()) }
 function hasText(value: string) { return render().some((node) => text(node).includes(value)) }
 function button(label: string) { return render().find((node) => node.type === 'button' && text(node) === label)! }
-async function mount(executions: unknown[] = [executionError, executionSuccess]) {
+async function mount(executions: unknown[] = [executionError, executionSuccess], total = executions.length) {
   storageValues.clear()
   storageValues.set('hooks-settings', { enabled: true, hooks: [storedHook] })
-  fetchMock.mockImplementation(async () => json({ executions }))
+  fetchMock.mockImplementation(async (url: string) => json(pagedExecutions(executions, offsetOf(url), total)))
   render()
   harness.effects.forEach((effect) => effect())
   await vi.waitFor(() => expect(hasText('Build notify')).toBe(true))
   storageSet.mockClear()
 }
+
+const offsetOf = (url: string) => Number(/offset=(\d+)/.exec(url)?.[1] ?? 0)
+const pagedExecutions = (executions: unknown[], offset: number, total: number) => ({ executions, total, limit: 20, offset })
 beforeEach(() => { harness.reset(); vi.clearAllMocks(); vi.stubGlobal('fetch', fetchMock); vi.stubGlobal('window', globalThis) })
 afterEach(() => vi.unstubAllGlobals())
 
@@ -73,7 +99,7 @@ describe('React hooks settings tab', () => {
     expect(hasText('hooksStatusSuccess')).toBe(true)
     expect(hasText('0.1s')).toBe(true)
     expect(hasText('0.4s')).toBe(true)
-    expect(fetchMock).toHaveBeenCalledWith('/api/hooks/executions', expect.objectContaining({ cache: 'no-store' }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/hooks/executions?limit=20&offset=0', expect.objectContaining({ cache: 'no-store' }))
   })
 
   it('toggles a hook switch and persists the normalized settings payload with enabled pinned to true', async () => {
@@ -96,7 +122,7 @@ describe('React hooks settings tab', () => {
   it('resets a legacy disabled master flag to enabled on the next save', async () => {
     storageValues.clear()
     storageValues.set('hooks-settings', { enabled: false, hooks: [storedHook] })
-    fetchMock.mockImplementation(async () => json({ executions: [] }))
+    fetchMock.mockImplementation(async (url: string) => json(pagedExecutions([], offsetOf(url), 0)))
     render()
     harness.effects.forEach((effect) => effect())
     await vi.waitFor(() => expect(hasText('Build notify')).toBe(true))
@@ -193,7 +219,7 @@ describe('React hooks settings tab', () => {
 
   it('shows the test failure message when the endpoint fails', async () => {
     await mount()
-    fetchMock.mockImplementation(async (url: string) => (url === '/api/hooks/executions' ? json({ executions: [] }) : json({ error: 'spawn failed' }, 500)))
+    fetchMock.mockImplementation(async (url: string) => (url.startsWith('/api/hooks/executions?') ? json(pagedExecutions([], offsetOf(url), 0)) : json({ error: 'spawn failed' }, 500)))
     render().find((node) => node.props['aria-label'] === 'hooksEditHook')!.props.onClick()
     button('hooksTestRun').props.onClick()
     await vi.waitFor(() => expect(hasText('spawn failed')).toBe(true))
@@ -233,6 +259,47 @@ describe('React hooks settings tab', () => {
     await vi.waitFor(() => expect(hasText('notify-send: command not found')).toBe(false))
   })
 
+  it('paginates the execution log with page summary and boundary-disabled buttons', async () => {
+    await mount([executionError, executionSuccess], 45)
+    await vi.waitFor(() => expect(hasText('0.4s')).toBe(true))
+    expect(fetchMock).toHaveBeenCalledWith('/api/hooks/executions?limit=20&offset=0', expect.objectContaining({ cache: 'no-store' }))
+    expect(hasText('第 1 / 3 页，共 45 条')).toBe(true)
+    expect(button('previousPage').props.disabled).toBe(true)
+    expect(button('nextPage').props.disabled).toBe(false)
+
+    fetchMock.mockClear()
+    fetchMock.mockImplementation(async (url: string) => json(pagedExecutions([executionPageTwo], offsetOf(url), 45)))
+    button('nextPage').props.onClick()
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/hooks/executions?limit=20&offset=20', expect.objectContaining({ cache: 'no-store' })))
+    await vi.waitFor(() => expect(hasText('0.3s')).toBe(true))
+    expect(hasText('第 2 / 3 页，共 45 条')).toBe(true)
+    expect(button('previousPage').props.disabled).toBe(false)
+    expect(button('nextPage').props.disabled).toBe(false)
+
+    fetchMock.mockClear()
+    fetchMock.mockImplementation(async (url: string) => json(pagedExecutions([executionPageThree], offsetOf(url), 45)))
+    button('nextPage').props.onClick()
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/hooks/executions?limit=20&offset=40', expect.objectContaining({ cache: 'no-store' })))
+    await vi.waitFor(() => expect(hasText('0.5s')).toBe(true))
+    expect(hasText('第 3 / 3 页，共 45 条')).toBe(true)
+    expect(button('previousPage').props.disabled).toBe(false)
+    expect(button('nextPage').props.disabled).toBe(true)
+  })
+
+  it('shows the load error with retry when flipping pages fails, then recovers to the target page', async () => {
+    await mount([executionError, executionSuccess], 45)
+    await vi.waitFor(() => expect(hasText('0.4s')).toBe(true))
+    fetchMock.mockClear()
+    fetchMock.mockImplementationOnce(async () => json({ error: 'boom' }, 500))
+    button('nextPage').props.onClick()
+    await vi.waitFor(() => expect(hasText('hooksExecutionsLoadFailed')).toBe(true))
+
+    fetchMock.mockImplementation(async (url: string) => json(pagedExecutions([executionPageTwo], offsetOf(url), 45)))
+    button('retry').props.onClick()
+    await vi.waitFor(() => expect(hasText('0.3s')).toBe(true))
+    expect(hasText('第 2 / 3 页，共 45 条')).toBe(true)
+  })
+
   it('shows a weak failure notice with retry when the executions endpoint fails on mount', async () => {
     storageValues.clear()
     storageValues.set('hooks-settings', { enabled: true, hooks: [storedHook] })
@@ -241,7 +308,7 @@ describe('React hooks settings tab', () => {
     harness.effects.forEach((effect) => effect())
     await vi.waitFor(() => expect(hasText('Build notify')).toBe(true))
     await vi.waitFor(() => expect(hasText('hooksExecutionsLoadFailed')).toBe(true))
-    fetchMock.mockImplementation(async () => json({ executions: [executionSuccess] }))
+    fetchMock.mockImplementation(async (url: string) => json(pagedExecutions([executionSuccess], offsetOf(url), 1)))
     button('retry').props.onClick()
     await vi.waitFor(() => expect(hasText('hooksStatusSuccess')).toBe(true))
   })
@@ -249,7 +316,7 @@ describe('React hooks settings tab', () => {
   it('shows the empty states when no hooks and no executions are stored', async () => {
     storageValues.clear()
     storageValues.set('hooks-settings', { enabled: true, hooks: [] })
-    fetchMock.mockImplementation(async () => json({ executions: [] }))
+    fetchMock.mockImplementation(async (url: string) => json(pagedExecutions([], offsetOf(url), 0)))
     render()
     harness.effects.forEach((effect) => effect())
     await vi.waitFor(() => expect(hasText('hooksEmpty')).toBe(true))

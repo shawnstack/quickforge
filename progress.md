@@ -1,3 +1,15 @@
+## 2026-09-21 · Hooks 执行记录持久化 + 分页（增强轮收尾）
+
+- Goal：Hooks 执行记录由「内存 50 条、重启清空」升级为持久化 + 分页：store `hook-executions`（`storage/hook-executions.json`，文件根为纯 JSON 数组），内存 buffer 为权威读路径，上限 300 条（索引 0 最新，尾部裁最旧），启动 fail-open 加载 + push 后 3s 防抖（unref）落盘 + `stopHookEngine` flush；`GET /api/hooks/executions` 增 `limit`/`offset` 分页，返回 `{executions,total,limit,offset}` 信封（limit 默认 20、clamp 1–100；offset 默认 0；缺省/不可解析回落默认；越界 offset 空页但 total 不变）；前端 Hooks 页执行记录列表改 20 条/页分页（页码/总数摘要 + 上下翻页，mount 加载、失败重试保留当前页）。本轮为收尾核实：源码/测试/wiki/server 重启上轮已就绪但未报告，本会话逐项核实、补齐状态文件并跑全量验证。
+- 改动文件（上轮已写入，本会话核实）：`server/storage.mjs`（rootArrayStores 支持，'hook-executions' 根数组独立读写分支）、`server/hooks/hook-engine.mjs`（持久化 + `getHookExecutionsPage` 分页器）、`server/routes/hooks.mjs`（limit/offset 透传）、`src/components/settings/tabs/HooksSettingsTab.tsx`（分页 UI）、`src/lib/i18n.ts`（previousPage/nextPage/页码摘要词条 en/zh）、`tests/server/hooks/hook-engine.test.mjs`（300 上限 / 加载裁剪 / 分页 clamp）、`tests/server/routes/hooks.test.mjs`（分页契约）、`tests/frontend/hooks-settings-tab.test.ts`、`docs/wiki/server/README.md`、`docs/wiki/server/routes/README.md`、`docs/wiki/src/lib/README.md`；本会话补：`feature_list.json`（hooks-agent-events 条目补记增强轮：approach/verification/boundaries/files +server/storage.mjs）、`progress.md`、`session-handoff.md`。
+- 验证（本会话全量）：`npm run test` → **373 files / 4447 passed + 1 skipped（exit 0）**；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**（HooksSettingsTab chunk 25.80 kB，仅既有 chunk size 警告）。运行中 server：PID 55220（`node D:\quickforge\server\index.mjs`，2026-09-21 01:40:15 启动，晚于 hook-engine.mjs mtime 01:31:23 → 已加载新代码，无需重启）；实测 `curl "http://localhost:5176/api/hooks/executions?limit=5&offset=0"` → `{"executions":[],"total":0,"limit":5,"offset":0}` 信封契约 ✓（当前无执行记录，total 0 属通过）。
+- Notes（只记录，不扩范围）：
+  - a) 已知边界：`atomicUpdate` 暂不支持 root-array store（'hook-executions' 由引擎每次 flush 全量覆盖写）；新增 store 使通用 storage REST（/api/storage/*）顺带暴露 'hook-executions' 读写面（与 settings 等同权）。
+  - b) 本轮无 Git 操作、无依赖变更，未手工触碰 dist/、package-dist/、package-offline/（dist 为 build 命令生成产物）。
+  - c) 待真机验收：设置 → Hooks 页执行记录分页翻页/总数摘要/失败重试；配置命令 Hook（无副作用如 `node -e`）触发事件观察记录产生与重启后保留。
+
+---
+
 ## 2026-09-20 · HooksSettingsTab 三项 UI 收敛：去总开关 / 去执行记录刷新按钮 / 说明文字收入 ? InfoTip
 
 - Goal：按 DESIGN_LANGUAGE「辅助说明应收拢到 `?` 浮层」与用户决策，对 Hooks 设置页做三项收敛：① 移除「启用 Hooks」总开关行（schema/normalize/保存链路保留 `enabled` 字段，server 引擎继续依赖）；② 移除执行记录 RotateCw 手动刷新按钮（保留 mount GET 加载、失败重试与展开输出）；③ section 级平铺说明文字收进标题旁 InfoTip。

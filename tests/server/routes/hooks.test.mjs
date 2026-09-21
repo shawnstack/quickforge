@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Readable } from 'node:stream'
 
-const mocks = vi.hoisted(() => ({ readStore: vi.fn(async () => ({})) }))
+const mocks = vi.hoisted(() => ({ readStore: vi.fn(async () => ({})), writeStore: vi.fn(async () => {}) }))
 
-vi.mock('../../../server/storage.mjs', () => ({ readStore: mocks.readStore }))
+vi.mock('../../../server/storage.mjs', () => ({ readStore: mocks.readStore, writeStore: mocks.writeStore }))
 vi.mock('../../../server/agent-session-events.mjs', () => import('node:events').then(({ EventEmitter }) => ({ agentEvents: new EventEmitter() })))
 
 const { handleHooksApi } = await import('../../../server/routes/hooks.mjs')
@@ -49,6 +49,52 @@ describe('hooks routes', () => {
     expect(response.status).toBe(200)
     const ids = response.body.executions.map((execution) => execution.id)
     expect(ids).toContain('exec-1')
+  })
+
+  it('pages the execution log with limit/offset query params', async () => {
+    for (let index = 0; index < 6; index += 1) {
+      pushHookExecution({ id: `page-${index}`, hookId: 'h1', status: 'success' })
+    }
+
+    // Default envelope: limit 20, offset 0, newest-first.
+    const first = mockResponse()
+    await handleHooksApi(mockRequest('GET'), first, apiUrl('/api/hooks/executions'), localContext)
+    expect(first.status).toBe(200)
+    expect(first.body.limit).toBe(20)
+    expect(first.body.offset).toBe(0)
+    expect(first.body.total).toBeGreaterThanOrEqual(6)
+    expect(Array.isArray(first.body.executions)).toBe(true)
+    expect(first.body.executions[0].id).toBe('page-5')
+
+    // Explicit limit/offset slice the same newest-first order.
+    const second = mockResponse()
+    await handleHooksApi(mockRequest('GET'), second, apiUrl('/api/hooks/executions?limit=2&offset=1'), localContext)
+    expect(second.body.limit).toBe(2)
+    expect(second.body.offset).toBe(1)
+    expect(second.body.total).toBe(first.body.total)
+    expect(second.body.executions.map((execution) => execution.id))
+      .toEqual(first.body.executions.slice(1, 3).map((execution) => execution.id))
+
+    // Clamp: 0 → 1, oversized → 100, unparsable → default 20.
+    const clampedLow = mockResponse()
+    await handleHooksApi(mockRequest('GET'), clampedLow, apiUrl('/api/hooks/executions?limit=0'), localContext)
+    expect(clampedLow.body.limit).toBe(1)
+
+    const clampedHigh = mockResponse()
+    await handleHooksApi(mockRequest('GET'), clampedHigh, apiUrl('/api/hooks/executions?limit=999'), localContext)
+    expect(clampedHigh.body.limit).toBe(100)
+
+    const unparsable = mockResponse()
+    await handleHooksApi(mockRequest('GET'), unparsable, apiUrl('/api/hooks/executions?limit=abc&offset=xyz'), localContext)
+    expect(unparsable.body.limit).toBe(20)
+    expect(unparsable.body.offset).toBe(0)
+
+    // Out-of-range offset yields an empty page while total stays intact.
+    const beyond = mockResponse()
+    await handleHooksApi(mockRequest('GET'), beyond, apiUrl(`/api/hooks/executions?offset=${first.body.total}`), localContext)
+    expect(beyond.body.executions).toEqual([])
+    expect(beyond.body.total).toBe(first.body.total)
+    expect(beyond.body.offset).toBe(first.body.total)
   })
 
   it('runs a manual test with a synthetic context without touching the execution log', async () => {

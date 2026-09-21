@@ -53,6 +53,8 @@ const EMPTY_DRAFT: HookDraft = {
   silentOnFailure: false,
 }
 
+const EXECUTIONS_PAGE_SIZE = 20
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -147,6 +149,8 @@ export function HooksSettingsTab() {
   const [executions, setExecutions] = useState<HookExecutionRecord[]>([])
   const [executionsLoading, setExecutionsLoading] = useState(true)
   const [executionsError, setExecutionsError] = useState('')
+  const [executionsPage, setExecutionsPage] = useState(0)
+  const [executionsTotal, setExecutionsTotal] = useState(0)
   const [expandedExecutionId, setExpandedExecutionId] = useState<string | null>(null)
 
   const [editorOpen, setEditorOpen] = useState(false)
@@ -160,15 +164,19 @@ export function HooksSettingsTab() {
   const [testResult, setTestResult] = useState<HookExecutionRecord | null>(null)
   const [testError, setTestError] = useState('')
 
-  const loadExecutions = async () => {
+  const loadExecutions = async (page: number) => {
     setExecutionsLoading(true)
     setExecutionsError('')
+    setExecutionsPage(page)
     try {
-      const payload = await requestJson<{ executions?: unknown }>('/api/hooks/executions')
+      const payload = await requestJson<{ executions?: unknown; total?: unknown }>(
+        `/api/hooks/executions?limit=${EXECUTIONS_PAGE_SIZE}&offset=${page * EXECUTIONS_PAGE_SIZE}`,
+      )
       const records = Array.isArray(payload?.executions)
         ? payload.executions.filter((item): item is HookExecutionRecord => Boolean(item && typeof item === 'object'))
         : []
       setExecutions(records)
+      setExecutionsTotal(typeof payload?.total === 'number' && Number.isFinite(payload.total) ? payload.total : 0)
     } catch (err) {
       setExecutionsError(err instanceof Error ? err.message : t('requestFailed'))
     } finally {
@@ -185,7 +193,7 @@ export function HooksSettingsTab() {
         // 执行记录加载自管理错误状态，失败不阻断设置加载。
         const [settings] = await Promise.all([
           loadHooksSettings(getAppStorage()),
-          loadExecutions().catch(() => undefined),
+          loadExecutions(0).catch(() => undefined),
         ])
         if (cancelled) return
         setHooks(settings.hooks)
@@ -444,7 +452,7 @@ export function HooksSettingsTab() {
             <button
               type="button"
               className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
-              onClick={() => void loadExecutions()}
+              onClick={() => void loadExecutions(executionsPage)}
             >{t('retry')}</button>
           </div>
         ) : executionsLoading ? (
@@ -496,6 +504,30 @@ export function HooksSettingsTab() {
             </div>
           )
         })}
+
+        {executionsTotal > 0 ? (
+          <div className="flex flex-wrap items-center justify-center gap-2 border-t border-[color-mix(in_oklab,var(--border)_60%,transparent)] px-5 py-3">
+            <button
+              type="button"
+              className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
+              disabled={executionsLoading || executionsPage <= 0}
+              onClick={() => void loadExecutions(executionsPage - 1)}
+            >{t('previousPage')}</button>
+            <span className="min-w-0 px-1 text-xs text-muted-foreground">
+              {t('paginationSummary', {
+                page: executionsPage + 1,
+                pages: Math.max(1, Math.ceil(executionsTotal / EXECUTIONS_PAGE_SIZE)),
+                total: executionsTotal,
+              })}
+            </span>
+            <button
+              type="button"
+              className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
+              disabled={executionsLoading || (executionsPage + 1) * EXECUTIONS_PAGE_SIZE >= executionsTotal}
+              onClick={() => void loadExecutions(executionsPage + 1)}
+            >{t('nextPage')}</button>
+          </div>
+        ) : null}
       </section>
 
       {message ? <div className="quickforge-settings-message" role="status">{message}</div> : null}

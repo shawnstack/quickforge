@@ -228,6 +228,7 @@ server/
 **功能**:
 - 存储布局迁移：早期 v1→v2 布局迁移 + 配置按 store 拆分（`migrateSplitConfig()`，单体 `config.json` → `settings`/`mcp`/`providers`/`plugins`/`projects` 多文件）
 - `readStore` / `writeStore` / `atomicUpdate` — 通用存储操作（各配置 store 独立文件与写入队列）
+- 根数组型 store（`rootArrayStores`，当前仅 `hook-executions` → `storage/hook-executions.json`）：文件根为纯 JSON 数组而非 keyed records，`readStore` / `writeStore` 走独立分支（读坏回落空数组、写非数组归一为空数组）并复用每 store 写队列与原子写；`atomicUpdate` 暂不支持该类 store，hook 引擎每次 flush 全量覆盖
 - `atomicSessionValueUpdate` — 在会话数据写队列中原子更新单个会话，供自动归档等后台维护任务避免覆盖并发持久化
 - 会话分桶存储（按 scope 和 projectId）：global metadata 为 `storage/conversations/global/sessions-metadata.json`，每个完整会话为 `storage/conversations/global/sessions/<sessionId>.json`；project 对应 `storage/conversations/projects/<projectId>/sessions-metadata.json` 与 `sessions/<sessionId>.json`。会话图片资产位于同一 bucket 的 `assets/<sessionId>/`，永久删除会话时同步清理
 - `readSessionStoreScoped` — 作用域会话查询
@@ -297,10 +298,10 @@ server/
 
 ### hooks/ — Hooks 事件钩子
 
-**用途**: 按 Agent 事件触发用户配置的命令或 Webhook（设置页「Hooks」）。事件流：`agent-session-events` 的 `agentEvents` 全局总线 → `hook-engine` 过滤（总开关 / 单 Hook 开关 / 事件订阅）→ `hook-executor` fire-and-forget 执行 → 内存执行记录（不阻塞、不反向影响 Agent 事件流）。
+**用途**: 按 Agent 事件触发用户配置的命令或 Webhook（设置页「Hooks」）。事件流：`agent-session-events` 的 `agentEvents` 全局总线 → `hook-engine` 过滤（总开关 / 单 Hook 开关 / 事件订阅）→ `hook-executor` fire-and-forget 执行 → 执行记录（持久化，不阻塞、不反向影响 Agent 事件流）。
 
 - `hooks-settings.mjs` — 设置规范化与 fail-open 读取：settings 键 `hooks-settings`（`{enabled, hooks[]}`），与前端 `src/lib/hooks-settings.ts` 保持同构；动作二选一（command 需非空命令 / webhook 需 http(s) URL），非法动作的 Hook 整体丢弃，坏数据回落默认（enabled + 空 hooks），超时 clamp 1–300s（默认 10s）。
-- `hook-engine.mjs` — 事件引擎：订阅 `agent_event`，支持 6 种事件（`agent_start` / `agent_end` / `tool_execution_start` / `tool_execution_end` / `tool_approval_required` / `error`），从会话 `projectContext` 解析 `{{session.project}}` / `{{session.projectPath}}` 变量。模块级设置缓存在启动时加载（fail-open），此后每次 `hooks-settings` PUT 由 `routes/storage.mjs` 调 `refreshHooksSettings()` 刷新（刷新失败只记日志、不影响写盘本身）；执行记录仅内存保留最近 50 条（`silentOnFailure` Hook 的失败记录不入日志），不持久化。`startHookEngine` / `stopHookEngine` 挂在启动初始化链（`timedStartupStep('hook-engine')`）。
+- `hook-engine.mjs` — 事件引擎：订阅 `agent_event`，支持 6 种事件（`agent_start` / `agent_end` / `tool_execution_start` / `tool_execution_end` / `tool_approval_required` / `error`），从会话 `projectContext` 解析 `{{session.project}}` / `{{session.projectPath}}` 变量。模块级设置缓存在启动时加载（fail-open），此后每次 `hooks-settings` PUT 由 `routes/storage.mjs` 调 `refreshHooksSettings()` 刷新（刷新失败只记日志、不影响写盘本身）；执行记录持久化 store `hook-executions`（`storage/hook-executions.json`，根数组）：内存 buffer 为权威读路径（`getHookExecutionsPage` 分页，索引 0 最新），启动加载（fail-open）+ 3s 防抖落盘 + `stopHookEngine` flush，上限 300 条（尾部裁最旧，`silentOnFailure` Hook 的失败记录不入日志）。`startHookEngine` / `stopHookEngine` 挂在启动初始化链（`timedStartupStep('hook-engine')`）。
 - `hook-executor.mjs` — 执行器：命令经 `spawn(shell:true)`（输出截尾 4000 字符，超时由 `terminateProcessTree` SIGTERM→SIGKILL 兜底）；Webhook 经 `fetch`（POST 默认发送 JSON 事件上下文，支持自定义 header 与 body 模板）。`{{variable}}` 占位符替换，未知变量置空。所有失败模式（非零退出、非 2xx、超时、spawn 崩溃）收敛为执行记录（`status: 'success' | 'error' | 'timeout'`），从不 throw。REST 见 [routes/hooks.mjs](routes/README.md#hooksmjs-45-行)；手动测试用合成 `event:'test'` 上下文，不入执行日志。
 
 ### global-memory.mjs

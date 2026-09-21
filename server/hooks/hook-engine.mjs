@@ -1,18 +1,35 @@
 import { agentEvents } from '../agent-session-events.mjs'
 import { agentSessions } from '../agent-session-store.mjs'
 import { logger } from '../utils/logger.mjs'
+import { readStore, writeStore } from '../storage.mjs'
 import { HOOK_EVENTS, readHooksSettings } from './hooks-settings.mjs'
 import { executeHook } from './hook-executor.mjs'
 
 const HOOK_EVENT_TYPES = new Set(HOOK_EVENTS)
-const MAX_RECENT_EXECUTIONS = 50
+
+// Execution log capacity, applied to both the in-memory buffer and the
+// persisted store (trimmed from the tail, i.e. the oldest records).
+export const HOOK_EXECUTIONS_LIMIT = 300
+
+// Debounce window for persisting the execution log after a push. The
+// in-memory buffer stays the authoritative read path; the persisted store is
+// a best-effort snapshot restored on engine start.
+const HOOK_EXECUTIONS_PERSIST_DELAY_MS = 3000
+
+const HOOK_EXECUTIONS_PAGE_DEFAULT_LIMIT = 20
+const HOOK_EXECUTIONS_PAGE_MAX_LIMIT = 100
 
 // Module-level settings cache: loaded once on engine start and refreshed
 // after every successful `hooks-settings` PUT (see routes/storage.mjs). An
 // event that races a settings write simply uses the previous snapshot.
 let hooksSettings = { enabled: true, hooks: [] }
 let hookEventListener = null
+
+// Execution log. ORDER CONVENTION: index 0 is the NEWEST record, so the
+// array is newest-first and pagination is a stable slice.
 const recentExecutions = []
+let persistTimer = null
+let persistPending = false
 
 export async function refreshHooksSettings() {
   hooksSettings = await readHooksSettings()
@@ -24,11 +41,79 @@ export function getRecentHookExecutions() {
 }
 
 export function pushHookExecution(record) {
-  recentExecutions.push(record)
-  if (recentExecutions.length > MAX_RECENT_EXECUTIONS) {
-    recentExecutions.splice(0, recentExecutions.length - MAX_RECENT_EXECUTIONS)
+  recentExecutions.unshift(record)
+  if (recentExecutions.length > HOOK_EXECUTIONS_LIMIT) {
+    recentExecutions.length = HOOK_EXECUTIONS_LIMIT
   }
+  scheduleExecutionPersist()
   return record
+}
+
+function normalizePageLimit(value) {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed)) return HOOK_EXECUTIONS_PAGE_DEFAULT_LIMIT
+  return Math.min(HOOK_EXECUTIONS_PAGE_MAX_LIMIT, Math.max(1, parsed))
+}
+
+function normalizePageOffset(value) {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed)) return 0
+  return Math.max(0, parsed)
+}
+
+/**
+ * Paged view over the execution log (newest-first). `limit` defaults to 20
+ * and is clamped to 1..100; `offset` defaults to 0 and is floored at 0.
+ * Out-of-range offsets yield an empty page while `total` still reflects the
+ * full buffer size.
+ */
+export function getHookExecutionsPage({ limit, offset } = {}) {
+  const normalizedLimit = normalizePageLimit(limit)
+  const normalizedOffset = normalizePageOffset(offset)
+  return {
+    executions: normalizedOffset >= recentExecutions.length
+      ? []
+      : recentExecutions.slice(normalizedOffset, normalizedOffset + normalizedLimit),
+    total: recentExecutions.length,
+    limit: normalizedLimit,
+    offset: normalizedOffset,
+  }
+}
+
+function scheduleExecutionPersist() {
+  persistPending = true
+  if (persistTimer) clearTimeout(persistTimer)
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    void flushHookExecutionPersist()
+  }, HOOK_EXECUTIONS_PERSIST_DELAY_MS)
+  // The debounce timer must never hold the event loop open on idle.
+  if (typeof persistTimer.unref === 'function') persistTimer.unref()
+}
+
+async function flushHookExecutionPersist() {
+  if (!persistPending) return
+  try {
+    await writeStore('hook-executions', recentExecutions.slice())
+    persistPending = false
+  } catch (error) {
+    // Persistence is best-effort: warn, never throw, and keep the dirty flag
+    // so a later flush (e.g. engine stop) retries the whole-buffer overwrite.
+    logger.warn('Failed to persist hook executions:', error?.message || error)
+  }
+}
+
+async function loadRecentHookExecutions() {
+  try {
+    const stored = await readStore('hook-executions')
+    const valid = Array.isArray(stored) ? stored.slice(0, HOOK_EXECUTIONS_LIMIT) : []
+    recentExecutions.length = 0
+    recentExecutions.push(...valid)
+  } catch (error) {
+    // Fail-open: an unreadable store leaves the in-memory log untouched
+    // (empty on a fresh start) instead of taking the engine down.
+    logger.warn('Failed to load hook executions on engine start:', error?.message || error)
+  }
 }
 
 function messageForEvent(event) {
@@ -85,12 +170,21 @@ export async function startHookEngine() {
   } catch (error) {
     logger.error('Failed to load hooks settings on engine start:', error)
   }
+  await loadRecentHookExecutions()
   hookEventListener = handleAgentEventForHooks
   agentEvents.on('agent_event', hookEventListener)
 }
 
-export function stopHookEngine() {
-  if (!hookEventListener) return
-  agentEvents.removeListener('agent_event', hookEventListener)
-  hookEventListener = null
+export async function stopHookEngine() {
+  if (hookEventListener) {
+    agentEvents.removeListener('agent_event', hookEventListener)
+    hookEventListener = null
+  }
+  // Cancel any pending debounce and flush once, so the last window of
+  // executions is not lost on shutdown.
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
+  await flushHookExecutionPersist()
 }

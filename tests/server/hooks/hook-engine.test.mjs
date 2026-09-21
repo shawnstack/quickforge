@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ readStore: vi.fn(async () => ({})) }))
+const mocks = vi.hoisted(() => ({ readStore: vi.fn(async () => ({})), writeStore: vi.fn(async () => {}) }))
 
-vi.mock('../../../server/storage.mjs', () => ({ readStore: mocks.readStore }))
+vi.mock('../../../server/storage.mjs', () => ({ readStore: mocks.readStore, writeStore: mocks.writeStore }))
 
 // Replace the shared event core with a bare EventEmitter so the engine test
 // does not pull the full tool-wiring/agent-manager import graph.
@@ -28,6 +28,19 @@ function commandHook(id, command, overrides = {}) {
 async function configureHooks(settings) {
   mocks.readStore.mockResolvedValue({ 'hooks-settings': settings })
   await engine.refreshHooksSettings()
+}
+
+// Restart the engine with a persisted 'hook-executions' payload so the
+// in-memory buffer is replaced by exactly the given records (newest-first,
+// the persisted order convention).
+async function loadExecutionsFromStore(records) {
+  await engine.stopHookEngine()
+  mocks.readStore.mockImplementation(async (storeName) => {
+    if (storeName === 'hook-executions') return structuredClone(records)
+    return { 'hooks-settings': { enabled: true, hooks: [] } }
+  })
+  mocks.writeStore.mockClear()
+  await engine.startHookEngine()
 }
 
 // Hook executions are fire-and-forget (spawned processes settle
@@ -127,18 +140,138 @@ describe('hook engine', () => {
     }
   })
 
-  it('caps the in-memory execution log at 50 entries', () => {
-    const baseline = engine.getRecentHookExecutions().length
-    const records = Array.from({ length: 60 }, (_, index) => ({ id: `r${index}` }))
+  it('caps the in-memory execution log at 300 entries (newest-first)', async () => {
+    await loadExecutionsFromStore([])
+    const records = Array.from({ length: 320 }, (_, index) => ({ id: `r${index}` }))
     records.forEach((record) => engine.pushHookExecution(record))
     const executions = engine.getRecentHookExecutions()
-    expect(executions.length).toBe(Math.min(baseline + 60, 50))
-    expect(executions[executions.length - 1].id).toBe('r59')
-    if (baseline + 60 > 50) {
-      // Exactly the last 50 of the 60 pushed records survive, regardless of
-      // how many records earlier tests left in the buffer.
-      expect(executions[0].id).toBe('r10')
+    expect(executions.length).toBe(300)
+    expect(executions[0].id).toBe('r319')
+    expect(executions[299].id).toBe('r20')
+  })
+
+  it('keeps index 0 as the newest execution', async () => {
+    await loadExecutionsFromStore([])
+    engine.pushHookExecution({ id: 'first' })
+    engine.pushHookExecution({ id: 'second' })
+    engine.pushHookExecution({ id: 'third' })
+    expect(engine.getRecentHookExecutions().map((record) => record.id)).toEqual(['third', 'second', 'first'])
+  })
+
+  it('restores the persisted execution log on engine start', async () => {
+    await loadExecutionsFromStore([{ id: 'latest' }, { id: 'middle' }, { id: 'oldest' }])
+    expect(engine.getRecentHookExecutions().map((record) => record.id)).toEqual(['latest', 'middle', 'oldest'])
+  })
+
+  it('trims an oversized persisted log to the 300-entry limit on load', async () => {
+    const stored = Array.from({ length: 350 }, (_, index) => ({ id: `s${index}` }))
+    await loadExecutionsFromStore(stored)
+    const executions = engine.getRecentHookExecutions()
+    expect(executions.length).toBe(300)
+    expect(executions[0].id).toBe('s0')
+    expect(executions[299].id).toBe('s299')
+  })
+
+  it('treats a non-array persisted log as empty and keeps the buffer on read failure', async () => {
+    await loadExecutionsFromStore([{ id: 'survives' }])
+    expect(engine.getRecentHookExecutions().map((record) => record.id)).toEqual(['survives'])
+
+    await engine.stopHookEngine()
+    mocks.readStore.mockImplementation(async (storeName) => {
+      if (storeName === 'hook-executions') return { not: 'an array' }
+      return { 'hooks-settings': { enabled: true, hooks: [] } }
+    })
+    await engine.startHookEngine()
+    expect(engine.getRecentHookExecutions()).toEqual([])
+
+    await engine.stopHookEngine()
+    await loadExecutionsFromStore([{ id: 'keep-me' }])
+    await engine.stopHookEngine()
+    mocks.readStore.mockImplementation(async (storeName) => {
+      if (storeName === 'hook-executions') throw new Error('storage down')
+      return { 'hooks-settings': { enabled: true, hooks: [] } }
+    })
+    await engine.startHookEngine()
+    expect(engine.getRecentHookExecutions().map((record) => record.id)).toEqual(['keep-me'])
+  })
+
+  it('debounces execution persistence with a 3s trailing window', async () => {
+    await loadExecutionsFromStore([])
+    mocks.writeStore.mockClear()
+    vi.useFakeTimers()
+    try {
+      engine.pushHookExecution({ id: 'deb-1' })
+      expect(mocks.writeStore).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(2999)
+      expect(mocks.writeStore).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(mocks.writeStore).toHaveBeenCalledTimes(1)
+      expect(mocks.writeStore).toHaveBeenCalledWith('hook-executions', [{ id: 'deb-1' }])
+
+      // A later push restarts the debounce window (trailing debounce).
+      engine.pushHookExecution({ id: 'deb-2' })
+      await vi.advanceTimersByTimeAsync(2999)
+      expect(mocks.writeStore).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(mocks.writeStore).toHaveBeenCalledTimes(2)
+      expect(mocks.writeStore).toHaveBeenLastCalledWith('hook-executions', [{ id: 'deb-2' }, { id: 'deb-1' }])
+    } finally {
+      vi.useRealTimers()
     }
+  })
+
+  it('flushes pending executions once on engine stop and cancels the debounce', async () => {
+    await loadExecutionsFromStore([{ id: 'keep' }])
+    mocks.writeStore.mockClear()
+    engine.pushHookExecution({ id: 'flush-me' })
+    expect(mocks.writeStore).not.toHaveBeenCalled()
+
+    await engine.stopHookEngine()
+    expect(mocks.writeStore).toHaveBeenCalledTimes(1)
+    expect(mocks.writeStore).toHaveBeenCalledWith('hook-executions', [{ id: 'flush-me' }, { id: 'keep' }])
+
+    // The cancelled debounce timer must not fire a second write later.
+    vi.useFakeTimers()
+    try {
+      await vi.advanceTimersByTimeAsync(5000)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(mocks.writeStore).toHaveBeenCalledTimes(1)
+  })
+
+  it('pages the execution log with clamped limit and offset', async () => {
+    await loadExecutionsFromStore([])
+    for (let index = 0; index < 5; index += 1) engine.pushHookExecution({ id: `p${index}` })
+    // Buffer is newest-first: p4 p3 p2 p1 p0.
+
+    expect(engine.getHookExecutionsPage({ limit: 2, offset: 1 })).toEqual({
+      executions: [{ id: 'p3' }, { id: 'p2' }],
+      total: 5,
+      limit: 2,
+      offset: 1,
+    })
+
+    expect(engine.getHookExecutionsPage()).toEqual({
+      executions: [{ id: 'p4' }, { id: 'p3' }, { id: 'p2' }, { id: 'p1' }, { id: 'p0' }],
+      total: 5,
+      limit: 20,
+      offset: 0,
+    })
+
+    expect(engine.getHookExecutionsPage({ limit: 0 }).limit).toBe(1)
+    expect(engine.getHookExecutionsPage({ limit: -7 }).limit).toBe(1)
+    expect(engine.getHookExecutionsPage({ limit: 999 }).limit).toBe(100)
+    expect(engine.getHookExecutionsPage({ limit: 'abc' }).limit).toBe(20)
+    expect(engine.getHookExecutionsPage({ offset: -3 }).offset).toBe(0)
+    expect(engine.getHookExecutionsPage({ offset: 'nope' }).offset).toBe(0)
+
+    expect(engine.getHookExecutionsPage({ limit: 10, offset: 5 })).toEqual({
+      executions: [],
+      total: 5,
+      limit: 10,
+      offset: 5,
+    })
   })
 
   it('subscribes and unsubscribes the shared agent event bus cleanly', async () => {

@@ -1,4 +1,14 @@
-## 当前交接：修复发送后用户消息锚定偶发失效（2026-09-20）
+## 当前交接：Hooks 执行记录持久化 + 分页收尾完成（2026-09-21）
+
+- 当前目标（已完成）：Hooks 执行记录升级为持久化 + 分页：store `hook-executions`（`storage/hook-executions.json` 根数组；内存 buffer 权威、上限 300 条索引 0 最新、启动 fail-open 加载 + 3s 防抖落盘 + stop flush）；`GET /api/hooks/executions?limit=&offset=` 返回 `{executions,total,limit,offset}` 信封（limit 默认 20 clamp 1–100、offset 默认 0、缺省/不可解析回落默认、越界空页 total 不变）；前端 Hooks 页执行记录 20 条/页分页（页码/总数摘要、上下翻页、失败重试保留当前页）。上一轮已写入源码/测试/wiki 并重启 server 但无报告；本会话核实实际完成度、补齐三个状态文件并跑全量验证。
+- 改动文件：源码/测试/wiki 上轮已就绪（`server/storage.mjs` rootArrayStores、`server/hooks/hook-engine.mjs`、`server/routes/hooks.mjs`、`src/components/settings/tabs/HooksSettingsTab.tsx`、`src/lib/i18n.ts`、3 个测试文件、3 个 wiki README，全量清单见 feature_list.json hooks-agent-events 条目）；本会话补 `feature_list.json` / `progress.md` / `session-handoff.md`。
+- 验证：全量 `npm run test` → **373 files / 4447 passed + 1 skipped（exit 0）**；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**（HooksSettingsTab chunk 25.80 kB，仅既有警告）。server PID 55220（`node server/index.mjs`，01:40:15 启动 > 源码 mtime 01:31，已加载新代码）；curl `?limit=5&offset=0` 实测返回 `{"executions":[],"total":0,"limit":5,"offset":0}` 信封 ✓。
+- Blocker：无。
+- 下一步：① 真机验收：设置 → Hooks 页执行记录分页翻页/总数摘要/失败重试；配置命令 Hook（无副作用如 `node -e "..."`）触发事件观察记录产生与重启后保留；② 已知边界（不扩范围）：`atomicUpdate` 不支持 root-array store（引擎 flush 全量覆盖写）、通用 storage REST 顺带暴露 'hook-executions' 读写面；③ 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+
+## 历史交接：修复发送后用户消息锚定偶发失效（2026-09-20）
 
 - 当前目标（已实现，待真机复测）：主聊天页「发送后用户消息锚定可视区顶部（12px 边距）」偶发失效（消息不在视口内）的健壮性修复，对外行为不变。三类竞态修复：① H2——`enableWithAnchor()` 弃用固定双 rAF（移除 scheduleAfterPaint 依赖），改为记录发送前最后一条 `.qf-user-message` 后按帧 rAF 轮询等待「新出现的」最后一条用户消息（无历史则等第一条），超时 1000ms 回退 `enable()` 贴底；② H1/H3——锚定激活期（spacer 存活期）不再钉死发送时 scrollTop，每次 ResizeObserver 更新以消息实时位置重导出 target/spacer（msgTopDoc = rect 差 + scrollTop；spacer = max(0, target + clientHeight − contentHeight)，>0 写 scrollTop = target），布局变化（折叠释放/重折叠、装饰注入、上方增减）下一帧自动校正；spacer 归零退出锚定回贴底；msgEl.isConnected=false 静默清理不报错；③ 浏览器原生滚动锚定互扰——`src/index.css` 给 `.qf-chat-panel > .qf-scroll-container` 加 `overflow-anchor: none`。
 - 改动文件：`src/components/chat/scroll-sync.ts`（等待轮询 + 实时位置驱动锚定，322→391 行）、`src/index.css`（+1 规则）、`tests/frontend/scroll-sync.test.ts`（锚定用例重写 10→14，mock 虚拟时钟按帧推进 + rect 随 scrollTop 联动 + 可变消息列表）、`docs/wiki/src/components/README.md`（scroll-sync 小节两份副本 + 树条目行数同步）、`progress.md`、`session-handoff.md`。feature_list.json 未动（同 feature 内缺陷修复）。

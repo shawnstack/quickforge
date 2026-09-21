@@ -53,6 +53,9 @@ export const stores = new Set([
   'sessions',
   'sessions-metadata',
   'scheduled-tasks',
+  // Root-array store (see rootArrayStores): the hook engine's bounded
+  // execution log, persisted as a plain JSON array at the file root.
+  'hook-executions',
   'custom-agents',
   'agent-profile-overrides',
 ])
@@ -103,6 +106,23 @@ const configStoreLocations = (() => {
   }
   return map
 })()
+
+// Root-array stores: unlike the config/bucket stores (keyed records), these
+// persist a plain JSON array at the file root. The hook execution log is a
+// bounded newest-first array owned by the hook engine, so it gets its own
+// flat file under storage/ and still goes through the serialized writeStore
+// queue (one queue per store, like scheduled-tasks).
+const rootArrayStores = {
+  'hook-executions': 'hook-executions.json',
+}
+
+function isRootArrayStore(storeName) {
+  return Boolean(rootArrayStores[storeName])
+}
+
+function rootArrayStoreFilePath(storeName) {
+  return path.join(storageDir, rootArrayStores[storeName])
+}
 
 function isConfigStore(storeName) {
   return Boolean(configStoreLocations[storeName])
@@ -1083,6 +1103,11 @@ export async function readStore(storeName) {
     return readConfigStore(storeName)
   }
 
+  if (isRootArrayStore(storeName)) {
+    const stored = await readJsonFile(rootArrayStoreFilePath(storeName), [])
+    return Array.isArray(stored) ? stored : []
+  }
+
   return readSessionStore(storeName)
 }
 
@@ -1115,6 +1140,11 @@ export async function writeStore(storeName, data) {
 
     if (isConfigStore(storeName)) {
       await writeConfigStore(storeName, data)
+      return
+    }
+
+    if (isRootArrayStore(storeName)) {
+      await writeJsonAtomic(rootArrayStoreFilePath(storeName), Array.isArray(data) ? data : [])
       return
     }
 

@@ -126,7 +126,7 @@ describe('CodeBlock rendering', () => {
     expect(markup).toContain('language-python')
     // Highlighted spans render inside pre>code; the visible text stays verbatim.
     expect(visibleCodeText(markup)).toBe('print(1)')
-    expect(actionTag(markup, 'copy-code')).toContain('title="copy"')
+    expect(actionTag(markup, 'copy-code')).toContain('title="copyCode"')
     // User messages / non-assistant blocks get no terminal or preview affordances.
     expect(markup).not.toContain('data-qf-action="execute-markdown-command"')
   })
@@ -279,6 +279,11 @@ describe('CodeBlock legacy interaction alignment', () => {
     // The copied feedback lives on the menu item itself (legacy showCopiedFeedback).
     expect(codeBlockSource).toContain("const label = copied ? t('copied') : action.label")
     expect(codeBlockSource).toContain('{copied ? <Check size={15} /> : action.icon}')
+    // …and the generic `copy`/`copied` pair stays menu-only: the title-bar button
+    // uses pi's own `Copy code` / `Copied!` pair (see the copy-feedback suite).
+    expect(codeBlockSource).toContain("title={t('copyCode')}")
+    expect(codeBlockSource).toContain("copied ? <span>{t('copiedBang')}</span> : null")
+    expect(codeBlockSource).not.toContain("title={t('copy')}")
   })
 
   it('keeps the legacy per-path copy feedback durations: title bar 2000ms, ⋯ menu 1200ms', () => {
@@ -343,35 +348,41 @@ describe('CodeBlock copy feedback (legacy copy-button parity)', () => {
     return renderToStaticMarkup(createElement(CodeBlockCopyButton, { copied, onCopy: () => {} }))
   }
 
-  it('renders a visible "copied" text next to the check icon', () => {
+  it('renders the legacy visible "Copied!" text next to the check icon', () => {
     // 旧 mini-lit `copy-button` 在 `showText` 下渲染 `<span>Copied!</span>`
     // （不只是把图标换成 check），由 CodeBlock 的 2000ms 计时器复位。
     const copied = renderCopyButton(true)
     const idle = renderCopyButton(false)
 
-    expect(copied).toMatch(/<span[^>]*>copied<\/span>/)
+    expect(copied).toMatch(/<span[^>]*>copiedBang<\/span>/)
     expect(copied).toContain('data-qf-action="copy-code"')
-    expect(idle).not.toMatch(/<span[^>]*>copied<\/span>/)
+    expect(idle).not.toMatch(/<span[^>]*>copiedBang<\/span>/)
   })
 
-  it('keeps the copy title/aria-label constant instead of swapping copy → copied', () => {
-    // 旧实现 title 恒为 `Copy code`（i18n `copy` key），反馈只走可见文本。
+  it('keeps the legacy title constant (`Copy code`, not the generic copy → copied swap)', () => {
+    // 旧 pi `<code-block>` 模板显式传 `title="Copy code"`（覆盖 copy-button 类默认的 `Copy`），
+    // 反馈只走可见文本；title 在 copied/idle 两态都不变。
     for (const copied of [false, true]) {
       const markup = renderCopyButton(copied)
-      expect(markup).toContain('title="copy"')
-      expect(markup).toContain('aria-label="copy"')
+      expect(markup).toContain('title="copyCode"')
+      expect(markup).toContain('aria-label="copyCode"')
       expect(markup).not.toContain('title="copied"')
+      expect(markup).not.toContain('title="copiedBang"')
     }
   })
 
-  it('renders the zh/en visible feedback text from the i18n dictionary', async () => {
+  it('renders the zh/en title and visible feedback text from the i18n dictionary', async () => {
     const realI18n = (await vi.importActual('@/lib/i18n')) as typeof import('../../src/lib/i18n')
 
     realI18n.applyAppLanguageFromSnapshot('zh')
     expect(realI18n.t('copied')).toBe('已复制')
+    expect(realI18n.t('copyCode')).toBe('复制代码')
+    expect(realI18n.t('copiedBang')).toBe('已复制！')
 
     realI18n.applyAppLanguageFromSnapshot('en')
     expect(realI18n.t('copied')).toBe('Copied')
+    expect(realI18n.t('copyCode')).toBe('Copy code')
+    expect(realI18n.t('copiedBang')).toBe('Copied!')
   })
 })
 

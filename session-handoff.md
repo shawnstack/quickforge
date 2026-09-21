@@ -7,6 +7,16 @@
 - 下一步：① 真机 `npm run dev` 验收动效手感：折叠组展开/收缩高度过渡平滑（展开 180ms / 收起 140ms + ease-out）、无闪烁、收起后 0fr 区内不可 Tab 聚焦、`prefers-reduced-motion` 下直接切换；② 之前各轮真机验收项见 progress.md 各条 Notes。
 
 ---
+## 历史交接：dependency-removal-parity-audit（done，2026-09-20 第二十三轮·依赖移除后的交互 Parity 审计与修复，分支 ui）
+
+- 当前目标（已完成，feature **done**）：对「依赖移除（pi-web-ui / mini-lit / lit → 自研 React）后的交互与 CSS 一致性」做独立取证评审并修复真实回归。报告 `docs/reviews/dependency-removal-interaction-parity-audit.zh-CN.md`（基线 `HEAD=6d845ca` vs `BASE=3e10f58`；证据只用旧源码 + 旧构建产物 + 当前工作区）。五域 155 条对照（一致 107 / 回归-已修 11 / 有意保留 30 / 不可考证 7），落地 7 项修复：console 输出复制入口（1500ms、恒定 `Copy output`、可见 `Copied!`）、行中 `$$…$$` 块级公式、语法高亮 heading/list/code/quote/strong/emphasis 语义 + SVG 代码块 CSS、自动滚动 50/10 迟滞、代码块标题栏复制文案 `copyCode`/`copiedBang`、高亮分桶对齐旧 hljs、工具卡代码块复制反馈 + console 输出区每次 commit 置底（复刻旧 `.updated()`）。
+- 改动文件：源码 7 个 `src/components/chat/scroll-sync.ts`、`src/components/chat/surface/CodeBlock.tsx`、`src/index.css`、`src/lib/chat-math.ts`、`src/lib/code-highlight.ts`、`src/lib/i18n.ts`、`src/lib/tool-renderers/shared.tsx`；测试 7 个 `tests/frontend/chat-code-block.test.ts`、`chat-math`、`chat-surface-css-contract`、`code-highlight`、`scroll-sync`、`tool-renderer-code-block`、`tool-renderer-shared-state`；文档/状态 `docs/reviews/dependency-removal-interaction-parity-audit.zh-CN.md`（新增报告）、`docs/wiki/src/README.md`、`docs/wiki/src/components/README.md`（两份副本）、`docs/wiki/src/lib/README.md`、`progress.md`、`session-handoff.md`、`feature_list.json`。
+- 验证：`npm run test` → **364 files / 4373 passed + 1 skipped（exit 0）**；`npm run lint` → **0 errors / 3 warnings（exit 0，3 条 warning 均在 coverage/ 生成物）**；`npm run build` → **通过**（tsc -b 无诊断 + vite build 2.36s）；定向 7 个本轮测试文件 → 7 files / 169 passed；`git diff --stat -- package.json package-lock.json` 空（无依赖变更）。
+- Blocker：无。
+- 下一步：① **真机复验报告 §6.1 清单**（composer hover/active/聚焦反馈、设置下拉键盘与定位、弹窗 Escape 与焦点恢复、三档复制反馈时长手感 2000/1200/1500ms、自动滚动手感 50/10 + 500ms 意图窗口、console 输出区自动置底）；② **裁决报告 §4 中 17 条有意保留差异**（优先：过程折叠默认值与早期 R10 用户要求冲突、Esc 中止新增接线、`ui/Input` 聚焦 ring 可见变化、「未注册语言不再 highlightAuto」、composer placeholder 文案变更）；③ 若要收口 §6.2 的 7 条未修语法分桶残留，建议单开分片（嵌套围栏 `code`、`formula`、引用式链接定义、YAML `on/off/~`、各语言 literal 表）。
+- rebase 适配（2026-09-21）：50/10 迟滞仅限普通尾随；锚定存活期内上滑立即脱离（见 progress.md 第二十三轮 Note h）。
+
+---
 
 ## 历史交接：Hooks 执行记录持久化 + 分页收尾完成（2026-09-21）
 

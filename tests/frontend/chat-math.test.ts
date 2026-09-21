@@ -67,11 +67,30 @@ describe('chat math parity with the legacy markdown-block renderer', () => {
     expect(display).not.toContain('<p><div')
   })
 
-  it('keeps mid-line double-dollar literal (legacy block rule is line-anchored)', () => {
-    const markup = renderMarkdown('a $$x$$ b')
+  it('renders mid-line double-dollar as display math between paragraphs', () => {
+    const markup = renderMarkdown('a $$E=mc^2$$ b')
+
+    expect(markup).toContain('katex-display')
+    expect(markup).toContain('class="my-4"')
+    // 旧 marked 块级扩展的 start:indexOf('$$') 在行中 $$ 处截断段落，公式成为
+    // 段落之间的块级兄弟节点，而不是嵌在 <p> 里的 div。
+    expect(markup).toContain('<p>a </p>')
+    expect(markup).toContain('<p> b</p>')
+    expect(markup).not.toContain('<p>a <div')
+  })
+
+  it('keeps an unclosed mid-line double-dollar literal', () => {
+    const markup = renderMarkdown('a $$x b')
 
     expect(markup).not.toContain('katex')
-    expect(markup).toContain('$$x$$')
+    expect(markup).toContain('$$x b')
+  })
+
+  it('does not treat double-dollar as display math when the content holds a dollar', () => {
+    const markup = renderMarkdown('a $$a$b$$ c')
+
+    // 旧 tokenizer 的内容约束是 [^$]+?：内容含 $ 时块级公式不成立。
+    expect(markup).not.toContain('katex-display')
   })
 
   it('does not render math inside fenced, indented or inline code', () => {

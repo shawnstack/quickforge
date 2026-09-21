@@ -102,6 +102,50 @@ describe('scroll sync programmatic navigation', () => {
     expect(env.setAutoScroll).toHaveBeenLastCalledWith(false)
     end()
   })
+
+  // pi-web-ui parity: `_handleScroll` only released `_autoScroll` once the
+  // container was more than 50px from the tail, and re-armed it below 10px.
+  it('keeps tail-following while a user scroll-up stays within 50px of the tail', () => {
+    const env = createEnv()
+    const sync = createScrollSync({ panel: env.panel, setAutoScroll: env.setAutoScroll })
+    sync.setup()
+
+    env.scrollContainer.scrollTop = 900 // distance 0
+    env.dispatch('scroll')
+    env.dispatch('wheel', { deltaY: -1 } as Partial<WheelEvent>)
+    env.scrollContainer.scrollTop = 870 // distance 30, scrolled up
+    env.dispatch('scroll')
+    expect(sync.isEnabled).toBe(true)
+
+    env.dispatch('wheel', { deltaY: -1 } as Partial<WheelEvent>)
+    env.scrollContainer.scrollTop = 800 // distance 100, scrolled up
+    env.dispatch('scroll')
+    expect(sync.isEnabled).toBe(false)
+  })
+
+  it('re-arms tail-following as soon as the viewport is back within 10px of the tail', () => {
+    let now = 1000
+    vi.stubGlobal('window', {
+      performance: { now: () => now },
+      requestAnimationFrame: vi.fn(() => 1),
+      cancelAnimationFrame: vi.fn(),
+    })
+    const env = createEnv()
+    const sync = createScrollSync({ panel: env.panel, setAutoScroll: env.setAutoScroll })
+    sync.setup()
+
+    env.dispatch('wheel', { deltaY: -1 } as Partial<WheelEvent>)
+    env.scrollContainer.scrollTop = 0
+    env.dispatch('scroll')
+    expect(sync.isEnabled).toBe(false)
+
+    now = 5000 // the 500ms user-scroll intent window has long expired
+    env.scrollContainer.scrollTop = 895 // distance 5
+    env.dispatch('scroll')
+
+    expect(sync.isEnabled).toBe(true)
+    expect(env.setAutoScroll).toHaveBeenLastCalledWith(true)
+  })
 })
 
 describe('scroll sync sent-message anchor', () => {

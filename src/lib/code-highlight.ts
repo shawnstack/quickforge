@@ -39,9 +39,30 @@
  * the generic pass above.
  */
 
-/** Finite highlight token vocabulary (mirrors the `qf-hl-*` CSS classes). */
+/**
+ * Finite highlight token vocabulary (mirrors the `qf-hl-*` CSS classes).
+ *
+ * The palette buckets are the ones the legacy highlight.js CSS declared, so the
+ * token names double as the legacy class names where they differ:
+ *
+ * - `heading` ← `.hljs-section`, `list` ← `.hljs-bullet`, `code` ← `.hljs-code`,
+ *   `quote` ← `.hljs-quote`, `strong` ← `.hljs-strong`, `emphasis` ←
+ *   `.hljs-emphasis`, `link` ← `.hljs-link`.
+ * - `.hljs-link` had no CSS rule in the legacy palette (the anchor URL inherited
+ *   the body colour), which is why `link` has no `.qf-hl-link` rule either.
+ * - Legacy classes the palette merged into its `--syntax-constant` rule
+ *   (`.hljs-attr`, `.hljs-literal`, `.hljs-number`, `.hljs-selector-class`,
+ *   `.hljs-selector-id`, …) have no one-to-one token: `attr` stands in for the
+ *   CSS selector-class/id pair and `number` for the YAML/JSON/TOML/INI `literal`
+ *   words (plus the diff `meta` headers) — same bucket, same colour.
+ * - `.hljs-subst` / `.hljs-formula` are absent: the first declared an undefined
+ *   `--color-text-primary` (invalid at computed-value time → inherited colour,
+ *   i.e. no visible effect) and the second belonged to grammars (tex/math) that
+ *   this tokenizer does not detect.
+ */
 export type CodeHighlightToken =
   | 'comment'
+  | 'code'
   | 'string'
   | 'keyword'
   | 'number'
@@ -51,6 +72,12 @@ export type CodeHighlightToken =
   | 'punct'
   | 'tag'
   | 'attr'
+  | 'heading'
+  | 'list'
+  | 'quote'
+  | 'link'
+  | 'strong'
+  | 'emphasis'
   | 'addition'
   | 'deletion'
   | 'plain'
@@ -63,6 +90,7 @@ export const MAX_HIGHLIGHT_LENGTH = 200 * 1024
 /** token → CSS class on the `.qf-hl-<token>` palette in `src/index.css`. */
 export const HIGHLIGHT_TOKEN_CLASSES: Record<CodeHighlightToken, string> = {
   comment: 'qf-hl-comment',
+  code: 'qf-hl-code',
   string: 'qf-hl-string',
   keyword: 'qf-hl-keyword',
   number: 'qf-hl-number',
@@ -72,6 +100,12 @@ export const HIGHLIGHT_TOKEN_CLASSES: Record<CodeHighlightToken, string> = {
   punct: 'qf-hl-punct',
   tag: 'qf-hl-tag',
   attr: 'qf-hl-attr',
+  heading: 'qf-hl-heading',
+  list: 'qf-hl-list',
+  quote: 'qf-hl-quote',
+  link: 'qf-hl-link',
+  strong: 'qf-hl-strong',
+  emphasis: 'qf-hl-emphasis',
   addition: 'qf-hl-addition',
   deletion: 'qf-hl-deletion',
   plain: 'qf-hl-plain',
@@ -755,7 +789,10 @@ function tokenizeJson(code: string): CodeHighlightSegment[] {
     }
     const word = matchAt(WORD_PATTERN, code, i)
     if (word) {
-      sink.push(word, word === 'true' || word === 'false' || word === 'null' ? 'keyword' : 'plain')
+      // Legacy `JSON` grammar: `keywords: { literal: ['true','false','null'] }`
+      // → `.hljs-literal`, which the legacy palette grouped with `.hljs-number`
+      // under `--syntax-constant`, so the words reuse the `number` token.
+      sink.push(word, word === 'true' || word === 'false' || word === 'null' ? 'number' : 'plain')
       i += word.length
       continue
     }
@@ -964,13 +1001,18 @@ function tokenizeCss(code: string): CodeHighlightSegment[] {
       }
       const selector = matchAt(CSS_SELECTOR_PATTERN, code, i)
       if (selector) {
-        sink.push(selector, selector[0] === '.' ? 'function' : 'builtin')
+        // Legacy `.hljs-selector-class` / `.hljs-selector-id` shared the
+        // `--syntax-constant` rule (headed by `.hljs-attr`), so `.x` / `#x`
+        // reuse the `attr` token instead of the function/builtin buckets.
+        sink.push(selector, 'attr')
         i += selector.length
         continue
       }
       const pseudo = matchAt(CSS_PSEUDO_PATTERN, code, i)
       if (pseudo) {
-        sink.push(pseudo, 'keyword')
+        // Legacy `.hljs-selector-pseudo` sat in the `--syntax-tag` bucket (not
+        // the keyword one), so pseudo selectors reuse the `tag` token.
+        sink.push(pseudo, 'tag')
         i += pseudo.length
         continue
       }
@@ -1023,10 +1065,11 @@ function tokenizeCss(code: string): CodeHighlightSegment[] {
     }
     // Nested rules (scss / @media blocks): `.child` / `#id` selectors inside a
     // declaration block (a leading '.' before a letter is never a decimal).
+    // Same legacy selector-class/id bucket as the top-level branch above.
     if (ch === '.' || ch === '#') {
       const nested = matchAt(CSS_SELECTOR_PATTERN, code, i)
       if (nested) {
-        sink.push(nested, nested[0] === '.' ? 'function' : 'builtin')
+        sink.push(nested, 'attr')
         i += nested.length
         continue
       }
@@ -1052,7 +1095,9 @@ function tokenizeCss(code: string): CodeHighlightSegment[] {
       let k = i + word.length
       while (k < code.length && (code[k] === ' ' || code[k] === '\t')) k++
       if (code[k] === ':') sink.push(word, 'property')
-      else if (code[k] === '(') sink.push(word, 'function')
+      // Legacy `FUNCTION_DISPATCH` (`{ className: 'built_in', begin: /[\w-]+(?=\()/ }`)
+      // claims every `name(` in a declaration value — `var(` / `rgb(` / `url(`.
+      else if (code[k] === '(') sink.push(word, 'builtin')
       else sink.push(word, 'plain')
       i += word.length
       continue
@@ -1285,7 +1330,20 @@ function tokenizeSql(code: string): CodeHighlightSegment[] {
  * YAML
  * ---------------------------------------------------------------------- */
 
-const YAML_KEYWORDS = new Set(['true', 'false', 'null', 'yes', 'no', 'on', 'off', '~'])
+/*
+ * Legacy hljs `YAML` literals: `let t = 'true false yes no null'` plus the
+ * `{ beginKeywords: t, keywords: { literal: t } }` rule → `.hljs-literal`,
+ * which the legacy palette painted with `--syntax-constant` (the same rule as
+ * `.hljs-number`). The vocabulary has no `literal` token, so the words reuse
+ * `number`.
+ */
+const YAML_LITERAL_WORDS = new Set(['true', 'false', 'yes', 'no', 'null'])
+/*
+ * `on` / `off` / `~` are a local addition: the legacy grammar had no YAML
+ * keyword class and read these through its bare-scalar `string` rule. Aligning
+ * them needs the bare-scalar mapping first, so their bucket is left as-is.
+ */
+const YAML_KEYWORDS = new Set(['on', 'off', '~'])
 const YAML_WORD_PATTERN = /[^\s:#[\]{},"'&|>]+/y
 const YAML_ANCHOR_PATTERN = /[&*][^\s:#[\]{},]+/y
 const YAML_PUNCT_PATTERN = /[[]{},:]+/y
@@ -1326,7 +1384,8 @@ function tokenizeYaml(code: string): CodeHighlightSegment[] {
       continue
     }
     if ((atKey || afterDash) && ch === '-' && (code[i + 1] === undefined || code[i + 1] === ' ' || code[i + 1] === '\n')) {
-      sink.push('-', 'punct')
+      // Legacy `YAML` grammar: `{ className: 'bullet', begin: /-(?=[ ]|$)/ }`.
+      sink.push('-', 'list')
       afterDash = true
       atKey = false
       i++
@@ -1369,7 +1428,8 @@ function tokenizeYaml(code: string): CodeHighlightSegment[] {
     }
     const word = matchAt(YAML_WORD_PATTERN, code, i)
     if (word) {
-      if (YAML_KEYWORDS.has(word.toLowerCase())) sink.push(word, 'keyword')
+      if (YAML_LITERAL_WORDS.has(word.toLowerCase())) sink.push(word, 'number')
+      else if (YAML_KEYWORDS.has(word.toLowerCase())) sink.push(word, 'keyword')
       else if (YAML_NUMBER_PATTERN.test(word)) sink.push(word, 'number')
       else sink.push(word, 'plain')
       leaveKeyPosition()
@@ -1396,23 +1456,45 @@ function tokenizeYaml(code: string): CodeHighlightSegment[] {
 
 const MARKDOWN_LIST_PATTERN = /(?:[-*+]|\d{1,9}\.)(?=[ \t])/y
 const MARKDOWN_LINK_PATTERN = /\[[^\]\n]*\]\([^)\n]*\)/y
+/*
+ * Legacy highlight.js `Markdown` grammar had no `<em>`/`<strong>` escapes of
+ * its own either: `**`/`__` (not followed by whitespace) opened `strong` and a
+ * single `*`/`_` opened `emphasis`. The legacy `end` patterns were not
+ * newline-bounded; these are, so an unterminated `**` while a message streams
+ * cannot swallow the rest of the block.
+ */
+const MARKDOWN_STRONG_PATTERN = /\*\*(?!\s)[^*\n]+\*\*|__(?!\s)[^_\n]+__/y
+const MARKDOWN_EMPHASIS_PATTERN = /\*(?![\s*])[^*\n]+\*|_(?![\s_])[^_\n]+_/y
 
 function tokenizeMarkdown(code: string): CodeHighlightSegment[] {
   const sink = createSink()
   let i = 0
   let lineStart = true
+  // Set while the current line opens with four spaces / a tab, i.e. the legacy
+  // `.hljs-code` indented-code-block variant. Block rules (`bullet`, headings…)
+  // are matched first, exactly like the legacy `contains` order.
+  let indentedLine = false
+  // Set for any leading whitespace: the legacy `section` / `quote` patterns are
+  // anchored at the raw line start (`^#{1,6}`, `^>\s+`), so an indented line is
+  // not a heading/quote there.
+  let lineIndent = false
   while (i < code.length) {
     const ch = code[i]
     if (ch === '\n') {
       sink.push('\n', 'plain')
       lineStart = true
+      indentedLine = false
+      lineIndent = false
       i++
       continue
     }
     if (lineStart && (ch === ' ' || ch === '\t')) {
       let j = i + 1
       while (j < code.length && (code[j] === ' ' || code[j] === '\t')) j++
-      sink.push(code.slice(i, j), 'plain')
+      const indent = code.slice(i, j)
+      if (ch === '\t' || indent.length >= 4) indentedLine = true
+      lineIndent = true
+      sink.push(indent, 'plain')
       i = j
       continue
     }
@@ -1420,11 +1502,36 @@ function tokenizeMarkdown(code: string): CodeHighlightSegment[] {
       let lineEnd = code.indexOf('\n', i)
       if (lineEnd === -1) lineEnd = code.length
       const rest = code.slice(i, lineEnd)
-      if (/^#{1,6}( |$)/.test(rest)) {
-        sink.push(rest, 'keyword')
+      // `.hljs-section` (bold + `--syntax-heading`).
+      if (!lineIndent && /^#{1,6}( |$)/.test(rest)) {
+        sink.push(rest, 'heading')
         i = lineEnd
         lineStart = false
         continue
+      }
+      // `.hljs-section` variant 2 — the zero-width lookahead
+      // `(?=^.+?\n[=-]{2,}$)`: a non-empty line followed by a `=`/`-` underline
+      // opens the section span, and the legacy core closed it right after the
+      // underline line (a mode without `end` compiles to `end = /\B|\b/`), so
+      // both lines carried the heading colour + weight.
+      if (rest.length > 0) {
+        const underlineEnd = code.indexOf('\n', lineEnd + 1)
+        const underline = code.slice(lineEnd + 1, underlineEnd === -1 ? code.length : underlineEnd)
+        if (/^[=-]{2,}$/.test(underline)) {
+          sink.push(rest, 'heading')
+          sink.push('\n', 'plain')
+          sink.push(underline, 'heading')
+          if (underlineEnd === -1) {
+            i = code.length
+          } else {
+            sink.push('\n', 'plain')
+            i = underlineEnd + 1
+          }
+          lineStart = true
+          indentedLine = false
+          lineIndent = false
+          continue
+        }
       }
       if (/^(```|~~~)/.test(rest)) {
         sink.push(rest, 'punct')
@@ -1438,25 +1545,34 @@ function tokenizeMarkdown(code: string): CodeHighlightSegment[] {
         lineStart = false
         continue
       }
-      if (ch === '>') {
-        sink.push('>', 'punct')
+      // `.hljs-quote` (blockquote marker).
+      if (!lineIndent && ch === '>') {
+        sink.push('>', 'quote')
         lineStart = false
         i++
         continue
       }
+      // `.hljs-bullet`.
       const marker = matchAt(MARKDOWN_LIST_PATTERN, code, i)
       if (marker) {
-        sink.push(marker, 'punct')
+        sink.push(marker, 'list')
         lineStart = false
         i += marker.length
         continue
       }
+      if (indentedLine) {
+        sink.push(rest, 'code')
+        i = lineEnd
+        lineStart = false
+        continue
+      }
       lineStart = false
     }
+    // `.hljs-code`: inline code spans.
     if (ch === '`') {
       let end = code.indexOf('`', i + 1)
       end = end === -1 ? code.length : end + 1
-      sink.push(code.slice(i, end), 'string')
+      sink.push(code.slice(i, end), 'code')
       i = end
       continue
     }
@@ -1465,11 +1581,13 @@ function tokenizeMarkdown(code: string): CodeHighlightSegment[] {
       if (link) {
         const closeBracket = i + link.indexOf(']')
         const openParen = i + link.indexOf('(')
+        // Legacy inline link: the label is `string`, the target is `link`
+        // (unstyled in the legacy palette → inherits the body colour).
         sink.push('[', 'punct')
-        sink.push(code.slice(i + 1, closeBracket), 'plain')
+        sink.push(code.slice(i + 1, closeBracket), 'string')
         sink.push(']', 'punct')
         sink.push('(', 'punct')
-        sink.push(code.slice(openParen + 1, i + link.length - 1), 'builtin')
+        sink.push(code.slice(openParen + 1, i + link.length - 1), 'link')
         sink.push(')', 'punct')
         i += link.length
         continue
@@ -1478,8 +1596,31 @@ function tokenizeMarkdown(code: string): CodeHighlightSegment[] {
       i++
       continue
     }
+    if (ch === '*' || ch === '_') {
+      const strong = matchAt(MARKDOWN_STRONG_PATTERN, code, i)
+      if (strong) {
+        sink.push(strong, 'strong')
+        i += strong.length
+        continue
+      }
+      const emphasis = matchAt(MARKDOWN_EMPHASIS_PATTERN, code, i)
+      if (emphasis) {
+        sink.push(emphasis, 'emphasis')
+        i += emphasis.length
+        continue
+      }
+    }
     let j = i
-    while (j < code.length && code[j] !== '\n' && code[j] !== '`' && code[j] !== '[') j++
+    while (
+      j < code.length &&
+      code[j] !== '\n' &&
+      code[j] !== '`' &&
+      code[j] !== '[' &&
+      code[j] !== '*' &&
+      code[j] !== '_'
+    ) {
+      j++
+    }
     if (j === i) j = i + 1
     sink.push(code.slice(i, j), 'plain')
     i = j
@@ -1588,8 +1729,15 @@ const CONFIG_WORD_PATTERN = /[A-Za-z_][A-Za-z0-9_.-]*/y
 const CONFIG_NUMBER_PATTERN = /-?(?:0[xX][0-9a-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d+)?)/y
 const CONFIG_DATE_PATTERN = /\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})?)?/y
 const CONFIG_PUNCT_PATTERN = /[=[\]{},]+/y
-const TOML_BOOLEAN_WORDS = new Set(['true', 'false'])
-const INI_BOOLEAN_WORDS = new Set(['true', 'false', 'yes', 'no', 'on', 'off'])
+/*
+ * Legacy hljs shipped one `TOML, also INI` grammar for both dialects, registered
+ * as `ini` with the `toml` alias, whose only literal rule was
+ * `{ className: 'literal', begin: /\bon|off|true|false|yes|no\b/ }` → the
+ * `--syntax-constant` bucket. No `literal` token exists here, so the words reuse
+ * `number`, exactly like the YAML literals above.
+ */
+const TOML_LITERAL_WORDS = new Set(['true', 'false'])
+const INI_LITERAL_WORDS = new Set(['true', 'false', 'yes', 'no', 'on', 'off'])
 
 /** Section header contents: `[server]`, `[a.b]`, `[[steps]]`, `["quoted key"]`. */
 function pushConfigSectionName(name: string, sink: ReturnType<typeof createSink>) {
@@ -1622,7 +1770,7 @@ function pushConfigSectionName(name: string, sink: ReturnType<typeof createSink>
 
 function tokenizeConfig(code: string, dialect: ConfigDialect): CodeHighlightSegment[] {
   const sink = createSink()
-  const booleans = dialect.toml ? TOML_BOOLEAN_WORDS : INI_BOOLEAN_WORDS
+  const literals = dialect.toml ? TOML_LITERAL_WORDS : INI_LITERAL_WORDS
   let i = 0
   let atLineStart = true
   while (i < code.length) {
@@ -1716,7 +1864,7 @@ function tokenizeConfig(code: string, dialect: ConfigDialect): CodeHighlightSegm
     }
     const word = matchAt(CONFIG_WORD_PATTERN, code, i)
     if (word) {
-      sink.push(word, booleans.has(word.toLowerCase()) ? 'keyword' : 'plain')
+      sink.push(word, literals.has(word.toLowerCase()) ? 'number' : 'plain')
       atLineStart = false
       i += word.length
       continue

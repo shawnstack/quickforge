@@ -211,6 +211,17 @@ export const appTranslations = {
     projectSwitchFailed: 'Failed to switch to the project for this conversation. Workspace tools were not started.',
     copy: 'Copy',
     copied: 'Copied',
+    // Legacy code-block title-bar copy button (pi `<code-block>` rendered
+    // `title="Copy code"` with `showText`); the zh value came from the removed
+    // `piChineseOverrides` map. Distinct from the generic `copy`/`copied` pair above,
+    // which message actions and the ⋯ menu feedback still use.
+    copyCode: 'Copy code',
+    // Legacy `<console-block>` (run_command output) copy entry: pi-web-ui's English
+    // table (`console` / `Copy output` / `Copied!`); the zh values below came from the
+    // `piChineseOverrides` map that lived in this file at the baseline commit.
+    consoleBlockLabel: 'console',
+    copyOutput: 'Copy output',
+    copiedBang: 'Copied!',
     svgPreviewMode: 'Preview',
     svgSourceMode: 'Source',
     svgEnlargePreview: 'Click to enlarge SVG preview',
@@ -1924,6 +1935,10 @@ export const appTranslations = {
     projectSwitchFailed: '切换到该对话绑定的项目失败，工作区工具未启动。',
     copy: '复制',
     copied: '已复制',
+    copyCode: '复制代码',
+    consoleBlockLabel: '控制台',
+    copyOutput: '复制输出',
+    copiedBang: '已复制！',
     svgPreviewMode: '预览',
     svgSourceMode: '源码',
     svgEnlargePreview: '点击放大 SVG 预览',

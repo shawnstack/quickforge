@@ -258,6 +258,61 @@ describe('code highlight palette contract', () => {
     expect(css).not.toMatch(/--qf-hl-punct\s*:/)
     expect(css).not.toMatch(/\.qf-hl-punct\s*\{/)
   })
+
+  it('re-declares the legacy heading / list / code / quote values in both themes', () => {
+    // 旧 `--syntax-heading` / `--syntax-list` / `--syntax-comment` / `--syntax-tag`。
+    const legacy: Array<[string, string, string]> = [
+      ['qf-hl-heading', 'oklch(43.5% .141 237.016)', 'oklch(52.3% .181 237.016)'],
+      ['qf-hl-list', 'oklch(53.7% .108 88.766)', 'oklch(86.6% .141 88.766)'],
+      ['qf-hl-code', 'oklch(54% .019 247.858)', 'oklch(62.6% .025 247.858)'],
+      ['qf-hl-quote', 'oklch(40.3% .111 145.348)', 'oklch(81.2% .159 145.348)'],
+    ]
+    for (const [name, light, dark] of legacy) {
+      expect(oklchValues(name), name).toEqual([light, dark])
+      expect(css).toMatch(new RegExp(`\\.${name} \\{[^}]*color: var\\(--${name}\\);`))
+    }
+  })
+
+  it('keeps the legacy glyph effects that never depended on a color variable', () => {
+    // 旧 `.hljs-section` 除 `--syntax-heading` 外还声明 font-weight:700；
+    // `.hljs-strong`(font-weight:700) / `.hljs-emphasis`(font-style:italic) 只声明
+    // 字形（旧 `color: var(--color-text-primary)` 的变量在产物里不存在 → 继承
+    // 正文字色），因此新规则同样不得声明颜色变量。
+    expect(css).toMatch(/\.qf-hl-heading \{[^}]*font-weight: 700;/)
+    expect(css).toMatch(/\.qf-hl-strong \{ font-weight: 700; \}/)
+    expect(css).toMatch(/\.qf-hl-emphasis \{ font-style: italic; \}/)
+    expect(css).not.toMatch(/--qf-hl-strong\s*:/)
+    expect(css).not.toMatch(/--qf-hl-emphasis\s*:/)
+  })
+
+  it('keeps the legacy `.hljs-link` contract: no rule, the target inherits the body color', () => {
+    expect(css).not.toMatch(/--qf-hl-link\s*:/)
+    expect(css).not.toMatch(/\.qf-hl-link\s*\{/)
+  })
+})
+
+describe('svg/mermaid code block frame contract', () => {
+  it('keeps the decorated SVG block frameless like the pre-removal card reset', () => {
+    // 旧 src/index.css L2375（pi `<code-block>` 内层卡片）：
+    // `position: relative; border: 0 !important; background: transparent !important;
+    //  box-shadow: none !important`。React 里该元素本身就是卡片，类名仍在输出
+    // （CodeBlock.tsx `supportedPreview && 'quickforge-svg-code-block'`）。
+    expect(css).toMatch(
+      /\.quickforge-svg-code-block \{\s*position: relative;\s*border: 0 !important;\s*background: transparent !important;\s*box-shadow: none !important;\s*\}/,
+    )
+    // 旧 L2395：SVG 代码块的标题栏左右内边距为 0。
+    expect(css).toMatch(
+      /\.quickforge-svg-code-block > div:first-child \{\s*padding-left: 0 !important;\s*padding-right: 0 !important;\s*\}/,
+    )
+  })
+
+  it('does not resurrect the removed pi-web-ui toolbar classes', () => {
+    // 旧 L2382/L2391 的 `quickforge-svg-code-toolbar-floating` 选择器依赖已删除的
+    // pi-web-ui 标题栏 DOM（源码 0 处输出该类），补回来只会是死规则。注释里可以
+    // 提到该名字（迁移记录），但不得出现选择器。
+    expect(css).not.toMatch(/\.quickforge-svg-code-toolbar-floating\s*[,{]/)
+    expect(css).not.toMatch(/\.quickforge-svg-code-toolbar-floating\s*>/)
+  })
 })
 
 describe('thinking header visibility contract', () => {

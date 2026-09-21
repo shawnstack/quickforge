@@ -57,7 +57,11 @@ describe('tool renderer renderCodeBlock', () => {
 
     expect(html).toContain('qf-code-block')
     expect(html).toContain('data-qf-action="copy-code"')
-    expect(html).toContain('title="Copy"')
+    // 旧 `<code-block>` 模板是 `<copy-button … title="${L('Copy code')}" .showText=${!0}>`：
+    // title / aria-label 恒为 `Copy code`（不随 copied 切换），空闲态无可见反馈文本。
+    expect(html).toContain('title="Copy code"')
+    expect(html).toContain('aria-label="Copy code"')
+    expect(html).not.toContain('Copied!')
     // 工具卡旧版即无终端运行按钮与 SVG/Mermaid 预览菜单。
     expect(html).not.toContain('data-qf-action="execute-markdown-command"')
     expect(html).not.toContain('quickforge-svg-code-menu')

@@ -12,8 +12,8 @@ vi.mock('react', async (importOriginal) => {
 })
 
 import { Check, Copy } from 'lucide-react'
-import { applyAppLanguageFromSnapshot } from '../../src/lib/i18n'
-import { renderCodeBlock, rememberToolDetailsOpen, ToolDetails, toolDetailsOpenMemory } from '../../src/lib/tool-renderers/shared'
+import { applyAppLanguageFromSnapshot, t } from '../../src/lib/i18n'
+import { renderCodeBlock, renderConsoleBlock, rememberToolDetailsOpen, ToolDetails, toolDetailsOpenMemory } from '../../src/lib/tool-renderers/shared'
 import { flushPromises, HookLifecycle } from './helpers/hook-lifecycle'
 
 type TestNode = ReactElement<Record<string, unknown> & { children?: unknown; ref?: { current: unknown } }>
@@ -50,15 +50,27 @@ describe('renderCodeBlock copy feedback', () => {
     return button!
   }
 
-  it('flashes the copied state (green check icon) for 2000ms after a successful copy', async () => {
+  function buttonChildren(button: TestNode) {
+    return (Array.isArray(button.props.children) ? button.props.children : [button.props.children]).filter(Boolean) as ReactElement[]
+  }
+
+  function feedbackText(button: TestNode) {
+    return buttonChildren(button).find((child) => child.type === 'span')?.props.children as string | undefined
+  }
+
+  it('flashes the copied state (green check icon + visible Copied!) for 2000ms without switching the title', async () => {
     vi.useFakeTimers()
     const lifecycle = new HookLifecycle()
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { clipboard: { writeText } })
 
     const idle = copyButton(renderToolCodeBlock(lifecycle))
-    expect(idle.props.title).toBe('Copy')
-    expect((idle.props.children as ReactElement).type).toBe(Copy)
+    // 旧 `<copy-button>` 的 title 只在构造时取一次（`this.title=L('Copy')`），
+    // `<code-block>` 模板传的 `L('Copy code')` 之后再没有被改写 → title 恒定。
+    expect(idle.props.title).toBe('Copy code')
+    expect(idle.props['aria-label']).toBe('Copy code')
+    expect(buttonChildren(idle).map((child) => child.type)).toEqual([Copy])
+    expect(feedbackText(idle)).toBeUndefined()
     expect(String(idle.props.className)).not.toContain('text-emerald-600')
 
     idle.props.onClick()
@@ -66,19 +78,38 @@ describe('renderCodeBlock copy feedback', () => {
 
     const copied = copyButton(renderToolCodeBlock(lifecycle))
     expect(writeText).toHaveBeenCalledWith(code)
-    expect(copied.props.title).toBe('Copied')
-    expect((copied.props.children as ReactElement).type).toBe(Check)
+    // 反馈靠「图标换对勾 + 追加可见 `Copied!`」（旧 `.showText=${!0}`）承载，title 不动。
+    expect(copied.props.title).toBe('Copy code')
+    expect(buttonChildren(copied).map((child) => child.type)).toEqual([Check, 'span'])
+    expect(feedbackText(copied)).toBe(t('copiedBang'))
+    expect(feedbackText(copied)).toBe('Copied!')
     expect(String(copied.props.className)).toContain('text-emerald-600')
 
     // Feedback persists through 1999ms and resets at the 2000ms boundary
     // (legacy mini-lit copy-button timing).
     vi.advanceTimersByTime(1999)
-    expect(copyButton(renderToolCodeBlock(lifecycle)).props.title).toBe('Copied')
+    expect(feedbackText(copyButton(renderToolCodeBlock(lifecycle)))).toBe('Copied!')
     vi.advanceTimersByTime(1)
     const reset = copyButton(renderToolCodeBlock(lifecycle))
-    expect(reset.props.title).toBe('Copy')
-    expect((reset.props.children as ReactElement).type).toBe(Copy)
+    expect(reset.props.title).toBe('Copy code')
+    expect(buttonChildren(reset).map((child) => child.type)).toEqual([Copy])
+    expect(feedbackText(reset)).toBeUndefined()
     expect(String(reset.props.className)).not.toContain('text-emerald-600')
+  })
+
+  it('uses the baseline zh values for the tool-card copy texts', async () => {
+    vi.useFakeTimers()
+    const lifecycle = new HookLifecycle()
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
+    applyAppLanguageFromSnapshot('zh')
+
+    const idle = copyButton(renderToolCodeBlock(lifecycle))
+    expect(idle.props.title).toBe('复制代码')
+
+    idle.props.onClick()
+    await flushPromises()
+
+    expect(feedbackText(copyButton(renderToolCodeBlock(lifecycle)))).toBe('已复制！')
   })
 
   it('keeps the idle state when the clipboard write fails', async () => {
@@ -90,8 +121,162 @@ describe('renderCodeBlock copy feedback', () => {
     await flushPromises()
 
     const idle = copyButton(renderToolCodeBlock(lifecycle))
-    expect(idle.props.title).toBe('Copy')
-    expect((idle.props.children as ReactElement).type).toBe(Copy)
+    expect(idle.props.title).toBe('Copy code')
+    expect(buttonChildren(idle).map((child) => child.type)).toEqual([Copy])
+    expect(feedbackText(idle)).toBeUndefined()
+  })
+})
+
+describe('renderConsoleBlock copy feedback', () => {
+  const output = 'one\ntwo'
+
+  /** frame 树里唯一带文本子节点的 span：旧 `<console-block>` 标题栏左侧的 `L('console')` 标签。 */
+  function headerLabel() {
+    const frame = renderConsoleBlock(output, 'default') as TestNode
+    const label = nodes(frame).find((node) => node.type === 'span' && typeof node.props.children === 'string')
+    expect(label).toBeDefined()
+    return label!.props.children
+  }
+
+  /** 取出 frame 树里的内部函数组件（ConsoleCopyButton），按既有模式交给 HookLifecycle 渲染。 */
+  function renderConsoleCopyButton(lifecycle: HookLifecycle) {
+    const frame = renderConsoleBlock(output, 'default') as TestNode
+    const component = nodes(frame).find((node) => typeof node.type === 'function')
+    expect(component).toBeDefined()
+    return lifecycle.render(() => (component!.type as (props: { content: string }) => ReactElement)(component!.props))
+  }
+
+  function copyButton(tree: TestNode) {
+    const button = nodes(tree).find((node) => node.props['data-qf-action'] === 'copy-console-output')
+    expect(button).toBeDefined()
+    return button!
+  }
+
+  function buttonChildren(button: TestNode) {
+    return (Array.isArray(button.props.children) ? button.props.children : [button.props.children]).filter(Boolean) as ReactElement[]
+  }
+
+  function feedbackText(button: TestNode) {
+    return buttonChildren(button).find((child) => child.type === 'span')?.props.children as string | undefined
+  }
+
+  it('renders the legacy console copy entry (icon-only, constant Copy output title, visible Copied!)', async () => {
+    vi.useFakeTimers()
+    const lifecycle = new HookLifecycle()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+
+    // 旧 `<console-block>` 标题栏：左 `L('console')` 标签、右 `title="Copy output"` 复制按钮。
+    expect(headerLabel()).toBe(t('consoleBlockLabel'))
+    expect(t('consoleBlockLabel')).toBe('console')
+
+    const idle = copyButton(renderConsoleCopyButton(lifecycle))
+    expect(idle.props['data-qf-action']).toBe('copy-console-output')
+    expect(idle.props.title).toBe(t('copyOutput'))
+    expect(idle.props.title).toBe('Copy output')
+    expect(idle.props['aria-label']).toBe('Copy output')
+    expect(buttonChildren(idle).map((child) => child.type)).toEqual([Copy])
+    expect(feedbackText(idle)).toBeUndefined()
+
+    idle.props.onClick()
+    await flushPromises()
+
+    const copied = copyButton(renderConsoleCopyButton(lifecycle))
+    expect(writeText).toHaveBeenCalledWith(output)
+    // 旧实现只换图标 + 追加可见文本，title 不随 copied 切换。
+    expect(copied.props.title).toBe('Copy output')
+    expect(buttonChildren(copied).map((child) => child.type)).toEqual([Check, 'span'])
+    expect(feedbackText(copied)).toBe(t('copiedBang'))
+    expect(feedbackText(copied)).toBe('Copied!')
+  })
+
+  it('flashes the copied state for 1500ms after a successful copy', async () => {
+    vi.useFakeTimers()
+    const lifecycle = new HookLifecycle()
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
+
+    copyButton(renderConsoleCopyButton(lifecycle)).props.onClick()
+    await flushPromises()
+
+    // copied 状态的 effect 在下一次 render 提交（与既有 2000ms 用例同一模式）。
+    expect(feedbackText(copyButton(renderConsoleCopyButton(lifecycle)))).toBe('Copied!')
+
+    // 旧 `<console-block>.copy()` 的 `setTimeout(...,1500)`（≠ 代码块 copy-button 的 2000ms）。
+    vi.advanceTimersByTime(1499)
+    expect(feedbackText(copyButton(renderConsoleCopyButton(lifecycle)))).toBe('Copied!')
+    vi.advanceTimersByTime(1)
+    const reset = copyButton(renderConsoleCopyButton(lifecycle))
+    expect(feedbackText(reset)).toBeUndefined()
+    expect(buttonChildren(reset).map((child) => child.type)).toEqual([Copy])
+    // 复位只影响图标与文本，title 恒为 Copy output。
+    expect(reset.props.title).toBe('Copy output')
+  })
+
+  it('uses the baseline zh values for the console label and copy texts', async () => {
+    vi.useFakeTimers()
+    const lifecycle = new HookLifecycle()
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
+    applyAppLanguageFromSnapshot('zh')
+
+    expect(headerLabel()).toBe('控制台')
+
+    const idle = copyButton(renderConsoleCopyButton(lifecycle))
+    expect(idle.props.title).toBe('复制输出')
+    idle.props.onClick()
+    await flushPromises()
+    expect(feedbackText(copyButton(renderConsoleCopyButton(lifecycle)))).toBe('已复制！')
+  })
+})
+
+describe('renderConsoleBlock auto-scroll', () => {
+  const output = 'line 1'
+
+  /**
+   * 取 frame 树里的 ConsoleScrollArea（旧 `<console-block>.updated()` 里
+   * `.console-scroll` 钩子的等价物）交给 HookLifecycle 渲染，并模拟 React DOM
+   * 在 commit 前把宿主节点写进 ref.current 的那一步。
+   */
+  function mountScrollArea(lifecycle: HookLifecycle) {
+    const frame = renderConsoleBlock(output, 'default') as TestNode
+    const area = nodes(frame).find((node) => typeof node.type === 'function' && (node.type as { name?: string }).name === 'ConsoleScrollArea')
+    expect(area).toBeDefined()
+
+    const renderArea = (content: string) =>
+      lifecycle.render(() => (area!.type as (props: { content: string }) => ReactElement)({ ...area!.props, content }))
+    const pre = nodes(renderArea(output)).find((node) => node.type === 'pre')
+    expect(pre).toBeDefined()
+
+    const host = { scrollTop: 0, scrollHeight: 0 }
+    ;(pre!.props as { ref: { current: unknown } }).ref.current = host
+    return { host, pre: pre!, renderArea }
+  }
+
+  it('pins the legacy console scroll container to the bottom on every update', () => {
+    const { host, pre, renderArea } = mountScrollArea(new HookLifecycle())
+
+    // 滚动容器仍是旧的单容器形态（overflow-auto + max-h-*）。
+    expect(String(pre.props.className)).toContain('overflow-auto')
+
+    // 挂载后的首次 commit 即置底（旧 `updated()` 的首个渲染后回调）。
+    host.scrollHeight = 480
+    host.scrollTop = 0
+    renderArea(output)
+    expect(host.scrollTop).toBe(480)
+
+    // 输出增长后再次置底：`scrollTop = scrollHeight`。
+    host.scrollHeight = 960
+    host.scrollTop = 120
+    renderArea(`${output}\nline 2`)
+    expect(host.scrollTop).toBe(960)
+  })
+
+  it('does not distinguish a manual scroll-up (legacy updated() always re-pins)', () => {
+    const { host, renderArea } = mountScrollArea(new HookLifecycle())
+
+    host.scrollHeight = 960
+    host.scrollTop = 0 // 用户手动上滑到顶部
+    renderArea(output) // 无内容变化的普通重渲染
+    expect(host.scrollTop).toBe(960)
   })
 })
 

@@ -927,6 +927,41 @@
       ],
       "verification": "2026-09-20：npx vitest run tests/frontend/decorator-copy-i18n.test.ts tests/frontend/message-actions.test.ts → 2 files / 52 passed（exit 0）；npm run lint → 0 errors（exit 0）。grep 确认 tests/ 中无 .quickforge-file-path-link 类名引用（无 CSS 颜色/快照断言需同步）。未跑全量 test/build（小改动定向验证，纯 CSS 配色变更）。",
       "boundaries": "未做真机视觉验收（建议真机确认 light/dark 两模式下路径链接为蓝色、下划线偏移不变、hover 变淡）。docs/wiki 未更新：纯 CSS 配色变更，不涉及模块职责、公共入口或架构。未触碰 dist/、package-dist/、package-offline（下次 build 自然更新）；无依赖变更、无 Git 操作。"
+    },
+    {
+      "id": "dependency-removal-parity-audit",
+      "name": "依赖移除后的交互 Parity 审计与修复（pi-web-ui/mini-lit 移除对照）",
+      "status": "done",
+      "dependencies": [
+        "self-hosted-chat-ui"
+      ],
+      "approach": "依赖移除（pi-web-ui / mini-lit / lit → 自研 React）后的交互与 CSS 一致性评审 + 修复轮（父流程口径：7 源码 + 7 测试，+939 / −135）。以 HEAD=6d845ca（React 化重构）相对 BASE=3e10f58（仍含三依赖）为对象，证据源三件套取证：① git show BASE 源码、② 只读旧构建产物 package-dist/dist/assets/*（= package-offline/dist，逐字节相同）、③ 当前工作区源码与新产物；报告五域 155 条对照（一致 107 / 回归-已修 11 / 有意保留 30 / 不可考证 7），落地 7 项修复：① renderConsoleBlock 复刻旧 `<console-block>` 复制入口（标题栏 console 标签 + 复制按钮，1500ms、`Copy output` 恒定 title、可见 `Copied!`，data-qf-action=\"copy-console-output\"）+ ConsoleCopyButton；② 行中 `$$…$$` 恢复为块级公式（对齐旧 blockMathDollar 任意位置起块，保留内容不含 `$` 与 trim 约束，并按旧块级标记拆段输出）；③ 语法高亮 heading/list/code/quote/strength/emphasis/link 语义与 SVG 代码块 CSS 补回（+4 `--qf-hl-*` 变量、+6 规则、+2 SVG 规则；故意不建 `--qf-hl-link`）；④ 自动滚动恢复 pi 内部 50/10 迟滞（releaseFollowDistancePx / repinFollowDistancePx + markUserScrollUp 距离门控；rebase 适配：迟滞仅限普通尾随，锚定模式内上滑立即脱离）；⑤ 代码块标题栏复制文案改 `copyCode` / `copiedBang`（Copy code / Copied!，2000ms 恒定 title）；⑥ 语法高亮分桶对齐旧 hljs（selector-class/-id → attr、CSS 函数名 → builtin、YAML/JSON/TOML/INI 字面量 → number、Setext 标题 → heading）；⑦ 工具卡代码块复制反馈统一（title 恒 copyCode + 可见 copiedBang + 复制态尺寸配方）与 console 输出区 ConsoleScrollArea 每次 commit 置底（复刻旧 `.updated()`，不区分用户手动上滑的旧缺陷一并保留）。文档/wiki 同步：src/README 数学段落改述、components/README 两份副本同步（目录树 CodeBlock.tsx 条目、Markdown 段复制文案与高亮 token 说明、工具卡复制反馈段、i18n 新键段）、lib/README 工具渲染器段补 console 复制与置底。",
+      "files": [
+        "src/components/chat/scroll-sync.ts",
+        "src/components/chat/surface/CodeBlock.tsx",
+        "src/index.css",
+        "src/lib/chat-math.ts",
+        "src/lib/code-highlight.ts",
+        "src/lib/i18n.ts",
+        "src/lib/tool-renderers/shared.tsx",
+        "tests/frontend/chat-code-block.test.ts",
+        "tests/frontend/chat-math.test.ts",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "tests/frontend/code-highlight.test.ts",
+        "tests/frontend/scroll-sync.test.ts",
+        "tests/frontend/tool-renderer-code-block.test.ts",
+        "tests/frontend/tool-renderer-shared-state.test.ts",
+        "tests/frontend/code-highlight.test.ts",
+        "docs/reviews/dependency-removal-interaction-parity-audit.zh-CN.md",
+        "docs/wiki/src/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "progress.md",
+        "session-handoff.md",
+        "feature_list.json"
+      ],
+      "verification": "全量三件套（本轮修复后，与报告 §5.1 一致）：`npm run test` → Test Files 364 passed (364) / Tests 4373 passed | 1 skipped (4374)，exit 0；`npm run lint` → 3 problems (0 errors, 3 warnings)，3 条 warning 全部来自 coverage/ 生成物，exit 0；`npm run build` → `tsc -b` 无诊断 + `vite build` ✓ 7836 modules transformed / built in 2.36s，exit 0（仅既有 node:fs externalize 与 chunk >500kB 告警）。定向复核：7 个本轮改动测试文件 `Test Files 7 passed (7) / Tests 169 passed (169)`。依赖与产物：`git diff --stat -- package.json package-lock.json` 空输出（无依赖变更）；package-dist/、package-offline/ 未被触碰（时间戳仍为 2026/09/13 11:52）。",
+      "boundaries": "本轮未做真机浏览器实测（全部结论来自源码/旧产物原文对照 + vitest，部分用假宿主对象驱动 effect/事件）；报告 §6.1 按风险列出 6 项待真机复验（composer hover/active/聚焦、设置下拉键盘与定位、弹窗 Escape 与焦点恢复、三档复制反馈时长手感、自动滚动手感、console 输出区自动置底）。有意保留差异 17 条（报告 §4）待用户裁决，其中与早期 R10 用户要求冲突的过程折叠默认值按「移除前旧语义」保留；Esc 中止为新增接线（旧为死代码）、ui/Input 聚焦 ring 为可见变化（旧类 dead，属补齐）；未注册语言不再做 hljs 式 highlightAuto 猜测。不可考证 7 条（报告 §6.1 与 §2 各域）登记待后续取证；§6.2 另登记 7 条 W3/W10 未修语法分桶残留（嵌套围栏 code、formula、引用式链接定义 symbol/link、YAML on/off/~、TOML 字面量集合、各语言 true/false/null 关键字表、YAML 裸标量与 Setext 纯空白标题行）。本轮顺手清理了 docs/reviews/parity-audit-parts/ 分片目录（中间产物）；未创建 Git commit/tag、未发布 npm、未改动生成产物目录。"
     }
   ]
 }

@@ -30,12 +30,20 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
   let programmaticScrollDepth = 0
 
   const userScrollIntentMs = 500
+  // Hysteresis parity with the removed pi-web-ui `AgentInterface`
+  // (`_handleScroll`): a user scroll-up detaches tail-following only once the
+  // tail is more than 50px away; a viewport back within 10px of the tail
+  // re-arms the follow immediately, whatever moved it there.
+  const releaseFollowDistancePx = 50
+  const repinFollowDistancePx = 10
 
   const findScrollContainer = () =>
     panel.querySelector<HTMLElement>('.qf-scroll-container')
 
-  const isNearBottom = (element: HTMLElement) =>
-    element.scrollHeight - element.scrollTop - element.clientHeight <= 80
+  const distanceFromBottom = (element: HTMLElement) =>
+    element.scrollHeight - element.scrollTop - element.clientHeight
+
+  const isNearBottom = (element: HTMLElement) => distanceFromBottom(element) <= 80
 
   const setPanelAutoScroll = (enabled: boolean) => {
     setAutoScroll?.(enabled)
@@ -57,7 +65,20 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
 
   const markUserScrollUp = () => {
     lastUserScrollUpAt = window.performance.now()
-    disableAutoScroll()
+    // Distance-gated like pi-web-ui's `_handleScroll`: an upward tick that
+    // stays inside the hysteresis band keeps following the tail. Exception:
+    // while the sent-message anchor is active the viewport sits on the
+    // spacer-padded maxScrollTop (distance-to-bottom stays ~0), so the band
+    // would swallow every upward tick and keep re-anchoring against the
+    // user - detach immediately instead.
+    const scrollContainer = findScrollContainer()
+    if (
+      !scrollContainer ||
+      anchorMessage !== undefined ||
+      distanceFromBottom(scrollContainer) > releaseFollowDistancePx
+    ) {
+      disableAutoScroll()
+    }
   }
 
   const markPossibleUserScroll = () => {
@@ -269,13 +290,27 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
       lastScrollTop = currentScrollTop
       return
     }
+    const distance = distanceFromBottom(scrollContainer)
     const userInitiatedScrollUp = scrollingUp && recentlyUserScrolled()
     if (scrollingUp && autoScrollEnabled && !userInitiatedScrollUp && !isNearBottom(scrollContainer)) {
       lastScrollTop = currentScrollTop
       scheduleScrollToBottom()
       return
     }
-    if (userInitiatedScrollUp) {
+    if (distance < repinFollowDistancePx) {
+      // pi-web-ui parity: touching the tail re-arms the follow immediately,
+      // even when the scroll carried no recent user-scroll intent.
+      if (!autoScrollEnabled) {
+        autoScrollEnabled = true
+        setPanelAutoScroll(true)
+      }
+    } else if (
+      userInitiatedScrollUp &&
+      (anchorMessage !== undefined || distance > releaseFollowDistancePx)
+    ) {
+      // pi-web-ui parity: a user scroll-up inside the hysteresis band keeps
+      // following; only a scroll-up past 50px from the tail detaches
+      // (anchor-active scroll-ups detach immediately - see markUserScrollUp).
       disableAutoScroll()
       if (currentScrollTop <= 0 && lastScrollTop > 0) onReachTop?.()
     } else if (currentScrollTop > lastScrollTop + 1 && recentlyUserScrolled() && isNearBottom(scrollContainer)) {

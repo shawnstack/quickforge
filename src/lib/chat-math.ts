@@ -1,4 +1,4 @@
-import type { Element, Parent, Root } from 'hast'
+import type { Element, ElementContent, Parent, Root, RootContent } from 'hast'
 
 /**
  * Chat math pipeline (KaTeX parity with the removed pi-web-ui marked layer).
@@ -14,8 +14,8 @@ import type { Element, Parent, Root } from 'hast'
  * 2. `rehypeQfMath` runs as a rehype plugin on the hast tree: it turns the
  *    placeholders plus the `$...$` / `$$...$$` rules into
  *    `<qf-math latex display>` elements (again skipping code/pre subtrees).
- *    The `$$` block rule is line-anchored — mid-line `a $$x$$ b` stays
- *    literal, matching the old marked block extension.
+ *    The `$$` block rule matches anywhere, including mid-line `a $$x$$ b`,
+ *    matching the old marked block extension (see `findBlockHit`).
  * 3. The `qf-math` elements are rendered by the KatexMath component
  *    (src/components/chat/surface/KatexMath.tsx).
  */
@@ -166,21 +166,22 @@ function findTokenHit(value: string, from: number, tokens: MathTokenMap): MathHi
 }
 
 /**
- * `$$...$$` block math, non-greedy and allowed to span lines — but only when
- * the match starts at the beginning of the text node or right after a
- * newline (line-anchored, parity with the old marked block rule). Mid-line
- * `a $$x$$ b` stays literal.
+ * `$$...$$` block math, non-greedy and allowed to span lines. Matching is
+ * not line-anchored: the old marked extension declared
+ * `start: text => text.indexOf('$$')` on a `level: 'block'` extension, which
+ * marked wires into `startBlock` — it ends the current paragraph right before
+ * a mid-line `$$`, so `a $$x$$ b` rendered display math between two
+ * paragraphs rather than staying literal.
+ *
+ * Same content rule as the old tokenizer (`[^$]+?`: at least one character,
+ * no `$` inside) and the latex is trimmed before it reaches KaTeX.
  */
 function findBlockHit(value: string, from: number): MathHit | null {
-  const re = /\$\$([\s\S]+?)\$\$/g
+  const re = /\$\$([^$]+?)\$\$/g
   re.lastIndex = from
-  let match: RegExpExecArray | null
-  while ((match = re.exec(value)) !== null) {
-    if (match.index === 0 || value[match.index - 1] === '\n') {
-      return { start: match.index, end: match.index + match[0].length, latex: match[1], display: true }
-    }
-  }
-  return null
+  const match = re.exec(value)
+  if (!match) return null
+  return { start: match.index, end: match.index + match[0].length, latex: match[1].trim(), display: true }
 }
 
 function isBlank(ch: string | undefined): boolean {
@@ -189,10 +190,10 @@ function isBlank(ch: string | undefined): boolean {
 
 /**
  * `$...$` inline math: content holds no `$` and no line break. Guards keep
- * currency-like prose (`价格 $5 和 $6 之间`) and mid-line `$$x$$` literal:
- * the opening `$` is not doubled, the first character after it is not
- * whitespace, and the closing `$` is not preceded by whitespace nor followed
- * by another `$`.
+ * currency-like prose (`价格 $5 和 $6 之间`) and reserve the doubled dollars
+ * of `$$...$$` for `findBlockHit`: the opening `$` is not doubled, the
+ * first character after it is not whitespace, and the closing `$` is not
+ * preceded by whitespace nor followed by another `$`.
  */
 function findInlineHit(value: string, from: number): MathHit | null {
   for (let i = from; i < value.length - 1; i++) {
@@ -276,41 +277,70 @@ function transformTextNodes(parent: Parent, tokens: MathTokenMap): void {
   }
 }
 
-/**
- * A paragraph whose children are only optional whitespace text plus a single
- * display `qf-math` element is replaced by that element, so display math
- * never renders as a `div` nested inside a `p` (legacy parity: the old
- * marked extension emitted display math at block level).
- */
-function unwrapDisplayMathParagraphs(parent: Parent): void {
-  const children = parent.children
-  for (let i = 0; i < children.length; i++) {
-    const child = children[i]
-    if (child.type === 'element' && child.tagName === 'p') {
-      const math = soleDisplayMathChild(child)
-      if (math) children[i] = math
-    }
-    const current = children[i]
-    if ('children' in current && current.children.length > 0) unwrapDisplayMathParagraphs(current as Parent)
-  }
+/** Display math is emitted at block level, so it must never nest in a `p`. */
+function isDisplayMathElement(node: RootContent): node is Element {
+  return (
+    node.type === 'element' &&
+    node.tagName === 'qf-math' &&
+    (node.properties as unknown as { display?: unknown } | undefined)?.display === true
+  )
 }
 
-function soleDisplayMathChild(paragraph: Element): Element | null {
-  let math: Element | null = null
+/**
+ * Split a paragraph that mixes display math with other content into the
+ * legacy shape — `<p>a </p><qf-math display><p> b</p>` — and replace a
+ * paragraph holding nothing but display math by that element. Returns `null`
+ * for paragraphs without display math, which are left untouched.
+ * Whitespace-only text groups are dropped, matching the old renderer, which
+ * emitted no empty paragraph for `$$x$$` on its own line.
+ */
+function splitParagraphDisplayMath(paragraph: Element): RootContent[] | null {
+  const group: ElementContent[] = []
+  const parts: RootContent[] = []
+  let displayMath = false
+  const flushGroup = () => {
+    if (group.length === 0) return
+    if (!group.every((node) => node.type === 'text' && node.value.trim() === '')) {
+      parts.push({ type: 'element', tagName: 'p', properties: paragraph.properties, children: [...group] })
+    }
+    group.length = 0
+  }
   for (const child of paragraph.children) {
-    if (child.type === 'text' && child.value.trim() === '') continue
-    if (
-      !math &&
-      child.type === 'element' &&
-      child.tagName === 'qf-math' &&
-      (child.properties as unknown as { display?: unknown } | undefined)?.display === true
-    ) {
-      math = child
+    if (isDisplayMathElement(child)) {
+      displayMath = true
+      flushGroup()
+      parts.push(child)
       continue
     }
-    return null
+    group.push(child)
   }
-  return math
+  flushGroup()
+  return displayMath ? parts : null
+}
+
+/**
+ * Legacy parity: the old marked block extension emitted display math at block
+ * level, so display math must not render as a `div` nested inside a `p`
+ * (invalid nesting plus React's DOM-nesting warning).
+ */
+function splitDisplayMathParagraphs(parent: Parent): void {
+  const children = parent.children
+  let rebuilt: RootContent[] | null = null
+  for (const child of children) {
+    if (child.type === 'element' && child.tagName === 'p') {
+      const parts = splitParagraphDisplayMath(child)
+      if (parts) {
+        if (!rebuilt) rebuilt = []
+        rebuilt.push(...parts)
+        continue
+      }
+    }
+    if (rebuilt) rebuilt.push(child)
+  }
+  if (rebuilt) parent.children = rebuilt
+  for (const child of parent.children) {
+    if ('children' in child && child.children.length > 0) splitDisplayMathParagraphs(child as Parent)
+  }
 }
 
 export type RehypeQfMathOptions = { tokens: MathTokenMap }
@@ -323,6 +353,6 @@ export type RehypeQfMathOptions = { tokens: MathTokenMap }
 export function rehypeQfMath({ tokens }: RehypeQfMathOptions) {
   return (tree: Root) => {
     transformTextNodes(tree, tokens)
-    unwrapDisplayMathParagraphs(tree)
+    splitDisplayMathParagraphs(tree)
   }
 }

@@ -42,12 +42,24 @@ describe('code-highlight language coverage', () => {
 
   it('maps every token to a qf-hl-* CSS class', () => {
     expect(Object.keys(HIGHLIGHT_TOKEN_CLASSES).sort()).toEqual([
-      'addition', 'attr', 'builtin', 'comment', 'deletion', 'function', 'keyword', 'number', 'plain', 'property',
-      'punct', 'string', 'tag',
+      'addition', 'attr', 'builtin', 'code', 'comment', 'deletion', 'emphasis', 'function', 'heading', 'keyword',
+      'link', 'list', 'number', 'plain', 'property', 'punct', 'quote', 'string', 'strong', 'tag',
     ])
     for (const [token, className] of Object.entries(HIGHLIGHT_TOKEN_CLASSES)) {
       expect(className).toBe(`qf-hl-${token}`)
     }
+  })
+
+  it('keeps the legacy highlight.js class names for the re-added semantics', () => {
+    // 逐条对应旧 `.hljs-*` 规则里被移除后丢失的语义（详见
+    // docs/reviews/parity-audit-parts/fix-w3-highlight.zh-CN.md）。
+    expect(HIGHLIGHT_TOKEN_CLASSES.heading).toBe('qf-hl-heading')   // ← .hljs-section
+    expect(HIGHLIGHT_TOKEN_CLASSES.list).toBe('qf-hl-list')         // ← .hljs-bullet
+    expect(HIGHLIGHT_TOKEN_CLASSES.code).toBe('qf-hl-code')         // ← .hljs-code
+    expect(HIGHLIGHT_TOKEN_CLASSES.quote).toBe('qf-hl-quote')       // ← .hljs-quote
+    expect(HIGHLIGHT_TOKEN_CLASSES.link).toBe('qf-hl-link')         // ← .hljs-link（旧无规则）
+    expect(HIGHLIGHT_TOKEN_CLASSES.strong).toBe('qf-hl-strong')     // ← .hljs-strong
+    expect(HIGHLIGHT_TOKEN_CLASSES.emphasis).toBe('qf-hl-emphasis') // ← .hljs-emphasis
   })
 })
 
@@ -129,8 +141,10 @@ describe('code-highlight json', () => {
     expectSegment(source, 'json', '"name"', 'property')
     expectSegment(source, 'json', '"quickforge"', 'string')
     expectSegment(source, 'json', '3', 'number')
-    expectSegment(source, 'json', 'true', 'keyword')
-    expectSegment(source, 'json', 'null', 'keyword')
+    // 旧 hljs JSON：`keywords:{ literal: ['true','false','null'] }` → `.hljs-literal`
+    // 与 `.hljs-number` 同在 `--syntax-constant` 规则 → 复用 `number` token。
+    expectSegment(source, 'json', 'true', 'number')
+    expectSegment(source, 'json', 'null', 'number')
     expectSegment(source, 'json', '{', 'punct')
     expectRoundTrip(source, 'json')
   })
@@ -219,10 +233,14 @@ describe('code-highlight css', () => {
 
   it('tokenizes comments, selectors, properties and values', () => {
     expectSegment(source, 'css', '/* theme */', 'comment')
-    expectSegment(source, 'css', '.card', 'function')
+    // 旧 `.hljs-selector-class` 与 `.hljs-attr` 同在 `--syntax-constant` 规则
+    // （@3520）→ 复用 `attr` token（fix-w10 收敛，详见 fix-w10-buckets 分片）。
+    expectSegment(source, 'css', '.card', 'attr')
     expectSegment(source, 'css', 'color', 'property')
     expectSegment(source, 'css', 'border-radius', 'property')
-    expectSegment(source, 'css', 'var', 'function')
+    // 旧 CSS `FUNCTION_DISPATCH = { className: 'built_in', begin: /[\w-]+(?=\()/ }`
+    // → `--syntax-variable` 橙（`.hljs-built_in` 规则 @3780）。
+    expectSegment(source, 'css', 'var', 'builtin')
     expectSegment(source, 'css', '8px', 'number')
     expectSegment(source, 'css', '@media', 'keyword')
     expectSegment(source, 'css', 'min-width', 'property')
@@ -231,9 +249,39 @@ describe('code-highlight css', () => {
     expectRoundTrip(source, 'css')
   })
 
+  it('keeps selector-class / selector-id and custom properties in the legacy constant bucket', () => {
+    // 旧 hljs CSS：`{className:'selector-id',begin:/#[A-Za-z0-9_-]+/}`、
+    // `{className:'selector-class',begin:'\\.[a-zA-Z-][a-zA-Z0-9_-]*'}` 与
+    // `.hljs-attr` 共享 `--syntax-constant` 规则（@3520）→ 两点都用 `attr`。
+    expectSegment('.card { color: red }', 'css', '.card', 'attr')
+    expectSegment('#app { color: red }', 'css', '#app', 'attr')
+    expect(colored('.card { color: red }', 'css')).not.toContainEqual({ text: '.card', token: 'function' })
+    expect(colored('#app { color: red }', 'css')).not.toContainEqual({ text: '#app', token: 'builtin' })
+    // SCSS 嵌套规则（声明块内的 `.child`）走另一条映射分支，桶必须一致。
+    expectSegment('.parent { .child { color: red } }', 'css', '.child', 'attr')
+    // 旧 `CSS_VARIABLE`（className 'attr'）在顶层匹配：声明名 `--x:` 是 constant 桶。
+    expectSegment('#app { --brand: red }', 'css', '--brand', 'property')
+    // 声明值里的 `var(--foreground)`：旧语法在该上下文没有 CSS_VARIABLE 规则，
+    // `--foreground` 与正文同色（plain）——锁定不回退。
+    expectSegment('a { color: var(--foreground) }', 'css', '--foreground', 'plain')
+  })
+
+  it('colors CSS function dispatch as built_in, not function', () => {
+    // 旧 `FUNCTION_DISPATCH`（@2324636）对声明值里所有 `name(` 生效：
+    // `var(` / `rgb(` / `url(` 都是 `.hljs-built_in`（`--syntax-variable` 橙）。
+    expectSegment('a { color: var(--foreground) }', 'css', 'var', 'builtin')
+    expectSegment('a { color: rgb(0 0 0) }', 'css', 'rgb', 'builtin')
+    expect(colored('a { color: var(--foreground) }', 'css')).not.toContainEqual({ text: 'var', token: 'function' })
+  })
+
   it('colors hex colors and pseudo selectors', () => {
-    expectSegment('a:hover { color: #ff8800 }', 'css', ':hover', 'keyword')
-    expectSegment('a:hover { color: #ff8800 }', 'css', 'a', 'tag')
+    // 旧 `.hljs-selector-pseudo` 与 `.hljs-selector-tag` 同属 `--syntax-tag`
+    // 桶，伪类因此复用 `tag` token；`.x` 是 selector-class，属 `--syntax-constant`
+    // 桶（复用 `attr`，fix-w10 起与 `.hljs-attr` 同色）。相邻同色段会被 sink
+    // 合并，故用 `.x:hover` 而不是 `a:hover` 来隔离伪类段。
+    expectSegment('.x:hover { color: #ff8800 }', 'css', ':hover', 'tag')
+    expectSegment('.x:hover { color: #ff8800 }', 'css', '.x', 'attr')
+    expectSegment('a { color: #ff8800 }', 'css', 'a', 'tag')
     expectSegment('a:hover { color: #ff8800 }', 'css', '#ff8800', 'number')
   })
 })
@@ -309,10 +357,25 @@ describe('code-highlight yaml', () => {
     expectSegment(source, 'yaml', 'nested', 'property')
     expectSegment(source, 'yaml', 'key', 'property')
     expectSegment(source, 'yaml', '3', 'number')
-    expectSegment(source, 'yaml', 'true', 'keyword')
-    expectSegment(source, 'yaml', '-', 'punct')
+    // 旧 hljs YAML：`{ beginKeywords: 'true false yes no null', keywords: { literal: … } }`
+    // → `.hljs-literal` 与 `.hljs-number` 同在 `--syntax-constant` 规则 → 复用 `number`。
+    expectSegment(source, 'yaml', 'true', 'number')
+    expectSegment(source, 'yaml', '-', 'list')
     expectRoundTrip(source, 'yaml')
     expectRoundTrip(source, 'yml')
+  })
+
+  it('colors the legacy YAML literal words in the constant bucket', () => {
+    for (const word of ['true', 'false', 'yes', 'no', 'null']) {
+      expectSegment(`enabled: ${word}`, 'yaml', word, 'number')
+    }
+    // 旧字号表之外、且当前实现仍画成 keyword 的 `on`/`off`/`~`：旧语法走的是
+    // 裸标量 `string` 规则（属未登记的差异，见 fix-w10 分片【剩余不确定】），
+    // 这里锁定它们不被顺手改桶。
+    for (const word of ['on', 'off', '~']) {
+      expectSegment(`enabled: ${word}`, 'yaml', word, 'keyword')
+    }
+    expect(colored('enabled: true', 'yaml')).not.toContainEqual({ text: 'true', token: 'keyword' })
   })
 })
 
@@ -403,12 +466,78 @@ describe('code-highlight markdown / diff', () => {
       '- item',
       '> quote',
     ].join('\n')
-    expectSegment(source, 'markdown', '# Title', 'keyword')
-    expectSegment(source, 'markdown', '`code`', 'string')
-    expectSegment(source, 'markdown', 'https://x.dev', 'builtin')
-    expectSegment(source, 'markdown', '-', 'punct')
-    expectSegment(source, 'markdown', '>', 'punct')
+    // 旧 highlight.js `Markdown` 语法逐条对照：`section`(粗体) / `code`(行内代码) /
+    // `string`(链接文字) / `bullet`(列表符) / `quote`(引用符)；链接目标旧语法是
+    // `link`，调色板里没有 `.hljs-link` 规则，故与正文同色。
+    expectSegment(source, 'markdown', '# Title', 'heading')
+    expectSegment(source, 'markdown', '`code`', 'code')
+    expectSegment(source, 'markdown', 'link', 'string')
+    expectSegment(source, 'markdown', 'https://x.dev', 'link')
+    expectSegment(source, 'markdown', '-', 'list')
+    expectSegment(source, 'markdown', '>', 'quote')
     expectRoundTrip(source, 'md')
+  })
+
+  it('markdown: emphasis / strong keep the legacy glyph-only effects', () => {
+    const source = 'plain **bold** and *italic* with _under_ and __double__ ends'
+
+    // 旧 `.hljs-strong` 只声明 font-weight:700、`.hljs-emphasis` 只声明
+    // font-style:italic（颜色变量 `--color-text-primary` 在旧产物里不存在，
+    // 声明无效→继承正文字色），因此这里只断言字形语义，不断言颜色 token。
+    expectSegment(source, 'markdown', '**bold**', 'strong')
+    expectSegment(source, 'markdown', '*italic*', 'emphasis')
+    expectSegment(source, 'markdown', '_under_', 'emphasis')
+    expectSegment(source, 'markdown', '__double__', 'strong')
+    expectRoundTrip(source, 'markdown')
+  })
+
+  it('markdown: four-space indented lines are the legacy code block variant', () => {
+    const source = ['    const x = 1', '    # not a heading', '  # also not', '> quoted'].join('\n')
+
+    // 行首四空格/制表符 = 旧 `.hljs-code` 缩进代码块变体；缩进本身是空白，
+    // 仍按 plain 输出（视觉与旧版一致）。旧 `^#{1,6}` / `^>\s+` 锚定在原始行首，
+    // 所以缩进后的 `#` 既不是标题也不是代码（1-3 空格）／是代码（4 空格）。
+    expect(highlightCode(source, 'markdown').filter((segment) => segment.token !== 'plain')).toEqual([
+      { text: 'const x = 1', token: 'code' },
+      { text: '# not a heading', token: 'code' },
+      { text: '>', token: 'quote' },
+    ])
+    expectRoundTrip(source, 'markdown')
+  })
+
+  it('markdown: the block rules still win over the indented-code variant', () => {
+    const source = ['    - item', '  - indented item'].join('\n')
+
+    // 旧 `bullet` 允许前导空白（`^[ \t]*([*+-]|\d+\.)(?=\s+)`）且在 `code` 之前。
+    expect(highlightCode(source, 'markdown').filter((segment) => segment.token === 'list').length).toBe(2)
+    expectRoundTrip(source, 'markdown')
+  })
+
+  it('markdown: Setext headings (title + underline) open the legacy section span', () => {
+    // 旧 hljs `section` 变体 2 = 零宽 lookahead `(?=^.+?\n[=-]{2,}$)`（@2340703）。
+    // 没有 `end` 的模式在编译期被补成 `end = /\B|\b/`，核心在标题行起点开启
+    // section span、在下划线行之后关闭，所以标题行与下划线行都落在同一个
+    // `.hljs-section`（颜色 + 粗体）里。
+    const source = ['Title', '=====', 'body', 'Sub', '---', 'tail'].join('\n')
+    expect(colored(source, 'markdown')).toEqual([
+      { text: 'Title', token: 'heading' },
+      { text: '=====', token: 'heading' },
+      { text: 'Sub', token: 'heading' },
+      { text: '---', token: 'heading' },
+    ])
+    expectRoundTrip(source, 'md')
+    // 旧 lookahead 的 `.+?` 允许标题行前导空白：缩进行的 Setext 标题同样成立。
+    expect(colored('    code\n===\nx', 'markdown')).toEqual([
+      { text: 'code', token: 'heading' },
+      { text: '===', token: 'heading' },
+    ])
+    // 旧 lookahead 要求标题行非空、下划线行整行都是 `=`/`-`（≥2 个字符、无尾随
+    // 空格），这些输入都不成立（保持既有 plain/其它规则行为）。
+    expect(highlightCode('Title\n-', 'markdown')).not.toContainEqual({ text: 'Title', token: 'heading' })
+    expect(highlightCode('Title\n=== ', 'markdown')).not.toContainEqual({ text: 'Title', token: 'heading' })
+    expect(highlightCode('\n===\nx', 'markdown')).not.toContainEqual({ text: '===', token: 'heading' })
+    expectRoundTrip('Title\n-', 'markdown')
+    expectRoundTrip('Title\n=== ', 'markdown')
   })
 
   it('diff: added/removed/hunk lines', () => {
@@ -502,7 +631,9 @@ describe('code-highlight toml / ini', () => {
     expectSegment(toml, 'toml', 'port', 'property')
     expectSegment(toml, 'toml', '8080', 'number')
     expectSegment(toml, 'toml', 'enabled', 'property')
-    expectSegment(toml, 'toml', 'true', 'keyword')
+    // 旧产物里 toml/ini 是同一个 `TOML, also INI` 语法（`registerLanguage('ini',…)`
+    // + alias `toml`），字面量规则 `{className:'literal',…}` → `--syntax-constant`。
+    expectSegment(toml, 'toml', 'true', 'number')
     expectSegment(toml, 'toml', 'tags', 'property')
     expectSegment(toml, 'toml', '"a"', 'string')
     expectSegment(toml, 'toml', '1979-05-27T07:32:00Z', 'number')
@@ -533,10 +664,21 @@ describe('code-highlight toml / ini', () => {
     expectSegment(ini, 'ini', 'name', 'property')
     expectSegment(ini, 'ini', '"demo"', 'string')
     expectSegment(ini, 'ini', 'enabled', 'property')
-    expectSegment(ini, 'ini', 'true', 'keyword')
+    expectSegment(ini, 'ini', 'true', 'number')
     expectSegment(ini, 'ini', 'retries', 'property')
     expectSegment(ini, 'ini', '3', 'number')
     expectRoundTrip(ini, 'ini')
+  })
+
+  it('toml/ini: literal words use the legacy constant bucket', () => {
+    // 旧 `TOML, also INI` 语法的字面量集合是 `\bon|off|true|false|yes|no\b`
+    // （@2481459）：两者都属 `.hljs-literal` → `--syntax-constant`，复用 `number`。
+    expectSegment('enabled = true', 'toml', 'true', 'number')
+    expectSegment('enabled = true', 'ini', 'true', 'number')
+    for (const word of ['yes', 'no', 'on', 'off']) {
+      expectSegment(`flag = ${word}`, 'ini', word, 'number')
+    }
+    expect(colored('enabled = true', 'ini')).not.toContainEqual({ text: 'true', token: 'keyword' })
   })
 })
 

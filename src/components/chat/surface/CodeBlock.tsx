@@ -239,8 +239,11 @@ function CodeBlockMenu({ actions, copiedAction }: { actions: CodeBlockMenuAction
  * Title-bar copy button — the React replacement for mini-lit's `copy-button`,
  * which the legacy code-block rendered with `showText`: a successful copy kept
  * the icon (swapped to a check) **and** appended a visible `Copied!` text for
- * 2000ms, while `title` stayed constant (`Copy code`, i.e. the `copy` key). The
- * icon swap alone carries no feedback in an icon-only button.
+ * 2000ms, while `title` stayed constant (`Copy code`, i.e. the `copyCode` key —
+ * the pi `<code-block>` template passed `title="${L('Copy code')}"`, not the
+ * `copy-button` class default `Copy`). The icon swap alone carries no feedback
+ * in an icon-only button, and the visible text is pi's `Copied!` (`copiedBang`),
+ * not the generic `copied` used by the ⋯ menu feedback.
  */
 export function CodeBlockCopyButton({ copied, onCopy }: { copied: boolean; onCopy: () => void }) {
   return (
@@ -253,12 +256,14 @@ export function CodeBlockCopyButton({ copied, onCopy }: { copied: boolean; onCop
         // button grew to fit the visible feedback text (existing button/text classes).
         copied ? 'h-7 gap-1 px-1.5 text-xs text-emerald-600 hover:text-emerald-600' : 'size-7',
       )}
-      title={t('copy')}
-      aria-label={t('copy')}
+      // Legacy title was constant (`Copy code`) across both states; only the icon
+      // and the appended visible text changed.
+      title={t('copyCode')}
+      aria-label={t('copyCode')}
       onClick={onCopy}
     >
       {copied ? <Check size={16} /> : <Copy size={16} />}
-      {copied ? <span>{t('copied')}</span> : null}
+      {copied ? <span>{t('copiedBang')}</span> : null}
     </button>
   )
 }

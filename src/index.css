@@ -2652,6 +2652,27 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
   pointer-events: none;
 }
 
+/* Legacy `panel-decoration/code-blocks.ts:320/539` tagged decorated SVG/Mermaid
+ * blocks with `quickforge-svg-code-block` and `src/index.css` (pre-removal
+ * L2375) dropped the inner card frame for them; `CodeBlock.tsx` still emits the
+ * class, so the frameless card is restored on the element that now *is* the
+ * card. The sibling rules the legacy file had at L2382/L2391/L2395 targeted the
+ * removed pi-web-ui title bar (`quickforge-svg-code-toolbar-floating`): preview
+ * mode renders no title bar at all, the ⋯ menu is pinned with
+ * `top-[0.75rem] right-[0.35rem]`, and the label `<span>` no longer exists —
+ * only the title-bar padding reset below has a counterpart. */
+.quickforge-svg-code-block {
+  position: relative;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.quickforge-svg-code-block > div:first-child {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
 .quickforge-svg-code-preview {
   display: flex;
   justify-content: center;
@@ -8186,17 +8207,26 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
  * ---------------------------------------------------------------------------
  *
  * Palette mirrors the legacy `--syntax-*` tokens from the highlight.js era,
- * so highlighted code keeps the pre-migration look. Known differences: the
- * lightweight tokenizer has no heading / list-marker counterparts; plain
- * segments render as bare text nodes and punctuation spans stay unstyled —
- * the legacy palette had no `.hljs-punctuation` rule either, so both inherit
- * the body colour (no `--qf-hl-punct` entry, no `.qf-hl-plain` rule).
- * `property`/`attr` fall into the legacy `--syntax-constant` bucket, and diff
- * fences keep the legacy `.hljs-addition` / `.hljs-deletion` foreground +
- * backdrop pair.
+ * so highlighted code keeps the pre-migration look. Plain segments render as
+ * bare text nodes and punctuation spans stay unstyled — the legacy palette had
+ * no `.hljs-punctuation` rule either, so both inherit the body colour (no
+ * `--qf-hl-punct` entry, no `.qf-hl-plain` rule). `property`/`attr` fall into
+ * the legacy `--syntax-constant` bucket, and diff fences keep the legacy
+ * `.hljs-addition` / `.hljs-deletion` foreground + backdrop pair.
+ *
+ * `heading` / `list` / `code` / `quote` re-declare the legacy
+ * `--syntax-heading` / `--syntax-list` / `--syntax-comment` / `--syntax-tag`
+ * values verbatim (some are equal to a bucket above, kept separate so every
+ * legacy `.hljs-*` rule stays traceable). `strong` / `emphasis` carry no colour
+ * because the legacy `.hljs-strong` / `.hljs-emphasis` declared
+ * `color: var(--color-text-primary)`, a variable that never existed in the
+ * bundle → invalid at computed-value time → the body colour was inherited;
+ * `link` has no rule for the same reason (the legacy palette had no
+ * `.hljs-link` rule, so anchor targets inherited the body colour too).
  */
 :root {
   --qf-hl-comment: oklch(54% 0.019 247.858);
+  --qf-hl-code: oklch(54% 0.019 247.858);
   --qf-hl-string: oklch(29.6% 0.103 244.038);
   --qf-hl-keyword: oklch(57.7% 0.245 27.325);
   --qf-hl-number: oklch(43.5% 0.141 237.016);
@@ -8205,6 +8235,9 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
   --qf-hl-property: oklch(43.5% 0.141 237.016);
   --qf-hl-tag: oklch(40.3% 0.111 145.348);
   --qf-hl-attr: oklch(43.5% 0.141 237.016);
+  --qf-hl-heading: oklch(43.5% 0.141 237.016);
+  --qf-hl-list: oklch(53.7% 0.108 88.766);
+  --qf-hl-quote: oklch(40.3% 0.111 145.348);
   --qf-hl-addition-bg: oklch(98.4% 0.029 166.113);
   --qf-hl-addition-fg: oklch(40.3% 0.111 145.348);
   --qf-hl-deletion-bg: oklch(98.1% 0.025 17.672);
@@ -8213,6 +8246,7 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
 
 .dark {
   --qf-hl-comment: oklch(62.6% 0.025 247.858);
+  --qf-hl-code: oklch(62.6% 0.025 247.858);
   --qf-hl-string: oklch(78.6% 0.08 237.016);
   --qf-hl-keyword: oklch(69.8% 0.159 21.174);
   --qf-hl-number: oklch(73.2% 0.137 237.016);
@@ -8221,6 +8255,9 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
   --qf-hl-property: oklch(73.2% 0.137 237.016);
   --qf-hl-tag: oklch(81.2% 0.159 145.348);
   --qf-hl-attr: oklch(73.2% 0.137 237.016);
+  --qf-hl-heading: oklch(52.3% 0.181 237.016);
+  --qf-hl-list: oklch(86.6% 0.141 88.766);
+  --qf-hl-quote: oklch(81.2% 0.159 145.348);
   --qf-hl-addition-bg: oklch(18.8% 0.06 166.113);
   --qf-hl-addition-fg: oklch(87% 0.147 145.348);
   --qf-hl-deletion-bg: oklch(23.3% 0.129 17.672);
@@ -8228,6 +8265,7 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
 }
 
 .qf-hl-comment { color: var(--qf-hl-comment); }
+.qf-hl-code { color: var(--qf-hl-code); }
 .qf-hl-string { color: var(--qf-hl-string); }
 .qf-hl-keyword { color: var(--qf-hl-keyword); }
 .qf-hl-number { color: var(--qf-hl-number); }
@@ -8236,6 +8274,14 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
 .qf-hl-property { color: var(--qf-hl-property); }
 .qf-hl-tag { color: var(--qf-hl-tag); }
 .qf-hl-attr { color: var(--qf-hl-attr); }
+/* Legacy `.hljs-section`: heading colour + a bold glyph that survives even if
+ * the colour variable is missing. */
+.qf-hl-heading { color: var(--qf-hl-heading); font-weight: 700; }
+.qf-hl-list { color: var(--qf-hl-list); }
+.qf-hl-quote { color: var(--qf-hl-quote); }
+/* Legacy `.hljs-strong` / `.hljs-emphasis`: glyph-only (see the header comment). */
+.qf-hl-strong { font-weight: 700; }
+.qf-hl-emphasis { font-style: italic; }
 .qf-hl-addition { color: var(--qf-hl-addition-fg); background-color: var(--qf-hl-addition-bg); }
 .qf-hl-deletion { color: var(--qf-hl-deletion-fg); background-color: var(--qf-hl-deletion-bg); }
 

@@ -725,9 +725,11 @@ export function ToolDetails({ initiallyOpen, ...props }: Omit<ComponentProps<'de
 
 // ---------------------------------------------------------------------------
 // 代码与日志：纯 React DOM，保留复制、滚动与原有轻量边框；代码用聊天侧
-// CodeBlock.tsx 同一套轻量高亮（qf-hl-* token class）与 2000ms copied 复制
-// 反馈，保持同一应用内两套代码块交互一致（工具卡旧版即无“在终端运行”
-// 按钮与 SVG/Mermaid 预览菜单，这里同样不渲染）。
+// CodeBlock.tsx 同一套轻量高亮（qf-hl-* token class）。复制按钮按旧 pi
+// `<code-block>` 模板复刻（`<copy-button title="${L('Copy code')}" .showText=${!0}>`）：
+// title/aria-label 恒为 `Copy code`（不随 copied 切换）、复制后追加可见
+// `Copied!` 文本、2000ms 复位，与聊天侧 CodeBlock 标题栏按钮同一形态
+// （工具卡旧版即无“在终端运行”按钮与 SVG/Mermaid 预览菜单，这里同样不渲染）。
 // ---------------------------------------------------------------------------
 
 /** 与聊天 CodeBlock 一致的复制反馈时长（copied 状态保持 2000ms，同旧版 mini-lit copy-button）。 */
@@ -745,7 +747,9 @@ function ToolCodeBlock({ code, language }: { code: string; language: string }) {
   // 与 CodeBlock 一致：plain 段渲染为裸文本节点，pre>code 文本保持逐字，
   // 复制按钮绑定的始终是原始 code 而非高亮 span。
   const highlightSegments = useMemo(() => highlightCode(code, language), [code, language])
-  const copyLabel = copied ? t('copied') : t('copy')
+  // 旧 `<copy-button>` 的 title 只在构造时取一次、`render()` 原样再用，code-block
+  // 模板传的是 `L('Copy code')`；反馈只靠「图标换对勾 + 追加可见 `Copied!`」承载。
+  const copyLabel = t('copyCode')
 
   return (
     <div className="qf-code-block block rounded-lg border border-border overflow-hidden">
@@ -754,12 +758,13 @@ function ToolCodeBlock({ code, language }: { code: string; language: string }) {
         <button
           type="button"
           data-qf-action="copy-code"
-          className={`pointer-events-auto inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground${copied ? ' text-emerald-600 hover:text-emerald-600' : ''}`}
+          className={`pointer-events-auto inline-flex items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground${copied ? ' h-7 gap-1 px-1.5 text-xs text-emerald-600 hover:text-emerald-600' : ' size-7'}`}
           title={copyLabel}
           aria-label={copyLabel}
           onClick={() => { void copyTextToClipboard(code).then(() => setCopied(true)).catch(() => {}) }}
         >
           {copied ? <Check size={16} /> : <Copy size={16} />}
+          {copied ? <span>{t('copiedBang')}</span> : null}
         </button>
       </div>
       <div className="overflow-auto max-h-96">
@@ -777,8 +782,80 @@ export function renderCodeBlock(code: string, language = 'text') {
   return <ToolCodeBlock code={code} language={language} />
 }
 
+/**
+ * 旧 pi-web-ui `<console-block>` 的复制反馈时长 1500ms（`console-block.copy()`
+ * 的 `setTimeout(...,1500)`），与代码块 copy-button 的 2000ms 不是同一条路径。
+ */
+const CONSOLE_COPY_FEEDBACK_MS = 1500
+
+/**
+ * 命令输出的复制入口 —— 旧 `<console-block>` 标题栏按钮的 React 复刻：title /
+ * aria-label 恒为 `Copy output`（旧实现只换图标 + 显示可见文本，不切换 title），
+ * 复制成功后显示 `Copied!` 并在 1500ms 后复位。
+ */
+function ConsoleCopyButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false)
+  const label = t('copyOutput')
+
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), CONSOLE_COPY_FEEDBACK_MS)
+    return () => clearTimeout(timer)
+  }, [copied])
+
+  return (
+    <button
+      type="button"
+      data-qf-action="copy-console-output"
+      className={`pointer-events-auto inline-flex items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground${copied ? ' h-7 gap-1 px-1.5 text-xs text-emerald-600 hover:text-emerald-600' : ' size-7'}`}
+      title={label}
+      aria-label={label}
+      onClick={() => { void copyTextToClipboard(content).then(() => setCopied(true)).catch(() => {}) }}
+    >
+      {copied ? <Check size={16} /> : <Copy size={16} />}
+      {copied ? <span>{t('copiedBang')}</span> : null}
+    </button>
+  )
+}
+
+/**
+ * 旧 `<console-block>.updated()`（pi-web-ui 产物下标 ≈3145900）：
+ * `let e=this.querySelector('.console-scroll'); e&&(e.scrollTop=e.scrollHeight)`
+ * —— **每次更新无条件置底，不区分用户手动上滑**（旧缺陷：用户上滑读历史时
+ * 新输出会把人拽回底部）。按「与移除前一致优先」原样保留并登记，不做
+ * 手动上滑检测（那是新增行为，不是旧语义）。
+ *
+ * React 等价物：无依赖数组的 `useEffect` 在每次 commit 后执行，对应 lit
+ * `updated()` 的「每次渲染后」时机；滚动容器沿用本实现既有的
+ * `<pre class="max-h-96 overflow-auto …">`（旧 `.console-scroll` 是零 CSS 规则
+ * 的 JS 钩子类名，见 fix-w11 分片 §2.2）。
+ */
+function ConsoleScrollArea({ content }: { content: string }) {
+  const scrollRef = useRef<HTMLPreElement | null>(null)
+
+  // 故意不给依赖数组：每次渲染后都置底 = 旧 `updated()` 的触发次数语义。
+  useEffect(() => {
+    const element = scrollRef.current
+    if (element) element.scrollTop = element.scrollHeight
+  })
+
+  return (
+    <pre ref={scrollRef} className="max-h-96 overflow-auto whitespace-pre-wrap break-words p-3">{content}</pre>
+  )
+}
+
 export function renderConsoleBlock(content: string, variant: 'default' | 'error') {
-  return <div className={`qf-console-block rounded-md border p-3 font-mono text-xs ${variant === 'error' ? 'border-destructive/50 bg-destructive/10 text-destructive' : 'border-border bg-muted/30 text-foreground'}`}><pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words">{content}</pre></div>
+  return (
+    <div className={`qf-console-block rounded-md border font-mono text-xs ${variant === 'error' ? 'border-destructive/50 bg-destructive/10 text-destructive' : 'border-border bg-muted/30 text-foreground'}`}>
+      {/* 旧 `<console-block>` 的标题栏（`L('console')` 标签左、复制按钮右），
+          结构与本文件 ToolCodeBlock 的标题栏同构。 */}
+      <div className="flex items-center justify-between gap-2 px-3 py-1">
+        <span className="text-muted-foreground">{t('consoleBlockLabel')}</span>
+        <ConsoleCopyButton content={content} />
+      </div>
+      <ConsoleScrollArea content={content} />
+    </div>
+  )
 }
 
 /** 渲染器共用的详细模式判断（输入/输出/原始 JSON 仅 detailed 模式展示）。 */

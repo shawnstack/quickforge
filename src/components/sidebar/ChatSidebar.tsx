@@ -1645,25 +1645,25 @@ export const ChatSidebar = memo(function ChatSidebar({
 
                               <div className={cn(collapsePanelClass, isProjectDragging && 'transition-none', expanded ? collapsePanelOpenClass : collapsePanelClosedClass)}>
                                 <div className={collapseInnerClass}>
-                                  <div className="mt-0.5 space-y-0.5 pl-8">
+                                  <div className="mt-0.5 space-y-0.5">
                                     {projectSessions.length === 0 && !loaded ? (
                                       // Hidden while collapsed: the collapsed panel only hides
                                       // visually (grid-rows 0fr), and this placeholder would
                                       // otherwise stay exposed to screen readers for every
                                       // not-yet-loaded project.
                                       expanded ? (
-                                        <div className="flex items-center px-2 py-1.5 text-xs">
+                                        <div className={cn('flex items-center px-2 py-1.5 text-xs', sidebarOpen && 'pl-8')}>
                                           <Loader2 className="mr-1.5 size-3 animate-spin" />
                                           {t('loadingChatWorkspace')}
                                         </div>
                                       ) : null
                                     ) : projectSessions.length === 0 && projectLoading(item.id) ? (
-                                      <div className="flex items-center px-2 py-1.5 text-xs">
+                                      <div className={cn('flex items-center px-2 py-1.5 text-xs', sidebarOpen && 'pl-8')}>
                                         <Loader2 className="mr-1.5 size-3 animate-spin" />
                                         {t('loadingChatWorkspace')}
                                       </div>
                                     ) : projectSessions.length === 0 && !projectHasMore(item.id) ? (
-                                      <div className="px-2 py-1.5 text-xs">{t('noConversations')}</div>
+                                      <div className={cn('px-2 py-1.5 text-xs', sidebarOpen && 'pl-8')}>{t('noConversations')}</div>
                                     ) : (
                                       <>
                                         {projectSessions.slice(0, projectVisibleCounts[item.id] ?? SIDEBAR_SESSION_DISPLAY_STEP).map((session) => {
@@ -1683,6 +1683,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                   className={cn(
                                                     rowClass,
                                                     'gap-1',
+                                                    sidebarOpen ? 'pl-8' : '',
                                                     selected ? activeRowClass : sessionInactiveRowClass,
                                                     deleting && 'pointer-events-none scale-[0.98] opacity-0 duration-(--quickforge-dur-exit) ease-(--quickforge-ease-out) motion-reduce:transition-none',
                                                   )}

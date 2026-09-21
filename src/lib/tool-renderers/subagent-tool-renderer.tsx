@@ -48,7 +48,8 @@ export function renderSubagentRunSummary(payload: SubagentRunPayload) {
         <span className="quickforge-subagent-title min-w-0">
           <span className="quickforge-subagent-label">{payload.statusLabel}</span>
           {currentTools.length > 0 ? renderToolMarquee(currentTools.join(' · '), t('subagentRunningTools'), 'quickforge-subagent-marquee') : null}
-          {renderStatus(payload.status, payload.timing)}
+          {/* 运行中隐藏状态区（icon+耗时），与 local-workspace 渲染器一致；运行态由 statusLabel 文案 + 跑马灯表达。 */}
+          {payload.status === 'running' ? null : renderStatus(payload.status, payload.timing)}
         </span>
       </button>
     </div>

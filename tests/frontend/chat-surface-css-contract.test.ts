@@ -206,6 +206,18 @@ describe('tool row flattening contract', () => {
     expect(markup).not.toContain('shadow-xs')
   })
 
+  it('hides the running status icon on the subagent run summary while the run is streaming', () => {
+    // 运行中隐藏状态区（icon+耗时，与 local-workspace 渲染器一致）：
+    // 运行态由 statusLabel 文案 + 跑马灯表达，摘要卡自身不再出现旋转 spinner。
+    const markup = renderToStaticMarkup(createElement(ToolMessage, { toolCall: toolCall('run_subagent'), pending: true }))
+
+    expect(markup).toContain('quickforge-subagent-tool')
+    // 运行态文案（statusLabel）仍在标签 span 中表达（语言无关的非空断言）。
+    expect(markup).toMatch(/quickforge-subagent-label">[^<]+</)
+    expect(markup).not.toContain('quickforge-tool-status-icon')
+    expect(markup).not.toContain('animate-spin')
+  })
+
   it('keeps the fallback tool card carded in the panel and flattens it only inside process groups', () => {
     const markup = renderToStaticMarkup(createElement(ToolMessage, { toolCall: toolCall('unknown_tool') }))
     expect(markup).toContain('bg-card')

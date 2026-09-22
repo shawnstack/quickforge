@@ -2,6 +2,50 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [2.2.0] - 2026-09-22
+
+### Added
+
+- Added Hooks event system: run commands or webhooks on Agent events, with persisted execution history and paginated retrieval (300-entry cap with debounced writes).
+- Added scheduled-task Goal execution and command dispatch, plus frequency dropdown options in the scheduled-tasks settings UI.
+- Added Windows portable (no-install) executable packaging for the desktop app.
+- Added file icons with click-to-preview in tool-card summaries; chat path links now support relative paths and use link styling.
+
+### Changed
+
+- Rebuilt the chat interface in React (chat surface, tool renderers, settings-page migration, storage-layer extraction).
+- Aligned MCP and scheduled-tasks settings pages to the quickforge-settings design language; moved LAN-access explanation into a title info-tip.
+- Smooth process fold-group expand/collapse animation (grid-template-rows transition with body-inner shell).
+- Task capsules are collapsed by default and expand on click.
+- Sent user messages anchor to the top of the viewport (12px margin, spacer compensation, live position correction with timeout fallback).
+- Restructured the TodoWrite tool card and improved message scroll synchronization.
+- Main layout dividers now wrap with rounded corners at a unified 60% strength.
+
+### Fixed
+
+- Clicking the thinking-process header while running now expands the thinking block.
+- Sidebar project-session indentation adapts to sidebar collapse; subagent summaries hide the running-status icon.
+- User-message action icons align with the bubble right edge.
+- Settings-page session jumps go through open-session-from-settings with session-existence pre-checks.
+- Restored cold-session actions; annotated Goal attachments missing on resume; Goal fixes and zombie-run cleanup; built-in MCP protection; runtime split and scheduled-task frequency fixes.
+- Seven interaction-parity fixes after dependency removal.
+
+### Removed
+
+- Removed QuickForge Cloud entirely (server, frontend, tests, and docs).
+- Removed the settings-page search box and the export-data conversation-history exclusion hint.
+- Dead-code cleanup round two (dead routes, always-false confirm chains, zero-reference exports, orphan modules, direct `@emnapi` dependency).
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.2.0` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.2.0.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.2.0.tgz
+  ```
+
 ## [2.1.0] - 2026-09-13
 
 ### Added

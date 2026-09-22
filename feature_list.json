@@ -68,7 +68,7 @@
         "session-handoff.md"
       ],
       "verification": "2026-09-22（需求理解修正后定稿）：全量 npm run test → 376 files / 4492 passed / 1 skipped（exit 0；历史登记的 4 个既有服务端失败连续两轮未复现）；npm run lint → 无告警（exit 0）；npm run build → 成功（exit 0）；前端回归 2605 用例通过。",
-      "boundaries": "仅工具卡参数/输出详情固定默认收起（initiallyOpen={false}，无设置项）与阶段层默认展开可配置 expandProcessStageByDefault（默认 true）+ 设置页「工具调用列表默认展开」开关（默认开）；顶层过程组默认（流式展开/历史收起）不变；saved state 手动开合记忆优先语义保留（toolDetailsOpenMemory 与 stage 开合均是）；toolDisplayMode（简洁/详细）只控内容渲染；旧 expandToolDetailsByDefault / toolDetailsDefaultExpanded() 已删除，normalize 白名单重建时与 legacy showToolDetails/expandToolsByDefault 一并剥离。Notes（记录不扩大改动）：工作区混有「MCP 服务→MCP」措辞改动（src/lib/i18n.ts 22 行 + 根 README.md 2 行）与本 feature 无关、来源待确认，本次未回退未调整；此前登记的 4 个既有服务端测试失败连续两轮全量未复现，待确认是否已被修复或环境相关；各轮真机验收清单沿用。无依赖变更、无 Git 操作（2.2.0 发布的 git commit/tag/push 仍待执行），未触碰 dist/、package-dist/、package-offline/。"
+      "boundaries": "仅工具卡参数/输出详情固定默认收起（initiallyOpen={false}，无设置项）与阶段层默认展开可配置 expandProcessStageByDefault（默认 true）+ 设置页「工具调用列表默认展开」开关（默认开）；顶层过程组默认（流式展开/历史收起）不变；saved state 手动开合记忆优先语义保留（toolDetailsOpenMemory 与 stage 开合均是）；toolDisplayMode（简洁/详细）只控内容渲染；旧 expandToolDetailsByDefault / toolDetailsDefaultExpanded() 已删除，normalize 白名单重建时与 legacy showToolDetails/expandToolsByDefault 一并剥离。Notes（记录不扩大改动）：工作区混有「MCP 服务→MCP」措辞改动（src/lib/i18n.ts 22 行 + 根 README.md 2 行）与本 feature 无关、来源待确认，本次未回退未调整；此前登记的 4 个既有服务端测试失败连续两轮全量未复现，待确认是否已被修复或环境相关；各轮真机验收清单沿用。无依赖变更、无 Git 操作（2.2.0 发布的 git commit/tag/push 已完成，用户确认 2026-09-22；npm publish 按用户指令另行执行），未触碰 dist/、package-dist/、package-offline/。"
     },
     {
       "id": "process-folding-remove-tools-layer",
@@ -1236,7 +1236,7 @@
         "session-handoff.md"
       ],
       "verification": "2026-09-22（定向验证，CSS 小改动未跑全量）：npx vitest run tests/frontend/process-folding.test.ts tests/frontend/process-folding-incremental.test.ts tests/frontend/chat-surface-css-contract.test.ts tests/frontend/thinking-header-adoption.test.ts → 4 files / 87 passed（exit 0）；npx eslint tests/frontend/chat-surface-css-contract.test.ts → exit 0。",
-      "boundaries": "仅 CSS：共享规则恢复原样 + stage-body 一条独立规则两行声明与层级语义注释、契约测试一条 describe（正向钉住 stage-body 缩进/连接线，负向断言共享规则与顶层 body 不挂线、叶子节点不带线）、DESIGN_LANGUAGE.md 一小节；不改 DOM 结构、不改 process-folding.ts、不动字号/颜色既有契约；顶层组头 → stage 之间不缩进不加连接线（组头与 stage 头对齐）；竖线不落到 step/工具行叶子节点，不泛化到左侧导航等其它层级场景；无依赖变更、无 Git 操作（2.2.0 发布的 git commit/tag/push 仍待执行），未触碰 dist/、package-dist/、package-offline/。"
+      "boundaries": "仅 CSS：共享规则恢复原样 + stage-body 一条独立规则两行声明与层级语义注释、契约测试一条 describe（正向钉住 stage-body 缩进/连接线，负向断言共享规则与顶层 body 不挂线、叶子节点不带线）、DESIGN_LANGUAGE.md 一小节；不改 DOM 结构、不改 process-folding.ts、不动字号/颜色既有契约；顶层组头 → stage 之间不缩进不加连接线（组头与 stage 头对齐）；竖线不落到 step/工具行叶子节点，不泛化到左侧导航等其它层级场景；无依赖变更、无 Git 操作（2.2.0 发布的 git commit/tag/push 已完成，用户确认 2026-09-22；npm publish 按用户指令另行执行），未触碰 dist/、package-dist/、package-offline/。"
     }
   ]
 }

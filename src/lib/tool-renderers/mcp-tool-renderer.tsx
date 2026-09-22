@@ -87,7 +87,7 @@ export class McpToolRenderer {
       content: (
         <ToolDetails
           className="group/tool quickforge-mcp-tool"
-          initiallyOpen={detailed}
+          initiallyOpen={false}
         >
           <summary className="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             {renderToolIcon(this.toolName)}

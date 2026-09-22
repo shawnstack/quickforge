@@ -3,6 +3,7 @@ import { memo, useLayoutEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { getToolRenderer } from '@/lib/tool-renderer-registry'
+import { renderToolChevron, ToolDetails } from '@/lib/tool-renderers/shared'
 import type { AgentTool, ToolCall, ToolResultMessage } from './ChatTypes'
 /**
  * React replacement for the legacy `<tool-message>` custom element.
@@ -81,29 +82,36 @@ function DefaultToolCardBody({
 
   return (
     <div className="space-y-2">
-      <div className="quickforge-tool-summary flex items-center gap-2 text-sm text-muted-foreground">
-        <ToolStatusIcon state={state} />
-        <span className="truncate">
-          {headerText}
-          {result ? `: ${toolName}` : ''}
-        </span>
-      </div>
-      {paramsJson ? (
-        <div>
-          <div className="mb-1 text-xs font-medium text-muted-foreground">{t('input')}</div>
-          <pre className="overflow-auto rounded-md border border-border bg-muted/30 p-2 text-xs text-foreground">
-            <code>{paramsJson}</code>
-          </pre>
+      {/* 一行工具名摘要即折叠头；params/output 细节固定默认收起（不读设置，
+          手动开合记忆 toolDetailsOpenMemory 优先），与各工具卡的 ToolDetails 形态一致。 */}
+      <ToolDetails className="group/tool quickforge-default-tool" initiallyOpen={false}>
+        <summary className="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
+          <ToolStatusIcon state={state} />
+          <span className="truncate">
+            {headerText}
+            {result ? `: ${toolName}` : ''}
+          </span>
+          {renderToolChevron()}
+        </summary>
+        <div className="mt-3 space-y-2">
+          {paramsJson ? (
+            <div>
+              <div className="mb-1 text-xs font-medium text-muted-foreground">{t('input')}</div>
+              <pre className="overflow-auto rounded-md border border-border bg-muted/30 p-2 text-xs text-foreground">
+                <code>{paramsJson}</code>
+              </pre>
+            </div>
+          ) : null}
+          {result ? (
+            <div>
+              <div className="mb-1 text-xs font-medium text-muted-foreground">{t('output')}</div>
+              <pre className="max-h-96 overflow-auto rounded-md border border-border bg-muted/30 p-2 text-xs text-foreground">
+                <code>{resultTextOutput(result).text}</code>
+              </pre>
+            </div>
+          ) : null}
         </div>
-      ) : null}
-      {result ? (
-        <div>
-          <div className="mb-1 text-xs font-medium text-muted-foreground">{t('output')}</div>
-          <pre className="max-h-96 overflow-auto rounded-md border border-border bg-muted/30 p-2 text-xs text-foreground">
-            <code>{resultTextOutput(result).text}</code>
-          </pre>
-        </div>
-      ) : null}
+      </ToolDetails>
     </div>
   )
 }

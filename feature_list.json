@@ -1,6 +1,42 @@
 {
   "features": [
     {
+      "id": "tool-call-rows-expand-details-collapse",
+      "name": "对话工具调用默认展开到工具行层 + 工具卡 params/output 详情固定默认收起（无配置）+ 阶段层默认展开可配置（expandProcessStageByDefault）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-22 需求理解修正后定稿（上一版把可配置项误做成 expandToolDetailsByDefault「工具详情默认展开」，被用户推翻；本轮修正为最终语义）。最终行为四项：① 工具卡参数/输出详情（ToolDetails，含 5 个渲染器与 DefaultToolCardBody 默认卡）固定默认收起（initiallyOpen={false}），无任何设置项，手动开合记忆（toolDetailsOpenMemory）优先，「简洁/详细」（toolDisplayMode）只控内容渲染；② 可配置项为 tool-display-settings.expandProcessStageByDefault: boolean（默认 true）——控制「已执行 N 个工具调用」阶段层（stage）默认收起/展开，由 process-folding 的 processStageDefaultExpanded() 读 getCachedToolDisplaySettings() 接线，手动开合记忆优先，顶层过程组默认（流式展开/历史收起）不变；③ 设置页「常规 → Tool 显示模式」开关为「工具调用列表默认展开」（默认开），i18n key expandProcessStageByDefault(+Description)（en+zh）；④ 旧字段 expandToolDetailsByDefault 与 helper toolDetailsDefaultExpanded() 已删除，normalize 白名单重建时与 legacy showToolDetails/expandToolsByDefault 一并剥离。实现文件：src/lib/tool-display-settings.ts（expandProcessStageByDefault + normalize 白名单）、src/lib/tool-renderers/shared.tsx（ToolDetails 固定 initiallyOpen={false}，toolDetailsOpenMemory 优先）、5 个 tool-renderer（ask-user-tool-renderer / goal-report-tool-renderer / local-workspace-tool-renderer / mcp-tool-renderer / todo-write-tool-renderer）、src/components/chat/surface/ToolMessage.tsx（DefaultToolCardBody 默认卡同步）、src/components/chat/panel-decoration/process-folding.ts（processStageDefaultExpanded 读 getCachedToolDisplaySettings）、src/components/settings/tabs/DefaultOptionsSettingsTab.tsx（「工具调用列表默认展开」开关）、src/lib/i18n.ts（expandProcessStageByDefault(+Description) en+zh）、src/index.css。测试 7 文件：chat-surface-tool-message / process-folding / settings-normalizers / goal-report-renderer / tool-renderer-shared-state / chat-surface-css-contract / default-options-settings-react。wiki 三份 README（docs/wiki/src/lib、docs/wiki/src/components、docs/wiki/src，双副本同步）按最终语义修正，旧语义 0 残留。",
+      "files": [
+        "src/lib/tool-display-settings.ts",
+        "src/lib/tool-renderers/shared.tsx",
+        "src/lib/tool-renderers/ask-user-tool-renderer.tsx",
+        "src/lib/tool-renderers/goal-report-tool-renderer.tsx",
+        "src/lib/tool-renderers/local-workspace-tool-renderer.tsx",
+        "src/lib/tool-renderers/mcp-tool-renderer.tsx",
+        "src/lib/tool-renderers/todo-write-tool-renderer.tsx",
+        "src/components/chat/surface/ToolMessage.tsx",
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "src/components/settings/tabs/DefaultOptionsSettingsTab.tsx",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/frontend/chat-surface-tool-message.test.ts",
+        "tests/frontend/process-folding.test.ts",
+        "tests/frontend/settings-normalizers.test.ts",
+        "tests/frontend/goal-report-renderer.test.ts",
+        "tests/frontend/tool-renderer-shared-state.test.ts",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "tests/frontend/default-options-settings-react.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-22（需求理解修正后定稿）：全量 npm run test → 376 files / 4492 passed / 1 skipped（exit 0；历史登记的 4 个既有服务端失败连续两轮未复现）；npm run lint → 无告警（exit 0）；npm run build → 成功（exit 0）；前端回归 2605 用例通过。",
+      "boundaries": "仅工具卡参数/输出详情固定默认收起（initiallyOpen={false}，无设置项）与阶段层默认展开可配置 expandProcessStageByDefault（默认 true）+ 设置页「工具调用列表默认展开」开关（默认开）；顶层过程组默认（流式展开/历史收起）不变；saved state 手动开合记忆优先语义保留（toolDetailsOpenMemory 与 stage 开合均是）；toolDisplayMode（简洁/详细）只控内容渲染；旧 expandToolDetailsByDefault / toolDetailsDefaultExpanded() 已删除，normalize 白名单重建时与 legacy showToolDetails/expandToolsByDefault 一并剥离。Notes（记录不扩大改动）：工作区混有「MCP 服务→MCP」措辞改动（src/lib/i18n.ts 22 行 + 根 README.md 2 行）与本 feature 无关、来源待确认，本次未回退未调整；此前登记的 4 个既有服务端测试失败连续两轮全量未复现，待确认是否已被修复或环境相关；各轮真机验收清单沿用。无依赖变更、无 Git 操作（2.2.0 发布的 git commit/tag/push 仍待执行），未触碰 dist/、package-dist/、package-offline/。"
+    },
+    {
       "id": "process-folding-remove-tools-layer",
       "name": "过程折叠移除最内层「调用了 N 项工具」工具组：两层折叠（顶层组 / 内层阶段），工具行直接挂 stage step",
       "status": "done",

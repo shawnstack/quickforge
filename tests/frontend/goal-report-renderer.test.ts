@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
 
 
-// 显示模式按用例切换（渲染器经 tool-renderers/shared 的 toolDisplayDetailed 读取）。
+// 显示模式按用例切换（渲染器经 tool-renderers/shared 的 toolDisplayDetailed 读取）；
+// 工具卡细节固定默认收起、不读设置。
 const toolDisplay = vi.hoisted(() => ({ mode: 'default' as 'default' | 'detailed' }))
 vi.mock('@/lib/tool-display-settings', () => ({
   getCachedToolDisplaySettings: () => ({ toolDisplayMode: toolDisplay.mode }),
@@ -190,6 +191,12 @@ describe('goal_report registered renderer', () => {
     expect(view.markup).toContain('goal_report_result')
     expect(view.markup).toContain('request')
     expect(view.markup).toContain('Plan recorded.')
+  })
+
+  it('keeps its details collapsed by default even in detailed mode', () => {
+    // 细节固定默认收起、不随设置变化；detailed 模式也只控制内容渲染，不默认展开。
+    expect(render({ action: 'plan' }, result()).markup).not.toContain('open=')
+    expect(render({ action: 'plan' }, result(), false, true).markup).not.toContain('open=')
   })
 
   it('binds untrusted HTML as text, with wrap-safe layout rather than HTML parsing', () => {

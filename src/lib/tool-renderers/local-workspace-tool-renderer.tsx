@@ -66,7 +66,7 @@ export class LocalWorkspaceToolRenderer {
         <div className="quickforge-local-tool-shell">
           <ToolDetails
             className="group/tool quickforge-local-tool"
-            initiallyOpen={detailed}
+            initiallyOpen={false}
             aria-busy={status === 'running' ? 'true' : undefined}
           >
             <summary className="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">

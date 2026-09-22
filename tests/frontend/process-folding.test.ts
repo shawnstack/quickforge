@@ -25,6 +25,7 @@ import {
   splitProcessStageSections,
   summarizeProcessStageTools,
 } from '../../src/components/chat/panel-decoration/process-folding'
+import { applyToolDisplaySettingsValue } from '../../src/lib/tool-display-settings'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
 
@@ -376,11 +377,23 @@ describe('nested process stage groups', () => {
     expect(processSectionNeedsStage([])).toBe(false)
   })
 
-  it('keeps inner stages collapsed by default (legacy semantics) unless state says otherwise', () => {
-    // 旧语义：阶段默认收起；只有显式 saved state 为展开时才展开。
+  it('expands inner stages by default from the expandProcessStageByDefault setting, while manual/saved state still wins', () => {
+    // 默认（未配置）→ 展开，每条工具调用直接可见。
+    applyToolDisplaySettingsValue(undefined)
+    expect(processStageDefaultExpanded()).toBe(true)
+    // 无 saved state 且非增量 key 命中 → 取设置默认值（默认展开）。
+    expect(resolveProcessExpandedState(undefined, false, true, processStageDefaultExpanded())).toBe(true)
+    // 设置为默认收起 → stage 初始收起。
+    applyToolDisplaySettingsValue({ expandProcessStageByDefault: false })
     expect(processStageDefaultExpanded()).toBe(false)
     expect(resolveProcessExpandedState(undefined, false, true, processStageDefaultExpanded())).toBe(false)
+    // 增量 key 命中（同一 stage 追加工具行）保留当前开合：手动收起不被弹回。
     expect(resolveProcessExpandedState(undefined, true, false, processStageDefaultExpanded())).toBe(false)
+    // saved state（用户手动开合记忆）优先于设置默认值（无论默认开或关）。
+    expect(resolveProcessExpandedState(false, false, true, processStageDefaultExpanded())).toBe(false)
+    expect(resolveProcessExpandedState(true, false, false, processStageDefaultExpanded())).toBe(true)
+    applyToolDisplaySettingsValue(undefined)
+    expect(resolveProcessExpandedState(false, false, true, processStageDefaultExpanded())).toBe(false)
     expect(resolveProcessExpandedState(true, false, false, processStageDefaultExpanded())).toBe(true)
   })
 

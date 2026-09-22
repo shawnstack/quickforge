@@ -80,7 +80,7 @@ export class TodoWriteToolRenderer {
         <div className="quickforge-local-tool-shell quickforge-todo-history-tool-shell">
           <ToolDetails
             className="group/tool quickforge-local-tool quickforge-todo-history-tool"
-            initiallyOpen={detailed}
+            initiallyOpen={false}
           >
             <summary className="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
               {renderToolIcon('todo_write')}

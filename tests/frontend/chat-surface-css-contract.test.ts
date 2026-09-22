@@ -394,7 +394,7 @@ describe('chat row font scale contract', () => {
     // 兜底工具卡（DefaultToolCardBody 首行）与 generate_image 首行自带 text-sm（=1rem）而
     // 逃逸到界面字号；必须与其余工具行同处一个规则，取消息字号基准。
     const block = declarationBlock('.quickforge-local-tool > .quickforge-tool-summary,')
-    expect(block).toContain('.quickforge-tool-message > .space-y-2 > .quickforge-tool-summary')
+    expect(block).toContain('.quickforge-tool-message > .space-y-2 > .quickforge-default-tool > .quickforge-tool-summary')
     expect(block).toContain(
       '.quickforge-tool-message > .quickforge-generated-image-tool > .quickforge-tool-summary',
     )

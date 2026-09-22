@@ -3,11 +3,16 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { registerToolRenderer, type ToolRenderer } from '../../src/lib/tool-renderer-registry'
 import { applyAppLanguageFromSnapshot } from '../../src/lib/i18n'
+import { applyToolDisplaySettingsValue } from '../../src/lib/tool-display-settings'
 import { ToolMessage } from '../../src/components/chat/surface/ToolMessage'
 import type { ToolCall, ToolResultMessage } from '../../src/components/chat/surface/ChatTypes'
 
 // Surface copy comes from i18n (language falls back to navigator.language).
-beforeEach(() => applyAppLanguageFromSnapshot('en'))
+// 工具展示设置每例回到默认（细节默认收起）。
+beforeEach(() => {
+  applyAppLanguageFromSnapshot('en')
+  applyToolDisplaySettingsValue(undefined)
+})
 
 const toolCall = (name: string): ToolCall => ({ type: 'toolCall', id: `call-${name}`, name, arguments: { path: 'a.ts' } })
 const toolResult = (text: string): ToolResultMessage => ({
@@ -43,11 +48,26 @@ describe('chat surface ToolMessage registry consumption', () => {
       .toBe('<div class="qf-tool-message"></div>')
   })
 
-  it('renders the default card when no renderer is registered', () => {
+  it('renders the default card with params/output folded into ToolDetails (collapsed by default)', () => {
     const markup = renderToStaticMarkup(createElement(ToolMessage, { toolCall: toolCall('unknown_tool'), result: toolResult('tool ran fine') }))
     expect(markup).toContain('Tool Call')
-    expect(markup).toContain('tool ran fine')
+    // header 保留一行工具名摘要；params/output 细节收进 <details>，默认收起
+    // （React 对 open={false} 省略 open 属性）。
+    expect(markup).toContain('<details')
+    expect(markup).not.toContain('open=')
+    expect(markup).toMatch(/<details[^>]*>[\s\S]*tool ran fine[\s\S]*<\/details>/)
     expect(markup).toContain('a.ts')
+  })
+
+  it('keeps the default card details collapsed regardless of tool display settings', () => {
+    // 细节固定默认收起，不随任何设置变化（detailed 模式 / expandProcessStageByDefault 均不影响）。
+    applyToolDisplaySettingsValue({ toolDisplayMode: 'detailed', expandProcessStageByDefault: true })
+    try {
+      const markup = renderToStaticMarkup(createElement(ToolMessage, { toolCall: toolCall('unknown_tool'), result: toolResult('tool ran fine') }))
+      expect(markup).not.toContain('open=')
+    } finally {
+      applyToolDisplaySettingsValue(undefined)
+    }
   })
 
   it('treats an aborted call without a result as an error result', () => {

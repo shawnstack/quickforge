@@ -1,3 +1,38 @@
+## 2026-09-22 · 需求理解修正：工具卡详情固定默认收起（无配置）+ 可配置改为阶段层 expandProcessStageByDefault
+
+- Goal：上一轮 `tool-call-rows-expand-details-collapse` 需求理解有误（把可配置项做成 `expandToolDetailsByDefault`「工具详情默认展开」），经用户指出修正为最终语义：① 工具卡参数/输出详情（`ToolDetails`，5 渲染器 + `DefaultToolCardBody` 默认卡）**固定默认收起**（`initiallyOpen={false}`），无任何设置；手动开合记忆（`toolDetailsOpenMemory`）优先；「简洁/详细」（toolDisplayMode）只控内容渲染；② 可配置项改为 `tool-display-settings.expandProcessStageByDefault: boolean`（默认 `true`），控制「已执行 N 个工具调用」阶段层（stage）默认收起/展开（`processStageDefaultExpanded()` 读 `getCachedToolDisplaySettings()`），手动开合记忆优先，顶层过程组默认（流式展开/历史收起）不变；③ 设置页「常规 → Tool 显示模式」开关为「工具调用列表默认展开」（默认开），i18n key `expandProcessStageByDefault(+Description)`（en+zh）；④ 旧字段 `expandToolDetailsByDefault` 与 helper `toolDetailsDefaultExpanded()` 已删除，normalize 白名单重建时与 legacy `showToolDetails`/`expandToolsByDefault` 一并剥离。
+- 改动文件：`src/lib/tool-display-settings.ts`、`src/lib/tool-renderers/shared.tsx`、5 个 tool-renderer（`ask-user-tool-renderer.tsx` / `goal-report-tool-renderer.tsx` / `local-workspace-tool-renderer.tsx` / `mcp-tool-renderer.tsx` / `todo-write-tool-renderer.tsx`）、`src/components/chat/surface/ToolMessage.tsx`、`src/components/chat/panel-decoration/process-folding.ts`、`src/components/settings/tabs/DefaultOptionsSettingsTab.tsx`、`src/lib/i18n.ts`、`src/index.css`、测试 7 文件（`chat-surface-tool-message.test.ts` / `process-folding.test.ts` / `settings-normalizers.test.ts` / `goal-report-renderer.test.ts` / `tool-renderer-shared-state.test.ts` / `chat-surface-css-contract.test.ts` / `default-options-settings-react.test.ts`）、`docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`（双副本同步）、`docs/wiki/src/README.md`（按最终语义修正，旧语义 0 残留）、`feature_list.json`（条目修正为最终语义）、`progress.md`、`session-handoff.md`。
+- 验证：全量 `npm run test` → **376 files / 4492 passed / 1 skipped（exit 0；历史登记的 4 个既有服务端失败连续两轮未复现）**；`npm run lint` → **无告警（exit 0）**；`npm run build` → **成功（exit 0）**；前端回归 **2605 用例通过**。
+- Notes（只记录，不扩范围）：
+  - a) 折叠默认值最终口径：顶层组 = `isAgentStreaming`（流式展开/历史收起）不变；阶段层默认由 `expandProcessStageByDefault`（默认 true）控制；工具卡详情固定收起（无配置）；saved state 手动开合记忆均优先于默认值。
+  - b) `toolDisplayMode`（简洁/详细）只控内容渲染；旧 `expandToolDetailsByDefault` / `toolDetailsDefaultExpanded()` 已删除，normalize 白名单剥离 legacy `showToolDetails`/`expandToolsByDefault`。
+  - c) 工作区混有「MCP 服务→MCP」措辞改动（`src/lib/i18n.ts` 22 行 + 根 `README.md` 2 行），与本 feature 无关、来源待确认，本次未回退未调整。
+  - d) 此前登记的 4 个既有服务端测试失败（ACP channel/workspace-mapping/sqlite quick_check）连续两轮全量未复现，待确认是否已被修复或环境相关。
+  - e) 各轮真机验收清单沿用（见下方历史记录 Notes）。
+  - f) 本轮无 Git 操作（2.2.0 发布的 git commit/tag/push 仍待执行）、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
+
+---
+
+## 2026-09-22 · 对话工具调用默认展开到工具行层 + 工具卡细节默认收起且可配置（需求理解已修正，最终语义见上条）
+
+- Goal：用户需求——对话里工具调用默认展开到工具行层（不用再点一层），工具卡 params/output 细节默认收起、可配置。实现四项：① process-folding 内层 stage 默认展开（`processStageDefaultExpanded()` 返回 true，用户手动开合记忆优先），展开过程组后每条工具调用直接可见，顶层组默认不变（流式展开/历史收起）；② 工具卡 params/output 细节区（`ToolDetails`，含 5 个渲染器与 DefaultToolCardBody 默认卡）默认收起，由新设置 `tool-display-settings.expandToolDetailsByDefault`（默认 false）控制初始开合，手动开合记忆优先；③ 简洁/详细（toolDisplayMode）只控内容渲染不再控初始开合；④ 设置页「常规 → Tool 显示模式」新增「工具详情默认展开」开关（i18n en+zh 新增 key）。
+- 改动文件：
+  - `src/lib/tool-display-settings.ts`（新增 `expandToolDetailsByDefault`，默认 false）、`src/lib/tool-renderers/shared.tsx`（ToolDetails 初始开合接线新设置）、5 个 tool-renderer（`ask-user-tool-renderer.tsx` / `goal-report-tool-renderer.tsx` / `local-workspace-tool-renderer.tsx` / `mcp-tool-renderer.tsx` / `todo-write-tool-renderer.tsx`）、`src/components/chat/surface/ToolMessage.tsx`（DefaultToolCardBody 默认卡同步）。
+  - `src/components/chat/panel-decoration/process-folding.ts`（`processStageDefaultExpanded()` 返回 true，手动开合记忆优先）。
+  - `src/components/settings/tabs/DefaultOptionsSettingsTab.tsx`（「常规 → Tool 显示模式」新增「工具详情默认展开」开关）；`src/lib/i18n.ts`（仅新增 key，en+zh）；`src/index.css`。
+  - 测试 7 文件：`chat-surface-tool-message.test.ts` / `process-folding.test.ts` / `settings-normalizers.test.ts` / `goal-report-renderer.test.ts` / `tool-renderer-shared-state.test.ts` / `chat-surface-css-contract.test.ts` / `default-options-settings-react.test.ts`。
+  - `docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`、`docs/wiki/src/README.md`；`feature_list.json`（新增 tool-call-rows-expand-details-collapse，done）、`progress.md`、`session-handoff.md`。
+- 验证：全量 `npm run test` → **376 files / 4492 passed / 1 skipped（exit 0；此前登记的 4 个既有服务端失败本次未复现）**；`npm run lint` → **无告警（exit 0）**；`npm run build` → **成功（exit 0）**。
+- Notes（只记录，不扩范围）：
+  - a) 折叠默认值：顶层组 = `isAgentStreaming`（流式展开/历史收起）不变；内层 stage 默认展开、工具卡细节默认收起（`expandToolDetailsByDefault` 默认 false），两者 saved state 手动开合记忆均优先于默认值。
+  - b) `toolDisplayMode`（简洁/详细）语义收窄：只控内容渲染，不再控初始开合。
+  - c) 工作区混有「MCP 服务→MCP」措辞改动（`src/lib/i18n.ts` 22 行 + 根 `README.md` 2 行），与本 feature 无关、来源待确认，本次未回退未调整。
+  - d) 此前登记的 4 个既有服务端测试失败（ACP channel/workspace-mapping/sqlite quick_check）本次全量未复现，待确认是否已被修复或环境相关。
+  - e) 各轮真机验收清单沿用（见下方历史记录 Notes）。
+  - f) 本轮无 Git 操作（2.2.0 发布的 git commit/tag/push 仍待执行）、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
+
+---
+
 ## 2026-09-22 · 过程折叠第二轮：纯思考段不渲染空「已执行」stage 头
 
 - Goal：第一轮两层折叠落地后，纯思考段（段内只有 thinking 块、没有任何工具行）会出现一个空壳「已执行 N 个工具调用」stage 头——没有工具统计可聚合，没有信息量。本轮：纯思考段不包 stage，思考块直接挂顶层组 body；工具行到来后走全量重建正常包 stage。

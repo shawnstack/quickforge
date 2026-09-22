@@ -35,7 +35,7 @@ vi.mock('@/lib/pi-chat', () => ({
 }))
 vi.mock('@/lib/model-reference', () => ({ loadModelCatalog: async () => [] }))
 vi.mock('@/lib/tool-display-settings', () => ({
-  loadToolDisplaySettings: async () => ({ toolDisplayMode: 'detailed', showContextUsage: false }),
+  loadToolDisplaySettings: async () => ({ toolDisplayMode: 'detailed', showContextUsage: false, expandProcessStageByDefault: true }),
   saveToolDisplaySettings: settings.saveToolDisplay,
 }))
 vi.mock('@/lib/auto-compact-settings', () => ({
@@ -118,9 +118,16 @@ describe('React default options notification persistence', () => {
   it('preserves loaded sibling settings when rendered callbacks save a toggle', async () => {
     await mount()
     settingsSwitch('showContextUsage').props.onChange!(true)
-    expect(settings.saveToolDisplay).toHaveBeenCalledWith({}, { toolDisplayMode: 'detailed', showContextUsage: true })
+    expect(settings.saveToolDisplay).toHaveBeenCalledWith({}, { toolDisplayMode: 'detailed', showContextUsage: true, expandProcessStageByDefault: true })
     settingsSwitch('autoCompactEnabled').props.onChange!(false)
     expect(settings.saveAutoCompact).toHaveBeenCalledWith({}, { enabled: false, requireConfirmation: false, thresholdPercent: 90, keepRecentTurns: 3, minSourceChars: 1600 })
+  })
+
+  it('renders the expand process stage switch expanded by default and saves it without dropping sibling settings', async () => {
+    await mount()
+    expect(settingsSwitch('expandProcessStageByDefault').props.checked).toBe(true)
+    settingsSwitch('expandProcessStageByDefault').props.onChange!(false)
+    expect(settings.saveToolDisplay).toHaveBeenCalledWith({}, { toolDisplayMode: 'detailed', showContextUsage: false, expandProcessStageByDefault: false })
   })
 
   it('allows a second proxy refresh after the first finishes', async () => {

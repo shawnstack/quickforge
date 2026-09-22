@@ -3505,14 +3505,15 @@ html.dark .quickforge-file-path-link {
 /* 工具卡摘要行字号跟随「消息字号」基准（×0.875，默认 13px 下 ≈11.4px 与旧 0.875rem 一致，
    零视觉回归），避免与对话正文分属两套字号体系而在设置分开调整时漂移。
    设计稿：design-mockups/goal-plan-tool-card-redesign.html（S02）。
-   后两条选择器按同级 DOM 形态（ToolMessage 兜底卡 DefaultToolCardBody 的 `.space-y-2`、
-   generate-image-tool-renderer 的 `.quickforge-generated-image-tool`）收拢首行：它们虽已在
-   R9 补挂 `.quickforge-tool-summary`，但自带 `text-sm` 让首行逃逸到 1rem，字号与其余工具行
-   不一致。本规则不受 `.qf-chat-panel` 限制，面板外运行详情同步取同一基准（语义保持一致）。 */
+   后两条选择器按同级 DOM 形态（ToolMessage 兜底卡 DefaultToolCardBody 的
+   `.space-y-2 > details.quickforge-default-tool`、generate-image-tool-renderer 的
+   `.quickforge-generated-image-tool`）收拢首行：它们虽自带 `text-sm` 让首行逃逸到 1rem，
+   字号须与其余工具行一致。本规则不受 `.qf-chat-panel` 限制，面板外运行详情同步取同一基准
+   （语义保持一致）。 */
 .quickforge-local-tool > .quickforge-tool-summary,
 .quickforge-mcp-tool > .quickforge-tool-summary,
 .quickforge-subagent-tool > .quickforge-tool-summary,
-.quickforge-tool-message > .space-y-2 > .quickforge-tool-summary,
+.quickforge-tool-message > .space-y-2 > .quickforge-default-tool > .quickforge-tool-summary,
 .quickforge-tool-message > .quickforge-generated-image-tool > .quickforge-tool-summary {
   color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
   font-family: var(--font-sans);
@@ -3641,8 +3642,8 @@ html.dark .quickforge-file-path-link {
     transform 160ms ease;
 }
 
-:is(.quickforge-local-tool, .quickforge-mcp-tool) > .quickforge-tool-summary:hover .quickforge-tool-chevron,
-:is(.quickforge-local-tool, .quickforge-mcp-tool) > .quickforge-tool-summary:focus-visible .quickforge-tool-chevron {
+:is(.quickforge-local-tool, .quickforge-mcp-tool, .quickforge-default-tool) > .quickforge-tool-summary:hover .quickforge-tool-chevron,
+:is(.quickforge-local-tool, .quickforge-mcp-tool, .quickforge-default-tool) > .quickforge-tool-summary:focus-visible .quickforge-tool-chevron {
   opacity: 1;
 }
 

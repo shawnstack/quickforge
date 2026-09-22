@@ -312,6 +312,15 @@ describe('ToolDetails open-state memory', () => {
     expect((box.tree().props as { open?: boolean }).open).toBe(false)
   })
 
+  it('manual toggle memory wins over the default collapsed state (initiallyOpen=false)', () => {
+    // 工具卡细节固定默认收起（initiallyOpen=false）；用户手动展开的
+    // 记忆（toolDetailsOpenMemory）仍优先于默认收起。
+    rememberToolDetailsOpen('call-default-open', true)
+    const box = mountToolDetails(false, { toolCall: { id: 'call-default-open' } })
+    box.render()
+    expect((box.tree().props as { open?: boolean }).open).toBe(true)
+  })
+
   it('restores a remembered manual toggle across remounts (open and closed)', () => {
     const host = { toolCall: { id: 'call-1' } }
     const first = mountToolDetails(false, host)

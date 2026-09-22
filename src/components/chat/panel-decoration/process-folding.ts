@@ -1,5 +1,6 @@
 import type { MessageWithUsage } from '../chat-utils'
 import { t } from '@/lib/i18n'
+import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 
 type ProcessGroupElement = HTMLDivElement
 
@@ -533,9 +534,9 @@ export function processGroupDefaultExpanded(isAgentStreaming: boolean) {
   return isAgentStreaming
 }
 
-/** 内层阶段默认收起（旧语义）；只有显式 saved state 为展开时才展开。 */
+/** 内层阶段默认展开值：读 expandProcessStageByDefault 设置（默认 true=每条工具调用直接可见）；用户手动开合记忆（saved state）/增量 key 命中时仍优先（resolveProcessExpandedState）。 */
 export function processStageDefaultExpanded() {
-  return false
+  return getCachedToolDisplaySettings().expandProcessStageByDefault === true
 }
 
 export function processStageStateKey(processKey: string, index: number) {

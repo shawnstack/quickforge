@@ -157,30 +157,56 @@ describe('settings normalizers', () => {
     expect(values.get('memory-settings')).toEqual({ enabled: true })
   })
 
-  it('normalizes, loads, and saves tool display settings with compact mode by default', async () => {
+  it('normalizes, loads, and saves tool display settings with compact mode and expanded process stage by default', async () => {
+    expect(DEFAULT_TOOL_DISPLAY_SETTINGS).toEqual({
+      toolDisplayMode: 'compact',
+      showContextUsage: false,
+      expandProcessStageByDefault: true,
+    })
+
     const empty = createStorage()
     await expect(loadToolDisplaySettings(empty.storage)).resolves.toEqual(DEFAULT_TOOL_DISPLAY_SETTINGS)
 
+    // legacy / 已移除字段（showToolDetails / expandToolsByDefault / expandToolDetailsByDefault）当作未知字段丢弃。
     const legacy = createStorage({
-      'tool-display-settings': { showToolDetails: true, expandToolsByDefault: true, showContextUsage: true },
+      'tool-display-settings': {
+        showToolDetails: true,
+        expandToolsByDefault: true,
+        expandToolDetailsByDefault: true,
+        showContextUsage: true,
+      },
     })
     await expect(loadToolDisplaySettings(legacy.storage)).resolves.toEqual({
       toolDisplayMode: 'compact',
       showContextUsage: true,
+      expandProcessStageByDefault: true,
     })
 
+    // 非法 toolDisplayMode 回默认；expandProcessStageByDefault 非布尔回默认（true）。
     const invalid = createStorage({
-      'tool-display-settings': { toolDisplayMode: 'expanded' },
+      'tool-display-settings': { toolDisplayMode: 'expanded', expandProcessStageByDefault: 'yes' },
     })
     await expect(loadToolDisplaySettings(invalid.storage)).resolves.toEqual(DEFAULT_TOOL_DISPLAY_SETTINGS)
+
+    // expandProcessStageByDefault true/false 归一保留原值（默认收起 stage）。
+    const collapsed = createStorage({
+      'tool-display-settings': { expandProcessStageByDefault: false },
+    })
+    await expect(loadToolDisplaySettings(collapsed.storage)).resolves.toMatchObject({ expandProcessStageByDefault: false })
+    const expanded = createStorage({
+      'tool-display-settings': { expandProcessStageByDefault: true },
+    })
+    await expect(loadToolDisplaySettings(expanded.storage)).resolves.toMatchObject({ expandProcessStageByDefault: true })
 
     await saveToolDisplaySettings(legacy.storage, {
       toolDisplayMode: 'detailed',
       showContextUsage: true,
+      expandProcessStageByDefault: false,
     })
     expect(legacy.values.get('tool-display-settings')).toEqual({
       toolDisplayMode: 'detailed',
       showContextUsage: true,
+      expandProcessStageByDefault: false,
     })
   })
 

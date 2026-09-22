@@ -1,3 +1,16 @@
+## 2026-09-22 · reasoning 模型默认思考等级 medium → high（default-thinking-level-high）
+
+- Goal：reasoning 模型的默认思考等级从 medium 改为 high。全库搜索（排除生成产物目录与 docs/archive）后共改三处硬编码 fallback + 一处 wiki 文档：① `src/lib/pi-chat.ts` `defaultThinkingLevelForModel`（reasoning ? 'high' : 'off'，全部前端消费方经此函数自动跟随）；② `server/acp/server.mjs` `resolveInitialThinkingLevel`（ACP 新会话镜像 web UI，fallback 与注释同步）；③ `server/routes/scheduled-tasks.mjs` POST /api/scheduled-tasks 创建任务缺省 thinkingLevel 时的 fallback（调研发现的第三处硬编码）；④ `docs/wiki/server/README.md`「推理模型默认 `medium`」→ `high`。
+- 改动文件：`src/lib/pi-chat.ts`、`server/acp/server.mjs`、`server/routes/scheduled-tasks.mjs`、`docs/wiki/server/README.md`、`feature_list.json`（新增 default-thinking-level-high，done）、`progress.md`、`session-handoff.md`。
+- 验证（定向）：`npx vitest run`（default-options-settings-tab + default-options-settings-react）→ **2 files / 20 passed（exit 0）**；`npx vitest run tests/server/acp/ tests/server/scheduled-tasks.execution.test.mjs` → **6 files / 60 passed（exit 0）**；`npm run lint` → **exit 0**；`npx tsc -b --pretty false` → **exit 0**。
+- Notes（只记录，不扩范围）：
+  - a) 用户显式保存的 `settings['default-options'].thinkingLevel` 优先级不变；非 reasoning 模型仍 'off'；切到非 reasoning 模型自动归零守卫不变。
+  - b) 测试中 'medium' 匹配均为显式值/profile override/持久化往返断言（agent-profiles / agent-manager.subagents / storage-layer / subagent-run-detail），与本默认值无关，零改动通过。
+  - c) dist/、package-dist/、package-offline/、android/assets 中的同名逻辑为生成产物，不手工修改（下次构建/打包自然同步）。
+  - d) 无 Git 操作、无依赖变更。
+
+---
+
 ## 2026-09-22 · 设置页「常规」语言/思考等级下拉框收窄（settings-row-control-compact）
 
 - Goal：设置页「常规」tab 中「语言」下拉容器误用 `quickforge-settings-row-control-wide`（`min-width: min(28rem, 48%)`，约 432px 过宽），「默认模型思考等级」行用普通 row-control（min-width 11rem）。方案 B（用户确认）：两处统一收窄为固定 8.5rem——新增 `.quickforge-settings-row-control-compact { width: 8.5rem; min-width: 8.5rem; }`（仿 `.quickforge-share-expiration-select` 先例），语言行 wide→compact、思考等级行追加 compact；共享 wide 类不动。

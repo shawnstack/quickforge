@@ -1,4 +1,13 @@
-## 当前交接：设置页「常规」语言/思考等级下拉框收窄 settings-row-control-compact（2026-09-22）
+## 当前交接：reasoning 模型默认思考等级 medium → high（2026-09-22）
+
+- 当前目标（已完成）：reasoning 模型的默认思考等级从 medium 改为 high。改动三处硬编码 fallback + 一处 wiki：`src/lib/pi-chat.ts` `defaultThinkingLevelForModel`（前端唯一 fallback，消费方自动跟随）、`server/acp/server.mjs` `resolveInitialThinkingLevel`（ACP 镜像，含注释）、`server/routes/scheduled-tasks.mjs` 创建定时任务缺省 fallback；`docs/wiki/server/README.md` 同步。用户显式保存的默认思考等级优先级不变，非 reasoning 模型仍 'off'。
+- 改动文件：`src/lib/pi-chat.ts`、`server/acp/server.mjs`、`server/routes/scheduled-tasks.mjs`、`docs/wiki/server/README.md`、`feature_list.json`（新增 default-thinking-level-high，done）、`progress.md`、`session-handoff.md`。
+- 验证：定向 `npx vitest run`（default-options-settings-tab + default-options-settings-react）→ **2 files / 20 passed（exit 0）**；`npx vitest run tests/server/acp/ tests/server/scheduled-tasks.execution.test.mjs` → **6 files / 60 passed（exit 0）**；`npm run lint` → **exit 0**；`npx tsc -b --pretty false` → **exit 0**。
+- Blocker：无。
+- 下一步：① 真机冒烟：新会话选 reasoning 模型（未保存过默认思考等级时）初始等级为「高」，非 reasoning 模型为「关」；保存过 default-options.thinkingLevel 的用户不受影响；② settings-row-control-compact 的真机验收与「MCP 服务→MCP」措辞确认沿用下条；③ 发布 2.2.0 的 git commit/tag/push 仍待执行（见历史交接）。
+
+---
+## 历史交接：设置页「常规」语言/思考等级下拉框收窄 settings-row-control-compact（2026-09-22）
 
 - 当前目标（已完成，待真机验收）：设置页「常规」tab「语言」「默认模型思考等级」两个下拉容器统一收窄为固定 8.5rem——`src/index.css` 新增 `.quickforge-settings-row-control-compact { width: 8.5rem; min-width: 8.5rem; }`（仿 `.quickforge-share-expiration-select` 先例），移动端 row-control 撑满选择器组显式列入 compact（100% 满宽、min-width:0，窄屏不溢出）；语言行弃用误用的 wide，「默认模型」行保持 wide 不动；共享 wide 类本身未改。
 - 改动文件：`src/index.css`（+compact 类与移动端选择器）、`src/components/settings/tabs/DefaultOptionsSettingsTab.tsx`（两处容器类名）、`feature_list.json`（新增 settings-row-control-compact，done）、`progress.md`、`session-handoff.md`。

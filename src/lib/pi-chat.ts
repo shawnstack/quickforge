@@ -283,7 +283,7 @@ export async function saveActiveModel(storage: AppStorage, model: Model<Api>) {
 }
 
 export function defaultThinkingLevelForModel(model?: Model<Api>): ThinkingLevel {
-  return model?.reasoning ? 'medium' : 'off'
+  return model?.reasoning ? 'high' : 'off'
 }
 
 function isThinkingLevel(value: unknown): value is ThinkingLevel {

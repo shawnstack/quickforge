@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "default-thinking-level-high",
+      "name": "reasoning 模型默认思考等级由 medium 改为 high（前端 fallback + ACP 镜像 + 定时任务路由 + wiki 同步）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-22 用户需求：reasoning 模型的默认思考等级从 medium 提升为 high。全库搜索（排除 dist/、package-dist/、package-offline/、android/assets 等生成产物与 docs/archive 历史归档）定位三处硬编码 'medium' fallback，逐一同步：① src/lib/pi-chat.ts defaultThinkingLevelForModel（唯一前端 fallback，reasoning ? 'high' : 'off'），消费方（useAgentManager / AgentProfilesPage / GitCommitPushDialog / ScheduledTasksPage / SharedConversationPage / 设置页 DefaultOptionsSettingsTab）均经该函数自动跟随；② server/acp/server.mjs resolveInitialThinkingLevel（ACP 新会话初始思考等级，镜像 web UI），fallback 与注释同步 'medium'→'high'；③ server/routes/scheduled-tasks.mjs POST /api/scheduled-tasks 创建任务时 body?.thinkingLevel 缺省的 fallback（调研阶段发现的第三处硬编码，非前期只读调研确认的两处之一）。文档：docs/wiki/server/README.md 中「推理模型默认 `medium`」同步改为 `high`。用户显式保存的 settings['default-options'].thinkingLevel 优先级不变，非 reasoning 模型仍 'off'。",
+      "files": [
+        "src/lib/pi-chat.ts",
+        "server/acp/server.mjs",
+        "server/routes/scheduled-tasks.mjs",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-22（定向验证）：npx vitest run tests/frontend/default-options-settings-tab.test.ts tests/frontend/default-options-settings-react.test.ts → 2 files / 20 passed（exit 0）；npx vitest run tests/server/acp/ tests/server/scheduled-tasks.execution.test.mjs → 6 files / 60 passed（exit 0）；npm run lint → exit 0；npx tsc -b --pretty false → exit 0（与 build 脚本类型检查一致）。",
+      "boundaries": "仅三处默认值字面量 'medium'→'high' 与一处 wiki 文档同步；用户已保存的默认思考等级（default-options.thinkingLevel）优先逻辑不变；非 reasoning 模型仍为 'off'；测试中 'medium' 匹配均为显式值/profile override/持久化往返断言，与本默认值无关未动；无依赖变更、无 Git 操作，未触碰 dist/、package-dist/、package-offline/、android/assets。"
+    },
+    {
       "id": "settings-row-control-compact",
       "name": "设置页「常规」语言/思考等级下拉框收窄：新增 quickforge-settings-row-control-compact（8.5rem），语言行弃用误用的 wide",
       "status": "done",

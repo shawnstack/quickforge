@@ -1066,7 +1066,7 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
       executionMode: normalized.executionMode || 'serial',
       model: binding.model,
       modelRef: binding.modelRef,
-      thinkingLevel: body?.thinkingLevel || (body?.model?.reasoning ? 'medium' : 'off'),
+      thinkingLevel: body?.thinkingLevel || (body?.model?.reasoning ? 'high' : 'off'),
       projectId: body?.projectId || null,
       projectName: body?.projectName || null,
       status: enabled ? 'enabled' : 'paused',

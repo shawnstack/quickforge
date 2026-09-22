@@ -487,13 +487,13 @@ async function resolveInitialModel() {
 
 // Resolve the initial thinking level for a new ACP session, mirroring the web UI
 // (src/hooks/useAgentManager.ts): prefer the user's saved default thinking level,
-// otherwise fall back to 'medium' for reasoning models and 'off' otherwise.
+// otherwise fall back to 'high' for reasoning models and 'off' otherwise.
 async function resolveInitialThinkingLevel(model) {
   const settings = await readStore('settings').catch(() => ({}))
   const defaultOptions = parseStoredJson(settings?.['default-options'])
   const saved = defaultOptions?.thinkingLevel
   if (isThinkingLevel(saved)) return saved
-  return model?.reasoning === true ? 'medium' : 'off'
+  return model?.reasoning === true ? 'high' : 'off'
 }
 
 async function sessionConfigOptions(currentModel = null, currentThinkingLevel = 'off') {

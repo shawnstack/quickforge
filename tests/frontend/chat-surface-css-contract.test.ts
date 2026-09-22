@@ -401,3 +401,22 @@ describe('chat row font scale contract', () => {
     expect(block).toContain(MESSAGE_FONT_SCALE)
   })
 })
+
+describe('process fold hierarchy contract', () => {
+  it('indents stage children with a soft left guide line, keeping the top-level body flat', () => {
+    // 折叠子级层级（process-fold-hierarchy）：只有 stage body（阶段头的展开区）带
+    // 左缩进 + 1px 弱化连接线，表达 stage 头 → 子内容（思考块/工具行）的从属；
+    // 顶层组 body 不缩进（用户反馈：组头 → stage 这一层不要缩进和细线），
+    // 纯思考段直挂顶层 body 的 step 因此与组头同层。
+    expect(css).toContain(
+      '.quickforge-process-stage-body {\n  padding-left: 0.75rem;\n  border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent);\n}',
+    )
+    // 共享布局规则恢复原样：顶层组 body 不得再带缩进/连接线。
+    const sharedRule = css.match(/\.quickforge-process-body,\s*\.quickforge-process-stage-body \{[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(sharedRule).not.toContain('padding-left')
+    expect(sharedRule).not.toContain('border-left')
+    expect(css).not.toMatch(/^\.quickforge-process-body \{[^}]*\b(?:padding|border)-left/m)
+    // 连接线只挂在 stage body 展开区上，不落到 step / 工具行等叶子节点。
+    expect(css).not.toMatch(/\.quickforge-process-step[^{]*\{[^}]*border-left/)
+  })
+})

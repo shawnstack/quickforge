@@ -1,4 +1,13 @@
-## 当前交接：reasoning 模型默认思考等级 medium → high（2026-09-22）
+## 当前交接：process 折叠子级层级关系（缩进 + 左侧连接线）（2026-09-22）
+
+- 当前目标（已完成，待真机验收）：聊天「已执行 N 个工具调用」折叠结构的子级层级可视化——组头 / stage 头 / 思考头 / 工具行原先全部左对齐 x=0。同日按用户反馈调整：首版共享规则两级 body 都挂缩进+连接线，用户反馈「顶层组头到 stage 这一层不要缩进和细线」；最终态仅 `.quickforge-process-stage-body` 独立规则带「0.75rem 左缩进 + 1px 弱化左侧连接线（color-mix(in oklab, var(--border) 60%, transparent)，与主结构分割线同配方）」，`.quickforge-process-body` 恢复原规则（不缩进、无连接线），组头与 stage 头对齐；纯思考段直挂顶层 body 的 step 因此不再缩进（预期）。收起态 body `visibility: hidden`，连接线随内容隐藏。不改 DOM 结构、不改 process-folding.ts。
+- 改动文件：`src/index.css`（共享规则恢复原样 + 新增 stage-body 独立缩进/连接线规则与注释）、`tests/frontend/chat-surface-css-contract.test.ts`（`process fold hierarchy contract` describe：钉住 stage-body 规则 padding-left/border-left；负向断言共享规则与 `.quickforge-process-body` 规则不得含 padding-left/border-left、叶子节点不得带 border-left）、`DESIGN_LANGUAGE.md`（「例外：对话折叠的阶段内子级用缩进 + 细连接线」小节，仅阶段展开区挂线、顶层组不缩进）、`feature_list.json`（新增 process-fold-hierarchy，done；同日调整未回写条目描述——无 note 字段格式）、`progress.md`、`session-handoff.md`。
+- 验证（定向，CSS 小改动未跑全量）：首版 `npx vitest run`（process-folding + process-folding-incremental + chat-surface-css-contract + thinking-header-adoption）→ **4 files / 87 passed（exit 0）**；调整后 `npx vitest run tests/frontend/chat-surface-css-contract.test.ts tests/frontend/process-folding.test.ts` → **2 files / 76 passed（exit 0）**；两次 `npx eslint tests/frontend/chat-surface-css-contract.test.ts` → **exit 0**。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 验收：展开过程组后组头与 stage 头对齐（无缩进、无连接线），stage 展开后思考头/工具行相对 stage 头缩进一层并带细竖线，浅/深主题下竖线均柔和；纯思考回合直挂 step 与组头同层（不缩进，预期）；② 真机验收清单沿用上条（reasoning 默认 high / 设置下拉收窄 / 折叠默认值与工具详情默认收起）；③ 发布 2.2.0 的 git commit/tag/push 仍待执行（见历史交接）。
+
+---
+## 历史交接：reasoning 模型默认思考等级 medium → high（2026-09-22）
 
 - 当前目标（已完成）：reasoning 模型的默认思考等级从 medium 改为 high。改动三处硬编码 fallback + 一处 wiki：`src/lib/pi-chat.ts` `defaultThinkingLevelForModel`（前端唯一 fallback，消费方自动跟随）、`server/acp/server.mjs` `resolveInitialThinkingLevel`（ACP 镜像，含注释）、`server/routes/scheduled-tasks.mjs` 创建定时任务缺省 fallback；`docs/wiki/server/README.md` 同步。用户显式保存的默认思考等级优先级不变，非 reasoning 模型仍 'off'。
 - 改动文件：`src/lib/pi-chat.ts`、`server/acp/server.mjs`、`server/routes/scheduled-tasks.mjs`、`docs/wiki/server/README.md`、`feature_list.json`（新增 default-thinking-level-high，done）、`progress.md`、`session-handoff.md`。

@@ -3424,6 +3424,18 @@ html.dark .quickforge-file-path-link {
     visibility 0s linear 0s;
 }
 
+/* 折叠子级层级关系（feature process-fold-hierarchy）：仅 stage body（阶段头的
+   展开区）带 0.75rem 左缩进 + 1px 弱化左侧连接线（与主结构分割线同配方：
+   var(--border) 60% + transparent，浅/深主题均可用），表达 stage 头 → 子内容
+   （思考块/工具行/中间 Markdown）的从属。顶层组 body 不缩进、组头 → stage
+   之间不加连接线（用户反馈：顶层组头到 stage 这一层不要缩进和细线）；纯思考段
+   直挂顶层组 body 的 step 因此与组头同层，属预期。收起态 body 本身
+   visibility:hidden，连接线随内容一起隐藏。 */
+.quickforge-process-stage-body {
+  padding-left: 0.75rem;
+  border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+
 /* 动画壳层：body 的 grid 行 track 塌到 0fr 靠它 min-height:0 + overflow:hidden
    裁切；行内容（step/stage/工具行）全部挂在这里，body 直接子级只有它。 */
 .quickforge-process-body-inner {

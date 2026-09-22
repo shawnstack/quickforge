@@ -1220,6 +1220,23 @@
       ],
       "verification": "全量三件套（本轮修复后，与报告 §5.1 一致）：`npm run test` → Test Files 364 passed (364) / Tests 4373 passed | 1 skipped (4374)，exit 0；`npm run lint` → 3 problems (0 errors, 3 warnings)，3 条 warning 全部来自 coverage/ 生成物，exit 0；`npm run build` → `tsc -b` 无诊断 + `vite build` ✓ 7836 modules transformed / built in 2.36s，exit 0（仅既有 node:fs externalize 与 chunk >500kB 告警）。定向复核：7 个本轮改动测试文件 `Test Files 7 passed (7) / Tests 169 passed (169)`。依赖与产物：`git diff --stat -- package.json package-lock.json` 空输出（无依赖变更）；package-dist/、package-offline/ 未被触碰（时间戳仍为 2026/09/13 11:52）。",
       "boundaries": "本轮未做真机浏览器实测（全部结论来自源码/旧产物原文对照 + vitest，部分用假宿主对象驱动 effect/事件）；报告 §6.1 按风险列出 6 项待真机复验（composer hover/active/聚焦、设置下拉键盘与定位、弹窗 Escape 与焦点恢复、三档复制反馈时长手感、自动滚动手感、console 输出区自动置底）。有意保留差异 17 条（报告 §4）待用户裁决，其中与早期 R10 用户要求冲突的过程折叠默认值按「移除前旧语义」保留；Esc 中止为新增接线（旧为死代码）、ui/Input 聚焦 ring 为可见变化（旧类 dead，属补齐）；未注册语言不再做 hljs 式 highlightAuto 猜测。不可考证 7 条（报告 §6.1 与 §2 各域）登记待后续取证；§6.2 另登记 7 条 W3/W10 未修语法分桶残留（嵌套围栏 code、formula、引用式链接定义 symbol/link、YAML on/off/~、TOML 字面量集合、各语言 true/false/null 关键字表、YAML 裸标量与 Setext 纯空白标题行）。本轮顺手清理了 docs/reviews/parity-audit-parts/ 分片目录（中间产物）；未创建 Git commit/tag、未发布 npm、未改动生成产物目录。"
+    },
+    {
+      "id": "process-fold-hierarchy",
+      "name": "process 折叠子级层级关系：stage-body 内子内容加左缩进 + 1px 弱化左侧连接线",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-22 用户需求：聊天「已执行 N 个工具调用」折叠结构中 stage 头、思考头、工具行全部左对齐 x=0、无层级区分；用户选定方案「缩进 + 左侧细竖线连接线」。首版曾把缩进+连接线挂在共享规则 .quickforge-process-body / .quickforge-process-stage-body 上（组 body 与 stage body 两级生效），同日按用户反馈「顶层组头到 stage 这一层不要缩进和细线」调整为最终态。纯 CSS 改动（仅 src/index.css，不改 DOM 结构、不改 process-folding.ts），最终态：共享布局规则恢复原样，新增独立规则 .quickforge-process-stage-body { padding-left: 0.75rem; border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent) }（与主结构分割线同配方，浅/深主题均可用）——仅 stage 头 → 子内容（思考块/工具行/中间 Markdown）这一层带缩进+连接线；顶层组 body 不缩进不挂线，组头与 stage 头对齐；纯思考段直挂顶层组 body 的 step 回到与组头同层、无缩进，属预期。收起态 body 本身 visibility:hidden，连接线随内容一起隐藏；竖线只挂 stage body 展开区，不落到 step/工具行等叶子节点。契约：chat-surface-css-contract.test.ts 新增 describe 'process fold hierarchy contract'（钉住 stage-body 规则的 padding-left/border-left；负向断言共享规则与 .quickforge-process-body 规则不得含 padding-left/border-left、连接线不落到 .quickforge-process-step 叶子节点）；既有契约断言无需改动（没有钉住 body 规则声明块的用例）。DESIGN_LANGUAGE.md「布局与对齐」新增「例外：对话折叠的阶段内子级用缩进 + 细连接线」小节，说明仅阶段展开区挂线、顶层组不缩进的例外模式与不泛化约束。",
+      "files": [
+        "src/index.css",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "DESIGN_LANGUAGE.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-22（定向验证，CSS 小改动未跑全量）：npx vitest run tests/frontend/process-folding.test.ts tests/frontend/process-folding-incremental.test.ts tests/frontend/chat-surface-css-contract.test.ts tests/frontend/thinking-header-adoption.test.ts → 4 files / 87 passed（exit 0）；npx eslint tests/frontend/chat-surface-css-contract.test.ts → exit 0。",
+      "boundaries": "仅 CSS：共享规则恢复原样 + stage-body 一条独立规则两行声明与层级语义注释、契约测试一条 describe（正向钉住 stage-body 缩进/连接线，负向断言共享规则与顶层 body 不挂线、叶子节点不带线）、DESIGN_LANGUAGE.md 一小节；不改 DOM 结构、不改 process-folding.ts、不动字号/颜色既有契约；顶层组头 → stage 之间不缩进不加连接线（组头与 stage 头对齐）；竖线不落到 step/工具行叶子节点，不泛化到左侧导航等其它层级场景；无依赖变更、无 Git 操作（2.2.0 发布的 git commit/tag/push 仍待执行），未触碰 dist/、package-dist/、package-offline/。"
     }
   ]
 }

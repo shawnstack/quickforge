@@ -1,3 +1,18 @@
+## 2026-09-22 · process 折叠子级层级关系：缩进 + 左侧细连接线（process-fold-hierarchy）
+
+- Goal：聊天「已执行 N 个工具调用」折叠结构中，顶层组头、stage 头、思考头、工具行全部左对齐 x=0，无层级区分。用户选定方案：折叠子级内容加「左缩进 + 1px 弱化左侧竖线连接线」。纯 CSS 改动，不改 DOM 结构、不改 process-folding.ts。
+- 改动文件（同日调整后的最终态）：`src/index.css`（共享布局规则 `.quickforge-process-body, .quickforge-process-stage-body` 恢复原样；新增独立规则 `.quickforge-process-stage-body { padding-left: 0.75rem; border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent) }`，与主结构分割线同配方，浅/深主题均可用；注释说明层级语义）、`tests/frontend/chat-surface-css-contract.test.ts`（describe `process fold hierarchy contract`：钉住 stage-body 规则的 padding-left/border-left；负向断言共享规则与 `.quickforge-process-body` 规则不得含 padding-left/border-left、连接线不落到 `.quickforge-process-step` 叶子节点）、`DESIGN_LANGUAGE.md`（「布局与对齐」新增「例外：对话折叠的阶段内子级用缩进 + 细连接线」小节）、`feature_list.json`（新增 process-fold-hierarchy，done）、`progress.md`、`session-handoff.md`。
+- 同日调整（用户反馈）：首版把缩进+连接线挂在共享规则上（组 body 与 stage body 都生效），用户反馈「顶层组头『已执行 · 9分33秒』到 stage 这一层不要缩进和细线」。改为仅 `.quickforge-process-stage-body` 保留缩进+连接线，`.quickforge-process-body` 恢复原规则；纯思考段直挂顶层 body 的 step 因此不再有缩进（顶层直挂内容回到原样），属预期。feature_list.json 该条目描述未回写（无 note 字段格式，遵循指示不动）。
+- 层级语义（最终态）：仅 stage 头 → 子内容（思考块/工具行/中间 Markdown）这一层带缩进+连接线（stage-body 挂线）；顶层组头 → stage 之间不缩进、无连接线，组头与 stage 头对齐。收起态 body 本身 `visibility: hidden`，连接线随内容一起隐藏。
+- 验证（定向，CSS 小改动未跑全量）：首版 `npx vitest run tests/frontend/process-folding.test.ts tests/frontend/process-folding-incremental.test.ts tests/frontend/chat-surface-css-contract.test.ts tests/frontend/thinking-header-adoption.test.ts` → **4 files / 87 passed（exit 0）**；调整后 `npx vitest run tests/frontend/chat-surface-css-contract.test.ts tests/frontend/process-folding.test.ts` → **2 files / 76 passed（exit 0）**；两次 `npx eslint tests/frontend/chat-surface-css-contract.test.ts` → **exit 0**。
+- Notes（只记录，不扩范围）：
+  - a) 既有契约断言零改动：字号契约钉的是 `.quickforge-process-summary` / `.quickforge-process-stage-summary` / thinking header / 工具行压平规则，均不含 body 展开区声明块。
+  - b) DESIGN_LANGUAGE「子级层级用缩进表达（不用明显竖线）」原则保留，本条以「例外」形式登记，且约束不泛化到左侧导航等场景。
+  - c) 无 Git 操作（2.2.0 发布的 git commit/tag/push 仍待执行）、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
+
+---
+
+
 ## 2026-09-22 · reasoning 模型默认思考等级 medium → high（default-thinking-level-high）
 
 - Goal：reasoning 模型的默认思考等级从 medium 改为 high。全库搜索（排除生成产物目录与 docs/archive）后共改三处硬编码 fallback + 一处 wiki 文档：① `src/lib/pi-chat.ts` `defaultThinkingLevelForModel`（reasoning ? 'high' : 'off'，全部前端消费方经此函数自动跟随）；② `server/acp/server.mjs` `resolveInitialThinkingLevel`（ACP 新会话镜像 web UI，fallback 与注释同步）；③ `server/routes/scheduled-tasks.mjs` POST /api/scheduled-tasks 创建任务缺省 thinkingLevel 时的 fallback（调研发现的第三处硬编码）；④ `docs/wiki/server/README.md`「推理模型默认 `medium`」→ `high`。

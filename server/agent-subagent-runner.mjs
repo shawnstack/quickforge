@@ -24,7 +24,7 @@ import {
 } from './agent-profile-schema.mjs'
 import { ensureStorage, readStore, tempAgentsDir } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
-import { lastAssistantText, serverConvertToLlm } from './message-converters.mjs'
+import { lastAssistantText, messageText, serverConvertToLlm } from './message-converters.mjs'
 import { restoreReasoningContentInPayload } from './reasoning-cache.mjs'
 import { sessionSkillsContext } from './tool-wiring.mjs'
 import { safeReadTools, commandToolPermissionError } from './approval-store.mjs'
@@ -174,8 +174,8 @@ function pendingSubagentToolNames(messages, pendingToolCalls) {
 /**
  * 终止类错误正文的进度摘要分段：工具调用数、被中断时仍在执行的工具、
  * 最后一条 assistant 文本（压缩空白并截断）。details 不进入 LLM 上下文
- * （omitDetailsForLlm），父模型只能通过这段文字了解 subagent 被中止前
- * 完成了什么、部分成果是否可用；超时与父运行中止共用。
+ * （omitDetailsForLlm），错误首句摘要之后另有部分成果报告（Work done 报告，
+ * 见 buildSubagentWorkReport）全量回传过程；超时与父运行中止共用。
  */
 function subagentProgressSegments({ toolCalls, messages, pendingToolCalls }) {
   const segments = [`${toolCalls} tool call${toolCalls === 1 ? '' : 's'}`]
@@ -199,6 +199,99 @@ function buildSubagentTimeoutErrorMessage(name, timeoutMs, progress) {
 /** 父运行中止错误正文：首句保持既有文案，其后追加与超时同构的进度摘要。 */
 function buildSubagentAbortedErrorMessage(name, progress) {
   return `Subagent ${name} aborted with parent run. Progress before abort: ${subagentProgressSegments(progress).join('; ')}.`
+}
+
+/**
+ * 部分成果回传（partial work report）：subagent 无论成功还是终止（运行期失败/超时/
+ * 父运行中止），都把已产生的工具调用清单与全量 assistant 正文追加到 toolResult 正文
+ * 回传父模型，父模型可据此了解 subagent 内部行为、续接部分成果或只重派剩余工作。
+ * 不做条数/行数限制；唯一截断是工具参数的单行摘要化（避免 write_file 整文件内容
+ * 回显成一行）。全量 messages 仍只进 toolResult.details（omitDetailsForLlm 不送
+ * LLM），本报告是父模型了解过程的唯一通道。
+ */
+const SUBAGENT_TOOL_ARGS_SUMMARY_LIMIT = 200
+
+function collapseInlineText(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim()
+}
+
+function summarizeToolCallArgumentValue(value) {
+  if (typeof value === 'string') {
+    const collapsed = collapseInlineText(value)
+    const body = collapsed.length > SUBAGENT_TOOL_ARGS_SUMMARY_LIMIT
+      ? `${collapsed.slice(0, SUBAGENT_TOOL_ARGS_SUMMARY_LIMIT)}…`
+      : collapsed
+    return `"${body}"`
+  }
+  if (value === null || typeof value === 'number' || typeof value === 'boolean') return String(value)
+  const json = collapseInlineText(JSON.stringify(value) ?? '')
+  return json.length > SUBAGENT_TOOL_ARGS_SUMMARY_LIMIT ? `${json.slice(0, SUBAGENT_TOOL_ARGS_SUMMARY_LIMIT)}…` : json
+}
+
+/** 从消息历史提取工具调用单行清单（assistant toolCall 块 × 参数单行摘要）。 */
+function collectSubagentToolCallLines(messages) {
+  const lines = []
+  for (const message of messages || []) {
+    if (!message || message.role !== 'assistant' || !Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (!block || block.type !== 'toolCall') continue
+      const name = typeof block.name === 'string' && block.name ? block.name : 'tool'
+      let argsText = ''
+      if (block.arguments !== undefined && block.arguments !== null) {
+        argsText = typeof block.arguments === 'object' && !Array.isArray(block.arguments)
+          ? Object.entries(block.arguments)
+            .map(([key, value]) => `${key}=${summarizeToolCallArgumentValue(value)}`)
+            .join(' ')
+          : summarizeToolCallArgumentValue(block.arguments)
+      }
+      lines.push(argsText ? `${name} ${argsText}` : name)
+    }
+  }
+  return lines
+}
+
+/**
+ * 最后一条非空 assistant 正文及其索引。成功回传时该条正文已是 toolResult content
+ * 主体，部分成果报告按索引跳过它防重复（其余正文仍全量回传）。
+ */
+function lastAssistantTextEntry(messages) {
+  const list = Array.isArray(messages) ? messages : []
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const message = list[index]
+    if (!message || message.role !== 'assistant') continue
+    const text = messageText(message)
+    if (text) return { index, text }
+  }
+  return null
+}
+
+function buildSubagentWorkReport({ name, messages, pendingToolCalls, phaseLabel, includePending = true, excludeIndex = -1 }) {
+  const list = Array.isArray(messages) ? messages : []
+  const sections = []
+  if (includePending) {
+    const running = pendingSubagentToolNames(list, pendingToolCalls)
+    if (running.length > 0) sections.push(`Still running when interrupted: ${running.join(', ')}`)
+  }
+  const toolLines = collectSubagentToolCallLines(list)
+  if (toolLines.length > 0) {
+    sections.push(`Tool calls (${toolLines.length}):\n${toolLines.map((line, index) => `${index + 1}. ${line}`).join('\n')}`)
+  }
+  const texts = []
+  list.forEach((message, index) => {
+    if (index === excludeIndex || !message || message.role !== 'assistant') return
+    const text = messageText(message)
+    if (text) texts.push(text)
+  })
+  if (texts.length > 0) {
+    const header = `Assistant output during the run (${texts.length} message${texts.length === 1 ? '' : 's'}):`
+    sections.push(`${header}\n${texts.map((text, index) => `--- message ${index + 1} ---\n${text}`).join('\n\n')}`)
+  }
+  if (sections.length === 0) return ''
+  return `Work done by subagent ${name} ${phaseLabel}:\n${sections.join('\n')}`
+}
+
+function withSubagentWorkReport(base, report) {
+  return report ? `${base}\n\n${report}` : base
 }
 
 /**
@@ -492,21 +585,40 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
         }
       }
       const terminalProgress = { toolCalls, messages: latestMessages, pendingToolCalls: latestPendingToolCalls }
+      // 超时/父运行中止：既有错误首句（含进度摘要）逐字保留为前缀，其后追加部分
+      // 成果报告（进度摘要已含 still running，报告不再重复该行）。
+      const terminalWorkReport = (phaseLabel) => buildSubagentWorkReport({
+        name: definition.name,
+        messages: latestMessages,
+        pendingToolCalls: latestPendingToolCalls,
+        phaseLabel,
+        includePending: false,
+      })
       if (timedOut) {
-        const timeoutError = new Error(buildSubagentTimeoutErrorMessage(definition.name, timeoutMs, terminalProgress))
+        const timeoutError = new Error(withSubagentWorkReport(buildSubagentTimeoutErrorMessage(definition.name, timeoutMs, terminalProgress), terminalWorkReport('before timeout')))
         timeoutError.quickforgeSubagentDetails = buildTerminalSubagentDetails({ timedOut: true })
         throw timeoutError
       }
       if (parentSignal?.aborted) {
-        const abortedError = new Error(buildSubagentAbortedErrorMessage(definition.name, terminalProgress))
+        const abortedError = new Error(withSubagentWorkReport(buildSubagentAbortedErrorMessage(definition.name, terminalProgress), terminalWorkReport('before abort')))
         abortedError.quickforgeSubagentDetails = buildTerminalSubagentDetails({ aborted: true })
         throw abortedError
       }
 
-      const content = lastAssistantText(subagent.state.messages) || `Subagent ${definition.name} completed without a text response.`
+      // 成功回传 = 最终回复 + 部分成果报告（工具调用清单 + 全量 assistant 正文，
+      // 仅按索引跳过已作为最终回复回传的那一条防重复），父模型可了解结果怎么来的。
+      const finalEntry = lastAssistantTextEntry(subagent.state.messages)
+      const content = finalEntry?.text || `Subagent ${definition.name} completed without a text response.`
+      const workReport = buildSubagentWorkReport({
+        name: definition.name,
+        messages: subagent.state.messages,
+        pendingToolCalls: subagent.state.pendingToolCalls,
+        phaseLabel: 'during this run',
+        excludeIndex: finalEntry ? finalEntry.index : -1,
+      })
       logTerminalLifecycle('info', 'completed')
       return {
-        content,
+        content: withSubagentWorkReport(content, workReport),
         details: {
           subagent: definition.name,
           label: definition.label,
@@ -527,12 +639,22 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
         },
       }
     } catch (error) {
-      // 其余运行期失败（模型流错误等）统一附带终态 details：错误正文保持上游
-      // 原文（前端 stripTerminalErrorFromTrace 依赖 errorMessage 与 trace 终态
-      // 错误文本精确相等来去重），过程信息只进 details 供 toolResult 持久化与
-      // Inspector 恢复展示；不带 timedOut/aborted 标记，状态由 isError 驱动。
+      // 其余运行期失败（模型流错误等）统一附带终态 details，并把已产生的部分成果
+      // 追加到错误正文回传父模型。首行保持上游原文：前端 subagent trace 去重以
+      // pi-agent-core handleRunFailure 快照进 trace 终态的上游原文做精确比较，
+      // 追加段不影响其自洽；追加段经 toolResult output 块在运行详情展示。details
+      // 另携全量 messages 供持久化与 Inspector 恢复展示；不带 timedOut/aborted
+      // 标记，状态由 isError 驱动。
       if (error && typeof error === 'object' && !error.quickforgeSubagentDetails) {
         error.quickforgeSubagentDetails = buildTerminalSubagentDetails({})
+        if (typeof error.message === 'string') {
+          error.message = withSubagentWorkReport(error.message, buildSubagentWorkReport({
+            name: definition.name,
+            messages: latestMessages,
+            pendingToolCalls: latestPendingToolCalls,
+            phaseLabel: 'before failure',
+          }))
+        }
       }
       logTerminalLifecycle('warn', 'failed', {
         outcome: timedOut ? 'timeout' : parentSignal?.aborted ? 'parent_aborted' : 'error',

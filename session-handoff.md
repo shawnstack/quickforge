@@ -1,4 +1,13 @@
-## 当前交接：发布 2.2.0（2026-09-22）
+## 当前交接：run_subagent 部分成果回传（2026-09-22）
+
+- 当前目标（已完成，待真机验收）：subagent 中止/失败时把已产生的 AI 回复正文与工具调用清单回传主 agent（部分成果回传）。`server/agent-subagent-runner.mjs` 四路径统一追加「Work done 报告」：成功 = 最终回复 + 报告（跳过重复正文）；运行期失败 = 上游原文首行 + 报告（含 still running 行）；超时/父运行中止 = 既有首句（逐字保留）+ 报告。全量不限条数/行数（用户明确），唯一截断为工具参数单行摘要 200 字符。前端零改动（trace 去重/翻译契约自洽）。
+- 改动文件：`server/agent-subagent-runner.mjs`、`tests/server/agent-manager.subagents.test.mjs`（+2 用例、2 处断言扩展）、`docs/wiki/server/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 `npx vitest run`（agent-manager.subagents + subagents）→ **2 files / 21 passed（exit 0）**；前端回归 4 files / **126 passed（exit 0）**；`npx eslint` 两改动文件 + `npx tsc -b` → **exit 0**。未跑全量 test/build（定向验证）。
+- Blocker：无。
+- 下一步：① 真机验收：派 explore subagent 跑一半让它失败/超时，确认主 agent 收到的工具结果含「Work done by subagent …」报告（工具清单 + 全量输出）并能据此续接；成功场景确认结果 = 最终回复 + 报告；② 后续 feature（方案已过稿）：subagent 瞬时网络错误自动重跑 + 主 agent 网络错误自动 continue 续跑 + UI 自动重试提示；③ 发布 2.2.0 的 git commit/tag/push 仍待执行（见下条历史交接）。
+
+---
+## 历史交接：发布 2.2.0（2026-09-22）
 
 - 当前目标：发布 2.2.0 版本。发布准备已完成：版本递增 2.2.0、CHANGELOG/README 更新、全量验证通过、runtime/offline 离线包生成。
 - 改动文件：`package.json`、`package-lock.json`、`CHANGELOG.md`、`README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。

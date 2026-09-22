@@ -1,3 +1,18 @@
+## 2026-09-22 · run_subagent 部分成果回传（工具调用清单 + 全量 assistant 正文回传主 agent）
+
+- Goal：用户需求——subagent 内部停止（如网络故障）时，把 subagent 已经产生的 AI 回复正文给主 agent，让主 agent 知道内部行为、可基于部分成果续接或只重派剩余工作。方案经两轮过稿定稿：先做「部分成果回传」（不做自动重试，留后续 feature）；回传**不做条数/行数限制**（用户明确取消原提案的「正文取最后 2 条 / 工具清单 40 行」），全量回传；唯一截断是工具参数单行摘要化（200 字符，防 write_file 整文件回显成一行）。
+- 改动文件：
+  - `server/agent-subagent-runner.mjs`：新增部分成果报告纯 helper（`buildSubagentWorkReport` / `withSubagentWorkReport` / `collectSubagentToolCallLines` / `lastAssistantTextEntry` / `summarizeToolCallArgumentValue` + `SUBAGENT_TOOL_ARGS_SUMMARY_LIMIT=200`）；四路径接线——① 成功：content = 最终回复（既有行为）+ Work done 报告（工具调用清单 + 全量 assistant 正文，按索引跳过与最终回复重复的那条）；② 运行期失败（网络错误，此前只有纯上游原文、最大缺口）：错误正文 = 上游原文首行 + 报告（含 Still running when interrupted 行）；③ 超时 / ④ 父运行中止：既有错误首句（含进度摘要，逐字保留为前缀）+ 报告（不再重复 still running 行）。
+  - `tests/server/agent-manager.subagents.test.mjs`：新增 2 用例（成功回传精确形态；失败 >800 字符正文全量不截断 + 2 条消息全量）；既有 2 处精确断言（超时 mid-tool :454 / 通用失败 :535）扩展为完整正文断言（首句前缀逐字保留）；空报告场景（messages: [] 的超时/中止用例）断言零改动通过。
+  - `docs/wiki/server/README.md`（agent-subagent-runner 条目同步部分成果回传契约）、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 `npx vitest run tests/server/agent-manager.subagents.test.mjs tests/server/subagents.test.mjs` → **2 files / 21 passed（exit 0）**；前端契约回归 `subagent-run-detail + subagent-run-detail-react + error-messages + subagent-process-trace` → **4 files / 126 passed（exit 0，前端零改动验证去重/翻译契约不回归）**；`npx eslint` 两改动文件 → **exit 0**；`npx tsc -b` → **exit 0**。未跑全量 test/build（定向验证）。
+- Notes（只记录，不扩范围）：
+  - a) 既有契约保持：`omitDetailsForLlm` 不动（全量 messages 仍只进 details 不送 LLM）；前端 subagent trace 去重自洽（通用失败 trace 终态错误文本是 pi-agent-core handleRunFailure 在 prompt() 内快照的上游原文，早于 catch 里的 message 追加；错误卡仍显示可被 translateErrorMessage 翻译的干净首行，追加段经 toolResult output 块展示）。
+  - b) 后续 feature（方案已与用户过稿）：A 层 subagent 瞬时网络错误自动重跑（挂 wrapSubagentToolDefinition catch，复用 pi-ai `isRetryableAssistantError` 分类，有界次数 + 退避）/ B 层主 agent 网络错误自动 continue 续跑 / C 层 UI 自动重试提示；部分成果回传与其互补（回传让重派可只做剩余工作）。
+  - c) 本轮无 Git 操作、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
+
+---
+
 ## 2026-09-22 · 发布准备 v2.2.0（版本递增 + 文档更新 + 全量验证 + 离线包）
 
 - Goal：发布 2.2.0 小版本准备——版本递增 2.2.0、CHANGELOG/README 更新、全量验证通过、runtime/offline 离线包生成；Git commit/tag/push 由收尾流程完成。

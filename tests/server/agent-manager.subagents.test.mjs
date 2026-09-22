@@ -319,6 +319,71 @@ describe('agent manager subagent execution', () => {
     }
   })
 
+  it('returns the final reply together with a full partial-work report on success', async () => {
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    mocks.streamSimpleWithAiHttpLogging.mockImplementation(async () => {
+      const agent = MockAgent.instances.at(-1)
+      for (const message of [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Surveying the repository layout first.' },
+            { type: 'toolCall', id: 'report-tool-1', name: 'read_file', arguments: { path: 'docs/wiki/README.md' } },
+          ],
+          timestamp: Date.now(),
+        },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Located the runner at server/agent-subagent-runner.mjs.' },
+            { type: 'toolCall', id: 'report-tool-2', name: 'grep_files', arguments: { query: 'runSubagent' } },
+          ],
+          timestamp: Date.now(),
+        },
+      ]) {
+        agent.state.messages.push(message)
+        await agent.emit({ type: 'message_end', message })
+      }
+    })
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('subagent-success-report-workspace', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      const result = await runSubagent.execute(
+        'tool-call-success-report',
+        { subagent: 'explore', task: 'Inspect the workspace.' },
+        new AbortController().signal,
+      )
+
+      // 最终回复置顶（既有行为），其后追加工具调用清单与全量 assistant 正文；
+      // 与最终回复相同的那条正文按索引跳过防重复，其余全量回传。
+      expect(result.content[0].text).toBe(
+        'mock subagent completed'
+        + '\n\nWork done by subagent explore during this run:\n'
+        + 'Tool calls (2):\n'
+        + '1. read_file path="docs/wiki/README.md"\n'
+        + '2. grep_files query="runSubagent"\n'
+        + 'Assistant output during the run (2 messages):\n'
+        + '--- message 1 ---\n'
+        + 'Surveying the repository layout first.\n\n'
+        + '--- message 2 ---\n'
+        + 'Located the runner at server/agent-subagent-runner.mjs.',
+      )
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
   it('logs one failed terminal event when subagent initialization fails after started', async () => {
     const workspaceRoot = path.join(tmpDir, 'workspace')
     const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
@@ -451,7 +516,13 @@ describe('agent manager subagent execution', () => {
 
       const error = await rejection
       expect(error.message).toBe(
-        'Subagent explore timed out after 120 minutes. Progress before timeout: 1 tool call; still running: read_file; last assistant message: Inspecting repository structure so far.',
+        'Subagent explore timed out after 120 minutes. Progress before timeout: 1 tool call; still running: read_file; last assistant message: Inspecting repository structure so far.'
+        + '\n\nWork done by subagent explore before timeout:\n'
+        + 'Tool calls (1):\n'
+        + '1. read_file path="a.ts"\n'
+        + 'Assistant output during the run (1 message):\n'
+        + '--- message 1 ---\n'
+        + 'Inspecting repository structure so far',
       )
       expect(error.quickforgeSubagentDetails).toMatchObject({
         subagent: 'explore',
@@ -528,7 +599,7 @@ describe('agent manager subagent execution', () => {
     }
   })
 
-  it('attaches terminal details to generic subagent failures without changing the upstream error message', async () => {
+  it('attaches terminal details to generic subagent failures and appends a partial work report after the upstream error message', async () => {
     MockAgent.configureFailingAfterProgress()
     const workspaceRoot = path.join(tmpDir, 'workspace')
     const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
@@ -551,9 +622,18 @@ describe('agent manager subagent execution', () => {
       ).then(undefined, (caught) => caught)
 
       expect(error).toBeInstanceOf(Error)
-      // 错误正文保持上游原文：前端 stripTerminalErrorFromTrace 依赖 errorMessage
-      // 与 trace 终态错误文本精确相等来去重。
-      expect(error.message).toBe('controlled subagent stream failure')
+      // 错误正文首行保持上游原文（前端 subagent trace 去重以 trace 终态错误文本
+      // 精确比较，追加段不影响其自洽），其后追加部分成果报告回传父模型。
+      expect(error.message).toBe(
+        'controlled subagent stream failure'
+        + '\n\nWork done by subagent explore before failure:\n'
+        + 'Still running when interrupted: read_file\n'
+        + 'Tool calls (1):\n'
+        + '1. read_file path="a.ts"\n'
+        + 'Assistant output during the run (1 message):\n'
+        + '--- message 1 ---\n'
+        + 'Inspecting repository structure so far',
+      )
       expect(error.quickforgeSubagentDetails).toMatchObject({
         subagent: 'explore',
         toolCallId: 'tool-call-generic-failure',
@@ -567,6 +647,55 @@ describe('agent manager subagent execution', () => {
       const injected = await session.agent.options.afterToolCall({ toolCall: { id: 'tool-call-generic-failure', name: 'run_subagent' }, isError: true })
       expect(injected).toEqual({ details: expect.objectContaining({ subagent: 'explore', toolCalls: 1 }) })
       expect(await session.agent.options.afterToolCall({ toolCall: { id: 'tool-call-generic-failure', name: 'run_subagent' }, isError: true })).toBeUndefined()
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('appends every assistant message in full without truncation when a subagent fails mid-run', async () => {
+    MockAgent.configureFailingAfterProgress()
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    const longText = `Long investigation note: ${'evidence line. '.repeat(60)}`.trim()
+    expect(longText.length).toBeGreaterThan(800)
+    mocks.streamSimpleWithAiHttpLogging.mockImplementation(async () => {
+      const agent = MockAgent.instances.at(-1)
+      const message = {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: longText },
+          { type: 'toolCall', id: 'report-tool-long', name: 'grep_files', arguments: { query: 'runSubagent' } },
+        ],
+        timestamp: Date.now(),
+      }
+      agent.state.messages.push(message)
+      await agent.emit({ type: 'message_end', message })
+    })
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('subagent-failure-report-workspace', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runSubagent = session.agent.state.tools.find((tool) => tool.name === 'run_subagent')
+      const error = await runSubagent.execute(
+        'tool-call-failure-report',
+        { subagent: 'explore', task: 'Inspect until failure.' },
+        new AbortController().signal,
+      ).then(undefined, (caught) => caught)
+
+      expect(error.message).toContain('controlled subagent stream failure\n\nWork done by subagent explore before failure:')
+      expect(error.message).toContain('Tool calls (2):')
+      expect(error.message).toContain('Assistant output during the run (2 messages):')
+      // 全量回传不做条数/长度截断：超长正文完整出现在报告里
+      // （唯一的单行摘要截断只用于工具参数，见 SUBAGENT_TOOL_ARGS_SUMMARY_LIMIT）。
+      expect(error.message).toContain(longText)
     } finally {
       await destroyAgent(session.sessionId)
     }

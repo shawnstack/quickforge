@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "subagent-partial-result-passthrough",
+      "name": "run_subagent 部分成果回传：成功/失败/超时/中止四路径把工具调用清单与全量 assistant 正文回传主 agent",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-22 用户需求：subagent 内部停止（如网络故障）时主 agent 能知道内部行为、可基于部分成果继续。方案（与用户过稿定稿）：不做自动重试，先做「部分成果回传」——subagent 无论成功还是终止（运行期失败/超时/父运行中止），都把已产生的工具调用清单 + 全量 assistant 正文组装为「Work done 报告」追加到 toolResult 正文回传父模型。用户明确不做条数/行数限制（原提案的「正文取最后 2 条 / 工具清单 40 行」取消，全量回传）；唯一截断是工具参数的单行摘要化（SUBAGENT_TOOL_ARGS_SUMMARY_LIMIT=200 字符，防 write_file 整文件内容回显成一行）。实现（全部集中在 server/agent-subagent-runner.mjs）：新增 buildSubagentWorkReport / withSubagentWorkReport / collectSubagentToolCallLines / lastAssistantTextEntry 等纯 helper；四路径接线——① 成功：content = 最终回复（lastAssistantText 既有行为）+ 报告（phase 'during this run'，按索引跳过与最终回复重复的那条正文防重复）；② 运行期失败（网络错误，最大缺口）：错误正文 = 上游原文首行 + 报告（phase 'before failure'，含 Still running when interrupted 行）；③ 超时 / ④ 父运行中止：既有错误首句（含进度摘要，逐字保留为前缀）+ 报告（phase 'before timeout'/'before abort'，includePending=false 因首句已含 still running）。既有契约全部保持：omitDetailsForLlm 不动（全量 messages 仍只进 details 不送 LLM，报告是父模型了解过程的唯一通道）；前端 subagent trace 去重（subagentRunError trace 优先解析 + subagentRunTraceMessagesForDisplay 精确比较）自洽不受影响——通用失败的 trace 终态错误文本是 pi-agent-core handleRunFailure 在 prompt() 内快照的上游原文（早于 catch 里的 message 追加），错误卡仍显示可被 translateErrorMessage 翻译的干净首行，追加段经 toolResult output 块在运行详情展示，前端零改动（126 个前端回归用例验证）；超时/中止首句文案逐字不变（空报告场景既有 toBe 断言零改动通过）。测试：tests/server/agent-manager.subagents.test.mjs 新增 2 用例（成功回传最终回复 + 全量报告精确形态；失败全量不截断——>800 字符正文完整回传、2 条消息全量），既有 2 处精确断言（超时 mid-tool / 通用失败）按新正文扩展为完整形态断言（首行为前缀逐字保留）。",
+      "files": [
+        "server/agent-subagent-runner.mjs",
+        "tests/server/agent-manager.subagents.test.mjs",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-22：定向 npx vitest run tests/server/agent-manager.subagents.test.mjs tests/server/subagents.test.mjs → 2 files / 21 passed（exit 0，含 2 新用例）；前端契约回归 subagent-run-detail + subagent-run-detail-react + error-messages + subagent-process-trace → 4 files / 126 passed（exit 0，前端零改动）；npx eslint 两改动文件 → exit 0；npx tsc -b → exit 0。未跑全量 test/build（定向验证）。",
+      "boundaries": "仅 runSubagent 的 toolResult 正文富化（成功 content + 三类终止错误 message）；omitDetailsForLlm、details 全量 messages、trace 截尾（SUBAGENT_TRACE_MESSAGES_LIMIT）、前端 subagent-run-detail.ts / error-messages.ts / 渲染器零改动；不做条数/行数限制（用户明确要求全量回传），唯一截断为工具参数单行摘要 200 字符；通用失败错误首行保持上游原文（trace 去重与 translateErrorMessage 翻译契约）；超时/中止错误首句逐字保留。自动重试（subagent 瞬时网络错误自动重跑 A 层 / 主 agent 网络错误自动 continue 续跑 B 层 / UI 自动重试提示 C 层）方案已与用户过稿讨论，本轮有意不做，留作后续 feature。无依赖变更、无 Git 操作，未触碰 dist/、package-dist/、package-offline/。"
+    },
+    {
       "id": "release-v2.2.0",
       "name": "发布准备 v2.2.0（版本递增 + 文档更新 + 全量验证 + runtime/offline 包）",
       "status": "done",

@@ -1057,6 +1057,11 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
   min-width: min(28rem, 48%);
 }
 
+.quickforge-settings-row-control-compact {
+  width: 8.5rem;
+  min-width: 8.5rem;
+}
+
 .quickforge-lan-password-control .quickforge-settings-input,
 .quickforge-network-proxy-control .quickforge-settings-input {
   min-width: 0;
@@ -2065,6 +2070,7 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
 
   .quickforge-settings-row-control,
   .quickforge-settings-row-control-wide,
+  .quickforge-settings-row-control-compact,
   .quickforge-settings-slider-control,
   .quickforge-settings-list-item-actions {
     width: 100%;

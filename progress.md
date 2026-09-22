@@ -1,3 +1,15 @@
+## 2026-09-22 · 设置页「常规」语言/思考等级下拉框收窄（settings-row-control-compact）
+
+- Goal：设置页「常规」tab 中「语言」下拉容器误用 `quickforge-settings-row-control-wide`（`min-width: min(28rem, 48%)`，约 432px 过宽），「默认模型思考等级」行用普通 row-control（min-width 11rem）。方案 B（用户确认）：两处统一收窄为固定 8.5rem——新增 `.quickforge-settings-row-control-compact { width: 8.5rem; min-width: 8.5rem; }`（仿 `.quickforge-share-expiration-select` 先例），语言行 wide→compact、思考等级行追加 compact；共享 wide 类不动。
+- 改动文件：`src/index.css`（wide 规则后新增 compact 类 +5 行；移动端 row-control 撑满选择器组显式列入 compact，跟随既有 100% 模式确保窄屏不溢出）、`src/components/settings/tabs/DefaultOptionsSettingsTab.tsx`（语言行 L996 wide→compact、思考等级行 L1033 追加 compact；「默认模型」行 L1011 wide 保持）、`feature_list.json`（新增 settings-row-control-compact，done）、`progress.md`、`session-handoff.md`。
+- 验证（定向，小改动未跑全量）：`npx vitest run`（default-options-settings-react + default-options-settings-tab + quickforge-settings-select）→ **3 files / 26 passed（exit 0）**；`npx eslint src/components/settings/tabs/DefaultOptionsSettingsTab.tsx` → **exit 0**。测试对这两个容器类名零断言（grep tests/ `row-control` 无匹配），无需改测试。
+- Notes（只记录，不扩范围）：
+  - a) 共享 `.quickforge-settings-row-control-wide` 被 About/Channels/ProjectCommands/Backup/Memory/LanAccess/CustomProviders 等大量复用，本轮未动类定义与复用处。
+  - b) 移动端沿用既有 100% 撑满模式（与全部 row-control 一致），未采用 14rem 上限变体。
+  - c) 无 Git 操作、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
+
+---
+
 ## 2026-09-22 · 需求理解修正：工具卡详情固定默认收起（无配置）+ 可配置改为阶段层 expandProcessStageByDefault
 
 - Goal：上一轮 `tool-call-rows-expand-details-collapse` 需求理解有误（把可配置项做成 `expandToolDetailsByDefault`「工具详情默认展开」），经用户指出修正为最终语义：① 工具卡参数/输出详情（`ToolDetails`，5 渲染器 + `DefaultToolCardBody` 默认卡）**固定默认收起**（`initiallyOpen={false}`），无任何设置；手动开合记忆（`toolDetailsOpenMemory`）优先；「简洁/详细」（toolDisplayMode）只控内容渲染；② 可配置项改为 `tool-display-settings.expandProcessStageByDefault: boolean`（默认 `true`），控制「已执行 N 个工具调用」阶段层（stage）默认收起/展开（`processStageDefaultExpanded()` 读 `getCachedToolDisplaySettings()`），手动开合记忆优先，顶层过程组默认（流式展开/历史收起）不变；③ 设置页「常规 → Tool 显示模式」开关为「工具调用列表默认展开」（默认开），i18n key `expandProcessStageByDefault(+Description)`（en+zh）；④ 旧字段 `expandToolDetailsByDefault` 与 helper `toolDetailsDefaultExpanded()` 已删除，normalize 白名单重建时与 legacy `showToolDetails`/`expandToolsByDefault` 一并剥离。

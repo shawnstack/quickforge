@@ -1,6 +1,22 @@
 {
   "features": [
     {
+      "id": "settings-row-control-compact",
+      "name": "设置页「常规」语言/思考等级下拉框收窄：新增 quickforge-settings-row-control-compact（8.5rem），语言行弃用误用的 wide",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-22 UI 修复（方案 B，用户确认）：设置页「常规」tab「语言」下拉容器误用 quickforge-settings-row-control-wide（min-width: min(28rem, 48%)，约 432px 过宽），「默认模型思考等级」用普通 row-control（min-width 11rem）。修复：index.css 在 wide 规则后新增 .quickforge-settings-row-control-compact { width: 8.5rem; min-width: 8.5rem; }（仿 .quickforge-share-expiration-select 固定窄宽先例），移动端媒体查询的 row-control 撑满选择器组（原 2066-2074）显式列入 compact（width:100% + min-width:0，跟随既有 100% 模式，窄屏不溢出）；DefaultOptionsSettingsTab.tsx 仅语言行（原 L996）wide→compact、思考等级行（原 L1033）追加 compact，「默认模型」行（原 L1011）保持 wide 不动；共享 wide 类本身及其在 About/Channels/ProjectCommands/Backup/Memory/LanAccess/CustomProviders 等处的复用一律不改。测试无这两个容器类名的断言（grep tests/ row-control 零命中），无需改测试。",
+      "files": [
+        "src/index.css",
+        "src/components/settings/tabs/DefaultOptionsSettingsTab.tsx",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "2026-09-22（定向验证，UI 小改动未跑全量）：npx vitest run tests/frontend/default-options-settings-react.test.ts tests/frontend/default-options-settings-tab.test.ts tests/frontend/quickforge-settings-select.test.ts → 3 files / 26 passed（exit 0）；npx eslint src/components/settings/tabs/DefaultOptionsSettingsTab.tsx → exit 0。",
+      "boundaries": "仅新增 compact 类与移动端选择器组补充、两处容器类名替换；不触碰 .quickforge-settings-row-control-wide 类定义与其他复用处；默认模型行保持 wide；select 本体 width:100% 由容器决定的机制不变；无依赖变更、无 Git 操作，未触碰 dist/、package-dist/、package-offline/。"
+    },
+    {
       "id": "tool-call-rows-expand-details-collapse",
       "name": "对话工具调用默认展开到工具行层 + 工具卡 params/output 详情固定默认收起（无配置）+ 阶段层默认展开可配置（expandProcessStageByDefault）",
       "status": "done",

@@ -993,7 +993,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
             </div>
             <div className="quickforge-settings-row-description">{t('displayLanguage')}</div>
           </div>
-          <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
+          <div className="quickforge-settings-row-control quickforge-settings-row-control-compact">
             <SettingsSelect
               value={selectedLanguage}
               options={languageOptions()}
@@ -1030,7 +1030,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
               {selectedModel?.reasoning ? t('defaultThinkingLevelDescription') : t('thinkingRequiresReasoningModel')}
             </div>
           </div>
-          <div className="quickforge-settings-row-control">
+          <div className="quickforge-settings-row-control quickforge-settings-row-control-compact">
             <SettingsSelect
               value={thinkingLevel}
               options={thinkingOptions()}

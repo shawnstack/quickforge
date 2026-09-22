@@ -1,4 +1,13 @@
-## 当前交接：需求修正——工具卡详情固定收起（无配置）+ 阶段层默认展开可配置 expandProcessStageByDefault（2026-09-22）
+## 当前交接：设置页「常规」语言/思考等级下拉框收窄 settings-row-control-compact（2026-09-22）
+
+- 当前目标（已完成，待真机验收）：设置页「常规」tab「语言」「默认模型思考等级」两个下拉容器统一收窄为固定 8.5rem——`src/index.css` 新增 `.quickforge-settings-row-control-compact { width: 8.5rem; min-width: 8.5rem; }`（仿 `.quickforge-share-expiration-select` 先例），移动端 row-control 撑满选择器组显式列入 compact（100% 满宽、min-width:0，窄屏不溢出）；语言行弃用误用的 wide，「默认模型」行保持 wide 不动；共享 wide 类本身未改。
+- 改动文件：`src/index.css`（+compact 类与移动端选择器）、`src/components/settings/tabs/DefaultOptionsSettingsTab.tsx`（两处容器类名）、`feature_list.json`（新增 settings-row-control-compact，done）、`progress.md`、`session-handoff.md`。
+- 验证：定向 `npx vitest run`（default-options-settings-react + default-options-settings-tab + quickforge-settings-select）→ **3 files / 26 passed（exit 0）**；`npx eslint src/components/settings/tabs/DefaultOptionsSettingsTab.tsx` → **exit 0**。未跑全量 test/lint/build（UI 微调定向验证）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 验收设置「常规」tab：语言/思考等级下拉宽 8.5rem（不再 432px 撑开）、窄屏移动端满宽不溢出、「默认模型」下拉保持 wide；② 确认工作区混入的「MCP 服务→MCP」措辞改动（`src/lib/i18n.ts` 22 行 + 根 `README.md` 2 行）去留（沿用上条交接）；③ 发布 2.2.0 的 git commit/tag/push 仍待执行（见历史交接）；④ 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
+## 历史交接：需求修正——工具卡详情固定收起（无配置）+ 阶段层默认展开可配置 expandProcessStageByDefault（2026-09-22）
 
 - 当前目标（已完成，待真机验收）：`tool-call-rows-expand-details-collapse` 需求理解修正后定稿（上一版 `expandToolDetailsByDefault`「工具详情默认展开」语义被用户推翻）。① 工具卡参数/输出详情（`ToolDetails`，5 渲染器 + `DefaultToolCardBody` 默认卡）**固定默认收起**（`initiallyOpen={false}`），无任何设置项；手动开合记忆（`toolDetailsOpenMemory`）优先；「简洁/详细」（toolDisplayMode）只控内容渲染；② 可配置项为 `tool-display-settings.expandProcessStageByDefault: boolean`（默认 `true`），控制「已执行 N 个工具调用」阶段层（stage）默认收起/展开（`processStageDefaultExpanded()` 读 `getCachedToolDisplaySettings()`），手动开合记忆优先，顶层过程组默认（流式展开/历史收起）不变；③ 设置页「常规 → Tool 显示模式」开关为「工具调用列表默认展开」（默认开），i18n key `expandProcessStageByDefault(+Description)`（en+zh）；④ 旧字段 `expandToolDetailsByDefault` 与 helper `toolDetailsDefaultExpanded()` 已删除，normalize 白名单重建时与 legacy `showToolDetails`/`expandToolsByDefault` 一并剥离。
 - 改动文件：`src/lib/tool-display-settings.ts`、`src/lib/tool-renderers/shared.tsx`、5 个 tool-renderer（ask-user / goal-report / local-workspace / mcp / todo-write）、`src/components/chat/surface/ToolMessage.tsx`、`src/components/chat/panel-decoration/process-folding.ts`、`src/components/settings/tabs/DefaultOptionsSettingsTab.tsx`、`src/lib/i18n.ts`、`src/index.css`、测试 7 个（chat-surface-tool-message / process-folding / settings-normalizers / goal-report-renderer / tool-renderer-shared-state / chat-surface-css-contract / default-options-settings-react）、`docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`（双副本同步）、`docs/wiki/src/README.md`（旧语义 0 残留）、`feature_list.json`、`progress.md`、`session-handoff.md`。

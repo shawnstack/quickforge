@@ -7,7 +7,7 @@
 | Hook 文件 | 行数 | 用途 |
 |-----------|------|------|
 | [useAppBootstrap.ts](../../src/hooks/useAppBootstrap.ts) | 257 | 应用启动引导：Settings 快照预应用（SWR）+ Storage 初始化 + 设置校准 + 会话恢复 |
-| [useAgentManager.ts](../../src/hooks/useAgentManager.ts) | 537 | Agent 生命周期管理：创建、加载、切换会话 |
+| [useAgentManager.ts](../../src/hooks/useAgentManager.ts) | 537 | Agent 生命周期管理：创建、加载、切换会话；后台 task 的 `agent_end` 触发该会话排队消息后台续发（正常结束 drain / aborted、error 暂停，仅后台 task） |
 | [useChatActions.ts](../../src/hooks/useChatActions.ts) | 311 | 聊天操作：发送消息、回滚、分叉、复制 |
 | [useModelActions.ts](../../src/hooks/useModelActions.ts) | 232 | 模型操作：选择模型、切换访问模式、管理工具 |
 | [useSessionActions.ts](../../src/hooks/useSessionActions.ts) | 105 | 会话操作：归档、置顶、重命名、刷新 |
@@ -60,6 +60,7 @@
 - **会话列表**: `refreshSessions()` 负责完整刷新，并在 250ms 窗口内做 in-flight 合并（`agent_end` 的全局订阅与 `syncSessionUI` 两路、跨标签广播与 visibilitychange 叠加时不再各发一轮）；`session_created` / `title_updated` SSE 分别用于局部插入会话和更新标题；归档/删除会话（`useSessionActions.archiveSession`）走本地乐观移除（`useSessionPagination.removeSession`）+ 跨 tab 广播，不做全量刷新以避免侧栏列表闪烁
 - **标题生成**: 服务端先持久化首条消息及 fallback 标题，再异步生成 AI 标题；用户手动重命名优先
 - **后台任务**: 管理后台运行的任务状态；采用保守 LRU，始终保留当前会话和 running/streaming Agent，最多保留 5 个非当前空闲 Agent，淘汰时统一 unsubscribe、dispose 并清理本地状态；再次打开会话时由 ServerAgent 从服务端权威状态恢复
+- **排队消息后台续发**: 后台 task 收到 `agent_end` 时触发该会话排队消息的后台续发——正常结束（非 aborted/error）调 `src/lib/message-queue-drainer.ts` 的 `drainStoredMessageQueue` 逐条发送，`aborted`/`error` 调 `pauseStoredMessageQueue` 暂停；仅后台 task 触发，当前查看中的会话仍由面板既有链路处理，避免双写
 - **对话压缩**: 支持 `/summary` 创建总结后的新对话，支持 `/compact` 在当前会话内滚动压缩上下文
 - **全局会话默认工作目录**: 通过 `defaultWorkspaceRef`（来自 `useProject.defaultWorkspace`）为 global 作用域会话注入合成 project（id=`default`，指向 `~/.quickforge/workspace`），从而启用工作区面板/终端/Git；该合成 id 仅用于前端 UI 与 REST 端点，不会作为 `projectId` 发往后端创建 Agent
 

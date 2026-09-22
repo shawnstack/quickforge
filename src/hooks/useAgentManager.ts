@@ -26,6 +26,7 @@ import type {
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { randomId } from '@/lib/random-id'
 import { disposeAgentTask, selectAgentTaskEvictions, touchAgentTask } from '@/lib/agent-task-retention'
+import { drainStoredMessageQueue, pauseStoredMessageQueue } from '@/lib/message-queue-drainer'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { t } from '@/lib/i18n'
 
@@ -561,6 +562,15 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
             syncSessionUI(task).catch((err) => logger.error('Failed to sync session UI:', err))
             if (wasRunning) onTaskCompleteRef.current?.(task.sessionId, task.title, task.status)
             pruneIdleTasks(currentSessionIdRef.current)
+            // Background task (user switched away): the panel host only drains
+            // the queue of the agent on screen, so keep auto-sending the
+            // persisted queue here; aborted / errored turns pause it — same
+            // policy as the panel host agent_end handling.
+            if (task.agent !== agentRef.current) {
+              const endedStatus = endEvent.status
+              if (endedStatus === 'aborted' || endedStatus === 'error') pauseStoredMessageQueue(sessionId)
+              else void drainStoredMessageQueue(sessionId, task.agent)
+            }
           }
           if ((event as { type: string }).type === 'title_updated') {
             const titleEvent = event as unknown as { type: 'title_updated'; title: string }

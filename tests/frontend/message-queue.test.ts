@@ -17,6 +17,7 @@ import {
 } from '@/lib/message-queue'
 
 const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
+const agentManagerSource = readFileSync(new URL('../../src/hooks/useAgentManager.ts', import.meta.url), 'utf8')
 const controllerSource = readFileSync(new URL('../../src/components/chat/panel-decoration/message-queue.ts', import.meta.url), 'utf8')
 const todoSource = readFileSync(new URL('../../src/components/chat/panel-decoration/todo-write-summary.ts', import.meta.url), 'utf8')
 const barrelSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
@@ -239,5 +240,39 @@ describe('message queue source contracts', () => {
     expect(cssSource).toContain('.quickforge-msg-queue-icon-btn--danger:hover')
     expect(cssSource).toContain('.quickforge-msg-queue-handle {')
     expect(cssSource).toContain('.quickforge-msg-queue-drag-ghost {')
+  })
+
+  it('hands the just-saved queue to the background drainer on cleanup', () => {
+    // Teardown cancels the 250ms auto-send timer; when the turn already ended
+    // the persisted queue (incl. the restored head) must drain in the
+    // background — strictly after the cleanup save so the drainer reads it.
+    const drainIndex = hostSource.indexOf('drainStoredMessageQueue(sessionId')
+    const cleanupSaveIndex = hostSource.lastIndexOf('saveStoredMessageQueueState(sessionId, messageQueue.getState())')
+    expect(drainIndex).toBeGreaterThan(cleanupSaveIndex)
+    expect(hostSource).toContain('void drainStoredMessageQueue(sessionId, agent as ServerAgent)')
+    expect(hostSource).toContain('savedQueue.items.length > 0 && !savedQueue.paused && !agent.state.isStreaming')
+  })
+
+  it('reschedules the restored queue drain after switching back', () => {
+    // Mount restore has no agent_end to come — reuse the regular 250ms
+    // auto-send scheduling (submitQueuedPrompt) for the hydrated head.
+    const restoreIndex = hostSource.indexOf('messageQueue.hydrate(storedQueue)')
+    const fallbackEnd = hostSource.indexOf('// Restore draft', restoreIndex)
+    expect(restoreIndex).toBeGreaterThan(-1)
+    expect(fallbackEnd).toBeGreaterThan(restoreIndex)
+    const fallback = hostSource.slice(restoreIndex, fallbackEnd)
+    expect(fallback).toContain('!agent.state.isStreaming')
+    expect(fallback).toContain('storedQueue.items.length > 0 && !storedQueue.paused')
+    expect(fallback).toContain('queuedPromptTimer === undefined && queuedPromptInFlight === undefined')
+    expect(fallback).toContain('if (head) submitQueuedPrompt(head)')
+  })
+
+  it('drains background-task queues from the agent manager on agent_end', () => {
+    // Only background tasks (session switched away) drain here; the agent on
+    // screen keeps using the panel host's in-memory queue to avoid double
+    // writes. Aborted / errored turns pause instead — same policy as the host.
+    expect(agentManagerSource).toContain('if (task.agent !== agentRef.current)')
+    expect(agentManagerSource).toContain("if (endedStatus === 'aborted' || endedStatus === 'error') pauseStoredMessageQueue(sessionId)")
+    expect(agentManagerSource).toContain('void drainStoredMessageQueue(sessionId, task.agent)')
   })
 })

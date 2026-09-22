@@ -125,9 +125,8 @@ export function MemorySettingsTab() {
           <div className="quickforge-settings-row-main">
             <div className="quickforge-settings-row-title">
               {t('globalMemory')}
-              <InfoTip label={t('globalMemoryInfo')} />
+              <InfoTip label={`${t('globalMemoryInfo')} ${t('globalMemoryDescription')}`} />
             </div>
-            <div className="quickforge-settings-row-description">{t('globalMemoryDescription')}</div>
           </div>
           <div className="quickforge-settings-row-control">
             <SettingsSwitch checked={enabled} onChange={(checked) => void updateEnabled(checked)} disabled={saving} />
@@ -136,8 +135,10 @@ export function MemorySettingsTab() {
 
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('memoryFile')}</div>
-            <div className="quickforge-settings-row-description">{t('memoryFileDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('memoryFile')}
+              <InfoTip label={t('memoryFileDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
             <code className="text-xs text-muted-foreground">{memoryPath}</code>

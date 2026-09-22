@@ -294,9 +294,8 @@ export function ProjectCommandsSettingsTab() {
           <div className="quickforge-settings-row-main">
             <div className="quickforge-settings-row-title">
               {t('commandDirectories')}
-              <InfoTip label={t('commandDirectoryHelp')} />
+              <InfoTip label={`${t('commandDirectoryHelp')} ${t('commandDirectoriesDescription')}`} />
             </div>
-            <div className="quickforge-settings-row-description">{t('commandDirectoriesDescription')}</div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
             <textarea
@@ -310,8 +309,10 @@ export function ProjectCommandsSettingsTab() {
 
         <div className="quickforge-settings-row quickforge-settings-row-align-start">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('commandDirectoryExamples')}</div>
-            <div className="quickforge-settings-row-description">{t('commandDirectoryExamplesDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('commandDirectoryExamples')}
+              <InfoTip label={t('commandDirectoryExamplesDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-settings-code-list">
             <code>.ai/commands</code>
@@ -325,8 +326,10 @@ export function ProjectCommandsSettingsTab() {
       <section className="quickforge-settings-section" aria-label={t('loadedCommands', { count: commands.length })}>
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('loadedCommands', { count: commands.length })}</div>
-            <div className="quickforge-settings-row-description">{t('loadedCommandsDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('loadedCommands', { count: commands.length })}
+              <InfoTip label={t('loadedCommandsDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
             <button

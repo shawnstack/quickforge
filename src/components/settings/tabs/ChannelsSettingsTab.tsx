@@ -338,7 +338,6 @@ export function ChannelsSettingsTab({ active }: { active?: boolean } = {}) {
             {t('channelWorkspace')}
             <InfoTip label={t('channelWorkspaceDescription')} />
           </div>
-          <div className="quickforge-settings-row-description">{t('channelWorkspaceDescription')}</div>
         </div>
         <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
           <select
@@ -367,7 +366,6 @@ export function ChannelsSettingsTab({ active }: { active?: boolean } = {}) {
             {t('channelQrTitle')}
             <InfoTip label={t('channelQrDescription')} />
           </div>
-          <div className="quickforge-settings-row-description">{t('channelQrDescription')}</div>
         </div>
         <pre className="quickforge-channel-qr-text">{channel.qrCodeText}</pre>
       </div>

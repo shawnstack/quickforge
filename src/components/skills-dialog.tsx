@@ -389,7 +389,6 @@ export function SkillsManagerPanel({
               {title}
               <InfoTip label={description} />
             </div>
-            <div className="quickforge-settings-row-description">{description}</div>
             {searchPaths.length ? (
               <div className="quickforge-settings-row-description inline-flex items-center">
                 {t('skillSearchPaths')}

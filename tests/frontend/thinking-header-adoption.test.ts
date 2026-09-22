@@ -317,13 +317,13 @@ describe('thinking header adoption (React DOM shape)', () => {
     expect(tree.header.className).toBe('thinking-header quickforge-process-thinking-header')
   })
 
-  it('orders the adopted header as [icon, label, chevron] with the native svg as chevron', () => {
+  it('orders the adopted header as [icon, label, chevron, hint] with the native svg as chevron', () => {
     const tree = reactThinkingTree()
 
     decorateProcessThinkingBlocks(tree.group)
 
-    expect(tree.header.children.map((child) => child.tagName)).toEqual(['SPAN', 'SPAN', 'SVG'])
-    const [icon, label, chevron] = tree.header.children
+    expect(tree.header.children.map((child) => child.tagName)).toEqual(['SPAN', 'SPAN', 'SVG', 'QUICKFORGE-TOOL-MARQUEE'])
+    const [icon, label, chevron, hint] = tree.header.children
     expect(icon?.dataset.quickforgeThinkingRole).toBe('icon')
     expect(icon?.classList.contains('quickforge-process-thinking-icon')).toBe(true)
     expect(label?.dataset.quickforgeThinkingRole).toBe('label')
@@ -332,6 +332,10 @@ describe('thinking header adoption (React DOM shape)', () => {
     expect(chevron).toBe(tree.chevron)
     expect(chevron?.dataset.quickforgeThinkingRole).toBe('chevron')
     expect(chevron?.getAttribute('class')).toBe('quickforge-process-thinking-chevron')
+    // 第四槽位：尾行提示（quickforge-tool-marquee 自定义元素），初始隐藏（无流式 bridge）。
+    expect(hint?.dataset.quickforgeThinkingRole).toBe('hint')
+    expect(hint?.className).toBe('quickforge-process-thinking-hint')
+    expect(hint?.getAttribute('aria-hidden')).toBe('true')
   })
 
   it('carries the native rotate-90 state over to the adopted chevron', () => {
@@ -354,12 +358,37 @@ describe('thinking header adoption (React DOM shape)', () => {
     const adopted = [...tree.header.children]
     decorateProcessThinkingBlocks(tree.group)
 
-    expect(tree.header.children).toHaveLength(3)
+    expect(tree.header.children).toHaveLength(4)
     adopted.forEach((child, index) => {
       expect(tree.header.children[index]).toBe(child)
     })
     expect(tree.header.children.filter((child) => child.dataset.quickforgeThinkingRole === 'icon')).toHaveLength(1)
     expect(tree.header.className).toBe('thinking-header quickforge-process-thinking-header')
+  })
+
+  it('restores decoration classes after React rewrites label/chevron classes without churning the DOM', () => {
+    const tree = reactThinkingTree({ expanded: true })
+
+    decorateProcessThinkingBlocks(tree.group)
+    const labelTextNode = tree.label.textIdentity
+    const headerChildListWrites = tree.header.childListWrites
+
+    // 思考段结束：React 重渲染整体重写 label 的 shimmer 类与 chevron 的 rotate-90 形态。
+    tree.label.setAttribute('class', 'animate-shimmer bg-gradient-to-r from-muted-foreground via-foreground')
+    tree.chevron.setAttribute('class', 'inline-block size-4 transition-transform rotate-90')
+
+    decorateProcessThinkingBlocks(tree.group)
+
+    expect(tree.label.getAttribute('class')).toBe('quickforge-process-thinking-label')
+    expect(tree.chevron.getAttribute('class')).toBe(
+      'quickforge-process-thinking-chevron quickforge-process-thinking-chevron-expanded',
+    )
+    // 关键：恢复装饰状态只写属性/文案，不得重建文本节点、不得重排子级——移动节点会
+    // 重启子级上正在跑的 CSS 动画（hint 淡入 / 跑马灯滚入），「思考过程结束」那一帧的
+    // 整行抖动正是旧实现的无条件 textContent 重写 + prepend/append 造成的。
+    expect(tree.label.textIdentity).toBe(labelTextNode)
+    expect(tree.header.childListWrites).toBe(headerChildListWrites)
+    expect(tree.header.children.map((child) => child.tagName)).toEqual(['SPAN', 'SPAN', 'SVG', 'QUICKFORGE-TOOL-MARQUEE'])
   })
 
   it('is a full no-op on an already-adopted header (streaming reruns do not churn the DOM)', () => {
@@ -375,7 +404,7 @@ describe('thinking header adoption (React DOM shape)', () => {
     // append/prepend 重排 —— 流式期间每帧重跑不再与点击事件派发竞态。
     expect(tree.label.textIdentity).toBe(labelTextNode)
     expect(tree.header.childListWrites).toBe(headerChildListWrites)
-    expect(tree.header.children.map((child) => child.tagName)).toEqual(['SPAN', 'SPAN', 'SVG'])
+    expect(tree.header.children.map((child) => child.tagName)).toEqual(['SPAN', 'SPAN', 'SVG', 'QUICKFORGE-TOOL-MARQUEE'])
     expect(tree.header.children[1]).toBe(tree.label)
     expect(tree.header.children[2]).toBe(tree.chevron)
     expect(tree.label.textContent).toBe('processThinking')

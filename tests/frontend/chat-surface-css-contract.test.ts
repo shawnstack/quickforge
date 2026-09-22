@@ -345,6 +345,30 @@ describe('thinking header visibility contract', () => {
     )
   })
 
+  it('gives the native button full width so absolute hint views have flex space', () => {
+    // 原生 button 即使 display:flex 仍会 shrink-to-fit；hint 的双视图绝对定位，
+    // 不贡献固有宽度，header 未显式撑满时 hint 会被压成 0px。
+    const headerRule = css.match(
+      /\.quickforge-process-body \.qf-thinking-block > \.quickforge-process-thinking-header \{[^}]*\}/,
+    )?.[0] ?? ''
+    expect(headerRule).toMatch(/\bdisplay: flex;/)
+    expect(headerRule).toMatch(/(?:^|[;{])\s*width: 100%;/)
+    expect(headerRule).toContain('box-sizing: border-box;')
+    expect(headerRule).toContain('gap: 0.375rem;')
+
+    const hintRule = css.match(/\.quickforge-process-thinking-hint \{[^}]*\}/)?.[0] ?? ''
+    expect(hintRule).toContain('flex: 1 1 auto;')
+    expect(hintRule).toContain('min-width: 0;')
+    expect(hintRule).toContain('overflow: hidden;')
+    // header 是 <button>：UA 的 text-align: center 会继承到静态度省略文本与行切换
+    // 纵向滚入的 static 视图上（思考文字会居中）。hint 必须显式靠左，与滚动视图
+    // .quickforge-marquee-moving 的 left: 0 保持一致。
+    expect(hintRule).toContain('text-align: left;')
+    expect(css).toMatch(
+      /\.quickforge-process-thinking-hint \.quickforge-marquee-view \{\s*position: absolute;\s*inset: 0;/,
+    )
+  })
+
   it('covers the adopted header wherever the decoration layer can place it', () => {
     // 装饰层只在 header 是 .qf-thinking-block 直接子级时接管
     // （`thinkingBlock.querySelector(':scope.qf-thinking-block > .thinking-header')`），

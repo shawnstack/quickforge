@@ -254,8 +254,10 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
             {t('back')}
           </button>
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{isEdit ? t('mcpEditServer') : t('mcpAddServer')}</div>
-            <div className="quickforge-settings-row-description">{t('mcpServersDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {isEdit ? t('mcpEditServer') : t('mcpAddServer')}
+              <InfoTip label={t('mcpServersDescription')} />
+            </div>
           </div>
         </div>
 
@@ -323,8 +325,8 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
           <div className="quickforge-settings-row-title">
             <Server className="size-4 text-primary" />
             {t('mcpConfiguredServers')}
+            <InfoTip label={t('mcpServersDescription')} />
           </div>
-          <div className="quickforge-settings-row-description">{t('mcpServersDescription')}</div>
           <div className="quickforge-settings-meta">
             <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('mcpServersCount', { count: servers.length })}</span>
           </div>

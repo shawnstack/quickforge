@@ -272,8 +272,10 @@ export function BackupSettingsTab() {
       <section className="quickforge-settings-section" aria-label={t('backupInspectTitle')}>
         <div className="quickforge-settings-row quickforge-settings-row-top">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('backupInspectTitle')}</div>
-            <div className="quickforge-settings-row-description">{t('backupInspectDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('backupInspectTitle')}
+              <InfoTip label={t('backupInspectDescription')} />
+            </div>
           </div>
         </div>
 
@@ -319,8 +321,10 @@ export function BackupSettingsTab() {
 
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('restoreMode')}</div>
-            <div className="quickforge-settings-row-description">{t('restoreModeDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('restoreMode')}
+              <InfoTip label={t('restoreModeDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
             <div className="quickforge-settings-segmented" role="group" aria-label={t('restoreMode')}>
@@ -372,8 +376,10 @@ export function BackupSettingsTab() {
 
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('backupImportActions')}</div>
-            <div className="quickforge-settings-row-description">{t('backupImportActionsDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('backupImportActions')}
+              <InfoTip label={t('backupImportActionsDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
             <button
@@ -405,9 +411,8 @@ export function BackupSettingsTab() {
           <div className="quickforge-settings-row-main">
             <div className="quickforge-settings-row-title">
               {t('selectExportSections')}
-              <InfoTip label={t('exportDataDescription')} />
+              <InfoTip label={`${t('exportDataDescription')} ${t('selectExportSectionsDescription')}`} />
             </div>
-            <div className="quickforge-settings-row-description">{t('selectExportSectionsDescription')}</div>
           </div>
         </div>
 
@@ -431,8 +436,10 @@ export function BackupSettingsTab() {
 
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('exportBackup')}</div>
-            <div className="quickforge-settings-row-description">{t('exportBackupDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('exportBackup')}
+              <InfoTip label={t('exportBackupDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control">
             <button
@@ -454,7 +461,6 @@ export function BackupSettingsTab() {
               {t('importBackup')}
               <InfoTip label={t('importDataDescription')} />
             </div>
-            <div className="quickforge-settings-row-description">{t('importDataDescription')}</div>
           </div>
           <div className="quickforge-settings-row-control">
             <label className={`quickforge-settings-button quickforge-settings-button-secondary${busy ? ' pointer-events-none opacity-60' : ''}`}>

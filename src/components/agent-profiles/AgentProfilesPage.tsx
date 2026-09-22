@@ -506,7 +506,6 @@ export function AgentProfilesPage() {
               <div className="quickforge-settings-row-title">
                 {editingAgent?.builtin ? t('builtinAgentModelSettings') : editingAgent ? t('editAgent') : t('createAgent')}
               </div>
-              {editingAgent?.builtin ? <div className="quickforge-settings-row-description">{t('builtinAgentModelOnly')}</div> : editingAgent?.readonly ? <div className="quickforge-settings-row-description">{t('readonlyAgentDescription')}</div> : null}
             </div>
           </div>
 
@@ -675,8 +674,8 @@ export function AgentProfilesPage() {
             <div className="quickforge-settings-row-title">
               <Bot className="size-4 text-primary" />
               {t('agentsTab')}
+              <InfoTip label={t('agentsDescription')} />
             </div>
-            <div className="quickforge-settings-row-description">{t('agentsDescription')}</div>
           </div>
           <button className="quickforge-settings-button quickforge-settings-button-primary" type="button" onClick={openCreateAgentDialog}>{t('createAgent')}</button>
         </div>

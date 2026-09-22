@@ -1,7 +1,3 @@
-## Goal 当前契约：自动执行与无限累计时间
-
-规划整轮只读，正常轮末及持久化成功后自动执行，不需要计划确认。新 Goal 的 maxActiveDurationMs 为 JSON null（无限），累计用时仍记录，默认轮次20（设置·常规可配置），保留防空转/重复失败、工具审批、必要提问、暂停取消及单工具超时。旧快照不自动执行或改写终态；显式 resume/extend_resume/revise 移除旧时间上限，extend_resume 保留 CAS 且只给耗尽轮次追加配置轮次（默认 20）。有计划恢复 running，无计划重新 planning。complete 保留可信证据与正常轮末持久化屏障；needs_review 报告改为 blocked 并说明无法验证原因，不伪造 passed。历史 human evidence 与 accept API 兼容。当前聊天 controller 不再生成确认按钮，Inspector/card 不提供验收动作；历史 renderer 保留当时事实。多会话（含共享同一工作区的全局对话）可各自持有并并行执行活跃 goal，互斥仅限同一会话内，`/goal` 不再因其它对话的活跃 goal 返回 409。
-
 # 速构 QuickForge — Wiki 文档
 
 > AI chat application with Agent access modes for local workspace tools.

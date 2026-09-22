@@ -325,22 +325,28 @@ export function AboutSettingsTab({ active }: { active?: boolean } = {}) {
       <>
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('packageName')}</div>
-            <div className="quickforge-settings-row-description">{t('packageNameDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('packageName')}
+              <InfoTip label={t('packageNameDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-readonly-value">{about.name}</div>
         </div>
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('currentVersion')}</div>
-            <div className="quickforge-settings-row-description">{t('currentVersionDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('currentVersion')}
+              <InfoTip label={t('currentVersionDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-readonly-value">{about.version}</div>
         </div>
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('github')}</div>
-            <div className="quickforge-settings-row-description">{t('githubDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('github')}
+              <InfoTip label={t('githubDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-settings-readonly-value">
             <a className="quickforge-settings-link" href={about.repositoryUrl} target="_blank" rel="noreferrer">
@@ -359,16 +365,20 @@ export function AboutSettingsTab({ active }: { active?: boolean } = {}) {
       <>
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('latestVersion')}</div>
-            <div className="quickforge-settings-row-description">{t('latestVersionDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('latestVersion')}
+              <InfoTip label={t('latestVersionDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-readonly-value">{updateInfo.latestVersion}</div>
         </div>
         {updateInfo.logFile ? (
           <div className="quickforge-settings-row">
             <div className="quickforge-settings-row-main">
-              <div className="quickforge-settings-row-title">{t('updateLog')}</div>
-              <div className="quickforge-settings-row-description">{t('updateLogDescription')}</div>
+              <div className="quickforge-settings-row-title">
+                {t('updateLog')}
+                <InfoTip label={t('updateLogDescription')} />
+              </div>
             </div>
             <div className="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-settings-readonly-value">
               <code>{updateInfo.logFile}</code>
@@ -391,9 +401,9 @@ export function AboutSettingsTab({ active }: { active?: boolean } = {}) {
               {t('restartBackendService')}
               <InfoTip label={t('restartBackendServiceDescription')} />
             </div>
-            <div className="quickforge-settings-row-description">
-              {serviceStatus?.restartSupported ? t('restartBackendServiceDescription') : unsupportedReason}
-            </div>
+            {serviceStatus?.restartSupported ? null : (
+              <div className="quickforge-settings-row-description">{unsupportedReason}</div>
+            )}
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
             <button
@@ -458,9 +468,6 @@ export function AboutSettingsTab({ active }: { active?: boolean } = {}) {
             <div className="quickforge-settings-row-title">
               {desktopApp ? t('desktopUpdates') : t('runtimeUpdates')}
               <InfoTip label={desktopApp ? t('desktopUpdatesDescription') : t('runtimeUpdatesDescription')} />
-            </div>
-            <div className="quickforge-settings-row-description">
-              {desktopApp ? t('desktopUpdatesDescription') : t('runtimeUpdatesDescription')}
             </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">

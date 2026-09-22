@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>思考过程 · 尾行动效方案对齐演示</title>
+<style>
+  /* ===== QuickForge 设计 token（对照 src/index.css，浅色为主，支持暗色切换） ===== */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --quickforge-dur-fast: 120ms;
+    --quickforge-dur-base: 180ms;
+    --quickforge-dur-slow: 280ms;
+    --quickforge-dur-exit: 140ms;
+    --quickforge-ease-out: cubic-bezier(0.2, 0, 0, 1);
+    --quickforge-message-font-size: 14px;
+  }
+  html[data-theme="dark"] {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(0.275 0 0);
+    --ring: oklch(0.556 0 0);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+  .page { max-width: 860px; margin: 0 auto; padding: 40px 24px 64px; }
+
+  /* ===== 页头 ===== */
+  .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+  .page-head h1 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+  .page-head p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--muted-foreground); max-width: 640px; }
+  #reduced-note { margin-top: 8px; color: var(--foreground); }
+
+  .ghost-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    flex: none;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--muted-foreground);
+    font: inherit; font-size: 12px; line-height: 1;
+    padding: 6px 10px; cursor: pointer;
+    transition:
+      background var(--quickforge-dur-fast) var(--quickforge-ease-out),
+      color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+      transform var(--quickforge-dur-fast) var(--quickforge-ease-out);
+  }
+  .ghost-btn:hover { background: var(--muted); color: var(--foreground); }
+  .ghost-btn:active { transform: scale(0.97); }
+  .page-actions { display: flex; flex: none; gap: 8px; }
+
+  /* ===== 方案区块 ===== */
+  .scheme { margin-top: 32px; }
+  .scheme-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .scheme-head h2 { margin: 0; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .scheme-name { font-weight: 400; color: color-mix(in oklab, var(--foreground) 86%, transparent); }
+  .scheme-tag {
+    font-size: 11px; font-weight: 400; line-height: 1;
+    color: var(--muted-foreground);
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    border-radius: 999px; padding: 3px 8px;
+  }
+  .scheme-desc { margin: 6px 0 10px; font-size: 12.5px; line-height: 1.7; color: var(--muted-foreground); }
+
+  /* 聊天消息卡片（贴近对话区：轻边框、无重阴影） */
+  .msg-card {
+    max-width: 640px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--card);
+    color: var(--card-foreground);
+    padding: 12px 16px;
+  }
+
+  /* ===== 思考 header（对照 .quickforge-process-thinking-* 系列） ===== */
+  .thinking-header {
+    display: flex; min-height: 1.625rem;
+    align-items: center; gap: 0.375rem;
+    color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    cursor: pointer;
+    font-size: calc(var(--quickforge-message-font-size) * 0.875);
+    font-weight: 400; line-height: 1.5;
+    transition: color 160ms ease;
+  }
+  .thinking-header:hover { color: color-mix(in oklab, var(--foreground) 86%, transparent); }
+  .thinking-icon, .thinking-chevron {
+    display: inline-flex; width: 1rem; height: 1rem; flex: 0 0 auto;
+    align-items: center; justify-content: center;
+  }
+  .thinking-icon { color: color-mix(in oklab, var(--muted-foreground) 58%, transparent); }
+  .thinking-icon svg, .thinking-chevron svg { width: 1rem; height: 1rem; }
+  .thinking-label { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .thinking-chevron {
+    visibility: hidden; opacity: 0; pointer-events: none;
+    transition: visibility 0s linear 140ms, opacity 140ms ease, transform 160ms ease;
+  }
+  .thinking-header:hover .thinking-chevron,
+  .thinking-header:focus-visible .thinking-chevron { visibility: visible; opacity: 1; transition-delay: 0s; }
+
+  /* ===== 尾行提示槽位（对照 .quickforge-process-thinking-hint：0.75 倍字号、60% muted） ===== */
+  .demo-hint { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
+  .hint-window {
+    --row-h: calc(var(--quickforge-message-font-size) * 1.125);
+    display: flex; align-items: center;
+    width: 100%; height: var(--row-h);
+    overflow: hidden; white-space: nowrap;
+    font-size: calc(var(--quickforge-message-font-size) * 0.75);
+    line-height: 1.5;
+    color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+    opacity: 1;
+    transition: opacity var(--quickforge-dur-base) var(--quickforge-ease-out);
+  }
+  .hint-window.is-hidden {
+    opacity: 0;
+    transition: opacity var(--quickforge-dur-exit) var(--quickforge-ease-out);
+  }
+  .hint-window-2 { height: calc(var(--row-h) * 2); flex-direction: column; align-items: stretch; }
+  .hint-window-3 { height: calc(var(--row-h) * 3); display: block; }
+  .hint-row {
+    flex: none; height: var(--row-h);
+    display: flex; align-items: center;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .hint-flow {
+    display: flex; flex-direction: column;
+    transition: transform var(--quickforge-dur-base) var(--quickforge-ease-out);
+    will-change: transform;
+  }
+  .hint-text { display: block; width: max-content; will-change: transform; }
+  .hint-text-truncate { width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ===== 动效（全部引用 token；跑马灯为长循环豁免，由 JS 驱动） ===== */
+  .anim-in { animation: qf-fade-in var(--quickforge-dur-base) var(--quickforge-ease-out); }
+  .anim-in-fast { animation: qf-fade-in var(--quickforge-dur-fast) var(--quickforge-ease-out); }
+  .anim-out { animation: qf-fade-out var(--quickforge-dur-exit) var(--quickforge-ease-out) forwards; }
+  .row-in { animation: qf-fade-in var(--quickforge-dur-fast) var(--quickforge-ease-out); }
+  .row-out { animation: qf-row-out var(--quickforge-dur-exit) var(--quickforge-ease-out) forwards; }
+  .row-out-soft { animation: qf-fade-out var(--quickforge-dur-exit) var(--quickforge-ease-out) forwards; }
+  .row-slide-in { animation: qf-row-slide-in var(--quickforge-dur-fast) var(--quickforge-ease-out); }
+
+  @keyframes qf-fade-in { from { opacity: 0; } }
+  @keyframes qf-fade-out { to { opacity: 0; } }
+  @keyframes qf-row-out { to { opacity: 0; transform: translateY(-3px); } }
+  @keyframes qf-row-slide-in { from { opacity: 0; transform: translateY(4px); } }
+
+  .page-foot {
+    margin-top: 48px; padding-top: 16px;
+    border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    font-size: 12px; line-height: 1.7; color: var(--muted-foreground);
+  }
+
+  /* ===== 动画总开关（默认开）：仅 body[data-anim="off"] 时静态降级；开启时无视系统 prefers-reduced-motion ===== */
+  body[data-anim="off"] *,
+  body[data-anim="off"] *::before,
+  body[data-anim="off"] *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* ===== 运行状态行与看门狗错误提示 ===== */
+  .anim-status {
+    margin: 8px 0 0;
+    font-size: 12px; line-height: 1.6;
+    color: var(--muted-foreground);
+  }
+  .anim-status::before {
+    content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px;
+    border-radius: 999px; background: oklch(0.723 0.219 149.579); vertical-align: 1px;
+  }
+  body[data-anim="off"] .anim-status::before { background: var(--ring); }
+  .demo-error {
+    margin: 8px 0 10px; font-size: 12px; line-height: 1.6; font-weight: 500;
+    color: oklch(0.577 0.245 27.325);
+  }
+  html[data-theme="dark"] .demo-error { color: oklch(0.704 0.191 22.216); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <div>
+      <h1>思考过程 · 尾行动效方案对齐演示</h1>
+      <p>这是「思考过程行右侧尾行动效」的方案对齐演示。四个方案各自独立循环播放同一段模拟思考流（逐字打出，行间隔约 0.9 秒，含一行超宽文本）。请对比哪种最接近你想要的效果——也可以混搭（例如 B 的节奏 + A 的跑马灯）。</p>
+      <p id="reduced-note" hidden></p>
+      <p id="anim-status" class="anim-status" aria-live="polite">脚本初始化中…（若长期停留在此句，说明本页脚本未执行）</p>
+    </div>
+    <div class="page-actions">
+      <button id="anim-toggle" class="ghost-btn" type="button" aria-pressed="true">动画：开</button>
+      <button id="theme-toggle" class="ghost-btn" type="button">切换深色</button>
+    </div>
+  </header>
+
+  <section class="scheme" data-scheme="A">
+    <div class="scheme-head">
+      <h2>方案 A<span class="scheme-name">最新行停留</span><span class="scheme-tag">当前实现</span></h2>
+      <button class="ghost-btn demo-replay" type="button">↻ 重播</button>
+    </div>
+    <p class="scheme-desc">右侧始终显示最新一行，换行时快速淡入切换；超宽行左右滚动跑马灯（长循环，滚动完整内容）。</p>
+    <p class="demo-error" hidden></p>
+    <div class="msg-card">
+      <div class="thinking-header">
+        <span class="thinking-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 0 0-5.997-.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 0 1 5.997-.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg></span>
+        <span class="thinking-label">思考过程</span>
+        <span class="thinking-chevron"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+        <span class="demo-hint"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="scheme" data-scheme="B">
+    <div class="scheme-head">
+      <h2>方案 B<span class="scheme-name">闪现即逝</span></h2>
+      <button class="ghost-btn demo-replay" type="button">↻ 重播</button>
+    </div>
+    <p class="scheme-desc">每行快速淡入，停留约 0.7 秒后淡出消失，行间区域回到空白，一行行节律性闪现；超宽行截断显示。</p>
+    <p class="demo-error" hidden></p>
+    <div class="msg-card">
+      <div class="thinking-header">
+        <span class="thinking-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 0 0-5.997-.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 0 1 5.997-.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg></span>
+        <span class="thinking-label">思考过程</span>
+        <span class="thinking-chevron"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+        <span class="demo-hint"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="scheme" data-scheme="C">
+    <div class="scheme-head">
+      <h2>方案 C<span class="scheme-name">双行堆叠</span></h2>
+      <button class="ghost-btn demo-replay" type="button">↻ 重播</button>
+    </div>
+    <p class="scheme-desc">同时显示最近两行（新行在下）；新行出现时，被挤出的旧行小幅上移并快速淡出消失；超宽行截断显示。</p>
+    <p class="demo-error" hidden></p>
+    <div class="msg-card">
+      <div class="thinking-header">
+        <span class="thinking-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 0 0-5.997-.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 0 1 5.997-.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg></span>
+        <span class="thinking-label">思考过程</span>
+        <span class="thinking-chevron"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+        <span class="demo-hint"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="scheme" data-scheme="D">
+    <div class="scheme-head">
+      <h2>方案 D<span class="scheme-name">行流滚动</span></h2>
+      <button class="ghost-btn demo-replay" type="button">↻ 重播</button>
+    </div>
+    <p class="scheme-desc">像迷你终端日志：每行小位移（4px）滑入并淡入，整体向上流动，旧行快速淡出消失，最多保留 3 行，连续流动感。</p>
+    <p class="demo-error" hidden></p>
+    <div class="msg-card">
+      <div class="thinking-header">
+        <span class="thinking-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 0 0-5.997-.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 0 1 5.997-.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg></span>
+        <span class="thinking-label">思考过程</span>
+        <span class="thinking-chevron"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+        <span class="demo-hint"></span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="page-foot">
+    动效遵循 QuickForge 刻度：fast 120ms / base 180ms / exit 140ms，缓动 cubic-bezier(0.2, 0, 0, 1)；退出永远快于进入。跑马灯滚动属长循环动画，豁免于时长刻度（与工具行扫光、shimmer 同类）。本页为方案对齐用临时原型，不进构建、不代表最终实现。若仍看不到任何动态效果（或顶部状态长期停留在「脚本初始化中…」），请把本文件保存到本地后用 Chrome / Edge 打开查看——部分预览环境会限制脚本执行。
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* 系统减少动态设置仅用于提示；是否降级完全由页面「动画」总开关决定（默认开，无视该系统设置） */
+  var REDUCED_MOTION = typeof window.matchMedia === 'function' &&
+    !!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var DEFAULT_INTERVAL = 900;
+  var animOn = true; /* 「动画」总开关：默认开 */
+  var controllers = [];
+
+  /* 模拟思考流：约 10 行中文，行宽有长有短，第 5 行明显超宽（延长停留以展示跑马灯） */
+  var LINES = [
+    { text: '先看用户的核心诉求：思考行右侧到底显示什么。' },
+    { text: '当前实现是「最新行停留」：右侧始终显示最新一行。' },
+    { text: '换行时快速淡入切换，节奏约每 0.9 秒一行。' },
+    { text: '短行一闪而过，长行会停留稍久。' },
+    { text: '下面这行明显超出可用宽度，用来观察各方案对溢出的处理：这是一段被刻意加长的思考文本，宽度远超 header 右侧弹性区域的可用空间，用于对比截断、闪现与跑马灯滚动在超宽行上的真实观感差异。', interval: 3400 },
+    { text: '回到正常长度的行。' },
+    { text: '每行由定时器逐字打出，模拟流式输出。' },
+    { text: '行与行之间隔约 900 毫秒。' },
+    { text: '思考结束后提示整体淡出，随后自动循环。' },
+    { text: '可用右上角按钮切换深浅色，用每块的「重播」单独重放。' }
+  ];
+
+  var BRAIN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 0 0-5.997-.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 0 1 5.997-.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>';
+
+  /* 重触发 animation 类：移除 → 强制 reflow → 重新添加 */
+  function retrigger(el, cls) {
+    el.classList.remove(cls);
+    void el.offsetWidth;
+    el.classList.add(cls);
+  }
+
+  /* ---------- 方案 A：最新行停留（当前实现） ---------- */
+  function createSchemeA(root) {
+    root.innerHTML = '<div class="hint-window"><span class="hint-text"></span></div>';
+    var win = root.firstElementChild;
+    var text = win.firstElementChild;
+    var marquee = null;
+    function stopMarquee() {
+      if (marquee) {
+        try { if (typeof marquee.cancel === 'function') marquee.cancel(); } catch (err) { /* 静默 */ }
+        marquee = null;
+      }
+    }
+    return {
+      onStart: function () {
+        stopMarquee();
+        text.textContent = '';
+        win.classList.remove('is-hidden');
+        retrigger(win, 'anim-in');
+      },
+      onType: function (partial) { text.textContent = partial; },
+      onSettled: function () {
+        try {
+          var overflow = text.scrollWidth - win.clientWidth;
+          if (overflow <= 8) return;
+          if (typeof text.animate !== 'function') return; /* 无 WAAPI 时静默跳过（跑马灯属增强，截断兜底） */
+          var shift = -Math.round(overflow);
+          marquee = text.animate([
+            { transform: 'translateX(0)' },
+            { transform: 'translateX(0)', offset: 0.14 },
+            { transform: 'translateX(' + shift + 'px)', offset: 0.52 },
+            { transform: 'translateX(' + shift + 'px)', offset: 0.66 },
+            { transform: 'translateX(0)' }
+          ], { duration: Math.round(1200 + overflow * 5), iterations: Infinity, easing: 'linear' });
+        } catch (err) {
+          marquee = null; /* WAAPI 异常时静默降级为截断显示 */
+        }
+      },
+      onFinish: function () { stopMarquee(); win.classList.add('is-hidden'); },
+      reset: function () {
+        stopMarquee();
+        text.textContent = '';
+        win.classList.remove('is-hidden', 'anim-in');
+      },
+      abort: function () { stopMarquee(); }
+    };
+  }
+
+  /* ---------- 方案 B：闪现即逝 ---------- */
+  function createSchemeB(root) {
+    root.innerHTML = '<div class="hint-window"><span class="hint-text hint-text-truncate"></span></div>';
+    var win = root.firstElementChild;
+    var text = win.firstElementChild;
+    var fadeTimer = null;
+    function clearTimer() {
+      if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null; }
+    }
+    return {
+      onStart: function (line) {
+        clearTimer();
+        text.textContent = '';
+        win.classList.remove('anim-out', 'is-hidden');
+        void win.offsetWidth;
+        win.classList.add('anim-in-fast');
+        var visibleMs = line.interval > 1500 ? Math.min(2200, line.interval - 900) : 700;
+        fadeTimer = setTimeout(function () {
+          fadeTimer = null;
+          win.classList.remove('anim-in-fast');
+          void win.offsetWidth;
+          win.classList.add('anim-out');
+        }, visibleMs);
+      },
+      onType: function (partial) { text.textContent = partial; },
+      onSettled: function () {},
+      onFinish: function () {
+        clearTimer();
+        win.classList.remove('anim-out');
+        win.classList.add('is-hidden');
+      },
+      reset: function () {
+        clearTimer();
+        text.textContent = '';
+        win.classList.remove('anim-out', 'anim-in-fast', 'is-hidden');
+      },
+      abort: function () { clearTimer(); }
+    };
+  }
+
+  /* ---------- 方案 C：双行堆叠（两个静态槽位，被挤出的行小位移上移 + 淡出） ---------- */
+  function createSchemeC(root) {
+    root.innerHTML = '<div class="hint-window hint-window-2"><div class="hint-row"></div><div class="hint-row"></div></div>';
+    var win = root.firstElementChild;
+    var topRow = win.children[0];
+    var bottomRow = win.children[1];
+    var handoverTimer = null;
+    var currentText = '';
+    function clearTimer() {
+      if (handoverTimer) { clearTimeout(handoverTimer); handoverTimer = null; }
+    }
+    return {
+      onStart: function (line) {
+        clearTimer();
+        var finished = currentText; /* 刚写完的上一行，上移到顶槽 */
+        currentText = line.text;
+        if (topRow.textContent !== '') {
+          topRow.classList.remove('row-in');
+          retrigger(topRow, 'row-out');
+          handoverTimer = setTimeout(function () {
+            handoverTimer = null;
+            topRow.classList.remove('row-out');
+            topRow.textContent = finished;
+            retrigger(topRow, 'row-in');
+          }, 140);
+        } else if (finished !== '') {
+          topRow.textContent = finished;
+        }
+        bottomRow.textContent = '';
+        retrigger(bottomRow, 'row-in');
+        win.classList.remove('is-hidden');
+      },
+      onType: function (partial) { bottomRow.textContent = partial; },
+      onSettled: function () {},
+      onFinish: function () { clearTimer(); win.classList.add('is-hidden'); },
+      reset: function () {
+        clearTimer();
+        topRow.textContent = '';
+        bottomRow.textContent = '';
+        topRow.className = 'hint-row';
+        bottomRow.className = 'hint-row';
+        win.classList.remove('is-hidden');
+      },
+      abort: function () { clearTimer(); }
+    };
+  }
+
+  /* ---------- 方案 D：行流滚动（3 行窗口，新行 4px 滑入，整体上移，旧行淡出） ---------- */
+  function createSchemeD(root) {
+    root.innerHTML = '<div class="hint-window hint-window-3"><div class="hint-flow"></div></div>';
+    var win = root.firstElementChild;
+    var flow = win.firstElementChild;
+    var rows = [];
+    var snapTimer = null;
+    var rowHeight = 0;
+    function clearTimer() {
+      if (snapTimer) { clearTimeout(snapTimer); snapTimer = null; }
+    }
+    return {
+      onStart: function () {
+        clearTimer();
+        win.classList.remove('is-hidden');
+        var row = document.createElement('div');
+        row.className = 'hint-row row-slide-in';
+        rows.push(row);
+        flow.appendChild(row);
+        if (rows.length === 1) rowHeight = row.offsetHeight || 0;
+        if (rows.length > 3 && rowHeight > 0) {
+          var shift = (rows.length - 3) * rowHeight;
+          rows[0].classList.add('row-out-soft'); /* 滑出窗口的同时快速淡出 */
+          flow.style.transform = 'translateY(' + (-shift) + 'px)';
+          snapTimer = setTimeout(function () {
+            snapTimer = null;
+            flow.style.transition = 'none'; /* 归位（视觉无变化）：移除首行后取消位移 */
+            flow.style.transform = 'translateY(0)';
+            void flow.offsetWidth;
+            flow.style.transition = '';
+            var gone = rows.shift();
+            if (gone && gone.parentNode) gone.parentNode.removeChild(gone);
+          }, 240);
+        }
+      },
+      onType: function (partial) {
+        var last = rows[rows.length - 1];
+        if (last) last.textContent = partial;
+      },
+      onSettled: function () {},
+      onFinish: function () { win.classList.add('is-hidden'); },
+      reset: function () {
+        clearTimer();
+        flow.innerHTML = '';
+        rows.length = 0;
+        flow.style.transform = '';
+        flow.style.transition = '';
+        win.classList.remove('is-hidden');
+      },
+      abort: function () { clearTimer(); }
+    };
+  }
+
+  /* ---------- 静态降级（仅动画总开关关闭时使用：每方案仅静态展示最新一行） ---------- */
+  function createStatic(root) {
+    root.innerHTML = '<div class="hint-window"><span class="hint-text hint-text-truncate"></span></div>';
+    var text = root.querySelector('.hint-text');
+    return {
+      onStart: function () {},
+      onType: function (partial) { text.textContent = partial; },
+      onSettled: function () {},
+      onFinish: function () { text.textContent = ''; },
+      reset: function () { text.textContent = ''; },
+      abort: function () {}
+    };
+  }
+
+  var SCHEMES = { A: createSchemeA, B: createSchemeB, C: createSchemeC, D: createSchemeD };
+
+  /* ---------- 每块独立控制器：逐行调度 + 逐字打出 + 循环 + 定时器清理 ----------
+     animated=false 时使用静态降级；核心淡入淡出/滚动全部由 CSS class + transition/animation 驱动 */
+  function startBlock(section, animated) {
+    var hintRoot = section ? section.querySelector('.demo-hint') : null;
+    var replayBtn = section ? section.querySelector('.demo-replay') : null;
+    if (!hintRoot) {
+      return { getLoops: function () { return 0; }, replay: function () {}, dispose: function () {} };
+    }
+    var factory = animated ? SCHEMES[section.dataset.scheme] : createStatic;
+    var ui;
+    try {
+      ui = (typeof factory === 'function' ? factory : createStatic)(hintRoot);
+    } catch (err) {
+      ui = createStatic(hintRoot); /* 单个方案工厂异常时回退静态，避免整页中断 */
+    }
+    var timers = [];
+    var typer = null;
+    var stopped = false;
+    var loops = 0;
+
+    function clearAll() {
+      timers.forEach(function (t) { clearTimeout(t); });
+      timers = [];
+      if (typer) { clearInterval(typer); typer = null; }
+      ui.abort();
+    }
+
+    function run() {
+      if (stopped) return;
+      clearAll();
+      ui.reset();
+      var index = 0;
+      function step() {
+        if (stopped) return;
+        markLineProduced(); /* 喂狗：每行开始即刷新看门狗基准 */
+        var line = LINES[index];
+        ui.onStart(line);
+        if (!animated) {
+          ui.onType(line.text);
+        } else {
+          var pos = 0;
+          var charDelay = Math.max(8, Math.min(40, 440 / line.text.length));
+          typer = setInterval(function () {
+            if (stopped) { clearInterval(typer); typer = null; return; }
+            pos += 1;
+            ui.onType(line.text.slice(0, pos));
+            if (pos >= line.text.length) {
+              clearInterval(typer);
+              typer = null;
+              ui.onSettled(line);
+            }
+          }, charDelay);
+        }
+        timers.push(setTimeout(function () {
+          if (stopped) return;
+          index += 1;
+          if (index < LINES.length) {
+            step();
+          } else {
+            loops += 1;
+            refreshStatus();
+            ui.onFinish(); /* 思考结束：整体淡出（保留占位） */
+            timers.push(setTimeout(run, 1800)); /* 稍候自动循环 */
+          }
+        }, line.interval || DEFAULT_INTERVAL));
+      }
+      step();
+    }
+
+    var replay = function () {
+      stopped = false;
+      run(); /* run 先 clearAll：清旧定时器/动画/行，重播不叠加 */
+    };
+    if (replayBtn) replayBtn.addEventListener('click', replay);
+    run(); /* 页面加载即自动开始播放，不依赖任何点击 */
+    return {
+      getLoops: function () { return loops; },
+      replay: replay,
+      dispose: function () {
+        stopped = true;
+        clearAll();
+        ui.reset();
+        if (replayBtn) replayBtn.removeEventListener('click', replay);
+      }
+    };
+  }
+
+  /* ---------- 深浅色切换 ---------- */
+  var themeBtn = document.getElementById('theme-toggle');
+  function syncThemeLabel() {
+    themeBtn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '切换浅色' : '切换深色';
+  }
+  themeBtn.addEventListener('click', function () {
+    if (document.documentElement.getAttribute('data-theme') === 'dark') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+    syncThemeLabel();
+  });
+  syncThemeLabel();
+
+  if (REDUCED) {
+    var note = document.getElementById('reduced-note');
+    if (note) note.hidden = false;
+  }
+
+  var sections = document.querySelectorAll('.scheme');
+  Array.prototype.forEach.call(sections, startBlock);
+})();
+</script>
+</body>
+</html>

@@ -177,9 +177,9 @@ export function AppearanceSettingsTab() {
       <div className="quickforge-settings-row-main">
         <div className="quickforge-settings-row-title">
           {labelText}
+          <InfoTip label={t('fontSizeRangeDescription')} />
           {note ? <InfoTip label={note} /> : null}
         </div>
-        <div className="quickforge-settings-row-description">{t('fontSizeRangeDescription')}</div>
       </div>
       <div className="quickforge-settings-row-control quickforge-settings-slider-control">
         <span className="quickforge-settings-value-badge">{value}px</span>
@@ -201,7 +201,6 @@ export function AppearanceSettingsTab() {
               {t('theme')}
               <InfoTip label={t('themeDescription')} />
             </div>
-            <div className="quickforge-settings-row-description">{t('themeDescription')}</div>
           </div>
           <div className="quickforge-settings-row-control">
             <div className="quickforge-settings-segmented" role="group" aria-label={t('theme')}>

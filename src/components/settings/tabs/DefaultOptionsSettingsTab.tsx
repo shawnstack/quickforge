@@ -829,9 +829,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
               <div className="quickforge-settings-row-main">
                 <div className="quickforge-settings-row-title">
                   {t(networkProxyMode === 'pac' ? 'networkProxyPacUrl' : 'networkProxyAddress')}
-                </div>
-                <div className="quickforge-settings-row-description">
-                  {t(networkProxyMode === 'pac' ? 'networkProxyPacUrlDescription' : 'networkProxyAddressDescription')}
+                  <InfoTip label={t(networkProxyMode === 'pac' ? 'networkProxyPacUrlDescription' : 'networkProxyAddressDescription')} />
                 </div>
               </div>
               <div className="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-network-proxy-control">
@@ -869,8 +867,10 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
           ? (
             <div className="quickforge-settings-row">
               <div className="quickforge-settings-row-main">
-                <div className="quickforge-settings-row-title">{t('networkProxyRefresh')}</div>
-                <div className="quickforge-settings-row-description">{t('networkProxyRefreshDescription')}</div>
+                <div className="quickforge-settings-row-title">
+                  {t('networkProxyRefresh')}
+                  <InfoTip label={t('networkProxyRefreshDescription')} />
+                </div>
               </div>
               <div className="quickforge-settings-row-control">
                 <button
@@ -935,8 +935,10 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
           ? (
             <div className="quickforge-settings-row">
               <div className="quickforge-settings-row-main">
-                <div className="quickforge-settings-row-title">{t('terminalShellCommand')}</div>
-                <div className="quickforge-settings-row-description">{t('terminalShellCustomDescription')}</div>
+                <div className="quickforge-settings-row-title">
+                  {t('terminalShellCommand')}
+                  <InfoTip label={t('terminalShellCustomDescription')} />
+                </div>
               </div>
               <div className="quickforge-settings-row-control quickforge-settings-row-control-wide quickforge-terminal-shell-command-control">
                 <input
@@ -991,7 +993,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
               {t('language')}
               <InfoTip label={t('languageDescription')} />
             </div>
-            <div className="quickforge-settings-row-description">{t('displayLanguage')}</div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-compact">
             <SettingsSelect
@@ -1005,8 +1006,10 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
 
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('defaultModel')}</div>
-            <div className="quickforge-settings-row-description">{t('defaultModelDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('defaultModel')}
+              <InfoTip label={t('defaultModelDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
             <SettingsSelect
@@ -1025,9 +1028,9 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
 
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('defaultThinkingLevel')}</div>
-            <div className="quickforge-settings-row-description">
-              {selectedModel?.reasoning ? t('defaultThinkingLevelDescription') : t('thinkingRequiresReasoningModel')}
+            <div className="quickforge-settings-row-title">
+              {t('defaultThinkingLevel')}
+              <InfoTip label={selectedModel?.reasoning ? t('defaultThinkingLevelDescription') : t('thinkingRequiresReasoningModel')} />
             </div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-compact">
@@ -1047,7 +1050,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
               {t('toolDisplay')}
               <InfoTip label={t('toolDisplayModeDescription')} />
             </div>
-            <div className="quickforge-settings-row-description">{t('toolDisplayModeDescription')}</div>
           </div>
           <div className="quickforge-settings-row-control">
             <div className="quickforge-settings-segmented" role="group" aria-label={t('toolDisplay')}>
@@ -1062,7 +1064,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
               {t('expandProcessStageByDefault')}
               <InfoTip label={t('expandProcessStageByDefaultDescription')} />
             </div>
-            <div className="quickforge-settings-row-description">{t('expandProcessStageByDefaultDescription')}</div>
           </div>
           <div className="quickforge-settings-row-control">
             <SettingsSwitch checked={expandProcessStageByDefault} onChange={updateExpandProcessStageByDefault} />
@@ -1073,9 +1074,8 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
           <div className="quickforge-settings-row-main">
             <div className="quickforge-settings-row-title">
               {t('systemNotifications')}
-              <InfoTip label={t('systemNotificationsDescription')} />
+              <InfoTip label={`${t('systemNotificationsDescription')} ${systemNotificationStatusText()}`} />
             </div>
-            <div className="quickforge-settings-row-description">{systemNotificationStatusText()}</div>
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
             {systemNotificationsEnabled ? (
@@ -1100,7 +1100,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
               {t('showContextUsage')}
               <InfoTip label={t('showContextUsageDescription')} />
             </div>
-            <div className="quickforge-settings-row-description">{t('showContextUsageDescription')}</div>
           </div>
           <div className="quickforge-settings-row-control">
             <SettingsSwitch checked={showContextUsage} onChange={updateShowContextUsage} />
@@ -1111,9 +1110,8 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
           <div className="quickforge-settings-row-main">
             <div className="quickforge-settings-row-title">
               {t('autoArchiveEnabled')}
-              <InfoTip label={t('autoArchiveDescription')} />
+              <InfoTip label={`${t('autoArchiveDescription')} ${t('autoArchiveTriggerNote')}`} />
             </div>
-            <div className="quickforge-settings-row-description">{t('autoArchiveTriggerNote')}</div>
           </div>
           <div className="quickforge-settings-row-control">
             <SettingsSwitch checked={autoArchiveEnabled} onChange={updateAutoArchiveEnabled} />
@@ -1124,9 +1122,8 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
           <div className="quickforge-settings-row-main">
             <div className="quickforge-settings-row-title">
               {t('autoCompactEnabled')}
-              <InfoTip label={t('autoCompactDescription')} />
+              <InfoTip label={`${t('autoCompactDescription')} ${t('autoCompactTriggerNote')}`} />
             </div>
-            <div className="quickforge-settings-row-description">{t('autoCompactTriggerNote')}</div>
           </div>
           <div className="quickforge-settings-row-control">
             <SettingsSwitch checked={autoCompactEnabled} onChange={updateAutoCompactEnabled} />
@@ -1135,8 +1132,10 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
 
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('autoCompactRequireConfirmation')}</div>
-            <div className="quickforge-settings-row-description">{t('autoCompactRequireConfirmationDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('autoCompactRequireConfirmation')}
+              <InfoTip label={t('autoCompactRequireConfirmationDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control">
             <SettingsSwitch
@@ -1149,8 +1148,10 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
 
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('autoCompactThresholdPercent')}</div>
-            <div className="quickforge-settings-row-description">{t('autoCompactThresholdDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('autoCompactThresholdPercent')}
+              <InfoTip label={t('autoCompactThresholdDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control">
             <SettingsNumberInput
@@ -1171,9 +1172,8 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
           <div className="quickforge-settings-row-main">
             <div className="quickforge-settings-row-title">
               {t('autoCompactKeepRecentTurns')}
-              <InfoTip label={t('autoCompactHistoryPreserved')} />
+              <InfoTip label={`${t('autoCompactHistoryPreserved')} ${t('autoCompactKeepRecentTurnsDescription')}`} />
             </div>
-            <div className="quickforge-settings-row-description">{t('autoCompactKeepRecentTurnsDescription')}</div>
           </div>
           <div className="quickforge-settings-row-control">
             <SettingsNumberInput
@@ -1192,8 +1192,10 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
 
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('goalMaxIterations')}</div>
-            <div className="quickforge-settings-row-description">{t('goalMaxIterationsDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('goalMaxIterations')}
+              <InfoTip label={t('goalMaxIterationsDescription')} />
+            </div>
           </div>
           <div className="quickforge-settings-row-control">
             <SettingsNumberInput

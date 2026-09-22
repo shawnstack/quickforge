@@ -3,6 +3,7 @@ import {
   formatProcessDuration,
   isProcessToolsGroupMember,
   assistantProcessSourceHasVisibleError,
+  isFoldableProcessTimelineNode,
   isTopLevelProcessDetail,
   processGroupAnchorIndex,
   processFinishedAtFromMessages,
@@ -16,6 +17,7 @@ import {
   processThinkingChildIndexes,
   processToolSuffixAppendStart,
   processSectionNeedsStage,
+  processTurnFingerprint,
   processTurnUpdateMode,
   resolveProcessExpandedState,
   selectFoldableProcessItems,
@@ -308,6 +310,35 @@ describe('process folding order', () => {
     expect(isTopLevelProcessDetail(topLevel)).toBe(true)
     expect(isTopLevelProcessDetail(nested)).toBe(false)
   })
+
+  it('keeps markdown rendered inside a thinking block out of the foldable timeline', () => {
+    // 回归护栏：运行中点击「思考过程」会展开思考块并在其内部渲染 MarkdownBlock。
+    // 若该节点被折叠收集搬进过程组 step，父链变化会翻转它的顶层判定，于是它每帧
+    // 在「折叠项 / 终答 markdown」之间互翻，整组每帧全量重建并搬动全部节点（页面
+    // 一直重刷/闪烁）。嵌套 detail 必须从收集阶段就排除。
+    const thinkingBlock = { tagName: 'THINKING-BLOCK', closest: () => null }
+    const nested = {
+      closest: () => null,
+      parentElement: { closest: () => thinkingBlock },
+    } as unknown as HTMLElement
+    const topLevel = { closest: () => null, parentElement: null } as unknown as HTMLElement
+
+    expect(isFoldableProcessTimelineNode(nested, true)).toBe(false)
+    expect(isFoldableProcessTimelineNode(topLevel, true)).toBe(true)
+    // 既不是本 assistant 渲染的、也没有折叠追踪记录的节点本就不收集。
+    expect(isFoldableProcessTimelineNode(topLevel, false)).toBe(false)
+  })
+
+  it('still collects folded nodes whose parents are process group scaffolding', () => {
+    // 已在过程组内的节点父链上没有 detail 祖先，仍是顶层 detail：增量追加与指纹
+    // 短路依赖它们持续参与收集，改用「位于过程组内即非顶层」会让每帧全量重建。
+    const grouped = {
+      closest: () => null,
+      parentElement: { closest: () => null },
+    } as unknown as HTMLElement
+
+    expect(isFoldableProcessTimelineNode(grouped, true)).toBe(true)
+  })
 })
 
 describe('single top-level process group', () => {
@@ -428,6 +459,69 @@ describe('nested process stage groups', () => {
     expect(summary).toEqual({ toolCallCount: 3, commandCount: 1, editedFileCount: 0, errorCount: 2 })
     expect(processStageLabel(summary, false)).toBe(
       'processExecuted  processGroupToolsCalled · processGroupCommandsRan · processToolsFailedCount',
+    )
+  })
+})
+
+/**
+ * 指纹用例的最小 fake assistant：`processTurnFingerprint` 只用到 querySelectorAll
+ * （过程组 / 思考块 / detail 节点）与 message bridge；closest 一律返回 null（节点不在
+ * message-list 作用域内时 `isTopLevelProcessDetail` 仍把它当作顶层 detail）。
+ */
+function fingerprintAssistant(nodes: Array<{ tagName: string; className?: string; toolCall?: { id?: string } }>) {
+  const elements = nodes.map(({ tagName, className = '', toolCall }) => ({
+    tagName,
+    className,
+    toolCall,
+    dataset: {} as Record<string, string>,
+    parentElement: null,
+    classList: { contains: (name: string) => className.split(/\s+/).filter(Boolean).includes(name) },
+    closest: () => null,
+  }))
+  const assistant = {
+    message: { role: 'assistant', content: [] },
+    querySelectorAll: (selector: string) => {
+      if (selector === '.quickforge-process-group') return []
+      if (selector === 'thinking-block, .qf-thinking-block') {
+        return elements.filter((node) => node.tagName === 'THINKING-BLOCK')
+      }
+      return elements
+    },
+    closest: () => null,
+  }
+  return {
+    assistants: [assistant] as unknown as Parameters<typeof processTurnFingerprint>[0],
+    elements: elements as unknown as HTMLElement[],
+  }
+}
+
+describe('process turn fingerprint (folded structure only)', () => {
+  it('ignores the final answer markdown so its first appearance cannot trigger a full rebuild', () => {
+    const streaming = fingerprintAssistant([{ tagName: 'THINKING-BLOCK' }])
+    // 思考过程结束、正文开始输出：时间线末尾多出终答 markdown。
+    const withFinalAnswer = fingerprintAssistant([
+      { tagName: 'THINKING-BLOCK' },
+      { tagName: 'DIV', className: 'qf-markdown-block' },
+    ])
+
+    expect(processTurnFingerprint(streaming.assistants)).toBe('1|0:thinking-block')
+    // 不排除终答 markdown 时它被算进指纹 → 判定为结构变化 → 整组 full 重建（思考结束
+    // 瞬间「页面重新刷一下」的来源之一）。
+    expect(processTurnFingerprint(withFinalAnswer.assistants)).toBe('1|0:thinking-block|0:markdown-block')
+    expect(processTurnFingerprint(withFinalAnswer.assistants, withFinalAnswer.elements[1])).toBe('1|0:thinking-block')
+  })
+
+  it('still counts foldable intermediate markdown as structure', () => {
+    const withStage = fingerprintAssistant([
+      { tagName: 'THINKING-BLOCK' },
+      { tagName: 'DIV', className: 'qf-markdown-block' },
+      { tagName: 'DIV', className: 'qf-tool-message', toolCall: { id: 'call-1' } },
+      { tagName: 'DIV', className: 'qf-markdown-block' },
+    ])
+
+    // 中间 markdown 是可折叠过程段：即使排除了末尾终答 markdown，它仍在指纹里。
+    expect(processTurnFingerprint(withStage.assistants, withStage.elements[3])).toBe(
+      '1|0:thinking-block|0:markdown-block|0:tool-message:call-1',
     )
   })
 })

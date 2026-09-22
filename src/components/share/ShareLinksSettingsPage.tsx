@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Copy, Edit3, ExternalLink, Link2, MoreHorizontal, Power, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import { InfoTip } from '@/components/ui/info-tip'
 import { getDateLocale, t } from '@/lib/i18n'
 import { copyTextToClipboard } from '@/lib/message-utils'
 import {
@@ -354,8 +355,7 @@ export function ShareLinksSettingsPage() {
     <div className="quickforge-settings-stack">
       <div className="quickforge-settings-heading">
         <div>
-          <h2 className="quickforge-settings-title"><Link2 className="size-5" />{t('shareLinks')}</h2>
-          <p className="quickforge-settings-row-description">{t('shareLinksDescription')}</p>
+          <h2 className="quickforge-settings-title"><Link2 className="size-5" />{t('shareLinks')}<InfoTip label={t('shareLinksDescription')} /></h2>
         </div>
         <Button variant="outline" size="sm" onClick={() => void loadShares()} disabled={loading || Boolean(busyShareId)}>
           <RefreshCw className={`mr-2 size-4 ${loading ? 'animate-spin' : ''}`} />{t('refresh')}

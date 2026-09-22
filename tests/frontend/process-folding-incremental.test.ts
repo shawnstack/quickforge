@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 // i18n 由调用方注入（与 process-folding.test.ts 同形状）。
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
 
-import { decorateProcessBlocks } from '../../src/components/chat/panel-decoration/process-folding'
+import { decorateProcessBlocks, decorateProcessThinkingBlocks } from '../../src/components/chat/panel-decoration/process-folding'
 
 /**
  * full 路径的增量收尾护栏：组仍存活、结构变化只是「时间线末尾追加连续工具行」
@@ -174,6 +174,12 @@ class FakeNode {
     const index = reference ? this.children.indexOf(reference) : this.children.length
     this.children.splice(index < 0 ? this.children.length : index, 0, node)
     return node
+  }
+
+  /** 真实 DOM 语义：思考头接管（decorateProcessThinkingBlocks）用 prepend 插入图标槽位。 */
+  prepend(...nodes: FakeNode[]): FakeNode {
+    nodes.reverse().forEach((node) => this.insertBefore(node, this.children[0] ?? null))
+    return nodes[0] as FakeNode
   }
 
   detach(node: FakeNode) {
@@ -396,5 +402,68 @@ describe('process folding incremental suffix fold (full path, surviving group)',
     expect(rebuilt).not.toBe(group)
     expect(rowsStepOf(rebuilt).children).toEqual([tree.tool1, tree.tool2])
     expect(tool3.isConnected).toBe(false)
+  })
+})
+
+/**
+ * 跨 assistant 折叠下的思考节点序号（ordinal）：源 assistant 渲染的思考节点被搬进
+ * 其它 assistant 的组后已不在其子树内，但它的序号仍属于源 assistant 的思考序列，
+ * 必须参与「新渲染节点接续编号」的 seed——否则新节点从 0 重新编号并与被搬走的旧
+ * 节点撞号，尾行提示（thinking-hint 按 `thinkingSources.index` 取段）会取到别的
+ * 思考段。
+ *
+ * 直接调 decorateProcessThinkingBlocks：本文件 fake DOM 不解析 summary innerHTML，
+ * updateProcessGroup 在 label 刷新前提前 return（见文件头说明），折叠路径与序号
+ * 记账（collectProcessTimeline 在装饰前完成）不受影响。
+ */
+describe('cross-assistant folded thinking keeps its source ordinal', () => {
+  function thinkingBlock() {
+    const block = el('div', 'qf-thinking-block thinking-block')
+    const header = block.append(el('button', 'thinking-header flex cursor-pointer select-none items-center'))
+    header.append(el('svg', 'inline-block size-4 transition-transform'))
+    header.append(el('span', ''))
+    return block
+  }
+
+  function hintTextOf(block: FakeNode): string | null {
+    const header = block.querySelector('.thinking-header') as FakeNode
+    const hint = header.children.find((child) => child.dataset.quickforgeThinkingRole === 'hint')
+    return hint?.getAttribute('text') ?? null
+  }
+
+  it('numbers a newly rendered thinking block after the one folded under another assistant', () => {
+    const panel = el('div', 'qf-chat-panel')
+    panel.connectedRoot = true
+    const list = panel.append(el('div', 'qf-message-list'))
+    const assistantA = list.append(el('div', 'qf-assistant-message'))
+    assistantA.append(el('div', 'px-4 flex flex-col')).append(thinkingBlock())
+
+    const assistantB = list.append(el('div', 'qf-assistant-message')) as FakeNode & { message?: unknown; isStreaming?: boolean }
+    assistantB.isStreaming = true
+    assistantB.message = { role: 'assistant', content: [{ type: 'thinking', thinking: 'first\nfirst line\n' }] }
+    const contentB = assistantB.append(el('div', 'px-4 flex flex-col'))
+    const firstThinking = contentB.append(thinkingBlock())
+
+    // 第一段思考被折叠进 A 的组（跨 assistant 折叠：锚点落在 A）。
+    decorateProcessBlocks(panel, [assistantA, assistantB], true)
+    expect(firstThinking.closest('.quickforge-process-group')).toBeTruthy()
+
+    // B 渲染出第二段思考块（React 追加子节点，旧节点仍在 A 的组里）。
+    assistantB.message = {
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'first\nfirst line\n' },
+        { type: 'thinking', thinking: 'second\nsecond line\n' },
+      ],
+    }
+    const secondThinking = contentB.append(thinkingBlock())
+    decorateProcessBlocks(panel, [assistantA, assistantB], true)
+
+    expect(secondThinking.closest('.quickforge-process-group')).toBeTruthy()
+    panel.querySelectorAll('.quickforge-process-group').forEach((group) => {
+      decorateProcessThinkingBlocks(group as never)
+    })
+    // 第二段思考块必须映射到第二段文本；撞号（序号 0）会退化成 'first line'。
+    expect(hintTextOf(secondThinking)).toBe('second line')
   })
 })

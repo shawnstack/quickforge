@@ -771,8 +771,10 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
           {t('back')}
         </button>
         <div className="quickforge-settings-row-main">
-          <div className="quickforge-settings-row-title">{editingProviderId ? t('editCustomModel') : t('addCustomModel')}</div>
-          <div className="quickforge-settings-row-description">{t('customModelsDescription')}</div>
+          <div className="quickforge-settings-row-title">
+            {editingProviderId ? t('editCustomModel') : t('addCustomModel')}
+            <InfoTip label={t('customModelsDescription')} />
+          </div>
         </div>
       </div>
 
@@ -926,8 +928,10 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
       <section className="quickforge-settings-section" aria-label={t('customModelsTitle')}>
         <div className="quickforge-settings-toolbar">
           <div>
-            <div className="quickforge-settings-row-title">{t('customModelsTitle')}</div>
-            <div className="quickforge-settings-row-description">{t('customModelsDescription')}</div>
+            <div className="quickforge-settings-row-title">
+              {t('customModelsTitle')}
+              <InfoTip label={t('customModelsDescription')} />
+            </div>
           </div>
           <button
             className="quickforge-settings-button quickforge-settings-button-primary"

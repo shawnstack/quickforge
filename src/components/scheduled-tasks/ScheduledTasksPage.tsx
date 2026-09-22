@@ -709,8 +709,10 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
               <ArrowLeft className="mr-2 size-4" />{t('back')}
             </button>
             <div className="quickforge-settings-row-main">
-              <div className="quickforge-settings-row-title">{editingTask ? t('editTask') : t('createTask')}</div>
-              <div className="quickforge-settings-row-description">{t('scheduledTasksDescription')}</div>
+              <div className="quickforge-settings-row-title">
+                {editingTask ? t('editTask') : t('createTask')}
+                <InfoTip label={t('scheduledTasksDescription')} />
+              </div>
             </div>
           </div>
 
@@ -1024,8 +1026,8 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
                   <div className="quickforge-settings-row-title">
                     <Clock className="size-4 text-primary" />
                     {t('scheduledTasks')}
+                    <InfoTip label={t('scheduledTasksDescription')} />
                   </div>
-                  <div className="quickforge-settings-row-description">{t('scheduledTasksDescription')}</div>
                   <div className="quickforge-settings-meta">
                     <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('tasksCount', { total: tasks.length, enabled: enabledCount })}</span>
                   </div>

@@ -64,6 +64,13 @@ const FILE_EDIT_TOOL_NAMES = new Set(['edit_file', 'write_file'])
 const processExpandedStates = new WeakMap<HTMLElement, Map<string, boolean>>()
 const processScopeIds = new WeakMap<HTMLElement, number>()
 const groupedProcessNodeSequences = new WeakMap<ProcessGroupElement, GroupedProcessNode[]>()
+/**
+ * Folding moves process nodes under the group's anchor assistant.  Keep the
+ * rendered source separately so code which runs after the move never treats
+ * that host as the node's owner.
+ */
+const processNodeOwners = new WeakMap<HTMLElement, AssistantMessageElement>()
+const processThinkingSources = new WeakMap<HTMLElement, { assistant: AssistantMessageElement; index: number }>()
 let nextProcessScopeId = 1
 
 function getProcessExpandedStates(panel: HTMLElement) {
@@ -388,10 +395,128 @@ export function processThinkingChildIndexes(children: ProcessThinkingChild[]) {
   }
 }
 
+/** 尾行提示的展示行长度上限：跑马灯按它测量滚动距离，超长行截断（按码点，不劈代理对）。 */
+const PROCESS_THINKING_HINT_MAX_CHARS = 500
+/** 同一行内文本增长的写入节流窗口：窗口内零 DOM 写；行切换 / 可见性变化立即写不受节流。 */
+const PROCESS_THINKING_HINT_THROTTLE_MS = 300
+const PROCESS_THINKING_HINT_CLASS = 'quickforge-process-thinking-hint'
+const PROCESS_THINKING_HINT_VISIBLE_CLASS = 'quickforge-process-thinking-hint-visible'
+const PROCESS_THINKING_HINT_IN_CLASS = 'quickforge-process-thinking-hint-in'
+
+/** 尾行提示的逐元素同步状态：当前展示行的身份（段行号）与上次实际写入的时间戳。 */
+type ProcessThinkingHintState = {
+  lineIndex: number
+  lastWriteAt: number
+}
+const processThinkingHintStates = new WeakMap<HTMLElement, ProcessThinkingHintState>()
+
+/** 最后一个非空段（含进行中未换行的行）与其行号（行身份）；无任何非空段返回 null。 */
+function latestThinkingSegment(content: string): { lineIndex: number; text: string } | null {
+  const lines = content.split('\n')
+  for (let lineIndex = lines.length - 1; lineIndex >= 0; lineIndex -= 1) {
+    const line = lines[lineIndex]?.trim() ?? ''
+    if (line) return { lineIndex, text: Array.from(line).slice(0, PROCESS_THINKING_HINT_MAX_CHARS).join('') }
+  }
+  return null
+}
+
+/**
+ * 尾行提示取段规则：按换行切分取最后一个非空段——含进行中尚未换行的行（无换行/
+ * 长首行思考从首个 token 起即可见）；无任何非空段返回 ''。超长按码点截 500 不劈
+ * 代理对。行身份（段行号）由 latestThinkingSegment 一并返回，供同步层区分
+ * 「行切换」（重触发淡入）与「同一行内增长」（只更新文本、按时间窗节流）。
+ */
+export function latestThinkingLine(content: string): string {
+  return latestThinkingSegment(content)?.text ?? ''
+}
+
+/** AssistantMessage 的 DOM bridge（根元素 `message` 属性）里的 thinking 累积文本，按渲染顺序。 */
+function assistantThinkingTexts(assistant: AssistantMessageElement | null): string[] {
+  const content = assistant?.message?.content
+  if (!Array.isArray(content)) return []
+  const texts: string[] = []
+  for (const chunk of content) {
+    if (!isRecord(chunk) || chunk.type !== 'thinking') continue
+    if (typeof chunk.thinking === 'string' && chunk.thinking.trim() !== '') texts.push(chunk.thinking)
+  }
+  return texts
+}
+
+/**
+ * 思考块 → 其对应 thinking 累积文本的最新非空段（行身份 + 文本）：React 表面按
+ * message.content 顺序渲染非空 thinking 段（assistantContentParts），assistant 子树内
+ * 的思考块（文档序）与之一一对应。仅流式（bridge `isStreaming`）且能定位到对应
+ * 文本时返回该段，否则 null。
+ */
+function processThinkingHintSegment(thinkingBlock: HTMLElement): { lineIndex: number; text: string } | null {
+  const source = processThinkingSources.get(thinkingBlock)
+  const assistant = source?.assistant
+    ?? thinkingBlock.closest<AssistantMessageElement>('assistant-message, .qf-assistant-message')
+  if (!assistant || assistant.isStreaming !== true) return null
+  const index = source?.index ?? Array.from(assistant.querySelectorAll<HTMLElement>('thinking-block, .qf-thinking-block'))
+    .filter((node) => node.closest(MESSAGE_LIST_SCOPE_SELECTOR) === assistantMessageList(assistant))
+    .indexOf(thinkingBlock)
+  if (index < 0) return null
+  return latestThinkingSegment(assistantThinkingTexts(assistant)[index] ?? '')
+}
+
+/**
+ * 尾行提示（header 第四槽位，quickforge-tool-marquee 自定义元素）的逐帧幂等同步：
+ * 流式且思考块收起时显示最新一段思考文字（含进行中未换行的行）；行身份（段行号）
+ * 变化时更新 text 并重触发淡入，同一行内文本增长只更新 text、不重触发淡入，并按
+ * ~300ms 时间窗节流——窗口内零 DOM 写（帧内容未变零写契约的节流版），行切换、
+ * 流式结束、可见性变化立即写不受节流；只比较上次写入时间戳，无逐帧定时器（rAF
+ * decorate 自然驱动）。流式结束 / 展开时整体淡出（类切换驱动 CSS 过渡，保留占位）。
+ * 溢出滚动由 marquee 元素自身接管（text/running attribute 传参，先例见
+ * QuickForgeToolMarquee）。其余写入仍以值比较守卫：帧内容未变时（含 hint 未变）
+ * 零 DOM 写（本节流与动效无关，reduced-motion 下行为不变）。
+ */
+function syncProcessThinkingHint(header: HTMLElement, thinkingBlock: HTMLElement, chevron: Element) {
+  const hint = Array.from(header.children).find(
+    (child) => (child as HTMLElement).dataset.quickforgeThinkingRole === 'hint',
+  ) as HTMLElement | undefined
+  if (!hint) return
+  const expanded = chevron.classList.contains('quickforge-process-thinking-chevron-expanded')
+    || chevron.classList.contains('rotate-90')
+  const segment = expanded ? null : processThinkingHintSegment(thinkingBlock)
+  const text = segment?.text ?? ''
+  const lineIndex = segment?.lineIndex ?? -1
+  const visible = text !== ''
+  const wasVisible = hint.classList.contains(PROCESS_THINKING_HINT_VISIBLE_CLASS)
+  const previousText = hint.getAttribute('text') ?? ''
+  const previousState = processThinkingHintStates.get(hint)
+  const previousLineIndex = previousState?.lineIndex ?? -1
+  const lastWriteAt = previousState?.lastWriteAt ?? 0
+  const now = Date.now()
+
+  const runningChanged = hint.getAttribute('running') !== String(visible)
+  const textChanged = previousText !== text
+  const visibleChanged = visible !== wasVisible
+  // 行切换判定用行身份（段行号）而非文本差异：同一行内增长不重触发淡入。
+  const lineSwitched = visible && wasVisible && previousText !== '' && previousLineIndex !== lineIndex
+  // 同一行内增长按时间窗节流：窗口内直接跳过（零 DOM 写），窗口过后放行一次 text 更新。
+  if (visible && wasVisible && !lineSwitched && textChanged
+    && now - lastWriteAt < PROCESS_THINKING_HINT_THROTTLE_MS) return
+
+  if (runningChanged) hint.setAttribute('running', String(visible))
+  if (textChanged) hint.setAttribute('text', text)
+  if (visibleChanged) hint.classList.toggle(PROCESS_THINKING_HINT_VISIBLE_CLASS, visible)
+  if (lineSwitched) {
+    // 行切换：移除→读一次布局使样式失效→重加，重触发进入动画（keyframes 见 index.css）。
+    hint.classList.remove(PROCESS_THINKING_HINT_IN_CLASS)
+    void (hint as HTMLElement & { offsetWidth?: number }).offsetWidth
+    hint.classList.add(PROCESS_THINKING_HINT_IN_CLASS)
+  }
+  if (runningChanged || textChanged || visibleChanged || lineSwitched) {
+    processThinkingHintStates.set(hint, { lineIndex, lastWriteAt: now })
+  }
+}
+
 /**
  * 思考头接管契约（勿破坏）：过程组内被搬移的 React `ThinkingBlock` 原生头必须在这里
- * 补上 `quickforge-process-thinking-header` 并重排为 [icon, label, chevron]，可见性规则
- * 才认得它。导出供 `tests/frontend/thinking-header-adoption.test.ts` 用真实 React DOM
+ * 补上 `quickforge-process-thinking-header` 并重排为 [icon, label, chevron, hint]（第四
+ * 槽位为流式尾行提示），可见性规则才认得它。导出供
+ * `tests/frontend/thinking-header-adoption.test.ts` 用真实 React DOM
  * 形态（header.children = [svg, span]）跑接管路径。
  */
 export function decorateProcessThinkingBlocks(group: ProcessGroupElement) {
@@ -422,49 +547,67 @@ export function decorateProcessThinkingBlocks(group: ProcessGroupElement) {
       child.dataset.quickforgeThinkingRole === 'icon'
       || child.classList.contains('quickforge-process-thinking-icon')
     ))
+    let hint = children.find((child) => child.dataset.quickforgeThinkingRole === 'hint')
 
     /*
-     * 幂等短路（接管契约见上，勿破坏）：流式期间本函数每帧重跑，下方写路径会
-     * 每帧重写 label.textContent（销毁重建文本节点）并 prepend/append 重排 header
-     * 子级，与点击事件派发竞态（点击“思考过程”文字无法展开；同问题的先例见
-     * shouldToggleProcessSummary 的 pointerdown 优先策略）。header 已接管、三个
-     * 槽位类名就位、文案一致且子级顺序已是 [icon, label, chevron] 时，跳过全部
-     * DOM 写操作。React 重渲染会整体重写 chevron/label 的 class 属性，届时下列
-     * 条件自然失效，回落到完整接管路径恢复装饰状态。
+     * 最小写路径（接管契约见上，勿破坏）：流式期间本函数每帧重跑，而 React 会在
+     * `isStreaming` 翻转（思考段结束/开始）等时机整体重写 chevron / label 的 class
+     * 属性（思考 shimmer、rotate-90）——此时四个槽位与子级顺序其实都已经正确。
+     * 旧实现对此无条件重写 `label.textContent`（销毁重建文本节点）并
+     * `prepend` / `append` 重排 header 子级（移动节点＝重启其 CSS 动画，例如第四槽位
+     * hint 的淡入与跑马灯滚入），于是「思考过程结束」那一帧整行抖一下；无条件重排也
+     * 与点击事件派发竞态（点击“思考过程”文字无法展开；同问题的先例见
+     * shouldToggleProcessSummary 的 pointerdown 优先策略）。
+     * 因此下面每一项都按需写：属性 / 文案只在值不同时写，子级重排只在顺序真的不对时
+     * 执行。已接管且 React 未插手的帧保持零 DOM 写（流式每帧重跑的幂等短路）。
+     * 结尾统一跑 syncProcessThinkingHint：提示文本在流式期间随最新非空段变化（同一
+     * 行内增长另有 ~300ms 节流窗口），其写入自身幂等（帧内容未变零 DOM 写）。
      */
-    if (
-      icon
-      && header.classList.contains('quickforge-process-thinking-header')
-      && icon.classList.contains('quickforge-process-thinking-icon')
-      && label.classList.contains('quickforge-process-thinking-label')
-      && chevron.classList.contains('quickforge-process-thinking-chevron')
-      && label.textContent === t('processThinking')
-      && header.children.length === 3
-      && header.children[0] === icon
-      && header.children[1] === label
-      && header.children[2] === chevron
-    ) return
-
-    chevron.dataset.quickforgeThinkingRole = 'chevron'
-    label.dataset.quickforgeThinkingRole = 'label'
+    if (chevron.dataset.quickforgeThinkingRole !== 'chevron') chevron.dataset.quickforgeThinkingRole = 'chevron'
+    if (label.dataset.quickforgeThinkingRole !== 'label') label.dataset.quickforgeThinkingRole = 'label'
     // SVGElement.className 是只读的 SVGAnimatedString（严格模式下赋值直接抛错），
-    // 接管必须写 class 属性：两种形态（span 包裹 / svg 本体）都适用。
-    chevron.setAttribute('class', 'quickforge-process-thinking-chevron')
-    chevron.classList.toggle('quickforge-process-thinking-chevron-expanded', chevronExpanded)
-    label.setAttribute('class', 'quickforge-process-thinking-label')
-    label.textContent = t('processThinking')
+    // 接管必须写 class 属性：两种形态（span 包裹 / svg 本体）都适用。React 重写的
+    // rotate-90 由 chevronExpanded 折进 expanded 类（视觉等价，见 processThinkingChildIndexes）。
+    const chevronClass = `quickforge-process-thinking-chevron${chevronExpanded ? ' quickforge-process-thinking-chevron-expanded' : ''}`
+    if (chevron.getAttribute('class') !== chevronClass) chevron.setAttribute('class', chevronClass)
+    if (label.getAttribute('class') !== 'quickforge-process-thinking-label') {
+      label.setAttribute('class', 'quickforge-process-thinking-label')
+    }
+    const labelText = t('processThinking')
+    if (label.textContent !== labelText) label.textContent = labelText
 
     if (!icon) {
       icon = document.createElement('span')
       icon.setAttribute('aria-hidden', 'true')
       icon.innerHTML = thinkingIconMarkup()
     }
-    icon.dataset.quickforgeThinkingRole = 'icon'
-    icon.classList.add('quickforge-process-thinking-icon')
+    if (icon.dataset.quickforgeThinkingRole !== 'icon') icon.dataset.quickforgeThinkingRole = 'icon'
+    if (!icon.classList.contains('quickforge-process-thinking-icon')) {
+      icon.classList.add('quickforge-process-thinking-icon')
+    }
 
-    header.prepend(icon)
-    header.append(label, chevron)
-    header.className = 'thinking-header quickforge-process-thinking-header'
+    if (!hint) {
+      // 第四槽位（尾行提示）：quickforge-tool-marquee 自定义元素（shared.tsx 注册，
+      // attribute 传参驱动），溢出滚动与行切换滚入由其内部 ToolMarqueeController 接管。
+      hint = document.createElement('quickforge-tool-marquee')
+      hint.dataset.quickforgeThinkingRole = 'hint'
+      hint.setAttribute('aria-hidden', 'true')
+      hint.setAttribute('class', PROCESS_THINKING_HINT_CLASS)
+    }
+
+    const ordered = header.children.length === 4
+      && header.children[0] === icon
+      && header.children[1] === label
+      && header.children[2] === chevron
+      && header.children[3] === hint
+    if (!ordered) {
+      header.prepend(icon)
+      header.append(label, chevron, hint)
+    }
+    if (!header.classList.contains('quickforge-process-thinking-header')) {
+      header.className = 'thinking-header quickforge-process-thinking-header'
+    }
+    syncProcessThinkingHint(header, thinkingBlock, chevron)
   })
 }
 
@@ -539,6 +682,20 @@ export function processStageDefaultExpanded() {
   return getCachedToolDisplaySettings().expandProcessStageByDefault === true
 }
 
+/**
+ * stage 内存在正在流式的思考块（其 closest assistant bridge `isStreaming === true`）
+ * 时强制默认展开：正在生成的思考行（含尾行提示 hint）不可因「工具调用列表默认
+ * 收起」的设置而被收起的 stage（index.css visibility:hidden）藏起来。只覆盖
+ * 「设置默认值」这一档——用户手动收起的 saved state 仍优先
+ * （resolveProcessExpandedState），流式结束后（组释放重建）回归设置默认。
+ */
+function processStageHasStreamingThinking(stageBody: HTMLElement) {
+  return Array.from(stageBody.querySelectorAll<HTMLElement>('thinking-block, .qf-thinking-block'))
+    .some((thinkingBlock) => (processThinkingSources.get(thinkingBlock)?.assistant
+      ?? processNodeOwners.get(thinkingBlock)
+      ?? thinkingBlock.closest<AssistantMessageElement>('assistant-message, .qf-assistant-message'))?.isStreaming === true)
+}
+
 export function processStageStateKey(processKey: string, index: number) {
   return `${processKey}:stage:${index}`
 }
@@ -561,11 +718,13 @@ function updateProcessStageGroups(
     const stageBodyId = `quickforge-${stageKey.replace(/[^a-z0-9_-]+/gi, '-')}`
     const previousStageKey = stage.dataset.quickforgeProcessKey
     stage.dataset.quickforgeProcessKey = stageKey
+    // 正在流式的思考块所在 stage 默认强制展开（设置默认收起也不藏流式思考行）；
+    // saved state（用户手动开合）与增量 key 命中仍优先（resolveProcessExpandedState）。
     const expanded = resolveProcessExpandedState(
       getProcessExpandedStates(panel).get(stageKey),
       previousStageKey === stageKey,
       stage.dataset.expanded === 'true',
-      processStageDefaultExpanded(),
+      processStageDefaultExpanded() || processStageHasStreamingThinking(stageBody),
     )
     stage.dataset.expanded = String(expanded)
     const stageStreaming = isAgentStreaming && index === stages.length - 1
@@ -660,6 +819,25 @@ export function isTopLevelProcessDetail(node: HTMLElement) {
   return !parentProcessDetail || parentProcessDetail.closest(MESSAGE_LIST_SCOPE_SELECTOR) !== processScope
 }
 
+/**
+ * 折叠收集准入：只有顶层 process detail 才是折叠单位，嵌套在其它 detail 内的节点
+ * 不是——典型是展开的思考块内部由 React 渲染的思考正文 markdown（`ThinkingBlock`
+ * 展开时渲染 `MarkdownBlock`，其 tag/class 都在 `PROCESS_DETAIL_NODE_SELECTOR` 里）。
+ *
+ * 把它当折叠项收集会把它搬进过程组的 step：父链一变，`markdownCandidates` 的顶层
+ * 判定随之翻转（`parentElement.closest(PROCESS_NODE_SELECTOR)` 不再命中 thinking
+ * block），它又被选中为终答 markdown 并从折叠项里剔除；下一帧 full 路径的
+ * `restoreProcessTurn` 再把它送回 thinking 块，于是「收集→搬走→判为终答→归还」每帧
+ * 互翻，整组每帧全量重建、每个被折叠节点每帧被搬动两次并重启其 CSS 动画，表现为
+ * 运行中点击「思考过程」后页面一直重刷/闪烁。
+ *
+ * 已在过程组内的节点父链上没有 detail 祖先，仍算顶层并被收集（增量更新与指纹短路
+ * 依赖这些节点持续参与收集），所以这里不能改用「是否位于过程组内」来判定。
+ */
+export function isFoldableProcessTimelineNode(node: HTMLElement, trackedOrOwned: boolean) {
+  return trackedOrOwned && isTopLevelProcessDetail(node)
+}
+
 function markdownCandidates(target: AssistantMessageElement) {
   const processScope = assistantMessageList(target)
   return Array.from(target.querySelectorAll<HTMLElement>('markdown-block, .qf-markdown-block'))
@@ -717,14 +895,68 @@ function collectProcessTimeline(assistants: AssistantMessageElement[]) {
     })
   })
 
+  const thinkingIndexes = new Map<AssistantMessageElement, number>()
+  const thinkingIndexByNode = new Map<HTMLElement, number>()
+  // Re-collect can see an already moved node below the anchor assistant before
+  // it sees newly rendered nodes in the source assistant.  Existing source
+  // indexes therefore seed the suffix; when React rendered a full replacement,
+  // the direct nodes fill the complete non-empty thinking sequence from zero.
+  assistants.forEach((assistant) => {
+    const thinkingNodes = Array.from(assistant.querySelectorAll<HTMLElement>('thinking-block, .qf-thinking-block'))
+    const directNodes = thinkingNodes.filter((node) => !previousByNode.has(node))
+    // 跨 assistant 折叠后，本 assistant 渲染的思考节点已不在其子树内（被搬进其它
+    // assistant 的组），但它们的既有序号同样属于本 assistant 的序号序列——必须一起
+    // 参与 seed，否则新渲染的节点会从 0 重新编号并与旧节点序号冲突（尾行提示会取到
+    // 别的思考段，替换判定也会误判）。
+    const foldedElsewhere = Array.from(previousByNode.values())
+      .filter((item) => item.sourceAssistant === assistant && isProcessNodeKind(item.node, 'thinking-block'))
+      .map((item) => item.node)
+    const knownIndexes = [...thinkingNodes, ...foldedElsewhere]
+      .map((node) => processThinkingSources.get(node))
+      .filter((source): source is { assistant: AssistantMessageElement; index: number } => source !== undefined && source.assistant === assistant)
+      .map((source) => source.index)
+    const expectedCount = assistantThinkingTexts(assistant).length
+    const startIndex = directNodes.length >= expectedCount ? 0 : (Math.max(-1, ...knownIndexes) + 1)
+    directNodes.forEach((node, index) => thinkingIndexByNode.set(node, startIndex + index))
+    thinkingIndexes.set(assistant, startIndex + directNodes.length)
+  })
+  const sourceAssistantForNode = (node: HTMLElement, renderedAssistant: AssistantMessageElement) => (
+    previousByNode.get(node)?.sourceAssistant
+      ?? processNodeOwners.get(node)
+      ?? renderedAssistant
+  )
+
   return assistants.flatMap((renderedAssistant) => (
     Array.from(renderedAssistant.querySelectorAll<HTMLElement>(PROCESS_DETAIL_NODE_SELECTOR))
-      .filter((node) => processDetailIsInAssistantScope(node, renderedAssistant))
-      .map((node) => previousByNode.get(node) ?? {
-        node,
-        sourceAssistant: renderedAssistant,
-        sourceParent: node.parentElement,
-        sourceNextSibling: node.nextSibling,
+      .filter((node) => {
+        const owner = sourceAssistantForNode(node, renderedAssistant)
+        // A node moved into another assistant remains visible below the host;
+        // collect it once, under the assistant that originally rendered it.
+        // Nested details (thinking markdown rendered inside a thinking block)
+        // are never fold units — see isFoldableProcessTimelineNode.
+        return isFoldableProcessTimelineNode(node, previousByNode.has(node) || owner === renderedAssistant)
+      })
+      .map((node) => {
+        const sourceAssistant = sourceAssistantForNode(node, renderedAssistant)
+        const previous = previousByNode.get(node)
+        if (isProcessNodeKind(node, 'thinking-block')) {
+          const previousSource = processThinkingSources.get(node)
+          const index = previousSource?.assistant === sourceAssistant
+            ? previousSource.index
+            : thinkingIndexByNode.get(node) ?? thinkingIndexes.get(sourceAssistant) ?? 0
+          if (!previousSource || previousSource.assistant !== sourceAssistant || previousSource.index !== index) {
+            thinkingIndexes.set(sourceAssistant, Math.max(thinkingIndexes.get(sourceAssistant) ?? 0, index + 1))
+            processThinkingSources.set(node, { assistant: sourceAssistant, index })
+          }
+        }
+        const item = previous ?? {
+          node,
+          sourceAssistant,
+          sourceParent: node.parentElement,
+          sourceNextSibling: node.nextSibling,
+        }
+        processNodeOwners.set(node, sourceAssistant)
+        return item
       })
   ))
 }
@@ -787,7 +1019,9 @@ function groupedProcessNodes(group: ProcessGroupElement): GroupedProcessNode[] {
       .filter((node) => node.closest(PROCESS_GROUP_SELECTOR) === group)
       .map((node) => ({
         node,
-        sourceAssistant: group.closest<AssistantMessageElement>('assistant-message, .qf-assistant-message') ?? group.parentElement as AssistantMessageElement,
+        sourceAssistant: processNodeOwners.get(node)
+          ?? group.closest<AssistantMessageElement>('assistant-message, .qf-assistant-message')
+          ?? group.parentElement as AssistantMessageElement,
         sourceParent: group.parentElement,
         sourceNextSibling: group,
       }))
@@ -837,14 +1071,23 @@ function groupedProcessNodeHasCurrentReplacement(item: GroupedProcessNode) {
   const toolCallId = nodeKind === 'tool-message'
     ? (item.node as ToolMessageElement).toolCall?.id
     : undefined
-  return Array.from(item.sourceAssistant.querySelectorAll<HTMLElement>(PROCESS_NODE_SELECTOR))
-    .filter((node) => node !== item.node && !node.closest(PROCESS_GROUP_SELECTOR))
+  const currentNodes = Array.from(item.sourceAssistant.querySelectorAll<HTMLElement>(PROCESS_NODE_SELECTOR))
+    .filter((node) => !node.closest(PROCESS_GROUP_SELECTOR))
     .filter((node) => processDetailIsInAssistantScope(node, item.sourceAssistant))
-    .some((node) => {
-      if (processNodeKind(node) !== nodeKind) return false
-      if (nodeKind !== 'tool-message' || !toolCallId) return true
-      return (node as ToolMessageElement).toolCall?.id === toolCallId
-    })
+  if (nodeKind === 'thinking-block') {
+    const source = processThinkingSources.get(item.node)
+    if (!source) return false
+    const thinkingNodes = currentNodes.filter((node) => isProcessNodeKind(node, 'thinking-block'))
+    // A source assistant can legitimately have no direct thinking node while
+    // its old node is folded under another assistant.  Only the same source
+    // index constitutes React replacing that node.
+    return thinkingNodes[source.index] !== undefined && thinkingNodes[source.index] !== item.node
+  }
+  return currentNodes.some((node) => {
+    if (processNodeKind(node) !== nodeKind) return false
+    if (nodeKind !== 'tool-message' || !toolCallId) return true
+    return (node as ToolMessageElement).toolCall?.id === toolCallId
+  })
 }
 
 function discardGroupedProcessNode(item: GroupedProcessNode) {
@@ -1142,15 +1385,25 @@ function updateEmptyProcessSources(assistants: AssistantMessageElement[]) {
  * the process group, which is itself inside the assistant), so the counts are
  * unaffected by grouping and the fingerprint is stable before/after a pass.
  */
-function processTurnFingerprint(assistants: AssistantMessageElement[]): string {
+/**
+ * 结构的稳定指纹只描述**折叠结构**：终答 markdown（`finalSummaryMarkdown`，不参与
+ * 折叠）必须排除在指纹之外。它首次出现的那一帧（思考过程结束、正文开始输出）会让
+ * 指纹多出一项，进而被判定为「结构变化」走 full 重建——整组节点被搬动两次、组元素
+ * 连同高度过渡一起重建，观感就是思考结束的瞬间「页面重新刷一下」。排除它之后，
+ * 正文出现只走 `update` / `skip` 快路径（正文本身由 React 渲染，与折叠无关）。
+ * 中间 markdown（可折叠的过程段）仍然计入指纹：它出现/消失确实改变折叠结构。
+ */
+export function processTurnFingerprint(assistants: AssistantMessageElement[], excludeNode: HTMLElement | null = null): string {
   const assistantIndexes = new Map(assistants.map((assistant, index) => [assistant, index]))
-  const parts = collectProcessTimeline(assistants).map(({ node, sourceAssistant }) => {
-    const assistantIndex = assistantIndexes.get(sourceAssistant) ?? 0
-    const nodeKind = processNodeKind(node)
-    if (nodeKind !== 'tool-message') return `${assistantIndex}:${nodeKind}`
-    const toolMessage = node as ToolMessageElement
-    return `${assistantIndex}:${nodeKind}:${toolMessage.toolCall?.id ?? toolNameFromMessage(toolMessage)}`
-  })
+  const parts = collectProcessTimeline(assistants)
+    .filter(({ node }) => node !== excludeNode)
+    .map(({ node, sourceAssistant }) => {
+      const assistantIndex = assistantIndexes.get(sourceAssistant) ?? 0
+      const nodeKind = processNodeKind(node)
+      if (nodeKind !== 'tool-message') return `${assistantIndex}:${nodeKind}`
+      const toolMessage = node as ToolMessageElement
+      return `${assistantIndex}:${nodeKind}:${toolMessage.toolCall?.id ?? toolNameFromMessage(toolMessage)}`
+    })
   return `${assistants.length}|${parts.join('|')}`
 }
 
@@ -1178,11 +1431,13 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
   const finalSummaryTarget = assistants[assistants.length - 1]
   const existingGroups = assistants.flatMap(processGroupsOwnedByAssistant)
   const existingGroup = existingGroups.length === 1 ? existingGroups[0] : undefined
-  const fingerprint = processTurnFingerprint(assistants)
   const canFoldMarkdown = hasTurnProcessSignals(assistants)
   const finalSummaryMarkdown = canFoldMarkdown
     ? findFinalSummaryMarkdown(finalSummaryTarget, isAgentStreaming)
     : null
+  // 指纹在终答判定之后计算并排除终答 markdown：它不参与折叠，首次出现（思考过程
+  // 结束、正文开始输出）不该被当成结构变化触发整组重建（见 processTurnFingerprint）。
+  const fingerprint = processTurnFingerprint(assistants, finalSummaryMarkdown)
   const currentNodes = collectFoldableProcessNodes(assistants, finalSummaryMarkdown, canFoldMarkdown)
   const nodeSequenceCurrent = !existingGroup
     || processNodeSequenceIsCurrent(groupedProcessNodeSequences.get(existingGroup), currentNodes)

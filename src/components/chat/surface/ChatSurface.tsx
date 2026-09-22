@@ -460,7 +460,7 @@ const MessageArea = memo(function MessageArea({
       getReleaseRoot={getReleaseRoot}
       onReleased={onProcessGroupsReleased}
     >
-      <div className="mx-auto max-w-3xl p-4 pb-0" ref={contentRef}>
+      <div className="mx-auto max-w-3xl p-4 pb-4" ref={contentRef}>
         <div className="flex flex-col gap-3">
           <MessageList
             messages={messages}

@@ -962,7 +962,7 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
 
 .quickforge-settings-row {
   display: flex;
-  min-height: 5rem;
+  min-height: 4.25rem;
   align-items: center;
   justify-content: space-between;
   gap: 1.5rem;
@@ -2761,6 +2761,7 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
   background: transparent;
   color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
   cursor: help;
+  flex-shrink: 0;
   transition: color 160ms ease, background-color 160ms ease;
 }
 
@@ -2772,6 +2773,12 @@ html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
 .quickforge-info-tip-trigger:focus-visible {
   outline: 2px solid color-mix(in oklab, var(--ring) 72%, transparent);
   outline-offset: 2px;
+}
+
+/* 设置行标题与页头标题内由 gap 统一间距，避免与 trigger 自身 margin-left 叠加成双重间距 */
+.quickforge-settings-row-title .quickforge-info-tip-trigger,
+.quickforge-settings-title .quickforge-info-tip-trigger {
+  margin-left: 0;
 }
 
 .quickforge-info-tip-popover {
@@ -3732,6 +3739,7 @@ html.dark .quickforge-file-path-link {
  * 且本规则 unlayered（优先于 @layer utilities），故不再需要 !important。 */
 .quickforge-process-body .qf-thinking-block > .quickforge-process-thinking-header {
   display: flex;
+  width: 100%;
   min-height: 1.625rem;
   box-sizing: border-box;
   align-items: center;
@@ -3799,6 +3807,92 @@ html.dark .quickforge-file-path-link {
   visibility: visible;
   opacity: 1;
   transition-delay: 0s;
+}
+
+/* 思考行「尾行提示」（header 第四槽位，装饰层 process-folding.ts 接管时追加的
+ * quickforge-tool-marquee 元素）：流式且思考块收起时显示最新一行完整思考文字，
+ * 行切换淡入、流式结束 / 展开时整体淡出（保留占位，只动 opacity/visibility，
+ * 不触发布局）。进入用 --quickforge-dur-base、退出用更快的 --quickforge-dur-exit，
+ * 缓动 --quickforge-ease-out；淡入淡出切换（hint-in）也走 base 时长。
+ * 溢出滚动复用 quickforge-tool-marquee：滚动/滚入时序由 ToolMarqueeController 承担，
+ * 与 tool-running sweep / shimmer 同属长循环豁免时长刻度，不进 duration token 体系。 */
+.quickforge-process-thinking-hint {
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  align-items: center;
+  overflow: hidden;
+  /* header 是 <button>，UA 把 text-align 定为 center 并向下继承：静态度省略文本、
+     行切换纵向滚入的 static 视图都会居中显示。思考文字必须从左边开始（与工具行
+     一致的阅读起点），滚动视图 .quickforge-marquee-moving 本就绝对定位在 left:0。 */
+  text-align: left;
+  white-space: nowrap;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  line-height: 1.5;
+  height: calc(var(--quickforge-message-font-size, 14px) * 1.125);
+  color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--quickforge-dur-exit) var(--quickforge-ease-out),
+    visibility 0s linear var(--quickforge-dur-exit);
+}
+
+.quickforge-process-thinking-hint-visible {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity var(--quickforge-dur-base) var(--quickforge-ease-out),
+    visibility 0s linear 0s;
+}
+
+/* 行切换的进入动画由装饰层移除/重加该类重触发（见 process-folding.ts）。 */
+.quickforge-process-thinking-hint-in {
+  animation: quickforge-thinking-hint-in var(--quickforge-dur-base) var(--quickforge-ease-out);
+}
+
+@keyframes quickforge-thinking-hint-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* 跑马灯双视图（QuickForgeToolMarquee 注入）：结构/度量与 subagent 跑马灯一致
+ * （.quickforge-subagent-marquee），按 hint 上下文取更小字号（消息字号 ×0.75）。 */
+.quickforge-process-thinking-hint .quickforge-marquee-view {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.quickforge-process-thinking-hint .quickforge-marquee-static {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-process-thinking-hint .quickforge-marquee-moving {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  white-space: nowrap;
+  will-change: transform;
+  pointer-events: none;
+}
+
+/* reduced-motion：淡入淡出瞬时（跑马灯由控制器自身降级为静态，见 tool-marquee.ts）。 */
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-process-thinking-hint,
+  .quickforge-process-thinking-hint-visible,
+  .quickforge-process-thinking-hint-in {
+    animation: none;
+    transition: none;
+  }
 }
 
 /* 工具行压平（React 结构迁移后卡框类在 .qf-tool-message 根上，不再有内层卡 div）：

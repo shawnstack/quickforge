@@ -4,7 +4,7 @@
 - 改动文件：`src/index.css`（共享规则恢复原样 + 新增 stage-body 独立缩进/连接线规则与注释）、`tests/frontend/chat-surface-css-contract.test.ts`（`process fold hierarchy contract` describe：钉住 stage-body 规则 padding-left/border-left；负向断言共享规则与 `.quickforge-process-body` 规则不得含 padding-left/border-left、叶子节点不得带 border-left）、`DESIGN_LANGUAGE.md`（「例外：对话折叠的阶段内子级用缩进 + 细连接线」小节，仅阶段展开区挂线、顶层组不缩进）、`feature_list.json`（新增 process-fold-hierarchy，done；同日调整未回写条目描述——无 note 字段格式）、`progress.md`、`session-handoff.md`。
 - 验证（定向，CSS 小改动未跑全量）：首版 `npx vitest run`（process-folding + process-folding-incremental + chat-surface-css-contract + thinking-header-adoption）→ **4 files / 87 passed（exit 0）**；调整后 `npx vitest run tests/frontend/chat-surface-css-contract.test.ts tests/frontend/process-folding.test.ts` → **2 files / 76 passed（exit 0）**；两次 `npx eslint tests/frontend/chat-surface-css-contract.test.ts` → **exit 0**。
 - Blocker：无。
-- 下一步：① 真机 `npm run dev` 验收：展开过程组后组头与 stage 头对齐（无缩进、无连接线），stage 展开后思考头/工具行相对 stage 头缩进一层并带细竖线，浅/深主题下竖线均柔和；纯思考回合直挂 step 与组头同层（不缩进，预期）；② 真机验收清单沿用上条（reasoning 默认 high / 设置下拉收窄 / 折叠默认值与工具详情默认收起）；③ 发布 2.2.0 的 git commit/tag/push 仍待执行（见历史交接）。
+- 下一步：① 真机 `npm run dev` 验收：展开过程组后组头与 stage 头对齐（无缩进、无连接线），stage 展开后思考头/工具行相对 stage 头缩进一层并带细竖线，浅/深主题下竖线均柔和；纯思考回合直挂 step 与组头同层（不缩进，预期）；② 真机验收清单沿用上条（reasoning 默认 high / 设置下拉收窄 / 折叠默认值与工具详情默认收起）。
 
 ---
 ## 历史交接：reasoning 模型默认思考等级 medium → high（2026-09-22）
@@ -13,7 +13,7 @@
 - 改动文件：`src/lib/pi-chat.ts`、`server/acp/server.mjs`、`server/routes/scheduled-tasks.mjs`、`docs/wiki/server/README.md`、`feature_list.json`（新增 default-thinking-level-high，done）、`progress.md`、`session-handoff.md`。
 - 验证：定向 `npx vitest run`（default-options-settings-tab + default-options-settings-react）→ **2 files / 20 passed（exit 0）**；`npx vitest run tests/server/acp/ tests/server/scheduled-tasks.execution.test.mjs` → **6 files / 60 passed（exit 0）**；`npm run lint` → **exit 0**；`npx tsc -b --pretty false` → **exit 0**。
 - Blocker：无。
-- 下一步：① 真机冒烟：新会话选 reasoning 模型（未保存过默认思考等级时）初始等级为「高」，非 reasoning 模型为「关」；保存过 default-options.thinkingLevel 的用户不受影响；② settings-row-control-compact 的真机验收与「MCP 服务→MCP」措辞确认沿用下条；③ 发布 2.2.0 的 git commit/tag/push 仍待执行（见历史交接）。
+- 下一步：① 真机冒烟：新会话选 reasoning 模型（未保存过默认思考等级时）初始等级为「高」，非 reasoning 模型为「关」；保存过 default-options.thinkingLevel 的用户不受影响；② settings-row-control-compact 的真机验收与「MCP 服务→MCP」措辞确认沿用下条。
 
 ---
 ## 历史交接：设置页「常规」语言/思考等级下拉框收窄 settings-row-control-compact（2026-09-22）
@@ -22,7 +22,7 @@
 - 改动文件：`src/index.css`（+compact 类与移动端选择器）、`src/components/settings/tabs/DefaultOptionsSettingsTab.tsx`（两处容器类名）、`feature_list.json`（新增 settings-row-control-compact，done）、`progress.md`、`session-handoff.md`。
 - 验证：定向 `npx vitest run`（default-options-settings-react + default-options-settings-tab + quickforge-settings-select）→ **3 files / 26 passed（exit 0）**；`npx eslint src/components/settings/tabs/DefaultOptionsSettingsTab.tsx` → **exit 0**。未跑全量 test/lint/build（UI 微调定向验证）。
 - Blocker：无。
-- 下一步：① 真机 `npm run dev` 验收设置「常规」tab：语言/思考等级下拉宽 8.5rem（不再 432px 撑开）、窄屏移动端满宽不溢出、「默认模型」下拉保持 wide；② 确认工作区混入的「MCP 服务→MCP」措辞改动（`src/lib/i18n.ts` 22 行 + 根 `README.md` 2 行）去留（沿用上条交接）；③ 发布 2.2.0 的 git commit/tag/push 仍待执行（见历史交接）；④ 之前各轮真机验收项见 progress.md 各条 Notes。
+- 下一步：① 真机 `npm run dev` 验收设置「常规」tab：语言/思考等级下拉宽 8.5rem（不再 432px 撑开）、窄屏移动端满宽不溢出、「默认模型」下拉保持 wide；② 确认工作区混入的「MCP 服务→MCP」措辞改动（`src/lib/i18n.ts` 22 行 + 根 `README.md` 2 行）去留（沿用上条交接）；③ 之前各轮真机验收项见 progress.md 各条 Notes。
 
 ---
 ## 历史交接：需求修正——工具卡详情固定收起（无配置）+ 阶段层默认展开可配置 expandProcessStageByDefault（2026-09-22）
@@ -31,7 +31,7 @@
 - 改动文件：`src/lib/tool-display-settings.ts`、`src/lib/tool-renderers/shared.tsx`、5 个 tool-renderer（ask-user / goal-report / local-workspace / mcp / todo-write）、`src/components/chat/surface/ToolMessage.tsx`、`src/components/chat/panel-decoration/process-folding.ts`、`src/components/settings/tabs/DefaultOptionsSettingsTab.tsx`、`src/lib/i18n.ts`、`src/index.css`、测试 7 个（chat-surface-tool-message / process-folding / settings-normalizers / goal-report-renderer / tool-renderer-shared-state / chat-surface-css-contract / default-options-settings-react）、`docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`（双副本同步）、`docs/wiki/src/README.md`（旧语义 0 残留）、`feature_list.json`、`progress.md`、`session-handoff.md`。
 - 验证：全量 `npm run test` → **376 files / 4492 passed / 1 skipped（exit 0；历史 4 个既有服务端失败连续两轮未复现）**；`npm run lint` → **无告警（exit 0）**；`npm run build` → **成功（exit 0）**；前端回归 **2605 用例通过**。
 - Blocker：无。
-- 下一步：① 真机 `npm run dev` 验收：设置开关「工具调用列表默认展开」开合生效（默认开 = 阶段层默认展开）与阶段层默认形态（工具卡 params/output 详情始终默认收起、手动开合记忆优先于默认值与设置）；② 确认工作区混入的「MCP 服务→MCP」措辞改动（`src/lib/i18n.ts` 22 行 + 根 `README.md` 2 行，与本 feature 无关）去留；③ 此前登记的 4 个既有服务端测试失败连续两轮未复现，待确认是否已修复或环境相关；④ 发布 2.2.0 的 git commit/tag/push 仍待执行（见历史交接）；⑤ 之前各轮真机验收项见 progress.md 各条 Notes。
+- 下一步：① 真机 `npm run dev` 验收：设置开关「工具调用列表默认展开」开合生效（默认开 = 阶段层默认展开）与阶段层默认形态（工具卡 params/output 详情始终默认收起、手动开合记忆优先于默认值与设置）；② 确认工作区混入的「MCP 服务→MCP」措辞改动（`src/lib/i18n.ts` 22 行 + 根 `README.md` 2 行，与本 feature 无关）去留；③ 此前登记的 4 个既有服务端测试失败连续两轮未复现，待确认是否已修复或环境相关；④ 之前各轮真机验收项见 progress.md 各条 Notes。
 
 ---
 ## 历史交接：对话工具调用默认展开到工具行层 + 工具卡细节默认收起且可配置（2026-09-22，需求理解已修正，最终语义见当前交接）
@@ -40,7 +40,7 @@
 - 改动文件：`src/lib/tool-display-settings.ts`、`src/lib/tool-renderers/shared.tsx`、5 个 tool-renderer（ask-user / goal-report / local-workspace / mcp / todo-write）、`src/components/chat/surface/ToolMessage.tsx`、`src/components/chat/panel-decoration/process-folding.ts`、`src/components/settings/tabs/DefaultOptionsSettingsTab.tsx`、`src/lib/i18n.ts`（仅新增 key）、`src/index.css`、测试 7 个（chat-surface-tool-message / process-folding / settings-normalizers / goal-report-renderer / tool-renderer-shared-state / chat-surface-css-contract / default-options-settings-react）、`docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`、`docs/wiki/src/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
 - 验证：全量 `npm run test` → **376 files / 4492 passed / 1 skipped（exit 0；此前登记的 4 个既有服务端失败本次未复现）**；`npm run lint` → **无告警（exit 0）**；`npm run build` → **成功（exit 0）**。
 - Blocker：无。
-- 下一步：① 真机 `npm run dev` 验收：展开过程组后每条工具调用直接可见（stage 默认展开）、工具卡 params/output 细节默认收起、设置开关「工具详情默认展开」开合生效（手动开合记忆优先于默认值与设置）；② 确认工作区混入的「MCP 服务→MCP」措辞改动（`src/lib/i18n.ts` 22 行 + 根 `README.md` 2 行，与本 feature 无关）去留；③ 此前登记的 4 个既有服务端测试失败本次未复现，待确认是否已修复或环境相关；④ 发布 2.2.0 的 git commit/tag/push 仍待执行（见历史交接）；⑤ 之前各轮真机验收项见 progress.md 各条 Notes。
+- 下一步：① 真机 `npm run dev` 验收：展开过程组后每条工具调用直接可见（stage 默认展开）、工具卡 params/output 细节默认收起、设置开关「工具详情默认展开」开合生效（手动开合记忆优先于默认值与设置）；② 确认工作区混入的「MCP 服务→MCP」措辞改动（`src/lib/i18n.ts` 22 行 + 根 `README.md` 2 行，与本 feature 无关）去留；③ 此前登记的 4 个既有服务端测试失败本次未复现，待确认是否已修复或环境相关；④ 之前各轮真机验收项见 progress.md 各条 Notes。
 
 ---
 ## 历史交接：过程折叠第二轮——纯思考段不渲染空 stage 头（2026-09-22）
@@ -49,7 +49,7 @@
 - 改动文件：`src/components/chat/panel-decoration/process-folding.ts`（processSectionNeedsStage + populateProcessGroup 应用 + appendProcessToolSuffix 注释同步）、`tests/frontend/process-folding.test.ts`（纯函数 3 例）、`tests/frontend/process-folding-incremental.test.ts`（DOM 级 thinking-only 无 stage 头 / 工具到来重建出 stage）、`docs/wiki/src/components/README.md`（两份副本：stage 条目补纯思考段规则 + 所有权租约条目 appendProcessToolSuffix 描述同步）、`docs/wiki/src/lib/README.md`（tool-display-settings 条目补纯思考段）、`feature_list.json`、`progress.md`、`session-handoff.md`。
 - 验证：定向 `npx vitest run`（process-folding + incremental）→ **2 files / 47 passed（exit 0）**；前端全量 `tests/frontend/` → **203 files / 2590 passed（exit 0）**；全量 `npm run test` → **4470 passed + 4 failed**（4 处失败 = 既有服务端 ACP channel/workspace-mapping/sqlite quick_check，重跑清单与第一轮一致；另一次全量出现的第 5 个失败未复现，系并行偶发 flaky）；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**。
 - Blocker：无。
-- 下一步：① 真机 `npm run dev` 验收：纯思考回合展开顶层组直接见思考块（无空「已执行」行）；带工具回合展开见 stage 头（收起）→ 点开直见工具行；含失败工具 stage 头带「· N 项失败」；「简洁/详细」只影响单行摘要；② 用户提到「有一些小优化」，本轮只处理了纯思考段一项，待确认是否还有其他优化点；③ 主分支既有服务端测试失败 4 例（ACP channel/workspace-mapping/sqlite quick_check gate）待另开 feature 修复；④ 发布 2.2.0 的 git commit/tag/push 仍待执行（见历史交接）。
+- 下一步：① 真机 `npm run dev` 验收：纯思考回合展开顶层组直接见思考块（无空「已执行」行）；带工具回合展开见 stage 头（收起）→ 点开直见工具行；含失败工具 stage 头带「· N 项失败」；「简洁/详细」只影响单行摘要；② 用户提到「有一些小优化」，本轮只处理了纯思考段一项，待确认是否还有其他优化点；③ 主分支既有服务端测试失败 4 例（ACP channel/workspace-mapping/sqlite quick_check gate）待另开 feature 修复。
 
 ---
 ## 历史交接：过程折叠移除「调用了 N 项工具」最内层（2026-09-22）
@@ -58,7 +58,7 @@
 - 改动文件：`src/components/chat/panel-decoration/process-folding.ts`（splitProcessStageSections 全过程段包 stage / populateProcessContainer 直挂 step / stage 标题加 errorCount / appendProcessToolSuffix 校验链改 step / 删 tools 组全部代码）、`src/lib/i18n.ts`（删 5 key 双语 + toolDisplayModeDescription 微调）、`src/index.css`（清理 .quickforge-process-tools-*）、`tests/frontend/process-folding.test.ts`、`tests/frontend/process-folding-incremental.test.ts`、`tests/frontend/chat-surface-css-contract.test.ts`、`tests/frontend/chat-surface-api-key-dialog.test.ts`、`docs/wiki/src/components/README.md`（两份副本）、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
 - 验证：定向 8 files / 212 passed（process-folding 相关全部，exit 0）；全量 `npm run test` → **4467 passed + 4 failed**（失败为服务端 ACP/sqlite **主分支既有失败**，git stash 验证与本轮无关）；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**。
 - Blocker：无。
-- 下一步：① 真机 `npm run dev` 验收：普通回合展开顶层组后见 stage 头（收起）→ 点开直接见工具行；含失败工具时 stage 头带「· N 项失败」；「简洁/详细」设置只影响单行摘要详细程度不再影响折叠；② 主分支既有服务端测试失败 4 例（ACP channel/workspace-mapping/sqlite quick_check gate）待另开 feature 修复；③ 发布 2.2.0 的 git commit/tag/push 仍待执行（见下条历史交接）。
+- 下一步：① 真机 `npm run dev` 验收：普通回合展开顶层组后见 stage 头（收起）→ 点开直接见工具行；含失败工具时 stage 头带「· N 项失败」；「简洁/详细」设置只影响单行摘要详细程度不再影响折叠；② 主分支既有服务端测试失败 4 例（ACP channel/workspace-mapping/sqlite quick_check gate）待另开 feature 修复。
 
 ---
 ## 历史交接：run_subagent 部分成果回传（2026-09-22）
@@ -67,7 +67,7 @@
 - 改动文件：`server/agent-subagent-runner.mjs`、`tests/server/agent-manager.subagents.test.mjs`（+2 用例、2 处断言扩展）、`docs/wiki/server/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
 - 验证：定向 `npx vitest run`（agent-manager.subagents + subagents）→ **2 files / 21 passed（exit 0）**；前端回归 4 files / **126 passed（exit 0）**；`npx eslint` 两改动文件 + `npx tsc -b` → **exit 0**。未跑全量 test/build（定向验证）。
 - Blocker：无。
-- 下一步：① 真机验收：派 explore subagent 跑一半让它失败/超时，确认主 agent 收到的工具结果含「Work done by subagent …」报告（工具清单 + 全量输出）并能据此续接；成功场景确认结果 = 最终回复 + 报告；② 后续 feature（方案已过稿）：subagent 瞬时网络错误自动重跑 + 主 agent 网络错误自动 continue 续跑 + UI 自动重试提示；③ 发布 2.2.0 的 git commit/tag/push 仍待执行（见下条历史交接）。
+- 下一步：① 真机验收：派 explore subagent 跑一半让它失败/超时，确认主 agent 收到的工具结果含「Work done by subagent …」报告（工具清单 + 全量输出）并能据此续接；成功场景确认结果 = 最终回复 + 报告；② 后续 feature（方案已过稿）：subagent 瞬时网络错误自动重跑 + 主 agent 网络错误自动 continue 续跑 + UI 自动重试提示。
 
 ---
 
@@ -86,7 +86,7 @@
 - 改动文件：`package.json`、`package-lock.json`、`CHANGELOG.md`、`README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
 - 验证：`npm run test` → **375 files / 4484 passed（exit 0）**；`npm run lint` → **0 errors / 0 warnings（exit 0）**；`npm run build` → **exit 0**；离线包 `package-offline/shawnstack-quickforge-2.2.0.tgz` 已生成。
 - Blocker：无。
-- 下一步：git commit `chore(release): v2.2.0` + tag `v2.2.0` + push；之后按用户指令执行 npm publish（默认不直接发布）。
+- 下一步：git commit `chore(release): v2.2.0` + tag `v2.2.0` + push 已完成（用户确认）；npm publish 按用户指令另行执行（默认不直接发布）。
 
 ---
 ## 历史交接：修复运行中点击「思考过程」文字无法展开思考块（2026-09-21）

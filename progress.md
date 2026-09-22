@@ -8,7 +8,7 @@
 - Notes（只记录，不扩范围）：
   - a) 既有契约断言零改动：字号契约钉的是 `.quickforge-process-summary` / `.quickforge-process-stage-summary` / thinking header / 工具行压平规则，均不含 body 展开区声明块。
   - b) DESIGN_LANGUAGE「子级层级用缩进表达（不用明显竖线）」原则保留，本条以「例外」形式登记，且约束不泛化到左侧导航等场景。
-  - c) 无 Git 操作（2.2.0 发布的 git commit/tag/push 仍待执行）、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
+  - c) 无 Git 操作（2.2.0 发布的 git commit/tag/push 后续已完成，用户确认）、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
 
 ---
 
@@ -49,7 +49,7 @@
   - c) 工作区混有「MCP 服务→MCP」措辞改动（`src/lib/i18n.ts` 22 行 + 根 `README.md` 2 行），与本 feature 无关、来源待确认，本次未回退未调整。
   - d) 此前登记的 4 个既有服务端测试失败（ACP channel/workspace-mapping/sqlite quick_check）连续两轮全量未复现，待确认是否已被修复或环境相关。
   - e) 各轮真机验收清单沿用（见下方历史记录 Notes）。
-  - f) 本轮无 Git 操作（2.2.0 发布的 git commit/tag/push 仍待执行）、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
+  - f) 本轮无 Git 操作（2.2.0 发布的 git commit/tag/push 后续已完成，用户确认）、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
 
 ---
 
@@ -69,7 +69,7 @@
   - c) 工作区混有「MCP 服务→MCP」措辞改动（`src/lib/i18n.ts` 22 行 + 根 `README.md` 2 行），与本 feature 无关、来源待确认，本次未回退未调整。
   - d) 此前登记的 4 个既有服务端测试失败（ACP channel/workspace-mapping/sqlite quick_check）本次全量未复现，待确认是否已被修复或环境相关。
   - e) 各轮真机验收清单沿用（见下方历史记录 Notes）。
-  - f) 本轮无 Git 操作（2.2.0 发布的 git commit/tag/push 仍待执行）、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
+  - f) 本轮无 Git 操作（2.2.0 发布的 git commit/tag/push 后续已完成，用户确认）、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
 
 ---
 
@@ -149,6 +149,7 @@
 - Notes（只记录，不扩范围）：
   - a) 原有 flaky 测试条目（`tests/server/scheduled-tasks.commands.test.mjs` 偶发超时）与各轮真机验收条目保留在下方历史记录 Notes 中，未删除。
   - b) 本轮未手工触碰 dist/、package-dist/、package-offline/（离线包为发布脚本生成产物）；无依赖升级；docs/wiki 未动（纯版本发布，不改模块职责/公共入口）。
+  - c) git commit `chore(release): v2.2.0` + tag `v2.2.0` + push 已完成（用户确认，2026-09-22）；npm publish 按用户指令另行执行（默认不直接发布）。
 
 ---
 

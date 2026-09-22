@@ -62,7 +62,8 @@
 | `share-client.ts` | 148 | 分享功能客户端 API |
 | `slash-catalog.ts` | 102 | 斜杠菜单目录客户端：并行拉取 `/api/skills?available=true`（可带 projectId）与 `/api/agent-profiles`（可带 projectId），agents 过滤 `enabledAsSubagent === true`；任一失败/非 200/形状异常整体返回 null 静默降级；按 projectId 模块级缓存成功结果 |
 | `composer-drafts.ts` | 241 | Composer 本地草稿：正文、结构化文件 `contextReferences` 与结构化能力 `selectedCapabilities` 按 session/project key 写入 localStorage；能力选择防御规范化、按 `type+pluginName+name` 去重且最多 4 个；正文为空但有 refs/capabilities 仍保留草稿，附件不持久化 |
-| `message-queue.ts` | 172 | 流式期 Composer 消息队列：纯函数入队/删除/编辑/置顶/拖拽重排 moveQueuedMessage（20 条上限、单条 2000 字符）与 per-session localStorage 持久化（含 paused 标记、无 localStorage 安全降级）；插队经 `ServerAgent.steer`（乐观显示） |
+| `message-queue.ts` | 172 | 流式期 Composer 消息队列：纯函数入队/删除/编辑/置顶/拖拽重排 moveQueuedMessage（20 条上限、单条 2000 字符）与 per-session localStorage 持久化（含 paused 标记、无 localStorage 安全降级）；插队经 `ServerAgent.steer`（乐观显示）；会话切换后的自动续发见 `message-queue-drainer.ts` |
+| `message-queue-drainer.ts` | — | 基于 localStorage 的排队消息后台顺序发送器：per-session 防并发、顺序逐条发送、成功删条目、失败置 paused 停止、agent 流式中不抢发、永不抛错；导出 `drainStoredMessageQueue`（把指定会话的排队消息从 localStorage 逐条自动发送到该会话）与 `pauseStoredMessageQueue`（置 paused 停止该会话后台续发） |
 | `startup-model.ts` | 主聊天启动模型的当前目录精确匹配与安全回退 |
 | `http-storage-backend.ts` | 286 | HTTP Storage Backend 实现；`set` 成功后 fire-and-forget 写通启动设置快照（`app-settings-cache`）；provider-keys store 挂接 `provider-keys-cache` 内存缓存（get/has 读穿、set/delete/clear 写通 + 跨标签广播，fake/override 短路不污染缓存） |
 | `types.ts` | 82 | 类型定义 |

@@ -31,6 +31,25 @@
 
 ---
 
+## 2026-09-22 · 修复排队消息切换 session 后不发送（后台自动续发 + 切回兜底）
+
+- Goal：排队消息（流式中 Enter 入队）切换 session 后不发送、永久滞留 localStorage。根因：自动发送唯一触发是当前面板订阅的 agent_end（ChatPanelHost :1650-1663），切换 session 的 cleanup 只做「取消 250ms 定时器 + 在途条目回队首 + 存回 localStorage」并退订事件，切走后原会话回合结束无人 drain；切回只 hydrate 不补发。修复为后台自动续发 + 切回兜底（三处挂钩 + 共享 helper）。
+- 改动文件：
+  - `src/lib/message-queue-drainer.ts`（新建）：`drainStoredMessageQueue` / `pauseStoredMessageQueue` 共享 helper——基于 localStorage 顺序逐条发送、per-session 单飞防并发、成功删条目持久化（写前重读保留 prompt 期间新入队）、失败保队头置 paused、agent 流式中不抢发、永不抛错。
+  - `src/hooks/useAgentManager.ts`：task 订阅 agent_end 且 `task.agent !== agentRef.current`（后台 task）时——非 aborted/error → `drainStoredMessageQueue` 后台续发；aborted/error → `pauseStoredMessageQueue` 暂停（主路径，覆盖「切走后回合结束」）。
+  - `src/components/chat/ChatPanelHost.tsx`：① effect cleanup 在 saveStoredMessageQueueState 之后：队列非空未暂停且回合已结束（`!agent.state.isStreaming`）→ `drainStoredMessageQueue`（修「agent_end 已到但 250ms 定时器被 cleanup 取消」竞态）；② 挂载 hydrate 后：会话空闲 + 队列非空未暂停 + 无 timer/inFlight → 复用既有 250ms `submitQueuedPrompt` 调度（切回兜底）。
+  - `tests/frontend/message-queue-drainer.test.ts`（新建 8 用例）：顺序发送逐条落盘 / 失败保队头暂停 / paused 不发 / 无状态与空 no-op / isStreaming 不动队列 / per-session 防并发返回同一 promise / pauseStoredMessageQueue 三种行为。
+  - `tests/frontend/message-queue.test.ts`（+3 源码契约 it）：cleanup 的 drain 位于最后一次 cleanup save 之后的 indexOf/lastIndexOf 位置断言、hydrate 后切回兜底切片断言、useAgentManager 三字符串接线 + 后台 task 守卫断言；既有 17 个 it 零改动。
+  - `docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`、`docs/wiki/src/hooks/README.md`、`feature_list.json`（新增 fix-queued-message-session-switch，done）、`progress.md`、`session-handoff.md`。
+- 验证：`npx vitest run message-queue-drainer + message-queue` → **2 files / 28 passed（exit 0）**；护栏 `app-domain-hooks + deferred-session-agent` → **20 passed（exit 0）**；`npx tsc -b` → **exit 0**；`npx eslint` 5 改动文件 → **exit 0**；全量硬门禁 `npm run test` → **376 files / 4495 passed + 1 skipped（exit 0，既有 skipped）**；`npm run lint` → **exit 0**；`npm run build` → **exit 0**（仅既有 chunk size 警告）。
+- Notes（只记录，不扩范围）：
+  - a) 既有语义零改动：aborted/error 暂停、失败回队头并暂停、300ms 防抖持久化、测试锁定字符串（`cancelQueuedPrompt()`/`restoreHead(queuedPromptInFlight)`）原样保留；当前查看会话仍由面板链路处理（避免双写）；侧边聊天/分享页队列禁用不变。
+  - b) 已知边缘（记录不修）：agent_end 恰落在 setAgent 与 effect cleanup 之间的微窗口可能双发（概率极低，接受不修）。
+  - c) 待真机验收：流式中 Enter 入队 → 切走 session，原会话回合结束后排队消息后台逐条自动发出；abort/出错回合后队列暂停（切回见暂停态）；切走瞬间回合已结束的场景消息也发出；切回空闲会话时兜底续发。
+  - d) 本轮无 Git 操作（工作分支 fix/queued-message-session-switch）、无依赖变更，未触碰 dist/、package-dist/、package-offline/。
+
+---
+
 ## 2026-09-22 · 发布准备 v2.2.0（版本递增 + 文档更新 + 全量验证 + 离线包）
 
 - Goal：发布 2.2.0 小版本准备——版本递增 2.2.0、CHANGELOG/README 更新、全量验证通过、runtime/offline 离线包生成；Git commit/tag/push 由收尾流程完成。

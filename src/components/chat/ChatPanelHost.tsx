@@ -76,6 +76,7 @@ import {
   saveStoredMessageQueueState,
   type QueuedMessage,
 } from '@/lib/message-queue'
+import { drainStoredMessageQueue } from '@/lib/message-queue-drainer'
 
 type AgentLike = ServerAgent | SharedServerAgent | DeferredSessionAgent | SideChatAgent
 
@@ -1447,6 +1448,17 @@ export function ChatPanelHost({
       if (storedQueue.items.length > 0 || storedQueue.paused) {
         messageQueue.hydrate(storedQueue)
       }
+      // Switch-back fallback: a turn settled while this session was in the
+      // background leaves a non-empty queue with no agent_end to come — reuse
+      // the regular 250ms auto-send scheduling for the restored head.
+      if (messageQueueActive() && !agent.state.isStreaming
+        && storedQueue.items.length > 0 && !storedQueue.paused
+        && queuedPromptTimer === undefined && queuedPromptInFlight === undefined) {
+        queuedPromptTimer = window.setTimeout(() => {
+          const head = messageQueue.getState().items[0]
+          if (head) submitQueuedPrompt(head)
+        }, 250)
+      }
 
       // Restore draft
       const draft = restoredDraftRef.current
@@ -1752,6 +1764,13 @@ export function ChatPanelHost({
         if (queuedPromptInFlight) messageQueue.restoreHead(queuedPromptInFlight)
         queuedPromptInFlight = undefined
         saveStoredMessageQueueState(sessionId, messageQueue.getState())
+        // agent_end fired but the 250ms auto-send timer was just cancelled by
+        // this cleanup — hand the persisted queue (saved above, incl. the
+        // restored head) to the background drainer so it still auto-sends.
+        const savedQueue = messageQueue.getState()
+        if (savedQueue.items.length > 0 && !savedQueue.paused && !agent.state.isStreaming) {
+          void drainStoredMessageQueue(sessionId, agent as ServerAgent)
+        }
       }
       messageQueue.cleanup()
       unsubscribeScrollEvents()

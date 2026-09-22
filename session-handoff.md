@@ -16,6 +16,16 @@
 - 下一步：① 真机验收：派 explore subagent 跑一半让它失败/超时，确认主 agent 收到的工具结果含「Work done by subagent …」报告（工具清单 + 全量输出）并能据此续接；成功场景确认结果 = 最终回复 + 报告；② 后续 feature（方案已过稿）：subagent 瞬时网络错误自动重跑 + 主 agent 网络错误自动 continue 续跑 + UI 自动重试提示；③ 发布 2.2.0 的 git commit/tag/push 仍待执行（见下条历史交接）。
 
 ---
+
+## 历史交接：修复排队消息切换 session 后不发送（2026-09-22）
+
+- 当前目标（已完成，待真机验收）：排队消息切换 session 后不发送、永久滞留 localStorage。根因：自动发送唯一触发是当前面板订阅的 agent_end（ChatPanelHost :1650-1663），切换 session 的 cleanup 只做「取消 250ms 定时器 + 在途条目回队首 + 存回 localStorage」并退订事件，切走后原会话回合结束无人 drain；切回只 hydrate 不补发。修复为后台自动续发 + 切回兜底：① 新增 `src/lib/message-queue-drainer.ts`（drainStoredMessageQueue / pauseStoredMessageQueue：localStorage 顺序逐条发送、per-session 单飞防并发、成功删条目持久化（写前重读保留新入队）、失败保队头置 paused、流式中不抢发、永不抛错）；② `useAgentManager` 后台 task 的 agent_end：非 aborted/error → drain 后台续发，aborted/error → pause 暂停（主路径）；③ `ChatPanelHost` effect cleanup 在最后 save 之后：队列非空未暂停且回合已结束 → drain（修定时器被 cleanup 取消的竞态）；④ 挂载 hydrate 后空闲 + 队列非空未暂停 + 无 timer/inFlight → 复用 250ms submitQueuedPrompt 调度（切回兜底）。既有语义零改动（aborted/error 暂停、失败回队头暂停、防抖持久化、测试锁定字符串）。
+- 改动文件：`src/lib/message-queue-drainer.ts`、`src/hooks/useAgentManager.ts`、`src/components/chat/ChatPanelHost.tsx`、`tests/frontend/message-queue-drainer.test.ts`（新建 8 用例）、`tests/frontend/message-queue.test.ts`（+3 源码契约 it，既有 17 it 零改动）、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`、`docs/wiki/src/hooks/README.md`。
+- 验证：全量 `npm run test` → **376 files / 4495 passed + 1 skipped（exit 0）**；`npm run lint` → **exit 0**；`npm run build` → **exit 0**；定向 2 files / 28 passed + 护栏 20 passed（`npx tsc -b` / `npx eslint` 改动文件均 exit 0）。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 验收：流式中 Enter 入队 → 切走 session，确认原会话回合结束后排队消息在后台逐条自动发出；abort/出错回合后队列暂停（切回见暂停态）；切走瞬间回合已结束的场景消息也发出；切回空闲会话时兜底续发；② 已知边缘（不修）：agent_end 恰落在 setAgent 与 effect cleanup 微窗口的双发风险；③ 之前各轮真机验收项见 progress.md 各条 Notes。
+
+---
 ## 历史交接：发布 2.2.0（2026-09-22）
 
 - 当前目标：发布 2.2.0 版本。发布准备已完成：版本递增 2.2.0、CHANGELOG/README 更新、全量验证通过、runtime/offline 离线包生成。

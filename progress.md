@@ -1,3 +1,14 @@
+## 2026-09-22 · 发布准备 v2.2.0（版本递增 + 文档更新 + 全量验证 + 离线包）
+
+- Goal：发布 2.2.0 小版本准备——版本递增 2.2.0、CHANGELOG/README 更新、全量验证通过、runtime/offline 离线包生成；Git commit/tag/push 由收尾流程完成。
+- 改动文件：`package.json`、`package-lock.json`（版本 2.2.0）；`CHANGELOG.md`（新增 [2.2.0] 节）；`README.md`（版本文案）；`feature_list.json`（新增 release-v2.2.0，done）、`progress.md`、`session-handoff.md`。
+- 验证：`npm run test` → **375 files / 4484 passed（exit 0）**；`npm run lint` → **0 errors / 0 warnings（exit 0）**；`npm run build` → **exit 0**；离线包 `package-offline/shawnstack-quickforge-2.2.0.tgz` 已生成。
+- Notes（只记录，不扩范围）：
+  - a) 原有 flaky 测试条目（`tests/server/scheduled-tasks.commands.test.mjs` 偶发超时）与各轮真机验收条目保留在下方历史记录 Notes 中，未删除。
+  - b) 本轮未手工触碰 dist/、package-dist/、package-offline/（离线包为发布脚本生成产物）；无依赖升级；docs/wiki 未动（纯版本发布，不改模块职责/公共入口）。
+
+---
+
 ## 2026-09-21 · 修复运行中点击「思考过程」文字无法展开（thinking header pointerdown 优先 + 装饰幂等 no-op）
 
 - Goal：流式（运行中）状态下点击思考块 header 的「思考过程」文字无法展开思考块。根因：`decorateProcessThinkingBlocks` 在流式期间每帧重跑，其写路径每帧重写 `label.textContent`（销毁重建文本节点）并 prepend/append 重排 header 子级，与点击事件派发竞态——click 的目标节点被重建/搬移，React onClick 打不上。

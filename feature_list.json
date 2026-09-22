@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "release-v2.2.0",
+      "name": "发布准备 v2.2.0（版本递增 + 文档更新 + 全量验证 + runtime/offline 包）",
+      "status": "done",
+      "dependencies": [],
+      "approach": "2026-09-22 发布 2.2.0 小版本准备：package.json / package-lock.json 版本递增 2.2.0；CHANGELOG.md 新增 [2.2.0] 节（本轮 dev 全量内容）；README.md 版本文案同步更新；发布前全量硬门禁 test/lint/build 通过；生成 runtime/offline 包 package-offline/shawnstack-quickforge-2.2.0.tgz；git commit/tag/push 完成（chore(release): v2.2.0 + tag v2.2.0）。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "发布硬门禁全部通过：npm run test → 375 files / 4484 passed（exit 0）；npm run lint → 0 errors / 0 warnings（exit 0）；npm run build → exit 0。runtime/offline 包已生成：package-offline/shawnstack-quickforge-2.2.0.tgz。",
+      "boundaries": "仅版本递增、CHANGELOG/README 发布文档与三状态文件；未手工触碰 dist/、package-dist/、package-offline/（生成产物）；无依赖升级（仅版本号同步）；未改 Android；npm publish 默认不直接执行，按用户指令另行进行。"
+    },
+    {
       "id": "thinking-header-streaming-click-fix",
       "name": "修复运行中（流式）点击「思考过程」文字无法展开思考块（header pointerdown 优先切换 + decorateProcessThinkingBlocks 幂等 no-op）",
       "status": "done",

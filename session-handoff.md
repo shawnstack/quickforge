@@ -1,4 +1,13 @@
-## 当前交接：修复运行中点击「思考过程」文字无法展开思考块（2026-09-21）
+## 当前交接：发布 2.2.0（2026-09-22）
+
+- 当前目标：发布 2.2.0 版本。发布准备已完成：版本递增 2.2.0、CHANGELOG/README 更新、全量验证通过、runtime/offline 离线包生成。
+- 改动文件：`package.json`、`package-lock.json`、`CHANGELOG.md`、`README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：`npm run test` → **375 files / 4484 passed（exit 0）**；`npm run lint` → **0 errors / 0 warnings（exit 0）**；`npm run build` → **exit 0**；离线包 `package-offline/shawnstack-quickforge-2.2.0.tgz` 已生成。
+- Blocker：无。
+- 下一步：git commit `chore(release): v2.2.0` + tag `v2.2.0` + push；之后按用户指令执行 npm publish（默认不直接发布）。
+
+---
+## 历史交接：修复运行中点击「思考过程」文字无法展开思考块（2026-09-21）
 
 - 当前目标（已完成，待真机验收）：流式（运行中）期间点击思考块 header 的「思考过程」文字无法展开。根因：`decorateProcessThinkingBlocks` 流式期间每帧重跑写路径（重写 `label.textContent` + prepend/append 重排 header 子级）与 click 事件派发竞态。修复：① `src/components/chat/surface/ThinkingBlock.tsx` header 按钮新增 `onPointerDown` 切换（不 preventDefault，保留原生 focus 等默认行为），`onClick` 仅 `e.detail === 0`（键盘 Enter/Space 或程序触发）时切换、`e.detail > 0`（真实鼠标 pointerdown 之后重复派发的 click）忽略——对齐 `shouldToggleProcessSummary` 的 pointerdown 优先先例；② `src/components/chat/panel-decoration/process-folding.ts` `decorateProcessThinkingBlocks` 幂等 no-op：header 已接管、三槽位类名就位、文案一致且子级顺序已是 `[icon, label, chevron]` 时短路 return，跳过全部 DOM 写操作，消除流式期间每帧 DOM churn（React 重渲染重写 class 属性后条件自然失效、回落完整接管）。
 - 改动文件：`src/components/chat/surface/ThinkingBlock.tsx`、`src/components/chat/panel-decoration/process-folding.ts`、`tests/frontend/thinking-header-adoption.test.ts`（新增幂等 no-op 用例）、`tests/frontend/thinking-block-interaction.test.ts`（新建 3 用例）、`docs/wiki/src/components/README.md`（思考头接管契约条目两份副本）、`docs/wiki/src/lib/README.md`（tool-display-settings 条目交叉引用）、`feature_list.json`（新增 thinking-header-streaming-click-fix，done）、`progress.md`、`session-handoff.md`。

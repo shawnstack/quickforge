@@ -3323,23 +3323,19 @@ html.dark .quickforge-file-path-link {
 }
 
 .quickforge-process-summary:hover,
-.quickforge-process-stage-summary:hover,
-.quickforge-process-tools-summary:hover {
+.quickforge-process-stage-summary:hover {
   color: color-mix(in oklab, var(--foreground) 86%, transparent);
 }
 
 .quickforge-process-summary:focus-visible,
-.quickforge-process-stage-summary:focus-visible,
-.quickforge-process-tools-summary:focus-visible {
+.quickforge-process-stage-summary:focus-visible {
   border-radius: 0.25rem;
   outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
   outline-offset: 2px;
 }
 
 .quickforge-process-chevron,
-.quickforge-process-stage-chevron,
-.quickforge-process-tools-chevron,
-.quickforge-process-tools-icon {
+.quickforge-process-stage-chevron {
   display: inline-flex;
   width: 1rem;
   height: 1rem;
@@ -3349,8 +3345,7 @@ html.dark .quickforge-file-path-link {
 }
 
 .quickforge-process-chevron,
-.quickforge-process-stage-chevron,
-.quickforge-process-tools-chevron {
+.quickforge-process-stage-chevron {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
@@ -3363,9 +3358,7 @@ html.dark .quickforge-file-path-link {
 .quickforge-process-summary:hover > .quickforge-process-chevron,
 .quickforge-process-summary:focus-visible > .quickforge-process-chevron,
 .quickforge-process-stage-summary:hover > .quickforge-process-stage-chevron,
-.quickforge-process-stage-summary:focus-visible > .quickforge-process-stage-chevron,
-.quickforge-process-tools-summary:hover > .quickforge-process-tools-chevron,
-.quickforge-process-tools-summary:focus-visible > .quickforge-process-tools-chevron {
+.quickforge-process-stage-summary:focus-visible > .quickforge-process-stage-chevron {
   visibility: visible;
   opacity: 1;
   transition-delay: 0s;
@@ -3379,7 +3372,6 @@ html.dark .quickforge-file-path-link {
   white-space: nowrap;
 }
 
-.quickforge-process-tools-icon,
 .quickforge-process-body .quickforge-tool-type-icon {
   color: color-mix(in oklab, var(--muted-foreground) 58%, transparent) !important;
 }
@@ -3390,22 +3382,18 @@ html.dark .quickforge-file-path-link {
 }
 
 .quickforge-process-chevron svg,
-.quickforge-process-stage-chevron svg,
-.quickforge-process-tools-chevron svg,
-.quickforge-process-tools-icon svg {
+.quickforge-process-stage-chevron svg {
   width: 1rem;
   height: 1rem;
 }
 
 .quickforge-process-group[data-expanded="true"] > .quickforge-process-summary .quickforge-process-chevron,
-.quickforge-process-stage[data-expanded="true"] > .quickforge-process-stage-summary .quickforge-process-stage-chevron,
-.quickforge-process-tools[data-expanded="true"] > .quickforge-process-tools-summary .quickforge-process-tools-chevron {
+.quickforge-process-stage[data-expanded="true"] > .quickforge-process-stage-summary .quickforge-process-stage-chevron {
   transform: rotate(90deg);
 }
 
 .quickforge-process-stage,
-.quickforge-process-step,
-.quickforge-process-tools {
+.quickforge-process-step {
   display: flex;
   width: 100%;
   min-width: 0;
@@ -3414,12 +3402,11 @@ html.dark .quickforge-file-path-link {
   gap: 0.25rem;
 }
 
-/* 折叠组三个 body 用 grid-template-rows 0fr↔1fr 做高度过渡（无需测量内容高度，
+/* 折叠组 body 用 grid-template-rows 0fr↔1fr 做高度过渡（无需测量内容高度，
    先例见 .quickforge-assistant-artifact-card-details）。展开（进入）用
    --quickforge-dur-base；收起态在下方用更快的 --quickforge-dur-exit 覆盖。 */
 .quickforge-process-body,
-.quickforge-process-stage-body,
-.quickforge-process-tools-body {
+.quickforge-process-stage-body {
   display: grid;
   grid-template-rows: 1fr;
   width: 100%;
@@ -3464,8 +3451,7 @@ html.dark .quickforge-file-path-link {
   padding-top: 0.375rem;
 }
 
-.quickforge-process-stage-summary,
-.quickforge-process-tools-summary {
+.quickforge-process-stage-summary {
   display: flex;
   width: 100%;
   min-height: 1.625rem;
@@ -3476,15 +3462,14 @@ html.dark .quickforge-file-path-link {
   background: transparent;
   color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
   cursor: pointer;
-  /* 阶段/工具组摘要行同样跟随「消息字号」基准（×0.875，默认 13px 下 = 11.375px）。 */
+  /* 阶段摘要行同样跟随「消息字号」基准（×0.875，默认 13px 下 = 11.375px）。 */
   font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875);
   line-height: 1.5;
   text-align: left;
   transition: color 160ms ease;
 }
 
-.quickforge-process-stage-label,
-.quickforge-process-tools-label {
+.quickforge-process-stage-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3495,8 +3480,7 @@ html.dark .quickforge-file-path-link {
   margin-top: 0.25rem;
 }
 
-.quickforge-process-stage-body,
-.quickforge-process-tools-body {
+.quickforge-process-stage-body {
   margin-top: 0;
 }
 
@@ -3748,10 +3732,6 @@ html.dark .quickforge-file-path-link {
   color: color-mix(in oklab, var(--foreground) 86%, transparent);
 }
 
-.quickforge-process-tools-summary {
-  font-weight: 400;
-}
-
 .quickforge-process-thinking-icon,
 .quickforge-process-thinking-chevron {
   display: inline-flex;
@@ -3878,14 +3858,6 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
 
 /* 收起态（退出）：grid 行 track 塌到 0fr，visibility 延迟到收起完成后再隐藏
    （0fr 区内的按钮不可被 Tab 聚焦）；退出比展开快（DESIGN_LANGUAGE）。 */
-.quickforge-process-tools[data-expanded="false"] > .quickforge-process-tools-body {
-  grid-template-rows: 0fr;
-  visibility: hidden;
-  transition:
-    grid-template-rows var(--quickforge-dur-exit) var(--quickforge-ease-out),
-    visibility 0s linear var(--quickforge-dur-exit);
-}
-
 .quickforge-process-stage[data-expanded="false"] > .quickforge-process-stage-body {
   grid-template-rows: 0fr;
   visibility: hidden;
@@ -3903,7 +3875,6 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
 }
 
 /* 收起态下 inner 随高度一起淡出，同样用更快的退出时长。 */
-.quickforge-process-tools[data-expanded="false"] > .quickforge-process-tools-body > .quickforge-process-body-inner,
 .quickforge-process-stage[data-expanded="false"] > .quickforge-process-stage-body > .quickforge-process-body-inner,
 .quickforge-process-group[data-expanded="false"] > .quickforge-process-body > .quickforge-process-body-inner {
   opacity: 0;
@@ -3913,7 +3884,6 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
 @media (prefers-reduced-motion: reduce) {
   .quickforge-process-body,
   .quickforge-process-stage-body,
-  .quickforge-process-tools-body,
   .quickforge-process-body-inner {
     transition: none;
   }

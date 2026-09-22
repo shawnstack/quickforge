@@ -13,9 +13,7 @@ import {
   processStageDefaultExpanded,
   processStageLabel,
   processStageStateKey,
-  processToolGroupDefaultExpanded,
   processThinkingChildIndexes,
-  processToolGroupStateKey,
   processToolSuffixAppendStart,
   processTurnUpdateMode,
   resolveProcessExpandedState,
@@ -23,16 +21,11 @@ import {
   shouldDiscardGroupedProcessNode,
   shouldPreserveProcessGroupDuringHandoff,
   shouldToggleProcessSummary,
-  splitConsecutiveProcessNodes,
   splitProcessStageSections,
   summarizeProcessStageTools,
-  summarizeProcessTools,
 } from '../../src/components/chat/panel-decoration/process-folding'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
-vi.mock('@/lib/tool-display-settings', () => ({
-  getCachedToolDisplaySettings: () => ({ toolDisplayMode: 'compact', showContextUsage: false }),
-}), { virtual: true })
 
 describe('process folding source visibility', () => {
   it('keeps an error-only assistant visible when it carries a concrete error message', () => {
@@ -141,13 +134,7 @@ describe('process streaming updates', () => {
     expect(processGroupDefaultExpanded(false)).toBe(false)
   })
 
-  it('defaults tool groups from the tool display mode (compact collapses count)', () => {
-    // 旧语义：只有 `detailed` 显示模式默认展开工具组；默认设置 `compact` 收起。
-    expect(processToolGroupDefaultExpanded('detailed')).toBe(true)
-    expect(processToolGroupDefaultExpanded('compact')).toBe(false)
-  })
-
-  it('uses mode defaults for tool groups while preserving explicit state within the same mode', () => {
+  it('uses resolve defaults while preserving explicit state within the same key', () => {
     expect(resolveProcessExpandedState(undefined, false, false, false)).toBe(false)
     expect(resolveProcessExpandedState(undefined, false, false, true)).toBe(true)
     expect(resolveProcessExpandedState(false, false, true, true)).toBe(false)
@@ -194,11 +181,6 @@ describe('process streaming updates', () => {
       { streaming: false, hasGroup: false },
       { streaming: true, hasGroup: false },
     ])).toBe(0)
-  })
-
-  it('keeps a tools group key stable when more consecutive tools are appended', () => {
-    expect(processToolGroupStateKey('turn:0', 'tool-a', 0)).toBe('turn:0:tools:tool-a')
-    expect(processToolGroupStateKey('turn:0', 'tool-a', 1)).toBe('turn:0:tools:tool-a')
   })
 
   it('recognizes a connected same-assistant tool suffix that can be appended in place', () => {
@@ -272,40 +254,6 @@ describe('process folding order', () => {
     expect(isProcessToolsGroupMember('edit_file')).toBe(true)
   })
 
-  it('keeps agent calls between separate surrounding tool groups', () => {
-    const nodes = ['tool-a', 'tool-b', 'run_subagent', 'tool-c', 'run_subagent', 'tool-d']
-    expect(splitConsecutiveProcessNodes(nodes, (node) => node.startsWith('tool'))).toEqual([
-      { kind: 'tools', items: ['tool-a', 'tool-b'] },
-      { kind: 'detail', items: ['run_subagent'] },
-      { kind: 'tools', items: ['tool-c'] },
-      { kind: 'detail', items: ['run_subagent'] },
-      { kind: 'tools', items: ['tool-d'] },
-    ])
-  })
-
-  it('groups only consecutive tools and preserves the surrounding timeline', () => {
-    const nodes = ['plan', 'thinking-a', 'tool-1', 'tool-2', 'thinking-b', 'tool-3']
-    expect(splitConsecutiveProcessNodes(nodes, (node) => node.startsWith('tool'))).toEqual([
-      { kind: 'detail', items: ['plan', 'thinking-a'] },
-      { kind: 'tools', items: ['tool-1', 'tool-2'] },
-      { kind: 'detail', items: ['thinking-b'] },
-      { kind: 'tools', items: ['tool-3'] },
-    ])
-  })
-
-  it('treats assistant message boundaries as protocol metadata rather than visual boundaries', () => {
-    const items = [
-      { source: 'assistant-a', value: 'thinking-a' },
-      { source: 'assistant-a', value: 'tool-a' },
-      { source: 'assistant-b', value: 'tool-b' },
-    ]
-
-    expect(splitConsecutiveProcessNodes(items, (item) => item.value.startsWith('tool'))).toEqual([
-      { kind: 'detail', items: items.slice(0, 1) },
-      { kind: 'tools', items: items.slice(1) },
-    ])
-  })
-
   it('keeps the injected Thinking icon separate from the native chevron after re-decoration', () => {
     expect(processThinkingChildIndexes([
       { quickforgeIcon: true, hasSvg: true },
@@ -344,35 +292,6 @@ describe('process folding order', () => {
       { markedLabel: true },
       { markedChevron: true, hasSvg: true, rotated: true },
     ])).toEqual({ chevronIndex: 2, labelIndex: 1, chevronExpanded: true })
-  })
-
-  it('groups consecutive tools across assistant message boundaries', () => {
-    const items = [
-      { source: 'assistant-a', value: 'tool-a' },
-      { source: 'assistant-b', value: 'tool-b' },
-    ]
-
-    expect(splitConsecutiveProcessNodes(items, (item) => item.value.startsWith('tool'))).toEqual([
-      { kind: 'tools', items },
-    ])
-  })
-
-  it('keeps Thinking and agents as hard boundaries across assistant messages', () => {
-    const items = [
-      { source: 'assistant-a', value: 'tool-a' },
-      { source: 'assistant-b', value: 'thinking' },
-      { source: 'assistant-c', value: 'tool-b' },
-      { source: 'assistant-d', value: 'run_subagent' },
-      { source: 'assistant-e', value: 'tool-c' },
-    ]
-
-    expect(splitConsecutiveProcessNodes(items, (item) => item.value.startsWith('tool'))).toEqual([
-      { kind: 'tools', items: items.slice(0, 1) },
-      { kind: 'detail', items: items.slice(1, 2) },
-      { kind: 'tools', items: items.slice(2, 3) },
-      { kind: 'detail', items: items.slice(3, 4) },
-      { kind: 'tools', items: items.slice(4, 5) },
-    ])
   })
 
   it('excludes markdown rendered inside a thinking block from top-level process details', () => {
@@ -420,10 +339,10 @@ describe('single top-level process group', () => {
 })
 
 describe('nested process stage groups', () => {
-  it('keeps the first process fragment directly under the top-level status and nests later fragments', () => {
+  it('nests every process fragment in its own stage between unfolded intermediate markdown', () => {
     const items = ['thinking-a', 'tool-a', 'markdown-stage', 'thinking-b', 'tool-b', 'markdown-stage-2', 'tool-c']
     expect(splitProcessStageSections(items, (item) => item.startsWith('markdown'))).toEqual([
-      { kind: 'detail', items: ['thinking-a', 'tool-a'] },
+      { kind: 'stage', items: ['thinking-a', 'tool-a'] },
       { kind: 'detail', items: ['markdown-stage'] },
       { kind: 'stage', items: ['thinking-b', 'tool-b'] },
       { kind: 'detail', items: ['markdown-stage-2'] },
@@ -461,7 +380,7 @@ describe('nested process stage groups', () => {
         toolCall: { name: 'edit_file', arguments: { path: `src/${index}.ts` } },
       })),
     ])
-    expect(summary).toEqual({ toolCallCount: 12, commandCount: 7, editedFileCount: 5 })
+    expect(summary).toEqual({ toolCallCount: 12, commandCount: 7, editedFileCount: 5, errorCount: 0 })
     expect(processStageLabel(summary, true)).toBe(
       'processExecuting  processGroupToolsCalled · processGroupCommandsRan · processGroupFilesEdited',
     )
@@ -470,42 +389,16 @@ describe('nested process stage groups', () => {
     )
     expect(processStageLabel(summarizeProcessStageTools([]), true)).toBe('processExecuting')
   })
-})
 
-describe('process tool summary', () => {
-  it('recognizes a command-only group', () => {
-    expect(summarizeProcessTools([
-      { toolCall: { name: 'run_command' }, result: {} },
-      { tool: { name: 'run_command' }, result: {} },
-    ])).toEqual({ count: 2, errorCount: 0, commandsOnly: true })
-  })
-
-  it('counts repeated edit and write calls by unique file path', () => {
-    expect(summarizeProcessTools([
-      { toolCall: { name: 'edit_file', arguments: { path: 'src/app.ts' } }, result: {} },
-      { toolCall: { name: 'edit_file', arguments: { path: 'src/app.ts' } }, result: { isError: true } },
-      { toolCall: { name: 'write_file', arguments: { path: 'src/index.ts' } }, result: {} },
-    ])).toEqual({ count: 3, errorCount: 1, commandsOnly: false, editedFileCount: 2 })
-  })
-
-  it('falls back to the result path after a file edit completes', () => {
-    expect(summarizeProcessTools([
-      { toolCall: { name: 'edit_file' }, result: { details: { path: 'src/app.ts' } } },
-    ])).toEqual({ count: 1, errorCount: 0, commandsOnly: false, editedFileCount: 1 })
-  })
-
-  it('uses the generic tool summary when file edits are mixed with other tools', () => {
-    expect(summarizeProcessTools([
-      { toolCall: { name: 'edit_file', arguments: { path: 'src/app.ts' } }, result: {} },
-      { toolCall: { name: 'read_file', arguments: { path: 'src/app.ts' } }, result: {} },
-    ])).toEqual({ count: 2, errorCount: 0, commandsOnly: false })
-  })
-
-  it('uses the generic tool summary for mixed tools and counts failures', () => {
-    expect(summarizeProcessTools([
+  it('appends the failure count to the stage title when any grouped tool failed', () => {
+    const summary = summarizeProcessStageTools([
       { toolCall: { name: 'grep_files' }, result: {} },
       { toolCall: { name: 'run_command' }, result: { isError: true } },
       { toolCall: { name: 'read_file' }, aborted: true },
-    ])).toEqual({ count: 3, errorCount: 2, commandsOnly: false })
+    ])
+    expect(summary).toEqual({ toolCallCount: 3, commandCount: 1, editedFileCount: 0, errorCount: 2 })
+    expect(processStageLabel(summary, false)).toBe(
+      'processExecuted  processGroupToolsCalled · processGroupCommandsRan · processToolsFailedCount',
+    )
   })
 })

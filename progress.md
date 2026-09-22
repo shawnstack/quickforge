@@ -1,3 +1,21 @@
+## 2026-09-22 · 过程折叠移除「调用了 N 项工具」最内层（三层→两层折叠）
+
+- Goal：用户反馈保留「已执行 N 个工具调用 · M 条命令」这层（stage 阶段层）、移除其下还要再点一次的「调用了 N 项工具」最内层工具摘要组（tools）。调研后用户裁决：普通回合（无中间 Markdown、原本只有 tools 层）也统一包 stage 头（方案 B）；「N 项失败」失败计数挪到 stage 头上。
+- 改动文件：
+  - `src/components/chat/panel-decoration/process-folding.ts`：`splitProcessStageSections` 所有连续过程段（含首段）一律 `kind:'stage'`（中间 Markdown 仍是不折叠 detail 段）；`populateProcessContainer` 删除分段与 tools 包裹，过程项按时间线原序直接挂 step；`summarizeProcessStageTools`/`ProcessStageSummary` 新增 `errorCount`，`processStageLabel` 失败时追加 `processToolsFailedCount`；`appendProcessToolSuffix` 防闪烁校验链改为 tail→step→stage-inner→group（新增 `PROCESS_STEP_CLASS` 常量）；删除 `createProcessToolsGroup`/`toolsIconMarkup`/`updateProcessToolsGroups`/`toolGroupStateKey`/`processToolGroupStateKey`/`processToolGroupDefaultExpanded`/`summarizeProcessTools`/`processToolsLabel`/`ProcessToolSummary`/`ProcessNodeSegment`/`splitConsecutiveProcessNodes` 与 `getCachedToolDisplaySettings` import。
+  - `src/lib/i18n.ts`：en/zh 删 `processCommandsRan`/`processFilesEdited`/`processToolsCalled`/`expandProcessTools`/`collapseProcessTools`（保留 `processToolsFailedCount` 供 stage 用）；`toolDisplayModeDescription` 去掉「默认展开 Tool 调用」承诺。
+  - `src/index.css`：清理全部 `.quickforge-process-tools-*` 规则（hover/focus-visible/chevron/icon/flex/grid 折叠动画/reduced-motion，约 17 处选择器组）。
+  - 测试 4 文件：`process-folding.test.ts`（删 summarizeProcessTools 5 例、processToolGroup* 与 splitConsecutiveProcessNodes 断言；首段断言改 'stage'；补 errorCount 断言 + 失败计数新用例）、`process-folding-incremental.test.ts`（断言改 stage-body inner 的 step；新增组内不存在 `.quickforge-process-tools` 护栏）、`chat-surface-css-contract.test.ts`（字号契约删 tools-summary）、`chat-surface-api-key-dialog.test.ts`（文案断言改新值）。
+  - `docs/wiki/src/components/README.md`（两份副本）+ `docs/wiki/src/lib/README.md`（tool-display-settings 条目）：三层结构描述改两层；`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 8 files / 212 passed（process-folding 系全部相关测试，exit 0）；全量 `npm run test` → **4467 passed + 4 failed**（4 处失败 = `tests/server/acp/server-channel-source` / `server.workspace-mapping` / `sqlite-quick-check-gate`，**git stash 后重跑同样失败，属主分支既有失败，与本轮无关**）；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**。
+- Notes（只记录，不扩范围）：
+  - a) 折叠默认值：顶层组 = `isAgentStreaming`（流式展开/历史收起）、stage 默认收起，saved state 优先——均未变；`toolDisplayMode`（简洁/详细）设置保留，仍控制单行摘要详细程度与 subagent 详情，只是不再控制折叠。
+  - b) 工具组 saved state（`processKey:tools:*` 键）随层级删除自然失效，无迁移必要（内存 WeakMap，不入库）。
+  - c) 待真机验收：普通回合展开「已执行 · Ns」后看到 stage 头「已执行 N 个工具调用」（收起）；点开 stage 直接见工具行；含失败工具时 stage 头带「· N 项失败」。
+  - d) 主分支既有服务端测试失败 4 例（ACP channel/workspace-mapping/sqlite quick_check gate）已登记，不在本轮范围。
+
+---
+
 ## 2026-09-22 · run_subagent 部分成果回传（工具调用清单 + 全量 assistant 正文回传主 agent）
 
 - Goal：用户需求——subagent 内部停止（如网络故障）时，把 subagent 已经产生的 AI 回复正文给主 agent，让主 agent 知道内部行为、可基于部分成果续接或只重派剩余工作。方案经两轮过稿定稿：先做「部分成果回传」（不做自动重试，留后续 feature）；回传**不做条数/行数限制**（用户明确取消原提案的「正文取最后 2 条 / 工具清单 40 行」），全量回传；唯一截断是工具参数单行摘要化（200 字符，防 write_file 整文件回显成一行）。

@@ -1,4 +1,13 @@
-## 当前交接：run_subagent 部分成果回传（2026-09-22）
+## 当前交接：过程折叠移除「调用了 N 项工具」最内层（2026-09-22）
+
+- 当前目标（已完成，待真机验收）：用户要求保留「已执行 N 个工具调用 · M 条命令」阶段层、移除其下还要再点一次的「调用了 N 项工具」工具摘要组；用户裁决普通回合（无中间 Markdown）也统一包 stage 头（方案 B），失败计数「N 项失败」挪到 stage 头。现结构为两层折叠：顶层组「已执行 · 耗时」→ 内层 stage「已执行 N 个工具调用 · M 条命令 ·（K 项失败）」→ 点开直接见工具行（工具行挂 stage-body inner 的 step）。
+- 改动文件：`src/components/chat/panel-decoration/process-folding.ts`（splitProcessStageSections 全过程段包 stage / populateProcessContainer 直挂 step / stage 标题加 errorCount / appendProcessToolSuffix 校验链改 step / 删 tools 组全部代码）、`src/lib/i18n.ts`（删 5 key 双语 + toolDisplayModeDescription 微调）、`src/index.css`（清理 .quickforge-process-tools-*）、`tests/frontend/process-folding.test.ts`、`tests/frontend/process-folding-incremental.test.ts`、`tests/frontend/chat-surface-css-contract.test.ts`、`tests/frontend/chat-surface-api-key-dialog.test.ts`、`docs/wiki/src/components/README.md`（两份副本）、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 8 files / 212 passed（process-folding 相关全部，exit 0）；全量 `npm run test` → **4467 passed + 4 failed**（失败为服务端 ACP/sqlite **主分支既有失败**，git stash 验证与本轮无关）；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 验收：普通回合展开顶层组后见 stage 头（收起）→ 点开直接见工具行；含失败工具时 stage 头带「· N 项失败」；「简洁/详细」设置只影响单行摘要详细程度不再影响折叠；② 主分支既有服务端测试失败 4 例（ACP channel/workspace-mapping/sqlite quick_check gate）待另开 feature 修复；③ 发布 2.2.0 的 git commit/tag/push 仍待执行（见下条历史交接）。
+
+---
+## 历史交接：run_subagent 部分成果回传（2026-09-22）
 
 - 当前目标（已完成，待真机验收）：subagent 中止/失败时把已产生的 AI 回复正文与工具调用清单回传主 agent（部分成果回传）。`server/agent-subagent-runner.mjs` 四路径统一追加「Work done 报告」：成功 = 最终回复 + 报告（跳过重复正文）；运行期失败 = 上游原文首行 + 报告（含 still running 行）；超时/父运行中止 = 既有首句（逐字保留）+ 报告。全量不限条数/行数（用户明确），唯一截断为工具参数单行摘要 200 字符。前端零改动（trace 去重/翻译契约自洽）。
 - 改动文件：`server/agent-subagent-runner.mjs`、`tests/server/agent-manager.subagents.test.mjs`（+2 用例、2 处断言扩展）、`docs/wiki/server/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。

@@ -25,7 +25,6 @@ vi.mock('react-dom/client', () => ({
   },
 }))
 
-import { processToolGroupDefaultExpanded } from '../../src/components/chat/panel-decoration/process-folding'
 import { applyAppLanguageFromSnapshot, t } from '../../src/lib/i18n'
 import {
   ApiKeyPromptDialog,
@@ -438,22 +437,18 @@ describe('dialog Invalid-state contract', () => {
 })
 
 describe('tool display mode copy', () => {
-  it('describes the tool-group defaults that process-folding actually applies', () => {
-    // `process-folding` collapses tool groups in compact mode and expands them
-    // in detailed mode, so the settings copy must not promise "expanded in both
-    // modes".
-    expect(processToolGroupDefaultExpanded('compact')).toBe(false)
-    expect(processToolGroupDefaultExpanded('detailed')).toBe(true)
-
+  it('describes only per-row detail levels now that folding no longer depends on the mode', () => {
+    // 工具组折叠层级已移除（stage 头替代），模式只控制单行摘要的详细程度，
+    // 文案不再承诺任何默认展开行为。
     expect(t('toolDisplayModeDescription')).toBe(
-      'Compact shows summaries with details collapsed. Detailed shows full parameters and details with tool calls expanded.',
+      'Compact shows summaries with details collapsed. Detailed shows full parameters and details.',
     )
-    expect(t('toolDisplayModeDescription')).not.toContain('expanded by default in both modes')
+    expect(t('toolDisplayModeDescription')).not.toContain('expanded')
 
     applyAppLanguageFromSnapshot('zh')
     expect(t('toolDisplayModeDescription')).toBe(
-      '简洁模式显示摘要并默认收起详情；详细模式显示完整参数和 details，并默认展开 Tool 调用。',
+      '简洁模式显示摘要并默认收起详情；详细模式显示完整参数和 details。',
     )
-    expect(t('toolDisplayModeDescription')).not.toContain('两种模式下工具调用组均默认展开')
+    expect(t('toolDisplayModeDescription')).not.toContain('默认展开')
   })
 })

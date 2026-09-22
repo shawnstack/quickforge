@@ -1,6 +1,5 @@
 import type { MessageWithUsage } from '../chat-utils'
 import { t } from '@/lib/i18n'
-import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 
 type ProcessGroupElement = HTMLDivElement
 
@@ -11,11 +10,6 @@ type ToolMessageElement = HTMLElement & {
   pending?: boolean
   aborted?: boolean
   isStreaming?: boolean
-}
-
-type ProcessNodeSegment<T> = {
-  kind: 'detail' | 'tools'
-  items: T[]
 }
 
 type ProcessStageSection<T> = {
@@ -30,13 +24,6 @@ type GroupedProcessNode = {
   sourceNextSibling: ChildNode | null
 }
 
-type ProcessToolSummary = {
-  count: number
-  errorCount: number
-  commandsOnly: boolean
-  editedFileCount?: number
-}
-
 type AssistantMessageElement = HTMLElement & {
   message?: MessageWithUsage & { stopReason?: string; errorMessage?: string }
   isStreaming?: boolean
@@ -44,9 +31,7 @@ type AssistantMessageElement = HTMLElement & {
 
 const PROCESS_GROUP_SELECTOR = '.quickforge-process-group'
 const PROCESS_BODY_SELECTOR = '.quickforge-process-body'
-const PROCESS_TOOLS_SELECTOR = '.quickforge-process-tools'
-const PROCESS_TOOLS_BODY_CLASS = 'quickforge-process-tools-body'
-const PROCESS_TOOLS_BODY_SELECTOR = `.${PROCESS_TOOLS_BODY_CLASS}`
+const PROCESS_STEP_CLASS = 'quickforge-process-step'
 const PROCESS_BODY_INNER_CLASS = 'quickforge-process-body-inner'
 const PROCESS_STAGE_SELECTOR = '.quickforge-process-stage'
 const PROCESS_STAGE_BODY_SELECTOR = '.quickforge-process-stage-body'
@@ -269,24 +254,11 @@ function toolMessageEditedFilePath(toolMessage: ToolMessageElement) {
   return typeof resultPath === 'string' && resultPath.trim() ? resultPath.trim() : undefined
 }
 
-export function summarizeProcessTools(toolMessages: ArrayLike<ToolMessageElement>): ProcessToolSummary {
-  const messages = Array.from(toolMessages)
-  const editedPaths = messages.map(toolMessageEditedFilePath)
-  const editedFilePaths = new Set(editedPaths.filter((path): path is string => Boolean(path)))
-  const editsOnly = messages.length > 0 && messages.every((message) => FILE_EDIT_TOOL_NAMES.has(toolNameFromMessage(message)))
-  const allEditedPathsKnown = editedPaths.every((path) => path !== undefined)
-  return {
-    count: messages.length,
-    errorCount: messages.filter(toolMessageIsError).length,
-    commandsOnly: messages.length > 0 && messages.every((message) => toolNameFromMessage(message) === 'run_command'),
-    ...(editsOnly && allEditedPathsKnown ? { editedFileCount: editedFilePaths.size } : {}),
-  }
-}
-
 type ProcessStageSummary = {
   toolCallCount: number
   commandCount: number
   editedFileCount: number
+  errorCount: number
 }
 
 export function summarizeProcessStageTools(toolMessages: ArrayLike<ToolMessageElement>): ProcessStageSummary {
@@ -297,6 +269,7 @@ export function summarizeProcessStageTools(toolMessages: ArrayLike<ToolMessageEl
     toolCallCount: messages.length,
     commandCount: messages.filter((message) => toolNameFromMessage(message) === 'run_command').length,
     editedFileCount: editedFilePaths.size,
+    errorCount: messages.filter(toolMessageIsError).length,
   }
 }
 
@@ -305,21 +278,9 @@ export function processStageLabel(summary: ProcessStageSummary, isStreaming: boo
   if (summary.toolCallCount > 0) details.push(t('processGroupToolsCalled', { count: summary.toolCallCount }))
   if (summary.commandCount > 0) details.push(t('processGroupCommandsRan', { count: summary.commandCount }))
   if (summary.editedFileCount > 0) details.push(t('processGroupFilesEdited', { count: summary.editedFileCount }))
+  if (summary.errorCount > 0) details.push(t('processToolsFailedCount', { count: summary.errorCount }))
   const status = isStreaming ? t('processExecuting') : t('processExecuted')
   return details.length > 0 ? `${status}  ${details.join(' · ')}` : status
-}
-
-function processToolsLabel(summary: ProcessToolSummary) {
-  const key = summary.commandsOnly
-    ? 'processCommandsRan'
-    : summary.editedFileCount !== undefined
-      ? 'processFilesEdited'
-      : 'processToolsCalled'
-  const count = summary.editedFileCount ?? summary.count
-  const base = t(key, { count })
-  return summary.errorCount > 0
-    ? `${base} · ${t('processToolsFailedCount', { count: summary.errorCount })}`
-    : base
 }
 
 export function processStatusLabel(status: string, duration: string) {
@@ -392,16 +353,12 @@ function assistantContentContainer(assistant: AssistantMessageElement) {
 
 function createProcessStep() {
   const step = document.createElement('div')
-  step.className = 'quickforge-process-step'
+  step.className = PROCESS_STEP_CLASS
   return step
 }
 
 function thinkingIconMarkup() {
   return '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/></svg>'
-}
-
-function toolsIconMarkup() {
-  return '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="14" x="3" y="5" rx="2"/><path d="m7 9 3 3-3 3"/><path d="M13 15h4"/></svg>'
 }
 
 type ProcessThinkingChild = {
@@ -526,31 +483,6 @@ function ensureProcessBodyInner(body: HTMLElement) {
   return inner
 }
 
-function createProcessToolsGroup() {
-  const tools = document.createElement('div')
-  tools.className = 'quickforge-process-tools'
-  tools.dataset.expanded = 'false'
-
-  const toolsSummary = document.createElement('button')
-  toolsSummary.type = 'button'
-  toolsSummary.className = 'quickforge-process-tools-summary'
-  toolsSummary.innerHTML = `
-    <span class="quickforge-process-tools-icon" aria-hidden="true">
-      ${toolsIconMarkup()}
-    </span>
-    <span class="quickforge-process-tools-label"></span>
-    <span class="quickforge-process-tools-chevron" aria-hidden="true">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-    </span>
-  `
-
-  const toolsBody = document.createElement('div')
-  toolsBody.className = 'quickforge-process-tools-body'
-  ensureProcessBodyInner(toolsBody)
-  tools.append(toolsSummary, toolsBody)
-  return tools
-}
-
 function createProcessStage() {
   const stage = document.createElement('div')
   stage.className = 'quickforge-process-stage'
@@ -655,69 +587,6 @@ function updateProcessStageGroups(
   })
 }
 
-export function processToolGroupStateKey(processKey: string, firstToolId: string | undefined, index: number) {
-  return firstToolId
-    ? `${processKey}:tools:${firstToolId}`
-    : `${processKey}:tools:${index}`
-}
-
-/** 工具组（连续工具行）默认展开值：只有 `detailed` 显示模式默认展开（旧语义），默认设置 `compact` 收起。 */
-export function processToolGroupDefaultExpanded(toolDisplayMode: string) {
-  return toolDisplayMode === 'detailed'
-}
-
-function toolGroupStateKey(processKey: string, tools: HTMLElement, index: number) {
-  const toolMessages = Array.from(tools.querySelectorAll<ToolMessageElement>('tool-message, .qf-tool-message'))
-  return processToolGroupStateKey(processKey, toolMessages[0]?.toolCall?.id, index)
-}
-
-function updateProcessToolsGroups(panel: HTMLElement, processKey: string, group: ProcessGroupElement) {
-  group.querySelectorAll<HTMLElement>(PROCESS_TOOLS_SELECTOR).forEach((tools, index) => {
-    if (tools.closest(PROCESS_GROUP_SELECTOR) !== group) return
-    const toolsBody = tools.querySelector<HTMLElement>(`:scope > ${PROCESS_TOOLS_BODY_SELECTOR}`)
-    const toolsSummary = tools.querySelector<HTMLButtonElement>('.quickforge-process-tools-summary')
-    const toolsLabel = tools.querySelector<HTMLElement>('.quickforge-process-tools-label')
-    if (!toolsBody || !toolsSummary || !toolsLabel) return
-
-    // 工具行在 tools-body 的动画壳层 inner 里，body 的直接子级只有 inner，
-    // 因此后代查询与原 `:scope >` 直接子级查询等价（inner 内不会嵌套工具组）。
-    const summary = summarizeProcessTools(toolsBody.querySelectorAll<ToolMessageElement>('tool-message, .qf-tool-message'))
-    tools.hidden = summary.count === 0
-    if (summary.count === 0) return
-
-    const toolsKey = toolGroupStateKey(processKey, tools, index)
-    const toolsBodyId = `quickforge-${toolsKey.replace(/[^a-z0-9_-]+/gi, '-')}`
-    toolsBody.id = toolsBodyId
-    toolsSummary.setAttribute('aria-controls', toolsBodyId)
-    const detailed = processToolGroupDefaultExpanded(getCachedToolDisplaySettings().toolDisplayMode)
-    const displayMode = detailed ? 'detailed' : 'compact'
-    const previousToolsKey = tools.dataset.quickforgeProcessKey
-    const previousDisplayMode = tools.dataset.quickforgeToolDisplayMode
-    tools.dataset.quickforgeProcessKey = toolsKey
-    tools.dataset.quickforgeToolDisplayMode = displayMode
-    const expanded = resolveProcessExpandedState(
-      getProcessExpandedStates(panel).get(toolsKey),
-      previousToolsKey === toolsKey && previousDisplayMode === displayMode,
-      tools.dataset.expanded === 'true',
-      // 工具组默认展开值由显示模式决定（旧语义）：detailed 默认展开，compact 默认收起。
-      detailed,
-    )
-    tools.dataset.expanded = String(expanded)
-    toolsLabel.textContent = processToolsLabel(summary)
-    toolsSummary.setAttribute('aria-expanded', String(expanded))
-    toolsSummary.setAttribute('aria-label', expanded ? t('collapseProcessTools') : t('expandProcessTools'))
-    toolsSummary.onclick = (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-      const nextExpanded = tools.dataset.expanded === 'false'
-      tools.dataset.expanded = String(nextExpanded)
-      rememberProcessExpandedState(panel, toolsKey, nextExpanded)
-      toolsSummary.setAttribute('aria-expanded', String(nextExpanded))
-      toolsSummary.setAttribute('aria-label', nextExpanded ? t('collapseProcessTools') : t('expandProcessTools'))
-    }
-  })
-}
-
 export function shouldToggleProcessSummary(
   isStreaming: boolean,
   eventType: 'pointerdown' | 'click',
@@ -773,7 +642,6 @@ function updateProcessGroup(
   }
 
   updateProcessStageGroups(panel, processKey, group, isAgentStreaming)
-  updateProcessToolsGroups(panel, processKey, group)
   decorateProcessThinkingBlocks(group)
 }
 
@@ -882,14 +750,17 @@ function collectFoldableProcessNodes(
   )
 }
 
+/**
+ * 按中间 Markdown 切分回合时间线：每段连续过程项（thinking/工具/subagent 卡）各归一个
+ * 内层 stage（含首段——首段不再有裸 detail 形态），中间 Markdown 是组内不折叠的 detail 段。
+ */
 export function splitProcessStageSections<T>(items: T[], isMarkdown: (item: T) => boolean): ProcessStageSection<T>[] {
   const sections: ProcessStageSection<T>[] = []
   let processItems: T[] = []
-  let hasSeenMarkdown = false
 
   const closeProcess = () => {
     if (processItems.length === 0) return
-    sections.push({ kind: hasSeenMarkdown ? 'stage' : 'detail', items: processItems })
+    sections.push({ kind: 'stage', items: processItems })
     processItems = []
   }
 
@@ -897,27 +768,12 @@ export function splitProcessStageSections<T>(items: T[], isMarkdown: (item: T) =
     if (isMarkdown(item)) {
       closeProcess()
       sections.push({ kind: 'detail', items: [item] })
-      hasSeenMarkdown = true
     } else {
       processItems.push(item)
     }
   }
   closeProcess()
   return sections
-}
-
-export function splitConsecutiveProcessNodes<T>(nodes: T[], isTool: (node: T) => boolean): ProcessNodeSegment<T>[] {
-  const segments: ProcessNodeSegment<T>[] = []
-  for (const node of nodes) {
-    const kind = isTool(node) ? 'tools' : 'detail'
-    const previous = segments[segments.length - 1]
-    if (previous?.kind === kind) {
-      previous.items.push(node)
-    } else {
-      segments.push({ kind, items: [node] })
-    }
-  }
-  return segments
 }
 
 function processBodyHasContent(group: ProcessGroupElement) {
@@ -1138,27 +994,15 @@ export function processToolSuffixAppendStart(
     : undefined
 }
 
+/**
+ * 过程项按时间线原序直接挂进容器 inner 里的单个 step（工具组层级已移除，
+ * 「调用了 N 项工具」折叠头由所在 stage 的「已执行 N 个工具调用」头部替代）。
+ */
 function populateProcessContainer(container: HTMLElement, items: GroupedProcessNode[]) {
   const step = createProcessStep()
-  const segments = splitConsecutiveProcessNodes(items, (item) => isGroupableProcessTool(item.node))
-  for (const segment of segments) {
-    if (segment.kind === 'tools') {
-      const tools = createProcessToolsGroup()
-      const toolsBody = tools.querySelector<HTMLElement>(PROCESS_TOOLS_BODY_SELECTOR)
-      if (!toolsBody) continue
-      const toolsInner = ensureProcessBodyInner(toolsBody)
-      segment.items.forEach(({ node }) => {
-        setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
-        toolsInner.append(node)
-      })
-      step.append(tools)
-      continue
-    }
-
-    segment.items.forEach(({ node }) => {
-      setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
-      step.append(node)
-    })
+  for (const { node } of items) {
+    setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
+    step.append(node)
   }
   ensureProcessBodyInner(container).append(step)
 }
@@ -1210,7 +1054,7 @@ function createTurnProcessGroup(
 
 /**
  * 组仍存活时的增量收尾：时间线只在末尾多出连续可分组工具行时，不整组释放重建，
- * 而是把新行逐个搬进既有工具组，已有行节点保持原 DOM 位置不动。
+ * 而是把新行逐个搬进既有 stage 的 step，已有行节点保持原 DOM 位置不动。
  *
  * 全量重建（restoreProcessTurn + createTurnProcessGroup）会把每个已有行节点再搬
  * 一次；DOM 节点被搬动会重启节点上仍在运行的 CSS keyframes（如 pending 工具行的
@@ -1234,23 +1078,23 @@ function appendProcessToolSuffix(group: ProcessGroupElement, currentNodes: Group
   if (!nodesStillOwned) return false
 
   const tail = previous[previous.length - 1].node
-  // 工具行挂在 tools-body 的动画壳层 inner 里（见 ensureProcessBodyInner）：
-  // 校验链 tail → inner → tools-body → group 与「inner 的最后一个子节点是 tail」
+  // 工具行挂在 stage-body 的动画壳层 inner 里的 step 中（见 ensureProcessBodyInner）：
+  // 校验链 tail → step → stage-inner → stage → group 与「step 的最后一个子节点是 tail」
   // 一起，保证增量只 append 新行、已有行不被搬动（防闪烁关键路径）。
-  const toolsInner = tail.parentElement
-  const toolsBody = toolsInner?.parentElement
+  const step = tail.parentElement
+  const stageInner = step?.parentElement
   if (
-    !toolsInner
-    || !toolsInner.classList.contains(PROCESS_BODY_INNER_CLASS)
-    || !toolsBody
-    || !toolsBody.classList.contains(PROCESS_TOOLS_BODY_CLASS)
-    || toolsBody.closest(PROCESS_GROUP_SELECTOR) !== group
-    || toolsInner.children[toolsInner.children.length - 1] !== tail
+    !step
+    || !step.classList.contains(PROCESS_STEP_CLASS)
+    || !stageInner
+    || !stageInner.classList.contains(PROCESS_BODY_INNER_CLASS)
+    || stageInner.closest(PROCESS_GROUP_SELECTOR) !== group
+    || step.children[step.children.length - 1] !== tail
   ) return false
 
   currentNodes.slice(appendStart).forEach(({ node }) => {
     setProcessFlag(node, PROCESS_FOLDED_ATTR, true)
-    toolsInner.append(node)
+    step.append(node)
   })
   groupedProcessNodeSequences.set(group, currentNodes)
   return true

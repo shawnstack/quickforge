@@ -374,8 +374,7 @@ describe('chat row font scale contract', () => {
   it('keeps process summaries on the message font scale instead of the interface rem base', () => {
     for (const selector of [
       '.quickforge-process-summary {',
-      '.quickforge-process-stage-summary,',
-      '.quickforge-process-tools-summary {',
+      '.quickforge-process-stage-summary {',
     ]) {
       const block = declarationBlock(selector)
       expect(block, selector).toContain(MESSAGE_FONT_SCALE)

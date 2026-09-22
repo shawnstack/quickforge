@@ -1,4 +1,13 @@
-## 当前交接：过程折叠移除「调用了 N 项工具」最内层（2026-09-22）
+## 当前交接：过程折叠第二轮——纯思考段不渲染空 stage 头（2026-09-22）
+
+- 当前目标（已完成，待真机验收）：第一轮两层折叠（顶层组「已执行 · 耗时」→ 内层 stage「已执行 N 个工具调用 · M 条命令 ·（K 项失败）」→ 工具行直挂 step）之后，纯思考段会出现空壳「已执行」stage 头。本轮新增导出 `processSectionNeedsStage(items)`（段内含任何 tool-message 才需要 stage，含 run_subagent/generate_image 不可分组工具行），`populateProcessGroup` 中 detail 段或不需要 stage 的段走 `populateProcessContainer` 直挂顶层组 body——纯思考回合展开顶层组直接见思考块，无空「已执行」行；工具行到来后结构变化触发全量重建恢复包 stage（thinking+tool 同一 step）。
+- 改动文件：`src/components/chat/panel-decoration/process-folding.ts`（processSectionNeedsStage + populateProcessGroup 应用 + appendProcessToolSuffix 注释同步）、`tests/frontend/process-folding.test.ts`（纯函数 3 例）、`tests/frontend/process-folding-incremental.test.ts`（DOM 级 thinking-only 无 stage 头 / 工具到来重建出 stage）、`docs/wiki/src/components/README.md`（两份副本：stage 条目补纯思考段规则 + 所有权租约条目 appendProcessToolSuffix 描述同步）、`docs/wiki/src/lib/README.md`（tool-display-settings 条目补纯思考段）、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证：定向 `npx vitest run`（process-folding + incremental）→ **2 files / 47 passed（exit 0）**；前端全量 `tests/frontend/` → **203 files / 2590 passed（exit 0）**；全量 `npm run test` → **4470 passed + 4 failed**（4 处失败 = 既有服务端 ACP channel/workspace-mapping/sqlite quick_check，重跑清单与第一轮一致；另一次全量出现的第 5 个失败未复现，系并行偶发 flaky）；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**。
+- Blocker：无。
+- 下一步：① 真机 `npm run dev` 验收：纯思考回合展开顶层组直接见思考块（无空「已执行」行）；带工具回合展开见 stage 头（收起）→ 点开直见工具行；含失败工具 stage 头带「· N 项失败」；「简洁/详细」只影响单行摘要；② 用户提到「有一些小优化」，本轮只处理了纯思考段一项，待确认是否还有其他优化点；③ 主分支既有服务端测试失败 4 例（ACP channel/workspace-mapping/sqlite quick_check gate）待另开 feature 修复；④ 发布 2.2.0 的 git commit/tag/push 仍待执行（见历史交接）。
+
+---
+## 历史交接：过程折叠移除「调用了 N 项工具」最内层（2026-09-22）
 
 - 当前目标（已完成，待真机验收）：用户要求保留「已执行 N 个工具调用 · M 条命令」阶段层、移除其下还要再点一次的「调用了 N 项工具」工具摘要组；用户裁决普通回合（无中间 Markdown）也统一包 stage 头（方案 B），失败计数「N 项失败」挪到 stage 头。现结构为两层折叠：顶层组「已执行 · 耗时」→ 内层 stage「已执行 N 个工具调用 · M 条命令 ·（K 项失败）」→ 点开直接见工具行（工具行挂 stage-body inner 的 step）。
 - 改动文件：`src/components/chat/panel-decoration/process-folding.ts`（splitProcessStageSections 全过程段包 stage / populateProcessContainer 直挂 step / stage 标题加 errorCount / appendProcessToolSuffix 校验链改 step / 删 tools 组全部代码）、`src/lib/i18n.ts`（删 5 key 双语 + toolDisplayModeDescription 微调）、`src/index.css`（清理 .quickforge-process-tools-*）、`tests/frontend/process-folding.test.ts`、`tests/frontend/process-folding-incremental.test.ts`、`tests/frontend/chat-surface-css-contract.test.ts`、`tests/frontend/chat-surface-api-key-dialog.test.ts`、`docs/wiki/src/components/README.md`（两份副本）、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。

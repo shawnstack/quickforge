@@ -15,6 +15,7 @@ import {
   processStageStateKey,
   processThinkingChildIndexes,
   processToolSuffixAppendStart,
+  processSectionNeedsStage,
   processTurnUpdateMode,
   resolveProcessExpandedState,
   selectFoldableProcessItems,
@@ -358,6 +359,21 @@ describe('nested process stage groups', () => {
       { kind: 'detail', items: ['markdown-stage'] },
       { kind: 'stage', items: ['thinking-a', 'tool-a'] },
     ])
+  })
+
+  it('skips the stage header for tool-less fragments (thinking-only turns show no empty 已执行)', () => {
+    const fragmentOf = (...kinds: string[]) => kinds.map((kind) => ({
+      node: {
+        tagName: 'div',
+        classList: { contains: (name: string) => name === `qf-${kind}` },
+      } as unknown as HTMLElement,
+    }))
+    // 纯思考段：没有工具行可聚合，不包 stage 头。
+    expect(processSectionNeedsStage(fragmentOf('thinking-block', 'thinking-block'))).toBe(false)
+    // 段内出现任何工具行（含不可分组的 subagent / 生图卡）就需要 stage 头。
+    expect(processSectionNeedsStage(fragmentOf('thinking-block', 'tool-message'))).toBe(true)
+    expect(processSectionNeedsStage(fragmentOf('tool-message'))).toBe(true)
+    expect(processSectionNeedsStage([])).toBe(false)
   })
 
   it('keeps inner stages collapsed by default (legacy semantics) unless state says otherwise', () => {

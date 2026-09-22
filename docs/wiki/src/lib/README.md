@@ -298,7 +298,7 @@
 
 ### tool-display-settings.ts
 
-**用途**: 工具展示设置管理。支持“简洁 / 详细”模式：简洁模式隐藏原始 Tool JSON、显示简洁摘要；详细模式显示完整参数和 details。折叠默认值（`components/chat/panel-decoration/process-folding.ts`，原最内层「调用了 N 项工具」工具摘要组已移除，工具行直接挂内层阶段 stage 的 step，失败计数并入阶段标题）：顶层过程组默认展开值 = `isAgentStreaming`（只有正在流式的回合默认展开，历史回合默认收起，见导出的 `processGroupDefaultExpanded(isAgentStreaming)`）；内层阶段默认收起（`processStageDefaultExpanded()` 返回 false）。两层默认值均不覆盖 saved state（用户手动展开/收起后按回合记忆，`resolveProcessExpandedState`）；显示模式不再参与折叠默认值，仅控制单行摘要详细程度与 subagent 详情。可见性契约不变：禁止任何针对 `.thinking-header` 的 `display:none`（fail-visible，接管失败时宁可显示 React 原生「Thinking...」行）。上下文用量显示设置也保存在该配置中。思考头交互契约（header 按钮在 React 侧 `onPointerDown` 优先切换、click 仅 `detail === 0` 生效；`decorateProcessThinkingBlocks` 对已接管 header 幂等 no-op，流式期间零 DOM churn）见 `docs/wiki/src/components/README.md`「思考头接管契约」条目。
+**用途**: 工具展示设置管理。支持“简洁 / 详细”模式：简洁模式隐藏原始 Tool JSON、显示简洁摘要；详细模式显示完整参数和 details。折叠默认值（`components/chat/panel-decoration/process-folding.ts`，原最内层「调用了 N 项工具」工具摘要组已移除，工具行直接挂内层阶段 stage 的 step，失败计数并入阶段标题；纯思考段不渲染空「已执行」stage 头、思考块直接挂顶层组 body（`processSectionNeedsStage`），工具行到来后走全量重建正常包 stage）：顶层过程组默认展开值 = `isAgentStreaming`（只有正在流式的回合默认展开，历史回合默认收起，见导出的 `processGroupDefaultExpanded(isAgentStreaming)`）；内层阶段默认收起（`processStageDefaultExpanded()` 返回 false）。两层默认值均不覆盖 saved state（用户手动展开/收起后按回合记忆，`resolveProcessExpandedState`）；显示模式不再参与折叠默认值，仅控制单行摘要详细程度与 subagent 详情。可见性契约不变：禁止任何针对 `.thinking-header` 的 `display:none`（fail-visible，接管失败时宁可显示 React 原生「Thinking...」行）。上下文用量显示设置也保存在该配置中。思考头交互契约（header 按钮在 React 侧 `onPointerDown` 优先切换、click 仅 `detail === 0` 生效；`decorateProcessThinkingBlocks` 对已接管 header 幂等 no-op，流式期间零 DOM churn）见 `docs/wiki/src/components/README.md`「思考头接管契约」条目。
 
 ### tool-execution-events.ts (163 行)
 

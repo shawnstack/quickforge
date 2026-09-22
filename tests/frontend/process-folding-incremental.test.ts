@@ -284,6 +284,36 @@ function rowsStepOf(group: FakeNode | null | undefined) {
 }
 
 describe('process folding incremental suffix fold (full path, surviving group)', () => {
+  it('shows no stage header for a thinking-only turn and re-stages it once tools arrive', () => {
+    const panel = el('div', 'qf-chat-panel')
+    panel.connectedRoot = true
+    const list = panel.append(el('div', 'qf-message-list'))
+    const assistant = list.append(el('div', 'qf-assistant-message'))
+    const content = assistant.append(el('div', 'px-4 flex flex-col'))
+    const thinking = content.append(el('div', 'qf-thinking-block thinking-block'))
+
+    decorateProcessBlocks(panel, [assistant], true)
+    const group = content.querySelector('.quickforge-process-group')
+    // 纯思考回合：组内没有 stage 头（空统计的「已执行」没有信息量），
+    // 思考块直接挂顶层组 body 的 step。
+    expect(group).toBeTruthy()
+    expect(group?.querySelector('.quickforge-process-stage')).toBeNull()
+    expect(thinking.closest('.quickforge-process-group')).toBe(group)
+
+    // 工具行到来：结构从「无 stage 直挂」变为「段内有工具 → 包 stage」，
+    // 非纯工具后缀追加，走全量重建。
+    const assistant2 = list.append(el('div', 'qf-assistant-message'))
+    const content2 = assistant2.append(el('div', 'px-4 flex flex-col'))
+    const tool = content2.append(toolRow('cmd-1'))
+    decorateProcessBlocks(panel, [assistant, assistant2], true)
+
+    const rebuilt = content.querySelector('.quickforge-process-group')
+    expect(rebuilt).not.toBe(group)
+    const step = rowsStepOf(rebuilt)
+    expect(step.children).toEqual([thinking, tool])
+    expect(tool.closest('.quickforge-process-group')).toBe(rebuilt)
+  })
+
   it('appends new tool rows into the existing stage step without moving the rows it owns', () => {
     const tree = turnTree()
     decorateProcessBlocks(tree.panel, [tree.assistant], true)

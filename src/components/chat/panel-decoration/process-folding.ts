@@ -1007,6 +1007,14 @@ function populateProcessContainer(container: HTMLElement, items: GroupedProcessN
   ensureProcessBodyInner(container).append(step)
 }
 
+/**
+ * 段内含任何工具行（含 subagent / 生图卡这类不可分组工具）才需要 stage 聚合头；
+ * 纯思考段没有工具统计可聚合，空壳「已执行」没有信息量，直接挂 body 不折叠。
+ */
+export function processSectionNeedsStage<T extends { node: HTMLElement }>(items: T[]) {
+  return items.some(({ node }) => isProcessNodeKind(node, 'tool-message'))
+}
+
 function populateProcessGroup(group: ProcessGroupElement, items: GroupedProcessNode[]) {
   const body = group.querySelector<HTMLElement>(`:scope > ${PROCESS_BODY_SELECTOR}`)
   if (!body) return false
@@ -1016,7 +1024,7 @@ function populateProcessGroup(group: ProcessGroupElement, items: GroupedProcessN
     (item) => isProcessNodeKind(item.node, 'markdown-block'),
   )
   for (const section of sections) {
-    if (section.kind === 'detail') {
+    if (section.kind === 'detail' || !processSectionNeedsStage(section.items)) {
       populateProcessContainer(body, section.items)
       continue
     }
@@ -1065,7 +1073,7 @@ function createTurnProcessGroup(
  * 返回 false（调用方走全量重建兜底）的其它情形：无前次序列、前缀不匹配（重排 /
  * 替换 / 中插）、前缀节点已不归本组持有或已被 React 在组外重建出同 id 替身
  * （重建路径的 discard 逻辑会丢弃旧节点，增量追加则会双行）、以及尾部不是本组
- * 最后一个工具组的最后一行（期望结构超出纯后缀追加能表达的范围）。
+ * 最后一个 stage step 的最后一行（期望结构超出纯后缀追加能表达的范围）。
  */
 function appendProcessToolSuffix(group: ProcessGroupElement, currentNodes: GroupedProcessNode[]) {
   const previous = groupedProcessNodeSequences.get(group)

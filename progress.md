@@ -1,3 +1,19 @@
+## 2026-09-22 · 过程折叠第二轮：纯思考段不渲染空「已执行」stage 头
+
+- Goal：第一轮两层折叠落地后，纯思考段（段内只有 thinking 块、没有任何工具行）会出现一个空壳「已执行 N 个工具调用」stage 头——没有工具统计可聚合，没有信息量。本轮：纯思考段不包 stage，思考块直接挂顶层组 body；工具行到来后走全量重建正常包 stage。
+- 改动文件：
+  - `src/components/chat/panel-decoration/process-folding.ts`：新增导出 `processSectionNeedsStage(items)`（段内含任何 `tool-message` 才需要 stage，含 run_subagent/generate_image 这类不可分组工具行）；`populateProcessGroup` 中 `section.kind === 'detail' || !processSectionNeedsStage(...)` 走 `populateProcessContainer` 直挂顶层组 body；`appendProcessToolSuffix` 注释「工具组→stage step」。
+  - `tests/frontend/process-folding.test.ts`：新增 `processSectionNeedsStage` 纯函数 3 例（thinking-only false / 含 tool-message true / 空 false）。
+  - `tests/frontend/process-folding-incremental.test.ts`：新增 DOM 级用例——thinking-only 回合无 stage 头、无空「已执行」标题；工具到来后全量重建出 stage 且 step.children=[thinking, tool]。
+  - `docs/wiki/src/components/README.md`（两份副本）+ `docs/wiki/src/lib/README.md`：process-folding 条目补充纯思考段规则；所有权租约条目 appendProcessToolSuffix 描述同步「最后一个 stage step 的最后一行」。
+- 验证：定向 `npx vitest run`（process-folding + incremental）→ **2 files / 47 passed（exit 0）**；前端全量 `tests/frontend/` → **203 files / 2590 passed（exit 0）**；全量 `npm run test` → **4470 passed + 4 failed**（4 处失败 = 第一轮同款服务端 ACP/sqlite 既有失败，重跑清单一致；另一次全量出现的第 5 个失败未复现，系并行偶发 flaky）；`npm run lint` → **0 errors（exit 0）**；`npm run build` → **exit 0**。
+- Notes（只记录，不扩范围）：
+  - a) 「纯思考」判定口径 = 段内没有任何 tool-message 节点（subagent / 生图卡这类不可分组工具也算「有工具」）；中间 Markdown detail 段行为不变（本来就不包 stage）。
+  - b) 工具行到来后的恢复路径是结构变化触发的全量重建（非增量），无需额外状态；思考头接管契约 / 所有权租约 / fail-visible 均不受影响。
+  - c) 待真机验收：纯思考回合展开顶层组后直接看到思考块（无空「已执行」行）；带工具回合不变。
+
+---
+
 ## 2026-09-22 · 过程折叠移除「调用了 N 项工具」最内层（三层→两层折叠）
 
 - Goal：用户反馈保留「已执行 N 个工具调用 · M 条命令」这层（stage 阶段层）、移除其下还要再点一次的「调用了 N 项工具」最内层工具摘要组（tools）。调研后用户裁决：普通回合（无中间 Markdown、原本只有 tools 层）也统一包 stage 头（方案 B）；「N 项失败」失败计数挪到 stage 头上。

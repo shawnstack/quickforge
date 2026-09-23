@@ -1,3 +1,13 @@
+## thinking-before-tool-order（done，2026-09-23）
+
+- Goal：第一轮思考过程不再排到后面出现的工具调用下面。
+- 根因：同一条 assistant 内容容器里，思考块先被折走时 `sourceNextSibling` 记成 null；工具行随后 append 进同一容器。全量重建的 `restoreGroupedProcessNode` 走 `append`，思考块落到工具行之后，再按这个顺序重新收集。
+- 改动：锚点失效时插回仍在该容器内的过程组之前，不再 append 到容器末尾。有效锚点仍走 `insertBefore`。
+- 验证：定向 vitest 5 文件 86 passed（含同容器思考→工具回归）；eslint 通过。
+- Notes：未提交；未改生成产物。
+
+---
+
 ## thinking-hint-hide-when-thinking-ends（done，2026-09-23）
 
 - Goal：思考过程完成后，思考行右侧不再显示。

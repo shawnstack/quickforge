@@ -1,3 +1,15 @@
+## 当前交接：thinking-before-tool-order（done，2026-09-23）
+
+- Current Objective（当前目标）: 第一轮思考过程保持在后续工具调用之前。已实现并验证，未提交。
+- 根因: 思考块先折叠时还原锚点为 null，同一容器后追加的工具行在全量重建时被 append 到思考前面。
+- 改动内容: `restoreGroupedProcessNode` 在锚点失效时插回过程组之前。新增同容器顺序回归；wiki 两份所有权租约已同步。
+- Files（改动文件）: src/components/chat/panel-decoration/process-folding.ts、tests/frontend/process-folding-incremental.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest 5 文件 86 passed；eslint 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机确认第一轮「思考 → 工具」顺序不再颠倒；其余未提交改动仍待按需发版。
+
+---
+
 ## 当前交接：thinking-hint-hide-when-thinking-ends（done，2026-09-23）
 
 - Current Objective（当前目标）: 思考过程完成后，右侧尾行提示不再显示。已实现并验证，未提交。

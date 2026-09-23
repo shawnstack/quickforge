@@ -320,6 +320,24 @@ describe('process folding incremental suffix fold (full path, surviving group)',
     expect(tool.closest('.quickforge-process-group')).toBe(rebuilt)
   })
 
+  it('keeps thinking before a tool row appended to the same assistant content', () => {
+    const panel = el('div', 'qf-chat-panel')
+    panel.connectedRoot = true
+    const list = panel.append(el('div', 'qf-message-list'))
+    const assistant = list.append(el('div', 'qf-assistant-message'))
+    const content = assistant.append(el('div', 'px-4 flex flex-col'))
+    const thinking = content.append(el('div', 'qf-thinking-block thinking-block'))
+
+    decorateProcessBlocks(panel, [assistant], true)
+    const tool = content.append(toolRow('cmd-1'))
+    decorateProcessBlocks(panel, [assistant], true)
+
+    const rebuilt = content.querySelector('.quickforge-process-group')
+    const step = rowsStepOf(rebuilt)
+    expect(step.children).toEqual([thinking, tool])
+    expect(tool.closest('.quickforge-process-group')).toBe(rebuilt)
+  })
+
   it('appends new tool rows into the existing stage step without moving the rows it owns', () => {
     const tree = turnTree()
     decorateProcessBlocks(tree.panel, [tree.assistant], true)

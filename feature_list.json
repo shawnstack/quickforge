@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "thinking-before-tool-order",
+      "name": "第一轮思考过程不再排到后续工具调用后面",
+      "description": "用户反馈「第一轮对话的思考过程显示的顺序不对，等后面工具调用之类的会乱序」。同一条 assistant 内容容器里，思考块先被折进过程组时 sourceNextSibling 记成 null；工具行随后 append 进同一容器。全量重建时 restoreGroupedProcessNode 走 append，把思考块放到工具行之后，再按这个错误顺序重新收集。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "锚点失效时不再 append 到容器末尾，改为插回仍在该容器内的过程组之前。组占着这些节点被折走的位置，组之后才是折走之后才出现的兄弟，因此思考仍在工具前面。有效锚点的 insertBefore 路径不变。",
+      "files": [
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "tests/frontend/process-folding-incremental.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest process-folding-incremental / process-folding / process-folding-ownership / thinking-streaming-stage / chat-surface-release-refold 5 文件 86 passed（含同容器思考→工具顺序回归）；npx eslint（改动的 ts 文件）通过。",
+      "boundaries": "只改全量还原时失效锚点的插入位置。不改收集顺序、增量后缀追加、release gate 与思考头接管。未引入新视觉模式；wiki 两份所有权租约已同步。无依赖变更；未手工修改生成产物；未提交。"
+    },
+    {
       "id": "thinking-hint-hide-when-thinking-ends",
       "name": "思考过程一结束就收起右侧尾行提示",
       "description": "用户要求「思考过程完成后，右侧应该不再显示」。右侧是思考行 header 第四槽位的尾行提示（quickforge-tool-marquee）。此前 processThinkingHintSegment 只要整条 assistant 的 bridge isStreaming===true 就持续显示该段最新文字，所以思考已经写完、模型开始输出正文或工具时，右侧提示仍留到整轮 message_end。",

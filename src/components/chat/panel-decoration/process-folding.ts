@@ -1128,11 +1128,16 @@ function restoreGroupedProcessNode(item: GroupedProcessNode, group: ProcessGroup
   setProcessFlag(node, PROCESS_FINAL_SUMMARY_ATTR, false)
 
   if (sourceParent?.isConnected) {
-    if (sourceNextSibling?.parentNode === sourceParent) {
-      sourceParent.insertBefore(node, sourceNextSibling)
-    } else {
-      sourceParent.append(node)
-    }
+    // 锚点必须仍是该容器的直接子节点。思考块先被折走时 sourceNextSibling 记成 null，
+    // 之后 React 把工具行 append 进同一容器；这时 append 会把思考块放到工具行之后，
+    // 全量重建再按这个顺序收集，第一轮就变成「工具在上、思考在下」。
+    // 锚点失效（含原本就是容器末尾）时插回过程组之前：组本身就占着这些节点被折走的位置，
+    // 组之后才是折走之后才出现的兄弟。
+    const anchor = sourceNextSibling?.parentNode === sourceParent
+      ? sourceNextSibling
+      : (group.parentNode === sourceParent ? group : null)
+    if (anchor) sourceParent.insertBefore(node, anchor)
+    else sourceParent.append(node)
     return
   }
 

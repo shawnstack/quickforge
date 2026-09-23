@@ -82,18 +82,15 @@ describe('chat surface process-group release hand-back', () => {
 
   it('re-folds in the same commit that handed the groups back', () => {
     const onReleased = vi.fn()
-    // The commit that ends the thinking段: the streaming container unmounts and
-    // the streaming partial clears, so the gate releases.
+    // A commit that structurally changes the rendered row sequence (here: an
+    // existing row re-identified) while groups hold nodes of earlier rows.
     const prev: BoundaryProps = {
       messages,
-      isStreaming: true,
-      streamingAssistant: assistantMessage(9),
       getReleaseRoot: RELEASE_ROOT,
       onReleased,
     }
     const next: BoundaryProps = {
-      messages,
-      isStreaming: false,
+      messages: [{ role: 'user', content: 'replaced', timestamp: 7 }],
       getReleaseRoot: RELEASE_ROOT,
       onReleased,
     }
@@ -115,8 +112,13 @@ describe('chat surface process-group release hand-back', () => {
 
   it('does not re-fold when no group was handed back', () => {
     const onReleased = vi.fn()
-    const prev: BoundaryProps = { messages, isStreaming: true, getReleaseRoot: RELEASE_ROOT, onReleased }
-    const next: BoundaryProps = { messages, isStreaming: false, getReleaseRoot: RELEASE_ROOT, onReleased }
+    // The gate opens (row re-identified) but the release finds no folded group.
+    const prev: BoundaryProps = { messages, getReleaseRoot: RELEASE_ROOT, onReleased }
+    const next: BoundaryProps = {
+      messages: [{ role: 'user', content: 'replaced', timestamp: 7 }],
+      getReleaseRoot: RELEASE_ROOT,
+      onReleased,
+    }
     const instance = mounted(prev)
 
     instance.props = next
@@ -126,21 +128,44 @@ describe('chat surface process-group release hand-back', () => {
     expect(onReleased).not.toHaveBeenCalled()
   })
 
-  it('skips both halves on a structure-preserving streaming frame', () => {
+  it('skips both halves on a pure streaming frame (fresh partial object, same row sequence)', () => {
     const onReleased = vi.fn()
-    const streaming = assistantMessage(9)
+    // The rendered sequence carries the streaming partial as its last row; a
+    // streaming tick only shallow-copies that partial, so the row identities —
+    // and the gate — stay unchanged.
     const prev: BoundaryProps = {
-      messages,
-      isStreaming: true,
-      streamingAssistant: streaming,
+      messages: [...messages, assistantMessage(9)],
       getReleaseRoot: RELEASE_ROOT,
       onReleased,
     }
-    // Pure streaming frame: same rows, same flags, fresh partial object.
     const next: BoundaryProps = {
-      messages,
-      isStreaming: true,
-      streamingAssistant: { ...streaming },
+      messages: [...messages, { ...assistantMessage(9), content: [{ type: 'text', text: 'answ' }] }],
+      getReleaseRoot: RELEASE_ROOT,
+      onReleased,
+    }
+    const instance = mounted(prev)
+
+    instance.props = next
+    expect(instance.getSnapshotBeforeUpdate(prev)).toBe(false)
+    expect(folding.releaseProcessGroups).not.toHaveBeenCalled()
+    instance.componentDidUpdate(prev, undefined, false)
+    expect(onReleased).not.toHaveBeenCalled()
+  })
+
+  it('skips both halves when message_end commits the streaming row under the same identity', () => {
+    const onReleased = vi.fn()
+    // `message_end` moves the partial into `messages`; the streaming row and
+    // the committed row share the render identity, so the sequence — and the
+    // fold — survives the hand-off without a release.
+    const streaming = assistantMessage(9)
+    const prev: BoundaryProps = {
+      messages: [...messages, streaming],
+      getReleaseRoot: RELEASE_ROOT,
+      onReleased,
+    }
+    const committed = { ...streaming, stopReason: 'stop' as const }
+    const next: BoundaryProps = {
+      messages: [...messages, committed],
       getReleaseRoot: RELEASE_ROOT,
       onReleased,
     }
@@ -155,7 +180,7 @@ describe('chat surface process-group release hand-back', () => {
 
   it('hands the nodes back on unmount without asking for a re-fold', () => {
     const onReleased = vi.fn()
-    const instance = mounted({ messages, isStreaming: false, getReleaseRoot: RELEASE_ROOT, onReleased })
+    const instance = mounted({ messages, getReleaseRoot: RELEASE_ROOT, onReleased })
     folding.releaseProcessGroups.mockReturnValue(releaseStats(1))
 
     instance.componentWillUnmount()

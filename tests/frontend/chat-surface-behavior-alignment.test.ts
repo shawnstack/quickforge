@@ -94,15 +94,37 @@ describe('message windowing stays off for turn navigation', () => {
 })
 
 describe('streaming code-block gate', () => {
-  it('marks the streaming container from the surface context instead of relying on a DOM probe', () => {
-    // The container (not the message list) is what streams, so it is the one
-    // place that provides `AssistantStreamingContext`; CodeBlock no longer
-    // probes `closest('.qf-streaming-message')`, which the subagent trace (no
-    // such ancestor) could never satisfy.
-    expect(chatSurfaceSource).toContain('<AssistantStreamingContext.Provider value={true}>')
+  const messageListSource = readFileSync(new URL('../../src/components/chat/surface/MessageList.tsx', import.meta.url), 'utf8')
+  const assistantMessageSource = readFileSync(new URL('../../src/components/chat/surface/AssistantMessage.tsx', import.meta.url), 'utf8')
+
+  it('renders the streaming row as the same keyed list child its committed form becomes', () => {
+    // `message_end` must update the tail row in place (same fiber ⇒ same DOM
+    // subtree, keeping the thinking disclosure state and every CSS animation).
+    // That only happens when the streaming row and its committed form are the
+    // same keyed element type inside ONE sibling array: a separate JSX slot
+    // after `items.map(...)` gets its own reconcile scope and remounts the row
+    // even with a matching key. The combined key array also applies
+    // `messageRenderKeys`'s occurrence suffix to same-identity duplicates.
+    expect(messageListSource).toContain('messageRenderKeys(streamingAssistant ? [...messages, streamingAssistant] : messages)')
+    expect(messageListSource).toContain('rows.push(')
+    expect(messageListSource).toContain('key={renderKeys[messages.length]}')
+    // No wrapper element around the row either (see the next case).
+    expect(messageListSource).not.toContain('AssistantStreamingContext')
+  })
+
+  it('marks the streaming row from inside AssistantMessage instead of a row wrapper', () => {
+    // The streaming gate provider lives *inside* the row component: a wrapper
+    // element that vanishes when the partial commits would remount the row
+    // just as surely as a key change. An enclosing trace surface (subagent
+    // run-detail, no streaming row) keeps gating its whole subtree through the
+    // ORed `surfaceStreaming` value. CodeBlock reads the context instead of
+    // probing `closest('.qf-streaming-message')`.
+    expect(assistantMessageSource).toContain('const surfaceStreaming = useAssistantStreaming()')
+    expect(assistantMessageSource).toContain('<AssistantStreamingContext.Provider value={surfaceStreaming || isStreaming}>')
+    // The surface keeps only the (self-hiding) cursor anchor outside the list:
+    // the streaming message itself is owned by the list so `message_end`
+    // commits it in place instead of remounting it between two subtrees.
     expect(chatSurfaceSource).toContain('className="qf-streaming-message mb-3 flex flex-col gap-3"')
-    expect(chatSurfaceSource).toMatch(
-      /<AssistantStreamingContext\.Provider value=\{true\}>[\s\S]*?qf-streaming-message[\s\S]*?<\/AssistantStreamingContext\.Provider>/,
-    )
+    expect(chatSurfaceSource).toContain('streamingAssistant={rendersStreamingRow ? streamingAssistant : undefined}')
   })
 })

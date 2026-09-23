@@ -247,6 +247,46 @@ describe('chat surface rendering', () => {
     expect(markup).not.toContain('↑10')
   })
 
+  it('renders the streaming assistant as the message list last row, ahead of the cursor container', () => {
+    // The streaming partial renders inside `.qf-message-list` under the same
+    // render identity (`assistant:<timestamp>`) the committed row will use, so
+    // `message_end` commits the row in place — no unmount/remount between two
+    // React subtrees (which used to drop the thinking disclosure state and
+    // restart code highlights/animations). The cursor container outside the
+    // list self-hides via `.qf-streaming-message:has(> span.animate-pulse:only-child)`.
+    const streaming: AssistantMessageType = {
+      ...assistantMessage(),
+      timestamp: 42,
+      content: [{ type: 'thinking', thinking: 'weighing options' }, { type: 'text', text: 'in flight' }],
+    }
+    const agent = fakeAgent([{ role: 'user', content: 'go', timestamp: 1 }], {
+      state: {
+        systemPrompt: '',
+        model: { id: 'm', provider: 'anthropic' },
+        thinkingLevel: 'off',
+        tools: [],
+        messages: [{ role: 'user', content: 'go', timestamp: 1 }],
+        isStreaming: true,
+        streamingMessage: streaming,
+        pendingToolCalls: new Set<string>(),
+      },
+    })
+
+    const markup = renderToStaticMarkup(createElement(ChatSurface, { agent: agent as Agent }))
+
+    const listIndex = markup.indexOf('qf-message-list')
+    const streamingRowIndex = markup.indexOf('qf-assistant-message')
+    const cursorIndex = markup.indexOf('qf-streaming-message')
+    expect(listIndex).toBeGreaterThanOrEqual(0)
+    // The streaming row lives inside the message list...
+    expect(streamingRowIndex).toBeGreaterThan(listIndex)
+    // ...before the cursor container, and renders its thinking + text parts.
+    expect(streamingRowIndex).toBeLessThan(cursorIndex)
+    expect(markup).toContain('qf-thinking-block')
+    expect(markup).toContain('in flight')
+    expect(markup).toContain('animate-pulse')
+  })
+
   it('renders streaming text but no pending tool cards in the streaming container', () => {
     // The streaming container owns text/thinking output only: its pending tool
     // calls stay hidden (hidePendingToolCalls) so the row mounts once in the

@@ -4,7 +4,7 @@ import {
   shouldReleaseProcessGroups,
   type ProcessGroupReleaseGate,
 } from '../../src/components/chat/surface/ChatSurface'
-import { messageRenderKeys } from '../../src/components/chat/surface/content-parts'
+import { isRenderableMessage, messageRenderKeys } from '../../src/components/chat/surface/content-parts'
 import type {
   AgentMessage,
   AssistantMessage as AssistantMessageType,
@@ -72,15 +72,16 @@ describe('chat surface process-group release gate (structural row identities)', 
     expect(shouldReleaseProcessGroups({}, gate(messages))).toBe(true)
   })
 
-  it('keeps groups folded for a pure streaming frame (same gate identities)', () => {
+  it('keeps groups folded for a pure streaming frame (fresh partial object, same row sequence)', () => {
     const messages = liveTurnMessages()
     const streaming = assistantMessage({ timestamp: 99 })
 
+    // The rendered sequence carries the streaming partial as its last row; a
+    // streaming tick shallow-copies the partial, so only the row *content*
+    // changes — the identity sequence, and the gate, stay unchanged.
     expect(shouldReleaseProcessGroups(
-      gate(messages, { isStreaming: true, streamingAssistant: streaming }),
-      // Fresh gate object, same identities: the streaming partial gets a
-      // per-event shallow copy, so only presence is comparable.
-      gate(messages, { isStreaming: true, streamingAssistant: { ...streaming } }),
+      gate([...messages, streaming]),
+      gate([...messages, { ...streaming }]),
     )).toBe(false)
   })
 
@@ -104,6 +105,25 @@ describe('chat surface process-group release gate (structural row identities)', 
     expect(shouldReleaseProcessGroups(gate(prev), gate(next))).toBe(false)
   })
 
+  it('does not release when a fresh toolResult lands without a new renderable row', () => {
+    // `toolResult` bodies inline into the paired assistant's tool card — they
+    // never render a standalone row — so their arrival must not dissolve the
+    // folded groups. The old full-key-sequence gate released here, and the
+    // rebuild re-parented every grouped node mid-turn: with a thinking block
+    // left expanded that replayed the "re-expanding" feel on every tool cycle.
+    const prev = liveTurnMessages()
+    const next: AgentMessage[] = [...prev, toolResult('call-2', 'fresh result body')]
+
+    // toolResult rows are lookup-only (inlined into the paired assistant's
+    // tool card) — the gate sequence mirrors the renderable rows only.
+    expect(next.some((message) => !isRenderableMessage(message))).toBe(true)
+    expect(shouldReleaseProcessGroups(gate(prev), gate(next))).toBe(false)
+    // A renderable row appended after the toolResult is a pure tail append —
+    // no release (React only appends the row at the list tail).
+    const withNewRow: AgentMessage[] = [...next, assistantMessage({ timestamp: 42 })]
+    expect(shouldReleaseProcessGroups(gate(next), gate(withNewRow))).toBe(false)
+  })
+
   it('releases when a row identity changes', () => {
     const prev = liveTurnMessages()
     const next: AgentMessage[] = [prev[0], assistantMessage({ timestamp: 12 }), prev[2]]
@@ -111,15 +131,37 @@ describe('chat surface process-group release gate (structural row identities)', 
     expect(shouldReleaseProcessGroups(gate(prev), gate(next))).toBe(true)
   })
 
-  it('releases when rows are appended, removed or reordered', () => {
+  it('releases on removal or reorder; a tail append alone does not release', () => {
     const messages = liveTurnMessages()
 
+    // Tail append is safe (React appends the row; see the dedicated test).
     const appended = [...messages, { role: 'user', content: 'follow up', timestamp: 2 }]
-    expect(shouldReleaseProcessGroups(gate(messages), gate(appended))).toBe(true)
+    expect(shouldReleaseProcessGroups(gate(messages), gate(appended))).toBe(false)
+    // Removal hands nodes back before React removes them.
     expect(shouldReleaseProcessGroups(gate(appended), gate(messages))).toBe(true)
 
     const reordered = [messages[1], messages[0], messages[2]]
     expect(shouldReleaseProcessGroups(gate(messages), gate(reordered))).toBe(true)
+  })
+
+  it('does not release for a pure tail append: the next streaming assistant round', () => {
+    // The frame where the next round's streaming row appears: React only
+    // appends a row at the list tail (existing rows bail at their memos), so
+    // the folded groups keep their nodes untouched. Releasing here rebuilt
+    // the group from scratch every tool-loop round — with a stage left
+    // expanded that replayed the layout shift ("re-expanding" feel).
+    const committed = liveTurnMessages()
+    const nextStreaming = assistantMessage({ timestamp: 42 })
+
+    expect(shouldReleaseProcessGroups(
+      gate(committed),
+      gate([...committed, nextStreaming]),
+    )).toBe(false)
+    // Identity change in an existing row still releases (remount risk).
+    expect(shouldReleaseProcessGroups(
+      gate(committed),
+      gate([committed[0], assistantMessage({ timestamp: 77 }), committed[2], nextStreaming]),
+    )).toBe(true)
   })
 
   it('keeps duplicate-identity occurrence suffixes stable across re-upserts', () => {
@@ -149,17 +191,29 @@ describe('chat surface process-group release gate (structural row identities)', 
     expect(shouldReleaseProcessGroups(gate(prev), gate(changedPrefix))).toBe(true)
   })
 
-  it('still releases on streaming-terminal flips without message changes', () => {
+  it('does not release when message_end commits the streaming row under the same identity', () => {
     const messages = liveTurnMessages()
     const streaming = assistantMessage({ timestamp: 99 })
 
+    // `message_end` moves the partial into `messages` under the identity the
+    // streaming row already used, so the rendered row sequence — and the fold
+    // — survive the hand-off: no node moves, no restarted animations.
     expect(shouldReleaseProcessGroups(
-      gate(messages, { isStreaming: true, streamingAssistant: streaming }),
-      gate(messages, { isStreaming: false }),
-    )).toBe(true)
+      gate([...messages, streaming]),
+      gate([...messages, { ...streaming, usage: usage() }]),
+    )).toBe(false)
+  })
+
+  it('still releases when the streaming partial is dropped without committing', () => {
+    const messages = liveTurnMessages()
+    const streaming = assistantMessage({ timestamp: 99 })
+
+    // Abort/error paths clear the partial without upserting it: the sequence
+    // shortens by one row, so the groups must be handed back before React
+    // removes the nodes they hold.
     expect(shouldReleaseProcessGroups(
-      gate(messages, { isStreaming: true, streamingAssistant: streaming }),
-      gate(messages, { isStreaming: true }),
+      gate([...messages, streaming]),
+      gate(messages),
     )).toBe(true)
   })
 
@@ -170,7 +224,7 @@ describe('chat surface process-group release gate (structural row identities)', 
 
     // Prime the cache for every array, then re-check in a different pairing.
     expect(shouldReleaseProcessGroups(gate(base), gate(sameStructure))).toBe(false)
-    expect(shouldReleaseProcessGroups(gate(sameStructure), gate(appended))).toBe(true)
+    expect(shouldReleaseProcessGroups(gate(sameStructure), gate(appended))).toBe(false)
     expect(shouldReleaseProcessGroups(gate(base), gate(sameStructure))).toBe(false)
     expect(shouldReleaseProcessGroups(gate(appended), gate(sameStructure))).toBe(true)
   })

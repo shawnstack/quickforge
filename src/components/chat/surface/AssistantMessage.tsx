@@ -11,6 +11,7 @@ import { ThinkingBlock } from './ThinkingBlock'
 import { ToolMessage } from './ToolMessage'
 import { formatUsage } from './UsageBar'
 import { assistantContentParts } from './content-parts'
+import { AssistantStreamingContext, useAssistantStreaming } from './surface-context'
 
 /**
  * React replacement for the legacy `<assistant-message>` custom element.
@@ -56,6 +57,16 @@ export const AssistantMessage = memo(function AssistantMessage({
   hidePendingToolCalls = false,
   onCostClick,
 }: AssistantMessageProps) {
+  // Streaming gate for this row's subtree (CodeBlock previews / run actions).
+  // The provider lives *inside* the row component: `MessageList` renders the
+  // streaming partial and — after `message_end` — its committed form as the
+  // same keyed child, and a wrapper element around the row that appeared or
+  // vanished on that hand-off would remount the whole subtree just as surely
+  // as a key change. A trace surface (`SubagentRunDetailContent`) provides
+  // "still streaming" for its whole subtree, so an enclosing value keeps
+  // overriding the per-row flag.
+  const surfaceStreaming = useAssistantStreaming()
+
   // Parts keep their source-content index as key (see `content-parts`): an
   // earlier chunk appearing/disappearing must not re-key every later part.
   const parts = assistantContentParts(message, { hidePendingToolCalls, pendingToolCalls, toolResultsById })
@@ -78,58 +89,60 @@ export const AssistantMessage = memo(function AssistantMessage({
   })
 
   return (
-    <div className="qf-assistant-message" ref={rootRef}>
-      {parts.length > 0 ? (
-        // Parts carry their own stable keys (source content index / tool-call
-        // id); an index-keyed Fragment wrapper here would defeat them.
-        // gap-1.5 (0.375rem) matches the in-group process rhythm (0.25–0.375rem)
-        // so grouped and ungrouped parts breathe the same.
-        <div className="flex flex-col gap-1.5 px-4">
-          {parts.map((part) => {
-            if (part.kind === 'text') return <MarkdownBlock key={part.key} content={part.text} />
-            if (part.kind === 'thinking') {
-              return <ThinkingBlock key={part.key} content={part.thinking} isStreaming={isStreaming} />
-            }
-            const tool = tools?.find((candidate) => candidate.name === part.call.name)
-            const pending = pendingToolCalls?.has(part.call.id) ?? false
-            const result = toolResultsById?.get(part.call.id)
-            // Aborted when the message was aborted and this call never got a result.
-            const aborted = message.stopReason === 'aborted' && !result
-            return (
-              <ToolMessage
-                key={part.key}
-                tool={tool}
-                toolCall={part.call}
-                result={result}
-                pending={pending}
-                aborted={aborted}
-                isStreaming={isStreaming}
-              />
-            )
-          })}
-        </div>
-      ) : null}
-      {usage && !isStreaming ? (
-        onCostClick ? (
-          <button
-            type="button"
-            className="qf-usage-line mt-2 cursor-pointer px-4 text-xs text-muted-foreground transition-colors hover:text-foreground"
-            onClick={onCostClick}
-          >
-            {formatUsage(usage)}
-          </button>
-        ) : (
-          <div className="qf-usage-line mt-2 px-4 text-xs text-muted-foreground">{formatUsage(usage)}</div>
-        )
-      ) : null}
-      {message.stopReason === 'error' && message.errorMessage ? (
-        <div className="mx-4 mt-3 overflow-hidden rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-          <strong>{t('assistantErrorPrefix')}</strong> {message.errorMessage}
-        </div>
-      ) : null}
-      {message.stopReason === 'aborted' ? (
-        <span className="text-sm text-destructive italic">{t('assistantRequestAborted')}</span>
-      ) : null}
-    </div>
+    <AssistantStreamingContext.Provider value={surfaceStreaming || isStreaming}>
+      <div className="qf-assistant-message" ref={rootRef}>
+        {parts.length > 0 ? (
+          // Parts carry their own stable keys (source content index / tool-call
+          // id); an index-keyed Fragment wrapper here would defeat them.
+          // gap-1.5 (0.375rem) matches the in-group process rhythm (0.25–0.375rem)
+          // so grouped and ungrouped parts breathe the same.
+          <div className="flex flex-col gap-1.5 px-4">
+            {parts.map((part) => {
+              if (part.kind === 'text') return <MarkdownBlock key={part.key} content={part.text} />
+              if (part.kind === 'thinking') {
+                return <ThinkingBlock key={part.key} content={part.thinking} isStreaming={isStreaming} />
+              }
+              const tool = tools?.find((candidate) => candidate.name === part.call.name)
+              const pending = pendingToolCalls?.has(part.call.id) ?? false
+              const result = toolResultsById?.get(part.call.id)
+              // Aborted when the message was aborted and this call never got a result.
+              const aborted = message.stopReason === 'aborted' && !result
+              return (
+                <ToolMessage
+                  key={part.key}
+                  tool={tool}
+                  toolCall={part.call}
+                  result={result}
+                  pending={pending}
+                  aborted={aborted}
+                  isStreaming={isStreaming}
+                />
+              )
+            })}
+          </div>
+        ) : null}
+        {usage && !isStreaming ? (
+          onCostClick ? (
+            <button
+              type="button"
+              className="qf-usage-line mt-2 cursor-pointer px-4 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              onClick={onCostClick}
+            >
+              {formatUsage(usage)}
+            </button>
+          ) : (
+            <div className="qf-usage-line mt-2 px-4 text-xs text-muted-foreground">{formatUsage(usage)}</div>
+          )
+        ) : null}
+        {message.stopReason === 'error' && message.errorMessage ? (
+          <div className="mx-4 mt-3 overflow-hidden rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+            <strong>{t('assistantErrorPrefix')}</strong> {message.errorMessage}
+          </div>
+        ) : null}
+        {message.stopReason === 'aborted' ? (
+          <span className="text-sm text-destructive italic">{t('assistantRequestAborted')}</span>
+        ) : null}
+      </div>
+    </AssistantStreamingContext.Provider>
   )
 })

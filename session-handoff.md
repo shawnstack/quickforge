@@ -1,18 +1,23 @@
-## 当前交接：plugins-page-visual-polish（done，2026-09-23）
+## 当前交接：message-end-inplace-commit（done，2026-09-23）
 
-- Current Objective（当前目标）: 优化「设置 → 插件」界面样式。用户确认方向：只做视觉微调（间距/对齐/空状态/错误排版），外加展示工具列表（同 MCP 卡片：最多 12 个 + 省略徽章）；已完成并验证（feature_list.json 标记 done）。
+- Current Objective（当前目标）: 在新分支 `fix/message-end-remount-flicker` 根治「思考过程结束/整轮提交时对话刷一下」——消除 message_end 时流式消息从 `.qf-streaming-message` 容器跨 React 子树迁移进 MessageList 的 unmount/remount。已完成并验证（feature_list.json 标记 done），改动未提交。
+- **二轮修复（2026-09-23，真机反馈「展开时新增消息有重新展开感」）**:
+  1. `src/components/chat/surface/ChatSurface.tsx`：release gate 的比较序列改为「可渲染行」——新增 `cachedRenderableRowKeys`（`isRenderableMessage` 过滤 + 按原数组身份的 WeakMap 缓存），toolResult/artifact 不再参与（它们不渲染 standalone 行，此前每次工具结果到达都被判为结构变化 → 释放+全量重建折叠组 → reparent 重启动画/重放展开感）；删除无人调用的 `cachedMessageRenderKeys`。**四轮修复（2026-09-23，代码评审 P1/P2）**：P1——「同 key 就地转正」实际未生效（流式行外层 Provider 与独立 JSX slot 都跨不过 reconcile scope，message_end 仍 remount 整行）：`MessageList.tsx` 改为已提交行+流式行同一 `rows` 数组（`rows.push`），key 用合并数组 `[...messages, streamingAssistant]` 经 `messageRenderKeys` 一次计算（P2 重复身份 occurrence suffix 消歧、两态一致）；`AssistantStreamingContext.Provider` 移入 `AssistantMessage.tsx` 内部（`surfaceStreaming || isStreaming`，subagent trace 整树语义不变）。
+  2. `src/components/chat/panel-decoration/process-folding.ts`：`updateProcessStageGroups` 的 stageLabel 文案按值比较再写。
+  3. `tests/frontend/chat-surface-release-gate.test.ts`：新增「fresh toolResult 不释放；其后追加可渲染行仍释放」用例。**三轮修复（用户仍报「展开 stage 时特定节点滚动跳/重新展开感」）**：(d) gate 进一步放行**纯尾部追加可渲染行**（前缀匹配判定）——下一轮流式 assistant 行出现帧（每轮工具循环必发生）React 只在列表尾 appendChild、已有行 memo bail 零 DOM 写、折叠组节点不受触碰，无需释放；此前该帧解散整组并全量重建（布局瞬变 + CSS 动画重启 + stage 头重建）。相关测试断言随新语义更新（append→false、身份替换/删除→true、abort 用例修正 prev/next 方向）。
 - 改动内容:
-  1. `src/components/plugins/PluginsPage.tsx`：提取导出 `PluginListItem`，列表项结构对齐 MCP 卡片（`list-item` + `list-item-main` + `list-item-actions`，去掉 `--column`+`list-item-header` 冗余包裹）；新增工具 chips（`label || name`、title 取 `description || quickForgeName`、最多 12 个 + `pluginMoreTools` +N muted 徽章）；开关补 `aria-label`（`pluginEnabledSwitchLabel`）；禁用插件标 `data-quickforge-plugin-disabled="true"`；空状态搜索路径改 `quickforge-settings-code-list` 纵向列表；discovery 错误行距微调。
-  2. `src/index.css`：禁用插件主信息 opacity 0.55；`list-item-main` 基础类加 160ms opacity 过渡（启停双向）。
-  3. `src/lib/i18n.ts`：新增 `pluginMoreTools`、`pluginEnabledSwitchLabel`（en + zh）。
-  4. 新增 `tests/frontend/plugins-page.test.ts`（9 用例）。
-- Files（改动文件）: src/components/plugins/PluginsPage.tsx、src/index.css、src/lib/i18n.ts、tests/frontend/plugins-page.test.ts、feature_list.json、progress.md、session-handoff.md。
-- Evidence（验证）: 定向 vitest plugins-page 9 passed；连带 mcp-server-card / settings-react-infrastructure / decorator-copy-i18n / i18n-language-snapshot 共 30 passed；npx eslint 通过；npx tsc --noEmit 通过；npm run build 通过。
+  1. `src/components/chat/surface/MessageList.tsx`：新增 `streamingAssistant` prop——流式 partial 渲染为列表最后一行，key 用 `messageRenderIdentity`（`assistant:<timestamp>`，与 message_end 提交行同身份 → 就地转正、React 复用 DOM）；`AssistantStreamingContext.Provider` 只包该行；`hidePendingToolCalls` 维持原语义。
+  2. `src/components/chat/surface/ChatSurface.tsx`：流式容器只剩光标锚点（CSS `:has(> span.animate-pulse:only-child)` 自隐藏）；`MessageArea` 把「渲染行序列」（messages + 流式行）交给 `ProcessGroupReleaseBoundary`；`ProcessGroupReleaseGate` 删 `isStreaming`/`streamingAssistant` 字段，gate 收敛为纯序列 key 比较——message_end 同身份转正不释放（折叠组零搬移），abort/error 清空 partial 序列变短照常释放；清理未用导入与 props。
+  3. `src/components/chat/panel-decoration/message-actions.ts`：`getStreamingAssistantMessage` 改为在 `.qf-message-list` 内按 bridge `isStreaming === true` 定位；`getMessageElements` 过滤流式行（行级装饰职责与旧结构等价、避免重复收集）。
+  4. `src/components/chat/surface/surface-context.ts`：Provider 位置注释更新。
+  5. 测试 5 文件更新/新增用例（release-gate、release-refold、process-folding-ownership、behavior-alignment、chat-surface-render）；`docs/wiki/src/components/README.md` 两处条目（各两份副本）同步。四轮新增 `tests/frontend/chat-surface-streaming-handoff.test.ts`（jsdom + react-dom/client 真实生命周期：DOM 节点身份断言就地转正/身份变更仍 remount/重复身份不撞 key；旧实现红灯验证 2 failed + control 1 passed），behavior-alignment 契约断言随新结构更新。
+- Files（改动文件）: src/components/chat/surface/MessageList.tsx、src/components/chat/surface/ChatSurface.tsx、src/components/chat/surface/surface-context.ts、src/components/chat/panel-decoration/message-actions.ts、tests/frontend/chat-surface-{release-gate,release-refold,behavior-alignment,render}.test.ts、tests/frontend/process-folding-ownership.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest 全绿（chat-surface / process-folding 系 / message-actions+context-compaction / thinking·code-block·subagent / 三轮 gate 相关 7 文件 151）；npm run test 全量 4532 passed / 4 failed（4 个 server 失败经 git stash 基线对比为 dev 既有：sqlite-quick-check-gate 1 + acp 3，与本次无关）；npm run lint、npx tsc --noEmit、npm run build 均通过。四轮：定向 7 文件 83 passed（jsdom 生命周期 3 例）+ 旧实现红灯验证 2 failed / control 1 passed；npm run test 全量 4536 passed / 4 failed / 4 skipped（同一组 dev 既有失败）；npm run lint、npm run build 均通过。
 - Blockers（阻塞）: 无。
 - Notes:
-  - 未加状态徽章/版本/来源路径等新信息（用户明确只要视觉微调 + 工具展示）；未改 loadPlugins/togglePlugin 行为与 API。
-  - 复用 settings 现有样式类与 badge/command-name 模式，未引入新视觉模式，DESIGN_LANGUAGE.md 无需更新；docs/wiki 无 PluginsPage 条目且未改模块职责，无需更新。
-  - 测试技巧：受控 checkbox `checked=false` 在 renderToStaticMarkup 输出中无属性，需函数调用组件后从元素 props 断言（同 mcp-server-card.test.ts）。
-  - settings-row-infotip 仍为 pending，其 WIP 仍在工作区未验证。
-  - 无依赖变更；未修改生成产物（dist/package-dist/package-offline）；改动未提交。
-- Next Session（下一步）: 真机查看插件页观感（工具 chips 密度、禁用弱化、空状态）；处理 pending 的 settings-row-infotip。
+  - 分支 `fix/message-end-remount-flicker`（自 dev b633016 切出），改动未提交；未触碰生成产物。依赖：四轮新增 devDependency `jsdom`（唯一依赖变更，package.json/package-lock.json 同步；理由：真实 React reconciliation 回归测试需要 DOM 渲染器，原 Node-only 测试栈无法断言 remount）。
+  - 真机验证建议：用带 reasoning 的模型跑长思考，在 message_end 瞬间观察——展开的思考块应保持展开（旧版弹回收起）、无整行抖动；工具循环多轮时 spinner 不重启。
+  - 既有失败登记（待单独排查，勿归因本分支）：tests/server/sqlite-quick-check-gate.test.mjs（1 failed）、tests/server/acp/server-channel-source.test.mjs（1）、tests/server/acp/server.workspace-mapping.test.mjs（2）。
+  - 同 timestamp 重复 assistant 行（agent-loop 不产生）：四轮起合并 key 数组经 occurrence suffix 消歧，不再撞 key（有 jsdom 用例固定）。
+  - settings-row-infotip 仍为 pending，WIP 不在本分支。
+- Next Session（下一步）: 真机跑一轮带思考的对话确认观感；若仍有「滚动跳/重新展开感」，请用户在 DevTools console 跑滚动监听脚本（监听 .qf-scroll-container 的 scrollTop/scrollHeight 每帧变化并打印跳变序列），据此定位滚动侧根因（候选：贴底跟随与展开阅读冲突、decorate rAF 与 scrollToBottom rAF 帧内顺序、或 React commit 与 ResizeObserver 的时序）；用户确认后可合并回 dev 或按 runbook 发小版本；处理 pending 的 settings-row-infotip 与 4 个既有 server 测试失败。

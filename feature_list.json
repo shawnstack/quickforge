@@ -1,6 +1,36 @@
 {
   "features": [
     {
+      "id": "message-end-inplace-commit",
+      "name": "消除 message_end 时流式消息跨 React 子树 remount（「对话刷一下」结构性根因）",
+      "description": "message_end 时流式 assistant 从独立容器 `.qf-streaming-message` 卸载、再以全新 DOM 挂进 MessageList —— 跨两棵 React 子树的 unmount/remount：用户展开的思考块弹回收起（isExpanded 丢失）、代码高亮/图片/CSS 动画重置、装饰层重建折叠组并搬移节点（reparent 重启 animate-spin）。此前四个 flicker feature 只能压制症状（同帧 re-fold、最小写路径、指纹排除），结构性迁移未消除。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "把流式 partial 渲染为 MessageList 最后一行并让 message_end 同 key 就地转正：(1) MessageList 新增 `streamingAssistant` prop，尾行 key 用 `messageRenderIdentity`（pi-ai 流式 partial 与最终消息同一对象、timestamp 一致 → key 恒同），`AssistantStreamingContext.Provider` 只包该行，`hidePendingToolCalls` 维持原语义；(2) ChatSurface 流式容器只剩光标（经 `:has(> span.animate-pulse:only-child)` 自隐藏），`MessageArea` 把渲染序列（messages + 流式行）交给 release boundary；(3) release gate 收敛为纯序列 key 比较（删除 isStreaming/streamingAssistant 两个条件）——message_end 同身份转正序列不变 → 折叠组零搬移零动画重启；abort/error 未提交清空则序列变短照常释放；(4) 装饰层 `getStreamingAssistantMessage` 改为在 message list 内按 bridge `isStreaming === true` 定位流式行；`getMessageElements` 过滤流式行，行级装饰与折叠装饰职责划分与旧结构完全等价。**二轮修复（真机反馈「展开时新增消息有重新展开感」）**：(5) gate 比较序列改为「可渲染行」（`isRenderableMessage` 过滤后 key，新增 `cachedRenderableRowKeys` 外层缓存）——toolResult upsert 不渲染 standalone 行，此前全量 key 序列把它当结构变化 → 每轮工具循环必释放+全量重建折叠组（reparent 重启动画、重放展开感）；(6) `updateProcessStageGroups` 的 stageLabel 文案改按值比较再写（textContent 赋同值也替换文本节点，流式 update 路径须保持零 DOM 写帧）。**四轮修复（代码评审 P1/P2，2026-09-23）**：(7) P1——「同 key 就地转正」实际未生效：流式行外层 `AssistantStreamingContext.Provider`（元素类型前后不一致）与 `items.map` 之后的独立 JSX slot（隐式 index-keyed 子节点、独立 reconcile scope）都会让 `message_end` remount 整行。修复：`MessageList` 把已提交行与流式行推进同一个 `rows` 数组（`rows.push`），key 由合并数组 `[...messages, streamingAssistant]` 经 `messageRenderKeys` 一次计算；Provider 移入 `AssistantMessage` 内部（`surfaceStreaming || isStreaming`，subagent trace 整树语义不变），行元素类型前后一致。(8) P2——流式行 key 原用裸 `messageRenderIdentity`，同 timestamp 撞车时与已提交行重复 key；合并 key 数组后由 occurrence suffix 消歧且两态一致。(9) 新增 jsdom 真实 React 生命周期回归 `tests/frontend/chat-surface-streaming-handoff.test.ts`（DOM 节点身份断言就地转正 / 身份变更仍 remount / 重复身份不撞 key），旧实现红灯验证 2 failed + control 1 passed；`chat-surface-behavior-alignment.test.ts` 源码契约随新结构更新。",
+      "files": [
+        "src/components/chat/surface/MessageList.tsx",
+        "src/components/chat/surface/ChatSurface.tsx",
+        "src/components/chat/surface/surface-context.ts",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "tests/frontend/chat-surface-release-gate.test.ts",
+        "tests/frontend/chat-surface-release-refold.test.ts",
+        "tests/frontend/process-folding-ownership.test.ts",
+        "tests/frontend/chat-surface-behavior-alignment.test.ts",
+        "tests/frontend/chat-surface-render.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md",
+        "src/components/chat/surface/AssistantMessage.tsx",
+        "tests/frontend/chat-surface-streaming-handoff.test.ts",
+        "package.json",
+        "package-lock.json"
+      ],
+      "verification": "定向 vitest：chat-surface 4 文件 39 passed + process-folding 系 3 文件 70 passed + message-actions/context-compaction 49 passed + thinking/code-block/subagent 系 148 passed；二轮后 gate 相关 6 文件 105 passed（含「toolResult 到达不释放」用例）；三轮（尾部追加放行）后 gate 相关 7 文件 151 passed。npm run test 全量 4532 passed / 4 failed——4 个失败（sqlite-quick-check-gate 1 + acp 3）经 git stash 基线对比确认为 dev 既有，与本次无关；npm run lint 通过；npx tsc --noEmit 通过；npm run build 通过（chunk 警告既有）。四轮（评审修复）：定向 vitest 7 文件 83 passed（含 jsdom 生命周期 3 例）；旧实现红灯验证 2 failed / control 1 passed；npm run test / npm run lint / npm run build 结果见 progress.md 本轮条目。",
+      "boundaries": "不改 pi-agent/pi-ai 依赖与事件协议（timestamp 一致性为上游既有事实）；不动 ProcessGroupReleaseBoundary 释放/重折叠契约的两半配对与 releaseProcessGroups 释放规则，只改 gate 的比较信号；装饰层行级装饰对流式行的处理（过滤）保持与旧结构等价；未引入新视觉模式，DESIGN_LANGUAGE.md 无需更新；工作在分支 fix/message-end-remount-flicker 上，改动未提交。四轮新增 devDependency `jsdom`（本轮唯一依赖变更，package-lock.json 同步）——真实 React reconciliation 回归测试需要 DOM 渲染器，原 Node-only 测试栈（renderToStaticMarkup + 源码断言）无法断言 remount，评审 P1 正是因此漏过；不改 ChatSurface release gate、process-folding 与 pi-agent/pi-ai 事件协议。"
+    },
+    {
       "id": "plugins-page-visual-polish",
       "name": "优化设置·插件界面的样式与工具展示",
       "description": "插件列表项信息量偏低（仅名称+描述+开关）且结构冗余（--column 变体包一层 header）；工具列表完全不展示；开关缺少 aria-label；空状态搜索路径平铺换行不齐。",

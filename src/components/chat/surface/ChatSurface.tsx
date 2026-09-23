@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- exports the ChatSurface component plus the pure send flow, agent snapshot and release-gate helpers covered by tests. */
-import { Component, forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { Component, forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createMessageWindow, type MessageWindowController } from '../windowed-messages'
 import { releaseProcessGroups } from '../panel-decoration/process-folding'
 import { getAppStorage } from '@/storage'
@@ -14,17 +14,15 @@ import type {
   ChatSurfaceProps,
   Model,
   ThinkingLevel,
-  ToolResultMessage,
   UserMessageWithAttachments,
   AssistantMessage as AssistantMessageType,
 } from './ChatTypes'
 import type { SurfaceEditorBridgeElement } from './ChatTypes'
 import { t } from '@/lib/i18n'
-import { AssistantMessage } from './AssistantMessage'
-import { collectToolResultsById, MessageList } from './MessageList'
+import { MessageList } from './MessageList'
 import { MessageEditor } from './MessageEditor'
-import { messageRenderKeys } from './content-parts'
-import { CommandActionsEnabledContext, AssistantStreamingContext } from './surface-context'
+import { isRenderableMessage, messageRenderKeys } from './content-parts'
+import { CommandActionsEnabledContext } from './surface-context'
 import { UsageBar } from './UsageBar'
 
 /**
@@ -254,10 +252,10 @@ export function isSnapshotRefreshEvent(eventType: string): boolean {
  * snapshot-irrelevant `ChatSurface` commits bail out at the `MessageArea`
  * memo comparison and never reach this boundary, so they cannot release (and
  * flash) folded groups. Within a `MessageArea` re-render, only commits that
- * changed the message rows' structural render identities, or flipped the
- * streaming state (a terminal event unmounts the streaming container),
- * actually release; pure streaming updates and structure-preserving array
- * swaps (a re-upserted toolResult row) leave the groups folded.
+ * changed the rendered row identities actually release; pure streaming frames
+ * (the partial body grows in place) and the `message_end` hand-off (the
+ * streaming row commits under the identity it already had) leave the groups
+ * folded.
  */
 /**
  * Whether a MessageArea commit must dissolve folded process groups first.
@@ -265,40 +263,33 @@ export function isSnapshotRefreshEvent(eventType: string): boolean {
  * Groups re-parent nodes React modeled as direct children, so a commit that
  * inserts, reorders or removes message-list rows needs them handed back
  * before the mutation phase. `MessageList` keys its rows with
- * `messageRenderKeys` (`content-parts`), so that key sequence is exactly the
- * structure React reconciles at list level, and the gate compares it with the
- * same function — the gate and the renderer can never drift. Array identity
- * alone over-released: high-frequency `tool_execution_update` frames
- * (subagent tool start/end fire immediately, the trace is throttled to
- * ~150ms) upsert the *same* toolResult row — fresh array, fresh row object,
- * unchanged `toolResult:<toolCallId>` identity — which inlines into the
- * assistant's tool card and patches it in place, inside a node the group
- * already owns. Releasing those frames dissolved every live group and the
- * next decorate pass rebuilt it from scratch, moving each grouped node twice
- * per frame and restarting CSS animations like the pending-tool spinner's
- * `animate-spin`.
+ * `messageRenderKeys` (`content-parts`) — streaming partial included — so that
+ * key sequence is exactly the structure React reconciles at list level, and
+ * the gate compares it with the same function — the gate and the renderer can
+ * never drift. Array identity alone over-released: high-frequency
+ * `tool_execution_update` frames (subagent tool start/end fire immediately,
+ * the trace is throttled to ~150ms) upsert the *same* toolResult row — fresh
+ * array, fresh row object, unchanged `toolResult:<toolCallId>` identity —
+ * which inlines into the assistant's tool card and patches it in place, inside
+ * a node the group already owns. Releasing those frames dissolved every live
+ * group and the next decorate pass rebuilt it from scratch, moving each
+ * grouped node twice per frame and restarting CSS animations like the
+ * pending-tool spinner's `animate-spin`.
  *
- * Streaming-terminal flips release too: `agent_end` / `message_end` /
- * `turn_end` / abort can swap `isStreaming` or clear the streaming partial
- * without touching the committed list, yet that commit unmounts the
- * streaming container (`.qf-streaming-message`) whose folded nodes React is
- * about to remove — a `removeChild` on a node the group re-parented throws.
- *
- * What stays skipped is the pure streaming frame: same row identities, same
- * streaming flag, same streaming-partial presence. Completed rows bail out
- * at their memos, React only mutates inside the streaming assistant, and no
- * group React could collide with is touched — releasing there would unfold
- * and refold every group on every streaming frame for nothing. The streaming
- * partial gets a per-event shallow copy (see `readAgentSnapshot`), so
- * presence — not object identity — is the comparable signal.
+ * The gate sees the rendered sequence (`MessageArea` appends the streaming
+ * partial while it renders at the tail). `message_end` commits the partial
+ * into `messages` under the same render identity the streaming row used, so
+ * the sequence — and therefore the fold — survives the hand-off untouched.
+ * Terminal events that drop the partial without committing it (abort, error)
+ * shorten the sequence and release through the same structural comparison.
  */
 export type ProcessGroupReleaseGate = {
-  /** Message-list identity the boundary renders with; structural commits swap it. */
+  /**
+   * The rendered row sequence `MessageList` reconciles by — the committed
+   * messages plus, while a partial streams at the tail, the streaming
+   * assistant partial itself (see `MessageArea`). Structural commits swap it.
+   */
   messages?: readonly AgentMessage[]
-  /** Whether the agent is streaming; the streaming container unmounts on flip. */
-  isStreaming?: boolean
-  /** Streaming partial row; terminal events clear it to `undefined`. */
-  streamingAssistant?: AssistantMessageType
 }
 
 /**
@@ -313,13 +304,28 @@ export type ProcessGroupReleaseGate = {
  * no element changed, so an unchanged identity always has unchanged keys.
  * Weak keys let replaced snapshots be collected.
  */
-const messageRenderKeysByIdentity = new WeakMap<readonly AgentMessage[], string[]>()
+/**
+ * Row keys the gate compares: renderable rows only.
+ *
+ * `MessageList` renders standalone rows for user / user-with-attachments /
+ * assistant messages; `toolResult` bodies inline into the paired assistant's
+ * tool card and `artifact` rows render nothing — neither swaps list-level DOM.
+ * A gate over the full `messageRenderKeys` sequence treated every toolResult
+ * upsert (`tool_execution_update` re-inserting the same result, a fresh
+ * result landing mid-turn) as a structural change and released the folded
+ * groups for a commit that never touched the row list — the full rebuild
+ * then re-parented every grouped node, restarting their CSS animations and
+ * replaying the "re-expanding" feel while a thinking block was left expanded.
+ */
+const renderableRowKeysBySource = new WeakMap<readonly AgentMessage[], string[]>()
 
-function cachedMessageRenderKeys(messages: readonly AgentMessage[]): string[] {
-  let keys = messageRenderKeysByIdentity.get(messages)
+function cachedRenderableRowKeys(messages: readonly AgentMessage[]): string[] {
+  let keys = renderableRowKeysBySource.get(messages)
   if (keys === undefined) {
-    keys = messageRenderKeys(messages)
-    messageRenderKeysByIdentity.set(messages, keys)
+    // Filter by `isRenderableMessage` before keying: the key sequence must
+    // mirror the rows React actually reconciles, never the raw array.
+    keys = messageRenderKeys(messages.filter(isRenderableMessage))
+    renderableRowKeysBySource.set(messages, keys)
   }
   return keys
 }
@@ -327,6 +333,16 @@ function cachedMessageRenderKeys(messages: readonly AgentMessage[]): string[] {
 /**
  * Structural half of the gate: compare the two messages arrays by the row
  * render identities `MessageList` reconciles by, not by array identity.
+ *
+ * A pure tail append (the previous sequence is a strict prefix of the next)
+ * is safe to skip: React only appends the new row at the list tail
+ * (`appendChild`), every existing row bails out at its memo with zero DOM
+ * writes (a re-render from a fresh `toolResultsById` identity produces an
+ * identical tree), and the folded groups hold nodes *inside* rows — nothing
+ * the commit touches. This is the frame where the next streaming assistant
+ * row appears (every tool-loop round); releasing there dissolved the whole
+ * group and the re-fold rebuilt it from scratch, restarting in-flight CSS
+ * animations and shifting layout mid-read of an expanded stage.
  */
 function shouldReleaseForMessageStructure(
   prevMessages: readonly AgentMessage[] | undefined,
@@ -335,10 +351,17 @@ function shouldReleaseForMessageStructure(
   // Missing identity (defensive callers / untyped updates) errs on releasing.
   if (prevMessages === undefined || nextMessages === undefined) return true
   if (prevMessages === nextMessages) return false
-  const prevKeys = cachedMessageRenderKeys(prevMessages)
-  const nextKeys = cachedMessageRenderKeys(nextMessages)
-  return prevKeys.length !== nextKeys.length
-    || prevKeys.some((key, index) => key !== nextKeys[index])
+  const prevKeys = cachedRenderableRowKeys(prevMessages)
+  const nextKeys = cachedRenderableRowKeys(nextMessages)
+  if (prevKeys.length === nextKeys.length) {
+    return prevKeys.some((key, index) => key !== nextKeys[index])
+  }
+  if (nextKeys.length > prevKeys.length) {
+    // Tail append only when every previous row identity is unchanged.
+    return !prevKeys.every((key, index) => key === nextKeys[index])
+  }
+  // Removal (or any other shape change) still releases.
+  return true
 }
 
 export function shouldReleaseProcessGroups(
@@ -347,15 +370,14 @@ export function shouldReleaseProcessGroups(
 ): boolean {
   // Missing gate (defensive callers / untyped updates) errs on releasing.
   if (prev === undefined || next === undefined) return true
-  // Structural message change: rows appended/removed/reordered/re-identified.
-  if (shouldReleaseForMessageStructure(prev.messages, next.messages)) return true
-  // Streaming-terminal flip: the streaming container mounts/unmounts and the
-  // commit removes or inserts nodes the groups may hold.
-  if (prev.isStreaming !== next.isStreaming) return true
-  // Streaming row appears/clears. Presence only — per-frame identity churn is
-  // the pure streaming frame and must stay skipped.
-  if (Boolean(prev.streamingAssistant) !== Boolean(next.streamingAssistant)) return true
-  return false
+  // Structural row-sequence change only: rows appended/removed/reordered/
+  // re-identified. The sequence includes the streaming partial while it
+  // renders at the tail, so `message_end` — which commits the partial into
+  // `messages` under the same render identity the streaming row used — keeps
+  // the sequence unchanged and the folded groups untouched (zero node moves,
+  // no restarted animations). Terminal flips that *do* drop the partial
+  // without committing it (abort/error) shorten the sequence and release.
+  return shouldReleaseForMessageStructure(prev.messages, next.messages)
 }
 
 type ProcessGroupReleaseBoundaryProps = ProcessGroupReleaseGate & {
@@ -441,7 +463,6 @@ type MessageAreaProps = {
   pendingToolCalls: ReadonlySet<string>
   isStreaming: boolean
   streamingAssistant?: AssistantMessageType
-  toolResultsById: Map<string, ToolResultMessage>
   onCostClick?: () => void
 }
 
@@ -473,14 +494,19 @@ const MessageArea = memo(function MessageArea({
   pendingToolCalls,
   isStreaming,
   streamingAssistant,
-  toolResultsById,
   onCostClick,
 }: MessageAreaProps) {
+  // The streaming partial renders as the message list's last row (same render
+  // identity the committed row will use — see MessageList), so this is the
+  // exact row sequence React reconciles: the release gate compares it against
+  // the renderer's own keys and the `message_end` hand-off keeps it identical.
+  const rendersStreamingRow = isStreaming && atTail && Boolean(streamingAssistant)
+  const renderedSequence = rendersStreamingRow && streamingAssistant
+    ? [...messages, streamingAssistant]
+    : messages
   return (
     <ProcessGroupReleaseBoundary
-      messages={messages}
-      isStreaming={isStreaming}
-      streamingAssistant={streamingAssistant}
+      messages={renderedSequence}
       getReleaseRoot={getReleaseRoot}
       onReleased={onProcessGroupsReleased}
     >
@@ -491,33 +517,19 @@ const MessageArea = memo(function MessageArea({
             messageIndexOffset={messageIndexOffset}
             tools={tools}
             pendingToolCalls={pendingToolCalls}
+            streamingAssistant={rendersStreamingRow ? streamingAssistant : undefined}
             onCostClick={onCostClick}
           />
-          {/* Streaming message container: owns streaming text/thinking output */}
+          {/* Streaming cursor container. The streaming assistant message itself
+              renders as the message list's last row above (it commits in place
+              at `message_end`); this container keeps the cursor anchor alive
+              and hides itself through `.qf-streaming-message:has(>
+              span.animate-pulse:only-child)` — with no assistant inside it is
+              the only child, exactly the state that rule hides. */}
           {isStreaming && atTail ? (
-            // Only this container streams: the message list above renders
-            // finished messages, so its code blocks stay out of the streaming
-            // gate. Pending tool calls are hidden here and rendered by the
-            // message list alone: the streaming partial is committed into
-            // `messages` at `message_end`, and a row that rendered here first
-            // would migrate between two React subtrees on that commit — an
-            // unmount/remount that restarted its `animate-spin` spinner.
-            <AssistantStreamingContext.Provider value={true}>
-              <div className="qf-streaming-message mb-3 flex flex-col gap-3">
-                {streamingAssistant ? (
-                  <AssistantMessage
-                    message={streamingAssistant}
-                    tools={tools}
-                    isStreaming
-                    pendingToolCalls={pendingToolCalls}
-                    toolResultsById={toolResultsById}
-                    hidePendingToolCalls
-                    onCostClick={onCostClick}
-                  />
-                ) : null}
-                <span className="mx-4 inline-block h-4 w-2 animate-pulse bg-muted-foreground" />
-              </div>
-            </AssistantStreamingContext.Provider>
+            <div className="qf-streaming-message mb-3 flex flex-col gap-3">
+              <span className="mx-4 inline-block h-4 w-2 animate-pulse bg-muted-foreground" />
+            </div>
           ) : null}
         </div>
       </div>
@@ -863,9 +875,8 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     }
   }, [agent, applyEditorText, applyEditorAttachments])
 
-  // Snapshot-stable lookups for the memoized message area: a fresh Map per
-  // render would defeat the memo comparison and re-introduce keystroke releases.
-  const toolResultsById = useMemo(() => collectToolResultsById(snapshot?.messages ?? []), [snapshot?.messages])
+  // Snapshot-stable callbacks for the memoized message area: fresh identities
+  // would defeat the memo comparison and re-introduce keystroke releases.
   const getReleaseRoot = useCallback(() => scrollContainerRef.current, [])
 
   if (!agent || !snapshot) {
@@ -890,7 +901,6 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
             pendingToolCalls={snapshot.pendingToolCalls}
             isStreaming={snapshot.isStreaming}
             streamingAssistant={streamingAssistant}
-            toolResultsById={toolResultsById}
             onCostClick={onCostClick}
           />
         </div>

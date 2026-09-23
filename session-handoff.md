@@ -1,6 +1,6 @@
 ## 当前交接：message-end-inplace-commit（done，2026-09-23）
 
-- Current Objective（当前目标）: 在新分支 `fix/message-end-remount-flicker` 根治「思考过程结束/整轮提交时对话刷一下」——消除 message_end 时流式消息从 `.qf-streaming-message` 容器跨 React 子树迁移进 MessageList 的 unmount/remount。已完成并验证（feature_list.json 标记 done），改动未提交。
+- Current Objective（当前目标）: 在新分支 `fix/message-end-remount-flicker` 根治「思考过程结束/整轮提交时对话刷一下」——消除 message_end 时流式消息从 `.qf-streaming-message` 容器跨 React 子树迁移进 MessageList 的 unmount/remount。已完成并验证（feature_list.json 标记 done），已提交 `04be17f` 并合并到 dev（合并提交 `b9d6656`），已推送 `origin/dev`。
 - **二轮修复（2026-09-23，真机反馈「展开时新增消息有重新展开感」）**:
   1. `src/components/chat/surface/ChatSurface.tsx`：release gate 的比较序列改为「可渲染行」——新增 `cachedRenderableRowKeys`（`isRenderableMessage` 过滤 + 按原数组身份的 WeakMap 缓存），toolResult/artifact 不再参与（它们不渲染 standalone 行，此前每次工具结果到达都被判为结构变化 → 释放+全量重建折叠组 → reparent 重启动画/重放展开感）；删除无人调用的 `cachedMessageRenderKeys`。**四轮修复（2026-09-23，代码评审 P1/P2）**：P1——「同 key 就地转正」实际未生效（流式行外层 Provider 与独立 JSX slot 都跨不过 reconcile scope，message_end 仍 remount 整行）：`MessageList.tsx` 改为已提交行+流式行同一 `rows` 数组（`rows.push`），key 用合并数组 `[...messages, streamingAssistant]` 经 `messageRenderKeys` 一次计算（P2 重复身份 occurrence suffix 消歧、两态一致）；`AssistantStreamingContext.Provider` 移入 `AssistantMessage.tsx` 内部（`surfaceStreaming || isStreaming`，subagent trace 整树语义不变）。
   2. `src/components/chat/panel-decoration/process-folding.ts`：`updateProcessStageGroups` 的 stageLabel 文案按值比较再写。
@@ -15,9 +15,9 @@
 - Evidence（验证）: 定向 vitest 全绿（chat-surface / process-folding 系 / message-actions+context-compaction / thinking·code-block·subagent / 三轮 gate 相关 7 文件 151）；npm run test 全量 4532 passed / 4 failed（4 个 server 失败经 git stash 基线对比为 dev 既有：sqlite-quick-check-gate 1 + acp 3，与本次无关）；npm run lint、npx tsc --noEmit、npm run build 均通过。四轮：定向 7 文件 83 passed（jsdom 生命周期 3 例）+ 旧实现红灯验证 2 failed / control 1 passed；npm run test 全量 4536 passed / 4 failed / 4 skipped（同一组 dev 既有失败）；npm run lint、npm run build 均通过。
 - Blockers（阻塞）: 无。
 - Notes:
-  - 分支 `fix/message-end-remount-flicker`（自 dev b633016 切出），改动未提交；未触碰生成产物。依赖：四轮新增 devDependency `jsdom`（唯一依赖变更，package.json/package-lock.json 同步；理由：真实 React reconciliation 回归测试需要 DOM 渲染器，原 Node-only 测试栈无法断言 remount）。
+  - 分支 `fix/message-end-remount-flicker`（自 dev b633016 切出）已提交 `04be17f`、经 `--no-ff` 合并进 dev（`b9d6656`）并推送；未触碰生成产物。依赖：四轮新增 devDependency `jsdom`（唯一依赖变更，package.json/package-lock.json 同步；理由：真实 React reconciliation 回归测试需要 DOM 渲染器，原 Node-only 测试栈无法断言 remount）。
   - 真机验证建议：用带 reasoning 的模型跑长思考，在 message_end 瞬间观察——展开的思考块应保持展开（旧版弹回收起）、无整行抖动；工具循环多轮时 spinner 不重启。
   - 既有失败登记（待单独排查，勿归因本分支）：tests/server/sqlite-quick-check-gate.test.mjs（1 failed）、tests/server/acp/server-channel-source.test.mjs（1）、tests/server/acp/server.workspace-mapping.test.mjs（2）。
   - 同 timestamp 重复 assistant 行（agent-loop 不产生）：四轮起合并 key 数组经 occurrence suffix 消歧，不再撞 key（有 jsdom 用例固定）。
   - settings-row-infotip 仍为 pending，WIP 不在本分支。
-- Next Session（下一步）: 真机跑一轮带思考的对话确认观感；若仍有「滚动跳/重新展开感」，请用户在 DevTools console 跑滚动监听脚本（监听 .qf-scroll-container 的 scrollTop/scrollHeight 每帧变化并打印跳变序列），据此定位滚动侧根因（候选：贴底跟随与展开阅读冲突、decorate rAF 与 scrollToBottom rAF 帧内顺序、或 React commit 与 ResizeObserver 的时序）；用户确认后可合并回 dev 或按 runbook 发小版本；处理 pending 的 settings-row-infotip 与 4 个既有 server 测试失败。
+- Next Session（下一步）: 真机跑一轮带思考的对话确认观感；若仍有「滚动跳/重新展开感」，请用户在 DevTools console 跑滚动监听脚本（监听 .qf-scroll-container 的 scrollTop/scrollHeight 每帧变化并打印跳变序列），据此定位滚动侧根因（候选：贴底跟随与展开阅读冲突、decorate rAF 与 scrollToBottom rAF 帧内顺序、或 React commit 与 ResizeObserver 的时序）；用户确认后可按 runbook 发小版本（提交/合并/推送已完成：`04be17f` → `b9d6656`，origin/dev）；处理 pending 的 settings-row-infotip 与 4 个既有 server 测试失败。

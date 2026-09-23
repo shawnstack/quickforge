@@ -28,7 +28,7 @@
         "package-lock.json"
       ],
       "verification": "定向 vitest：chat-surface 4 文件 39 passed + process-folding 系 3 文件 70 passed + message-actions/context-compaction 49 passed + thinking/code-block/subagent 系 148 passed；二轮后 gate 相关 6 文件 105 passed（含「toolResult 到达不释放」用例）；三轮（尾部追加放行）后 gate 相关 7 文件 151 passed。npm run test 全量 4532 passed / 4 failed——4 个失败（sqlite-quick-check-gate 1 + acp 3）经 git stash 基线对比确认为 dev 既有，与本次无关；npm run lint 通过；npx tsc --noEmit 通过；npm run build 通过（chunk 警告既有）。四轮（评审修复）：定向 vitest 7 文件 83 passed（含 jsdom 生命周期 3 例）；旧实现红灯验证 2 failed / control 1 passed；npm run test / npm run lint / npm run build 结果见 progress.md 本轮条目。",
-      "boundaries": "不改 pi-agent/pi-ai 依赖与事件协议（timestamp 一致性为上游既有事实）；不动 ProcessGroupReleaseBoundary 释放/重折叠契约的两半配对与 releaseProcessGroups 释放规则，只改 gate 的比较信号；装饰层行级装饰对流式行的处理（过滤）保持与旧结构等价；未引入新视觉模式，DESIGN_LANGUAGE.md 无需更新；工作在分支 fix/message-end-remount-flicker 上，改动未提交。四轮新增 devDependency `jsdom`（本轮唯一依赖变更，package-lock.json 同步）——真实 React reconciliation 回归测试需要 DOM 渲染器，原 Node-only 测试栈（renderToStaticMarkup + 源码断言）无法断言 remount，评审 P1 正是因此漏过；不改 ChatSurface release gate、process-folding 与 pi-agent/pi-ai 事件协议。"
+      "boundaries": "不改 pi-agent/pi-ai 依赖与事件协议（timestamp 一致性为上游既有事实）；不动 ProcessGroupReleaseBoundary 释放/重折叠契约的两半配对与 releaseProcessGroups 释放规则，只改 gate 的比较信号；装饰层行级装饰对流式行的处理（过滤）保持与旧结构等价；未引入新视觉模式，DESIGN_LANGUAGE.md 无需更新；工作在分支 fix/message-end-remount-flicker 上，已提交 04be17f 并 --no-ff 合并进 dev（b9d6656，已推送）。四轮新增 devDependency `jsdom`（本轮唯一依赖变更，package-lock.json 同步）——真实 React reconciliation 回归测试需要 DOM 渲染器，原 Node-only 测试栈（renderToStaticMarkup + 源码断言）无法断言 remount，评审 P1 正是因此漏过；不改 ChatSurface release gate、process-folding 与 pi-agent/pi-ai 事件协议。"
     },
     {
       "id": "plugins-page-visual-polish",

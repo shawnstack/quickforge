@@ -1,3 +1,13 @@
+## 当前交接：inspector-tab-fade（done，2026-09-23）
+
+- Current Objective（当前目标）: 右侧工作栏多个 Tab 时变短、无中间分隔线，标题右侧渐隐替代省略号。已实现，未提交。
+- 改动内容: 多 Tab 在 `min-w-24` / `max-w-32` 之间均分，放不下横向滚动；去掉竖线，标题在关闭按钮左侧正常流里渐隐，文字不覆盖 X。下拉列表选中项与 hover 同为淡背景。
+- Files（改动文件）: src/components/workspace/WorkspaceInspector.tsx、src/index.css、tests/frontend/workspace-inspector-tab-fade.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机看多 Tab 渐隐是否够柔和；其余未提交改动仍待按需发版。
+
+---
+
 ## 当前交接：thinking-before-tool-order（done，2026-09-23）
 
 - Current Objective（当前目标）: 第一轮思考过程保持在后续工具调用之前。已实现并验证，未提交。

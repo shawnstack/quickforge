@@ -8238,6 +8238,23 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
   display: none;
 }
 
+/*
+ * 多 Tab 时标题不走 text-overflow:ellipsis。右侧叠一层与 Tab 同色的渐隐，
+ * 裁掉溢出文字，避免出现「…」。单 Tab 仍用 truncate。
+ */
+.quickforge-inspector-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-inspector-tab-label.is-faded {
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+}
+
 /* Session file rollback: isolated modal, no changes to the outer artifact card. */
 .quickforge-file-rollback-dialog {
   width: min(840px, calc(100% - 28px));

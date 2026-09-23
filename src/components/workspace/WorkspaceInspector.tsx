@@ -193,8 +193,9 @@ function panelTabTitle(tab: WorkspacePanelTab, fallbackLabel: string) {
   return reader?.path || fallbackLabel
 }
 
-function SortablePanelTab({ id, children }: {
+function SortablePanelTab({ id, compact = false, children }: {
   id: string
+  compact?: boolean
   children: (props: {
     listeners: ReturnType<typeof useSortable>['listeners']
     attributes: ReturnType<typeof useSortable>['attributes']
@@ -211,7 +212,11 @@ function SortablePanelTab({ id, children }: {
     <div
       ref={setNodeRef}
       style={style}
-      className={cn('flex shrink-0 items-center gap-1', isDragging && 'relative z-30 opacity-55 drop-shadow-sm')}
+      className={cn(
+        'flex items-center',
+        compact ? 'min-w-24 max-w-32 flex-1' : 'shrink-0',
+        isDragging && 'relative z-30 opacity-55 drop-shadow-sm',
+      )}
     >
       {children({ listeners, attributes, isDragging })}
     </div>
@@ -1315,7 +1320,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                           className={cn(
                             'group flex h-10 w-full items-center gap-2 rounded-xl px-2 transition-colors',
                             active
-                              ? 'bg-[var(--quickforge-sidebar-active-bg)] text-foreground'
+                              ? 'bg-[var(--quickforge-sidebar-hover-bg)] text-foreground'
                               : 'hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:text-foreground',
                           )}
                           role="none"
@@ -1380,70 +1385,69 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
             modifiers={[restrictPanelTabToHorizontal]}
           >
             <SortableContext items={panelTabIds} strategy={horizontalListSortingStrategy}>
-              <div className={cn('quickforge-inspector-tab-strip flex h-8 min-w-0 flex-1 items-center gap-1 overflow-x-auto', draggingPanelTabId && 'cursor-grabbing')}>
-                {panelTabs.map((tab, index) => {
+              <div className={cn('quickforge-inspector-tab-strip flex h-8 min-w-0 flex-1 items-center overflow-x-auto', panelTabs.length > 1 ? 'gap-0.5' : 'gap-1', draggingPanelTabId && 'cursor-grabbing')}>
+                {panelTabs.map((tab) => {
                   const item = panelTabMeta(tab)
                   const Icon = tab.kind === 'goal' ? GoalIcon : item?.icon
                   const filePath = panelTabFilePath(tab)
                   const active = tab.id === activePanelTabId
                   const label = panelTabLabel(tab, project?.name)
                   const title = panelTabTitle(tab, label)
+                  const compactTabs = panelTabs.length > 1
                   return (
-                    <SortablePanelTab key={tab.id} id={tab.id}>
+                    <SortablePanelTab key={tab.id} id={tab.id} compact={compactTabs}>
                       {({ listeners, attributes, isDragging }) => (
-                        <>
-                          {index > 0 ? <span aria-hidden="true" className="mx-0.5 h-3 w-px bg-[color-mix(in_oklab,var(--muted-foreground)_18%,transparent)]" /> : null}
-                          <button
-                            type="button"
+                        <button
+                          type="button"
+                          className={cn(
+                            'group relative flex h-8 cursor-grab items-center gap-1.5 rounded-xl text-[13px] font-medium transition-[background-color,color,box-shadow] active:cursor-grabbing',
+                            compactTabs ? 'w-full min-w-0 px-2' : 'max-w-40 px-3',
+                            active
+                              ? 'bg-[color-mix(in_oklab,var(--muted)_86%,transparent)] hover:bg-[color-mix(in_oklab,var(--muted)_86%,transparent)]'
+                              : 'hover:bg-[color-mix(in_oklab,var(--muted)_72%,transparent)]',
+                            isDragging && 'shadow-quickforge',
+                          )}
+                          onClick={() => {
+                            if (!draggingPanelTabId) activatePanelTab(tab)
+                          }}
+                          title={title}
+                          {...listeners}
+                          {...attributes}
+                        >
+                          {filePath ? (
+                            <FileIcon path={filePath} className={cn('size-4 shrink-0 transition-opacity', active ? 'opacity-100' : 'opacity-55 group-hover:opacity-85')} />
+                          ) : tab.kind === 'subagent' ? (
+                            <Bot className={cn('size-4 shrink-0', active ? '' : '')} />
+                          ) : Icon ? (
+                            <Icon className={cn('size-4 shrink-0', active ? '' : '')} />
+                          ) : (
+                            <Code2 className={cn('size-4 shrink-0', active ? '' : '')} />
+                          )}
+                          <span className={cn('quickforge-inspector-tab-label', compactTabs && 'is-faded')}>{label}</span>
+                          <span
+                            role="button"
+                            tabIndex={0}
                             className={cn(
-                              'group flex h-8 max-w-40 cursor-grab items-center gap-2 rounded-xl px-3 text-[13px] font-medium transition-[background-color,color,box-shadow] active:cursor-grabbing',
-                              active
-                                ? 'bg-[color-mix(in_oklab,var(--muted)_86%,transparent)] hover:bg-[color-mix(in_oklab,var(--muted)_86%,transparent)]'
-                                : 'hover:bg-[color-mix(in_oklab,var(--muted)_72%,transparent)]',
-                              isDragging && 'shadow-quickforge',
+                              'ml-0.5 inline-flex size-5 shrink-0 cursor-default items-center justify-center rounded-full opacity-0 transition-all hover:bg-black hover:text-white group-hover:opacity-100',
+                              active && 'opacity-100',
                             )}
-                            onClick={() => {
-                              if (!draggingPanelTabId) activatePanelTab(tab)
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              closePanelTab(tab.id)
                             }}
-                            title={title}
-                            {...listeners}
-                            {...attributes}
-                          >
-                            {filePath ? (
-                              <FileIcon path={filePath} className={cn('size-4 shrink-0 transition-opacity', active ? 'opacity-100' : 'opacity-55 group-hover:opacity-85')} />
-                            ) : tab.kind === 'subagent' ? (
-                              <Bot className={cn('size-4 shrink-0', active ? '' : '')} />
-                            ) : Icon ? (
-                              <Icon className={cn('size-4 shrink-0', active ? '' : '')} />
-                            ) : (
-                              <Code2 className={cn('size-4 shrink-0', active ? '' : '')} />
-                            )}
-                            <span className="min-w-0 truncate">{label}</span>
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              className={cn(
-                                'ml-0.5 inline-flex size-5 shrink-0 cursor-default items-center justify-center rounded-full opacity-0 transition-all hover:bg-black hover:text-white group-hover:opacity-100',
-                                active && 'opacity-100',
-                              )}
-                              onPointerDown={(event) => event.stopPropagation()}
-                              onClick={(event) => {
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
                                 event.stopPropagation()
                                 closePanelTab(tab.id)
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault()
-                                  event.stopPropagation()
-                                  closePanelTab(tab.id)
-                                }
-                              }}
-                              aria-label={t('close')}
-                            >
-                              <X className="size-3.5" />
-                            </span>
-                          </button>
-                        </>
+                              }
+                            }}
+                            aria-label={t('close')}
+                          >
+                            <X className="size-3.5" />
+                          </span>
+                        </button>
                       )}
                     </SortablePanelTab>
                   )

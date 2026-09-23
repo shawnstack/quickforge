@@ -296,6 +296,22 @@
       ],
       "verification": "npm run lint；npm run build；相关组件测试",
       "boundaries": "纯视觉调整，遵循 DESIGN_LANGUAGE.md，不改行为逻辑。"
+    },
+    {
+      "id": "inspector-tab-fade",
+      "name": "右侧工作栏多 Tab 缩短并右侧渐隐",
+      "description": "多个 Tab 时变短、去掉中间分隔线，标题右侧用渐隐替代省略号。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "多于一个 Tab 时在 min-w-24 / max-w-32 之间均分，溢出整条横向滚动；去掉竖线；标签在关闭按钮左侧的正常流里 mask 右侧渐隐，文字不覆盖关闭按钮。下拉列表当前项与 hover 同用 --quickforge-sidebar-hover-bg。单 Tab 仍 max-w-40 + 省略号。",
+      "files": [
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "src/index.css",
+        "tests/frontend/workspace-inspector-tab-fade.test.ts",
+        "docs/wiki/src/components/README.md"
+      ],
+      "verification": "定向 vitest workspace-inspector-tab-fade / workspace-inspector-tab-list-scroll；eslint WorkspaceInspector.tsx。",
+      "boundaries": "只改 Inspector 顶部 Tab 条视觉。下拉列表仍用省略号。未改行为、依赖或生成产物。"
     }
   ]
 }

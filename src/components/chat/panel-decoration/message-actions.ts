@@ -189,6 +189,11 @@ function getPrimaryMessageList(panel: HTMLElement) {
 function getMessageElements(messageList: HTMLElement) {
   return Array.from(messageList.querySelectorAll<HTMLElement>('user-message, assistant-message, .qf-user-message, .qf-assistant-message'))
     .filter((element) => element.closest('message-list, .qf-message-list') === messageList)
+    // The streaming partial renders as the list's last row now (it commits in
+    // place at `message_end`), but row-level decoration treats it exactly as
+    // before — owned by the process-folding pass, not this list. AssistantMessage
+    // mirrors `isStreaming` onto its root node; committed rows carry `false`.
+    .filter((element) => (element as { isStreaming?: boolean }).isStreaming !== true)
 }
 
 function getPrimaryMessageElements(panel: HTMLElement) {
@@ -262,11 +267,18 @@ type DecorationPanelGate = { messages: unknown; offset: number; generation: numb
 const decorationPanelGates = new WeakMap<HTMLElement, DecorationPanelGate>()
 
 function getStreamingAssistantMessage(panel: HTMLElement) {
+  // The streaming partial renders as the message list's last row (it commits
+  // in place at `message_end`), so locate it by the `isStreaming` flag
+  // `AssistantMessage` mirrors onto its root node — not by the streaming
+  // cursor container, which no longer owns the message.
   const messageList = getPrimaryMessageList(panel)
-  const streamingContainer = messageList?.parentElement?.querySelector<HTMLElement>(
-    ':scope > .qf-streaming-message:not(.hidden)',
-  )
-  return streamingContainer?.querySelector<HTMLElement>(':scope > .qf-assistant-message') ?? null
+  const assistants = messageList?.querySelectorAll<HTMLElement>(':scope > .qf-assistant-message')
+  if (!assistants) return null
+  for (let index = assistants.length - 1; index >= 0; index--) {
+    const element = assistants[index] as { isStreaming?: boolean }
+    if (element.isStreaming === true) return assistants[index]
+  }
+  return null
 }
 
 /** 消息流 slash chip 标记（存在即说明此前装饰过；dataset 携带被剥掉的前缀文本）。 */

@@ -12,7 +12,7 @@ import {
   shouldRestoreGroupedProcessNode,
 } from '../../src/components/chat/panel-decoration/process-folding'
 import { ProcessGroupReleaseBoundary, shouldReleaseProcessGroups } from '../../src/components/chat/surface/ChatSurface'
-import type { AgentMessage, AssistantMessage as AssistantMessageType } from '../../src/components/chat/surface/ChatTypes'
+import type { AgentMessage } from '../../src/components/chat/surface/ChatTypes'
 
 /**
  * R6：装饰层（process folding）把 React 渲染的消息节点搬进
@@ -348,8 +348,9 @@ describe('ProcessGroupReleaseBoundary', () => {
   })
 
   it('releases when a structural commit swapped the message list', () => {
-    // 结构变化 = 行渲染身份序列变化（新增/删除/重排/换身份），不是数组引用变化。
-    const prevMessages: readonly AgentMessage[] = []
+    // 结构变化 = 行渲染身份序列变化（身份替换/删除/重排），不是数组引用变化。
+    // 纯尾部追加不释放（React 只在列表尾 appendChild，见 gate 测试）。
+    const prevMessages: readonly AgentMessage[] = [{ role: 'user', content: 'hi', timestamp: 1 }]
     const nextMessages: readonly AgentMessage[] = [{ role: 'user', content: 'next turn', timestamp: 2 }]
     const tree = chatTurnTree({ streaming: false })
     const onReleased = vi.fn()
@@ -373,37 +374,48 @@ describe('ProcessGroupReleaseBoundary', () => {
     // 引用变化但行身份序列不变（如 tool_execution_update 原位重插同一 toolResult
     // 行）：不释放，否则每次 trace 节流帧都解散存活折叠组并重启其 CSS 动画。
     expect(shouldReleaseProcessGroups(gate, { messages: [...messages] })).toBe(false)
+    // 行身份替换（remount 风险）：释放。
+    expect(shouldReleaseProcessGroups(
+      { messages },
+      { messages: [{ role: 'user', content: 'again', timestamp: 2 }] },
+    )).toBe(true)
+    // 纯尾部追加：不释放（React 只在列表尾 appendChild，已有行 memo bail）。
     expect(shouldReleaseProcessGroups(
       { messages },
       { messages: [...messages, { role: 'user', content: 'again', timestamp: 2 }] },
-    )).toBe(true)
+    )).toBe(false)
     expect(shouldReleaseProcessGroups(undefined, gate)).toBe(true)
     expect(shouldReleaseProcessGroups(gate, undefined)).toBe(true)
     expect(shouldReleaseProcessGroups(undefined, undefined)).toBe(true)
-    // 终态翻转：isStreaming 或流式行 presence 变化，列表身份不变也释放。
-    expect(shouldReleaseProcessGroups({ messages, isStreaming: true }, { messages, isStreaming: false })).toBe(true)
+    // 终态场景都收敛到行序列比较：abort/error 未提交就清空流式行 → 序列变短，
+    // 释放；message_end 同身份转正 → 序列不变，不释放（见下方专项用例）。
+    const streamingRow = { role: 'assistant', content: 'partial', timestamp: 9 } as AgentMessage
     expect(
-      shouldReleaseProcessGroups({ messages, isStreaming: true, streamingAssistant: {} as AssistantMessageType }, { messages, isStreaming: true }),
+      shouldReleaseProcessGroups({ messages: [...messages, streamingRow] }, { messages }),
     ).toBe(true)
-    expect(shouldReleaseProcessGroups({ messages }, { messages, isStreaming: true, streamingAssistant: {} as AssistantMessageType })).toBe(true)
-    // 纯流式帧：partial 每帧浅拷贝出新对象，presence 不变 → 跳过。
+    // 流式行出现（尾部追加）：不释放——React 只在列表尾 append 流式行。
+    expect(
+      shouldReleaseProcessGroups({ messages }, { messages: [...messages, streamingRow] }),
+    ).toBe(false)
+    // 纯流式帧：partial 每帧浅拷贝出新对象，行身份（timestamp）不变 → 跳过。
     expect(
       shouldReleaseProcessGroups(
-        { messages, isStreaming: true, streamingAssistant: {} as AssistantMessageType },
-        { messages, isStreaming: true, streamingAssistant: {} as AssistantMessageType },
+        { messages: [...messages, streamingRow] },
+        { messages: [...messages, { ...streamingRow }] },
       ),
     ).toBe(false)
   })
 
-  it('releases when isStreaming flips with the message list unchanged (terminal event)', () => {
-    const messages: readonly AgentMessage[] = []
-    const streamingAssistant = {} as AssistantMessageType
+  it('releases when the streaming partial is dropped without committing (abort/error)', () => {
+    const userRow: readonly AgentMessage[] = [{ role: 'user', content: 'go', timestamp: 1 }]
+    const streamingRow: AgentMessage = { role: 'assistant', content: 'partial', timestamp: 9 }
     const tree = chatTurnTree({ streaming: true })
     const onReleased = vi.fn()
+    // The boundary is mounted on the frame AFTER the partial was dropped
+    // (props are the new gate); getSnapshotBeforeUpdate receives the previous
+    // one, which still carried the streaming row.
     const boundary = new ProcessGroupReleaseBoundary({
-      messages,
-      isStreaming: true,
-      streamingAssistant,
+      messages: userRow,
       getReleaseRoot: () => asElement(tree.root),
       onReleased,
     })
@@ -411,60 +423,58 @@ describe('ProcessGroupReleaseBoundary', () => {
     // bug 现场：组持有 thinking，React 对渲染容器 removeChild 会抛 NotFoundError。
     expect(() => reactRemoveChild(tree.content, tree.thinking)).toThrow(/NotFoundError/)
 
-    // agent_end / turn_end / abort / 404 轮询：只翻转 isStreaming，已提交列表身份不变。
-    const snapshot = boundary.getSnapshotBeforeUpdate({ messages, isStreaming: false })
+    // abort / error：流式行从序列尾部消失且没有同身份行提交进来，React 要
+    // 卸载这些节点，释放必须先于变更阶段。
+    const snapshot = boundary.getSnapshotBeforeUpdate({ messages: [...userRow, streamingRow] })
 
     expect(tree.group.parentNode).toBeNull()
     expect(tree.content.children).toEqual([tree.thinking, tree.tool])
-    // 释放后 React 卸载流式容器子树不再抛 removeChild 错误。
+    // 释放后 React 卸载流式行子树不再抛 removeChild 错误。
     expect(() => reactRemoveChild(tree.content, tree.thinking)).not.toThrow()
     expect(() => reactRemoveChild(tree.content, tree.tool)).not.toThrow()
 
     // 重折叠请求随这次提交的 componentDidUpdate 同帧发出（无跨帧空档）。
     expect(onReleased).not.toHaveBeenCalled()
-    boundary.componentDidUpdate({ messages, isStreaming: false }, undefined, snapshot)
+    boundary.componentDidUpdate({ messages: [...userRow, streamingRow] }, undefined, snapshot)
     expect(onReleased).toHaveBeenCalledTimes(1)
   })
 
-  it('releases when the streaming partial is cleared without a message-list swap', () => {
-    const messages: readonly AgentMessage[] = []
-    const streamingAssistant = {} as AssistantMessageType
+  it('does not release when message_end commits the streaming row under the same identity', () => {
+    // message_end 把流式 partial upsert 进 messages：提交行与流式行渲染身份
+    // 相同（timestamp 一致），行序列不变 → 折叠组原地保留，零节点搬移、零
+    // 动画重启——这正是消除「思考结束刷一下」的结构性保证。
+    const streamingRow = { role: 'assistant', content: 'partial', timestamp: 9 } as AgentMessage
+    const committedRow = { ...streamingRow, content: 'final answer' }
     const tree = chatTurnTree({ streaming: true })
     const onReleased = vi.fn()
     const boundary = new ProcessGroupReleaseBoundary({
-      messages,
-      isStreaming: true,
-      streamingAssistant,
+      messages: [committedRow],
       getReleaseRoot: () => asElement(tree.root),
       onReleased,
     })
 
-    // message_end 之后流式行清空、isStreaming 仍为 true：流式行卸载同样要释放。
-    const snapshot = boundary.getSnapshotBeforeUpdate({ messages, isStreaming: true })
+    const snapshot = boundary.getSnapshotBeforeUpdate({ messages: [streamingRow] })
 
-    expect(tree.group.parentNode).toBeNull()
-    expect(tree.content.children).toEqual([tree.thinking, tree.tool])
-    expect(() => reactRemoveChild(tree.content, tree.thinking)).not.toThrow()
-
+    expect(snapshot).toBe(false)
+    // 折叠组完好：节点没有经历交还/重折叠。
+    expect(tree.group.parentNode).toBe(tree.content)
     expect(onReleased).not.toHaveBeenCalled()
-    boundary.componentDidUpdate({ messages, isStreaming: true }, undefined, snapshot)
-    expect(onReleased).toHaveBeenCalledTimes(1)
+    boundary.componentDidUpdate({ messages: [streamingRow] }, undefined, snapshot)
+    expect(onReleased).not.toHaveBeenCalled()
   })
 
   it('keeps pure streaming frames skipped: partial identity churn alone never releases', () => {
-    const messages: readonly AgentMessage[] = []
+    const streamingRow: readonly AgentMessage[] = [{ role: 'assistant', content: 'partial', timestamp: 9 }]
     const tree = chatTurnTree({ streaming: true })
     const onReleased = vi.fn()
     const boundary = new ProcessGroupReleaseBoundary({
-      messages,
-      isStreaming: true,
-      streamingAssistant: {} as AssistantMessageType,
+      messages: streamingRow,
       getReleaseRoot: () => asElement(tree.root),
       onReleased,
     })
 
-    // 流式 partial 每帧浅拷贝出新对象（readAgentSnapshot），presence 不变 → 跳过释放。
-    boundary.getSnapshotBeforeUpdate({ messages, isStreaming: true, streamingAssistant: {} as AssistantMessageType })
+    // 流式 partial 每帧浅拷贝出新对象（readAgentSnapshot），行身份不变 → 跳过释放。
+    boundary.getSnapshotBeforeUpdate({ messages: [{ ...streamingRow[0], content: 'partial (tick 2)' }] })
 
     expect(tree.group.parentNode).toBe(tree.content)
     expect(tree.root.querySelectorAll('.quickforge-process-group')).toEqual([tree.group])

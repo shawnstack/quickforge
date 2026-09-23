@@ -728,9 +728,15 @@ function updateProcessStageGroups(
     )
     stage.dataset.expanded = String(expanded)
     const stageStreaming = isAgentStreaming && index === stages.length - 1
-    stageLabel.textContent = processStageLabel(summarizeProcessStageTools(
+    const label = processStageLabel(summarizeProcessStageTools(
       stageBody.querySelectorAll<ToolMessageElement>('tool-message, .qf-tool-message'),
     ), stageStreaming)
+    // Assign only on change: `textContent =` replaces the text node even for
+    // an identical string, and this runs every decorate pass while streaming —
+    // the rebuild-free update path must stay a zero-DOM-write frame when the
+    // label did not change (same minimal-write precedent as the thinking
+    // header adoption path).
+    if (stageLabel.textContent !== label) stageLabel.textContent = label
     stageBody.id = stageBodyId
     stageSummary.setAttribute('aria-controls', stageBodyId)
     stageSummary.setAttribute('aria-expanded', String(expanded))

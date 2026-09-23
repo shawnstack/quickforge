@@ -26,9 +26,9 @@ export function useCommandActionsEnabled(): boolean {
  * Whether code blocks rendered inside this subtree belong to a message that is
  * still streaming.
  *
- * `ChatSurface` provides `true` inside the `.qf-streaming-message` container
- * (the only assistant message that streams there; the message list renders
- * finished messages), and the subagent run-detail trace provides
+ * `MessageList` provides `true` around the streaming assistant row it renders
+ * as its last row (the only assistant message that streams there; every other
+ * row is finished), and the subagent run-detail trace provides
  * `payload.status === 'running'` for its whole trace subtree. `CodeBlock`
  * consumes it through `useAssistantStreaming()` to keep mermaid/SVG previews
  * (and the terminal-run button) off while text is still arriving.

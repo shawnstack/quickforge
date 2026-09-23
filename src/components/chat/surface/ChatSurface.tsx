@@ -362,41 +362,64 @@ type ProcessGroupReleaseBoundaryProps = ProcessGroupReleaseGate & {
   children?: ReactNode
   /** Root of the decorated subtree (the chat scroll container). */
   getReleaseRoot: () => HTMLElement | null
-  /** Called when a release actually dissolved groups, so the host re-decorates. */
+  /**
+   * Called when a release actually dissolved groups, so the host re-decorates.
+   *
+   * The host must re-fold **synchronously**: this fires from
+   * `componentDidUpdate`, i.e. in the same task as the commit that handed the
+   * nodes back, so the browser only ever paints the folded state. Deferring the
+   * re-fold (animation frame / timer) leaves exactly one painted frame with the
+   * released nodes back in their natural position — the flicker seen when the
+   * thinking phase ends and the turn commits. `SubagentTrace` keeps the same
+   * same-commit contract.
+   */
   onReleased?: () => void
 }
 
 export class ProcessGroupReleaseBoundary extends Component<ProcessGroupReleaseBoundaryProps> {
+  /**
+   * Release half of the ownership contract: dissolve the folded groups before
+   * React mutates the subtree (the same pairing `SubagentTrace` implements),
+   * and report through the snapshot whether anything was handed back, so the
+   * re-fold runs on the matching `componentDidUpdate` and nowhere else.
+   */
   getSnapshotBeforeUpdate(prevProps?: Readonly<ProcessGroupReleaseBoundaryProps>) {
     // Skip structure-preserving commits (row render identities, streaming
     // flag and streaming row presence all unchanged): React only patches
     // inside nodes the groups already own, so releasing would only oscillate
     // every folded group between frames.
-    if (shouldReleaseProcessGroups(prevProps, this.props)) this.release()
-    return null
+    if (!shouldReleaseProcessGroups(prevProps, this.props)) return false
+    return this.release()
   }
 
   /**
-   * React pairs `getSnapshotBeforeUpdate` with `componentDidUpdate`; the
-   * counterpart is intentionally empty here. Re-folding stays with the decoration
-   * layer (mutation observer + the host decorate schedule) and is requested from
-   * the release itself, so the commit never folds nodes it has not finished
-   * mutating.
+   * Re-fold half of the contract, in the same task as the commit. React runs
+   * this right after the mutation phase, so the synchronous re-decoration
+   * requested here lands before the browser paints and no unfolded frame is
+   * ever visible. Child layout effects (`MessageList` / `AssistantMessage`
+   * mirror their DOM-facing props there) already ran — React runs them
+   * child-first, ahead of this lifecycle — so the folding pass reads this
+   * commit's values.
    */
-  componentDidUpdate() {}
+  componentDidUpdate(_prevProps?: Readonly<ProcessGroupReleaseBoundaryProps>, _prevState?: unknown, released = false) {
+    if (released) this.props.onReleased?.()
+  }
 
   componentWillUnmount() {
+    // Hand the nodes back so React can detach them; an unmounting boundary has
+    // nothing left to re-fold.
     this.release()
   }
 
+  /** Dissolves the folded groups; `true` when at least one group was handed back. */
   private release() {
     const root = this.props.getReleaseRoot()
-    if (!root) return
+    if (!root) return false
     // Re-decoration is only needed when groups were actually handed back: a
     // re-render before any decoration folded (fresh mount, or a follow-up
     // commit after a release that dissolved everything) finds no groups, so
     // the host decorate pass would be a no-op anyway.
-    if (releaseProcessGroups(root).groups > 0) this.props.onReleased?.()
+    return releaseProcessGroups(root).groups > 0
   }
 
   render() {
@@ -408,6 +431,7 @@ type MessageAreaProps = {
   /** Stable refs/callbacks from the surface (identity never changes per mount). */
   contentRef: RefObject<HTMLDivElement | null>
   getReleaseRoot: () => HTMLElement | null
+  /** Same-frame re-fold request for the ownership hand-back (see the boundary). */
   onProcessGroupsReleased?: () => void
   /** Message-snapshot inputs; anything else must not re-render this subtree. */
   messages: AgentMessage[]
@@ -425,12 +449,12 @@ type MessageAreaProps = {
  * Memoized messages area (R9 flicker fix).
  *
  * `ProcessGroupReleaseBoundary` dissolves every folded process group before
- * the commit mutates the DOM, and the host re-folds on the next animation
- * frame — an unfolded frame in between is visible as a flicker. Releasing is
- * only correct (and only needed) for commits that re-render the message DOM;
- * composer typing re-renders `ChatSurface` through editor state without
- * touching the message snapshot, which previously re-rendered the boundary
- * on every keystroke.
+ * the commit mutates the DOM and the host re-folds synchronously from the
+ * matching `componentDidUpdate` — both halves land in the same task, so the
+ * released (unfolded) state is never painted. Releasing is only correct (and
+ * only needed) for commits that re-render the message DOM; composer typing
+ * re-renders `ChatSurface` through editor state without touching the message
+ * snapshot, which previously re-rendered the boundary on every keystroke.
  *
  * Props are therefore exactly the message-snapshot inputs plus stable refs
  * and callbacks: when none of them change, React bails out at this memo and
@@ -510,7 +534,13 @@ export type WindowedChatSurfaceHandle = ChatSurfaceHandle & {
 
 type WindowedChatSurfaceProps = ChatSurfaceProps & {
   onWindowChanged?: () => void
-  /** The commit handed folded process nodes back; re-run panel decoration. */
+  /**
+   * The commit handed folded process nodes back; re-run panel decoration.
+   *
+   * Must re-fold synchronously (see `ProcessGroupReleaseBoundaryProps`): it is
+   * called from `componentDidUpdate`, in the same task as the commit, so the
+   * unfolded state the release exposed never reaches a paint.
+   */
   onProcessGroupsReleased?: () => void
 }
 

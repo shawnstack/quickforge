@@ -535,13 +535,32 @@ export function ChatPanelHost({
   const restoreSideChatDraftRef = useRef<(() => void) | null>(null)
   const scrollSyncRef = useRef<ReturnType<typeof createScrollSync> | null>(null)
   const scheduleDecorateRef = useRef<(() => void) | null>(null)
+  /** Set while a synchronous decorate pass owns the DOM (see `runDecorate`). */
+  const decorateInFlightRef = useRef(false)
   /**
    * Coalesced re-decoration requests that come from the React surface instead of
-   * the mutation observer: window pagination, and the process-fold ownership
-   * hand-back (the surface releases moved nodes before its commit and asks for
-   * the re-fold here, so both halves land in the same unpainted interval).
+   * the mutation observer: window pagination.
    */
   const requestSurfaceDecorate = useCallback(() => scheduleDecorateRef.current?.(), [])
+  /**
+   * Same-frame re-decoration for the process-fold ownership hand-back
+   * (`ProcessGroupReleaseBoundary`), which requests it from `componentDidUpdate`.
+   *
+   * The commit just released the folded nodes back to their natural position and
+   * the re-fold must land before the browser paints, otherwise that single frame
+   * shows the unfolded content — the flicker right after the thinking phase ends. So the host
+   * decorate pass runs synchronously here instead of through the rAF schedule;
+   * the scheduled pass stays as the fallback while the panel has no decorate
+   * function yet (early mount) or is already being decorated.
+   */
+  const requestSurfaceDecorateNow = useCallback(() => {
+    const decorateNow = decorateFnRef.current
+    if (!decorateNow || decorateInFlightRef.current) {
+      scheduleDecorateRef.current?.()
+      return
+    }
+    decorateNow()
+  }, [])
   const taskLauncherStateRef = useRef({ visible: taskLauncherVisible, dismiss: onTaskLauncherDismiss })
   useLayoutEffect(() => {
     taskLauncherStateRef.current = { visible: taskLauncherVisible, dismiss: onTaskLauncherDismiss }
@@ -1371,11 +1390,16 @@ export function ChatPanelHost({
     }
     const runDecorate = () => {
       if (disposed) return
+      // Single-flight: `decorate` moves nodes around, so a nested pass must not
+      // interleave with the one that owns the DOM (same guard as SubagentTrace).
+      if (decorateInFlightRef.current) return
+      decorateInFlightRef.current = true
       suppressObserverMutations = true
       try {
         decorate()
       } finally {
         clearObserverSuppression()
+        decorateInFlightRef.current = false
       }
     }
     const scheduleDecorate = () => {
@@ -1843,7 +1867,7 @@ export function ChatPanelHost({
           key={agent.sessionId}
           ref={surfaceRef}
           onWindowChanged={requestSurfaceDecorate}
-          onProcessGroupsReleased={requestSurfaceDecorate}
+          onProcessGroupsReleased={requestSurfaceDecorateNow}
           agent={agent as unknown as ChatSurfaceProps['agent']}
           enableAttachments={effectiveCapabilities.attachments}
           // Side Chat keeps the model trigger rendered (the shared decoration

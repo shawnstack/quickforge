@@ -1137,7 +1137,8 @@ export type ProcessGroupReleaseStats = {
  * children (a `NotFoundError` on `removeChild` / `insertBefore`).
  *
  * The contract is therefore: React hands the nodes back *before* it mutates the
- * subtree, and the decoration layer re-folds the committed DOM afterwards.
+ * subtree, and the decoration layer re-folds the committed DOM in the same task
+ * (from the boundary's `componentDidUpdate`), before the browser paints.
  * Boundaries that guarantee the "before" half:
  * - `ProcessGroupReleaseBoundary` in the chat surface (every commit that
  *   changed the message rows' structural render identities — the

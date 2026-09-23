@@ -1,6 +1,27 @@
 {
   "features": [
     {
+      "id": "thinking-end-refold-flicker",
+      "name": "消除思考过程结束后那一帧「未折叠」闪烁（release 后跨帧重折叠）",
+      "description": "思考段结束/整轮提交（message_end、isStreaming 翻转、streaming partial 清空）时，ProcessGroupReleaseBoundary 在 getSnapshotBeforeUpdate 里把折叠组交还 React（节点搬回原位、解除 data-quickforge-process-folded 的 display:none），但重新折叠排在 ChatPanelHost 的下一个 rAF：中间整整一帧「未折叠」被浏览器真实绘制，观感就是思考过程之后界面闪一下。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "把交还契约的两半压进同一提交：(1) ProcessGroupReleaseBoundary.getSnapshotBeforeUpdate 只做 release，并把「是否真的交还了组」经 snapshot 返回给配对的 componentDidUpdate；(2) componentDidUpdate 收到 true 才经 onReleased 请求宿主重新折叠（与 SubagentTrace 同一契约），componentWillUnmount 只防御性释放、不再请求装饰；宿主新增 requestSurfaceDecorateNow（decorateFnRef 就绪且不在装饰中时同步跑完整装饰 pass，不再走 scheduleDecorate 的 rAF；否则回落 rAF 兜底），runDecorate 增加 single-flight 守卫。回归：新增 tests/frontend/chat-surface-release-refold.test.ts（释放阶段不回调、componentDidUpdate 同帧才回调；未交还组不回调；纯流式帧两半都跳过；卸载只释放不回调），process-folding-ownership.test.ts 的 4 处断言改为按 snapshot 驱动 componentDidUpdate。",
+      "files": [
+        "src/components/chat/surface/ChatSurface.tsx",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "tests/frontend/chat-surface-release-refold.test.ts",
+        "tests/frontend/process-folding-ownership.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest：chat-surface-release-refold 4 + process-folding-ownership 18 + chat-surface-release-gate 10 = 32 passed；另一批 13 文件定向 230 passed（首轮暴露 process-folding-ownership 4 处旧断言，已随契约更新）。npm run test 全量 379 文件 4525 passed / 1 skipped；npm run lint 通过；npm run build 通过。无依赖变更、未修改生成产物（dist/package-dist/package-offline）、改动未提交。",
+      "boundaries": "不改 release gate 判定与 releaseProcessGroups 的释放规则，只改「何时请求重新折叠」；不动思考头接管/尾行提示动效与滚动时序；未引入新视觉模式，DESIGN_LANGUAGE.md 无需更新。"
+    },
+    {
       "id": "thinking-end-refresh-flicker",
       "name": "修复思考过程结束时页面「重新刷一下」",
       "description": "思考段结束（isStreaming 翻转、正文开始输出）那一帧有两处可见重排：装饰层接管路径无条件重写 label.textContent（销毁重建文本节点）并 prepend/append 重排 header 子级（移动子级＝重启 hint 淡入与跑马灯滚入动画）；轮指纹把终答 markdown 也算作结构，正文首次出现即触发 full 重建（整组节点搬动两次、组元素连同高度过渡重建）。",

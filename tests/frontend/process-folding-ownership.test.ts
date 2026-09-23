@@ -355,10 +355,14 @@ describe('ProcessGroupReleaseBoundary', () => {
     const onReleased = vi.fn()
     const boundary = new ProcessGroupReleaseBoundary({ messages: nextMessages, getReleaseRoot: () => asElement(tree.root), onReleased })
 
-    boundary.getSnapshotBeforeUpdate({ messages: prevMessages })
+    const snapshot = boundary.getSnapshotBeforeUpdate({ messages: prevMessages })
 
     expect(tree.root.querySelectorAll('.quickforge-process-group')).toEqual([])
     expect(tree.content.children).toEqual([tree.thinking, tree.tool])
+    // 释放跑在 React 变更 DOM 之前；重折叠必须等这次提交完成（配对的
+    // componentDidUpdate，同一 task 内），否则会折到即将被卸载的节点上。
+    expect(onReleased).not.toHaveBeenCalled()
+    boundary.componentDidUpdate({ messages: prevMessages }, undefined, snapshot)
     expect(onReleased).toHaveBeenCalledTimes(1)
   })
 
@@ -408,14 +412,18 @@ describe('ProcessGroupReleaseBoundary', () => {
     expect(() => reactRemoveChild(tree.content, tree.thinking)).toThrow(/NotFoundError/)
 
     // agent_end / turn_end / abort / 404 轮询：只翻转 isStreaming，已提交列表身份不变。
-    boundary.getSnapshotBeforeUpdate({ messages, isStreaming: false })
+    const snapshot = boundary.getSnapshotBeforeUpdate({ messages, isStreaming: false })
 
     expect(tree.group.parentNode).toBeNull()
     expect(tree.content.children).toEqual([tree.thinking, tree.tool])
-    expect(onReleased).toHaveBeenCalledTimes(1)
     // 释放后 React 卸载流式容器子树不再抛 removeChild 错误。
     expect(() => reactRemoveChild(tree.content, tree.thinking)).not.toThrow()
     expect(() => reactRemoveChild(tree.content, tree.tool)).not.toThrow()
+
+    // 重折叠请求随这次提交的 componentDidUpdate 同帧发出（无跨帧空档）。
+    expect(onReleased).not.toHaveBeenCalled()
+    boundary.componentDidUpdate({ messages, isStreaming: false }, undefined, snapshot)
+    expect(onReleased).toHaveBeenCalledTimes(1)
   })
 
   it('releases when the streaming partial is cleared without a message-list swap', () => {
@@ -432,12 +440,15 @@ describe('ProcessGroupReleaseBoundary', () => {
     })
 
     // message_end 之后流式行清空、isStreaming 仍为 true：流式行卸载同样要释放。
-    boundary.getSnapshotBeforeUpdate({ messages, isStreaming: true })
+    const snapshot = boundary.getSnapshotBeforeUpdate({ messages, isStreaming: true })
 
     expect(tree.group.parentNode).toBeNull()
     expect(tree.content.children).toEqual([tree.thinking, tree.tool])
-    expect(onReleased).toHaveBeenCalledTimes(1)
     expect(() => reactRemoveChild(tree.content, tree.thinking)).not.toThrow()
+
+    expect(onReleased).not.toHaveBeenCalled()
+    boundary.componentDidUpdate({ messages, isStreaming: true }, undefined, snapshot)
+    expect(onReleased).toHaveBeenCalledTimes(1)
   })
 
   it('keeps pure streaming frames skipped: partial identity churn alone never releases', () => {
@@ -465,11 +476,16 @@ describe('ProcessGroupReleaseBoundary', () => {
     const tree = chatTurnTree({ streaming: true })
     const boundary = new ProcessGroupReleaseBoundary({ getReleaseRoot: () => asElement(tree.root), onReleased })
 
-    boundary.getSnapshotBeforeUpdate()
+    // 重折叠请求只在提交完成后（componentDidUpdate，同一 task）发出，且仅当
+    // 本次真的交还了节点。
+    const snapshot = boundary.getSnapshotBeforeUpdate()
+    expect(onReleased).not.toHaveBeenCalled()
+    boundary.componentDidUpdate(undefined, undefined, snapshot)
     expect(onReleased).toHaveBeenCalledTimes(1)
 
     // 已经释放过（例如输入框打字触发的后续 commit）就不再请求装饰。
-    boundary.getSnapshotBeforeUpdate()
+    const secondSnapshot = boundary.getSnapshotBeforeUpdate()
+    boundary.componentDidUpdate(undefined, undefined, secondSnapshot)
     expect(onReleased).toHaveBeenCalledTimes(1)
     expect(onReleased).toHaveBeenCalledWith()
   })

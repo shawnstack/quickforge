@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "plugins-page-visual-polish",
+      "name": "优化设置·插件界面的样式与工具展示",
+      "description": "插件列表项信息量偏低（仅名称+描述+开关）且结构冗余（--column 变体包一层 header）；工具列表完全不展示；开关缺少 aria-label；空状态搜索路径平铺换行不齐。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "列表项对齐 MCP 卡片结构（list-item + list-item-main + list-item-actions），新增工具 chips（label||name，title=description||quickForgeName，最多 12 个 + pluginMoreTools 折叠 +N 徽章），开关补 aria-label（pluginEnabledSwitchLabel），禁用插件经 data-quickforge-plugin-disabled 弱化主信息（opacity 0.55 + 160ms 过渡），空状态搜索路径改 quickforge-settings-code-list 纵向列表，discovery 错误行距微调；提取可测试的 PluginListItem 导出组件。",
+      "files": [
+        "src/components/plugins/PluginsPage.tsx",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/plugins-page.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest plugins-page 9 passed；连带 mcp-server-card/settings-react-infrastructure/decorator-copy-i18n/i18n-language-snapshot 15+15 passed；npx eslint 通过；npx tsc --noEmit 通过；npm run build 通过（chunk 大小警告为既有）。",
+      "boundaries": "只做视觉与信息展示优化：不加状态徽章/版本/来源等新信息，不改 loadPlugins/togglePlugin 行为逻辑与 API；复用现有 settings 样式类与 badge/command-name 模式，未引入新视觉模式，DESIGN_LANGUAGE.md 无需更新；docs/wiki 无 PluginsPage 条目且未改模块职责，无需更新。"
+    },
+    {
       "id": "thinking-end-refold-flicker",
       "name": "消除思考过程结束后那一帧「未折叠」闪烁（release 后跨帧重折叠）",
       "description": "思考段结束/整轮提交（message_end、isStreaming 翻转、streaming partial 清空）时，ProcessGroupReleaseBoundary 在 getSnapshotBeforeUpdate 里把折叠组交还 React（节点搬回原位、解除 data-quickforge-process-folded 的 display:none），但重新折叠排在 ChatPanelHost 的下一个 rAF：中间整整一帧「未折叠」被浏览器真实绘制，观感就是思考过程之后界面闪一下。",

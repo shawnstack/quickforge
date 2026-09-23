@@ -1504,6 +1504,7 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
 .quickforge-settings-list-item-main {
   min-width: 0;
   flex: 1 1 auto;
+  transition: opacity 160ms ease-out;
 }
 
 .quickforge-agent-profile-row {
@@ -1568,6 +1569,11 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
   align-items: center;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+/* 禁用插件：主信息弱化（开关保持原样），状态一眼可辨但不过度强调 */
+.quickforge-settings-list-item[data-quickforge-plugin-disabled='true'] .quickforge-settings-list-item-main {
+  opacity: 0.55;
 }
 
 .quickforge-share-link-item {

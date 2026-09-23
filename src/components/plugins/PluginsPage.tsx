@@ -7,6 +7,9 @@ type PluginsPageProps = {
   onChanged?: () => void
 }
 
+// 与 MCP 卡片同款工具 chips 上限：最多展示 12 个工具名，其余折叠为 +N 徽章。
+const VISIBLE_PLUGIN_TOOLS = 12
+
 type BuiltinPluginCopy = {
   label: string
   description: string
@@ -31,6 +34,61 @@ function displayPluginName(plugin: QuickForgePlugin) {
 
 function displayPluginDescription(plugin: QuickForgePlugin) {
   return builtinPluginCopy(plugin.name)?.description || plugin.description || t('noDescription')
+}
+
+type PluginListItemProps = {
+  plugin: QuickForgePlugin
+  busy: boolean
+  onToggle: (name: string, enabled: boolean) => void
+}
+
+export function PluginListItem({ plugin, busy, onToggle }: PluginListItemProps) {
+  const visibleTools = plugin.tools?.slice(0, VISIBLE_PLUGIN_TOOLS) ?? []
+  const hiddenToolCount = Math.max(0, (plugin.tools?.length ?? 0) - visibleTools.length)
+  const displayName = displayPluginName(plugin)
+
+  return (
+    <article
+      className="quickforge-settings-list-item"
+      data-quickforge-plugin-disabled={plugin.enabled ? undefined : 'true'}
+    >
+      <div className="quickforge-settings-list-item-main">
+        <div className="quickforge-settings-row-title">{displayName}</div>
+        <div className="quickforge-settings-row-description">{displayPluginDescription(plugin)}</div>
+        {plugin.error ? <div className="quickforge-settings-alert mt-3">{plugin.error}</div> : null}
+        {visibleTools.length > 0 ? (
+          <div className="quickforge-settings-meta">
+            {visibleTools.map((tool) => (
+              <code
+                key={tool.quickForgeName}
+                className="quickforge-settings-command-name"
+                title={tool.description || tool.quickForgeName}
+              >
+                {tool.label || tool.name}
+              </code>
+            ))}
+            {hiddenToolCount > 0 ? (
+              <span className="quickforge-settings-badge quickforge-settings-badge-muted">
+                {t('pluginMoreTools', { count: hiddenToolCount })}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      <div className="quickforge-settings-list-item-actions">
+        <label className="quickforge-settings-switch" aria-disabled={busy ? 'true' : 'false'}>
+          <input
+            type="checkbox"
+            checked={plugin.enabled}
+            aria-label={t('pluginEnabledSwitchLabel', { name: displayName })}
+            disabled={busy}
+            onChange={(event) => onToggle(plugin.name, event.target.checked)}
+          />
+          <span aria-hidden="true" />
+        </label>
+      </div>
+    </article>
+  )
 }
 
 export function PluginsPage({ onChanged }: PluginsPageProps) {
@@ -127,7 +185,7 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
               {t('pluginDiscoveryErrors')}
             </div>
             {data.errors.map((item, index) => (
-              <div key={`${item.dir}-${index}`} className="break-all text-sm">
+              <div key={`${item.dir}-${index}`} className="mt-0.5 break-all text-sm leading-relaxed">
                 <code className="quickforge-settings-command-name">{item.dir}</code>: {item.error}
               </div>
             ))}
@@ -145,37 +203,23 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
           <div className="quickforge-settings-empty-row">
             <div className="quickforge-settings-row-title">{t('noPlugins')}</div>
             <div className="quickforge-settings-row-description">{t('noPluginsDescription')}</div>
-            <div className="quickforge-settings-meta">
-              {(data.searchPaths || []).map((searchPath) => (
-                <code key={searchPath} className="quickforge-settings-command-name">{searchPath}</code>
-              ))}
-            </div>
+            {(data.searchPaths || []).length > 0 ? (
+              <div className="quickforge-settings-meta quickforge-settings-code-list">
+                {(data.searchPaths || []).map((searchPath) => (
+                  <code key={searchPath} className="quickforge-settings-command-name">{searchPath}</code>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
         {plugins.map((plugin) => (
-          <article key={plugin.name} className="quickforge-settings-list-item quickforge-settings-list-item--column">
-            <div className="quickforge-settings-list-item-header">
-              <span className="min-w-0 flex-1">
-                <span className="quickforge-settings-row-title">
-                  {displayPluginName(plugin)}
-                </span>
-                <span className="quickforge-settings-row-description">{displayPluginDescription(plugin)}</span>
-                {plugin.error ? <span className="quickforge-settings-alert mt-3 block">{plugin.error}</span> : null}
-              </span>
-              <div className="quickforge-settings-list-item-actions">
-                <label className="quickforge-settings-switch" aria-disabled={busyPlugin === plugin.name ? 'true' : 'false'}>
-                  <input
-                    type="checkbox"
-                    checked={plugin.enabled}
-                    disabled={busyPlugin === plugin.name}
-                    onChange={(event) => void togglePlugin(plugin.name, event.target.checked)}
-                  />
-                  <span aria-hidden="true" />
-                </label>
-              </div>
-            </div>
-          </article>
+          <PluginListItem
+            key={plugin.name}
+            plugin={plugin}
+            busy={busyPlugin === plugin.name}
+            onToggle={(name, enabled) => void togglePlugin(name, enabled)}
+          />
         ))}
       </section>
     </div>

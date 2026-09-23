@@ -1,18 +1,18 @@
-## 当前交接：thinking-end-refold-flicker（done，2026-09-23）
+## 当前交接：plugins-page-visual-polish（done，2026-09-23）
 
-- Current Objective（当前目标）: 消除「思考过程之后界面闪一下」——定位到过程折叠的**所有权交还与重新折叠跨帧**：`ProcessGroupReleaseBoundary` 在 `getSnapshotBeforeUpdate` 里 release（节点搬回原位、恢复显示），重折叠却排在宿主的下一个 rAF，中间那一帧「未折叠」被真实绘制；已改为同一提交内同步重折叠并验证（feature_list.json 标记 done）。
-- 根因（单一、确定）: `src/components/chat/surface/ChatSurface.tsx` 的 boundary 只实现了交还契约的一半。`ChatPanelHost.tsx:544` 的 `requestSurfaceDecorate` → `:1381-1389` `scheduleDecorate` 走 `requestAnimationFrame`，而 release 发生在提交前、commit 在同一 task 内完成，于是浏览器先 paint 了「未折叠」的那一帧；`ChatSurface.tsx` 的 MessageArea 注释原文即「an unfolded frame in between is visible as a flicker」，上一轮 session-handoff 也把它列为下一个候选点。同项目的 `SubagentTrace` 一直是同提交内同步重折叠的范例。
-- 修复内容:
-  1. `ChatSurface.tsx#ProcessGroupReleaseBoundary`：`getSnapshotBeforeUpdate` 只 release 并返回 `groups > 0` 作为 snapshot；`componentDidUpdate(_, _, released)` 为真才调 `onReleased`（同帧）；`componentWillUnmount` 只防御性释放、不再请求装饰；Props/MessageArea 注释改为「同帧重折叠」口径。
-  2. `ChatPanelHost.tsx`：新增 `requestSurfaceDecorateNow`（`decorateFnRef` 就绪且未在装饰中 → 同步跑完整 decorate pass；否则回落 `scheduleDecorate` 的 rAF 兜底），`onProcessGroupsReleased` 改传它（`onWindowChanged` 仍走 rAF）；`runDecorate` 加 single-flight 守卫 `decorateInFlightRef`。
-  3. `panel-decoration/process-folding.ts#releaseProcessGroups` 文档改为「同一 task 内重折叠」。
-  4. `docs/wiki/src/components/README.md` process-folding 所有权租约条目（315 与 635 两处副本）同步新契约。
-- Files（改动文件）: src/components/chat/surface/ChatSurface.tsx、src/components/chat/ChatPanelHost.tsx、src/components/chat/panel-decoration/process-folding.ts、tests/frontend/chat-surface-release-refold.test.ts（新增）、tests/frontend/process-folding-ownership.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
-- Evidence（验证）: 定向 vitest 32 passed（chat-surface-release-refold 4 + process-folding-ownership 18 + chat-surface-release-gate 10）、另一批 13 文件 230 passed；npm run test 全量 379 文件 4525 passed / 1 skipped；npm run lint 通过；npm run build 通过。
+- Current Objective（当前目标）: 优化「设置 → 插件」界面样式。用户确认方向：只做视觉微调（间距/对齐/空状态/错误排版），外加展示工具列表（同 MCP 卡片：最多 12 个 + 省略徽章）；已完成并验证（feature_list.json 标记 done）。
+- 改动内容:
+  1. `src/components/plugins/PluginsPage.tsx`：提取导出 `PluginListItem`，列表项结构对齐 MCP 卡片（`list-item` + `list-item-main` + `list-item-actions`，去掉 `--column`+`list-item-header` 冗余包裹）；新增工具 chips（`label || name`、title 取 `description || quickForgeName`、最多 12 个 + `pluginMoreTools` +N muted 徽章）；开关补 `aria-label`（`pluginEnabledSwitchLabel`）；禁用插件标 `data-quickforge-plugin-disabled="true"`；空状态搜索路径改 `quickforge-settings-code-list` 纵向列表；discovery 错误行距微调。
+  2. `src/index.css`：禁用插件主信息 opacity 0.55；`list-item-main` 基础类加 160ms opacity 过渡（启停双向）。
+  3. `src/lib/i18n.ts`：新增 `pluginMoreTools`、`pluginEnabledSwitchLabel`（en + zh）。
+  4. 新增 `tests/frontend/plugins-page.test.ts`（9 用例）。
+- Files（改动文件）: src/components/plugins/PluginsPage.tsx、src/index.css、src/lib/i18n.ts、tests/frontend/plugins-page.test.ts、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest plugins-page 9 passed；连带 mcp-server-card / settings-react-infrastructure / decorator-copy-i18n / i18n-language-snapshot 共 30 passed；npx eslint 通过；npx tsc --noEmit 通过；npm run build 通过。
 - Blockers（阻塞）: 无。
 - Notes:
-  - 未改 release gate 判定与 `releaseProcessGroups` 的释放规则，只改「何时请求重折叠」；未动思考头接管路径、尾行提示动效、滚动时序与对齐。
-  - 残留风险（真机验收点）: (a) 同步 pass 在 React layout 阶段执行，含 `hint.offsetWidth` 等强制 layout 读取，仅在真正交还过组的提交帧触发，量级应为「每轮回复几次」；(b) `runDecorate` 的 single-flight 守卫会吞掉「装饰中再次请求」的场景，此时经 rAF 兜底补一次；若真机仍见闪，下一步用 DevTools Performance 确认那一帧是 `.quickforge-process-group` 短暂消失（未折叠）还是别的机制（如 `.qf-streaming-message` 卸载/重挂 + mermaid 首次渲染）。
-  - 同工作区本会话之前的两项已完成：thinking-end-refresh-flicker（思考头最小写路径 + 指纹排除终答 markdown）、thinking-hint-align-left。settings-row-infotip 仍为 pending。
+  - 未加状态徽章/版本/来源路径等新信息（用户明确只要视觉微调 + 工具展示）；未改 loadPlugins/togglePlugin 行为与 API。
+  - 复用 settings 现有样式类与 badge/command-name 模式，未引入新视觉模式，DESIGN_LANGUAGE.md 无需更新；docs/wiki 无 PluginsPage 条目且未改模块职责，无需更新。
+  - 测试技巧：受控 checkbox `checked=false` 在 renderToStaticMarkup 输出中无属性，需函数调用组件后从元素 props 断言（同 mcp-server-card.test.ts）。
+  - settings-row-infotip 仍为 pending，其 WIP 仍在工作区未验证。
   - 无依赖变更；未修改生成产物（dist/package-dist/package-offline）；改动未提交。
-- Next Session（下一步）: 真机复看「思考结束→正文开始」「整轮回复结束」两个时机是否还有闪烁；处理 pending 的 settings-row-infotip。
+- Next Session（下一步）: 真机查看插件页观感（工具 chips 密度、禁用弱化、空状态）；处理 pending 的 settings-row-infotip。

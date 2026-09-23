@@ -312,6 +312,21 @@
       ],
       "verification": "定向 vitest workspace-inspector-tab-fade / workspace-inspector-tab-list-scroll；eslint WorkspaceInspector.tsx。",
       "boundaries": "只改 Inspector 顶部 Tab 条视觉。下拉列表仍用省略号。未改行为、依赖或生成产物。"
+    },
+    {
+      "id": "tool-file-underline-on-name",
+      "name": "工具行文件名仅自身 hover 出下划线",
+      "description": "编写/写入文件时，下划线只在悬停到具体文件名时出现，悬停整块「已执行 / 编辑 / 写入」不再出下划线。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "renderToolFileSummary 文件名从 group-hover:underline 改为 hover:underline，并去掉按钮上的 group，避免被整行 group/tool 的 hover 触发。",
+      "files": [
+        "src/lib/tool-renderers/shared.tsx",
+        "tests/frontend/tool-renderer-file-icon.test.ts",
+        "docs/wiki/src/lib/README.md"
+      ],
+      "verification": "定向 vitest tool-renderer-file-icon；eslint shared.tsx 与测试文件。",
+      "boundaries": "只改下划线触发范围。点击预览、图标与整行折叠行为不变。"
     }
   ]
 }

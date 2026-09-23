@@ -222,9 +222,9 @@ describe('tool summary file element preview click', () => {
     const element = fileSummaryNode(content)
     expect(element.type).toBe('button')
 
-    // hover 反馈仅文件名下划线：可点击元素不变色、不变透明度。
+    // hover 反馈仅悬停文件名本身才下划线，整行 hover 不触发：可点击元素不变色、不变透明度。
     const clickableClass = classNameOf(element)
-    expect(clickableClass).toContain('group')
+    expect(clickableClass).not.toContain('group')
     expect(clickableClass).toContain('cursor-pointer')
     expect(clickableClass).not.toContain('hover:opacity')
     expect(clickableClass).not.toContain('transition-opacity')
@@ -234,7 +234,8 @@ describe('tool summary file element preview click', () => {
     const descendants = nodes(element)
     const nameSpan = descendants.find((node) => node.type === 'span')
     expect(nameSpan).toBeDefined()
-    expect(classNameOf(nameSpan!)).toContain('group-hover:underline')
+    expect(classNameOf(nameSpan!)).toContain('hover:underline')
+    expect(classNameOf(nameSpan!)).not.toContain('group-hover:underline')
 
     const fileIcon = descendants.find((node) => typeof node.type === 'function')
     expect(fileIcon).toBeDefined()

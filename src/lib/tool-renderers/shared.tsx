@@ -653,8 +653,8 @@ export function renderPreviewButton(toolName: string, params: Record<string, unk
 // 路径可预览（resolvePreviewableArtifact 有值）时整体即预览入口，复用
 // previewArtifactClickHandler（阻断 summary 折叠开关后派发预览事件）；
 // 不可预览时静态展示、不可点击。其余工具摘要保持纯文本完整路径不变。
-// 预览入口的 hover 反馈克制为仅 basename 文本下划线（group-hover 定位到
-// 文件名 span，图标不下划线），颜色与透明度保持不变。
+// 预览入口的 hover 反馈克制为仅 basename 文本下划线（hover 直接落在文件名
+// span；悬停整行「已执行 / 编辑 / 写入」或图标都不出下划线），颜色与透明度保持不变。
 export function renderToolFileSummary(toolName: 'write_file' | 'edit_file' | 'read_file', params: Record<string, unknown> | undefined) {
   const path = params && typeof params.path === 'string' && params.path ? params.path : ''
   if (!path) return null
@@ -663,7 +663,7 @@ export function renderToolFileSummary(toolName: 'write_file' | 'edit_file' | 're
   const content = (
     <>
       <FileIcon path={path} className="size-3.5 shrink-0" />
-      <span className="min-w-0 truncate underline-offset-4 group-hover:underline">{artifactFileName(path)}</span>
+      <span className="min-w-0 truncate underline-offset-4 hover:underline">{artifactFileName(path)}</span>
     </>
   )
   if (!artifact) {
@@ -672,7 +672,7 @@ export function renderToolFileSummary(toolName: 'write_file' | 'edit_file' | 're
   return (
     <button
       type="button"
-      className={`${className} group cursor-pointer`}
+      className={`${className} cursor-pointer`}
       title={path}
       onClick={previewArtifactClickHandler(artifact)}
     >{content}</button>

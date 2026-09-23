@@ -1,3 +1,14 @@
+## 当前交接：tool-file-underline-on-name（done，2026-09-23）
+
+- Current Objective（当前目标）: 编写/写入文件的下划线只在悬停具体文件名时出现。已实现，未提交。
+- 根因: 文件名 `group-hover:underline` 被整行 `group/tool` 触发。
+- 改动内容: `renderToolFileSummary` 改为文件名自身 `hover:underline`，按钮去掉 `group`。
+- Files（改动文件）: src/lib/tool-renderers/shared.tsx、tests/frontend/tool-renderer-file-icon.test.ts、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机确认悬停「已执行 / 编辑 / 写入」不再出下划线。
+
+---
+
 ## 当前交接：inspector-tab-fade（done，2026-09-23）
 
 - Current Objective（当前目标）: 右侧工作栏多个 Tab 时变短、无中间分隔线，标题右侧渐隐替代省略号。已实现，未提交。

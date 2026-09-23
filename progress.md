@@ -1,3 +1,12 @@
+## tool-file-underline-on-name（done，2026-09-23）
+
+- Goal：编写/写入文件时，只有悬停到具体文件名才出下划线，悬停整块「已执行 / 编辑 / 写入」不再出。
+- 根因：文件名用 `group-hover:underline`，而工具行 `details` 带 `group/tool`，悬停整行就会给文件名加下划线。
+- 改动：文件名改为 `hover:underline`，按钮去掉 `group`。
+- Notes：未提交。
+
+---
+
 ## inspector-tab-fade（done，2026-09-23）
 
 - Goal：多个 Tab 时变短、无中间分隔线，标题右侧高斯模糊/渐隐替代「…」。

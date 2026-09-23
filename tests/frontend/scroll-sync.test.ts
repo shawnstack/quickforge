@@ -7,6 +7,7 @@ const originalResizeObserver = globalThis.ResizeObserver
 
 function createEnv() {
   const listeners = new Map<string, EventListener>()
+  const panelListeners = new Map<string, EventListener>()
   const scrollContainer = {
     scrollTop: 120,
     scrollHeight: 1000,
@@ -21,6 +22,8 @@ function createEnv() {
       if (selector === '.qf-scroll-container') return scrollContainer
       return null
     }),
+    addEventListener: vi.fn((type: string, listener: EventListener) => panelListeners.set(type, listener)),
+    removeEventListener: vi.fn((type: string) => panelListeners.delete(type)),
   } as unknown as HTMLElement
 
   return {
@@ -29,6 +32,12 @@ function createEnv() {
     setAutoScroll,
     dispatch(type: string, event: Partial<Event> = {}) {
       listeners.get(type)?.(event as Event)
+    },
+    dispatchPanel(type: string, event: Partial<Event> = {}) {
+      panelListeners.get(type)?.(event as Event)
+    },
+    panelListenerCount(type: string) {
+      return panelListeners.has(type)
     },
   }
 }
@@ -101,6 +110,57 @@ describe('scroll sync programmatic navigation', () => {
     expect(sync.isEnabled).toBe(false)
     expect(env.setAutoScroll).toHaveBeenLastCalledWith(false)
     end()
+  })
+
+  describe('reading intent (fold disclosure toggles)', () => {
+    it('detaches tail-following when a fold disclosure signals reading intent', () => {
+      const env = createEnv()
+      const sync = createScrollSync({ panel: env.panel, setAutoScroll: env.setAutoScroll })
+      sync.setup()
+      expect(sync.isEnabled).toBe(true)
+
+      // A process stage/group/thinking block was toggled inside the panel: the
+      // event bubbles to the panel listener and must disable tail-following so
+      // the next resize/event frame does not scroll past the opened content.
+      env.dispatchPanel('quickforge:reading-intent')
+
+      expect(sync.isEnabled).toBe(false)
+      expect(env.setAutoScroll).toHaveBeenLastCalledWith(false)
+    })
+
+    it('re-arms tail-following the usual way after a reading intent (scroll back within 10px)', () => {
+      let now = 1000
+      vi.stubGlobal('window', {
+        performance: { now: () => now },
+        requestAnimationFrame: vi.fn(() => 1),
+        cancelAnimationFrame: vi.fn(),
+      })
+      const env = createEnv()
+      const sync = createScrollSync({ panel: env.panel, setAutoScroll: env.setAutoScroll })
+      sync.setup()
+
+      env.dispatchPanel('quickforge:reading-intent')
+      expect(sync.isEnabled).toBe(false)
+
+      // 用户读完后滚回尾部（距底 5px）→ 跟随恢复（无用户滚动意图窗口限制）。
+      now = 9000
+      env.scrollContainer.scrollTop = 895
+      env.dispatch('scroll')
+      expect(sync.isEnabled).toBe(true)
+      expect(env.setAutoScroll).toHaveBeenLastCalledWith(true)
+    })
+
+    it('stops listening for reading intent after cleanup', () => {
+      const env = createEnv()
+      const sync = createScrollSync({ panel: env.panel, setAutoScroll: env.setAutoScroll })
+      sync.setup()
+      sync.cleanup()
+      env.setAutoScroll.mockClear()
+
+      env.dispatchPanel('quickforge:reading-intent')
+
+      expect(env.setAutoScroll).not.toHaveBeenCalled()
+    })
   })
 
   // pi-web-ui parity: `_handleScroll` only released `_autoScroll` once the
@@ -181,8 +241,11 @@ describe('scroll sync sent-message anchor', () => {
       querySelectorAll: vi.fn((selector: string) => (selector === '.qf-user-message' ? [...userMessages] : [])),
       getBoundingClientRect: () => ({ top: 0 }),
     }
+    const panelListeners = new Map<string, EventListener>()
     const panel = {
       querySelector: vi.fn((selector: string) => (selector === '.qf-scroll-container' ? scrollContainer : null)),
+      addEventListener: vi.fn((type: string, listener: EventListener) => panelListeners.set(type, listener)),
+      removeEventListener: vi.fn((type: string) => panelListeners.delete(type)),
     } as unknown as HTMLElement
 
     return {

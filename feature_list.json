@@ -1,6 +1,114 @@
 {
   "features": [
     {
+      "id": "thinking-hint-hide-when-thinking-ends",
+      "name": "思考过程一结束就收起右侧尾行提示",
+      "description": "用户要求「思考过程完成后，右侧应该不再显示」。右侧是思考行 header 第四槽位的尾行提示（quickforge-tool-marquee）。此前 processThinkingHintSegment 只要整条 assistant 的 bridge isStreaming===true 就持续显示该段最新文字，所以思考已经写完、模型开始输出正文或工具时，右侧提示仍留到整轮 message_end。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "可见性改为「该思考段仍在增长」：assistantThinkingChunks 按渲染序保留非空 thinking 块；isThinkingChunkLive 要求 bridge 仍在流式、该块没有 thinkingSignature、且它仍是 message.content 的最后一块。思考过程一结束（后续出现 text/toolCall，或签名落地，或整轮结束）processThinkingHintSegment 返回 null，既有淡出类立刻去掉 visible。多段思考只保留仍是末块的那一段提示。",
+      "files": [
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "src/index.css",
+        "tests/frontend/thinking-hint.test.ts",
+        "tests/frontend/thinking-streaming-stage.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest thinking-hint 18 + thinking-streaming-stage 9 + thinking-hint-marquee-inplace 1，共 28 passed；连带 process-folding 48 + thinking-header-adoption 8 + process-folding-ownership 18 passed。npx eslint（process-folding.ts 与两个测试文件）通过；index.css 无匹配 eslint 配置，仅既有 ignore warning。",
+      "boundaries": "只改右侧提示何时显示：不改取段/节流/滚入、不改折叠与 stage、不动服务端。未引入新视觉模式；wiki 两份思考头接管契约已同步。无依赖变更；未手工修改生成产物；未提交。"
+    },
+    {
+      "id": "stage-collapsed-no-round-flip",
+      "name": "关闭「工具调用列表默认展开」时不再每轮自动开合（流式思考行不进内层 stage）",
+      "description": "用户反馈「工具调用列表默认展开 设置为关闭的时候，就不应该新的一轮消息来了之后展开又收缩反复这样操作，你实现的有问题」。根因（panel-decoration/process-folding.ts）：流式中的思考块被 populateProcessGroup 折进内层 stage，而设置关闭时 stage 收起态是 visibility:hidden（index.css `.quickforge-process-stage[data-expanded=false] > …-stage-body`），会把思考行与尾行提示一起藏住；此前兜底是 updateProcessStageGroups 里 `processStageDefaultExpanded() || processStageHasStreamingThinking(stageBody)`——只要 stage 内含流式思考就强制展开。但每轮工具调用结束（message_end：bridge isStreaming 翻 false + 工具行出现 → 结构变化 → 组全量重建）新 stage 元素回落到设置默认（收起），下一轮流式思考再把它顶开：第 2 轮起逐轮「展开 → 收起」往复（第 1 轮无 stage、思考行直挂组 body，不受影响）。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "按用户选定的方案 A（关闭设置 = stage 全程收起、不自动展开）改为「流式思考行不进 stage」：(1) 新增 `processThinkingAssistant`（思考块来源 assistant：processThinkingSources → processNodeOwners → closest assistant bridge）+ `isStreamingThinkingItem`（该项为正在流式的思考块，其来源 bridge isStreaming === true）+ 导出纯函数 `splitStreamingThinkingRuns(items, isStreamingThinking)`（按位置把段内项切成交替 run：liveThinking 挂顶层组 body、其余照常包 stage，保持原顺序——工具行的 toolCall chunk 先于 message_end 出现时流式思考行也可能夹在工具行之前，故不只抽段尾）；(2) `populateProcessGroup` 仅在 `!processStageDefaultExpanded()`（设置关闭）时做该切分，设置默认展开时结构与行为完全不变；(3) `updateProcessStageGroups` 的 stage 默认值回归纯 `processStageDefaultExpanded()`，删除 `processStageHasStreamingThinking` 与强制展开。效果：设置关闭时组 body（流式期间默认展开）持续显示流式思考行与尾行提示，stage 始终跟随设置默认收起，本轮结束（isStreaming 翻转 → 组交还重建）时该思考行自然收进 stage——全程无自动开合；用户手动开合仍 saved state 优先（resolveProcessExpandedState 未改）。",
+      "files": [
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "tests/frontend/thinking-streaming-stage.test.ts",
+        "tests/frontend/process-folding.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest tests/frontend/thinking-streaming-stage.test.ts / process-folding.test.ts / process-folding-incremental.test.ts 3 文件 61 passed；连带 thinking-hint / thinking-header-adoption / process-folding-ownership 6 文件 104 passed；tests/frontend 全量 210 文件 2674 passed；npx eslint（改动文件）通过；npx tsc --noEmit 通过；npm run lint 通过；npm run build 通过（chunk 大小警告既有）；npm run test 全量 382 文件 4561 passed / 1 skipped（无失败）。新增用例：多轮工具循环往复回归（设置关闭：第 2 轮流式思考帧 stage 仍收起、思考行在组 body，本轮结束收进 stage）、切分函数单测（含流式思考行夹在工具行之前的形态）、S2 / 结束回填 / 手动收起用例按新语义重写。",
+      "boundaries": "只改「流式思考行放哪 + stage 默认值」：不动 saved state 记忆语义（resolveProcessExpandedState 未改）、不动 group 默认展开（processGroupDefaultExpanded = isAgentStreaming）、不动 appendProcessToolSuffix 增量路径与轮指纹、不动 ProcessGroupReleaseBoundary / reading-intent / 滚动时序、不动服务端。设置默认展开（默认 true）时结构与行为零变化。未引入新视觉模式，DESIGN_LANGUAGE.md 无需更新；docs/wiki 的 process-folding 契约条目（components ×2 副本 + lib）已同步为 isStreamingThinkingItem / splitStreamingThinkingRuns（模块职责与公共入口未变，仅规则描述更新）；无依赖变更；未手工修改生成产物（dist/ 仅由验证用 npm run build 重新生成）。"
+    },
+    {
+      "id": "thinking-hint-growth-inplace",
+      "name": "思考行尾行提示：同一行内增长不再整行滚入（消除同一句上下重复显示两次）",
+      "description": "用户反馈「对话中思考过程中的右侧显示会一句话重复显示两次」（确认位置＝思考行右侧尾行提示）。只读定位：尾行提示是 header 第四槽位的 `quickforge-tool-marquee`，其 ToolMarqueeController 对任何 text 变化都走双视图纵向滚入（旧文上滚出、新文自下滚入）；而装饰层在流式期间对「同一行内文本增长」也会每 ~300ms 更新一次 text（只是不重触发淡入），于是 260ms 的滚入被反复触发，两个视图同时可见、内容又是同一句（只差几个字）→ 观感即同一句话上下重复显示两次。已用 ToolMarqueeController 直接复现双视图同显状态（grow 帧 v0='句子A' / v1='句子A-grow' 同时 VISIBLE），根因成立。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "(1) tool-marquee.ts：`sync(text, running, restart = false, roll = true)` 增加 roll 开关，roll=false 时 text 变化走 applyInstant（就地更新当前视图文本、另一视图保持隐藏，并按既有语义重建横向循环），不再 beginRoll；默认 true 保持 subagent 摘要卡跑马灯的既有整行滚入契约。(2) tool-renderers/shared.tsx：QuickForgeToolMarquee 增 observedAttributes `roll`，attributeChangedCallback 读意图标记（rollOnChange，默认 true），sync() 时一次性消费并透传第四参（connectedCallback 复位，避免断开期间标记残留）；scheduleRestart 统一走 sync(true)。(3) process-folding.ts：syncProcessThinkingHint 在 textChanged 时先写 roll（`lineSwitched ? 'true' : 'false'`）再写 text——行切换才整行滚入，同一行内增长就地更新；标记每次随 text 必写（元素消费后即复位，靠值比较跳过写会让标记丢失、把行切换误判成就地更新）。(4) 文档：DESIGN_LANGUAGE 思考尾行提示条目、docs/wiki/src/components/README.md 思考头接管契约（两份副本）、docs/wiki/src/lib/README.md 的 tool-marquee.ts 条目同步。(5) 测试：tool-marquee.test.ts 新增「同行增长就地更新（roll=false）且随后行切换仍滚入」与「元素透传 roll 意图并一次性消费」两例（原 wiring 两处断言随新签名补 `false, true`）；thinking-hint.test.ts 新增「roll 意图标记：同行增长 false、行切换 true、流式结束清空」一例。",
+      "files": [
+        "src/lib/tool-marquee.ts",
+        "src/lib/tool-renderers/shared.tsx",
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "tests/frontend/tool-marquee.test.ts",
+        "tests/frontend/thinking-hint.test.ts",
+        "tests/frontend/thinking-hint-marquee-inplace.test.ts",
+        "DESIGN_LANGUAGE.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest：tool-marquee 17 passed（含 2 新例）+ thinking-hint 16 passed（含 1 新例）+ 新增 tests/frontend/thinking-hint-marquee-inplace.test.ts（jsdom 全链路：真 React ThinkingBlock → 装饰层 → quickforge-tool-marquee 元素 → ToolMarqueeController，断言同行增长零纵向滚入/仅一个可见视图、行切换仍两次滚入动画、流式结束淡出）1 passed；思考/折叠/跑马灯/接管相关 7 文件 133 passed；旧实现红灯验证（把 roll 恒写 'true'）该用例在症状级断言失败（「expected 0 to have length 2」＝同行增长仍产生两次整行滚入）且 thinking-hint 新增用例同时失败；npx tsc --noEmit 通过；npx eslint（src + 新测试文件）通过；npm run lint 通过；npm run build 通过（chunk 大小警告既有）；npm run test 全量 383 文件 4562 passed / 1 skipped（上一轮全量中失败的 tests/server/session-state-repository.test.mjs 时序用例本轮通过，确认为并发负载下 flaky）。",
+      "boundaries": "不改双视图滚入的设计契约本体（subagent 摘要卡行为不变，roll 缺省 true）；不动取段规则（lastThinkingSegment / 500 码点截断）、300ms 节流窗口、淡入淡出与横向跑马灯时序；不改 ProcessGroupReleaseBoundary / release gate 与思考头接管契约；未引入新视觉模式（DESIGN_LANGUAGE 只补一行行为说明）；无依赖变更；未触碰 dist/package-dist/package-offline；改动未提交。"
+    },
+    {
+      "id": "compaction-boundary-visible-at-tail",
+      "name": "压缩覆盖到最新一轮时立即显示压缩摘要横线（不再等用户发下一条消息）",
+      "description": "用户目标「压缩时候如果是最新一轮，应该先显示压缩的摘要横线，用户再发送消息，而不是发送消息之后才知道这个压缩的提醒」。根因：panel-decoration/context-compaction.ts 的 syncContextCompactionNotice 用 `compactedUpToIndex >= windowEnd` 判定不渲染并移除横线；自动压缩默认 keepRecentTurns=0（tailStartForRecentTurns 返回 source.length），压缩边界 = 消息总数，正好等于窗口末尾（压缩覆盖到最新一轮、边界之后没有任何消息）→ 横线被移除。压缩完成时 decorate 已由 auto_compact_completed / messages_replaced 触发（ChatPanelHost），因此唯一阻塞是该隐藏条件；用户必须再发一条消息使 messages.length 超过边界，横线才出现（「发完消息才知道被压缩」）。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "把横线隐藏条件由 `compactedUpToIndex >= windowEnd` 收紧为 `compactedUpToIndex > windowEnd`：边界恰好等于窗口末尾时照常渲染横线。位置沿用既有规则不变——boundaryIndex → alignBoundaryToUserTurn（新增注释说明边界可以正好落在列表末尾，回溯到最后一个用户回合与随后追加消息时定位一致）→ insertBeforeMessageElement 插在包含边界的用户回合之前。服务端压缩总发生在新一轮首条 LLM 调用前（pi-agent-core 先 emit message_end(prompt) 再 transformContext → maybeAutoCompactSession），故边界对齐到的正是本轮用户消息——压缩完成那一刻横线即出现在它上方，与随后回复提交后的位置完全相同（无跳动）；重新打开已全量压缩的会话也直接显示。严格越过窗口末尾（回滚后消息变短等陈旧状态）保持隐藏。",
+      "files": [
+        "src/components/chat/panel-decoration/context-compaction.ts",
+        "tests/frontend/context-compaction-notice.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest tests/frontend/context-compaction-notice.test.ts 7 passed（新增 3 例：边界=窗口末尾显示在最后一个用户回合之前 / 回复追加后横线位置不变 / 窗口化 messageIndexOffset 下边界=窗口末尾显示；原「边界越过窗口末尾隐藏」用例保留）；连带 chat-surface render / behavior-alignment / release-gate / release-refold 5 文件 52 passed；旧实现红灯验证 2 failed / 5 passed（证明新用例确实覆盖该分支）；npx eslint（改动文件）通过；npx tsc --noEmit 通过；npm run lint 通过；npm run build 通过（chunk 大小警告既有）；npx vitest run 全量 382 文件 4556 passed / 1 skipped（无失败；此前登记的 4 个 server 基线失败本轮不存在）。",
+      "boundaries": "只改横线的可见性判断与其注释：不动服务端压缩链（server/auto-compaction.mjs、conversation-compaction.mjs）、不改 alignBoundaryToUserTurn / insertBeforeMessageElement 的定位规则、不动 windowed-messages 窗口语义与 ProcessGroupReleaseBoundary release gate；未引入新视觉模式，DESIGN_LANGUAGE.md 无需更新；docs/wiki 的 panel-decoration 条目只列模块名、无该条件的契约描述，模块职责/公共入口未变，故无需更新；无依赖变更；未手工修改生成产物（仅验证用 npm run build 重新生成 dist/）。"
+    },
+    {
+      "id": "streaming-display-stability",
+      "name": "对话展示稳定增量显示：展开跟随冲突 / 替换闪帧 / 提升重挂载三修复",
+      "description": "用户目标「不希望有展开态闪帧、执行过程中界面突然闪烁或重新加载，期望保持稳定的增量显示」。只读审查定位三处残留：(P1) 流式中手动展开过程组/Stage/思考块后，内容增高触发 scroll-sync 的内容 ResizeObserver 与每条流式事件的 scheduleScrollToBottom，视口在下一帧被拉回底部、越过刚展开的内容（「展开后滚动跳/重新展开感」的滚动侧根因，message-end-inplace-commit 三轮遗留的未定位项）；(P2) ChatPanelHost 在 messages_replaced/auto_compact_completed 事件回调里预先 releaseStreamingProcessGroups，使 ProcessGroupReleaseBoundary 找不到组、跳过同提交同步重折叠，重折叠退到下一帧 rAF——落一帧「已释放未重折叠」展开态闪帧；(R1) 新会话首条消息时 Deferred→Real 提升 sessionId 由 pending-* 变真实 id，key={agent.sessionId} 导致 ChatSurface 整树 remount（观感「重新加载」）。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "(P1) scroll-sync.ts 新增 READING_INTENT_EVENT('quickforge:reading-intent') + emitReadingIntent(target)（防 fake 宿主），setup() 在 panel 上监听并 disableAutoScroll()、cleanup 摘除；process-folding.ts 的 group toggleExpanded 与 stage onclick、React ThinkingBlock 的 pointerdown/键盘 click 路径均从开关元素冒泡该事件（手动开合=阅读意图），跟随解除后按既有语义滚回距底 <10px 重挂。(P2) 删除 ChatPanelHost:1711 的预释放与 import（结构性释放全归 boundary 同提交释放+重折叠；服务端 auto_compact_completed 必跟 messages_replaced，见 server/auto-compaction.mjs:274-288，补两次 decorate rAF 兜底保留）；process-folding.ts 删除 releaseStreamingProcessGroups、panel-decoration.ts 桶导出同步删除。(R1) ChatPanelHost 新增 agentRuntimeScopeId prop，key 改 agentRuntimeScopeId ?? agent.sessionId；App.tsx 传 agentManager.currentRuntimeScopeId（提升时 runtimeScopeId 保持 pending-* 不变→原地更新，会话切换→仍整树重建；分享页/侧聊未传→回退 sessionId 语义不变）。",
+      "files": [
+        "src/components/chat/scroll-sync.ts",
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "src/components/chat/surface/ThinkingBlock.tsx",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/panel-decoration.ts",
+        "src/App.tsx",
+        "tests/frontend/scroll-sync.test.ts",
+        "tests/frontend/thinking-streaming-stage.test.ts",
+        "tests/frontend/thinking-block-interaction.test.ts",
+        "tests/frontend/chat-surface-agent-swap.test.ts",
+        "tests/frontend/chat-surface-behavior-alignment.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 17 文件 272 passed（scroll-sync 19 + thinking-block-interaction 4 + thinking-streaming-stage 12 + agent-swap 2(jsdom) + behavior-alignment 10 + process-folding-ownership 18 + release-refold 5 + streaming-handoff 3 + 扩大面 9 文件 203：message-actions/render/release-gate/process-folding/-incremental/thinking-hint/thinking-header-adoption/css-contract/message-list）；npx eslint（改动文件）通过；npx tsc --noEmit 通过；npm run test / npm run build 结果见 progress.md 本轮条目。",
+      "boundaries": "不改变折叠/释放契约本体（gate 判定、releaseProcessGroups 释放规则、同提交重折叠配对不动，只移除绕过它的宿主预释放）；scroll-follow 解除复用 disableAutoScroll 既有语义与重挂阈值，不新增滚动模式；不改 pi-agent/pi-ai 协议与 DeferredSessionAgent 时序（R1 仅换 key 来源，realAgent.prompt 同步乐观插入的时序不变）；未引入新视觉模式，DESIGN_LANGUAGE.md 无需更新（动效无变化）；无依赖变更、未触碰生成产物。"
+    },
+    {
       "id": "message-end-inplace-commit",
       "name": "消除 message_end 时流式消息跨 React 子树 remount（「对话刷一下」结构性根因）",
       "description": "message_end 时流式 assistant 从独立容器 `.qf-streaming-message` 卸载、再以全新 DOM 挂进 MessageList —— 跨两棵 React 子树的 unmount/remount：用户展开的思考块弹回收起（isExpanded 丢失）、代码高亮/图片/CSS 动画重置、装饰层重建折叠组并搬移节点（reparent 重启 animate-spin）。此前四个 flicker feature 只能压制症状（同帧 re-fold、最小写路径、指纹排除），结构性迁移未消除。",

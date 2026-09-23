@@ -25,6 +25,7 @@ import {
   shouldPreserveProcessGroupDuringHandoff,
   shouldToggleProcessSummary,
   splitProcessStageSections,
+  splitStreamingThinkingRuns,
   summarizeProcessStageTools,
 } from '../../src/components/chat/panel-decoration/process-folding'
 import { applyToolDisplaySettingsValue } from '../../src/lib/tool-display-settings'
@@ -406,6 +407,31 @@ describe('nested process stage groups', () => {
     expect(processSectionNeedsStage(fragmentOf('thinking-block', 'tool-message'))).toBe(true)
     expect(processSectionNeedsStage(fragmentOf('tool-message'))).toBe(true)
     expect(processSectionNeedsStage([])).toBe(false)
+  })
+
+  it('splits streaming-thinking items out of stage runs in order (they never hide inside a collapsed stage)', () => {
+    const isLive = (item: string) => item.startsWith('live')
+    // 典型序：流式思考行在段尾（本轮的思考行先于本轮工具行出现）。
+    expect(splitStreamingThinkingRuns(
+      ['thinking-done', 'tool-a', 'live-thinking'],
+      isLive,
+    )).toEqual([
+      { kind: 'stage', items: ['thinking-done', 'tool-a'] },
+      { kind: 'liveThinking', items: ['live-thinking'] },
+    ])
+    // 工具行的 toolCall chunk 先于 message_end 出现时，流式思考行会夹在工具行之前
+    // ——按位置切（stage / live / stage），保持原顺序。
+    expect(splitStreamingThinkingRuns(
+      ['live-thinking', 'tool-a'],
+      isLive,
+    )).toEqual([
+      { kind: 'liveThinking', items: ['live-thinking'] },
+      { kind: 'stage', items: ['tool-a'] },
+    ])
+    expect(splitStreamingThinkingRuns(['live-a', 'live-b'], isLive)).toEqual([
+      { kind: 'liveThinking', items: ['live-a', 'live-b'] },
+    ])
+    expect(splitStreamingThinkingRuns([], isLive)).toEqual([])
   })
 
   it('expands inner stages by default from the expandProcessStageByDefault setting, while manual/saved state still wins', () => {

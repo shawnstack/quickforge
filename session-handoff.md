@@ -1,23 +1,53 @@
-## 当前交接：message-end-inplace-commit（done，2026-09-23）
+## 当前交接：thinking-hint-hide-when-thinking-ends（done，2026-09-23）
 
-- Current Objective（当前目标）: 在新分支 `fix/message-end-remount-flicker` 根治「思考过程结束/整轮提交时对话刷一下」——消除 message_end 时流式消息从 `.qf-streaming-message` 容器跨 React 子树迁移进 MessageList 的 unmount/remount。已完成并验证（feature_list.json 标记 done），已提交 `04be17f` 并合并到 dev（合并提交 `b9d6656`），已推送 `origin/dev`。
-- **二轮修复（2026-09-23，真机反馈「展开时新增消息有重新展开感」）**:
-  1. `src/components/chat/surface/ChatSurface.tsx`：release gate 的比较序列改为「可渲染行」——新增 `cachedRenderableRowKeys`（`isRenderableMessage` 过滤 + 按原数组身份的 WeakMap 缓存），toolResult/artifact 不再参与（它们不渲染 standalone 行，此前每次工具结果到达都被判为结构变化 → 释放+全量重建折叠组 → reparent 重启动画/重放展开感）；删除无人调用的 `cachedMessageRenderKeys`。**四轮修复（2026-09-23，代码评审 P1/P2）**：P1——「同 key 就地转正」实际未生效（流式行外层 Provider 与独立 JSX slot 都跨不过 reconcile scope，message_end 仍 remount 整行）：`MessageList.tsx` 改为已提交行+流式行同一 `rows` 数组（`rows.push`），key 用合并数组 `[...messages, streamingAssistant]` 经 `messageRenderKeys` 一次计算（P2 重复身份 occurrence suffix 消歧、两态一致）；`AssistantStreamingContext.Provider` 移入 `AssistantMessage.tsx` 内部（`surfaceStreaming || isStreaming`，subagent trace 整树语义不变）。
-  2. `src/components/chat/panel-decoration/process-folding.ts`：`updateProcessStageGroups` 的 stageLabel 文案按值比较再写。
-  3. `tests/frontend/chat-surface-release-gate.test.ts`：新增「fresh toolResult 不释放；其后追加可渲染行仍释放」用例。**三轮修复（用户仍报「展开 stage 时特定节点滚动跳/重新展开感」）**：(d) gate 进一步放行**纯尾部追加可渲染行**（前缀匹配判定）——下一轮流式 assistant 行出现帧（每轮工具循环必发生）React 只在列表尾 appendChild、已有行 memo bail 零 DOM 写、折叠组节点不受触碰，无需释放；此前该帧解散整组并全量重建（布局瞬变 + CSS 动画重启 + stage 头重建）。相关测试断言随新语义更新（append→false、身份替换/删除→true、abort 用例修正 prev/next 方向）。
+- Current Objective（当前目标）: 思考过程完成后，右侧尾行提示不再显示。已实现并验证，未提交。
+- 根因: 右侧提示跟整条消息的 `isStreaming`，思考段结束后正文/工具仍在流式时提示不收。
+- 改动内容: `process-folding.ts` 改为只显示仍是 content 末块、无 `thinkingSignature`、且消息仍在流式的思考段；结束后立即淡出。CSS 注释与 wiki 两份契约同步。
+- Files（改动文件）: src/components/chat/panel-decoration/process-folding.ts、src/index.css、tests/frontend/thinking-hint.test.ts、tests/frontend/thinking-streaming-stage.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest 28 passed + 连带折叠/接管 74 passed；eslint 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机确认思考写完、正文开始后右侧提示淡出；其余未提交改动仍待按需发版。
+
+---
+
+## 当前交接：stage-collapsed-no-round-flip（done，2026-09-23）
+
+- Current Objective（当前目标）: 修复用户反馈「关闭『工具调用列表默认展开』后，新的一轮消息来了仍会展开又收缩反复」。经确认按方案 A 实现：设置关闭时内层 stage 全程收起、不自动展开；正在流式的思考行（含尾行提示）改挂顶层组 body 显示，本轮结束后随重建收进 stage。已实现并验证（feature_list.json 标 done），改动未提交。
+- 根因: `updateProcessStageGroups` 的 stage 默认值原为 `processStageDefaultExpanded() || processStageHasStreamingThinking(stageBody)`（含流式思考就强制展开）；而每轮工具调用结束的组全量重建让新 stage 元素回落设置默认（收起），下一轮流式思考再顶开 → 第 2 轮起逐轮开合往复。
 - 改动内容:
-  1. `src/components/chat/surface/MessageList.tsx`：新增 `streamingAssistant` prop——流式 partial 渲染为列表最后一行，key 用 `messageRenderIdentity`（`assistant:<timestamp>`，与 message_end 提交行同身份 → 就地转正、React 复用 DOM）；`AssistantStreamingContext.Provider` 只包该行；`hidePendingToolCalls` 维持原语义。
-  2. `src/components/chat/surface/ChatSurface.tsx`：流式容器只剩光标锚点（CSS `:has(> span.animate-pulse:only-child)` 自隐藏）；`MessageArea` 把「渲染行序列」（messages + 流式行）交给 `ProcessGroupReleaseBoundary`；`ProcessGroupReleaseGate` 删 `isStreaming`/`streamingAssistant` 字段，gate 收敛为纯序列 key 比较——message_end 同身份转正不释放（折叠组零搬移），abort/error 清空 partial 序列变短照常释放；清理未用导入与 props。
-  3. `src/components/chat/panel-decoration/message-actions.ts`：`getStreamingAssistantMessage` 改为在 `.qf-message-list` 内按 bridge `isStreaming === true` 定位；`getMessageElements` 过滤流式行（行级装饰职责与旧结构等价、避免重复收集）。
-  4. `src/components/chat/surface/surface-context.ts`：Provider 位置注释更新。
-  5. 测试 5 文件更新/新增用例（release-gate、release-refold、process-folding-ownership、behavior-alignment、chat-surface-render）；`docs/wiki/src/components/README.md` 两处条目（各两份副本）同步。四轮新增 `tests/frontend/chat-surface-streaming-handoff.test.ts`（jsdom + react-dom/client 真实生命周期：DOM 节点身份断言就地转正/身份变更仍 remount/重复身份不撞 key；旧实现红灯验证 2 failed + control 1 passed），behavior-alignment 契约断言随新结构更新。
-- Files（改动文件）: src/components/chat/surface/MessageList.tsx、src/components/chat/surface/ChatSurface.tsx、src/components/chat/surface/surface-context.ts、src/components/chat/panel-decoration/message-actions.ts、tests/frontend/chat-surface-{release-gate,release-refold,behavior-alignment,render}.test.ts、tests/frontend/process-folding-ownership.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
-- Evidence（验证）: 定向 vitest 全绿（chat-surface / process-folding 系 / message-actions+context-compaction / thinking·code-block·subagent / 三轮 gate 相关 7 文件 151）；npm run test 全量 4532 passed / 4 failed（4 个 server 失败经 git stash 基线对比为 dev 既有：sqlite-quick-check-gate 1 + acp 3，与本次无关）；npm run lint、npx tsc --noEmit、npm run build 均通过。四轮：定向 7 文件 83 passed（jsdom 生命周期 3 例）+ 旧实现红灯验证 2 failed / control 1 passed；npm run test 全量 4536 passed / 4 failed / 4 skipped（同一组 dev 既有失败）；npm run lint、npm run build 均通过。
+  1. `src/components/chat/panel-decoration/process-folding.ts`：新增 `processThinkingAssistant` / `isStreamingThinkingItem` / 导出 `splitStreamingThinkingRuns`（按位置切 run：liveThinking 挂组 body、其余包 stage，顺序不变）；`populateProcessGroup` 仅在设置关闭时切分；`updateProcessStageGroups` 默认值回归 `processStageDefaultExpanded()`，删除 `processStageHasStreamingThinking` 与强制展开。
+  2. 测试：thinking-streaming-stage 的 S2 / 流式结束回填 / 跨 assistant / 手动收起用例按新语义重写，新增多轮工具循环往复回归；process-folding 新增切分函数单测。
+  3. 文档：`docs/wiki/src/components/README.md`（两份副本）+ `docs/wiki/src/lib/README.md` 的折叠默认值契约同步为 `isStreamingThinkingItem` / `splitStreamingThinkingRuns`。
+- Files（改动文件）: src/components/chat/panel-decoration/process-folding.ts、tests/frontend/thinking-streaming-stage.test.ts、tests/frontend/process-folding.test.ts、docs/wiki/src/components/README.md、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest 3 文件 61 passed + 连带 6 文件 104 passed + tests/frontend 全量 210 文件 2674 passed；`npx eslint`（改动文件）/ `npx tsc --noEmit` 通过；`npm run lint` 通过；`npm run build` 通过（chunk 警告既有）；`npm run test` 全量 382 文件 4561 passed / 1 skipped（无失败）。
 - Blockers（阻塞）: 无。
 - Notes:
-  - 分支 `fix/message-end-remount-flicker`（自 dev b633016 切出）已提交 `04be17f`、经 `--no-ff` 合并进 dev（`b9d6656`）并推送；未触碰生成产物。依赖：四轮新增 devDependency `jsdom`（唯一依赖变更，package.json/package-lock.json 同步；理由：真实 React reconciliation 回归测试需要 DOM 渲染器，原 Node-only 测试栈无法断言 remount）。
-  - 真机验证建议：用带 reasoning 的模型跑长思考，在 message_end 瞬间观察——展开的思考块应保持展开（旧版弹回收起）、无整行抖动；工具循环多轮时 spinner 不重启。
-  - 既有失败登记（待单独排查，勿归因本分支）：tests/server/sqlite-quick-check-gate.test.mjs（1 failed）、tests/server/acp/server-channel-source.test.mjs（1）、tests/server/acp/server.workspace-mapping.test.mjs（2）。
-  - 同 timestamp 重复 assistant 行（agent-loop 不产生）：四轮起合并 key 数组经 occurrence suffix 消歧，不再撞 key（有 jsdom 用例固定）。
-  - settings-row-infotip 仍为 pending，WIP 不在本分支。
-- Next Session（下一步）: 真机跑一轮带思考的对话确认观感；若仍有「滚动跳/重新展开感」，请用户在 DevTools console 跑滚动监听脚本（监听 .qf-scroll-container 的 scrollTop/scrollHeight 每帧变化并打印跳变序列），据此定位滚动侧根因（候选：贴底跟随与展开阅读冲突、decorate rAF 与 scrollToBottom rAF 帧内顺序、或 React commit 与 ResizeObserver 的时序）；用户确认后可按 runbook 发小版本（提交/合并/推送已完成：`04be17f` → `b9d6656`，origin/dev）；处理 pending 的 settings-row-infotip 与 4 个既有 server 测试失败。
+  - 设置默认展开（默认 true）时结构与行为零变化；切分只在「关闭设置」时启用。
+  - 观感取舍（用户已确认）：本轮思考结束后该思考行随重建收进已收起的 stage（即该行消失），换取不再有自动开合动画。
+  - 工作区同时存在并行会话 `thinking-hint-growth-inplace` 的改动（同文件不同函数）与 `streaming-display-stability` 的未提交改动；本轮未提交 Git；未触碰生成产物。
+  - `settings-row-infotip` 仍为 pending。
+- Next Session（下一步）: 真机跑一轮多轮工具循环（关闭「工具调用列表默认展开」）确认不再逐轮开合、流式思考行与尾行提示可见、本轮结束收进 stage；确认后可与其它未提交改动一起按 runbook 发小版本。
+
+---
+
+## thinking-hint-growth-inplace（done，2026-09-23）
+
+- Current Objective（当前目标）: 修复用户反馈「对话中思考过程中的右侧显示会一句话重复显示两次」——思考行右侧尾行提示（hint）在「同一行内增长」时被反复整行滚入，两个视图同显同一句。按用户确认的方案 A 完成：只在行切换时滚入，同一行内增长就地更新。已实现并验证（feature_list.json 标 done），改动未提交。
+- 根因:
+  1. hint 是 header 第四槽位的 `quickforge-tool-marquee`；`ToolMarqueeController` 对任何 text 变化都 `beginRoll`（旧文上滚出 + 新文下滚入，滚入期间两视图同时可见），而 `syncProcessThinkingHint` 在流式「同一行内增长」时也会每 ~300ms 写一次 `text` → 260ms 滚入被反复触发、两视图长期同显同一句（只差几个字）。
+  2. 复现证据：直接驱动 `ToolMarqueeController` 跑序列，grow 帧 `v0[VIS/s=句子A] v1[VIS/s=句子A-grow]` 双视图 VISIBLE。
+- 改动内容:
+  1. `src/lib/tool-marquee.ts`：`sync(text, running, restart = false, roll = true)`——`roll=false` 时 text 变化走就地更新（`applyInstant`），不再整行滚入；默认 true 保持 subagent 摘要卡行为。
+  2. `src/lib/tool-renderers/shared.tsx`：`QuickForgeToolMarquee` 增 observedAttributes `roll`，回调只记录意图（`rollOnChange`，connectedCallback 复位），`sync()` 一次性消费并透传；`scheduleRestart` 统一 `sync(true)`。
+  3. `src/components/chat/panel-decoration/process-folding.ts`：textChanged 分支先写 `roll`（`lineSwitched ? 'true' : 'false'`）再写 `text`（标记必须每次随 text 写，元素消费后复位）。
+  4. 文档：`DESIGN_LANGUAGE.md`、`docs/wiki/src/components/README.md`（接管契约两份副本）、`docs/wiki/src/lib/README.md`（tool-marquee.ts 条目）。
+  5. 测试：`tool-marquee.test.ts` +2、`thinking-hint.test.ts` +1、新增 `tests/frontend/thinking-hint-marquee-inplace.test.ts`（jsdom 全链路：真 React ThinkingBlock → 装饰层 → 真 `quickforge-tool-marquee` 元素 → ToolMarqueeController，桩 `Element.prototype.animate` 观察滚入）。
+- Files（改动文件）: src/lib/tool-marquee.ts、src/lib/tool-renderers/shared.tsx、src/components/chat/panel-decoration/process-folding.ts、tests/frontend/tool-marquee.test.ts、tests/frontend/thinking-hint.test.ts、tests/frontend/thinking-hint-marquee-inplace.test.ts、DESIGN_LANGUAGE.md、docs/wiki/src/components/README.md、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest tool-marquee 17 passed（+2 新例）、thinking-hint 16 passed（+1 新例）、新 jsdom 全链路 1 passed、思考/折叠/跑马灯/接管相关 7 文件 133 passed；**旧实现红灯验证**（临时把 roll 恒写 `'true'`）新用例在症状级断言失败 `expected 0 to have length 2`（同行增长仍触发两次整行滚入）+ thinking-hint 新用例同时失败，改回后全绿；`npx tsc --noEmit` 通过；`npx eslint`（src + 新测试）通过；`npm run lint` 通过；`npm run build` 通过（chunk 警告既有）；`npm run test` 全量 383 文件 4562 passed / 1 skipped（无失败）。
+- Blockers（阻塞）: 无。
+- Notes:
+  - 前一次全量中失败的 `tests/server/session-state-repository.test.mjs`（multi-process CAS writer 时序用例）在最新全量中通过，确认为并发负载下 flaky，与本改动无关。
+  - 未动：取段规则 / 500 码点截断 / 300ms 节流 / 淡入淡出 / 行切换滚入 / release gate / 思考头接管契约；subagent 摘要卡跑马灯默认行为不变（roll 缺省 true）。
+  - 无依赖变更；未触碰 dist/package-dist/package-offline；未提交 Git。
+  - settings-row-infotip 仍 pending（WIP 不在本轮）；上一轮 streaming-display-stability 的改动仍在工作区未提交。
+- Next Session（下一步）: 真机跑一轮带思考的流式对话验证观感（重点：右tail提示不再同一句上下两份、行切换仍有滚入、长行溢出滚动仍在增长停止后恢复）；确认后可考虑与 streaming-display-stability 一起按 runbook 发小版本；处理 pending 的 settings-row-infotip、session-state-repository flaky 用例。

@@ -310,10 +310,18 @@ function reactThinkingTree(thinkingCount = 1, expanded = false): ReactThinkingTr
 }
 
 /** 模拟流式帧：bridge 上镜像最新的 message.content（thinking 累积文本）与 isStreaming。 */
-function streamTo(tree: ReactThinkingTree, thinkingTexts: string[], streaming = true) {
+function streamTo(
+  tree: ReactThinkingTree,
+  thinkingTexts: string[],
+  streaming = true,
+  extraContent: Array<Record<string, unknown>> = [],
+) {
   tree.assistant.message = {
     role: 'assistant',
-    content: thinkingTexts.map((text) => ({ type: 'thinking', thinking: text })),
+    content: [
+      ...thinkingTexts.map((text) => ({ type: 'thinking', thinking: text })),
+      ...extraContent,
+    ],
   }
   tree.assistant.isStreaming = streaming
 }
@@ -460,6 +468,43 @@ describe('process thinking hint (第四槽位尾行提示)', () => {
     }
   })
 
+  it('marks the change intent for the marquee: growth in place vs line switch roll', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    try {
+      const tree = reactThinkingTree()
+      streamTo(tree, ['first line\nsecond'])
+      decorateProcessThinkingBlocks(tree.group)
+      const hint = hintOf(tree.headers[0] as FakeNode)
+      // 首次出现无旧文本：就地更新（不叠整行滚入）。
+      expect(hint.getAttribute('roll')).toBe('false')
+
+      // 同一行内增长（窗口过后）：文本就地追平，roll 仍为 false、不重触发淡入。
+      vi.setSystemTime(1000)
+      streamTo(tree, ['first line\nsecond line grows'])
+      decorateProcessThinkingBlocks(tree.group)
+      expect(hint.getAttribute('text')).toBe('second line grows')
+      expect(hint.getAttribute('roll')).toBe('false')
+      expect(hint.classList.contains(HINT_IN_CLASS)).toBe(false)
+
+      // 行切换：roll=true 交给跑马灯做整行滚入（配套淡入类重触发）。
+      streamTo(tree, ['first line\nsecond line grows\nthird'])
+      decorateProcessThinkingBlocks(tree.group)
+      expect(hint.getAttribute('text')).toBe('third')
+      expect(hint.getAttribute('roll')).toBe('true')
+      expect(hint.classList.contains(HINT_IN_CLASS)).toBe(true)
+
+      // 流式结束（text 清空）：同样带 roll 标记（默认滚入语义，无旧文本即就地清空）。
+      vi.setSystemTime(2000)
+      streamTo(tree, ['first line\nsecond line grows\nthird'], false)
+      decorateProcessThinkingBlocks(tree.group)
+      expect(hint.getAttribute('text')).toBe('')
+      expect(hint.getAttribute('roll')).toBe('false')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('hides the hint when the thinking block is expanded and restores it on collapse', () => {
     const tree = reactThinkingTree()
     streamTo(tree, ['line one\nline two\n'])
@@ -500,14 +545,56 @@ describe('process thinking hint (第四槽位尾行提示)', () => {
     expect(hint.getAttribute('running')).toBe('false')
   })
 
+  it('fades the hint out as soon as thinking ends, before the rest of the message finishes (思考过程结束即收起)', () => {
+    const tree = reactThinkingTree()
+    streamTo(tree, ['line one\nline two'])
+    decorateProcessThinkingBlocks(tree.group)
+    const hint = hintOf(tree.headers[0] as FakeNode)
+    expect(hint.classList.contains(HINT_VISIBLE_CLASS)).toBe(true)
+
+    // 整轮仍在流式（正文/工具已经接上），思考段本身已经结束：右侧提示必须立刻淡出。
+    streamTo(tree, ['line one\nline two'], true, [{ type: 'text', text: 'answer starts' }])
+    decorateProcessThinkingBlocks(tree.group)
+    expect(hint.classList.contains(HINT_VISIBLE_CLASS)).toBe(false)
+    expect(hint.getAttribute('text')).toBe('')
+    expect(hint.getAttribute('running')).toBe('false')
+
+    // thinkingSignature 同样是块结束信号（即使它暂时仍是 content 末块）。
+    streamTo(tree, ['line one\nline two'])
+    tree.assistant.message = {
+      role: 'assistant',
+      content: [{ type: 'thinking', thinking: 'line one\nline two', thinkingSignature: 'sig' }],
+    }
+    tree.assistant.isStreaming = true
+    decorateProcessThinkingBlocks(tree.group)
+    expect(hint.classList.contains(HINT_VISIBLE_CLASS)).toBe(false)
+    expect(hint.getAttribute('running')).toBe('false')
+  })
+
+  it('keeps only the still-growing thinking block hinted when several blocks stream', () => {
+    const tree = reactThinkingTree(2)
+    streamTo(tree, ['alpha one\nalpha two', 'beta one'])
+    decorateProcessThinkingBlocks(tree.group)
+
+    const [firstHint, secondHint] = [hintOf(tree.headers[0] as FakeNode), hintOf(tree.headers[1] as FakeNode)]
+    expect(firstHint.classList.contains(HINT_VISIBLE_CLASS)).toBe(false)
+    expect(firstHint.getAttribute('text') ?? '').toBe('')
+    expect(secondHint.getAttribute('text')).toBe('beta one')
+    expect(secondHint.classList.contains(HINT_VISIBLE_CLASS)).toBe(true)
+  })
+
   it('maps each thinking block to its own thinking chunk by document order', () => {
     const tree = reactThinkingTree(2)
     streamTo(tree, ['alpha one\nalpha two\n', 'beta one\nbeta two\n'])
     decorateProcessThinkingBlocks(tree.group)
 
     const [firstHint, secondHint] = [hintOf(tree.headers[0] as FakeNode), hintOf(tree.headers[1] as FakeNode)]
-    expect(firstHint.getAttribute('text')).toBe('alpha two')
+    // 前一段思考已经结束（不再是 content 末块）：右侧提示立即收起。
+    expect(firstHint.getAttribute('text') ?? '').toBe('')
+    expect(firstHint.classList.contains(HINT_VISIBLE_CLASS)).toBe(false)
+    // 仍在增长的后一段按文档序取自己的最新段，不会串到前一段。
     expect(secondHint.getAttribute('text')).toBe('beta two')
+    expect(secondHint.classList.contains(HINT_VISIBLE_CLASS)).toBe(true)
   })
 })
 

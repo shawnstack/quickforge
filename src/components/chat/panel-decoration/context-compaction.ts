@@ -41,6 +41,8 @@ function isUserMessage(message: MessageWithUsage) {
 }
 
 function alignBoundaryToUserTurn(messages: MessageWithUsage[], messageIndex: number) {
+  // 边界可以正好落在列表末尾（整段历史都被压缩，压缩覆盖到最新一轮）：回溯到最后一
+  // 个用户回合，与随后追加消息时的定位结果一致，横线不会跳动。
   for (let index = Math.min(messageIndex, messages.length - 1); index >= 0; index--) {
     if (isUserMessage(messages[index])) return index
   }
@@ -131,7 +133,12 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
 
   const compactedUpToIndex = Math.max(0, Number(compaction.compactedUpToIndex) || 0)
   const windowEnd = messageIndexOffset + messages.length
-  if (compactedUpToIndex <= 0 || compactedUpToIndex >= windowEnd) {
+  // 边界恰好等于窗口末尾（整个窗口历史都被压缩、压缩覆盖到最新一轮）时同样渲染横线：
+  // 此时 alignBoundaryToUserTurn 会把边界对齐到包含它的用户回合之前，与下一条消息到达
+  // 后的位置完全一致——压缩完成（auto_compact_completed / messages_replaced 后 decorate）
+  // 就能看到，不必等用户再发一条消息才知道上下文被压缩。严格越过窗口末尾只可能来自陈旧
+  // 状态（回滚后消息变短），保持隐藏。
+  if (compactedUpToIndex <= 0 || compactedUpToIndex > windowEnd) {
     existing?.remove()
     return
   }

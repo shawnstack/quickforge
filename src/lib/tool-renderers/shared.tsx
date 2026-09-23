@@ -261,14 +261,22 @@ const marqueeEnv: ToolMarqueeEnv = {
  * 元素实例与动画生命周期稳定）。动画时序由 ToolMarqueeController 承担（纯逻辑
  * 可单测）：仅溢出且非 reduced-motion 时滚动，同值刷新不打断；text 切换时双视图
  * 纵向滚动（旧文上滚出、新文自下滚入），容器定高一行（见 .quickforge-subagent-marquee）。
+ *
+ * `roll` attribute（可选，默认整行滚入）是调用方对「本次变异」的意图声明：
+ * `roll="false"` 表示 text 变化只是同一行内增长，就地更新文本、不整行滚入——
+ * 思考行尾行提示在同行增长时用它避免同一句上下两份同显（见 process-folding 的
+ * `syncProcessThinkingHint`；行切换仍写 `roll="true"` 走滚入）。写序约定：调用方
+ * 先写 `roll` 再写 `text`，标记由随后的 text 同步一次性消费。
  */
 class QuickForgeToolMarquee extends customElementBase {
   private controller: ToolMarqueeController | undefined
   private resizeObserver: ResizeObserver | undefined
   private ready = false
+  /** 本次 text 同步是否整行滚入（roll attribute 的消费位，默认滚入）。 */
+  private rollOnChange = true
 
   static get observedAttributes() {
-    return ['text', 'running']
+    return ['text', 'running', 'roll']
   }
 
   connectedCallback() {
@@ -282,6 +290,8 @@ class QuickForgeToolMarquee extends customElementBase {
       getClientWidth: () => this.clientWidth,
     }, marqueeEnv)
     this.ready = true
+    // 断开期间残留的意图标记不复用（重连后第一帧按默认整行滚入重新判断）。
+    this.rollOnChange = true
     if (typeof ResizeObserver === 'function') {
       // 对话列宽变化时在下一帧重新测量并重建动画。
       this.resizeObserver = new ResizeObserver(() => this.scheduleRestart())
@@ -300,8 +310,12 @@ class QuickForgeToolMarquee extends customElementBase {
     this.controller = undefined
   }
 
-  attributeChangedCallback() {
+  attributeChangedCallback(name: string) {
     if (!this.ready) return
+    if (name === 'roll') {
+      this.rollOnChange = this.getAttribute('roll') !== 'false'
+      return
+    }
     this.sync()
   }
 
@@ -335,13 +349,21 @@ class QuickForgeToolMarquee extends customElementBase {
     return [views[0], views[1]]
   }
 
-  private sync() {
-    this.controller?.sync(this.getAttribute('text') || '', this.getAttribute('running') === 'true')
+  private sync(restart = false) {
+    // 消费本次意图标记（标记每次同步只用一次，避免残留到下一次行切换）。
+    const roll = this.rollOnChange
+    this.rollOnChange = true
+    this.controller?.sync(
+      this.getAttribute('text') || '',
+      this.getAttribute('running') === 'true',
+      restart,
+      roll,
+    )
   }
 
   private scheduleRestart() {
     requestAnimationFrame(() => {
-      if (this.ready) this.controller?.sync(this.getAttribute('text') || '', this.getAttribute('running') === 'true', true)
+      if (this.ready) this.sync(true)
     })
   }
 }

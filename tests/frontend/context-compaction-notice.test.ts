@@ -181,4 +181,61 @@ describe('syncContextCompactionNotice window positioning', () => {
     expect(messageList.children).toHaveLength(4)
     expect(messageList.children.some((element) => element.className === 'quickforge-context-compaction-notice')).toBe(false)
   })
+
+  it('shows the boundary when it lands exactly on the window end (latest turn compacted)', () => {
+    const { panel, messageList, messageElements } = createPanel(3)
+    const messages = [
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'latest question' },
+    ] as MessageWithUsage[]
+
+    sync(panel, messages, 3)
+
+    expect(messageList.children).toEqual([
+      messageElements[0],
+      messageElements[1],
+      expect.objectContaining({ className: 'quickforge-context-compaction-notice' }),
+      messageElements[2],
+    ])
+  })
+
+  it('keeps the boundary before the same user turn once the reply is appended', () => {
+    const { panel, messageList, messageElements } = createPanel(4)
+    // 压缩完成时边界 = 列表末尾（3），后续回复落在边界之后——横线位置不变。
+    const messages = [
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'latest question' },
+      { role: 'assistant', content: 'latest answer' },
+    ] as MessageWithUsage[]
+
+    sync(panel, messages, 3)
+
+    expect(messageList.children).toEqual([
+      messageElements[0],
+      messageElements[1],
+      expect.objectContaining({ className: 'quickforge-context-compaction-notice' }),
+      messageElements[2],
+      messageElements[3],
+    ])
+  })
+
+  it('shows the boundary at the window end inside a scrolled window', () => {
+    const { panel, messageList, messageElements } = createPanel(3)
+    const messages = [
+      { role: 'assistant', content: 'earlier answer' },
+      { role: 'user', content: 'latest question' },
+      { role: 'assistant', content: 'latest answer' },
+    ] as MessageWithUsage[]
+
+    sync(panel, messages, 13, 10)
+
+    expect(messageList.children).toEqual([
+      messageElements[0],
+      expect.objectContaining({ className: 'quickforge-context-compaction-notice' }),
+      messageElements[1],
+      messageElements[2],
+    ])
+  })
 })

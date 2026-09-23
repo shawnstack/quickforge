@@ -128,3 +128,33 @@ describe('streaming code-block gate', () => {
     expect(chatSurfaceSource).toContain('streamingAssistant={rendersStreamingRow ? streamingAssistant : undefined}')
   })
 })
+
+describe('stable surface key across Deferred→Real promotion', () => {
+  const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+
+  it('keys the surface by runtime scope id so promotion updates in place', () => {
+    // `agent.sessionId` flips from `pending-*` to the real session id at the
+    // Deferred→Real promotion; keying by it remounted the whole surface mid
+    // first message (the visible "reload" flash). The runtime scope id stays
+    // `pending-*` through the promotion and follows the target session on
+    // switches, so both behaviors keep their intended shape.
+    expect(hostSource).toContain('key={agentRuntimeScopeId ?? agent.sessionId}')
+    expect(hostSource).not.toContain('key={agent.sessionId}')
+    // App (the only DeferredSessionAgent host) feeds the stable id in.
+    expect(appSource).toContain('agentRuntimeScopeId={agentManager.currentRuntimeScopeId}')
+  })
+})
+
+describe('structural release ownership (no pre-release outside the boundary)', () => {
+  it('lets ProcessGroupReleaseBoundary own messages_replaced releases with same-commit re-fold', () => {
+    // A host-side `releaseStreamingProcessGroups(panel)` in the event callback
+    // ran before the React commit, so the boundary found no groups, skipped the
+    // synchronous re-fold request, and the re-fold fell to the next rAF — one
+    // painted frame with the released (unfolded) rows. Structural releases
+    // must go through the boundary (auto_compact_completed is always followed
+    // by messages_replaced server-side).
+    expect(hostSource).not.toMatch(/releaseStreamingProcessGroups\s*\(/)
+    expect(hostSource).toContain('onProcessGroupsReleased={requestSurfaceDecorateNow}')
+    expect(chatSurfaceSource).toContain('if (released) this.props.onReleased?.()')
+  })
+})

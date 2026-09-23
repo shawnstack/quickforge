@@ -3816,9 +3816,10 @@ html.dark .quickforge-file-path-link {
 }
 
 /* 思考行「尾行提示」（header 第四槽位，装饰层 process-folding.ts 接管时追加的
- * quickforge-tool-marquee 元素）：流式且思考块收起时显示最新一行完整思考文字，
- * 行切换淡入、流式结束 / 展开时整体淡出（保留占位，只动 opacity/visibility，
- * 不触发布局）。进入用 --quickforge-dur-base、退出用更快的 --quickforge-dur-exit，
+ * quickforge-tool-marquee 元素）：该思考段仍在流式增长且思考块收起时显示最新一行
+ * 完整思考文字；思考过程一结束（不再是 content 末块 / 整轮结束）或展开时整体淡出
+ * （保留占位，只动 opacity/visibility，不触发布局）。进入用 --quickforge-dur-base、
+ * 退出用更快的 --quickforge-dur-exit，
  * 缓动 --quickforge-ease-out；淡入淡出切换（hint-in）也走 base 时长。
  * 溢出滚动复用 quickforge-tool-marquee：滚动/滚入时序由 ToolMarqueeController 承担，
  * 与 tool-running sweep / shimmer 同属长循环豁免时长刻度，不进 duration token 体系。 */

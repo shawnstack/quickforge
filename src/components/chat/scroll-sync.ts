@@ -12,6 +12,29 @@ const ANCHOR_TOP_OFFSET = 12
 /** Upper bound for the per-frame wait of the freshly sent user message. */
 const ANCHOR_WAIT_TIMEOUT_MS = 1000
 
+/**
+ * DOM event a fold disclosure (process group / stage / thinking block) emits
+ * when the user toggles it. Expanding grows the content below the viewport, so
+ * both the content ResizeObserver and the per-event `scheduleScrollToBottom`
+ * would otherwise pin the tail again on the next frame — yanking the viewport
+ * past what the user just opened ("expand → jump to bottom" flash). The panel
+ * treats the event as a reading intent: tail-following detaches immediately and
+ * re-arms the usual way (scrolling back within `repinFollowDistancePx`).
+ */
+export const READING_INTENT_EVENT = 'quickforge:reading-intent'
+
+/**
+ * Emit {@link READING_INTENT_EVENT} from a disclosure control so the panel
+ * detaches tail-following. Bubbles: scroll-sync listens on the chat panel, so
+ * any descendant (decoration-owned or React-rendered) may call this with the
+ * toggled control element. Defensive against non-DOM test fakes.
+ */
+export function emitReadingIntent(target?: { dispatchEvent?: (event: Event) => boolean }): void {
+  const dispatchEvent = target?.dispatchEvent
+  if (typeof dispatchEvent !== 'function') return
+  dispatchEvent(new CustomEvent(READING_INTENT_EVENT, { bubbles: true }))
+}
+
 type ScrollSyncOptions = {
   panel: HTMLElement
   /** Forward the auto-scroll flag to the React ChatSurface handle. */
@@ -350,6 +373,13 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
     lastTouchY = currentTouchY
   }
 
+  const handleReadingIntent = () => {
+    // A fold disclosure was toggled: the user is reading there, so detach
+    // tail-following (see READING_INTENT_EVENT) instead of letting the next
+    // resize/event frame scroll past the freshly opened content.
+    disableAutoScroll()
+  }
+
   // --- Public API ---
 
   const beginProgrammaticScroll = () => {
@@ -372,6 +402,8 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
     scrollContainer.addEventListener('keydown', handleKeyDown)
     scrollContainer.addEventListener('touchstart', handleTouchStart, { passive: true })
     scrollContainer.addEventListener('touchmove', handleTouchMove, { passive: true })
+    // Reading intent bubbles from any fold disclosure inside the panel.
+    panel.addEventListener(READING_INTENT_EVENT, handleReadingIntent)
     scrollResizeObserver = new ResizeObserver(() => {
       // While the anchor is active, re-derive the target from the message's
       // live position first: layout shifts above the message (fold release /
@@ -404,6 +436,7 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
     scrollContainer?.removeEventListener('keydown', handleKeyDown)
     scrollContainer?.removeEventListener('touchstart', handleTouchStart)
     scrollContainer?.removeEventListener('touchmove', handleTouchMove)
+    panel.removeEventListener(READING_INTENT_EVENT, handleReadingIntent)
     scrollResizeObserver?.disconnect()
     scrollResizeObserver = undefined
     if (autoScrollFrame !== undefined) {

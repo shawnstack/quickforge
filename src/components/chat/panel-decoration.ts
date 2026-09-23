@@ -57,7 +57,6 @@ export { createModelRetryNoticeController } from './panel-decoration/model-retry
 export { createTurnErrorTracker } from './panel-decoration/turn-error-state'
 export type { TurnErrorTracker, TurnErrorView } from './panel-decoration/turn-error-state'
 export { decorateAssistantArtifactCard, syncAssistantArtifactCard } from './panel-decoration/assistant-artifact-card'
-export { releaseStreamingProcessGroups } from './panel-decoration/process-folding'
 
 export type { MessageDecorationDeps } from './panel-decoration/message-actions'
 export { decorateMessages } from './panel-decoration/message-actions'

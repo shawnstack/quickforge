@@ -30,7 +30,6 @@ import {
   removeApprovalCard,
   injectAskUserCard,
   removeAskUserCard,
-  releaseStreamingProcessGroups,
   syncAssistantWaitingBubble,
   syncContextCompactionNotice,
   syncPersistDegradedNotice,
@@ -154,6 +153,15 @@ type ChatPanelHostProps = {
   onModelSelect?: (anchor?: HTMLElement) => void
   revision: number
   agentAccessMode: AgentAccessMode
+  /**
+   * 稳定 React key 来源（useAgentManager 的 runtimeScopeId）：Deferred→Real
+   * 会话提升时 sessionId 从 `pending-*` 变成真实 id，但 runtimeScopeId 不变——
+   * ChatSurface 用它作 key 即可避免提升瞬间整树 remount（首条消息「重新加载」
+   * 观感、DOM/编辑器状态/滚动位置全部保留）。会话切换时 runtimeScopeId 跟随
+   * 目标会话 id 变化，仍保证整树重建。未传时回退 agent.sessionId（分享页/
+   * 侧聊等单 agent 场景语义不变）。
+   */
+  agentRuntimeScopeId?: string
   workspaceToolsEnabled: boolean
   project?: ProjectInfo
   projectId?: string
@@ -263,6 +271,7 @@ export function ChatPanelHost({
   onModelSelect,
   revision,
   agentAccessMode,
+  agentRuntimeScopeId,
   workspaceToolsEnabled,
   project,
   projectId,
@@ -647,8 +656,11 @@ export function ChatPanelHost({
   // Main effect: wire up all subsystems against the React ChatSurface DOM.
   // ONLY re-runs when `agent` changes — all other prop changes are picked up
   // via propsRef or the decoration trigger effect below. The ChatSurface
-  // itself is keyed by sessionId in JSX, so a session switch mounts a fresh
-  // DOM subtree (equivalent to the old per-agent `new ChatPanel()`).
+  // itself is keyed by `agentRuntimeScopeId ?? agent.sessionId` in JSX, so a
+  // session switch mounts a fresh DOM subtree (equivalent to the old per-agent
+  // `new ChatPanel()`), while the Deferred→Real promotion keeps the runtime
+  // scope id (`pending-*`) and therefore updates the surface in place instead
+  // of remounting it mid first message.
   // =========================================================================
   useEffect(() => {
     const host = hostRef.current
@@ -1706,9 +1718,14 @@ export function ChatPanelHost({
         scheduleDecorateRef.current?.()
       }
       if (eventType === 'auto_compact_completed' || eventType === 'messages_replaced' || eventType === 'message_metadata_updated') {
-        // Metadata only needs rendering/decoration; preserve process groups and
-        // do not invoke the messages_replaced draft restoration above.
-        if (eventType !== 'message_metadata_updated') releaseStreamingProcessGroups(panel)
+        // 结构性释放由 React 表面内的 ProcessGroupReleaseBoundary 拥有：它先释放
+        // 折叠组、再在同一提交（componentDidUpdate）内同步重折叠，不产生「已释放
+        // 未重折叠」的绘制帧。这里不再预先 releaseStreamingProcessGroups——预释放
+        // 会让 boundary 找不到组、跳过同步重折叠，重折叠退到下一帧 rAF（历史
+        // 闪帧根因）。auto_compact_completed 服务端必跟 messages_replaced
+        //（server/auto-compaction.mjs），结构提交仍走 boundary；此处只负责补排
+        // 两次 decorate 兜底（指纹未变时为 no-op）。metadata 事件不改行结构，
+        // 也不触发上面的 messages_replaced 草稿恢复分支。
         scheduleDecorateRef.current?.()
         window.requestAnimationFrame(() => scheduleDecorateRef.current?.())
       }
@@ -1808,9 +1825,9 @@ export function ChatPanelHost({
       decorateFnRef.current = null
       restoreSideChatDraftRef.current = null
       surfaceSendHooksRef.current = null
-      // The ChatSurface DOM itself is owned by React (keyed per session) and
-      // unmounts on its own; decorations injected into it are dropped with
-      // the subtree.
+      // The ChatSurface DOM itself is owned by React (keyed by runtime scope /
+      // session id) and unmounts on its own; decorations injected into it are
+      // dropped with the subtree.
     }
   }, [agent, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, taskLauncherEnabled, anchorSentUserMessage, effectiveCapabilities.capabilitySuggestions, effectiveCapabilities.goal, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
 
@@ -1864,7 +1881,7 @@ export function ChatPanelHost({
     <div ref={hostRef} className="quickforge-chat-panel-host min-h-0 flex-1 overflow-hidden">
       {agent ? (
         <ChatSurface
-          key={agent.sessionId}
+          key={agentRuntimeScopeId ?? agent.sessionId}
           ref={surfaceRef}
           onWindowChanged={requestSurfaceDecorate}
           onProcessGroupsReleased={requestSurfaceDecorateNow}

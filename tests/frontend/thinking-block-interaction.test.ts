@@ -57,8 +57,14 @@ function renderThinkingHeader() {
     expect(button.props.className).toContain('thinking-header')
     expect(button.props['aria-expanded']).toBe(false)
     return {
-      onPointerDown: button.props.onPointerDown as (event: { preventDefault: () => void }) => void,
-      onClick: button.props.onClick as (event: { detail: number }) => void,
+      onPointerDown: button.props.onPointerDown as (event: {
+        preventDefault: () => void
+        currentTarget?: { dispatchEvent?: (event: Event) => boolean }
+      }) => void,
+      onClick: button.props.onClick as (event: {
+        detail: number
+        currentTarget?: { dispatchEvent?: (event: Event) => boolean }
+      }) => void,
       toggleRequests,
     }
   } finally {
@@ -95,5 +101,23 @@ describe('ThinkingBlock header interaction (pointerdown-first during streaming)'
 
     expect(toggleRequests).toHaveLength(1)
     expect(toggleRequests[0]?.(false)).toBe(true)
+  })
+
+  it('signals reading intent (detaches tail-following) on both toggle paths', () => {
+    const { onPointerDown, onClick } = renderThinkingHeader()
+    const captured: Event[] = []
+    const currentTarget = { dispatchEvent: (event: Event) => { captured.push(event); return true } }
+
+    onPointerDown({ preventDefault: () => {}, currentTarget })
+    onClick({ detail: 0, currentTarget })
+
+    // 展开思考过程 = 阅读意图：两条切换路径都要发出 READING_INTENT_EVENT
+    //（冒泡到面板由 scroll-sync 解除贴底跟随），否则展开内容下一帧就被
+    // resize/事件跟随滚动拉出视口（「展开后滚动跳」）。
+    expect(captured.map((event) => (event as CustomEvent).type)).toEqual([
+      'quickforge:reading-intent',
+      'quickforge:reading-intent',
+    ])
+    expect((captured[0] as CustomEvent).bubbles).toBe(true)
   })
 })

@@ -120,8 +120,12 @@ export class ToolMarqueeController {
    * 同步文本与运行状态。
    * restart=true 强制重新测量并重建当前视图动画（宽度变化路径使用）；
    * 默认同值刷新不打断进行中的滚动；text 变化时旧视图滚出、新视图滚入。
+   * roll=false 表示本次 text 变化不是「换一行」而是同一行内增长：就地更新当前视图
+   * 文本，不做整行纵向滚入——否则旧文（上滚出）与新文（下滚入）两个视图会同时可见，
+   * 而同一行的新旧文本只差几个字，观感就是同一句话上下重复显示两次（思考行尾行
+   * 提示的同行增长走这条路径；行切换仍走整行滚入）。
    */
-  sync(text: string, running: boolean, restart = false) {
+  sync(text: string, running: boolean, restart = false, roll = true) {
     this.running = running
     if (text === this.text) {
       // 同值刷新（SSE 高频、工具间隙保持）：不打断任何进行中的动画；
@@ -145,7 +149,7 @@ export class ToolMarqueeController {
     }
     const previous = this.text
     this.text = text
-    const rollEligible = Boolean(previous && text && running) && !this.env.prefersReducedMotion()
+    const rollEligible = roll && Boolean(previous && text && running) && !this.env.prefersReducedMotion()
     // 上一次滚动尚未结束又收到新文本：先就地结算，再从新状态继续。
     this.finishRoll()
     if (!rollEligible) {

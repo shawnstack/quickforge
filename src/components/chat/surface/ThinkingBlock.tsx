@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { MarkdownBlock } from './Markdown'
+import { emitReadingIntent } from '../scroll-sync'
 
 /**
  * React replacement for the legacy `<thinking-block>` custom element.
@@ -31,10 +32,16 @@ export function ThinkingBlock({ content, isStreaming = false }: ThinkingBlockPro
          * 真实鼠标产生的 click（e.detail > 0）视为已由 pointerdown 处理直接忽略，
          * 只有键盘 Enter/Space 或程序触发（e.detail === 0）的 click 才在这里切换。
          */
-        onPointerDown={() => setIsExpanded((expanded) => !expanded)}
+        onPointerDown={(event) => {
+          setIsExpanded((expanded) => !expanded)
+          // 手动展开/收起思考过程 = 阅读意图：解除贴底跟随，避免展开内容在
+          // 下一帧被 resize/事件跟随滚动拉出视口（READING_INTENT_EVENT）。
+          emitReadingIntent(event.currentTarget)
+        }}
         onClick={(event) => {
           if (event.detail > 0) return
           setIsExpanded((expanded) => !expanded)
+          emitReadingIntent(event.currentTarget)
         }}
       >
         <ChevronRight className={cn('inline-block size-4 transition-transform', isExpanded && 'rotate-90')} />

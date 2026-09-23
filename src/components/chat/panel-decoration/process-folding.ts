@@ -1,6 +1,7 @@
 import type { MessageWithUsage } from '../chat-utils'
 import { t } from '@/lib/i18n'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
+import { emitReadingIntent } from '../scroll-sync'
 
 type ProcessGroupElement = HTMLDivElement
 
@@ -402,6 +403,13 @@ const PROCESS_THINKING_HINT_THROTTLE_MS = 300
 const PROCESS_THINKING_HINT_CLASS = 'quickforge-process-thinking-hint'
 const PROCESS_THINKING_HINT_VISIBLE_CLASS = 'quickforge-process-thinking-hint-visible'
 const PROCESS_THINKING_HINT_IN_CLASS = 'quickforge-process-thinking-hint-in'
+/**
+ * 尾行提示的「本次变异意图」标记（marquee 元素的 `roll` attribute，先于 `text` 写入、
+ * 由随后的一次 text 同步消费）：行切换 = 整行滚入，同一行内增长 = 就地更新文本。
+ * 后者必须不整行滚入——否则旧文上滚出与新文下滚入两个视图同时可见，而同一行的
+ * 新旧文本只差几个字，观感就是同一句话上下重复显示两次。
+ */
+const PROCESS_THINKING_HINT_ROLL_ATTRIBUTE = 'roll'
 
 /** 尾行提示的逐元素同步状态：当前展示行的身份（段行号）与上次实际写入的时间戳。 */
 type ProcessThinkingHintState = {
@@ -430,43 +438,67 @@ export function latestThinkingLine(content: string): string {
   return latestThinkingSegment(content)?.text ?? ''
 }
 
-/** AssistantMessage 的 DOM bridge（根元素 `message` 属性）里的 thinking 累积文本，按渲染顺序。 */
-function assistantThinkingTexts(assistant: AssistantMessageElement | null): string[] {
+/** message.content 里按渲染顺序保留的非空 thinking 块（与 React 表面一一对应）。 */
+function assistantThinkingChunks(assistant: AssistantMessageElement | null): Array<Record<string, unknown>> {
   const content = assistant?.message?.content
   if (!Array.isArray(content)) return []
-  const texts: string[] = []
+  const chunks: Array<Record<string, unknown>> = []
   for (const chunk of content) {
     if (!isRecord(chunk) || chunk.type !== 'thinking') continue
-    if (typeof chunk.thinking === 'string' && chunk.thinking.trim() !== '') texts.push(chunk.thinking)
+    if (typeof chunk.thinking === 'string' && chunk.thinking.trim() !== '') chunks.push(chunk)
   }
-  return texts
+  return chunks
+}
+
+/**
+ * 该思考块是否仍是「正在写」的那一段。
+ *
+ * 流式 partial 没有单独的 thinking 结束事件：模型一旦写完思考、开始正文或工具调用，
+ * 这个 thinking 块就不再是 content 的最后一块（或整条消息已经不再流式）。右侧提示
+ * 只跟这一段，思考过程一结束就淡出，不能等到整轮 message_end。
+ * `thinkingSignature` 是块结束时才写入的签名，出现即视为该段已结束。
+ */
+function isThinkingChunkLive(assistant: AssistantMessageElement, chunk: Record<string, unknown> | undefined): boolean {
+  if (!chunk || assistant.isStreaming !== true) return false
+  if (typeof chunk.thinkingSignature === 'string' && chunk.thinkingSignature !== '') return false
+  const content = assistant.message?.content
+  if (!Array.isArray(content) || content.length === 0) return false
+  return content[content.length - 1] === chunk
 }
 
 /**
  * 思考块 → 其对应 thinking 累积文本的最新非空段（行身份 + 文本）：React 表面按
  * message.content 顺序渲染非空 thinking 段（assistantContentParts），assistant 子树内
- * 的思考块（文档序）与之一一对应。仅流式（bridge `isStreaming`）且能定位到对应
- * 文本时返回该段，否则 null。
+ * 的思考块（文档序）与之一一对应。仅该段仍在流式增长、且思考块收起时返回该段，
+ * 否则 null（思考过程结束 / 整轮结束都立即淡出）。
  */
 function processThinkingHintSegment(thinkingBlock: HTMLElement): { lineIndex: number; text: string } | null {
   const source = processThinkingSources.get(thinkingBlock)
   const assistant = source?.assistant
     ?? thinkingBlock.closest<AssistantMessageElement>('assistant-message, .qf-assistant-message')
-  if (!assistant || assistant.isStreaming !== true) return null
+  if (!assistant) return null
+  const chunks = assistantThinkingChunks(assistant)
   const index = source?.index ?? Array.from(assistant.querySelectorAll<HTMLElement>('thinking-block, .qf-thinking-block'))
     .filter((node) => node.closest(MESSAGE_LIST_SCOPE_SELECTOR) === assistantMessageList(assistant))
     .indexOf(thinkingBlock)
   if (index < 0) return null
-  return latestThinkingSegment(assistantThinkingTexts(assistant)[index] ?? '')
+  const chunk = chunks[index]
+  if (!isThinkingChunkLive(assistant, chunk)) return null
+  const thinking = typeof chunk?.thinking === 'string' ? chunk.thinking : ''
+  return latestThinkingSegment(thinking)
 }
 
 /**
  * 尾行提示（header 第四槽位，quickforge-tool-marquee 自定义元素）的逐帧幂等同步：
- * 流式且思考块收起时显示最新一段思考文字（含进行中未换行的行）；行身份（段行号）
- * 变化时更新 text 并重触发淡入，同一行内文本增长只更新 text、不重触发淡入，并按
- * ~300ms 时间窗节流——窗口内零 DOM 写（帧内容未变零写契约的节流版），行切换、
- * 流式结束、可见性变化立即写不受节流；只比较上次写入时间戳，无逐帧定时器（rAF
- * decorate 自然驱动）。流式结束 / 展开时整体淡出（类切换驱动 CSS 过渡，保留占位）。
+ * 该思考段仍在流式增长、且思考块收起时显示最新一段思考文字（含进行中未换行的行）；
+ * 思考过程一结束（该块不再是 content 末块，或带上 thinkingSignature，或整轮结束）
+ * 立即淡出，不等整条消息的 message_end。行身份（段行号）变化时更新 text 并重触发
+ * 淡入，同一行内文本增长只更新 text、不重触发淡入，并按 ~300ms 时间窗节流——窗口内
+ * 零 DOM 写（帧内容未变零写契约的节流版），行切换、思考结束、可见性变化立即写不受
+ * 节流；只比较上次写入时间戳，无逐帧定时器（rAF decorate 自然驱动）。同一行内增长
+ * 还会写 `roll="false"` 意图标记，让跑马灯就地更新文本、不做整行纵向滚入（两个视图
+ * 同显同一句＝上下重复显示两次；行切换才滚入）。思考结束 / 展开时整体淡出（类切换
+ * 驱动 CSS 过渡，保留占位）。
  * 溢出滚动由 marquee 元素自身接管（text/running attribute 传参，先例见
  * QuickForgeToolMarquee）。其余写入仍以值比较守卫：帧内容未变时（含 hint 未变）
  * 零 DOM 写（本节流与动效无关，reduced-motion 下行为不变）。
@@ -499,7 +531,12 @@ function syncProcessThinkingHint(header: HTMLElement, thinkingBlock: HTMLElement
     && now - lastWriteAt < PROCESS_THINKING_HINT_THROTTLE_MS) return
 
   if (runningChanged) hint.setAttribute('running', String(visible))
-  if (textChanged) hint.setAttribute('text', text)
+  if (textChanged) {
+    // 意图标记必须每次随 text 一起写（元素消费后即复位）：值是 'true'/'false' 而不是
+    // 「需要时才写」——残留/复用的标记会把行切换误判成就地更新（反之亦然）。
+    hint.setAttribute(PROCESS_THINKING_HINT_ROLL_ATTRIBUTE, lineSwitched ? 'true' : 'false')
+    hint.setAttribute('text', text)
+  }
   if (visibleChanged) hint.classList.toggle(PROCESS_THINKING_HINT_VISIBLE_CLASS, visible)
   if (lineSwitched) {
     // 行切换：移除→读一次布局使样式失效→重加，重触发进入动画（keyframes 见 index.css）。
@@ -682,18 +719,50 @@ export function processStageDefaultExpanded() {
   return getCachedToolDisplaySettings().expandProcessStageByDefault === true
 }
 
+/** 思考块归属的 assistant bridge：折叠可能已把它搬进其它 assistant 的过程组，所以先看记录的来源 assistant 与渲染宿主，最后才回落到 DOM 祖先。 */
+function processThinkingAssistant(node: HTMLElement) {
+  return processThinkingSources.get(node)?.assistant
+    ?? processNodeOwners.get(node)
+    ?? node.closest<AssistantMessageElement>('assistant-message, .qf-assistant-message')
+}
+
 /**
- * stage 内存在正在流式的思考块（其 closest assistant bridge `isStreaming === true`）
- * 时强制默认展开：正在生成的思考行（含尾行提示 hint）不可因「工具调用列表默认
- * 收起」的设置而被收起的 stage（index.css visibility:hidden）藏起来。只覆盖
- * 「设置默认值」这一档——用户手动收起的 saved state 仍优先
- * （resolveProcessExpandedState），流式结束后（组释放重建）回归设置默认。
+ * 该项是否为「正在流式的思考块」——其来源 assistant bridge `isStreaming === true`。
+ *
+ * 用于 `populateProcessGroup`：设置「工具调用列表默认展开」关闭时内层 stage 默认收起
+ * （index.css `.quickforge-process-stage[data-expanded="false"] > …-stage-body` 的
+ * `visibility:hidden`），把正在流式的思考行（连同尾行提示 hint）折进 stage 就会把它藏住。
+ * 早先的实现改在 `updateProcessStageGroups` 里对「含流式思考的 stage」强制展开兜底，但
+ * 每轮工具调用结束（message_end + 工具行出现 → 组全量重建）stage 都会回落设置默认，下一
+ * 轮流式思考再把它顶开——观感就是每轮「展开又收缩」往复（用户反馈）。现在改为流式思考行
+ * 不进 stage、改挂顶层组 body：组在流式期间默认展开，思考行与尾行提示照样可见，stage 始终
+ * 跟随设置默认，本轮结束（isStreaming 翻转 → 组交还重建）时它自然收进 stage。
  */
-function processStageHasStreamingThinking(stageBody: HTMLElement) {
-  return Array.from(stageBody.querySelectorAll<HTMLElement>('thinking-block, .qf-thinking-block'))
-    .some((thinkingBlock) => (processThinkingSources.get(thinkingBlock)?.assistant
-      ?? processNodeOwners.get(thinkingBlock)
-      ?? thinkingBlock.closest<AssistantMessageElement>('assistant-message, .qf-assistant-message'))?.isStreaming === true)
+function isStreamingThinkingItem(item: GroupedProcessNode) {
+  return isProcessNodeKind(item.node, 'thinking-block')
+    && processThinkingAssistant(item.node)?.isStreaming === true
+}
+
+/**
+ * 段内项按「正在流式的思考行」切成交替 run：流式思考 run 挂顶层组 body（不被收起的
+ * stage 藏住），其余 run 照常包 stage。切分保持原顺序——流式思考行通常就在段尾，但
+ * 工具行的内容块（toolCall chunk）先于 message_end 出现时它也可能夹在工具行之前，
+ * 所以按位置切而不是只抽段尾（见 isStreamingThinkingItem）。
+ */
+export type ProcessStageSectionRun<T> = { kind: 'stage' | 'liveThinking'; items: T[] }
+
+export function splitStreamingThinkingRuns<T>(
+  items: T[],
+  isStreamingThinking: (item: T) => boolean,
+): ProcessStageSectionRun<T>[] {
+  const runs: ProcessStageSectionRun<T>[] = []
+  for (const item of items) {
+    const kind = isStreamingThinking(item) ? 'liveThinking' : 'stage'
+    const last = runs[runs.length - 1]
+    if (last && last.kind === kind) last.items.push(item)
+    else runs.push({ kind, items: [item] })
+  }
+  return runs
 }
 
 export function processStageStateKey(processKey: string, index: number) {
@@ -718,13 +787,13 @@ function updateProcessStageGroups(
     const stageBodyId = `quickforge-${stageKey.replace(/[^a-z0-9_-]+/gi, '-')}`
     const previousStageKey = stage.dataset.quickforgeProcessKey
     stage.dataset.quickforgeProcessKey = stageKey
-    // 正在流式的思考块所在 stage 默认强制展开（设置默认收起也不藏流式思考行）；
-    // saved state（用户手动开合）与增量 key 命中仍优先（resolveProcessExpandedState）。
+    // stage 默认值只看设置：含流式思考的 stage 不再被强制展开（流式思考行挂在组 body，
+    // 见 isStreamingThinkingItem）；saved state（用户手动开合）与增量 key 命中仍优先。
     const expanded = resolveProcessExpandedState(
       getProcessExpandedStates(panel).get(stageKey),
       previousStageKey === stageKey,
       stage.dataset.expanded === 'true',
-      processStageDefaultExpanded() || processStageHasStreamingThinking(stageBody),
+      processStageDefaultExpanded(),
     )
     stage.dataset.expanded = String(expanded)
     const stageStreaming = isAgentStreaming && index === stages.length - 1
@@ -749,6 +818,9 @@ function updateProcessStageGroups(
       rememberProcessExpandedState(panel, stageKey, nextExpanded)
       stageSummary.setAttribute('aria-expanded', String(nextExpanded))
       stageSummary.setAttribute('aria-label', `${stageLabel.textContent} · ${nextExpanded ? t('collapseProcess') : t('expandProcess')}`)
+      // 手动开合 stage = 阅读意图：通知滚动层解除贴底跟随（READING_INTENT_EVENT，
+      // 见 scroll-sync），否则展开内容在下一帧就被跟随滚动拉出视口。
+      emitReadingIntent(stageSummary)
     }
   })
 }
@@ -794,6 +866,8 @@ function updateProcessGroup(
     rememberProcessExpandedState(panel, processKey, nextExpanded)
     summary.setAttribute('aria-expanded', String(nextExpanded))
     summary.setAttribute('aria-label', `${nextLabel} · ${nextExpanded ? t('collapseProcess') : t('expandProcess')}`)
+    // 与 stage 开合同理：阅读意图 → 解除贴底跟随（READING_INTENT_EVENT）。
+    emitReadingIntent(summary)
   }
   summary.onpointerdown = (event) => {
     if (!shouldToggleProcessSummary(isAgentStreaming, 'pointerdown', event)) return
@@ -921,7 +995,7 @@ function collectProcessTimeline(assistants: AssistantMessageElement[]) {
       .map((node) => processThinkingSources.get(node))
       .filter((source): source is { assistant: AssistantMessageElement; index: number } => source !== undefined && source.assistant === assistant)
       .map((source) => source.index)
-    const expectedCount = assistantThinkingTexts(assistant).length
+    const expectedCount = assistantThinkingChunks(assistant).length
     const startIndex = directNodes.length >= expectedCount ? 0 : (Math.max(-1, ...knownIndexes) + 1)
     directNodes.forEach((node, index) => thinkingIndexByNode.set(node, startIndex + index))
     thinkingIndexes.set(assistant, startIndex + directNodes.length)
@@ -1210,10 +1284,6 @@ function releaseGroupedProcessNode(item: GroupedProcessNode, group: ProcessGroup
   return true
 }
 
-export function releaseStreamingProcessGroups(panel: HTMLElement) {
-  return releaseProcessGroups(panel, true)
-}
-
 export function processNodeSequenceIsCurrent(
   previous: Array<{ node: { isConnected: boolean }; sourceAssistant: unknown }> | undefined,
   current: Array<{ node: unknown; sourceAssistant: unknown }>,
@@ -1274,17 +1344,32 @@ function populateProcessGroup(group: ProcessGroupElement, items: GroupedProcessN
     items,
     (item) => isProcessNodeKind(item.node, 'markdown-block'),
   )
+  // 设置「工具调用列表默认展开」关闭时，正在流式的思考行不并入（收起的）stage，改挂组
+  // body——否则它被 stage 收起态（visibility:hidden）藏住，而为了不藏它强制展开 stage 会
+  // 让每轮工具调用往复开合（见 isStreamingThinkingItem）。设置默认展开时结构不变。
+  const detachStreamingThinking = !processStageDefaultExpanded()
   for (const section of sections) {
     if (section.kind === 'detail' || !processSectionNeedsStage(section.items)) {
       populateProcessContainer(body, section.items)
       continue
     }
 
-    const stage = createProcessStage()
-    const stageBody = stage.querySelector<HTMLElement>(PROCESS_STAGE_BODY_SELECTOR)
-    if (!stageBody) continue
-    populateProcessContainer(stageBody, section.items)
-    ensureProcessBodyInner(body).append(stage)
+    const runs = detachStreamingThinking
+      ? splitStreamingThinkingRuns(section.items, isStreamingThinkingItem)
+      : [{ kind: 'stage' as const, items: section.items }]
+    for (const run of runs) {
+      // 流式思考 run、以及自身没有工具行可聚合的 run：直接挂组 body（不建空 stage 头）。
+      if (run.kind === 'liveThinking' || !processSectionNeedsStage(run.items)) {
+        populateProcessContainer(body, run.items)
+        continue
+      }
+
+      const stage = createProcessStage()
+      const stageBody = stage.querySelector<HTMLElement>(PROCESS_STAGE_BODY_SELECTOR)
+      if (!stageBody) continue
+      populateProcessContainer(stageBody, run.items)
+      ensureProcessBodyInner(body).append(stage)
+    }
   }
   groupedProcessNodeSequences.set(group, items)
   return processBodyHasContent(group)

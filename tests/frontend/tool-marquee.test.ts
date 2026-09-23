@@ -212,6 +212,37 @@ describe('ToolMarqueeController', () => {
     expect(env.views[1].movingSpan.textContent).toBe('tool B')
   })
 
+  it('updates text in place without rolling when the change is same-line growth (roll=false)', () => {
+    const env = createEnv()
+    env.controller.sync('tool A', true)
+    env.fireTimer(0)
+    const horizontal = env.animations[0]
+
+    env.controller.sync('tool A · grows', true, false, false)
+
+    // 不新增纵向滚动动画：文本就地在当前视图更新，另一视图保持隐藏
+    //（两个视图同显 = 同一句上下重复显示两次，正是同行增长要避免的观感）。
+    expect(env.animations).toHaveLength(1)
+    expect(env.animations[0]).toBe(horizontal)
+    expect(env.views[0].staticSpan.textContent).toBe('tool A · grows')
+    expect(env.views[0].movingSpan.textContent).toBe('tool A · grows')
+    expect(env.views[0].el.style.visibility).toBe('')
+    expect(env.views[0].el.style.transform).toBe('')
+    expect(env.views[1].el.style.visibility).toBe('hidden')
+    expect(env.views[1].staticSpan.textContent).toBe('')
+    // 文本变化后按既有起始延迟重建横向循环（与 applyInstant / 滚动结算同口径）。
+    expect(horizontal.cancelled).toBe(true)
+    expect(env.timers).toHaveLength(2)
+    expect(env.timers[1].ms).toBe(MARQUEE_START_DELAY_MS)
+
+    // 行切换（roll 默认 true）仍走整行滚入。
+    env.controller.sync('new line', true)
+    expect(env.animations).toHaveLength(3)
+    expect(env.animations[1].target).toBe(env.views[0].el)
+    expect(env.animations[2].target).toBe(env.views[1].el)
+    expect(env.views[1].staticSpan.textContent).toBe('new line')
+  })
+
   it('switches instantly without rolling when reduced motion, not running, or clearing text', () => {
     const reduced = createEnv({ reducedMotion: true })
     reduced.controller.sync('tool A', true)
@@ -483,7 +514,7 @@ function quickForgeToolMarqueeClass() {
   ) as new () => FakeHTMLElement & {
     connectedCallback(): void
     disconnectedCallback(): void
-    attributeChangedCallback(): void
+    attributeChangedCallback(name?: string): void
   }
   return { Marquee, controllerInstances }
 }
@@ -505,7 +536,7 @@ describe('QuickForgeToolMarquee wiring regressions', () => {
     expect(element.children).toHaveLength(2)
     const originalViews = [...element.children]
     expect(controllerInstances).toHaveLength(1)
-    expect(controllerInstances[0].sync).toHaveBeenLastCalledWith('run_command · npm test', true)
+    expect(controllerInstances[0].sync).toHaveBeenLastCalledWith('run_command · npm test', true, false, true)
 
     element.disconnectedCallback()
     expect(controllerInstances[0].dispose).toHaveBeenCalledOnce()
@@ -517,10 +548,42 @@ describe('QuickForgeToolMarquee wiring regressions', () => {
     expect(controllerInstances[1].host.views.map((view) => view.el)).toEqual(originalViews)
     expect(originalViews[0].style.visibility).toBe('')
     expect(originalViews[1].style.visibility).toBe('hidden')
-    expect(controllerInstances[1].sync).toHaveBeenLastCalledWith('run_command · npm test', true)
+    expect(controllerInstances[1].sync).toHaveBeenLastCalledWith('run_command · npm test', true, false, true)
 
     element.setAttribute('text', 'read_file · src/index.css')
-    element.attributeChangedCallback()
-    expect(controllerInstances[1].sync).toHaveBeenLastCalledWith('read_file · src/index.css', true)
+    element.attributeChangedCallback('text')
+    expect(controllerInstances[1].sync).toHaveBeenLastCalledWith('read_file · src/index.css', true, false, true)
+  })
+
+  it('passes the roll intent to the controller and consumes the marker once', () => {
+    const { Marquee, controllerInstances } = quickForgeToolMarqueeClass()
+    expect((Marquee as unknown as { observedAttributes: string[] }).observedAttributes).toContain('roll')
+
+    const element = new Marquee()
+    element.setAttribute('text', 'line A')
+    element.setAttribute('running', 'true')
+    element.connectedCallback()
+    const controller = controllerInstances[0]
+    // 无标记时默认整行滚入。
+    expect(controller.sync).toHaveBeenLastCalledWith('line A', true, false, true)
+
+    // 同一行内增长：装饰层先写 roll="false" 再写 text → 就地更新（roll=false）。
+    element.setAttribute('roll', 'false')
+    element.attributeChangedCallback('roll')
+    element.setAttribute('text', 'line A grows')
+    element.attributeChangedCallback('text')
+    expect(controller.sync).toHaveBeenLastCalledWith('line A grows', true, false, false)
+
+    // 标记只用一次：下一次 text 同步回到默认整行滚入（残留标记会让行切换误判成就地更新）。
+    element.setAttribute('text', 'line B')
+    element.attributeChangedCallback('text')
+    expect(controller.sync).toHaveBeenLastCalledWith('line B', true, false, true)
+
+    // 行切换：装饰层显式写 roll="true"。
+    element.setAttribute('roll', 'true')
+    element.attributeChangedCallback('roll')
+    element.setAttribute('text', 'line C')
+    element.attributeChangedCallback('text')
+    expect(controller.sync).toHaveBeenLastCalledWith('line C', true, false, true)
   })
 })

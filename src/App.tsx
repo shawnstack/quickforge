@@ -2165,6 +2165,9 @@ function MainApp() {
                     <Suspense fallback={<LazyPanelFallback />}>
                     <ChatPanelHost
                       agent={agentManager.agent}
+                      // 稳定 key：Deferred→Real 提升不重挂载 ChatSurface，
+                      // 会话切换（scope id 变化）仍整树重建。
+                      agentRuntimeScopeId={agentManager.currentRuntimeScopeId}
                       onModelSelect={openCustomModelSelector}
                       revision={agentManager.chatPanelRevision}
                       agentAccessMode={agentAccessMode}

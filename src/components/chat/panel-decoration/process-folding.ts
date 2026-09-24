@@ -23,6 +23,7 @@ type GroupedProcessNode = {
   node: HTMLElement
   sourceAssistant: AssistantMessageElement
   sourceParent: HTMLElement | null
+  /** 折走瞬间的下一个兄弟。还原时若它前面又插入了节点，改用那个更新的兄弟。 */
   sourceNextSibling: ChildNode | null
 }
 
@@ -1110,16 +1111,27 @@ function groupedProcessNodes(group: ProcessGroupElement): GroupedProcessNode[] {
 /**
  * Nodes of a group in the order they must be re-inserted.
  *
- * Tracked nodes were moved out of their container in document order and each
- * keeps its own `sourceNextSibling`, which may still live inside the group — so
- * they have to go back in reverse order (inserting the first one would point at
- * a node the container does not own yet). Untracked fallback items all point at
- * the group element itself, so document order is the only order that does not
- * reverse them.
+ * Tracked nodes restore in reverse. Each keeps the sibling that followed it
+ * when it was folded; if React later inserted nodes in front of that sibling,
+ * the anchor moves to the earliest of those insertions. Inserting before that
+ * shared point in reverse puts every folded node back ahead of content that
+ * arrived after the fold, without reversing nodes that still share a parent.
+ * Untracked fallback items are already in document order.
  */
 function groupedProcessRestoreOrder(group: ProcessGroupElement): GroupedProcessNode[] {
   const tracked = groupedProcessNodeSequences.get(group)
   return tracked ? [...tracked].reverse() : groupedProcessNodes(group)
+}
+
+function restoreInsertionAnchor(parent: HTMLElement, sibling: ChildNode | null) {
+  if (sibling?.parentNode !== parent) return null
+  let anchor: ChildNode = sibling
+  let previous = anchor.previousSibling
+  while (previous) {
+    anchor = previous
+    previous = anchor.previousSibling
+  }
+  return anchor
 }
 
 function restoreGroupedProcessNode(item: GroupedProcessNode, group: ProcessGroupElement) {
@@ -1128,14 +1140,14 @@ function restoreGroupedProcessNode(item: GroupedProcessNode, group: ProcessGroup
   setProcessFlag(node, PROCESS_FINAL_SUMMARY_ATTR, false)
 
   if (sourceParent?.isConnected) {
-    // 锚点必须仍是该容器的直接子节点。思考块先被折走时 sourceNextSibling 记成 null，
-    // 之后 React 把工具行 append 进同一容器；这时 append 会把思考块放到工具行之后，
-    // 全量重建再按这个顺序收集，第一轮就变成「工具在上、思考在下」。
-    // 锚点失效（含原本就是容器末尾）时插回过程组之前：组本身就占着这些节点被折走的位置，
-    // 组之后才是折走之后才出现的兄弟。
-    const anchor = sourceNextSibling?.parentNode === sourceParent
-      ? sourceNextSibling
-      : (group.parentNode === sourceParent ? group : null)
+    // 折走时的 nextSibling 只在它仍紧挨着「被折走的位置」时才准。React 之后把工具行
+    // 插到这个兄弟前面时，旧锚点仍是容器子节点，但已经不是思考块原来的下一个兄弟；
+    // 按它 insertBefore 会把思考块放到工具后面。此时改插到该兄弟前面最新的那个节点前，
+    // 思考块回到后出现的内容之前。锚点整个失效（含原本就是容器末尾）时，过程组若还在
+    // 这个容器里就占着被折走的位置，插到组前；组不在本容器则追加到末尾，避免把后出现
+    // 的节点插到本容器先出现的节点前面。逆序还原保持同一锚点上的源序。
+    const anchor = restoreInsertionAnchor(sourceParent, sourceNextSibling)
+      ?? (group.parentNode === sourceParent ? group : null)
     if (anchor) sourceParent.insertBefore(node, anchor)
     else sourceParent.append(node)
     return
@@ -1574,7 +1586,10 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
     ? findFinalSummaryMarkdown(finalSummaryTarget, isAgentStreaming)
     : null
   if (restoredCanFoldMarkdown) markFinalSummaryMarkdown(finalSummaryTarget, restoredFinalSummary)
-  const nodes = collectFoldableProcessNodes(assistants, restoredFinalSummary, restoredCanFoldMarkdown)
+  const nodes = orderRestoredProcessNodes(
+    collectFoldableProcessNodes(assistants, restoredFinalSummary, restoredCanFoldMarkdown),
+    assistants,
+  )
   if (nodes.length === 0) return
 
   const group = createTurnProcessGroup(nodes, assistants)
@@ -1582,6 +1597,69 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
   group.dataset.quickforgeProcessFp = fingerprint
   updateProcessGroup(panel, processKey, assistants, group, isAgentStreaming)
   updateEmptyProcessSources(assistants)
+}
+
+
+/** 折叠节点在其来源 assistant `message.content` 里的源序号；对不上时保持收集顺序。 */
+function contentPartIndex(node: HTMLElement, assistant: AssistantMessageElement) {
+  const content = assistant.message?.content
+  if (!Array.isArray(content)) return null
+  if (isProcessNodeKind(node, 'thinking-block')) {
+    const source = processThinkingSources.get(node)
+    if (!source || source.assistant !== assistant) return null
+    let seen = 0
+    for (let index = 0; index < content.length; index += 1) {
+      const chunk = content[index]
+      if (!isRecord(chunk) || chunk.type !== 'thinking') continue
+      if (typeof chunk.thinking !== 'string' || chunk.thinking.trim() === '') continue
+      if (seen === source.index) return index
+      seen += 1
+    }
+    return null
+  }
+  if (isProcessNodeKind(node, 'tool-message')) {
+    const id = (node as ToolMessageElement).toolCall?.id
+    if (!id) return null
+    const index = content.findIndex((chunk) => (
+      isRecord(chunk) && chunk.type === 'toolCall' && chunk.id === id
+    ))
+    return index >= 0 ? index : null
+  }
+  if (isProcessNodeKind(node, 'markdown-block')) {
+    const text = (node.textContent ?? '').trim()
+    if (!text) return null
+    const index = content.findIndex((chunk) => (
+      isRecord(chunk) && chunk.type === 'text' && typeof chunk.text === 'string' && chunk.text.trim() === text
+    ))
+    return index >= 0 ? index : null
+  }
+  return null
+}
+
+/**
+ * 全量重建收集到的 DOM 序可能已经错：思考块先被折走后，React 把工具行插到过程组前面
+ * 或另一条消息里，还原锚点对不上原来的下一个兄弟，思考块就会落到工具后面。
+ * 来源消息的 content 序号是渲染时的源序，同一条 assistant 内按它排回思考在前。
+ * 对不上序号的节点保持收集顺序。
+ */
+export function orderRestoredProcessNodes<T extends { node: HTMLElement; sourceAssistant: AssistantMessageElement }>(
+  nodes: T[],
+  assistants: AssistantMessageElement[],
+) {
+  const assistantOrder = new Map(assistants.map((assistant, index) => [assistant, index]))
+  return nodes
+    .map((node, index) => ({ node, index }))
+    .sort((left, right) => {
+      const assistantDelta = (assistantOrder.get(left.node.sourceAssistant) ?? 0)
+        - (assistantOrder.get(right.node.sourceAssistant) ?? 0)
+      if (assistantDelta !== 0) return assistantDelta
+      if (left.node.sourceAssistant !== right.node.sourceAssistant) return left.index - right.index
+      const leftPart = contentPartIndex(left.node.node, left.node.sourceAssistant)
+      const rightPart = contentPartIndex(right.node.node, right.node.sourceAssistant)
+      if (leftPart === null || rightPart === null || leftPart === rightPart) return left.index - right.index
+      return leftPart - rightPart
+    })
+    .map(({ node }) => node)
 }
 
 export function decorateProcessBlocks(

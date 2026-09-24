@@ -338,6 +338,65 @@ describe('process folding incremental suffix fold (full path, surviving group)',
     expect(tool.closest('.quickforge-process-group')).toBe(rebuilt)
   })
 
+  it('keeps thinking before a tool row React inserts ahead of the folded group', () => {
+    const panel = el('div', 'qf-chat-panel')
+    panel.connectedRoot = true
+    const list = panel.append(el('div', 'qf-message-list'))
+    const assistant = list.append(el('div', 'qf-assistant-message'))
+    const content = assistant.append(el('div', 'px-4 flex flex-col'))
+    const thinking = content.append(el('div', 'qf-thinking-block thinking-block'))
+    const bridged = assistant as FakeNode & { message?: unknown }
+    bridged.message = {
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'first thought' },
+        { type: 'toolCall', id: 'cmd-1' },
+      ],
+    }
+
+    decorateProcessBlocks(panel, [assistant], true)
+    const group = content.querySelector('.quickforge-process-group')
+    // 思考折走后容器里只剩过程组。流式提交把工具行插到组前面
+    // （React prepend / insertBefore），过期的 nextSibling 不能再当还原位置。
+    const tool = el('div', 'qf-tool-message')
+    Object.assign(tool, { toolCall: { id: 'cmd-1', name: 'run_command', arguments: {} } })
+    content.insertBefore(tool, group)
+    decorateProcessBlocks(panel, [assistant], true)
+
+    const rebuilt = content.querySelector('.quickforge-process-group')
+    expect(rowsStepOf(rebuilt).children).toEqual([thinking, tool])
+  })
+
+  it('keeps thinking before a tool when the group lives on another assistant', () => {
+    const panel = el('div', 'qf-chat-panel')
+    panel.connectedRoot = true
+    const list = panel.append(el('div', 'qf-message-list'))
+    const anchor = list.append(el('div', 'qf-assistant-message'))
+    const anchorContent = anchor.append(el('div', 'px-4 flex flex-col'))
+    const anchorTool = anchorContent.append(toolRow('cmd-0'))
+    const source = list.append(el('div', 'qf-assistant-message'))
+    const sourceContent = source.append(el('div', 'px-4 flex flex-col'))
+    const thinking = sourceContent.append(el('div', 'qf-thinking-block thinking-block'))
+    const bridged = source as FakeNode & { message?: unknown }
+    bridged.message = {
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'first thought' },
+        { type: 'toolCall', id: 'cmd-1' },
+      ],
+    }
+
+    decorateProcessBlocks(panel, [anchor, source], true)
+    expect(thinking.closest('.quickforge-process-group')?.parentNode).toBe(anchorContent)
+
+    const tool = sourceContent.append(toolRow('cmd-1'))
+    decorateProcessBlocks(panel, [anchor, source], true)
+
+    const step = rowsStepOf(anchorContent.querySelector('.quickforge-process-group'))
+    expect(step.children.indexOf(thinking)).toBeLessThan(step.children.indexOf(tool))
+    expect(step.children.indexOf(anchorTool)).toBeLessThan(step.children.indexOf(thinking))
+  })
+
   it('appends new tool rows into the existing stage step without moving the rows it owns', () => {
     const tree = turnTree()
     decorateProcessBlocks(tree.panel, [tree.assistant], true)

@@ -141,6 +141,8 @@ describe('definitions', () => {
     it('run_command has executionMode sequential', () => {
       const rc = workspaceTools.find((t) => t.name === 'run_command')
       expect(rc.executionMode).toBe('sequential')
+      expect(rc.parameters.properties).toHaveProperty('run_in_background')
+      expect(rc.description).toContain('task-notification')
     })
 
     it('read_file has path parameter', () => {

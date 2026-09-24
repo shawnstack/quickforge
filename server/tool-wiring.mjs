@@ -39,7 +39,12 @@ export function wrapToolDefinition(definition, context, toolPermissions) {
 
       const startedAt = Date.now()
       const startedAtPerf = performance.now()
-      const result = await handler(params || {}, context, { signal, onUpdate, toolCallId: _toolCallId })
+      const result = await handler(params || {}, context, {
+        signal,
+        onUpdate,
+        onBackgroundExit: context?.onBackgroundCommandExit,
+        toolCallId: _toolCallId,
+      })
       const finishedAt = Date.now()
       const durationMs = Math.max(0, Math.round(performance.now() - startedAtPerf))
       const details = mergeQuickForgeTiming(result.details, { startedAt, finishedAt, durationMs })

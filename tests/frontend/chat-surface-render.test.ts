@@ -180,7 +180,7 @@ describe('chat surface snapshot refresh events', () => {
     // ServerAgent upserts tool results into state.messages / pendingToolCalls
     // on these frames; without a snapshot refresh the React surface would not
     // re-render until the next message event.
-    for (const type of ['tool_execution_start', 'tool_execution_update', 'tool_execution_end']) {
+    for (const type of ['tool_execution_start', 'tool_execution_update', 'tool_execution_end', 'background_commands']) {
       expect(isSnapshotRefreshEvent(type)).toBe(true)
     }
   })

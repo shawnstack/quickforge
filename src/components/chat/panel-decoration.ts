@@ -17,6 +17,7 @@ import {
   removeSubagentRunningIndicator,
   removeSubagentRunningIndicatorMenu,
   setupSubagentRunningIndicator,
+  type BackgroundCommandSummary,
 } from './panel-decoration/subagent-running-indicator'
 import { hideNativeAttachmentControls, removeComposerPlusPopover, setupComposerPlusMenu } from './panel-decoration/composer-plus-menu'
 import { decorateModelButtonLabel } from './panel-decoration/model-controls'
@@ -77,6 +78,7 @@ export type {
 } from './panel-decoration/todo-write-summary'
 export { createMessageQueuePanelController } from './panel-decoration/message-queue'
 export type { MessageQueuePanelController, MessageQueuePanelState } from './panel-decoration/message-queue'
+export type { BackgroundCommandSummary } from './panel-decoration/subagent-running-indicator'
 export {
   getRunningSubagentRuns,
   removeSubagentRunningIndicator,
@@ -106,6 +108,7 @@ type EditorDecorationDeps = {
   fileReferenceSuggestionsEnabled: boolean
   subagentRunningIndicatorEnabled?: boolean
   getPendingToolCalls?: () => Iterable<string>
+  getBackgroundCommands?: () => BackgroundCommandSummary[]
   disabledControls?: boolean
   onAccessModeChange: (mode: AgentAccessMode) => void
   onTogglePlanMode: () => void
@@ -173,6 +176,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     fileReferenceSuggestionsEnabled,
     subagentRunningIndicatorEnabled = false,
     getPendingToolCalls = () => [],
+    getBackgroundCommands = () => [],
     disabledControls = false,
     onAccessModeChange,
     onTogglePlanMode,
@@ -339,6 +343,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
         leftControls,
         enabled: subagentRunningIndicatorEnabled,
         getPendingToolCalls,
+        getBackgroundCommands,
+        sessionId,
         dismissComposerMenus,
       })
     }
@@ -357,6 +363,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     leftControls,
     enabled: subagentRunningIndicatorEnabled,
     getPendingToolCalls,
+    getBackgroundCommands,
+    sessionId,
     dismissComposerMenus,
   })
 }

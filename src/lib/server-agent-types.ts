@@ -130,6 +130,7 @@ export type ServerAgentConfig = {
     yoloMode?: boolean
     isStreaming?: boolean
     pendingToolCalls?: string[]
+    backgroundCommands?: BackgroundCommandSnapshot[]
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
@@ -225,6 +226,18 @@ export type GoalIterationMarkerSnapshot = {
   quickforgeGoalIteration: Record<string, unknown>
 }
 
+export type BackgroundCommandSnapshot = {
+  taskId: string
+  toolCallId?: string | null
+  sessionId?: string | null
+  command: string
+  description?: string
+  outputFile?: string | null
+  pid?: number | null
+  startedAt?: number
+  status: 'running'
+}
+
 export type ServerAgentStateSnapshot = {
   sessionId?: string
   scope?: 'global' | 'project'
@@ -256,6 +269,7 @@ export type ServerAgentStateSnapshot = {
   pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
   pendingAsk?: ServerAgentPendingAsk | null
   pendingToolCalls?: string[]
+  backgroundCommands?: BackgroundCommandSnapshot[]
   isStreaming?: boolean
   errorMessage?: string
   /** Server failed to persist recent messages after CAS conflicts. */

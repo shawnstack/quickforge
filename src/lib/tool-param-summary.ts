@@ -21,7 +21,7 @@ export function summarizeParams(
   result?: ToolParamSummaryResult,
 ) {
   if (!params && !result?.details) return ''
-  if (toolName === 'run_command' && typeof params?.command === 'string') return params.command
+  if (toolName === 'run_command' && typeof params?.command === 'string') return params.command.replace(/\s+/g, ' ').trim()
   if (toolName === 'generate_image') {
     const prompt = typeof params?.prompt === 'string' ? params.prompt.trim() : ''
     return prompt.length > 100 ? `${prompt.slice(0, 100)}…` : prompt

@@ -39,6 +39,7 @@ import type {
   ServerRollbackResult,
   FileContextReference,
   PromptCapabilitySelection,
+  BackgroundCommandSnapshot,
   GoalIterationMarkerSnapshot,
   ServerAgentStateSnapshot,
   ServerAgentEvent,
@@ -70,6 +71,7 @@ export type {
   ServerTurnRollbackPreview,
   ServerTurnRollbackResult,
   ServerRollbackResult,
+  BackgroundCommandSnapshot,
   FileContextReference,
   PromptCapabilitySelection,
   ServerAgentStateSnapshot,
@@ -316,6 +318,7 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     yoloMode: Boolean(snapshot.yoloMode),
     isStreaming: Boolean(snapshot.isStreaming),
     pendingToolCalls: snapshot.pendingToolCalls ?? [],
+    backgroundCommands: snapshot.backgroundCommands ?? [],
     errorMessage: snapshot.errorMessage,
     contextCompaction: snapshot.contextCompaction,
     contextUsage: snapshot.contextUsage,
@@ -418,6 +421,7 @@ export class ServerAgent {
     isStreaming: boolean
     streamingMessage?: AgentMessage
     pendingToolCalls: Set<string>
+    backgroundCommands: BackgroundCommandSnapshot[]
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
@@ -508,6 +512,7 @@ export class ServerAgent {
       isStreaming: init.isStreaming ?? false,
       streamingMessage: undefined as AgentMessage | undefined,
       pendingToolCalls: new Set(init.pendingToolCalls ?? []),
+      backgroundCommands: init.backgroundCommands ?? [],
       errorMessage: init.errorMessage as string | undefined,
       contextCompaction: init.contextCompaction ?? null,
       contextUsage: init.contextUsage ?? null,
@@ -1380,6 +1385,9 @@ export class ServerAgent {
         if (s.pendingToolCalls !== undefined) {
           this.state.pendingToolCalls = new Set(s.pendingToolCalls)
         }
+        if (s.backgroundCommands !== undefined) {
+          this.state.backgroundCommands = s.backgroundCommands
+        }
         // State frames are full snapshots: absence of the flag means healthy.
         this.state.persistDegraded = s.persistDegraded === true ? true : undefined
         if (s.goal !== undefined) {
@@ -1640,6 +1648,18 @@ export class ServerAgent {
           // triggering a no-op re-render (never emit a second time here).
           if (!this.adoptGoalState(normalizeGoalState(goalEvent.goal)).changed) return
         }
+        break
+      }
+
+      case 'background_commands': {
+        const backgroundEvent = event as { backgroundCommands?: BackgroundCommandSnapshot[]; messages?: AgentMessage[] }
+        if (Array.isArray(backgroundEvent.backgroundCommands)) {
+          this.state.backgroundCommands = backgroundEvent.backgroundCommands
+        }
+        if (Array.isArray(backgroundEvent.messages)) {
+          this.state.messages = backgroundEvent.messages
+        }
+        this.stateVersion++
         break
       }
 

@@ -3,7 +3,7 @@ import { memo, useLayoutEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { getToolRenderer } from '@/lib/tool-renderer-registry'
-import { renderToolChevron, ToolDetails } from '@/lib/tool-renderers/shared'
+import { isRecord, renderToolChevron, ToolDetails } from '@/lib/tool-renderers/shared'
 import type { AgentTool, ToolCall, ToolResultMessage } from './ChatTypes'
 /**
  * React replacement for the legacy `<tool-message>` custom element.
@@ -156,13 +156,16 @@ export const ToolMessage = memo(function ToolMessage({ toolCall, tool, result, p
       }
     : result
 
+  const backgroundRunning = isRecord(effectiveResult?.details)
+    && effectiveResult.details.background === true
+    && effectiveResult.details.running === true
   const renderer = getToolRenderer(toolName)
-  const renderResult = renderer?.render(toolCall.arguments, effectiveResult, !aborted && (isStreaming || pending))
+  const renderResult = renderer?.render(toolCall.arguments, effectiveResult, !aborted && (isStreaming || pending || backgroundRunning))
 
   if (!renderResult) {
     return (
       <div ref={rootRef} className="qf-tool-message p-2.5 rounded-md border border-border bg-card text-card-foreground shadow-xs">
-        <DefaultToolCardBody toolName={toolName} params={toolCall.arguments} result={effectiveResult} isStreaming={!aborted && (isStreaming || pending)} />
+        <DefaultToolCardBody toolName={toolName} params={toolCall.arguments} result={effectiveResult} isStreaming={!aborted && (isStreaming || pending || backgroundRunning)} />
       </div>
     )
   }

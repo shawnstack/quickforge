@@ -512,7 +512,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
   messageElements.forEach((element, displayIndex) => {
     const entry = displayEntries[displayIndex]
-    const internalGoalMessage = syncGoalInternalMessage(element, entry?.message)
+    const internalGoalMessage = syncGoalInternalMessage(element, entry?.message ?? (element as HTMLElement & { message?: unknown }).message)
     if (!entry) return
     const showAssistantActions = entry.message.role !== 'assistant' || assistantActionIndexes.has(displayIndex)
     const isLastUserRow = !readOnly

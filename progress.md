@@ -1,3 +1,30 @@
+## composer-console-fixed-width（done，2026-09-24）
+
+- Goal：输入框旁控制台图标弹出的后台命令面板不再被长命令撑宽。
+- 改动：菜单固定 `min(22.5rem, 视口)`。长命令在条目内横向滚动，左右高斯模糊渐隐。
+- 验证：定向 vitest 11 passed。原有 1 个失败是后台命令单独触发器与旧断言不一致，与本次无关。
+- Notes：未提交。wiki 无需更新，只是现有菜单的宽度约束。
+
+---
+
+## background-command-presence（done，2026-09-24）
+
+- Goal：后台命令像 subagent 一样留在对话里，并出现在 Composer 运行摘要中，摘要项可直接关闭。
+- 改动：运行中的后台命令不折进过程组。`backgroundCommands` 随会话状态、启动和退出事件同步。摘要列表合并后台命令，关闭按钮复用 abort-tool。退出后原工具结果替换为终态。
+- 验证：定向 vitest 79 passed；eslint 与 tsc 通过。
+- Notes：未提交。
+
+---
+
+## run-command-background（done，2026-09-24）
+
+- Goal：`run_command` 支持 `run_in_background: true`，分离执行、不阻塞当前回合，跨回合运行到退出，并把完整输出写入日志后发 task-notification。
+- 改动：后台命令 detached 启动后立即返回 `outputFile` 与 `taskId`；退出或终止后通知原会话。流式回合走 followUp，空闲回合直接 prompt，活跃 Goal 暂存。会话销毁会停止该会话仍在运行的后台命令。`read_file` 只额外放行命令日志绝对路径。工具卡在后台结果上保持运行态和终止按钮。
+- 验证：定向 vitest 3 文件 31 passed；eslint 与 tsc 通过。
+- Notes：未提交。后台任务不跨服务重启恢复。
+
+---
+
 ## thinking-before-tool-order（done，2026-09-24）
 
 - Goal：思考块先折走后，后续工具行无论追加在组后、插到组前，还是出现在另一条 assistant，第一轮思考仍排在工具前面。

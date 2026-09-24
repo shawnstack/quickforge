@@ -147,6 +147,7 @@ export class SharedServerAgent {
       isStreaming: Boolean(initialState.isStreaming),
       streamingMessage: undefined,
       pendingToolCalls: new Set<string>(),
+      backgroundCommands: [],
       errorMessage: initialState.errorMessage,
       contextCompaction: initialState.contextCompaction ?? null,
       contextUsage: initialState.contextUsage ?? null,

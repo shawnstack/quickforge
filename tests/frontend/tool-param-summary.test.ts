@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { normalizeToolArguments, summarizeParams, truncateSummary } from '../../src/lib/tool-param-summary'
 
 describe('summarizeParams', () => {
-  it('returns the command for run_command', () => {
-    expect(summarizeParams('run_command', { command: 'npm run test' })).toBe('npm run test')
+  it('returns the command for run_command as one collapsed line', () => {
+    expect(summarizeParams('run_command', { command: 'npm   run\ntest' })).toBe('npm run test')
   })
 
   it('prefers the path field when present', () => {

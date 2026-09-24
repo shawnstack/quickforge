@@ -1,6 +1,7 @@
 import { createWriteStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { resolveWorkspacePath, toWorkspaceRelative, assertSafeWorkspacePath, truncateText, splitLines, walkFiles } from '../utils/workspace.mjs'
 import { resolveRipgrepExecutable } from '../utils/ripgrep.mjs'
 import { logsDir } from '../storage.mjs'
@@ -20,9 +21,18 @@ import { backupFileBeforeWrite, recordFileAfterWrite } from '../session-file-bac
 import { withSessionFileLock } from '../session-file-lock.mjs'
 
 // --- read_file ---
+function isCommandLogPath(candidate) {
+  const root = path.resolve(logsDir, 'commands')
+  const resolved = path.resolve(candidate)
+  const relative = path.relative(root, resolved)
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative) && resolved.endsWith('.log')
+}
+
 export async function toolReadFile(params, context) {
-  const file = resolveWorkspacePath(params?.path, context)
-  await assertSafeWorkspacePath(file, context)
+  const requestedPath = String(params?.path || '')
+  const commandLog = path.isAbsolute(requestedPath) && isCommandLogPath(requestedPath)
+  const file = commandLog ? path.resolve(requestedPath) : resolveWorkspacePath(requestedPath, context)
+  if (!commandLog) await assertSafeWorkspacePath(file, context)
 
   const text = await fs.readFile(file, 'utf8')
   const lines = splitLines(text)
@@ -34,7 +44,14 @@ export async function toolReadFile(params, context) {
 
   return {
     content: truncateText(`${content}${suffix}`),
-    details: { path: toWorkspaceRelative(file, context), project: context?.project, totalLines: lines.length, offset, limit },
+    details: {
+      path: commandLog ? file : toWorkspaceRelative(file, context),
+      project: context?.project,
+      totalLines: lines.length,
+      offset,
+      limit,
+      commandLog,
+    },
   }
 }
 
@@ -780,6 +797,7 @@ function tailLabel(name, truncated) {
 }
 
 function commandStatus(meta = {}) {
+  if (meta.background) return 'Status: running in background'
   if (meta.running) return 'Status: running'
   const flags = [
     meta.timedOut ? 'timed out' : null,
@@ -799,6 +817,7 @@ function formatCommandOutput(command, stdout, stderr, meta = {}) {
   if (typeof meta.timeoutMs === 'number') lines.push(`Timeout: ${formatDurationMs(meta.timeoutMs)}`)
   if (meta.cwd) lines.push(`CWD: ${meta.cwd}`)
   if (meta.outputFile) lines.push(`Full output: ${meta.outputFile}`)
+  if (meta.background && meta.taskId) lines.push(`Background task: ${meta.taskId}`)
   if (meta.truncated) lines.push(`Output mode: showing stdout/stderr previews; each stream is limited to the last ${COMMAND_PREVIEW_LINES} lines and both streams share ${COMMAND_PREVIEW_TOTAL_CHARS} characters. Full output is saved to the log file.`)
   if (meta.logError) lines.push(`Log warning: ${meta.logError}`)
   lines.push('', tailLabel('STDOUT', meta.stdoutTruncated), stdout || '(empty)', '', tailLabel('STDERR', meta.stderrTruncated), stderr || '(empty)')
@@ -854,6 +873,41 @@ function killProcessTree(child, signal = 'SIGTERM') {
 }
 
 const runningCommands = new Map()
+const backgroundTasks = new Map()
+const MAX_TRACKED_BACKGROUND_TASKS = 200
+
+function rememberBackgroundTask(record) {
+  backgroundTasks.set(record.taskId, record)
+  while (backgroundTasks.size > MAX_TRACKED_BACKGROUND_TASKS) {
+    const oldest = backgroundTasks.keys().next().value
+    if (oldest === undefined) break
+    backgroundTasks.delete(oldest)
+  }
+}
+
+function publicBackgroundCommandTask(task) {
+  return {
+    taskId: task.taskId,
+    toolCallId: task.toolCallId,
+    sessionId: task.sessionId,
+    command: task.command,
+    description: task.description,
+    outputFile: task.outputFile,
+    pid: task.pid,
+    startedAt: task.startedAt,
+    status: task.status,
+  }
+}
+
+export function listBackgroundCommandTasks(sessionId) {
+  const tasks = []
+  for (const task of backgroundTasks.values()) {
+    if (task.status !== 'running') continue
+    if (sessionId && task.sessionId !== sessionId) continue
+    tasks.push(publicBackgroundCommandTask(task))
+  }
+  return tasks
+}
 
 export function abortRunningCommand(toolCallId) {
   if (!toolCallId) return false
@@ -861,6 +915,17 @@ export function abortRunningCommand(toolCallId) {
   if (!stop) return false
   stop('abort')
   return true
+}
+
+export function stopBackgroundCommandTasksForSession(sessionId) {
+  if (!sessionId) return 0
+  let stopped = 0
+  for (const task of backgroundTasks.values()) {
+    if (task.sessionId !== sessionId || task.status !== 'running') continue
+    abortRunningCommand(task.toolCallId)
+    stopped += 1
+  }
+  return stopped
 }
 
 export async function toolRunCommand(params, context, runtime = {}) {
@@ -872,7 +937,10 @@ export async function toolRunCommand(params, context, runtime = {}) {
   }
 
   const description = String(params?.description || '').trim().slice(0, 500)
-  const timeoutMs = clampNumber(params?.timeoutMs, DEFAULT_RUN_COMMAND_TIMEOUT_MS, MIN_RUN_COMMAND_TIMEOUT_MS, MAX_RUN_COMMAND_TIMEOUT_MS)
+  const runInBackground = params?.run_in_background === true
+  const timeoutMs = runInBackground
+    ? null
+    : clampNumber(params?.timeoutMs, DEFAULT_RUN_COMMAND_TIMEOUT_MS, MIN_RUN_COMMAND_TIMEOUT_MS, MAX_RUN_COMMAND_TIMEOUT_MS)
   const cwd = getToolWorkspaceRoot(context)
   const startedAt = Date.now()
 
@@ -883,6 +951,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
       project: context?.project,
       cwd,
       timeoutMs,
+      runInBackground,
       outputFile: null,
       stdout: '',
       stderr: 'Command aborted before start.',
@@ -924,8 +993,11 @@ export async function toolRunCommand(params, context, runtime = {}) {
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
-      detached: process.platform !== 'win32',
+      // Foreground commands stay attached to this process. Background commands
+      // are detached so a long run does not keep the tool call or event loop open.
+      detached: runInBackground || process.platform !== 'win32',
     })
+    if (runInBackground) child.unref?.()
 
     let stdout = ''
     let stderr = ''
@@ -934,12 +1006,14 @@ export async function toolRunCommand(params, context, runtime = {}) {
     let timedOut = false
     let aborted = false
     let settled = false
+    let backgroundDetached = false
     let updateTimer = null
     let updatePending = false
     let forceKillTimer = null
+    const taskId = runInBackground ? `task_${randomUUID()}` : null
 
     const cleanup = () => {
-      clearTimeout(timer)
+      if (timer) clearTimeout(timer)
       if (forceKillTimer) clearTimeout(forceKillTimer)
       if (updateTimer) clearTimeout(updateTimer)
       if (runtime.toolCallId) runningCommands.delete(runtime.toolCallId)
@@ -960,6 +1034,9 @@ export async function toolRunCommand(params, context, runtime = {}) {
         project: context?.project,
         cwd,
         timeoutMs,
+        runInBackground,
+        background: runInBackground && !settled,
+        taskId,
         outputFile,
         stdout: stdoutPreview,
         stderr: stderrPreview,
@@ -981,9 +1058,9 @@ export async function toolRunCommand(params, context, runtime = {}) {
       }
     }
 
-    const resolveAfterLogClose = (result) => {
+    const closeCommandLog = (result, afterClose) => {
       if (!logStream) {
-        resolve(result)
+        afterClose(result)
         return
       }
       const details = result.details || {}
@@ -995,30 +1072,82 @@ export async function toolRunCommand(params, context, runtime = {}) {
         `Duration: ${formatDurationMs(details.durationMs)}`,
         `Timed out: ${Boolean(details.timedOut)}`,
         `Aborted: ${Boolean(details.aborted)}`,
+        taskId ? `Background task: ${taskId}` : null,
         'Command finished.',
         '',
-      ].join('\n'))
-      logStream.end(() => resolve(result))
+      ].filter((line) => line !== null).join('\n'))
+      logStream.end(() => afterClose(result))
     }
 
     const finish = ({ code = null, signal = null, error = null } = {}) => {
-      if (settled) return
+      if (settled) return null
       flushUpdate()
       settled = true
       cleanup()
       const durationMs = Date.now() - startedAt
+      let result
       if (error) {
-        const details = commonDetails({ error: error.message, aborted, timedOut, durationMs })
-        resolveAfterLogClose({
+        const details = commonDetails({ error: error.message, aborted, timedOut, durationMs, running: false, background: false })
+        result = {
           isError: true,
           content: truncateText(formatCommandOutput(command, details.stdout, `Error running command: ${error.message}\n${details.stderr}`.trim(), details)),
           details,
-        })
-        return
+        }
+      } else {
+        const details = commonDetails({ code, signal, timedOut, aborted, durationMs, running: false, background: false })
+        result = { content: truncateText(formatCommandOutput(command, details.stdout, details.stderr, details)), details }
       }
-      const details = commonDetails({ code, signal, timedOut, aborted, durationMs })
-      const content = formatCommandOutput(command, details.stdout, details.stderr, details)
-      resolveAfterLogClose({ content: truncateText(content), details })
+      closeCommandLog(result, (closed) => {
+        if (backgroundDetached) notifyBackgroundExit(closed)
+        else resolve(closed)
+      })
+      return result
+    }
+
+    const notifyBackgroundExit = (result) => {
+      if (!taskId) return
+      const existing = backgroundTasks.get(taskId)
+      const record = {
+        taskId,
+        toolCallId: runtime.toolCallId || null,
+        sessionId: context?.sessionId || null,
+        command,
+        description,
+        cwd,
+        outputFile,
+        pid: child.pid ?? null,
+        startedAt,
+        finishedAt: Date.now(),
+        status: result.details?.aborted ? 'aborted' : result.details?.timedOut ? 'timed_out' : result.details?.code === 0 ? 'completed' : 'failed',
+        code: result.details?.code ?? null,
+        signal: result.details?.signal ?? null,
+      }
+      rememberBackgroundTask({ ...existing, ...record })
+      const text = [
+        '<task-notification>',
+        `Task ${taskId} exited.`,
+        `Command: ${command}`,
+        `Status: ${record.status}`,
+        `Exit code: ${record.code ?? 'unknown'}${record.signal ? `, signal: ${record.signal}` : ''}`,
+        outputFile ? `Output file: ${outputFile}` : null,
+        'Read the output file for the complete stdout and stderr. The process is no longer running.',
+        '</task-notification>',
+      ].filter(Boolean).join('\n')
+      try {
+        runtime.onBackgroundExit?.({
+          taskId,
+          sessionId: record.sessionId,
+          toolCallId: record.toolCallId,
+          outputFile,
+          text,
+          phase: 'exit',
+          tasks: listBackgroundCommandTasks(record.sessionId),
+          result,
+          details: record,
+        })
+      } catch {
+        // A late notification must not change the command result.
+      }
     }
 
     const stopChild = (reason) => {
@@ -1031,6 +1160,23 @@ export async function toolRunCommand(params, context, runtime = {}) {
     }
 
     if (runtime.toolCallId) runningCommands.set(runtime.toolCallId, stopChild)
+    if (taskId) {
+      rememberBackgroundTask({
+        taskId,
+        toolCallId: runtime.toolCallId || null,
+        sessionId: context?.sessionId || null,
+        command,
+        description,
+        cwd,
+        outputFile,
+        pid: child.pid ?? null,
+        startedAt,
+        finishedAt: null,
+        status: 'running',
+        code: null,
+        signal: null,
+      })
+    }
 
     function onAbort() {
       stopChild('abort')
@@ -1067,7 +1213,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
       updatePending = true
       if (!updateTimer) updateTimer = setTimeout(emitUpdate, 150)
     }
-    const timer = setTimeout(() => {
+    const timer = timeoutMs == null ? null : setTimeout(() => {
       stopChild('timeout')
       finish({ signal: 'SIGTERM' })
     }, timeoutMs)
@@ -1097,6 +1243,40 @@ export async function toolRunCommand(params, context, runtime = {}) {
     })
     child.on('error', (err) => {
       finish({ error: err })
+    })
+
+    if (!runInBackground) return
+
+    backgroundDetached = true
+    const started = commonDetails({
+      running: true,
+      background: true,
+      detached: true,
+      pid: child.pid ?? null,
+    })
+    try {
+      runtime.onBackgroundExit?.({
+        taskId,
+        sessionId: context?.sessionId || null,
+        toolCallId: runtime.toolCallId || null,
+        outputFile,
+        phase: 'start',
+        tasks: listBackgroundCommandTasks(context?.sessionId),
+        details: started,
+      })
+    } catch {
+      // The detached command is already running; a start notice is optional.
+    }
+    resolve({
+      content: truncateText([
+        formatCommandOutput(command, '', '', started),
+        '',
+        'The command is detached and this call has returned. Keep working in this turn.',
+        'The process continues across turns until it exits or you stop it.',
+        'stdout and stderr are appended to the output file.',
+        'A task-notification is delivered when the process exits; read the output file for the complete output.',
+      ].join('\n')),
+      details: started,
     })
   })
 }

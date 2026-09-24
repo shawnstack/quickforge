@@ -257,6 +257,9 @@ describe('process folding order', () => {
     expect(isProcessToolsGroupMember('generate_image')).toBe(false)
     expect(isProcessToolsGroupMember('read_file')).toBe(true)
     expect(isProcessToolsGroupMember('edit_file')).toBe(true)
+    expect(isProcessToolsGroupMember('run_command')).toBe(true)
+    expect(isProcessToolsGroupMember('run_command', { details: { background: true, running: true } })).toBe(false)
+    expect(isProcessToolsGroupMember('run_command', { details: { background: true, running: false } })).toBe(true)
   })
 
   it('keeps the injected Thinking icon separate from the native chevron after re-decoration', () => {

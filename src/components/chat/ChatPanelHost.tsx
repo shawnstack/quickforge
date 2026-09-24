@@ -1172,6 +1172,7 @@ export function ChatPanelHost({
           fileReferenceSuggestionsEnabled: !sideChatMode,
           subagentRunningIndicatorEnabled: !sideChatMode && !props.readOnly,
           getPendingToolCalls: () => agent.state.pendingToolCalls,
+          getBackgroundCommands: () => (agent as ServerAgent).state.backgroundCommands ?? [],
           disabledControls: sideChatMode,
           onAccessModeChange: props.onAccessModeChange,
           onTogglePlanMode: props.onTogglePlanMode,
@@ -1653,7 +1654,7 @@ export function ChatPanelHost({
           scheduleDecorateRef.current?.()
         }
       }
-      if (eventType === 'tool_execution_start' || eventType === 'tool_execution_update' || eventType === 'tool_execution_end') {
+      if (eventType === 'background_commands' || eventType === 'tool_execution_start' || eventType === 'tool_execution_update' || eventType === 'tool_execution_end') {
         scheduleToolInterfaceUpdate()
         scheduleDecorateRef.current?.()
       }

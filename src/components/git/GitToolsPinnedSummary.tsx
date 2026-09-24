@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import {
   Bot,
+  SquareTerminal,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -21,7 +22,7 @@ import {
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import { GoalSummarySection } from '@/components/git/GoalSummarySection'
 import { GoalIcon } from '@/components/goal-icon'
-import type { TodoWriteItem, TodoWriteStatus } from '@/components/chat/panel-decoration'
+import type { BackgroundCommandSummary, TodoWriteItem, TodoWriteStatus } from '@/components/chat/panel-decoration'
 import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
 import { buildGoalCardViewModel } from '@/components/chat/panel-decoration/goal-card'
 import type { GoalAction, GoalState } from '@/lib/goal'
@@ -44,6 +45,8 @@ type GitToolsPinnedSummaryProps = {
   todos: TodoWriteItem[]
   runningSubagentRuns: SubagentRunPayload[]
   finishedSubagentRuns: SubagentRunPayload[]
+  backgroundCommands?: BackgroundCommandSummary[]
+  onStopBackgroundCommand?: (command: BackgroundCommandSummary) => void
   /** Authoritative session goal; drives the first section and the goal capsule segment. */
   goal?: GoalState | null
   /** Session the goal belongs to (the shared pending/dirty key). */
@@ -73,7 +76,7 @@ type PinnedSummaryWidgetStyle = CSSProperties & {
 }
 
 type CapsuleSegment = {
-  key: 'goal' | 'tasks' | 'git' | 'agents' | 'fallback'
+  key: 'goal' | 'tasks' | 'git' | 'agents' | 'commands' | 'fallback'
   aria: string
   content: ReactNode
 }
@@ -154,6 +157,8 @@ export function GitToolsPinnedSummary({
   todos,
   runningSubagentRuns,
   finishedSubagentRuns,
+  backgroundCommands = [],
+  onStopBackgroundCommand,
   goal,
   goalSessionId,
   onGoalAction,
@@ -264,6 +269,18 @@ export function GitToolsPinnedSummary({
             <FileDiff className="size-3.5" aria-hidden="true" />
             <span className="text-emerald-600">+{totals.additions}</span>
             <span className="text-red-600">−{totals.deletions}</span>
+          </>
+        ),
+      })
+    }
+    if (backgroundCommands.length > 0) {
+      segments.push({
+        key: 'commands',
+        aria: t('backgroundCommandIndicatorAria', { count: backgroundCommands.length }),
+        content: (
+          <>
+            <SquareTerminal className="size-3.5" aria-hidden="true" />
+            <span>{backgroundCommands.length}</span>
           </>
         ),
       })
@@ -813,6 +830,26 @@ export function GitToolsPinnedSummary({
               {showAllTasks ? t('pinnedCollapseTasks') : t('pinnedViewAllTasks', { count: todos.length })}
             </button>
           ) : null}
+        </section>
+      ) : null}
+
+      {backgroundCommands.length > 0 ? (
+        <section className={cn((hasGoalSection || hasGitSection || todos.length > 0) && 'mt-3 border-t-[0.5px] border-[color-mix(in_oklab,var(--border)_28%,transparent)] pt-3')} aria-labelledby="pinned-commands-title">
+          <div id="pinned-commands-title" className="mb-2 flex items-center justify-between gap-3 pr-8 text-xs font-medium text-muted-foreground">
+            <span>{t('backgroundCommandMenuTitle', { count: backgroundCommands.length })}</span>
+          </div>
+          <div className="space-y-1">
+            {backgroundCommands.map((command) => (
+              <div key={command.taskId} className="flex min-h-11 items-center gap-2.5 px-1.5">
+                <SquareTerminal className="size-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{command.description || t('backgroundCommandLabel')}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{command.command}</span>
+                </span>
+                <button type="button" className="quickforge-background-command-stop" aria-label={t('backgroundCommandStopAria', { command: command.command })} onClick={() => onStopBackgroundCommand?.(command)}>{t('backgroundCommandStop')}</button>
+              </div>
+            ))}
+          </div>
         </section>
       ) : null}
 

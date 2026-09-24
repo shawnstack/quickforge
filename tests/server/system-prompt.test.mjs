@@ -55,6 +55,9 @@ describe('system prompt', () => {
       ],
     })
 
+    expect(prompt).toContain('set run_command run_in_background to true')
+    expect(prompt).toContain('task-notification arrives when it exits')
+    expect(prompt).toContain('Do not background commands with shell syntax')
     expect(prompt).toContain('use Explore first for read-only repository research before implementation decisions')
     expect(prompt).toContain('file discovery')
     expect(prompt).toContain('call-chain lookup')

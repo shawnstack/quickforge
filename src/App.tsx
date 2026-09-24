@@ -519,6 +519,7 @@ function MainApp() {
       'message_end',
       'messages_replaced',
       'agent_end',
+      'background_commands',
       // Goal transitions (plan confirm, pause/resume, accept, cancel) drive the
       // pinned summary's goal section and capsule.
       'goal_updated',
@@ -540,6 +541,10 @@ function MainApp() {
     t,
     // 置顶摘要展开显示全部已结束 run，防御上限 MAX_TERMINAL_SUBAGENT_RUNS。
     MAX_TERMINAL_SUBAGENT_RUNS,
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
+  ), [agentManager.agent, pinnedSummaryRevision])
+  const pinnedSummaryBackgroundCommands = useMemo(() => (
+    (agentManager.agent as { state?: { backgroundCommands?: import('@/components/chat/panel-decoration').BackgroundCommandSummary[] } } | null)?.state?.backgroundCommands ?? []
   // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
   ), [agentManager.agent, pinnedSummaryRevision])
   const pinnedSummaryRunningSubagentRuns = useMemo(() => extractRunningSubagentRuns(
@@ -1725,6 +1730,7 @@ function MainApp() {
         pinnedSummaryTodos.length > 0
         || pinnedSummarySubagentRuns.length > 0
         || pinnedSummaryRunningSubagentRuns.length > 0
+        || pinnedSummaryBackgroundCommands.length > 0
         || titleGitStatus?.isGitRepository
         || Boolean(pinnedSummaryGoal)
       ) ? (
@@ -1734,6 +1740,16 @@ function MainApp() {
           todos={pinnedSummaryTodos}
           runningSubagentRuns={pinnedSummaryRunningSubagentRuns}
           finishedSubagentRuns={pinnedSummarySubagentRuns}
+          backgroundCommands={pinnedSummaryBackgroundCommands}
+          onStopBackgroundCommand={(command) => {
+            const sessionId = command.sessionId || agentManager.agent?.sessionId
+            if (!sessionId || !command.toolCallId) return
+            void fetch(`/api/agents/${encodeURIComponent(sessionId)}/abort-tool`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ toolCallId: command.toolCallId }),
+            })
+          }}
           goal={pinnedSummaryGoal}
           goalSessionId={pinnedSummaryGoalSessionId}
           onGoalAction={handlePinnedGoalAction}

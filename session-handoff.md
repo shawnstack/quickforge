@@ -1,3 +1,33 @@
+## 当前交接：composer-console-fixed-width（done，2026-09-24）
+
+- Current Objective（当前目标）: 输入框旁控制台弹出面板不再被长命令撑宽。已实现，未提交。
+- 改动内容: 后台命令菜单固定宽度。长命令在条目内横向滚动，左右高斯模糊渐隐。
+- Files（改动文件）: src/index.css、tests/frontend/subagent-running-indicator.test.ts、design-mockups/command-console-fixed-width.html、feature_list.json、progress.md、session-handoff.md。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机点输入框旁终端图标，确认面板宽度不变，长命令可横向滚动并看到左右模糊。
+
+---
+
+## 当前交接：background-command-presence（done，2026-09-24）
+
+- Current Objective（当前目标）: 后台命令在对话和 Composer 运行摘要中可见，并可从摘要关闭。已实现并验证，未提交。
+- 改动内容: 运行中的后台命令独立显示；摘要计数和列表包含它，列表项调用 abort-tool 关闭。退出后工具结果改为终态，摘要同步移除。
+- Files（改动文件）: server/tools/index.mjs、server/agent-manager.mjs、server/agent-session-queries.mjs、src/lib/server-agent.ts、src/lib/server-agent-types.ts、src/lib/shared-server-agent.ts、src/lib/i18n.ts、src/index.css、src/components/chat/ChatPanelHost.tsx、src/components/chat/panel-decoration.ts、process-folding.ts、subagent-running-indicator.ts、ChatSurface.tsx、local-workspace-tool-renderer.tsx、相关测试、docs/wiki、feature_list.json、progress.md、session-handoff.md。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机确认后台命令在回合结束后仍单独显示，摘要可关闭并随退出消失。
+
+---
+
+## 当前交接：run-command-background（done，2026-09-24）
+
+- Current Objective（当前目标）: `run_command` 支持后台分离执行。已实现并验证，未提交。
+- 改动内容: `run_in_background: true` 立即返回输出文件和 taskId；进程跨回合运行，stdout/stderr 持续写入命令日志；退出后向原会话发 `<task-notification>`。流式中走 followUp，空闲时开下一轮，活跃 Goal 暂存。销毁会话会终止其后台命令。
+- Files（改动文件）: server/tools/definitions.mjs、server/tools/index.mjs、server/tool-wiring.mjs、server/agent-manager.mjs、server/system-prompt.mjs、src/lib/tool-renderers/shared.tsx、src/components/chat/surface/ToolMessage.tsx、tests/server/tools/run-command-background.test.mjs、tests/server/tools/definitions.test.mjs、tests/server/system-prompt.test.mjs、docs/wiki/server/tools/README.md、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机跑一条长命令，确认当前回合可继续使用其他工具，并在进程退出后收到通知。
+
+---
+
 ## 当前交接：thinking-before-tool-order（done，2026-09-24）
 
 - Current Objective（当前目标）: 第一轮思考过程保持在后续工具调用之前。已补上组前插入与跨 assistant 两条路径，未提交。

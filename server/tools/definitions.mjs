@@ -187,11 +187,12 @@ export const workspaceTools = [
   {
     name: 'run_command',
     label: 'Run command',
-    description: 'Run a shell command in the project bound to this chat. Use this for lint, build, tests, git status, and diagnostics.',
+    description: 'Run a shell command in the project bound to this chat. Use this for lint, build, tests, git status, and diagnostics. Set run_in_background true to detach a long command: the call returns immediately with an output file, the process keeps running across turns until it exits or is stopped, and a task-notification arrives when it exits. Do not use shell backgrounding.',
     parameters: Type.Object({
       command: Type.String({ description: 'Command to execute in the workspace.' }),
-      timeoutMs: Type.Optional(Type.Number({ description: 'Command timeout in milliseconds. Defaults to 1 hour and is clamped to the supported range.', default: 3600000 })),
+      timeoutMs: Type.Optional(Type.Number({ description: 'Command timeout in milliseconds. Defaults to 1 hour and is clamped to the supported range. Ignored when run_in_background is true.', default: 3600000 })),
       description: Type.Optional(Type.String({ description: 'Short explanation of why this command is being run.' })),
+      run_in_background: Type.Optional(Type.Boolean({ description: 'Start the command detached and return immediately. The process keeps running across turns until it exits or is explicitly stopped. stdout and stderr are appended to the returned output file, and a task-notification is delivered when the process exits. Defaults to false.', default: false })),
     }),
     executionMode: 'sequential',
   },

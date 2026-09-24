@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>输入框控制台 · 固定宽度</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --background: #fff;
+      --foreground: #18181b;
+      --muted: #f4f4f5;
+      --muted-foreground: #71717a;
+      --border: #e4e4e7;
+      --popover: #fff;
+      font-family: "Segoe UI", "PingFang SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #fafafa;
+      color: var(--foreground);
+    }
+
+    .page {
+      width: min(760px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 72px 0 40px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .lead {
+      margin: 0 0 28px;
+      color: var(--muted-foreground);
+      font-size: 13px;
+    }
+
+    .composer {
+      border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+      border-radius: 24px;
+      background: #fff;
+      box-shadow: 0 22px 70px -34px rgb(15 23 42 / 0.45);
+    }
+
+    .draft {
+      min-height: 72px;
+      padding: 16px 18px 8px;
+      color: #a1a1aa;
+      font-size: 14px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 8px 8px;
+    }
+
+    .icon {
+      position: relative;
+      display: inline-flex;
+      width: 32px;
+      height: 32px;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted-foreground);
+      cursor: pointer;
+    }
+
+    .icon[aria-expanded="true"],
+    .icon:hover { background: var(--muted); color: var(--foreground); }
+
+    .badge {
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      min-width: 16px;
+      height: 16px;
+      border: 2px solid #fff;
+      border-radius: 999px;
+      background: #059669;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 650;
+      line-height: 12px;
+    }
+
+    .send {
+      margin-left: auto;
+      width: 32px;
+      height: 32px;
+      border: 0;
+      border-radius: 999px;
+      background: #18181b;
+      color: #fff;
+    }
+
+    .menu {
+      width: min(22.5rem, calc(100vw - 1.5rem));
+      margin: 10px 0 0 4px;
+      max-height: min(420px, calc(100vh - 24px));
+      overflow: hidden;
+      padding: 6px;
+      border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+      border-radius: 14px;
+      background: color-mix(in oklab, var(--popover) 98%, white);
+      box-shadow: 0 18px 46px -26px rgb(15 23 42 / 0.42);
+    }
+
+    .title {
+      padding: 7px 10px 5px;
+      color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .item {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 9px;
+    }
+
+    .copy {
+      display: flex;
+      min-width: 0;
+      flex: 1;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .name {
+      overflow: hidden;
+      font-size: 12.5px;
+      font-weight: 650;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .task {
+      min-width: 0;
+      overflow-x: auto;
+      color: color-mix(in oklab, var(--muted-foreground) 84%, transparent);
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.35;
+      white-space: pre;
+      scrollbar-width: thin;
+      -webkit-mask-image: linear-gradient(to right, transparent, #000 1.15rem, #000 calc(100% - 1.35rem), transparent);
+      mask-image: linear-gradient(to right, transparent, #000 1.15rem, #000 calc(100% - 1.35rem), transparent);
+    }
+
+    .stop {
+      flex: 0 0 auto;
+      border: 0;
+      border-radius: 999px;
+      padding: 3px 9px;
+      background: transparent;
+      color: var(--muted-foreground);
+      font-size: 11.5px;
+    }
+
+    .stop:hover { background: color-mix(in oklab, var(--muted) 72%, transparent); color: var(--foreground); }
+
+    .note {
+      margin: 16px 4px 0;
+      color: var(--muted-foreground);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>输入框控制台</h1>
+    <p class="lead">点终端图标后，面板宽度固定。长命令在条目内横向滚动，左右边缘高斯模糊。</p>
+    <section class="composer">
+      <div class="draft">输入消息…</div>
+      <div class="toolbar">
+        <button class="icon" type="button" aria-label="添加">+</button>
+        <button class="icon" id="console" type="button" aria-expanded="true" aria-label="后台命令 2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" x2="20" y1="19" y2="19"></line>
+          </svg>
+          <span class="badge">2</span>
+        </button>
+        <button class="send" type="button" aria-label="发送">↑</button>
+      </div>
+    </section>
+    <section class="menu" id="menu">
+      <div class="title">后台命令 · 2</div>
+      <div class="item">
+        <div class="copy">
+          <div class="name">运行测试</div>
+          <div class="task">npm run test -- --reporter=verbose --coverage --testPathPattern=command-console-fixed-width-and-a-very-long-argument</div>
+        </div>
+        <button class="stop" type="button">停止</button>
+      </div>
+      <div class="item">
+        <div class="copy">
+          <div class="name">监听构建</div>
+          <div class="task">npm run dev</div>
+        </div>
+        <button class="stop" type="button">停止</button>
+      </div>
+    </section>
+    <p class="note">面板宽 360px，窄窗口时收缩到视口内。拖动窗口看宽度是否还被长命令撑开。</p>
+  </main>
+  <script>
+    const button = document.querySelector('#console')
+    const menu = document.querySelector('#menu')
+    button.addEventListener('click', () => {
+      const open = button.getAttribute('aria-expanded') !== 'true'
+      button.setAttribute('aria-expanded', String(open))
+      menu.hidden = !open
+    })
+  </script>
+</body>
+</html>

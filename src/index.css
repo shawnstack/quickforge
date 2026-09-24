@@ -2250,6 +2250,13 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
 .qf-chat-panel > .qf-scroll-container > .max-w-3xl,
 .qf-chat-panel > .shrink-0 > .max-w-3xl {
   max-width: min(var(--quickforge-chat-content-max-width), calc(100% - 2rem)) !important;
+  min-width: 0;
+}
+
+.qf-chat-panel .qf-assistant-message,
+.qf-chat-panel .qf-assistant-message > .flex {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .quickforge-chat-panel-host {
@@ -3565,6 +3572,16 @@ html.dark .quickforge-file-path-link {
    让内部绝对定位的跑马灯获得可测量的弹性空间。 */
 .quickforge-tool-title {
   flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.quickforge-local-tool,
+.quickforge-local-tool-shell,
+.quickforge-tool-summary {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .quickforge-subagent-title {
@@ -3574,10 +3591,14 @@ html.dark .quickforge-file-path-link {
 .quickforge-tool-label,
 .quickforge-subagent-label {
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.quickforge-tool-summary-detail {
+  display: inline;
 }
 
 /* Tool-running highlight sweep: a long-running loop, exempt from the motion
@@ -3660,6 +3681,15 @@ html.dark .quickforge-file-path-link {
 .quickforge-tool-summary-detail {
   font-family: var(--font-mono);
   font-weight: 400;
+}
+
+.quickforge-command-summary {
+  display: inline-block;
+  max-width: min(42rem, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .quickforge-tool-chevron {
@@ -4056,6 +4086,45 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
 
 .quickforge-diff-stats-del {
   color: rgb(185 28 28);
+}
+
+/* 命令控制台锁在对话列宽内。长命令不换行、不撑开对话框：
+   滚动发生在控制台内部，左右溢出用高斯模糊渐隐。 */
+.qf-chat-panel .qf-tool-message,
+.qf-chat-panel .quickforge-process-body,
+.qf-chat-panel .quickforge-process-body-inner,
+.qf-chat-panel .quickforge-local-tool,
+.qf-chat-panel .quickforge-local-tool > .mt-3 {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.qf-console-block {
+  --qf-console-fade: color-mix(in oklab, var(--muted) 30%, var(--background));
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.qf-console-block.border-destructive\/50 {
+  --qf-console-fade: color-mix(in oklab, var(--destructive) 10%, var(--background));
+}
+
+.qf-console-scroll {
+  display: block;
+  width: 0;
+  min-width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.25rem, #000 calc(100% - 1.5rem), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 1.25rem, #000 calc(100% - 1.5rem), transparent);
 }
 
 .quickforge-diff-view {
@@ -5138,6 +5207,65 @@ html.dark .quickforge-subagent-running-badge {
   font-variant-numeric: tabular-nums;
 }
 
+.quickforge-background-command .line-through {
+  text-decoration: line-through;
+}
+
+.quickforge-background-command-trigger {
+  position: relative;
+}
+
+.quickforge-background-command-badge {
+  position: absolute;
+  top: -0.3rem;
+  right: -0.3rem;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 999px;
+  background: rgb(5 150 105);
+  color: #fff;
+  font-size: 0.66rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quickforge-background-command-menu {
+  width: min(22.5rem, calc(100vw - 1.5rem));
+  overflow: hidden;
+}
+
+.quickforge-background-command-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: 0.55rem;
+}
+
+.quickforge-background-command-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.quickforge-background-command-stop {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+.quickforge-background-command-stop:hover,
+.quickforge-background-command-stop:focus-visible {
+  background: color-mix(in oklab, var(--muted) 72%, transparent);
+  color: var(--foreground);
+}
+
 .quickforge-subagent-running-task {
   overflow: hidden;
   color: color-mix(in oklab, var(--muted-foreground) 84%, transparent);
@@ -5145,6 +5273,16 @@ html.dark .quickforge-subagent-running-badge {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.quickforge-background-command-menu .quickforge-subagent-running-task {
+  min-width: 0;
+  overflow-x: auto;
+  text-overflow: clip;
+  white-space: pre;
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.15rem, #000 calc(100% - 1.35rem), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 1.15rem, #000 calc(100% - 1.35rem), transparent);
 }
 
 .quickforge-composer .quickforge-plan-inline[aria-pressed="true"] {

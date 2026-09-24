@@ -46,6 +46,7 @@ export type ToolDiffDetails = {
 export function toolStatus(result: ToolResultLike | undefined, isStreaming?: boolean): ToolStatusKey {
   const details = isRecord(result?.details) ? result.details : undefined
   if (result?.isError || details?.aborted === true || details?.timedOut === true) return 'error'
+  if (details?.background === true && details?.running === true) return 'running'
   if (isStreaming) return 'running'
   return result ? 'done' : 'called'
 }
@@ -862,13 +863,13 @@ function ConsoleScrollArea({ content }: { content: string }) {
   })
 
   return (
-    <pre ref={scrollRef} className="max-h-96 overflow-auto whitespace-pre-wrap break-words p-3">{content}</pre>
+    <pre ref={scrollRef} className="qf-console-scroll max-h-96 w-full max-w-full min-w-0 overflow-auto p-3">{content}</pre>
   )
 }
 
 export function renderConsoleBlock(content: string, variant: 'default' | 'error') {
   return (
-    <div className={`qf-console-block rounded-md border font-mono text-xs ${variant === 'error' ? 'border-destructive/50 bg-destructive/10 text-destructive' : 'border-border bg-muted/30 text-foreground'}`}>
+    <div className={`qf-console-block w-full max-w-full min-w-0 overflow-hidden rounded-md border font-mono text-xs ${variant === 'error' ? 'border-destructive/50 bg-destructive/10 text-destructive' : 'border-border bg-muted/30 text-foreground'}`}>
       {/* 旧 `<console-block>` 的标题栏（`L('console')` 标签左、复制按钮右），
           结构与本文件 ToolCodeBlock 的标题栏同构。 */}
       <div className="flex items-center justify-between gap-2 px-3 py-1">

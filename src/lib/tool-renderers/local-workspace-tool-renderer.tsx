@@ -1,5 +1,5 @@
 import { t, type AppTextKey } from '@/lib/i18n'
-import { summarizeParams } from '@/lib/tool-param-summary'
+import { summarizeParams, truncateSummary } from '@/lib/tool-param-summary'
 import { extractQuickForgeTiming } from '@/lib/tool-execution-events'
 import {
   detailsWithoutDiffText,
@@ -46,9 +46,12 @@ export class LocalWorkspaceToolRenderer {
     const timing = extractQuickForgeTiming(result?.details)
     // write_file / edit_file / read_file 摘要区渲染 FileIcon + basename 的整体元素（见
     // renderToolFileSummary）；其余工具保持 summarizeParams 纯文本摘要。
-    const summary = (this.toolName === 'write_file' || this.toolName === 'edit_file' || this.toolName === 'read_file')
+    const rawSummary = (this.toolName === 'write_file' || this.toolName === 'edit_file' || this.toolName === 'read_file')
       ? renderToolFileSummary(this.toolName, params)
       : summarizeParams(this.toolName, params, result)
+    const summary = this.toolName === 'run_command' && typeof rawSummary === 'string'
+      ? <span className="quickforge-command-summary" title={rawSummary}>{truncateSummary(rawSummary, 72)}</span>
+      : rawSummary
     const detailed = toolDisplayDetailed()
     const input = detailed ? stringifyValue(params) : ''
     const output = toolOutputText(this.toolName, params, result, isStreaming)
@@ -69,16 +72,16 @@ export class LocalWorkspaceToolRenderer {
             initiallyOpen={false}
             aria-busy={status === 'running' ? 'true' : undefined}
           >
-            <summary className="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
+            <summary className={this.toolName === 'run_command' && isRecord(result?.details) && result.details.background === true ? 'quickforge-tool-summary quickforge-background-command flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none' : 'quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none'}>
               {renderToolIcon(this.toolName)}
               <span className="quickforge-tool-title min-w-0">
-                <span className={status === 'running' ? 'quickforge-tool-label quickforge-tool-running-sweep' : 'quickforge-tool-label'}>{t(this.labelKey)}{summary ? <span className="quickforge-tool-summary-detail text-muted-foreground"> · {summary}</span> : null}</span>
+                <span className={status === 'running' ? 'quickforge-tool-label quickforge-tool-running-sweep' : this.toolName === 'run_command' && isRecord(result?.details) && result.details.background === true ? 'quickforge-tool-label line-through' : 'quickforge-tool-label'}>{t(this.labelKey)}{summary ? <span className="quickforge-tool-summary-detail text-muted-foreground"> · {summary}</span> : null}</span>
                 {renderToolChevron()}
                 {(this.toolName === 'write_file' || this.toolName === 'edit_file') ? renderInlineDiffStats(diff) : null}
                 {status === 'running' ? null : renderStatus(status, timing)}
               </span>
             </summary>
-            <div className="mt-3 space-y-3">
+            <div className="mt-3 min-w-0 max-w-full space-y-3">
               {input ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('input')}</div>{renderCodeBlock(input, 'json')}</div> : null}
               {output ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('output')}</div>{this.toolName === 'run_command' ? renderConsoleBlock(output, variant) : renderCodeBlock(output, 'text')}</div> : null}
               {typeof diff?.text === 'string' ? renderDiff(diff, isNewFile) : null}

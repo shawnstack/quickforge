@@ -278,6 +278,23 @@ describe('renderConsoleBlock auto-scroll', () => {
     renderArea(output) // 无内容变化的普通重渲染
     expect(host.scrollTop).toBe(960)
   })
+
+  it('keeps long command lines inside a fixed-width horizontal scroller with edge fades', () => {
+    const frame = renderConsoleBlock('node -e "console.log(\'a very long command that must not stretch the chat column\')"', 'default') as TestNode
+    expect(String(frame.props.className)).toContain('max-w-full')
+    expect(String(frame.props.className)).toContain('min-w-0')
+    expect(String(frame.props.className)).toContain('overflow-hidden')
+
+    const { pre } = mountScrollArea(new HookLifecycle())
+    const className = String(pre.props.className)
+    expect(className).toContain('qf-console-scroll')
+    expect(className).toContain('w-full')
+    expect(className).toContain('max-w-full')
+    expect(className).toContain('min-w-0')
+    expect(className).toContain('overflow-auto')
+    expect(className).not.toContain('whitespace-pre-wrap')
+    expect(className).not.toContain('break-words')
+  })
 })
 
 describe('ToolDetails open-state memory', () => {

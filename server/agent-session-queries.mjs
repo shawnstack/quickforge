@@ -3,7 +3,7 @@ import { getPendingApprovalForSession, getPendingAutoCompactApprovalForSession }
 import { getPendingAskForSession } from './ask-store.mjs'
 
 // Inject projections to avoid a runtime dependency back to the manager facade.
-export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecutions, runtimePendingToolCalls, getSessionContextUsage }) {
+export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecutions, runtimePendingToolCalls, getSessionContextUsage, listBackgroundCommands = () => [] }) {
 
 
   /**
@@ -39,6 +39,7 @@ export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecu
       tools: session.agent.state.tools,
       messages,
       pendingToolCalls: runtimePendingToolCalls(session),
+      backgroundCommands: listBackgroundCommands(session.sessionId),
       contextCompaction: session.contextCompaction,
       contextUsage: getSessionContextUsage(session),
       pendingToolApproval: getPendingApprovalForSession(session.sessionId),

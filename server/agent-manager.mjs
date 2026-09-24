@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { Agent } from '@earendil-works/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
-import { loadSkillToolContext, abortRunningCommand } from './tools/index.mjs'
+import { loadSkillToolContext, abortRunningCommand, listBackgroundCommandTasks, stopBackgroundCommandTasksForSession } from './tools/index.mjs'
 import { createSkillTools, globalMemoryTool, workspaceTools } from './tools/definitions.mjs'
 import { createMcpToolDefinitions, isMcpToolName, subscribeMcpToolsetChanged } from './mcp/registry.mjs'
 import { createPluginToolDefinitions, isPluginToolName } from './plugins/registry.mjs'
@@ -144,6 +144,7 @@ export function currentSessionTurnId(sessionId) {
 
 export const { getSessionState, isSessionFileRollbackBusy, getSessionStatus, tryAcquireSse, isSseConnected, releaseSse, getSessionEventBus } = createSessionQueries({
   sessionGoal, messagesWithRuntimeToolExecutions, runtimePendingToolCalls, getSessionContextUsage,
+  listBackgroundCommands: listBackgroundCommandTasks,
 })
 
 // Goal continuations keep the full history and start a fresh turn id; the goal
@@ -258,6 +259,11 @@ export async function createServerTools(projectId, projectContext, skillsContext
     ...projectContext,
     ...skillToolContext,
     ...(sessionId ? { sessionId, scope, projectId } : {}),
+    onBackgroundCommandExit: (notification) => {
+      const session = agentSessions.get(notification?.sessionId || sessionId)
+      if (!session || notification?.sessionId !== session.sessionId) return
+      deliverBackgroundCommandNotification(session, notification)
+    },
   }
   // Live view of the session's current turn: the context object is built
   // once per session, while the turn changes on every runPrompt run.
@@ -1472,6 +1478,87 @@ export async function abortRun(sessionId) {
  * reject an active goal themselves: a goal run owns the turn structure and a
  * queued user message would interleave with it (or silently derail the goal).
  */
+const BACKGROUND_COMMAND_NOTICE_PREFIX = '<task-notification>'
+
+function backgroundCommandNoticeMessage(notification) {
+  return {
+    role: 'user',
+    content: notification.text,
+    timestamp: Date.now(),
+    details: {
+      quickforgeBackgroundCommand: {
+        taskId: notification.taskId,
+        toolCallId: notification.toolCallId,
+        outputFile: notification.outputFile,
+        status: notification.details?.status || null,
+      },
+    },
+  }
+}
+
+function settleBackgroundCommandToolResult(session, notification) {
+  const toolCallId = notification?.toolCallId
+  const result = notification?.result
+  if (!toolCallId || !result) return false
+  const messages = session.agent?.state?.messages
+  if (!Array.isArray(messages)) return false
+  const index = messages.findIndex((message) => message?.role === 'toolResult' && message.toolCallId === toolCallId)
+  if (index < 0) return false
+  const current = messages[index]
+  const currentDetails = current.details && typeof current.details === 'object' ? current.details : {}
+  const nextDetails = result.details && typeof result.details === 'object' ? result.details : {}
+  messages[index] = {
+    ...current,
+    content: [{ type: 'text', text: String(result.content || '') }],
+    details: {
+      ...currentDetails,
+      ...nextDetails,
+      running: false,
+      background: false,
+      toolCallId,
+    },
+    isError: result.isError === true,
+  }
+  return true
+}
+
+function deliverBackgroundCommandNotification(session, notification) {
+  if (!session) return
+  const settled = settleBackgroundCommandToolResult(session, notification)
+  emitSessionEvent(session, {
+    type: 'background_commands',
+    backgroundCommands: Array.isArray(notification?.tasks) ? notification.tasks : listBackgroundCommandTasks(session.sessionId),
+    ...(settled ? { messages: session.agent.state.messages } : {}),
+  })
+  if (settled) scheduleSessionPersist(session)
+  if (!session.agent || notification?.phase === 'start' || !notification?.text?.startsWith(BACKGROUND_COMMAND_NOTICE_PREFIX)) return
+  const message = backgroundCommandNoticeMessage(notification)
+  emitSessionEvent(session, {
+    type: 'task-notification',
+    taskId: notification.taskId,
+    toolCallId: notification.toolCallId,
+    outputFile: notification.outputFile,
+    status: notification.details?.status || null,
+    text: notification.text,
+  })
+  resetIdleTimer(session)
+  if (session.agent.state.isStreaming || session.abortPending || session.goalRunSettling) {
+    session.agent.followUp(message)
+    return
+  }
+  if (activeGoalStatus(session)) {
+    session.pendingBackgroundCommandNotices = [
+      ...(session.pendingBackgroundCommandNotices || []),
+      message,
+    ]
+    return
+  }
+  const promptPromise = session.agent.prompt(message)
+  promptPromise.catch((error) => {
+    logger.error(`Failed to deliver background command notification for session ${session.sessionId}:`, error, { sessionId: session.sessionId })
+  })
+}
+
 function assertNoActiveGoal(session, verb) {
   const goal = activeGoalStatus(session)
   if (!goal) return
@@ -1603,6 +1690,7 @@ export async function destroyAgent(sessionId) {
   } catch {
     // ignore
   }
+  stopBackgroundCommandTasksForSession(sessionId)
 
   // Clean up any pending approvals for this session before removing it.
   for (const [_toolCallId, approval] of pendingApprovals) {

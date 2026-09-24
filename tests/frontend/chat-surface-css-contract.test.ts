@@ -424,6 +424,40 @@ describe('chat row font scale contract', () => {
     )
     expect(block).toContain(MESSAGE_FONT_SCALE)
   })
+
+  it('locks the console to the chat column and fades horizontal overflow', () => {
+    const column = declarationBlock('.qf-chat-panel > .qf-scroll-container > .max-w-3xl,')
+    expect(column).toContain('min-width: 0;')
+    expect(column).not.toContain('overflow-x: clip;')
+
+    const chain = declarationBlock('.qf-chat-panel .qf-tool-message,')
+    expect(chain).toContain('.qf-chat-panel .quickforge-local-tool > .mt-3')
+    expect(chain).toContain('min-width: 0;')
+    expect(chain).toContain('max-width: 100%;')
+
+    const block = declarationBlock('.qf-console-block {')
+    expect(block).toContain('width: 100%;')
+    expect(block).toContain('max-width: 100%;')
+    expect(block).toContain('min-width: 0;')
+    expect(block).toContain('overflow: hidden;')
+
+    const scroll = declarationBlock('.qf-console-scroll {')
+    expect(scroll).toContain('width: 0;')
+    expect(scroll).toContain('min-width: 100%;')
+    expect(scroll).toContain('max-width: 100%;')
+    expect(scroll).toContain('overflow-x: auto;')
+    expect(scroll).toContain('white-space: pre;')
+    expect(scroll).toContain('mask-image: linear-gradient(to right, transparent, #000 1.25rem, #000 calc(100% - 1.5rem), transparent);')
+    expect(scroll).not.toContain('pre-wrap')
+
+    const summary = declarationBlock('.quickforge-local-tool,\n.quickforge-local-tool-shell,\n.quickforge-tool-summary {')
+    expect(summary).toContain('max-width: 100%;')
+    expect(summary).toContain('overflow: hidden;')
+
+    const commandSummary = declarationBlock('.quickforge-command-summary {')
+    expect(commandSummary).toContain('text-overflow: ellipsis;')
+    expect(commandSummary).toContain('white-space: nowrap;')
+  })
 })
 
 describe('process fold hierarchy contract', () => {

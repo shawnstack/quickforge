@@ -219,7 +219,10 @@ const SUBSCRIBED_EVENTS = new Set([
   'tool_execution_start',
   'tool_execution_update',
   'tool_execution_end',
+  'background_commands',
 ])
+
+export const CHAT_SURFACE_REFRESH_EVENTS = SUBSCRIBED_EVENTS
 
 /** Whether an agent event requires a fresh `readAgentSnapshot` copy. */
 export function isSnapshotRefreshEvent(eventType: string): boolean {

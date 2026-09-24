@@ -239,13 +239,17 @@ function toolNameFromMessage(toolMessage: ToolMessageElement) {
   return toolMessage.tool?.name || toolMessage.toolCall?.name || ''
 }
 
-export function isProcessToolsGroupMember(toolName: string) {
-  return toolName !== 'run_subagent' && toolName !== 'generate_image'
+export function isProcessToolsGroupMember(toolName: string, result?: unknown) {
+  const details = isRecord(result) && isRecord(result.details) ? result.details : undefined
+  if (toolName === 'run_subagent' || toolName === 'generate_image') return false
+  if (toolName === 'run_command' && details?.background === true) return false
+  return true
 }
 
 function isGroupableProcessTool(node: HTMLElement) {
+  const toolMessage = node as ToolMessageElement
   return isProcessNodeKind(node, 'tool-message')
-    && isProcessToolsGroupMember(toolNameFromMessage(node as ToolMessageElement))
+    && isProcessToolsGroupMember(toolNameFromMessage(toolMessage), toolMessage.result)
 }
 
 function toolMessageIsError(toolMessage: ToolMessageElement) {

@@ -11,6 +11,9 @@ vi.mock('@/lib/i18n', () => ({
       subagentRunningIndicatorMenuAria: 'Running subagents',
       subagentRunningIndicatorItemAria: `Open ${params?.name}: ${params?.task}`,
       subagentRunningIndicatorElapsed: `${params?.seconds}s`,
+      backgroundCommandLabel: 'Background command',
+      backgroundCommandStop: 'Stop',
+      backgroundCommandStopAria: `Stop ${params?.command}`,
     }
     return values[key] ?? key
   },
@@ -27,6 +30,7 @@ class FakeElement {
   textContent: string | null = null
   innerHTML = ''
   type = ''
+  disabled = false
   offsetHeight = 160
   onclick: ((event: FakeEvent) => void) | null = null
   onpointerdown: ((event: FakeEvent) => void) | null = null
@@ -462,6 +466,53 @@ describe('subagent running Composer indicator', () => {
     expect(menu.querySelectorAll('[data-run-id="run-1"]')).toEqual([])
   })
 
+  it('shows a background command without a subagent and stops it from the summary', async () => {
+    const dom = buildDom()
+    vi.stubGlobal('document', dom.document)
+    vi.stubGlobal('window', dom.windowObject)
+    const fetchMock = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { setupSubagentRunningIndicator } = await loadModule()
+    const command = {
+      taskId: 'task-1',
+      sessionId: 'session-1',
+      toolCallId: 'tool-1',
+      command: 'npm test',
+      description: 'tests',
+      startedAt: Date.now(),
+    }
+    let commands = [command]
+    const options = {
+      panel: dom.panel as unknown as HTMLElement,
+      leftControls: dom.leftControls as unknown as HTMLElement,
+      enabled: true,
+      getPendingToolCalls: () => [],
+      getBackgroundCommands: () => commands,
+      sessionId: 'session-1',
+      dismissComposerMenus: vi.fn(),
+      store: new SubagentRunStore(),
+    }
+
+    setupSubagentRunningIndicator(options)
+    const trigger = dom.panel.querySelector('.quickforge-subagent-running-trigger')!
+    expect(trigger.querySelector('.quickforge-subagent-running-badge')!.textContent).toBe('1')
+    trigger.onpointerdown!(new FakeEvent())
+    const item = dom.body.querySelector('.quickforge-background-command-item')!
+    expect(item.querySelector('.quickforge-subagent-running-task')!.textContent).toBe('npm test')
+    const stop = item.querySelector('.quickforge-background-command-stop')!
+    stop.onclick!(new FakeEvent())
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    expect(fetchMock).toHaveBeenCalledWith('/api/agents/session-1/abort-tool', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ toolCallId: 'tool-1' }),
+    }))
+    expect(stop.disabled).toBe(true)
+
+    commands = []
+    setupSubagentRunningIndicator(options)
+    expect(dom.panel.querySelector('.quickforge-subagent-running-trigger')).toBeNull()
+  })
+
   it('keeps the open menu and rebinds the owner trigger when the trigger element is recreated', async () => {
     const dom = buildDom()
     vi.stubGlobal('document', dom.document)
@@ -501,6 +552,8 @@ describe('subagent running indicator source contracts', () => {
   it('wires main-chat state sync, menu mutual exclusion, event sync, and cleanup', () => {
     expect(hostSource).toContain('subagentRunningIndicatorEnabled: !sideChatMode && !props.readOnly')
     expect(hostSource).toContain('getPendingToolCalls: () => agent.state.pendingToolCalls')
+    expect(hostSource).toContain('getBackgroundCommands: () => (agent as ServerAgent).state.backgroundCommands ?? []')
+    expect(hostSource).toContain("eventType === 'background_commands'")
     expect(hostSource).toMatch(/tool_execution_start[\s\S]*scheduleDecorateRef\.current\?\.\(\)/)
     expect(hostSource).toContain('removeSubagentRunningIndicator(panel)')
     expect(decorationSource).toContain('removeSubagentRunningIndicatorMenu(panel)')
@@ -545,6 +598,13 @@ describe('subagent running indicator source contracts', () => {
     expect(cssSource).toContain('.quickforge-subagent-running-badge')
     expect(cssSource).toContain('html.dark .quickforge-subagent-running-badge')
     expect(cssSource).toContain('max-height: min(420px, calc(100vh - 24px))')
+    const commandMenu = ruleFor('.quickforge-background-command-menu').body
+    expect(commandMenu).toMatch(/width:\s*min\(22\.5rem,\s*calc\(100vw - 1\.5rem\)\)/)
+    expect(commandMenu).toMatch(/overflow:\s*hidden/)
+    const commandTask = ruleFor('.quickforge-background-command-menu .quickforge-subagent-running-task').body
+    expect(commandTask).toMatch(/overflow-x:\s*auto/)
+    expect(commandTask).toMatch(/white-space:\s*pre/)
+    expect(commandTask).toContain('mask-image: linear-gradient(to right, transparent, #000 1.15rem, #000 calc(100% - 1.35rem), transparent)')
     expect(cssSource).not.toContain('.quickforge-subagent-running-spinner')
     expect(cssSource).not.toContain('.quickforge-subagent-running-trigger-label')
   })

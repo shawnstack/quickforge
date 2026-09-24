@@ -39,11 +39,6 @@
             android:name=".QuickForgeNotificationService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
-
-        <service
-            android:name=".remote.RemoteTunnelService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
     </application>
 
     <!-- Permissions -->

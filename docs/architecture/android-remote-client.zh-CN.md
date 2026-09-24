@@ -1,10 +1,10 @@
 # Android Tailscale 远程客户端
 
-> **状态说明（2026-09-18）**：服务端 QuickForge Cloud 云服务（`server/cloud/`、`/api/cloud/*`、托管 `qf-agent` 进程）已整体移除，当前云远程功能不可用。Android 原生侧的云相关代码按决策暂时保留，待后续单独清理；服务器直连（局域网 / Tailscale）不受影响。正文其余部分保留作历史参考。
+> **状态说明（2026-09-24）**：服务端 QuickForge Cloud 与 Android 原生云隧道（`RemoteTunnel`、云账户、WebRTC、`127.0.0.1:18080`）均已移除。Android 只保留局域网 / Tailscale 直连和任务通知。下文关于云账户或云远程的描述仅作历史参考。
 
 ## 架构
 
-Android 端是 Capacitor 薄壳，不在 APK 内运行 QuickForge 服务。App 启动后先由用户选择云账户或服务器连接方式；服务器选择页以已保存列表为主，可为每个地址设置别名并点击整行连接，`lastUsedUrl` 仅用于显示“上次使用”标记，不会触发自动连接。添加表单仅在首次使用或主动添加时展开，会明确提示 Tailscale 地址范围并预览规范化后的连接地址。服务器管理操作收拢在行内菜单中，删除前需要确认。云账户检测到已有原生会话时也会先等待用户确认，只有点击“继续当前登录”后才加载设备；也可清理本地会话并使用其他账号。进入已连接的服务后，可点击侧边栏底部显示的当前地址返回连接选择页。WebView 直接加载服务端提供的 QuickForge 页面。
+Android 端是 Capacitor 薄壳，不在 APK 内运行 QuickForge 服务。App 启动后进入服务器选择页；列表以已保存地址为主，可为每个地址设置别名并点击整行连接，`lastUsedUrl` 仅用于显示“上次使用”标记，不会触发自动连接。添加表单仅在首次使用或主动添加时展开，会明确提示 Tailscale 地址范围并预览规范化后的连接地址。服务器管理操作收拢在行内菜单中，删除前需要确认。进入已连接的服务后，可点击侧边栏底部显示的当前地址返回连接选择页。WebView 直接加载服务端提供的 QuickForge 页面。
 
 ```text
 Android App → Tailscale → http(s)://<QuickForge 服务>:5176
@@ -17,7 +17,7 @@ Android App → Tailscale → http(s)://<QuickForge 服务>:5176
 - App 连接页只接受以 `.ts.net` 结尾的 MagicDNS 完整域名，或 Tailscale `100.64.0.0/10` 地址。
 - App 保存服务器地址列表和最后使用的地址，不保存局域网访问密码。
 - 服务端仍要求在本机设置中显式开启“局域网完整访问”并配置强密码。
-- 已通过 LAN 密码认证的远程客户端可以使用宿主机的 QuickForge Cloud 身份、模型与额度，并可访问 Storage、Backup、更新与重启；权限不再依赖客户端 IP 网段。
+- 已通过 LAN 密码认证的远程客户端可访问 Storage、Backup、更新与重启；权限不再依赖客户端 IP 网段。QuickForge Cloud 身份、模型与额度已不可用。
 - 已认证远程请求仍不能使用终端、修改系统代理或终端 Shell、弹出目录选择器或打开服务端电脑上的资源管理器/IDE。
 - 不要将 QuickForge `5176` 端口直接映射到公网；优先使用 Tailscale ACL 进一步限制可访问设备。
 

@@ -1,3 +1,24 @@
+## 当前交接：thinking-before-tool-order（done，2026-09-24）
+
+- Current Objective（当前目标）: 第一轮思考过程保持在后续工具调用之前。已补上组前插入与跨 assistant 两条路径，未提交。
+- 根因: 折走时的 `sourceNextSibling` 在工具行插到它前面后仍然有效，还原会把思考放到工具后面。
+- 改动内容: 锚点前移到新插入节点之前；全量重建按来源 content 序号排回源序。
+- Files（改动文件）: src/components/chat/panel-decoration/process-folding.ts、tests/frontend/process-folding-incremental.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机确认第一轮「思考 → 工具」不再颠倒。
+
+---
+
+## 当前交接：android-cloud-removal（done，2026-09-24）
+
+- Current Objective（当前目标）: 移除安卓端云服务原生功能和页面残留。已完成并提交。
+- 改动内容: 删除 RemoteTunnel 插件、云账户存储、云 API、WebRTC 隧道服务及测试；Manifest、Gradle、Capacitor 白名单和架构文档同步。保留 Tailscale/局域网直连与通知服务。
+- Files（改动文件）: android/app/src/main/java/com/quickforge/mobile/remote/、android/app/src/test/java/com/quickforge/mobile/remote/、MainActivity.java、AndroidManifest.xml、android/app/build.gradle、capacitor.config.ts、docs/architecture/android-remote-client.zh-CN.md、docs/wiki/src/README.md、feature_list.json、progress.md、session-handoff.md。
+- Blockers（阻塞）: 未执行 Android Gradle 构建。旧 APK 前端资源仍在 `android/app/src/main/assets/public/`。
+- Next Session（下一步）: 需要新 APK 时运行 `npm run android:sync` 覆盖旧云页面资源。
+
+---
+
 ## 当前交接：tool-file-underline-on-name（done，2026-09-23）
 
 - Current Objective（当前目标）: 编写/写入文件的下划线只在悬停具体文件名时出现。已实现，未提交。

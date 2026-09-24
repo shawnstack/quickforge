@@ -1,12 +1,33 @@
 {
   "features": [
     {
-      "id": "thinking-before-tool-order",
-      "name": "第一轮思考过程不再排到后续工具调用后面",
-      "description": "用户反馈「第一轮对话的思考过程显示的顺序不对，等后面工具调用之类的会乱序」。同一条 assistant 内容容器里，思考块先被折进过程组时 sourceNextSibling 记成 null；工具行随后 append 进同一容器。全量重建时 restoreGroupedProcessNode 走 append，把思考块放到工具行之后，再按这个错误顺序重新收集。",
+      "id": "android-cloud-removal",
+      "name": "移除安卓端云服务原生功能",
+      "description": "服务端 QuickForge Cloud 已下线，安卓前端云页面源码也已不存在，但原生 RemoteTunnel 插件、云账户、WebRTC 隧道和旧打包页面仍留在 Android 工程。",
       "status": "done",
       "dependencies": [],
-      "approach": "锚点失效时不再 append 到容器末尾，改为插回仍在该容器内的过程组之前。组占着这些节点被折走的位置，组之后才是折走之后才出现的兄弟，因此思考仍在工具前面。有效锚点的 insertBefore 路径不变。",
+      "approach": "删除 android remote 包及其单元测试，取消插件注册、前台服务声明和仅供隧道使用的 WebRTC/OkHttp 依赖，并从 Capacitor 导航白名单移除云 API 地址。保留 MobileServerConnectPage、Tailscale 地址规则和 QuickForgeNotificationService。",
+      "files": [
+        "android/app/src/main/java/com/quickforge/mobile/MainActivity.java",
+        "android/app/src/main/AndroidManifest.xml",
+        "android/app/build.gradle",
+        "capacitor.config.ts",
+        "docs/architecture/android-remote-client.zh-CN.md",
+        "docs/wiki/src/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "确认 remote 源码目录已删除，MainActivity、Manifest、Gradle 与 Capacitor 配置不再引用云隧道；npx tsc --noEmit 与 npx eslint capacitor.config.ts 通过。未运行 Android Gradle 构建。",
+      "boundaries": "不改局域网/Tailscale 直连、通知服务、Web/Desktop 与服务端。未手工覆盖 android/app/src/main/assets/public 旧前端包，也未修改 dist/package-dist/package-offline。已提交。"
+    },
+    {
+      "id": "thinking-before-tool-order",
+      "name": "第一轮思考过程不再排到后续工具调用后面",
+      "description": "用户反馈「第一轮对话的思考过程显示的顺序不对，等后面工具调用之类的会乱序」。思考块先折走后，工具行可能追加在过程组后面，也可能插到组前面，或出现在另一条 assistant。只信折走时的 sourceNextSibling 会把思考还原到工具后面，全量重建再按这个 DOM 序收集。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "锚点失效时插回过程组之前；锚点还在但前面又插入了节点时，改插到这些新节点之前。全量重建再用 orderRestoredProcessNodes 按来源 message.content 序号排回同一条 assistant 内的源序。",
       "files": [
         "src/components/chat/panel-decoration/process-folding.ts",
         "tests/frontend/process-folding-incremental.test.ts",
@@ -15,8 +36,8 @@
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "定向 vitest process-folding-incremental / process-folding / process-folding-ownership / thinking-streaming-stage / chat-surface-release-refold 5 文件 86 passed（含同容器思考→工具顺序回归）；npx eslint（改动的 ts 文件）通过。",
-      "boundaries": "只改全量还原时失效锚点的插入位置。不改收集顺序、增量后缀追加、release gate 与思考头接管。未引入新视觉模式；wiki 两份所有权租约已同步。无依赖变更；未手工修改生成产物；未提交。"
+      "verification": "定向 vitest process-folding-incremental / process-folding / process-folding-ownership 3 文件 74 passed，另含 thinking-streaming-stage 与思考头回归；npx eslint 与 npx tsc --noEmit 通过。",
+      "boundaries": "只改全量还原锚点与重建时的源序校正。不改增量后缀追加、release gate 与思考头接管。未引入新视觉模式；wiki 两份所有权租约已同步。无依赖变更；未手工修改生成产物。"
     },
     {
       "id": "thinking-hint-hide-when-thinking-ends",

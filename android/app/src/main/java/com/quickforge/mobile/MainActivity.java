@@ -49,7 +49,6 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void load() {
-        registerPlugin(com.quickforge.mobile.remote.RemoteTunnel.class);
         super.load();
 
         WebView webView = bridge.getWebView();

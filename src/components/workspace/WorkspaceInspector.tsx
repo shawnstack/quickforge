@@ -1423,12 +1423,12 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                           ) : (
                             <Code2 className={cn('size-4 shrink-0', active ? '' : '')} />
                           )}
-                          <span className={cn('quickforge-inspector-tab-label', compactTabs && 'is-faded')}>{label}</span>
+                          <span className={cn('quickforge-inspector-tab-label flex-1', compactTabs && 'is-faded')}>{label}</span>
                           <span
                             role="button"
                             tabIndex={0}
                             className={cn(
-                              'ml-0.5 inline-flex size-5 shrink-0 cursor-default items-center justify-center rounded-full opacity-0 transition-all hover:bg-black hover:text-white group-hover:opacity-100',
+                              'ml-auto inline-flex size-5 shrink-0 cursor-default items-center justify-center rounded-full opacity-0 transition-all hover:bg-black hover:text-white group-hover:opacity-100',
                               active && 'opacity-100',
                             )}
                             onPointerDown={(event) => event.stopPropagation()}

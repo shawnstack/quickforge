@@ -218,6 +218,13 @@ describe('tool row flattening contract', () => {
     expect(markup).not.toContain('animate-spin')
   })
 
+  it('shrinks a long subagent title instead of splitting leftover space with the command marquee', () => {
+    // 标题与跑马灯同为 flex:1 时，长标题会和后续命令平分剩余宽度，中间空出一段。
+    // 标题按内容收缩（长了才省略），剩余空间留给命令。
+    expect(css).toMatch(/\.quickforge-subagent-label \{\s*flex: 0 1 auto;\s*max-width: 100%;\s*\}/)
+    expect(css).toMatch(/\.quickforge-subagent-marquee \{\s*display: inline-flex;\s*flex: 1 1 auto;/)
+  })
+
   it('keeps the fallback tool card carded in the panel and flattens it only inside process groups', () => {
     const markup = renderToStaticMarkup(createElement(ToolMessage, { toolCall: toolCall('unknown_tool') }))
     expect(markup).toContain('bg-card')
@@ -447,8 +454,15 @@ describe('chat row font scale contract', () => {
     expect(scroll).toContain('max-width: 100%;')
     expect(scroll).toContain('overflow-x: auto;')
     expect(scroll).toContain('white-space: pre;')
-    expect(scroll).toContain('mask-image: linear-gradient(to right, transparent, #000 1.25rem, #000 calc(100% - 1.5rem), transparent);')
+    expect(scroll).not.toContain('mask-image')
     expect(scroll).not.toContain('pre-wrap')
+
+    const bothFades = declarationBlock('.qf-console-scroll[data-overflow-start="true"][data-overflow-end="true"] {')
+    expect(bothFades).toContain('mask-image: linear-gradient(to right, transparent, #000 1.25rem, #000 calc(100% - 1.5rem), transparent);')
+    const startFade = declarationBlock('.qf-console-scroll[data-overflow-start="true"] {')
+    expect(startFade).toContain('mask-image: linear-gradient(to right, transparent, #000 1.25rem);')
+    const endFade = declarationBlock('.qf-console-scroll[data-overflow-end="true"] {')
+    expect(endFade).toContain('mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);')
 
     const summary = declarationBlock('.quickforge-local-tool,\n.quickforge-local-tool-shell,\n.quickforge-tool-summary {')
     expect(summary).toContain('max-width: 100%;')

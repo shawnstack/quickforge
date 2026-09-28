@@ -3588,13 +3588,23 @@ html.dark .quickforge-file-path-link {
   flex: 1 1 auto;
 }
 
+/* 标题按内容收缩，长标题才在剩余空间内省略；不要和跑马灯平分 flex-grow，
+   否则长标题与后续命令之间会空出一段。 */
+.quickforge-subagent-label {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
 .quickforge-tool-label,
 .quickforge-subagent-label {
   min-width: 0;
-  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.quickforge-tool-label {
+  flex: 1 1 auto;
 }
 
 .quickforge-tool-summary-detail {
@@ -4089,7 +4099,7 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
 }
 
 /* 命令控制台锁在对话列宽内。长命令不换行、不撑开对话框：
-   滚动发生在控制台内部，左右溢出用高斯模糊渐隐。 */
+   滚动发生在控制台内部；只有真正溢出的一侧才渐隐，短行保持实底。 */
 .qf-chat-panel .qf-tool-message,
 .qf-chat-panel .quickforge-process-body,
 .qf-chat-panel .quickforge-process-body-inner,
@@ -4123,6 +4133,19 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
   word-break: normal;
   overflow-x: auto;
   overscroll-behavior-x: contain;
+}
+
+.qf-console-scroll[data-overflow-start="true"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.25rem);
+  mask-image: linear-gradient(to right, transparent, #000 1.25rem);
+}
+
+.qf-console-scroll[data-overflow-end="true"] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+}
+
+.qf-console-scroll[data-overflow-start="true"][data-overflow-end="true"] {
   -webkit-mask-image: linear-gradient(to right, transparent, #000 1.25rem, #000 calc(100% - 1.5rem), transparent);
   mask-image: linear-gradient(to right, transparent, #000 1.25rem, #000 calc(100% - 1.5rem), transparent);
 }

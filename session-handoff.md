@@ -1,3 +1,27 @@
+## 当前交接：tool-command-console-scroll（done，2026-09-28）
+
+- Current Objective（当前目标）: run_command 长命令可在工具卡内滚动，且未溢出的文字不再被遮成空白。已实现，未提交。
+- 根因: 控制台左右渐隐始终生效，短行两端也被虚化。
+- 改动内容: 只在真正溢出的一侧渐隐。未超出时不遮罩；滚到中间两侧渐隐；滚到末尾只淡左侧。
+- Files（改动文件）: src/lib/tool-renderers/shared.tsx、src/index.css、tests/frontend/tool-renderer-shared-state.test.ts、tests/frontend/chat-surface-css-contract.test.ts、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest：52 passed。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机展开一条长 run_command，确认可横向滚动，短行和滚到尽头的一侧不再空白。
+
+---
+
+## 当前交接：subagent-title-command-gap（done，2026-09-28）
+
+- Current Objective（当前目标）: 子任务输出很长时，标题和后面的命令显示中间不再空出一段。已实现，未提交。
+- 根因: 标题和命令跑马灯都是 flex:1，剩余宽度被平分。
+- 改动内容: 标题按内容收缩，长标题才省略；命令继续占用剩余空间。
+- Files（改动文件）: src/index.css、tests/frontend/chat-surface-css-contract.test.ts、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest：chat-surface-css-contract 36 passed。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机看一条长输出的子任务，确认标题紧挨后面的命令，过长时标题省略而不是中间留白。
+
+---
+
 ## 当前交接：composer-console-fixed-width（done，2026-09-24）
 
 - Current Objective（当前目标）: 输入框旁控制台弹出面板不再被长命令撑宽。已实现，未提交。

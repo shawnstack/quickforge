@@ -853,17 +853,33 @@ function ConsoleCopyButton({ content }: { content: string }) {
  * `<pre class="max-h-96 overflow-auto …">`（旧 `.console-scroll` 是零 CSS 规则
  * 的 JS 钩子类名，见 fix-w11 分片 §2.2）。
  */
+function syncConsoleScrollFades(element: HTMLElement) {
+  const dataset = element.dataset ?? (element.dataset = {})
+  const overflow = element.scrollWidth - element.clientWidth > 1
+  dataset.overflowStart = overflow && element.scrollLeft > 1 ? 'true' : 'false'
+  dataset.overflowEnd = overflow && element.scrollLeft + element.clientWidth < element.scrollWidth - 1 ? 'true' : 'false'
+}
+
 function ConsoleScrollArea({ content }: { content: string }) {
   const scrollRef = useRef<HTMLPreElement | null>(null)
 
   // 故意不给依赖数组：每次渲染后都置底 = 旧 `updated()` 的触发次数语义。
+  // 横向渐隐只在真正溢出的一侧出现，避免短命令两端被遮成空白。
   useEffect(() => {
     const element = scrollRef.current
-    if (element) element.scrollTop = element.scrollHeight
+    if (!element) return
+    element.scrollTop = element.scrollHeight
+    syncConsoleScrollFades(element)
   })
 
   return (
-    <pre ref={scrollRef} className="qf-console-scroll max-h-96 w-full max-w-full min-w-0 overflow-auto p-3">{content}</pre>
+    <pre
+      ref={scrollRef}
+      className="qf-console-scroll max-h-96 w-full max-w-full min-w-0 overflow-auto p-3"
+      data-overflow-start="false"
+      data-overflow-end="false"
+      onScroll={(event) => syncConsoleScrollFades(event.currentTarget)}
+    >{content}</pre>
   )
 }
 

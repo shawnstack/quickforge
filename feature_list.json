@@ -1,6 +1,42 @@
 {
   "features": [
     {
+      "id": "tool-command-console-scroll",
+      "name": "工具命令长内容可滚动且不留空白",
+      "description": "run_command 工具卡命令内容特别长时要能滚动查看，并且未溢出的文字不能被渐隐遮成空白。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "控制台保持列宽内不换行、横向滚动。渐隐只打在真正溢出的一侧：未滚动时只淡右侧，滚到中间两侧都淡，滚到末尾只淡左侧，内容未超出列宽时不遮罩。",
+      "files": [
+        "src/lib/tool-renderers/shared.tsx",
+        "src/index.css",
+        "tests/frontend/tool-renderer-shared-state.test.ts",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest：tool-renderer-shared-state + chat-surface-css-contract 52 passed。",
+      "boundaries": "只改对话内 run_command 控制台。不改输入框后台命令菜单。未新增依赖，未手工修改生成产物，未提交。wiki 无需更新：模块职责未变。"
+    },
+    {
+      "id": "subagent-title-command-gap",
+      "name": "子任务标题与命令贴紧",
+      "description": "子任务输出很长时，标题和后面的命令显示中间空出一段。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "标题按内容收缩，长标题在剩余空间内省略；命令跑马灯继续占用剩余宽度，不再和标题平分 flex-grow。",
+      "files": [
+        "src/index.css",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest：chat-surface-css-contract 36 passed。",
+      "boundaries": "只改子任务摘要行的标题与命令间距。未新增依赖，未手工修改生成产物，未提交。wiki 无需更新：模块职责未变。"
+    },
+    {
       "id": "composer-console-fixed-width",
       "name": "输入框控制台固定宽度",
       "description": "点击输入框旁的控制台图标后，长命令会把弹出面板横向撑开。",

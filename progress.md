@@ -1,3 +1,23 @@
+## tool-command-console-scroll（done，2026-09-28）
+
+- Goal：run_command 命令内容特别长时可以滚动，且不要把文字显示成空白。
+- 根因：控制台常驻左右渐隐，短行和未滚到的一侧也被遮掉。
+- 改动：渐隐只出现在实际溢出的一侧；内容未超出列宽时不遮罩。横向滚动仍锁在工具卡内。
+- 验证：定向 vitest：tool-renderer-shared-state + chat-surface-css-contract 52 passed。
+- Notes：未提交。wiki 无需更新，只是现有控制台的溢出显示。
+
+---
+
+## subagent-title-command-gap（done，2026-09-28）
+
+- Goal：子任务输出很长时，标题和后面的命令显示不再中间空出一段。
+- 根因：标题和命令跑马灯都是 `flex: 1`，剩余宽度被平分。
+- 改动：标题改为按内容收缩，长标题才省略；命令继续吃剩余空间。
+- 验证：定向 vitest：chat-surface-css-contract 36 passed。
+- Notes：未提交。wiki 无需更新，只是现有摘要行的宽度分配。
+
+---
+
 ## composer-console-fixed-width（done，2026-09-24）
 
 - Goal：输入框旁控制台图标弹出的后台命令面板不再被长命令撑宽。

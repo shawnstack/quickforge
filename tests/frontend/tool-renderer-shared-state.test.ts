@@ -246,7 +246,7 @@ describe('renderConsoleBlock auto-scroll', () => {
     const pre = nodes(renderArea(output)).find((node) => node.type === 'pre')
     expect(pre).toBeDefined()
 
-    const host = { scrollTop: 0, scrollHeight: 0 }
+    const host = { scrollTop: 0, scrollHeight: 0, scrollLeft: 0, scrollWidth: 0, clientWidth: 0, dataset: {} }
     ;(pre!.props as { ref: { current: unknown } }).ref.current = host
     return { host, pre: pre!, renderArea }
   }
@@ -294,6 +294,37 @@ describe('renderConsoleBlock auto-scroll', () => {
     expect(className).toContain('overflow-auto')
     expect(className).not.toContain('whitespace-pre-wrap')
     expect(className).not.toContain('break-words')
+    expect(pre.props['data-overflow-start']).toBe('false')
+    expect(pre.props['data-overflow-end']).toBe('false')
+    expect(typeof pre.props.onScroll).toBe('function')
+  })
+
+  it('fades only the sides that actually overflow', () => {
+    const { pre } = mountScrollArea(new HookLifecycle())
+    const host = { scrollLeft: 0, scrollWidth: 240, clientWidth: 240, dataset: {} } as HTMLElement
+    ;(pre.props as { ref: { current: unknown } }).ref.current = host
+    const sync = () => {
+      ;(pre.props as { onScroll: (event: { currentTarget: HTMLElement }) => void }).onScroll({ currentTarget: host })
+    }
+
+    sync()
+    expect(host.dataset.overflowStart).toBe('false')
+    expect(host.dataset.overflowEnd).toBe('false')
+
+    host.scrollWidth = 640
+    sync()
+    expect(host.dataset.overflowStart).toBe('false')
+    expect(host.dataset.overflowEnd).toBe('true')
+
+    host.scrollLeft = 80
+    sync()
+    expect(host.dataset.overflowStart).toBe('true')
+    expect(host.dataset.overflowEnd).toBe('true')
+
+    host.scrollLeft = 400
+    sync()
+    expect(host.dataset.overflowStart).toBe('true')
+    expect(host.dataset.overflowEnd).toBe('false')
   })
 })
 

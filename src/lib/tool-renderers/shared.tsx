@@ -854,7 +854,7 @@ function ConsoleCopyButton({ content }: { content: string }) {
  * 的 JS 钩子类名，见 fix-w11 分片 §2.2）。
  */
 function syncConsoleScrollFades(element: HTMLElement) {
-  const dataset = element.dataset ?? (element.dataset = {})
+  const dataset = element.dataset
   const overflow = element.scrollWidth - element.clientWidth > 1
   dataset.overflowStart = overflow && element.scrollLeft > 1 ? 'true' : 'false'
   dataset.overflowEnd = overflow && element.scrollLeft + element.clientWidth < element.scrollWidth - 1 ? 'true' : 'false'

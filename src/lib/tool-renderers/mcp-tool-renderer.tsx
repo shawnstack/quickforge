@@ -92,7 +92,7 @@ export class McpToolRenderer {
           <summary className="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
             {renderToolIcon(this.toolName)}
             <span className="quickforge-tool-title min-w-0">
-              <span className="quickforge-tool-label">MCP{serverName ? <span className="quickforge-tool-summary-detail text-muted-foreground"> · {serverName}</span> : null}<span className="quickforge-tool-summary-detail text-muted-foreground"> · {title}</span>{summary ? <span className="quickforge-tool-summary-detail text-muted-foreground"> · {summary}</span> : null}</span>
+              <span className="quickforge-tool-label">MCP{serverName ? <span className="quickforge-tool-summary-detail text-muted-foreground"> · {serverName}</span> : null}<span className="quickforge-tool-summary-detail text-muted-foreground"> · {title}</span>{summary ? <span className="quickforge-command-summary text-muted-foreground"> · {summary}</span> : null}</span>
               {renderToolChevron()}
               {renderStatus(status, timing)}
             </span>

@@ -1,8 +1,42 @@
+## 当前交接：tool-summary-no-ellipsis（done，2026-09-28）
+
+- Current Objective（当前目标）: 工具长摘要不再省略，超长可横滑，并完成 build。
+- 改动内容: 去掉命令、生图、文件列表和子任务摘要的硬截断。工具行与子任务行改为完整文本横向滚动，H5 可触摸滑动。
+- Files（改动文件）: src/lib/tool-param-summary.ts、src/lib/subagent-run-detail.ts、工具渲染器、src/index.css、相关测试、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest 213 passed；npm run build 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机看长命令、长搜索、长生图提示词和子任务行，确认没有省略号且能滑到末尾。
+
+---
+
+## 当前交接：run-command-summary-no-ellipsis（done，2026-09-28）
+
+- Current Objective（当前目标）: run_command 摘要不再出现省略号，长命令可横向滚完。已实现，未提交。
+- 根因: 摘要硬截 72 字加 …，父级 overflow:hidden 继续裁切。
+- 改动内容: 摘要输出完整命令。超长时整行横向滚动，H5 可触摸滑动，滚动条隐藏。
+- Files（改动文件）: src/lib/tool-renderers/local-workspace-tool-renderer.tsx、src/index.css、tests/frontend/chat-surface-css-contract.test.ts、tests/frontend/local-tool-running-sweep.test.ts、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest：chat-surface-css-contract + local-tool-running-sweep 42 passed。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机看一条超长 run_command，确认没有省略号，可横滑到命令末尾。
+
+---
+
+## 当前交接：edit-diff-long-line-scroll（done，2026-09-28）
+
+- Current Objective（当前目标）: edit_file 长行在 diff 内滚动，不撑开对话，H5 可滑。已实现，未提交。
+- 改动内容: diff 块限制在列宽内。长行横向滚动且增删背景铺满整行，行号列保持可见。H5 使用 touch 横滑和纵滑。
+- Files（改动文件）: src/index.css、tests/frontend/diff-view.test.ts、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest：diff-view + chat-surface-css-contract 60 passed。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机展开一条长 edit_file，确认可横滑，行底色不中断，手机上也能滑。
+
+---
+
 ## 当前交接：tool-command-console-scroll（done，2026-09-28）
 
 - Current Objective（当前目标）: run_command 长命令可在工具卡内滚动，且未溢出的文字不再被遮成空白。已实现，未提交。
 - 根因: 控制台左右渐隐始终生效，短行两端也被虚化。
-- 改动内容: 只在真正溢出的一侧渐隐。未超出时不遮罩；滚到中间两侧渐隐；滚到末尾只淡左侧。
+- 改动内容: 溢出侧改内阴影，不用 mask。H5 可触摸横滑和纵滑。未超出不提示；滚到中间两侧提示；滚到末尾只提示左侧。
 - Files（改动文件）: src/lib/tool-renderers/shared.tsx、src/index.css、tests/frontend/tool-renderer-shared-state.test.ts、tests/frontend/chat-surface-css-contract.test.ts、feature_list.json、progress.md、session-handoff.md。
 - Evidence（验证）: 定向 vitest：52 passed。
 - Blockers（阻塞）: 无。

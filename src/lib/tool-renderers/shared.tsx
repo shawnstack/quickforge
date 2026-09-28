@@ -664,7 +664,7 @@ export function renderToolFileSummary(toolName: 'write_file' | 'edit_file' | 're
   const content = (
     <>
       <FileIcon path={path} className="size-3.5 shrink-0" />
-      <span className="min-w-0 truncate underline-offset-4 hover:underline">{artifactFileName(path)}</span>
+      <span className="quickforge-command-summary underline-offset-4 hover:underline">{artifactFileName(path)}</span>
     </>
   )
   if (!artifact) {
@@ -864,7 +864,7 @@ function ConsoleScrollArea({ content }: { content: string }) {
   const scrollRef = useRef<HTMLPreElement | null>(null)
 
   // 故意不给依赖数组：每次渲染后都置底 = 旧 `updated()` 的触发次数语义。
-  // 横向渐隐只在真正溢出的一侧出现，避免短命令两端被遮成空白。
+  // 溢出提示只改 data 属性，不用 mask 裁切文字，H5 上仍能滑到完整内容。
   useEffect(() => {
     const element = scrollRef.current
     if (!element) return

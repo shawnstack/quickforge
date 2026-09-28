@@ -20,7 +20,9 @@ export class GenerateImageToolRenderer {
         <div className="quickforge-generated-image-tool space-y-3">
           <div className="quickforge-tool-summary flex items-center gap-2 text-sm text-muted-foreground">
             {renderToolIcon('generate_image')}
-            <span className="min-w-0 flex-1 truncate">{t('generateImage')}{summary ? <span className="text-muted-foreground"> · {summary}</span> : null}</span>
+            <span className="quickforge-tool-title min-w-0">
+              <span className="quickforge-tool-label">{t('generateImage')}{summary ? <span className="quickforge-command-summary text-muted-foreground"> · {summary}</span> : null}</span>
+            </span>
             {renderStatus(status, timing)}
           </div>
           {details ? (

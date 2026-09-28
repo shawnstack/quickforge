@@ -27,9 +27,14 @@ describe('summarizeParams', () => {
       .toBe('text: from-details in server')
   })
 
-  it('joins up to three present_files paths with overflow count', () => {
+  it('joins every present_files path without an overflow count', () => {
     expect(summarizeParams('present_files', { files: ['a.html', 'b.md', 'c.ts', 'd.css', 'e.txt'] }))
-      .toBe('a.html, b.md, c.ts +2')
+      .toBe('a.html, b.md, c.ts, d.css, e.txt')
+  })
+
+  it('keeps a long generate_image prompt intact', () => {
+    const prompt = 'a'.repeat(140)
+    expect(summarizeParams('generate_image', { prompt })).toBe(prompt)
   })
 
   it('returns an empty string without params or details', () => {

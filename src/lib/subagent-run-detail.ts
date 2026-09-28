@@ -23,7 +23,7 @@ import type { AppTextKey } from '@/lib/i18n'
 import { modelDisplayLabel } from '@/lib/model-display-label'
 import { subagentProcessTraceMessages } from '@/lib/subagent-process-trace'
 import { extractQuickForgeTiming, toolStartEventWithPartialResult, type QuickForgeToolTiming, type ToolExecutionEvent } from '@/lib/tool-execution-events'
-import { normalizeToolArguments, summarizeParams, truncateSummary } from '@/lib/tool-param-summary'
+import { normalizeToolArguments, summarizeParams } from '@/lib/tool-param-summary'
 
 export type SubagentRunStatus = 'running' | 'done' | 'error' | 'called'
 
@@ -507,9 +507,6 @@ export function resolveSubagentRunPayloadForOpen(
   return storePayload?.canonicalToolCallId === payload.canonicalToolCallId ? storePayload : payload
 }
 
-/** 跑马灯单项摘要的最大长度（半角字符计），超出截断加 …。 */
-export const SUBAGENT_TOOL_SUMMARY_MAX_LENGTH = 80
-
 /**
  * 子代理当前正在执行的工具摘要列表（纯函数，供聊天摘要卡跑马灯使用）。
  * pendingToolCalls（toolCall id）× traceMessages（assistant content 的 toolCall chunk）
@@ -526,10 +523,7 @@ export function currentSubagentToolSummaries(payload: SubagentRunPayload): strin
       const id = typeof chunk.id === 'string' ? chunk.id : ''
       if (!id || !pending.has(id) || typeof chunk.name !== 'string' || !chunk.name) continue
       pending.delete(id)
-      const summary = truncateSummary(
-        summarizeParams(chunk.name, normalizeToolArguments(chunk.arguments)),
-        SUBAGENT_TOOL_SUMMARY_MAX_LENGTH,
-      )
+      const summary = summarizeParams(chunk.name, normalizeToolArguments(chunk.arguments))
       summaries.push(summary ? `${chunk.name} · ${summary}` : chunk.name)
     }
     if (pending.size === 0) break

@@ -24,12 +24,12 @@ export function summarizeParams(
   if (toolName === 'run_command' && typeof params?.command === 'string') return params.command.replace(/\s+/g, ' ').trim()
   if (toolName === 'generate_image') {
     const prompt = typeof params?.prompt === 'string' ? params.prompt.trim() : ''
-    return prompt.length > 100 ? `${prompt.slice(0, 100)}…` : prompt
+    return prompt.replace(/\s+/g, ' ')
   }
   if (toolName === 'present_files') {
     const files = Array.isArray(params?.files) ? params.files : Array.isArray(result?.details && (result.details as Record<string, unknown>).files) ? (result?.details as Record<string, unknown>).files as unknown[] : []
     const paths = files.map((item) => typeof item === 'string' ? item : isRecord(item) && typeof item.path === 'string' ? item.path : '').filter(Boolean)
-    return paths.length ? paths.slice(0, 3).join(', ') + (paths.length > 3 ? ` +${paths.length - 3}` : '') : ''
+    return paths.join(', ')
   }
   if (toolName === 'grep_files') {
     const query = typeof params?.query === 'string' && params.query

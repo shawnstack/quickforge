@@ -1,12 +1,75 @@
 {
   "features": [
     {
+      "id": "tool-summary-no-ellipsis",
+      "name": "工具长摘要不再省略",
+      "description": "工具行长内容被截成省略号，命令、搜索、生图、文件和子任务摘要都看不到后半段。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "去掉命令 72 字、生图 100 字、present_files 前 3 项和子任务 80 字截断。摘要行和子任务行改为完整文本横向滚动，H5 可触摸滑动，滚动条隐藏。",
+      "files": [
+        "src/lib/tool-param-summary.ts",
+        "src/lib/subagent-run-detail.ts",
+        "src/lib/tool-renderers/local-workspace-tool-renderer.tsx",
+        "src/lib/tool-renderers/generate-image-tool-renderer.tsx",
+        "src/lib/tool-renderers/mcp-tool-renderer.tsx",
+        "src/lib/tool-renderers/shared.tsx",
+        "src/index.css",
+        "tests/frontend/tool-param-summary.test.ts",
+        "tests/frontend/subagent-run-detail.test.ts",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "tests/frontend/local-tool-running-sweep.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 213 passed；npm run build 通过。",
+      "boundaries": "只改工具摘要展示。展开后的输出截断、附件名和菜单项省略未改。未新增依赖，未手工修改 dist。wiki 同步了子任务摘要不再截断。"
+    },
+    {
+      "id": "run-command-summary-no-ellipsis",
+      "name": "运行命令摘要不再省略",
+      "description": "run_command 摘要被截成 72 字加省略号，长命令看不到后半段。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "摘要显示完整命令，不再调用 truncateSummary。超长时整行横向滚动，H5 可触摸滑动，滚动条隐藏。",
+      "files": [
+        "src/lib/tool-renderers/local-workspace-tool-renderer.tsx",
+        "src/index.css",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "tests/frontend/local-tool-running-sweep.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest：chat-surface-css-contract + local-tool-running-sweep 42 passed。",
+      "boundaries": "只改 run_command 工具行摘要。子任务跑马灯仍使用自己的截断。未新增依赖，未手工修改生成产物，未提交。wiki 无需更新：模块职责未变。"
+    },
+    {
+      "id": "edit-diff-long-line-scroll",
+      "name": "编辑 diff 长行可滚动",
+      "description": "edit_file 的长行会撑开对话列，横向滚动时行背景露底，H5 上也不易滑动。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "diff 块锁在列宽内，长行在块内横滑，行号列保持粘住。代码列 min-width:max-content 让增删背景铺满整行。H5 使用 touch 横向和纵向滚动。",
+      "files": [
+        "src/index.css",
+        "tests/frontend/diff-view.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest：diff-view + chat-surface-css-contract 60 passed。",
+      "boundaries": "只改 edit/write 的 diff 视图。不改命令控制台。未新增依赖，未手工修改生成产物，未提交。wiki 无需更新：模块职责未变。"
+    },
+    {
       "id": "tool-command-console-scroll",
       "name": "工具命令长内容可滚动且不留空白",
       "description": "run_command 工具卡命令内容特别长时要能滚动查看，并且未溢出的文字不能被渐隐遮成空白。",
       "status": "done",
       "dependencies": [],
-      "approach": "控制台保持列宽内不换行、横向滚动。渐隐只打在真正溢出的一侧：未滚动时只淡右侧，滚到中间两侧都淡，滚到末尾只淡左侧，内容未超出列宽时不遮罩。",
+      "approach": "控制台保持列宽内不换行，横向和纵向都可滚动。H5 使用 touch 滚动，不用 mask 裁字。溢出侧只用内阴影提示：未超出不提示，未滚动只提示右侧，滚到中间两侧提示，滚到末尾只提示左侧。",
       "files": [
         "src/lib/tool-renderers/shared.tsx",
         "src/index.css",

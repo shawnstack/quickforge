@@ -3584,6 +3584,19 @@ html.dark .quickforge-file-path-link {
   overflow: hidden;
 }
 
+.quickforge-tool-summary:has(.quickforge-command-summary),
+.quickforge-subagent-tool > .quickforge-tool-summary {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  scrollbar-width: none;
+}
+
+.quickforge-tool-summary:has(.quickforge-command-summary)::-webkit-scrollbar {
+  display: none;
+}
+
 .quickforge-subagent-title {
   flex: 1 1 auto;
 }
@@ -3604,7 +3617,15 @@ html.dark .quickforge-file-path-link {
 }
 
 .quickforge-tool-label {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+}
+
+.quickforge-tool-summary:has(.quickforge-command-summary) .quickforge-tool-label,
+.quickforge-subagent-tool > .quickforge-tool-summary .quickforge-subagent-label {
+  flex: 0 0 auto;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .quickforge-tool-summary-detail {
@@ -3650,11 +3671,12 @@ html.dark .quickforge-file-path-link {
    定高一行（0.75rem × line-height 1.5）是双视图纵向滚动切换的度量前提。 */
 .quickforge-subagent-marquee {
   display: inline-flex;
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: none;
   position: relative;
-  overflow: hidden;
-  white-space: nowrap;
+  overflow: visible;
+  white-space: pre;
   font-family: var(--font-mono);
   font-size: 0.75rem;
   line-height: 1.5;
@@ -3672,10 +3694,10 @@ html.dark .quickforge-file-path-link {
 
 .quickforge-subagent-marquee .quickforge-marquee-static {
   display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre;
 }
 
 .quickforge-subagent-marquee .quickforge-marquee-moving {
@@ -3694,11 +3716,8 @@ html.dark .quickforge-file-path-link {
 }
 
 .quickforge-command-summary {
-  display: inline-block;
-  max-width: min(42rem, 100%);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: inline;
+  white-space: pre;
   vertical-align: bottom;
 }
 
@@ -4099,7 +4118,7 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
 }
 
 /* 命令控制台锁在对话列宽内。长命令不换行、不撑开对话框：
-   滚动发生在控制台内部；只有真正溢出的一侧才渐隐，短行保持实底。 */
+   滚动发生在控制台内部。H5 不用 mask 裁字，只在溢出侧加滚动提示。 */
 .qf-chat-panel .qf-tool-message,
 .qf-chat-panel .quickforge-process-body,
 .qf-chat-panel .quickforge-process-body-inner,
@@ -4132,27 +4151,31 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
   overflow-wrap: normal;
   word-break: normal;
   overflow-x: auto;
+  overflow-y: auto;
   overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  scrollbar-width: thin;
 }
 
 .qf-console-scroll[data-overflow-start="true"] {
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.25rem);
-  mask-image: linear-gradient(to right, transparent, #000 1.25rem);
+  box-shadow: inset 10px 0 8px -8px color-mix(in oklab, var(--foreground) 28%, transparent);
 }
 
 .qf-console-scroll[data-overflow-end="true"] {
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
-  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  box-shadow: inset -10px 0 8px -8px color-mix(in oklab, var(--foreground) 28%, transparent);
 }
 
 .qf-console-scroll[data-overflow-start="true"][data-overflow-end="true"] {
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.25rem, #000 calc(100% - 1.5rem), transparent);
-  mask-image: linear-gradient(to right, transparent, #000 1.25rem, #000 calc(100% - 1.5rem), transparent);
+  box-shadow:
+    inset 10px 0 8px -8px color-mix(in oklab, var(--foreground) 28%, transparent),
+    inset -10px 0 8px -8px color-mix(in oklab, var(--foreground) 28%, transparent);
 }
 
 .quickforge-diff-view {
   display: flex;
   min-width: 0;
+  max-width: 100%;
   flex-direction: column;
   gap: 0.25rem;
   padding-top: 0.375rem;
@@ -4176,12 +4199,18 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
 }
 
 .quickforge-diff-block {
+  max-width: 100%;
+  min-width: 0;
   max-height: 28rem;
   overflow: auto;
-  /* 整块单一 grid：代码列取 max(剩余宽度, 最宽行)，所有行共享列宽，
-     行背景因此铺满整个横向滚动区域，滚动条右滑不露底。 */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  scrollbar-width: thin;
+  /* 整块单一 grid：代码列至少占满可视宽度，长行在块内横向滚动。
+     行背景跟共享列一起铺满，右滑不露底。 */
   display: grid;
-  grid-template-columns: 3.1rem minmax(max-content, 1fr);
+  grid-template-columns: 3.1rem minmax(0, 1fr);
   font-family: var(--font-mono);
   font-size: 0.78rem;
   line-height: 1.45;
@@ -4194,11 +4223,15 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
 }
 
 .quickforge-diff-ln {
+  position: sticky;
+  left: 0;
+  z-index: 1;
   display: flex;
   align-items: baseline;
   justify-content: flex-end;
   min-height: 1.35em;
   padding: 0 0.55rem 0 0.25rem;
+  background: var(--background);
   color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
   font-size: 0.68rem;
   font-variant-numeric: tabular-nums;
@@ -4206,6 +4239,7 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
 }
 
 .quickforge-diff-code {
+  min-width: max-content;
   min-height: 1.35em;
   padding: 0 0.75rem 0 0.25rem;
   white-space: pre;

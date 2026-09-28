@@ -1,5 +1,5 @@
 import { t, type AppTextKey } from '@/lib/i18n'
-import { summarizeParams, truncateSummary } from '@/lib/tool-param-summary'
+import { summarizeParams } from '@/lib/tool-param-summary'
 import { extractQuickForgeTiming } from '@/lib/tool-execution-events'
 import {
   detailsWithoutDiffText,
@@ -49,8 +49,8 @@ export class LocalWorkspaceToolRenderer {
     const rawSummary = (this.toolName === 'write_file' || this.toolName === 'edit_file' || this.toolName === 'read_file')
       ? renderToolFileSummary(this.toolName, params)
       : summarizeParams(this.toolName, params, result)
-    const summary = this.toolName === 'run_command' && typeof rawSummary === 'string'
-      ? <span className="quickforge-command-summary" title={rawSummary}>{truncateSummary(rawSummary, 72)}</span>
+    const summary = typeof rawSummary === 'string' && rawSummary
+      ? <span className="quickforge-command-summary" title={rawSummary}>{rawSummary}</span>
       : rawSummary
     const detailed = toolDisplayDetailed()
     const input = detailed ? stringifyValue(params) : ''

@@ -24,7 +24,7 @@ function ruleFor(selector: string) {
 describe('ordinary local tool running sweep wiring', () => {
   it('adds the sweep class only to the running label and keeps non-visual busy semantics', () => {
     expect(renderer).toContain("aria-busy={status === 'running' ? 'true' : undefined}")
-    expect(renderer).toContain("<span className={status === 'running' ? 'quickforge-tool-label quickforge-tool-running-sweep' : 'quickforge-tool-label'}>")
+    expect(renderer).toContain("status === 'running' ? 'quickforge-tool-label quickforge-tool-running-sweep' : this.toolName === 'run_command' && isRecord(result?.details) && result.details.background === true ? 'quickforge-tool-label line-through' : 'quickforge-tool-label'")
     expect(renderer.match(/quickforge-tool-running-sweep/g)).toHaveLength(1)
 
     const labelStart = renderer.indexOf("<span className={status === 'running'")
@@ -56,6 +56,8 @@ describe('ordinary local tool running sweep wiring', () => {
 
   it('keeps run_command output expansion and termination behavior unchanged', () => {
     expect(renderer).toContain("this.toolName === 'run_command' ? renderConsoleBlock(output, variant) : renderCodeBlock(output, 'text')")
+    expect(renderer).toContain('{rawSummary}</span>')
+    expect(renderer).not.toContain('truncateSummary')
     expect(renderer).toContain('{renderTerminateCommandButton(this.toolName, status, result?.details)}')
   })
 })
@@ -96,7 +98,7 @@ describe('ordinary local tool running sweep CSS', () => {
 
     const label = ruleFor('.quickforge-tool-label').body
     expect(label).toMatch(/min-width:\s*0/)
-    expect(label).toMatch(/flex:\s*0 1 auto/)
+    expect(css).toMatch(/\.quickforge-tool-label\s*\{[^}]*flex:\s*0 1 auto/s)
     expect(label).toMatch(/overflow:\s*hidden/)
     expect(label).toMatch(/text-overflow:\s*ellipsis/)
     expect(label).toMatch(/white-space:\s*nowrap/)

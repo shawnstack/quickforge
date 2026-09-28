@@ -1,8 +1,37 @@
+## tool-summary-no-ellipsis（done，2026-09-28）
+
+- Goal：工具行长内容不再出现省略号，超长时横向滚动，并完成 build。
+- 覆盖：run_command 72 字、generate_image 100 字、present_files 只显示 3 项、子任务跑马灯 80 字，以及工具标题 CSS ellipsis。
+- 改动：摘要输出完整文本。工具行和子任务行横向滚动，H5 可触摸滑动，滚动条隐藏。
+- 验证：定向 vitest 213 passed；npm run build 通过。
+- Notes：展开区输出截断、附件名省略未改。未提交。
+
+---
+
+## run-command-summary-no-ellipsis（done，2026-09-28）
+
+- Goal：run_command 摘要不再显示省略号，长命令可以滚完。
+- 根因：摘要被硬截到 72 字并追加 …，父级 overflow:hidden 又裁掉剩余文字。
+- 改动：显示完整命令。超长时摘要行横向滚动，H5 可触摸滑动，滚动条隐藏。
+- 验证：定向 vitest：chat-surface-css-contract + local-tool-running-sweep 42 passed。
+- Notes：未提交。子任务跑马灯截断未改。wiki 无需更新。
+
+---
+
+## edit-diff-long-line-scroll（done，2026-09-28）
+
+- Goal：edit_file 长行在工具卡内可滚动，行背景不露底，H5 可触摸滑动。
+- 改动：diff 块锁在列宽内。长代码行用 max-content 铺满背景，行号列 sticky。开启 touch 横滑和纵滑。
+- 验证：定向 vitest：diff-view + chat-surface-css-contract 60 passed。
+- Notes：未提交。wiki 无需更新，只是现有 diff 的溢出显示。
+
+---
+
 ## tool-command-console-scroll（done，2026-09-28）
 
 - Goal：run_command 命令内容特别长时可以滚动，且不要把文字显示成空白。
 - 根因：控制台常驻左右渐隐，短行和未滚到的一侧也被遮掉。
-- 改动：渐隐只出现在实际溢出的一侧；内容未超出列宽时不遮罩。横向滚动仍锁在工具卡内。
+- 改动：溢出侧只用内阴影提示，不用 mask 裁字。H5 开启 touch 横向/纵向滚动。内容未超出列宽时不提示。
 - 验证：定向 vitest：tool-renderer-shared-state + chat-surface-css-contract 52 passed。
 - Notes：未提交。wiki 无需更新，只是现有控制台的溢出显示。
 

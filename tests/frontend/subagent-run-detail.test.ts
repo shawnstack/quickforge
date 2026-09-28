@@ -4,7 +4,6 @@ import {
   MAX_SUBAGENT_RUN_SNAPSHOTS,
   MAX_SUBAGENT_TOOL_SUMMARY_RUNS,
   MAX_TERMINAL_SUBAGENT_RUNS,
-  SUBAGENT_TOOL_SUMMARY_MAX_LENGTH,
   SubagentRunEventPublisher,
   SubagentRunStore,
   SubagentToolSummaryMemory,
@@ -1467,13 +1466,13 @@ describe('currentSubagentToolSummaries', () => {
     expect(currentSubagentToolSummaries(payload)).toEqual(['custom_tool'])
   })
 
-  it('truncates long summaries to the configured maximum', () => {
+  it('keeps long summaries intact instead of appending an ellipsis', () => {
+    const command = 'a'.repeat(200)
     const payload = testPayload('run-1', 'running', {
       pendingToolCalls: ['t-1'],
-      traceMessages: [traceWithToolCall('t-1', 'run_command', { command: 'a'.repeat(200) })],
+      traceMessages: [traceWithToolCall('t-1', 'run_command', { command })],
     })
-    const [summary] = currentSubagentToolSummaries(payload)
-    expect(summary).toBe(`run_command · ${'a'.repeat(SUBAGENT_TOOL_SUMMARY_MAX_LENGTH)}…`)
+    expect(currentSubagentToolSummaries(payload)).toEqual([`run_command · ${command}`])
   })
 
   it('returns an empty list without pending calls or matching chunks', () => {

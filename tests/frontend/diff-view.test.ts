@@ -157,7 +157,7 @@ describe('diff rendering source contract', () => {
     expect(css).toMatch(/\.quickforge-diff-stats-del\s*\{[^}]*color:/s)
     expect(css).toMatch(/html\.dark \.quickforge-diff-stats-add\s*\{[^}]*color:/s)
     expect(css).toMatch(/html\.dark \.quickforge-diff-stats-del\s*\{[^}]*color:/s)
-    const statsCss = css.slice(css.indexOf('.quickforge-diff-stats {'), css.indexOf('.quickforge-diff-view {'))
+    const statsCss = css.slice(css.indexOf('.quickforge-diff-stats {'), css.indexOf('.quickforge-diff-stats-del {') + css.slice(css.indexOf('.quickforge-diff-stats-del {')).indexOf('}') + 1)
     expect(statsCss).not.toMatch(/background|border|border-radius|animation/)
   })
 
@@ -213,7 +213,10 @@ describe('diff rendering source contract', () => {
   })
 
   it('keeps the two-column shared grid, display:contents rows, and long-line background model', () => {
-    expect(css).toMatch(/\.quickforge-diff-block\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*3\.1rem minmax\(max-content, 1fr\)/s)
+    expect(css).toMatch(/\.quickforge-diff-block\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*3\.1rem minmax\(0, 1fr\)/s)
+    expect(css).toMatch(/\.quickforge-diff-block\s*\{[^}]*max-width:\s*100%[^}]*-webkit-overflow-scrolling:\s*touch[^}]*touch-action:\s*pan-x pan-y/s)
+    expect(css).toMatch(/\.quickforge-diff-code\s*\{[^}]*min-width:\s*max-content[^}]*white-space:\s*pre/s)
+    expect(css).toMatch(/\.quickforge-diff-ln\s*\{[^}]*position:\s*sticky[^}]*left:\s*0/s)
     expect(css).not.toMatch(/grid-template-columns:\s*3\.1rem 3\.1rem/)
     expect(css).toMatch(/\.quickforge-diff-row\s*\{[^}]*display:\s*contents/s)
     expect(css).toMatch(/\.quickforge-diff-row-add \.quickforge-diff-code\s*\{[^}]*background:/s)

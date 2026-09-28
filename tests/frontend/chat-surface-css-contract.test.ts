@@ -222,7 +222,7 @@ describe('tool row flattening contract', () => {
     // 标题与跑马灯同为 flex:1 时，长标题会和后续命令平分剩余宽度，中间空出一段。
     // 标题按内容收缩（长了才省略），剩余空间留给命令。
     expect(css).toMatch(/\.quickforge-subagent-label \{\s*flex: 0 1 auto;\s*max-width: 100%;\s*\}/)
-    expect(css).toMatch(/\.quickforge-subagent-marquee \{\s*display: inline-flex;\s*flex: 1 1 auto;/)
+    expect(css).toMatch(/\.quickforge-subagent-marquee \{\s*display: inline-flex;\s*flex: 0 0 auto;/)
   })
 
   it('keeps the fallback tool card carded in the panel and flattens it only inside process groups', () => {
@@ -453,24 +453,33 @@ describe('chat row font scale contract', () => {
     expect(scroll).toContain('min-width: 100%;')
     expect(scroll).toContain('max-width: 100%;')
     expect(scroll).toContain('overflow-x: auto;')
+    expect(scroll).toContain('overflow-y: auto;')
+    expect(scroll).toContain('-webkit-overflow-scrolling: touch;')
+    expect(scroll).toContain('touch-action: pan-x pan-y;')
     expect(scroll).toContain('white-space: pre;')
     expect(scroll).not.toContain('mask-image')
     expect(scroll).not.toContain('pre-wrap')
 
     const bothFades = declarationBlock('.qf-console-scroll[data-overflow-start="true"][data-overflow-end="true"] {')
-    expect(bothFades).toContain('mask-image: linear-gradient(to right, transparent, #000 1.25rem, #000 calc(100% - 1.5rem), transparent);')
+    expect(bothFades).toContain('box-shadow:')
+    expect(bothFades).not.toContain('mask-image')
     const startFade = declarationBlock('.qf-console-scroll[data-overflow-start="true"] {')
-    expect(startFade).toContain('mask-image: linear-gradient(to right, transparent, #000 1.25rem);')
+    expect(startFade).toContain('box-shadow: inset 10px 0 8px -8px')
+    expect(startFade).not.toContain('mask-image')
     const endFade = declarationBlock('.qf-console-scroll[data-overflow-end="true"] {')
-    expect(endFade).toContain('mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);')
+    expect(endFade).toContain('box-shadow: inset -10px 0 8px -8px')
+    expect(endFade).not.toContain('mask-image')
 
     const summary = declarationBlock('.quickforge-local-tool,\n.quickforge-local-tool-shell,\n.quickforge-tool-summary {')
     expect(summary).toContain('max-width: 100%;')
     expect(summary).toContain('overflow: hidden;')
 
     const commandSummary = declarationBlock('.quickforge-command-summary {')
-    expect(commandSummary).toContain('text-overflow: ellipsis;')
-    expect(commandSummary).toContain('white-space: nowrap;')
+    expect(commandSummary).toContain('white-space: pre;')
+    expect(commandSummary).not.toContain('text-overflow: ellipsis;')
+    const commandRow = declarationBlock('.quickforge-tool-summary:has(.quickforge-command-summary),\n.quickforge-subagent-tool > .quickforge-tool-summary {')
+    expect(commandRow).toContain('overflow-x: auto;')
+    expect(commandRow).toContain('-webkit-overflow-scrolling: touch;')
   })
 })
 

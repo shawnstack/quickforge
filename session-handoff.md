@@ -1,3 +1,28 @@
+## 当前交接：local-path-link-trailing-text（done，2026-09-29）
+
+- Current Objective（当前目标）: 对话路径显示不再把文件地址后紧贴的文字吞进链接。已实现，未提交。
+- 根因: 绝对路径分支尾部字符类 `[^\s"'<>\`]+` 吞 CJK 正文（含中文标点）；末尾剥标点救不回中间文字。
+- 改动内容: `local-file-path-links.ts` 新增 `resolveLocalFilePathCandidate` 终点解析（剥标点 → 无 CJK / 扩展名结尾直接接受 → CJK 截断到扩展名 → 无效则放弃链接）；相对路径分支扩展名尾部负向前瞻防超 8 位英文粘连截半。测试新增 8 用例并完成红灯验证。
+- Files（改动文件）: src/components/chat/panel-decoration/local-file-path-links.ts、tests/frontend/local-file-path-links.test.ts、docs/wiki/src/components/README.md（两份副本）、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest local-file-path-links 17 passed；decorator-copy-i18n + message-actions 连带 69 passed；eslint 改动文件通过；tsc --noEmit 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机发一条「已修改 D:\quickforge\src\index.css后面还有文字」类消息，确认链接只覆盖路径、正文完整显示；含中文目录的路径（D:\文档\说明.md）仍可点击。
+
+---
+
+## 当前交接：background-command-idle-keepalive（done，2026-09-29）
+
+- Current Objective（当前目标）: 后台命令不再因会话空闲 10 分钟回收被连带终止。已实现，未提交。
+- 根因: `resetIdleTimer` 到点 `destroyAgent` → `stopBackgroundCommandTasksForSession` 杀掉该会话全部运行中后台命令；SSE keep-alive 故意不重置计时器、后台命令运行中不保活。
+- 改动内容: `server/agent-manager.mjs` `resetIdleTimer` 回调新增豁免——仍有运行中后台命令（`listBackgroundCommandTasks` 非空）时只重置计时器（与 goal waiter 同型）；命令退出后经通知路径重置计时器再按常规回收。新增回归测试 `tests/server/agent-manager.background-idle.test.mjs`（含无后台命令对照组仍回收、显式销毁仍终止命令）。
+- Files（改动文件）: server/agent-manager.mjs、tests/server/agent-manager.background-idle.test.mjs、docs/wiki/server/README.md、docs/wiki/server/tools/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest agent-manager.background-idle 2 passed；tests/server 全量 174 文件 passed；npx eslint 改动文件通过；npm run build 通过（chunk 警告既有）。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机跑一条长后台命令（如 dev server）静置 15 分钟以上，确认进程仍在、退出时收到 task-notification；如需“用户停止 run 不杀后台命令”，再评估移除 detach 后的 run signal abort 监听（当前保持既有行为）。
+
+---
+
+
 ## 当前交接：chat-h5-no-horizontal-scrollbar（done，2026-09-28）
 
 - Current Objective（当前目标）: H5 聊天消息区不再出现底部横向滑动条，宽 KaTeX 公式块内横滑。已实现，未提交。

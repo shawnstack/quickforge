@@ -407,3 +407,132 @@ describe('decorateLocalFilePathLinks 工作区相对路径', () => {
     ])
   })
 })
+
+describe('decorateLocalFilePathLinks 路径后紧贴正文的截断', () => {
+  it('绝对路径后紧贴中文时截断到扩展名，剩余文字回到正文', () => {
+    const container = buildContainer([
+      ['已修改 D:\\quickforge\\src\\index.css后面还有文字'],
+      ['构建产物 /workspace/src/index.css说明紧跟其后'],
+    ])
+    const message = assistantMessage(
+      '已修改 D:\\quickforge\\src\\index.css后面还有文字\n\n构建产物 /workspace/src/index.css说明紧跟其后',
+      20,
+    )
+
+    decorateLocalFilePathLinks(container as unknown as HTMLElement, message, onOpenLocalFilePath)
+
+    expect(linkedPaths(container)).toEqual([
+      'D:\\quickforge\\src\\index.css',
+      '/workspace/src/index.css',
+    ])
+    // 被截断的正文不进链接，仍完整保留在文本流里。
+    expect(container.textContent).toContain('后面还有文字')
+    expect(container.textContent).toContain('说明紧跟其后')
+  })
+
+  it('截断后剩余正文按「截断点文字 + 剥离的尾部标点」顺序回填', () => {
+    const container = buildContainer([['输出 D:\\repo\\out.log。说明：']])
+
+    decorateLocalFilePathLinks(
+      container as unknown as HTMLElement,
+      assistantMessage('输出 D:\\repo\\out.log。说明：', 21),
+      onOpenLocalFilePath,
+    )
+
+    expect(linkedPaths(container)).toEqual(['D:\\repo\\out.log'])
+    expect(container.textContent).toContain('。说明：')
+  })
+
+  it('中文标点粘在路径中间（末尾剥标点救不回）同样截断', () => {
+    const container = buildContainer([['日志 /home/u/a.css。请查看']])
+
+    decorateLocalFilePathLinks(
+      container as unknown as HTMLElement,
+      assistantMessage('日志 /home/u/a.css。请查看', 22),
+      onOpenLocalFilePath,
+    )
+
+    expect(linkedPaths(container)).toEqual(['/home/u/a.css'])
+    expect(container.textContent).toContain('。请查看')
+  })
+
+  it('含 CJK 段的合法路径仍整体链接（扩展名结尾或 CJK 截断回退）', () => {
+    const container = buildContainer([
+      ['文档 D:\\文档\\说明.md 已更新'],
+      ['报告 D:\\文档\\说明.md后面还有字'],
+    ])
+    const message = assistantMessage(
+      '文档 D:\\文档\\说明.md 已更新\n\n报告 D:\\文档\\说明.md后面还有字',
+      23,
+    )
+
+    decorateLocalFilePathLinks(container as unknown as HTMLElement, message, onOpenLocalFilePath)
+
+    expect(linkedPaths(container)).toEqual(['D:\\文档\\说明.md', 'D:\\文档\\说明.md'])
+    expect(container.textContent).toContain('后面还有字')
+  })
+
+  it('无扩展名路径后紧贴中文时放弃链接，不吞正文', () => {
+    const container = buildContainer([
+      ['日志目录 D:\\logs\\debug后面还有字'],
+      ['挂载点 /mnt/data/x目录说明'],
+    ])
+    const message = assistantMessage(
+      '日志目录 D:\\logs\\debug后面还有字\n\n挂载点 /mnt/data/x目录说明',
+      24,
+    )
+
+    decorateLocalFilePathLinks(container as unknown as HTMLElement, message, onOpenLocalFilePath)
+
+    expect(linkedPaths(container)).toEqual([])
+    expect(container.textContent).toContain('D:\\logs\\debug后面还有字')
+    expect(container.textContent).toContain('/mnt/data/x目录说明')
+  })
+
+  it('相对路径扩展名后紧贴英文的行为：短词并入扩展名（歧义取舍），长串不匹配', () => {
+    const container = buildContainer([
+      // `and` ≤8 位字母，与真实扩展名无法区分，按现状整体并入（tsxand 视作扩展名）。
+      ['见 src/lib/foo.tsxand more 说明'],
+      // 超过 8 位时负向前瞻让整体匹配失败，不再截半吞字（旧实现会匹配到 foo.tsxabcde）。
+      ['再看 src/lib/bar.tsxabcdefghij more 说明'],
+    ])
+    const message = assistantMessage(
+      '见 src/lib/foo.tsxand more 说明\n\n再看 src/lib/bar.tsxabcdefghij more 说明',
+      25,
+    )
+
+    decorateLocalFilePathLinks(container as unknown as HTMLElement, message, onOpenLocalFilePath)
+
+    expect(linkedPaths(container)).toEqual(['src/lib/foo.tsxand'])
+    expect(container.textContent).toContain('bar.tsxabcdefghij more')
+  })
+
+  it('相对路径后紧贴中文的既有行为保持（字符类本就不含 CJK）', () => {
+    const container = buildContainer([['入口 src/index.css说明文字在后']])
+
+    decorateLocalFilePathLinks(
+      container as unknown as HTMLElement,
+      assistantMessage('入口 src/index.css说明文字在后', 26),
+      onOpenLocalFilePath,
+    )
+
+    expect(linkedPaths(container)).toEqual(['src/index.css'])
+    expect(container.textContent).toContain('说明文字在后')
+  })
+
+  it('同一文本节点内放弃的匹配与成功的匹配共存，放弃段保留原文', () => {
+    const container = buildContainer([
+      ['先看 D:\\logs\\debug后面说明，再改 D:\\repo\\src\\a.ts即可'],
+    ])
+
+    decorateLocalFilePathLinks(
+      container as unknown as HTMLElement,
+      assistantMessage('先看 D:\\logs\\debug后面说明，再改 D:\\repo\\src\\a.ts即可', 27),
+      onOpenLocalFilePath,
+    )
+
+    expect(linkedPaths(container)).toEqual(['D:\\repo\\src\\a.ts'])
+    expect(container.textContent).toContain('D:\\logs\\debug后面说明，再改')
+    expect(container.textContent).toContain('即可')
+  })
+})

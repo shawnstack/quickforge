@@ -1,6 +1,43 @@
 {
   "features": [
     {
+      "id": "local-path-link-trailing-text",
+      "name": "路径链接不再吞掉紧贴的正文",
+      "description": "对话正文中文件路径后紧跟文字（中文/中文标点）时，路径链接把后面的文字一起吞进链接。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "正则保持宽松召回，新增 resolveLocalFilePathCandidate 解析路径终点：剥末尾标点后，无 CJK 或以扩展名结尾直接接受（含 CJK 段的合法路径保留）；否则从左到右取第一个使剩余以扩展名结尾的 CJK 截断点，剩余文字回到正文；无扩展名定位不了终点则放弃链接（宁可不链接不吞正文，用户确认）。相对路径分支扩展名尾部加负向前瞻 (?![A-Za-z0-9]) 防超 8 位英文粘连截半。",
+      "files": [
+        "src/components/chat/panel-decoration/local-file-path-links.ts",
+        "tests/frontend/local-file-path-links.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest local-file-path-links 17 passed（新增 8 用例；红灯验证：临时还原旧行为 6 failed，失败信息即吞字症状）；decorator-copy-i18n + message-actions 连带 69 passed；npx eslint 改动文件通过；npx tsc --noEmit 通过。",
+      "boundaries": "只改路径终点解析与相对分支前瞻。无扩展名路径后紧贴中文放弃链接（用户确认取舍）；≤8 位英文粘连并入扩展名视为真实扩展名（本质歧义，维持现状）；跳过选择器、幂等签名、lastIndex 归零等既有行为未动。未新增依赖，未手工修改生成产物，未提交。"
+    },
+    {
+      "id": "background-command-idle-keepalive",
+      "name": "后台命令不因会话空闲回收被杀",
+      "description": "run_in_background 后台命令在会话空闲 10 分钟后被自动回收连带终止，用户视角是“过一段时间自己关闭”。",
+      "status": "done",
+      "dependencies": ["run-command-background"],
+      "approach": "resetIdleTimer 到点时若 listBackgroundCommandTasks(sessionId) 仍有运行中任务，与 goal waiter 同样处理：只重置计时器不销毁。后台命令退出通知依赖活跃 session 对象投递（followUp/下一轮 prompt），进程只应由显式销毁或手动停止终止；最后一个命令退出后经通知路径重置计时器再按常规回收。显式 destroyAgent（删除会话、服务 shutdown）终止后台命令的行为不变。",
+      "files": [
+        "server/agent-manager.mjs",
+        "tests/server/agent-manager.background-idle.test.mjs",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/tools/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest：agent-manager.background-idle 2 passed（含对照组：无后台命令会话仍按 10 分钟回收）；tests/server 全量 174 文件通过；npx eslint（改动文件）通过。",
+      "boundaries": "只改空闲回收判定，未动 destroyAgent 显式销毁语义、后台命令注册/终止机制与 SSE keep-alive 不重置计时的既有设计。run signal abort（用户停止当前 run）会终止该 run 内启动的后台命令，属既有行为未改，已记入 progress Notes。未提交。"
+    },
+    {
       "id": "chat-h5-no-horizontal-scrollbar",
       "name": "H5 消息区不出现底部横向滑动条",
       "description": "H5 上聊天消息内容过长（宽公式等）会撑破消息列，整个消息区底部浮出横向滑动条。",

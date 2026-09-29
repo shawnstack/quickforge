@@ -1,3 +1,25 @@
+## local-path-link-trailing-text（done，2026-09-29）
+
+- Goal：修复对话路径显示把文件地址后紧贴的文字一起识别进链接的问题。
+- 根因：`local-file-path-links.ts` 绝对路径两条分支的尾部字符类 `[^\s"'<>\`]+` 只排空白/引号/尖括号/反引号，CJK 正文（含中文标点 `，` `。`）全被贪心吞进匹配；`trimTrailingPathPunctuation` 只能剥末尾标点，救不回中间正文。
+- 改动：正则保持宽松召回（保住含 CJK 段的合法路径如 `D:\文档\说明.md`），新增 `resolveLocalFilePathCandidate` 解析终点——剥末尾标点后无 CJK 或以扩展名结尾直接接受；否则从左到右取第一个使剩余以扩展名结尾的 CJK 截断点（`D:\...\index.css后面还有文字` → `D:\...\index.css` + 正文回填）；无扩展名定位不了终点放弃链接（宁可不链接不吞正文，用户确认取舍）。相对路径分支扩展名尾部加 `(?![A-Za-z0-9])` 防 >8 位英文粘连截半（`foo.tsxabcdefghij` 整体不匹配）；≤8 位粘连（`foo.tsxand`）视为真实扩展名维持现状（本质歧义）。
+- 验证：定向 vitest local-file-path-links 17 passed（新增 8 用例；红灯验证：临时还原旧行为 6 failed，失败信息即整串吞字症状）；decorator-copy-i18n + message-actions 连带 69 passed；eslint 改动文件通过；tsc --noEmit 通过。
+- Notes：未提交。中文标点 `，` 不在正则排除集内，无扩展名路径后接「，再改 xxx」会先整体吞到空格、再因无有效截断点放弃，原文完整保留，符合「不吞正文」。wiki 同步 components/README.md 两份副本的 panel-decoration 细分列表（新增 local-file-path-links.ts 条目）。DESIGN_LANGUAGE.md 无需更新：纯识别逻辑修正，无视觉变化。
+
+---
+
+## background-command-idle-keepalive（done，2026-09-29）
+
+- Goal：修复后台命令在会话空闲 10 分钟后被自动回收连带终止的问题。
+- 根因：agent-manager `IDLE_TIMEOUT_MS`（10 分钟）到点即 `destroyAgent`，而 `destroyAgent` 会 `stopBackgroundCommandTasksForSession` 杀掉该会话全部运行中后台命令；SSE keep-alive 故意不重置该计时器，后台命令运行中也不保活，回合结束后约 10 分钟进程即被 taskkill。
+- 改动：`resetIdleTimer` 回调增加豁免——`listBackgroundCommandTasks(sessionId)` 非空时仅重置计时器（与 goal waiter 同型）；最后一个命令退出经通知路径重置后按常规回收。显式销毁（删除会话/服务 shutdown）终止行为不变。新增 `tests/server/agent-manager.background-idle.test.mjs`：带后台命令的会话跨多个 10 分钟窗口存活 + 无后台命令对照组仍回收 + 命令退出后恢复回收 + 显式销毁仍终止命令。
+- 验证：定向 vitest 2 passed；tests/server 全量 174 文件 passed；eslint 改动文件通过；npm run build 通过（chunk 警告既有）。
+- Notes：未提交。既有行为未改：用户停止当前 run（abortRun → run signal abort）会终止该 run 内启动的后台命令（tools/index.mjs 的 abort 监听只随进程退出清理）；服务器 shutdown 仍终止全部后台命令。wiki 同步 server/README.md（冷会话操作段）与 server/tools/README.md（run_command 段）。
+
+---
+
+
+
 ## chat-h5-no-horizontal-scrollbar（done，2026-09-28）
 
 - Goal：H5 聊天消息区不再因过长内容在底部浮出横向滑动条。

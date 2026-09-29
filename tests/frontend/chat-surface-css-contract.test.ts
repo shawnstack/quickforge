@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { AssistantMessage } from '../../src/components/chat/surface/AssistantMessage'
+import { KatexMath } from '../../src/components/chat/surface/KatexMath'
 import { ThinkingBlock } from '../../src/components/chat/surface/ThinkingBlock'
 import { ToolMessage } from '../../src/components/chat/surface/ToolMessage'
 import { UsageBar } from '../../src/components/chat/surface/UsageBar'
@@ -480,6 +481,28 @@ describe('chat row font scale contract', () => {
     const commandRow = declarationBlock('.quickforge-tool-summary:has(.quickforge-command-summary),\n.quickforge-subagent-tool > .quickforge-tool-summary {')
     expect(commandRow).toContain('overflow-x: auto;')
     expect(commandRow).toContain('-webkit-overflow-scrolling: touch;')
+  })
+
+  it('keeps the message scroller vertical-only and scrolls wide display math in place', () => {
+    // 主滚动容器只允许纵向滚动：overflow-y-auto 的另一轴默认被计算为 auto，
+    // 撑宽消息列的内容会在 H5 底部浮出横向滑动条，这里用 overflow-x:hidden 兜底。
+    const scroller = declarationBlock('.qf-chat-panel > .qf-scroll-container {')
+    expect(scroller).toContain('overflow-anchor: none;')
+    expect(scroller).toContain('overflow-x: hidden;')
+
+    // 宽 KaTeX 展示公式在自己的块内横滑（隐藏滚动条、可触摸），不再撑破消息列。
+    const katexScroll = declarationBlock('.quickforge-katex-scroll {')
+    expect(katexScroll).toContain('overflow-x: auto;')
+    expect(katexScroll).toContain('overflow-y: hidden;')
+    expect(katexScroll).toContain('-webkit-overflow-scrolling: touch;')
+    expect(katexScroll).toContain('scrollbar-width: none;')
+    const katexScrollbar = declarationBlock('.quickforge-katex-scroll::-webkit-scrollbar {')
+    expect(katexScrollbar).toContain('display: none;')
+
+    const displayMath = renderToStaticMarkup(createElement(KatexMath, { latex: 'a+b', display: true }))
+    expect(displayMath).toContain('class="quickforge-katex-scroll my-4"')
+    const inlineMath = renderToStaticMarkup(createElement(KatexMath, { latex: 'a+b' }))
+    expect(inlineMath).not.toContain('quickforge-katex-scroll')
   })
 })
 

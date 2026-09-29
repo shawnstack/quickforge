@@ -2245,6 +2245,11 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
    those writes, so it is disabled on the main scroller only. */
 .qf-chat-panel > .qf-scroll-container {
   overflow-anchor: none;
+  /* overflow-x:hidden 兜底：`overflow-y-auto` 的另一轴按规范会被计算为
+     auto，任何撑宽消息列的内容都会让整个消息区底部出现水平滚动条。
+     横向溢出一律由内容元素自己的局部滚动容器处理，主滚动容器只管
+     纵向；H5 消息区底部的横向滑动条由此彻底消失。 */
+  overflow-x: hidden;
 }
 
 .qf-chat-panel > .qf-scroll-container > .max-w-3xl,
@@ -3594,6 +3599,21 @@ html.dark .quickforge-file-path-link {
 }
 
 .quickforge-tool-summary:has(.quickforge-command-summary)::-webkit-scrollbar {
+  display: none;
+}
+
+/* KaTeX 展示公式（KatexMath display 分支）：katex.min.css 的 .katex-display
+   不带溢出处理，宽公式会撑破消息列。这里沿用工具摘要的局部横滑模式：
+   公式块内横向滚动 + 隐藏滚动条，H5 可触摸滑动，不撑出主滚动容器。 */
+.quickforge-katex-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  scrollbar-width: none;
+}
+
+.quickforge-katex-scroll::-webkit-scrollbar {
   display: none;
 }
 

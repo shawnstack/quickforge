@@ -50,7 +50,8 @@ describe('chat math parity with the legacy markdown-block renderer', () => {
     const markup = renderMarkdown('$$\\int_0^1 x\\,dx$$')
 
     expect(markup).toContain('katex-display')
-    expect(markup).toContain('class="my-4"')
+    // 容器带 quickforge-katex-scroll：宽公式块内横滑，不撑破消息列。
+    expect(markup).toContain('class="quickforge-katex-scroll my-4"')
     // 块级公式不嵌在 <p> 内（div 不进 p）。
     expect(markup).not.toContain('<p><div')
   })
@@ -63,7 +64,7 @@ describe('chat math parity with the legacy markdown-block renderer', () => {
 
     const display = renderMarkdown('前文\n\n\\[E=mc^2\\]\n\n后文')
     expect(display).toContain('katex-display')
-    expect(display).toContain('class="my-4"')
+    expect(display).toContain('class="quickforge-katex-scroll my-4"')
     expect(display).not.toContain('<p><div')
   })
 
@@ -71,7 +72,7 @@ describe('chat math parity with the legacy markdown-block renderer', () => {
     const markup = renderMarkdown('a $$E=mc^2$$ b')
 
     expect(markup).toContain('katex-display')
-    expect(markup).toContain('class="my-4"')
+    expect(markup).toContain('class="quickforge-katex-scroll my-4"')
     // 旧 marked 块级扩展的 start:indexOf('$$') 在行中 $$ 处截断段落，公式成为
     // 段落之间的块级兄弟节点，而不是嵌在 <p> 里的 div。
     expect(markup).toContain('<p>a </p>')

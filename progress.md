@@ -1,3 +1,13 @@
+## chat-h5-no-horizontal-scrollbar（done，2026-09-28）
+
+- Goal：H5 聊天消息区不再因过长内容在底部浮出横向滑动条。
+- 根因：主滚动容器（qf-scroll-container）只有 overflow-y-auto，另一轴按 CSS 规范被计算为 auto；KaTeX 展示公式容器是裸 my-4 div（katex.min.css 无溢出处理），宽公式直接撑破消息列。
+- 改动：主滚动容器加 overflow-x:hidden，只承担纵向滚动；展示公式容器挂 quickforge-katex-scroll（unlayered：公式块内横滑 + 隐藏滚动条 + touch 滑动）。
+- 验证：定向 vitest：chat-surface-css-contract + chat-math 47 passed；npm run lint 通过。
+- Notes：未提交。行内公式、mermaid/svg、表格、代码块既有溢出保护未动。lint 的 GitToolsPinnedSummary useMemo warning 为既有无关问题，未扩大范围修复。wiki 同步 src/README.md（KaTeX 段）与 components/README.md（scroll-sync 段两处）。
+
+---
+
 ## tool-summary-no-ellipsis（done，2026-09-28）
 
 - Goal：工具行长内容不再出现省略号，超长时横向滚动，并完成 build。

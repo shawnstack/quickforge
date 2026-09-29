@@ -1,3 +1,15 @@
+## 当前交接：chat-h5-no-horizontal-scrollbar（done，2026-09-28）
+
+- Current Objective（当前目标）: H5 聊天消息区不再出现底部横向滑动条，宽 KaTeX 公式块内横滑。已实现，未提交。
+- 根因: 主滚动容器 overflow-y-auto 的另一轴按规范被计算为 auto；KaTeX 展示公式容器（裸 my-4 div）无溢出保护，宽公式撑破消息列。
+- 改动内容: .qf-chat-panel > .qf-scroll-container 加 overflow-x:hidden（主滚动容器只管纵向）；KatexMath display 分支挂 quickforge-katex-scroll（unlayered：overflow-x auto + 隐藏滚动条 + touch 滑动）；chat-math 测试 3 处容器类名断言同步；css-contract 测试新增滚动契约用例。
+- Files（改动文件）: src/index.css、src/components/chat/surface/KatexMath.tsx、tests/frontend/chat-surface-css-contract.test.ts、tests/frontend/chat-math.test.ts、docs/wiki/src/README.md、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest 47 passed；npm run lint 通过（仅既有无关 warning）。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机 H5 发一条宽公式（长积分/求和）与长表格消息，确认底部无横向滑动条、公式块可滑、纵向滚动正常。
+
+---
+
 ## 当前交接：tool-summary-no-ellipsis（done，2026-09-28）
 
 - Current Objective（当前目标）: 工具长摘要不再省略，超长可横滑，并完成 build。

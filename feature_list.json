@@ -1,6 +1,27 @@
 {
   "features": [
     {
+      "id": "chat-h5-no-horizontal-scrollbar",
+      "name": "H5 消息区不出现底部横向滑动条",
+      "description": "H5 上聊天消息内容过长（宽公式等）会撑破消息列，整个消息区底部浮出横向滑动条。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "主滚动容器 .qf-chat-panel > .qf-scroll-container 加 overflow-x:hidden（overflow-y-auto 的另一轴按规范计算为 auto，是滑动条来源），主滚动容器只承担纵向滚动。KaTeX 展示公式容器挂 quickforge-katex-scroll（unlayered：overflow-x:auto + 隐藏滚动条 + touch 滑动），宽公式在公式块内横滑不撑破消息列。",
+      "files": [
+        "src/index.css",
+        "src/components/chat/surface/KatexMath.tsx",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "tests/frontend/chat-math.test.ts",
+        "docs/wiki/src/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest：chat-surface-css-contract + chat-math 47 passed；npm run lint 通过（仅既有无关 warning）。",
+      "boundaries": "只改消息区滚动行为与 KaTeX 展示公式容器。行内公式、mermaid/svg 预览、表格与代码块既有溢出保护未动。未新增依赖，未手工修改生成产物，未提交。"
+    },
+    {
       "id": "tool-summary-no-ellipsis",
       "name": "工具长摘要不再省略",
       "description": "工具行长内容被截成省略号，命令、搜索、生图、文件和子任务摘要都看不到后半段。",

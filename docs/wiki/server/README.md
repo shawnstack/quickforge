@@ -6,6 +6,8 @@
 
 普通会话 idle 回收只释放内存，不删除已持久化历史。`continueSession`、`rollbackSessionMessages` 与 access/yolo/model/thinking 设置先用内存会话，缺失才 `await restoreAgent`，不强制同步热会话、不额外启动生成；重试的裁剪/追加语义、压缩回滚和 Goal 守卫不变。model/thinking setter 为异步接口，调用方必须等待结果。
 
+普通会话 idle 回收（`IDLE_TIMEOUT_MS` 10 分钟）到点时，若该会话仍有运行中的后台命令（`listBackgroundCommandTasks(sessionId)` 非空），回收改为重置计时器：后台命令的退出通知依赖活跃 session 对象投递，进程只应由显式销毁（删除会话、服务 shutdown）或手动停止终止，空闲回收不得连带杀进程。最后一个后台命令退出后经通知路径重置计时器，再按普通 10 分钟回收。
+
 `restoreAgent` 仅在存储确认无记录时返回 `null`；原 503 保留，其他读取/构建失败记录内部日志后抛出安全通用错误（500 / `SESSION_RESTORE_FAILED`），不误报 404 或泄漏内部细节。同会话并发恢复仍 single-flight，成功或失败后均清除 pending，允许重试。
 
 ## Goal 内部提示与聊天输出（现行契约）

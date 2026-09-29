@@ -495,6 +495,14 @@ export function resetIdleTimer(session) {
       resetIdleTimer(session)
       return
     }
+    // A running background command still owns this session: its exit
+    // notification (followUp / next prompt) is delivered through the live
+    // session object, and the process is only stopped by an explicit destroy.
+    if (listBackgroundCommandTasks(session.sessionId).length > 0) {
+      logger.info(`Session ${session.sessionId} idle timer fired but background commands are still running, resetting...`, { sessionId: session.sessionId })
+      resetIdleTimer(session)
+      return
+    }
     logger.info(`Session ${session.sessionId} idle timeout (${IDLE_TIMEOUT_MS / 1000}s), destroying...`, { sessionId: session.sessionId })
     destroyAgent(session.sessionId).catch((err) =>
       logger.error(`Failed to destroy idle agent ${session.sessionId}:`, err, { sessionId: session.sessionId }),

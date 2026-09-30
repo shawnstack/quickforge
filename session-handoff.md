@@ -1,3 +1,15 @@
+## 当前交接：release-v2.2.1（done，2026-09-30）
+
+- Current Objective（当前目标）: 发布 v2.2.1 小版本。Git commit/tag/push 已完成，npm publish 待用户执行。
+- 改动内容: 版本 2.2.1（package.json / package-lock.json）；CHANGELOG.md 新增 [2.2.1] 节；README.md 版本文案。门禁修复：process-folding.ts 的 isProcessToolsGroupMember 补 `running !== false`（运行中后台命令不折叠、退出终态折回过程组）；subagent-running-indicator.test.ts 后台命令断言改为独立触发器 `.quickforge-background-command-trigger` + innerHTML badge 断言。
+- Files（改动文件）: package.json、package-lock.json、CHANGELOG.md、README.md、src/components/chat/panel-decoration/process-folding.ts、tests/frontend/subagent-running-indicator.test.ts、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: npm run test 386 文件 4586 passed / 2 skipped（exit 0）；npm run lint exit 0（1 个既有 warning）；npm run build exit 0。tarball：package-offline/shawnstack-quickforge-2.2.1.tgz（7.7MB / 549 files）。
+- Git: `68fa8621`（fix）+ `cf7c27b4 chore(release): v2.2.1` + tag `v2.2.1`，已 push origin dev。
+- Blockers（阻塞）: npm 未登录（whoami 401），publish 待用户 `npm login` 后执行 `cd package-offline && npm publish --access public`。
+- Next Session（下一步）: 用户执行 npm publish 后可用 `npm view @shawnstack/quickforge version` 验证；真机回归后台命令退出后折回过程组的显示。
+
+---
+
 ## 当前交接：local-path-link-trailing-text（done，2026-09-29）
 
 - Current Objective（当前目标）: 对话路径显示不再把文件地址后紧贴的文字吞进链接。已实现，未提交。

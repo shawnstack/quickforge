@@ -1,6 +1,27 @@
 {
   "features": [
     {
+      "id": "release-v2.2.1",
+      "name": "发布准备 v2.2.1（版本递增 + 文档更新 + 门禁修复 + 全量验证 + runtime/offline 包）",
+      "description": "按 patch-release-runbook 发布 v2.2.1 小版本：发布前全量 test 暴露 2 个自 8119283 提交起就红的前端测试，需按硬门禁修复后重新验证。",
+      "status": "done",
+      "dependencies": ["background-command-presence", "composer-console-fixed-width"],
+      "approach": "npm version patch 递增 2.2.1；CHANGELOG.md 新增 [2.2.1] 节（v2.2.0..HEAD 34 个提交整理）；README.md 版本文案 2.2.1。硬门禁修复：isProcessToolsGroupMember 补 running !== false 判断（与 shared.tsx/ToolMessage.tsx 的 background&&running 判定同款，运行中后台命令不折叠、退出终态可折回过程组，服务端 finish 写 running:false/background:false 一致）；subagent-running-indicator 后台命令测试的过期断言改为独立触发器 .quickforge-background-command-trigger + innerHTML badge 断言（Fake DOM 不解析 innerHTML）。test/lint/build 全量通过；生成 runtime/offline 包与 npm pack tarball；Git 提交（fix + release 两个 commit）、tag v2.2.1、push 完成。npm 未登录（whoami 401），publish 指令交用户执行。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md",
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "tests/frontend/subagent-running-indicator.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test 全量 386 文件 4586 passed / 2 skipped（exit 0，修复前 4 failed）；npm run lint exit 0（1 个既有 GitToolsPinnedSummary useMemo warning）；npm run build exit 0（既有 externalized/大 chunk warning）；package-offline/shawnstack-quickforge-2.2.1.tgz 生成（7.7MB packed / 23.3MB unpacked / 549 files）。",
+      "boundaries": "测试修复为发布门禁必要修复，非新功能：真实退出数据 background:false 行为不变，仅 {background:true, running:false} 防御形状与语义对齐。lint 既有 warning 不扩大修复。未手工修改生成产物。push 使用 git push origin dev v2.2.1（未用 --tags，无历史 tag 误推）。npm publish 未执行（未登录）。"
+    },
+    {
       "id": "local-path-link-trailing-text",
       "name": "路径链接不再吞掉紧贴的正文",
       "description": "对话正文中文件路径后紧跟文字（中文/中文标点）时，路径链接把后面的文字一起吞进链接。",

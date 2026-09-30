@@ -1,3 +1,15 @@
+## release-v2.2.1（done，2026-09-30）
+
+- Goal：按 patch-release-runbook 发布 v2.2.1 小版本：版本递增、CHANGELOG/README 更新、全量验证、runtime/offline 包、Git commit/tag/push；npm publish 交用户。
+- 门禁修复：全量 test 首轮 4 failed（2 个 server 为并发抖动，单独跑通过；2 个 frontend 稳定失败，均为 8119283 提交时测试与实现即不一致的历史遗留）。`isProcessToolsGroupMember` 补 `running !== false`（运行中后台命令不折叠、退出终态折回过程组，与 shared.tsx:49 / ToolMessage.tsx:160 同款判定）；subagent-running-indicator 后台命令测试断言改为独立触发器 `.quickforge-background-command-trigger`（在 leftControls 内）与 innerHTML badge 断言。
+- 验证：`npm run test` 386 文件 4586 passed / 2 skipped（exit 0）；`npm run lint` exit 0（1 个既有 GitToolsPinnedSummary useMemo warning，2026-09-28 已记录）；`npm run build` exit 0（既有 externalized module / 大 chunk warning）。tarball：`package-offline/shawnstack-quickforge-2.2.1.tgz`（7.7MB / 549 files / shasum 23a3ce711f6e...）。
+- Git：`68fa8621 fix(chat): 后台命令退出后可折回过程组，修正摘要触发器过期断言` + `cf7c27b4 chore(release): v2.2.1` + tag `v2.2.1`，已 push（`git push origin dev v2.2.1`，无历史 tag 误推）。
+- Notes：npm whoami 401 未登录，publish 指令已交用户手动执行。发布中途一次 `git stash` + checkout 8119283 验证历史失败时被 shell 管道中断短暂 detached HEAD，已恢复 dev 并 stash pop，无改动丢失。docs/wiki 无需更新：isProcessToolsGroupMember 行为变化与既有「运行中后台命令不折进过程组」wiki 契约一致（退出终态本来就该折回）。
+
+---
+
+
+
 ## local-path-link-trailing-text（done，2026-09-29）
 
 - Goal：修复对话路径显示把文件地址后紧贴的文字一起识别进链接的问题。

@@ -2,6 +2,50 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [2.2.1] - 2026-09-30
+
+### Added
+
+- Added background command execution for `run_command` (`run_in_background: true`): detached processes keep running across turns, stream output to command logs, and notify the original session on exit with a task notification.
+- Added background-command presence: running background commands stay visible in the chat as running tool rows and appear in the composer running summary with per-item stop buttons; the composer console popup is fixed-width with in-row horizontal scrolling.
+- Added subagent partial work report: partially finished subagent results are passed back to the parent model.
+- Added process-fold refinements: stage children get a left indent with a 1px weakened connector line, pure-thinking sections no longer render an empty stage header, the innermost tool group was removed so stage headers open directly to tool rows, and streaming thinking rows stay visible at the group body when stage default expansion is off.
+- Added tool-card details collapsed by default with a configurable "expand process stage by default" setting (`expandProcessStageByDefault`).
+- Raised the default thinking level from medium to high.
+- Aligned the plugins settings page to the MCP card structure, showing tool chips with improved layout.
+
+### Changed
+
+- Narrowed the language and thinking-level dropdowns to 8.5rem (new `row-control-compact`).
+
+### Fixed
+
+- Fixed file-path links swallowing the body text immediately following a path (including CJK text and punctuation).
+- Fixed session idle recycling terminating running background commands after the 10-minute idle timeout.
+- Fixed wide formulas causing a horizontal scrollbar across the chat message area; formula blocks now scroll locally on mobile.
+- Fixed tool summaries, generated-image prompts, file lists, and subtask marquee lines being truncated with ellipses; long content now scrolls horizontally with overflow-side-only fades.
+- Fixed subagent titles leaving a large gap before the command marquee on long outputs.
+- Fixed thinking blocks appearing after tool calls that arrived later; thinking order is now restored by message-source order in all incremental paths.
+- Fixed thinking-end flicker: streaming assistant messages commit in place at `message_end` (no full-line remount), process groups re-fold in the same frame after handback, and the right-side thinking hint collapses as soon as thinking ends.
+- Fixed queued messages silently lost after switching sessions; they now auto-resend in the background with a fallback on switching back.
+- Fixed file-name underlines appearing when hovering the whole tool row (now only on the file name itself).
+- Fixed workspace inspector tabs in multi-tab mode: shorter tabs with title fade instead of ellipsis and the close button pinned to the right.
+- Fixed a build failure caused by assigning to a read-only dataset.
+
+### Removed
+
+- Removed the retired QuickForge Cloud native tunnel from the Android app (plugin registration, storage, tunnel service, WebRTC/OkHttp dependencies, and navigation whitelist entries); the direct-connect page and notification service remain.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.2.1` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.2.1.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.2.1.tgz
+  ```
+
 ## [2.2.0] - 2026-09-22
 
 ### Added

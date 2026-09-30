@@ -494,8 +494,8 @@ describe('subagent running Composer indicator', () => {
     }
 
     setupSubagentRunningIndicator(options)
-    const trigger = dom.panel.querySelector('.quickforge-subagent-running-trigger')!
-    expect(trigger.querySelector('.quickforge-subagent-running-badge')!.textContent).toBe('1')
+    const trigger = dom.panel.querySelector('.quickforge-background-command-trigger')!
+    expect(trigger.innerHTML).toContain('<span class="quickforge-background-command-badge" aria-hidden="true">1</span>')
     trigger.onpointerdown!(new FakeEvent())
     const item = dom.body.querySelector('.quickforge-background-command-item')!
     expect(item.querySelector('.quickforge-subagent-running-task')!.textContent).toBe('npm test')
@@ -510,7 +510,7 @@ describe('subagent running Composer indicator', () => {
 
     commands = []
     setupSubagentRunningIndicator(options)
-    expect(dom.panel.querySelector('.quickforge-subagent-running-trigger')).toBeNull()
+    expect(dom.panel.querySelector('.quickforge-background-command-trigger')).toBeNull()
   })
 
   it('keeps the open menu and rebinds the owner trigger when the trigger element is recreated', async () => {

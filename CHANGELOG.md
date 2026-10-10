@@ -2,6 +2,26 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [2.2.2] - 2026-10-10
+
+### Added
+
+- Added description-first summaries for `run_command`: when the call carries a `description`, chat tool rows and the subtask marquee display the description first (hover shows the command as a tooltip); calls without a description keep showing the command.
+
+### Fixed
+
+- Fixed the final answer of a long-running turn occasionally disappearing until a page refresh: when an SSE reconnect window swallows the closing `message_end`/`agent_end` frames, the `/messages` tail fetch triggered by the reconnect state frame now retries with backoff (1s→16s, 5 attempts) instead of silently giving up, and the reconnect frame that reports the run finished also clears the lingering streaming partial and pending approvals.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.2.2` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.2.2.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.2.2.tgz
+  ```
+
 ## [2.2.1] - 2026-09-30
 
 ### Added

@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "state-frame-tail-merge-notify",
+      "name": "state 帧拉尾合入后补发 UI 通知（最终答案刷新才显示的残留根因）",
+      "description": "SSE 断连吞掉收尾帧后由 state 帧驱动恢复时，agent_end 在拉尾前同步发出（读到旧列表），reconcile 合入最终回答后仅在 markers 存在时广播——无 goal 的普通会话零通知，ChatSurface 不再重渲染，最终答案停留在内存里，刷新页面才显示。附带：拉尾只取一页（服务端单页 500 上限）不看 hasMore；回滚场景全量重拉失败静默返回空走 all.length===0 分支不重试。",
+      "status": "done",
+      "dependencies": ["sse-reconnect-final-answer-recovery"],
+      "approach": "reconcileMessagesFromSummary 的 finish() 去掉 markers 前置条件：消息实际合入（stateVersion 前进）即广播 message_metadata_updated（marker replay 自行改写时先广播，外层不双发）；拉尾 hasMore 时整体重跑续拉下一页（每页重置重试预算）；fetchAllMessagesFromServer 改为失败显式返回 null 与服务端为空（[]）区分，失败进同一退避重试、真空替换本地列表（restore/create 用的模块级 fetchAllSessionMessages 静默降级语义不变）。",
+      "files": [
+        "src/lib/server-agent.ts",
+        "tests/frontend/server-agent-final-answer-recovery.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest server-agent-final-answer-recovery 6 passed（新增：state 帧合入后补发通知含晚于 agent_end 的顺序断言 / 跨页续拉 after=1→after=2 / 回滚全量重拉失败重试；主用例红灯验证：临时还原 markers 条件后收到的只有 agent_end 无 message_metadata_updated）；连带 server-agent + server-agent-events + server-agent-http 166 passed；eslint 改动文件通过；npx tsc --noEmit 通过。",
+      "boundaries": "只改 reconcileMessagesFromSummary 的通知/分页/全量重拉失败语义与 ServerAgent 私有 fetchAllMessagesFromServer。state 帧 agent_end 的发出时序（同步清 streaming/pending）未动；SSE 重连上限、watchdog 语义、后端分页 limit、模块级 fetchAllSessionMessages 及其 restore/create 调用方未动。无依赖变更，未手工修改生成产物，未提交。"
+    },
+    {
       "id": "release-v2.2.2",
       "name": "发布准备 v2.2.2（版本递增 + 文档更新 + 全量验证 + runtime/offline 包）",
       "description": "按 patch-release-runbook 发布 v2.2.2 小版本：包含 run_command 摘要 description 优先与 SSE 断连后最终回答拉尾重试两个变更。",

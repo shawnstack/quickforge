@@ -271,4 +271,151 @@ describe('ServerAgent final-answer recovery across SSE reconnect', () => {
       agent.dispose()
     }
   })
+
+  /**
+   * 拉尾成功后 UI 必须收到事件：state 帧路径的 agent_end 在拉尾前同步发出
+   * （当时读到的还是旧消息列表），ChatSurface 只靠订阅事件重渲染，合入后
+   * 若无 message_metadata_updated 补发，最终回答会停留在内存里不显示，
+   * 直到刷新页面重新初始化。
+   */
+  it('broadcasts message_metadata_updated after the state-frame tail lands (was: silent until refresh)', async () => {
+    const fetchMock = vi.fn((url: string | URL) => {
+      const href = String(url)
+      if (href.includes('/api/agents/session-1/messages')) {
+        return Promise.resolve(tailPageOk())
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { messages: [userMessage] as AgentMessage[], stateVersion: 1 },
+    })
+
+    const received: string[] = []
+    const unsubscribe = agent.subscribe((event: { type: string }) => {
+      received.push(event.type)
+    })
+
+    try {
+      await startStreamingTurn(agent)
+      received.length = 0
+      emitReconnectStateFrame()
+      await flushAllAsync()
+      await flushAllAsync()
+
+      expect(agent.state.messages).toHaveLength(2)
+      expect(received).toContain('agent_end')
+      expect(received).toContain('message_metadata_updated')
+      // 合入通知必须晚于（补齐数据前的）agent_end，二者顺序不可颠倒。
+      expect(received.indexOf('message_metadata_updated')).toBeGreaterThan(received.indexOf('agent_end'))
+    } finally {
+      unsubscribe()
+      agent.dispose()
+    }
+  })
+
+  /** 断连窗口丢的消息超过单页上限（500）时，尾部跨页：整体重跑续拉下一页。 */
+  it('keeps fetching when the reconnect tail spans multiple pages', async () => {
+    const middleAnswer: AgentMessage = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'middle' }],
+      timestamp: 99,
+    } as unknown as AgentMessage
+    const messageUrls: string[] = []
+    let call = 0
+    const fetchMock = vi.fn((url: string | URL) => {
+      const href = String(url)
+      if (href.includes('/api/agents/session-1/messages')) {
+        messageUrls.push(href)
+        call += 1
+        if (call === 1) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ messages: [middleAnswer], count: 3, hasMore: true }),
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ messages: [finalAnswer], count: 3, hasMore: false }),
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { messages: [userMessage] as AgentMessage[], stateVersion: 1 },
+    })
+
+    try {
+      await startStreamingTurn(agent)
+      latestEventSource().emit('state', {
+        sessionId: 'session-1',
+        stateVersion: 6,
+        isStreaming: false,
+        messagesSummary: { count: 3 },
+      })
+      await flushAllAsync()
+      await flushAllAsync()
+
+      expect(messageUrls.length).toBe(2)
+      expect(messageUrls[0]).toContain('after=1')
+      expect(messageUrls[1]).toContain('after=2')
+      expect(agent.state.messages).toHaveLength(3)
+      expect(JSON.stringify(agent.state.messages)).toContain('middle')
+      expect(JSON.stringify(agent.state.messages)).toContain('final answer')
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  /** 回滚/清理场景（服务端条数少于本地）走全量重拉；重拉失败同样进退避重试。 */
+  it('retries the full refetch after a rollback when the refetch fails transiently', async () => {
+    vi.useFakeTimers()
+    let failuresLeft = 1
+    const fetchMock = vi.fn((url: string | URL) => {
+      const href = String(url)
+      if (href.includes('/api/agents/session-1/messages')) {
+        if (failuresLeft > 0) {
+          failuresLeft -= 1
+          return Promise.resolve(tailPageUnavailable())
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ messages: [userMessage], count: 1, hasMore: false }),
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { messages: [userMessage, finalAnswer] as AgentMessage[], stateVersion: 1 },
+    })
+
+    try {
+      // 服务端已回滚到只剩 1 条：summary.count < localCount 触发全量重拉。
+      latestEventSource().emit('state', {
+        sessionId: 'session-1',
+        stateVersion: 7,
+        isStreaming: false,
+        messagesSummary: { count: 1 },
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/agents/session-1/messages')).length).toBe(1)
+      // 全量重拉首拉失败：退避 1s 后重试成功，本地列表被服务端版本替换。
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(agent.state.messages).toHaveLength(1)
+      expect(agent.state.messages[0]).toBe(userMessage)
+    } finally {
+      agent.dispose()
+    }
+  })
 })

@@ -1,3 +1,29 @@
+## state-frame-tail-merge-notify（done，2026-10-10）
+
+- Goal：用户在最新代码（含 4c653cd 拉尾重试）上仍复现「聊天回复的最终答案偶发不可见，刷新才显示」，重新分析根因并修复。
+- 根因（重分析）：state 帧驱动恢复的时序倒挂——SSE 断连吞掉收尾帧后，state 帧（split 会话只带 messagesSummary）到达时先**同步** emit agent_end（ChatSurface syncSnapshot 读到的还是旧列表，任务收尾 UI 全部完成），再**异步** reconcile 拉尾合入最终回答；而合入后的通知 finish() 只在 `markers && ...` 时广播（无 goal 的普通会话 markers 为 undefined，marker replay 对 undefined 原引用返回），merge 分支也不 emit → 合入零通知 → ChatSurface 靠 SUBSCRIBED_EVENTS 重渲染，此后再无事件 → 最终答案停留在内存不渲染，刷新重建 agent 才显示。对照：message_end/agent_end 的 summary 分支（finally forward）、watchdog /status 路径（await 后 emit）、非 split state 帧（合入即 notify）均正确，唯独 split state 帧路径漏发。4c653cd 只修了「数据拉不回来」，本条修「拉回来了 UI 不知道」，重试成功后同样缺通知，故症状仍在。
+- 附带缺陷一并修复：① 拉尾只取一页不看 hasMore（服务端单页 500 上限），断连窗口丢 >500 条时最终答案在第 2 页永不显示；② 回滚场景全量重拉失败时 fetchAllSessionMessages 静默返回 []，走 all.length===0 分支静默 return 不重试。
+- 改动：finish() 去掉 markers 前置（stateVersion 前进即广播 message_metadata_updated；marker replay 自行改写时先广播不双发）；hasMore 时整体重跑续拉下一页（每页重置重试预算）；fetchAllMessagesFromServer 失败显式返回 null 与真空（[]）区分，失败进退避重试、真空替换本地（模块级 fetchAllSessionMessages 的 restore/create 静默降级语义不变）。
+- 验证：server-agent-final-answer-recovery 6 passed（新增 3 用例：合入后补发通知且晚于 agent_end / 跨页续拉 after=1→2 / 回滚全量重拉失败重试；主用例红灯验证——临时还原 markers 条件，收到的只有 ['agent_end'] 精确复现症状）；连带 server-agent + events + http 166 passed；eslint 改动文件通过；npx tsc --noEmit 通过。wiki 已同步。
+- Notes：未提交。边界：state 帧 agent_end 发出时序未动（同步清 streaming/pending 语义保留，靠合入后补发通知闭环）；SSE 重连上限、watchdog、后端分页 limit 未动。下次发布随 patch 版本带出。
+
+---
+
+
+
+## transformer-learning-project（done，2026-10-10）
+
+- Goal：按用户要求在 `learning/transformer/` 创建 Transformer 模型学习项目（用户确认方向：Transformer 模型；形式：笔记 + 可运行示例）。非产品 feature，不进入 feature_list.json（产品功能清单只收 QuickForge 功能；学习项目完全隔离于 learning/ 目录，不涉及产品代码、依赖与构建）。
+- 内容：7 章中文笔记（notes/00-overview ~ 06-training-and-sampling）+ 6 个纯 NumPy 可运行示例（01 注意力含缩放/掩码/饱和实验、02 多头、03 正弦位置编码、04 Pre-LN Block、05 完整可训练字符级 mini GPT（604,571 参数，手写逐层反向 + Adam + 数值梯度检查 + 生成）、06 采样策略对比）+ 架构 SVG（assets/transformer-architecture.svg）+ README 导航。Python venv（.venv，Python 3.10.8 + numpy 2.2.6）。
+- 验证：示例 01-06 全部运行通过；05 梯度检查（单元：LayerNorm/Linear/FFN/Attention/Block 全部 <1e-6；整体 <1e-4 含数值微分噪声），训练 500 步损失 3.32→0.32，生成对比正常；06 train/val 分叉清晰（0.37 vs 1.72）、六种采样策略与温度-熵表输出正常。开发中修复了 05 手写 softmax 反向的经典错误（逐元素 dp·p·(1-p) → 正确的行内联合公式 p·(dp−Σdp·p)）。
+- 文件：learning/transformer/{README.md, requirements.txt, notes/×7, examples/×6, assets/×1, .venv/}；.gitignore 追加 `learning/**/.venv/`。
+- Notes：未提交。v2.2.2 发布记录中「未跟踪 learning/ 来源不明」即本目录（用户此前要求的会话产物），本次正式落地内容。示例 5/6 训练耗时约 1.5~2.5 分钟/500 步（纯 CPU）。
+- 迁移（2026-10-10 同会话）：应用户要求项目移出本仓库——robocopy 至 `D:\transformer-learning`（排除 .venv 后重建 venv + numpy，抽验示例 01/05 梯度检查通过，README 路径同步），经 `POST /api/project/path` 注册为 qf 项目（id f2cde6ee-1a05-41ea-9af0-f7b17e8e40a7，设为 active）；`learning/` 已从仓库删除，.gitignore 的 learning 条目已回滚。quickforge 仓库不再含学习项目代码。
+
+---
+
+
+
 ## release-v2.2.2（done，2026-10-10）
 
 - Goal：按 patch-release-runbook 发布 v2.2.2 小版本。Git commit/tag/push 已完成，npm publish 待用户执行。

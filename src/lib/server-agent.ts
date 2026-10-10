@@ -1924,8 +1924,28 @@ export class ServerAgent {
     return fetchSessionMessagesPage(this.baseUrl, this.sessionId, after)
   }
 
-  private async fetchAllMessagesFromServer(): Promise<AgentMessage[]> {
-    return fetchAllSessionMessages(this.baseUrl, this.sessionId)
+  /**
+   * 全量重拉会话消息（回滚/清理场景）。失败（异常或非 2xx 页）显式返回
+   * null 与“服务端确实为空”（[]）区分：前者交给调用方重试，后者是合法
+   * 终态。restore/create 走的模块级 fetchAllSessionMessages 保持静默
+   * 降级语义，不受影响。
+   */
+  private async fetchAllMessagesFromServer(): Promise<AgentMessage[] | null> {
+    const all: AgentMessage[] = []
+    let after = 0
+    for (let guard = 0; guard < 128; guard += 1) {
+      let page: SessionMessagesPage | null
+      try {
+        page = await fetchSessionMessagesPage(this.baseUrl, this.sessionId, after)
+      } catch {
+        return null
+      }
+      if (!page) return null
+      all.push(...page.messages)
+      if (!page.hasMore || page.messages.length === 0) break
+      after += page.messages.length
+    }
+    return all
   }
 
   /**
@@ -1934,6 +1954,13 @@ export class ServerAgent {
    * write that happens while the fetch is in flight (a concurrent SSE event
    * that already advanced this.stateVersion) discards the result — the newer
    * event is authoritative.
+   *
+   * 消息实际合入（stateVersion 前进）即在 finish() 广播
+   * message_metadata_updated：state 帧驱动的拉尾在 reconcile 之前已同步发出
+   * agent_end（当时消息尚未补齐），没有任何后续转发事件兜底，不广播会让
+   * 已合入的最终回答停留在内存里不渲染（“最终答案刷新才显示”）。
+   * 拉尾跨页（服务端单页 500 条上限）时以整体重跑续拉下一页，每页重置
+   * 重试预算；全量重拉（回滚/清理场景）的失败同样进退避重试。
    */
   /**
    * 拉尾恢复失败的退避重试：`attempt` 从 0 起，第 attempt 次失败后延迟
@@ -1975,7 +2002,11 @@ export class ServerAgent {
       // An ordinary agent_end page can win the race against a marker page.
       // Replay the latest accepted snapshot, never the request's captured one.
       this.replayGoalIterationMarkers()
-      if (markers && versionAfterMessages !== versionBefore && this.stateVersion === versionAfterMessages) {
+      // 合入即广播：state 帧驱动的拉尾没有任何后续转发事件（agent_end 已在
+      // reconcile 之前同步发出），若只在 markers 存在时通知，无 goal 的普通
+      // 会话会把已合入的最终回答留在内存里不渲染（“刷新才显示”）。
+      // marker replay 若自行改写消息会先广播并推进版本，此时不再双发。
+      if (versionAfterMessages !== versionBefore && this.stateVersion === versionAfterMessages) {
         this.notifyMessageMetadataChanged()
       }
     }
@@ -1988,7 +2019,12 @@ export class ServerAgent {
       // Server truncated below the local count (rollback/clear/compaction):
       // the incremental tail does not apply — refetch everything and replace.
       const all = await this.fetchAllMessagesFromServer()
-      if (!isCurrent() || all.length === 0) return
+      if (!isCurrent()) return
+      if (all === null) {
+        // 全量重拉失败（异常或非 2xx 页）：与拉尾同口径退避重试。
+        this.scheduleMessageReconcileRetry(summary, markers, forceMessages, retryAttempt)
+        return
+      }
       this.state.messages = all
       this.state.contextUsage = null
       this.stateVersion++
@@ -2024,7 +2060,11 @@ export class ServerAgent {
       // Server has fewer messages than the client assumed (rollback without a
       // summary count update): full refetch replace.
       const all = await this.fetchAllMessagesFromServer()
-      if (!isCurrent() || all.length === 0) return
+      if (!isCurrent()) return
+      if (all === null) {
+        this.scheduleMessageReconcileRetry(summary, markers, forceMessages, retryAttempt)
+        return
+      }
       this.state.messages = all
       this.state.contextUsage = null
       this.stateVersion++
@@ -2035,6 +2075,12 @@ export class ServerAgent {
       this.state.messages = mergeIncrementalMessages(this.state.messages, after, page.messages)
       this.state.contextUsage = null
       this.stateVersion++
+    }
+    if (page.hasMore && page.messages.length > 0) {
+      // 服务端 /messages 单页上限 500：断连窗口丢多条消息时尾部可能跨页。
+      // 本地 count 已随本页前进，整体重跑拉下一页；预算重置（每页各持有
+      // 完整重试表），后续页失败自然进 scheduleMessageReconcileRetry。
+      return this.reconcileMessagesFromSummary(summary, markers, forceMessages, 0)
     }
     finish()
   }

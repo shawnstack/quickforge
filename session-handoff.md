@@ -1,3 +1,15 @@
+## 当前交接：state-frame-tail-merge-notify（done，2026-10-10）
+
+- Current Objective（当前目标）: 修复用户在最新代码上仍复现的「最终答案偶发不可见、刷新才显示」。已实现，未提交。
+- 根因: state 帧恢复路径时序倒挂——agent_end 在拉尾前同步发出（UI 读旧列表），reconcile 合入最终回答后 finish() 仅在 markers 存在时广播（无 goal 会话零通知），ChatSurface 再无事件驱动重渲染。4c653cd 只修了拉尾失败，未修「拉回后 UI 不知道」。
+- 改动内容: `server-agent.ts` reconcileMessagesFromSummary——finish() 去掉 markers 前置（stateVersion 前进即广播 message_metadata_updated，marker replay 改写时先广播不双发）；hasMore 跨页整体重跑续拉（每页重置重试预算）；fetchAllMessagesFromServer 失败显式 null 与真空 [] 区分（失败进退避重试、真空替换本地；模块级 fetchAllSessionMessages 语义不变）。
+- Files（改动文件）: src/lib/server-agent.ts、tests/frontend/server-agent-final-answer-recovery.test.ts、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest final-answer-recovery 6 passed（新增 3 用例，主用例红灯验证：还原旧条件后仅收到 ['agent_end']）；连带 server-agent/events/http 166 passed；eslint 改动文件通过；npx tsc --noEmit 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机验证长任务跨网络抖动后最终回答自动补回且无需刷新；随下次 patch 版本发布（v2.2.2 的 npm publish 仍挂起）。
+
+---
+
 ## 当前交接：release-v2.2.2（done，2026-10-10）
 
 - Current Objective（当前目标）: 发布 v2.2.2 小版本。Git commit/tag/push 已完成，npm publish 待用户执行。
@@ -7,6 +19,23 @@
 - Git: `b2cbe4d chore(release): v2.2.2` + tag `v2.2.2`，已 push origin dev v2.2.2（无历史 tag 误推）。
 - Blockers（阻塞）: npm 未登录（whoami 401），publish 待用户 `npm login` 后执行 `cd package-offline && npm publish --access public`。
 - Next Session（下一步）: 用户 publish 后 `npm view @shawnstack/quickforge version` 验证；确认处置工作区未跟踪的 new（0 字节）与 learning/（测试运行后出现，来源不明）。
+
+---
+
+## 当前交接：transformer-learning-project（done，2026-10-10）
+
+- Current Objective（当前目标）: 创建 Transformer 学习项目并按用户要求迁出仓库。已完成，未提交。
+- 内容: 7 章笔记 + 6 个纯 NumPy 示例 + 架构 SVG + README，最终位置 `D:\transformer-learning`（含重建的 .venv，Python 3.10.8 + numpy 2.2.6）；已通过 `POST /api/project/path` 注册为 qf 项目（id f2cde6ee-1a05-41ea-9af0-f7b17e8e40a7，注册时设为 active）。quickforge 仓库内 `learning/` 已删除，.gitignore 回滚。
+- Files（改动文件）: .gitignore（净零变化）、progress.md、session-handoff.md；项目本体在 D:\transformer-learning（仓库外）。
+- Evidence（验证）: 迁移后抽验：示例 01 运行通过、05 `--check-only` 梯度检查通过；qf /api/project 列表含 transformer-learning 且 workspaceRoot 已切换。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 无需跟进；qf 当前 active 项目变为 transformer-learning，用户如需回 quickforge 项目在 UI 项目列表切换即可。
+
+---
+
+## 当前交接：transformer-learning-project-initial（superseded，2026-10-10）
+
+- 原 learning/transformer 创建记录见 progress.md「transformer-learning-project」条目；同会话已整体迁出至 D:\transformer-learning，本条仅存档。
 
 ---
 

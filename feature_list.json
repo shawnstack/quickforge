@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "release-v2.2.2",
+      "name": "发布准备 v2.2.2（版本递增 + 文档更新 + 全量验证 + runtime/offline 包）",
+      "description": "按 patch-release-runbook 发布 v2.2.2 小版本：包含 run_command 摘要 description 优先与 SSE 断连后最终回答拉尾重试两个变更。",
+      "status": "done",
+      "dependencies": ["sse-reconnect-final-answer-recovery", "run-command-description-first"],
+      "approach": "npm version patch 递增 2.2.2；CHANGELOG.md 新增 [2.2.2] 节（Added/Fixed/Released）；README.md 版本文案 2.2.2。手动流程（不走 release:patch:prepare 脚本，Windows EINVAL 既有坑）。test/lint/build 全量通过；生成 package-dist/、package-offline/ 并 npm pack；Git 提交 chore(release): v2.2.2、tag v2.2.2、push origin dev v2.2.2。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test 387 文件 4593 passed / 2 skipped（exit 0）；npm run lint exit 0（1 个既有 GitToolsPinnedSummary useMemo warning）；npm run build exit 0（既有大 chunk warning）。tarball：package-offline/shawnstack-quickforge-2.2.2.tgz（7.7MB packed / 23.3MB unpacked / 549 files / shasum 336abea4bf25ee643e39fe5fc76d8dc0d4ad56b7）。",
+      "boundaries": "npm 未登录（whoami 401），publish 指令交用户执行。工作区遗留未跟踪文件 new（0 字节）与 learning/（来源不明，测试运行后出现），未纳入提交。"
+    },
+    {
       "id": "sse-reconnect-final-answer-recovery",
       "name": "SSE 断连后最终回答回归（拉尾重试 + 残留清理）",
       "description": "长任务收尾帧（message_end/agent_end）被 SSE 断连窗口吞掉后，重连触发的 /messages 拉尾若瞬时失败会静默放弃，最终回答永久停留在服务端，用户只能刷新才能看到；state 帧报告回合结束的内联 agent_end 分支还残留 streamingMessage。",

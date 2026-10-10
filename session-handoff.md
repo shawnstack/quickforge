@@ -1,3 +1,15 @@
+## 当前交接：release-v2.2.2（done，2026-10-10）
+
+- Current Objective（当前目标）: 发布 v2.2.2 小版本。Git commit/tag/push 已完成，npm publish 待用户执行。
+- 改动内容: 版本 2.2.2（package.json / package-lock.json）；CHANGELOG.md 新增 [2.2.2] 节（run_command description 优先 + SSE 断连拉尾重试）；README.md 版本文案 2.2.2。
+- Files（改动文件）: package.json、package-lock.json、CHANGELOG.md、README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: npm run test 387 文件 4593 passed / 2 skipped（exit 0）；npm run lint exit 0（1 个既有 warning）；npm run build exit 0。tarball：package-offline/shawnstack-quickforge-2.2.2.tgz（7.7MB / 549 files / shasum 336abea4bf25ee643e39fe5fc76d8dc0d4ad56b7）。
+- Git: `b2cbe4d chore(release): v2.2.2` + tag `v2.2.2`，已 push origin dev v2.2.2（无历史 tag 误推）。
+- Blockers（阻塞）: npm 未登录（whoami 401），publish 待用户 `npm login` 后执行 `cd package-offline && npm publish --access public`。
+- Next Session（下一步）: 用户 publish 后 `npm view @shawnstack/quickforge version` 验证；确认处置工作区未跟踪的 new（0 字节）与 learning/（测试运行后出现，来源不明）。
+
+---
+
 ## 当前交接：sse-reconnect-final-answer-recovery（done，2026-10-10）
 
 - Current Objective（当前目标）: 修复「长任务 final answer 偶发看不见、刷新才看到」。已实现，未提交。

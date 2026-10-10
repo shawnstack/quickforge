@@ -1,3 +1,13 @@
+## release-v2.2.2（done，2026-10-10）
+
+- Goal：按 patch-release-runbook 发布 v2.2.2 小版本。Git commit/tag/push 已完成，npm publish 待用户执行。
+- 内容：v2.2.2 = run_command 摘要 description 优先（793a739）+ SSE 断连后最终回答拉尾重试（4c653cd）。版本 2.2.1→2.2.2；CHANGELOG.md 新增 [2.2.2] 节；README.md 版本文案。
+- 验证：npm run test 387 文件 4593 passed / 2 skipped（exit 0）；npm run lint exit 0（1 个既有 GitToolsPinnedSummary useMemo warning，2026-09-28 已记录）；npm run build exit 0（既有 externalized/大 chunk warning）。tarball：package-offline/shawnstack-quickforge-2.2.2.tgz（7.7MB / 549 files / shasum 336abea4bf25ee643e39fe5fc76d8dc0d4ad56b7）。
+- Git：`b2cbe4d chore(release): v2.2.2` + tag `v2.2.2`，已 push（`git push origin dev v2.2.2`）。
+- Notes：npm whoami 401 未登录，publish 待用户 `npm login` 后执行。后台首轮 vitest 输出被吞（非 TTY），为硬门禁可信前台复跑全量。工作区新增未跟踪 learning/（测试运行后出现，来源不明）与 new（0 字节），均未纳入提交，待用户确认处置。
+
+---
+
 ## sse-reconnect-final-answer-recovery（done，2026-10-10）
 
 - Goal：修复「长任务 final answer 偶发看不见、刷新才看到」。

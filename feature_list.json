@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "release-v2.2.3",
+      "name": "发布准备 v2.2.3（版本递增 + 文档更新 + 全量验证 + runtime/offline 包）",
+      "description": "按 patch-release-runbook 发布 v2.2.3 小版本：包含 state 帧拉尾合入后补发 UI 通知（最终答案刷新才显示的残留根因修复）。",
+      "status": "done",
+      "dependencies": ["state-frame-tail-merge-notify"],
+      "approach": "npm version patch 递增 2.2.3；CHANGELOG.md 新增 [2.2.3] 节；README.md 版本文案 2.2.3。手动流程（不走 release:patch:prepare 脚本，Windows EINVAL 既有坑）。test/lint/build 全量通过；生成 package-dist/、package-offline/ 并 npm pack；Git 提交 chore(release): v2.2.3、tag v2.2.3、push origin dev v2.2.3。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test 387 文件 4596 passed / 2 skipped（exit 0，含本次新增 3 用例）；npm run lint exit 0（1 个既有 GitToolsPinnedSummary useMemo warning）；npm run build exit 0（既有 externalized/大 chunk warning）。tarball：package-offline/shawnstack-quickforge-2.2.3.tgz（7.7MB packed / 23.3MB unpacked / 549 files / shasum c44eaa6e6ef711723083ed3d0962264cc73952aa）。",
+      "boundaries": "npm whoami 401 未登录，publish 指令交用户执行。fix 提交 5df3037 与 release 提交分开（对齐 4c653cd→b2cbe4d 惯例）。工作区未跟踪 new（0 字节，上次遗留）不纳入提交。"
+    },
+    {
       "id": "state-frame-tail-merge-notify",
       "name": "state 帧拉尾合入后补发 UI 通知（最终答案刷新才显示的残留根因）",
       "description": "SSE 断连吞掉收尾帧后由 state 帧驱动恢复时，agent_end 在拉尾前同步发出（读到旧列表），reconcile 合入最终回答后仅在 markers 存在时广播——无 goal 的普通会话零通知，ChatSurface 不再重渲染，最终答案停留在内存里，刷新页面才显示。附带：拉尾只取一页（服务端单页 500 上限）不看 hasMore；回滚场景全量重拉失败静默返回空走 all.length===0 分支不重试。",

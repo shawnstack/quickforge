@@ -2,6 +2,22 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [2.2.3] - 2026-10-10
+
+### Fixed
+
+- Fixed the final answer of a recovered turn still requiring a page refresh to appear: when the SSE reconnect state frame drives the recovery, `agent_end` was emitted before the `/messages` tail fetch landed (UI read the stale list) and the merged-in final message broadcast no event for non-goal sessions, so it stayed in memory without rendering. The reconcile now broadcasts `message_metadata_updated` whenever messages actually merge, keeps fetching when the tail spans multiple `/messages` pages (server page cap 500), and retries the full refetch on rollback/clear paths when it fails transiently.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.2.3` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.2.3.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.2.3.tgz
+  ```
+
 ## [2.2.2] - 2026-10-10
 
 ### Added

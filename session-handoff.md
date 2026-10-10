@@ -1,3 +1,15 @@
+## 当前交接：release-v2.2.3（done，2026-10-10）
+
+- Current Objective（当前目标）: 发布 v2.2.3 小版本。Git commit/tag/push 已完成，npm publish 待用户执行。
+- 改动内容: 版本 2.2.3（package.json / package-lock.json）；CHANGELOG.md 新增 [2.2.3] 节（state 帧拉尾合入后补发 UI 通知 + 跨页续拉 + 回滚重拉重试）；README.md 版本文案 2.2.3。
+- Files（改动文件）: package.json、package-lock.json、CHANGELOG.md、README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: npm run test 387 文件 4596 passed / 2 skipped（exit 0）；npm run lint exit 0（1 个既有 warning）；npm run build exit 0。tarball：package-offline/shawnstack-quickforge-2.2.3.tgz（7.7MB / 549 files / shasum c44eaa6e6ef711723083ed3d0962264cc73952aa）。
+- Git: `5df3037 fix(chat): state 帧拉尾合入后补发 UI 通知，最终答案不再需刷新` + `chore(release): v2.2.3` + tag `v2.2.3`，已 push origin dev v2.2.3。
+- Blockers（阻塞）: npm 未登录（whoami 401），publish 待用户 `npm login` 后执行 `cd package-offline && npm publish --access public`。
+- Next Session（下一步）: 用户 publish 后 `npm view @shawnstack/quickforge version` 验证；真机验证长任务跨网络抖动后最终回答自动补回且无需刷新；确认处置工作区未跟踪的 new（0 字节，两次发布遗留）。
+
+---
+
 ## 当前交接：state-frame-tail-merge-notify（done，2026-10-10）
 
 - Current Objective（当前目标）: 修复用户在最新代码上仍复现的「最终答案偶发不可见、刷新才显示」。已实现，未提交。

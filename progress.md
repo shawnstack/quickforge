@@ -1,3 +1,13 @@
+## release-v2.2.3（done，2026-10-10）
+
+- Goal：按 patch-release-runbook 发布 v2.2.3 小版本。
+- 内容：v2.2.3 = state 帧拉尾合入后补发 UI 通知（5df3037）。fix 提交与 release 提交分开。版本 2.2.2→2.2.3；CHANGELOG.md 新增 [2.2.3] 节；README.md 版本文案。
+- 验证：npm run test 387 文件 4596 passed / 2 skipped（exit 0，较 v2.2.2 +3 即本次新增用例）；npm run lint exit 0（1 个既有 GitToolsPinnedSummary useMemo warning）；npm run build exit 0（既有 externalized/大 chunk warning）。tarball：package-offline/shawnstack-quickforge-2.2.3.tgz（7.7MB / 549 files / shasum c44eaa6e6ef711723083ed3d0962264cc73952aa）。
+- Git：fix `5df3037` + `chore(release): v2.2.3` + tag `v2.2.3`，push origin dev v2.2.3。
+- Notes：npm whoami 401 未登录，publish 待用户执行。后台 vitest 非 TTY 输出被吞（既有），硬门禁以前台复跑为准。未跟踪 new（0 字节）维持不纳入。
+
+---
+
 ## state-frame-tail-merge-notify（done，2026-10-10）
 
 - Goal：用户在最新代码（含 4c653cd 拉尾重试）上仍复现「聊天回复的最终答案偶发不可见，刷新才显示」，重新分析根因并修复。

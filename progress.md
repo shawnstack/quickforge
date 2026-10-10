@@ -1,3 +1,13 @@
+## tool-file-summary-span-click-preview（done，2026-10-10）
+
+- Goal：恢复「点击工具卡文件名即预览」且不违反「summary 内禁嵌交互元素」规范（用户反馈上一 feature 后文件名无下划线、点击不跳转）；随后按用户要求去掉 write/edit/read 右侧眼睛按钮，文件名点击即唯一预览入口。
+- 方案依据：HTML 规范与 DevTools 的 nested-interactive 警告针对的是 summary 内嵌**交互控件**（button / 带 href 的 a / role=button 等）；普通元素挂 click 不在禁止之列，且 span 无 role / tabindex 时在 a11y 树中不是交互控件、不会触发该警告。
+- 改动：`renderToolFileSummary` 签名恢复 `(toolName, params)`，文件元素恒为静态 span——`resolvePreviewableArtifact` 有值时挂 `onClick` 复用 `previewArtifactClickHandler`（preventDefault + stopPropagation 阻断折叠后派发 `PREVIEW_ARTIFACT_EVENT`），恢复 `cursor-pointer` 与仅 basename 的 `hover:underline underline-offset-4` 暗示；不可预览路径仍纯静态。`renderPreviewButton` 收窄回仅 present_files（多文件摘要无法整体充当入口）。local-workspace-tool-renderer 调用传回 toolName；wiki shared.tsx 段同步。
+- 验证：tool-renderer-file-icon 12 passed；连带 local-tool-running-sweep + tool-renderer-shared-state 共 35 passed；eslint 改动文件通过；npx tsc --noEmit 通过。
+- Notes：已随本条目一并提交（fix(chat) 提交）。取舍：write/edit/read 预览入口只剩文件名点击，span 不进 tab 序列，键盘/读屏用户不可达（用户明确要求去眼睛按钮）。span 不加 tabindex/role 是刻意的——加 tabindex 会把它变成 tab 序列内元素、加 role=button 又构成嵌套交互控件。
+
+---
+
 ## summary-interactive-content-a11y（done，2026-10-10）
 
 - Goal：消除 Chrome DevTools 的 18 个「Interactive element inside of a `<summary>` element」a11y 警告。

@@ -44,11 +44,12 @@ export class LocalWorkspaceToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const status = toolStatus(result, isStreaming)
     const timing = extractQuickForgeTiming(result?.details)
-    // write_file / edit_file / read_file 摘要区渲染 FileIcon + basename 的整体元素（静态
-    // 文本，见 renderToolFileSummary；HTML 规范禁止 summary 内嵌交互元素）；预览入口由
-    // 右侧动作区眼睛按钮（renderPreviewButton）承担。其余工具保持 summarizeParams 纯文本摘要。
+    // write_file / edit_file / read_file 摘要区渲染 FileIcon + basename 的整体元素：
+    // 可预览时该元素是静态 span 挂 click 直接预览（span 非交互元素，不违反
+    // 「summary 内禁嵌交互元素」的 HTML 规范，也是本工具唯一预览入口，右侧
+    // 不再渲染眼睛按钮去重）；其余工具保持 summarizeParams 纯文本摘要。
     const rawSummary = (this.toolName === 'write_file' || this.toolName === 'edit_file' || this.toolName === 'read_file')
-      ? renderToolFileSummary(params)
+      ? renderToolFileSummary(this.toolName, params)
       : summarizeParams(this.toolName, params, result)
     // run_command 带 description 时摘要行优先显示描述；悬停 title 同时带上命令，命令仍可达。
     const commandText = this.toolName === 'run_command' && typeof params?.command === 'string'

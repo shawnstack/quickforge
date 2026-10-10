@@ -1,3 +1,14 @@
+## 当前交接：tool-file-summary-span-click-preview（done，2026-10-10）
+
+- Current Objective（当前目标）: 恢复「点击工具卡文件名即预览」，不违反「summary 内禁嵌交互元素」规范，并按用户要求去掉 write/edit/read 右侧眼睛按钮。已实现，已提交。
+- 方案：规范禁的是 summary 内嵌**交互控件**（button/a 等）；文件名保持静态 span（无 role/tabindex）仅挂 click（复用 previewArtifactClickHandler，阻断折叠后派发 PREVIEW_ARTIFACT_EVENT），带 cursor-pointer + hover:underline 暗示；renderPreviewButton 收窄回仅 present_files，write/edit/read 文件名点击即唯一预览入口。
+- Files（改动文件）: src/lib/tool-renderers/shared.tsx、src/lib/tool-renderers/local-workspace-tool-renderer.tsx、tests/frontend/tool-renderer-file-icon.test.ts、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: tool-renderer-file-icon 12 passed；连带 local-tool-running-sweep + tool-renderer-shared-state 35 passed；eslint 改动文件通过；npx tsc --noEmit 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机打开含文件读写工具行的会话，点文件名直接预览且工具卡不折叠、hover 出下划线、右侧无眼睛按钮；DevTools Issues 确认无「Interactive element inside of a `<summary>` element」警告回归。取舍备忘：write/edit/read 预览入口无键盘路径（span 不进 tab 序列）。
+
+---
+
 ## 当前交接：summary-interactive-content-a11y（done，2026-10-10）
 
 - Current Objective（当前目标）: 消除 18 个「summary 内嵌交互元素」a11y 警告。已实现，未提交。

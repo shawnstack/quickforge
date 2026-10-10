@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "tool-file-summary-span-click-preview",
+      "name": "工具卡文件名恢复点击预览（静态 span 挂 click，不违反 summary 规范）",
+      "description": "summary-interactive-content-a11y 为消除 DevTools「summary 内嵌交互元素」警告把文件名整体改静态后，鼠标用户点文件名不再跳转预览（hover 下划线暗示也一并消失）。HTML 规范与 axe nested-interactive 规则禁止的是 summary 内嵌交互控件（button / 带 href 的 a / role=button 等），普通元素挂 click 不在禁止之列——需要在不嵌交互控件的前提下恢复点击文件名即预览。",
+      "status": "done",
+      "dependencies": ["summary-interactive-content-a11y"],
+      "approach": "renderToolFileSummary 签名恢复 (toolName, params)；文件元素恒为静态 span（无 role / tabindex、不进 tab 序列，DOM 内容模型与 a11y 树均不构成嵌套交互控件）：resolvePreviewableArtifact 有值时 span 挂 onClick 复用 previewArtifactClickHandler（preventDefault + stopPropagation 阻断 summary 折叠后派发 PREVIEW_ARTIFACT_EVENT），并恢复 cursor-pointer 与仅 basename 的 hover:underline underline-offset-4 可点暗示；不可预览（绝对路径 / ~ / 不可预览扩展）仍纯静态。renderPreviewButton 收窄回仅 present_files（多文件摘要无法整体充当入口，眼睛按钮是其唯一预览入口）；write/edit/read 右侧不再渲染眼睛按钮，文件名点击即唯一预览入口。local-workspace-tool-renderer 调用传回 toolName。",
+      "files": [
+        "src/lib/tool-renderers/shared.tsx",
+        "src/lib/tool-renderers/local-workspace-tool-renderer.tsx",
+        "tests/frontend/tool-renderer-file-icon.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest tool-renderer-file-icon 12 passed（read_file/write_file/edit_file 可预览路径文件 span 点击派发 PREVIEW_ARTIFACT_EVENT 且阻断折叠、右侧不渲染眼睛按钮、cursor-pointer + hover:underline 暗示、绝对路径与不可预览扩展仍静态；present_files 保留眼睛按钮）；连带 local-tool-running-sweep + tool-renderer-shared-state 共 35 passed；eslint 改动文件通过；npx tsc --noEmit 通过。",
+      "boundaries": "只改 write_file / edit_file / read_file 摘要文件元素的点击/视觉暗示与 write/edit/read 右侧眼睛按钮去重；ToolDetails details/summary 结构、present_files 眼睛按钮、其余工具与 process 折叠头未动；无 CSS / 依赖变更，已随 fix(chat) 提交推送。取舍：write/edit/read 预览入口只剩文件名点击（span 不进 tab 序列，键盘/读屏不可达，用户明确取舍）。"
+    },
+    {
       "id": "summary-interactive-content-a11y",
       "name": "工具卡 summary 内不再嵌交互元素（文件名预览入口移至右侧眼睛按钮）",
       "description": "Chrome DevTools 报 18 个 Interactive element inside of a <summary> element：write_file / edit_file / read_file 工具行摘要区的文件名整体是预览入口 <button>，嵌在折叠头 <summary> 内，违反 HTML 规范（summary 自身可点击展开，嵌套交互元素对键盘/读屏用户行为不可预测），每个文件读写工具行报一条。",

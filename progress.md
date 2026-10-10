@@ -1,3 +1,24 @@
+## sse-reconnect-final-answer-recovery（done，2026-10-10）
+
+- Goal：修复「长任务 final answer 偶发看不见、刷新才看到」。
+- 根因：SSE 断连窗口（日志频发 Global scope request_socket_error；前端 ServerAgent 走全局流 /api/agents/events，重连后不重放事件）吞掉收尾的 message_end/agent_end 后，重连 state 帧（split 会话只带 messagesSummary.count）内联合成 agent_end（UI 停止转圈）并触发 /messages 拉尾；拉尾瞬时失败（fetchSessionMessagesPage 返回 null）时 `if (!isCurrent() || !page) return` 静默放弃、无重试，watchdog 已随 isStreaming=false 停止 → 最终回答永久缺失，刷新全量拉取才恢复。次要缺陷：state 帧 isStreaming=false 分支未清 streamingMessage（agent_end case 与 watchdog 路径都清了）。排除项：会话 idle 回收（600s）与 SSE 断连无关，运行中会重置；聊天 DOM 折叠链路（process-folding）静态推演自洽，非根因。
+- 改动：reconcileMessagesFromSummary 拉尾失败按 MESSAGE_RECONCILE_RETRY_DELAYS_MS（1s→16s 共 5 次）退避整体重跑（重跑重新快照 stateVersion，更新事件补齐即自然放弃；count 追平空转），成功清定时器、耗尽 logger.warn 放弃，dispose 清理；case 'state' isStreaming=false 内联 agent_end 分支补清 streamingMessage 与三类 pending。
+- 验证：server-agent-final-answer-recovery 3 passed（重试恢复/上限放弃/成功对照，先以红灯复现无重试断链后改写）；server-agent + server-agent-events + server-agent-http 连带 160 passed；eslint 改动文件通过；npx tsc --noEmit 通过。wiki 已同步 src/lib/README.md（拉尾重试契约 + 行数）。
+- Notes：未提交。边界：SSE 断连本身、global SSE 重连 10 次上限、后端事件不重放、refetch-all 失败路径均未动；后端彻底不可达场景仍由 reconnect-notice + watchdog 兜底。
+
+---
+
+## run-command-description-first（done，2026-10-08）
+
+- Goal：run_command 带 description 参数时，对话工具行摘要优先显示 Description，而不是原始命令。
+- 改动：`summarizeParams` run_command 分支改为非空 description（空白折叠）优先、空缺回退 command；`local-workspace-tool-renderer.tsx` 摘要 title 在描述与命令并存时改为「描述\n命令」，命令悬停仍可达。子任务跑马灯复用同一函数自动生效。
+- 验证：定向 vitest tool-param-summary + subagent-run-detail + local-tool-running-sweep 129 passed；eslint 改动文件通过；npm run build 通过（tsc -b 首轮报 title 类型错误，已用 summaryText 收窄修复）。
+- Notes：未提交。Composer 后台命令菜单本就 description 优先（label=description、command 次行），本次未动。approval 卡的 summarizeToolArgs 仍显示命令，属审批流不在本次范围。wiki 已同步 src/lib/README.md 的 summarizeParams 契约。
+
+---
+
+
+
 ## release-v2.2.1（done，2026-09-30）
 
 - Goal：按 patch-release-runbook 发布 v2.2.1 小版本：版本递增、CHANGELOG/README 更新、全量验证、runtime/offline 包、Git commit/tag/push；npm publish 交用户。

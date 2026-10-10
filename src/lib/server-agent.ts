@@ -84,6 +84,13 @@ const SSE_WATCHDOG_INTERVAL_MS = 5000
 const SSE_SILENCE_RECOVERY_MS = 15000
 const STATUS_REQUEST_TIMEOUT_MS = 10000
 const STATE_REQUEST_TIMEOUT_MS = 30000
+/**
+ * Split 会话拉尾恢复的退避重试表：SSE 断连窗口吞掉收尾帧（message_end /
+ * agent_end）后，重连或 watchdog 触发的 /messages 拉尾若恰好瞬时失败
+ * （网络仍抖动），不能让最终回答永久停留在服务端——按此表重试，耗尽即放弃
+ * （后端不可达场景由 reconnect-notice 提示与 watchdog 后续轮询兜底）。
+ */
+const MESSAGE_RECONCILE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000]
 // A goal action must never hang the card: bound it so a stuck request rejects
 // (and the card's pending state is released) instead of waiting forever.
 const GOAL_ACTION_TIMEOUT_MS = 30000
@@ -455,6 +462,8 @@ export class ServerAgent {
   private pollTimer: ReturnType<typeof setInterval> | null = null
   private refreshPromise: Promise<void> | null = null
   private statusPromise: Promise<void> | null = null
+  /** 拉尾恢复的重试定时器：dispose 或任一次成功/版本接管后清理。 */
+  private messageReconcileRetryTimer: ReturnType<typeof setTimeout> | null = null
   private lastSseEventAt = Date.now()
   private lastServerStateVersion = 0
   /**
@@ -1234,6 +1243,10 @@ export class ServerAgent {
       clearInterval(this.pollTimer)
       this.pollTimer = null
     }
+    if (this.messageReconcileRetryTimer !== null) {
+      clearTimeout(this.messageReconcileRetryTimer)
+      this.messageReconcileRetryTimer = null
+    }
     this.statusPromise = null
     this.subagentRunPublisher.dispose()
     this.unsubscribeSse?.()
@@ -1412,6 +1425,13 @@ export class ServerAgent {
           this.state.errorMessage = undefined
           this.emitToListeners({ type: 'agent_start' })
         } else if (wasStreaming) {
+          // Mirror the agent_end case: the run is over, so the streaming
+          // partial must not linger (a reconnect frame that reports the run
+          // finished without the client ever seeing message_end).
+          this.state.streamingMessage = undefined
+          this.state.pendingToolApproval = null
+          this.state.pendingAutoCompactApproval = null
+          this.state.pendingAsk = null
           this.stateVersion++
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages })
         }
@@ -1915,7 +1935,37 @@ export class ServerAgent {
    * that already advanced this.stateVersion) discards the result — the newer
    * event is authoritative.
    */
-  private async reconcileMessagesFromSummary(summary: { count?: number }, markers?: GoalIterationMarkerSnapshot[], forceMessages = false): Promise<void> {
+  /**
+   * 拉尾恢复失败的退避重试：`attempt` 从 0 起，第 attempt 次失败后延迟
+   * `MESSAGE_RECONCILE_RETRY_DELAYS_MS[attempt]` 再整体重跑 reconcile。
+   * 重跑会重新快照 stateVersion（期间有更新的 SSE 事件补齐消息即自然放弃）、
+   * 重新读本地 messages（count 已追平则空转返回），成功路径无需感知本方法。
+   */
+  private scheduleMessageReconcileRetry(
+    summary: { count?: number },
+    markers?: GoalIterationMarkerSnapshot[],
+    forceMessages = false,
+    attempt = 0,
+  ) {
+    if (this.disposed) return
+    if (attempt >= MESSAGE_RECONCILE_RETRY_DELAYS_MS.length) {
+      logger.warn('Message tail reconcile retries exhausted', {
+        sessionId: this.sessionId,
+        summaryCount: summary.count,
+        localCount: this.state.messages.length,
+      })
+      return
+    }
+    const delay = MESSAGE_RECONCILE_RETRY_DELAYS_MS[attempt]
+    if (this.messageReconcileRetryTimer !== null) return
+    this.messageReconcileRetryTimer = setTimeout(() => {
+      this.messageReconcileRetryTimer = null
+      if (this.disposed) return
+      void this.reconcileMessagesFromSummary(summary, markers, forceMessages, attempt + 1)
+    }, delay)
+  }
+
+  private async reconcileMessagesFromSummary(summary: { count?: number }, markers?: GoalIterationMarkerSnapshot[], forceMessages = false, retryAttempt = 0): Promise<void> {
     const versionBefore = this.stateVersion
     const localCount = this.state.messages.length
     const isCurrent = () => versionBefore === this.stateVersion
@@ -1947,8 +1997,29 @@ export class ServerAgent {
     }
 
     const after = localCount
-    const page = await this.fetchMessagesFromServer(after)
-    if (!isCurrent() || !page) return
+    let page: SessionMessagesPage | null
+    try {
+      page = await this.fetchMessagesFromServer(after)
+    } catch (error) {
+      logger.warn('Message tail reconcile fetch failed', {
+        sessionId: this.sessionId,
+        attempt: retryAttempt,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      this.scheduleMessageReconcileRetry(summary, markers, forceMessages, retryAttempt)
+      return
+    }
+    if (!isCurrent()) return
+    if (!page) {
+      // 拉尾瞬时失败（网络仍抖动）：按退避表重试。静默放弃会让断连窗口
+      // 丢失的收尾帧把最终回答永久留在服务端（“刷新才看到”的根因）。
+      this.scheduleMessageReconcileRetry(summary, markers, forceMessages, retryAttempt)
+      return
+    }
+    if (this.messageReconcileRetryTimer !== null) {
+      clearTimeout(this.messageReconcileRetryTimer)
+      this.messageReconcileRetryTimer = null
+    }
     if (page.count < after) {
       // Server has fewer messages than the client assumed (rollback without a
       // summary count update): full refetch replace.

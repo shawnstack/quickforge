@@ -1,6 +1,45 @@
 {
   "features": [
     {
+      "id": "sse-reconnect-final-answer-recovery",
+      "name": "SSE 断连后最终回答回归（拉尾重试 + 残留清理）",
+      "description": "长任务收尾帧（message_end/agent_end）被 SSE 断连窗口吞掉后，重连触发的 /messages 拉尾若瞬时失败会静默放弃，最终回答永久停留在服务端，用户只能刷新才能看到；state 帧报告回合结束的内联 agent_end 分支还残留 streamingMessage。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "reconcileMessagesFromSummary 的拉尾失败（fetch 异常或非 2xx）改为按 MESSAGE_RECONCILE_RETRY_DELAYS_MS（1s→16s 共 5 次）退避整体重跑 reconcile：重跑重新快照 stateVersion，期间更新的 SSE 事件补齐消息即自然放弃；count 已追平则空转返回；成功清理重试定时器，耗尽上限 logger.warn 后放弃（交给 reconnect-notice 提示与 watchdog 后续轮询），dispose 清理。case 'state' 的 isStreaming=false 内联 agent_end 分支补清 streamingMessage 与 pendingToolApproval/pendingAutoCompactApproval/pendingAsk（对齐 agent_end case 与 watchdog 路径）。",
+      "files": [
+        "src/lib/server-agent.ts",
+        "tests/frontend/server-agent-final-answer-recovery.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest server-agent-final-answer-recovery 3 passed（重试恢复含 streamingMessage 清理断言 / 上限耗尽 6 次后不再重试 / 成功对照）；连带 server-agent + server-agent-events + server-agent-http 160 passed；eslint 改动文件通过；npx tsc --noEmit 通过。",
+      "boundaries": "只改前端恢复链路：拉尾重试与 state 帧残留清理。SSE 断连本身（网络层）、global-agent-sse-client 重连上限（10 次 failed）、后端事件不重放、watchdog 语义均未动；全量替换路径（summary.count < localCount 的 refetch-all 失败）未加重试。无依赖变更，未手工修改生成产物，未提交。"
+    },
+    {
+      "id": "run-command-description-first",
+      "name": "run_command 对话工具行优先展示 Description",
+      "description": "run_command 调用带 description 参数时，对话内工具行摘要与子任务跑马灯优先显示 description，而不是原始命令。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "summarizeParams 对 run_command 改为非空 description（空白折叠归一）优先、空缺回退 command，工具行与子任务跑马灯随同一函数生效；local-workspace-tool-renderer 的摘要 span title 在有 description 时附加命令本身（描述\\n命令），命令悬停仍可达，展开区 input/output 不变。Composer 后台命令菜单本就 description 优先，未动。",
+      "files": [
+        "src/lib/tool-param-summary.ts",
+        "src/lib/tool-renderers/local-workspace-tool-renderer.tsx",
+        "tests/frontend/tool-param-summary.test.ts",
+        "tests/frontend/subagent-run-detail.test.ts",
+        "tests/frontend/local-tool-running-sweep.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest：tool-param-summary + subagent-run-detail + local-tool-running-sweep 129 passed；eslint（改动文件）通过；npm run build 通过（tsc -b 首轮报 title 类型错误，已用 summaryText 收窄修复；externalized/大 chunk warning 为既有）。",
+      "boundaries": "只改 run_command 摘要来源与 title 附加命令。approval 卡 summarizeToolArgs、展开区 input/output、后台命令菜单展示、generate_image/present_files 摘要未动。无依赖变更，未手工修改生成产物，未提交。"
+    },
+    {
       "id": "release-v2.2.1",
       "name": "发布准备 v2.2.1（版本递增 + 文档更新 + 门禁修复 + 全量验证 + runtime/offline 包）",
       "description": "按 patch-release-runbook 发布 v2.2.1 小版本：发布前全量 test 暴露 2 个自 8119283 提交起就红的前端测试，需按硬门禁修复后重新验证。",

@@ -1,3 +1,26 @@
+## 当前交接：sse-reconnect-final-answer-recovery（done，2026-10-10）
+
+- Current Objective（当前目标）: 修复「长任务 final answer 偶发看不见、刷新才看到」。已实现，未提交。
+- 根因: SSE 断连窗口吞掉收尾帧（message_end/agent_end）后，重连 state 帧（split 会话只有 messagesSummary.count）内联合成 agent_end 并触发 /messages 拉尾；拉尾瞬时失败被 `if (!isCurrent() || !page) return` 静默放弃（无重试、watchdog 已停）→ 最终回答永久停留在服务端，刷新才恢复。state 帧 isStreaming=false 分支还残留 streamingMessage。
+- 改动内容: `server-agent.ts` reconcileMessagesFromSummary 拉尾失败按 1s→16s 共 5 次退避整体重跑（版本守卫/追平空转/成功清理/耗尽放弃/dispose 清理）；case 'state' isStreaming=false 分支补清 streamingMessage 与三类 pending。新增回归 tests/frontend/server-agent-final-answer-recovery.test.ts。
+- Files（改动文件）: src/lib/server-agent.ts、tests/frontend/server-agent-final-answer-recovery.test.ts、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest final-answer-recovery 3 passed；server-agent + server-agent-events + server-agent-http 连带 160 passed；eslint 改动文件通过；npx tsc --noEmit 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机验证长任务跨网络抖动（如断 Wi-Fi 数秒）后最终回答能在 ~31s 内自动补回；如仍遇到，查 global-agent-sse-client 10 次重连上限与后端不可达场景。
+
+---
+
+## 当前交接：run-command-description-first（done，2026-10-08）
+
+- Current Objective（当前目标）: run_command 带 description 时，对话工具行摘要与子任务跑马灯优先显示 Description。已实现，未提交。
+- 改动内容: `summarizeParams` run_command 分支优先返回非空 description（空白折叠）、空缺回退 command；`local-workspace-tool-renderer.tsx` 摘要 title 在描述与命令并存时为「描述\n命令」。子任务跑马灯复用同函数自动生效。
+- Files（改动文件）: src/lib/tool-param-summary.ts、src/lib/tool-renderers/local-workspace-tool-renderer.tsx、tests/frontend/tool-param-summary.test.ts、tests/frontend/subagent-run-detail.test.ts、tests/frontend/local-tool-running-sweep.test.ts、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest 3 文件 129 passed；eslint 改动文件通过；npm run build 通过（tsc -b 首轮 title 类型错误已修复，externalized/大 chunk warning 为既有）。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机确认带 description 的命令工具行显示描述、悬停可见命令；无 description 的命令仍显示命令本身。
+
+---
+
 ## 当前交接：release-v2.2.1（done，2026-09-30）
 
 - Current Objective（当前目标）: 发布 v2.2.1 小版本。Git commit/tag/push 已完成，npm publish 待用户执行。

@@ -21,7 +21,12 @@ export function summarizeParams(
   result?: ToolParamSummaryResult,
 ) {
   if (!params && !result?.details) return ''
-  if (toolName === 'run_command' && typeof params?.command === 'string') return params.command.replace(/\s+/g, ' ').trim()
+  if (toolName === 'run_command') {
+    // 对话工具行/子任务跑马灯优先展示调用方提供的 description；空缺时回退命令本身。
+    const description = typeof params?.description === 'string' ? params.description.replace(/\s+/g, ' ').trim() : ''
+    if (description) return description
+    if (typeof params?.command === 'string') return params.command.replace(/\s+/g, ' ').trim()
+  }
   if (toolName === 'generate_image') {
     const prompt = typeof params?.prompt === 'string' ? params.prompt.trim() : ''
     return prompt.replace(/\s+/g, ' ')

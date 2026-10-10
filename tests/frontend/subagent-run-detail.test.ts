@@ -1458,6 +1458,14 @@ describe('currentSubagentToolSummaries', () => {
     expect(currentSubagentToolSummaries(payload)).toEqual(['run_command · npm test'])
   })
 
+  it('prefers the run_command description over the raw command', () => {
+    const payload = testPayload('run-1', 'running', {
+      pendingToolCalls: ['t-1'],
+      traceMessages: [traceWithToolCall('t-1', 'run_command', { command: 'npm test', description: '跑测试' })],
+    })
+    expect(currentSubagentToolSummaries(payload)).toEqual(['run_command · 跑测试'])
+  })
+
   it('falls back to the bare tool name when no summary is derivable', () => {
     const payload = testPayload('run-1', 'running', {
       pendingToolCalls: ['t-1'],

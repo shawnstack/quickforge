@@ -60,6 +60,11 @@ describe('ordinary local tool running sweep wiring', () => {
     expect(renderer).not.toContain('truncateSummary')
     expect(renderer).toContain('{renderTerminateCommandButton(this.toolName, status, result?.details)}')
   })
+
+  it('keeps the command reachable via the title when the summary shows the description', () => {
+    expect(renderer).toContain('title={summaryTitle}')
+    expect(renderer).toContain("? `${summaryText}\\n${commandText}`")
+  })
 })
 
 describe('ordinary local tool running sweep CSS', () => {

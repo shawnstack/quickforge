@@ -49,8 +49,16 @@ export class LocalWorkspaceToolRenderer {
     const rawSummary = (this.toolName === 'write_file' || this.toolName === 'edit_file' || this.toolName === 'read_file')
       ? renderToolFileSummary(this.toolName, params)
       : summarizeParams(this.toolName, params, result)
-    const summary = typeof rawSummary === 'string' && rawSummary
-      ? <span className="quickforge-command-summary" title={rawSummary}>{rawSummary}</span>
+    // run_command 带 description 时摘要行优先显示描述；悬停 title 同时带上命令，命令仍可达。
+    const commandText = this.toolName === 'run_command' && typeof params?.command === 'string'
+      ? params.command.replace(/\s+/g, ' ').trim()
+      : ''
+    const summaryText = typeof rawSummary === 'string' ? rawSummary : ''
+    const summaryTitle = summaryText && commandText && summaryText !== commandText
+      ? `${summaryText}\n${commandText}`
+      : summaryText
+    const summary = summaryText
+      ? <span className="quickforge-command-summary" title={summaryTitle}>{rawSummary}</span>
       : rawSummary
     const detailed = toolDisplayDetailed()
     const input = detailed ? stringifyValue(params) : ''

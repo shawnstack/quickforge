@@ -6,6 +6,15 @@ describe('summarizeParams', () => {
     expect(summarizeParams('run_command', { command: 'npm   run\ntest' })).toBe('npm run test')
   })
 
+  it('prefers the description for run_command when provided', () => {
+    expect(summarizeParams('run_command', { command: 'npm run test', description: '跑测试' })).toBe('跑测试')
+    expect(summarizeParams('run_command', { command: 'npm run test', description: ' 跑\n测试 ' })).toBe('跑 测试')
+  })
+
+  it('falls back to the command when the run_command description is blank', () => {
+    expect(summarizeParams('run_command', { command: 'npm run test', description: '   ' })).toBe('npm run test')
+  })
+
   it('prefers the path field when present', () => {
     expect(summarizeParams('read_file', { path: 'src/lib/foo.ts' })).toBe('src/lib/foo.ts')
     expect(summarizeParams('write_file', { path: 'docs/README.md' })).toBe('docs/README.md')

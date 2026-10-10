@@ -1,6 +1,45 @@
 {
   "features": [
     {
+      "id": "summary-interactive-content-a11y",
+      "name": "工具卡 summary 内不再嵌交互元素（文件名预览入口移至右侧眼睛按钮）",
+      "description": "Chrome DevTools 报 18 个 Interactive element inside of a <summary> element：write_file / edit_file / read_file 工具行摘要区的文件名整体是预览入口 <button>，嵌在折叠头 <summary> 内，违反 HTML 规范（summary 自身可点击展开，嵌套交互元素对键盘/读屏用户行为不可预测），每个文件读写工具行报一条。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "renderToolFileSummary 统一渲染静态 span（去掉可预览时的 button 分支、cursor-pointer 与 hover:underline 可点暗示；签名去掉不再使用的 toolName 参数）；renderPreviewButton 从仅 present_files 扩展为 write_file / edit_file / read_file / present_files 四类工具共用（右侧 quickforge-tool-actions 眼睛按钮，resolvePreviewableArtifact 无值不渲染），键盘可达、与 present_files 既有模式一致。",
+      "files": [
+        "src/lib/tool-renderers/shared.tsx",
+        "src/lib/tool-renderers/local-workspace-tool-renderer.tsx",
+        "tests/frontend/tool-renderer-file-icon.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest tool-renderer-file-icon 12 passed（read_file/write_file/edit_file 可预览路径眼睛按钮派发 PREVIEW_ARTIFACT_EVENT 且阻断折叠、文件名纯文本无可点暗示、绝对路径与不可预览扩展无按钮）；连带 local-tool-running-sweep + diff-view + tool-renderer-shared-state 47 passed；eslint 改动文件通过；npx tsc --noEmit 通过。",
+      "boundaries": "只改工具卡摘要文件元素与预览入口位置；ToolDetails details/summary 结构、其余 summary（mcp/ask-user/goal-report/todo-write/默认卡/CodeBlock 菜单等）与 process 折叠头未动；present_files 眼睛按钮行为不变。无 CSS/依赖变更，未提交。"
+    },
+    {
+      "id": "resize-observer-noise-filter",
+      "name": "全局错误入口过滤 ResizeObserver loop 噪音 + 补 mobile-web-app-capable meta",
+      "description": "浏览器控制台被 [ERROR] Uncaught error: ResizeObserver loop completed with undelivered notifications 刷屏；同时 index.html 只有已废弃的 apple-mobile-web-app-capable meta，Chrome 每次加载报 deprecation 警告。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "新增 src/lib/error-noise.ts 的 isResizeObserverLoopError（字符串或 Error.message 匹配 ResizeObserver loop，覆盖 completed with undelivered notifications / loop limit exceeded 变体，普通对象不识别）；main.tsx 全局 error 与 unhandledrejection 入口命中即降级 logger.debug（quickforge_debug=1 才可见，debug 级别本就不受 shouldLog 默认放行），真实错误路径不变；index.html 在保留 apple 版（iOS Safari 仍需）的同时补 <meta name=\"mobile-web-app-capable\" content=\"yes\">。",
+      "files": [
+        "src/lib/error-noise.ts",
+        "src/main.tsx",
+        "index.html",
+        "tests/frontend/error-noise.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest error-noise 9 passed（三变体匹配/Error 实例/无关消息与普通对象不误报）；npx eslint 改动文件通过；npx tsc --noEmit 通过。",
+      "boundaries": "只改全局错误入口的降噪与新 meta 标签；各 ResizeObserver 使用方（scroll-sync、跑马灯、pinned summary 等）的行为未动；android/app/src/main/assets 与 build/intermediates 下的 index.html 为 cap copy / gradle 产物未手工修改（下次 cap sync 从 dist 带入）；无依赖变更，未提交。"
+    },
+    {
       "id": "release-v2.2.3",
       "name": "发布准备 v2.2.3（版本递增 + 文档更新 + 全量验证 + runtime/offline 包）",
       "description": "按 patch-release-runbook 发布 v2.2.3 小版本：包含 state 帧拉尾合入后补发 UI 通知（最终答案刷新才显示的残留根因修复）。",

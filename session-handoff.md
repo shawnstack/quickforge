@@ -1,3 +1,25 @@
+## 当前交接：summary-interactive-content-a11y（done，2026-10-10）
+
+- Current Objective（当前目标）: 消除 18 个「summary 内嵌交互元素」a11y 警告。已实现，未提交。
+- 改动内容: renderToolFileSummary（write/edit/read 摘要文件名）统一静态 span；renderPreviewButton 扩展四类工具，预览入口统一为 summary 右侧动作区眼睛按钮（键盘可达）。
+- Files（改动文件）: src/lib/tool-renderers/shared.tsx、src/lib/tool-renderers/local-workspace-tool-renderer.tsx、tests/frontend/tool-renderer-file-icon.test.ts、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: tool-renderer-file-icon 12 passed；连带 3 文件 47 passed；eslint 改动文件通过；npx tsc --noEmit 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机打开含文件读写工具行的会话，DevTools Issues 确认警告消失；预览改用文件行右侧眼睛按钮，点文件名只展开/收起工具卡。
+
+---
+
+## 当前交接：resize-observer-noise-filter（done，2026-10-10）
+
+- Current Objective（当前目标）: 控制台不再被 ResizeObserver loop 噪音刷屏，index.html 无废弃 meta 警告。已实现，未提交。
+- 改动内容: 新增 `src/lib/error-noise.ts`（isResizeObserverLoopError）；`main.tsx` 全局 error/unhandledrejection 入口命中降级 logger.debug（quickforge_debug=1 可见）；`index.html` 补 mobile-web-app-capable meta（保留 apple 版）。
+- Files（改动文件）: src/lib/error-noise.ts、src/main.tsx、index.html、tests/frontend/error-noise.test.ts、docs/wiki/src/lib/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest error-noise 9 passed；eslint 改动文件通过；npx tsc --noEmit 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机打开 DevTools 确认控制台不再出现 ResizeObserver loop 的 [ERROR] 行（如需查看可设 localStorage quickforge_debug=1 后看 debug 行）；`[Intervention] Images loaded lazily` 为浏览器优化提示，非错误，维持现状。
+
+---
+
 ## 当前交接：release-v2.2.3（done，2026-10-10）
 
 - Current Objective（当前目标）: 发布 v2.2.3 小版本。Git commit/tag/push 已完成，npm publish 待用户执行。

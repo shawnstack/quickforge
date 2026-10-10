@@ -6,6 +6,7 @@ import './index.css'
 import { applyClipboardPolyfill } from '@/lib/clipboard-polyfill'
 import { isMobileShell } from '@/lib/mobile-server'
 import { logger } from '@/lib/logger'
+import { isResizeObserverLoopError } from '@/lib/error-noise'
 import { acquireAppWindowGuard } from '@/lib/window-guard'
 import {
   formatDiagnosticsReport,
@@ -35,10 +36,20 @@ if (Capacitor.isNativePlatform() && isMobileShell()) {
 // (async callbacks, fire-and-forget promises, native event handlers).
 // We intentionally only log here so existing flows are not disrupted by
 // unexpected toasts; this just makes previously-silent failures visible.
+// ResizeObserver loop 噪音降级为 debug（quickforge_debug=1 才可见），
+// 其余错误保持 error 级别不变。
 window.addEventListener('error', (event) => {
+  if (isResizeObserverLoopError(event.message) || isResizeObserverLoopError(event.error)) {
+    logger.debug('Ignored ResizeObserver loop error:', event.message)
+    return
+  }
   logger.error('Uncaught error:', event.error ?? event.message)
 })
 window.addEventListener('unhandledrejection', (event) => {
+  if (isResizeObserverLoopError(event.reason)) {
+    logger.debug('Ignored ResizeObserver loop rejection:', event.reason)
+    return
+  }
   logger.error('Unhandled promise rejection:', event.reason)
 })
 

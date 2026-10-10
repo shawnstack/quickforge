@@ -631,10 +631,10 @@ function previewArtifactClickHandler(artifact: PreviewableArtifact) {
 }
 
 export function renderPreviewButton(toolName: string, params: Record<string, unknown> | undefined) {
-  // 摘要区文件元素（write_file / edit_file / read_file）整体即预览入口（见
-  // renderToolFileSummary），右侧眼睛按钮仅保留 present_files——多文件摘要
-  // 无法整体充当入口，需要独立按钮。
-  if (toolName !== 'present_files') return null
+  // 摘要区文件元素（write_file / edit_file / read_file）是 summary 内的纯文本
+  // （HTML 规范禁止 <summary> 内嵌交互元素），预览入口统一由右侧眼睛按钮承担；
+  // present_files 多文件摘要同理无法整体充当入口。
+  if (toolName !== 'present_files' && toolName !== 'write_file' && toolName !== 'edit_file' && toolName !== 'read_file') return null
   const artifact = resolvePreviewableArtifact(toolName, params)
   if (!artifact) return null
   return (
@@ -651,33 +651,19 @@ export function renderPreviewButton(toolName: string, params: Record<string, unk
 // write_file / edit_file / read_file 摘要区的文件元素：与工作区文件管理同源的 Material
 // 文件类型图标 + 仅文件名（basename，兼容 / 与 \ 分隔符）作为一个整体渲染，
 // 可见文本不含目录与完整路径；hover title 保留完整路径（信息不丢失）。
-// 路径可预览（resolvePreviewableArtifact 有值）时整体即预览入口，复用
-// previewArtifactClickHandler（阻断 summary 折叠开关后派发预览事件）；
-// 不可预览时静态展示、不可点击。其余工具摘要保持纯文本完整路径不变。
-// 预览入口的 hover 反馈克制为仅 basename 文本下划线（hover 直接落在文件名
-// span；悬停整行「已执行 / 编辑 / 写入」或图标都不出下划线），颜色与透明度保持不变。
-export function renderToolFileSummary(toolName: 'write_file' | 'edit_file' | 'read_file', params: Record<string, unknown> | undefined) {
+// HTML 规范禁止 <summary> 内嵌交互元素（Chrome DevTools 会对 summary 内 button
+// 报 a11y 警告），文件元素统一静态展示、不承载点击；预览入口由右侧动作区的
+// 眼睛按钮（renderPreviewButton，与 present_files 一致）承担，键盘可达。
+export function renderToolFileSummary(params: Record<string, unknown> | undefined) {
   const path = params && typeof params.path === 'string' && params.path ? params.path : ''
   if (!path) return null
-  const artifact = resolvePreviewableArtifact(toolName, params)
-  const className = 'quickforge-tool-file-summary inline-flex min-w-0 max-w-full items-center gap-1'
   const content = (
     <>
       <FileIcon path={path} className="size-3.5 shrink-0" />
-      <span className="quickforge-command-summary underline-offset-4 hover:underline">{artifactFileName(path)}</span>
+      <span className="quickforge-command-summary">{artifactFileName(path)}</span>
     </>
   )
-  if (!artifact) {
-    return <span className={className} title={path}>{content}</span>
-  }
-  return (
-    <button
-      type="button"
-      className={`${className} cursor-pointer`}
-      title={path}
-      onClick={previewArtifactClickHandler(artifact)}
-    >{content}</button>
-  )
+  return <span className="quickforge-tool-file-summary inline-flex min-w-0 max-w-full items-center gap-1" title={path}>{content}</span>
 }
 
 // ---------------------------------------------------------------------------

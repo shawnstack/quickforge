@@ -1,3 +1,23 @@
+## summary-interactive-content-a11y（done，2026-10-10）
+
+- Goal：消除 Chrome DevTools 的 18 个「Interactive element inside of a `<summary>` element」a11y 警告。
+- 根因：write_file / edit_file / read_file 工具行摘要区的文件名元素整体是预览入口 `<button>`（renderToolFileSummary 可预览分支），嵌在折叠头 `<summary>` 内——HTML 规范禁止 summary 内嵌交互元素，每个文件读写工具行报一条，18 个即 18 个此类工具行。其余 summary（mcp/ask-user/goal-report/todo-write/默认卡/CodeBlock 菜单/context-compaction 等）排查均干净（button 都在展开区或 actions 区）。
+- 改动：renderToolFileSummary 统一静态 span（去 button 分支、cursor-pointer、hover:underline；签名去 toolName 参数）；renderPreviewButton 扩展为 write/edit/read/present_files 共用右侧眼睛按钮（键盘可达，与 present_files 既有模式一致）；wiki shared.tsx 段同步。
+- 验证：tool-renderer-file-icon 12 passed；连带 local-tool-running-sweep + diff-view + tool-renderer-shared-state 47 passed；eslint 改动文件通过；npx tsc --noEmit 通过。
+- Notes：未提交。UX 变化：点击文件名不再预览，预览改点 summary 右侧眼睛按钮（用户未答复方案确认，按推荐方案 A 执行）。
+
+---
+
+## resize-observer-noise-filter（done，2026-10-10）
+
+- Goal：消除控制台被 `ResizeObserver loop completed with undelivered notifications` 刷屏，并修复 apple-mobile-web-app-capable 废弃警告。
+- 根因：ResizeObserver loop 报错是浏览器单帧内多次派发尺寸回调的良性噪音（scroll-sync、跑马灯等多个观察器并发观察/改写同批元素时常触发），`main.tsx` 全局 error 入口一律按 error 级别输出导致刷屏；index.html 仅有 iOS 旧语法的 apple-mobile-web-app-capable，Chrome 要求补 mobile-web-app-capable。
+- 改动：新增 `src/lib/error-noise.ts`（isResizeObserverLoopError：字符串/Error.message 匹配，普通对象不识别）；`main.tsx` error 与 unhandledrejection 入口命中降级 logger.debug（quickforge_debug=1 才可见），真实错误不变；`index.html` 补 `<meta name="mobile-web-app-capable" content="yes">`（保留 apple 版供 iOS Safari）。
+- 验证：定向 vitest error-noise 9 passed；eslint 改动文件通过；npx tsc --noEmit 通过。wiki 已同步 src/lib/README.md。
+- Notes：未提交。android/ 下两份 index.html 为 cap copy/gradle 产物未手工修改，下次 cap sync 从 dist 带入。Intervention「Images loaded lazily」为浏览器优化提示，非错误，未处理。
+
+---
+
 ## release-v2.2.3（done，2026-10-10）
 
 - Goal：按 patch-release-runbook 发布 v2.2.3 小版本。

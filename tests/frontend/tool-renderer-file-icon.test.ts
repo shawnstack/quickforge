@@ -10,8 +10,9 @@ import { LocalWorkspaceToolRenderer } from '../../src/lib/tool-renderers/local-w
 // （renderToolIcon），摘要文本渲染为 FileIcon + basename 的整体元素（可见文本
 // 不含目录，hover title 保留完整路径）。结构断言直接遍历 React 元素树（与
 // tool-renderer-shared-state.test.ts 同一套 nodes() 遍历模式，无 DOM 依赖）；
-// window 派发用 stub 全局捕获。右侧 quickforge-tool-actions 眼睛按钮仅
-// present_files 保留（write/edit/read 的摘要行整体即预览入口）。
+// window 派发用 stub 全局捕获。文件元素是 summary 内的纯文本（HTML 规范禁止
+// summary 内嵌交互元素），预览入口统一在右侧 quickforge-tool-actions 的眼睛
+// 按钮（write/edit/read/present_files 共用 renderPreviewButton）。
 type TestNode = ReactElement<Record<string, unknown> & { children?: unknown }>
 
 const LABEL_KEYS = {
@@ -144,24 +145,29 @@ describe('write_file / edit_file summary file element', () => {
 })
 
 describe('read_file summary file element', () => {
-  it('renders the file icon with basename and dispatches the preview event for relative paths', () => {
+  it('renders the file icon with basename and previews from the actions-area eye button for relative paths', () => {
     const dispatchEvent = vi.fn()
     vi.stubGlobal('window', { dispatchEvent })
     const content = renderToolContent('read_file', { path: 'src/lib/foo.ts', offset: 1 })
 
+    // 摘要文件名是纯文本（HTML 规范禁止 summary 内嵌交互元素）。
     const element = fileSummaryNode(content)
     expect(classNameOf(element)).toContain('quickforge-tool-file-summary')
-    expect(element.type).toBe('button')
+    expect(element.type).toBe('span')
     expect(element.props.title).toBe('src/lib/foo.ts')
+    expect(element.props.onClick).toBeUndefined()
     expect(textOf(element)).toBe('foo.ts')
     expect(textOf(element)).not.toContain('src/lib')
     expect(fileIconMarkupSrc(renderToStaticMarkup(element as ReactElement))).toBe(fileIconUrls.typescript)
 
+    // 预览入口在右侧动作区眼睛按钮：阻断 details 折叠开关后派发预览事件。
+    const buttons = nodes(actionsNode(content)).filter((node) => node.type === 'button')
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0].props.title).toBe(t('previewArtifact'))
     const preventDefault = vi.fn()
     const stopPropagation = vi.fn()
-    ;(element.props.onClick as (event: { preventDefault(): void; stopPropagation(): void }) => void)({ preventDefault, stopPropagation })
+    ;(buttons[0].props.onClick as (event: { preventDefault(): void; stopPropagation(): void }) => void)({ preventDefault, stopPropagation })
 
-    // 阻断 summary 的 details 折叠开关（不冒泡、不触发默认行为）。
     expect(preventDefault).toHaveBeenCalledTimes(1)
     expect(stopPropagation).toHaveBeenCalledTimes(1)
     expect(dispatchEvent).toHaveBeenCalledTimes(1)
@@ -172,7 +178,8 @@ describe('read_file summary file element', () => {
 
   it('renders a static, non-clickable element for absolute or home-relative paths', () => {
     // 预览链路（openArtifactPreview → 工作区文件 API）只认工作区内路径：工作区外
-    // 绝对路径 403、`~` 不展开，且渲染层无法区分工作区内绝对路径，统一静态展示。
+    // 绝对路径 403、`~` 不展开，且渲染层无法区分工作区内绝对路径，统一静态展示
+    // 且不渲染右侧眼睛按钮。
     const dispatchEvent = vi.fn()
     vi.stubGlobal('window', { dispatchEvent })
     for (const [path, basename] of [
@@ -187,62 +194,57 @@ describe('read_file summary file element', () => {
       expect(element.props.title).toBe(path)
       expect(element.props.onClick).toBeUndefined()
       expect(textOf(element)).toBe(basename)
+      expect(nodes(actionsNode(content)).filter((node) => node.type === 'button')).toHaveLength(0)
     }
     expect(dispatchEvent).not.toHaveBeenCalled()
   })
 })
 
 describe('tool summary file element preview click', () => {
-  it('dispatches the preview artifact event when the path is previewable', () => {
+  it('dispatches the preview artifact event from the actions-area eye button when the path is previewable', () => {
     const dispatchEvent = vi.fn()
     vi.stubGlobal('window', { dispatchEvent })
     const content = renderToolContent('write_file', { path: 'docs/guide.md', content: '# hi' })
 
+    // 摘要文件名是纯文本（HTML 规范禁止 summary 内嵌交互元素）。
     const element = fileSummaryNode(content)
-    expect(element.type).toBe('button')
+    expect(element.type).toBe('span')
+    expect(element.props.onClick).toBeUndefined()
 
+    // 预览入口在右侧动作区：阻断 summary 的 details 折叠开关（不冒泡、不触发默认行为）。
+    const buttons = nodes(actionsNode(content)).filter((node) => node.type === 'button')
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0].props.title).toBe(t('previewArtifact'))
     const preventDefault = vi.fn()
     const stopPropagation = vi.fn()
-    ;(element.props.onClick as (event: { preventDefault(): void; stopPropagation(): void }) => void)({ preventDefault, stopPropagation })
+    ;(buttons[0].props.onClick as (event: { preventDefault(): void; stopPropagation(): void }) => void)({ preventDefault, stopPropagation })
 
-    // 阻断 summary 的 details 折叠开关（不冒泡、不触发默认行为）。
     expect(preventDefault).toHaveBeenCalledTimes(1)
     expect(stopPropagation).toHaveBeenCalledTimes(1)
     expect(dispatchEvent).toHaveBeenCalledTimes(1)
     const event = dispatchEvent.mock.calls[0][0] as CustomEvent<{ path: string; kind?: string }>
     expect(event.type).toBe(PREVIEW_ARTIFACT_EVENT)
     expect(event.detail).toEqual({ path: 'docs/guide.md', kind: undefined })
-    // 摘要行整体即预览入口：actions 区仍在（承载 run_command 终止按钮等），
-    // 但 write/edit 不再渲染右侧眼睛预览按钮。
-    expect(nodes(actionsNode(content)).filter((node) => node.type === 'button')).toHaveLength(0)
   })
 
-  it('signals clickability with a basename-only hover underline and no recolor', () => {
+  it('renders the basename as plain text without click affordance', () => {
     const content = renderToolContent('write_file', { path: 'docs/guide.md', content: '# hi' })
     const element = fileSummaryNode(content)
-    expect(element.type).toBe('button')
+    expect(element.type).toBe('span')
 
-    // hover 反馈仅悬停文件名本身才下划线，整行 hover 不触发：可点击元素不变色、不变透明度。
-    const clickableClass = classNameOf(element)
-    expect(clickableClass).not.toContain('group')
-    expect(clickableClass).toContain('cursor-pointer')
-    expect(clickableClass).not.toContain('hover:opacity')
-    expect(clickableClass).not.toContain('transition-opacity')
-    expect(clickableClass).not.toContain('hover:text-')
-
-    // 下划线只作用于文件名 span，不作用于图标（FileIcon 元素为函数组件）。
-    const descendants = nodes(element)
-    const nameSpan = descendants.find((node) => node.type === 'span')
+    // 不再暗示可点：无 cursor、无 hover 下划线（预览入口移至右侧动作区）。
+    expect(classNameOf(element)).not.toContain('cursor-pointer')
+    const nameSpan = nodes(element).find((node) => classNameOf(node).includes('quickforge-command-summary'))
     expect(nameSpan).toBeDefined()
-    expect(classNameOf(nameSpan!)).toContain('hover:underline')
+    expect(classNameOf(nameSpan!)).not.toContain('hover:underline')
     expect(classNameOf(nameSpan!)).not.toContain('group-hover:underline')
 
-    const fileIcon = descendants.find((node) => typeof node.type === 'function')
+    const fileIcon = nodes(element).find((node) => typeof node.type === 'function')
     expect(fileIcon).toBeDefined()
     expect(classNameOf(fileIcon!)).not.toContain('underline')
   })
 
-  it('keeps the eye preview button in the actions area for present_files only', () => {
+  it('keeps the eye preview button in the actions area for present_files', () => {
     const dispatchEvent = vi.fn()
     vi.stubGlobal('window', { dispatchEvent })
     const content = renderToolContent('present_files', { files: [{ path: 'docs/guide.md', kind: 'markdown' }] })
@@ -263,8 +265,11 @@ describe('tool summary file element preview click', () => {
     const content = renderToolContent('edit_file', { path: 'app/page.html', oldText: 'a', newText: 'b' })
 
     const element = fileSummaryNode(content)
-    expect(element.type).toBe('button')
-    ;(element.props.onClick as (event: { preventDefault(): void; stopPropagation(): void }) => void)({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
+    expect(element.type).toBe('span')
+    expect(element.props.onClick).toBeUndefined()
+    const buttons = nodes(actionsNode(content)).filter((node) => node.type === 'button')
+    expect(buttons).toHaveLength(1)
+    ;(buttons[0].props.onClick as (event: { preventDefault(): void; stopPropagation(): void }) => void)({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
 
     const event = dispatchEvent.mock.calls[0][0] as CustomEvent<{ path: string; kind?: string }>
     expect(event.type).toBe(PREVIEW_ARTIFACT_EVENT)
@@ -282,6 +287,8 @@ describe('tool summary file element preview click', () => {
     expect(element.props.onClick).toBeUndefined()
     expect(element.props.title).toBe('build/artifact.bin')
     expect(fileIconMarkupSrc(renderToStaticMarkup(element as ReactElement))).toBe(fileIconUrls.document)
+    // 不可预览扩展同样不渲染右侧眼睛按钮。
+    expect(nodes(actionsNode(content)).filter((node) => node.type === 'button')).toHaveLength(0)
     expect(dispatchEvent).not.toHaveBeenCalled()
   })
 })

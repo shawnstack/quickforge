@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "late-final-answer-process-fold",
+      "name": "后到的最终答案不再被收进已折叠过程组",
+      "description": "带思考或工具的回复在最终正文晚一帧到达时，过程折叠仍把更早的文字锁定为终答，后到正文被折进默认收起的过程组，高度归零；刷新重建后没有旧标记，正文重新可见。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "currentFinalSummaryMarkdown 只保留仍位于最后一段的终答标记，过期标记立即清除；decorateProcessTurn 在终答缺失或仍位于过程组内时，即使折叠指纹命中 skip 也重新装饰，让最新正文留在组外。",
+      "files": [
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "tests/frontend/process-folding-incremental.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest process-folding + incremental + ownership + chat-surface-release-refold 共 80 passed；eslint 改动文件通过。",
+      "boundaries": "只调整终答身份失效后的重装饰判定；过程组层级、展开记忆、工具后缀增量折叠与 SSE 拉尾恢复未动。未提交。"
+    },
+    {
       "id": "tool-file-summary-span-click-preview",
       "name": "工具卡文件名恢复点击预览（静态 span 挂 click，不违反 summary 规范）",
       "description": "summary-interactive-content-a11y 为消除 DevTools「summary 内嵌交互元素」警告把文件名整体改静态后，鼠标用户点文件名不再跳转预览（hover 下划线暗示也一并消失）。HTML 规范与 axe nested-interactive 规则禁止的是 summary 内嵌交互控件（button / 带 href 的 a / role=button 等），普通元素挂 click 不在禁止之列——需要在不嵌交互控件的前提下恢复点击文件名即预览。",

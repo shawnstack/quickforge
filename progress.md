@@ -1,3 +1,13 @@
+## late-final-answer-process-fold（done，2026-10-13）
+
+- Goal：不断连时，最终答案偶发被收起的过程组藏住，刷新才出现。
+- 根因：终答标记在流式阶段锁住当时最后一段文字；最终正文晚到后，旧标记仍优先，新正文被当成过程文本折进默认收起的组。
+- 改动：过期终答标记立即清除；终答缺失或仍在过程组内时，跳过指纹短路并重装饰，让最新正文留在组外。
+- 验证：process-folding 相关 4 个测试文件 80 passed；eslint 改动文件通过。
+- Notes：未提交。未跑全量 test/build。
+
+---
+
 ## tool-file-summary-span-click-preview（done，2026-10-10）
 
 - Goal：恢复「点击工具卡文件名即预览」且不违反「summary 内禁嵌交互元素」规范（用户反馈上一 feature 后文件名无下划线、点击不跳转）；随后按用户要求去掉 write/edit/read 右侧眼睛按钮，文件名点击即唯一预览入口。

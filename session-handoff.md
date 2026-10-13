@@ -1,3 +1,14 @@
+## 当前交接：late-final-answer-process-fold（done，2026-10-13）
+
+- Current Objective（当前目标）: 不断连时，最终答案不再被收进已折叠过程组。已实现，未提交。
+- 方案：终答标记仅在它仍是最后一段正文时有效；否则清标记，并在终答缺失或仍位于过程组内时强制重装饰。
+- Files（改动文件）: src/components/chat/panel-decoration/process-folding.ts、tests/frontend/process-folding-incremental.test.ts、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: process-folding 相关 4 个测试文件 80 passed；eslint 改动文件通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机跑一条带思考或工具、最终正文较晚出现的回复，确认正文在组外可见且无需刷新；展开状态与工具折叠动画无回归。
+
+---
+
 ## 当前交接：tool-file-summary-span-click-preview（done，2026-10-10）
 
 - Current Objective（当前目标）: 恢复「点击工具卡文件名即预览」，不违反「summary 内禁嵌交互元素」规范，并按用户要求去掉 write/edit/read 右侧眼睛按钮。已实现，已提交。

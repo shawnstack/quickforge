@@ -940,6 +940,18 @@ function lastNonEmptyOrLast(candidates: HTMLElement[]) {
   return nonEmptyCandidates[nonEmptyCandidates.length - 1] ?? candidates[candidates.length - 1] ?? null
 }
 
+/**
+ * 终答必须是当前最后一段正文。流式期间先标记的段落不能在回合结束后继续占位，
+ * 否则后到的最终正文会被当成过程文本折进已收起的组里。
+ */
+function currentFinalSummaryMarkdown(candidates: HTMLElement[]) {
+  const latest = lastNonEmptyOrLast(candidates)
+  const marked = candidates.filter((node) => node.hasAttribute(PROCESS_FINAL_SUMMARY_ATTR))
+  if (latest && marked.includes(latest)) return latest
+  marked.forEach((node) => setProcessFlag(node, PROCESS_FINAL_SUMMARY_ATTR, false))
+  return null
+}
+
 function hasFollowingTopLevelProcessDetail(target: AssistantMessageElement, candidate: HTMLElement) {
   return Array.from(target.querySelectorAll<HTMLElement>(PROCESS_DETAIL_NODE_SELECTOR))
     .filter((node) => node !== candidate && processDetailIsInAssistantScope(node, target))
@@ -953,7 +965,7 @@ function findFinalSummaryMarkdown(target: AssistantMessageElement, isAgentStream
     return candidate && !hasFollowingTopLevelProcessDetail(target, candidate) ? candidate : null
   }
 
-  const markedFinalSummary = lastNonEmptyOrLast(candidates.filter((node) => node.hasAttribute(PROCESS_FINAL_SUMMARY_ATTR)))
+  const markedFinalSummary = currentFinalSummaryMarkdown(candidates)
   if (markedFinalSummary) return markedFinalSummary
 
   const visibleCandidates = candidates.filter((node) => !node.closest(PROCESS_BODY_SELECTOR))
@@ -1553,6 +1565,10 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
   // 指纹在终答判定之后计算并排除终答 markdown：它不参与折叠，首次出现（思考过程
   // 结束、正文开始输出）不该被当成结构变化触发整组重建（见 processTurnFingerprint）。
   const fingerprint = processTurnFingerprint(assistants, finalSummaryMarkdown)
+  const finalSummaryChanged = !isAgentStreaming && canFoldMarkdown && (
+    !finalSummaryMarkdown
+    || finalSummaryMarkdown.closest(PROCESS_GROUP_SELECTOR) !== null
+  )
   const currentNodes = collectFoldableProcessNodes(assistants, finalSummaryMarkdown, canFoldMarkdown)
   const nodeSequenceCurrent = !existingGroup
     || processNodeSequenceIsCurrent(groupedProcessNodeSequences.get(existingGroup), currentNodes)
@@ -1563,7 +1579,7 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
     existingGroup?.dataset.quickforgeProcessFp === fingerprint,
     nodeSequenceCurrent,
   )
-  if (updateMode === 'skip') return
+  if (updateMode === 'skip' && !finalSummaryChanged) return
   if (updateMode === 'update' && existingGroup) {
     updateProcessGroup(panel, processKey, assistants, existingGroup, true)
     return

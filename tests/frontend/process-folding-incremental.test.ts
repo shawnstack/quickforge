@@ -103,6 +103,17 @@ class FakeNode {
 
   set innerHTML(value: string) {
     this.attributes['data-inner-html'] = value
+    this.children.splice(0).forEach((child) => {
+      if (child.parentNode === this) child.parentNode = null
+    })
+    const labels = value.match(/class="([^"]+)"/g) ?? []
+    labels.forEach((token) => {
+      const className = /class="([^"]+)"/.exec(token)?.[1] ?? ''
+      if (!className) return
+      const child = new FakeNode('span', className)
+      child.parentNode = this
+      this.children.push(child)
+    })
   }
 
   get textContent(): string {
@@ -115,6 +126,31 @@ class FakeNode {
 
   get parentElement(): FakeNode | null {
     return this.parentNode
+  }
+
+  /** 真实 DOM 语义：终答判定用文档位置区分正文前后的过程节点。 */
+  compareDocumentPosition(other: FakeNode): number {
+    const FOLLOWING = 4
+    const PRECEDING = 2
+    const position = (node: FakeNode): number[] => {
+      const steps: number[] = []
+      let current: FakeNode | null = node
+      while (current?.parentNode) {
+        steps.push(current.parentNode.children.indexOf(current))
+        current = current.parentNode
+      }
+      return steps.reverse()
+    }
+    const left = position(this)
+    const right = position(other)
+    const length = Math.max(left.length, right.length)
+    for (let index = 0; index < length; index += 1) {
+      const leftIndex = left[index] ?? -1
+      const rightIndex = right[index] ?? -1
+      if (leftIndex < rightIndex) return FOLLOWING
+      if (leftIndex > rightIndex) return PRECEDING
+    }
+    return 0
   }
 
   /** 真实 DOM 语义：restoreGroupedProcessNode 依赖 nextSibling 定位还原位置。 */
@@ -240,14 +276,16 @@ class FakeNode {
   }
 }
 
-const globals = globalThis as unknown as { document?: unknown }
+const globals = globalThis as unknown as { document?: unknown; Node?: { DOCUMENT_POSITION_FOLLOWING: number } }
 
 beforeAll(() => {
   globals.document = { createElement: (tagName: string) => new FakeNode(tagName) }
+  globals.Node = { DOCUMENT_POSITION_FOLLOWING: 4 }
 })
 
 afterAll(() => {
   delete globals.document
+  delete globals.Node
 })
 
 const el = (tagName: string, className = '') => new FakeNode(tagName, className)
@@ -493,6 +531,42 @@ describe('process folding incremental suffix fold (full path, surviving group)',
  * updateProcessGroup 在 label 刷新前提前 return（见文件头说明），折叠路径与序号
  * 记账（collectProcessTimeline 在装饰前完成）不受影响。
  */
+describe('final answer stays outside a collapsed process group', () => {
+  function markdown(text: string) {
+    const node = el('div', 'qf-markdown-block')
+    node.textContent = text
+    return node
+  }
+
+  it('does not fold a final answer that lands after the process group has collapsed', () => {
+    const panel = el('div', 'qf-chat-panel')
+    panel.connectedRoot = true
+    const list = panel.append(el('div', 'qf-message-list'))
+    const committed = list.append(el('div', 'qf-assistant-message'))
+    const committedContent = committed.append(el('div', 'px-4 flex flex-col'))
+    committedContent.append(el('div', 'qf-thinking-block thinking-block'))
+    const streaming = list.append(el('div', 'qf-assistant-message')) as FakeNode & { isStreaming?: boolean }
+    streaming.isStreaming = true
+    const streamingContent = streaming.append(el('div', 'px-4 flex flex-col'))
+    const progress = streamingContent.append(markdown('working'))
+
+    decorateProcessBlocks(panel, [committed, streaming], true)
+    const group = committedContent.querySelector('.quickforge-process-group')
+    expect(group?.dataset.expanded).toBe('true')
+    expect(progress.closest('.quickforge-process-group')).toBeNull()
+    expect(progress.hasAttribute('data-quickforge-process-final-summary')).toBe(true)
+
+    streaming.isStreaming = false
+    streaming.remove()
+    progress.dataset.quickforgeProcessFolded = 'true'
+    const answer = streamingContent.append(markdown('final answer'))
+    decorateProcessBlocks(panel, [committed], false)
+
+    expect(answer.closest('.quickforge-process-group')).toBeNull()
+    expect(answer.hasAttribute('data-quickforge-process-folded')).toBe(false)
+  })
+})
+
 describe('cross-assistant folded thinking keeps its source ordinal', () => {
   function thinkingBlock() {
     const block = el('div', 'qf-thinking-block thinking-block')

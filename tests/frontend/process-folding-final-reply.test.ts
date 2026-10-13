@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
 
-import { decorateProcessBlocks } from '../../src/components/chat/panel-decoration/process-folding'
+import { decorateProcessBlocks, releaseProcessGroups } from '../../src/components/chat/panel-decoration/process-folding'
 
 /**
  * 「工具调用 → 思考 → 最终回复」后最终回复被折进过程组的复现防线。
@@ -22,6 +22,14 @@ function buildAssistant(opts: { thinking?: string; toolCall?: boolean; text?: st
   const assistant = el('div', 'qf-assistant-message')
   const stack = el('div', 'flex flex-col gap-1.5 px-4')
   assistant.appendChild(stack)
+  ;(assistant as HTMLElement & { message?: unknown }).message = {
+    role: 'assistant',
+    content: [
+      ...(opts.thinking !== undefined ? [{ type: 'thinking', thinking: opts.thinking }] : []),
+      ...(opts.toolCall ? [{ type: 'toolCall', id: 'call-1', name: 'run_command' }] : []),
+      ...(opts.text !== undefined ? [{ type: 'text', text: opts.text }] : []),
+    ],
+  }
   if (opts.thinking !== undefined) {
     const thinking = el('div', 'qf-thinking-block')
     thinking.textContent = opts.thinking
@@ -152,5 +160,74 @@ describe('process folding: final reply after tool + thinking stays visible', () 
     expect(a2.classList.contains('quickforge-process-source-empty')).toBe(false)
     expect(insideProcessGroup(text)).toBe(false)
     expect(text.isConnected).toBe(true)
+  })
+
+  it('user bug: thinking rebuilt by React at turn end must be folded again without a refresh', () => {
+    const a2Thinking = a2.querySelector('.qf-thinking-block') as HTMLElement
+    decorateProcessBlocks(panel, [user, a1, a2], true)
+    expect(insideProcessGroup(a2Thinking)).toBe(true)
+
+    // message_end：React 先把折叠节点归还，再按同一身份提交 thinking+text。
+    releaseProcessGroups(panel)
+    const stack = a2.querySelector('.flex') as HTMLElement
+    const committedThinking = el('div', 'qf-thinking-block')
+    committedThinking.textContent = 'analyzing'
+    const text = el('div', 'qf-markdown-block')
+    text.textContent = 'the final answer'
+    stack.replaceChildren(committedThinking, text)
+
+    // agent_end 后的同一次装饰必须把思考重新折回过程组；不能等刷新重建。
+    decorateProcessBlocks(panel, [user, a1, a2], false)
+    expect(insideProcessGroup(committedThinking)).toBe(true)
+    expect(insideProcessGroup(text)).toBe(false)
+    expect(document.querySelectorAll('.qf-thinking-block')).toHaveLength(2)
+  })
+
+  it('user bug: a folded thinking block left in its message row is folded back into the process group', () => {
+    const a2Thinking = a2.querySelector('.qf-thinking-block') as HTMLElement
+    const stack = a2.querySelector('.flex') as HTMLElement
+    const text = el('div', 'qf-markdown-block')
+    text.textContent = 'the final answer'
+    stack.appendChild(text)
+
+    decorateProcessBlocks(panel, [user, a1, a2], true)
+    expect(insideProcessGroup(a2Thinking)).toBe(true)
+
+    // React 把思考块归还到消息行，但折叠隐藏标记还在。下一次装饰不能停在 skip。
+    const group = panel.querySelector('.quickforge-process-group') as HTMLElement
+    stack.insertBefore(a2Thinking, text)
+    a2Thinking.setAttribute('data-quickforge-process-folded', 'true')
+
+    decorateProcessBlocks(panel, [user, a1, a2], false)
+
+    // 全量重建会换掉旧组；断言思考块进入当前过程组，而不是旧组引用。
+    expect(insideProcessGroup(a2Thinking)).toBe(true)
+    expect(a2Thinking.getAttribute('data-quickforge-process-folded')).toBe('true')
+    expect(insideProcessGroup(text)).toBe(false)
+    expect(group.isConnected).toBe(false)
+  })
+
+  it('user bug: a thinking block marked folded but rendered back in its row must fold again', () => {
+    const a1Thinking = a1.querySelector('.qf-thinking-block') as HTMLElement
+    const a2Thinking = a2.querySelector('.qf-thinking-block') as HTMLElement
+    const stack = a2.querySelector('.flex') as HTMLElement
+    const text = el('div', 'qf-markdown-block')
+    text.textContent = 'the final answer'
+    stack.appendChild(text)
+    ;(a2 as HTMLElement & { message?: { content: unknown[] } }).message?.content.push({ type: 'text', text: 'the final answer' })
+
+    decorateProcessBlocks(panel, [user, a1, a2], true)
+    expect(insideProcessGroup(a2Thinking)).toBe(true)
+
+    // React 提交前释放过程组，但折叠标记残留在被归还的思考块上。
+    releaseProcessGroups(panel)
+    a1Thinking.setAttribute('data-quickforge-process-folded', 'true')
+    a2Thinking.setAttribute('data-quickforge-process-folded', 'true')
+
+    decorateProcessBlocks(panel, [user, a1, a2], false)
+
+    expect(insideProcessGroup(a2Thinking)).toBe(true)
+    expect(a2Thinking.getAttribute('data-quickforge-process-folded')).toBe('true')
+    expect(insideProcessGroup(text)).toBe(false)
   })
 })

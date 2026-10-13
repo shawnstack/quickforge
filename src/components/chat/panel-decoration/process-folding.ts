@@ -1572,13 +1572,22 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
   const currentNodes = collectFoldableProcessNodes(assistants, finalSummaryMarkdown, canFoldMarkdown)
   const nodeSequenceCurrent = !existingGroup
     || processNodeSequenceIsCurrent(groupedProcessNodeSequences.get(existingGroup), currentNodes)
-  const updateMode = processTurnUpdateMode(
-    isAgentStreaming,
-    canShortCircuit,
-    Boolean(existingGroup),
-    existingGroup?.dataset.quickforgeProcessFp === fingerprint,
-    nodeSequenceCurrent,
-  )
+  // React releases folded thinking back into the message row while the folded
+  // attribute stays. The fingerprint still matches, but CSS hides the block
+  // outside the process group, so this state must rebuild instead of skip.
+  const foldedNodeEscapedGroup = currentNodes.some(({ node }) => (
+    node.getAttribute(PROCESS_FOLDED_ATTR) === 'true'
+    && node.closest(PROCESS_GROUP_SELECTOR) !== existingGroup
+  ))
+  const updateMode = foldedNodeEscapedGroup
+    ? 'full' as const
+    : processTurnUpdateMode(
+      isAgentStreaming,
+      canShortCircuit,
+      Boolean(existingGroup),
+      existingGroup?.dataset.quickforgeProcessFp === fingerprint,
+      nodeSequenceCurrent,
+    )
   if (updateMode === 'skip' && !finalSummaryChanged) {
     // skip 只跳过组重建；空源标记是行级可见性维护，终答后到达时必须重算
     //（流式期间 text 未出现时打的 empty 不能残留，否则整行连同终答被隐藏）。

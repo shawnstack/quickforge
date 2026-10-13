@@ -1,3 +1,12 @@
+## release-v2.2.5（done，2026-10-13）
+
+- Goal：发布 v2.2.5 小版本。
+- 内容：后到最终答案不再折进收起过程组；工具卡文件名恢复点击预览；ResizeObserver 噪音降级与 summary 交互警告修复。
+- 验证：test 388 文件 4606 passed / 2 skipped；lint exit 0（既有 useMemo warning）；build exit 0。tarball `package-offline/shawnstack-quickforge-2.2.5.tgz`，7.7MB / 549 files / shasum f6b0741484ec62d3fccdb86d69d395370d28cf17。
+- Notes：npm publish 待用户执行。未跟踪 `new` 不纳入。
+
+---
+
 ## late-final-answer-process-fold（done，2026-10-13）
 
 - Goal：不断连时，最终答案偶发被收起的过程组藏住，刷新才出现。

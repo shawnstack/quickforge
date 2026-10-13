@@ -2,6 +2,24 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [2.2.5] - 2026-10-13
+
+### Fixed
+
+- Fixed a late final answer being folded into the collapsed process group: a final-answer marker captured during streaming no longer keeps priority after a newer answer arrives, so the latest answer stays outside the group without requiring a refresh.
+- Fixed the browser console flooding with benign `ResizeObserver loop completed with undelivered notifications` errors: the global error handler now demotes them to debug level (visible only with `quickforge_debug=1`) while real errors keep their error level; added the `mobile-web-app-capable` meta tag alongside the Apple-specific one to clear the deprecation warning.
+- Fixed file tool rows so filenames are clickable again without nesting an interactive control inside `<summary>`; the redundant eye button is removed for read/write/edit rows.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.2.5` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.2.5.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.2.5.tgz
+  ```
+
 ## [2.2.3] - 2026-10-10
 
 ### Fixed

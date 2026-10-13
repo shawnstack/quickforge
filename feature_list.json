@@ -1,6 +1,17 @@
 {
   "features": [
     {
+      "id": "release-v2.2.5",
+      "name": "发布准备 v2.2.5（版本递增 + 文档更新 + 全量验证 + runtime/offline 包）",
+      "description": "按 patch-release-runbook 发布 v2.2.5：包含后到最终答案折叠修复、工具卡文件名点击预览、ResizeObserver 噪音过滤与 summary 交互警告修复。",
+      "status": "done",
+      "dependencies": ["late-final-answer-process-fold"],
+      "approach": "版本 2.2.4→2.2.5；CHANGELOG 新增 [2.2.5]；README 当前版本更新。test/lint/build 全量通过后生成 runtime/offline 包并 npm pack；提交 chore(release): v2.2.5、tag v2.2.5、push origin dev。",
+      "files": ["package.json", "package-lock.json", "CHANGELOG.md", "README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "npm run test 388 文件 4606 passed / 2 skipped；npm run lint exit 0（1 个既有 warning）；npm run build exit 0。tarball：package-offline/shawnstack-quickforge-2.2.5.tgz（7.7MB / 549 files / shasum f6b0741484ec62d3fccdb86d69d395370d28cf17）。",
+      "boundaries": "npm publish 不自动执行。未跟踪 new（0 字节）不纳入提交。"
+    },
+    {
       "id": "late-final-answer-process-fold",
       "name": "后到的最终答案不再被收进已折叠过程组",
       "description": "带思考或工具的回复在最终正文晚一帧到达时，过程折叠仍把更早的文字锁定为终答，后到正文被折进默认收起的过程组，高度归零；刷新重建后没有旧标记，正文重新可见。",

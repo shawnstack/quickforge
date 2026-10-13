@@ -1,3 +1,13 @@
+## 当前交接：release-v2.2.5（done，2026-10-13）
+
+- Current Objective（当前目标）: 发布 v2.2.5。Git commit/tag/push 已完成，npm publish 待用户执行。
+- Files（改动文件）: package.json、package-lock.json、CHANGELOG.md、README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: test 4606 passed / 2 skipped；lint exit 0（既有 warning）；build exit 0。tarball：package-offline/shawnstack-quickforge-2.2.5.tgz（7.7MB / 549 files / shasum f6b0741484ec62d3fccdb86d69d395370d28cf17）。
+- Blockers（阻塞）: npm 发布未执行。
+- Next Session（下一步）: 用户执行 `cd package-offline && npm publish --access public`，再用 `npm view @shawnstack/quickforge version` 验证。
+
+---
+
 ## 当前交接：late-final-answer-process-fold（done，2026-10-13）
 
 - Current Objective（当前目标）: 不断连时，最终答案不再被收进已折叠过程组。已实现，未提交。

@@ -1114,9 +1114,13 @@ describe('ServerAgent', () => {
     expect(mergeIncrementalMessages(base, 1, [{ role: 'assistant', content: 'b-edited' }]).map((message) => message.content))
       .toEqual(['a', 'b-edited'])
 
-    // Message-id equality wins over content comparison.
+    // Same message id but different content = the final assistant text arrived
+    // after the streamed (thinking-only) version with the same id. The server's
+    // version must replace the local partial or the final reply stays hidden
+    // until a full refresh (see sameMessageShape).
     const withIds = [{ role: 'user', content: 'old', id: 'm1' }] as AgentMessage[]
-    expect(mergeIncrementalMessages(withIds, 0, [{ role: 'user', content: 'new-but-same-id', id: 'm1' }])).toEqual(withIds)
+    expect(mergeIncrementalMessages(withIds, 0, [{ role: 'user', content: 'final text', id: 'm1' }]))
+      .toEqual([{ role: 'user', content: 'final text', id: 'm1' }])
   })
 
   it('fills missing messages after a split-session reconnect through the messages channel', async () => {

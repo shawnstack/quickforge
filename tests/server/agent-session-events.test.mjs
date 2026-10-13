@@ -15,6 +15,32 @@ describe('agent session events', () => {
   })
 })
 
+describe('split final-answer delivery', () => {
+  it('keeps the final answer in an end frame when persistence already advanced the count', () => {
+    const messages = [
+      { role: 'user', content: 'go' },
+      { role: 'toolResult', toolCallId: 'tool-1' },
+      { role: 'assistant', content: [{ type: 'text', text: 'final summary' }] },
+    ]
+    const session = {
+      sessionId: 's1',
+      persistedMessageStorage: 'split',
+      persistedMessageCount: messages.length,
+      deliveredMessageCount: messages.length - 1,
+      stateVersion: 3,
+      eventBus: new EventEmitter(),
+    }
+    let frame
+    session.eventBus.on('agent_event', (event) => { frame = event })
+
+    emitSessionEvent(session, { type: 'agent_end', messages })
+
+    expect(frame.messagesIncremental).toBe(true)
+    expect(frame.messages).toEqual([messages[2]])
+    expect(frame.messagesAfter).toBe(2)
+  })
+})
+
 describe('split goal iteration metadata snapshots', () => {
   it.each(['planning', 'execution', undefined])('ships sparse %s markers without historical message bodies', (kind) => {
     const marker = { goalId: 'g1', ...(kind ? { kind } : {}), iteration: 1, outcome: 'completed', finishedAt: 500 }

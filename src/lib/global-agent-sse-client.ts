@@ -123,9 +123,33 @@ class GlobalAgentSseClient {
       'sessions-changed',
     ]
 
+    // [sse-rx] 帧接收流水（thinking→final-reply 丢失取证）：与服务端 [sse-frame]
+    // 日志逐帧对照，定位「服务端已发 / 前端未收」的传输断点。只记关键帧。
+    const logSseRx = (data: Record<string, unknown>, eventType?: string) => {
+      const type = (eventType ?? data.type) as string | undefined
+      if (type !== 'message_end' && type !== 'turn_end' && type !== 'agent_end' && type !== 'messages_replaced' && type !== 'state' && type !== 'tool_execution_end') return
+      const sid = String(data.sessionId ?? '').slice(0, 8)
+      let detail = ''
+      if (type === 'message_end') {
+        const message = data.message as { role?: string; content?: Array<{ type?: string }> } | undefined
+        const blocks = Array.isArray(message?.content) ? message.content.map((block) => block?.type).join('+') : typeof message?.content
+        detail = `msg=${message?.role ?? 'none'}(${blocks ?? '?'}) tail=${Array.isArray(data.messages) ? (data.messages as unknown[]).length : 0} incr=${data.messagesIncremental === true}`
+      } else if (type === 'agent_end' || type === 'messages_replaced') {
+        const summary = data.messagesSummary as { count?: number } | undefined
+        detail = `msgs=${Array.isArray(data.messages) ? (data.messages as unknown[]).length : 0} after=${String(data.messagesAfter ?? '-')} incr=${data.messagesIncremental === true} summary=${summary?.count ?? '-'}`
+      } else if (type === 'state') {
+        const summary = data.messagesSummary as { count?: number } | undefined
+        detail = `msgs=${Array.isArray(data.messages) ? (data.messages as unknown[]).length : 'strip'} summary=${summary?.count ?? '-'} streaming=${data.isStreaming === true}`
+      } else if (type === 'tool_execution_end') {
+        detail = `tool=${String(data.toolName ?? data.toolCallId ?? '?')}`
+      }
+      console.info(`[sse-rx] ${sid} ${type} ${detail}`)
+    }
+
     const handleMessage = (eventType?: string) => (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data) as Record<string, unknown>
+        logSseRx(data, eventType)
         const sessionId = data.sessionId as string | undefined
         if (!sessionId && eventType !== 'scheduled_task_notification') return
         const event = eventType ? { type: eventType, ...data } : data

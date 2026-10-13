@@ -1,3 +1,51 @@
+## fix-process-folding-source-empty（done，2026-10-13）
+
+- 症状：工具调用→思考→最终回复时，最终回复渲染了但整行被隐藏（刷新才恢复）；仅 OpenAI 系 reasoning 形态触发（正文无流式 tick、紧跟 message_end）。
+- 取证链：[sse-frame]（服务端）+ [sse-rx]（前端）帧流水日志证明发送/接收/数据合入全部正常；用户 DOM 检查定位 `quickforge-process-source-empty` class；jsdom 级折叠测试（分阶段/一次性/节点重建）先证明核心豁免逻辑无恙，最终场景 4 精确复现。
+- 根因：`decorateProcessTurn` 流式期间（正文未到）为只剩 thinking 的 assistant 行打上 source-empty（CSS 隐藏整行，当时正确）；message_end 正文到达后 agent_end 装饰走 skip 短路（终答指纹排除后与 thinking-only 态匹配）且三条提前 return 路径（skip/update/空 nodes）全部跳过 `updateEmptyProcessSources` → empty 永不清除 → 正文随整行被隐藏。
+- 修复：`src/components/chat/panel-decoration/process-folding.ts` 三处提前 return 前补 `updateEmptyProcessSources(assistants)`——skip 只跳过组重建，不跳过行级可见性维护。
+- 验证：`tests/frontend/process-folding-final-reply.test.ts` 4 用例（含用户精确复现场景）全绿；mutation 验证（回退修复即红、恢复即绿）；折叠层 4 文件 79/79；eslint/build 通过；用户真机确认修复。
+- 附带：两端帧流水取证日志保留（server/agent-session-events.mjs [sse-frame] + src/lib/global-agent-sse-client.ts [sse-rx]，仅关键帧），后续可按需移除。
+- 顺带修正过时断言：tests/frontend/server-agent.test.ts「merges incremental message tails」同 id 断言改为「内容不同必须替换」（sameMessageShape 注释即此 bug 家族警告）。
+
+---
+
+## agent-context-eviction（done，2026-10-13）
+
+- Goal：设置门控的 Agent 主动遗忘——对话记录完全保留，agent 运行时可自行把不需要的工具结果/旧回复裁剪出运行时上下文；每次请求向 agent 注入上下文占比（无 60% 门槛）；含 recall/report 工具与前端「已裁剪」标记（feature 1+2 一次完成）。
+- 设计：存储与运行时视图分离的既有架构（transformContext 投影不回写）上叠加遗忘通道。① 会话级账本 `session.contextEviction`（按稳定消息 id，ensureMessageIds 在投影前兜底补 UUID；回滚后失配 id 惰性失效）② 工具族 `context_forget`（messageIds 精确 / rule 批量：kind+olderThanTurns+tools 过滤+except 豁免）/ `context_recall`（按 id 或 all 召回，账本移除即回上下文）/ `context_report`（完整可遗忘清单+账本摘要）；永不遗忘 user 与 compact summary；免审批、执行时双重校验设置 ③ 投影把命中消息替换为一行占位符（toolResult 保 toolCallId/toolName 配对；assistant 折叠 text/thinking 留 toolCall），`sessionProjectionMessages` 为同步共用投影（estimateSessionContextUsage 缓存 key 加账本、压缩摘要源跳过被忘内容）④ `buildContextUsageNotice` 每次请求注入瞬态 user `<system-reminder>`（不落存储）：恒含占比，≥40% 附 top3 清单与工具族用法。设置 `context-eviction-settings` 默认关闭（enabled + exemptRecentTurns 两项）；enabled 翻转经 refreshContextEvictionState（每次 runPrompt 前）重建工具集。前端：ServerAgent.state.contextEviction（state 帧 + context_eviction_updated 事件→广播 message_metadata_updated）、ChatSurface 快照派生 identity-stable evictedMessageIds 经 ContextEvictedIdsContext 下发、ToolMessage/AssistantMessage 剪刀徽标（卡外顶部，a11y 安全）、原文始终完整展示。
+- 验证：context-eviction 29 passed；tests/server 全量 1919 passed / 2 skipped、仅 1 failed 属并行会话的 split-final-answer-delivery-cursor；eslint 改动文件通过；npm run build 仅挂该并行工作的 server-agent.ts:1483 类型错误，与本 feature 无关。
+- 迭代⑦（状态感知占比通知，止住 forget 空转循环，2026-10-13）：用户反馈每轮都出现「N 条均已裁剪过」重复调用。根因：投影本身每轮都发裁剪后上下文（agent-manager transformSessionContext 先 sessionProjectionMessages 再发模型，无 bug），但 `buildContextUsageNotice` 是无状态的——恒注入同一句「context_forget frees space」，不告诉模型账本已裁完，模型每轮被催促、每轮空转调一次 forget。修复：通知增账本计数行（已裁 N 条（仅 live id）/ 剩余可裁 M 条，仅计数无清单，保持迭代④自主性设计）；M>0 附原固定指引；M=0 改明确止步句「All forgettable items are already trimmed — skip context_forget until new tool results or replies accumulate」；`context_forget` 结果「全部已裁剪过」文案同步附 call again only after new tool results accumulate；details 增 forgottenCount/forgettableCandidates。验证：context-eviction 32 passed（通知契约重写：计数行、账本计数不入清单、M=0 止步且不再含 frees space 指引）；eslint 改动文件通过。
+- 迭代⑥（修复重复遗忘 + 工具卡下拉详情，2026-10-13）：① 服务端 `resolveForgetTargets` 接收账本 id 集——规则求值与显式 messageIds 中已入账 id 拆入 `alreadyForgotten`（数量 + `alreadyForgottenNow` 清单）单独上报，`forgotten`/`tokensFreed` 只统计本次新裁；content 文案区分「全部已裁剪过 / 规则无匹配 / 混合 no-change」，重复调用同一规则不再返回误导性的 forgotten:0；`forgottenNow` 逐项带 `{ id, kind, toolName, tokens }`，`context_recall` details 增 `recalledItems`（`{ id, kind, toolName }`）；工具描述补「重复调用安全」说明。② 前端 `ContextEvictionToolRenderer`：forget 摘要区分三种 0 语义（新裁剪 `contextForgetToolSummary` / 全部已裁剪过 `contextForgetToolAllForgotten` / 无新增裁剪 `contextForgetToolNone`，混合时追加 `contextForgetToolAlreadySuffix`）；展开体默认恒有明细区（forget 逐条 `#短id · 工具名/早期回复 · ~tokens`、recall 逐条、report 完整报告文本），detailed 模式再追加 input/details JSON；i18n 中英新增 7 键。验证：context-eviction 31 passed（新增重复规则/混合规则 2 用例）+ 新增 context-eviction-renderer 7 passed + i18n 快照 8 + local-tool-running-sweep 7；eslint 改动文件 0 error 0 warning；npx tsc -b 通过。
+- 迭代⑤（工具卡渲染器 + 徽标 reason，2026-10-13）：① 三个工具获专属 icon（forget=剪刀/recall=回退箭头/report=柱状图，shared.tsx renderToolIcon）；② 新增 ContextEvictionToolRenderer（tool-renderers/context-eviction-tool-renderer.tsx，todo_write 同构折叠卡）：摘要行=icon+结果计数（已裁 {count} 条·释放 ~{tokens} tokens / 已召回 {count} 条 / 上下文报告·占用 {percent}%·已裁剪 {count} 条）+斜体 reason（来自 params，悬停全文）+状态/耗时；detailed 模式展开 input/details JSON；local-tools.ts 注册三个工具名，i18n 中英 6 键。③ 徽标升级：ContextEvictedIdsContext(Set)→ContextEvictionEntriesContext(Map id→entry 含 reason/kind/forgottenAt)，共享组件 ContextEvictedBadge.tsx（剪刀+文案+斜体 reason 截断+title 全文），ChatSurface 快照 evictedMessageIds→evictedEntries（新增 sameMapItems 保 identity-stable），ToolMessage/AssistantMessage 接线。验证：eslint 通过、i18n 对称测试通过、npm run build 通过、前端全量 2716 passed/1 failed（失败为并行会话 server-agent.ts 的 mergeIncrementalMessages id 语义回归，非本 feature，其测试注释「Message-id equality wins over content comparison」给出修复方向）。
+- 迭代④（去通知清单，2026-10-13）：占比通知不再附带任何清单、无 ≥40% 触发阈值——恒为 `<system-reminder>` 包裹的占比行 + 一句固定工具指引（report 列清单/forget 释放/recall 恢复）；删 NOTICE_TOP_CONSUMERS/NOTICE_LIST_MIN_PERCENT 常量与候选计算，查什么/忘什么/何时忘完全由 agent 自主（需要清单时自己调 context_report）。29 个单测全绿（新增"高占比也不列清单"与"账本状态不影响通知格式"用例）。
+- 迭代③（去轮次豁免，2026-10-13）：设置只剩 enabled 单开关；rule.olderThanTurns 降级为纯过滤参数（0/缺省=不限轮龄，clamp 0–100）；显式 messageIds 与占比清单同样不受轮次限制；仅保结构性保护——user 消息与 compact summary 永不可忘。同步：工具描述、前端设置 UI（删豁免数字项）、i18n、wiki、29 个单测（新增 olderThanTurns 0 与"仅保护对象时无候选"用例）。注意：迭代②曾补的"显式 id 过豁免下限检查"已按用户要求移除，其配套单测随语义一并移除。
+- E2E 真机验证（2026-10-13 同会话）：用当前源码在 5199 端口起第二实例（真实数据目录），创建 eviction-e2e-test 会话跑 6 回合真实 LLM 会话——① GET /api/tools 门控双向：enabled→3 工具出现、disabled→消失 ② context_report 如实报占比/豁免窗口/候选 ③ 豁免下限：olderThanTurns 1 被 exempt 4 拦截（matched nothing）④ context_forget 规则 4 轮命中 2 条 toolResult，释放 ~14488 tokens，上下文占比 6.3%→1.9%，账本（含 reason/forgottenAt）持久化且消息原文完整 ⑤ context_recall all：账本清空、占比回升 6.4%。测试会话/工作区文件已清除，5199 实例已停。
+- 顺带修复：显式 messageIds 遗忘未过豁免下限检查（与文案/规则路径不一致）——补 exempt 检查 + 2 个单测；handler settings 注入语义改为「传入即用、缺省读实时」（单测不再受真实 settings store 状态影响）。
+- Notes：未提交。演进轨迹：① 去 60% 水位门槛→占比通知每请求恒注入 ② 并行会话补显式 id 豁免检查+E2E ③ 去轮次豁免→设置只剩 enabled 单开关（见上）。类型契约靠 vitest server-agent-events-types + tsc -b 兜住（根 npx tsc --noEmit 是 solution 空检查）；后台 vitest 非 TTY 输出被吞（既有）。用户 settings.json 已开启该特性（旧字段 exemptRecentTurns 已无意义、normalize 忽略）。工作区有并行会话的 split-final-answer-delivery-cursor 改动（agent-session-events.mjs deliveredMessageCount + server-agent.ts messagesSummary reconcile）：其"keeps the final answer in an end frame"测试失败（after=min(delivered,count)=3 空 tail，测试期望 after=2 保留末条）且 server-agent.ts:1483 messagesSummary 可选性类型错误连带 build 失败——非本 feature 引入、未触碰，待其作者收敛。
+
+---
+
+## split-final-answer-end-frame-gap（done，2026-10-13）
+
+- Goal：回合已结束，最后总结仍偶发不出现。
+- 根因：结束帧缺投递游标时回退到已保存条数，尾部为空；同一事件二次转换还会裁掉已补上的总结。
+- 改动：缺游标从 0 取尾部；事件只转换一次。客户端发现条数缺口或最后一条原地替换时强制回读。
+- 验证：事件、前端恢复、路由共 73 passed；eslint 通过。
+- Notes：未提交。需要重启服务后验证。
+
+---
+
+## split-final-answer-delivery-cursor（done，2026-10-13）
+
+- Goal：回合已结束但最后总结偶发缺失，刷新后才出现。
+- 根因：持久化计数可能在结束帧发出前推进到最终条数；split 帧把该计数当作客户端游标，尾部变空。
+- 改动：新增 `deliveredMessageCount`，结束帧按已投递与已持久化的较小值取尾部，再推进投递游标。
+- 验证：事件、路由、持久化相关 109 passed；eslint 通过。
+- Notes：未提交。
+
+---
+
 ## release-v2.2.5（done，2026-10-13）
 
 - Goal：发布 v2.2.5 小版本。

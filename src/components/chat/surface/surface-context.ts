@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import type { ContextEvictionEntry } from './ContextEvictedBadge'
 
 /**
  * Whether "run in terminal"-style command actions are available for code
@@ -43,4 +44,22 @@ export const AssistantStreamingContext = createContext(false)
 /** Read whether the enclosing surface is still streaming this message. */
 export function useAssistantStreaming(): boolean {
   return useContext(AssistantStreamingContext)
+}
+
+const EMPTY_EVICTION_ENTRIES: ReadonlyMap<string, ContextEvictionEntry> = new Map()
+
+/**
+ * Ledger entries (id → { kind, reason, forgottenAt }) for messages the agent
+ * has trimmed from the runtime context (context eviction). `ChatSurface`
+ * provides the snapshot's identity-stable map; tool cards and assistant rows
+ * consume it through `useContextEvictionEntries()` to show a "trimmed from
+ * context" badge (with the recorded reason) while still rendering the
+ * preserved original content. The default is an empty map so standalone
+ * previews/tests render without the feature.
+ */
+export const ContextEvictionEntriesContext = createContext<ReadonlyMap<string, ContextEvictionEntry>>(EMPTY_EVICTION_ENTRIES)
+
+/** Read the evicted (trimmed-from-context) entry map for this surface. */
+export function useContextEvictionEntries(): ReadonlyMap<string, ContextEvictionEntry> {
+  return useContext(ContextEvictionEntriesContext)
 }

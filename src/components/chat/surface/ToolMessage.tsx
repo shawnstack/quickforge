@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { getToolRenderer } from '@/lib/tool-renderer-registry'
 import { isRecord, renderToolChevron, ToolDetails } from '@/lib/tool-renderers/shared'
+import { useContextEvictionEntries } from './surface-context'
+import { ContextEvictedBadge } from './ContextEvictedBadge'
 import type { AgentTool, ToolCall, ToolResultMessage } from './ChatTypes'
 /**
  * React replacement for the legacy `<tool-message>` custom element.
@@ -36,6 +38,7 @@ type ToolMessageProps = {
 }
 
 type ToolCardState = 'inprogress' | 'complete' | 'error'
+
 
 function prettyValue(value: unknown): { text: string; isJson: boolean } {
   try {
@@ -125,6 +128,9 @@ function DefaultToolCardBody({
 export const ToolMessage = memo(function ToolMessage({ toolCall, tool, result, pending = false, aborted = false, isStreaming = false }: ToolMessageProps) {
   const toolName = tool?.name || toolCall.name
   const rootRef = useRef<HTMLDivElement | null>(null)
+  // Agent 已把该结果裁剪出运行时上下文（账本命中）：显示占位徽标，原文仍完整展示。
+  const evictionEntries = useContextEvictionEntries()
+  const evictedEntry = !aborted && result ? evictionEntries.get((result as { id?: string }).id ?? '') : undefined
   // Mirror the legacy element's data properties on the root node after every
   // render so process-folding reads fresh values off the element.
   //
@@ -165,17 +171,24 @@ export const ToolMessage = memo(function ToolMessage({ toolCall, tool, result, p
   if (!renderResult) {
     return (
       <div ref={rootRef} className="qf-tool-message p-2.5 rounded-md border border-border bg-card text-card-foreground shadow-xs">
+        {evictedEntry ? <ContextEvictedBadge entry={evictedEntry} className="mb-1.5 px-0.5" /> : null}
         <DefaultToolCardBody toolName={toolName} params={toolCall.arguments} result={effectiveResult} isStreaming={!aborted && (isStreaming || pending || backgroundRunning)} />
       </div>
     )
   }
 
   if (renderResult.isCustom) {
-    return <div ref={rootRef} className="qf-tool-message">{renderResult.content}</div>
+    return (
+      <div ref={rootRef} className="qf-tool-message">
+        {evictedEntry ? <ContextEvictedBadge entry={evictedEntry} className="mb-1.5 px-0.5" /> : null}
+        {renderResult.content}
+      </div>
+    )
   }
 
   return (
     <div ref={rootRef} className="qf-tool-message p-2.5 rounded-md border border-border bg-card text-card-foreground shadow-xs">
+      {evictedEntry ? <ContextEvictedBadge entry={evictedEntry} className="mb-1.5 px-0.5" /> : null}
       {renderResult.content}
     </div>
   )

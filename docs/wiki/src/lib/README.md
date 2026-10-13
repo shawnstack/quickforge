@@ -214,6 +214,7 @@
 - `goal-report-tool-renderer.tsx` / `todo-write-tool-renderer.tsx` — 历史只读投影（视图模型见 `goal-report-history.ts` / `todo-write-history.ts`），固定默认折叠（`initiallyOpen={false}`，不随任何设置变化）、detailed 只决定是否附原始 JSON、不影响开合。
 - `generate-image-tool-renderer.tsx` — 历史会话兼容的图片结果块（普通页与 `/share/:shareId` 同源 URL）。
 - `mcp-tool-renderer.tsx` — MCP 动态渲染器（summary 行 server / 原名 / 参数摘要，`parseMcpToolName` 解析 `mcp__server__tool`）。
+- `context-eviction-tool-renderer.tsx` — context_forget / context_recall / context_report 折叠卡（三工具共用一类，构造参数区分）：摘要行 = 专属 icon + 计数 + 斜体 reason（params，悬停全文）；forget 摘要区分三种 0 语义——新裁剪条数（`contextForgetToolSummary`）、混合时追加已裁剪过计数（`contextForgetToolAlreadySuffix`）、全部已裁剪过（`contextForgetToolAllForgotten`）、无新增裁剪（`contextForgetToolNone`），重复遗忘不再显示误导性的「已裁剪 0 条」；展开体默认恒有明细区（forget 逐条 `#短id · 工具名/早期回复 · ~tokens`（details.forgottenNow）、recall 逐条（details.recalledItems）、report 完整报告文本（resultText）），detailed 模式再追加 input/details JSON（与 todo_write 渲染器同构）。
 - `index.ts` — 统一导出，`local-tools.ts` 注册入口消费。
 
 **registry 语义**：注册统一走 `tool-renderer-registry.ts` 的 `registerToolRenderer`——模块级 `Map` 存 React 渲染器，chat / side chat / subagent trace 经 `getToolRenderer` 取同一批实现；无包级 registry、无 DOM 宿主桥、无双管线。渲染行为契约（diff 单列智能行号 / ask_user 回执 / todo_write 摘要 / 跑马灯动画）的验证见 `tests/frontend/diff-view.test.ts`、`ask-user-card.test.ts`、`todo-write-renderer.test.ts`、`tool-marquee.test.ts`、`local-tool-running-sweep.test.ts` 等。

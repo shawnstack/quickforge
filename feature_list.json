@@ -1,13 +1,107 @@
 {
   "features": [
     {
+      "id": "split-final-answer-end-frame-gap",
+      "name": "结束帧空尾部不再让最终总结消失",
+      "description": "回合已显示已执行，但最后一条总结没有进入消息列表。split 结束帧在投递游标缺失时回退到已保存条数，尾部为空；同一事件被转换两次后还会把第一次补上的总结裁掉。",
+      "status": "done",
+      "dependencies": [
+        "split-final-answer-delivery-cursor"
+      ],
+      "approach": "缺失投递游标时从 0 取尾部；emitSessionEvent 只转换一次并复用结果。客户端在 summary count 大于本地，或条数相同但最后一条可能被原地替换时，强制回读消息。",
+      "files": [
+        "server/agent-session-events.mjs",
+        "src/lib/server-agent.ts",
+        "tests/server/agent-session-events.test.mjs",
+        "tests/frontend/server-agent-final-answer-recovery.test.ts",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "agent-session-events、server-agent final-answer recovery、agent routes 共 73 passed；eslint 改动文件通过。",
+      "boundaries": "只补结束帧尾部和客户端缺口回读；过程折叠、持久化 CAS 与 SSE 背压策略未改。未提交。"
+    },
+    {
+      "id": "split-final-answer-delivery-cursor",
+      "name": "最终总结不再因持久化计数抢先而从结束帧消失",
+      "description": "长会话的持久化可能在 agent_end 发出前把 persistedMessageCount 推到最终条数，split 结束帧据此算出空尾部，界面结束但最后总结缺失，刷新读完整存储后才出现。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "会话新增 deliveredMessageCount，初始等于已持久化条数；transformSplitSessionEvent 取 delivered 与 persisted 的较小值作为尾部起点，事件转换后推进 delivered 到当前总条数。",
+      "files": [
+        "server/agent-session-events.mjs",
+        "server/agent-manager.mjs",
+        "tests/server/agent-session-events.test.mjs",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "agent-session-events、agent routes、persist-session-state、session-persistence-lock 共 109 passed；eslint 改动文件通过。",
+      "boundaries": "只分离客户端投递游标与持久化计数；持久化 CAS、消息存储和前端折叠未改。未提交。"
+    },
+    {
+      "id": "agent-context-eviction",
+      "name": "Agent 主动遗忘上下文（设置门控：账本 + 遗忘工具族 + 占位符投影 + 每次请求占比通知 + 前端已裁剪标记）",
+      "description": "对话记录完全保留（存储与 UI 不动），agent 运行时可自行裁剪不需要的记忆：设置开启后 agent 获得 context_forget / context_recall / context_report 工具（按稳定消息 ID 或规则批量遗忘 toolResult / 旧 assistant 正文、可召回、可查完整清单），投影阶段把账本命中消息替换为一行占位符（保 toolUse↔toolResult 配对）；每次模型请求注入瞬态上下文占比通知（恒为占比+一句工具指引，不附带清单、无触发阈值——查/忘/何时忘由 agent 自主）；前端对账本命中的工具卡与 assistant 回复渲染「已从上下文裁剪」徽标，原文仍完整展示。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "server/context-eviction.mjs：设置 normalize（仅 enabled，默认关闭；无轮次豁免——遗忘范围由 agent 自主判断，rule.olderThanTurns 为纯过滤参数 0/缺省=不限轮龄，显式 id 同样不受轮次限制，仅结构性保护 user 消息与 compact summary 永不可忘）、ensureMessageIds 兜底补 UUID、遗忘账本 normalizeContextEviction、规则求值 evaluateContextForgetRule、占位符投影 applyContextEviction、sessionProjectionMessages 共用投影、buildContextUsageNotice 每请求瞬态占比通知（无水位门槛、无清单无阈值——恒为占比行+一句固定工具指引，需要清单时 agent 自行调 context_report）、handleContextForget/Recall/Report 工具执行体。工具族定义入 tools/definitions.mjs，agent-manager wrapContextEvictionToolDefinition 统一包装注册（!allowedTools && sessionId 门控，与 manage_global_memory 一致；执行时再读设置双重校验；beforeToolCall 免审批）；refreshContextEvictionState 每次 runPrompt 前刷新快照并在 enabled 翻转时重建工具集。transformContext 投影链：ensureMessageIds → compact loop → 遗忘投影 → 占比通知附加；estimateSessionContextUsage / 压缩摘要源同经 sessionProjectionMessages（缓存 key 加账本）。账本随 agent-persistence 持久化（空账本不落盘）、getSessionState 与 context_eviction_updated SSE 事件下发；回滚后失配 id 惰性失效并在下次 forget 时清理。前端：src/lib/context-eviction-settings.ts 镜像 + DefaultOptionsSettingsTab「Agent 主动遗忘上下文」分组（主开关+豁免回合数）+ ServerAgent.state.contextEviction（state 帧/事件同步）+ ChatSurface 快照派生 identity-stable evictedEntries（Map id→entry，sameMapItems 稳定性）经 ContextEvictionEntriesContext 下发 + 共享 ContextEvictedBadge（剪刀+斜体 reason 截断+title 全文，两处消息行复用）+ i18n 中英。迭代⑤：三工具专属 icon（shared.tsx renderToolIcon：剪刀/回退箭头/柱状图）+ ContextEvictionToolRenderer 折叠卡（计数摘要：已裁 {count} 条·释放 ~{tokens} tokens / 已召回 {count} 条 / 报告·{percent}%·已裁 {count} 条 + 斜体 reason（params）+ running/error 状态 + detailed JSON，local-tools.ts 注册，i18n 中英 6 键）。迭代⑥：修复重复遗忘语义 + 工具卡下拉详情——resolveForgetTargets 接收账本 id 集，规则/显式 id 中已入账者拆入 alreadyForgotten（数量 + alreadyForgottenNow 清单）单独上报，forgotten/tokensFreed 只统计本次新裁（content 文案区分「全部已裁剪过 / 规则无匹配 / 混合 no-change」，不再返回误导性的 forgotten:0）；forgottenNow 逐项带 { id, kind, toolName, tokens }、recall details 增 recalledItems（{ id, kind, toolName }）供前端明细；ContextEvictionToolRenderer 摘要区分三种 0 语义（新裁剪 / 全部已裁剪过 / 无新增裁剪，混合时另附已裁剪过计数），展开体默认恒有明细区（forget 逐条 #短id·工具名/早期回复·~tokens、recall 逐条、report 完整报告文本），detailed 模式再追加 input/details JSON；工具描述补重复调用安全说明；i18n 中英新增 7 键。迭代⑦（止住 forget 空转循环）：占比通知改状态感知——增账本计数行（已裁 N 条（live id）/ 剩余可裁 M 条，仅计数无清单），候选 M>0 附原固定工具指引，M=0 改明确止步句「All forgettable items are already trimmed — skip context_forget until new tool results or replies accumulate」，details 增 forgottenCount/forgettableCandidates；context_forget「全部已裁剪过」文案附 call-again-only-after-new-content 说明（根因：通知无状态恒催促，模型对已裁完会话每轮空转调用，投影本身每轮都发裁剪后上下文无 bug）。",
+      "files": [
+        "server/context-eviction.mjs",
+        "server/auto-compaction.mjs",
+        "server/agent-manager.mjs",
+        "server/agent-persistence.mjs",
+        "server/agent-session-queries.mjs",
+        "server/tools/definitions.mjs",
+        "server/routes/tools.mjs",
+        "src/lib/context-eviction-settings.ts",
+        "src/lib/server-agent-types.ts",
+        "src/lib/server-agent.ts",
+        "src/lib/i18n.ts",
+        "src/components/settings/tabs/DefaultOptionsSettingsTab.tsx",
+        "src/components/chat/surface/surface-context.ts",
+        "src/components/chat/surface/ChatSurface.tsx",
+        "src/components/chat/surface/ToolMessage.tsx",
+        "src/components/chat/surface/AssistantMessage.tsx",
+        "tests/server/context-eviction.test.mjs",
+        "tests/frontend/default-options-settings-tab.test.ts",
+        "tests/frontend/default-options-settings-react.test.ts",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/routes/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md",
+        "src/lib/tool-renderers/context-eviction-tool-renderer.tsx",
+        "src/lib/tool-renderers/shared.tsx",
+        "src/lib/tool-renderers/index.ts",
+        "src/lib/local-tools.ts",
+        "src/components/chat/surface/ContextEvictedBadge.tsx",
+        "tests/frontend/context-eviction-renderer.test.ts"
+      ],
+      "verification": "定向 vitest context-eviction 29 passed（含 olderThanTurns 0 不限轮龄、仅保护对象无候选用例）；本会话真实 E2E 闭环（report→forget 357 toolResult+339 assistantText→recall→re-forget，占比 59.7%→28.8%）；tests/server 全量 1919 passed / 2 skipped / 1 failed（并行会话 split-final-answer-delivery-cursor，与本 feature 无关）；eslint 改动文件通过；npm run build 通过（并行工作类型错误已由其自行修复）。迭代⑤：eslint 改动文件、i18n 对称、build 通过；前端全量 2716 passed / 1 failed（并行会话 mergeIncrementalMessages id 相同保留旧消息语义回归，非本 feature）。迭代⑥：context-eviction 31 passed（新增重复规则 alreadyForgotten 单独上报、混合规则分离计数 2 用例）+ context-eviction-renderer 7 passed（新增）+ i18n 快照 8 + local-tool-running-sweep 7 passed；eslint 改动文件 0 error 0 warning；npx tsc -b 通过。迭代⑦：context-eviction 32 passed（通知契约重写：账本计数行、账本状态不入清单、候选 0 止步且不再含 frees space 指引）；eslint 改动文件通过（agent-manager 仅注释）。",
+      "boundaries": "特性默认关闭；关闭时账本保留不清理、投影忽略账本（回到纯 auto-compact 行为）。占比通知仅存在于单次请求投影、不落存储；top 清单只在占比 ≥40% 附带（低占用只报占比）。永不遗忘 user 消息与 compact summary；subagent（allowedToolNames 恒非空）与 goal 规划轮（planAllowedTools 白名单）天然排除。未提交。"
+    },
+    {
       "id": "release-v2.2.5",
       "name": "发布准备 v2.2.5（版本递增 + 文档更新 + 全量验证 + runtime/offline 包）",
       "description": "按 patch-release-runbook 发布 v2.2.5：包含后到最终答案折叠修复、工具卡文件名点击预览、ResizeObserver 噪音过滤与 summary 交互警告修复。",
       "status": "done",
-      "dependencies": ["late-final-answer-process-fold"],
+      "dependencies": [
+        "late-final-answer-process-fold"
+      ],
       "approach": "版本 2.2.4→2.2.5；CHANGELOG 新增 [2.2.5]；README 当前版本更新。test/lint/build 全量通过后生成 runtime/offline 包并 npm pack；提交 chore(release): v2.2.5、tag v2.2.5、push origin dev。",
-      "files": ["package.json", "package-lock.json", "CHANGELOG.md", "README.md", "feature_list.json", "progress.md", "session-handoff.md"],
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
       "verification": "npm run test 388 文件 4606 passed / 2 skipped；npm run lint exit 0（1 个既有 warning）；npm run build exit 0。tarball：package-offline/shawnstack-quickforge-2.2.5.tgz（7.7MB / 549 files / shasum f6b0741484ec62d3fccdb86d69d395370d28cf17）。",
       "boundaries": "npm publish 不自动执行。未跟踪 new（0 字节）不纳入提交。"
     },
@@ -34,7 +128,9 @@
       "name": "工具卡文件名恢复点击预览（静态 span 挂 click，不违反 summary 规范）",
       "description": "summary-interactive-content-a11y 为消除 DevTools「summary 内嵌交互元素」警告把文件名整体改静态后，鼠标用户点文件名不再跳转预览（hover 下划线暗示也一并消失）。HTML 规范与 axe nested-interactive 规则禁止的是 summary 内嵌交互控件（button / 带 href 的 a / role=button 等），普通元素挂 click 不在禁止之列——需要在不嵌交互控件的前提下恢复点击文件名即预览。",
       "status": "done",
-      "dependencies": ["summary-interactive-content-a11y"],
+      "dependencies": [
+        "summary-interactive-content-a11y"
+      ],
       "approach": "renderToolFileSummary 签名恢复 (toolName, params)；文件元素恒为静态 span（无 role / tabindex、不进 tab 序列，DOM 内容模型与 a11y 树均不构成嵌套交互控件）：resolvePreviewableArtifact 有值时 span 挂 onClick 复用 previewArtifactClickHandler（preventDefault + stopPropagation 阻断 summary 折叠后派发 PREVIEW_ARTIFACT_EVENT），并恢复 cursor-pointer 与仅 basename 的 hover:underline underline-offset-4 可点暗示；不可预览（绝对路径 / ~ / 不可预览扩展）仍纯静态。renderPreviewButton 收窄回仅 present_files（多文件摘要无法整体充当入口，眼睛按钮是其唯一预览入口）；write/edit/read 右侧不再渲染眼睛按钮，文件名点击即唯一预览入口。local-workspace-tool-renderer 调用传回 toolName。",
       "files": [
         "src/lib/tool-renderers/shared.tsx",
@@ -92,7 +188,9 @@
       "name": "发布准备 v2.2.3（版本递增 + 文档更新 + 全量验证 + runtime/offline 包）",
       "description": "按 patch-release-runbook 发布 v2.2.3 小版本：包含 state 帧拉尾合入后补发 UI 通知（最终答案刷新才显示的残留根因修复）。",
       "status": "done",
-      "dependencies": ["state-frame-tail-merge-notify"],
+      "dependencies": [
+        "state-frame-tail-merge-notify"
+      ],
       "approach": "npm version patch 递增 2.2.3；CHANGELOG.md 新增 [2.2.3] 节；README.md 版本文案 2.2.3。手动流程（不走 release:patch:prepare 脚本，Windows EINVAL 既有坑）。test/lint/build 全量通过；生成 package-dist/、package-offline/ 并 npm pack；Git 提交 chore(release): v2.2.3、tag v2.2.3、push origin dev v2.2.3。",
       "files": [
         "package.json",
@@ -111,7 +209,9 @@
       "name": "state 帧拉尾合入后补发 UI 通知（最终答案刷新才显示的残留根因）",
       "description": "SSE 断连吞掉收尾帧后由 state 帧驱动恢复时，agent_end 在拉尾前同步发出（读到旧列表），reconcile 合入最终回答后仅在 markers 存在时广播——无 goal 的普通会话零通知，ChatSurface 不再重渲染，最终答案停留在内存里，刷新页面才显示。附带：拉尾只取一页（服务端单页 500 上限）不看 hasMore；回滚场景全量重拉失败静默返回空走 all.length===0 分支不重试。",
       "status": "done",
-      "dependencies": ["sse-reconnect-final-answer-recovery"],
+      "dependencies": [
+        "sse-reconnect-final-answer-recovery"
+      ],
       "approach": "reconcileMessagesFromSummary 的 finish() 去掉 markers 前置条件：消息实际合入（stateVersion 前进）即广播 message_metadata_updated（marker replay 自行改写时先广播，外层不双发）；拉尾 hasMore 时整体重跑续拉下一页（每页重置重试预算）；fetchAllMessagesFromServer 改为失败显式返回 null 与服务端为空（[]）区分，失败进同一退避重试、真空替换本地列表（restore/create 用的模块级 fetchAllSessionMessages 静默降级语义不变）。",
       "files": [
         "src/lib/server-agent.ts",
@@ -129,7 +229,10 @@
       "name": "发布准备 v2.2.2（版本递增 + 文档更新 + 全量验证 + runtime/offline 包）",
       "description": "按 patch-release-runbook 发布 v2.2.2 小版本：包含 run_command 摘要 description 优先与 SSE 断连后最终回答拉尾重试两个变更。",
       "status": "done",
-      "dependencies": ["sse-reconnect-final-answer-recovery", "run-command-description-first"],
+      "dependencies": [
+        "sse-reconnect-final-answer-recovery",
+        "run-command-description-first"
+      ],
       "approach": "npm version patch 递增 2.2.2；CHANGELOG.md 新增 [2.2.2] 节（Added/Fixed/Released）；README.md 版本文案 2.2.2。手动流程（不走 release:patch:prepare 脚本，Windows EINVAL 既有坑）。test/lint/build 全量通过；生成 package-dist/、package-offline/ 并 npm pack；Git 提交 chore(release): v2.2.2、tag v2.2.2、push origin dev v2.2.2。",
       "files": [
         "package.json",
@@ -187,7 +290,10 @@
       "name": "发布准备 v2.2.1（版本递增 + 文档更新 + 门禁修复 + 全量验证 + runtime/offline 包）",
       "description": "按 patch-release-runbook 发布 v2.2.1 小版本：发布前全量 test 暴露 2 个自 8119283 提交起就红的前端测试，需按硬门禁修复后重新验证。",
       "status": "done",
-      "dependencies": ["background-command-presence", "composer-console-fixed-width"],
+      "dependencies": [
+        "background-command-presence",
+        "composer-console-fixed-width"
+      ],
       "approach": "npm version patch 递增 2.2.1；CHANGELOG.md 新增 [2.2.1] 节（v2.2.0..HEAD 34 个提交整理）；README.md 版本文案 2.2.1。硬门禁修复：isProcessToolsGroupMember 补 running !== false 判断（与 shared.tsx/ToolMessage.tsx 的 background&&running 判定同款，运行中后台命令不折叠、退出终态可折回过程组，服务端 finish 写 running:false/background:false 一致）；subagent-running-indicator 后台命令测试的过期断言改为独立触发器 .quickforge-background-command-trigger + innerHTML badge 断言（Fake DOM 不解析 innerHTML）。test/lint/build 全量通过；生成 runtime/offline 包与 npm pack tarball；Git 提交（fix + release 两个 commit）、tag v2.2.1、push 完成。npm 未登录（whoami 401），publish 指令交用户执行。",
       "files": [
         "package.json",
@@ -226,7 +332,9 @@
       "name": "后台命令不因会话空闲回收被杀",
       "description": "run_in_background 后台命令在会话空闲 10 分钟后被自动回收连带终止，用户视角是“过一段时间自己关闭”。",
       "status": "done",
-      "dependencies": ["run-command-background"],
+      "dependencies": [
+        "run-command-background"
+      ],
       "approach": "resetIdleTimer 到点时若 listBackgroundCommandTasks(sessionId) 仍有运行中任务，与 goal waiter 同样处理：只重置计时器不销毁。后台命令退出通知依赖活跃 session 对象投递（followUp/下一轮 prompt），进程只应由显式销毁或手动停止终止；最后一个命令退出后经通知路径重置计时器再按常规回收。显式 destroyAgent（删除会话、服务 shutdown）终止后台命令的行为不变。",
       "files": [
         "server/agent-manager.mjs",
@@ -383,7 +491,9 @@
       "name": "后台命令显示在对话和运行摘要",
       "description": "后台 run_command 启动后会折进过程组，回合结束后不再显示运行态；Composer 运行摘要只统计 subagent，不能从摘要关闭后台命令。",
       "status": "done",
-      "dependencies": ["run-command-background"],
+      "dependencies": [
+        "run-command-background"
+      ],
       "approach": "运行中的后台命令不进入过程组，工具行保持运行态。服务端在启动、退出和会话状态中同步 backgroundCommands。Composer 摘要把后台命令并入同一列表，每一项提供关闭按钮并复用 abort-tool。退出时替换原 toolResult 为终态。",
       "files": [
         "server/tools/index.mjs",

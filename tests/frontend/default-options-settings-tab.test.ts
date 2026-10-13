@@ -8,6 +8,7 @@ vi.mock('@/lib/pi-chat', () => ({ defaultThinkingLevelForModel: () => 'off', get
 vi.mock('@/lib/model-reference', () => ({ loadModelCatalog: mocks.catalog }))
 vi.mock('@/lib/tool-display-settings', () => ({ loadToolDisplaySettings: async () => ({ toolDisplayMode: 'compact', showContextUsage: false }), saveToolDisplaySettings: vi.fn() }))
 vi.mock('@/lib/auto-compact-settings', () => ({ loadAutoCompactSettings: async () => ({ enabled: true, requireConfirmation: true, thresholdPercent: 80, keepRecentTurns: 0 }), saveAutoCompactSettings: mocks.compact }))
+vi.mock('@/lib/context-eviction-settings', () => ({ loadContextEvictionSettings: async () => ({ enabled: false, exemptRecentTurns: 10 }), saveContextEvictionSettings: vi.fn() }))
 vi.mock('@/lib/goal-settings', () => ({ loadGoalSettings: async () => ({ maxIterations: 20 }), saveGoalSettings: mocks.goal }))
 vi.mock('@/lib/auto-archive-settings', () => ({ loadAutoArchiveSettings: async () => ({ enabled: false }), saveAutoArchiveSettings: vi.fn() }))
 vi.mock('@/lib/i18n', () => ({ applyAppLanguage: vi.fn(), getAppLanguage: () => 'zh', t: (key: string) => key }))

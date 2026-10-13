@@ -8,6 +8,7 @@ import {
   AskUserToolRenderer,
   GoalReportToolRenderer,
   TodoWriteToolRenderer,
+  ContextEvictionToolRenderer,
   McpToolRenderer,
   parseMcpToolName,
 } from '@/lib/tool-renderers'
@@ -61,6 +62,9 @@ const todoWriteToolRenderer = new TodoWriteToolRenderer()
 registerToolRenderer('todo_write', todoWriteToolRenderer)
 registerToolRenderer('ask_user', new AskUserToolRenderer())
 registerToolRenderer('goal_report', new GoalReportToolRenderer())
+registerToolRenderer('context_forget', new ContextEvictionToolRenderer('context_forget'))
+registerToolRenderer('context_recall', new ContextEvictionToolRenderer('context_recall'))
+registerToolRenderer('context_report', new ContextEvictionToolRenderer('context_report'))
 
 // Tool execution is entirely server-side. The chat surface never calls
 // .execute() on client-side tools — it only reads state.tools for display

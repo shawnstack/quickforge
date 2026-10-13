@@ -1579,9 +1579,15 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
     existingGroup?.dataset.quickforgeProcessFp === fingerprint,
     nodeSequenceCurrent,
   )
-  if (updateMode === 'skip' && !finalSummaryChanged) return
+  if (updateMode === 'skip' && !finalSummaryChanged) {
+    // skip 只跳过组重建；空源标记是行级可见性维护，终答后到达时必须重算
+    //（流式期间 text 未出现时打的 empty 不能残留，否则整行连同终答被隐藏）。
+    updateEmptyProcessSources(assistants)
+    return
+  }
   if (updateMode === 'update' && existingGroup) {
     updateProcessGroup(panel, processKey, assistants, existingGroup, true)
+    updateEmptyProcessSources(assistants)
     return
   }
 
@@ -1612,7 +1618,10 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
     collectFoldableProcessNodes(assistants, restoredFinalSummary, restoredCanFoldMarkdown),
     assistants,
   )
-  if (nodes.length === 0) return
+  if (nodes.length === 0) {
+    updateEmptyProcessSources(assistants)
+    return
+  }
 
   const group = createTurnProcessGroup(nodes, assistants)
   if (!group) return

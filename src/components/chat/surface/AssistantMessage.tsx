@@ -11,7 +11,8 @@ import { ThinkingBlock } from './ThinkingBlock'
 import { ToolMessage } from './ToolMessage'
 import { formatUsage } from './UsageBar'
 import { assistantContentParts } from './content-parts'
-import { AssistantStreamingContext, useAssistantStreaming } from './surface-context'
+import { AssistantStreamingContext, useAssistantStreaming, useContextEvictionEntries } from './surface-context'
+import { ContextEvictedBadge } from './ContextEvictedBadge'
 
 /**
  * React replacement for the legacy `<assistant-message>` custom element.
@@ -66,6 +67,10 @@ export const AssistantMessage = memo(function AssistantMessage({
   // "still streaming" for its whole subtree, so an enclosing value keeps
   // overriding the per-row flag.
   const surfaceStreaming = useAssistantStreaming()
+  // Agent 已把该回复正文裁剪出运行时上下文（账本命中）：显示占位徽标，原文仍完整展示。
+  const evictionEntries = useContextEvictionEntries()
+  const messageId = (message as { id?: string }).id
+  const textEvictedEntry = !isStreaming && messageId ? evictionEntries.get(messageId) : undefined
 
   // Parts keep their source-content index as key (see `content-parts`): an
   // earlier chunk appearing/disappearing must not re-key every later part.
@@ -91,6 +96,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   return (
     <AssistantStreamingContext.Provider value={surfaceStreaming || isStreaming}>
       <div className="qf-assistant-message" ref={rootRef}>
+        {textEvictedEntry ? <ContextEvictedBadge entry={textEvictedEntry} className="px-4 pt-1" /> : null}
         {parts.length > 0 ? (
           // Parts carry their own stable keys (source content index / tool-call
           // id); an index-keyed Fragment wrapper here would defeat them.

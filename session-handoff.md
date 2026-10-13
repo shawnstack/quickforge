@@ -1,3 +1,47 @@
+## 当前交接：fix-process-folding-source-empty（done，2026-10-13）
+
+- Current Objective（当前目标）: 修复「工具调用→思考→最终回复时最终回复被隐藏（刷新才恢复）」。已修复，用户真机确认（硬刷新后复现场景正常）。
+- 根因/修复: `decorateProcessTurn` 流式期间为 thinking-only 行打 `quickforge-process-source-empty`（CSS 隐藏整行，当时正确）；正文后到时 agent_end 装饰走 skip 短路（终答指纹排除后匹配 thinking-only 态），三条提前 return 路径（skip/update/空 nodes）全部跳过 `updateEmptyProcessSources` → empty 残留 → 整行连同正文被隐藏。修复：三处提前 return 前补 `updateEmptyProcessSources(assistants)`（process-folding.ts）。取证链：[sse-frame]/[sse-rx] 两端帧流水日志（已保留，agent-session-events.mjs + global-agent-sse-client.ts，可按需移除）+ 用户 DOM console 输出定位 source-empty class。
+- Files（改动文件）: src/components/chat/panel-decoration/process-folding.ts、tests/frontend/process-folding-final-reply.test.ts、server/agent-session-events.mjs（取证日志）、src/lib/global-agent-sse-client.ts（取证日志）、tests/frontend/server-agent.test.ts（过时同 id 断言修正）。
+- Evidence（验证）: 折叠层 4 文件 79/79 passed（含用户精确复现场景 4）；mutation 验证（回退即红/恢复即绿）；eslint + npm run build 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 待用户决定提交时机；取证日志（[sse-frame]/[sse-rx]）可在稳定后移除；feature_list.json 未单列此修复条目（记录于 progress.md 本节）。
+
+---
+
+## 当前交接：agent-context-eviction（done，2026-10-13）
+
+- Current Objective（当前目标）: 设置门控的 Agent 主动遗忘上下文（feature 1+2+去轮次豁免：工具族 + 占位符投影 + 每请求占比通知 + 前端已裁剪标记 + 完全自主遗忘）。已实现并在本人会话完成真实 E2E，未提交。
+- 改动内容: `server/context-eviction.mjs`（设置仅 enabled 单开关、账本、规则求值（olderThanTurns 纯过滤参数 0/缺省=不限轮龄、无服务端豁免）、占位符投影、buildContextUsageNotice 每请求恒注入占比通知（恒为占比+一句固定工具指引，无清单无阈值，查/忘/何时忘由 agent 自主）、handleContextForget|Recall|Report）；`server/auto-compaction.mjs` sessionProjectionMessages 共用投影；`server/agent-manager.mjs`（transformSessionContext 投影链、三工具注册、免审批、refreshContextEvictionState、session 字段）；`server/agent-session-queries.mjs` 快照带账本；`server/agent-persistence.mjs` 账本持久化；`server/tools/definitions.mjs` + `server/routes/tools.mjs`。前端：`src/lib/context-eviction-settings.ts`（仅 enabled）+ `server-agent-types.ts`/`server-agent.ts`（contextEviction state+事件）+ DefaultOptionsSettingsTab 单开关 + i18n 中英。迭代⑤（工具卡显示优化）：三工具专属 icon（`tool-renderers/shared.tsx` renderToolIcon：剪刀/回退箭头/柱状图）+ `ContextEvictionToolRenderer` 折叠卡（计数摘要：已裁 {count} 条·释放 ~{tokens} tokens / 已召回 {count} 条 / 报告·{percent}%·已裁 {count} 条 + 斜体 reason（params，悬停全文）+ running/error 状态 + detailed JSON；`local-tools.ts` 注册；i18n 6 键中英）；徽标升级为共享 `ContextEvictedBadge`（剪刀+斜体 reason 截断+title 全文），surface context 由 Set 改 Map（id→entry 含 reason/kind），ChatSurface 快照 evictedEntries（新增 sameMapItems 保 identity-stable）。迭代⑥（修复重复遗忘 + 工具卡下拉详情）：`resolveForgetTargets` 接收账本 id 集——已入账 id 拆入 alreadyForgotten（数量+alreadyForgottenNow 清单）单独上报，forgotten/tokensFreed 只计本次新裁（content 区分全部已裁剪过/规则无匹配/混合 no-change）；forgottenNow 逐项带 { id, kind, toolName, tokens }、recall details 增 recalledItems；ContextEvictionToolRenderer 摘要区分三种 0 语义、展开体默认恒有明细区（forget 逐条 #短id·工具名·~tokens / recall 逐条 / report 完整文本）；i18n 中英 +7 键；工具描述补重复调用安全说明。迭代⑦（止住 forget 空转循环，2026-10-13）：buildContextUsageNotice 改状态感知——增账本计数行（已裁 N 条/剩余可裁 M 条，仅计数无清单）、候选 0 时明确「skip context_forget until new tool results or replies accumulate」替换 frees space 指引、details 增 forgottenCount/forgettableCandidates；context_forget「全部已裁剪过」文案附止步说明；根因为无状态通知每轮催促模型空转（投影链无 bug，裁剪后上下文确实每轮发出）。
+- Files（改动文件）: 见 feature_list.json agent-context-eviction 条目。
+- Evidence（验证）: context-eviction 29 passed（含 olderThanTurns 0 与仅保护对象用例）；真实 E2E 闭环（report→forget 357+339→recall→re-forget，占比 59.7%→28.8%）；tests/server 全量 1919 passed / 2 skipped / 1 failed（并行工作）；eslint 通过；build 仅挂并行工作的 server-agent.ts:1483。
+- Blockers（阻塞）: 无（本 feature 范围）。
+- Next Session（下一步）: 并行会话坏点演进：server-agent.ts:1483 类型错误已由其自行修复、build 通过；当前残留 tests/frontend/server-agent.test.ts「merges incremental message tails positionally」失败（mergeIncrementalMessages id 相同时应保留旧消息，实现却新覆盖旧；测试注释「Message-id equality wins over content comparison」给出修复方向）——非本 feature 代码，待其作者收敛。本 feature：重启服务后真机验证工具卡显示（icon + 计数摘要 + 斜体 reason）与被裁消息徽标（剪刀 + reason）；迭代⑥追加验证项——重复调用同一 forget 规则时卡片摘要应显示「N 条均已裁剪过」而非「已裁剪 0 条」，混合场景显示新裁数 + 「另 M 条已裁剪过」，工具卡展开即见逐条明细（#短id · 工具名/早期回复 · ~tokens）、report 卡展开可见完整报告文本；迭代⑦追加验证项——重启后通知应为新格式（含「Forgotten ledger: N … M forgettable item(s) remaining.」计数行），已裁完的会话里模型不再每轮空转调 context_forget、不再重复出现「均已裁剪过」工具卡；待用户决定提交时机。
+
+---
+
+## 当前交接：split-final-answer-end-frame-gap（done，2026-10-13）
+
+- Current Objective（当前目标）: 结束帧空尾部不再丢掉最终总结。已实现，未提交。
+- 方案：缺投递游标时从 0 取尾部；事件只转换一次。客户端在 count 缺口或最后一条原地替换时强制回读。
+- Files（改动文件）: server/agent-session-events.mjs、src/lib/server-agent.ts、tests/server/agent-session-events.test.mjs、tests/frontend/server-agent-final-answer-recovery.test.ts、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 相关测试 73 passed；eslint 通过。
+- Blockers（阻塞）: 当前运行中的服务仍是旧代码，需重启后再测。
+- Next Session（下一步）: 重启后跑一条带工具的长回复，确认结束后总结立即出现，刷新结果一致。
+
+---
+
+## 当前交接：split-final-answer-delivery-cursor（done，2026-10-13）
+
+- Current Objective（当前目标）: 持久化抢先提交时，结束帧仍携带最终总结。已实现，未提交。
+- 方案：`deliveredMessageCount` 与 `persistedMessageCount` 分离；结束帧取两者较小值作为未投递起点。
+- Files（改动文件）: server/agent-session-events.mjs、server/agent-manager.mjs、tests/server/agent-session-events.test.mjs、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 相关服务端测试 109 passed；eslint 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机跑长工具回合，确认结束后最终总结立即出现；刷新结果一致。
+
+---
+
 ## 当前交接：release-v2.2.5（done，2026-10-13）
 
 - Current Objective（当前目标）: 发布 v2.2.5。Git commit/tag/push 已完成，npm publish 待用户执行。

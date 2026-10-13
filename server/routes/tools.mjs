@@ -1,14 +1,15 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
 import { toolHandlers, loadSkillToolContext } from '../tools/index.mjs'
-import { createSkillTools, globalMemoryTool, workspaceTools } from '../tools/definitions.mjs'
+import { createSkillTools, globalMemoryTool, workspaceTools, contextForgetTool, contextRecallTool, contextReportTool } from '../tools/definitions.mjs'
 import { isGlobalMemoryEnabled } from '../global-memory.mjs'
+import { isContextEvictionEnabled } from '../context-eviction.mjs'
 import { createMcpToolDefinitions } from '../mcp/registry.mjs'
 import { callPluginTool, createPluginToolDefinitions, isPluginToolName } from '../plugins/registry.mjs'
 import { safeReadTools } from '../approval-store.mjs'
 import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
 
-const directRouteDisabledTools = new Set(['run_subagent', 'manage_global_memory', 'generate_image', 'todo_write'])
+const directRouteDisabledTools = new Set(['run_subagent', 'manage_global_memory', 'generate_image', 'todo_write', 'context_forget', 'context_recall', 'context_report'])
 
 /**
  * GET /api/tools — returns canonical tool definitions (no project context needed).
@@ -24,7 +25,8 @@ export async function handleGetTools(_req, res) {
   const pluginTools = await createPluginToolDefinitions(activeProject ? { workspaceRoot: activeProject.path, project: activeProject } : null)
   const mcpTools = await createMcpToolDefinitions()
   const memoryTools = await isGlobalMemoryEnabled() ? [globalMemoryTool] : []
-  sendJson(res, 200, { tools: [...skillTools, ...memoryTools, ...workspaceTools, ...mcpTools, ...pluginTools] })
+  const evictionTools = await isContextEvictionEnabled() ? [contextForgetTool, contextRecallTool, contextReportTool] : []
+  sendJson(res, 200, { tools: [...skillTools, ...memoryTools, ...evictionTools, ...workspaceTools, ...mcpTools, ...pluginTools] })
 }
 
 const workspaceToolNames = new Set(workspaceTools.map((tool) => tool.name))

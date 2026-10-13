@@ -19,6 +19,10 @@ import {
   saveAutoCompactSettings,
 } from '@/lib/auto-compact-settings'
 import {
+  loadContextEvictionSettings,
+  saveContextEvictionSettings,
+} from '@/lib/context-eviction-settings'
+import {
   loadGoalSettings,
   saveGoalSettings,
 } from '@/lib/goal-settings'
@@ -157,6 +161,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   const [autoCompactThresholdPercent, setAutoCompactThresholdPercent] = useState(80)
   const [autoCompactThresholdPercentInput, setAutoCompactThresholdPercentInput] = useState('80')
   const [autoCompactKeepRecentTurns, setAutoCompactKeepRecentTurns] = useState(0)
+  const [contextEvictionEnabled, setContextEvictionEnabled] = useState(false)
   const [goalMaxIterations, setGoalMaxIterations] = useState(20)
   const [goalMaxIterationsInput, setGoalMaxIterationsInput] = useState('20')
   const [autoArchiveEnabled, setAutoArchiveEnabled] = useState(false)
@@ -186,6 +191,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   const showContextUsageRef = useRef(showContextUsage)
   const expandProcessStageByDefaultRef = useRef(expandProcessStageByDefault)
   const autoCompactRef = useRef({ enabled: autoCompactEnabled, thresholdPercent: autoCompactThresholdPercent, keepRecentTurns: autoCompactKeepRecentTurns, requireConfirmation: autoCompactRequireConfirmation })
+  const contextEvictionRef = useRef({ enabled: contextEvictionEnabled })
   const goalMaxIterationsRef = useRef(goalMaxIterations)
   const autoArchiveEnabledRef = useRef(autoArchiveEnabled)
   const networkProxyRef = useRef({ mode: networkProxyMode, url: networkProxyUrl, saving: networkProxySaving, loaded: networkProxyLoaded, status: networkProxyStatus })
@@ -235,7 +241,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   const loadSettings = async () => {
     try {
       const storage = getAppStorage()
-      const [localModels, catalogModels, defaults, toolDisplaySettings, autoCompactSettings, goalSettings, autoArchiveSettings] = await Promise.all([
+      const [localModels, catalogModels, defaults, toolDisplaySettings, autoCompactSettings, goalSettings, autoArchiveSettings, contextEvictionSettings] = await Promise.all([
         getSelectableConfiguredModels(storage),
         loadModelCatalog().catch(() => []),
         loadDefaultOptions(storage),
@@ -243,6 +249,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
         loadAutoCompactSettings(storage),
         loadGoalSettings(storage),
         loadAutoArchiveSettings(storage),
+        loadContextEvictionSettings(storage),
       ])
       const baseModels = catalogModels.length ? catalogModels : localModels
       const nextModels = mergeAvailableModels(baseModels, [])
@@ -261,6 +268,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
       setAutoCompactThresholdPercent(autoCompactSettings.thresholdPercent)
       setAutoCompactThresholdPercentInput(String(autoCompactSettings.thresholdPercent))
       setAutoCompactKeepRecentTurns(autoCompactSettings.keepRecentTurns)
+      setContextEvictionEnabled(contextEvictionSettings.enabled)
       setGoalMaxIterations(goalSettings.maxIterations)
       setGoalMaxIterationsInput(String(goalSettings.maxIterations))
       setAutoArchiveEnabled(autoArchiveSettings.enabled)
@@ -268,6 +276,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
       showContextUsageRef.current = toolDisplaySettings.showContextUsage
       expandProcessStageByDefaultRef.current = toolDisplaySettings.expandProcessStageByDefault
       autoCompactRef.current = autoCompactSettings
+      contextEvictionRef.current = contextEvictionSettings
       goalMaxIterationsRef.current = goalSettings.maxIterations
       autoArchiveEnabledRef.current = autoArchiveSettings.enabled
       let nextNotificationsEnabled = isSystemNotificationsEnabled()
@@ -367,6 +376,13 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
     autoArchiveEnabledRef.current = checked
     setSaved(false)
     void saveAutoArchiveOptions()
+  }
+
+  const updateContextEvictionEnabled = (checked: boolean) => {
+    setContextEvictionEnabled(checked)
+    contextEvictionRef.current = { ...contextEvictionRef.current, enabled: checked }
+    setSaved(false)
+    void saveContextEvictionOptions()
   }
 
   const updateSystemNotifications = async (checked: boolean) => {
@@ -714,6 +730,17 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
         keepRecentTurns: autoCompactRef.current.keepRecentTurns,
         minSourceChars: 1600,
         requireConfirmation: autoCompactRef.current.requireConfirmation,
+      })
+      markSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('requestFailed'))
+    }
+  }
+
+  const saveContextEvictionOptions = async () => {
+    try {
+      await saveContextEvictionSettings(getAppStorage(), {
+        enabled: contextEvictionRef.current.enabled,
       })
       markSaved()
     } catch (err) {
@@ -1187,6 +1214,18 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
               onInput={updateAutoCompactKeepRecentTurns}
               onCommit={commitAutoCompactKeepRecentTurns}
             />
+          </div>
+        </div>
+
+        <div className="quickforge-settings-row">
+          <div className="quickforge-settings-row-main">
+            <div className="quickforge-settings-row-title">
+              {t('contextEvictionEnabled')}
+              <InfoTip label={`${t('contextEvictionDescription')} ${t('contextEvictionTriggerNote')}`} />
+            </div>
+          </div>
+          <div className="quickforge-settings-row-control">
+            <SettingsSwitch checked={contextEvictionEnabled} onChange={updateContextEvictionEnabled} />
           </div>
         </div>
 

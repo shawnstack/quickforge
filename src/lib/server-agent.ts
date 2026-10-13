@@ -26,6 +26,7 @@ import { globalAgentSseClient } from './global-agent-sse-client'
 import type {
   ActiveAgentStatus,
   ServerAgentContextCompaction,
+  ServerAgentContextEviction,
   ServerAgentContextUsage,
   ServerAgentPendingToolApproval,
   ServerAgentPendingAutoCompactApproval,
@@ -59,6 +60,7 @@ export type {
   SseConnectionStatus,
   ActiveAgentStatus,
   ServerAgentContextCompaction,
+  ServerAgentContextEviction,
   ServerAgentContextUsageBreakdown,
   ServerAgentContextUsage,
   ServerAgentPendingToolApproval,
@@ -328,6 +330,7 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     backgroundCommands: snapshot.backgroundCommands ?? [],
     errorMessage: snapshot.errorMessage,
     contextCompaction: snapshot.contextCompaction,
+    contextEviction: snapshot.contextEviction,
     contextUsage: snapshot.contextUsage,
     pendingToolApproval: snapshot.pendingToolApproval,
     pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
@@ -354,9 +357,9 @@ function cachedSnapshotToStateSnapshot(cached: SessionMessageSnapshotEntry): Ser
 
 function sameMessageShape(left: AgentMessage | undefined, right: AgentMessage): boolean {
   if (!left) return false
-  const leftId = (left as { id?: unknown }).id
-  const rightId = (right as { id?: unknown }).id
-  if (typeof leftId === 'string' && typeof rightId === 'string' && leftId === rightId) return true
+  // Identity alone is not enough: the final assistant can keep the streamed
+  // message id while its text arrives later. Skipping that update hides the
+  // summary until a full refresh replaces the list.
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
@@ -431,6 +434,7 @@ export class ServerAgent {
     backgroundCommands: BackgroundCommandSnapshot[]
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
+    contextEviction?: ServerAgentContextEviction | null
     contextUsage?: ServerAgentContextUsage | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
@@ -524,6 +528,7 @@ export class ServerAgent {
       backgroundCommands: init.backgroundCommands ?? [],
       errorMessage: init.errorMessage as string | undefined,
       contextCompaction: init.contextCompaction ?? null,
+      contextEviction: init.contextEviction ?? null,
       contextUsage: init.contextUsage ?? null,
       pendingToolApproval: init.pendingToolApproval ?? null,
       pendingAutoCompactApproval: init.pendingAutoCompactApproval ?? null,
@@ -1381,6 +1386,9 @@ export class ServerAgent {
         if (s.contextCompaction !== undefined) {
           this.state.contextCompaction = s.contextCompaction
         }
+        if (s.contextEviction !== undefined) {
+          this.state.contextEviction = s.contextEviction
+        }
         if (s.contextUsage !== undefined) {
           this.state.contextUsage = s.contextUsage
         } else if (s.messages) {
@@ -1470,6 +1478,20 @@ export class ServerAgent {
             typeof endEvent.messagesAfter === 'number' ? endEvent.messagesAfter : this.state.messages.length,
             endEvent.messages ?? [],
           )
+          const summary = endEvent.messagesSummary
+          const summaryCount = summary?.count
+          if (summary && typeof summaryCount === 'number' && summaryCount > this.state.messages.length) {
+            void this.reconcileMessagesFromSummary(summary, undefined, true).finally(() => {
+              this.state.isStreaming = false
+              this.state.streamingMessage = undefined
+              this.state.pendingToolApproval = null
+              this.state.pendingAutoCompactApproval = null
+              this.state.pendingAsk = null
+              if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
+              this.forwardWireEvent(event)
+            })
+            return
+          }
           this.replayGoalIterationMarkers()
           this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
           this.state.isStreaming = false
@@ -1482,8 +1504,11 @@ export class ServerAgent {
           this.forwardWireEvent(event)
           return
         }
-        if (endEvent.messagesSummary && !Array.isArray(endEvent.messages)) {
-          void this.reconcileMessagesFromSummary(endEvent.messagesSummary).finally(() => {
+        if (endEvent.messagesSummary && (
+          !Array.isArray(endEvent.messages)
+          || (typeof endEvent.messagesSummary.count === 'number' && endEvent.messagesSummary.count > this.state.messages.length)
+        )) {
+          void this.reconcileMessagesFromSummary(endEvent.messagesSummary, undefined, true).finally(() => {
             this.state.isStreaming = false
             this.state.streamingMessage = undefined
             this.state.pendingToolApproval = null
@@ -1553,6 +1578,12 @@ export class ServerAgent {
             typeof msgEvent.messagesAfter === 'number' ? msgEvent.messagesAfter : this.state.messages.length,
             msgEvent.messages ?? [],
           )
+          if (typeof msgEvent.messagesSummary?.count === 'number' && msgEvent.messagesSummary.count > this.state.messages.length) {
+            void this.reconcileMessagesFromSummary(msgEvent.messagesSummary, undefined, true).finally(() => {
+              this.forwardWireEvent(event)
+            })
+            return
+          }
           this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
@@ -1725,6 +1756,17 @@ export class ServerAgent {
         }
         if (compactEvent.contextUsage !== undefined) {
           this.state.contextUsage = compactEvent.contextUsage
+        }
+        break
+      }
+
+      case 'context_eviction_updated': {
+        // Agent 忘记/召回了内容：更新账本并广播 metadata 事件，让聊天表面
+        // 重渲染「已裁剪」标记（消息数组本身不变）。
+        const evictionEvent = event as { contextEviction?: ServerAgentContextEviction | null }
+        if (evictionEvent.contextEviction !== undefined) {
+          this.state.contextEviction = evictionEvent.contextEviction
+          this.notifyMessageMetadataChanged()
         }
         break
       }
@@ -2032,7 +2074,13 @@ export class ServerAgent {
       return
     }
 
-    const after = localCount
+    // When the counts already match, the final text may have replaced the last
+    // message in place. Only then re-read that message; a larger server count
+    // still means the missing tail starts after the local list.
+    const summaryCount = typeof summary.count === 'number' ? summary.count : undefined
+    const after = forceMessages && summaryCount === localCount
+      ? Math.max(0, localCount - 1)
+      : localCount
     let page: SessionMessagesPage | null
     try {
       page = await this.fetchMessagesFromServer(after)
@@ -2072,9 +2120,12 @@ export class ServerAgent {
       return
     }
     if (page.messages.length > 0) {
-      this.state.messages = mergeIncrementalMessages(this.state.messages, after, page.messages)
-      this.state.contextUsage = null
-      this.stateVersion++
+      const merged = mergeIncrementalMessages(this.state.messages, after, page.messages)
+      if (JSON.stringify(merged) !== JSON.stringify(this.state.messages)) {
+        this.state.messages = merged
+        this.state.contextUsage = null
+        this.stateVersion++
+      }
     }
     if (page.hasMore && page.messages.length > 0) {
       // 服务端 /messages 单页上限 500：断连窗口丢多条消息时尾部可能跨页。

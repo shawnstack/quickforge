@@ -81,8 +81,35 @@ function emitSessionEvent(session, event) {
     && event.contextUsage === undefined
     ? { ...event, contextUsage: getSessionContextUsage(session), stateVersion }
     : { ...event, stateVersion }
-  session.eventBus.emit('agent_event', transformSplitSessionEvent(session, enrichedEvent))
-  agentEvents.emit('agent_event', { sessionId: session.sessionId, ...transformSplitSessionEvent(session, enrichedEvent) })
+  const wireEvent = transformSplitSessionEvent(session, enrichedEvent)
+  logSseFrame(session, wireEvent)
+  session.eventBus.emit('agent_event', wireEvent)
+  agentEvents.emit('agent_event', { sessionId: session.sessionId, ...wireEvent })
+}
+
+// SSE 帧流水日志（thinking→final-reply 丢失取证）：只记关键帧，跳过高频
+// message_update 流式帧。每行：会话短 id + 帧类型 + 决定性统计，用于对照
+// 「服务端发了什么」与「前端收到什么」（前端断帧时此日志仍完整）。
+const SSE_FRAME_LOG_TYPES = new Set(['message_end', 'agent_end', 'messages_replaced', 'state', 'tool_execution_end', 'turn_end'])
+
+function logSseFrame(session, wireEvent) {
+  if (!SSE_FRAME_LOG_TYPES.has(wireEvent?.type)) return
+  const sid = String(session.sessionId || '').slice(0, 8)
+  let detail = ''
+  if (wireEvent.type === 'message_end') {
+    const message = wireEvent.message
+    const blockTypes = Array.isArray(message?.content) ? message.content.map((block) => block?.type).join('+') : typeof message?.content
+    detail = `msg=${message?.role ?? 'none'}(${blockTypes ?? '?'}) tail=${Array.isArray(wireEvent.messages) ? wireEvent.messages.length : 0} incr=${wireEvent.messagesIncremental === true}`
+  } else if (wireEvent.type === 'agent_end' || wireEvent.type === 'messages_replaced') {
+    detail = `msgs=${Array.isArray(wireEvent.messages) ? wireEvent.messages.length : 0} after=${wireEvent.messagesAfter ?? '-'} incr=${wireEvent.messagesIncremental === true} summary=${wireEvent.messagesSummary?.count ?? '-'}`
+  } else if (wireEvent.type === 'state') {
+    detail = `msgs=${Array.isArray(wireEvent.messages) ? wireEvent.messages.length : 'strip'} summary=${wireEvent.messagesSummary?.count ?? '-'} streaming=${wireEvent.isStreaming === true}`
+  } else if (wireEvent.type === 'tool_execution_end') {
+    detail = `tool=${wireEvent.toolName ?? wireEvent.toolCallId ?? '?'}`
+  } else if (wireEvent.type === 'turn_end') {
+    detail = `v${wireEvent.stateVersion ?? '?'}`
+  }
+  logger.info(`[sse-frame] ${sid} ${wireEvent.type} ${detail}`, { sessionId: session.sessionId })
 }
 
 /**
@@ -126,7 +153,14 @@ function transformSplitSessionEvent(session, event) {
   }
   if (event.type === 'message_end' || event.type === 'agent_end' || event.type === 'messages_replaced') {
     if (!Array.isArray(event.messages)) return event
-    const after = session.persistedMessageCount ?? 0
+    // Persistence can commit the final answer before this frame is sent. Its
+    // count must not be treated as the client's cursor, or the frame reports
+    // an empty tail and the answer only appears after refresh.
+    const hasDeliveredCursor = Number.isInteger(session.deliveredMessageCount) && session.deliveredMessageCount >= 0
+    // Missing cursor means this client has no proven delivery position.
+    // Falling back to persistedMessageCount drops the final answer when a
+    // persist commits it before the frame is sent.
+    const after = Math.min(hasDeliveredCursor ? session.deliveredMessageCount : 0, event.messages.length)
     const tail = event.messages.slice(after)
     const count = event.messages.length
     const next = { ...event }
@@ -137,6 +171,7 @@ function transformSplitSessionEvent(session, event) {
       next.messagesIncremental = true
     }
     next.messagesSummary = { count }
+    session.deliveredMessageCount = count
     return next
   }
   return event

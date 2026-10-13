@@ -242,6 +242,42 @@ describe('ServerAgent final-answer recovery across SSE reconnect', () => {
     }
   })
 
+  it('fills a final answer omitted by an incremental end frame', async () => {
+    const fetchMock = vi.fn((url: string | URL) => {
+      const href = String(url)
+      if (href.includes('/api/agents/session-1/messages')) {
+        return Promise.resolve(tailPageOk())
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: { messages: [userMessage] as AgentMessage[], stateVersion: 1 },
+    })
+
+    try {
+      await startStreamingTurn(agent)
+      latestEventSource().emit('agent_end', {
+        sessionId: 'session-1',
+        stateVersion: 5,
+        messagesIncremental: true,
+        messagesAfter: 1,
+        messages: [],
+        messagesSummary: { count: 2 },
+      })
+      await flushAllAsync()
+      await flushAllAsync()
+
+      expect(agent.state.isStreaming).toBe(false)
+      expect(agent.state.messages).toHaveLength(2)
+      expect(JSON.stringify(agent.state.messages)).toContain('final answer')
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('recovers the final answer when the same reconnect tail fetch succeeds (control)', async () => {
     const fetchMock = vi.fn((url: string | URL) => {
       const href = String(url)

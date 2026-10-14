@@ -2,6 +2,27 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [2.2.6] - 2026-10-14
+
+### Fixed
+
+- Fixed the final answer of a turn occasionally staying invisible until refresh: a closing frame with an empty tail no longer advances the delivery cursor ahead of the final answer, and a body arriving right after a collapsed process group no longer gets its whole line hidden by the fold.
+- Fixed thinking blocks escaping the collapsed process group when a turn ends: they are folded back into the group on turn completion.
+
+### Removed
+
+- Removed the experimental agent context forgetting feature (`context_forget` / `context_recall` / `context_report`, the forgotten ledger and its placeholder projection, the per-request context-usage notice, the chat "trimmed from context" badges and its settings switch) that was introduced in this release window: repeated-trim behavior could not be stabilized, so the feature is fully withdrawn with no net change for users. Auto-compaction and chat rendering are unaffected.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.2.6` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.2.6.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.2.6.tgz
+  ```
+
 ## [2.2.5] - 2026-10-13
 
 ### Fixed

@@ -41,7 +41,6 @@ export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecu
       pendingToolCalls: runtimePendingToolCalls(session),
       backgroundCommands: listBackgroundCommands(session.sessionId),
       contextCompaction: session.contextCompaction,
-      contextEviction: session.contextEviction,
       contextUsage: getSessionContextUsage(session),
       pendingToolApproval: getPendingApprovalForSession(session.sessionId),
       pendingAutoCompactApproval: getPendingAutoCompactApprovalForSession(session.sessionId),

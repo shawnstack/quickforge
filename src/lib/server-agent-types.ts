@@ -48,17 +48,6 @@ export type ServerAgentContextCompaction = {
   thresholdPercent?: number
 }
 
-export type ServerAgentContextEvictionEntry = {
-  messageId: string
-  kind?: 'toolResult' | 'assistantText'
-  reason?: string
-  forgottenAt?: string
-}
-
-export type ServerAgentContextEviction = {
-  forgotten?: ServerAgentContextEvictionEntry[]
-}
-
 export type ServerAgentContextUsageBreakdown = {
   systemPromptTokens?: number
   messagesTokens?: number
@@ -144,7 +133,6 @@ export type ServerAgentConfig = {
     backgroundCommands?: BackgroundCommandSnapshot[]
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
-    contextEviction?: ServerAgentContextEviction | null
     contextUsage?: ServerAgentContextUsage | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
@@ -218,7 +206,6 @@ export type ServerRollbackResult = {
     isStreaming?: boolean
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
-    contextEviction?: ServerAgentContextEviction | null
     contextUsage?: ServerAgentContextUsage | null
   }
 }
@@ -277,7 +264,6 @@ export type ServerAgentStateSnapshot = {
   yoloMode?: boolean
   tools?: unknown[]
   contextCompaction?: ServerAgentContextCompaction | null
-  contextEviction?: ServerAgentContextEviction | null
   contextUsage?: ServerAgentContextUsage | null
   pendingToolApproval?: ServerAgentPendingToolApproval | null
   pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null

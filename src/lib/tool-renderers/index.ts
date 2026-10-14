@@ -18,7 +18,6 @@ export { AskUserToolRenderer, askUserReviewRowsFromDetails } from './ask-user-to
 export type { AskUserReviewRows } from './ask-user-tool-renderer'
 export { GoalReportToolRenderer } from './goal-report-tool-renderer'
 export { TodoWriteToolRenderer } from './todo-write-tool-renderer'
-export { ContextEvictionToolRenderer } from './context-eviction-tool-renderer'
 export { McpToolRenderer, parseMcpToolName } from './mcp-tool-renderer'
 export { elapsedMsFromTiming, formatDuration } from './shared'
 export type { ToolResultLike, ToolStatusKey } from './shared'

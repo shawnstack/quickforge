@@ -56,49 +56,6 @@ export const globalMemoryTool = {
   executionMode: 'sequential',
 }
 
-// Context eviction is feature-gated (context-eviction-settings, off by default):
-// only registered while the setting is enabled, so the tool list itself
-// advertises the capability. Never part of workspaceTools for the same reason.
-export const contextForgetTool = {
-  name: 'context_forget',
-  label: 'Forget context items',
-  description: 'Free model context by replacing old tool results or earlier replies with one-line placeholders. Full history stays preserved in session storage and context_recall can restore items later. Forget only content you will not need again for the current task; user messages and compact summaries can never be forgotten. Prefer rules over long id lists (e.g. {"kind":"toolResult","olderThanTurns":3} forgets stale tool results). Repeated calls are safe: items already in the forgotten ledger are excluded and reported separately as alreadyForgotten, so forgotten counts only newly forgotten items.',
-  parameters: Type.Object({
-    messageIds: Type.Optional(Type.Array(Type.String(), { maxItems: 50, description: 'Stable message ids to forget explicitly (from a context_report).' })),
-    rule: Type.Optional(Type.Object({
-      kind: Type.Union([
-        Type.Literal('toolResult'),
-        Type.Literal('assistantText'),
-      ], { description: 'toolResult forgets tool outputs; assistantText forgets earlier assistant replies (text only, tool calls stay).' }),
-      olderThanTurns: Type.Number({ description: 'Optional filter: minimum user turns that must have passed after the message. Use 0 (or omit) to apply regardless of age.' }),
-      tools: Type.Optional(Type.Array(Type.String(), { maxItems: 20, description: 'Restrict toolResult forgetting to these tool names.' })),
-      exceptMessageIds: Type.Optional(Type.Array(Type.String(), { maxItems: 50, description: 'Stable message ids to keep regardless of the rule.' })),
-    }, { additionalProperties: false }), { description: 'Rule-based batch forgetting.' }),
-    reason: Type.Optional(Type.String({ maxLength: 500, description: 'Short note recorded in the ledger about why this content is no longer needed.' })),
-  }, { additionalProperties: false }),
-  executionMode: 'sequential',
-}
-
-export const contextRecallTool = {
-  name: 'context_recall',
-  label: 'Recall forgotten context',
-  description: 'Restore previously forgotten items: recalled messages leave the forgotten ledger and their original content re-enters the model context on the next request. Use when a task turns out to need content that was forgotten earlier.',
-  parameters: Type.Object({
-    messageIds: Type.Optional(Type.Array(Type.String(), { maxItems: 50, description: 'Stable message ids to recall explicitly.' })),
-    all: Type.Optional(Type.Boolean({ description: 'Recall every forgotten item in this session.' })),
-  }, { additionalProperties: false }),
-  executionMode: 'sequential',
-}
-
-export const contextReportTool = {
-  name: 'context_report',
-  label: 'Report context breakdown',
-  description: 'Report current context usage and the complete list of forgettable items (stable ids, sizes, ages) plus the forgotten ledger state. Use for precise forgetting decisions before calling context_forget.',
-  parameters: Type.Object({}, { additionalProperties: false }),
-  executionMode: 'sequential',
-}
-
-
 export const askUserTool = {
   name: 'ask_user',
   label: 'Ask user',

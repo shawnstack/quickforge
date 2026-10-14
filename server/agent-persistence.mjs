@@ -186,7 +186,7 @@ async function persistAuthoritativeSessionState(session, sessionData, metadata, 
  * Persist session data to storage.
  */
 async function persistSessionUnlocked(session, options = {}) {
-  const { sessionId, agent, scope, projectId, source, channelId, channelName, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, modelRef, thinkingLevel, accessMode, yoloMode, contextCompaction, contextEviction } = session
+  const { sessionId, agent, scope, projectId, source, channelId, channelName, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, modelRef, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
   const messages = options.messages ?? agent.state.messages
   const goalBody = options.goal === undefined ? session.goal || null : options.goal
 
@@ -231,7 +231,6 @@ async function persistSessionUnlocked(session, options = {}) {
     taskStartedAt: startedAt,
     taskFinishedAt: finishedAt,
     contextCompaction: contextCompaction || undefined,
-    contextEviction: contextEviction && Array.isArray(contextEviction.forgotten) && contextEviction.forgotten.length > 0 ? contextEviction : undefined,
     idleRetention: session.idleRetention || undefined,
     stateVersion: Number.isFinite(session.stateVersion) ? session.stateVersion : 0,
     // Goal mode lives in the same authoritative session record (CAS body), so

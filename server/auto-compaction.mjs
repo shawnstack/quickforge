@@ -7,7 +7,6 @@ import {
   saveCompactBackup,
 } from './conversation-compaction.mjs'
 import { estimateContextUsage, shouldCompactContextByPercent } from './context-usage.mjs'
-import { applyContextEviction, forgottenMessageIds } from './context-eviction.mjs'
 
 export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
 
@@ -163,10 +162,8 @@ function buildCompactionSourceMessages(session, messages, tailStart) {
       '</compact_summary>',
     ].join('\n'), compactionMessageDetails('summary')))
   }
-  // 摘要源跳过被遗忘的内容（替换为占位符），否则遗忘节省的上下文又被
-  // 摘要完整吸收，等于白忘。
   const compacted = messages.slice(session.contextCompaction?.compactedUpToIndex || 0, tailStart)
-  source.push(...sessionProjectionMessages(session, compacted))
+  source.push(...compacted)
   return source
 }
 
@@ -180,17 +177,6 @@ export function buildAutoCompactLoopMessages(session, messages) {
   let tailStart = compactedUpToIndex
   while (tailStart < source.length && isToolResultMessage(source[tailStart])) tailStart += 1
   return [summaryMessage, ...source.slice(tailStart)]
-}
-
-/**
- * 遗忘投影（同步路径共用）：特性开启且账本非空时，把命中的消息替换为
- * 占位符。session.contextEvictionEnabled 由 refreshContextEvictionState
- * 每次提示前刷新；账本为空时原样返回，零开销。
- */
-export function sessionProjectionMessages(session, messages) {
-  if (!session?.contextEvictionEnabled) return messages
-  if (forgottenMessageIds(session.contextEviction).size === 0) return messages
-  return applyContextEviction(messages, session.contextEviction).messages
 }
 
 function messageTimestampMs(message) {
@@ -344,8 +330,6 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
     systemPrompt: session.agent.state.systemPrompt,
     tools: session.agent.state.tools,
     contextCompaction: session.contextCompaction,
-    contextEviction: session.contextEviction,
-    contextEvictionEnabled: session.contextEvictionEnabled === true,
   }
   const cached = session._contextUsageCache
   if (
@@ -356,14 +340,12 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
     cached.key.model === cacheKey.model &&
     cached.key.systemPrompt === cacheKey.systemPrompt &&
     cached.key.tools === cacheKey.tools &&
-    cached.key.contextCompaction === cacheKey.contextCompaction &&
-    cached.key.contextEviction === cacheKey.contextEviction &&
-    cached.key.contextEvictionEnabled === cacheKey.contextEvictionEnabled
+    cached.key.contextCompaction === cacheKey.contextCompaction
   ) {
     return cached.value
   }
 
-  const loopMessages = sessionProjectionMessages(session, buildAutoCompactLoopMessages(session, sourceMessages))
+  const loopMessages = buildAutoCompactLoopMessages(session, sourceMessages)
   const value = estimateContextUsage({
     systemPrompt: session.agent.state.systemPrompt,
     messages: loopMessages,
@@ -388,7 +370,7 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
   if (!settings.enabled) return { compacted: false, reason: 'disabled' }
   if (signal?.aborted) return { compacted: false, reason: 'aborted' }
 
-  const loopMessages = sessionProjectionMessages(session, buildAutoCompactLoopMessages(session, messages))
+  const loopMessages = buildAutoCompactLoopMessages(session, messages)
   const usage = estimateContextUsage({
     systemPrompt: session.agent.state.systemPrompt,
     messages: loopMessages,

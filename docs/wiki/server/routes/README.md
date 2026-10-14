@@ -136,7 +136,7 @@ roots 为 Home/Desktop/Documents/Current project/盘符（Windows 枚举 A-Z 存
 工具定义和执行路由。
 
 **主要端点**:
-- `GET /api/tools` — 获取工具定义列表；`manage_global_memory` 仅在 memory 设置开启时返回，`context_forget` / `context_recall` / `context_report` 仅在 context-eviction 设置开启时返回（两者均在 `directRouteDisabledTools` 中，不开放 REST 直调）
+- `GET /api/tools` — 获取工具定义列表；`manage_global_memory` 仅在 memory 设置开启时返回（且在 `directRouteDisabledTools` 中，不开放 REST 直调）
 - `POST /api/tools/:name` — 执行全局工具
 - `POST /api/projects/:projectId/tools/:name` — 在项目上下文中执行工具
 - 按 Agent 权限模式执行审批检查

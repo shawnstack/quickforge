@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { Agent } from '@earendil-works/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { loadSkillToolContext, abortRunningCommand, listBackgroundCommandTasks, stopBackgroundCommandTasksForSession } from './tools/index.mjs'
-import { createSkillTools, globalMemoryTool, workspaceTools, contextForgetTool, contextRecallTool, contextReportTool } from './tools/definitions.mjs'
+import { createSkillTools, globalMemoryTool, workspaceTools } from './tools/definitions.mjs'
 import { createMcpToolDefinitions, isMcpToolName, subscribeMcpToolsetChanged } from './mcp/registry.mjs'
 import { createPluginToolDefinitions, isPluginToolName } from './plugins/registry.mjs'
 import { agentProfileSnapshot } from './agent-profiles.mjs'
@@ -27,21 +27,8 @@ import {
 } from './conversation-compaction.mjs'
 import {
   buildAutoCompactLoopMessages,
-  estimateSessionContextUsage,
   maybeAutoCompactSession,
-  sessionProjectionMessages,
 } from './auto-compaction.mjs'
-import {
-  appendReminderMessage,
-  buildContextUsageNotice,
-  ensureMessageIds,
-  handleContextForget,
-  handleContextRecall,
-  handleContextReport,
-  isContextEvictionEnabled,
-  normalizeContextEviction,
-  readContextEvictionSettings,
-} from './context-eviction.mjs'
 import {
   contextReferencesFromMessage,
   contextReferencesPrompt,
@@ -217,37 +204,6 @@ function wrapAskUserToolDefinition(definition, parentSessionId) {
   }
 }
 
-// context_forget / context_recall / context_report 与会话账本/持久化强耦合，
-// 走 ask_user 同款的 agent-manager 本地包装（不经 toolHandlers 的 context 注入路径）。
-const contextEvictionToolHandlers = {
-  context_forget: handleContextForget,
-  context_recall: handleContextRecall,
-  context_report: handleContextReport,
-}
-
-function wrapContextEvictionToolDefinition(definition, parentSessionId) {
-  return {
-    ...definition,
-    execute: async (toolCallId, params) => {
-      const session = agentSessions.get(parentSessionId)
-      if (!session) {
-        throw new Error(`No active session for ${definition.name}.`)
-      }
-      // 双重校验：设置在会话存活期间被关闭时，旧工具集仍带这些工具，
-      // 执行时再读一次设置，关闭即拒绝（各 handler 内部实现）。
-      const result = await contextEvictionToolHandlers[definition.name]({
-        session,
-        params: params || {},
-        deps: { persistSession, emitSessionEvent },
-      })
-      return {
-        content: [{ type: 'text', text: result.content }],
-        details: result.details,
-      }
-    },
-  }
-}
-
 function wrapWorkspaceToolDefinition(definition, context, toolPermissions, options = {}) {
   if (definition.name === 'run_subagent') return wrapSubagentToolDefinition(definition, options.parentSessionId)
   if (definition.name === 'ask_user') return wrapAskUserToolDefinition(definition, options.parentSessionId)
@@ -318,17 +274,6 @@ export async function createServerTools(projectId, projectContext, skillsContext
 
   if (!allowedTools && await isGlobalMemoryEnabled()) {
     tools.push(wrapToolDefinition(globalMemoryTool, toolContext, toolPermissions))
-  }
-
-  // 主动遗忘特性（默认关闭）：仅设置开启时注册 context_forget /
-  // context_recall / context_report，与 globalMemoryTool 同款门控；
-  // profile 受限工具集（allowedTools）不带。
-  if (!allowedTools && sessionId && await isContextEvictionEnabled()) {
-    tools.push(
-      wrapContextEvictionToolDefinition(contextForgetTool, sessionId),
-      wrapContextEvictionToolDefinition(contextRecallTool, sessionId),
-      wrapContextEvictionToolDefinition(contextReportTool, sessionId),
-    )
   }
 
   if (includeWorkspaceTools && projectContext) {
@@ -496,21 +441,7 @@ async function transformSessionContext(session, messages, signal) {
       usage: autoCompactResult.usage,
     })
   }
-  // 稳定消息 id 兜底补齐：账本引用与占比通知列出的 id 以此为准。
-  ensureMessageIds(messages)
-  let transformedMessages = sessionProjectionMessages(session, buildAutoCompactLoopMessages(session, messages))
-  if (session.contextEvictionEnabled && session.contextEvictionSettings) {
-    // 每次请求都注入瞬态上下文占比通知（不落存储）：占比行 + 账本计数行
-    // （已裁/剩余可裁，仅计数无清单），剩余可裁为 0 时明确告知跳过
-    // context_forget，防止模型每轮被固定指引催促而空转重复调用。
-    const notice = buildContextUsageNotice({
-      session,
-      loopMessages: transformedMessages,
-      settings: session.contextEvictionSettings,
-      usage: autoCompactResult.usage ?? estimateSessionContextUsage(session, messages),
-    })
-    if (notice) transformedMessages = appendReminderMessage(transformedMessages, notice.message)
-  }
+  const transformedMessages = buildAutoCompactLoopMessages(session, messages)
   session.lastTransformedContextMessages = transformedMessages
   return applyActiveCapabilityPrompt(
     applyActiveCommandPrompt(compactedContextMessages(transformedMessages), session?.activeCommandPrompt),
@@ -615,19 +546,6 @@ async function refreshMemoryState(session) {
 }
 
 /**
- * 每次提示前刷新主动遗忘特性快照：enabled 决定投影过滤/提醒是否生效，
- * 翻转时重建工具集，让 context_forget 无需重建会话即可注册/注销。
- * 快照供同步路径（estimateSessionContextUsage / 投影）使用。
- */
-async function refreshContextEvictionState(session) {
-  const settings = await readContextEvictionSettings()
-  const enabledChanged = session.contextEvictionEnabled !== settings.enabled
-  session.contextEvictionEnabled = settings.enabled
-  session.contextEvictionSettings = settings
-  if (enabledChanged) await rebuildSessionTools(session)
-}
-
-/**
  * Create or retrieve an Agent for a session.
  * If the session already has a running agent, return it.
  * Otherwise, create a new Agent and optionally restore from storage.
@@ -660,7 +578,6 @@ export async function createAgent(sessionId, config = {}) {
     createdAt = new Date().toISOString(),
     lastModified = null,
     contextCompaction = null,
-    contextEviction = null,
     agentProfile = null,
     idleRetention = null,
     stateVersion = 0,
@@ -792,7 +709,6 @@ export async function createAgent(sessionId, config = {}) {
 
   const initialMemoryEnabled = await isGlobalMemoryEnabled()
   const initialMemoryRevision = initialMemoryEnabled ? await getGlobalMemoryRevision() : null
-  const initialEvictionSettings = await readContextEvictionSettings()
   let session
   const agent = new Agent({
     initialState: {
@@ -846,8 +762,6 @@ export async function createAgent(sessionId, config = {}) {
       if (toolName === 'ask_user' || toolName === 'todo_write' || toolName === 'goal_report') return undefined
       if (profileToolNames && !profileToolNames.includes(toolName)) return { block: true, reason: `Agent profile ${agentProfile.name} is not allowed to use ${toolName}.` }
       if (toolName === 'manage_global_memory') return undefined
-      // 遗忘工具族只改运行时投影与账本（存储不动、可召回），无需审批。
-      if (toolName === 'context_forget' || toolName === 'context_recall' || toolName === 'context_report') return undefined
       if (toolName === 'run_subagent') {
         const requested = context.args?.subagent
         const policy = requested && typeof requested === 'object' ? normalizeCapabilityPolicy(requested.capabilityPolicy || 'readonly-research', Array.isArray(requested.tools) ? requested.tools : []) : null
@@ -916,10 +830,6 @@ export async function createAgent(sessionId, config = {}) {
     runtimeToolExecutions: new Map(),
     getApiKey,
     contextCompaction,
-    // 主动遗忘账本（持久化）+ 运行时快照（每次提示前刷新）。
-    contextEviction: normalizeContextEviction(contextEviction),
-    contextEvictionEnabled: initialEvictionSettings.enabled,
-    contextEvictionSettings: initialEvictionSettings,
     agentProfile: resolvedAgentProfile ? agentProfileSnapshot(resolvedAgentProfile) : null,
     idleRetention,
     lastTransformedContextMessages: null,
@@ -1250,7 +1160,6 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     : null
   await refreshSessionModelBinding(session)
   await refreshMemoryState(session)
-  await refreshContextEvictionState(session)
   resetIdleTimer(session)
 
   const commandState = await resolveCommandState(session, canonicalInitialUserMessage, promptCommand, requestSource)
@@ -1750,8 +1659,6 @@ export async function syncSessionFromStorage(sessionId) {
     session.startedAt = stored.taskStartedAt || null
     session.finishedAt = stored.taskFinishedAt || null
     session.contextCompaction = stored.contextCompaction || null
-    // 账本按稳定消息 id 记录：存储更新（含回滚重写）直接整体替换，失配 id 惰性失效。
-    session.contextEviction = normalizeContextEviction(stored.contextEviction)
     // Storage is authoritative for the goal too, but only when it is actually
     // newer: an in-memory mutation that has not been persisted yet must win.
     const storedGoal = normalizeGoalState(stored.goal, { sessionId })
@@ -1878,7 +1785,6 @@ async function restoreAgentUnlocked(sessionId) {
       createdAt: sessionData.createdAt,
       lastModified: sessionData.lastModified,
       contextCompaction: sessionData.contextCompaction || null,
-      contextEviction: sessionData.contextEviction || null,
       idleRetention: sessionData.idleRetention || null,
       stateVersion: sessionData.stateVersion,
       persistedStateVersion: sessionData.stateVersion,

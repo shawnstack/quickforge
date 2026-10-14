@@ -22,8 +22,7 @@ import { t } from '@/lib/i18n'
 import { MessageList } from './MessageList'
 import { MessageEditor } from './MessageEditor'
 import { isRenderableMessage, messageRenderKeys } from './content-parts'
-import { CommandActionsEnabledContext, ContextEvictionEntriesContext } from './surface-context'
-import type { ContextEvictionEntry } from './ContextEvictedBadge'
+import { CommandActionsEnabledContext } from './surface-context'
 import { UsageBar } from './UsageBar'
 
 /**
@@ -126,8 +125,6 @@ export interface AgentSurfaceSnapshot {
   streamingMessage?: AgentMessage
   model?: Model<Api>
   thinkingLevel: ThinkingLevel
-  /** Eviction ledger entries (id → { kind, reason, forgottenAt }) for messages trimmed from the runtime context. */
-  evictedEntries: ReadonlyMap<string, ContextEvictionEntry>
 }
 
 /**
@@ -156,14 +153,6 @@ function sameSetItems<T>(previous: ReadonlySet<T> | undefined, next: ReadonlySet
   return true
 }
 
-function sameMapItems<T>(previous: ReadonlyMap<string, T> | undefined, next: ReadonlyMap<string, T>): boolean {
-  if (previous === undefined || previous.size !== next.size) return false
-  for (const [key, value] of next) {
-    if (previous.get(key) !== value) return false
-  }
-  return true
-}
-
 export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot): AgentSurfaceSnapshot {
   // Reuse the previous snapshot's array/Set identities when the state did not
   // observably change (R1 F1a): without this, every agent event produced new
@@ -178,13 +167,6 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
     previous && sameSetItems(previous.pendingToolCalls, state.pendingToolCalls)
       ? previous.pendingToolCalls
       : new Set(state.pendingToolCalls)
-  // Context eviction ledger: identity-stable while the ledger object is
-  // unchanged (server swaps in a fresh object on every forget/recall).
-  const evictionState = (state as { contextEviction?: { forgotten?: (ContextEvictionEntry & { messageId: string })[] } | null }).contextEviction
-  const nextEvictedEntries = new Map((evictionState?.forgotten ?? []).map((entry) => [entry.messageId, entry]))
-  const evictedEntries = previous && sameMapItems(previous.evictedEntries, nextEvictedEntries)
-    ? previous.evictedEntries
-    : nextEvictedEntries
   // The streaming partial body keeps its per-event shallow copy: every
   // `message_update` frame carries a new message object and the growing body
   // must re-render the streaming container on each event (see MessageArea).
@@ -196,7 +178,6 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
     previous.messages === messages &&
     previous.tools === tools &&
     previous.pendingToolCalls === pendingToolCalls &&
-    previous.evictedEntries === evictedEntries &&
     previous.isStreaming === state.isStreaming &&
     previous.model === state.model &&
     previous.thinkingLevel === state.thinkingLevel &&
@@ -215,7 +196,6 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
     streamingMessage,
     model: state.model,
     thinkingLevel: state.thinkingLevel,
-    evictedEntries,
   }
 }
 
@@ -240,7 +220,6 @@ const SUBSCRIBED_EVENTS = new Set([
   'tool_execution_update',
   'tool_execution_end',
   'background_commands',
-  'context_eviction_updated',
 ])
 
 export const CHAT_SURFACE_REFRESH_EVENTS = SUBSCRIBED_EVENTS
@@ -914,21 +893,19 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
       <div className="qf-chat-panel flex h-full min-h-0 flex-col bg-background text-foreground">
         {/* Messages area */}
         <div className="qf-scroll-container flex-1 overflow-y-auto" ref={scrollContainerRef}>
-          <ContextEvictionEntriesContext.Provider value={snapshot.evictedEntries}>
-            <MessageArea
-              contentRef={contentRef}
-              getReleaseRoot={getReleaseRoot}
-              onProcessGroupsReleased={onProcessGroupsReleased}
-              messages={messageWindow.messages}
-              messageIndexOffset={messageWindow.start}
-              atTail={messageWindow.atTail}
-              tools={snapshot.tools}
-              pendingToolCalls={snapshot.pendingToolCalls}
-              isStreaming={snapshot.isStreaming}
-              streamingAssistant={streamingAssistant}
-              onCostClick={onCostClick}
-            />
-          </ContextEvictionEntriesContext.Provider>
+          <MessageArea
+            contentRef={contentRef}
+            getReleaseRoot={getReleaseRoot}
+            onProcessGroupsReleased={onProcessGroupsReleased}
+            messages={messageWindow.messages}
+            messageIndexOffset={messageWindow.start}
+            atTail={messageWindow.atTail}
+            tools={snapshot.tools}
+            pendingToolCalls={snapshot.pendingToolCalls}
+            isStreaming={snapshot.isStreaming}
+            streamingAssistant={streamingAssistant}
+            onCostClick={onCostClick}
+          />
         </div>
 
         {/* Input area */}

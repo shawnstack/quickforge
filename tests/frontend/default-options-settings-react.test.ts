@@ -42,10 +42,6 @@ vi.mock('@/lib/auto-compact-settings', () => ({
   loadAutoCompactSettings: async () => ({ enabled: true, requireConfirmation: false, thresholdPercent: 90, keepRecentTurns: 3 }),
   saveAutoCompactSettings: settings.saveAutoCompact,
 }))
-vi.mock('@/lib/context-eviction-settings', () => ({
-  loadContextEvictionSettings: async () => ({ enabled: false, exemptRecentTurns: 10 }),
-  saveContextEvictionSettings: vi.fn(),
-}))
 vi.mock('@/lib/goal-settings', () => ({ loadGoalSettings: async () => ({ maxIterations: 20 }), saveGoalSettings: vi.fn() }))
 vi.mock('@/lib/auto-archive-settings', () => ({ loadAutoArchiveSettings: async () => ({ enabled: false }), saveAutoArchiveSettings: vi.fn() }))
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key, getAppLanguage: () => 'zh', applyAppLanguage: vi.fn() }))

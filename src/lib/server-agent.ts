@@ -26,7 +26,6 @@ import { globalAgentSseClient } from './global-agent-sse-client'
 import type {
   ActiveAgentStatus,
   ServerAgentContextCompaction,
-  ServerAgentContextEviction,
   ServerAgentContextUsage,
   ServerAgentPendingToolApproval,
   ServerAgentPendingAutoCompactApproval,
@@ -60,7 +59,6 @@ export type {
   SseConnectionStatus,
   ActiveAgentStatus,
   ServerAgentContextCompaction,
-  ServerAgentContextEviction,
   ServerAgentContextUsageBreakdown,
   ServerAgentContextUsage,
   ServerAgentPendingToolApproval,
@@ -330,7 +328,6 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     backgroundCommands: snapshot.backgroundCommands ?? [],
     errorMessage: snapshot.errorMessage,
     contextCompaction: snapshot.contextCompaction,
-    contextEviction: snapshot.contextEviction,
     contextUsage: snapshot.contextUsage,
     pendingToolApproval: snapshot.pendingToolApproval,
     pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
@@ -434,7 +431,6 @@ export class ServerAgent {
     backgroundCommands: BackgroundCommandSnapshot[]
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
-    contextEviction?: ServerAgentContextEviction | null
     contextUsage?: ServerAgentContextUsage | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
@@ -528,7 +524,6 @@ export class ServerAgent {
       backgroundCommands: init.backgroundCommands ?? [],
       errorMessage: init.errorMessage as string | undefined,
       contextCompaction: init.contextCompaction ?? null,
-      contextEviction: init.contextEviction ?? null,
       contextUsage: init.contextUsage ?? null,
       pendingToolApproval: init.pendingToolApproval ?? null,
       pendingAutoCompactApproval: init.pendingAutoCompactApproval ?? null,
@@ -1386,9 +1381,6 @@ export class ServerAgent {
         if (s.contextCompaction !== undefined) {
           this.state.contextCompaction = s.contextCompaction
         }
-        if (s.contextEviction !== undefined) {
-          this.state.contextEviction = s.contextEviction
-        }
         if (s.contextUsage !== undefined) {
           this.state.contextUsage = s.contextUsage
         } else if (s.messages) {
@@ -1756,17 +1748,6 @@ export class ServerAgent {
         }
         if (compactEvent.contextUsage !== undefined) {
           this.state.contextUsage = compactEvent.contextUsage
-        }
-        break
-      }
-
-      case 'context_eviction_updated': {
-        // Agent 忘记/召回了内容：更新账本并广播 metadata 事件，让聊天表面
-        // 重渲染「已裁剪」标记（消息数组本身不变）。
-        const evictionEvent = event as { contextEviction?: ServerAgentContextEviction | null }
-        if (evictionEvent.contextEviction !== undefined) {
-          this.state.contextEviction = evictionEvent.contextEviction
-          this.notifyMessageMetadataChanged()
         }
         break
       }

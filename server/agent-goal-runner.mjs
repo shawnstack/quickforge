@@ -91,11 +91,11 @@ export function configureGoalRunner(deps = {}) {
 // conversation route on every prompt. It must never become the session's
 // permanent identity, otherwise the owner's main chat would lose goal mode for
 // good after any shared visitor typed a message. Scheduled sessions use the same
-// goal runner as main chats; ACP/channel sources stay rejected.
+// goal runner as main chats; ACP sources stay rejected.
 const REQUEST_SCOPED_MODEL_SOURCES = new Set(['shared'])
 
 /**
- * Goal mode is available in main chats and scheduled sessions. ACP / channel sessions
+ * Goal mode is available in main chats and scheduled sessions. ACP sessions
  * carry a persistent `source`; the current request may also carry a
  * request-scoped source (the shared conversation route), which must be rejected
  * for that request only — never permanently disabled for the owner.

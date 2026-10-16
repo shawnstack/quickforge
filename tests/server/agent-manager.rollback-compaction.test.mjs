@@ -46,9 +46,6 @@ vi.mock('../../server/plugins/registry.mjs', () => ({
   getEnabledPluginSkillSources: vi.fn(async () => []),
   isPluginToolName: vi.fn(() => false),
 }))
-vi.mock('../../server/channels/event-relay.mjs', () => ({
-  publishChannelSessionChanged: vi.fn(async () => true),
-}))
 
 describe('agent manager rollback with compaction', () => {
   let tmpDir

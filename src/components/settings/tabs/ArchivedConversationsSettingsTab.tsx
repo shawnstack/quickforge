@@ -91,7 +91,7 @@ export function ArchivedConversationsSettingsTab({ active }: { active?: boolean 
       }
       if (!normalizedQuery) return true
       const projectName = session.projectId ? projectNameById.get(session.projectId) || '' : ''
-      return `${sessionTitle(session.title, session.channelName)} ${projectName}`.toLowerCase().includes(normalizedQuery)
+      return `${sessionTitle(session.title)} ${projectName}`.toLowerCase().includes(normalizedQuery)
     })
   }
 
@@ -191,7 +191,7 @@ export function ArchivedConversationsSettingsTab({ active }: { active?: boolean 
       <div className="border-t border-border px-4 py-3 first:border-t-0" key={session.id}>
         <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-foreground">{sessionTitle(session.title, session.channelName)}</div>
+            <div className="truncate text-sm font-medium text-foreground">{sessionTitle(session.title)}</div>
             <div className="mt-1 text-xs text-muted-foreground">
               {t('lastModified')}: {formatDate(session.lastModified)} · {t('archivedAt')}: {formatDate(session.archivedAt)}
             </div>

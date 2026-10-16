@@ -18,7 +18,6 @@ const settingsTabDefinitions = [
   { key: 'backup', name: 'backupRestore', description: 'backupRestoreDescription' },
   { key: 'archivedConversations', name: 'archivedConversations', description: 'archivedConversationsDescription' },
   { key: 'shareLinks', name: 'shareLinks', description: 'shareLinksDescription' },
-  { key: 'channels', name: 'channels', description: 'channelsDescription' },
   { key: 'lanAccess', name: 'lanAccess', description: 'lanAccessDescription' },
   { key: 'about', name: 'about', description: 'aboutQuickForgeDescription' },
 ] as const

@@ -207,20 +207,6 @@ type ScheduledTaskStartedEvent = {
   createdAt?: unknown
 }
 
-type ChannelWorkspace = {
-  id?: unknown
-  kind?: unknown
-}
-
-type ChannelRefreshEvent = {
-  type?: unknown
-  sessionId?: unknown
-  projectId?: unknown
-  workspace?: ChannelWorkspace | null
-  metadata?: QuickForgeSessionMetadata
-}
-
-
 function isBackgroundTaskStatus(value: unknown): value is BackgroundTaskStatus {
   return value === 'idle' || value === 'running' || value === 'error' || value === 'aborted'
 }
@@ -231,13 +217,6 @@ function isScheduledTaskNotification(event: Record<string, unknown>): event is S
 
 function isScheduledTaskStarted(event: Record<string, unknown>): event is ScheduledTaskStartedEvent {
   return event.type === 'scheduled_task_started'
-}
-
-function channelEventProjectId(event: ChannelRefreshEvent) {
-  if (event.workspace?.kind === 'project' && typeof event.workspace.id === 'string' && event.workspace.id.length > 0) {
-    return event.workspace.id
-  }
-  return typeof event.projectId === 'string' && event.projectId.length > 0 ? event.projectId : undefined
 }
 
 function MainApp() {
@@ -332,7 +311,6 @@ function MainApp() {
     runtimeScopeId: '',
   })
   const [pinnedSummaryRevision, setPinnedSummaryRevision] = useState(0)
-  const [externalProjectIds, setExternalProjectIds] = useState<Set<string>>(() => new Set())
   const workspaceInspectorRequestIdRef = useRef(0)
   const chatFileRequestIdRef = useRef(0)
   const loadingState = useAppLoadingState()
@@ -399,7 +377,6 @@ function MainApp() {
     projectLoading,
     projectAppending,
     projectLoaded,
-    loadGlobalSessions,
     loadProjectSessions,
     refreshSessions,
     upsertSessionMetadata,
@@ -412,7 +389,6 @@ function MainApp() {
   } = useSessionPagination({
     backendRef,
     expandedProjectIds,
-    externalProjectIds,
     viewMode: sidebarSessionViewMode,
     sortMode: sidebarSessionSortMode,
     onBroadcastSessionsChanged: notifySessionsChanged,
@@ -1012,41 +988,6 @@ function MainApp() {
   const startupReady = ready && startupSplashDone && Boolean(agentManager.agent || needsModelSetup)
 
   useAppStartupExit({ ...loadingState, startupReady })
-
-  useEffect(() => {
-    if (!ready) return undefined
-
-    // 渠道 sessions-changed 由 /api/agents/events 转发（见 server/routes/agent.mjs），
-    // 复用全局单例 SSE 连接，避免额外常驻连接占用浏览器连接池。
-    const handleSessionsChanged = (event: Record<string, unknown>) => {
-      try {
-        const payload = event as ChannelRefreshEvent
-        if (payload.type !== 'sessions-changed' || typeof payload.sessionId !== 'string') return
-
-        const projectId = channelEventProjectId(payload)
-        if (projectId) {
-          setExternalProjectIds((current) => current.has(projectId) ? current : new Set([...current, projectId]))
-        }
-
-        if (payload.metadata?.id === payload.sessionId) {
-          upsertSessionMetadata(payload.metadata)
-        } else if (projectId) {
-          void loadProjectSessions(projectId, 0)
-        } else {
-          void loadGlobalSessions(0)
-        }
-
-        const currentAgent = agentRef.current
-        if (payload.sessionId === currentSessionIdRef.current && currentAgent instanceof ServerAgent) {
-          void currentAgent.syncState()
-        }
-      } catch {
-        // Ignore malformed channel events.
-      }
-    }
-
-    return subscribeToAgentEvents(handleSessionsChanged)
-  }, [agentRef, currentSessionIdRef, loadGlobalSessions, loadProjectSessions, ready, upsertSessionMetadata])
 
   useEffect(() => {
     if (!ready) return
@@ -2041,7 +1982,7 @@ function MainApp() {
           <div className="min-w-0 flex-1">
             <div className="flex max-w-full min-w-0 items-center gap-2">
               <div className="min-w-0">
-                <div className="min-w-0 truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle, currentSessionMetadata?.channelName)}</div>
+                <div className="min-w-0 truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle)}</div>
                 {agentManager.currentToolProject?.name || (titleGitStatus?.isGitRepository && titleGitStatus.branch) ? (
                   <div className="mt-0.5 flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-xs leading-none text-muted-foreground sm:hidden">
                     {agentManager.currentToolProject?.name ? (

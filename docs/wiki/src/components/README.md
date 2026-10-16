@@ -204,7 +204,6 @@ components/
 - 开始拖动任一区块后，Projects 与 Tasks 都仅在视觉上临时折叠：Chevron、`aria-expanded`、外层 `SortableSidebarSection` 尺寸和内容 grid 统一使用派生折叠状态，内容收缩期间禁用过渡以稳定 DnD 测量；cancel/end 清除 `draggingSectionId` 后按各自原 `projectsCollapsed` / `conversationsCollapsed` 状态恢复，不修改持久折叠偏好
 - 顶层排序容器按自然高度排列，折叠区块按当前顺序紧贴；Pinned / Projects / Tasks 与项目子列表均不再各自限制高度或创建内部纵向滚动，统一由侧栏中部共享滚动容器承载，底部设置区继续以 `mt-auto shrink-0` 固定
 - 顶层区块顺序由 `src/lib/sidebar-section-order.ts` 安全读写浏览器 `localStorage`；桌面与移动侧栏共用 App 中同一状态，刷新后恢复，不参与后端备份或跨设备同步
-- 渠道会话在列表、搜索和对话页标题中按普通文字显示“渠道名 · 标题”，不改变真实标题，也不使用徽标或差异化样式
 - 长会话标题默认单行省略；桌面端仅在标题实际溢出时悬停滚动，并遵循系统的“减少动态效果”设置
 - 当前对话顶部“更多”菜单由 `src/App.tsx` 管理，提供置顶、重命名、分享和归档操作；手机端在标题栏下方以视口内固定浮层展示，Android 移动壳横屏时仍保持移动布局
 - 小于 `640px` 的手机布局会在会话标题下方以弱化辅助行展示当前项目和 Git 分支；两项分别截断且保持单行，平板与桌面标题栏布局不变
@@ -525,7 +524,6 @@ components/
 - 开始拖动任一区块后，Projects 与 Tasks 都仅在视觉上临时折叠：Chevron、`aria-expanded`、外层 `SortableSidebarSection` 尺寸和内容 grid 统一使用派生折叠状态，内容收缩期间禁用过渡以稳定 DnD 测量；cancel/end 清除 `draggingSectionId` 后按各自原 `projectsCollapsed` / `conversationsCollapsed` 状态恢复，不修改持久折叠偏好
 - 顶层排序容器按自然高度排列，折叠区块按当前顺序紧贴；Pinned / Projects / Tasks 与项目子列表均不再各自限制高度或创建内部纵向滚动，统一由侧栏中部共享滚动容器承载，底部设置区继续以 `mt-auto shrink-0` 固定
 - 顶层区块顺序由 `src/lib/sidebar-section-order.ts` 安全读写浏览器 `localStorage`；桌面与移动侧栏共用 App 中同一状态，刷新后恢复，不参与后端备份或跨设备同步
-- 渠道会话在列表、搜索和对话页标题中按普通文字显示“渠道名 · 标题”，不改变真实标题，也不使用徽标或差异化样式
 - 长会话标题默认单行省略；桌面端仅在标题实际溢出时悬停滚动，并遵循系统的“减少动态效果”设置
 - 当前对话顶部“更多”菜单由 `src/App.tsx` 管理，提供置顶、重命名、分享和归档操作；手机端在标题栏下方以视口内固定浮层展示，Android 移动壳横屏时仍保持移动布局
 - 小于 `640px` 的手机布局会在会话标题下方以弱化辅助行展示当前项目和 Git 分支；两项分别截断且保持单行，平板与桌面标题栏布局不变

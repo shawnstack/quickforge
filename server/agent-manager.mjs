@@ -562,8 +562,6 @@ export async function createAgent(sessionId, config = {}) {
     scope = 'global',
     projectId = null,
     source = null,
-    channelId = null,
-    channelName = null,
     accessMode: rawAccessMode,
     yoloMode = false,
     model = null,
@@ -795,8 +793,6 @@ export async function createAgent(sessionId, config = {}) {
     projectContext,
     projectId,
     source: typeof source === 'string' && source.trim() ? source.trim() : null,
-    channelId: typeof channelId === 'string' && channelId.trim() ? channelId.trim() : null,
-    channelName: typeof channelName === 'string' && channelName.trim() ? channelName.trim() : null,
     accessMode,
     yoloMode: resolvedYoloMode,
     model: resolvedModel,
@@ -1652,8 +1648,6 @@ export async function syncSessionFromStorage(sessionId) {
     session.title = stored.title || session.title
     session.titleSource = stored.titleSource || session.titleSource
     session.source = stored.source || session.source
-    session.channelId = stored.channelId || session.channelId
-    session.channelName = stored.channelName || session.channelName
     session.lastModified = stored.lastModified || session.lastModified
     session.status = stored.taskStatus || 'idle'
     session.startedAt = stored.taskStartedAt || null
@@ -1768,8 +1762,6 @@ async function restoreAgentUnlocked(sessionId) {
       scope: sessionData.scope || 'global',
       projectId: sessionData.projectId || null,
       source: sessionData.source || null,
-      channelId: sessionData.channelId || null,
-      channelName: sessionData.channelName || null,
       accessMode: normalizeAccessMode(sessionData.accessMode, sessionData.yoloMode),
       yoloMode: sessionData.yoloMode || false,
       model: sessionData.model,
@@ -1831,8 +1823,6 @@ export function listSessions() {
       status: session.status,
       title: session.title,
       source: session.source || undefined,
-      channelId: session.channelId || undefined,
-      channelName: session.channelName || undefined,
       idleRetention: session.idleRetention || undefined,
     })
   }

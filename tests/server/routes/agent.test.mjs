@@ -755,50 +755,6 @@ describe('agent global events stream', () => {
     expect(res.writableEnded).toBe(true)
     expect(mocks.logger.warn).not.toHaveBeenCalled()
   })
-
-  it('forwards only channel sessions-changed events and detaches the channel listener on close', async () => {
-    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
-    const { channelEvents } = await import('../../../server/channels/registry.mjs')
-    const { agentEvents } = await import('../../../server/agent-manager.mjs')
-    const req = new Readable({ read() {} })
-    req.method = 'GET'
-    req.headers = {}
-    const frames = []
-    let endCalls = 0
-    const res = {
-      writableEnded: false,
-      writeHead() {},
-      flushHeaders() {},
-      write(chunk) { frames.push(chunk) },
-      end() { endCalls += 1; this.writableEnded = true },
-      on() {},
-    }
-
-    await handleAgentApi(req, res, new URL('http://localhost/api/agents/events'), {})
-    expect(channelEvents.listenerCount('channel_event')).toBe(1)
-
-    // 非 sessions-changed 的渠道事件（log/status/qrcode）不得进入 agent 流。
-    channelEvents.emit('channel_event', { type: 'log', channelId: 'wechat', line: 'noise' })
-    channelEvents.emit('channel_event', { type: 'status', channelId: 'wechat', status: 'running' })
-    channelEvents.emit('channel_event', { type: 'qrcode', channelId: 'wechat' })
-    expect(frames).toEqual([])
-
-    const payload = { type: 'sessions-changed', channelId: 'wechat', sessionId: 's1', projectId: 'p1' }
-    channelEvents.emit('channel_event', payload)
-    expect(frames.join('')).toBe(`event: sessions-changed\ndata: ${JSON.stringify(payload)}\n\n`)
-
-    req.emit('close')
-    req.emit('close')
-    expect(channelEvents.listenerCount('channel_event')).toBe(0)
-    expect(agentEvents.listenerCount('agent_event')).toBe(0)
-    expect(endCalls).toBe(1)
-    expect(res.writableEnded).toBe(true)
-  })
-
-  it('raises the channel event listener limit so multi-tab subscribers stay under the default warning threshold', async () => {
-    const { channelEvents } = await import('../../../server/channels/registry.mjs')
-    expect(channelEvents.getMaxListeners()).toBeGreaterThanOrEqual(100)
-  })
 })
 
 describe('SSE streaming throttle and backpressure', () => {

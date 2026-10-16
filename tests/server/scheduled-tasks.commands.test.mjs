@@ -76,9 +76,6 @@ vi.mock('../../server/plugins/registry.mjs', () => ({
   getEnabledPluginSkillSources: vi.fn(async () => []),
   isPluginToolName: vi.fn(() => false),
 }))
-vi.mock('../../server/channels/event-relay.mjs', () => ({
-  publishChannelSessionChanged: vi.fn(async () => true),
-}))
 vi.mock('../../server/utils/logger.mjs', () => {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
   logger.child = () => logger

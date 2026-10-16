@@ -364,7 +364,7 @@ function applyMetadataToState(existing, metadata) {
   const state = { ...existing.state }
   for (const field of [
     'title', 'titleSource', 'lastModified', 'stateVersion', 'thinkingLevel',
-    'accessMode', 'yoloMode', 'source', 'channelId', 'channelName', 'taskStatus', 'taskStartedAt',
+    'accessMode', 'yoloMode', 'source', 'taskStatus', 'taskStartedAt',
     'taskFinishedAt', 'contextCompaction', 'idleRetention', 'pinnedAt', 'archivedAt',
   ]) {
     if (!Object.prototype.hasOwnProperty.call(metadata, field)) continue

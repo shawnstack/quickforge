@@ -68,8 +68,6 @@ export type QuickForgeSessionMetadata = SessionMetadata & {
   scope?: ChatScope
   projectId?: string
   source?: 'acp'
-  channelId?: string
-  channelName?: string
   titleSource?: SessionTitleSource
   accessMode?: AgentAccessMode
   yoloMode?: boolean
@@ -85,8 +83,6 @@ export type QuickForgeSessionData = SessionData & {
   scope?: ChatScope
   projectId?: string
   source?: 'acp'
-  channelId?: string
-  channelName?: string
   titleSource?: SessionTitleSource
   accessMode?: AgentAccessMode
   yoloMode?: boolean
@@ -112,8 +108,6 @@ export type BackgroundTask = {
   unsubscribe: () => void
 }
 
-export function sessionTitle(title: string, channelName?: string) {
-  const displayTitle = title === 'New chat' ? t('newChat') : title
-  const normalizedChannelName = channelName?.trim()
-  return normalizedChannelName ? `${normalizedChannelName} · ${displayTitle}` : displayTitle
+export function sessionTitle(title: string) {
+  return title === 'New chat' ? t('newChat') : title
 }

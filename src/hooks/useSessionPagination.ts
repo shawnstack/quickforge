@@ -26,7 +26,6 @@ function isValidPinnedAt(value?: string) {
 type UseSessionPaginationOptions = {
   backendRef: React.MutableRefObject<HttpStorageBackend | null>
   expandedProjectIds: Set<string>
-  externalProjectIds?: Set<string>
   viewMode: SidebarSessionViewMode
   sortMode: SidebarSessionSortMode
   onBroadcastSessionsChanged?: () => void
@@ -41,7 +40,6 @@ type RefreshRound = {
 export function useSessionPagination({
   backendRef,
   expandedProjectIds,
-  externalProjectIds,
   viewMode,
   sortMode,
   onBroadcastSessionsChanged,
@@ -54,7 +52,6 @@ export function useSessionPagination({
   const projectPagesRef = useRef(projectPages)
   const projectTimelinePageRef = useRef(projectTimelinePage)
   const expandedProjectIdsRef = useRef(expandedProjectIds)
-  const externalProjectIdsRef = useRef(externalProjectIds ?? new Set<string>())
   const requestVersionRef = useRef(0)
   const refreshRoundRef = useRef<RefreshRound | null>(null)
 
@@ -73,10 +70,6 @@ export function useSessionPagination({
   useEffect(() => {
     expandedProjectIdsRef.current = expandedProjectIds
   }, [expandedProjectIds])
-
-  useEffect(() => {
-    externalProjectIdsRef.current = externalProjectIds ?? new Set<string>()
-  }, [externalProjectIds])
 
   const nextRequestVersion = useCallback(() => {
     requestVersionRef.current += 1
@@ -280,7 +273,6 @@ export function useSessionPagination({
         const loadedProjectIds = new Set([
           ...Object.keys(projectPagesRef.current),
           ...expandedProjectIdsRef.current,
-          ...externalProjectIdsRef.current,
         ])
         if (loadedProjectIds.size === 0) {
           setProjectPages({})

@@ -36,7 +36,6 @@
 | `workspace-browser-service.mjs` | 527 | 目录树/children、分页排序、rg 与回退搜索、严格项目 mention 浏览 |
 | `workspace-file-service.mjs` | 193 | 文本读取、语言/MIME、预览安全校验与 ETag、外部路径打开；本机 HTTP 门禁仍在入口 |
 | `workspace-request-control.mjs` | 42 | 请求取消信号和清理、AbortError识别、原进程树终止；Git/browser共同使用 |
-| `channels.mjs` | 外部渠道管理、SSE 状态/会话变更事件、仅 localhost + `x-quickforge-action: channel-event` 可调用的内部事件 relay，以及仅 localhost + `x-quickforge-action: channel-action` 可打开已注册渠道日志目录的 `POST /api/channels/:id/open-logs` |
 | `static.mjs` | 89 | 静态文件服务；`index.html` 与可替换的 APK 下载使用 `no-cache`，其余构建资产长期缓存 |
 
 ### system.mjs
@@ -59,14 +58,14 @@ Agent 会话管理核心路由。
 
 **主要端点**:
 - `GET /api/agents` — 列出活跃会话
-- `GET /api/agents/events` — 全局 SSE 事件流；除 agent 事件外还转发渠道 `sessions-changed`（只转发该类型，过滤 `log`/`status`/`qrcode`），使 App 无需再额外常驻一条 `/api/channels/events`
+- `GET /api/agents/events` — 全局 SSE 事件流，转发 agent 事件
 - `GET /api/agents/:sessionId/stream` — 会话级 SSE 流
 - `POST /api/agents/:sessionId/restore` — 从内存复用或从持久化存储恢复 Agent，并在同一响应中返回完整权威快照，供历史会话冷加载使用；并发恢复（restore/state/messages/status/SSE 同时回落）按 sessionId 共享同一 in-flight Promise，只构建一个内存 Agent 实例，避免竞态覆盖泄漏
 - `GET /api/agents/:sessionId/state` — 获取完整会话快照，用于 SSE 异常恢复；仅在内存会话不存在时从磁盘恢复，不再每次无条件重读 Session
 - `GET /api/agents/:sessionId/status` — 获取轻量运行状态，用于 SSE 静默后的版本探测
 - `HEAD /api/agents/:sessionId/stream` — 检查 SSE 可用性
 - `POST /api/agents/:sessionId/prompt` — 发送消息；`/summary` 与 `/compact` 作为内置 slash command 通过此端点触发，不存在独立压缩 REST 路由。可选 `contextReferences: [{type:'file',projectId,path}]` 最多 8 条；仅项目 QuickForge 会话支持，服务端用已恢复会话的 projectId/workspaceRoot 重新校验并持久化 canonical `{type,projectId,path,name}` 到用户消息 `details.contextReferences`，只向本轮模型注入已验证相对路径提示，不读取正文。Shared 非空引用显式拒绝；`/goal <目标>` 同样经此端点触发，创建目标并启动只读规划轮
-- `POST /api/agents/:sessionId/goal` — Goal 模式用户动作：主聊天与定时任务支持；共享/ACP/channel 来源仍返回 `GOAL_UNAVAILABLE`。定时任务复用 `runPrompt`→runner，不新增执行器；`waitForGoalCompletion` 仅在 `completed` 时报告 schedule 成功，paused/blocked/预算/awaiting 仍 running 并保留 serial，关联聊天可 resume/cancel，静止后的 cancelled/failed 才失败。既有 `{action, objective?}` 支持 `confirm` / `pause` / `resume` / `cancel` / `revise`（需新 `objective`）/ `accept`（仅兼容旧 `needs_review`；当前 UI 不提供 confirm/accept，规划自动执行）；新增 `extend_resume` 严格只接受 `{action:'extend_resume', goalId, expectedRevision}`，goalId 非空、expectedRevision 正 safe integer，不允许自定义预算或额外字段（400）。仅此追加动作做 goalId/revision CAS，旧请求 409 `GOAL_REVISION_CONFLICT` 不重复追加；未耗尽 409 `GOAL_BUDGET_NOT_EXHAUSTED`。只对耗尽轮次追加配置轮次（默认 20，settings 键 `goal-settings`），并移除旧时间上限，保留 usage/计划证据，同次 persist 成功后才恢复；仍不足保持 paused 不调度，足够后无计划→planning、有计划→running（不需要确认）。resume 移除旧时间上限，只有轮次耗尽仍 409 并提示 extend_resume。返回 `{goal}` 权威快照；非法 action 400，无会话/无 goal 404，状态不允许或会话忙 409（`GOAL_ACTION_INVALID` / `GOAL_SESSION_BUSY`），预算耗尽 `GOAL_BUDGET_EXHAUSTED`，共享/ACP/定时任务来源 `GOAL_UNAVAILABLE`。route 先按请求级 `context.source` 判定可用性，再动态 import runner，避免非 goal 请求承担持久化/存储链的加载成本
+- `POST /api/agents/:sessionId/goal` — Goal 模式用户动作：主聊天与定时任务支持；共享/ACP 来源仍返回 `GOAL_UNAVAILABLE`。定时任务复用 `runPrompt`→runner，不新增执行器；`waitForGoalCompletion` 仅在 `completed` 时报告 schedule 成功，paused/blocked/预算/awaiting 仍 running 并保留 serial，关联聊天可 resume/cancel，静止后的 cancelled/failed 才失败。既有 `{action, objective?}` 支持 `confirm` / `pause` / `resume` / `cancel` / `revise`（需新 `objective`）/ `accept`（仅兼容旧 `needs_review`；当前 UI 不提供 confirm/accept，规划自动执行）；新增 `extend_resume` 严格只接受 `{action:'extend_resume', goalId, expectedRevision}`，goalId 非空、expectedRevision 正 safe integer，不允许自定义预算或额外字段（400）。仅此追加动作做 goalId/revision CAS，旧请求 409 `GOAL_REVISION_CONFLICT` 不重复追加；未耗尽 409 `GOAL_BUDGET_NOT_EXHAUSTED`。只对耗尽轮次追加配置轮次（默认 20，settings 键 `goal-settings`），并移除旧时间上限，保留 usage/计划证据，同次 persist 成功后才恢复；仍不足保持 paused 不调度，足够后无计划→planning、有计划→running（不需要确认）。resume 移除旧时间上限，只有轮次耗尽仍 409 并提示 extend_resume。返回 `{goal}` 权威快照；非法 action 400，无会话/无 goal 404，状态不允许或会话忙 409（`GOAL_ACTION_INVALID` / `GOAL_SESSION_BUSY`），预算耗尽 `GOAL_BUDGET_EXHAUSTED`，共享/ACP/定时任务来源 `GOAL_UNAVAILABLE`。route 先按请求级 `context.source` 判定可用性，再动态 import runner，避免非 goal 请求承担持久化/存储链的加载成本
 - `POST /api/agents/:sessionId/title` — 手动重命名会话；同步更新服务端活跃状态与持久化数据，优先于待完成的 AI 标题
 - `POST /api/agents/:sessionId/abort` — 中止运行
 - `POST /api/agents/:sessionId/steer` — 引导 Agent

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { sendJson, sendError } from './utils/response.mjs'
-import { openBrowser, openPathInFileManager } from './utils/platform.mjs'
+import { openBrowser } from './utils/platform.mjs'
 import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir, createPhysicalSessionStateFsAdapter } from './storage.mjs'
 import { initializeSessionStateService, stopSessionStateService } from './session-state-service.mjs'
 import { importSessionStateFromJson } from './session-state-import.mjs'
@@ -43,7 +43,6 @@ import { handlePluginsApi } from './routes/plugins.mjs'
 import { handleHooksApi } from './routes/hooks.mjs'
 import { handleWorkspaceApi, handleGitApi } from './routes/workspace.mjs'
 import { handleTerminalApi, handleTerminalUpgrade } from './routes/terminal.mjs'
-import { handleChannelsApi } from './routes/channels.mjs'
 import { handleModelsApi } from './routes/models.mjs'
 import { handleSideChatApi } from './routes/side-chat.mjs'
 import { serveStatic } from './routes/static.mjs'
@@ -57,7 +56,6 @@ import { isLoopbackAddress, getLanUrls } from './utils/network.mjs'
 import { parseCookies } from './share-store.mjs'
 import { lanAccessCookieName, verifyLanAccessToken } from './lan-access-store.mjs'
 import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agent-manager.mjs'
-import { initializeChannels, shutdownChannels } from './channels/registry.mjs'
 import { refreshMcpConnections, shutdownMcpConnections } from './mcp/registry.mjs'
 import { shutdownTerminalSessions } from './terminal/terminal-manager.mjs'
 import { closeSqliteStorage, getSqliteStorage, getSqliteStorageSummary, initializeSqliteStorage } from './sqlite/database.mjs'
@@ -192,7 +190,6 @@ async function shutdownRuntime() {
     stopVite()
     await shutdownAgentManager()
     await shutdownMcpConnections()
-    await shutdownChannels()
     shutdownTerminalSessions()
     await closeHttpServer()
   } finally {
@@ -443,16 +440,6 @@ async function handleApi(req, res, url, requestContext = {}) {
   // MCP servers
   if (pathname === '/api/mcp' || pathname.startsWith('/api/mcp/')) {
     await handleMcpApi(req, res, url)
-    return
-  }
-
-  // Channels
-  if (pathname === '/api/channels' || pathname.startsWith('/api/channels/')) {
-    await handleChannelsApi(req, res, url, {
-      isLocalRequest: requestContext.isLocalRequest === true,
-      logsDir,
-      openPathInFileManager,
-    })
     return
   }
 
@@ -922,11 +909,6 @@ async function runStartupInitialization() {
   await timedStartupStep('default-global-skills', () => ensureDefaultGlobalSkills())
   await timedStartupStep('network-proxy', () => initializeNetworkProxy())
   installAiHttpLogger()
-  initializeChannels({
-    projectRoot,
-    channelEventsUrl: `http://127.0.0.1:${port}/api/channels/events`,
-    logsDir,
-  })
   await timedStartupStep('reset-stale-task-statuses', () => resetStaleTaskStatuses())
   await timedStartupStep('session-index', () => initializeSessionIndex())
   await timedStartupStep('active-project', () => initializeActiveProject())

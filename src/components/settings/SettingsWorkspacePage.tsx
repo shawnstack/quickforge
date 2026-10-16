@@ -10,12 +10,11 @@ import {
   DownloadCloud,
   Globe2,
   Info,
+  Server,
   Brain,
   Link2,
   Palette,
   Puzzle,
-  Server,
-  Share2,
   SlidersHorizontal,
   SquareTerminal,
   Webhook,
@@ -49,7 +48,6 @@ const SETTINGS_TAB_ICONS = {
   backup: DownloadCloud,
   archivedConversations: Archive,
   shareLinks: Link2,
-  channels: Share2,
   lanAccess: Globe2,
   about: Info,
 } satisfies Record<SettingsInitialTab, LucideIcon>
@@ -64,7 +62,6 @@ const STATE_PRESERVING_TAB_KEYS = new Set<SettingsInitialTab>([
   'backup',
   'archivedConversations',
   'lanAccess',
-  'channels',
   'about',
 ])
 

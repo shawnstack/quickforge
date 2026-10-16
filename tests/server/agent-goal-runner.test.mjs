@@ -1027,7 +1027,7 @@ describe('goal runner', () => {
     expect(session.goal.id).not.toBe(other.goal.id)
   })
 
-  it('does not offer goal mode to ACP / channel sessions', async () => {
+  it('does not offer goal mode to ACP sessions', async () => {
     const acp = makeSession({ sessionId: 'acp-session', source: 'acp' })
     expect(isGoalModeAvailable(acp)).toBe(false)
     expect((await startGoalPlanning(acp, 'nope')).error).toContain('QuickForge main chat')
@@ -1415,12 +1415,12 @@ describe('goal runner', () => {
     expect(session.goal).toMatchObject({ status: 'planning' })
   })
 
-  it('allows scheduled goals without opening ACP, shared or channel sources', async () => {
+  it('allows scheduled goals without opening ACP or shared sources', async () => {
     const scheduled = makeSession({ sessionId: 'scheduled-source-session', modelAccessContext: { source: 'scheduled' } })
     expect(isGoalModeAvailable(scheduled)).toBe(true)
     expect(isGoalModeAvailable(scheduled, 'scheduled')).toBe(true)
     expect(isGoalModeAvailable({ ...scheduled, source: 'scheduled' })).toBe(true)
-    for (const source of ['acp', 'channel', 'shared', 'telegram']) {
+    for (const source of ['acp', 'shared', 'telegram']) {
       expect(isGoalModeAvailable(scheduled, source)).toBe(false)
       expect(isGoalModeAvailable({ ...scheduled, source }, 'scheduled')).toBe(false)
     }

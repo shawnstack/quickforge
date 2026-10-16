@@ -59,9 +59,6 @@ vi.mock('../../server/plugins/registry.mjs', () => ({
   getEnabledPluginSkillSources: vi.fn(async () => []),
   isPluginToolName: vi.fn(() => false),
 }))
-vi.mock('../../server/channels/event-relay.mjs', () => ({
-  publishChannelSessionChanged: vi.fn(async () => true),
-}))
 
 describe('agent manager external session synchronization', () => {
   let tmpDir
@@ -109,39 +106,6 @@ describe('agent manager external session synchronization', () => {
       expect((await readSessionValue(sessionId))?.messages[0].content).toBe('Hi')
       expect(MockAgent.instances[0].lastTransformedMessages[0].content).toContain('<acp_context>')
       expect(MockAgent.instances[0].lastTransformedMessages[0].content).toContain('User request:\nHi')
-    } finally {
-      await destroyAgent(sessionId)
-    }
-  })
-
-  it('publishes a channel session event after an ACP session is persisted', async () => {
-    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
-    setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
-    const { publishChannelSessionChanged } = await import('../../server/channels/event-relay.mjs')
-    const { createAgent, destroyAgent, runPrompt } = await import('../../server/agent-manager.mjs')
-    const sessionId = 'channel-event-session'
-    await createAgent(sessionId, {
-      scope: 'global',
-      source: 'acp',
-      channelId: 'wechat',
-      channelName: '微信',
-      model: { provider: 'mock', id: 'mock-model' },
-      systemPrompt: '',
-      idleRetention: 'always',
-    })
-
-    try {
-      await runPrompt(sessionId, 'Hi', [])
-      await vi.waitFor(() => expect(publishChannelSessionChanged).toHaveBeenCalled())
-      expect(publishChannelSessionChanged).toHaveBeenLastCalledWith(expect.objectContaining({
-        channelId: 'wechat',
-        channelName: '微信',
-        sessionId,
-        projectId: null,
-        workspace: { id: 'default', kind: 'default' },
-        change: 'upsert',
-        metadata: expect.objectContaining({ id: sessionId, source: 'acp', channelId: 'wechat' }),
-      }))
     } finally {
       await destroyAgent(sessionId)
     }

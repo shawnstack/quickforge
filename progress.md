@@ -1,8 +1,44 @@
+## dead-code-cleanup-round3（done，2026-10-16）
+
+- 目标：按死代码评审清理高置信度 A 区僵尸代码。
+- 已清理：`runIcon`、`sliderProgressStyle`、`CHAT_SURFACE_REFRESH_EVENTS`；i18n 中英各删除 `displayLanguage`、`openLocalFile`、`execute`、`taskScheduleSavePreview`、`taskList`、`artifacts`；删除 capability-suggestions 专属 CSS 与 message-queue 死查询项；删除已确认无源码/测试消费者的 settings/context/project picker CSS。
+- 复核保留：`server/session-state-service.mjs` 的 `readSessionIdentityRows` 是 `storage.mjs` 动态 facade 接口，不能删除；`quickforge-tool-message` 有 CSS 契约测试，不能按源码无创建方误删；K8 安全预留、B/C/D 灰色项未处理。
+- 文档：Wiki `openLocalFile` 示例改为仍在使用的 `openLocalFileWithPath`；评审报告同步实际清理结果和误报修正。
+- 验证：定向 vitest 6 文件 96 passed；`npx tsc --noEmit` 通过；`npm run lint` 通过（1 个既有 GitToolsPinnedSummary warning）；`npm run build` 通过；`git diff --check` 通过。
+- 边界：工作区同时存在用户此前 channels-removal 等未提交改动，本次未覆盖或回滚；未提交。
+
+---
+
+## channels-removal（removed，2026-10-16）
+
+- 目标：应用户要求**彻底移除**设置中的「渠道」功能（微信 weixin-acp bridge、渠道 API/SSE、sessions-changed 事件链、channelId/channelName 字段与渠道 Tab），且不影响 ACP、分享、通知、跨标签同步等其他功能。
+- 用户确认的两个决策：sessions-changed 死链一并删除；存量渠道会话标题前缀（channelName）一并移除（旧会话标题退化为纯标题，持久化字段成为无主数据被读侧忽略，无需迁移）。
+- 删除文件：server/channels/**（registry/process-channel/channel-logs/event-relay/providers/wechat）、server/routes/channels.mjs、src/components/settings/tabs/ChannelsSettingsTab.tsx、tests/server/channels/**、tests/server/routes/channels.test.mjs、tests/server/agent-manager.channel-{sync,source,events}.test.mjs、tests/server/acp/server-channel-source.test.mjs（共 15 个专用文件）。
+- 服务端清理：server/index.mjs（import、/api/channels 路由分发、initializeChannels 启动、shutdownChannels 关停、openPathInFileManager 仅供渠道使用后移除 import）；routes/agent.mjs（channelEvents import、SSE sessions-changed 转发监听、会话摘要 channelId/channelName）；agent-manager.mjs（createAgent 参数、session 字段、restore 回填、恢复会话传参、listSessions 导出）；agent-persistence.mjs（event-relay import、字段解构、session data/metadata 落盘、ACP 渠道事件 fire-and-forget）；agent-session-queries.mjs（两处快照字段）；session-state-service.mjs（metadata→state 白名单）；acp/server.mjs（QUICKFORGE_ACP_CHANNEL_* 环境变量传参）；agent-goal-runner.mjs 注释措辞。
+- 前端清理：settings-tabs.ts / react-settings-tabs.tsx / SettingsWorkspacePage.tsx（tab 定义、lazy、图标表 Share2 条目、STATE_PRESERVING_TAB_KEYS）；App.tsx（ChannelWorkspace/ChannelRefreshEvent/channelEventProjectId 类型与函数、handleSessionsChanged 订阅、externalProjectIds state 与 useSessionPagination 传参、标题栏 sessionTitle 第二参数、loadGlobalSessions 未使用解构）；useSessionPagination.ts（externalProjectIds 可选参数与 ref）；useAgentManager.ts（createAgent options 与 loadSession hints 字段）；types.ts（两个会话元数据类型字段、sessionTitle 签名简化为单参数）；server-agent.ts / server-agent-types.ts（config 字段、POST body 透传、快照字段、sessions-changed 提前 return）；global-agent-sse-client.ts（allowlist 项）；ChatSidebar.tsx（7 处）/ ArchivedConversationsSettingsTab.tsx（2 处）sessionTitle 第二参数；i18n.ts 中英各删 24 键（start/restart/channels*/channel*，**保留 stop**——MessageEditor 仍在用）；index.css 两处 .quickforge-channel-qr-text 规则。
+- 测试清理：routes/agent.test.mjs 删 2 个渠道事件用例；agent.goal.test.mjs 删 registry mock；7 个 agent-manager/scheduled-tasks/slash-skill 测试删 event-relay mock；external-sync.test.mjs 删渠道事件发布用例；agent-goal-runner.test.mjs 用例名与来源列表去掉 channel；settings-workspace-react.test.ts（tab 数 17→16、en:channels、active 契约、生命周期守卫文件列表）；session-title.test.ts 重写（渠道前缀用例改为本地化用例）；server-agent.test.ts 删 channel sessions-changed forwarding describe。
+- 文档清理：docs/wiki/README.md（Goal 拒绝来源措辞）、src/README.md（渠道页描述）、src/lib/README.md（tab 列表）、src/components/README.md（两处渠道标题展示规则）、server/README.md（目录树、channels/ 整节、启动链、ACP 渠道环境变量句、Goal 可用范围措辞）、server/routes/README.md（channels.mjs 行、/api/agents/events 转发说明、goal 来源措辞）。
+- 保留（与渠道无关，勿回退）：ACP 全链（source:'acp'、qf acp、server/acp）、BroadcastChannel 跨标签（useCrossTabSync/cross-tab-events/provider-keys-cache，其 sessions-changed 是跨标签事件同名）、Electron IPC 通知通道、Android NotificationChannel、npm-runtime 更新 channel、sessionTitle 函数本体、stop i18n 键、Share2 import 的其余使用方。
+- 验证：全仓 grep（git ls-files 限 src/server/tests/bin/scripts/desktop/docs/wiki）残留仅剩无关命中；npm run test 全量 381 文件 4595 passed / 2 skipped；npm run lint exit 0（仅 GitToolsPinnedSummary 既有 warning）；npm run build exit 0；npx tsc --noEmit 通过。
+
+---
+
+## dead-code-audit-round3（评审完成，未清理，2026-10-16）
+
+- 目标：应用户要求全面评审僵尸代码（无引用代码 / 永远走不到的分支）。
+- 方法：import 引用图（857 文件、四端入口 BFS、修复扫描器自身 @/ 别名解析缺陷）+ 2 个只读子任务（server 147 文件 AST 级、前端 302 文件标识符级）+ word-boundary grep 抽检复核，对照 round2 报告去重。
+- 结论：0 僵尸文件（18 个静态不可达文件全为 preload/Worker/spawn/runbook 字符串或手动工具引用）；0 不可达分支（return 后语句、恒真假、重复条件、重复 case 双端零命中）；0 死 env 门控；0 context-eviction 残留；SSE/工具渲染器/自定义事件/BroadcastChannel 协议双向配对无孤儿。
+- 僵尸清单沉淀至 `docs/reports/dead-code-candidates-2026-10-16.zh-CN.md`：A 区零引用 8 组（readSessionIdentityRows 双定义、runIcon、sliderProgressStyle、CHAT_SURFACE_REFRESH_EVENTS、6 个 i18n 孤儿键（en+zh）、capability-suggestions CSS 组 + message-queue 死查询项、零散死 CSS 类；K8 安全预留保留）；B 区仅测试存活 27 项（最典型 3 个：cronMatches、revokeLanAccessToken、DEFAULT_AI_STREAM_DEADLINE_MS）；C 区导出冗余 ~114 项（本体存活，不建议动）；D 区 sqlite-compatibility-spike 归档候选。
+- Notes：清理范围待用户决策（A / A+B前3 / A+B全部 / 暂不清理），本次未改任何产品代码；执行清理时需同步直测与 wiki。
+
+---
+
 ## prefer-background-commands（done，2026-10-15）
 
 - 目标：基础系统提示词中的命令运行规则从“可能超出当前回合才后台”改为“可行时优先后台运行”。
 - 改动：`BASE_SYSTEM_PROMPT` 要求设置 `run_command run_in_background` 为 true；仍通过返回的输出文件读取结果，并禁止 `&`、`nohup`、`Start-Process`。
 - 验证：`npx vitest run tests/server/system-prompt.test.mjs` 8 passed。
+- 复审：2026-10-16 再次检查源码、测试、Wiki、入口和 Android 资产；精确渠道专用标识 0 残留，`npm run android:sync` 后旧 ChannelsSettingsTab bundle 已移除。修正 feature_list 中两处过期文件路径。保留项（BroadcastChannel、Electron IPC、npm-runtime、messages channel）均确认与渠道功能无关。
 
 ---
 

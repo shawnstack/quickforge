@@ -120,7 +120,6 @@ class GlobalAgentSseClient {
       'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
       'tool_approval_required', 'ask_user_required', 'ask_user_answered', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
       'persist_degraded', 'model_stream_retry', 'goal_updated', 'background_commands',
-      'sessions-changed',
     ]
 
     // [sse-rx] 帧接收流水（thinking→final-reply 丢失取证）：与服务端 [sse-frame]

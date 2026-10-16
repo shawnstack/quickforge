@@ -3,7 +3,6 @@
 // 搬移至此；行为与注释语义保持不变。destroyAgent 仍由 agent-manager.mjs 提供。
 
 import { logger } from './utils/logger.mjs'
-import { publishChannelSessionChanged } from './channels/event-relay.mjs'
 import { withSessionPersistenceLock } from './session-persistence-lock.mjs'
 import {
   readSessionStateRecord,
@@ -186,7 +185,7 @@ async function persistAuthoritativeSessionState(session, sessionData, metadata, 
  * Persist session data to storage.
  */
 async function persistSessionUnlocked(session, options = {}) {
-  const { sessionId, agent, scope, projectId, source, channelId, channelName, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, modelRef, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
+  const { sessionId, agent, scope, projectId, source, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, modelRef, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
   const messages = options.messages ?? agent.state.messages
   const goalBody = options.goal === undefined ? session.goal || null : options.goal
 
@@ -225,8 +224,6 @@ async function persistSessionUnlocked(session, options = {}) {
     scope,
     projectId: scope === 'project' ? projectId : undefined,
     source: source || undefined,
-    channelId: channelId || undefined,
-    channelName: channelName || undefined,
     taskStatus: status,
     taskStartedAt: startedAt,
     taskFinishedAt: finishedAt,
@@ -285,8 +282,6 @@ async function persistSessionUnlocked(session, options = {}) {
     scope,
     projectId: scope === 'project' ? projectId : undefined,
     source: source || undefined,
-    channelId: channelId || undefined,
-    channelName: channelName || undefined,
     taskStatus: status,
     taskStartedAt: startedAt,
     taskFinishedAt: finishedAt,
@@ -314,20 +309,6 @@ async function persistSessionUnlocked(session, options = {}) {
   } catch (err) {
     logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId })
     return null
-  }
-
-  if (source === 'acp' && channelId && persistedMetadata) {
-    void publishChannelSessionChanged({
-      channelId,
-      channelName: channelName || undefined,
-      sessionId,
-      projectId: scope === 'project' ? projectId : null,
-      workspace: scope === 'project'
-        ? { id: projectId, kind: 'project' }
-        : { id: 'default', kind: 'default' },
-      change: 'upsert',
-      metadata: persistedMetadata,
-    })
   }
 
   return persistedMetadata || metadata

@@ -1334,9 +1334,6 @@ export class ServerAgent {
   // --- SSE event handling ---
 
   private handleSseEvent(event: Record<string, unknown>) {
-    // 渠道会话变更（/api/agents/events 转发的 sessions-changed）只供全局订阅者使用；
-    // 提前返回，避免它刷新 lastSseEventAt 让状态看门狗误判 SSE 仍活跃、推迟静默恢复。
-    if (event.type === 'sessions-changed') return
     if (!this.noteSseEvent(event)) return
     const type = event.type as string
 
@@ -2350,8 +2347,6 @@ export class ServerAgent {
       scope?: 'global' | 'project'
       projectId?: string
       source?: 'acp'
-      channelId?: string
-      channelName?: string
       accessMode?: AgentAccessMode
       yoloMode?: boolean
       model?: Model<Api>
@@ -2372,8 +2367,6 @@ export class ServerAgent {
         scope: config.scope ?? 'global',
         projectId: config.projectId,
         source: config.source,
-        channelId: config.channelId,
-        channelName: config.channelName,
         accessMode: config.accessMode,
         yoloMode: config.yoloMode ?? agentAccessModeToYoloMode(normalizeAgentAccessMode(config.accessMode)),
         modelRef: config.model ? modelReferenceFromModel(config.model) : undefined,

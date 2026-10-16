@@ -1,6 +1,4 @@
 import { useId, useLayoutEffect, useRef } from 'react'
-import type { CSSProperties } from 'react'
-
 export { SettingsSelect } from '../SettingsSelect'
 export type { SettingsSelectProps } from '../SettingsSelect'
 
@@ -52,10 +50,4 @@ export function SettingsSwitch({
       <span aria-hidden="true"></span>
     </label>
   )
-}
-
-/** 滑杆进度条 CSS 变量（appearance 字号滑杆共用）。 */
-// eslint-disable-next-line react-refresh/only-export-components -- existing shared tab helper
-export function sliderProgressStyle(progressPercent: number): CSSProperties {
-  return { '--quickforge-font-size-slider-progress': `${progressPercent}%` } as CSSProperties
 }

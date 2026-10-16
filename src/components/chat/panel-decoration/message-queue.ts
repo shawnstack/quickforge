@@ -13,7 +13,6 @@ export type MessageQueuePanelState = MessageQueueState
 const SUGGESTION_MENU_CLASSES = [
   'quickforge-command-suggestions',
   'quickforge-file-reference-suggestions',
-  'quickforge-capability-suggestions',
 ]
 
 const ICONS = {

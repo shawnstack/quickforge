@@ -30,7 +30,7 @@ import { ReactSettingsTabContent } from '../../src/lib/react-settings-tabs'
 import { SettingsWorkspacePage } from '../../src/components/settings/SettingsWorkspacePage'
 import { CustomProvidersSettingsTab } from '../../src/components/settings/tabs/CustomProvidersSettingsTab'
 
-const keys: SettingsInitialTab[] = ['appearance', 'defaults', 'memory', 'customModels', 'agents', 'skills', 'mcp', 'plugins', 'scheduledTasks', 'projectCommands', 'hooks', 'backup', 'archivedConversations', 'shareLinks', 'channels', 'lanAccess', 'about']
+const keys: SettingsInitialTab[] = ['appearance', 'defaults', 'memory', 'customModels', 'agents', 'skills', 'mcp', 'plugins', 'scheduledTasks', 'projectCommands', 'hooks', 'backup', 'archivedConversations', 'shareLinks', 'lanAccess', 'about']
 type TestNode = ReactElement<Record<string, unknown> & { children?: unknown }>
 function nodes(tree: unknown): TestNode[] {
   if (Array.isArray(tree)) return tree.flatMap(nodes)
@@ -58,7 +58,7 @@ describe('pure React settings registry', () => {
     expect(registry.items.map((item) => item.key)).toEqual(keys)
     expect(registry.items.map((item) => item.getTabName())).toEqual([
       'en:appearance', 'en:defaultOptions', 'en:memory', 'en:customModels', 'en:agentsTab', 'en:skills', 'en:mcpServers', 'en:plugins',
-      'en:scheduledTasks', 'en:projectCommands', 'en:hooksTab', 'en:backupRestore', 'en:archivedConversations', 'en:shareLinks', 'en:channels', 'en:lanAccess', 'en:about',
+      'en:scheduledTasks', 'en:projectCommands', 'en:hooksTab', 'en:backupRestore', 'en:archivedConversations', 'en:shareLinks', 'en:lanAccess', 'en:about',
     ])
     for (const key of keys) {
       const item = registry.items[registry.indexOf(key)]
@@ -78,7 +78,7 @@ describe('pure React settings registry', () => {
       const tree = nodes(ReactSettingsTabContent({ tabKey, customProvider: 'chosen' }))
       return tree.find((node) => typeof node.type === 'object')!
     })
-    expect(new Set(components.map((node) => node.type)).size).toBe(17)
+    expect(new Set(components.map((node) => node.type)).size).toBe(16)
     expect(components[3].props.customProvider).toBe('chosen')
     expect(components[5].props).toMatchObject({ active: true, scope: 'global', embedded: true })
     expect(components[6].props.active).toBe(true)
@@ -91,7 +91,7 @@ describe('pure React settings registry', () => {
   it('forwards the workspace active flag into the tabs that can be reactivated', () => {
     const component = (tabKey: SettingsInitialTab, active: boolean) =>
       nodes(ReactSettingsTabContent({ tabKey, active })).find((node) => typeof node.type === 'object')!
-    for (const tabKey of ['defaults', 'customModels', 'archivedConversations', 'channels', 'lanAccess', 'about'] as const) {
+    for (const tabKey of ['defaults', 'customModels', 'archivedConversations', 'lanAccess', 'about'] as const) {
       expect(component(tabKey, true).props.active).toBe(true)
       expect(component(tabKey, false).props.active).toBe(false)
     }
@@ -192,7 +192,6 @@ describe('React settings workspace navigation', () => {
       ['defaults', 'en:defaultOptions'],
       ['backup', 'en:backupRestore'],
       ['archivedConversations', 'en:archivedConversations'],
-      ['channels', 'en:channels'],
       ['lanAccess', 'en:lanAccess'],
       ['about', 'en:about'],
     ]
@@ -216,13 +215,12 @@ describe('React settings workspace navigation', () => {
   })
 
   it('stops the state-preserving tabs while hidden and reloads them on reactivation', () => {
-    // 这 6 个 tab 的加载 effect 对齐旧版 Lit connectedCallback：首次激活与每次重新激活时执行，
+    // 这 5 个 tab 的加载 effect 对齐旧版 Lit connectedCallback：首次激活与每次重新激活时执行，
     // 显式 active === false 时跳过（无 props 的单测仍按激活处理）；backup 无生命周期钩子，无需 active。
     for (const path of [
       'src/components/settings/tabs/DefaultOptionsSettingsTab.tsx',
       'src/components/settings/tabs/CustomProvidersSettingsTab.tsx',
       'src/components/settings/tabs/ArchivedConversationsSettingsTab.tsx',
-      'src/components/settings/tabs/ChannelsSettingsTab.tsx',
       'src/components/settings/tabs/LanAccessSettingsTab.tsx',
       'src/components/settings/tabs/AboutSettingsTab.tsx',
     ]) {

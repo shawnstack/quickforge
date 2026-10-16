@@ -1,3 +1,38 @@
+## 当前交接：dead-code-cleanup-round3（done，2026-10-16）
+
+- Current Objective（当前目标）: 按死代码评审清理高置信度 A 区僵尸代码。已完成，未提交。
+- 改动文件: `src/components/chat/panel-decoration/icons.ts`、`message-queue.ts`、`ChatSurface.tsx`、`settings/tabs/shared.tsx`、`src/index.css`、`src/lib/i18n.ts`、`docs/wiki/src/lib/README.md`、评审报告、feature_list/progress/session-handoff。
+- 已清理: 3 个无引用导出、6 个 i18n 孤儿键的中英词条、capability-suggestions 专属 CSS/死查询项、已确认无消费者的 settings/context/project picker CSS。
+- 保留: `readSessionIdentityRows` 动态 facade 接口、`quickforge-tool-message` CSS 契约规则、K8 安全预留、B 区测试专用导出、C 区导出冗余、D 区历史 spike。
+- Evidence（验证）: 定向 vitest 6 文件 96 passed；`npx tsc --noEmit` 通过；`npm run lint` 通过（1 个既有 warning）；`npm run build` 通过；`git diff --check` 通过。
+- Blockers（阻塞）: 无。工作区另有用户此前 channels-removal 等未提交改动，本次未覆盖或回滚。
+- Next Session（下一步）: 用户若需要可继续处理 B 区前 3 项或全部灰色项；当前清理未提交。
+
+---
+
+## 当前交接：channels-removal（removed，2026-10-16）
+
+- Current Objective（当前目标）: 应用户要求彻底移除设置中的「渠道」功能（微信 bridge、渠道 API/SSE、sessions-changed 事件链、channelId/channelName 字段），不影响其他功能。已完成移除，未提交。
+- 改动文件: 删除 15 个专用文件（server/channels/**、server/routes/channels.mjs、src/components/settings/tabs/ChannelsSettingsTab.tsx、tests/server/channels/**、tests/server/routes/channels.test.mjs、tests/server/agent-manager.channel-*.test.mjs ×3、tests/server/acp/server-channel-source.test.mjs）；修改 server/index.mjs、server/routes/agent.mjs、server/agent-manager.mjs、server/agent-persistence.mjs、server/agent-session-queries.mjs、server/session-state-service.mjs、server/acp/server.mjs、server/agent-goal-runner.mjs、src/lib/settings-tabs.ts、src/lib/react-settings-tabs.tsx、src/components/settings/SettingsWorkspacePage.tsx、src/App.tsx、src/hooks/useSessionPagination.ts、src/hooks/useAgentManager.ts、src/lib/types.ts、src/lib/server-agent.ts、src/lib/server-agent-types.ts、src/lib/global-agent-sse-client.ts、src/components/sidebar/ChatSidebar.tsx、src/components/settings/tabs/ArchivedConversationsSettingsTab.tsx、src/lib/i18n.ts、src/index.css、11 个混合测试文件、6 个 docs/wiki 文档、feature_list.json、progress.md、session-handoff.md。完整清单见 progress.md「channels-removal」节。
+- 保留（与渠道无关，勿回退）: ACP 全链（qf acp / server/acp / source:'acp'）；BroadcastChannel 跨标签同步（其 sessions-changed 为跨标签事件同名）；Electron IPC 通知通道 / Android NotificationChannel / npm-runtime 更新 channel；sessionTitle 函数本体（签名简化为单参数，仍被 9 处使用）；i18n stop 键（MessageEditor 在用，start/restart 已删）。
+- 遗留数据说明: 旧渠道会话持久化 data/metadata 的 channelId/channelName 字段与 ~/.quickforge/logs/channels/ 日志目录成为无主数据（不再被读取），无害、无需迁移；存量微信渠道会话标题退化为纯标题（用户已确认）。
+- Evidence（验证）: 全仓 grep 残留仅无关命中；源码/测试/Wiki/入口精确标识检查为 0；Android 正规 `npm run android:sync` 已重新生成资产并移除旧 `ChannelsSettingsTab` bundle（剩余 `channel-*.js` 为 Monaco 语言包）；npm run test 381 文件 4595 passed / 2 skipped；npm run lint exit 0（1 个既有无关 warning）；npm run build exit 0；npx tsc --noEmit 通过。
+- 复审结论（2026-10-16）: 渠道功能已完全从当前源码、测试、Wiki、入口及 Android 当前生成资产清除。修正 `feature_list.json` 中两处已删除 `ChannelsSettingsTab.tsx` 的过期文件路径。发现的 `BroadcastChannel`、Electron IPC notification channel、npm-runtime update channel、messages channel 均为独立功能，确认保留。
+- Blockers（阻塞）: 无。工作区另有既存未跟踪临时文件 `0`、`m[1])`、`new`、`{try{require.resolve('jsdom')` 及 dead-code audit 报告，未纳入本 feature，未修改。
+- Next Session（下一步）: 待用户决定提交时机；运行中的服务是旧代码，重启后设置页不再出现「渠道」Tab，/api/channels 返回 404（预期）。若将来要恢复渠道，可在 git 历史找回本次删除前的实现。
+
+---
+
+## 当前交接：dead-code-audit-round3（评审完成，未清理，2026-10-16）
+
+- Current Objective（当前目标）: 全面评审僵尸代码（无引用代码/不可达分支）。评审已完成并沉淀报告，未改任何产品代码。
+- Files（改动文件）: docs/reports/dead-code-candidates-2026-10-16.zh-CN.md（新增）、progress.md、session-handoff.md。
+- Evidence（验证）: 三路独立扫描交叉验证 + grep 抽检复核；结论：0 僵尸文件 / 0 不可达分支 / 0 死 env 门控 / 0 context-eviction 残留 / 协议无孤儿；僵尸清单见报告 A/B/C/D 四区。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 待用户选定清理范围（仅 A 区 / A+B 前 3 项 / A+B 全部 / 暂不清理）；执行时行号以实际内容为准，需同步直测（B 区）与 wiki 文档。
+
+---
+
 ## 当前交接：prefer-background-commands（done，2026-10-15）
 
 - Current Objective（当前目标）: 基础系统提示词改为命令在可行时优先后台运行。已完成，未提交。

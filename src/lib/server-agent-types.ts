@@ -243,8 +243,6 @@ export type ServerAgentStateSnapshot = {
   scope?: 'global' | 'project'
   projectId?: string | null
   source?: 'acp'
-  channelId?: string
-  channelName?: string
   title?: string
   createdAt?: string
   status?: string

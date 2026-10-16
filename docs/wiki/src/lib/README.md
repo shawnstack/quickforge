@@ -108,7 +108,7 @@
 - 语言初始化/应用函数
 - 翻译字典本地维护（无外部包依赖），语言偏好经 `AppStorage` 的 settings store 持久化
 - 日期区域设置
-- **surface 文案统一走 `appTranslations`**：聊天 surface（`MessageEditor` / `ThinkingBlock` / `AssistantMessage` / `ToolMessage` / `AttachmentTile` / `AttachmentOverlay` / `AttachmentPreview` / `ApiKeyPromptDialog` / `CodeBlock` / `ChatSurface`）不再硬编码文案，全部调用 `t()`；新增或修改 surface 文案**必须同时补齐 `appTranslations.en` 与 `appTranslations.zh` 的同名键**（中英成对维护），并优先复用既有键（`thinking*` / `input` / `output` / `stop` / `close` / `save` / `cancel` / `composerPlaceholder`、```svg 与 ```mermaid 预览、`executeInTerminal`、`moreActions` 等）。装饰层可见文案同规则（`openLocalFile` / `gitBranchLabel` / `toolCommand*` 等）。
+- **surface 文案统一走 `appTranslations`**：聊天 surface（`MessageEditor` / `ThinkingBlock` / `AssistantMessage` / `ToolMessage` / `AttachmentTile` / `AttachmentOverlay` / `AttachmentPreview` / `ApiKeyPromptDialog` / `CodeBlock` / `ChatSurface`）不再硬编码文案，全部调用 `t()`；新增或修改 surface 文案**必须同时补齐 `appTranslations.en` 与 `appTranslations.zh` 的同名键**（中英成对维护），并优先复用既有键（`thinking*` / `input` / `output` / `stop` / `close` / `save` / `cancel` / `composerPlaceholder`、```svg 与 ```mermaid 预览、`executeInTerminal`、`moreActions` 等）。装饰层可见文案同规则（`openLocalFileWithPath` / `gitBranchLabel` / `toolCommand*` 等）。
 - **测试约定（文案断言固定语言）**：surface 组件的 `renderToStaticMarkup` 断言因默认语言回退 `navigator.language`（中文机器上即 zh），必须在测试内固定语言（文件级 `beforeEach(applyAppLanguageFromSnapshot('en'))`），另保留一处 zh 断言覆盖本地化生效；见 `tests/frontend/chat-surface-editor.test.ts` 与其余 `chat-surface-*.test.ts`。
 
 ### pi-chat.ts (365 行)
@@ -326,7 +326,7 @@
 
 ## 设置选项卡
 
-设置页已全部自研为 React：`settings-tabs.ts` 组装 tab 定义，`react-settings-tabs.tsx` 按 tabKey 懒加载渲染，页面文件位于 `src/components/settings/tabs/`（Appearance / DefaultOptions / Memory / CustomProviders / Backup / ArchivedConversations / LanAccess / About / ProjectCommands / Hooks / Channels，共享 `shared.tsx` 与 `SettingsNumberInput.tsx`，下拉复用 `../SettingsSelect.tsx`）。无 `SettingsTab` 基类、无自定义元素渲染、无命令式桥（`extends SettingsTab` / `replaceChildren` / `createRoot` 由 `tests/frontend/settings-workspace-react.test.ts` 守卫）。Hooks 页（`HooksSettingsTab.tsx`）无总开关：说明文字收进标题行 `InfoTip`，提供 Hook 增删改与 Hook 级启停、编辑器内手动测试（`POST /api/hooks/test`，按 `{execution}` 信封解析）与执行记录分页列表（`GET /api/hooks/executions?limit=20&offset=`：20 条/页、页码/总数摘要与上下翻页，mount 加载、加载失败可重试且重试保留当前页，可展开失败输出；记录由 server 持久化，上限 300 条、重启后保留）；存量 `enabled: false` 在下次保存时重置为 `true`（server 引擎仍按该字段过滤）。
+设置页已全部自研为 React：`settings-tabs.ts` 组装 tab 定义，`react-settings-tabs.tsx` 按 tabKey 懒加载渲染，页面文件位于 `src/components/settings/tabs/`（Appearance / DefaultOptions / Memory / CustomProviders / Backup / ArchivedConversations / LanAccess / About / ProjectCommands / Hooks，共享 `shared.tsx` 与 `SettingsNumberInput.tsx`，下拉复用 `../SettingsSelect.tsx`）。无 `SettingsTab` 基类、无自定义元素渲染、无命令式桥（`extends SettingsTab` / `replaceChildren` / `createRoot` 由 `tests/frontend/settings-workspace-react.test.ts` 守卫）。Hooks 页（`HooksSettingsTab.tsx`）无总开关：说明文字收进标题行 `InfoTip`，提供 Hook 增删改与 Hook 级启停、编辑器内手动测试（`POST /api/hooks/test`，按 `{execution}` 信封解析）与执行记录分页列表（`GET /api/hooks/executions?limit=20&offset=`：20 条/页、页码/总数摘要与上下翻页，mount 加载、加载失败可重试且重试保留当前页，可展开失败输出；记录由 server 持久化，上限 300 条、重启后保留）；存量 `enabled: false` 在下次保存时重置为 `true`（server 引擎仍按该字段过滤）。
 
 | 文件 | 用途 |
 |------|------|

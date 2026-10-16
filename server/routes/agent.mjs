@@ -37,7 +37,6 @@ import {
   stripSplitSessionState,
   agentEvents,
 } from '../agent-manager.mjs'
-import { channelEvents } from '../channels/registry.mjs'
 import { isGoalAction } from '../agent-goal-state.mjs'
 
 // Restore-only config fields are produced by the restore path (persisted goal
@@ -364,8 +363,6 @@ export async function handleAgentApi(req, res, url, context = {}) {
       scope: session.scope,
       title: session.title,
       source: session.source || undefined,
-      channelId: session.channelId || undefined,
-      channelName: session.channelName || undefined,
       accessMode: session.accessMode,
       yoloMode: session.yoloMode,
     })
@@ -603,32 +600,18 @@ function handleGlobalStream(req, res) {
   const updateThrottle = createSseUpdateThrottle({ write: writeEvent })
   const onAgentEvent = (event) => updateThrottle.push(event)
 
-  // 只转发 sessions-changed：process-channel 的 log/status/qrcode 事件量大且只与设置页相关，
-  // 混入 agent 流会刷爆客户端。
-  const onChannelEvent = (event) => {
-    if (event?.type !== 'sessions-changed') return
-    try {
-      writeSseEvent(res, 'sessions-changed', event)
-    } catch (error) {
-      logFailure('event_write_failed', error)
-      cleanup()
-    }
-  }
-
   const cleanup = () => {
     if (cleanedUp) return
     cleanedUp = true
     clearInterval(keepAlive)
     updateThrottle.dispose()
     agentEvents.removeListener('agent_event', onAgentEvent)
-    channelEvents.removeListener('channel_event', onChannelEvent)
     if (!res.writableEnded) {
       res.end()
     }
   }
 
   agentEvents.on('agent_event', onAgentEvent)
-  channelEvents.on('channel_event', onChannelEvent)
 
   req.on('close', cleanup)
   req.on('error', (error) => {

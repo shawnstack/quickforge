@@ -11,7 +11,6 @@ const LanAccessSettingsTab = lazy(() => import('@/components/settings/tabs/LanAc
 const AboutSettingsTab = lazy(() => import('@/components/settings/tabs/AboutSettingsTab').then((m) => ({ default: m.AboutSettingsTab })))
 const ProjectCommandsSettingsTab = lazy(() => import('@/components/settings/tabs/ProjectCommandsSettingsTab').then((m) => ({ default: m.ProjectCommandsSettingsTab })))
 const HooksSettingsTab = lazy(() => import('@/components/settings/tabs/HooksSettingsTab').then((m) => ({ default: m.HooksSettingsTab })))
-const ChannelsSettingsTab = lazy(() => import('@/components/settings/tabs/ChannelsSettingsTab').then((m) => ({ default: m.ChannelsSettingsTab })))
 const AgentProfilesPage = lazy(() => import('@/components/agent-profiles/AgentProfilesPage').then((m) => ({ default: m.AgentProfilesPage })))
 const McpServersPanel = lazy(() => import('@/components/mcp-servers-dialog').then((m) => ({ default: m.McpServersPanel })))
 const SkillsManagerPanel = lazy(() => import('@/components/skills-dialog').then((m) => ({ default: m.SkillsManagerPanel })))
@@ -45,7 +44,6 @@ const tabContent = {
   backup: () => <BackupSettingsTab />,
   archivedConversations: (_customProvider?: string, active?: boolean) => <ArchivedConversationsSettingsTab active={active} />,
   shareLinks: () => <SettingsPanel><ShareLinksSettingsPage /></SettingsPanel>,
-  channels: (_customProvider?: string, active?: boolean) => <ChannelsSettingsTab active={active} />,
   lanAccess: (_customProvider?: string, active?: boolean) => <LanAccessSettingsTab active={active} />,
   about: (_customProvider?: string, active?: boolean) => <AboutSettingsTab active={active} />,
 }

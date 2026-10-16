@@ -61,7 +61,6 @@ vi.mock('../../../server/session-file-backups.mjs', () => ({
   getSessionTurnRollbackPreview: vi.fn(),
   rollbackSessionTurn: vi.fn(),
 }))
-vi.mock('../../../server/channels/registry.mjs', () => ({ channelEvents: { on: vi.fn(), removeListener: vi.fn(), emit: vi.fn() } }))
 vi.mock('../../../server/model-catalog.mjs', () => ({ resolveModelBinding: vi.fn() }))
 
 function request(body) {

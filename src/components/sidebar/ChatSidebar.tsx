@@ -837,7 +837,7 @@ export const ChatSidebar = memo(function ChatSidebar({
     })
   }, [globalSessions, pinnedSessionItems, projectNameById, projectTimelineSessions, projects, sessionsForProject])
   const searchResults = searchQuery.trim()
-    ? searchableSessions.filter(({ session, projectName }) => `${sessionTitle(session.title, session.channelName)} ${projectName}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 8)
+    ? searchableSessions.filter(({ session, projectName }) => `${sessionTitle(session.title)} ${projectName}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 8)
     : []
   const openSearch = () => {
     setSearchOpen(true)
@@ -1133,7 +1133,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                 <div className={sessionTitleRowClass}>
                   <SessionTitleMarquee
                     className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
-                    title={sessionTitle(session.title, session.channelName)}
+                    title={sessionTitle(session.title)}
                   />
                 </div>
               </div>
@@ -1507,7 +1507,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                           <div className={sessionTitleRowClass}>
                                             <SessionTitleMarquee
                                               className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
-                                              title={sessionTitle(session.title, session.channelName)}
+                                              title={sessionTitle(session.title)}
                                             />
                                           </div>
                                         </div>
@@ -1716,7 +1716,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                 <div className={sessionTitleRowClass}>
                                                   <SessionTitleMarquee
                                                     className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
-                                                    title={sessionTitle(session.title, session.channelName)}
+                                                    title={sessionTitle(session.title)}
                                                   />
                                                 </div>
                                                 <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{sessionTimeSlotContent(session, formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified))}</span>
@@ -1871,7 +1871,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                               <div className={sessionTitleRowClass}>
                                 <SessionTitleMarquee
                                   className={cn(sessionTitleClass, selected && activeSessionTitleClass)}
-                                  title={sessionTitle(session.title, session.channelName)}
+                                  title={sessionTitle(session.title)}
                                 />
                               </div>
                               <span className={cn(timeClass, !actionsSuppressed && sessionMetaHoverHiddenClass)}>{sessionTimeSlotContent(session, formatSessionTime(sessionSortMode === 'createdAt' ? session.createdAt : session.lastModified))}</span>
@@ -2034,7 +2034,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             className={sessionHoverTipClass}
             style={{ left: hoveredSessionTip.x, top: hoveredSessionTip.y, transform: 'translateY(-50%)' }}
           >
-            <div className="whitespace-normal break-words text-sm font-medium leading-5">{sessionTitle(session.title, session.channelName)}</div>
+            <div className="whitespace-normal break-words text-sm font-medium leading-5">{sessionTitle(session.title)}</div>
             {showRuntimeInfo && currentSessionHoverInfo?.gitBranch ? (
               <div className={sessionHoverTipMetaClass}>
                 <GitBranch className="size-4 shrink-0" />
@@ -2196,7 +2196,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                       onClick={() => selectSearchResult(session.id)}
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm">{sessionTitle(session.title, session.channelName)}</span>
+                        <span className="block truncate text-sm">{sessionTitle(session.title)}</span>
                         <span className="block truncate text-[11px]">{projectName || t('normalChat')} · {formatSessionTime(session.lastModified)}</span>
                       </span>
                     </button>

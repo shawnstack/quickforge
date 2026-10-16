@@ -72,7 +72,7 @@ export interface AgentManager {
   startDeferredSession: (options: { scope: ChatScope; project?: ProjectInfo; shouldAttachToView?: () => boolean }) => Promise<DeferredSessionAgent>
   loadSession: (
     sessionId: string,
-    hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string; source?: 'acp'; channelId?: string; channelName?: string },
+    hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string; source?: 'acp' },
   ) => Promise<boolean>
   syncSessionUI: (task: BackgroundTask) => Promise<void>
   setCurrentAgentMessages: (messages: AgentState['messages']) => void
@@ -202,7 +202,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     async (
       initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
       sessionId: string = randomId(),
-      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; source?: 'acp'; channelId?: string; channelName?: string; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
+      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; source?: 'acp'; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
     ) => {
       const previousAgent = agentRef.current
       const existingTask = taskMapRef.current.get(sessionId)
@@ -252,8 +252,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         scope,
         projectId: scope === 'project' ? project?.id : undefined,
         source: options?.source,
-        channelId: options?.channelId,
-        channelName: options?.channelName,
         accessMode: resolvedAccessMode,
         yoloMode: agentAccessModeToYoloMode(resolvedAccessMode),
         model: resolvedModel,
@@ -448,7 +446,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const performLoadSession = useCallback(
     async (
       sessionId: string,
-      hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string; source?: 'acp'; channelId?: string; channelName?: string },
+      hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string; source?: 'acp' },
     ) => {
       const requestId = ++loadSessionRequestRef.current
       loadSessionAbortRef.current?.abort()

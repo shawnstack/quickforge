@@ -222,8 +222,6 @@ const SUBSCRIBED_EVENTS = new Set([
   'background_commands',
 ])
 
-export const CHAT_SURFACE_REFRESH_EVENTS = SUBSCRIBED_EVENTS
-
 /** Whether an agent event requires a fresh `readAgentSnapshot` copy. */
 export function isSnapshotRefreshEvent(eventType: string): boolean {
   return SUBSCRIBED_EVENTS.has(eventType)

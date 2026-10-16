@@ -644,8 +644,6 @@ async function createQuickForgeSession(params = {}) {
     scope: project?.id ? 'project' : 'global',
     projectId: project?.id || null,
     source: 'acp',
-    channelId: process.env.QUICKFORGE_ACP_CHANNEL_ID,
-    channelName: process.env.QUICKFORGE_ACP_CHANNEL_NAME,
     accessMode: 'default',
     yoloMode: false,
     model: binding?.model || model,

@@ -2,6 +2,31 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [2.2.7] - 2026-10-16
+
+### Added
+
+- Added an MCP entry in the sidebar, directly above Agents. It opens the existing MCP settings page; the MCP item in Settings stays in place.
+
+### Changed
+
+- Shortened the base system prompt and prefers running commands in the background when that is feasible.
+
+### Removed
+
+- Removed the Settings channels feature, including the WeChat channel bridge, channel API, channel SSE session events, and channel title prefixes. ACP, sharing, notifications, and cross-tab sync are unchanged.
+- Removed confirmed unused frontend exports, translation keys, and leftover CSS.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.2.7` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.2.7.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.2.7.tgz
+  ```
+
 ## [2.2.6] - 2026-10-14
 
 ### Fixed

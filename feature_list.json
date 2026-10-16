@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "prefer-background-commands",
+      "name": "命令在可行时优先后台运行",
+      "description": "基础系统提示词原先只要求可能超出当前回合的命令后台运行，不能稳定引导模型优先使用后台执行。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "将基础提示词改为可行时优先设置 run_command 的 run_in_background 为 true，保留输出文件、任务通知和禁止 shell 后台语法的约束。",
+      "files": [
+        "server/system-prompt.mjs",
+        "tests/server/system-prompt.test.mjs",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/server/system-prompt.test.mjs：8 passed。",
+      "boundaries": "只改基础提示词、对应断言和文档；不改变 run_command 的实际执行行为。未提交。"
+    },
+    {
       "id": "split-final-answer-end-frame-gap",
       "name": "结束帧空尾部不再让最终总结消失",
       "description": "回合已显示已执行，但最后一条总结没有进入消息列表。split 结束帧在投递游标缺失时回退到已保存条数，尾部为空；同一事件被转换两次后还会把第一次补上的总结裁掉。",

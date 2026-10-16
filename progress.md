@@ -1,3 +1,11 @@
+## prefer-background-commands（done，2026-10-15）
+
+- 目标：基础系统提示词中的命令运行规则从“可能超出当前回合才后台”改为“可行时优先后台运行”。
+- 改动：`BASE_SYSTEM_PROMPT` 要求设置 `run_command run_in_background` 为 true；仍通过返回的输出文件读取结果，并禁止 `&`、`nohup`、`Start-Process`。
+- 验证：`npx vitest run tests/server/system-prompt.test.mjs` 8 passed。
+
+---
+
 ## agent-context-eviction-removal（removed，2026-10-14）
 
 - 目标：应用户要求**彻底移除**「上下文主动遗忘（context eviction）」特性——实现不理想（模型重复裁剪、空转调用等观感问题，迭代⑤-⑧多轮修补仍未收敛）；移除后 auto-compaction、过程折叠、最终回复可见性修复等其余功能完全不受影响。

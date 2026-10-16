@@ -1,3 +1,13 @@
+## 当前交接：prefer-background-commands（done，2026-10-15）
+
+- Current Objective（当前目标）: 基础系统提示词改为命令在可行时优先后台运行。已完成，未提交。
+- 改动文件: server/system-prompt.mjs、tests/server/system-prompt.test.mjs、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: `npx vitest run tests/server/system-prompt.test.mjs` 8 passed。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 无。
+
+---
+
 ## 当前交接：agent-context-eviction-removal（removed，2026-10-14）
 
 - Current Objective（当前目标）: 应用户要求彻底移除「上下文主动遗忘（context eviction）」特性（实现不理想：重复裁剪等）。已完成移除，未提交。

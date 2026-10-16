@@ -1478,6 +1478,10 @@ function MainApp() {
     openSettingsPage('skills')
   }, [openSettingsPage])
 
+  const openMcp = useCallback(() => {
+    openSettingsPage('mcp')
+  }, [openSettingsPage])
+
   const openAgents = useCallback(() => {
     openSettingsPage('agents')
   }, [openSettingsPage])
@@ -1592,6 +1596,11 @@ function MainApp() {
     closeMobileSidebar()
     openGlobalSkills()
   }, [closeMobileSidebar, openGlobalSkills])
+
+  const openMcpFromSidebar = useCallback(() => {
+    closeMobileSidebar()
+    openMcp()
+  }, [closeMobileSidebar, openMcp])
 
   const openAgentsFromSidebar = useCallback(() => {
     closeMobileSidebar()
@@ -1886,6 +1895,7 @@ function MainApp() {
         onSelectProjectDirectory={remoteClient ? undefined : selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChatWithInspectorReset}
         onOpenGlobalSkills={openGlobalSkills}
+        onOpenMcp={openMcp}
         onOpenAgents={openAgents}
         onOpenScheduledTasks={openScheduledTasks}
         onOpenProjectSkills={openProjectSkills}
@@ -1976,6 +1986,7 @@ function MainApp() {
               }}
               onStartNewProjectChat={startNewProjectChatFromSidebar}
               onOpenGlobalSkills={openGlobalSkillsFromSidebar}
+              onOpenMcp={openMcpFromSidebar}
               onOpenAgents={openAgentsFromSidebar}
               onOpenScheduledTasks={openScheduledTasksFromSidebar}
               onOpenProjectSkills={openProjectSkillsFromSidebar}

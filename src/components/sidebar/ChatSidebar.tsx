@@ -119,6 +119,7 @@ type ChatSidebarProps = {
   onSelectProjectDirectory?: () => void
   onStartNewProjectChat: (project: ProjectInfo) => void
   onOpenGlobalSkills: () => void
+  onOpenMcp: () => void
   onOpenAgents: () => void
   onOpenScheduledTasks: () => void
   onOpenProjectSkills: (project: ProjectInfo) => void
@@ -433,6 +434,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   onSelectProjectDirectory,
   onStartNewProjectChat,
   onOpenGlobalSkills,
+  onOpenMcp,
   onOpenAgents,
   onOpenScheduledTasks,
   onOpenProjectSkills,
@@ -1292,6 +1294,18 @@ export const ChatSidebar = memo(function ChatSidebar({
             <BookOpen className="size-4" />
           </span>
           {sidebarOpen ? <span className={sessionTitleClass}>{t('skills')}</span> : null}
+        </button>
+        <button
+          type="button"
+          className={cn(rowClass, 'w-full', inactiveRowClass)}
+          onClick={onOpenMcp}
+          aria-label={t('mcpServers')}
+          title={t('mcpServers')}
+        >
+          <span className={iconSlotClass}>
+            <Server className="size-4" />
+          </span>
+          {sidebarOpen ? <span className={sessionTitleClass}>{t('mcpServers')}</span> : null}
         </button>
         <button
           type="button"

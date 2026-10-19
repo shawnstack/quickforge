@@ -648,24 +648,16 @@ export async function createAgent(sessionId, config = {}) {
     mcpToolsMode = 'await',
     // Restored goal body (restore path only; never taken from client input).
     restoredGoal = null,
-    // New goals use the v2 engine when explicitly enabled (session/config/env).
-    goalEngine = process.env.QUICKFORGE_GOAL_ENGINE === 'v2'
-      ? 'v2'
-      : process.env.QUICKFORGE_GOAL_ENGINE === 'legacy' ? 'legacy' : null,
+    // Internal: v2 is the production default. Tests for the legacy runner
+    // set QUICKFORGE_GOAL_ENGINE=legacy; the settings UI no longer exposes
+    // a choice.
+    goalEngine = process.env.QUICKFORGE_GOAL_ENGINE === 'legacy' ? 'legacy' : 'v2',
   } = config
   // A goal that was in flight when the process stopped is paused, never
   // replayed. The restored body is normalized defensively so a malformed or
   // tampered persisted goal can never become an authoritative in-memory goal.
   // A v2 document keeps its durable phase; activation still starts disarmed.
-  let resolvedGoalEngine = restoredGoal?.phase ? 'v2' : goalEngine
-  if (!resolvedGoalEngine) {
-    try {
-      const { readGoalEngine } = await import('./goal-settings.mjs')
-      resolvedGoalEngine = await readGoalEngine()
-    } catch {
-      resolvedGoalEngine = 'legacy'
-    }
-  }
+  const resolvedGoalEngine = goalEngine
   const initialGoal = restoredGoal?.phase
     ? goalViewV2(normalizeGoalV2(restoredGoal, { sessionId }), { activation: 'disarmed', runtime: 'idle' })
     : goalAfterRestore(normalizeGoalState(restoredGoal, { sessionId }), Date.now())

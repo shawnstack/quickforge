@@ -7,7 +7,6 @@ export const GOAL_SETTINGS_KEY = 'goal-settings'
 // `GOAL_BUDGET_DEFAULTS` must never drift apart.
 export const DEFAULT_GOAL_SETTINGS = Object.freeze({
   maxIterations: GOAL_BUDGET_DEFAULTS.maxIterations,
-  engine: 'v2',
 })
 
 function clampNumber(value, fallback, min, max) {
@@ -20,7 +19,6 @@ export function normalizeGoalSettings(value) {
   if (!value || typeof value !== 'object') return { ...DEFAULT_GOAL_SETTINGS }
   return {
     maxIterations: clampNumber(value.maxIterations, DEFAULT_GOAL_SETTINGS.maxIterations, 1, 100),
-    engine: value.engine === 'legacy' ? 'legacy' : 'v2',
   }
 }
 
@@ -39,8 +37,4 @@ export async function readGoalSettings() {
 
 export async function resolveGoalMaxIterations() {
   return (await readGoalSettings()).maxIterations
-}
-
-export async function readGoalEngine() {
-  return (await readGoalSettings()).engine
 }

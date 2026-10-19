@@ -1,16 +1,21 @@
 /**
- * Goal v2 runner — same-session, bounded automatic continuation over the v2
- * service. The legacy runner remains available during migration; this module
- * exposes the same hook names so `goal/engine.mjs` can choose one per session.
+ * Goal v2 round driver — DSH-aligned same-session automatic continuation.
+ *
+ * DSH contract (fully replicated):
+ * - Every round is an execution round with objective + round number. No
+ *   separate planning phase, no criteria/evidence gate for completion.
+ * - The model marks complete/blocked via `update_goal` (or goal_report);
+ *   the driver stops immediately on those terminal phases.
+ * - Errors disarm continuation (no retry, no blocking reason).
+ * - No no-progress detection, no repeated-failure pause, no settlement
+ *   barrier: a round that ends normally schedules the next round directly.
+ * - Restart/fork keeps the durable phase but disarms; the user must resume.
  */
 
 import { logger } from '../utils/logger.mjs'
-import { agentEvents, emitSessionEvent, runtimePendingToolCalls } from '../agent-session-events.mjs'
+import { agentEvents, emitSessionEvent } from '../agent-session-events.mjs'
 import { persistSession } from '../agent-persistence.mjs'
-import { getPendingApprovalForSession } from '../approval-store.mjs'
-import { getPendingAskForSession } from '../ask-store.mjs'
 import { agentSessions } from '../agent-session-store.mjs'
-import { normalizeCapabilityPolicy } from '../agent-profile-schema.mjs'
 import { isGoalActiveStatus } from '../agent-goal-state.mjs'
 import { resolveGoalMaxIterations } from '../goal-settings.mjs'
 import { createGoalService } from './service.mjs'
@@ -18,11 +23,7 @@ import { GoalError } from './errors.mjs'
 import { createGoalReportToolV2 } from './report-tool.mjs'
 import { createGoalTools } from './tools.mjs'
 import { hasDirectHumanTurn, isGoalRoundTurn } from './authority.mjs'
-import {
-  goalCommandStatusText,
-  goalPlanningPromptV2,
-  goalRoundPromptV2,
-} from './prompts.mjs'
+import { goalCommandStatusText, goalRoundPromptV2 } from './prompts.mjs'
 
 export const GOAL_PLANNING_PERMISSIONS = Object.freeze({ allowEdit: false, allowCommands: false, allowSubagents: true })
 export const GOAL_PLANNING_ALLOWED_TOOLS = new Set([
@@ -35,13 +36,6 @@ export const GOAL_PLANNING_ALLOWED_TOOLS = new Set([
   'run_subagent',
 ])
 
-const GOAL_READONLY_SUBAGENT_POLICIES = new Set(['readonly-research', 'safe-validation', 'review-only'])
-const GOAL_READONLY_SUBAGENT_NAMES = new Set(['explore'])
-const GOAL_EVIDENCE_ALLOWED_TOOLS = new Set(['run_command', 'read_file', 'grep_files'])
-const GOAL_SETTLEMENT_ALLOWED_TOOLS = new Set(['read_file', 'grep_files'])
-const MAX_CONSECUTIVE_GOAL_FAILURES = 2
-const MAX_GOAL_NO_PROGRESS_RUNS = 2
-const MAX_GOAL_PLANNING_ATTEMPTS = 3
 const GOAL_CONTINUATION_IDLE_WAIT_MS = 15_000
 const GOAL_CONTINUATION_POLL_MS = 200
 
@@ -117,6 +111,12 @@ async function commitGoal(session) {
   return persisted
 }
 
+function recordDurableGoal(session) {
+  if (session.goal?.phase === 'complete') {
+    durableTerminalGoals.set(session, { goal: session.goal, messages: [...(session.agent?.state?.messages || [])] })
+  }
+}
+
 export function isGoalModeAvailable(session, requestSource = null) {
   if (!session) return false
   if (session.source && session.source !== 'scheduled') return false
@@ -130,25 +130,9 @@ export function sessionGoal(session) {
   return session?.goal || null
 }
 
-export function isGoalPlanning(session) {
-  if (!session) return false
-  return session.goalRun?.kind === 'planning' || session.goalSettlingRun?.kind === 'planning'
-}
-
-function goalStats(session) {
-  if (!session.goalStats) {
-    session.goalStats = {
-      consecutiveFailures: 0,
-      noProgressRuns: 0,
-      planningAttempts: 0,
-      pauseRequested: false,
-    }
-  }
-  return session.goalStats
-}
-
-function resetGoalStats(session) {
-  session.goalStats = null
+export function isGoalPlanning(_session) {
+  // DSH has no planning phase; every round is an execution round.
+  return false
 }
 
 function goalTrustedTools(session) {
@@ -159,6 +143,8 @@ function goalTrustedTools(session) {
 function resetGoalToolEvidence(session) {
   session.goalTrustedToolCalls = new Map()
 }
+
+const GOAL_EVIDENCE_ALLOWED_TOOLS = new Set(['run_command', 'read_file', 'grep_files'])
 
 function goalToolExecutionIsVerified(event, toolName) {
   if (event.isError === true) return false
@@ -192,29 +178,12 @@ function requestError(message, statusCode = 409, errorCode = 'GOAL_CONFLICT') {
   return Object.assign(new Error(message), { statusCode, errorCode })
 }
 
-function assertQuiescent(session) {
-  if (session.agent?.state?.isStreaming || session.abortPending) {
-    throw requestError('The session is still running. Pause it or wait for it to finish.', 409, 'GOAL_SESSION_BUSY')
-  }
-  if (session.goalRun || session.goalRunSettling) {
-    throw requestError('A goal run is still finishing. Try again in a moment.', 409, 'GOAL_SESSION_BUSY')
-  }
-  if (runtimePendingToolCalls(session).length || getPendingApprovalForSession(session.sessionId)) {
-    throw requestError('A tool call is still pending. Resolve it before changing the goal.', 409, 'GOAL_SESSION_BUSY')
-  }
-  if (getPendingAskForSession(session.sessionId)) {
-    throw requestError('A question is still waiting for your answer.', 409, 'GOAL_SESSION_BUSY')
-  }
-}
-
 export async function startGoalPlanning(session, objective, requestSource = null, { attachments = [] } = {}) {
+  // DSH: creating a goal just creates it; the driver starts the first round.
   const text = typeof objective === 'string' ? objective.trim() : ''
   if (!text) return { error: 'Usage: /goal <objective>', errorCode: 'GOAL_COMMAND_USAGE' }
   if (!isGoalModeAvailable(session, requestSource)) {
     return { error: 'Goal mode is only available in a QuickForge main chat.', errorCode: 'GOAL_COMMAND_UNAVAILABLE' }
-  }
-  if (session.agent?.state?.isStreaming || session.abortPending) {
-    return { error: 'The session is still running. Stop it or wait for it to finish before setting a goal.', errorCode: 'GOAL_COMMAND_SESSION_RUNNING' }
   }
   try {
     const service = serviceFor(session)
@@ -228,9 +197,10 @@ export async function startGoalPlanning(session, objective, requestSource = null
   } catch (error) {
     return error.errorCode || error.code ? { error: error.message, errorCode: error.errorCode || error.code } : { error: error.message }
   }
-  resetGoalStats(session)
   resetGoalToolEvidence(session)
-  return { commandPrompt: goalPlanningPromptV2(session.goal) }
+  // The first round starts immediately after this command turn settles.
+  scheduleGoalContinuation(session, 'execution')
+  return { goal: session.goal }
 }
 
 export async function handleGoalAction(session, action, objective, requestSource = null, options = {}) {
@@ -249,11 +219,9 @@ export async function handleGoalAction(session, action, objective, requestSource
       return session.goal
     }
     if (action === 'resume') {
-      assertQuiescent(session)
       await service.resume(session.sessionId, goalRef(session))
       await commitGoal(session)
-      resetGoalStats(session)
-      scheduleGoalContinuation(session, session.goal.plan ? 'execution' : 'planning')
+      scheduleGoalContinuation(session, 'execution')
       return session.goal
     }
     if (action === 'clear' || action === 'cancel') {
@@ -266,19 +234,13 @@ export async function handleGoalAction(session, action, objective, requestSource
       return null
     }
     if (action === 'revise') {
-      // DSH parity: edit never requires quiescence and never changes the
-      // durable phase. An armed active goal keeps running — the revision
-      // fence invalidates in-flight rounds and the driver continues on the
-      // new revision (objective edits invalidate the old plan). A paused or
-      // blocked goal stays stopped until the user explicitly resumes.
       const text = typeof objective === 'string' ? objective.trim() : ''
       if (!text) throw requestError('A revised goal requires a new objective.', 400, 'GOAL_OBJECTIVE_REQUIRED')
       await service.edit(session.sessionId, goalRef(session), { objective: text })
       await commitGoal(session)
-      resetGoalStats(session)
       resetGoalToolEvidence(session)
       if (session.goal?.phase === 'active') {
-        scheduleGoalContinuation(session, 'planning')
+        scheduleGoalContinuation(session, 'execution')
       }
       return session.goal
     }
@@ -287,7 +249,6 @@ export async function handleGoalAction(session, action, objective, requestSource
       if (typeof goalId !== 'string' || !goalId || !Number.isSafeInteger(expectedRevision) || expectedRevision <= 0) {
         throw requestError('extend_resume requires goalId and a positive integer expectedRevision only.', 400, 'GOAL_ACTION_INVALID')
       }
-      assertQuiescent(session)
       if (goal.id !== goalId || goal.revision !== expectedRevision) {
         throw requestError('The goal changed. Refresh before trying again.', 409, 'GOAL_REVISION_CONFLICT')
       }
@@ -298,8 +259,7 @@ export async function handleGoalAction(session, action, objective, requestSource
       await service.edit(session.sessionId, { id: goal.id, revision: goal.revision }, { maxRounds: goal.maxRounds + extendBy })
       await service.resume(session.sessionId, goalRef(session))
       await commitGoal(session)
-      resetGoalStats(session)
-      scheduleGoalContinuation(session, session.goal.plan ? 'execution' : 'planning')
+      scheduleGoalContinuation(session, 'execution')
       return session.goal
     }
     if (action === 'confirm' || action === 'accept') {
@@ -314,32 +274,32 @@ export async function handleGoalAction(session, action, objective, requestSource
   }
 }
 
-export async function beginGoalRun(session, kind = 'execution') {
+// ---------------------------------------------------------------------------
+// Round driver (DSH-aligned)
+// ---------------------------------------------------------------------------
+
+export async function beginGoalRun(session, _kind = 'execution') {
   if (!session?.goal) return null
   if (session.goalRun) return session.goalRun
   const service = serviceFor(session)
-  let round = session.goal.roundsStarted
-  if (kind === 'execution') {
-    const admitted = await service.admitRound(session.sessionId, goalRef(session))
-    round = admitted.round
-    syncGoal(session)
-    if (!await persistGoal(session)) {
-      throw requestError('Could not persist the goal round.', 500, 'GOAL_PERSIST_FAILED')
-    }
-    emitGoalUpdated(session)
+  // DSH: every round is an execution round; reserve it atomically.
+  const admitted = await service.admitRound(session.sessionId, goalRef(session))
+  syncGoal(session)
+  if (!await persistGoal(session)) {
+    throw requestError('Could not persist the goal round.', 500, 'GOAL_PERSIST_FAILED')
   }
+  emitGoalUpdated(session)
   const goal = session.goal
   const run = {
-    kind,
+    kind: 'execution',
     startedAt: Date.now(),
-    signature: JSON.stringify({ plan: goal.plan, evidence: goal.evidence, roundsStarted: goal.roundsStarted }),
     goalId: goal.id,
-    iteration: round,
+    revision: goal.revision,
+    round: admitted.round,
     messageStart: session.agent?.state?.messages?.length || 0,
-    pendingCompletion: false,
   }
   session.goalRun = run
-  service.setRuntime(session.sessionId, kind === 'planning' ? 'planning' : 'executing')
+  service.setRuntime(session.sessionId, 'executing')
   syncGoal(session)
   return run
 }
@@ -358,7 +318,7 @@ async function waitForGoalIdle(session) {
   }
 }
 
-function canStartGoalRun(session, kind) {
+function canStartGoalRun(session) {
   if (agentSessions.get(session.sessionId) !== session) return false
   const goal = session.goal
   if (!goal || goal.phase !== 'active') return false
@@ -366,46 +326,44 @@ function canStartGoalRun(session, kind) {
   if (goal.roundsStarted >= goal.maxRounds) return false
   if (session.goalRun || session.goalContinuationPending) return false
   if (session.agent?.state?.isStreaming || session.abortPending) return false
-  if (runtimePendingToolCalls(session).length) return false
-  if (getPendingApprovalForSession(session.sessionId) || getPendingAskForSession(session.sessionId)) return false
-  if (kind === 'planning') return !goal.plan
-  return Boolean(goal.plan)
+  return true
 }
 
-async function startGoalRun(session, kind) {
-  if (!canStartGoalRun(session, kind)) return false
-  const run = await beginGoalRun(session, kind)
+async function startGoalRun(session) {
+  if (!canStartGoalRun(session)) return false
+  const run = await beginGoalRun(session, 'execution')
   if (!run) return false
-  const round = session.goal.roundsStarted
-  const planning = kind === 'planning'
-  const promptText = planning ? goalPlanningPromptV2(session.goal) : goalRoundPromptV2(session.goal, round)
+  const goal = session.goal
+  const round = goal.roundsStarted
+
   const previous = {
     name: session.activeCommandName,
     permissions: session.activeCommandPermissions,
     prompt: session.activeCommandPrompt,
   }
-  session.activeCommandName = planning ? 'plan' : 'goal'
-  session.activeCommandPermissions = planning ? { ...GOAL_PLANNING_PERMISSIONS } : null
-  session.activeCommandPrompt = promptText
+  session.activeCommandName = 'goal'
+  session.activeCommandPermissions = null
+  session.activeCommandPrompt = goalRoundPromptV2(goal, round)
   session.activeCommandToken = run
+
   const turnId = runnerDeps.beginTurn(session.sessionId)
-  logger.info(`Starting goal ${kind} run for session ${session.sessionId} (round ${round}/${session.goal.maxRounds})`, {
+  logger.info(`Starting goal round ${round}/${goal.maxRounds} for session ${session.sessionId}`, {
     sessionId: session.sessionId,
-    kind,
     round,
   })
+
   let promptPromise = null
   try {
     promptPromise = session.agent.prompt({
       role: 'user',
-      content: planning ? `重新规划目标（第 ${goalStats(session).planningAttempts + 1} 次）` : `继续执行目标（第 ${round}/${session.goal.maxRounds} 轮）`,
+      content: `继续执行目标（第 ${round}/${goal.maxRounds} 轮）`,
       timestamp: Date.now(),
-      metadata: { quickforgeGoalRun: kind, quickforgeGoalRound: round },
+      metadata: { quickforgeGoalRun: 'execution', quickforgeGoalRound: round },
     })
     session.activePromptPromise = promptPromise
     await promptPromise
   } catch (error) {
-    logger.error(`Goal ${kind} run failed to start for session ${session.sessionId}:`, error, { sessionId: session.sessionId })
+    logger.error(`Goal round ${round} failed for session ${session.sessionId}:`, error, { sessionId: session.sessionId })
     await finishGoalRun(session, { status: 'error', error: error?.message || String(error) })
   } finally {
     if (session.activePromptPromise === promptPromise) session.activePromptPromise = null
@@ -420,144 +378,81 @@ async function startGoalRun(session, kind) {
   return true
 }
 
-function scheduleGoalContinuation(session, kind) {
+function scheduleGoalContinuation(session, _kind) {
   if (session.goalContinuationPending) return
   session.goalContinuationPending = true
   setImmediate(() => {
     void (async () => {
       try {
-        const idle = await waitForGoalIdle(session)
+        await waitForGoalIdle(session)
         session.goalContinuationPending = false
-        if (!idle) {
-          await pauseGoalWithBlocker(session, 'run_did_not_finish')
-          return
-        }
-        if (!canStartGoalRun(session, kind)) return
-        await startGoalRun(session, kind)
+        if (!canStartGoalRun(session)) return
+        await startGoalRun(session)
       } catch (error) {
         session.goalContinuationPending = false
         logger.error(`Failed to continue goal for session ${session.sessionId}:`, error, { sessionId: session.sessionId })
-        await pauseGoalWithBlocker(session, 'continuation_failed')
+        // DSH: unexpected driver failures disarm; they don't block.
+        serviceFor(session).disarm(session.sessionId)
+        syncGoal(session)
+        emitGoalUpdated(session)
       }
     })()
   })
 }
 
-async function pauseGoalWithBlocker(session, code, message = code) {
-  const goal = session.goal
-  if (!goal || goal.phase !== 'active') return false
-  const service = serviceFor(session)
-  try {
-    await service.block(session.sessionId, goalRef(session), { code, message })
-    await commitGoal(session)
-    return true
-  } catch (error) {
-    logger.warn(`Could not block goal for session ${session.sessionId}: ${error?.message || String(error)}`)
-    return false
-  }
-}
-
 export async function finishGoalRun(session, info = {}) {
   const run = session.goalRun
   if (!run) return
-  const abortGeneration = session.goalAbortGeneration || 0
   session.goalRun = null
-  session.goalRunSettling = true
-  session.goalSettlingRun = run
+
   const service = serviceFor(session)
   try {
     const goal = service.get(session.sessionId)
     if (!goal) return
-    if (goal.phase === 'complete') {
+
+    // DSH: check terminal state first — complete/blocked stop immediately.
+    if (goal.phase === 'complete' || goal.phase === 'blocked') {
+      recordDurableGoal(session)
       syncGoal(session)
       await commitGoal(session)
       return
     }
+
     const endStatus = info.status || 'idle'
+
+    // DSH: user abort pauses the goal.
     if (endStatus === 'aborted' || session.abortPending) {
-      if (goal.phase === 'active') await service.pause(session.sessionId, goalRef(session))
-      syncGoal(session)
-      await commitGoal(session)
-      return
-    }
-    if (goalStats(session).pauseRequested) {
-      goalStats(session).pauseRequested = false
-      if (goal.phase === 'active') await service.pause(session.sessionId, goalRef(session))
-      syncGoal(session)
-      await commitGoal(session)
-      return
-    }
-    if (run.pendingCompletion) {
-      const check = service.get(session.sessionId)
-      if (check?.phase === 'active') {
-        await service.complete(session.sessionId, goalRef(session), { by: 'verified' })
-        syncGoal(session)
-        recordDurableGoal(session)
-        await commitGoal(session)
-        return
-      }
-    }
-    if (run.verificationBlocker) {
       if (goal.phase === 'active') {
-        await service.block(session.sessionId, goalRef(session), { code: 'verification_failed', message: run.verificationBlocker })
+        await service.pause(session.sessionId, goalRef(session))
       }
       syncGoal(session)
       await commitGoal(session)
       return
     }
+
+    // DSH: errors disarm; they don't block or retry. The user can resume.
     if (endStatus === 'error' || info.error) {
-      const stats = goalStats(session)
-      stats.consecutiveFailures += 1
-      stats.noProgressRuns += 1
-      if (stats.consecutiveFailures >= MAX_CONSECUTIVE_GOAL_FAILURES) {
-        await pauseGoalWithBlocker(session, 'repeated_failures')
-        return
-      }
+      serviceFor(session).disarm(session.sessionId)
+      syncGoal(session)
       await commitGoal(session)
-      scheduleGoalContinuation(session, run.kind)
       return
     }
-    goalStats(session).consecutiveFailures = 0
-    if (run.kind === 'planning') {
-      if (goal.plan) {
-        goalStats(session).planningAttempts = 0
-        syncGoal(session)
-        await commitGoal(session)
-        scheduleGoalContinuation(session, 'execution')
-        return
-      }
-      const stats = goalStats(session)
-      stats.planningAttempts += 1
-      if (stats.planningAttempts >= MAX_GOAL_PLANNING_ATTEMPTS) {
-        await pauseGoalWithBlocker(session, 'planning_incomplete')
-        return
-      }
-      await commitGoal(session)
-      scheduleGoalContinuation(session, 'planning')
-      return
-    }
-    const signature = JSON.stringify({ plan: goal.plan, evidence: goal.evidence, roundsStarted: goal.roundsStarted })
-    const stats = goalStats(session)
-    if (signature === run.signature) stats.noProgressRuns += 1
-    else stats.noProgressRuns = 0
-    if (stats.noProgressRuns >= MAX_GOAL_NO_PROGRESS_RUNS) {
-      await pauseGoalWithBlocker(session, 'no_progress')
-      return
-    }
+
+    // DSH: normal end. Round limit check, then schedule the next round.
     syncGoal(session)
     await commitGoal(session)
-    if ((session.goalAbortGeneration || 0) !== abortGeneration) return
-    scheduleGoalContinuation(session, 'execution')
+    if (goal.phase === 'active' && goal.roundsStarted < goal.maxRounds) {
+      scheduleGoalContinuation(session, 'execution')
+    } else if (goal.phase === 'active' && goal.roundsStarted >= goal.maxRounds) {
+      await service.block(session.sessionId, goalRef(session), {
+        code: 'round_limit',
+        message: `Goal reached its configured limit of ${goal.maxRounds} rounds.`,
+      })
+      syncGoal(session)
+      await commitGoal(session)
+    }
   } finally {
-    session.goalSettlingRun = null
-    session.goalRunSettling = false
     await runnerDeps.refreshTools?.(session)
-  }
-}
-
-function recordDurableGoal(session) {
-  if (session.goal?.phase === 'complete') {
-    durableTerminalGoals.set(session, { goal: session.goal, messages: [...(session.agent?.state?.messages || [])] })
   }
 }
 
@@ -565,21 +460,23 @@ export async function failGoalRunOnPersist(session) {
   const run = session.goalRun
   if (!run) return
   session.goalRun = null
-  session.goalRunSettling = true
-  session.goalSettlingRun = run
+  const service = serviceFor(session)
   try {
-    const goal = serviceFor(session).get(session.sessionId)
+    const goal = service.get(session.sessionId)
     if (goal?.phase === 'active') {
-      await serviceFor(session).block(session.sessionId, goalRef(session), { code: 'persist_failed', message: 'The goal state could not be persisted.' })
+      // DSH: persist failure disarms.
+      service.disarm(session.sessionId)
       syncGoal(session)
       emitGoalUpdated(session)
     }
   } finally {
-    session.goalSettlingRun = null
-    session.goalRunSettling = false
     await runnerDeps.refreshTools?.(session)
   }
 }
+
+// ---------------------------------------------------------------------------
+// Tools
+// ---------------------------------------------------------------------------
 
 export function createGoalReportTool(sessionOrGetter) {
   const getSession = typeof sessionOrGetter === 'function' ? sessionOrGetter : () => sessionOrGetter
@@ -607,9 +504,6 @@ export function createGoalControlTools(session) {
   return createGoalTools({
     service: serviceFor(session),
     sessionId: session.sessionId,
-    // DSH-shaped model autonomy: a direct human turn can create/edit/pause or
-    // re-arm; an admitted goal round can report blocked. `goal_report` remains
-    // the evidence-bearing completion path for goal rounds.
     canCreate: () => requestAllowed() && hasDirectHumanTurn(session) && (!session.goal || session.goal.phase === 'complete'),
     canMutate: (action) => {
       if (!requestAllowed()) return false
@@ -618,9 +512,8 @@ export function createGoalControlTools(session) {
     },
     onCreate: async () => {
       await commitGoal(session)
-      resetGoalStats(session)
       resetGoalToolEvidence(session)
-      scheduleGoalContinuation(session, 'planning')
+      scheduleGoalContinuation(session, 'execution')
     },
     onChanged: async (action, goal) => {
       await commitGoal(session)
@@ -629,40 +522,27 @@ export function createGoalControlTools(session) {
         return
       }
       if (action === 'resume') {
-        resetGoalStats(session)
-        scheduleGoalContinuation(session, goal?.plan ? 'execution' : 'planning')
+        scheduleGoalContinuation(session, 'execution')
       } else if (action === 'edit' && goal?.phase === 'active') {
-        scheduleGoalContinuation(session, goal.plan ? 'execution' : 'planning')
+        scheduleGoalContinuation(session, 'execution')
       }
     },
   })
 }
 
-export function goalPlanningToolBlockReason(session, toolName, args = {}) {
-  if (!isGoalPlanning(session)) return null
-  if (!GOAL_PLANNING_ALLOWED_TOOLS.has(toolName)) {
-    return `Goal planning is read-only and cannot use ${toolName}.`
-  }
-  if (toolName === 'run_subagent') {
-    const requested = args?.subagent
-    if (typeof requested === 'string') {
-      const name = requested.trim().toLowerCase()
-      if (!GOAL_READONLY_SUBAGENT_NAMES.has(name)) return `Goal planning only allows read-only subagents; "${requested}" is not read-only.`
-      return null
-    }
-    if (requested && typeof requested === 'object') {
-      const policy = normalizeCapabilityPolicy(requested.capabilityPolicy || 'readonly-research', Array.isArray(requested.tools) ? requested.tools : [])
-      if (!GOAL_READONLY_SUBAGENT_POLICIES.has(policy)) return `Goal planning only allows read-only subagents (requested policy: ${policy}).`
-    }
-  }
+export function goalPlanningToolBlockReason(_session, _toolName, _args = {}) {
+  // DSH has no planning phase; no tool blocking.
   return null
 }
 
-export function goalRunSettlementToolBlockReason(session, toolName) {
-  if (!session?.goalRun?.pendingCompletion) return null
-  if (GOAL_SETTLEMENT_ALLOWED_TOOLS.has(toolName) || toolName === 'ask_user') return null
-  return 'The goal result was already reported. The rest of this turn is read-only; end the turn and let the server settle.'
+export function goalRunSettlementToolBlockReason(_session, _toolName) {
+  // DSH has no settlement window; no tool blocking.
+  return null
 }
+
+// ---------------------------------------------------------------------------
+// Notification hooks (approval / ask)
+// ---------------------------------------------------------------------------
 
 export async function notifyGoalAbort(session) {
   if (!session?.goalRun) return
@@ -716,6 +596,10 @@ export async function clearTerminalGoal(session) {
   return true
 }
 
+// ---------------------------------------------------------------------------
+// Completion waiter (scheduled tasks)
+// ---------------------------------------------------------------------------
+
 export function hasGoalCompletionWaiter(sessionId) {
   return Boolean(goalCompletionWaiters.get(sessionId)?.size)
 }
@@ -764,7 +648,7 @@ export function waitForGoalCompletion(sessionId, goalId) {
             dispose()
             return
           }
-          if (idle && !session.goalRun && !session.goalRunSettling && !session.activePromptPromise) {
+          if (idle && !session.goalRun && !session.activePromptPromise) {
             cleanup()
             resolve(terminal)
             return

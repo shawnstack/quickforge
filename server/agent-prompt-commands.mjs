@@ -114,6 +114,12 @@ async function goalCommandState(session, userMessage, args, requestSource = null
     attachments: Array.isArray(userMessage?.attachments) ? userMessage.attachments : [],
   })
   if (result?.error) return { textResponse: await goalCommandText(result) }
+  // DSH: /goal creates the goal; the driver starts the first round after this
+  // command turn settles. No planning model turn, no commandPrompt.
+  if (session.goal?.phase) {
+    return { textResponse: goalStatusText(session) }
+  }
+  // Legacy: run the read-only planning turn.
   return {
     userMessage,
     commandPrompt: result.commandPrompt,

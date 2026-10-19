@@ -46,7 +46,7 @@
 - 不是通用 JavaScript 运行时：没有文件系统、网络、定时器、`process`、`require`、`console`。
 - 不是 OS 级安全沙箱：worker thread 与 vm context 用于**隔离和可终止**，不是不可信代码的强隔离边界。
 - 不是持久化工作流引擎：没有跨会话恢复、断点续跑、定时重试或人工审核节点。
-- Subagent 运行详情的 trace 在 Agent 完成/失败时捕获；运行中打开面板只有状态与摘要，步骤结束后补齐；改动前的历史运行没有 trace。
+- Subagent 运行详情与直接 `run_subagent` 共用同一个 Inspector。运行中和结束后都从 `subagentRun.messages` 渲染工具卡；单 Agent trace 放不下或整份 workflow details 超过 100KB 时，详情退化为任务/结果摘要。改动前的历史运行没有这份 trace。
 - 不是 REST API：`POST /api/tools/run_workflow` 明确返回 404（见 §8）。
 
 ## 2. 架构
@@ -210,7 +210,7 @@ worker → 父进程：
 | 工作流结果 | — | 1,000,000 字符 JSON | 脚本错误，工作流失败 |
 | 工具结果中的结果正文 | — | 50,000 字符 | 超出截断并追加 `…` |
 | 单 Agent 结果预览 | — | 2,000 字符 | `resultTruncated: true` |
-| 单 Agent `subagentRun` | — | 约 6,000 字符 JSON | 从最旧消息开始丢，必要时清空 messages/tools；details 总量仍超限时整体丢弃并标记 `subagentRunDropped: true` |
+| 单 Agent `subagentRun` | — | 80,000 字符 JSON，最近 50 条消息 | 与直接 `run_subagent` 的运行期 trace 截尾一致；单条文本 1,000 字符、`toolResult.details` 2,000 字符。从最旧消息开始丢，仍超限才清空 tools 与 messages；整份 details 仍超 100KB 时整体丢弃并标记 `subagentRunDropped: true` |
 | 单工具参数 | — | 4,000 字符 JSON | 超出改存 `argsPreview` |
 | 单工具结果预览 | — | 2,000 字符 | `resultTruncated: true` |
 | 工作流结果预览 | — | 20,000 字符 | `resultTruncated: true` |
@@ -313,7 +313,7 @@ Agent record：
 | `resultPreview` | string | 最终文本或规范化 JSON，最多 2,000 字符 |
 | `resultTruncated` | `true` | Agent 结果预览被截断时出现 |
 | `error` | string | 失败原因，最多 2,000 字符 |
-| `subagentRun` | object | 有界的 subagent trace：`messages`（最多 40 条，文本/工具结果截断）、`tools`（名称/标签）、`allowedTools`、`model`、`thinkingLevel`、`toolCalls`、`pendingToolCalls`、`durationMs`；单 Agent JSON 上限约 6KB |
+| `subagentRun` | object | Inspector 用的 subagent trace：`messages`（最近 50 条，文本 1,000 字符、`toolResult.details` 2,000 字符）、`tools`（名称/标签）、`allowedTools`、`model`、`thinkingLevel`、`toolCalls`、`pendingToolCalls`、`durationMs`；单 Agent JSON ≤80KB。80KB 优先保留最近的 toolCall/toolResult，而不是只留最终回复 |
 | `subagentRunDropped` | `true` | details 总量超限、trace 被裁剪时出现；Inspector 仍可用 summary/result 打开 |
 
 Tool record：
@@ -350,7 +350,7 @@ Tool record：
 - 展开体：错误提示、按阶段分组且按 `seq` 交错的步骤行（Agent 行：状态点、profile、工具调用数、耗时、schema 标记；工具行：工具图标、名称、`summarizeParams` 参数摘要、状态/耗时）、日志、工作流结果预览（截断时附说明）。**每个 Agent/工具行是独立的 `<details>`，默认收起，点击摘要行展开任务/参数与结果**；工作流卡本身也默认收起，形成「外层卡 → 节点行 → 输入/输出」两级可点击结构。工具参数 JSON、工作流脚本与原始 details JSON 只在 `toolDisplayDetailed()`（详细模式）显示，对齐外层工具卡的 input 门控；
 - 工具行复用 QuickForge 工具摘要与输出交互：参数摘要单行横向滚动（隐藏滚动条、H5 touch）、结果使用代码块/控制台块（run_command）、状态点与耗时；运行中隐藏状态区并给摘要加 running sweep，`aria-busy` 同步；
 - `run_workflow` 与 `run_subagent` 一样**不进入 process-folding 的工具摘要组**，始终保持顶层可点击卡片；否则回合结束后它会被折进收起的「已执行 N 个工具调用」组，用户难以直接展开两级详情。
-- **进入 Subagent 运行详情**：Agent 行摘要右侧提供 external-link 入口，展开体内也提供「查看运行详情」按钮；点击（或 Enter/Space）派发既有 `OPEN_SUBAGENT_RUN_EVENT`，由 `src/lib/workflow-subagent-detail.ts` 把 Agent record 的 bounded `subagentRun` 转成 `SubagentRunPayload`，在 Workspace Inspector 打开/激活同一个 Subagent 运行详情 Tab；动作不会切换行内 details。trace 被裁剪时仍以 task/result/summary 打开。
+- **进入 Subagent 运行详情**：Agent 行点击派发既有 `OPEN_SUBAGENT_RUN_EVENT`，由 `src/lib/workflow-subagent-detail.ts` 把 `subagentRun` 转成 `SubagentRunPayload`，在 Workspace Inspector 打开与直接 `run_subagent` 相同的详情 Tab。工具卡来自 `messages` 里的 toolCall/toolResult；trace 被裁剪时仍以 task/result/summary 打开。
 - 无视图时：尚无 result（仍在流式/准备）显示 `workflowPreparing`；已有终态 result 但没有 workflow details（审批被拒、参数校验失败、缺少 workspace/model）显示失败/完成状态与 `resultText` 错误正文，避免把失败永久显示成“正在准备”；
 - 有视图时状态映射：`error`/`aborted` 映射为错误态，`running` 映射为运行态，`done` 映射为完成态。
 

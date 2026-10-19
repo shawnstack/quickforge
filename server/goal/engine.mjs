@@ -38,17 +38,6 @@ export function isGoalPlanning(session) {
 }
 
 export async function startGoalPlanning(session, objective, requestSource = null, options = {}) {
-  // A brand-new session follows the deployment setting until its first goal
-  // pins the engine. Explicit session/config choices always win.
-  if (session && !session.goal && !session.goalEngine) {
-    try {
-      const { readGoalEngine } = await import('../goal-settings.mjs')
-      const engine = await readGoalEngine()
-      if (engine === 'v2') session.goalEngine = 'v2'
-    } catch {
-      // settings read failure keeps the legacy default
-    }
-  }
   return resolveGoalEngine(session) === 'v2'
     ? v2.startGoalPlanning(session, objective, requestSource, options)
     : legacy.startGoalPlanning(session, objective, requestSource, options)

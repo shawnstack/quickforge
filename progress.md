@@ -1,3 +1,23 @@
+## goal-v2-dsh-round-driver（done，2026-10-19）
+
+- Goal：用户反馈 Goal 执行中会不必要阻塞、恢复时显示"正在收尾运行"。根因是 v2 runner 保留了太多 QuickForge legacy 逻辑。完全对标 DSH 重写 round driver。
+- 删除的 legacy 逻辑：规划阶段（goal_report plan）、证据门禁（criteria+evidence 检查）、防空转检测（no_progress）、重复失败暂停（repeated_failures）、`goalRunSettling` 结算屏障。
+- DSH 对标行为：每轮都是执行轮（objective + round number）；轮次正常结束 → complete/blocked 停止，否则直接下一轮；错误 disarm 不重试；轮次上限 block `round_limit`；`update_goal complete` 在执行轮内直接生效（无证据检查）；`/goal <objective>` 创建后返回文本响应，driver 通过 setImmediate 启动第一轮。
+- Round 提示词改为 DSH 式 `<goal_round>`（objective + round + 继续工作指令），不含 criteria/evidence。
+- 验证：`npm run test` 389 文件 4672 passed / 2 skipped；`npm run lint` 0 error；`npm run build` exit 0。定向：v2 manager 6 passed（round limit、update_goal complete、create_goal、pause/resume/clear、重启 disarmed）。
+
+---
+
+## workflow-subagent-trace-budget（done，2026-10-19）
+
+- Goal：workflow 里点进 Subagent 详情，工具过程应和直接 `run_subagent` 一样可见。
+- 根因：`compactSubagentRunDetails` 把每个 Agent 的 `subagentRun` 压到 6KB。元数据占掉大部分后，从最旧消息丢起，一次 toolCall + toolResult 先被丢掉，详情页只剩最终回复。
+- 改动：单 Agent trace 上限改为 80KB、最近 50 条（与直接 subagent 的运行期 trace 截尾一致）。单条文本仍 1000 字符，toolResult.details 仍 2000 字符。`workReport` 继续关闭，编排脚本只拿最终文本。整份 workflow details 超过 100KB 仍会丢 `subagentRun`。
+- 验证：见本轮 `tests/server/agent-workflow-runner.test.mjs`。
+- Notes：未提交 Git；未手工修改生成产物。已持久化的旧 workflow 结果没有这份 trace，需重跑一次才能在详情里看到工具卡。
+
+---
+
 ## latest-code-review（reviewed，2026-10-19）
 
 - 范围：未提交 diff（workflow 内部行对齐、运行中 subagent trace）+ 已提交 Goal v2 / `run_workflow`。只读评审，未改产品代码。

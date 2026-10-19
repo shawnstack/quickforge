@@ -41,8 +41,13 @@ export const WORKFLOW_MIN_RUNTIME_MS = 1000
 const MAX_SCRIPT_LENGTH = 20_000
 const MAX_ARGS_JSON_LENGTH = 20_000
 const MAX_DETAILS_TEXT = 100_000
-const MAX_SUBAGENT_RUN_JSON = 6000
-const MAX_SUBAGENT_TRACE_MESSAGES = 40
+// Per-agent Inspector trace. Direct run_subagent persists the full message list;
+// a workflow card carries one trace per agent, so keep the same 50-message tail
+// the live subagent trace uses, with enough room for a normal tool call plus its
+// result. The old 6KB cap dropped toolCall/toolResult before the final reply, so
+// the shared Inspector opened with task and output only.
+const MAX_SUBAGENT_RUN_JSON = 80_000
+const MAX_SUBAGENT_TRACE_MESSAGES = 50
 const PROGRESS_THROTTLE_MS = 200
 const AGENT_RESULT_PREVIEW_LIMIT = 2000
 const TOOL_ARGS_PREVIEW_LIMIT = 4000

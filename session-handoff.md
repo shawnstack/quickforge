@@ -1,3 +1,25 @@
+## 当前交接：goal-v2-dsh-round-driver（done，2026-10-19）
+
+- Current Objective（当前目标）: 完全对标 DSH 重写 Goal v2 round driver，删除所有 QuickForge legacy 阻塞逻辑。已完成，未提交。
+- 核心改动: `server/goal/runner.mjs` 完全重写为 DSH round driver——删除规划阶段、证据门禁、no_progress/repeated_failures 检测、goalRunSettling 结算屏障。每轮都是执行轮（objective + round number）；正常结束→complete/blocked 停止/直接下一轮；错误 disarm；轮次上限 block round_limit。`server/goal/prompts.mjs` 的 round prompt 改为 DSH 式（不含 criteria/evidence）。`agent-prompt-commands.mjs` 的 `/goal` 创建后返回文本响应（不产生规划模型轮次）。`update_goal complete` 在执行轮内直接生效。
+- Files: `server/goal/runner.mjs`、`server/goal/prompts.mjs`、`server/agent-prompt-commands.mjs`、`tests/server/goal-v2-manager.test.mjs`、`docs/wiki/server/README.md`、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`。
+- Evidence（验证）: `npm run test` 389 文件 4672 passed / 2 skipped；`npm run lint` 0 error；`npm run build` exit 0。v2 manager 6 passed。
+- Blockers: 无。
+- Next Session: 1) 真实模型跑 `/goal` 验证 DSH 流（无规划轮、直接执行、update_goal complete 即完成）；2) 验证错误后 disarm→用户 resume 可继续；3) 验证轮次上限后 blocked `round_limit` 可 extend_resume。未提交 Git。
+
+---
+
+## 当前交接：workflow-subagent-trace-budget（done，2026-10-19）
+
+- Current Objective（当前目标）: workflow 内 Subagent 详情与直接 `run_subagent` 一样能看到工具调用。已完成，未提交。
+- 核心改动: `MAX_SUBAGENT_RUN_JSON` 6000 → 80000，`MAX_SUBAGENT_TRACE_MESSAGES` 40 → 50。压缩仍从最旧消息丢起，但一次正常 toolCall/toolResult/最终回复可以留下。
+- Files（改动文件）: `server/agent-workflow-runner.mjs`、`tests/server/agent-workflow-runner.test.mjs`、`docs/wiki/server/README.md`、`docs/architecture/workflow-orchestration.zh-CN.md`、`progress.md`、`session-handoff.md`、`feature_list.json`。
+- Evidence（验证）: 见本轮定向 vitest。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 重启服务后重跑一次带工具调用的 workflow，点进 Agent 详情确认工具卡。旧的已保存结果不会回填。
+
+---
+
 ## 当前交接：latest-code-review（reviewed，2026-10-19）
 
 - Current Objective（当前目标）: 只读评审最新代码。已完成，未改产品代码。

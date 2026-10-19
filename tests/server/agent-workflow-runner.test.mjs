@@ -485,7 +485,41 @@ describe('run_workflow worker orchestration', () => {
     expect(run.messages[1].content[0].text.length).toBeLessThan(longText.length)
     expect(run.messages[1].details.diff.text.length).toBeLessThan(longText.length)
     expect(run.tools[0].description.length).toBeLessThan(500)
-    expect(JSON.stringify(run).length).toBeLessThanOrEqual(6000)
+    expect(JSON.stringify(run).length).toBeLessThanOrEqual(80_000)
+    expect(run.messages.some((message) => message.content?.some?.((block) => block.type === 'toolCall'))).toBe(true)
+  })
+
+  it('keeps a normal tool call in the finished Inspector trace', async () => {
+    const toolOutput = 'y'.repeat(20_000)
+    const messages = [
+      { role: 'assistant', timestamp: 1, stopReason: 'toolUse', content: [{ type: 'toolCall', id: 'call-1', name: 'run_command', arguments: { command: 'node -e "console.log(1)"', description: 'z'.repeat(3000) } }] },
+      { role: 'toolResult', timestamp: 2, toolCallId: 'call-1', toolName: 'run_command', isError: false, content: [{ type: 'text', text: toolOutput }], details: { durationMs: 40, stdout: toolOutput } },
+      { role: 'assistant', timestamp: 3, stopReason: 'stop', content: [{ type: 'text', text: 'MULTI_A_OK' }] },
+    ]
+    const runAgent = vi.fn(async () => ({
+      content: 'MULTI_A_OK',
+      details: {
+        subagent: 'explore',
+        toolCalls: 1,
+        allowedTools: ['run_command', 'read_file', 'grep_files'],
+        pendingToolCalls: [],
+        model: { mode: 'inherit', provider: 'test', id: 'model', name: 'Test model' },
+        thinkingLevel: 'low',
+        messages,
+        tools: [{ name: 'run_command', label: 'Run command', description: 'Run a shell command' }],
+      },
+    }))
+    const result = await runWorkflowScript('return await agent("inspect", { profile: "explore", label: "tool-a" })', { runAgent })
+    const run = result.details.agents[0].subagentRun
+
+    expect(result.details.agents[0].subagentRunDropped).toBeUndefined()
+    expect(run.messages.map((message) => message.role)).toEqual(['assistant', 'toolResult', 'assistant'])
+    expect(run.messages[0].content[0]).toMatchObject({ type: 'toolCall', id: 'call-1', name: 'run_command' })
+    expect(run.messages[1].toolCallId).toBe('call-1')
+    expect(run.messages[1].details.durationMs).toBe(40)
+    expect(run.messages[1].content[0].text.length).toBeLessThan(toolOutput.length)
+    expect(run.messages[2].content[0].text).toBe('MULTI_A_OK')
+    expect(JSON.stringify(run).length).toBeLessThanOrEqual(80_000)
   })
 
   it('bounds the details payload when a script logs heavily', async () => {

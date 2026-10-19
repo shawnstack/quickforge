@@ -127,6 +127,7 @@ describe('goal mode through the agent manager', () => {
       model: { provider: 'mock', id: 'mock-model' },
       systemPrompt: '',
       messages: [{ role: 'user', content: 'hello', timestamp: '2026-01-01T00:00:00.000Z' }],
+      goalEngine: 'legacy',
       title: 'Goal session',
       ...extra,
     })

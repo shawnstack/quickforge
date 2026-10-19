@@ -105,6 +105,7 @@ describe('goal runtime with the real Agent and SQLite', () => {
         contextWindow: 128_000, maxTokens: 4096,
       },
       systemPrompt: '', messages: [], title: 'Goal runtime',
+      goalEngine: 'legacy',
     })
     const { Agent } = await import('@earendil-works/pi-agent-core')
     expect(session.agent).toBeInstanceOf(Agent)

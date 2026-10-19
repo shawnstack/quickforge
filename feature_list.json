@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "workflow-subagent-trace-budget",
+      "name": "Workflow Subagent 详情保留工具过程",
+      "description": "点进 workflow 里的 Subagent 详情时，工具调用与直接 run_subagent 一样可见。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "详情页已复用 SubagentRunPayload，缺口只在 compactSubagentRunDetails 的 6KB 上限把 toolCall/toolResult 从最旧消息丢光。单 Agent trace 改为最近 50 条、JSON ≤80KB；单条文本与 toolResult.details 截断不变。workReport 仍关闭，编排脚本不接收过程报告。整份 workflow details 超过 100KB 时仍丢弃 subagentRun。",
+      "files": [
+        "server/agent-workflow-runner.mjs",
+        "tests/server/agent-workflow-runner.test.mjs",
+        "docs/wiki/server/README.md",
+        "docs/architecture/workflow-orchestration.zh-CN.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/server/agent-workflow-runner.test.mjs",
+      "boundaries": "不把 Work done 报告回给 workflow 脚本；不改变直接 run_subagent 的全量终态 messages；不回填已经持久化的旧 workflow 结果。"
+    },
+    {
       "id": "goal-tool-card-display",
       "name": "Goal 控制工具专用卡片",
       "description": "get_goal、create_goal、update_goal 从带边框的默认工具卡改为与 goal_report 一致的无边框只读折叠卡片。",

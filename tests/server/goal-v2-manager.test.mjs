@@ -132,33 +132,24 @@ describe('goal v2 through the agent manager', () => {
     return session.agent.state.tools.find((tool) => tool.name === name)
   }
 
-  it('plans read-only, auto-starts execution, and blocks after repeated no-progress rounds', async () => {
-    const sessionId = 'goal-v2-manager-loop'
+  it('runs bounded rounds until the round limit then blocks (DSH: no no-progress detection)', async () => {
+    const sessionId = 'goal-v2-manager-round-limit'
     const session = await createSession(sessionId)
-    session.agent.autoEnd = false
+    session.agent.autoEnd = true
     try {
-      await agentManager.runPrompt(sessionId, '/goal Ship goal v2')
-
-      expect(session.goal).toMatchObject({
-        phase: 'active',
-        activation: 'armed',
+      // Create directly with a small round budget via the model tool.
+      session.agent.state.messages.push({ role: 'user', content: 'Ship goal v2', timestamp: Date.now() })
+      await toolByName(session, 'create_goal').execute('call-create', {
         objective: 'Ship goal v2',
-        status: 'planning',
+        max_goal_rounds: 3,
       })
-      expect(toolByName(session, 'goal_report')).toBeDefined()
+      expect(session.goal).toMatchObject({ phase: 'active', activation: 'armed', maxRounds: 3 })
 
-      await toolByName(session, 'goal_report').execute('call-plan', PLAN)
-      expect(session.goal.phase).toBe('active')
-      expect(session.goal.plan.criteria.map((criterion) => criterion.id)).toEqual(['c1', 'c2'])
-      expect(session.goal.criteria).toHaveLength(2)
-
-      session.agent.autoEnd = true
-      await session.agent.emit({ type: 'agent_end', messages: [] })
-      await vi.waitFor(() => expect(session.goal.phase).toBe('blocked'), { timeout: 10_000 })
-      expect(session.goal.blocker).toBe('no_progress')
-      expect(session.goal.roundsStarted).toBe(2)
-      expect(session.agent.prompts).toHaveLength(3)
-      expect(session.agent.prompts[1].metadata).toMatchObject({ quickforgeGoalRun: 'execution', quickforgeGoalRound: 1 })
+      // The driver starts rounds after idle; 3 rounds exhaust the budget.
+      await vi.waitFor(() => expect(session.goal.phase).toBe('blocked'), { timeout: 30_000 })
+      expect(session.goal.blockerInfo?.code).toBe('round_limit')
+      expect(session.goal.roundsStarted).toBe(3)
+      expect(session.agent.prompts.length).toBeGreaterThanOrEqual(3)
 
       const record = repository.findBySessionId(sessionId)
       expect(record.state.goal).toMatchObject({ phase: 'blocked' })
@@ -168,45 +159,30 @@ describe('goal v2 through the agent manager', () => {
     }
   })
 
-  it('completes only after evidence, normal run end and durable persistence', async () => {
+  it('completes immediately when the model calls update_goal complete (DSH: no evidence gate)', async () => {
     const sessionId = 'goal-v2-manager-complete'
     const session = await createSession(sessionId)
     session.agent.autoEnd = false
     try {
+      // Create the goal via /goal.
       await agentManager.runPrompt(sessionId, '/goal Ship goal v2')
-      await toolByName(session, 'goal_report').execute('call-plan', {
-        action: 'plan',
-        summary: 'Plan',
-        criteria: [{ description: 'Tests pass', required: true }],
-      })
-
-      // Keep the execution run open so goal_report sees an active run.
-      session.agent.autoEnd = false
-      await session.agent.emit({ type: 'agent_end', messages: [] })
-      await vi.waitFor(() => expect(session.goalRun?.kind).toBe('execution'), { timeout: 10_000 })
-      await session.agent.emit({
-        type: 'tool_execution_end',
-        toolCallId: 'tool-1',
-        toolName: 'run_command',
-        isError: false,
-        result: { details: { code: 0 } },
-      })
-      await toolByName(session, 'goal_report').execute('call-progress', {
-        action: 'progress',
-        summary: 'Verified',
-        evidence: [{ description: 'tests passed', toolCallId: 'tool-1' }],
-        criterionUpdates: [{ id: 'c1', status: 'passed', evidenceIds: ['e1'] }],
-      })
-      await toolByName(session, 'goal_report').execute('call-complete', { action: 'complete' })
       expect(session.goal.phase).toBe('active')
-      expect(session.goal.runtime).toBe('verifying')
 
+      // The driver schedules the first round; wait for it to start.
+      await vi.waitFor(() => expect(session.goalRun?.kind).toBe('execution'), { timeout: 10_000 })
+
+      // Model marks complete directly (DSH behavior).
+      const goal = session.goal
+      await toolByName(session, 'update_goal').execute('call-complete', {
+        goal_id: goal.id,
+        revision: goal.revision,
+        action: 'complete',
+      })
+      expect(session.goal.phase).toBe('complete')
+      expect(session.goal.completedBy).toBe('user')
+    } finally {
       session.agent.autoEnd = true
       await session.agent.emit({ type: 'agent_end', messages: [] })
-      await vi.waitFor(() => expect(session.goal?.phase).toBe('complete'), { timeout: 10_000 })
-      expect(session.goal.completedBy).toBe('verified')
-      expect(session.goal.plan.criteria[0].status).toBe('passed')
-    } finally {
       await agentManager.destroyAgent(sessionId)
     }
   })

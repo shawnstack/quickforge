@@ -20,7 +20,7 @@ function attachmentBlock(goal) {
   return `\n\nAttached reference files (read these when needed):\n${entries}`
 }
 
-function criteriaBlock(goal) {
+function _criteriaBlock(goal) {
   const criteria = goal.plan?.criteria ?? []
   if (!criteria.length) return '- (no criteria recorded yet)'
   return criteria.map((criterion) => {
@@ -29,7 +29,7 @@ function criteriaBlock(goal) {
   }).join('\n')
 }
 
-function evidenceBlock(goal) {
+function _evidenceBlock(goal) {
   if (!goal.evidence?.length) return '- (none)'
   return goal.evidence.map((entry) => `- [${entry.id}] ${entry.description} (toolCallId: ${entry.toolCallId || 'none'})`).join('\n')
 }
@@ -55,22 +55,8 @@ export function goalRoundPromptV2(goal, round) {
   return `<goal_round>
 Objective: ${JSON.stringify(goal.objective)}
 Round: ${round}/${maxRounds}
-Scope: ${goal.plan?.scope?.length ? goal.plan.scope.join(', ') : '(not recorded)'}
-Summary so far: ${goal.plan?.summary || '(none)'}
 
-Acceptance criteria:
-${criteriaBlock(goal)}
-
-Evidence:
-${evidenceBlock(goal)}${attachmentBlock(goal)}
-
-Continue working toward the objective in this same session. Treat the current workspace, tool results, and durable session state as authoritative; inspect them instead of assuming earlier narration is still current. Make concrete progress and verify the result.
-- Evidence must reference the toolCallId of a real, successful tool result from this session (read_file, run_command, tests, build...). goal_report/todo_write/ask_user results are not evidence.
-- A criterion may only be marked "passed" when it has evidence bound to such a tool result. Never mark a criterion passed on your own judgement.
-- Never fabricate passes for unverifiable criteria. Report blocked with a concrete verification limitation, or ask a necessary question; do not request a final human sign-off.
-- Completed todos are not acceptance evidence.
-- If you are blocked (missing access, failing environment, ambiguous requirement), call goal_report(action="blocked") with a concrete blocker instead of looping.
-- When every required criterion is verified, call goal_report(action="complete") and end this turn. The server completes the goal automatically after a normal run end and durable persistence; do not claim completion before that barrier.
+Continue working toward the objective in this same session. Treat the current workspace, tool results, and durable session state as authoritative; inspect them instead of assuming earlier narration is still current. Make concrete progress and verify the result. Before claiming completion, gather evidence that the whole objective is achieved, read the current goal, and mark it complete. If work remains, leave the goal active for the next round. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in the blocked reason; difficulty, uncertainty, or useful remaining work is not blocked.
 ${CHAT_OUTPUT_RULES}
 </goal_round>`
 }

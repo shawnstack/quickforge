@@ -2,6 +2,29 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [2.3.0] - 2026-10-19
+
+### Added
+
+- Added scripted workflow orchestration with `run_workflow`. A short JavaScript script can coordinate named Agent Profiles and workspace tools through `agent`, `tool`, `parallel`, `pipeline`, `phase`, and `log`, with bounded budgets, one approval of the full script in the default permission mode, and per-step results in the chat card.
+- Added Goal v2 as the default engine: four persisted phases (`active`, `paused`, `blocked`, `complete`), process-local armed/disarmed activation, an event log with compare-and-swap updates, and a round driver. New goals use v2; existing 13-state sessions keep the legacy engine, and Settings can switch the default.
+- Added `get_goal`, `create_goal`, and `update_goal`, plus `/goal` status, edit, pause, resume, and clear. Goal tool calls render as borderless read-only cards.
+- Added a single-line inline editor on the Goal strip for the objective, phase, and round progress.
+
+### Changed
+
+- Aligned workflow agent and tool rows with the external sub-agent and tool cards: tool rows expand in place, and agent rows open the Subagent inspector.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.3.0` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.3.0.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.3.0.tgz
+  ```
+
 ## [2.2.7] - 2026-10-16
 
 ### Added

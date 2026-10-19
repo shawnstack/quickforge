@@ -1,6 +1,14 @@
-## Goal v2 条带与详情
+## Goal v2 条带（DSH 式单行 + 行内编辑）
 
-v2 goal 的 composer 条带由 `panel-decoration/goal-control-strip.ts` 统一投影：phase/runtime 决定状态词（规划中/执行中/验证中/等待审批/等待回答/已暂停/已阻塞/已中断），`roundText` 显示轮次，`objective` 在第二行（仅 v2，legacy 不渲染）；`data-phase` / `data-activation` 提供给 CSS 做换行与状态样式。主操作：active+armed 显示暂停，paused/blocked/active+disarmed 显示继续；complete 隐藏条带。`GoalInspectorContent`、`GoalSummarySection` 与 `goal-card.ts` 通过 `buildGoalCardViewModel` 读取 v2 phase/plan/budget；`goal-edit.ts` 仍以 pause → authoritative paused → revise 保存目标，v2 服务端在同一动作里重置 plan/evidence 并重新规划。`goal-settings` 设置页新增「Goal 引擎」选择（v2/legacy）。
+v2 goal 的 composer 条带完全对标 DSH 交互：**单行**显示图标 + phase 状态词（含轮次 `N/M`）+ 截断目标 + 操作按钮（暂停/继续 · 编辑 · 清除 · 详情）。不再显示累计时长，不再换行到第二行。
+
+- **行内编辑**：点击铅笔按钮，目标文本原位变为 `<input>`（与排队消息编辑一致的交互），出现 ✓ 保存和 ✕ 取消；Enter 保存、Escape 取消。v2 goal 在任何非 complete phase 都可直接编辑（DSH 对标，无需先暂停）；legacy goal 仍需走 Inspector 的 pause→revise 流程。
+- **保存**：调用共享 `revise` 动作，服务端 v2 `editGoalV2` 清空旧 plan/evidence 并以 revision fence 让在途轮次失效；active+armed 的 goal 下一轮自动重新规划，paused/blocked 保持原 phase 直到用户手动 resume。
+- **清除**：× 按钮弹出确认（继续工作 / 确认清除），Escape 取消确认。
+- **v2 编辑期间**：重绘保留 input 的值/焦点/光标（与排队消息编辑相同的 liveEdit 捕获），暂停/清除按钮隐藏，只显示保存/取消。
+- `data-phase` / `data-activation` / `data-editing` 提供给 CSS 做状态样式与编辑模式切换。
+
+`GoalInspectorContent`、`GoalSummarySection` 与 `goal-card.ts` 通过 `buildGoalCardViewModel` 读取 v2 phase/plan/budget；`goal-edit.ts` 仍以 pause → authoritative paused → revise 保存目标（Inspector 路径）。`goal-settings` 设置页新增「Goal 引擎」选择（v2/legacy）。
 
 ## Legacy Goal 契约：自动执行与无限累计时间
 

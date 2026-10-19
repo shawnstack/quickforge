@@ -266,17 +266,20 @@ export async function handleGoalAction(session, action, objective, requestSource
       return null
     }
     if (action === 'revise') {
-      assertQuiescent(session)
+      // DSH parity: edit never requires quiescence and never changes the
+      // durable phase. An armed active goal keeps running — the revision
+      // fence invalidates in-flight rounds and the driver continues on the
+      // new revision (objective edits invalidate the old plan). A paused or
+      // blocked goal stays stopped until the user explicitly resumes.
       const text = typeof objective === 'string' ? objective.trim() : ''
       if (!text) throw requestError('A revised goal requires a new objective.', 400, 'GOAL_OBJECTIVE_REQUIRED')
       await service.edit(session.sessionId, goalRef(session), { objective: text })
-      if (session.goal.phase === 'paused' || session.goal.phase === 'blocked') {
-        await service.resume(session.sessionId, goalRef(session))
-      }
       await commitGoal(session)
       resetGoalStats(session)
       resetGoalToolEvidence(session)
-      scheduleGoalContinuation(session, 'planning')
+      if (session.goal?.phase === 'active') {
+        scheduleGoalContinuation(session, 'planning')
+      }
       return session.goal
     }
     if (action === 'extend_resume') {

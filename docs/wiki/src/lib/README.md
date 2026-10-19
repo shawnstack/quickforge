@@ -1,6 +1,8 @@
-## Goal v2 当前契约：4 phase + armed/disarmed + 事件日志
+## Goal v2 当前契约：DSH 式工具 + 单行条带 + 行内编辑
 
-`src/lib/goal.ts` 在 legacy `GoalState` 上增加可选 `phase`（active/paused/blocked/complete）、`activation`（armed/disarmed）、`runtime`（planning/executing/verifying/waiting_*/pausing）、`plan`、`maxRounds`、`roundsStarted`、`blockerInfo`。服务端默认新目标走 v2；旧快照仍只有 `status`。`normalizeGoalState` 同时接受两种形状，v2 字段缺失时回退 legacy。`buildGoalControlStripView` 对 v2 使用 phase/runtime/activation 映射文案与主操作：active+disarmed 显示「已中断」并给 resume，paused/blocked 给 resume，complete 隐藏；`roundText` 显示 `已用/上限`，目标正文作为第二行（legacy 不渲染目标行）。`buildGoalCardViewModel` 对 v2 使用同一 phase 投影，预算/使用取 `maxRounds`/`roundsStarted`，`blockerInfo.code` 走既有 blocker 文案映射。`GoalAction` 仍为 pause/resume/extend_resume/cancel/revise/accept；v2 的 clear/cancel 由服务端在同一入口处理，`accept`/`confirm` 在 v2 返回 410。
+`src/lib/goal.ts` 在 legacy `GoalState` 上增加可选 `phase`（active/paused/blocked/complete）、`activation`（armed/disarmed）、`runtime`（planning/executing/verifying/waiting_*/pausing）、`plan`、`maxRounds`、`roundsStarted`、`blockerInfo`。服务端默认新目标走 v2；旧快照仍只有 `status`。`normalizeGoalState` 同时接受两种形状，v2 字段缺失时回退 legacy。v2 revise 不要求静止也不改变 phase（DSH 对标）：active+armed 的在途轮次由 revision fence 失效并在下一轮重新规划，paused/blocked 保持原 phase 直到用户 resume。
+
+条带为 DSH 式**单行**（图标 + phase + 截断目标 + 操作），不再显示时长；v2 目标可从条带铅笔按钮**行内编辑**（input + ✓/✕，Enter 保存 Escape 取消，与排队消息编辑交互一致），legacy 仍走 Inspector 的 pause→revise。
 
 `/goal` 命令支持裸状态、create、`edit/pause/resume/clear`；动作命令直接返回文本结果，不启动模型轮次。
 

@@ -1,3 +1,4 @@
+import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { subagentProcessTraceMessages } from '@/lib/subagent-process-trace'
 import {
   subagentRunFingerprint,
@@ -87,7 +88,7 @@ export function buildWorkflowSubagentRunPayload(
     ...(agent.error ? { errorSource: 'details' as const } : {}),
     ...(isRecord(run?.model) ? { model: run.model as SubagentRunPayload['model'] } : {}),
     ...(thinkingLevel ? { thinkingLevel } : {}),
-    detailed: true,
+    detailed: getCachedToolDisplaySettings().toolDisplayMode === 'detailed',
   }
   return { ...payloadWithoutFingerprint, fingerprint: subagentRunFingerprint(payloadWithoutFingerprint) }
 }

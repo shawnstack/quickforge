@@ -1,9 +1,31 @@
+## latest-code-review（reviewed，2026-10-19）
+
+- 范围：未提交 diff（workflow 内部行对齐、运行中 subagent trace）+ 已提交 Goal v2 / `run_workflow`。只读评审，未改产品代码。
+- 确认问题：Goal v2 执行轮可用 `update_goal complete` 直接完成，`service.complete(..., { by: 'user' })` 不走 `checkGoalCompletionV2`。测试 `lets the model complete from an execution round through update_goal` 明确允许无证据完成。`goal_report complete` 仍要求证据、正常轮末和持久化。工具说明、`prompts.mjs` 与 wiki 把证据路径写成完成方式，和这条旁路不一致。
+- 风险：workflow 内部 `ToolDetails` 与外层卡共用 `.qf-tool-message` 的同一 toolCall id 记忆。展开内部工具行会把外层 `run_workflow` 卡的开合状态一起记住，流式重挂载后两者同步打开或收起。
+- 风险：`trimDetails` 先截断 agent 预览，超限才丢 `subagentRun`。大 trace 会先牺牲已完成 Agent 的结果预览；截断后的 trace 仍计入体积，可能继续触发丢弃。
+- 未改：内部工具行没有外部卡的 diff/预览/终止按钮；`run_workflow` 仍排除在过程折叠组外。这是对齐范围取舍，不是回归。
+- 验证：定向 vitest 9 文件 exit 0（5.2s）；定向 eslint + `npx tsc -b --pretty false` exit 0（17.6s）。未跑全量 test/lint/build。
+
+## workflow-inner-tool-parity（done，2026-10-19）
+
+- Goal：workflow 展开体内的工具行、Agent 行与外部普通工具卡、sub-agent 卡保持同一套交互。
+- 工具行：改为 `quickforge-local-tool` 的 `ToolDetails`。摘要是图标 + 名称 · 参数 + chevron + 状态/耗时；运行中隐藏状态并加 running sweep；点击展开 `input`/`output`，`run_command` 仍用控制台块。
+- Agent 行：改为 `quickforge-subagent-tool` 整行按钮。Bot 图标 + 状态文案 · profile/工具次数/schema；运行中显示当前工具跑马灯并隐藏状态；点击打开 Inspector 运行详情。
+- 删除内部专用的步骤 chevron、状态圆点、external-link 与「查看运行详情」按钮及其 CSS。
+- 验证：定向 vitest 2 文件 14 passed；定向 eslint exit 0；`npx tsc -b --pretty false` exit 0。
+- 后续：工作流结果改为默认收起的 `<details>`，点击标题才展开。
+- 后续：workflow Agent 详情对齐外部 subagent。运行中也写入有界 `subagentRun`；toolResult 保留 `details`（耗时、diff、命令状态）；详情 `detailed` 跟随当前工具显示模式，不再强制展开。
+- Notes：未提交 Git；未手工修改生成产物。刷新前端后才会看到新行。
+
+---
+
 ## goal-tool-card-display（done，2026-10-19）
 
 - Goal：把 `get_goal`、`create_goal`、`update_goal` 从带边框的默认工具卡改为与 `goal_report` 一致的无边框只读折叠卡片。
 - 实现：新增 `src/lib/goal-tool-history.ts` 与 `src/lib/tool-renderers/goal-tool-renderer.tsx`；`local-tools.ts` 导入时注册三个工具。摘要显示读取/创建/更新、动作、phase 和目标；展开显示目标、阶段、activation、轮次和阻塞原因。完整 JSON 仅详细模式可见。
 - 边界：不改变 Goal 工具行为、权限、状态机或服务端返回结构，也不改 Goal 条带和 Inspector。卡片不提供操作按钮。
-- 字号：展开结果复用 goal report 容器，但 `.quickforge-goal-tool` 单独使用消息字号 ×0.8，与普通工具正文一致；`goal_report` 保持完整消息字号。
+- 字号：`goal_report` 与 get/create/update goal 的展开结果统一为消息字号 ×0.8，和普通工具正文一致。
 - 验证：`npx vitest run tests/frontend/goal-tool-renderer.test.ts` 11 passed；定向 eslint exit 0；`npx tsc -b --pretty false` exit 0。
 - Notes：未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。运行中的前端需刷新后才会加载新卡片。
 

@@ -448,6 +448,46 @@ describe('run_workflow worker orchestration', () => {
     expect(result.details.agents[0].error).toMatch(/schema/i)
   })
 
+  it('keeps a bounded subagent trace with tool details while the agent is running', async () => {
+    const longText = 'x'.repeat(5000)
+    const runAgent = vi.fn(async (_session, _toolCallId, _params, _signal, onUpdate) => {
+      onUpdate?.({
+        details: {
+          subagent: 'explore',
+          toolCalls: 1,
+          allowedTools: ['read_file'],
+          pendingToolCalls: ['call-1'],
+          model: { mode: 'inherit', provider: 'test', id: 'model' },
+          thinkingLevel: 'low',
+          messages: [
+            { role: 'assistant', timestamp: 1, stopReason: 'toolUse', content: [{ type: 'toolCall', id: 'call-1', name: 'read_file', arguments: { path: 'a.ts' } }] },
+            { role: 'toolResult', timestamp: 2, toolCallId: 'call-1', toolName: 'read_file', isError: false, content: [{ type: 'text', text: longText }], details: { durationMs: 12, diff: { path: 'a.ts', text: longText } } },
+          ],
+          tools: [{ name: 'read_file', label: 'Read file', description: 'y'.repeat(500) }],
+        },
+      })
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      return { content: 'done', details: { toolCalls: 1, messages: [], tools: [] } }
+    })
+    let run
+    const result = await runWorkflowScript('return await agent("inspect", { profile: "explore" })', {
+      runAgent,
+      onUpdate: (update) => {
+        const snapshot = update.details?.agents?.[0]?.subagentRun
+        if (snapshot?.pendingToolCalls?.length) run = snapshot
+      },
+    })
+    expect(result.details.agents[0].status).toBe('done')
+    expect(run).toBeTruthy()
+    expect(run.pendingToolCalls).toEqual(['call-1'])
+    expect(run.messages[1].details.durationMs).toBe(12)
+    expect(run.messages[1].details.diff.path).toBe('a.ts')
+    expect(run.messages[1].content[0].text.length).toBeLessThan(longText.length)
+    expect(run.messages[1].details.diff.text.length).toBeLessThan(longText.length)
+    expect(run.tools[0].description.length).toBeLessThan(500)
+    expect(JSON.stringify(run).length).toBeLessThanOrEqual(6000)
+  })
+
   it('bounds the details payload when a script logs heavily', async () => {
     const result = await runWorkflowScript([
       'for (let index = 0; index < 150; index += 1) log("x".repeat(900))',

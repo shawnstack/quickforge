@@ -488,8 +488,10 @@ async function executeSubagentRun(parentSession, toolCallId, definition, params,
       tracePending = false
       lastTraceAt = Date.now()
       if (options.trace === false) {
-        // Workflow steps only need live counters: the workflow runner owns the
-        // visible progress payload, so skip building/copying the full trace.
+        // Workflow steps do not stream into the parent chat, but the workflow
+        // card opens this same run in the Inspector. Send the bounded trace the
+        // runner already keeps for the finished step, so a running agent shows
+        // the same tool cards instead of an empty summary.
         onUpdate?.({
           content: [],
           details: {
@@ -497,8 +499,19 @@ async function executeSubagentRun(parentSession, toolCallId, definition, params,
             label: definition.label,
             ...(options.stepLabel ? { stepLabel: options.stepLabel } : {}),
             ...(options.workflowLabel ? { workflowLabel: options.workflowLabel } : {}),
+            sessionId: subagentSessionId,
+            parentSessionId: parentSession.sessionId,
             toolCalls,
+            allowedTools: effectiveAllowedTools,
+            source: definition.source,
+            lifecycle: definition.lifecycle,
+            profilePath: definition.filePath,
+            capabilityPolicy: definition.capabilityPolicy,
+            ...subagentRuntimeDetails,
             durationMs: Date.now() - startedAt,
+            messages: Array.isArray(latestMessages) ? latestMessages.slice(-SUBAGENT_TRACE_MESSAGES_LIMIT) : [],
+            tools: toolsForClient,
+            pendingToolCalls: latestPendingToolCalls,
           },
         })
         return

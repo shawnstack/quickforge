@@ -1,3 +1,26 @@
+## 当前交接：latest-code-review（reviewed，2026-10-19）
+
+- Current Objective（当前目标）: 只读评审最新代码。已完成，未改产品代码。
+- 范围: 未提交的 workflow 内部行对齐与运行中 subagent trace；已提交的 Goal v2 与 `run_workflow`。
+- 确认问题: `server/goal/tools.mjs` 的 `update_goal complete` 调 `service.complete(..., { by: 'user' })`，不检查 criteria/evidence。`server/goal/runner.mjs` 允许执行轮调用。`goal_report complete` 仍有证据与正常轮末/持久化门禁。`tests/server/goal-v2-manager.test.mjs` 把无证据完成当成通过。工具说明、`server/goal/prompts.mjs` 与 `docs/wiki/src/lib/README.md` 未标明这条旁路。
+- 风险: `src/lib/tool-renderers/shared.tsx` 的 `ToolDetails` 只用最近 `.qf-tool-message` 的 toolCall id。workflow 内外两层 details 共用该 key，手动展开内部工具行会污染外层卡开合记忆。
+- 风险: `server/agent-workflow-runner.mjs` `trimDetails` 先截断 agent 预览，之后才丢 `subagentRun`；大 trace 会先损失结果预览，截断 trace 仍占预算。
+- Evidence（验证）: 定向 vitest 9 文件 exit 0；定向 eslint + `npx tsc -b --pretty false` exit 0。未跑全量 test/lint/build。
+- Blockers（阻塞）: 无。是否收紧 `update_goal complete` 需要产品决定。
+- Next Session（下一步）: 若要修，先决定执行轮完成是否必须绑定证据；再给 workflow 内层 details 单独记忆 key。
+
+## 当前交接：workflow-inner-tool-parity（done，2026-10-19）
+
+- Current Objective（当前目标）: workflow 内部工具行对齐外部普通工具卡，Agent 行对齐外部 sub-agent 卡。已完成，未提交。
+- 核心改动: `WorkflowToolCallRow` 改用 `quickforge-local-tool`；`WorkflowAgentRow` 改用 `quickforge-subagent-tool` 整行打开详情。删除步骤 chevron、状态圆点、external-link 与展开体内的详情按钮。
+- Files（改动文件）: `src/lib/tool-renderers/workflow-tool-renderer.tsx`、`src/index.css`、`tests/frontend/workflow-renderer.test.ts`、`tests/frontend/workflow-step-interaction.test.ts`、`docs/wiki/src/lib/README.md`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）: 定向 vitest 2 文件 14 passed；定向 eslint exit 0；`npx tsc -b --pretty false` exit 0。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 刷新前端，展开一次 `run_workflow`，确认工具行点击展开、Agent 行整行打开 Inspector、结果默认收起。未跑全量 test/lint/build。
+- 后续：工作流结果块改为默认收起的 details。workflow Agent 详情改为运行中即有有界 trace，工具结果保留 details，显示模式跟随外部工具设置。需重启服务后验证。
+
+---
+
 ## 当前交接：goal-tool-card-display（done，2026-10-19）
 
 - Current Objective（当前目标）: 优化 `get_goal`、`create_goal`、`update_goal` 的聊天工具卡显示。已完成，未提交。

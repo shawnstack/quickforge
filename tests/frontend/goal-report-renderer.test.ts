@@ -235,9 +235,9 @@ describe('goal_report tool card message font contract', () => {
     expect(summaryBlock).not.toContain('font-size: 0.875rem')
   })
 
-  it('aligns the card body text with the message font size and line height', () => {
-    expect(bodyBlock).toContain('font-size: var(--quickforge-message-font-size, 14px)')
-    expect(bodyBlock).toContain('line-height: var(--quickforge-message-line-height, 1.625)')
+  it('aligns the card body text with the shared tool body font scale', () => {
+    expect(bodyBlock).toContain('font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8)')
+    expect(bodyBlock).toContain('line-height: 1.5')
   })
 
   it('frames the expanded body content with the shared code-block border recipe', () => {

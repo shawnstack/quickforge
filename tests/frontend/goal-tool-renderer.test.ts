@@ -118,12 +118,6 @@ describe('goal tool registered renderer', () => {
     expect(source).not.toMatch(/updateGoal|dispatchEvent|unsafeHTML|innerHTML|onClick/)
   })
 
-  it('uses the shared tool body font scale instead of the full message font', () => {
-    const indexCss = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
-    expect(indexCss).toContain('.quickforge-goal-tool > .quickforge-goal-report-tool-body,')
-    expect(indexCss).toContain('font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8);')
-  })
-
   it('shows raw json only in detailed mode and keeps both languages paired', () => {
     const view = render('get_goal', {}, payload(), false, true)
     expect(view.codeBlocks).toHaveLength(2)

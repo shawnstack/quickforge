@@ -177,8 +177,13 @@ function compactSubagentMessage(message) {
   } else {
     compact.content = truncateText(message.content, 1000)
   }
-  for (const key of ['toolCallId', 'toolName', 'isError']) {
+  for (const key of ['toolCallId', 'toolName', 'isError', 'stopReason', 'errorMessage']) {
     if (message[key] !== undefined) compact[key] = message[key]
+  }
+  // Tool cards in the Inspector read timing, diffs, and command state from
+  // toolResult.details. Keep that object, bounded, instead of dropping it.
+  if (message.role === 'toolResult' && message.details !== undefined) {
+    compact.details = compactJsonValue(message.details, 2000, 0)
   }
   return compact
 }
@@ -639,10 +644,11 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
         model: request.model,
       }, signal, (update) => {
         const toolCalls = Number(update?.details?.toolCalls)
-        if (Number.isFinite(toolCalls) && toolCalls !== record.toolCalls) {
-          record.toolCalls = toolCalls
-          emitProgress()
-        }
+        const toolCallsChanged = Number.isFinite(toolCalls) && toolCalls !== record.toolCalls
+        const subagentRun = compactSubagentRunDetails(update?.details)
+        if (subagentRun) record.subagentRun = subagentRun
+        if (toolCallsChanged) record.toolCalls = toolCalls
+        if (subagentRun || toolCallsChanged) emitProgress()
       })
       const subagentRun = compactSubagentRunDetails(response?.details)
       if (subagentRun) record.subagentRun = subagentRun

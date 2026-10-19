@@ -145,7 +145,12 @@ describe('workflow run view model', () => {
     expect(payload.thinkingLevel).toBe('medium')
     expect(payload.details).toContain('"thinkingLevel": "medium"')
     expect(payload.details).not.toContain('"messages"')
+    expect(payload.detailed).toBe(false)
     expect(payload.fingerprint).toBeTruthy()
+
+    toolDisplay.mode = 'detailed'
+    expect(buildWorkflowSubagentRunPayload('workflow-1', agent, t).detailed).toBe(true)
+    toolDisplay.mode = 'default'
   })
 
   it('exposes status and summary translation keys and a compact duration', () => {
@@ -170,16 +175,17 @@ describe('workflow tool renderer', () => {
     expect(markup).toContain('Review')
     expect(markup).toContain('read src')
     expect(markup).toContain('write fix')
-    expect(markup).toContain('quickforge-workflow-step-details')
-    expect(markup).toContain('quickforge-workflow-step-chevron')
-    expect(markup).toContain('quickforge-workflow-tool-call-summary')
+    expect(markup).toContain('quickforge-subagent-tool')
+    expect(markup).toContain('quickforge-local-tool')
+    expect(markup).toContain('quickforge-tool-chevron')
     expect(markup).not.toContain('open=""')
     expect(markup).toContain('src/a.ts')
     expect(markup).toContain('file content')
     expect(markup).toContain('scanning files')
     expect(markup).toContain('quickforge-workflow-log--error')
     expect(markup).toContain('first attempt failed')
-    expect(markup).toContain('found 2 files')
+    expect(markup).not.toContain('found 2 files')
+    expect(markup).not.toContain('scan the source')
   })
 
   it('renders the completed result, error and schema marker', () => {
@@ -193,7 +199,10 @@ describe('workflow tool renderer', () => {
     }, false)
     expect(markup).toContain('Workflow completed · 1 agent · 2 tools')
     expect(markup).toContain('schema validated')
+    expect(markup).toContain('quickforge-workflow-result-section')
+    expect(markup).toContain('Result')
     expect(markup).toContain('&quot;answer&quot;:42')
+    expect(markup).not.toMatch(/<details class="quickforge-workflow-result-section"[^>]*open/)
   })
 
   it('renders a failure alert and the preparing fallback', () => {
@@ -217,16 +226,18 @@ describe('workflow tool renderer', () => {
   it('gates the script, tool params and raw details behind detailed mode', () => {
     const compact = render({ script: 'return 1' }, runningDetails, true, false)
     expect(compact.markup).not.toContain('Script')
-    expect(compact.markup).not.toContain('Params')
+    expect(compact.markup).not.toContain('>Input<')
     expect(compact.markup).not.toContain('Details')
     expect(compact.markup).not.toContain('scan the source')
+    expect(compact.markup).not.toContain('found 2 files')
     expect(compact.markup).toContain('file content')
 
     const detailed = render({ script: 'return 1' }, runningDetails, true, true)
     expect(detailed.markup).toContain('Script')
-    expect(detailed.markup).toContain('Params')
+    expect(detailed.markup).toContain('>Input<')
     expect(detailed.markup).toContain('Details')
     expect(detailed.markup).toContain('scan the source')
+    expect(detailed.markup).toContain('found 2 files')
     expect(detailed.markup.match(/qf-code-block/g)?.length ?? 0)
       .toBeGreaterThan(compact.markup.match(/qf-code-block/g)?.length ?? 0)
   })
@@ -297,23 +308,11 @@ describe('workflow renderer wiring and contracts', () => {
   })
 
   it('styles phase, agent, log and result sections with bounded scrolling', () => {
-    expect(css).toMatch(/\.quickforge-workflow-agent-dot--done\s*\{[\s\S]*?background:\s*rgb\(4 143 101\);/)
-    expect(css).toMatch(/\.quickforge-workflow-agent-result\s*\{[\s\S]*?max-height:\s*6rem;[\s\S]*?overflow:\s*auto;/)
     expect(css).toMatch(/\.quickforge-workflow-result\s*\{[\s\S]*?max-height:\s*16rem;[\s\S]*?overflow:\s*auto;/)
     expect(css).toMatch(/\.quickforge-workflow-log--error\s*\{\s*color:\s*var\(--destructive\);/)
     expect(css).toMatch(/\.quickforge-workflow-tool > div,[\s\S]*?calc\(var\(--quickforge-message-font-size, 14px\) \* 0\.8\)/)
-    expect(css).toMatch(/\.quickforge-workflow-step-summary\s*\{[\s\S]*?display:\s*flex;[\s\S]*?cursor:\s*pointer;/)
-    expect(css).toMatch(/\.quickforge-workflow-step-summary:focus-visible\s*\{[\s\S]*?outline:/)
-    expect(css).toMatch(/\.quickforge-workflow-step-chevron\s*\{[\s\S]*?transition:\s*transform/)
-    expect(css).toMatch(/\.quickforge-workflow-step-body\s*\{[\s\S]*?margin:\s*0\.125rem 0 0\.375rem 1\.5rem;/)
-    expect(css).toMatch(/\.quickforge-workflow-step-action\s*\{[\s\S]*?cursor:\s*pointer;/)
-    expect(css).toMatch(/\.quickforge-workflow-step-open\s*\{[\s\S]*?cursor:\s*pointer;/)
-    // A custom `display` on the closed-details body would override the UA
-    // `details:not([open]) > :not(summary) { display:none }` rule and make the
-    // body permanently visible (verified in Chromium), so keep it unset.
-    const stepBodyBlock = css.match(/\.quickforge-workflow-step-body\s*\{[^}]*\}/)?.[0] ?? ''
-    expect(stepBodyBlock).not.toMatch(/\bdisplay\s*:/)
-    expect(css).toMatch(/\.quickforge-workflow-tool-call-args\s*\{[\s\S]*?overflow-x:\s*auto;[\s\S]*?touch-action:\s*pan-x;/)
+    expect(css).not.toContain('quickforge-workflow-step-summary')
+    expect(css).not.toContain('quickforge-workflow-agent-dot')
   })
 
   it('documents the worker-backed orchestration in the view model and renderer sources', () => {
@@ -322,7 +321,8 @@ describe('workflow renderer wiring and contracts', () => {
     expect(viewSource).toContain('workflowActiveStepLabels')
     expect(source).toContain('buildWorkflowRunView')
     expect(source).toContain('summarizeParams')
-    expect(source).toContain('quickforge-workflow-tool-call-summary')
+    expect(source).toContain('quickforge-local-tool')
+    expect(source).toContain('quickforge-subagent-tool')
     expect(source).toContain('renderToolIcon(\'run_workflow\')')
     expect(source).toContain('quickforge-workflow-marquee')
   })

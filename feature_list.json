@@ -20,7 +20,7 @@
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "npx vitest run tests/frontend/goal-tool-renderer.test.ts：11 passed；定向 eslint exit 0；npx tsc -b --pretty false exit 0。",
+      "verification": "npx vitest run tests/frontend/goal-tool-renderer.test.ts tests/frontend/goal-report-renderer.test.ts：49 passed；定向 eslint exit 0。",
       "boundaries": "不改变 Goal 工具行为、权限、状态机或服务端返回结构；不改 Goal 条带和 Inspector。"
     },
     {

@@ -7,8 +7,8 @@ import { OPEN_SUBAGENT_RUN_EVENT, subagentRunStore } from '../../src/lib/subagen
 import { WorkflowToolRenderer } from '../../src/lib/tool-renderers/workflow-tool-renderer'
 
 /**
- * 工作流卡的两级展开契约：外层卡默认收起；展开后每个 Agent/工具行仍是独立
- * 的 <details>，默认收起，点击摘要只切换该行，不会把外层卡一起关掉。
+ * 工作流卡的交互契约：外层卡默认收起；展开后工具行是独立 <details>，
+ * 默认收起，点击摘要只切换该行；Agent 行与外部 subagent 一样整行打开详情。
  */
 const details = {
   workflow: true,
@@ -63,48 +63,37 @@ describe('workflow step interaction', () => {
     act(() => root.render(rendered.content as ReactNode))
 
     const outer = container.querySelector<HTMLDetailsElement>('details.quickforge-workflow-tool')!
-    const steps = [...container.querySelectorAll<HTMLDetailsElement>('details.quickforge-workflow-step-details')]
+    const toolSteps = [...container.querySelectorAll<HTMLDetailsElement>('.quickforge-workflow-tool-call details.quickforge-local-tool')]
+    const agentButton = container.querySelector<HTMLButtonElement>('.quickforge-workflow-agent .quickforge-tool-summary')!
     expect(outer).toBeTruthy()
-    expect(steps).toHaveLength(2)
+    expect(toolSteps).toHaveLength(1)
+    expect(agentButton).toBeTruthy()
     expect(outer.open).toBe(false)
-    expect(steps.every((step) => !step.open)).toBe(true)
+    expect(toolSteps[0].open).toBe(false)
 
     act(() => outer.querySelector('summary')!.click())
     expect(outer.open).toBe(true)
 
-    act(() => steps[0].querySelector('summary')!.click())
-    expect(steps[0].open).toBe(true)
+    act(() => toolSteps[0].querySelector('summary')!.click())
+    expect(toolSteps[0].open).toBe(true)
     expect(outer.open).toBe(true)
 
-    act(() => steps[1].querySelector('summary')!.click())
-    expect(steps[1].open).toBe(true)
-    expect(outer.open).toBe(true)
-
-    act(() => steps[0].querySelector('summary')!.click())
-    expect(steps[0].open).toBe(false)
-    expect(steps[1].open).toBe(true)
+    act(() => toolSteps[0].querySelector('summary')!.click())
+    expect(toolSteps[0].open).toBe(false)
     expect(outer.open).toBe(true)
 
     const opened: CustomEvent[] = []
     const listener = (event: Event) => opened.push(event as CustomEvent)
     window.addEventListener(OPEN_SUBAGENT_RUN_EVENT, listener)
-    const action = steps[0].querySelector<HTMLElement>('.quickforge-workflow-step-action')!
-    expect(action).toBeTruthy()
-    const before = steps[0].open
-    act(() => action.click())
-    expect(steps[0].open).toBe(before)
+    act(() => agentButton.click())
+    expect(toolSteps[0].open).toBe(false)
+    expect(outer.open).toBe(true)
     expect(opened).toHaveLength(1)
     const payload = opened[0].detail.payload
     expect(payload.runId).toBe('wf:agent:agent-1')
     expect(payload.traceMessages).toHaveLength(2)
     expect(payload.output).toBe('agent result')
     expect(subagentRunStore.get(payload.runId)?.fingerprint).toBe(payload.fingerprint)
-
-    const bodyButton = steps[0].querySelector<HTMLButtonElement>('.quickforge-workflow-step-open')!
-    expect(bodyButton.textContent).toContain('View run details')
-    act(() => bodyButton.click())
-    expect(opened).toHaveLength(2)
-    expect(steps[0].open).toBe(before)
     window.removeEventListener(OPEN_SUBAGENT_RUN_EVENT, listener)
     subagentRunStore.clear()
   })

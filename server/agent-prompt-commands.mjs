@@ -15,7 +15,7 @@ import {
   resolveCustomCommandInvocation,
 } from './custom-commands.mjs'
 import { messageText } from './message-converters.mjs'
-import { startGoalPlanning } from './agent-goal-runner.mjs'
+import { startGoalPlanning, handleGoalAction, goalStatusText } from './goal/engine.mjs'
 import { goalCommandText } from './goal-command-messages.mjs'
 
 const QUICKFORGE_COMMAND_DETAILS_KEY = 'quickforgeCommand'
@@ -67,14 +67,50 @@ function planCommandState(userMessage, args) {
   }
 }
 
+function legacyGoalStatusText(goal) {
+  if (!goal) return 'No goal in this session.'
+  return [
+    `Objective: ${goal.objective}`,
+    `Status: ${goal.status}`,
+    `Rounds: ${goal.usage?.iterations ?? 0}/${goal.budget?.maxIterations ?? '?'}`,
+    ...(goal.blocker ? [`Blocker: ${goal.blocker}`] : []),
+  ].join('\n')
+}
+
 /**
- * `/goal <objective>`: create the session goal and run the read-only planning
- * turn. The goal runner owns the state; this only renders the command state.
- * Failures (active goal, workspace conflict, persist failure) come back as a
- * plain text response, exactly like other internal commands.
+ * `/goal [objective|edit|pause|resume|clear]`:
+ * - no args: direct status output (no model turn)
+ * - pause/resume/clear/edit: direct lifecycle action (no model turn)
+ * - anything else: create the session goal and run the read-only planning turn.
  */
 async function goalCommandState(session, userMessage, args, requestSource = null) {
-  const result = await startGoalPlanning(session, args, requestSource, {
+  const text = String(args || '').trim()
+  if (!text) {
+    return { textResponse: session.goal?.phase ? goalStatusText(session) : legacyGoalStatusText(session.goal) }
+  }
+  const word = text.split(/\s+/)[0]
+  const restText = text.slice(word.length).trim()
+  if (word === 'pause' || word === 'resume' || word === 'clear') {
+    if (restText) return { textResponse: `Usage: /goal ${word}` }
+    try {
+      await handleGoalAction(session, word, undefined, requestSource)
+      return {
+        textResponse: session.goal?.phase ? goalStatusText(session) : legacyGoalStatusText(session.goal),
+      }
+    } catch (error) {
+      return { textResponse: await goalCommandText({ error: error.message, errorCode: error.errorCode || error.code }) }
+    }
+  }
+  if (word === 'edit') {
+    if (!restText) return { textResponse: 'Usage: /goal edit <objective>' }
+    try {
+      await handleGoalAction(session, 'revise', restText, requestSource)
+      return { textResponse: session.goal?.phase ? goalStatusText(session) : legacyGoalStatusText(session.goal) }
+    } catch (error) {
+      return { textResponse: await goalCommandText({ error: error.message, errorCode: error.errorCode || error.code }) }
+    }
+  }
+  const result = await startGoalPlanning(session, text, requestSource, {
     attachments: Array.isArray(userMessage?.attachments) ? userMessage.attachments : [],
   })
   if (result?.error) return { textResponse: await goalCommandText(result) }

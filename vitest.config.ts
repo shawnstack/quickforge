@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     include: ['tests/**/*.test.{mjs,ts}'],
+    setupFiles: ['tests/setup-goal-engine.mjs'],
     globals: true,
     testTimeout: 15_000,
     coverage: {

@@ -227,7 +227,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
     }
     // Dynamic import: the goal runner pulls in the persistence/storage chain,
     // which non-goal requests should never pay for at module load.
-    const { handleGoalAction, isGoalModeAvailable } = await import('../agent-goal-runner.mjs')
+    const { handleGoalAction, isGoalModeAvailable } = await import('../goal/engine.mjs')
     // Request-entry gate: a shared conversation's sessionId can be addressed
     // directly, and its session.source stays empty — only the request-scoped
     // modelAccessContext marks it as shared. That overlay is request-scoped and

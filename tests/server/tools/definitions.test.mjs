@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { subagentTool, globalMemoryTool, todoWriteTool, workspaceTools, createSkillTools } from '../../../server/tools/definitions.mjs'
+import { subagentTool, workflowTool, globalMemoryTool, todoWriteTool, workspaceTools, createSkillTools } from '../../../server/tools/definitions.mjs'
 
 describe('definitions', () => {
   describe('subagentTool', () => {
@@ -32,6 +32,30 @@ describe('definitions', () => {
     })
   })
 
+  describe('workflowTool', () => {
+    it('exposes the scripted orchestration contract and stays sequential', () => {
+      expect(workflowTool.name).toBe('run_workflow')
+      expect(workflowTool.executionMode).toBe('sequential')
+      expect(workflowTool.description).toContain('agent(prompt, options?)')
+      expect(workflowTool.description).toContain('tool(name, args?, options?)')
+      expect(workflowTool.description).toContain('parallel(thunks)')
+      expect(workflowTool.description).toContain('pipeline(items, ...stages)')
+      expect(workflowTool.description).toContain('phase(title)')
+      expect(workflowTool.description).toContain('return <JSON-serializable value>')
+      expect(workflowTool.description).toContain('24 agents max')
+      expect(workflowTool.description).toContain('64 tool calls max')
+      expect(workflowTool.description).toContain('approval')
+      expect(Object.keys(workflowTool.parameters.properties)).toEqual(['script', 'args', 'options'])
+      expect(workflowTool.parameters.additionalProperties).toBe(false)
+      expect(Object.keys(workflowTool.parameters.properties.options.properties)).toEqual([
+        'maxAgents',
+        'maxTools',
+        'concurrency',
+        'maxRuntimeMs',
+      ])
+    })
+  })
+
   describe('globalMemoryTool', () => {
     it('supports complete document reads and writes and is sequential', () => {
       expect(globalMemoryTool.name).toBe('manage_global_memory')
@@ -56,6 +80,7 @@ describe('definitions', () => {
     it('includes all expected tool names', () => {
       const names = workspaceTools.map((t) => t.name)
       expect(names).toContain('run_subagent')
+      expect(names).toContain('run_workflow')
       expect(names).toContain('read_file')
       expect(names).toContain('grep_files')
       expect(names).toContain('write_file')
@@ -67,8 +92,8 @@ describe('definitions', () => {
       expect(names).toContain('todo_write')
     })
 
-    it('has exactly 9 tools', () => {
-      expect(workspaceTools).toHaveLength(9)
+    it('has exactly 10 tools', () => {
+      expect(workspaceTools).toHaveLength(10)
     })
 
     it('todo_write uses a strict bounded snapshot schema and sequential execution', () => {

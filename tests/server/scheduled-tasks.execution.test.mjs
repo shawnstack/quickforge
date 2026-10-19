@@ -56,7 +56,7 @@ vi.mock('../../server/storage.mjs', () => ({
 // Goal admission/settlement is exercised with the real manager in commands.test;
 // these scheduler-only tests intentionally isolate all prompt dependencies.
 vi.mock('../../server/custom-commands.mjs', () => ({ parseInternalCommandInvocation: vi.fn(() => null) }))
-vi.mock('../../server/agent-goal-runner.mjs', () => ({ sessionGoal: vi.fn(() => null), waitForGoalCompletion: vi.fn() }))
+vi.mock('../../server/goal/engine.mjs', () => ({ sessionGoal: vi.fn(() => null), waitForGoalCompletion: vi.fn() }))
 
 vi.mock('../../server/agent-manager.mjs', async () => {
   const { EventEmitter } = await import('node:events')

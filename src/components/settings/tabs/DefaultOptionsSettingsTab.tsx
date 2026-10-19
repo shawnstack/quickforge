@@ -159,6 +159,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   const [autoCompactKeepRecentTurns, setAutoCompactKeepRecentTurns] = useState(0)
   const [goalMaxIterations, setGoalMaxIterations] = useState(20)
   const [goalMaxIterationsInput, setGoalMaxIterationsInput] = useState('20')
+  const [goalEngine, setGoalEngine] = useState<'legacy' | 'v2'>('v2')
   const [autoArchiveEnabled, setAutoArchiveEnabled] = useState(false)
   const [systemNotificationsEnabled, setSystemNotificationsEnabled] = useState(false)
   const [systemNotificationPermission, setSystemNotificationPermission] = useState<SystemNotificationPermission>('unsupported')
@@ -187,6 +188,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   const expandProcessStageByDefaultRef = useRef(expandProcessStageByDefault)
   const autoCompactRef = useRef({ enabled: autoCompactEnabled, thresholdPercent: autoCompactThresholdPercent, keepRecentTurns: autoCompactKeepRecentTurns, requireConfirmation: autoCompactRequireConfirmation })
   const goalMaxIterationsRef = useRef(goalMaxIterations)
+  const goalEngineRef = useRef<'legacy' | 'v2'>(goalEngine)
   const autoArchiveEnabledRef = useRef(autoArchiveEnabled)
   const networkProxyRef = useRef({ mode: networkProxyMode, url: networkProxyUrl, saving: networkProxySaving, loaded: networkProxyLoaded, status: networkProxyStatus })
   const terminalShellConfigRef = useRef(terminalShellConfig)
@@ -263,12 +265,14 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
       setAutoCompactKeepRecentTurns(autoCompactSettings.keepRecentTurns)
       setGoalMaxIterations(goalSettings.maxIterations)
       setGoalMaxIterationsInput(String(goalSettings.maxIterations))
+      setGoalEngine(goalSettings.engine)
       setAutoArchiveEnabled(autoArchiveSettings.enabled)
       toolDisplayModeRef.current = toolDisplaySettings.toolDisplayMode
       showContextUsageRef.current = toolDisplaySettings.showContextUsage
       expandProcessStageByDefaultRef.current = toolDisplaySettings.expandProcessStageByDefault
       autoCompactRef.current = autoCompactSettings
       goalMaxIterationsRef.current = goalSettings.maxIterations
+      goalEngineRef.current = goalSettings.engine
       autoArchiveEnabledRef.current = autoArchiveSettings.enabled
       let nextNotificationsEnabled = isSystemNotificationsEnabled()
       const permission = await getSystemNotificationPermission()
@@ -723,11 +727,22 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
 
   const saveGoalOptions = async () => {
     try {
-      await saveGoalSettings(getAppStorage(), { maxIterations: goalMaxIterationsRef.current })
+      await saveGoalSettings(getAppStorage(), {
+        maxIterations: goalMaxIterationsRef.current,
+        engine: goalEngineRef.current,
+      })
       markSaved()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('requestFailed'))
     }
+  }
+
+  const updateGoalEngine = (value: string) => {
+    const next = value === 'legacy' ? 'legacy' : 'v2'
+    setGoalEngine(next)
+    goalEngineRef.current = next
+    setSaved(false)
+    void saveGoalOptions()
   }
 
   const saveAutoArchiveOptions = async () => {
@@ -1186,6 +1201,26 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
               disabled={!autoCompactEnabled}
               onInput={updateAutoCompactKeepRecentTurns}
               onCommit={commitAutoCompactKeepRecentTurns}
+            />
+          </div>
+        </div>
+
+        <div className="quickforge-settings-row">
+          <div className="quickforge-settings-row-main">
+            <div className="quickforge-settings-row-title">
+              {t('goalEngine')}
+              <InfoTip label={t('goalEngineDescription')} />
+            </div>
+          </div>
+          <div className="quickforge-settings-row-control">
+            <SettingsSelect
+              value={goalEngine}
+              options={[
+                { value: 'v2', label: t('goalEngineV2') },
+                { value: 'legacy', label: t('goalEngineLegacy') },
+              ]}
+              label={t('goalEngine')}
+              onChange={(value) => updateGoalEngine(value)}
             />
           </div>
         </div>

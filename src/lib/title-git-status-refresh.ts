@@ -3,6 +3,7 @@ const TITLE_GIT_REFRESH_TOOLS = new Set([
   'edit_file',
   'run_command',
   'run_subagent',
+  'run_workflow',
 ])
 
 type ToolEndEvent = {

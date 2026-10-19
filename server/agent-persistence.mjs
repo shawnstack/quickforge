@@ -233,6 +233,12 @@ async function persistSessionUnlocked(session, options = {}) {
     // Goal mode lives in the same authoritative session record (CAS body), so
     // it survives restart with the exact same conflict semantics as messages.
     goal: goalBody || undefined,
+    // Goal v2 event log. The projection above is authoritative for old readers;
+    // the event log is the strict source for v2 folds and audit.
+    goalEvents: Array.isArray(session.goalEvents) && session.goalEvents.length
+      ? session.goalEvents
+      : undefined,
+    goalEngine: session.goalEngine === 'v2' ? 'v2' : undefined,
   }
   session.lastModified = lastModified
 

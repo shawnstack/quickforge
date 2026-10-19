@@ -457,7 +457,8 @@ export async function handleInternalCommand(invocation, workspaceRoot, commandDi
   }
 
   if (invocation.type === 'goal') {
-    if (!invocation.args) return 'Usage: /goal <objective>'
+    // Bare `/goal` is a status read; `goalCommandState` distinguishes it from
+    // create/pause/resume/clear/edit.
     return { goal: true, args: invocation.args }
   }
 

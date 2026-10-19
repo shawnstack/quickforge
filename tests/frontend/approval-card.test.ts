@@ -24,7 +24,10 @@ const copy: Record<string, string> = {
   activateSkill: 'Activate Skill',
   readSkillResource: 'Read Skill Resource',
   runSubagent: 'Run subagent',
+  runWorkflow: 'Run workflow',
   generateImage: 'Generate Image',
+  workflowBadge: 'Workflow',
+  toolApprovalRiskWorkflow: 'workflow risk',
   toolApprovalNeedsConfirmation: 'Confirmation required',
   toolApprovalRiskCommand: 'command risk',
   toolApprovalRiskFileChange: 'file risk',
@@ -64,6 +67,7 @@ describe('approval card display model', () => {
     expect(getToolApprovalDisplayName('activate_skill', translate)).toBe('Activate Skill')
     expect(getToolApprovalDisplayName('read_skill_resource', translate)).toBe('Read Skill Resource')
     expect(getToolApprovalDisplayName('run_subagent', translate)).toBe('Run subagent')
+    expect(getToolApprovalDisplayName('run_workflow', translate)).toBe('Run workflow')
     expect(getToolApprovalDisplayName('generate_image', translate)).toBe('Generate Image')
   })
 
@@ -72,6 +76,27 @@ describe('approval card display model', () => {
     expect(getToolApprovalDisplayName('mcp__github__create_issue', translate)).toBe('MCP · github · create_issue')
     expect(parsePluginToolName('plugin__release__publish_package')).toEqual({ pluginName: 'release', toolName: 'publish_package' })
     expect(getToolApprovalDisplayName('plugin__release__publish_package', translate)).toBe('Plugin · release · publish_package')
+  })
+
+  it('labels workflow launches and workflow tool calls with localized badges', () => {
+    const workflow = buildApprovalCardDisplayModel({
+      toolName: 'run_workflow',
+      args: { script: 'return 1' },
+      source: { type: 'workflow' },
+      translate,
+    })
+    expect(workflow.badges).toEqual(['Run workflow'])
+    expect(workflow.risk).toBe('workflow risk')
+
+    const toolStep = buildApprovalCardDisplayModel({
+      toolName: 'write_file',
+      args: { path: 'a.txt' },
+      source: { type: 'workflow-tool', label: 'write a' },
+      translate,
+    })
+    expect(toolStep.badges).toEqual(['Workflow', 'write a'])
+    expect(toolStep.risk).toBe('file risk')
+    expect(toolStep.criticalParameters).toEqual([{ label: 'Path', value: 'a.txt' }])
   })
 
   it('builds warning and info copy separately', () => {

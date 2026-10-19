@@ -20,24 +20,24 @@ import {
   notifyGoalApprovalRequested,
   notifyGoalAskOutcome,
   notifyGoalAskRequested,
-} from './agent-goal-runner.mjs'
+} from './goal/engine.mjs'
 
 /**
  * Create a Promise that only resolves when the user accepts or rejects the tool call.
  * The agent loop's `await config.beforeToolCall(...)` pauses on this promise,
  * effectively freezing the agent until the user decides.
  */
-export function createApprovalPromise(session, toolCallId, toolName, args, source) {
+export function createApprovalPromise(session, toolCallId, toolName, args, source, options = {}) {
   if (!session) return { block: true, reason: 'No active session for tool approval.' }
   return new Promise((resolve, reject) => {
     let settled = false
     const requestedAt = Date.now()
     const expiresAt = requestedAt + APPROVAL_TIMEOUT_MS
+    const abortSignals = []
 
     const timeout = setTimeout(() => {
       if (settled) return
-      settled = true
-      pendingApprovals.delete(toolCallId)
+      cleanup()
       void notifyGoalApprovalOutcome(session, { outcome: 'timeout' })
       resolve({ block: true, reason: `Approval timeout for ${toolName}` })
     }, APPROVAL_TIMEOUT_MS)
@@ -47,7 +47,8 @@ export function createApprovalPromise(session, toolCallId, toolName, args, sourc
     const cleanup = () => {
       clearTimeout(timeout)
       if (onAbort) {
-        session.agent.signal?.removeEventListener('abort', onAbort)
+        for (const signal of abortSignals) signal.removeEventListener('abort', onAbort)
+        abortSignals.length = 0
         onAbort = null
       }
       if (settled) return
@@ -55,21 +56,27 @@ export function createApprovalPromise(session, toolCallId, toolName, args, sourc
       pendingApprovals.delete(toolCallId)
     }
 
-    // Listen for abort signal so the promise rejects when the user stops the run
-    const signal = session.agent.signal
-    if (signal) {
-      if (signal.aborted) {
-        cleanup()
-        void notifyGoalApprovalOutcome(session, { outcome: 'aborted' })
-        reject(new Error('Run aborted'))
-        return
-      }
+    // Listen for the session run's abort (user stop) and, for workflow steps,
+    // the step's own combined signal (workflow timeout/parent abort). Without
+    // the extra signal a timed-out workflow could leave its approval pending
+    // until the 5-minute approval timeout.
+    const signals = [...new Set([session.agent?.signal, options.signal].filter((signal) => signal && typeof signal.addEventListener === 'function'))]
+    if (signals.length > 0) {
       onAbort = () => {
         cleanup()
         void notifyGoalApprovalOutcome(session, { outcome: 'aborted' })
         reject(new Error('Run aborted'))
       }
-      signal.addEventListener('abort', onAbort, { once: true })
+      for (const signal of signals) {
+        if (signal.aborted) {
+          cleanup()
+          void notifyGoalApprovalOutcome(session, { outcome: 'aborted' })
+          reject(new Error('Run aborted'))
+          return
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        abortSignals.push(signal)
+      }
     }
 
     pendingApprovals.set(toolCallId, {

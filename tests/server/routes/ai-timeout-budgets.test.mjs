@@ -52,7 +52,7 @@ vi.mock('../../../server/agent-profiles.mjs', () => ({
 }))
 
 vi.mock('../../../server/custom-commands.mjs', () => ({ parseInternalCommandInvocation: vi.fn(() => null) }))
-vi.mock('../../../server/agent-goal-runner.mjs', () => ({ sessionGoal: vi.fn(() => null), waitForGoalCompletion: vi.fn() }))
+vi.mock('../../../server/goal/engine.mjs', () => ({ sessionGoal: vi.fn(() => null), waitForGoalCompletion: vi.fn() }))
 
 vi.mock('../../../server/agent-manager.mjs', () => ({
   createAgent: vi.fn(),

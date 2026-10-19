@@ -252,8 +252,9 @@ describe('process streaming updates', () => {
 })
 
 describe('process folding order', () => {
-  it('treats subagents and generated images as independent details instead of compact tools summary members', () => {
+  it('treats subagents, workflows and generated images as independent details instead of compact tools summary members', () => {
     expect(isProcessToolsGroupMember('run_subagent')).toBe(false)
+    expect(isProcessToolsGroupMember('run_workflow')).toBe(false)
     expect(isProcessToolsGroupMember('generate_image')).toBe(false)
     expect(isProcessToolsGroupMember('read_file')).toBe(true)
     expect(isProcessToolsGroupMember('edit_file')).toBe(true)

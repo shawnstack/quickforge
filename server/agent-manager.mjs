@@ -62,6 +62,7 @@ import {
 } from './agent-session-store.mjs'
 
 import { runSubagent } from './agent-subagent-runner.mjs'
+import { runWorkflow } from './agent-workflow-runner.mjs'
 import {
   persistSession,
   scheduleSessionPersist,
@@ -82,6 +83,7 @@ import {
   beginGoalRun,
   clearTerminalGoal,
   configureGoalRunner,
+  createGoalControlTools,
   createGoalReportTool,
   failGoalRunOnPersist,
   finishGoalRun,
@@ -92,8 +94,9 @@ import {
   recordGoalToolExecution,
   sessionGoal,
   stopGoalForSession,
-} from './agent-goal-runner.mjs'
+} from './goal/engine.mjs'
 import { isGoalActiveStatus, isGoalTerminalStatus, goalAfterRestore, normalizeGoalState } from './agent-goal-state.mjs'
+import { goalViewV2, normalizeGoalV2 } from './goal/state.mjs'
 
 import {
   AGENT_ACCESS_MODE_DEFAULT,
@@ -188,6 +191,42 @@ function wrapSubagentToolDefinition(definition, parentSessionId) {
   }
 }
 
+function workflowApprovalArgs(args) {
+  const record = args && typeof args === 'object' ? args : {}
+  const script = typeof record.script === 'string' ? record.script : ''
+  // The runner caps scripts at 20 KB, so the approval card can show the exact
+  // code that will execute instead of a truncated preview.
+  return {
+    script,
+    ...(record.args !== undefined ? { args: record.args } : {}),
+    ...(record.options !== undefined ? { options: record.options } : {}),
+  }
+}
+
+function wrapWorkflowToolDefinition(definition, parentSessionId) {
+  return {
+    ...definition,
+    execute: async (toolCallId, params, signal, onUpdate) => {
+      const parentSession = agentSessions.get(parentSessionId)
+      if (!parentSession) throw new Error('Parent session is no longer active.')
+      try {
+        const result = await runWorkflow(parentSession, toolCallId, params || {}, signal, onUpdate)
+        return {
+          content: [{ type: 'text', text: result.content }],
+          details: result.details,
+        }
+      } catch (error) {
+        // Failed workflows carry their partial phases/agents/logs; pi-agent-core
+        // only keeps the error text, so stash the details for afterToolCall.
+        if (error && typeof error === 'object' && error.quickforgeWorkflowDetails) {
+          stashSubagentErrorDetails(toolCallId, error.quickforgeWorkflowDetails)
+        }
+        throw error
+      }
+    },
+  }
+}
+
 function wrapAskUserToolDefinition(definition, parentSessionId) {
   return {
     ...definition,
@@ -206,6 +245,7 @@ function wrapAskUserToolDefinition(definition, parentSessionId) {
 
 function wrapWorkspaceToolDefinition(definition, context, toolPermissions, options = {}) {
   if (definition.name === 'run_subagent') return wrapSubagentToolDefinition(definition, options.parentSessionId)
+  if (definition.name === 'run_workflow') return wrapWorkflowToolDefinition(definition, options.parentSessionId)
   if (definition.name === 'ask_user') return wrapAskUserToolDefinition(definition, options.parentSessionId)
   return wrapToolDefinition(definition, context, toolPermissions)
 }
@@ -229,6 +269,7 @@ export async function createServerTools(projectId, projectContext, skillsContext
   const {
     allowedToolNames = null,
     includeSubagentTool = true,
+    includeWorkflowTool = true,
     includeMcpTools = true,
     includePluginTools = true,
     includeSkillTools = true,
@@ -277,7 +318,10 @@ export async function createServerTools(projectId, projectContext, skillsContext
   }
 
   if (includeWorkspaceTools && projectContext) {
-    const definitions = workspaceTools.filter((definition) => includeSubagentTool || definition.name !== 'run_subagent')
+    const definitions = workspaceTools.filter((definition) => (
+      (includeSubagentTool || definition.name !== 'run_subagent')
+      && (includeWorkflowTool || definition.name !== 'run_workflow')
+    ))
     tools.push(...definitions
       .filter(isAllowed)
       .map((definition) => wrapWorkspaceToolDefinition(definition, toolContext, toolPermissions, { parentSessionId })))
@@ -289,6 +333,8 @@ export async function createServerTools(projectId, projectContext, skillsContext
     // Goal control-plane reporting does not grant workspace capabilities; keep
     // it available for admitted goals even with a Profile tool whitelist.
     tools.push(createGoalReportTool(goalSession))
+    const goalSessionValue = typeof goalSession === 'function' ? goalSession() : goalSession
+    if (goalSessionValue?.goal?.phase) tools.push(...createGoalControlTools(goalSessionValue))
   }
 
   if (includeMcpTools) {
@@ -304,6 +350,24 @@ export async function createServerTools(projectId, projectContext, skillsContext
   return tools
 }
 
+function appendGoalControlTools(session) {
+  if (!session || (session.source && session.source !== 'scheduled')) return
+  if (!(session.goalEngine === 'v2' || session.goal?.phase)) return
+  const tools = session.agent?.state?.tools
+  if (!Array.isArray(tools)) return
+  const names = new Set(tools.map((tool) => tool?.name).filter(Boolean))
+  if (activeGoalStatus(session) && !names.has('goal_report')) {
+    tools.push(createGoalReportTool(session))
+    names.add('goal_report')
+  }
+  for (const tool of createGoalControlTools(session)) {
+    if (!names.has(tool.name)) {
+      tools.push(tool)
+      names.add(tool.name)
+    }
+  }
+}
+
 async function rebuildSessionTools(session) {
   const profileToolNames = Array.isArray(session.agentProfile?.allowedTools) ? session.agentProfile.allowedTools : null
   const goalActive = Boolean(activeGoalStatus(session))
@@ -317,6 +381,7 @@ async function rebuildSessionTools(session) {
       ? {
           allowedToolNames: profileToolNames,
           includeSubagentTool: false,
+          includeWorkflowTool: false,
           includeMcpTools: false,
           includeGoalTool: goalActive,
           goalSession: goalActive ? session : null,
@@ -334,6 +399,7 @@ async function rebuildSessionTools(session) {
           getTurnId: () => currentSessionTurnId(session.sessionId),
         },
   )
+  appendGoalControlTools(session)
 }
 
 /** Active (non-terminal) goal of a session, or null. */
@@ -582,11 +648,27 @@ export async function createAgent(sessionId, config = {}) {
     mcpToolsMode = 'await',
     // Restored goal body (restore path only; never taken from client input).
     restoredGoal = null,
+    // New goals use the v2 engine when explicitly enabled (session/config/env).
+    goalEngine = process.env.QUICKFORGE_GOAL_ENGINE === 'v2'
+      ? 'v2'
+      : process.env.QUICKFORGE_GOAL_ENGINE === 'legacy' ? 'legacy' : null,
   } = config
   // A goal that was in flight when the process stopped is paused, never
   // replayed. The restored body is normalized defensively so a malformed or
   // tampered persisted goal can never become an authoritative in-memory goal.
-  const initialGoal = goalAfterRestore(normalizeGoalState(restoredGoal, { sessionId }), Date.now())
+  // A v2 document keeps its durable phase; activation still starts disarmed.
+  let resolvedGoalEngine = restoredGoal?.phase ? 'v2' : goalEngine
+  if (!resolvedGoalEngine) {
+    try {
+      const { readGoalEngine } = await import('./goal-settings.mjs')
+      resolvedGoalEngine = await readGoalEngine()
+    } catch {
+      resolvedGoalEngine = 'legacy'
+    }
+  }
+  const initialGoal = restoredGoal?.phase
+    ? goalViewV2(normalizeGoalV2(restoredGoal, { sessionId }), { activation: 'disarmed', runtime: 'idle' })
+    : goalAfterRestore(normalizeGoalState(restoredGoal, { sessionId }), Date.now())
   const accessMode = normalizeAccessMode(rawAccessMode, yoloMode)
   const resolvedYoloMode = yoloModeFromAccessMode(accessMode)
   // 'cached' (restore path) builds MCP tools from the current connection
@@ -672,6 +754,7 @@ export async function createAgent(sessionId, config = {}) {
       ? {
           allowedToolNames: profileToolNames,
           includeSubagentTool: false,
+          includeWorkflowTool: false,
           includeMcpTools: false,
           mcpWaitForConnections,
           includeGoalTool: Boolean(initialGoal && isGoalActiveStatus(initialGoal.status)),
@@ -734,7 +817,7 @@ export async function createAgent(sessionId, config = {}) {
       // The executor marks only thrown errors, so promote the returned flag to
       // keep the toolResult message an error result with its details intact.
       if (toolCall?.name === 'goal_report' && result?.isError === true) return { isError: true }
-      if (!isError || toolCall?.name !== 'run_subagent') return undefined
+      if (!isError || (toolCall?.name !== 'run_subagent' && toolCall?.name !== 'run_workflow')) return undefined
       const details = takeStashedSubagentErrorDetails(toolCall?.id)
       return details ? { details } : undefined
     },
@@ -765,6 +848,18 @@ export async function createAgent(sessionId, config = {}) {
         const policy = requested && typeof requested === 'object' ? normalizeCapabilityPolicy(requested.capabilityPolicy || 'readonly-research', Array.isArray(requested.tools) ? requested.tools : []) : null
         if (policy && ['code-edit', 'docs-edit'].includes(policy) && !hasFullAccess(currentSession)) {
           return { block: true, reason: `Temporary subagent capability policy ${policy} requires full access or approval.` }
+        }
+        return undefined
+      }
+      if (toolName === 'run_workflow') {
+        // The workflow worker is a worker thread in the server process. In
+        // default access mode the user explicitly approves starting one; the
+        // agents it spawns keep their own tool-level approval policy.
+        if (!hasFullAccess(currentSession)) {
+          return createApprovalPromise(currentSession, toolCallId, toolName, workflowApprovalArgs(context.args), {
+            type: 'workflow',
+            label: 'Workflow',
+          })
         }
         return undefined
       }
@@ -854,6 +949,8 @@ export async function createAgent(sessionId, config = {}) {
     // Goal mode: authoritative goal body (persisted with the session) plus
     // runtime-only bookkeeping for the active run and progress accounting.
     goal: initialGoal,
+    goalEngine: resolvedGoalEngine,
+    goalEvents: Array.isArray(config.goalEvents) ? config.goalEvents : null,
     goalRun: null,
     goalStats: null,
     goalContinuationPending: false,
@@ -986,6 +1083,7 @@ export async function createAgent(sessionId, config = {}) {
   })
 
   agentSessions.set(sessionId, session)
+  appendGoalControlTools(session)
   resetIdleTimer(session)
   logger.info(`Created session ${sessionId} (scope: ${scope}, project: ${projectId || 'none'}, access: ${accessMode})`, { sessionId, scope, projectId: projectId || undefined, accessMode, yoloMode: resolvedYoloMode, idleRetention: idleRetention || undefined })
   return session
@@ -1198,7 +1296,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   if (!commandState.goalRun && sessionGoal(session) && isGoalTerminalStatus(session.goal.status)) {
     await clearTerminalGoal(session)
   }
-  if (commandState.goalRun) beginGoalRun(session, commandState.goalRun.kind)
+  if (commandState.goalRun) await beginGoalRun(session, commandState.goalRun.kind)
 
   const userMessage = resolvedUserMessage
 
@@ -1788,6 +1886,8 @@ async function restoreAgentUnlocked(sessionId) {
       // Goal bodies restore from the persisted session; in-flight statuses are
       // mapped to paused (no auto-replay) inside createAgent.
       restoredGoal: sessionData.goal || null,
+      goalEvents: Array.isArray(sessionData.goalEvents) ? sessionData.goalEvents : null,
+      goalEngine: sessionData.goalEngine === 'v2' ? 'v2' : undefined,
     })
   } catch (err) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })

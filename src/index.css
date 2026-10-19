@@ -7530,6 +7530,24 @@ html.dark .quickforge-assistant-artifact-card-rollback:hover:not(:disabled) {
   white-space: nowrap;
 }
 
+/* Goal v2 adds a second line with the objective; legacy stays a single row. */
+.quickforge-goal-strip[data-phase] {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.quickforge-goal-strip-objective {
+  order: 20;
+  flex: 1 0 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .quickforge-goal-strip-error {
   min-width: 0;
   overflow: hidden;
@@ -7625,6 +7643,14 @@ html.dark .quickforge-assistant-artifact-card-rollback:hover:not(:disabled) {
 .quickforge-goal-report-tool-body .text-xs,
 .quickforge-todo-history-tool > div .text-xs {
   font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8);
+}
+
+/* get/create/update goal 展开结果与普通工具正文同为消息字号 ×0.8，
+   不沿用 goal_report 的完整消息正文字号。 */
+.quickforge-goal-tool > .quickforge-goal-report-tool-body,
+.quickforge-goal-tool > .quickforge-goal-report-tool-body .text-xs {
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8);
+  line-height: 1.5;
 }
 
 .quickforge-goal-report-criteria {
@@ -7763,6 +7789,365 @@ html.dark .quickforge-todo-history-item--completed .quickforge-todo-history-stat
   color: var(--muted-foreground);
   text-decoration: line-through;
   text-decoration-thickness: 1px;
+}
+
+/* run_workflow 工具卡：折叠头复用普通工具行，展开体按阶段列出 Agent、日志与
+   脚本结果。配色复用既有语义：运行中 = primary，完成 = emerald，失败 =
+   destructive，排队/停止 = muted。正文跟随消息字号（×0.8），不引入新字号体系。 */
+.quickforge-workflow-preparing {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted-foreground);
+  font-size: var(--quickforge-message-font-size, 14px);
+}
+
+.quickforge-workflow-tool > div,
+.quickforge-workflow-tool > div .text-xs {
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8);
+}
+
+.quickforge-workflow-title {
+  flex: 1 1 auto;
+}
+
+.quickforge-workflow-marquee {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.quickforge-workflow-phase {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.quickforge-workflow-phase-title {
+  margin: 0;
+  font-weight: 600;
+  color: color-mix(in oklab, var(--foreground) 78%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.quickforge-workflow-agent-list,
+.quickforge-workflow-log-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.quickforge-workflow-agent {
+  list-style: none;
+}
+
+.quickforge-workflow-step-details {
+  border-radius: 0.375rem;
+}
+
+.quickforge-workflow-step-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.375rem;
+  border-radius: 0.375rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  list-style: none;
+  line-height: 1.4;
+  transition: background-color 140ms ease;
+}
+
+.quickforge-workflow-step-summary::-webkit-details-marker {
+  display: none;
+}
+
+.quickforge-workflow-step-summary:hover,
+.quickforge-workflow-step-summary:focus-visible {
+  background: color-mix(in oklab, var(--muted) 45%, transparent);
+}
+
+.quickforge-workflow-step-summary:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.quickforge-workflow-step-chevron {
+  flex: 0 0 auto;
+  opacity: 0.65;
+  transition: transform 140ms ease;
+}
+
+/* Agent 行的「进入 Subagent 运行详情」入口：与摘要行的展开/收起分开，点击/
+   Enter/Space 只派发 Inspector 打开事件，不切换行内 details。 */
+.quickforge-workflow-step-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 1.125rem;
+  height: 1.125rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.25rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  opacity: 0.72;
+  transition: background-color 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+.quickforge-workflow-step-action:hover,
+.quickforge-workflow-step-action:focus-visible {
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  opacity: 1;
+}
+
+.quickforge-workflow-step-action:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.quickforge-workflow-step-details[open] > .quickforge-workflow-step-summary .quickforge-workflow-step-chevron {
+  transform: rotate(90deg);
+}
+
+/* No author `display` on the body: the UA `details:not([open]) > :not(summary)`
+   rule must be able to hide it. A `display:flex` here would override the UA
+   hiding rule and make every step look permanently expanded (verified in
+   Chromium), so spacing comes from child margins instead. */
+.quickforge-workflow-step-body {
+  margin: 0.125rem 0 0.375rem 1.5rem;
+}
+
+.quickforge-workflow-step-body > * + * {
+  margin-top: 0.5rem;
+}
+
+.quickforge-workflow-step-section-label {
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.quickforge-workflow-step-open {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  line-height: 1.4;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.quickforge-workflow-step-open:hover,
+.quickforge-workflow-step-open:focus-visible {
+  border-color: color-mix(in oklab, var(--ring) 35%, var(--border));
+  background: color-mix(in oklab, var(--muted) 45%, transparent);
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+}
+
+.quickforge-workflow-step-open:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.quickforge-workflow-agent-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+}
+
+.quickforge-workflow-agent-dot--running {
+  background: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+  animation: quickforge-workflow-pulse 1.8s ease-in-out infinite;
+}
+
+.quickforge-workflow-agent-dot--done {
+  background: rgb(4 143 101);
+}
+
+html.dark .quickforge-workflow-agent-dot--done {
+  background: rgb(110 231 183);
+}
+
+.quickforge-workflow-agent-dot--error {
+  background: var(--destructive);
+}
+
+.quickforge-workflow-agent-label {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow-wrap: anywhere;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+}
+
+.quickforge-workflow-agent-meta {
+  margin-left: auto;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-workflow-agent-profile {
+  font-family: var(--font-mono);
+  opacity: 0.85;
+}
+
+.quickforge-workflow-agent-error {
+  flex-basis: 100%;
+  color: var(--destructive);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.quickforge-workflow-agent-result {
+  flex-basis: 100%;
+  margin: 0;
+  max-height: 6rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  background: color-mix(in oklab, var(--muted) 35%, transparent);
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.5rem;
+}
+
+/* 工具调用行：复用 QuickForge 工具卡的阅读顺序——摘要行（图标 + 名称 + 参数
+   摘要，可横滑/隐藏滚动条/H5 touch + 右侧耗时/状态）后直接跟结果输出；
+   参数 JSON 只在「详细」显示模式下出现，对齐外层工具卡的 input 门控。 */
+.quickforge-workflow-tool-call {
+  list-style: none;
+  padding: 0.125rem 0;
+}
+
+.quickforge-workflow-tool-call-summary {
+  min-width: 0;
+}
+
+.quickforge-workflow-tool-call-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  font-weight: 500;
+}
+
+.quickforge-workflow-tool-call-args {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  color: var(--muted-foreground);
+}
+
+.quickforge-workflow-tool-call-args::-webkit-scrollbar {
+  display: none;
+}
+
+.quickforge-workflow-tool-call-meta {
+  margin-left: auto;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-workflow-tool-call-error {
+  color: var(--destructive);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.quickforge-workflow-log-list {
+  margin-top: 0.125rem;
+  padding-left: 0.625rem;
+  border-left: 2px solid var(--border);
+}
+
+.quickforge-workflow-log {
+  color: var(--muted-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.quickforge-workflow-log--error {
+  color: var(--destructive);
+}
+
+.quickforge-workflow-error {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  border-left: 2px solid var(--destructive);
+  border-radius: 0 0.375rem 0.375rem 0;
+  background: color-mix(in oklab, var(--destructive) 6%, transparent);
+  padding: 0.25rem 0.625rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.quickforge-workflow-error-label {
+  font-weight: 600;
+  color: var(--destructive);
+}
+
+.quickforge-workflow-result {
+  margin: 0;
+  max-height: 16rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  background: color-mix(in oklab, var(--muted) 35%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.625rem;
+}
+
+.quickforge-workflow-script > summary:hover {
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+}
+
+.quickforge-workflow-empty {
+  color: var(--muted-foreground);
+}
+
+@keyframes quickforge-workflow-pulse {
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-workflow-agent-dot--running { animation: none; }
+  .quickforge-workflow-step-chevron,
+  .quickforge-workflow-step-action,
+  .quickforge-workflow-step-open { transition: none; }
 }
 
 /* TodoWrite task summary: an in-flow sibling immediately above the composer.

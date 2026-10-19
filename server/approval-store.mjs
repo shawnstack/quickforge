@@ -22,6 +22,7 @@ export const commandRestrictedTools = new Set([
   'edit_file',
   'run_command',
   'run_subagent',
+  'run_workflow',
   'manage_global_memory',
 ])
 
@@ -100,6 +101,9 @@ export function commandToolPermissionError(session, toolName) {
   }
   if (toolName === 'run_subagent' && permissions.allowSubagents === false) {
     return `Command /${session.activeCommandName} does not allow running subagents.`
+  }
+  if (toolName === 'run_workflow' && permissions.allowSubagents === false) {
+    return `Command /${session.activeCommandName} does not allow running workflows.`
   }
   if ((toolName === 'write_file' || toolName === 'edit_file') && permissions.allowEdit === false) {
     return `Command /${session.activeCommandName} does not allow editing files.`

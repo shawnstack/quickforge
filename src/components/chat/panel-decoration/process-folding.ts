@@ -241,7 +241,10 @@ function toolNameFromMessage(toolMessage: ToolMessageElement) {
 
 export function isProcessToolsGroupMember(toolName: string, result?: unknown) {
   const details = isRecord(result) && isRecord(result.details) ? result.details : undefined
-  if (toolName === 'run_subagent' || toolName === 'generate_image') return false
+  // Top-level interactive cards stay outside the folded process timeline:
+  // subagent opens the Inspector, image output is the artifact, and workflow
+  // owns its own two-level expand/collapse UI (outer card + step rows).
+  if (toolName === 'run_subagent' || toolName === 'run_workflow' || toolName === 'generate_image') return false
   // 运行中的后台命令保持独立运行态（shared.tsx status 同款判定）；退出终态（running: false）
   // 可折回过程组，与服务端 finish 写入的 running: false 终态 details 一致。
   if (toolName === 'run_command' && details?.background === true && details?.running !== false) return false

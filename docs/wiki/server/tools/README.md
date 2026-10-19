@@ -24,6 +24,7 @@
 | 工具名 | 说明 |
 |--------|------|
 | `run_subagent` | 委托有边界的任务给启用的临时 Agent Profile；需要文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现或影响面分析时优先使用只读 `explore`，有边界的复杂多步骤实现或更广泛独立任务使用 `general`，自定义 Agent 也可启用为 sub agent |
+| `run_workflow` | 用一段 JavaScript 脚本编排多个 Subagent 与工作区工具：`agent(prompt, options?)` 返回该步最终文本（带 `schema` 时返回校验后的对象，失败为 `null`）；`tool(name, args?, options?)` 直接调用当前会话工具并返回文本（失败为 `null`）；`parallel(thunks)` 并发执行并按输入顺序返回；`pipeline(items, ...stages)` 让每个 item 独立过阶段、单项失败降为 `null`；`phase(title)` / `log(message)` 记录进度；`args` 是调用方传入的 JSON。脚本在独立 worker 线程的 vm 上下文中运行，无 Node globals，必须 `return` 一个 JSON 可序列化结果。默认 24 个 Agent、64 次工具调用、4 并发、1 小时，可在 `options` 中按 1–64 / 1–128 / 1–8 / 1 秒–2 小时调整（超出范围会 clamp）；默认权限下步骤实际串行（并发 1）以保证审批卡可见，完全访问才使用配置并发 |
 | `read_file` | 读取文件内容 |
 | `grep_files` | 文本/正则搜索文件 |
 | `write_file` | 创建或覆写文件 |
@@ -36,7 +37,25 @@
 | `todo_write` | 为非简单的多步骤任务记录简短当前计划；每次调用必须提交包含已完成项在内的**完整最新快照**。唯一参数 `todos` 最多 20 项，每项仅含非空 `content`（最多 200 字符）与 `status` 三态：`pending` / `in_progress` / `completed`；空数组表示显式清空。工具为 `sequential`，默认免审批但不属于安全读取工具，`/plan` 明确禁止调用，直接工具 REST 也禁止 |
 | `goal_report` | 仅 Goal 模式：会话有活跃 goal 时注入，规划轮必须且只能以 `action:"plan"` 提交 2-8 条可验收准则、范围与摘要，执行轮用 `progress` / `blocked` / `needs_review` / `complete` 回报。证据必须引用本会话真实成功工具结果的 `toolCallId`（控制面/委派/Skill/记忆类工具不算），准则只能在有此类证据时标记 `passed`；`complete` 通过证据检查后等待正常轮末和最终持久化，成功才自动 `completed`；显式 `needs_review` 转为 blocked 并说明验证限制。不在 `workspaceTools`、不进入 `GET /api/tools`，也没有 REST handler（直接调用返回 404） |
 
-`activate_skill`、`read_skill_resource`、`run_subagent` 和 `todo_write` 对所有运行中的 Agent 可用；文件/命令工作区工具需要绑定项目。`todo_write`、`write_file`、`edit_file` 和 `run_command` 标记为 `executionMode: 'sequential'` 以确保执行顺序。`goal_report` 是 Goal 模式专用：仅在会话有活跃 goal 时由 `agent-manager.mjs` 的 `createGoalReportTool` 绑定会话注入，不进入默认工具集，也不经 `tools/index.mjs` handler。
+### run_workflow 与 run_subagent 的分工
+
+| 维度 | `run_subagent` | `run_workflow` |
+|------|----------------|----------------|
+| 适用 | 单个有边界的委派 | 多个独立委派或分阶段流水线 |
+| 输入 | `subagent` / `task` / `context` / `expectedOutput` | `script` / `args?` / `options?` |
+| 工具调用 | Agent 内部自行调用 | `tool()` 直接调用会话工具，默认 64 次（上限 128，`maxTools`）；写/命令/MCP 等仍按会话审批 |
+| 并发 | 单次一个 Agent | 每个 `agent()`/`tool()` 一步，默认 4 并发、24 个 Agent（上限 8 / 64，可在 `options` 调整）；默认权限下实际串行 1 |
+| 超时 | Profile 默认/上限 2 小时 | 整条工作流默认 1 小时、上限 2 小时 |
+| 结构化输出 | 无内建 schema 校验 | 每个 `agent()` 可选 JSON Schema |
+| 失败 | 该次委派失败 | 单步失败返回 `null`，脚本可继续；脚本异常/超时/中止才整体失败 |
+| 审批 | 每个受保护工具按会话策略 | 默认权限下启动前一次审批；每步工具仍按原策略 |
+| 递归 | 子 Agent 不能再用 `run_subagent` | Subagent/Profile 不注入 `run_workflow` |
+
+`run_workflow` 与 `run_subagent` 一样属于 `workspaceTools`，会出现在 `GET /api/tools` 的元数据中，但**没有 `tools/index.mjs` handler**：执行由 `agent-manager.mjs` 的 `wrapWorkflowToolDefinition` 绑定会话后调用 `server/agent-workflow-runner.mjs`。`server/routes/tools.mjs` 把它列入 `directRouteDisabledTools`，因此 `POST /api/tools/run_workflow`（含 `/api/projects/:id/tools/run_workflow`）返回 404，不能绕过 Agent 会话直接执行。
+
+`run_workflow` 的可用范围还受命令与 Goal 权限约束：`/plan` 只读白名单不包含它（返回 `Command /plan is read-only and cannot use run_workflow.`），Goal planning 使用同一只读边界并拒绝它（`Goal planning is read-only and cannot use run_workflow.`），命令显式 `allowSubagents:false` 时返回 `Command /<name> does not allow running workflows.`，`goal_report complete` 后的结算窗口只允许 `read_file` / `grep_files`（验证阻塞时另允许必要 `ask_user`）。工具本身标记 `executionMode: 'sequential'`，同一轮内与其他顺序工具串行执行。
+
+`activate_skill`、`read_skill_resource`、`run_subagent`、`run_workflow` 和 `todo_write` 对运行中的主 Agent 可用（`run_workflow` 不注入 Subagent/Profile 会话）；文件/命令工作区工具需要绑定项目。`todo_write`、`write_file`、`edit_file` 和 `run_command` 标记为 `executionMode: 'sequential'` 以确保执行顺序。`goal_report` 是 Goal 模式专用：仅在会话有活跃 goal 时由 `agent-manager.mjs` 的 `createGoalReportTool` 绑定会话注入，不进入默认工具集，也不经 `tools/index.mjs` handler。
 
 `generate_image` 当前已从 `workspaceTools` 移除，不再向 Agent 或 `GET /api/tools` 暴露。相关 handler、图片生成模块、会话资产路由与前端渲染仍保留，仅用于兼容历史会话。
 
@@ -65,6 +84,7 @@
 | `toolActivateSkill` | `activate_skill` | 激活 Agent Skill |
 | `toolReadSkillResource` | `read_skill_resource` | 读取技能资源 |
 | Agent-manager handler | `run_subagent` | 在父会话内创建短生命周期临时 Agent，使用受限工具执行专门子任务并返回建议性结果 |
+| Agent-manager handler（`wrapWorkflowToolDefinition`） | `run_workflow` | 绑定会话并调用 `agent-workflow-runner.mjs`：worker + vm 执行编排脚本，按有界队列复用 `run_subagent` 生命周期执行每个 `agent()`，并由 `agent-workflow-tools.mjs` 复用会话工具集/审批执行每个 `tool()`，聚合阶段/Agent/工具/日志/结果 details；失败时经 `afterToolCall` 回填部分 details |
 | Agent-manager handler（`createGoalReportTool`） | `goal_report` | 仅活跃 goal 会话注入：校验并记录 plan / progress / blocked / needs_review / complete；证据只信任本会话真实成功工具结果的 toolCallId，`complete` 经正常轮末/持久化屏障后自动完成，失败或中止不完成 |
 
 ### 安全特性
@@ -78,3 +98,4 @@
 - **Error 对象传递**: 工具错误通过 `statusCode` 属性传递 HTTP 状态码
 - **TodoWrite 权限与数据边界**: `todo_write` 在普通 Agent 运行中由审批 hook 默认直接放行，但不加入 `safeReadTools`；只读 `/plan` 的命令权限检查明确拒绝它。`server/routes/tools.mjs` 将其列入 `directRouteDisabledTools`，因此不能通过 `POST /api/tools/todo_write` 绕过 Agent 会话调用。成功结果作为普通 `toolResult` 消息持久化，Composer Dock 内 `message-editor` 前的正常流任务摘要与历史 renderer 均从消息快照恢复；服务端不新增独立 todo store、SQLite 表或其他权威状态源。
 - **Subagent 约束**: `run_subagent` 只在 Agent 内部可用，不开放直接 REST 执行；子 Agent 为短生命周期、不持久化、不允许递归调用 `run_subagent`，且不注入 MCP 或 Agent Skill 工具。可调用启用为 sub agent 的 Agent Profile；内置 `explore` 允许 `read_file`/`grep_files`/`run_command`，是文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现和影响面分析的首选只读探索 Agent，不包含写入或编辑工具，`run_command` 应只用于安全的检查/诊断命令；内置 `general` 可使用完整内置工作区工具（读、搜、写、编辑、命令），适合有边界的复杂多步骤实现或更广泛独立任务；自定义 Agent 按 `allowedTools` 白名单限制，危险工具在 YOLO 关闭时仍走父会话审批。
+- **Workflow 约束**: `run_workflow` 在默认权限下由 `beforeToolCall` 审批一次（展示**完整脚本** ≤20KB、`args` 与 `options`；风险说明明确“以服务进程权限运行本地 JavaScript”；拒绝或 5 分钟审批超时都不启动 worker），完全访问模式跳过该次审批；但脚本内每个 Agent 的写文件、命令、MCP/Plugin 等调用，以及 `tool()` 直接发起的工具调用，仍按各自会话的审批策略执行（`tool()` source 为 `workflow-tool`，审批卡显示 Workflow 徽标），审批只授权“启动编排”，不是永久授权。脚本运行在服务器进程内的 worker thread + vm context 中：hooks 由 guest bridge 在 vm 内创建，`args` 以 JSON 字符串进入并在 guest 内解析，host function 为 null-prototype 且在脚本编译前删除，host 回复只以 JSON 字符串经 guest pump 投递；不暴露 `process`/`require`/`fetch`/定时器/`console`，禁用 `eval`/WASM，同步段限时 10 秒，worker 设 `resourceLimits`，父进程可终止 worker；这提供隔离与可终止性，但**不是安全沙箱**，审批提示或完全访问模式才是信任边界。默认权限下步骤串行（并发 1）以保证审批卡不互相覆盖；完全访问才使用配置并发。预算：默认 24 个 Agent / 64 次工具调用 / 4 并发 / 1 小时，硬上限 64 / 128 / 8 / 2 小时（`options` 可在范围内调整，超出范围会 clamp）；脚本最多 20,000 字符、`args` JSON 最多 20,000 字符，工作流结果最多 1MB JSON；`tool()` 可调用工作区工具、Skill 与 MCP/Plugin，排除 `run_subagent`/`run_workflow`/`ask_user`/`todo_write`/`manage_global_memory`/`goal_report`，`run_command run_in_background` 在工作流内被拒绝；工具参数 4,000 字符、工具结果预览 2,000 字符；单 Agent prompt 与 context 各 100,000 字符、expectedOutput 10,000 字符、schema JSON 20,000 字符；工具结果正文最多 50,000 字符，Agent 结果预览 2,000 字符、工作流结果预览 20,000 字符，日志最多 200 条，details 文本总量超过 100,000 字符时裁剪并附 `detailsTruncated`，进度 200ms 节流。单步失败解析为 `null` 且记 error 日志，脚本可继续；脚本语法错误/运行时异常/结果不可序列化/worker 崩溃/超时/父运行中止会让整条工作流失败并保留部分 details；脚本返回后未 `await` 的孤儿步骤会被 abort 并在终态 details 中标记为 `aborted`，不继续占用资源。`/plan`、Goal planning、`allowSubagents:false` 的命令权限和 Subagent/Profile 会话都不可用，也不开放直接 REST 执行。

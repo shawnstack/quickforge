@@ -4,9 +4,11 @@ import type { AgentTool } from '@earendil-works/pi-agent-core'
 import {
   LocalWorkspaceToolRenderer,
   SubagentToolRenderer,
+  WorkflowToolRenderer,
   GenerateImageToolRenderer,
   AskUserToolRenderer,
   GoalReportToolRenderer,
+  GoalToolRenderer,
   TodoWriteToolRenderer,
   McpToolRenderer,
   parseMcpToolName,
@@ -56,11 +58,15 @@ for (const [name, label] of [
 }
 
 registerToolRenderer('run_subagent', new SubagentToolRenderer())
+registerToolRenderer('run_workflow', new WorkflowToolRenderer())
 registerToolRenderer('generate_image', new GenerateImageToolRenderer())
 const todoWriteToolRenderer = new TodoWriteToolRenderer()
 registerToolRenderer('todo_write', todoWriteToolRenderer)
 registerToolRenderer('ask_user', new AskUserToolRenderer())
 registerToolRenderer('goal_report', new GoalReportToolRenderer())
+for (const name of ['get_goal', 'create_goal', 'update_goal']) {
+  registerToolRenderer(name, new GoalToolRenderer(name))
+}
 
 // Tool execution is entirely server-side. The chat surface never calls
 // .execute() on client-side tools — it only reads state.tools for display

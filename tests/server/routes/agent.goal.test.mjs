@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   isGoalAction: (value) => ['confirm', 'pause', 'resume', 'extend_resume', 'cancel', 'revise', 'accept'].includes(value),
 }))
 
-vi.mock('../../../server/agent-goal-runner.mjs', () => ({
+vi.mock('../../../server/goal/engine.mjs', () => ({
   handleGoalAction: mocks.handleGoalAction,
   isGoalModeAvailable: mocks.isGoalModeAvailable,
 }))

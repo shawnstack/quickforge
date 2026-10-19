@@ -2,12 +2,16 @@ import type { AppStorage } from '@/storage'
 
 export const GOAL_SETTINGS_KEY = 'goal-settings'
 
-type GoalSettings = {
+export type GoalEngine = 'legacy' | 'v2'
+
+export type GoalSettings = {
   maxIterations: number
+  engine: GoalEngine
 }
 
 export const DEFAULT_GOAL_SETTINGS: GoalSettings = {
   maxIterations: 20,
+  engine: 'v2',
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -21,6 +25,7 @@ export function normalizeGoalSettings(value: unknown): GoalSettings {
   const settings = value as Partial<GoalSettings>
   return {
     maxIterations: clampNumber(settings.maxIterations, DEFAULT_GOAL_SETTINGS.maxIterations, 1, 100),
+    engine: settings.engine === 'legacy' ? 'legacy' : 'v2',
   }
 }
 

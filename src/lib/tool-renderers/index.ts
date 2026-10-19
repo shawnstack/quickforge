@@ -13,10 +13,12 @@ export {
   SubagentToolRenderer,
   renderSubagentRunSummary,
 } from './subagent-tool-renderer'
+export { WorkflowToolRenderer } from './workflow-tool-renderer'
 export { GenerateImageToolRenderer } from './generate-image-tool-renderer'
 export { AskUserToolRenderer, askUserReviewRowsFromDetails } from './ask-user-tool-renderer'
 export type { AskUserReviewRows } from './ask-user-tool-renderer'
 export { GoalReportToolRenderer } from './goal-report-tool-renderer'
+export { GoalToolRenderer } from './goal-tool-renderer'
 export { TodoWriteToolRenderer } from './todo-write-tool-renderer'
 export { McpToolRenderer, parseMcpToolName } from './mcp-tool-renderer'
 export { elapsedMsFromTiming, formatDuration } from './shared'

@@ -24,6 +24,26 @@ export type GoalStatus =
 
 export type GoalCriterionStatus = 'pending' | 'passed' | 'failed' | 'needs_review'
 
+/** Goal v2 durable phase. */
+export type GoalPhase = 'active' | 'paused' | 'blocked' | 'complete'
+/** Goal v2 process-local continuation authority. */
+export type GoalActivation = 'armed' | 'disarmed'
+/** Goal v2 derived run state (never persisted). */
+export type GoalRuntime = 'idle' | 'planning' | 'executing' | 'verifying' | 'waiting_approval' | 'waiting_input' | 'pausing'
+
+export type GoalBlocker = {
+  code: string
+  message: string
+  hint?: string
+}
+
+export type GoalPlan = {
+  criteria: GoalCriterion[]
+  scope: string[]
+  summary: string
+  submittedAt?: string
+}
+
 export type GoalCriterion = {
   id: string
   description: string
@@ -73,6 +93,16 @@ export type GoalState = {
   objective: string
   attachments?: GoalAttachment[]
   status: GoalStatus
+  /** Goal v2 durable phase. Present when the server uses the v2 engine. */
+  phase?: GoalPhase
+  /** Goal v2 process-local continuation authority. */
+  activation?: GoalActivation
+  /** Goal v2 derived run state. */
+  runtime?: GoalRuntime
+  plan?: GoalPlan | null
+  maxRounds?: number
+  roundsStarted?: number
+  blockerInfo?: GoalBlocker
   /** Server-owned plan consent; optional only for legacy callers/payloads. */
   planConfirmed?: boolean
   criteria: GoalCriterion[]
@@ -184,6 +214,24 @@ export function isGoalCriterionStatus(value: unknown): value is GoalCriterionSta
   return typeof value === 'string' && (GOAL_CRITERION_STATUSES as readonly string[]).includes(value)
 }
 
+function normalizePlan(value: unknown): GoalPlan | null {
+  if (!isRecord(value)) return null
+  const criteria = Array.isArray(value.criteria)
+    ? value.criteria.map(normalizeCriterion).filter((entry): entry is GoalCriterion => entry !== null)
+    : []
+  const scope = Array.isArray(value.scope)
+    ? value.scope.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : []
+  const summary = stringValue(value.summary)
+  if (!criteria.length && !scope.length && !summary) return null
+  return {
+    criteria,
+    scope,
+    summary,
+    ...(stringValue(value.submittedAt) ? { submittedAt: stringValue(value.submittedAt) } : {}),
+  }
+}
+
 function normalizeEvidence(value: unknown): GoalEvidence | null {
   if (!isRecord(value)) return null
   const id = stringValue(value.id)
@@ -215,33 +263,65 @@ export function normalizeGoalState(raw: unknown): (GoalState & { planConfirmed: 
   if (!id || !isGoalStatus(raw.status)) return null
   const budget = isRecord(raw.budget) ? raw.budget : {}
   const usage = isRecord(raw.usage) ? raw.usage : {}
-  const blocker = stringValue(raw.blocker)
+  const blockerRecord = isRecord(raw.blocker) ? raw.blocker : null
+  const blockerInfo = blockerRecord || isRecord(raw.blockerInfo)
+    ? {
+        code: stringValue(blockerRecord?.code ?? (isRecord(raw.blockerInfo) ? raw.blockerInfo.code : '')),
+        message: stringValue(blockerRecord?.message ?? (isRecord(raw.blockerInfo) ? raw.blockerInfo.message : '')),
+        ...(stringValue(blockerRecord?.hint ?? (isRecord(raw.blockerInfo) ? raw.blockerInfo.hint : ''))
+          ? { hint: stringValue(blockerRecord?.hint ?? (isRecord(raw.blockerInfo) ? raw.blockerInfo.hint : '')) }
+          : {}),
+      }
+    : undefined
+  const blocker = blockerRecord ? stringValue(blockerRecord.message) : stringValue(raw.blocker)
   const blockerHint = stringValue(raw.blockerHint)
   const humanAcceptedAt = stringValue(raw.humanAcceptedAt)
+  const phase = ['active', 'paused', 'blocked', 'complete'].includes(String(raw.phase))
+    ? raw.phase as GoalPhase
+    : undefined
+  const activation = ['armed', 'disarmed'].includes(String(raw.activation))
+    ? raw.activation as GoalActivation
+    : undefined
+  const runtime = ['idle', 'planning', 'executing', 'verifying', 'waiting_approval', 'waiting_input', 'pausing'].includes(String(raw.runtime))
+    ? raw.runtime as GoalRuntime
+    : undefined
+  const plan = normalizePlan(raw.plan)
+  const criteria = Array.isArray(raw.criteria)
+    ? raw.criteria.map(normalizeCriterion).filter((entry): entry is GoalCriterion => entry !== null)
+    : plan?.criteria ?? []
+  const scope = Array.isArray(raw.scope)
+    ? raw.scope.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : plan?.scope ?? []
+  const summary = stringValue(raw.summary) || plan?.summary || ''
+  const maxRounds = Math.max(0, Math.trunc(finiteNumber(raw.maxRounds ?? budget.maxIterations)))
+  const roundsStarted = Math.max(0, Math.trunc(finiteNumber(raw.roundsStarted ?? usage.iterations)))
   return {
     id,
     sessionId: stringValue(raw.sessionId),
     revision: Math.max(0, Math.trunc(finiteNumber(raw.revision))),
     objective: stringValue(raw.objective),
     status: raw.status,
+    ...(phase ? { phase } : {}),
+    ...(activation ? { activation } : {}),
+    ...(runtime ? { runtime } : {}),
+    ...(plan ? { plan } : {}),
+    ...(maxRounds ? { maxRounds } : {}),
+    ...(roundsStarted ? { roundsStarted } : {}),
+    ...(blockerInfo ? { blockerInfo } : {}),
     // Match server legacy restoration, never infer consent from an action click.
     planConfirmed: raw.status === 'planning' || raw.status === 'awaiting_confirmation'
       ? false
       : typeof raw.planConfirmed === 'boolean' ? raw.planConfirmed : finiteNumber(usage.iterations) > 0,
-    criteria: Array.isArray(raw.criteria)
-      ? raw.criteria.map(normalizeCriterion).filter((entry): entry is GoalCriterion => entry !== null)
-      : [],
-    scope: Array.isArray(raw.scope)
-      ? raw.scope.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-      : [],
-    summary: stringValue(raw.summary),
+    criteria,
+    scope,
+    summary,
     budget: {
-      maxIterations: Math.max(0, Math.trunc(finiteNumber(budget.maxIterations))),
+      maxIterations: maxRounds || Math.max(0, Math.trunc(finiteNumber(budget.maxIterations))),
       maxActiveDurationMs: typeof budget.maxActiveDurationMs === 'number' && Number.isFinite(budget.maxActiveDurationMs)
         ? Math.max(0, budget.maxActiveDurationMs) : null,
     },
     usage: {
-      iterations: Math.max(0, Math.trunc(finiteNumber(usage.iterations))),
+      iterations: roundsStarted,
       activeDurationMs: Math.max(0, finiteNumber(usage.activeDurationMs)),
     },
     evidence: Array.isArray(raw.evidence)
@@ -336,4 +416,41 @@ export function goalAcceptanceCheck(goal: GoalState): { ok: boolean; reason: str
 export function goalDurationMinutes(ms: number | null): number {
   if (ms === null || !Number.isFinite(ms) || ms <= 0) return 0
   return Math.max(1, Math.round(ms / 60_000))
+}
+
+// --- Goal v2 phase/activation helpers --------------------------------------
+
+export function isGoalV2(goal: GoalState | null | undefined): boolean {
+  return Boolean(goal?.phase)
+}
+
+export function isGoalV2Terminal(goal: GoalState): boolean {
+  return goal.phase === 'complete'
+}
+
+export function isGoalV2Active(goal: GoalState): boolean {
+  return goal.phase === 'active'
+}
+
+export function goalV2CanPause(goal: GoalState): boolean {
+  return goal.phase === 'active'
+}
+
+export function goalV2CanResume(goal: GoalState): boolean {
+  if (goal.phase === 'paused' || goal.phase === 'blocked') return true
+  return goal.phase === 'active' && goal.activation === 'disarmed'
+}
+
+export function goalV2CanClear(goal: GoalState): boolean {
+  return goal.phase !== 'complete'
+}
+
+export function goalV2CanEdit(goal: GoalState): boolean {
+  return goal.phase !== 'complete'
+}
+
+export function goalV2RoundsRemaining(goal: GoalState): number {
+  const max = goal.maxRounds ?? goal.budget.maxIterations ?? 0
+  const used = goal.roundsStarted ?? goal.usage.iterations ?? 0
+  return Math.max(0, max - used)
 }

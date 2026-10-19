@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../server/agent-session-events.mjs', () => ({
   emitSessionEvent: mocks.emitSessionEvent,
 }))
-vi.mock('../../server/agent-goal-runner.mjs', () => ({
+vi.mock('../../server/goal/engine.mjs', () => ({
   notifyGoalApprovalOutcome: mocks.notifyGoalApprovalOutcome,
   notifyGoalApprovalRequested: mocks.notifyGoalApprovalRequested,
   notifyGoalAskOutcome: mocks.notifyGoalAskOutcome,
@@ -190,6 +190,43 @@ describe('createApprovalPromise', () => {
     await expect(promise).rejects.toThrow('Run aborted')
     expect(pendingApprovals.size).toBe(0)
     expect(mocks.notifyGoalApprovalOutcome).toHaveBeenCalledWith(session, { outcome: 'aborted' })
+  })
+
+  it('rejects when a workflow step signal aborts while the session run stays active', async () => {
+    const sessionController = new AbortController()
+    const workflowController = new AbortController()
+    const session = makeSession({ agent: { signal: sessionController.signal } })
+    const promise = createApprovalPromise(
+      session,
+      'call-1',
+      'write_file',
+      {},
+      { type: 'subagent', workflowLabel: 'wf-1' },
+      { signal: workflowController.signal },
+    )
+    expect(pendingApprovals.size).toBe(1)
+
+    workflowController.abort()
+    await expect(promise).rejects.toThrow('Run aborted')
+    expect(pendingApprovals.size).toBe(0)
+    expect(mocks.notifyGoalApprovalOutcome).toHaveBeenCalledWith(session, { outcome: 'aborted' })
+  })
+
+  it('rejects immediately when the workflow step signal is already aborted', async () => {
+    const workflowController = new AbortController()
+    workflowController.abort()
+    const session = makeSession({ agent: { signal: new AbortController().signal } })
+
+    await expect(createApprovalPromise(
+      session,
+      'call-1',
+      'write_file',
+      {},
+      { type: 'subagent' },
+      { signal: workflowController.signal },
+    )).rejects.toThrow('Run aborted')
+    expect(pendingApprovals.size).toBe(0)
+    expect(mocks.emitSessionEvent).not.toHaveBeenCalled()
   })
 
   it('removes the abort listener once the approval is decided', async () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 
@@ -265,6 +265,118 @@ describe('agent manager subagent execution', () => {
         })
         expect(JSON.stringify(fields)).not.toContain('Inspect the workspace.')
       }
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('runs a workflow script through the real subagent lifecycle', async () => {
+    const workspaceRoot = path.join(tmpDir, 'workspace')
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('workflow-subagent-workspace', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runWorkflow = session.agent.state.tools.find((tool) => tool.name === 'run_workflow')
+      expect(runWorkflow).toBeTruthy()
+
+      const updates = []
+      const result = await runWorkflow.execute(
+        'workflow-call-1',
+        {
+          script: [
+            'phase("Research")',
+            'const a = await agent("first task", { label: "First" })',
+            'const b = await agent("second task", { label: "Second", profile: "explore" })',
+            'return { a, b }',
+          ].join('\n'),
+        },
+        new AbortController().signal,
+        (partialResult) => updates.push(partialResult),
+      )
+
+      expect(result.content[0].text).toContain('Workflow completed')
+      expect(result.content[0].text).toContain('"a": "mock subagent completed"')
+      expect(result.details).toMatchObject({
+        workflow: true,
+        status: 'done',
+        agentCount: 2,
+        failedAgentCount: 0,
+      })
+      expect(result.details.agents.map((agent) => agent.label)).toEqual(['First', 'Second'])
+      expect(result.details.agents.every((agent) => agent.status === 'done')).toBe(true)
+      expect(result.details.agents[0].subagentRun.messages.length).toBeGreaterThan(0)
+      expect(result.details.agents[0].subagentRun.tools.length).toBeGreaterThan(0)
+      expect(result.details.phases.map((phase) => phase.title)).toEqual(['Research'])
+      expect(updates.length).toBeGreaterThan(0)
+      expect(updates.some((update) => update.details.status === 'running')).toBe(true)
+      // One parent Agent plus one subagent Agent per workflow step.
+      expect(MockAgent.instances).toHaveLength(3)
+      // Workflow steps cannot recursively spawn workflows or subagents.
+      const subagentToolNames = MockAgent.instances.at(-1).state.tools.map((tool) => tool.name)
+      expect(subagentToolNames).not.toContain('run_workflow')
+      expect(subagentToolNames).not.toContain('run_subagent')
+    } finally {
+      await destroyAgent(session.sessionId)
+    }
+  })
+
+  it('runs tool() steps through the real workspace tool set', async () => {
+    const workspaceRoot = path.join(tmpDir, 'workspace-tools')
+    await mkdir(workspaceRoot, { recursive: true })
+    await writeFile(path.join(workspaceRoot, 'a.txt'), 'hello workflow tool', 'utf8')
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(workspaceRoot)
+
+    const { createAgent, destroyAgent } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('workflow-tool-workspace', {
+      scope: 'global',
+      model: { provider: 'mock', model: 'mock-model' },
+      systemPrompt: '',
+      idleRetention: 'always',
+    })
+
+    try {
+      const runWorkflow = session.agent.state.tools.find((tool) => tool.name === 'run_workflow')
+      const signal = new AbortController().signal
+      const result = await runWorkflow.execute(
+        'workflow-tool-call-1',
+        {
+          script: 'const text = await tool("read_file", { path: "a.txt" }, { label: "read a" }); return { text }',
+        },
+        signal,
+      )
+
+      expect(result.details).toMatchObject({ status: 'done', toolCount: 1, failedToolCount: 0 })
+      expect(result.details.tools[0]).toMatchObject({
+        name: 'read_file',
+        label: 'read a',
+        status: 'done',
+        args: { path: 'a.txt' },
+      })
+      expect(result.details.tools[0].resultPreview).toContain('hello workflow tool')
+      expect(result.content[0].text).toContain('hello workflow tool')
+
+      const blocked = await runWorkflow.execute(
+        'workflow-tool-call-2',
+        {
+          script: 'const out = await tool("run_command", { command: "echo hi", run_in_background: true }); return out',
+        },
+        signal,
+      )
+      expect(blocked.details.tools[0]).toMatchObject({
+        name: 'run_command',
+        status: 'error',
+      })
+      expect(blocked.details.tools[0].error).toContain('run_in_background')
+      expect(MockAgent.instances.every((agent) => !agent.state.isStreaming)).toBe(true)
     } finally {
       await destroyAgent(session.sessionId)
     }

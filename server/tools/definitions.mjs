@@ -30,7 +30,7 @@ const temporarySubagentSchema = Type.Object({
 export const subagentTool = {
   name: 'run_subagent',
   label: 'Run subagent',
-  description: 'Delegate a bounded task to an enabled temporary Agent Profile. Prefer explore for focused read-only repository discovery before implementation decisions, including locating files, searching source, tracing call chains, finding related tests/docs/wiki pages, and impact analysis. Use general for bounded complex multi-step implementation or broader independent work. Custom profiles can also be enabled as subagents. Subagents inherit the parent session MCP and Agent Skill tools only when the selected Profile explicitly allows them.',
+  description: 'Delegate a bounded task to an enabled temporary Agent Profile. Prefer explore for focused read-only repository discovery before implementation decisions, including locating files, searching source, tracing call chains, finding related tests/docs/wiki pages, and impact analysis. Use general for bounded complex multi-step implementation or broader independent work. Custom profiles can also be enabled as subagents. Subagents inherit the parent session MCP and Agent Skill tools only when the selected Profile explicitly allows them. Use run_workflow instead when one task needs several independent delegations or staged pipelines.',
   parameters: Type.Object({
     subagent: Type.Union([
       Type.String({ description: 'Agent Profile name to invoke.' }),
@@ -40,6 +40,34 @@ export const subagentTool = {
     context: Type.Optional(Type.String({ description: 'Relevant context from the parent conversation or current plan. Keep this focused.' })),
     expectedOutput: Type.Optional(Type.String({ description: 'Optional output requirements for the subagent result.' })),
   }),
+}
+
+export const workflowTool = {
+  name: 'run_workflow',
+  label: 'Run workflow',
+  description: `Orchestrate multiple subagents from a JavaScript script. Use for work that needs several independent delegations (fan-out research, one task per file or module, multi-stage pipelines); use run_subagent for one bounded delegation.
+
+The script is an async function body and must end with "return <JSON-serializable value>".
+Hooks:
+- agent(prompt, options?) -> that agent's final text, or null if it fails. options: label, phase, profile ("general" default, "explore" for read-only research, or an enabled custom Agent Profile), context, expectedOutput, schema (JSON Schema; returns a validated object instead of text), maxRuntimeMs, maxToolCalls, model.
+- tool(name, args?, options?) -> that workspace tool's text result, or null if it fails. options: label, phase. Use it for direct operations between agent steps (read_file, grep_files, write_file, edit_file, run_command, present_files, skills, MCP/plugin tools). ask_user, todo_write, memory, subagent and workflow tools are not available, and run_command run_in_background is rejected inside a workflow.
+- parallel(thunks) -> results in input order, run concurrently; a throwing thunk resolves null.
+- pipeline(items, ...stages) -> each item through stages independently, no barrier between items; stage(previousValue, item, index); a throwing stage drops that item to null and skips its remaining stages.
+- phase(title) -> start a named progress phase.
+- log(message) -> append progress text.
+- args -> the JSON value supplied in args.
+Rules: no filesystem, network, timers, console, process, require or other Node APIs; agents and tools do the work. Keep scripts deterministic and bounded (max 20 KB). Defaults: 24 agents max, 64 tool calls max, 4 concurrent, 1h total; options can lower them (maxAgents 1-64, maxTools 1-128, concurrency 1-8, maxRuntimeMs 1000-7200000). In default access mode the user approves this tool once before the script starts, steps run one at a time so each tool approval stays visible, and each agent/tool call keeps the normal approval policy; full access allows the configured concurrency.`,
+  parameters: Type.Object({
+    script: Type.String({ description: 'JavaScript async function body using the documented workflow hooks and ending with return <JSON-serializable value>.' }),
+    args: Type.Optional(Type.Any({ description: 'Optional JSON input exposed to the script as args.' })),
+    options: Type.Optional(Type.Object({
+      maxAgents: Type.Optional(Type.Number({ description: 'Maximum agent() calls for this run. Defaults to 24, capped at 64.' })),
+      maxTools: Type.Optional(Type.Number({ description: 'Maximum tool() calls for this run. Defaults to 64, capped at 128.' })),
+      concurrency: Type.Optional(Type.Number({ description: 'Maximum steps running concurrently. Defaults to 4, capped at 8.' })),
+      maxRuntimeMs: Type.Optional(Type.Number({ description: 'Overall workflow deadline in milliseconds. Defaults to 1 hour, capped at 2 hours.' })),
+    }, { additionalProperties: false })),
+  }, { additionalProperties: false }),
+  executionMode: 'sequential',
 }
 
 export const globalMemoryTool = {
@@ -133,6 +161,7 @@ export const goalReportTool = {
 
 export const workspaceTools = [
   subagentTool,
+  workflowTool,
   askUserTool,
   todoWriteTool,
   {

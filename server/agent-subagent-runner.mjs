@@ -302,18 +302,78 @@ function withSubagentWorkReport(base, report) {
  * afterToolCall 立即取走并删除；遗留条目仅按 TTL 兜底清理，防异常销毁泄漏。
  */
 export async function runSubagent(parentSession, toolCallId, params, parentSignal, onUpdate) {
-  const profile = await resolveSubagentProfile(parentSession, params?.subagent)
-  if (!profile || !profile.enabledAsSubagent) {
+  const definition = await resolveSubagentProfile(parentSession, params?.subagent)
+  if (!definition || !definition.enabledAsSubagent) {
     const error = new Error(`Unknown or disabled subagent: ${typeof params?.subagent === 'string' ? params.subagent : params?.subagent?.name || ''}`)
     error.statusCode = 400
     throw error
   }
-  const definition = profile
+  return executeSubagentRun(parentSession, toolCallId, definition, {
+    task: params?.task,
+    context: params?.context,
+    expectedOutput: params?.expectedOutput,
+  }, parentSignal, onUpdate)
+}
 
+/**
+ * run_workflow 的单步 Agent 执行入口：复用 run_subagent 的完整生命周期
+ * （工具集、审批、预算、超时、trace、部分成果回传），但按命名 Agent Profile
+ * 解析，并允许按步覆盖 label/模型/预算。definition 先浅拷贝再覆盖，避免修改
+ * getAgentProfile 返回的共享对象。
+ *
+ * 步骤失败以异常抛给 workflow runner；runner 捕获后把该 agent() 解析为 null，
+ * 由脚本自行决定是否继续。
+ */
+export async function runWorkflowSubagent(parentSession, toolCallId, params, parentSignal, onUpdate) {
+  if (parentSignal?.aborted) {
+    const error = new Error(`Subagent ${String(params?.profile || 'general')} aborted with its workflow before start.`)
+    error.statusCode = 409
+    throw error
+  }
+  const profileName = String(params?.profile || 'general').trim()
+  const resolved = await getAgentProfile(profileName, { workspaceRoot: parentSession.projectContext?.workspaceRoot })
+  if (!resolved || !resolved.enabledAsSubagent) {
+    const error = new Error(`Unknown or disabled subagent: ${profileName}`)
+    error.statusCode = 400
+    throw error
+  }
+  const definition = {
+    ...resolved,
+    allowedTools: Array.isArray(resolved.allowedTools) ? [...resolved.allowedTools] : [],
+  }
+  if (params?.model !== undefined) definition.model = validateModelReference(normalizeModelReference(params.model))
+  if (Number.isFinite(params?.maxRuntimeMs)) definition.maxRuntimeMs = params.maxRuntimeMs
+  if (Number.isFinite(params?.maxToolCalls)) definition.maxToolCalls = params.maxToolCalls
+  // Give the subagent the schema contract up front; post-validation alone often
+  // yields prose that cannot match it.
+  const schemaHint = params?.schema && typeof params.schema === 'object' && !Array.isArray(params.schema)
+    ? `Return only a JSON value that satisfies this JSON Schema:\n${JSON.stringify(params.schema)}`
+    : undefined
+  return executeSubagentRun(parentSession, toolCallId, definition, {
+    task: params?.prompt,
+    context: params?.context,
+    expectedOutput: params?.expectedOutput || schemaHint,
+  }, parentSignal, onUpdate, {
+    stepLabel: params?.label,
+    workflowLabel: params?.workflowLabel,
+    trace: false,
+    workReport: false,
+  })
+}
+
+async function executeSubagentRun(parentSession, toolCallId, definition, params, parentSignal, onUpdate, options = {}) {
   const task = String(params?.task || '').trim()
   if (!task) {
     const error = new Error('task is required')
     error.statusCode = 400
+    throw error
+  }
+  // A workflow deadline or parent abort can land during the async setup below
+  // (profile/model resolution, skill loading, MCP waits). Check again after
+  // setup so an already-cancelled step never starts a prompt.
+  if (parentSignal?.aborted) {
+    const error = new Error(`Subagent ${definition.name} aborted with parent run before start.`)
+    error.statusCode = 409
     throw error
   }
   if (!parentSession.projectContext?.workspaceRoot) {
@@ -402,6 +462,7 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
       {
         allowedToolNames: effectiveAllowedTools,
         includeSubagentTool: false,
+        includeWorkflowTool: false,
         includeMcpTools: definition.allowMcpTools === true,
         includePluginTools: false,
         includeSkillTools: definition.allowAgentSkills === true,
@@ -413,6 +474,11 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
       },
     )
     toolsForClient = tools.map(({ execute: _execute, prepareArguments: _prepareArguments, ...tool }) => tool)
+    if (parentSignal?.aborted) {
+      const error = new Error(`Subagent ${definition.name} aborted with parent run before start.`)
+      error.statusCode = 409
+      throw error
+    }
 
     const emitSubagentTrace = () => {
       if (traceTimer) {
@@ -421,11 +487,29 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
       }
       tracePending = false
       lastTraceAt = Date.now()
+      if (options.trace === false) {
+        // Workflow steps only need live counters: the workflow runner owns the
+        // visible progress payload, so skip building/copying the full trace.
+        onUpdate?.({
+          content: [],
+          details: {
+            subagent: definition.name,
+            label: definition.label,
+            ...(options.stepLabel ? { stepLabel: options.stepLabel } : {}),
+            ...(options.workflowLabel ? { workflowLabel: options.workflowLabel } : {}),
+            toolCalls,
+            durationMs: Date.now() - startedAt,
+          },
+        })
+        return
+      }
       onUpdate?.({
         content: [],
         details: {
           subagent: definition.name,
           label: definition.label,
+          ...(options.stepLabel ? { stepLabel: options.stepLabel } : {}),
+          ...(options.workflowLabel ? { workflowLabel: options.workflowLabel } : {}),
           sessionId: subagentSessionId,
           parentSessionId: parentSession.sessionId,
           toolCalls,
@@ -464,6 +548,8 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
     const buildTerminalSubagentDetails = (extra) => ({
       subagent: definition.name,
       label: definition.label,
+      ...(options.stepLabel ? { stepLabel: options.stepLabel } : {}),
+      ...(options.workflowLabel ? { workflowLabel: options.workflowLabel } : {}),
       sessionId: subagentSessionId,
       parentSessionId: parentSession.sessionId,
       toolCallId,
@@ -530,8 +616,14 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
           return createApprovalPromise(parentSession, context.toolCall?.id, toolName, context.args, {
             type: 'subagent',
             subagent: definition.name,
-            label: definition.label,
+            label: options.stepLabel ? `${definition.label} · ${options.stepLabel}` : definition.label,
+            ...(options.workflowLabel ? { workflowLabel: options.workflowLabel } : {}),
             sessionId: subagentSessionId,
+          }, {
+            // A workflow timeout/parent abort must also reject a pending tool
+            // approval; the parent session signal alone would leave it waiting
+            // for the 5-minute approval timeout.
+            signal: subagent.signal || parentSignal,
           })
         }
         return undefined
@@ -567,6 +659,7 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
       subagent.abort()
     }
     parentSignal?.addEventListener?.('abort', onParentAbort, { once: true })
+    if (parentSignal?.aborted) onParentAbort()
 
     try {
       let promptOutcome = 'resolved'
@@ -595,12 +688,14 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
         includePending: false,
       })
       if (timedOut) {
-        const timeoutError = new Error(withSubagentWorkReport(buildSubagentTimeoutErrorMessage(definition.name, timeoutMs, terminalProgress), terminalWorkReport('before timeout')))
+        const timeoutMessage = buildSubagentTimeoutErrorMessage(definition.name, timeoutMs, terminalProgress)
+        const timeoutError = new Error(options.workReport === false ? timeoutMessage : withSubagentWorkReport(timeoutMessage, terminalWorkReport('before timeout')))
         timeoutError.quickforgeSubagentDetails = buildTerminalSubagentDetails({ timedOut: true })
         throw timeoutError
       }
       if (parentSignal?.aborted) {
-        const abortedError = new Error(withSubagentWorkReport(buildSubagentAbortedErrorMessage(definition.name, terminalProgress), terminalWorkReport('before abort')))
+        const abortedMessage = buildSubagentAbortedErrorMessage(definition.name, terminalProgress)
+        const abortedError = new Error(options.workReport === false ? abortedMessage : withSubagentWorkReport(abortedMessage, terminalWorkReport('before abort')))
         abortedError.quickforgeSubagentDetails = buildTerminalSubagentDetails({ aborted: true })
         throw abortedError
       }
@@ -618,10 +713,12 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
       })
       logTerminalLifecycle('info', 'completed')
       return {
-        content: withSubagentWorkReport(content, workReport),
+        content: options.workReport === false ? content : withSubagentWorkReport(content, workReport),
         details: {
           subagent: definition.name,
           label: definition.label,
+          ...(options.stepLabel ? { stepLabel: options.stepLabel } : {}),
+          ...(options.workflowLabel ? { workflowLabel: options.workflowLabel } : {}),
           sessionId: subagentSessionId,
           parentSessionId: parentSession.sessionId,
           toolCalls,
@@ -647,7 +744,7 @@ export async function runSubagent(parentSession, toolCallId, params, parentSigna
       // 标记，状态由 isError 驱动。
       if (error && typeof error === 'object' && !error.quickforgeSubagentDetails) {
         error.quickforgeSubagentDetails = buildTerminalSubagentDetails({})
-        if (typeof error.message === 'string') {
+        if (typeof error.message === 'string' && options.workReport !== false) {
           error.message = withSubagentWorkReport(error.message, buildSubagentWorkReport({
             name: definition.name,
             messages: latestMessages,

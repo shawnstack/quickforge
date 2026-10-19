@@ -1,3 +1,40 @@
+## goal-tool-card-display（done，2026-10-19）
+
+- Goal：把 `get_goal`、`create_goal`、`update_goal` 从带边框的默认工具卡改为与 `goal_report` 一致的无边框只读折叠卡片。
+- 实现：新增 `src/lib/goal-tool-history.ts` 与 `src/lib/tool-renderers/goal-tool-renderer.tsx`；`local-tools.ts` 导入时注册三个工具。摘要显示读取/创建/更新、动作、phase 和目标；展开显示目标、阶段、activation、轮次和阻塞原因。完整 JSON 仅详细模式可见。
+- 边界：不改变 Goal 工具行为、权限、状态机或服务端返回结构，也不改 Goal 条带和 Inspector。卡片不提供操作按钮。
+- 字号：展开结果复用 goal report 容器，但 `.quickforge-goal-tool` 单独使用消息字号 ×0.8，与普通工具正文一致；`goal_report` 保持完整消息字号。
+- 验证：`npx vitest run tests/frontend/goal-tool-renderer.test.ts` 11 passed；定向 eslint exit 0；`npx tsc -b --pretty false` exit 0。
+- Notes：未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。运行中的前端需刷新后才会加载新卡片。
+
+---
+
+## goal-v2-event-sourced（done，2026-10-19）
+
+- Goal：按 DSH 式持久状态骨架完整实施 Goal v2，同时保留 QuickForge 的只读规划、criteria、工具证据与服务端完成门禁；新目标默认 v2，旧 13 状态会话保留 legacy 引擎。
+- 服务端：新增 `server/goal/{state,store,service,errors,prompts,report-tool,tools,authority,runner,engine}.mjs`。4 个持久 phase + 进程本地 armed/disarmed + 派生 runtime；`goal/change` 事件日志严格 fold 与 tombstone；全量 `{id,revision}` CAS；规划轮不占 execution round；`goal_report complete` 只写 `pendingCompletion`/`verifying`，runner 在正常轮末持久化后提交 `complete`；`get_goal`/`create_goal`/`update_goal` 对 v2 会话常驻，模型可从直接人类轮次自动创建/编辑/暂停/恢复（`server/goal/authority.mjs`），goal 轮完成仍走 `goal_report` 证据，直接人类可用 `update_goal complete` 强制完成。`agent-manager` 改注入 `goal/engine` 并 `await beginGoalRun`；`agent-persistence` 持久化 `goalEvents`/`goalEngine`；restore 保留 v2 active+disarmed，旧快照 `migrateLegacyGoal` 转换（failed/cancelled → tombstone）。
+- 命令与设置：`/goal` 支持裸状态、`edit/pause/resume/clear`；动作命令不产生模型轮次。`goal-settings` 增加 `engine`（默认 v2），设置·常规页新增「Goal 引擎」选择；`QUICKFORGE_GOAL_ENGINE` 可覆盖。`tests/setup-goal-engine.mjs` 让历史测试默认 legacy，v2 专项测试显式 `goalEngine:'v2'`。
+- 前端：`src/lib/goal.ts` 增加 `phase/activation/runtime/plan/maxRounds/roundsStarted/blockerInfo` 归一化与 v2 helpers；`goal-control-strip.ts` 对 v2 显示 phase/轮次与目标第二行、active+disarmed 显示“已中断”、complete 隐藏；`goal-card.ts` 与 Inspector/Summary 复用 v2 投影；i18n 中英新增 phase 文案；设置页与 normalizer 同步 engine。
+- 验证：`npm run test` 388 文件 4672 passed / 2 skipped；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` exit 0。定向：v2 state/store/service 24 passed、v2 manager 6 passed（规划→执行、证据完成屏障、执行轮 update_goal complete、模型直接人类创建 goal、pause/resume/clear、重启 active+disarmed、active-disarmed resume）、legacy goal 7 文件 211 passed。
+- Notes：未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。v2 的 `failed/cancelled` 不再作为 phase，由 tombstone `lastRun.outcome` 表达；legacy 代码保留用于旧快照与设置回退。测试目录 `tests/setup-goal-engine.mjs` 默认 legacy 以保留历史契约。
+
+---
+
+## run-workflow-scripted-orchestration（done，2026-10-19）
+
+- Goal：按用户要求以 workflow 模式为 QuickForge 增加接近 DSH workflow 的脚本化多 Agent 编排能力（`run_workflow`），并完成测试、文档与全量验证。
+- 服务端新增：`server/agent-workflow-runner.mjs`（参数/预算校验、worker 生命周期、resourceLimits、总 deadline、父 signal 传播、有界 Agent 队列、agent 失败降级 `null`、TypeBox `Value.Check` JSON Schema 校验、details 构建与 100KB 文本裁剪、失败/超时/中止时 queued/running Agent 统一标记 `aborted`、已完成 Agent 摘要附加到错误正文）；`server/agent-workflow-worker.mjs`（worker_threads + vm guest bridge：hooks 在 guest 内创建，`args` 以 JSON 字符串进入并在 guest 内解析/深冻结，唯一 host 函数 `__hostCall` 为 null-prototype 且在用户脚本编译前删除，host 回复只以 JSON 字符串经 guest pump 投递；`console` 置空、`codeGeneration.strings/wasm` 关闭、同步段 10s、结果 `structuredClone` + `JSON.stringify` ≤1MB）。
+- 复用与接线：`agent-subagent-runner.mjs` 新增 `runWorkflowSubagent`（命名 Profile、按步覆盖 model/预算、schema hint、trace/workReport 关闭）并抽取 `executeSubagentRun`，补 setup 期 abort 检查与审批 signal 绑定；`agent-manager.mjs` 增加 `wrapWorkflowToolDefinition`、`includeWorkflowTool`（Subagent/Profile 关闭）、默认权限审批分支、`afterToolCall` 注入失败 details；`tools/definitions.mjs` 增加 `workflowTool`；`approval-store.mjs` 纳入 `/plan` 与 `allowSubagents:false` 限制；`routes/tools.mjs` 禁止直接 REST；`system-prompt.mjs` 增加使用引导。
+- 默认行为与安全：默认权限下启动前展示**完整脚本**（脚本上限 20KB）并审批一次，`effectiveConcurrency=1` 串行执行，避免前端单槽位审批卡被并发覆盖；完全访问才使用配置并发。风险说明明确“以服务进程权限运行本地 JavaScript”；worker 隔离仍是可终止性/纵深防御，不是 OS 沙箱，审批是信任边界。工作流 step 的 pending 审批额外监听步骤 signal，超时/中止立即 reject，不再等 5 分钟审批超时。
+- 前端：新增 `src/lib/workflow-run-detail.ts`（状态/阶段/Agent/日志/计数/当前阶段/i18n key）、`workflow-tool-renderer.tsx`（摘要行 + 跑马灯 + 阶段分组 + 可点击步骤行 + 结果/脚本/错误 + preparing/无 details 终态错误回退）、注册/图标/标题刷新；i18n 中英 32 键；`index.css` 增加 `quickforge-workflow-*`（正文跟随消息字号、Agent 结果 6rem/结果 16rem 内滚、运行点动画 reduced-motion 关闭）；approval-card 增加 `runWorkflow` 标签、workflow 来源本地化徽标与风险说明。视图状态先判 `aborted` 再判 `result.isError`，用户停止不再显示为失败。
+- 审查修复（workflow 模式的只读审查发现）：guest bridge 阻断 `agent.constructor` / `args.constructor` 等 host 原型逃逸（测试覆盖）；审批展示完整脚本而非 4000 字符预览；默认权限串行避免并发审批互相覆盖；超时/中止/孤儿 Agent 不再残留 `running`；setup 期 abort 与审批 signal 中止；无 details 的终态错误不再永久显示“正在准备”；details 总文本 100KB 裁剪；CSS 字号选择器修正；`schema:false` 与 schema hint；worker resourceLimits。
+- 迭代②（tool() 工具步骤 + QuickForge 交互适配，2026-10-19）：新增 `server/agent-workflow-tools.mjs`，`tool(name, args?, options?)` 复用 `createServerTools` 的会话工具集（排除 subagent/workflow/ask_user/todo/memory/goal_report）、命令权限与 workspace 沙箱，默认权限下按 `safeReadTools`/Skill 免审批、其余走 `createApprovalPromise`（source `workflow-tool`，监听步骤 signal），写入归因父会话；拒绝 `run_command run_in_background`。Runner 将 Agent 与工具合并到同一有界步骤队列（`activeSteps`），新增 `maxTools`（默认 64/上限 128）、`toolCount`/`failedToolCount`/`tools` details 与 `seq` 提交序号；worker 新增 `tool` 协议与 guest hook；前端 `workflow-run-detail.ts` 归一工具、按 `seq` 交错 Agent/工具，`workflow-tool-renderer.tsx` 新增可点击步骤行：每个 Agent/工具行是独立 `<details>`（默认收起，点击摘要展开任务/参数与结果，chevron 旋转；run_command 结果用控制台块、其余用代码块），摘要行含工具图标/本地化名称/`summarizeParams`/状态/耗时；参数 JSON/脚本/原始 details 只在详细模式显示。CSS 适配 QuickForge 工具摘要交互（单行横滑/隐藏滚动条/H5 touch、消息字号、running sweep、aria-busy、focus-visible、reduced-motion），i18n 新增工具计数/参数/结果/任务键（中英共 32 键），审批卡 `workflow-tool` 显示 Workflow 徽标。`run_workflow` 与 `run_subagent` 一样不进入 process-folding 工具摘要组，保持顶层可点击卡片；新增 `workflow-step-interaction.test.ts` 用真实 React DOM 验证外层/步骤两级展开互不干扰。Agent 行新增 external-link 入口与展开体「查看运行详情」按钮，经 `workflow-subagent-detail.ts` 构建 `SubagentRunPayload` 并派发 `OPEN_SUBAGENT_RUN_EVENT`，进入 Workspace Inspector 的 Subagent 运行详情；runner 在 Agent 完成/失败时持久化有界 `subagentRun`（最近 40 条消息、tools、allowedTools、model/thinkingLevel，单 Agent≈6KB，超限标记 `subagentRunDropped`）。
+- 文档：新增 `docs/architecture/workflow-orchestration.zh-CN.md`（背景、架构、hooks、限制、失败语义、安全模型、details/UI、测试清单），同步 `docs/wiki/README.md`、`server/README.md`、`server/tools/README.md`、`src/lib/README.md`、`src/components/README.md` 与根 `README.md`。
+- 验证：本 feature 定向 9 文件 174 passed（workflow runner 26、approval orchestrator 23、subagent 集成 18（含真实 `tool("read_file")` 与 `run_in_background` 拒绝）、approval-store 16、definitions 22、workflow-renderer 13、approval-card 7、process-folding 48、workflow-step-interaction 1）；`npx tsc -b` 通过；`npm run lint` exit 0（仅既有 GitToolsPinnedSummary warning）；`npm run build` exit 0（既有 externalized/大 chunk warning）；`npm run test` 全量 388 文件 4675 passed / 2 skipped（exit 0，含同工作区已收敛的 Goal v2 改动）。
+- Notes：未提交 Git。未手工修改 `dist/`、`package-dist/`、`package-offline/`（build 仅正常重生成 `dist/`）。工作区既有未跟踪临时文件 `0`、`m[1])`、`new`、`{try{require.resolve('jsdom')` 未纳入。默认权限串行是产品取舍：并发审批需要前端多槽位队列，留作后续；完全访问不受影响。同一工作区存在并行 Goal v2/scheduled 改动（`server/goal/**`、`src/lib/goal.ts`、`goal-control-strip.ts`、`server/goal-settings.mjs`、`server/routes/scheduled-tasks.mjs` 等）；该并行改动已收敛，全量 4675 passed，本 feature 未触碰其文件。
+
+---
+
 ## dead-code-cleanup-round3（done，2026-10-16）
 
 - 目标：按死代码评审清理高置信度 A 区僵尸代码。

@@ -34,6 +34,7 @@ QuickForge 将 AI 对话、项目上下文、本地工具、代码审查、Git�
 - **完成真实代码任务**：在工作区内读取、搜索、创建和精确编辑文件，并运行 lint、test、build 等命令。
 - **随时检查改动**：在应用内查看文件、Markdown、Mermaid、HTML/SVG/图片预览、Git Diff 和工作区变更。
 - **沉淀可复用流程**：通过 Agent Profiles、Subagent、Skills 和自定义命令复用团队规范与操作步骤。
+- **并行委派与分阶段编排**：当一项工作需要多个独立调研/实现或分阶段流水线时，可用 `run_workflow` 脚本编排多个 Subagent，并统一查看阶段、Agent 状态与结果。
 - **连接更多能力**：使用 MCP、插件、ACP 和定时任务，把 AI 接入外部工具与自动化流程。
 
 ```mermaid
@@ -175,6 +176,7 @@ API Key:        本地模型或部分代理服务可留空
 - 内置 `explore` 与 `general` Agent Profiles
 - 自定义 Agent 的系统提示词、模型、思考等级、工具白名单和运行预算
 - 将边界清晰的任务委托给 Subagent
+- 用 `run_workflow` 脚本编排多个 Subagent 与工作区工具（`agent()` / `tool()`、fan-out、分阶段 pipeline）；Agent 步骤可点击进入 Subagent 运行详情面板。脚本 ≤20KB，默认 24 个 Agent / 64 次工具调用 / 4 并发 / 1 小时上限，默认权限下启动前展示完整脚本并审批一次、步骤串行执行以保证审批可见，每个 Agent 与工具调用仍按会话策略审批
 - 加载 Claude、opencode、共享目录及 QuickForge 格式的 Skills
 - 用户级、项目级和插件级自定义命令
 

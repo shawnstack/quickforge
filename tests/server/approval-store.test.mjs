@@ -28,6 +28,7 @@ describe('approval store constants', () => {
       'manage_global_memory',
       'run_command',
       'run_subagent',
+      'run_workflow',
       'write_file',
     ])
     // Free-tier read tools must never appear in the restricted set.
@@ -182,6 +183,24 @@ describe('commandToolPermissionError', () => {
       { ...base, activeCommandPermissions: {} },
       'run_subagent',
     )).toBeNull()
+  })
+
+  it('blocks run_workflow only when allowSubagents is explicitly false', () => {
+    const base = { sessionId: 's1', activeCommandName: 'review' }
+    expect(commandToolPermissionError(
+      { ...base, activeCommandPermissions: { allowSubagents: false } },
+      'run_workflow',
+    )).toBe('Command /review does not allow running workflows.')
+    expect(commandToolPermissionError(
+      { ...base, activeCommandPermissions: {} },
+      'run_workflow',
+    )).toBeNull()
+  })
+
+  it('blocks run_workflow under the read-only /plan whitelist', () => {
+    const session = { sessionId: 's1', activeCommandName: 'plan', activeCommandPermissions: {} }
+    expect(commandToolPermissionError(session, 'run_workflow'))
+      .toBe('Command /plan is read-only and cannot use run_workflow.')
   })
 
   it('blocks file edits and global-memory edits only when allowEdit is explicitly false', () => {

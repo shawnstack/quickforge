@@ -2,10 +2,16 @@ import { t, type AppTextKey } from '@/lib/i18n'
 import {
   goalCanCancel,
   goalBudgetExtension,
+  goalV2CanPause,
+  goalV2CanResume,
   isGoalActive,
   isGoalSpinning,
   isGoalTerminal,
+  isGoalV2,
   type GoalAction,
+  type GoalActivation,
+  type GoalPhase,
+  type GoalRuntime,
   type GoalState,
   type GoalStatus,
 } from '@/lib/goal'
@@ -78,6 +84,12 @@ export type GoalControlStripView = {
   statusKey: AppTextKey
   tone: GoalCardTone
   spinning: boolean
+  /** Goal v2 phase/activation/runtime, when the server uses the v2 engine. */
+  phase?: GoalPhase
+  activation?: GoalActivation
+  runtime?: GoalRuntime
+  roundText?: string
+  objective?: string
   /**
    * The single primary action the strip may offer:
    * - `pause` while running/verifying (and the already-`pausing` state, shown
@@ -115,6 +127,60 @@ function toneForStatus(status: GoalStatus): GoalCardTone {
   return 'active'
 }
 
+const V2_STATUS_KEY: Record<GoalPhase, AppTextKey> = {
+  active: 'goalPhaseActive',
+  paused: 'goalPhasePaused',
+  blocked: 'goalPhaseBlocked',
+  complete: 'goalPhaseComplete',
+}
+
+function v2StatusKey(goal: GoalState): AppTextKey {
+  if (goal.phase === 'active' && goal.activation === 'disarmed') return 'goalPhaseInterrupted'
+  if (goal.phase === 'active') {
+    if (goal.runtime === 'planning') return 'goalPhasePlanning'
+    if (goal.runtime === 'verifying') return 'goalPhaseVerifying'
+    if (goal.runtime === 'waiting_approval') return 'goalPhaseWaitingApproval'
+    if (goal.runtime === 'waiting_input') return 'goalPhaseWaitingInput'
+    if (goal.runtime === 'pausing') return 'goalPhasePausing'
+  }
+  return V2_STATUS_KEY[goal.phase ?? 'active']
+}
+
+function v2Tone(goal: GoalState): GoalCardTone {
+  if (goal.phase === 'complete') return 'success'
+  if (goal.phase === 'blocked') return 'warning'
+  if (goal.phase === 'paused') return 'info'
+  if (goal.phase === 'active' && goal.activation === 'disarmed') return 'warning'
+  return 'active'
+}
+
+function v2PrimaryAction(goal: GoalState): GoalControlStripView['primaryAction'] {
+  if (goal.phase === 'active' && goal.activation !== 'disarmed') return goalV2CanPause(goal) ? 'pause' : 'none'
+  if (goalV2CanResume(goal)) return 'resume'
+  return 'none'
+}
+
+function buildGoalControlStripViewV2(goal: GoalState): GoalControlStripView | null {
+  if (goal.phase === 'complete') return null
+  const maxRounds = goal.maxRounds ?? goal.budget.maxIterations
+  const roundsStarted = goal.roundsStarted ?? goal.usage.iterations
+  return {
+    id: goal.id,
+    revision: goal.revision,
+    status: goal.status,
+    statusKey: v2StatusKey(goal),
+    tone: v2Tone(goal),
+    spinning: goal.runtime === 'executing' || goal.runtime === 'verifying' || goal.runtime === 'waiting_approval' || goal.runtime === 'waiting_input' || goal.runtime === 'pausing',
+    phase: goal.phase,
+    activation: goal.activation,
+    runtime: goal.runtime,
+    roundText: maxRounds > 0 ? `${roundsStarted}/${maxRounds}` : undefined,
+    objective: goal.objective,
+    primaryAction: v2PrimaryAction(goal),
+    budgetExhausted: goalBudgetExtension(goal).exhausted,
+  }
+}
+
 function primaryActionForStatus(status: GoalStatus): GoalControlStripView['primaryAction'] {
   if (status === 'running' || status === 'verifying' || status === 'pausing') return 'pause'
   if (status === 'paused') return 'resume'
@@ -128,6 +194,7 @@ function primaryActionForStatus(status: GoalStatus): GoalControlStripView['prima
  * full record).
  */
 export function buildGoalControlStripView(goal: GoalState): GoalControlStripView | null {
+  if (isGoalV2(goal)) return buildGoalControlStripViewV2(goal)
   if (isGoalTerminal(goal.status)) return null
   return {
     id: goal.id,
@@ -179,6 +246,7 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
     spacer: HTMLElement
     open: HTMLButtonElement
     duration: HTMLElement
+    objective: HTMLElement
     cancel: HTMLButtonElement
     confirm: HTMLButtonElement
     keep: HTMLButtonElement
@@ -391,6 +459,9 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
 
     const duration = document.createElement('span')
     duration.className = 'quickforge-goal-strip-duration'
+    const objective = document.createElement('span')
+    objective.className = 'quickforge-goal-strip-objective'
+    objective.hidden = true
     const cancel = document.createElement('button')
     const confirm = document.createElement('button')
     const keep = document.createElement('button')
@@ -423,7 +494,7 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
         if (nodes) nodes.open.focus()
       })
     })
-    nodes = { icon, label, error, spacer, open, duration, cancel, confirm, keep, cancelNote }
+    nodes = { icon, label, error, spacer, open, duration, objective, cancel, confirm, keep, cancelNote }
     host.append(icon, label, duration, spacer, cancel, open)
     return nodes
   }
@@ -455,12 +526,21 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
     const strip = ensureNodes()
     const host = root
     if (!host || !strip) return
-    const { icon, label, error, spacer, open, duration, cancel, confirm, keep, cancelNote } = strip
+    const { icon, label, error, spacer, open, duration, objective, cancel, confirm, keep, cancelNote } = strip
     if (renderedSession !== sessionId || renderedGoal !== view.id) cancelConfirmation = false
     // A fresh paint implies a fresh server snapshot (see renderCurrent): the
     // ticker adds elapsed time on top of this value.
     const activeDurationMs = getGoal()?.usage.activeDurationMs ?? 0
     duration.textContent = formatRecordedDuration(activeDurationMs)
+    if (view.objective) {
+      objective.hidden = false
+      if (objective.textContent !== view.objective) objective.textContent = view.objective
+      objective.title = view.objective
+    } else {
+      objective.hidden = true
+      objective.textContent = ''
+      objective.title = ''
+    }
     cancel.disabled = ui.pending || !goalCanCancel(view.status)
     confirm.disabled = ui.pending
     keep.disabled = ui.pending
@@ -470,6 +550,10 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
 
     host.dataset.status = view.status
     host.dataset.tone = view.tone
+    if (view.phase) host.dataset.phase = view.phase
+    else delete host.dataset.phase
+    if (view.activation) host.dataset.activation = view.activation
+    else delete host.dataset.activation
     host.dataset.pending = String(ui.pending)
     host.dataset.dirty = String(ui.dirty)
 
@@ -482,7 +566,7 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
 
     // Assign only on an actual change: rewriting the same string still makes
     // some screen readers re-announce the live region.
-    const statusText = t(view.statusKey)
+    const statusText = view.roundText ? `${t(view.statusKey)} · ${view.roundText}` : t(view.statusKey)
     if (label.textContent !== statusText) label.textContent = statusText
 
     if (ui.error) {
@@ -534,6 +618,8 @@ export function createGoalControlStripController(deps: GoalControlStripDeps): Go
       confirm.remove(); keep.remove(); cancelNote.remove()
     }
     desired.push(open)
+    if (view.objective) desired.push(objective)
+    else objective.remove()
     for (let index = 0; index < desired.length; index++) {
       const current = host.children[index] ?? null
       if (current !== desired[index]) host.insertBefore(desired[index], current)

@@ -52,11 +52,15 @@ server/
 ├── agent-prompt-commands.mjs # 斜杠命令状态解析与命令 prompt 模板
 ├── agent-approval-orchestrator.mjs # 审批 / ask_user / ACP / 自动压缩审批 Promise 编排
 ├── agent-subagent-runner.mjs # run_subagent 生命周期与 SUBAGENT_* 常量
+├── agent-workflow-runner.mjs # run_workflow 主进程编排（worker 生命周期 / Agent+工具有界队列 / 超时与 abort / details）
+├── agent-workflow-worker.mjs # run_workflow 脚本 worker（vm 上下文 / hooks / worker 协议）
+├── agent-workflow-tools.mjs  # run_workflow tool() 执行入口（会话工具集 / 审批 / workspace 归因）
 ├── agent-persistence.mjs     # 会话持久化（CAS 权威快照 / debounce / 降级标记）
-├── agent-goal-state.mjs      # Goal 模式纯状态模型（状态机 / 预算 / 证据与验收校验 / 恢复映射）
-├── agent-goal-runner.mjs     # Goal 模式 runner（会话绑定有限轮执行 / 会话内单活跃 goal 串行 + 多会话并行 / 用户动作 / goal_report）
+├── agent-goal-state.mjs      # Legacy Goal 纯状态模型（13 状态 / 预算 / 证据与验收校验 / 恢复映射）
+├── agent-goal-runner.mjs     # Legacy Goal runner（会话绑定有限轮执行 / 用户动作 / goal_report）
+├── goal/                     # Goal v2：state/store/service/policy-free driver/prompts/report-tool/tools/engine
 ├── goal-command-messages.mjs # /goal 命令错误文案按 settings.language 本地化（fail-open 英文）
-├── goal-settings.mjs         # Goal 默认预算设置（settings 键 goal-settings，clamp 1–100）
+├── goal-settings.mjs         # Goal 默认预算与引擎设置（settings 键 goal-settings；maxIterations clamp 1–100，engine legacy/v2）
 ├── session-file-backups.mjs  # 会话级文件影子备份（变更摘要 / 安全回滚 / 轮级回滚）
 ├── auto-archive.mjs          # 超过 30 天未更新对话的自动归档 runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
@@ -161,6 +165,36 @@ server/
 - 会话活动跟踪（`touchSession`）
 - Agent 销毁和资源清理
 
+### run_workflow 编排（agent-workflow-runner.mjs / agent-workflow-worker.mjs / agent-workflow-tools.mjs）
+
+**用途**: 主会话用一段模型编写的 JavaScript 脚本编排多个 Subagent 与工作区工具。`run_workflow` 只负责编排、预算与可观察性，不新增第二套 Agent/工具执行器；`agent()` 回到 `run_subagent` 的生命周期，`tool()` 复用主 Agent 的工具定义与审批。完整契约见 [工作流编排架构](../../architecture/workflow-orchestration.zh-CN.md)。
+
+- **工具定义与包装**：`server/tools/definitions.mjs` 的 `workflowTool` 定义 `script` / `args` / `options`，标记 `executionMode: 'sequential'`。它没有 `tools/index.mjs` handler，由 `agent-manager.mjs` 的 `wrapWorkflowToolDefinition` 绑定会话后调用 `runWorkflow()`；失败时 Error 携带 `quickforgeWorkflowDetails`，包装层按 toolCallId 暂存，`afterToolCall` 再注入错误 `toolResult.details`，因此失败前的 phases/agents/logs 仍可持久化与展示。
+- **worker 生命周期**：`runWorkflow()` 先校验 workspace/model/script/args/options，再用 `new Worker(new URL('./agent-workflow-worker.mjs', import.meta.url), { workerData: { script, args } })` 创建 worker；监听 `message` / `error` / `exit`。任一终态都会清定时器、终止 worker 并移除监听；`error` 或非预期 `exit` 按 `WORKFLOW_FAILED` 失败。
+- **vm context 与 guest bridge**：worker 把脚本包装为 `(async () => { ... })()` 后用 `vm.Script` 在独立 context 中执行。hooks 由 bridge 在 guest 内创建；`args` 以 JSON 字符串进入并在 guest 内解析、深冻结；唯一 host 函数 `__hostCall` 为 null-prototype 且在用户脚本编译前删除，host 回复只以 JSON 字符串经 guest pump 投递，因此 host 对象不进入脚本作用域（测试覆盖 `agent.constructor` / `args.constructor` 等逃逸均为 blocked）。`console` 为 `undefined`，`codeGeneration.strings/wasm` 关闭，同步执行段限时 10 秒，worker 设 `resourceLimits`。没有 `process`、`require`、`fetch`、定时器等 Node globals；文件、网络、命令等副作用只能由 Agent 的工具完成。该隔离不是 OS 级安全沙箱，审批仍是信任边界。
+- **worker 协议**：worker → 主进程为 `{type:'agent',requestId,prompt,options}` / `{type:'tool',requestId,name,args,options}` / `{type:'phase',title,at}` / `{type:'log',message,phase,at}` / `{type:'done',result}` / `{type:'error',error}`；主进程 → worker 为 `{type:'agent-result',requestId,ok,hasValue?,value?,text?,content?,error?}`。`hasValue:true` 表示返回的是 JSON Schema 校验后的对象，否则为文本；`ok:false` 时脚本侧 `agent()`/`tool()` 解析为 `null`。
+- **有界队列**：`runWorkflow()` 维护 `queue` 与 `activeSteps`，按 `maxAgents`（默认 24、上限 64）与 `maxTools`（默认 64、上限 128）分别登记 Agent/工具，按 `effectiveConcurrency` 出队：默认权限下固定为 1（前端只有单个 pending approval 槽位，避免并发审批互相覆盖），完全访问下使用 `concurrency`（默认 4、上限 8）。达到预算后新的 `agent()`/`tool()` 返回 `null` 并追加 error 日志；超出并发的步骤排队；单步状态为 `queued → running → done/error/aborted`，阶段由 `phase()`、步骤的 `phase` 选项或缺失时的当前阶段确定。
+- **复用 subagent 生命周期**：`agent-subagent-runner.mjs` 的 `runWorkflowSubagent()` 按 `profile`（默认 `general`）解析已启用的 Agent Profile，允许按步覆盖 `label` / `model` / `maxRuntimeMs` / `maxToolCalls`，再调用 `executeSubagentRun()`。工具集、工具审批、模型解析、预算、超时、workspace 归因与错误 details 全部复用既有实现；工作流步骤传 `trace:false`、`workReport:false`，过程可观察性由 runner 的 details 承担；每个 Agent 完成/失败时 runner 从最终 details（或错误携带的 `quickforgeSubagentDetails`）提取有界 trace（最近 40 条消息、工具名/标签、allowedTools、model/thinkingLevel、pendingToolCalls，单 Agent JSON ≈6KB）写入 `details.agents[].subagentRun`，供前端打开 Subagent 运行详情面板。Subagent/Profile 会话构建工具时显式 `includeWorkflowTool:false`，不能递归 `run_workflow`。
+- **复用主 Agent 工具集**：`agent-workflow-tools.mjs` 的 `runWorkflowTool()` 延迟调用 `createServerTools()` 构建当前会话工具集（排除 `run_subagent` / `run_workflow` / `ask_user` / `todo_write` / `manage_global_memory` / `goal_report`），通过 `wrapToolDefinition` 的 execute 复用参数校验、命令权限与会话 workspace 沙箱；默认权限下按 `safeReadTools`/Skill 免审批、其余工具用 `createApprovalPromise`（source `workflow-tool`，监听步骤 signal），写入仍归因父会话当前 turn。`run_command run_in_background` 在工作流内被拒绝；工具失败把该 `tool()` 解析为 `null` 并记录 error。
+- **超时与 abort**：整体 `maxRuntimeMs`（默认 1 小时、上限 2 小时）到点置 `status:'error'`、`timedOut:true`、`errorCode:'WORKFLOW_TIMEOUT'`；父运行 signal 中止（含启动时已中止）置 `status:'aborted'`、`aborted:true`、`errorCode:'WORKFLOW_ABORTED'`。两条路径都会 abort 内部 controller、把排队中的 Agent/工具标为 `aborted`、把仍在运行的步骤标为 `aborted`、终止 worker 并 reject；在途步骤通过 `AbortSignal.any([controller.signal, parentSignal])` 收到中止，终态 details 不会留下 `running` 状态。
+- **失败与孤儿步骤**：单步失败只把该 `agent()`/`tool()` 解析为 `null` 并记 error 日志，工作流仍可 `done`，由脚本决定是否致命；脚本语法错误、运行时异常、结果不可 JSON 序列化或超过 1MB、worker 崩溃都让整条工作流以 `WORKFLOW_FAILED` 失败。脚本 `return` 后 runner 立即 abort 未 `await` 的孤儿步骤、把它们标记为 `aborted` 并终止 worker，不等待其收尾。
+- **审批与限制**：默认权限下 `beforeToolCall` 在 worker 启动前对 `run_workflow` 审批一次，参数为**完整脚本**（≤20KB）、`args` 与 `options`，风险说明明确“以服务进程权限运行本地 JavaScript”；拒绝或 5 分钟审批超时不启动 worker。完全访问模式跳过这次审批，但每个 Agent 与 `tool()` 的调用仍走各自的审批策略（`tool()` source 为 `workflow-tool`，审批卡显示 Workflow 徽标与实际工具风险）。`/plan` 白名单、Goal planning 白名单和 `allowSubagents:false` 的命令权限都会拒绝 `run_workflow`。脚本上限 20,000 字符、`args` JSON 上限 20,000 字符；单 Agent prompt/context 各 100,000 字符、expectedOutput 10,000 字符、schema JSON 20,000 字符；工具参数 4,000 字符、工具结果预览 2,000 字符；工作流结果 1MB JSON；工具结果正文最多 50,000 字符，Agent 结果预览 2,000 字符、工作流结果预览 20,000 字符，日志最多 200 条，details 文本总量超过 100,000 字符时裁剪并附 `detailsTruncated`。进度经 200ms 节流写入 `details`。workflow 步骤的 pending 审批同时监听步骤 signal，超时/中止会立即 reject，不等到 5 分钟审批超时。
+
+details 形状（`workflow:true` / `runId` / `status` / `durationMs` / 预算 / `agentCount` / `failedAgentCount` / `toolCount` / `failedToolCount` / `phases` / `agents`（含 bounded `subagentRun` / `subagentRunDropped`）/ `tools` / `logs` / `resultPreview` / `detailsTruncated` / `error` / `timedOut` / `aborted`）与前端消费契约见 [前端共享库](../src/lib/README.md#workflow-run-detailts)。
+
+### Goal v2（默认，server/goal/*）
+
+**用途**: 以 DSH 式「持久状态原语 + 自动续行」重做 QuickForge Goal，同时保留规划/证据/验收策略。新目标默认走 v2；旧会话仍可走 legacy 13 状态引擎。
+
+- **状态模型**：`server/goal/state.mjs` 只有 4 个持久 phase（`active` / `paused` / `blocked` / `complete`）。`activation`（`armed` / `disarmed`）与 `runtime`（planning / executing / verifying / waiting_* / pausing）是进程本地/派生值，不持久化。`plan`、`evidence`、`criteria` 是 goal 文档字段，不再驱动 phase；`needs_review` 映射为 blocked + `verification_failed`，`failed/cancelled` 由 clear tombstone 的 `lastRun.outcome` 表达。
+- **事件与 CAS**：`server/goal/store.mjs` 把每次变更追加为 `goal/change` 事件（v1，完整快照），`clear` 写 tombstone；加载时严格校验 revision 连续、phase 转换与轮次连续，失败 fail-closed。`server/goal/service.mjs` 是唯一写入口，按 session 串行，所有动作都要求 `{id, revision}`；`admitRound` 只在 active + armed 时推进 `roundsStarted`。
+- **Round Driver**：`server/goal/runner.mjs` 在 agent idle、无 pending 工具/审批/ask、flush 成功后调度下一轮；规划轮不占 execution round。运行结束先持久化，再按 pending completion / verification blocker / 错误 / no-progress 结算；per-session 只保留一个活跃 goal。重启/fork 后 phase 保持 active、activation 置 disarmed，不自动重放。
+- **模型工具**：v2 会话（即使尚无当前 goal）始终注入 `get_goal` / `create_goal` / `update_goal`；goal 活跃时额外注入 `goal_report`。`create_goal` 可从直接人类轮次推断（DSH 行为），创建后等待本轮 idle 再启动执行；`update_goal` 的 edit/pause/resume 需要直接人类轮次，`blocked`/`complete` 允许直接人类轮次或当前 goal 执行轮；`update_goal complete` 立即写入 complete（DSH 对标），`goal_report` 的证据路径保留但不再是唯一完成入口。权威判定在 `server/goal/authority.mjs`，不靠模型自述。
+- **持久化与迁移**：`agent-persistence.mjs` 同时持久化 `goal` 投影、`goalEvents` 与 `goalEngine`。`createAgent` 遇到带 `phase` 的 goal 走 v2 投影（active 保留但 disarmed）；旧 13 状态快照按 `store.migrateLegacyGoal` 转换，`failed/cancelled` 转 tombstone。
+- **命令与设置**：`/goal` 支持裸状态、`/goal <objective>`、`/goal edit <objective>`、`/goal pause`、`/goal resume`、`/goal clear`；动作命令不产生模型轮次。设置键 `goal-settings` 增加 `engine`（默认 `v2`，可切 `legacy`），`QUICKFORGE_GOAL_ENGINE` 可覆盖；测试默认 legacy 以保留历史契约，v2 专项测试显式 `goalEngine:'v2'`。
+- **前端投影**：v2 goal 仍带 legacy `status`、`budget`、`usage`、`criteria` 字段供旧组件读取，同时提供 `phase`、`activation`、`runtime`、`plan`、`maxRounds`、`roundsStarted`、`blockerInfo`；`goal-control-strip.ts` 对 v2 显示 phase/轮次与目标行，Inspector/card 通过 `buildGoalCardViewModel` 复用。
+- **相关回归**：`tests/server/goal-v2-{state,store,service,manager}.test.mjs`、`tests/frontend/goal-control-strip.test.ts`、`goal-card.test.ts`、`goal-settings.test.mjs`、`settings-normalizers.test.ts`；全量 `npm run test` 4672 passed / 2 skipped。
+
 ### Goal 预算追加与恢复
 
 - `extend_resume` 仅接受 `{action:'extend_resume', goalId, expectedRevision}`；`goalId` 为非空字符串、`expectedRevision` 为正 safe integer，不接受客户端预算值或其他字段。仅此动作在会话 admission 锁内校验 goalId/revision CAS，旧请求返回 409 `GOAL_REVISION_CONFLICT`，不会重复追加；不可泛称所有 Goal 动作都有客户端 CAS。
@@ -169,7 +203,7 @@ server/
 - 新计划正常轮末且持久化成功后自动执行；工具返回到轮末仍按 planning goalRun 强制只读。异常、中止、取消、持久化失败不得启动执行。轮次 gate 与防空转/重复失败保护保留。
 - 相关回归：`tests/server/agent-goal-state.test.mjs`、`agent-goal-runner.test.mjs`、`agent-goal-manager.test.mjs`、`tests/server/routes/agent.goal.test.mjs`。
 
-### Goal 模式（agent-goal-state.mjs / agent-goal-runner.mjs）
+### Legacy Goal 模式（agent-goal-state.mjs / agent-goal-runner.mjs，opt-in）
 
 **用途**: 主聊天（QuickForge main chat）的 `/goal <目标>` 有界多轮执行。状态模型是纯函数（无 I/O、无会话/存储/SSE 依赖），runner 把它与既有会话/持久化/事件模块组合起来；`agent-manager.mjs` 只调用 runner 导出的 hook。
 
@@ -522,11 +556,11 @@ server/
 
 ## API 路由 (routes/)
 
-参见 [routes/ 文档](routes/)。
+参见 [routes/ 文档](routes/)。`run_subagent` 与 `run_workflow` 都由 Agent 会话内部执行，不开放直接 REST：`server/routes/tools.mjs` 的 `directRouteDisabledTools` 会让 `POST /api/tools/run_workflow`（含项目级变体）返回 404，`GET /api/tools` 仍返回其工具元数据。
 
 ## 工作区工具 (tools/)
 
-参见 [tools/ 文档](tools/)。
+参见 [tools/ 文档](tools/)。`run_workflow` 的元数据在 `definitions.mjs`，执行入口由 `agent-manager.mjs` 包装，不在 `tools/index.mjs` 的 handler 表中。
 
 ## 工具函数 (utils/)
 

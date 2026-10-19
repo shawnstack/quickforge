@@ -133,17 +133,18 @@ describe('settings normalizers', () => {
 
   it('normalizes, loads, and saves goal settings with defaults, clamps, and load/save roundtrip', async () => {
     expect(normalizeGoalSettings(undefined)).toEqual(DEFAULT_GOAL_SETTINGS)
-    expect(normalizeGoalSettings(null)).toEqual({ maxIterations: 20 })
-    expect(normalizeGoalSettings({})).toEqual({ maxIterations: 20 })
-    expect(normalizeGoalSettings({ maxIterations: 0 })).toEqual({ maxIterations: 1 })
-    expect(normalizeGoalSettings({ maxIterations: 120.6 })).toEqual({ maxIterations: 100 })
-    expect(normalizeGoalSettings({ maxIterations: 'bad' })).toEqual({ maxIterations: 20 })
+    expect(normalizeGoalSettings(null)).toEqual({ maxIterations: 20, engine: 'v2' })
+    expect(normalizeGoalSettings({})).toEqual({ maxIterations: 20, engine: 'v2' })
+    expect(normalizeGoalSettings({ maxIterations: 0 })).toEqual({ maxIterations: 1, engine: 'v2' })
+    expect(normalizeGoalSettings({ maxIterations: 120.6 })).toEqual({ maxIterations: 100, engine: 'v2' })
+    expect(normalizeGoalSettings({ maxIterations: 'bad' })).toEqual({ maxIterations: 20, engine: 'v2' })
+    expect(normalizeGoalSettings({ engine: 'legacy' })).toEqual({ maxIterations: 20, engine: 'legacy' })
 
     const { storage, values } = createStorage({ 'goal-settings': { maxIterations: 50 } })
-    await expect(loadGoalSettings(storage)).resolves.toEqual({ maxIterations: 50 })
+    await expect(loadGoalSettings(storage)).resolves.toEqual({ maxIterations: 50, engine: 'v2' })
     await expect(loadGoalSettings(createStorage().storage)).resolves.toEqual(DEFAULT_GOAL_SETTINGS)
-    await saveGoalSettings(storage, { maxIterations: 250 })
-    expect(values.get('goal-settings')).toEqual({ maxIterations: 100 })
+    await saveGoalSettings(storage, { maxIterations: 250, engine: 'legacy' })
+    expect(values.get('goal-settings')).toEqual({ maxIterations: 100, engine: 'legacy' })
   })
 
   it('normalizes, loads, and saves memory settings', async () => {

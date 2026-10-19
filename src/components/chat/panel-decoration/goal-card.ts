@@ -7,6 +7,7 @@ import {
   goalDurationMinutes,
   goalIsEditable,
   isGoalSpinning,
+  isGoalV2,
   type GoalCriterionStatus,
   type GoalEvidence,
   type GoalState,
@@ -92,6 +93,7 @@ const CRITERION_STATUS_KEY: Record<GoalCriterionStatus, string> = {
 // back to the server text for everything else.
 const BLOCKER_KEY: Record<string, string> = {
   iteration_budget: 'goalBlockerIterationBudget',
+  round_limit: 'goalBlockerIterationBudget',
   duration_budget: 'goalBlockerDurationBudget',
   persist_failed: 'goalBlockerPersistFailed',
   user_aborted: 'goalBlockerUserAborted',
@@ -121,6 +123,8 @@ function localizedGoalBlockerHint(hint: string | null | undefined): string {
 }
 
 function blockerText(goal: GoalState): string {
+  const code = goal.blockerInfo?.code
+  if (code && BLOCKER_KEY[code]) return t(BLOCKER_KEY[code] as AppTextKey)
   const blocker = goal.blocker ?? ''
   const key = BLOCKER_KEY[blocker]
   return key ? t(key as AppTextKey) : blocker
@@ -132,6 +136,38 @@ function toneForStatus(status: GoalStatus): GoalCardTone {
   if (status === 'blocked' || status === 'needs_review') return 'warning'
   if (status === 'awaiting_confirmation' || status === 'planning') return 'info'
   return 'active'
+}
+
+function v2StatusKey(goal: GoalState): string {
+  if (goal.phase === 'active' && goal.activation === 'disarmed') return 'goalPhaseInterrupted'
+  if (goal.phase === 'active') {
+    if (goal.runtime === 'planning') return 'goalPhasePlanning'
+    if (goal.runtime === 'verifying') return 'goalPhaseVerifying'
+    if (goal.runtime === 'waiting_approval') return 'goalPhaseWaitingApproval'
+    if (goal.runtime === 'waiting_input') return 'goalPhaseWaitingInput'
+    if (goal.runtime === 'pausing') return 'goalPhasePausing'
+    return 'goalPhaseActive'
+  }
+  if (goal.phase === 'paused') return 'goalPhasePaused'
+  if (goal.phase === 'blocked') return 'goalPhaseBlocked'
+  return 'goalPhaseComplete'
+}
+
+function v2Tone(goal: GoalState): GoalCardTone {
+  if (goal.phase === 'complete') return 'success'
+  if (goal.phase === 'blocked') return 'warning'
+  if (goal.phase === 'paused') return 'info'
+  if (goal.phase === 'active' && goal.activation === 'disarmed') return 'warning'
+  return 'active'
+}
+
+function v2NoteKeys(goal: GoalState): string[] {
+  if (goal.phase === 'paused' || goal.phase === 'blocked') {
+    return ['goalPauseCancelNote', 'goalResumeNote', 'goalScopeChangeNote']
+  }
+  if (goal.phase === 'complete') return ['goalCompletedNote']
+  if (goal.activation === 'disarmed') return ['goalResumeNote', 'goalScopeChangeNote']
+  return ['goalPauseCancelNote', 'goalScopeChangeNote']
 }
 
 function noteKeysForStatus(goal: GoalState): string[] {
@@ -167,25 +203,30 @@ function noteKeysForStatus(goal: GoalState): string[] {
 
 /** Pure projection of a GoalState into everything the card renders. */
 export function buildGoalCardViewModel(goal: GoalState): GoalCardViewModel {
-  const acceptance = goal.status === 'needs_review' ? goalAcceptanceCheck(goal) : null
+  const v2 = isGoalV2(goal)
+  const acceptance = !v2 && goal.status === 'needs_review' ? goalAcceptanceCheck(goal) : null
+  const budgetIterations = goal.maxRounds ?? goal.budget.maxIterations
+  const usageIterations = goal.roundsStarted ?? goal.usage.iterations
   return {
     id: goal.id,
     revision: goal.revision,
     status: goal.status,
-    statusKey: STATUS_KEY[goal.status],
-    tone: toneForStatus(goal.status),
-    spinning: isGoalSpinning(goal.status),
+    statusKey: v2 ? v2StatusKey(goal) : STATUS_KEY[goal.status],
+    tone: v2 ? v2Tone(goal) : toneForStatus(goal.status),
+    spinning: v2
+      ? ['executing', 'verifying', 'waiting_approval', 'waiting_input', 'pausing'].includes(goal.runtime ?? '')
+      : isGoalSpinning(goal.status),
     objective: goal.objective,
     summary: goal.summary,
     blocker: blockerText(goal),
     blockerHint: localizedGoalBlockerHint(goal.blockerHint),
-    editable: goalIsEditable(goal.status),
-    pausable: goalCanPause(goal.status),
-    resumable: goalCanResume(goal.status),
-    cancellable: goalCanCancel(goal.status),
+    editable: v2 ? goal.phase !== 'complete' : goalIsEditable(goal.status),
+    pausable: v2 ? goal.phase === 'active' && goal.activation !== 'disarmed' : goalCanPause(goal.status),
+    resumable: v2 ? (goal.phase === 'paused' || goal.phase === 'blocked' || (goal.phase === 'active' && goal.activation === 'disarmed')) : goalCanResume(goal.status),
+    cancellable: v2 ? goal.phase !== 'complete' : goalCanCancel(goal.status),
     acceptBlocked: acceptance !== null && !acceptance.ok,
     continuing: acceptance !== null,
-    noteKeys: noteKeysForStatus(goal),
+    noteKeys: v2 ? v2NoteKeys(goal) : noteKeysForStatus(goal),
     criteria: goal.criteria.map((criterion) => ({
       id: criterion.id,
       description: criterion.description,
@@ -196,11 +237,11 @@ export function buildGoalCardViewModel(goal: GoalState): GoalCardViewModel {
     })),
     scope: [...goal.scope],
     budget: {
-      iterations: goal.budget.maxIterations,
+      iterations: budgetIterations,
       minutes: goalDurationMinutes(goal.budget.maxActiveDurationMs),
     },
     usage: {
-      iterations: goal.usage.iterations,
+      iterations: usageIterations,
       minutes: goalDurationMinutes(goal.usage.activeDurationMs),
     },
     evidence: goal.evidence.map((entry) => ({ ...entry })),

@@ -37,6 +37,7 @@ export type ToolApprovalSource = {
   subagent?: string
   label?: string
   sessionId?: string
+  workflowLabel?: string
 }
 
 type Translate = typeof t
@@ -103,6 +104,7 @@ const BUILTIN_TOOL_LABELS = {
   activate_skill: 'activateSkill',
   read_skill_resource: 'readSkillResource',
   run_subagent: 'runSubagent',
+  run_workflow: 'runWorkflow',
   generate_image: 'generateImage',
 } as const satisfies Record<string, Parameters<Translate>[0]>
 
@@ -141,6 +143,10 @@ export function getToolApprovalDisplayName(toolName: string, translate: Translat
 export function summarizeToolArgs(toolName: string, args: Record<string, unknown>) {
   if (typeof args.summary === 'string') return args.summary
   if (toolName === 'run_command' && typeof args.command === 'string') return args.command
+  if (toolName === 'run_workflow' && typeof args.script === 'string') {
+    const firstLine = args.script.split('\n').map((line) => line.trim()).find(Boolean) ?? ''
+    return firstLine.length > 160 ? `${firstLine.slice(0, 160)}…` : firstLine
+  }
   if (toolName === 'activate_skill' && typeof args.name === 'string') return args.name
   if (toolName === 'read_skill_resource' && typeof args.path === 'string') return args.path
   if (typeof args.path === 'string') return args.path
@@ -193,21 +199,30 @@ export function buildApprovalCardDisplayModel({
     criticalParameters.push({ label: translate('toolApprovalCommand'), value: args.command })
   }
 
-  const sourceLabel = source?.type === 'subagent'
-    ? (source.label || source.subagent || 'Subagent')
-    : ''
+  const sourceBadges: string[] = []
+  if (source?.type === 'subagent') {
+    sourceBadges.push(source.label || source.subagent || 'Subagent')
+    if (source.workflowLabel) sourceBadges.push(translate('workflowBadge'))
+  } else if (source?.type === 'workflow') {
+    sourceBadges.push(translate('runWorkflow'))
+  } else if (source?.type === 'workflow-tool') {
+    sourceBadges.push(translate('workflowBadge'))
+    if (source.label && source.label !== toolName) sourceBadges.push(source.label)
+  }
   const badges = [
     ...(mcpTool ? ['MCP'] : []),
     ...(pluginTool ? ['Plugin'] : []),
-    ...(sourceLabel ? [sourceLabel] : []),
+    ...sourceBadges,
   ]
   const keepRecentTurns = typeof args.keepRecentTurns === 'number' ? args.keepRecentTurns : 0
   const risk = tone === 'info'
     ? translate('autoCompactApprovalRisk', { keepRecentTurns })
     : toolName === 'run_command'
       ? translate('toolApprovalRiskCommand')
-      : toolName === 'write_file' || toolName === 'edit_file'
-        ? translate('toolApprovalRiskFileChange')
+      : toolName === 'run_workflow'
+        ? translate('toolApprovalRiskWorkflow')
+        : toolName === 'write_file' || toolName === 'edit_file'
+          ? translate('toolApprovalRiskFileChange')
         : mcpTool || pluginTool
           ? translate('toolApprovalRiskExternal')
           : translate('toolApprovalRiskGeneric')

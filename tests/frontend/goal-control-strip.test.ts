@@ -324,6 +324,49 @@ describe('buildGoalControlStripView', () => {
       expect(buildGoalControlStripView(goal({ status }))).toBeNull()
     }
   })
+
+  it('projects Goal v2 phase, activation, runtime and round text', () => {
+    const active = buildGoalControlStripView(goal({
+      status: 'running',
+      phase: 'active',
+      activation: 'armed',
+      runtime: 'executing',
+      maxRounds: 20,
+      roundsStarted: 3,
+    }))
+    expect(active).toMatchObject({
+      statusKey: 'goalPhaseActive',
+      roundText: '3/20',
+      objective: 'Ship the goal UI',
+      primaryAction: 'pause',
+      phase: 'active',
+      activation: 'armed',
+    })
+
+    const interrupted = buildGoalControlStripView(goal({
+      status: 'paused',
+      phase: 'active',
+      activation: 'disarmed',
+      runtime: 'idle',
+    }))
+    expect(interrupted).toMatchObject({ statusKey: 'goalPhaseInterrupted', primaryAction: 'resume' })
+
+    expect(buildGoalControlStripView(goal({
+      status: 'planning',
+      phase: 'active',
+      activation: 'armed',
+      runtime: 'planning',
+    }))).toMatchObject({ statusKey: 'goalPhasePlanning' })
+
+    expect(buildGoalControlStripView(goal({
+      status: 'blocked',
+      phase: 'blocked',
+      activation: 'disarmed',
+      runtime: 'idle',
+    }))).toMatchObject({ statusKey: 'goalPhaseBlocked', primaryAction: 'resume' })
+
+    expect(buildGoalControlStripView(goal({ status: 'completed', phase: 'complete' }))).toBeNull()
+  })
 })
 
 describe('goal control strip DOM controller', () => {
@@ -354,6 +397,23 @@ describe('goal control strip DOM controller', () => {
     expect(preventDefault).toHaveBeenCalledOnce()
     expect(document.activeElement).toBe(cancel)
     expect(s.onAction).not.toHaveBeenCalled()
+    s.controller.cleanup()
+  })
+
+  it('renders the Goal v2 objective line and round text', () => {
+    const s = setup({
+      status: 'running',
+      phase: 'active',
+      activation: 'armed',
+      runtime: 'executing',
+      maxRounds: 12,
+      roundsStarted: 4,
+    })
+    s.controller.update()
+    const root = s.root()!
+    expect(root.dataset.phase).toBe('active')
+    expect(byClass(root, 'quickforge-goal-strip-label')!.textContent).toBe('goalPhaseActive · 4/12')
+    expect(byClass(root, 'quickforge-goal-strip-objective')!.textContent).toBe('Ship the goal UI')
     s.controller.cleanup()
   })
 

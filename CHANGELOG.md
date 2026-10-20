@@ -2,6 +2,24 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [2.3.1] - 2026-10-20
+
+### Changed
+
+- Reworked the Goal v2 round driver to match the direct-continuation contract: every round is an execution round, the model can complete or block from that round, and errors disarm continuation instead of pausing for no-progress or repeated failures.
+- Removed the Goal engine selector. New goals use v2; existing legacy sessions still keep the previous 13-state contract.
+- Raised the workflow subagent detail budget so tool calls inside a workflow agent remain visible in the inspector.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.3.1` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.3.1.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.3.1.tgz
+  ```
+
 ## [2.3.0] - 2026-10-19
 
 ### Added

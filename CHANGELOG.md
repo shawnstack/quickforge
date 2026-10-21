@@ -2,6 +2,30 @@
 
 All notable changes to QuickForge will be documented in this file.
 
+## [2.3.2] - 2026-10-21
+
+### Added
+
+- Settings is regrouped into Basics, AI & Extensions, and Automation & Data, with a settings search box, an About section pinned to the bottom, and the low-frequency data management and network/device pages merged into single tabs. The appearance tab gains light/dark theme preview cards, grouped font sizes, and a live chat preview.
+- The new-chat project picker shows the branch next to the project and reuses the branch selection menu, so a new conversation can start on a chosen branch without an extra round trip.
+- `run_workflow` agent rows now stream into the same subagent run store as `run_subagent`, so status, errors, and process detail share one source of truth.
+
+### Changed
+
+- Server-side workflow trace budgets are tiered by running versus terminal state and trimmed by tool pairing, and a trimmed run is marked so the detail page can tell you the process record is incomplete.
+- Settings search inputs declare `name`, `autocomplete`, `autocorrect`, `autocapitalize`, and `spellcheck`, and the LAN access password and custom provider API key are marked `new-password`, so browsers and password managers no longer prefill them as login fields.
+- Pasted-text attachment tiles use the medium corner radius again; only their delete button stays fully round.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.3.2` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.3.2.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.3.2.tgz
+  ```
+
 ## [2.3.1] - 2026-10-20
 
 ### Changed

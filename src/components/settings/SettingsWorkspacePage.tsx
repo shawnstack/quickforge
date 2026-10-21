@@ -65,6 +65,17 @@ const STATE_PRESERVING_TAB_KEYS = new Set<SettingsInitialTab>([
   'about',
 ])
 
+// 浏览器（尤其 Chromium）会把无 name 的文本框当作可自动填充字段，
+// 偶发把历史网址/账号填进设置搜索框；这里用非语义 name + off 切断推断。
+const SETTINGS_SEARCH_INPUT_PROPS = {
+  type: 'text',
+  name: 'qf-settings-search',
+  autoComplete: 'off',
+  autoCorrect: 'off',
+  autoCapitalize: 'off',
+  spellCheck: false,
+} as const
+
 export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: SettingsWorkspacePageProps) {
   const settings = useMemo(() => createSettingsTabs(customProvider), [customProvider])
   const defaultTabIndex = Math.max(0, settings.indexOf(initialTab))
@@ -182,7 +193,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
           <div className="relative mt-2">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <input
-              type="text"
+              {...SETTINGS_SEARCH_INPUT_PROPS}
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.currentTarget.value)}
               onKeyDown={(event) => {
@@ -263,7 +274,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
             <div className="quickforge-settings-inline-field px-1 pb-2 pt-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <input
-                type="text"
+                {...SETTINGS_SEARCH_INPUT_PROPS}
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.currentTarget.value)}
                 onKeyDown={(event) => {

@@ -309,6 +309,8 @@ export function LanAccessSettingsTab({ active }: { active?: boolean } = {}) {
               <input
                 className="quickforge-settings-input"
                 type={passwordVisible ? 'text' : 'password'}
+                name="qf-lan-access-password"
+                autoComplete="new-password"
                 value={password}
                 onChange={(event) => setPassword(event.currentTarget.value)}
                 placeholder={hasPassword ? t('lanAccessPasswordPlaceholderConfigured') : t('lanAccessPasswordPlaceholder')}

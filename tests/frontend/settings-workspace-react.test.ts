@@ -141,6 +141,33 @@ describe('React settings workspace navigation', () => {
     expect(tree.some((node) => node.type === 'button' && text(node) === 'en:appearance')).toBe(true)
   })
 
+  it('disables browser autofill on both search inputs', () => {
+    const tree = render('defaults')
+    const inputs = tree.filter((node) => node.type === 'input' && node.props['aria-label'] === 'en:searchSettings')
+    expect(inputs).toHaveLength(2)
+    for (const input of inputs) {
+      expect(input.props).toMatchObject({
+        type: 'text',
+        name: 'qf-settings-search',
+        autoComplete: 'off',
+        autoCorrect: 'off',
+        autoCapitalize: 'off',
+        spellCheck: false,
+      })
+    }
+  })
+
+  it('keeps password managers from claiming non-login secret fields', () => {
+    for (const [path, name] of [
+      ['src/components/settings/tabs/LanAccessSettingsTab.tsx', 'qf-lan-access-password'],
+      ['src/components/settings/tabs/CustomProvidersSettingsTab.tsx', 'qf-provider-api-key'],
+    ] as const) {
+      const source = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')
+      expect(source).toContain(`name="${name}"`)
+      expect(source).toContain('autoComplete="new-password"')
+    }
+  })
+
   it('uses the initial tab/provider and a React content element', () => {
     const tree = render('customModels', 'custom-id')
     expect(content(tree).props).toMatchObject({ tabKey: 'customModels', customProvider: 'custom-id' })

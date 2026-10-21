@@ -1,3 +1,14 @@
+## 当前交接：settings-search-autofill-guard（done，2026-10-21）
+
+- Current Objective（当前目标）: 防止设置页桌面/移动搜索框偶发被浏览器自动填充网址、账号等。已完成，未提交。
+- 核心改动: `SettingsWorkspacePage` 新增 `SETTINGS_SEARCH_INPUT_PROPS`（name/autoComplete/autoCorrect/autoCapitalize/spellCheck），两个搜索输入框共用；`LanAccessSettingsTab` 的局域网密码与 `CustomProvidersSettingsTab` 的 API Key 补 `name` + `autoComplete="new-password"`，避免 Chromium 把常驻密码框所在页当登录表单并把搜索框当用户名框；测试新增属性与源码契约断言。
+- Files（改动文件）: `src/components/settings/SettingsWorkspacePage.tsx`、`src/components/settings/tabs/LanAccessSettingsTab.tsx`、`src/components/settings/tabs/CustomProvidersSettingsTab.tsx`、`tests/frontend/settings-workspace-react.test.ts`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）: 定向 vitest 15 passed；`npx eslint` 改动文件通过；`npx tsc -b --pretty false` 通过；`npm run build` 通过（仅既有大 chunk warning）。未跑全量 `npm run test`；浏览器自动填充未实机复现。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 在真实浏览器（Chrome/Edge，含移动端）打开设置页确认搜索框不再弹出历史网址/账号填充；若密码管理器仍注入，追加对应 ignore 属性或只读至聚焦方案。未提交 Git；未修改生成产物。
+
+---
+
 ## 当前交接：appearance-settings-preview-redesign（done，2026-10-21）
 
 - Current Objective（当前目标）: 把设置·外观从简单分段按钮 + 滑杆调整成设计稿风格：主题大卡片预览、字号分组、实时对话预览。已完成，未提交。

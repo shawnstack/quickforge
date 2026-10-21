@@ -1,6 +1,27 @@
 {
   "features": [
     {
+      "id": "settings-search-autofill-guard",
+      "name": "设置页搜索框禁用浏览器自动填充",
+      "description": "设置页桌面/移动搜索框补齐 name 与 autocomplete/autocorrect/autocapitalize/spellcheck 属性，并把局域网访问密码、自定义模型 API Key 两个非登录密码框标记为 new-password，避免 Chromium 把设置页当登录表单、把搜索框猜成用户名框后自动填入网址/账号/密码。",
+      "status": "done",
+      "dependencies": [
+        "settings-grouped-navigation"
+      ],
+      "approach": "SettingsWorkspacePage 提取 SETTINGS_SEARCH_INPUT_PROPS（type=text、name=qf-settings-search、autoComplete=off、autoCorrect=off、autoCapitalize=off、spellCheck=false），桌面与移动两个搜索输入共用；LanAccessSettingsTab 的局域网密码与 CustomProvidersSettingsTab 的 API Key 两个 type=password 输入补 name（qf-lan-access-password / qf-provider-api-key）+ autoComplete=new-password，避免密码管理器将其识别为登录密码并配对搜索框。tests/frontend/settings-workspace-react.test.ts 新增输入框属性与源码契约断言。",
+      "files": [
+        "src/components/settings/SettingsWorkspacePage.tsx",
+        "src/components/settings/tabs/LanAccessSettingsTab.tsx",
+        "src/components/settings/tabs/CustomProvidersSettingsTab.tsx",
+        "tests/frontend/settings-workspace-react.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest tests/frontend/settings-workspace-react.test.ts 15 passed；npx eslint 改动文件通过；npx tsc -b --pretty false 通过；npm run build 通过（仅既有大 chunk warning）。未跑全量 test；自动填充行为依赖浏览器环境，未在实机复现验证。",
+      "boundaries": "只加搜索框与非登录密码框的自动填充抑制属性及回归断言；不改搜索过滤、密码保存/校验或布局；其他页面的密码输入未动；无依赖变更；未提交 Git；未修改生成产物。"
+    },
+    {
       "id": "appearance-settings-preview-redesign",
       "name": "外观设置页主题预览与实时字号预览",
       "description": "按设计稿重做设置·外观：主题改为浅色/深色大卡片预览，字号滑杆独立分组，并增加使用当前界面/对话字号的实时对话预览；补充主题说明、字号说明与预览文案，移动端单列。",

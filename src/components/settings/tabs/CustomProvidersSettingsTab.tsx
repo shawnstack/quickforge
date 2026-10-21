@@ -810,6 +810,8 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
               className="quickforge-settings-input pr-10"
               value={form.apiKey}
               type={apiKeyVisible ? 'text' : 'password'}
+              name="qf-provider-api-key"
+              autoComplete="new-password"
               onChange={(event) => updateForm('apiKey', event.currentTarget.value)}
               placeholder={t('apiKeyPlaceholder')}
             />

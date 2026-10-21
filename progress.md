@@ -1,3 +1,13 @@
+## settings-search-autofill-guard（done，2026-10-21）
+
+- Goal：防止设置页搜索框偶发被浏览器自动填充历史网址、账号等。
+- 改动：`SettingsWorkspacePage` 提取 `SETTINGS_SEARCH_INPUT_PROPS`，桌面与移动搜索框统一加 `name="qf-settings-search"`、`autoComplete="off"`、`autoCorrect="off"`、`autoCapitalize="off"`、`spellCheck={false}`；`LanAccessSettingsTab` 的局域网密码与 `CustomProvidersSettingsTab` 的 API Key 分别补 `name` + `autoComplete="new-password"`；`settings-workspace-react.test.ts` 新增输入框属性与源码契约断言。
+- 原因：原输入框无 name/autocomplete，Chromium 的自动填充/表单历史会按启发式猜测字段并向其中填值。设置页还包含 `type=password` 的局域网密码、API Key 输入，且相关 tab 常驻挂载，Chromium 会把整页当登录表单，并把最前面的搜索框猜成用户名框，出现搜索框填网址/账号、密码框填密码。
+- 验证：定向 vitest 15 passed；`npx eslint` 改动文件通过；`npx tsc -b --pretty false` 通过；`npm run build` 通过（仅既有大 chunk warning）。未跑全量 test；浏览器自动填充无实机复现，仅做属性层修复。
+- Notes：若个别浏览器/密码管理器仍强行填充，可再叠加 `data-1p-ignore` / `data-lpignore="true"` / `data-bwignore`，或改用只读至聚焦的方案；当前先采用标准属性。无依赖变更；未修改生成产物；未提交 Git。
+
+---
+
 ## appearance-settings-preview-redesign（done，2026-10-21）
 
 - Goal：用户认为设置页分组方案里的外观设计稿更好看，要求把实际外观页调整成设计稿风格。

@@ -1,6 +1,6 @@
 # 会话打开快路径（Session Open Fast Path）
 
-> 状态：M0 / M1 / M2 / M3 已实施；M4 待实施（见「里程碑」）。
+> 状态：M0 / M1 / M2 / M3 已实施；M4 部分实施（见「里程碑」）。
 > 目标：缩短「点击历史会话 → 内容可见且可交互」的时间，且**不改变任何用户可见交互**。
 
 ## 1. 问题陈述
@@ -77,6 +77,11 @@
 | 折叠展开态 | 重置为默认 |
 | 模型 / 权限模式 | 跟随会话值覆盖全局 |
 | 项目上下文 | 项目会话自动切活跃项目，失败则放弃加载并提示 |
+
+> **M3 之后这五行的实现机制变了，行为不变。** 之前「重置」是整树 remount 的副产品；
+> 现在保活视图不 remount，所以草稿落盘、滚动贴底、折叠态显式迁移都由
+> `session-view-activity` 的离开/回到回调重放（见 §4「M3 实现」）。上表是对外契约，
+> 不是实现说明——保活**不得**用来改变其中任何一行。
 
 ### 2.6 只读 / 分享 / 侧聊
 能力矩阵由 `chat-capabilities.ts` 定义，只读页移除 composer dock 与历史操作按钮，
@@ -213,7 +218,7 @@
 | **M2** | 只读视图通道：`GET /api/sessions/:id/view` 不走 `restoreAgent`；`attachRuntime` 移出首屏关键路径 | 已实施 |
 | **M3** | 会话视图保活池：切回已打开会话复用渲染子树，消除整树 remount | 已实施 |
 | **M3.1** | 多实例作用域收敛：组件弹层按面板归属，不再取「文档中第一个」 | 已实施 |
-| **M4** | 装饰层数据驱动化：`panel-decoration` 的 20+ 命令式注入器改为 React 兄弟节点 | 待实施 |
+| **M4** | 装饰层数据驱动化：命令式注入器逐个改 React 渲染 | 部分实施（2 个模块已落地，边界与拒因见 §4 M4） |
 
 ### M2 实现（已落地）
 
@@ -468,15 +473,75 @@ DOM 容器**；装饰产物（4 个过程组、6 组消息动作）与行数与�
 但若将来把 `MAX_IDLE_AGENT_TASKS` 调大，必须同时给 server agent 绑定 projectId，
 而不是读全局 active。
 
-### M4 设计要点
+### M4 实现（部分落地）
 
 `panel-decoration.ts` 有 20+ 个命令式注入器（审批卡、ask 卡、goal 条、todo 摘要、
 消息队列、回底按钮、chip、错误行、产物卡…），靠 `querySelector` 找锚点、
 靠幂等检查自愈、靠 `WeakMap` 记忆展开态、靠 `MutationObserver` 抑制重入。
 这是全系统 bug 密度最高的区域，也是「渲染完还要再写一次 DOM」导致首帧强同步重排的根源。
 
-M4 把它们改为 React 兄弟节点，插入位置由数据计算（例如「压缩边界消息之前」
-变成 `turnIndex` 字段）而非 DOM 位置，同时**保留现有类名与 DOM 结构**。
+#### 为什么不能整体 React 化
+
+按「输入能否完全从 snapshot/props 得到」逐模块分类（36 个模块）后的结论：
+
+| 类别 | 数量 | 说明 |
+|---|---|---|
+| 可 React 化 | 12 | 其中 5 个本就是纯函数/常量，无迁移成本 |
+| 必须保留命令式 | 10 | 定位原语、DOM 枚举、尺寸测量、`body` 浮层、DOM 桥 |
+| 混合 | 14 | 数据可 React 化，但插入点/测量必须命令式 |
+
+**真正的阻塞不是代码量，是测试与契约**：
+
+- 全仓 **232 条**「读源码文本 + `toContain`」的断言（`assistant-artifact-card` 独占 114 条）
+  锁的是**命令式实现**（`hostElement.insertBefore(card, anchor)`、`rollbackButton.className = …`）。
+  React 写不出这些字符串，改造等于**重写测试**而非修测试。
+- 装饰层测试大多靠 `vi.stubGlobal('document', fake)` 的假 DOM（默认 `node` 环境）。
+  假 DOM **无法承载 `createRoot().render()`**，任何 React 化的模块必须整文件切 jsdom。
+- `process-folding.ts`（1717 行）与 `ChatSurface` 的所有权租约强耦合
+  （`getSnapshotBeforeUpdate` → `releaseProcessGroups`），是「节点搬运 + 所有权移交」
+  而非渲染，**不属于 M4 范围**。
+
+#### 本轮已落地的两个模块
+
+两者都满足「可证明等价」：行为逐条对应，且改造后测试改为断言**渲染结果**而非实现文本。
+
+| 模块 | 原实现 | 现实现 |
+|---|---|---|
+| 发送/停止按钮（`send-stop-button.ts`，50 行，已删除） | 每轮 decorate 找到 `button:last-child`，切 `--waiting` 类、写字面量 `Stop`、装捕获阶段 pointerdown/click 监听 | `MessageEditor` 直接渲染：`isWaiting` prop 控制等待环，`onPointerDownCapture` 中止（`stopImmediatePropagation`），`onBeforeAbort` 先收建议弹层 |
+| 持久化降级提示（`persist-degraded-notice.ts`，37 行，已删除） | 每轮 decorate 找到或创建节点、手工同步文案、`prepend` 到消息列表首位 | `MessageList` 按 `persistDegraded` 渲染为列表首子；`persist_degraded` 加入 `SUBSCRIBED_EVENTS`（缺它则提示永不出现） |
+
+两个实现细节是等价性的关键，不能想当然：
+
+1. **停止按钮的 `title` 必须是字面量 `"Stop"`**，不能用 `t('stop')`。装饰层一直写的是
+   字面量，改成翻译值会在非英文环境改变可见 tooltip。
+2. **等待环的清除时刻不等于 `isStreaming && !streamingMessage`**。宿主在 assistant 的
+   `message_start` 就清除等待态，而 `streamingMessage` 要到第一个 `message_update` 才有值。
+   从 snapshot 推导会让等待环多显示一段（像素相同、时刻不同），因此该状态仍由宿主显式提供。
+
+#### 明确回退的一个模块：goal 迭代分隔线
+
+`goal-iteration-divider` 一度按 React 渲染实现，**最终回退为命令式**，原因是两个无法用
+React 忠实表达的事实：
+
+- **宿主在渲染后才知道**：分隔线挂在「本轮最后一条消息」上——通常是 assistant，
+  但本轮**没有 assistant 时回退到该轮的 user 行**（`quickforge-goal-internal-user-message`）。
+  两个不同组件负责同一节点。
+- **顺序必须每轮重确认**：分隔线必须是根的**最后一个子元素**，而 `message-actions`
+  在其后还会往同一根 append。这正是它当初需要「幂等重定位」的原因。
+
+要 React 化就得把消息列表的兄弟顺序提升为共享状态，那是重写折叠/装饰模型，不是渲染迁移。
+
+不过**决策逻辑已经抽出**：`readGoalIterationMarker`（校验）+ `buildGoalIterationDivider`
+（文案 + 警示标记）成为唯一实现，`syncGoalIterationDivider` 只保留 DOM 写入。67 条既有
+断言全部保留并通过，说明这次重构行为等价。
+
+#### 结论
+
+M4 的正确形态是**逐个模块绞杀**，而不是一次性重写：每步保留类名与 DOM 层级、
+把文本锁改为渲染断言、删掉宿主里对应的 decorate 调用（否则 `MutationObserver`
+会让 pass 空转）。剩余可动模块按代价排序：零文本锁的 5 个 → 1–3 条文本锁的 6 个 →
+`assistant-artifact-card`(114) / `message-actions`(44) / `message-queue`(27) 三件套放最后。
+
 
 ## 5. 重写原则
 

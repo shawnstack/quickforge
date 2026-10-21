@@ -146,4 +146,16 @@ export interface ChatSurfaceProps {
   onCostClick?: () => void
   /** Overrides the model-selector button behavior. */
   onModelSelect?: () => void
+  /**
+   * Streaming with no assistant output yet: draws the waiting ring on the stop
+   * button. Owned by the host, which clears it on the first assistant
+   * `message_start`/`message_update` or when the turn ends.
+   */
+  isReplyWaiting?: boolean
+  /**
+   * Runs immediately before the stop button aborts. The host uses it to dismiss
+   * an open `@`/`/` suggestion popover, which the panel decoration used to do
+   * from its capture-phase stop handler.
+   */
+  onBeforeAbort?: () => void
 }

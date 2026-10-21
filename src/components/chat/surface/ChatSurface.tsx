@@ -126,6 +126,12 @@ export interface AgentSurfaceSnapshot {
   streamingMessage?: AgentMessage
   model?: Model<Api>
   thinkingLevel: ThinkingLevel
+  /**
+   * The server skipped an authoritative persist after CAS conflicts. Rendered as
+   * a warning at the top of the message list (behaviour previously produced by
+   * the `persist-degraded-notice` decoration).
+   */
+  persistDegraded: boolean
 }
 
 /**
@@ -174,6 +180,10 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
   const streamingMessage = state.streamingMessage
     ? ({ ...(state.streamingMessage as object) } as AgentMessage)
     : undefined
+  // `persist_degraded` is a boolean flag. `persistDegraded` is an optional field
+  // on the server agent's state (it is `undefined` once a persist succeeds), so
+  // narrow rather than widen: the shared `AgentState` type stays untouched.
+  const persistDegraded = (state as { persistDegraded?: boolean }).persistDegraded === true
   if (
     previous &&
     previous.messages === messages &&
@@ -182,6 +192,7 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
     previous.isStreaming === state.isStreaming &&
     previous.model === state.model &&
     previous.thinkingLevel === state.thinkingLevel &&
+    previous.persistDegraded === persistDegraded &&
     previous.streamingMessage === undefined &&
     streamingMessage === undefined
   ) {
@@ -197,8 +208,21 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
     streamingMessage,
     model: state.model,
     thinkingLevel: state.thinkingLevel,
+    persistDegraded,
   }
 }
+
+/**
+ * Streaming with no assistant output yet → the stop button shows a waiting ring.
+ *
+ * Kept as an explicit host-provided flag rather than derived from the snapshot.
+ * The host clears it on `message_start`/`message_update` of an assistant message
+ * and on `agent_end`, which is *not* the same predicate as
+ * `isStreaming && !streamingMessage`: `streamingMessage` only becomes defined on
+ * the first `message_update`, so a derived flag would keep the ring visible for
+ * the gap between `message_start` and the first delta. Same pixels, different
+ * moment — not worth the risk to a visible behaviour.
+ */
 
 // `messages_replaced` (rollback/clear/compaction replaces state.messages
 // in place, see ServerAgent's wire-event handling) and
@@ -221,6 +245,9 @@ const SUBSCRIBED_EVENTS = new Set([
   'tool_execution_update',
   'tool_execution_end',
   'background_commands',
+  // `persist_degraded` flips `state.persistDegraded`; without subscribing, the
+  // warning rendered inside the message list would never appear or clear.
+  'persist_degraded',
 ])
 
 /** Whether an agent event requires a fresh `readAgentSnapshot` copy. */
@@ -466,6 +493,8 @@ type MessageAreaProps = {
   isStreaming: boolean
   streamingAssistant?: AssistantMessageType
   onCostClick?: () => void
+  /** Persist-degraded warning flag; rendered as the message list's first child. */
+  persistDegraded: boolean
 }
 
 /**
@@ -497,6 +526,7 @@ const MessageArea = memo(function MessageArea({
   isStreaming,
   streamingAssistant,
   onCostClick,
+  persistDegraded,
 }: MessageAreaProps) {
   // The streaming partial renders as the message list's last row (same render
   // identity the committed row will use — see MessageList), so this is the
@@ -521,6 +551,7 @@ const MessageArea = memo(function MessageArea({
             pendingToolCalls={pendingToolCalls}
             streamingAssistant={rendersStreamingRow ? streamingAssistant : undefined}
             onCostClick={onCostClick}
+            persistDegraded={persistDegraded}
           />
           {/* Streaming cursor container. The streaming assistant message itself
               renders as the message list's last row above (it commits in place
@@ -602,6 +633,8 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     onBeforeSend,
     onCostClick,
     onModelSelect,
+    isReplyWaiting = false,
+    onBeforeAbort,
     onWindowChanged,
     onProcessGroupsReleased,
   },
@@ -978,6 +1011,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
             isStreaming={snapshot.isStreaming}
             streamingAssistant={streamingAssistant}
             onCostClick={onCostClick}
+            persistDegraded={snapshot.persistDegraded}
           />
         </div>
 
@@ -989,6 +1023,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                 value={editorValue}
                 attachments={editorAttachments}
                 isStreaming={snapshot.isStreaming}
+                isWaiting={isReplyWaiting}
                 currentModel={snapshot.model}
                 thinkingLevel={snapshot.thinkingLevel}
                 showAttachmentButton={enableAttachments}
@@ -1007,6 +1042,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                   void sendMessage(input, attachments)
                 }}
                 onAbort={() => agent.abort()}
+                onBeforeAbort={onBeforeAbort}
                 /* No built-in model selector dialog yet: the host decides via onModelSelect. */
                 onModelSelect={onModelSelect}
                 onThinkingChange={

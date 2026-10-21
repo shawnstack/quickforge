@@ -1792,7 +1792,45 @@
       "name": "会话打开快路径 M3：会话视图保活池（消除整树 remount）",
       "status": "done",
       "summary": "非活跃会话的渲染子树保留在 DOM（display:none），切回时按行 key 复用 fiber。不调大 MAX_IDLE_AGENT_TASKS：保活的是渲染产物而非 agent 运行时，避免常驻 MB 级 messages 与跨项目 workspaceRoot 污染。新增 session-view-pool（纯策略）/ session-view-activity（活跃广播）/ SessionViewPool（类组件保活容器，冻结必须发生在离开活跃的那次 render 内）。显式迁移三条随卸载丢失的行为：草稿末次落盘、回前台复位滚动并贴底、装饰层重扫；并用 DOM 可见性门控让隐藏视图停止装饰与滚动写入。顺带修掉多面板下取「文档中第一个面板」的弹层作用域缺陷。",
-      "evidence": "83↔16 行会话 SPA 内切换实测（PerformanceObserver longtask）：离开大会话 1 个 longtask/55ms；切回（保活命中）4 个/累计 249ms/最大 83ms；对照改动前基线（618↔171 行）小→大 2360ms/最大 854ms，500-850ms 的整树重建单项尖峰已消失。交互契约：scroll-container 探针存活（同一 DOM 容器）、装饰产物与切走前完全一致（4 过程组/6 消息动作/83 行）、贴底 -0.5、两视图并存、真实滚轮滚动滞回与回底按钮显隐、草稿隔离 isolated=true restored=true、composer 四钩子齐全。npm run test 404 文件 4633 通过；lint 0 error（1 既有 warning）；tsc -b 通过；build 成功（3.66s）。"
+      "evidence": "83↔16 行会话 SPA 内切换实测（PerformanceObserver longtask）：离开大会话 1 个 longtask/55ms；切回（保活命中）4 个/累计 249ms/最大 83ms；对照改动前基线（618↔171 行）小→大 2360ms/最大 854ms，500-850ms 的整树重建单项尖峰已消失。交互契约：节点身份复用（切走→切回同一 wrapper 与同一消息行，=== 成立）、scroll-container 探针存活（同一 DOM 容器）、装饰产物与切走前完全一致（4 过程组/83 行）、切回贴底（distance=0，含「脱离 899px 后切走再切回复位贴底」）、两视图并存、真实滚轮滚动滞回（距底 399/1499px 稳定脱离）、回底按钮显隐与点击生效、草稿隔离 isolated=true restored=true、composer 四钩子齐全且可编辑。npm run test 404 文件 4633 通过；lint 0 error（1 既有 warning）；tsc -b 通过；build 成功（4.04s）。注意：直接赋值 scrollTop 会被自动跟随逻辑回弹，这是既有设计，非回归——滚动验证须用真实 wheel/scrollBy。",
+      "files": [
+        "src/lib/session-view-pool.ts",
+        "src/lib/session-view-activity.ts",
+        "src/components/chat/SessionViewPool.tsx",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/surface/ChatSurface.tsx",
+        "src/App.tsx",
+        "src/components/chat/panel-decoration/thinking-level-controls.ts",
+        "src/components/chat/panel-decoration/model-controls.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/hooks/useModelActions.ts",
+        "tests/frontend/session-view-pool.test.ts",
+        "tests/frontend/session-view-pool-dom.test.ts",
+        "tests/frontend/session-view-activity.test.ts",
+        "tests/frontend/composer-popover-panel-scope.test.ts",
+        "docs/architecture/session-open-fast-path.zh-CN.md",
+        "docs/wiki/src/lib/README.md"
+      ]
+    },
+    {
+      "id": "session-open-fast-path-m4-slice2",
+      "name": "会话打开快路径 M4（二）：装饰层渲染化，发送/停止按钮与持久化降级提示",
+      "status": "done",
+      "summary": "两个模块从命令式 DOM 注入改为 React 渲染，宿主侧删除对应 decorate 调用。① send-stop-button.ts（50 行）整文件删除：MessageEditor 用 isWaiting 控制等待环、onPointerDownCapture 中止（stopImmediatePropagation）、onBeforeAbort 先收建议弹层；宿主把 assistantWaitingActive 提升为 replyWaiting state。② persist-degraded-notice.ts（37 行）整文件删除：MessageList 按 persistDegraded 渲染为列表首子，并把 persist_degraded 加入 ChatSurface 的 SUBSCRIBED_EVENTS（缺它则状态变化不触发快照刷新）。③ goal-iteration-divider 一度按 React 实现后**主动回退**：分隔线宿主在渲染后才确定（本轮无 assistant 时回退到该轮 user 行），且必须是根的最后一个子元素而 message-actions 其后仍会 append；改为把决策逻辑抽成纯函数 readGoalIterationMarker + buildGoalIterationDivider，syncGoalIterationDivider 只留 DOM 写入，67 条既有断言全过。",
+      "evidence": "npm run test 405 文件 4639 用例全通过；lint 0 error（1 既有 warning）；tsc -b 通过；build 成功（3.53s）。专项：send-stop-button 8 例（改为 jsdom 渲染断言，含 pointerdown 抢占祖先冒泡、键盘激活、字面量 Stop、等待环清除时机）；persist-degraded-notice 4 例（新增，含首子位置与 role=alert）；goal-iteration-divider 67 例（回退后仍全过，证明纯函数拆分行为等价）。两个等价性细节已写入代码注释：title 必须是字面量 Stop（装饰层一直写它，用 t('stop') 会改非英文 tooltip）；等待环清除时刻不等于 isStreaming && !streamingMessage（宿主在 message_start 就清，streamingMessage 需首个 message_update）。",
+      "files": [
+        "src/components/chat/surface/MessageEditor.tsx",
+        "src/components/chat/surface/MessageList.tsx",
+        "src/components/chat/surface/ChatSurface.tsx",
+        "src/components/chat/surface/ChatTypes.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/panel-decoration/goal-iteration-divider.ts",
+        "tests/frontend/send-stop-button.test.ts",
+        "tests/frontend/persist-degraded-notice.test.ts",
+        "docs/architecture/session-open-fast-path.zh-CN.md",
+        "docs/wiki/src/lib/README.md"
+      ]
     }
   ]
 }

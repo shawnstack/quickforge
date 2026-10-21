@@ -23,7 +23,7 @@ import { hideNativeAttachmentControls, removeComposerPlusPopover, setupComposerP
 import { decorateModelButtonLabel } from './panel-decoration/model-controls'
 import { removeThinkingLevelControl, removeThinkingLevelMenu, setupThinkingLevelControl, type QuickForgeThinkingLevel } from './panel-decoration/thinking-level-controls'
 import { removePlanModeControls, setupPlanModeControls, syncPlanModeButton } from './panel-decoration/plan-mode-controls'
-import { syncSendStopButton } from './panel-decoration/send-stop-button'
+
 import { bindEditorCallbacks } from './panel-decoration/editor-bindings'
 import { closeComposerModelMenu } from '@/lib/custom-model-selector'
 export {
@@ -48,7 +48,7 @@ export type {
 } from './panel-decoration/goal-control-strip'
 export { buildGoalControlStripView, createGoalControlStripController } from './panel-decoration/goal-control-strip'
 export { syncContextCompactionNotice } from './panel-decoration/context-compaction'
-export { syncPersistDegradedNotice } from './panel-decoration/persist-degraded-notice'
+
 export type { ReconnectNoticeController } from './panel-decoration/reconnect-notice'
 export { createReconnectNoticeController } from './panel-decoration/reconnect-notice'
 export type { UnreachableStripController } from './panel-decoration/unreachable-strip'
@@ -92,9 +92,6 @@ export {
 
 type EditorDecorationDeps = {
   panel: HTMLElement
-  isStreaming: () => boolean
-  isWaiting?: () => boolean
-  abort: () => void
   agentAccessMode: AgentAccessMode
   planMode: boolean
   workspaceToolsEnabled: boolean
@@ -161,9 +158,6 @@ export function disableComposerControls(panel: HTMLElement, editor: MessageEdito
 export function decorateEditor(deps: EditorDecorationDeps) {
   const {
     panel,
-    isStreaming,
-    isWaiting,
-    abort,
     agentAccessMode,
     planMode,
     workspaceToolsEnabled,
@@ -246,14 +240,6 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   const rightControls = editorRows?.[editorRows.length - 1]
   if (!rightControls) return
   decorateModelButtonLabel(editor, rightControls)
-
-  syncSendStopButton({
-    rightControls,
-    isStreaming,
-    isWaiting,
-    abort,
-    removeCommandSuggestions,
-  })
 
   if (!leftControls) {
     panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline')?.remove()

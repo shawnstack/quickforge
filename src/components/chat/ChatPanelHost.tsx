@@ -32,7 +32,6 @@ import {
   removeAskUserCard,
   syncAssistantWaitingBubble,
   syncContextCompactionNotice,
-  syncPersistDegradedNotice,
   createScrollToBottomButton,
   createTodoWriteSummaryController,
   createMessageQueuePanelController,
@@ -88,12 +87,6 @@ type AgentWithContextCompaction = AgentLike & {
     contextUsage?: ServerAgentContextUsage | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
-  }
-}
-
-type AgentWithPersistDegraded = AgentLike & {
-  state: AgentLike['state'] & {
-    persistDegraded?: boolean
   }
 }
 
@@ -335,7 +328,11 @@ export function ChatPanelHost({
 }: ChatPanelHostProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const surfaceRef = useRef<WindowedChatSurfaceHandle | null>(null)
-  const surfaceSendHooksRef = useRef<{ onBeforeSend?: () => void | Promise<void> } | null>(null)
+  const surfaceSendHooksRef = useRef<{
+    onBeforeSend?: () => void | Promise<void>
+    /** Dismiss an open `@`/`/` popover. Bound in the panel effect, which owns `cmdSuggestions`. */
+    dismissSuggestions?: () => void
+  } | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
   const restoredDraftRef = useRef<RestoredDraft | undefined>(undefined)
   const composerDraftsRef = useRef<Map<string, ComposerDraft>>(new Map())
@@ -351,6 +348,12 @@ export function ChatPanelHost({
   const draftRestoreGuardRef = useRef(createComposerDraftRestoreGuard())
   const [gitBranch, setGitBranch] = useState<string>()
   const [planMode, setPlanMode] = useState(false)
+  /**
+   * Streaming with no assistant output yet (drives the stop button's waiting
+   * ring). State, not a closure variable: the ring is rendered by React inside
+   * `MessageEditor` now, so the host must cause a render when it flips.
+   */
+  const [replyWaiting, setReplyWaiting] = useState(false)
   const sideChatMode = mode === 'side-chat'
   const effectiveCapabilities = useMemo(
     () => applyChatPagePolicy(sideChatMode ? SIDE_CHAT_UI_CAPABILITIES : capabilities, {
@@ -701,6 +704,7 @@ export function ChatPanelHost({
     let initialComposerStateReady = false
     let composerInteracted = false
     let assistantWaitingActive = agent.state.isStreaming
+    setReplyWaiting(agent.state.isStreaming)
     let toolUpdateScheduled = false
     let processHandoffGeneration = 0
     let cancelInitialRenderReady: (() => void) | undefined
@@ -771,6 +775,11 @@ export function ChatPanelHost({
     // after mount, and user-triggered sends always happen later — so the ref
     // handoff is always populated before the first send.
     surfaceSendHooksRef.current = {
+      dismissSuggestions: () => {
+        cmdSuggestions.remove()
+        capabilitySuggestions.remove()
+        fileReferenceSuggestions.remove()
+      },
       onBeforeSend: () => {
         taskLauncher?.hide()
         taskLauncherStateRef.current.dismiss?.()
@@ -1221,10 +1230,6 @@ export function ChatPanelHost({
             messageIndexOffset,
             messageRows,
           })
-          syncPersistDegradedNotice({
-            panel,
-            isDegraded: () => (agent as AgentWithPersistDegraded).state.persistDegraded === true,
-          })
         }
         syncAssistantWaitingBubble({
           panel,
@@ -1243,9 +1248,6 @@ export function ChatPanelHost({
       try {
         decorateEditor({
           panel,
-          isStreaming: () => agent.state.isStreaming,
-          isWaiting: () => assistantWaitingActive,
-          abort: () => agent.abort(),
           agentAccessMode: props.agentAccessMode,
           planMode: props.planMode,
           workspaceToolsEnabled: props.workspaceToolsEnabled,
@@ -1733,6 +1735,7 @@ export function ChatPanelHost({
         processHandoffGeneration += 1
         delete panel.dataset.quickforgeProcessHandoff
         assistantWaitingActive = true
+        setReplyWaiting(true)
         syncProcessStreamingState()
         scheduleDecorateRef.current?.()
         scrollSync.enable()
@@ -1755,6 +1758,7 @@ export function ChatPanelHost({
         }
         if (event.type === 'message_update' || eventMessage?.role === 'assistant') {
           assistantWaitingActive = false
+          setReplyWaiting(false)
           // 模型流重试后新流的第一个增量到达即视为恢复。
           modelRetryNotice?.hide()
         }
@@ -1813,6 +1817,7 @@ export function ChatPanelHost({
       }
       if (event.type === 'agent_end') {
         assistantWaitingActive = false
+        setReplyWaiting(false)
         modelRetryNotice?.hide()
         syncProcessStreamingState()
         scheduleProcessHandoff()
@@ -2033,6 +2038,8 @@ export function ChatPanelHost({
               : (provider: string) => promptApiKey(provider)
           }
           onBeforeSend={() => surfaceSendHooksRef.current?.onBeforeSend?.()}
+          isReplyWaiting={replyWaiting}
+          onBeforeAbort={() => surfaceSendHooksRef.current?.dismissSuggestions?.()}
           onModelSelect={sideChatMode ? undefined : () => {
             const anchor = hostRef.current?.querySelector<HTMLElement>('.quickforge-model-trigger') ?? undefined
             propsRef.current.onModelSelect?.(anchor)

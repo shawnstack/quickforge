@@ -142,6 +142,12 @@ export interface MessageEditorProps {
   value: string
   attachments?: Attachment[]
   isStreaming?: boolean
+  /**
+   * Streaming but no assistant output yet. Drives the waiting ring on the stop
+   * button. React owns this class so the decoration layer no longer has to
+   * toggle it (which used to write a class onto React-owned DOM every pass).
+   */
+  isWaiting?: boolean
   currentModel?: Model<Api>
   thinkingLevel?: ThinkingLevel
   showAttachmentButton?: boolean
@@ -153,6 +159,14 @@ export interface MessageEditorProps {
   onInput?: (value: string) => void
   onSend?: (input: string, attachments: Attachment[]) => void
   onAbort?: () => void
+  /**
+   * Clear any open command/mention suggestion popover before aborting.
+   *
+   * The decoration layer used to call this from its capture-phase stop handler:
+   * aborting while a `@`/`/` popover is open used to leave the popover floating
+   * over the stopped conversation.
+   */
+  onBeforeAbort?: () => void
   onModelSelect?: () => void
   onThinkingChange?: (level: ThinkingLevel) => void
   onFilesChange?: (files: Attachment[]) => void
@@ -164,6 +178,7 @@ export function MessageEditor({
   value,
   attachments = [],
   isStreaming = false,
+  isWaiting = false,
   currentModel,
   thinkingLevel = 'off',
   showAttachmentButton = true,
@@ -175,6 +190,7 @@ export function MessageEditor({
   onInput,
   onSend,
   onAbort,
+  onBeforeAbort,
   onModelSelect,
   onThinkingChange,
   onFilesChange,
@@ -430,10 +446,37 @@ export function MessageEditor({
             {isStreaming ? (
               <Button
                 variant="ghost"
-                className="quickforge-stop-button h-8 w-8"
+                className={cn(
+                  'quickforge-stop-button h-8 w-8',
+                  // The waiting ring used to be toggled by the panel decoration on
+                  // every pass; React owns it now so the decoration only reads state.
+                  isWaiting && 'quickforge-stop-button--waiting',
+                )}
                 size="icon"
-                title={t('stop')}
-                onClick={onAbort}
+                // Literal "Stop" (not `t('stop')`) because that is what the
+                // decoration layer has always written into `title`/`aria-label`
+                // while streaming. Rendering the translated string instead would
+                // change the visible tooltip in non-English locales.
+                title="Stop"
+                aria-label="Stop"
+                // Abort on pointerdown in the capture phase: the decoration used
+                // to install a capture listener so the abort fired before any
+                // bubble-phase handler could run. `stopImmediatePropagation` then
+                // guarantees no other pointerdown handler reacts to this press.
+                onPointerDownCapture={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  event.nativeEvent.stopImmediatePropagation()
+                  onBeforeAbort?.()
+                  onAbort?.()
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' && event.key !== ' ') return
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onBeforeAbort?.()
+                  onAbort?.()
+                }}
               >
                 {/* Same solid square the panel decoration used to graft in.
                     Rendering it here keeps the icon React-owned so the

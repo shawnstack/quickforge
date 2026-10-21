@@ -1,3 +1,16 @@
+## session-open-fast-path-m4（部分实施，2026-10-21）
+
+- Goal：把 `panel-decoration` 的命令式 DOM 注入器改为 React 渲染（M4）。
+- **先划清边界**：按「输入能否完全从 snapshot/props 得到」分类 36 个模块 —— 可 React 化 12（其中 5 个本就是纯函数）、必须保留命令式 10、混合 14。真正的阻塞不是代码量而是契约：全仓 **232 条**「读源码文本 + toContain」断言（`assistant-artifact-card` 独占 114 条）锁的是**命令式实现**（`insertBefore`/`className =`），React 写不出这些字符串，改造等于重写测试；且装饰层测试多用 `vi.stubGlobal('document', fake)` 的假 DOM，**无法承载 `createRoot().render()`**，任何 React 化必须整文件切 jsdom。`process-folding.ts`（1717 行）与 `ChatSurface` 的所有权租约强耦合，属「节点搬运」而非渲染，不在 M4 范围。
+- 落地 ①**发送/停止按钮**（`send-stop-button.ts` 50 行整文件删除）：`MessageEditor` 用 `isWaiting` 渲染等待环、`onPointerDownCapture` 中止（`stopImmediatePropagation`）、`onBeforeAbort` 先收建议弹层；宿主 `assistantWaitingActive` 提升为 `replyWaiting` state。
+- 落地 ②**持久化降级提示**（`persist-degraded-notice.ts` 37 行整文件删除）：`MessageList` 按 `persistDegraded` 渲染为 `.qf-message-list` 首子。前提是把 `persist_degraded` 加入 `ChatSurface` 的 `SUBSCRIBED_EVENTS`——缺它则 `state.persistDegraded` 变化不触发快照刷新，提示永不出现。
+- **主动回退 ③ goal 迭代分隔线**：一度按 React 实现（在 `AssistantMessage` 末尾渲染），随后回退。原因是两个无法用 React 忠实表达的事实：宿主在**渲染后**才确定（通常 assistant，本轮无 assistant 时回退到该轮 user 行 —— 两个不同组件负责同一节点）；且分隔线必须是根的**最后一个子元素**，而 `message-actions` 其后仍会往同一根 append（这正是它原本需要幂等重定位的原因）。改为把决策逻辑抽成纯函数 `readGoalIterationMarker` + `buildGoalIterationDivider`，`syncGoalIterationDivider` 只留 DOM 写入 —— 67 条既有断言全过，证明这次重构行为等价。**回退不是失败，是把「能等价的部分」和「不能等价的部分」分开**。
+- 两个必须记住的等价性细节：① 停止按钮的 `title`/`aria-label` 必须是**字面量 `"Stop"`**——装饰层一直写的是字面量，改用 `t('stop')` 会改变非英文环境的可见 tooltip；② 等待环的清除时刻**不等于** `isStreaming && !streamingMessage`：宿主在 assistant 的 `message_start` 就清除，而 `streamingMessage` 要到第一个 `message_update` 才有值，从 snapshot 推导会让等待环多显示一段（像素相同、时刻不同）。
+- 验证：`npm run test` 405 文件 4639 用例通过；`lint` 0 error（1 个既有 warning）；`tsc -b` 通过；`build` 成功（3.53s）。专项 send-stop-button 8 例（jsdom 渲染断言）、persist-degraded-notice 4 例（新增）、goal-iteration-divider 67 例。
+- Notes：M4 的正确形态是**逐模块绞杀**：保留类名与 DOM 层级、把文本锁改为渲染断言、并删除宿主里对应的 decorate 调用（否则 `MutationObserver` 会让 pass 空转）。剩余按代价排序：零文本锁的 5 个 → 1–3 条文本锁的 6 个 → `assistant-artifact-card`(114) / `message-actions`(44) / `message-queue`(27) 三件套放最后。未新增/升级依赖；未手工修改生成产物；未创建 Git commit。
+
+---
+
 ## session-open-fast-path-m3（done，2026-10-21）
 
 - Goal：消除切换会话时的**整树 remount**（准则 4 的最后一块），且用户可见交互零变化。
@@ -8,9 +21,9 @@
 - 可见性门控：`runDecorate` 开头跳过隐藏视图，`ChatSurface` 贴底写 `scrollTop` 前也跳过（隐藏态 `scrollHeight` 为 0，写下去会把容器停到顶部）。判据用**DOM 可见性**（`isInsideHiddenView`）而非活跃性信号——信号在 `useLayoutEffect` 发布，本视图刚变可见的那次提交上信号可能仍指向旧视图，会把唯一一次权威装饰跳过。
 - 顺带修掉的多面板缺陷（保活让「同时两个面板」成为常态，暴露了原本被「只有一个面板」掩盖的问题）：`thinking-level-controls.ts` 无参清理会删掉任意面板的 thinking 按钮、`model-controls.ts` 的 `aria-expanded` 取全局、`useModelActions.ts` 读**第一个**面板的草稿与附件。现全部按 `closest('.qf-chat-panel')` 归属。新增 `tests/frontend/composer-popover-panel-scope.test.ts` 锁定。
 - 实测（83 行会话 ↔ 16 行会话，SPA 内切换，独立端口实例，`PerformanceObserver` longtask 收集器）：离开大会话 **1 个 longtask / 55ms**；切回大会话（保活命中）**4 个 / 累计 249ms / 最大 83ms**。对照改动前同链路基线（618 行 ↔ 171 行）小→大 **2360ms / 最大 854ms**——会话规模不同不能直接相减，但可确认**量级**：原先 500–850ms 的「整树卸载 + 重建」单项尖峰已不存在，剩余成本是数据重取（`/view`）与一次装饰 pass。
-- 交互契约实测（同一 SPA 会话内切走再切回）：`.qf-scroll-container` 上的**探针属性存活**（同一 DOM 容器，未重建）、装饰产物与切走前**完全一致**（4 个过程组、6 组消息动作、83 行）、滚动贴底 `distance: -0.5`、两个视图并存；真实滚轮验证滚动滞回（脱离后距离 1400 且回底按钮**出现并可见**，滚回底部后距离 0 且按钮**自动隐藏**）；草稿隔离与恢复 `isolated=true, restored=true`；composer 四钩子齐全。
-- 两次误判的排除（教训同上一轮：自动化给出的「异常」先用规则本身对照）：① 一个 4 轮会话的轮次导航节点为 0，一度判定为回归，实际是轮次导航有显示阈值 `TURN_NAVIGATION_MIN_TURNS = 5`，**空轨道才是正确行为**；② 用 `page.goto` 换 URL 会整页重载、绕过 SPA，测不到保活，改用侧栏点击/`history` 在 SPA 内切换才有效。
-- 验证：`npm run test` 全量 404 文件 4633 用例通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（3.66s）。临时实例 32210/32212/32214/32216/32218 已清理，主实例 5176 全程 health 200。
+- 交互契约实测（同一 SPA 会话内切走再切回）：**节点身份复用**——切回后同一 `[data-quickforge-view]` wrapper 与同一 `.qf-user-message` 节点（`===` 成立），`.qf-scroll-container` 探针属性存活；装饰产物与切走前**完全一致**（4 个过程组、83 行）；切回**复位贴底**（`distance = 0`），含「先脱离 899px → 切走 → 切回」后仍贴底；两个视图并存（1 活跃 `contents` + 1 保活 `none`）。真实滚轮验证滚动滞回（距底 399 / 1499px 稳定脱离、不自动回底）；回底按钮 `display:flex` 可见且点击后 `distance = 0`；草稿隔离与恢复 `isolated=true, restored=true`；composer 四钩子齐全且 textarea 可编辑。
+- 三次误判的排除（教训同上一轮：自动化给出的「异常」先用规则本身对照）：① 一个 4 轮会话的轮次导航节点为 0，一度判定为回归，实际是轮次导航有显示阈值 `TURN_NAVIGATION_MIN_TURNS = 5`，**空轨道才是正确行为**；② 用 `page.goto` 换 URL 会整页重载、绕过 SPA，测不到保活，改用侧栏点击在 SPA 内切换才有效；③ **直接赋值 `scrollTop` 会被自动跟随逻辑立刻回弹**，在补充验证里表现为「滚上去又回到贴底」，一度疑似回归——改用真实 `wheel`/`scrollBy` 后滞回完全正常。这是既有设计（程序化滚动不算阅读意图），不是本轮引入。
+- 验证：`npm run test` 全量 404 文件 4633 用例通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（4.04s）。临时实例 32210 已清理，主实例 5176 全程 health 200。
 - Notes：M4（装饰层 20+ 命令式注入器改 React 兄弟节点）仍未做，其价值是可维护性而非性能（装饰 pass 12–17ms 不是瓶颈）。若将来要调大 `MAX_IDLE_AGENT_TASKS`，必须先给 server agent 绑定 projectId 而不是读全局 active project。未新增/升级依赖；未手工修改生成产物；未创建 Git commit。
 
 ---

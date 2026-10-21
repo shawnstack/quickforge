@@ -4,6 +4,7 @@ import type { AgentMessage, AgentTool, AssistantMessage as AssistantMessageType,
 import { AssistantMessage } from './AssistantMessage'
 import { UserMessage } from './UserMessage'
 import { isRenderableMessage, messageRenderKeys } from './content-parts'
+import { t } from '@/lib/i18n'
 
 /**
  * React replacement for the legacy `<message-list>` component.
@@ -58,6 +59,8 @@ type MessageListProps = {
    */
   streamingAssistant?: AssistantMessageType
   onCostClick?: () => void
+  /** Show the persist-degraded warning as the list's first child. */
+  persistDegraded?: boolean
 }
 
 /** Build the toolCallId → toolResult lookup used for inline rendering. */
@@ -74,7 +77,7 @@ export function collectToolResultsById(messages: AgentMessage[]): Map<string, To
 /** Messages the list renders standalone (artifact/toolResult are excluded). */
 type RenderableMessage = Extract<AgentMessage, { role: 'user' | 'user-with-attachments' | 'assistant' }>
 
-export function MessageList({ messages, messageIndexOffset = 0, tools, pendingToolCalls, streamingAssistant, onCostClick }: MessageListProps) {
+export function MessageList({ messages, messageIndexOffset = 0, tools, pendingToolCalls, streamingAssistant, onCostClick, persistDegraded = false }: MessageListProps) {
   const listRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const elements = listRef.current?.querySelectorAll<HTMLElement>(':scope > .qf-user-message, :scope > .qf-assistant-message')
@@ -147,6 +150,18 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
 
   return (
     <div ref={listRef} className="qf-message-list flex flex-col gap-3" data-window-start={messageIndexOffset}>
+      {/*
+        Authoritative persist was skipped after CAS conflicts. Rendered here (as
+        the list's first child, matching where the `persist-degraded-notice`
+        decoration used to prepend it) so React owns the node and clears it
+        automatically once a persist succeeds.
+      */}
+      {persistDegraded ? (
+        <div className="quickforge-persist-degraded-notice" role="alert">
+          <span className="quickforge-persist-degraded-dot" aria-hidden="true" />
+          <span className="quickforge-persist-degraded-text">{t('persistDegradedWarning')}</span>
+        </div>
+      ) : null}
       {rows}
     </div>
   )

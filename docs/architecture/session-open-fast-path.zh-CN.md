@@ -420,6 +420,42 @@ App
 （`TURN_NAVIGATION_MIN_TURNS = 5`），被检查的会话只有 4 轮，**空轨道才是正确行为**。
 教训与上轮一致：自动化检查给出的「异常」必须先用规则本身对照，再判断是不是自引入。
 
+#### 第四条必须显式迁移的行为：就绪信号（回归，已修）
+
+上表遗漏了一条，代价是**整页假死**：
+
+| 行为 | 原实现 | 不补会怎样 |
+|---|---|---|
+| 首帧就绪通知 | remount 时 `ChatPanelHost` 主 effect 末尾的 `notifyInitialRenderReady` | 遮罩**永不下马**，停在「正在加载对话」直到刷新页面 |
+
+触发条件只有两个同时成立才出现，所以前三轮的验收都没覆盖到：
+
+1. **目标会话仍常驻 `taskMap`** —— 只在会话**正在生成**时发生。空闲会话切走时会被
+   `selectAgentTaskEvictions` 直接 dispose（`MAX_IDLE_AGENT_TASKS = 0`），切回走
+   `/view` + `restore`，拿到的是**新的 agent 对象**，主 effect 会重跑；运行中的会话
+   留在 `taskMap`，`performLoadSession` 走 `attachTaskToView(runningTask)` 分支，复用
+   **同一个 agent 对象**。
+2. **视图被保活** —— M3 之后 `SessionViewPool` 让切回的路径只翻 `display`，不 remount。
+
+两者叠加时 `[agent, agentRuntimeScopeId]` 依赖全都不变 → 主 effect 不重跑 →
+`onInitialRenderReady` 一次都不发。而 `useAppLoadingTransitions` 的下马条件只有
+`renderedLoadingSessionId === visibleLoadingSessionId`，后者只能由这个回调设置，于是
+遮罩既不会被 ready 撤掉、也不会被 280ms 淡出撤掉（淡出本身以 ready 为前提），
+**`agent_end` 也不碰 loading 状态**，因此这一轮生成结束后也不会自愈。
+
+修复分两层，且刻意保持「一个发布者」：
+
+1. **源头**：把就绪发布收敛成 `publishViewReady()`，既被面板初始化的
+   `notifyInitialRenderReady` 调用，也被活跃性回调的「回到前台」分支调用。发布动作
+   幂等——`handleSessionInitialRenderReady` 只在 `visibleLoadingSessionIdRef` 等于该
+   会话时才生效，晚到或竞争的发布不会撤掉别人的遮罩。全量历史补齐（`hydrateFullHistory`）
+   的开关 `pendingHistoryHydration` 只由初始化那条路径置位，重新激活**不会**重复补齐。
+2. **兜底**：`useAppLoadingEffects` 增加 10s 过渡看门狗，把 `rendered` 直接置为当前
+   `visible`（复用既有 280ms 淡出），并 `logger.warn` 记录会话 id。这是安全网不是第二条
+   路径：任何实测打开都在 300ms 量级（1279 条会话首帧 275ms），10s 只会命中真正的信号
+   丢失；而「单信号协议」永远离一次回归只差一步，其失败模式是**永久**卡死界面，
+   比提前揭示未就绪内容更糟。
+
 #### 实测数据（本机，2026-10-21，83 行会话 ↔ 16 行会话来回切换）
 
 longtask 收集器（`PerformanceObserver`，`entryTypes: ['longtask']`）在 SPA 内切换，

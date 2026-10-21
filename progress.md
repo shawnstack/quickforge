@@ -1,3 +1,19 @@
+## session-view-ready-republish（done，2026-10-21）
+
+- Goal：修「切换到一个正在生成的会话，再切回来，永久卡在『正在加载对话』，只能刷新页面」。
+- 根因（两个条件必须同时成立，所以前三轮验收都没覆盖到）：
+  1. **目标会话仍常驻 `taskMap`** —— 只在会话**正在生成**时发生。空闲会话切走时被 `selectAgentTaskEvictions` 直接 dispose（`MAX_IDLE_AGENT_TASKS = 0`），切回走 `/view` + `restore`，拿到的是**新 agent 对象**，`ChatPanelHost` 主 effect 会重跑；运行中的会话留在 `taskMap`，`performLoadSession` 命中 `runningTask` 分支走 `attachTaskToView(runningTask)`，复用**同一个 agent 对象**。
+  2. **视图被保活** —— M3 之后 `SessionViewPool` 让切回只翻 `display`，不 remount。
+- 叠加结果：`[agent, agentRuntimeScopeId]` 依赖全不变 → 主 effect 不重跑 → `onInitialRenderReady` 一次都不发；而遮罩下马条件只有 `renderedLoadingSessionId === visibleLoadingSessionId`，后者只能由这个回调设置 → 既不会被 ready 撤掉、也不会被 280ms 淡出撤掉（淡出本身以 ready 为前提）。`agent_end` 不碰 loading 状态，所以**这一轮生成结束也不会自愈**，是真正的假死。
+- 修复（两层，刻意保持「一个发布者」）：
+  1. 源头：`ChatPanelHost` 把就绪发布收敛成 `publishViewReady()`，由面板初始化的 `notifyInitialRenderReady`（同时置位 `pendingHistoryHydration`）和活跃性回调的「回到前台」分支共同调用。发布幂等——`handleSessionInitialRenderReady` 只在 `visibleLoadingSessionIdRef` 等于该会话时生效，晚到/竞争的发布不会撤掉别人的遮罩。**全量历史补齐不会重复触发**：开关只由初始化路径置位，`publishViewReady` 消费一次后置 `historyHydrated`。
+  2. 兜底：`useAppLoadingEffects` 增加 10s 过渡看门狗，把 `rendered` 置为当前 `visible`（复用既有 280ms 淡出）并 `logger.warn` 记录会话 id。这是安全网不是第二条路径：实测打开都在 300ms 量级（1279 条会话首帧 275ms），10s 只命中真正的信号丢失；而「单信号协议」永远离一次回归只差一步，其失败模式是**永久**卡死界面，比提前揭示未就绪内容更糟。看门狗在 `rendered === visible` 时直接不 arm，所以不会与正常 ready 抢时序。
+- 为什么一开始没发现：前三轮验收全部在「空闲会话」上做（切走即 dispose、切回必换 agent），恰好绕开了必要条件 1。教训与前几轮一致——契约表要按「哪些前提变了」枚举，而不是按「我改了什么」枚举；M3 当时列的三条必须显式迁移的行为（草稿落盘、复位滚动、重扫装饰）漏了第四条「就绪信号」，因为它原本由 effect 承担而非卸载 cleanup。
+- 验证：定向 vitest — `app-domain-hooks` 16 passed（新增 2 例：看门狗到时经正常淡出下马并 warn、ready 到达与旧会话不误触发）、`chat-surface-behavior-alignment` 18 passed（新增 2 例：单一发布者 + 重新激活分支必须调用 `publishViewReady`、补齐开关只由初始化置位）、`session-view-activity` 10、`session-view-pool-dom` 9、`message-queue` 20、`chat-compact-controls` 11 全通过；`npx tsc -b` 通过；eslint（4 个改动文件）0 error。**旧实现红灯验证**：新契约断言跑在 `HEAD` 版本源码上 4 项全部不成立（`publishViewReady` / 重新激活调用 / `pendingHistoryHydration` 均缺失）。
+- Notes：未改遮罩 280ms 过渡、滚动四组阈值、折叠分组规则、DOM 类名契约、只读/分享/侧聊能力矩阵。未新增/升级依赖；未手工修改生成产物；未创建 Git commit。**未做浏览器实机复现**（需要构造「生成中途切走再切回」的时序），已用源码契约 + 旧实现红灯对照锁定根因与修复位置；建议下次发布前在真实 UI 上补一次手工回归。
+
+---
+
 ## session-open-fast-path-m4（部分实施，2026-10-21）
 
 - Goal：把 `panel-decoration` 的命令式 DOM 注入器改为 React 渲染（M4）。

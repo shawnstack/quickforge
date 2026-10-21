@@ -213,6 +213,33 @@ describe('reading anchor across background history hydration', () => {
   })
 })
 
+describe('readiness is republished on view reactivation', () => {
+  it('publishes readiness from exactly one place, called by mount and by reactivation', () => {
+    // The conversation transition overlay only lowers on this signal. A kept
+    // view never re-runs the panel effect, so returning to a session whose task
+    // is still resident (i.e. one that is actively streaming) used to leave the
+    // overlay stuck on "loading conversation" until a page reload: the effect
+    // deps (`agent`, `agentRuntimeScopeId`) do not change, so the only ready
+    // signal this view ever sends was the one from its initial mount.
+    expect(hostSource).toContain('const publishViewReady = () => {')
+    // One publisher: no ad-hoc `scheduleAfterPaint` around onInitialRenderReady
+    // anywhere else, which is what let the two paths drift apart.
+    expect(hostSource.match(/onInitialRenderReady\?\.\(sessionId\)/g)).toHaveLength(1)
+    expect(hostSource.match(/scheduleAfterPaint\(/g)).toHaveLength(1)
+    // The reactivation branch of the activity subscription ends with it.
+    expect(hostSource).toMatch(/decorateFnRef\.current\?\.\(\)[\s\S]{0,600}?publishViewReady\(\)\s*\n\s*\},/)
+  })
+
+  it('keeps the mount-time path (which arms hydration) separate from republishing', () => {
+    // Reactivating must not re-run the full-history hydration: the tail window
+    // was already topped up. The flag is armed by the mount path only, and the
+    // paint callback consumes it once.
+    expect(hostSource).toContain('pendingHistoryHydration = true')
+    expect(hostSource).toMatch(/if \(!pendingHistoryHydration \|\| historyHydrated\) return/)
+    expect(hostSource).toMatch(/historyHydrated = true\s*\n\s*pendingHistoryHydration = false/)
+  })
+})
+
 describe('structural release ownership (no pre-release outside the boundary)', () => {
   it('lets ProcessGroupReleaseBoundary own messages_replaced releases with same-commit re-fold', () => {
     // A host-side `releaseStreamingProcessGroups(panel)` in the event callback

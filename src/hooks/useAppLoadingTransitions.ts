@@ -9,6 +9,23 @@ import type { useTaskToasts } from './useTaskToasts'
 const STARTUP_SPLASH_MIN_DURATION_MS = 1350
 const STARTUP_SPLASH_EXIT_DURATION_MS = 280
 const CONVERSATION_TRANSITION_DURATION_MS = 280
+/**
+ * Upper bound for one conversation transition.
+ *
+ * The overlay is lowered by exactly one signal: the panel's "content is
+ * painted" callback. That signal has been observed to go missing — a kept view
+ * returned to while its task is still resident never re-ran the panel effect,
+ * so nothing republished readiness and the overlay stayed up until a page
+ * reload. The publisher is fixed at the source, but a single-signal protocol
+ * stays one regression away from a stuck screen, and this particular failure
+ * mode is a *permanently* blocked UI — strictly worse than a premature reveal.
+ *
+ * So this is a safety net, not a second code path: the bound is an order of
+ * magnitude above any measured open (a 1279-message session reaches first paint
+ * in ~275ms), it routes through the normal 280ms fade rather than clearing
+ * instantly, and it warns so a missing signal is never silently swallowed.
+ */
+const CONVERSATION_TRANSITION_WATCHDOG_MS = 10_000
 
 export function useAppLoadingState() {
   const sessionTransitionTokenRef = useRef(0)
@@ -45,6 +62,21 @@ export function useAppLoadingEffects({ loadingSessionId, pendingSessionLoadCance
     }, 0)
     return () => window.clearTimeout(timer)
   }, [loadingSessionId, pendingSessionLoadCancelRef, sessionTransitionTokenRef, setRenderedLoadingSessionId, visibleLoadingSessionIdRef, setVisibleLoadingSessionId])
+
+  useEffect(() => {
+    if (!visibleLoadingSessionId) return undefined
+    // Already revealed (or already forced): nothing left to rescue.
+    if (renderedLoadingSessionId === visibleLoadingSessionId) return undefined
+    const watchdog = window.setTimeout(() => {
+      if (visibleLoadingSessionIdRef.current !== visibleLoadingSessionId) return
+      logger.warn('Conversation transition never reported ready, forcing the overlay down:', visibleLoadingSessionId)
+      // Route through the normal fade (rendered === visible) instead of
+      // clearing instantly: the user gets the same 280ms transition, and the
+      // path stays identical to a real ready signal.
+      setRenderedLoadingSessionId(visibleLoadingSessionId)
+    }, CONVERSATION_TRANSITION_WATCHDOG_MS)
+    return () => window.clearTimeout(watchdog)
+  }, [renderedLoadingSessionId, visibleLoadingSessionId, visibleLoadingSessionIdRef, setRenderedLoadingSessionId])
 
   useEffect(() => {
     const visibleSessionId = visibleLoadingSessionIdRef.current

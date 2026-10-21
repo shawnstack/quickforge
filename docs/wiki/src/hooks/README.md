@@ -33,7 +33,7 @@
 |------|----------------|
 | [useAppTerminal.ts](../../../../src/hooks/useAppTerminal.ts) | state/ref 独立初始化；原晚期位置订阅 Markdown 命令，保留 remote 拒绝、确认流程、递增 ID 与匹配回执消费、监听清理 |
 | [useAppGit.ts](../../../../src/hooks/useAppGit.ts) | 顶栏 Git state、full status 请求与旧结果隔离、0ms 初刷、工具结束 400ms force debounce、checkout/toast；菜单 click/blur 清理由独立晚期 hook 承担 |
-| [useAppLoadingTransitions.ts](../../../../src/hooks/useAppLoadingTransitions.ts) | state/minimum/loading effects/actions/exit 分阶段调用；1350ms splash 最短展示、280ms退出与会话淡出、双 RAF 延后加载、token 防旧回调和卸载取消 |
+| [useAppLoadingTransitions.ts](../../../../src/hooks/useAppLoadingTransitions.ts) | state/minimum/loading effects/actions/exit 分阶段调用；1350ms splash 最短展示、280ms退出与会话淡出、双 RAF 延后加载、token 防旧回调和卸载取消；**另含 10s 过渡看门狗**——遮罩只由面板的 ready 回调下马（单信号），信号一旦丢失就是永久卡死，故到时把 `rendered` 置为当前 `visible`（复用正常 280ms 淡出）并 `logger.warn`。它只是安全网：正常打开在 300ms 量级，绝不走这条 |
 
 这些模块由 `MainApp` 实际调用，不重建 `useAppBootstrap` / `useAgentManager`。拆开 phase 是为了保持与其他 hooks/effects 的原相对顺序，不能为了集中调用而一并移到组件顶部。Git 与聊天文件请求仍共用 App 的 `currentToolProjectIdRef`，跨域 scope invalidation 留 App；URL 恢复/写入仍由既有 Bootstrap/AgentManager 管理，JSX及产品时序不变。
 

@@ -737,6 +737,77 @@ export function ChatPanelHost({
       }
     }
 
+    /**
+     * Publish "this view's content is on screen" to the host.
+     *
+     * Two callers, and the second one is load-bearing:
+     *
+     * 1. Panel initialization, after the surface's first paint. Also schedules
+     *    the background full-history hydration (the read-only view only carries
+     *    a tail window).
+     * 2. Reactivation of a **kept** view (see the activity subscription below).
+     *
+     * Caller 2 exists because a kept view never re-runs this effect. When the
+     * session's task is still resident — the case for a session that is
+     * actively streaming — switching back leaves `agent` and the runtime scope
+     * id untouched, so all that happens is `SessionViewPool` flipping
+     * `display`. The host's conversation transition overlay (`useAppLoadingTransitions`)
+     * only lowers on this signal, so without re-publishing it would wait for a
+     * ready that only the initial mount ever sent: the overlay sticks on
+     * "loading conversation" for a session whose content is right behind it.
+     *
+     * Safe to call more than once: `handleSessionInitialRenderReady` ignores any
+     * session that is not the one currently transitioning, so a late or racing
+     * publish cannot dismiss someone else's overlay.
+     */
+    let pendingHistoryHydration = false
+    let historyHydrated = false
+    const publishViewReady = () => {
+      if (disposed) return
+      // A newer publish supersedes one that has not painted yet. It must not
+      // drop the hydration request: the flag below is read at paint time.
+      cancelInitialRenderReady?.()
+      cancelInitialRenderReady = scheduleAfterPaint(() => {
+        cancelInitialRenderReady = undefined
+        if (disposed) return
+        // 埋点：会话内容首帧已上屏（遮罩开始淡出的时刻）。
+        markSessionOpen(sessionId, 'first-paint')
+        propsRef.current.onInitialRenderReady?.(sessionId)
+        if (!pendingHistoryHydration || historyHydrated) return
+        historyHydrated = true
+        pendingHistoryHydration = false
+
+        // 只读视图只带回尾部窗口，首帧之后补齐更早的历史，界面才能滚到开头。
+        // 补齐是在头部插入内容：锚点在真正替换的前一刻由 `hydrateFullHistory`
+        // 回调捕获（不是现在），否则用户在这几秒内滚动就用的是过期位置。
+        //
+        // 必须延到空闲时再拉：实测这条全量请求有 10MB / 186ms，直接在
+        // first-paint 回调里发起会与用户首次交互抢主线程。`requestIdleCallback`
+        // 让浏览器先处理输入和绘制；`timeout` 兜底保证补齐最终一定发生。
+        // 注意用独立句柄：`cancelInitialRenderReady` 是首帧通知的取消函数，
+        // 覆盖它会让就绪通知无法在卸载时取消。
+        const hydrate = (agent as { hydrateFullHistory?: (beforeReplace?: () => (() => void) | void) => Promise<void> }).hydrateFullHistory
+        if (typeof hydrate !== 'function') return
+        const runHydration = () => {
+          if (disposed) return
+          void hydrate.call(agent, () => surfaceRef.current?.captureScrollAnchor())
+            .catch((error: unknown) => logger.debug('Background history hydration failed:', error))
+        }
+        if (typeof window.requestIdleCallback === 'function') {
+          cancelHydration = () => {
+            // `cancelIdleCallback` 判定 pending 无效，重复取消是安全的。
+            if (idleHandle !== undefined) window.cancelIdleCallback?.(idleHandle)
+          }
+          idleHandle = window.requestIdleCallback(runHydration, { timeout: 2000 })
+        } else {
+          hydrationTimer = window.setTimeout(runHydration, 300)
+          cancelHydration = () => {
+            if (hydrationTimer !== undefined) window.clearTimeout(hydrationTimer)
+          }
+        }
+      })
+    }
+
     // Keep-alive: this view stays mounted while another session is active, so
     // the unmount cleanup no longer fires on every switch. Flush the draft the
     // moment this view leaves the screen instead, using the same rules.
@@ -767,6 +838,13 @@ export function ChatPanelHost({
         // decorators. Re-run one pass now that the subtree is visible again.
         // Without this the turn-navigation rail stays empty on the active view.
         decorateFnRef.current?.()
+        // Re-publish readiness. A kept view never re-runs the main effect, so
+        // when the session's task is still resident (the normal case for a
+        // session that is actively streaming) nothing else would ever send this
+        // signal again — and the host's conversation transition only lowers on
+        // it. Without this, switching away from a running session and back
+        // leaves "loading conversation" on screen until a page reload.
+        publishViewReady()
       },
     )
 
@@ -1674,41 +1752,11 @@ export function ChatPanelHost({
 
       const notifyInitialRenderReady = () => {
         if (disposed) return
-        cancelInitialRenderReady = scheduleAfterPaint(() => {
-          if (disposed) return
-          // 埋点：会话内容首帧已上屏（遮罩开始淡出的时刻）。
-          markSessionOpen(sessionId, 'first-paint')
-          propsRef.current.onInitialRenderReady?.(sessionId)
-          // 只读视图只带回尾部窗口，首帧之后补齐更早的历史，界面才能滚到开头。
-          // 补齐是在头部插入内容：锚点在真正替换的前一刻由 `hydrateFullHistory`
-          // 回调捕获（不是现在），否则用户在这几秒内滚动就用的是过期位置。
-          //
-          // 必须延到空闲时再拉：实测这条全量请求有 10MB / 186ms，直接在
-          // first-paint 回调里发起会与用户首次交互抢主线程。`requestIdleCallback`
-          // 让浏览器先处理输入和绘制；`timeout` 兜底保证补齐最终一定发生。
-          // 注意用独立句柄：`cancelInitialRenderReady` 是首帧通知的取消函数，
-          // 覆盖它会让就绪通知无法在卸载时取消。
-          const hydrate = (agent as { hydrateFullHistory?: (beforeReplace?: () => (() => void) | void) => Promise<void> }).hydrateFullHistory
-          if (typeof hydrate === 'function') {
-            const runHydration = () => {
-              if (disposed) return
-              void hydrate.call(agent, () => surfaceRef.current?.captureScrollAnchor())
-                .catch((error: unknown) => logger.debug('Background history hydration failed:', error))
-            }
-            if (typeof window.requestIdleCallback === 'function') {
-              cancelHydration = () => {
-                // `cancelIdleCallback` 判定 pending 无效，重复取消是安全的。
-                if (idleHandle !== undefined) window.cancelIdleCallback?.(idleHandle)
-              }
-              idleHandle = window.requestIdleCallback(runHydration, { timeout: 2000 })
-            } else {
-              hydrationTimer = window.setTimeout(runHydration, 300)
-              cancelHydration = () => {
-                if (hydrationTimer !== undefined) window.clearTimeout(hydrationTimer)
-              }
-            }
-          }
-        })
+        // Panel initialization is the first occasion this view needs the full
+        // history; reactivation reuses the same publish path but must not
+        // hydrate twice.
+        pendingHistoryHydration = true
+        publishViewReady()
       }
       notifyInitialRenderReady()
     }, (error: unknown) => {

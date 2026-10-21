@@ -366,4 +366,51 @@ describe('App loading transitions lifecycle', () => {
     render().handleSessionInitialRenderError('new', new Error('render failed'))
     expect(render().visibleLoadingSessionId).toBeUndefined()
   })
+
+  it('forces the overlay down through the normal fade when readiness never arrives', () => {
+    const input = props()
+    const render = () => lifecycle.render(() => useLoadingFixture(input))
+    render().beginSessionTransition('stuck')
+    // Commit the effect that arms the watchdog (deps change on this render).
+    render()
+
+    // The panel's readiness callback is the only regular way out. If it never
+    // fires (a kept view returned to while its task is still resident used to
+    // swallow it), the watchdog is the last resort: a stuck overlay blocks the
+    // whole chat area, which is worse than revealing unready content.
+    vi.advanceTimersByTime(9999)
+    render()
+    expect(render().renderedLoadingSessionId).toBeUndefined()
+    expect(render().visibleLoadingSessionId).toBe('stuck')
+
+    vi.advanceTimersByTime(1)
+    // Routed through `rendered === visible`, so the 280ms fade still runs.
+    expect(render().renderedLoadingSessionId).toBe('stuck')
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Conversation transition never reported ready, forcing the overlay down:',
+      'stuck',
+    )
+
+    vi.advanceTimersByTime(280)
+    expect(render().visibleLoadingSessionId).toBeUndefined()
+  })
+
+  it('cancels the watchdog once readiness arrives, and for superseded sessions', () => {
+    const input = props()
+    const render = () => lifecycle.render(() => useLoadingFixture(input))
+    render().beginSessionTransition('first')
+    render()
+    render().beginSessionTransition('second')
+    render()
+    // A superseded session must not force the fade for the current one.
+    vi.advanceTimersByTime(9999)
+    render()
+    expect(render().renderedLoadingSessionId).toBeUndefined()
+
+    render().handleSessionInitialRenderReady('second')
+    render()
+    expect(render().renderedLoadingSessionId).toBe('second')
+    vi.advanceTimersByTime(10_000)
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
 })

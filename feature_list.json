@@ -1,6 +1,29 @@
 {
   "features": [
     {
+      "id": "session-view-ready-republish",
+      "name": "保活视图重新激活时补发就绪信号（修「切回运行中会话卡在正在加载对话」）",
+      "description": "切换到一个正在生成的会话再切回来，遮罩永久停在「正在加载对话」，只能刷新页面。根因是遮罩只由 ChatPanelHost 的 onInitialRenderReady 下马，而保活视图重新激活时面板主 effect 不重跑（运行中的会话常驻 taskMap，performLoadSession 走 attachTaskToView 复用同一个 agent 对象，[agent, agentRuntimeScopeId] 全不变），于是 ready 一次都不发；agent_end 也不碰 loading 状态，因此本轮结束也不会自愈。",
+      "status": "done",
+      "dependencies": ["session-open-fast-path-m3"],
+      "summary": "① 把就绪发布收敛为单一函数 publishViewReady()，由面板初始化（同时置位 pendingHistoryHydration）与活跃性回调的「回到前台」分支共同调用；发布幂等，因为 handleSessionInitialRenderReady 只在 visibleLoadingSessionIdRef 等于该会话时生效。全量历史补齐只在初始化路径触发，重新激活不会重复 hydrate。② useAppLoadingEffects 增加 10s 过渡看门狗：把 rendered 置为当前 visible（复用正常 280ms 淡出）并 logger.warn，避免单信号协议再次丢信号造成永久卡死。",
+      "root_cause": "触发需要两个条件同时成立：目标会话仍在 taskMap（仅运行中会话，空闲会话被 selectAgentTaskEvictions 在 MAX_IDLE_AGENT_TASKS=0 下 dispose，切回走 /view + restore 拿到新 agent 对象，主 effect 会重跑）＋ 视图被 SessionViewPool 保活（只翻 display，不 remount）。叠加后主 effect deps 全不变 → onInitialRenderReady 一次都不发 → renderedLoadingSessionId 永远 undefined → 淡出 effect 的 rendered === visible 前置条件不成立。",
+      "files": [
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/hooks/useAppLoadingTransitions.ts",
+        "tests/frontend/app-domain-hooks.test.ts",
+        "tests/frontend/chat-surface-behavior-alignment.test.ts",
+        "docs/architecture/session-open-fast-path.zh-CN.md",
+        "docs/wiki/src/hooks/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest：app-domain-hooks 16 passed（新增 2 例：看门狗到时经正常淡出下马、ready 到达与旧会话不误触发）、chat-surface-behavior-alignment 18 passed（新增 2 例：单一发布者 + 重新激活分支必须调用 publishViewReady、补齐开关只由初始化置位）、session-view-activity 10、session-view-pool-dom 9、message-queue 20、chat-compact-controls 11 全通过；npx tsc -b 通过；eslint（4 个改动文件）0 error。旧实现红灯验证：新契约断言在 HEAD 版本上 4 项全部不成立（publishViewReady/reactivation/pendingHistoryHydration 均缺失）。",
+      "boundaries": "不改遮罩 280ms 过渡与 4 道帧门、不改滚动四组阈值、不改折叠分组规则、不改 DOM 类名/属性契约、不改只读/分享/侧聊能力矩阵。ready 发布仍是幂等的单一来源；补齐历史的触发条件未放宽。未新增/升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit。"
+    },
+    {
       "id": "dead-code-cleanup",
       "name": "死代码 / 不可达分支 / 未使用样式清理",
       "description": "全量清理审计确认的死代码：会话级文件回滚整链下线，server/goal 与前端 lib 的死导出、仅测试可达实现、未使用 CSS 与 i18n key 一并删除。",

@@ -1,3 +1,19 @@
+## 当前交接：session-view-ready-republish（done，2026-10-21）
+
+- Current Objective（当前目标）: 修「切到一个正在生成的会话、再切回来，永久卡在『正在加载对话』，只能刷新页面」。**已修**。未提交。
+- 根因（两个条件同时成立才触发，所以前三轮验收全部漏掉）:
+  1. 目标会话**仍常驻 `taskMap`** —— 只在会话正在生成时发生。空闲会话切走即被 `selectAgentTaskEvictions` dispose（`MAX_IDLE_AGENT_TASKS = 0`），切回走 `/view` + `restore` 拿到**新 agent 对象**，主 effect 会重跑；运行中的会话留在 `taskMap`，`performLoadSession` 命中 `runningTask` 分支走 `attachTaskToView(runningTask)`，复用**同一个 agent 对象**。
+  2. 视图被 `SessionViewPool` **保活** —— 切回只翻 `display`，不 remount。
+- 叠加结果: `[agent, agentRuntimeScopeId]` 全不变 → `ChatPanelHost` 主 effect 不重跑 → `onInitialRenderReady` 一次都不发 → `renderedLoadingSessionId` 永远 `undefined` → 淡出 effect 的 `rendered === visible` 前置条件不成立。`agent_end` 不碰 loading 状态，所以**本轮生成结束也不会自愈**。
+- 修复（两层，刻意保持「一个发布者」）:
+  1. 源头 `ChatPanelHost`: 就绪发布收敛成 `publishViewReady()`，由面板初始化（同时置位 `pendingHistoryHydration`）与活跃性回调的「回到前台」分支共同调用。幂等——`handleSessionInitialRenderReady` 只在 `visibleLoadingSessionIdRef` 等于该会话时生效。**全量补齐不会重复**：开关只由初始化路径置位，发布时消费一次并置 `historyHydrated`。
+  2. 兜底 `useAppLoadingTransitions`: 10s 过渡看门狗，把 `rendered` 置为当前 `visible`（复用既有 280ms 淡出）并 `logger.warn`。安全网不是第二条路径——实测打开都在 300ms 量级，10s 只命中真正的信号丢失；单信号协议的失败模式是**永久**卡死界面，比提前揭示更糟。`rendered === visible` 时不 arm，不与正常 ready 抢时序。
+- Evidence（验证）: 定向 vitest — `app-domain-hooks` 16（新增 2 例）、`chat-surface-behavior-alignment` 18（新增 2 例）、`session-view-activity` 10、`session-view-pool-dom` 9、`message-queue` 20、`chat-compact-controls` 11 全过；`tsc -b` 通过；eslint 4 个改动文件 0 error。**旧实现红灯验证**：新契约断言在 `HEAD` 源码上 4 项全部不成立。
+- Blockers（阻塞）: 无技术阻塞。**未做浏览器实机复现**（需构造「生成中途切走再切回」时序）；根因与修复位置已由源码契约 + 旧实现红灯对照锁定，建议下次发布前补一次手工回归。
+- Next Session（下一步）: ① 若仍要自动化锁定该场景，最小可行做法是在 App 层用假 agent 驱动 `beginSessionTransition` + `handleSessionInitialRenderReady` 的时序（`app-domain-hooks` 已具备该基建），而不是渲染真实 `ChatPanelHost`（其主 effect 依赖真实 DOM 与全套子系统）；② M4 其余模块按逐模块绞杀继续（见下条交接）。未提交 Git；未手工修改生成产物。
+
+---
+
 ## 当前交接：session-open-fast-path-m4（部分实施，2026-10-21）
 
 - Current Objective（当前目标）: 在分支 `feat/session-view-rewrite` 上推进 M4 —— 把 `panel-decoration` 的命令式 DOM 注入器改为 React 渲染。**部分实施**：2 个模块已落地，1 个模块主动回退。未提交。

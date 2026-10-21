@@ -11,10 +11,7 @@ vi.mock('@/lib/tool-display-settings', () => ({
 import { applyAppLanguageFromSnapshot, t } from '../../src/lib/i18n'
 import {
   buildWorkflowRunView,
-  formatWorkflowDuration,
-  workflowActiveAgentLabels,
   workflowActiveStepLabels,
-  workflowAgentStatusKey,
   workflowCurrentPhase,
   workflowStatusLabelKey,
   workflowSummaryKey,
@@ -94,7 +91,6 @@ describe('workflow run view model', () => {
     expect(view?.phases[0].logs.map((log) => log.message)).toEqual(['scanning files'])
     expect(view?.phases[1].logs.map((log) => log.message)).toEqual(['first attempt failed'])
     if (!view) throw new Error('expected a workflow view')
-    expect(workflowActiveAgentLabels(view)).toEqual(['Fix bug', 'Review'])
     expect(workflowActiveStepLabels(view)).toEqual(['Fix bug', 'write fix', 'Review'])
     expect(workflowCurrentPhase(view)).toBe('Fix')
   })
@@ -159,9 +155,6 @@ describe('workflow run view model', () => {
     expect(workflowStatusLabelKey('error')).toBe('workflowFailed')
     expect(workflowStatusLabelKey('aborted')).toBe('workflowAborted')
     expect(workflowSummaryKey(buildWorkflowRunView({ details: runningDetails }, true)!)).toBe('workflowSummaryRunning')
-    expect(workflowAgentStatusKey('queued')).toBe('workflowAgentQueued')
-    expect(formatWorkflowDuration(4200)).toBe('4.2s')
-    expect(formatWorkflowDuration(65_000)).toBe('1m 5s')
   })
 })
 
@@ -324,7 +317,6 @@ describe('workflow renderer wiring and contracts', () => {
 
   it('documents the worker-backed orchestration in the view model and renderer sources', () => {
     expect(viewSource).toContain('buildWorkflowRunView')
-    expect(viewSource).toContain('workflowActiveAgentLabels')
     expect(viewSource).toContain('workflowActiveStepLabels')
     expect(source).toContain('buildWorkflowRunView')
     expect(source).toContain('summarizeParams')

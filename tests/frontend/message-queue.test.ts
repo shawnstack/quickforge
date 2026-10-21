@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   MAX_QUEUED_MESSAGES,
   MAX_QUEUED_MESSAGE_TEXT_LENGTH,
-  clearStoredMessageQueueState,
   createQueuedMessage,
   enqueueQueuedMessage,
   loadStoredMessageQueueState,
@@ -135,10 +134,6 @@ describe('queued message persistence', () => {
       const state = loadStoredMessageQueueState('s1')
       expect(state.items).toEqual([{ id: 'q1', text: 'hello' }])
       expect(state.paused).toBe(true)
-
-      // Clearing returns an empty state and drops the stored entry.
-      clearStoredMessageQueueState('s1')
-      expect(loadStoredMessageQueueState('s1')).toEqual({ items: [], paused: false })
     } finally {
       vi.unstubAllGlobals()
     }

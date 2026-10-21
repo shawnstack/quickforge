@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   composeSubagentSystemPrompt,
-  getSubagentDefinition,
+  subagentDefinitions,
 } from '../../server/subagents.mjs'
+
+function getSubagentDefinition(name) {
+  return subagentDefinitions.find((definition) => definition.name === name) ?? null
+}
 
 describe('subagent definitions', () => {
   it('allows Explore to run safe inspection commands without file mutation tools', () => {

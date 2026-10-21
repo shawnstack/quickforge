@@ -54,28 +54,6 @@ export function resolvePinnedSummaryInitialPosition({
   }
 }
 
-export function clampPinnedSummaryPosition(
-  position: PinnedSummaryPosition,
-  size: PinnedSummarySize,
-  viewport: PinnedSummarySize,
-  margin = PINNED_SUMMARY_VIEWPORT_INSET,
-): PinnedSummaryPosition {
-  const safeMargin = Math.max(0, finiteOr(margin, PINNED_SUMMARY_VIEWPORT_INSET))
-  const width = Math.max(0, finiteOr(size.width, 0))
-  const height = Math.max(0, finiteOr(size.height, 0))
-  const viewportWidth = Math.max(0, finiteOr(viewport.width, 0))
-  const viewportHeight = Math.max(0, finiteOr(viewport.height, 0))
-  const maxX = Math.max(safeMargin, viewportWidth - width - safeMargin)
-  const maxY = Math.max(safeMargin, viewportHeight - height - safeMargin)
-  const x = finiteOr(position.x, safeMargin)
-  const y = finiteOr(position.y, safeMargin)
-
-  return {
-    x: Math.min(Math.max(safeMargin, x), maxX),
-    y: Math.min(Math.max(safeMargin, y), maxY),
-  }
-}
-
 export function resolvePinnedSummaryLayout(
   position: PinnedSummaryPosition,
   targetSize: PinnedSummarySize,

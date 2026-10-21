@@ -7,7 +7,6 @@ import {
 } from '../../src/components/workspace/workspace-inspector-tabs'
 import {
   QUICKFORGE_CHAT_CAPABILITIES,
-  SIDE_CHAT_CAPABILITIES,
   SIDE_CHAT_UI_CAPABILITIES,
 } from '../../src/lib/chat-capabilities'
 
@@ -95,7 +94,6 @@ describe('Workspace side chat tab', () => {
   })
 
   it('uses all-false executable capabilities while keeping QuickForge unchanged', () => {
-    expect(SIDE_CHAT_CAPABILITIES).toBe(SIDE_CHAT_UI_CAPABILITIES)
     expect(SIDE_CHAT_UI_CAPABILITIES).toEqual(allDisabledCapabilities)
     expect(QUICKFORGE_CHAT_CAPABILITIES).toMatchObject({
       modelSelection: true,

@@ -1,3 +1,25 @@
+## 当前交接：compaction-divider-at-compacted-end（done，2026-10-21）
+
+- Current Objective（当前目标）: 自动触发上下文压缩时，压缩横线显示在被压缩历史的末尾（对应位置），而不是被回溯挂到最新一轮提问上方、或兜底挂到列表最顶部。已完成，未提交。
+- 核心改动: `src/components/chat/panel-decoration/context-compaction.ts` 删除 `alignBoundaryToUserTurn`（及仅供它用的 `isUserMessage`）——原实现把服务端 `compactedUpToIndex` 向前回溯到包含边界的用户回合，自动压缩默认 `keepRecentTurns=0` 时边界 = 消息总数，回溯后落点恒为「最新一轮提问上方」；边界改为直接 `compactedUpToIndex - messageIndexOffset`。`insertBeforeMessageElement` 重写为 `insertNoticeAtBoundary`：按「边界之前的可见消息条数」定位插入行（边界落在 `toolResult` 等不单独渲染的消息上时自然插到其后第一条可见消息之前）；边界在已渲染末尾之后时 `after(lastElement)` 跟到最后一条消息之后；仅在完全无消息行时才 `append` 到列表末尾（旧实现是 `prepend` 到最顶部）。`dataset.tailStart` 改名 `dataset.boundaryIndex`。
+- Files（改动文件）: `src/components/chat/panel-decoration/context-compaction.ts`、`tests/frontend/context-compaction-notice.test.ts`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）: 定向 `npx vitest run tests/frontend/context-compaction-notice.test.ts` 7 passed；`npx vitest run tests/frontend` 223 文件 / 2673 passed；`npx eslint`（改动文件）通过；`npx tsc --noEmit` 通过。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机触发一次自动压缩，确认横线出现在被压缩历史末尾（跟随最后一条已压缩消息之后），随后回复追加时横线位置不动；`npm run lint` / `npm run build` 若需发布再完整跑。未提交 Git；未手工修改生成产物。
+
+---
+
+## 当前交接：dead-code-cleanup（done，2026-10-21）
+
+- Current Objective（当前目标）: 清理全仓死代码 / 未使用样式；确定死代码全删、仅测试可达的实现一并删、会话级文件回滚完全下线。已完成，未提交。
+- 核心改动: 会话级「撤销全部文件」整链下线——删 `server/routes/agent.mjs` 的 `/file-changes` 与 `/rollback-files*` 路由、`server/session-file-backups.mjs` 的会话级实现（`inspectBatch`/`rollbackSelection`/`getSessionFileChanges` 等）、`ServerAgent` 的三个会话级方法、`ServerFileRollback*` 类型、`FileRollback*` 控制器与 `FileRollbackDialog` 组件、19 个专属 i18n key；轮级 `/rollback-turn*` 链路与写入侧 shadow backup 完整保留。另删 server/goal 11 个死导出 + 2 个私有死函数、`isTailscaleAddress`/`cronMatches`/`getSubagentDefinition`/`DEFAULT_HOOKS_SETTINGS` 等仅测试可达实现，以及前端 12 个仅测试可达函数/常量；CSS 删 3 个未使用类与 `--qf-console-fade`。
+- Files（改动文件）: 31 个生产文件（server/ 11、src/ 20）+ 19 个测试文件 + `docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md` + `progress.md`、`session-handoff.md`、`feature_list.json`。
+- Evidence（验证）: `npm run test` 393 文件 / 4534 passed / 2 skipped；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` exhaustive-deps warning）；`npm run build` 通过（仅既有大 chunk warning）。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 如需继续瘦身，可清理 4 个 barrel 的 66 个「无消费者再导出」（本体全活，只删 export 行，属独立机械重构）。`.tmp-audit/` 为审计脚本与报告目录，可随时删除。未提交 Git；`dist/` 由 build 重新生成，未手工修改。
+
+---
+
 ## 当前交接：docs-cleanup-stale-assets（done，2026-10-22）
 
 - Current Objective（当前目标）: 评审并删除仓库内过时文档/资产，并修复文档链接失效问题。已完成，未提交。

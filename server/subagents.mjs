@@ -56,8 +56,6 @@ export const subagentDefinitions = [
   },
 ]
 
-const subagentByName = new Map(subagentDefinitions.map((definition) => [definition.name, definition]))
-
 function markdownValue(value) {
   return String(value ?? '').replace(/\r?\n/g, ' ').replace(/"/g, '\\"')
 }
@@ -111,10 +109,6 @@ export async function ensureBuiltinSubagentMarkdownFiles() {
 
 export function builtinSubagentProfilePath(name) {
   return path.join(builtinAgentsDir, `${String(name || '').trim().toLowerCase()}.md`)
-}
-
-export function getSubagentDefinition(name) {
-  return subagentByName.get(String(name || '').trim().toLowerCase()) || null
 }
 
 function withoutAvailableSkillsPrompt(prompt) {

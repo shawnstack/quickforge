@@ -7,7 +7,7 @@ vi.mock('@/lib/tool-display-settings', () => ({
   getCachedToolDisplaySettings: () => ({ toolDisplayMode: 'compact', showContextUsage: false }),
 }), { virtual: true })
 
-import { decorateProcessThinkingBlocks, latestThinkingLine } from '../../src/components/chat/panel-decoration/process-folding'
+import { decorateProcessThinkingBlocks } from '../../src/components/chat/panel-decoration/process-folding'
 
 /**
  * 思考头第四槽位「尾行提示」的行为护栏：流式且收起时显示最新一段思考文字（含
@@ -335,23 +335,6 @@ function hintOf(header: FakeNode): FakeNode {
   if (!hint) throw new Error('hint slot missing')
   return hint
 }
-
-describe('latestThinkingLine (取段规则：最后一个非空段，含进行中行)', () => {
-  it('takes the last non-empty segment including the in-progress unterminated line', () => {
-    expect(latestThinkingLine('first line\nsecond')).toBe('second')
-    expect(latestThinkingLine('first line\nsecond line\n')).toBe('second line')
-    expect(latestThinkingLine('a\n\n\nb\n\n')).toBe('b')
-    expect(latestThinkingLine('only one partial line')).toBe('only one partial line')
-    expect(latestThinkingLine('  \n \n')).toBe('')
-  })
-
-  it('caps the displayed line at the marquee-safe length without splitting surrogate pairs', () => {
-    const long = `${'汉'.repeat(600)}\n`
-    expect(Array.from(latestThinkingLine(long))).toHaveLength(500)
-    // 进行中未换行的超长首行同样截断（无换行思考全程可见场景）。
-    expect(Array.from(latestThinkingLine('汉'.repeat(600)))).toHaveLength(500)
-  })
-})
 
 describe('process thinking hint (第四槽位尾行提示)', () => {
   it('adopts the hint as the fourth header slot, hidden without a streaming bridge', () => {

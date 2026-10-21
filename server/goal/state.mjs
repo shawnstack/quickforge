@@ -30,19 +30,8 @@ import {
 import { GoalError, GOAL_ERROR_CODES } from './errors.mjs'
 
 export const GOAL_PHASES = Object.freeze(['active', 'paused', 'blocked', 'complete'])
-export const GOAL_ACTIVATIONS = Object.freeze(['armed', 'disarmed'])
-export const GOAL_RUNTIMES = Object.freeze([
-  'idle',
-  'planning',
-  'executing',
-  'verifying',
-  'waiting_approval',
-  'waiting_input',
-  'pausing',
-])
 
 const PHASE_SET = new Set(GOAL_PHASES)
-const ACTIVATION_SET = new Set(GOAL_ACTIVATIONS)
 const TERMINAL_PHASES = new Set(['complete'])
 const IN_FLIGHT_LEGACY = new Set([
   'planning',
@@ -57,20 +46,8 @@ export function isGoalPhase(value) {
   return typeof value === 'string' && PHASE_SET.has(value)
 }
 
-export function isGoalActivation(value) {
-  return typeof value === 'string' && ACTIVATION_SET.has(value)
-}
-
-export function isGoalRuntime(value) {
-  return typeof value === 'string' && GOAL_RUNTIMES.includes(value)
-}
-
 export function isGoalActivePhase(value) {
   return isGoalPhase(value) && !TERMINAL_PHASES.has(value)
-}
-
-export function isGoalTerminalPhase(value) {
-  return value === 'complete'
 }
 
 export function goalRoundsRemaining(goal) {
@@ -476,19 +453,6 @@ export function applyGoalProgressV2(goal, { summary, evidence, criterionUpdates,
     errors: [],
     addedEvidence: merged.added,
   }
-}
-
-/** Progress signature excludes revision (pure status transitions are not progress). */
-export function goalProgressSignatureV2(goal) {
-  return JSON.stringify({
-    plan: goal?.plan
-      ? {
-        criteria: goal.plan.criteria.map((criterion) => [criterion.id, criterion.status, criterion.evidenceIds]),
-        summary: goal.plan.summary,
-      }
-      : null,
-    evidence: (goal?.evidence ?? []).map((entry) => entry.id),
-  })
 }
 
 export function goalMetadataSummaryV2(goal) {

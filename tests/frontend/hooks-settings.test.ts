@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_HOOKS_SETTINGS,
   HOOKS_SETTINGS_KEY,
   clampHookTimeoutSeconds,
   isValidHttpUrl,
@@ -31,10 +30,10 @@ function createStorage(initial: Record<string, unknown> = {}) {
 
 describe('hooks settings normalizer', () => {
   it('falls back to defaults for missing or invalid values', () => {
-    expect(normalizeHooksSettings(undefined)).toEqual(DEFAULT_HOOKS_SETTINGS)
-    expect(normalizeHooksSettings(null)).toEqual(DEFAULT_HOOKS_SETTINGS)
-    expect(normalizeHooksSettings('nope')).toEqual(DEFAULT_HOOKS_SETTINGS)
-    expect(normalizeHooksSettings({})).toEqual(DEFAULT_HOOKS_SETTINGS)
+    expect(normalizeHooksSettings(undefined)).toEqual({ enabled: true, hooks: [] })
+    expect(normalizeHooksSettings(null)).toEqual({ enabled: true, hooks: [] })
+    expect(normalizeHooksSettings('nope')).toEqual({ enabled: true, hooks: [] })
+    expect(normalizeHooksSettings({})).toEqual({ enabled: true, hooks: [] })
     expect(normalizeHooksSettings({ hooks: 'nope', enabled: 'true' })).toEqual({ enabled: false, hooks: [] })
     expect(normalizeHooksSettings({ enabled: false })).toEqual({ enabled: false, hooks: [] })
   })
@@ -152,7 +151,7 @@ describe('hooks settings normalizer', () => {
 
   it('loads defaults when nothing is stored and saves normalized settings', async () => {
     const empty = createStorage()
-    await expect(loadHooksSettings(empty.storage)).resolves.toEqual(DEFAULT_HOOKS_SETTINGS)
+    await expect(loadHooksSettings(empty.storage)).resolves.toEqual({ enabled: true, hooks: [] })
 
     const { storage, values } = createStorage({
       [HOOKS_SETTINGS_KEY]: { enabled: false, hooks: [{ id: 'h1', name: 'H', events: ['error', 'error'], action: { type: 'command', command: 'x' }, timeoutSeconds: 999 }] },

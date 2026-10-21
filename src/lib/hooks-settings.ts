@@ -80,8 +80,6 @@ export const DEFAULT_HOOK_TIMEOUT_SECONDS = 10
 export const MIN_HOOK_TIMEOUT_SECONDS = 1
 export const MAX_HOOK_TIMEOUT_SECONDS = 300
 
-export const DEFAULT_HOOKS_SETTINGS: HooksSettings = { enabled: true, hooks: [] }
-
 export function isValidHttpUrl(value: string): boolean {
   try {
     const url = new URL(value)

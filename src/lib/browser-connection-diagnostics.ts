@@ -62,32 +62,6 @@ type DiagnosticsPathStat = {
   maxDurationMs: number
 }
 
-type DiagnosticsSummary = {
-  /** 输入条目总数。 */
-  total: number
-  /** 命中 isTrackedUrl 的条目数。 */
-  tracked: number
-  /** 命中条目中的最大排队时长（ms）。 */
-  maxQueueMs: number
-  /** 排队超过阈值的样本，按排队时长降序，最多 slowQueueLimit 条。 */
-  slowQueue: DiagnosticsSample[]
-  /** 按路径聚合，按 maxQueueMs 降序。 */
-  byPath: DiagnosticsPathStat[]
-  /** 排队超过阈值的条目数（不受 slowQueue 条数限制影响）。 */
-  queueWarnCount: number
-}
-
-type SummarizeResourceEntriesOptions = {
-  /** 同源判定基准（通常是 `location.href`）。 */
-  base?: string
-  /** 慢排队阈值（ms），默认 DIAGNOSTICS_SLOW_QUEUE_MS。 */
-  slowQueueMs?: number
-  /** slowQueue 返回条数上限，默认 10。 */
-  slowQueueLimit?: number
-  /** 自定义过滤（默认 isTrackedUrl(url, base)）。 */
-  isTracked?: (url: string) => boolean
-}
-
 /** 是否采集：同源，或 hostname 为 localhost / 127.0.0.1 / ::1。 */
 export function isTrackedUrl(url: string, base?: string): boolean {
   if (typeof url !== 'string' || url.length === 0) return false
@@ -107,46 +81,6 @@ export function isTrackedUrl(url: string, base?: string): boolean {
     return new URL(base).origin === target.origin
   } catch {
     return false
-  }
-}
-
-/** 纯函数：汇总 PerformanceResourceTiming，只统计 isTrackedUrl 命中的条目。 */
-export function summarizeResourceEntries(
-  entries: readonly DiagnosticsResourceEntry[],
-  options: SummarizeResourceEntriesOptions = {},
-): DiagnosticsSummary {
-  const slowQueueMs = options.slowQueueMs ?? DIAGNOSTICS_SLOW_QUEUE_MS
-  const slowQueueLimit = options.slowQueueLimit ?? DIAGNOSTICS_REPORT_TOP_LIMIT * 2
-  const isTracked = options.isTracked ?? ((url: string) => isTrackedUrl(url, options.base))
-
-  let tracked = 0
-  let maxQueueMs = 0
-  let queueWarnCount = 0
-  const slowQueue: DiagnosticsSample[] = []
-  const byPath = new Map<string, DiagnosticsPathStat>()
-
-  for (const entry of entries) {
-    if (!entry || typeof entry.name !== 'string') continue
-    if (!isTracked(entry.name)) continue
-
-    tracked += 1
-    const sample = toSample(entry)
-    maxQueueMs = Math.max(maxQueueMs, sample.queueMs)
-    accumulatePathStat(byPath, sample)
-
-    if (sample.queueMs >= slowQueueMs) {
-      queueWarnCount += 1
-      insertTopSample(slowQueue, sample, slowQueueLimit, queueMetric)
-    }
-  }
-
-  return {
-    total: entries.length,
-    tracked,
-    maxQueueMs,
-    slowQueue,
-    byPath: sortPathStats(byPath),
-    queueWarnCount,
   }
 }
 
@@ -466,10 +400,6 @@ function sortPathStats(byPath: Map<string, DiagnosticsPathStat>): DiagnosticsPat
   return [...byPath.values()].sort(
     (left, right) => right.maxQueueMs - left.maxQueueMs || right.count - left.count || left.path.localeCompare(right.path),
   )
-}
-
-function queueMetric(sample: DiagnosticsSample): number {
-  return sample.queueMs
 }
 
 function durationMetric(sample: DiagnosticsSample): number {

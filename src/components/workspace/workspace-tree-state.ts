@@ -122,8 +122,6 @@ export function workspaceTreeRefreshPaths(state: WorkspaceTreeState, expandedPat
   return result.sort((left, right) => workspaceTreeDepth(left) - workspaceTreeDepth(right) || left.localeCompare(right))
 }
 
-export const loadedExpandedWorkspaceTreePaths = workspaceTreeRefreshPaths
-
 export function workspaceTreeRefreshCoverageSatisfied(
   previous: WorkspaceTreeDirectoryState,
   entries: WorkspaceTreeNode[],

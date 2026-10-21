@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  loadedExpandedWorkspaceTreePaths,
   missingWorkspaceTreePaths,
   normalizeWorkspaceTreePath,
   workspaceTreeCanLoadMore,
   workspaceTreeDirectory,
   workspaceTreePathsForRemoval,
   workspaceTreeReducer,
+  workspaceTreeRefreshPaths,
   workspaceTreeRefreshCoverageSatisfied,
   workspaceTreeRetryRequest,
 } from '../../src/components/workspace/workspace-tree-state'
@@ -78,7 +78,7 @@ describe('workspace tree state', () => {
       'src/deep': { entries: [], status: 'loaded' as const, nextCursor: null, generation: 3 },
       idle: { entries: [], status: 'idle' as const, nextCursor: null, generation: 0 },
     }
-    expect(loadedExpandedWorkspaceTreePaths(state, new Set(['src/deep', 'src', 'idle']))).toEqual(['.', 'src', 'src/deep'])
+    expect(workspaceTreeRefreshPaths(state, new Set(['src/deep', 'src', 'idle']))).toEqual(['.', 'src', 'src/deep'])
   })
 
   it('does not declare paginated refresh coverage complete from the first page alone', () => {

@@ -36,19 +36,6 @@ function isDisplayMessage(message: MessageWithUsage) {
   return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
 }
 
-function isUserMessage(message: MessageWithUsage) {
-  return message.role === 'user' || message.role === 'user-with-attachments'
-}
-
-function alignBoundaryToUserTurn(messages: MessageWithUsage[], messageIndex: number) {
-  // 边界可以正好落在列表末尾（整段历史都被压缩，压缩覆盖到最新一轮）：回溯到最后一
-  // 个用户回合，与随后追加消息时的定位结果一致，横线不会跳动。
-  for (let index = Math.min(messageIndex, messages.length - 1); index >= 0; index--) {
-    if (isUserMessage(messages[index])) return index
-  }
-  return 0
-}
-
 function getPrimaryMessageElements(panel: HTMLElement) {
   const messageList = panel.querySelector<HTMLElement>('.qf-message-list')
   if (!messageList) return []
@@ -57,24 +44,31 @@ function getPrimaryMessageElements(panel: HTMLElement) {
     .filter((element) => element.closest('.qf-message-list') === messageList)
 }
 
-function insertBeforeMessageElement(panel: HTMLElement, messages: MessageWithUsage[], messageIndex: number, notice: HTMLElement) {
+function insertNoticeAtBoundary(panel: HTMLElement, messages: MessageWithUsage[], boundaryIndex: number, notice: HTMLElement) {
+  const messageList = panel.querySelector('.qf-message-list')
   const messageElements = getPrimaryMessageElements(panel)
+
+  // 边界之前的可见消息数量就是横线要插入的行位置：边界落在 toolResult 等不单独
+  // 渲染的消息上时，自然插到它之后的下一条可见消息之前。
   let displayIndex = 0
-  for (let index = 0; index < messages.length; index++) {
-    if (!isDisplayMessage(messages[index])) continue
-    if (index === messageIndex) {
-      const target = messageElements[displayIndex]
-      if (target) {
-        if (notice.nextElementSibling !== target) target.before(notice)
-        return
-      }
-      break
-    }
-    displayIndex += 1
+  for (let index = 0; index < messages.length && index < boundaryIndex; index++) {
+    if (isDisplayMessage(messages[index])) displayIndex += 1
   }
 
-  const messageList = panel.querySelector('.qf-message-list')
-  if (messageList && messageList.firstElementChild !== notice) messageList.prepend(notice)
+  const target = messageElements[displayIndex]
+  if (target) {
+    if (notice.nextElementSibling !== target) target.before(notice)
+    return
+  }
+
+  // 边界在已渲染的末尾之后（整段历史都被压缩、压缩覆盖到最新一轮）：横线跟在最后
+  // 一条消息之后，而不是被挂到列表最顶部。
+  const lastElement = messageElements[messageElements.length - 1]
+  if (lastElement) {
+    if (lastElement.nextElementSibling !== notice) lastElement.after(notice)
+    return
+  }
+  if (messageList && messageList.lastElementChild !== notice) messageList.append(notice)
 }
 
 function compactSummaryText(summaryMessage: unknown) {
@@ -133,17 +127,16 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
 
   const compactedUpToIndex = Math.max(0, Number(compaction.compactedUpToIndex) || 0)
   const windowEnd = messageIndexOffset + messages.length
-  // 边界恰好等于窗口末尾（整个窗口历史都被压缩、压缩覆盖到最新一轮）时同样渲染横线：
-  // 此时 alignBoundaryToUserTurn 会把边界对齐到包含它的用户回合之前，与下一条消息到达
-  // 后的位置完全一致——压缩完成（auto_compact_completed / messages_replaced 后 decorate）
-  // 就能看到，不必等用户再发一条消息才知道上下文被压缩。严格越过窗口末尾只可能来自陈旧
-  // 状态（回滚后消息变短），保持隐藏。
+  // 横线标在「被压缩历史的末尾」：位置由服务端 compactedUpToIndex 直接决定，不再回溯到
+  // 用户回合，否则压缩覆盖到最新一轮时横线会跑到最后一轮提问上方（用户看到的不是压缩
+  // 结束处）。边界恰好等于窗口末尾（压缩覆盖到最新一轮）时照常渲染，横线跟在最后一条
+  // 已渲染消息之后——压缩完成（auto_compact_completed / messages_replaced 后 decorate）
+  // 即可看到。严格越过窗口末尾只可能来自陈旧状态（回滚后消息变短），保持隐藏。
   if (compactedUpToIndex <= 0 || compactedUpToIndex > windowEnd) {
     existing?.remove()
     return
   }
   const boundaryIndex = Math.max(0, compactedUpToIndex - messageIndexOffset)
-  const tailStart = alignBoundaryToUserTurn(messages, boundaryIndex)
 
   const summaryText = compaction.summaryMessage ? compactSummaryText(compaction.summaryMessage) : ''
   const initialOpen = existing?.querySelector<HTMLDetailsElement>('.quickforge-context-compaction-details')?.open ?? false
@@ -152,7 +145,7 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
   const previousHasSummary = notice.dataset.hasSummary === 'true'
   const shouldRender = !existing || previousSummaryText !== summaryText || previousHasSummary !== Boolean(summaryText)
   notice.className = 'quickforge-context-compaction-notice'
-  notice.dataset.tailStart = String(tailStart)
+  notice.dataset.boundaryIndex = String(boundaryIndex)
   notice.dataset.summaryText = summaryText
   notice.dataset.hasSummary = String(Boolean(summaryText))
   notice.title = t('contextCompactedTooltip')
@@ -189,5 +182,5 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
   }
   if (summaryText) syncCompactionSummaryHandlers(notice, summaryText, initialOpen)
 
-  insertBeforeMessageElement(panel, messages, tailStart, notice)
+  insertNoticeAtBoundary(panel, messages, boundaryIndex, notice)
 }

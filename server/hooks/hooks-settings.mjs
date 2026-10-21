@@ -19,8 +19,6 @@ export const DEFAULT_HOOK_TIMEOUT_SECONDS = 10
 export const MIN_HOOK_TIMEOUT_SECONDS = 1
 export const MAX_HOOK_TIMEOUT_SECONDS = 300
 
-export const DEFAULT_HOOKS_SETTINGS = Object.freeze({ enabled: true, hooks: [] })
-
 const HOOK_EVENT_SET = new Set(HOOK_EVENTS)
 
 function clampTimeoutSeconds(value) {

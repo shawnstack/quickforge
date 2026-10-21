@@ -2,7 +2,6 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { cacheDir, ensureStorage } from './storage.mjs'
-import { createTextDiff } from './utils/text-diff.mjs'
 import { assertSafeWorkspacePath, isInside } from './utils/workspace.mjs'
 import { withSessionFileLock } from './session-file-lock.mjs'
 
@@ -128,21 +127,6 @@ async function readCurrent(entry) {
   if (!isText(bytes)) throw new Error('unsafe_path')
   return { text: bytes.toString('utf8'), hash: hash(bytes), identity: [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs] }
 }
-async function readBackupContent(sessionId, entry) {
-  if (entry.created) return null
-  if (!/^[a-f0-9-]+\.txt$/.test(entry.backupName || '') || typeof entry.beforeHash !== 'string') throw new Error('backup_unavailable')
-  const file = path.join(sessionDir(sessionId), entry.backupName)
-  const stat = await fs.lstat(file)
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error('backup_unavailable')
-  const bytes = await fs.readFile(file)
-  if (!isText(bytes) || hash(bytes) !== entry.beforeHash) throw new Error('backup_unavailable')
-  return bytes.toString('utf8')
-}
-
-// Per-turn rollback needs a snapshot of every write, not just the session's
-// first before. Each version owns an independent blob; the entry-level
-// beforeHash/backupName stay anchored to the first version so the legacy
-// whole-session and single-file rollback paths are unchanged.
 function implicitEntryVersion(entry) {
   return {
     turnId: null,
@@ -260,177 +244,6 @@ export async function recordFileAfterWrite(sessionId, absolutePath) {
 function remainingEntries(index) {
   return index.completed ? [] : index.entries.filter((entry) => entry.rollbackState !== 'completed')
 }
-async function inspectEntry(sessionId, entry) {
-  const inspected = await inspectEntryState(sessionId, entry)
-  inspected.file.revision = hash(JSON.stringify({ entry, ...inspected }))
-  return inspected
-}
-async function inspectEntryState(sessionId, entry) {
-  const file = { path: entry.path, relativePath: entry.relativePath || entry.path, action: entry.created ? 'delete' : 'restore', safe: false, reason: '' }
-  const result = { file }
-  // Never follow paths from legacy/incomplete metadata, even to calculate a diff.
-  if (!entry.workspaceRoot || !entry.workspaceReal || !entry.realPath || !entry.afterHash) {
-    file.reason = entry.pending ? 'incomplete_write' : 'legacy_backup'
-    return result
-  }
-  if (entry.unsafeReason || entry.pending || entry.rollbackState) {
-    file.reason = entry.unsafeReason || 'incomplete_write'
-    return result
-  }
-  try {
-    await validatePath(entry)
-  } catch {
-    file.reason = 'unsafe_path'
-    return result
-  }
-  try {
-    result.backup = await readBackupContent(sessionId, entry)
-  } catch {
-    file.reason = 'backup_unavailable'
-    return result
-  }
-  try {
-    result.current = await readCurrent(entry)
-  } catch (error) {
-    file.reason = error?.code === 'ENOENT' ? 'missing_file' : error?.message === 'unsafe_path' ? 'unsafe_path' : 'unavailable'
-    return result
-  }
-  file.safe = result.current.hash === entry.afterHash
-  file.reason = file.safe ? '' : 'external_modified'
-  return result
-}
-async function inspectBatch(sessionId, options = {}) {
-  if (!sessionId) return { preview: { revision: hash('unavailable'), canRollback: false, files: [], reason: 'unavailable' } }
-  let index
-  try { index = await readIndex(sessionId) } catch {
-    return { preview: { revision: hash('unavailable'), canRollback: false, files: [], reason: 'backup_unavailable' } }
-  }
-  const entries = remainingEntries(index)
-  const inspected = []
-  for (const entry of entries) inspected.push(await inspectEntry(sessionId, entry))
-  const files = inspected.map(({ file }) => file)
-  const revision = hash(JSON.stringify({ index, states: inspected.map(({ file, current }) => ({ file, current })) }))
-  let reason
-  if (options.isSessionBusy?.()) reason = 'session_busy'
-  else if (unavailableSessions.has(sessionId)) reason = 'backup_unavailable'
-  else if (index.rollbackStarted) reason = 'incomplete_write'
-  else if (!files.length) reason = 'unavailable'
-  const preview = { revision, canRollback: !reason && files.every((file) => file.safe), files, ...(reason ? { reason } : {}) }
-  return { index, inspected, preview }
-}
-export async function getSessionFileRollbackPreview(sessionId, options = {}) {
-  return withSessionFileLock(async () => (await inspectBatch(sessionId, options)).preview)
-}
-
-// Keep the legacy summary shape, but never read untrusted legacy target paths.
-export async function getSessionFileChanges(sessionId) {
-  if (!sessionId) return { files: [], totalAdded: 0, totalRemoved: 0 }
-  return withSessionFileLock(async () => {
-    const files = []
-    let index
-    try { index = await readIndex(sessionId) } catch { index = { entries: [] } }
-    for (const entry of remainingEntries(index)) {
-      // A conflict still belongs in the summary; it just cannot be rolled back.
-      // Only records with validated workspace metadata may cause a target read.
-      try {
-        const current = await readCurrent(entry)
-        const backup = await readBackupContent(sessionId, entry)
-        const diff = createTextDiff(backup ?? '', current.text, entry.relativePath, { oldExists: !entry.created })
-        files.push({ path: entry.path, relativePath: entry.relativePath, created: entry.created, added: diff.addedLines, removed: diff.removedLines })
-      } catch { /* Unavailable, legacy and unsafe paths are not read for display. */ }
-    }
-    return { files, totalAdded: files.reduce((sum, file) => sum + file.added, 0), totalRemoved: files.reduce((sum, file) => sum + file.removed, 0) }
-  })
-}
-
-export async function rollbackSessionFiles(sessionId, options = {}) {
-  return withSessionFileLock(() => rollbackSelection(sessionId, options, false))
-}
-export async function rollbackSessionFile(sessionId, options = {}) {
-  return withSessionFileLock(() => rollbackSelection(sessionId, options, true))
-}
-
-// Selection changes the preflight gate only; journals and target execution are
-// shared so a single-file request can never fall back to a whole-batch write.
-function selectRollback(batch, options, single) {
-  if (!single) return { allowed: batch.preview.canRollback, revision: batch.preview.revision, entries: batch.index ? remainingEntries(batch.index) : [], inspected: batch.inspected }
-  const entry = typeof options.path === 'string' && options.path && batch.index
-    ? remainingEntries(batch.index).find((candidate) => candidate.path === options.path) : undefined
-  const inspected = entry ? batch.inspected.find(({ file }) => file.path === entry.path) : undefined
-  return { allowed: !batch.preview.reason && !!inspected?.file.safe, revision: inspected?.file.revision, entries: entry ? [entry] : [], inspected: inspected ? [inspected] : [] }
-}
-async function rollbackSelection(sessionId, options, single) {
-  const batch = await inspectBatch(sessionId, options)
-  let preview = batch.preview
-  const result = { status: 'blocked', restored: 0, removedCreated: 0, errors: [], preview }
-  const selection = selectRollback(batch, options, single)
-  if (typeof options.revision !== 'string' || !options.revision || options.revision !== selection.revision) {
-    preview = { ...preview, canRollback: false, reason: preview.reason === 'session_busy' ? 'session_busy' : 'batch_changed' }
-    return { ...result, preview }
-  }
-  if (!selection.allowed) return result
-  // A second selected-scope preflight before ANY target mutation. Internal
-  // writers are serialized, but the filesystem is NOT atomic: external
-  // editors can still race a check/write. Recheck each item, stop on first error,
-  // keep journals and completed-item states, and never automatically compensate.
-  const checked = await inspectBatch(sessionId, options)
-  const confirmed = selectRollback(checked, options, single)
-  if (!confirmed.allowed || confirmed.revision !== selection.revision) {
-    return { ...result, preview: { ...checked.preview, canRollback: false, reason: checked.preview.reason || 'batch_changed' } }
-  }
-  const index = checked.index
-  let activePath = ''
-  const intentPath = path.join(sessionDir(sessionId), 'rollback-intent')
-  let intentPersisted = false
-  try {
-    index.rollbackStarted = true
-    await fs.writeFile(intentPath, 'pending', { encoding: 'utf8', flag: 'wx' })
-    intentPersisted = true
-    await writeIndex(sessionId, index)
-    for (let i = 0; i < confirmed.entries.length; i++) {
-      const entry = confirmed.entries[i]
-      activePath = entry.relativePath || entry.path
-      if (options.isSessionBusy?.()) throw new Error('session_busy')
-      const fresh = await inspectEntry(sessionId, entry)
-      if (!fresh.file.safe || fresh.file.revision !== confirmed.inspected[i].file.revision) throw new Error(fresh.file.reason || 'batch_changed')
-      entry.rollbackState = 'pending'
-      await writeIndex(sessionId, index)
-      // Narrow the journal-I/O race window too; no automatic retry after failure.
-      const current = await readCurrent(entry)
-      if (JSON.stringify(current) !== JSON.stringify(fresh.current)) throw new Error('external_modified')
-      if (options.isSessionBusy?.()) throw new Error('session_busy')
-      if (entry.created) {
-        await fs.unlink(entry.path)
-        result.removedCreated++
-      } else {
-        await fs.writeFile(entry.path, fresh.backup, 'utf8')
-        result.restored++
-      }
-      entry.rollbackState = 'completed'
-      await writeIndex(sessionId, index)
-    }
-    // Keep blobs until TTL rather than risk losing recovery evidence. The
-    // separate intent remains authoritative until final cleanup also succeeds.
-    index.completed = index.entries.every((entry) => entry.rollbackState === 'completed')
-    delete index.rollbackStarted
-    await writeIndex(sessionId, index)
-    await fs.unlink(intentPath)
-    result.status = index.completed ? 'completed' : 'partial'
-  } catch (error) {
-    unavailableSessions.add(sessionId)
-    // If even the marker could not be written, try to persist the index intent.
-    // Never clear a successfully persisted intent on any failure path.
-    if (!intentPersisted) {
-      index.rollbackStarted = true
-      await writeIndex(sessionId, index).catch(() => {})
-    }
-    result.status = 'failed'
-    result.errors.push({ path: activePath, message: error?.message || String(error) })
-  }
-  result.preview = (await inspectBatch(sessionId, options)).preview
-  return result
-}
-
 // ---------------------------------------------------------------------------
 // Per-turn rollback (versioned entries)
 // ---------------------------------------------------------------------------

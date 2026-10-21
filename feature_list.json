@@ -1,6 +1,50 @@
 {
   "features": [
     {
+      "id": "dead-code-cleanup",
+      "name": "死代码 / 不可达分支 / 未使用样式清理",
+      "description": "全量清理审计确认的死代码：会话级文件回滚整链下线，server/goal 与前端 lib 的死导出、仅测试可达实现、未使用 CSS 与 i18n key 一并删除。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "先做静态基线（tsc 严格模式 / ESLint / AST 不可达分支 / 模块与导出引用图谱 / CSS 类与变量精确匹配 / Git 溯源），把结论分为「确定死代码 / 仅测试可达 / 冗余导出 / 误报」四级；再按级删除：会话级 /rollback-files* 整链（路由 + 会话级实现 + client + 类型 + 组件 + 19 个专属 i18n key + 专属 CSS）完全下线，轮级 /rollback-turn* 与写入侧 shadow backup 保留；server/goal 11 个死导出与 2 个私有死函数、isTailscaleAddress、cronMatches、getSubagentDefinition、DEFAULT_HOOKS_SETTINGS、DEFAULT_AI_STREAM_DEADLINE_MS 等仅测试可达实现直接删除并同步收窄测试；computeSessionSnapshotDigest 改为生产内部调用以消除「仅测试可达」；code-highlight 语言覆盖测试改用真实着色样本，不再依赖被删的 HIGHLIGHT_LANGUAGES。",
+      "files": [
+        "server/goal/prompts.mjs",
+        "server/goal/state.mjs",
+        "server/goal/errors.mjs",
+        "server/hooks/hooks-settings.mjs",
+        "server/utils/network.mjs",
+        "server/utils/scheduled-tasks.mjs",
+        "server/subagents.mjs",
+        "server/ai-provider-options.mjs",
+        "server/session-state-backup.mjs",
+        "server/session-file-backups.mjs",
+        "server/routes/agent.mjs",
+        "src/lib/server-agent.ts",
+        "src/lib/server-agent-types.ts",
+        "src/components/chat/file-rollback-state.ts",
+        "src/components/chat/FileRollbackDialog.tsx",
+        "src/lib/i18n.ts",
+        "src/lib/tool-param-summary.ts",
+        "src/lib/workflow-run-detail.ts",
+        "src/lib/indexeddb-cache.ts",
+        "src/lib/tool-artifacts.ts",
+        "src/lib/message-queue.ts",
+        "src/lib/pinned-summary-drag.ts",
+        "src/lib/browser-connection-diagnostics.ts",
+        "src/lib/chat-capabilities.ts",
+        "src/lib/code-highlight.ts",
+        "src/lib/hooks-settings.ts",
+        "src/lib/input-clamp.ts",
+        "src/components/workspace/workspace-tree-state.ts",
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "src/index.css",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md"
+      ],
+      "verification": "npm run test（393 文件 / 4534 passed / 2 skipped）、npm run lint（0 error，仅既有 GitToolsPinnedSummary exhaustive-deps warning）、npm run build（通过，仅既有大 chunk warning）。",
+      "boundaries": "只删审计确认的死代码；轮级撤销链路、写入侧 shadow backup、4 个 barrel 的无消费者再导出（本体全活）与 3 个测试隔离钩子均保留；未改依赖、未手工修改 dist/。"
+    },
+    {
       "id": "settings-search-autofill-guard",
       "name": "设置页搜索框禁用浏览器自动填充",
       "description": "设置页桌面/移动搜索框补齐 name 与 autocomplete/autocorrect/autocapitalize/spellcheck 属性，并把局域网访问密码、自定义模型 API Key 两个非登录密码框标记为 new-password，避免 Chromium 把设置页当登录表单、把搜索框猜成用户名框后自动填入网址/账号/密码。",
@@ -103,7 +147,13 @@
       "status": "done",
       "dependencies": [],
       "approach": "src/index.css 在 .quickforge-composer button 的全圆角规则后新增 .quickforge-composer .qf-attachment-tile button:not(.qf-attachment-tile-remove) 覆盖为 0.5rem；AttachmentTile.tsx 给删除按钮补 qf-attachment-tile-remove 类，保持删除按钮全圆。",
-      "files": ["src/index.css", "src/components/chat/surface/AttachmentTile.tsx", "feature_list.json", "progress.md", "session-handoff.md"],
+      "files": [
+        "src/index.css",
+        "src/components/chat/surface/AttachmentTile.tsx",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
       "verification": "浏览器实机粘贴 3200 字符：tile 计算圆角 7px（根字号 14px 下的 0.5rem），删除按钮保持 999px；定向 vitest 3 文件 69 passed；npx eslint 通过；npm run build 通过，产物 CSS 含新规则。",
       "boundaries": "只改 composer 内附件 tile 的圆角；消息区 tile、图片/PDF 预览与删除按钮行为不变；未新增依赖；未手工修改生成产物。"
     },
@@ -112,7 +162,9 @@
       "name": "Workflow 折叠头摘要单行滚动",
       "description": "run_workflow 折叠头右侧的运行中摘要不再换行或重复显示，固定单行，只在溢出时横向滚动。",
       "status": "done",
-      "dependencies": ["workflow-agent-live-detail-parity"],
+      "dependencies": [
+        "workflow-agent-live-detail-parity"
+      ],
       "approach": "src/index.css 为 .quickforge-workflow-marquee 补齐单行容器（inline-flex、flex: 1 1 auto、min-width: 0、定高 1.125rem、overflow: hidden、nowrap、mono 0.75rem）及双视图规则（view 绝对定位、static 省略号、moving 默认 display: none），复用现有 ToolMarqueeController 的溢出测量与横向滚动；reduced-motion 退化为省略号。仅 workflow 折叠头生效，内嵌工具行与 run_subagent 摘要行不变。",
       "files": [
         "src/index.css",
@@ -131,7 +183,9 @@
       "name": "Workflow 内部工具行默认收起",
       "description": "修复 run_workflow 展开后内部工具行随外层卡开合记忆自动展开的问题，内层行保持默认收起。",
       "status": "done",
-      "dependencies": ["workflow-agent-live-detail-parity"],
+      "dependencies": [
+        "workflow-agent-live-detail-parity"
+      ],
       "approach": "ToolDetails 增加可选 stateKey：传入时替代最近 .qf-tool-message 的 toolCall id 作为开合记忆 key，空字符串表示不记忆。WorkflowToolCallRow 传入 `workflow:${runId}:tool:${id}`，与外层 run_workflow 卡隔离；此前两者共用同一宿主 key，外层展开一次后内层行在流式刷新、新增步骤或重挂载时读到 true 自动展开。补 ToolDetails stateKey 单测与 workflow 交互回归（外层展开后内层仍收起、内层展开不污染外层、重挂载各自恢复）。",
       "files": [
         "src/lib/tool-renderers/shared.tsx",
@@ -152,7 +206,9 @@
       "name": "Workflow Agent 详情与 run_subagent 体验一致",
       "description": "从 workflow 卡片点进 Agent 详情后，实时工具过程、状态/错误推导、点击打开的最新快照与直接 run_subagent 卡片一致，不再依赖聊天卡片渲染或陈旧 details 帧。",
       "status": "done",
-      "dependencies": ["workflow-subagent-trace-budget"],
+      "dependencies": [
+        "workflow-subagent-trace-budget"
+      ],
       "approach": "新增 WorkflowAgentRunEventPublisher：ServerAgent 的 run_workflow tool_execution_start/update/end 直接驱动 subagentRunStore，以 `${workflowRunId}:agent:${id}` 稳定 runId 发布；点击优先取 store 最新快照，历史恢复才用渲染帧回填。buildWorkflowSubagentRunPayload 复用 subagentRunStatus/subagentRunError，状态/错误/耗时与 run_subagent 一致；task/context/expectedOutput 取 agent() 参数并支持 previous 回填，缺 trace 时标 traceDropped。Composer “运行中 subagent”指示器在父 run_workflow 仍 pending 时按 `${toolCallId}:agent:` 前缀列出嵌套 Agent。服务端 details 预算改为运行中 240K/终态 500K、日志独立 50K（至多 50 条且累计 ≤50K）；单 Agent 运行中 50 条/80KB、终态 200 条/200KB，按 10 条批量裁剪并保持 toolCall/toolResult 配对，按 Agent 优先级逐级缩减，running 最后；部分缩容标 subagentRunTruncated、整体移除标 subagentRunDropped，详情页均保留最后一次可见的更长 trace 并显示过程记录不完整提示。Agent 行直接调用 renderSubagentRunSummary（与 run_subagent 同一函数，只通过 options 追加 workflow meta、错误悬停文案与安全回填 onOpen），不再复制卡片标记；行内 effect 与 onOpen 以 shouldPublishSubagentRunPayload 回填 store（历史首帧、或 store 仍 running 而渲染帧已终态时修正，已有终态不覆盖），发布器 previous 优先取 store 再回落本地缓存，避免断连漏终结帧后详情停留 running 或被迟到帧缩回旧 trace。",
       "files": [
         "server/agent-workflow-runner.mjs",
@@ -206,7 +262,9 @@
       "name": "Goal 控制工具专用卡片",
       "description": "get_goal、create_goal、update_goal 从带边框的默认工具卡改为与 goal_report 一致的无边框只读折叠卡片。",
       "status": "done",
-      "dependencies": ["goal-v2-event-sourced"],
+      "dependencies": [
+        "goal-v2-event-sourced"
+      ],
       "approach": "新增 goal-tool-history 纯视图模型和 GoalToolRenderer，导入时注册三个工具名；摘要显示动作、phase 和目标，展开显示目标、阶段、轮次与阻塞原因，完整 JSON 仅详细模式可见。",
       "files": [
         "src/lib/goal-tool-history.ts",
@@ -356,7 +414,6 @@
       "verification": "定向 vitest 6 文件 96 passed；npx tsc --noEmit 通过；npm run lint 通过（1 个既有 GitToolsPinnedSummary warning）；npm run build 通过；git diff --check 通过。",
       "boundaries": "未处理 B 区仅测试存活导出、C 区导出冗余、D 区 sqlite compatibility spike、K8 isSessionTextAttachmentPath；未删除 storage.mjs facade 接口。未提交。"
     },
-
     {
       "id": "channels-removal",
       "name": "完整移除设置中的渠道功能",
@@ -1339,6 +1396,20 @@
       ],
       "verification": "定向 vitest tool-renderer-file-icon；eslint shared.tsx 与测试文件。",
       "boundaries": "只改下划线触发范围。点击预览、图标与整行折叠行为不变。"
+    },
+    {
+      "id": "compaction-divider-at-compacted-end",
+      "name": "压缩横线标在被压缩历史末尾",
+      "description": "自动触发上下文压缩时，压缩线应显示在对应位置（被压缩历史的末尾），而不是被回溯挂到最新一轮提问上方、或兜底挂到列表最顶部。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "panel-decoration/context-compaction.ts 删除 alignBoundaryToUserTurn（该函数把服务端 compactedUpToIndex 向前回溯到包含边界的用户回合，keepRecentTurns=0 时落点恒为最新一轮提问上方），边界直接取 compactedUpToIndex - messageIndexOffset；insertBeforeMessageElement 重写为 insertNoticeAtBoundary：按「边界之前的可见消息条数」定位插入行（边界落在 toolResult 等不渲染消息上时插到其后第一条可见消息之前），边界在已渲染末尾之后时 after(lastElement) 跟到最后一条消息之后，仅在完全无消息行时 append（不再 prepend 到列表最顶部）。dataset.tailStart 改名 boundaryIndex。",
+      "files": [
+        "src/components/chat/panel-decoration/context-compaction.ts",
+        "tests/frontend/context-compaction-notice.test.ts"
+      ],
+      "verification": "定向 vitest context-compaction-notice 7 passed；tests/frontend 全量 223 文件 2673 passed；npx eslint（改动文件）通过；npx tsc --noEmit 通过。",
+      "boundaries": "只改横线定位规则；不动服务端压缩链与 compactedUpToIndex 语义、窗口化语义、审批卡 findKeepBoundaryTarget 与压缩样式表；未引入新视觉模式；未手工修改生成产物。"
     }
   ]
 }

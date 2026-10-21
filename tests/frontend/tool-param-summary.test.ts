@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeToolArguments, summarizeParams, truncateSummary } from '../../src/lib/tool-param-summary'
+import { normalizeToolArguments, summarizeParams } from '../../src/lib/tool-param-summary'
 
 describe('summarizeParams', () => {
   it('returns the command for run_command as one collapsed line', () => {
@@ -65,20 +65,5 @@ describe('normalizeToolArguments', () => {
     expect(normalizeToolArguments('')).toBeUndefined()
     expect(normalizeToolArguments(42)).toBeUndefined()
     expect(normalizeToolArguments('[1,2]')).toBeUndefined()
-  })
-})
-
-describe('truncateSummary', () => {
-  it('keeps short text unchanged', () => {
-    expect(truncateSummary('npm test', 80)).toBe('npm test')
-  })
-
-  it('truncates long text with an ellipsis', () => {
-    const long = 'a'.repeat(120)
-    expect(truncateSummary(long, 80)).toBe(`${'a'.repeat(80)}…`)
-  })
-
-  it('handles non-positive limits', () => {
-    expect(truncateSummary('abc', 0)).toBe('')
   })
 })

@@ -166,7 +166,3 @@ export function saveStoredMessageQueueState(sessionId: string, state: MessageQue
     // Persistence must never break chat usage (same policy as composer drafts).
   }
 }
-
-export function clearStoredMessageQueueState(sessionId: string): void {
-  saveStoredMessageQueueState(sessionId, { items: [], paused: false })
-}

@@ -163,14 +163,9 @@ async function writePlan(plan, planFile = RESTORE_PLAN_FILE) {
   }
 }
 
-function planValuesDigest(values) {
-  return recordsDigest(normalizeSessionSnapshotValues(values))
-}
-
-// Public digest helper for backup tooling: returns the exact repository-style
-// digest a restored snapshot must produce, given backup values.
+// Repository-style digest the restored snapshot must produce given backup values.
 export function computeSessionSnapshotDigest(values) {
-  return planValuesDigest(values)
+  return recordsDigest(normalizeSessionSnapshotValues(values))
 }
 
 function validatePlan(plan) {
@@ -188,8 +183,8 @@ function validatePlan(plan) {
   if (plan.beforeCount !== beforeCount || plan.targetCount !== targetCount) {
     throw new Error('Session state restore plan count is invalid')
   }
-  const beforeDigest = planValuesDigest(plan.before)
-  const targetDigest = planValuesDigest(plan.target)
+  const beforeDigest = computeSessionSnapshotDigest(plan.before)
+  const targetDigest = computeSessionSnapshotDigest(plan.target)
   if (plan.beforeDigest !== beforeDigest || plan.targetDigest !== targetDigest) {
     throw new Error('Session state restore plan digest is invalid')
   }

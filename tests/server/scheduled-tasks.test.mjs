@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import {
-  cronMatches,
   isValidCronExpression,
   normalizeInterval,
   nextIntervalRun,
@@ -70,7 +69,6 @@ describe('scheduled task scheduling utilities', () => {
 
   it.each(['0 9 * * 0-7', '0 9 * * 1,7', '0 9 * * 1,bad'])('preserves historical cron matching at runtime: %s', (cron) => {
     const monday = new Date(2026, 0, 5, 9)
-    expect(cronMatches(monday, cron)).toBe(true)
     expect(nextCronRun(cron, new Date(2026, 0, 5, 8))).toEqual(monday)
   })
 
@@ -79,8 +77,8 @@ describe('scheduled task scheduling utilities', () => {
   })
 
   it('supports cron lists and numeric-start steps', () => {
-    expect(cronMatches(new Date(2026, 0, 5, 9, 0), '0 9 * * 1,3')).toBe(true)
-    expect(cronMatches(new Date(2026, 0, 5, 9, 15), '5/10 * * * *')).toBe(true)
+    expect(nextCronRun('0 9 * * 1,3', new Date(2026, 0, 5, 8))).toEqual(new Date(2026, 0, 5, 9, 0))
+    expect(nextCronRun('5/10 * * * *', new Date(2026, 0, 5, 9, 0))).toEqual(new Date(2026, 0, 5, 9, 5))
   })
 
   describe('normalizeExecutionMode', () => {
@@ -192,23 +190,23 @@ describe('scheduled task scheduling utilities', () => {
     })
   })
 
-  describe('cronMatches', () => {
-    it('matches step and fixed-time expressions', () => {
+  describe('nextCronRun step and fixed-time coverage', () => {
+    it('matches step and fixed-time expressions through nextCronRun', () => {
       const date = new Date(2026, 0, 1, 10, 30)
-      expect(cronMatches(date, '*/15 * * * *')).toBe(true)
-      expect(cronMatches(date, '*/20 * * * *')).toBe(false)
-      expect(cronMatches(date, '30 10 * * *')).toBe(true)
+      expect(nextCronRun('*/15 * * * *', new Date(2026, 0, 1, 10, 30))).toEqual(new Date(2026, 0, 1, 10, 45))
+      expect(nextCronRun('*/20 * * * *', new Date(2026, 0, 1, 10, 30))).toEqual(new Date(2026, 0, 1, 10, 40))
+      expect(nextCronRun('30 10 * * *', new Date(2026, 0, 1, 10, 30))).toEqual(new Date(2026, 0, 2, 10, 30))
+      expect(date).toEqual(new Date(2026, 0, 1, 10, 30))
     })
 
     it('rejects zero step expressions without hanging', () => {
       const date = new Date(2026, 0, 1, 10, 30)
-      expect(cronMatches(date, '*/0 * * * *')).toBe(false)
-      expect(cronMatches(date, '*/00 * * * *')).toBe(false)
       expect(nextCronRun('*/0 * * * *', date)).toBeNull()
+      expect(nextCronRun('*/00 * * * *', date)).toBeNull()
     })
 
-    it('returns false for malformed expressions', () => {
-      expect(cronMatches(new Date(2026, 0, 1, 10, 30), '* * *')).toBe(false)
+    it('returns null for malformed expressions', () => {
+      expect(nextCronRun('* * *', new Date(2026, 0, 1, 10, 30))).toBeNull()
     })
   })
 

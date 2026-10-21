@@ -1,3 +1,27 @@
+## compaction-divider-at-compacted-end（done，2026-10-21）
+
+- Goal：用户要求「自动触发上下文压缩时，压缩线应该显示在对应位置（被压缩历史的末尾），而不是挂在对话上方」。
+- 根因：`src/components/chat/panel-decoration/context-compaction.ts` 的 `alignBoundaryToUserTurn` 把服务端 `compactedUpToIndex` **向前回溯**到包含边界的用户回合，横线因此插在该轮用户提问之前。自动压缩默认 `keepRecentTurns=0`（`server/auto-compaction.mjs` 的 `tailStartForRecentTurns` 直接返回 `source.length`），边界 = 消息总数，回溯后落点永远是「最新一轮提问上方」——用户看到的横线不在压缩结束处。同时 `insertBeforeMessageElement` 在找不到目标行时 `messageList.prepend(notice)`，把横线挂到列表最顶部。
+- 改动：`context-compaction.ts` 删除 `alignBoundaryToUserTurn`（及仅供它使用的 `isUserMessage`），边界直接用 `compactedUpToIndex - messageIndexOffset`；`insertBeforeMessageElement` 重写为 `insertNoticeAtBoundary`——按「边界之前的可见消息条数」定位插入行（边界落在 `toolResult` 等不单独渲染的消息上时自然插到其后第一条可见消息之前），边界在已渲染末尾之后时 `lastElement.after(notice)` 跟到最后一条消息之后，仅在完全无消息行时才 `append` 到列表末尾（不再 `prepend`）。`dataset.tailStart` 改名为 `dataset.boundaryIndex`。
+- 测试同步：`tests/frontend/context-compaction-notice.test.ts` 假 DOM 增补 `lastElementChild` / `after` / `append`，用例预期从「对齐到用户回合之前」改为「紧跟被压缩历史之后」；原「边界=窗口末尾显示在最后一个用户回合之前」改为「跟在最后一条消息之后」，原「非 user 边界对齐回用户回合」改为「不回退到用户回合」（toolResult 边界）。7 passed。
+- 验证：定向 `npx vitest run tests/frontend/context-compaction-notice.test.ts` 7 passed；`npx vitest run tests/frontend` 223 文件 / 2673 passed；`npx eslint`（改动文件）通过；`npx tsc --noEmit` 通过；`npm run lint`、`npm run build` 见本会话记录。
+- boundaries：只改横线的定位规则；不动服务端压缩链（`server/auto-compaction.mjs`、`conversation-compaction.mjs`）与 `compactedUpToIndex` 语义，不动 `windowed-messages` 窗口语义、审批卡的 `findKeepBoundaryTarget`、样式表 `.quickforge-context-compaction-*`；未引入新视觉模式；未手工修改生成产物。
+
+---
+
+## dead-code-cleanup（done，2026-10-21）
+
+- Goal：按审计结论清理全量死代码——确定死代码全删，仅测试可达的实现一并删除，完全下线会话级文件回滚能力。
+- 改动（服务端）：`server/goal/prompts.mjs` 删 `_criteriaBlock`/`_evidenceBlock`/`goalPlanningPromptV2`/`goalWrapupPromptV2`/`scopeEntry` 与随之无用的 `attachmentBlock`/`escapeXmlAttribute`；`server/goal/state.mjs` 删 `isGoalActivation`/`isGoalRuntime`/`isGoalTerminalPhase`/`goalRoundsRemaining`/`goalProgressSignatureV2` 与常量 `GOAL_ACTIVATIONS`/`GOAL_RUNTIMES`（保留在用的 `isGoalPhase`/`isGoalActivePhase`）；`server/goal/errors.mjs` 删 `isGoalError`；`server/hooks/hooks-settings.mjs` 删 `DEFAULT_HOOKS_SETTINGS`；`server/utils/network.mjs` 删 `isTailscaleAddress`；`server/utils/scheduled-tasks.mjs` 删 `cronMatches`；`server/subagents.mjs` 删 `getSubagentDefinition` 与随之无用的 `subagentByName`；`server/ai-provider-options.mjs` 删 `DEFAULT_AI_STREAM_DEADLINE_MS`；`server/session-state-backup.mjs` 删私有 `planValuesDigest` 并把内部调用改走 `computeSessionSnapshotDigest`（该导出因此转为生产使用）。
+- 改动（会话级文件回滚整链下线）：`server/routes/agent.mjs` 删 `GET /file-changes`、`GET /rollback-files/preview`、`POST /rollback-files` / `rollback-file`；`server/session-file-backups.mjs` 删会话级 `inspectEntry`/`inspectEntryState`/`inspectBatch`/`getSessionFileRollbackPreview`/`getSessionFileChanges`/`rollbackSessionFiles`/`rollbackSessionFile`/`selectRollback`/`rollbackSelection`/`readBackupContent` 及 `createTextDiff` 导入（写入侧 `backupFileBeforeWrite`/`recordFileAfterWrite` 与轮级链路保留）；`src/lib/server-agent.ts` 删 `getFileRollbackPreview`/`rollbackFiles`/`rollbackFile` 与 `isFileRollbackPreview`/`isFileRollbackResult`；`src/lib/server-agent-types.ts` 删 `ServerFileRollbackPreview`/`ServerFileRollbackResult`；`src/components/chat/file-rollback-state.ts` 只保留 `TurnRollback*`；`src/components/chat/FileRollbackDialog.tsx` 只保留 `TurnRollbackDialogContent`/`TurnRollbackDialog`；`src/lib/i18n.ts` 删 19 个仅会话级弹窗使用的 `fileRollback*` key（保留 23 个轮级共用）。
+- 改动（其余前端死代码）：`tool-param-summary.ts` 删 `truncateSummary`；`workflow-run-detail.ts` 删 `workflowAgentStatusKey`/`workflowActiveAgentLabels`/`formatWorkflowDuration`；`indexeddb-cache.ts` 删 `isIndexedDbCacheAvailable`；`tool-artifacts.ts` 删 `extractCurrentTurnArtifacts` 与 `latestUserMessageIndex`；`message-queue.ts` 删 `clearStoredMessageQueueState`；`pinned-summary-drag.ts` 删 `clampPinnedSummaryPosition`；`browser-connection-diagnostics.ts` 删 `summarizeResourceEntries` 与随之无用的 `SummarizeResourceEntriesOptions`/`DiagnosticsSummary`/`queueMetric`；`chat-capabilities.ts` 删别名 `SIDE_CHAT_CAPABILITIES`；`workspace-tree-state.ts` 删别名 `loadedExpandedWorkspaceTreePaths`；`process-folding.ts` 删 `processGroupTargetIndex` 与 `ProcessGroupTargetSource`、`latestThinkingLine`；`input-clamp.ts` 删 `INPUT_CLAMP_TRANSITION_MS`（改注释说明 .22s）；`code-highlight.ts` 删 `HIGHLIGHT_LANGUAGES`；`hooks-settings.ts` 删 `DEFAULT_HOOKS_SETTINGS`。
+- 改动（样式）：`src/index.css` 删 `.quickforge-model-sheet-section`（label 变体仍在用）、`.quickforge-goal-strip-duration`（44f75ee 删节点未删样式）、`.quickforge-file-rollback-single` 基样式+hover+响应式一行、`--qf-console-fade` 两处声明（从未被 var() 消费）及空壳规则 `.qf-console-block.border-destructive\/50`。
+- 测试同步：`file-rollback-state`/`file-rollback-dialog`/`file-rollback-api` 三个测试只保留轮级用例；`session-file-backups.test.mjs` 重写为「写入侧 shadow backup journal + 轮级 rollback」，丢弃 37 个会话级用例；`routes/agent.test.mjs` 只留轮级路由；其余 14 个测试文件的对应断言改为使用现役函数名或直接删除；`code-highlight.test.ts` 的语言覆盖改用「每种语言必须产出有色 token」的真实样本（不再依赖被删的 `HIGHLIGHT_LANGUAGES`）。
+- 验证：`npm run test` 393 文件 / 4534 passed、2 skipped；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` exhaustive-deps warning）；`npm run build` 通过（仅既有大 chunk warning）。未提交 Git。
+- Notes：保留项均属刻意：`resetStartupState`/`__resetSlashCatalogCacheForTests`/`terminateSessionStateWorkerForTests` 是测试隔离钩子；4 个 barrel 的 66 个「无消费者再导出」本次未动（本体全活，删 export 行属独立机械重构，避免混入本次语义删除）；`dist/` 为构建产物由 build 重新生成，未手工修改。
+
+---
+
 ## docs-cleanup-stale-assets（done，2026-10-22）
 
 - Goal：评审并清理仓库内过时的文档与资产，同时修复文档链接 bug。

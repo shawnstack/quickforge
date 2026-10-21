@@ -31,7 +31,3 @@ export class GoalError extends Error {
     this.statusCode = statusCode
   }
 }
-
-export function isGoalError(value) {
-  return value instanceof GoalError
-}

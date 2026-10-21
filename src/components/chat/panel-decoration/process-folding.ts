@@ -101,21 +101,6 @@ export function processGroupAnchorIndex(sources: ProcessGroupAnchorSource[]) {
   return sources.findIndex((source) => source.connected)
 }
 
-type ProcessGroupTargetSource = {
-  streaming: boolean
-  hasGroup: boolean
-}
-
-export function processGroupTargetIndex(sources: ProcessGroupTargetSource[]) {
-  const existingStableGroup = sources.findIndex((source) => !source.streaming && source.hasGroup)
-  if (existingStableGroup >= 0) return existingStableGroup
-
-  for (let index = sources.length - 1; index >= 0; index -= 1) {
-    if (!sources[index]?.streaming) return index
-  }
-  return Math.max(0, sources.length - 1)
-}
-
 function processScopeId(panel: HTMLElement) {
   let scopeId = processScopeIds.get(panel)
   if (scopeId === undefined) {
@@ -436,16 +421,6 @@ function latestThinkingSegment(content: string): { lineIndex: number; text: stri
     if (line) return { lineIndex, text: Array.from(line).slice(0, PROCESS_THINKING_HINT_MAX_CHARS).join('') }
   }
   return null
-}
-
-/**
- * 尾行提示取段规则：按换行切分取最后一个非空段——含进行中尚未换行的行（无换行/
- * 长首行思考从首个 token 起即可见）；无任何非空段返回 ''。超长按码点截 500 不劈
- * 代理对。行身份（段行号）由 latestThinkingSegment 一并返回，供同步层区分
- * 「行切换」（重触发淡入）与「同一行内增长」（只更新文本、按时间窗节流）。
- */
-export function latestThinkingLine(content: string): string {
-  return latestThinkingSegment(content)?.text ?? ''
 }
 
 /** message.content 里按渲染顺序保留的非空 thinking 块（与 React 表面一一对应）。 */

@@ -6,7 +6,6 @@ import {
   formatDiagnosticsReport,
   isTrackedUrl,
   startBrowserConnectionDiagnostics,
-  summarizeResourceEntries,
   type BrowserConnectionDiagnosticsOptions,
   type BrowserConnectionDiagnosticsSession,
   type DiagnosticsObserverEntryList,
@@ -104,82 +103,6 @@ describe('isTrackedUrl', () => {
     expect(isTrackedUrl('not a url')).toBe(false)
     expect(isTrackedUrl('')).toBe(false)
     expect(isTrackedUrl('/api/health')).toBe(false)
-  })
-})
-
-// --- summarizeResourceEntries ------------------------------------------------
-
-describe('summarizeResourceEntries', () => {
-  it('按 requestStart - startTime 计算排队时长，并过滤非同源条目', () => {
-    const summary = summarizeResourceEntries(
-      [
-        entry('http://localhost:5176/api/slow', 100, 700, 900),
-        entry('https://cdn.example.com/x.js', 100, 900, 1_000),
-        entry('http://127.0.0.1:32176/api/fast', 0, 10, 20),
-      ],
-      { base: 'http://localhost:5176/' },
-    )
-
-    expect(summary.total).toBe(3)
-    expect(summary.tracked).toBe(2)
-    expect(summary.maxQueueMs).toBe(600)
-    expect(summary.queueWarnCount).toBe(1)
-    expect(summary.slowQueue).toHaveLength(1)
-    expect(summary.slowQueue[0].path).toBe('/api/slow')
-    expect(summary.slowQueue[0].queueMs).toBe(600)
-    expect(summary.slowQueue[0].durationMs).toBe(900)
-  })
-
-  it('requestStart 不可测量（0）或早于 startTime 时排队按 0 计', () => {
-    const summary = summarizeResourceEntries(
-      [entry('http://localhost:5176/api/cached', 10, 0, 30), entry('http://localhost:5176/api/weird', 100, 50, 30)],
-      { slowQueueMs: 1 },
-    )
-
-    expect(summary.maxQueueMs).toBe(0)
-    expect(summary.queueWarnCount).toBe(0)
-    expect(summary.slowQueue).toHaveLength(0)
-  })
-
-  it('按 path 聚合 count / 累计排队 / 最大排队 / 最大耗时', () => {
-    const summary = summarizeResourceEntries(
-      [
-        entry('http://localhost:5176/api/a?x=1', 0, 100, 150),
-        entry('http://localhost:5176/api/a?x=2', 0, 300, 500),
-        entry('http://localhost:5176/api/b', 0, 10, 20),
-      ],
-      { slowQueueMs: 1_000 },
-    )
-
-    expect(summary.byPath.map((stat) => stat.path)).toEqual(['/api/a', '/api/b'])
-    expect(summary.byPath[0]).toEqual({
-      path: '/api/a',
-      count: 2,
-      totalMs: 400,
-      maxQueueMs: 300,
-      maxDurationMs: 500,
-    })
-    expect(summary.byPath[1]).toEqual({
-      path: '/api/b',
-      count: 1,
-      totalMs: 10,
-      maxQueueMs: 10,
-      maxDurationMs: 20,
-    })
-  })
-
-  it('slowQueue 按排队降序且受 slowQueueLimit 限制，queueWarnCount 不受限制', () => {
-    const summary = summarizeResourceEntries(
-      [
-        entry('http://localhost:5176/api/a', 0, 600, 700),
-        entry('http://localhost:5176/api/b', 0, 900, 1_000),
-        entry('http://localhost:5176/api/c', 0, 800, 900),
-      ],
-      { slowQueueMs: 500, slowQueueLimit: 2 },
-    )
-
-    expect(summary.queueWarnCount).toBe(3)
-    expect(summary.slowQueue.map((sample) => sample.path)).toEqual(['/api/b', '/api/c'])
   })
 })
 

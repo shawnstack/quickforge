@@ -8,7 +8,6 @@ import {
   processGroupAnchorIndex,
   processFinishedAtFromMessages,
   processGroupDefaultExpanded,
-  processGroupTargetIndex,
   processNodeSequenceIsCurrent,
   processStatusLabel,
   processStageDefaultExpanded,
@@ -168,24 +167,6 @@ describe('process streaming updates', () => {
     expect(shouldDiscardGroupedProcessNode(false, false)).toBe(true)
     expect(shouldDiscardGroupedProcessNode(true, true)).toBe(true)
     expect(shouldDiscardGroupedProcessNode(true, false)).toBe(false)
-  })
-
-  it('anchors a running turn to a stable assistant instead of the temporary streaming assistant', () => {
-    expect(processGroupTargetIndex([
-      { streaming: false, hasGroup: false },
-      { streaming: true, hasGroup: false },
-    ])).toBe(0)
-    expect(processGroupTargetIndex([
-      { streaming: true, hasGroup: false },
-    ])).toBe(0)
-  })
-
-  it('keeps using the stable assistant that already owns the process group', () => {
-    expect(processGroupTargetIndex([
-      { streaming: false, hasGroup: true },
-      { streaming: false, hasGroup: false },
-      { streaming: true, hasGroup: false },
-    ])).toBe(0)
   })
 
   it('recognizes a connected same-assistant tool suffix that can be appended in place', () => {

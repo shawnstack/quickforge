@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   PINNED_SUMMARY_PANEL_MIN_HEIGHT,
-  clampPinnedSummaryPosition,
   getPinnedSummaryOutsideAction,
   hasPinnedSummaryDragThreshold,
   resolvePinnedSummaryInitialPosition,
@@ -24,29 +23,6 @@ describe('pinned summary drag helpers', () => {
       fallbackRect: { x: 940, y: 30, right: 1060 },
       targetSize: { width: 320, height: 240 },
     })).toEqual({ x: 740, y: 30 })
-  })
-
-  it('clamps all four viewport edges with the default margin', () => {
-    const size = { width: 120, height: 80 }
-    const viewport = { width: 800, height: 600 }
-
-    expect(clampPinnedSummaryPosition({ x: -20, y: -30 }, size, viewport)).toEqual({ x: 12, y: 12 })
-    expect(clampPinnedSummaryPosition({ x: 900, y: 900 }, size, viewport)).toEqual({ x: 668, y: 508 })
-    expect(clampPinnedSummaryPosition({ x: 240, y: 180 }, size, viewport)).toEqual({ x: 240, y: 180 })
-  })
-
-  it('uses a stable margin fallback when the viewport is smaller than the widget', () => {
-    expect(clampPinnedSummaryPosition(
-      { x: Number.NaN, y: Number.POSITIVE_INFINITY },
-      { width: 500, height: 400 },
-      { width: 240, height: 180 },
-    )).toEqual({ x: 12, y: 12 })
-
-    expect(clampPinnedSummaryPosition(
-      { x: Number.NEGATIVE_INFINITY, y: -100 },
-      { width: Number.NaN, height: Number.POSITIVE_INFINITY },
-      { width: Number.NaN, height: -1 },
-    )).toEqual({ x: 12, y: 12 })
   })
 
   it('keeps panel top when there is enough space below', () => {

@@ -12,8 +12,8 @@
  * - 内容不足「六行正文 + 原有 chrome」保持自然高度，渐隐遮罩、占位节点与按钮 display:none；
  * - 超出定高进入收起态：底部渐隐遮罩（渐隐到容器自身背景色，见 index.css
  *   --quickforge-input-clamp-bg）+ 框底居中「展开」pill 按钮，hover 才强化；
- * - 展开/收起为 max-height 过渡（INPUT_CLAMP_TRANSITION_MS，与 index.css 的
- *   .quickforge-input-clamp transition 保持同步），展开动画结束后置 none 以便内容继续
+ * - 展开/收起为 max-height 过渡（.22s，与 index.css 的 .quickforge-input-clamp transition
+ *   保持同步），展开动画结束后置 none 以便内容继续
  *   变化；prefers-reduced-motion 直切终态；
  * - 状态用 data 属性表达（data-quickforge-clamped / expanded / fits），React 重渲染
  *   不会清除它们，注入的遮罩/按钮也不在 React 管理的节点树内，可跨实时更新存活。
@@ -31,8 +31,6 @@ export type InputClampLabels = {
 const INPUT_CLAMP_LINES = 6
 /** 展开/收起按钮占用的底部安全区；仅 overflowing 内容启用，fits 内容不留空白。 */
 export const INPUT_CLAMP_CONTROL_SAFE_AREA_PX = 30
-/** 过渡时长；与 index.css 中 .quickforge-input-clamp 的 transition 保持一致。 */
-export const INPUT_CLAMP_TRANSITION_MS = 220
 /** 展开过渡结束兜底（transitionend 不监听，用略长于过渡的定时器置 none）。 */
 export const INPUT_CLAMP_SETTLE_TIMEOUT_MS = 320
 

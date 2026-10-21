@@ -168,11 +168,6 @@ function cronRulesMatch(date, rules) {
   return rules.every((rule, index) => rule.any || rule.values.includes(values[index]))
 }
 
-export function cronMatches(date, cronExpression) {
-  const rules = parseCronExpression(cronExpression)
-  return rules ? cronRulesMatch(date, rules) : false
-}
-
 export function nextCronRun(cronExpression, base = new Date()) {
   const rules = parseCronExpression(cronExpression)
   if (!rules) return null

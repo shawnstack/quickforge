@@ -49,13 +49,6 @@ function diffLineCounts(details?: Record<string, unknown>) {
   }
 }
 
-function latestUserMessageIndex(messages: AgentMessage[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.role === 'user') return index
-  }
-  return -1
-}
-
 function inferArtifactKind(path = ''): AiTurnArtifactKind {
   const lower = path.toLowerCase()
   const fileName = lower.replace(/\\/g, '/').split('/').pop() || lower
@@ -203,12 +196,6 @@ function extractArtifactsFromMessages(messages: AgentMessage[]): AiTurnArtifact[
   }
 
   return artifacts
-}
-
-export function extractCurrentTurnArtifacts(messages: AgentMessage[] | undefined): AiTurnArtifact[] {
-  if (!messages?.length) return []
-  const startIndex = latestUserMessageIndex(messages)
-  return extractArtifactsFromMessages(messages.slice(Math.max(0, startIndex + 1)))
 }
 
 export function extractSessionArtifacts(messages: AgentMessage[] | undefined): AiTurnArtifact[] {

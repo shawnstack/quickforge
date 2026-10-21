@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  HIGHLIGHT_LANGUAGES,
   HIGHLIGHT_TOKEN_CLASSES,
   MAX_HIGHLIGHT_LENGTH,
   highlightCode,
@@ -25,19 +24,55 @@ function expectSegment(code: string, language: string, text: string, token: stri
   expect(segments).toContainEqual({ text, token })
 }
 
+/** 每种 fenced 拼写各配一段最小可着色样本（纯文本回退即视为未覆盖）。 */
+const LANGUAGE_SAMPLES: ReadonlyArray<readonly [string, string]> = [
+  ['js', 'const a = 1\n'],
+  ['jsx', 'const a = <div/>\n'],
+  ['javascript', 'const a = 1\n'],
+  ['ts', 'const a: number = 1\n'],
+  ['tsx', 'const a: number = 1\n'],
+  ['typescript', 'const a: number = 1\n'],
+  ['json', '{"a": 1}\n'],
+  ['bash', 'echo hi\n'],
+  ['sh', 'echo hi\n'],
+  ['shell', 'echo hi\n'],
+  ['python', 'def f():\n  pass\n'],
+  ['css', 'a { color: red }\n'],
+  ['scss', '$a: 1;\n'],
+  ['html', '<div>x</div>\n'],
+  ['xml', '<a>x</a>\n'],
+  ['svg', '<svg></svg>\n'],
+  ['sql', 'SELECT * FROM t;\n'],
+  ['java', 'class A {}\n'],
+  ['c', 'int main() {}\n'],
+  ['cpp', 'int main() {}\n'],
+  ['go', 'func main() {}\n'],
+  ['rust', 'fn main() {}\n'],
+  ['yaml', 'key: value\n'],
+  ['yml', 'key: value\n'],
+  ['markdown', '# Title\n'],
+  ['md', '# Title\n'],
+  ['diff', '-old\n+new\n'],
+  // 补齐的高频缺失语言（旧版 hljs 能着色、自研 tokenizer 曾整块退化为纯文本）。
+  ['toml', 'key = "value"\n'],
+  ['ini', '[section]\nkey = 1\n'],
+  ['dockerfile', 'FROM node:20\n'],
+  ['makefile', 'all:\n\techo hi\n'],
+  ['powershell', '$a = 1\n'],
+  ['ps1', '$a = 1\n'],
+  ['gql', 'type Query { a: String }\n'],
+  ['protobuf', 'message A { string b = 1; }\n'],
+  ['proto', 'message A { string b = 1; }\n'],
+  ['nginx', 'server { listen 80; }\n'],
+  ['apache', 'ServerName x\n'],
+  ['httpd', 'ServerName x\n'],
+]
+
 describe('code-highlight language coverage', () => {
   it('covers the common fenced languages used by the project and agent output', () => {
-    for (const language of [
-      'js', 'jsx', 'javascript', 'ts', 'tsx', 'typescript', 'json', 'bash', 'sh', 'shell',
-      'python', 'css', 'scss', 'html', 'xml', 'svg', 'sql', 'java', 'c', 'cpp', 'go', 'rust',
-      'yaml', 'yml', 'markdown', 'md', 'diff',
-      // 补齐的高频缺失语言（旧版 hljs 能着色、自研 tokenizer 曾整块退化为纯文本）。
-      'toml', 'ini', 'dockerfile', 'makefile', 'powershell', 'ps1', 'gql', 'protobuf',
-      'proto', 'nginx', 'apache', 'httpd',
-    ]) {
-      expect(HIGHLIGHT_LANGUAGES).toContain(language)
+    for (const [language, sample] of LANGUAGE_SAMPLES) {
+      expect(colored(sample, language).length, `${language} must produce colored tokens`).toBeGreaterThan(0)
     }
-    expect(Object.keys(HIGHLIGHT_LANGUAGES).length).toBeGreaterThan(10)
   })
 
   it('maps every token to a qf-hl-* CSS class', () => {

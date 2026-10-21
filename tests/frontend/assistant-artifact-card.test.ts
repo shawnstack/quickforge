@@ -162,10 +162,10 @@ describe('assistant artifact card contract', () => {
     expect(serverAgent).toContain('/rollback-turn/preview?turnIds=')
     expect(serverAgent).toContain('async rollbackTurn(turnIds: string[], revision: string, signal?: AbortSignal): Promise<ServerTurnRollbackResult>')
     expect(serverAgent).toContain('async getTurnRollbackPreview(turnIds: string[], signal?: AbortSignal)')
-    // 会话级 rollbackFiles/rollbackFile 能力保留（入口移除不删服务端 API）。
-    expect(serverAgent).toContain('/rollback-files')
-    expect(serverAgent).toContain('async rollbackFiles(revision: string, signal?: AbortSignal): Promise<ServerFileRollbackResult>')
-    expect(serverAgent).toContain('async getFileRollbackPreview(signal?: AbortSignal)')
+    // 会话级 rollbackFiles/rollbackFile 能力已整体下线（前端 client + 服务端路由一并移除）。
+    expect(serverAgent).not.toContain('/rollback-files')
+    expect(serverAgent).not.toContain('async rollbackFiles(')
+    expect(serverAgent).not.toContain('async getFileRollbackPreview(')
 
     // Review 请求支持指定文件直达 diff tab，并收起右侧文件列表导航（审查只展示 diff）。
     expect(workspaceTypes).toMatch(/kind: 'review'; view: 'review' \| 'changes';[^}]*path\?: string/)

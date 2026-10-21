@@ -3,7 +3,6 @@ import {
   CACHE_SCHEMA_VERSION,
   computeCacheKey,
   IndexedDbCache,
-  isIndexedDbCacheAvailable,
   selectEvictionKeys,
 } from '../../src/lib/indexeddb-cache'
 
@@ -280,13 +279,6 @@ describe('IndexedDbCache', () => {
     await expect(cache.get('k1')).resolves.toBeNull()
     await expect(cache.keys()).resolves.toEqual([])
     await expect(cache.clear()).resolves.toBe(false)
-  })
-
-  it('probes globalThis.indexedDB through the module-level helper', () => {
-    expect(isIndexedDbCacheAvailable()).toBe(false)
-
-    vi.stubGlobal('indexedDB', new FakeFactory())
-    expect(isIndexedDbCacheAvailable()).toBe(true)
   })
 
   it('clears stored entries', async () => {

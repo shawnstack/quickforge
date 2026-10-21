@@ -194,9 +194,6 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   nginxconf: 'nginx',
 }
 
-/** Every fenced spelling that gets a real tokenizer (docs/tests). */
-export const HIGHLIGHT_LANGUAGES: readonly string[] = Object.keys(LANGUAGE_ALIASES).sort()
-
 /**
  * Legacy plaintext registrations (`highlight.js` ships `plaintext` with the
  * `text` / `txt` aliases), which must stay uncolored.

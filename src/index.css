@@ -4297,16 +4297,11 @@ details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
 }
 
 .qf-console-block {
-  --qf-console-fade: color-mix(in oklab, var(--muted) 30%, var(--background));
   display: block;
   width: 100%;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
-}
-
-.qf-console-block.border-destructive\/50 {
-  --qf-console-fade: color-mix(in oklab, var(--destructive) 10%, var(--background));
 }
 
 .qf-console-scroll {
@@ -5743,11 +5738,6 @@ html.dark .quickforge-subagent-running-badge {
 .quickforge-model-sheet-close:focus-visible {
   background: color-mix(in oklab, var(--muted) 72%, transparent);
   color: var(--foreground);
-}
-
-.quickforge-model-sheet-section {
-  flex: 0 0 auto;
-  padding: 0 1rem 0.75rem;
 }
 
 .quickforge-model-sheet-section-label {
@@ -8761,8 +8751,6 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
 .quickforge-file-rollback-group li { display: flex; align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
 .quickforge-file-rollback-path { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--font-mono, monospace); }
 .quickforge-file-rollback-reason { flex: 0 1 35%; color: var(--muted-foreground); text-align: right; overflow-wrap: anywhere; }
-.quickforge-file-rollback-single { flex: none; padding: 5px 9px; border: 0; border-radius: 6px; background: color-mix(in oklab, var(--destructive) 8%, transparent); color: var(--destructive); font-size: 12px; white-space: nowrap; }
-.quickforge-file-rollback-single:hover:not(:disabled) { background: color-mix(in oklab, var(--destructive) 14%, transparent); }
 .quickforge-file-rollback-feedback { margin: 22px 0 12px; color: var(--muted-foreground); }
 .quickforge-file-rollback-feedback p { margin: 0 0 6px; }
 .quickforge-file-rollback-recheck { border: 0; border-radius: 4px; background: transparent; color: var(--foreground); padding: 2px 0; text-decoration: underline; text-underline-offset: 3px; }
@@ -8778,14 +8766,11 @@ html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-stat
   .quickforge-file-rollback-group li { align-items: stretch; flex-direction: column; gap: 4px; }
   .quickforge-file-rollback-path { flex: auto; white-space: normal; overflow-wrap: anywhere; }
   .quickforge-file-rollback-reason { text-align: left; }
-  .quickforge-file-rollback-single { align-self: flex-end; margin-top: 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .quickforge-file-rollback-dialog[open] { animation: none; }
   .quickforge-file-rollback-dialog button { transition: none; }
 }
-
-.quickforge-goal-strip-duration { flex-shrink: 0; color: var(--muted-foreground); font-size: 11px; }
 
 /* ---------------------------------------------------------------------------
  * Code-block syntax highlighting tokens (src/lib/code-highlight.ts)

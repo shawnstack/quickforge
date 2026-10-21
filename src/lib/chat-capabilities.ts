@@ -68,9 +68,6 @@ export const SIDE_CHAT_UI_CAPABILITIES: ChatCapabilities = Object.freeze({
   goal: false,
 })
 
-// Backward-compatible name for callers/tests that still import the old policy.
-export const SIDE_CHAT_CAPABILITIES = SIDE_CHAT_UI_CAPABILITIES
-
 type ChatPagePolicy = {
   readOnly?: boolean
   disableFork?: boolean

@@ -2,8 +2,6 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   INPUT_CLAMP_CONTROL_SAFE_AREA_PX,
-  INPUT_CLAMP_SETTLE_TIMEOUT_MS,
-  INPUT_CLAMP_TRANSITION_MS,
   InputClampController,
   inputClampContentHeight,
   inputClampHeight,
@@ -182,10 +180,6 @@ describe('InputClampController', () => {
     flushTimers()
     expect(style.maxHeight).toBe('500px')
   })
-
-  it('uses a settle timeout slightly longer than the transition for safety', () => {
-    expect(INPUT_CLAMP_SETTLE_TIMEOUT_MS).toBeGreaterThan(INPUT_CLAMP_TRANSITION_MS)
-  })
 })
 
 describe('input clamp wiring sources', () => {
@@ -201,9 +195,9 @@ describe('input clamp wiring sources', () => {
     expect(css).not.toMatch(/user-message-container[^{]*\{[^{}]*--primary\) 10%/s)
   })
 
-  it('keeps the clamp transition duration in sync between CSS and the controller constant', () => {
+  it('keeps the clamp transition duration in sync between CSS and the controller', () => {
     expect(css).toMatch(/\.quickforge-input-clamp\s*\{[\s\S]*?transition:\s*max-height \.22s/)
-    expect(inputClampSource).toMatch(/INPUT_CLAMP_TRANSITION_MS = 220/)
+    expect(inputClampSource).toMatch(/展开\/收起为 max-height 过渡（\.22s/)
   })
 
   it('applies one shared flow safe area without changing the six-line fit threshold or mutating padding', () => {

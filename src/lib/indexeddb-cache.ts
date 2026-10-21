@@ -356,7 +356,3 @@ export class IndexedDbCache {
   }
 }
 
-/** 模块级便捷探测：当前宿主是否暴露 indexedDB。 */
-export function isIndexedDbCacheAvailable(): boolean {
-  return new IndexedDbCache().available()
-}

@@ -261,21 +261,6 @@ export function workflowSummaryKey(view: WorkflowRunView): AppTextKey {
   return 'workflowSummaryRunning'
 }
 
-export function workflowAgentStatusKey(status: WorkflowAgentStatus): AppTextKey {
-  if (status === 'done') return 'workflowAgentDone'
-  if (status === 'error') return 'workflowAgentFailed'
-  if (status === 'aborted') return 'workflowAgentAborted'
-  if (status === 'running') return 'workflowAgentRunning'
-  return 'workflowAgentQueued'
-}
-
-/** Running/queued agent labels for the summary marquee. */
-export function workflowActiveAgentLabels(view: WorkflowRunView): string[] {
-  return view.agents
-    .filter((agent) => agent.status === 'running' || agent.status === 'queued')
-    .map((agent) => agent.label)
-}
-
 /** Running/queued agent and tool labels in submission order. */
 export function workflowActiveStepLabels(view: WorkflowRunView): string[] {
   return [...view.agents, ...view.tools]
@@ -293,13 +278,4 @@ export function workflowCurrentPhase(view: WorkflowRunView): string {
     }
   }
   return view.phases[view.phases.length - 1]?.title ?? ''
-}
-
-export function formatWorkflowDuration(ms: number): string {
-  const value = Math.max(0, Math.round(Number(ms) || 0))
-  if (value < 1000) return `${value}ms`
-  if (value < 60_000) return `${(value / 1000).toFixed(1)}s`
-  const minutes = Math.floor(value / 60_000)
-  const seconds = Math.round((value % 60_000) / 1000)
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
 }

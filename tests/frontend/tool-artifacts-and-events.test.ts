@@ -1,6 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { describe, expect, it, vi } from 'vitest'
-import { extractCurrentTurnArtifacts, extractSessionArtifacts, extractTurnArtifacts } from '../../src/lib/tool-artifacts'
+import { extractSessionArtifacts, extractTurnArtifacts } from '../../src/lib/tool-artifacts'
 import {
   extractQuickForgeTiming,
   toolStartEventWithPartialResult,
@@ -165,19 +165,6 @@ describe('tool artifacts', () => {
       outputFile: 'dist/index.html',
       toolCallId: 'cmd-1',
     })
-  })
-
-  it('extracts only artifacts after the latest user message for the current turn', () => {
-    const artifacts = extractCurrentTurnArtifacts(messages([
-      { role: 'user', content: 'first' },
-      { role: 'toolResult', toolName: 'write_file', details: { path: 'old.html' } },
-      { role: 'assistant', content: 'done' },
-      { role: 'user', content: 'second' },
-      { role: 'toolResult', toolName: 'write_file', details: { path: 'new.png' } },
-    ]))
-
-    expect(artifacts).toHaveLength(1)
-    expect(artifacts[0]).toMatchObject({ path: 'new.png', kind: 'image' })
   })
 
   it('slices per-turn artifacts at user and user-with-attachments boundaries', () => {

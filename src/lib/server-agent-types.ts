@@ -145,29 +145,6 @@ export type ServerAgentConfig = {
   }
 }
 
-export type ServerFileRollbackPreview = {
-  revision: string
-  canRollback: boolean
-  files: Array<{
-    path: string
-    relativePath: string
-    /** Absent on older servers; individual rollback must stay disabled. */
-    revision?: string
-    action: 'restore' | 'delete'
-    safe: boolean
-    reason: string
-  }>
-  reason?: string
-}
-
-export type ServerFileRollbackResult = {
-  status: 'partial' | 'completed' | 'blocked' | 'failed'
-  restored: number
-  removedCreated: number
-  errors: Array<{ path: string; message: string }>
-  preview: ServerFileRollbackPreview
-}
-
 /** 每轮产物卡「撤销本轮」的预检结果（GET rollback-turn/preview）。 */
 export type ServerTurnRollbackPreview = {
   revision: string

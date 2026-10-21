@@ -67,9 +67,3 @@ export function normalizeToolArguments(value: unknown): Record<string, unknown> 
     return undefined
   }
 }
-
-/** 截断摘要文案，超长时以 … 结尾（半角字符按 1 计）。 */
-export function truncateSummary(text: string, maxLength: number): string {
-  if (maxLength <= 0) return ''
-  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
-}

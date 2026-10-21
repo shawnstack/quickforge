@@ -1,6 +1,17 @@
 {
   "features": [
     {
+      "id": "composer-pasted-text-tile-radius",
+      "name": "Composer 粘贴文本附件改为中等圆角",
+      "description": "输入框内粘贴大段文本生成的附件 tile 不再被 composer 按钮的全圆角规则变成圆形，改为与消息区附件一致的中等圆角方形。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "src/index.css 在 .quickforge-composer button 的全圆角规则后新增 .quickforge-composer .qf-attachment-tile button:not(.qf-attachment-tile-remove) 覆盖为 0.5rem；AttachmentTile.tsx 给删除按钮补 qf-attachment-tile-remove 类，保持删除按钮全圆。",
+      "files": ["src/index.css", "src/components/chat/surface/AttachmentTile.tsx", "feature_list.json", "progress.md", "session-handoff.md"],
+      "verification": "浏览器实机粘贴 3200 字符：tile 计算圆角 7px（根字号 14px 下的 0.5rem），删除按钮保持 999px；定向 vitest 3 文件 69 passed；npx eslint 通过；npm run build 通过，产物 CSS 含新规则。",
+      "boundaries": "只改 composer 内附件 tile 的圆角；消息区 tile、图片/PDF 预览与删除按钮行为不变；未新增依赖；未手工修改生成产物。"
+    },
+    {
       "id": "workflow-summary-single-line-marquee",
       "name": "Workflow 折叠头摘要单行滚动",
       "description": "run_workflow 折叠头右侧的运行中摘要不再换行或重复显示，固定单行，只在溢出时横向滚动。",

@@ -4725,6 +4725,13 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
+/* Attachment tiles are content previews, not pill-shaped icon buttons: keep
+   their medium radius so composer tiles match message-side tiles. The remove
+   affordance stays fully round. */
+.quickforge-composer .qf-attachment-tile button:not(.qf-attachment-tile-remove) {
+  border-radius: 0.5rem !important;
+}
+
 .quickforge-composer button:hover:not(:disabled) {
   transform: translateY(-1px);
 }

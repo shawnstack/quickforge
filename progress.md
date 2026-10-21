@@ -1,3 +1,13 @@
+## composer-pasted-text-tile-radius（done，2026-10-21）
+
+- Goal：用户反馈输入框粘贴大段文本时，文本附件显示为圆形，不符合设计语言，要求与界面整体圆角对齐。
+- 根因：`.quickforge-composer button { border-radius: 999px !important; }` 是给 composer 内图标按钮用的统一全圆规则；粘贴文本生成的附件 tile 主体也是 `<button>`，被该规则覆盖成圆形，而消息区同名 AttachmentTile 保持 `rounded-lg`。
+- 改动：`src/index.css` 在全圆按钮规则后新增 `.quickforge-composer .qf-attachment-tile button:not(.qf-attachment-tile-remove)`，显式使用 0.5rem 中等圆角；`AttachmentTile.tsx` 给删除按钮补 `qf-attachment-tile-remove` 类，使其继续使用全圆。
+- 范围：只影响 composer 内附件 tile 圆角；消息区附件、图片/PDF 预览、删除按钮交互均不变；未新增依赖；未手工修改生成产物；纯样式调整，无需更新 wiki。
+- 验证：浏览器实机在 composer 粘贴 3200 字符生成文本附件，计算样式 tile 7px（根字号 14px 下的 0.5rem）、删除按钮 999px；定向 vitest 3 文件 69 passed；`npx eslint src/components/chat/surface/AttachmentTile.tsx` 通过；`npm run build` exit 0，产物 CSS 含新规则。
+
+---
+
 ## workflow-summary-single-line-marquee（done，2026-10-21）
 
 - Goal：用户反馈 run_workflow 折叠头右侧的运行中摘要会换行，要求固定单行、溢出滚动。

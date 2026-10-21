@@ -1,3 +1,14 @@
+## 当前交接：composer-pasted-text-tile-radius（done，2026-10-21）
+
+- Current Objective（当前目标）: 输入框粘贴大段文本生成的附件 tile 从圆形改为与消息区附件一致的中等圆角方形。已完成，未提交。
+- 核心改动: `src/index.css` 在 `.quickforge-composer button` 全圆规则后新增 `.quickforge-composer .qf-attachment-tile button:not(.qf-attachment-tile-remove)` → `border-radius: 0.5rem !important`；`AttachmentTile.tsx` 的删除按钮补 `qf-attachment-tile-remove` 类，保持 999px 全圆。根因是 composer 图标按钮的全圆规则误伤了附件 tile 主体按钮。
+- Files（改动文件）: `src/index.css`、`src/components/chat/surface/AttachmentTile.tsx`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）: 浏览器实机粘贴 3200 字符生成文本附件，计算样式 tile 圆角 7px（根字号 14px）、删除按钮 999px，截图为圆角方形；定向 vitest 3 文件 69 passed；eslint 通过；`npm run build` exit 0，产物 CSS 含新规则。未跑全量 `npm run test`。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 如需发布，运行完整 test/lint；未提交 Git；build 正常重生成 `dist/`，未手工修改生成产物。
+
+---
+
 ## 当前交接：workflow-summary-single-line-marquee（done，2026-10-21）
 
 - Current Objective（当前目标）: run_workflow 折叠头右侧的运行中摘要固定单行，溢出横向滚动，不再换行或重复显示。已完成，未提交。

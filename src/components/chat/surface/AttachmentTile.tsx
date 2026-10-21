@@ -63,7 +63,7 @@ export function AttachmentTile({ attachment, showDelete = false, onDelete }: Att
       {showDelete ? (
         <button
           type="button"
-          className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-input bg-background text-muted-foreground shadow-sm transition-opacity hover:bg-muted hover:text-foreground [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
+          className="qf-attachment-tile-remove absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-input bg-background text-muted-foreground shadow-sm transition-opacity hover:bg-muted hover:text-foreground [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
           title={t('composerRemoveAttachment')}
           onClick={(event) => {
             event.stopPropagation()

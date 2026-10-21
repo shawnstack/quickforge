@@ -1,3 +1,37 @@
+## 当前交接：workflow-summary-single-line-marquee（done，2026-10-21）
+
+- Current Objective（当前目标）: run_workflow 折叠头右侧的运行中摘要固定单行，溢出横向滚动，不再换行或重复显示。已完成，未提交。
+- 核心改动: `src/index.css` 为 `.quickforge-workflow-marquee` 补齐单行容器与双视图样式（inline-flex / flex: 1 1 auto / min-width: 0 / 定高 1.125rem / overflow: hidden / nowrap / mono 0.75rem；view 绝对定位、static 省略号、moving 默认 display: none），复用现有 `ToolMarqueeController` 做溢出测量与横向滚动，reduced-motion 退化为省略号。`workflow-tool-renderer.tsx` 结构未动；内嵌工具行与 `run_subagent` 摘要行不变。
+- Files（改动文件）: `src/index.css`、`tests/frontend/workflow-renderer.test.ts`、`docs/architecture/workflow-orchestration.zh-CN.md`、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）: 定向 vitest 3 文件 56 passed（workflow-renderer 14、workflow-step-interaction 5、chat-surface-css-contract 37）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` exit 0；构建 CSS 静态复测：640px 列宽下摘要行 18px 单行，长文本溢出 205px 由控制器滚动，moving 视图默认隐藏、static 显示省略号。未跑全量 `npm run test`。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 刷新前端后运行一次多 Agent/多工具的 workflow，确认折叠头保持单行、长步骤列表自动横向滚动、chevron/耗时不被遮挡；系统开启 reduced-motion 时确认静态省略号。未提交 Git；build 正常重生成 `dist/`，未手工修改生成产物。
+
+---
+
+## 当前交接：workflow-inner-tool-open-memory-isolation（done，2026-10-21）
+
+- Current Objective（当前目标）: 修复 run_workflow 展开后内部工具行随外层卡开合记忆自动展开的问题，内层行保持默认收起。已完成，未提交。
+- 核心改动: `src/lib/tool-renderers/shared.tsx` 的 `ToolDetails` 新增可选 `stateKey`（显式 key 优先于最近 `.qf-tool-message` 的 toolCall id，空字符串表示不记忆）；`src/lib/tool-renderers/workflow-tool-renderer.tsx` 的内层工具行传入 `workflow:${runId}:tool:${id}`，外层 `run_workflow` 卡保持原 key。此前内外层共用同一宿主 key，外层展开一次后内层行在流式刷新、新增步骤或重挂载时自动展开。
+- Files（改动文件）: `src/lib/tool-renderers/shared.tsx`、`src/lib/tool-renderers/workflow-tool-renderer.tsx`、`tests/frontend/tool-renderer-shared-state.test.ts`、`tests/frontend/workflow-step-interaction.test.ts`、`docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）: `npm run test` 390 文件 4689 passed / 2 skipped；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` exit 0；`npx tsc -b --pretty false` exit 0；定向 3 文件 36 passed。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 刷新前端，展开一次 `run_workflow` 确认内部工具行保持收起；运行中确认新增步骤不再自动展开；手动展开某个内部行后重挂载，确认该行状态保留且外层卡不受影响。未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## 当前交接：workflow-agent-live-detail-parity（done，2026-10-21）
+
+- Current Objective（当前目标）: 让 workflow 里点击 Agent 打开的详情与直接 `run_subagent` 卡片体验一致——实时工具过程、统一状态/错误、点击取最新快照、终态 trace 完整、被裁时有提示。已完成，未提交。
+- 核心改动: 新增 `src/lib/workflow-agent-run-events.ts`（run_workflow SSE → subagentRunStore，稳定 runId `${workflowRunId}:agent:${id}`）；`ServerAgent` 在 tool_execution_start/update/end 调用并在 dispose 清理；点击优先取 store，历史恢复才用渲染帧回填；`workflow-subagent-detail.ts` 复用 `subagentRunStatus`/`subagentRunError`，previous 回填 + `traceDropped`，并透传 task/context/expectedOutput；卡片直接调用 `renderSubagentRunSummary`（与 run_subagent 同一函数，只追加 meta/错误文案与历史回填 onOpen）；Composer “运行中 subagent”指示器在父 run_workflow pending 时按 `${toolCallId}:agent:` 前缀列出嵌套 Agent；服务端 details 预算 240K/500K、日志独立 50K、单 Agent 50 条/80KB（运行中）与 200 条/200KB（终态），toolCall/toolResult 配对裁剪、按 Agent 优先级缩减；详情页新增裁剪提示文案。
+- Files（改动文件）: 完整清单见 `feature_list.json` 的 `workflow-agent-live-detail-parity` 条目（源码/测试 + 架构文档 + wiki + 3 个状态文件）。
+- 评审补强（2026-10-21）: 6 个评审重点逐项核对通过；补三处缺口——① 总预算“部分缩容”原先静默替换长 trace：服务端新增 `subagentRunTruncated`，客户端保留最后一次可见的更长 trace 并提示“过程记录不完整”，终态装得下时恢复完整过程；② SSE 断连漏掉结束帧时 store 会停留 running：`WorkflowAgentRow` 用 `shouldPublishSubagentRunPayload` 在 effect/onOpen 安全回填（已有终态不覆盖），发布器 previous 改为优先取 store、再回落本地缓存；③ 日志预算收紧为至多 50 条且累计 ≤50K。新增 4 个回归用例。
+- Evidence（验证）: `npm run test` 390 文件 4685 passed / 2 skipped；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` exit 0；`npx tsc -b --pretty false` exit 0；定向 6 文件 172 passed。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 重启服务后跑一次带工具调用的 workflow，点击 Agent 行确认详情实时刷新、工具卡与 run_subagent 一致、Composer 指示器出现嵌套 Agent；制造总预算超限确认出现“过程记录不完整”且工具卡不被缩没；断连/重连后确认详情能从 running 自动转终态。旧持久化结果不会回填。未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。未做浏览器实机验证。
+
+---
+
 ## 当前交接：goal-v2-dsh-round-driver（done，2026-10-19）
 
 - Current Objective（当前目标）: 完全对标 DSH 重写 Goal v2 round driver，删除所有 QuickForge legacy 阻塞逻辑。已完成，未提交。

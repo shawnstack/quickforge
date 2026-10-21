@@ -315,6 +315,13 @@ describe('workflow renderer wiring and contracts', () => {
     expect(css).not.toContain('quickforge-workflow-agent-dot')
   })
 
+  it('keeps the running summary marquee on one scrollable line', () => {
+    expect(css).toMatch(/\.quickforge-workflow-marquee\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?overflow:\s*hidden;[\s\S]*?white-space:\s*nowrap;[\s\S]*?height:\s*1\.125rem;/)
+    expect(css).toMatch(/\.quickforge-workflow-marquee \.quickforge-marquee-view\s*\{\s*position:\s*absolute;[\s\S]*?inset:\s*0;/)
+    expect(css).toMatch(/\.quickforge-workflow-marquee \.quickforge-marquee-static\s*\{[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/)
+    expect(css).toMatch(/\.quickforge-workflow-marquee \.quickforge-marquee-moving\s*\{[\s\S]*?display:\s*none;/)
+  })
+
   it('documents the worker-backed orchestration in the view model and renderer sources', () => {
     expect(viewSource).toContain('buildWorkflowRunView')
     expect(viewSource).toContain('workflowActiveAgentLabels')
@@ -322,8 +329,9 @@ describe('workflow renderer wiring and contracts', () => {
     expect(source).toContain('buildWorkflowRunView')
     expect(source).toContain('summarizeParams')
     expect(source).toContain('quickforge-local-tool')
-    expect(source).toContain('quickforge-subagent-tool')
-    expect(source).toContain('renderToolIcon(\'run_workflow\')')
+    // Agent 行复用 run_subagent 的摘要卡函数，而不是再写一份 quickforge-subagent-tool 标记。
+    expect(source).toContain('renderSubagentRunSummary')
+    expect(source).toContain("renderToolIcon('run_workflow')")
     expect(source).toContain('quickforge-workflow-marquee')
   })
 })

@@ -32,7 +32,7 @@ export type SubagentToolDisplayMode = 'concise' | 'compact' | 'detailed'
 
 export type SubagentRunI18n = (key: AppTextKey, params?: Record<string, string | number>) => string
 
-type SubagentRunErrorSource = 'trace' | 'output' | 'details' | 'fallback'
+export type SubagentRunErrorSource = 'trace' | 'output' | 'details' | 'fallback'
 
 /** 本次 subagent 运行实际使用的模型；继承时 provider/id 为父会话模型，并带 inherited: true。 */
 type SubagentRunModel = {
@@ -75,6 +75,8 @@ export type SubagentRunPayload = {
   /** 失败原因；fallback 表示上游未提供可显示的具体错误正文，由渲染层本地化。 */
   errorMessage: string
   errorSource?: SubagentRunErrorSource
+  /** 服务端因 details 预算裁剪了过程 trace；详情页据此提示“过程记录不完整”。 */
+  traceDropped?: boolean
   /** 本次运行实际使用的模型；旧会话或缺失时为 undefined。 */
   model?: SubagentRunModel
   /** 本次运行实际生效的思考等级。 */
@@ -134,6 +136,11 @@ export class SubagentRunStore {
 
   get(runId: string): SubagentRunPayload | undefined {
     return this.snapshots.get(runId)
+  }
+
+  /** 按首次插入顺序返回全部快照；供会话级指示器枚举嵌套运行（如 workflow agent）。 */
+  list(): SubagentRunPayload[] {
+    return Array.from(this.snapshots.values())
   }
 
   /** 订阅全部更新，返回取消订阅函数。 */
@@ -275,7 +282,7 @@ function errorTextFromUnknown(value: unknown): string {
   return ''
 }
 
-function subagentRunError(
+export function subagentRunError(
   status: SubagentRunStatus,
   traceMessages: unknown[],
   output: string,
@@ -312,7 +319,7 @@ export function subagentRunTraceMessagesForDisplay(
 }
 
 /** 从外层 result 与 trace 最终 assistant 终态推导状态；内部错误/中止优先于不准确的 running/done。 */
-function subagentRunStatus(
+export function subagentRunStatus(
   result: ToolResultLike | undefined,
   isStreaming?: boolean,
   traceMessages: unknown[] = [],
@@ -420,6 +427,7 @@ export function subagentRunFingerprint(payload: Omit<SubagentRunPayload, 'finger
       payload.statusLabel,
       payload.errorMessage,
       payload.errorSource,
+      payload.traceDropped === true,
       payload.allowedTools,
       payload.tools,
       payload.pendingToolCalls,
@@ -441,12 +449,12 @@ export function subagentRunFingerprint(payload: Omit<SubagentRunPayload, 'finger
  * task/context/expectedOutput → 运行信息 → 详细摘要 → trace → 错误正文 → 非重复 output → input → details。
  * 渲染器按此顺序输出；单元测试直接断言该顺序。
  */
-type SubagentRunBodyBlock = 'task' | 'meta' | 'summary' | 'trace' | 'error' | 'output' | 'input' | 'details'
+type SubagentRunBodyBlock = 'task' | 'meta' | 'summary' | 'traceNotice' | 'trace' | 'error' | 'output' | 'input' | 'details'
 
 export function subagentRunBodyBlocks(
   payload: Pick<
     SubagentRunPayload,
-    'task' | 'context' | 'expectedOutput' | 'model' | 'thinkingLevel' | 'status' | 'detailed' | 'traceMessages' | 'errorMessage' | 'errorSource' | 'output' | 'input' | 'details'
+    'task' | 'context' | 'expectedOutput' | 'model' | 'thinkingLevel' | 'status' | 'detailed' | 'traceMessages' | 'errorMessage' | 'errorSource' | 'traceDropped' | 'output' | 'input' | 'details'
   >,
 ): SubagentRunBodyBlock[] {
   const blocks: SubagentRunBodyBlock[] = []
@@ -455,6 +463,7 @@ export function subagentRunBodyBlocks(
   // 此时不产出空块（与渲染层 subagentRunModelLabel 的判断保持一致）。
   if (subagentRunModelLabel(payload.model) || payload.thinkingLevel) blocks.push('meta')
   if (payload.detailed) blocks.push('summary')
+  if (payload.traceDropped) blocks.push('traceNotice')
   if (payload.traceMessages.length > 0) blocks.push('trace')
   if (payload.status === 'error') blocks.push('error')
   const outputDuplicatesError = payload.errorSource === 'output' && payload.output.trim() === payload.errorMessage.trim()

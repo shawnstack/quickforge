@@ -701,7 +701,10 @@ const MAX_TOOL_DETAILS_OPEN_MEMORY_ENTRIES = 100
 // key 可用前每次 render 重试。
 type ToolDetailsHostElement = HTMLElement & { toolCall?: { id?: string } }
 
-function toolDetailsStateKey(element: HTMLDetailsElement | null): string {
+function toolDetailsStateKey(element: HTMLDetailsElement | null, explicitStateKey?: string): string {
+  // 嵌套在工具卡内的页面级 details（如 run_workflow 的步骤行）与外层卡共用
+  // `.qf-tool-message` 宿主；显式 key 用来隔离两层的开合记忆。
+  if (explicitStateKey !== undefined) return explicitStateKey
   const host = element?.closest('.qf-tool-message') as ToolDetailsHostElement | null
   return host?.toolCall?.id || ''
 }
@@ -717,7 +720,13 @@ export function rememberToolDetailsOpen(key: string, open: boolean) {
   toolDetailsOpenMemory.set(key, open)
 }
 
-export function ToolDetails({ initiallyOpen, ...props }: Omit<ComponentProps<'details'>, 'open' | 'onToggle'> & { initiallyOpen: boolean }) {
+type ToolDetailsProps = Omit<ComponentProps<'details'>, 'open' | 'onToggle'> & {
+  initiallyOpen: boolean
+  /** 显式开合记忆 key；缺省回退最近 `.qf-tool-message` 的 toolCall id，空字符串表示不记忆。 */
+  stateKey?: string
+}
+
+export function ToolDetails({ initiallyOpen, stateKey, ...props }: ToolDetailsProps) {
   const [open, setOpen] = useState(initiallyOpen)
   const detailsRef = useRef<HTMLDetailsElement | null>(null)
   const memoryAppliedRef = useRef(false)
@@ -728,7 +737,7 @@ export function ToolDetails({ initiallyOpen, ...props }: Omit<ComponentProps<'de
   // eslint-disable-next-line react-hooks/exhaustive-deps -- memoryAppliedRef guards the retry loop; setOpen fires at most once.
   useEffect(() => {
     if (memoryAppliedRef.current) return
-    const remembered = toolDetailsOpenMemory.get(toolDetailsStateKey(detailsRef.current))
+    const remembered = toolDetailsOpenMemory.get(toolDetailsStateKey(detailsRef.current, stateKey))
     if (remembered === undefined) return
     memoryAppliedRef.current = true
     setOpen(remembered)
@@ -741,7 +750,7 @@ export function ToolDetails({ initiallyOpen, ...props }: Omit<ComponentProps<'de
       open={open}
       onToggle={(event) => {
         // 只记录用户手动开合（React 重设 open 属性触发的 toggle 写回同值，无副作用）。
-        rememberToolDetailsOpen(toolDetailsStateKey(event.currentTarget), event.currentTarget.open)
+        rememberToolDetailsOpen(toolDetailsStateKey(event.currentTarget, stateKey), event.currentTarget.open)
         memoryAppliedRef.current = true
         setOpen(event.currentTarget.open)
       }}

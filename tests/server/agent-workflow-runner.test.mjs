@@ -42,7 +42,7 @@ describe('run_workflow worker orchestration', () => {
     const result = await runWorkflowScript([
       'phase("Research")',
       'log("starting research")',
-      'const a = await agent("alpha", { label: "Alpha" })',
+      'const a = await agent("alpha", { label: "Alpha", context: "repo map", expectedOutput: "short answer" })',
       'const b = await agent("beta", { label: "Beta", profile: "explore" })',
       'return { a, b }',
     ].join('\n'), {
@@ -57,6 +57,8 @@ describe('run_workflow worker orchestration', () => {
       failedAgentCount: 0,
     })
     expect(result.details.agents.map((agent) => agent.label)).toEqual(['Alpha', 'Beta'])
+    // context/expectedOutput 随 details 透传，供 Inspector 与 run_subagent 详情对齐。
+    expect(result.details.agents[0]).toMatchObject({ context: 'repo map', expectedOutput: 'short answer' })
     expect(result.details.agents.every((agent) => agent.status === 'done')).toBe(true)
     expect(result.details.phases.map((phase) => phase.title)).toEqual(['Research'])
     expect(result.details.logs.some((log) => log.message === 'starting research')).toBe(true)
@@ -522,6 +524,88 @@ describe('run_workflow worker orchestration', () => {
     expect(JSON.stringify(run).length).toBeLessThanOrEqual(80_000)
   })
 
+  it('keeps the full terminal trace while streaming frames stay bounded', async () => {
+    const messages = Array.from({ length: 80 }, (_, index) => ({
+      role: 'assistant',
+      timestamp: index + 1,
+      content: [{ type: 'text', text: `step ${index}` }],
+    }))
+    const runAgent = vi.fn(async (_session, _toolCallId, _params, _signal, onUpdate) => {
+      onUpdate?.({ details: { subagent: 'explore', toolCalls: 0, messages, tools: [] } })
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      return { content: 'done', details: { subagent: 'explore', toolCalls: 0, messages, tools: [] } }
+    })
+    let streaming
+    const result = await runWorkflowScript('return await agent("inspect", { profile: "explore" })', {
+      runAgent,
+      onUpdate: (update) => {
+        const snapshot = update.details?.agents?.[0]?.subagentRun
+        if (!streaming && snapshot?.messages?.length) streaming = snapshot
+      },
+    })
+
+    expect(streaming.messages).toHaveLength(50)
+    expect(result.details.agents[0].subagentRun.messages).toHaveLength(80)
+  })
+
+  it('does not split a toolCall/toolResult pair at the terminal trace window boundary', async () => {
+    const messages = [
+      { role: 'assistant', timestamp: 0, content: [{ type: 'toolCall', id: 'boundary', name: 'read_file', arguments: { path: 'a.ts' } }] },
+      ...Array.from({ length: 199 }, (_, index) => ({
+        role: 'assistant',
+        timestamp: index + 1,
+        content: [{ type: 'text', text: `fill ${index}` }],
+      })),
+      { role: 'toolResult', timestamp: 200, toolCallId: 'boundary', toolName: 'read_file', content: [{ type: 'text', text: 'result' }] },
+      ...Array.from({ length: 10 }, (_, index) => ({
+        role: 'assistant',
+        timestamp: 201 + index,
+        content: [{ type: 'text', text: `tail ${index}` }],
+      })),
+    ]
+    const runAgent = vi.fn(async () => ({
+      content: 'done',
+      details: { subagent: 'explore', toolCalls: 1, messages, tools: [] },
+    }))
+    const result = await runWorkflowScript('return await agent("inspect")', { runAgent })
+    const run = result.details.agents[0].subagentRun
+
+    expect(run.messages.some((message) => message.role === 'assistant'
+      && message.content?.some?.((block) => block.type === 'toolCall' && block.id === 'boundary'))).toBe(true)
+    expect(run.messages.some((message) => message.role === 'toolResult' && message.toolCallId === 'boundary')).toBe(true)
+  })
+
+  it('keeps the newest agent trace when the total details budget is exceeded', async () => {
+    const bigMessages = (tag) => Array.from({ length: 120 }, (_, index) => ({
+      role: 'assistant',
+      timestamp: index + 1,
+      content: [{ type: 'text', text: `${tag}-${index}-${'x'.repeat(2500)}` }],
+    }))
+    let call = 0
+    const runAgent = vi.fn(async (_session, _toolCallId, params) => {
+      call += 1
+      return {
+        content: `done-${params.prompt}`,
+        details: { subagent: 'explore', toolCalls: 0, messages: bigMessages(`a${call}`), tools: [] },
+      }
+    })
+    const result = await runWorkflowScript([
+      'const a = await agent("one")',
+      'const b = await agent("two")',
+      'const c = await agent("three")',
+      'return [a, b, c]',
+    ].join('\n'), { runAgent })
+
+    expect(result.details.detailsTruncated).toBe(true)
+    const agents = result.details.agents
+    expect(agents[2].subagentRun?.messages.length ?? 0).toBeGreaterThan(10)
+    expect(agents[0].subagentRun?.messages.length ?? 0).toBeLessThanOrEqual(10)
+    // A partial shrink keeps the agent summary openable but must tell the
+    // Inspector that its trace is incomplete (not only a full drop does).
+    expect(agents[0].subagentRunTruncated).toBe(true)
+    expect(agents[2].subagentRunTruncated).not.toBe(true)
+  })
+
   it('bounds the details payload when a script logs heavily', async () => {
     const result = await runWorkflowScript([
       'for (let index = 0; index < 150; index += 1) log("x".repeat(900))',
@@ -530,6 +614,17 @@ describe('run_workflow worker orchestration', () => {
 
     expect(result.details.detailsTruncated).toBe(true)
     expect(result.details.logs.length).toBeLessThanOrEqual(50)
+  })
+
+  it('caps retained log text at the independent log budget', async () => {
+    const result = await runWorkflowScript([
+      'for (let index = 0; index < 60; index += 1) log("y".repeat(2000))',
+      'return 1',
+    ].join('\n'), {})
+
+    expect(result.details.logs.length).toBeGreaterThan(0)
+    expect(result.details.logs.length).toBeLessThanOrEqual(50)
+    expect(result.details.logs.reduce((sum, log) => sum + log.message.length, 0)).toBeLessThanOrEqual(50_000)
   })
 })
 

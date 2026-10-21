@@ -1,3 +1,42 @@
+## workflow-summary-single-line-marquee（done，2026-10-21）
+
+- Goal：用户反馈 run_workflow 折叠头右侧的运行中摘要会换行，要求固定单行、溢出滚动。
+- 根因：`run_workflow` 摘要行通过 `renderToolMarquee(..., 'quickforge-workflow-marquee')` 渲染跑马灯，但 `src/index.css` 的 `.quickforge-workflow-marquee` 只设置了 `flex: 1 1 auto; min-width: 0`，缺少单行/定高/双视图绝对定位/隐藏 moving 视图的规则。custom element 因此按普通块级文本换行，且 static 与 moving 两份文本同时可见；640px 列宽下折叠头被撑到 55px（3 行）。
+- 改动：为 `.quickforge-workflow-marquee` 补齐 `inline-flex`、`flex: 1 1 auto`、`min-width: 0`、定高 `1.125rem`、`overflow: hidden`、`white-space: nowrap`、mono 0.75rem，并补 `.quickforge-marquee-view` 绝对定位、`.quickforge-marquee-static` 省略号、`.quickforge-marquee-moving` 默认 `display: none`。复用现有 `ToolMarqueeController`：剩余槽位内溢出才横向滚动，短文本静止，`prefers-reduced-motion` 退化为省略号。
+- 范围：只改 workflow 折叠头；内嵌工具行本就单行横滑，`run_subagent` 摘要行行为不变；`workflow-tool-renderer.tsx` 结构未动。
+- 验证：定向 vitest 3 文件 56 passed（workflow-renderer 14、workflow-step-interaction 5、chat-surface-css-contract 37）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` exit 0；构建 CSS 静态复测 640px 列宽下摘要行 18px 单行、长文本溢出 205px 可滚动、moving 默认隐藏。
+- Notes：未提交 Git；build 正常重生成 `dist/`，未手工修改生成产物；无依赖变更。
+
+---
+
+## workflow-inner-tool-open-memory-isolation（done，2026-10-21）
+
+- Goal：用户反馈 run_workflow 展开体里的内部 tool 调用看起来默认展开，希望默认收起。
+- 根因：内层 `WorkflowToolCallRow` 与外层 `run_workflow` 卡都在同一个 `.qf-tool-message` 宿主内，`ToolDetails` 默认按最近宿主的 toolCall id 记忆开合。外层卡手动展开一次后，内层行在流式刷新、新增步骤或重挂载时读到同一个 `true`，于是自动展开；反向内层展开也会污染外层卡记忆。
+- 改动：`ToolDetails` 新增可选 `stateKey`（显式 key 优先于宿主 toolCall id，空字符串表示不记忆）；`WorkflowToolCallRow` 传入 `workflow:${runId}:tool:${id}`，外层卡保持原 key。补 `tool-renderer-shared-state.test.ts` stateKey 单测与 `workflow-step-interaction.test.ts` 两条交互回归：外层展开后新增/重渲染内层仍收起；内层展开不污染外层，重挂载后各自恢复。
+- 验证：`npm run test` 390 文件 4689 passed / 2 skipped；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` exit 0；`npx tsc -b --pretty false` exit 0；定向 3 文件 36 passed。
+- Notes：未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`（build 正常重生成 `dist/`）。
+
+---
+
+## workflow-agent-live-detail-parity（done，2026-10-21）
+
+- Goal：用户反馈“workflow 点击 subagent 跳转后不能实时看到内部 tools 调用，显示与内部细节不一致，有时看不到 detail”，要求与 run_subagent 卡片保持一致、按最佳体验实现而非最小改动。
+- 根因：① `run_workflow` 的 SSE 只更新聊天卡片，未像 `run_subagent` 那样实时写入 `subagentRunStore`，已打开详情不刷新；② 点击时用当前渲染帧覆盖 store，打开的是陈旧快照；③ 服务端 details 总量超 100KB 会把所有 Agent 的 trace 一起丢掉；④ `compactSubagentRunDetails` 从最旧消息逐条丢，容易拆散 toolCall/toolResult，且窗口化后与 run_subagent 显示不一致。
+- 实时通路：新增 `src/lib/workflow-agent-run-events.ts`。`ServerAgent` 在 `tool_execution_start/update/end` 直接调用发布器，以 `${workflowRunId}:agent:${id}` 稳定 runId 将每个 Agent 映射为 `SubagentRunPayload` 写入全局 store；重连时以 `details.workflow === true` 兜底识别；终态不被迟到的 running 帧回退；缓存有界（120）。
+- 载荷一致：重写 `workflow-subagent-detail.ts`，复用导出的 `subagentRunStatus` / `subagentRunError`；trace 经同一个 `subagentProcessTraceMessages`；timing 使用 Agent 真实 `startedAt`；缺 trace 时回填上一次可见载荷并标 `traceDropped`；input 增加 phase，details 保留摘要与 agent.error；任务说明取 `promptPreview`，并透传 `context` / `expectedOutput`（服务端 bounded 2,000 字符，预算超限缩到 400），与 run_subagent 详情的 task/context/expectedOutput 同构。
+- 打开一致：`workflow-tool-renderer.tsx` 点击优先取 store 最新快照，只有历史恢复/首帧无快照时才用渲染帧并 publish；Agent 行构建载荷时传入 store previous；行状态/耗时改为统一 payload 推导（与 run_subagent 摘要卡同源）。Composer 的“运行中 subagent”指示器在 `run_workflow` 仍 pending 时按 `${toolCallId}:agent:` 前缀列出嵌套 Agent，点击打开同一 store 快照。
+- 卡片复用：`WorkflowAgentRow` 不再复制 `run_subagent` 的按钮标记，直接调用 `subagent-tool-renderer.tsx` 的 `renderSubagentRunSummary`；workflow 只追加 meta/错误悬停文案与历史回填发布（onOpen），状态/耗时/跑马灯/点击打开事件完全同源。
+- 服务端预算：运行中 details 240K、终态 500K；日志独立 50K；单 Agent 运行中 50 条/80KB、终态 200 条/200KB；单条 text/toolCall/thinking 2000、toolResult.details 4000；新增 `sliceMessagesWithToolPairs`（配对窗口）与 `dropOrphanToolResults`；批量 10 条缩减避免二次方 stringify；按 Agent 优先级裁剪（done 先、running 最后），先缩到 10 条/20KB，再整体移除并标 `subagentRunDropped`；不再因总量超限丢掉所有 Agent trace。
+- 透明提示：`SubagentRunPayload.traceDropped` 纳入指纹与 body blocks；详情页新增 `subagentTraceTruncated` 中英文案与 `traceNotice` 块，被服务端裁剪时明确提示“过程记录不完整”，同时保留最后一次可见 trace。
+- 测试：新增 `tests/frontend/workflow-agent-run-events.test.ts`（实时发布与增量、dropped 回填、终态不回退、忽略非 workflow）；`workflow-step-interaction.test.ts` 新增“store 领先渲染帧时点击打开最新 running 快照”；`subagent-running-indicator.test.ts` 新增“pending run_workflow 下列出嵌套运行 Agent”；`agent-workflow-runner.test.mjs` 新增终态完整尾部、toolCall/toolResult 配对窗口、总预算超限保留最新 Agent trace，并断言 context/expectedOutput 透传；`workflow-renderer.test.ts` 契约改为断言 Agent 行调用 `renderSubagentRunSummary`（不再复制卡片标记）。
+- 文档：`docs/architecture/workflow-orchestration.zh-CN.md` 同步预算表、`detailsTruncated`/`subagentRun`/`subagentRunDropped`、Agent record 的 prompt/context/expectedOutput、7.3 实时详情通道与 Composer 指示器、测试清单与相关文件；`docs/wiki/src/lib/README.md` 新增发布器条目并同步 subagent 载荷/面板块与 store list；`docs/wiki/server/README.md` 同步 details 预算与裁剪优先级；`docs/wiki/src/components/README.md` 同步 Composer 指示器覆盖范围。
+- 评审补强（2026-10-21）：① 服务端 `trimSubagentTraces` 部分缩容时标 `subagentRunTruncated`，前端把它与 `subagentRunDropped` 一致对待：保留最后一次可见的更长 trace 并显示“过程记录不完整”，终态装得下时自动恢复完整过程，不再静默缩掉用户已看到的工具卡。② `WorkflowAgentRow` 用 `shouldPublishSubagentRunPayload` 在 effect/onOpen 安全回填 store：历史首帧、或 SSE 断连漏掉结束帧导致 store 仍 running 而渲染帧已终态时修正，已有终态不被覆盖；发布器 previous 改为优先取 store、再回落本地缓存，避免渲染层已修正的完整 trace 被迟到帧缩回旧缓存。③ 日志预算改为从最新往前保留至多 50 条且累计 ≤50K，修正“50 条大日志仍可超 50K”的口径。新增 4 个回归用例（部分缩容保留长 trace、store 优先回填、终态渲染修复 stale running、日志累计预算）。
+- 验证：`npm run test` 390 文件 4685 passed / 2 skipped；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` exit 0；`npx tsc -b --pretty false` exit 0；定向 6 文件 172 passed。
+- Notes：未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`（build 正常重生成 `dist/`）。已持久化的旧 workflow 结果没有实时 trace，需重跑一次。未做浏览器实机验证。
+
+---
+
 ## goal-v2-dsh-round-driver（done，2026-10-19）
 
 - Goal：用户反馈 Goal 执行中会不必要阻塞、恢复时显示"正在收尾运行"。根因是 v2 runner 保留了太多 QuickForge legacy 逻辑。完全对标 DSH 重写 round driver。

@@ -1,14 +1,8 @@
 /* eslint-disable react-refresh/only-export-components -- the class renderer and its private row components are intentionally colocated; they carry no HMR state contract. */
+import { useEffect } from 'react'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { summarizeParams } from '@/lib/tool-param-summary'
-import {
-  canOpenSubagentRunPayload,
-  currentSubagentToolSummariesWithMemory,
-  OPEN_SUBAGENT_RUN_EVENT,
-  resolveSubagentRunPayloadForOpen,
-  subagentRunStore,
-  SubagentToolSummaryMemory,
-} from '@/lib/subagent-run-detail'
+import { shouldPublishSubagentRunPayload, subagentRunStore } from '@/lib/subagent-run-detail'
 import { buildWorkflowSubagentRunPayload } from '@/lib/workflow-subagent-detail'
 import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-execution-events'
 import {
@@ -20,6 +14,7 @@ import {
   type WorkflowAgentView,
   type WorkflowToolView,
 } from '@/lib/workflow-run-detail'
+import { renderSubagentRunSummary } from './subagent-tool-renderer'
 import {
   ToolDetails,
   renderCodeBlock,
@@ -78,23 +73,25 @@ function workflowStepTiming(durationMs: number, status: ToolStatusKey): QuickFor
   return undefined
 }
 
-const workflowAgentToolSummaryMemory = new SubagentToolSummaryMemory()
-
-function openWorkflowAgentRun(workflowRunId: string, agent: WorkflowAgentView) {
-  const payload = buildWorkflowSubagentRunPayload(workflowRunId, agent, t)
-  const payloadForOpen = resolveSubagentRunPayloadForOpen(payload, subagentRunStore.get(payload.runId))
-  subagentRunStore.publish(payloadForOpen)
-  window.dispatchEvent(new CustomEvent(OPEN_SUBAGENT_RUN_EVENT, {
-    detail: { runId: payloadForOpen.runId, payload: payloadForOpen },
-  }))
+/** 内层行的开合记忆独立于外层 run_workflow 卡（同一 `.qf-tool-message` 宿主）。 */
+function workflowToolStateKey(workflowRunId: string, toolId: string) {
+  return workflowRunId ? `workflow:${workflowRunId}:tool:${toolId}` : ''
 }
 
 function WorkflowAgentRow({ agent, workflowRunId }: { agent: WorkflowAgentView; workflowRunId: string }) {
-  const payload = buildWorkflowSubagentRunPayload(workflowRunId, agent, t)
-  const canOpen = canOpenSubagentRunPayload(payload)
-  const status = workflowStepStatus(agent.status)
-  const currentTools = currentSubagentToolSummariesWithMemory(payload, workflowAgentToolSummaryMemory)
-  const title = canOpen ? t('viewSubagentRunDetails') : payload.statusLabel
+  const runId = `${workflowRunId || 'workflow'}:agent:${agent.id}`
+  // 与服务端实时发布共用同一套载荷推导；store 已有更完整 trace 时回填，避免
+  // 运行中被预算裁掉一帧后卡片跑马灯/状态闪空。
+  const payload = buildWorkflowSubagentRunPayload(workflowRunId, agent, t, {
+    previous: subagentRunStore.get(runId),
+  })
+  // 与 run_subagent 渲染回填同契约：历史首帧或“store 仍是 running、渲染帧已终态”
+  // （SSE 断连漏掉结束帧）时修正 store，已打开的 Inspector Tab 随之转为终态；
+  // 已有终态不被覆盖，保持 SSE 路径权威。
+  useEffect(() => {
+    const existing = subagentRunStore.get(payload.runId)
+    if (shouldPublishSubagentRunPayload(payload, existing)) subagentRunStore.publish(payload)
+  }, [payload])
   const meta = [
     agent.profile,
     agent.toolCalls > 0 ? t('workflowAgentToolCalls', { count: agent.toolCalls }) : '',
@@ -102,36 +99,22 @@ function WorkflowAgentRow({ agent, workflowRunId }: { agent: WorkflowAgentView; 
   ].filter(Boolean).join(' · ')
   return (
     <li className={`quickforge-workflow-agent quickforge-workflow-agent--${agent.status}`}>
-      <div className="quickforge-subagent-tool">
-        <button
-          type="button"
-          className="quickforge-tool-summary flex w-full cursor-pointer list-none items-center gap-2 text-left text-sm text-muted-foreground select-none disabled:cursor-not-allowed disabled:opacity-70"
-          title={agent.error ? `${title}: ${agent.error}` : title}
-          aria-label={`${payload.statusLabel} · ${title}`}
-          aria-disabled={!canOpen ? 'true' : 'false'}
-          aria-busy={status === 'running' ? 'true' : undefined}
-          disabled={!canOpen}
-          onClick={() => {
-            if (!canOpen) return
-            openWorkflowAgentRun(workflowRunId, agent)
-          }}
-        >
-          {renderToolIcon('run_subagent')}
-          <span className="quickforge-subagent-title min-w-0">
-            <span className={status === 'running' ? 'quickforge-subagent-label quickforge-tool-running-sweep' : 'quickforge-subagent-label'}>
-              {payload.statusLabel}
-              {meta ? <span className="quickforge-tool-summary-detail text-muted-foreground"> · {meta}</span> : null}
-            </span>
-            {currentTools.length > 0 ? renderToolMarquee(currentTools.join(' · '), t('subagentRunningTools'), 'quickforge-subagent-marquee') : null}
-            {status === 'running' ? null : renderStatus(status, workflowStepTiming(agent.durationMs, status))}
-          </span>
-        </button>
-      </div>
+      {/* 与 run_subagent 摘要卡共用同一渲染函数：状态/耗时/跑马灯/打开事件不再各写一份。 */}
+      {renderSubagentRunSummary(payload, {
+        ...(meta ? { meta } : {}),
+        // 悬停文案额外带上 Agent 错误；run_subagent 没有记录级 error，保持其默认文案。
+        ...(agent.error ? { title: `${t('viewSubagentRunDetails')}: ${agent.error}` } : {}),
+        onOpen: (payloadForOpen) => {
+          // 历史恢复/首帧或终态修正时把载荷写回 store，后续点击/订阅复用。
+          const existing = subagentRunStore.get(payloadForOpen.runId)
+          if (shouldPublishSubagentRunPayload(payloadForOpen, existing)) subagentRunStore.publish(payloadForOpen)
+        },
+      })}
     </li>
   )
 }
 
-function WorkflowToolCallRow({ tool, detailed }: { tool: WorkflowToolView; detailed: boolean }) {
+function WorkflowToolCallRow({ tool, detailed, workflowRunId }: { tool: WorkflowToolView; detailed: boolean; workflowRunId: string }) {
   const summary = workflowToolSummary(tool)
   const status = workflowStepStatus(tool.status)
   const name = workflowToolDisplayName(tool)
@@ -144,6 +127,7 @@ function WorkflowToolCallRow({ tool, detailed }: { tool: WorkflowToolView; detai
         <ToolDetails
           className="group/tool quickforge-local-tool"
           initiallyOpen={false}
+          stateKey={workflowToolStateKey(workflowRunId, tool.id)}
           aria-busy={status === 'running' ? 'true' : undefined}
         >
           <summary
@@ -280,7 +264,7 @@ export class WorkflowToolRenderer {
                         {steps.map((step) => (
                           step.kind === 'agent'
                             ? <WorkflowAgentRow agent={step.agent} workflowRunId={view.runId} key={step.agent.id} />
-                            : <WorkflowToolCallRow tool={step.tool} detailed={detailed} key={step.tool.id} />
+                            : <WorkflowToolCallRow tool={step.tool} detailed={detailed} workflowRunId={view.runId} key={step.tool.id} />
                         ))}
                       </ul>
                     ) : null}

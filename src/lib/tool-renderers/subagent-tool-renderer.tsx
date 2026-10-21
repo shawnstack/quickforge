@@ -23,10 +23,25 @@ const subagentToolSummaryMemory = new SubagentToolSummaryMemory()
  * 尚未开始）回放最近一次非空摘要，避免工作过程显示闪空消失；放在标签与状态之间，
  * 只占用剩余弹性空间（见 .quickforge-subagent-marquee），不遮挡标签与耗时。
  * 点击派发 OPEN_SUBAGENT_RUN_EVENT，Workspace Inspector 打开运行详情 Tab。
+ *
+ * `run_workflow` 的 Agent 行也调用同一函数，只通过 options 追加工作流元信息与
+ * 历史回填发布，避免两份卡片标记各自漂移。
  */
-export function renderSubagentRunSummary(payload: SubagentRunPayload) {
+export type SubagentRunSummaryOptions = {
+  /** 追加在状态文案后的元信息（workflow Agent 的 profile/工具数/schema）。 */
+  meta?: string
+  /** 覆盖悬停与 aria 文案；缺省按可打开性生成。 */
+  title?: string
+  /** 打开前回调；workflow 行用它把历史回填载荷发布到 store。 */
+  onOpen?: (payload: SubagentRunPayload) => void
+}
+
+export function renderSubagentRunSummary(
+  payload: SubagentRunPayload,
+  options: SubagentRunSummaryOptions = {},
+) {
   const canOpen = canOpenSubagentRunPayload(payload)
-  const title = canOpen ? t('viewSubagentRunDetails') : payload.statusLabel
+  const title = options.title ?? (canOpen ? t('viewSubagentRunDetails') : payload.statusLabel)
   const currentTools = currentSubagentToolSummariesWithMemory(payload, subagentToolSummaryMemory)
   return (
     <div className="quickforge-subagent-tool">
@@ -41,12 +56,16 @@ export function renderSubagentRunSummary(payload: SubagentRunPayload) {
           if (!canOpen) return
           // canonical 运行可取 SSE store 的最新同 ID 快照；历史 fallback 必须使用当前消息载荷。
           const payloadForOpen = resolveSubagentRunPayloadForOpen(payload, subagentRunStore.get(payload.runId))
+          options.onOpen?.(payloadForOpen)
           window.dispatchEvent(new CustomEvent(OPEN_SUBAGENT_RUN_EVENT, { detail: { runId: payloadForOpen.runId, payload: payloadForOpen } }))
         }}
       >
         {renderToolIcon('run_subagent')}
         <span className="quickforge-subagent-title min-w-0">
-          <span className="quickforge-subagent-label">{payload.statusLabel}</span>
+          <span className="quickforge-subagent-label">
+            {payload.statusLabel}
+            {options.meta ? <span className="quickforge-tool-summary-detail text-muted-foreground"> · {options.meta}</span> : null}
+          </span>
           {currentTools.length > 0 ? renderToolMarquee(currentTools.join(' · '), t('subagentRunningTools'), 'quickforge-subagent-marquee') : null}
           {/* 运行中隐藏状态区（icon+耗时），与 local-workspace 渲染器一致；运行态由 statusLabel 文案 + 跑马灯表达。 */}
           {payload.status === 'running' ? null : renderStatus(payload.status, payload.timing)}

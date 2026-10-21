@@ -1,6 +1,81 @@
 {
   "features": [
     {
+      "id": "workflow-summary-single-line-marquee",
+      "name": "Workflow 折叠头摘要单行滚动",
+      "description": "run_workflow 折叠头右侧的运行中摘要不再换行或重复显示，固定单行，只在溢出时横向滚动。",
+      "status": "done",
+      "dependencies": ["workflow-agent-live-detail-parity"],
+      "approach": "src/index.css 为 .quickforge-workflow-marquee 补齐单行容器（inline-flex、flex: 1 1 auto、min-width: 0、定高 1.125rem、overflow: hidden、nowrap、mono 0.75rem）及双视图规则（view 绝对定位、static 省略号、moving 默认 display: none），复用现有 ToolMarqueeController 的溢出测量与横向滚动；reduced-motion 退化为省略号。仅 workflow 折叠头生效，内嵌工具行与 run_subagent 摘要行不变。",
+      "files": [
+        "src/index.css",
+        "tests/frontend/workflow-renderer.test.ts",
+        "docs/architecture/workflow-orchestration.zh-CN.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 3 文件 56 passed（workflow-renderer 14、workflow-step-interaction 5、chat-surface-css-contract 37）；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npm run build 通过；构建 CSS 静态复测：640px 列宽下摘要行 18px 单行，长文本溢出 205px 由控制器滚动，moving 视图默认隐藏，static 省略号。",
+      "boundaries": "不改渲染器结构、内嵌工具行、run_subagent 摘要行与 ToolMarqueeController；不新增依赖；未手工修改生成产物。"
+    },
+    {
+      "id": "workflow-inner-tool-open-memory-isolation",
+      "name": "Workflow 内部工具行默认收起",
+      "description": "修复 run_workflow 展开后内部工具行随外层卡开合记忆自动展开的问题，内层行保持默认收起。",
+      "status": "done",
+      "dependencies": ["workflow-agent-live-detail-parity"],
+      "approach": "ToolDetails 增加可选 stateKey：传入时替代最近 .qf-tool-message 的 toolCall id 作为开合记忆 key，空字符串表示不记忆。WorkflowToolCallRow 传入 `workflow:${runId}:tool:${id}`，与外层 run_workflow 卡隔离；此前两者共用同一宿主 key，外层展开一次后内层行在流式刷新、新增步骤或重挂载时读到 true 自动展开。补 ToolDetails stateKey 单测与 workflow 交互回归（外层展开后内层仍收起、内层展开不污染外层、重挂载各自恢复）。",
+      "files": [
+        "src/lib/tool-renderers/shared.tsx",
+        "src/lib/tool-renderers/workflow-tool-renderer.tsx",
+        "tests/frontend/tool-renderer-shared-state.test.ts",
+        "tests/frontend/workflow-step-interaction.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test（390 文件 4689 passed / 2 skipped）；npm run lint（0 error，仅既有 GitToolsPinnedSummary warning）；npm run build；npx tsc -b；定向 3 文件 36 passed",
+      "boundaries": "不新增依赖；不手工修改生成产物；外层 run_workflow 卡仍使用原 toolCall id 记忆，其他工具卡默认行为不变。"
+    },
+    {
+      "id": "workflow-agent-live-detail-parity",
+      "name": "Workflow Agent 详情与 run_subagent 体验一致",
+      "description": "从 workflow 卡片点进 Agent 详情后，实时工具过程、状态/错误推导、点击打开的最新快照与直接 run_subagent 卡片一致，不再依赖聊天卡片渲染或陈旧 details 帧。",
+      "status": "done",
+      "dependencies": ["workflow-subagent-trace-budget"],
+      "approach": "新增 WorkflowAgentRunEventPublisher：ServerAgent 的 run_workflow tool_execution_start/update/end 直接驱动 subagentRunStore，以 `${workflowRunId}:agent:${id}` 稳定 runId 发布；点击优先取 store 最新快照，历史恢复才用渲染帧回填。buildWorkflowSubagentRunPayload 复用 subagentRunStatus/subagentRunError，状态/错误/耗时与 run_subagent 一致；task/context/expectedOutput 取 agent() 参数并支持 previous 回填，缺 trace 时标 traceDropped。Composer “运行中 subagent”指示器在父 run_workflow 仍 pending 时按 `${toolCallId}:agent:` 前缀列出嵌套 Agent。服务端 details 预算改为运行中 240K/终态 500K、日志独立 50K（至多 50 条且累计 ≤50K）；单 Agent 运行中 50 条/80KB、终态 200 条/200KB，按 10 条批量裁剪并保持 toolCall/toolResult 配对，按 Agent 优先级逐级缩减，running 最后；部分缩容标 subagentRunTruncated、整体移除标 subagentRunDropped，详情页均保留最后一次可见的更长 trace 并显示过程记录不完整提示。Agent 行直接调用 renderSubagentRunSummary（与 run_subagent 同一函数，只通过 options 追加 workflow meta、错误悬停文案与安全回填 onOpen），不再复制卡片标记；行内 effect 与 onOpen 以 shouldPublishSubagentRunPayload 回填 store（历史首帧、或 store 仍 running 而渲染帧已终态时修正，已有终态不覆盖），发布器 previous 优先取 store 再回落本地缓存，避免断连漏终结帧后详情停留 running 或被迟到帧缩回旧 trace。",
+      "files": [
+        "server/agent-workflow-runner.mjs",
+        "src/lib/subagent-run-detail.ts",
+        "src/lib/workflow-subagent-detail.ts",
+        "src/lib/workflow-run-detail.ts",
+        "src/lib/workflow-agent-run-events.ts",
+        "src/lib/server-agent.ts",
+        "src/lib/tool-renderers/subagent-tool-renderer.tsx",
+        "src/lib/tool-renderers/workflow-tool-renderer.tsx",
+        "src/components/chat/panel-decoration/subagent-running-indicator.ts",
+        "src/components/workspace/SubagentRunDetailContent.tsx",
+        "src/lib/i18n.ts",
+        "tests/frontend/workflow-agent-run-events.test.ts",
+        "tests/frontend/workflow-renderer.test.ts",
+        "tests/frontend/workflow-step-interaction.test.ts",
+        "tests/frontend/subagent-running-indicator.test.ts",
+        "tests/server/agent-workflow-runner.test.mjs",
+        "docs/architecture/workflow-orchestration.zh-CN.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test（390 文件 4685 passed / 2 skipped）；npm run lint（0 error，仅既有 GitToolsPinnedSummary warning）；npm run build；npx tsc -b；定向 6 文件 172 passed（workflow-agent-run-events 6、subagent-running-indicator 13、workflow-renderer 13、workflow-step-interaction 3、subagent-run-detail 106、agent-workflow-runner 32）",
+      "boundaries": "不新增依赖；不修改生成产物。单 Agent trace 仍有上限（终态 200 条/200KB、运行中 50 条/80KB），部分缩容与整体移除均以 traceDropped 提示而非静默丢失；已持久化的旧 workflow 结果不回填。Agent task/context/expectedOutput 单字段最多 2,000 字符（预算超限缩到 400），不保存无界 prompt。断连漏掉结束帧时靠渲染帧安全回填修正 store；若工作流中止且没有任何持久化终态结果，store 可能保留 running 快照，但父工具已不在 pending 时不会出现在 Composer，打开详情以历史结果为准。"
+    },
+    {
       "id": "workflow-subagent-trace-budget",
       "name": "Workflow Subagent 详情保留工具过程",
       "description": "点进 workflow 里的 Subagent 详情时，工具调用与直接 run_subagent 一样可见。",

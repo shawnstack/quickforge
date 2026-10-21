@@ -15,6 +15,7 @@ import {
   withSelectedCapabilitiesSnapshot,
 } from '@/lib/selected-capabilities'
 import { SubagentRunEventPublisher } from '@/lib/subagent-run-detail'
+import { WorkflowAgentRunEventPublisher } from '@/lib/workflow-agent-run-events'
 import {
   readSessionMessageSnapshot,
   resolveServerCacheKey,
@@ -488,6 +489,16 @@ export class ServerAgent {
    * 载荷到 subagentRunStore（与 tool-renderers/subagent-tool-renderer 的聊天渲染回填解耦），end 后清理缓存。
    */
   private readonly subagentRunPublisher = new SubagentRunEventPublisher({
+    t,
+    getToolDisplayMode: () => getCachedToolDisplaySettings().toolDisplayMode,
+  })
+
+  /**
+   * run_workflow SSE → subagentRunStore 的实时发布器：把 details.agents 中每个
+   * agent 的 subagentRun 按 `${workflowRunId}:agent:${id}` 发布，使 Inspector 中
+   * workflow agent 详情与 run_subagent 卡片拥有同一条实时通路（不依赖卡片渲染）。
+   */
+  private readonly workflowAgentRunPublisher = new WorkflowAgentRunEventPublisher({
     t,
     getToolDisplayMode: () => getCachedToolDisplaySettings().toolDisplayMode,
   })
@@ -1249,6 +1260,7 @@ export class ServerAgent {
     }
     this.statusPromise = null
     this.subagentRunPublisher.dispose()
+    this.workflowAgentRunPublisher.dispose()
     this.unsubscribeSse?.()
     this.unsubscribeSse = undefined
     this.listeners.clear()
@@ -1710,6 +1722,7 @@ export class ServerAgent {
           this.state.pendingToolCalls = new Set([...this.state.pendingToolCalls, toolEvent.toolCallId])
           this.stateVersion++
           this.subagentRunPublisher.handleToolStart(toolEvent)
+          this.workflowAgentRunPublisher.handleToolStart(toolEvent)
         }
         break
       }
@@ -1722,6 +1735,7 @@ export class ServerAgent {
         }
         this.stateVersion++
         this.subagentRunPublisher.handleToolUpdate(toolEvent)
+        this.workflowAgentRunPublisher.handleToolUpdate(toolEvent)
         break
       }
 
@@ -1735,6 +1749,7 @@ export class ServerAgent {
         }
         this.stateVersion++
         this.subagentRunPublisher.handleToolEnd(toolEvent)
+        this.workflowAgentRunPublisher.handleToolEnd(toolEvent)
         break
       }
 

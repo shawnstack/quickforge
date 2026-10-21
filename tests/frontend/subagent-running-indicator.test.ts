@@ -268,6 +268,20 @@ describe('getRunningSubagentRuns', () => {
     expect(getRunningSubagentRuns(['current-done', 'current-running', 'missing'], store).map((run) => run.runId))
       .toEqual(['current-running'])
   })
+
+  it('lists running workflow agents while their run_workflow call is pending', async () => {
+    const { getRunningSubagentRuns } = await loadModule()
+    const store = new SubagentRunStore()
+    store.publish(payload('direct-1', 'running'))
+    store.publish(payload('workflow-1:agent:agent-1', 'running'))
+    store.publish(payload('workflow-1:agent:agent-2', 'done'))
+    store.publish(payload('workflow-1:agent:agent-3', 'running'))
+    store.publish(payload('other-workflow:agent:agent-1', 'running'))
+
+    expect(getRunningSubagentRuns(['direct-1', 'workflow-1'], store).map((run) => run.runId))
+      .toEqual(['direct-1', 'workflow-1:agent:agent-1', 'workflow-1:agent:agent-3'])
+    expect(getRunningSubagentRuns([], store)).toEqual([])
+  })
 })
 
 describe('subagent running Composer indicator', () => {

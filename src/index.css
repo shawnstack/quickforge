@@ -7819,9 +7819,46 @@ html.dark .quickforge-todo-history-item--completed .quickforge-todo-history-stat
   flex: 1 1 auto;
 }
 
+/* 运行中摘要（右侧跑马灯）：固定单行，只占标签与 chevron 之间的剩余宽度；
+   溢出交给 ToolMarqueeController 横向滚动，短文本静止，reduced-motion 退化为省略号。
+   workflow 卡此前只设置了 flex，导致 custom element 按普通块级文本换行、static 与
+   moving 双视图同时可见。 */
 .quickforge-workflow-marquee {
+  display: inline-flex;
   flex: 1 1 auto;
   min-width: 0;
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  height: 1.125rem;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+
+.quickforge-workflow-marquee .quickforge-marquee-view {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.quickforge-workflow-marquee .quickforge-marquee-static {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-workflow-marquee .quickforge-marquee-moving {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  white-space: nowrap;
+  will-change: transform;
+  pointer-events: none;
 }
 
 .quickforge-workflow-phase {

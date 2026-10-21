@@ -330,13 +330,13 @@ describe('renderConsoleBlock auto-scroll', () => {
 
 describe('ToolDetails open-state memory', () => {
   /** Minimal .qf-tool-message host bridge + details node pair. */
-  function mountToolDetails(initiallyOpen: boolean, host: unknown) {
+  function mountToolDetails(initiallyOpen: boolean, host: unknown, stateKey?: string) {
     const lifecycle = new HookLifecycle()
     const details = { open: initiallyOpen, closest: () => host } as unknown as HTMLDetailsElement
     let tree!: TestNode
     const render = () => {
       lifecycle.render(() => {
-        tree = ToolDetails({ initiallyOpen }) as unknown as TestNode
+        tree = ToolDetails({ initiallyOpen, ...(stateKey !== undefined ? { stateKey } : {}) }) as unknown as TestNode
         ;(tree.props as { ref: { current: unknown } }).ref.current = details
         return tree
       })
@@ -422,6 +422,31 @@ describe('ToolDetails open-state memory', () => {
     bridgeless.render()
     expect(toolDetailsOpenMemory.has('call-b')).toBe(false)
     expect([...toolDetailsOpenMemory.keys()]).toEqual(['call-a'])
+  })
+
+  it('prefers an explicit stateKey over the host toolCall id', () => {
+    rememberToolDetailsOpen('workflow:wf:tool:tool-1', true)
+    const box = mountToolDetails(false, { toolCall: { id: 'run-workflow-call' } }, 'workflow:wf:tool:tool-1')
+    box.render()
+    expect((box.tree().props as { open?: boolean }).open).toBe(true)
+
+    box.toggle(false)
+    box.render()
+    expect(toolDetailsOpenMemory.get('workflow:wf:tool:tool-1')).toBe(false)
+    expect(toolDetailsOpenMemory.has('run-workflow-call')).toBe(false)
+  })
+
+  it('disables memory when the explicit stateKey is empty', () => {
+    rememberToolDetailsOpen('run-workflow-call', true)
+    const box = mountToolDetails(false, { toolCall: { id: 'run-workflow-call' } }, '')
+    box.render()
+    expect((box.tree().props as { open?: boolean }).open).toBe(false)
+
+    toolDetailsOpenMemory.clear()
+    box.toggle(true)
+    box.render()
+    expect((box.tree().props as { open?: boolean }).open).toBe(true)
+    expect(toolDetailsOpenMemory.size).toBe(0)
   })
 
   it('evicts the least recently used entry beyond 100 and refreshes on touch', () => {

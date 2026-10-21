@@ -40,14 +40,23 @@ export const WORKFLOW_MAX_RUNTIME_MS = 2 * 60 * 60 * 1000
 export const WORKFLOW_MIN_RUNTIME_MS = 1000
 const MAX_SCRIPT_LENGTH = 20_000
 const MAX_ARGS_JSON_LENGTH = 20_000
-const MAX_DETAILS_TEXT = 100_000
+// Total details budget. Running frames stay smaller because they are emitted
+// every PROGRESS_THROTTLE_MS; terminal frames get more room so the Inspector can
+// keep the same full-tail trace a direct run_subagent persists. Logs have their
+// own budget: they are metadata, not the agent process users open the detail for.
+const MAX_DETAILS_TEXT = 500_000
+const MAX_DETAILS_TEXT_STREAMING = 240_000
+const MAX_LOG_TEXT = 50_000
 // Per-agent Inspector trace. Direct run_subagent persists the full message list;
-// a workflow card carries one trace per agent, so keep the same 50-message tail
-// the live subagent trace uses, with enough room for a normal tool call plus its
-// result. The old 6KB cap dropped toolCall/toolResult before the final reply, so
-// the shared Inspector opened with task and output only.
+// a workflow card carries one trace per agent. Keep the same 50-message tail for
+// streaming frames and allow the full tail on terminal frames, with enough room
+// for a normal tool call plus its result. The old 6KB cap dropped
+// toolCall/toolResult before the final reply, so the shared Inspector opened
+// with task and output only.
 const MAX_SUBAGENT_RUN_JSON = 80_000
+const MAX_SUBAGENT_RUN_JSON_TERMINAL = 200_000
 const MAX_SUBAGENT_TRACE_MESSAGES = 50
+const MAX_SUBAGENT_TRACE_MESSAGES_TERMINAL = 200
 const PROGRESS_THROTTLE_MS = 200
 const AGENT_RESULT_PREVIEW_LIMIT = 2000
 const TOOL_ARGS_PREVIEW_LIMIT = 4000
@@ -175,12 +184,21 @@ function compactSubagentMessage(message) {
   if (Array.isArray(message.content)) {
     compact.content = message.content.map((block) => {
       if (!isPlainObject(block)) return block
-      if (block.type === 'text') return { ...block, text: truncateText(block.text, 1000) }
-      if (block.type === 'toolCall') return { ...block, arguments: compactJsonValue(block.arguments) }
+      if (block.type === 'text') return { ...block, text: truncateText(block.text, 2000) }
+      if (block.type === 'toolCall') return { ...block, arguments: compactJsonValue(block.arguments, 2000) }
+      // Thinking blocks have no tool card body; cap them so a long reasoning
+      // stream cannot crowd out the tool calls/results that make up the trace.
+      if (block.type === 'thinking') {
+        return {
+          ...block,
+          ...(typeof block.thinking === 'string' ? { thinking: truncateText(block.thinking, 2000) } : {}),
+          ...(typeof block.text === 'string' ? { text: truncateText(block.text, 2000) } : {}),
+        }
+      }
       return block
     })
   } else {
-    compact.content = truncateText(message.content, 1000)
+    compact.content = truncateText(message.content, 2000)
   }
   for (const key of ['toolCallId', 'toolName', 'isError', 'stopReason', 'errorMessage']) {
     if (message[key] !== undefined) compact[key] = message[key]
@@ -188,22 +206,71 @@ function compactSubagentMessage(message) {
   // Tool cards in the Inspector read timing, diffs, and command state from
   // toolResult.details. Keep that object, bounded, instead of dropping it.
   if (message.role === 'toolResult' && message.details !== undefined) {
-    compact.details = compactJsonValue(message.details, 2000, 0)
+    compact.details = compactJsonValue(message.details, 4000, 0)
   }
   return compact
 }
 
-function compactSubagentRunDetails(details) {
+/**
+ * Slice the tail without separating a toolResult from its assistant toolCall.
+ * A plain slice(-N) can start between the two, so the Inspector drops the result
+ * (subagentProcessTraceMessages only keeps paired results) even though the tool
+ * call happened. Walk backwards until the window contains the matching calls.
+ */
+function sliceMessagesWithToolPairs(messages, limit) {
+  if (!Array.isArray(messages)) return []
+  if (messages.length <= limit) return messages
+  let start = messages.length - limit
+  let previousStart = -1
+  while (start !== previousStart && start > 0) {
+    previousStart = start
+    const needed = new Set()
+    for (let index = start; index < messages.length; index += 1) {
+      const message = messages[index]
+      if (message?.role === 'toolResult' && typeof message.toolCallId === 'string') needed.add(message.toolCallId)
+    }
+    for (let index = start - 1; index >= 0 && needed.size > 0; index -= 1) {
+      const message = messages[index]
+      if (message?.role !== 'assistant' || !Array.isArray(message.content)) continue
+      for (const block of message.content) {
+        if (block?.type === 'toolCall' && typeof block.id === 'string' && needed.has(block.id)) {
+          needed.delete(block.id)
+          start = index
+        }
+      }
+    }
+  }
+  return messages.slice(start)
+}
+
+/** Drop results whose toolCall fell outside the compacted window. */
+function dropOrphanToolResults(messages) {
+  const known = new Set()
+  for (const message of messages) {
+    if (message?.role !== 'assistant' || !Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (block?.type === 'toolCall' && typeof block.id === 'string') known.add(block.id)
+    }
+  }
+  return messages.filter((message) => message?.role !== 'toolResult'
+    || typeof message.toolCallId !== 'string'
+    || known.has(message.toolCallId))
+}
+
+function compactSubagentRunDetails(details, options = {}) {
   if (!isPlainObject(details)) return null
+  const terminal = options.mode === 'terminal'
+  const maxMessages = options.maxMessages ?? (terminal ? MAX_SUBAGENT_TRACE_MESSAGES_TERMINAL : MAX_SUBAGENT_TRACE_MESSAGES)
+  const maxJson = options.maxJson ?? (terminal ? MAX_SUBAGENT_RUN_JSON_TERMINAL : MAX_SUBAGENT_RUN_JSON)
   const messages = Array.isArray(details.messages)
-    ? details.messages.slice(-MAX_SUBAGENT_TRACE_MESSAGES).map(compactSubagentMessage).filter(Boolean)
+    ? sliceMessagesWithToolPairs(details.messages, maxMessages).map(compactSubagentMessage).filter(Boolean)
     : []
   const tools = Array.isArray(details.tools)
     ? details.tools.slice(0, 30).map((tool) => (isPlainObject(tool)
       ? {
           name: tool.name,
           label: tool.label,
-          ...(tool.description ? { description: truncateText(tool.description, 200) } : {}),
+          ...(tool.description ? { description: truncateText(tool.description, 300) } : {}),
         }
       : null)).filter(Boolean)
     : []
@@ -225,11 +292,24 @@ function compactSubagentRunDetails(details) {
     messages,
     tools,
   }
-  while (compact.messages.length > 0 && JSON.stringify(compact).length > MAX_SUBAGENT_RUN_JSON) {
-    compact.messages.shift()
+  while (compact.messages.length > 0 && JSON.stringify(compact).length > maxJson) {
+    // Shrink in batches; stringifying the whole run once per dropped message is
+    // quadratic for long traces. Pair-aware slicing may keep the same length
+    // (the window expanded to include a toolCall), so fall back to one shift.
+    const nextLength = Math.max(0, compact.messages.length - 10)
+    if (nextLength === 0) {
+      compact.messages = []
+      break
+    }
+    const nextMessages = sliceMessagesWithToolPairs(compact.messages, nextLength)
+    if (nextMessages.length >= compact.messages.length) compact.messages.shift()
+    else compact.messages = nextMessages
   }
-  if (JSON.stringify(compact).length > MAX_SUBAGENT_RUN_JSON) compact.tools = []
-  if (JSON.stringify(compact).length > MAX_SUBAGENT_RUN_JSON) compact.messages = []
+  if (JSON.stringify(compact).length > maxJson) compact.tools = []
+  if (JSON.stringify(compact).length > maxJson) compact.messages = []
+  // A shift can remove the assistant toolCall while keeping its toolResult;
+  // such orphan results can never render as a tool card, so drop them.
+  compact.messages = dropOrphanToolResults(compact.messages)
   return compact
 }
 
@@ -373,6 +453,10 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
       ...(record.subagentRun ? { subagentRun: record.subagentRun } : {}),
       promptPreview: truncateText(record.promptPreview, AGENT_RESULT_PREVIEW_LIMIT),
       ...((record.promptPreview?.length ?? 0) > AGENT_RESULT_PREVIEW_LIMIT ? { promptTruncated: true } : {}),
+      // run_subagent 的详情直接来自参数；workflow Agent 也把 context/expectedOutput
+      // 带进 details，让 Inspector 的任务说明与直接调用保持同一份内容。
+      ...(record.context ? { context: truncateText(record.context, AGENT_RESULT_PREVIEW_LIMIT) } : {}),
+      ...(record.expectedOutput ? { expectedOutput: truncateText(record.expectedOutput, AGENT_RESULT_PREVIEW_LIMIT) } : {}),
       resultPreview: truncateText(resultText, AGENT_RESULT_PREVIEW_LIMIT),
       ...(resultText.length > AGENT_RESULT_PREVIEW_LIMIT ? { resultTruncated: true } : {}),
       ...(record.error ? { error: truncateText(record.error, ERROR_TEXT_LIMIT) } : {}),
@@ -405,6 +489,7 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
     for (const log of details.logs) size += log.message.length
     for (const agent of details.agents) {
       size += (agent.promptPreview?.length ?? 0) + (agent.resultPreview?.length ?? 0) + (agent.error?.length ?? 0)
+        + (agent.context?.length ?? 0) + (agent.expectedOutput?.length ?? 0)
       if (agent.subagentRun) size += JSON.stringify(agent.subagentRun).length
     }
     for (const tool of details.tools) {
@@ -414,13 +499,87 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
     return size
   }
 
+  function trimSubagentTraces(details, budget) {
+    let size = detailsTextSize(details)
+    if (size <= budget) return false
+    const priority = (agent) => {
+      if (agent.status === 'running' || agent.status === 'queued') return 3
+      if (agent.status === 'error' || agent.status === 'aborted') return 2
+      return 1
+    }
+    // Oldest/lowest-priority traces shrink first; running agents are what the
+    // user is currently watching, so they are only touched as a last resort.
+    const order = [...details.agents].sort((a, b) => priority(a) - priority(b) || (a.seq ?? 0) - (b.seq ?? 0))
+    let changed = false
+    const shrink = (agent, drop) => {
+      if (!agent.subagentRun) return
+      const before = JSON.stringify(agent.subagentRun).length
+      if (drop) {
+        delete agent.subagentRun
+        agent.subagentRunDropped = true
+      } else {
+        const reduced = compactSubagentRunDetails(agent.subagentRun, { mode: 'streaming', maxMessages: 10, maxJson: 20_000 })
+        if (reduced) {
+          agent.subagentRun = reduced
+        } else {
+          delete agent.subagentRun
+          agent.subagentRunDropped = true
+        }
+      }
+      const after = agent.subagentRun ? JSON.stringify(agent.subagentRun).length : 0
+      size -= Math.max(0, before - after)
+      // A partial shrink is not a full drop, but the Inspector must still keep
+      // the longer trace the user was already watching and show the same
+      // "incomplete" notice instead of silently losing earlier tool cards.
+      if (!drop && after < before) agent.subagentRunTruncated = true
+      changed = true
+    }
+    for (const agent of order) {
+      if (size <= budget) return changed
+      if (priority(agent) >= 3) continue
+      shrink(agent, false)
+    }
+    for (const agent of order) {
+      if (size <= budget) return changed
+      if (priority(agent) >= 3) continue
+      shrink(agent, true)
+    }
+    for (const agent of order) {
+      if (size <= budget) return changed
+      shrink(agent, false)
+    }
+    for (const agent of order) {
+      if (size <= budget) return changed
+      shrink(agent, true)
+    }
+    return changed
+  }
+
   function trimDetails(details) {
-    if (detailsTextSize(details) <= MAX_DETAILS_TEXT) return details
-    details.logs = details.logs.slice(-50)
-    if (detailsTextSize(details) > MAX_DETAILS_TEXT) {
+    const budget = details.status === 'running' ? MAX_DETAILS_TEXT_STREAMING : MAX_DETAILS_TEXT
+    let truncated = false
+    const logsTextSize = details.logs.reduce((sum, log) => sum + (typeof log?.message === 'string' ? log.message.length : 0), 0)
+    if (logsTextSize > MAX_LOG_TEXT) {
+      // Keep the newest lines up to both the entry and the character budget:
+      // 50 large lines alone can exceed the 50K log cap.
+      const kept = []
+      let keptSize = 0
+      for (let index = details.logs.length - 1; index >= 0; index -= 1) {
+        const length = typeof details.logs[index]?.message === 'string' ? details.logs[index].message.length : 0
+        if (kept.length >= 50 || keptSize + length > MAX_LOG_TEXT) break
+        kept.push(details.logs[index])
+        keptSize += length
+      }
+      details.logs = kept.reverse()
+      truncated = true
+    }
+    if (detailsTextSize(details) <= budget && !truncated) return details
+    if (detailsTextSize(details) > budget) {
       details.agents = details.agents.map((agent) => ({
         ...agent,
         promptPreview: truncateText(agent.promptPreview, 400),
+        ...(agent.context ? { context: truncateText(agent.context, 400) } : {}),
+        ...(agent.expectedOutput ? { expectedOutput: truncateText(agent.expectedOutput, 400) } : {}),
         resultPreview: truncateText(agent.resultPreview, 400),
         ...(agent.error ? { error: truncateText(agent.error, 400) } : {}),
       }))
@@ -434,15 +593,14 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
         }
       })
     }
-    if (detailsTextSize(details) > MAX_DETAILS_TEXT) {
-      // Trace payloads are the largest optional part. Drop them before
-      // sacrificing every result preview; the Inspector can still open a
-      // summary-only payload from the remaining agent fields.
-      details.agents = details.agents.map(({ subagentRun, ...agent }) => (subagentRun
-        ? { ...agent, subagentRunDropped: true }
-        : agent))
+    if (detailsTextSize(details) > budget) {
+      // Shrink the largest optional payload incrementally instead of dropping
+      // every agent trace at once. A direct run_subagent always shows its trace;
+      // a multi-agent workflow should not lose all of them just because the sum
+      // exceeded one global budget.
+      trimSubagentTraces(details, budget)
     }
-    if (detailsTextSize(details) > MAX_DETAILS_TEXT) {
+    if (detailsTextSize(details) > budget) {
       details.logs = details.logs.slice(-10)
       details.resultPreview = truncateText(details.resultPreview, 4000)
     }
@@ -655,7 +813,7 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
         if (toolCallsChanged) record.toolCalls = toolCalls
         if (subagentRun || toolCallsChanged) emitProgress()
       })
-      const subagentRun = compactSubagentRunDetails(response?.details)
+      const subagentRun = compactSubagentRunDetails(response?.details, { mode: 'terminal' })
       if (subagentRun) record.subagentRun = subagentRun
       const text = String(response?.content ?? '')
       if (request.schema !== null && request.schema !== undefined) {
@@ -674,7 +832,7 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
     } catch (error) {
       const message = error?.message || 'Agent run failed.'
       const stopped = state.aborted || state.timedOut || signal.aborted
-      const terminalSubagentRun = compactSubagentRunDetails(error?.quickforgeSubagentDetails)
+      const terminalSubagentRun = compactSubagentRunDetails(error?.quickforgeSubagentDetails, { mode: 'terminal' })
       if (terminalSubagentRun) record.subagentRun = terminalSubagentRun
       record.status = stopped ? 'aborted' : 'error'
       record.error = message
@@ -773,6 +931,8 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
       durationMs: 0,
       toolCalls: 0,
       promptPreview: truncateText(request.prompt, AGENT_RESULT_PREVIEW_LIMIT),
+      context: truncateText(request.context, AGENT_RESULT_PREVIEW_LIMIT),
+      expectedOutput: truncateText(request.expectedOutput, AGENT_RESULT_PREVIEW_LIMIT),
       resultText: '',
       error: '',
       schemaValidated: false,

@@ -7,7 +7,7 @@ import {
   type SubagentRunStore,
 } from '@/lib/subagent-run-detail'
 
-type SubagentRunStoreReader = Pick<SubagentRunStore, 'get'>
+type SubagentRunStoreReader = Pick<SubagentRunStore, 'get' | 'list'>
 
 export type BackgroundCommandSummary = {
   taskId: string
@@ -32,15 +32,31 @@ const TERMINAL_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" he
 /**
  * 当前会话正在运行的 subagent。只遍历该 agent 的 pendingToolCalls，避免全局
  * subagentRunStore 中其他会话的快照污染 Composer 指示器。
+ *
+ * 直接 `run_subagent` 的 runId 等于父工具调用 id；`run_workflow` 内的 Agent 由
+ * WorkflowAgentRunEventPublisher 以 `<父工具调用 id>:agent:<agentId>` 发布。父
+ * 工具仍在 pending 时把这类嵌套运行一并列出，让“运行中 subagent”入口与聊天卡
+ * 片一致地覆盖 workflow 内部 Agent。
  */
 export function getRunningSubagentRuns(
   pendingToolCalls: Iterable<string>,
   store: SubagentRunStoreReader = subagentRunStore,
 ): SubagentRunPayload[] {
   const runs: SubagentRunPayload[] = []
+  const seen = new Set<string>()
+  const snapshots = store.list()
   for (const toolCallId of pendingToolCalls) {
-    const payload = store.get(toolCallId)
-    if (payload?.status === 'running') runs.push(payload)
+    const direct = store.get(toolCallId)
+    if (direct?.status === 'running' && !seen.has(direct.runId)) {
+      runs.push(direct)
+      seen.add(direct.runId)
+    }
+    const nestedPrefix = `${toolCallId}:agent:`
+    for (const payload of snapshots) {
+      if (payload.status !== 'running' || !payload.runId.startsWith(nestedPrefix) || seen.has(payload.runId)) continue
+      runs.push(payload)
+      seen.add(payload.runId)
+    }
   }
   return runs
 }

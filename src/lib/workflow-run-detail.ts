@@ -16,15 +16,22 @@ export type WorkflowAgentView = {
   profile: string
   phase: string
   status: WorkflowAgentStatus
+  /** Agent 开始时间（ms epoch），与 run_subagent 的 quickforgeTiming.startedAt 对齐。 */
+  startedAt?: number
   durationMs: number
   toolCalls: number
   schemaValidated: boolean
   promptPreview: string
+  /** `agent()` 的 context/expectedOutput（服务端 bounded 透传），用于 Inspector 任务说明与 run_subagent 对齐。 */
+  context: string
+  expectedOutput: string
   resultPreview: string
   error: string
   /** Bounded subagent run trace captured by the workflow runner. */
   subagentRun?: Record<string, unknown>
   subagentRunDropped: boolean
+  /** 服务端为总预算把 trace 缩到更短窗口（非整体移除）；详情保留最后一次可见 trace 并提示不完整。 */
+  subagentRunTruncated: boolean
 }
 
 export type WorkflowToolView = {
@@ -107,14 +114,20 @@ function normalizeAgent(value: unknown, index: number): WorkflowAgentView | null
     profile: text(value.profile),
     phase: text(value.phase),
     status: normalizedStatus,
+    ...(typeof value.startedAt === 'number' && Number.isFinite(value.startedAt)
+      ? { startedAt: value.startedAt }
+      : {}),
     durationMs: Math.max(0, number(value.durationMs)),
     toolCalls: Math.max(0, number(value.toolCalls)),
     schemaValidated: value.schemaValidated === true,
     promptPreview: text(value.promptPreview),
+    context: text(value.context),
+    expectedOutput: text(value.expectedOutput),
     resultPreview: text(value.resultPreview),
     error: text(value.error),
     ...(isRecord(value.subagentRun) ? { subagentRun: value.subagentRun } : {}),
     subagentRunDropped: value.subagentRunDropped === true,
+    subagentRunTruncated: value.subagentRunTruncated === true,
   }
 }
 

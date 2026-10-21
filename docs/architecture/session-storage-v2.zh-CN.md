@@ -1,6 +1,6 @@
 # 会话存储 v2 设计（SQLite 单一权威重构）
 
-> 基准：存储 v2 改造完成，2026-08-19；SQLite schema v11（migration `session_state_v2_storage`）。本文是会话域存储的**当前事实源**。旧设计（JSON mirror、phase 状态机、session_index 派生表、cutover / background-migration）见 [`session-storage-current-architecture.zh-CN.md`](./session-storage-current-architecture.zh-CN.md)，保留为历史参考。
+> 基准：存储 v2 改造完成，2026-08-19；SQLite schema v11（migration `session_state_v2_storage`）。本文是会话域存储的**当前事实源**。v1 的 JSON mirror、phase 状态机、session_index 派生表、cutover / background-migration 等旧设计已整体移除（对照见 [§9 新旧对比简表](#9-新旧对比简表)），不再单独保留历史文档。
 > 本文与 [`sqlite-storage-foundation.zh-CN.md`](./sqlite-storage-foundation.zh-CN.md)（连接/PRAGMA/migration 协议）互补：基础层机制不变，v2 只重构会话域表与写入/删除/启动链路。
 
 ## 1. 背景与动机：写放大与不可回收空间

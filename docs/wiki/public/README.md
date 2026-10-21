@@ -4,9 +4,9 @@
 
 | 文件 | 说明 |
 |------|------|
-| [favicon.svg](../../public/favicon.svg) | 网站图标 (SVG 格式) |
-| [manifest.webmanifest](../../public/manifest.webmanifest) | PWA manifest，定义安装名称、主题色、启动路径和图标 |
-| [sw.js](../../public/sw.js) | 轻量 PWA Service Worker，缓存前端壳和静态资源，并处理系统通知点击后的窗口聚焦与会话打开消息 |
+| [favicon.svg](../../../public/favicon.svg) | 网站图标 (SVG 格式) |
+| [manifest.webmanifest](../../../public/manifest.webmanifest) | PWA manifest，定义安装名称、主题色、启动路径和图标 |
+| [sw.js](../../../public/sw.js) | 轻量 PWA Service Worker，缓存前端壳和静态资源，并处理系统通知点击后的窗口聚焦与会话打开消息 |
 | `pwa-icon-192.png` | PWA 192x192 PNG 图标，深色底 + QF 字母 |
 | `pwa-icon-512.png` | PWA 512x512 PNG 图标，深色底 + QF 字母 |
 | `pwa-maskable-512.png` | PWA maskable 512x512 PNG 图标，保留安全边距用于安装态裁切 |

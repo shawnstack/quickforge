@@ -1,3 +1,16 @@
+## docs-cleanup-stale-assets（done，2026-10-22）
+
+- Goal：评审并清理仓库内过时的文档与资产，同时修复文档链接 bug。
+- 改动（删除，共 71 个文件 + 4 个目录）：`docs/analysis/`、`docs/prototypes/`、`docs/reports/`、`docs/reviews/`、`docs/design/`（19 个已落地设计稿）、`docs/archive/goal-test-demo.md`；`docs/architecture/` 下 8 篇一次性设计/评审与被 v2 取代的存储 v1 文档（`session-storage-current-architecture`、`session-storage-recovery-runbook`、`session-sqlite-migration-design-review`、`session-storage-background-migration-design`、`sqlite-compatibility-spike`、`config-split-design`、`storage-cache-directory-design`、`scheduled-task-runs-shadow-integration`）及其 4 个 svg；`docs/wiki/src/lib/.git`（误建的空嵌套仓库）与 `.gitignore`；根目录误产文件 `0`/`new`/`nul`/`m[1])`/`$null`/`{try{require.resolve('jsdom')`、`.qf-agent-debug.log`、`.tmp-*` 分析残留、`review-01~06.png`。
+- 改动（修复）：`docs/wiki/` 下 71 处相对链接层级错误（wiki 在深度 2/3，指向仓库根与 `src/`、`server/` 的 `../` 少一层）；`docs/wiki/README.md` 新增「架构与设计文档」导航表；`docs/wiki/src/README.md` 目录结构补 components/hooks/lib 子文档链接；`docs/architecture/session-*` 中 3 处指向已删文档的引用改指 `session-storage-v2.zh-CN.md`；`tests/frontend/code-highlight.test.ts` 注释去掉指向已删 parity 报告的路径；`feature_list.json`/`progress.md`/`session-handoff.md` 中指向已删报告的引用改为文字说明。
+- 判据：markdown 链接反向图 + 全文引用扫描；被删项均为「零入链 + 自述已被取代/已执行完毕」或「已被实现取代的一次性设计稿」。
+- 补充（同日第二轮）：`design/`（1 个动效 demo）、`design-review/`（6 个含 1 个 svg）整体删除，`design-mockups/` 删除 24 个零外部引用的旧设计稿（`assistant-reply-file-card`、`chat-task-launcher`、`diff-display-optimization`、`diff-odometer-counter*`、`execution-summary-groups`、`file-reference-mention`、`goal-inspector-optimization`、`goal-pinned-summary`、`goal-ux-ui-optimization`、`hooks-settings`、`message-queue`、`model-compact-icon-options`、`pinned-summary-capsule-expand-icon`、`pinned-summary-drag-capsule`、`safe-undo`、`scheduled-tasks-frequency`、`scroll-to-bottom-button`、`session-tail-status-indicator`、`subagent-marquee-roll-switch`、`subagent-running-indicator`、`subagent-tool-marquee-impl`、`todo-capsule-summary`、`todo-pending-icon-options`），保留 12 个仍被 `src/`、`docs/wiki`、`feature_list.json` 引用的设计稿（`design-mockups` 从 36 文件 1040KB 收敛到 12 文件 301KB）。
+- 补充（引用修正）：`docs/architecture/logging-design.zh-CN.md` 误写为已不存在的 `logging-design.md`；`docs/architecture/agent-plugin-system.zh-CN.md` 的 hooks 能力表指向不存在的 `server/plugins/events.mjs`、`server/plugins/hooks.mjs`，改为复用实际存在的 `server/hooks/hook-engine.mjs`、`server/hooks/hook-executor.mjs`；`design-mockups/goal-plan-tool-card-redesign.html` 注释里对已删 `todo-capsule-summary.html` 的引用改为文字描述。
+- 验证：脚本复核 docs 内 0 失效链接、0 孤立文档（仅 3 个 `docs/archive/*` 状态归档按机制无需入链）；`feature_list.json`/`package*.json`/`tsconfig.json` JSON 解析通过；`npx vitest run tests/frontend/code-highlight.test.ts` 60 passed；`npx eslint` 该文件通过；`npx tsc -b` 通过。
+- Notes：未触碰生成产物（`dist/`、`package-dist/`、`package-offline/`）；未提交 Git。剩余 `design-mockups/` 的 12 个文件均有 `src/` 或 wiki 引用，属活跃设计参照。`.agentbridge/`、`.playwright-mcp/`、`.zcode/`、`.idea/` 为本地工具缓存且已被 `.gitignore` 忽略，可按需手动清理（约 320KB，不影响仓库）。
+
+---
+
 ## settings-search-autofill-guard（done，2026-10-21）
 
 - Goal：防止设置页搜索框偶发被浏览器自动填充历史网址、账号等。
@@ -198,7 +211,7 @@
 - 目标：应用户要求全面评审僵尸代码（无引用代码 / 永远走不到的分支）。
 - 方法：import 引用图（857 文件、四端入口 BFS、修复扫描器自身 @/ 别名解析缺陷）+ 2 个只读子任务（server 147 文件 AST 级、前端 302 文件标识符级）+ word-boundary grep 抽检复核，对照 round2 报告去重。
 - 结论：0 僵尸文件（18 个静态不可达文件全为 preload/Worker/spawn/runbook 字符串或手动工具引用）；0 不可达分支（return 后语句、恒真假、重复条件、重复 case 双端零命中）；0 死 env 门控；0 context-eviction 残留；SSE/工具渲染器/自定义事件/BroadcastChannel 协议双向配对无孤儿。
-- 僵尸清单沉淀至 `docs/reports/dead-code-candidates-2026-10-16.zh-CN.md`：A 区零引用 8 组（readSessionIdentityRows 双定义、runIcon、sliderProgressStyle、CHAT_SURFACE_REFRESH_EVENTS、6 个 i18n 孤儿键（en+zh）、capability-suggestions CSS 组 + message-queue 死查询项、零散死 CSS 类；K8 安全预留保留）；B 区仅测试存活 27 项（最典型 3 个：cronMatches、revokeLanAccessToken、DEFAULT_AI_STREAM_DEADLINE_MS）；C 区导出冗余 ~114 项（本体存活，不建议动）；D 区 sqlite-compatibility-spike 归档候选。
+- 僵尸清单曾沉淀至 `docs/reports/dead-code-candidates-2026-10-16.zh-CN.md`（该报告已随一次性评审文档清理删除，结论已并入本条目）：A 区零引用 8 组（readSessionIdentityRows 双定义、runIcon、sliderProgressStyle、CHAT_SURFACE_REFRESH_EVENTS、6 个 i18n 孤儿键（en+zh）、capability-suggestions CSS 组 + message-queue 死查询项、零散死 CSS 类；K8 安全预留保留）；B 区仅测试存活 27 项（最典型 3 个：cronMatches、revokeLanAccessToken、DEFAULT_AI_STREAM_DEADLINE_MS）；C 区导出冗余 ~114 项（本体存活，不建议动）；D 区 sqlite-compatibility-spike 归档候选。
 - Notes：清理范围待用户决策（A / A+B前3 / A+B全部 / 暂不清理），本次未改任何产品代码；执行清理时需同步直测与 wiki。
 
 ---

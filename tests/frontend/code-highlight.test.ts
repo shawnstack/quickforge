@@ -51,8 +51,7 @@ describe('code-highlight language coverage', () => {
   })
 
   it('keeps the legacy highlight.js class names for the re-added semantics', () => {
-    // 逐条对应旧 `.hljs-*` 规则里被移除后丢失的语义（详见
-    // docs/reviews/parity-audit-parts/fix-w3-highlight.zh-CN.md）。
+    // 逐条对应旧 `.hljs-*` 规则里被移除后丢失的语义（parity 审计时逐条核对过）。
     expect(HIGHLIGHT_TOKEN_CLASSES.heading).toBe('qf-hl-heading')   // ← .hljs-section
     expect(HIGHLIGHT_TOKEN_CLASSES.list).toBe('qf-hl-list')         // ← .hljs-bullet
     expect(HIGHLIGHT_TOKEN_CLASSES.code).toBe('qf-hl-code')         // ← .hljs-code

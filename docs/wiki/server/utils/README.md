@@ -4,15 +4,15 @@
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [logger.mjs](../../server/utils/logger.mjs) | 日志工具 | 182 |
-| [process-error-guards.mjs](../../server/utils/process-error-guards.mjs) | 进程级异常兜底 | 63 |
-| [network.mjs](../../server/utils/network.mjs) | 网络工具 | 38 |
-| [platform.mjs](../../server/utils/platform.mjs) | 平台工具 (跨平台) | 161 |
-| [response.mjs](../../server/utils/response.mjs) | HTTP 响应工具 | 42 |
-| [text-diff.mjs](../../server/utils/text-diff.mjs) | 文本差异对比 | 215 |
-| [workspace.mjs](../../server/utils/workspace.mjs) | 工作区路径工具 | 232 |
-| [password-auth.mjs](../../server/utils/password-auth.mjs) | 密码哈希和令牌生成 | 44 |
-| [package-update.mjs](../../server/utils/package-update.mjs) | Runtime 更新检查与 npm registry 解析 | 328 |
+| [logger.mjs](../../../../server/utils/logger.mjs) | 日志工具 | 182 |
+| [process-error-guards.mjs](../../../../server/utils/process-error-guards.mjs) | 进程级异常兜底 | 63 |
+| [network.mjs](../../../../server/utils/network.mjs) | 网络工具 | 38 |
+| [platform.mjs](../../../../server/utils/platform.mjs) | 平台工具 (跨平台) | 161 |
+| [response.mjs](../../../../server/utils/response.mjs) | HTTP 响应工具 | 42 |
+| [text-diff.mjs](../../../../server/utils/text-diff.mjs) | 文本差异对比 | 215 |
+| [workspace.mjs](../../../../server/utils/workspace.mjs) | 工作区路径工具 | 232 |
+| [password-auth.mjs](../../../../server/utils/password-auth.mjs) | 密码哈希和令牌生成 | 44 |
+| [package-update.mjs](../../../../server/utils/package-update.mjs) | Runtime 更新检查与 npm registry 解析 | 328 |
 
 ---
 

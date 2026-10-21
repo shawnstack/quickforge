@@ -10,8 +10,8 @@
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [definitions.mjs](../../server/tools/definitions.mjs) | 工具元数据定义 (名称、参数 Schema) | 210 |
-| [index.mjs](../../server/tools/index.mjs) | 工具执行 handler | 1182 |
+| [definitions.mjs](../../../../server/tools/definitions.mjs) | 工具元数据定义 (名称、参数 Schema) | 210 |
+| [index.mjs](../../../../server/tools/index.mjs) | 工具执行 handler | 1182 |
 
 ---
 

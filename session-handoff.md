@@ -1,3 +1,14 @@
+## 当前交接：docs-cleanup-stale-assets（done，2026-10-22）
+
+- Current Objective（当前目标）: 评审并删除仓库内过时文档/资产，并修复文档链接失效问题。已完成，未提交。
+- 核心改动: 删除 71 个过时文件与 4 个目录（一次性 reports/reviews/prototypes/analysis、已落地设计稿 `docs/design`、`docs/archive/goal-test-demo.md`、8 篇被取代的架构文档与 4 个 svg、误建的 `docs/wiki/src/lib/.git`、根目录误产文件与 `.tmp-*` 残留、`review-01~06.png`）；第二轮追加删除 `design/`、`design-review/` 全目录与 `design-mockups/` 中 24 个零外部引用的旧设计稿（现余 12 个，均有 `src/` 或 wiki 引用）；修复 `docs/wiki` 下 71 处相对链接层级错误；`docs/wiki/README.md` 新增「架构与设计文档」导航表；3 处架构文档交叉引用改指 `session-storage-v2.zh-CN.md`；修正 `logging-design.zh-CN.md`、`agent-plugin-system.zh-CN.md` 与 `design-mockups/goal-plan-tool-card-redesign.html` 中指向不存在文件的引用。
+- Files（改动文件）: `docs/wiki/README.md`、`docs/wiki/src/README.md`、`docs/wiki/root-config.md`、`docs/wiki/{bin,public,scripts}/README.md`、`docs/wiki/server/{tools,utils}/README.md`、`docs/wiki/src/hooks/README.md`、`docs/architecture/{session-index-query-migration,session-state-transactional-storage,session-storage-v2,logging-design,agent-plugin-system}.zh-CN.md`、`design-mockups/goal-plan-tool-card-redesign.html`、`tests/frontend/code-highlight.test.ts`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）: 自写链接/孤立文档校验脚本结果——docs 内 broken links 0、orphan docs 3（均为 `docs/archive/*` 状态归档，按机制无需入链）；JSON 解析（feature_list/package/package-lock/tsconfig）通过；`npx vitest run tests/frontend/code-highlight.test.ts` 60 passed；`npx eslint tests/frontend/code-highlight.test.ts` 通过；`npx tsc -b` 通过。未跑全量 `npm run test`/`npm run build`（本次仅文档、设计稿与注释改动）。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 剩余 `design-mockups/` 12 个文件都仍被源码或 wiki 引用，如需彻底清理须先改掉这些引用；另外 `.agentbridge/`（248KB）、`.playwright-mcp/`、`.zcode/`、`.idea/` 为本地工具缓存（已被 `.gitignore` 忽略），可手动删除；未提交 Git；未修改生成产物。
+
+---
+
 ## 当前交接：settings-search-autofill-guard（done，2026-10-21）
 
 - Current Objective（当前目标）: 防止设置页桌面/移动搜索框偶发被浏览器自动填充网址、账号等。已完成，未提交。
@@ -196,7 +207,7 @@
 ## 当前交接：dead-code-audit-round3（评审完成，未清理，2026-10-16）
 
 - Current Objective（当前目标）: 全面评审僵尸代码（无引用代码/不可达分支）。评审已完成并沉淀报告，未改任何产品代码。
-- Files（改动文件）: docs/reports/dead-code-candidates-2026-10-16.zh-CN.md（新增）、progress.md、session-handoff.md。
+- Files（改动文件）: docs/reports/dead-code-candidates-2026-10-16.zh-CN.md（新增，已于 2026-10-22 文档清理时删除）、progress.md、session-handoff.md。
 - Evidence（验证）: 三路独立扫描交叉验证 + grep 抽检复核；结论：0 僵尸文件 / 0 不可达分支 / 0 死 env 门控 / 0 context-eviction 残留 / 协议无孤儿；僵尸清单见报告 A/B/C/D 四区。
 - Blockers（阻塞）: 无。
 - Next Session（下一步）: 待用户选定清理范围（仅 A 区 / A+B 前 3 项 / A+B 全部 / 暂不清理）；执行时行号以实际内容为准，需同步直测（B 区）与 wiki 文档。

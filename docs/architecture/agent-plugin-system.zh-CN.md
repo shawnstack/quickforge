@@ -418,7 +418,7 @@ Audit Logger 记录
 | `commands` | `server/custom-commands.mjs` | 插件命令应进入统一 slash command catalog。 |
 | `mcpServers` | `server/mcp/*` | 插件提供 MCP presets，用户确认后启用。 |
 | `agents` | `server/agent-profiles.mjs`、`server/agent-manager.mjs` | 插件贡献 Agent Profile/Subagent。 |
-| `hooks` | 新增 `server/plugins/events.mjs`、`server/plugins/hooks.mjs` | 接入工具调用、文件编辑、shell 执行等生命周期。 |
+| `hooks` | 复用 `server/hooks/hook-engine.mjs`、`server/hooks/hook-executor.mjs`（插件级 hooks 入口尚未拆出） | 接入工具调用、文件编辑、shell 执行等生命周期。 |
 | `lspServers` | 后续新增 LSP runtime | 提供定义、引用、诊断等代码智能工具。 |
 | `monitors` | 后续新增 monitor runtime | 后台监听和主动提醒。 |
 | `permissions` | 工具审批/YOLO + 新增 Permission Broker | 从展示字段升级为执行前强校验。 |

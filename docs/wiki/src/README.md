@@ -6,7 +6,7 @@
 
 ```
 src/
-├── components/          # React 组件
+├── components/          # React 组件，详见 [components 文档](components/README.md)
 │   ├── chat/            # 聊天面板（含多个子模块）
 │   ├── preview/          # 网页预览内容组件（iframe 加载本地 dev server URL）
 │   ├── scheduled-tasks/ # 定时任务页面
@@ -14,8 +14,8 @@ src/
 │   ├── sidebar/         # 侧边栏
 │   ├── terminal/         # xterm.js 多终端 Dock
 │   ├── ui/              # 基础 UI 组件
-├── hooks/               # 自定义 React Hooks (18 个)
-├── lib/                 # 前端工具库 (87 个模块)
+├── hooks/               # 自定义 React Hooks (18 个)，详见 [hooks 文档](hooks/README.md)
+├── lib/                 # 前端工具库 (87 个模块)，详见 [lib 文档](lib/README.md)
 ├── storage/             # 自研存储层（StorageBackend 契约 + 4 个 Store + AppStorage 单例，见 [storage/](storage/)）
 ├── App.tsx              # 主应用组件 (2340 行)
 ├── index.css            # 全局样式 (8039 行)
@@ -26,9 +26,9 @@ src/
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [main.tsx](../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 83 |
-| [App.tsx](../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 2340 |
-| [index.css](../src/index.css) | 全局样式 (Tailwind + 自托管设计 token + 自定义) | 8039 |
+| [main.tsx](../../../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 83 |
+| [App.tsx](../../../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 2340 |
+| [index.css](../../../src/index.css) | 全局样式 (Tailwind + 自托管设计 token + 自定义) | 8039 |
 
 ### main.tsx (69 行)
 
@@ -87,5 +87,5 @@ src/
 
 **决策记录（R1/R2 相关，勿误判为回归）**
 - **`dark:` 变体走系统媒体查询**：`index.css` 没有 `@custom-variant dark`，`dark:` 变体沿用 Tailwind 默认的 `prefers-color-scheme` 媒体查询；移除 pi-web-ui 的 `app.css` 前后行为一致（已核实预编译产物中该指令本就被剥离）。因此「界面外观 = 暗色 + 系统 = 亮色」时，部分 `dark:` 工具类不随 `.dark` class 切换，属既有行为而非本次回归。若要改成 class 驱动，需显式加入 `@custom-variant dark (&:where(.dark, .dark *))` 并单独评估改动面（token 侧仍由 unlayered `.dark{}` 提供）。
-- **数学公式已恢复（KaTeX，2026-09-19 第十七轮）**：聊天 Markdown 重新按 KaTeX 渲染数学公式——`src/lib/chat-math.ts` 三段式（preprocessLatexDelimiters 在进 react-markdown 前把 \(...\)/\[...\] 换成占位 token + `rehypeQfMath` rehype 插件生成 `qf-math` 元素 + `src/components/chat/surface/KatexMath.tsx` 渲染，`katex/dist/katex.min.css` 在组件内引入），四定界符（行内 `$…$`、块级 `$$…$$`、行内反斜杠圆括号、块级反斜杠方括号）与旧 marked 扩展对齐：**行中与行首的 `$$…$$` 一样渲染为块级公式**（对齐旧 `blockMathDollar` 的 `start` 非空即起块、`level:'block'` 注册为 `startBlock`），保留「定界符内容不含 `$`、`.trim()`」两项旧约束；行中公式按旧块级标记拆段输出（`<p>前文 </p>` + `<div class="quickforge-katex-scroll my-4">` 公式 + `<p> 后文</p>`），不再嵌进段落；展示公式容器带 `quickforge-katex-scroll`（unlayered，overflow-x:auto + 隐藏滚动条 + touch 滑动），宽公式在公式块内横滑、不撑破消息列，`katex` 提升为直接 devDependency（^0.16.47，与 mermaid 传递依赖同一副本）；护栏 `tests/frontend/chat-math.test.ts`。代码块语法高亮曾随 highlight.js 依赖移除而缺失（迁移缺口），现已由自研 `src/lib/code-highlight.ts` 补齐（25 组语言：16 组既有 + 对齐轮新增 toml/ini/dockerfile/makefile/powershell/graphql/protobuf/nginx/apache；未知语言走保守通用回退；200KB 护栏；局限见该模块与 [lib 文档](src/lib/README.md)），无新增依赖。
+- **数学公式已恢复（KaTeX，2026-09-19 第十七轮）**：聊天 Markdown 重新按 KaTeX 渲染数学公式——`src/lib/chat-math.ts` 三段式（preprocessLatexDelimiters 在进 react-markdown 前把 \(...\)/\[...\] 换成占位 token + `rehypeQfMath` rehype 插件生成 `qf-math` 元素 + `src/components/chat/surface/KatexMath.tsx` 渲染，`katex/dist/katex.min.css` 在组件内引入），四定界符（行内 `$…$`、块级 `$$…$$`、行内反斜杠圆括号、块级反斜杠方括号）与旧 marked 扩展对齐：**行中与行首的 `$$…$$` 一样渲染为块级公式**（对齐旧 `blockMathDollar` 的 `start` 非空即起块、`level:'block'` 注册为 `startBlock`），保留「定界符内容不含 `$`、`.trim()`」两项旧约束；行中公式按旧块级标记拆段输出（`<p>前文 </p>` + `<div class="quickforge-katex-scroll my-4">` 公式 + `<p> 后文</p>`），不再嵌进段落；展示公式容器带 `quickforge-katex-scroll`（unlayered，overflow-x:auto + 隐藏滚动条 + touch 滑动），宽公式在公式块内横滑、不撑破消息列，`katex` 提升为直接 devDependency（^0.16.47，与 mermaid 传递依赖同一副本）；护栏 `tests/frontend/chat-math.test.ts`。代码块语法高亮曾随 highlight.js 依赖移除而缺失（迁移缺口），现已由自研 `src/lib/code-highlight.ts` 补齐（25 组语言：16 组既有 + 对齐轮新增 toml/ini/dockerfile/makefile/powershell/graphql/protobuf/nginx/apache；未知语言走保守通用回退；200KB 护栏；局限见该模块与 [lib 文档](lib/README.md)），无新增依赖。
 - **语义色分数透明度类 = 旧版 dead（勿误判为回归）**：HEAD `3e10f58` 的 `src/index.css` 没有语义色 `--color-*` 映射（旧版本由 pi-web-ui 预构建 CSS 提供），因此源码里自写的语义色透明度类（`text-foreground/90`、`hover:bg-muted/45`、`bg-border/70` …）在移除依赖前不会被 Tailwind 生成（dead，删除无视觉影响）；旧产物 `package-dist/dist/assets/index-B1G0LqYR.css` 的 `@layer utilities` 中真实存在的语义色工具类只有 **78 个**（109 处选择器）。工作区新增 `@theme inline` 全量映射后这些类会真实生效——第八轮用户反馈的「文字变淡」根因即在此。约定：新代码不得使用白名单之外的透明度档位（需要半透明时改用白名单已有档位，或旧产物已支持的 `*-[color-mix(in_oklab,var(--x)_NN%,transparent)]` 任意值写法），契约由 `tests/frontend/semantic-color-class-parity.test.ts` 固化；**白名单变更前必须重新核对旧/新产物**。同一判据下，`ui/Input` 的聚焦反馈由 dead 的 `focus-visible:border-primary` 改为白名单组合 `focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring`，属**有意补齐**（与移除依赖前实际渲染不同——旧组合是死类，该输入框此前不渲染聚焦边框）。

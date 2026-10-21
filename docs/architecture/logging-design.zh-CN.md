@@ -160,4 +160,4 @@ qf logs --grep sessionId=abc123  # 按关键字过滤
 | `src/lib/logger.ts` | **新建**：前端统一 logger |
 | `src/**/*.ts(x)` | 14 个文件，console→logger 替换 |
 | `bin/quickforge.mjs` | `logs` 命令支持 --json/--level/--grep |
-| `docs/architecture/logging-design.md` | **新建**：本文档 |
+| `docs/architecture/logging-design.zh-CN.md` | **新建**：本文档 |

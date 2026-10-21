@@ -6,7 +6,7 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 
 | 文件 | 说明 |
 |------|------|
-| [quickforge.mjs](../../bin/quickforge.mjs) | 主 CLI 入口 |
+| [quickforge.mjs](../../../bin/quickforge.mjs) | 主 CLI 入口 |
 
 ---
 

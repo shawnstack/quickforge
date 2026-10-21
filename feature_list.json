@@ -349,7 +349,6 @@
         "src/index.css",
         "src/lib/i18n.ts",
         "docs/wiki/src/lib/README.md",
-        "docs/reports/dead-code-candidates-2026-10-16.zh-CN.md",
         "feature_list.json",
         "progress.md",
         "session-handoff.md"

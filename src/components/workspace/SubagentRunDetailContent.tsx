@@ -203,7 +203,6 @@ function SubagentRunBody({ payload }: { payload: SubagentRunPayload }) {
         </div>
         {payload.allowedTools.length > 0 ? <div className="mt-2 flex flex-wrap gap-1.5">{payload.allowedTools.map((tool) => <span key={tool} className="rounded-full bg-background/90 px-2 py-0.5 text-[11px] text-muted-foreground">{tool}</span>)}</div> : null}
       </div> : null}
-      {blocks.has('traceNotice') ? <div className="quickforge-subagent-trace-notice text-xs text-muted-foreground" role="status">{t('subagentTraceTruncated')}</div> : null}
       {blocks.has('trace') ? <SubagentTrace payload={payload} /> : null}
       {blocks.has('error') ? <div className="quickforge-subagent-error rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert"><span className="font-medium">{t('subagentErrorReason')}:</span> {translateErrorMessage(payload.errorMessage) || t('subagentErrorUnavailable')}</div> : null}
       {blocks.has('output') ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('subagentResult')}</div>{renderCodeBlock(payload.output, 'text')}</div> : null}

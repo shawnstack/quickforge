@@ -46,7 +46,7 @@
 - 不是通用 JavaScript 运行时：没有文件系统、网络、定时器、`process`、`require`、`console`。
 - 不是 OS 级安全沙箱：worker thread 与 vm context 用于**隔离和可终止**，不是不可信代码的强隔离边界。
 - 不是持久化工作流引擎：没有跨会话恢复、断点续跑、定时重试或人工审核节点。
-- Subagent 运行详情与直接 `run_subagent` 共用同一个 Inspector、同一套状态/错误推导与实时 store。运行中和结束后都从 `subagentRun.messages` 渲染工具卡；单 Agent trace 有上限（运行中 50 条/80KB、终态 200 条/200KB），整份 workflow details 超预算时按 Agent 优先级裁剪：部分缩容标 `subagentRunTruncated`，整体移除标 `subagentRunDropped`；Inspector 保留最后一次可见 trace 并显示“过程记录不完整”提示，而不是退化为只有任务/结果。渲染帧若已终态而 store 仍是 running（例如 SSE 断连漏掉结束帧），渲染回填会安全修正 store。改动前的历史运行没有这份 trace。
+- Subagent 运行详情与直接 `run_subagent` 共用同一个 Inspector、同一套状态/错误推导与实时 store。运行中和结束后都从 `subagentRun.messages` 渲染工具卡；trace **不做任何体积预算裁剪**（与直接 `run_subagent` 一致，全量保留），唯一的结构性控制是运行中帧只携带仍处于 running/queued 的 Agent trace（上限为 `concurrency`），已结束 Agent 标 `subagentRunDeferred` 并由前端复用上一次可见快照，终态帧一次性带全部 Agent 的全量 trace。因此详情页不会出现“过程记录被裁剪”的提示。渲染帧若已终态而 store 仍是 running（例如 SSE 断连漏掉结束帧），渲染回填会安全修正 store。改动前的历史运行没有这份 trace。
 - 不是 REST API：`POST /api/tools/run_workflow` 明确返回 404（见 §8）。
 
 ## 2. 架构
@@ -210,12 +210,12 @@ worker → 父进程：
 | 工作流结果 | — | 1,000,000 字符 JSON | 脚本错误，工作流失败 |
 | 工具结果中的结果正文 | — | 50,000 字符 | 超出截断并追加 `…` |
 | 单 Agent 结果预览 | — | 2,000 字符 | `resultTruncated: true` |
-| 单 Agent `subagentRun` | — | 运行中 80,000 字符 JSON / 最近 50 条消息；终态 200,000 字符 / 最近 200 条消息 | 与直接 `run_subagent` 对齐：运行期有界、终态保留完整尾部。单条文本 2,000 字符、toolCall 参数 2,000 字符、`toolResult.details` 4,000 字符；从最旧消息按 10 条批量丢，并按 toolCall/toolResult 配对校正窗口；仍超限才清空 tools/messages。总预算触发的部分缩容标 `subagentRunTruncated`（详情保留最后一次可见 trace 并提示不完整） |
+| 单 Agent `subagentRun` | — | 不裁剪 | 与直接 `run_subagent` 完全一致：messages 与 tools 全量透传，单条内容也不截断。运行中帧只携带 running/queued 的 Agent trace（上限为 `concurrency`），已结束 Agent 打 `subagentRunDeferred`，由前端复用上一次可见快照；终态帧一次性带全部 Agent 的全量 trace |
 | 单工具参数 | — | 4,000 字符 JSON | 超出改存 `argsPreview` |
 | 单工具结果预览 | — | 2,000 字符 | `resultTruncated: true` |
 | 工作流结果预览 | — | 20,000 字符 | `resultTruncated: true` |
 | 进度日志条数 | — | 200 | 丢弃最旧条目 |
-| details 文本总量 | — | 运行中 240,000 字符；终态 500,000 字符 | 日志有独立 50,000 字符预算（从最新往前保留至多 50 条且累计 ≤50,000）；仍超限时缩 Agent/工具预览，再按 Agent 优先级逐级裁剪 trace（running/queued 最后、旧 Agent 先裁）：先缩到最近 10 条/20KB 并标 `subagentRunTruncated`，再整体移除并标 `subagentRunDropped`，最后才压缩结果预览；附 `detailsTruncated: true` |
+| details 文本总量 | — | 不裁剪 | 与主 Agent 一致：details 不再有总量预算，`trimDetails` / `trimSubagentTraces` / `detailsTruncated` 已整体移除；日志条数上限 200 条仍保留（丢弃最旧条目），日志文本不再按字符预算截断 |
 | 单条错误文本 | — | 2,000 字符 | 截断 |
 | 单 Agent prompt | — | 100,000 字符 | `TypeError`，通常脚本失败 |
 | 单 Agent `context` | — | 100,000 字符 | `TypeError` |
@@ -295,7 +295,6 @@ runner 在运行中与终态发送同一个形状（字段按可用性出现）�
 | `logs` | `{at, phase, message, level}[]` | 最多 200 条；`level` 为 `info` 或 `error` |
 | `resultPreview` | string | 工作流结果 JSON，最多 20,000 字符 |
 | `resultTruncated` | `true` | 结果预览被截断时出现 |
-| `detailsTruncated` | `true` | details 文本超过对应预算、日志/预览/trace 被裁剪时出现 |
 | `error` | string | 失败/中止/超时原因 |
 | `timedOut` | `true` | 超时时出现 |
 | `aborted` | `true` | 中止时出现 |
@@ -315,9 +314,8 @@ Agent record：
 | `resultPreview` | string | 最终文本或规范化 JSON，最多 2,000 字符 |
 | `resultTruncated` | `true` | Agent 结果预览被截断时出现 |
 | `error` | string | 失败原因，最多 2,000 字符 |
-| `subagentRun` | object | Inspector 用的 subagent trace：`messages`（运行中最近 50 条/≤80KB，终态最近 200 条/≤200KB；单条文本 2,000、`toolResult.details` 4,000）、`tools`（名称/标签）、`allowedTools`、`model`、`thinkingLevel`、`toolCalls`、`pendingToolCalls`、`durationMs`；窗口按 toolCall/toolResult 配对校正 |
-| `subagentRunDropped` | `true` | 该 Agent 的 trace 因总预算被完全移除时出现；Inspector 会保留最后一次可见 trace 并显示 `traceDropped` 提示（过程记录不完整），仍可用 summary/result 打开 |
-| `subagentRunTruncated` | `true` | 该 Agent 的 trace 因总预算被缩到更短窗口（非整体移除）时出现；Inspector 同样保留最后一次可见的更长 trace 并显示 `traceDropped` 提示，终态帧装得下时自动恢复完整过程 |
+| `subagentRun` | object | Inspector 用的 subagent trace，全量不裁剪：`messages`、`tools`、`allowedTools`、`model`、`thinkingLevel`、`toolCalls`、`pendingToolCalls`、`durationMs` 原样透传（与直接 `run_subagent` 一致） |
+| `subagentRunDeferred` | `true` | 运行中帧省略了该 Agent 的 trace（该帧只携带 running/queued 的 Agent trace）；前端复用上一次可见快照，不视为内容丢失；终态帧恢复全量 |
 
 Tool record：
 
@@ -354,7 +352,7 @@ Tool record：
 - 工具行复用 QuickForge 工具摘要与输出交互：参数摘要单行横向滚动（隐藏滚动条、H5 touch）、结果使用代码块/控制台块（run_command）、状态点与耗时；运行中隐藏状态区并给摘要加 running sweep，`aria-busy` 同步；
 - `run_workflow` 与 `run_subagent` 一样**不进入 process-folding 的工具摘要组**，始终保持顶层可点击卡片；否则回合结束后它会被折进收起的「已执行 N 个工具调用」组，用户难以直接展开两级详情。
 - **进入 Subagent 运行详情**：Agent 行点击派发既有 `OPEN_SUBAGENT_RUN_EVENT`，由 `src/lib/workflow-subagent-detail.ts` 把 `subagentRun` 转成 `SubagentRunPayload`，在 Workspace Inspector 打开与直接 `run_subagent` 相同的详情 Tab；任务说明取 `promptPreview`，并透传 `context` / `expectedOutput`，状态、错误、耗时、trace 与 body 块顺序均复用 `run_subagent` 的推导。
-- **实时详情通道**：`ServerAgent` 的 `tool_execution_start/update/end` 路径同时调用 `src/lib/workflow-agent-run-events.ts` 的 `WorkflowAgentRunEventPublisher`，把 `run_workflow` details 中每个 Agent 按 `${workflowRunId}:agent:${agent.id}` 发布到 `subagentRunStore`。Inspector 已打开的 Tab 通过 store 订阅持续刷新，不依赖聊天卡片是否渲染/是否被窗口化卸载；点击时优先打开 store 最新快照，store 尚无快照（历史恢复/首帧）才用当前渲染帧回填。Composer 的“运行中 subagent”指示器在 `run_workflow` 仍 pending 时也按同一前缀列出这些嵌套快照，可直接打开正在运行的 Agent。状态与错误正文复用 run_subagent 的推导（trace 终态 → output → details）；details 预算裁掉 trace 时用上一次快照回填并透出 `traceDropped`，详情页显示“过程记录超出预算”提示，不再静默闪空。
+- **实时详情通道**：`ServerAgent` 的 `tool_execution_start/update/end` 路径同时调用 `src/lib/workflow-agent-run-events.ts` 的 `WorkflowAgentRunEventPublisher`，把 `run_workflow` details 中每个 Agent 按 `${workflowRunId}:agent:${agent.id}` 发布到 `subagentRunStore`。Inspector 已打开的 Tab 通过 store 订阅持续刷新，不依赖聊天卡片是否渲染/是否被窗口化卸载；点击时优先打开 store 最新快照，store 尚无快照（历史恢复/首帧）才用当前渲染帧回填。Composer 的“运行中 subagent”指示器在 `run_workflow` 仍 pending 时也按同一前缀列出这些嵌套快照，可直接打开正在运行的 Agent。状态与错误正文复用 run_subagent 的推导（trace 终态 → output → details）；trace 不裁剪，运行中帧只省略已结束 Agent 的 trace（`subagentRunDeferred`）并复用上一次可见快照，详情页不会出现“过程记录被裁剪”提示。
 - 无视图时：尚无 result（仍在流式/准备）显示 `workflowPreparing`；已有终态 result 但没有 workflow details（审批被拒、参数校验失败、缺少 workspace/model）显示失败/完成状态与 `resultText` 错误正文，避免把失败永久显示成“正在准备”；
 - 有视图时状态映射：`error`/`aborted` 映射为错误态，`running` 映射为运行态，`done` 映射为完成态。
 
@@ -378,14 +376,14 @@ i18n 键（中英成对，位于 `src/lib/i18n.ts`）：`runWorkflow`、`workflo
 
 | 测试 | 覆盖 |
 |------|------|
-| `tests/server/agent-workflow-runner.test.mjs` | 阶段/日志/命名 Agent、`tool()` 成功/失败/预算与 Agent+工具交错、并发上限与 `parallel` 顺序、默认权限串行、`pipeline` 单项失败隔离、单 Agent/工具失败 → `null`、JSON Schema 成功/失败与 `schema:false`、hooks 白名单、Node globals 缺失、host/guest `constructor` 逃逸阻断、`maxAgents`/`maxTools` 耗尽、脚本语法错误、不可序列化结果、超时/中止后无 `running` 残留、孤儿步骤、details 总量裁剪与按 Agent 优先级保留、终态完整尾部、toolCall/toolResult 配对窗口、`parseStructuredAgentResult` 解析策略 |
+| `tests/server/agent-workflow-runner.test.mjs` | 阶段/日志/命名 Agent、`tool()` 成功/失败/预算与 Agent+工具交错、并发上限与 `parallel` 顺序、默认权限串行、`pipeline` 单项失败隔离、单 Agent/工具失败 → `null`、JSON Schema 成功/失败与 `schema:false`、hooks 白名单、Node globals 缺失、host/guest `constructor` 逃逸阻断、`maxAgents`/`maxTools` 耗尽、脚本语法错误、不可序列化结果、超时/中止后无 `running` 残留、孤儿步骤、trace 全量不裁剪（终态完整、toolCall/toolResult 保留）、运行中帧 `subagentRunDeferred` 分帧、`parseStructuredAgentResult` 解析策略 |
 | `tests/server/agent-manager.subagents.test.mjs` | 通过真实 `run_workflow` 工具执行脚本，复用真实 subagent 生命周期与真实 workspace 工具集（`tool("read_file")`、`run_in_background` 拒绝），校验内容、details、阶段与运行中更新 |
 | `tests/server/approval-store.test.mjs` | `run_workflow` 的 `/plan` 白名单与 `allowSubagents:false` 拒绝语义 |
 | `tests/server/agent-approval-orchestrator.test.mjs` | workflow step signal 中止时 pending 审批立即 reject，不等到 5 分钟审批超时 |
 | `tests/server/tools/definitions.test.mjs` | `workflowTool` 元数据、参数与 `workspaceTools` 暴露 |
 | `tests/frontend/workflow-renderer.test.ts` | 视图模型分组/状态映射/计数、Agent+工具按 seq 交错、工具行渲染、渲染器摘要与展开体、preparing 回退、脚本与 detailed JSON、注册/图标/刷新/审批接线、i18n 成对、CSS 契约 |
 | `tests/frontend/approval-card.test.ts` | `run_workflow` 标签、`workflow` / `workflow-tool` 来源徽标与风险说明 |
-| `tests/frontend/workflow-agent-run-events.test.ts` | `run_workflow` SSE → store 的实时发布、trace 裁剪回填与 `traceDropped`、终止帧不被迟到 running 帧回退、非 workflow 事件忽略 |
+| `tests/frontend/workflow-agent-run-events.test.ts` | `run_workflow` SSE → store 的实时发布、`subagentRunDeferred` 帧复用可见 trace、终止帧不被迟到 running 帧回退、非 workflow 事件忽略 |
 | `tests/frontend/workflow-step-interaction.test.ts` | 外层卡/步骤行两级展开互不干扰；Agent 行动作派发 `OPEN_SUBAGENT_RUN_EVENT`、优先打开 store 最新快照且不切换行内 details |
 
 针对性命令：

@@ -450,7 +450,7 @@ describe('run_workflow worker orchestration', () => {
     expect(result.details.agents[0].error).toMatch(/schema/i)
   })
 
-  it('keeps a bounded subagent trace with tool details while the agent is running', async () => {
+  it('keeps the untouched subagent trace with tool details while the agent is running', async () => {
     const longText = 'x'.repeat(5000)
     const runAgent = vi.fn(async (_session, _toolCallId, _params, _signal, onUpdate) => {
       onUpdate?.({
@@ -484,10 +484,9 @@ describe('run_workflow worker orchestration', () => {
     expect(run.pendingToolCalls).toEqual(['call-1'])
     expect(run.messages[1].details.durationMs).toBe(12)
     expect(run.messages[1].details.diff.path).toBe('a.ts')
-    expect(run.messages[1].content[0].text.length).toBeLessThan(longText.length)
-    expect(run.messages[1].details.diff.text.length).toBeLessThan(longText.length)
-    expect(run.tools[0].description.length).toBeLessThan(500)
-    expect(JSON.stringify(run).length).toBeLessThanOrEqual(80_000)
+    expect(run.messages[1].content[0].text).toBe(longText)
+    expect(run.messages[1].details.diff.text).toBe(longText)
+    expect(run.tools[0].description).toBe('y'.repeat(500))
     expect(run.messages.some((message) => message.content?.some?.((block) => block.type === 'toolCall'))).toBe(true)
   })
 
@@ -514,41 +513,33 @@ describe('run_workflow worker orchestration', () => {
     const result = await runWorkflowScript('return await agent("inspect", { profile: "explore", label: "tool-a" })', { runAgent })
     const run = result.details.agents[0].subagentRun
 
-    expect(result.details.agents[0].subagentRunDropped).toBeUndefined()
+    expect(result.details.agents[0].subagentRunDeferred).toBeUndefined()
     expect(run.messages.map((message) => message.role)).toEqual(['assistant', 'toolResult', 'assistant'])
     expect(run.messages[0].content[0]).toMatchObject({ type: 'toolCall', id: 'call-1', name: 'run_command' })
     expect(run.messages[1].toolCallId).toBe('call-1')
     expect(run.messages[1].details.durationMs).toBe(40)
-    expect(run.messages[1].content[0].text.length).toBeLessThan(toolOutput.length)
+    // The terminal trace is not trimmed: a workflow step shows the same full
+    // history a direct run_subagent persists.
+    expect(run.messages[1].content[0].text).toBe(toolOutput)
     expect(run.messages[2].content[0].text).toBe('MULTI_A_OK')
-    expect(JSON.stringify(run).length).toBeLessThanOrEqual(80_000)
   })
 
-  it('keeps the full terminal trace while streaming frames stay bounded', async () => {
-    const messages = Array.from({ length: 80 }, (_, index) => ({
+  it('carries the full terminal trace instead of a tail window', async () => {
+    const messages = Array.from({ length: 300 }, (_, index) => ({
       role: 'assistant',
       timestamp: index + 1,
       content: [{ type: 'text', text: `step ${index}` }],
     }))
-    const runAgent = vi.fn(async (_session, _toolCallId, _params, _signal, onUpdate) => {
-      onUpdate?.({ details: { subagent: 'explore', toolCalls: 0, messages, tools: [] } })
-      await new Promise((resolve) => setTimeout(resolve, 250))
-      return { content: 'done', details: { subagent: 'explore', toolCalls: 0, messages, tools: [] } }
-    })
-    let streaming
-    const result = await runWorkflowScript('return await agent("inspect", { profile: "explore" })', {
-      runAgent,
-      onUpdate: (update) => {
-        const snapshot = update.details?.agents?.[0]?.subagentRun
-        if (!streaming && snapshot?.messages?.length) streaming = snapshot
-      },
-    })
+    const runAgent = vi.fn(async () => ({
+      content: 'done',
+      details: { subagent: 'explore', toolCalls: 0, messages, tools: [] },
+    }))
+    const result = await runWorkflowScript('return await agent("inspect", { profile: "explore" })', { runAgent })
 
-    expect(streaming.messages).toHaveLength(50)
-    expect(result.details.agents[0].subagentRun.messages).toHaveLength(80)
+    expect(result.details.agents[0].subagentRun.messages).toHaveLength(300)
   })
 
-  it('does not split a toolCall/toolResult pair at the terminal trace window boundary', async () => {
+  it('keeps every tool call pair in the full terminal trace', async () => {
     const messages = [
       { role: 'assistant', timestamp: 0, content: [{ type: 'toolCall', id: 'boundary', name: 'read_file', arguments: { path: 'a.ts' } }] },
       ...Array.from({ length: 199 }, (_, index) => ({
@@ -570,12 +561,13 @@ describe('run_workflow worker orchestration', () => {
     const result = await runWorkflowScript('return await agent("inspect")', { runAgent })
     const run = result.details.agents[0].subagentRun
 
+    expect(run.messages).toHaveLength(messages.length)
     expect(run.messages.some((message) => message.role === 'assistant'
       && message.content?.some?.((block) => block.type === 'toolCall' && block.id === 'boundary'))).toBe(true)
     expect(run.messages.some((message) => message.role === 'toolResult' && message.toolCallId === 'boundary')).toBe(true)
   })
 
-  it('keeps the newest agent trace when the total details budget is exceeded', async () => {
+  it('keeps every agent trace in full on the terminal frame', async () => {
     const bigMessages = (tag) => Array.from({ length: 120 }, (_, index) => ({
       role: 'assistant',
       timestamp: index + 1,
@@ -596,35 +588,82 @@ describe('run_workflow worker orchestration', () => {
       'return [a, b, c]',
     ].join('\n'), { runAgent })
 
-    expect(result.details.detailsTruncated).toBe(true)
+    // No total-details budget trimming: every agent keeps its whole trace and
+    // the Inspector never has to warn about an incomplete process.
+    expect(result.details.detailsTruncated).toBeUndefined()
     const agents = result.details.agents
-    expect(agents[2].subagentRun?.messages.length ?? 0).toBeGreaterThan(10)
-    expect(agents[0].subagentRun?.messages.length ?? 0).toBeLessThanOrEqual(10)
-    // A partial shrink keeps the agent summary openable but must tell the
-    // Inspector that its trace is incomplete (not only a full drop does).
-    expect(agents[0].subagentRunTruncated).toBe(true)
-    expect(agents[2].subagentRunTruncated).not.toBe(true)
+    expect(agents).toHaveLength(3)
+    for (const agent of agents) {
+      expect(agent.subagentRun.messages).toHaveLength(120)
+      expect(agent.subagentRunDeferred).toBeUndefined()
+    }
   })
 
-  it('bounds the details payload when a script logs heavily', async () => {
+  it('defers settled agent traces on running frames only', async () => {
+    const trace = (tag) => Array.from({ length: 5 }, (_, index) => ({
+      role: 'assistant',
+      timestamp: index + 1,
+      content: [{ type: 'text', text: `${tag}-${index}` }],
+    }))
+    let resolveSecond
+    const secondDone = new Promise((resolve) => { resolveSecond = resolve })
+    const runAgent = vi.fn(async (_session, _toolCallId, params) => {
+      if (params.prompt === 'slow') {
+        await secondDone
+        return { content: 'slow done', details: { subagent: 'general', toolCalls: 0, messages: trace('slow'), tools: [] } }
+      }
+      return { content: 'fast done', details: { subagent: 'general', toolCalls: 0, messages: trace('fast'), tools: [] } }
+    })
+    const frames = []
+    const promise = runWorkflowScript([
+      'const slow = agent("slow", { label: "Slow" })',
+      'const fast = await agent("fast", { label: "Fast" })',
+      'const slowResult = await slow',
+      'return [fast, slowResult]',
+    ].join('\n'), {
+      runAgent,
+      options: { concurrency: 2 },
+      onUpdate: (update) => frames.push(update.details),
+    })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    resolveSecond()
+    const result = await promise
+
+    const withFastSettled = frames.find((details) => details.status === 'running'
+      && details.agents.some((agent) => agent.status === 'done' && agent.subagentRunDeferred === true))
+    expect(withFastSettled).toBeTruthy()
+    // The deferred flag only applies to the settled agent; the running one keeps
+    // streaming its trace in the same frame.
+    const settledAgent = withFastSettled.agents.find((agent) => agent.status === 'done')
+    expect(settledAgent?.subagentRunDeferred).toBe(true)
+    expect(settledAgent?.subagentRun).toBeUndefined()
+    const runningAgent = withFastSettled.agents.find((agent) => agent.status === 'running')
+    expect(runningAgent?.subagentRunDeferred).toBeUndefined()
+    // The terminal frame restores every trace.
+    for (const agent of result.details.agents) {
+      expect(agent.subagentRun.messages).toHaveLength(5)
+      expect(agent.subagentRunDeferred).toBeUndefined()
+    }
+  })
+
+  it('keeps every log entry a script writes', async () => {
     const result = await runWorkflowScript([
       'for (let index = 0; index < 150; index += 1) log("x".repeat(900))',
       'return 1',
     ].join('\n'), {})
 
-    expect(result.details.detailsTruncated).toBe(true)
-    expect(result.details.logs.length).toBeLessThanOrEqual(50)
+    expect(result.details.detailsTruncated).toBeUndefined()
+    expect(result.details.logs).toHaveLength(150)
   })
 
-  it('caps retained log text at the independent log budget', async () => {
+  it('retains long log text instead of trimming it to a log budget', async () => {
     const result = await runWorkflowScript([
       'for (let index = 0; index < 60; index += 1) log("y".repeat(2000))',
       'return 1',
     ].join('\n'), {})
 
-    expect(result.details.logs.length).toBeGreaterThan(0)
-    expect(result.details.logs.length).toBeLessThanOrEqual(50)
-    expect(result.details.logs.reduce((sum, log) => sum + log.message.length, 0)).toBeLessThanOrEqual(50_000)
+    expect(result.details.logs.length).toBe(60)
+    expect(result.details.logs.reduce((sum, log) => sum + log.message.length, 0)).toBeGreaterThan(50_000)
   })
 })
 

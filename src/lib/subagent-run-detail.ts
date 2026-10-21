@@ -75,8 +75,6 @@ export type SubagentRunPayload = {
   /** 失败原因；fallback 表示上游未提供可显示的具体错误正文，由渲染层本地化。 */
   errorMessage: string
   errorSource?: SubagentRunErrorSource
-  /** 服务端因 details 预算裁剪了过程 trace；详情页据此提示“过程记录不完整”。 */
-  traceDropped?: boolean
   /** 本次运行实际使用的模型；旧会话或缺失时为 undefined。 */
   model?: SubagentRunModel
   /** 本次运行实际生效的思考等级。 */
@@ -427,7 +425,6 @@ export function subagentRunFingerprint(payload: Omit<SubagentRunPayload, 'finger
       payload.statusLabel,
       payload.errorMessage,
       payload.errorSource,
-      payload.traceDropped === true,
       payload.allowedTools,
       payload.tools,
       payload.pendingToolCalls,
@@ -449,12 +446,12 @@ export function subagentRunFingerprint(payload: Omit<SubagentRunPayload, 'finger
  * task/context/expectedOutput → 运行信息 → 详细摘要 → trace → 错误正文 → 非重复 output → input → details。
  * 渲染器按此顺序输出；单元测试直接断言该顺序。
  */
-type SubagentRunBodyBlock = 'task' | 'meta' | 'summary' | 'traceNotice' | 'trace' | 'error' | 'output' | 'input' | 'details'
+type SubagentRunBodyBlock = 'task' | 'meta' | 'summary' | 'trace' | 'error' | 'output' | 'input' | 'details'
 
 export function subagentRunBodyBlocks(
   payload: Pick<
     SubagentRunPayload,
-    'task' | 'context' | 'expectedOutput' | 'model' | 'thinkingLevel' | 'status' | 'detailed' | 'traceMessages' | 'errorMessage' | 'errorSource' | 'traceDropped' | 'output' | 'input' | 'details'
+    'task' | 'context' | 'expectedOutput' | 'model' | 'thinkingLevel' | 'status' | 'detailed' | 'traceMessages' | 'errorMessage' | 'errorSource' | 'output' | 'input' | 'details'
   >,
 ): SubagentRunBodyBlock[] {
   const blocks: SubagentRunBodyBlock[] = []
@@ -463,7 +460,6 @@ export function subagentRunBodyBlocks(
   // 此时不产出空块（与渲染层 subagentRunModelLabel 的判断保持一致）。
   if (subagentRunModelLabel(payload.model) || payload.thinkingLevel) blocks.push('meta')
   if (payload.detailed) blocks.push('summary')
-  if (payload.traceDropped) blocks.push('traceNotice')
   if (payload.traceMessages.length > 0) blocks.push('trace')
   if (payload.status === 'error') blocks.push('error')
   const outputDuplicatesError = payload.errorSource === 'output' && payload.output.trim() === payload.errorMessage.trim()

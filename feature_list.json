@@ -1,11 +1,44 @@
 {
   "features": [
     {
+      "id": "workflow-detail-no-trace-trim",
+      "name": "workflow 运行详情取消所有体积裁剪（与主 Agent 一致）",
+      "description": "workflow subagent 运行详情出现「本次运行的过程记录超出详情预算，已保留最近步骤」。根因是服务端为 details 设了三层互斥的体积预算：单 Agent trace 运行中 80K/50 条、终态 200K/200 条；details 总量运行中 240K、终态 500K；日志 50K。运行中 240K 除以 80K 意味着 3 个 Agent 就必然触发裁剪，而默认并发 4、maxAgents 24，多工具 Agent 的 50 条窗口几乎必然顶到 80K，所以运行中帧几乎每次都在裁，前端把 subagentRunTruncated/subagentRunDropped 翻译成那句提示。",
+      "status": "done",
+      "dependencies": [
+        "workflow-agent-live-detail-parity"
+      ],
+      "summary": "服务端 server/agent-workflow-runner.mjs 删除全部详情裁剪：7 个预算常量与 8 个函数（compactJsonValue/compactSubagentMessage/sliceMessagesWithToolPairs/dropOrphanToolResults/compactSubagentRunDetails/detailsTextSize/trimSubagentTraces/trimDetails），新增 subagentRunDetails() 仅挑字段、messages 与 tools 原样透传；buildDetails 不再包 trimDetails，运行中帧只给 running/queued 的 Agent 带 trace（其余打 subagentRunDeferred），终态帧带全部全量 trace。MAX_LOG_ENTRIES=200 作为条数上限保留。前端删除 traceDropped、traceNotice 块与提示节点、i18n subagentTraceTruncated、subagentRunDropped/subagentRunTruncated，新增 subagentRunDeferred 并在本帧无消息时沿用 previous.traceMessages。",
+      "root_cause": "三层体积预算口径互相矛盾：单 Agent 上限 80K 与 details 总量 240K 的比值小于默认并发 4，多工具 Agent 的 50 条窗口几乎必然达到 80K 单 Agent 上限，使运行中帧几乎每次都被裁；裁剪标记一律被前端转成 traceDropped 并提示，即使已回填更完整的旧 trace 也照提示。",
+      "files": [
+        "server/agent-workflow-runner.mjs",
+        "src/lib/workflow-run-detail.ts",
+        "src/lib/workflow-subagent-detail.ts",
+        "src/lib/workflow-agent-run-events.ts",
+        "src/lib/subagent-run-detail.ts",
+        "src/components/workspace/SubagentRunDetailContent.tsx",
+        "src/lib/i18n.ts",
+        "tests/server/agent-workflow-runner.test.mjs",
+        "tests/frontend/workflow-agent-run-events.test.ts",
+        "docs/architecture/workflow-orchestration.zh-CN.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/tools/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 39 passed；npm run test 405 文件 4644 passed / 2 skipped；npm run lint 0 error（仅既有 warning）；npx tsc -b 通过；npm run build exit 0。",
+      "boundaries": "不改主 Agent 的消息增量通道与自动压缩；不改单条内容截断；保留 MAX_LOG_ENTRIES=200；不改 run_subagent 自身 trace；不回溯修复历史会话已持久化结果；不新增依赖；不手工修改生成产物。"
+    },
+    {
       "id": "session-view-ready-republish",
       "name": "保活视图重新激活时补发就绪信号（修「切回运行中会话卡在正在加载对话」）",
       "description": "切换到一个正在生成的会话再切回来，遮罩永久停在「正在加载对话」，只能刷新页面。根因是遮罩只由 ChatPanelHost 的 onInitialRenderReady 下马，而保活视图重新激活时面板主 effect 不重跑（运行中的会话常驻 taskMap，performLoadSession 走 attachTaskToView 复用同一个 agent 对象，[agent, agentRuntimeScopeId] 全不变），于是 ready 一次都不发；agent_end 也不碰 loading 状态，因此本轮结束也不会自愈。",
       "status": "done",
-      "dependencies": ["session-open-fast-path-m3"],
+      "dependencies": [
+        "session-open-fast-path-m3"
+      ],
       "summary": "① 把就绪发布收敛为单一函数 publishViewReady()，由面板初始化（同时置位 pendingHistoryHydration）与活跃性回调的「回到前台」分支共同调用；发布幂等，因为 handleSessionInitialRenderReady 只在 visibleLoadingSessionIdRef 等于该会话时生效。全量历史补齐只在初始化路径触发，重新激活不会重复 hydrate。② useAppLoadingEffects 增加 10s 过渡看门狗：把 rendered 置为当前 visible（复用正常 280ms 淡出）并 logger.warn，避免单信号协议再次丢信号造成永久卡死。",
       "root_cause": "触发需要两个条件同时成立：目标会话仍在 taskMap（仅运行中会话，空闲会话被 selectAgentTaskEvictions 在 MAX_IDLE_AGENT_TASKS=0 下 dispose，切回走 /view + restore 拿到新 agent 对象，主 effect 会重跑）＋ 视图被 SessionViewPool 保活（只翻 display，不 remount）。叠加后主 effect deps 全不变 → onInitialRenderReady 一次都不发 → renderedLoadingSessionId 永远 undefined → 淡出 effect 的 rendered === visible 前置条件不成立。",
       "files": [

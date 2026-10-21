@@ -34,8 +34,9 @@ function isWorkflowDetails(value: unknown): value is Record<string, unknown> {
  * `${workflowRunId}:agent:${agent.id}` 作为稳定 runId 发布，Inspector 已打开的
  * Tab 通过 store 订阅持续刷新，点击时也能直接取到最新快照。
  *
- * 服务端 details 预算可能整体裁掉 subagentRun 或压缩掉消息；发布器保留上一次
- * 载荷并在缺 trace 时回填（traceDropped 标记透出），避免详情页闪空。
+ * 服务端不再按体积预算裁剪 trace：运行中帧只省略已结束 Agent 的 trace
+ * （subagentRunDeferred），终态帧一次性带全量；缺 trace 时沿用上一次可见快照，
+ * 详情页不闪空，也不会把正常分帧误报成内容不完整。
  */
 export class WorkflowAgentRunEventPublisher {
   private readonly store: SubagentRunStore

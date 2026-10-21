@@ -1,3 +1,18 @@
+## workflow-detail-no-trace-trim（done，2026-10-21）
+
+- Goal：用户反馈 workflow subagent 运行详情出现「本次运行的过程记录超出详情预算，已保留最近步骤」，要求服务端**不要再有任何裁剪逻辑**（与主 Agent 一致）。
+- 根因：`run_workflow` 的 details 每 200ms 整份重发，历史上为避免传输膨胀加了三层预算：单 Agent `subagentRun` 80K/50 条（终态 200K/200 条）、details 总量 240K（终态 500K）、日志 50K。三者口径本身不成立——运行中总量 240K ÷ 单 Agent 80K = **3 个 Agent 必然触发**，而默认并发 4、maxAgents 24，多工具 Agent 的 50 条消息几乎必然顶到 80K，所以运行中帧几乎每次都在裁。裁剪结果通过 `subagentRunTruncated` / `subagentRunDropped` → 前端 `traceDropped` → `traceNotice` 块翻译成那句提示；`traceTruncated` 只要为真就提示，哪怕前端已用 `previousTrace` 回填出更完整的旧 trace，所以还会出现「内容都在却说不完整」的矛盾观感。
+- 决策：**全删裁剪 + 把流式帧瘦身改成结构性控制**。直接删预算会让 24 个 Agent × 上百条消息在每 200ms 的帧里全量重发（数 MB/帧、CPU 在对整份对象 `JSON.stringify` 上打尖）。改为：运行中帧只携带 running/queued 的 Agent trace（上限是 `concurrency`，默认 4），其余打 `subagentRunDeferred: true`；终态帧一次性带全部 Agent 的全量 trace。
+- 服务端（`server/agent-workflow-runner.mjs`）：删除 `MAX_DETAILS_TEXT` / `MAX_DETAILS_TEXT_STREAMING` / `MAX_LOG_TEXT` / `MAX_SUBAGENT_RUN_JSON` / `MAX_SUBAGENT_RUN_JSON_TERMINAL` / `MAX_SUBAGENT_TRACE_MESSAGES` / `MAX_SUBAGENT_TRACE_MESSAGES_TERMINAL` 与 `compactJsonValue` / `compactSubagentMessage` / `sliceMessagesWithToolPairs` / `dropOrphanToolResults` / `compactSubagentRunDetails` / `detailsTextSize` / `trimSubagentTraces` / `trimDetails` 共 8 个函数（约 130 行）；新增 `subagentRunDetails()` 只挑字段（messages/tools 原样透传，不再按字符或条数截断）。`buildDetails` 去掉 `trimDetails` 包裹，按 `streaming && 非 running/queued` 决定是否省略 trace。`MAX_LOG_ENTRIES = 200` 保留（条数上限，非体积裁剪）。
+- 前端：删除 `SubagentRunPayload.traceDropped`、`subagentRunBodyBlocks()` 的 `traceNotice` 块、`SubagentRunDetailContent` 的提示节点、i18n `subagentTraceTruncated`（中英）、`WorkflowAgentView.subagentRunDropped/subagentRunTruncated`、`subagentRunFingerprint` 里的 `traceDropped`。新增 `WorkflowAgentView.subagentRunDeferred`；`buildWorkflowSubagentRunPayload` 在 `deferred && ownMessages.length === 0` 时沿用 `previous.traceMessages`——不标任何「丢失」标记，因为这是正常分帧。
+- 测试：`agent-workflow-runner.test.mjs` 把「预算裁剪/保留最新 trace/日志 50K 上限」4 个用例改为「全量不裁剪」契约（300 条消息完整、toolCall/toolResult 配对完整、3 个 Agent 各 120 条全保留、150 条日志全保留、长日志不截断），新增「运行中帧只 deferred 已结束 Agent」用例；`workflow-agent-run-events.test.ts` 的 `traceDropped` 断言改为 `subagentRunDeferred` 回填语义（含「迟到帧不得把 20 条缩回 1 条」）。
+- 验证：定向 `npx vitest run tests/server/agent-workflow-runner.test.mjs tests/frontend/workflow-agent-run-events.test.ts` 39 passed；`npm run test` 405 文件 4644 passed / 2 skipped；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` exit 0（3.58s）。
+- 文档：`docs/architecture/workflow-orchestration.zh-CN.md`（第 49 行概览、第 4 节预算表两行改为「不裁剪」、details 字段表删除 `detailsTruncated`、Agent record 表两行改 `subagentRun`/`subagentRunDeferred`、7.3 实时通道段、测试清单）；`docs/wiki/src/lib/README.md`（三个条目 + body blocks + fingerprint）；`docs/wiki/server/README.md`（两段）；`docs/wiki/server/tools/README.md`（Workflow 约束段）。
+- Notes：未新增/升级依赖；未手工修改生成产物；未创建 Git commit。**历史会话里已持久化的 workflow details 仍带旧裁剪痕迹**（不会回溯修复），且旧载荷里的 `subagentRunDropped`/`subagentRunTruncated` 现在会被前端忽略——即旧会话详情不会再显示那句提示，但也无法恢复已裁掉的内容，需要重跑该 workflow 才能看到完整过程。另一个未处理点：主 Agent 的 trace 走增量通道（`messageAfter` 游标），workflow 仍是整份 details 重发，若将来 Agent 单步消息量再上量级，可考虑给 `subagentRun.messages` 也做增量或按 Agent 分片推送。
+
+---
+
+
 ## session-view-ready-republish（done，2026-10-21）
 
 - Goal：修「切换到一个正在生成的会话，再切回来，永久卡在『正在加载对话』，只能刷新页面」。

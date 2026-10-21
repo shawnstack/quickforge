@@ -50,16 +50,11 @@ export function buildWorkflowSubagentRunPayload(
   const previous = options.previous
   const ownMessages = Array.isArray(run?.messages) ? subagentProcessTraceMessages(run.messages) : []
   const previousTrace = previous?.traceMessages ?? []
-  // A server-side budget drop removes the whole subagentRun object; a compacted
-  // trace can also end up with zero messages. A partial shrink (truncated) keeps
-  // the last visible, longer trace instead of silently removing tool cards the
-  // user already saw; the terminal frame restores the full trace when it fits.
-  const traceTruncated = agent.subagentRunTruncated === true
-  const keepPreviousTrace = previousTrace.length > ownMessages.length
-    && (agent.subagentRunDropped === true || traceTruncated)
-  const traceDropped = agent.subagentRunDropped === true || traceTruncated
-    || (ownMessages.length === 0 && previousTrace.length > 0)
-  const traceMessages = keepPreviousTrace || ownMessages.length === 0 ? previousTrace : ownMessages
+  // 服务端不再按预算裁剪 trace：运行中帧只省略已结束 Agent 的 trace
+  // （subagentRunDeferred），终态帧一次性带全量。缺 trace 时沿用上一次可见
+  // 快照，保证详情页不闪空，且这属于正常分帧而非内容丢失，不提示不完整。
+  const deferred = agent.subagentRunDeferred === true && ownMessages.length === 0
+  const traceMessages = deferred || ownMessages.length === 0 ? previousTrace : ownMessages
   const tools = Array.isArray(run?.tools) && run.tools.length > 0 ? run.tools : previous?.tools ?? []
   const allowedTools = run ? stringArray(run.allowedTools) : previous?.allowedTools ?? []
   const pendingToolCalls = run ? stringArray(run.pendingToolCalls) : previous?.pendingToolCalls ?? []
@@ -146,7 +141,6 @@ export function buildWorkflowSubagentRunPayload(
     details,
     output,
     ...error,
-    ...(traceDropped ? { traceDropped: true } : {}),
     ...(model ? { model } : {}),
     ...(thinkingLevel ? { thinkingLevel } : {}),
     detailed: (options.toolDisplayMode ?? getCachedToolDisplaySettings().toolDisplayMode) === 'detailed',

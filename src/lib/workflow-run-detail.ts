@@ -27,11 +27,13 @@ export type WorkflowAgentView = {
   expectedOutput: string
   resultPreview: string
   error: string
-  /** Bounded subagent run trace captured by the workflow runner. */
+  /** Subagent run trace captured by the workflow runner (never trimmed). */
   subagentRun?: Record<string, unknown>
-  subagentRunDropped: boolean
-  /** 服务端为总预算把 trace 缩到更短窗口（非整体移除）；详情保留最后一次可见 trace 并提示不完整。 */
-  subagentRunTruncated: boolean
+  /**
+   * 运行中帧省略了该 Agent 的 trace（只带仍运行中的 Agent trace），
+   * 前端复用上一次可见快照，不视为内容丢失。
+   */
+  subagentRunDeferred: boolean
 }
 
 export type WorkflowToolView = {
@@ -126,8 +128,7 @@ function normalizeAgent(value: unknown, index: number): WorkflowAgentView | null
     resultPreview: text(value.resultPreview),
     error: text(value.error),
     ...(isRecord(value.subagentRun) ? { subagentRun: value.subagentRun } : {}),
-    subagentRunDropped: value.subagentRunDropped === true,
-    subagentRunTruncated: value.subagentRunTruncated === true,
+    subagentRunDeferred: value.subagentRunDeferred === true,
   }
 }
 

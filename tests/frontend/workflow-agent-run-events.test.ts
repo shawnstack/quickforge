@@ -145,7 +145,7 @@ describe('WorkflowAgentRunEventPublisher', () => {
     expect(done?.timing).toMatchObject({ startedAt: 1000, durationMs: 500 })
   })
 
-  it('keeps the last visible trace and flags it when a frame drops subagentRun', () => {
+  it('keeps the last visible trace when a frame carries no subagentRun', () => {
     const store = new SubagentRunStore()
     const publisher = createPublisher(store)
     publisher.handleToolUpdate({
@@ -166,7 +166,6 @@ describe('WorkflowAgentRunEventPublisher', () => {
             ...droppedAgent,
             status: 'done',
             durationMs: 500,
-            subagentRunDropped: true,
             resultPreview: 'done',
           }],
         }),
@@ -175,11 +174,10 @@ describe('WorkflowAgentRunEventPublisher', () => {
 
     const done = store.get('wf-1:agent:agent-1')
     expect(done?.status).toBe('done')
-    expect(done?.traceDropped).toBe(true)
     expect(done?.traceMessages).toHaveLength(1)
   })
 
-  it('keeps the longer visible trace when a running frame is partially truncated', () => {
+  it('reuses the visible trace when a running frame defers a settled agent trace', () => {
     const store = new SubagentRunStore()
     const publisher = createPublisher(store)
     const fullTrace = Array.from({ length: 30 }, (_, index) => ({
@@ -202,20 +200,21 @@ describe('WorkflowAgentRunEventPublisher', () => {
     })
     expect(store.get('wf-1:agent:agent-1')?.traceMessages).toHaveLength(30)
 
-    // Budget trimming shrinks this frame to the last 5 messages but marks it
-    // incomplete; the Inspector must not silently drop 25 cards the user saw.
+    // A throttled running frame only carries the agents that are still running,
+    // so this settled agent's trace is deferred. The Inspector keeps showing the
+    // trace the user already saw, and it is not reported as incomplete.
+    const deferredAgent = Object.fromEntries(
+      Object.entries(agentWithTrace([])).filter(([key]) => key !== 'subagentRun'),
+    )
     publisher.handleToolUpdate({
       toolCallId: 'wf-1',
       partialResult: {
         content: [],
-        details: workflowDetails({
-          agents: [agentWithTrace(fullTrace.slice(-5), { subagentRunTruncated: true })],
-        }),
+        details: workflowDetails({ agents: [{ ...deferredAgent, subagentRunDeferred: true }] }),
       },
     })
     const payload = store.get('wf-1:agent:agent-1')
     expect(payload?.traceMessages).toHaveLength(30)
-    expect(payload?.traceDropped).toBe(true)
   })
 
   it('backfills from the newer store snapshot instead of an older publish cache', () => {
@@ -273,6 +272,9 @@ describe('WorkflowAgentRunEventPublisher', () => {
 
     // A late duplicate end frame without a trace must not shrink the store back
     // to this publisher's 1-message cache.
+    const deferredAgent = Object.fromEntries(
+      Object.entries(workflowDetails().agents[0]).filter(([key]) => key !== 'subagentRun'),
+    )
     publisher.handleToolEnd({
       toolCallId: 'wf-1',
       result: {
@@ -280,18 +282,17 @@ describe('WorkflowAgentRunEventPublisher', () => {
         details: workflowDetails({
           status: 'done',
           agents: [{
-            ...workflowDetails().agents[0],
+            ...deferredAgent,
             status: 'done',
             durationMs: 500,
             resultPreview: 'done',
-            subagentRunDropped: true,
+            subagentRunDeferred: true,
           }],
         }),
       },
     })
     const payload = store.get('wf-1:agent:agent-1')
     expect(payload?.traceMessages).toHaveLength(20)
-    expect(payload?.traceDropped).toBe(true)
   })
 
   it('never regresses a finished run to running on a late frame', () => {

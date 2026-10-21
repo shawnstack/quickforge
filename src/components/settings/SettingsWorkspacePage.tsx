@@ -4,20 +4,20 @@ import {
   ArrowUp,
   BookOpen,
   Bot,
+  Brain,
   CalendarClock,
   ChevronRight,
   Database,
-  DownloadCloud,
   Globe2,
   Info,
-  Server,
-  Brain,
-  Link2,
   Palette,
   Puzzle,
+  Search,
+  Server,
   SlidersHorizontal,
   SquareTerminal,
   Webhook,
+  X,
   type LucideIcon,
 } from 'lucide-react'
 import { cloneElement, useEffect, useMemo, useRef, useState } from 'react'
@@ -33,22 +33,23 @@ type SettingsWorkspacePageProps = {
   onBack: () => void
 }
 
+type SettingsRegistry = ReturnType<typeof createSettingsTabs>
+type SettingsNavItem = SettingsRegistry['items'][number]
+
 const SETTINGS_TAB_ICONS = {
-  appearance: Palette,
   defaults: SlidersHorizontal,
+  appearance: Palette,
   memory: Brain,
+  network: Globe2,
   customModels: Database,
   agents: Bot,
   skills: BookOpen,
   mcp: Server,
   plugins: Puzzle,
+  hooks: Webhook,
   scheduledTasks: CalendarClock,
   projectCommands: SquareTerminal,
-  hooks: Webhook,
-  backup: DownloadCloud,
-  archivedConversations: Archive,
-  shareLinks: Link2,
-  lanAccess: Globe2,
+  data: Archive,
   about: Info,
 } satisfies Record<SettingsInitialTab, LucideIcon>
 
@@ -59,9 +60,8 @@ const SETTINGS_TAB_ICONS = {
 const STATE_PRESERVING_TAB_KEYS = new Set<SettingsInitialTab>([
   'customModels',
   'defaults',
-  'backup',
-  'archivedConversations',
-  'lanAccess',
+  'data',
+  'network',
   'about',
 ])
 
@@ -71,10 +71,28 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
   const [selectedTabIndex, setSelectedTabIndex] = useState<number | undefined>()
   // 移动端钻取导航：null = 主菜单，非 null = 二级页（对应 tab index）
   const [mobileDetail, setMobileDetail] = useState<number | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const activeTabIndex = selectedTabIndex ?? defaultTabIndex
   const activeItem = settings.items[activeTabIndex] ?? settings.items[0]
   const activeDescription = activeItem?.getDescription?.()
   const ActiveIcon = activeItem ? SETTINGS_TAB_ICONS[activeItem.key] : undefined
+  const aboutItem = settings.about
+  const aboutIndex = aboutItem ? settings.items.indexOf(aboutItem) : -1
+
+  const normalizedQuery = searchQuery.trim().toLowerCase()
+  const groupLabelFor = (groupKey: string | undefined) => settings.groups.find((group) => group.key === groupKey)?.getLabel() ?? ''
+  const matchesSearch = (item: SettingsNavItem) => {
+    if (!normalizedQuery) return true
+    return [item.getTabName(), item.getDescription?.() ?? '', item.keywords, groupLabelFor(item.group)]
+      .join(' ')
+      .toLowerCase()
+      .includes(normalizedQuery)
+  }
+  const visibleGroups = settings.groups
+    .map((group) => ({ key: group.key, getLabel: group.getLabel, items: group.items.filter(matchesSearch) }))
+    .filter((group) => group.items.length > 0)
+  const aboutVisible = Boolean(aboutItem && matchesSearch(aboutItem))
+  const hasNoResults = Boolean(normalizedQuery) && visibleGroups.length === 0 && !aboutVisible
 
   // 有页内中间态的 tab：首次激活后保持挂载，切走时仅以 hidden 隐藏而非卸载，
   // 对齐旧版 tab 元素常驻、切回仅刷新数据的语义；其它 tab 维持切换即卸载的现状。
@@ -93,6 +111,59 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
     contentRef.current?.scrollTo({ top: 0 })
   }, [activeTabIndex, mobileDetail])
 
+  const selectTab = (index: number) => {
+    setSelectedTabIndex(index)
+    setSearchQuery('')
+  }
+  const selectMobileTab = (index: number) => {
+    setSelectedTabIndex(index)
+    setSearchQuery('')
+    setMobileDetail(index)
+  }
+  const clearSearch = () => setSearchQuery('')
+
+  const renderDesktopNavItem = (item: SettingsNavItem, index: number) => {
+    const active = index === activeTabIndex
+    const Icon = SETTINGS_TAB_ICONS[item.key]
+    return (
+      <button
+        key={item.key}
+        type="button"
+        className={cn(
+          'group relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left text-sm leading-5 transition-[background-color,color,box-shadow] duration-160 ease-out',
+          active
+            ? 'bg-[var(--quickforge-sidebar-active-bg)] font-medium shadow-[0_8px_22px_-20px_rgb(15_23_42_/_0.32)]'
+            : 'hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:shadow-[0_8px_20px_-18px_rgb(15_23_42_/_0.35)]',
+        )}
+        onClick={() => selectTab(index)}
+        aria-current={active ? 'page' : undefined}
+      >
+        <span className="inline-flex size-5 shrink-0 items-center justify-center transition-colors">
+          <Icon className="size-4" aria-hidden="true" />
+        </span>
+        <span className="truncate">{item.getTabName()}</span>
+      </button>
+    )
+  }
+
+  const renderMobileNavItem = (item: SettingsNavItem, index: number) => {
+    const Icon = SETTINGS_TAB_ICONS[item.key]
+    return (
+      <button
+        key={item.key}
+        type="button"
+        className="quickforge-settings-mobile-list-item"
+        onClick={() => selectMobileTab(index)}
+      >
+        <span className="quickforge-settings-mobile-list-icon">
+          <Icon className="size-4 shrink-0" aria-hidden="true" />
+        </span>
+        <span className="quickforge-settings-mobile-list-label">{item.getTabName()}</span>
+        <ChevronRight className="quickforge-settings-mobile-list-chevron size-4 shrink-0" aria-hidden="true" />
+      </button>
+    )
+  }
+
   return (
     <div className="flex h-screen min-h-0 supports-[height:100dvh]:h-dvh bg-[var(--quickforge-sidebar-bg)] text-foreground">
       <aside className="relative z-10 hidden w-80 shrink-0 overflow-hidden bg-[var(--quickforge-sidebar-bg)] md:flex md:min-h-0 md:flex-col">
@@ -108,40 +179,57 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
             </span>
             <span className="truncate text-sm leading-5">返回工作区</span>
           </button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-4">
-          <nav className="space-y-1" aria-label={t('settings')}>
-            {settings.items.map((item, index) => {
-              const active = index === activeTabIndex
-              const Icon = SETTINGS_TAB_ICONS[item.key]
-              return (
+          <div className="relative mt-2">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') clearSearch()
+              }}
+              placeholder={t('searchSettings')}
+              aria-label={t('searchSettings')}
+              className="h-8 w-full rounded-lg border border-transparent bg-[var(--quickforge-sidebar-hover-bg)] pl-8 pr-7 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-[color-mix(in_oklab,var(--border)_60%,transparent)]"
+            />
+            {searchQuery
+              ? (
                 <button
-                  key={item.key}
                   type="button"
-                  className={cn(
-                    'group relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg px-2 py-1.5 text-left text-sm leading-5 transition-[background-color,color,box-shadow] duration-160 ease-out',
-                    active
-                      ? 'bg-[var(--quickforge-sidebar-active-bg)] font-medium shadow-[0_8px_22px_-20px_rgb(15_23_42_/_0.32)]'
-                      : 'hover:bg-[var(--quickforge-sidebar-hover-bg)] hover:shadow-[0_8px_20px_-18px_rgb(15_23_42_/_0.35)]',
-                  )}
-                  onClick={() => setSelectedTabIndex(index)}
-                  aria-current={active ? 'page' : undefined}
+                  className="absolute right-1 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={clearSearch}
+                  aria-label={t('clearSearch')}
                 >
-                  <span
-                    className={cn(
-                      'inline-flex size-5 shrink-0 items-center justify-center transition-colors',
-                      active ? '' : '',
-                    )}
-                  >
-                    <Icon className="size-4" aria-hidden="true" />
-                  </span>
-                  <span className="truncate">{item.getTabName()}</span>
+                  <X className="size-3.5" />
                 </button>
               )
-            })}
+              : null}
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-2">
+          <nav className="space-y-1" aria-label={t('settings')}>
+            {hasNoResults
+              ? <div className="px-2 py-6 text-center text-xs text-muted-foreground">{t('noMatchingSettings')}</div>
+              : null}
+            {visibleGroups.map((group) => (
+              <div key={group.key} className="pb-4 last:pb-0">
+                <div className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">{group.getLabel()}</div>
+                <div className="space-y-1">
+                  {group.items.map((item) => renderDesktopNavItem(item, settings.items.indexOf(item)))}
+                </div>
+              </div>
+            ))}
           </nav>
         </div>
+
+        {aboutItem && aboutVisible
+          ? (
+            <div className="shrink-0 border-t border-[color-mix(in_oklab,var(--border)_60%,transparent)] px-3 py-2">
+              {renderDesktopNavItem(aboutItem, aboutIndex)}
+            </div>
+          )
+          : null}
       </aside>
 
       <main className="relative flex min-w-0 flex-1 flex-col bg-[var(--quickforge-main-bg)] md:overflow-hidden md:rounded-tl-2xl md:border-l md:border-t border-[color-mix(in_oklab,var(--border)_60%,transparent)]">
@@ -171,30 +259,57 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
         </header>
 
         <div className={cn('flex min-h-0 flex-1 flex-col md:hidden', mobileDetail !== null && 'hidden')}>
-          <nav className="quickforge-settings-mobile-list" aria-label={t('settings')}>
-            <div className="quickforge-settings-mobile-list-card">
-              {settings.items.map((item, index) => {
-                const Icon = SETTINGS_TAB_ICONS[item.key]
-                return (
+          <div className="quickforge-settings-mobile-list">
+            <div className="quickforge-settings-inline-field px-1 pb-2 pt-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') clearSearch()
+                }}
+                className="quickforge-settings-input pr-10"
+                placeholder={t('searchSettings')}
+                aria-label={t('searchSettings')}
+              />
+              {searchQuery
+                ? (
                   <button
-                    key={item.key}
                     type="button"
-                    className="quickforge-settings-mobile-list-item"
-                    onClick={() => {
-                      setSelectedTabIndex(index)
-                      setMobileDetail(index)
-                    }}
+                    className="quickforge-settings-inline-field-button"
+                    onClick={clearSearch}
+                    aria-label={t('clearSearch')}
                   >
-                    <span className="quickforge-settings-mobile-list-icon">
-                      <Icon className="size-4 shrink-0" aria-hidden="true" />
-                    </span>
-                    <span className="quickforge-settings-mobile-list-label">{item.getTabName()}</span>
-                    <ChevronRight className="quickforge-settings-mobile-list-chevron size-4 shrink-0" aria-hidden="true" />
+                    <X className="size-4" />
                   </button>
                 )
-              })}
+                : null}
             </div>
-          </nav>
+            <nav className="flex flex-col gap-4" aria-label={t('settings')}>
+              {hasNoResults
+                ? <div className="px-2 py-6 text-center text-sm text-muted-foreground">{t('noMatchingSettings')}</div>
+                : null}
+              {visibleGroups.map((group) => (
+                <div key={group.key}>
+                  <div className="px-2 pb-1.5 text-[11px] font-medium text-muted-foreground">{group.getLabel()}</div>
+                  <div className="quickforge-settings-mobile-list-card">
+                    {group.items.map((item) => renderMobileNavItem(item, settings.items.indexOf(item)))}
+                  </div>
+                </div>
+              ))}
+              {aboutItem && aboutVisible
+                ? (
+                  <div>
+                    <div className="px-2 pb-1.5 text-[11px] font-medium text-muted-foreground">{t('about')}</div>
+                    <div className="quickforge-settings-mobile-list-card">
+                      {renderMobileNavItem(aboutItem, aboutIndex)}
+                    </div>
+                  </div>
+                )
+                : null}
+            </nav>
+          </div>
         </div>
 
         <section

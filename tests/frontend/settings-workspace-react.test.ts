@@ -30,7 +30,7 @@ import { ReactSettingsTabContent } from '../../src/lib/react-settings-tabs'
 import { SettingsWorkspacePage } from '../../src/components/settings/SettingsWorkspacePage'
 import { CustomProvidersSettingsTab } from '../../src/components/settings/tabs/CustomProvidersSettingsTab'
 
-const keys: SettingsInitialTab[] = ['appearance', 'defaults', 'memory', 'customModels', 'agents', 'skills', 'mcp', 'plugins', 'scheduledTasks', 'projectCommands', 'hooks', 'backup', 'archivedConversations', 'shareLinks', 'lanAccess', 'about']
+const keys: SettingsInitialTab[] = ['defaults', 'appearance', 'memory', 'network', 'customModels', 'agents', 'skills', 'mcp', 'plugins', 'hooks', 'scheduledTasks', 'projectCommands', 'data', 'about']
 type TestNode = ReactElement<Record<string, unknown> & { children?: unknown }>
 function nodes(tree: unknown): TestNode[] {
   if (Array.isArray(tree)) return tree.flatMap(nodes)
@@ -53,12 +53,12 @@ function render(initialTab: SettingsInitialTab = 'appearance', customProvider?: 
 function content(tree: TestNode[]) { return tree.find((node) => node.type === ReactSettingsTabContent)! }
 
 describe('pure React settings registry', () => {
-  it('preserves all seventeen ordered keys, names, descriptions and initial provider', () => {
+  it('preserves all fourteen ordered keys, names, descriptions and initial provider', () => {
     const registry = createSettingsTabs('provider-id')
     expect(registry.items.map((item) => item.key)).toEqual(keys)
     expect(registry.items.map((item) => item.getTabName())).toEqual([
-      'en:appearance', 'en:defaultOptions', 'en:memory', 'en:customModels', 'en:agentsTab', 'en:skills', 'en:mcpServers', 'en:plugins',
-      'en:scheduledTasks', 'en:projectCommands', 'en:hooksTab', 'en:backupRestore', 'en:archivedConversations', 'en:shareLinks', 'en:lanAccess', 'en:about',
+      'en:defaultOptions', 'en:appearance', 'en:memory', 'en:networkAndDevices', 'en:customModels', 'en:agentsTab', 'en:skills',
+      'en:mcpServers', 'en:plugins', 'en:hooksTab', 'en:scheduledTasks', 'en:projectCommands', 'en:dataManagement', 'en:about',
     ])
     for (const key of keys) {
       const item = registry.items[registry.indexOf(key)]
@@ -67,10 +67,11 @@ describe('pure React settings registry', () => {
       expect(item.getDescription === undefined).toBe(key === 'mcp' || key === 'plugins')
     }
     language.current = 'zh'
-    expect(registry.items[0].getTabName()).toBe('zh:appearance')
-    expect(registry.items[0].getDescription?.()).toBe('zh:appearanceDescription')
+    expect(registry.items[0].getTabName()).toBe('zh:defaultOptions')
+    expect(registry.items[0].getDescription?.()).toBe('zh:defaultOptionsDescription')
     // Provider changes reset the tab instance, preserving the old factory's auto-edit behavior.
-    expect(createSettingsTabs('next-provider').items[3].content.key).not.toBe(registry.items[3].content.key)
+    const customModelsIndex = registry.indexOf('customModels')
+    expect(createSettingsTabs('next-provider').items[customModelsIndex].content.key).not.toBe(registry.items[customModelsIndex].content.key)
   })
 
   it('renders distinct lazy React components and preserves management page contracts', () => {
@@ -78,25 +79,23 @@ describe('pure React settings registry', () => {
       const tree = nodes(ReactSettingsTabContent({ tabKey, customProvider: 'chosen' }))
       return tree.find((node) => typeof node.type === 'object')!
     })
-    expect(new Set(components.map((node) => node.type)).size).toBe(16)
-    expect(components[3].props.customProvider).toBe('chosen')
-    expect(components[5].props).toMatchObject({ active: true, scope: 'global', embedded: true })
-    expect(components[6].props.active).toBe(true)
+    expect(new Set(components.map((node) => node.type)).size).toBe(14)
+    expect(components[4].props.customProvider).toBe('chosen')
+    expect(components[6].props).toMatchObject({ active: true, scope: 'global', embedded: true })
+    expect(components[7].props.active).toBe(true)
     const dispatchEvent = vi.fn()
     vi.stubGlobal('window', { dispatchEvent })
-    ;(components[8].props.onOpenSession as (sessionId: string) => void)('session-1')
+    ;(components[10].props.onOpenSession as (sessionId: string) => void)('session-1')
     expect(dispatchEvent.mock.calls[0][0]).toMatchObject({ type: 'quickforge:open-session-from-settings', detail: { sessionId: 'session-1' } })
   })
 
   it('forwards the workspace active flag into the tabs that can be reactivated', () => {
     const component = (tabKey: SettingsInitialTab, active: boolean) =>
       nodes(ReactSettingsTabContent({ tabKey, active })).find((node) => typeof node.type === 'object')!
-    for (const tabKey of ['defaults', 'customModels', 'archivedConversations', 'lanAccess', 'about'] as const) {
+    for (const tabKey of ['defaults', 'customModels', 'network', 'data', 'about'] as const) {
       expect(component(tabKey, true).props.active).toBe(true)
       expect(component(tabKey, false).props.active).toBe(false)
     }
-    // backup 旧版没有生命周期钩子，无需 active。
-    expect(component('backup', false).props.active).toBeUndefined()
   })
 
   it('has no imperative entry bridge or legacy shared-control imports', () => {
@@ -116,6 +115,32 @@ describe('pure React settings registry', () => {
 })
 
 describe('React settings workspace navigation', () => {
+  it('renders the three navigation groups in order and pins about separately', () => {
+    const tree = render('defaults')
+    const allText = text(tree)
+    const labels = ['en:settingsGroupBasic', 'en:settingsGroupAi', 'en:settingsGroupAutomation'].map((label) => allText.indexOf(label))
+    expect(labels.every((index) => index >= 0)).toBe(true)
+    expect(labels[0]).toBeLessThan(labels[1])
+    expect(labels[1]).toBeLessThan(labels[2])
+    expect(allText.indexOf('en:about')).toBeGreaterThan(labels[2])
+  })
+
+  it('filters grouped navigation by keywords and clears the search after selection', () => {
+    let tree = render('defaults')
+    const search = tree.find((node) => node.type === 'input' && node.props['aria-label'] === 'en:searchSettings')!
+    ;(search.props.onChange as (event: { currentTarget: { value: string } }) => void)({ currentTarget: { value: 'proxy' } })
+    tree = render('defaults')
+    expect(tree.some((node) => node.type === 'button' && text(node) === 'en:networkAndDevices')).toBe(true)
+    expect(tree.some((node) => node.type === 'button' && text(node) === 'en:appearance')).toBe(false)
+
+    click(tree.find((node) => node.type === 'button' && text(node) === 'en:networkAndDevices')!)
+    tree = render('defaults')
+    const activeContent = tree.find((node) => node.type === ReactSettingsTabContent && node.props.active === true)
+    expect(activeContent?.props.tabKey).toBe('network')
+    expect(tree.find((node) => node.type === 'input' && node.props['aria-label'] === 'en:searchSettings')!.props.value).toBe('')
+    expect(tree.some((node) => node.type === 'button' && text(node) === 'en:appearance')).toBe(true)
+  })
+
   it('uses the initial tab/provider and a React content element', () => {
     const tree = render('customModels', 'custom-id')
     expect(content(tree).props).toMatchObject({ tabKey: 'customModels', customProvider: 'custom-id' })
@@ -190,9 +215,8 @@ describe('React settings workspace navigation', () => {
   it('keeps every other tab with page-local state mounted and hidden after leaving it', () => {
     const tabNames: [SettingsInitialTab, string][] = [
       ['defaults', 'en:defaultOptions'],
-      ['backup', 'en:backupRestore'],
-      ['archivedConversations', 'en:archivedConversations'],
-      ['lanAccess', 'en:lanAccess'],
+      ['data', 'en:dataManagement'],
+      ['network', 'en:networkAndDevices'],
       ['about', 'en:about'],
     ]
     for (const [tabKey, tabName] of tabNames) {
@@ -215,13 +239,15 @@ describe('React settings workspace navigation', () => {
   })
 
   it('stops the state-preserving tabs while hidden and reloads them on reactivation', () => {
-    // 这 5 个 tab 的加载 effect 对齐旧版 Lit connectedCallback：首次激活与每次重新激活时执行，
+    // 这些 tab 的加载 effect 对齐旧版 Lit connectedCallback：首次激活与每次重新激活时执行，
     // 显式 active === false 时跳过（无 props 的单测仍按激活处理）；backup 无生命周期钩子，无需 active。
     for (const path of [
       'src/components/settings/tabs/DefaultOptionsSettingsTab.tsx',
       'src/components/settings/tabs/CustomProvidersSettingsTab.tsx',
       'src/components/settings/tabs/ArchivedConversationsSettingsTab.tsx',
       'src/components/settings/tabs/LanAccessSettingsTab.tsx',
+      'src/components/settings/tabs/NetworkProxySettingsSection.tsx',
+      'src/components/share/ShareLinksSettingsPage.tsx',
       'src/components/settings/tabs/AboutSettingsTab.tsx',
     ]) {
       const source = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')

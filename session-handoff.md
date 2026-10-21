@@ -1,3 +1,36 @@
+## 当前交接：appearance-settings-preview-redesign（done，2026-10-21）
+
+- Current Objective（当前目标）: 把设置·外观从简单分段按钮 + 滑杆调整成设计稿风格：主题大卡片预览、字号分组、实时对话预览。已完成，未提交。
+- 核心改动: `AppearanceSettingsTab` 新增 `ThemePreview` 迷你明暗预览；主题选择改为两张 `quickforge-appearance-theme-tile` 卡片（aria-pressed + 勾选圆点）；字号独立分组；新增“对话预览”卡片，头部用 `interfaceFontSizePx`、消息用 `messageFontSizePx` 实时渲染；`FontSizeSlider` 增加 `ariaLabel`。`index.css` 新增主题卡片/预览/分组说明/对话预览样式，移动端单列；i18n 补预览与字号文案。
+- Files（改动文件）: `src/components/settings/tabs/AppearanceSettingsTab.tsx`、`src/index.css`、`src/lib/i18n.ts`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）: 定向 vitest 4 文件 30 passed；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 通过；Vite dev + Chrome CDP 1440×900 明暗主题与 390×844 移动端验证主题卡片选中、迷你预览、字号滑杆、实时对话预览，无 console error。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 如需继续统一设置页视觉，可把“模型与提供商”“智能体”等管理页也按同一套分组说明和卡片密度微调；发布前在空闲环境补跑全量 `npm run test`。未提交 Git；build 正常重生成 `dist/`。
+
+---
+
+## 当前交接：settings-grouped-navigation（done，2026-10-21）
+
+- Current Objective（当前目标）: 设置页从 16 个平铺标签页改为 3 组导航（基础 / AI 与扩展 / 自动化与数据），关于置底，并合并数据与网络低频页。已完成，未提交。
+- 核心改动: `settings-tabs.ts` 增加分组与搜索关键词；`SettingsWorkspacePage` 渲染分组桌面/移动导航、设置搜索、关于置底，新增 `data`/`network` 状态保留 tab。新增 `DataSettingsTab`（备份与恢复/已归档对话/分享链接子标签，活跃转发与状态保留）与 `NetworkSettingsTab`（局域网访问 + 网络代理）；`NetworkProxySettingsSection` 从 DefaultOptions 提取，DefaultOptions 移除代理并按基础/交互/上下文管理/终端分段。分享链接页新增 `embedded`/`active`；常规改名通用、自定义模型改名模型与提供商。
+- Files（改动文件）: `src/lib/settings-tabs.ts`、`src/lib/react-settings-tabs.tsx`、`src/components/settings/SettingsWorkspacePage.tsx`、`src/components/settings/tabs/{DataSettingsTab,NetworkSettingsTab,NetworkProxySettingsSection,DefaultOptionsSettingsTab}.tsx`、`src/components/share/ShareLinksSettingsPage.tsx`、`src/lib/i18n.ts`、`src/index.css`、`tests/frontend/settings-workspace-react.test.ts`、`tests/frontend/default-options-settings-react.test.ts`、`tests/frontend/network-proxy-settings-react.test.ts`、README 与 docs/wiki 相关页、3 个状态文件。
+- Evidence（验证）: 定向 vitest 3 文件 27 passed；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 通过；Vite dev + Chrome CDP 实机 1440×900 与 390×844 验证三组导航、搜索“代理/备份”、数据管理三子标签及状态保留、网络与设备、模型与提供商重命名，无 console error。全量 `npm run test` 仅既有 `tests/server/scheduled-tasks.commands.test.mjs` 随机 1 例失败，单文件 24 passed，判定为并行 SQLite 抖动；未跑串行全量。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 如需发布，先在空闲环境完整运行 `npm run test`；重点复测分享链接在“数据管理 → 分享链接”切走再回来仍保留子标签并刷新数据、网络代理在“网络与设备”重新激活时重新读取系统代理。未提交 Git；build 正常重生成 `dist/`，未手工修改生成产物。
+
+---
+
+## 当前交接：new-chat-project-row-branch（done，2026-10-21）
+
+- Current Objective（当前目标）: 新建对话底部项目行去掉整条背景块、项目默认无底色；分支紧贴项目显示，并复用分支选择菜单切换/新建分支。已完成，未提交。
+- 核心改动: `NewChatProjectPicker` 新增 `branch` 与 `branchMenu`，项目 chip 后渲染分支按钮；点击经 portal 复用 `GitBranchMenu`（fixed 定位到分支上方、按视口收敛宽高、外部点击/Escape 关闭、切换后关闭）；`App.tsx` 传入 `titleGitStatus` 分支与既有 checkout/create/graph/changes 入口；`index.css` 移除 trigger 背景/圆角，chip 默认背景 `transparent`（hover/focus 才显示），分支紧邻并带 hover/展开反馈。
+- Files（改动文件）: `src/components/chat/NewChatProjectPicker.tsx`、`src/App.tsx`、`src/index.css`、`tests/frontend/new-chat-project-picker.test.ts`、`tests/frontend/new-chat-project-picker-branch-menu.test.ts`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）: 定向 vitest 3 文件 43 passed；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 通过；Chrome CDP 实机 1400×900 与 390×844：chip/trigger 背景 `rgba(0,0,0,0)`、分支紧邻项目约 9px，菜单含分支列表/未提交更改/新建分支/Git 图谱且不超出视口，Escape 关闭。未跑全量 `npm run test`；未实际执行分支切换，避免改动仓库分支。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 刷新前端查看新建对话：项目无底色、右侧紧邻分支；点击分支确认可切换/新建（真实切换会改动仓库，按需验证）；非 Git 项目/全局新对话不显示分支。未提交 Git；build 正常重生成 `dist/`，未手工修改生成产物。
+
+---
+
 ## 当前交接：composer-pasted-text-tile-radius（done，2026-10-21）
 
 - Current Objective（当前目标）: 输入框粘贴大段文本生成的附件 tile 从圆形改为与消息区附件一致的中等圆角方形。已完成，未提交。

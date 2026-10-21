@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
+import { Check, Moon, Sun } from 'lucide-react'
 import { getAppStorage } from '@/storage'
 import {
   getCurrentTheme,
@@ -45,10 +46,12 @@ export function FontSizeSlider({
   value,
   onInput,
   onCommit,
+  ariaLabel,
 }: {
   value: number
   onInput: (value: string) => void
   onCommit: (value: string) => void
+  ariaLabel?: string
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -69,8 +72,28 @@ export function FontSizeSlider({
       max={String(FONT_SIZE_RANGE.max)}
       step="1"
       value={String(value)}
+      aria-label={ariaLabel}
       onInput={(event) => onInput(event.currentTarget.value)}
     />
+  )
+}
+
+function ThemePreview({ theme }: { theme: AppTheme }) {
+  return (
+    <span className="quickforge-appearance-theme-preview" data-preview-theme={theme} aria-hidden="true">
+      <span className="quickforge-appearance-theme-sidebar">
+        <span className="quickforge-appearance-theme-sidebar-line"></span>
+        <span className="quickforge-appearance-theme-sidebar-line"></span>
+        <span className="quickforge-appearance-theme-sidebar-line"></span>
+        <span className="quickforge-appearance-theme-sidebar-line"></span>
+      </span>
+      <span className="quickforge-appearance-theme-main">
+        <span className="quickforge-appearance-theme-heading-line"></span>
+        <span className="quickforge-appearance-theme-content-line is-wide"></span>
+        <span className="quickforge-appearance-theme-content-line is-short"></span>
+        <span className="quickforge-appearance-theme-bubble"></span>
+      </span>
+    </span>
   )
 }
 
@@ -153,15 +176,23 @@ export function AppearanceSettingsTab() {
 
   const renderThemeOption = (option: { value: AppTheme; label: () => string }) => {
     const selected = theme === option.value
+    const ThemeIcon = option.value === 'light' ? Sun : Moon
     return (
       <button
         key={option.value}
         type="button"
-        className={`quickforge-settings-segmented-option${selected ? ' quickforge-settings-segmented-option-active' : ''}`}
+        className="quickforge-appearance-theme-tile"
         aria-pressed={selected ? 'true' : 'false'}
         onClick={() => void selectTheme(option.value)}
       >
-        {option.label()}
+        <ThemePreview theme={option.value} />
+        <span className="quickforge-appearance-theme-label">
+          <ThemeIcon className="size-4" aria-hidden="true" />
+          <span>{option.label()}</span>
+          <span className="quickforge-appearance-theme-check" aria-hidden="true">
+            {selected ? <Check className="size-3" /> : null}
+          </span>
+        </span>
       </button>
     )
   }
@@ -177,13 +208,12 @@ export function AppearanceSettingsTab() {
       <div className="quickforge-settings-row-main">
         <div className="quickforge-settings-row-title">
           {labelText}
-          <InfoTip label={t('fontSizeRangeDescription')} />
           {note ? <InfoTip label={note} /> : null}
         </div>
       </div>
       <div className="quickforge-settings-row-control quickforge-settings-slider-control">
         <span className="quickforge-settings-value-badge">{value}px</span>
-        <FontSizeSlider value={value} onInput={onInput} onCommit={(next) => void saveFontSize(key, next)} />
+        <FontSizeSlider value={value} onInput={onInput} onCommit={(next) => void saveFontSize(key, next)} ariaLabel={labelText} />
       </div>
     </div>
   )
@@ -194,37 +224,58 @@ export function AppearanceSettingsTab() {
 
   return (
     <div className="quickforge-settings-stack">
-      <section className="quickforge-settings-section" aria-label={t('appearance')}>
-        <div className="quickforge-settings-row">
-          <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">
-              {t('theme')}
-              <InfoTip label={t('themeDescription')} />
-            </div>
-          </div>
-          <div className="quickforge-settings-row-control">
-            <div className="quickforge-settings-segmented" role="group" aria-label={t('theme')}>
-              {THEME_OPTIONS.map((option) => renderThemeOption(option))}
-            </div>
-          </div>
+      <div className="quickforge-settings-group">
+        <div className="quickforge-appearance-group-head">
+          <h3 className="quickforge-settings-group-title">{t('theme')}</h3>
+          <span className="quickforge-appearance-group-description">{t('themeDescription')}</span>
         </div>
+        <div className="quickforge-appearance-theme-grid" role="group" aria-label={t('theme')}>
+          {THEME_OPTIONS.map((option) => renderThemeOption(option))}
+        </div>
+      </div>
 
-        {renderFontSizeSlider(
-          t('interfaceFontSize'),
-          null,
-          interfaceFontSizePx,
-          (value) => updateInterfaceFontSize(value),
-          'interfaceFontSizePx',
-        )}
+      <div className="quickforge-settings-group">
+        <div className="quickforge-appearance-group-head">
+          <h3 className="quickforge-settings-group-title">{t('fontSize')}</h3>
+          <span className="quickforge-appearance-group-description">{t('fontSizeRangeDescription')}</span>
+        </div>
+        <section className="quickforge-settings-section" aria-label={t('fontSize')}>
+          {renderFontSizeSlider(
+            t('interfaceFontSize'),
+            null,
+            interfaceFontSizePx,
+            (value) => updateInterfaceFontSize(value),
+            'interfaceFontSizePx',
+          )}
+          {renderFontSizeSlider(
+            t('messageFontSize'),
+            t('messageFontSizeNote'),
+            messageFontSizePx,
+            (value) => updateMessageFontSize(value),
+            'messageFontSizePx',
+          )}
+        </section>
+      </div>
 
-        {renderFontSizeSlider(
-          t('messageFontSize'),
-          t('messageFontSizeNote'),
-          messageFontSizePx,
-          (value) => updateMessageFontSize(value),
-          'messageFontSizePx',
-        )}
-      </section>
+      <div className="quickforge-settings-group">
+        <div className="quickforge-appearance-group-head">
+          <h3 className="quickforge-settings-group-title">{t('appearancePreview')}</h3>
+          <span className="quickforge-appearance-group-description">{t('appearancePreviewDescription')}</span>
+        </div>
+        <section className="quickforge-settings-section quickforge-appearance-preview" aria-label={t('appearancePreview')}>
+          <div className="quickforge-appearance-preview-head" style={{ fontSize: `${interfaceFontSizePx}px` }}>
+            {t('appearancePreview')}
+          </div>
+          <div className="quickforge-appearance-preview-thread">
+            <div className="quickforge-appearance-preview-user" style={{ fontSize: `${messageFontSizePx}px` }}>
+              {t('appearancePreviewUser')}
+            </div>
+            <div className="quickforge-appearance-preview-assistant" style={{ fontSize: `${messageFontSizePx}px` }}>
+              {t('appearancePreviewAssistant')}
+            </div>
+          </div>
+        </section>
+      </div>
 
       {error ? <span className="quickforge-settings-error">{error}</span> : null}
     </div>

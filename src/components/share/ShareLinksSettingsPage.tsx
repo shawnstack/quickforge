@@ -210,7 +210,7 @@ function ShareActionsSheet({
   )
 }
 
-export function ShareLinksSettingsPage() {
+export function ShareLinksSettingsPage({ active, embedded = false }: { active?: boolean; embedded?: boolean } = {}) {
   const [shares, setShares] = useState<ConversationShare[]>([])
   const [loading, setLoading] = useState(true)
   const [busyShareId, setBusyShareId] = useState('')
@@ -235,6 +235,7 @@ export function ShareLinksSettingsPage() {
   }
 
   useEffect(() => {
+    if (active === false) return
     let cancelled = false
     listConversationShares()
       .then((result) => {
@@ -249,7 +250,7 @@ export function ShareLinksSettingsPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [active])
 
   const filteredShares = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -353,14 +354,18 @@ export function ShareLinksSettingsPage() {
 
   return (
     <div className="quickforge-settings-stack">
-      <div className="quickforge-settings-heading">
-        <div>
-          <h2 className="quickforge-settings-title"><Link2 className="size-5" />{t('shareLinks')}<InfoTip label={t('shareLinksDescription')} /></h2>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => void loadShares()} disabled={loading || Boolean(busyShareId)}>
-          <RefreshCw className={`mr-2 size-4 ${loading ? 'animate-spin' : ''}`} />{t('refresh')}
-        </Button>
-      </div>
+      {!embedded
+        ? (
+          <div className="quickforge-settings-heading">
+            <div>
+              <h2 className="quickforge-settings-title"><Link2 className="size-5" />{t('shareLinks')}<InfoTip label={t('shareLinksDescription')} /></h2>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => void loadShares()} disabled={loading || Boolean(busyShareId)}>
+              <RefreshCw className={`mr-2 size-4 ${loading ? 'animate-spin' : ''}`} />{t('refresh')}
+            </Button>
+          </div>
+        )
+        : null}
 
       <div className="quickforge-settings-section">
         <div className="quickforge-settings-toolbar">
@@ -374,7 +379,16 @@ export function ShareLinksSettingsPage() {
               aria-label={t('searchShareLinks')}
             />
           </div>
-          <span className="text-xs text-muted-foreground">{t('shareLinksCount', { count: filteredShares.length })}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">{t('shareLinksCount', { count: filteredShares.length })}</span>
+            {embedded
+              ? (
+                <Button variant="outline" size="sm" onClick={() => void loadShares()} disabled={loading || Boolean(busyShareId)}>
+                  <RefreshCw className={`mr-2 size-4 ${loading ? 'animate-spin' : ''}`} />{t('refresh')}
+                </Button>
+              )
+              : null}
+          </div>
         </div>
 
         {message ? <div className="quickforge-settings-note quickforge-share-links-message">{message}</div> : null}

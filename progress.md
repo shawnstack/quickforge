@@ -1,3 +1,35 @@
+## appearance-settings-preview-redesign（done，2026-10-21）
+
+- Goal：用户认为设置页分组方案里的外观设计稿更好看，要求把实际外观页调整成设计稿风格。
+- 改动：`AppearanceSettingsTab` 主题选择从分段按钮改为两张主题预览卡片（浅色/深色迷你侧栏 + 内容区 + 气泡，固定明暗配色），选中态用边框 + 勾选圆点；字号独立成组，保留滑杆与 px 值；新增“对话预览”卡片，头部使用界面字号、消息使用对话字号实时预览。
+- 样式/文案：`index.css` 新增主题卡片、迷你预览、分组说明、对话预览样式；移动端主题卡片单列；`FontSizeSlider` 补 `ariaLabel`；i18n 补 `fontSize`、`appearancePreview`、预览用户/助手文案中英文案。
+- 范围：主题/字号持久化与即时应用逻辑不变；不改后端/API/依赖；纯设置页视觉与预览增强，docs/wiki 无需更新。
+- 验证：定向 vitest 4 文件 30 passed（appearance 3、settings-workspace 13、default-options 13、network-proxy 1）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 通过；Vite dev + Chrome CDP 1440×900 明暗主题与 390×844 移动端验证主题卡片选中、迷你预览、字号滑杆、实时对话预览，无 console error。
+- Notes：未提交 Git；build 正常重生成 `dist/`，未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## settings-grouped-navigation（done，2026-10-21）
+
+- Goal：用户认为设置页 16 个标签页平铺过多，要求参考 Codex 等主流设置页做分组优化，并在两轮反馈后压缩为 3 个分组。
+- 改动：`settings-tabs.ts` 增加 `group`/`keywords` 元数据并派生三组（基础 / AI 与扩展 / 自动化与数据）；`SettingsWorkspacePage` 按组渲染桌面与移动导航，新增设置搜索（按名称/描述/关键词/组名过滤，选择后清空，Escape 可清空）、关于置底；新增 `data`/`network` 状态保留 tab。
+- 数据/网络：新增 `DataSettingsTab`（备份与恢复 / 已归档对话 / 分享链接子标签，首次访问后保持挂载，`active` 向下转发；分享链接页增加 `embedded`/`active`，隐藏重复标题并在重新激活时刷新）；新增 `NetworkSettingsTab`（局域网访问 + 从 `DefaultOptionsSettingsTab` 提取的 `NetworkProxySettingsSection`），`DefaultOptions` 移除代理逻辑并按基础/交互/上下文管理/终端四段展示。
+- 文案/视觉：常规 → 通用、自定义模型 → 模型与提供商；补三组标签、搜索、空结果、数据管理与网络设备中英文案；`index.css` 增加设置分组标题与页内子标签样式；保留现有轻量分割线、淡选中态与圆角语言。
+- 测试：更新设置注册表/导航用例（14 个 key、三组顺序、搜索过滤与选择后清空、data/network active 转发、状态保留），新增 `network-proxy-settings-react.test.ts` 验证 active 加载与连续刷新；代理刷新用例从 default-options 测试移出。
+- 验证：定向 vitest 3 文件 27 passed；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 通过；Vite dev + Chrome CDP 实机 1440×900 和 390×844 验证三组导航、搜索“代理/备份”、数据管理三子标签与状态保留、网络与设备、模型与提供商重命名，无 console error。
+- Notes：全量 `npm run test` 两次各出现 1 个既有 `tests/server/scheduled-tasks.commands.test.mjs` 随机失败（两次用例不同，单文件 24 passed），判定为并行 SQLite 抖动，与本次前端改动无关；未提交 Git；build 正常重生成 `dist/`，未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## new-chat-project-row-branch（done，2026-10-21）
+
+- Goal：新建对话底部项目行去掉整条背景块，项目本身默认无底色；分支紧贴项目显示（有则显示），并可复用分支选择菜单切换/新建分支。
+- 改动：`NewChatProjectPicker` 新增 `branch` 与 `branchMenu`（projectId/dirtyCount/onCheckout/onCreated/onOpenGraph/onOpenChanges），项目 chip 后渲染分支按钮，点击经 portal 复用 `GitBranchMenu`（fixed 定位到分支上方，按视口收敛宽度/高度，外部点击或 Escape 关闭，切换后关闭）；`App.tsx` 传入 `titleGitStatus` 分支与既有 `handleCheckoutTitleBranch`/`handleBranchCreated`、Git 图谱与变更入口；`index.css` 移除 trigger 背景/圆角，chip 默认背景改 `transparent`（hover/focus 才显示），分支改为紧邻布局并带 hover/展开反馈。
+- 范围：只改新建对话空状态项目行及其分支菜单复用；项目选择弹层、正常会话 composer 与 header 分支入口不变；未自动执行真实分支切换；无依赖变更；未手工修改生成产物；模块职责未变，docs/wiki 无需更新。
+- 验证：定向 vitest 3 文件 43 passed（picker 4、分支菜单 jsdom 交互 2、css-contract 37）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 通过；Chrome CDP 实机 1400×900 与 390×844：chip/trigger 背景 `rgba(0,0,0,0)`、分支紧邻项目约 9px，菜单含分支列表/未提交更改/新建分支/Git 图谱、不超出视口、Escape 可关闭。未跑全量 `npm run test`。
+
+---
+
 ## composer-pasted-text-tile-radius（done，2026-10-21）
 
 - Goal：用户反馈输入框粘贴大段文本时，文本附件显示为圆形，不符合设计语言，要求与界面整体圆角对齐。

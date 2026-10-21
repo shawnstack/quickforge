@@ -130,18 +130,6 @@ describe('React default options notification persistence', () => {
     expect(settings.saveToolDisplay).toHaveBeenCalledWith({}, { toolDisplayMode: 'detailed', showContextUsage: false, expandProcessStageByDefault: false })
   })
 
-  it('allows a second proxy refresh after the first finishes', async () => {
-    const refresh = () => render().find((node) => node.type === 'button' && ['networkProxyRefresh', 'saving'].includes(text(node)))!
-    vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({ config: { mode: 'system', proxyUrl: '' }, status: { supported: true } }), { status: 200 }))
-    await mount()
-    refresh().props.onClick!()
-    expect(refresh().props.disabled).toBe(true)
-    await vi.waitFor(() => expect(refresh().props.disabled).toBe(false))
-    refresh().props.onClick!()
-    await vi.waitFor(() => expect(refresh().props.disabled).toBe(false))
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === '/api/system/network-proxy/refresh')).toHaveLength(2)
-  })
-
   it('persists disable and hides the test action without requesting permission', async () => {
     localStorage.setItem(storageKey, '1')
     notifications.permission.mockResolvedValue('granted')

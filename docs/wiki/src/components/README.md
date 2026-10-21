@@ -12,7 +12,7 @@ v2 goal 的 composer 条带完全对标 DSH 交互：**单行**显示图标 + ph
 
 ## Legacy Goal 契约：自动执行与无限累计时间
 
-规划整轮只读，正常轮末及持久化成功后自动执行，不需要计划确认。新 Goal 的 maxActiveDurationMs 为 JSON null（无限），累计用时仍记录，默认轮次20（设置·常规可配置），保留防空转/重复失败、工具审批、必要提问、暂停取消及单工具超时。旧快照不自动执行或改写终态；显式 resume/extend_resume/revise 移除旧时间上限，extend_resume 保留 CAS 且只给耗尽轮次追加配置轮次（默认 20）。有计划恢复 running，无计划重新 planning。complete 保留可信证据与正常轮末持久化屏障；needs_review 报告改为 blocked 并说明无法验证原因，不伪造 passed。历史 human evidence 与 accept API 兼容。当前聊天 controller 不再生成确认按钮，Inspector/card 不提供验收动作；历史 renderer 保留当时事实。
+规划整轮只读，正常轮末及持久化成功后自动执行，不需要计划确认。新 Goal 的 maxActiveDurationMs 为 JSON null（无限），累计用时仍记录，默认轮次20（设置·通用可配置），保留防空转/重复失败、工具审批、必要提问、暂停取消及单工具超时。旧快照不自动执行或改写终态；显式 resume/extend_resume/revise 移除旧时间上限，extend_resume 保留 CAS 且只给耗尽轮次追加配置轮次（默认 20）。有计划恢复 running，无计划重新 planning。complete 保留可信证据与正常轮末持久化屏障；needs_review 报告改为 blocked 并说明无法验证原因，不伪造 passed。历史 human evidence 与 accept API 兼容。当前聊天 controller 不再生成确认按钮，Inspector/card 不提供验收动作；历史 renderer 保留当时事实。
 
 # `src/components/` — React 组件
 
@@ -203,7 +203,7 @@ components/
 - 三类新建入口语义独立：顶部“发起新对话”继续使用默认规则，有 `activeProject` 时在该项目新建，否则新建 global；Tasks 标题右侧 MessageSquarePlus 始终显式新建 global，不读取 `activeProject`、当前任务或 `currentToolProject`，并使用默认 Workspace（`~/.quickforge/workspace`）；项目行 MessageSquarePlus 继续把对应 `item` 传给 `onStartNewProjectChat(item)`。桌面与移动均使用相同语义，移动端点击后仍先关闭侧栏
 - 显式 global 入口在调用 `startNewGlobalSession` 前设置空状态项目 dismiss 标记，阻止 `App.tsx` 的 active-project 自动选择 effect 将新会话切回项目对话
 - 支持“按项目 / 时间线”视图切换，以及按更新时间或创建时间排序；两项偏好均保存在浏览器 `localStorage`，刷新后恢复，不参与后端备份或跨设备同步
-- 搜索、置顶、归档会话；归档内容可在设置页的“已归档对话”中恢复或永久删除
+- 搜索、置顶、归档会话；归档内容可在「设置 → 数据管理 → 已归档对话」中恢复或永久删除
 - 会话行静置态右侧固定为 `w-11`、`text-right` 的时间/状态槽：普通会话显示时间，运行中显示贴右尾部的 Loader2，完成未读显示 emerald 点。hover/focus-within 时该槽淡出，`right-2` 浮层显示紧凑的 `[Pin/PinOff size-6][gap-1][Archive size-6]` 操作组；置顶分区使用 PinOff，其余列表使用 Pin。项目行操作浮层保持独立的 gap-px 间距
 - 折叠/展开项目分组
 - “按项目”视图支持拖拽排序并持久化；拖拽预览横向锁定且限制在 Projects 当前可见区域（与统一侧栏滚动视口的交集）内，dnd-kit 自动滚动只允许侧栏中部共享滚动容器，预览不会越过 Pinned / Tasks，拖动期间会话分组继续临时折叠；边界矩形缺失或退化（如拖动节点高过可见区）时横向纵向同时锁定，不允许无界拖动
@@ -287,7 +287,7 @@ components/
 **context-usage.ts**
 - 上下文用量环状指示器，优先展示后端 session state 返回的权威 `contextUsage`（后端统计复用 `pi-agent-core` / `pi-ai`），缺失时回退到前端本地估算
 - Tooltip 的构成区保持系统提示词、工具定义、消息三类总量，并在其后按有值才显示 `Skills` / `MCP` 两行；两项是跨前三类的来源归因，不参与输入总量二次相加
-- 在现有模型选择按钮左侧单独显示中心镂空的彩色环，指示当前对话所占模型上下文窗口比例；悬停、聚焦或点击后显示结构化 Token 明细、统计来源与上下文范围；该圆环及详情可在“设置 → 常规”中开启，默认关闭
+- 在现有模型选择按钮左侧单独显示中心镂空的彩色环，指示当前对话所占模型上下文窗口比例；悬停、聚焦或点击后显示结构化 Token 明细、统计来源与上下文范围；该圆环及详情可在“设置 → 通用”中开启，默认关闭
 
 **panel-decoration.ts** (343 行)
 - 聊天面板 DOM 装饰的兼容入口，继续向 `ChatPanelHost.tsx` re-export 消息装饰、草稿、审批卡、上下文压缩提示、等待气泡和 TodoWrite 任务摘要 controller 等能力
@@ -332,7 +332,7 @@ self-hosted-chat-ui T3 交付、T5 已完成集成挂载的 React 版聊天面�
 - **Markdown** 走项目现有 react-markdown+remark-gfm 链（参考 MarkdownReader），容器 class 复刻原 markdown-block 配方 + `qf-markdown-block`；fenced 代码块由 React 组件 `chat/surface/CodeBlock.tsx` 渲染（边框卡片式 `qf-code-block qf-markdown-code-block`，无自定义元素、无装饰器注入），保留原 `<code-block>` / `code-blocks.ts` 装饰链路的能力：语言标题栏（按 fenced 语言原文显示、不做大小写折叠；无信息串的围栏由 `Markdown.tsx` 传 `language="text"`，故标题栏显示 `text` 而非 `plaintext`——与旧 markdown 层一致；legacy 无 i18n 键）+ 复制按钮（标题栏 2000ms：复制后图标换 Check 并显示可见文本 `copiedBang`（Copied! / 已复制！）、`title` 恒为 `copyCode`（Copy code / 复制代码）；⋯ 菜单复制动作走另一对键 `copy`/`copied`（Copy/Copied、复制/已复制）的切换，1200ms 对勾反馈——分别对齐旧 mini-lit `copy-button` 的 `showText` 与旧装饰层 `showCopiedFeedback`）、```svg 安全预览（仅 assistant 且非流式、自包含且无 script/on*/javascript: 才启用；图片 data URL + 点击 lightbox + 右上角 ⋯ 菜单：预览/源码、复制源码、下载；⋯ 菜单与同一 `.qf-markdown-block` 内的其它代码块菜单互斥，外部点击 / Escape 为 document 级）、```mermaid 渲染（`lib/mermaid-renderer.ts` 按需加载，成功后同一套 ⋯ 菜单，失败显示 `mermaidRenderFailed` 文案并保留源码）、shell 语言代码块在「在终端中执行」按钮可用时（assistant 且非流式；side-chat/只读面板经 `surface-context.ts` 的 `CommandActionsEnabledContext` fail-closed 门控——宿主按 `!sideChatMode && !readOnly` 提供 context，不再按 composer DOM 探测）派发既有 `quickforge:execute-markdown-command` 事件（detail `{command, confirm, dangerous}`：command 为剥掉 `## Goal 当前契约：自动执行与无限累计时间
  / `>` / `PS >` 提示符后的原文，confirm 仅当多行，dangerous 命中 rm -rf / sudo / chmod / chown / npm publish / git push / curl 管道进 sh 等模式；契约与原装饰器一致）。代码着色由自研 `src/lib/code-highlight.ts`（无新依赖）提供：25 组语言（16 组既有 + 对齐轮新增 toml/ini/dockerfile/makefile/powershell/graphql/protobuf/nginx/apache）的单遍线性 sticky-regex tokenizer，超过 200KB（`MAX_HIGHLIGHT_LENGTH`）回退单一 plain 段；未注册语言名走保守通用回退 `tokenizeGeneric`（不再整块纯文本，纯文本仅限 `text`/`plaintext`/`txt`、空名与无判别 token；不猜测语言）；```diff 增删行恢复旧 `.hljs-addition` / `.hljs-deletion` 的前景+底色对（标点与 plain 段均无独立样式，与旧调色板无 `.hljs-punctuation` 一致）；对齐轮补充 heading / list / code / quote / strong / emphasis 语义（取值/形态逐字对齐旧界面：`--qf-hl-heading` 取旧 `--syntax-heading` 并带 `font-weight:700`、`--qf-hl-list` 取旧 `--syntax-list`、`--qf-hl-code` = 旧 `--syntax-comment`、`--qf-hl-quote` = 旧 `--syntax-tag`；strong / emphasis 只声明字形不给颜色，对齐旧声明因 `--color-text-primary` 未定义而无效的口径），**故意不建** `--qf-hl-link`（旧 `.hljs-link` 无规则）；`selector-class`/`selector-id`、YAML/JSON/TOML/INI 字面量、CSS 函数名与 Setext 标题按旧 hljs 桶复用既有 token；未注册语言名走保守通用回退 `tokenizeGeneric`，**不再做旧 `highlightAuto` 式语言猜测**；对齐轮补充 heading / list / code / quote / strong / emphasis 语义（取值/形态逐字对齐旧界面：`--qf-hl-heading` 取旧 `--syntax-heading` 并带 `font-weight:700`、`--qf-hl-list` 取旧 `--syntax-list`、`--qf-hl-code` = 旧 `--syntax-comment`、`--qf-hl-quote` = 旧 `--syntax-tag`；strong / emphasis 只声明字形不给颜色，对齐旧声明因 `--color-text-primary` 未定义而无效的口径），**故意不建** `--qf-hl-link`（旧 `.hljs-link` 无规则）；`selector-class`/`selector-id`、YAML/JSON/TOML/INI 字面量、CSS 函数名与 Setext 标题按旧 hljs 桶复用既有 token；未注册语言名走保守通用回退 `tokenizeGeneric`，**不再做旧 `highlightAuto` 式语言猜测**；已知局限为阅读级启发式近似（JS/TS 模板串插值不再分词、正则字面量按前置显著 token 启发式、JSX/Rust 嵌套注释等近似处理）。行号与 html 预览原本就没有。回归见 `tests/frontend/chat-code-block.test.ts` 与 `tests/frontend/code-highlight.test.ts`。
 
-规划整轮只读，正常轮末及持久化成功后自动执行，不需要计划确认。新 Goal 的 maxActiveDurationMs 为 JSON null（无限），累计用时仍记录，默认轮次20（设置·常规可配置），保留防空转/重复失败、工具审批、必要提问、暂停取消及单工具超时。旧快照不自动执行或改写终态；显式 resume/extend_resume/revise 移除旧时间上限，extend_resume 保留 CAS 且只给耗尽轮次追加配置轮次（默认 20）。有计划恢复 running，无计划重新 planning。complete 保留可信证据与正常轮末持久化屏障；needs_review 报告改为 blocked 并说明无法验证原因，不伪造 passed。历史 human evidence 与 accept API 兼容。当前聊天 controller 不再生成确认按钮，Inspector/card 不提供验收动作；历史 renderer 保留当时事实。
+规划整轮只读，正常轮末及持久化成功后自动执行，不需要计划确认。新 Goal 的 maxActiveDurationMs 为 JSON null（无限），累计用时仍记录，默认轮次20（设置·通用可配置），保留防空转/重复失败、工具审批、必要提问、暂停取消及单工具超时。旧快照不自动执行或改写终态；显式 resume/extend_resume/revise 移除旧时间上限，extend_resume 保留 CAS 且只给耗尽轮次追加配置轮次（默认 20）。有计划恢复 running，无计划重新 planning。complete 保留可信证据与正常轮末持久化屏障；needs_review 报告改为 blocked 并说明无法验证原因，不伪造 passed。历史 human evidence 与 accept API 兼容。当前聊天 controller 不再生成确认按钮，Inspector/card 不提供验收动作；历史 renderer 保留当时事实。
 
 # `src/components/` — React 组件
 
@@ -523,7 +523,7 @@ components/
 - 三类新建入口语义独立：顶部“发起新对话”继续使用默认规则，有 `activeProject` 时在该项目新建，否则新建 global；Tasks 标题右侧 MessageSquarePlus 始终显式新建 global，不读取 `activeProject`、当前任务或 `currentToolProject`，并使用默认 Workspace（`~/.quickforge/workspace`）；项目行 MessageSquarePlus 继续把对应 `item` 传给 `onStartNewProjectChat(item)`。桌面与移动均使用相同语义，移动端点击后仍先关闭侧栏
 - 显式 global 入口在调用 `startNewGlobalSession` 前设置空状态项目 dismiss 标记，阻止 `App.tsx` 的 active-project 自动选择 effect 将新会话切回项目对话
 - 支持“按项目 / 时间线”视图切换，以及按更新时间或创建时间排序；两项偏好均保存在浏览器 `localStorage`，刷新后恢复，不参与后端备份或跨设备同步
-- 搜索、置顶、归档会话；归档内容可在设置页的“已归档对话”中恢复或永久删除
+- 搜索、置顶、归档会话；归档内容可在「设置 → 数据管理 → 已归档对话」中恢复或永久删除
 - 会话行静置态右侧固定为 `w-11`、`text-right` 的时间/状态槽：普通会话显示时间，运行中显示贴右尾部的 Loader2，完成未读显示 emerald 点。hover/focus-within 时该槽淡出，`right-2` 浮层显示紧凑的 `[Pin/PinOff size-6][gap-1][Archive size-6]` 操作组；置顶分区使用 PinOff，其余列表使用 Pin。项目行操作浮层保持独立的 gap-px 间距
 - 折叠/展开项目分组
 - “按项目”视图支持拖拽排序并持久化；拖拽预览横向锁定且限制在 Projects 当前可见区域（与统一侧栏滚动视口的交集）内，dnd-kit 自动滚动只允许侧栏中部共享滚动容器，预览不会越过 Pinned / Tasks，拖动期间会话分组继续临时折叠；边界矩形缺失或退化（如拖动节点高过可见区）时横向纵向同时锁定，不允许无界拖动
@@ -607,7 +607,7 @@ components/
 **context-usage.ts**
 - 上下文用量环状指示器，优先展示后端 session state 返回的权威 `contextUsage`（后端统计复用 `pi-agent-core` / `pi-ai`），缺失时回退到前端本地估算
 - Tooltip 的构成区保持系统提示词、工具定义、消息三类总量，并在其后按有值才显示 `Skills` / `MCP` 两行；两项是跨前三类的来源归因，不参与输入总量二次相加
-- 在现有模型选择按钮左侧单独显示中心镂空的彩色环，指示当前对话所占模型上下文窗口比例；悬停、聚焦或点击后显示结构化 Token 明细、统计来源与上下文范围；该圆环及详情可在“设置 → 常规”中开启，默认关闭
+- 在现有模型选择按钮左侧单独显示中心镂空的彩色环，指示当前对话所占模型上下文窗口比例；悬停、聚焦或点击后显示结构化 Token 明细、统计来源与上下文范围；该圆环及详情可在“设置 → 通用”中开启，默认关闭
 
 **panel-decoration.ts** (343 行)
 - 聊天面板 DOM 装饰的兼容入口，继续向 `ChatPanelHost.tsx` re-export 消息装饰、草稿、审批卡、上下文压缩提示、等待气泡和 TodoWrite 任务摘要 controller 等能力
@@ -697,7 +697,7 @@ self-hosted-chat-ui T3 交付、T5 已完成集成挂载的 React 版聊天面�
 
 ### ShareLinksSettingsPage.tsx
 
-- 位于「设置 → 分享链接」，统一列出当前 QuickForge 实例的全部分享
+- 位于「设置 → 数据管理 → 分享链接」，统一列出当前 QuickForge 实例的全部分享
 - 展示状态、权限、密码保护、创建/到期/最近访问时间和访问次数
 - 支持搜索、复制、打开、修改有效期、停用、按新有效期恢复和永久删除
 - 支持编辑权限与密码（可生成或取消密码），可操作分享必须保留非空密码

@@ -2186,6 +2186,15 @@ function MainApp() {
                     <NewChatProjectPicker
                       projects={projects}
                       selectedProject={agentManager.chatScope === 'project' ? agentManager.currentToolProject : undefined}
+                      branch={agentManager.chatScope === 'project' && titleGitStatus?.isGitRepository ? titleGitStatus.branch : undefined}
+                      branchMenu={agentManager.chatScope === 'project' && agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository && titleGitStatus.branch ? {
+                        projectId: agentManager.currentToolProject.id,
+                        dirtyCount: titleGitStatus.counts?.total ?? 0,
+                        onCheckout: handleCheckoutTitleBranch,
+                        onCreated: handleBranchCreated,
+                        onOpenGraph: () => setGitGraphOpen(true),
+                        onOpenChanges: openWorkspaceGitChanges,
+                      } : undefined}
                       onSelectProject={handleSelectEmptyStateProject}
                       onClearProject={handleClearEmptyStateProject}
                       onNewProject={handleSelectEmptyStateNewProject}

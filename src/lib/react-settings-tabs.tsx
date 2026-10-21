@@ -5,9 +5,8 @@ const AppearanceSettingsTab = lazy(() => import('@/components/settings/tabs/Appe
 const DefaultOptionsSettingsTab = lazy(() => import('@/components/settings/tabs/DefaultOptionsSettingsTab').then((m) => ({ default: m.DefaultOptionsSettingsTab })))
 const MemorySettingsTab = lazy(() => import('@/components/settings/tabs/MemorySettingsTab').then((m) => ({ default: m.MemorySettingsTab })))
 const CustomProvidersSettingsTab = lazy(() => import('@/components/settings/tabs/CustomProvidersSettingsTab').then((m) => ({ default: m.CustomProvidersSettingsTab })))
-const BackupSettingsTab = lazy(() => import('@/components/settings/tabs/BackupSettingsTab').then((m) => ({ default: m.BackupSettingsTab })))
-const ArchivedConversationsSettingsTab = lazy(() => import('@/components/settings/tabs/ArchivedConversationsSettingsTab').then((m) => ({ default: m.ArchivedConversationsSettingsTab })))
-const LanAccessSettingsTab = lazy(() => import('@/components/settings/tabs/LanAccessSettingsTab').then((m) => ({ default: m.LanAccessSettingsTab })))
+const NetworkSettingsTab = lazy(() => import('@/components/settings/tabs/NetworkSettingsTab').then((m) => ({ default: m.NetworkSettingsTab })))
+const DataSettingsTab = lazy(() => import('@/components/settings/tabs/DataSettingsTab').then((m) => ({ default: m.DataSettingsTab })))
 const AboutSettingsTab = lazy(() => import('@/components/settings/tabs/AboutSettingsTab').then((m) => ({ default: m.AboutSettingsTab })))
 const ProjectCommandsSettingsTab = lazy(() => import('@/components/settings/tabs/ProjectCommandsSettingsTab').then((m) => ({ default: m.ProjectCommandsSettingsTab })))
 const HooksSettingsTab = lazy(() => import('@/components/settings/tabs/HooksSettingsTab').then((m) => ({ default: m.HooksSettingsTab })))
@@ -16,7 +15,6 @@ const McpServersPanel = lazy(() => import('@/components/mcp-servers-dialog').the
 const SkillsManagerPanel = lazy(() => import('@/components/skills-dialog').then((m) => ({ default: m.SkillsManagerPanel })))
 const PluginsPage = lazy(() => import('@/components/plugins/PluginsPage').then((m) => ({ default: m.PluginsPage })))
 const ScheduledTasksPage = lazy(() => import('@/components/scheduled-tasks/ScheduledTasksPage').then((m) => ({ default: m.ScheduledTasksPage })))
-const ShareLinksSettingsPage = lazy(() => import('@/components/share/ShareLinksSettingsPage').then((m) => ({ default: m.ShareLinksSettingsPage })))
 
 function SettingsPanel({ children }: { children: ReactNode }) {
   return <div className="quickforge-settings-stack h-full min-h-[30rem]">{children}</div>
@@ -33,6 +31,7 @@ const tabContent = {
   appearance: () => <AppearanceSettingsTab />,
   defaults: (_customProvider?: string, active?: boolean) => <DefaultOptionsSettingsTab active={active} />,
   memory: () => <MemorySettingsTab />,
+  network: (_customProvider?: string, active?: boolean) => <NetworkSettingsTab active={active} />,
   customModels: (customProvider?: string, active?: boolean) => <CustomProvidersSettingsTab customProvider={customProvider} active={active} />,
   agents: () => <SettingsPanel><AgentProfilesPage /></SettingsPanel>,
   skills: () => <SettingsPanel><SkillsManagerPanel active scope="global" embedded onSaved={() => undefined} /></SettingsPanel>,
@@ -41,10 +40,7 @@ const tabContent = {
   scheduledTasks: () => <SettingsPanel><ScheduledTasksPage onOpenSession={openScheduledTaskSession} /></SettingsPanel>,
   projectCommands: () => <ProjectCommandsSettingsTab />,
   hooks: () => <HooksSettingsTab />,
-  backup: () => <BackupSettingsTab />,
-  archivedConversations: (_customProvider?: string, active?: boolean) => <ArchivedConversationsSettingsTab active={active} />,
-  shareLinks: () => <SettingsPanel><ShareLinksSettingsPage /></SettingsPanel>,
-  lanAccess: (_customProvider?: string, active?: boolean) => <LanAccessSettingsTab active={active} />,
+  data: (_customProvider?: string, active?: boolean) => <DataSettingsTab active={active} />,
   about: (_customProvider?: string, active?: boolean) => <AboutSettingsTab active={active} />,
 }
 

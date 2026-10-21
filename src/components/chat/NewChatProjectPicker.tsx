@@ -1,13 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Folder, Search, X } from 'lucide-react'
+import { Check, ChevronDown, Folder, GitBranch, Search, X } from 'lucide-react'
+import { GitBranchMenu } from '@/components/git/GitBranchMenu'
+import type { GitStatusResponse } from '@/components/workspace/workspace-types'
 import type { ProjectInfo } from '@/lib/types'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
+type NewChatBranchMenuOptions = {
+  projectId: string
+  dirtyCount?: number
+  onCheckout: (branch: string) => Promise<void>
+  onCreated?: (status: GitStatusResponse) => void
+  onOpenGraph?: () => void
+  onOpenChanges?: () => void
+}
+
 type NewChatProjectPickerProps = {
   projects: ProjectInfo[]
   selectedProject?: ProjectInfo
+  branch?: string
+  branchMenu?: NewChatBranchMenuOptions
   onSelectProject: (project: ProjectInfo) => void
   onClearProject: () => void
   onNewProject: () => void
@@ -17,6 +30,8 @@ type NewChatProjectPickerProps = {
 export function NewChatProjectPicker({
   projects,
   selectedProject,
+  branch,
+  branchMenu,
   onSelectProject,
   onClearProject,
   onNewProject,
@@ -28,8 +43,13 @@ export function NewChatProjectPicker({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties>()
+  const branchTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const [branchMenuOpen, setBranchMenuOpen] = useState(false)
+  const [branchMenuStyle, setBranchMenuStyle] = useState<CSSProperties>()
   const shownProject = selectedProject
   const selectedProjectId = shownProject?.id
+  const shownBranch = selectedProjectId ? branch?.trim() || undefined : undefined
+  const branchMenuVisible = branchMenuOpen && Boolean(shownBranch) && Boolean(branchMenu)
 
   const filteredProjects = useMemo(() => {
     const keyword = query.trim().toLowerCase()
@@ -67,6 +87,56 @@ export function NewChatProjectPicker({
     }
   }, [open, updatePopoverPosition])
 
+  const updateBranchMenuPosition = useCallback(() => {
+    const trigger = branchTriggerRef.current
+    if (!trigger) return
+    const rect = trigger.getBoundingClientRect()
+    const width = Math.min(340, window.innerWidth - 24)
+    const left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12)
+    setBranchMenuStyle({
+      position: 'fixed',
+      left,
+      top: 'auto',
+      bottom: Math.max(12, window.innerHeight - rect.top + 8),
+      width,
+      maxHeight: Math.max(220, rect.top - 20),
+      overflowY: 'auto',
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!branchMenuOpen) return undefined
+    updateBranchMenuPosition()
+    const handleUpdate = () => updateBranchMenuPosition()
+    window.addEventListener('resize', handleUpdate)
+    window.addEventListener('scroll', handleUpdate, true)
+    return () => {
+      window.removeEventListener('resize', handleUpdate)
+      window.removeEventListener('scroll', handleUpdate, true)
+    }
+  }, [branchMenuOpen, updateBranchMenuPosition])
+
+  useEffect(() => {
+    if (!branchMenuOpen) return undefined
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (branchTriggerRef.current?.contains(target)) return
+      if (target instanceof Element && target.closest('.quickforge-empty-project-branch-menu')) return
+      setBranchMenuOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setBranchMenuOpen(false)
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [branchMenuOpen])
+
   useEffect(() => {
     if (!open) return undefined
 
@@ -90,21 +160,30 @@ export function NewChatProjectPicker({
 
   const handleSelectProject = (project: ProjectInfo) => {
     setOpen(false)
+    setBranchMenuOpen(false)
     onSelectProject(project)
   }
 
   const handleSelectDirectory = () => {
     setOpen(false)
+    setBranchMenuOpen(false)
     onNewProject()
   }
 
   const toggleOpen = useCallback(() => {
+    setBranchMenuOpen(false)
     setOpen((value) => !value)
+  }, [])
+
+  const toggleBranchMenu = useCallback(() => {
+    setOpen(false)
+    setBranchMenuOpen((value) => !value)
   }, [])
 
   const handleTriggerKeyDown = useCallback((event: ReactKeyboardEvent<HTMLSpanElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
+      setBranchMenuOpen(false)
       setOpen((value) => !value)
     }
   }, [])
@@ -176,6 +255,7 @@ export function NewChatProjectPicker({
                 onClick={(event) => {
                   event.stopPropagation()
                   setOpen(false)
+                  setBranchMenuOpen(false)
                   onClearProject()
                 }}
                 aria-label={t('useNoProject')}
@@ -192,8 +272,59 @@ export function NewChatProjectPicker({
             <span className="truncate">{t('chooseProject')}</span>
           </span>
         )}
+        {shownBranch && branchMenu ? (
+          <button
+            ref={branchTriggerRef}
+            type="button"
+            className="quickforge-empty-project-branch"
+            title={t('gitBranchLabel', { branch: shownBranch })}
+            aria-label={t('gitBranchLabel', { branch: shownBranch })}
+            aria-haspopup="menu"
+            aria-expanded={branchMenuVisible}
+            onClick={toggleBranchMenu}
+          >
+            <GitBranch className="size-3.5" aria-hidden="true" />
+            <span className="truncate">{shownBranch}</span>
+            <ChevronDown className="size-3 quickforge-empty-project-branch-chevron" aria-hidden="true" />
+          </button>
+        ) : shownBranch ? (
+          <span
+            className="quickforge-empty-project-branch"
+            title={t('gitBranchLabel', { branch: shownBranch })}
+            aria-label={t('gitBranchLabel', { branch: shownBranch })}
+          >
+            <GitBranch className="size-3.5" aria-hidden="true" />
+            <span className="truncate">{shownBranch}</span>
+          </span>
+        ) : null}
       </div>
       {typeof document !== 'undefined' ? createPortal(popover, document.body) : null}
+      {typeof document !== 'undefined' && branchMenuVisible && branchMenuStyle && shownBranch && branchMenu ? createPortal(
+        <GitBranchMenu
+          projectId={branchMenu.projectId}
+          currentBranch={shownBranch}
+          dirtyCount={branchMenu.dirtyCount}
+          className="quickforge-empty-project-branch-menu origin-bottom"
+          style={branchMenuStyle}
+          onCheckout={async (nextBranch) => {
+            await branchMenu.onCheckout(nextBranch)
+            setBranchMenuOpen(false)
+          }}
+          onCreated={(status) => {
+            setBranchMenuOpen(false)
+            branchMenu.onCreated?.(status)
+          }}
+          onOpenGraph={branchMenu.onOpenGraph ? () => {
+            setBranchMenuOpen(false)
+            branchMenu.onOpenGraph?.()
+          } : undefined}
+          onOpenChanges={branchMenu.onOpenChanges ? () => {
+            setBranchMenuOpen(false)
+            branchMenu.onOpenChanges?.()
+          } : undefined}
+        />,
+        document.body,
+      ) : null}
     </div>
   )
 }

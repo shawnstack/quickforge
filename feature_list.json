@@ -1,6 +1,81 @@
 {
   "features": [
     {
+      "id": "appearance-settings-preview-redesign",
+      "name": "外观设置页主题预览与实时字号预览",
+      "description": "按设计稿重做设置·外观：主题改为浅色/深色大卡片预览，字号滑杆独立分组，并增加使用当前界面/对话字号的实时对话预览；补充主题说明、字号说明与预览文案，移动端单列。",
+      "status": "done",
+      "dependencies": [
+        "settings-grouped-navigation"
+      ],
+      "approach": "AppearanceSettingsTab 用 ThemePreview 组件渲染固定明暗配色的迷你侧栏/主区预览，主题卡片以 aria-pressed 表示选中并保留即时保存；字号分组显示滑杆与值，预览卡片用 interfaceFontSizePx/messageFontSizePx 实时驱动头部与消息字号；FontSizeSlider 增加 ariaLabel。index.css 新增主题卡片、迷你预览、分组说明与对话预览样式；i18n 补 fontSize/appearancePreview* 中英文案。",
+      "files": [
+        "src/components/settings/tabs/AppearanceSettingsTab.tsx",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 4 文件 30 passed（appearance 3、settings-workspace 13、default-options 13、network-proxy 1）；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc -b 通过；npm run build 通过；Vite dev + Chrome CDP 1440×900 明暗主题与 390×844 移动端验证主题卡片选中、迷你预览、字号滑杆、实时对话预览，无 console error。",
+      "boundaries": "只改外观设置页视觉与预览；主题/字号持久化和应用逻辑不变；无后端/API/依赖变更；未提交 Git；未手工修改生成产物。"
+    },
+    {
+      "id": "settings-grouped-navigation",
+      "name": "设置页三组导航与数据/网络合并",
+      "description": "将原本平铺的 16 个设置标签页重组为「基础 / AI 与扩展 / 自动化与数据」三组，关于置底；合并备份与恢复、已归档对话、分享链接为数据管理子标签，合并局域网访问与网络代理为网络与设备；新增设置搜索与分组标题，重命名常规为通用、自定义模型为模型与提供商。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "settings-tabs.ts 增加 group/keywords 元数据与 groups 派生；SettingsWorkspacePage 按三组渲染桌面/移动导航、加入搜索过滤与关于置底，新增 data/network 状态保留 tab；DataSettingsTab 用页内子标签聚合 Backup/Archived/ShareLinks，并给 ShareLinks 增加 active/embedded；NetworkSettingsTab 聚合 LanAccess 与从 DefaultOptions 提取的 NetworkProxySettingsSection；DefaultOptions 去除代理逻辑并按基础/交互/上下文管理/终端分组；i18n 补分组、搜索、数据管理与网络设备文案；测试同步新增分组/搜索与代理刷新覆盖。",
+      "files": [
+        "src/lib/settings-tabs.ts",
+        "src/lib/react-settings-tabs.tsx",
+        "src/components/settings/SettingsWorkspacePage.tsx",
+        "src/components/settings/tabs/DataSettingsTab.tsx",
+        "src/components/settings/tabs/NetworkSettingsTab.tsx",
+        "src/components/settings/tabs/NetworkProxySettingsSection.tsx",
+        "src/components/settings/tabs/DefaultOptionsSettingsTab.tsx",
+        "src/components/share/ShareLinksSettingsPage.tsx",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/frontend/settings-workspace-react.test.ts",
+        "tests/frontend/default-options-settings-react.test.ts",
+        "tests/frontend/network-proxy-settings-react.test.ts",
+        "README.md",
+        "docs/wiki/src/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/README.md",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/tools/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 27 passed（settings-workspace 13、default-options 13、network-proxy 1）；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc -b 通过；npm run build 通过；Vite dev + Chrome CDP 实机 1440×900 与 390×844 验证三组导航、搜索“代理/备份”、数据管理三子标签及状态保留、网络与设备（局域网+代理）、模型与提供商重命名，无 console error。全量 npm run test 仅既有 server scheduled-tasks.commands 随机 1 例失败，单文件 24 passed，判定为并行 SQLite 抖动。",
+      "boundaries": "只改设置页信息架构与数据/网络聚合；不改后端 API、备份/归档/分享/局域网/代理的既有行为；旧 tab key backup/archivedConversations/shareLinks/lanAccess 从 SettingsInitialTab 移除，无外部深链调用；未提交 Git；未手工修改生成产物。"
+    },
+    {
+      "id": "new-chat-project-row-branch",
+      "name": "新建对话项目行去背景并显示可复用分支选择",
+      "description": "新建对话底部项目行不再绘制整条背景块，项目 chip 默认无底色；分支紧贴项目显示（仅 Git 仓库且有分支时），点击复用 GitBranchMenu 进行切换/新建分支。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "NewChatProjectPicker 新增 branch 与 branchMenu（projectId/dirtyCount/onCheckout/onCreated/onOpenGraph/onOpenChanges），选中项目时在项目 chip 后渲染分支按钮，点击经 portal 复用 GitBranchMenu（fixed 定位到分支上方、左右与高度按视口收敛，外部点击/Escape 关闭）；App.tsx 传入 titleGitStatus 分支与既有 handleCheckoutTitleBranch/handleBranchCreated 及图谱/变更入口；index.css 移除 trigger 背景与圆角、chip 默认背景改为 transparent（hover/focus 才显示），分支改为紧邻布局并带 hover/展开反馈。",
+      "files": [
+        "src/components/chat/NewChatProjectPicker.tsx",
+        "src/App.tsx",
+        "src/index.css",
+        "tests/frontend/new-chat-project-picker.test.ts",
+        "tests/frontend/new-chat-project-picker-branch-menu.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 3 文件 43 passed（picker 4、分支菜单 jsdom 交互 2：打开复用菜单/切换分支回调并关闭、chat-surface-css-contract 37）；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc -b 通过；npm run build 通过；Chrome CDP 实机 1400×900 与 390×844：项目 chip/trigger 背景 rgba(0,0,0,0)、分支紧邻项目（间距约 9px），点击展开的菜单含分支列表/未提交更改/新建分支/Git 图谱，fixed 定位不超出视口，Escape 关闭。",
+      "boundaries": "只改新建对话空状态底部项目行及其分支菜单复用；项目选择弹层、正常会话 composer 与 header 分支入口不变；不自动执行真实分支切换；未新增依赖；未手工修改生成产物；模块职责与公共入口未变，docs/wiki 无需更新。"
+    },
+    {
       "id": "composer-pasted-text-tile-radius",
       "name": "Composer 粘贴文本附件改为中等圆角",
       "description": "输入框内粘贴大段文本生成的附件 tile 不再被 composer 按钮的全圆角规则变成圆形，改为与消息区附件一致的中等圆角方形。",

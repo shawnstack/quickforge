@@ -20,6 +20,7 @@ import { syncAssistantArtifactCard } from './assistant-artifact-card'
 import { syncGoalIterationDivider } from './goal-iteration-divider'
 import { syncGoalInternalMessage } from './goal-internal-message'
 import { removeRollbackConfirmPopover, showRollbackConfirmPopover } from './rollback-confirm-popover'
+import { getPrimaryMessageList, readMessageRows } from './message-rows'
 import { decorateTurnErrorRow, isErrorMessage } from './turn-error-row'
 import { turnErrorKeyOf, type TurnErrorTracker } from './turn-error-state'
 import type { FileContextReference } from '../chat-utils'
@@ -180,25 +181,12 @@ export type MessageDecorationDeps = {
   readOnly?: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
-}
-
-function getPrimaryMessageList(panel: HTMLElement) {
-  return panel.querySelector<HTMLElement>('.qf-message-list')
-}
-
-function getMessageElements(messageList: HTMLElement) {
-  return Array.from(messageList.querySelectorAll<HTMLElement>('user-message, assistant-message, .qf-user-message, .qf-assistant-message'))
-    .filter((element) => element.closest('message-list, .qf-message-list') === messageList)
-    // The streaming partial renders as the list's last row now (it commits in
-    // place at `message_end`), but row-level decoration treats it exactly as
-    // before — owned by the process-folding pass, not this list. AssistantMessage
-    // mirrors `isStreaming` onto its root node; committed rows carry `false`.
-    .filter((element) => (element as { isStreaming?: boolean }).isStreaming !== true)
+  /** 同一装饰 pass 内已枚举好的消息行（省去重复全表扫描）。 */
+  messageRows?: HTMLElement[]
 }
 
 function getPrimaryMessageElements(panel: HTMLElement) {
-  const messageList = getPrimaryMessageList(panel)
-  return messageList ? getMessageElements(messageList) : []
+  return readMessageRows(panel)
 }
 
 /**
@@ -437,6 +425,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     readOnly = false,
     rollbackConfirmTitle = t('rollbackConfirmTitle'),
     rollbackConfirmDescription = t('rollbackConfirm'),
+    messageRows,
   } = deps
 
   const messagesSnapshot = getMessages()
@@ -467,7 +456,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     return last?.role === 'assistant' && (last as { stopReason?: unknown }).stopReason === 'aborted'
   })()
 
-  const messageElements = getPrimaryMessageElements(panel)
+  const messageElements = messageRows ?? getPrimaryMessageElements(panel)
   const streaming = isStreaming()
   // 回合错误重试循环状态：尾部终态错误每周期观察一次（计数 / 重试中 / 升级态）。
   const trailingMessage = displayEntries[displayEntries.length - 1]?.message

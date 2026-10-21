@@ -1,3 +1,260 @@
+## session-open-fast-path-m3（done，2026-10-21）
+
+- Goal：消除切换会话时的**整树 remount**（准则 4 的最后一块），且用户可见交互零变化。
+- 方案决策（关键）：调研确认 `ServerAgent.dispose()` 不清 `state`（`server-agent.ts:1236` 明确注释 dispose 后仍可安全读取），因此「保留渲染结果」与「保留 agent 运行时」可以分开。**只保活渲染子树，不调大 `MAX_IDLE_AGENT_TASKS`**——避免常驻 MB 级 messages，也避免跨项目 `workspaceRoot` 污染（`server/project-config.mjs` 是进程级单值，这是调研中风险最高的一项，本方案直接绕开）。
+- 实现：新增 `src/components/chat/SessionViewPool.tsx`（类组件，非活跃视图 `display:none`、活跃视图 `display:contents`）、`src/lib/session-view-pool.ts`（纯策略：默认 1 个非活跃槽 + 1500 行预算，活跃视图先计入预算且永不淘汰）、`src/lib/session-view-activity.ts`（活跃广播）。`App.tsx` 把 `ChatPanelHost` 包进池，池 key 与 `ChatSurface` 的 key 完全一致（`runtimeScopeId`），「同 key 不重挂载」语义不变。
+- 为什么用类组件：冻结「离开时那个元素」必须发生在**本次 render 仍在输出它**的时候，否则 React 在这一提交里已经卸载了它。这个读写发生在 render 期间，用 ref 会违反 Rules of React、用 setState 在 effect 里会被 `react-hooks/set-state-in-effect` 拒绝且实测会丢槽位（切到 B 后 B 整个消失）。实例字段是唯一既能持久又不参与 render 输入的存放处。
+- 三条必须显式迁移的「卸载副作用」（冻结 props 让保活视图收不到更新，无法从 props 得知自己已离开屏幕）：① 草稿末次落盘（原在卸载 cleanup；不补则切走前 400ms 防抖窗口内的输入**直接丢失**）；② 回前台复位滚动并贴底；③ 装饰层重扫。②③ 是实测发现的：隐藏期 `display:none` 下测量值全为 0 且 `[agent]` effect 不重跑，不回前台补装饰，切回后就停在失真状态。
+- 可见性门控：`runDecorate` 开头跳过隐藏视图，`ChatSurface` 贴底写 `scrollTop` 前也跳过（隐藏态 `scrollHeight` 为 0，写下去会把容器停到顶部）。判据用**DOM 可见性**（`isInsideHiddenView`）而非活跃性信号——信号在 `useLayoutEffect` 发布，本视图刚变可见的那次提交上信号可能仍指向旧视图，会把唯一一次权威装饰跳过。
+- 顺带修掉的多面板缺陷（保活让「同时两个面板」成为常态，暴露了原本被「只有一个面板」掩盖的问题）：`thinking-level-controls.ts` 无参清理会删掉任意面板的 thinking 按钮、`model-controls.ts` 的 `aria-expanded` 取全局、`useModelActions.ts` 读**第一个**面板的草稿与附件。现全部按 `closest('.qf-chat-panel')` 归属。新增 `tests/frontend/composer-popover-panel-scope.test.ts` 锁定。
+- 实测（83 行会话 ↔ 16 行会话，SPA 内切换，独立端口实例，`PerformanceObserver` longtask 收集器）：离开大会话 **1 个 longtask / 55ms**；切回大会话（保活命中）**4 个 / 累计 249ms / 最大 83ms**。对照改动前同链路基线（618 行 ↔ 171 行）小→大 **2360ms / 最大 854ms**——会话规模不同不能直接相减，但可确认**量级**：原先 500–850ms 的「整树卸载 + 重建」单项尖峰已不存在，剩余成本是数据重取（`/view`）与一次装饰 pass。
+- 交互契约实测（同一 SPA 会话内切走再切回）：`.qf-scroll-container` 上的**探针属性存活**（同一 DOM 容器，未重建）、装饰产物与切走前**完全一致**（4 个过程组、6 组消息动作、83 行）、滚动贴底 `distance: -0.5`、两个视图并存；真实滚轮验证滚动滞回（脱离后距离 1400 且回底按钮**出现并可见**，滚回底部后距离 0 且按钮**自动隐藏**）；草稿隔离与恢复 `isolated=true, restored=true`；composer 四钩子齐全。
+- 两次误判的排除（教训同上一轮：自动化给出的「异常」先用规则本身对照）：① 一个 4 轮会话的轮次导航节点为 0，一度判定为回归，实际是轮次导航有显示阈值 `TURN_NAVIGATION_MIN_TURNS = 5`，**空轨道才是正确行为**；② 用 `page.goto` 换 URL 会整页重载、绕过 SPA，测不到保活，改用侧栏点击/`history` 在 SPA 内切换才有效。
+- 验证：`npm run test` 全量 404 文件 4633 用例通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（3.66s）。临时实例 32210/32212/32214/32216/32218 已清理，主实例 5176 全程 health 200。
+- Notes：M4（装饰层 20+ 命令式注入器改 React 兄弟节点）仍未做，其价值是可维护性而非性能（装饰 pass 12–17ms 不是瓶颈）。若将来要调大 `MAX_IDLE_AGENT_TASKS`，必须先给 server agent 绑定 projectId 而不是读全局 active project。未新增/升级依赖；未手工修改生成产物；未创建 Git commit。
+
+---
+
+## session-open-fast-path-m2（done，2026-10-21）
+
+- Goal：为「打开历史会话」提供不重建 Agent 运行时的读取通道，把 `/restore` 与运行时 attach 移出首屏关键路径，且不改变任何用户可见交互。
+- 根因：`GET /state`、`GET /messages`、`POST /restore` 三条读路径在会话不在内存时都 fallback 到 `restoreAgent`，而它走 `createAgent` 全套（`buildSystemPrompt` / `createServerTools` / `readProjectConfig` / 模型解析 / MCP）。**只为显示一段历史，却要重建整个 Agent 运行时。**
+- 服务端：新增 `server/routes/session-view.mjs`（`GET /api/sessions/:sessionId/view`），在 `server/index.mjs` 的 `handleApi` 注册 `/api/sessions/` 前缀。内存命中直接委派 `getSessionState`（活跃会话的待审批/流式/上下文用量只存在于进程内存，原样返回即完全等价）；未命中直接 `readSessionStateValue` 读 SQLite，**绝不调用 `restoreAgent`**。响应形状与 `getSessionState` 对齐，可空字段统一用 `null`——否则 `JSON.stringify` 会丢掉 `undefined` 字段，形状随会话状态漂移（这是实现中实际踩到并修正的问题）。
+- 前端：`ServerAgent.loadView` 打入该端点；`useAgentManager.performLoadSession` 改为「`loadView` 优先，任何失败回退 `restore`」，并在 `attachTaskToView` 之后用 `isLatestRequest` 守卫发起后台 `syncState` 校准（冷会话此时才 restore，但用户已看到内容）。
+- 工具渲染（关键耦合点）：只读视图不返回 `tools`（存储层没有工具定义）。调研确认工具卡图标/label/摘要来自静态渲染器注册表，`state.tools` 只在 `AssistantMessage` 做一次 `find(name)` 且 `ToolMessage` 有 `toolCall.name` 兜底——**唯一例外是 MCP 卡**（应用期动态注册，且注册点只在面板初始化 effect 跑一次、依赖数组不含 `tools`，晚到不会自愈）。修复：`ToolMessage` 注册表未命中时对 `mcp__server__tool` 形态直接构造 `McpToolRenderer`，server 与原工具名从名字解析，不读 `tool.label`。
+- 一次自我纠正：最初让 `ToolMessage` 经 `local-tools` 导入，但该模块在 import 时注册全部内置渲染器，改变了「哪些卡能解析」的既有语义，`chat-surface-message-list` 的顺序断言立刻变红。改为直接 import `tool-renderers/mcp-tool-renderer`，零导入副作用。
+- 测试：新增 `tests/server/routes/session-view.test.mjs`（5 例，每例显式断言 `restoreAgent` 未被调用）；`server-agent.test.ts` 新增 `loadView` 2 例（不出现 `POST /restore`、失败可回退）；`chat-surface-tool-message.test.ts` 新增 MCP 无 `state.tools` 不降级 + 非 MCP 未知工具仍走通用卡。
+- 验证：定向 vitest 全绿（session-view 5、server-agent 140、chat-surface-tool-message 10、chat-surface-message-list 19、chat-surface-behavior-alignment 10 等）；`npm run test` 全量 397 文件全通过；`npm run lint` 0 error（2 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功。
+- Notes：M3（会话视图实例池 keep-alive，需先把滚动状态归约为 `ScrollAnchor` 才能开窗口化，否则改变「滚动到顶部」行为）、M4（装饰层 20+ 命令式注入器改 React 兄弟节点）未实施，设计与风险在架构文档里。未新增/升级依赖；未手工修改生成产物；未创建 Git commit。
+
+---
+
+## session-open-fast-path-round3（done，2026-10-21）
+
+- Goal：把「切换会话时全量重算」的最后一块——Markdown 解析——也纳入内容寻址缓存。
+- **推翻上一轮结论**：上一轮我判断「缓存 `react-markdown` 元素树无效，因为 remount 时 React 会重新执行 `ReactMarkdown`」。这个判断假设了它必须是 JSX 组件。本轮查证 `node_modules/react-markdown/index.js`：默认导出 `Markdown(options)` 是**普通函数**（`post(processor.runSync(processor.parse(file)), options)`），不是带 hook 的组件。因此可以在渲染期直接调用它拿到元素树并缓存，remount 时真正跳过 parse + 插件流水线。
+- 改动：`Markdown.tsx` 新增 `markdownElementCache`（`ContentCache<ReactNode>`，上限 300），`renderMarkdownTree` 改为 `ReactMarkdown({ children, ... })` 普通调用，`MarkdownBlock` 用 `memoizeContent` 取缓存；新增 `clearMarkdownElementCache` 供测试隔离。缓存键只需 `content`：`remarkPlugins`/`components` 是模块级常量，`rehypePlugins` 只携带由同一 content 决定的 math token 映射（token 本身也已按内容缓存）。
+- 正确性论证：React 元素是不可变描述，复用不会让渲染结果取决于挂载历史；`CodeBlock` 等外层组件读取的 context 变化仍由 React 正常传播，跳过的只是字符串解析与插件执行。
+- 测试：`chat-math.test.ts` 新增 3 例——同一 content 两次渲染输出完全一致（缓存命中路径）、不同 content 互不串染、数学公式在缓存树上仍正确。
+- 验证：`npm run test` 全量 397 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（5.79s）。定向：chat-math 13、chat-surface-css-contract + chat-surface-message-list + chat-surface-render 83。
+- 文档纠正：`docs/architecture/session-open-fast-path.zh-CN.md` 里那句「明确未做：缓存元素树是无效的」已改写为「更正」，说明上一版判断错在哪、为什么现在成立。
+- Notes：至此四类渲染产物（Markdown 解析 / 代码高亮 / Mermaid / KaTeX）全部跨 mount 复用，准则 2 的「消除切换会话时的全量重算」已完整兑现。准则 4 的「消除整树 remount」仍未做——`ChatSurface` 的 `key` 不能直接删（同时承担丢弃上一会话草稿恢复/编辑器状态的职责），需要先设计显式的会话级状态迁移。未新增依赖；未手工修改生成产物；未创建 Git commit。
+
+---
+
+## session-open-fast-path-acceptance（done，2026-10-21）
+
+- Goal：对照交互契约清单做一次系统性可见交互验收，确认准则 5（不改用户可见交互）成立。
+- 浏览器实测（独立端口实例，361 条消息会话）结果全部符合契约：
+  - **滚动滞回**：初始贴底（距底 0）；小滚 40px 仍跟随；大幅上滚后脱离（距底 1141px）。
+  - **回底按钮**：脱离后出现且可见。
+  - **轮次导航**：存在、6 个节点、未被 CSS 隐藏。
+  - **折叠**：6 个过程组、5 条终答标记为「不折叠」——终答常显契约成立。
+  - **composer 契约**：`.qf-message-editor` / `.quickforge-composer` / `-shell` / `-dock` 四个钩子齐全；发送、`+`、权限、模型触发都在；textarea 可编辑。
+  - **草稿隔离与恢复**：在 A 输入 → 切到 B（草稿为空，未串染）→ 切回 A（草稿恢复）。
+- **一次误报的排查过程（值得记录）**：侧栏点击会话行在我用「合成 click」和「强制点击」时都不切换，一度被判定为产品回归。用 `git stash` 在**基线代码上复现同样现象**后排除——真实原因是会话行位于 **dnd-kit 可拖拽排序容器**内，其指针事件被 DnD 拦截，自动化点击打不到行按钮。改用 deep-link 路由切换后，草稿隔离/恢复验证全部通过。教训：自动化交互失败时，先用基线对照排除「不是自己引入的」，再判断是否产品问题。
+- 验证：`npm run test` 全量 400 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（3.41s）。主实例 5176 全程运行（health 200 复核），临时实例 32190/32191/32192 均已清理。
+- Notes：生产代码零改动（本轮是验收）。中途 `git stash` 已 `pop`，改动完整保留（31 个已跟踪文件 + 13 个新增文件）。未新增依赖；未手工修改生成产物；未创建 Git commit；未关闭用户正在使用的实例。
+
+---
+
+## session-open-fast-path-hydrate-batching-probe（done，2026-10-21）
+
+- Goal：验证「把补齐历史切成小批、逐帧渲染」能否削平首屏后的长任务。
+- **两个新发现（都是正面或决定性的）**：
+  1. **首屏本身已经很快**：小→大切换实测 `click 1ms → load-start 35ms → first-paint/ready 303ms`。之前的 2360ms 累计阻塞**发生在 ready 之后**，是补齐历史造成的，不在首屏关键路径上。
+  2. **切断补齐则零长任务**：把 `hydrateFullHistory` 的全量请求 abort 掉后，实测 `longTasks: []`、`totalBlockMs: 0`。证明剩余阻塞的唯一来源就是那一次全量替换。
+- 尝试并**被实测否决**：把全量替换改成「按 60 条逐帧向前扩展」。
+  - 预期：长任务被切碎。
+  - 实测：**更差** —— 累计阻塞从 ~1.1s 涨到 **5006ms**、长任务从 2 个变成 **35 个**、最大单项从 609ms 降到 324ms 但总量翻 4 倍。
+  - 原因：每次提交都要重建整张列表（React 协调 + 装饰重算），增量收益被重复成本吃掉。已完整回退，并把「不要分批」的实测数据写进代码注释。
+- 验证：`npm run test` 全量 400 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（3.27s）。主实例 5176 全程运行（health 200 复核），临时实例 32188 已清理。
+- Notes：**生产代码零净改动**（分批尝试已完整回退，仅保留说明性注释）。这条结论很重要：剩余阻塞不能用「切小批」解决，只能减少总渲染量（窗口化）或不重建（DOM 保活），两者都属 M3。未新增依赖；未手工修改生成产物；未创建 Git commit；未关闭用户正在使用的实例。
+
+---
+
+## session-open-fast-path-remount-memo-probe（done，2026-10-21）
+
+- Goal：在已确认「remount 成本在 fiber 创建」的前提下，尝试低风险组件层优化，看能否在不改 `key` 的情况下削减成本。
+- 两个候选优化，**都被测试否决并完整回退**：
+  1. **给 `ThinkingBlock` 加 `memo`**（该会话有 125 个实例，是 surface 中唯一未 memo 的组件）。失败原因：`thinking-block-interaction.test.ts` 直接调用组件函数来断言 pointerdown-first 契约，memo 返回的是对象而非函数，4 个用例全部报 `ThinkingBlock is not a function`。而且即便不冲突，memo 对 remount 本就无效——全新 fiber 一定会执行组件函数，这正是上一轮实测得出的结论。
+  2. **按消息对象身份缓存 `messageDecorationFingerprint`**（每行每帧两次 `JSON.stringify`）。失败原因：`message-actions.test.ts:561` 明确断言「**原地修改 details（数组引用不变）→ 指纹变化 → 行重新装饰**」。这是被测试锁定的语义，与「同对象必然同指纹」的缓存前提直接冲突，2 个用例失败。
+- 结论：这两个方向都不通，且都不是「测试写错了」——测试锁定的是真实契约（组件可被直接调用、原地变更必须被发现）。M3 若要走，仍必须动 `key` 或做 DOM 保活，没有组件层的捷径。
+- 验证：`npm run test` 全量 400 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（3.49s）。主实例 5176 全程运行（health 200 复核），临时实例 32187 已清理。
+- Notes：本轮**生产代码零净改动**（两处尝试均已回退）。唯一留下的是这段记录，避免后续重复尝试同样两条死路。未新增依赖；未手工修改生成产物；未创建 Git commit；未关闭用户正在使用的实例。
+
+---
+
+## session-open-fast-path-remount-profiling（done，2026-10-21）
+
+- Goal：为准则 4 的剩余部分（消除整树 remount）建立可执行的成本基线，并排除错误方向。
+- 实测（A=618 行/10425 节点，B=171 行，来回切换，只读视图与渲染缓存均已生效）：
+
+  | 切换方向 | longtask 数 | 累计阻塞 | 最大单项 |
+  |---|---|---|---|
+  | 大 → 小 | 8 | 1034ms | 238ms |
+  | 小 → 大 | 10 | **2360ms** | **854ms** |
+
+  分段（点击为 0）：+5ms 首个 longtask 140ms → +148ms `load-start` → **+383ms 618 行旧 DOM 整体销毁（MutationObserver 记录移除 578 节点）** → +592ms `first-paint`/`ready`。
+- **三个被数据排除的方向**（这是本轮的主要价值）：
+  - 不是 DOM 解析：1.47MB `innerHTML` 重建单次仅 **23ms**；
+  - 不是布局：10425 节点强制同步布局单次 **0.1ms**；
+  - 不是网络：首个 140ms longtask **早于** `load-start`。
+  结论：成本在 React 创建约 1 万个 fiber + 组件函数执行（该会话 125 个 `ThinkingBlock`、191 个工具行、19 个 markdown 块）。这解释了为什么「内容寻址缓存」只解决了字符串解析、没解决 remount 本身。
+- 本轮产出：上述数据全部写入 `docs/architecture/session-open-fast-path.zh-CN.md` 的 M3 章节，作为后续改造的基线与方向约束。
+- 验证：`npm run test` 全量 400 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 通过。主实例 5176 全程运行（health 200 复核），临时实例仅用 32185/32186 并在结束时清理。
+- Notes：**未修改生产代码**——本轮是诊断，不是修复。M3 的保活改造（`SessionViewStore` + `ChatSurface` 的 `key` 迁移策略）需要产品决策支撑：`key` 除 remount 外还承担「换会话时丢弃上一会话草稿恢复/编辑器状态」，替换它必须先确定该状态如何显式迁移。未新增依赖；未手工修改生成产物；未创建 Git commit；未关闭用户正在使用的实例。
+
+---
+
+## session-open-fast-path-message-rows（done，2026-10-21）
+
+- Goal：消除准则 4 明确点名的「命令式 DOM 后置注入的重复扫描」。
+- 发现：`getPrimaryMessageElements` 在 **4 个装饰器**里各写了一份完整实现（`message-actions`、`assistant-waiting-bubble`、`context-compaction`、`approval-card`），每份都是 `querySelectorAll('.qf-user-message, .qf-assistant-message')` + `closest` 过滤。一次 decorate pass 会对同一张列表重复全表扫描多遍。
+- 改动：新增 `src/components/chat/panel-decoration/message-rows.ts` 作为唯一枚举实现（`readMessageRows` / `getPrimaryMessageList`），4 处改为复用；`context-compaction`、`assistant-waiting-bubble`、`decorateMessages` 增加可选 `messageRows` 入参，`ChatPanelHost.decorate` 在 pass 开始时枚举**一次**并向下传递。
+- 一个实现细节：`readMessageRows` 里把 `closest('message-list, .qf-message-list')` 拆成两次单选择器查询。真实 DOM 两者等价，但测试脚手架只支持单选择器形式——合并写法会让 4 个既有用例失败。这是「实现要适配最小 DOM 契约」的一个具体例子。
+- 测试：新增 `tests/frontend/message-rows.test.ts`（3 例：只保留本列表的行并跳过流式尾行、无列表时返回空、**每次调用只做一次全表扫描**）。最后一条锁定的正是本轮要解决的问题。
+- 验证：`npm run test` 全量 400 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（3.58s）。浏览器实测（独立端口 32184，361 条会话）：171 行、消息动作 8、压缩横线 1、过程组 6、composer 与贴底均正常。主实例 5176 全程运行（health 200 复核）。
+- Notes：准则 4 的「消除重复扫描」部分已有实质进展，但「消除整树 remount」仍未动——那需要 M3 的 `SessionViewStore`，且受 `ChatSurface` 的 `key` 约束。未新增依赖；未手工修改生成产物；未创建 Git commit；未关闭用户正在使用的实例。
+
+---
+
+## session-open-fast-path-scroll-anchor（done，2026-10-21）
+
+- Goal：把重复的滚动锚点补偿逻辑收敛为单一抽象，为 M3（展示层跟随「会话」而非「agent 实例」）打地基。
+- 发现的问题：同一套公式在 `ChatSurface` 里存在两处独立实现——`captureReadingAnchor`/`applyReadingAnchor`（后台补齐历史）与 `loadMoreMessages`（加载更早一页）。公式相同但各自维护，且都嵌在组件里无法单测。
+- 改动：新增 `src/components/chat/scroll-anchor.ts`，导出 `readScrollAnchor` / `resolveAnchorRow` / `anchoredScrollTop` 与 `ScrollAnchor` 类型。两处调用点改为复用；`loadMoreMessages` 通过 `requireMessageIndex: true` 表达「分页必须锚在真实消息行上，不能锚折叠组（分页会重建它们）」。
+- 顺带修复一个实测暴露的既有缺陷：顶部可见行是**折叠过程组**（无 `data-message-index`）时，原实现回退到 ordinal，前置 142 行后该 ordinal 指向了别的行——浏览器实测 `scrollTop` 保持不变而顶部文字被换掉。修复为「优先锚在带索引的真实消息行，找不到才退回任意行」。修复后实测 `topText` 保持一致。
+- 测试：新增 `tests/frontend/scroll-anchor.test.ts`（9 例，覆盖锚点选取、`requireMessageIndex` 行为、按索引优先/按 ordinal 回退、补偿值计算、无需调整时返回 null）。这两个函数此前完全没有单测覆盖。
+- 验证：`npm run test` 全量 399 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（5.78s）。浏览器实测（446 条会话，独立端口 32182 临时实例）：补齐后 `topText` 保持一致、`hydrated` 从 99 → 203 行。主实例 5176 全程运行（health 200 复核）。
+- Notes：M3 的下一步是在这个抽象之上建 `SessionViewStore`。`ChatSurface` 的 `key` 仍是硬约束（承担「换会话时丢弃草稿恢复/编辑器状态」）。未新增依赖；未手工修改生成产物；未创建 Git commit；未关闭用户正在使用的实例。
+
+---
+
+## session-open-fast-path-decorate-measurement（done，2026-10-21）
+
+- Goal：量化装饰层在真实长会话上的成本，判断是否值得为 M4（装饰层 React 化）投入重构。
+- 实测（618 行已完整补齐的会话，单次强制装饰 pass）：**16.5–17.2ms**，首帧后第一次是 5.1ms（干净状态）。其中「枚举本列表拥有的行」这一步占约 6.2ms。
+- 尝试并回退的优化：把选择器从 `user-message, assistant-message, .qf-user-message, .qf-assistant-message` 收窄为纯类名（实测遗留自定义元素匹配数 = 0，走查从 6.94ms 降到 4.91ms）。**被测试否决**：`message-actions.test.ts` 用 `createFakeElement('user-message')` 显式锁定遗留标签兼容行为，收窄后该用例失败。收益仅约 2ms/次（16.5 → 14.5ms），远低于 50ms longtask 阈值，不值得拿一个被测试锁定的契约去换。已完整回退，理由与实测数据写进代码注释。
+- 结论：装饰层在当前规模（618 行）不是瓶颈。M4 的价值在于「消除命令式 DOM 注入带来的状态复杂度与自愈逻辑」，不在性能；不应以性能为由推进 M4。
+- 验证：`npm run test` 全量 398 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（6.18s）。主实例 5176 全程运行（health 200 复核），仅清理临时实例 32181。
+- Notes：本轮没有留下生产代码改动（唯一改动是注释记录了实测结论与回退理由）。未新增依赖；未手工修改生成产物；未创建 Git commit；未关闭用户正在使用的实例。
+
+---
+
+## session-open-fast-path-cache-proof（done，2026-10-21）
+
+- Goal：为「内容寻址渲染缓存」提供真正能证伪的证据，而不是「输出一致」这种自证式断言。
+- 发现的问题：`chat-math.test.ts` 里的元素树缓存测试原本只断言「同一 content 两次渲染输出一致」。这个断言有缺陷——**即使每次都重新解析，输出也必然一致**，它无法区分「命中缓存」与「重新解析」，等于没有测到缓存本身。
+- 修复：spy `react-markdown` 模块并统计调用次数。`react-markdown` 默认导出是普通函数（已在 Node 中确认 `typeof default === 'function'`），所以可以直接测量 unified 流水线实际运行次数。新增两例：
+  - 命中缓存时调用数不增（真正跳过 parse + 插件）；
+  - `clearMarkdownElementCache()` 之后调用数增加（缓存确实承载了复用）。
+- 验证：`chat-math.test.ts` 15 例全通过；`npm run test` 全量 398 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npm run build` 成功（5.82s）。主实例 5176 全程运行（health 200 复核），仅清理临时实例 32180。
+- Notes：这条测试的意义不在于覆盖率，而在于它现在**能真正失败**——如果有人把缓存改回每次都解析，第一例立刻变红。M3（会话视图实例池 keep-alive）与 M4（装饰层全量 React 化）仍未实施。未新增依赖；未手工修改生成产物；未创建 Git commit；未关闭用户正在使用的实例。
+
+---
+
+## session-open-fast-path-idle-hydration（done，2026-10-21）
+
+- Goal：对首屏链路做精确耗时归因，找出剩余的可优化项。
+- 归因结果（1279 条消息，点击切换）：`/view` 8ms / 592KB、`/state` 18ms / 77KB、尾部对账 `/messages` 2ms / 2.4KB，`click → first-paint` 275ms；但**全量补齐 `/messages` 是 141–186ms / 10MB**，且原本在 first-paint 的同一时刻发起——正好与用户首次交互抢主线程。
+- 修复：`hydrateFullHistory` 改到 `requestIdleCallback`（`timeout: 2000` 兜底；无该 API 时 300ms `setTimeout`），给它独立取消句柄。实测补齐启动点从「首帧同时」推迟到**首帧后 270ms**，且补齐结果正确（`minIdx=0` / `maxIdx=1277`、贴底正常、composer 正常）。
+- 一个被避免的 bug：最初把 idle 句柄赋给 `cancelInitialRenderReady`，会覆盖首帧就绪通知的取消函数，导致卸载时无法取消就绪通知。已改为独立的 `cancelHydration`，并在 cleanup 中一并调用；加了源码契约测试锁定「不得覆盖」。
+- 测试：`chat-surface-behavior-alignment.test.ts` 新增 1 例（补齐必须走 idle 槽、取消句柄独立）。
+- 验证：`npm run test` 全量 398 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（5.95s）。主实例 5176 全程运行（health 200 复核），仅清理临时实例 32179。
+- Notes：`clickToFirstPaint` 在一次未命中缓存的测量里是 458ms（首次加载该会话），命中缓存时 275ms——这是既有差异，不是本轮回归。10MB 全量补齐本身仍是成本，但它已不在关键路径上；进一步压缩需要服务端分页 + 窗口化（M3 范畴）。未新增依赖；未手工修改生成产物；未创建 Git commit；未关闭用户正在使用的实例。
+
+---
+
+## session-open-fast-path-decorate-timing（done，2026-10-21）
+
+- Goal：把「首帧后第一轮 DOM 装饰」的耗时也纳入观测——它不在 `ready` 之前，但决定按钮/折叠何时可用，属于打开会话的用户感知成本。
+- 问题：首版埋点只到 `ready`，而装饰在 `ready` 之后由 rAF 触发。DevTools trace 到「已上屏」就结束，真正阻塞首次交互的那段成本是隐形的，无法判断装饰层是否值得继续优化。
+- 改动：`session-open-timing.ts` 新增 `recordFirstDecorateTiming` / `readSessionOpenTiming().firstDecorateMs`，同时打一个 `qf:session-open:decorate:<sid>` mark（带 `durationMs` detail）；`ChatPanelHost` 的 `runDecorate` 在结束时记录。只记第一轮：流式期后续装饰是常规开销，混入会掩盖打开会话的真实数字。
+- 实测（1279 条消息的活跃会话，独立端口临时实例）：`click → first-paint/ready = 441ms`（上轮同链路 608ms），补齐后 `minIdx=0` / `maxIdx=1277` 正常；`data-message-list` 有 203 行时，单次强制装饰 pass 约 12–17ms，无 longtask。
+- 验证：`npm run test` 全量 398 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（3.24s）。主实例 5176 全程运行（`/api/health` 200 复核），临时实例只清理了 32178 这一个进程。
+- Notes：装饰 pass 12–17ms 未达 longtask 阈值（50ms），在当前规模下不是瓶颈，因此**本轮没有为它做进一步优化**——先把成本变成可见数据，避免凭直觉优化非瓶颈。M3（会话视图实例池 keep-alive）与 M4（装饰层全量 React 化）仍未实施。未新增依赖；未手工修改生成产物；未创建 Git commit。
+
+---
+
+## session-open-fast-path-active-window（done，2026-10-21）
+
+- Goal：实机测量完整首屏链路（点击 → 可交互），定位并修复残余的耗时来源。
+- **发现并修复的第二个真实缺陷**：只读视图的**内存命中分支**直接返回 `getSessionState`，后者携带完整消息列表。实测 1279 条消息的活跃会话：`/view` 响应 **9.5MB / 1946ms**，首屏 `click → first-paint` 高达 **3202ms**。也就是说只读端点在最需要它的场景（大会话、活跃会话）完全没有生效。修复：内存命中同样应用尾部窗口，但保留 `tools`、待审批、流式等运行时字段。同一条链路降到 **592KB / 7ms**，首屏 **608ms（−81%）**。
+- 验证方式：因用户要求不关闭现有实例，起了独立端口（32177）的临时实例加载新代码验证，验证完成后只清理该临时进程，主实例（5176）始终保持运行（`/api/health` 200 已复核）。
+- 实测数据（1279 条会话）：冷 `view` 592KB/11ms；`restore` 76KB + 内存命中 `view(tail=200)` 592KB/7ms（此前 9.5MB/1946ms）；前端 `click→first-paint` 3202ms → 608ms，且补齐仍正常（`minIdx=0`、`maxIdx=1277`）。
+- 测试：`session-view.test.mjs` 新增 2 例——活跃会话也走尾部窗口（断言窗口取尾部而非头部、`messagesSummary.count` 正确、`tools` 运行时字段保留）、活跃会话消息未超窗口时不带 summary。当前 9 例全部通过。
+- 验证：`npm run test` 全量 398 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（3.67s）。
+- Notes：这次修复说明「按分支写测试」比按路径写更可靠——第一版测试只覆盖了冷会话（storage 分支），内存分支漏测，直接导致 9.5MB 的回归上线到实测阶段才被发现。M3（会话视图实例池 keep-alive）与 M4 全量 React 化仍未实施。未新增依赖；未手工修改生成产物；未创建 Git commit；未关闭用户正在使用的实例。
+
+---
+
+## session-open-fast-path-hydration-anchor（done，2026-10-21）
+
+- Goal：在浏览器实机验证 M2 只读视图链路的用户可见行为，并修复补齐历史带来的滚动跳变。
+- **发现并修复的真实回归**：尾部窗口在头部插入 100~200 行历史时，`scrollTop` 不变而上方内容变高，用户视口整体下跳。实测（886 条会话）：补齐后 `scrollTop` 完全不变，顶部可见行从「已测试完成」变成「异步 shell 测试通过」——用户读的内容被推走了。
+- 修复方案经历三次失败才成立，全部记录在代码注释与架构文档里：① 在发起请求时捕获锚点（错：网络往返期间用户会滚动，用过期位置）；② 用 `offsetTop` 算 delta（错：测量发生在插入行高度稳定之前）；③ 用 DOM 节点身份（部分错：折叠过程组会被重建）；④ **视口偏移 + 绝对 `data-message-index`（无索引用 ordinal 回退）**（通过）。
+- 实现：`hydrateFullHistory(beforeReplace?)` 在替换前一刻同步调用回调，宿主用它调 `surfaceRef.current.captureScrollAnchor()`；`ChatSurface` 的 layout effect 在提交时按 delta 补偿 `scrollTop`。补齐触发点从 `useAgentManager` 移到 `ChatPanelHost`（那里才有 surface ref）。
+- 另一处修复：`server-agent.ts` 里 `window.requestAnimationFrame` 未做环境判断，非 DOM 环境（测试、ACP）直接抛 `window is not defined`。已改为带 `typeof window !== 'undefined'` 守卫。
+- 浏览器实测证据：端点级——1179 条会话 `/view` 601KB/20ms（全量视图 4.6MB/57ms）；网络请求顺序 `/view` → `/state` → `/messages?after=360`（证明窗口偏移换算正确）；UI 级——361 条与 1179 条会话均能滚到 `data-message-index=0`，贴底、composer、回底按钮、轮次导航全部正常；补齐时 `topText` 不变且 `scrollTop` 精确补偿。
+- 测试：`chat-surface-behavior-alignment.test.ts` 新增 5 例（替换时刻捕获、delta 度量方式、锚点识别方式、宿主触发位置、非 DOM 守卫）；`server-agent-message-window.test.ts` 8 例锁定窗口偏移换算；`session-agent.test.ts` 新增窗口补齐 2 例。
+- 验证：`npm run test` 全量 398 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（3.85s）。
+- Notes：残余 67px 漂移来自补齐前后折叠过程组自身高度变化（折叠头文案随时长变化），不是定位错误。M3（会话视图实例池 keep-alive）与 M4 全量 React 化仍未实施。未新增依赖；未手工修改生成产物；未创建 Git commit。
+
+---
+
+## session-open-fast-path-tail-window（done，2026-10-21）
+
+- Goal：实机验证 M2 只读视图通道的真实收益，并修掉实测暴露的设计缺陷与回归。
+- **实测推翻了原假设**：第一版 `/view` 全量返回，1179 条消息的会话单次响应 4.6MB / 57ms，而完整 restore 链路（restore 78KB + messages 4.5MB）共 151ms。只读端点确实省掉了一次串行往返，但**字节数完全没降**——瓶颈从「服务端重建运行时」转移成「单次超大响应 + 前端主线程解析」，实际更糟。
+- 修正：新增 `readSessionStateTail`（SQLite 只取末 N 条 + total），默认尾部 200 条，支持 `?tail=N`。实测 1179 条会话 **4.6MB/112ms → 601KB/20ms（−87% / −82%）**，`tail=50` 时 128KB / 5ms。
+- 尾部窗口引入两个正确性问题，均已修复并加测试：
+  - **前缀永远补不回**（真实可见回归）：只读视图只带 200 条，增量对账只往后拉、不补前缀，用户从完整 restore 的 361 条退化为只能看到 200 条。修复：`hydrateFullHistory()` 首屏后做一次全量替换并归零窗口偏移。
+  - **增量对账索引基准错**：`mergeIncrementalMessages` 与所有 `summary.count === localCount` 比较都隐含「本地索引 == 服务端索引」，窗口场景下会误判为服务端截断并触发无意义全量重拉。修复：新增 `messageWindowOffset`，比较改用 `localEnd`，合并改走新增的 `mergeWindowedMessages`（丢弃落在被省略前缀里的尾部条目）。
+- 另一处修正（测试发现）：`readSessionStateTail` 的非 split 分支原本无条件返回 `total`，导致全量返回时也带上 `messagesSummary`，短会话被误判为「有更早历史」。改为仅在窗口被截断时返回。
+- 测试：新增 `tests/frontend/server-agent-message-window.test.ts`（8 例，锁定窗口偏移换算，偏差一格就会让整段对话渲染错位）；`server-agent.test.ts` 新增 2 例（窗口补齐为全量、全量时不再多发请求）；`session-view.test.mjs` 新增 2 例（返回尾部而非头部、短会话不下发 summary）。
+- 验证：`npm run test` 全量 398 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（4.60s）。
+- Notes：实机验证用 `node server/index.mjs --dev` + curl 直接打端点测得。**未做浏览器 UI 级验证**（未在真实界面点击会话观察渲染与滚动），这是下一步应补的验证。M3（会话视图实例池 keep-alive）与 M4 全量 React 化仍未实施。未新增依赖；未手工修改生成产物；未创建 Git commit。
+
+---
+
+## session-open-fast-path-round2（done，2026-10-21）
+
+- Goal：补齐「会话打开快路径」的第二个渲染缓存缺口（KaTeX），并继续削减装饰热路径的重复工作，全程不改可见行为。
+- 改动：① `KatexMath.tsx` 接入内容寻址缓存（`(display, latex)` → html）。`katex.renderToString` 是纯函数，但 React `memo` 只在同一次挂载内生效；会话切换整树 remount 会让历史公式逐个重算。只缓存成功结果，异常路径仍回退红色原文。新增 `clearKatexHtmlCache` 供测试隔离。② `ChatPanelHost.tsx#artifactsInputKey` 按 `messages` 数组身份加 `WeakMap` 记忆。依据是既有不变量「`state.messages` 从不原地修改」——已全仓核实无 `push`/`splice`/`pop`/`shift`/`unshift` 写入，所有写入方一律替换整个数组，与 `readAgentSnapshot` 的身份复用契约一致。
+- 被测试否决并回退：给 `goal-iteration-divider` 加「details 指纹相同就跳过」的短路。该装饰器既有语义是**每周期重新确认分隔线仍挂在宿主末尾**（其它装饰器可能在它之后追加内容），`goal-iteration-divider.test.ts` 显式锁定该幂等重定位行为。已回退，理由写入架构文档 M1.6。
+- 测试同步：`chat-math.test.ts` 的「renderToString 抛错」用例需要在断言前 `clearKatexHtmlCache()`——缓存生效后，前序用例缓存的成功结果会让它走不到失败分支。这是缓存的正常行为，不是回归。
+- 验证：`npm run test` 全量 397 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npx tsc -b` 通过；`npm run build` 成功（5.69s）。定向：chat-math 10、goal-iteration-divider 67、chat-surface-render + chat-surface-behavior-alignment 27。
+- Notes：`KatexMath.tsx` 新增非组件导出触发 `react-refresh/only-export-components`，按仓内既有先例（`Markdown.tsx`、`MessageList.tsx`）在文件首行加 `eslint-disable` 说明。M3 未实施，且发现一个新约束：`ChatSurface` 的 `key` 不能直接去掉——它同时承担「换会话时丢弃上一会话的草稿恢复/编辑器状态」的职责，需要先用显式的会话级 key 迁移策略替代。未新增依赖；未手工修改生成产物；未创建 Git commit。
+
+---
+
+## session-open-fast-path-m4-slice（done，2026-10-21）
+
+- Goal：在不改变任何可见行为的前提下，削减装饰层与滚动路径上的重复全表扫描与临时分配（准则 4 的可证明等价切片；M3 的 keep-alive 与 M4 的全量 React 化仍未实施）。
+- 改动：① `panel-decoration/message-actions.ts` 的 `getMessageElements` 由「`Array.from(querySelectorAll)` + 两次 `filter`」改为单遍遍历 + 提前 `continue`，语义不变（嵌套列表仍排除、流式 partial 仍排除），每次装饰少一次中间数组与一轮祖先遍历。② `panel-decoration/process-folding.ts` 的 `decorateProcessBlocks` 用 `flushTurn` 闭包单遍分组，避免每轮回调都新建数组；分组结果与原来逐字一致。③ `scroll-sync.ts` 的 `scrollToBottom` 调整读取顺序：先读 `scrollTop` 再读 `scrollHeight`，让「已贴底」的短路判断尽可能避免触发不必要布局失效。
+- 判据：三处都只重排执行路径，不改变任何阈值（脱离 50px / 吸附 10px / 近底 80px / 回底按钮 280↔120）、不改变分组规则、不改变 DOM 结构或类名。
+- 验证：定向 vitest 全绿（process-folding 系列 4 文件 118 passed、scroll-sync + scroll-to-bottom-button 29 passed）；`npm run test` 全量 397 文件全通过；`npm run lint` 0 error（1 个既有 warning）；`npm run build` 成功（5.66s）。
+- Notes：这是准则 4 的**部分**进展，不是达成。真正消除整树 remount 需要 M3：`SessionViewStore` 让展示层跟随「会话」而非「agent 实例」，且必须先把滚动状态归约为单一 `ScrollAnchor`（`{ turnId, offsetPx }`）才能安全开启窗口化——否则「滚动到顶部」的可见行为会变。装饰层全量 React 化（M4）同样未做。未新增依赖；未手工修改生成产物；未创建 Git commit。
+
+---
+
+## session-open-fast-path-m0-m1（done，2026-10-21）
+
+- Goal：优化「点击历史会话 → 首帧可交互」的耗时，且不改变任何用户可见交互（滚动阈值、折叠规则、遮罩过渡、DOM 契约、只读/分享/侧聊能力矩阵全部不变）。
+- 根因（只读调研结论）：① 读路径被写路径绑架——`GET /state`、`GET /messages`、`POST /restore` 在服务端全部 fallback 到 `restoreAgent`，而它走 `createAgent` 全套（`buildSystemPrompt` / `createServerTools` / `readProjectConfig` / `readStore(settings)` / MCP），只为显示一段历史却重建整个 Agent 运行时；② 展示与运行时耦合——`ChatSurface` 的 `key={agentRuntimeScopeId ?? agent.sessionId}` 让切会话 = 整树 remount = 全部历史 Markdown 重新解析、代码块重新高亮、Mermaid 重新渲染，而这三者都没有跨 mount 缓存；③ 重复计算——`createAgent` 内 `readProjectConfig` 实读 3 次、`readStore('settings')` 至少 4 次、skills 目录扫描 3 次（其中 `createSkillTools` 与 `loadSkillToolContext` 是同一批目录扫两遍）；④ 前端 `fetchAllSessionMessages` 串行分页，默认 500 导致长会话 ⌈N/500⌉ 次串行往返。
+- 改动（M0 埋点）：新增 `src/lib/session-open-timing.ts`，`performance.mark` 四段（click / load-start / first-paint / ready），`readSessionOpenTiming` 汇总 `clickToReadyMs` / `clickToFirstPaintMs` / `loadToReadyMs`；接入 `useAppLoadingTransitions`（click / load-start / ready）与 `ChatPanelHost` 就绪回调（first-paint）。纯旁路：Performance API 缺失、id 非法、重复打点全部静默处理。
+- 改动（M1.1 渲染缓存）：新增 `src/lib/render-cache.ts`——`ContentCache`（有界 LRU，FNV-1a 摘要定位桶 + **命中时逐段严格比较原字符串**，摘要碰撞只会退化为 miss）、`memoizeContent`、`memoizeContentAsync`（并发调用共享 in-flight promise，失败不入缓存）。接入三处纯函数：`chat-math.ts`（定界符预处理结果含 token Map）、`code-highlight.ts`（`(language, code)` → segment 数组）、`mermaid-renderer.ts`（源码 → SVG）。
+- 改动（M1.2 消除重复技能扫描）：`server/tools/definitions.mjs` 的 `createSkillTools` 新增可选 `resolvedSkills`；`server/agent-manager.mjs` 的 `createServerTools` 改为先 `loadSkillToolContext` 一次、`createSkillTools` 通过 `resolvedSkills: mergeSkills(...)` 复用。`loadSkillToolContext` 改为无条件执行（原先在 `includeSkillTools=false` 时被跳过），保持 toolContext 字段形状不变。
+- 改动（M1.3 配置读取缓存）：`server/storage.mjs` 新增按 `(mtimeMs, size)` 校验的 `readJsonFileCached`（命中返回 `structuredClone`，保持调用方「可随意修改返回值」的既有语义）；`writeJsonAtomic` 在 rename 成功后 `invalidateJsonFileCache(file)`，避免文件系统 mtime 粒度较粗时读到写入前的值。`readProjectConfigData` 与 `readConfigStore` 改走该缓存。外部直接编辑文件同样被 `(mtime, size)` 变化捕获，与原先「每次都读盘」的新鲜度一致。
+- 改动（M1.4 分页对齐上限）：`server/routes/agent.mjs` 的 `GET /api/agents/:id/messages` 默认 `limit` 由 500 提升到服务端上限 5000；显式传 `limit` 仍可降级到任意较小页，返回形状与语义不变。
+- 文档：新增 `docs/architecture/session-open-fast-path.zh-CN.md`（问题链路、交互契约红线、已实施改动、M2/M3/M4 设计与重写原则）；`docs/wiki/README.md` 增加导航；`docs/wiki/src/lib/README.md` 增加 `render-cache.ts` 与 `session-open-timing.ts` 条目；`docs/architecture/session-state-transactional-storage.zh-CN.md` 同步默认 5000。
+- 明确不做：缓存 `react-markdown` 的元素树。remount 时 React 会为新 fiber 重新执行 `ReactMarkdown`，缓存元素对象无法跳过 parse + 插件流水线；真正解法是让会话切换不 remount（M3），不是缓存元素。该尝试已实施并回退，理由写在代码注释与架构文档里。
+- 验证：定向 vitest 全部通过——render-cache 8、session-open-timing 5、project-config-read-cache 4、code-highlight 60、chat-math 10、mermaid-renderer 3、app-domain-hooks 14、chat-surface-behavior-alignment 10、chat-surface-css-contract 37、chat-surface-message-list 19、server-agent 138、routes/agent 44、agent-manager.persist-session-state 34、definitions 22、storage-config-split 8、storage-layer 15、storage.session-metadata-pin 2；`npx tsc -b` 通过；`npx eslint`（改动文件）0 error。
+- Notes：M2（只读视图通道 `/api/sessions/:id/view` 不走 `restoreAgent`，`attachRuntime` 移出首屏关键路径）、M3（会话视图实例池 keep-alive，消灭 remount；需先归约 `ScrollAnchor` 再开窗口化，否则会改变「滚动到顶部」行为）、M4（`panel-decoration` 20+ 命令式注入器改为 React 兄弟节点）均未实施，设计与风险已写入架构文档。未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+
+---
+
 ## compaction-divider-at-compacted-end（done，2026-10-21）
 
 - Goal：用户要求「自动触发上下文压缩时，压缩线应该显示在对应位置（被压缩历史的末尾），而不是挂在对话上方」。

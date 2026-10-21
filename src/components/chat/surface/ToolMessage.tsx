@@ -3,6 +3,7 @@ import { memo, useLayoutEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { getToolRenderer } from '@/lib/tool-renderer-registry'
+import { parseMcpToolName, McpToolRenderer } from '@/lib/tool-renderers/mcp-tool-renderer'
 import { isRecord, renderToolChevron, ToolDetails } from '@/lib/tool-renderers/shared'
 import type { AgentTool, ToolCall, ToolResultMessage } from './ChatTypes'
 /**
@@ -160,7 +161,15 @@ export const ToolMessage = memo(function ToolMessage({ toolCall, tool, result, p
   const backgroundRunning = isRecord(effectiveResult?.details)
     && effectiveResult.details.background === true
     && effectiveResult.details.running === true
+  // MCP cards normally get their renderer registered from `state.tools`, but a
+  // read-only session view carries no tool definitions and a toolset can arrive
+  // after the panel's initialize effect. Falling back to an on-the-spot MCP
+  // renderer (built from the `mcp__srv__tool` name) keeps the full card instead
+  // of the generic "Tool Call" fallback. Deliberately imports the renderer
+  // module directly rather than through `local-tools`: that module registers
+  // every built-in renderer on import, which would change which cards resolve.
   const renderer = getToolRenderer(toolName)
+    ?? (parseMcpToolName(toolName) ? new McpToolRenderer(toolName) : undefined)
   const renderResult = renderer?.render(toolCall.arguments, effectiveResult, !aborted && (isStreaming || pending || backgroundRunning))
 
   if (!renderResult) {

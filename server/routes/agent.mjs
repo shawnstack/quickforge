@@ -284,7 +284,10 @@ export async function handleAgentApi(req, res, url, context = {}) {
     const afterParam = Number(new URLSearchParams(url.search).get('after'))
     const after = Number.isInteger(afterParam) && afterParam >= 0 ? afterParam : 0
     const limitParam = Number(new URLSearchParams(url.search).get('limit'))
-    const limit = Number.isInteger(limitParam) && limitParam >= 1 ? Math.min(limitParam, 5000) : 500
+    // Default to the server cap so a long split session materializes in a
+    // single round trip instead of ⌈N/500⌉ serial ones — the client's
+    // `fetchAllSessionMessages` always drains every page anyway.
+    const limit = Number.isInteger(limitParam) && limitParam >= 1 ? Math.min(limitParam, 5000) : 5000
     const page = messages.slice(after, after + limit)
     sendJson(res, 200, {
       after,

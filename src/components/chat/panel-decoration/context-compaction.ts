@@ -4,12 +4,15 @@ import { assistantText, copyTextToClipboard, draftTextFromUserMessage } from '@/
 import { t } from '@/lib/i18n'
 import { escapeHtml } from './html'
 import { copiedIcon, copyIcon } from './icons'
+import { readMessageRows } from './message-rows'
 
 type ContextCompactionNoticeDeps = {
   panel: HTMLElement
   getMessages: () => MessageWithUsage[]
   getContextCompaction: () => { summaryMessage?: unknown; compactedUpToIndex?: number } | null | undefined
   messageIndexOffset?: number
+  /** 同一装饰 pass 内已枚举好的消息行（省去重复全表扫描）。 */
+  messageRows?: HTMLElement[]
 }
 
 function showCopiedFeedback(button: HTMLButtonElement, defaultTitle: string, defaultIcon: string) {
@@ -36,17 +39,17 @@ function isDisplayMessage(message: MessageWithUsage) {
   return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
 }
 
-function getPrimaryMessageElements(panel: HTMLElement) {
-  const messageList = panel.querySelector<HTMLElement>('.qf-message-list')
-  if (!messageList) return []
-
-  return Array.from(messageList.querySelectorAll<HTMLElement>('.qf-user-message, .qf-assistant-message'))
-    .filter((element) => element.closest('.qf-message-list') === messageList)
-}
-
-function insertNoticeAtBoundary(panel: HTMLElement, messages: MessageWithUsage[], boundaryIndex: number, notice: HTMLElement) {
+function insertNoticeAtBoundary(
+  panel: HTMLElement,
+  messages: MessageWithUsage[],
+  boundaryIndex: number,
+  notice: HTMLElement,
+  rows?: HTMLElement[],
+) {
   const messageList = panel.querySelector('.qf-message-list')
-  const messageElements = getPrimaryMessageElements(panel)
+  // `rows` lets one decoration pass share a single enumeration across every
+  // decorator instead of each re-scanning the whole list.
+  const messageElements = rows ?? readMessageRows(panel)
 
   // 边界之前的可见消息数量就是横线要插入的行位置：边界落在 toolResult 等不单独
   // 渲染的消息上时，自然插到它之后的下一条可见消息之前。
@@ -115,7 +118,7 @@ function syncCompactionSummaryHandlers(notice: HTMLElement, summaryText: string,
 }
 
 export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
-  const { panel, getMessages, getContextCompaction, messageIndexOffset = 0 } = deps
+  const { panel, getMessages, getContextCompaction, messageIndexOffset = 0, messageRows } = deps
   const compaction = getContextCompaction()
   const messages = getMessages()
   const existing = panel.querySelector<HTMLElement>('.quickforge-context-compaction-notice')
@@ -182,5 +185,5 @@ export function syncContextCompactionNotice(deps: ContextCompactionNoticeDeps) {
   }
   if (summaryText) syncCompactionSummaryHandlers(notice, summaryText, initialOpen)
 
-  insertNoticeAtBoundary(panel, messages, boundaryIndex, notice)
+  insertNoticeAtBoundary(panel, messages, boundaryIndex, notice, messageRows)
 }

@@ -17,6 +17,7 @@ import {
   resolveAgentProfileThinkingLevel,
 } from './agent-profile-schema.mjs'
 import { projectContextFromId, defaultGlobalWorkspaceContext, readProjectConfig } from './project-config.mjs'
+import { mergeSkills } from './skills.mjs'
 import { readStore, atomicUpdate, readSessionValue } from './storage.mjs'
 import { readSessionStateRecord, storedMessagesState, sessionMessagesTailDigest } from './session-state-service.mjs'
 import { logger } from './utils/logger.mjs'
@@ -284,18 +285,23 @@ export async function createServerTools(projectId, projectContext, skillsContext
   const allowedTools = allowedToolNames ? new Set(allowedToolNames) : null
   const isAllowed = (definition) => !allowedTools || allowedTools.has(definition.name)
 
-  const skillTools = includeSkillTools
-    ? await createSkillTools({
-        globalSkillNames: skillsContext.globalSkillNames,
-        projectSkillNames: skillsContext.projectSkillNames,
-        workspaceRoot: projectContext?.workspaceRoot,
-      })
-    : []
+  // Load the active skills once and reuse the result for both the tool
+  // definitions and the tool context. These used to be two independent scans of
+  // the same skill directories on every agent creation: identical inputs,
+  // identical output, doubled IO.
   const skillToolContext = await loadSkillToolContext({
     globalSkillNames: skillsContext.globalSkillNames,
     projectSkillNames: skillsContext.projectSkillNames,
     workspaceRoot: projectContext?.workspaceRoot,
   })
+  const skillTools = includeSkillTools
+    ? await createSkillTools({
+        globalSkillNames: skillsContext.globalSkillNames,
+        projectSkillNames: skillsContext.projectSkillNames,
+        workspaceRoot: projectContext?.workspaceRoot,
+        resolvedSkills: mergeSkills(skillToolContext.globalSkills, skillToolContext.projectSkills),
+      })
+    : []
   const toolContext = {
     ...projectContext,
     ...skillToolContext,

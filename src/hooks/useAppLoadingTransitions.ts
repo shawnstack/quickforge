@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
 import { logger } from '@/lib/logger'
+import { markSessionOpen } from '@/lib/session-open-timing'
 import { t } from '@/lib/i18n'
 import type { useTaskToasts } from './useTaskToasts'
 
@@ -66,6 +67,7 @@ type TransitionOptions = LoadingState & {
 export function useAppLoadingTransitions({ currentSessionIdRef, addToast, pendingSessionLoadCancelRef, sessionTransitionTokenRef, setRenderedLoadingSessionId, visibleLoadingSessionIdRef, setVisibleLoadingSessionId }: TransitionOptions) {
   const beginSessionTransition = useCallback((sessionId: string) => {
     if (!sessionId || sessionId === currentSessionIdRef.current) return undefined
+    markSessionOpen(sessionId, 'click')
     pendingSessionLoadCancelRef.current?.()
     pendingSessionLoadCancelRef.current = undefined
     const token = sessionTransitionTokenRef.current + 1
@@ -89,6 +91,7 @@ export function useAppLoadingTransitions({ currentSessionIdRef, addToast, pendin
 
   const handleSessionInitialRenderReady = useCallback((sessionId: string) => {
     if (visibleLoadingSessionIdRef.current !== sessionId) return
+    markSessionOpen(sessionId, 'ready')
     pendingSessionLoadCancelRef.current = undefined
     setRenderedLoadingSessionId(sessionId)
   }, [pendingSessionLoadCancelRef, visibleLoadingSessionIdRef, setRenderedLoadingSessionId])
@@ -115,6 +118,7 @@ export function useAppLoadingTransitions({ currentSessionIdRef, addToast, pendin
     pendingSessionLoadCancelRef.current = scheduleAfterPaint(() => {
       pendingSessionLoadCancelRef.current = undefined
       if (sessionTransitionTokenRef.current !== token || visibleLoadingSessionIdRef.current !== sessionId) return
+      markSessionOpen(sessionId, 'load-start')
       void load().then((loaded) => {
         if (!loaded) cancelSessionTransition(sessionId, token)
       })

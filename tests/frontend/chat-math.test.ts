@@ -3,13 +3,27 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { KatexOptions } from 'katex'
 
-import { KatexMath } from '../../src/components/chat/surface/KatexMath'
-import { MarkdownBlock } from '../../src/components/chat/surface/Markdown'
+import { KatexMath, clearKatexHtmlCache } from '../../src/components/chat/surface/KatexMath'
+import { MarkdownBlock, clearMarkdownElementCache } from '../../src/components/chat/surface/Markdown'
 
 // Deterministic t stub — assertions pin the i18n keys, not the locale.
 vi.mock('@/lib/i18n', () => ({
   t: (key: string) => key,
 }))
+
+// Count how often the markdown pipeline actually runs. `react-markdown`'s
+// default export is a plain function, so wrapping it measures parse work
+// directly instead of inferring it from output equality.
+const markdownRenderCalls: unknown[] = vi.hoisted(() => [] as unknown[])
+vi.mock('react-markdown', async (importOriginal) => {
+  const actual = await importOriginal<{ default: (options: unknown) => unknown }>()
+  const real = actual.default
+  const wrapped = (options: unknown) => {
+    markdownRenderCalls.push(options)
+    return real(options)
+  }
+  return { default: wrapped }
+})
 
 // katex passthrough with an injectable failure mode, so the KatexMath catch
 // branch can be exercised without breaking real rendering elsewhere.
@@ -121,6 +135,9 @@ describe('chat math parity with the legacy markdown-block renderer', () => {
 
   it('shows the raw latex fallback when renderToString throws', () => {
     katexStub.fail = true
+    // KaTeX 输出按内容缓存（跨 mount 复用同一份 html），所以这里必须先清空，
+    // 否则前面用例缓存的 `x^2` 成功结果会让本用例走不到 fail 分支。
+    clearKatexHtmlCache()
     try {
       const markup = renderToStaticMarkup(createElement(KatexMath, { latex: 'x^2' }))
 
@@ -130,6 +147,67 @@ describe('chat math parity with the legacy markdown-block renderer', () => {
       expect(markup).not.toContain('katex')
     } finally {
       katexStub.fail = false
+      clearKatexHtmlCache()
     }
+  })
+})
+
+describe('markdown element tree cache', () => {
+  it('reuses the parsed element tree for identical content', () => {
+    clearMarkdownElementCache()
+    const first = renderToStaticMarkup(createElement(MarkdownBlock, { content: '# Heading\n\nbody text' }))
+
+    // A second render of the same content must still produce identical markup
+    // (cache hit path) — the element tree is reused rather than re-parsed.
+    const second = renderToStaticMarkup(createElement(MarkdownBlock, { content: '# Heading\n\nbody text' }))
+    expect(second).toBe(first)
+    expect(second).toContain('<h1')
+    expect(second).toContain('body text')
+  })
+
+  it('actually skips parsing on a cache hit (not just produces equal markup)', () => {
+    // Equal output alone would also hold if the tree were re-parsed every time.
+    // `react-markdown`'s default export is a plain function (not a component),
+    // so spying on the module proves how often the unified pipeline really ran.
+    clearMarkdownElementCache()
+    const content = 'cache-hit proof'
+    const first = renderToStaticMarkup(createElement(MarkdownBlock, { content }))
+    const callsAfterFirst = markdownRenderCalls.length
+    const second = renderToStaticMarkup(createElement(MarkdownBlock, { content }))
+
+    expect(second).toBe(first)
+    expect(markdownRenderCalls.length).toBe(callsAfterFirst)
+  })
+
+  it('parses again after the cache is cleared', () => {
+    clearMarkdownElementCache()
+    const content = 'cleared proof'
+    renderToStaticMarkup(createElement(MarkdownBlock, { content }))
+    const before = markdownRenderCalls.length
+    clearMarkdownElementCache()
+    renderToStaticMarkup(createElement(MarkdownBlock, { content }))
+
+    expect(markdownRenderCalls.length).toBeGreaterThan(before)
+  })
+
+  it('keeps different content on separate cache entries', () => {
+    clearMarkdownElementCache()
+    const a = renderToStaticMarkup(createElement(MarkdownBlock, { content: 'first **bold**' }))
+    const b = renderToStaticMarkup(createElement(MarkdownBlock, { content: 'second *italic*' }))
+
+    expect(a).toContain('<strong>bold</strong>')
+    expect(b).toContain('<em>italic</em>')
+    expect(a).not.toContain('italic')
+    expect(b).not.toContain('bold')
+  })
+
+  it('keeps math rendering intact on a cached element tree', () => {
+    clearMarkdownElementCache()
+    const content = 'value $x^2$ here'
+    const first = renderToStaticMarkup(createElement(MarkdownBlock, { content }))
+    const second = renderToStaticMarkup(createElement(MarkdownBlock, { content }))
+
+    expect(second).toBe(first)
+    expect(second).toContain('class="katex"')
   })
 })

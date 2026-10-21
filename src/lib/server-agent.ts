@@ -357,6 +357,31 @@ export function mergeIncrementalMessages(current: AgentMessage[], after: number,
   return result
 }
 
+/**
+ * Merge a server tail into a local list that starts at `windowOffset` in the
+ * server's full message list (a read-only tail window, see `loadView`).
+ *
+ * `mergeIncrementalMessages` assumes the local list starts at server index 0.
+ * A windowed list starts at `windowOffset`, so positions before that belong to
+ * the omitted prefix and must be dropped — otherwise the tail is written into
+ * the wrong slots and the visible conversation shifts.
+ *
+ * Deltas that start inside the window are applied at their window-relative
+ * position; deltas that start before it are trimmed to the window start.
+ */
+export function mergeWindowedMessages(
+  current: AgentMessage[],
+  windowOffset: number,
+  after: number,
+  tail: AgentMessage[],
+): AgentMessage[] {
+  if (windowOffset <= 0) return mergeIncrementalMessages(current, after, tail)
+  const skip = Math.max(0, windowOffset - after)
+  if (skip >= tail.length) return current
+  const relativeAfter = Math.max(0, after - windowOffset)
+  return mergeIncrementalMessages(current, relativeAfter, skip > 0 ? tail.slice(skip) : tail)
+}
+
 type SessionMessagesPage = { messages: AgentMessage[]; count: number; hasMore: boolean }
 
 async function fetchSessionMessagesPage(baseUrl: string, sessionId: string, after: number): Promise<SessionMessagesPage | null> {
@@ -440,6 +465,15 @@ export class ServerAgent {
   private messageReconcileRetryTimer: ReturnType<typeof setTimeout> | null = null
   private lastSseEventAt = Date.now()
   private lastServerStateVersion = 0
+  /**
+   * 本地 `state.messages` 里第一条消息对应服务端全量列表的索引。
+   *
+   * 正常 restore/create 路径为 0（本地就是全量）。只读视图（`loadView`）返回的是
+   * 尾部窗口，此时本地列表从 `summary.count - messages.length` 开始。增量对账
+   * （`reconcileMessagesFromSummary`）里所有「本地条数 == 服务端索引」的假设都
+   * 依赖这个偏移，必须显式记录，否则尾部窗口会话会拉错位置或判定为截断。
+   */
+  private messageWindowOffset = 0
   /**
    * Goal-specific change watermark, independent of the message `stateVersion`.
    * Every applied goal snapshot that actually changes the goal increments it, so
@@ -1873,6 +1907,60 @@ export class ServerAgent {
     await this.refreshStateFromServer({ notify: true, forceMessages: true })
   }
 
+  /**
+   * 把尾部窗口补齐为全量消息。
+   *
+   * 只读视图（`loadView`）只带回尾部窗口以便首屏快速上屏，但界面必须能滚到
+   * 更早的历史。增量对账按「服务端索引」工作，它只会往后拉新消息、不会补前缀，
+   * 所以这里显式做一次全量替换，并把窗口偏移归零。
+   *
+   * `beforeReplace` 在**真正替换的前一刻**同步调用：调用方用它捕获滚动锚点。
+   * 不能在发起请求时就捕获——补齐要走一次网络往返，用户可能在这期间滚动，
+   * 用过期锚点会把视口恢复到他早已离开的位置。
+   *
+   * 幂等且可重复调用：已经是全量（偏移 0）时直接返回。失败保持窗口状态不变。
+   */
+  async hydrateFullHistory(beforeReplace?: () => (() => void) | void): Promise<void> {
+    if (this.disposed || this.messageWindowOffset <= 0) return
+    const versionBefore = this.stateVersion
+    let all: AgentMessage[] | null
+    try {
+      all = await this.fetchAllMessagesFromServer()
+    } catch {
+      return
+    }
+    if (!all || this.disposed) return
+    // A concurrent SSE frame already advanced the list; drop this snapshot and
+    // leave the offset in place so a later attempt can still widen it.
+    if (versionBefore !== this.stateVersion) return
+    if (all.length <= this.state.messages.length) {
+      // Nothing more on the server than we already show: clear the offset so we
+      // stop treating the list as windowed.
+      this.messageWindowOffset = 0
+      return
+    }
+    // 一次性替换，不分批。
+    //
+    // 曾尝试「按 60 条逐帧向前扩展」以削平长任务，**实测更差**：累计阻塞从
+    // ~1.1s 涨到 5.0s、长任务从 2 个变成 35 个。原因是每次提交都要重建整张列表
+    // （React 协调 + 装饰重算），增量收益被重复成本吃掉。保持单次替换。
+    const cancelAnchor = beforeReplace?.()
+    this.state.messages = all
+    this.messageWindowOffset = 0
+    this.state.contextUsage = null
+    this.stateVersion++
+    this.notifyMessageMetadataChanged()
+    // If no commit consumed the anchor (e.g. unmounted), release it so it cannot
+    // shift scroll at some later, unrelated commit. Guarded: this module is also
+    // used outside a DOM (tests, ACP), where `window` does not exist.
+    if (typeof cancelAnchor === 'function') {
+      const defer = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+        ? window.requestAnimationFrame.bind(window)
+        : (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0)
+      defer(() => cancelAnchor())
+    }
+  }
+
   private async refreshStateFromServer(options?: { notify?: boolean; forceMessages?: boolean }) {
     // Deduplicate concurrent refresh requests
     if (this.refreshPromise) return this.refreshPromise
@@ -1959,6 +2047,14 @@ export class ServerAgent {
   private async reconcileMessagesFromSummary(summary: { count?: number }, markers?: GoalIterationMarkerSnapshot[], forceMessages = false, retryAttempt = 0): Promise<void> {
     const versionBefore = this.stateVersion
     const localCount = this.state.messages.length
+    // Server-side index of the local list's first message. 0 for a full
+    // restore/create; > 0 when the list came from a read-only tail window
+    // (`loadView`). All count comparisons below are in server indices, so the
+    // offset has to participate — otherwise a 200-message window over a
+    // 1000-message session looks like a 800-message server-side truncation and
+    // triggers a pointless full refetch.
+    const windowOffset = this.messageWindowOffset
+    const localEnd = windowOffset + localCount
     const isCurrent = () => versionBefore === this.stateVersion
       && (!markers || markers === this.latestGoalIterationMarkers)
     const finish = () => {
@@ -1974,13 +2070,13 @@ export class ServerAgent {
         this.notifyMessageMetadataChanged()
       }
     }
-    if (!forceMessages && markers && summary.count === localCount) {
+    if (!forceMessages && markers && summary.count === localEnd) {
       finish()
       return
     }
 
-    if (typeof summary.count === 'number' && summary.count < localCount) {
-      // Server truncated below the local count (rollback/clear/compaction):
+    if (typeof summary.count === 'number' && summary.count < localEnd) {
+      // Server truncated below the visible end (rollback/clear/compaction):
       // the incremental tail does not apply — refetch everything and replace.
       const all = await this.fetchAllMessagesFromServer()
       if (!isCurrent()) return
@@ -1990,6 +2086,8 @@ export class ServerAgent {
         return
       }
       this.state.messages = all
+      // The refetch restored the full list, so the window offset no longer applies.
+      this.messageWindowOffset = 0
       this.state.contextUsage = null
       this.stateVersion++
       finish()
@@ -1999,10 +2097,12 @@ export class ServerAgent {
     // When the counts already match, the final text may have replaced the last
     // message in place. Only then re-read that message; a larger server count
     // still means the missing tail starts after the local list.
+    // `localEnd` (not `localCount`) so a tail window asks the server from the
+    // right index instead of restarting at the window length.
     const summaryCount = typeof summary.count === 'number' ? summary.count : undefined
-    const after = forceMessages && summaryCount === localCount
-      ? Math.max(0, localCount - 1)
-      : localCount
+    const after = forceMessages && summaryCount === localEnd
+      ? Math.max(windowOffset, localEnd - 1)
+      : localEnd
     let page: SessionMessagesPage | null
     try {
       page = await this.fetchMessagesFromServer(after)
@@ -2036,13 +2136,14 @@ export class ServerAgent {
         return
       }
       this.state.messages = all
+      this.messageWindowOffset = 0
       this.state.contextUsage = null
       this.stateVersion++
       finish()
       return
     }
     if (page.messages.length > 0) {
-      const merged = mergeIncrementalMessages(this.state.messages, after, page.messages)
+      const merged = mergeWindowedMessages(this.state.messages, windowOffset, after, page.messages)
       if (JSON.stringify(merged) !== JSON.stringify(this.state.messages)) {
         this.state.messages = merged
         this.state.contextUsage = null
@@ -2223,6 +2324,55 @@ export class ServerAgent {
   }
 
   // --- Static factories ---
+
+  /**
+   * 只读视图加载：`GET /api/sessions/:id/view`。
+   *
+   * 与 `restore` 的区别是**不触发服务端 agent 运行时重建**（不跑
+   * `buildSystemPrompt` / `createServerTools` / MCP 连接）。返回的快照足够
+   * 渲染整段历史对话，供首屏直接使用；运行时能力由 `refreshStateFromServer`
+   * 在后台补齐（`/state` 是只读 GET，冷会话会 restore，但那时用户已经看到内容）。
+   *
+   * 失败（404 / 网络）抛错，由调用方决定是否退回 `restore`。
+   */
+  static async loadView(
+    sessionId: string,
+    config: { baseUrl?: string; signal?: AbortSignal } = {},
+  ): Promise<{ agent: ServerAgent; snapshot: ServerAgentStateSnapshot }> {
+    const baseUrl = config.baseUrl ?? ''
+    const { response, body } = await fetchJsonWithTimeout<ServerAgentStateSnapshot & { error?: string }>(
+      `${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/view`,
+      STATE_REQUEST_TIMEOUT_MS,
+      { method: 'GET', signal: config.signal },
+    )
+    if (!response.ok) {
+      throw new Error(body?.error || `Failed to load session view: HTTP ${response.status}`)
+    }
+    if (config.signal?.aborted) throw config.signal.reason ?? new DOMException('Aborted', 'AbortError')
+
+    const snapshot = body ?? {}
+    if (!Array.isArray(snapshot.messages)) snapshot.messages = []
+    const agent = new ServerAgent({
+      sessionId,
+      baseUrl,
+      initialState: initialStateFromSnapshot(snapshot),
+    })
+    // 尾部窗口：remember where the local list starts in the server's full list.
+    // Every incremental reconcile assumes "local index == server index"; with a
+    // window that only holds when the offset is recorded here.
+    const summaryCount = typeof snapshot.messagesSummary?.count === 'number' ? snapshot.messagesSummary.count : undefined
+    if (summaryCount !== undefined && summaryCount > snapshot.messages.length) {
+      agent.messageWindowOffset = summaryCount - snapshot.messages.length
+    }
+    agent.sessionCacheMetadata = snapshotForCache(snapshot as Record<string, unknown>).snapshot
+    agent.scheduleSessionMessageCacheWrite()
+    logger.debug('Loaded session view', {
+      sessionId,
+      messageCount: snapshot.messages.length,
+      totalMessageCount: summaryCount,
+    })
+    return { agent, snapshot }
+  }
 
   static async restore(
     sessionId: string,

@@ -59,6 +59,7 @@ import { isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '@/c
 import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
 import { TurnRollbackDialog } from '@/components/chat/FileRollbackDialog'
 import { ChatConversationSurface } from '@/components/chat/ChatConversationSurface'
+import { SessionViewPool } from '@/components/chat/SessionViewPool'
 import { extractLatestTodoWriteSnapshot } from '@/components/chat/panel-decoration'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { NewChatProjectPicker } from '@/components/chat/NewChatProjectPicker'
@@ -2131,10 +2132,22 @@ function MainApp() {
                   ) : null}
                   <ErrorBoundary>
                     <Suspense fallback={<LazyPanelFallback />}>
+                    {/*
+                      会话视图保活池：非活跃会话的渲染子树保留在 DOM 中（hidden），
+                      切回时按行 key 复用 fiber，而不是整树重建。
+                      key 与 ChatPanelHost 内部 ChatSurface 的 key 完全一致
+                      （runtimeScopeId），所以「同 key 不重挂载」的语义不变；
+                      Deferred→Real 提升期间 scope id 不变，也不会因为池而多一次切换。
+                    */}
+                    <SessionViewPool
+                      activeKey={agentManager.currentRuntimeScopeId}
+                      activeWeight={agentManager.agent?.state.messages.length ?? 0}
+                      activeView={(
                     <ChatPanelHost
                       agent={agentManager.agent}
                       // 稳定 key：Deferred→Real 提升不重挂载 ChatSurface，
-                      // 会话切换（scope id 变化）仍整树重建。
+                      // 会话切换（scope id 变化）时由外层 SessionViewPool 决定
+                      // 是复用已保活的子树还是新建。
                       agentRuntimeScopeId={agentManager.currentRuntimeScopeId}
                       onModelSelect={openCustomModelSelector}
                       revision={agentManager.chatPanelRevision}
@@ -2179,6 +2192,8 @@ function MainApp() {
                       taskLauncherVisible={taskLauncherAgent !== null && taskLauncherAgent === agentManager.agent
                         && agentManager.agent instanceof DeferredSessionAgent && !agentManager.currentSessionId && showNewChatEmptyState}
                       onTaskLauncherDismiss={invalidateTaskLauncher}
+                    />
+                      )}
                     />
                     </Suspense>
                   </ErrorBoundary>

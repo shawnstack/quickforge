@@ -10,5 +10,14 @@ export function decorateModelButtonLabel(editor: MessageEditorElement | null, ri
 
   modelButton.classList.add('quickforge-model-trigger')
   modelButton.setAttribute('aria-haspopup', 'menu')
-  modelButton.setAttribute('aria-expanded', document.querySelector('.quickforge-model-menu') ? 'true' : 'false')
+  // Only count menus owned by this trigger: when the main chat and the
+  // side-chat are both mounted, a document-wide lookup would report the other
+  // panel's menu as this panel's state. Menus opened without an explicit
+  // anchor (legacy callers) carry no owner, so fall back to global presence.
+  const menus = Array.from(document.querySelectorAll<HTMLElement & { __quickforgeOwnerAnchor?: HTMLElement }>('.quickforge-model-menu'))
+  const owned = menus.filter((menu) => menu.__quickforgeOwnerAnchor)
+  const isOpen = owned.length > 0
+    ? owned.some((menu) => menu.__quickforgeOwnerAnchor === modelButton)
+    : menus.length > 0
+  modelButton.setAttribute('aria-expanded', isOpen ? 'true' : 'false')
 }

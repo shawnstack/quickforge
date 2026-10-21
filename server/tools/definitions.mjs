@@ -250,12 +250,19 @@ function activeSkillSchema(skills) {
   return names.length ? Type.String({ enum: names }) : Type.String()
 }
 
+/**
+ * Build the `activate_skill` / `read_skill_resource` definitions.
+ *
+ * `config.resolvedSkills` lets a caller that already loaded the active skill
+ * lists (see `loadSkillToolContext`) reuse them: both paths scan the same
+ * skill directories, and scanning them twice per agent creation was pure
+ * duplicated IO. Pass the merged list to skip the scan entirely.
+ */
 export async function createSkillTools(config = {}) {
-  const globalSkills = await loadSelectedGlobalSkills(config.globalSkillNames)
-  const projectSkills = config.workspaceRoot
-    ? await loadSelectedProjectSkills(config.projectSkillNames, config.workspaceRoot)
-    : []
-  const skills = mergeSkills(globalSkills, projectSkills)
+  const skills = config.resolvedSkills ?? mergeSkills(
+    await loadSelectedGlobalSkills(config.globalSkillNames),
+    config.workspaceRoot ? await loadSelectedProjectSkills(config.projectSkillNames, config.workspaceRoot) : [],
+  )
   if (skills.length === 0) return []
 
   const skillNameSchema = activeSkillSchema(skills)

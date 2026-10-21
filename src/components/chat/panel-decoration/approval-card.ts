@@ -1,6 +1,7 @@
 import { t } from '@/lib/i18n'
 import type { MessageWithUsage } from '../chat-utils'
 import { buildInlineDiff, buildInlinePreview, escapeHtml } from './html'
+import { readMessageRows } from './message-rows'
 
 type ApprovalCardTone = 'warning' | 'info'
 
@@ -273,10 +274,7 @@ function findKeepBoundaryTarget(panel: HTMLElement, messages: MessageWithUsage[]
   const keep = Math.min(keepRecentTurns, userTurnStarts.length)
   const boundaryIndex = userTurnStarts[userTurnStarts.length - keep]
 
-  const messageList = panel.querySelector('.qf-message-list')
-  if (!messageList) return null
-  const elements = Array.from(messageList.querySelectorAll<HTMLElement>('.qf-user-message, .qf-assistant-message'))
-    .filter((element) => element.closest('.qf-message-list') === messageList)
+  const elements = readMessageRows(panel)
 
   let displayIndex = 0
   for (let i = 0; i <= boundaryIndex; i++) {

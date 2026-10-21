@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- exports the ChatSurface component plus the pure send flow, agent snapshot and release-gate helpers covered by tests. */
 import { Component, forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createMessageWindow, type MessageWindowController } from '../windowed-messages'
+import { isInsideHiddenView } from '@/lib/session-view-activity'
 import { releaseProcessGroups } from '../panel-decoration/process-folding'
 import { getAppStorage } from '@/storage'
 import type {
@@ -538,11 +539,22 @@ const MessageArea = memo(function MessageArea({
   )
 })
 
-export type WindowedChatSurfaceHandle = ChatSurfaceHandle & {
-  getWindowMessages: () => AgentMessage[]
+export type WindowedChatSurfaceHandle = ChatSurfaceHandle & {  getWindowMessages: () => AgentMessage[]
   getWindowStart: () => number
   loadMoreMessages: () => Promise<void>
   showMessageIndex: (index: number) => Promise<void>
+  /**
+   * Capture the current reading anchor so a change that prepends content above
+   * the viewport can restore it.
+   *
+   * Call this IMMEDIATELY BEFORE the mutation, not when loading starts:
+   * background history hydration takes a network round trip, and the user may
+   * scroll during it. A stale anchor would restore a position the user has
+   * already left.
+   *
+   * Returns a cancel function for the case where the change never lands.
+   */
+  captureScrollAnchor: () => () => void
 }
 
 type WindowedChatSurfaceProps = ChatSurfaceProps & {
@@ -562,6 +574,13 @@ type WindowSnapshot = {
   start: number
   atTail: boolean
 }
+
+/**
+ * Viewport reading anchor: the top visible row (by absolute message index when it
+ * carries one, else by rendered ordinal) plus its offset from the scroll
+ * container's top edge, captured before a change that prepends content above.
+ */
+import { readScrollAnchor, anchoredScrollTop, type ScrollAnchor } from '../scroll-anchor'
 
 function readWindow(controller: MessageWindowController, messages: AgentMessage[]): WindowSnapshot {
   const visible = controller.getWindowMessages()
@@ -620,6 +639,12 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
   const editorValueRef = useRef('')
   const editorAttachmentsRef = useRef<Attachment[]>([])
   const autoScrollRef = useRef(true)
+  /**
+   * Reading anchor captured before a change that inserts content ABOVE the
+   * viewport (background history hydration). Applied by the next layout commit,
+   * which is when the prepended rows actually exist in the DOM.
+   */
+  const pendingAnchorRef = useRef<ScrollAnchor | null>(null)
 
   /** Apply composer text through state + the DOM-facing editor bridge. */
   const applyEditorText = useCallback((text: string) => {
@@ -667,15 +692,60 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     publishWindow()
   }, [publishWindow, windowController])
 
+  /**
+   * Read the current reading anchor via the shared `scroll-anchor` module.
+   *
+   * Pinned to the bottom returns null: keep following the tail rather than
+   * freezing the viewport on an old row.
+   *
+   * Prefers a row carrying `data-message-index`. When the top-most visible row is
+   * a folded process group, anchoring on it degrades to the ordinal fallback,
+   * which points at the wrong row once 100+ messages are prepended (browser-
+   * verified: the viewport kept `scrollTop` while the visible text was replaced).
+   * Anchoring on the first real message row below it keeps the reading position;
+   * only when no message row is visible at all do we fall back to any row.
+   */
+  const captureReadingAnchor = useCallback((): ScrollAnchor | null => {
+    const container = scrollContainerRef.current
+    if (!container || autoScrollRef.current) return null
+    return readScrollAnchor(container, { requireMessageIndex: true }) ?? readScrollAnchor(container)
+  }, [])
+
+  /**
+   * Re-anchor the viewport after a change that inserted content ABOVE it.
+   * Returns true when the anchor was applied.
+   */
+  const applyReadingAnchor = useCallback((anchor: ScrollAnchor | null) => {
+    const container = scrollContainerRef.current
+    if (!anchor || !container) return false
+    const next = anchoredScrollTop(container, anchor)
+    if (next === null) return false
+    container.scrollTop = next
+    return true
+  }, [])
+
   useLayoutEffect(() => {
     committedWindowRef.current = messageWindow
     const callbacks = windowCommitCallbacksRef.current.splice(0)
+    // Apply a reading anchor captured by `hydrateFullHistory` right before it
+    // replaced the list: this commit is where the prepended rows become real.
+    const anchor = pendingAnchorRef.current
+    if (anchor) {
+      pendingAnchorRef.current = null
+      applyReadingAnchor(anchor)
+    }
     callbacks.forEach((callback) => callback())
-    if (autoScrollRef.current && messageWindow.atTail && scrollContainerRef.current) {
+    // Skip the tail write while this surface is kept (hidden). A hidden subtree
+    // has no layout box, so `scrollHeight` reads 0 and writing it would park the
+    // container at the top; the panel re-arms `autoScroll` and scrolls on
+    // activation instead. The guard only consults the computed display of the
+    // kept wrapper, so a visible surface takes the original code path unchanged.
+    if (autoScrollRef.current && messageWindow.atTail && scrollContainerRef.current
+      && !isInsideHiddenView(scrollContainerRef.current)) {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
     }
     onWindowChanged?.()
-  }, [messageWindow, onWindowChanged])
+  }, [applyReadingAnchor, messageWindow, onWindowChanged])
 
   useEffect(() => () => {
     windowCommitCallbacksRef.current.splice(0).forEach((callback) => callback())
@@ -698,22 +768,19 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
         const container = scrollContainerRef.current
         if (!container || pageInFlightRef.current || !windowController.hasMore()) return Promise.resolve()
         autoScrollRef.current = false
-        const items = Array.from(container.querySelectorAll<HTMLElement>('.qf-message-list > [data-message-index]'))
-        const anchor = items.find((item) => item.getBoundingClientRect().bottom > container.getBoundingClientRect().top)
-        const anchorIndex = anchor?.dataset.messageIndex
-        const anchorTop = anchor?.getBoundingClientRect().top ?? 0
-        const previousScrollTop = container.scrollTop
+        // Anchor on a real message row only: paging rebuilds folded process
+        // groups, so a group row is not a stable anchor across the load.
+        const anchor = readScrollAnchor(container, { requireMessageIndex: true })
         if (!windowController.loadMore()) return Promise.resolve()
         pageInFlightRef.current = true
         return new Promise<void>((resolve) => {
           windowCommitCallbacksRef.current.push(() => {
             pageInFlightRef.current = false
-            const retained = anchorIndex === undefined ? null : container.querySelector<HTMLElement>(`[data-message-index="${anchorIndex}"]`)
-            // Fixed-size pages may not overlap. Land at the older page's bottom,
-            // never reuse an unrelated element's rendered ordinal as the anchor.
-            container.scrollTop = retained
-              ? previousScrollTop + retained.getBoundingClientRect().top - anchorTop
-              : Math.max(0, container.scrollHeight - container.clientHeight)
+            const next = anchor ? anchoredScrollTop(container, anchor, { requireMessageIndex: true }) : null
+            // Fixed-size pages may not overlap. Land at the older page's bottom
+            // when no anchor row survived, rather than reusing an unrelated
+            // element's rendered ordinal.
+            container.scrollTop = next ?? Math.max(0, container.scrollHeight - container.clientHeight)
             resolve()
           })
           publishWindow()
@@ -727,8 +794,16 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
           publishWindow()
         })
       },
+      captureScrollAnchor: () => {
+        const captured = captureReadingAnchor()
+        if (!captured) return () => undefined
+        pendingAnchorRef.current = captured
+        return () => {
+          if (pendingAnchorRef.current === captured) pendingAnchorRef.current = null
+        }
+      },
     }),
-    [applyEditorText, applyEditorAttachments, publishWindow, resumeTail, windowController],
+    [applyEditorText, applyEditorAttachments, captureReadingAnchor, publishWindow, resumeTail, windowController],
   )
 
   /**

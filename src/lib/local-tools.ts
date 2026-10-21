@@ -42,6 +42,24 @@ function registerMcpToolRenderers(tools: unknown[]) {
   }
 }
 
+/**
+ * Register a name-only MCP renderer.
+ *
+ * Used when an MCP tool becomes known without its definition (a toolset that
+ * arrives after the panel's initialize effect already ran). The renderer derives
+ * `server` / original name purely from the `mcp__server__tool` spelling, so the
+ * full MCP card renders instead of the generic "Tool Call" fallback.
+ *
+ * Returns true when the name was newly registered.
+ */
+export function ensureMcpToolRendererRegistered(toolName: string): boolean {
+  if (registeredMcpToolRenderers.has(toolName)) return false
+  if (!parseMcpToolName(toolName)) return false
+  registerToolRenderer(toolName, new McpToolRenderer(toolName))
+  registeredMcpToolRenderers.add(toolName)
+  return true
+}
+
 // Register renderers at import time
 for (const [name, label] of [
   ['manage_global_memory', 'manageGlobalMemory'],

@@ -1335,6 +1335,129 @@ describe('ServerAgent', () => {
     }
   }
 
+  it('loads a read-only session view without POST /restore', async () => {
+    sessionCacheMock.read = null
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        sessionId: 'view-session',
+        title: 'View chat',
+        stateVersion: 3,
+        messages: [
+          { role: 'user', content: 'view q' },
+          { role: 'assistant', content: 'view a' },
+        ],
+        tools: [],
+        readonly: true,
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    const { agent, snapshot } = await ServerAgent.loadView('view-session')
+
+    try {
+      expect(agent.state.messages).toEqual([
+        { role: 'user', content: 'view q' },
+        { role: 'assistant', content: 'view a' },
+      ])
+      expect(snapshot.title).toBe('View chat')
+
+      await flushAllAsync()
+      const urls = fetchMock.mock.calls.map(([url]) => String(url))
+      // 关键契约：只读通道绝不打 POST /restore（那会重建整个 agent 运行时）。
+      expect(urls.some((url) => url.endsWith('/restore'))).toBe(false)
+      expect(urls.some((url) => url.includes('/sessions/view-session/view'))).toBe(true)
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('surfaces a failed session view so the caller can fall back to restore', async () => {
+    sessionCacheMock.read = null
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: 'Session not found' }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    await expect(ServerAgent.loadView('missing-session')).rejects.toThrow('Session not found')
+  })
+
+  it('hydrates a tail-window view into the full history', async () => {
+    sessionCacheMock.read = null
+    const full = Array.from({ length: 6 }, (_, index) => ({ role: 'user', content: `m${index}`, timestamp: index }))
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/sessions/window-session/view')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            sessionId: 'window-session',
+            title: 'Windowed',
+            stateVersion: 1,
+            // Tail window: only the last two messages, count says six exist.
+            messages: full.slice(4),
+            messagesSummary: { count: 6 },
+          }),
+        }
+      }
+      // /messages pages used by hydrateFullHistory.
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ after: 0, count: 6, hasMore: false, messages: full }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    const { agent } = await ServerAgent.loadView('window-session')
+    try {
+      expect(agent.state.messages).toHaveLength(2)
+
+      await agent.hydrateFullHistory()
+
+      // The omitted prefix must come back — otherwise the surface can never
+      // scroll above the window and silently hides older history.
+      expect(agent.state.messages).toHaveLength(6)
+      expect((agent.state.messages[0] as { content?: string }).content).toBe('m0')
+    } finally {
+      agent.dispose()
+    }
+  })
+
+  it('leaves a full-history view untouched when hydration runs again', async () => {
+    sessionCacheMock.read = null
+    const full = [{ role: 'user', content: 'only', timestamp: 1 }]
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/view')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ sessionId: 'full-session', title: 'Full', stateVersion: 1, messages: full }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({ after: 0, count: 1, hasMore: false, messages: full }) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { ServerAgent } = await import('../../src/lib/server-agent')
+
+    const { agent } = await ServerAgent.loadView('full-session')
+    try {
+      const callsBefore = fetchMock.mock.calls.length
+      await agent.hydrateFullHistory()
+      // Nothing is windowed, so no extra /messages round trip is issued.
+      expect(fetchMock.mock.calls.length).toBe(callsBefore)
+      expect(agent.state.messages).toHaveLength(1)
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('hydrates from the snapshot cache and calibrates without POST /restore', async () => {
     sessionCacheMock.read = cachedEntry()
     const fetchMock = vi.fn(async () => ({

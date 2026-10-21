@@ -53,6 +53,9 @@ import {
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
+import { markSessionOpen, recordFirstDecorateTiming } from '@/lib/session-open-timing'
+import { subscribeSessionViewActivity, isInsideHiddenView } from '@/lib/session-view-activity'
+import { readMessageRows } from './panel-decoration/message-rows'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { getGitStatus } from '../workspace/workspace-api'
@@ -131,13 +134,28 @@ function effectiveContextMessages(agent: AgentLike): MessageWithUsage[] {
  * this key lets the decorate hot-path skip recomputation until something
  * relevant actually changes. Rollback / compaction change the message set, so
  * the key naturally invalidates in those cases.
+ *
+ * The per-array memo below relies on the established invariant that
+ * `agent.state.messages` is never mutated in place — every writer swaps in a
+ * fresh array (see `readAgentSnapshot`'s identity-reuse contract). Same array
+ * identity therefore means same contents, so the key can be reused verbatim.
  */
-function artifactsInputKey(messages: ReadonlyArray<{ role?: string; toolCallId?: string; toolName?: string }>): string {
+const artifactsKeyByMessages = new WeakMap<readonly unknown[], string>()
+
+function computeArtifactsInputKey(messages: ReadonlyArray<{ role?: string; toolCallId?: string; toolName?: string }>): string {
   let key = String(messages.length)
   for (const message of messages) {
     if (message.role !== 'toolResult') continue
     key += `|${message.toolCallId ?? ''}:${message.toolName ?? ''}`
   }
+  return key
+}
+
+function artifactsInputKey(messages: ReadonlyArray<{ role?: string; toolCallId?: string; toolName?: string }>): string {
+  const cached = artifactsKeyByMessages.get(messages)
+  if (cached !== undefined) return cached
+  const key = computeArtifactsInputKey(messages)
+  artifactsKeyByMessages.set(messages, key)
   return key
 }
 
@@ -686,6 +704,67 @@ export function ChatPanelHost({
     let toolUpdateScheduled = false
     let processHandoffGeneration = 0
     let cancelInitialRenderReady: (() => void) | undefined
+    /** 后台补齐历史的取消句柄（idle callback 或 timeout），与首帧通知分开管理。 */
+    let cancelHydration: (() => void) | undefined
+    let idleHandle: number | undefined
+    let hydrationTimer: number | undefined
+
+    /**
+     * Capture / persist (or clear) this session's composer draft.
+     *
+     * Session views are kept mounted while hidden, so the unmount cleanup below
+     * no longer runs on every session switch. The draft must still be flushed at
+     * that moment: while typing it is only persisted on a 400ms debounce, so
+     * without this the last keystrokes before a switch would be lost.
+     *
+     * Extracted (rather than inlined in cleanup) so deactivation and unmount go
+     * through exactly the same rules — anything else would let the two paths
+     * disagree about when a draft is cleared.
+     */
+    const flushComposerDraft = () => {
+      if (sideChatMode) {
+        sideChatInputMemory?.set(readComposerDraft(panel).text)
+      } else if (composerClearedForSend) {
+        composerDraftsRef.current.delete(currentDraftKey)
+        void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
+      } else if (initialComposerStateReady || composerInteracted || readyComposerPanels.has(panel)) {
+        captureComposerDraft(panel, composerDraftsRef.current, currentDraftKey)
+        persistCurrentComposerDraft(panel, currentDraftKey, currentDraftContext)
+      }
+    }
+
+    // Keep-alive: this view stays mounted while another session is active, so
+    // the unmount cleanup no longer fires on every switch. Flush the draft the
+    // moment this view leaves the screen instead, using the same rules.
+    // `agentRuntimeScopeId ?? sessionId` mirrors the ChatSurface key, so the
+    // activity signal and the rendered identity cannot drift apart.
+    const activityKey = agentRuntimeScopeId ?? agent.sessionId
+    const unsubscribeActivity = subscribeSessionViewActivity(
+      activityKey,
+      (active) => {
+        if (disposed) return
+        if (!active) {
+          flushComposerDraft()
+          return
+        }
+        // Returning to this view must behave exactly like the remount it used
+        // to get: the reading position resets and the panel follows the tail
+        // again (contract: "scroll position resets and sticks to bottom").
+        // A kept subtree keeps its old `scrollTop`, and when the agent object is
+        // unchanged (task still resident, so no `[agent]` effect re-run) nothing
+        // else would move it. `setAutoScroll(true)` runs the same `resumeTail`
+        // path the surface uses for this, which also drains any in-flight page
+        // request via the resulting window commit.
+        surfaceRef.current?.setAutoScroll(true)
+        // Decoration is DOM-derived and only re-scans in a decorate pass. A kept
+        // view was hidden (`display: none`, zero-size layout) while it was away,
+        // so measurements taken in that window are meaningless — and if the agent
+        // object did not change, the main effect does not re-run to rebuild the
+        // decorators. Re-run one pass now that the subtree is visible again.
+        // Without this the turn-navigation rail stays empty on the active view.
+        decorateFnRef.current?.()
+      },
+    )
 
     // Expose the panel-level send hooks to the ChatSurface props (defined in
     // the component body). Props are bound at render time, the effect runs
@@ -1073,6 +1152,11 @@ export function ChatPanelHost({
       const messageIndexOffset = surfaceRef.current?.getWindowStart() ?? 0
 
       const props = propsRef.current
+      // Enumerate the message rows ONCE per decoration pass and share the result
+      // across decorators. Several of them (message actions, compaction notice,
+      // approval boundary, waiting bubble) each used to run their own full-table
+      // `querySelectorAll` on the same list within a single pass.
+      const messageRows = readMessageRows(panel)
       if (!sideChatMode) {
         const inputKey = artifactsInputKey(agent.state.messages as MessageWithUsage[])
         if (inputKey !== artifactsInputKeyRef.current) {
@@ -1089,6 +1173,7 @@ export function ChatPanelHost({
           panel,
           getMessages: displayMessages,
           messageIndexOffset,
+          messageRows,
           isStreaming: () => agent.state.isStreaming,
           onCopyAnswer: props.onCopyAnswer,
           onRollbackFromMessage: props.onRollbackFromMessage,
@@ -1134,6 +1219,7 @@ export function ChatPanelHost({
               ? (agent as AgentWithContextCompaction).state.contextCompaction ?? null
               : null,
             messageIndexOffset,
+            messageRows,
           })
           syncPersistDegradedNotice({
             panel,
@@ -1145,6 +1231,7 @@ export function ChatPanelHost({
           getMessages: displayMessages,
           isStreaming: () => agent.state.isStreaming,
           isActive: assistantWaitingActive,
+          messageRows,
         })
         reconnectNotice?.sync()
         unreachableStrip?.sync()
@@ -1403,16 +1490,30 @@ export function ChatPanelHost({
     }
     const runDecorate = () => {
       if (disposed) return
+      // A kept (hidden) view must not decorate: its layout box is `display:none`,
+      // so every `getBoundingClientRect`/`offsetHeight` it reads is 0 and the
+      // results it would write back (compact class, fold state, scroll position)
+      // are meaningless. It also has no user to serve. Decoration resumes from
+      // the activity subscription below when the view becomes visible again.
+      // Judged from the DOM rather than the activity signal: the signal is
+      // published in a layout effect, so on the commit that reveals this view the
+      // signal may still name the previous one and the first (authoritative) pass
+      // would be skipped.
+      if (isInsideHiddenView(host)) return
       // Single-flight: `decorate` moves nodes around, so a nested pass must not
       // interleave with the one that owns the DOM (same guard as SubagentTrace).
       if (decorateInFlightRef.current) return
       decorateInFlightRef.current = true
       suppressObserverMutations = true
+      const decorateStartedAt = performance.now()
       try {
         decorate()
       } finally {
         clearObserverSuppression()
         decorateInFlightRef.current = false
+        // 第一轮装饰在 ready 之后才跑（它在 `scheduleAfterPaint` 之后由 rAF 触发），
+        // 但它决定按钮/折叠何时可用，属于用户感知成本，单独记一次。
+        recordFirstDecorateTiming(sessionId, performance.now() - decorateStartedAt)
       }
     }
     const scheduleDecorate = () => {
@@ -1572,7 +1673,39 @@ export function ChatPanelHost({
       const notifyInitialRenderReady = () => {
         if (disposed) return
         cancelInitialRenderReady = scheduleAfterPaint(() => {
-          if (!disposed) propsRef.current.onInitialRenderReady?.(sessionId)
+          if (disposed) return
+          // 埋点：会话内容首帧已上屏（遮罩开始淡出的时刻）。
+          markSessionOpen(sessionId, 'first-paint')
+          propsRef.current.onInitialRenderReady?.(sessionId)
+          // 只读视图只带回尾部窗口，首帧之后补齐更早的历史，界面才能滚到开头。
+          // 补齐是在头部插入内容：锚点在真正替换的前一刻由 `hydrateFullHistory`
+          // 回调捕获（不是现在），否则用户在这几秒内滚动就用的是过期位置。
+          //
+          // 必须延到空闲时再拉：实测这条全量请求有 10MB / 186ms，直接在
+          // first-paint 回调里发起会与用户首次交互抢主线程。`requestIdleCallback`
+          // 让浏览器先处理输入和绘制；`timeout` 兜底保证补齐最终一定发生。
+          // 注意用独立句柄：`cancelInitialRenderReady` 是首帧通知的取消函数，
+          // 覆盖它会让就绪通知无法在卸载时取消。
+          const hydrate = (agent as { hydrateFullHistory?: (beforeReplace?: () => (() => void) | void) => Promise<void> }).hydrateFullHistory
+          if (typeof hydrate === 'function') {
+            const runHydration = () => {
+              if (disposed) return
+              void hydrate.call(agent, () => surfaceRef.current?.captureScrollAnchor())
+                .catch((error: unknown) => logger.debug('Background history hydration failed:', error))
+            }
+            if (typeof window.requestIdleCallback === 'function') {
+              cancelHydration = () => {
+                // `cancelIdleCallback` 判定 pending 无效，重复取消是安全的。
+                if (idleHandle !== undefined) window.cancelIdleCallback?.(idleHandle)
+              }
+              idleHandle = window.requestIdleCallback(runHydration, { timeout: 2000 })
+            } else {
+              hydrationTimer = window.setTimeout(runHydration, 300)
+              cancelHydration = () => {
+                if (hydrationTimer !== undefined) window.clearTimeout(hydrationTimer)
+              }
+            }
+          }
         })
       }
       notifyInitialRenderReady()
@@ -1773,15 +1906,9 @@ export function ChatPanelHost({
       cancelRestoredDraftRestore()
       cancelPendingDraftSave()
       cancelInitialRenderReady?.()
-      if (sideChatMode) {
-        sideChatInputMemory?.set(readComposerDraft(panel).text)
-      } else if (composerClearedForSend) {
-        composerDraftsRef.current.delete(currentDraftKey)
-        void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
-      } else if (initialComposerStateReady || composerInteracted || readyComposerPanels.has(panel)) {
-        captureComposerDraft(panel, composerDraftsRef.current, currentDraftKey)
-        persistCurrentComposerDraft(panel, currentDraftKey, currentDraftContext)
-      }
+      cancelHydration?.()
+      unsubscribeActivity()
+      flushComposerDraft()
       cmdSuggestions.remove()
       cmdSuggestions.cleanupTextareaHandler()
       capabilitySuggestions.remove()
@@ -1830,7 +1957,7 @@ export function ChatPanelHost({
       // session id) and unmounts on its own; decorations injected into it are
       // dropped with the subtree.
     }
-  }, [agent, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, taskLauncherEnabled, anchorSentUserMessage, effectiveCapabilities.capabilitySuggestions, effectiveCapabilities.goal, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
+  }, [agent, agentRuntimeScopeId, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, taskLauncherEnabled, anchorSentUserMessage, effectiveCapabilities.capabilitySuggestions, effectiveCapabilities.goal, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, the scope id (the activity channel is keyed by it), explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
 
   useEffect(() => {
     const host = hostRef.current

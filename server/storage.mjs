@@ -157,7 +157,7 @@ async function readConfigStore(storeName) {
   const file = configStoreFilePath(storeName)
 
   if (existsSync(file)) {
-    const content = await readJsonFile(file, {})
+    const content = await readJsonFileCached(file, {})
     if (loc.sectionKey) return asRecord(content?.[loc.sectionKey])
     return asRecord(content)
   }
@@ -399,6 +399,43 @@ async function readJsonFile(file, defaultValue = {}) {
   }
 }
 
+// --- Config file read cache (mtime + size validated) -----------------------
+//
+// `readProjectConfigData` sits on the agent-creation hot path: one `createAgent`
+// used to read + parse `projects.json` three times through different callers.
+// The cache is validated against the file's (mtimeMs, size) pair, so an
+// external edit is observed on the next read; the cached value is only served
+// when the file is the exact one that produced it.
+const jsonFileCache = new Map()
+
+function invalidateJsonFileCache(file) {
+  jsonFileCache.delete(file)
+}
+
+/**
+ * Read a JSON file through the (mtime, size) cache. Every call returns a deep
+ * copy so callers keep the existing "mutate the result freely" semantics.
+ */
+async function readJsonFileCached(file, defaultValue = {}) {
+  let stat
+  try {
+    stat = await fs.stat(file)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+    invalidateJsonFileCache(file)
+    return structuredClone(defaultValue)
+  }
+  const cached = jsonFileCache.get(file)
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return structuredClone(cached.value)
+  }
+  const text = await fs.readFile(file, 'utf8')
+  const json = text.trimStart()
+  const parsed = json ? JSON.parse(json) : defaultValue
+  jsonFileCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, value: parsed })
+  return structuredClone(parsed)
+}
+
 async function writeJsonAtomic(file, data) {
   await fs.mkdir(path.dirname(file), { recursive: true })
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
@@ -410,6 +447,10 @@ async function writeJsonAtomic(file, data) {
   for (let attempt = 0; ; attempt += 1) {
     try {
       await fs.rename(tmp, file)
+      // Drop any (mtime, size) entry read before this write: on filesystems
+      // with coarse mtime granularity an immediate re-read could otherwise
+      // keep serving the pre-write value.
+      invalidateJsonFileCache(file)
       return
     } catch (error) {
       if (attempt >= delays.length || !['EPERM', 'EBUSY', 'EACCES'].includes(error?.code)) {
@@ -1154,7 +1195,7 @@ export async function writeStore(storeName, data) {
 
 export async function readProjectConfigData() {
   await ensureStorage()
-  return normalizeProjectConfig(await readJsonFile(projectsConfigFile, defaultProjectConfig()))
+  return normalizeProjectConfig(await readJsonFileCached(projectsConfigFile, defaultProjectConfig()))
 }
 
 export async function writeProjectConfigData(projectConfig) {

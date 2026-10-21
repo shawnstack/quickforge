@@ -57,7 +57,7 @@ src/
 
 **主要 UI 区域**:
 1. **侧边栏** (`ChatSidebar`) — 左侧导航
-2. **聊天面板** (`ChatPanelHost`) — 主聊天区域
+2. **聊天面板** (`ChatPanelHost`) — 主聊天区域。外层包一层 `SessionViewPool`：非活跃会话的渲染子树保留在 DOM（`display:none`）、活跃视图包在 `display:contents` 里，切回时按行 key 复用 fiber 而不是整树重建。保活的是**渲染产物**而非 agent 运行时（`MAX_IDLE_AGENT_TASKS` 仍为 0），因此不常驻 MB 级 messages、也不涉及跨项目 `workspaceRoot` 污染。被冻结的视图收不到 props，离开/回到屏幕的行为由 `session-view-activity` 广播触发：草稿末次落盘、复位滚动并贴底、装饰重扫；隐藏期跳过装饰与滚动写入（`display:none` 下测量值全为 0）。容量策略见 `session-view-pool.ts`。详见 [会话打开快路径](../../architecture/session-open-fast-path.zh-CN.md)
 3. **空状态** (`ModelSetupEmptyState`) — 未配置模型时显示
 4. **分享对话框** (`ShareConversationDialog`)
 5. **共享会话页面** (`SharedConversationPage`)

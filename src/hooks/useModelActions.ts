@@ -148,12 +148,13 @@ export function useModelActions({
         ? event.currentTarget
         : document.querySelector<HTMLElement>('.quickforge-model-trigger')
 
-    const textarea = document.querySelector<HTMLTextAreaElement>(
-      '.qf-chat-panel .qf-message-editor textarea',
-    )
-    const messageEditor = document.querySelector<HTMLElement & { attachments?: unknown[] }>(
-      '.qf-chat-panel .qf-message-editor',
-    )
+    // Scope the composer lookup to the panel that owns the anchor. ChatPanelHost
+    // always passes its own trigger, so this is the panel the user clicked in.
+    // A document-wide lookup would pick the first panel in the DOM, which is
+    // the wrong one whenever the main chat and the side-chat coexist.
+    const panel = anchor?.closest<HTMLElement>('.qf-chat-panel') ?? document.querySelector<HTMLElement>('.qf-chat-panel')
+    const textarea = panel?.querySelector<HTMLTextAreaElement>('.qf-message-editor textarea') ?? null
+    const messageEditor = panel?.querySelector<HTMLElement & { attachments?: unknown[] }>('.qf-message-editor') ?? null
     const currentInput = textarea?.value ?? ''
     const currentAttachments = messageEditor?.attachments ? [...messageEditor.attachments] : []
 

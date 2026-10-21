@@ -145,6 +145,74 @@ describe('stable surface key across Deferred→Real promotion', () => {
   })
 })
 
+describe('reading anchor across background history hydration', () => {
+  it('captures the anchor at replace time, not at request time', () => {
+    // Hydration is a network round trip; the user can scroll during it. An
+    // anchor captured when the request starts would restore a position the user
+    // has already left. `hydrateFullHistory` therefore takes a callback it
+    // invokes immediately before swapping the message list.
+    const serverAgentSource = readFileSync(new URL('../../src/lib/server-agent.ts', import.meta.url), 'utf8')
+    expect(serverAgentSource).toContain('async hydrateFullHistory(beforeReplace?')
+    expect(serverAgentSource).toContain('const cancelAnchor = beforeReplace?.()')
+    // The swap happens after the callback, never before it.
+    const callbackIndex = serverAgentSource.indexOf('const cancelAnchor = beforeReplace?.()')
+    const swapIndex = serverAgentSource.indexOf('this.state.messages = all', callbackIndex)
+    expect(swapIndex).toBeGreaterThan(callbackIndex)
+  })
+
+  it('measures the anchor delta against the viewport offset captured before the prepend', () => {
+    // The delta must be computed from the SAME measurement taken on both sides.
+    // Two approaches were tried and rejected against a real browser: `offsetTop`
+    // (measured before the prepended rows settled their height, so the delta was
+    // wrong) and raw node identity (works only when the anchor node survives;
+    // folded process groups are rebuilt). The formula now lives in
+    // `components/chat/scroll-anchor.ts` and is unit-tested there; this assertion
+    // keeps the surface wired to it.
+    const anchorSource = readFileSync(new URL('../../src/components/chat/scroll-anchor.ts', import.meta.url), 'utf8')
+    expect(anchorSource).toContain('offsetFromTop: anchor.getBoundingClientRect().top - containerTop')
+    expect(anchorSource).toContain('const delta = (retained.getBoundingClientRect().top - containerTop) - anchor.offsetFromTop')
+    expect(chatSurfaceSource).toContain('anchoredScrollTop(container, anchor)')
+  })
+
+  it('identifies the anchor by absolute message index, falling back to ordinal', () => {
+    // Prepending shifts every ordinal, so the absolute `data-message-index` is
+    // the primary handle (window offset stays 0, so an index identifies the same
+    // message across the prepend). Folded process groups carry no index, so the
+    // rendered ordinal is the fallback for them.
+    const anchorSource = readFileSync(new URL('../../src/components/chat/scroll-anchor.ts', import.meta.url), 'utf8')
+    expect(anchorSource).toContain('messageIndex: anchor.dataset.messageIndex')
+    expect(anchorSource).toContain('ordinal: rows.indexOf(anchor)')
+    expect(anchorSource).toContain('if (byIndex) return byIndex')
+  })
+
+  it('defers history hydration to an idle slot instead of the first-paint callback', () => {
+    // Measured: the full-history fetch is ~10MB / 140-190ms. Firing it inside the
+    // first-paint callback competes with the user's first interaction for the main
+    // thread. It must be scheduled for an idle slot (with a timeout fallback), and
+    // its cancel handle must be independent of the first-paint notify handle —
+    // reusing that variable made the ready notification uncancellable.
+    expect(hostSource).toContain('requestIdleCallback')
+    expect(hostSource).toContain('cancelHydration')
+    expect(hostSource).toContain('cancelHydration?.()')
+    // The hydration cancel handle must not overwrite the ready-notify handle.
+    expect(hostSource).not.toContain('cancelInitialRenderReady = () => window.cancelIdleCallback')
+  })
+
+  it('hosts the hydration trigger in the panel host, which owns the surface ref', () => {
+    // The anchor API lives on the surface handle; `useAgentManager` has no
+    // access to it, so the trigger belongs to the host's ready callback.
+    expect(hostSource).toContain('hydrateFullHistory')
+    expect(hostSource).toContain('captureScrollAnchor')
+  })
+
+  it('guards the deferred anchor release for non-DOM consumers', () => {
+    // `server-agent.ts` also runs in tests and the ACP/Node paths where `window`
+    // is undefined; an unguarded requestAnimationFrame throws there.
+    const serverAgentSource = readFileSync(new URL('../../src/lib/server-agent.ts', import.meta.url), 'utf8')
+    expect(serverAgentSource).toContain("typeof window !== 'undefined'")
+  })
+})
+
 describe('structural release ownership (no pre-release outside the boundary)', () => {
   it('lets ProcessGroupReleaseBoundary own messages_replaced releases with same-commit re-fold', () => {
     // A host-side `releaseStreamingProcessGroups(panel)` in the event callback

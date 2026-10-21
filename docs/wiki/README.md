@@ -51,6 +51,7 @@ quickforge/
 | [插件系统](../architecture/plugin-system.zh-CN.md) / [Agent 能力插件系统](../architecture/agent-plugin-system.zh-CN.md) | 当前 V1 能力与目标架构 |
 | [自定义 Agent / Agent Profile](../architecture/custom-agents-design.zh-CN.md) | Agent Profile 架构与存储 |
 | [浏览器缓存策略](../architecture/browser-cache-strategy.zh-CN.md) | 应用层缓存分级与已实施范围 |
+| [会话打开快路径](../architecture/session-open-fast-path.zh-CN.md) | 打开历史会话的耗时构成、交互契约红线、内容寻址渲染缓存与后续里程碑 |
 | [日志系统设计](../architecture/logging-design.zh-CN.md) | 日志分级、落盘与清理 |
 | [Android 远程客户端](../architecture/android-remote-client.zh-CN.md) | Capacitor 薄壳、Tailscale 直连与通知 |
 | [小版本发布 Runbook](../architecture/patch-release-runbook.zh-CN.md) | patch 版本发布流程 |

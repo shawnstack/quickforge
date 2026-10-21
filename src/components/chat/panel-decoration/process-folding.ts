@@ -1688,17 +1688,25 @@ export function decorateProcessBlocks(
   const lastMessage = orderedMessages[orderedMessages.length - 1]
   const isLastMessageAssistant = isProcessNodeKind(lastMessage, 'assistant-message')
 
+  // Turn grouping in a single pass. This runs on every decoration pass (each
+  // streaming commit), and the previous form assigned a fresh array per turn
+  // transition even for empty runs; keeping one reused array plus a `flush`
+  // closure avoids that churn without changing the produced grouping.
   const turns: AssistantMessageElement[][] = []
   let currentAssistants: AssistantMessageElement[] = []
+  const flushTurn = () => {
+    if (currentAssistants.length === 0) return
+    turns.push(currentAssistants)
+    currentAssistants = []
+  }
   for (const message of orderedMessages) {
     if (isProcessNodeKind(message, 'user-message')) {
-      if (currentAssistants.length > 0) turns.push(currentAssistants)
-      currentAssistants = []
+      flushTurn()
       continue
     }
     currentAssistants.push(message as AssistantMessageElement)
   }
-  if (currentAssistants.length > 0) turns.push(currentAssistants)
+  flushTurn()
 
   turns.forEach((assistants, index) => {
     const isActiveTurn = isAgentStreaming && isLastMessageAssistant && index === turns.length - 1

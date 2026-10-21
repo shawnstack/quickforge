@@ -10,6 +10,13 @@ import { emitReadingIntent } from '../scroll-sync'
  * Collapsible reasoning block; streams with a shimmer "Thinking..." label.
  * Collapsed by default — the header click remains the opt-in to reveal the
  * reasoning markdown (the process groups themselves default to expanded).
+ *
+ * Deliberately NOT memoized: `thinking-block-interaction.test.ts` invokes the
+ * component directly to assert the pointerdown-first toggle contract, which only
+ * works on a plain function. Under a remount memo would not help anyway (fresh
+ * fibers execute regardless); the measurable remount cost is fiber creation, not
+ * re-rendering (see the M3 section of
+ * docs/architecture/session-open-fast-path.zh-CN.md).
  */
 type ThinkingBlockProps = {
   content: string

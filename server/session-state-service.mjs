@@ -352,6 +352,46 @@ export async function readSessionStateValue(sessionId) {
   return assembleState(repository().findBySessionId(sessionId))
 }
 
+/**
+ * Read a stored session's tail window instead of its full message list.
+ *
+ * `readSessionStateValue` materializes every message row; on a long session
+ * that is several MB in a single response, which the caller then parses on the
+ * main thread. The read-only view only needs enough to render the first screen
+ * (the surface opens at the tail), so this returns the last `tailMessages`
+ * rows plus the total count.
+ *
+ * Returns the body state (without `messages`) alongside the window; callers add
+ * `messagesSummary` so the existing split-session reconciliation path applies.
+ */
+export async function readSessionStateTail(sessionId, tailMessages) {
+  const record = repository().findBySessionId(sessionId)
+  if (!record) return null
+  if (record.state?.messageStorage !== MESSAGES_SPLIT_VALUE) {
+    // Non-split bodies carry their messages inline; return them as-is (there is
+    // nothing to page through) so behavior matches `readSessionStateValue`.
+    return { state: record.state, messages: Array.isArray(record.state?.messages) ? record.state.messages : [], total: null }
+  }
+  const limit = Math.max(1, Math.min(Math.floor(tailMessages) || 1, MESSAGES_PAGE_LIMIT_MAX))
+  const total = repository().messageCount({ scope: record.scope, projectId: record.projectId, sessionId: record.sessionId })
+  const offset = Math.max(0, total - limit)
+  const page = await heavyOp('readMessagesPage', {
+    scope: record.scope,
+    projectId: record.projectId,
+    sessionId: record.sessionId,
+    limit,
+    offset,
+  })
+  return {
+    state: record.state,
+    messages: page.messages.map((row) => row.message),
+    // Only report a total when the window is actually truncated. Returning the
+    // count unconditionally would make a short session look truncated, and the
+    // client would think older history exists behind it.
+    total: total > page.messages.length ? total : null,
+  }
+}
+
 function mergeMetadata(existing, update, sessionId) {
   const metadata = { ...existing, ...structuredClone(update), id: sessionId }
   for (const field of ['pinnedAt', 'archivedAt']) {

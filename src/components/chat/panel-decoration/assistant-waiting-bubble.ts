@@ -1,12 +1,15 @@
 import type { MessageWithUsage } from '../chat-utils'
 import { assistantText } from '@/lib/message-utils'
 import { t } from '@/lib/i18n'
+import { getPrimaryMessageList, readMessageRows } from './message-rows'
 
 type AssistantWaitingBubbleDeps = {
   panel: HTMLElement
   getMessages: () => MessageWithUsage[]
   isStreaming: () => boolean
   isActive: boolean
+  /** 同一装饰 pass 内已枚举好的消息行（省去重复全表扫描）。 */
+  messageRows?: HTMLElement[]
 }
 
 function isDisplayMessage(message: MessageWithUsage) {
@@ -20,18 +23,6 @@ function isUserMessage(message: MessageWithUsage) {
 function hasAssistantContent(message: MessageWithUsage) {
   if (message.role !== 'assistant') return false
   return assistantText(message as Parameters<typeof assistantText>[0]).trim().length > 0
-}
-
-function getPrimaryMessageList(panel: HTMLElement) {
-  return panel.querySelector<HTMLElement>('.qf-message-list')
-}
-
-function getPrimaryMessageElements(panel: HTMLElement) {
-  const messageList = getPrimaryMessageList(panel)
-  if (!messageList) return []
-
-  return Array.from(messageList.querySelectorAll<HTMLElement>('.qf-user-message, .qf-assistant-message'))
-    .filter((element) => element.closest('.qf-message-list') === messageList)
 }
 
 const ASSISTANT_WAITING_SELECTOR = '.quickforge-assistant-waiting'
@@ -63,7 +54,7 @@ function assistantElementHasVisibleContent(element: HTMLElement) {
 }
 
 export function syncAssistantWaitingBubble(deps: AssistantWaitingBubbleDeps) {
-  const { panel, getMessages, isStreaming, isActive } = deps
+  const { panel, getMessages, isStreaming, isActive, messageRows } = deps
   const existing = panel.querySelector<HTMLElement>(ASSISTANT_WAITING_SELECTOR)
 
   if (!isStreaming() || !isActive) {
@@ -90,7 +81,7 @@ export function syncAssistantWaitingBubble(deps: AssistantWaitingBubbleDeps) {
 
   const lastUserEntry = displayEntries[lastUserDisplayIndex]
   const hasAssistantAfterLastUser = messages.slice(lastUserEntry.index + 1).some(hasAssistantContent)
-  const messageElements = getPrimaryMessageElements(panel)
+  const messageElements = messageRows ?? readMessageRows(panel)
   const lastUserElement = messageElements[lastUserDisplayIndex]
   const hasVisibleAssistantAfterLastUser = messageElements
     .slice(lastUserDisplayIndex + 1)

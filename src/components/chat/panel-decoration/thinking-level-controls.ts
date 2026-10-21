@@ -30,20 +30,38 @@ function thinkingLevelLabel(level: QuickForgeThinkingLevel) {
 type ThinkingMenuElement = HTMLDivElement & {
   __quickforgeDismissHandler?: (event: Event) => void
   __quickforgeOwnerTrigger?: HTMLButtonElement
+  // Menus are appended to `document.body` (they need to escape the panel's
+  // stacking/clipping context), so ownership must be recorded explicitly.
+  // Without it a decorate pass in one panel would close the menu opened by
+  // another panel — visible once both the main chat and the side-chat are
+  // mounted at the same time.
+  __quickforgeOwnerPanel?: HTMLElement
 }
 
-export function removeThinkingLevelMenu() {
-  const menu = document.querySelector<ThinkingMenuElement>('.quickforge-thinking-menu')
-  if (menu?.__quickforgeDismissHandler) {
+function closeThinkingMenu(menu: ThinkingMenuElement) {
+  if (menu.__quickforgeDismissHandler) {
     document.removeEventListener('pointerdown', menu.__quickforgeDismissHandler, true)
     document.removeEventListener('keydown', menu.__quickforgeDismissHandler, true)
     window.removeEventListener('resize', menu.__quickforgeDismissHandler, true)
     window.removeEventListener('scroll', menu.__quickforgeDismissHandler, true)
     menu.__quickforgeDismissHandler = undefined
   }
-  menu?.__quickforgeOwnerTrigger?.setAttribute('aria-expanded', 'false')
-  menu?.remove()
-  document.querySelector<HTMLButtonElement>('.quickforge-thinking-inline')?.setAttribute('aria-expanded', 'false')
+  menu.__quickforgeOwnerTrigger?.setAttribute('aria-expanded', 'false')
+  menu.remove()
+}
+
+// `panel` narrows the operation to the menu/trigger owned by that panel.
+// Omitting it keeps the legacy "whole document" behaviour for callers that
+// have no panel scope: with a single mounted panel that is identical, and with
+// several panels it correctly closes every menu instead of one arbitrary menu.
+export function removeThinkingLevelMenu(panel?: HTMLElement | null) {
+  const menus = Array.from(document.querySelectorAll<ThinkingMenuElement>('.quickforge-thinking-menu'))
+    .filter((menu) => (panel ? menu.__quickforgeOwnerPanel === panel : true))
+  for (const menu of menus) closeThinkingMenu(menu)
+  const triggers = panel
+    ? [panel.querySelector<HTMLButtonElement>('.quickforge-thinking-inline')]
+    : Array.from(document.querySelectorAll<HTMLButtonElement>('.quickforge-thinking-inline'))
+  for (const trigger of triggers) trigger?.setAttribute('aria-expanded', 'false')
 }
 
 function createThinkingItem(level: QuickForgeThinkingLevel, currentLevel: QuickForgeThinkingLevel, onSelect: (level: QuickForgeThinkingLevel) => void) {
@@ -74,22 +92,33 @@ function renderThinkingMenu(options: {
   dismissComposerMenus: () => void
 }) {
   const { trigger, currentLevel, onLevelSelect, dismissComposerMenus } = options
-  if (document.querySelector('.quickforge-thinking-menu')) {
-    removeThinkingLevelMenu()
+  // Owned by the panel that hosts the trigger, so menu bookkeeping stays
+  // per-panel when several chat panels are mounted at once.
+  const ownerPanel = trigger.closest<HTMLElement>('.qf-chat-panel')
+  const ownMenuOpen = ownerPanel
+    ? Array.from(document.querySelectorAll<ThinkingMenuElement>('.quickforge-thinking-menu'))
+      .some((menu) => menu.__quickforgeOwnerPanel === ownerPanel)
+    : Boolean(document.querySelector('.quickforge-thinking-menu'))
+  if (ownMenuOpen) {
+    // Toggle: a second click in the same panel closes its own menu.
+    removeThinkingLevelMenu(ownerPanel)
     return
   }
 
   dismissComposerMenus()
+  // Menus are mutually exclusive across panels: opening one closes every
+  // other thinking menu so two popovers can never overlap.
   removeThinkingLevelMenu()
 
   const menu = document.createElement('div') as ThinkingMenuElement
   menu.className = 'quickforge-thinking-menu'
   menu.__quickforgeOwnerTrigger = trigger
+  menu.__quickforgeOwnerPanel = ownerPanel ?? undefined
   menu.setAttribute('role', 'menu')
   menu.setAttribute('aria-label', t('thinkingLevel'))
 
   const select = (level: QuickForgeThinkingLevel) => {
-    removeThinkingLevelMenu()
+    closeThinkingMenu(menu)
     if (level !== currentLevel) onLevelSelect(level)
   }
 
@@ -121,7 +150,7 @@ function renderThinkingMenu(options: {
       const target = event.target as Node
       if (menu.contains(target) || trigger.contains(target)) return
     }
-    removeThinkingLevelMenu()
+    closeThinkingMenu(menu)
   }
   menu.__quickforgeDismissHandler = dismiss
   menu.addEventListener('pointerdown', (event) => event.stopPropagation())
@@ -134,9 +163,12 @@ function renderThinkingMenu(options: {
   trigger.setAttribute('aria-expanded', 'true')
 }
 
-export function removeThinkingLevelControl() {
-  removeThinkingLevelMenu()
-  document.querySelector<HTMLButtonElement>('.quickforge-thinking-inline')?.remove()
+export function removeThinkingLevelControl(panel?: HTMLElement | null) {
+  removeThinkingLevelMenu(panel)
+  const triggers = panel
+    ? [panel.querySelector<HTMLButtonElement>('.quickforge-thinking-inline')]
+    : Array.from(document.querySelectorAll<HTMLButtonElement>('.quickforge-thinking-inline'))
+  for (const trigger of triggers) trigger?.remove()
 }
 
 export function setupThinkingLevelControl(options: {
@@ -148,9 +180,10 @@ export function setupThinkingLevelControl(options: {
   const { editor, rightControls, dismissComposerMenus, onThinkingLevelChange } = options
   const modelState = editor as (MessageEditorElement & EditorModelState) | null
   const modelButton = rightControls.querySelector<HTMLButtonElement>('.quickforge-model-trigger')
+  const ownerPanel = rightControls.closest<HTMLElement>('.qf-chat-panel')
 
   if (!modelButton || modelState?.currentModel?.reasoning !== true) {
-    removeThinkingLevelControl()
+    removeThinkingLevelControl(ownerPanel)
     return
   }
 
@@ -174,7 +207,10 @@ export function setupThinkingLevelControl(options: {
     button.title = title
     button.setAttribute('aria-label', title)
     button.setAttribute('aria-haspopup', 'menu')
-    button.setAttribute('aria-expanded', String(Boolean(document.querySelector('.quickforge-thinking-menu'))))
+    button.setAttribute('aria-expanded', String(ownerPanel
+      ? Array.from(document.querySelectorAll('.quickforge-thinking-menu'))
+        .some((menu) => (menu as ThinkingMenuElement).__quickforgeOwnerPanel === ownerPanel)
+      : Boolean(document.querySelector('.quickforge-thinking-menu'))))
     button.dataset.quickforgeThinkingLevel = currentLevel
     button.className = buttonClass
     button.onpointerdown = (event) => {

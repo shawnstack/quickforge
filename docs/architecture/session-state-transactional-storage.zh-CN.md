@@ -194,7 +194,7 @@ node server/maintenance/downgrade-session-state-v1.mjs --commit   # 物化并切
 
 - **轻量 state 帧**：拆分会话的 `GET /api/agents/:id/state`、`POST /restore`、SSE 初始 `event: state` 帧与 `emitSessionEvent` 下发的 `state` 事件均不再携带全量 messages，改为 `messagesSummary: { count }`（`messageStorage: 'split'` 字段仍保留供客户端判断）。非拆分会话与旧客户端行为逐字节不变。
 - **增量 SSE 通道**：拆分会话的 `message_end`/`agent_end`/`messages_replaced` 帧不再携带全量数组；尾部有新消息时携带 `messagesAfter` + `messages`（增量尾部）+ `messagesIncremental: true`，并附 `messagesSummary` 总条数；尾部为空（截断/清空/rollback）时仅 `messagesSummary`。运行循环的单条 `message_end` 事件本就只带 `message`（单条），维持原有 upsert 路径。
-- **消息拉取端点**：新增 `GET /api/agents/:sessionId/messages?after=N&limit=…`（默认 500，上限 5000），返回 `{ after, count, hasMore, messages }`；`count < after` 表示服务端已截断，客户端据此全量重取。会话未在内存时先 `restoreAgent`。
+- **消息拉取端点**：新增 `GET /api/agents/:sessionId/messages?after=N&limit=…`（默认 5000 = 服务端上限，显式传 `limit` 可降级到任意较小页），返回 `{ after, count, hasMore, messages }`；`count < after` 表示服务端已截断，客户端据此全量重取。会话未在内存时先 `restoreAgent`。默认取上限的原因：前端 `fetchAllSessionMessages` 总是排空所有分页，旧的 500 默认值让长会话付出 ⌈N/500⌉ 次串行往返。
 - **前端适配**（`src/lib/server-agent.ts`）：state 帧携带 summary 时走 `reconcileMessagesFromSummary`——`summary.count < 本地条数` → 全量重取替换；否则按 `after=本地条数` 拉缺失尾部，经 `mergeIncrementalMessages`（按 position + message id/内容去重）增量合并；`message_end`/`agent_end`/`messages_replaced` 增量帧同样合并。`stateVersion` 语义严格不变：`noteSseEvent` 的旧事件拒绝、poll 过期丢弃（`versionBeforeFetch`）逻辑原样保留，拆分协议不削弱既有防旧覆盖保护。`restore()`/`create()` 收到 summary 时先经 `/messages` 物化全量再构造 initialState。
 - **实测传输下降**（本机 Windows / Node 24.12 / SQLite 3.50.4，content 512 字符/条）：
   - 2000 条（≈256k tokens）：整包 SSE state 帧 **1,189,252 B（1.19MB，Phase 1 基线）** → 拆分后 **278 B**（-99.98%，`stateFrameReduction=0.9998`）；增量 message_end 帧（5 条新消息）**10,538 B（10.3KB）**。

@@ -477,14 +477,32 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
 
         let restoredAgent: ServerAgent
         let snapshot: Awaited<ReturnType<typeof ServerAgent.restore>>['snapshot']
+        // 首屏优先走只读视图通道：`GET /api/sessions/:id/view` 只读存储，
+        // 不触发服务端 agent 运行时重建（system prompt / 工具集 / MCP）。
+        // 任何失败（404、网络、老服务端没有该端点）都退回到完整 restore，
+        // 因此这是一条纯快路径，不是替代路径。
+        //
+        // 只读视图不带 `tools`（存储层没有工具定义）。历史工具卡不依赖它：
+        // 渲染器按 `toolCall.name` 静态解析，MCP 卡由名字自解析兜底。工具集
+        // 在后台 attach 时补齐，此时用户已经看到内容。
+        let loadedViaView = false
         try {
-          const restored = await ServerAgent.restore(sessionId, { signal: controller.signal })
-          restoredAgent = restored.agent
-          snapshot = restored.snapshot
+          const loaded = await ServerAgent.loadView(sessionId, { signal: controller.signal })
+          restoredAgent = loaded.agent
+          snapshot = loaded.snapshot
+          loadedViaView = true
         } catch (error) {
           if (controller.signal.aborted || !isLatestRequest()) return false
-          logger.error('Failed to restore session:', error)
-          return false
+          logger.debug('Session view unavailable, falling back to restore:', error)
+          try {
+            const restored = await ServerAgent.restore(sessionId, { signal: controller.signal })
+            restoredAgent = restored.agent
+            snapshot = restored.snapshot
+          } catch (restoreError) {
+            if (controller.signal.aborted || !isLatestRequest()) return false
+            logger.error('Failed to restore session:', restoreError)
+            return false
+          }
         }
 
         if (!isLatestRequest()) {
@@ -612,6 +630,18 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         if (task.status !== 'idle') setTaskStatuses((current) => ({ ...current, [task.sessionId]: task.status }))
         attachTaskToView(task)
         pruneIdleTasks(sessionId)
+        // 只读视图只带持久化字段：系统中没有运行时能力（工具集、待审批、
+        // 流式状态、上下文用量）。首帧上屏之后在后台补一次 GET /state 校准，
+        // 冷会话这次请求会让服务端 restore——但用户此时已经看到内容，不在
+        // 关键路径上。放在 `attachTaskToView` 之后，确保状态事件作用于当前
+        // 视图；`isLatestRequest` 守卫防止切走后仍污染新会话。
+        if (loadedViaView) {
+          void restoredAgent.syncState()
+            .then(() => {
+              if (isLatestRequest()) setChatPanelRevision((current) => current + 1)
+            })
+            .catch((error) => logger.debug('Background state calibration failed:', error))
+        }
         return true
       } finally {
         if (loadSessionAbortRef.current === controller) loadSessionAbortRef.current = null

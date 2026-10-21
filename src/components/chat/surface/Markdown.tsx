@@ -3,6 +3,7 @@ import { isValidElement, memo, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { preprocessLatexDelimiters, rehypeQfMath } from '@/lib/chat-math'
+import { ContentCache, memoizeContent } from '@/lib/render-cache'
 import { cn } from '@/lib/utils'
 import { CodeBlock, codeBlockLanguage } from './CodeBlock'
 import { KatexMath } from './KatexMath'
@@ -113,6 +114,49 @@ const markdownComponentsWithMath: Components = {
   'qf-math': KatexMath,
 } as Components
 
+/** Plugin lists are module-level constants: stable identities across renders. */
+const markdownRemarkPlugins = [remarkGfm]
+
+/**
+ * 解析产物缓存（内容寻址）。
+ *
+ * 关键事实：`react-markdown` 的默认导出是**普通函数**（`Markdown(options)` →
+ * `post(processor.runSync(processor.parse(file)), options)`），不是带 hook 的
+ * 组件。所以可以在渲染期直接调用它拿到一棵已解析的元素树，而不是把它当组件
+ * 交给 React——后者会在每次 remount 时重新执行整条 unified 流水线。
+ *
+ * 缓存键只需 `content`：`remarkPlugins` / `components` 都是模块级常量，
+ * `rehypePlugins` 只携带由同一 `content` 决定的 math token 映射（token 由
+ * `preprocessLatexDelimiters` 按内容缓存，因此同一 content 必然得到同一组
+ * token，进而同一棵元素树）。
+ *
+ * 元素树是不可变描述：复用不会让渲染结果取决于挂载历史。外层组件（`CodeBlock`
+ * 等）读取的 context 变化仍由 React 正常传播，这里跳过的只是字符串解析与
+ * 插件执行。
+ */
+const markdownElementCache = new ContentCache<ReactNode>(300)
+
+/** 清空 Markdown 元素缓存（测试隔离与内存回收）。 */
+export function clearMarkdownElementCache(): void {
+  markdownElementCache.clear()
+}
+
+function renderMarkdownTree(content: string): ReactNode {
+  // `\(…\)`/`\[…\]` must be swapped for placeholder tokens before markdown
+  // parsing (markdown would eat the backslash); the token map is handed to
+  // rehypeQfMath below to resolve them back into LaTeX.
+  const { content: mathContent, tokens } = preprocessLatexDelimiters(content)
+  // Called as a plain function (not `<ReactMarkdown>`): the parse result is
+  // what we want to cache, and React elements are plain objects.
+  return ReactMarkdown({
+    children: mathContent,
+    remarkPlugins: markdownRemarkPlugins,
+    rehypePlugins: [[rehypeQfMath, { tokens }]],
+    components: markdownComponentsWithMath,
+    skipHtml: true,
+  })
+}
+
 /**
  * Markdown block for chat message content.
  *
@@ -121,10 +165,7 @@ const markdownComponentsWithMath: Components = {
  */
 export const MarkdownBlock = memo(function MarkdownBlock({ content, isThinking = false }: MarkdownBlockProps) {
   if (!content.trim()) return null
-  // `\(…\)`/`\[…\]` must be swapped for placeholder tokens before markdown
-  // parsing (markdown would eat the backslash); the token map is handed to
-  // rehypeQfMath below to resolve them back into LaTeX.
-  const { content: mathContent, tokens } = preprocessLatexDelimiters(content)
+  const body = memoizeContent(markdownElementCache, [content], () => renderMarkdownTree(content))
   return (
     <div
       className={cn(
@@ -133,14 +174,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({ content, isThinking =
       )}
       data-qf-thinking={isThinking ? 'true' : undefined}
     >
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeQfMath, { tokens }]]}
-        components={markdownComponentsWithMath}
-        skipHtml
-      >
-        {mathContent}
-      </ReactMarkdown>
+      {body}
     </div>
   )
 })

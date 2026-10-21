@@ -137,7 +137,7 @@ export function disableComposerControls(panel: HTMLElement, editor: MessageEdito
   removeAgentAccessMenu(panel, true)
   removeSubagentRunningIndicator(panel)
   removePlanModeControls(editor)
-  removeThinkingLevelMenu()
+  removeThinkingLevelMenu(panel)
   closeComposerModelMenu(panel.querySelector<HTMLElement>('.quickforge-model-trigger'), true)
 
   const controls = [
@@ -264,7 +264,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     removeSubagentRunningIndicator(panel)
     panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
     panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline')?.remove()
-    removeThinkingLevelControl()
+    removeThinkingLevelControl(panel)
     return
   }
 
@@ -274,8 +274,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     removeComposerPlusPopover(panel)
     removeAgentAccessMenu(panel)
     removeSubagentRunningIndicatorMenu(panel)
-    removeThinkingLevelMenu()
-    closeComposerModelMenu()
+    removeThinkingLevelMenu(panel)
+    closeComposerModelMenu(panel.querySelector<HTMLElement>('.quickforge-model-trigger'), true)
   }
 
   if (onThinkingLevelChange) {
@@ -286,7 +286,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
       onThinkingLevelChange,
     })
   } else {
-    removeThinkingLevelControl()
+    removeThinkingLevelControl(panel)
   }
 
   if (editor) {

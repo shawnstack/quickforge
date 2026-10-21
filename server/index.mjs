@@ -37,6 +37,7 @@ import { handleSystemApi } from './routes/system.mjs'
 import { handleSharesApi } from './routes/shares.mjs'
 import { handleSharedConversationApi } from './routes/shared-conversation.mjs'
 import { handleSessionAssetsApi } from './routes/session-assets.mjs'
+import { handleSessionViewApi } from './routes/session-view.mjs'
 import { handleLanAccessApi, renderLanUnlockPage } from './routes/lan-access.mjs'
 import { handleMcpApi } from './routes/mcp.mjs'
 import { handlePluginsApi } from './routes/plugins.mjs'
@@ -342,6 +343,12 @@ async function handleApi(req, res, url, requestContext = {}) {
 
   if (pathname.startsWith('/api/session-assets/')) {
     await handleSessionAssetsApi(req, res, url)
+    return
+  }
+
+  // Read-only session view: never restores an agent runtime (see the route).
+  if (pathname.startsWith('/api/sessions/')) {
+    await handleSessionViewApi(req, res, url)
     return
   }
 

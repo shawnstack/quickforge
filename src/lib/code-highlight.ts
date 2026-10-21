@@ -39,6 +39,8 @@
  * the generic pass above.
  */
 
+import { ContentCache, memoizeContent } from '@/lib/render-cache'
+
 /**
  * Finite highlight token vocabulary (mirrors the `qf-hl-*` CSS classes).
  *
@@ -86,6 +88,13 @@ export type CodeHighlightSegment = { text: string; token: CodeHighlightToken }
 
 /** Blocks larger than this are returned as one plain segment (size guard). */
 export const MAX_HIGHLIGHT_LENGTH = 200 * 1024
+
+/**
+ * 高亮结果缓存（内容寻址）。key = [language, code]，命中后返回同一 segment
+ * 数组；调用方只读消费。上限按条数（不是字节），超过 200KB 的块本就不会
+ * 进入缓存（上面已直接返回 plain）。
+ */
+const highlightCache = new ContentCache<CodeHighlightSegment[]>(400)
 
 /** token → CSS class on the `.qf-hl-<token>` palette in `src/index.css`. */
 export const HIGHLIGHT_TOKEN_CLASSES: Record<CodeHighlightToken, string> = {
@@ -204,12 +213,21 @@ const PLAINTEXT_LANGUAGES = new Set(['plaintext', 'text', 'txt'])
  * Tokenize `code` for a fenced language. Plaintext spellings, missing language
  * names, unregistered ones that the generic pass cannot claim, oversized blocks
  * and empty input degrade to plain segments, so callers can render blindly.
+ *
+ * Results are cached by (language, code) at module level: tokenizing is pure,
+ * and a session switch remounts the whole surface, so per-component `useMemo`
+ * would re-tokenize every historical code block again. The returned segment
+ * arrays are shared and must be treated as read-only.
  */
 export function highlightCode(code: string, language: string | undefined): CodeHighlightSegment[] {
   if (!code) return []
   if (code.length > MAX_HIGHLIGHT_LENGTH) return [{ text: code, token: 'plain' }]
   const name = (language ?? '').trim().toLowerCase()
   if (!name || PLAINTEXT_LANGUAGES.has(name)) return [{ text: code, token: 'plain' }]
+  return memoizeContent(highlightCache, [name, code], () => tokenizeForLanguage(code, name))
+}
+
+function tokenizeForLanguage(code: string, name: string): CodeHighlightSegment[] {
   const tokenize = LANGUAGE_TOKENIZERS[LANGUAGE_ALIASES[name] ?? '']
   if (tokenize) {
     const segments = tokenize(code)
@@ -220,6 +238,11 @@ export function highlightCode(code: string, language: string | undefined): CodeH
   return segments.some((segment) => GENERIC_STRUCTURAL_TOKENS.has(segment.token))
     ? segments
     : [{ text: code, token: 'plain' }]
+}
+
+/** 清空高亮缓存（测试隔离与内存回收）。 */
+export function clearHighlightCache(): void {
+  highlightCache.clear()
 }
 
 /* -------------------------------------------------------------------------

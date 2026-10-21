@@ -87,6 +87,37 @@ describe('chat surface ToolMessage registry consumption', () => {
   })
 })
 
+describe('chat surface ToolMessage MCP fallback without tool definitions', () => {
+  it('renders the MCP card when only the tool name is known', () => {
+    // A read-only session view carries no `state.tools` (the storage layer holds
+    // no tool definitions), so an MCP row must resolve from the
+    // `mcp__server__tool` spelling alone instead of degrading to the generic
+    // "Tool Call" card.
+    const markup = renderToStaticMarkup(
+      createElement(ToolMessage, {
+        toolCall: { type: 'toolCall', id: 'call-mcp', name: 'mcp__filesystem__read_file', arguments: { path: 'a.ts' } },
+      }),
+    )
+
+    expect(markup).toContain('quickforge-mcp-tool')
+    // Server name and original tool name are parsed out of the composite name.
+    expect(markup).toContain('filesystem')
+    expect(markup).toContain('read_file')
+    // The generic fallback card must not appear.
+    expect(markup).not.toContain('工具调用')
+    expect(markup).not.toContain('Tool Call')
+  })
+
+  it('keeps non-MCP unknown tools on the generic fallback card', () => {
+    const markup = renderToStaticMarkup(
+      createElement(ToolMessage, { toolCall: toolCall('totally_unknown_tool') }),
+    )
+
+    expect(markup).not.toContain('quickforge-mcp-tool')
+    expect(markup).toContain('Tool Call')
+  })
+})
+
 describe('chat surface ToolMessage memoization', () => {
   it('is wrapped in React.memo so stable props skip re-renders while one message streams', () => {
     // A behavioural bail-out assertion needs a reconciler (no DOM in these

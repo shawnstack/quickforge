@@ -1,4 +1,5 @@
 import type { Element, ElementContent, Parent, Root, RootContent } from 'hast'
+import { ContentCache, memoizeContent } from '@/lib/render-cache'
 
 /**
  * Chat math pipeline (KaTeX parity with the removed pi-web-ui marked layer).
@@ -138,16 +139,30 @@ function replaceDelimitersInRun(text: string, tokens: MathTokenMap): string {
 }
 
 /**
+ * 预处理结果缓存。切换会话会整树 remount，组件级 useMemo 失效，历史消息的
+ * 定界符扫描原本会被重复执行；产物只取决于输入内容，因此按内容寻址复用。
+ * 命中返回同一个对象（含同一个 token Map），调用方只读使用。
+ */
+const preprocessedMathCache = new ContentCache<PreprocessedMath>(500)
+
+/**
  * Preprocess chat message content for math rendering. `\(...\)` becomes an
  * inline placeholder token and `\[...\]` a display one; the returned map
  * holds the LaTeX for each token and must be passed to `rehypeQfMath`.
  */
 export function preprocessLatexDelimiters(content: string): PreprocessedMath {
-  const tokens: MathTokenMap = new Map()
-  const processed = classifyLines(content)
-    .map((run) => (run.code ? run.lines.join('\n') : replaceDelimitersInRun(run.lines.join('\n'), tokens)))
-    .join('\n')
-  return { content: processed, tokens }
+  return memoizeContent(preprocessedMathCache, [content], () => {
+    const tokens: MathTokenMap = new Map()
+    const processed = classifyLines(content)
+      .map((run) => (run.code ? run.lines.join('\n') : replaceDelimitersInRun(run.lines.join('\n'), tokens)))
+      .join('\n')
+    return { content: processed, tokens }
+  })
+}
+
+/** 清空预处理缓存（测试隔离与内容规模突增后的手工回收）。 */
+export function clearPreprocessedMathCache(): void {
+  preprocessedMathCache.clear()
 }
 
 type MathHit = { start: number; end: number; latex: string; display: boolean }

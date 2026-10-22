@@ -204,8 +204,12 @@ describe('message queue source contracts', () => {
     expect(controllerSource).toContain('liveEdit ? liveEdit.value : item.text')
   })
 
-  it('keeps the todo summary stable when the queue sits between it and the editor', () => {
-    expect(todoSource).toContain("settledAfter?.classList.contains('quickforge-msg-queue')")
+  it('keeps the queue mountable next to the React-rendered todo summary', () => {
+    // The todo capsule is React-rendered inside the composer now, so the queue
+    // controller no longer has to tolerate it as a between-siblings anchor; the
+    // queue still only owns its own insertion point.
+    expect(todoSource).not.toContain('quickforge-msg-queue')
+    expect(controllerSource).toContain('composerShell')
     expect(barrelSource).toContain("export { createMessageQueuePanelController } from './panel-decoration/message-queue'")
   })
 

@@ -129,6 +129,15 @@ export function createFileReferenceSuggestions({
   let currentDirectory = '.'
   let currentQuery = ''
   let composing = false
+  /**
+   * Signature of the menu DOM currently in the document (state + directory +
+   * query + the visible entry list). `render()` used to tear the whole subtree
+   * down (`innerHTML = ''` + `replaceChildren()`) and rebuild every row, icon
+   * and highlight span on each keystroke that kept an `@` token alive — the
+   * hottest path in the composer. An unchanged signature means the existing DOM
+   * already shows exactly this, so the rebuild is skipped.
+   */
+  let renderedSignature: string | null = null
 
   const suggestionsElement = () => panel.querySelector<FileSuggestionElement>('.quickforge-file-reference-suggestions')
   const readEditor = () => {
@@ -149,6 +158,8 @@ export function createFileReferenceSuggestions({
     const suggestions = suggestionsElement()
     if (suggestions?.__quickforgeDismissHandler) document.removeEventListener('pointerdown', suggestions.__quickforgeDismissHandler, true)
     suggestions?.remove()
+    // The rendered DOM is gone: the next open must rebuild it.
+    renderedSignature = null
   }
 
   const syncChips = () => {
@@ -248,6 +259,18 @@ export function createFileReferenceSuggestions({
     removeCapabilitySuggestions?.()
     removePlusMenu?.()
     const existing = suggestionsElement()
+    // Reconcile by signature: `render` runs per keystroke while an `@` token is
+    // live, and the old body rebuilt the entire subtree every time. The DOM only
+    // depends on (state, directory, query, visible entries), so an unchanged
+    // signature keeps the current nodes — same rows, same highlight, same
+    // `aria-activedescendant` — and skips the churn (and the decoration
+    // observer's childList burst that came with it).
+    const entriesNow = visibleEntries()
+    const signature = `${state}\u0000${currentDirectory}\u0000${currentQuery}\u0000${entriesNow
+      .map((entry) => `${entry.type}:${entry.path}`)
+      .join(',')}`
+    if (existing && renderedSignature === signature) return
+    renderedSignature = signature
     if (existing?.__quickforgeDismissHandler) document.removeEventListener('pointerdown', existing.__quickforgeDismissHandler, true)
     const suggestions = existing ?? document.createElement('div') as FileSuggestionElement
     suggestions.className = 'quickforge-file-reference-suggestions'
@@ -261,7 +284,7 @@ export function createFileReferenceSuggestions({
     header.textContent = currentDirectory === '.' ? t('fileReferenceProjectRoot') : currentDirectory
     suggestions.append(header)
 
-    visibleEntries().forEach((entry) => {
+    entriesNow.forEach((entry) => {
       const item = document.createElement('button')
       item.type = 'button'
       item.className = 'quickforge-file-reference-item'

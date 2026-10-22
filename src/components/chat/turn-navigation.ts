@@ -1,10 +1,9 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { t } from '../../lib/i18n'
-import { buildConversationTurns, isTurnUserMessage, shouldShowTurnNavigation, type ConversationTurn } from './turn-navigation-data'
+import { buildConversationTurns, shouldShowTurnNavigation, type ConversationTurn } from './turn-navigation-data'
+import { collectTurnAnchors, collectIndexedRows, resolveTurnAnchor, type TurnAnchor } from './turn-navigation-anchor'
 
 export { buildConversationTurns } from './turn-navigation-data'
-
-const isUserMessage = isTurnUserMessage
 
 type TurnNavigationOptions = {
   host: HTMLElement
@@ -17,19 +16,17 @@ type TurnNavigationOptions = {
 }
 
 /**
- * Layout-independent inputs of {@link updateActiveFromScroll}: everything the
- * O(M×T) ordinal mapping and the `.qf-user-message` querySelectorAll scan
- * depend on. Scroll events fire many times per frame; caching these until the
- * rendered window or the turn model changes keeps the per-event cost down to
- * the getBoundingClientRect loop.
+ * Layout-independent inputs of {@link updateActiveFromScroll}: the turn model
+ * plus the resolved `data-message-index` → row mapping. Scroll events fire many
+ * times per frame; caching these until the rendered window or the turn model
+ * changes keeps the per-event cost down to the getBoundingClientRect loop.
  */
 type ScrollMeasureCache = {
   list: HTMLElement
   messages: AgentMessage[]
   windowStart: number
   turns: ConversationTurn[]
-  userElements: HTMLElement[]
-  renderedTurnOrdinals: number[]
+  anchors: TurnAnchor[]
 }
 
 function textPreview(text: string, fallback: string) {
@@ -175,26 +172,22 @@ export function createTurnNavigation({
     const windowStart = Number(list.dataset.windowStart) || 0
     let cache = scrollMeasureCache
     if (!cache || cache.list !== list || cache.messages !== messages || cache.windowStart !== windowStart || cache.turns !== turns) {
-      const renderedTurnOrdinals = messages
-        .map((message, index) => index >= windowStart && isUserMessage(message) ? index : -1)
-        .filter((messageIndex) => messageIndex >= 0)
-        .map((messageIndex) => turns.findIndex((turn) => turn.messageIndex === messageIndex))
-        .filter((ordinal) => ordinal >= 0)
-      const userElements = Array.from(list.querySelectorAll<HTMLElement>('.qf-user-message'))
-        .filter((element) => element.closest('.qf-message-list') === list)
-      cache = { list, messages, windowStart, turns, userElements, renderedTurnOrdinals }
+      // Anchors are resolved by absolute `data-message-index`, so a hidden or
+      // windowed-out row can neither shift ordinal arithmetic nor be selected
+      // as a zero-size target (see `turn-navigation-anchor.ts`).
+      cache = { list, messages, windowStart, turns, anchors: collectTurnAnchors(list, turns) }
       scrollMeasureCache = cache
     }
-    const { userElements, renderedTurnOrdinals } = cache
-    if (userElements.length === 0 || renderedTurnOrdinals.length === 0) return
+    const { anchors } = cache
+    if (anchors.length === 0) return
 
     const threshold = container.getBoundingClientRect().top + Math.min(120, container.clientHeight * 0.2)
-    let visibleIndex = 0
-    for (let index = 0; index < userElements.length; index++) {
-      if (userElements[index].getBoundingClientRect().top <= threshold) visibleIndex = index
+    let activeOrdinal = anchors[0].ordinal
+    for (const anchor of anchors) {
+      if (anchor.element.getBoundingClientRect().top <= threshold) activeOrdinal = anchor.ordinal
       else break
     }
-    setActiveOrdinal(renderedTurnOrdinals[Math.min(visibleIndex, renderedTurnOrdinals.length - 1)])
+    setActiveOrdinal(activeOrdinal)
   }
 
   // Scroll events fire several times per frame during smooth scrolling; coalesce
@@ -262,11 +255,10 @@ export function createTurnNavigation({
           finishProgrammaticScroll()
           return
         }
-        const userBeforeTarget = messages
-          .slice(Number(list.dataset.windowStart) || 0, targetIndex + 1)
-          .filter(isUserMessage).length - 1
-        const target = Array.from(list.querySelectorAll<HTMLElement>('.qf-user-message'))
-          .filter((element) => element.closest('.qf-message-list') === list)[userBeforeTarget]
+        // Resolve through the absolute `data-message-index` anchors: ordinal
+        // arithmetic over `.qf-user-message` picked hidden rows (goal prompts,
+        // background notices) whose zero-size rect collapses the destination.
+        const target = resolveTurnAnchor(collectIndexedRows(list), targetIndex)
         if (!target) {
           finishProgrammaticScroll()
           return

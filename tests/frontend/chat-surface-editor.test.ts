@@ -10,6 +10,26 @@ import {
   MessageEditor,
   resolveEditorKeyDown,
 } from '../../src/components/chat/surface/MessageEditor'
+import { createComposerStore } from '../../src/components/chat/surface/composer-store'
+
+/**
+ * Composer text/attachments live in an external `ComposerStore` now (the store
+ * split is what keeps a keystroke from re-rendering the whole chat surface), so
+ * every render helper below builds one instead of passing `value`/`attachments`
+ * props.
+ */
+function composerProps(
+  state: { text?: string; attachments?: unknown[] } = {},
+  props: Record<string, unknown> = {},
+) {
+  return {
+    store: createComposerStore({
+      text: state.text ?? '',
+      attachments: state.attachments as never,
+    }),
+    ...props,
+  }
+}
 
 // The surface reads its copy from i18n and the language falls back to
 // navigator.language, so pin it: assertions below must not depend on the host
@@ -115,7 +135,7 @@ describe('chat surface attachment limits', () => {
 describe('chat surface MessageEditor rendering', () => {
   it('renders the controlled value and disables send when empty', () => {
     const markup = renderToStaticMarkup(
-      createElement(MessageEditor, { value: '', isStreaming: false }),
+      createElement(MessageEditor, composerProps({ text: '' }, { isStreaming: false })),
     )
     expect(markup).toContain('qf-message-editor')
     // The composer placeholder comes from i18n (`composerPlaceholder`), which is
@@ -124,7 +144,7 @@ describe('chat surface MessageEditor rendering', () => {
     expect(markup).toContain('disabled')
 
     const filled = renderToStaticMarkup(
-      createElement(MessageEditor, { value: 'draft text', isStreaming: false }),
+      createElement(MessageEditor, composerProps({ text: 'draft text' }, { isStreaming: false })),
     )
     expect(filled).toContain('draft text')
   })
@@ -135,7 +155,7 @@ describe('chat surface MessageEditor rendering', () => {
     // grafting a foreign svg here used to crash React's commit with
     // NotFoundError when isStreaming flipped.
     const send = renderToStaticMarkup(
-      createElement(MessageEditor, { value: 'hi', isStreaming: false }),
+      createElement(MessageEditor, composerProps({ text: 'hi' }, { isStreaming: false })),
     )
     expect(send).toContain('quickforge-send-button')
     expect(send).toContain('<path d="M12 19V5"></path>')
@@ -143,7 +163,7 @@ describe('chat surface MessageEditor rendering', () => {
     expect(send).toContain('stroke-width="2.4"')
 
     const stop = renderToStaticMarkup(
-      createElement(MessageEditor, { value: 'hi', isStreaming: true }),
+      createElement(MessageEditor, composerProps({ text: 'hi' }, { isStreaming: true })),
     )
     expect(stop).toContain('quickforge-stop-button')
     expect(stop).toContain('<rect x="6" y="6" width="12" height="12" rx="2"></rect>')
@@ -152,8 +172,8 @@ describe('chat surface MessageEditor rendering', () => {
 
   it('renders attachment tiles for pending attachments', () => {
     const markup = renderToStaticMarkup(
-      createElement(MessageEditor, {
-        value: 'see attachment',
+      createElement(MessageEditor, composerProps({
+        text: 'see attachment',
         attachments: [
           {
             id: 'att-1',
@@ -165,7 +185,7 @@ describe('chat surface MessageEditor rendering', () => {
             preview: 'aGk=',
           },
         ],
-      }),
+      })),
     )
 
     expect(markup).toContain('qf-attachment-tile')
@@ -177,7 +197,7 @@ describe('chat surface MessageEditor rendering', () => {
     const plainModel = { id: 'plain', reasoning: false } as never
 
     const withThinking = renderToStaticMarkup(
-      createElement(MessageEditor, { value: 'x', currentModel: reasoningModel, thinkingLevel: 'low' }),
+      createElement(MessageEditor, composerProps({ text: 'x' }, { currentModel: reasoningModel, thinkingLevel: 'low' })),
     )
     expect(withThinking).toContain('value="xhigh"')
     expect(withThinking).toContain('XHigh')
@@ -185,7 +205,7 @@ describe('chat surface MessageEditor rendering', () => {
     expect(withThinking).not.toContain('Minimal')
 
     const withoutThinking = renderToStaticMarkup(
-      createElement(MessageEditor, { value: 'x', currentModel: plainModel }),
+      createElement(MessageEditor, composerProps({ text: 'x' }, { currentModel: plainModel })),
     )
     expect(withoutThinking).not.toContain('XHigh')
   })
@@ -203,14 +223,14 @@ describe('chat surface composer localization', () => {
   }
 
   it('follows the active language for composer controls', () => {
-    const english = renderToStaticMarkup(createElement(MessageEditor, { value: '', attachments: [attachment] }))
+    const english = renderToStaticMarkup(createElement(MessageEditor, composerProps({ attachments: [attachment] })))
     expect(english).toContain('placeholder="Describe what you want to do"')
     expect(english).toContain('title="Attach files"')
     expect(english).toContain('title="Send"')
     expect(english).toContain('title="Remove"')
 
     applyAppLanguageFromSnapshot('zh')
-    const chinese = renderToStaticMarkup(createElement(MessageEditor, { value: '', attachments: [attachment] }))
+    const chinese = renderToStaticMarkup(createElement(MessageEditor, composerProps({ attachments: [attachment] })))
     expect(chinese).toContain('placeholder="描述你想做的事"')
     expect(chinese).toContain('title="添加附件"')
     expect(chinese).toContain('title="发送"')
@@ -220,12 +240,12 @@ describe('chat surface composer localization', () => {
   it('renders the thinking levels with the application vocabulary in both languages', () => {
     const reasoningModel = { id: 'reasoner', reasoning: true } as never
 
-    const english = renderToStaticMarkup(createElement(MessageEditor, { value: 'x', currentModel: reasoningModel }))
+    const english = renderToStaticMarkup(createElement(MessageEditor, composerProps({ text: 'x' }, { currentModel: reasoningModel })))
     expect(english).toContain('<option value="xhigh">XHigh</option>')
     expect(english).not.toContain('Minimal')
 
     applyAppLanguageFromSnapshot('zh')
-    const chinese = renderToStaticMarkup(createElement(MessageEditor, { value: 'x', currentModel: reasoningModel }))
+    const chinese = renderToStaticMarkup(createElement(MessageEditor, composerProps({ text: 'x' }, { currentModel: reasoningModel })))
     expect(chinese).toContain('<option value="xhigh">超高</option>')
     expect(chinese).not.toContain('Minimal')
   })
@@ -266,7 +286,7 @@ describe('chat surface composer DOM contract', () => {
   }
 
   it('keeps the card as the wrapper first child and the control row inside it', () => {
-    const levels = composerLevels(renderToStaticMarkup(createElement(MessageEditor, { value: 'hi' })))
+    const levels = composerLevels(renderToStaticMarkup(createElement(MessageEditor, composerProps({ text: 'hi' }))))
 
     const card = levels.find((entry) => entry.depth === 2)
     expect(card?.classes).toEqual(expect.arrayContaining(['relative', 'border', 'bg-card', 'shadow-sm']))
@@ -279,12 +299,12 @@ describe('chat surface composer DOM contract', () => {
 
   it('keeps the attachment row inside the card (it must not become the card)', () => {
     const levels = composerLevels(renderToStaticMarkup(
-      createElement(MessageEditor, {
-        value: 'see attachment',
+      createElement(MessageEditor, composerProps({
+        text: 'see attachment',
         attachments: [
           { id: 'att-1', type: 'image', fileName: 'photo.png', mimeType: 'image/png', size: 8, content: 'aGk=', preview: 'aGk=' },
         ],
-      }),
+      })),
     ))
 
     const attachmentRows = levels.filter((entry) => entry.depth === 3 && entry.classes.includes('pt-3'))
@@ -292,5 +312,29 @@ describe('chat surface composer DOM contract', () => {
     const tiles = levels.filter((entry) => entry.classes.includes('qf-attachment-tile'))
     expect(tiles).toHaveLength(1)
     expect(tiles[0].depth).toBe(4)
+  })
+})
+
+/**
+ * The native paperclip button is only a fallback: on the main surface the
+ * QuickForge "+" menu owns attachment picking (its "add attachment" row calls
+ * `pickAttachment`), and the decoration layer used to hide the paperclip with
+ * `.quickforge-native-attachment-hidden` on every decorate pass. Rendering both
+ * put a second attachment affordance next to the "+" trigger.
+ */
+describe('chat surface native attachment button ownership', () => {
+  const attachTitle = 'Attach files'
+
+  it('renders the paperclip when the composer owns attachment picking', () => {
+    const markup = renderToStaticMarkup(createElement(MessageEditor, composerProps({}, { showAttachmentButton: true })))
+    expect(markup).toContain(`title="${attachTitle}"`)
+  })
+
+  it('does not render the paperclip when the "+" menu owns attachment picking', () => {
+    const markup = renderToStaticMarkup(createElement(MessageEditor, composerProps({}, { showAttachmentButton: false })))
+    expect(markup).not.toContain(`title="${attachTitle}"`)
+    // The hidden file input stays mounted: the "+" menu opens it through
+    // `pickAttachment`, which resolves to this input's click().
+    expect(markup).toContain('type="file"')
   })
 })

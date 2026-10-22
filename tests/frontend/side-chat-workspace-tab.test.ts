@@ -125,7 +125,8 @@ describe('Workspace side chat tab', () => {
     // disables it (the decoration's allowModelControls OR is HEAD semantics).
     expect(hostSource).toContain('enableModelSelector={sideChatMode || (allowModelControls && effectiveCapabilities.modelSelection)}')
     expect(decorationSource).toContain('export function disableComposerControls')
-    expect(decorationSource).toContain("panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline')")
+    // The "+" and thinking triggers are React-rendered, so the decoration no
+    // longer looks them up; it still disables the controls it owns.
     expect(decorationSource).toContain("panel.querySelector<HTMLButtonElement>('.quickforge-model-trigger')")
     expect(decorationSource).toContain("panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')")
     expect(decorationSource).toContain("panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline')")

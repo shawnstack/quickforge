@@ -44,3 +44,22 @@ export const AssistantStreamingContext = createContext(false)
 export function useAssistantStreaming(): boolean {
   return useContext(AssistantStreamingContext)
 }
+
+/** Opens a local file path referenced in a message body (or an attachment). */
+export type OpenLocalFilePath = (path: string) => void
+
+/**
+ * Handler for local-file-path links rendered inside this surface.
+ *
+ * `ChatSurface` provides it from its `onOpenLocalFilePath` prop (the host passes
+ * the same callback the decoration layer used). `null` means "don't linkify":
+ * read-only/shared views have no file opener, and linking there would render
+ * dead buttons — that is the exact gate the decoration used
+ * (`entry.message.role === 'assistant' && onOpenLocalFilePath`).
+ */
+export const LocalFilePathHandlerContext = createContext<OpenLocalFilePath | null>(null)
+
+/** Read the local-file-path opener for the enclosing surface. */
+export function useLocalFilePathHandler(): OpenLocalFilePath | null {
+  return useContext(LocalFilePathHandlerContext)
+}

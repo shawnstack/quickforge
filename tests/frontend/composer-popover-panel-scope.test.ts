@@ -1,25 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
-vi.mock('../../src/components/chat/panel-decoration/composer-plus-menu', () => ({
-  hideNativeAttachmentControls: vi.fn(),
-  removeComposerPlusPopover: vi.fn(),
-  setupComposerPlusMenu: vi.fn(),
-}))
 
 import { disableComposerControls } from '../../src/components/chat/panel-decoration'
-import {
-  removeThinkingLevelControl,
-  removeThinkingLevelMenu,
-} from '../../src/components/chat/panel-decoration/thinking-level-controls'
-import { decorateModelButtonLabel } from '../../src/components/chat/panel-decoration/model-controls'
 
-// Two chat panels can be mounted at the same time (the main chat plus the
-// side-chat). Every composer popover is appended to `document.body` so it can
-// escape the panel's clipping context, which means ownership can only be
-// derived from an explicit marker. These cases pin the panel scope of the
-// thinking/model controls: a decorate pass in one panel must never touch the
-// other panel's menu or trigger.
+/**
+ * Two chat panels can be mounted at the same time (the main chat plus the
+ * side-chat). Every composer popover is appended to `document.body` so it can
+ * escape the panel's clipping context, which means ownership can only be
+ * derived from an explicit marker.
+ *
+ * These cases pin the panel scope of the remaining decoration-owned composer
+ * controls (agent access, model menu). The "+" menu and the thinking selector
+ * are React-rendered inside each surface now, so they cannot leak across panels
+ * at all — that class of bug is structurally gone rather than tested.
+ */
 type FakeNode = FakeElement
 
 class FakeElement {
@@ -101,22 +96,11 @@ function selectorClasses(selector: string) {
   return selector.split(',').map((part) => part.trim().replace(/^\./, ''))
 }
 
-// `decorateModelButtonLabel` locates the model trigger with a tag selector
-// carrying `:not(...)` exclusions, so the fake has to understand that shape.
-function matchesButtonSelector(element: FakeNode, selector: string) {
-  if (!selector.startsWith('button')) return false
-  if (element.tagName !== 'BUTTON') return false
-  const excluded = [...selector.matchAll(/:not\(\.([^)]+)\)/g)].map((match) => match[1])
-  const classes = element.className.split(/\s+/).filter(Boolean)
-  return excluded.every((name) => !classes.includes(name))
-}
-
 function collect(root: FakeNode, selector: string): FakeNode[] {
   const classes = selectorClasses(selector)
   const matches: FakeNode[] = []
   const visit = (element: FakeNode) => {
-    if (classes.some((className) => element.className.split(/\s+/).includes(className))
-      || matchesButtonSelector(element, selector)) matches.push(element)
+    if (classes.some((className) => element.className.split(/\s+/).includes(className))) matches.push(element)
     for (const child of element.children) visit(child)
   }
   for (const child of root.children) visit(child)
@@ -147,7 +131,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function createPanel(thinking = true) {
+function createPanel() {
   const panel = new FakeElement()
   panel.className = 'qf-chat-panel'
   const rightControls = new FakeElement()
@@ -157,94 +141,38 @@ function createPanel(thinking = true) {
   model.tagName = 'BUTTON'
   model.textContent = 'model-1'
   rightControls.append(model)
-  if (thinking) {
-    const trigger = new FakeElement()
-    trigger.className = 'quickforge-thinking-inline'
-    rightControls.append(trigger)
-    body.append(panel)
-    panel.append(rightControls)
-    return { panel, rightControls, model, trigger }
-  }
+  const access = new FakeElement()
+  access.className = 'quickforge-agent-access-inline'
+  rightControls.append(access)
   body.append(panel)
   panel.append(rightControls)
-  return { panel, rightControls, model, trigger: null }
-}
-
-function mountMenu(panel: FakeElement, trigger: FakeElement) {
-  const menu = new FakeElement()
-  menu.className = 'quickforge-thinking-menu'
-  menu.__quickforgeOwnerPanel = panel as unknown as HTMLElement
-  menu.__quickforgeOwnerTrigger = trigger as unknown as HTMLButtonElement
-  body.append(menu)
-  trigger.setAttribute('aria-expanded', 'true')
-  return menu
+  return { panel, rightControls, model, access }
 }
 
 describe('per-panel composer popover scope', () => {
-  it('removes only the thinking menu owned by the targeted panel', () => {
+  it('resets aria-expanded only for the disable path it owns', () => {
     const main = createPanel()
     const side = createPanel()
-    const mainMenu = mountMenu(main.panel, main.trigger!)
-    const sideMenu = mountMenu(side.panel, side.trigger!)
+    main.model.setAttribute('aria-expanded', 'true')
 
-    removeThinkingLevelMenu(side.panel as unknown as HTMLElement)
+    disableComposerControls(side.panel as unknown as HTMLElement, null)
 
-    expect(body.querySelectorAll('.quickforge-thinking-menu')).toEqual([mainMenu])
-    expect(mainMenu.isConnected).toBeUndefined()
-    expect(main.trigger!.getAttribute('aria-expanded')).toBe('true')
-    expect(side.trigger!.getAttribute('aria-expanded')).toBe('false')
-    expect(sideMenu.parentElement).toBeNull()
-  })
-
-  it('closes every thinking menu when no panel is given', () => {
-    const main = createPanel()
-    const side = createPanel()
-    mountMenu(main.panel, main.trigger!)
-    mountMenu(side.panel, side.trigger!)
-
-    removeThinkingLevelMenu()
-
-    expect(body.querySelectorAll('.quickforge-thinking-menu')).toEqual([])
-    expect(main.trigger!.getAttribute('aria-expanded')).toBe('false')
-    expect(side.trigger!.getAttribute('aria-expanded')).toBe('false')
-  })
-
-  it('removes only the targeted panel trigger', () => {
-    const main = createPanel()
-    const side = createPanel()
-
-    removeThinkingLevelControl(side.panel as unknown as HTMLElement)
-
-    expect(main.rightControls.querySelectorAll('.quickforge-thinking-inline')).toHaveLength(1)
-    expect(side.rightControls.querySelectorAll('.quickforge-thinking-inline')).toHaveLength(0)
-  })
-
-  it('resets aria-expanded only for the panel that owns no open menu', () => {
-    const main = createPanel()
-    const side = createPanel(false)
-    mountMenu(main.panel, main.trigger!)
-
-    const sideModel = side.model
-    decorateModelButtonLabel(
-      { currentModel: { id: 'model-1' } } as never,
-      side.rightControls as unknown as HTMLElement,
-    )
-
-    expect(sideModel.getAttribute('aria-expanded')).toBe('false')
-  })
-
-  it('keeps unrelated panels untouched while disabling composer controls', () => {
-    const main = createPanel()
-    const side = createPanel()
-    const mainMenu = mountMenu(main.panel, main.trigger!)
-
-    disableComposerControls(
-      side.panel as unknown as HTMLElement,
-      null,
-    )
-
-    expect(body.querySelectorAll('.quickforge-thinking-menu')).toEqual([mainMenu])
-    expect(main.trigger!.getAttribute('aria-expanded')).toBe('true')
+    // The model trigger is React-rendered, but `disableComposerControls` still
+    // resets the mirrored attribute for the panel it was called on.
+    expect(side.model.getAttribute('aria-expanded')).toBe('false')
     expect(side.model.disabled).toBe(true)
+    expect(side.access.disabled).toBe(true)
+  })
+
+  it('leaves the other panel untouched while disabling one panel', () => {
+    const main = createPanel()
+    const side = createPanel()
+    main.model.setAttribute('aria-expanded', 'true')
+
+    disableComposerControls(side.panel as unknown as HTMLElement, null)
+
+    expect(main.model.getAttribute('aria-expanded')).toBe('true')
+    expect(main.model.disabled).toBe(false)
+    expect(main.access.disabled).toBe(false)
   })
 })

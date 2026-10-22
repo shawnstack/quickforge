@@ -1,420 +1,213 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+// @vitest-environment jsdom
+import { act, createElement } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createCapabilitySuggestions } from '../../src/components/chat/capability-suggestions'
-import { setupComposerPlusMenu } from '../../src/components/chat/panel-decoration/composer-plus-menu'
-import type { MessageEditorElement } from '../../src/components/chat/chat-utils'
-import { loadPlugins } from '@/components/plugins/plugin-api'
-import type { PluginsResponse, QuickForgePlugin } from '@/components/plugins/plugin-api'
 
-vi.mock('@/components/plugins/plugin-api', () => ({
-  loadPlugins: vi.fn(),
-}))
+import {
+  ComposerPlusPopover,
+  ComposerPlusTrigger,
+  useComposerPlusMenu,
+} from '../../src/components/chat/surface/ComposerPlusMenu'
+import type { CapabilitySuggestion } from '../../src/components/chat/capability-suggestions'
 
-// Deterministic t stub — composer-plus-menu only needs t() for labels.
-vi.mock('@/lib/i18n', () => ({
-  t: (key: string) => key,
-}))
+vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
 
-// ---------------------------------------------------------------------------
-// Minimal fake DOM (same style as capability-suggestions.test.ts): stubs just
-// enough of document/panel for the plus menu to render and be interacted with.
-// ---------------------------------------------------------------------------
+/**
+ * The composer "+" menu used to be injected by
+ * `panel-decoration/composer-plus-menu.ts` in two places: the trigger was
+ * prepended into the left control row, the popover inserted before the editor
+ * card. It rebuilt the popover's `innerHTML` per view and dismissed itself from
+ * a document-level capture pointerdown.
+ *
+ * React renders both halves from one controller now. These cases pin the
+ * behaviour: the main view offers attach/plugins per capability, the plugins
+ * view lists capability rows and goes back, selecting dispatches and closes, and
+ * dismissal follows the same outside-press rule.
+ */
+const pluginRow = (overrides: Partial<CapabilitySuggestion> = {}): CapabilitySuggestion => ({
+  kind: 'plugin',
+  pluginName: 'pdf-tools',
+  label: 'PDF Tools',
+  description: 'Work with PDFs',
+  iconKind: 'document',
+  ...overrides,
+} as CapabilitySuggestion)
 
-type FakeNode = {
-  tagName: string
-  className: string
-  textContent: string
-  _innerHTML: string
-  title?: string
-  dataset: Record<string, string>
-  attributes: Record<string, string>
-  children: FakeNode[]
-  parentElement: FakeNode | null
-  onpointerdown: ((event: Event) => void) | null
-  onclick: ((event: Event) => void) | null
-  isConnected?: boolean
-  value?: string
-  selectionStart?: number
-  selectionEnd?: number
-  attachments?: unknown[]
-  content?: { children: FakeNode[] }
-  insertedSuggestions?: FakeNode | null
-  insertedPopover?: FakeNode | null
-  __quickforgeDismissHandler?: (event: Event) => void
-  append: (...nodes: FakeNode[]) => void
-  appendChild: (node: FakeNode) => FakeNode
-  prepend: (node: FakeNode) => void
-  setAttribute: (name: string, value: string) => void
-  getAttribute: (name: string) => string | null
-  remove: () => void
-  querySelector: (selector: string) => FakeNode | null
-  querySelectorAll: () => FakeNode[]
-  contains: (node: unknown) => boolean
-  addEventListener: () => void
-  removeEventListener: () => void
-  focus: () => void
-  insertBefore: (child: FakeNode, reference?: FakeNode) => FakeNode
-}
+describe('composer plus menu', () => {
+  let container: HTMLDivElement
+  let root: Root
+  let selectPluginCapability: ReturnType<typeof vi.fn>
+  let onPickAttachment: ReturnType<typeof vi.fn>
+  let onBeforeOpen: ReturnType<typeof vi.fn>
+  let rows: CapabilitySuggestion[]
 
-function createFakeElement(tagName: string): FakeNode {
-  const node: FakeNode = {
-    tagName: tagName.toUpperCase(),
-    className: '',
-    textContent: '',
-    _innerHTML: '',
-    title: '',
-    dataset: {},
-    attributes: {},
-    children: [],
-    parentElement: null,
-    onpointerdown: null,
-    onclick: null,
-    append(...nodes) {
-      for (const child of nodes) {
-        child.parentElement = node
-        node.children.push(child)
-      }
-    },
-    appendChild(child) {
-      child.parentElement = node
-      node.children.push(child)
-      return child
-    },
-    prepend(child) {
-      child.parentElement = node
-      node.children.unshift(child)
-    },
-    setAttribute(name, value) {
-      node.attributes[name] = String(value)
-    },
-    getAttribute(name) {
-      return node.attributes[name] ?? null
-    },
-    remove() {
-      const parent = node.parentElement
-      if (!parent) return
-      const index = parent.children.indexOf(node)
-      if (index >= 0) parent.children.splice(index, 1)
-      node.parentElement = null
-      if (parent.insertedSuggestions === node) parent.insertedSuggestions = null
-      if (parent.insertedPopover === node) parent.insertedPopover = null
-    },
-    querySelector(selector) {
-      if (selector === '.quickforge-plus-popover-item-label' || selector === '.quickforge-plus-popover-item-description') {
-        const cls = selector.slice(1)
-        let child = node.children.find((c) => c.className.split(/\s+/).includes(cls))
-        if (!child) {
-          child = createFakeElement('span')
-          child.className = cls
-          node.children.push(child)
-        }
-        return child
-      }
-      if (selector.startsWith('.')) {
-        const cls = selector.slice(1)
-        return node.children.find((c) => c.className.split(/\s+/).includes(cls)) ?? null
-      }
-      return node.children.find((c) => c.tagName === selector.toUpperCase()) ?? null
-    },
-    querySelectorAll() {
-      return []
-    },
-    contains() {
-      return false
-    },
-    addEventListener() {},
-    removeEventListener() {},
-    focus() {},
-    insertBefore(child) {
-      child.parentElement = node
-      node.children.push(child)
-      if (!node.insertedPopover && child.className.includes('quickforge-plus-popover')) {
-        node.insertedPopover = child
-      }
-      return child
-    },
-  }
-  if (tagName === 'template') node.content = { children: [] }
-  Object.defineProperty(node, 'innerHTML', {
-    get() {
-      return node._innerHTML
-    },
-    set(value: string) {
-      node._innerHTML = value
-      node.children.length = 0
-    },
-  })
-  return node
-}
-
-function createEnv(options: EnvOptions = {}) {
-  const textarea = createFakeElement('textarea')
-  textarea.value = ''
-  textarea.selectionStart = 0
-  textarea.selectionEnd = 0
-
-  const editor = createFakeElement('message-editor')
-  editor.value = ''
-  editor.attachments = []
-  editor.append(textarea)
-
-  const leftControls = createFakeElement('div')
-
-  const panel = createFakeElement('div')
-  panel.append(editor)
-  editor.append(leftControls)
-  const baseQuerySelector = panel.querySelector
-  panel.querySelector = (selector: string) => {
-    if (selector === 'message-editor') return editor
-    if (selector === '.quickforge-plus-popover') return panel.insertedPopover ?? null
-    if (selector === '.quickforge-plus-inline') {
-      return leftControls.children.find((c) => c.className.includes('quickforge-plus-inline')) ?? null
-    }
-    return baseQuerySelector(selector)
-  }
-
-  const restoreDraftIntoComposer = vi.fn()
-  const capabilitySuggestions = createCapabilitySuggestions({
-    panel: panel as unknown as HTMLElement,
-    enabled: true,
-    restoreDraftIntoComposer,
-  })
-
-  const removeCommandSuggestions = vi.fn()
-  const removeCapabilitySuggestions = vi.fn()
-  const removeFileReferenceSuggestions = vi.fn()
-  const selectPluginCapability = vi.fn()
-
-  setupComposerPlusMenu({
-    panel: panel as unknown as HTMLElement,
-    editor: editor as unknown as MessageEditorElement,
-    leftControls: leftControls as unknown as HTMLElement,
-    selectPluginCapability,
-    availablePluginRows: capabilitySuggestions.availablePluginRows,
-    removeCommandSuggestions,
-    removeCapabilitySuggestions,
-    removeFileReferenceSuggestions,
-    attachmentsEnabled: false,
-    pluginsEnabled: options.pluginsEnabled ?? true,
-  })
-
-  const plusButton = leftControls.children.find((c) => c.className.includes('quickforge-plus-inline'))!
-
-  return {
-    panel,
-    editor,
-    leftControls,
-    plusButton,
-    restoreDraftIntoComposer,
-    selectPluginCapability,
-  }
-}
-
-type EnvOptions = {
-  pluginsEnabled?: boolean
-}
-
-type TestEnv = ReturnType<typeof createEnv>
-
-const mockLoadPlugins = () => vi.mocked(loadPlugins)
-
-const documentsPlugin: QuickForgePlugin = {
-  name: 'documents',
-  displayName: 'Documents',
-  version: '1.0.0',
-  dir: '/plugins/documents',
-  enabled: true,
-  status: 'loaded',
-  permissions: [],
-  tools: [],
-}
-
-const spreadsheetsPlugin: QuickForgePlugin = {
-  ...documentsPlugin,
-  name: 'spreadsheets',
-  displayName: 'Spreadsheets',
-  dir: '/plugins/spreadsheets',
-}
-
-const presentationsPlugin: QuickForgePlugin = {
-  ...documentsPlugin,
-  name: 'presentations',
-  displayName: 'Presentations',
-  dir: '/plugins/presentations',
-}
-
-const responseFor = (...plugins: QuickForgePlugin[]): PluginsResponse => ({ plugins, searchPaths: [], errors: [] })
-
-const deferredResponse = () => {
-  let resolve!: (value: PluginsResponse) => void
-  const promise = new Promise<PluginsResponse>((r) => { resolve = r })
-  return { promise, resolve }
-}
-
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
-
-const pointerDown = (node: FakeNode | null | undefined) => {
-  expect(node).toBeTruthy()
-  node!.onpointerdown!({ preventDefault() {}, stopPropagation() {} } as Event)
-}
-
-const popoverItems = (h: TestEnv) => {
-  const popover = h.panel.insertedPopover
-  expect(popover).toBeTruthy()
-  return popover!.children.filter((c) => c.className.split(/\s+/).includes('quickforge-plus-popover-item'))
-}
-
-const itemLabel = (item: FakeNode) => item.querySelector('.quickforge-plus-popover-item-label')?.textContent ?? ''
-
-const pluginsEntryOf = (h: TestEnv) => popoverItems(h).find((item) => itemLabel(item) === 'composerAddPlugins')
-
-const pluginItems = (h: TestEnv) => popoverItems(h).filter((item) => item.dataset.quickforgePluginName)
-
-const pluginNames = (h: TestEnv) => pluginItems(h).map((item) => item.dataset.quickforgePluginName)
-
-const openMainMenu = (h: TestEnv) => pointerDown(h.plusButton)
-
-const openPluginsView = (h: TestEnv) => {
-  const entry = pluginsEntryOf(h)
-  pointerDown(entry)
-}
-
-describe('composer + plugin menu availability', () => {
   beforeEach(() => {
-    vi.stubGlobal('document', {
-      createElement: createFakeElement,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    })
-    vi.clearAllMocks()
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    selectPluginCapability = vi.fn()
+    onPickAttachment = vi.fn()
+    onBeforeOpen = vi.fn()
+    rows = [pluginRow()]
   })
 
   afterEach(() => {
-    vi.unstubAllGlobals()
+    act(() => root.unmount())
+    container.remove()
   })
 
-  it('uses plugin terminology for the visible and accessible composer labels', () => {
-    const i18nSource = readFileSync(fileURLToPath(new URL('../../src/lib/i18n.ts', import.meta.url)), 'utf8')
-    expect(i18nSource).toContain("composerAddPlugins: 'Plugins'")
-    expect(i18nSource).toContain("selectedCapabilities: 'Selected plugins'")
-    expect(i18nSource).toContain("selectedPluginsAndFiles: 'Selected plugins and referenced files'")
-    expect(i18nSource).toContain("removeCapabilityReference: 'Remove plugin {name}'")
-    expect(i18nSource).toContain("composerAddPlugins: '插件'")
-    expect(i18nSource).toContain("selectedCapabilities: '已选插件'")
-    expect(i18nSource).toContain("selectedPluginsAndFiles: '已选插件和引用的文件'")
-    expect(i18nSource).toContain("removeCapabilityReference: '移除插件 {name}'")
-    expect(i18nSource).not.toContain("composerAddPlugins: 'Capabilities'")
-    expect(i18nSource).not.toContain("composerAddPlugins: '能力'")
+  function Harness({
+    attachmentsEnabled = true,
+    pluginsEnabled = true,
+    composerDisabled = false,
+  }: { attachmentsEnabled?: boolean; pluginsEnabled?: boolean; composerDisabled?: boolean }) {
+    const controller = useComposerPlusMenu(onBeforeOpen)
+    return createElement('div', null, [
+      createElement(ComposerPlusPopover, {
+        key: 'popover',
+        controller,
+        attachmentsEnabled,
+        pluginsEnabled,
+        availablePluginRows: () => rows,
+        selectPluginCapability: selectPluginCapability as never,
+        onPickAttachment: onPickAttachment as never,
+      }),
+      createElement(ComposerPlusTrigger, { key: 'trigger', controller, disabled: composerDisabled }),
+    ])
+  }
+
+  function render(overrides: { attachmentsEnabled?: boolean; pluginsEnabled?: boolean; composerDisabled?: boolean } = {}) {
+    act(() => {
+      root.render(createElement(Harness, overrides))
+    })
+  }
+
+  const trigger = () => container.querySelector<HTMLButtonElement>('.quickforge-plus-inline')
+  const popover = () => container.querySelector<HTMLElement>('.quickforge-plus-popover')
+  const items = () => Array.from(container.querySelectorAll<HTMLButtonElement>('.quickforge-plus-popover-item'))
+
+  function open() {
+    act(() => {
+      trigger()!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }))
+    })
+  }
+
+  it('renders the trigger with menu semantics', () => {
+    render()
+
+    const button = trigger()!
+    expect(button.getAttribute('aria-haspopup')).toBe('menu')
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    expect(button.getAttribute('aria-label')).toBe('composerAddMenu')
+    expect(popover()).toBeNull()
   })
 
-  it('shows every enabled and loaded plugin in the plugins view', async () => {
-    mockLoadPlugins().mockResolvedValue(responseFor(documentsPlugin, spreadsheetsPlugin, presentationsPlugin))
-    const h = createEnv()
-    await flush()
+  it('opens the main view on pointerdown and closes on a second press', () => {
+    render()
+    open()
 
-    openMainMenu(h)
-    expect(pluginsEntryOf(h)).toBeTruthy()
-    openPluginsView(h)
+    expect(trigger()!.getAttribute('aria-expanded')).toBe('true')
+    expect(popover()).not.toBeNull()
+    expect(popover()!.getAttribute('role')).toBe('menu')
+    expect(container.querySelector('.quickforge-plus-popover-header')!.textContent).toBe('composerAddMenu')
+    expect(items().map((item) => item.textContent)).toEqual([
+      'composerAddAttachment',
+      'composerAddPlugins',
+    ])
+    expect(onBeforeOpen).toHaveBeenCalledTimes(1)
 
-    expect(pluginNames(h).sort()).toEqual(['documents', 'presentations', 'spreadsheets'])
+    open()
+    expect(popover()).toBeNull()
   })
 
-  it('omits disabled plugins from the plugins view', async () => {
-    mockLoadPlugins().mockResolvedValue(responseFor(
-      documentsPlugin,
-      { ...spreadsheetsPlugin, enabled: false },
-      presentationsPlugin,
-    ))
-    const h = createEnv()
-    await flush()
+  it('offers only attach when plugins are unavailable', () => {
+    render({ pluginsEnabled: false })
+    open()
 
-    openMainMenu(h)
-    openPluginsView(h)
-
-    expect(pluginNames(h).sort()).toEqual(['documents', 'presentations'])
+    expect(items()).toHaveLength(1)
+    expect(items()[0].textContent).toBe('composerAddAttachment')
   })
 
-  it('omits errored or otherwise non-loaded plugins from the plugins view', async () => {
-    mockLoadPlugins().mockResolvedValue(responseFor(
-      { ...documentsPlugin, status: 'error' },
-      { ...spreadsheetsPlugin, status: 'loaded', enabled: false },
-      presentationsPlugin,
-    ))
-    const h = createEnv()
-    await flush()
+  it('offers no rows at all when attachments are off and no plugins exist', () => {
+    render({ attachmentsEnabled: false, pluginsEnabled: false })
+    open()
 
-    openMainMenu(h)
-    openPluginsView(h)
-
-    expect(pluginNames(h)).toEqual(['presentations'])
+    expect(popover()).not.toBeNull()
+    expect(items()).toHaveLength(0)
   })
 
-  it('hides the plugins entry in the main menu when no plugin is available', async () => {
-    mockLoadPlugins().mockResolvedValue(responseFor(
-      { ...documentsPlugin, enabled: false },
-      { ...spreadsheetsPlugin, status: 'error' },
-    ))
-    const h = createEnv()
-    await flush()
+  it('opens the file picker from the attach row and closes', () => {
+    render()
+    open()
 
-    openMainMenu(h)
-    expect(pluginsEntryOf(h)).toBeUndefined()
+    act(() => {
+      items()[0].dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }))
+    })
+
+    expect(onPickAttachment).toHaveBeenCalledTimes(1)
+    expect(popover()).toBeNull()
   })
 
-  it('does not show the plugins entry while loading, but shows it after reopening once loaded', async () => {
-    const deferred = deferredResponse()
-    mockLoadPlugins().mockImplementation(() => deferred.promise)
-    const h = createEnv()
+  it('switches to the plugins view, lists rows and goes back', () => {
+    render()
+    open()
 
-    openMainMenu(h)
-    expect(pluginsEntryOf(h)).toBeUndefined()
+    act(() => {
+      items()[1].dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }))
+    })
+    expect(container.querySelector('.quickforge-plus-popover-header')!.textContent).toBe('composerAddPlugins')
+    // Back row first, then the capability rows.
+    const pluginItems = items()
+    expect(pluginItems[0].className).toContain('quickforge-plus-popover-back')
+    expect(pluginItems).toHaveLength(2)
+    expect(pluginItems[1].dataset.quickforgePluginName).toBe('pdf-tools')
+    expect(pluginItems[1].querySelector('.quickforge-plus-popover-item-label')!.textContent).toBe('PDF Tools')
+    expect(pluginItems[1].querySelector('.quickforge-plus-popover-item-description')!.textContent).toBe('Work with PDFs')
 
-    pointerDown(h.plusButton) // close the popover while the request is still in flight
-    deferred.resolve(responseFor(documentsPlugin, spreadsheetsPlugin, presentationsPlugin))
-    await flush()
-
-    openMainMenu(h)
-    expect(pluginsEntryOf(h)).toBeTruthy()
-    openPluginsView(h)
-    expect(pluginNames(h).sort()).toEqual(['documents', 'presentations', 'spreadsheets'])
+    act(() => {
+      pluginItems[0].dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }))
+    })
+    expect(container.querySelector('.quickforge-plus-popover-header')!.textContent).toBe('composerAddMenu')
   })
 
-  it('selects the plugin capability when a plugin item is clicked', async () => {
-    mockLoadPlugins().mockResolvedValue(responseFor(documentsPlugin, spreadsheetsPlugin, presentationsPlugin))
-    const h = createEnv()
-    await flush()
+  it('selects a plugin capability and closes', () => {
+    render()
+    open()
+    act(() => {
+      items()[1].dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }))
+    })
 
-    openMainMenu(h)
-    openPluginsView(h)
+    act(() => {
+      items()[1].dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }))
+    })
 
-    const documentsItem = pluginItems(h).find((item) => item.dataset.quickforgePluginName === 'documents')
-    pointerDown(documentsItem)
-
-    expect(h.selectPluginCapability).toHaveBeenCalledTimes(1)
-    expect(h.selectPluginCapability.mock.calls[0][0]).toBe('documents')
+    expect(selectPluginCapability).toHaveBeenCalledWith('pdf-tools')
+    expect(popover()).toBeNull()
   })
 
-  it('does not issue additional /api/plugins requests when the plus menu is used', async () => {
-    mockLoadPlugins().mockResolvedValue(responseFor(documentsPlugin, spreadsheetsPlugin, presentationsPlugin))
-    const h = createEnv()
-    expect(mockLoadPlugins()).toHaveBeenCalledTimes(1)
-    await flush()
+  it('renders the trigger in its disabled state and ignores presses', () => {
+    // Side Chat keeps the control visible but inert (`disableComposerControls`).
+    render({ composerDisabled: true })
 
-    openMainMenu(h)
-    openPluginsView(h)
-    pointerDown(pluginItems(h).find((item) => item.dataset.quickforgePluginName === 'documents'))
-    await flush()
-
-    expect(mockLoadPlugins()).toHaveBeenCalledTimes(1)
+    expect(trigger()!.disabled).toBe(true)
+    open()
+    expect(trigger()!.getAttribute('aria-expanded')).toBe('false')
+    expect(popover()).toBeNull()
   })
 
-  it('keeps the plugins entry hidden when the capability switch is off', async () => {
-    mockLoadPlugins().mockResolvedValue(responseFor(documentsPlugin, spreadsheetsPlugin, presentationsPlugin))
-    const h = createEnv({ pluginsEnabled: false })
-    await flush()
+  it('dismisses on an outside pointerdown but not on an inside one', () => {
+    render()
+    open()
 
-    openMainMenu(h)
-    expect(pluginsEntryOf(h)).toBeUndefined()
+    act(() => {
+      popover()!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    })
+    expect(popover()).not.toBeNull()
+
+    act(() => {
+      document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    })
+    expect(popover()).toBeNull()
   })
 })

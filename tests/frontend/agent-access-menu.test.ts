@@ -1,12 +1,21 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const menuSource = readFileSync(new URL('../../src/components/chat/panel-decoration/agent-access-menu.ts', import.meta.url), 'utf8')
+/**
+ * The agent-access trigger used to be injected by
+ * `panel-decoration/agent-access-menu.ts`; React renders it now
+ * (`surface/ComposerAccessControls.tsx`). These are the visual contracts the
+ * decoration owned, asserted against the component that renders the button:
+ * the inline trigger stays borderless (it is a composer control, not a framed
+ * button) while the dropdown menu keeps its border.
+ */
+const controlsSource = readFileSync(new URL('../../src/components/chat/surface/ComposerAccessControls.tsx', import.meta.url), 'utf8')
 const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
 
 describe('Agent access menu trigger border contract', () => {
   it('keeps the inline trigger borderless without changing its compact control classes', () => {
-    const buttonClass = menuSource.match(/const buttonClass = `([^`]+)`/)?.[1]
+    // The rendered trigger's className template literal.
+    const buttonClass = controlsSource.match(/className=\{`quickforge-agent-access-inline ([^`]+)`\}/)?.[1]
 
     expect(buttonClass).toBeDefined()
     expect(buttonClass).not.toContain('border border-transparent')

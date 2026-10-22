@@ -3,7 +3,7 @@ import { getPendingApprovalForSession, getPendingAutoCompactApprovalForSession }
 import { getPendingAskForSession } from './ask-store.mjs'
 
 // Inject projections to avoid a runtime dependency back to the manager facade.
-export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecutions, runtimePendingToolCalls, getSessionContextUsage, listBackgroundCommands = () => [] }) {
+export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecutions, runtimePendingToolCalls, getSessionContextUsage, listBackgroundCommands = () => [], getWriteLease = () => null }) {
 
 
   /**
@@ -46,6 +46,13 @@ export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecu
       isStreaming: session.abortPending ? false : session.agent.state.isStreaming,
       errorMessage: session.agent.state.errorMessage,
       persistDegraded: session.persistDegraded ? true : undefined,
+      /**
+       * Session write lease (see server/session-lease.mjs). Clients use it to
+       * decide whether the composer is writable; the server still enforces it
+       * per write route. `null` means nobody holds it (legacy single-client
+       * behaviour: every client may write).
+       */
+      lease: getWriteLease(session.sessionId),
       goal: sessionGoal(session),
     }
   }
@@ -88,6 +95,7 @@ export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecu
       messageCount: messages.length,
       lastMessageTimestamp: lastMessage?.timestamp ?? null,
       persistDegraded: session.persistDegraded ? true : undefined,
+      lease: getWriteLease(session.sessionId),
       goal: sessionGoal(session),
     }
   }

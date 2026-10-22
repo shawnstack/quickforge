@@ -3,6 +3,7 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentAccessMode } from '@/lib/types'
 import type { GoalState } from '@/lib/goal'
 import type { SelectedCapability } from '@/lib/selected-capabilities'
+import type { SessionLeaseSnapshot } from '@/lib/session-lease-client'
 
 /** Events constructed locally, including the existing payload-free UI invalidations. */
 export type ServerAgentLocalEvent =
@@ -10,6 +11,7 @@ export type ServerAgentLocalEvent =
   | { type: 'error'; error: string }
   | { type: 'goal_updated'; goal: GoalState | null }
   | { type: 'message_metadata_updated' }
+  | { type: 'session_lease'; lease: SessionLeaseSnapshot }
   | { type: 'message_start' | 'message_end'; message?: never }
   | { type: 'message_update'; message: AgentMessage; assistantMessageEvent?: never }
   | { type: 'agent_end'; messages: AgentMessage[]; errorMessage: string; status: 'error' }
@@ -138,6 +140,13 @@ export type ServerAgentConfig = {
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
     persistDegraded?: boolean
+    /**
+     * Session write lease carried by the authoritative snapshot (see
+     * `server/session-lease.mjs`). Absent when nobody holds it.
+     */
+    lease?: { clientId?: string; acquiredAt?: string; renewedAt?: string; expiresAt?: string; fence?: number } | null
+    /** 租约的客户端视角（持有者/旁观者），由 `lease` 派生。 */
+    sessionLease?: SessionLeaseSnapshot
     goal?: GoalState | null
     stateVersion?: number
     /** Session source; `'acp'` marks OpenCode/ACP clients where goal mode is unavailable. */
@@ -249,6 +258,11 @@ export type ServerAgentStateSnapshot = {
   errorMessage?: string
   /** Server failed to persist recent messages after CAS conflicts. */
   persistDegraded?: boolean
+  /**
+   * Session write lease (see `server/session-lease.mjs`). Absent when nobody
+   * holds it, which keeps the legacy "any client may write" behaviour.
+   */
+  lease?: { clientId?: string; acquiredAt?: string; renewedAt?: string; expiresAt?: string; fence?: number } | null
   /** Goal mode state; null/absent means the session has no active goal. */
   goal?: GoalState | null
 }

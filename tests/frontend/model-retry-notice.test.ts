@@ -1,83 +1,19 @@
+// @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
+import { act, createElement } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// --- Fake DOM（与 todo-write-summary / reconnect-notice 测试同模式） ----------
+import { ModelRetryNotice } from '../../src/components/chat/surface/ConnectionNotices'
 
-class FakeElement {
-  tagName: string
-  className = ''
-  children: FakeElement[] = []
-  parentElement: FakeElement | null = null
-  attributes = new Map<string, string>()
-  textContent: string | null = null
-  innerHTML = ''
-
-  constructor(tag = 'div') {
-    this.tagName = tag
-  }
-
-  classListTokens(): string[] {
-    return this.className ? this.className.split(/\s+/) : []
-  }
-
-  get classList() {
-    return {
-      add: (token: string) => {
-        const tokens = this.classListTokens()
-        if (!tokens.includes(token)) tokens.push(token)
-        this.className = tokens.join(' ')
-      },
-      remove: (token: string) => {
-        this.className = this.classListTokens().filter((item) => item !== token).join(' ')
-      },
-      contains: (token: string) => this.classListTokens().includes(token),
-    }
-  }
-
-  setAttribute(name: string, value: string) {
-    this.attributes.set(name, value)
-  }
-
-  getAttribute(name: string) {
-    return this.attributes.get(name) ?? null
-  }
-
-  append(...nodes: FakeElement[]) {
-    for (const node of nodes) {
-      node.remove()
-      node.parentElement = this
-      this.children.push(node)
-    }
-  }
-
-  replaceChildren(...nodes: FakeElement[]) {
-    for (const child of this.children) child.parentElement = null
-    this.children = []
-    this.append(...nodes)
-  }
-
-  remove() {
-    if (!this.parentElement) return
-    this.parentElement.children = this.parentElement.children.filter((child) => child !== this)
-    this.parentElement = null
-  }
-
-  matches(selector: string): boolean {
-    if (selector.startsWith('.')) return this.classListTokens().includes(selector.slice(1))
-    return this.tagName === selector
-  }
-
-  querySelector(selector: string): FakeElement | null {
-    if (this.matches(selector)) return this
-    for (const child of this.children) {
-      const match = child.querySelector(selector)
-      if (match) return match
-    }
-    return null
-  }
-}
-
-// --- i18n mock --------------------------------------------------------------
+/**
+ * The model stream retry row used to be a find-or-create controller
+ * (`panel-decoration/model-retry-notice.ts`) that pinned itself to the end of
+ * `.qf-message-list` and re-appended after every list rebuild. React renders it
+ * inside the surface now, so the DOM cases below assert the rendered contract
+ * and the source cases assert that the host owns the visibility state instead
+ * of a controller.
+ */
 
 vi.mock('@/lib/i18n', () => ({
   t: (key: string) => {
@@ -88,124 +24,102 @@ vi.mock('@/lib/i18n', () => ({
   },
 }))
 
-// --- Source contracts --------------------------------------------------------
+// Source reads use cwd-relative paths: this file runs under jsdom, where
+// `import.meta.url` is an http(s) URL and `readFileSync(new URL(...))` rejects it.
+const hostSource = readFileSync('src/components/chat/ChatPanelHost.tsx', 'utf8')
+const surfaceSource = readFileSync('src/components/chat/surface/ChatSurface.tsx', 'utf8')
+const noticesSource = readFileSync('src/components/chat/surface/ConnectionNotices.tsx', 'utf8')
+const barrelSource = readFileSync('src/components/chat/panel-decoration.ts', 'utf8')
+const agentClientSource = readFileSync('src/lib/global-agent-sse-client.ts', 'utf8')
+const agentManagerSource = readFileSync('server/agent-manager.mjs', 'utf8')
+const aiHttpLoggerSource = readFileSync('server/ai-http-logger.mjs', 'utf8')
+const i18nSource = readFileSync('src/lib/i18n.ts', 'utf8')
+const cssSource = readFileSync('src/index.css', 'utf8')
 
-const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
-const noticeSource = readFileSync(new URL('../../src/components/chat/panel-decoration/model-retry-notice.ts', import.meta.url), 'utf8')
-const barrelSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
-const agentClientSource = readFileSync(new URL('../../src/lib/global-agent-sse-client.ts', import.meta.url), 'utf8')
-const agentManagerSource = readFileSync(new URL('../../server/agent-manager.mjs', import.meta.url), 'utf8')
-const aiHttpLoggerSource = readFileSync(new URL('../../server/ai-http-logger.mjs', import.meta.url), 'utf8')
-const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
-const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+describe('model retry notice rendering', () => {
+  let container: HTMLDivElement
+  let root: Root
 
-function buildPanel() {
-  const panel = new FakeElement()
-  const messageList = Object.assign(new FakeElement('div'), { className: 'qf-message-list' })
-  panel.append(messageList)
-  return { panel, messageList }
-}
-
-async function createController(panel: FakeElement) {
-  const { createModelRetryNoticeController } = await import('@/components/chat/panel-decoration/model-retry-notice')
-  return createModelRetryNoticeController({ panel: panel as unknown as HTMLElement })
-}
-
-describe('model retry notice controller', () => {
   beforeEach(() => {
-    vi.stubGlobal('document', { createElement: () => new FakeElement() })
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
   })
 
   afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
     vi.useRealTimers()
-    vi.unstubAllGlobals()
   })
 
-  it('renders a centered retry row with the attempt count', async () => {
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
+  function render(info: { attempt: number; maxAttempts: number } | null) {
+    act(() => {
+      root.render(createElement(ModelRetryNotice, { info }))
+    })
+  }
 
-    controller.show(1, 2)
-    const notice = messageList.querySelector('.quickforge-model-retry')
-    expect(notice).not.toBeNull()
-    expect(messageList.children.at(-1)).toBe(notice)
-    expect(notice!.getAttribute('role')).toBe('status')
-    expect(notice!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('1/2')
-    expect(notice!.querySelector('.quickforge-reconnect-icon')).not.toBeNull()
+  const notice = () => container.querySelector<HTMLElement>('.quickforge-model-retry')
 
-    controller.destroy()
+  it('renders a centered retry row with the attempt count', () => {
+    render({ attempt: 1, maxAttempts: 2 })
+
+    expect(notice()).not.toBeNull()
+    expect(notice()!.getAttribute('role')).toBe('status')
+    expect(notice()!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('1/2')
+    expect(notice()!.querySelector('.quickforge-reconnect-icon')).not.toBeNull()
   })
 
-  it('updates the count in place on subsequent attempts', async () => {
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
+  it('updates the count in place on subsequent attempts', () => {
+    render({ attempt: 1, maxAttempts: 2 })
+    const first = notice()
 
-    controller.show(1, 2)
-    const first = messageList.querySelector('.quickforge-model-retry')!
-    controller.show(2, 2)
-    const second = messageList.querySelector('.quickforge-model-retry')!
-    expect(second).toBe(first)
-    expect(second.querySelector('.quickforge-reconnect-count')!.textContent).toBe('2/2')
+    render({ attempt: 2, maxAttempts: 2 })
 
-    controller.destroy()
+    // Same node: the CSS enter animation must not restart on every attempt.
+    expect(notice()).toBe(first)
+    expect(notice()!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('2/2')
   })
 
-  it('hide plays the leave animation then removes the notice', async () => {
+  it('plays the leave animation then unmounts the row', () => {
     vi.useFakeTimers()
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
+    render({ attempt: 2, maxAttempts: 2 })
+    expect(notice()).not.toBeNull()
 
-    controller.show(2, 2)
-    controller.hide()
-    const notice = messageList.querySelector('.quickforge-model-retry')!
-    expect(notice.classList.contains('quickforge-model-retry-leaving')).toBe(true)
+    act(() => {
+      root.render(createElement(ModelRetryNotice, { info: null }))
+    })
+    // The text must survive the fade, so the row stays mounted while leaving.
+    expect(notice()).not.toBeNull()
+    expect(notice()!.classList.contains('quickforge-model-retry-leaving')).toBe(true)
+    expect(notice()!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('2/2')
 
-    vi.advanceTimersByTime(340)
-    expect(messageList.querySelector('.quickforge-model-retry')).toBeNull()
-
-    controller.destroy()
+    act(() => { vi.advanceTimersByTime(340) })
+    expect(notice()).toBeNull()
   })
 
-  it('sync re-appends the notice after the message list is rebuilt', async () => {
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
-
-    controller.show(1, 2)
-    messageList.remove()
-    const newList = Object.assign(new FakeElement('div'), { className: 'qf-message-list' })
-    panel.append(newList)
-    controller.sync()
-
-    const notice = newList.querySelector('.quickforge-model-retry')
-    expect(notice).not.toBeNull()
-    expect(notice!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('1/2')
-
-    controller.destroy()
-  })
-
-  it('destroy removes the notice immediately', async () => {
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
-
-    controller.show(2, 2)
-    controller.destroy()
-    expect(messageList.querySelector('.quickforge-model-retry')).toBeNull()
+  it('renders nothing without retry info', () => {
+    render(null)
+    expect(notice()).toBeNull()
   })
 })
 
 describe('model retry notice source contracts', () => {
-  it('ChatPanelHost wires show/hide/sync/destroy with side-chat isolation', () => {
-    expect(hostSource).toContain('createModelRetryNoticeController({ panel })')
-    expect(hostSource).toContain("const modelRetryNotice = sideChatMode ? null : createModelRetryNoticeController({ panel })")
+  it('the host owns the retry state and passes it to the surface', () => {
     expect(hostSource).toContain("eventType === 'model_stream_retry'")
-    expect(hostSource).toContain('modelRetryNotice?.show(retryEvent.attempt, retryEvent.maxAttempts)')
-    expect(hostSource).toContain('modelRetryNotice?.hide()')
-    expect(hostSource).toContain('modelRetryNotice?.sync()')
-    expect(hostSource).toContain('modelRetryNotice?.destroy()')
+    expect(hostSource).toContain('setModelRetryInfo({ attempt: retryEvent.attempt, maxAttempts: retryEvent.maxAttempts })')
+    expect(hostSource).toContain('setModelRetryInfo(null)')
+    expect(hostSource).toContain('modelRetryInfo={modelRetryInfo}')
+    // No decoration controller left to sync/destroy.
+    expect(hostSource).not.toContain('createModelRetryNoticeController')
+    expect(surfaceSource).toContain('<ModelRetryNotice info={modelRetryInfo} />')
   })
 
-  it('barrel exports the controller; server client listens for the SSE event', () => {
-    expect(barrelSource).toContain("export { createModelRetryNoticeController } from './panel-decoration/model-retry-notice'")
+  it('the barrel no longer exports the removed controller', () => {
+    expect(barrelSource).not.toContain('model-retry-notice')
+  })
+
+  it('server client listens for the SSE event', () => {
     expect(agentClientSource).toContain("'persist_degraded', 'model_stream_retry',")
   })
 
@@ -213,7 +127,7 @@ describe('model retry notice source contracts', () => {
     // 主 Agent streamFn 仍在 agent-manager.mjs；subagent streamFn 已随 runSubagent
     // 逐字符迁至 agent-subagent-runner.mjs（模块拆分，行为不变），两处注入都在。
     expect(agentManagerSource).toContain("emitSessionEvent(session, { type: 'model_stream_retry', ...info })")
-    const subagentRunnerSource = readFileSync(new URL('../../server/agent-subagent-runner.mjs', import.meta.url), 'utf8')
+    const subagentRunnerSource = readFileSync('server/agent-subagent-runner.mjs', 'utf8')
     expect(subagentRunnerSource).toContain("emitSessionEvent(parentSession, { type: 'model_stream_retry', ...info })")
     expect(agentManagerSource.match(/onStreamRetry/g)?.length).toBeGreaterThanOrEqual(1)
     expect(subagentRunnerSource.match(/onStreamRetry/g)?.length).toBeGreaterThanOrEqual(1)
@@ -225,12 +139,11 @@ describe('model retry notice source contracts', () => {
     expect(aiHttpLoggerSource).toContain('recovered: true')
   })
 
-  it('notice appends to the end of message-list and never uses innerHTML for text', () => {
-    expect(noticeSource).toContain(`panel.querySelector<HTMLElement>('.qf-message-list')`)
-    expect(noticeSource).toContain('messageList.append(notice)')
-    const innerHtmlLines = noticeSource.split('\n').filter((line) => line.includes('.innerHTML ='))
-    expect(innerHtmlLines).toHaveLength(1)
-    expect(innerHtmlLines[0].trim()).toBe('icon.innerHTML = SPINNER_SVG')
+  it('the row is rendered as JSX text, never through innerHTML', () => {
+    // React escapes interpolated text, so the old `innerHTML = SPINNER_SVG`
+    // constraint is replaced by "no raw HTML assignment at all for the label".
+    expect(noticesSource).toContain('modelStreamRetryingLabel')
+    expect(noticesSource).not.toContain('dangerouslySetInnerHTML')
   })
 
   it('i18n carries paired zh/en keys', () => {

@@ -10,6 +10,7 @@ vi.mock('@/lib/i18n', () => ({
 
 const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
 const decorationSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
+const surfaceSource = readFileSync(new URL('../../src/components/chat/surface/ChatSurface.tsx', import.meta.url), 'utf8')
 const commandsSource = readFileSync(new URL('../../src/components/chat/command-suggestions.ts', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
@@ -250,27 +251,27 @@ describe('buildGoalCardViewModel', () => {
 })
 
 describe('goal wiring in the chat host', () => {
-  it('mounts the compact control strip in ChatPanelHost behind the goal capability with full cleanup', () => {
-    expect(hostSource).toContain('createGoalControlStripController({')
+  it('mounts the React control strip in ChatPanelHost behind the goal capability', () => {
+    // The strip is rendered by the surface now; the host only supplies the
+    // capability gate and the action sender (no controller lifecycle left).
+    expect(hostSource).not.toContain('createGoalControlStripController')
+    expect(hostSource).toContain('<ChatSurface')
+    expect(hostSource).toContain('enableGoalStrip={!sideChatMode')
     expect(hostSource).toContain('effectiveCapabilities.goal')
     expect(hostSource).toContain("!('shareId' in agent)")
     // OpenCode/ACP sessions cannot use goal mode (server rejects it); the gate
     // reads the authoritative session source, not just readOnly/capabilities.
     expect(hostSource).toContain("(agent as AgentWithGoal).sessionSource !== 'acp'")
-    expect(hostSource).toContain('goalStrip?.update()')
-    expect(hostSource).toContain('goalStrip?.cleanup()')
     // The shared goal-ui module owns the lock/dirty guard and the summary
-    // request; the host injects it instead of re-implementing the lock.
-    expect(hostSource).toContain('from \'@/lib/goal-ui\'')
-    expect(hostSource).toContain('goalUi: { getGoalUiState, requestOpenGoalSummary, runGoalUiAction, subscribeGoalUi }')
-    expect(hostSource).toContain("eventType === 'goal_updated'")
+    // request; the strip consumes it directly instead of the host injecting it.
     expect(hostSource).toContain('target.updateGoal(action, objective)')
     expect(hostSource).toContain("if (typeof target.updateGoal !== 'function') throw new Error(t('goalUnavailable'))")
   })
 
-  it('exposes the control strip through the panel decoration facade', () => {
-    expect(decorationSource).toContain('createGoalControlStripController')
+  it('keeps the goal strip inside the surface and the pure projection in the facade', () => {
+    expect(decorationSource).not.toContain('createGoalControlStripController')
     expect(decorationSource).toContain('buildGoalControlStripView')
+    expect(surfaceSource).toContain('<GoalControlStrip')
   })
 
   it('adds the /goal built-in command that only completes text until sent', () => {

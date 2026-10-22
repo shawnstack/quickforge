@@ -1,4 +1,13 @@
 import { createSessionQueries } from './agent-session-queries.mjs'
+import { clearSessionLease, getSessionLease } from './agent-session-lease.mjs'
+export {
+  acquireSessionLease,
+  takeOverSessionLease,
+  releaseSessionLease,
+  getSessionLease,
+  canWriteSession,
+  clearSessionLease,
+} from './agent-session-lease.mjs'
 export { approveToolCall, rejectToolCall, approveAutoCompact, rejectAutoCompact, answerAsk } from './agent-approval-responses.mjs'
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
@@ -149,6 +158,7 @@ export function currentSessionTurnId(sessionId) {
 export const { getSessionState, isSessionFileRollbackBusy, getSessionStatus, tryAcquireSse, isSseConnected, releaseSse, getSessionEventBus } = createSessionQueries({
   sessionGoal, messagesWithRuntimeToolExecutions, runtimePendingToolCalls, getSessionContextUsage,
   listBackgroundCommands: listBackgroundCommandTasks,
+  getWriteLease: getSessionLease,
 })
 
 // Goal continuations keep the full history and start a fresh turn id; the goal
@@ -1808,6 +1818,10 @@ export async function destroyAgent(sessionId) {
 
   session.eventBus.removeAllListeners()
   agentSessions.delete(sessionId)
+  // Force-clear the write lease: a destroyed session must never keep a stale
+  // holder that would block the next restore (the editor is gone, so there is
+  // no connection left to expire the lease naturally).
+  clearSessionLease(sessionId, { force: true })
 }
 
 // In-flight restores keyed by sessionId. Concurrent route handlers

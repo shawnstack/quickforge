@@ -41,7 +41,9 @@ describe('run_command background execution', () => {
     expect(result.details).toMatchObject({
       running: true,
       background: true,
-      detached: true,
+      // Windows keeps detached off: DETACHED_PROCESS disables CREATE_NO_WINDOW
+      // (windowsHide) and makes cmd.exe pop a visible console window.
+      detached: process.platform !== 'win32',
       toolCallId: 'tool-background',
       timeoutMs: null,
     })

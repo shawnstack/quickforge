@@ -55,7 +55,7 @@ describe('ordinary local tool running sweep wiring', () => {
   })
 
   it('keeps run_command output expansion and termination behavior unchanged', () => {
-    expect(renderer).toContain("this.toolName === 'run_command' ? renderConsoleBlock(output, variant) : renderCodeBlock(output, 'text')")
+    expect(renderer).toContain("this.toolName === 'run_command' ? renderConsoleBlock(output, variant, runCommandLogContext(params, result)) : renderCodeBlock(output, 'text')")
     expect(renderer).toContain('{rawSummary}</span>')
     expect(renderer).toContain('{renderTerminateCommandButton(this.toolName, status, result?.details)}')
   })

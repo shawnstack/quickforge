@@ -144,13 +144,15 @@ describe('TodoWrite history renderer', () => {
     expect(block).toMatch(/html\.dark \.quickforge-todo-summary-item--completed \.quickforge-todo-summary-status-icon\s*\{[\s\S]*?color:\s*rgb\(110 231 183\)/)
   })
 
-  it('updates the TodoWrite summary only after decorateEditor finishes', () => {
+  it('leaves the TodoWrite capsule entirely to React', () => {
     const decorateBlock = host.slice(host.indexOf('const decorate = () =>'), host.indexOf('// Render or remove approval card'))
-    const editorIndex = decorateBlock.indexOf('decorateEditor({')
-    const updateIndex = decorateBlock.indexOf('todoWriteSummary.update()')
-    expect(editorIndex).toBeGreaterThanOrEqual(0)
-    expect(updateIndex).toBeGreaterThan(editorIndex)
-    expect(decorateBlock.slice(editorIndex, updateIndex)).toContain('} catch { /* continue to todo summary */ }')
-    expect(decorateBlock.slice(updateIndex)).toContain("logger.warn('Failed to update TodoWrite summary:'")
+    // The capsule used to be re-synced from the decorate pass right after
+    // `decorateEditor` (which is why this test pinned their order). React renders
+    // it inside the composer now, so the decorate pass must no longer touch it —
+    // otherwise two writers own the same subtree again.
+    expect(decorateBlock).not.toContain('todoWriteSummary.update()')
+    expect(host).not.toContain('createTodoWriteSummaryController')
+    // The task launcher stays command-driven (it owns a floating panel).
+    expect(decorateBlock).toContain('taskLauncher?.sync()')
   })
 })

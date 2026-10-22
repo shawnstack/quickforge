@@ -6,23 +6,18 @@
  * command bindings).
  */
 
-import type { CapabilitySuggestion } from './capability-suggestions'
 import type {
   MessageEditorElement,
 } from './chat-utils'
 import { t } from '@/lib/i18n'
-import type { AgentAccessMode } from '@/lib/types'
-import { removeAgentAccessMenu, setupAgentAccessMenu } from './panel-decoration/agent-access-menu'
+import { removeAgentAccessMenu } from './panel-decoration/agent-access-menu'
 import {
   removeSubagentRunningIndicator,
   removeSubagentRunningIndicatorMenu,
   setupSubagentRunningIndicator,
   type BackgroundCommandSummary,
 } from './panel-decoration/subagent-running-indicator'
-import { hideNativeAttachmentControls, removeComposerPlusPopover, setupComposerPlusMenu } from './panel-decoration/composer-plus-menu'
-import { decorateModelButtonLabel } from './panel-decoration/model-controls'
-import { removeThinkingLevelControl, removeThinkingLevelMenu, setupThinkingLevelControl, type QuickForgeThinkingLevel } from './panel-decoration/thinking-level-controls'
-import { removePlanModeControls, setupPlanModeControls, syncPlanModeButton } from './panel-decoration/plan-mode-controls'
+import { removePlanModeControls, setupPlanModeControls } from './panel-decoration/plan-mode-controls'
 
 import { bindEditorCallbacks } from './panel-decoration/editor-bindings'
 import { closeComposerModelMenu } from '@/lib/custom-model-selector'
@@ -40,33 +35,23 @@ export { injectAskUserCard, removeAskUserCard } from './panel-decoration/ask-use
 export type { GoalCardViewModel, GoalCardTone, GoalCardCriteriaView } from './panel-decoration/goal-card'
 export { buildGoalCardViewModel } from './panel-decoration/goal-card'
 export type {
-  GoalControlStripController,
-  GoalControlStripDeps,
-  GoalControlStripGoalUi,
   GoalControlStripUiState,
   GoalControlStripView,
 } from './panel-decoration/goal-control-strip'
-export { buildGoalControlStripView, createGoalControlStripController } from './panel-decoration/goal-control-strip'
-export { syncContextCompactionNotice } from './panel-decoration/context-compaction'
+export { buildGoalControlStripView } from './panel-decoration/goal-control-strip'
 
-export type { ReconnectNoticeController } from './panel-decoration/reconnect-notice'
-export { createReconnectNoticeController } from './panel-decoration/reconnect-notice'
-export type { UnreachableStripController } from './panel-decoration/unreachable-strip'
-export { createUnreachableStripController, UNREACHABLE_STRIP_AFTER_MS } from './panel-decoration/unreachable-strip'
-export type { ModelRetryNoticeController } from './panel-decoration/model-retry-notice'
-export { createModelRetryNoticeController } from './panel-decoration/model-retry-notice'
 export { createTurnErrorTracker } from './panel-decoration/turn-error-state'
 export type { TurnErrorTracker, TurnErrorView } from './panel-decoration/turn-error-state'
 export { decorateAssistantArtifactCard, syncAssistantArtifactCard } from './panel-decoration/assistant-artifact-card'
 
 export type { MessageDecorationDeps } from './panel-decoration/message-actions'
 export { decorateMessages } from './panel-decoration/message-actions'
-export { syncAssistantWaitingBubble } from './panel-decoration/assistant-waiting-bubble'
 export { createScrollToBottomButton } from './panel-decoration/scroll-to-bottom-button'
 export {
-  createTodoWriteSummaryController,
   extractLatestTodoWriteSnapshot,
   normalizeTodoWriteTodos,
+  readLatestTodoWriteSnapshot,
+  isFinalTodoSnapshot,
   todoWriteCounts,
 } from './panel-decoration/todo-write-summary'
 export type {
@@ -74,7 +59,6 @@ export type {
   TodoWriteMessage,
   TodoWriteSnapshot,
   TodoWriteStatus,
-  TodoWriteSummaryController,
 } from './panel-decoration/todo-write-summary'
 export { createMessageQueuePanelController } from './panel-decoration/message-queue'
 export type { MessageQueuePanelController, MessageQueuePanelState } from './panel-decoration/message-queue'
@@ -92,7 +76,6 @@ export {
 
 type EditorDecorationDeps = {
   panel: HTMLElement
-  agentAccessMode: AgentAccessMode
   planMode: boolean
   workspaceToolsEnabled: boolean
   readOnly: boolean
@@ -107,9 +90,8 @@ type EditorDecorationDeps = {
   getPendingToolCalls?: () => Iterable<string>
   getBackgroundCommands?: () => BackgroundCommandSummary[]
   disabledControls?: boolean
-  onAccessModeChange: (mode: AgentAccessMode) => void
+  /** Shift+Tab shortcut handler; the trigger itself is React-rendered. */
   onTogglePlanMode: () => void
-  onThinkingLevelChange?: (level: QuickForgeThinkingLevel) => void
   onInput: (value: string) => void
   onFilesChange: (files: unknown[]) => void
   removeCommandSuggestions: () => void
@@ -122,27 +104,24 @@ type EditorDecorationDeps = {
   updateFileReferenceSuggestions: (value?: string) => void
   setupFileReferenceTextareaHandler: (editor: MessageEditorElement | null) => void
   syncContextChips: () => void
-  selectPluginCapability: (pluginName: string) => void
-  availablePluginRows: () => CapabilitySuggestion[]
   onBeforeSend?: (input: string) => void
   sessionId?: string
   onOpenLocalFilePath?: (path: string) => void
 }
 
 export function disableComposerControls(panel: HTMLElement, editor: MessageEditorElement | null) {
-  removeComposerPlusPopover(panel)
   removeAgentAccessMenu(panel, true)
   removeSubagentRunningIndicator(panel)
   removePlanModeControls(editor)
-  removeThinkingLevelMenu(panel)
   closeComposerModelMenu(panel.querySelector<HTMLElement>('.quickforge-model-trigger'), true)
 
+  // The "+" and thinking triggers are React-rendered now; disabling them is a
+  // surface concern (`enableAttachments` / `disabledControls`), so this pass only
+  // disables the buttons it still owns.
   const controls = [
-    panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline'),
     panel.querySelector<HTMLButtonElement>('.quickforge-model-trigger'),
     panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline'),
     panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline'),
-    panel.querySelector<HTMLButtonElement>('.quickforge-thinking-inline'),
   ]
   controls.forEach((button) => {
     if (!button) return
@@ -158,7 +137,6 @@ export function disableComposerControls(panel: HTMLElement, editor: MessageEdito
 export function decorateEditor(deps: EditorDecorationDeps) {
   const {
     panel,
-    agentAccessMode,
     planMode,
     workspaceToolsEnabled,
     readOnly,
@@ -172,9 +150,7 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     getPendingToolCalls = () => [],
     getBackgroundCommands = () => [],
     disabledControls = false,
-    onAccessModeChange,
     onTogglePlanMode,
-    onThinkingLevelChange,
     onInput,
     onFilesChange,
     removeCommandSuggestions,
@@ -187,8 +163,6 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     updateFileReferenceSuggestions,
     setupFileReferenceTextareaHandler,
     syncContextChips,
-    selectPluginCapability,
-    availablePluginRows,
     onBeforeSend,
     sessionId,
     onOpenLocalFilePath,
@@ -228,6 +202,8 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   if (fileReferenceSuggestionsEnabled) setupFileReferenceTextareaHandler(editor)
   else removeFileReferenceSuggestions()
   syncContextChips()
+  // `onTogglePlanMode` stays in the deps: the Shift+Tab shortcut still lives in
+  // the decoration layer (it is bound to the editor textarea, not rendered).
   if (planModeEnabled) setupPlanModeControls(editor, planMode, onTogglePlanMode)
   else removePlanModeControls(editor)
 
@@ -239,91 +215,36 @@ export function decorateEditor(deps: EditorDecorationDeps) {
   const leftControls = editorRows?.[0]
   const rightControls = editorRows?.[editorRows.length - 1]
   if (!rightControls) return
-  decorateModelButtonLabel(editor, rightControls)
 
   if (!leftControls) {
-    panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline')?.remove()
-    removeComposerPlusPopover(panel)
-    if (!attachmentsEnabled && editor) hideNativeAttachmentControls(editor)
     panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.remove()
     removeAgentAccessMenu(panel, disabledControls)
     removeSubagentRunningIndicator(panel)
     panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
     panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline')?.remove()
-    removeThinkingLevelControl(panel)
     return
   }
 
   // All composer popovers/menus are mutually exclusive: opening one closes the
   // others (including the custom model menu) so they can never overlap.
   const dismissComposerMenus = () => {
-    removeComposerPlusPopover(panel)
     removeAgentAccessMenu(panel)
     removeSubagentRunningIndicatorMenu(panel)
-    removeThinkingLevelMenu(panel)
     closeComposerModelMenu(panel.querySelector<HTMLElement>('.quickforge-model-trigger'), true)
   }
 
-  if (onThinkingLevelChange) {
-    setupThinkingLevelControl({
-      editor,
-      rightControls,
-      dismissComposerMenus,
-      onThinkingLevelChange,
-    })
-  } else {
-    removeThinkingLevelControl(panel)
-  }
-
+  // The QuickForge "+" menu (composer-plus-menu), thinking selector
+  // (thinking-level-controls), plan-mode toggle (plan-mode-controls) and
+  // agent-access trigger + menu (agent-access-menu) are rendered by the surface
+  // now. Only the subagent running indicator stays in this pass — it owns a
+  // body-level floating list and DOM diffing that is not a render concern.
   if (editor) {
     editor.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.disabled = !attachmentsEnabled })
-    if (!attachmentsEnabled) hideNativeAttachmentControls(editor, leftControls)
-  }
-
-  if (editor && (attachmentsEnabled || capabilitySuggestionsEnabled || disabledControls)) {
-    setupComposerPlusMenu({
-      panel,
-      editor,
-      leftControls,
-      selectPluginCapability,
-      availablePluginRows,
-      removeCommandSuggestions,
-      removeCapabilitySuggestions,
-      removeFileReferenceSuggestions,
-      attachmentsEnabled,
-      pluginsEnabled: capabilitySuggestionsEnabled,
-    })
-  } else {
-    panel.querySelector<HTMLButtonElement>('.quickforge-plus-inline')?.remove()
-    removeComposerPlusPopover(panel)
-    if (editor) hideNativeAttachmentControls(editor, leftControls)
-  }
-
-  if (planModeEnabled) {
-    syncPlanModeButton({
-      panel,
-      leftControls,
-      planMode,
-      onTogglePlanMode,
-    })
-  } else {
-    panel.querySelector<HTMLButtonElement>('.quickforge-plan-inline')?.remove()
   }
 
   if (!workspaceToolsEnabled || !accessModeEnabled) {
-    removeAgentAccessMenu(panel, disabledControls)
     panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
-    if (disabledControls) {
-      setupAgentAccessMenu({
-        panel,
-        leftControls,
-        agentAccessMode,
-        onAccessModeChange,
-        dismissComposerMenus,
-      })
-      disableComposerControls(panel, editor)
-    } else {
-      panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.remove()
+    if (!disabledControls) {
       setupSubagentRunningIndicator({
         panel,
         leftControls,
@@ -337,13 +258,6 @@ export function decorateEditor(deps: EditorDecorationDeps) {
     return
   }
 
-  setupAgentAccessMenu({
-    panel,
-    leftControls,
-    agentAccessMode,
-    onAccessModeChange,
-    dismissComposerMenus,
-  })
   setupSubagentRunningIndicator({
     panel,
     leftControls,

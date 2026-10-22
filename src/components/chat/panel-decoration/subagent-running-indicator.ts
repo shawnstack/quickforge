@@ -1,4 +1,5 @@
 import { t } from '@/lib/i18n'
+import { dispatchViewCommandLog } from '@/lib/tool-renderers/shared'
 import {
   OPEN_SUBAGENT_RUN_EVENT,
   resolveSubagentRunPayloadForOpen,
@@ -138,7 +139,11 @@ function renderBackgroundCommandItems(options: {
       stop.type = 'button'
       stop.className = 'quickforge-background-command-stop'
       stop.textContent = t('backgroundCommandStop')
-      item.append(copy, stop)
+      const viewLog = document.createElement('button')
+      viewLog.type = 'button'
+      viewLog.className = 'quickforge-background-command-log'
+      viewLog.textContent = t('viewCommandLog')
+      item.append(copy, viewLog, stop)
     }
     const labelText = command.description || t('backgroundCommandLabel')
     const label = item.querySelector<HTMLElement>('.quickforge-subagent-running-item-label')
@@ -153,6 +158,22 @@ function renderBackgroundCommandItems(options: {
         event.stopPropagation()
         stop.disabled = true
         void stopBackgroundCommand(command.sessionId || sessionId, command).finally(onStopped)
+      }
+    }
+    const viewLog = item.querySelector<HTMLButtonElement>('.quickforge-background-command-log')
+    if (viewLog) {
+      // 后台命令仍在写同一份日志文件；打开的是当前时刻的快照，重复点击会重新拉取。
+      const hasLog = Boolean(command.outputFile && (command.sessionId || sessionId))
+      viewLog.hidden = !hasLog
+      viewLog.setAttribute('aria-label', t('viewCommandLog'))
+      viewLog.onclick = (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        dispatchViewCommandLog({
+          sessionId: command.sessionId || sessionId,
+          outputFile: command.outputFile || '',
+          command: command.description || command.command,
+        })
       }
     }
     const reference: ChildNode | null = previous ? previous.nextSibling : (Array.from(list.children)[0] ?? null)

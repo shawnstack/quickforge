@@ -1,9 +1,12 @@
 /* eslint-disable react-refresh/only-export-components -- exports the MessageList component plus the pure toolResult collection helper covered by tests. */
 import { useLayoutEffect, useMemo, useRef } from 'react'
+import type { ReactNode } from 'react'
 import type { AgentMessage, AgentTool, AssistantMessage as AssistantMessageType, ToolResultMessage } from './ChatTypes'
 import { AssistantMessage } from './AssistantMessage'
 import { UserMessage } from './UserMessage'
 import { isRenderableMessage, messageRenderKeys } from './content-parts'
+import { ContextCompactionNotice, type CompactionBoundary } from './ContextCompactionNotice'
+import { AssistantWaitingBubble } from './AssistantWaitingBubble'
 import { t } from '@/lib/i18n'
 
 /**
@@ -61,6 +64,16 @@ type MessageListProps = {
   onCostClick?: () => void
   /** Show the persist-degraded warning as the list's first child. */
   persistDegraded?: boolean
+  /**
+   * Context-compaction divider position (see `resolveCompactionBoundary`).
+   * Rendered as a list child at the resolved row index; absent means hidden.
+   */
+  compactionBoundary?: CompactionBoundary
+  /**
+   * Assistant-waiting bubble position (see `resolveAssistantWaitingRow`):
+   * the row index it renders before, or `-1` when hidden.
+   */
+  assistantWaitingRow?: number
 }
 
 /** Build the toolCallId → toolResult lookup used for inline rendering. */
@@ -77,7 +90,7 @@ export function collectToolResultsById(messages: AgentMessage[]): Map<string, To
 /** Messages the list renders standalone (artifact/toolResult are excluded). */
 type RenderableMessage = Extract<AgentMessage, { role: 'user' | 'user-with-attachments' | 'assistant' }>
 
-export function MessageList({ messages, messageIndexOffset = 0, tools, pendingToolCalls, streamingAssistant, onCostClick, persistDegraded = false }: MessageListProps) {
+export function MessageList({ messages, messageIndexOffset = 0, tools, pendingToolCalls, streamingAssistant, onCostClick, persistDegraded = false, compactionBoundary, assistantWaitingRow }: MessageListProps) {
   const listRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const elements = listRef.current?.querySelectorAll<HTMLElement>(':scope > .qf-user-message, :scope > .qf-assistant-message')
@@ -113,7 +126,8 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
   // Committed rows and the streaming tail row share ONE keyed array (see the
   // header comment): this is the exact sibling list React reconciles, so the
   // `message_end` hand-off matches the tail row by key and updates it in
-  // place.
+  // place. The streaming row is appended here (not after the sibling assembly)
+  // so the divider/bubble index arithmetic sees the full row list.
   const rows = items.map(({ message, index }) => {
     const key = renderKeys[index]
     if (message.role === 'user' || message.role === 'user-with-attachments') {
@@ -148,6 +162,39 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
     )
   }
 
+  // The compaction divider and the waiting bubble are keyed siblings inserted at
+  // a position counted over the MESSAGE rows. Build the final child array in one
+  // forward pass: two successive `splice` calls made the second index stale
+  // (inserting the divider shifts every later position by one), so a divider
+  // above the waiting row pushed the bubble one row too far.
+  const dividerRow = compactionBoundary?.kind === 'at'
+    ? Math.min(compactionBoundary.rowIndex, rows.length)
+    : Number.POSITIVE_INFINITY
+  const waitingRow = assistantWaitingRow !== undefined && assistantWaitingRow >= 0
+    ? Math.min(assistantWaitingRow, rows.length)
+    : Number.POSITIVE_INFINITY
+
+  const children: ReactNode[] = []
+  for (let index = 0; index <= rows.length; index++) {
+    // The divider belongs to the history flow, so at an equal index it is
+    // emitted before the bubble.
+    if (index === dividerRow) {
+      children.push(
+        <ContextCompactionNotice
+          key="quickforge-context-compaction"
+          summaryText={(compactionBoundary as Extract<CompactionBoundary, { kind: 'at' }>).summaryText}
+          boundaryIndex={(compactionBoundary as Extract<CompactionBoundary, { kind: 'at' }>).boundaryIndex}
+        />,
+      )
+    }
+    // The waiting bubble sits immediately after the last user row, i.e. after the
+    // divider when both land on the same position.
+    if (index === waitingRow) {
+      children.push(<AssistantWaitingBubble key="quickforge-assistant-waiting" />)
+    }
+    if (index < rows.length) children.push(rows[index])
+  }
+
   return (
     <div ref={listRef} className="qf-message-list flex flex-col gap-3" data-window-start={messageIndexOffset}>
       {/*
@@ -162,7 +209,7 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
           <span className="quickforge-persist-degraded-text">{t('persistDegradedWarning')}</span>
         </div>
       ) : null}
-      {rows}
+      {children}
     </div>
   )
 }

@@ -16,12 +16,30 @@ import {
   renderToolChevron,
   renderToolFileSummary,
   renderToolIcon,
+  runtimeIdsFromDetails,
   stringifyValue,
   toolDisplayDetailed,
   toolOutputText,
   toolStatus,
   type ToolResultLike,
 } from './shared'
+
+/**
+ * run_command 的日志查看上下文：`outputFile` 与 `sessionId` 都由工具 details 提供
+ * （server/tools/index.mjs 的 commonDetails + agent-session-events 补的 sessionId）。
+ * 二者缺一就不渲染「查看完整日志」按钮。
+ */
+function runCommandLogContext(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined) {
+  if (!isRecord(result?.details)) return undefined
+  const { outputFile } = result.details
+  const sessionId = runtimeIdsFromDetails(result.details).sessionId
+  if (typeof outputFile !== 'string' || !outputFile) return undefined
+  return {
+    sessionId,
+    outputFile,
+    command: typeof params?.command === 'string' ? params.command.replace(/\s+/g, ' ').trim().slice(0, 120) : undefined,
+  }
+}
 
 /**
  * 本地工作区工具（manage_global_memory / read_file / grep_files / write_file /
@@ -93,7 +111,7 @@ export class LocalWorkspaceToolRenderer {
             </summary>
             <div className="mt-3 min-w-0 max-w-full space-y-3">
               {input ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('input')}</div>{renderCodeBlock(input, 'json')}</div> : null}
-              {output ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('output')}</div>{this.toolName === 'run_command' ? renderConsoleBlock(output, variant) : renderCodeBlock(output, 'text')}</div> : null}
+              {output ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('output')}</div>{this.toolName === 'run_command' ? renderConsoleBlock(output, variant, runCommandLogContext(params, result)) : renderCodeBlock(output, 'text')}</div> : null}
               {typeof diff?.text === 'string' ? renderDiff(diff, isNewFile) : null}
               {details ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('details')}</div>{renderCodeBlock(details, 'json')}</div> : null}
             </div>

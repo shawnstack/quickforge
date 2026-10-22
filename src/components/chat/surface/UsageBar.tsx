@@ -1,4 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- exports the UsageBar component plus the pure usage aggregation/formatting helpers covered by tests. */
+import { memo } from 'react'
 import type { AgentMessage, Usage } from './ChatTypes'
 
 /**
@@ -62,12 +63,21 @@ export function aggregateUsage(messages: AgentMessage[]): Usage {
 }
 
 type UsageBarProps = {
-  messages: AgentMessage[]
+  /**
+   * Pre-aggregated totals. The surface derives these once per snapshot commit
+   * (see `readAgentSnapshot`) instead of this component walking every message
+   * on each render — the composer used to re-render on every keystroke, and
+   * this was the O(messages) part of that render.
+   */
+  totals: Usage
   onCostClick?: () => void
 }
 
-export function UsageBar({ messages, onCostClick }: UsageBarProps) {
-  const totals = aggregateUsage(messages)
+/**
+ * Memoized: the composer island re-renders on every keystroke, so a fresh
+ * element here would otherwise re-run `formatUsage` on each key.
+ */
+export const UsageBar = memo(function UsageBar({ totals, onCostClick }: UsageBarProps) {
   const hasTotals = totals.input || totals.output || totals.cacheRead || totals.cacheWrite
   const totalsText = hasTotals ? formatUsage(totals) : ''
 
@@ -91,4 +101,4 @@ export function UsageBar({ messages, onCostClick }: UsageBarProps) {
       </div>
     </div>
   )
-}
+})

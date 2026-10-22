@@ -86,8 +86,11 @@ export interface ChatSurfaceHandle {
  * onInput / onSend / onFilesChange / currentModel / thinkingLevel), so
  * editor-bindings, drafts and the suggestion subsystems keep working against
  * the React-rendered composer. Plain data slots (contextReferences,
- * selectedCapabilities) are owned by the host/decoration layer; value and
- * attachments are backed by the React editor state.
+ * selectedCapabilities) are owned by the host/decoration layer; `value` and
+ * `attachments` are adapters over the composer store
+ * (`surface/composer-store.ts`) — the single source of truth for the hot path,
+ * so a decoration-layer write and a keystroke land on the same state instead of
+ * maintaining parallel copies.
  */
 export type SurfaceEditorBridgeElement = HTMLElement & {
   value: string
@@ -118,6 +121,13 @@ export interface ChatSurfaceProps {
   enableAttachments?: boolean
   enableModelSelector?: boolean
   enableThinkingSelector?: boolean
+  /**
+   * Whether the context-compaction timeline divider renders. The host passes
+   * `capabilities.compaction && !sideChatMode`; the divider used to be gated in
+   * the decoration layer (`syncContextCompactionNotice` was skipped for side
+   * chat and when the session could not compact).
+   */
+  enableCompactionDivider?: boolean
   /** Hide the composer dock entirely (read-only conversation views). */
   readOnly?: boolean
   /**

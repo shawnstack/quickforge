@@ -7,6 +7,8 @@ import { ContentCache, memoizeContent } from '@/lib/render-cache'
 import { cn } from '@/lib/utils'
 import { CodeBlock, codeBlockLanguage } from './CodeBlock'
 import { KatexMath } from './KatexMath'
+import { LocalFilePathLink } from './LocalFilePathLink'
+import { rehypeQfLocalFilePaths } from './rehype-local-file-paths'
 
 /**
  * React replacement for the legacy `<markdown-block>` custom element.
@@ -107,11 +109,16 @@ const markdownComponents: Components = {
     ) : null,
 }
 
-// `qf-math` elements come from rehypeQfMath (src/lib/chat-math.ts). The tag
-// is not an intrinsic element, so the extra key is asserted onto Components.
+// `qf-math` elements come from rehypeQfMath (src/lib/chat-math.ts) and
+// `qf-file-path` elements from rehypeQfLocalFilePaths. Neither tag is an
+// intrinsic element, so the extra keys are asserted onto Components.
 const markdownComponentsWithMath: Components = {
   ...markdownComponents,
   'qf-math': KatexMath,
+  'qf-file-path': ({ node }: { node?: { properties?: Record<string, unknown> } }) => {
+    const path = node?.properties?.['data-path']
+    return typeof path === 'string' ? <LocalFilePathLink path={path} /> : null
+  },
 } as Components
 
 /** Plugin lists are module-level constants: stable identities across renders. */
@@ -151,7 +158,7 @@ function renderMarkdownTree(content: string): ReactNode {
   return ReactMarkdown({
     children: mathContent,
     remarkPlugins: markdownRemarkPlugins,
-    rehypePlugins: [[rehypeQfMath, { tokens }]],
+    rehypePlugins: [[rehypeQfMath, { tokens }], [rehypeQfLocalFilePaths]],
     components: markdownComponentsWithMath,
     skipHtml: true,
   })

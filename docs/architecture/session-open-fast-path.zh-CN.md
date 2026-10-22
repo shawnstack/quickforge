@@ -1,6 +1,6 @@
 # 会话打开快路径（Session Open Fast Path）
 
-> 状态：M0 / M1 / M2 / M3 已实施；M4 部分实施（见「里程碑」）。
+> 状态：M0 / M1 / M2 / M3 已实施；M4 可 React 化模块已全部落地（13 个，见「M4 实现」）。
 > 目标：缩短「点击历史会话 → 内容可见且可交互」的时间，且**不改变任何用户可见交互**。
 
 ## 1. 问题陈述
@@ -218,7 +218,7 @@
 | **M2** | 只读视图通道：`GET /api/sessions/:id/view` 不走 `restoreAgent`；`attachRuntime` 移出首屏关键路径 | 已实施 |
 | **M3** | 会话视图保活池：切回已打开会话复用渲染子树，消除整树 remount | 已实施 |
 | **M3.1** | 多实例作用域收敛：组件弹层按面板归属，不再取「文档中第一个」 | 已实施 |
-| **M4** | 装饰层数据驱动化：命令式注入器逐个改 React 渲染 | 部分实施（2 个模块已落地，边界与拒因见 §4 M4） |
+| **M4** | 装饰层数据驱动化：命令式注入器逐个改 React 渲染 | 已实施（13 个可 React 化模块全部落地；拒因与剩余"必须命令式"清单见 §4 M4） |
 
 ### M2 实现（已落地）
 
@@ -509,7 +509,7 @@ DOM 容器**；装饰产物（4 个过程组、6 组消息动作）与行数与�
 但若将来把 `MAX_IDLE_AGENT_TASKS` 调大，必须同时给 server agent 绑定 projectId，
 而不是读全局 active。
 
-### M4 实现（部分落地）
+### M4 实现（已落地）
 
 `panel-decoration.ts` 有 20+ 个命令式注入器（审批卡、ask 卡、goal 条、todo 摘要、
 消息队列、回底按钮、chip、错误行、产物卡…），靠 `querySelector` 找锚点、
@@ -532,27 +532,56 @@ DOM 容器**；装饰产物（4 个过程组、6 组消息动作）与行数与�
   锁的是**命令式实现**（`hostElement.insertBefore(card, anchor)`、`rollbackButton.className = …`）。
   React 写不出这些字符串，改造等于**重写测试**而非修测试。
 - 装饰层测试大多靠 `vi.stubGlobal('document', fake)` 的假 DOM（默认 `node` 环境）。
-  假 DOM **无法承载 `createRoot().render()`**，任何 React 化的模块必须整文件切 jsdom。
-- `process-folding.ts`（1717 行）与 `ChatSurface` 的所有权租约强耦合
+  假 DOM **无法承载 `createRoot().render()`**，任何 React 化的模块必须整文件切 jsdom
+  （本轮新增的渲染测试都在文件头加 `// @vitest-environment jsdom`）。
+- `process-folding.ts`（1718 行）与 `ChatSurface` 的所有权租约强耦合
   （`getSnapshotBeforeUpdate` → `releaseProcessGroups`），是「节点搬运 + 所有权移交」
   而非渲染，**不属于 M4 范围**。
+- 文本锁的实际规模在改造中重新统计过：全仓 69 个测试文件同时使用 `readFileSync` + `toContain`，
+  共约 1992 处（`assistant-artifact-card` 136、`message-queue` 55、`message-actions` 38）。
+  本轮迁移的 9 个模块「零文本锁」的说法只在**模块自有**的断言上成立——宿主与 barrel 上
+  仍有间接锁（例如 `side-chat-workspace-tab` 锁 `disableComposerControls` 的函数体），
+  迁移时必须一起改。
 
-#### 本轮已落地的两个模块
+#### 本轮已落地的模块（M4-3，10 个，含此前 2 个）
 
-两者都满足「可证明等价」：行为逐条对应，且改造后测试改为断言**渲染结果**而非实现文本。
+> 后续 M4-4 又追加 3 个（等待气泡 / 计划模式触发器 / Agent 权限选择器），见本节末尾。
 
-| 模块 | 原实现 | 现实现 |
+全部满足「可证明等价」：行为逐条对应，测试改为断言**渲染结果**而非实现文本。
+每个模块都同时完成了三件事：删掉装饰层文件、删掉宿主里的 decorate 调用、把源码文本锁
+改成渲染断言。
+
+| 模块 | 原实现（已删除） | 现实现 |
 |---|---|---|
-| 发送/停止按钮（`send-stop-button.ts`，50 行，已删除） | 每轮 decorate 找到 `button:last-child`，切 `--waiting` 类、写字面量 `Stop`、装捕获阶段 pointerdown/click 监听 | `MessageEditor` 直接渲染：`isWaiting` prop 控制等待环，`onPointerDownCapture` 中止（`stopImmediatePropagation`），`onBeforeAbort` 先收建议弹层 |
-| 持久化降级提示（`persist-degraded-notice.ts`，37 行，已删除） | 每轮 decorate 找到或创建节点、手工同步文案、`prepend` 到消息列表首位 | `MessageList` 按 `persistDegraded` 渲染为列表首子；`persist_degraded` 加入 `SUBSCRIBED_EVENTS`（缺它则提示永不出现） |
+| 发送/停止按钮（`send-stop-button.ts`，50 行） | 每轮 decorate 找到 `button:last-child`，切 `--waiting` 类、写字面量 `Stop`、装捕获阶段 pointerdown/click 监听 | `MessageEditor` 直接渲染：`isWaiting` prop 控制等待环，`onPointerDownCapture` 中止（`stopImmediatePropagation`），`onBeforeAbort` 先收建议弹层 |
+| 持久化降级提示（`persist-degraded-notice.ts`，37 行） | 每轮 decorate 找到或创建节点、手工同步文案、`prepend` 到消息列表首位 | `MessageList` 按 `persistDegraded` 渲染为列表首子；`persist_degraded` 加入 `SUBSCRIBED_EVENTS` |
+| 模型触发器标签（`model-controls.ts`，24 行） | 扫右侧控制行找文本含 model id 的按钮，打 `quickforge-model-trigger`、`aria-haspopup`，`aria-expanded` 取文档级菜单查询 | `MessageEditor` 直接给按钮加类与 `aria-haspopup`；**`aria-expanded` 故意不由 React 声明**——菜单打开/关闭时自己写，否则每次流式重渲染都会把展开态抹掉 |
+| 上下文压缩横线（`context-compaction.ts`，190 行） | find-or-create 节点、`innerHTML` 重建、`<details>` 手工绑 toggle、`insertNoticeAtBoundary` 走 DOM 找行 | `resolveCompactionBoundary`（纯函数）算出**行索引**，`MessageList` 按索引插入 keyed 兄弟；展开态是组件 state |
+| TodoWrite 摘要胶囊（`todo-write-summary.ts` 控制器部分） | 建一次节点后不断 mutate `textContent`/`hidden`/`style`/`dataset`，靠 `insertBefore` 与建议菜单/队列/目标条争夺位置 | `TodoWriteSummary` 渲染同一结构；节点类型与 key 稳定，CSS 胶囊形变与进度弧仍能过渡。新增/进行中/完成态与「已更新」标记都是 state |
+| SSE 重连 / 模型重试 / 不可达条（`reconnect-notice.ts` + `model-retry-notice.ts` + `unreachable-strip.ts`，共约 640 行） | 三个各自 find-or-create 的注入器，各自持有 `setInterval` 倒计时，列表重建后必须 `sync()` 重新挂回 | `surface/ConnectionNotices.tsx`：状态来自 `useSseConnectionStatus`，倒计时共用一个 tick，位置由 JSX 决定。Tier1→Tier2 的 30s 交接、重启文案 4s 停留、340ms 淡出全部保留 |
+| 目标控制条（`goal-control-strip.ts` 控制器部分，约 520 行） | 手工建节点、每次 paint 用 `desired[]` 数组 diff 子节点顺序、删按钮后手工恢复焦点、按 session/goal 反复重订阅 | `surface/GoalControlStrip.tsx`：子节点顺序来自 JSX；编辑态/取消确认是 state；`goal-ui` 订阅是按 session+goal 的 effect。**锁、脏校验、错误仍在 `src/lib/goal-ui.ts`（未改）** |
+| 本地路径链接（`local-file-path-links.ts` 的 DOM 部分） | TreeWalker 遍历已渲染文本，把匹配的文本节点换成按钮，用 message 上的 signature 防止重复走 | 拆成两半：**纯检测**留在 `panel-decoration/local-file-path-links.ts`（`splitLocalFilePaths`），**渲染**改为 rehype 插件 `rehype-local-file-paths.ts` + `LocalFilePathLink`。链接出现在首帧，不再需要 post-render 改写 |
+| "+" 菜单（`composer-plus-menu.ts`，234 行） | `leftControls.prepend` 插触发器、`insertBefore(editor)` 插弹层、`innerHTML` 重建两级视图、document 捕获期 dismiss | `ComposerPlusMenu.tsx` 拆成两半共用一个 controller：触发器进 `MessageEditor` 的 `leadingControls`，弹层渲染在编辑卡片之前——**两个插入点与原实现一致** |
+| 思考档位选择器（`thinking-level-controls.ts`，242 行） | 建按钮插到 model 按钮 `afterend`、菜单 append 到 `document.body`、`getBoundingClientRect`/`offsetHeight` 定位、捕获期四类监听、`aria-expanded` 镜像 | `ThinkingLevelControl.tsx` 渲染按钮与菜单；只有**定位测量**仍是命令式（fixed 弹层固有）。菜单位置按 trigger rect 计算，`resize`/`scroll` 重新测量 |
 
-两个实现细节是等价性的关键，不能想当然：
+#### 三个等价性细节（想当然就会改坏可见行为）
 
 1. **停止按钮的 `title` 必须是字面量 `"Stop"`**，不能用 `t('stop')`。装饰层一直写的是
    字面量，改成翻译值会在非英文环境改变可见 tooltip。
 2. **等待环的清除时刻不等于 `isStreaming && !streamingMessage`**。宿主在 assistant 的
    `message_start` 就清除等待态，而 `streamingMessage` 要到第一个 `message_update` 才有值。
    从 snapshot 推导会让等待环多显示一段（像素相同、时刻不同），因此该状态仍由宿主显式提供。
+3. **模型按钮的 `aria-expanded` 不能由 React 声明**。菜单（`lib/custom-model-selector.ts`）
+   打开时写 `true`、关闭时写 `false`；React 一旦把这个属性放进渲染输出，每次流式快照
+   重渲染都会把它写回声明值，展开高亮随即消失。
+
+#### 本轮自我评审发现并修掉的三个真实缺陷
+
+| 缺陷 | 症状 | 修复 |
+|---|---|---|
+| rehype 插件递归进自己的产物 | `qf-file-path` 的子文本仍是同一路径，插件再次拆分它 → 无限嵌套，最终 `RangeError: Maximum call stack size exceeded`（**Markdown 含任何本地路径就白屏**） | 把产物标签加入跳过集合，并让遍历只递归**原始**子节点；新增 `tests/frontend/local-file-path-markdown.test.ts` 用「无嵌套链接 + 能渲染出链接」双向锁定 |
+| "+" 菜单弹层放错位置 | 弹层被渲染成触发器所在控制行的兄弟，而不是编辑卡片之前的独立块，`.quickforge-plus-popover` 的间距/宽度样式全部错位 | 拆成 trigger / popover 两个组件共用一个 controller，各自放回原插入点 |
+| 侧聊控件不再禁用 | 装饰层删除后，侧聊里 "+"、思考档位、模型三个触发器仍然可点（原本由 `disableComposerControls` 置灰） | 加 `composerControlsDisabled` prop，三个控件渲染为 `disabled` 且忽略 pointerdown/keydown |
 
 #### 明确回退的一个模块：goal 迭代分隔线
 
@@ -573,10 +602,68 @@ React 忠实表达的事实：
 
 #### 结论
 
-M4 的正确形态是**逐个模块绞杀**，而不是一次性重写：每步保留类名与 DOM 层级、
-把文本锁改为渲染断言、删掉宿主里对应的 decorate 调用（否则 `MutationObserver`
-会让 pass 空转）。剩余可动模块按代价排序：零文本锁的 5 个 → 1–3 条文本锁的 6 个 →
-`assistant-artifact-card`(114) / `message-actions`(44) / `message-queue`(27) 三件套放最后。
+M4 的可 React 化模块至此**全部落地**（13 个）。剩下的是「必须保留命令式」与「混合」两类：
+
+- `process-folding.ts`（1718 行）：与 `ChatSurface` 的所有权租约强耦合
+  （`getSnapshotBeforeUpdate` → `releaseProcessGroups`），是**节点搬运 + 所有权移交**，
+  不是渲染。React 化等于重写折叠模型。
+- `message-actions.ts`（738 行）、`assistant-artifact-card.ts`（701 行）、
+  `message-queue.ts`（617 行）：动作行/产物卡/队列需要「消息根的最后子元素」这一位置语义，
+  且被 100+ 条源码文本锁保护；`message-queue` 还带指针拖拽排序（自带 ghost 与边缘滚动）。
+  这三件的正确形态同样是「插入点仍命令式、内容 React 化」，收益低于风险。
+- `scroll-to-bottom-button.ts`（167 行）：可见性由滚动容器的 `scrollHeight`/`scrollTop`/
+  `clientHeight` 实时决定，带 280/120 滞回带与 unread 计数；没有「快照数据」可供 React
+  推导，是**测量本身**驱动的 UI，留在命令式侧。
+- `subagent-running-indicator.ts`（491 行）：`document.body` 浮层 + 菜单项就地 diff
+  （复用元素、只改变化字段、乱序才移动），目的是流式期间 hover 不闪断；React 化的收益
+  是代码量，代价是每次 150ms trace 更新都整体重渲染。
+- `turn-error-row.ts`（240 行）：错误行/升级提示/详情三个伴随节点是**装饰层自建、挂在
+  React 渲染根末端的兄弟节点**，且必须与 React 自己渲染的红块共存（红块只能是"被内联
+  样式隐藏"，不能移除或改 className，否则 React 卸载会抛 `NotFoundError`）。要 React 化
+  就得把这套兄弟顺序提升进 `AssistantMessage` 的渲染树——即把「错误呈现 + 重试升级态」
+  整体搬进消息组件，属于消息渲染重构而非注入器替换。
+- `editor-bindings.ts`（188 行）：`onInput`/`onSend`/`onFilesChange` 的桥接、plan-mode 包装、
+  大段粘贴 POST、capture 期 paste/drop 守卫——全是 **DOM 桥语义**，没有可供 React 渲染的
+  内容，只有事件接线。
+- `drafts.ts`（129 行）：纯函数（读/写草稿快照），没有渲染产物。
+- 审批卡 / ask 卡 / 回滚确认弹层：定位原语、`body` 浮层、尺寸测量。
+
+#### M4-4（本轮续）追加落地的 3 个模块
+
+| 模块 | 原实现 | 现实现 |
+|---|---|---|
+| 等待气泡（`assistant-waiting-bubble.ts`，113 行，已删除） | 全表扫描找最后一条 user 行，再用 DOM 探针判断「其后是否有可见 assistant 内容」（查 `.qf-thinking-block`/`.qf-tool-message`/`.qf-markdown-block`，并克隆节点剔除动作行），然后 `lastUserElement.after(bubble)` | `resolveAssistantWaitingRow` 用消息数组算出**行索引**，`AssistantWaitingBubble` 作为 keyed 兄弟插在列表里；判定改为读消息体（text / 非空 thinking / toolCall） |
+| 计划模式触发器（`plan-mode-controls.ts` 的 `syncPlanModeButton`，已删除） | 创建按钮、`patchContent` 写两个图标、插到 access 按钮之后；planMode 关闭时 `remove()` | `PlanModeTrigger` 渲染，**仅 planMode 为 true 时渲染**（保持旧行为：关闭时不出现按钮）。Shift+Tab 快捷键仍留在装饰层（绑定在 textarea 上） |
+| Agent 权限选择器（`agent-access-menu.ts` 的触发器与菜单渲染，已删除） | 建触发器追加到左栏、菜单 append 到 `document.body`、`getBoundingClientRect` 定位、四类捕获期监听 | `AgentAccessTrigger` + `AgentAccessMenu`；定位测量仍命令式，位置计算抽成纯函数 `positionAgentAccessMenu`。**关闭改为握手**：装饰层只调 `removeAgentAccessMenu` → 已注册的 closer → React 卸载节点 |
+
+#### 本轮自我评审发现并修掉的问题
+
+独立评审（只读复核 + 探针复现）找出两个**高危**缺陷，都属于「测试全绿但功能已坏」：
+
+| 缺陷 | 症状 | 修复 |
+|---|---|---|
+| 压缩横线与等待气泡的插入索引错位 | 两者都是「按消息行计数的 keyed 兄弟」，却用两次 `splice` 插入。插入横线会把之后的每个位置推后一位，于是**横线在上方时气泡被挤到该行之前**（本该在最后一条 user 行之后）。任何发生过上下文压缩的会话，下一轮等待时都会命中 | 改成**单次正序构建**子节点数组；两者同索引时横线在前。新增两条测试锁定「横线在上方时气泡仍是最后一个子节点」与「同索引时顺序」 |
+| 装饰层删除 React 拥有的菜单节点 | `removeAgentAccessMenu` 仍 `menu.remove()`。之后 React 卸载该节点抛 `NotFoundError: The node to be removed is not a child of this node`，被 error boundary 接管后**整块聊天区不可用**。触发链：主聊天打开权限菜单 → 点「+」或子代理指示器 → 装饰 pass 的 `dismissComposerMenus()` | 装饰层改为**只请求关闭**：`registerAgentAccessMenuCloser` 由 surface 注册，React 自己卸载。探针已确认「外部移除后再卸载必抛」，所以这是形态问题而非概率问题 |
+
+同时修掉 4 处行为偏差：
+
+1. **等待气泡丢了 `isStreaming` 前置条件**（旧实现要求 `isStreaming && isActive`）。现在
+   `resolveAssistantWaitingRow` 接收 `streaming`，与停止按钮的等待环保持同步。
+2. **空 thinking chunk 被算作「已输出」**：`content-parts` 会丢掉空 thinking（不渲染），
+   但判定只看 `type === 'thinking'` → 气泡提前一帧消失。现在要求 `thinking.trim()` 非空。
+3. **侧聊的 Agent 权限控件从「可见但禁用」变成完全不渲染**：门禁补上 `sideChatMode || …`，
+   与旧 `disableComposerControls` 路径一致（`AgentAccessTrigger` 的 `disabled` 分支
+   因此不再是死代码）。
+4. **权限菜单在门禁变化后会自动重开**：门禁变 false 时菜单卸载但 `open` 状态仍为 true，
+   门禁恢复就会自己弹出来。现在门禁变化时显式清掉 open 状态。
+
+顺带清掉的死代码：`decorateEditor` 的 `agentAccessMode` / `onAccessModeChange` /
+`onThinkingLevelChange` / `selectPluginCapability` / `availablePluginRows` 五个参数
+（已无使用点）、`agent-access-menu.ts` 里的菜单渲染与 `createAgentAccessItem`、
+`.quickforge-composer-left-controls` 这条无写入方的 CSS 规则。
+
+装饰层仍是「数据来自 snapshot、DOM 由 React 渲染」的补充层，但渲染所有权已收敛：
+新增 UI 先判断能否在 surface 里渲染，只有插入点/测量/DOM 桥才留在 `panel-decoration`。
 
 
 ## 5. 重写原则

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ChatSurface, promptApiKey } from './surface'
 import type { ChatSurfaceProps } from './surface'
 import type { WindowedChatSurfaceHandle } from './surface/ChatSurface'
 import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, FileContextReference } from '@/lib/server-agent'
+import type { SessionLeaseSnapshot } from '@/lib/session-lease-client'
 import type { GoalAction, GoalActionOptions, GoalState } from '@/lib/goal'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
 import type { DeferredSessionAgent } from '@/lib/deferred-session-agent'
@@ -13,10 +14,9 @@ import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
 import { createCommandSuggestions } from './command-suggestions'
 import { fetchSlashCatalog } from '@/lib/slash-catalog'
-import { createCapabilitySuggestions } from './capability-suggestions'
+import { createCapabilitySuggestions, type CapabilitySuggestion } from './capability-suggestions'
 import { createTaskLauncher } from './task-launcher'
 import { createFileReferenceSuggestions, canUseFileReferenceSuggestions } from './file-reference-suggestions'
-import { removeComposerPlusPopover } from './panel-decoration/composer-plus-menu'
 import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './context-usage'
 import { createTurnNavigation } from './turn-navigation'
 import {
@@ -30,25 +30,12 @@ import {
   removeApprovalCard,
   injectAskUserCard,
   removeAskUserCard,
-  syncAssistantWaitingBubble,
-  syncContextCompactionNotice,
   createScrollToBottomButton,
-  createTodoWriteSummaryController,
   createMessageQueuePanelController,
-  createReconnectNoticeController,
-  createUnreachableStripController,
-  createModelRetryNoticeController,
   createTurnErrorTracker,
   removeSubagentRunningIndicator,
-  createGoalControlStripController,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
-import {
-  getGoalUiState,
-  requestOpenGoalSummary,
-  runGoalUiAction,
-  subscribeGoalUi,
-} from '@/lib/goal-ui'
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
@@ -332,6 +319,13 @@ export function ChatPanelHost({
     onBeforeSend?: () => void | Promise<void>
     /** Dismiss an open `@`/`/` popover. Bound in the panel effect, which owns `cmdSuggestions`. */
     dismissSuggestions?: () => void
+    /**
+     * Composer "+" menu data. The capability-suggestion subsystem lives in the
+     * panel effect, but the menu is rendered by the surface, so the effect
+     * publishes the two handlers here.
+     */
+    availablePluginRows?: () => CapabilitySuggestion[]
+    selectPluginCapability?: (pluginName: string) => void
   } | null>(null)
   const restoredDraftIdRef = useRef<number | undefined>(undefined)
   const restoredDraftRef = useRef<RestoredDraft | undefined>(undefined)
@@ -354,6 +348,36 @@ export function ChatPanelHost({
    * `MessageEditor` now, so the host must cause a render when it flips.
    */
   const [replyWaiting, setReplyWaiting] = useState(false)
+  /**
+   * Active model upstream retry (`model_stream_retry`). Owned here because it
+   * arrives as an agent event, but rendered by the surface: the retry row used
+   * to be injected into the message list by a decoration controller.
+   */
+  const [modelRetryInfo, setModelRetryInfo] = useState<{ attempt: number; maxAttempts: number } | null>(null)
+  /**
+   * 会话写入租约（`src/lib/session-lease-client.ts`）：本页是否为唯一写入者。
+   *
+   * 主聊天页在挂载时向 `ServerAgent` 申领租约；这里把「非持有者」翻译成
+   * 作曲区只读 + 提示条。只读视图、分享页与 Side Chat 从不启用租约
+   * （`enableSessionLease` 不存在），因此 `leaseObserver` 恒为 false，
+   * 行为与升级前一致。
+   */
+  const leaseSupported = typeof (agent as { enableSessionLease?: unknown } | null)?.enableSessionLease === 'function'
+  /**
+   * 租约状态通过 `useSyncExternalStore` 读取，而不是镜像进本地 state：
+   * 变化源既有 SSE 帧（别的窗口接管）也有本页心跳结果，二者都会触发
+   * `ServerAgent` 的 `session_lease` 事件；镜像进 state 需要在 effect 里
+   * 同步 setState，会触发级联渲染。
+   */
+  const agentWithLease = agent as unknown as { subscribeSessionLease?: (listener: () => void) => () => void } | null
+  const sessionLease = useSyncExternalStore(
+    useCallback((listener: () => void) => agentWithLease?.subscribeSessionLease?.(listener) ?? (() => {}), [agentWithLease]),
+    () => (agent?.state as { sessionLease?: SessionLeaseSnapshot } | undefined)?.sessionLease,
+    () => undefined,
+  )
+  const leaseObserver = leaseSupported && sessionLease !== undefined && sessionLease.isOwner === false
+  const leaseDegraded = leaseSupported && sessionLease?.degraded === true
+
   const sideChatMode = mode === 'side-chat'
   const effectiveCapabilities = useMemo(
     () => applyChatPagePolicy(sideChatMode ? SIDE_CHAT_UI_CAPABILITIES : capabilities, {
@@ -362,6 +386,30 @@ export function ChatPanelHost({
     }),
     [sideChatMode, capabilities, readOnly, disableFork],
   )
+
+  /**
+   * 主会话挂载即申领写入租约。`readOnly` / Side Chat / 分享页不申领：它们本就
+   * 不该写，申领反而会抢走真正的写入者。
+   *
+   * 申领结果不在此处同步 setState：`enableSessionLease()` 会经 `session_lease`
+   * 事件广播，`useSyncExternalStore` 的订阅随之刷新（effect 只负责与外部系统
+   * 握手，不在体内派生渲染状态）。
+   */
+  useEffect(() => {
+    if (!leaseSupported || readOnly || sideChatMode) return
+    ;(agent as unknown as { enableSessionLease: () => void }).enableSessionLease()
+  }, [agent, leaseSupported, readOnly, sideChatMode])
+
+  /**
+   * 「在此窗口接管」：强制拿到租约，成功后本页恢复可写。状态更新由
+   * `ServerAgent.applySessionLease` 通过 `session_lease` 事件广播回来。
+   */
+  const takeOverLease = useCallback(async (): Promise<boolean> => {
+    const withLease = agent as unknown as { takeOverSessionLease?: () => Promise<boolean> }
+    if (typeof withLease.takeOverSessionLease !== 'function') return false
+    return withLease.takeOverSessionLease()
+  }, [agent])
+
   const togglePlanMode = useCallback(() => setPlanMode((mode) => !mode), [])
   const clearPlanMode = useCallback(() => setPlanMode(false), [])
 
@@ -703,7 +751,6 @@ export function ChatPanelHost({
     let composerClearedForSend = false
     let initialComposerStateReady = false
     let composerInteracted = false
-    let assistantWaitingActive = agent.state.isStreaming
     setReplyWaiting(agent.state.isStreaming)
     let toolUpdateScheduled = false
     let processHandoffGeneration = 0
@@ -911,42 +958,13 @@ export function ChatPanelHost({
         if (distance <= 120) scrollSync.enable()
       },
     })
-    const todoWriteSummary = createTodoWriteSummaryController({
-      panel,
-      getMessages: () => agent.state.messages as import('./panel-decoration').TodoWriteMessage[],
-    })
-    // Goal mode control strip: QuickForge main chat only. Side Chat, shared and
-    // read-only pages gate it out through capabilities. ACP sessions
-    // (OpenCode) are excluded by the authoritative session source — the server
-    // rejects goal actions there (`isGoalModeAvailable`), so the strip must not
-    // offer them just because the page is not read-only. The strip is purely a
-    // view over the authoritative ServerAgent goal state; actions post to the
-    // server and the returned/streamed goal re-renders it. The shared goal-ui
-    // module owns the request lock/dirty guard and the open-summary request.
-    const goalStrip = !sideChatMode
-      ? createGoalControlStripController({
-          panel,
-          enabled: () => effectiveCapabilities.goal
-            && !('shareId' in agent)
-            && (agent as AgentWithGoal).sessionSource !== 'acp',
-          getGoal: () => (agent as AgentWithGoal).state.goal ?? null,
-          getSessionId: () => agent.sessionId,
-          goalUi: { getGoalUiState, requestOpenGoalSummary, runGoalUiAction, subscribeGoalUi },
-          onAction: async (action, objective) => {
-            const target = agent as AgentWithGoal
-            if (typeof target.updateGoal !== 'function') throw new Error(t('goalUnavailable'))
-            await target.updateGoal(action, objective)
-            scheduleDecorateRef.current?.()
-          },
-        })
-      : null
-    // 全局 Agent SSE 弱网重连提示（消息流末尾居中轻量行）；Side Chat 使用
-    // 独立的 NDJSON 流、不共享该连接，因此不挂此装饰。
-    const reconnectNotice = sideChatMode ? null : createReconnectNoticeController({ panel })
-    // 后端持续不可达 ≥30s 时升级为 composer 上方常驻琥珀状态条（Tier2）。
-    const unreachableStrip = sideChatMode ? null : createUnreachableStripController({ panel })
-    // 模型上游流重试提示（model_stream_retry SSE 事件驱动，与 SSE 连接层提示并列）。
-    const modelRetryNotice = sideChatMode ? null : createModelRetryNoticeController({ panel })
+    // 目标控制条由 surface 渲染（surface/GoalControlStrip），宿主只提供
+    // 能力门禁与动作回调：它原来的 find-or-create 注入器每次装饰 pass 都要
+    // 重排子节点、恢复焦点并重新订阅 goal-ui。
+    // 全局 Agent SSE 弱网重连提示与模型重试提示由 surface 渲染（surface/ConnectionNotices）：
+    // 它们原来的 find-or-create 注入器每次装饰 pass 都要重新挂回消息列表末尾。
+    // Side Chat 使用独立 NDJSON 流、不共享该连接，surface 那边通过
+    // `enableConnectionNotices={!sideChatMode}` 关掉。
     let turnNavigation: ReturnType<typeof createTurnNavigation> | null = null
 
     const restoreSuggestionDraft = (draft: ComposerDraft) => {
@@ -970,6 +988,12 @@ export function ChatPanelHost({
       enabled: effectiveCapabilities.capabilitySuggestions,
       restoreDraftIntoComposer: restoreSuggestionDraft,
     })
+    // The "+" menu is rendered by the surface, but its data comes from this
+    // subsystem: publish the handlers on the same ref the surface reads.
+    if (surfaceSendHooksRef.current) {
+      surfaceSendHooksRef.current.availablePluginRows = capabilitySuggestions.availablePluginRows
+      surfaceSendHooksRef.current.selectPluginCapability = capabilitySuggestions.selectPlugin
+    }
 
     const taskLauncher = taskLauncherEnabled && !sideChatMode && !readOnly && !('shareId' in agent)
       ? createTaskLauncher({
@@ -996,7 +1020,8 @@ export function ChatPanelHost({
       restoreDraftIntoComposer: restoreSuggestionDraft,
       removeCommandSuggestions: cmdSuggestions.remove,
       removeCapabilitySuggestions: capabilitySuggestions.remove,
-      removePlusMenu: () => removeComposerPlusPopover(panel),
+      // The "+" popover is React-owned and closes itself when a suggestion menu
+      // opens (both see the same outside pointerdown), so no remover is needed.
     })
 
     // --- Queued composer messages (Enter during streaming enqueues) ---
@@ -1154,6 +1179,21 @@ export function ChatPanelHost({
         void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
       }
     }
+    /**
+     * Cached `.qf-message-editor` lookup.
+     *
+     * `handleEditorInput` runs on every keystroke and used to resolve the editor
+     * node (and its `<textarea>`) with two `querySelector` calls per key. The node
+     * only changes when the surface re-mounts (session switch / agent swap), so
+     * the lookup is validated with `isConnected` and reused; the query re-runs
+     * only when the cached node was detached.
+     */
+    let cachedEditor: import('./chat-utils').MessageEditorElement | null = null
+    const resolveEditor = () => {
+      if (cachedEditor?.isConnected) return cachedEditor
+      cachedEditor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
+      return cachedEditor
+    }
     const handleEditorInput = (value: string) => {
       handleComposerInteraction()
       composerClearedForSend = false
@@ -1161,7 +1201,9 @@ export function ChatPanelHost({
         updateSideChatInputMemory(value)
         return
       }
-      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
+      // Draft persistence needs the attachment/context/capability slots, not the
+      // textarea: the text arrives as the argument.
+      const editor = resolveEditor()
       const attachments = editor?.attachments ? [...editor.attachments] : []
       const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
       const selectedCapabilities = capabilitySuggestions.snapshotSelectedCapabilities()
@@ -1170,7 +1212,7 @@ export function ChatPanelHost({
     const handleEditorFilesChange = (files: unknown[]) => {
       handleComposerInteraction()
       composerClearedForSend = false
-      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
+      const editor = resolveEditor()
       if (sideChatMode) {
         if (editor) {
           editor.attachments = []
@@ -1181,11 +1223,9 @@ export function ChatPanelHost({
         updateSideChatInputMemory()
         return
       }
-      const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
-      const text = editor?.value ?? textarea?.value ?? ''
       const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
       const selectedCapabilities = capabilitySuggestions.snapshotSelectedCapabilities()
-      updateComposerDraft({ text, attachments: files ? [...files] : [], contextReferences, selectedCapabilities })
+      updateComposerDraft({ text: editor?.value ?? '', attachments: files ? [...files] : [], contextReferences, selectedCapabilities })
 
       window.requestAnimationFrame(() => scheduleDecorateRef.current?.())
     }
@@ -1298,27 +1338,6 @@ export function ChatPanelHost({
           rollbackConfirmTitle: props.rollbackConfirmTitle,
           rollbackConfirmDescription: props.rollbackConfirmDescription,
         })
-        if (!sideChatMode) {
-          syncContextCompactionNotice({
-            panel,
-            getMessages: displayMessages,
-            getContextCompaction: () => props.capabilities.compaction
-              ? (agent as AgentWithContextCompaction).state.contextCompaction ?? null
-              : null,
-            messageIndexOffset,
-            messageRows,
-          })
-        }
-        syncAssistantWaitingBubble({
-          panel,
-          getMessages: displayMessages,
-          isStreaming: () => agent.state.isStreaming,
-          isActive: assistantWaitingActive,
-          messageRows,
-        })
-        reconnectNotice?.sync()
-        unreachableStrip?.sync()
-        modelRetryNotice?.sync()
       } catch (error) {
         logger.warn('Failed to decorate chat messages:', error)
       }
@@ -1326,8 +1345,8 @@ export function ChatPanelHost({
       try {
         decorateEditor({
           panel,
-          agentAccessMode: props.agentAccessMode,
           planMode: props.planMode,
+          onTogglePlanMode: props.onTogglePlanMode,
           workspaceToolsEnabled: props.workspaceToolsEnabled,
           readOnly: props.readOnly,
           allowModelControls: sideChatMode || (props.allowModelControls && props.capabilities.modelSelection),
@@ -1341,18 +1360,6 @@ export function ChatPanelHost({
           getPendingToolCalls: () => agent.state.pendingToolCalls,
           getBackgroundCommands: () => (agent as ServerAgent).state.backgroundCommands ?? [],
           disabledControls: sideChatMode,
-          onAccessModeChange: props.onAccessModeChange,
-          onTogglePlanMode: props.onTogglePlanMode,
-          onThinkingLevelChange: (level) => {
-            const currentAgent = agent as ServerAgent | SharedServerAgent
-            currentAgent.state.thinkingLevel = level
-            if (typeof currentAgent.updateThinkingLevel === 'function') {
-              void currentAgent.updateThinkingLevel(level).catch((error) => {
-                logger.error('Failed to sync thinking level to server:', error)
-              })
-            }
-            decorateFnRef.current?.()
-          },
           onInput: handleEditorInput,
           onFilesChange: handleEditorFilesChange,
           sessionId,
@@ -1370,8 +1377,6 @@ export function ChatPanelHost({
             capabilitySuggestions.syncChips()
             fileReferenceSuggestions.syncChips()
           },
-          selectPluginCapability: capabilitySuggestions.selectPlugin,
-          availablePluginRows: capabilitySuggestions.availablePluginRows,
           onBeforeSend: () => {
             taskLauncher?.hide()
             taskLauncherStateRef.current.dismiss?.()
@@ -1402,11 +1407,13 @@ export function ChatPanelHost({
         // like the previous patch-thinking-selector({hideSelector:true}) setup.
       } catch { /* continue to todo summary */ }
 
+      // The TodoWrite capsule is React-rendered inside the composer
+      // (surface/TodoWriteSummary); there is no decoration pass left for it.
+      // The task launcher stays command-driven: it owns a floating panel.
       try {
         taskLauncher?.sync()
-        todoWriteSummary.update()
       } catch (error) {
-        logger.warn('Failed to update TodoWrite summary:', error)
+        logger.warn('Failed to sync task launcher:', error)
       }
 
       try {
@@ -1415,11 +1422,8 @@ export function ChatPanelHost({
         logger.warn('Failed to update queued messages panel:', error)
       }
 
-      try {
-        goalStrip?.update()
-      } catch (error) {
-        logger.warn('Failed to update goal control strip:', error)
-      }
+      // The goal strip is React-rendered inside the composer
+      // (surface/GoalControlStrip); no decoration pass remains for it.
 
       if (sideChatMode) {
         removeApprovalCard(panel)
@@ -1734,9 +1738,38 @@ export function ChatPanelHost({
         }
       }
 
-      // Observe DOM changes for re-decoration
-      observer = new MutationObserver(() => {
+      // Observe DOM changes for re-decoration — scoped to the MESSAGE AREA, not
+      // the whole panel.
+      //
+      // A panel-wide `{childList, subtree}` observer treats every composer-side
+      // node change as a reason to re-run the full decoration pass: the
+      // suggestion menu rebuilding its rows (`innerHTML = ''` + re-create), a
+      // slash chip mounting, an attachment tile appearing. That coupling is what
+      // made typing feed the O(messages) decorate pass
+      // (`readMessageRows` + `decorateMessages` + `artifactsInputKey` walk the
+      // whole conversation). The composer is React-owned now
+      // (`composer-store.ts` + the `MessageEditor` leaves), so it publishes its
+      // own re-decoration requests through `scheduleDecorate` on the few state
+      // flips that matter (capability/plan/attachment gates) instead of relying
+      // on node churn.
+      //
+      // The observer still targets `panel` (the message list may not be mounted
+      // yet when this runs) but only schedules a pass when at least one record
+      // lands inside the scroll container, so late mounting and message-area
+      // replacement keep working without composer churn paying for it.
+      const isMessageAreaNode = (node: Node | null): boolean => {
+        if (!node) return false
+        const element = node.nodeType === 1 ? (node as Element) : node.parentElement
+        return Boolean(element?.closest('.qf-scroll-container'))
+      }
+      observer = new MutationObserver((records) => {
         if (suppressObserverMutations) return
+        // `added`/`removed` cover nodes re-parented by process folding (the group
+        // itself may be the added node while the original parent is gone).
+        const relevant = records.some((record) => isMessageAreaNode(record.target)
+          || Array.from(record.addedNodes).some(isMessageAreaNode)
+          || Array.from(record.removedNodes).some(isMessageAreaNode))
+        if (!relevant) return
         scheduleDecorate()
       })
       observer.observe(panel, { childList: true, subtree: true })
@@ -1782,7 +1815,6 @@ export function ChatPanelHost({
       if (event.type === 'agent_start') {
         processHandoffGeneration += 1
         delete panel.dataset.quickforgeProcessHandoff
-        assistantWaitingActive = true
         setReplyWaiting(true)
         syncProcessStreamingState()
         scheduleDecorateRef.current?.()
@@ -1805,10 +1837,9 @@ export function ChatPanelHost({
           scrollBottomButton.notifyNewAssistantMessage()
         }
         if (event.type === 'message_update' || eventMessage?.role === 'assistant') {
-          assistantWaitingActive = false
           setReplyWaiting(false)
           // 模型流重试后新流的第一个增量到达即视为恢复。
-          modelRetryNotice?.hide()
+          setModelRetryInfo(null)
         }
         scheduleDecorateRef.current?.()
         if (event.type === 'message_end' && eventMessage?.role === 'assistant') {
@@ -1844,7 +1875,7 @@ export function ChatPanelHost({
         scheduleDecorateRef.current?.()
       }
       if (eventType === 'error') {
-        modelRetryNotice?.hide()
+        setModelRetryInfo(null)
       }
       if (eventType === 'persist_degraded') {
         // Persist degradation flag changed — show/hide the warning banner.
@@ -1854,19 +1885,23 @@ export function ChatPanelHost({
         // Authoritative goal snapshot changed — re-render the goal card.
         scheduleDecorateRef.current?.()
       }
+      if (eventType === 'session_lease') {
+        // 租约易主（另一个窗口接管/释放，或本页心跳拿到/丢掉）：只影响作曲区
+        // 可用性与提示条，不改消息结构。重渲染由 `subscribeSessionLease` 的
+        // `useSyncExternalStore` 订阅承担，这里不做任何事。
+      }
       if (eventType === 'model_stream_retry') {
         // 服务端正在内部重建模型上游流 — 显示/更新重试进度；恢复或回合
         // 终止由 message_update / agent_end / error 分支移除。
         const retryEvent = event as { attempt?: number; maxAttempts?: number; recovered?: boolean }
-        if (retryEvent.recovered === true) modelRetryNotice?.hide()
+        if (retryEvent.recovered === true) setModelRetryInfo(null)
         else if (typeof retryEvent.attempt === 'number' && typeof retryEvent.maxAttempts === 'number') {
-          modelRetryNotice?.show(retryEvent.attempt, retryEvent.maxAttempts)
+          setModelRetryInfo({ attempt: retryEvent.attempt, maxAttempts: retryEvent.maxAttempts })
         }
       }
       if (event.type === 'agent_end') {
-        assistantWaitingActive = false
         setReplyWaiting(false)
-        modelRetryNotice?.hide()
+        setModelRetryInfo(null)
         syncProcessStreamingState()
         scheduleProcessHandoff()
         // Run finished (or aborted) — clear pending approval for this session
@@ -1974,11 +2009,6 @@ export function ChatPanelHost({
       scrollSyncRef.current = null
       scrollBottomButton.cleanup()
       taskLauncher?.dispose()
-      todoWriteSummary.cleanup()
-      goalStrip?.cleanup()
-      reconnectNotice?.destroy()
-      unreachableStrip?.destroy()
-      modelRetryNotice?.destroy()
       removeSubagentRunningIndicator(panel)
       cancelMessageQueuePersist()
       cancelQueuedPrompt()
@@ -2073,6 +2103,9 @@ export function ChatPanelHost({
           // `allowModelControls: sideChatMode || (...)` contract.
           enableModelSelector={sideChatMode || (allowModelControls && effectiveCapabilities.modelSelection)}
           enableThinkingSelector={false}
+          // Context-compaction timeline divider: same gate the decoration layer
+          // used (`capabilities.compaction` and never in Side Chat).
+          enableCompactionDivider={!sideChatMode && effectiveCapabilities.compaction}
           readOnly={readOnly}
           // Host-driven snapshot refresh (model switch without agent events).
           chatPanelRevision={revision}
@@ -2088,6 +2121,60 @@ export function ChatPanelHost({
           onBeforeSend={() => surfaceSendHooksRef.current?.onBeforeSend?.()}
           isReplyWaiting={replyWaiting}
           onBeforeAbort={() => surfaceSendHooksRef.current?.dismissSuggestions?.()}
+          enableConnectionNotices={!sideChatMode}
+          onOpenLocalFilePath={readOnly ? undefined : onOpenLocalFilePath}
+          // The "+" menu and the thinking selector are rendered by the surface
+          // now; the panel effect publishes their data through the same ref the
+          // other composer hooks use.
+          enableComposerPlusMenu={Boolean(
+            !readOnly
+            && (effectiveCapabilities.attachments || effectiveCapabilities.capabilitySuggestions || sideChatMode),
+          )}
+          availablePluginRows={() => surfaceSendHooksRef.current?.availablePluginRows?.() ?? []}
+          selectPluginCapability={(pluginName) => surfaceSendHooksRef.current?.selectPluginCapability?.(pluginName)}
+          onDismissComposerSuggestions={() => surfaceSendHooksRef.current?.dismissSuggestions?.()}
+          // Plan mode + agent access: React renders both triggers into the
+          // editor's left control row (they used to be injected on every pass).
+          // Side Chat keeps every QuickForge composer control visible but inert,
+          // matching `disableComposerControls` in the decoration layer.
+          planMode={planMode}
+          onTogglePlanMode={() => propsRef.current.onTogglePlanMode()}
+          // Plan mode: the trigger exists only while plan mode is ON (the
+          // decoration created it on enable and removed it on disable).
+          showPlanModeControl={effectiveCapabilities.planMode}
+          agentAccessMode={agentAccessMode}
+          onAccessModeChange={(mode) => propsRef.current.onAccessModeChange(mode)}
+          // Access mode: also requires workspace tools (without them the server
+          // rejects full access). Side Chat keeps the trigger visible but
+          // disabled, matching the old `disableComposerControls` path.
+          showAgentAccessControl={sideChatMode || (effectiveCapabilities.accessMode && workspaceToolsEnabled)}
+          composerControlsDisabled={sideChatMode}
+          leaseObserver={leaseObserver}
+          leaseDegraded={leaseDegraded}
+          onTakeOverLease={takeOverLease}
+          enableThinkingControl={!readOnly}
+          onThinkingLevelChange={(level) => {
+            const currentAgent = agent as ServerAgent | SharedServerAgent
+            if (typeof currentAgent.updateThinkingLevel === 'function') {
+              void currentAgent.updateThinkingLevel(level).catch((error) => {
+                logger.error('Failed to sync thinking level to server:', error)
+              })
+            }
+          }}
+          // Goal strip: same gate the decoration controller used (main chat
+          // only, goal capability, no shared page, never ACP sessions where the
+          // server rejects goal actions).
+          enableGoalStrip={!sideChatMode
+            && effectiveCapabilities.goal
+            && !('shareId' in agent)
+            && (agent as AgentWithGoal).sessionSource !== 'acp'}
+          sessionId={agent.sessionId}
+          onGoalAction={async (action, objective) => {
+            const target = agent as AgentWithGoal
+            if (typeof target.updateGoal !== 'function') throw new Error(t('goalUnavailable'))
+            await target.updateGoal(action, objective)
+          }}
+          modelRetryInfo={modelRetryInfo}
           onModelSelect={sideChatMode ? undefined : () => {
             const anchor = hostRef.current?.querySelector<HTMLElement>('.quickforge-model-trigger') ?? undefined
             propsRef.current.onModelSelect?.(anchor)

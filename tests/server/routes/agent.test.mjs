@@ -10,6 +10,12 @@ const mocks = vi.hoisted(() => ({
   runPrompt: vi.fn(),
   isSessionFileRollbackBusy: vi.fn(() => false),
   releaseSse: vi.fn(),
+  acquireSessionLease: vi.fn(() => ({ ok: true, lease: { clientId: 'client-a' }, acquired: true })),
+  takeOverSessionLease: vi.fn(() => ({ ok: true, lease: { clientId: 'client-a' }, acquired: true })),
+  releaseSessionLease: vi.fn(() => ({ ok: true, released: true })),
+  getSessionLease: vi.fn(() => null),
+  // 默认放行：绝大多数用例不测租约，保持「无租约 → 谁都能写」的旧行为。
+  canWriteSession: vi.fn(() => ({ ok: true })),
   agentEvents: null,
   logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }))
@@ -88,6 +94,15 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   },
 }))
 
+vi.mock('../../../server/agent-session-lease.mjs', () => ({
+  acquireSessionLease: mocks.acquireSessionLease,
+  takeOverSessionLease: mocks.takeOverSessionLease,
+  releaseSessionLease: mocks.releaseSessionLease,
+  getSessionLease: mocks.getSessionLease,
+  canWriteSession: mocks.canWriteSession,
+  clearSessionLease: vi.fn(),
+}))
+
 vi.mock('../../../server/utils/logger.mjs', () => ({
   logger: mocks.logger,
 }))
@@ -105,6 +120,16 @@ vi.mock('../../../server/text-attachments.mjs', () => ({
 
 vi.mock('../../../server/utils/platform.mjs', () => ({
   openPathInFileManager: attachmentMocks.openPathInFileManager,
+}))
+
+const commandLogMocks = vi.hoisted(() => ({
+  isCommandLogPath: vi.fn(),
+  readCommandLog: vi.fn(),
+}))
+
+vi.mock('../../../server/utils/command-log.mjs', () => ({
+  isCommandLogPath: commandLogMocks.isCommandLogPath,
+  readCommandLog: commandLogMocks.readCommandLog,
 }))
 
 const fileBackupMocks = vi.hoisted(() => ({
@@ -278,6 +303,59 @@ describe('agent text attachment routes', () => {
     )).rejects.toMatchObject({ statusCode: 400, message: 'Invalid text attachment path' })
 
     expect(attachmentMocks.openPathInFileManager).not.toHaveBeenCalled()
+  })
+})
+
+describe('agent command log route', () => {
+  beforeEach(() => {
+    commandLogMocks.isCommandLogPath.mockReset()
+    commandLogMocks.readCommandLog.mockReset()
+  })
+
+  function getRequest() {
+    const req = Readable.from([])
+    req.method = 'GET'
+    req.headers = {}
+    return req
+  }
+
+  it('returns the log content for a path inside the command log root', async () => {
+    commandLogMocks.isCommandLogPath.mockReturnValue(true)
+    commandLogMocks.readCommandLog.mockResolvedValue({
+      path: 'C:\\qf\\logs\\commands\\a.log',
+      content: 'Command: npm run build',
+      size: 21,
+      mtimeMs: 1,
+      language: 'plaintext',
+      readonly: true,
+      totalLines: 1,
+      truncated: false,
+    })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await handleAgentApi(
+      getRequest(),
+      res,
+      new URL('http://localhost/api/agents/session-1/command-log?path=C%3A%5Cqf%5Clogs%5Ccommands%5Ca.log&limit=10'),
+    )
+
+    expect(commandLogMocks.readCommandLog).toHaveBeenCalledWith('C:\\qf\\logs\\commands\\a.log', { limit: '10', offset: null })
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ content: 'Command: npm run build', truncated: false })
+  })
+
+  it('rejects paths outside the command log root without reading them', async () => {
+    commandLogMocks.isCommandLogPath.mockReturnValue(false)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+
+    await expect(handleAgentApi(
+      getRequest(),
+      response(),
+      new URL('http://localhost/api/agents/session-1/command-log?path=C%3A%5CWindows%5Csystem.ini'),
+    )).rejects.toMatchObject({ statusCode: 400, message: 'Invalid command log path' })
+
+    expect(commandLogMocks.readCommandLog).not.toHaveBeenCalled()
   })
 })
 
@@ -842,6 +920,157 @@ describe('agent create route', () => {
     expect(config).not.toHaveProperty('persistedMessageCount')
     expect(config).not.toHaveProperty('persistedTailDigest')
     expect(config.scope).toBe('global')
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('session lease routes', () => {
+  beforeEach(() => {
+    mocks.acquireSessionLease.mockReset()
+    mocks.takeOverSessionLease.mockReset()
+    mocks.releaseSessionLease.mockReset()
+    mocks.getSessionLease.mockReset()
+    mocks.canWriteSession.mockReset()
+    mocks.runPrompt.mockReset()
+    mocks.acquireSessionLease.mockReturnValue({ ok: true, lease: { clientId: 'client-a' }, acquired: true })
+    mocks.takeOverSessionLease.mockReturnValue({ ok: true, lease: { clientId: 'client-a' }, acquired: true })
+    mocks.releaseSessionLease.mockReturnValue({ ok: true, released: true })
+    mocks.getSessionLease.mockReturnValue(null)
+    mocks.canWriteSession.mockReturnValue({ ok: true })
+  })
+
+  it('reports the current holder without mutating it', async () => {
+    mocks.getSessionLease.mockReturnValue({ clientId: 'client-a' })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request(undefined)
+    req.method = 'GET'
+
+    await handleAgentApi(
+      req,
+      res,
+      new URL('http://localhost/api/agents/session-1/lease'),
+      { isLocalRequest: true },
+    )
+
+    expect(mocks.getSessionLease).toHaveBeenCalledWith('session-1')
+    expect(mocks.acquireSessionLease).not.toHaveBeenCalled()
+    expect(JSON.parse(res.body)).toEqual({ sessionId: 'session-1', lease: { clientId: 'client-a' } })
+  })
+
+  it('acquires the lease from the client id header', async () => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request({})
+    req.headers = { 'x-quickforge-client-id': 'client-a' }
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1/lease'), { isLocalRequest: true })
+
+    expect(mocks.acquireSessionLease).toHaveBeenCalledWith('session-1', 'client-a')
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toMatchObject({ sessionId: 'session-1', acquired: true })
+  })
+
+  it('answers 409 with the holder when another client owns the lease', async () => {
+    mocks.acquireSessionLease.mockReturnValue({ ok: false, reason: 'held', lease: { clientId: 'client-b' }, holder: 'client-b' })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request({})
+    req.headers = { 'x-quickforge-client-id': 'client-a' }
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1/lease'), { isLocalRequest: true })
+
+    expect(res.status).toBe(409)
+    expect(JSON.parse(res.body)).toMatchObject({ code: 'SESSION_LEASE_HELD', sessionId: 'session-1' })
+  })
+
+  it('takes the lease over when the body asks for it', async () => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request({ takeover: true })
+    req.headers = { 'x-quickforge-client-id': 'client-b' }
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1/lease'), { isLocalRequest: true })
+
+    expect(mocks.takeOverSessionLease).toHaveBeenCalledWith('session-1', 'client-b')
+    expect(mocks.acquireSessionLease).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+  })
+
+  it('releases the lease for the requesting client', async () => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request(undefined)
+    req.method = 'DELETE'
+    req.headers = { 'x-quickforge-client-id': 'client-a' }
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1/lease'), { isLocalRequest: true })
+
+    expect(mocks.releaseSessionLease).toHaveBeenCalledWith('session-1', 'client-a')
+    expect(JSON.parse(res.body)).toEqual({ sessionId: 'session-1', released: true })
+  })
+
+  it('rejects a lease request without any client identity', async () => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await expect(handleAgentApi(
+      request({}),
+      res,
+      new URL('http://localhost/api/agents/session-1/lease'),
+      { isLocalRequest: true },
+    )).rejects.toMatchObject({ statusCode: 400, errorCode: 'SESSION_LEASE_CLIENT_ID_REQUIRED' })
+    expect(mocks.acquireSessionLease).not.toHaveBeenCalled()
+  })
+
+  it('blocks a write from a non-owner with 409 before touching the run', async () => {
+    mocks.canWriteSession.mockReturnValue({ ok: false, holder: 'client-b', lease: { clientId: 'client-b' } })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request({ message: 'hello' })
+    req.headers = { 'x-quickforge-client-id': 'client-a' }
+
+    await expect(handleAgentApi(
+      req,
+      res,
+      new URL('http://localhost/api/agents/session-1/prompt'),
+      { isLocalRequest: true },
+    )).rejects.toMatchObject({ statusCode: 409, errorCode: 'SESSION_LEASE_HELD', holder: 'client-b' })
+
+    // 关键：被守卫拦下时绝不能真的开跑。
+    expect(mocks.runPrompt).not.toHaveBeenCalled()
+    expect(res.status).toBe(0)
+  })
+
+  it('guards every mutating route with the same lease check', async () => {
+    mocks.canWriteSession.mockReturnValue({ ok: false, holder: 'client-b' })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+
+    for (const route of ['abort', 'title', 'access-mode', 'model', 'thinking-level', 'rollback', 'steer', 'follow-up', 'continue', 'goal']) {
+      const req = request(route === 'goal' ? { action: 'pause' } : { message: 'x' })
+      req.headers = { 'x-quickforge-client-id': 'client-a' }
+      await expect(handleAgentApi(
+        req,
+        response(),
+        new URL(`http://localhost/api/agents/session-1/${route}`),
+        { isLocalRequest: true },
+      )).rejects.toMatchObject({ errorCode: 'SESSION_LEASE_HELD' })
+    }
+
+    expect(mocks.canWriteSession).toHaveBeenCalledTimes(10)
+  })
+
+  it('lets the owner write through', async () => {
+    mocks.runPrompt.mockResolvedValue({ sessionId: 'session-1', status: 'running' })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request({ message: 'hello' })
+    req.headers = { 'x-quickforge-client-id': 'client-a' }
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1/prompt'), { isLocalRequest: true })
+
+    expect(mocks.canWriteSession).toHaveBeenCalledWith('session-1', 'client-a')
+    expect(mocks.runPrompt).toHaveBeenCalled()
     expect(res.status).toBe(200)
   })
 })

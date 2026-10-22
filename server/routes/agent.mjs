@@ -2,6 +2,7 @@ import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { createTextAttachment, isTextAttachmentPath } from '../text-attachments.mjs'
 import { getSessionTurnRollbackPreview, rollbackSessionTurn } from '../session-file-backups.mjs'
 import { openPathInFileManager } from '../utils/platform.mjs'
+import { isCommandLogPath, readCommandLog } from '../utils/command-log.mjs'
 import { logger } from '../utils/logger.mjs'
 import { resolveModelBinding } from '../model-catalog.mjs'
 import {
@@ -37,6 +38,13 @@ import {
   stripSplitSessionState,
   agentEvents,
 } from '../agent-manager.mjs'
+import {
+  acquireSessionLease,
+  takeOverSessionLease,
+  releaseSessionLease,
+  getSessionLease,
+  canWriteSession,
+} from '../agent-session-lease.mjs'
 import { isGoalAction } from '../agent-goal-state.mjs'
 
 // Restore-only config fields are produced by the restore path (persisted goal
@@ -56,6 +64,43 @@ function clientAgentConfig(body) {
   const config = { ...(body && typeof body === 'object' ? body : {}) }
   for (const field of RESTORE_ONLY_AGENT_CONFIG_FIELDS) delete config[field]
   return config
+}
+
+// --- Session write lease (see server/session-lease.mjs) ---
+
+/**
+ * Client identity for lease purposes. Sent as a header so every write route can
+ * be guarded without touching its request body; absent for non-browser callers
+ * (ACP, scheduled tasks, shared conversations), which therefore never hold or
+ * respect a lease and keep the pre-lease behaviour.
+ */
+const CLIENT_ID_HEADER = 'x-quickforge-client-id'
+
+function clientIdFromRequest(req) {
+  const raw = req?.headers?.[CLIENT_ID_HEADER]
+  const value = Array.isArray(raw) ? raw[0] : raw
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function leaseError(sessionId, holder) {
+  const error = new Error('This session is open for writing in another window')
+  error.statusCode = 409
+  error.errorCode = 'SESSION_LEASE_HELD'
+  error.sessionId = sessionId
+  error.holder = holder
+  return error
+}
+
+/**
+ * Reject a write from a client that does not own the session lease. Called at
+ * the top of every mutating route so the "check then act" gap that used to sit
+ * between `state.isStreaming` and `prompt()` cannot be exploited by a second
+ * window.
+ */
+function assertSessionWriteAccess(req, sessionId) {
+  const access = canWriteSession(sessionId, clientIdFromRequest(req))
+  if (access.ok) return
+  throw leaseError(sessionId, access.holder)
 }
 
 export async function handleAgentApi(req, res, url, context = {}) {
@@ -89,6 +134,56 @@ export async function handleAgentApi(req, res, url, context = {}) {
   }
 
   const subPath = parts.slice(3).join('/')
+
+  // --- /api/agents/:sessionId/lease — session write lease ---
+  // GET   read the current holder (never mutates)
+  // POST  acquire or renew for this client; `{ takeover: true }` force-takes
+  // DELETE release (only the holder may)
+  if (subPath === 'lease') {
+    if (req.method === 'GET') {
+      sendJson(res, 200, { sessionId, lease: getSessionLease(sessionId) })
+      return
+    }
+    if (req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const clientId = clientIdFromRequest(req) ?? (typeof body?.clientId === 'string' ? body.clientId : null)
+      if (!clientId) {
+        const error = new Error('Missing client id for session lease')
+        error.statusCode = 400
+        error.errorCode = 'SESSION_LEASE_CLIENT_ID_REQUIRED'
+        throw error
+      }
+      const result = body?.takeover === true
+        ? takeOverSessionLease(sessionId, clientId)
+        : acquireSessionLease(sessionId, clientId)
+      if (!result.ok) {
+        sendJson(res, 409, {
+          error: 'This session is open for writing in another window',
+          code: 'SESSION_LEASE_HELD',
+          sessionId,
+          lease: result.lease ?? getSessionLease(sessionId),
+        })
+        return
+      }
+      sendJson(res, 200, { sessionId, lease: result.lease, acquired: result.acquired === true })
+      return
+    }
+    if (req.method === 'DELETE') {
+      const clientId = clientIdFromRequest(req)
+      const result = releaseSessionLease(sessionId, clientId)
+      if (!result.ok) {
+        sendJson(res, 409, {
+          error: 'This session is open for writing in another window',
+          code: 'SESSION_LEASE_HELD',
+          sessionId,
+          lease: getSessionLease(sessionId),
+        })
+        return
+      }
+      sendJson(res, 200, { sessionId, released: result.released === true })
+      return
+    }
+  }
 
   // GET /api/agents/:sessionId/stream — SSE event stream
   // HEAD /api/agents/:sessionId/stream — check if SSE is available (200) or taken (409)
@@ -125,6 +220,25 @@ export async function handleAgentApi(req, res, url, context = {}) {
     return
   }
 
+  // GET /api/agents/:sessionId/command-log?path=<abs log> — read one command log.
+  // Command logs are the only files the tools write outside the workspace, so this
+  // endpoint reuses the same isCommandLogPath guard as the read_file tool instead
+  // of widening the /api/workspace/* path checks (those reject everything outside
+  // the project root with 403).
+  if (req.method === 'GET' && subPath === 'command-log') {
+    const filePath = url.searchParams.get('path') || ''
+    if (!isCommandLogPath(filePath)) {
+      const error = new Error('Invalid command log path')
+      error.statusCode = 400
+      throw error
+    }
+    sendJson(res, 200, await readCommandLog(filePath, {
+      limit: url.searchParams.get('limit'),
+      offset: url.searchParams.get('offset'),
+    }))
+    return
+  }
+
   // Per-turn rollback preview: a turn group (the original run's turn id plus
   // any retry run ids) without journaled writes returns an empty file list
   // (the frontend uses it to detect unsupported turns).
@@ -146,6 +260,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
   // (original run + retries) journaled writes; unsafe files are reported as
   // conflicts, not blockers.
   if (req.method === 'POST' && subPath === 'rollback-turn') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const turnIds = body?.turnIds
     if (!Array.isArray(turnIds) || !turnIds.length || turnIds.some((id) => typeof id !== 'string' || !id)) {
@@ -164,6 +279,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // POST /api/agents/:sessionId/prompt — send user message
   if (req.method === 'POST' && subPath === 'prompt') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const message = body?.message
     if (!message) {
@@ -178,6 +294,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // POST /api/agents/:sessionId/goal — goal mode action (confirm/pause/resume/cancel/revise/accept)
   if (req.method === 'POST' && subPath === 'goal') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const action = body?.action
     if (!isGoalAction(action)) {
@@ -217,6 +334,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // POST /api/agents/:sessionId/abort — abort current run
   if (req.method === 'POST' && subPath === 'abort') {
+    assertSessionWriteAccess(req, sessionId)
     const result = await abortRun(sessionId)
     sendJson(res, 200, result)
     return
@@ -349,6 +467,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // POST /api/agents/:sessionId/title — update the authoritative session title
   if (req.method === 'POST' && subPath === 'title') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const result = await updateSessionTitle(sessionId, body?.title)
     sendJson(res, 200, result)
@@ -357,6 +476,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // POST /api/agents/:sessionId/access-mode — update session Agent access mode
   if (req.method === 'POST' && subPath === 'access-mode') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const result = await updateSessionAccessMode(sessionId, body?.accessMode)
     sendJson(res, 200, result)
@@ -365,6 +485,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // POST /api/agents/:sessionId/yolo-mode — legacy compatibility for old clients
   if (req.method === 'POST' && subPath === 'yolo-mode') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const result = await updateSessionYoloMode(sessionId, body?.yoloMode === true)
     sendJson(res, 200, result)
@@ -373,6 +494,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // POST /api/agents/:sessionId/model — update session model
   if (req.method === 'POST' && subPath === 'model') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     let state = getSessionState(sessionId)
     if (!state) {
@@ -394,6 +516,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // POST /api/agents/:sessionId/thinking-level — update session thinking level
   if (req.method === 'POST' && subPath === 'thinking-level') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const thinkingLevel = body?.thinkingLevel
     if (!thinkingLevel) {
@@ -408,6 +531,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // POST /api/agents/:sessionId/rollback — roll back from a message index on the authoritative server state
   if (req.method === 'POST' && subPath === 'rollback') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const result = await rollbackSessionMessages(sessionId, body?.messageIndex)
     sendJson(res, 200, { ok: true, rollbackIndex: result.rollbackIndex, session: result.session })
@@ -418,6 +542,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
   // An optional body { message } retries by appending that user message instead of
   // trimming the transcript, used when the failed turn already produced tool results.
   if (req.method === 'POST' && subPath === 'continue') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const result = await continueSession(sessionId, context, body?.message)
     sendJson(res, 200, result)
@@ -426,6 +551,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // POST /api/agents/:sessionId/steer — queue steering message
   if (req.method === 'POST' && subPath === 'steer') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const message = body?.message
     if (!message) {
@@ -440,6 +566,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // POST /api/agents/:sessionId/follow-up — queue follow-up message
   if (req.method === 'POST' && subPath === 'follow-up') {
+    assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const message = body?.message
     if (!message) {

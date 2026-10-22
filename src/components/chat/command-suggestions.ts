@@ -77,6 +77,13 @@ export function createCommandSuggestions({
   let menuOpenAtLastUpdate = false
   let menuDismissedUntilExplicitUpdate = false
   let documentDismissHandler: ((event: Event) => void) | null = null
+  /**
+   * Signature of the menu DOM currently in the document (query + matched entry
+   * names + loading flag). While it stays the same, `update()` is a no-op: see
+   * the reconcile block in `update` for why rebuilding per keystroke hurt.
+   * Cleared by `removeMenu()` so a re-open always renders fresh.
+   */
+  let renderedSignature: string | null = null
 
   // Slash 选中态 chip 子系统（方案 A）：选中技能/子智能体后输入框内联 chip 覆盖层。
   const chip = createSlashInvocationChip({ panel })
@@ -131,6 +138,8 @@ export function createCommandSuggestions({
     const suggestions = suggestionsElement()
     if (suggestions) suggestions.__quickforgeDismissHandler = undefined
     suggestions?.remove()
+    // The rendered DOM is gone, so the next open must rebuild.
+    renderedSignature = null
     menuOpenAtLastUpdate = false
   }
 
@@ -386,6 +395,22 @@ export function createCommandSuggestions({
       removeMenu()
       return
     }
+
+    // Reconcile by signature instead of rebuilding unconditionally.
+    //
+    // `update()` runs on EVERY keystroke while the composer starts with "/", and
+    // the old body did `innerHTML = ''` + re-create every group head, row, kbd
+    // and icon, then re-query all rows for `setActiveRow`. Typing a long
+    // command meant hundreds of node allocations per character, plus a
+    // `{childList, subtree}` mutation burst for the panel-wide decoration
+    // observer. The rendered DOM only depends on (query, matched entries,
+    // loading), so an unchanged signature is a no-op: the existing rows already
+    // show the same highlight and the same entries.
+    const signature = `${loading ? '1' : '0'}\u0000${query}\u0000${groups
+      .map((group) => `${group.key}:${group.entries.map((entry) => entry.name).join(',')}`)
+      .join('|')}`
+    if (existing && renderedSignature === signature) return
+    renderedSignature = signature
 
     const suggestions = existing ?? document.createElement('div') as CommandSuggestionElement
     suggestions.className = 'quickforge-command-suggestions'

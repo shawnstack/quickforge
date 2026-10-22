@@ -161,6 +161,30 @@ describe('workspace inspector tabs persistence', () => {
     ])
   })
 
+  it('drops command-log reader tabs from persistence because logs live outside the workspace', () => {
+    const logPath = 'C:\\Users\\me\\.quickforge\\logs\\commands\\a.log'
+    const tabs: WorkspacePanelTab[] = [
+      { id: 'files-1', kind: 'files', readerTabs: [], activeReaderTabId: undefined },
+      {
+        id: 'reader-2',
+        kind: 'reader',
+        activeReaderTabId: `file:${logPath}`,
+        readerTabs: [{ id: `file:${logPath}`, mode: 'file', path: logPath, source: 'command-log', sessionId: 'session-a', label: 'npm run build', loading: false }],
+      },
+    ]
+
+    expect(serializePanelTabs(tabs, 'reader-2').tabs).toEqual([
+      { id: 'files-1', kind: 'files' },
+    ])
+    // 工作区文件 reader 仍然可恢复（对照）。
+    expect(serializePanelTabs([{
+      id: 'reader-3',
+      kind: 'reader',
+      activeReaderTabId: 'file:src/a.ts',
+      readerTabs: [{ id: 'file:src/a.ts', mode: 'file', path: 'src/a.ts', loading: false }],
+    }], 'reader-3').tabs).toEqual([{ id: 'reader-3', kind: 'reader', reader: { mode: 'file', path: 'src/a.ts' } }])
+  })
+
   it('drops invalid entries and deduplicates review tabs', () => {
     expect(normalizePersistedPanelTabs([
       null,

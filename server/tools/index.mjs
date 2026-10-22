@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { resolveWorkspacePath, toWorkspaceRelative, assertSafeWorkspacePath, truncateText, splitLines, walkFiles } from '../utils/workspace.mjs'
 import { resolveRipgrepExecutable } from '../utils/ripgrep.mjs'
 import { logsDir } from '../storage.mjs'
+import { isCommandLogPath } from '../utils/command-log.mjs'
 import { createTextDiff } from '../utils/text-diff.mjs'
 import {
   formatSkillActivation,
@@ -21,13 +22,6 @@ import { backupFileBeforeWrite, recordFileAfterWrite } from '../session-file-bac
 import { withSessionFileLock } from '../session-file-lock.mjs'
 
 // --- read_file ---
-function isCommandLogPath(candidate) {
-  const root = path.resolve(logsDir, 'commands')
-  const resolved = path.resolve(candidate)
-  const relative = path.relative(root, resolved)
-  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative) && resolved.endsWith('.log')
-}
-
 export async function toolReadFile(params, context) {
   const requestedPath = String(params?.path || '')
   const commandLog = path.isAbsolute(requestedPath) && isCommandLogPath(requestedPath)
@@ -988,14 +982,19 @@ export async function toolRunCommand(params, context, runtime = {}) {
   }
 
   return new Promise((resolve) => {
+    // Windows: DETACHED_PROCESS makes CREATE_NO_WINDOW (windowsHide) a no-op, so
+    // cmd.exe allocates a fresh console and the default terminal app shows a
+    // visible window. Keep detached off on Windows and let unref() provide the
+    // "call returned, process keeps running" semantics; taskkill /T handles the
+    // process tree without needing a process group. Non-Windows keeps detached
+    // because killProcessTree signals the whole group via process.kill(-pid).
+    const spawnDetached = process.platform !== 'win32'
     const child = spawn(command, {
       cwd,
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
-      // Foreground commands stay attached to this process. Background commands
-      // are detached so a long run does not keep the tool call or event loop open.
-      detached: runInBackground || process.platform !== 'win32',
+      detached: spawnDetached,
     })
     if (runInBackground) child.unref?.()
 
@@ -1251,7 +1250,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
     const started = commonDetails({
       running: true,
       background: true,
-      detached: true,
+      detached: spawnDetached,
       pid: child.pid ?? null,
     })
     try {

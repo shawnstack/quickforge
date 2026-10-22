@@ -3402,6 +3402,75 @@ html.dark .quickforge-file-path-link {
   background: #d97706;
 }
 
+/* Session write lease: read-only observer strip, pinned above the composer.
+   Amber/informational tone (same family as the unreachable strip) because this
+   is a state notice, not an error; the takeover button is the only action. */
+.quickforge-lease-strip {
+  margin: 0 auto 0.5rem;
+  max-width: 48rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid color-mix(in oklab, #d97706 32%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in oklab, #d97706 7%, var(--background));
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.quickforge-lease-strip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.quickforge-lease-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  flex: none;
+  border-radius: 9999px;
+  background: #d97706;
+}
+
+.quickforge-lease-strip-title {
+  font-weight: 500;
+}
+
+.quickforge-lease-strip-sub {
+  color: color-mix(in oklab, var(--foreground) 62%, transparent);
+}
+
+.quickforge-lease-strip-spacer {
+  flex: 1 1 auto;
+}
+
+.quickforge-lease-takeover {
+  flex: none;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid color-mix(in oklab, #d97706 45%, var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.quickforge-lease-takeover:hover:not(:disabled) {
+  background: color-mix(in oklab, #d97706 14%, transparent);
+}
+
+.quickforge-lease-takeover:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.quickforge-lease-holder {
+  display: block;
+  margin-top: 0.25rem;
+  color: color-mix(in oklab, var(--foreground) 52%, transparent);
+  font-size: 0.6875rem;
+}
+
 .quickforge-context-compaction-copy svg {
   width: 0.85rem;
   height: 0.85rem;
@@ -5143,10 +5212,6 @@ html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
   color: #d97706 !important;
 }
 
-.quickforge-composer-left-controls {
-  position: relative;
-}
-
 .quickforge-agent-access-trigger-icon,
 .quickforge-agent-access-chevron {
   flex: 0 0 auto;
@@ -5378,7 +5443,8 @@ html.dark .quickforge-subagent-running-badge {
   gap: 0.25rem;
 }
 
-.quickforge-background-command-stop {
+.quickforge-background-command-stop,
+.quickforge-background-command-log {
   flex: 0 0 auto;
   border-radius: 999px;
   padding: 0.2rem 0.55rem;
@@ -5387,9 +5453,15 @@ html.dark .quickforge-subagent-running-badge {
 }
 
 .quickforge-background-command-stop:hover,
-.quickforge-background-command-stop:focus-visible {
+.quickforge-background-command-stop:focus-visible,
+.quickforge-background-command-log:hover,
+.quickforge-background-command-log:focus-visible {
   background: color-mix(in oklab, var(--muted) 72%, transparent);
   color: var(--foreground);
+}
+
+.quickforge-background-command-log[hidden] {
+  display: none;
 }
 
 .quickforge-subagent-running-task {

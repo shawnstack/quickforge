@@ -1,145 +1,31 @@
+// @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
+import { act, createElement } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// --- Fake DOM（与 reconnect-notice 测试同模式，补 before/nextElementSibling） ---
+import {
+  UnreachableStrip,
+  formatUnreachableDuration,
+  unreachableHelpRows,
+} from '../../src/components/chat/surface/ConnectionNotices'
+import type { SseConnectionStatus } from '../../src/lib/server-agent'
 
-class FakeElement {
-  tagName: string
-  className = ''
-  children: FakeElement[] = []
-  parentElement: FakeElement | null = null
-  attributes = new Map<string, string>()
-  dataset: Record<string, string> = {}
-  textContent: string | null = null
-  private listeners = new Map<string, Set<() => void>>()
+/**
+ * The Tier-2 unreachable strip used to be a controller
+ * (`panel-decoration/unreachable-strip.ts`) that built the row by hand, pinned
+ * it before the composer dock and re-inserted it whenever a decoration pass
+ * found it missing. React renders it now, so these cases drive the component
+ * with connection statuses and assert the rendered strip.
+ */
 
-  constructor(tag = 'div') {
-    this.tagName = tag
-  }
-
-  get classList() {
-    return {
-      add: (token: string) => {
-        const tokens = this.className ? this.className.split(/\s+/) : []
-        if (!tokens.includes(token)) tokens.push(token)
-        this.className = tokens.join(' ')
-      },
-      remove: (token: string) => {
-        const tokens = this.className ? this.className.split(/\s+/) : []
-        this.className = tokens.filter((item) => item !== token).join(' ')
-      },
-      contains: (token: string) => this.classListTokens().includes(token),
-    }
-  }
-
-  classListTokens(): string[] {
-    return this.className ? this.className.split(/\s+/) : []
-  }
-
-  setAttribute(name: string, value: string) {
-    this.attributes.set(name, value)
-  }
-
-  getAttribute(name: string) {
-    return this.attributes.get(name) ?? null
-  }
-
-  append(...nodes: FakeElement[]) {
-    for (const node of nodes) {
-      node.remove()
-      node.parentElement = this
-      this.children.push(node)
-    }
-  }
-
-  replaceChildren(...nodes: FakeElement[]) {
-    for (const child of this.children) child.parentElement = null
-    this.children = []
-    this.append(...nodes)
-  }
-
-  remove() {
-    if (!this.parentElement) return
-    this.parentElement.children = this.parentElement.children.filter((child) => child !== this)
-    this.parentElement = null
-  }
-
-  before(node: FakeElement) {
-    const parent = this.parentElement
-    if (!parent) return
-    node.remove()
-    node.parentElement = parent
-    parent.children.splice(parent.children.indexOf(this), 0, node)
-  }
-
-  get nextElementSibling(): FakeElement | null {
-    if (!this.parentElement) return null
-    const index = this.parentElement.children.indexOf(this)
-    return this.parentElement.children[index + 1] ?? null
-  }
-
-  addEventListener(type: string, listener: () => void) {
-    const set = this.listeners.get(type) ?? new Set<() => void>()
-    set.add(listener)
-    this.listeners.set(type, set)
-  }
-
-  click() {
-    for (const listener of this.listeners.get('click') ?? []) listener()
-  }
-
-  matches(selector: string): boolean {
-    if (selector.startsWith('.')) return this.classListTokens().includes(selector.slice(1))
-    return this.tagName === selector
-  }
-
-  querySelector(selector: string): FakeElement | null {
-    if (this.matches(selector)) return this
-    for (const child of this.children) {
-      const match = child.querySelector(selector)
-      if (match) return match
-    }
-    return null
-  }
-
-  querySelectorAll(selector: string): FakeElement[] {
-    const matches: FakeElement[] = []
-    if (this.matches(selector)) matches.push(this)
-    for (const child of this.children) matches.push(...child.querySelectorAll(selector))
-    return matches
-  }
-}
-
-// --- Module mocks -----------------------------------------------------------
-
-type MockStatus =
-  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number; unreachable?: boolean; unreachableSince?: number }
-  | { status: 'connected'; recovered: boolean; restarted?: boolean }
-  | { status: 'failed'; maxAttempts: number }
-
-const connectionState = vi.hoisted(() => ({
-  current: null as MockStatus | null,
-  listeners: new Set<(status: MockStatus) => void>(),
-  retryNowCalls: 0,
-  emit(status: MockStatus) {
-    this.current = status
-    for (const listener of [...this.listeners]) listener(status)
-  },
-  reset() {
-    this.current = null
-    this.listeners.clear()
-    this.retryNowCalls = 0
-  },
-}))
+const connectionState = vi.hoisted(() => ({ retryNowCalls: 0 }))
 
 const env = vi.hoisted(() => ({ desktopBodyClass: false, mobileShell: false, remoteClient: false }))
 
 vi.mock('@/lib/server-agent', () => ({
-  getSseConnectionState: () => connectionState.current,
-  subscribeSseConnectionState: (handler: (status: MockStatus) => void) => {
-    connectionState.listeners.add(handler)
-    return () => connectionState.listeners.delete(handler)
-  },
+  getSseConnectionState: () => null,
+  subscribeSseConnectionState: () => () => {},
   requestSseReconnectNow: () => {
     connectionState.retryNowCalls += 1
   },
@@ -167,258 +53,227 @@ vi.mock('@/lib/i18n', () => ({
   },
 }))
 
-// --- Source contracts -------------------------------------------------------
+// Source reads use cwd-relative paths: under jsdom `import.meta.url` is not a file URL.
+const hostSource = readFileSync('src/components/chat/ChatPanelHost.tsx', 'utf8')
+const surfaceSource = readFileSync('src/components/chat/surface/ChatSurface.tsx', 'utf8')
+const noticesSource = readFileSync('src/components/chat/surface/ConnectionNotices.tsx', 'utf8')
+const barrelSource = readFileSync('src/components/chat/panel-decoration.ts', 'utf8')
+const cssSource = readFileSync('src/index.css', 'utf8')
 
-const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
-const stripSource = readFileSync(new URL('../../src/components/chat/panel-decoration/unreachable-strip.ts', import.meta.url), 'utf8')
-const barrelSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
-const noticeSource = readFileSync(new URL('../../src/components/chat/panel-decoration/reconnect-notice.ts', import.meta.url), 'utf8')
-const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
-
-/** Composer 真实 DOM：panel > [message-list, dock > shell > message-editor]。 */
-function buildPanel() {
-  const panel = new FakeElement()
-  const messageList = Object.assign(new FakeElement('div'), { className: 'qf-message-list' })
-  const dock = new FakeElement('div')
-  const shell = new FakeElement('div')
-  const editor = Object.assign(new FakeElement('div'), { className: 'qf-message-editor' })
-  panel.append(messageList, dock)
-  dock.append(shell)
-  shell.append(editor)
-  return { panel, messageList, dock, shell, editor }
-}
-
-async function createController(panel: FakeElement) {
-  const { createUnreachableStripController } = await import('@/components/chat/panel-decoration/unreachable-strip')
-  return createUnreachableStripController({ panel: panel as unknown as HTMLElement })
-}
-
-function emitUnreachable(since: number, nextRetryInMs = 60000) {
-  connectionState.emit({
+function reconnectingUnreachable(since: number, nextRetryInMs = 60000): SseConnectionStatus {
+  return {
     status: 'reconnecting',
     attempt: 2,
     maxAttempts: 10,
     nextRetryAt: Date.now() + nextRetryInMs,
     unreachable: true,
     unreachableSince: since,
-  })
+  }
 }
 
-describe('unreachable strip controller', () => {
+describe('unreachable strip rendering', () => {
+  let container: HTMLDivElement
+  let root: Root
+
   beforeEach(() => {
-    vi.stubGlobal('window', { __quickforgeDesktopApp: false })
-    vi.stubGlobal('document', {
-      createElement: () => new FakeElement(),
-      body: { classList: { contains: (token: string) => token === 'quickforge-desktop-app' && env.desktopBodyClass } },
-    })
-    connectionState.reset()
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    connectionState.retryNowCalls = 0
     env.desktopBodyClass = false
     env.mobileShell = false
     env.remoteClient = false
+    if (typeof window !== 'undefined') {
+      (window as Window & { __quickforgeDesktopApp?: boolean }).__quickforgeDesktopApp = false
+    }
+    vi.useFakeTimers()
   })
 
   afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
     vi.useRealTimers()
-    vi.unstubAllGlobals()
   })
 
-  it('stays hidden while not unreachable (plain reconnecting / recovery)', async () => {
-    const { panel } = buildPanel()
-    const controller = await createController(panel)
+  function render(status: SseConnectionStatus | null) {
+    act(() => {
+      root.render(createElement(UnreachableStrip, { status }))
+    })
+  }
 
-    connectionState.emit({ status: 'reconnecting', attempt: 1, maxAttempts: 10, nextRetryAt: Date.now() + 4000 })
-    connectionState.emit({ status: 'connected', recovered: true })
-    connectionState.emit({ status: 'failed', maxAttempts: 10 })
+  const strip = () => container.querySelector<HTMLElement>('.quickforge-unreachable-strip')
+  const title = () => container.querySelector<HTMLElement>('.quickforge-unreachable-strip-title')
+  const sub = () => container.querySelector<HTMLElement>('.quickforge-unreachable-strip-sub')
 
-    expect(panel.querySelector('.quickforge-unreachable-strip')).toBeNull()
-    controller.destroy()
+  it('stays hidden while not unreachable (plain reconnecting / recovery)', () => {
+    render({ status: 'reconnecting', attempt: 1, maxAttempts: 10, nextRetryAt: Date.now() + 4000 })
+    expect(strip()).toBeNull()
+
+    render({ status: 'connected', recovered: true })
+    expect(strip()).toBeNull()
+
+    render({ status: 'failed', maxAttempts: 10 })
+    expect(strip()).toBeNull()
   })
 
-  it('stays hidden below 30s and appears at the threshold without further broadcasts', async () => {
-    vi.useFakeTimers()
-    const { panel } = buildPanel()
-    const controller = await createController(panel)
+  it('stays hidden below 30s and appears at the threshold without further broadcasts', () => {
+    const since = Date.now()
+    render(reconnectingUnreachable(since))
+    expect(strip()).toBeNull()
 
-    emitUnreachable(Date.now())
-    expect(panel.querySelector('.quickforge-unreachable-strip')).toBeNull()
+    act(() => { vi.advanceTimersByTime(29999) })
+    expect(strip()).toBeNull()
 
-    vi.advanceTimersByTime(29999)
-    expect(panel.querySelector('.quickforge-unreachable-strip')).toBeNull()
-
-    // 无新广播：自持 1s tick 在 30s 到点时自动出现。
-    vi.advanceTimersByTime(1)
-    const strip = panel.querySelector('.quickforge-unreachable-strip')!
-    expect(strip).not.toBeNull()
-    expect(strip.getAttribute('role')).toBe('alert')
-
-    // 插在 composer dock 之前（滚动容器外、任何滚动位置可见）。
-    expect(strip.parentElement).toBe(panel)
-    expect(strip.nextElementSibling?.querySelector('.qf-message-editor')).not.toBeNull()
-
-    controller.destroy()
+    // No new broadcast: the shared 1s tick crosses the threshold on its own.
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(strip()).not.toBeNull()
+    expect(strip()!.getAttribute('role')).toBe('alert')
   })
 
-  it('formats the outage duration as 45s then 1m 05s', async () => {
-    vi.useFakeTimers()
-    const { panel } = buildPanel()
-    const controller = await createController(panel)
+  it('formats the outage duration as 45s then 1m 05s', () => {
+    render(reconnectingUnreachable(Date.now()))
 
-    emitUnreachable(Date.now())
-    vi.advanceTimersByTime(30000)
-    const title = () => panel.querySelector('.quickforge-unreachable-strip-title')!.textContent
-    const sub = () => panel.querySelector('.quickforge-unreachable-strip-sub')!.textContent
+    act(() => { vi.advanceTimersByTime(30000) })
+    act(() => { vi.advanceTimersByTime(15000) })
+    expect(title()!.textContent).toBe('Local service unreachable for 45s')
+    expect(sub()!.textContent).toMatch(/Health check failed · retrying in \d+s/)
 
-    vi.advanceTimersByTime(15000)
-    expect(title()).toBe('Local service unreachable for 45s')
-    expect(sub()).toMatch(/Health check failed · retrying in \d+s/)
-
-    vi.advanceTimersByTime(20000)
-    expect(title()).toBe('Local service unreachable for 1m 05s')
-
-    controller.destroy()
+    act(() => { vi.advanceTimersByTime(20000) })
+    expect(title()!.textContent).toBe('Local service unreachable for 1m 05s')
   })
 
-  it('expands and collapses the recovery guide and keeps the state across sync remounts', async () => {
-    vi.useFakeTimers()
-    const { panel } = buildPanel()
-    const controller = await createController(panel)
+  it('expands and collapses the recovery guide', () => {
+    render(reconnectingUnreachable(Date.now()))
+    act(() => { vi.advanceTimersByTime(30000) })
 
-    emitUnreachable(Date.now())
-    vi.advanceTimersByTime(30000)
-    const strip = panel.querySelector('.quickforge-unreachable-strip')!
-    const help = strip.querySelector('.quickforge-unreachable-strip-help')!
-    const toggle = strip.querySelector('.quickforge-unreachable-help-toggle')!
-    expect(help.getAttribute('data-open')).toBe('false')
-    expect(strip.querySelectorAll('.quickforge-unreachable-strip-help-row')).toHaveLength(2)
+    const help = () => container.querySelector<HTMLElement>('.quickforge-unreachable-strip-help')!
+    const toggle = () => container.querySelector<HTMLButtonElement>('.quickforge-unreachable-help-toggle')!
+    expect(help().dataset.open).toBe('false')
+    expect(container.querySelectorAll('.quickforge-unreachable-strip-help-row')).toHaveLength(2)
 
-    toggle.click()
-    expect(help.getAttribute('data-open')).toBe('true')
-    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    act(() => { toggle().click() })
+    expect(help().dataset.open).toBe('true')
+    expect(toggle().getAttribute('aria-expanded')).toBe('true')
+    expect(toggle().textContent).toContain('⌃')
 
-    // 模拟 重建：条被移除后 decorate 周期 sync() 重新插回，展开状态保留。
-    strip.remove()
-    controller.sync()
-    const rebuilt = panel.querySelector('.quickforge-unreachable-strip')!
-    expect(rebuilt).not.toBe(strip)
-    expect(rebuilt.querySelector('.quickforge-unreachable-strip-help')!.getAttribute('data-open')).toBe('true')
+    // Re-render (a status tick) must not collapse the guide: the open flag is
+    // component state, which is exactly what the controller had to restore by
+    // hand after a list rebuild.
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(help().dataset.open).toBe('true')
 
-    rebuilt.querySelector('.quickforge-unreachable-help-toggle')!.click()
-    expect(rebuilt.querySelector('.quickforge-unreachable-strip-help')!.getAttribute('data-open')).toBe('false')
-
-    controller.destroy()
+    act(() => { toggle().click() })
+    expect(help().dataset.open).toBe('false')
+    expect(toggle().textContent).toContain('⌄')
   })
 
-  it('shows only the environment-specific action plus the logs row', async () => {
-    vi.useFakeTimers()
-    const rows = async (): Promise<string[]> => {
-      const { panel } = buildPanel()
-      const controller = await createController(panel)
-      emitUnreachable(Date.now())
-      vi.advanceTimersByTime(30000)
-      const texts = panel.querySelector('.quickforge-unreachable-strip')!
-        .querySelectorAll('.quickforge-unreachable-strip-help-row')
-        .map((row) => row.textContent!.slice(2))
-      controller.destroy()
-      return texts
+  it('shows only the environment-specific action plus the logs row', () => {
+    const rowTexts = () => Array.from(container.querySelectorAll('.quickforge-unreachable-strip-help-row'))
+      .map((row) => row.textContent!.slice(2))
+    const remount = () => {
+      act(() => root.unmount())
+      root = createRoot(container)
+      render(reconnectingUnreachable(Date.now()))
+      act(() => { vi.advanceTimersByTime(30000) })
     }
 
-    // 默认（浏览器/CLI）：仅 CLI 动作行 + 日志行，不整列其他环境。
-    expect(await rows()).toEqual([
+    render(reconnectingUnreachable(Date.now()))
+    act(() => { vi.advanceTimersByTime(30000) })
+    // Default (browser / CLI): CLI action + logs only, never all three.
+    expect(rowTexts()).toEqual([
       'Run qf restart',
       'Server logs: ~/.quickforge/logs/',
     ])
 
-    // 桌面应用（body class quickforge-desktop-app）：换为 Desktop 动作行。
-    env.desktopBodyClass = true
-    expect(await rows()).toEqual([
-      'Restart the QuickForge app',
-      'Server logs: ~/.quickforge/logs/',
-    ])
+    // Desktop app: the body class marks it (checked before the UA fallback).
+    document.body.classList.add('quickforge-desktop-app')
+    try {
+      remount()
+      expect(rowTexts()).toEqual([
+        'Restart the QuickForge app',
+        'Server logs: ~/.quickforge/logs/',
+      ])
+    } finally {
+      document.body.classList.remove('quickforge-desktop-app')
+    }
 
-    // 移动壳/远程客户端：换为 Remote 动作行。
-    env.desktopBodyClass = false
+    // Mobile shell / remote client: the remote action row.
     env.mobileShell = true
-    expect(await rows()).toEqual([
+    remount()
+    expect(rowTexts()).toEqual([
       'Check the host and Tailscale connection',
       'Server logs: ~/.quickforge/logs/',
     ])
   })
 
-  it('retry button calls requestSseReconnectNow', async () => {
-    vi.useFakeTimers()
-    const { panel } = buildPanel()
-    const controller = await createController(panel)
+  it('retry button calls requestSseReconnectNow', () => {
+    render(reconnectingUnreachable(Date.now()))
+    act(() => { vi.advanceTimersByTime(30000) })
 
-    emitUnreachable(Date.now())
-    vi.advanceTimersByTime(30000)
-    const strip = panel.querySelector('.quickforge-unreachable-strip')!
-    const retry = strip.querySelector('.quickforge-reconnect-retry')!
-    expect(retry).not.toBeNull()
-    retry.click()
+    act(() => { container.querySelector<HTMLButtonElement>('.quickforge-reconnect-retry')!.click() })
     expect(connectionState.retryNowCalls).toBe(1)
-
-    controller.destroy()
   })
 
-  it('removes the strip on recovery and stops ticking', async () => {
-    vi.useFakeTimers()
-    const { panel } = buildPanel()
-    const controller = await createController(panel)
+  it('unmounts the strip on recovery', () => {
+    render(reconnectingUnreachable(Date.now()))
+    act(() => { vi.advanceTimersByTime(30000) })
+    expect(strip()).not.toBeNull()
 
-    emitUnreachable(Date.now())
-    vi.advanceTimersByTime(30000)
-    expect(panel.querySelector('.quickforge-unreachable-strip')).not.toBeNull()
+    render({ status: 'connected', recovered: true, restarted: true })
+    expect(strip()).toBeNull()
 
-    connectionState.emit({ status: 'connected', recovered: true, restarted: true })
-    expect(panel.querySelector('.quickforge-unreachable-strip')).toBeNull()
+    // No pending interval survives the unmount.
+    act(() => { vi.advanceTimersByTime(60000) })
+    expect(strip()).toBeNull()
+  })
+})
 
-    // 恢复后 interval 清理，时间推进不再重建。
-    vi.advanceTimersByTime(60000)
-    expect(panel.querySelector('.quickforge-unreachable-strip')).toBeNull()
-    expect(vi.getTimerCount()).toBe(0)
-
-    controller.destroy()
+describe('unreachable strip helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
-  it('destroy unsubscribes, clears the interval and removes the strip', async () => {
-    vi.useFakeTimers()
-    const { panel } = buildPanel()
-    const controller = await createController(panel)
+  it('formats durations under and over a minute', () => {
+    expect(formatUnreachableDuration(45_000)).toBe('45s')
+    expect(formatUnreachableDuration(65_000)).toBe('1m 05s')
+    expect(formatUnreachableDuration(0)).toBe('0s')
+    expect(formatUnreachableDuration(-500)).toBe('0s')
+  })
 
-    emitUnreachable(Date.now())
-    vi.advanceTimersByTime(30000)
-    expect(panel.querySelector('.quickforge-unreachable-strip')).not.toBeNull()
+  it('picks the help row for the detected environment', () => {
+    expect(unreachableHelpRows()).toEqual(['cli', 'logs'])
 
-    controller.destroy()
-    expect(panel.querySelector('.quickforge-unreachable-strip')).toBeNull()
-    expect(vi.getTimerCount()).toBe(0)
+    document.body.classList.add('quickforge-desktop-app')
+    try {
+      expect(unreachableHelpRows()).toEqual(['desktop', 'logs'])
+    } finally {
+      document.body.classList.remove('quickforge-desktop-app')
+    }
 
-    // 后续广播不再生效。
-    connectionState.emit({ status: 'reconnecting', attempt: 3, maxAttempts: 10, nextRetryAt: Date.now() + 1000, unreachable: true, unreachableSince: Date.now() - 60000 })
-    vi.advanceTimersByTime(60000)
-    expect(panel.querySelector('.quickforge-unreachable-strip')).toBeNull()
+    env.mobileShell = true
+    expect(unreachableHelpRows()).toEqual(['remote', 'logs'])
+    env.mobileShell = false
   })
 })
 
 describe('unreachable strip source contracts', () => {
-  it('ChatPanelHost wires the strip with side-chat isolation, sync and cleanup', () => {
-    expect(hostSource).toContain('createUnreachableStripController')
-    expect(hostSource).toContain('const unreachableStrip = sideChatMode ? null : createUnreachableStripController({ panel })')
-    expect(hostSource).toContain('unreachableStrip?.sync()')
-    expect(hostSource).toContain('unreachableStrip?.destroy()')
+  it('the surface renders the strip; the host no longer owns a controller', () => {
+    expect(surfaceSource).toContain('<UnreachableStrip status={connectionStatus} />')
+    expect(hostSource).not.toContain('createUnreachableStripController')
   })
 
-  it('barrel exports the controller; the threshold constant is shared with reconnect-notice', () => {
-    expect(barrelSource).toContain("export type { UnreachableStripController } from './panel-decoration/unreachable-strip'")
-    expect(barrelSource).toContain("export { createUnreachableStripController, UNREACHABLE_STRIP_AFTER_MS } from './panel-decoration/unreachable-strip'")
-    expect(noticeSource).toContain("import { UNREACHABLE_STRIP_AFTER_MS } from './unreachable-strip'")
+  it('the barrel no longer exports the removed controller', () => {
+    expect(barrelSource).not.toContain('unreachable-strip')
   })
 
-  it('builds every node with createElement/textContent (no innerHTML except the static SVG)', () => {
-    expect(stripSource).toContain('.before(strip)')
-    const innerHtmlLines = stripSource.split('\n').filter((line) => line.includes('.innerHTML ='))
-    expect(innerHtmlLines).toHaveLength(1)
-    expect(innerHtmlLines[0].trim()).toBe('icon.innerHTML = WARN_SVG')
+  it('the tier threshold lives with the notices that use it', () => {
+    expect(noticesSource).toContain('export const UNREACHABLE_STRIP_AFTER_MS = 30000')
+  })
+
+  it('the strip is JSX text, never raw HTML', () => {
+    expect(noticesSource).not.toContain('dangerouslySetInnerHTML')
+    expect(noticesSource).not.toContain('.innerHTML =')
   })
 
   it('styles define the strip, tier-1 unreachable state and reduced motion off', () => {

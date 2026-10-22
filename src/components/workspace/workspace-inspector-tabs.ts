@@ -4,10 +4,23 @@ import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
 
 export type ReaderMode = 'file' | 'diff' | 'browser'
 
+/**
+ * file reader 的内容来源：
+ * - `workspace`（默认）：项目内文件，走 `/api/workspace/file` 与本地缓存校准。
+ * - `command-log`：`run_command` 写到 `<dataDir>/logs/commands/*.log` 的日志，
+ *   工作区外，走 `/api/agents/:sessionId/command-log`（受限只读端点），
+ *   不参与工作区文件缓存与持久化恢复。
+ */
+export type ReaderSource = 'workspace' | 'command-log'
+
 export type ReaderTab = {
   id: string
   mode: ReaderMode
   path: string
+  source?: ReaderSource
+  /** command-log 来源时用于请求端点，并作为 tab 标题的命令摘要。 */
+  sessionId?: string
+  label?: string
   file?: WorkspaceFileResponse
   diff?: GitFileDiffResponse
   loading: boolean
@@ -172,6 +185,9 @@ export function serializePanelTabs(
     if (tab.kind === 'reader') {
       const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
       if (!reader || reader.mode !== 'file') return []
+      // 命令日志 tab 不持久化：日志路径在工作区外，刷新后重新加载会 403/ENOENT，
+      // 恢复出来只会是一个红色错误页，没有价值。
+      if (reader.source === 'command-log') return []
       return [{ id: tab.id, kind: tab.kind, reader: { mode: reader.mode, path: reader.path } }]
     }
     if (tab.kind === 'document') {

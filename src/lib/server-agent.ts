@@ -24,6 +24,15 @@ import {
 } from '@/lib/session-message-cache'
 import { fetchJsonWithTimeout } from './server-agent-http'
 import { globalAgentSseClient } from './global-agent-sse-client'
+import {
+  LEASE_HEARTBEAT_MS,
+  acquireLease,
+  getClientId,
+  leaseSnapshotFromWire,
+  releaseLease,
+  takeOverLease,
+  type SessionLeaseSnapshot,
+} from './session-lease-client'
 import type {
   ActiveAgentStatus,
   ServerAgentContextCompaction,
@@ -307,6 +316,7 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
     pendingAsk: snapshot.pendingAsk,
     persistDegraded: snapshot.persistDegraded === true ? true : undefined,
+    sessionLease: snapshot.lease ? leaseSnapshotFromWire(snapshot.lease) : undefined,
     goal: normalizeGoalState(snapshot.goal),
     source: snapshot.source,
     stateVersion: snapshot.stateVersion,
@@ -435,6 +445,12 @@ export class ServerAgent {
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
     persistDegraded?: boolean
+    /**
+     * 会话写入租约（见 `src/lib/session-lease-client.ts`）。`undefined` 表示
+     * 本客户端未启用租约（只读视图/分享页/非浏览器调用方），此时沿用旧的
+     * 单客户端行为；非 owner 时 composer 转为只读。
+     */
+    sessionLease?: SessionLeaseSnapshot
     goal?: GoalState | null
   }
   streamFn = streamSimple
@@ -455,6 +471,13 @@ export class ServerAgent {
     (event: ServerAgentEvent) => void
   >()
   private unsubscribeSse: (() => void) | undefined
+  /**
+   * Session write lease heartbeat (see `src/lib/session-lease-client.ts`).
+   * `null` when this agent never enabled the lease (read-only views, shared
+   * conversations, ACP) — those keep the pre-lease behaviour.
+   */
+  private leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private leaseEnabled = false
   private baseUrl: string
   private disposed = false
   private _syncingThinkingLevel = false
@@ -571,6 +594,98 @@ export class ServerAgent {
     if (this.state.isStreaming) this.startStateWatchdog()
   }
 
+  // --- Session write lease ---
+
+  /**
+   * 启用会话写入租约：立即申领一次，然后按 TTL 的 1/3 续约。
+   *
+   * 只由「可写的主会话视图」调用（见 `ChatPanelHost` 的挂载点）：只读视图、
+   * 分享页与 ACP 保持不启用，沿用旧的单客户端行为。申领失败不会抛错，
+   * 而是把状态置为旁观/降级，让 composer 转只读 —— 多开时这是期望结果，
+   * 不是异常。
+   */
+  enableSessionLease(): void {
+    if (this.leaseEnabled || this.disposed) return
+    this.leaseEnabled = true
+    void this.renewSessionLease()
+    this.leaseHeartbeatTimer = setInterval(() => {
+      void this.renewSessionLease()
+    }, LEASE_HEARTBEAT_MS)
+  }
+
+  /**
+   * Subscribe to write-lease changes, calling the listener once immediately with
+   * the current state. Implements the `useSyncExternalStore` contract so a host
+   * can read `state.sessionLease` without mirroring it into its own state (which
+   * would need a `setState` inside an effect) and without missing the result of
+   * a lease claim that landed before the subscription was installed.
+   */
+  subscribeSessionLease(listener: () => void): () => void {
+    listener()
+    return this.subscribe((event) => {
+      if ((event as { type?: string }).type === 'session_lease') listener()
+    })
+  }
+
+  /** 主动接管租约（用户点「在此窗口接管」）。 */
+  async takeOverSessionLease(): Promise<boolean> {
+    if (this.disposed) return false
+    const result = await takeOverLease(this.baseUrl, this.sessionId)
+    this.applySessionLease(result.snapshot)
+    return result.snapshot.isOwner
+  }
+
+  /** 当前标签页是否持有写租约（未启用租约时恒为 true）。 */
+  canWrite(): boolean {
+    const lease = this.state.sessionLease
+    if (!lease) return true
+    return lease.isOwner
+  }
+
+  private async renewSessionLease(): Promise<void> {
+    if (this.disposed) return
+    const result = await acquireLease(this.baseUrl, this.sessionId)
+    if (this.disposed) return
+    this.applySessionLease(result.snapshot)
+  }
+
+  private applySessionLease(next: SessionLeaseSnapshot): void {
+    const previous = this.state.sessionLease
+    if (
+      previous
+      && previous.status === next.status
+      && previous.holder === next.holder
+      && previous.isOwner === next.isOwner
+      && previous.degraded === next.degraded
+      && previous.expiresAt === next.expiresAt
+    ) {
+      return
+    }
+    this.state.sessionLease = next
+    this.stateVersion++
+    // `session_lease` is a local notification: the surface re-reads the whole
+    // snapshot on it (the flag lives on `state`), and the host uses it to
+    // re-render the composer gate without subscribing to a new event type.
+    this.emitToListeners({ type: 'session_lease', lease: next })
+  }
+
+  private stopSessionLeaseHeartbeat(): void {
+    if (!this.leaseHeartbeatTimer) return
+    clearInterval(this.leaseHeartbeatTimer)
+    this.leaseHeartbeatTimer = null
+  }
+
+  /**
+   * Headers identifying this tab as the lease owner on write requests.
+   *
+   * The lease is enforced per route from this header rather than from the body,
+   * so every mutating call must carry it or the server treats the caller as an
+   * anonymous (non-owning) client. Read requests never need it.
+   */
+  private writeHeaders(): Record<string, string> {
+    return this.leaseEnabled ? { 'x-quickforge-client-id': getClientId() } : {}
+  }
+
   // --- Agent-compatible interface ---
 
   /**
@@ -613,6 +728,14 @@ export class ServerAgent {
 
   async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
     if (this.disposed) return
+
+    if (!this.canWrite()) {
+      // Another window holds the write lease. The server would reject the
+      // request anyway (SESSION_LEASE_HELD); failing here keeps the optimistic
+      // user message out of the transcript.
+      logger.warn('Ignored prompt while another window holds the session lease')
+      return
+    }
 
     if (this.state.isStreaming) {
       logger.warn('Ignored prompt while agent is already streaming')
@@ -677,7 +800,7 @@ export class ServerAgent {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/prompt`
     fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ message: agentMessage, selectedCapabilities, contextReferences, command: selectedCommand }),
       signal: controller.signal,
     }).then(async (response) => {
@@ -740,10 +863,21 @@ export class ServerAgent {
   }
 
   abort(): void {
+    if (!this.canWrite()) return
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/abort`
-    fetch(url, { method: 'POST' }).catch((err) => {
-      logger.error('Failed to abort:', err)
-    })
+    // The abort route is guarded by assertSessionWriteAccess, so it must carry
+    // the lease owner header like every other write entry; without it the
+    // server sees an anonymous client and answers 409 SESSION_LEASE_HELD,
+    // silently leaving the run alive.
+    fetch(url, { method: 'POST', headers: this.writeHeaders() })
+      .then((response) => {
+        if (!response.ok) {
+          logger.warn('Abort request rejected:', { status: response.status })
+        }
+      })
+      .catch((err) => {
+        logger.error('Failed to abort:', err)
+      })
   }
 
   /**
@@ -753,14 +887,14 @@ export class ServerAgent {
    * upsertMessage reconciles with this optimistic copy in place.
    */
   async steer(message: AgentMessage): Promise<void> {
-    if (this.disposed) return
+    if (this.disposed || !this.canWrite()) return
     this.state.messages = [...this.state.messages, message]
     this.emitToListeners({ type: 'message_start', message })
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/steer`
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
         body: JSON.stringify({ message }),
       })
       if (!response.ok) {
@@ -780,10 +914,11 @@ export class ServerAgent {
   }
 
   followUp(message: AgentMessage): void {
+    if (!this.canWrite()) return
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/follow-up`
     fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ message }),
     }).catch((err) => {
       logger.error('Failed to send follow-up:', err)
@@ -805,11 +940,12 @@ export class ServerAgent {
    * Sync an Agent access mode change to the server so current session tools match the UI selector.
    */
   async updateAccessMode(accessMode: AgentAccessMode): Promise<void> {
+    if (!this.canWrite()) return
     const normalized = normalizeAgentAccessMode(accessMode)
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/access-mode`
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ accessMode: normalized }),
     })
     if (!res.ok) {
@@ -831,6 +967,7 @@ export class ServerAgent {
    * Sync a model change to the server so the session persists the correct model.
    */
   async updateModel(model: Model<Api>): Promise<void> {
+    if (!this.canWrite()) return
     const previousModel = this.state.model
     this.state.model = model
     this.state.contextUsage = null
@@ -838,7 +975,7 @@ export class ServerAgent {
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
         body: JSON.stringify({ modelRef: modelReferenceFromModel(model), model }),
       })
       const payload = await response.json().catch(() => null) as { model?: Model<Api>; error?: string } | null
@@ -855,10 +992,11 @@ export class ServerAgent {
    * Sync a thinking level change to the server so the session persists the correct level.
    */
   async updateThinkingLevel(level: ThinkingLevel): Promise<void> {
+    if (!this.canWrite()) return
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/thinking-level`
     fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ thinkingLevel: level }),
     }).catch((err) => {
       logger.error('Failed to sync thinking level update to server:', err)
@@ -869,10 +1007,11 @@ export class ServerAgent {
    * Roll back from a message index on the authoritative server state.
    */
   async rollback(messageIndex: number): Promise<ServerRollbackResult> {
+    if (!this.canWrite()) throw new Error('Another window is writing to this session')
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/rollback`
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ messageIndex }),
     })
     const payload = await res.json().catch(() => null) as (ServerRollbackResult & ServerErrorPayload) | null
@@ -902,7 +1041,7 @@ export class ServerAgent {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/rollback-turn`
     const { response, body } = await fetchJsonWithTimeout<ServerTurnRollbackResult & ServerErrorPayload>(url, 60_000, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ turnIds, revision }),
       signal,
     })
@@ -931,7 +1070,7 @@ export class ServerAgent {
         method: 'POST',
         ...(optimistic
           ? {
-              headers: { 'content-type': 'application/json' },
+              headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
               body: JSON.stringify({ message: optimistic }),
             }
           : {}),
@@ -964,7 +1103,7 @@ export class ServerAgent {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/approve-tool`
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ toolCallId }),
     })
     if (!res.ok) {
@@ -983,7 +1122,7 @@ export class ServerAgent {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/reject-tool`
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ toolCallId }),
     })
     if (!res.ok) {
@@ -1002,7 +1141,7 @@ export class ServerAgent {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/answer-ask`
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ askId, answers: payload.answers, skipped: payload.skipped === true }),
     })
     if (!res.ok) {
@@ -1018,7 +1157,7 @@ export class ServerAgent {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/approve-auto-compact`
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ approvalId }),
     })
     if (!res.ok) {
@@ -1034,7 +1173,7 @@ export class ServerAgent {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/reject-auto-compact`
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ approvalId }),
     })
     if (!res.ok) {
@@ -1084,6 +1223,7 @@ export class ServerAgent {
       ? { action, goalId: options!.goalId, expectedRevision: options!.expectedRevision }
       : { action }
     if (!extending && typeof objective === 'string') body.objective = objective
+    if (!this.canWrite()) throw new Error('Another window is writing to this session')
     // Capture the goal watermark before the async gap. The response is only
     // adopted while no newer goal update (SSE / state / another action) landed
     // in the meantime; otherwise the newer goal already owns the card.
@@ -1096,7 +1236,7 @@ export class ServerAgent {
         GOAL_ACTION_TIMEOUT_MS,
         {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
           body: JSON.stringify(body),
         },
       ))
@@ -1216,6 +1356,13 @@ export class ServerAgent {
     if (this.pollTimer) {
       clearInterval(this.pollTimer)
       this.pollTimer = null
+    }
+    this.stopSessionLeaseHeartbeat()
+    if (this.leaseEnabled) {
+      // Hand the lease back so another window can take over immediately instead
+      // of waiting out the TTL. Fire-and-forget: dispose must stay synchronous.
+      void releaseLease(this.baseUrl, this.sessionId).catch(() => {})
+      this.leaseEnabled = false
     }
     if (this.messageReconcileRetryTimer !== null) {
       clearTimeout(this.messageReconcileRetryTimer)
@@ -1750,6 +1897,15 @@ export class ServerAgent {
         const degradedEvent = event as { persistDegraded?: unknown }
         this.state.persistDegraded = degradedEvent.persistDegraded === true ? true : undefined
         break
+      }
+
+      case 'session_lease': {
+        // Another client acquired/released the write lease. Adopting this frame
+        // is what flips a secondary tab into (or out of) read-only without
+        // polling: the holder's heartbeat never broadcasts, only hand-overs do.
+        const leaseEvent = event as { lease?: { clientId?: string; expiresAt?: string } | null }
+        this.applySessionLease(leaseSnapshotFromWire(leaseEvent.lease ?? null))
+        return
       }
 
       case 'tool_approval_required': {

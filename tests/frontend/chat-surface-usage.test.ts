@@ -48,10 +48,8 @@ describe('chat surface usage aggregation', () => {
   })
 
   it('ignores assistant messages without usage', () => {
-    const messages: AgentMessage[] = [assistantMessage(undefined)]
     // Simulate an assistant message missing usage (streaming partial).
     const partial = { ...assistantMessage(), usage: undefined } as unknown as AssistantMessageType
-    messages.push(partial)
 
     const totals = aggregateUsage([partial])
     expect(totals.input).toBe(0)
@@ -65,10 +63,18 @@ describe('chat surface usage aggregation', () => {
   })
 })
 
+/**
+ * `UsageBar` receives pre-aggregated totals, not the message list.
+ *
+ * The surface derives them once per agent snapshot (see `readAgentSnapshot`) and
+ * memoizes the component, so the stats row costs nothing per keystroke. These
+ * cases keep asserting the rendered output, feeding it the same
+ * `aggregateUsage` result the surface passes in.
+ */
 describe('chat surface UsageBar rendering', () => {
-  it('renders aggregated totals from the messages', () => {
+  it('renders aggregated totals', () => {
     const markup = renderToStaticMarkup(
-      createElement(UsageBar, { messages: [assistantMessage(usage()), assistantMessage(usage())] }),
+      createElement(UsageBar, { totals: aggregateUsage([assistantMessage(usage()), assistantMessage(usage())]) }),
     )
 
     expect(markup).toContain('qf-usage-bar')
@@ -78,7 +84,7 @@ describe('chat surface UsageBar rendering', () => {
 
   it('renders nothing numeric without assistant usage', () => {
     const markup = renderToStaticMarkup(
-      createElement(UsageBar, { messages: [{ role: 'user', content: 'hi', timestamp: 1 }] }),
+      createElement(UsageBar, { totals: aggregateUsage([{ role: 'user', content: 'hi', timestamp: 1 }]) }),
     )
 
     expect(markup).toContain('qf-usage-bar')
@@ -88,7 +94,7 @@ describe('chat surface UsageBar rendering', () => {
 
   it('renders a clickable total when onCostClick is provided', () => {
     const markup = renderToStaticMarkup(
-      createElement(UsageBar, { messages: [assistantMessage()], onCostClick: () => {} }),
+      createElement(UsageBar, { totals: aggregateUsage([assistantMessage()]), onCostClick: () => {} }),
     )
 
     expect(markup).toContain('<button')

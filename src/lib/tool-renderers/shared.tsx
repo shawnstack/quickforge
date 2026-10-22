@@ -895,14 +895,70 @@ function ConsoleScrollArea({ content }: { content: string }) {
   )
 }
 
-export function renderConsoleBlock(content: string, variant: 'default' | 'error') {
+// 查看命令日志的窗口事件：工具卡与后台命令浮层都通过它把「打开日志」交给
+// App.tsx（那里才有 requestWorkspaceInspector），避免渲染器直接依赖面板状态。
+export const VIEW_COMMAND_LOG_EVENT = 'quickforge:view-command-log'
+
+export type CommandLogRequest = {
+  sessionId?: string
+  outputFile?: string
+  command?: string
+}
+
+export function dispatchViewCommandLog(request: CommandLogRequest) {
+  if (!request.sessionId || !request.outputFile) return
+  window.dispatchEvent(new CustomEvent(VIEW_COMMAND_LOG_EVENT, {
+    detail: {
+      sessionId: request.sessionId,
+      path: request.outputFile,
+      label: request.command,
+    },
+  }))
+}
+
+/**
+ * console 块标题栏的「查看完整日志」入口。
+ *
+ * 只在 details 同时带 sessionId 与 outputFile 时才出现（即真的产生了命令日志）；
+ * 其余场景返回 null，标题栏保持原有的「标签 + 复制」结构。
+ */
+function ViewCommandLogButton({ log }: { log: CommandLogRequest }) {
+  const label = t('viewCommandLog')
+  return (
+    <button
+      type="button"
+      data-qf-action="view-command-log"
+      className="pointer-events-auto inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground"
+      title={label}
+      aria-label={label}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        dispatchViewCommandLog(log)
+      }}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+        <path d="M8 13h8" />
+        <path d="M8 17h5" />
+      </svg>
+    </button>
+  )
+}
+
+export function renderConsoleBlock(content: string, variant: 'default' | 'error', log?: CommandLogRequest) {
+  const logRequest = log && log.sessionId && log.outputFile ? log : undefined
   return (
     <div className={`qf-console-block w-full max-w-full min-w-0 overflow-hidden rounded-md border font-mono text-xs ${variant === 'error' ? 'border-destructive/50 bg-destructive/10 text-destructive' : 'border-border bg-muted/30 text-foreground'}`}>
       {/* 旧 `<console-block>` 的标题栏（`L('console')` 标签左、复制按钮右），
           结构与本文件 ToolCodeBlock 的标题栏同构。 */}
       <div className="flex items-center justify-between gap-2 px-3 py-1">
         <span className="text-muted-foreground">{t('consoleBlockLabel')}</span>
-        <ConsoleCopyButton content={content} />
+        <span className="flex items-center gap-1">
+          {logRequest ? <ViewCommandLogButton log={logRequest} /> : null}
+          <ConsoleCopyButton content={content} />
+        </span>
       </div>
       <ConsoleScrollArea content={content} />
     </div>

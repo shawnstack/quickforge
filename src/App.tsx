@@ -866,6 +866,27 @@ function MainApp() {
     return () => window.removeEventListener('quickforge:preview-artifact', handler as EventListener)
   }, [agentManager.currentToolProject?.id, openArtifactPreview])
 
+  // 「查看完整日志」桥接（tool-renderers/shared.tsx 的 VIEW_COMMAND_LOG_EVENT）：
+  // 命令日志在 <dataDir>/logs/commands 下（工作区外），走 command-log reader tab。
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: unknown; path?: unknown; label?: unknown }>).detail
+      const projectId = agentManager.currentToolProject?.id
+      const logSessionId = typeof detail?.sessionId === 'string' ? detail.sessionId : ''
+      const logPath = typeof detail?.path === 'string' ? detail.path : ''
+      if (!projectId || !logSessionId || !logPath) return
+      requestWorkspaceInspector({
+        projectId,
+        kind: 'command-log',
+        sessionId: logSessionId,
+        path: logPath,
+        label: typeof detail?.label === 'string' && detail.label ? detail.label : undefined,
+      })
+    }
+    window.addEventListener('quickforge:view-command-log', handler as EventListener)
+    return () => window.removeEventListener('quickforge:view-command-log', handler as EventListener)
+  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector])
+
   // 其它 Goal surface（控制条/卡片）请求打开摘要：只认当前会话 + 当前 Goal，
   // 打开前复用现有收起 Inspector 入口解除 suspension，不新增全局模式。
   useEffect(() => {

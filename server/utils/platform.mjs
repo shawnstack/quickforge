@@ -315,6 +315,14 @@ export function openBrowser(url) {
 
   const command = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open'
   const args = process.platform === 'win32' ? ['/c', 'start', '""', url] : [url]
-  const child = spawn(command, args, { detached: true, stdio: 'ignore', shell: false })
+  // `start` returns immediately, so unref() is enough on Windows; keeping detached
+  // off is what makes windowsHide work (DETACHED_PROCESS ignores CREATE_NO_WINDOW)
+  // and stops a stray console window from flashing on every app launch.
+  const child = spawn(command, args, {
+    detached: process.platform !== 'win32',
+    stdio: 'ignore',
+    shell: false,
+    windowsHide: true,
+  })
   child.unref()
 }

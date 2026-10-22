@@ -228,6 +228,62 @@ describe('renderConsoleBlock copy feedback', () => {
   })
 })
 
+describe('renderConsoleBlock view-command-log entry', () => {
+  const output = 'one\ntwo'
+  const logFile = 'C:\\qf\\logs\\commands\\a.log'
+
+  /** 取 frame 树里带 `log` prop 的内部函数组件（ViewCommandLogButton）。 */
+  function logComponent(log?: { sessionId?: string; outputFile?: string; command?: string }) {
+    const frame = renderConsoleBlock(output, 'default', log) as TestNode
+    return nodes(frame).find((node) => typeof node.type === 'function' && 'log' in node.props)
+  }
+
+  function renderLogButton(lifecycle: HookLifecycle, log: { sessionId?: string; outputFile?: string; command?: string }) {
+    const component = logComponent(log)
+    expect(component).toBeDefined()
+    return lifecycle.render(() => (component!.type as (props: { log: typeof log }) => ReactElement)(component!.props))
+  }
+
+  function findButton(tree: unknown) {
+    return nodes(tree).find((node) => node.props['data-qf-action'] === 'view-command-log')
+  }
+
+  it('only renders the log entry when details carry both sessionId and outputFile', () => {
+    expect(logComponent()).toBeUndefined()
+    expect(logComponent({ sessionId: 'session-1' })).toBeUndefined()
+    expect(logComponent({ outputFile: logFile })).toBeUndefined()
+    expect(logComponent({ sessionId: 'session-1', outputFile: logFile })).toBeDefined()
+  })
+
+  it('keeps the console header label unique so the legacy copy assertions still hold', () => {
+    const frame = renderConsoleBlock(output, 'default', { sessionId: 'session-1', outputFile: logFile }) as TestNode
+    const labels = nodes(frame).filter((node) => node.type === 'span' && typeof node.props.children === 'string')
+    expect(labels).toHaveLength(1)
+    expect(labels[0].props.children).toBe(t('consoleBlockLabel'))
+  })
+
+  it('dispatches the bridge event with the log path instead of opening a panel directly', () => {
+    const lifecycle = new HookLifecycle()
+    const dispatch = vi.fn()
+    vi.stubGlobal('window', { dispatchEvent: dispatch })
+
+    const button = findButton(renderLogButton(lifecycle, { sessionId: 'session-1', outputFile: logFile, command: 'npm   run   build' }))
+    expect(button).toBeDefined()
+    expect(button!.props.title).toBe(t('viewCommandLog'))
+
+    const preventDefault = vi.fn()
+    const stopPropagation = vi.fn()
+    ;(button!.props.onClick as (event: unknown) => void)({ preventDefault, stopPropagation })
+
+    expect(preventDefault).toHaveBeenCalled()
+    expect(stopPropagation).toHaveBeenCalled()
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    const event = dispatch.mock.calls[0][0] as CustomEvent
+    expect(event.type).toBe('quickforge:view-command-log')
+    expect(event.detail).toEqual({ sessionId: 'session-1', path: logFile, label: 'npm   run   build' })
+  })
+})
+
 describe('renderConsoleBlock auto-scroll', () => {
   const output = 'line 1'
 

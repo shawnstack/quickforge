@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MessageEditor } from '../../src/components/chat/surface/MessageEditor'
+import { createComposerStore } from '../../src/components/chat/surface/composer-store'
 
 /**
  * The composer's action button is React-owned: the panel decoration used to
@@ -29,8 +30,10 @@ describe('composer action button', () => {
   })
 
   function render(props: Record<string, unknown>) {
+    // Composer text/attachments live in a ComposerStore (see composer-store.ts):
+    // the store split is what keeps a keystroke from re-rendering the surface.
     act(() => {
-      root.render(createElement(MessageEditor, { value: '', ...props }))
+      root.render(createElement(MessageEditor, { store: createComposerStore(), ...props }))
     })
   }
 

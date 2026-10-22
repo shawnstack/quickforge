@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- exports the ChatSurface component plus the pure send flow, agent snapshot and release-gate helpers covered by tests. */
-import { Component, forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { Component, forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createMessageWindow, type MessageWindowController } from '../windowed-messages'
 import { isInsideHiddenView } from '@/lib/session-view-activity'
 import { releaseProcessGroups } from '../panel-decoration/process-folding'
@@ -15,16 +15,37 @@ import type {
   ChatSurfaceProps,
   Model,
   ThinkingLevel,
+  Usage,
   UserMessageWithAttachments,
   AssistantMessage as AssistantMessageType,
 } from './ChatTypes'
 import type { SurfaceEditorBridgeElement } from './ChatTypes'
+import type { SseConnectionStatus } from '@/lib/server-agent'
+import type { SessionLeaseSnapshot } from '@/lib/session-lease-client'
+import type { GoalAction, GoalState } from '@/lib/goal'
+import type { CapabilitySuggestion } from '../capability-suggestions'
+import type { AgentAccessMode } from '@/lib/types'
 import { t } from '@/lib/i18n'
 import { MessageList } from './MessageList'
 import { MessageEditor } from './MessageEditor'
+import { TodoWriteSummary } from './TodoWriteSummary'
+import { GoalControlStrip } from './GoalControlStrip'
+import { ComposerPlusPopover, ComposerPlusTrigger, useComposerPlusMenu } from './ComposerPlusMenu'
+import { AgentAccessMenu, AgentAccessTrigger, PlanModeTrigger, positionAgentAccessMenu } from './ComposerAccessControls'
+import { registerAgentAccessMenuCloser } from '../panel-decoration/agent-access-menu'
+import { ThinkingLevelControl } from './ThinkingLevelControl'
+import { ModelRetryNotice, ReconnectNotice, SessionLeaseStrip, UnreachableStrip, useSseConnectionStatus, type ModelRetryInfo } from './ConnectionNotices'
+import { resolveCompactionBoundary, type ContextCompactionState } from './ContextCompactionNotice'
+import { resolveAssistantWaitingRow } from './AssistantWaitingBubble'
 import { isRenderableMessage, messageRenderKeys } from './content-parts'
-import { CommandActionsEnabledContext } from './surface-context'
-import { UsageBar } from './UsageBar'
+import { CommandActionsEnabledContext, LocalFilePathHandlerContext } from './surface-context'
+import { aggregateUsage, UsageBar } from './UsageBar'
+import { createComposerStore } from './composer-store'
+import {
+  readLatestTodoWriteSnapshot,
+  type TodoWriteMessage,
+  type TodoWriteSnapshot,
+} from '../panel-decoration/todo-write-summary'
 
 /**
  * React replacement for the legacy `ChatPanel` + `AgentInterface` pair
@@ -132,6 +153,41 @@ export interface AgentSurfaceSnapshot {
    * the `persist-degraded-notice` decoration).
    */
   persistDegraded: boolean
+  /**
+   * Session write lease (see `src/lib/session-lease-client.ts`). `undefined`
+   * when this view never enabled the lease (read-only / shared / Side Chat).
+   * Drives the "another window is writing" strip and the composer read-only
+   * gate.
+   */
+  sessionLease?: SessionLeaseSnapshot
+  /**
+   * Server-side context compaction (`state.contextCompaction`). Drives the
+   * timeline divider React renders inside the message list; previously the
+   * `context-compaction` decoration read it straight off the agent on every
+   * pass.
+   */
+  contextCompaction?: ContextCompactionState | null
+  /**
+   * Authoritative goal (`state.goal`). Drives the goal control strip; the
+   * decoration layer used to read it off the agent on every pass and the host
+   * re-ran that pass on `goal_updated`.
+   */
+  goal?: GoalState | null
+  /**
+   * Usage totals across every assistant message. Derived here, once per
+   * snapshot commit, instead of inside `UsageBar` on every render: the composer
+   * area re-rendered on each keystroke before the store split, and a full
+   * `filter`/`reduce` over the message list was the O(messages) part of it.
+   * Cached by `messages` identity (see `usageTotalsBySource`), so an unchanged
+   * conversation costs one WeakMap lookup.
+   */
+  usage: Usage
+  /**
+   * Newest valid `todo_write` result, or null. Same reasoning as `usage`: the
+   * capsule above the composer used to scan the message list backwards on every
+   * composer render. Cached by `messages` identity.
+   */
+  todoSnapshot: { snapshot: TodoWriteSnapshot; key: string } | null
 }
 
 /**
@@ -184,6 +240,21 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
   // on the server agent's state (it is `undefined` once a persist succeeds), so
   // narrow rather than widen: the shared `AgentState` type stays untouched.
   const persistDegraded = (state as { persistDegraded?: boolean }).persistDegraded === true
+  // Session write lease: compared by the small tuple of fields that can change
+  // (`ServerAgent.applySessionLease` already dedupes no-op updates), so an
+  // unchanged lease keeps the previous snapshot identity.
+  const sessionLease = (state as { sessionLease?: SessionLeaseSnapshot }).sessionLease
+  // Context compaction is replaced wholesale by the server agent on
+  // `auto_compact_completed` / `messages_replaced`, so reference identity is
+  // enough to detect a change.
+  const contextCompaction = (state as { contextCompaction?: ContextCompactionState | null }).contextCompaction ?? null
+  // The goal is replaced wholesale by the server agent on `goal_updated`, so a
+  // reference comparison is enough (same reasoning as contextCompaction).
+  const goal = (state as { goal?: GoalState | null }).goal ?? null
+  // Derived projections of `messages` (see `usageTotals` / `latestTodoSnapshot`):
+  // computed here, once per snapshot, and cached by array identity.
+  const usage = usageTotals(messages)
+  const todoSnapshot = latestTodoSnapshot(messages)
   if (
     previous &&
     previous.messages === messages &&
@@ -193,6 +264,11 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
     previous.model === state.model &&
     previous.thinkingLevel === state.thinkingLevel &&
     previous.persistDegraded === persistDegraded &&
+    previous.sessionLease === sessionLease &&
+    previous.contextCompaction === contextCompaction &&
+    previous.goal === goal &&
+    previous.usage === usage &&
+    previous.todoSnapshot === todoSnapshot &&
     previous.streamingMessage === undefined &&
     streamingMessage === undefined
   ) {
@@ -209,7 +285,51 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
     model: state.model,
     thinkingLevel: state.thinkingLevel,
     persistDegraded,
+    sessionLease,
+    contextCompaction,
+    goal,
+    usage,
+    todoSnapshot,
   }
+}
+
+/**
+ * Cached `aggregateUsage` results, keyed by messages-array identity.
+ *
+ * `readAgentSnapshot` already reuses a `messages` identity when no element
+ * changed, so an unchanged conversation always hits this cache and the totals
+ * keep the same object identity — which is what lets `UsageBar`'s memo (and the
+ * snapshot's own no-change bail-out) short-circuit. Weak keys let replaced
+ * snapshots be collected.
+ */
+const usageTotalsBySource = new WeakMap<readonly AgentMessage[], Usage>()
+
+function usageTotals(messages: AgentMessage[]): Usage {
+  let totals = usageTotalsBySource.get(messages)
+  if (totals === undefined) {
+    totals = aggregateUsage(messages)
+    usageTotalsBySource.set(messages, totals)
+  }
+  return totals
+}
+
+/**
+ * Cached newest-`todo_write` lookup, keyed by messages-array identity.
+ *
+ * Same contract as `usageTotals`: the capsule above the composer used to scan
+ * the message list backwards on every composer render (once per keystroke once
+ * the input state lived in `ChatSurface`). Caching by array identity makes that
+ * cost one WeakMap lookup per commit instead of O(messages).
+ */
+const todoSnapshotBySource = new WeakMap<readonly AgentMessage[], { snapshot: TodoWriteSnapshot; key: string } | null>()
+
+function latestTodoSnapshot(messages: AgentMessage[]): { snapshot: TodoWriteSnapshot; key: string } | null {
+  // A cached `null` is indistinguishable from "not cached" via `get`, so the
+  // miss is detected with `has` before the (only) backwards scan.
+  if (todoSnapshotBySource.has(messages)) return todoSnapshotBySource.get(messages) ?? null
+  const found = readLatestTodoWriteSnapshot(messages as unknown as TodoWriteMessage[])
+  todoSnapshotBySource.set(messages, found)
+  return found
 }
 
 /**
@@ -248,6 +368,14 @@ const SUBSCRIBED_EVENTS = new Set([
   // `persist_degraded` flips `state.persistDegraded`; without subscribing, the
   // warning rendered inside the message list would never appear or clear.
   'persist_degraded',
+  // `auto_compact_completed` replaces `state.contextCompaction`; the timeline
+  // divider rendered by the message list reads it, so the snapshot must refresh
+  // for the divider to appear/disappear at the right moment.
+  'auto_compact_completed',
+  'auto_compact_failed',
+  // `goal_updated` replaces `state.goal`; the goal strip rendered by the
+  // composer reads it, so the snapshot must refresh for the strip to update.
+  'goal_updated',
 ])
 
 /** Whether an agent event requires a fresh `readAgentSnapshot` copy. */
@@ -495,6 +623,14 @@ type MessageAreaProps = {
   onCostClick?: () => void
   /** Persist-degraded warning flag; rendered as the message list's first child. */
   persistDegraded: boolean
+  /** Context-compaction state; drives the timeline divider inside the list. */
+  contextCompaction?: ContextCompactionState | null
+  /** Host-owned "still waiting for the first assistant output" flag. */
+  assistantWaiting?: boolean
+  /** SSE connection status; drives the inline reconnect/model-retry rows. */
+  connectionStatus?: SseConnectionStatus | null
+  /** Active model upstream retry; drives the retry row. */
+  modelRetryInfo?: ModelRetryInfo | null
 }
 
 /**
@@ -527,6 +663,10 @@ const MessageArea = memo(function MessageArea({
   streamingAssistant,
   onCostClick,
   persistDegraded,
+  contextCompaction,
+  assistantWaiting = false,
+  connectionStatus = null,
+  modelRetryInfo = null,
 }: MessageAreaProps) {
   // The streaming partial renders as the message list's last row (same render
   // identity the committed row will use — see MessageList), so this is the
@@ -536,6 +676,31 @@ const MessageArea = memo(function MessageArea({
   const renderedSequence = rendersStreamingRow && streamingAssistant
     ? [...messages, streamingAssistant]
     : messages
+  // Resolved here (not in MessageList) so the memoized list keeps receiving a
+  // stable, already-computed position: the boundary depends on the rendered
+  // window offset, not on anything the list itself owns.
+  const compactionBoundary = useMemo(
+    () => resolveCompactionBoundary({
+      compaction: contextCompaction,
+      messages,
+      messageIndexOffset,
+      isRenderable: isRenderableMessage,
+    }),
+    [contextCompaction, messages, messageIndexOffset],
+  )
+  // Same reasoning as the divider: the waiting bubble's position is an index into
+  // the rendered rows, resolved here so the memoized list receives a plain number.
+  const assistantWaitingRow = useMemo(
+    () => resolveAssistantWaitingRow({
+      messages,
+      waiting: assistantWaiting,
+      // The decoration required `isStreaming && isActive`; keeping it means the
+      // bubble and the stop button's waiting ring stay in step.
+      streaming: isStreaming,
+      isRenderable: isRenderableMessage,
+    }),
+    [assistantWaiting, isStreaming, messages],
+  )
   return (
     <ProcessGroupReleaseBoundary
       messages={renderedSequence}
@@ -552,6 +717,8 @@ const MessageArea = memo(function MessageArea({
             streamingAssistant={rendersStreamingRow ? streamingAssistant : undefined}
             onCostClick={onCostClick}
             persistDegraded={persistDegraded}
+            compactionBoundary={compactionBoundary}
+            assistantWaitingRow={assistantWaitingRow}
           />
           {/* Streaming cursor container. The streaming assistant message itself
               renders as the message list's last row above (it commits in place
@@ -563,6 +730,15 @@ const MessageArea = memo(function MessageArea({
             <div className="qf-streaming-message mb-3 flex flex-col gap-3">
               <span className="mx-4 inline-block h-4 w-2 animate-pulse bg-muted-foreground" />
             </div>
+          ) : null}
+          {/* Connection rows trail the message stream. The decoration appended
+              them to `.qf-message-list` after every rebuild; rendering them here
+              keeps them after the list without a second writer. */}
+          {connectionStatus || modelRetryInfo ? (
+            <>
+              <ReconnectNotice status={connectionStatus} />
+              <ModelRetryNotice info={modelRetryInfo} />
+            </>
           ) : null}
         </div>
       </div>
@@ -598,6 +774,75 @@ type WindowedChatSurfaceProps = ChatSurfaceProps & {
    * unfolded state the release exposed never reaches a paint.
    */
   onProcessGroupsReleased?: () => void
+  /**
+   * Render the SSE connection rows (inline reconnect notice + model-retry row).
+   * Off for Side Chat, whose NDJSON stream does not share the global SSE
+   * connection — the decoration layer skipped them there for the same reason.
+   */
+  enableConnectionNotices?: boolean
+  /** Active model upstream retry, owned by the host (`model_stream_retry`). */
+  modelRetryInfo?: ModelRetryInfo | null
+  /**
+   * QuickForge thinking selector, rendered into the composer's right-hand
+   * control row. Replaces `panel-decoration/thinking-level-controls.ts`, which
+   * injected the button and appended its menu to `document.body`.
+   */
+  enableThinkingControl?: boolean
+  onThinkingLevelChange?: (level: ThinkingLevel) => void
+  /**
+   * QuickForge "+" composer menu: the trigger renders in the editor's left
+   * control row and the popover before the editor card, matching the decoration
+   * layer's two insertion points (`leftControls.prepend` / `insertBefore(editor)`).
+   */
+  enableComposerPlusMenu?: boolean
+  availablePluginRows?: () => CapabilitySuggestion[]
+  selectPluginCapability?: (pluginName: string) => void
+  /** Close the composer suggestion popovers (they are mutually exclusive). */
+  onDismissComposerSuggestions?: () => void
+  /**
+   * Render the two QuickForge composer controls ("+" and thinking) in their
+   * disabled state. Side Chat keeps them visible but inert —
+   * `disableComposerControls` disabled them rather than removing them.
+   */
+  composerControlsDisabled?: boolean
+  /**
+   * Plan-mode toggle in the composer's left control row. The trigger renders
+   * only while plan mode is ON: the decoration created it when planMode was
+   * true and removed it when false, so plan mode off must not add a button.
+   */
+  showPlanModeControl?: boolean
+  planMode?: boolean
+  onTogglePlanMode?: () => void
+  /**
+   * Agent-access selector in the composer's left control row. Side Chat keeps it
+   * visible but disabled (the decoration called `setupAgentAccessMenu` and then
+   * disabled the trigger), so the `disabled` branch must stay reachable.
+   */
+  showAgentAccessControl?: boolean
+  agentAccessMode?: AgentAccessMode
+  onAccessModeChange?: (mode: AgentAccessMode) => void
+  /**
+   * Opens a local file path referenced in a message body. Omitted in read-only
+   * and shared views, where links would be dead; that is the same gate the
+   * decoration layer applied before it walked the DOM.
+   */
+  onOpenLocalFilePath?: (path: string) => void
+  /**
+   * Goal control strip: session id, capability gate and the action sender.
+   * Kept on the windowed props (not `ChatSurfaceProps`) because the goal UI is
+   * an application concern; `ChatTypes` stays free of `@/lib/goal`.
+   */
+  sessionId?: string
+  enableGoalStrip?: boolean
+  onGoalAction?: (action: GoalAction, objective?: string) => Promise<void>
+  /**
+   * 会话写入租约：本页不是持有者时显示只读提示条并禁用作曲区输入。
+   * 由宿主（ChatPanelHost）根据 `agent.canWrite()` / `state.sessionLease` 传入，
+   * `ChatSurface` 自身不触网、不读全局状态，仍是纯展示层。
+   */
+  leaseObserver?: boolean
+  leaseDegraded?: boolean
+  onTakeOverLease?: () => Promise<boolean> | boolean
 }
 
 type WindowSnapshot = {
@@ -626,6 +871,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     enableAttachments = true,
     enableModelSelector = true,
     enableThinkingSelector = true,
+    enableCompactionDivider = true,
     readOnly = false,
     chatPanelRevision,
     commandActionsEnabled = true,
@@ -637,10 +883,50 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     onBeforeAbort,
     onWindowChanged,
     onProcessGroupsReleased,
+    enableConnectionNotices = true,
+    modelRetryInfo = null,
+    sessionId,
+    enableGoalStrip = false,
+    onGoalAction,
+    onOpenLocalFilePath,
+    enableThinkingControl = false,
+    onThinkingLevelChange,
+    enableComposerPlusMenu = false,
+    availablePluginRows,
+    selectPluginCapability,
+    onDismissComposerSuggestions,
+    composerControlsDisabled = false,
+    showPlanModeControl = false,
+    planMode = false,
+    onTogglePlanMode,
+    showAgentAccessControl = false,
+    agentAccessMode = 'default',
+    onAccessModeChange,
+    leaseObserver = false,
+    leaseDegraded = false,
+    onTakeOverLease,
   },
   ref,
 ) {
   const [snapshot, setSnapshot] = useState<AgentSurfaceSnapshot | null>(() => (agent ? readAgentSnapshot(agent) : null))
+  // The SSE connection status is a global fact, so the surface subscribes here
+  // rather than receiving it through props on every transition.
+  const connectionStatus = useSseConnectionStatus()
+  // 租约提示条的本地「接管中」态：接管是一次网络往返，按钮期间要禁用防重复点击。
+  const [leaseTakeOverPending, setLeaseTakeOverPending] = useState(false)
+  /**
+   * 租约提示条只看显式传入的 `leaseObserver` / `leaseDegraded`，不回读
+   * `snapshot.sessionLease`：这样 surface 的可见行为完全由宿主决定，
+   * 只读视图与分享页不会被这类提示污染。
+   */
+  const leaseNoticeVisible = leaseObserver || leaseDegraded
+  const handleTakeOverLease = useCallback(() => {
+    if (!onTakeOverLease || leaseTakeOverPending) return
+    setLeaseTakeOverPending(true)
+    void Promise.resolve(onTakeOverLease())
+      .catch(() => false)
+      .finally(() => setLeaseTakeOverPending(false))
+  }, [leaseTakeOverPending, onTakeOverLease])
   // Latest snapshot handed to React (R1 F1a). `syncSnapshot` reads it to reuse
   // unchanged identities without depending on the `snapshot` state, which
   // would re-create the callback and re-run the subscription effect on every
@@ -662,15 +948,24 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
   const fullMessagesRef = useRef(snapshot?.messages ?? [])
   const windowCommitCallbacksRef = useRef<Array<() => void>>([])
   const pageInFlightRef = useRef(false)
-  const [editorValue, setEditorValue] = useState('')
-  const [editorAttachments, setEditorAttachments] = useState<Attachment[]>([])
+  /**
+   * Composer hot-path state, deliberately held outside React's render inputs.
+   *
+   * The text used to be `useState` here, which meant every keystroke re-rendered
+   * this entire component — including the `UsageBar` aggregation and the todo
+   * capsule scan over every message. Both are now derived once per snapshot
+   * (see `AgentSurfaceSnapshot.usage` / `.todoSnapshot`), and only the composer
+   * leaves subscribe to the store, so typing costs one `<textarea>` render.
+   *
+   * Created once via the lazy initializer: a new store per render would reset
+   * the text and re-subscribe every consumer.
+   */
+  const [composerStore] = useState(createComposerStore)
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const composerDockRef = useRef<HTMLDivElement | null>(null)
   const editorBridgeRef = useRef<SurfaceEditorBridgeElement | null>(null)
-  const editorValueRef = useRef('')
-  const editorAttachmentsRef = useRef<Attachment[]>([])
   const autoScrollRef = useRef(true)
   /**
    * Reading anchor captured before a change that inserts content ABOVE the
@@ -679,22 +974,96 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
    */
   const pendingAnchorRef = useRef<ScrollAnchor | null>(null)
 
-  /** Apply composer text through state + the DOM-facing editor bridge. */
+  /**
+   * Write composer text. The store is the single source of truth: React never
+   * writes `textarea.value` back (that used to produce a duplicate write per
+   * keystroke, one by this callback and one by React's commit).
+   *
+   * Callers that need the caret preserved across an external write (draft
+   * restore, slash-prefix removal) go through the same entry point.
+   */
   const applyEditorText = useCallback((text: string) => {
-    const next = String(text ?? '')
-    editorValueRef.current = next
-    setEditorValue(next)
-    const bridge = editorBridgeRef.current
-    const textarea = bridge?.querySelector('textarea')
-    if (textarea && textarea.value !== next) textarea.value = next
+    composerStore.setText(String(text ?? ''))
+  }, [composerStore])
+
+  /** Write the composer attachment list through the store. */
+  const applyEditorAttachments = useCallback((files: unknown[]) => {
+    composerStore.setAttachments(Array.isArray(files) ? (files as Attachment[]) : [])
+  }, [composerStore])
+
+  // The "+" menu opens the editor's file input through this indirection: the
+  // input stays owned by `MessageEditor`, so no DOM query is needed (the
+  // decoration used to click `input[type=file]` it found by selector).
+  const [openAttachmentPicker, setOpenAttachmentPicker] = useState<(() => void) | null>(null)
+  const pickAttachment = useCallback((open: () => void) => setOpenAttachmentPicker(() => open), [])
+  // One controller for both halves of the "+" menu: the trigger lives in the
+  // editor's left control row, the popover before the editor card. `null` when
+  // the menu is disabled (read-only / Side Chat without the capability).
+  const plusMenu = useComposerPlusMenu(onDismissComposerSuggestions)
+  const activePlusMenu = enableComposerPlusMenu ? plusMenu : null
+
+  // Agent-access menu: fixed-position layer measured from the trigger, same
+  // pattern as the thinking selector. `anchor` is null only on the first frame.
+  const accessTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const accessMenuRef = useRef<HTMLDivElement | null>(null)
+  const [accessMenuOpen, setAccessMenuOpen] = useState(false)
+  const [accessMenuAnchor, setAccessMenuAnchor] = useState<{ left: number; top: number; width: number } | null>(null)
+  const closeAccessMenu = useCallback(() => setAccessMenuOpen(false), [])
+
+  useEffect(() => {
+    // Let a decoration pass (mutually exclusive composer menus) close this
+    // menu without touching the node: React owns it, and removing a React child
+    // externally makes the later unmount throw.
+    registerAgentAccessMenuCloser(() => setAccessMenuOpen(false))
+    return () => registerAgentAccessMenuCloser(null)
   }, [])
 
-  /** Apply composer attachments through state + the DOM-facing editor bridge. */
-  const applyEditorAttachments = useCallback((files: unknown[]) => {
-    const next = Array.isArray(files) ? (files as Attachment[]) : []
-    editorAttachmentsRef.current = next
-    setEditorAttachments(next)
-  }, [])
+  useEffect(() => {
+    // A gate change (read-only, workspace tools removed, mode switch) unmounts
+    // the menu; the open flag must not survive it, otherwise the menu would pop
+    // back open by itself when the gate returns.
+    if (!showAgentAccessControl) setAccessMenuOpen(false)
+  }, [showAgentAccessControl])
+
+  useEffect(() => {
+    if (!accessMenuOpen) return undefined
+    const reposition = () => {
+      const trigger = accessTriggerRef.current
+      if (!trigger) return
+      const measured = accessMenuRef.current?.offsetHeight ?? 0
+      const rect = trigger.getBoundingClientRect()
+      setAccessMenuAnchor(positionAgentAccessMenu(
+        { left: rect.left, top: rect.top, width: rect.width },
+        measured,
+        { width: window.innerWidth, height: window.innerHeight },
+      ))
+    }
+    reposition()
+    // The fixed layer must follow the trigger on resize/scroll (capture), like
+    // the decoration's resize/scroll listeners did.
+    window.addEventListener('resize', reposition, true)
+    window.addEventListener('scroll', reposition, true)
+    // Dismiss on any pointerdown outside the menu and its trigger, or on Escape.
+    const onPointerDown = (event: Event) => {
+      const target = event.target as Node | null
+      if (accessMenuRef.current?.contains(target ?? null)) return
+      if (accessTriggerRef.current?.contains(target ?? null)) return
+      setAccessMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setAccessMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      window.removeEventListener('resize', reposition, true)
+      window.removeEventListener('scroll', reposition, true)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('keydown', onKeyDown, true)
+    }
+  }, [accessMenuOpen])
 
   const publishWindow = useCallback(() => {
     const next = readWindow(windowController, fullMessagesRef.current)
@@ -892,10 +1261,8 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
         isStreaming: () => agent.state.isStreaming,
         getProvider: () => agent.state.model?.provider,
         clearEditor: () => {
-          editorValueRef.current = ''
-          editorAttachmentsRef.current = []
-          setEditorValue('')
-          setEditorAttachments([])
+          applyEditorText('')
+          applyEditorAttachments([])
         },
         restoreEditor: (input, attachments) => {
           applyEditorText(input)
@@ -924,20 +1291,16 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     sendMessageRef.current = sendMessage
   }, [sendMessage])
 
-  // Keep the mirrored editor state refs in sync with React state commits so
-  // the DOM-facing bridge getters (below) read fresh values between renders.
-  useEffect(() => {
-    editorValueRef.current = editorValue
-  }, [editorValue])
-  useEffect(() => {
-    editorAttachmentsRef.current = editorAttachments
-  }, [editorAttachments])
-
   // Install the legacy-compatible property surface on the `.qf-message-editor`
   // root node (see SurfaceEditorBridgeElement). The panel-decoration layer
   // queries that node and reads/writes these properties exactly like it did
-  // with the legacy `<message-editor>` element; value/attachments setters
-  // flow back into React state so the composer stays controlled.
+  // with the legacy `<message-editor>` element.
+  //
+  // The bridge is a pure ADAPTER: `value` / `attachments` read and write the
+  // composer store (no separate mirror to keep in sync), so a decoration-layer
+  // write and a keystroke land on the same single source of truth. That removes
+  // the old ref/state/DOM triple-write, and with it the "same text written 2-3
+  // times per keystroke" path.
   useEffect(() => {
     const editorNode = composerDockRef.current?.querySelector<HTMLElement>('.qf-message-editor')
     if (!editorNode) return
@@ -948,11 +1311,11 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
       Object.defineProperty(bridge, key, { configurable: true, enumerable: true, ...descriptor })
     }
     define('value', {
-      get: () => editorValueRef.current,
+      get: () => composerStore.getText(),
       set: (text: unknown) => applyEditorText(typeof text === 'string' ? text : ''),
     })
     define('attachments', {
-      get: () => editorAttachmentsRef.current,
+      get: () => composerStore.getAttachments(),
       set: (files: unknown) => applyEditorAttachments(Array.isArray(files) ? files : []),
     })
     define('currentModel', {
@@ -982,7 +1345,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     return () => {
       if (editorBridgeRef.current === bridge) editorBridgeRef.current = null
     }
-  }, [agent, applyEditorText, applyEditorAttachments])
+  }, [agent, applyEditorText, applyEditorAttachments, composerStore])
 
   // Snapshot-stable callbacks for the memoized message area: fresh identities
   // would defeat the memo comparison and re-introduce keystroke releases.
@@ -996,6 +1359,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
 
   return (
     <CommandActionsEnabledContext.Provider value={commandActionsEnabled}>
+      <LocalFilePathHandlerContext.Provider value={onOpenLocalFilePath ?? null}>
       <div className="qf-chat-panel flex h-full min-h-0 flex-col bg-background text-foreground">
         {/* Messages area */}
         <div className="qf-scroll-container flex-1 overflow-y-auto" ref={scrollContainerRef}>
@@ -1012,27 +1376,78 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
             streamingAssistant={streamingAssistant}
             onCostClick={onCostClick}
             persistDegraded={snapshot.persistDegraded}
+            contextCompaction={enableCompactionDivider ? snapshot.contextCompaction : null}
+            assistantWaiting={isReplyWaiting}
+            connectionStatus={enableConnectionNotices ? connectionStatus ?? null : null}
+            modelRetryInfo={enableConnectionNotices ? modelRetryInfo ?? null : null}
           />
         </div>
 
+        {/* Tier-2 unreachable strip: pinned above the composer, outside the
+            scroll container so it stays visible at any scroll position. */}
+        {enableConnectionNotices ? <UnreachableStrip status={connectionStatus} /> : null}
+        {/* Session write lease: another window holds the write lease, so this
+            view is a read-only observer with an explicit takeover action. */}
+        {leaseNoticeVisible ? (
+          <SessionLeaseStrip
+            holder={snapshot.sessionLease?.holder ?? null}
+            degraded={snapshot.sessionLease?.degraded === true}
+            onTakeOver={handleTakeOverLease}
+            takingOver={leaseTakeOverPending}
+          />
+        ) : null}
         {/* Input area */}
         {readOnly ? null : (
           <div className="shrink-0" ref={composerDockRef}>
             <div className="mx-auto max-w-3xl px-2">
+              {/* The TodoWrite capsule used to be spliced in before the editor by
+                  the decoration layer (it tolerated a suggestion menu, the goal
+                  strip and the queue panel sitting between itself and the
+                  editor, and re-asserted its position every pass). React renders
+                  it in place, so the sibling order is fixed by this JSX. */}
+              <TodoWriteSummary snapshot={snapshot.todoSnapshot} />
+              {/* The "+" popover is a sibling *before* the editor card, exactly
+                  where the decoration inserted it; its trigger lives in the
+                  editor's left control row (`leadingControls` below). */}
+              {activePlusMenu ? (
+                <ComposerPlusPopover
+                  controller={activePlusMenu}
+                  attachmentsEnabled={enableAttachments}
+                  pluginsEnabled={Boolean(availablePluginRows)}
+                  availablePluginRows={availablePluginRows ?? (() => [])}
+                  selectPluginCapability={selectPluginCapability ?? (() => undefined)}
+                  onPickAttachment={() => openAttachmentPicker?.()}
+                />
+              ) : null}
+              {/* The goal strip hugs the editor; React fixes the order, so the
+                  decoration's "tolerate the goal strip as a legal follower"
+                  rule is no longer needed. */}
+              {enableGoalStrip && sessionId && onGoalAction ? (
+                <GoalControlStrip
+                  sessionId={sessionId}
+                  goal={(agent.state as { goal?: GoalState | null }).goal ?? null}
+                  enabled={enableGoalStrip}
+                  onAction={onGoalAction}
+                />
+              ) : null}
               <MessageEditor
-                value={editorValue}
-                attachments={editorAttachments}
+                store={composerStore}
                 isStreaming={snapshot.isStreaming}
                 isWaiting={isReplyWaiting}
                 currentModel={snapshot.model}
                 thinkingLevel={snapshot.thinkingLevel}
-                showAttachmentButton={enableAttachments}
+                // The native paperclip button is redundant: attachment picking is
+                // owned by the QuickForge "+" menu (its "add attachment" row calls
+                // `pickAttachment`). The decoration layer hid this button on every
+                // pass via `.quickforge-native-attachment-hidden`; React simply
+                // does not render it while the "+" menu is present.
+                showAttachmentButton={enableAttachments && !activePlusMenu}
                 showModelSelector={enableModelSelector}
                 showThinkingSelector={enableThinkingSelector}
-                onInput={(value) => {
-                  applyEditorText(value)
-                  editorBridgeRef.current?.onInput?.(value)
-                }}
+                // Notification only: the store already holds the new text. The
+                // bridge forwards to the host, which owns draft persistence and
+                // the three suggestion controllers.
+                onInput={(value) => editorBridgeRef.current?.onInput?.(value)}
                 onSend={(input, attachments) => {
                   const bridge = editorBridgeRef.current
                   if (typeof bridge?.onSend === 'function') {
@@ -1052,16 +1467,71 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                       }
                     : undefined
                 }
-                onFilesChange={(files) => {
-                  applyEditorAttachments(files)
-                  editorBridgeRef.current?.onFilesChange?.(files)
-                }}
+                // Notification only: `MessageEditor` already wrote the merged
+                // list to the store. Re-applying it here would be a redundant
+                // write and could clobber a concurrent removal.
+                onFilesChange={(files) => editorBridgeRef.current?.onFilesChange?.(files)}
+                pickAttachment={pickAttachment}
+                composerControlsDisabled={composerControlsDisabled || leaseObserver}
+                composerReadOnly={leaseObserver}
+                leadingControls={(
+                  <>
+                    {activePlusMenu ? <ComposerPlusTrigger controller={activePlusMenu} disabled={composerControlsDisabled} /> : null}
+                    {showPlanModeControl && planMode ? (
+                      <PlanModeTrigger planMode={planMode} onToggle={() => onTogglePlanMode?.()} />
+                    ) : null}
+                    {showAgentAccessControl ? (
+                      <AgentAccessTrigger
+                        ref={accessTriggerRef}
+                        mode={agentAccessMode}
+                        expanded={accessMenuOpen}
+                        disabled={composerControlsDisabled}
+                        onToggle={() => {
+                          if (accessMenuOpen) {
+                            setAccessMenuOpen(false)
+                            return
+                          }
+                          onDismissComposerSuggestions?.()
+                          setAccessMenuAnchor(null)
+                          setAccessMenuOpen(true)
+                        }}
+                      />
+                    ) : null}
+                  </>
+                )}
+                trailingControls={enableThinkingControl && snapshot.model?.reasoning === true ? (
+                  <ThinkingLevelControl
+                    level={snapshot.thinkingLevel}
+                    onChange={(level) => {
+                      // The level lives on the mutable agent state, so write it
+                      // and re-read the snapshot: without the refresh the button
+                      // label would keep showing the old level.
+                      agent.state.thinkingLevel = level
+                      onThinkingLevelChange?.(level)
+                      syncSnapshot()
+                    }}
+                    onBeforeOpen={onDismissComposerSuggestions}
+                    disabled={composerControlsDisabled}
+                  />
+                ) : null}
               />
-              <UsageBar messages={snapshot.messages} onCostClick={onCostClick} />
+              <UsageBar totals={snapshot.usage} onCostClick={onCostClick} />
             </div>
           </div>
         )}
       </div>
+      {accessMenuOpen && showAgentAccessControl ? (
+        <AgentAccessMenu
+          mode={agentAccessMode}
+          anchor={accessMenuAnchor}
+          menuRef={accessMenuRef}
+          onSelect={(mode) => {
+            closeAccessMenu()
+            if (mode !== agentAccessMode) onAccessModeChange?.(mode)
+          }}
+        />
+      ) : null}
+      </LocalFilePathHandlerContext.Provider>
     </CommandActionsEnabledContext.Provider>
   )
 })

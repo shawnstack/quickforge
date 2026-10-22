@@ -10,7 +10,6 @@ import {
   retryIcon,
   rollbackIcon,
 } from './icons'
-import { decorateLocalFilePathLinks } from './local-file-path-links'
 import { decorateUserMessageInputClamp, type InputClampLabels } from '@/lib/input-clamp'
 import { createSlashChipElement, parseSlashInvocationPrefix, planSlashChipText } from '../slash-invocation-chip'
 import { createFileReferenceChip } from '../file-reference-suggestions'
@@ -567,9 +566,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       }
     }
 
-    if (entry.message.role === 'assistant' && onOpenLocalFilePath) {
-      decorateLocalFilePathLinks(element, entry.message, onOpenLocalFilePath)
-    }
+    // Local file path links are rendered by the Markdown pass now (see
+    // surface/rehype-local-file-paths.ts + LocalFilePathLink), so the decoration
+    // no longer walks the message body for them.
 
     // 终态错误（会话最后一条消息是错误）：一行式错误行就地挂「重试 / 详情 / 升级
     // 提示」；历史错误只改写呈现（icon + 一句话）。重试统一语义：发送失败先重发

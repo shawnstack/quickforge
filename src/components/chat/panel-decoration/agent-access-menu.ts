@@ -1,187 +1,51 @@
-import { patchContent } from '../chat-utils'
-import { t } from '@/lib/i18n'
 import type { AgentAccessMode } from '@/lib/types'
-import {
-  agentAccessCheckIcon,
-  agentAccessChevronIcon,
-  agentAccessShieldIcon,
-  agentAccessWarningIcon,
-} from './icons'
 
-type AgentAccessMenuElement = HTMLDivElement & {
-  __quickforgeDismissHandler?: (event: Event) => void
-  __quickforgeOwnerPanel?: HTMLElement
-  __quickforgeOwnerTrigger?: HTMLButtonElement
+/**
+ * Agent-access menu cleanup.
+ *
+ * The trigger and the menu are rendered by React now
+ * (`surface/ComposerAccessControls.tsx`), so this module must NOT remove any
+ * node: doing so makes React's later unmount throw
+ * `NotFoundError: The node to be removed is not a child of this node`, which
+ * takes down the whole chat panel through the error boundary. (Probed against
+ * react-dom 19: an externally removed child always fails the unmount.)
+ *
+ * What remains here is the *request* to close. The surface owns the open state,
+ * so it exposes a close callback through the same send-hooks ref the other
+ * composer hooks use; the decoration calls it and React removes the node itself.
+ */
+
+export type AgentAccessMenuCloser = () => void
+
+let closeRequested: AgentAccessMenuCloser | null = null
+
+/**
+ * Register the surface's close callback. Called by `ChatSurface` on mount and
+ * cleared on unmount, so a decoration pass in one panel can never close another
+ * panel's menu (each surface registers its own).
+ */
+export function registerAgentAccessMenuCloser(closer: AgentAccessMenuCloser | null): void {
+  closeRequested = closer
 }
 
-function agentAccessLabel(mode: AgentAccessMode) {
-  return mode === 'full-access' ? t('agentAccessFullLabel') : t('agentAccessDefaultLabel')
+/**
+ * Ask the surface to close its agent-access menu.
+ *
+ * `scoped` keeps the original panel-scoped semantics: it is a no-op for a panel
+ * that is not the registered owner. There is only one registered owner per
+ * surface, and the side-chat surface never renders the menu, so the scoped
+ * check reduces to "is there a menu open at all".
+ */
+export function removeAgentAccessMenu(_panel?: HTMLElement | null, scoped = false): void {
+  if (scoped && !closeRequested) return
+  closeRequested?.()
 }
 
-export function removeAgentAccessMenu(panel: HTMLElement, scoped = false) {
-  const menu = document.querySelector<AgentAccessMenuElement>('.quickforge-agent-access-menu')
-  if (scoped && menu?.__quickforgeOwnerPanel !== panel) {
-    panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.setAttribute('aria-expanded', 'false')
-    return
-  }
-  if (menu?.__quickforgeDismissHandler) {
-    document.removeEventListener('pointerdown', menu.__quickforgeDismissHandler, true)
-    document.removeEventListener('keydown', menu.__quickforgeDismissHandler, true)
-    window.removeEventListener('resize', menu.__quickforgeDismissHandler, true)
-    window.removeEventListener('scroll', menu.__quickforgeDismissHandler, true)
-    menu.__quickforgeDismissHandler = undefined
-  }
-  menu?.__quickforgeOwnerTrigger?.setAttribute('aria-expanded', 'false')
-  menu?.remove()
-  panel.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')?.setAttribute('aria-expanded', 'false')
-}
-
-function createAgentAccessItem(mode: AgentAccessMode, currentMode: AgentAccessMode, onSelect: (mode: AgentAccessMode) => void) {
-  const selected = mode === currentMode
-  const item = document.createElement('button')
-  item.type = 'button'
-  item.className = 'quickforge-agent-access-item'
-  item.setAttribute('role', 'menuitemradio')
-  item.setAttribute('aria-checked', String(selected))
-  item.dataset.quickforgeAgentAccessMode = mode
-  item.innerHTML = `
-    <span class="quickforge-agent-access-check-slot">${selected ? agentAccessCheckIcon : ''}</span>
-    <span class="quickforge-agent-access-option-icon-wrap">${mode === 'full-access' ? agentAccessWarningIcon : agentAccessShieldIcon}</span>
-    <span class="quickforge-agent-access-item-label"></span>
-  `
-  item.querySelector<HTMLElement>('.quickforge-agent-access-item-label')!.textContent = agentAccessLabel(mode)
-  item.onpointerdown = (event) => {
-    event.preventDefault()
-    event.stopPropagation()
-    onSelect(mode)
-  }
-  return item
-}
-
-function renderAgentAccessMenu(options: {
-  panel: HTMLElement
-  trigger: HTMLButtonElement
-  agentAccessMode: AgentAccessMode
-  onAccessModeChange: (mode: AgentAccessMode) => void
-  dismissComposerMenus: () => void
-}) {
-  const { panel, trigger, agentAccessMode, onAccessModeChange, dismissComposerMenus } = options
-  const existing = document.querySelector<AgentAccessMenuElement>('.quickforge-agent-access-menu')
-  if (existing) {
-    removeAgentAccessMenu(panel)
-    return
-  }
-
-  dismissComposerMenus()
-  removeAgentAccessMenu(panel)
-
-  const menu = document.createElement('div') as AgentAccessMenuElement
-  menu.className = 'quickforge-agent-access-menu'
-  menu.__quickforgeOwnerPanel = panel
-  menu.__quickforgeOwnerTrigger = trigger
-  menu.setAttribute('role', 'menu')
-  menu.setAttribute('aria-label', t('agentAccessMenuLabel'))
-
-  const select = (mode: AgentAccessMode) => {
-    removeAgentAccessMenu(panel)
-    if (mode !== agentAccessMode) onAccessModeChange(mode)
-  }
-
-  menu.append(
-    createAgentAccessItem('default', agentAccessMode, select),
-    createAgentAccessItem('full-access', agentAccessMode, select),
-  )
-
-  const positionMenu = () => {
-    const rect = trigger.getBoundingClientRect()
-    const gap = 8
-    const width = Math.min(196, window.innerWidth - 24)
-    menu.style.width = `${width}px`
-    const measuredHeight = menu.offsetHeight || 96
-    const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))
-    const top = Math.max(12, rect.top - measuredHeight - gap)
-    menu.style.left = `${left}px`
-    menu.style.top = `${top}px`
-  }
-
-  const dismiss = (event: Event) => {
-    if (event.type === 'resize' || event.type === 'scroll') {
-      positionMenu()
-      return
-    }
-    if (event instanceof KeyboardEvent) {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-    } else {
-      const target = event.target as Node
-      if (menu.contains(target) || trigger.contains(target)) return
-    }
-    removeAgentAccessMenu(panel)
-  }
-  menu.__quickforgeDismissHandler = dismiss
-  menu.addEventListener('pointerdown', (event) => event.stopPropagation())
-  document.addEventListener('pointerdown', dismiss, true)
-  document.addEventListener('keydown', dismiss, true)
-  window.addEventListener('resize', dismiss, true)
-  window.addEventListener('scroll', dismiss, true)
-  document.body.append(menu)
-  positionMenu()
-  trigger.setAttribute('aria-expanded', 'true')
-}
-
-export function setupAgentAccessMenu(options: {
-  panel: HTMLElement
-  leftControls: HTMLElement
-  agentAccessMode: AgentAccessMode
-  onAccessModeChange: (mode: AgentAccessMode) => void
-  dismissComposerMenus: () => void
-}) {
-  const { panel, leftControls, agentAccessMode, onAccessModeChange, dismissComposerMenus } = options
-  leftControls.classList.add('quickforge-composer-left-controls')
-  panel.querySelector<HTMLButtonElement>('.quickforge-yolo-inline')?.remove()
-  const label = agentAccessLabel(agentAccessMode)
-  const title = agentAccessMode === 'full-access' ? t('agentAccessFullTitle') : t('agentAccessDefaultTitle')
-  const content = `${agentAccessMode === 'full-access' ? agentAccessWarningIcon : agentAccessShieldIcon}<span class="quickforge-agent-access-label"></span>${agentAccessChevronIcon}`
-  const buttonClass = `quickforge-agent-access-inline inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground${agentAccessMode === 'full-access' ? ' quickforge-agent-access-inline-full' : ''}`
-  const existingButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')
-  const syncButton = (button: HTMLButtonElement) => {
-    patchContent(button, content)
-    button.querySelector<HTMLElement>('.quickforge-agent-access-label')!.textContent = label
-    button.title = title
-    button.setAttribute('aria-label', title)
-    button.setAttribute('aria-haspopup', 'menu')
-    const ownedMenu = document.querySelector<AgentAccessMenuElement>('.quickforge-agent-access-menu')
-    button.setAttribute('aria-expanded', String(ownedMenu?.__quickforgeOwnerPanel === panel))
-    button.dataset.quickforgeAgentAccessMode = agentAccessMode
-    button.className = buttonClass
-    button.onpointerdown = (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-      renderAgentAccessMenu({ panel, trigger: button, agentAccessMode, onAccessModeChange, dismissComposerMenus })
-    }
-    button.onclick = (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-    }
-    button.onkeydown = (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'ArrowDown') return
-      event.preventDefault()
-      renderAgentAccessMenu({ panel, trigger: button, agentAccessMode, onAccessModeChange, dismissComposerMenus })
-    }
-  }
-
-  if (existingButton) {
-    syncButton(existingButton)
-  } else {
-    const button = document.createElement('button')
-    button.type = 'button'
-    syncButton(button)
-    leftControls.append(button)
-  }
-
-  const accessButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-agent-access-inline')
-  const planButton = leftControls.querySelector<HTMLButtonElement>('.quickforge-plan-inline')
-  if (accessButton && planButton && accessButton.nextSibling !== planButton) {
-    leftControls.insertBefore(planButton, accessButton.nextSibling)
-  }
+/**
+ * The access-mode vocabulary the trigger/menu labels use. Kept next to the close
+ * path so callers that only need the label key do not pull in the React
+ * component.
+ */
+export function agentAccessModeLabelKey(mode: AgentAccessMode): 'agentAccessFullLabel' | 'agentAccessDefaultLabel' {
+  return mode === 'full-access' ? 'agentAccessFullLabel' : 'agentAccessDefaultLabel'
 }

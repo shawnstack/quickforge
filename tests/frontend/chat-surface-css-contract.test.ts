@@ -7,7 +7,7 @@ import { AssistantMessage } from '../../src/components/chat/surface/AssistantMes
 import { KatexMath } from '../../src/components/chat/surface/KatexMath'
 import { ThinkingBlock } from '../../src/components/chat/surface/ThinkingBlock'
 import { ToolMessage } from '../../src/components/chat/surface/ToolMessage'
-import { UsageBar } from '../../src/components/chat/surface/UsageBar'
+import { aggregateUsage, UsageBar } from '../../src/components/chat/surface/UsageBar'
 import { UserMessage } from '../../src/components/chat/surface/UserMessage'
 import type {
   AssistantMessage as AssistantMessageType,
@@ -98,7 +98,7 @@ describe('per-message usage line contract', () => {
     // 宿主传 onCostClick 时 totals 渲染为 button 而非 span；隐藏选择器用
     // :is(span, button) 同时命中两种形态（:not 豁免语义不变）。
     const markup = renderToStaticMarkup(
-      createElement(UsageBar, { messages: [assistantMessage()], onCostClick: () => { } }),
+      createElement(UsageBar, { totals: aggregateUsage([assistantMessage()]), onCostClick: () => { } }),
     )
     expect(markup).toContain('<button type="button" class="cursor-pointer transition-colors hover:text-foreground">')
     expect(css).not.toMatch(/\.ml-auto\.items-center\s*>\s*span:not\(/)

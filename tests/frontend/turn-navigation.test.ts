@@ -82,10 +82,14 @@ type FakeElement = {
   type: string
   hidden: boolean
   clientHeight: number
+  clientRects: unknown[]
+  scrollTop: number
+  scrollTo?: (options: { top: number }) => void
   children: FakeElement[]
   parentElement: FakeElement | null
   listeners: Record<string, Array<(event?: unknown) => void>>
   getBoundingClientRect: () => { top: number }
+  getClientRects: () => unknown[]
   append: (...items: FakeElement[]) => void
   remove: () => void
   replaceChildren: (...items: FakeElement[]) => void
@@ -133,10 +137,15 @@ function createFakeElement(tagName = 'div'): FakeElement {
     type: '',
     hidden: false,
     clientHeight: 0,
+    clientRects: [{}] as unknown[],
+    scrollTop: 0,
     children,
     parentElement: null as FakeElement | null,
     listeners: {},
     getBoundingClientRect: () => ({ top: 0 }),
+    getClientRects() {
+      return node.clientRects
+    },
     append(...items: FakeElement[]) {
       for (const item of items) {
         item.remove()
@@ -213,21 +222,56 @@ function createFakeElement(tagName = 'div'): FakeElement {
   return node
 }
 
-function createScrollEnv() {
-  // 5 个完整回合（达到 TURN_NAVIGATION_MIN_TURNS，渲染 5 个节点）。
+/**
+ * 5 个完整回合（达到 TURN_NAVIGATION_MIN_TURNS，渲染 5 个节点）。
+ *
+ * 每行都带 `data-message-index`（`MessageList` 的 `useLayoutEffect` 在提交后写入），
+ * 锚点解析走这个绝对下标，不再按 `.qf-user-message` 的序号算术。
+ * `hiddenUserTurns` 里的轮次模拟 `display: none` 的 user 行（goal 续跑提示 /
+ * 后台命令通知）：没有布局盒，rect 读出来是全 0。
+ */
+function createScrollEnv(hiddenUserTurns: number[] = []) {
   const messages: Array<Record<string, unknown>> = []
   const userRows: FakeElement[] = []
+  const answerRows: FakeElement[] = []
+  // 可视性判定（`getClientRects`）只在缓存失效时逐行发生，正好可以用来观察
+  // 「锚点解析是否重扫」。缓存命中时滚动只读 `getBoundingClientRect`。
+  let layoutProbes = 0
   const list = createFakeElement('div')
   list.className = 'qf-message-list'
   list.dataset.windowStart = '0'
+
   for (let turn = 0; turn < 5; turn++) {
+    const userIndex = turn * 2
     messages.push({ role: 'user', content: `question ${turn}`, timestamp: turn + 1 })
     messages.push({ role: 'assistant', content: [{ type: 'text', text: `answer ${turn}` }], timestamp: turn + 1.5 })
     const row = createFakeElement('div')
     row.className = 'qf-user-message'
-    row.getBoundingClientRect = () => ({ top: turn * 10 })
+    row.dataset.messageIndex = String(userIndex)
+    // `display: none` 的行没有布局盒，rect 读出来是全 0（这正是隐藏行被误当
+    // 锚点时的行为）。
+    if (hiddenUserTurns.includes(turn)) {
+      row.clientRects = []
+      row.getBoundingClientRect = () => ({ top: 0 })
+    } else {
+      row.getBoundingClientRect = () => ({ top: turn * 10 })
+    }
+    row.getClientRects = () => {
+      layoutProbes += 1
+      return row.clientRects
+    }
     userRows.push(row)
     list.append(row)
+    const answerRow = createFakeElement('div')
+    answerRow.className = 'qf-assistant-message'
+    answerRow.dataset.messageIndex = String(userIndex + 1)
+    answerRow.getBoundingClientRect = () => ({ top: turn * 10 + 5 })
+    answerRow.getClientRects = () => {
+      layoutProbes += 1
+      return answerRow.clientRects
+    }
+    answerRows.push(answerRow)
+    list.append(answerRow)
   }
   const container = createFakeElement('div')
   container.className = 'qf-scroll-container'
@@ -237,13 +281,6 @@ function createScrollEnv() {
   const panel = createFakeElement('div')
   panel.append(container)
   const host = createFakeElement('div')
-
-  let userMessageQueryCount = 0
-  const baseQuerySelectorAll = list.querySelectorAll.bind(list)
-  list.querySelectorAll = (selector: string) => {
-    if (selector === '.qf-user-message') userMessageQueryCount += 1
-    return baseQuerySelectorAll(selector)
-  }
 
   const rafQueue = new Map<number, () => void>()
   let rafId = 0
@@ -283,22 +320,30 @@ function createScrollEnv() {
     for (const listener of container.listeners.scroll ?? []) listener()
   }
   const trackNodes = () => descendants(descendants(host, '.quickforge-turn-navigation')[0], '.quickforge-turn-navigation-node')
+  const activeOrdinals = () => {
+    const nodes = trackNodes()
+    return nodes.map((node, index) => (hasClass(node, 'is-active') ? index : -1)).filter((index) => index >= 0)
+  }
 
   return {
     navigation,
     host,
     panel,
+    container,
+    messages,
     userRows,
+    answerRows,
     dispatchScroll,
     flushRaf,
     rafQueue,
     requestAnimationFrame,
     cancelAnimationFrame,
-    getUserMessageQueryCount: () => userMessageQueryCount,
+    getLayoutProbes: () => layoutProbes,
     replaceMessages: (next: unknown[]) => {
       currentMessages = next
     },
     trackNodes,
+    activeOrdinals,
   }
 }
 
@@ -318,10 +363,11 @@ describe('turn navigation scroll measurement', () => {
   it('coalesces scroll bursts into a single rAF measurement and marks the visible turn active', () => {
     const env = createScrollEnv()
     env.navigation.update()
-    const baseline = env.getUserMessageQueryCount()
+    const baseline = env.getLayoutProbes()
     const rafCallsBefore = env.requestAnimationFrame.mock.calls.length
     // update() 同步测量一次后，活动节点已按可见窗口标注。
-    expect(env.trackNodes().filter((node) => hasClass(node, 'is-active')).length).toBe(1)
+    // 阈值 = 容器顶 + min(120, clientHeight * 0.2) = 20；行顶 0/10/20 <= 20。
+    expect(env.activeOrdinals()).toEqual([2])
 
     // 第三个 user 行移出阈值（帧执行时按最新几何信息计算，活动节点应前移）。
     env.userRows[2].getBoundingClientRect = () => ({ top: 100 })
@@ -333,37 +379,75 @@ describe('turn navigation scroll measurement', () => {
     expect(env.rafQueue.size).toBe(1)
     env.flushRaf()
 
-    const nodes = env.trackNodes()
-    const active = nodes.filter((node) => hasClass(node, 'is-active'))
-    expect(active.length).toBe(1)
-    expect(nodes.indexOf(active[0])).toBe(1)
-    // 布局无关输入未变（缓存命中）：合帧测量复用元素扫描，只重读几何信息。
-    expect(env.getUserMessageQueryCount()).toBe(baseline)
+    // 布局无关输入未变（缓存命中）：合帧测量复用锚点解析，只重读几何信息。
+    expect(env.activeOrdinals()).toEqual([1])
+    expect(env.getLayoutProbes()).toBe(baseline)
     env.navigation.cleanup()
   })
 
-  it('reuses the user-message scan while the rendered messages reference is unchanged', () => {
+  it('reuses the anchor resolution while the rendered messages reference is unchanged', () => {
     const env = createScrollEnv()
     env.navigation.update()
-    const baseline = env.getUserMessageQueryCount()
+    const baseline = env.getLayoutProbes()
 
     // 输入未变（messages 引用 / windowStart / turns 均稳定）→ 缓存命中，不重扫 DOM。
     env.dispatchScroll()
     env.flushRaf()
-    expect(env.getUserMessageQueryCount()).toBe(baseline)
+    expect(env.getLayoutProbes()).toBe(baseline)
 
-    // messages 数组引用变化（React 表面重建窗口）→ 缓存失效，重新扫描。
+    // messages 数组引用变化（React 表面重建窗口）→ 缓存失效，重新解析锚点。
     env.replaceMessages(Array.from({ length: 10 }, (_, index) => ({ role: index % 2 === 0 ? 'user' : 'assistant', content: `m${index}`, timestamp: index })))
     env.dispatchScroll()
     env.flushRaf()
-    expect(env.getUserMessageQueryCount()).toBe(baseline + 1)
+    expect(env.getLayoutProbes()).toBeGreaterThan(baseline)
+    env.navigation.cleanup()
+  })
+
+  it('never marks a display:none user row as the active turn', () => {
+    // 第 3 轮是 goal 续跑/后台通知这类被 CSS 隐藏的 user 行（rect 恒为 0）。
+    // 旧实现用 "第 n 个 .qf-user-message" 的序号算术，隐藏行 `0 <= 阈值`
+    // 恒成立，会把活动节点推进到它身上。
+    const env = createScrollEnv([2])
+    env.navigation.update()
+
+    // 视口停在第 2 轮，第 3 轮隐藏、第 4 轮在阈值之下。
+    env.userRows[0].getBoundingClientRect = () => ({ top: -100 })
+    env.userRows[1].getBoundingClientRect = () => ({ top: -50 })
+    env.userRows[3].getBoundingClientRect = () => ({ top: 40 })
+    env.userRows[4].getBoundingClientRect = () => ({ top: 80 })
+    env.dispatchScroll()
+    env.flushRaf()
+
+    // 隐藏轮次不得被选中：可见轮次是第 2 轮（ordinal 1）。
+    expect(env.activeOrdinals()).toEqual([1])
+    env.navigation.cleanup()
+  })
+
+  it('jumps a hidden turn to the next visible row instead of scrolling to 0', () => {
+    const env = createScrollEnv([2])
+    env.navigation.update()
+
+    // 记录 scrollTo 的目标：定位必须来自真实可见行，不能是隐藏行的 0 几何。
+    const scrollTargets: number[] = []
+    env.container.scrollTo = (options) => { scrollTargets.push(options.top) }
+    env.container.scrollTop = 100
+
+    // 第 3 轮（ordinal 2）的 user 行被隐藏，紧随其后的 assistant 行可见。
+    env.answerRows[2].getBoundingClientRect = () => ({ top: 60 })
+    env.trackNodes()[2].listeners.click[0]()
+    env.flushRaf()
+
+    expect(scrollTargets).toHaveLength(1)
+    // 100 (scrollTop) + 60 (紧随可见行顶相对容器) - 0 (容器顶) - 24 (留白) = 136
+    // 旧实现会选中隐藏行，算出 100 + 0 - 0 - 24 = 76（与内容无关）。
+    expect(scrollTargets[0]).toBe(136)
     env.navigation.cleanup()
   })
 
   it('cancels the pending rAF measurement on cleanup', () => {
     const env = createScrollEnv()
     env.navigation.update()
-    const baseline = env.getUserMessageQueryCount()
+    const baseline = env.getLayoutProbes()
 
     env.dispatchScroll()
     expect(env.rafQueue.size).toBe(1)
@@ -371,6 +455,6 @@ describe('turn navigation scroll measurement', () => {
     expect(env.cancelAnimationFrame).toHaveBeenCalled()
     // 已取消的帧不再执行测量。
     env.flushRaf()
-    expect(env.getUserMessageQueryCount()).toBe(baseline)
+    expect(env.getLayoutProbes()).toBe(baseline)
   })
 })

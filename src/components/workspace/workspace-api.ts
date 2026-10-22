@@ -1,4 +1,5 @@
 import type {
+  CommandLogResponse,
   GitBranchesResponse,
   GitCheckoutResponse,
   GitCommitPushResponse,
@@ -71,6 +72,17 @@ export function getWorkspaceFileMeta(projectId: string, path: string, signal?: A
 
 export function resolveWorkspacePath(projectId: string, path: string) {
   return postJson<WorkspaceResolvedPathResponse>('/api/workspace/resolve-path', { projectId, path })
+}
+
+/**
+ * 读取 `run_command` 的命令日志（`<dataDir>/logs/commands/*.log`）。
+ *
+ * 日志在工作区之外，`/api/workspace/file` 会以 403 拒绝，因此走独立的受限端点；
+ * 服务端用与 `read_file` 相同的 isCommandLogPath 判定，只放行命令日志目录。
+ */
+export function getCommandLog(sessionId: string, path: string, signal?: AbortSignal) {
+  const params = new URLSearchParams({ path })
+  return fetchJson<CommandLogResponse>(`/api/agents/${encodeURIComponent(sessionId)}/command-log?${params}`, signal)
 }
 
 export type WorkspaceExternalOpenTarget = 'explorer' | 'vscode' | 'idea'

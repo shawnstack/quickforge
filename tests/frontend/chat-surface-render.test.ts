@@ -185,8 +185,13 @@ describe('chat surface snapshot refresh events', () => {
     }
   })
 
+  it('refreshes on goal updates so the goal strip re-renders', () => {
+    expect(isSnapshotRefreshEvent('goal_updated')).toBe(true)
+    expect(isSnapshotRefreshEvent('auto_compact_completed')).toBe(true)
+  })
+
   it('ignores events that never change the rendered snapshot', () => {
-    for (const type of ['title_updated', 'goal_updated', 'error', 'session_forked', 'unknown_event']) {
+    for (const type of ['title_updated', 'error', 'session_forked', 'unknown_event']) {
       expect(isSnapshotRefreshEvent(type)).toBe(false)
     }
   })

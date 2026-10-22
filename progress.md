@@ -1,3 +1,151 @@
+## abort-lease-header（done，2026-10-22）
+
+- Goal：用户反馈「点击暂停无效，控制台报 `POST /api/agents/:id/abort 409 (Conflict)`」。
+- 根因：`ServerAgent.abort()`（`src/lib/server-agent.ts:865`）是唯一漏发租约身份头的写入口——只调 `fetch(url, { method: 'POST' })`，没带 `writeHeaders()`。服务端 abort 路由有 `assertSessionWriteAccess`（`server/routes/agent.mjs:337`），读不到 `x-quickforge-client-id` 就按匿名客户端处理，租约被持有时返回 409 `SESSION_LEASE_HELD`。因为前端 `canWrite()` 已先放行（本页就是持有者），请求才会真的发出并撞上 409。又因原实现只 `.catch()` 网络错误、不检查 `response.ok`，409 被静默吞掉，表现为「点了没反应、运行继续」。
+- 改动：① `abort()` 补 `headers: this.writeHeaders()`；② 增加非 2xx 的 `logger.warn`（带 status），让后续同类拒绝不再隐身。③ `tests/frontend/server-agent-session-lease.test.ts` 新增 1 例断言 abort 请求带 `x-quickforge-client-id`。
+- 验证：`npx vitest run tests/frontend/server-agent-session-lease.test.ts tests/server/routes/agent.test.mjs tests/server/session-lease.test.mjs` → 3 文件 84 passed；全量 `npm run test` → **417 文件 4774 passed / 2 skipped**；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc --noEmit` 通过；`npm run build` 成功（6.70s）。
+- Notes：`docs/wiki/src/lib/README.md:179` 早已声称「所有写请求经 `writeHeaders()` 携带」，本次修复后该描述才真正成立，无需改文档；但**同类漏项值得复查**（新增写路由时容易再忘）。
+
+---
+
+## session-write-lease（done，2026-10-22）
+
+- Goal：回答用户「消息保存失败，请刷新或重试，以免丢失最近的对话记录」是什么意思后，用户选择落地 **A2 会话级独占（防多标签/多设备）**。
+- 根因：写权限只有两道防线 —— ① 进程内 per-session FIFO 锁（`session-persistence-lock.mjs`），但只有 `persistSession` 走它；② SQLite revision CAS（`BEGIN IMMEDIATE` 内 check-then-write）。真实并发写入口（第二标签页、局域网第二设备、多进程共享 dataDir）从未经过该锁，`runPrompt` 的业务门禁也只有本地 `state.isStreaming`，且检查到真正开跑之间有多处 `await`（TOCTOU 窗口）。CAS 冲突时的策略是「拒绝覆盖 + `persist_degraded` 告警」，于是并发写退化为用户可见的「消息保存失败」。另注意原 `session.sseConnected` 独占位（重复连接 409）早已无人消费——前端改用全局事件流 `/api/agents/events` 后那条链失效。
+- 服务端改动：
+  1. 新增 `server/session-lease.mjs`：纯同步逻辑（无 await 即无 TOCTOU）。`acquire`（申领/续约，续约不广播）、`forceTake`（用户显式接管，无条件覆盖并广播）、`release`（只允许持有者，避免旁观页关闭打掉持有者写权限）、`get`（过期即按无人持有返回）、`canWrite`（无租约放行，兼容 ACP/定时任务/共享会话与升级前单端行为）、`clear`（带 fence 防「旧连接迟到释放清掉新租约」）。TTL 60s；`publish` 抛错被吞掉（租约是并发保护，不是可用性依赖）。
+  2. 新增 `server/agent-session-lease.mjs`：装配层，把租约表接到 `agentSessions` 与 `emitSessionEvent`，变化以 `session_lease` 帧广播；6 个函数由 `agent-manager.mjs` facade re-export（`agent-manager-exports-contract.test.mjs` 的 `EXPECTED_EXPORTS` 同步 +6）。
+  3. `server/routes/agent.mjs`：新增 `GET|POST|DELETE /api/agents/:id/lease`（客户端标识取 `x-quickforge-client-id` 头，缺失回落 body `clientId`，都没有 400 `SESSION_LEASE_CLIENT_ID_REQUIRED`；他人持有 409 `SESSION_LEASE_HELD` 并回带当前 `lease`；`{takeover:true}` 为显式接管）；新增 `assertSessionWriteAccess` 并挂到 **13 条写路由**（prompt/goal/abort/continue/steer/follow-up/title/access-mode/yolo-mode/model/thinking-level/rollback/rollback-turn）**入口**——守卫在 `await readJsonBody` 之前，被拦下的请求不读 body、不进 `runPrompt`，这正是对旧 TOCTOU 空窗的补位。审批与 `ask_user` 应答**不**设门禁（避免非持有页看不到卡片时把运行卡死）。
+  4. `getSessionState` / `getSessionStatus` 增加 `lease` 字段（经 `createSessionQueries` 注入 `getWriteLease`），state 帧与 `/status` 都能带下来；`destroyAgent` 结束处 `clearSessionLease(sessionId, {force:true})`。
+- 前端改动：
+  5. 新增 `src/lib/session-lease-client.ts`：`clientId` 存 sessionStorage（刷新不变、新标签页新值，正好对应「谁在写」）、`acquireLease`/`takeOverLease`/`releaseLease`、`leaseSnapshotFromWire` 把 `{clientId}` 翻译成 `owner`/`observer`、20s 心跳常量。**409 与网络失败一律不降级为可写**（拿不到租约按只读处理）。
+  6. `ServerAgent`：新增 `enableSessionLease()`（申领 + 20s 心跳）、`takeOverSessionLease()`、`canWrite()`、`subscribeSessionLease()`（供 `useSyncExternalStore`）；`dispose()` 释放租约并停表；`state.sessionLease` 由心跳结果与 `session_lease` SSE 帧共同维护（`applySessionLease` 对同值去重不广播）；10 个写入口以 `canWrite()` 本地拦截（一个请求都不发，避免「先乐观插入再回滚」的界面闪烁）；所有写请求经 `writeHeaders()` 携带客户端头。`global-agent-sse-client.ts` 的 eventTypes 增加 `session_lease`。
+  7. UI：`ChatPanelHost` 挂载时（非 `readOnly`/非 Side Chat）申领租约，用 `useSyncExternalStore` 订阅（第一版用 `useEffect` 内 setState 被 lint 的 `react-hooks/set-state-in-effect` 拦下，改为外部 store 订阅后消失）；`ChatSurface` 新增 `SessionLeaseStrip`（提示条 + 「在此窗口接管」）与 `composerReadOnly` 门禁（textarea `readOnly` + 专用占位文案、发送按钮禁用、paste/drag/drop 短路），并复用既有 `composerControlsDisabled` 语义禁用「+」/模型/access 控件；`index.css` 新增 `.quickforge-lease-*` 样式（与 unreachable strip 同族的 Amber 信息色）；i18n 新增 6 条中英文案。
+- 新增测试：`tests/server/session-lease.test.mjs`（17 例：申领/续约不广播/他人持有被拒/TTL 过期可抢占/过期视作无人持有/显式接管/仅持有者可释放/非法 clientId 被拒/trim/无 clientId 在租约存在时被拒/fence 防跨代误释放/force 清理/会话独立/publish 抛错不影响写入/自定义 TTL）、`tests/frontend/session-lease-client.test.ts`（14 例）、`tests/frontend/server-agent-session-lease.test.ts`（11 例：未启用租约完全走旧路径、心跳续约、头部携带、非持有者本地丢弃 prompt 与其他 8 个写入口、SSE 帧双向切换、同值帧不重复通知、接管、dispose 释放且停表、重复 enable 只申领一次）；`tests/server/routes/agent.test.mjs` 新增 8 例（GET 只读不改状态、POST 从头部取 clientId、409 回带 holder、takeover、DELETE 释放、缺 clientId 400、非持有者 409 且 `runPrompt` 未被调用、10 条写路由统一守卫、持有者正常通过）。
+- 验证：`npm run test` **417 文件 4773 passed / 2 skipped**；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -p tsconfig.app.json --noEmit` 通过；`npm run build` 成功（5.03s）。
+- 修过程中的两次返工（记录以便下轮避坑）：① `agent-manager.mjs` 里 `export { ... }` 漏掉 `from` 造成 rolldown `Duplicated export`，一度让 28 个测试文件整体加载失败；② 起初把租约函数挂在 `agent-manager` facade 上供路由导入，导致 9 个既有 `vi.mock('server/agent-manager.mjs')` 的测试全部 `No "canWriteSession" export is defined`——最终改为**路由直接 import `agent-session-lease.mjs`**，facade 仍 re-export 保住导出面契约，既有 mock 零改动。
+- Notes（未做，供下轮）：① 用户本次只选了 A2；**A1（pin/归档改字段级 patch）未做**——侧栏 pin 仍会把客户端整份缓存 metadata 回写 state（`lastModified/title/taskStatus`），这是目前最高频的 `persist_degraded` 诱因，agent 侧冲突白名单只有 `pinnedAt/archivedAt`。② **C6/C7 未做**：`bodyUnchanged` 仍比整份 canonical JSON，冲突后仍是「放弃写入」而非「重读 + 合并 messages 再写一次」。③ 租约仍是**单进程内存态**（语义同原 `sseConnected`），多进程共享 dataDir（`npm start` 与 `npm run dev`/桌面版并存）无进程级文件锁，跨进程正确性继续靠 CAS 兜底。④ 审批与 `ask_user` 应答未纳入门禁——若后续要求更强隔离，需要同时解决「非持有页看不到卡片」的 UI 问题。⑤ `session.sseConnected` 独占链仍是无消费方的死代码，可在确认无外部依赖后删除。未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+
+---
+
+## composer-typing-latency（done，2026-10-22）
+
+- Goal：修用户反馈「对话轮次多了之后，输入框打字非常卡」。用户选择 P1+P2，并要求只做内部重构、外观/交互零变化。
+- 根因（一句话）：热路径归属错了。输入文本存于 `ChatSurface` 顶层 `useState`，每按一个键就重渲染整个 surface（1417 行）；其中 `UsageBar` 的 `aggregateUsage`（`filter`+`reduce` 全量 assistant 消息，每次新建数组）与 `TodoWriteSummary` 的倒序扫描都是 O(消息数)，成本随轮次线性增长 —— 这才是「只有长会话卡」。`MessageArea` 早就被 memo 围栏挡住，但围栏越加越多、热路径仍在顶层。
+- 三条叠加成本链：① 渲染——按键 → `setEditorValue` → 整树重渲染（`MessageEditor`/`GoalStrip`/`PlusMenu`/`ThinkingControl` 均未 memo）；② 命令式联动——`editor.onInput` 串联 4 个控制器，两个建议菜单每键 `innerHTML=''` 全量重建，`handleEditorInput` 每键两次 `querySelector`；③ 装饰放大——面板级 `MutationObserver{childList,subtree}` 把菜单/chip/附件 tile 的节点增删都当成「需要全量 decorate」，而 decorate 含约 39 项 O(消息数)/O(DOM 数) 操作。
+- 改动（P1）：
+  1. 新增 `src/components/chat/surface/composer-store.ts`：`text` / `attachments` 两个独立切片的外部 store（`useSyncExternalStore`）。切片独立通知，所以一次按键不会唤醒附件订阅者。
+  2. `ChatSurface`：删除 `editorValue`/`editorValueRef`/`editorAttachments`/`editorAttachmentsRef` 四个副本与两个镜像 effect，改持一个 `useState(createComposerStore)`；`applyEditorText`/`applyEditorAttachments` 变成 store 写入口；bridge 的 `value`/`attachments` 改为纯适配器（getter 读 store、setter 写 store，自身零状态）——顺带消灭「同一值每键写 2–3 次 + `handleEditorInput` 跑 2 次」的旁路。
+  3. `MessageEditor`：拆成 `ComposerTextarea` / `ComposerAttachmentRow` / `ComposerActionButton` 三个 memo 叶子，各自只订阅需要的切片。textarea 的 `onChange` 只 `store.setText()`，不再回写 DOM（旧实现此处写一次、React 提交再写一次）。
+  4. `AgentSurfaceSnapshot` 新增 `usage` 与 `todoSnapshot`，由 `readAgentSnapshot` 一次算出，按 `messages` 数组身份用 WeakMap 缓存（复用既有 R1 F1a 身份复用机制）。`UsageBar` 改收 `totals: Usage` 并 memo 化；`TodoWriteSummary` 改收 `{snapshot,key}|null`。
+- 改动（P2）：
+  5. `MutationObserver` 回调先按 `closest('.qf-scroll-container')` 过滤 added/removed/target，只有消息区变动才 `scheduleDecorate()`；composer 侧节点增删不再喂全量 decorate。
+  6. `command-suggestions` / `file-reference-suggestions` 各加 `renderedSignature`（query + 命中条目 + loading/directory/state），签名不变直接 return；`remove()`/`removeMenu()` 清空签名保证重开必重建。
+  7. `handleEditorInput`/`handleEditorFilesChange` 改用 `resolveEditor()`（`isConnected` 校验的缓存节点），替代每键两次 `querySelector`。
+- 收益（结构性）：打字期间 `ChatSurface` 零重渲染；usage/todo 从「每键 O(消息数)」降为「每次快照提交 1 次 WeakMap 查询」；菜单 DOM 重写从「每键」降为「命中集变化时」；装饰 pass 不再由 composer 变动触发。
+- 新增回归护栏：
+  - `tests/frontend/composer-store-isolation.test.ts`（5 例）：切片互不唤醒 / 同值写入不通知（`Object.is` 稳定）/ **打字后 `.qf-message-editor` 与卡片节点身份不变**（等价于「组件没重渲染」）/ 发送按钮仍随文字变活。
+  - `tests/frontend/suggestion-menu-reconcile.test.ts`（3 例）：签名不变时行节点是同一批 / query 变化时重建且高亮正确 / 关闭后重开拿到新节点。
+- 测试迁移（随改动增量迁移到新 API，不是改断言糊过去）：`chat-surface-editor`、`chat-surface-usage`、`chat-surface-css-contract`、`send-stop-button`、`composer-model-trigger`、`todo-write-summary`。
+- 验证：`npm run test` **415 文件全通过**；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功（4.66s）。
+- Notes（未做，供下轮）：① **窗口化仍关闭**（`createMessageWindow({ enabled: false })`）——恢复它需要先把 `process-folding` 的展开态键从窗口内 `turnIndex` 改成绝对 messageIndex，并让 release 门控区分「消息变更」与「窗口位移」，还要同步改两条源码锁定断言（`chat-surface-behavior-alignment.test.ts:88-89`、`chat-surface-render.test.ts:224`）。② `scroll-sync` 仍观察 `composerDock`，`fieldSizing:'content'` 自动增高每键触发 resize → rAF 读 `scrollHeight`（强制 reflow），P1/P2 后已不是主导项但仍是单帧成本。③ `process-folding.ts`（1717 行）是窗口化/虚拟滚动的唯一根本障碍。④ **未做真实浏览器 profile**，本轮收益是结构性的，建议下轮用 1000+ 消息会话采 `PerformanceObserver` longtask 作为 P3 基线。未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+
+---
+
+## turn-navigation-anchor（done，2026-10-22）
+
+- Goal：修用户反馈「对话区域左边的导航点，对于非用户输入的消息，无法正确定位」。用户确认现象是「导航点数量偏多，多的是 goal 续跑/后台任务通知这类非用户输入」，并明确选择**先只修定位锚点、不动节点数量**。
+- 根因（三处叠加，同一根因的不同表现）：
+  1. **节点虚增**：`turn-navigation-data.ts` 的 `isTurnUserMessage` 只看 `role`，而 goal 续跑提示（`metadata.quickforgeGoalRun`，`server/agent-goal-runner.mjs:712`、`server/goal/runner.mjs:361`）与后台命令完成通知（`details.quickforgeBackgroundCommand`，`server/agent-manager.mjs:1589`）都是 `role: 'user'`，于是每轮 goal 运行都多出一个导航节点。本次按用户要求**保留**该行为。
+  2. **点击定位落空**：`scrollToTurn` 用「窗口内第 n 个 `.qf-user-message`」的**索引算术**取 DOM，再读 `getBoundingClientRect()`。
+  3. **滚动高亮错乱**：`updateActiveFromScroll` 同一套序号算术 + `rect.top <= threshold` 扫描。
+- 失效机理：渲染层给这些内部消息加 `quickforge-goal-internal-user-message`，`src/index.css:4245-4248` 整行 `display: none !important`。这类行**没有布局盒、rect 全 0**，而 `querySelectorAll` 不筛可见性：`0 <= threshold` 恒成立 → `visibleIndex` 推进到隐藏行 → 高亮跳到隐藏轮次（若窗口首行是隐藏行则恒为 0）；点击则算出 `scrollTop + 0 - containerTop - 24`，与内容无关，表现为「点了几乎没反应 / 轻微往回跳一格」。
+- 修复（新增纯模块 `src/components/chat/turn-navigation-anchor.ts`，单一真相）：
+  1. `collectIndexedRows` 只扫 `.qf-message-list` 的**直接子级**里带绝对 `data-message-index` 的行（该属性由 `MessageList` 的 `useLayoutEffect` 写入，与 `turns[].messageIndex` 同一套坐标，与窗口起点无关）；subagent 过程列表的嵌套 `.qf-message-list` 因此不会被误读。
+  2. `isLaidOutRow` 用 `getClientRects().length === 0` 判定 `display: none`（不读 rect 值，避免「0 也是合法坐标」的歧义）；无 `getClientRects` 的测试桩按有布局处理。
+  3. `resolveTurnAnchor` 三级回退：自身行可见 → 用它；被隐藏 → 其后第一个可见行，没有则之前最后一个可见行；自身行根本不在 DOM（被窗口裁剪 / 下标尚未提交）→ `null`，本轮不高亮也不跳转（宁可不动也不猜）。
+- `turn-navigation.ts` 改动：删除 `isUserMessage` / `renderedTurnOrdinals` / `userElements` 那套序号算术；测量缓存改存 `anchors: TurnAnchor[]`（缓存键仍是 `list + messages 引用 + windowStart + turns`）；`updateActiveFromScroll` 与 `scrollToTurn` 都走新模块。顺带修掉旧 `renderedTurnOrdinals` **缺窗口上界**的隐患（pin 到中间窗口时会把窗口之后的轮次也算进来，此前靠前缀顺序侥幸不出错）。
+- 验证：`npm run test` **412 文件 4716 passed / 2 skipped**（`turn-navigation.test.ts` 11 例全过，其中 2 例新增：`never marks a display:none user row as the active turn`、`jumps a hidden turn to the next visible row instead of scrolling to 0`；原有 3 例按新口径改造，测试桩补 `data-message-index` / `getClientRects` / `scrollTop` / `scrollTo`）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -p tsconfig.app.json --noEmit` 通过；`npm run build` 成功。
+- 文档：`docs/wiki/src/components/README.md` 的轮次导航条目（181/503 两处同文）已更新，写明隐藏行导致序号算术失效的机理与三级回退规则。
+- Notes：未动节点数量（用户明确要求），因此「一轮 goal 运行出现多个点、tooltip 显示『继续执行目标（第 k/N 轮）』」仍然存在；后续若要收敛，应在 `turn-navigation-data.ts` 复用 `isGoalInternalUserMessage`（`panel-decoration/goal-internal-message.ts`）过滤，并把该轮次的 assistant 内容归入上一个真实用户轮次。`src/components/workspace/SubagentRunDetailContent.tsx:121-124` 有同构的 `.qf-user-message` 扫描，口径一致但目前未受影响。未新增依赖；未手工改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+
+---
+
+## composer-native-attachment-hidden（done，2026-10-22）
+
+- Goal：修用户反馈「改造后输入框附件按钮跑到『完全访问』右边了，而『+』添加菜单里本来就有添加附件」。
+- 根因：附件入口唯一性原本由装饰层维持。旧 `composer-plus-menu.ts` 的 `setupComposerPlusMenu` 在**每一次 decorate pass** 都调用 `findNativeAttachmentButton(leftControls)` 给原生回形针按钮加 `quickforge-native-attachment-hidden`（`index.css` 里 `display:none !important`），所以界面上只有「+」菜单里的「添加附件」。M4 把该模块整文件删除后，这个隐藏动作一起消失，回形针重新可见，于是与 `AgentAccessTrigger`（「完全访问」）并排出现。
+- 修复：所有权交给 React 渲染门禁，而不是补一条 CSS 隐藏规则。
+  1. `ChatSurface.tsx`：`showAttachmentButton={enableAttachments && !activePlusMenu}`——「+」菜单存在时不再渲染回形针；没有「+」（只读/侧聊降级、能力缺失）时保留它作为唯一入口。
+  2. `MessageEditor.tsx`：把解析中的 spinner 从 `showAttachmentButton` 分支里提出来，改成 `processingFiles ? spinner : showAttachmentButton ? 按钮 : null`。否则「+」菜单接管后，粘贴/拖拽触发的秒级文档解析（PDF/DOCX 最长 30s）会没有任何进度指示。
+  3. 隐藏的 `input[type=file]` 始终挂载——「+」菜单的「添加附件」通过 `pickAttachment` 回调拿到的就是它的 `click()`。
+- 等价性细节：旧实现是「渲染后再隐藏」，因此回形针在 DOM 里存在（可被 querySelector 命中、可被 Tab 聚焦前的 `display:none` 排除）；新实现是「根本不渲染」。两者可见行为一致，且新实现不再依赖装饰 pass 的时序。
+- 验证：`npm run test` **412 文件 4712 passed / 2 skipped**（新增 2 例：`showAttachmentButton` 为真渲染回形针、为假不渲染但保留 file input）；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功（3.32s）。
+- 回归（真实浏览器，CDP 驱动 headless Chrome，`127.0.0.1:5176`）:
+  - 左侧控制行只有 `+`（title「添加」）与 `完全访问`，**回形针查询结果为空数组**；`input[type=file]` 仍为 1 个。
+  - 点 `+` 后弹层出现，`inDock=true`、位于编辑卡片之前，菜单项 `["附件","插件"]`——附件入口确实还在「+」里。
+  - 真实走隐藏 file input 上传 1x1 PNG：`attachments` 行是卡片的**第一个子节点**（`attachRowInsideCard=true`、`attachRowIsFirstChild=true`），tile 1 个、`img` 实际渲染 56×56、`tileInsideCard=true`、`removeButtonClippedPx=0`（删除按钮未被 `overflow:hidden` 裁掉）、发送按钮由禁用转可用；点删除后 tile 归零、发送按钮回到禁用。
+  - 右侧控制行未受影响：`quickforge-context-usage-slot` / 模型 / `quickforge-thinking-inline` / 发送，顺序正常。
+- Notes：未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。**这类「装饰层每次 pass 顺手做的可见性抑制」在 M4 里最容易漏**——删除模块时除功能外还要盘一遍它写的 class/属性。
+- 回归期间的环境事实（非本轮改动，记录以免误判）: 会话进行中有**其他进程**在改 `src/components/chat/turn-navigation.ts` / 新增 `turn-navigation-anchor.ts` / `tests/frontend/turn-navigation.test.ts`（时间戳 10:19–10:21）。10:21 跑的全量测试因此出现 2 文件 4 例失败（`skips display:none user rows...`、`env.getAnchorScanCount is not a function` 等，属改到一半的瞬时状态）；等其写完后重跑 `turn-navigation` 11 例与全量 412 文件全部通过，与本轮改动无关。
+
+---
+
+## run-command-silent-console-and-log-viewer（done，2026-10-22）
+
+- Goal：用户反馈「运行命令时控制台会显示打开」，要求前台与后台命令都不弹窗口，但可以点击查看运行日志。
+- 定位（实机验证，不是推测）：每 250ms 轮询可见顶层窗口，前台 `run_command` 无新增窗口；`run_in_background: true` 抓到 `WindowsTerminal | ping -n 4 127.0.0.1`。用户机器 `HKCU\Console\%%Startup` 的 `DelegationConsole` 为 `{2EACA947-...}`（Windows Terminal）。
+- 根因：`server/tools/index.mjs` 的 `detached: runInBackground || process.platform !== 'win32'`。libuv 在 `detached:true` 时加 `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`，而 WinBase.h 对 `CREATE_NO_WINDOW` 明确写着「ignored if ... used with either CREATE_NEW_CONSOLE or DETACHED_PROCESS」，所以后台分支的 `windowsHide:true` 完全失效，`cmd.exe` 自行 `AllocConsole()`，默认终端把它渲染成可见窗口。前台因 `detached:false`，`CREATE_NO_WINDOW` 生效，所以**只有后台弹窗**——这与用户「普通前台命令也会弹」的初始描述相反，先纠正了这个前提才动手。
+- 修复（窗口）：`detached: process.platform !== 'win32'`。后台语义「调用已返回、进程继续跑」本来就由 spawn 后立即 `resolve()` + `unref()` 承担，不依赖 detached；Windows 杀进程一直走 `taskkill /T /F`，也不需要进程组。`details.detached` 改为如实反映实际参数。顺带修 `server/utils/platform.mjs` 的 `openBrowser()`：`cmd /c start` + `detached:true` 且**没设** `windowsHide`，每次启动应用都会闪一个 cmd 窗口，同样改为 Windows 不开 detached 并补 `windowsHide: true`。
+- 修复（日志查看）：新增 `server/utils/command-log.mjs` —— `isCommandLogPath` 从 `tools/index.mjs` 抽出成共享判定（`read_file` 工具同步改用），并加 `readCommandLog` 读取尾部窗口（默认 2000 行、上限 20000 行，返回与 `/api/workspace/file` 同构的只读响应 + `totalLines`/`truncated`）。新增 `GET /api/agents/:sessionId/command-log`，只放行 `<dataDir>/logs/commands/*.log`，其余 400。
+- 修复（前端）：Reader 新增 `source: 'command-log'` 虚拟文件通道（`ReaderTab.source/sessionId/label`、`workspace-types` 的 `kind: 'command-log'` 变体、`workspace-api.getCommandLog`）；`WorkspaceInspector` 用 `openCommandLogTab` + `loadCommandLogIntoReaderTab` 分流（跳过工作区缓存与 meta 校准），tab 标题为「命令日志 · <命令摘要>」，不参与持久化（刷新后重载必然 403/ENOENT，恢复只会得到红色错误页），并隐藏工作区专用的「在资源管理器中显示 / 用编辑器打开」入口（日志在工作区外会 403）。入口两处：工具卡 console 块标题栏的纯 SVG 按钮（`data-qf-action="view-command-log"`）与后台命令浮层的「查看完整日志」，都派发 `quickforge:view-command-log`，由 `App.tsx` 转成 `requestWorkspaceInspector({ kind: 'command-log' })`。
+- 安全边界：日志路径只接受 `details.outputFile` 的绝对路径；判定只保留 `isCommandLogPath` 一份，禁止各路由另写 `startsWith`；不放宽 `/api/workspace/*`（工作区外仍 403）；不复用 `open-text-attachment`（限定 `.txt` + conversations 目录）。
+- 验证：实机后台命令全程轮询新增可见窗口 `[]`（改前为 WindowsTerminal 窗口），`details.running=true` 调用仍立即返回；`npx tsc -b --noEmit` 通过；`npx eslint` 改动文件 0 error；新增/更新 5 个测试文件（command-log 工具模块、路由、console 块按钮、tab 持久化、后台 detached 断言）。
+- 文档：`docs/wiki/server/tools/README.md`（后台静默的 Windows 原因 + 日志入口链路）、`docs/wiki/server/routes/README.md`（新端点）。
+- Notes：未新增/升级依赖；未触碰 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。**`detached` 与 `windowsHide` 在 Windows 上互斥**是本轮最容易再次踩到的点——任何新加的后台/脱离型 spawn 都不要同时指望这两个参数生效。另外用户机器上残留过一个 `WindowsTerminal.exe`（`node -e "setInterval(() => {}, 1000)"`），来自 `run-command-background.test.mjs` 的后台用例，属既有的测试清理缺口，未在本轮处理。
+
+---
+
+
+## session-open-fast-path-m4（done，2026-10-21）
+
+- Goal：把 `panel-decoration` 里**可 React 化**的命令式 DOM 注入器逐个迁移为 React 渲染（M4），保留类名/DOM 层级契约、删宿主 decorate 调用、把源码文本锁改为渲染断言。
+- 落地 **13 个模块**（含前一轮的 send-stop-button / persist-degraded-notice，以及 M4-4 追加的等待气泡 / 计划模式触发器 / Agent 权限选择器）。
+- M4-4 追加的三个：
+  - `assistant-waiting-bubble.ts`（113 行，删除）→ `resolveAssistantWaitingRow` 用消息数组算**行索引** + `AssistantWaitingBubble` 作为 keyed 兄弟；判定改为读消息体（text / 非空 thinking / toolCall），不再用 DOM 探针 + 克隆节点。
+  - `plan-mode-controls.ts` 的 `syncPlanModeButton`（删除）→ `PlanModeTrigger`；仅 planMode 为 true 时渲染（保持旧行为）。Shift+Tab 快捷键仍留在装饰层（绑 textarea）。
+  - `agent-access-menu.ts` 的触发器与菜单渲染（删除）→ `AgentAccessTrigger` + `AgentAccessMenu`；定位测量仍命令式，位置计算抽成纯函数 `positionAgentAccessMenu`。
+- **自我评审发现并修掉 2 个高危缺陷**（都是"测试全绿但功能已坏"）：
+  1. **压缩横线与等待气泡的插入索引错位**：两者都按消息行计数，但用两次 `splice` 插入——插横线会把之后每个位置推后一位，于是横线在上方时**气泡被挤到该行之前**。任何发生过上下文压缩的会话下一轮等待必中。改成单次正序构建子节点数组，并新增两条测试锁定顺序。
+  2. **装饰层删除 React 拥有的菜单节点**：`removeAgentAccessMenu` 仍 `menu.remove()`，之后 React 卸载抛 `NotFoundError: The node to be removed is not a child of this node`，被 error boundary 接管后**整块聊天区不可用**。触发链：打开权限菜单 → 点「+」或子代理指示器 → `dismissComposerMenus()`。改成**只请求关闭**（`registerAgentAccessMenuCloser`），探针已确认「外部移除后再卸载必抛」。
+- 另修 4 处行为偏差：等待气泡漏了 `isStreaming` 前置条件；空 thinking 被算作"已输出"导致气泡提前一帧消失；侧聊权限控件从"可见但禁用"变成消失；权限菜单在门禁变化后会自动重开。
+- 顺带清死代码：`decorateEditor` 的 5 个未用参数、`agent-access-menu.ts` 的菜单渲染与 `createAgentAccessItem`、`.quickforge-composer-left-controls` 这条无写入方的 CSS 规则。
+- 验证：`npm run test` **410 文件 4693 passed / 2 skipped**；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功（3.58s）。
+- 文档：`docs/architecture/session-open-fast-path.zh-CN.md`（M4-4 追加表、评审复盘、剩余"必须命令式"清单补上 scroll-to-bottom / subagent indicator）；`docs/wiki/src/components/README.md`（decorateEditor 段改为「控制行全部 React 渲染」+ 关闭握手说明）。
+- Notes：明确不做且已写入拒因的有 5 类：`process-folding`（节点所有权移交）、`message-actions`/`assistant-artifact-card`/`message-queue`（需要"消息根最后一个子元素"位置语义 + 100+ 条文本锁）、`scroll-to-bottom-button`（测量驱动的可见性，无快照数据）、`subagent-running-indicator`（body 浮层 + 就地 diff 防 hover 闪断）、审批卡/ask 卡/回滚弹层（定位原语与浮层）。未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+
+---
+
+- 落地 **10 个模块**（含前一轮的 send-stop-button / persist-degraded-notice）：
+  - `model-controls.ts`（24 行，删除）→ `MessageEditor` 直接给模型按钮加类。**`aria-expanded` 故意不由 React 声明**——菜单自己写，否则每次流式重渲染都会把展开态抹掉。
+  - `context-compaction.ts`（190 行，删除）→ `resolveCompactionBoundary` 纯函数算行索引 + `MessageList` 按索引插 keyed 兄弟；`<details>` 展开态是组件 state。
+  - `todo-write-summary.ts` 控制器（约 230 行）→ 只留 96 行纯函数，渲染改 `surface/TodoWriteSummary.tsx`。
+  - `reconnect-notice.ts` + `model-retry-notice.ts` + `unreachable-strip.ts`（约 640 行，全删）→ `surface/ConnectionNotices.tsx`；宿主只持 `modelRetryInfo` state，surface 用 `useSseConnectionStatus` 订阅，倒计时共用一个 tick。
+  - `goal-control-strip.ts` 控制器（约 520 行，删除）→ `surface/GoalControlStrip.tsx`；`desired[]` 子节点 diff 换成 JSX 顺序，编辑态/取消确认是 state。`lib/goal-ui.ts` 未改。
+  - `local-file-path-links.ts` 的 DOM 部分 → 纯检测函数 + rehype 插件 `rehype-local-file-paths.ts` + `LocalFilePathLink`；链接进首帧，无需 post-render 改写。
+  - `composer-plus-menu.ts`（234 行，删除）→ `surface/ComposerPlusMenu.tsx`，trigger/popover 两半共用一个 controller，各自放回原插入点。
+  - `thinking-level-controls.ts`（242 行，删除）→ `surface/ThinkingLevelControl.tsx`；仅定位测量仍是命令式。
+- **自我评审发现并修掉 3 个真实缺陷**（这是本轮最重要的部分，都是"测试全绿但功能已坏"的类型）：
+  1. **rehype 插件递归进自己的产物** → `qf-file-path` 的子文本仍是同一路径，插件再次拆分，无限嵌套直到 `RangeError: Maximum call stack size exceeded`。后果是**Markdown 里出现任何本地路径就白屏**。修法：产物标签加入跳过集合 + 只递归原始子节点；新增 `local-file-path-markdown.test.ts` 用「无嵌套 + 确实生成链接」双向锁定。
+  2. **`+` 菜单弹层放错位置** → 被渲染成触发器所在控制行的兄弟，而不是编辑卡片之前的独立块，`.quickforge-plus-popover` 的间距/宽度全部错位。修法：拆 trigger / popover 两个组件共用一个 controller。
+  3. **侧聊控件不再禁用** → 装饰层删除后，"+"、思考档位、模型三个触发器在侧聊里仍可点（原本由 `disableComposerControls` 置灰）。修法：加 `composerControlsDisabled`，三个控件渲染 `disabled` 且忽略 pointerdown/keydown。
+- 验证：`npm run test` 236 文件 **2793 passed**；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功（4.22s）。
+- 文档：`docs/architecture/session-open-fast-path.zh-CN.md` §4 M4 整体重写（10 模块映射表、3 个等价性细节、3 个缺陷复盘、剩余"必须命令式"清单）；`docs/wiki/src/components/README.md` 同步 facade 行数与三个迁移条目。
+- Notes：**未做**的三件套 `assistant-artifact-card` / `message-actions` / `message-queue` 与 `process-folding.ts` 不是"还没做"，而是**不该按渲染迁移做**：它们需要「消息根最后一个子元素」的位置语义与节点搬运所有权，收益低于风险，架构文档已写明拒因。未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+
+---
+
+
 ## workflow-detail-no-trace-trim（done，2026-10-21）
 
 - Goal：用户反馈 workflow subagent 运行详情出现「本次运行的过程记录超出详情预算，已保留最近步骤」，要求服务端**不要再有任何裁剪逻辑**（与主 Agent 一致）。

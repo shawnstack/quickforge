@@ -8,7 +8,7 @@ import { appTranslations, applyAppLanguageFromSnapshot } from '../../src/lib/i18
 import { toolOutputText } from '../../src/lib/tool-renderers/shared'
 
 const localFilePathSource = readFileSync(
-  new URL('../../src/components/chat/panel-decoration/local-file-path-links.ts', import.meta.url),
+  new URL('../../src/components/chat/surface/LocalFilePathLink.tsx', import.meta.url),
   'utf8',
 )
 const contextUsageSource = readFileSync(
@@ -21,10 +21,10 @@ beforeEach(() => applyAppLanguageFromSnapshot('en'))
 
 describe('decorator copy goes through i18n', () => {
   it('translates the local file path link aria-label and keeps the path as title', () => {
-    expect(localFilePathSource).toContain("t('openLocalFileWithPath', { path: pathValue })")
-    expect(localFilePathSource).toContain('button.title = pathValue')
+    expect(localFilePathSource).toContain("t('openLocalFileWithPath', { path })")
+    expect(localFilePathSource).toContain('title={path}')
     expect(localFilePathSource).not.toContain("'Open file'")
-    expect(localFilePathSource).not.toContain('`Open file ${pathValue}`')
+    expect(localFilePathSource).not.toContain('`Open file ${path}`')
   })
 
   it('translates the git branch label', () => {

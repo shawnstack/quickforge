@@ -1,127 +1,32 @@
+// @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
+import { act, createElement } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// --- Fake DOM --------------------------------------------------------------
+import { ReconnectNotice, unreachableStripOwns } from '../../src/components/chat/surface/ConnectionNotices'
+import type { SseConnectionStatus } from '../../src/lib/server-agent'
 
-class FakeElement {
-  tagName: string
-  className = ''
-  children: FakeElement[] = []
-  parentElement: FakeElement | null = null
-  attributes = new Map<string, string>()
-  dataset: Record<string, string> = {}
-  textContent: string | null = null
-  innerHTML = ''
-  private listeners = new Map<string, Set<() => void>>()
+/**
+ * The inline reconnect row used to be a find-or-create controller
+ * (`panel-decoration/reconnect-notice.ts`): it appended itself to the end of
+ * `.qf-message-list`, kept its own interval for the countdown and had to
+ * re-append after every list rebuild. React renders it inside the surface now,
+ * so these cases drive the component with connection statuses and assert the
+ * rendered row, exactly like the controller tests asserted the injected DOM.
+ */
 
-  constructor(tag = 'div') {
-    this.tagName = tag
-  }
-
-  get classList() {
-    return {
-      add: (token: string) => {
-        const tokens = this.className ? this.className.split(/\s+/) : []
-        if (!tokens.includes(token)) tokens.push(token)
-        this.className = tokens.join(' ')
-      },
-      remove: (token: string) => {
-        const tokens = this.className ? this.className.split(/\s+/) : []
-        this.className = tokens.filter((item) => item !== token).join(' ')
-      },
-      contains: (token: string) => this.classListTokens().includes(token),
-    }
-  }
-
-  classListTokens(): string[] {
-    return this.className ? this.className.split(/\s+/) : []
-  }
-
-  setAttribute(name: string, value: string) {
-    this.attributes.set(name, value)
-  }
-
-  getAttribute(name: string) {
-    return this.attributes.get(name) ?? null
-  }
-
-  append(...nodes: FakeElement[]) {
-    for (const node of nodes) {
-      node.remove()
-      node.parentElement = this
-      this.children.push(node)
-    }
-  }
-
-  replaceChildren(...nodes: FakeElement[]) {
-    for (const child of this.children) child.parentElement = null
-    this.children = []
-    this.append(...nodes)
-  }
-
-  remove() {
-    if (!this.parentElement) return
-    this.parentElement.children = this.parentElement.children.filter((child) => child !== this)
-    this.parentElement = null
-  }
-
-  addEventListener(type: string, listener: () => void) {
-    const set = this.listeners.get(type) ?? new Set<() => void>()
-    set.add(listener)
-    this.listeners.set(type, set)
-  }
-
-  click() {
-    for (const listener of this.listeners.get('click') ?? []) listener()
-  }
-
-  matches(selector: string): boolean {
-    if (selector.startsWith('.')) return this.classListTokens().includes(selector.slice(1))
-    return this.tagName === selector
-  }
-
-  querySelector(selector: string): FakeElement | null {
-    if (this.matches(selector)) return this
-    for (const child of this.children) {
-      const match = child.querySelector(selector)
-      if (match) return match
-    }
-    return null
-  }
-
-  querySelectorAll(selector: string): FakeElement[] {
-    const matches: FakeElement[] = []
-    if (this.matches(selector)) matches.push(this)
-    for (const child of this.children) matches.push(...child.querySelectorAll(selector))
-    return matches
-  }
-}
-
-// --- Module mocks -----------------------------------------------------------
-
-type MockStatus =
-  | { status: 'reconnecting'; attempt: number; maxAttempts: number; nextRetryAt: number; unreachable?: boolean; unreachableSince?: number }
-  | { status: 'connected'; recovered: boolean; restarted?: boolean }
-  | { status: 'failed'; maxAttempts: number }
+type MockStatus = SseConnectionStatus
 
 const connectionState = vi.hoisted(() => ({
-  current: null as MockStatus | null,
-  listeners: new Set<(status: MockStatus) => void>(),
+  current: null as unknown,
+  listeners: new Set<(status: unknown) => void>(),
   retryNowCalls: 0,
-  emit(status: MockStatus) {
-    this.current = status
-    for (const listener of [...this.listeners]) listener(status)
-  },
-  reset() {
-    this.current = null
-    this.listeners.clear()
-    this.retryNowCalls = 0
-  },
 }))
 
 vi.mock('@/lib/server-agent', () => ({
   getSseConnectionState: () => connectionState.current,
-  subscribeSseConnectionState: (handler: (status: MockStatus) => void) => {
+  subscribeSseConnectionState: (handler: (status: unknown) => void) => {
     connectionState.listeners.add(handler)
     return () => connectionState.listeners.delete(handler)
   },
@@ -148,304 +53,225 @@ vi.mock('@/lib/i18n', () => ({
   },
 }))
 
-// --- Source contracts -------------------------------------------------------
+// Source reads use cwd-relative paths: under jsdom `import.meta.url` is not a file URL.
+const hostSource = readFileSync('src/components/chat/ChatPanelHost.tsx', 'utf8')
+const surfaceSource = readFileSync('src/components/chat/surface/ChatSurface.tsx', 'utf8')
+const noticesSource = readFileSync('src/components/chat/surface/ConnectionNotices.tsx', 'utf8')
+const barrelSource = readFileSync('src/components/chat/panel-decoration.ts', 'utf8')
+const agentSource = readFileSync('src/lib/global-agent-sse-client.ts', 'utf8')
+const i18nSource = readFileSync('src/lib/i18n.ts', 'utf8')
+const cssSource = readFileSync('src/index.css', 'utf8')
 
-const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
-const noticeSource = readFileSync(new URL('../../src/components/chat/panel-decoration/reconnect-notice.ts', import.meta.url), 'utf8')
-const barrelSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
-const agentSource = readFileSync(new URL('../../src/lib/global-agent-sse-client.ts', import.meta.url), 'utf8')
-const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
-const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+describe('reconnect notice rendering', () => {
+  let container: HTMLDivElement
+  let root: Root
 
-function buildPanel() {
-  const panel = new FakeElement()
-  const messageList = Object.assign(new FakeElement('div'), { className: 'qf-message-list' })
-  panel.append(messageList)
-  return { panel, messageList }
-}
-
-async function createController(panel: FakeElement) {
-  const { createReconnectNoticeController } = await import('@/components/chat/panel-decoration/reconnect-notice')
-  return createReconnectNoticeController({ panel: panel as unknown as HTMLElement })
-}
-
-describe('reconnect notice controller', () => {
   beforeEach(() => {
-    vi.stubGlobal('document', { createElement: () => new FakeElement() })
-    connectionState.reset()
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    connectionState.current = null
+    connectionState.listeners.clear()
+    connectionState.retryNowCalls = 0
+    vi.useFakeTimers()
   })
 
   afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
     vi.useRealTimers()
-    vi.unstubAllGlobals()
   })
 
-  it('renders a centered reconnecting row at the end of the message list', async () => {
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
+  function render(status: MockStatus | null) {
+    act(() => {
+      root.render(createElement(ReconnectNotice, { status }))
+    })
+  }
 
-    connectionState.emit({ status: 'reconnecting', attempt: 8, maxAttempts: 10, nextRetryAt: Date.now() + 4000 })
+  const notice = () => container.querySelector<HTMLElement>('.quickforge-reconnect')
 
-    const notice = messageList.querySelector('.quickforge-reconnect')
-    expect(notice).not.toBeNull()
-    expect(messageList.children.at(-1)).toBe(notice)
-    expect(notice!.dataset.state).toBe('reconnecting')
-    expect(notice!.getAttribute('role')).toBe('status')
-    expect(notice!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('8/10')
-    expect(notice!.querySelector('.quickforge-reconnect-countdown')!.textContent).toBe('Retrying in 4s')
+  function reconnecting(overrides: Partial<Extract<MockStatus, { status: 'reconnecting' }>> = {}) {
+    return {
+      status: 'reconnecting' as const,
+      attempt: 8,
+      maxAttempts: 10,
+      nextRetryAt: Date.now() + 4000,
+      ...overrides,
+    }
+  }
 
-    controller.destroy()
+  it('renders a centered reconnecting row with the attempt count and countdown', () => {
+    render(reconnecting())
+
+    expect(notice()).not.toBeNull()
+    expect(notice()!.dataset.state).toBe('reconnecting')
+    expect(notice()!.getAttribute('role')).toBe('status')
+    expect(notice()!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('8/10')
+    expect(notice()!.querySelector('.quickforge-reconnect-countdown')!.textContent).toBe('Retrying in 4s')
   })
 
-  it('ticks the countdown down each second and clears it at the deadline', async () => {
-    vi.useFakeTimers()
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
-
-    connectionState.emit({ status: 'reconnecting', attempt: 3, maxAttempts: 10, nextRetryAt: Date.now() + 5000 })
-    const countdown = () => messageList.querySelector('.quickforge-reconnect-countdown')!.textContent
+  it('ticks the countdown down each second and clears it at the deadline', () => {
+    render(reconnecting({ attempt: 3, nextRetryAt: Date.now() + 5000 }))
+    const countdown = () => notice()!.querySelector('.quickforge-reconnect-countdown')!.textContent
     expect(countdown()).toBe('Retrying in 5s')
 
-    vi.advanceTimersByTime(1000)
+    act(() => { vi.advanceTimersByTime(1000) })
     expect(countdown()).toBe('Retrying in 4s')
 
-    vi.advanceTimersByTime(4000)
+    act(() => { vi.advanceTimersByTime(4000) })
     expect(countdown()).toBe('')
-
-    controller.destroy()
   })
 
-  it('updates the attempt count in place for subsequent attempts', async () => {
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
+  it('updates the attempt count in place for subsequent attempts', () => {
+    render(reconnecting({ attempt: 1, nextRetryAt: Date.now() }))
+    const first = notice()
 
-    connectionState.emit({ status: 'reconnecting', attempt: 1, maxAttempts: 10, nextRetryAt: Date.now() })
-    const first = messageList.querySelector('.quickforge-reconnect')!
-    connectionState.emit({ status: 'reconnecting', attempt: 2, maxAttempts: 10, nextRetryAt: Date.now() })
+    render(reconnecting({ attempt: 2, nextRetryAt: Date.now() }))
 
-    const second = messageList.querySelector('.quickforge-reconnect')!
-    expect(second).toBe(first)
-    expect(second.querySelector('.quickforge-reconnect-count')!.textContent).toBe('2/10')
-
-    controller.destroy()
+    // Same node: the CSS enter animation must not restart per attempt.
+    expect(notice()).toBe(first)
+    expect(notice()!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('2/10')
   })
 
-  it('shows a transient reconnected state and auto-dismisses it', async () => {
-    vi.useFakeTimers()
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
+  it('shows a transient reconnected row and auto-dismisses it', () => {
+    render(reconnecting({ attempt: 2, nextRetryAt: Date.now() }))
+    render({ status: 'connected', recovered: true })
 
-    connectionState.emit({ status: 'reconnecting', attempt: 2, maxAttempts: 10, nextRetryAt: Date.now() })
-    connectionState.emit({ status: 'connected', recovered: true })
+    expect(notice()!.dataset.state).toBe('reconnected')
+    expect(notice()!.querySelector('.quickforge-reconnect-count')).toBeNull()
+    expect(notice()!.querySelector('.quickforge-reconnect-text')!.textContent).toBe('Reconnected')
 
-    const notice = messageList.querySelector('.quickforge-reconnect')!
-    expect(notice.dataset.state).toBe('reconnected')
-    expect(notice.querySelector('.quickforge-reconnect-count')).toBeNull()
+    act(() => { vi.advanceTimersByTime(2200) })
+    expect(notice()!.classList.contains('quickforge-reconnect-leaving')).toBe(true)
 
-    vi.advanceTimersByTime(2200)
-    expect(notice.classList.contains('quickforge-reconnect-leaving')).toBe(true)
-
-    vi.advanceTimersByTime(340)
-    expect(messageList.querySelector('.quickforge-reconnect')).toBeNull()
-
-    controller.destroy()
+    act(() => { vi.advanceTimersByTime(340) })
+    expect(notice()).toBeNull()
   })
 
-  it('renders the unreachable state as a two-line amber notice with a retry button', async () => {
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
-
-    connectionState.emit({
-      status: 'reconnecting',
+  it('renders the unreachable state as a two-line notice with a working retry button', () => {
+    render(reconnecting({
       attempt: 4,
-      maxAttempts: 10,
       nextRetryAt: Date.now() + 3000,
       unreachable: true,
       unreachableSince: Date.now(),
-    })
+    }))
 
-    const notice = messageList.querySelector('.quickforge-reconnect')!
-    // 新 data-state：不再复用 reconnecting（Tier1 专用琥珀双行态）。
-    expect(notice.dataset.state).toBe('unreachable')
-    expect(notice.getAttribute('role')).toBe('status')
-    expect(notice.querySelector('.quickforge-reconnect-title')!.textContent).toBe("Can't reach the local service")
-    // 副行含「健康检查失败」与倒计时；无 n/10 计数、无 spinner 文案。
-    expect(notice.querySelector('.quickforge-reconnect-sub')!.textContent).toBe('Health check failed · retrying in 3s')
-    expect(notice.querySelector('.quickforge-reconnect-count')).toBeNull()
-    expect(notice.querySelector('.quickforge-reconnect-text')).toBeNull()
+    // Dedicated Tier-1 state: it must not reuse the plain reconnecting row.
+    expect(notice()!.dataset.state).toBe('unreachable')
+    expect(notice()!.getAttribute('role')).toBe('status')
+    expect(notice()!.querySelector('.quickforge-reconnect-title')!.textContent).toBe("Can't reach the local service")
+    expect(notice()!.querySelector('.quickforge-reconnect-sub')!.textContent).toBe('Health check failed · retrying in 3s')
+    // No attempt counter and no spinner copy in this state.
+    expect(notice()!.querySelector('.quickforge-reconnect-count')).toBeNull()
+    expect(notice()!.querySelector('.quickforge-reconnect-text')).toBeNull()
 
-    // 主行含「立即重试」按钮，点击触发既有手动重连。
-    const retry = notice.querySelector('.quickforge-reconnect-retry')!
-    expect(retry).not.toBeNull()
-    retry.click()
+    act(() => { notice()!.querySelector<HTMLButtonElement>('.quickforge-reconnect-retry')!.click() })
     expect(connectionState.retryNowCalls).toBe(1)
-
-    controller.destroy()
   })
 
-  it('hides the inline unreachable notice after 30s so the persistent strip takes over', async () => {
-    vi.useFakeTimers()
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
-
+  it('hides the inline unreachable row after 30s so the persistent strip takes over', () => {
     const since = Date.now()
-    connectionState.emit({
-      status: 'reconnecting',
+    render(reconnecting({
       attempt: 2,
-      maxAttempts: 10,
       nextRetryAt: Date.now() + 60000,
       unreachable: true,
       unreachableSince: since,
-    })
-    expect(messageList.querySelector('.quickforge-reconnect')).not.toBeNull()
+    }))
+    expect(notice()).not.toBeNull()
 
-    vi.advanceTimersByTime(29000)
-    expect(messageList.querySelector('.quickforge-reconnect')).not.toBeNull()
+    act(() => { vi.advanceTimersByTime(29000) })
+    expect(notice()).not.toBeNull()
 
-    // 倒计时 tick 内复查阈值：到 30s 自动隐藏（Tier2 composer 常驻条接管）。
-    vi.advanceTimersByTime(1000)
-    expect(messageList.querySelector('.quickforge-reconnect')).toBeNull()
+    // The 1s tick re-checks the threshold, so the hand-over needs no new event.
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(notice()).toBeNull()
 
-    // 后续重连广播不再重建行内提示。
-    connectionState.emit({
-      status: 'reconnecting',
+    // A later broadcast must not rebuild the inline row.
+    render(reconnecting({
       attempt: 3,
-      maxAttempts: 10,
       nextRetryAt: Date.now() + 30000,
       unreachable: true,
       unreachableSince: since,
-    })
-    expect(messageList.querySelector('.quickforge-reconnect')).toBeNull()
-
-    controller.destroy()
+    }))
+    expect(notice()).toBeNull()
   })
 
-  it('keeps the inline unreachable notice when unreachableSince is missing', async () => {
-    vi.useFakeTimers()
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
-
-    // 防御边界：广播缺 unreachableSince 时不做分层隐藏判断。
-    connectionState.emit({ status: 'reconnecting', attempt: 1, maxAttempts: 10, nextRetryAt: Date.now() + 60000, unreachable: true })
-    vi.advanceTimersByTime(60000)
-    expect(messageList.querySelector('.quickforge-reconnect')).not.toBeNull()
-
-    controller.destroy()
+  it('keeps the inline unreachable row when unreachableSince is missing', () => {
+    // Defensive edge: without a start time the tier decision cannot be made.
+    render(reconnecting({ attempt: 1, nextRetryAt: Date.now() + 60000, unreachable: true }))
+    act(() => { vi.advanceTimersByTime(60000) })
+    expect(notice()).not.toBeNull()
   })
 
-  it('upgrades the recovery notice to the restarted label and resets the fade timer', async () => {
-    vi.useFakeTimers()
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
+  it('upgrades the recovery row to the restarted label and restarts the hold timer', () => {
+    render(reconnecting({ attempt: 2, nextRetryAt: Date.now() }))
+    render({ status: 'connected', recovered: true })
+    expect(notice()!.querySelector('.quickforge-reconnect-text')!.textContent).toBe('Reconnected')
 
-    connectionState.emit({ status: 'reconnecting', attempt: 2, maxAttempts: 10, nextRetryAt: Date.now() })
-    connectionState.emit({ status: 'connected', recovered: true })
-    const notice = messageList.querySelector('.quickforge-reconnect')!
-    expect(notice.querySelector('.quickforge-reconnect-text')!.textContent).toBe('Reconnected')
+    act(() => { vi.advanceTimersByTime(1000) })
+    render({ status: 'connected', recovered: true, restarted: true })
+    expect(notice()!.querySelector('.quickforge-reconnect-text')!.textContent).toBe('Reconnected · server restarted')
 
-    vi.advanceTimersByTime(1000)
-    connectionState.emit({ status: 'connected', recovered: true, restarted: true })
-    expect(notice.querySelector('.quickforge-reconnect-text')!.textContent).toBe('Reconnected · server restarted')
-
-    // 淡出计时器从 restarted 更新时刻重新起算且延长到 4s（原计时器已于 1000ms 处作废）。
-    vi.advanceTimersByTime(3999)
-    expect(notice.classList.contains('quickforge-reconnect-leaving')).toBe(false)
-    vi.advanceTimersByTime(1)
-    expect(notice.classList.contains('quickforge-reconnect-leaving')).toBe(true)
-
-    controller.destroy()
+    // The hold restarts at the upgrade and lasts 4s (the original 2.2s hold is
+    // cancelled by the effect cleanup).
+    act(() => { vi.advanceTimersByTime(3999) })
+    expect(notice()!.classList.contains('quickforge-reconnect-leaving')).toBe(false)
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(notice()!.classList.contains('quickforge-reconnect-leaving')).toBe(true)
   })
 
-  it('ignores the restarted update after the notice was dismissed and removed', async () => {
-    vi.useFakeTimers()
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
+  it('ignores the restarted update after the row was dismissed', () => {
+    render(reconnecting({ attempt: 2, nextRetryAt: Date.now() }))
+    render({ status: 'connected', recovered: true })
+    act(() => { vi.advanceTimersByTime(2200 + 340) })
+    expect(notice()).toBeNull()
 
-    connectionState.emit({ status: 'reconnecting', attempt: 2, maxAttempts: 10, nextRetryAt: Date.now() })
-    connectionState.emit({ status: 'connected', recovered: true })
-    vi.advanceTimersByTime(2200 + 340)
-    expect(messageList.querySelector('.quickforge-reconnect')).toBeNull()
-
-    // 可接受边界：提示已被移除时迟到/滞后的 restarted 补播不再重建提示。
-    connectionState.emit({ status: 'connected', recovered: true, restarted: true })
-    expect(messageList.querySelector('.quickforge-reconnect')).toBeNull()
-
-    controller.destroy()
+    // Acceptable edge: a late/replayed restarted upgrade cannot resurrect it.
+    render({ status: 'connected', recovered: true, restarted: true })
+    expect(notice()).toBeNull()
   })
 
-  it('renders the failed state as an alert with a working retry button', async () => {
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
+  it('renders the failed state as an alert with a working retry button', () => {
+    render({ status: 'failed', maxAttempts: 10 })
 
-    connectionState.emit({ status: 'failed', maxAttempts: 10 })
+    expect(notice()!.dataset.state).toBe('failed')
+    expect(notice()!.getAttribute('role')).toBe('alert')
+    expect(notice()!.querySelector('.quickforge-reconnect-text')!.textContent)
+      .toBe('Connection failed after 10 attempts')
 
-    const notice = messageList.querySelector('.quickforge-reconnect')!
-    expect(notice.dataset.state).toBe('failed')
-    expect(notice.getAttribute('role')).toBe('alert')
-    expect(notice.querySelector('.quickforge-reconnect-retry')).not.toBeNull()
-
-    notice.querySelector('.quickforge-reconnect-retry')!.click()
+    act(() => { notice()!.querySelector<HTMLButtonElement>('.quickforge-reconnect-retry')!.click() })
     expect(connectionState.retryNowCalls).toBe(1)
-
-    controller.destroy()
   })
 
-  it('destroy unsubscribes and removes the notice', async () => {
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
+  it('ignores a stale connected snapshot on mount', () => {
+    render({ status: 'connected', recovered: true })
 
-    connectionState.emit({ status: 'reconnecting', attempt: 1, maxAttempts: 10, nextRetryAt: Date.now() })
-    controller.destroy()
-
-    expect(messageList.querySelector('.quickforge-reconnect')).toBeNull()
-    const before = messageList.children.length
-    connectionState.emit({ status: 'failed', maxAttempts: 10 })
-    expect(messageList.children.length).toBe(before)
+    expect(notice()).toBeNull()
   })
 
-  it('sync re-appends the notice after the message list is rebuilt', async () => {
-    const { panel, messageList } = buildPanel()
-    const controller = await createController(panel)
-
-    connectionState.emit({ status: 'reconnecting', attempt: 5, maxAttempts: 10, nextRetryAt: Date.now() })
-    expect(messageList.querySelector('.quickforge-reconnect')).not.toBeNull()
-
-    // Simulate a list rebuild: the old list (with the notice) is replaced.
-    messageList.remove()
-    const newList = Object.assign(new FakeElement('div'), { className: 'qf-message-list' })
-    panel.append(newList)
-    controller.sync()
-
-    const notice = newList.querySelector('.quickforge-reconnect')
-    expect(notice).not.toBeNull()
-    expect(newList.children.at(-1)).toBe(notice)
-    expect(notice!.querySelector('.quickforge-reconnect-count')!.textContent).toBe('5/10')
-
-    controller.destroy()
-  })
-
-  it('ignores a stale connected snapshot on mount', async () => {
-    const { panel, messageList } = buildPanel()
-    connectionState.current = { status: 'connected', recovered: true }
-    const controller = await createController(panel)
-
-    expect(messageList.querySelector('.quickforge-reconnect')).toBeNull()
-    controller.destroy()
+  it('renders nothing while connected and recovered=false', () => {
+    render({ status: 'connected', recovered: false })
+    expect(notice()).toBeNull()
   })
 })
 
 describe('reconnect notice source contracts', () => {
-  it('ChatPanelHost wires the controller with side-chat isolation and cleanup', () => {
-    expect(hostSource).toContain('createReconnectNoticeController')
-    expect(hostSource).toContain('const reconnectNotice = sideChatMode ? null : createReconnectNoticeController({ panel })')
-    expect(hostSource).toContain('reconnectNotice?.sync()')
-    expect(hostSource).toContain('reconnectNotice?.destroy()')
+  it('the surface renders the row; the host no longer owns a controller', () => {
+    expect(surfaceSource).toContain('<ReconnectNotice status={connectionStatus} />')
+    expect(surfaceSource).toContain('enableConnectionNotices')
+    expect(hostSource).not.toContain('createReconnectNoticeController')
+    expect(hostSource).toContain('enableConnectionNotices={!sideChatMode}')
   })
 
-  it('barrel exports the controller; ChatPanelHost imports from the barrel', () => {
-    expect(barrelSource).toContain("export { createReconnectNoticeController } from './panel-decoration/reconnect-notice'")
-    expect(barrelSource).toContain("export type { ReconnectNoticeController } from './panel-decoration/reconnect-notice'")
-    expect(hostSource).toContain('createReconnectNoticeController,\n')
+  it('the barrel no longer exports the removed controller', () => {
+    expect(barrelSource).not.toContain('reconnect-notice')
+  })
+
+  it('the surface subscribes to the shared connection state', () => {
+    expect(noticesSource).toContain('subscribeSseConnectionState')
+    expect(noticesSource).toContain('getSseConnectionState')
+    expect(noticesSource).toContain('requestSseReconnectNow')
   })
 
   it('global SSE client exposes the connection-state API with a 10-attempt cap', () => {
@@ -455,13 +281,9 @@ describe('reconnect notice source contracts', () => {
     expect(agentSource).toContain('retryNow()')
   })
 
-  it('notice appends to the end of message-list and never uses innerHTML for text', () => {
-    expect(noticeSource).toContain(`panel.querySelector<HTMLElement>('.qf-message-list')`)
-    expect(noticeSource).toContain('messageList.append(notice)')
-    // 文案一律走 textContent/createElement，innerHTML 仅限静态 SVG 常量。
-    const innerHtmlLines = noticeSource.split('\n').filter((line) => line.includes('.innerHTML ='))
-    expect(innerHtmlLines).toHaveLength(1)
-    expect(innerHtmlLines[0].trim()).toBe('icon.innerHTML = svg')
+  it('the row is JSX text, never raw HTML', () => {
+    expect(noticesSource).not.toContain('dangerouslySetInnerHTML')
+    expect(noticesSource).not.toContain('.innerHTML =')
   })
 
   it('i18n carries paired zh/en keys for all reconnect strings', () => {
@@ -509,5 +331,17 @@ describe('reconnect notice source contracts', () => {
     expect(reconnectSlice).toContain('@media (prefers-reduced-motion: reduce)')
     // 重连样式段必须位于 TodoWrite 摘要注释之前（todo-write-renderer 无界切片契约）。
     expect(cssSource.indexOf('/* SSE reconnect notice')).toBeLessThan(cssSource.indexOf('/* TodoWrite task summary'))
+  })
+})
+
+describe('unreachableStripOwns', () => {
+  it('hands over exactly at the 30s threshold', () => {
+    const since = 1_000_000
+    const status = { status: 'reconnecting' as const, attempt: 1, maxAttempts: 10, nextRetryAt: since, unreachable: true, unreachableSince: since }
+
+    expect(unreachableStripOwns(status, since + 29999)).toBe(false)
+    expect(unreachableStripOwns(status, since + 30000)).toBe(true)
+    expect(unreachableStripOwns(null, since)).toBe(false)
+    expect(unreachableStripOwns({ status: 'failed', maxAttempts: 10 }, since)).toBe(false)
   })
 })

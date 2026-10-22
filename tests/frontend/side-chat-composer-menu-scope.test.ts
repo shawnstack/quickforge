@@ -7,7 +7,7 @@ vi.mock('../../src/components/chat/panel-decoration/composer-plus-menu', () => (
   setupComposerPlusMenu: vi.fn(),
 }))
 import { disableComposerControls } from '../../src/components/chat/panel-decoration'
-import { removeAgentAccessMenu } from '../../src/components/chat/panel-decoration/agent-access-menu'
+import { registerAgentAccessMenuCloser, removeAgentAccessMenu } from '../../src/components/chat/panel-decoration/agent-access-menu'
 import type { MessageEditorElement } from '../../src/components/chat/chat-utils'
 
 type Listener = (event: Event) => void
@@ -151,7 +151,9 @@ describe('Side Chat scoped composer menu cleanup', () => {
     expect(body.querySelector('.quickforge-model-menu')).toBe(mainModelMenu)
     expect(mainAccess.getAttribute('aria-expanded')).toBe('true')
     expect(mainModel.getAttribute('aria-expanded')).toBe('true')
-    expect(side.plus.disabled).toBe(true)
+    // The "+" and thinking triggers are React-rendered now, so disabling them is
+    // a surface concern (`enableAttachments` / `disabledControls`) rather than a
+    // decoration write. The controls this pass still owns are disabled here.
     expect(side.model.disabled).toBe(true)
     expect(side.access.disabled).toBe(true)
     expect(side.plan.disabled).toBe(true)
@@ -159,18 +161,16 @@ describe('Side Chat scoped composer menu cleanup', () => {
     expect(side.fileInput.value).toBe('')
   })
 
-  it('removes a menu owned by the same panel and resets its trigger', () => {
-    const side = panelWithControls()
-    side.access.setAttribute('aria-expanded', 'true')
-    const sideMenu = new FakeElement()
-    sideMenu.className = 'quickforge-agent-access-menu'
-    sideMenu.__quickforgeOwnerPanel = side.panel as unknown as HTMLElement
-    sideMenu.__quickforgeOwnerTrigger = side.access as unknown as HTMLButtonElement
-    body.append(sideMenu)
+  it('closes a menu owned by the same panel through the surface handshake', () => {
+    // The menu is a React node now, so the cleanup path must not remove it: it
+    // asks the owning surface to close (see agent-access-menu.ts). A node left in
+    // the fake DOM is therefore expected — what matters is that the closer ran.
+    const closer = vi.fn()
+    registerAgentAccessMenuCloser(closer)
 
-    removeAgentAccessMenu(side.panel as unknown as HTMLElement, true)
+    removeAgentAccessMenu({} as unknown as HTMLElement, true)
 
-    expect(body.querySelector('.quickforge-agent-access-menu')).toBeFalsy()
-    expect(side.access.getAttribute('aria-expanded')).toBe('false')
+    expect(closer).toHaveBeenCalledTimes(1)
+    registerAgentAccessMenuCloser(null)
   })
 })

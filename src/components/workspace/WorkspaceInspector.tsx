@@ -32,7 +32,7 @@ import { countDiffLines } from './diff-line-counts'
 import { FileIcon } from './file-icon'
 import { GoalIcon } from '@/components/goal-icon'
 import { panelTabFilePath } from './workspace-tab-file-path'
-import { getGitFileDiff, getWorkspaceChildren, getWorkspaceFile, getWorkspaceFileMeta, openWorkspaceExternal, searchWorkspace, } from './workspace-api'
+import { getCommandLog, getGitFileDiff, getWorkspaceChildren, getWorkspaceFile, getWorkspaceFileMeta, openWorkspaceExternal, searchWorkspace, } from './workspace-api'
 import { WorkspaceChangesList } from './WorkspaceChangesList'
 import { WorkspaceFileTree } from './WorkspaceFileTree'
 import { WorkspaceDocumentContent } from './WorkspaceDocumentContent'
@@ -179,6 +179,11 @@ function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) 
   if (tab.kind === 'document') return artifactFileName(tab.document?.path || '')
   if (tab.kind === 'reader') {
     const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
+    // 命令日志 tab 用「命令日志 · <命令摘要>」而不是日志文件名：日志名是
+    // 时间戳 + toolCallId，对用户没有辨识度。
+    if (reader?.source === 'command-log') {
+      return reader.label ? t('commandLogTabLabel', { command: reader.label }) : t('commandLogTabFallback')
+    }
     return reader ? artifactFileName(reader.path) : t('rightPanelFiles')
   }
   return PANEL_TAB_BY_KIND[tab.kind].label
@@ -263,7 +268,7 @@ function readerDiffText(diff: GitFileDiffResponse) {
 // （server/routes/workspace.mjs）。产物卡的「N 个文件已更改」是会话累计口径，文件被
 // commit/revert/撤销后 Git 工作区已无变更；该 404 转为友好空态而不是红色错误。
 
-function InlineReader({ project, path, mode, file, diff, loading, error, noChanges, navigationVisible, onNavigationVisibleChange, allowExternalOpen = true, onOpenCurrentFile }: {
+function InlineReader({ project, path, mode, file, diff, loading, error, noChanges, navigationVisible, onNavigationVisibleChange, allowExternalOpen = true, onOpenCurrentFile, titleLabel }: {
   project?: ProjectInfo
   path?: string
   mode: ReaderMode
@@ -276,6 +281,8 @@ function InlineReader({ project, path, mode, file, diff, loading, error, noChang
   onNavigationVisibleChange: (visible: boolean) => void
   allowExternalOpen?: boolean
   onOpenCurrentFile?: () => void
+  /** 命令日志等非工作区文件的替代标题（面包屑不再按 `/` 拆绝对路径）。 */
+  titleLabel?: string
 }) {
   const [copied, setCopied] = useState<'path' | 'content'>()
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
@@ -307,8 +314,8 @@ function InlineReader({ project, path, mode, file, diff, loading, error, noChang
 
   const title = mode === 'file' ? file?.path || path : diff?.path || path
   const pathSegments = useMemo(
-    () => normalizeWorkspacePath(title).split('/').filter(Boolean),
-    [title],
+    () => (titleLabel ? [titleLabel] : normalizeWorkspacePath(title).split('/').filter(Boolean)),
+    [title, titleLabel],
   )
   const breadcrumbTitle = [project?.name, ...pathSegments].filter(Boolean).join(' > ')
   const isMarkdown = mode === 'file' && isMarkdownFile(file)
@@ -658,6 +665,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
   const reviewFilterRef = useRef<HTMLDivElement | null>(null)
 
   const openFileTabRef = useRef<((path: string) => void) | undefined>(undefined)
+  const openCommandLogTabRef = useRef<((logPath: string, logSessionId: string, label?: string) => void) | undefined>(undefined)
   const openDocumentTabRef = useRef<((path: string, format: DocumentFormat) => void) | undefined>(undefined)
   const openDiffTabRef = useRef<((path: string, switchToChanges: boolean) => void) | undefined>(undefined)
   const handledRequestIdRef = useRef<number | undefined>(undefined)
@@ -800,6 +808,8 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
       }
     } else if (request.kind === 'reader') {
       openFileTabRef.current?.(request.path)
+    } else if (request.kind === 'command-log') {
+      openCommandLogTabRef.current?.(request.path, request.sessionId, request.label)
     } else if (request.kind === 'document') {
       openDocumentTabRef.current?.(request.path, request.format)
     } else if (request.kind === 'browser') {
@@ -980,6 +990,18 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
       }
       if (!activePanelTab || activeReaderTab?.mode !== 'file') return
       const readerId = activeReaderTab.id
+      // 命令日志 reader 不走工作区加载 effect（那里按 source 过滤掉了），
+      // 这里直接重拉，否则「刷新」会把它永久置成 loading。
+      if (activeReaderTab.source === 'command-log' && activeReaderTab.sessionId) {
+        updatePanelTab(activePanelTab.id, (tab) => ({
+          ...tab,
+          readerTabs: (tab.readerTabs || []).map((reader) => reader.id === readerId
+            ? { ...reader, loading: true, error: undefined }
+            : reader),
+        }))
+        await loadCommandLogIntoReaderTab(activePanelTab.id, readerId, activeReaderTab.path, activeReaderTab.sessionId, projectGuardRef.current.token(projectId as string))
+        return
+      }
       // 刷新=权威：标记该 reader 绕过缓存读，由加载 effect 直接全量重拉并覆写缓存。
       if (!activeReaderTab.loading) refreshedReaderIdsRef.current.add(readerId)
       updatePanelTab(activePanelTab.id, (tab) => ({
@@ -1112,12 +1134,36 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
+  // 命令日志读取：独立于工作区文件缓存，失败信息直接落到 tab error。
+  const loadCommandLogIntoReaderTab = useCallback(async (panelTabId: string, readerId: string, logPath: string, logSessionId: string, projectToken: WorkspaceInspectorProjectToken) => {
+    const apply = (reader: Partial<ReaderTab>) => {
+      updatePanelTab(panelTabId, (tab) => ({
+        ...tab,
+        readerTabs: (tab.readerTabs || []).map((item) => item.id === readerId ? { ...item, ...reader } : item),
+      }))
+    }
+    try {
+      const log = await getCommandLog(logSessionId, logPath)
+      if (!projectGuardRef.current.isCurrent(projectToken)) return
+      apply({
+        file: { path: log.path, content: log.content, size: log.size, mtimeMs: log.mtimeMs, language: log.language, readonly: true },
+        loading: false,
+        error: undefined,
+      })
+    } catch (err) {
+      if (!projectGuardRef.current.isCurrent(projectToken)) return
+      apply({ loading: false, error: err instanceof Error ? err.message : t('commandLogUnavailable') })
+    }
+  // updatePanelTab 只闭包稳定 setter，保持与 loadReaderFileFromCacheOrServer 一致。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     if (!projectId) return
     const loadingReaders = panelTabs.flatMap((tab) => {
       if (tab.kind !== 'reader') return []
       return (tab.readerTabs || [])
-        .filter((reader) => reader.loading && reader.mode === 'file')
+        .filter((reader) => reader.loading && reader.mode === 'file' && reader.source !== 'command-log')
         .map((reader) => ({ panelTabId: tab.id, reader }))
     })
     for (const { panelTabId, reader } of loadingReaders) {
@@ -1136,6 +1182,37 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
   }, [panelTabs, projectId, loadReaderFileFromCacheOrServer])
 
   const { createPanelTab, createReaderPanelTab, openPanelTab, activatePanelTab, handlePanelTabDragStart, finishPanelTabDrag, handlePanelTabDragEnd, closePanelTab, closeOtherPanelTabs, closeAllPanelTabs } = useInspectorTabsActions({ ...tabState, onClearSideChat, onOpenChange, updatePanelTab })
+
+  // 命令日志 tab：与 openFileTab 结构对齐，但内容来自受限的 command-log 端点，
+  // 不走工作区文件缓存（logs 在工作区外，缓存/校准对它没有意义）。
+  async function openCommandLogTab(logPath: string, logSessionId: string, label?: string) {
+    if (!projectId || !logSessionId || !logPath) return
+    const projectToken = projectGuardRef.current.token(projectId)
+    const id = readerTabId('file', logPath)
+    const existingPanelTab = panelTabs.find((tab) => tab.kind === 'reader' && tab.readerTabs?.some((item) => item.id === id))
+    if (existingPanelTab) {
+      // 重复点同一条日志：激活并重新拉取，因为后台命令的日志还在增长。
+      setActivePanelTabId(existingPanelTab.id)
+      updatePanelTab(existingPanelTab.id, (tab) => ({
+        ...tab,
+        activeReaderTabId: id,
+        readerTabs: (tab.readerTabs || []).map((item) => item.id === id ? { ...item, loading: true, error: undefined } : item),
+      }))
+      return
+    }
+    const readerTab: ReaderTab = { id, mode: 'file', path: logPath, source: 'command-log', sessionId: logSessionId, label, loading: true }
+    const targetTab = createReaderPanelTab(readerTab)
+    setPanelTabs((prev) => [...prev, targetTab])
+    setActivePanelTabId(targetTab.id)
+    const loadingKey = `${projectId}:${id}`
+    loadingReaderKeysRef.current.add(loadingKey)
+    try {
+      await loadCommandLogIntoReaderTab(targetTab.id, id, logPath, logSessionId, projectToken)
+    } finally {
+      loadingReaderKeysRef.current.delete(loadingKey)
+    }
+  }
+  openCommandLogTabRef.current = openCommandLogTab
 
   function updatePanelTab(id: string, updater: (tab: WorkspacePanelTab) => WorkspacePanelTab) {
     setPanelTabs((prev) => prev.map((tab) => tab.id === id ? updater(tab) : tab))
@@ -1630,7 +1707,12 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                       onOpenCurrentFile={activeReaderTab.noChanges ? () => { void openFileTabRef.current?.(activeReaderTab.path) } : undefined}
                       navigationVisible={readerNavigationVisible}
                       onNavigationVisibleChange={setReaderNavigationVisible}
-                      allowExternalOpen={Boolean(onOpenProjectInExplorer || onOpenProjectInVSCode || onOpenProjectInIDEA)}
+                      // 命令日志在工作区外，「在资源管理器中显示 / 用编辑器打开」这类
+                      // 入口走 /api/workspace/open-external（工作区外 403），直接隐藏。
+                      allowExternalOpen={activeReaderTab.source !== 'command-log' && Boolean(onOpenProjectInExplorer || onOpenProjectInVSCode || onOpenProjectInIDEA)}
+                      titleLabel={activeReaderTab.source === 'command-log'
+                        ? (activeReaderTab.label ? t('commandLogTabLabel', { command: activeReaderTab.label }) : t('commandLogTabFallback'))
+                        : undefined}
                     />
                   ) : isFilesLanding ? (
                     <div className="flex min-h-0 flex-1 items-center justify-center px-6">

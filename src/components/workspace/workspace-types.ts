@@ -16,6 +16,7 @@ export type WorkspaceInspectorOpenRequest =
   | ({ id: number; projectId: string; kind: 'review'; view: 'review' | 'changes'; /** 指定文件时在 Review 面板内直达该文件的 diff tab */ path?: string } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'files' | 'terminal' | 'side-chat' } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'reader'; path: string } & WorkspaceInspectorRequestScope)
+  | ({ id: number; projectId: string; kind: 'command-log'; sessionId: string; path: string; label?: string } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'document'; path: string; format: 'pdf' | 'docx' | 'excel' } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'browser'; url: string } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId?: string; kind: 'subagent'; payload: SubagentRunPayload } & Partial<WorkspaceInspectorRequestScope>)
@@ -77,6 +78,12 @@ export type WorkspaceFileResponse = {
   mtimeMs: number
   language: string
   readonly: true
+}
+
+/** GET /api/agents/:sessionId/command-log 的响应：在文件响应上附加截断信息。 */
+export type CommandLogResponse = WorkspaceFileResponse & {
+  totalLines: number
+  truncated: boolean
 }
 
 /** GET /api/workspace/file?meta=1 的轻量响应：仅元信息、不含内容，用于校验本地文件缓存快照。 */

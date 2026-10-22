@@ -61,12 +61,12 @@
 ## todo-summary-expand-and-retire（done，2026-10-22）
 
 - Goal：用户要求 ① 回合结束（`agent_end`）且 todolist 全部完成时清除、不再显示；② todo 默认展开；③ 完成/运行/待执行三态都要清晰表达。先出设计（含三个决策点：退休时机、退休后是否留入口、置顶摘要是否同步），用户选「单次回合结束即移除」「彻底不显示」「置顶摘要仅统一图标」，实现方式选 A（前端由 `agent_end` 推导，不加服务端字段）。
-- 结论（一句话）：`turnEnded` 由前端 `agent_end` 推导并与 snapshot 内容组合成纯函数 `shouldRetireTodoSummary()`，摘要默认展开、回合全完成才淡出卸载，三态图标/文案收敛到 `src/lib/todo-status*` 单一来源。
+- 结论（一句话）：退休判定是纯函数 `shouldRetireTodoSummary({ todos, idle })`，`idle = !snapshot.isStreaming` 用状态而不是一次性 `agent_end`，摘要默认展开、全完成且 idle 时淡出卸载，三态图标/文案收敛到 `src/lib/todo-status*` 单一来源。
 - 改动：
   1. 新增 `src/lib/todo-status.ts`（`TodoStatus` 类型、`TODO_STATUS_LABEL_KEY`、`TODO_STATUS_GLYPH_CLASS`、`todoStatusLabel()`）与 `src/lib/todo-status-icon.tsx`（`TodoStatusIcon`：pending 空心圆 / in_progress 半填充圆 / completed 实心圆 + mask 镂空勾，`useId` 生成 mask id）。拆成两个文件是因为「组件 + 常量同文件」触发 `react-refresh/only-export-components`。
-  2. `panel-decoration/todo-write-summary.ts`：新增 `shouldRetireTodoSummary({todos, turnEnded})`；`TodoWriteStatus` 改为 `TodoStatus` 别名，`TODO_WRITE_STATUS_LABEL_KEY` 改为共享映射的再导出别名。
+  2. `panel-decoration/todo-write-summary.ts`：新增 `shouldRetireTodoSummary({ todos, idle })`；`TodoWriteStatus` 改为 `TodoStatus` 别名，`TODO_WRITE_STATUS_LABEL_KEY` 改为共享映射的再导出别名。
   3. `surface/TodoWriteSummary.tsx`：`expanded` 默认 `true`，snapshot key 变化时重置为 `true`（用户手动收起只在本轮生效）；新增 `retiredKey`（按 snapshot key 记账，新快照天然恢复）、`fading` 由 `shouldRetireTodoSummary` 派生（不在 effect 里 setState，避开 `react-hooks/set-state-in-effect`）；展开体最终只保留「当前进行中任务行 + 列表」（三态 chips 按用户反馈「待执行 0 / 进行中 0 / 已完成 8 不要显示，保持简洁」已删除）；行级图标改用共享 `TodoStatusIcon`。
-  4. `surface/ChatSurface.tsx`：新增 `turnEnded` state，在 `agent.subscribe` 里由 `agent_start` 清零、`agent_end` 时按 `status !== 'error'/'aborted'`、无 `errorMessage`、`!state.isStreaming` 判定；切会话时重置。传给 `<TodoWriteSummary turnEnded>`。
+  4. `surface/ChatSurface.tsx`：传 `idle={!snapshot.isStreaming}` 给 `<TodoWriteSummary>`，不新增 `turnEnded` state。原因：`turnEnded` 只能由实时 `agent_end` 置位，刷新页面 / 切会话 / 恢复历史会话时该事件永不到来，会让「全完成」的清单永久常驻（用户实际遇到的现象）。
   5. `GitToolsPinnedSummary.tsx`：`TodoStatusIcon`/`todoStatusLabel` 改走共享实现 + `TODO_STATUS_GLYPH_CLASS`，删除 lucide `CheckCircle2`/`Clock3`/`Circle` 在任务分组里的用法（`CheckCircle2` 在 subagent 段仍用）。`slice(0,3)` 与展开行为未动。
   6. `tool-renderers/todo-write-tool-renderer.tsx`：删除自带的 `todoHistoryStatusIcon`（模块级 `mask` 自增计数器）与 `todoHistoryStatusLabel`，改用共享图标与 `t(TODO_STATUS_LABEL_KEY[todo.status])`。
   7. `src/index.css`：TodoWrite 段的硬编码时长全部改 `--quickforge-dur-*` / `--quickforge-ease-out`；删除 `nth-child` 阶梯淡入与 `translateY` 位移（改整体 opacity 淡入，符合 DESIGN_LANGUAGE「列表只做 opacity 淡入、不做逐项瀑布」）；新增 `--in_progress` 行底与呼吸 `@keyframes`、`[data-fading]` 退出、胶囊 `@starting-style` 进入、`.quickforge-todo-glyph--*`（置顶摘要用）；reduced-motion 关闭呼吸。
@@ -74,7 +74,7 @@
   9. 测试：`tests/frontend/todo-write-summary.test.ts` 重写（新增 `shouldRetireTodoSummary`、默认展开、共享 glyph、「回合结束后淡出并卸载」「有剩项时保留」「退役后可恢复」、以及「body 内不再有 chips/当前任务行」的负向断言；旧的「全完成自动收起」契约改为「全完成仍展开、回合结束后移除」）；`todo-write-renderer.test.ts` 的状态断言改为「渲染器消费共享映射」。
   10. 文档：`docs/wiki/src/components/README.md`（注意该文件 L14-302 与 L340-628 是逐字重复的两套段落，两处 TodoWrite 条目都改了）、`docs/wiki/src/lib/README.md`（新增 `todo-status.ts / todo-status-icon.tsx` 小节 + 历史卡一行）、`CHANGELOG.md`（新增 `[Unreleased] / Changed`）。
 - 验证：定向 `npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts tests/frontend/git-tools-pinned-summary.test.ts` → 3 文件 **65 passed**；全量 `npm run test` → **418 文件 4786 passed / 2 skipped**（exit 0）；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` 的 `react-hooks/exhaustive-deps` warning）；`npx tsc -b` 通过；`npm run build` 成功。
-- 边界：不改 `GitToolsPinnedSummary` 的 `slice(0,3)` 与展开行为（仅统一三态图标）；历史工具卡默认折叠不变；不改 server 端 SSE 契约（`turnEnded` 在前端由 `agent_end` 推导，未给事件加 reason 字段）；未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+- 边界：不改 `GitToolsPinnedSummary` 的 `slice(0,3)` 与展开行为（仅统一三态图标）；历史工具卡默认折叠不变；不改 server 端 SSE 契约（退休判定用前端已有的 `snapshot.isStreaming`，未给 `agent_end` 加 reason 字段）；未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
 - Notes（未做，供下轮）：未做真实浏览器视觉验收（用户表示自行验证；当时端口 5176 / 32176 被既有实例占用，MCP 打开报 `QuickForge local service is unavailable`）。另：本轮早期全量测试曾出现 7 个 `expandProcessStageByDefault` 相关失败，属既存失败，已由后续 `tool-stage-expand-fixed` 一轮修复，现全量 4786 passed。
 
 ---

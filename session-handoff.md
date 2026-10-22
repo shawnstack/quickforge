@@ -55,13 +55,13 @@
 ## 当前交接：todo-summary-expand-and-retire（done，2026-10-22）
 
 - Current Objective（当前目标）: 用户要求 ① 回合结束且 todolist 全完成时清除不显示；② todo 默认展开；③ 完成/运行/待执行三态清晰表达。**已完成**，未提交、未创建 commit。用户明确表示「我自己验证」，所以未做浏览器视觉验收。
-- 设计决策（用户已确认）: 「对话结束」= 单次回合 `agent_end` 且全完成即移除；退休后彻底不显示（只能翻历史工具卡）；顶部置顶摘要只统一三态图标、不移除。实现用 A 方案：前端由 `agent_end` 推导 `turnEnded`，不改服务端 SSE 契约。
-- 结论（一句话）: `turnEnded` 与 snapshot 内容组合成纯函数 `shouldRetireTodoSummary()` 决定是否淡出卸载，摘要默认展开，三态图标/文案收敛到 `src/lib/todo-status*` 单一来源。
+- 设计决策（用户已确认）: 「对话结束」= 回合结束且全完成即移除；退休后彻底不显示（只能翻历史工具卡）；顶部置顶摘要只统一三态图标、不移除。实现用 A 方案：退休判定读前端已有的 `!snapshot.isStreaming`，不改服务端 SSE 契约。
+- 结论（一句话）: 退休判定是 `shouldRetireTodoSummary({ todos, idle })`，`idle` 取 `!snapshot.isStreaming`（状态而非一次性事件），摘要默认展开、全完成且 idle 时淡出卸载，三态图标/文案收敛到 `src/lib/todo-status*` 单一来源。
 - 改动文件:
   1. 新增 `src/lib/todo-status.ts`（`TodoStatus`、`TODO_STATUS_LABEL_KEY`、`TODO_STATUS_GLYPH_CLASS`、`todoStatusLabel()`）与 `src/lib/todo-status-icon.tsx`（`TodoStatusIcon`，`useId` 生成 mask id）。两个文件是为了避开 `react-refresh/only-export-components`。
    2. `src/components/chat/panel-decoration/todo-write-summary.ts`：新增 `shouldRetireTodoSummary()`；`TodoWriteStatus` 变成 `TodoStatus` 别名，`TODO_WRITE_STATUS_LABEL_KEY` 改为再导出别名。
   3. `src/components/chat/surface/TodoWriteSummary.tsx`：默认展开、按 snapshot key 重置为新展开并更新「已更新」标记、`retiredKey` 按 snapshot key 记账 + 派生 `fading`（不在 effect 内 setState）、`data-fading` + `inert`、140ms（`--quickforge-dur-exit`）后卸载、（展开体只有列表：chips 与「正在：」行都已按用户反馈删除）、共享 `TodoStatusIcon`。
-  4. `src/components/chat/surface/ChatSurface.tsx`：新增 `turnEnded` state（`agent_start` 清零；`agent_end` 读原始 `event.status`，`'error'`/`'aborted'` 视为失败，也看 `event.errorMessage` 与 `agent.state.isStreaming`；刻意不读 `agent.state.errorMessage` 以免沿用旧轮次失败；切会话重置），传给 `<TodoWriteSummary turnEnded>`。
+  4. `src/components/chat/surface/ChatSurface.tsx`：只传 `idle={!snapshot.isStreaming}`。早期版本用 `turnEnded` state（由 `agent_end` 置位）实现，实测刷新/切会话后不触发导致清单常驻，已改为状态谓词并删除该 state。
   5. `src/components/git/GitToolsPinnedSummary.tsx` / `src/lib/tool-renderers/todo-write-tool-renderer.tsx`：改用共享图标与 label 映射，`GitToolsPinnedSummary` 移除 lucide `Clock3`/`Circle`（`CheckCircle2` 仍被 subagent 行使用），渲染器删除模块级 mask 计数器与本地 `todoHistoryStatus*`，第三套实现清零。
   6. `src/index.css`：TodoWrite 段 token 化（`--quickforge-dur-*` / `--quickforge-ease-out`）、删 `nth-child` 阶梯延时、新增 in_progress 行底与 500 字重 / 2.4s 呼吸 / `data-fading` 退出 / `@starting-style` 进入 / `.quickforge-todo-glyph--*` 共享配色；reduced-motion 关闭呼吸。
    7. `src/lib/i18n.ts` 本轮最终没有新增 key（chips 与「正在：」行的键随功能删除，保持中英键集一致）；`tests/frontend/todo-write-summary.test.ts` 重写、`tests/frontend/todo-write-renderer.test.ts` 改为断言消费共享映射；wiki（`docs/wiki/src/components/README.md` 两处重复段落 + `docs/wiki/src/lib/README.md` 新增小节）、`CHANGELOG.md`、`feature_list.json`、`progress.md` 已同步。

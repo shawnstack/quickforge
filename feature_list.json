@@ -109,7 +109,7 @@
         "session-handoff.md"
       ],
       "verification": "定向 npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts tests/frontend/git-tools-pinned-summary.test.ts → 3 文件 65 passed；全量 npm run test → 418 文件 4786 passed / 2 skipped（exit 0）；npm run lint 0 error（仅既有 GitToolsPinnedSummary 的 react-hooks/exhaustive-deps warning）；npx tsc -b 通过；npm run build 成功。",
-      "boundaries": "不改 GitToolsPinnedSummary 的 slice(0,3) 与展开行为（仅统一三态图标）；不改历史工具卡的默认折叠；不改 server 端 SSE 契约（turnEnded 用 A 方案在前端由 agent_end 推导，未给事件加 reason 字段）；未手工修改 dist/、package-dist/、package-offline/；未新增/升级依赖；未创建 Git commit。未做真实浏览器视觉验收（端口 5176/32176 被既有 dev server 占用）。"
+      "boundaries": "不改 GitToolsPinnedSummary 的 slice(0,3) 与展开行为（仅统一三态图标）；不改历史工具卡的默认折叠；不改 server 端 SSE 契约（退休判定用前端已有的 snapshot.isStreaming，未给 agent_end 加 reason 字段）；未手工修改 dist/、package-dist/、package-offline/；未新增/升级依赖；未创建 Git commit。未做真实浏览器视觉验收（端口 5176/32176 被既有 dev server 占用）。"
     },
     {
       "id": "fix-thinking-level-menu-clipped",

@@ -25,7 +25,7 @@ import {
  * - the capsule starts expanded, and a new snapshot round re-expands it (the
  *   list is the point of the capsule while a round is running);
  * - a new (non-first) snapshot briefly shows the "updated" marker;
- * - a cleanly finished round leaves the composer once the turn ends
+ * - a cleanly finished round leaves the composer once the agent is idle
  *   (`retiredKey`), after one exit fade so the dock does not jump;
  * - an explicit empty snapshot / rollback resets everything.
  *
@@ -45,13 +45,15 @@ const RETIRE_DURATION_MS = 140
 export type TodoWriteSummaryProps = {
   snapshot: { snapshot: TodoWriteSnapshot; key: string } | null
   /**
-   * The current round finished cleanly (`agent_end` with a non-error status and
-   * nothing left streaming). Only matters together with a fully completed list.
+   * The agent is not streaming right now. This is the retirement trigger, and it
+   * is a *state* predicate rather than a one-shot `agent_end`: a finished list
+   * must stay hidden after a reload, a session switch or a resume too, and those
+   * never deliver an `agent_end`.
    */
-  turnEnded?: boolean
+  idle: boolean
 }
 
-export function TodoWriteSummary({ snapshot, turnEnded = false }: TodoWriteSummaryProps) {
+export function TodoWriteSummary({ snapshot, idle }: TodoWriteSummaryProps) {
   const latest = snapshot
   const todos = latest?.snapshot.todos ?? []
   const counts = todoWriteCounts(todos)
@@ -86,11 +88,11 @@ export function TodoWriteSummary({ snapshot, turnEnded = false }: TodoWriteSumma
     return () => clearTimeout(timer)
   }, [updatedKey])
 
-  // Finished round + ended turn ⇒ leave the composer. `fading` is derived, not
+  // Finished list + idle agent ⇒ leave the composer. `fading` is derived, not
   // stored: the exit attribute is on from the first commit, the CSS exit
   // transition runs against the previously rendered opacity, and the effect only
   // schedules the unmount once that transition is over.
-  const shouldRetire = shouldRetireTodoSummary({ todos, turnEnded })
+  const shouldRetire = shouldRetireTodoSummary({ todos, idle })
   const fading = shouldRetire && retiredKey !== snapshotKey
 
   useEffect(() => {

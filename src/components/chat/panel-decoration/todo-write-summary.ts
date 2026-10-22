@@ -94,24 +94,30 @@ export function isFinalTodoSnapshot(todos: readonly TodoWriteItem[]): boolean {
 /**
  * True when the capsule should leave the composer.
  *
- * The capsule's job is to show the current round's work. Once the round has
- * ended cleanly (the server emits `agent_end` with `status: 'idle'`) and every
- * task is completed there is nothing left to watch, so the capsule fades out
+ * The capsule's job is to show the in-flight work. Once the agent is idle and
+ * every task is completed there is nothing left to watch, so the capsule leaves
  * instead of sitting above the composer. The data is not touched: the
  * `todo_write` results stay in the message list, so the per-call history card
  * still shows the final list.
  *
+ * `idle` is a *state* predicate (`!agent.state.isStreaming`), not a one-shot
+ * `agent_end` signal: a completed list must stay hidden after a page reload, a
+ * session switch or a resume, where no `agent_end` is ever delivered. The surface
+ * passes the snapshot's own `isStreaming`, so there is no separate flag to keep
+ * in sync.
+ *
  * Unfinished or failed rounds keep the capsule: an aborted turn may leave
- * `pending`/`in_progress` items behind and those are exactly what the user
- * needs to see next to the composer.
+ * `pending`/`in_progress` items behind and those are exactly what the user needs
+ * to see next to the composer.
  */
 export function shouldRetireTodoSummary({
   todos,
-  turnEnded,
+  idle,
 }: {
   todos: readonly TodoWriteItem[]
-  turnEnded: boolean
+  /** Agent is not streaming right now (historical sessions included). */
+  idle: boolean
 }): boolean {
-  return turnEnded && isFinalTodoSnapshot(todos)
+  return idle && isFinalTodoSnapshot(todos)
 }
 

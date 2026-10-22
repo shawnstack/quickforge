@@ -61,16 +61,16 @@ describe('extractLatestTodoWriteSnapshot', () => {
 })
 
 describe('shouldRetireTodoSummary', () => {
-  it('retires only a fully completed list after the turn ended', () => {
-    const done = [todo('One', 'completed')]
-    const unfinished = [todo('One', 'completed'), todo('Two', 'pending')]
+  const done = [todo('One', 'completed')]
+  const unfinished = [todo('One', 'completed'), todo('Two', 'pending')]
 
-    expect(shouldRetireTodoSummary({ todos: done, turnEnded: true })).toBe(true)
-    // A running round keeps the capsule, however many items are done.
-    expect(shouldRetireTodoSummary({ todos: done, turnEnded: false })).toBe(false)
-    expect(shouldRetireTodoSummary({ todos: unfinished, turnEnded: true })).toBe(false)
+  it('retires a fully completed list once the agent is idle', () => {
+    expect(shouldRetireTodoSummary({ todos: done, idle: true })).toBe(true)
+    // Still streaming: the round is not over, however many items are done.
+    expect(shouldRetireTodoSummary({ todos: done, idle: false })).toBe(false)
+    expect(shouldRetireTodoSummary({ todos: unfinished, idle: true })).toBe(false)
     // An empty list is "cleared", not "finished".
-    expect(shouldRetireTodoSummary({ todos: [], turnEnded: true })).toBe(false)
+    expect(shouldRetireTodoSummary({ todos: [], idle: true })).toBe(false)
   })
 })
 
@@ -90,13 +90,13 @@ describe('TodoWrite capsule rendering', () => {
     container.remove()
   })
 
-  function render(messages: TodoWriteMessage[], turnEnded = false) {
+  function render(messages: TodoWriteMessage[], options: { idle?: boolean } = {}) {
     // The component now receives the pre-resolved snapshot (the surface derives
     // it once per agent snapshot and caches it by message-array identity); these
     // cases feed it the same lookup the surface uses.
     const snapshot = readLatestTodoWriteSnapshot(messages)
     act(() => {
-      root.render(createElement(TodoWriteSummary, { snapshot, turnEnded }))
+      root.render(createElement(TodoWriteSummary, { snapshot, idle: options.idle ?? false }))
     })
   }
 
@@ -268,7 +268,7 @@ describe('TodoWrite capsule rendering', () => {
       expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
       expect(summary()!.dataset.complete).toBe('true')
 
-      render([quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' })], true)
+      render([quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' })], { idle: true })
       // Turn ended: one exit fade first, so the composer dock does not jump…
       expect(summary()!.dataset.fading).toBe('true')
 
@@ -283,7 +283,7 @@ describe('TodoWrite capsule rendering', () => {
   it('keeps the capsule when the turn ends with work left over', () => {
     vi.useFakeTimers()
     try {
-      render([quickForgeResult([todo('One', 'completed'), todo('Two', 'pending')], { toolCallId: 'first' })], true)
+      render([quickForgeResult([todo('One', 'completed'), todo('Two', 'pending')], { toolCallId: 'first' })], { idle: true })
       act(() => { vi.advanceTimersByTime(500) })
       expect(summary()).not.toBeNull()
       expect(summary()!.dataset.fading).toBe('false')
@@ -292,10 +292,35 @@ describe('TodoWrite capsule rendering', () => {
     }
   })
 
+  it('retires a finished list on an idle agent even when no agent_end was seen', () => {
+    vi.useFakeTimers()
+    try {
+      // Reload / session switch / resume: `isStreaming` is false from the start
+      // and no live `agent_end` ever arrives. A completed list must still leave
+      // the composer instead of sitting there for the rest of the session.
+      render([quickForgeResult([todo('One', 'completed'), todo('Two', 'completed')], { toolCallId: 'first' })], { idle: true })
+      expect(summary()).not.toBeNull()
+      expect(summary()!.dataset.fading).toBe('true')
+
+      act(() => { vi.advanceTimersByTime(140) })
+      expect(summary()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps an unfinished list visible while the agent is idle', () => {
+    render([quickForgeResult([todo('One', 'completed'), todo('Two', 'in_progress')], { toolCallId: 'first' })], { idle: true })
+
+    expect(summary()).not.toBeNull()
+    expect(summary()!.dataset.fading).toBe('false')
+    expect(items()).toHaveLength(2)
+  })
+
   it('brings a retired capsule back for the next round', () => {
     vi.useFakeTimers()
     try {
-      render([quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' })], true)
+      render([quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' })], { idle: true })
       act(() => { vi.advanceTimersByTime(140) })
       expect(summary()).toBeNull()
 

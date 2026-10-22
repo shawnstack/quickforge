@@ -92,8 +92,15 @@ export function TodoWriteSummary({ snapshot, idle }: TodoWriteSummaryProps) {
   // stored: the exit attribute is on from the first commit, the CSS exit
   // transition runs against the previously rendered opacity, and the effect only
   // schedules the unmount once that transition is over.
+  //
+  // `retired` is keyed by snapshot and sticky: once this snapshot's list has left,
+  // it stays gone. Without the stickiness the next user message (which flips
+  // `idle` back to false) re-armed `shouldRetire` as false and the finished list
+  // flashed back in for the duration of the round. A new `todo_write` produces a
+  // new key, which is what brings the capsule back.
   const shouldRetire = shouldRetireTodoSummary({ todos, idle })
-  const fading = shouldRetire && retiredKey !== snapshotKey
+  const retired = snapshotKey !== '' && retiredKey === snapshotKey
+  const fading = shouldRetire && !retired
 
   useEffect(() => {
     if (!fading) return undefined
@@ -102,7 +109,7 @@ export function TodoWriteSummary({ snapshot, idle }: TodoWriteSummaryProps) {
   }, [fading, snapshotKey])
 
   if (todos.length === 0) return null
-  if (shouldRetire && retiredKey === snapshotKey) return null
+  if (retired) return null
 
   const progress = counts.total > 0 ? counts.completed / counts.total : 0
   const ringOffset = (RING_CIRCUMFERENCE * (1 - progress)).toFixed(2)

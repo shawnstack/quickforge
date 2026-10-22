@@ -317,6 +317,30 @@ describe('TodoWrite capsule rendering', () => {
     expect(items()).toHaveLength(2)
   })
 
+  it('does not flash a retired list back when a new message starts streaming', () => {
+    vi.useFakeTimers()
+    try {
+      const messages = [quickForgeResult([todo('One', 'completed'), todo('Two', 'completed')], { toolCallId: 'first' })]
+      render(messages, { idle: true })
+      act(() => { vi.advanceTimersByTime(140) })
+      expect(summary()).toBeNull()
+
+      // The user sends a new message: `idle` flips to false. The finished list
+      // must stay gone rather than reappear for the duration of the round.
+      render(messages, { idle: false })
+      expect(summary()).toBeNull()
+
+      // …and it stays gone when that round ends without new todos.
+      render(messages, { idle: true })
+      expect(summary()).toBeNull()
+
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(summary()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('brings a retired capsule back for the next round', () => {
     vi.useFakeTimers()
     try {

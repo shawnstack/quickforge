@@ -1,9 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
 const tempDirs = []
+
+async function writeAssetFile(sessionId, data) {
+  const dir = path.join(process.env.QUICKFORGE_DATA_DIR, 'storage', 'conversations', 'global', 'assets', sessionId)
+  await fs.mkdir(dir, { recursive: true })
+  const assetId = `${randomUUID()}.png`
+  await fs.writeFile(path.join(dir, assetId), data)
+  return assetId
+}
 
 function mockResponse() {
   return {
@@ -51,17 +60,13 @@ describe('session image asset route', () => {
   it('serves a stored image with safe response headers', async () => {
     await withTempModules(async ({ storage, assets, routes }) => {
       await storage.writeSessionValue('session-route', { id: 'session-route', scope: 'global' })
-      const image = await assets.writeSessionAsset(
-        { scope: 'global' },
-        'session-route',
-        { mimeType: 'image/png', data: Buffer.from('png bytes') },
-      )
+      const assetId = await writeAssetFile('session-route', Buffer.from('png bytes'))
       const response = mockResponse()
 
       await routes.handleSessionAssetsApi(
         { method: 'GET' },
         response,
-        new URL(`http://localhost/api/session-assets/session-route/${image.assetId}`),
+        new URL(`http://localhost/api/session-assets/session-route/${assetId}`),
       )
 
       expect(response.status).toBe(200)
@@ -74,14 +79,10 @@ describe('session image asset route', () => {
   it('deletes image assets when the session is permanently deleted', async () => {
     await withTempModules(async ({ storage, assets }) => {
       await storage.writeSessionValue('session-delete', { id: 'session-delete', scope: 'global' })
-      const image = await assets.writeSessionAsset(
-        { scope: 'global' },
-        'session-delete',
-        { mimeType: 'image/png', data: Buffer.from('png bytes') },
-      )
+      const assetId = await writeAssetFile('session-delete', Buffer.from('png bytes'))
 
       await storage.deleteSessionValue('session-delete')
-      await expect(assets.readSessionAsset({ scope: 'global' }, 'session-delete', image.assetId))
+      await expect(assets.readSessionAsset({ scope: 'global' }, 'session-delete', assetId))
         .rejects.toMatchObject({ code: 'ENOENT' })
     })
   })

@@ -735,3 +735,29 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     syncGoalIterationDivider(element, displayEntries[index]?.message.details)
   })
 }
+
+/**
+ * Lightweight decoration for pure streaming frames.
+ *
+ * A `message_update` can only change the streaming row's rendered content. The
+ * committed rows, their action buttons, artifact cards, goal dividers and the
+ * composer bindings cannot change until a structural event, so this pass only
+ * reconciles process folding (including its thinking hints). The full pass
+ * still runs on message/tool boundaries and DOM structure changes.
+ */
+export function decorateStreamingMessages(
+  panel: HTMLElement,
+  messageRows?: HTMLElement[],
+  isStreaming = true,
+) {
+  const messageElements = messageRows ?? getPrimaryMessageElements(panel)
+  const processMessageElements = [...messageElements]
+  if (isStreaming) {
+    const streamingAssistant = getStreamingAssistantMessage(panel)
+    if (streamingAssistant) {
+      streamingAssistant.classList.add('quickforge-assistant-message')
+      processMessageElements.push(streamingAssistant)
+    }
+  }
+  decorateProcessBlocks(panel, processMessageElements, isStreaming)
+}

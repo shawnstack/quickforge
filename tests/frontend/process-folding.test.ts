@@ -233,10 +233,9 @@ describe('process streaming updates', () => {
 })
 
 describe('process folding order', () => {
-  it('treats subagents, workflows and generated images as independent details instead of compact tools summary members', () => {
+  it('treats subagents and workflows as independent details instead of compact tools summary members', () => {
     expect(isProcessToolsGroupMember('run_subagent')).toBe(false)
     expect(isProcessToolsGroupMember('run_workflow')).toBe(false)
-    expect(isProcessToolsGroupMember('generate_image')).toBe(false)
     expect(isProcessToolsGroupMember('read_file')).toBe(true)
     expect(isProcessToolsGroupMember('edit_file')).toBe(true)
     expect(isProcessToolsGroupMember('run_command')).toBe(true)
@@ -341,11 +340,11 @@ describe('single top-level process group', () => {
     ])
   })
 
-  it('keeps generate_image in the top-level process group instead of creating a sibling boundary', () => {
-    const items = ['tool-a', 'generate-image', 'markdown-stage', 'thinking-b', 'markdown-final']
+  it('keeps every intermediate tool in the top-level process group instead of creating sibling boundaries', () => {
+    const items = ['tool-a', 'tool-b', 'markdown-stage', 'thinking-b', 'markdown-final']
     expect(selectFoldableProcessItems(items, isFinal, isMarkdown, true)).toEqual([
       'tool-a',
-      'generate-image',
+      'tool-b',
       'markdown-stage',
       'thinking-b',
     ])

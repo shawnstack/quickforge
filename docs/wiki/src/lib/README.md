@@ -235,7 +235,7 @@
 
 **用途**: QuickForge 工具渲染器注册入口。渲染器实现全部为 React（见 `tool-renderers/`），本文件不再含渲染逻辑：
 
-- **注册**：导入时注册本地工作区工具（`manage_global_memory` / `read_file` / `grep_files` / `write_file` / `edit_file` / `run_command` / `present_files` / `activate_skill` / `read_skill_resource`）、`run_subagent`、`run_workflow`、`generate_image`、`todo_write`、`ask_user`、`goal_report`；`getLocalWorkspaceTools(tools)` 仅透传服务端工具元数据（工具定义只在服务端 `server/tools/definitions.mjs` 与 `GET /api/tools`），并对 `mcp__server__tool` 名称按需幂等注册 `McpToolRenderer`（label 取服务端 label 或剥除 `[MCP:...]` 前缀的 description）。
+- **注册**：导入时注册本地工作区工具（`manage_global_memory` / `read_file` / `grep_files` / `write_file` / `edit_file` / `run_command` / `present_files` / `activate_skill` / `read_skill_resource`）、`run_subagent`、`run_workflow`、`todo_write`、`ask_user`、`goal_report`；`getLocalWorkspaceTools(tools)` 仅透传服务端工具元数据（工具定义只在服务端 `server/tools/definitions.mjs` 与 `GET /api/tools`），并对 `mcp__server__tool` 名称按需幂等注册 `McpToolRenderer`（label 取服务端 label 或剥除 `[MCP:...]` 前缀的 description）。
 - **subagent 运行详情（React）**：Workspace Inspector 的运行详情由 `components/workspace/SubagentRunDetailContent.tsx` 渲染（纯逻辑与实时 store 见 `subagent-run-detail.ts`，展示层级遵循 `subagentRunBodyBlocks`），渲染后由 `syncInputClampBoxes` 幂等度量收起态；过程装饰由 `SubagentTrace` 自身承担（`getSnapshotBeforeUpdate` 释放过程组 + `componentDidUpdate` 对 `.qf-message-list` 调 `decorateProcessBlocks`），不再经由 `message-actions` 的共享入口；本文件不再提供任何详情模板或耗时徽标（耗时徽标见 `tool-renderers/shared` 的 `renderTiming`）。
 
 ### tool-renderers/
@@ -248,7 +248,6 @@
 - `workflow-tool-renderer.tsx` — run_workflow 摘要卡：摘要行显示运行状态与 Agent/工具数，运行中给摘要加 running sweep、隐藏状态区，并在标签后渲染 `quickforge-tool-marquee`（优先 running/queued 步骤 label，无活跃步骤时回退当前阶段），有视图时按 `buildWorkflowRunView` 的状态映射工具状态（`error`/`aborted` → error、`running` → running、`done` → done）；展开体按阶段分组、按 `seq` 交错展示 Agent 行与工具行，以及日志；工作流结果是默认收起的 `<details>`，点击标题才展开预览。**工具行与外部普通工具卡同构**：`quickforge-local-tool` 的 `ToolDetails`，摘要为图标 + 名称 · `summarizeParams` + `renderToolChevron` + `renderStatus`（运行中隐藏状态并加 running sweep），点击展开 `input`/`output`（run_command 用控制台块），参数 JSON 只在 `toolDisplayDetailed()` 显示；内层行传 `stateKey`（`workflow:<runId>:tool:<id>`）隔离开合记忆，避免与外层 `run_workflow` 卡共用 `.qf-tool-message` 宿主 key 而随外层展开/流式刷新自动展开。**Agent 行与外部 `run_subagent` 同构**：`quickforge-subagent-tool` 整行按钮，Bot 图标 + 状态文案 · profile/工具次数/schema，运行中显示当前工具跑马灯并隐藏状态；点击派发 `OPEN_SUBAGENT_RUN_EVENT`，用 `workflow-subagent-detail.ts` 构建 `SubagentRunPayload` 打开 Inspector 运行详情（canonical 可取 store 最新快照）。载荷的 `detailed` 跟随当前工具显示模式，不再强制展开 summary/input/details；runner 在运行中就写入有界 `subagentRun`，并保留 toolResult 的 `details`（耗时、diff、命令状态），文本仍按原预算裁剪。工作流卡本身默认收起；工作流脚本与原始 details JSON 只在详细模式显示；尚无 result 的 pending 帧显示 `workflowPreparing`；已有终态 result 但没有 workflow details（审批被拒、参数校验失败等）显示失败/完成状态与错误正文，避免把失败永久显示成“正在准备”。数据契约见 `workflow-run-detail.ts` 与 `server/agent-workflow-runner.mjs` / `server/agent-workflow-tools.mjs`。
 - `ask-user-tool-renderer.tsx` — ask_user 卡：pending 展开列问题清单；已答/跳过历史复用回执确认步样式（`askUserReviewRowsFromDetails` 从持久化 details 提取规范化 questions/answers/skipped/skipReason，`buildAskAnswerText` 合并答案，跳过态带 reason 行），非 detailed 省略 output 文本块。
 - `goal-report-tool-renderer.tsx` / `todo-write-tool-renderer.tsx` — 历史只读投影（视图模型见 `goal-report-history.ts` / `todo-write-history.ts`），固定默认折叠（`initiallyOpen={false}`，不随任何设置变化）、detailed 只决定是否附原始 JSON、不影响开合。
-- `generate-image-tool-renderer.tsx` — 历史会话兼容的图片结果块（普通页与 `/share/:shareId` 同源 URL）。
 - `mcp-tool-renderer.tsx` — MCP 动态渲染器（summary 行 server / 原名 / 参数摘要，`parseMcpToolName` 解析 `mcp__server__tool`）。
 - `index.ts` — 统一导出，`local-tools.ts` 注册入口消费。
 
@@ -285,10 +284,6 @@
 | `aborted` | `workflowSummaryAborted` / `workflowAborted` | error |
 
 **渲染器与样式契约**：`tool-renderers/workflow-tool-renderer.tsx` 注册为 `run_workflow` 的渲染器，摘要行使用 `workflowSummary*` + Agent/工具数（`workflowAgentCountOne/Many`、`workflowToolCountOne/Many`）与跑马灯（`workflowCurrentPhase` 回退；`.quickforge-workflow-marquee` 固定单行、定高，只占标签与 chevron 之间的剩余宽度，溢出横向滚动，reduced-motion 下退化为省略号）；展开体按阶段、按 `seq` 交错渲染 Agent 行、工具行、`workflowAgentToolCalls` / `workflowAgentSchema`、默认收起的 `workflowResult` / `workflowResultTruncated`、`workflowScript`、`workflowError` 与 `workflowNoAgents`。工具行复用外部普通工具卡（`quickforge-local-tool`）：默认收起，摘要为图标 + 名称 · 参数 + chevron + 状态/耗时，运行中隐藏状态并加 running sweep，点击展开 `input`/`output`（`run_command` 用控制台块）；内层行用独立 `stateKey`（`workflow:<runId>:tool:<id>`）记忆开合，与外层卡隔离；参数 JSON、脚本与原始 details 只在详细模式显示，工具结果始终内联。Agent 行直接调用 `subagent-tool-renderer.tsx` 的 `renderSubagentRunSummary`（与直接 `run_subagent` 同一个渲染函数，只通过 options 追加 workflow meta 与错误悬停文案）：整行按钮打开 Inspector 运行详情，状态/耗时取与 `run_subagent` 相同的统一 payload 推导，运行中显示当前工具跑马灯并隐藏状态；点击优先打开 `subagentRunStore` 中由 `workflow-agent-run-events.ts` 实时发布的最新快照；行内 effect 与 onOpen 用 `shouldPublishSubagentRunPayload` 做安全回填——历史首帧、或 store 仍为 running 而渲染帧已终态（SSE 断连漏掉结束帧）时写入 store，已有终态不被覆盖。`src/index.css` 的 `quickforge-workflow-*` 只覆盖阶段、日志与工作流结果：结果区最大 16rem 并内部滚动，错误日志用 `--destructive`；行内字号、chevron、focus 与 reduced-motion 走外部工具/subagent 样式。审批卡对 `run_workflow` 使用 `runWorkflow` 标签，`source.type === 'workflow'` 时显示 `toolApprovalRiskWorkflow` 风险说明；`tool()` 的审批 source 为 `workflow-tool`，显示 Workflow 徽标。回归见 `tests/frontend/workflow-renderer.test.ts` 与 `tests/frontend/workflow-step-interaction.test.ts`。
-
-### generated-image-assets.ts
-
-**用途**: 校验 `generated_image_result` 工具元数据，只接受受控图片 MIME 和服务端 UUID 资产 ID；为普通会话与分享页构造同源图片资源 URL。
 
 ### tool-artifacts.ts
 

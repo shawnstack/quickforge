@@ -25,7 +25,6 @@ const copy: Record<string, string> = {
   readSkillResource: 'Read Skill Resource',
   runSubagent: 'Run subagent',
   runWorkflow: 'Run workflow',
-  generateImage: 'Generate Image',
   workflowBadge: 'Workflow',
   toolApprovalRiskWorkflow: 'workflow risk',
   toolApprovalNeedsConfirmation: 'Confirmation required',
@@ -68,7 +67,6 @@ describe('approval card display model', () => {
     expect(getToolApprovalDisplayName('read_skill_resource', translate)).toBe('Read Skill Resource')
     expect(getToolApprovalDisplayName('run_subagent', translate)).toBe('Run subagent')
     expect(getToolApprovalDisplayName('run_workflow', translate)).toBe('Run workflow')
-    expect(getToolApprovalDisplayName('generate_image', translate)).toBe('Generate Image')
   })
 
   it('parses MCP and Plugin names into friendly labels', () => {

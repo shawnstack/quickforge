@@ -45,7 +45,7 @@ export type { TurnErrorTracker, TurnErrorView } from './panel-decoration/turn-er
 export { decorateAssistantArtifactCard, syncAssistantArtifactCard } from './panel-decoration/assistant-artifact-card'
 
 export type { MessageDecorationDeps } from './panel-decoration/message-actions'
-export { decorateMessages } from './panel-decoration/message-actions'
+export { decorateMessages, decorateStreamingMessages } from './panel-decoration/message-actions'
 export { createScrollToBottomButton } from './panel-decoration/scroll-to-bottom-button'
 export {
   extractLatestTodoWriteSnapshot,

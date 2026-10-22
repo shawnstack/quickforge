@@ -81,7 +81,7 @@ export class McpToolRenderer {
 
     // 扁平轻量行契约：旧版由 `tool-message > div:first-child` 卡框重置压平为无边框行；
     // React 迁移后卡框类落在 .qf-tool-message 根上，渲染器改为 isCustom 输出使根本身
-    // 无卡框（与 local/ask_user/todo_write/goal_report/generate_image 渲染器一致）。
+    // 无卡框（与 local/ask_user/todo_write/goal_report 渲染器一致）。
     return {
       isCustom: true,
       content: (

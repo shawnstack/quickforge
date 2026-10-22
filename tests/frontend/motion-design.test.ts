@@ -75,6 +75,40 @@ describe('motion design tokens and primitives', () => {
     const css = readSource('../../src/index.css')
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.animate-shimmer \{\s*animation: none;\s*\}/)
   })
+
+  it('runs the shared shimmer highlight left to right', () => {
+    // 方向契约：background-size 200% 时百分比定位会被 (容器宽 - 图宽) 的负值翻折，
+    // 所以「左→右」必须写成 200% → -200%。写成递增（-200% → 200%）实际是从右往左，
+    // 与旧的覆盖层扫光（translateX(-100%) → translateX(100%)）方向相反。
+    const css = readSource('../../src/index.css')
+    const keyframes = css.slice(css.indexOf('@keyframes shimmer'), css.indexOf('.animate-shimmer {'))
+    const positions = [...keyframes.matchAll(/background-position:\s*(-?[\d.]+)%\s+0/g)].map((m) => Number(m[1]))
+    expect(positions).toEqual([200, -200])
+    expect(positions[0]).toBeGreaterThan(positions[1])
+  })
+
+  it('keeps the adopted process-thinking label flowing via a data attribute', () => {
+    // 接管会整体重写 label 的 class（process-folding.ts），挂在其上的流光类会被抹掉，
+    // 因此接管理由的流光只能按 data 属性命中；ThinkingBlock 必须在流式态写这个属性。
+    const css = readSource('../../src/index.css')
+    expect(css).toContain(
+      ".quickforge-process-thinking-label[data-quickforge-thinking-streaming='true'] {",
+    )
+    const sweepRule = css.slice(
+      css.indexOf(".quickforge-process-thinking-label[data-quickforge-thinking-streaming='true'] {"),
+      css.indexOf('@media (prefers-reduced-motion: reduce)', css.indexOf(".quickforge-process-thinking-label[data-quickforge-thinking-streaming='true'] {")),
+    )
+    expect(sweepRule).toMatch(/background-clip:\s*text/)
+    expect(sweepRule).toMatch(/animation:\s*shimmer\s+2s\s+ease-in-out\s+infinite/)
+
+    const guard = css.match(
+      /@media \(prefers-reduced-motion: reduce\) \{[^}]*\.quickforge-process-thinking-label\[data-quickforge-thinking-streaming='true'\] \{[^}]*animation:\s*none;/s,
+    )
+    expect(guard).not.toBeNull()
+
+    const thinking = readSource('../../src/components/chat/surface/ThinkingBlock.tsx')
+    expect(thinking).toContain('data-quickforge-thinking-streaming={isStreaming ?')
+  })
 })
 
 describe('motion design batch 2', () => {

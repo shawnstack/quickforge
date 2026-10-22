@@ -77,14 +77,19 @@ body {
   cursor: pointer;
 }
 
-/* Thinking text shimmer, consumed by `.animate-shimmer` in ThinkingBlock. */
+/* Thinking text shimmer, consumed by `.animate-shimmer` in ThinkingBlock, the
+   tool-running text sweep and the adopted process-thinking label.
+   方向契约（勿破坏）：高光自左向右扫过 —— background-position 必须从 +200%
+   走到 -200%。百分比定位的符号会被 (容器宽 - 图宽) 的负值翻折（background-size
+   200% 时容器比图窄），写成 -200% → 200% 实际是从右往左，与旧覆盖层扫光
+   （translateX(-100%) → translateX(100%)）的方向相反。 */
 @keyframes shimmer {
   0% {
-    background-position: -200% 0;
+    background-position: 200% 0;
   }
 
   100% {
-    background-position: 200% 0;
+    background-position: -200% 0;
   }
 }
 
@@ -106,8 +111,6 @@ body {
 .user-message-container {
   position: relative;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 /* Light theme tokens (values from the previous theme defaults). */
@@ -3765,16 +3768,14 @@ html.dark .quickforge-file-path-link {
 /* 工具卡摘要行字号跟随「消息字号」基准（×0.875，默认 13px 下 ≈11.4px 与旧 0.875rem 一致，
    零视觉回归），避免与对话正文分属两套字号体系而在设置分开调整时漂移。
    设计稿：design-mockups/goal-plan-tool-card-redesign.html（S02）。
-   后两条选择器按同级 DOM 形态（ToolMessage 兜底卡 DefaultToolCardBody 的
-   `.space-y-2 > details.quickforge-default-tool`、generate-image-tool-renderer 的
-   `.quickforge-generated-image-tool`）收拢首行：它们虽自带 `text-sm` 让首行逃逸到 1rem，
+   后一条选择器按同级 DOM 形态（ToolMessage 兜底卡 DefaultToolCardBody 的
+   `.space-y-2 > details.quickforge-default-tool`）收拢首行：它虽自带 `text-sm` 让首行逃逸到 1rem，
    字号须与其余工具行一致。本规则不受 `.qf-chat-panel` 限制，面板外运行详情同步取同一基准
    （语义保持一致）。 */
 .quickforge-local-tool > .quickforge-tool-summary,
 .quickforge-mcp-tool > .quickforge-tool-summary,
 .quickforge-subagent-tool > .quickforge-tool-summary,
-.quickforge-tool-message > .space-y-2 > .quickforge-default-tool > .quickforge-tool-summary,
-.quickforge-tool-message > .quickforge-generated-image-tool > .quickforge-tool-summary {
+.quickforge-tool-message > .space-y-2 > .quickforge-default-tool > .quickforge-tool-summary {
   color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
   font-family: var(--font-sans);
   font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875);
@@ -3875,8 +3876,8 @@ html.dark .quickforge-file-path-link {
    light passing through the glyphs instead of a grey band sliding over the
    box. A long-running loop, exempt from the motion duration scale (see
    --quickforge-dur-* tokens) by design.
-   The detail child (`.quickforge-tool-summary-detail`) keeps its own opaque
-   color, so the argument summary neither disappears nor double-paints. */
+   The detail child flows with the label (see the rule below) so a long command
+   does not sit static while only the title animates. */
 .quickforge-tool-running-sweep {
   /* 底色兜底：background 只覆盖 background-size 的区间，纯渐变在高光扫到
      两端时会让整段文字暂时失焦不可见；先铺一层不透明底色，保证运行态
@@ -3895,8 +3896,28 @@ html.dark .quickforge-file-path-link {
   animation: shimmer 2s ease-in-out infinite;
 }
 
+/* 运行态下参数摘要（` · npm run build`）一起流光：父级 `background-clip: text`
+   会把背景裁剪到包含后代在内的字形上，因此让 detail 与其已知内层文字透明、由父级
+   渐变透出，而不是单独着灰色——否则长命令永远静止，只有「运行命令」四个字在动，
+   观感像没生效。内层类必须逐个列出（run_command 带 description 时是
+   `.quickforge-command-summary`，write/edit/read_file 是 `.quickforge-tool-file-summary`
+   + 其内 `.quickforge-command-summary`），它们自带 text-muted-foreground utility；
+   不用 `*` 是为了不误伤 detail 里的非文字图标（currentColor 的 svg 会跟着透明）。
+   本仓未分层样式优先于 @layer utilities，故能压过 utility 类。 */
+/* 下划线走实色：透明文字会让 hover 下划线一起消失，而它是 write/edit/read_file
+   文件名唯一的可点暗示（见 shared.tsx 的 hover:underline）。与文字色并成同一条规则，
+   不另起独立的 command-summary 规则块——chat-surface-css-contract 用首个 selector
+  命中取声明块，多一条同名单类规则会抢走它的锚点。 */
+.quickforge-tool-running-sweep .quickforge-tool-summary-detail,
+.quickforge-tool-running-sweep .quickforge-command-summary,
+.quickforge-tool-running-sweep .quickforge-tool-file-summary {
+  color: transparent;
+  text-decoration-color: var(--muted-foreground);
+}
+
 /* Restore plain readable text when motion is reduced: no static gradient
-   running state is left behind. */
+   running state is left behind. 放在流光规则之后，同特异性下按顺序覆盖；父级不再
+   有 text-clip，detail 及其内层必须一起回到实色，否则透明文字直接消失。 */
 @media (prefers-reduced-motion: reduce) {
   .quickforge-tool-running-sweep {
     background-color: transparent;
@@ -3906,13 +3927,12 @@ html.dark .quickforge-file-path-link {
     color: inherit;
     animation: none;
   }
-}
 
-/* Keep the argument summary readable while the label text carries the
-   gradient: the detail keeps an opaque color instead of inheriting the
-   transparent text fill. */
-.quickforge-tool-running-sweep .quickforge-tool-summary-detail {
-  color: var(--muted-foreground);
+  .quickforge-tool-running-sweep .quickforge-tool-summary-detail,
+  .quickforge-tool-running-sweep .quickforge-command-summary,
+  .quickforge-tool-running-sweep .quickforge-tool-file-summary {
+    color: var(--muted-foreground);
+  }
 }
 
 /* subagent 摘要卡「当前工具」跑马灯：只占用标签与状态之间的剩余弹性空间；
@@ -4101,6 +4121,38 @@ html.dark .quickforge-file-path-link {
   white-space: nowrap;
 }
 
+/* 思考过程流式态（被过程组接管）：与 `.quickforge-tool-running-sweep` 同一套
+   文字流光配方。这里不依赖 class —— 接管会把 label 的 class 整体重写为
+   `quickforge-process-thinking-label`（process-folding.ts），React 原本挂在
+   label 上的 `animate-shimmer` 等流光类会被抹掉，只有 data 属性能活过接管。
+   底色兜底同工具流光：渐变只覆盖 200% 幅面的一部分，端点相位会让整段文字
+   短暂不可见，两端颜色与底色一致所以无接缝。 */
+.quickforge-process-thinking-label[data-quickforge-thinking-streaming='true'] {
+  background-color: var(--muted-foreground);
+  background-image: linear-gradient(
+    90deg,
+    var(--muted-foreground) 25%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 75%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-process-thinking-label[data-quickforge-thinking-streaming='true'] {
+    background-color: transparent;
+    background-image: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: inherit;
+    animation: none;
+  }
+}
+
 .quickforge-process-thinking-chevron {
   visibility: hidden;
   opacity: 0;
@@ -4233,7 +4285,7 @@ html.dark .quickforge-file-path-link {
 }
 
 /* 工具摘要行统一行高（R9）：不再按元素类型区分——details>summary、subagent 的
- * button、generate_image 与兜底卡的首行 div 都挂 .quickforge-tool-summary，
+ * button 与兜底卡的首行 div 都挂 .quickforge-tool-summary，
  * 面板内（组内 + 组外）统一 1.625rem，与过程思考头行对齐；面板外（运行详情
  * 等）维持内容自适应。 */
 .qf-chat-panel .quickforge-tool-summary {

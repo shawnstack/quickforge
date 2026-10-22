@@ -84,20 +84,29 @@ describe('ordinary local tool running sweep CSS', () => {
     expect(host).not.toMatch(/box-shadow|filter|text-shadow|position:\s*absolute/)
   })
 
-  it('keeps the argument summary opaque so it stays readable under the text clip', () => {
+  it('lets the argument summary flow with the label instead of staying static grey', () => {
+    // detail 必须透明，由父级 text-clip 的渐变透出：否则长命令永远静止，
+    // 只有「运行命令」四个字在动，看起来像扫光没生效。
     const detail = ruleFor('.quickforge-tool-running-sweep .quickforge-tool-summary-detail').body
-    expect(detail).toMatch(/color:\s*var\(--muted-foreground\)/)
+    expect(detail).toMatch(/color:\s*transparent/)
   })
 
   it('restores plain readable text for reduced motion without a static running gradient', () => {
     const mediaStart = css.indexOf('@media (prefers-reduced-motion: reduce)', css.indexOf('.quickforge-tool-running-sweep {'))
-    const reducedMotion = css.slice(mediaStart, css.indexOf('/* Keep the argument summary', mediaStart))
+    const mediaEnd = css.indexOf('/* subagent', mediaStart)
+    const reducedMotion = css.slice(mediaStart, mediaEnd)
 
     expect(mediaStart).toBeGreaterThan(-1)
+    expect(mediaEnd).toBeGreaterThan(mediaStart)
     expect(reducedMotion).toMatch(
       /\.quickforge-tool-running-sweep\s*\{[^}]*background-image:\s*none[^}]*background-clip:\s*border-box[^}]*color:\s*inherit[^}]*animation:\s*none/s,
     )
-    expect(reducedMotion).not.toMatch(/box-shadow|filter|text-shadow/)
+    // 降级态父级没有 text-clip，detail 与内层摘要必须一起回到实色（否则文字不可见）。
+    // 三者并成一条规则，选择器列表以逗号相连、声明块共用。
+    expect(reducedMotion).toMatch(
+      /\.quickforge-tool-running-sweep \.quickforge-tool-summary-detail,\s*\.quickforge-tool-running-sweep \.quickforge-command-summary,\s*\.quickforge-tool-running-sweep \.quickforge-tool-file-summary \{\s*color:\s*var\(--muted-foreground\)/s,
+    )
+    expect(reducedMotion).not.toMatch(/box-shadow|filter:\s|text-shadow/)
   })
 
   it('preserves ordinary title flex sizing and label ellipsis', () => {

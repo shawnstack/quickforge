@@ -55,7 +55,7 @@
 ### 2.3 折叠
 - 以 user 轮次为分组边界，组内按「中间 Markdown」切二级 stage
 - 每轮最后一段非空正文不折叠（终答常显）
-- `run_subagent` / `run_workflow` / `generate_image`、后台运行的 `run_command` 不进折叠组
+- `run_subagent` / `run_workflow`、后台运行的 `run_command` 不进折叠组
 - 正在流式的回合默认展开，历史回合默认收起
 - 用户手动开合记忆在面板生命周期内有效
 
@@ -664,6 +664,45 @@ M4 的可 React 化模块至此**全部落地**（13 个）。剩下的是「必
 
 装饰层仍是「数据来自 snapshot、DOM 由 React 渲染」的补充层，但渲染所有权已收敛：
 新增 UI 先判断能否在 surface 里渲染，只有插入点/测量/DOM 桥才留在 `panel-decoration`。
+
+### M5：流式装饰热路径（已实施，2026-10-22）
+
+原问题：`ChatPanelHost` 在每次 `message_update` 都调用 `scheduleDecorate()`，rAF 合并后
+跑完整 `decorate()`。服务端已把 `message_update` 合并到 50ms（20fps），而 618 行会话
+单次完整装饰实测 12–17ms，意味着流式期间每秒约 240–340ms 花在装饰上；成本与会话
+消息数线性相关，和「这一帧文本增长了多少」无关。
+
+关键观察：`message_update` 只改变流式行的 React 内容。一个回合内，已提交消息行、
+行级动作按钮、产物卡、Goal 分隔线、审批/ask 卡和 composer 绑定都不会变；只有过程
+折叠（含 thinking hint）需要每帧重新对账，滚动贴底已有独立的 `scrollSync` 路径。
+
+实现：
+
+| 模块 | 改动 |
+|---|---|
+| `panel-decoration/decorate-scheduler.ts`（新增） | 每帧最多一次装饰；模式为 `streaming` / `full`，pending 的 full 覆盖 streaming；提供取消句柄 |
+| `decorateStreamingMessages` | 只取已提交行 + 流式行，调用 `decorateProcessBlocks`；不跑行级动作、产物卡、Goal 分隔线、审批卡、editor、轮次导航与上下文用量 |
+| `createMessageRowSnapshot` | 完整 pass 失效并重读行集合；流式 pass 复用已提交行（回合内顶层行稳定） |
+| `scrollBottomButton.setup()` | 保留在流式 pass：内容增长可能跨过回底阈值，而用户未滚动时没有 scroll 事件 |
+| 调度触发 | `message_update` 走 streaming；message/tool 边界、`messages_replaced`、props 变更、MutationObserver、视图重新激活仍走 full |
+
+行为等价性：完整 pass 仍然覆盖所有结构变化与首次渲染；流式 pass 只重算原本每帧
+也在重算的折叠/t hint。流式行在 `message_end` 原地提交时仍由 full pass 接管；保活
+视图重新激活、审批卡、产物卡、轮次导航节点列表和回底按钮的冷绑定都未被截断。
+
+同时移除了 `.user-message-container` 的 `backdrop-filter: blur(10px)`。气泡背景与
+面板背景都是不透明主题 token，blur 在视觉上不产生效果，却会为每条用户消息建立
+一个合成层；全量 DOM 下图层数随历史增长。该改动不改变像素，只减少合成开销
+（移动端/长会话收益更明显）。
+
+验证：新增 `tests/frontend/decorate-scheduler.test.ts`（5 例，覆盖 streaming/full 合并、
+full 优先、取消）与 `tests/frontend/streaming-decoration.test.ts`（3 例，覆盖流式行追加、
+行快照复用、非流式分支）；全量 `npm run test` 419 文件 4783 passed / 2 skipped；
+`npm run lint` 0 error（仅既有 warning）；`npx tsc --noEmit` 与 `npm run build` 通过。
+尚未做真实浏览器流式 A/B；下一步可用 longtask 基线确认收益。
+
+仍未改动：`tool_execution_update` 仍触发完整装饰、流式 Markdown 仍按帧全量解析、
+消息列表仍全量常驻 DOM。这三项分别需要事件合并、增量解析与等价窗口化。
 
 
 ## 5. 重写原则

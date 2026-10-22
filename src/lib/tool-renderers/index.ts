@@ -14,7 +14,6 @@ export {
   renderSubagentRunSummary,
 } from './subagent-tool-renderer'
 export { WorkflowToolRenderer } from './workflow-tool-renderer'
-export { GenerateImageToolRenderer } from './generate-image-tool-renderer'
 export { AskUserToolRenderer, askUserReviewRowsFromDetails } from './ask-user-tool-renderer'
 export type { AskUserReviewRows } from './ask-user-tool-renderer'
 export { GoalReportToolRenderer } from './goal-report-tool-renderer'

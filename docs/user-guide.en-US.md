@@ -191,10 +191,6 @@ Recommendations:
 - When disabled, QuickForge omits attached images before sending the request, avoiding provider errors from non-vision models.
 - Switch to a model with this capability enabled when you need the model to analyze images.
 
-#### Image generation
-
-The current version temporarily does not expose the `generate_image` tool to the Agent, so image generation cannot be invoked in new conversations. The server handler, conversation assets, and frontend rendering remain in place for historical-session compatibility; images already generated in existing conversations can still be viewed and downloaded.
-
 ### 5. Conversation Management
 
 The left sidebar shows projects and conversations.

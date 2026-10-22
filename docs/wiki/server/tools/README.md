@@ -57,7 +57,7 @@
 
 `activate_skill`、`read_skill_resource`、`run_subagent`、`run_workflow` 和 `todo_write` 对运行中的主 Agent 可用（`run_workflow` 不注入 Subagent/Profile 会话）；文件/命令工作区工具需要绑定项目。`todo_write`、`write_file`、`edit_file` 和 `run_command` 标记为 `executionMode: 'sequential'` 以确保执行顺序。`goal_report` 是 Goal 模式专用：仅在会话有活跃 goal 时由 `agent-manager.mjs` 的 `createGoalReportTool` 绑定会话注入，不进入默认工具集，也不经 `tools/index.mjs` handler。
 
-`generate_image` 当前已从 `workspaceTools` 移除，不再向 Agent 或 `GET /api/tools` 暴露。相关 handler、图片生成模块、会话资产路由与前端渲染仍保留，仅用于兼容历史会话。
+`generate_image` 工具及其服务端实现（`server/image-generation.mjs`、handler 注册、`directRouteDisabledTools` 条目）已整体移除。历史会话的图片文件仍保留在会话资产目录，`/api/session-assets/...` 与分享资产路由继续提供只读访问，永久删除会话时同步清理。
 
 ### Goal 报告阶段与授权
 
@@ -79,7 +79,6 @@
 | `toolEditFile` | `edit_file` | 查找并替换文本，验证唯一性 |
 | `toolRunCommand` | `run_command` | 执行 shell 命令，支持可控超时、流式 tail 输出和完整日志落盘 |
 | `toolTodoWrite` | `todo_write` | 严格校验并规范化完整 Todo 快照，返回 `todo_write_result`（含 `todos` 与 pending/inProgress/completed 汇总）；空数组返回清空语义。结果沿普通 `toolResult` 消息链随会话持久化，不建立独立 todo store 或存储表 |
-| `generateSessionImages` | `generate_image`（历史兼容） | 保留的 OpenRouter Images handler；当前不再由工具定义暴露，仅用于兼容历史会话与既有结果链路 |
 | `toolPresentFiles` | `present_files` | 校验并声明本轮需要展示的产物文件，推断 HTML、图片、Markdown、代码、可读文本以及 PDF/DOCX/XLS/XLSX 文档类型，返回 `present_files_result` 供前端分流到 Browser、Reader 或 Document |
 | `toolActivateSkill` | `activate_skill` | 激活 Agent Skill |
 | `toolReadSkillResource` | `read_skill_resource` | 读取技能资源 |
@@ -94,7 +93,7 @@
 - **搜索安全边界**: ripgrep 调用使用 `spawn(..., { shell: false })`，强制排除敏感文件 glob，并默认保持旧搜索行为（`--hidden --no-ignore` + 内置排除规则）
 - **写入防误**: `write_file` 验证文件在项目内；`edit_file` 确保 `oldText` 唯一匹配。二者共享 `session-file-lock.mjs` 全局进程内锁，覆盖读取旧内容、before/pending 日志、实际写入与预期 `afterHash` 提交；会话备份持久化失败阻止工具继续写入，写入中断保留不安全状态。续写校验与上次 after 的连续性，外部改动链不会被后续工具写入“洗白”；Windows 别名验证同一目标后去重，不可信路径拒绝。安全撤销支持每项独立 revision：普通兄弟项冲突/legacy 不影响安全单项，整批仍要求剩余全安全；会话忙、索引异常或失败回滚 intent 全局阻止。独立 `rollback-intent` marker 仅在最终索引提交成功后清除，失败保留 intent 并阻止后续受控写入；成功撤销项从剩余 preview/summary 排除，再写入该项以当次 before 新建记录。带父会话 `sessionId` 的子 Agent 同类工具也纳入备份/撤销；shell 及 MCP 独立写入不在覆盖范围，锁不阻止外部进程，也不扩展 Git index 操作。`write_file`/`edit_file` 的 toolResult `details` 返回 `turnId`（当次所属轮标识，由 toolContext `getTurnId` 供给；无轮次写入为 `null`，如合成路径或旧会话恢复后的写入），备份版本 meta 同步携带 `turnId` + `toolCallId`，供轮级回滚按轮归因。
 - **命令超时与长输出**: `run_command` 默认超时 1 小时，支持通过 `timeoutMs` 在安全上下限内调整；运行中和最终结果默认只向模型/界面返回 stdout/stderr 预览：每路最多最后 200 行，且 `stdout_preview + stderr_preview` 合计最多 10,000 字符。若发生行数或字符数截断，结果会设置 `truncated: true`，并同时提供 `stdout_truncated`/`stderr_truncated` 及兼容旧字段 `stdoutTruncated`/`stderrTruncated`/`outputTruncated`。完整 stdout/stderr 会写入 `~/.quickforge/logs/commands/`，结果通过 `outputFile` 指向日志文件。Agent 运行中的 `run_command` 会按 `toolCallId` 登记，前端工具卡片可手动终止。`run_in_background: true` 时调用立即返回（`details.background/running/detached` 与 `taskId`），忽略 `timeoutMs`，进程脱离当前回合并持续把 stdout/stderr 追加到同一日志；进程退出或被终止后，会话收到 `<task-notification>`（含输出文件路径）。**Windows 上 `detached` 恒为 `false`（`details.detached` 为 `false`）**：`DETACHED_PROCESS` 会让 `CREATE_NO_WINDOW`（Node 的 `windowsHide`）失效，`cmd.exe` 会新建控制台并弹出默认终端窗口；后台的「调用已返回、进程继续运行」语义改由 `unref()` 承担，杀进程仍走 `taskkill /T /F`，不需要进程组。非 Windows 保持 `detached: true` 以便 `killProcessTree` 用 `process.kill(-pid)` 终止整个进程组。`openBrowser()`（`server/utils/platform.mjs`）同理：Windows 不开 `detached` 才能隐藏 `cmd /c start` 的启动器窗口。前端工具卡 console 块与后台命令浮层都提供「查看完整日志」入口：点击后派发 `quickforge:view-command-log` 事件，由 `App.tsx` 转成 `kind: 'command-log'` 的 Reader 请求，读取受限端点 `GET /api/agents/:sessionId/command-log?path=<绝对日志路径>`（只放行 `<dataDir>/logs/commands/*.log`，复用与 `read_file` 相同的 `isCommandLogPath` 判定）；日志 tab 不参与工作区文件缓存与 tab 持久化。当前回合仍在流式时通知走 `followUp`，空闲时直接开始下一轮；活跃 Goal 只暂存通知。`read_file` 可按返回的绝对路径读取该命令日志，其它工作区外路径仍拒绝。会话销毁或服务关闭会终止该会话仍在运行的后台命令；普通空闲回收不终止——会话 idle 计时器到点但仍有运行中后台命令时只重置计时器，最后一个命令退出后再按常规回收（退出通知依赖活跃会话对象投递）。运行列表通过会话状态和 `background_commands` 事件同步；进程退出时会把原 `toolResult` 替换为终态。
-- **图片生成历史兼容**: `generate_image` 当前不在 `workspaceTools` 中，不向 Agent、`GET /api/tools` 或直接工具 REST 暴露；`directRouteDisabledTools`、handler、OpenRouter Images 实现、会话资产与历史结果渲染继续保留。历史能力支持 PNG/JPEG/WebP/GIF，单图最多 25 MiB、单次最多 4 张且总计最多 50 MiB；图片二进制位于会话资产目录，永久删除会话时同步清理。
+- **会话资产只读兼容**: `generate_image` 工具、`server/image-generation.mjs` 与 handler 注册已整体移除，前端不再有图片渲染入口。历史会话的图片二进制仍位于会话资产目录（PNG/JPEG/WebP/GIF，单图最多 25 MiB），`/api/session-assets/:sessionId/:assetId` 与分享资产路由提供只读访问，永久删除会话时同步清理。
 - **Error 对象传递**: 工具错误通过 `statusCode` 属性传递 HTTP 状态码
 - **TodoWrite 权限与数据边界**: `todo_write` 在普通 Agent 运行中由审批 hook 默认直接放行，但不加入 `safeReadTools`；只读 `/plan` 的命令权限检查明确拒绝它。`server/routes/tools.mjs` 将其列入 `directRouteDisabledTools`，因此不能通过 `POST /api/tools/todo_write` 绕过 Agent 会话调用。成功结果作为普通 `toolResult` 消息持久化，Composer Dock 内 `message-editor` 前的正常流任务摘要与历史 renderer 均从消息快照恢复；服务端不新增独立 todo store、SQLite 表或其他权威状态源。
 - **Subagent 约束**: `run_subagent` 只在 Agent 内部可用，不开放直接 REST 执行；子 Agent 为短生命周期、不持久化、不允许递归调用 `run_subagent`，且不注入 MCP 或 Agent Skill 工具。可调用启用为 sub agent 的 Agent Profile；内置 `explore` 允许 `read_file`/`grep_files`/`run_command`，是文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现和影响面分析的首选只读探索 Agent，不包含写入或编辑工具，`run_command` 应只用于安全的检查/诊断命令；内置 `general` 可使用完整内置工作区工具（读、搜、写、编辑、命令），适合有边界的复杂多步骤实现或更广泛独立任务；自定义 Agent 按 `allowedTools` 白名单限制，危险工具在 YOLO 关闭时仍走父会话审批。

@@ -96,7 +96,9 @@
   }
   /* 参数摘要保持自身不透明色，避免被 text-clip 吞掉 */
   .v-c .quickforge-tool-summary-detail { color: var(--muted-foreground); }
-  @keyframes text-flow { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+  /* 方向：background-size 200% 时百分比定位会被 (容器宽 - 图宽) 的负值翻折，
+     所以「左→右」必须写成 200% → -200%（数值递减），写成递增是从右往左。 */
+  @keyframes text-flow { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
   /* D · 呼吸透明度 */
   .v-d .lbl { animation: breathe 1.8s ease-in-out infinite; }

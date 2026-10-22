@@ -106,7 +106,6 @@ const BUILTIN_TOOL_LABELS = {
   read_skill_resource: 'readSkillResource',
   run_subagent: 'runSubagent',
   run_workflow: 'runWorkflow',
-  generate_image: 'generateImage',
 } as const satisfies Record<string, Parameters<Translate>[0]>
 
 export function parseMcpToolName(toolName: string) {

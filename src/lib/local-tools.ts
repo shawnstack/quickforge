@@ -5,7 +5,6 @@ import {
   LocalWorkspaceToolRenderer,
   SubagentToolRenderer,
   WorkflowToolRenderer,
-  GenerateImageToolRenderer,
   AskUserToolRenderer,
   GoalReportToolRenderer,
   GoalToolRenderer,
@@ -77,7 +76,6 @@ for (const [name, label] of [
 
 registerToolRenderer('run_subagent', new SubagentToolRenderer())
 registerToolRenderer('run_workflow', new WorkflowToolRenderer())
-registerToolRenderer('generate_image', new GenerateImageToolRenderer())
 const todoWriteToolRenderer = new TodoWriteToolRenderer()
 registerToolRenderer('todo_write', todoWriteToolRenderer)
 registerToolRenderer('ask_user', new AskUserToolRenderer())

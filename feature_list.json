@@ -1,6 +1,32 @@
 {
   "features": [
     {
+      "id": "streaming-decorate-hotpath",
+      "name": "流式输出期间装饰热路径拆档（零体验变化优化）",
+      "description": "用户要求分析导致界面卡断的原因并确认「不改变现有产品体验和交互」后落地。归因：流式期间每个 message_update（server 50ms 合并，客户端约 20 帧/s）都触发完整 decorateMessages，618 行会话实测单次 12–17ms，即流式期间每秒 240–340ms 花在装饰主线程；CSS 不是主因，但 .user-message-container 的 backdrop-filter: blur(10px) 视觉无效（气泡与面板背景均不透明）却为每条用户消息建一个合成层。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "装饰调度分两档：结构事件（message_start/end、turn_end、agent_end、工具边界、messages_replaced、props 变更）、MutationObserver 与视图重新激活走完整 decorateMessages；流式期间纯 message_update 走新的 decorateStreamingMessages（只对账过程折叠/thinking hint 并调 scrollBottomButton.setup()），复用 createMessageRowSnapshot 的已提交行快照，不再每帧全表扫描与重建行级装饰。调度由新建 panel-decoration/decorate-scheduler.ts 按帧合并，同帧 pending 的 full 覆盖 streaming，带 cancel 句柄。移除 index.css 中 .user-message-container 视觉无效的 backdrop-filter: blur(10px)（含 -webkit- 前缀）。新增 decorate-scheduler.test.ts（5 例）与 streaming-decoration.test.ts（3 例）。贴底仍由 scrollSync 的 ResizeObserver 独立负责，滚动/动作按钮/过程折叠展开态均不变。",
+      "root_cause": "message_update 在流式期间以约 20 帧/s 触发完整装饰 pass，而该 pass 中绝大部分（动作按钮、产物卡、横线、审批卡、composer 绑定）在回合内不变，只有过程折叠需要每帧对账——每帧全量重做是结构性浪费，成本随消息行数线性增长。",
+      "files": [
+        "src/components/chat/panel-decoration/decorate-scheduler.ts",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "src/components/chat/panel-decoration.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/panel-decoration/message-rows.ts",
+        "src/index.css",
+        "tests/frontend/decorate-scheduler.test.ts",
+        "tests/frontend/streaming-decoration.test.ts",
+        "docs/architecture/session-open-fast-path.zh-CN.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "全量 npm run test → 419 文件 4783 passed / 2 skipped；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc --noEmit 通过；npm run build 成功。新增 decorate-scheduler 5 例、streaming-decoration 3 例均通过。",
+      "boundaries": "零体验变化：不改任何可见外观、交互或时序反馈；贴底、滚动行为、动作按钮、过程折叠展开态均与旧实现一致。未做：tool_execution_update 仍触发完整装饰、流式 Markdown 仍按帧全量解析、消息列表仍全量常驻 DOM、真实浏览器流式 A/B（longtask 基线）待做。在新分支 perf/zero-ux-streaming-hotpath 上实施，未创建 Git commit；未新增依赖；未手工修改 dist/、package-dist/、package-offline/。"
+    },
+    {
       "id": "tool-running-text-shimmer",
       "name": "工具运行态扫光改为文字内部渐变流光（复用思考 shimmer 范式）",
       "description": "用户反馈运行态工具标题的扫光「像是黑色的，白色会不会更好」。定位到 .quickforge-tool-running-sweep::after 覆盖层用 color-mix(in oklab, currentColor 12%, transparent) 取文字色，而文字色是 --muted-foreground：浅色主题下呈灰带（观感像黑色扫光）、暗色下近白，同一份代码两套观感，且光带压在文字上层拉低可读性。用户先要求看纯白变体（浅色白底 + 白扫光会失效），对比 4 档白色与 8 个候选方案后选定「渐变高光在文字内部流过」——复用思考文本 shimmer 范式。",
@@ -2116,6 +2142,14 @@
       ],
       "verification": "npm run test 417 文件 4774 passed / 2 skipped（新增 tests/frontend/server-agent-session-lease.test.ts abort 带头用例）；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc --noEmit -p tsconfig.json 通过；npm run build 成功（6.70s）。",
       "boundaries": "只修 abort 一处漏发与失败可见性，未改动租约语义、未改动服务端守卫、未新增依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit。遗留：其它新增写入口是否同样漏发 writeHeaders() 尚无契约测试兜底，建议补一条『写路由 ↔ 客户端头』对齐测试。"
+    },
+    {
+      "id": "remove-image-generation",
+      "name": "移除图片生成（generate_image）前后端代码",
+      "description": "当前项目暂时不支持生成图片。原 generate_image 工具早已不在 workspaceTools 中，但服务端 handler（server/image-generation.mjs、tools/index.mjs 注册、routes/tools.mjs directRouteDisabledTools 条目）与前端渲染（generate-image-tool-renderer、generated-image-assets、i18n 词条、CSS、图标/折叠/摘要特判）以「兼容历史会话」为由保留。经用户确认按「前后端全删」方案整体移除；session-assets 只读路由与存储清理保留。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "删除 server/image-generation.mjs 与测试、tools/index.mjs 的 generateSessionImages 导入与 handler 注册、routes/tools.mjs directRouteDisabledTools 条目；session-assets.mjs 移除仅被图片生成使用的 writeSessionAsset 写入路径（read/delete 与路由保留），MAX_SESSION_IMAGE_BYTES 改为模块私有。前端删除 tool-renderers/generate-image-tool-renderer.tsx、lib/generated-image-assets.ts 与测试，移除 tool-renderers/index.ts 导出、local-tools.ts 注册、i18n 中英 5 组词条、index.css 两处选择器与注释、approval-card BUILTIN_TOOL_LABELS 条目、process-folding 顶层排除特判、shared.tsx 图标分支、tool-param-summary 摘要分支；同步更新 approval-card/process-folding/tool-param-summary/chat-surface-css-contract/definitions/session-assets 六个测试文件。历史会话中的 generate_image 结果回落默认工具卡兜底渲染，已生成图片文件仍在会话资产目录且资产路由可读，但前端不再有查看/下载入口。文档同步：user-guide zh/en 删除「图片生成」小节，docs/wiki server/tools、server、src/lib、src/components、src 各 README 与 docs/architecture/session-open-fast-path.zh-CN.md 更新表述。无依赖变更；未手工修改生成产物；未提交。"
     }
   ]
 }

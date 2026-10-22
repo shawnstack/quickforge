@@ -86,7 +86,6 @@ describe('definitions', () => {
       expect(names).toContain('write_file')
       expect(names).toContain('edit_file')
       expect(names).toContain('run_command')
-      expect(names).not.toContain('generate_image')
       expect(names).toContain('present_files')
       expect(names).toContain('ask_user')
       expect(names).toContain('todo_write')
@@ -147,10 +146,6 @@ describe('definitions', () => {
       expect(tool.description).toContain('open in Reader')
       expect(tool.parameters.properties).toHaveProperty('defaultPreview')
       expect(tool.parameters.properties.files.items.anyOf[1].properties.preview.description).toContain('list it without opening')
-    })
-
-    it('does not expose generate_image', () => {
-      expect(workspaceTools.find((t) => t.name === 'generate_image')).toBeUndefined()
     })
 
     it('write_file has executionMode sequential', () => {

@@ -41,11 +41,6 @@ describe('summarizeParams', () => {
       .toBe('a.html, b.md, c.ts, d.css, e.txt')
   })
 
-  it('keeps a long generate_image prompt intact', () => {
-    const prompt = 'a'.repeat(140)
-    expect(summarizeParams('generate_image', { prompt })).toBe(prompt)
-  })
-
   it('returns an empty string without params or details', () => {
     expect(summarizeParams('read_file', undefined)).toBe('')
   })

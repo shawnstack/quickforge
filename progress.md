@@ -1,3 +1,33 @@
+## remove-image-generation（done，2026-10-22）
+
+- Goal：用户表示「当前项目暂时不支持生成图片」，要求移除 generate-image-tool-renderer 相关代码；经确认采用「前后端全删」方案（session-assets 只读路由与存储清理保留）。
+- 改动：
+  1. 服务端：删除 `server/image-generation.mjs` 与 `tests/server/image-generation.test.mjs`；`server/tools/index.mjs` 移除 `generateSessionImages` 导入与 handler 注册；`server/routes/tools.mjs` 移除 `directRouteDisabledTools` 的 `generate_image` 条目；`server/session-assets.mjs` 删除仅被图片生成使用的 `writeSessionAsset` 写入路径（`normalizeMimeType`/`decodeBase64`/`normalizeImageData` 一并删除），`MAX_SESSION_IMAGE_BYTES` 改为模块私有，read/delete 与路由保留。
+  2. 前端：删除 `src/lib/tool-renderers/generate-image-tool-renderer.tsx`、`src/lib/generated-image-assets.ts` 与 `tests/frontend/generated-image-assets.test.ts`；移除 `tool-renderers/index.ts` 导出、`local-tools.ts` 注册、`i18n.ts` 中英各 5 组词条、`index.css` 两处选择器与注释、`approval-card.ts` BUILTIN_TOOL_LABELS 条目、`process-folding.ts` 顶层排除特判、`shared.tsx` 图标分支、`tool-param-summary.ts` 摘要分支。
+  3. 测试同步：approval-card / process-folding / tool-param-summary / chat-surface-css-contract / definitions / session-assets 六个测试文件更新（session-assets 路由测试夹具改直写文件）。
+  4. 文档：user-guide zh/en 删除「图片生成」小节；docs/wiki（server/tools、server、src/lib、src/components、src）与 docs/architecture/session-open-fast-path.zh-CN.md 同步更新。
+- 行为变化：历史会话中的 `generate_image` 结果回落默认工具卡兜底渲染；已生成图片文件仍在会话资产目录、`/api/session-assets/...` 与分享资产路由可读，但前端不再有查看/下载入口。
+- 验证 / Evidence：定向 vitest 6 文件 125 passed；`npx tsc -b` 通过；`npx eslint src server tests` 通过；全量 `npm run test` → 417 文件 4773 passed / 2 skipped（首轮曾偶发 `tests/frontend/local-tool-running-sweep.test.ts` 1 例失败，该测试切片区域未被本次触碰，单文件与复跑全量均通过，判定为既有并行抖动，与已知 flaky 现象同类）。
+- Notes：无依赖变更；未手工修改 `dist/`、`package-dist/`、`package-offline/`；改动未提交。
+
+---
+
+## streaming-decorate-hotpath（done，2026-10-22）
+
+- Goal：用户问「分析一下有那些会导致界面卡断，是 css 的问题么」，确认**不改变现有产品体验和交互**（零外观/交互/时序反馈变化，只优化实现）后，在新分支 `perf/zero-ux-streaming-hotpath` 落地流式输出期间的装饰热路径优化。
+- 根因：流式期间每个 `message_update`（server 50ms 合并，客户端约 20 帧/s）都触发**完整** `decorateMessages`——618 行会话实测单次 12–17ms，即流式期间每秒 240–340ms 花在装饰主线程上。完整 pass 中绝大部分（消息动作按钮、产物卡、压缩横线、审批卡插入点、composer 绑定）在回合内不变，只有过程折叠需要每帧对账。CSS 不是主因：`.user-message-container` 的 `backdrop-filter: blur(10px)` 视觉上无效（气泡背景与面板背景均不透明），但为每条用户消息建一个合成层，是次要成本。
+- 改动：
+  1. 新增 `panel-decoration/decorate-scheduler.ts`：每帧最多一次装饰，`streaming`/`full` 两档，同帧 pending 的 full 覆盖 streaming，带 cancel 句柄。
+  2. `panel-decoration/message-actions.ts` 新增 `decorateStreamingMessages(panel, messageRows?, isStreaming?)`：只跑 `decorateProcessBlocks`（对账过程折叠/thinking hint）+ `scrollBottomButton.setup()`（内容增长可在无 scroll 事件时跨过回底阈值，必须保留）；接受宿主传入的已提交行快照，追加流式行后不做行级装饰。
+  3. `ChatPanelHost.tsx`：行枚举改 `createMessageRowSnapshot`（一次完整 pass 内复用，流式档直接拿快照）；事件订阅按 `event.type === 'message_update' && agent.state.isStreaming` 分档；结构事件（message_start/end、turn_end、agent_end、工具边界、messages_replaced）、MutationObserver、视图重新激活仍走 full。
+  4. `src/index.css`：移除 `.user-message-container` 的 `backdrop-filter: blur(10px)` 及 `-webkit-` 前缀（不透明背景下无可见差异）。
+- 测试：新增 `tests/frontend/decorate-scheduler.test.ts`（5 例：streaming+full 合并为一次 full、full 后 streaming 仍 full、纯 streaming 单独跑、跑完可再排新帧、cancel 丢弃 pending）与 `tests/frontend/streaming-decoration.test.ts`（3 例：流式行追加且不做行级装饰、接受缓存行快照、非流式不追加）。
+- 验证：全量 `npm run test` → **419 文件 4783 passed / 2 skipped**；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc --noEmit` 通过；`npm run build` 成功。
+- 文档：`docs/architecture/session-open-fast-path.zh-CN.md` 新增「M5：流式装饰热路径（已实施，2026-10-22）」章节；`docs/wiki/src/components/README.md` ChatPanelHost 小节（文件内两份重复小节同步）新增装饰调度两档说明。
+- 边界：不改任何可见外观或交互时序——贴底仍由 scrollSync 的 ResizeObserver 负责，滚动行为、动作按钮、过程折叠展开态均不变。未做（见 M5「仍未改动」）：`tool_execution_update` 仍触发完整装饰、流式 Markdown 仍按帧全量解析、消息列表仍全量常驻 DOM；真实浏览器流式 A/B（longtask 基线）待做。未新增依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+
+---
+
 ## dsh-trajectory-design（done，2026-10-22）
 
 - Goal：只读调研 DSH（DeepSeek Harness）会话轨迹的存储与事件设计（用户问「能不能读取 dsh deepseek harness 的轨迹的设计」）。纯调研，未改产品代码、未更新 docs/wiki（调研结论非架构变更，沉淀在 session-handoff.md 即可）、未创建 Git commit。

@@ -1,9 +1,8 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
 import { storageDir } from './storage.mjs'
 
-export const MAX_SESSION_IMAGE_BYTES = 25 * 1024 * 1024
+const MAX_SESSION_IMAGE_BYTES = 25 * 1024 * 1024
 
 const MIME_TYPES = new Map([
   ['image/png', 'png'],
@@ -53,29 +52,6 @@ function sessionAssetsDir(bucket, sessionId) {
   return path.join(assetsRoot(normalizeBucket(bucket)), assertSafeSegment(sessionId, 'sessionId'))
 }
 
-function normalizeMimeType(mimeType) {
-  const value = typeof mimeType === 'string' ? mimeType.trim().toLowerCase() : ''
-  const extension = MIME_TYPES.get(value)
-  if (!extension) throw requestError(`Unsupported image MIME type: ${mimeType || ''}`)
-  return { mimeType: value, extension }
-}
-
-function decodeBase64(value) {
-  const normalized = typeof value === 'string' ? value.replace(/\s+/g, '') : ''
-  if (!normalized || normalized.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized)) {
-    throw requestError('Invalid base64 image data')
-  }
-  const buffer = Buffer.from(normalized, 'base64')
-  if (buffer.toString('base64') !== normalized) throw requestError('Invalid base64 image data')
-  return buffer
-}
-
-function normalizeImageData(data) {
-  if (Buffer.isBuffer(data)) return data
-  if (data instanceof Uint8Array) return Buffer.from(data)
-  return decodeBase64(data)
-}
-
 function mimeTypeFromAssetId(assetId) {
   const extension = path.extname(assetId).slice(1).toLowerCase()
   for (const [mimeType, candidate] of MIME_TYPES) {
@@ -93,20 +69,6 @@ export function validateSessionAssetId(assetId) {
     throw requestError('Invalid assetId')
   }
   return assetId
-}
-
-export async function writeSessionAsset(bucket, sessionId, image) {
-  const dir = sessionAssetsDir(bucket, sessionId)
-  const { mimeType, extension } = normalizeMimeType(image?.mimeType)
-  const data = normalizeImageData(image?.data)
-  if (data.byteLength > MAX_SESSION_IMAGE_BYTES) {
-    throw requestError(`Image exceeds the ${MAX_SESSION_IMAGE_BYTES} byte limit`, 413)
-  }
-
-  await fs.mkdir(dir, { recursive: true })
-  const assetId = `${randomUUID()}.${extension}`
-  await fs.writeFile(path.join(dir, assetId), data, { flag: 'wx' })
-  return assetMetadata(assetId, mimeType, data.byteLength)
 }
 
 export async function readSessionAsset(bucket, sessionId, assetId) {

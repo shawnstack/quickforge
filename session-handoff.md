@@ -1,3 +1,35 @@
+## 当前交接：remove-image-generation（done，2026-10-22）
+
+- Current Objective（当前目标）: 用户表示「当前项目暂时不支持生成图片」，要求移除 `generate-image-tool-renderer` 相关代码；经 AskUser 确认采用「前后端全删」方案——session-assets 只读路由与存储清理保留。**已完成**，未提交、未创建 commit。
+- 改动:
+  1. 删除文件：`server/image-generation.mjs`、`src/lib/tool-renderers/generate-image-tool-renderer.tsx`、`src/lib/generated-image-assets.ts`、`tests/server/image-generation.test.mjs`、`tests/frontend/generated-image-assets.test.ts`。
+  2. 服务端：`server/tools/index.mjs` 移除 handler 注册与导入；`server/routes/tools.mjs` 移除 `directRouteDisabledTools` 条目；`server/session-assets.mjs` 删除 `writeSessionAsset` 写入路径（read/delete 与 `/api/session-assets`、分享资产路由保留，历史图片文件仍可经 API 读取）。
+  3. 前端：`local-tools.ts` / `tool-renderers/index.ts` 移除注册与导出；`i18n.ts` 删除中英各 5 组词条（generateImage/generatingImage/generatedImageAlt/openGeneratedImage/downloadGeneratedImage）；`index.css` 移除 `.quickforge-generated-image-tool` 选择器与注释；`approval-card.ts`、`process-folding.ts`、`shared.tsx`、`tool-param-summary.ts` 移除 generate_image 特判。
+  4. 测试：approval-card / process-folding / tool-param-summary / chat-surface-css-contract / definitions / session-assets 六个文件同步更新（session-assets 夹具改直写文件）。
+  5. 文档：user-guide zh/en 删除「图片生成」小节；docs/wiki（server/tools、server、src/lib、src/components、src）与 docs/architecture/session-open-fast-path.zh-CN.md 更新。
+- 行为变化（已知取舍）: 历史会话中的 `generate_image` 工具结果回落默认工具卡兜底渲染（无图标/摘要特判）；前端不再有查看/下载入口，但资产 API 仍可读，永久删除会话时文件仍同步清理。
+- 测试与 Evidence（验证）: 定向 vitest 6 文件 125 passed；`npx tsc -b` 通过；`npx eslint src server tests` 通过；全量 `npm run test` → 417 文件 4773 passed / 2 skipped（首轮 `local-tool-running-sweep` 1 例偶发失败，单文件与复跑全量均通过，属既有并行抖动，非本次改动引入）。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 改动在 `perf/zero-ux-streaming-hotpath` 分支与既有未提交改动同处工作区，等待用户决定是否 commit 及提交范围。未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## 当前交接：streaming-decorate-hotpath（done，2026-10-22）
+
+- Current Objective（当前目标）: 用户要求分析界面卡断原因并确认「**不改变现有产品体验和交互**」（零外观/交互/时序反馈变化）后，在新分支 `perf/zero-ux-streaming-hotpath` 落地流式输出期间的装饰热路径优化。**已完成**，未提交、未创建 commit。
+- 根因（一句话）: 流式期间每个 `message_update`（server 50ms 合并、客户端约 20 帧/s）都触发**完整** `decorateMessages`——618 行会话实测单次 12–17ms，即流式期间每秒 240–340ms 花在装饰主线程；而 pass 中绝大部分内容在回合内不变，只有过程折叠需要每帧对账。CSS 非主因：`.user-message-container` 的 `backdrop-filter: blur(10px)` 在不透明背景下无可见差异，却为每条用户消息建一个合成层。
+- 改动:
+  1. 新增 `src/components/chat/panel-decoration/decorate-scheduler.ts`：每帧最多一次装饰，`streaming`/`full` 两档，同帧 pending 的 full 覆盖 streaming，`cancel()` 丢弃 pending。
+  2. `src/components/chat/panel-decoration/message-actions.ts` 新增 `decorateStreamingMessages(panel, messageRows?, isStreaming?)`：只跑 `decorateProcessBlocks`（过程折叠/thinking hint 对账）+ `scrollBottomButton.setup()`（内容增长可在用户无滚动时跨过回底阈值，无 scroll 事件，必须每帧调）；接受宿主传入的已提交行快照并追加流式行，不做行级装饰。`panel-decoration.ts` barrel 同步导出。
+  3. `src/components/chat/ChatPanelHost.tsx`：行枚举改 `createMessageRowSnapshot`（完整 pass 开始 invalidate、pass 内复用；流式档直接拿快照）；事件订阅按 `event.type === 'message_update' && agent.state.isStreaming` 分档为 streaming，其余（message_start/end、turn_end、agent_end、工具边界、messages_replaced、props 变更、MutationObserver、视图重新激活）仍走 full；清理时 `decorateScheduler.cancel()`。
+  4. `src/index.css`：移除 `.user-message-container` 的 `backdrop-filter: blur(10px)` 与 `-webkit-backdrop-filter`。
+- 测试与 Evidence（验证）: 新增 `tests/frontend/decorate-scheduler.test.ts`（5 例：合并/覆盖/单独跑/再排帧/cancel）与 `tests/frontend/streaming-decoration.test.ts`（jsdom，3 例：流式行追加不做行级装饰、接受缓存行快照、非流式不追加）。全量 `npm run test` → **419 文件 4783 passed / 2 skipped**；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc --noEmit` 通过；`npm run build` 成功。
+- 文档: `docs/architecture/session-open-fast-path.zh-CN.md` 新增「M5：流式装饰热路径（已实施，2026-10-22）」章节（问题、观察、实现表、行为等价性、blur 移除、遗留项）；`docs/wiki/src/components/README.md` 的 ChatPanelHost 小节——注意该文件内 ChatPanelHost 小节**完整重复出现两次**（约 line 153 与 478），两处已同步加装饰调度两档说明。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: ① 可选后续优化（用户未要求，勿擅自扩大）：`tool_execution_update` 服务端合并/前端分档、流式 Markdown 增量解析、窗口化等价改造；② 建议做一次真实浏览器流式 A/B（longtask 基线）确认收益；③ 改动在 `perf/zero-ux-streaming-hotpath` 分支未提交，等待用户决定是否 commit；④ 未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
 ## 当前交接：dsh-trajectory-design（done，2026-10-22）
 
 - Current Objective（当前目标）: 只读调研 **DSH（DeepSeek Harness）会话轨迹（trajectory / session log）的存储与事件设计**，供 QuickForge Goal/会话轨迹对标参考。纯调研，**未改任何代码/文档/wiki**（调研结论沉淀在本交接，非架构变更，无需同步 docs/wiki）；未提交 Git。

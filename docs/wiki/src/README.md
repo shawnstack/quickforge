@@ -81,7 +81,7 @@ src/
 
 **字体栈集中定义**：`--font-sans` / `--font-mono` 在 unlayered `:root` 统一定义一次，全局通过 `var(--font-sans)` / `var(--font-mono)` 引用（终端、Monaco、代码块等），避免逐组件复制字体栈。系统字体优先（不打包自定义 UI 字体），并显式补 CJK 回退（`PingFang SC` / `Microsoft YaHei` / `Noto Sans CJK SC`）保证中文跨平台度量一致。
 
-**字号体系**：`html { font-size }` 是基准（默认 13px）；界面字号设置由 `lib/font-size-settings.ts` 的 `applyFontSizeSettings()` 写入 `root.style.fontSize` 驱动所有 rem 单位。`--text-sm` 刻意等于 `1rem`（随界面字号缩放），消息正文字号走独立的 `--quickforge-message-font-size` 变量。聊天区内与消息同屏的行统一取消息字号基准 `calc(var(--quickforge-message-font-size, 14px) * 0.875)`：过程摘要行、阶段/工具组摘要、接管后的思考行（`.quickforge-process-thinking-header`）以及工具摘要行（local / MCP / subagent 壳、兜底工具卡首行、generate_image 首行）——避免界面字号与消息字号两套基准在同一屏漂移（默认 R=M=13px 下 = 11.375px）。Monaco 与终端等固定像素字号场景通过 `getCodeFontMetrics()` / `getTerminalFontMetrics()` 从界面字号派生，并监听 `quickforge:font-size-settings-changed` 做运行时刷新。
+**字号体系**：`html { font-size }` 是基准（默认 13px）；界面字号设置由 `lib/font-size-settings.ts` 的 `applyFontSizeSettings()` 写入 `root.style.fontSize` 驱动所有 rem 单位。`--text-sm` 刻意等于 `1rem`（随界面字号缩放），消息正文字号走独立的 `--quickforge-message-font-size` 变量。聊天区内与消息同屏的行统一取消息字号基准 `calc(var(--quickforge-message-font-size, 14px) * 0.875)`：过程摘要行、阶段/工具组摘要、接管后的思考行（`.quickforge-process-thinking-header`）以及工具摘要行（local / MCP / subagent 壳、兜底工具卡首行）——避免界面字号与消息字号两套基准在同一屏漂移（默认 R=M=13px 下 = 11.375px）。Monaco 与终端等固定像素字号场景通过 `getCodeFontMetrics()` / `getTerminalFontMetrics()` 从界面字号派生，并监听 `quickforge:font-size-settings-changed` 做运行时刷新。
 
 **本地 Tailwind utilities 源顺序坑**：`index.css` 中已用一段显式 `@media (width >= 48rem) { .md\:block { display: block } }` 修正侧边栏 `md:block` 被后续 `.hidden` 覆盖的问题。
 

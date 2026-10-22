@@ -21,6 +21,7 @@ import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './con
 import { createTurnNavigation } from './turn-navigation'
 import {
   decorateMessages,
+  decorateStreamingMessages,
   decorateEditor,
   captureComposerDraft,
   readComposerDraft,
@@ -41,7 +42,8 @@ import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
 import { markSessionOpen, recordFirstDecorateTiming } from '@/lib/session-open-timing'
 import { subscribeSessionViewActivity, isInsideHiddenView } from '@/lib/session-view-activity'
-import { readMessageRows } from './panel-decoration/message-rows'
+import { createMessageRowSnapshot } from './panel-decoration/message-rows'
+import { createChatDecorateScheduler, type ChatDecorateMode } from './panel-decoration/decorate-scheduler'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import { getGitStatus } from '../workspace/workspace-api'
@@ -612,7 +614,7 @@ export function ChatPanelHost({
   const decorateFnRef = useRef<(() => void) | null>(null)
   const restoreSideChatDraftRef = useRef<(() => void) | null>(null)
   const scrollSyncRef = useRef<ReturnType<typeof createScrollSync> | null>(null)
-  const scheduleDecorateRef = useRef<(() => void) | null>(null)
+  const scheduleDecorateRef = useRef<((mode?: ChatDecorateMode) => void) | null>(null)
   /** Set while a synchronous decorate pass owns the DOM (see `runDecorate`). */
   const decorateInFlightRef = useRef(false)
   /**
@@ -1266,6 +1268,12 @@ export function ChatPanelHost({
       }
     }
 
+    // Committed rows are stable for the whole streaming turn; the snapshot lets
+    // the streaming pass reuse them without re-running the full-table scan.
+    // Every full pass invalidates it, and full passes are what handle structural
+    // row changes (message/tool boundaries and MutationObserver records).
+    const messageRowSnapshot = createMessageRowSnapshot(panel)
+
     // --- The core decoration function (called on DOM changes & prop changes) ---
     const decorate = () => {
       if (disposed) return
@@ -1283,7 +1291,8 @@ export function ChatPanelHost({
       // across decorators. Several of them (message actions, compaction notice,
       // approval boundary, waiting bubble) each used to run their own full-table
       // `querySelectorAll` on the same list within a single pass.
-      const messageRows = readMessageRows(panel)
+      messageRowSnapshot.invalidate()
+      const messageRows = messageRowSnapshot.rows()
       if (!sideChatMode) {
         const inputKey = artifactsInputKey(agent.state.messages as MessageWithUsage[])
         if (inputKey !== artifactsInputKeyRef.current) {
@@ -1561,8 +1570,6 @@ export function ChatPanelHost({
     }
 
     // --- Schedule decoration once per frame to coalesce mutation bursts in long chats ---
-    let decorateScheduled = false
-    let decorateFrame: number | undefined
     let suppressObserverMutations = false
     let clearSuppressObserverFrame: number | undefined
     const clearObserverSuppression = () => {
@@ -1600,15 +1607,37 @@ export function ChatPanelHost({
         recordFirstDecorateTiming(sessionId, performance.now() - decorateStartedAt)
       }
     }
-    const scheduleDecorate = () => {
-      if (decorateScheduled) return
-      decorateScheduled = true
-      decorateFrame = window.requestAnimationFrame(() => {
-        decorateFrame = undefined
-        decorateScheduled = false
-        runDecorate()
-      })
+    // A pure `message_update` cannot change committed rows, actions, artifact
+    // cards or composer bindings; only process folding (and its streaming
+    // hints) must be reconciled before the next paint. Full passes still run on
+    // every structural event and DOM mutation.
+    const runStreamingDecorate = () => {
+      if (disposed) return
+      if (isInsideHiddenView(host)) return
+      if (decorateInFlightRef.current) return
+      decorateInFlightRef.current = true
+      suppressObserverMutations = true
+      try {
+        decorateStreamingMessages(panel, messageRowSnapshot.rows(), agent.state.isStreaming)
+        // Content growth can cross the back-to-bottom threshold while the user
+        // is scrolled up (no scroll event fires in that case).
+        scrollBottomButton.setup()
+      } catch (error) {
+        logger.warn('Failed to decorate streaming chat messages:', error)
+      } finally {
+        clearObserverSuppression()
+        decorateInFlightRef.current = false
+      }
     }
+    const decorateScheduler = createChatDecorateScheduler(
+      (mode) => {
+        if (mode === 'streaming') runStreamingDecorate()
+        else runDecorate()
+      },
+      (callback) => window.requestAnimationFrame(callback),
+      (handle) => window.cancelAnimationFrame(handle),
+    )
+    const scheduleDecorate = decorateScheduler.schedule
     // Expose for the decoration trigger effect
     decorateFnRef.current = runDecorate
     const scheduleToolInterfaceUpdate = () => {
@@ -1841,7 +1870,7 @@ export function ChatPanelHost({
           // 模型流重试后新流的第一个增量到达即视为恢复。
           setModelRetryInfo(null)
         }
-        scheduleDecorateRef.current?.()
+        scheduleDecorateRef.current?.(event.type === 'message_update' && agent.state.isStreaming ? 'streaming' : 'full')
         if (event.type === 'message_end' && eventMessage?.role === 'assistant') {
           scheduleProcessHandoff()
         }
@@ -2027,9 +2056,7 @@ export function ChatPanelHost({
       messageQueue.cleanup()
       unsubscribeScrollEvents()
       observer?.disconnect()
-      if (decorateFrame !== undefined) {
-        window.cancelAnimationFrame(decorateFrame)
-      }
+      decorateScheduler.cancel()
       if (clearSuppressObserverFrame !== undefined) {
         window.cancelAnimationFrame(clearSuppressObserverFrame)
       }

@@ -1,65 +1,91 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { collectToolResultToolCallIds, isNewlyPresentedArtifact } from '../../src/components/workspace/artifact-preview-utils'
+import { findBestPreviewableArtifact } from '../../src/components/workspace/artifact-preview-utils'
+import { extractToolExecutionArtifacts } from '../../src/lib/tool-artifacts'
+import type { ToolExecutionEvent } from '../../src/lib/tool-execution-events'
 
-describe('collectToolResultToolCallIds', () => {
-  it('collects toolCallIds from toolResult messages only', () => {
-    const ids = collectToolResultToolCallIds([
-      { role: 'user' },
-      { role: 'assistant', toolCallId: 'call-a' },
-      { role: 'toolResult', toolCallId: 'call-a' },
-      { role: 'toolResult', toolCallId: 'call-b' },
-    ])
-    expect(ids).toEqual(new Set(['call-a', 'call-b']))
+function presentFilesEvent(files: string[], options: { defaultPreview?: string; toolCallId?: string } = {}): ToolExecutionEvent {
+  return {
+    toolCallId: options.toolCallId ?? 'call-present',
+    toolName: 'present_files',
+    result: {
+      content: [{ type: 'text', text: JSON.stringify({ files, defaultPreview: options.defaultPreview }) }],
+      details: { files, defaultPreview: options.defaultPreview },
+    },
+  }
+}
+
+describe('extractToolExecutionArtifacts', () => {
+  it('extracts the files a single present_files execution just produced', () => {
+    const artifacts = extractToolExecutionArtifacts(presentFilesEvent(['report.html', 'notes.md']))
+    const paths = artifacts.map((artifact) => artifact.path)
+    expect(paths).toContain('report.html')
+    expect(paths).toContain('notes.md')
+    expect(artifacts.every((artifact) => artifact.source === 'present_files')).toBe(true)
+    expect(artifacts.every((artifact) => artifact.toolCallId === 'call-present')).toBe(true)
   })
 
-  it('skips non-string or empty toolCallIds', () => {
-    const ids = collectToolResultToolCallIds([
-      { role: 'toolResult' },
-      { role: 'toolResult', toolCallId: 42 },
-      { role: 'toolResult', toolCallId: '' },
-      { role: 'toolResult', toolCallId: 'call-a' },
-    ])
-    expect(ids).toEqual(new Set(['call-a']))
+  it('reads the payload from result content when details carry no files array', () => {
+    const artifacts = extractToolExecutionArtifacts({
+      toolCallId: 'call-content-only',
+      toolName: 'present_files',
+      result: {
+        content: [{ type: 'text', text: JSON.stringify({ files: [{ path: 'chart.png' }] }) }],
+      },
+    })
+    expect(artifacts.map((artifact) => artifact.path)).toEqual(['chart.png'])
   })
 
-  it('returns an empty set when there are no toolResult messages', () => {
-    expect(collectToolResultToolCallIds([{ role: 'user' }, { role: 'assistant' }]).size).toBe(0)
-    expect(collectToolResultToolCallIds([]).size).toBe(0)
+  it('returns nothing without a toolCallId or result', () => {
+    expect(extractToolExecutionArtifacts(undefined)).toEqual([])
+    expect(extractToolExecutionArtifacts({ toolName: 'present_files' })).toEqual([])
+    expect(extractToolExecutionArtifacts({ toolCallId: 'call-x', toolName: 'present_files' })).toEqual([])
+  })
+
+  it('ignores tool executions that cannot present files', () => {
+    expect(extractToolExecutionArtifacts({
+      toolCallId: 'call-read',
+      toolName: 'read_file',
+      result: { content: [], details: { path: 'report.html' } },
+    })).toEqual([])
   })
 })
 
-describe('isNewlyPresentedArtifact', () => {
-  it('returns false when every id is already in the history snapshot', () => {
-    expect(isNewlyPresentedArtifact(['call-a', 'call-b'], new Set(['call-a', 'call-b']))).toBe(false)
+describe('findBestPreviewableArtifact', () => {
+  it('prefers a present_files artifact that is previewable', () => {
+    const artifact = findBestPreviewableArtifact(extractToolExecutionArtifacts(presentFilesEvent(['index.html'])))
+    expect(artifact?.path).toBe('index.html')
   })
 
-  it('returns true when any id is missing from the history snapshot', () => {
-    expect(isNewlyPresentedArtifact(['call-a', 'call-new'], new Set(['call-a']))).toBe(true)
-  })
-
-  it('returns false for missing or empty toolCallIds (conservative no-popup)', () => {
-    expect(isNewlyPresentedArtifact(undefined, new Set(['call-a']))).toBe(false)
-    expect(isNewlyPresentedArtifact([], new Set(['call-a']))).toBe(false)
-  })
-
-  it('returns true when the history snapshot is empty but ids exist', () => {
-    expect(isNewlyPresentedArtifact(['call-a'], new Set())).toBe(true)
+  it('skips non-previewable extensions so no panel opens for them', () => {
+    const artifact = findBestPreviewableArtifact(extractToolExecutionArtifacts(presentFilesEvent(['archive.zip'])))
+    expect(artifact).toBeUndefined()
   })
 })
 
-describe('auto preview fresh-present source contract', () => {
-  it('gates auto preview on the attach-time history snapshot instead of session storage', () => {
-    const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
-    const utilsSource = readFileSync(new URL('../../src/components/workspace/artifact-preview-utils.ts', import.meta.url), 'utf8')
+describe('auto preview source contract', () => {
+  const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+  const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
+  const utilsSource = readFileSync(new URL('../../src/components/workspace/artifact-preview-utils.ts', import.meta.url), 'utf8')
 
-    expect(appSource).toContain('isNewlyPresentedArtifact(artifact.toolCallIds')
-    expect(appSource).toContain('collectToolResultToolCallIds(')
-    expect(appSource).toContain('autoPreviewHistoryRef')
-    expect(appSource).not.toContain('hasSeenAutoPreviewSignature')
-    expect(appSource).not.toContain('useWorkspaceInspectorOpenState')
-    expect(appSource).not.toContain('auto-preview-seen-signatures')
-    expect(utilsSource).toContain('export function collectToolResultToolCallIds(')
-    expect(utilsSource).toContain('export function isNewlyPresentedArtifact(')
+  it('drives auto preview from live tool_execution_end events, not message-state diffs', () => {
+    expect(appSource).toContain('onLivePresentArtifacts={openLivePresentedArtifacts}')
+    expect(appSource).toContain('const openLivePresentedArtifacts = useCallback(')
+    // 状态差分方案已移除：历史快照 / 差分判定 / 签名去重都不应残留。
+    expect(appSource).not.toContain('autoPreviewHistoryRef')
+    expect(appSource).not.toContain('autoPreviewSignatureRef')
+    expect(appSource).not.toContain('isNewlyPresentedArtifact')
+    expect(appSource).not.toContain('collectToolResultToolCallIds')
+  })
+
+  it('reports live artifacts only for the view that is on screen', () => {
+    expect(hostSource).toContain('extractToolExecutionArtifacts(event as ToolExecutionEvent)')
+    expect(hostSource).toContain('isSessionViewActive(activityKey)')
+    expect(hostSource).toContain('propsRef.current.onLivePresentArtifacts?.(sessionId, liveArtifacts)')
+  })
+
+  it('drops the retired state-diff helpers from the preview utils', () => {
+    expect(utilsSource).not.toContain('export function collectToolResultToolCallIds(')
+    expect(utilsSource).not.toContain('export function isNewlyPresentedArtifact(')
   })
 })

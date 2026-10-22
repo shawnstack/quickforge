@@ -13,6 +13,7 @@ import {
   buildWorkflowRunView,
   workflowActiveStepLabels,
   workflowCurrentPhase,
+  workflowPhaseSteps,
   workflowStatusLabelKey,
   workflowSummaryKey,
 } from '../../src/lib/workflow-run-detail'
@@ -93,6 +94,44 @@ describe('workflow run view model', () => {
     if (!view) throw new Error('expected a workflow view')
     expect(workflowActiveStepLabels(view)).toEqual(['Fix bug', 'write fix', 'Review'])
     expect(workflowCurrentPhase(view)).toBe('Fix')
+  })
+
+  it('folds consecutive tool calls into a nested step under the preceding agent', () => {
+    const view = buildWorkflowRunView({ details: runningDetails }, true)
+    if (!view) throw new Error('expected a workflow view')
+    // Scan 阶段：agent(seq 1) + 紧跟的 tool(seq 2) → agent 与其工具区两段
+    expect(workflowPhaseSteps(view.phases[0])).toMatchObject([
+      { kind: 'agent', seq: 1 },
+      { kind: 'tools', seq: 2 },
+    ])
+    // Fix 阶段：agent(3) → tool(4) → agent(5)，工具区夹在两个 Agent 之间
+    const fix = workflowPhaseSteps(view.phases[1])
+    expect(fix.map((step) => step.kind)).toEqual(['agent', 'tools', 'agent'])
+    expect(fix[1].kind === 'tools' && fix[1].tools.map((tool) => tool.label)).toEqual(['write fix'])
+  })
+
+  it('keeps ungrouped tool calls and tool-only phases addressable', () => {
+    const view = buildWorkflowRunView({
+      details: {
+        workflow: true,
+        runId: 'wf',
+        status: 'done',
+        phases: [{ title: 'Setup' }, { title: 'Work' }],
+        // Setup 阶段只有工具调用：没有可归属的 Agent，仍要渲染成 root 工具区。
+        tools: [
+          { id: 'tool-1', seq: 1, name: 'read_file', label: 'read a', phase: 'Setup', status: 'done' },
+          { id: 'tool-2', seq: 2, name: 'read_file', label: 'read b', phase: 'Setup', status: 'done' },
+          { id: 'tool-3', seq: 3, name: 'read_file', label: 'read c', phase: 'Work', status: 'done' },
+        ],
+        agents: [{ id: 'agent-1', seq: 4, label: 'Work', profile: 'general', phase: 'Work', status: 'done' }],
+      },
+    }, false)
+    if (!view) throw new Error('expected a workflow view')
+    const setup = workflowPhaseSteps(view.phases[0])
+    expect(setup).toHaveLength(1)
+    expect(setup[0].kind === 'tools' && setup[0].tools).toHaveLength(2)
+    const work = workflowPhaseSteps(view.phases[1])
+    expect(work.map((step) => step.kind)).toEqual(['tools', 'agent'])
   })
 
   it('maps terminal details to done, error and aborted without inventing success', () => {
@@ -179,6 +218,23 @@ describe('workflow tool renderer', () => {
     expect(markup).toContain('first attempt failed')
     expect(markup).not.toContain('found 2 files')
     expect(markup).not.toContain('scan the source')
+  })
+
+  it('nests tool rows inside a tool zone and labels phases with a step count', () => {
+    const { markup } = render({ script: 'return 1' }, runningDetails, true)
+    // 工具行不再与 Agent 平级：每个连续工具段包一层 .quickforge-workflow-tool-zone
+    expect(markup).toContain('quickforge-workflow-tool-zone')
+    expect(markup).toContain('quickforge-workflow-tool-list')
+    expect(markup).toMatch(/quickforge-workflow-agent-list[\s\S]*?quickforge-workflow-tool-zone[\s\S]*?quickforge-workflow-tool-call/)
+    // 阶段头带步数（Agent + 工具总数），Agent 行主文案是任务名而不是状态
+    expect(markup).toContain('quickforge-workflow-phase-count')
+    expect(markup).toContain('quickforge-workflow-phase-name')
+    expect(markup).toContain('Scan</span>')
+    expect(markup).toContain('quickforge-subagent-label')
+    // 主文案是任务名本身（状态不再占据主位）
+    expect(markup).toContain('class="quickforge-subagent-label">Scan src<span')
+    // 状态没有丢失：仍在悬停/aria 文案与状态区
+    expect(markup).toContain('title="Scan src completed"')
   })
 
   it('renders the completed result, error and schema marker', () => {
@@ -306,6 +362,17 @@ describe('workflow renderer wiring and contracts', () => {
     expect(css).toMatch(/\.quickforge-workflow-tool > div,[\s\S]*?calc\(var\(--quickforge-message-font-size, 14px\) \* 0\.8\)/)
     expect(css).not.toContain('quickforge-workflow-step-summary')
     expect(css).not.toContain('quickforge-workflow-agent-dot')
+  })
+
+  it('nests tool rows under agents with indent, hairline and a weaker type step', () => {
+    // 层级契约：工具行区带左缩进 + 1px 弱化连接线（与主结构分割线同配方），
+    // 工具行字号/颜色都比 Agent 行低一档，chevron 在 hover 前让位给内容。
+    expect(css).toMatch(/\.quickforge-workflow-tool-zone\s*\{[\s\S]*?margin:[^;]*0\.375rem;[\s\S]*?padding-left:\s*0\.625rem;[\s\S]*?border-left:\s*1px solid color-mix\(in oklab, var\(--border\) 60%, transparent\);/)
+    expect(css).toMatch(/\.quickforge-workflow-tool-zone--root\s*\{[\s\S]*?margin-left:\s*0;[\s\S]*?padding-left:\s*0;[\s\S]*?border-left:\s*0;/)
+    expect(css).toMatch(/\.quickforge-workflow-agent \.quickforge-subagent-label:not\(\.quickforge-tool-running-sweep\)\s*\{[\s\S]*?font-weight:\s*500;/)
+    expect(css).toMatch(/\.quickforge-workflow-tool-list \.quickforge-tool-summary\s*\{[\s\S]*?color-mix\(in oklab, var\(--muted-foreground\) 78%, transparent\);[\s\S]*?calc\(var\(--quickforge-message-font-size, 14px\) \* 0\.75\)/)
+    expect(css).toMatch(/@media \(hover: hover\)\s*\{\s*\.quickforge-workflow-tool-list \.quickforge-tool-chevron\s*\{\s*opacity:\s*0;/)
+    expect(css).toMatch(/\.quickforge-workflow-phase-count\s*\{[\s\S]*?font-family:\s*var\(--font-mono\);/)
   })
 
   it('keeps the running summary marquee on one scrollable line', () => {

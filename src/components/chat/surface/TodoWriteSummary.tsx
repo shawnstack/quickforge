@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { t } from '@/lib/i18n'
+import { todoStatusLabel } from '@/lib/todo-status'
+import { TodoStatusIcon } from '@/lib/todo-status-icon'
 import {
-  isFinalTodoSnapshot,
+  shouldRetireTodoSummary,
   todoWriteCounts,
   type TodoWriteItem,
   type TodoWriteSnapshot,
-  type TodoWriteStatus,
 } from '../panel-decoration/todo-write-summary'
 
 /**
@@ -20,9 +21,13 @@ import {
  * the DOM nodes are reused across renders exactly like the hand-written
  * "create once, mutate after" path did.
  *
- * Two behaviours are stateful and therefore explicit here:
- * - a new snapshot round auto-collapses a fully completed list;
- * - a new (non-first) snapshot briefly shows the "updated" marker.
+ * Four behaviours are stateful and therefore explicit here:
+ * - the capsule starts expanded, and a new snapshot round re-expands it (the
+ *   list is the point of the capsule while a round is running);
+ * - a new (non-first) snapshot briefly shows the "updated" marker;
+ * - a cleanly finished round leaves the composer once the turn ends
+ *   (`retiredKey`), after one exit fade so the dock does not jump;
+ * - an explicit empty snapshot / rollback resets everything.
  *
  * The snapshot itself arrives pre-resolved (`{snapshot, key} | null`): the
  * surface derives it once per agent snapshot and caches it by message-array
@@ -34,38 +39,19 @@ import {
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 9
 const UPDATED_MARKER_DURATION_MS = 1800
+/** Matches `--quickforge-dur-exit`: the leave transition, then unmount. */
+const RETIRE_DURATION_MS = 140
 
-function StatusIcon({ status }: { status: TodoWriteStatus }) {
-  if (status === 'completed') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" />
-        <path d="m8 12 2.5 2.5L16 9" />
-      </svg>
-    )
-  }
-  if (status === 'in_progress') {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 7v5l3 2" />
-      </svg>
-    )
-  }
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-    </svg>
-  )
+export type TodoWriteSummaryProps = {
+  snapshot: { snapshot: TodoWriteSnapshot; key: string } | null
+  /**
+   * The current round finished cleanly (`agent_end` with a non-error status and
+   * nothing left streaming). Only matters together with a fully completed list.
+   */
+  turnEnded?: boolean
 }
 
-function statusLabel(status: TodoWriteStatus) {
-  if (status === 'completed') return t('todoWriteStatusCompleted')
-  if (status === 'in_progress') return t('todoWriteStatusInProgress')
-  return t('todoWriteStatusPending')
-}
-
-export function TodoWriteSummary({ snapshot }: { snapshot: { snapshot: TodoWriteSnapshot; key: string } | null }) {
+export function TodoWriteSummary({ snapshot, turnEnded = false }: TodoWriteSummaryProps) {
   const latest = snapshot
   const todos = latest?.snapshot.todos ?? []
   const counts = todoWriteCounts(todos)
@@ -73,28 +59,23 @@ export function TodoWriteSummary({ snapshot }: { snapshot: { snapshot: TodoWrite
   const snapshotKey = latest?.key ?? ''
 
   const [trackedKey, setTrackedKey] = useState('')
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const [updatedKey, setUpdatedKey] = useState<string | null>(null)
+  // The snapshot key whose capsule has already left. Keying the retirement (and
+  // not a bare boolean) is what makes a new round come back for free: a new
+  // snapshot has a new key, so it is never "retired" on arrival.
+  const [retiredKey, setRetiredKey] = useState<string | null>(null)
 
   // Adjust state during render (React's documented "derive from props" path):
-  // a new snapshot round resets/collapses the capsule and arms the "updated"
-  // marker. Doing it here instead of in an effect avoids a second render pass
-  // with a stale snapshot visible.
+  // a new snapshot round re-expands the capsule and arms the "updated" marker.
+  // Doing it here instead of in an effect avoids a second render pass with a
+  // stale snapshot visible.
   if (trackedKey !== snapshotKey) {
     setTrackedKey(snapshotKey)
-    if (!snapshotKey || todos.length === 0) {
-      // An explicit empty (or absent) snapshot resets the capsule entirely: the
-      // old controller dropped the subtree and cleared the user's expanded
-      // state, so a later snapshot starts collapsed.
-      setExpanded(false)
-      setUpdatedKey(null)
-    } else {
-      const isFirstSnapshot = trackedKey === ''
-      // Every fully completed round collapses, including the first one.
-      if (isFinalTodoSnapshot(todos)) setExpanded(false)
-      // The first snapshot of a session is not an "update".
-      setUpdatedKey(isFirstSnapshot ? null : snapshotKey)
-    }
+    // Every new snapshot (including an explicit clear) starts expanded.
+    setExpanded(true)
+    // The first snapshot of a session is not an "update".
+    setUpdatedKey(!snapshotKey || todos.length === 0 || trackedKey === '' ? null : snapshotKey)
   }
 
   // The marker is a timed announcement: clear it after the display window. The
@@ -105,7 +86,21 @@ export function TodoWriteSummary({ snapshot }: { snapshot: { snapshot: TodoWrite
     return () => clearTimeout(timer)
   }, [updatedKey])
 
+  // Finished round + ended turn ⇒ leave the composer. `fading` is derived, not
+  // stored: the exit attribute is on from the first commit, the CSS exit
+  // transition runs against the previously rendered opacity, and the effect only
+  // schedules the unmount once that transition is over.
+  const shouldRetire = shouldRetireTodoSummary({ todos, turnEnded })
+  const fading = shouldRetire && retiredKey !== snapshotKey
+
+  useEffect(() => {
+    if (!fading) return undefined
+    const timer = setTimeout(() => setRetiredKey(snapshotKey), RETIRE_DURATION_MS)
+    return () => clearTimeout(timer)
+  }, [fading, snapshotKey])
+
   if (todos.length === 0) return null
+  if (shouldRetire && retiredKey === snapshotKey) return null
 
   const progress = counts.total > 0 ? counts.completed / counts.total : 0
   const ringOffset = (RING_CIRCUMFERENCE * (1 - progress)).toFixed(2)
@@ -117,6 +112,8 @@ export function TodoWriteSummary({ snapshot }: { snapshot: { snapshot: TodoWrite
       data-expanded={String(expanded)}
       data-complete={String(complete)}
       data-running={String(counts.inProgress > 0)}
+      data-fading={String(fading)}
+      inert={fading ? true : undefined}
     >
       <div className="quickforge-todo-summary-toggle-row">
         <button
@@ -159,6 +156,9 @@ export function TodoWriteSummary({ snapshot }: { snapshot: { snapshot: TodoWrite
       </div>
       <div className="quickforge-todo-summary-body" hidden={!expanded}>
         <div className="quickforge-todo-summary-body-inner">
+          {/* The body is just the list. No per-status tally and no "working on"
+              restatement: each row already carries its own status (icon, colour,
+              weight), and the running row is the highlighted one. */}
           <ul className="quickforge-todo-summary-list">
             {todos.map((todo: TodoWriteItem, index) => (
               <li
@@ -166,10 +166,10 @@ export function TodoWriteSummary({ snapshot }: { snapshot: { snapshot: TodoWrite
                 className={`quickforge-todo-summary-item quickforge-todo-summary-item--${todo.status}`}
               >
                 <span className="quickforge-todo-summary-status-icon">
-                  <StatusIcon status={todo.status} />
+                  <TodoStatusIcon status={todo.status} />
                 </span>
                 <span className="quickforge-todo-summary-content">{todo.content}</span>
-                <span className="quickforge-todo-summary-status-label">{statusLabel(todo.status)}</span>
+                <span className="quickforge-todo-summary-status-label">{todoStatusLabel(todo.status)}</span>
               </li>
             ))}
           </ul>

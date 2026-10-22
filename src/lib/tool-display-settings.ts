@@ -7,21 +7,21 @@ export type ToolDisplayMode = 'compact' | 'detailed'
 export type ToolDisplaySettings = {
   toolDisplayMode: ToolDisplayMode
   showContextUsage: boolean
-  /** 展开过程组后「已执行 N 个工具调用」阶段层（process-folding 内层 stage）是否默认展开（true=工具调用行直接可见）；手动开合记忆（saved state）优先。 */
-  expandProcessStageByDefault: boolean
 }
 
 export const DEFAULT_TOOL_DISPLAY_SETTINGS: ToolDisplaySettings = {
   toolDisplayMode: 'compact',
   showContextUsage: false,
-  expandProcessStageByDefault: true,
 }
 
 let cachedToolDisplaySettings: ToolDisplaySettings = { ...DEFAULT_TOOL_DISPLAY_SETTINGS }
 
 /**
  * 归一化恒重建完整对象：legacy / 已移除字段（showToolDetails / expandToolsByDefault /
- * expandToolDetailsByDefault）当作未知字段丢弃，expandProcessStageByDefault 非布尔一律回默认（true）。
+ * expandToolDetailsByDefault / expandProcessStageByDefault）当作未知字段丢弃。
+ *
+ * `expandProcessStageByDefault` 已从设置项固化为渲染常量（内层 stage 恒默认展开，见
+ * `panel-decoration/process-folding.ts`）；老用户存过的 `false` 按未知字段丢弃后不再生效。
  */
 function normalizeToolDisplaySettings(value: unknown): ToolDisplaySettings {
   if (!value || typeof value !== 'object') return { ...DEFAULT_TOOL_DISPLAY_SETTINGS }
@@ -29,9 +29,6 @@ function normalizeToolDisplaySettings(value: unknown): ToolDisplaySettings {
   return {
     toolDisplayMode: settings.toolDisplayMode === 'detailed' ? 'detailed' : 'compact',
     showContextUsage: settings.showContextUsage === true,
-    expandProcessStageByDefault: typeof settings.expandProcessStageByDefault === 'boolean'
-      ? settings.expandProcessStageByDefault
-      : true,
   }
 }
 

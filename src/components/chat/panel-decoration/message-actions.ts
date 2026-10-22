@@ -84,8 +84,7 @@ const STOPPED_LABEL_CLASS = 'quickforge-message-stopped-label'
  * text-destructive italic">Request aborted</span>——红色斜体英文，且不带 px-4
  * 缩进贴在消息区左缘。React surface（AssistantMessage.tsx）里该 span 是
  * div.qf-assistant-message 的直接子级；其余渲染路径（subagent 过程列表）可能多包一层容器。展示层改写为灰色「已停止」并补齐与正文
- * 左缘对齐（设计稿 design-mockups/assistant-stopped-message-preview.html
- * 方案①）；数据不动，红色语义保留给错误。只匹配 assistant 渲染根的直接或
+ * 左缘对齐（灰色、与正文同号、左缘对齐）；数据不动，红色语义保留给错误。只匹配 assistant 渲染根的直接或
  * 一级嵌套子 span，避免误伤 tool 卡内部同款 aborted 标签（process-folding
  * 另有自己的状态文案）。
  */

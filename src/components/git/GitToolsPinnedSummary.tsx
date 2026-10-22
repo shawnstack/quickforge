@@ -5,8 +5,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Circle,
-  Clock3,
   FileDiff,
   GitBranch,
   GripHorizontal,
@@ -37,6 +35,8 @@ import {
 } from '@/lib/pinned-summary-drag'
 import { cn } from '@/lib/utils'
 import { t, type AppTextKey } from '@/lib/i18n'
+import { TODO_STATUS_GLYPH_CLASS, todoStatusLabel as todoStatusLabelFromLib } from '@/lib/todo-status'
+import { TodoStatusIcon as TodoStatusGlyph } from '@/lib/todo-status-icon'
 import type { GitStatusResponse } from '@/components/workspace/workspace-types'
 
 type GitToolsPinnedSummaryProps = {
@@ -119,15 +119,23 @@ function gitTotals(status?: GitStatusResponse) {
 }
 
 function todoStatusLabel(status: TodoWriteStatus) {
-  if (status === 'completed') return t('todoWriteStatusCompleted')
-  if (status === 'in_progress') return t('todoWriteStatusInProgress')
-  return t('todoWriteStatusPending')
+  return todoStatusLabelFromLib(status)
 }
 
+/**
+ * Three-state glyph shared with the composer capsule and the history card.
+ * The old lucide pair (`CheckCircle2` emerald / `Clock3` amber) was a third
+ * colour vocabulary — `amber-600` appears nowhere else in the todo surfaces —
+ * so the pinned summary now renders the same geometry and colour recipes as the
+ * capsule. Layout (`size-4`, the `shrink-0` wrapper) is unchanged.
+ */
 function TodoStatusIcon({ status }: { status: TodoWriteStatus }) {
-  if (status === 'completed') return <CheckCircle2 className="size-4 text-emerald-600" />
-  if (status === 'in_progress') return <Clock3 className="size-4 text-amber-600" />
-  return <Circle className="size-4" />
+  return (
+    <TodoStatusGlyph
+      status={status}
+      className={cn('size-4', TODO_STATUS_GLYPH_CLASS[status])}
+    />
+  )
 }
 
 function formatDuration(payload: SubagentRunPayload) {

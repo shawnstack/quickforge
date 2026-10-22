@@ -79,7 +79,6 @@ function DeleteIcon() {
 export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {}) {
   const [toolDisplayMode, setToolDisplayMode] = useState<ToolDisplayMode>('compact')
   const [showContextUsage, setShowContextUsage] = useState(false)
-  const [expandProcessStageByDefault, setExpandProcessStageByDefault] = useState(true)
   const [autoCompactEnabled, setAutoCompactEnabled] = useState(true)
   const [autoCompactRequireConfirmation, setAutoCompactRequireConfirmation] = useState(true)
   const [autoCompactThresholdPercent, setAutoCompactThresholdPercent] = useState(80)
@@ -103,7 +102,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   // 保存排队/最新状态镜像：仅加载与事件回调更新，渲染读取 React state。
   const toolDisplayModeRef = useRef(toolDisplayMode)
   const showContextUsageRef = useRef(showContextUsage)
-  const expandProcessStageByDefaultRef = useRef(expandProcessStageByDefault)
   const autoCompactRef = useRef({ enabled: autoCompactEnabled, thresholdPercent: autoCompactThresholdPercent, keepRecentTurns: autoCompactKeepRecentTurns, requireConfirmation: autoCompactRequireConfirmation })
   const goalMaxIterationsRef = useRef(goalMaxIterations)
   const autoArchiveEnabledRef = useRef(autoArchiveEnabled)
@@ -143,7 +141,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
       ])
       setToolDisplayMode(toolDisplaySettings.toolDisplayMode)
       setShowContextUsage(toolDisplaySettings.showContextUsage)
-      setExpandProcessStageByDefault(toolDisplaySettings.expandProcessStageByDefault)
       setAutoCompactEnabled(autoCompactSettings.enabled)
       setAutoCompactRequireConfirmation(autoCompactSettings.requireConfirmation)
       setAutoCompactThresholdPercent(autoCompactSettings.thresholdPercent)
@@ -154,7 +151,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
       setAutoArchiveEnabled(autoArchiveSettings.enabled)
       toolDisplayModeRef.current = toolDisplaySettings.toolDisplayMode
       showContextUsageRef.current = toolDisplaySettings.showContextUsage
-      expandProcessStageByDefaultRef.current = toolDisplaySettings.expandProcessStageByDefault
       autoCompactRef.current = autoCompactSettings
       goalMaxIterationsRef.current = goalSettings.maxIterations
       autoArchiveEnabledRef.current = autoArchiveSettings.enabled
@@ -203,13 +199,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   const updateShowContextUsage = (checked: boolean) => {
     setShowContextUsage(checked)
     showContextUsageRef.current = checked
-    setSaved(false)
-    void saveToolDisplayOptions()
-  }
-
-  const updateExpandProcessStageByDefault = (checked: boolean) => {
-    setExpandProcessStageByDefault(checked)
-    expandProcessStageByDefaultRef.current = checked
     setSaved(false)
     void saveToolDisplayOptions()
   }
@@ -434,7 +423,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
       await saveToolDisplaySettings(getAppStorage(), {
         toolDisplayMode: toolDisplayModeRef.current,
         showContextUsage: showContextUsageRef.current,
-        expandProcessStageByDefault: expandProcessStageByDefaultRef.current,
       })
       markSaved()
     } catch (err) {
@@ -633,18 +621,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
             <div className="quickforge-settings-segmented" role="group" aria-label={t('toolDisplay')}>
               {TOOL_DISPLAY_MODE_OPTIONS.map((option) => renderToolDisplayModeOption(option))}
             </div>
-          </div>
-        </div>
-
-        <div className="quickforge-settings-row">
-          <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">
-              {t('expandProcessStageByDefault')}
-              <InfoTip label={t('expandProcessStageByDefaultDescription')} />
-            </div>
-          </div>
-          <div className="quickforge-settings-row-control">
-            <SettingsSwitch checked={expandProcessStageByDefault} onChange={updateExpandProcessStageByDefault} />
           </div>
         </div>
 

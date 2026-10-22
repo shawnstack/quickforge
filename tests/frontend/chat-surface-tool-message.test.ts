@@ -60,8 +60,8 @@ describe('chat surface ToolMessage registry consumption', () => {
   })
 
   it('keeps the default card details collapsed regardless of tool display settings', () => {
-    // 细节固定默认收起，不随任何设置变化（detailed 模式 / expandProcessStageByDefault 均不影响）。
-    applyToolDisplaySettingsValue({ toolDisplayMode: 'detailed', expandProcessStageByDefault: true })
+    // 细节固定默认收起，不随任何设置变化（toolDisplayMode 只控内容渲染）。
+    applyToolDisplaySettingsValue({ toolDisplayMode: 'detailed' })
     try {
       const markup = renderToStaticMarkup(createElement(ToolMessage, { toolCall: toolCall('unknown_tool'), result: toolResult('tool ran fine') }))
       expect(markup).not.toContain('open=')

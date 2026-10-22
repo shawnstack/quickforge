@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { harness, nodes } from './settings-react-harness'
+import { harness, nodes, text } from './settings-react-harness'
 vi.mock('react', async (original) => ({ ...await original<typeof import('react')>(), ...(await import('./settings-react-harness')).hooks }))
 const mocks = vi.hoisted(() => ({ compact: vi.fn(), goal: vi.fn() }))
 vi.mock('@/storage', () => ({ getAppStorage: () => ({}) }))
@@ -30,6 +30,13 @@ describe('React default settings tab', () => {
     const labels = render().map((node) => node.props.label).filter(Boolean)
     expect(labels).not.toContain('defaultModel')
     expect(labels).not.toContain('defaultThinkingLevel')
+  })
+
+  // 「工具调用列表默认展开」已固化为渲染常量（PROCESS_STAGE_DEFAULT_EXPANDED），不再可配置。
+  it('no longer renders the expand-process-stage-default row', async () => {
+    await mount()
+    const all = render()
+    expect(all.some((node) => text(node).includes('expandProcessStageByDefault'))).toBe(false)
   })
 })
 describe('React default numeric settings', () => {

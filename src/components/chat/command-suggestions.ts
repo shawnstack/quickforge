@@ -9,8 +9,7 @@
  * catalog is unavailable.
  *
  * Selecting a skill/subagent (Tab / click) additionally engages the slash
- * invocation chip (see slash-invocation-chip.ts, design-mockups
- * slash-menu-expansion.html 方案 A): the composer keeps the raw
+ * invocation chip (see slash-invocation-chip.ts, 方案 A): the composer keeps the raw
  * "/skill <name> " prefix while an inline chip overlay mirrors it visually;
  * the chip suppresses the menu while active and self-destructs when the
  * prefix stops matching.

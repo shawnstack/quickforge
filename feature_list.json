@@ -1,6 +1,117 @@
 {
   "features": [
     {
+      "id": "live-present-auto-preview",
+      "name": "右侧工作区面板自动预览改为 live 事件驱动（修复切换会话自动打开）",
+      "description": "用户反馈「左边侧边栏/右侧面板在切换 session 时总是自动打开」。定位结论：侧栏（ChatSidebar）本身没有任何随 session 变化的打开路径（state 只有 useState(true) + 手动 toggle，无持久化、无 effect），真正自动打开的是右侧 Workspace Inspector。根因是自动预览用「消息状态差分」判断新产物：附着时刻把 agent.state.messages 里全部 toolResult 的 toolCallId 记成历史快照（App.tsx），再用 isNewlyPresentedArtifact 判定产物 id 不在快照里就弹面板。而会话打开快路径（20227ad）之后 messages 只是尾部 200 条窗口（server/routes/session-view.mjs:19,140），首帧后 ChatPanelHost 调 hydrateFullHistory 补齐全量并整表替换（server-agent.ts:2138-2163），全量表里更早的 present_files 的 toolCallId 不在快照中，于是被误判为「刚刚新产生」→ 自动开面板。凡消息数 > 200 且历史含 present_files 的会话，切入即弹。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "把「新产物」的判定从状态差分换到事件源：① src/lib/tool-artifacts.ts 新增 extractToolExecutionArtifacts(event)：把单次 tool_execution_end 事件经 upsertToolResult 组装成一条伪 toolResult，复用既有 extractArtifactsFromMessages 抽取该次执行自己产出的文件（只处理 present_files / write_file / edit_file，无 toolCallId 或 result 返回空）；② src/components/chat/ChatPanelHost.tsx 新增 prop onLivePresentArtifacts(sessionId, artifacts) 并在 tool_execution_end 分支（side-chat 模式跳过）调用，仅当 isSessionViewActive(agentRuntimeScopeId ?? agent.sessionId) 为真时上报——后台会话（SessionViewPool 保活的隐藏视图）跑完 present_files 不再抢走用户正看着的面板；③ src/App.tsx 删除整条差分链路：附着快照 effect、自动预览 effect、autoPreviewHistoryRef、autoPreviewSignatureRef、切换项目时的签名重置，改为 openLivePresentedArtifacts（校验 sessionId 与 currentSessionId 一致 + projectId 存在，再用 findBestPreviewableArtifact 挑选，按 reader/document/browser 分流 requestWorkspaceInspector）；④ src/components/workspace/artifact-preview-utils.ts 删除 collectToolResultToolCallIds / isNewlyPresentedArtifact（保留 presentArtifacts / findBestPreviewableArtifact 供产物列表与 live 回调使用）。结果：历史补齐、缓存命中校准、SSE 重连、回滚改写消息都不会再自动弹面板，只有 agent 本轮真的 present_files 才弹。",
+      "root_cause": "范畴错误：「agent 此刻刚给我展示了文件」是一个事件，却用「消息状态差分」去推断。而消息状态会被窗口化（loadView 尾部 200 条）、缓存命中（readSessionMessageSnapshot）、SSE 重连、回滚/压缩、hydrateFullHistory 全量替换等来源改写，任何一次改写都会让历史 present_files 的 toolCallId 落在快照之外，从而被当成新产物。差分方案对这些来源不可能收敛，只能换事件源。",
+      "files": [
+        "src/lib/tool-artifacts.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/App.tsx",
+        "src/components/workspace/artifact-preview-utils.ts",
+        "tests/frontend/auto-preview-fresh-present.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/auto-preview-fresh-present.test.ts tests/frontend/assistant-artifact-card.test.ts → 2 文件 29 passed；测试重写为 live 事件契约（extractToolExecutionArtifacts 抽取/内容兜底/无 toolCallId/env 与不可 present 工具返回空、findBestPreviewableArtifact 预览优先级、App.tsx 不含 autoPreviewHistoryRef/autoPreviewSignatureRef/isNewlyPresentedArtifact/collectToolResultToolCallIds、ChatPanelHost 含 isSessionViewActive + onLivePresentArtifacts 上报、utils 不再导出已删工具）；npm run lint → 0 error；npm run build（tsc -b && vite build）→ 成功；npm run test 全量 → 通过。",
+      "boundaries": "不改服务端契约（不新增/修改 SSE 事件与字段）；不改 SessionViewPool / 窗口化 / 缓存策略；不改侧栏（ChatSidebar）行为——它本来就没有自动展开路径；不改手动预览入口（工具卡预览按钮、产物列表、文件卡「打开▾」全部复用 openArtifactPreview，行为不变）；side-chat 面板不上报 live 产物；未新增/升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit。"
+    },
+    {
+      "id": "workflow-tool-row-hierarchy",
+      "name": "工作流工具行下沉为 Agent 子层级（缩进 + 细连接线 + 弱化）",
+      "description": "run_workflow 展开体里 Agent 行与 tool() 行原本平铺在同一列表、同字号同图标强度，读不出「tool 是工作流内部动作」的从属关系；Agent 行主文案还是状态（「已完成」），真正的任务名被挤进状态文案。用户确认采用「缩进 + 细连接线 + 弱化」方案（设计稿 docs/design/workflow-tool-hierarchy.html）。",
+      "status": "done",
+      "dependencies": [
+        "workflow-agent-live-detail-parity"
+      ],
+      "summary": "① 视图层 src/lib/workflow-run-detail.ts 新增 WorkflowPhaseStep 类型与 workflowPhaseSteps(phase)：先把阶段内 Agent 与工具按 seq 排序，再把连续的 tool() 调用折叠成单个 tools 步骤（只按连续性判断，不推断归属）。② 渲染层 workflow-tool-renderer.tsx 用 workflowPhaseSteps 替代内联排序，工具步骤包进 li.quickforge-workflow-tool-zone > ul.quickforge-workflow-tool-list；紧跟 Agent 的工具区带缩进与连线，阶段开头无可归属 Agent 的用 --root 修饰去掉缩进与连线（避免指向阶段头的悬空连接线）。阶段头改为「阶段名 + workflowStepCount 步数 + 渐隐细线」（新增 .quickforge-workflow-phase-name / -phase-count）。③ Agent 行主文案换成任务名：renderSubagentRunSummary 新增 label / labelClassName options（run_subagent 不传，行为零变化），workflow 行传 agent.label 并在 running 时挂 quickforge-tool-running-sweep，状态文案退到 title/aria-label 与悬停状态区。④ src/index.css 新增工具行区（margin-left 0.375rem + padding-left 0.625rem + 1px border 60% 连接线，与主结构分割线同配方）、工具行列表（gap 0.0625rem）、工具行字号 ×0.75 与 muted 78%、图标弱化与 hover 强化、@media (hover: hover) 下 chevron 默认 opacity 0、Agent 主行 font-weight 500 + foreground 84%（:not(.quickforge-tool-running-sweep) 以免压掉流光与 reduced-motion 回退）、reduced-motion 下 Agent 主行回到主行色。⑤ i18n 新增 workflowStepCount（{count} steps / {count} 步）中英成对。⑥ 测试：workflow-renderer.test.ts 新增「工具行嵌进 tool-zone 且阶段头带步数」「workflowPhaseSteps 把连续工具折到 Agent 之下」「工具独有阶段与孤立工具仍可寻址」3 例与 1 条 CSS 层级契约断言，并把 Agent 主文案断言从「状态在首位」改为「任务名在首位、状态仍在 title」；既有 18 例全部保留。",
+      "root_cause": "渲染器把阶段内 Agent 与工具当成同构的「步骤行」平铺渲染（同一 ul、同一套工具摘要样式、同一字号），层级只由 phase 分组表达；工具行的从属对象（哪个 Agent 发起的）在视觉上完全丢失，Agent 行又把状态文案当主文案，进一步稀释了「谁在干活」这个主信息。",
+      "files": [
+        "src/lib/workflow-run-detail.ts",
+        "src/lib/tool-renderers/workflow-tool-renderer.tsx",
+        "src/lib/tool-renderers/subagent-tool-renderer.tsx",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/frontend/workflow-renderer.test.ts",
+        "DESIGN_LANGUAGE.md",
+        "docs/architecture/workflow-orchestration.zh-CN.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/design/workflow-tool-hierarchy.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 8 文件 242 passed（workflow-renderer 18、workflow-step-interaction 5、chat-surface-css-contract 37、local-tool-running-sweep、motion-design、process-folding、subagent-run-detail、decorator-copy-i18n）；全量 npm run test → 418 文件 4790 passed / 2 skipped（exit 0）；npm run lint 0 error（仅既有 GitToolsPinnedSummary exhaustive-deps warning）；npx tsc -b 通过；npm run build 成功（3.53s）。",
+      "boundaries": "只做展示层级，不改服务端 details 契约、不改 seq 语义、不新增字段；run_subagent 单独卡片行为零变化（label / labelClassName 均为可选，不传沿用 statusLabel）；未做「方案 B 连续工具折叠成组」；工具行仍是独立 <details> 默认收起，stateKey 记忆不变；阶段之间不加连接线，连接线只覆盖工具行区；未新增/升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit。"
+    },
+    {
+      "id": "tool-stage-expand-fixed",
+      "name": "工具调用列表默认展开固化为常量（设置项移除，含设置页/i18n/旧字段清理）",
+      "description": "用户要求「工具调用列表默认展开，我希望默认就是这样的，设置里面不需要再有了，相关代码也固化」。原实现把内层过程阶段（「已执行 N 个工具调用」stage）的默认展开做成设置项 tool-display-settings.expandProcessStageByDefault（默认 true），设置页「通用 → 交互」有一行开关，process-folding.ts 通过 processStageDefaultExpanded() 读取模块缓存决定 stage 默认 data-expanded，另一处 populateProcessGroup 还用它决定「流式思考行是否从 stage 里拎出来」。用户确认：手动收起要保留（saved state 仍优先），流式思考行按 A 方案（删除 split，留在 stage 内，零视觉变化）。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "① 数据层 src/lib/tool-display-settings.ts：ToolDisplaySettings / DEFAULT_TOOL_DISPLAY_SETTINGS 删除 expandProcessStageByDefault，normalizeToolDisplaySettings 不再重建该字段并把它并入 legacy 丢弃清单（showToolDetails / expandToolsByDefault / expandToolDetailsByDefault 同款）——老用户存过的 false 自动失效、不迁移不清洗。② 渲染层 src/components/chat/panel-decoration/process-folding.ts：导出常量 PROCESS_STAGE_DEFAULT_EXPANDED=true 取代 processStageDefaultExpanded()，updateProcessStageGroups 直接用它；删除 isStreamingThinkingItem / splitStreamingThinkingRuns / ProcessStageSectionRun 与 populateProcessGroup 的 detachStreamingThinking 分支（A 方案：流式思考行留在 stage 内，不再拎到组 body，结构恒定）；resolveProcessExpandedState 与 index.css 的 [data-expanded=\"false\"] 收起样式保留（手动收起仍需要）。③ 设置页 DefaultOptionsSettingsTab.tsx：删 state / ref / loadSettings 回填 / updateExpandProcessStageByDefault / saveToolDisplayOptions 入参 / 整行 UI 共 7 处。④ i18n.ts 删 expandProcessStageByDefault(+Description) 中英各 2 条共 4 条。⑤ 测试迁移：process-folding.test.ts 改为「PROCESS_STAGE_DEFAULT_EXPANDED 恒 true + saved state 仍优先」并删除 splitStreamingThinkingRuns 用例；thinking-streaming-stage.test.ts（662 行）重写为恒展开语义（S2/S3 合并、跨轮次断言改为恒 true、manual collapse 用例保留）；settings-normalizers.test.ts 把该字段加入 legacy 丢弃用例并断言 true/false 老值都不进入归一化结果；default-options-settings-react.test.ts 改为负向断言「不再渲染该行」；default-options-settings-tab.test.ts 加同款负向断言；chat-surface-tool-message.test.ts 参数去字段。⑥ 文档：docs/wiki/src/lib/README.md 的 tool-display-settings 小节整段改写、docs/wiki/src/components/README.md 两处重复小节同步、docs/wiki/src/README.md 设置页包含项去掉该开关。",
+      "root_cause": "「默认展开」本应是唯一的产品行为，却以可配置项形式存在：设置值经模块缓存穿透到装饰层，使 process-folding 的 stage 默认值与页面结构都成了设置的函数（关闭时流式思考行必须被拎出 stage 才不被收起态藏住），多出一条只为支持该开关存在的结构分支与一条用户几乎不会关的偏好项。",
+      "files": [
+        "src/lib/tool-display-settings.ts",
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "src/components/settings/tabs/DefaultOptionsSettingsTab.tsx",
+        "src/lib/i18n.ts",
+        "tests/frontend/process-folding.test.ts",
+        "tests/frontend/thinking-streaming-stage.test.ts",
+        "tests/frontend/settings-normalizers.test.ts",
+        "tests/frontend/default-options-settings-react.test.ts",
+        "tests/frontend/default-options-settings-tab.test.ts",
+        "tests/frontend/chat-surface-tool-message.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 9 文件 124 passed（process-folding 45、thinking-streaming-stage 8、process-folding-incremental 9、settings-normalizers 9、default-options-settings-react 13、default-options-settings-tab 5、chat-surface-tool-message 10、process-folding-ownership 18、decorator-copy-i18n 7）；全量 npm run test → 418 文件 4786 passed / 2 skipped（exit 0）；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc -b 通过。",
+      "boundaries": "保留手动收起（saved state 优先，resolveProcessExpandedState 与 index.css 收起样式不动）；按用户选择采用 A 方案，流式思考行结构回归「留在 stage 内」，不做 B 方案的可见微调；顶层过程组默认展开值 isAgentStreaming 不动；toolDisplayMode / showContextUsage 两个设置项不动；老数据 settings['tool-display-settings'].expandProcessStageByDefault 不主动删除（读时按未知字段丢弃，保留人工回滚空间，但代码回滚才生效）；未新增/升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit。"
+    },
+    {
+      "id": "todo-summary-expand-and-retire",
+      "name": "Todo 摘要默认展开、三态清晰表达，回合全完成即淡出移除",
+      "description": "用户要求：① 对话结束（单次回合 agent_end）且 todolist 全部完成时清除、不再显示；② todo 默认展开；③ 完成/运行/待执行三态都要清晰表达。原先 Composer 上方任务摘要默认收起，全完成只自动收起不隐藏，三态只能展开后逐项看，且置顶摘要用第三套配色（amber-600 in_progress）。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "① 默认展开 + 新一轮重新展开：TodoWriteSummary 的 expanded 初始为 true，snapshot key 变化时重置为 true；用户手动收起只在本轮生效。② 退休：新增纯函数 shouldRetireTodoSummary({todos, turnEnded}) = turnEnded && isFinalTodoSnapshot(todos)；ChatSurface 订阅 agent_end 时推导 turnEnded（status 非 error/aborted、无 errorMessage、state.isStreaming 为 false；不读 state.errorMessage 以免沿用旧轮次失败），传给胶囊；退休先以 --quickforge-dur-exit 淡出（data-fading）再卸载，数据不动（历史工具卡仍可回看），新快照自动恢复。回合异常结束或仍有 pending/in_progress 时保留。③ 三态表达：展开体就是任务列表本身（三态计数 chips 曾在实现中出现，后按用户反馈「待执行 0/进行中 0/已完成 8 不要显示，保持简洁」删除）；行级 pending 空心圆+muted、in_progress 半填充圆+primary+8% primary 行底+字重 500+2.4s 呼吸、completed 实心镂空勾+emerald+删除线。④ 三态单一来源：新增 src/lib/todo-status.ts（类型/标签 key/GLYPH_CLASS/label 函数）与 todo-status-icon.tsx（几何图标，useId 生成 mask id 替代模块级计数器）；Composer 胶囊、GitToolsPinnedSummary、todo_write 历史卡全部改用它，置顶摘要弃用 lucide CheckCircle2/Clock3 与 amber-600。⑤ 动效对齐 DESIGN_LANGUAGE：硬编码 280ms/450ms/160ms 改 --quickforge-dur-* / --quickforge-ease-out token，删除列表项 nth-child 阶梯淡入（禁止逐项瀑布）；reduced-motion 关闭新增呼吸动画。⑥ i18n 无新增 key：chips 与「正在：」行按要求删除后，相关 todoWriteChip* / todoWriteCurrentTask 一并移除。",
+      "root_cause": "任务摘要的生命周期只由 snapshot 内容驱动：没有回合结束信号，所以「全完成」只能是自动收起而非移除；展开态默认值固定为 false，使三态差异只能靠展开后逐项辨认；置顶摘要与历史卡各自维护图标与配色，形成三套状态词汇。",
+      "files": [
+        "src/lib/todo-status.ts",
+        "src/lib/todo-status-icon.tsx",
+        "src/components/chat/surface/TodoWriteSummary.tsx",
+        "src/components/chat/surface/ChatSurface.tsx",
+        "src/components/chat/panel-decoration/todo-write-summary.ts",
+        "src/components/git/GitToolsPinnedSummary.tsx",
+        "src/lib/tool-renderers/todo-write-tool-renderer.tsx",
+        "src/lib/i18n.ts",
+        "src/index.css",
+        "tests/frontend/todo-write-summary.test.ts",
+        "tests/frontend/todo-write-renderer.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts tests/frontend/git-tools-pinned-summary.test.ts → 3 文件 65 passed；全量 npm run test → 418 文件 4786 passed / 2 skipped（exit 0）；npm run lint 0 error（仅既有 GitToolsPinnedSummary 的 react-hooks/exhaustive-deps warning）；npx tsc -b 通过；npm run build 成功。",
+      "boundaries": "不改 GitToolsPinnedSummary 的 slice(0,3) 与展开行为（仅统一三态图标）；不改历史工具卡的默认折叠；不改 server 端 SSE 契约（turnEnded 用 A 方案在前端由 agent_end 推导，未给事件加 reason 字段）；未手工修改 dist/、package-dist/、package-offline/；未新增/升级依赖；未创建 Git commit。未做真实浏览器视觉验收（端口 5176/32176 被既有 dev server 占用）。"
+    },
+    {
       "id": "fix-thinking-level-menu-clipped",
       "name": "修复对话中思考等级菜单被输入框卡片裁剪、无法选择",
       "description": "用户反馈「对话中的思考等级没法选择了」。思考等级选择器在 decb5d6（装饰层渲染化 M4）从原生 DOM 装饰改为 React 组件时，菜单从 document.body.append 变成渲染进组件树内部，但样式仍是 position: fixed + getBoundingClientRect 视口坐标。",
@@ -96,8 +207,6 @@
         "tests/frontend/local-tool-running-sweep.test.ts",
         "tests/frontend/motion-design.test.ts",
         "DESIGN_LANGUAGE.md",
-        "design-mockups/tool-running-feedback-styles.html",
-        "design-mockups/tool-running-sweep-white.html",
         "feature_list.json",
         "progress.md",
         "session-handoff.md"
@@ -1191,7 +1300,6 @@
       "files": [
         "src/index.css",
         "tests/frontend/subagent-running-indicator.test.ts",
-        "design-mockups/command-console-fixed-width.html",
         "feature_list.json",
         "progress.md",
         "session-handoff.md"

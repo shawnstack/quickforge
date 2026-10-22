@@ -6,7 +6,7 @@ import { errorDetailsChevronIcon, errorWarningIcon, retryIcon } from './icons'
 import { turnErrorKeyOf, type TurnErrorTracker, type TurnErrorView } from './turn-error-state'
 
 /**
- * 回合终态错误的一行式轻量错误行（design-mockups/conversation-error-retry.html）。
+ * 回合终态错误的一行式轻量错误行。
  *
  * 聊天面板把失败的回合渲染为红色错误块（`div.bg-destructive/10` +
  * `<strong>Error:</strong>` + 原始英文 errorMessage）。本装饰器不触碰该 React

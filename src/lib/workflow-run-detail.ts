@@ -65,6 +65,14 @@ export type WorkflowPhaseView = {
   logs: WorkflowLogView[]
 }
 
+/**
+ * 阶段内的展示级步骤：连续的 `tool()` 调用合并为一段嵌套的「工具行区」，
+ * 让工具行在视觉上从属于它前面那个 Agent 步骤，而不是与 Agent 平级。
+ */
+export type WorkflowPhaseStep =
+  | { kind: 'agent'; seq: number; agent: WorkflowAgentView }
+  | { kind: 'tools'; seq: number; tools: WorkflowToolView[] }
+
 export type WorkflowRunView = {
   runId: string
   status: WorkflowRunStatus
@@ -279,4 +287,38 @@ export function workflowCurrentPhase(view: WorkflowRunView): string {
     }
   }
   return view.phases[view.phases.length - 1]?.title ?? ''
+}
+
+/**
+ * 把阶段内的 Agent 与工具按 `seq` 交错展平，并把连续的 `tool()` 调用合并成
+ * 一个 `tools` 步骤。渲染器据此把工具行放进独立的缩进区，形成
+ * 「阶段 → Agent → 工具行」的层级，而不是让工具行与 Agent 同级平铺。
+ *
+ * 合并只按连续性判断（不推断归属关系）：工具调用在时间线上紧挨着前一个 Agent，
+ * 语义上就是该步的执行细节。
+ */
+export function workflowPhaseSteps(phase: WorkflowPhaseView): WorkflowPhaseStep[] {
+  const ordered = [
+    ...phase.agents.map((agent) => ({ kind: 'agent' as const, seq: agent.seq, agent })),
+    ...phase.tools.map((tool) => ({ kind: 'tool' as const, seq: tool.seq, tool })),
+  ].sort((left, right) => left.seq - right.seq)
+
+  const steps: WorkflowPhaseStep[] = []
+  let pendingTools: WorkflowToolView[] = []
+  const flushTools = () => {
+    if (pendingTools.length === 0) return
+    steps.push({ kind: 'tools', seq: pendingTools[0].seq, tools: pendingTools })
+    pendingTools = []
+  }
+
+  for (const step of ordered) {
+    if (step.kind === 'tool') {
+      pendingTools.push(step.tool)
+      continue
+    }
+    flushTools()
+    steps.push({ kind: 'agent', seq: step.agent.seq, agent: step.agent })
+  }
+  flushTools()
+  return steps
 }

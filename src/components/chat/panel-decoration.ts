@@ -52,6 +52,7 @@ export {
   normalizeTodoWriteTodos,
   readLatestTodoWriteSnapshot,
   isFinalTodoSnapshot,
+  shouldRetireTodoSummary,
   todoWriteCounts,
 } from './panel-decoration/todo-write-summary'
 export type {

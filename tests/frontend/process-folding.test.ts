@@ -10,7 +10,7 @@ import {
   processGroupDefaultExpanded,
   processNodeSequenceIsCurrent,
   processStatusLabel,
-  processStageDefaultExpanded,
+  PROCESS_STAGE_DEFAULT_EXPANDED,
   processStageLabel,
   processStageStateKey,
   processThinkingChildIndexes,
@@ -24,10 +24,8 @@ import {
   shouldPreserveProcessGroupDuringHandoff,
   shouldToggleProcessSummary,
   splitProcessStageSections,
-  splitStreamingThinkingRuns,
   summarizeProcessStageTools,
 } from '../../src/components/chat/panel-decoration/process-folding'
-import { applyToolDisplaySettingsValue } from '../../src/lib/tool-display-settings'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
 
@@ -393,49 +391,16 @@ describe('nested process stage groups', () => {
     expect(processSectionNeedsStage([])).toBe(false)
   })
 
-  it('splits streaming-thinking items out of stage runs in order (they never hide inside a collapsed stage)', () => {
-    const isLive = (item: string) => item.startsWith('live')
-    // 典型序：流式思考行在段尾（本轮的思考行先于本轮工具行出现）。
-    expect(splitStreamingThinkingRuns(
-      ['thinking-done', 'tool-a', 'live-thinking'],
-      isLive,
-    )).toEqual([
-      { kind: 'stage', items: ['thinking-done', 'tool-a'] },
-      { kind: 'liveThinking', items: ['live-thinking'] },
-    ])
-    // 工具行的 toolCall chunk 先于 message_end 出现时，流式思考行会夹在工具行之前
-    // ——按位置切（stage / live / stage），保持原顺序。
-    expect(splitStreamingThinkingRuns(
-      ['live-thinking', 'tool-a'],
-      isLive,
-    )).toEqual([
-      { kind: 'liveThinking', items: ['live-thinking'] },
-      { kind: 'stage', items: ['tool-a'] },
-    ])
-    expect(splitStreamingThinkingRuns(['live-a', 'live-b'], isLive)).toEqual([
-      { kind: 'liveThinking', items: ['live-a', 'live-b'] },
-    ])
-    expect(splitStreamingThinkingRuns([], isLive)).toEqual([])
-  })
-
-  it('expands inner stages by default from the expandProcessStageByDefault setting, while manual/saved state still wins', () => {
-    // 默认（未配置）→ 展开，每条工具调用直接可见。
-    applyToolDisplaySettingsValue(undefined)
-    expect(processStageDefaultExpanded()).toBe(true)
-    // 无 saved state 且非增量 key 命中 → 取设置默认值（默认展开）。
-    expect(resolveProcessExpandedState(undefined, false, true, processStageDefaultExpanded())).toBe(true)
-    // 设置为默认收起 → stage 初始收起。
-    applyToolDisplaySettingsValue({ expandProcessStageByDefault: false })
-    expect(processStageDefaultExpanded()).toBe(false)
-    expect(resolveProcessExpandedState(undefined, false, true, processStageDefaultExpanded())).toBe(false)
+  it('expands inner stages by default unconditionally, while manual/saved state still wins', () => {
+    // 固化语义：stage 默认展开恒定，与任何设置/存储值无关。
+    expect(PROCESS_STAGE_DEFAULT_EXPANDED).toBe(true)
+    // 无 saved state 且非增量 key 命中 → 取默认值（展开），每条工具调用直接可见。
+    expect(resolveProcessExpandedState(undefined, false, true, PROCESS_STAGE_DEFAULT_EXPANDED)).toBe(true)
     // 增量 key 命中（同一 stage 追加工具行）保留当前开合：手动收起不被弹回。
-    expect(resolveProcessExpandedState(undefined, true, false, processStageDefaultExpanded())).toBe(false)
-    // saved state（用户手动开合记忆）优先于设置默认值（无论默认开或关）。
-    expect(resolveProcessExpandedState(false, false, true, processStageDefaultExpanded())).toBe(false)
-    expect(resolveProcessExpandedState(true, false, false, processStageDefaultExpanded())).toBe(true)
-    applyToolDisplaySettingsValue(undefined)
-    expect(resolveProcessExpandedState(false, false, true, processStageDefaultExpanded())).toBe(false)
-    expect(resolveProcessExpandedState(true, false, false, processStageDefaultExpanded())).toBe(true)
+    expect(resolveProcessExpandedState(undefined, true, false, PROCESS_STAGE_DEFAULT_EXPANDED)).toBe(false)
+    // saved state（用户手动开合记忆）优先于默认值：手动收起保持收起、手动展开保持展开。
+    expect(resolveProcessExpandedState(false, false, true, PROCESS_STAGE_DEFAULT_EXPANDED)).toBe(false)
+    expect(resolveProcessExpandedState(true, false, false, PROCESS_STAGE_DEFAULT_EXPANDED)).toBe(true)
   })
 
   it('uses independent stable keys for inner stage state', () => {

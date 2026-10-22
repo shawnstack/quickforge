@@ -155,10 +155,10 @@ export function presentArtifacts(artifacts: AiTurnArtifact[]): PresentedArtifact
 
 // 自动预览候选：仅 present_files（explicit）来源且 preview=true 的 artifact 才自动打开。
 // write_file/edit_file（inferred）产物仍会进入侧栏产物列表（presentArtifacts）供手动查看，但不自动弹 tab。
-// 渲染路径由调用方（App.tsx 自动预览副作用）按 kind 决定：
+// 渲染路径由调用方（App.tsx 的 live present 回调）按 kind 决定：
 //   html/image → browser iframe；markdown/code → Reader；PDF/DOCX/XLS/XLSX → Document。
-// 注意：按「最近一次工具调用」选取 —— 原始 artifacts 数组按时序排列，取最后一个满足条件的，
-// 避免旧的同分 artifact（如 README.md）永远排在前面、挡住新 present 的文件。
+// 输入是单次 `tool_execution_end` 的产物（不是全量消息列表），因此不存在
+// 「历史 vs 新产物」的歧义；多个候选时按 artifacts 时序取最后一个。
 export function findBestPreviewableArtifact(artifacts: AiTurnArtifact[]): PresentedArtifact | undefined {
   const candidates = presentArtifacts(artifacts).filter((artifact) => artifact.preview && artifact.explicit)
   if (candidates.length <= 1) return candidates[0]
@@ -181,21 +181,6 @@ export function findBestPreviewableArtifact(artifacts: AiTurnArtifact[]): Presen
   return [...candidates].sort((a, b) => latestIndex(b) - latestIndex(a))[0]
 }
 
-// 收集消息中全部 toolResult 的 toolCallId，用于构建「附着时刻历史快照」：
-// 自动预览据此区分恢复会话时已有的历史 present_files 与 agent 附着后新发生的 present。
-export function collectToolResultToolCallIds(messages: Iterable<{ role?: string; toolCallId?: unknown }>): Set<string> {
-  const ids = new Set<string>()
-  for (const message of messages) {
-    if (message.role !== 'toolResult') continue
-    if (typeof message.toolCallId !== 'string' || message.toolCallId.length === 0) continue
-    ids.add(message.toolCallId)
-  }
-  return ids
-}
-
-// 判断产物是否包含历史快照之外的新 toolCallId：仅「附着后新发生」的 present 允许自动预览；
-// toolCallIds 缺失或为空时保守返回 false（不弹），避免无法判定来源时打扰用户。
-export function isNewlyPresentedArtifact(toolCallIds: readonly string[] | undefined, historyToolCallIds: ReadonlySet<string>): boolean {
-  if (!toolCallIds || toolCallIds.length === 0) return false
-  return toolCallIds.some((id) => !historyToolCallIds.has(id))
-}
+// 产物统一由 live 事件驱动：`ChatPanelHost` 在 `tool_execution_end` 时用
+// `extractToolExecutionArtifacts` 抽取该次执行自己产出的文件，因此这里不再需要
+// 「消息状态差分 / 历史 toolCallId 快照」这类判定工具。

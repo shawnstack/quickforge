@@ -9,6 +9,7 @@ import {
   buildWorkflowRunView,
   workflowActiveStepLabels,
   workflowCurrentPhase,
+  workflowPhaseSteps,
   workflowStatusLabelKey,
   workflowSummaryKey,
   type WorkflowAgentView,
@@ -101,9 +102,18 @@ function WorkflowAgentRow({ agent, workflowRunId }: { agent: WorkflowAgentView; 
     <li className={`quickforge-workflow-agent quickforge-workflow-agent--${agent.status}`}>
       {/* 与 run_subagent 摘要卡共用同一渲染函数：状态/耗时/跑马灯/打开事件不再各写一份。 */}
       {renderSubagentRunSummary(payload, {
+        // 层级改造：Agent 行是阶段内的主行，主文案换成任务名，状态交给
+        // 行状态点（见 .quickforge-workflow-agent--*）与悬停/aria 文案。
+        label: agent.label,
+        // 运行中的任务名沿用工具标题的流光范式，让「谁在干活」一眼可见。
+        labelClassName: agent.status === 'running'
+          ? 'quickforge-subagent-label quickforge-tool-running-sweep'
+          : 'quickforge-subagent-label',
         ...(meta ? { meta } : {}),
         // 悬停文案额外带上 Agent 错误；run_subagent 没有记录级 error，保持其默认文案。
-        ...(agent.error ? { title: `${t('viewSubagentRunDetails')}: ${agent.error}` } : {}),
+        ...(agent.error
+          ? { title: `${payload.statusLabel}: ${agent.error}` }
+          : { title: payload.statusLabel }),
         onOpen: (payloadForOpen) => {
           // 历史恢复/首帧或终态修正时把载荷写回 store，后续点击/订阅复用。
           const existing = subagentRunStore.get(payloadForOpen.runId)
@@ -252,19 +262,35 @@ export class WorkflowToolRenderer {
               {view.phases.length === 0 ? (
                 <div className="quickforge-workflow-empty">{t('workflowNoAgents')}</div>
               ) : view.phases.map((phase, phaseIndex) => {
-                const steps = [
-                  ...phase.agents.map((agent) => ({ kind: 'agent' as const, seq: agent.seq, agent })),
-                  ...phase.tools.map((tool) => ({ kind: 'tool' as const, seq: tool.seq, tool })),
-                ].sort((left, right) => left.seq - right.seq)
+                const steps = workflowPhaseSteps(phase)
+                const stepCount = phase.agents.length + phase.tools.length
                 return (
                   <section className="quickforge-workflow-phase" key={`${phase.title}:${phaseIndex}`}>
-                    {phase.title ? <div className="quickforge-workflow-phase-title">{phase.title}</div> : null}
+                    {phase.title ? (
+                      <div className="quickforge-workflow-phase-title">
+                        <span className="quickforge-workflow-phase-name">{phase.title}</span>
+                        <span className="quickforge-workflow-phase-count">{t('workflowStepCount', { count: stepCount })}</span>
+                      </div>
+                    ) : null}
                     {steps.length > 0 ? (
                       <ul className="quickforge-workflow-agent-list">
-                        {steps.map((step) => (
+                        {steps.map((step, stepIndex) => (
                           step.kind === 'agent'
                             ? <WorkflowAgentRow agent={step.agent} workflowRunId={view.runId} key={step.agent.id} />
-                            : <WorkflowToolCallRow tool={step.tool} detailed={detailed} workflowRunId={view.runId} key={step.tool.id} />
+                            : (
+                              // 只有紧跟 Agent 的工具区才缩进 + 连线；阶段开头的
+                              // 独立工具调用没有可归属的父步骤，保持与 Agent 同级。
+                              <li
+                                className={`quickforge-workflow-tool-zone${stepIndex > 0 && steps[stepIndex - 1].kind === 'agent' ? '' : ' quickforge-workflow-tool-zone--root'}`}
+                                key={step.tools[0].id}
+                              >
+                                <ul className="quickforge-workflow-tool-list">
+                                  {step.tools.map((tool) => (
+                                    <WorkflowToolCallRow tool={tool} detailed={detailed} workflowRunId={view.runId} key={tool.id} />
+                                  ))}
+                                </ul>
+                              </li>
+                            )
                         ))}
                       </ul>
                     ) : null}

@@ -30,6 +30,13 @@ const subagentToolSummaryMemory = new SubagentToolSummaryMemory()
 export type SubagentRunSummaryOptions = {
   /** 追加在状态文案后的元信息（workflow Agent 的 profile/工具数/schema）。 */
   meta?: string
+  /**
+   * 覆盖正文主文案。workflow Agent 行用它把「任务名」放到主位（状态仍由
+   * title/aria-label 与状态区表达）；run_subagent 不传，保持原状态文案。
+   */
+  label?: string
+  /** 追加在主文案上的类名；workflow 行用它给运行中的任务名挂流光。 */
+  labelClassName?: string
   /** 覆盖悬停与 aria 文案；缺省按可打开性生成。 */
   title?: string
   /** 打开前回调；workflow 行用它把历史回填载荷发布到 store。 */
@@ -41,6 +48,7 @@ export function renderSubagentRunSummary(
   options: SubagentRunSummaryOptions = {},
 ) {
   const canOpen = canOpenSubagentRunPayload(payload)
+  const label = options.label ?? payload.statusLabel
   const title = options.title ?? (canOpen ? t('viewSubagentRunDetails') : payload.statusLabel)
   const currentTools = currentSubagentToolSummariesWithMemory(payload, subagentToolSummaryMemory)
   return (
@@ -49,7 +57,7 @@ export function renderSubagentRunSummary(
         type="button"
         className="quickforge-tool-summary flex w-full cursor-pointer list-none items-center gap-2 text-left text-sm text-muted-foreground select-none disabled:cursor-not-allowed disabled:opacity-70"
         title={title}
-        aria-label={`${payload.statusLabel} · ${title}`}
+        aria-label={`${label} · ${title}`}
         aria-disabled={!canOpen ? 'true' : 'false'}
         disabled={!canOpen}
         onClick={() => {
@@ -62,8 +70,8 @@ export function renderSubagentRunSummary(
       >
         {renderToolIcon('run_subagent')}
         <span className="quickforge-subagent-title min-w-0">
-          <span className="quickforge-subagent-label">
-            {payload.statusLabel}
+          <span className={options.labelClassName ?? 'quickforge-subagent-label'}>
+            {label}
             {options.meta ? <span className="quickforge-tool-summary-detail text-muted-foreground"> · {options.meta}</span> : null}
           </span>
           {currentTools.length > 0 ? renderToolMarquee(currentTools.join(' · '), t('subagentRunningTools'), 'quickforge-subagent-marquee') : null}

@@ -119,7 +119,7 @@ import type { WorkspaceInspectorOpenRequestInput, WorkspaceInspectorRuntimeScope
 import { SideChatAgent } from '@/components/workspace/side-chat-agent'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
 import { turnRollbackKey, type AiTurnArtifact } from '@/lib/tool-artifacts'
-import { artifactPreviewMode, collectToolResultToolCallIds, documentFormatFromPath, findBestPreviewableArtifact, isNewlyPresentedArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
+import { artifactPreviewMode, documentFormatFromPath, findBestPreviewableArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
 import { isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
 import { initializeSystemNotifications, showTaskSystemNotification } from '@/lib/system-notifications'
@@ -298,11 +298,6 @@ function MainApp() {
   // 用户在新对话空状态主动清除项目预选后，本次空状态内不再默认预选上次激活的项目。
   const [emptyStateProjectDismissed, setEmptyStateProjectDismissed] = useState(false)
   const wasNewChatEmptyStateRef = useRef(false)
-  const autoPreviewSignatureRef = useRef('')
-  // 附着时刻的历史 toolResult 快照：恢复会话时（restore 返回时消息已同步填充）记录全部
-  // 历史 toolCallId，用于区分「历史 present_files」与「附着后新 present」；缓存命中后后台
-  // 校准补尾出现的 toolResult 会视为新产物（可接受）。
-  const autoPreviewHistoryRef = useRef<{ sessionId?: string; toolCallIds: Set<string> }>({ sessionId: undefined, toolCallIds: new Set() })
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
   const gitState = useAppGitState()
   const { titleGitStatus, setTitleGitStatus, titleGitRequestIdRef, titleGitAbortRef, branchMenuOpen, setBranchMenuOpen, gitToolsExpanded, setGitToolsExpanded, gitCommitDialogOpen, setGitCommitDialogOpen, gitGraphOpen, setGitGraphOpen } = gitState
@@ -797,58 +792,37 @@ function MainApp() {
     }
   }, [])
 
-  // 附着时刻快照：agent/sessionId 变化时（restore 返回后消息已同步填充）记录全部历史
-  // toolResult 的 toolCallId；缓存命中后后台校准补尾出现的 toolResult 会视为新产物（可接受）。
-  // 此快照用于区分「历史 present_files」与「附着后新 present」。必须声明在自动预览 effect
-  // 之前，保证同一 commit 内先更新快照、后执行自动预览历史门控。
-  useEffect(() => {
-    const messages = agentManager.agent?.state.messages ?? []
-    autoPreviewHistoryRef.current = {
-      sessionId: agentManager.currentSessionId,
-      toolCallIds: collectToolResultToolCallIds(messages),
-    }
-  }, [agentManager.agent, agentManager.currentSessionId])
-
-  useEffect(() => {
+  // 自动预览的唯一入口：`ChatPanelHost` 在 `tool_execution_end` 时上报「本次工具
+  // 执行刚刚产出的文件」，且只由当前活跃视图上报。这是事件而不是状态差分，因此
+  // 历史补齐、缓存校准、SSE 重连、回滚都不会误触发打开右侧面板。
+  const openLivePresentedArtifacts = useCallback((sessionId: string, artifacts: AiTurnArtifact[]) => {
     const project = agentManager.currentToolProject
     const projectId = project?.id
-    if (!projectId || currentSessionArtifactsState.projectId !== projectId) return
-    if (currentSessionArtifactsState.sessionId !== agentManager.currentSessionId) return
-    const artifact = findBestPreviewableArtifact(currentSessionArtifactsState.artifacts)
+    if (!projectId || !sessionId || sessionId !== agentManager.currentSessionId) return
+    const artifact = findBestPreviewableArtifact(artifacts)
     if (!artifact?.path) return
-    // 历史门控：仅「附着后新发生」的 present 才自动弹，恢复会话的历史 present_files 不弹。
-    const history = autoPreviewHistoryRef.current
-    if (history.sessionId !== agentManager.currentSessionId) return
-    if (!isNewlyPresentedArtifact(artifact.toolCallIds, history.toolCallIds)) return
-    // 签名仅做同会话内重复报告去重，防止同一 live present 的重复 artifacts 报告反复弹；
-    // 历史/新产物的区分由 autoPreviewHistoryRef 快照门控完成。
-    const lastToolCallId = artifact.toolCallIds[artifact.toolCallIds.length - 1]
-    const signature = `${projectId}:${artifact.path}:${artifact.defaultPreview ? 'default' : artifact.explicit ? 'explicit' : 'inferred'}:${lastToolCallId ?? ''}`
-    if (signature === autoPreviewSignatureRef.current) return
-    autoPreviewSignatureRef.current = signature
-    queueMicrotask(() => {
-      const mode = artifactPreviewMode(artifact.path, artifact.kind)
-      if (!mode) return
-      setArtifactPreviewOpen(false)
-      if (mode === 'reader') {
-        // Markdown、代码、配置和文本走 Reader；Markdown 使用富文本预览，其余使用 Monaco 只读查看。
-        requestWorkspaceInspector({ projectId, kind: 'reader', path: artifact.path })
-      } else if (mode === 'document') {
-        const format = documentFormatFromPath(artifact.path)
-        if (format) requestWorkspaceInspector({ projectId, kind: 'document', path: artifact.path, format })
-      } else {
-        // HTML 和支持的图片走 Browser iframe。
-        requestWorkspaceInspector({
-          projectId,
-          kind: 'browser',
-          url: workspaceArtifactDiskPath(project.path, artifact.path),
-        })
-      }
+    const mode = artifactPreviewMode(artifact.path, artifact.kind)
+    if (!mode) return
+    setArtifactPreviewOpen(false)
+    if (mode === 'reader') {
+      // Markdown、代码、配置和文本走 Reader；Markdown 使用富文本预览，其余使用 Monaco 只读查看。
+      requestWorkspaceInspector({ projectId, kind: 'reader', path: artifact.path })
+      return
+    }
+    if (mode === 'document') {
+      const format = documentFormatFromPath(artifact.path)
+      if (format) requestWorkspaceInspector({ projectId, kind: 'document', path: artifact.path, format })
+      return
+    }
+    // HTML 和支持的图片走 Browser iframe。
+    requestWorkspaceInspector({
+      projectId,
+      kind: 'browser',
+      url: workspaceArtifactDiskPath(project.path, artifact.path),
     })
-  }, [agentManager.currentSessionId, agentManager.currentToolProject, currentSessionArtifactsState, requestWorkspaceInspector, setArtifactPreviewOpen])
+  }, [agentManager.currentSessionId, agentManager.currentToolProject, requestWorkspaceInspector, setArtifactPreviewOpen])
 
   useEffect(() => {
-    autoPreviewSignatureRef.current = ''
     setArtifactPreviewOpen(false)
     setWorkspaceInspectorRequest(undefined)
   }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen, setWorkspaceInspectorRequest])
@@ -2201,6 +2175,7 @@ function MainApp() {
                           artifacts,
                         })
                       }}
+                      onLivePresentArtifacts={openLivePresentedArtifacts}
                       onContextUsageDisplayChange={handleContextUsageDisplayChange}
                       onInitialRenderReady={handleSessionInitialRenderReady}
                       onInitialRenderError={handleSessionInitialRenderError}

@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>run_workflow 工具行层级设计稿</title>
+<style>
+  /* ── 令牌：全部取自 src/index.css 的 :root / .dark ───────────────────── */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --primary: oklch(0.205 0 0);
+    --ring: oklch(0.708 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --done: oklch(0.55 0.13 158);
+    --msg: 14px;
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --dur-exit: 140ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    color-scheme: light;
+  }
+  html.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(0.275 0 0);
+    --primary: oklch(0.922 0 0);
+    --ring: oklch(0.556 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --done: oklch(0.75 0.15 160);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 24px 72px;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: var(--msg);
+    line-height: 1.6;
+    transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+  }
+  .page { max-width: 1180px; margin: 0 auto; }
+
+  /* ── 页面外壳 ──────────────────────────────────────────────────────── */
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
+  .page-title { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .page-sub { margin: 6px 0 0; color: var(--muted-foreground); font-size: calc(var(--msg) * 0.875); }
+  .theme-btn {
+    flex: 0 0 auto; height: 30px; padding: 0 12px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--muted-foreground);
+    font: inherit; font-size: 12px; cursor: pointer;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .theme-btn:hover { background: var(--muted); color: var(--foreground); }
+
+  .divider { height: 1px; margin: 20px 0 24px; border: 0; background: color-mix(in oklab, var(--border) 60%, transparent); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; align-items: start; }
+
+  .panel {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--background);
+    padding: 14px 14px 16px;
+  }
+  .panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .panel-tag {
+    flex: 0 0 auto; padding: 1px 7px; border-radius: 999px;
+    background: var(--muted); color: var(--muted-foreground);
+    font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  }
+  .panel-tag--now { background: color-mix(in oklab, var(--destructive) 10%, transparent); color: var(--destructive); }
+  .panel-tag--new { background: color-mix(in oklab, var(--done) 12%, transparent); color: var(--done); }
+  .panel-title { font-size: 13px; font-weight: 600; }
+  .panel-note {
+    margin: 14px 0 0; padding: 10px 0 0;
+    border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    color: var(--muted-foreground); font-size: 12px; line-height: 1.7;
+  }
+  .panel-note b { color: color-mix(in oklab, var(--foreground) 80%, transparent); font-weight: 600; }
+  .panel-note ul { margin: 6px 0 0; padding-left: 16px; }
+  .panel-note li + li { margin-top: 3px; }
+
+  /* ══════════════════════════════════════════════════════════════════
+     外层：run_workflow 卡（等同 .quickforge-workflow-tool）
+     ══════════════════════════════════════════════════════════════════ */
+  .wf { font-size: calc(var(--msg) * 0.8); color: color-mix(in oklab, var(--muted-foreground) 88%, transparent); }
+  .wf-summary {
+    display: flex; align-items: center; gap: 8px;
+    font-size: calc(var(--msg) * 0.875); line-height: 1.5;
+    color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  }
+  .wf-label { flex: 0 0 auto; }
+  .wf-marquee {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--font-mono); font-size: 12px;
+    color: color-mix(in oklab, var(--muted-foreground) 68%, transparent);
+  }
+  .wf-status { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: color-mix(in oklab, var(--muted-foreground) 72%, transparent); }
+  .wf-body { margin-top: 12px; display: flex; flex-direction: column; gap: 14px; }
+  .icon { flex: 0 0 auto; color: var(--muted-foreground); }
+  .chev { flex: 0 0 auto; color: color-mix(in oklab, var(--muted-foreground) 55%, transparent); }
+
+  /* ── 阶段（L1）────────────────────────────────────────────────────── */
+  .phase { display: flex; flex-direction: column; gap: 6px; }
+  .phase-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+    color: color-mix(in oklab, var(--foreground) 62%, transparent);
+    text-transform: none;
+  }
+  .phase-title::after {
+    content: ''; flex: 1 1 auto; height: 1px;
+    background: color-mix(in oklab, var(--border) 55%, transparent);
+  }
+  .phase-count {
+    flex: 0 0 auto; font-weight: 500; letter-spacing: 0;
+    color: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+    font-family: var(--font-mono); font-size: 10.5px;
+  }
+  .steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+
+  /* ── Agent 行（L2，主行）──────────────────────────────────────────── */
+  .agent-row {
+    display: flex; align-items: center; gap: 7px;
+    min-width: 0; padding: 3px 4px; margin-left: -4px;
+    border-radius: 6px; cursor: pointer;
+    font-size: calc(var(--msg) * 0.875);
+    color: color-mix(in oklab, var(--foreground) 84%, transparent);
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .agent-row:hover { background: color-mix(in oklab, var(--muted) 55%, transparent); }
+  .agent-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .agent-meta {
+    flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 11.5px; color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+  }
+  .agent-meta .sep { opacity: 0.5; }
+  .agent-row .spacer { flex: 1 1 auto; }
+  .agent-row.is-running .agent-name {
+    /* 复用 .quickforge-tool-running-sweep：字形流光，非灰带 */
+    background-color: var(--muted-foreground);
+    background-image: linear-gradient(90deg, var(--muted-foreground) 25%, var(--foreground) 50%, var(--muted-foreground) 75%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: shimmer 2s ease-in-out infinite;
+  }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+  /* 状态点：完成用 emerald，运行用 primary 转圈，失败 destructive */
+  .dot { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 999px; background: var(--done); }
+  .dot--queued { background: color-mix(in oklab, var(--muted-foreground) 45%, transparent); }
+  .dot--error { background: var(--destructive); }
+  .spin { flex: 0 0 auto; color: var(--primary); animation: spin 900ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .dur { flex: 0 0 auto; font-size: 11px; font-family: var(--font-mono); color: color-mix(in oklab, var(--muted-foreground) 55%, transparent); }
+
+  /* ── 工具区（L3）：缩进 + 1px 连接线 ─────────────────────────────── */
+  .tool-zone {
+    display: flex; flex-direction: column; gap: 1px;
+    margin: 2px 0 6px 6px;
+    padding-left: 10px;
+    border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  }
+  .tool-row {
+    display: flex; align-items: center; gap: 6px;
+    min-width: 0; padding: 2px 4px; margin-left: -4px;
+    border-radius: 5px; cursor: pointer;
+    font-size: 11.5px; line-height: 1.5;
+    color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .tool-row:hover { background: color-mix(in oklab, var(--muted) 50%, transparent); color: color-mix(in oklab, var(--muted-foreground) 92%, transparent); }
+  .tool-row .icon { width: 12px; height: 12px; color: color-mix(in oklab, var(--muted-foreground) 55%, transparent); }
+  .tool-row .icon svg { width: 12px; height: 12px; }
+  .tool-name { flex: 0 0 auto; }
+  .tool-args {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--font-mono); font-size: 11px;
+    color: color-mix(in oklab, var(--muted-foreground) 52%, transparent);
+  }
+  .tool-row.is-running .tool-name,
+  .tool-row.is-running .tool-args {
+    background-color: var(--muted-foreground);
+    background-image: linear-gradient(90deg, var(--muted-foreground) 25%, var(--foreground) 50%, var(--muted-foreground) 75%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: shimmer 2s ease-in-out infinite;
+  }
+  .tool-row .chev { opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+  .tool-row:hover .chev { opacity: 1; }
+  .tool-row.is-error .tool-name { color: var(--destructive); }
+
+  /* 分组头（方案 B）：连续 tool 合并成一行 */
+  .tool-group-head {
+    display: flex; align-items: center; gap: 6px;
+    padding: 2px 4px; margin-left: -4px; border-radius: 5px; cursor: pointer;
+    font-size: 11.5px; color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .tool-group-head:hover { background: color-mix(in oklab, var(--muted) 50%, transparent); color: color-mix(in oklab, var(--foreground) 82%, transparent); }
+  .tool-group-head .count { font-family: var(--font-mono); font-size: 11px; color: color-mix(in oklab, var(--muted-foreground) 55%, transparent); }
+  .tool-group-head .mini-icons { display: inline-flex; gap: 3px; margin-left: auto; color: color-mix(in oklab, var(--muted-foreground) 45%, transparent); }
+  .tool-group-head .mini-icons svg { width: 11px; height: 11px; }
+  .tool-group[data-open="false"] .tool-zone { display: none; }
+  .tool-group-head .chev { transform: rotate(0deg); transition: transform var(--dur-fast) var(--ease); }
+  .tool-group[data-open="true"] .tool-group-head .chev { transform: rotate(90deg); }
+
+  /* 错误行 / 日志 */
+  .tool-err { padding-left: 10px; color: var(--destructive); font-size: 11px; font-family: var(--font-mono); }
+  .log-zone {
+    margin: 2px 0 0 6px; padding-left: 10px;
+    border-left: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+    color: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+    font-size: 11px; display: flex; flex-direction: column; gap: 1px;
+  }
+  .log-zone .log--error { color: var(--destructive); }
+
+  /* ── 规格表 ──────────────────────────────────────────────────────── */
+  .spec { margin-top: 26px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .spec table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .spec th, .spec td { padding: 9px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid color-mix(in oklab, var(--border) 55%, transparent); }
+  .spec th { font-weight: 600; font-size: 11px; letter-spacing: 0.04em; color: color-mix(in oklab, var(--foreground) 62%, transparent); background: color-mix(in oklab, var(--muted) 40%, transparent); }
+  .spec tr:last-child td { border-bottom: 0; }
+  .spec td:first-child { white-space: nowrap; font-family: var(--font-mono); font-size: 11.5px; color: color-mix(in oklab, var(--foreground) 78%, transparent); }
+  .spec td:nth-child(2) { color: var(--muted-foreground); }
+  code { font-family: var(--font-mono); font-size: 0.94em; background: color-mix(in oklab, var(--muted) 55%, transparent); padding: 1px 4px; border-radius: 4px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+    .agent-row.is-running .agent-name, .tool-row.is-running .tool-name, .tool-row.is-running .tool-args {
+      background: none; color: var(--muted-foreground); -webkit-text-fill-color: currentColor;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">run_workflow：把 tool 行下沉成 Agent 的子层级</h1>
+      <p class="page-sub">现状 Agent 与 tool() 平铺在同一列表里、同字号同图标强度，看不出「tool 是工作流内部动作」。下面是两种收敛方向，均只用现有 token。</p>
+    </div>
+    <button class="theme-btn" id="themeBtn" type="button">切换深色</button>
+  </div>
+
+  <hr class="divider" />
+
+  <div class="grid">
+
+    <!-- ══════════ 现状 ══════════ -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-tag panel-tag--now">现状</span>
+        <span class="panel-title">平铺：一行一个步骤</span>
+      </div>
+
+      <div class="wf">
+        <div class="wf-summary">
+          <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></span>
+          <span class="wf-label">已完成 · 2 个 Agent · 6 次工具调用</span>
+          <span class="wf-status">3.6s</span>
+        </div>
+
+        <div class="wf-body">
+          <section class="phase">
+            <div class="phase-title">调研仓库</div>
+            <ul class="steps">
+              <li class="agent-row">
+                <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></span>
+                <span class="agent-name">已完成</span>
+                <span class="agent-meta">explore · 3 次工具调用</span>
+                <span class="spacer"></span>
+                <span class="dur">1.2s</span>
+              </li>
+              <li class="tool-row">
+                <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+                <span class="tool-name">搜索文件</span>
+                <span class="tool-args">· workflow-tool-renderer</span>
+                <span class="chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                <span class="dur">0.2s</span>
+              </li>
+              <li class="tool-row">
+                <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg></span>
+                <span class="tool-name">读取文件</span>
+                <span class="tool-args">· src/lib/tool-renderers/workflow-tool-renderer.tsx</span>
+                <span class="chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                <span class="dur">0.3s</span>
+              </li>
+              <li class="agent-row">
+                <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></span>
+                <span class="agent-name">运行中</span>
+                <span class="agent-meta">general · 3 次工具调用</span>
+                <span class="spacer"></span>
+              </li>
+              <li class="tool-row">
+                <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg></span>
+                <span class="tool-name">运行命令</span>
+                <span class="tool-args">· npm run lint</span>
+                <span class="chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                <span class="dur">1.9s</span>
+              </li>
+            </ul>
+          </section>
+        </div>
+      </div>
+
+      <div class="panel-note">
+        <b>问题</b>
+        <ul>
+          <li>Agent 与 tool 同缩进、同字号、同图标强度 → 读不出从属关系。</li>
+          <li>Agent 行主文案是状态（「已完成」），真正的任务名缺失。</li>
+          <li>tool 多起来后列表变成一串平铺行，扫不出「谁在干活」。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════ 方案 A ══════════ -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-tag panel-tag--new">已落地</span>
+        <span class="panel-title">缩进 + 细连接线 + 弱化</span>
+      </div>
+
+      <div class="wf">
+        <div class="wf-summary">
+          <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></span>
+          <span class="wf-label">已完成 · 2 个 Agent · 6 次工具调用</span>
+          <span class="wf-status">3.6s</span>
+        </div>
+
+        <div class="wf-body">
+          <section class="phase">
+            <div class="phase-title">调研仓库 <span class="phase-count">3 步</span></div>
+            <ul class="steps">
+              <li>
+                <div class="agent-row">
+                  <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></span>
+                  <span class="agent-name">调研 workflow 渲染器</span>
+                  <span class="agent-meta">explore <span class="sep">·</span> 3 次工具调用</span>
+                  <span class="spacer"></span>
+                  <span class="dot"></span>
+                  <span class="dur">1.2s</span>
+                </div>
+              </li>
+              <li>
+                <div class="tool-zone">
+                  <div class="tool-row">
+                    <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+                    <span class="tool-name">搜索文件</span>
+                    <span class="tool-args">workflow-tool-renderer</span>
+                    <span class="chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                    <span class="dur">0.2s</span>
+                  </div>
+                  <div class="tool-row">
+                    <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg></span>
+                    <span class="tool-name">读取文件</span>
+                    <span class="tool-args">src/lib/tool-renderers/workflow-tool-renderer.tsx</span>
+                    <span class="chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                    <span class="dur">0.3s</span>
+                  </div>
+                </div>
+              </li>
+              <li>
+                <div class="agent-row is-running">
+                  <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></span>
+                  <span class="agent-name">实现 tool 行层级</span>
+                  <span class="agent-meta">general <span class="sep">·</span> 3 次工具调用</span>
+                  <span class="spacer"></span>
+                  <span class="spin"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg></span>
+                </div>
+              </li>
+              <li>
+                <div class="tool-zone">
+                  <div class="tool-row is-running">
+                    <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg></span>
+                    <span class="tool-name">运行命令</span>
+                    <span class="tool-args">npm run lint</span>
+                    <span class="chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                  </div>
+                  <div class="tool-row is-error">
+                    <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M18.4 8.6 11 16l-4 1 1-4 7.4-7.4a1.4 1.4 0 0 1 2 2Z"/></svg></span>
+                    <span class="tool-name">编辑文件</span>
+                    <span class="tool-args">src/index.css · 失败</span>
+                    <span class="chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                  </div>
+                  <div class="tool-err">ENOENT: old_string 未匹配</div>
+                </div>
+              </li>
+            </ul>
+          </section>
+        </div>
+      </div>
+
+      <div class="panel-note">
+        <b>已实现（方案 A）</b>
+        <ul>
+          <li>Agent 行主文案改为任务名，状态退到 <code>title</code> / <code>aria-label</code> 与悬停状态区；运行中任务名走 running sweep 流光。</li>
+          <li>工具行下沉：<code>workflowPhaseSteps()</code> 把连续 <code>tool()</code> 折成一段，包进 <code>.quickforge-workflow-tool-zone</code>（左缩进 0.375rem + padding 0.625rem + 1px border 60% 连接线）。</li>
+          <li>工具行字号 <code>×0.75</code>、颜色 muted 78%，与 Agent 行形成层级差；chevron 在 <code>@media (hover: hover)</code> 下默认透明。</li>
+          <li>阶段头改为「阶段名 + 步数 + 渐隐细线」，阶段开头无可归属 Agent 的工具区用 <code>--root</code> 去掉缩进与连线。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════ 方案 B ══════════ -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="panel-tag panel-tag--new">方案 B</span>
+        <span class="panel-title">A + 连续工具折成一组</span>
+      </div>
+
+      <div class="wf">
+        <div class="wf-summary">
+          <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg></span>
+          <span class="wf-label">运行中 · 2 个 Agent · 6 次工具调用</span>
+          <span class="wf-marquee">运行命令 npm run lint</span>
+        </div>
+
+        <div class="wf-body">
+          <section class="phase">
+            <div class="phase-title">调研仓库 <span class="phase-count">3 步</span></div>
+            <ul class="steps">
+              <li>
+                <div class="agent-row">
+                  <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></span>
+                  <span class="agent-name">调研 workflow 渲染器</span>
+                  <span class="agent-meta">explore <span class="sep">·</span> 3 次工具调用</span>
+                  <span class="spacer"></span>
+                  <span class="dot"></span>
+                  <span class="dur">1.2s</span>
+                </div>
+              </li>
+              <li class="tool-group" data-open="false">
+                <div class="tool-group-head">
+                  <span class="chev"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                  <span>工具调用</span>
+                  <span class="count">· 3</span>
+                  <span class="mini-icons">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+                  </span>
+                  <span class="dur">0.7s</span>
+                </div>
+                <div class="tool-zone">
+                  <div class="tool-row">
+                    <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+                    <span class="tool-name">搜索文件</span>
+                    <span class="tool-args">workflow-tool-renderer</span>
+                    <span class="dur">0.2s</span>
+                  </div>
+                  <div class="tool-row">
+                    <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg></span>
+                    <span class="tool-name">读取文件</span>
+                    <span class="tool-args">src/lib/tool-renderers/workflow-tool-renderer.tsx</span>
+                    <span class="dur">0.3s</span>
+                  </div>
+                  <div class="tool-row">
+                    <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg></span>
+                    <span class="tool-name">运行命令</span>
+                    <span class="tool-args">rg -n "quickforge-workflow" src</span>
+                    <span class="dur">0.2s</span>
+                  </div>
+                </div>
+              </li>
+              <li>
+                <div class="agent-row is-running">
+                  <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></span>
+                  <span class="agent-name">实现 tool 行层级</span>
+                  <span class="agent-meta">general <span class="sep">·</span> 3 次工具调用</span>
+                  <span class="spacer"></span>
+                  <span class="spin"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg></span>
+                </div>
+              </li>
+              <li class="tool-group" data-open="true">
+                <div class="tool-group-head">
+                  <span class="chev"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                  <span>工具调用</span>
+                  <span class="count">· 3</span>
+                  <span class="mini-icons">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+                  </span>
+                  <span class="dur">1.9s</span>
+                </div>
+                <div class="tool-zone">
+                  <div class="tool-row is-running">
+                    <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg></span>
+                    <span class="tool-name">运行命令</span>
+                    <span class="tool-args">npm run lint</span>
+                  </div>
+                  <div class="tool-row">
+                    <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></span>
+                    <span class="tool-name">读取文件</span>
+                    <span class="tool-args">DESIGN_LANGUAGE.md</span>
+                    <span class="dur">0.1s</span>
+                  </div>
+                </div>
+              </li>
+              <li>
+                <ul class="log-zone">
+                  <li>phase done · 2 个 Agent 已收敛</li>
+                  <li class="log--error">lint 有 1 处 warning，已记录不阻断</li>
+                </ul>
+              </li>
+            </ul>
+          </section>
+        </div>
+      </div>
+
+      <div class="panel-note">
+        <b>分组规则</b>
+        <ul>
+          <li>同一 Agent 之后、下一个 Agent 之前的连续 tool 合并成「工具调用 · N」，默认收起，头行右侧并列去重图标。</li>
+          <li>只有 1 条时不分组，直接渲染单行（退化成方案 A）。</li>
+          <li>组内有 error / running 时强制展开并高亮该行——折叠不能藏住故障。</li>
+          <li>组头 hover 才出 chevron，静态保持安静；展开走 <code>grid-template-rows</code> + <code>--quickforge-dur-base</code>。</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- ══════════ 规格 ══════════ -->
+  <section class="spec">
+    <table>
+      <thead>
+        <tr><th>元素</th><th>取值</th><th>理由</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>阶段标题</td>
+          <td>11px / 600 / foreground 62% + 右侧 1px 渐隐细线</td>
+          <td>组织信息不抢内容，细线替代卡片框分隔阶段。</td>
+        </tr>
+        <tr>
+          <td>Agent 行</td>
+          <td>0.875×消息字号 / 500 / foreground 84%；meta 11.5px / muted 78%</td>
+          <td>唯一主行，任务名当标题；状态降级成 5px 圆点。</td>
+        </tr>
+        <tr>
+          <td>tool 行</td>
+          <td>0.72rem / muted 72%；参数 mono 11px / muted 52%</td>
+          <td>比 Agent 低一档，靠字号与颜色的双降表达从属。</td>
+        </tr>
+        <tr>
+          <td>tool 缩进</td>
+          <td><code>margin-left:6px; padding-left:10px; border-left:1px solid border/60%</code></td>
+          <td>复用 DESIGN_LANGUAGE 对「阶段内子级」的缩进+细连接线例外。</td>
+        </tr>
+        <tr>
+          <td>hover</td>
+          <td><code>background: muted/50%</code>，chevron opacity 0→1，dur-fast</td>
+          <td>不位移、不加阴影，符合「有感知不跳动」。</td>
+        </tr>
+        <tr>
+          <td>运行态</td>
+          <td>复用 <code>.quickforge-tool-running-sweep</code> 字形流光</td>
+          <td>不新增动效范式；组内 running 行随组展开可见。</td>
+        </tr>
+        <tr>
+          <td>失败态</td>
+          <td>名称转 <code>--destructive</code>，错误串缩进补一行 mono</td>
+          <td>危险色只出现在真实错误上下文，不预置红。</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<script>
+  const btn = document.getElementById('themeBtn');
+  const root = document.documentElement;
+  const sync = () => {
+    const dark = root.classList.contains('dark');
+    btn.textContent = dark ? '切换浅色' : '切换深色';
+  };
+  btn.addEventListener('click', () => { root.classList.toggle('dark'); sync(); });
+  sync();
+  // 分组头点击（仅设计稿演示）
+  document.querySelectorAll('.tool-group-head').forEach((head) => {
+    head.addEventListener('click', () => {
+      const group = head.closest('.tool-group');
+      group.dataset.open = group.dataset.open === 'true' ? 'false' : 'true';
+    });
+  });
+</script>
+</body>
+</html>

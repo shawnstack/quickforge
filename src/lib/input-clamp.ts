@@ -1,5 +1,5 @@
 /**
- * 长输入内容定高收起的交互控制（设计稿 design-mockups/input-clamp-expand.html）。
+ * 长输入内容定高收起的交互控制（设计稿已随 design-mockups/ 整体删除，规格以本文件与 index.css 为准）。
  *
  * 两个使用方共用一套结构：
  * - 聊天用户消息气泡（message-actions 装饰 .user-message-container）；

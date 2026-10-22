@@ -1,5 +1,5 @@
 /**
- * Slash 选中态 chip（design-mockups/slash-menu-expansion.html · 方案 A 已定稿）。
+ * Slash 选中态 chip（方案 A 已定稿）。
  *
  * 职责：
  * - 纯逻辑：用户文本中 `/skill <name>` / `/agent <name>` 前缀的解析、匹配校验、

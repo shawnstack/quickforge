@@ -27,7 +27,7 @@ vi.mock('react', async (importOriginal) => ({
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => false } }))
 vi.mock('@/storage', () => ({ getAppStorage: () => ({}) }))
 vi.mock('@/lib/tool-display-settings', () => ({
-  loadToolDisplaySettings: async () => ({ toolDisplayMode: 'detailed', showContextUsage: false, expandProcessStageByDefault: true }),
+  loadToolDisplaySettings: async () => ({ toolDisplayMode: 'detailed', showContextUsage: false }),
   saveToolDisplaySettings: settings.saveToolDisplay,
 }))
 vi.mock('@/lib/auto-compact-settings', () => ({
@@ -110,16 +110,18 @@ describe('React default options notification persistence', () => {
   it('preserves loaded sibling settings when rendered callbacks save a toggle', async () => {
     await mount()
     settingsSwitch('showContextUsage').props.onChange!(true)
-    expect(settings.saveToolDisplay).toHaveBeenCalledWith({}, { toolDisplayMode: 'detailed', showContextUsage: true, expandProcessStageByDefault: true })
+    expect(settings.saveToolDisplay).toHaveBeenCalledWith({}, { toolDisplayMode: 'detailed', showContextUsage: true })
     settingsSwitch('autoCompactEnabled').props.onChange!(false)
     expect(settings.saveAutoCompact).toHaveBeenCalledWith({}, { enabled: false, requireConfirmation: false, thresholdPercent: 90, keepRecentTurns: 3, minSourceChars: 1600 })
   })
 
-  it('renders the expand process stage switch expanded by default and saves it without dropping sibling settings', async () => {
+  it('no longer renders the retired expand-process-stage-default switch', async () => {
     await mount()
-    expect(settingsSwitch('expandProcessStageByDefault').props.checked).toBe(true)
-    settingsSwitch('expandProcessStageByDefault').props.onChange!(false)
-    expect(settings.saveToolDisplay).toHaveBeenCalledWith({}, { toolDisplayMode: 'detailed', showContextUsage: false, expandProcessStageByDefault: false })
+    // 「工具调用列表默认展开」已固化为渲染常量，设置页不再提供开关。
+    const labels = render()
+      .filter((node) => node.props.className === 'quickforge-settings-row')
+      .map((node) => text(node))
+    expect(labels.some((label) => label.startsWith('expandProcessStageByDefault'))).toBe(false)
   })
 
   it('persists disable and hides the test action without requesting permission', async () => {

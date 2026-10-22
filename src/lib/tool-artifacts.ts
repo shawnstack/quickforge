@@ -1,4 +1,5 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
+import { upsertToolResult, type ToolExecutionEvent } from '@/lib/tool-execution-events'
 
 export type AiTurnArtifactKind = 'html' | 'image' | 'markdown' | 'code' | 'pdf' | 'docx' | 'excel' | 'unknown'
 
@@ -201,6 +202,20 @@ function extractArtifactsFromMessages(messages: AgentMessage[]): AiTurnArtifact[
 export function extractSessionArtifacts(messages: AgentMessage[] | undefined): AiTurnArtifact[] {
   if (!messages?.length) return []
   return extractArtifactsFromMessages(messages)
+}
+
+/**
+ * 单次工具执行结束时该工具自己产出的 artifact（live 口径）。
+ *
+ * 与 `extractSessionArtifacts` 的区别是输入不是消息列表而是这一次
+ * `tool_execution_end` 事件：它表达「agent 刚刚产出了这个文件」，不受消息窗口、
+ * 缓存命中、历史补齐影响。自动预览只认这个来源。
+ */
+export function extractToolExecutionArtifacts(event: ToolExecutionEvent | undefined): AiTurnArtifact[] {
+  if (!event?.toolCallId || !event.toolName) return []
+  const message = upsertToolResult([], event, false)[0]
+  if (!message) return []
+  return extractArtifactsFromMessages([message])
 }
 
 /** 按轮切片的产物提取结果（每轮产物卡的口径）。 */

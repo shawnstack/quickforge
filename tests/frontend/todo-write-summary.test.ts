@@ -7,6 +7,7 @@ import {
   extractLatestTodoWriteSnapshot,
   readLatestTodoWriteSnapshot,
   isFinalTodoSnapshot,
+  shouldRetireTodoSummary,
 } from '../../src/components/chat/panel-decoration/todo-write-summary'
 import { TodoWriteSummary } from '../../src/components/chat/surface/TodoWriteSummary'
 import type { TodoWriteMessage } from '../../src/components/chat/panel-decoration/todo-write-summary'
@@ -59,6 +60,20 @@ describe('extractLatestTodoWriteSnapshot', () => {
   })
 })
 
+describe('shouldRetireTodoSummary', () => {
+  it('retires only a fully completed list after the turn ended', () => {
+    const done = [todo('One', 'completed')]
+    const unfinished = [todo('One', 'completed'), todo('Two', 'pending')]
+
+    expect(shouldRetireTodoSummary({ todos: done, turnEnded: true })).toBe(true)
+    // A running round keeps the capsule, however many items are done.
+    expect(shouldRetireTodoSummary({ todos: done, turnEnded: false })).toBe(false)
+    expect(shouldRetireTodoSummary({ todos: unfinished, turnEnded: true })).toBe(false)
+    // An empty list is "cleared", not "finished".
+    expect(shouldRetireTodoSummary({ todos: [], turnEnded: true })).toBe(false)
+  })
+})
+
 describe('TodoWrite capsule rendering', () => {
   let container: HTMLDivElement
   let root: Root
@@ -75,13 +90,13 @@ describe('TodoWrite capsule rendering', () => {
     container.remove()
   })
 
-  function render(messages: TodoWriteMessage[]) {
+  function render(messages: TodoWriteMessage[], turnEnded = false) {
     // The component now receives the pre-resolved snapshot (the surface derives
     // it once per agent snapshot and caches it by message-array identity); these
     // cases feed it the same lookup the surface uses.
     const snapshot = readLatestTodoWriteSnapshot(messages)
     act(() => {
-      root.render(createElement(TodoWriteSummary, { snapshot }))
+      root.render(createElement(TodoWriteSummary, { snapshot, turnEnded }))
     })
   }
 
@@ -91,6 +106,7 @@ describe('TodoWrite capsule rendering', () => {
   const body = () => container.querySelector<HTMLElement>('.quickforge-todo-summary-body')
   const compactStats = () => container.querySelector<HTMLElement>('.quickforge-todo-summary-stats-compact')
   const updated = () => container.querySelector<HTMLElement>('.quickforge-todo-summary-updated')
+  const items = () => Array.from(container.querySelectorAll<HTMLElement>('.quickforge-todo-summary-item'))
 
   it('renders nothing without a snapshot', () => {
     render([])
@@ -135,29 +151,63 @@ describe('TodoWrite capsule rendering', () => {
     expect(summary()!.dataset.complete).toBe('true')
     expect(summary()!.dataset.running).toBe('false')
     expect(ring()!.style.getPropertyValue('--quickforge-todo-ring-offset')).toBe('0.00')
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('starts expanded so the task list is visible without a click', () => {
+    render([quickForgeResult([todo('One', 'in_progress'), todo('Two', 'pending')])])
+
+    expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
+    expect(body()!.hidden).toBe(false)
+    expect(summary()!.dataset.expanded).toBe('true')
   })
 
   it('wraps the list in the collapsible body inner container', () => {
     render([quickForgeResult([todo('One', 'in_progress')])])
 
     expect(Array.from(body()!.children).map((child) => child.className)).toEqual(['quickforge-todo-summary-body-inner'])
-    expect(container.querySelectorAll('.quickforge-todo-summary-item')).toHaveLength(1)
-    expect(body()!.hidden).toBe(true)
+    // The body is the list and nothing else: no per-status tally, no "working
+    // on" restatement — each row already carries its own status.
+    expect(Array.from(body()!.firstElementChild!.children).map((child) => child.className)).toEqual([
+      'quickforge-todo-summary-list',
+    ])
+    expect(items()).toHaveLength(1)
+  })
+
+  it('renders no summary line above the list', () => {
+    render([quickForgeResult([todo('Done', 'completed'), todo('Running', 'in_progress')])])
+
+    expect(container.querySelector('.quickforge-todo-summary-chips')).toBeNull()
+    expect(container.querySelector('.quickforge-todo-summary-chip')).toBeNull()
+    expect(container.querySelector('.quickforge-todo-summary-current')).toBeNull()
+  })
+
+  it('renders a shared status glyph per item so the three states differ by geometry', () => {
+    render([quickForgeResult([todo('Done', 'completed'), todo('Running', 'in_progress'), todo('Queued', 'pending')])])
+
+    const glyphs = items().map((item) => item.querySelector('.quickforge-todo-summary-status-icon svg')!)
+    expect(glyphs).toHaveLength(3)
+    // completed uses a mask to knock the check out of the filled circle.
+    expect(glyphs[0].querySelector('mask')).not.toBeNull()
+    expect(glyphs[1].querySelector('path')).not.toBeNull()
+    expect(glyphs[2].querySelector('mask')).toBeNull()
+    expect(glyphs[2].querySelectorAll('path')).toHaveLength(0)
+    // The status word stays available to screen readers even on mobile, where
+    // the visible label is hidden by CSS.
+    expect(items()[1].querySelector('.quickforge-todo-summary-status-label')!.textContent).toBe('todoWriteStatusInProgress')
   })
 
   it('expands and collapses through the toggle', () => {
     render([quickForgeResult([todo('One', 'in_progress')])])
+    expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
+
+    act(() => toggle()!.click())
     expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
     expect(body()!.hidden).toBe(true)
+    expect(summary()!.dataset.expanded).toBe('false')
 
     act(() => toggle()!.click())
     expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
     expect(body()!.hidden).toBe(false)
-    expect(summary()!.dataset.expanded).toBe('true')
-
-    act(() => toggle()!.click())
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('keeps the DOM nodes stable across snapshot updates so the arc animates', () => {
@@ -177,23 +227,10 @@ describe('TodoWrite capsule rendering', () => {
     expect(firstRing!.style.getPropertyValue('--quickforge-todo-ring-offset')).toBe('0.00')
   })
 
-  it('starts collapsed and stays collapsed when a fully completed snapshot arrives', () => {
-    render([quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' })])
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
-
-    render([
-      quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' }),
-      quickForgeResult([todo('One', 'completed'), todo('Two', 'completed')], { toolCallId: 'second' }),
-    ])
-    // A finished round never sits expanded above the composer.
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
-  })
-
-  it('keeps the user collapsed after a new unfinished snapshot and briefly marks it updated', () => {
+  it('re-expands on a new snapshot round even after the user collapsed', () => {
     vi.useFakeTimers()
     try {
       render([quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' })])
-      act(() => toggle()!.click())
       act(() => toggle()!.click())
       expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
 
@@ -201,7 +238,7 @@ describe('TodoWrite capsule rendering', () => {
         quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' }),
         quickForgeResult([todo('One', 'completed'), todo('Two', 'pending')], { toolCallId: 'second' }),
       ])
-      expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
+      expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
       expect(updated()!.hidden).toBe(false)
 
       act(() => { vi.advanceTimersByTime(1800) })
@@ -222,10 +259,62 @@ describe('TodoWrite capsule rendering', () => {
     expect(updated()!.hidden).toBe(false)
   })
 
+  it('keeps the completed list visible until the turn ends, then fades it out and unmounts', () => {
+    vi.useFakeTimers()
+    try {
+      render([quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' })])
+      // A finished list is still shown: the user gets to read the confirmation.
+      expect(summary()).not.toBeNull()
+      expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
+      expect(summary()!.dataset.complete).toBe('true')
+
+      render([quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' })], true)
+      // Turn ended: one exit fade first, so the composer dock does not jump…
+      expect(summary()!.dataset.fading).toBe('true')
+
+      act(() => { vi.advanceTimersByTime(140) })
+      // …then the capsule is gone from the composer.
+      expect(summary()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the capsule when the turn ends with work left over', () => {
+    vi.useFakeTimers()
+    try {
+      render([quickForgeResult([todo('One', 'completed'), todo('Two', 'pending')], { toolCallId: 'first' })], true)
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(summary()).not.toBeNull()
+      expect(summary()!.dataset.fading).toBe('false')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('brings a retired capsule back for the next round', () => {
+    vi.useFakeTimers()
+    try {
+      render([quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' })], true)
+      act(() => { vi.advanceTimersByTime(140) })
+      expect(summary()).toBeNull()
+
+      render([
+        quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' }),
+        quickForgeResult([todo('Two', 'in_progress')], { toolCallId: 'second' }),
+      ])
+      expect(summary()).not.toBeNull()
+      expect(summary()!.dataset.complete).toBe('false')
+      expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('resets after an explicit empty snapshot', () => {
     render([quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' })])
     act(() => toggle()!.click())
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
+    expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
 
     render([
       quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' }),
@@ -234,7 +323,7 @@ describe('TodoWrite capsule rendering', () => {
     expect(summary()).toBeNull()
 
     render([quickForgeResult([todo('Fresh', 'pending')], { toolCallId: 'fresh' })])
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
+    expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('resets on rollback to no snapshot', () => {
@@ -245,6 +334,6 @@ describe('TodoWrite capsule rendering', () => {
     expect(summary()).toBeNull()
 
     render([quickForgeResult([todo('Fresh', 'pending')], { toolCallId: 'fresh' })])
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
+    expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
   })
 })

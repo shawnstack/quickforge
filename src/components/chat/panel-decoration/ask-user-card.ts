@@ -7,7 +7,7 @@ import { escapeHtml } from './html'
  * at the message-list bottom while an `ask_user` tool call is pending; the
  * tool's execute blocks server-side until the card submits (or skips).
  *
- * Wizard interaction (per approved mockup design-mockups/ask-user-tool.html):
+ * Wizard interaction (per approved mockup):
  * single-select questions advance automatically on pick, multi-select and
  * free-form inputs require an explicit "next" step, and the final step is a
  * review summary that submits every answer together.

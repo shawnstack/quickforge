@@ -43,11 +43,12 @@ import { getAppStorage } from '@/storage'
 import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
 import { markSessionOpen, recordFirstDecorateTiming } from '@/lib/session-open-timing'
-import { subscribeSessionViewActivity, isInsideHiddenView } from '@/lib/session-view-activity'
+import { subscribeSessionViewActivity, isInsideHiddenView, isSessionViewActive } from '@/lib/session-view-activity'
 import { createMessageRowSnapshot } from './panel-decoration/message-rows'
 import { createChatDecorateScheduler, type ChatDecorateMode } from './panel-decoration/decorate-scheduler'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
-import { extractSessionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
+import { extractSessionArtifacts, extractToolExecutionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
+import type { ToolExecutionEvent } from '@/lib/tool-execution-events'
 import { getGitStatus } from '../workspace/workspace-api'
 import type { WorkspaceExternalOpenTarget } from '../workspace/workspace-api'
 import { requestAndroidRemoteSystemNotificationPermissionOnce } from '@/lib/system-notifications'
@@ -190,6 +191,12 @@ type ChatPanelHostProps = {
   /** artifact 卡片「打开 ▾ → 在文件管理器中显示」。 */
   onRevealFile?: (relativePath: string, target?: WorkspaceExternalOpenTarget) => void
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
+  /**
+   * 本次工具执行刚刚产出的文件（live 口径，仅当前活跃视图上报）。
+   * 自动预览只认这个来源：它不是状态差分，不会被历史补齐 / 缓存校准 /
+   * SSE 重连 / 回滚改写过的消息列表影响。
+   */
+  onLivePresentArtifacts?: (sessionId: string, artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void
   onInitialRenderError?: (sessionId: string, error: unknown) => void
@@ -246,6 +253,7 @@ type PropsRef = {
   /** artifact 卡片「打开 ▾ → 在文件管理器中显示」。 */
   onRevealFile?: (relativePath: string, target?: WorkspaceExternalOpenTarget) => void
   onArtifactsChange?: (artifacts: AiTurnArtifact[]) => void
+  onLivePresentArtifacts?: (sessionId: string, artifacts: AiTurnArtifact[]) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void
   onInitialRenderError?: (sessionId: string, error: unknown) => void
@@ -296,6 +304,7 @@ export function ChatPanelHost({
   onReviewFileChanges,
   onRevealFile,
   onArtifactsChange,
+  onLivePresentArtifacts,
   onContextUsageDisplayChange,
   onInitialRenderReady,
   onInitialRenderError,
@@ -510,6 +519,7 @@ export function ChatPanelHost({
     onOpenLocalFilePath,
     onOpenFilePreview,
     onArtifactsChange,
+    onLivePresentArtifacts,
     onContextUsageDisplayChange,
     onInitialRenderReady,
     onInitialRenderError,
@@ -553,6 +563,7 @@ export function ChatPanelHost({
       onReviewFileChanges,
       onRevealFile,
       onArtifactsChange,
+      onLivePresentArtifacts,
       onContextUsageDisplayChange,
       onInitialRenderReady,
       onInitialRenderError,
@@ -1904,6 +1915,16 @@ export function ChatPanelHost({
       if (eventType === 'background_commands' || eventType === 'tool_execution_start' || eventType === 'tool_execution_update' || eventType === 'tool_execution_end') {
         scheduleToolInterfaceUpdate()
         scheduleDecorateRef.current?.()
+      }
+      if (eventType === 'tool_execution_end' && !sideChatMode) {
+        // 自动预览的唯一来源：本次工具执行刚刚产出的文件（live 口径）。
+        // 只有当前在屏幕上的会话才上报——后台会话（被 SessionViewPool 保活的
+        // 隐藏视图）跑完 present_files 不应该抢走用户正看着的面板。
+        // 历史文件的 present_files 走消息状态，永远不进入这条路径。
+        const liveArtifacts = extractToolExecutionArtifacts(event as ToolExecutionEvent)
+        if (liveArtifacts.length > 0 && isSessionViewActive(activityKey)) {
+          propsRef.current.onLivePresentArtifacts?.(sessionId, liveArtifacts)
+        }
       }
       if (eventType === 'error') {
         setModelRetryInfo(null)

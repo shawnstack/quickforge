@@ -1243,6 +1243,19 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     publishWindow()
   }, [agent, publishWindow, windowController])
 
+  /**
+   * The round ended cleanly (`agent_end` without `status: 'error' | 'aborted'`).
+   *
+   * Only the todo capsule consumes this today: a finished task list is retired
+   * from the composer once the round is over. Derived here rather than exposed
+   * by the host because `agent_end` already refreshes this snapshot, so the flag
+   * costs one extra state slot and no new wire field. The status is read off the
+   * raw event (the SSE frame carries it, `AgentEvent` in the dependency does
+   * not) and falls back to `state.errorMessage` for the server-side synthesized
+   * `agent_end` frames that omit it.
+   */
+  const [turnEnded, setTurnEnded] = useState(false)
+
   // Subscribe to agent lifecycle events and refresh the snapshot copy.
   useEffect(() => {
     if (!agent) {
@@ -1252,7 +1265,24 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     }
     windowController.resetToTail()
     syncSnapshot()
+    // A different session must not inherit the previous session's ended state.
+    setTurnEnded(false)
     const unsubscribe = agent.subscribe((event: AgentEvent) => {
+      if (event.type === 'agent_start') setTurnEnded(false)
+      if (event.type === 'agent_end') {
+        // The SSE frame carries `status` ('idle' | 'aborted' | 'error'); the
+        // dependency's `AgentEvent` union does not model it, so read it off the
+        // raw object. Synthesized frames (compaction/summary paths) omit both
+        // `status` and `errorMessage`, which reads as a clean end.
+        //
+        // `state.errorMessage` is deliberately not consulted: it keeps the most
+        // recent failure of the session, so it would describe an older turn.
+        const status = (event as { status?: string }).status
+        const failed = status === 'error' || status === 'aborted'
+          || (event as { errorMessage?: string }).errorMessage !== undefined
+          || agent.state.isStreaming
+        setTurnEnded(!failed)
+      }
       if (isSnapshotRefreshEvent(event.type)) syncSnapshot()
     })
     return unsubscribe
@@ -1426,7 +1456,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                   strip and the queue panel sitting between itself and the
                   editor, and re-asserted its position every pass). React renders
                   it in place, so the sibling order is fixed by this JSX. */}
-              <TodoWriteSummary snapshot={snapshot.todoSnapshot} />
+              <TodoWriteSummary snapshot={snapshot.todoSnapshot} turnEnded={turnEnded} />
               {/* The "+" popover is a sibling *before* the editor card, exactly
                   where the decoration inserted it; its trigger lives in the
                   editor's left control row (`leadingControls` below). */}

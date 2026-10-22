@@ -1,30 +1,22 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
-// i18n 由调用方注入（与 process-folding.test.ts 同形状）。tool-display-settings
-// 刻意不 mock：本文件用真实模块的 applyToolDisplaySettingsValue 驱动
-// expandProcessStageByDefault（完整形状，避免 mock 缺字段造成的假绿）。
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
 
 import { decorateProcessBlocks, releaseProcessGroups } from '../../src/components/chat/panel-decoration/process-folding'
-import { applyToolDisplaySettingsValue, DEFAULT_TOOL_DISPLAY_SETTINGS } from '../../src/lib/tool-display-settings'
 
 /**
  * 流式思考行与内层 stage 折叠的可见性护栏（全 decorateProcessBlocks 路径）。
  *
- * 背景（thinking-tail-hint 真机不生效的根因）：Agent 模式下 thinking 与 tool 交替
- * 时，splitProcessStageSections 把同段过程项（thinking + tool）归入一个内层
- * stage（processSectionNeedsStage：段内含任一 tool-message 即建 stage），正在
- * 流式的 thinking 块被 populateProcessGroup 搬进 stage body；当设置
- * expandProcessStageByDefault=false 时 stage 默认收起（data-expanded=false →
- * index.css `.quickforge-process-stage[data-expanded="false"] > …-stage-body {
- * visibility:hidden }`）——思考行连同尾行提示 hint 一起不可见。纯 thinking 段
- * （无 tool）不建 stage、直挂顶层组 body，不受影响。
+ * 背景：Agent 模式下 thinking 与 tool 交替时，splitProcessStageSections 把同段过程项
+ * （thinking + tool）归入一个内层 stage（processSectionNeedsStage：段内含任一
+ * tool-message 即建 stage），正在流式的 thinking 块被 populateProcessGroup 搬进
+ * stage body。纯 thinking 段（无 tool）不建 stage、直挂顶层组 body。
  *
- * 兜底规则已从「含流式思考的 stage 强制展开」改为「流式思考行不进 stage、挂顶层组
- * body」（见 process-folding.ts 的 isStreamingThinkingItem）：强制展开会让每轮工具
- * 调用结束（组全量重建 → stage 回落设置默认收起）与下一轮流式思考往复开合，观感就是
- * 用户反馈的「新的一轮消息来了之后展开又收缩反复」。现在 stage 始终跟随设置默认，
- * 流式思考行（含 hint）在组 body 上照样可见，本轮结束后随重建收进 stage。
+ * 现行语义（2026-10-22 起）：「工具调用列表默认展开」已从设置项固化为常量
+ * `PROCESS_STAGE_DEFAULT_EXPANDED = true`，所以内层 stage 恒默认展开——流式思考行
+ * 留在 stage 内也照样可见，不需要再从 stage 里拎出来挂组 body（旧的
+ * `detachStreamingThinking` / `splitStreamingThinkingRuns` 分支已删除）。顶层层级不变：
+ * 过程组默认展开值仍是 `isAgentStreaming`（流式回合展开、历史回合收起）。
  *
  * 项目 vitest 跑在 node 环境（无 jsdom），按仓库既有约定
  * （process-folding-incremental.test.ts）手写最小 fake DOM 并 import 真实
@@ -274,11 +266,6 @@ afterAll(() => {
   delete globals.document
 })
 
-afterEach(() => {
-  // 真实模块缓存是模块级共享：每个用例结束回归默认设置，避免跨用例泄漏。
-  applyToolDisplaySettingsValue(DEFAULT_TOOL_DISPLAY_SETTINGS)
-})
-
 const el = (tagName: string, className = '') => new FakeNode(tagName, className)
 
 /** 一条已渲染的工具行（React `ToolMessage` 形态：div.qf-tool-message + toolCall 属性）。 */
@@ -391,7 +378,6 @@ function crossAssistantStreamingTurn() {
 
 describe('thinking streaming stage visibility (full decorateProcessBlocks path)', () => {
   it('S1: streaming thinking-only turn keeps the thinking row on the group body with a running hint', () => {
-    applyToolDisplaySettingsValue({ ...DEFAULT_TOOL_DISPLAY_SETTINGS, expandProcessStageByDefault: false })
     const turn = streamingThinkingTurn('正在分析问题…')
 
     decorateProcessBlocks(turn.panel, [turn.assistant], true)
@@ -411,53 +397,34 @@ describe('thinking streaming stage visibility (full decorateProcessBlocks path)'
     expect(hint?.classList.contains('quickforge-process-thinking-hint-visible')).toBe(true)
   })
 
-  it('S2: keeps the stage collapsed and the streaming thinking row on the group body when expandProcessStageByDefault=false', () => {
-    applyToolDisplaySettingsValue({ ...DEFAULT_TOOL_DISPLAY_SETTINGS, expandProcessStageByDefault: false })
+  it('S2: a mixed section always expands the stage and keeps the streaming thinking row inside it', () => {
     const turn = streamingThinkingTurn('先思考一下…', { withTool: true })
 
     decorateProcessBlocks(turn.panel, [turn.assistant], true)
 
-    // 设置默认收起：stage 不因内含流式思考行而强制展开。流式思考行改挂顶层组 body 层
-    // （组在流式期间默认展开），所以思考行与尾行提示照样可见，stage 保持设置默认。
+    // 「工具调用列表默认展开」固化为常量后：stage 恒默认展开，流式思考行留在 stage 内
+    // 也照样可见，因此不再需要把它拎到组 body（旧 detachStreamingThinking 分支已删除）。
     const group = groupOf(turn)
     const stage = stageOf(group)
     expect(stage).toBeTruthy()
-    expect(stage?.dataset.expanded).toBe('false')
-    expect(turn.thinking.block.closest('.quickforge-process-stage-body')).toBeNull()
-    expect(turn.thinking.block.closest('.quickforge-process-group')).toBe(group)
-    expect(turn.thinking.block.closest('.quickforge-process-body')).toBe(group?.querySelector(':scope > .quickforge-process-body'))
+    expect(stage?.dataset.expanded).toBe('true')
+    expect(turn.thinking.block.closest('.quickforge-process-stage-body')).toBe(stageBodyOf(stage))
     expect(hintOf(turn.thinking.header)?.getAttribute('running')).toBe('true')
     expect(hintOf(turn.thinking.header)?.getAttribute('text')).toBe('先思考一下…')
   })
 
-  it('S3: the same mixed section expands the stage when expandProcessStageByDefault=true', () => {
-    applyToolDisplaySettingsValue({ ...DEFAULT_TOOL_DISPLAY_SETTINGS, expandProcessStageByDefault: true })
-    const turn = streamingThinkingTurn('先思考一下…', { withTool: true })
-
-    decorateProcessBlocks(turn.panel, [turn.assistant], true)
-
-    // 证明开关就是变量：同一 DOM，设置默认展开时 stage 展开、思考行可见。
-    const group = groupOf(turn)
-    const stage = stageOf(group)
-    expect(stage).toBeTruthy()
-    expect(turn.thinking.block.closest('.quickforge-process-stage-body')).toBe(stageBodyOf(stage))
-    expect(stage?.dataset.expanded).toBe('true')
-  })
-
-  it('folds the streaming thinking row into the (still collapsed) stage once streaming ends', () => {
-    applyToolDisplaySettingsValue({ ...DEFAULT_TOOL_DISPLAY_SETTINGS, expandProcessStageByDefault: false })
+  it('keeps the streaming thinking row inside the stage once streaming ends', () => {
     const turn = streamingThinkingTurn('先思考一下…', { withTool: true })
     decorateProcessBlocks(turn.panel, [turn.assistant], true)
     const streamingGroup = groupOf(turn)
     expect(streamingGroup).toBeTruthy()
-    // 流式期间：stage 保持设置默认（收起），流式思考行挂在组 body 上照样可见。
-    expect(stageOf(streamingGroup)?.dataset.expanded).toBe('false')
-    expect(turn.thinking.block.closest('.quickforge-process-stage-body')).toBeNull()
+    // 流式期间：stage 默认展开，思考行在 stage body 内、hint running。
+    expect(stageOf(streamingGroup)?.dataset.expanded).toBe('true')
+    expect(turn.thinking.block.closest('.quickforge-process-stage-body')).toBe(stageBodyOf(stageOf(streamingGroup)))
 
     // 流式结束：真实流程是 ProcessGroupReleaseBoundary 在结构提交前释放全部
-    // 折叠组（getSnapshotBeforeUpdate），同一提交内重折叠——此时思考行不再是
-    // 「流式思考行」，随重建收进 stage；stage 仍跟随设置默认（收起），全程没有
-    // 自动展开，因此不存在「展开→收缩」的开合动作。
+    // 折叠组（getSnapshotBeforeUpdate），同一提交内重折叠——思考行随重建留在 stage
+    // 内，stage 仍是默认展开，全程没有开合动作。
     turn.assistant.isStreaming = false
     releaseProcessGroups(turn.panel)
     decorateProcessBlocks(turn.panel, [turn.assistant], false)
@@ -468,23 +435,22 @@ describe('thinking streaming stage visibility (full decorateProcessBlocks path)'
     const stage = stageOf(rebuiltGroup)
     expect(stage).toBeTruthy()
     expect(turn.thinking.block.closest('.quickforge-process-stage-body')).toBe(stageBodyOf(stage))
-    expect(stage?.dataset.expanded).toBe('false')
+    expect(stage?.dataset.expanded).toBe('true')
     // 流式结束后 hint 淡出（running=false），保持既有尾行提示语义。
     expect(hintOf(turn.thinking.header)?.getAttribute('running')).toBe('false')
   })
 
-  it('keeps the stage collapsed across tool rounds when expandProcessStageByDefault=false (no expand/collapse loop)', () => {
-    applyToolDisplaySettingsValue({ ...DEFAULT_TOOL_DISPLAY_SETTINGS, expandProcessStageByDefault: false })
+  it('keeps the stage expanded across tool rounds (no expand/collapse loop)', () => {
     // 第一轮：思考行 + 工具行（工具行到达时该轮思考已结束，message_end 后 bridge isStreaming=false）。
     const turn = streamingThinkingTurn('第一轮思考…', { withTool: true })
     decorateProcessBlocks(turn.panel, [turn.assistant], true)
     const firstGroup = groupOf(turn)
     const firstStage = stageOf(firstGroup)
-    expect(firstStage?.dataset.expanded).toBe('false')
+    expect(firstStage?.dataset.expanded).toBe('true')
 
-    // 第二轮：同一回合追加一条新的流式 assistant（含新的流式思考行）——这正是用户反馈里
-    // 「新的一轮消息来了之后展开又收缩」的触发帧：结构变化走全量重建，旧实现会在此把
-    // 「含流式思考」的 stage 强制展开，本轮工具调用结束又收起，逐轮往复。
+    // 第二轮：同一回合追加一条新的流式 assistant（含新的流式思考行）——历史 bug 的触发帧，
+    // 旧实现会在此把「含流式思考」的 stage 强制展开、工具调用结束又收起，逐轮往复。
+    // 现在 stage 恒定默认展开，不存在往复。
     turn.assistant.isStreaming = false
     const secondAssistant = turn.list.append(el('div', 'qf-assistant-message'))
     Object.assign(secondAssistant, {
@@ -502,28 +468,25 @@ describe('thinking streaming stage visibility (full decorateProcessBlocks path)'
     expect(rebuiltGroup).toBeTruthy()
     expect(rebuiltGroup).not.toBe(firstGroup)
     const streamingStage = stageOf(rebuiltGroup)
-    // stage 保持收起；第二轮流式思考行挂在组 body 上（不被收起态藏住）。
-    expect(streamingStage?.dataset.expanded).toBe('false')
-    expect(secondThinking.block.closest('.quickforge-process-stage-body')).toBeNull()
+    // stage 保持展开；第二轮流式思考行也在 stage 内（重建后同类段归入同一 stage）。
+    expect(streamingStage?.dataset.expanded).toBe('true')
     expect(secondThinking.block.closest('.quickforge-process-group')).toBe(rebuiltGroup)
     expect(hintOf(secondThinking.header)?.getAttribute('running')).toBe('true')
     expect(hintOf(secondThinking.header)?.getAttribute('text')).toBe('第二轮思考…')
-    // 第一轮（已结束）的思考行仍在 stage 里。
+    // 第一轮（已结束）的思考行同样在 stage 里。
     expect(turn.thinking.block.closest('.quickforge-process-stage-body')).toBe(stageBodyOf(streamingStage))
 
-    // 第二轮结束（message_end + 该轮工具行出现）：stage 依旧是设置默认（收起），
-    // 流式思考行随重建收进 stage——整个过程没有任何开合动画帧。
+    // 第二轮结束（message_end + 该轮工具行出现）：stage 依旧展开，思考行仍在 stage 内。
     secondAssistant.isStreaming = false
     secondContent.append(toolRow('cmd-2'))
     releaseProcessGroups(turn.panel)
     decorateProcessBlocks(turn.panel, [turn.assistant, secondAssistant], true)
     const finalStage = stageOf(groupOf(turn))
-    expect(finalStage?.dataset.expanded).toBe('false')
+    expect(finalStage?.dataset.expanded).toBe('true')
     expect(secondThinking.block.closest('.quickforge-process-stage-body')).toBe(stageBodyOf(finalStage))
   })
 
   it('keeps historical thinking owned by its source assistant while a sibling streams', () => {
-    applyToolDisplaySettingsValue({ ...DEFAULT_TOOL_DISPLAY_SETTINGS, expandProcessStageByDefault: false })
     const turn = crossAssistantStreamingTurn()
 
     decorateProcessBlocks(turn.panel, [turn.historical, turn.streaming], true)
@@ -540,16 +503,15 @@ describe('thinking streaming stage visibility (full decorateProcessBlocks path)'
     expect(hintOf(turn.firstStreamingThinking.header)?.getAttribute('text') ?? '').toBe('')
     expect(hintOf(turn.firstStreamingThinking.header)?.getAttribute('running')).toBe('false')
     expect(hintOf(turn.secondStreamingThinking.header)?.getAttribute('text')).toBe('第二段')
-    // 设置默认收起：stage 不因内含流式思考行而强制展开（本段最后一项是工具行，段尾没有
-    // 可抽出的流式思考行，思考行仍在 stage 内 → 收起态下不可见，与设置语义一致）。
-    expect(stageOf(group)?.dataset.expanded).toBe('false')
+    // 内层 stage 默认展开（固化常量），本段含工具行 → 建 stage 且展开。
+    expect(stageOf(group)?.dataset.expanded).toBe('true')
 
     const stage = stageOf(group)
     const stageSummary = stage?.querySelector(':scope > .quickforge-process-stage-summary') as
       (FakeNode & { onclick?: (event: { preventDefault(): void; stopPropagation(): void }) => void }) | null
     stageSummary?.onclick?.({ preventDefault() {}, stopPropagation() {} })
-    // 用户手动展开 = saved state（按回合记忆）。
-    expect(stage?.dataset.expanded).toBe('true')
+    // 用户手动收起 = saved state（按回合记忆），优先于默认展开。
+    expect(stage?.dataset.expanded).toBe('false')
 
     const nextNow = Date.now() + 1000
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(nextNow)
@@ -563,7 +525,7 @@ describe('thinking streaming stage visibility (full decorateProcessBlocks path)'
     }
     decorateProcessBlocks(turn.panel, [turn.historical, turn.streaming], true)
     expect(hintOf(turn.secondStreamingThinking.header)?.getAttribute('text')).toBe('第二段更新')
-    expect(stage?.dataset.expanded).toBe('true')
+    expect(stage?.dataset.expanded).toBe('false')
     nowSpy.mockRestore()
 
     // 真实消息结构变化由 ProcessGroupReleaseBoundary 先释放旧组，再由 React 在
@@ -578,8 +540,8 @@ describe('thinking streaming stage visibility (full decorateProcessBlocks path)'
     expect(rebuiltDuringStreaming).toBeTruthy()
     expect(rebuiltDuringStreaming).not.toBe(group)
     expect(hintOf(thirdStreamingThinking.header)?.getAttribute('text')).toBe('第三段')
-    // 手动展开的 saved state 在重建后仍优先（同一 stage key）。
-    expect(stageOf(rebuiltDuringStreaming)?.dataset.expanded).toBe('true')
+    // 手动收起的 saved state 在重建后仍优先（同一 stage key），不被默认展开翻回。
+    expect(stageOf(rebuiltDuringStreaming)?.dataset.expanded).toBe('false')
 
     turn.streaming.isStreaming = false
     releaseProcessGroups(turn.panel)
@@ -595,20 +557,19 @@ describe('thinking streaming stage visibility (full decorateProcessBlocks path)'
   })
 
   it('keeps a stage the user manually collapsed collapsed while streaming continues', () => {
-    // 设置默认展开时 stage 初始展开；用户手动收起后 saved state 优先，流式继续不再弹开。
-    applyToolDisplaySettingsValue({ ...DEFAULT_TOOL_DISPLAY_SETTINGS, expandProcessStageByDefault: true })
+    // stage 初始默认展开；用户手动收起后 saved state 优先，流式继续不再弹开。
     const turn = streamingThinkingTurn('先思考一下…', { withTool: true })
     decorateProcessBlocks(turn.panel, [turn.assistant], true)
     const stage = stageOf(groupOf(turn))
     expect(stage?.dataset.expanded).toBe('true')
 
-    // 用户手动收起（点击阶段摘要头）：saved state 优先于设置默认值。
+    // 用户手动收起（点击阶段摘要头）：saved state 优先于默认展开值。
     const stageSummary = stage?.querySelector(':scope > .quickforge-process-stage-summary') as
       (FakeNode & { onclick?: (event: { preventDefault(): void; stopPropagation(): void }) => void }) | null
     stageSummary?.onclick?.({ preventDefault() {}, stopPropagation() {} })
     expect(stage?.dataset.expanded).toBe('false')
 
-    // 流式继续（同一结构，update 快路径）：stage 保持用户收起，不被设置默认翻回。
+    // 流式继续（同一结构，update 快路径）：stage 保持用户收起，不被默认展开翻回。
     decorateProcessBlocks(turn.panel, [turn.assistant], true)
     expect(stage?.dataset.expanded).toBe('false')
     // hint 链路不依赖 stage 开合：流式中仍 running。

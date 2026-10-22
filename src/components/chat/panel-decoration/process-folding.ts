@@ -1,6 +1,5 @@
 import type { MessageWithUsage } from '../chat-utils'
 import { t } from '@/lib/i18n'
-import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { emitReadingIntent } from '../scroll-sync'
 
 type ProcessGroupElement = HTMLDivElement
@@ -699,56 +698,15 @@ export function processGroupDefaultExpanded(isAgentStreaming: boolean) {
   return isAgentStreaming
 }
 
-/** 内层阶段默认展开值：读 expandProcessStageByDefault 设置（默认 true=每条工具调用直接可见）；用户手动开合记忆（saved state）/增量 key 命中时仍优先（resolveProcessExpandedState）。 */
-export function processStageDefaultExpanded() {
-  return getCachedToolDisplaySettings().expandProcessStageByDefault === true
-}
-
-/** 思考块归属的 assistant bridge：折叠可能已把它搬进其它 assistant 的过程组，所以先看记录的来源 assistant 与渲染宿主，最后才回落到 DOM 祖先。 */
-function processThinkingAssistant(node: HTMLElement) {
-  return processThinkingSources.get(node)?.assistant
-    ?? processNodeOwners.get(node)
-    ?? node.closest<AssistantMessageElement>('assistant-message, .qf-assistant-message')
-}
-
 /**
- * 该项是否为「正在流式的思考块」——其来源 assistant bridge `isStreaming === true`。
+ * 内层阶段（「已执行 N 个工具调用」stage）的默认展开值：**固定展开**。
  *
- * 用于 `populateProcessGroup`：设置「工具调用列表默认展开」关闭时内层 stage 默认收起
- * （index.css `.quickforge-process-stage[data-expanded="false"] > …-stage-body` 的
- * `visibility:hidden`），把正在流式的思考行（连同尾行提示 hint）折进 stage 就会把它藏住。
- * 早先的实现改在 `updateProcessStageGroups` 里对「含流式思考的 stage」强制展开兜底，但
- * 每轮工具调用结束（message_end + 工具行出现 → 组全量重建）stage 都会回落设置默认，下一
- * 轮流式思考再把它顶开——观感就是每轮「展开又收缩」往复（用户反馈）。现在改为流式思考行
- * 不进 stage、改挂顶层组 body：组在流式期间默认展开，思考行与尾行提示照样可见，stage 始终
- * 跟随设置默认，本轮结束（isStreaming 翻转 → 组交还重建）时它自然收进 stage。
+ * 该值曾经是设置项 `tool-display-settings.expandProcessStageByDefault`（默认 true），
+ * 现已固化为渲染常量——展开过程组后每条工具调用直接可见，设置页不再提供开关。
+ * 用户手动开合仍按回合记忆（saved state，见 `resolveProcessExpandedState`），
+ * 手动收起不会被这里的默认值翻回。
  */
-function isStreamingThinkingItem(item: GroupedProcessNode) {
-  return isProcessNodeKind(item.node, 'thinking-block')
-    && processThinkingAssistant(item.node)?.isStreaming === true
-}
-
-/**
- * 段内项按「正在流式的思考行」切成交替 run：流式思考 run 挂顶层组 body（不被收起的
- * stage 藏住），其余 run 照常包 stage。切分保持原顺序——流式思考行通常就在段尾，但
- * 工具行的内容块（toolCall chunk）先于 message_end 出现时它也可能夹在工具行之前，
- * 所以按位置切而不是只抽段尾（见 isStreamingThinkingItem）。
- */
-export type ProcessStageSectionRun<T> = { kind: 'stage' | 'liveThinking'; items: T[] }
-
-export function splitStreamingThinkingRuns<T>(
-  items: T[],
-  isStreamingThinking: (item: T) => boolean,
-): ProcessStageSectionRun<T>[] {
-  const runs: ProcessStageSectionRun<T>[] = []
-  for (const item of items) {
-    const kind = isStreamingThinking(item) ? 'liveThinking' : 'stage'
-    const last = runs[runs.length - 1]
-    if (last && last.kind === kind) last.items.push(item)
-    else runs.push({ kind, items: [item] })
-  }
-  return runs
-}
+export const PROCESS_STAGE_DEFAULT_EXPANDED = true
 
 export function processStageStateKey(processKey: string, index: number) {
   return `${processKey}:stage:${index}`
@@ -772,13 +730,13 @@ function updateProcessStageGroups(
     const stageBodyId = `quickforge-${stageKey.replace(/[^a-z0-9_-]+/gi, '-')}`
     const previousStageKey = stage.dataset.quickforgeProcessKey
     stage.dataset.quickforgeProcessKey = stageKey
-    // stage 默认值只看设置：含流式思考的 stage 不再被强制展开（流式思考行挂在组 body，
-    // 见 isStreamingThinkingItem）；saved state（用户手动开合）与增量 key 命中仍优先。
+    // stage 默认值固定展开（PROCESS_STAGE_DEFAULT_EXPANDED）；saved state（用户手动开合）
+    // 与增量 key 命中仍优先，所以手动收起不会被翻回。
     const expanded = resolveProcessExpandedState(
       getProcessExpandedStates(panel).get(stageKey),
       previousStageKey === stageKey,
       stage.dataset.expanded === 'true',
-      processStageDefaultExpanded(),
+      PROCESS_STAGE_DEFAULT_EXPANDED,
     )
     stage.dataset.expanded = String(expanded)
     const stageStreaming = isAgentStreaming && index === stages.length - 1
@@ -1357,32 +1315,20 @@ function populateProcessGroup(group: ProcessGroupElement, items: GroupedProcessN
     items,
     (item) => isProcessNodeKind(item.node, 'markdown-block'),
   )
-  // 设置「工具调用列表默认展开」关闭时，正在流式的思考行不并入（收起的）stage，改挂组
-  // body——否则它被 stage 收起态（visibility:hidden）藏住，而为了不藏它强制展开 stage 会
-  // 让每轮工具调用往复开合（见 isStreamingThinkingItem）。设置默认展开时结构不变。
-  const detachStreamingThinking = !processStageDefaultExpanded()
+  // 结构恒定：stage 默认展开已固化为常量，流式思考行不再从 stage 里拎出来（旧的
+  // detachStreamingThinking 分支只在设置可关闭 stage 默认展开时才需要）。每段含工具行
+  // 就聚合成一个 stage，其余直挂组 body。
   for (const section of sections) {
     if (section.kind === 'detail' || !processSectionNeedsStage(section.items)) {
       populateProcessContainer(body, section.items)
       continue
     }
 
-    const runs = detachStreamingThinking
-      ? splitStreamingThinkingRuns(section.items, isStreamingThinkingItem)
-      : [{ kind: 'stage' as const, items: section.items }]
-    for (const run of runs) {
-      // 流式思考 run、以及自身没有工具行可聚合的 run：直接挂组 body（不建空 stage 头）。
-      if (run.kind === 'liveThinking' || !processSectionNeedsStage(run.items)) {
-        populateProcessContainer(body, run.items)
-        continue
-      }
-
-      const stage = createProcessStage()
-      const stageBody = stage.querySelector<HTMLElement>(PROCESS_STAGE_BODY_SELECTOR)
-      if (!stageBody) continue
-      populateProcessContainer(stageBody, run.items)
-      ensureProcessBodyInner(body).append(stage)
-    }
+    const stage = createProcessStage()
+    const stageBody = stage.querySelector<HTMLElement>(PROCESS_STAGE_BODY_SELECTOR)
+    if (!stageBody) continue
+    populateProcessContainer(stageBody, section.items)
+    ensureProcessBodyInner(body).append(stage)
   }
   groupedProcessNodeSequences.set(group, items)
   return processBodyHasContent(group)

@@ -1,6 +1,28 @@
 {
   "features": [
     {
+      "id": "tool-running-text-shimmer",
+      "name": "工具运行态扫光改为文字内部渐变流光（复用思考 shimmer 范式）",
+      "description": "用户反馈运行态工具标题的扫光「像是黑色的，白色会不会更好」。定位到 .quickforge-tool-running-sweep::after 覆盖层用 color-mix(in oklab, currentColor 12%, transparent) 取文字色，而文字色是 --muted-foreground：浅色主题下呈灰带（观感像黑色扫光）、暗色下近白，同一份代码两套观感，且光带压在文字上层拉低可读性。用户先要求看纯白变体（浅色白底 + 白扫光会失效），对比 4 档白色与 8 个候选方案后选定「渐变高光在文字内部流过」——复用思考文本 shimmer 范式。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "删除 ::after 覆盖层与 @keyframes quickforge-tool-running-sweep，改由 .quickforge-tool-running-sweep 标签自身承载渐变：linear-gradient(90deg, muted-foreground 25%, foreground 50%, muted-foreground 75%) + background-size 200% 100% + background-clip: text + color: transparent，动画直接复用既有 shimmer 2s ease-in-out infinite（与 ThinkingBlock 同一 keyframes 与节奏）。关键兜底：background-color: var(--muted-foreground) 保证渐变端点相位也有不透明填充（否则整段文字周期性不可见），且与渐变两端同色无接缝；.quickforge-tool-running-sweep .quickforge-tool-summary-detail { color: var(--muted-foreground) } 保护参数摘要不被父级 color: transparent 吞掉；prefers-reduced-motion 下回退 background-image: none / background-clip: border-box / background-color: transparent / color: inherit / animation: none。测试契约同步迁移为新语义并新增「不再存在 ::after」负向断言。",
+      "root_cause": "扫光取色用 currentColor（= --muted-foreground）导致浅色主题呈灰带、暗色近白，主题不自洽；同时覆盖层方案的光带压在文字上方，与文字抢对比度。",
+      "files": [
+        "src/index.css",
+        "tests/frontend/local-tool-running-sweep.test.ts",
+        "tests/frontend/motion-design.test.ts",
+        "DESIGN_LANGUAGE.md",
+        "design-mockups/tool-running-feedback-styles.html",
+        "design-mockups/tool-running-sweep-white.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "最终全量 npm run test → 417 文件 4775 passed / 2 skipped；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc -b 通过；npm run build 成功。定向 npx vitest run local-tool-running-sweep / motion-design / chat-surface-css-contract / subagent-run-detail / tool-param-summary → 5 文件 178 passed。Playwright 实测深浅两主题：background-clip: text / color: rgba(0,0,0,0) / background-color: oklch(0.556 0 0)（暗色 0.708），-200%…200% 五个相位文字均完整可读。",
+      "boundaries": "只改 running 态工具标题的 CSS 表现与绑定该类名的既有位置；renderer 结构、aria-busy 语义、renderStatus 在 running 时隐藏的行为、run_command 输出与终止按钮、subagent 跑马灯、goal/workflow renderer 的 sweep 类名用法均未改。未新增或升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit/tag/push。 顺带修复并行会话遗留的两个编译错误（session-lease-client 的 failureFromStatus 返回类型收窄、MessageEditor 的 readOnlyPlaceholderKey 接通并收窄为 AppTextKey），不属于本 feature 范围。"
+    },
+    {
       "id": "composer-typing-latency",
       "name": "长会话输入框打字卡顿（composer 热路径下沉 + 装饰/建议层降载）",
       "description": "用户反馈「对话轮次多了之后，输入框打字非常卡」。根因不是某个组件慢，而是热路径归属错了：输入文本存于 ChatSurface 顶层 useState（原 ChatSurface.tsx:843），每按一键就重渲染整个 surface（1417 行）。其中 UsageBar 的 aggregateUsage（filter+reduce 全部 assistant 消息，每次新建数组）与 TodoWriteSummary 的倒序扫描都是 O(消息数)，成本随轮次线性增长——所以只有长会话才卡。MessageArea 早已被 memo 围栏挡住（:571），但围栏越加越多、热路径仍在顶层。另有两条叠加成本：editor.onInput 同步串联 4 个命令式控制器（两个建议菜单每键 innerHTML=\"\" 全量重建、handleEditorInput 每键两次 querySelector），以及面板级 MutationObserver{childList,subtree} 把菜单/chip/附件 tile 的节点增删都当成「需要全量 decorate」（decorate 内含约 39 项 O(消息数)/O(DOM 数) 操作）。",

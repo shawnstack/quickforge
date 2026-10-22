@@ -187,6 +187,11 @@ export interface MessageEditorProps {
    * `SESSION_LEASE_HELD` 拒绝任何写请求，所以本页不能让人以为能发。
    */
   composerReadOnly?: boolean
+  /**
+   * 只读时的占位文案键。旁观者（别的窗口在写）和降级（拿不到租约）是两件
+   * 不同的事，共用一句「另一个窗口正在写入」会让人以为是自己多开了窗口。
+   */
+  composerReadOnlyPlaceholderKey?: AppTextKey
   maxFiles?: number
   maxFileSize?: number
   acceptedTypes?: string
@@ -225,6 +230,7 @@ const ComposerTextarea = memo(function ComposerTextarea({
   isStreaming,
   processingFiles,
   readOnly = false,
+  readOnlyPlaceholderKey = 'sessionLeaseComposerPlaceholder',
   onInput,
   onSend,
   onAbort,
@@ -235,6 +241,8 @@ const ComposerTextarea = memo(function ComposerTextarea({
   isStreaming: boolean
   processingFiles: boolean
   readOnly?: boolean
+  /** 只读时的占位文案键：旁观者与「无法确认写入权限」的原因不同，措辞也不同。 */
+  readOnlyPlaceholderKey?: AppTextKey
   onInput?: (value: string) => void
   onSend?: (input: string, attachments: Attachment[]) => void
   onAbort?: () => void
@@ -273,7 +281,7 @@ const ComposerTextarea = memo(function ComposerTextarea({
     <textarea
       ref={textareaRef}
       className="w-full resize-none overflow-y-auto bg-transparent p-4 text-foreground placeholder-muted-foreground outline-none"
-      placeholder={readOnly ? t('sessionLeaseComposerPlaceholder') : t('composerPlaceholder')}
+      placeholder={readOnly ? t(readOnlyPlaceholderKey) : t('composerPlaceholder')}
       rows={1}
       style={textareaStyle}
       value={value}
@@ -434,6 +442,7 @@ export function MessageEditor({
   pickAttachment,
   composerControlsDisabled = false,
   composerReadOnly = false,
+  composerReadOnlyPlaceholderKey = 'sessionLeaseComposerPlaceholder',
   maxFiles = DEFAULT_MAX_FILES,
   maxFileSize = DEFAULT_MAX_FILE_SIZE,
   acceptedTypes = DEFAULT_ACCEPTED_TYPES,
@@ -613,6 +622,7 @@ export function MessageEditor({
           isStreaming={isStreaming}
           processingFiles={processingFiles}
           readOnly={composerReadOnly}
+          readOnlyPlaceholderKey={composerReadOnlyPlaceholderKey}
           onInput={onInput}
           onSend={onSend}
           onAbort={onAbort}

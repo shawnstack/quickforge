@@ -24,6 +24,17 @@ export const LEASE_HEARTBEAT_MS = 20_000
 /** 租约状态：持有（可写）/ 被他人持有（只读旁观）/ 未知（按只读处理）/ 本次会话未启用。 */
 export type SessionLeaseStatus = 'owner' | 'observer' | 'unknown'
 
+/**
+ * 一次租约请求的失败原因。区分它有两个实际用途：
+ *
+ * - `unsupported`：服务端根本没有 `/lease` 端点（老版本 runtime / 老桌面端）。
+ *   这不是并发冲突，也不该禁用发送 —— 服务端此时本就按「无租约可写」处理，
+ *   所以调用方应把这次失败当成「沿用旧行为」并停止继续打点。
+ * - `auth`：401/403，局域网访问未解锁或 Host 校验失败。文案要指向真正的
+ *   修复动作（解锁），而不是含糊的「服务无响应」。
+ */
+export type SessionLeaseFailure = 'network' | 'server' | 'auth' | 'unsupported'
+
 export type SessionLeaseSnapshot = {
   status: SessionLeaseStatus
   /** 当前持有者的 clientId；`null` 表示无人持有。 */
@@ -34,6 +45,10 @@ export type SessionLeaseSnapshot = {
   expiresAt?: string
   /** 最近一次租约请求是否失败（网络错误等）。失败时按只读处理。 */
   degraded: boolean
+  /** 失败原因；`undefined` 表示最近一次请求成功（或从未请求过）。 */
+  failure?: SessionLeaseFailure
+  /** 失败时服务端返回的状态码（`network` 失败没有状态码）。 */
+  failureStatus?: number
 }
 
 const UNKNOWN_SNAPSHOT: SessionLeaseSnapshot = {
@@ -104,6 +119,19 @@ function leaseUrl(baseUrl: string, sessionId: string): string {
   return `${baseUrl}/api/agents/${encodeURIComponent(sessionId)}/lease`
 }
 
+/**
+ * 把失败响应分类成 `SessionLeaseFailure`。
+ *
+ * 404/405/501 是「服务端没有这个端点」，必须与并发冲突、认证失败区分开：
+ * 老版本服务端本来就没有租约，它对写请求的判定是「无租约即可写」，所以客户端
+ * 跟着照旧可写才是正确行为，把它当成降级会凭空禁掉一个根本没在竞争的会话。
+ */
+function failureFromStatus(status: number): SessionLeaseFailure {
+  if (status === 404 || status === 405 || status === 501) return 'unsupported'
+  if (status === 401 || status === 403) return 'auth'
+  return 'server'
+}
+
 async function requestLease(
   baseUrl: string,
   sessionId: string,
@@ -130,10 +158,21 @@ async function requestLease(
     if (response.status === 409) {
       return { ok: false, snapshot: leaseSnapshotFromWire(payload?.lease, clientId) }
     }
-    return { ok: false, snapshot: { ...UNKNOWN_SNAPSHOT, degraded: true } }
+    const failure = failureFromStatus(response.status)
+    if (failure === 'unsupported') {
+      // 服务端没有租约端点：等价于「无人持有」，沿用旧的单客户端行为。
+      return {
+        ok: false,
+        snapshot: { status: 'owner', holder: null, isOwner: true, degraded: false, failure, failureStatus: response.status },
+      }
+    }
+    return {
+      ok: false,
+      snapshot: { ...UNKNOWN_SNAPSHOT, degraded: true, failure, failureStatus: response.status },
+    }
   } catch {
-    // 网络失败：不假设自己可写。
-    return { ok: false, snapshot: { ...UNKNOWN_SNAPSHOT, degraded: true } }
+    // 网络失败：不假设自己可写，但标记成可重试的 transient 失败。
+    return { ok: false, snapshot: { ...UNKNOWN_SNAPSHOT, degraded: true, failure: 'network' } }
   }
 }
 

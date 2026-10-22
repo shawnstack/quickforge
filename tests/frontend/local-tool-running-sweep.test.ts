@@ -67,34 +67,37 @@ describe('ordinary local tool running sweep wiring', () => {
 })
 
 describe('ordinary local tool running sweep CSS', () => {
-  it('clips a low-intensity left-to-right sweep to the label without layout or glow effects', () => {
+  it('runs the highlight through the label glyphs instead of sliding a band over the box', () => {
     const host = ruleFor('.quickforge-tool-running-sweep').body
-    const sweep = ruleFor('.quickforge-tool-running-sweep::after').body
 
-    expect(host).toMatch(/position:\s*relative/)
-    expect(sweep).toMatch(/position:\s*absolute/)
-    expect(sweep).toMatch(/inset:\s*0/)
-    expect(sweep).toMatch(/pointer-events:\s*none/)
-    expect(sweep).toMatch(/linear-gradient\(\s*90deg/)
-    expect(sweep).toMatch(/currentColor\s+12%/)
-    expect(sweep).toMatch(/transform:\s*translateX\(-100%\)/)
-    expect(sweep).toMatch(/animation:\s*quickforge-tool-running-sweep\s+1\.8s\s+ease-in-out\s+infinite/)
-    expect(sweep).not.toMatch(/box-shadow|filter|text-shadow/)
-
-    const keyframes = css.slice(
-      css.indexOf('@keyframes quickforge-tool-running-sweep'),
-      css.indexOf('@media (prefers-reduced-motion: reduce)', css.indexOf('@keyframes quickforge-tool-running-sweep')),
-    )
-    expect(keyframes).toMatch(/to\s*\{[^}]*transform:\s*translateX\(100%\)/s)
+    // 复用思考 shimmer 范式：文字本身承载渐变高光（gradient + 200% 位移 + text-clip）。
+    expect(host).toMatch(/background-image:\s*linear-gradient\(\s*90deg/)
+    expect(host).toMatch(/background-size:\s*200%\s+100%/)
+    expect(host).toMatch(/-webkit-background-clip:\s*text/)
+    expect(host).toMatch(/background-clip:\s*text/)
+    expect(host).toMatch(/color:\s*transparent/)
+    expect(host).toMatch(/animation:\s*shimmer\s+2s\s+ease-in-out\s+infinite/)
+    // 底色兜底：任何相位都有不透明填充，渐变端点不会让文字短暂消失。
+    expect(host).toMatch(/background-color:\s*var\(--muted-foreground\)/)
+    // 不再有覆盖层的伪元素扫光。
+    expect(css).not.toContain('.quickforge-tool-running-sweep::after')
+    expect(host).not.toMatch(/box-shadow|filter|text-shadow|position:\s*absolute/)
   })
 
-  it('removes the sweep entirely for reduced motion without adding a static running treatment', () => {
-    const mediaStart = css.indexOf('@media (prefers-reduced-motion: reduce)', css.indexOf('.quickforge-tool-running-sweep::after'))
-    const reducedMotion = css.slice(mediaStart, css.indexOf('/* subagent', mediaStart))
+  it('keeps the argument summary opaque so it stays readable under the text clip', () => {
+    const detail = ruleFor('.quickforge-tool-running-sweep .quickforge-tool-summary-detail').body
+    expect(detail).toMatch(/color:\s*var\(--muted-foreground\)/)
+  })
+
+  it('restores plain readable text for reduced motion without a static running gradient', () => {
+    const mediaStart = css.indexOf('@media (prefers-reduced-motion: reduce)', css.indexOf('.quickforge-tool-running-sweep {'))
+    const reducedMotion = css.slice(mediaStart, css.indexOf('/* Keep the argument summary', mediaStart))
 
     expect(mediaStart).toBeGreaterThan(-1)
-    expect(reducedMotion).toMatch(/\.quickforge-tool-running-sweep::after\s*\{[^}]*content:\s*none[^}]*animation:\s*none/s)
-    expect(reducedMotion).not.toMatch(/background:|box-shadow|filter|text-shadow:/)
+    expect(reducedMotion).toMatch(
+      /\.quickforge-tool-running-sweep\s*\{[^}]*background-image:\s*none[^}]*background-clip:\s*border-box[^}]*color:\s*inherit[^}]*animation:\s*none/s,
+    )
+    expect(reducedMotion).not.toMatch(/box-shadow|filter|text-shadow/)
   })
 
   it('preserves ordinary title flex sizing and label ellipsis', () => {

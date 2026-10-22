@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工具运行态扫光 · 白色变体对比</title>
+<style>
+  /* token 与 src/index.css 语义一致（DESIGN_LANGUAGE.md：具体 token 以源码为准） */
+  :root {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --radius: 0.5rem;
+  }
+  html.dark {
+    --background: #0b1220;
+    --foreground: #e2e8f0;
+    --muted: #16233b;
+    --muted-foreground: #8fa3bd;
+    --border: #24344f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--background); color: var(--foreground);
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .page-head h1 { font-size: 18px; margin: 0; }
+  .btn {
+    font-size: 12px; padding: 3px 10px; border-radius: 0.4rem; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--foreground);
+  }
+  .btn:hover { background: var(--muted); }
+  .intro { margin: 14px 0 22px; color: var(--muted-foreground); font-size: 13px; max-width: 900px; }
+  .intro b { color: var(--foreground); font-weight: 600; }
+  .intro code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); gap: 16px; }
+  .card {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--background); overflow: hidden;
+  }
+  .card-head {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    background: color-mix(in oklab, var(--muted) 55%, var(--background));
+  }
+  .card-title { font-weight: 600; font-size: 13px; }
+  .card-sub { font-size: 12px; color: var(--muted-foreground); margin-top: 2px; }
+  .card-body { padding: 14px 14px 18px; }
+
+  /* —— 还原真实工具摘要行结构：图标 + 标题 + 摘要 + chevron —— */
+  .quickforge-tool-summary {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--muted-foreground); user-select: none;
+  }
+  .quickforge-tool-summary svg { flex: 0 0 auto; }
+  .quickforge-tool-title { min-width: 0; display: inline-flex; align-items: center; gap: 8px; }
+  .quickforge-tool-label { position: relative; display: inline-block; }
+  .quickforge-tool-summary-detail {
+    display: inline; margin-left: 4px;
+    font-family: ui-monospace, Consolas, monospace; font-weight: 400;
+    color: var(--muted-foreground);
+  }
+  .chevron { color: var(--muted-foreground); opacity: 0.8; }
+
+  /* 扫光基座：与 src/index.css 现状一致 */
+  .sweep { position: relative; }
+  .sweep::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(90deg, transparent 35%, var(--sweep-color) 50%, transparent 65%);
+    transform: translateX(-100%);
+    animation: quickforge-tool-running-sweep 1.8s ease-in-out infinite;
+  }
+  @keyframes quickforge-tool-running-sweep { to { transform: translateX(100%); } }
+
+  /* 变体 A：现状 currentColor 12% */
+  .v-a { --sweep-color: color-mix(in oklab, currentColor 12%, transparent); }
+  /* 变体 B：纯白 12% */
+  .v-b { --sweep-color: color-mix(in oklab, #fff 12%, transparent); }
+  /* 变体 C：纯白 22% */
+  .v-c { --sweep-color: color-mix(in oklab, #fff 22%, transparent); }
+  /* 变体 D：纯白 32%（强对比，验证极限） */
+  .v-d { --sweep-color: color-mix(in oklab, #fff 32%, transparent); }
+
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--muted-foreground); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--border); }
+
+  .note {
+    margin-top: 22px; padding: 12px 14px; font-size: 12.5px; line-height: 1.75;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: color-mix(in oklab, var(--muted) 45%, var(--background));
+  }
+  .note b { color: var(--foreground); }
+  .note ul { margin: 6px 0 0; padding-left: 18px; }
+  .note li { margin: 2px 0; }
+
+  /* 静态定格对照：把扫光停在 50% 位置，方便肉眼比较强度 */
+  .frozen .sweep::after { animation: none; transform: translateX(0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sweep::after { content: none; animation: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="page-head">
+    <h1>工具运行态扫光 · 白色变体对比</h1>
+    <div style="display:flex;gap:8px">
+      <button class="btn" id="toggle-theme">切换深浅色</button>
+      <button class="btn" id="toggle-freeze">定格扫光</button>
+    </div>
+  </div>
+
+  <p class="intro">
+    现状实现是 <code>color-mix(in oklab, currentColor 12%, transparent)</code>：扫光颜色取文字色本身，
+    而工具摘要文字是 <code>--muted-foreground</code>。所以在<b>浅色主题</b>下它是「中灰带」，观感偏暗、像黑色；
+    在<b>暗色主题</b>下本来就是浅灰近白。下面把四种取值并排放在一起看。
+  </p>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">A · 现状：currentColor 12%</div>
+        <div class="card-sub">随文字色变化：浅色=中灰，暗色=浅灰</div>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-a">运行命令<span class="quickforge-tool-summary-detail"> · npm run build</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="quickforge-tool-summary" style="margin-top:12px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M3 12h18"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-a">编辑文件<span class="quickforge-tool-summary-detail"> · src/index.css</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">B · 纯白 12%</div>
+        <div class="card-sub">深浅色都固定白色，浅色下几乎看不见</div>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-b">运行命令<span class="quickforge-tool-summary-detail"> · npm run build</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="quickforge-tool-summary" style="margin-top:12px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M3 12h18"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-b">编辑文件<span class="quickforge-tool-summary-detail"> · src/index.css</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">C · 纯白 22%</div>
+        <div class="card-sub">浅色下能看见一点点，暗色下明显更亮</div>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-c">运行命令<span class="quickforge-tool-summary-detail"> · npm run build</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="quickforge-tool-summary" style="margin-top:12px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M3 12h18"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-c">编辑文件<span class="quickforge-tool-summary-detail"> · src/index.css</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">D · 纯白 32%（极限对照）</div>
+        <div class="card-sub">暗色下偏刺眼，浅色下会像一块白斑</div>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-d">运行命令<span class="quickforge-tool-summary-detail"> · npm run build</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="quickforge-tool-summary" style="margin-top:12px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M3 12h18"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-d">编辑文件<span class="quickforge-tool-summary-detail"> · src/index.css</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>怎么看</b>
+    <ul>
+      <li>点「定格扫光」把动画停在正中间，强度差异更容易比较；关掉再点开可恢复滚动。</li>
+      <li>浅色主题下白色扫光叠在白底上＝无效区域，只有压在文字笔画上才微微提亮；所以 <b>B 基本等于关掉了动效</b>，C/D 才会出现「白斑」感。</li>
+      <li>暗色主题下 D 会明显发灰白，A 偏柔和——这也是现状在暗色看起来「已经是白色」的原因。</li>
+    </ul>
+  </div>
+
+<script>
+  document.getElementById('toggle-theme').addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark');
+  });
+  document.getElementById('toggle-freeze').addEventListener('click', (e) => {
+    const frozen = document.body.classList.toggle('frozen');
+    e.target.textContent = frozen ? '恢复动画' : '定格扫光';
+  });
+</script>
+</body>
+</html>

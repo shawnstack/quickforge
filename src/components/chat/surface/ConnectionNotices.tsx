@@ -382,18 +382,45 @@ export function UnreachableStrip({ status }: { status: SseConnectionStatus | nul
  * 时，composer 转只读并显示这条提示。它同时提供「在此窗口接管」，因为租约是
  * 用户可见的偏好而不是硬锁 —— 用户想换窗口写时不该去关掉另一个标签页。
  */
+/**
+ * 「无法确认写入权限」提示条。
+ *
+ * 会话写入租约（`server/session-lease.mjs`）只允许一个客户端写。这里覆盖两种
+ * 情况，措辞必须区分开，否则用户无从判断该做什么：
+ *
+ * - 本页不是持有者 → 给出「在此窗口接管」，因为租约是用户可见的偏好而不是硬锁。
+ * - 请求失败（网络 / 未授权 / 服务端报错）→ 给出「重试」。这类失败往往是瞬时的
+ *   或与访问授权有关，把用户锁在只读里却不给出口，是这条提示最糟的形态。
+ */
 export function SessionLeaseStrip({
   holder,
   degraded,
+  failure,
+  failureStatus,
   onTakeOver,
   takingOver = false,
+  onRetry,
+  retrying = false,
 }: {
   /** 当前持有者的 clientId；`null` 表示无人持有（仅 degraded 时会出现）。 */
   holder: string | null
   degraded: boolean
+  /** 失败原因；仅 degraded 时有意义。 */
+  failure?: 'network' | 'server' | 'auth' | 'unsupported'
+  /** 失败时服务端返回的状态码，用于把「HTTP 500」这类事实直接告诉用户。 */
+  failureStatus?: number
   onTakeOver?: () => void
   takingOver?: boolean
+  onRetry?: () => void
+  retrying?: boolean
 }) {
+  const detail = !degraded
+    ? t('sessionLeaseObserverDetail')
+    : failure === 'auth'
+      ? t('sessionLeaseUnavailableAuthDetail')
+      : failure === 'server' && failureStatus
+        ? t('sessionLeaseUnavailableServerDetail', { status: String(failureStatus) })
+        : t('sessionLeaseUnavailableDetail')
   return (
     <div className="quickforge-lease-strip" role="status">
       <div className="quickforge-lease-strip-row">
@@ -401,11 +428,18 @@ export function SessionLeaseStrip({
         <span className="quickforge-lease-strip-title">
           {degraded ? t('sessionLeaseUnavailable') : t('sessionLeaseObserverTitle')}
         </span>
-        <span className="quickforge-lease-strip-sub">
-          {degraded ? t('sessionLeaseUnavailableDetail') : t('sessionLeaseObserverDetail')}
-        </span>
+        <span className="quickforge-lease-strip-sub">{detail}</span>
         <span className="quickforge-lease-strip-spacer" />
-        {degraded ? null : (
+        {degraded ? (
+          <button
+            className="quickforge-lease-takeover"
+            type="button"
+            disabled={retrying}
+            onClick={() => onRetry?.()}
+          >
+            {t('sessionLeaseRetry')}
+          </button>
+        ) : (
           <button
             className="quickforge-lease-takeover"
             type="button"

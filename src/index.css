@@ -3869,38 +3869,50 @@ html.dark .quickforge-file-path-link {
   display: inline;
 }
 
-/* Tool-running highlight sweep: a long-running loop, exempt from the motion
-   duration scale (see --quickforge-dur-* tokens) by design. */
+/* Tool-running highlight sweep: the label text itself carries the moving
+   highlight, reusing the thinking-text shimmer paradigm above (gradient +
+   200% background-size + background-clip: text) so running text reads as
+   light passing through the glyphs instead of a grey band sliding over the
+   box. A long-running loop, exempt from the motion duration scale (see
+   --quickforge-dur-* tokens) by design.
+   The detail child (`.quickforge-tool-summary-detail`) keeps its own opaque
+   color, so the argument summary neither disappears nor double-paints. */
 .quickforge-tool-running-sweep {
-  position: relative;
-}
-
-.quickforge-tool-running-sweep::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(
+  /* 底色兜底：background 只覆盖 background-size 的区间，纯渐变在高光扫到
+     两端时会让整段文字暂时失焦不可见；先铺一层不透明底色，保证运行态
+     标签任何相位都清晰可读，渐变的边缘也正好落在同一底色上，无接缝。 */
+  background-color: var(--muted-foreground);
+  background-image: linear-gradient(
     90deg,
-    transparent 35%,
-    color-mix(in oklab, currentColor 12%, transparent) 50%,
-    transparent 65%
+    var(--muted-foreground) 25%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 75%
   );
-  transform: translateX(-100%);
-  animation: quickforge-tool-running-sweep 1.8s ease-in-out infinite;
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2s ease-in-out infinite;
 }
 
-@keyframes quickforge-tool-running-sweep {
-  to {
-    transform: translateX(100%);
-  }
-}
-
+/* Restore plain readable text when motion is reduced: no static gradient
+   running state is left behind. */
 @media (prefers-reduced-motion: reduce) {
-  .quickforge-tool-running-sweep::after {
-    content: none;
+  .quickforge-tool-running-sweep {
+    background-color: transparent;
+    background-image: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: inherit;
     animation: none;
   }
+}
+
+/* Keep the argument summary readable while the label text carries the
+   gradient: the detail keeps an opaque color instead of inheriting the
+   transparent text fill. */
+.quickforge-tool-running-sweep .quickforge-tool-summary-detail {
+  color: var(--muted-foreground);
 }
 
 /* subagent 摘要卡「当前工具」跑马灯：只占用标签与状态之间的剩余弹性空间；

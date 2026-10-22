@@ -1,3 +1,33 @@
+## dsh-trajectory-design（done，2026-10-22）
+
+- Goal：只读调研 DSH（DeepSeek Harness）会话轨迹的存储与事件设计（用户问「能不能读取 dsh deepseek harness 的轨迹的设计」）。纯调研，未改产品代码、未更新 docs/wiki（调研结论非架构变更，沉淀在 session-handoff.md 即可）、未创建 Git commit。
+- 结论（一句话）：DSH 轨迹 = **追加式 zstd 多帧 JSONL 事件日志** `~\.dsh\sessions\<workspace-slug>\<sessionId>\session.v4.jsonl.zstd`；事件信封 `{type, seq, time, data, surfaceOp?, sourceEventSeqs?}`，seq 从 0 连续递增（实测 12 会话 0 gap），恢复即顺序重放。头事件 `session{version:4,id,createdAt,cwd,parentSession?,origin?,delegationDepth,agentPreset}` 无 seq。
+- 解压要点（避坑）：文件是**多帧 zstd 拼接**，`zstdDecompressSync`/流式解压都只吐第一帧；必须按 zstd magic `28 B5 2F FD` 切帧逐帧解压再拼（最大会话 3.7MB = 2671 帧 / 4499 事件）。
+- 事件分层（41 种）：会话配置（permission/preset、sandbox/mode、approval/policy）→ 轮次骨架（turn/start→step/start→…→step/end→turn/end{reason:completed|error|aborted{user|parent}}）→ 模型交互（request/header 含 tools 全量定义快照、request/context、system/user/assistant/message，assistant 带 usage 与全量 stream[] 流记录 + source.replayState 可重放回源；失败另有 assistant/attempt + llm/retry*）→ 工具生命周期（tool/call → job/registered → job/settled → tool/result{message,error?,meta?}，meta 按工具结构化）→ 审批/命令 → agent/inbox/spliced 注入 → **Goal 事件溯源**（goal/change 完整快照 + revision CAS，即 QuickForge Goal v2 对标的源头）→ 压缩（compaction/prune 裁剪审计 + summary 以 compact-checkpoint user/message 投放）→ 工作流/子代理（tool-workflow/* + subagent/descriptor|catalog，子代理是独立 session 文件双向链接）→ 元数据/遥测（session/title、delivery-accepted{throughSeq} 水位 ack）。
+- Evidence：Node 24 `zlib.zstdDecompressSync` 按帧切分解压 12 个会话共 9931 事件全部 JSON 可解析、seq 零缺口；配置面 cordis.patch.yml 与 storages/workspace.json 一并读过。
+- Notes：可复用脚本 `.tmp-dsh-lib.mjs` / `.tmp-dsh-zframes.mjs` / `.tmp-dsh-inspect.mjs` / `.tmp-dsh-src.mjs` 留在仓库根（一次性分析产物已清理）；详细契约见 session-handoff.md「dsh-trajectory-design」条目。未新增依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## tool-running-text-shimmer（done，2026-10-22）
+
+- Goal：用户问「运动命令时候的扫光是不是黑色的，白色会不会更好」，随后选择把运行态扫光改成**渐变高光在文字内部流过**（复用思考 shimmer 范式）。
+- 根因：原 `.quickforge-tool-running-sweep::after` 用 `color-mix(in oklab, currentColor 12%, transparent)` 在标签上层盖一条滑动的光带。`currentColor` 取的是 `--muted-foreground`，浅色主题下是灰色带（观感像黑色扫光）、暗色下近白 —— 同一份代码两套观感，且光带压在文字上层会降低可读性。用户提议改成纯白，但白底 + 白扫光在浅色主题下等于失效。
+- 改动（`src/index.css`）：删除 `::after` 覆盖层与 `@keyframes quickforge-tool-running-sweep`，改为标签自身承载渐变：
+  1. `background-image: linear-gradient(90deg, muted-foreground 25%, foreground 50%, muted-foreground 75%)` + `background-size: 200% 100%` + `background-clip: text` + `color: transparent`，动画直接复用既有 `shimmer 2s ease-in-out infinite`（与思考文本同一 keyframes、同一节奏）。
+  2. **底色兜底** `background-color: var(--muted-foreground)`：渐变在 200% 幅面里只覆盖部分区间，端点相位会让整段文字「失焦」不可见；铺不透明底色后任意相位都可读，且渐变的两个端点色与底色相同，无接缝。
+  3. `.quickforge-tool-running-sweep .quickforge-tool-summary-detail { color: var(--muted-foreground) }`：参数摘要（` · npm run build`）不能被父级的 `color: transparent` 吞掉。
+  4. `prefers-reduced-motion` 下 `background-image: none` + `background-clip: border-box` + `color: inherit` + `animation: none`，回到普通文字，不留静态渐变运行态。
+- 测试迁移：`tests/frontend/local-tool-running-sweep.test.ts` 的 CSS 契约从「伪元素 + translateX + currentColor 12%」改为「text-clip 渐变 + shimmer 复用 + 底色兜底 + detail 不透明 + reduced-motion 回退」，并新增断言「不再存在 `.quickforge-tool-running-sweep::after`」；`tests/frontend/motion-design.test.ts` 的豁免长循环断言改锚 `animation: shimmer 2s ease-in-out infinite`。
+- 验证：定向 vitest（local-tool-running-sweep / motion-design / chat-surface-css-contract / subagent-run-detail / tool-param-summary）**5 文件 178 passed**；`npx eslint` 改动文件 0 error；`npm run build` 成功（7.87s，仅既有 externalized / chunk size warnings）；Playwright 实测深浅两主题：计算样式确认为 `background-clip: text` + `color: transparent` + `background-color: oklch(0.556/0.708)`，-200%…200% 各相位文字均完整可读，亮部落在字形中部，`· npm run build` 保持自身灰色。
+- 文档：`DESIGN_LANGUAGE.md` 动效章节新增「工具运行态流光」条目（范式、底色兜底、detail 保护、reduced-motion 回退）；设计对比稿留在 `design-mockups/tool-running-feedback-styles.html` 与 `design-mockups/tool-running-sweep-white.html`。
+- 边界：只改 running 态工具标题的视觉表现（`quickforge-tool-label` 的 sweep 类名与 CSS），renderer 结构、`aria-busy` 语义、`renderStatus` 显隐、run_command 输出与终止按钮、subagent 跑马灯均未动；未新增依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+- Notes：`appearance` 类阴影/滤镜仍被契约测试禁止，本次未引入；若后续想强化「光的质感」，只能在渐变停靠点上做文章（不改结构、不加 filter）。
+- Notes（与本次 feature 无关，已顺手修）：全量 `npm run test` 曾出现 1 例失败 `tests/frontend/server-agent-events-types.test.ts`（TS 诊断报 `src/lib/session-lease-client.ts:171` `failure: null` 不匹配 `SessionLeaseFailure | undefined`）；`npm run lint` 报 `MessageEditor.tsx:228` `readOnlyPlaceholderKey` 声明了却未被引用。两者都来自并行会话的会话租约/composer 未提交改动。修复：`failureFromStatus` 返回类型去掉恒不出现的 `| null`；`ComposerTextarea` 改为真正使用 `readOnlyPlaceholderKey`，父组件把 `composerReadOnlyPlaceholderKey` 透传下去，两个 prop 的类型由 `string` 收窄为 `AppTextKey`（`t()` 要求字面量联合）。
+- 最终验证：`npm run test` **417 文件 4775 passed / 2 skipped**；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功。
+
+---
+
 ## abort-lease-header（done，2026-10-22）
 
 - Goal：用户反馈「点击暂停无效，控制台报 `POST /api/agents/:id/abort 409 (Conflict)`」。

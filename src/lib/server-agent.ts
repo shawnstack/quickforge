@@ -33,6 +33,13 @@ import {
   takeOverLease,
   type SessionLeaseSnapshot,
 } from './session-lease-client'
+
+/**
+ * 允许的连续租约失败次数。1 表示「单次失败就降级」，这里取 2：一次网络抖动
+ * 或服务端瞬时 5xx 不该立刻把 composer 锁成只读，而两次失败（相隔 20s）之后
+ * 剩下的租约余量已经不足以撑到下次心跳成功，此时降级才合理。
+ */
+const LEASE_DEGRADE_AFTER_FAILURES = 2
 import type {
   ActiveAgentStatus,
   ServerAgentContextCompaction,
@@ -478,6 +485,12 @@ export class ServerAgent {
    */
   private leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null
   private leaseEnabled = false
+  /**
+   * 连续失败计数。单次网络抖动不该把本页切成只读：租约 TTL 是 60s，而心跳
+   * 每 20s 一次，所以连一次失败都容忍不等于冒险 —— 两次失败之间仍有 20s
+   * 余量，下一次心跳成功即恢复。达到 `LEASE_DEGRADE_AFTER_FAILURES` 才降级。
+   */
+  private leaseFailures = 0
   private baseUrl: string
   private disposed = false
   private _syncingThinkingLevel = false
@@ -631,8 +644,19 @@ export class ServerAgent {
   async takeOverSessionLease(): Promise<boolean> {
     if (this.disposed) return false
     const result = await takeOverLease(this.baseUrl, this.sessionId)
+    this.leaseFailures = result.ok ? 0 : this.leaseFailures + 1
     this.applySessionLease(result.snapshot)
     return result.snapshot.isOwner
+  }
+
+  /**
+   * 手动重试一次租约请求（用户点「重试」）。降级后心跳仍每 20s 自动重试，
+   * 这个入口只是不让用户被动等着 —— 网络恢复的那一刻可以立刻点一下。
+   */
+  async retrySessionLease(): Promise<boolean> {
+    if (this.disposed || !this.leaseEnabled) return false
+    await this.renewSessionLease()
+    return this.canWrite()
   }
 
   /** 当前标签页是否持有写租约（未启用租约时恒为 true）。 */
@@ -646,7 +670,40 @@ export class ServerAgent {
     if (this.disposed) return
     const result = await acquireLease(this.baseUrl, this.sessionId)
     if (this.disposed) return
-    this.applySessionLease(result.snapshot)
+    this.applyLeaseResult(result.ok, result.snapshot)
+  }
+
+  /**
+   * 合并一次租约请求的结果，并把「服务端没有租约端点」与「暂时失败」分开处理：
+   *
+   * - `unsupported`：老服务端。它本来就不做租约校验，客户端也就不该因此禁写。
+   *   置回可写并停掉心跳（继续打一个必定 404 的端点是纯噪音）。
+   * - 其他失败：计数 +1，只有连续达到阈值才降级；任何一次成功立刻清零恢复。
+   */
+  private applyLeaseResult(ok: boolean, snapshot: SessionLeaseSnapshot): void {
+    if (ok) {
+      this.leaseFailures = 0
+      this.applySessionLease({ ...snapshot, failure: undefined, failureStatus: undefined })
+      return
+    }
+    if (snapshot.failure === 'unsupported') {
+      this.leaseFailures = 0
+      this.stopSessionLeaseHeartbeat()
+      this.applySessionLease({ ...snapshot, degraded: false })
+      return
+    }
+    // 旁观者（409）不是失败，服务端明确回答了「别人持有」，照实展示。
+    if (snapshot.failure === undefined) {
+      this.leaseFailures = 0
+      this.applySessionLease(snapshot)
+      return
+    }
+    this.leaseFailures += 1
+    if (this.leaseFailures < LEASE_DEGRADE_AFTER_FAILURES) {
+      // 还没到降级阈值：保持上一次的判定，不因为一次抖动就把本页锁成只读。
+      return
+    }
+    this.applySessionLease(snapshot)
   }
 
   private applySessionLease(next: SessionLeaseSnapshot): void {
@@ -658,6 +715,8 @@ export class ServerAgent {
       && previous.isOwner === next.isOwner
       && previous.degraded === next.degraded
       && previous.expiresAt === next.expiresAt
+      && previous.failure === next.failure
+      && previous.failureStatus === next.failureStatus
     ) {
       return
     }

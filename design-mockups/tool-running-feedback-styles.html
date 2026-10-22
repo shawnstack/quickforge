@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工具运行态反馈 · 8 个样式方案</title>
+<style>
+  /* token 与 src/index.css 语义一致（DESIGN_LANGUAGE.md：具体 token 以源码为准） */
+  :root {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --radius: 0.5rem;
+    /* 分主题扫光色：浅色用文字色（白底上白色无效），暗色用纯白 */
+    --sweep-tint: color-mix(in oklab, var(--foreground) 10%, transparent);
+    --sweep-tint-strong: color-mix(in oklab, var(--foreground) 16%, transparent);
+  }
+  html.dark {
+    --background: #0b1220;
+    --foreground: #e2e8f0;
+    --muted: #16233b;
+    --muted-foreground: #8fa3bd;
+    --border: #24344f;
+    --sweep-tint: color-mix(in oklab, #fff 20%, transparent);
+    --sweep-tint-strong: color-mix(in oklab, #fff 30%, transparent);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--background); color: var(--foreground);
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .page-head h1 { font-size: 18px; margin: 0; }
+  .btn {
+    font-size: 12px; padding: 3px 10px; border-radius: 0.4rem; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--foreground);
+  }
+  .btn:hover { background: var(--muted); }
+  .intro { margin: 14px 0 22px; color: var(--muted-foreground); font-size: 13px; max-width: 960px; }
+  .intro b { color: var(--foreground); font-weight: 600; }
+  .intro code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+
+  /* ——— 工具摘要行：还原真实结构 ——— */
+  .quickforge-tool-summary {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--muted-foreground); user-select: none;
+  }
+  .quickforge-tool-summary svg { flex: 0 0 auto; }
+  .quickforge-tool-title { min-width: 0; display: inline-flex; align-items: center; gap: 8px; }
+  .quickforge-tool-label { position: relative; display: inline-block; }
+  .lbl { position: relative; display: inline-block; }
+  .quickforge-tool-summary-detail {
+    display: inline; margin-left: 4px;
+    font-family: ui-monospace, Consolas, monospace; font-weight: 400;
+    color: var(--muted-foreground);
+  }
+  .chevron { color: var(--muted-foreground); opacity: 0.8; }
+
+  /* ——— 扫光基座（与 src/index.css 现状一致） ——— */
+  .sweep { position: relative; }
+  .sweep::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(90deg, transparent 35%, var(--sweep-c) 50%, transparent 65%);
+    transform: translateX(-100%);
+    animation: sweep-x 1.8s ease-in-out infinite;
+  }
+  @keyframes sweep-x { to { transform: translateX(100%); } }
+
+  /* A · 现状 currentColor 12% */
+  .v-a { --sweep-c: color-mix(in oklab, currentColor 12%, transparent); }
+  /* B · 分主题扫光 */
+  .v-b { --sweep-c: var(--sweep-tint); }
+  /* E · 胶囊底色流光：扩大扫光可见面积（底色 + 扫光都落在背景层） */
+  .v-e {
+    padding: 1px 7px; border-radius: 5px; overflow: hidden;
+    background: color-mix(in oklab, var(--muted-foreground) 9%, transparent);
+    --sweep-c: var(--sweep-tint-strong);
+  }
+  .v-e::after { inset: 0; }
+
+  /* C · 文字流光（复用思考 shimmer 思路：渐变 200% 位移 + background-clip:text）
+     底色兜底保证任意相位清晰，不透明 → 文字不会消失 */
+  .v-c .lbl {
+    background-color: var(--muted-foreground);
+    background-image: linear-gradient(90deg,
+      var(--muted-foreground) 25%,
+      var(--foreground) 50%,
+      var(--muted-foreground) 75%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+    animation: text-flow 2s ease-in-out infinite;
+  }
+  /* 参数摘要保持自身不透明色，避免被 text-clip 吞掉 */
+  .v-c .quickforge-tool-summary-detail { color: var(--muted-foreground); }
+  @keyframes text-flow { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+
+  /* D · 呼吸透明度 */
+  .v-d .lbl { animation: breathe 1.8s ease-in-out infinite; }
+  @keyframes breathe { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  /* F · 流动下划线 */
+  .v-f { padding-bottom: 2px; }
+  .v-f::after {
+    inset: auto 0 0 0; height: 1.5px; border-radius: 2px;
+    background: linear-gradient(90deg, transparent 30%, var(--sweep-tint-strong) 50%, transparent 70%);
+  }
+
+  /* G · 字符波形（逐字错峰提亮） */
+  .wave-ch { display: inline-block; animation: wave 1.5s ease-in-out infinite; }
+  @keyframes wave { 0%, 100% { opacity: 0.42; } 40% { opacity: 1; } }
+
+  /* H · 尾部呼吸圆点（文字恒定不闪） */
+  .running-dot {
+    display: inline-block; width: 4px; height: 4px; margin-left: 6px;
+    border-radius: 50%; background: currentColor; vertical-align: middle;
+    animation: dot-breathe 1.4s ease-in-out infinite;
+  }
+  @keyframes dot-breathe { 0%,100% { opacity: 0.25; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1); } }
+
+  /* ——— 卡片布局 ——— */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); gap: 16px; }
+  .card { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .card-head {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    background: color-mix(in oklab, var(--muted) 55%, var(--background));
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  }
+  .card-title { font-weight: 600; font-size: 13px; }
+  .card-sub { font-size: 12px; color: var(--muted-foreground); margin-top: 2px; }
+  .badge {
+    flex: 0 0 auto; font-size: 11px; padding: 1px 7px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted-foreground); white-space: nowrap;
+  }
+  .badge.rec { color: color-mix(in oklab, #048f65 85%, var(--foreground)); border-color: color-mix(in oklab, #048f65 35%, var(--border)); }
+  .badge.warn { color: color-mix(in oklab, #d97706 88%, var(--foreground)); border-color: color-mix(in oklab, #d97706 35%, var(--border)); }
+  .card-body { padding: 16px 14px 14px; }
+  .card-meta { margin-top: 12px; font-size: 12px; color: var(--muted-foreground); line-height: 1.7; }
+  .card-meta b { color: var(--foreground); font-weight: 600; }
+  .card-meta .risk { color: color-mix(in oklab, #d97706 88%, var(--foreground)); }
+
+  .note {
+    margin-top: 22px; padding: 12px 14px; font-size: 12.5px; line-height: 1.8;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: color-mix(in oklab, var(--muted) 45%, var(--background));
+  }
+  .note b { color: var(--foreground); }
+  .note ul { margin: 6px 0 0; padding-left: 18px; }
+  .note li { margin: 3px 0; }
+  .note code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+
+  /* 定格：扫光停在正中，其它循环动画暂停 */
+  body.frozen .sweep::after { animation: none; transform: translateX(0); }
+  body.frozen .lbl, body.frozen .wave-ch, body.frozen .running-dot { animation-play-state: paused; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sweep::after { content: none; animation: none; }
+    .lbl, .wave-ch, .running-dot { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="page-head">
+    <h1>工具运行态反馈 · 8 个样式方案</h1>
+    <div style="display:flex;gap:8px">
+      <button class="btn" id="toggle-theme">切换深浅色</button>
+      <button class="btn" id="toggle-freeze">定格扫光</button>
+    </div>
+  </div>
+
+  <p class="intro">
+    统一前提：只作用于 running 态的工具标题（<code>.quickforge-tool-label</code>），done/error 不变，且都要有
+    <code>prefers-reduced-motion</code> 降级。下面每个方案都按「动的是什么 + 代价 + 是否符合 DESIGN_LANGUAGE」评估。
+    建议先把扫光<b>定格</b>看静态强度，再恢复动画看节奏。
+  </p>
+
+  <div class="grid">
+    <!-- A -->
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">A · 现状：currentColor 扫光</div>
+          <div class="card-sub">扫光取文字色 12%，浅色下是灰带，暗色下近白</div>
+        </div>
+        <span class="badge">基线</span>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-a"><span class="lbl">运行命令</span><span class="quickforge-tool-summary-detail"> · npm run build</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="card-meta">
+          代价：<b>主题不自洽</b>——同一份代码在浅色偏暗、暗色偏亮，看起来不像同一个设计。<br>
+          符合规范：是（opacity/transform，无 filter / shadow）。
+        </div>
+      </div>
+    </div>
+
+    <!-- B -->
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">B · 分主题扫光（推荐）</div>
+          <div class="card-sub">浅色 foreground 10%，暗色纯白 20%</div>
+        </div>
+        <span class="badge rec">推荐</span>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-b"><span class="lbl">运行命令</span><span class="quickforge-tool-summary-detail"> · npm run build</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="card-meta">
+          代价：几乎为零，只多一个 CSS 变量 + 一条 <code>html.dark</code> 覆盖。<br>
+          等于暗色下得到你要的“白色扫光”，浅色下仍是可见的柔光，不会失效。
+        </div>
+      </div>
+    </div>
+
+    <!-- C -->
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">C · 文字流光（渐变 text-clip）</div>
+          <div class="card-sub">渐变高光在文字内部流过，复用思考 shimmer 的范式</div>
+        </div>
+        <span class="badge rec">推荐</span>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label v-c"><span class="lbl">运行命令</span><span class="quickforge-tool-summary-detail"> · npm run build</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="card-meta">
+          效果：文字本身明暗流动，深浅色都天然成立，最接近“光扫过字”。<br>
+          <span class="risk">坑：</span>必须只包住文字节点（detail 子元素会被 <code>color: transparent</code> 干掉）；emoji/图标不能进这个容器。
+        </div>
+      </div>
+    </div>
+
+    <!-- D -->
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">D · 呼吸透明度</div>
+          <div class="card-sub">整段标题 opacity 1 ↔ 0.5，1.8s</div>
+        </div>
+        <span class="badge">可选</span>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label v-d"><span class="lbl">运行命令</span><span class="quickforge-tool-summary-detail"> · npm run build</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="card-meta">
+          最省事、最稳（只有 opacity）。<br>
+          <span class="risk">坑：</span>文字整体变淡会降低可读性，长耗时任务会觉得“字在喘”；无方向感，信息量最低。
+        </div>
+      </div>
+    </div>
+
+    <!-- E -->
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">E · 胶囊底色流光</div>
+          <div class="card-sub">给标题加淡底胶囊，扫光落在底色上</div>
+        </div>
+        <span class="badge">可选</span>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-e"><span class="lbl">运行命令</span><span class="quickforge-tool-summary-detail"> · npm run build</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="card-meta">
+          真实“扫光带”在浅色主题下唯一能看清的做法：靠底色承载光带。<br>
+          <span class="risk">坑：</span>给纯文本加胶囊是新的视觉模式（DESIGN_LANGUAGE 里没有“行内状态胶囊”先例），且会抢占 chevron/状态的注意力。
+        </div>
+      </div>
+    </div>
+
+    <!-- F -->
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">F · 流动下划线</div>
+          <div class="card-sub">1.5px 光带在文字下方扫过</div>
+        </div>
+        <span class="badge">可选</span>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label sweep v-f"><span class="lbl">运行命令</span><span class="quickforge-tool-summary-detail"> · npm run build</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="card-meta">
+          优点：不碰文字，可读性零影响；线条天然“克制”。<br>
+          <span class="risk">坑：</span>容易和 hover 下划线、链接语义混淆；<code>inset</code> 改动会破坏现有 CSS 契约测试。
+        </div>
+      </div>
+    </div>
+
+    <!-- G -->
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">G · 字符波形</div>
+          <div class="card-sub">逐字错峰提亮，90ms 间隔</div>
+        </div>
+        <span class="badge warn">不推荐</span>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label"><span class="lbl wave-chars">运行命令</span><span class="quickforge-tool-summary-detail"> · npm run build</span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="card-meta">
+          视觉上最“活”，但需要把标题拆成逐字 span。<br>
+          <span class="risk">硬伤：</span>i18n 文本被拆散、无障碍朗读与选中复制受影响、DOM 数量随文案长度膨胀；DESIGN_LANGUAGE 明确不要逐项瀑布式动效。
+        </div>
+      </div>
+    </div>
+
+    <!-- H -->
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">H · 尾部呼吸点</div>
+          <div class="card-sub">文字恒定，仅在末尾加 4px 呼吸圆点</div>
+        </div>
+        <span class="badge rec">推荐</span>
+      </div>
+      <div class="card-body">
+        <div class="quickforge-tool-summary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+          <span class="quickforge-tool-title">
+            <span class="quickforge-tool-label"><span class="lbl">运行命令</span><span class="quickforge-tool-summary-detail"> · npm run build</span><span class="running-dot"></span></span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </div>
+        <div class="card-meta">
+          优点：可读性最好、成本最低、深浅色都成立，和「按压回缩」同级克制。<br>
+          缺点：信息量偏少（就是呼吸），但可用 <code>aria-busy</code> 承担语义。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>怎么选</b>
+    <ul>
+      <li><b>想保留“扫光”这个语言</b> → 选 <b>B</b>（只改颜色取值 + 一条 <code>html.dark</code> 覆盖），是 A 的最小修复。</li>
+      <li><b>想要更像“光”而不是“灰带”</b> → 选 <b>C</b>，但需把「标题文字」和「参数 detail」拆成两个 span，改动面比 B 大。</li>
+      <li><b>想彻底不折腾</b> → 选 <b>H</b>，把扫光换成呼吸点，代码最简单、可读性最好。</li>
+      <li><b>不建议</b>：D（文字变淡影响可读）、G（拆字伤 i18n 与复制）、E（引入无先例的行内胶囊）。</li>
+      <li>若要组合，建议 <b>B 或 C 二选一 + H 的静态语义</b>，不要两种动效同时挂在一个标签上。</li>
+    </ul>
+  </div>
+
+<script>
+  document.getElementById('toggle-theme').addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark');
+  });
+  document.getElementById('toggle-freeze').addEventListener('click', (e) => {
+    const frozen = document.body.classList.toggle('frozen');
+    e.target.textContent = frozen ? '恢复动画' : '定格扫光';
+  });
+
+  // G 方案：把标题拆成逐字 span 以演示波形（仅演示用）
+  document.querySelectorAll('.wave-chars').forEach((el) => {
+    const text = el.textContent;
+    el.textContent = '';
+    [...text].forEach((ch, i) => {
+      const span = document.createElement('span');
+      span.className = 'wave-ch';
+      span.textContent = ch === ' ' ? '\u00A0' : ch;
+      span.style.animationDelay = `${(i * 0.09).toFixed(2)}s`;
+      el.appendChild(span);
+    });
+  });
+</script>
+</body>
+</html>

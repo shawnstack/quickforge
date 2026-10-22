@@ -60,8 +60,9 @@ describe('motion design tokens and primitives', () => {
   it('keeps the tool-running sweep as an exempt long-running loop', () => {
     const css = readSource('../../src/index.css')
     const sweep = css.slice(css.indexOf('/* Tool-running highlight sweep'))
-    expect(sweep.slice(0, sweep.indexOf('.quickforge-tool-running-sweep::after'))).toContain('exempt from the motion')
-    expect(sweep).toContain('animation: quickforge-tool-running-sweep 1.8s ease-in-out infinite')
+    expect(sweep.slice(0, sweep.indexOf('.quickforge-tool-running-sweep {'))).toContain('exempt from the motion')
+    // 复用思考 shimmer 的 keyframes 与节奏：文字内部渐变流动。
+    expect(sweep).toContain('animation: shimmer 2s ease-in-out infinite')
   })
 
   it('guards all new animation primitives under prefers-reduced-motion', () => {

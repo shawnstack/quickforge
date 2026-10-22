@@ -1,3 +1,47 @@
+## 当前交接：dsh-trajectory-design（done，2026-10-22）
+
+- Current Objective（当前目标）: 只读调研 **DSH（DeepSeek Harness）会话轨迹（trajectory / session log）的存储与事件设计**，供 QuickForge Goal/会话轨迹对标参考。纯调研，**未改任何代码/文档/wiki**（调研结论沉淀在本交接，非架构变更，无需同步 docs/wiki）；未提交 Git。
+- 结论（DSH 轨迹设计一句话）: **追加式 zstd 多帧 JSONL 事件日志**——`~\.dsh\sessions\<workspace-slug>\<sessionId>\session.v4.jsonl.zstd`，每次 append 写一个独立 zstd 帧（帧内 1..n 行 JSON），事件信封 `{type, seq, time, data, surfaceOp?, sourceEventSeqs?}`，seq 从 0 连续递增（实测 12 会话 0 gap）；恢复即顺序重放。
+- 解压要点（避坑）: 整个文件是**多帧 zstd 拼接**，`zlib.zstdDecompressSync`/流式解压都只吐第一帧；必须按 zstd magic `28 B5 2F FD` 切帧逐帧解压再拼接（最大会话 3.7MB = 2671 帧 / 4499 事件，帧压缩比 ~0.27）。
+- 头事件与信封: 首行 `{"type":"session", version:4, id, createdAt, cwd, isSeeded, delegationDepth, agentPreset}`（无 seq），子代理会话带 `parentSession` + `origin:"subagent"` + `delegationDepth:1`。其余事件 `seq`(int) + `time`(epoch ms)；`surfaceOp` 是 UI 呈现提示（`"append"` 或 `{op,startSeq,endSeq}`，非模型可见）；`sourceEventSeqs` 把派生事件（tool/result: 1842 条、system/message: 5、user/message: 1）回链源事件，压缩摘要 user/message 可指向多个源 seq。
+- 事件分层（41 种，实测）:
+  1. **会话配置**: `permission/preset`、`sandbox/mode`、`approval/policy`（带 `source:'delegation'`，会随 `/permission danger-full-access` 等命令变化）。
+  2. **轮次骨架**: `turn/start{turn}` → `step/start{turn,step}` → 模型交互 → `step/end` → `turn/end{reason}`；reason：`completed` / `error{error:{message,code}}` / `aborted{reason:{kind:'user'|'parent'}}`。
+  3. **模型交互**: `request/header`（config{provider,model,maxTokens,reasoningEffort} + adapterDefaults + **tools 全量定义快照**，31 个工具）；`request/context`（contextWindow、`systemPromptUpdate:"in-history"`）；`system/message` / `user/message`（content blocks，user source.kind 有 `user{rpcId,clientTimeZone}`、`user-approval`、`time-context`、`tool-jobs`、`skill-catalog`、`compact-checkpoint`）；`assistant/message`（message.content: reasoning/text/tool-call 块；`source.replayState`={response:{kind:'deepseek-messages',version:1,model}, blocks:[{type:'reasoning',signature}]} 可重放回源；`usage{inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,totalTokens}`；**`stream[]` 全量流记录**：chunk/block-start、chunk/block-end、chunk/usage、chunk/finish、reasoning-chunks(dt+texts 差分)、tool-call-chunks、text-chunks）；失败重试另有 `assistant/attempt`（原始失败流）+ `llm/retry-started`/`llm/retry{retryId,policyKey,retry,maxRetries,delayMs,failure}`；`model/selection`。
+  4. **工具生命周期**: `tool/call{turn,step,callId,name,arguments}` → `job/registered{jobId,owner,kind,label,startedAt,toolCall{callId,rootCallId}}` → `job/settled{finishedAt,status,cause,producerReported,detail}` → `tool/result{message{role:'tool',source{kind:'tool',callId},content,isError,id},error?,meta?}`。`meta` 按工具结构化：read→`{path,offset,lines[{number,text}],totalLines,lang}`、grep→`{shape:'matches',files,total,truncated}`、glob→`{shape:'paths',paths}`、edit/write→`{path,diffs,operation}`。工具分布（9931 事件统计）: edit 763 > pwsh 444 > read 377 > grep 116 > write 37 > job_output 28。
+  5. **审批/命令**: `approval/asked{id,toolName,callId,reason}` → `approval/decided{outcome:'allowed-once'}`；`command/run{commandId,name,args,source}` → `command/done{kind:'success',text}`。
+  6. **注入/收件箱**: `agent/inbox/spliced{target:'next-turn',start,inserted[]}`——steering/子代理提示注入，含会话内多次 spliced。
+  7. **Goal（事件溯源）**: `goal/change{kind:'goal/change',version:1,operation:'create'|'complete',goal{id,revision,objective,phase,maxGoalRounds},roundsStarted,createdAt,updatedAt}`——**完整快照 + revision CAS**，这正是 QuickForge Goal v2 对标的源头契约。`todo/write{todos[]}` 同族。
+  8. **压缩/上下文管理**: `compaction/prune{shadowedRange,shadowedSeqs,shadowedTokenCount}`（裁剪审计，57 条）→ `compaction/start/end{compactionId,turn,error?}` → `compaction/summary{summary[]}`（结构化摘要）；摘要以 `user/message` + `compact-checkpoint` 投放进上下文。
+  9. **工作流/子代理**: `tool-workflow/run-start|agent-start{runId,seq,label,phase,childId}|agent-end{outcome}|run-end{stopReason}` + `subagent/descriptor{version,mode:'continuable',provider:'spawn',label,agentProvider,agentModel,agentReasoningEffort}` + `subagent/catalog{version,childId,childCreatedAt,mode,label}`；子代理是**独立 session 文件**（裸 UUID 目录），与父会话双向链接。
+  10. **元数据/遥测**: `session/title`、`session/title-llm-request`、`session-log-deepseek/delivery-accepted{sessionId,sessionFormatVersion,throughSeq}`（日志投递水位 ack）。
+- Evidence（验证方式）: Node 24 `zlib.zstdDecompressSync` 按帧切分解压 12 个会话（含 C:\Users\xiaohao\.dsh 两个 workspace、QuickForge 目录下 8 主会话 + 3 子代理会话），共 9931 事件全部 JSON 可解析、seq 0 个缺口；配置面 `~\.dsh\profiles\desktop\cordis.patch.yml`（provider/model 注入）与 `storages\workspace.json`（workspace↔session 索引）一并读过。
+- 可复用脚本（保留在仓库根，未纳入 git 提交范围）: `.tmp-dsh-lib.mjs`（多帧解压+事件统计+落盘 dump）、`.tmp-dsh-zframes.mjs`（zstd 帧边界/seq 连续性分析）、`.tmp-dsh-inspect.mjs`（单文件概览）、`.tmp-dsh-src.mjs`（sourceEventSeqs/meta/request-header 形状）。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: ① 若启动 QuickForge「轨迹/Goal v2 对标 DSH」改造，直接按上面第 7/8 节契约做事件溯源（goal/change 完整快照 + revision CAS + compaction/prune 裁剪审计）；② 若要把 QuickForge 会话存储也改成 zstd 多帧追加，注意按 magic 切帧的读取约定；③ 未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## 当前交接：tool-running-text-shimmer（done，2026-10-22）
+
+- Current Objective（当前目标）: 用户先问「运动命令时候的扫光是不是黑色的，白色会不会更好」，看完白色变体与 8 个样式方案后选定 **C 方案：渐变高光在文字内部流过（复用思考 shimmer 范式）**。**已完成**，未提交、未创建 commit。
+- 根因（一句话）: 原扫光是 `.quickforge-tool-running-sweep::after` 覆盖层，用 `color-mix(in oklab, currentColor 12%, transparent)` 取文字色 —— 而文字色是 `--muted-foreground`，于是浅色主题下是灰带（观感像黑色）、暗色下近白，同一份代码两套观感；且光带压在文字上层拉低可读性。用户提的「纯白」方案在浅色主题（白底）下会完全失效。
+- 改动（`src/index.css`，仅 CSS）:
+  1. 删除 `::after` 覆盖层与 `@keyframes quickforge-tool-running-sweep`，改由标签自身承载渐变：`background-image: linear-gradient(90deg, muted-foreground 25%, foreground 50%, muted-foreground 75%)` + `background-size: 200% 100%` + `background-clip: text` + `color: transparent`，动画**直接复用既有 `shimmer 2s ease-in-out infinite`**（与 ThinkingBlock 同一 keyframes/节奏）。
+  2. **底色兜底** `background-color: var(--muted-foreground)`：渐变只覆盖 200% 幅面的一部分，端点相位会让整段文字不可见；底色与渐变两端同色，任意相位都可读且无接缝。这一步是踩坑点，删掉会看到文字周期性消失。
+  3. `.quickforge-tool-running-sweep .quickforge-tool-summary-detail { color: var(--muted-foreground) }`：保护参数摘要（` · npm run build`）不被父级 `color: transparent` 吞掉。
+  4. `prefers-reduced-motion` 回退：`background-image: none` + `background-clip: border-box` + `background-color: transparent` + `color: inherit` + `animation: none`，不留静态渐变运行态。
+- 测试迁移（改断言到新语义，不是糊过去）: `tests/frontend/local-tool-running-sweep.test.ts` 的三条 CSS 契约重写为「text-clip 渐变 + shimmer 复用 + 底色兜底 + detail 不透明 + reduced-motion 回退」，新增「不再存在 `::after`」的负向断言；`tests/frontend/motion-design.test.ts` 的长循环豁免锚点从 `quickforge-tool-running-sweep 1.8s` 改为 `animation: shimmer 2s ease-in-out infinite`。
+- Evidence（验证）: 最终全量 `npm run test` → **417 文件 4775 passed / 2 skipped**；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功。定向 `npx vitest run local-tool-running-sweep / motion-design / chat-surface-css-contract / subagent-run-detail / tool-param-summary` → 5 文件 178 passed。Playwright 实测深浅两主题：计算样式为 `background-clip: text` / `color: rgba(0,0,0,0)` / `background-color: oklch(0.556 0 0)`（暗色 0.708），`-200%…200%` 五个相位文字均完整可读，亮部落在字形中部，`· npm run build` 保持自身灰色。
+- 顺带修复（并行会话遗留，非本次 feature）:
+  1. `src/lib/session-lease-client.ts:129` `failureFromStatus` 返回类型从 `SessionLeaseFailure | null` 收窄为 `SessionLeaseFailure` —— 三个分支都返回值、恒不返回 `null`，注解让 TS 把 `null` 漏进第 171 行，导致 `server-agent-events-types.test.ts`（真实 tsc 诊断）失败。
+  2. `src/components/chat/surface/MessageEditor.tsx` 的 `readOnlyPlaceholderKey` 原本声明但未使用（占位符写死为 `sessionLeaseComposerPlaceholder`），改为真正使用该 prop，父组件透传 `composerReadOnlyPlaceholderKey`，两处类型由 `string` 收窄为 `AppTextKey`（`t()` 只接受字面量联合）。这才让「旁观者 / 降级」两种只读文案能分开。
+- 文档: `DESIGN_LANGUAGE.md` 动效章节新增「工具运行态流光」一条（范式、底色兜底、detail 保护、reduced-motion 回退）；对比稿 `design-mockups/tool-running-feedback-styles.html`（8 方案）与 `design-mockups/tool-running-sweep-white.html`（白色 4 档）。`docs/wiki` 无需更新：纯视觉状态反馈，模块职责与公共入口未变。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: ① 可选真机目视 running → done 切换、reduced-motion、以及 `run_command` 长命令下流光与后台命令删除线的共存；② 若觉得流光偏弱，只能调渐变停靠点（`25%/50%/75%` 与 `foreground` 权重），**不要**引入 filter/box-shadow（被契约测试禁止）；③ 会话租约那批改动（`ChatSurface` / `ConnectionNotices` / `server-agent` / `i18n` / `session-lease-client`）仍未被本次 feature 覆盖验证，仅修了它们的两个编译错误；④ 未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
 ## 当前交接：abort-lease-header（done，2026-10-22）
 
 - Current Objective（当前目标）: 用户报「点击暂停无效，控制台 `POST /api/agents/:id/abort 409 (Conflict)`」。**已完成**，未提交。

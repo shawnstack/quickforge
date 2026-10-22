@@ -21,7 +21,7 @@ import type {
 } from './ChatTypes'
 import type { SurfaceEditorBridgeElement } from './ChatTypes'
 import type { SseConnectionStatus } from '@/lib/server-agent'
-import type { SessionLeaseSnapshot } from '@/lib/session-lease-client'
+import type { SessionLeaseFailure, SessionLeaseSnapshot } from '@/lib/session-lease-client'
 import type { GoalAction, GoalState } from '@/lib/goal'
 import type { CapabilitySuggestion } from '../capability-suggestions'
 import type { AgentAccessMode } from '@/lib/types'
@@ -842,7 +842,12 @@ type WindowedChatSurfaceProps = ChatSurfaceProps & {
    */
   leaseObserver?: boolean
   leaseDegraded?: boolean
+  /** 降级原因（网络/未授权/服务端报错），只影响提示文案。 */
+  leaseFailure?: SessionLeaseFailure
+  leaseFailureStatus?: number
   onTakeOverLease?: () => Promise<boolean> | boolean
+  /** 降级时的手动重试（用户不必干等 20s 心跳）。 */
+  onRetryLease?: () => Promise<boolean> | boolean
 }
 
 type WindowSnapshot = {
@@ -904,7 +909,10 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     onAccessModeChange,
     leaseObserver = false,
     leaseDegraded = false,
+    leaseFailure,
+    leaseFailureStatus,
     onTakeOverLease,
+    onRetryLease,
   },
   ref,
 ) {
@@ -914,6 +922,8 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
   const connectionStatus = useSseConnectionStatus()
   // 租约提示条的本地「接管中」态：接管是一次网络往返，按钮期间要禁用防重复点击。
   const [leaseTakeOverPending, setLeaseTakeOverPending] = useState(false)
+  // 「重试」共用同一套 pending 态：降级与接管是互斥的两种提示，不会同屏出现。
+  const [leaseRetryPending, setLeaseRetryPending] = useState(false)
   /**
    * 租约提示条只看显式传入的 `leaseObserver` / `leaseDegraded`，不回读
    * `snapshot.sessionLease`：这样 surface 的可见行为完全由宿主决定，
@@ -927,6 +937,13 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
       .catch(() => false)
       .finally(() => setLeaseTakeOverPending(false))
   }, [leaseTakeOverPending, onTakeOverLease])
+  const handleRetryLease = useCallback(() => {
+    if (!onRetryLease || leaseRetryPending) return
+    setLeaseRetryPending(true)
+    void Promise.resolve(onRetryLease())
+      .catch(() => false)
+      .finally(() => setLeaseRetryPending(false))
+  }, [leaseRetryPending, onRetryLease])
   // Latest snapshot handed to React (R1 F1a). `syncSnapshot` reads it to reuse
   // unchanged identities without depending on the `snapshot` state, which
   // would re-create the callback and re-run the subscription effect on every
@@ -1391,9 +1408,13 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
         {leaseNoticeVisible ? (
           <SessionLeaseStrip
             holder={snapshot.sessionLease?.holder ?? null}
-            degraded={snapshot.sessionLease?.degraded === true}
+            degraded={leaseDegraded}
+            failure={leaseFailure}
+            failureStatus={leaseFailureStatus}
             onTakeOver={handleTakeOverLease}
             takingOver={leaseTakeOverPending}
+            onRetry={handleRetryLease}
+            retrying={leaseRetryPending}
           />
         ) : null}
         {/* Input area */}

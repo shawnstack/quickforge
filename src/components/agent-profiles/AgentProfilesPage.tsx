@@ -11,8 +11,8 @@ import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { openModelSheet } from '@/lib/custom-model-selector'
 import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
-import { includeCurrentModel, modelMatchesReference, sameModelIdentity } from '@/lib/model-identity'
-import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions } from '@/lib/pi-chat'
+import { includeCurrentModel, modelMatchesReference } from '@/lib/model-identity'
+import { getConfiguredModels, initializePiStorage, loadActiveThinkingLevel, loadInitialConfiguredModel, resolveNewSessionThinkingLevel } from '@/lib/pi-chat'
 import { isModelSelectable } from '@/lib/model-visibility'
 import {
   DEFAULT_MAX_RUNTIME_MINUTES,
@@ -248,14 +248,14 @@ export function AgentProfilesPage() {
         const mergedModels = catalogModels.length ? catalogModels : configuredModels
         setConfiguredModels(mergedModels)
         const selectableModels = mergedModels.filter(isModelSelectable)
-        const defaultOptions = await loadDefaultOptions(storage)
-        const savedDefault = defaultOptions.model && isModelSelectable(defaultOptions.model)
-          ? selectableModels.find((model) => sameModelIdentity(model, defaultOptions.model!))
-          : undefined
-        const activeModel = savedDefault ?? selectableModels[0]
+        const [activeModel, savedThinkingLevel] = await Promise.all([
+          loadInitialConfiguredModel(storage),
+          loadActiveThinkingLevel(storage),
+        ])
+        const nextModel = (activeModel && isModelSelectable(activeModel) ? activeModel : undefined) ?? selectableModels[0]
         if (cancelled) return
-        setSelectedModel(activeModel)
-        setThinkingLevel(defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(activeModel))
+        setSelectedModel(nextModel)
+        setThinkingLevel(resolveNewSessionThinkingLevel(nextModel, savedThinkingLevel))
       } catch {
         // AI fill will show a clear error if no model is available.
       }

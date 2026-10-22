@@ -26,14 +26,6 @@ vi.mock('react', async (importOriginal) => ({
 }))
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => false } }))
 vi.mock('@/storage', () => ({ getAppStorage: () => ({}) }))
-vi.mock('@/lib/pi-chat', () => ({
-  defaultThinkingLevelForModel: () => 'off',
-  getSelectableConfiguredModels: async () => [],
-  loadDefaultOptions: async () => ({}),
-  mergeAvailableModels: (models: unknown[]) => models,
-  saveDefaultOptions: vi.fn(),
-}))
-vi.mock('@/lib/model-reference', () => ({ loadModelCatalog: async () => [] }))
 vi.mock('@/lib/tool-display-settings', () => ({
   loadToolDisplaySettings: async () => ({ toolDisplayMode: 'detailed', showContextUsage: false, expandProcessStageByDefault: true }),
   saveToolDisplaySettings: settings.saveToolDisplay,

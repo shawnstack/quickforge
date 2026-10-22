@@ -38,6 +38,8 @@ import {
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
 import { t } from '@/lib/i18n'
+import { saveActiveThinkingLevel } from '@/lib/pi-chat'
+import { getAppStorage } from '@/storage'
 import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
 import { markSessionOpen, recordFirstDecorateTiming } from '@/lib/session-open-timing'
@@ -2186,6 +2188,15 @@ export function ChatPanelHost({
               void currentAgent.updateThinkingLevel(level).catch((error) => {
                 logger.error('Failed to sync thinking level to server:', error)
               })
+            }
+            // Remember the pick so the next new session starts from it (there is
+            // no "default thinking level" setting any more).
+            try {
+              void saveActiveThinkingLevel(getAppStorage(), level).catch((error) => {
+                logger.error('Failed to save active thinking level:', error)
+              })
+            } catch (error) {
+              logger.error('Failed to save active thinking level:', error)
             }
           }}
           // Goal strip: same gate the decoration controller used (main chat

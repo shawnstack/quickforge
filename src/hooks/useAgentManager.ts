@@ -5,11 +5,11 @@ import { logger } from '@/lib/logger'
 import { ServerAgent, type ServerAgentContextCompaction } from '@/lib/server-agent'
 import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import {
-  defaultThinkingLevelForModel,
-  loadDefaultOptions,
+  loadActiveThinkingLevel,
   normalizeModelForProvider,
   resolveConfiguredModel,
   resolveNewSessionModel,
+  resolveNewSessionThinkingLevel,
 } from '@/lib/pi-chat'
 import {
   generateTitle,
@@ -231,8 +231,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       } = initialState ?? {}
       void _requestedTools
       const storage = storageRef.current
-      const defaultOptions = storage ? await loadDefaultOptions(storage) : {}
-      const requestedOrDefaultModel = requestedModel ?? defaultOptions.model ?? activeModelRef.current
+      const requestedOrDefaultModel = requestedModel ?? activeModelRef.current
       const preservesBoundModel = requestedModel !== undefined && Boolean(restInitialState.messages?.length)
       const resolvedModel = preservesBoundModel
         ? storage
@@ -242,7 +241,11 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
             storage,
             requestedOrDefaultModel as Model<Api>,
           )
-      const resolvedThinkingLevel = requestedThinkingLevel ?? defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
+      // No "default thinking level" setting: new sessions start from the level
+      // the user last picked (stored as `active-thinking-level`).
+      const savedThinkingLevel = storage ? await loadActiveThinkingLevel(storage) : null
+      const resolvedThinkingLevel = requestedThinkingLevel
+        ?? resolveNewSessionThinkingLevel(resolvedModel, savedThinkingLevel)
       activeModelRef.current = resolvedModel
       const resolvedAccessMode = normalizeAgentAccessMode(options?.accessMode, options?.yoloMode ?? agentAccessModeRef.current)
       agentAccessModeRef.current = resolvedAccessMode
@@ -386,13 +389,13 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo; shouldAttachToView?: () => boolean }) => {
     const requestId = ++deferredSessionRequestRef.current
     const storage = storageRef.current
-    const defaultOptions = storage ? await loadDefaultOptions(storage) : {}
-    const requestedOrDefaultModel = defaultOptions.model ?? activeModelRef.current
+    const requestedOrDefaultModel = activeModelRef.current
     const resolvedModel = await resolveNewSessionModel(
       storage,
       requestedOrDefaultModel as Model<Api>,
     )
-    const resolvedThinkingLevel = defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(resolvedModel)
+    const savedThinkingLevel = storage ? await loadActiveThinkingLevel(storage) : null
+    const resolvedThinkingLevel = resolveNewSessionThinkingLevel(resolvedModel, savedThinkingLevel)
     activeModelRef.current = resolvedModel
 
     const scope = options.scope

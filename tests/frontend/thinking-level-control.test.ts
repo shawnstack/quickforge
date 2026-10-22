@@ -89,6 +89,10 @@ describe('thinking level control', () => {
 
     expect(trigger()!.getAttribute('aria-expanded')).toBe('true')
     expect(menu()).not.toBeNull()
+    // The menu is portalled to `document.body`: the composer card sets
+    // `backdrop-filter` (which re-parents `position: fixed` descendants) and
+    // `overflow: hidden` (which would clip the menu).
+    expect(menu()!.parentElement).toBe(document.body)
     expect(items().map((item) => item.dataset.quickforgeThinkingLevel))
       .toEqual(['off', 'low', 'medium', 'high', 'xhigh'])
     // The current level is marked, not just styled.

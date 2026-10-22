@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- exports the control component plus the level vocabulary/label helper covered by tests. */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { t } from '@/lib/i18n'
 import type { AppTextKey } from '@/lib/i18n'
 import type { ThinkingLevel } from './ChatTypes'
@@ -16,9 +17,12 @@ import type { ThinkingLevel } from './ChatTypes'
  * imperative part left is the measurement, which is inherent to a fixed-position
  * popover.
  *
- * The menu renders outside the composer in a portal-free fixed layer: the CSS
- * (`.quickforge-thinking-menu`) is `position: fixed`, so it is placed inside the
- * component tree but positioned from the trigger's rect.
+ * The menu renders into `document.body` through a portal and is positioned
+ * from the trigger's viewport rect. It cannot stay in the composer subtree: the
+ * editor card (`.quickforge-composer > div:first-child`) sets
+ * `backdrop-filter`, which makes the card the containing block for
+ * `position: fixed` descendants, and its `overflow: hidden` then clips the menu.
+ * The decoration appended the menu to `document.body` for exactly this reason.
  */
 
 export const THINKING_LEVELS: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh']
@@ -89,8 +93,9 @@ export function ThinkingLevelControl({ level, onChange, onBeforeOpen, disabled =
 
   // Measure after the menu exists (its height is not known before render), and
   // re-measure on resize/scroll while open — the same triggers the decoration
-  // listened to on `window`.
-  useEffect(() => {
+  // listened to on `window`. `useLayoutEffect` keeps the first frame from
+  // flashing at the off-screen measurement position.
+  useLayoutEffect(() => {
     if (!open) return undefined
     const reposition = () => {
       const trigger = triggerRef.current
@@ -99,10 +104,16 @@ export function ThinkingLevelControl({ level, onChange, onBeforeOpen, disabled =
       const rect = trigger.getBoundingClientRect()
       const width = Math.min(MENU_WIDTH, window.innerWidth - MENU_EDGE * 2)
       const measuredHeight = menu?.offsetHeight || 160
+      const above = rect.top - measuredHeight - MENU_GAP
+      const below = rect.bottom + MENU_GAP
+      // Flip under the trigger when the menu would not fit above it.
+      const top = above >= MENU_EDGE
+        ? above
+        : Math.min(below, window.innerHeight - measuredHeight - MENU_EDGE)
       setPosition({
         width,
         left: Math.max(MENU_EDGE, Math.min(rect.left, window.innerWidth - width - MENU_EDGE)),
-        top: Math.max(MENU_EDGE, rect.top - measuredHeight - MENU_GAP),
+        top: Math.max(MENU_EDGE, top),
       })
     }
     reposition()
@@ -184,7 +195,7 @@ export function ThinkingLevelControl({ level, onChange, onBeforeOpen, disabled =
         <span className="quickforge-thinking-label">{label}</span>
         <ChevronIcon />
       </button>
-      {open ? (
+      {open && typeof document !== 'undefined' ? createPortal(
         <div
           ref={menuRef}
           className="quickforge-thinking-menu"
@@ -216,7 +227,8 @@ export function ThinkingLevelControl({ level, onChange, onBeforeOpen, disabled =
               <span className="quickforge-thinking-item-label">{item.label}</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   )

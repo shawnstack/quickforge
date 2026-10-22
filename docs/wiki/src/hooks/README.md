@@ -47,8 +47,8 @@
 1. 发起本地 IndexedDB 设置快照读取（语言/外观/字号/工具展示，`app-settings-cache` store），命中即预应用；异步读取不阻塞后续序列
 2. `initializePiStorage()` 完成 health 检查并构造 Storage 后端；随后 fire-and-forget 刷新会话列表
 3. 串行服务器校准并覆盖预应用值：`initializeAppLanguage` → `loadToolDisplaySettings` → `loadAndApplyAppearanceSettings` → `loadAndApplyFontSizeSettings`
-4. 加载项目列表与活跃项目、Agent 访问模式与默认选项
-5. 模型目录/active-model 决策后创建启动会话；URL 携带 `?session=` 时统一委托 `useAgentManager.loadSession()` 走可取消的单次服务端恢复链路
+4. 加载项目列表与活跃项目、Agent 访问模式
+5. 模型目录/active-model 与「最近一次选择的思考等级」（active-thinking-level）决策后创建启动会话；URL 携带 `?session=` 时统一委托 `useAgentManager.loadSession()` 走可取消的单次服务端恢复链路
 6. 校准后的 4 个设置值回写本地快照（成功路径 best-effort），随后标记 `ready`；标记模型是否已配置（`needsModelSetup`）
 
 ### useAgentManager.ts (537 行)

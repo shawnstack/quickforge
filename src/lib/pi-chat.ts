@@ -17,17 +17,17 @@ import { filterSelectableModels } from '@/lib/model-visibility'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { chooseNewSessionModel, chooseStartupModel } from '@/lib/startup-model'
-import { loadModelCatalog, type ModelReference } from '@/lib/model-reference'
+import { loadModelCatalog } from '@/lib/model-reference'
 import { modelFromStoredPreference, storedModelPreference } from '@/lib/model-preference'
 import type { AgentAccessMode } from '@/lib/types'
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 
 const ACTIVE_MODEL_SETTING_KEY = 'active-model'
+const ACTIVE_THINKING_LEVEL_SETTING_KEY = 'active-thinking-level'
 const AGENT_ACCESS_MODE_SETTING_KEY = 'agent-access-mode'
 const AGENT_ACCESS_MODE_PROJECT_PREFIX = 'agent-access-mode-project:'
 const YOLO_MODE_SETTING_KEY = 'yolo-mode'
 const YOLO_MODE_PROJECT_PREFIX = 'yolo-mode-project:'
-const DEFAULT_OPTIONS_SETTING_KEY = 'default-options'
 
 export { isModelSelectable } from '@/lib/model-visibility'
 
@@ -50,11 +50,6 @@ type StoreBundle = {
   providerKeys: ProviderKeysStore
   sessions: SessionsStore
   customProviders: CustomProvidersStore
-}
-
-type DefaultOptions = {
-  model?: Model<Api>
-  thinkingLevel?: ThinkingLevel
 }
 
 export const DEFAULT_CONNECTION: ConnectionForm = {
@@ -270,13 +265,6 @@ export async function initializePiStorage(options: InitializePiStorageOptions = 
   return pending
 }
 
-type StoredDefaultOptions = {
-  modelRef?: ModelReference
-  modelSnapshot?: Model<Api>
-  model?: Model<Api>
-  thinkingLevel?: ThinkingLevel
-}
-
 export async function saveActiveModel(storage: AppStorage, model: Model<Api>) {
   const preference = storedModelPreference(normalizeModelForProvider(model))
   await storage.settings.set(ACTIVE_MODEL_SETTING_KEY, preference)
@@ -290,29 +278,40 @@ function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return value === 'off' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh'
 }
 
-export async function saveDefaultOptions(storage: AppStorage, options: DefaultOptions) {
-  const preference = options.model
-    ? storedModelPreference(normalizeModelForProvider(options.model))
-    : {}
-  await storage.settings.set(DEFAULT_OPTIONS_SETTING_KEY, {
-    ...preference,
-    thinkingLevel: isThinkingLevel(options.thinkingLevel) ? options.thinkingLevel : undefined,
-  })
+/**
+ * Persist the thinking level the user last picked.
+ *
+ * QuickForge has no "default thinking level" setting any more: every new
+ * session starts from whatever the user last chose (see
+ * `resolveNewSessionThinkingLevel`).
+ */
+export async function saveActiveThinkingLevel(storage: AppStorage, level: ThinkingLevel) {
+  await storage.settings.set(
+    ACTIVE_THINKING_LEVEL_SETTING_KEY,
+    isThinkingLevel(level) ? level : 'off',
+  )
 }
 
-export async function loadDefaultOptions(storage: AppStorage): Promise<DefaultOptions> {
-  const options = await storage.settings.get<StoredDefaultOptions>(DEFAULT_OPTIONS_SETTING_KEY)
-  if (!options || typeof options !== 'object') return {}
+export async function loadActiveThinkingLevel(storage: AppStorage): Promise<ThinkingLevel | null> {
+  const stored = await storage.settings.get<unknown>(ACTIVE_THINKING_LEVEL_SETTING_KEY)
+  return isThinkingLevel(stored) ? stored : null
+}
 
-  const model = options.modelSnapshot
-    ? normalizeModelForProvider(modelFromStoredPreference(options)!)
-    : options.model
-      ? normalizeModelForProvider(options.model)
-      : undefined
-  return {
-    model,
-    thinkingLevel: isThinkingLevel(options.thinkingLevel) ? options.thinkingLevel : undefined,
-  }
+/**
+ * Thinking level for a brand-new session.
+ *
+ * Precedence: the level the user last picked for this model's capability, then
+ * the model fallback (reasoning -> `high`, otherwise `off`). A remembered `off`
+ * is kept as-is, and a reasoning-only level is dropped for non-reasoning models
+ * because the provider would reject it.
+ */
+export function resolveNewSessionThinkingLevel(
+  model: Model<Api> | undefined,
+  savedLevel: ThinkingLevel | null | undefined,
+): ThinkingLevel {
+  if (!model?.reasoning) return 'off'
+  if (isThinkingLevel(savedLevel)) return savedLevel
+  return defaultThinkingLevelForModel(model)
 }
 
 export async function loadActiveModel(storage: AppStorage): Promise<Model<Api> | null> {
@@ -366,6 +365,28 @@ export async function loadInitialConfiguredModel(
 
   const savedModel = await loadActiveModel(storage)
   return chooseStartupModel(configuredModels, preferredModel, savedModel)
+}
+
+export type LastUsedSessionOptions = {
+  model: Model<Api> | null
+  thinkingLevel: ThinkingLevel
+}
+
+/**
+ * Resolve the model + thinking level a new session should start with.
+ *
+ * Both come from the user's most recent choice (`active-model` /
+ * `active-thinking-level`); the settings page no longer stores defaults.
+ */
+export async function loadLastUsedSessionOptions(storage: AppStorage): Promise<LastUsedSessionOptions> {
+  const [model, savedLevel] = await Promise.all([
+    loadInitialConfiguredModel(storage),
+    loadActiveThinkingLevel(storage),
+  ])
+  return {
+    model,
+    thinkingLevel: resolveNewSessionThinkingLevel(model ?? undefined, savedLevel),
+  }
 }
 
 function findConfiguredModel(storage: AppStorage, model: Model<Api>) {

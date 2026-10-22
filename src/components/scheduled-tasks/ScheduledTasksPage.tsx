@@ -7,7 +7,7 @@ import { ArrowLeft, CheckCircle2, Clock, Edit3, Eye, Loader2, MessageSquare, Mor
 import { cn } from '@/lib/utils'
 import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
 import { includeCurrentModel, modelIdentityKey, sameModelIdentity } from '@/lib/model-identity'
-import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadDefaultOptions } from '@/lib/pi-chat'
+import { defaultThinkingLevelForModel, getConfiguredModels, initializePiStorage, loadActiveThinkingLevel, loadInitialConfiguredModel, resolveNewSessionThinkingLevel } from '@/lib/pi-chat'
 import { isModelSelectable } from '@/lib/model-visibility'
 import { t } from '@/lib/i18n'
 import { loadModelCatalog, modelReferenceFromModel } from '@/lib/model-reference'
@@ -376,15 +376,15 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
         ])
         const availableModels = catalogModels.length ? catalogModels : configuredModels
         const selectableModels = availableModels.filter(isModelSelectable)
-        const defaultOptions = await loadDefaultOptions(storage)
-        const savedDefault = defaultOptions.model && isModelSelectable(defaultOptions.model)
-          ? selectableModels.find((model) => modelsEqual(model, defaultOptions.model))
-          : undefined
-        const activeModel = savedDefault ?? selectableModels[0]
+        const [activeModel, savedThinkingLevel] = await Promise.all([
+          loadInitialConfiguredModel(storage),
+          loadActiveThinkingLevel(storage),
+        ])
+        const nextModel = (activeModel && isModelSelectable(activeModel) ? activeModel : undefined) ?? selectableModels[0]
         if (cancelled) return
         setModels(availableModels)
-        setSelectedModel(activeModel)
-        setThinkingLevel(defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(activeModel))
+        setSelectedModel(nextModel)
+        setThinkingLevel(resolveNewSessionThinkingLevel(nextModel, savedThinkingLevel))
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : t('requestFailed'))
       }

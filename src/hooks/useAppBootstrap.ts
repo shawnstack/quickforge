@@ -5,8 +5,9 @@ import {
   getSelectableConfiguredModels,
   initializePiStorage,
   loadActiveModel,
-  loadDefaultOptions,
+  loadActiveThinkingLevel,
   mergeAvailableModels,
+  resolveNewSessionThinkingLevel,
 } from '@/lib/pi-chat'
 import { initializeAppLanguage, applyAppLanguageFromSnapshot, t } from '@/lib/i18n'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
@@ -183,19 +184,23 @@ export function useAppBootstrap({
         const savedAccessMode = await initAccessMode(storage)
         agentAccessModeRef.current = savedAccessMode
 
-        const defaultOptions = await loadDefaultOptions(storage)
         const configuredModels = await getSelectableConfiguredModels(storage)
         const savedModel = await loadActiveModel(storage)
         const initialModel = chooseStartupModel(
           mergeAvailableModels(configuredModels, []),
-          defaultOptions.model,
+          undefined,
           savedModel,
         )
         const startupModel = initialModel
         if (initialModel) activeModelRef.current = initialModel
 
+        // New sessions inherit the user's last explicit choice (model + thinking
+        // level); the settings page no longer stores defaults.
+        const savedThinkingLevel = await loadActiveThinkingLevel(storage)
+        const startupThinkingLevel = resolveNewSessionThinkingLevel(initialModel ?? undefined, savedThinkingLevel)
+
         const createStartupSession = () => create(
-          { model: startupModel!, thinkingLevel: defaultOptions.thinkingLevel, tools: [] },
+          { model: startupModel!, thinkingLevel: startupThinkingLevel, tools: [] },
           randomId(),
           { scope: 'global', attachToView: true },
         )

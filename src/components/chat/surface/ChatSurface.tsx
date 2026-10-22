@@ -1532,7 +1532,10 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                       syncSnapshot()
                     }}
                     onBeforeOpen={onDismissComposerSuggestions}
-                    disabled={composerControlsDisabled}
+                    // Same effective flag the rest of the composer row gets:
+                    // a write-lease observer (another window owns the session)
+                    // disables every control, this one included.
+                    disabled={composerControlsDisabled || leaseObserver}
                   />
                 ) : null}
               />

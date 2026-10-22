@@ -9,7 +9,7 @@ const settingsTabGroupDefinitions = [
 ] as const
 
 const settingsTabDefinitions = [
-  { key: 'defaults', name: 'defaultOptions', description: 'defaultOptionsDescription', group: 'basic', keywords: '通用 常规 general preferences language 语言 model 模型 thinking 思考 tool 工具 notification 通知 context 上下文 compact 压缩 archive 归档 terminal shell 终端' },
+  { key: 'defaults', name: 'defaultOptions', description: 'defaultOptionsDescription', group: 'basic', keywords: '通用 常规 general preferences language 语言 tool 工具 notification 通知 context 上下文 compact 压缩 archive 归档 terminal shell 终端' },
   { key: 'appearance', name: 'appearance', description: 'appearanceDescription', group: 'basic', keywords: '外观 appearance theme 主题 light 浅色 dark 深色 font 字体 size 字号' },
   { key: 'memory', name: 'memory', description: 'memoryDescription', group: 'basic', keywords: '记忆 memory 偏好 习惯' },
   { key: 'network', name: 'networkAndDevices', description: 'networkAndDevicesDescription', group: 'basic', keywords: '网络 设备 network devices lan 局域网 proxy 代理 pac 密码 设备' },

@@ -11,7 +11,13 @@ const piMocks = vi.hoisted(() => ({
   getSelectableConfiguredModels: vi.fn(),
   initializePiStorage: vi.fn(),
   loadActiveModel: vi.fn(),
-  loadDefaultOptions: vi.fn(),
+  loadActiveThinkingLevel: vi.fn(),
+  // Mirrors src/lib/pi-chat.ts resolveNewSessionThinkingLevel.
+  resolveNewSessionThinkingLevel: (model: { reasoning?: boolean } | undefined, saved: string | null) => {
+    if (!model?.reasoning) return 'off'
+    if (saved === 'off' || saved === 'low' || saved === 'medium' || saved === 'high' || saved === 'xhigh') return saved
+    return 'high'
+  },
   mergeAvailableModels: vi.fn((configured: Model<Api>[], cloud: readonly Model<Api>[]) => [...configured, ...cloud]),
 }))
 
@@ -152,11 +158,8 @@ describe('useAppBootstrap startup maintenance window', () => {
     vi.stubGlobal('window', { location: { search: '' } })
     piMocks.initializePiStorage.mockResolvedValue({ backend: {} })
     piMocks.loadActiveModel.mockResolvedValue(null)
+    piMocks.loadActiveThinkingLevel.mockResolvedValue(null)
     piMocks.getSelectableConfiguredModels.mockResolvedValue([localModel()])
-    piMocks.loadDefaultOptions.mockResolvedValue({
-      model: undefined,
-      thinkingLevel: 'off',
-    })
     migrationMocks.fetchMigrationStatus.mockResolvedValue({ ok: true, state: 'ready' })
     migrationMocks.waitForMigrationSettled.mockImplementation(async (gateOptions: GateOptions = {}) => {
       const status = await migrationMocks.fetchMigrationStatus()

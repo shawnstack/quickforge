@@ -1,14 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
-import type { Api, Model } from '@earendil-works/pi-ai'
 import { getAppStorage } from '@/storage'
-import {
-  defaultThinkingLevelForModel,
-  getSelectableConfiguredModels,
-  loadDefaultOptions,
-  mergeAvailableModels,
-  saveDefaultOptions,
-} from '@/lib/pi-chat'
 import {
   loadToolDisplaySettings,
   saveToolDisplaySettings,
@@ -36,13 +27,9 @@ import {
   type SystemNotificationPermission,
 } from '@/lib/system-notifications'
 import { showConfirm } from '@/components/ui/confirm-dialog'
-import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
-import { loadModelCatalog } from '@/lib/model-reference'
 import { InfoTip } from '@/components/ui/info-tip'
 import { SettingsSelect, SettingsSwitch } from './shared'
 import { SettingsNumberInput } from './SettingsNumberInput'
-
-type AnyModel = Model<Api>
 
 type TerminalShellProfile = {
   id: string
@@ -58,45 +45,12 @@ type TerminalShellConfig = {
   profiles: TerminalShellProfile[]
 }
 
-const THINKING_OPTIONS: { value: ThinkingLevel; label: () => string }[] = [
-  { value: 'off', label: () => t('thinkingOff') },
-  { value: 'low', label: () => t('thinkingLow') },
-  { value: 'medium', label: () => t('thinkingMedium') },
-  { value: 'high', label: () => t('thinkingHigh') },
-  { value: 'xhigh', label: () => t('thinkingXHigh') },
-]
-
 const TOOL_DISPLAY_MODE_OPTIONS: { value: ToolDisplayMode; label: () => string }[] = [
   { value: 'compact', label: () => t('toolDisplayCompact') },
   { value: 'detailed', label: () => t('toolDisplayDetailed') },
 ]
 
 const CUSTOM_SHELL_OPTION = '__custom__'
-
-function normalizeBaseUrl(value?: string) {
-  return (value ?? '').trim().replace(/\/$/, '')
-}
-
-function modelKey(model: AnyModel) {
-  return JSON.stringify([
-    model.provider,
-    model.id,
-    model.api,
-    normalizeBaseUrl(model.baseUrl),
-  ])
-}
-
-/** 按目录键查找模型（updateModel 的手动选择逻辑）。 */
-function findModelByValue(models: AnyModel[], value: string) {
-  return models.find((model) => modelKey(model) === value)
-}
-
-/** 启动默认模型解析：优先精确匹配持久化默认，回退目录第一项。 */
-function resolveDefaultModel(models: AnyModel[], savedModel?: AnyModel) {
-  return savedModel
-    ? findModelByValue(models, modelKey(savedModel)) ?? models[0]
-    : models[0]
-}
 
 function customProfileId() {
   return `custom_${globalThis.crypto?.randomUUID?.().slice(0, 8) || Date.now().toString(36)}`
@@ -123,10 +77,6 @@ function DeleteIcon() {
 }
 
 export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {}) {
-  const [models, setModels] = useState<AnyModel[]>([])
-  const [selectedModel, setSelectedModel] = useState<AnyModel | undefined>(undefined)
-
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off')
   const [toolDisplayMode, setToolDisplayMode] = useState<ToolDisplayMode>('compact')
   const [showContextUsage, setShowContextUsage] = useState(false)
   const [expandProcessStageByDefault, setExpandProcessStageByDefault] = useState(true)
@@ -151,9 +101,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   const [customShellEditorOpen, setCustomShellEditorOpen] = useState(false)
 
   // 保存排队/最新状态镜像：仅加载与事件回调更新，渲染读取 React state。
-  const defaultOptionsSavePromiseRef = useRef<Promise<void>>(Promise.resolve())
-  const selectedModelRef = useRef(selectedModel)
-  const thinkingLevelRef = useRef(thinkingLevel)
   const toolDisplayModeRef = useRef(toolDisplayMode)
   const showContextUsageRef = useRef(showContextUsage)
   const expandProcessStageByDefaultRef = useRef(expandProcessStageByDefault)
@@ -188,24 +135,12 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   const loadSettings = async () => {
     try {
       const storage = getAppStorage()
-      const [localModels, catalogModels, defaults, toolDisplaySettings, autoCompactSettings, goalSettings, autoArchiveSettings] = await Promise.all([
-        getSelectableConfiguredModels(storage),
-        loadModelCatalog().catch(() => []),
-        loadDefaultOptions(storage),
+      const [toolDisplaySettings, autoCompactSettings, goalSettings, autoArchiveSettings] = await Promise.all([
         loadToolDisplaySettings(storage),
         loadAutoCompactSettings(storage),
         loadGoalSettings(storage),
         loadAutoArchiveSettings(storage),
       ])
-      const baseModels = catalogModels.length ? catalogModels : localModels
-      const nextModels = mergeAvailableModels(baseModels, [])
-      const nextSelectedModel = resolveDefaultModel(nextModels, defaults.model)
-      setModels(nextModels)
-      setSelectedModel(nextSelectedModel)
-      selectedModelRef.current = nextSelectedModel
-      const nextThinkingLevel = defaults.thinkingLevel ?? defaultThinkingLevelForModel(nextSelectedModel)
-      setThinkingLevel(nextThinkingLevel)
-      thinkingLevelRef.current = nextThinkingLevel
       setToolDisplayMode(toolDisplaySettings.toolDisplayMode)
       setShowContextUsage(toolDisplaySettings.showContextUsage)
       setExpandProcessStageByDefault(toolDisplaySettings.expandProcessStageByDefault)
@@ -250,25 +185,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
     // 首次激活与每次重新激活时加载；编辑中的表单草稿不会被 loadSettings 重置。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active])
-
-  const updateModel = (value: string) => {
-    const nextModel = findModelByValue(models, value)
-    setSelectedModel(nextModel)
-    selectedModelRef.current = nextModel
-    const nextThinkingLevel = defaultThinkingLevelForModel(nextModel)
-    setThinkingLevel(nextThinkingLevel)
-    thinkingLevelRef.current = nextThinkingLevel
-    setSaved(false)
-    void saveDefaultModelOptions()
-  }
-
-  const updateThinkingLevel = (value: string) => {
-    const next = THINKING_OPTIONS.some((option) => option.value === value) ? value as ThinkingLevel : 'off'
-    setThinkingLevel(next)
-    thinkingLevelRef.current = next
-    setSaved(false)
-    void saveDefaultModelOptions()
-  }
 
   const updateLanguage = (value: string) => {
     const next = value === 'zh' ? 'zh' : 'en'
@@ -513,24 +429,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
     await saveTerminalShellConfig(defaultProfileId, profiles, t('terminalShellProfilesSaved'))
   }
 
-  const saveDefaultModelOptions = async () => {
-    const model = selectedModelRef.current
-    const level = model?.reasoning ? thinkingLevelRef.current : 'off'
-    const save = async () => {
-      try {
-        await saveDefaultOptions(getAppStorage(), {
-          model,
-          thinkingLevel: level,
-        })
-        markSaved()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : t('requestFailed'))
-      }
-    }
-    defaultOptionsSavePromiseRef.current = defaultOptionsSavePromiseRef.current.then(save, save)
-    await defaultOptionsSavePromiseRef.current
-  }
-
   const saveToolDisplayOptions = async () => {
     try {
       await saveToolDisplaySettings(getAppStorage(), {
@@ -596,10 +494,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
     { value: 'zh', label: t('simplifiedChinese') },
     { value: 'en', label: t('english') },
   ]
-
-  const modelSelectOptions = () => models.map((model) => ({ value: modelKey(model), label: modelLabel(model) }))
-
-  const thinkingOptions = () => THINKING_OPTIONS.map((option) => ({ value: option.value, label: option.label() }))
 
   const terminalShellOptions = () => [
     ...terminalShellConfig.profiles.map((profile) => ({ value: profile.id, label: profile.name })),
@@ -719,46 +613,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
               options={languageOptions()}
               label={t('language')}
               onChange={(value) => updateLanguage(value)}
-            />
-          </div>
-        </div>
-
-        <div className="quickforge-settings-row">
-          <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">
-              {t('defaultModel')}
-              <InfoTip label={t('defaultModelDescription')} />
-            </div>
-          </div>
-          <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
-            <SettingsSelect
-              value={selectedModel ? modelKey(selectedModel) : ''}
-              options={modelSelectOptions()}
-              disabled={models.length === 0}
-              searchable
-              searchPlaceholder={t('search')}
-              noResultsLabel={t('noMatchingOptions')}
-              placeholder={t('noModelAvailable')}
-              label={t('defaultModel')}
-              onChange={(value) => updateModel(value)}
-            />
-          </div>
-        </div>
-
-        <div className="quickforge-settings-row">
-          <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">
-              {t('defaultThinkingLevel')}
-              <InfoTip label={selectedModel?.reasoning ? t('defaultThinkingLevelDescription') : t('thinkingRequiresReasoningModel')} />
-            </div>
-          </div>
-          <div className="quickforge-settings-row-control quickforge-settings-row-control-compact">
-            <SettingsSelect
-              value={thinkingLevel}
-              options={thinkingOptions()}
-              disabled={!selectedModel?.reasoning}
-              label={t('defaultThinkingLevel')}
-              onChange={(value) => updateThinkingLevel(value)}
             />
           </div>
         </div>

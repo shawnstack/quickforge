@@ -486,14 +486,18 @@ async function resolveInitialModel() {
 }
 
 // Resolve the initial thinking level for a new ACP session, mirroring the web UI
-// (src/hooks/useAgentManager.ts): prefer the user's saved default thinking level,
-// otherwise fall back to 'high' for reasoning models and 'off' otherwise.
+// (src/lib/pi-chat.ts resolveNewSessionThinkingLevel): use the level the user last
+// picked (`active-thinking-level`), falling back to 'high' for reasoning models and
+// 'off' otherwise. There is no "default thinking level" setting any more.
 async function resolveInitialThinkingLevel(model) {
   const settings = await readStore('settings').catch(() => ({}))
-  const defaultOptions = parseStoredJson(settings?.['default-options'])
-  const saved = defaultOptions?.thinkingLevel
+  // The value may arrive already decoded or as raw JSON text, depending on the
+  // storage backend; accept both.
+  const raw = settings?.['active-thinking-level']
+  const saved = isThinkingLevel(raw) ? raw : parseStoredJson(raw)
+  if (model?.reasoning !== true) return 'off'
   if (isThinkingLevel(saved)) return saved
-  return model?.reasoning === true ? 'high' : 'off'
+  return 'high'
 }
 
 async function sessionConfigOptions(currentModel = null, currentThinkingLevel = 'off') {

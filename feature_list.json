@@ -1,6 +1,63 @@
 {
   "features": [
     {
+      "id": "fix-thinking-level-menu-clipped",
+      "name": "修复对话中思考等级菜单被输入框卡片裁剪、无法选择",
+      "description": "用户反馈「对话中的思考等级没法选择了」。思考等级选择器在 decb5d6（装饰层渲染化 M4）从原生 DOM 装饰改为 React 组件时，菜单从 document.body.append 变成渲染进组件树内部，但样式仍是 position: fixed + getBoundingClientRect 视口坐标。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "根因：控件挂在输入框卡片内（MessageEditor 的 trailingControls），而 .quickforge-composer > div:first-child 带 backdrop-filter，会让卡片成为 position: fixed 后裔的包含块，视口坐标被当作卡片内坐标 → 菜单落到卡片外；卡片 overflow: hidden 再把它裁掉；z-index 也被困在卡片 stacking context。空态新会话因 backdrop-filter: none 覆盖而正常，正好对应「对话中不行」。修复：① ThinkingLevelControl 菜单改用 createPortal 渲染到 document.body（恢复装饰层时代的逃逸行为）；② 测量 effect 换 useLayoutEffect 避免首帧离屏闪现，并新增「上方空间不足时翻到触发器下方」翻转；③ ChatSurface 把该控件的 disabled 改成 composerControlsDisabled || leaseObserver，与同行 +/模型/Access 对齐；④ 测试补 expect(menu.parentElement).toBe(document.body) 钉死 portal 前提；⑤ wiki 更新为实际文件路径、真实渲染条件与 portal 原因。",
+      "root_cause": "装饰层渲染化 M4 把菜单从 body 级 fixed 层改到组件树内部，同时卡片上的 backdrop-filter 改变 fixed 后裔包含块、overflow: hidden 裁剪，导致菜单要么错位要么不可见。",
+      "files": [
+        "src/components/chat/surface/ThinkingLevelControl.tsx",
+        "src/components/chat/surface/ChatSurface.tsx",
+        "tests/frontend/thinking-level-control.test.ts",
+        "docs/wiki/src/components/README.md",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 4 文件 82 passed；全量 npm run test → 418 文件 4779 passed / 2 skipped；npx eslint 改动文件 0 error；npx tsc -b 通过；npm run build 成功（3.53s）。",
+      "boundaries": "未处理独立问题：若会话持久化的 model 仍是 reasoning: false（自定义供应商未勾推理模型 / 老会话快照过时），ChatSurface 的严格 === true 会让按钮整体不渲染，需在加载会话路径补 resolveConfiguredModel。未手工修改 dist/、package-dist/、package-offline/；未新增/升级依赖。"
+    },
+    {
+      "id": "remove-default-model-thinking-level",
+      "name": "移除设置页「默认模型 / 默认思考等级」，新会话沿用最近一次选择",
+      "description": "用户要求：「移除设置里面默认选择的模型和思考等级，完全取决于最近一次用户选择的模型和思考等级」。原先设置「通用」页有 defaultModel / defaultThinkingLevel 两行，持久化在 settings 键 default-options，并被启动会话、新会话、ACP 新会话、定时任务、Git 提交信息生成、Agent Profile AI 填充六处消费，与 active-model（最近一次模型）形成两套来源。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "彻底删除 default-options 这套「默认值」：① src/lib/pi-chat.ts 删 DEFAULT_OPTIONS_SETTING_KEY / DefaultOptions / StoredDefaultOptions / saveDefaultOptions / loadDefaultOptions，新增 ACTIVE_THINKING_LEVEL_SETTING_KEY='active-thinking-level'、saveActiveThinkingLevel / loadActiveThinkingLevel、resolveNewSessionThinkingLevel(model, saved) 与 loadLastUsedSessionOptions()；② 设置页 DefaultOptionsSettingsTab 删两行 UI 与全部配套 state/ref/save 链路（模型目录加载、modelKey/findModelByValue/resolveDefaultModel、THINKING_OPTIONS、loadModelCatalog/modelLabel 引用），「基础」组仅剩语言；③ 消费方统一改读「最近一次」：useAppBootstrap（chooseStartupModel 去掉 preferredModel 入参）、useAgentManager.createAgent/startDeferredSession、ScheduledTasksPage、GitCommitPushDialog、AgentProfilesPage、server/acp/server.mjs resolveInitialThinkingLevel；④ ChatPanelHost 的思考等级下拉在切换时写 active-thinking-level（原先只写会话级），保证「最近一次」被记住；⑤ i18n 删 defaultModel/defaultModelDescription/defaultThinkingLevel/defaultThinkingLevelDescription/thinkingRequiresReasoningModel 中英各一份，并改写 defaultOptionsDescription 与 settings-tabs 搜索关键词。回退规则：非推理模型强制 off，否则用已记住的等级，从未记录过才回落推理模型 high（与旧 defaultThinkingLevelForModel 一致）。",
+      "root_cause": "设置页默认值与「最近一次选择」并存：用户在模型选择器/思考等级下拉里选了新值只写 active-model 与会话级 thinkingLevel，default-options 仍是旧值，于是新会话又被打回设置里的默认，用户必须去设置里再改一次才能生效。",
+      "files": [
+        "src/lib/pi-chat.ts",
+        "src/components/settings/tabs/DefaultOptionsSettingsTab.tsx",
+        "src/hooks/useAppBootstrap.ts",
+        "src/hooks/useAgentManager.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/scheduled-tasks/ScheduledTasksPage.tsx",
+        "src/components/git/GitCommitPushDialog.tsx",
+        "src/components/agent-profiles/AgentProfilesPage.tsx",
+        "src/lib/i18n.ts",
+        "src/lib/settings-tabs.ts",
+        "server/acp/server.mjs",
+        "tests/frontend/pi-chat-thinking-level.test.ts",
+        "tests/frontend/default-options-settings-tab.test.ts",
+        "tests/frontend/default-options-settings-react.test.ts",
+        "tests/frontend/use-app-bootstrap-snapshot.test.ts",
+        "tests/frontend/use-app-bootstrap-migration.test.ts",
+        "tests/frontend/scheduled-tasks-page.test.ts",
+        "tests/server/acp/server.model-visibility.test.mjs",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/hooks/README.md",
+        "docs/wiki/src/README.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "全量 npx vitest run → 418 文件 4779 passed / 2 skipped（exit 0）；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc -b 通过；npm run build 成功（3.40s）。新增 tests/frontend/pi-chat-thinking-level.test.ts 5 例、ACP 「新会话复用 active-thinking-level」1 例，设置页改为「不再渲染 defaultModel/defaultThinkingLevel」负向断言。",
+      "boundaries": "不改 active-model 的既有语义与写入点；不改会话级 thinkingLevel 持久化（server 端 sessions/session-state 不变）；旧数据里的 settings['default-options'] 不再读取也不再写入，但也不主动删除（保留可回滚，不影响运行）；未新增/升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit。"
+    },
+    {
       "id": "streaming-decorate-hotpath",
       "name": "流式输出期间装饰热路径拆档（零体验变化优化）",
       "description": "用户要求分析导致界面卡断的原因并确认「不改变现有产品体验和交互」后落地。归因：流式期间每个 message_update（server 50ms 合并，客户端约 20 帧/s）都触发完整 decorateMessages，618 行会话实测单次 12–17ms，即流式期间每秒 240–340ms 花在装饰主线程；CSS 不是主因，但 .user-message-container 的 backdrop-filter: blur(10px) 视觉无效（气泡与面板背景均不透明）却为每条用户消息建一个合成层。",

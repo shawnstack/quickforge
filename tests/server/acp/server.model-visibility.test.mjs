@@ -83,16 +83,20 @@ afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true })
 })
 
-function configureStores({ activeModel = hiddenModel } = {}) {
+function configureStores({ activeModel = hiddenModel, activeThinkingLevel, visibleReasoning = false } = {}) {
+  const configuredVisible = visibleReasoning ? { ...visibleModel, reasoning: true } : visibleModel
   mocks.readStore.mockImplementation(async (store) => {
     if (store === 'custom-providers') {
       return {
-        visible: { id: 'visible-provider', name: 'Visible', models: [visibleModel] },
+        visible: { id: 'visible-provider', name: 'Visible', models: [configuredVisible] },
         hidden: { id: 'hidden-provider', name: 'Hidden', models: [hiddenModel] },
       }
     }
     if (store === 'settings') {
-      return { 'active-model': JSON.stringify(activeModel) }
+      return {
+        'active-model': JSON.stringify(activeModel),
+        ...(activeThinkingLevel === undefined ? {} : { 'active-thinking-level': activeThinkingLevel }),
+      }
     }
     return {}
   })
@@ -148,6 +152,21 @@ describe('ACP model visibility', () => {
     await agent.newSession({ cwd: workspace, _meta: { quickforgeSessionId: 'new-acp-session' } })
 
     expect(mocks.createAgent).toHaveBeenCalledWith('new-acp-session', expect.objectContaining({ model: visibleModel }))
+  })
+
+  it('reuses the last picked thinking level for a new ACP session', async () => {
+    configureStores({ activeThinkingLevel: 'medium', visibleReasoning: true })
+    const workspace = path.join(tmpDir, 'workspace')
+    await fs.mkdir(workspace)
+
+    const { createQuickForgeAcpAgent } = await import('../../../server/acp/server.mjs')
+    const agent = await createQuickForgeAcpAgent()
+    await agent.newSession({ cwd: workspace, _meta: { quickforgeSessionId: 'new-acp-session' } })
+
+    expect(mocks.createAgent).toHaveBeenCalledWith(
+      'new-acp-session',
+      expect.objectContaining({ thinkingLevel: 'medium' }),
+    )
   })
 
   it('keeps the hidden current model when loading an existing ACP session', async () => {

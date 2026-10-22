@@ -18,7 +18,7 @@ vi.mock('react', async (importOriginal) => ({
     return [harness.states[index], (value: unknown) => { harness.states[index] = typeof value === 'function' ? value(harness.states[index]) : value }]
   },
 }))
-vi.mock('../../src/lib/pi-chat', () => ({ defaultThinkingLevelForModel: () => 'off', getConfiguredModels: vi.fn(), initializePiStorage: vi.fn(), loadDefaultOptions: vi.fn() }))
+vi.mock('../../src/lib/pi-chat', () => ({ defaultThinkingLevelForModel: () => 'off', getConfiguredModels: vi.fn(), initializePiStorage: vi.fn(), loadActiveThinkingLevel: vi.fn(async () => null), loadInitialConfiguredModel: vi.fn(async () => null), resolveNewSessionThinkingLevel: () => 'off' }))
 vi.mock('../../src/lib/i18n', () => ({ t: (key: string) => key }))
 vi.mock('../../src/lib/model-reference', () => ({ loadModelCatalog: vi.fn(), modelReferenceFromModel: () => ({ provider: 'test', id: 'model' }) }))
 vi.mock('../../src/components/ui/confirm-dialog', () => ({ showConfirm: vi.fn() }))

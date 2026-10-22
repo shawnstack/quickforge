@@ -151,10 +151,11 @@
 
 **功能**:
 - `initializePiStorage()` — 初始化存储后端
-- `loadDefaultOptions()` / `saveDefaultOptions()` — 默认选项管理
 - `getConfiguredModels()` — 通过同源 `GET /api/models/catalog` 获取统一公开目录，包含当前可用的自定义模型；失败时仅为本机旧环境回退 Provider store。`getSelectableConfiguredModels()` 统一排除 `quickforgeHidden: true`。
-- `saveActiveModel()` / `saveDefaultOptions()` — 写入展示快照并附带版本化 `quickforgeModelRef`，执行 transport 仍由服务端解析。
-- `loadInitialConfiguredModel()` / `resolveNewSessionModel()` — 新会话只从当前可选择目录解析默认、active 或请求模型；已隐藏、已删除或失效的模型不会成为新会话候选。
+- `saveActiveModel()` — 写入展示快照并附带版本化 `quickforgeModelRef`，执行 transport 仍由服务端解析。
+- `saveActiveThinkingLevel()` / `loadActiveThinkingLevel()` — 「最近一次选择的思考等级」（settings 键 `active-thinking-level`）。设置页不再提供默认模型/默认思考等级，新会话完全沿用最近一次选择；`resolveNewSessionThinkingLevel()` 统一解析：非推理模型强制 `off`，否则用已记住的等级，从未记录过才回落推理模型 `high`。
+- `loadLastUsedSessionOptions()` — 一次性取「最近一次模型 + 思考等级」，供 Git 提交等非会话场景使用。
+- `loadInitialConfiguredModel()` / `resolveNewSessionModel()` — 新会话只从当前可选择目录解析 active 或请求模型；已隐藏、已删除或失效的模型不会成为新会话候选。
 - `resolveConfiguredModel()` — 已有会话、分支等持久化绑定按完整模型身份恢复，可继续使用后来被隐藏的模型。
 - DeepSeek V4 推理兼容性处理
 
@@ -229,7 +230,7 @@
 - `modelIdentityKey()` / `sameModelIdentity()` 使用 Provider、Model ID、API 和规范化 Base URL 区分模型；`modelMatchesReference()` 兼容旧 Agent 引用缺少可选字段。
 - `includeCurrentModel()` 只为编辑或恢复入口重新加入当前已绑定的隐藏模型，不把它变成其他新选择候选。
 - `modelDisplayLabel()` 统一输出 `Provider / Model ID`，不使用 Provider 内部模型名称、API 或 Base URL 作为选择标签。
-- `custom-model-selector.ts` 是展示层，调用方必须传入已过滤的新选择目录；主聊天、默认模型、Agent Profile、定时任务和共享会话均按上述规则准备列表。主聊天额外传入语义独立的可选无参设置回调，因此桌面浮层和移动抽屉底部显示低强调“自定义模型”；点击顺序固定为先关闭选择器、再打开 `customModels` 设置页。共享对话与 Agent 表单等复用入口不传该回调，因而不显示设置入口，且不复用旧的模型编辑参数。
+- `custom-model-selector.ts` 是展示层，调用方必须传入已过滤的新选择目录；主聊天、Agent Profile AI 填充、定时任务和共享会话均按上述规则准备列表。主聊天额外传入语义独立的可选无参设置回调，因此桌面浮层和移动抽屉底部显示低强调“自定义模型”；点击顺序固定为先关闭选择器、再打开 `customModels` 设置页。共享对话与 Agent 表单等复用入口不传该回调，因而不显示设置入口，且不复用旧的模型编辑参数。
 
 ### local-tools.ts
 

@@ -1,4 +1,41 @@
-## 当前交接：remove-image-generation（done，2026-10-22）
+## 当前交接：fix-thinking-level-menu-clipped（done，2026-10-22）
+
+- Current Objective（当前目标）: 用户反馈「对话中思考等级没法选择」。**已修复**，未提交、未创建 commit。
+- 根因（一句话）: `decb5d6` 装饰层渲染化把思考菜单从 `document.body.append` 的原生 DOM 改成渲染进组件树内部，但样式仍是 `position: fixed` + 视口坐标 —— 输入框卡片的 `backdrop-filter` 让卡片成为 `fixed` 后裔的包含块，`overflow: hidden` 再把菜单裁掉。
+- 改动:
+  1. `src/components/chat/surface/ThinkingLevelControl.tsx`：菜单改 `createPortal(..., document.body)`；测量 effect 换 `useLayoutEffect`（避免首帧在离屏位置闪现）；新增「上方空间不足时翻到触发器下方」翻转逻辑。
+  2. `src/components/chat/surface/ChatSurface.tsx`：`ThinkingLevelControl` 的 `disabled` 改为 `composerControlsDisabled || leaseObserver`，与同行 `+`/模型/Access 控件对齐。
+  3. `tests/frontend/thinking-level-control.test.ts`：新增 `expect(menu()!.parentElement).toBe(document.body)`，钉死 portal 前提。
+  4. `docs/wiki/src/components/README.md`：两处描述改为 `surface/ThinkingLevelControl.tsx`、正确渲染条件 `enableThinkingControl && snapshot.model?.reasoning === true`、以及菜单必须 portal 到 body 的原因。
+- 验证: 定向 vitest 4 文件 82 passed；全量 `npm run test` → 418 文件 4779 passed / 2 skipped；`npx eslint` 改动文件 0 error；`npx tsc -b` 通过。
+- 未处理（明确记录的下一步）: 若会话持久化的 model 仍是 `reasoning: false`（自定义供应商未勾推理模型 / 老会话快照过时），`ChatSurface.tsx:1523` 的严格 `=== true` 会让按钮整体不渲染。修法是「加载会话时对持久化 model 做一次 `resolveConfiguredModel`」（`src/hooks/useAgentManager.ts:238` 已有该工具，但只在 create 路径调用，load/restore 路径没调）。本次未动，属独立问题。
+
+---
+
+## 当前交接：remove-default-model-thinking-level（done，2026-10-22）
+
+- Current Objective（当前目标）: 用户要求「移除设置里面默认选择的模型和思考等级，完全取决于最近一次用户选择的模型和思考等级」。**已完成**，未提交、未创建 commit。
+- 做法（一句话）: 删掉 `settings['default-options']` 这套「默认值」，模型沿用既有 `active-model`，思考等级新增 `active-thinking-level`，新会话一律走「最近一次选择」。
+- 改动:
+  1. `src/lib/pi-chat.ts`：删 `DEFAULT_OPTIONS_SETTING_KEY` / `DefaultOptions` / `StoredDefaultOptions` / `saveDefaultOptions` / `loadDefaultOptions`（及随之无用的 `ModelReference` 类型导入）；新增 `ACTIVE_THINKING_LEVEL_SETTING_KEY='active-thinking-level'`、`saveActiveThinkingLevel()` / `loadActiveThinkingLevel()`、`resolveNewSessionThinkingLevel(model, saved)`、`loadLastUsedSessionOptions()`。
+  2. `DefaultOptionsSettingsTab.tsx`：删「默认模型」「默认思考等级」两行与全部配套代码（models/selectedModel/thinkingLevel state、三个 ref、`updateModel`/`updateThinkingLevel`/`saveDefaultModelOptions`、`modelKey`/`findModelByValue`/`resolveDefaultModel`、`THINKING_OPTIONS`、`loadModelCatalog`/`modelLabel`/`getSelectableConfiguredModels`/`mergeAvailableModels` 引用）。「基础」组仅剩语言。
+  3. 消费方：`useAppBootstrap.ts`（`chooseStartupModel` 去掉 `preferredModel`）、`useAgentManager.ts`（`createAgent`/`startDeferredSession`）、`ScheduledTasksPage.tsx`、`GitCommitPushDialog.tsx`（改 `loadLastUsedSessionOptions`）、`AgentProfilesPage.tsx`（顺带删无用的 `sameModelIdentity` 导入）、`server/acp/server.mjs resolveInitialThinkingLevel`（读 `active-thinking-level`，兼容 raw JSON 与已解码两种存储形态）。
+  4. `ChatPanelHost.tsx`：思考等级下拉切换时补写 `active-thinking-level`（原先只写会话级 `thinkingLevel`），这是「最近一次」被记住的唯一新写入点。
+  5. `i18n.ts` 删 5 个 key 中英各一份并改写 `defaultOptionsDescription`；`settings-tabs.ts` 搜索关键词去掉「模型/思考」。
+- 回退规则: 非推理模型强制 `off` → 否则用已记住的等级 → 从未记录过才回落推理模型 `high`（与旧 `defaultThinkingLevelForModel` 一致）。
+- 测试与 Evidence（验证）:
+  - 新增 `tests/frontend/pi-chat-thinking-level.test.ts`（5 例：active-thinking-level 往返 / 非法值归一与拒读 / 推理模型复用已选等级 / 从未记录回落 high / 非推理强制 off）。
+  - `tests/server/acp/server.model-visibility.test.mjs` 新增「新 ACP 会话复用 active-thinking-level」1 例（含 raw JSON 与已解码两种存储形态）。
+  - `tests/frontend/default-options-settings-tab.test.ts` 改为「不再渲染 defaultModel/defaultThinkingLevel」负向断言；`default-options-settings-react.test.ts`、`use-app-bootstrap-{snapshot,migration}.test.ts`、`scheduled-tasks-page.test.ts` 的 pi-chat 桩换为 `loadActiveThinkingLevel` / `resolveNewSessionThinkingLevel`。
+  - 全量 `npx vitest run` → **418 文件 4779 passed / 2 skipped**（exit 0）；`npm run lint` → **0 error**（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` → 通过；`npm run build` → 成功（3.40s，仅既有 chunk 体积 warning）。
+- 已知取舍 / Notes:
+  - 旧数据里的 `settings['default-options']` 不再读写但**不主动删除**，保留回滚空间；不迁移、不清洗（不影响运行）。
+  - 老用户首次升级后，若从未在新版本里动过思考等级下拉，`active-thinking-level` 为空 → 推理模型回落 `high`、非推理 `off`，即旧版默认行为；之后完全跟随最近一次选择。
+  - `loadLastUsedSessionOptions()` 与 `resolveNewSessionThinkingLevel()` 是唯一语义出口，后续新增消费方请复用，不要各自重判 `reasoning`。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: 真机冒烟——① 把思考等级从高改成低 → 新建对话应直接是低；② 换模型后新建对话应保持该模型；③ 非推理模型新建对话为「关」；④ 定时任务/Git 提交信息生成默认值跟随最近一次；⑤ ACP 客户端新建会话 Thinking Level 跟随最近一次。改动与既有未提交改动同处工作区，等待用户决定是否 commit。
+
+---
 
 - Current Objective（当前目标）: 用户表示「当前项目暂时不支持生成图片」，要求移除 `generate-image-tool-renderer` 相关代码；经 AskUser 确认采用「前后端全删」方案——session-assets 只读路由与存储清理保留。**已完成**，未提交、未创建 commit。
 - 改动:

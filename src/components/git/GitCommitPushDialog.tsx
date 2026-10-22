@@ -7,7 +7,7 @@ import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import { canCommitGitChanges, gitFilesForCommit, isDetachedGitStatus } from '@/components/git/git-commit-dialog-logic'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
-import { defaultThinkingLevelForModel, initializePiStorage, loadDefaultOptions, loadInitialConfiguredModel } from '@/lib/pi-chat'
+import { initializePiStorage, loadLastUsedSessionOptions } from '@/lib/pi-chat'
 import { commitAndPushGitChanges, commitGitChanges, generateGitCommitMessage, pushGitBranch } from '@/components/workspace/workspace-api'
 import type { GitChangedFile, GitStatusResponse } from '@/components/workspace/workspace-types'
 
@@ -77,11 +77,10 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
     async function loadDefaultModel() {
       try {
         const storage = await initializePiStorage()
-        const defaultOptions = await loadDefaultOptions(storage)
-        const activeModel = await loadInitialConfiguredModel(storage, [], defaultOptions.model)
-        if (cancelled || !activeModel) return
-        setSelectedModel(activeModel)
-        setThinkingLevel(defaultOptions.thinkingLevel ?? defaultThinkingLevelForModel(activeModel))
+        const lastUsed = await loadLastUsedSessionOptions(storage)
+        if (cancelled || !lastUsed.model) return
+        setSelectedModel(lastUsed.model)
+        setThinkingLevel(lastUsed.thinkingLevel)
       } catch {
         // 生成时会给出明确错误。
       }

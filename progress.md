@@ -1,3 +1,34 @@
+## fix-thinking-level-menu-clipped（done，2026-10-22）
+
+- 现象：对话中的思考等级「没法选择」。根因是 `decb5d6`（装饰层渲染化 M4）把思考档位控件从 `panel-decoration/thinking-level-controls.ts` 搬成 React 组件时，菜单从「`document.body.append` 的原生 DOM」变成「渲染进组件树内部」，但样式仍是 `position: fixed` + `getBoundingClientRect()` 视口坐标。
+- 机制：控件挂载在输入框卡片内（`MessageEditor.tsx:712` → 卡片 `MessageEditor.tsx:605`），而 `.quickforge-composer > div:first-child`（`src/index.css:4605-4616`）带 `backdrop-filter`，会让卡片成为 `fixed` 后裔的包含块，视口坐标被当成卡片内坐标写入 → 菜单落到卡片外；卡片 `overflow: hidden` 再把它裁掉；`z-index: 10000` 也被困在卡片的 stacking context 里。表现即「点了没反应 / 闪一下就没」。空态新会话因为 `index.css:6107` 覆盖成 `backdrop-filter: none`，所以那边正常 —— 正好对应「对话中不行」。
+- 改动：
+  1. `src/components/chat/surface/ThinkingLevelControl.tsx`：菜单改用 `createPortal(..., document.body)` 渲染（恢复装饰层时代的逃逸行为），并把测量 effect 换成 `useLayoutEffect` 以免首帧在离屏位置闪现；顺带加上「上方空间不足时翻到触发器下方」的翻转逻辑（`above`/`below` 分支）。
+  2. `src/components/chat/surface/ChatSurface.tsx`：`ThinkingLevelControl` 的 `disabled` 从裸 `composerControlsDisabled` 改为 `composerControlsDisabled || leaseObserver`，与同一行 `+`/模型/Access 控件的语义对齐（此前别的窗口持有写租约时，其他控件置灰而思考控件仍可点）。
+- 测试：`tests/frontend/thinking-level-control.test.ts` 增加断言「菜单的父节点是 `document.body`」，把 portal 这个必须成立的前提钉死。
+- 文档：`docs/wiki/src/components/README.md` 两处描述更新为 `surface/ThinkingLevelControl.tsx`、正确的渲染条件（`enableThinkingControl && snapshot.model?.reasoning === true`）以及「菜单必须 portal 到 body」的原因。
+- 验证：定向 vitest 4 文件 82 passed；全量 `npm run test` → 418 文件 4779 passed / 2 skipped；`npx eslint` 改动文件 0 error；`npx tsc -b` 通过。
+- 未处理（在范围外，仅记录）：若某会话持久化的 model 仍是 `reasoning: false`（自定义供应商未勾选推理模型、或老会话快照过时），`ChatSurface.tsx:1523` 的严格 `=== true` 会让按钮整体不渲染——这是另一条独立原因，需要「加载会话时对持久化 model 做一次 `resolveConfiguredModel`」才能修，本次未动。
+
+---
+
+## remove-default-model-thinking-level（done，2026-10-22）
+
+- Goal：用户要求「移除设置里面默认选择的模型和思考等级，完全取决于最近一次用户选择的模型和思考等级」。
+- 根因：设置页「通用」有 `defaultModel` / `defaultThinkingLevel` 两行（settings 键 `default-options`），与 `active-model`（最近一次模型）形成两套来源；用户在模型选择器/思考等级下拉里换值只写 `active-model` 与会话级 `thinkingLevel`，`default-options` 仍是旧值，于是下一个新会话又被打回设置里的默认。
+- 改动：
+  1. `src/lib/pi-chat.ts`：删 `DEFAULT_OPTIONS_SETTING_KEY` / `DefaultOptions` / `StoredDefaultOptions` / `saveDefaultOptions` / `loadDefaultOptions`；新增 `ACTIVE_THINKING_LEVEL_SETTING_KEY = 'active-thinking-level'`、`saveActiveThinkingLevel()` / `loadActiveThinkingLevel()`、`resolveNewSessionThinkingLevel(model, saved)`、`loadLastUsedSessionOptions()`；`ModelReference` 类型导入随之删除。
+  2. 设置页 `DefaultOptionsSettingsTab.tsx`：删两行 UI 与全部配套代码（models/selectedModel/thinkingLevel state、`defaultOptionsSavePromiseRef`/`selectedModelRef`/`thinkingLevelRef`、`updateModel`/`updateThinkingLevel`/`saveDefaultModelOptions`、`modelKey`/`findModelByValue`/`resolveDefaultModel`、`THINKING_OPTIONS`、`loadModelCatalog`/`modelLabel`/`getSelectableConfiguredModels`/`mergeAvailableModels` 引用）；「基础」组只剩语言。
+  3. 消费方改读「最近一次」：`useAppBootstrap`（`chooseStartupModel` 去掉 `preferredModel` 入参）、`useAgentManager.createAgent`/`startDeferredSession`、`ScheduledTasksPage`、`GitCommitPushDialog`（改用 `loadLastUsedSessionOptions`）、`AgentProfilesPage`、`server/acp/server.mjs resolveInitialThinkingLevel`。
+  4. `ChatPanelHost.tsx`：思考等级下拉切换时额外写 `active-thinking-level`（原先只写会话级），保证「最近一次」被记住。
+  5. `i18n.ts`：删 `defaultModel`/`defaultModelDescription`/`defaultThinkingLevel`/`defaultThinkingLevelDescription`/`thinkingRequiresReasoningModel` 中英各一份；改写 `defaultOptionsDescription`；`settings-tabs.ts` 搜索关键词去掉「模型/思考」。
+- 回退规则（与旧 `defaultThinkingLevelForModel` 一致）：非推理模型强制 `off`；否则用已记住的等级；从未记录过才回落推理模型 `high`。
+- 测试：新增 `tests/frontend/pi-chat-thinking-level.test.ts`（5 例：active-thinking-level 往返、非法值归一与拒读、推理模型复用已选等级、从未记录回落 high、非推理强制 off）；`default-options-settings-tab.test.ts` 改为「不再渲染两行」负向断言 + 原数值项用例；`default-options-settings-react.test.ts`、`use-app-bootstrap-{snapshot,migration}.test.ts`、`scheduled-tasks-page.test.ts` 的 pi-chat 桩换为 `loadActiveThinkingLevel` / `resolveNewSessionThinkingLevel`；`tests/server/acp/server.model-visibility.test.mjs` 新增「新 ACP 会话复用 active-thinking-level」用例（含 raw JSON 与已解码两种存储形态）。
+- 验证：全量 `npx vitest run` → **418 文件 4779 passed / 2 skipped**（exit 0）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功（3.40s，仅既有 chunk 体积 warning）。
+- 边界：不改 `active-model` 既有语义与写入点；不改会话级 `thinkingLevel` 持久化（服务端 sessions/session-state 未动）；旧数据里的 `settings['default-options']` 不再读写但**不主动删除**（保留回滚，不影响运行）；未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+
+---
+
 ## remove-image-generation（done，2026-10-22）
 
 - Goal：用户表示「当前项目暂时不支持生成图片」，要求移除 generate-image-tool-renderer 相关代码；经确认采用「前后端全删」方案（session-assets 只读路由与存储清理保留）。

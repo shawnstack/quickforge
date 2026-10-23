@@ -219,6 +219,14 @@ type ChatPanelHostProps = {
   taskLauncherVisible?: boolean
   onTaskLauncherDismiss?: () => void
   showTurnNavigation?: boolean
+  /**
+   * Runtime visibility switch for the turn-navigation rail (unlike
+   * `showTurnNavigation`, which is structural and rebuilds the panel effect).
+   * The main chat passes `true` while the trace view covers the conversation:
+   * the rail is an absolutely positioned child of this host with a higher
+   * z-index than the trace layer, so it would otherwise float above it.
+   */
+  hideTurnNavigation?: boolean
   rollbackConfirmTitle?: string
   rollbackConfirmDescription?: string
   capabilities?: ChatCapabilities
@@ -322,6 +330,7 @@ export function ChatPanelHost({
   taskLauncherVisible = false,
   onTaskLauncherDismiss,
   showTurnNavigation = true,
+  hideTurnNavigation = false,
   rollbackConfirmTitle,
   rollbackConfirmDescription,
   capabilities = QUICKFORGE_CHAT_CAPABILITIES,
@@ -2139,7 +2148,14 @@ export function ChatPanelHost({
   }, [sideChatMode, restoredDraft, agent, restoreDraftForSession])
 
   return (
-    <div ref={hostRef} className="quickforge-chat-panel-host min-h-0 flex-1 overflow-hidden">
+    <div
+      ref={hostRef}
+      className="quickforge-chat-panel-host min-h-0 flex-1 overflow-hidden"
+      // 轨迹视图盖在对话上时把轮次导航条一并藏掉。用 data 属性 + CSS 而不是
+      // 命令式调用：rail 是这个 host 的绝对定位子节点、z-index 高于轨迹层，
+      // 靠属性让 CSS 直接 display:none，不依赖两个 effect 的先后顺序。
+      data-turn-navigation={hideTurnNavigation ? 'hidden' : undefined}
+    >
       {agent ? (
         <ChatSurface
           key={agentRuntimeScopeId ?? agent.sessionId}

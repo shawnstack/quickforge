@@ -2436,6 +2436,21 @@ body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
   display: none;
 }
 
+/* 轨迹视图盖在对话上时隐藏轮次导航条。
+   优先用 data 属性（由 ChatPanelHost 根据 hideTurnNavigation 写入）：
+   rail 是 .quickforge-chat-panel-host 的绝对定位子节点，z-index 20 高于
+   轨迹层的 10，只给轨迹层加背景盖不住它。这里用 !important 是因为
+   turn-navigation.ts 会在每次 update() 里写 rail.hidden，两个来源需要优先级。 */
+.quickforge-chat-panel-host[data-turn-navigation='hidden'] .quickforge-turn-navigation {
+  display: none !important;
+}
+
+/* tooltip 挂在 document.body 上（z-index 100），无法从 host 后代选择器命中，
+   所以用 :has() 从 body 侧反向匹配：只要页面里存在被隐藏的 host，就藏 tooltip。 */
+body:has(.quickforge-chat-panel-host[data-turn-navigation='hidden']) .quickforge-turn-navigation-tooltip {
+  display: none !important;
+}
+
 .quickforge-turn-navigation-track {
   position: absolute;
   top: 0.75rem;

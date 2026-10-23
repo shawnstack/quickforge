@@ -2265,6 +2265,10 @@ function MainApp() {
                       taskLauncherVisible={taskLauncherAgent !== null && taskLauncherAgent === agentManager.agent
                         && agentManager.agent instanceof DeferredSessionAgent && !agentManager.currentSessionId && showNewChatEmptyState}
                       onTaskLauncherDismiss={invalidateTaskLauncher}
+                      // 轨迹视图盖住对话时，对话区左侧的轮次导航条要一并隐藏——
+                      // 它是 host 的绝对定位子节点（z-index 20 > 轨迹层 10），
+                      // 不隐藏会浮在轨迹面板上面。
+                      hideTurnNavigation={conversationView === 'trace'}
                     />
                       )}
                     />

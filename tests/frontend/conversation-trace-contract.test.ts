@@ -95,6 +95,23 @@ describe('inspector default', () => {
     expect(view).toContain("user: ['summary', 'raw']")
   })
 
+  it('hides the turn-navigation rail while the trace view covers the conversation', () => {
+    // The rail is an absolutely-positioned child of the chat panel host with
+    // z-index 20, while the trace layer is z-index 10 — without suppressing it the
+    // rail floats on top of the trace panel. The host exposes a runtime switch for
+    // exactly this (structural `showTurnNavigation` would rebuild the panel).
+    const host = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
+    const indexCss = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+
+    expect(host).toMatch(/hideTurnNavigation\?: boolean/)
+    expect(host).toContain("data-turn-navigation={hideTurnNavigation ? 'hidden' : undefined}")
+    // App ties it to the view, not to a session or a manual toggle.
+    expect(app).toContain("hideTurnNavigation={conversationView === 'trace'}")
+    // CSS actually hides both the rail and its body-mounted tooltip.
+    expect(indexCss).toMatch(/\.quickforge-chat-panel-host\[data-turn-navigation='hidden'\] \.quickforge-turn-navigation \{\s*display: none !important;/)
+    expect(indexCss).toMatch(/body:has\(\.quickforge-chat-panel-host\[data-turn-navigation='hidden'\]\) \.quickforge-turn-navigation-tooltip \{\s*display: none !important;/)
+  })
+
   it('closes on Escape', () => {
     expect(view).toContain("if (event.key === 'Escape') onClose()")
   })

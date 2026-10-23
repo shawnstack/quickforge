@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { t, type AppTextKey } from '@/lib/i18n'
+import { t } from '@/lib/i18n'
 import {
   goalCanCancel,
   type GoalAction,
-  type GoalCriterionStatus,
   type GoalState,
 } from '@/lib/goal'
 import {
@@ -12,34 +11,44 @@ import {
   runGoalUiAction,
   subscribeGoalUi,
 } from '@/lib/goal-ui'
+import { GoalIcon } from '@/components/goal-icon'
 import {
   buildGoalControlStripView,
   type GoalControlStripUiState,
   type GoalControlStripView,
 } from '../panel-decoration/goal-control-strip'
-import { goalStatusIcon } from '../panel-decoration/icons'
 
 /**
- * Goal control strip — the goal affordance above the composer (方案 A · 目标卡).
+ * Goal control strip — one single row above the composer.
  *
- * The row is no longer one flat line of four equal-weight icons. It is a small
- * card with three tiers (see `panel-decoration/goal-control-strip.ts`):
+ * `icon · state word · objective · 2/3 · [primary icon] · ⋯`
  *
- * - identity: tone glyph + one of five state words + the secondary phase line,
- *   the single solid primary action, a 「⋯」 menu and the expand chevron;
- * - objective: two clamped lines (replaced by the inline editor while editing);
- * - progress: acceptance segments + `3/5` + round + recorded minutes.
+ * The row used to be a three-tier card (identity line + two-line objective +
+ * progress line, ≈76px). It is now 32px: the objective truncates to one line,
+ * the acceptance progress moves onto the same row, and the expandable panel is
+ * gone. Everything the panel used to hold is one click away in the inspector, so
+ * the composer regains a tier of vertical space.
  *
- * Expanding shows the acceptance list in place, so "which criteria are left"
- * never costs a jump into the inspector. Secondary and destructive actions
- * (edit / clear / open panel) live in one menu instead of sitting next to the
- * primary action, and "clear" confirms in an anchored popover rather than
- * reflowing the row into two lines.
+ * Icon / text / color still have one job each (see goal-strip-icon-review.html):
+ * the glyph answers "what is this" and is always the product's goal identity icon
+ * (`GoalIcon`, neutral gray), the word answers "what is happening now", and color
+ * answers "does it need me" through `view.stateTone`.
  *
- * The strip owns no goal state: actions post to the server and the streamed
- * goal re-renders it. `src/lib/goal-ui.ts` keeps the pending lock and dirty
- * guard, and `actionTokenRef` keeps a settled request from painting over a
- * newer goal.
+ * What the single row does NOT show, and where it went:
+ * - the objective's second line → `title` keeps the full text, and the objective
+ *   itself is a button into the inspector;
+ * - the phase line (round / paused-at / waiting-for-approval) → it became the
+ *   read-only meta line in the 「⋯」 menu and part of the tooltips;
+ * - the inline acceptance list → `2/3` already answers "how many are left"; the
+ *   list itself is in the inspector;
+ * - the expand chevron → removed; the label and the objective open the inspector.
+ *
+ * The primary action is icon-only (the label lives in `aria-label` + `title`), so
+ * the row keeps its height and never re-wraps on a long localized verb.
+ *
+ * The strip owns no goal state: actions post to the server and the streamed goal
+ * re-renders it. `src/lib/goal-ui.ts` keeps the pending lock and dirty guard, and
+ * `actionTokenRef` keeps a settled request from painting over a newer goal.
  */
 
 type GoalControlStripProps = {
@@ -52,18 +61,25 @@ type GoalControlStripProps = {
 }
 
 const ACTION_ICON = {
-  pause: <path d="M9.5 6v12" strokeWidth={2} strokeLinecap="round" />,
-  resume: <path d="M8 6.5 17 12l-9 5.5Z" strokeWidth={2} strokeLinejoin="round" />,
-  attention: <><path d="M12 19V5" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /><path d="m5 12 7-7 7 7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></>,
+  // Two bars, not one: a single `M9.5 6v12` at 12px on the filled blue button
+  // reads as an I-beam ("edit / caret"), not as pause. Keep both paths — the
+  // gap (5 units ≈ 2.5px, minus 1.2px of stroke per side) is what makes the pair
+  // legible at this size, so a `rect`-based glyph (lucide `Pause`) or one that
+  // adds an outline (`SquarePause`) collapses into a solid block here.
+  pause: <><path d="M9.5 6v12" strokeWidth={2.4} strokeLinecap="round" /><path d="M14.5 6v12" strokeWidth={2.4} strokeLinecap="round" /></>,
+  resume: <path d="M8 6.5 17 12l-9 5.5Z" strokeWidth={2.4} strokeLinejoin="round" />,
+  // 「去处理」must not look like 「打开面板」: the open action is a chevron
+  // (`m6 14 6-6 6 6`), so this one carries a trailing bar to read as "jump to the
+  // card down there" and cannot be confused with it at 12px.
+  attention: <><path d="M12 16V4" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" /><path d="m6.5 10 5.5-6 5.5 6" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" /><path d="M5 20h14" strokeWidth={2.2} strokeLinecap="round" /></>,
   open: <path d="m6 14 6-6 6 6" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />,
   more: <><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" /></>,
-  chevron: <path d="m6 9 6 6 6-6" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />,
   edit: <><path d="M21.17 6.83a2.12 2.12 0 0 0-3-3L4 18v3h3z" strokeWidth={2} /><path d="m14 6 4 4" strokeWidth={2} /></>,
   save: <path d="M20 6 9 17l-5-5" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />,
   close: <><path d="M18 6 6 18" strokeWidth={2} /><path d="m6 6 12 12" strokeWidth={2} /></>,
 } as const
 
-/** At most this many acceptance segments before the strip switches to a count. */
+/** At most this many acceptance segments before the row drops the bar for a count. */
 const MAX_CRITERIA_SEGMENTS = 8
 
 function StripIcon({ path, className }: { path: React.ReactNode; className?: string }) {
@@ -127,13 +143,6 @@ function revealWaitingCard(): void {
   window.setTimeout(() => { delete card.dataset.goalAttention }, 1400)
 }
 
-const CRITERION_STATUS_KEY: Record<GoalCriterionStatus, AppTextKey> = {
-  pending: 'goalCriterionPending',
-  passed: 'goalCriterionPassed',
-  failed: 'goalCriterionFailed',
-  needs_review: 'goalCriterionNeedsReview',
-}
-
 export function GoalControlStrip({ sessionId, goal, enabled, onAction }: GoalControlStripProps) {
   const view = useMemo(() => (goal && enabled ? buildGoalControlStripView(goal) : null), [goal, enabled])
   const goalId = view?.id ?? ''
@@ -159,24 +168,21 @@ export function GoalControlStrip({ sessionId, goal, enabled, onAction }: GoalCon
 
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
-  const [expanded, setExpanded] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [cancelConfirmation, setCancelConfirmation] = useState(false)
   const editInputRef = useRef<HTMLInputElement | null>(null)
   const editButtonRef = useRef<HTMLButtonElement | null>(null)
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
   const menuButtonRef = useRef<HTMLButtonElement | null>(null)
-  const chevronRef = useRef<HTMLButtonElement | null>(null)
   const keepButtonRef = useRef<HTMLButtonElement | null>(null)
   const rootRef = useRef<HTMLElement | null>(null)
-  const panelId = useId()
   const menuId = useId()
   /** Action token: a settled request must not paint over a newer goal. */
   const actionTokenRef = useRef(0)
   // Session/goal the transient modes belong to. A mismatch means the user moved
-  // on, so edit/confirm/expanded/menu mode drops during render (the controller
-  // reset them whenever `renderedGoal` changed). The action token is bumped in
-  // an effect: a render must not write refs.
+  // on, so edit/confirm/menu mode drops during render (the controller reset them
+  // whenever `renderedGoal` changed). The action token is bumped in an effect: a
+  // render must not write refs.
   const [modeKey, setModeKey] = useState(goalKey)
   if (modeKey !== goalKey) {
     setModeKey(goalKey)
@@ -316,9 +322,15 @@ export function GoalControlStrip({ sessionId, goal, enabled, onAction }: GoalCon
   const editDisabled = !view.inlineEditable || ui.pending
   const cancellable = goalCanCancel(view.status)
   const segments = goal.criteria.length > 0 && goal.criteria.length <= MAX_CRITERIA_SEGMENTS
-  const criteriaText = view.criteriaTotal > 0
-    ? t('goalCriteriaProgress', { completed: view.criteriaPassed, total: view.criteriaTotal })
+  const progressText = view.criteriaTotal > 0 ? `${view.criteriaPassed}/${view.criteriaTotal}` : ''
+  // The round / duration moved off the row; they stay reachable in the menu and
+  // in the tooltips so nothing is lost, only demoted. `phaseDetail` already spells
+  // the round for most states, so identical parts collapse instead of repeating.
+  const roundText = view.roundText ? t('goalPhaseDetailRound', { round: view.roundText }) : ''
+  const durationText = view.durationMinutes > 0
+    ? t('goalRecordedDurationMinutes', { minutes: view.durationMinutes })
     : ''
+  const detailLine = [...new Set([view.phaseDetail, roundText, durationText].filter(Boolean))].join(' · ')
 
   const runPrimary = () => {
     if (primaryAction === 'attention') {
@@ -327,8 +339,7 @@ export function GoalControlStrip({ sessionId, goal, enabled, onAction }: GoalCon
     }
     if (primaryAction === 'none') return
     // Budget extension is CAS-bound to `{goalId, expectedRevision}`, so it is
-    // confirmed in the inspector instead of being dispatched from the strip —
-    // the label says so, which is what keeps the action predictable.
+    // confirmed in the inspector instead of being dispatched from the strip.
     if (view.primaryOpensInspector) {
       openSummary('progress')
       return
@@ -343,101 +354,35 @@ export function GoalControlStrip({ sessionId, goal, enabled, onAction }: GoalCon
       ref={rootRef}
       data-status={view.status}
       data-state={stateKey}
-      data-tone={view.tone}
+      data-tone={view.stateTone}
+      data-card-tone={view.tone}
       data-pending={String(ui.pending)}
       data-dirty={String(ui.dirty)}
       data-editing={String(editing)}
-      data-expanded={String(expanded)}
       data-phase={view.phase}
       data-activation={view.activation}
     >
-      <div className="quickforge-goal-strip-head">
-        <span
-          className={view.spinning ? 'quickforge-goal-strip-icon quickforge-goal-strip-icon--spinning' : 'quickforge-goal-strip-icon'}
-          aria-hidden="true"
-          // The tone glyph table is shared with the goal card (see icons.ts), so
-          // the strip cannot drift from the card's status icon.
-          dangerouslySetInnerHTML={{ __html: goalStatusIcon[view.tone] }}
-        />
-        <span className="quickforge-goal-strip-dot" aria-hidden="true" />
-        <span
-          className="quickforge-goal-strip-label"
-          aria-live="polite"
-          // The precise machine state stays reachable, but the visible word is
-          // one of five (方案 A3).
-          title={t(view.statusKey)}
-        >
-          {t(view.statusWordKey)}
-        </span>
-        {view.phaseDetail ? <span className="quickforge-goal-strip-phase">{view.phaseDetail}</span> : null}
-        <span className="quickforge-goal-strip-spacer" aria-hidden="true" />
-        {primaryAction !== 'none' && !editing ? (
-          <button
-            type="button"
-            className={`quickforge-goal-strip-primary quickforge-goal-strip-action--${primaryAction}`}
-            aria-label={primaryLabel}
-            title={primaryDisabled ? blockedTitle(view, ui) : primaryLabel}
-            disabled={primaryDisabled}
-            onClick={runPrimary}
-          >
-            <StripIcon path={ACTION_ICON[primaryAction]} />
-            <span>{primaryLabel}</span>
-          </button>
-        ) : null}
-        {editing ? (
-          <>
-            <button
-              type="button"
-              className="quickforge-goal-strip-action quickforge-goal-strip-action--save"
-              aria-label={t('goalEditSave')}
-              title={t('goalEditSave')}
-              onClick={() => void commitEdit()}
-            >
-              <StripIcon path={ACTION_ICON.save} />
-            </button>
-            <button
-              type="button"
-              className="quickforge-goal-strip-action quickforge-goal-strip-action--edit-cancel"
-              aria-label={t('goalEditCancel')}
-              title={t('goalEditCancel')}
-              onClick={exitEditMode}
-            >
-              <StripIcon path={ACTION_ICON.close} />
-            </button>
-          </>
-        ) : (
-          <button
-            ref={menuButtonRef}
-            type="button"
-            className="quickforge-goal-strip-action quickforge-goal-strip-action--more"
-            aria-label={t('goalMoreActions')}
-            title={t('goalMoreActions')}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-controls={menuOpen ? menuId : undefined}
-            disabled={ui.pending}
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            <StripIcon path={ACTION_ICON.more} />
-          </button>
-        )}
-        <button
-          ref={chevronRef}
-          type="button"
-          className="quickforge-goal-strip-action quickforge-goal-strip-action--expand"
-          aria-label={t(expanded ? 'goalCollapseDetails' : 'goalExpandDetails')}
-          title={t(expanded ? 'goalCollapseDetails' : 'goalExpandDetails')}
-          aria-expanded={expanded}
-          aria-controls={expanded ? panelId : undefined}
-          data-open={String(expanded)}
-          onClick={() => {
-            setExpanded((open) => !open)
-            setMenuOpen(false)
-          }}
-        >
-          <StripIcon path={ACTION_ICON.chevron} className="quickforge-goal-strip-chevron" />
-        </button>
-      </div>
+      {/* Identity glyph: always the product's goal icon (pinned summary,
+          inspector tab and tool cards use the same one), always neutral, never
+          re-encoding the state. The state word right next to it does that. */}
+      <span className="quickforge-goal-strip-icon" aria-hidden="true">
+        <GoalIcon />
+      </span>
+      {/* A rotating arc appears only while a step is actually being worked on;
+          the dot beside the word carries the attention color. */}
+      {view.spinning ? <span className="quickforge-goal-strip-spinner" aria-hidden="true" /> : null}
+      <span className="quickforge-goal-strip-dot" aria-hidden="true" />
+      <button
+        type="button"
+        className="quickforge-goal-strip-label"
+        aria-live="polite"
+        // The precise machine state stays reachable, but the visible word is one
+        // of five (方案 A3). Clicking the word opens the inspector.
+        title={`${t(view.statusKey)}${detailLine ? ` · ${detailLine}` : ''}`}
+        onClick={() => openSummary('progress')}
+      >
+        {t(view.statusWordKey)}
+      </button>
 
       {editing ? (
         <input
@@ -460,7 +405,16 @@ export function GoalControlStrip({ sessionId, goal, enabled, onAction }: GoalCon
           }}
         />
       ) : (
-        <div className="quickforge-goal-strip-objective" title={view.objective}>{view.objective}</div>
+        <button
+          type="button"
+          className="quickforge-goal-strip-objective"
+          // The row shows one line; the tooltip keeps the full objective plus the
+          // phase line the strip no longer prints.
+          title={detailLine ? `${view.objective ?? ''}\n${detailLine}` : (view.objective ?? '')}
+          onClick={() => openSummary('progress')}
+        >
+          {view.objective}
+        </button>
       )}
 
       {ui.error ? (
@@ -474,92 +428,81 @@ export function GoalControlStrip({ sessionId, goal, enabled, onAction }: GoalCon
         </span>
       ) : null}
 
-      <div className="quickforge-goal-strip-meta">
-        {segments ? (
-          <span
-            className="quickforge-goal-strip-segs"
-            aria-hidden="true"
-            data-total={goal.criteria.length}
-          >
-            {goal.criteria.map((criterion) => (
-              <i key={criterion.id} className="quickforge-goal-strip-seg" data-status={criterion.status} />
-            ))}
-          </span>
-        ) : null}
-        {criteriaText ? <span className="quickforge-goal-strip-criteria-text">{criteriaText}</span> : null}
-        {view.roundText ? (
-          <>
-            <span className="quickforge-goal-strip-sep" aria-hidden="true">·</span>
-            <span>{t('goalPhaseDetailRound', { round: view.roundText })}</span>
-          </>
-        ) : null}
-        {view.durationMinutes > 0 ? (
-          <>
-            <span className="quickforge-goal-strip-sep" aria-hidden="true">·</span>
-            <span>{t('goalRecordedDurationMinutes', { minutes: view.durationMinutes })}</span>
-          </>
-        ) : null}
-        {view.budgetExhausted ? (
-          <span className="quickforge-goal-strip-chip">{t('goalBudgetExhausted')}</span>
-        ) : null}
-      </div>
-
-      {expanded ? (
-        <div className="quickforge-goal-strip-panel" id={panelId}>
-          {goal.criteria.length > 0 ? (
-            <ul className="quickforge-goal-strip-criteria">
+      {progressText ? (
+        <span
+          className="quickforge-goal-strip-progress"
+          title={t('goalCriteriaProgress', { completed: view.criteriaPassed, total: view.criteriaTotal })}
+        >
+          {segments ? (
+            <span className="quickforge-goal-strip-segs" aria-hidden="true" data-total={goal.criteria.length}>
               {goal.criteria.map((criterion) => (
-                <li
-                  key={criterion.id}
-                  className="quickforge-goal-strip-criterion"
-                  data-status={criterion.status}
-                >
-                  <span className="quickforge-goal-strip-criterion-dot" aria-hidden="true" />
-                  <span className="quickforge-goal-strip-criterion-text">
-                    {criterion.description}
-                    {criterion.required ? null : <em>{t('goalOptionalCriterion')}</em>}
-                  </span>
-                  <span className="quickforge-goal-strip-criterion-status">
-                    {t(CRITERION_STATUS_KEY[criterion.status])}
-                    {criterion.evidenceIds.length > 0 ? (
-                      <span className="quickforge-goal-strip-criterion-evidence">
-                        {t('goalEvidenceCount', { count: criterion.evidenceIds.length })}
-                      </span>
-                    ) : null}
-                  </span>
-                </li>
+                <i key={criterion.id} className="quickforge-goal-strip-seg" data-status={criterion.status} />
               ))}
-            </ul>
-          ) : (
-            <p className="quickforge-goal-strip-empty">{t('goalCriteriaLabel')} · {t('goalObjectiveEmpty')}</p>
-          )}
-          <div className="quickforge-goal-strip-budget">
-            <span>{t('goalBudgetLabel')}</span>
-            <span className="quickforge-goal-strip-budget-bar" aria-hidden="true">
-              <b style={{ width: `${goal.budget.maxIterations > 0 ? Math.min(100, Math.round((goal.usage.iterations / goal.budget.maxIterations) * 100)) : 0}%` }} />
             </span>
-            <span className="quickforge-goal-strip-budget-value">
-              {goal.usage.iterations}<em>/{goal.budget.maxIterations}</em>
-            </span>
-            {view.durationMinutes > 0 ? (
-              <span className="quickforge-goal-strip-budget-value">
-                {view.durationMinutes}<em>{t('goalBudgetMinutesShort')}</em>
-              </span>
-            ) : null}
-            <span className="quickforge-goal-strip-spacer" aria-hidden="true" />
-            <button
-              type="button"
-              className="quickforge-goal-strip-link"
-              onClick={() => openSummary('progress')}
-            >
-              {t('goalOpenInspector')}
-            </button>
-          </div>
-        </div>
+          ) : null}
+          <span className="quickforge-goal-strip-progress-count">{progressText}</span>
+          {view.budgetExhausted ? <span className="quickforge-goal-strip-chip">{t('goalBudgetExhausted')}</span> : null}
+        </span>
       ) : null}
+
+      {primaryAction !== 'none' && !editing ? (
+        <button
+          type="button"
+          className={`quickforge-goal-strip-primary quickforge-goal-strip-action--${primaryAction}`}
+          aria-label={primaryLabel}
+          title={primaryDisabled ? blockedTitle(view, ui) : primaryLabel}
+          disabled={primaryDisabled}
+          onClick={runPrimary}
+        >
+          <StripIcon path={ACTION_ICON[primaryAction]} />
+        </button>
+      ) : null}
+
+      {editing ? (
+        <>
+          <button
+            type="button"
+            className="quickforge-goal-strip-action quickforge-goal-strip-action--save"
+            aria-label={t('goalEditSave')}
+            title={t('goalEditSave')}
+            onClick={() => void commitEdit()}
+          >
+            <StripIcon path={ACTION_ICON.save} />
+          </button>
+          <button
+            type="button"
+            className="quickforge-goal-strip-action quickforge-goal-strip-action--edit-cancel"
+            aria-label={t('goalEditCancel')}
+            title={t('goalEditCancel')}
+            onClick={exitEditMode}
+          >
+            <StripIcon path={ACTION_ICON.close} />
+          </button>
+        </>
+      ) : (
+        <button
+          ref={menuButtonRef}
+          type="button"
+          className="quickforge-goal-strip-action quickforge-goal-strip-action--more"
+          aria-label={t('goalMoreActions')}
+          title={t('goalMoreActions')}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-controls={menuOpen ? menuId : undefined}
+          disabled={ui.pending}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <StripIcon path={ACTION_ICON.more} />
+        </button>
+      )}
 
       {menuOpen ? (
         <div className="quickforge-goal-strip-menu" role="menu" id={menuId} aria-label={t('goalMoreActions')}>
+          {/* The phase line the single row no longer prints: read-only, never a
+              control, so the round and the recorded duration stay discoverable. */}
+          {detailLine ? (
+            <p className="quickforge-goal-strip-menu-meta">{detailLine}</p>
+          ) : null}
           <button
             ref={editButtonRef}
             type="button"

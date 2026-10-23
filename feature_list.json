@@ -1,6 +1,76 @@
 {
   "features": [
     {
+      "id": "retry-continue-lease-header",
+      "name": "修复消息「重试」必报 SESSION_LEASE_HELD 的误报（continue 漏发租约头）",
+      "description": "用户反馈「只有一条消息时点重试会报错 This session is open for writing in another window」，随后更正为「多轮点重试也报错」——重试在所有场景都失败，而本页明明是唯一打开的窗口。已修：continue 写入口补齐租约身份头并加本地 canWrite 门禁。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "1) src/lib/server-agent.ts：continue() 原本把 headers 嵌在 `...(optimistic ? {...} : {})` 里，导致「不带 appendMessage 的裁剪重生成」这一普通重试形态一个头都不发（连 content-type 都没有）；改为两种形态都发 writeHeaders()（带消息时叠 content-type + body），并注释说明服务端 continue 路由有 assertSessionWriteAccess 守卫。2) 同文件 continue() 入口新增 canWrite() 守卫：非持有者本地直接抛错，不再先乐观追加「继续」消息再被 409 回滚打回。3) tests/frontend/server-agent-session-lease.test.ts 新增 2 例（无/有 appendMessage 都必须携带 x-quickforge-client-id，后者还断言 body），并在旁观者用例补 continue() 本地拦截断言。4) docs/wiki/src/lib/README.md 的 continue(appendMessage?) 条目补「两种形态都必须经 writeHeaders 带客户端标识、入口先过 canWrite()」。",
+      "root_cause": "消息「重试」在两种语义下都走 POST /api/agents/:id/continue（turnEndedWithError → continue(continueMessage)，否则 → continue(=无参)）。该路由入口挂了 assertSessionWriteAccess，按 x-quickforge-client-id 比对会话租约，读不到标识的调用方被当作匿名客户端处理。而 ServerAgent.continue() 的 headers 只在 optimistic（appendMessage）分支里拼接，普通重试形态完全不带 headers，于是服务端恒定返回 409 SESSION_LEASE_HELD「This session is open for writing in another window」——与消息条数无关，所以「一条消息」和「多轮」两种场景都报同一个错。这与 2026-10-23 已修的 abort() 漏头是同一类缺陷（当时只补了 abort 一处，未做全量写入口审计）。",
+      "files": [
+        "src/lib/server-agent.ts",
+        "tests/frontend/server-agent-session-lease.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/server-agent-session-lease.test.ts → 14 passed；tests/frontend/server-agent.test.ts → 142 passed；message-actions + message-utils → 51 passed；npx eslint src/lib/server-agent.ts tests/frontend/server-agent-session-lease.test.ts → 0 error；npm run lint → 0 error；npx tsc -b 通过；npm run build 成功（5.40s）；npm run test 全量 → 422 文件 421 passed / 1 failed，失败项 tests/server/scheduled-tasks.commands.test.mjs 单独复跑 24 passed（并行抖动，与本改动无关）。",
+      "boundaries": "未改服务端租约实现（server/session-lease.mjs、server/routes/agent.mjs 一字未动）、未改 enableSessionLease/心跳/接管 UI、未改重试的业务语义（裁剪重生成 vs 追加「继续」仍由 turnEndedWithError 决定）；未新增/升级依赖；未手工修改 dist/、package-dist/、package-offline/（build 正常刷新 dist）；未创建 Git commit。Notes（同类漏头，未在本轮扩范围）：App.tsx 的 POST /abort-tool 与 useSessionActions.ts 的 POST /title 仍是裸 fetch 不带 x-quickforge-client-id，其中 /title 在服务端有 assertSessionWriteAccess 守卫（旁观窗口改名会 409）。未做真实浏览器验收（单条消息 + 多轮两种场景点重试）。"
+    },
+    {
+      "id": "goal-strip-single-line",
+      "name": "Goal 条带改为单行 32px（目标单行截断 + icon-only 主操作）",
+      "description": "用户要求「尽量优化成一行显示目标，优化一下保持简单，重新设计」，看完单行设计稿后回复「按推荐执行，不需要按钮文字，使用 icon」。把三段式目标卡（身份行 + 两行目标 + 进度行，约 76px）压成一行 32px：靶心图标 · 状态词 · 目标（单行 ellipsis）· 2/3 验收 · 主操作（纯图标）· ⋯。就地展开面板与展开箭头删除，验收明细只在 Inspector。",
+      "status": "done",
+      "dependencies": [
+        "goal-strip-icon-fix"
+      ],
+      "summary": "1) GoalControlStrip.tsx：单一 flex 行；主操作改 icon-only（24px，aria-label + title 承载文字，避免本地化动词换行/截断）；状态词与目标各自是进 Inspector 的按钮；新增 detailLine（Set 去重 phaseDetail/轮次/用时）供 ⋯ 菜单只读信息行与 tooltip；删 expanded/panelId/chevron/CRITERION_STATUS_KEY/goalStatusIcon import。2) goal-control-strip.ts：stateTone（working/attention/idle/blocked/success/danger）+ GoalControlStripTone 类型 + stateToneFor + isWorkingSpin（仅 planning/executing/verifying 转）；v2PrimaryAction 增加「等待用户优先」判断，避免「需要你处理 + 暂停按钮」矛盾。3) src/index.css：条带段整体重写（-342/+219 行）：固定 height 2rem、width 100%、目标 text-overflow ellipsis + white-space nowrap、icon-only 主操作、.menu-meta、560px 与 420px 两级退让；删 .head/.meta/.panel/.chevron/line-clamp。4) 测试：goal-control-strip.test.ts 30 例（展开用例改为「进度在行内 + 无内联清单」与「三处入口进 Inspector」，新增 icon-only 主操作断言，roundText 与 durationMinutes 都进 tooltip）；goal-card.test.ts 的 CSS 契约改为固定 32px 高 + width 100% + 无 line-clamp/panel/chevron + 目标 ellipsis/nowrap。5) 新增设计稿 docs/design/goal-strip-single-line.html。",
+      "root_cause": "三段卡虽然把信息分层了，但每一层都占一行：身份行 24px + 两行目标约 36px + 进度行 16px，加内边距合计约 76px，把 composer 上方一整层空间吃掉了。而 goal 条带的高频用途只有「扫一眼现在怎样、要不要我动手」——这两件事一行就够。单行化必须同时解决三个次生问题，否则会退化成「信息丢失」：① 目标截断后全文去哪（→ title + 点击进 Inspector）；② 进度与轮次挤在一行会互相挤掉（→ 进度只留分段条 + 2/3，轮次与用时降级进 ⋯ 菜单的只读行与 tooltip）；③ 主操作文字会让 32px 行高被撑开（→ 改纯图标 + aria-label/title）。",
+      "files": [
+        "src/components/chat/surface/GoalControlStrip.tsx",
+        "src/components/chat/panel-decoration/goal-control-strip.ts",
+        "src/index.css",
+        "tests/frontend/goal-control-strip.test.ts",
+        "tests/frontend/goal-card.test.ts",
+        "docs/design/goal-strip-single-line.html",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/{goal-control-strip,goal-card,goal-icon,message-queue}.test.ts → 4 文件 71 passed；goal 全量相关 17 文件 → 357 passed；npx tsc --noEmit -p tsconfig.app.json 通过；npm run lint → 0 error（仅既有 GitToolsPinnedSummary exhaustive-deps warning）；npm run test 全量 → 422 文件 4887 passed / 2 skipped；npm run build 成功（3.67s）。",
+      "boundaries": "服务端 goal 契约、goal-ui.ts 的 pending/dirty/error 锁、goal-edit.ts 的 pause→revise、锚定确认 popover 全部未动；方案 B（悬停长高展示验收清单）与 C（不带进度）未做；完成态仍不渲染条带（设计稿 C3 完成卡未做）；tone 仍是硬编码 hex；未新增/升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit。Notes：① 未做真实浏览器视觉验收（32px 高下 6px 点与 12px 图标/14px 靶心的重量平衡、420px 窄屏目标截断后能否认出目标、width 100% 在宽屏贴满 composer 的观感）；② 本轮工作区一度把 GoalControlStrip.tsx 与 goal-control-strip.ts 回退到 HEAD 版本（CSS 已是单行版但组件还是三段卡），已重新写入并验证 —— 若再遇到「CSS 与组件不匹配」，先怀疑未提交文件被回退。"
+    },
+    {
+      "id": "goal-strip-icon-fix",
+      "name": "Goal 条带图标修正：身份图标恒定 + 状态色按 stateTone 推导",
+      "description": "用户反馈「goal 模式对话框上面的样式还有问题，比如 icon 不对」，要求先给评审 HTML 设计稿。评审定位根因：条带用 goalStatusIcon[view.tone]，而 tone 是卡片的 5 个颜色阶而非 5 个状态，导致 paused→info 让「已暂停」画出规划态的待办清单、waiting_*→active 让「需要你处理」与「执行中」共用蓝色时钟；另有「去处理」与「打开面板」两个按钮在 12px 下都是朝上的尖、彩色图标+彩色点+彩色词三连重复编码、「已耗尽」chip 吃 tone 变蓝等问题。用户选定方案 A：图标恒定靶心、状态只走点/词/色。",
+      "status": "done",
+      "dependencies": [
+        "goal-mode-ux-fix-strip"
+      ],
+      "summary": "1) GoalControlStrip.tsx：身份图标改 GoalIcon（中性灰、恒定），删除 goalStatusIcon 与 dangerouslySetInnerHTML；旋转从「图标转」改为独立 .quickforge-goal-strip-spinner 圆环；ACTION_ICON.attention 加下沿横线以区别于 open 的 chevron；data-tone 改挂 view.stateTone，卡片色移到 data-card-tone。2) goal-control-strip.ts：新增 GoalControlStripTone（working/attention/idle/blocked/success/danger）与 stateToneFor（按状态词推导，不碰 v2Tone）；新增 isWorkingSpin —— 仅 planning/executing/verifying 为 spinning，waiting_approval/waiting_input/pausing 不转；删掉 isGoalSpinning import。3) src/index.css：[data-tone] 改为 6 个 stateTone 值；.quickforge-goal-strip-icon 固定 var(--muted-foreground) 与 0.875rem；新增 .quickforge-goal-strip-spinner；点 0.4375rem→0.375rem；.quickforge-goal-strip-chip 固定 #d97706 不再吃 tone；min-width 20rem→18rem；reduced-motion 覆盖 spinner 并保留亮弧。4) icons.ts：goalStatusIcon 保留给置顶摘要与工具卡，注释写明条带不再消费及原因。5) 测试：goal-control-strip.test.ts 新增 identity glyph 恒定、stateTone 矩阵、spinning 条件三组断言，并把 planning/pausing 的 spinning 期望按新语义翻正；goal-card.test.ts 的 CSS 契约改为断言 .quickforge-goal-strip-spinner 与 [data-tone=attention|idle] 存在、icon--spinning 已移除。6) 新增评审稿 docs/design/goal-strip-icon-review.html。",
+      "root_cause": "图标绑错了维度：view.tone 表达的是「颜色阶」（info/active/warning/success/danger），被当成「状态」用。v2Tone 把 paused 映射为 info（规划态用的 checklist 字形），waiting_approval/waiting_input 落回 active（与 running 同一个时钟字形）；同时 tone 又驱动词色和呼吸点，导致彩色图标+彩色点+彩色词三连，7px 间距内同色信号重复三遍。正确做法是让图标只回答「这是什么」（恒为产品统一的 goal 身份图标）、文字只回答「现在怎样」（5 个状态词）、颜色只回答「要不要管」（stateTone）。",
+      "files": [
+        "src/components/chat/surface/GoalControlStrip.tsx",
+        "src/components/chat/panel-decoration/goal-control-strip.ts",
+        "src/components/chat/panel-decoration/icons.ts",
+        "src/index.css",
+        "tests/frontend/goal-control-strip.test.ts",
+        "tests/frontend/goal-card.test.ts",
+        "docs/design/goal-strip-icon-review.html",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/frontend/{goal-control-strip,goal-card,goal-icon,message-queue}.test.ts → 4 文件 69 passed；契约与相邻 9 文件（chat-surface-render、chat-surface-css-contract、semantic-color-class-parity、decorator-copy-i18n、motion-design、goal-state、goal-ui、goal-summary-section、git-tools-pinned-summary）→ 179 passed；npx tsc --noEmit -p tsconfig.app.json 通过；npm run lint → 0 error（仅既有 GitToolsPinnedSummary exhaustive-deps warning）；npm run test 全量 → 422 文件 4884 passed / 2 skipped；npm run build 成功（5.46s）。",
+      "boundaries": "服务端 goal 契约、src/lib/goal.ts 类型、goal-ui.ts 的 pending/dirty/error 锁、goal-edit.ts 的 pause→revise、展开/菜单/锚定确认交互全部未动；goalStatusIcon 未删除（置顶摘要与工具卡仍在用）；未做完成卡（设计稿 C3）；tone 仍是硬编码 hex，本轮只把「按 tone 上色」改为「按 stateTone 上色」，token 化未做；未新增/升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit。Notes：① 未做真实浏览器视觉验收（spinner 转速、6px 点重量感、min-width 18rem 下短目标表现、深色对比度）；② min-width 降低后主操作按钮仍会把卡片撑到内容宽度，未加更激进的收缩策略。"
+    },
+    {
       "id": "conversation-trace-view",
       "name": "对话轨迹视图：对话区内的 Turn→Step→Tool 运行时视图（三轨时间总览 + 三模式 + 检查器）",
       "description": "用户要求「设计对话功能的轨迹功能，可以看到每个工具的详情和时间轴，在对话顶部的分支旁边可以查看」，确认方案后要求「直接在对话区域展开」，参考 DSH Trajectory 重做原型，并确认保留时间总览、三种投影模式都要、检查器默认隐藏，然后开始实施。",
@@ -2536,6 +2606,43 @@
       ],
       "verification": "npm run test 422 文件 4874 passed / 2 skipped；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc -b 通过；npm run build 成功。",
       "boundaries": "只改摘要与概览条的文案拼接，不改计数口径（agentCount/toolCount 仍为登记数）、不动服务端、不新增依赖；未手工修改生成产物；未创建 Git commit。"
+    },
+    {
+      "id": "workflow-summary-card-visual-quiet",
+      "name": "工作流摘要卡去掉「查看详情」与阶段刻度，运行态复用思考流光",
+      "description": "摘要卡行尾同时挂着「查看详情 ›」入口和一组阶段刻度短条（单阶段时看起来像个小绿点），与「整行本身可点」重复，还挤占单行宽度。用户要求：不显示查看详情和小绿点，运行过程改用思考过程那种流光效果。确认口径：小绿点 = 阶段刻度；运行态保留「文字流光 + 阶段跑马灯」。",
+      "status": "done",
+      "dependencies": [
+        "workflow-summary-hide-zero-agents"
+      ],
+      "summary": "删除 WorkflowTicks 组件与 quickforge-workflow-affordance 块；卡片只剩 图标 + 摘要（运行中带 .quickforge-tool-running-sweep）+ 阶段跑马灯 + 终态状态图标/耗时，「查看详情 / 已打开」只保留在 aria-label。CSS 删除 .quickforge-workflow-ticks / -tick / -affordance / -affordance-icon 与对应 reduced-motion 分支（保留 @keyframes quickforge-workflow-tick-pulse 供 Inspector 状态 pill 复用），.quickforge-workflow-title 加 margin-right:auto 把状态/耗时推到右侧。测试改为断言 tick/affordance 不存在、View details/Opened 仅在 aria-label、运行态带 running sweep 与跑马灯；文档新增 DESIGN_LANGUAGE「整行可点时不再单独渲染入口提示」并同步 wiki 与架构文档。",
+      "files": [
+        "src/lib/tool-renderers/workflow-tool-renderer.tsx",
+        "src/index.css",
+        "tests/frontend/workflow-renderer.test.ts",
+        "tests/frontend/workflow-step-interaction.test.ts",
+        "DESIGN_LANGUAGE.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/architecture/workflow-orchestration.zh-CN.md"
+      ],
+      "verification": "npx vitest run tests/frontend/workflow-renderer.test.ts tests/frontend/workflow-step-interaction.test.ts → 2 文件 36 passed；npx tsc -b 通过；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npm run build 成功（4.22s）。全量 npm run test 中 tests/frontend/goal-control-strip.test.ts 有 1 例失败，属工作区里另一处未完成的 goal 条带图标评审改动（buildGoalControlStripView 期望 planning 时 spinning:false，实际 true），与本改动无关。",
+      "boundaries": "只改摘要卡视觉与 DOM，不改打开事件、workflowRunStore 契约、跑马灯机制与状态计数口径；未新增/升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit。Notes：阶段刻度移除后，折叠态不再暴露「一共几个阶段 / 哪个阶段挂了」，需点开 Inspector 才可见；若后续需要弱进度提示，应改用文本（如 3/8）而不是短条点阵。"
+    },
+    {
+      "id": "goal-strip-pause-icon-two-bars",
+      "name": "Goal 条带暂停图标补回第二条竖杠（单杠被读成编辑/光标）",
+      "description": "用户反馈「执行中的 icon 显示有点问题，我看到只有单杠不是双杠」。根因：surface/GoalControlStrip.tsx 的 ACTION_ICON.pause 只有一条 path（M9.5 6v12），而设计稿 goal-strip-icon-review.html 一直是两条；测试只断言主操作按钮存在与 aria-label，从不检查图标内部，所以一路绿灯。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "ACTION_ICON.pause 改为两条圆头竖杠（M9.5 6v12 + M14.5 6v12，strokeWidth 2.4），注释写清为什么不能用 lucide Pause（两个描边 rect）/SquarePause（带外框）——12px 实心按钮上它们会糊成实心块。goal-control-strip.test.ts 新增回归用例，断言主操作 svg 内恰好是这两条 path。wiki src/components 两处运行条口径同步补暂停图标形状与断言说明。",
+      "files": [
+        "src/components/chat/surface/GoalControlStrip.tsx",
+        "tests/frontend/goal-control-strip.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/design/goal-pause-icon-fix.html"
+      ],
+      "verification": "npx vitest run goal-control-strip / git-tools-pinned-summary / goal-icon 三文件 64 passed（含新增 1 例）；npx tsc -b 通过；npm run lint 0 error（仅既有 GitToolsPinnedSummary exhaustive-deps warning）；npm run build 成功（5.28s）。",
+      "boundaries": "只改暂停图标 path 与一条测试，不动 resume / attention / more 三个形态、不改 src/index.css、不新增或升级依赖、未手工修改 dist/、package-dist/、package-offline/、未创建 Git commit。Notes：attention 主操作仍是 3 笔，12px 下底线与尖几乎贴住；resume 现为尖角三角，与 lucide Play 圆角风格不一致，均可另议。"
     }
   ]
 }

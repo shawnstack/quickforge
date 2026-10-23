@@ -1,3 +1,69 @@
+# 当前交接：goal-strip-pause-icon-two-bars（done，2026-10-23）
+
+- Current Objective（当前目标）：用户反馈「执行中的 icon 显示有点问题，我看到只有单杠不是双杠」，问有没有现成的 icon 可用。
+- 结论（一句话）：**代码少画了一条杠**。`surface/GoalControlStrip.tsx` 的 `ACTION_ICON.pause` 只有 `M9.5 6v12`，而设计稿 `goal-strip-icon-review.html` 一直是两条；测试只断言按钮存在 + `aria-label`，从不检查图标内部，所以少一条杠一路绿灯。
+- 改动文件：
+  1. `src/components/chat/surface/GoalControlStrip.tsx`：`pause` 补第二条圆头竖杠（`M14.5 6v12`），并注释为什么不能用 lucide 的 `Pause`（两个描边 `rect`）/`SquarePause`（带外框）——24px 命中区塞 12px 图标 + 强制 `stroke-width:2.4`，靠留白分隔的小形状会糊成实心块。
+  2. `tests/frontend/goal-control-strip.test.ts`：新增回归用例，断言主操作 `svg` 内恰好是这两条 path。
+  3. `docs/wiki/src/components/README.md`：两处运行条口径（该文件存在重复段落）同步补暂停图标形状与断言说明。
+  4. 新增 `docs/design/goal-pause-icon-fix.html`：12px 真实尺寸 + 2x 放大、6 个候选横向对比。
+- 被避免的坑：直接换成 lucide `Pause` 会从「单杠」变成「两个实心块」——它的两条杠是 `rect`，12px 下空心部分只剩 0.1px；`SquarePause` 更糟（多一圈外框）。这个尺寸只接受纯 `path` 组合。
+- Evidence（验证）：`npx vitest run goal-control-strip / git-tools-pinned-summary / goal-icon` 三文件 **64 passed**（含新增 1 例）；`npx tsc -b` 通过；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` 成功（5.28s）。
+- 已知工作区遗留（与本次无关）：`goal-*`、`workflow-*`、`index.css`、`TodoWriteSummary.tsx` 等多处未提交改动来自前几轮会话；`tests/frontend/goal-control-strip.test.ts` 的既有失败上一轮已修复。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：未创建 Git commit，未手工修改 `dist/`、`package-dist/`、`package-offline/`。可选后续（`progress.md` Notes）：① `attention` 主操作 3 笔在 12px 下贴太紧；② `resume` 尖角三角与 lucide `Play` 圆角风格不一致；③ 条带「14px 图标 + 8px 旋转环 + 6px 呼吸点」三件套仍待定，方案见 `docs/design/goal-icon-redesign.html` 的 R1–R5。
+
+---
+
+# 当前交接：retry-continue-lease-header（done，2026-10-23）
+
+- Current Objective（当前目标）：用户反馈「只有一条消息时点重试会报错 This session is open for writing in another window」，随后更正为「多轮点重试也报错」——即重试在所有场景都失败，且本页明明是唯一打开的窗口。
+- 结论（一句话）：消息「重试」的写入口是 `POST /api/agents/:id/continue`，而 `ServerAgent.continue()` 是全仓**唯一漏发 `x-quickforge-client-id` 的写入口**（不带 appendMessage 的裁剪重生成形态连 headers 都没传）；服务端 `assertSessionWriteAccess`（`server/routes/agent.mjs:545`）读不到客户端标识就把本页当匿名客户端，租约被自己持有时也返回 409 `SESSION_LEASE_HELD`。
+- 改动文件：
+  1. `src/lib/server-agent.ts`：`continue()` 两种形态都发 `writeHeaders()`（带 `appendMessage` 时再叠 `content-type` + body）；入口新增 `canWrite()` 守卫，非持有者本地抛错、不再乐观追加「继续」消息。
+  2. `tests/frontend/server-agent-session-lease.test.ts`：+2 例（无/有 appendMessage 都必须带客户端头），并在旁观者用例里补 `continue()` 本地拦截断言（现 14 passed）。
+  3. `docs/wiki/src/lib/README.md`：`continue(appendMessage?)` 条目补「两种形态都必须带租约头 + 入口先过 `canWrite()`」。
+- 被避免的坑：只给带 `appendMessage` 的分支补 header 会漏掉普通重试（无 body 分支），因为 headers 原本嵌在 `...(optimistic ? {...} : {})` 里——必须把 headers 提到分支之外。
+- Evidence（验证）：定向 14 + 142 + 51 passed；`npx eslint` 改动文件 0 error；`npm run lint` 0 error；`npx tsc -b` 通过；`npm run build` 成功（5.40s）；`npm run test` 全量 422 文件 421 passed / 1 failed（`tests/server/scheduled-tasks.commands.test.mjs` 单独复跑 24 passed，属并行抖动）。
+- 已知工作区遗留（与本次无关）：`goal-*`、`workflow-*`、`index.css`、`TodoWriteSummary.tsx` 等多处未提交改动来自前几轮会话；`tests/frontend/goal-control-strip.test.ts` 的既有失败上一轮已修复并全量通过。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：未创建 Git commit，未手工修改 `dist/`、`package-dist/`、`package-offline/`。可选同类修复（`progress.md` Notes）：`App.tsx` 的 `abort-tool` 与 `useSessionActions.ts` 的 `POST /title` 仍是不带客户端头的裸 fetch，后者在服务端有守卫（旁观窗口改名会 409）。
+
+---
+
+# 当前交接：todo-summary-retire-latch（done，2026-10-23）
+
+- Current Objective（当前目标）：用户反馈「todo list 显示在对话上方，已经完成了但是没有消失」，期望「每轮对话结束检查，完成了就该消失」。
+- 结论（一句话）：判定没问题，是**退休动作被下一轮打断**——`shouldRetire` 是活谓词，下一轮 `idle` 翻 false 就把 140ms 淡出的 timer 取消并让胶囊以全不透明度复活；连续轮次（goal 续跑 / 队列续发 / 后台任务通知）下退场永远跑不完，全完成的清单就常驻了。
+- 改动文件：
+  1. `src/components/chat/surface/TodoWriteSummary.tsx`：新增 `retiringKey`，render 阶段锁存首次 `shouldRetire`（与 `trackedKey` 同一条 derive-from-props 路径）；`fading = (shouldRetire || latched) && !retired`。新快照新 key，不受 latch 影响。
+  2. `tests/frontend/todo-write-summary.test.ts`：新增淡出窗口内开新一轮不复活用例（26 passed）。
+  3. `docs/wiki/src/components/README.md`：两处 `todo-write-summary.ts` 条目 + 两处 Composer 摘要段落补 latch 口径。
+- 被避免的坑：把 latch 放进 `useEffect` 会晚一帧、首帧不带 `data-fading`，退出过渡从错误的不透明度起算；必须像 `trackedKey` 一样在 render 里 setState。
+- Evidence（验证）：定向 `npx vitest run tests/frontend/todo-write-summary.test.ts` 26 passed；`npm run lint` 0 error；`npm run build` 成功（`tsc -b && vite build`）。
+- 已知工作区遗留（与本次无关）：`tests/frontend/goal-control-strip.test.ts` 有 1 例失败（goal 条带图标评审遗留）、`test(s)` 之外的多处未提交改动（`goal-*`、`workflow-*`、`index.css`）来自上一轮会话，未扩范围。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：未提交 Git，未手工修改 `dist/`、`package-dist/`、`package-offline/`。可选后续：若希望「残留 pending/in_progress」也随轮次退休，需要先决定是否放给模型「最终快照」契约变更，当前按用户选择保持「有未完成项就保留」。
+
+---
+
+# 当前交接：workflow-summary-card-visual-quiet（done，2026-10-23）
+
+- Current Objective（当前目标）：用户要求「样式再优化一下：不需要显示查看详情和小绿点，反正可以点击跳转过去；运行过程可以显示思考过程那样的流光效果」。确认：小绿点 = 阶段刻度；运行态保留「文字流光 + 阶段跑马灯」。
+- 结论（一句话）：摘要卡缩到「图标 + 摘要文本 + 阶段跑马灯 + 终态状态/耗时」，整行即可点，动作提示只留在 `aria-label`；运行中标题复用 `.quickforge-tool-running-sweep`（与思考过程同一套 shimmer）。
+- 改动文件：
+  1. `src/lib/tool-renderers/workflow-tool-renderer.tsx`：删 `WorkflowTicks` 与 `quickforge-workflow-affordance` 块。
+  2. `src/index.css`：删 `.quickforge-workflow-ticks/-tick/-affordance/-affordance-icon` 及其 reduced-motion 分支；保留 `@keyframes quickforge-workflow-tick-pulse`（Inspector 状态 pill 复用）；`.quickforge-workflow-title` 加 `margin-right: auto`。
+  3. `tests/frontend/workflow-renderer.test.ts`、`tests/frontend/workflow-step-interaction.test.ts`：改为断言 tick/affordance 不存在、`View details`/`Opened` 仅在 aria-label、运行态有 sweep 与跑马灯。
+  4. `DESIGN_LANGUAGE.md`（新增「整行可点时不再单独渲染入口提示」）、`docs/wiki/src/lib/README.md`、`docs/architecture/workflow-orchestration.zh-CN.md`。
+- 被避免的坑：直接删「查看详情」会把可访问名称一起删掉 → 保留 `aria-label` 里的 `workflowDetailOpenRun/workflowDetailOpened`；删刻度后右侧状态会贴到文本尾 → 用标题 `margin-right: auto` 占位（有跑马灯时 auto margin 自动归零，不影响其弹性宽度）。
+- Evidence（验证）：`npx vitest run` 两个工作流文件 36 例通过；`npx tsc -b` 通过；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` 成功（24s）。
+- 已知工作区遗留（与本次无关）：`tests/frontend/goal-control-strip.test.ts` 有 1 例失败（`buildGoalControlStripView` 期望 `planning` 时 `spinning: false`，实际 `true`，来自另一处未完成的 goal 条带图标评审改动），未扩范围修复。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：无遗留；未提交 Git，未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
 # 当前交接：workflow-summary-hide-zero-agents（done，2026-10-23）
 
 - Current Objective（当前目标）：用户要求「工作流优化一下，如果没有智能体调用就不要显示智能体 0 了」→ 确认范围为「聊天区摘要卡 + 右侧详情概览条」→ **已实施完成，未提交、未创建 commit**。
@@ -48,6 +114,39 @@
   4. **与对话双向联动**：目前只有 Inspector 的「在对话中定位」单向跳回对话视图；原型的「点工具卡 → 轨迹定位到该行」还没接（需要给 `ToolMessage` 加 `data-tool-call-id`）。
   5. **建议先修掉工作区里那处 workflow 渲染重构**（补 `workflowSummaryKey` 的移除收尾），否则 `npm run build` 始终失败。
   6. 未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## 当前交接：goal-strip-single-line（done，2026-10-23）
+
+- Current Objective（当前目标）: 用户要求「尽量优化成一行显示目标，保持简单，重新设计」；看单行设计稿后回复「按推荐执行，不需要按钮文字，使用 icon」。**已实现，未提交、未创建 commit。**
+- 结论（一句话）: 三段卡（≈76px）压成一行 32px —— `靶心图标 · 状态词 · 目标（单行截断）· 2/3 · 主操作(纯图标) · ⋯`；就地展开面板与 chevron 删除，验收明细只在 Inspector（三处入口：状态词 / 目标 / ⋯→打开完整面板）。
+- 改动:
+  1. `surface/GoalControlStrip.tsx`：单一 flex 行；主操作改 **icon-only**（24px，`aria-label` + `title` 承载文字，避免本地化动词换行）；状态词与目标改按钮（进 Inspector）；新增 `detailLine`（`Set` 去重 phaseDetail/轮次/用时）供 ⋯ 菜单只读行与 tooltip；删 `expanded`/`panelId`/chevron/`CRITERION_STATUS_KEY`/`goalStatusIcon` import。
+  2. `panel-decoration/goal-control-strip.ts`：`stateTone`（working/attention/idle/blocked/success/danger）+ `GoalControlStripTone` + `stateToneFor` + `isWorkingSpin`（仅 planning/executing/verifying 转）；`v2PrimaryAction` 增加「等待用户优先」判断。
+  3. `src/index.css`：条带段整体重写（−342/+219 行）：`height: 2rem`、`width: 100%`、单行 + `ellipsis/nowrap`、icon-only 主操作、`.menu-meta`、560/420 两级退让；删 `.head`/`.meta`/`.panel`/`.chevron`/`line-clamp`。
+  4. 测试：`goal-control-strip.test.ts` 30 例（展开用例改为「进度在行内 + 无内联清单」与「三处入口进 Inspector」，新增 icon-only 断言）；`goal-card.test.ts` CSS 契约改为固定 32px / 100% 宽 / 无 panel 无 clamp。
+- Evidence（验证）: 定向 4 文件 **71 passed**；goal 全量相关 17 文件 **357 passed**；`npx tsc --noEmit -p tsconfig.app.json` 通过；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` warning）；全量 `npm run test` **422 文件 / 4887 passed / 2 skipped**；`npm run build` 成功（3.67s）。
+- 文档: `docs/wiki/src/components/README.md` 两处「运行条」段改写（numstat 2/2）；`docs/design/goal-strip-single-line.html` 标为已落地。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: ① **真机视觉验收**——32px 高度下 6px 点与 12px 图标/14px 靶心的重量平衡、420px 窄屏目标截断后是否还能认出目标、`width: 100%` 在宽屏下贴满 composer 的观感；② 方案 B（悬停长高展示验收）与 C（不带进度）未做；③ 完成态仍不渲染条带（方案 C 完成卡）；④ tone 仍是硬编码 hex；⑤ **注意**：本轮工作区一度把 `GoalControlStrip.tsx` 与 `goal-control-strip.ts` 回退到 HEAD 版本（CSS 已是单行版但组件还是三段卡），已重新写入并验证 —— 若再遇到「CSS 与组件不匹配」，先怀疑未提交文件被回退；⑥ 未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+## 当前交接：goal-strip-icon-fix（done，2026-10-23）
+
+- Current Objective（当前目标）: 用户反馈「goal 模式对话框上面的样式还有问题，比如 icon 不对」，要求先出评审 HTML，选定后落地。用户选了我推荐的**方案 A（身份图标恒定 + 状态只走点/词/色）**。**已实现，未提交、未创建 commit。**
+- 结论（一句话）: 图标绑错了维度——条带用 `goalStatusIcon[view.tone]`，而 tone 是 5 个**颜色阶**不是 5 个**状态**，于是 `paused → info` 把「已暂停」画成了规划态的待办清单、`waiting_* → active` 让「需要你处理」和「执行中」共用蓝色时钟。改成：图标恒定靶心、状态词表达状态、颜色只表达注意力。
+- 改动（4 源文件 + 2 测试 + 文档）:
+  1. `surface/GoalControlStrip.tsx`：图标改 `<GoalIcon />`（中性灰、恒定），删 `goalStatusIcon` + `dangerouslySetInnerHTML`；旋转改为独立 `.quickforge-goal-strip-spinner` 圆环；`ACTION_ICON.attention` 加下沿横线（与 `open` 的 chevron 区分）；`data-tone` 改挂 `stateTone`，卡片色移到 `data-card-tone`。
+  2. `panel-decoration/goal-control-strip.ts`：新增 `GoalControlStripTone`（`working/attention/idle/blocked/success/danger`）与 `stateToneFor`（按状态词推导，不碰 `v2Tone`）；新增 `isWorkingSpin`（仅 planning/executing/verifying 转）。
+  3. `src/index.css`：`[data-tone]` 改 6 个 stateTone 值；图标固定 `var(--muted-foreground)` + 0.875rem；新增 spinner；点 7px→6px；chip 固定 `#d97706`；`min-width` 20rem→18rem；reduced-motion 覆盖 spinner。
+  4. `panel-decoration/icons.ts`：`goalStatusIcon` 保留（摘要/工具卡仍用），加注释说明条带不再消费。
+  5. 测试：`goal-control-strip.test.ts` 加「identity glyph 恒定且无 `<rect>`」「stateTone 矩阵」「spinning 只在推进时」；`goal-card.test.ts` CSS 契约改为断言 spinner + `[data-tone="attention"|"idle"]` 且 `icon--spinning` 已移除。
+- Evidence（验证）: 定向 4 文件 **69 passed**；契约与相邻 9 文件 **179 passed**；`npx tsc --noEmit -p tsconfig.app.json` 通过；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` warning）；全量 `npm run test` **422 文件 / 4884 passed / 2 skipped**；`npm run build` 成功（5.46s）。
+- 文档: `docs/wiki/src/components/README.md` 两处「运行条」段改写（numstat 2/2，无格式漂移）；`docs/design/goal-strip-icon-review.html` 标注已落地 + 05 节换成实际实施表。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: ① **真机视觉验收**——spinner 转速（1.1s）与 6px 点的重量感、`min-width` 18rem 在短目标下的表现、深色模式下 id+灰图标对比度；② 完成态仍不渲染条带（方案 C 完成卡未做）；③ tone 仍是硬编码 hex，本轮只把「按 tone 上色」改成「按 stateTone 上色」，token 化未做；④ 未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。
 
 ---
 

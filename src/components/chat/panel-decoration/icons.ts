@@ -23,9 +23,13 @@ export const errorWarningIcon = '<svg class="quickforge-error-warning-icon" xmln
 export const errorDetailsChevronIcon = '<svg class="quickforge-error-chevron-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>'
 
 /**
- * Status icon per goal tone, shared by the goal card and the control strip.
- * planning / awaiting_confirmation show a checklist: the plan (and its
- * pending confirmation) is the headline, not a generic info circle.
+ * Status icon per goal tone, used by the PINNED SUMMARY and the goal tool cards.
+ *
+ * NOT used by the composer strip any more (方案 A): the strip keeps one neutral
+ * identity glyph (`components/goal-icon.tsx`) and lets the state word carry the
+ * state. Keying the strip's glyph off the tone painted a paused goal with the
+ * planning checklist and a waiting goal with the running clock — see
+ * `docs/design/goal-strip-icon-review.html`.
  */
 export const goalStatusIcon: Record<GoalCardTone, string> = {
   info: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>',

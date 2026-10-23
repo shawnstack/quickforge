@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Goal 条带 · 单行重设计</title>
+<style>
+:root{
+  --bg: oklch(1 0 0);
+  --fg: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --muted: oklch(0.97 0 0);
+  --mfg: oklch(0.556 0 0);
+  --bd: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --primary: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --done: oklch(0.55 0.13 158);
+  --radius: 0.625rem;
+  --main-bg: #ffffff;
+  --sidebar-bg: #f3f4f6;
+  --tone-working: #3478d4;
+  --tone-attention: #c2740b;
+  --tone-idle: oklch(0.556 0 0);
+  --tone-success: rgb(4 143 101);
+  --tone-danger: oklch(0.577 0.245 27.325);
+  --fast: 120ms; --base: 180ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color-scheme: light;
+}
+html.dark{
+  --bg: oklch(0.145 0 0);
+  --fg: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --muted: oklch(0.269 0 0);
+  --mfg: oklch(0.708 0 0);
+  --bd: oklch(0.275 0 0);
+  --ring: oklch(0.556 0 0);
+  --primary: oklch(0.922 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --done: oklch(0.75 0.15 160);
+  --main-bg: oklch(0.145 0 0);
+  --sidebar-bg: oklch(0.205 0 0);
+  --tone-working: oklch(0.74 0.12 253);
+  --tone-attention: oklch(0.8 0.13 74);
+  --tone-idle: oklch(0.708 0 0);
+  --tone-success: oklch(0.78 0.14 162);
+  --tone-danger: oklch(0.704 0.191 22.216);
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:26px 20px 80px;background:var(--sidebar-bg);color:var(--fg);
+  font-family:var(--sans);font-size:14px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1060px;margin:0 auto}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-0.01em}
+.sub{margin:5px 0 0;max-width:78ch;color:var(--mfg);font-size:12.5px}
+.btns{display:flex;gap:6px;flex-wrap:wrap}
+.ui{height:28px;padding:0 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);
+  color:var(--mfg);font:inherit;font-size:11.5px;cursor:pointer}
+.ui:hover{background:var(--muted);color:var(--fg)}
+
+section{margin:32px 0 0}
+.sec-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+h2{margin:0;font-size:15px;font-weight:600}
+.sec-no{font:600 11px/1 var(--mono);color:var(--mfg);letter-spacing:.06em}
+.sec-sub{margin:0 0 14px;color:var(--mfg);font-size:12.5px;max-width:82ch}
+
+.card{border:1px solid color-mix(in oklab,var(--bd) 80%,transparent);border-radius:12px;background:var(--bg);padding:14px}
+.card+.card{margin-top:12px}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.card-t{font-size:12.5px;font-weight:600}
+.tag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:600;
+  border:1px solid color-mix(in oklab,var(--bd) 70%,transparent);color:var(--mfg)}
+.tag.reco{color:var(--done);border-color:color-mix(in oklab,var(--done) 40%,transparent);background:color-mix(in oklab,var(--done) 8%,transparent)}
+.tag.risk{color:var(--destructive);border-color:color-mix(in oklab,var(--destructive) 34%,transparent);background:color-mix(in oklab,var(--destructive) 7%,transparent)}
+
+.stage{background:var(--main-bg);border:1px solid color-mix(in oklab,var(--bd) 55%,transparent);border-radius:10px;padding:12px 14px}
+.stage+.stage{margin-top:10px}
+.stage-t{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mfg);margin-bottom:9px;flex-wrap:wrap}
+.stage-t b{color:var(--fg);font-weight:600;font-size:11.5px}
+.stage-t .path{font-family:var(--mono);font-size:10.5px;opacity:.8}
+.h-marker{font-family:var(--mono);font-size:10px;color:var(--mfg);opacity:.75;margin-left:auto}
+
+/* ---------- 旧：三段卡（76px） ---------- */
+.old{position:relative;display:flex;width:fit-content;min-width:min(100%,18rem);max-width:100%;
+  flex-direction:column;gap:.375rem;margin:0 auto;padding:.5rem .5rem .5rem .625rem;
+  border:1px solid var(--bd);border-radius:calc(var(--radius) + 2px);
+  background:color-mix(in oklab,var(--bg) 96%,var(--muted));box-shadow:0 1px 2px rgb(15 23 42 / .04)}
+.old-head{display:flex;min-width:0;align-items:center;gap:.4375rem}
+.olab{color:var(--tone-working);font-size:.75rem;font-weight:650;white-space:nowrap}
+.ophase{min-width:0;overflow:hidden;color:var(--mfg);font-size:.6875rem;text-overflow:ellipsis;white-space:nowrap}
+.osp{flex:1 1 auto}
+.oobj{color:var(--fg);font-size:.78125rem;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ometa{display:flex;align-items:center;gap:.375rem;color:var(--mfg);font-size:.6875rem}
+
+.gicon{display:inline-flex;width:.875rem;height:.875rem;flex:0 0 auto;color:var(--mfg);opacity:.85}
+.gicon svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
+.gdot{width:.375rem;height:.375rem;flex:0 0 auto;border-radius:999px;background:var(--tone,var(--tone-working));
+  box-shadow:0 0 0 3px color-mix(in oklab,var(--tone,var(--tone-working)) 15%,transparent)}
+.gspin{width:.5rem;height:.5rem;flex:0 0 auto;border:1.5px solid color-mix(in oklab,var(--tone-working) 28%,transparent);
+  border-top-color:var(--tone-working);border-radius:999px;animation:spin 1.1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 3px color-mix(in oklab,var(--tone) 15%,transparent)}
+  50%{box-shadow:0 0 0 5px color-mix(in oklab,var(--tone) 4%,transparent)}}
+
+.gprimary{display:inline-flex;height:1.5rem;flex:0 0 auto;align-items:center;gap:.25rem;padding:0 .5rem;border:0;
+  border-radius:var(--radius);background:var(--tone,var(--tone-working));color:#fff;cursor:pointer;
+  font:inherit;font-size:.6875rem;font-weight:550}
+.gprimary svg{width:.75rem;height:.75rem;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2}
+.gbtn{display:inline-flex;width:1.5rem;height:1.5rem;flex:0 0 auto;align-items:center;justify-content:center;padding:0;
+  border:0;border-radius:var(--radius);background:transparent;color:var(--mfg);cursor:pointer}
+.gbtn:hover{background:color-mix(in oklab,var(--muted) 60%,transparent);color:var(--fg)}
+.gbtn svg{width:.875rem;height:.875rem;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2}
+.gsegs{display:inline-flex;gap:2px;flex:0 0 auto}
+.gseg{width:.625rem;height:.1875rem;border-radius:999px;background:color-mix(in oklab,var(--mfg) 26%,transparent)}
+.gseg[data-s="passed"]{background:var(--done)}
+
+/* ---------- 新：单行 ---------- */
+.one{
+  --tone:var(--tone-working);
+  position:relative;display:flex;width:100%;max-width:100%;min-width:0;flex:none;align-items:center;
+  gap:.4375rem;height:2rem;margin:0 auto .375rem;padding:0 .375rem 0 .5rem;
+  border:1px solid var(--bd);border-radius:var(--radius);
+  background:color-mix(in oklab,var(--bg) 96%,var(--muted));
+  box-shadow:0 1px 2px rgb(15 23 42 / .04);
+  transition:border-color var(--fast) var(--ease),background var(--fast) var(--ease);
+}
+.one:hover{border-color:color-mix(in oklab,var(--bd) 40%,var(--mfg) 22%);
+  background:color-mix(in oklab,var(--bg) 90%,var(--muted))}
+.one[data-tone="attention"]{--tone:var(--tone-attention)}
+.one[data-tone="idle"]{--tone:var(--tone-idle)}
+.one[data-tone="success"]{--tone:var(--tone-success)}
+.one[data-tone="danger"]{--tone:var(--tone-danger)}
+.one[data-tone="blocked"]{--tone:var(--tone-attention)}
+
+.one .word{flex:0 0 auto;color:var(--tone);font-size:.75rem;font-weight:600;letter-spacing:.01em;white-space:nowrap}
+.one .obj{min-width:0;flex:1 1 auto;overflow:hidden;color:var(--fg);font-size:.75rem;
+  text-overflow:ellipsis;white-space:nowrap}
+.one[data-tone="idle"] .obj{color:var(--mfg)}
+.one .prog{display:inline-flex;flex:0 0 auto;align-items:center;gap:.3125rem;color:var(--mfg);
+  font-size:.625rem;font-variant-numeric:tabular-nums;white-space:nowrap}
+.one .divider{width:1px;height:.75rem;flex:0 0 auto;background:color-mix(in oklab,var(--bd) 70%,transparent)}
+.one[data-tone="attention"] .gdot{animation:breathe 1.4s var(--ease) infinite}
+
+/* B：悬停长高 */
+.grow .one{height:2rem}
+.grow:hover .one{height:auto;flex-direction:column;align-items:stretch;gap:.375rem;padding:.375rem .375rem .375rem .5rem}
+.grow:hover .one .row1{display:flex;align-items:center;gap:.4375rem;min-width:0}
+.grow:hover .one .panel{display:flex}
+.grow .one .row1{display:flex;align-items:center;gap:.4375rem;min-width:0;flex:1 1 auto}
+.grow .one .panel{display:none;flex-direction:column;gap:.25rem;padding-top:.375rem;
+  border-top:1px solid color-mix(in oklab,var(--bd) 60%,transparent)}
+.crit{display:flex;gap:.375rem;align-items:flex-start;font-size:.6875rem;line-height:1.5}
+.crit i{width:.4375rem;height:.4375rem;flex:0 0 auto;margin-top:.25rem;border-radius:999px;
+  border:1.5px solid color-mix(in oklab,var(--mfg) 40%,transparent)}
+.crit[data-s="passed"] i{background:var(--done);border-color:var(--done)}
+.crit span{min-width:0;flex:1 1 auto;overflow-wrap:anywhere}
+
+/* ---------- 表格 ---------- */
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid color-mix(in oklab,var(--bd) 60%,transparent);vertical-align:middle}
+th{color:var(--mfg);font-weight:600;font-size:10.5px;letter-spacing:.02em}
+td code,th code{font-family:var(--mono);font-size:10.5px;background:color-mix(in oklab,var(--muted) 70%,transparent);padding:1px 4px;border-radius:4px}
+.tbl-wrap{overflow-x:auto}
+.tbl-wrap td svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
+
+.note{border-left:2px solid color-mix(in oklab,var(--tone-working) 45%,transparent);padding:2px 0 2px 10px;
+  font-size:11.5px;color:var(--mfg);margin:10px 0 0}
+.note b{color:var(--fg)}
+.hint{font-size:11px;color:var(--mfg);margin:8px 0 0}
+kbd{font-family:var(--mono);font-size:10.5px;border:1px solid var(--bd);border-bottom-width:2px;border-radius:4px;padding:0 4px}
+
+.cmp-row{display:flex;align-items:center;gap:10px;padding:10px 0;
+  border-bottom:1px solid color-mix(in oklab,var(--bd) 45%,transparent)}
+.cmp-row:last-child{border-bottom:0}
+.cmp-lab{width:46px;flex:0 0 auto;font-size:10.5px;color:var(--mfg);font-weight:600}
+.cmp-row .one{margin:0;flex:1 1 auto}
+.cmp-note{width:200px;flex:0 0 auto;font-size:10.5px;color:var(--mfg);line-height:1.5}
+@media (max-width:860px){.cmp-note{display:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div>
+      <h1>Goal 条带 · 单行重设计</h1>
+      <p class="sub">把三段卡（约 76px）压回<strong>一行 32px</strong>：状态词 + 目标单行截断 + 进度 + 主操作。<br /><b>已落地</b>（2026-10-23）：主操作是纯图标按钮（文字进 aria-label / title）。</p>
+    </div>
+    <div class="btns">
+      <button class="ui" id="themeBtn">深色 / 浅色</button>
+      <button class="ui" data-state="working" data-act>执行中</button>
+      <button class="ui" data-state="attention" data-act>需要你处理</button>
+      <button class="ui" data-state="idle" data-act>已暂停</button>
+      <button class="ui" data-state="blocked" data-act>已受阻</button>
+    </div>
+  </div>
+
+  <!-- 01 -->
+  <section>
+    <div class="sec-h"><span class="sec-no">01</span><h2>高度对比</h2></div>
+    <p class="sec-sub">左边是现在上线的三段卡，右边是单行版。同一状态、同一个目标文本，直接看占用。</p>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">执行中</span><span class="tag risk">现在 76px → 目标 32px</span></div>
+      <div class="stage">
+        <div class="stage-t"><b>现在（三段卡）</b><span class="path">.quickforge-goal-strip</span><span class="h-marker">≈ 76px</span></div>
+        <div class="old">
+          <div class="old-head">
+            <span class="gicon"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+            <span class="gspin"></span>
+            <span class="gdot" style="--tone:var(--tone-working)"></span>
+            <span class="olab">执行中</span>
+            <span class="ophase">第 3/20 轮</span>
+            <span class="osp"></span>
+            <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg>暂停</button>
+            <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+            <button class="gbtn"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="oobj">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率达到 80% 以上。</div>
+          <div class="ometa"><span class="gsegs"><i class="gseg" data-s="passed"></i><i class="gseg" data-s="passed"></i><i class="gseg"></i></span><span>2/3 项验收标准</span><span style="opacity:.45">·</span><span>第 3/20 轮</span></div>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="stage-t"><b>改后（单行）</b><span class="path">.quickforge-goal-strip</span><span class="h-marker">32px</span></div>
+        <div class="one" data-tone="working">
+          <span class="gicon"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+          <span class="gspin"></span>
+          <span class="word">执行中</span>
+          <span class="obj">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率达到 80% 以上。</span>
+          <span class="prog"><span class="gsegs"><i class="gseg" data-s="passed"></i><i class="gseg" data-s="passed"></i><i class="gseg"></i></span>2/3</span>
+          <span class="divider"></span>
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg>暂停</button>
+          <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+        </div>
+      </div>
+      <p class="hint">省掉：独立的目标行（改成就地截断）、独立的进度行（并进同一行）、展开箭头（点整行开面板）。轮次从主行移入 <code>⋯</code> 菜单与 <code>title</code>。</p>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <section>
+    <div class="sec-h"><span class="sec-no">02</span><h2>四个状态 × 单行</h2><span class="tag reco">推荐</span></div>
+    <p class="sec-sub">一行内只有 6 个元素：身份图标、状态词、目标、进度、主操作、<code>⋯</code>。颜色只出现在状态词与主操作上。</p>
+
+    <div class="card">
+      <div class="stage">
+        <div class="stage-t"><b>执行中</b><span class="path">working · 有旋转弧</span></div>
+        <div class="one" data-tone="working">
+          <span class="gicon"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+          <span class="gspin"></span>
+          <span class="word">执行中</span>
+          <span class="obj">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率达到 80% 以上。</span>
+          <span class="prog"><span class="gsegs"><i class="gseg" data-s="passed"></i><i class="gseg" data-s="passed"></i><i class="gseg"></i></span>2/3</span>
+          <span class="divider"></span>
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg>暂停</button>
+          <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="stage-t"><b>需要你处理</b><span class="path">attention · 琥珀 + 呼吸点</span></div>
+        <div class="one" data-tone="attention">
+          <span class="gicon"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+          <span class="gdot"></span>
+          <span class="word">需要你处理</span>
+          <span class="obj">等待工具审批：允许运行 npm publish？</span>
+          <span class="prog"><span class="gsegs"><i class="gseg" data-s="passed"></i><i class="gseg" data-s="passed"></i><i class="gseg"></i></span>2/3</span>
+          <span class="divider"></span>
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="m6.5 10 5.5-6 5.5 6"/><path d="M5 20h14"/></svg>去处理</button>
+          <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="stage-t"><b>已暂停</b><span class="path">idle · 词与目标都转灰</span></div>
+        <div class="one" data-tone="idle">
+          <span class="gicon"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+          <span class="word">已暂停</span>
+          <span class="obj">把 payments 模块重构成统一结算抽象，补齐回滚测试。</span>
+          <span class="prog"><span class="gsegs"><i class="gseg" data-s="passed"></i><i class="gseg" data-s="passed"></i><i class="gseg"></i></span>2/3</span>
+          <span class="divider"></span>
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M8 6.5 17 12l-9 5.5Z"/></svg>继续</button>
+          <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="stage-t"><b>已受阻（预算耗尽）</b><span class="path">blocked · 主操作变成追加预算</span></div>
+        <div class="one" data-tone="blocked">
+          <span class="gicon"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+          <span class="word">已受阻</span>
+          <span class="obj">把 payments 模块重构成统一结算抽象 · 迭代预算已耗尽</span>
+          <span class="prog"><span class="gsegs"><i class="gseg" data-s="passed"></i><i class="gseg" data-s="passed"></i><i class="gseg"></i></span>2/3</span>
+          <span class="divider"></span>
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>追加预算</button>
+          <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+        </div>
+      </div>
+      <p class="note"><b>一行内的信息优先级：</b>状态词（谁）→ 目标（做什么）→ 进度（还剩几条）→ 主操作（我现在能做什么）。目标永远是唯一可伸缩的元素，窗口窄时只有它被截断。</p>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section>
+    <div class="sec-h"><span class="sec-no">03</span><h2>三个变体</h2></div>
+    <p class="sec-sub">差别只在「看验收清单」和「编辑态」怎么处理。默认选 A。</p>
+
+    <div class="card">
+      <div class="cmp-row">
+        <span class="cmp-lab">A</span>
+        <div class="one" data-tone="working">
+          <span class="gicon"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+          <span class="gspin"></span>
+          <span class="word">执行中</span>
+          <span class="obj">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率达到 80% 以上。</span>
+          <span class="prog"><span class="gsegs"><i class="gseg" data-s="passed"></i><i class="gseg" data-s="passed"></i><i class="gseg"></i></span>2/3</span>
+          <span class="divider"></span>
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg>暂停</button>
+          <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+        </div>
+        <span class="cmp-note"><b>整行可点 → 右侧面板</b>。点目标/状态词开 Inspector，看验收清单与证据。<code>⋯</code> 里放编辑 / 追加预算 / 清除 / 打开面板。</span>
+      </div>
+
+      <div class="cmp-row">
+        <span class="cmp-lab">B</span>
+        <div class="grow" style="flex:1 1 auto">
+          <div class="one" data-tone="working">
+            <div class="row1">
+              <span class="gicon"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+              <span class="gspin"></span>
+              <span class="word">执行中</span>
+              <span class="obj">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率达到 80% 以上。</span>
+              <span class="prog"><span class="gsegs"><i class="gseg" data-s="passed"></i><i class="gseg" data-s="passed"></i><i class="gseg"></i></span>2/3</span>
+              <span class="divider"></span>
+              <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg>暂停</button>
+              <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+            </div>
+            <div class="panel">
+              <div class="crit" data-s="passed"><i></i><span>SettlementService 抽出并接入 3 个调用点</span></div>
+              <div class="crit" data-s="passed"><i></i><span>18 个既有支付用例全绿</span></div>
+              <div class="crit"><i></i><span>覆盖率 ≥ 80%</span></div>
+            </div>
+          </div>
+        </div>
+        <span class="cmp-note"><b>悬停才长高</b>展示验收清单。静态永远 32px，鼠标移到条带上才展开。代价：键盘用户看不到清单。</span>
+      </div>
+
+      <div class="cmp-row">
+        <span class="cmp-lab">C</span>
+        <div class="one" data-tone="working">
+          <span class="gicon"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+          <span class="word">执行中</span>
+          <span class="obj">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率达到 80% 以上。</span>
+          <span class="divider"></span>
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg>暂停</button>
+          <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+        </div>
+        <span class="cmp-note"><b>最简：不带进度</b>。只剩「状态 + 目标 + 动作」。进度完全交给面板。代价：回到「不知道还差几条」。</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section>
+    <div class="sec-h"><span class="sec-no">04</span><h2>编辑态与窄屏</h2></div>
+
+    <div class="card">
+      <div class="stage">
+        <div class="stage-t"><b>编辑目标（原地替换目标区）</b></div>
+        <div class="one" data-tone="working" style="height:2.25rem">
+          <span class="gicon"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+          <span class="word">执行中</span>
+          <input value="把 payments 模块重构成统一结算抽象" style="min-width:0;flex:1 1 auto;height:1.5rem;padding:0 .375rem;
+            border:1px solid color-mix(in oklab,var(--tone-working) 45%,var(--bd));border-radius:6px;
+            background:var(--bg);color:var(--fg);font:inherit;font-size:.75rem;outline:none" />
+          <button class="gbtn" title="保存" style="color:var(--tone-working)"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></button>
+          <button class="gbtn" title="取消"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+      </div>
+      <p class="hint"><kbd>Enter</kbd> 保存、<kbd>Esc</kbd> 取消，与现在一致。编辑时进度与主操作暂时让位。</p>
+
+      <div class="stage">
+        <div class="stage-t"><b>窄屏（&lt; 560px）</b><span class="path">进度退成纯数字，再窄则隐藏</span></div>
+        <div class="one" data-tone="working" style="max-width:330px">
+          <span class="gicon"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+          <span class="word">执行中</span>
+          <span class="obj">把 payments 模块重构成统一结算抽象…</span>
+          <span class="prog">2/3</span>
+          <span class="divider"></span>
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg>暂停</button>
+          <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <section>
+    <div class="sec-h"><span class="sec-no">05</span><h2>规格与取舍</h2></div>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>元素</th><th>规格</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>容器</td><td><code>height: 2rem</code>、<code>padding: 0 .375rem 0 .5rem</code>、<code>border-radius: var(--radius)</code>、<code>width: 100%</code></td><td>从 <code>fit-content</code> 改占满 composer 宽度：一行内容天然需要整行，居中不确定会让右侧按钮跳动</td></tr>
+            <tr><td>身份图标</td><td>14px、<code>--muted-foreground</code>、<code>opacity .85</code></td><td>恒定靶心，保持上一轮修好的语义</td></tr>
+            <tr><td>状态词</td><td><code>12px / 600</code>、色 = tone</td><td>一行内唯一的有色文字</td></tr>
+            <tr><td>目标</td><td><code>12px</code>、单行 <code>ellipsis</code>、<code>flex: 1 1 auto</code>、<code>min-width: 0</code></td><td>唯一可伸缩元素；<code>title</code> 保留全文</td></tr>
+            <tr><td>进度</td><td>分段条 10×3px ×3 + <code>2/3</code>（10px）</td><td>&lt; 560px 只留数字；&lt; 420px 整组隐藏</td></tr>
+            <tr><td>主操作</td><td>高 24px、<code>padding: 0 .5rem</code>、实心 tone</td><td>「暂停 / 继续 / 去处理 / 追加预算」</td></tr>
+            <tr><td><code>⋯</code> 菜单</td><td>24×24</td><td>编辑目标 / 打开完整面板 / 轮次与用时 / 清除</td></tr>
+            <tr><td>动效</td><td>只有两处：<code>working</code> 的旋转弧（1.1s）、<code>attention</code> 的呼吸点（1.4s）</td><td>其余全静态；reduced-motion 全部降级</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">取舍：单行丢掉了什么，怎么补</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>丢掉</th><th>补偿</th></tr></thead>
+          <tbody>
+            <tr><td>目标两行 → 一行</td><td><code>title</code> 全文；需要读全文时点整行开 Inspector</td></tr>
+            <tr><td>阶段说明（第 3/20 轮 / 暂停于第 3 轮 / 等待工具审批）</td><td>轮次与用时进 <code>⋯</code> 菜单与 <code>title</code>；「等待审批」这类关键信息由状态词「需要你处理」承担</td></tr>
+            <tr><td>展开箭头 + 就地验收清单</td><td>分段条 + <code>2/3</code> 已能回答「还剩几条」；具体哪几条在 Inspector（点整行直达）</td></tr>
+            <tr><td>独立进度行</td><td>并入同一行的 <code>.prog</code>，与主操作之间加 1px 分隔线分组</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note"><b>规则：</b>一行里「能扫到的」= 状态 + 目标 + 进度 + 能做什么；「要深入才能看到的」= 具体验收、证据、轮次、用时 —— 全部收进一次点击内，不再有第二层展开。</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">落地改动（方案 A · 已实施）</span><span class="tag reco">2026-10-23 落地</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>#</th><th>文件</th><th>实际改动</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><code>GoalControlStrip.tsx</code></td><td>删除目标行、进度行、展开面板与 chevron，合并成单一 flex 行；主操作改纯图标（24px，`aria-label` + `title`）；状态词与目标各自是进 Inspector 的按钮；轮次/用时进 ⋯ 菜单的只读行与 tooltip（`Set` 去重）；新增窄屏退让</td></tr>
+            <tr><td>2</td><td><code>goal-control-strip.ts</code></td><td><code>stateTone</code> 与 <code>isWorkingSpin</code> 保留；<code>phaseDetail</code> / <code>roundText</code> 不再在主行渲染（供菜单与 tooltip 消费）</td></tr>
+            <tr><td>3</td><td><code>src/index.css</code></td><td>条带段整体重写：固定 <code>height: 2rem</code>、<code>width: 100%</code>、单行布局、进度与 icon-only 主操作；删展开面板/chevron/clamp（−342/+219 行）；新增 <code>560px</code> 与 <code>420px</code> 两级退让</td></tr>
+            <tr><td>4</td><td>测试</td><td><code>goal-control-strip.test.ts</code>：展开用例改为「进度在行内、无内联清单」+「三处入口进 Inspector」；新增 icon-only 主操作断言；<code>goal-card.test.ts</code> 的 CSS 契约改为固定高度/100% 宽/无 panel 无 clamp</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note"><b>采用 A（整行可点）</b>：状态词、目标、⋯→「打开完整面板」三处都能进 Inspector，键盘可达；B（悬停长高）与 C（不带进度）未做。</p>
+    </div>
+  </section>
+
+  <p class="hint" style="margin-top:26px">所有条带按真实尺寸复刻，深浅色可切换。选 A / B / C 后我按 05 节落地。</p>
+</div>
+
+<script>
+(function(){
+  document.getElementById('themeBtn').addEventListener('click', function(){
+    document.documentElement.classList.toggle('dark');
+  });
+  var LABEL = {
+    working:{word:'执行中', action:'暂停', icon:'<path d="M9.5 6v12"/><path d="M14.5 6v12"/>'},
+    attention:{word:'需要你处理', action:'去处理', icon:'<path d="M12 16V4"/><path d="m6.5 10 5.5-6 5.5 6"/><path d="M5 20h14"/>'},
+    idle:{word:'已暂停', action:'继续', icon:'<path d="M8 6.5 17 12l-9 5.5Z"/>'},
+    blocked:{word:'已受阻', action:'追加预算', icon:'<path d="M12 5v14"/><path d="M5 12h14"/>'}
+  };
+  document.querySelectorAll('[data-act]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var meta = LABEL[btn.dataset.state];
+      document.querySelectorAll('.one').forEach(function(row){
+        row.dataset.tone = btn.dataset.state;
+        var w = row.querySelector('.word'); if (w) w.textContent = meta.word;
+        var p = row.querySelector('.gprimary');
+        if (p) { p.innerHTML = '<svg viewBox="0 0 24 24">' + meta.icon + '</svg>' + meta.action; }
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

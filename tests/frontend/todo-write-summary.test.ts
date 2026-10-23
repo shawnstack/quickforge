@@ -364,6 +364,35 @@ describe('TodoWrite capsule rendering', () => {
     }
   })
 
+  it('keeps a retired list gone when the next round starts inside the exit window', () => {
+    vi.useFakeTimers()
+    try {
+      const messages = [quickForgeResult([todo('One', 'completed'), todo('Two', 'completed')], { toolCallId: 'first' })]
+
+      render(messages, { idle: true })
+      // The exit is already running (140ms fade before unmount)…
+      expect(summary()!.dataset.fading).toBe('true')
+
+      // …and the next round starts inside that window: goal continuation, a
+      // queued message or a background task notification flips `idle` back to
+      // false immediately after `agent_end`. The exit must not be cancelled —
+      // otherwise the completed list re-arms at full opacity and a session with
+      // back-to-back rounds never gets rid of it.
+      render(messages, { idle: false })
+      expect(summary()).not.toBeNull()
+      expect(summary()!.dataset.fading).toBe('true')
+
+      act(() => { vi.advanceTimersByTime(140) })
+      expect(summary()).toBeNull()
+
+      // Later rounds without a new todo_write keep it gone.
+      render(messages, { idle: true })
+      expect(summary()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('resets after an explicit empty snapshot', () => {
     render([quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' })])
     act(() => toggle()!.click())

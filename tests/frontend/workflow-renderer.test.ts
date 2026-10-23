@@ -15,7 +15,7 @@ import {
   workflowCurrentPhase,
   workflowPhaseSteps,
   workflowStatusLabelKey,
-  workflowSummaryKey,
+  workflowSummaryText,
   workflowTimeline,
 } from '../../src/lib/workflow-run-detail'
 import {
@@ -243,7 +243,19 @@ describe('workflow run view model', () => {
     expect(workflowStatusLabelKey('done')).toBe('workflowCompleted')
     expect(workflowStatusLabelKey('error')).toBe('workflowFailed')
     expect(workflowStatusLabelKey('aborted')).toBe('workflowAborted')
-    expect(workflowSummaryKey(buildWorkflowRunView({ details: runningDetails }, true)!)).toBe('workflowSummaryRunning')
+    expect(workflowSummaryText(buildWorkflowRunView({ details: runningDetails }, true)!, t)).toBe('Workflow running · 3 agents · 2 tools')
+  })
+
+  it('omits zero agent and tool counts from the summary', () => {
+    const view = (details: Record<string, unknown>) => buildWorkflowRunView({ details: { workflow: true, status: 'done', ...details } }, false)!
+    // 只跑了工具、没调用 agent() 的工作流不再出现「0 个智能体」。
+    expect(workflowSummaryText(view({ tools: [{ id: 't1', seq: 1, name: 'read_file', phase: 'Work', status: 'done' }] }), t))
+      .toBe('Workflow completed · 1 tool')
+    // 只有 agent()、没有工具时同理省略工具片段。
+    expect(workflowSummaryText(view({ agents: [{ id: 'a1', seq: 1, label: 'Scan', phase: 'Work', status: 'done' }] }), t))
+      .toBe('Workflow completed · 1 agent')
+    // 两者都为 0 时只留状态，不留下孤立的「 · 」分隔符。
+    expect(workflowSummaryText(view({}), t)).toBe('Workflow completed')
   })
 })
 
@@ -343,7 +355,6 @@ describe('workflow tool renderer', () => {
     const { markup } = render({ script: 'return 1' }, runningDetails, true)
     expect(markup).toContain('Workflow running · 3 agents · 2 tools')
     expect(markup).toContain('quickforge-workflow-card')
-    expect(markup).toContain('quickforge-workflow-ticks')
     // 不再内联展开阶段 / Agent / 工具行 / 日志 / 结果。
     expect(markup).not.toContain('quickforge-workflow-phase')
     expect(markup).not.toContain('quickforge-workflow-tool-zone')
@@ -351,16 +362,30 @@ describe('workflow tool renderer', () => {
     expect(markup).not.toContain('quickforge-subagent-tool')
     expect(markup).not.toContain('scanning files')
     expect(markup).not.toContain('found 2 files')
-    // 入口按钮具备完整可访问语义。
+    // 整行可点，可访问语义仍在（aria-expanded + aria-label 里的动作提示，但不占视觉位）。
     expect(markup).toContain('aria-expanded="false"')
     expect(markup).toContain('View details')
   })
 
-  it('draws one phase tick per phase with a status attribute', () => {
+  it('drops the visible detail affordance and phase ticks', () => {
     const { markup } = render(undefined, runningDetails, true)
-    expect(markup.match(/quickforge-workflow-tick"/g)?.length).toBe(2)
-    expect(markup).toContain('data-status="done"')
-    expect(markup).toContain('data-status="running"')
+    // 「查看详情」只是 aria-label 的一部分，不再有可见文案块与箭头图标。
+    expect(markup).not.toContain('quickforge-workflow-affordance')
+    expect(markup).not.toContain('<span class="quickforge-workflow-affordance">')
+    // 阶段刻度已移除：折叠态靠标题流光 + 阶段跑马灯表达运行中。
+    expect(markup).not.toContain('quickforge-workflow-ticks')
+    expect(markup).not.toContain('quickforge-workflow-tick"')
+  })
+
+  it('gives the running card the same shimmer as thinking text', () => {
+    const { markup } = render(undefined, runningDetails, true)
+    expect(markup).toContain('quickforge-tool-running-sweep')
+    expect(markup).toContain('quickforge-workflow-marquee')
+
+    // 终态不再是流光，但仍保留状态图标/耗时。
+    const done = render(undefined, { ...runningDetails, status: 'done' }, false)
+    expect(done.markup).not.toContain('quickforge-tool-running-sweep')
+    expect(done.markup).not.toContain('quickforge-workflow-marquee')
   })
 
   it('renders the failure alert and the preparing fallback', () => {
@@ -449,10 +474,6 @@ describe('workflow renderer wiring and contracts', () => {
       'workflowCompleted',
       'workflowFailed',
       'workflowAborted',
-      'workflowSummaryRunning',
-      'workflowSummaryDone',
-      'workflowSummaryFailed',
-      'workflowSummaryAborted',
       'workflowAgentCountOne',
       'workflowAgentCountMany',
       'workflowToolCountOne',
@@ -488,15 +509,10 @@ describe('workflow renderer wiring and contracts', () => {
     for (const key of keys) {
       expect(i18n.match(new RegExp(`\\b${key}:`, 'g'))?.length ?? 0).toBeGreaterThanOrEqual(2)
     }
-    expect(t('workflowSummaryDone', {
-      agents: t('workflowAgentCountMany', { count: 2 }),
-      tools: t('workflowToolCountOne'),
-    })).toBe('Workflow completed · 2 agents · 1 tool')
+    expect(t('workflowAgentCountMany', { count: 2 })).toBe('2 agents')
     applyAppLanguageFromSnapshot('zh')
-    expect(t('workflowSummaryRunning', {
-      agents: t('workflowAgentCountMany', { count: 3 }),
-      tools: t('workflowToolCountMany', { count: 2 }),
-    })).toBe('工作流运行中 · 3 个智能体 · 2 个工具')
+    expect(t('workflowAgentCountMany', { count: 3 })).toBe('3 个智能体')
+    expect(t('workflowToolCountMany', { count: 2 })).toBe('2 个工具')
     expect(t('workflowAgentToolCalls', { count: 4 })).toBe('4 次工具调用')
     expect(t('workflowTabTitle', { count: 5 })).toBe('工作流 · 5 阶段')
     applyAppLanguageFromSnapshot('en')
@@ -506,9 +522,13 @@ describe('workflow renderer wiring and contracts', () => {
     // 摘要卡是一整行 button，hover/focus 用浅背景而不是改文字色。
     expect(css).toMatch(/\.quickforge-workflow-card\s*\{[\s\S]*?min-height:\s*1\.625rem;[\s\S]*?border:\s*0;/)
     expect(css).toMatch(/\.quickforge-workflow-card:hover,\s*\.quickforge-workflow-card:focus-visible\s*\{\s*background-color:\s*color-mix\(in oklab, var\(--muted\) 55%, transparent\);/)
-    // 阶段刻度是折叠态唯一的进度指示，running 用脉冲动画并有 reduced-motion 降级。
-    expect(css).toMatch(/\.quickforge-workflow-tick\[data-status='running'\]\s*\{[\s\S]*?animation:/)
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.quickforge-workflow-tick\[data-status='running'\]\s*\{\s*animation:\s*none;/)
+    // 阶段刻度与「查看详情」入口已移除：整行是 button，运行中靠标题流光表达。
+    expect(css).not.toContain('.quickforge-workflow-tick')
+    expect(css).not.toContain('.quickforge-workflow-affordance')
+    // 标题吃掉剩余空间，把状态/耗时推到右侧（刻度移除后的对齐方式）。
+    expect(css).toMatch(/\.quickforge-workflow-title\s*\{[\s\S]*?margin-right:\s*auto;/)
+    // 运行中摘要复用 tool 流光与跑马灯，reduced-motion 由 .quickforge-tool-running-sweep 统一降级。
+    expect(css).toMatch(/\.quickforge-workflow-marquee\s*\{[\s\S]*?overflow:\s*hidden;/)
     // 时间轴用 DOM 百分比布局（SVG 固定 viewBox 会把字号一起缩放，导致文字过小）。
     // 根节点必须自己吃满宽高：缺 flex:1 时宽度按内容收缩（轨道被压扁），
     // 缺 min-height:0/overflow 时内容被 Inspector 的 overflow:hidden 裁掉。

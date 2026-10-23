@@ -4,7 +4,6 @@ import {
   goalV2CanPause,
   goalV2CanResume,
   goalDurationMinutes,
-  isGoalSpinning,
   isGoalTerminal,
   isGoalV2,
   type GoalAction,
@@ -77,7 +76,18 @@ export type GoalControlStripView = {
   statusWordKey: AppTextKey
   /** Raw per-status key (13 values); kept for callers that show the exact state. */
   statusKey: AppTextKey
+  /**
+   * Attention color, derived from the state word (not from the card tone).
+   * `attention` is the one signal the strip carries in color; the identity icon
+   * stays neutral so the icon never has to re-encode the state.
+   */
+  stateTone: GoalControlStripTone
+  /** The goal card tone, kept for callers that mirror the card's palette. */
   tone: GoalCardTone
+  /**
+   * True only while the engine is actively working a step. Drives the rotating
+   * progress arc; static states never spin (a rotating clock read as "loading").
+   */
   spinning: boolean
   /** Goal v2 phase/activation/runtime, when the server uses the v2 engine. */
   phase?: GoalPhase
@@ -88,7 +98,7 @@ export type GoalControlStripView = {
   roundText?: string
   objective?: string
   primaryAction: GoalControlStripAction
-  /** Label of the single solid primary button. */
+  /** Label of the single solid primary button (icon-only, so aria/title only). */
   primaryLabelKey: AppTextKey
   /**
    * `true` when the primary action cannot be dispatched inline and must be
@@ -103,6 +113,14 @@ export type GoalControlStripView = {
   /** Whole minutes of recorded active time; 0 hides the segment. */
   durationMinutes: number
 }
+
+/**
+ * The strip's own attention palette. Deliberately smaller than `GoalCardTone`:
+ * the strip never shows "info" (a planning-era color that made a paused goal
+ * look like a checklist) and treats waiting-on-user as `attention` because it is
+ * the only state that needs the user to act.
+ */
+export type GoalControlStripTone = 'working' | 'attention' | 'idle' | 'blocked' | 'success' | 'danger'
 
 const STATUS_KEY: Record<GoalStatus, AppTextKey> = {
   planning: 'goalStatusPlanning',
@@ -156,6 +174,10 @@ function v2Tone(goal: GoalState): GoalCardTone {
 }
 
 function v2PrimaryAction(goal: GoalState): GoalControlStripAction {
+  // Waiting on the user outranks pausing: the row shows one primary action and
+  // the state word already says "needs you", so the button must be the thing that
+  // resolves it.
+  if (isWaitingOnUser(goal)) return 'attention'
   if (goal.phase === 'active' && goal.activation !== 'disarmed') {
     return goalV2CanPause(goal) ? 'pause' : 'none'
   }
@@ -233,14 +255,41 @@ function criteriaTally(goal: GoalState): { passed: number; total: number } {
   return { passed, total: goal.criteria.length }
 }
 
+/**
+ * Attention color, derived from the state word alone. This is the only place the
+ * strip decides color: `needs_you` is the one state that asks the user to act,
+ * so it is `attention` (amber). For legacy statuses, failed/cancelled keep the
+ * danger color.
+ */
+function stateToneFor(goal: GoalState, word: AppTextKey): GoalControlStripTone {
+  if (word === 'goalStateDone') return 'success'
+  if (word === 'goalStateNeedsYou') return 'attention'
+  if (word === 'goalStateBlocked') return 'blocked'
+  if (word === 'goalStatePaused') return 'idle'
+  if (!isGoalV2(goal) && (goal.status === 'failed' || goal.status === 'cancelled')) return 'danger'
+  return 'working'
+}
+
+/**
+ * The rotating arc is reserved for "a step is actually being worked on". Waiting
+ * and pausing are alive but not progressing, so they do not spin — the amber dot
+ * already says "look at me".
+ */
+function isWorkingSpin(goal: GoalState): boolean {
+  if (isGoalV2(goal)) return goal.runtime === 'executing' || goal.runtime === 'planning' || goal.runtime === 'verifying'
+  return goal.status === 'running' || goal.status === 'verifying' || goal.status === 'planning'
+}
+
 function baseView(goal: GoalState) {
   const tally = criteriaTally(goal)
   const extension = goalBudgetExtension(goal)
+  const word = stateWordFor(goal)
   return {
     id: goal.id,
     revision: goal.revision,
     status: goal.status,
-    statusWordKey: stateWordFor(goal),
+    statusWordKey: word,
+    stateTone: stateToneFor(goal, word),
     phaseDetail: phaseDetailFor(goal),
     budgetExhausted: extension.exhausted,
     criteriaPassed: tally.passed,
@@ -258,7 +307,7 @@ function buildGoalControlStripViewV2(goal: GoalState): GoalControlStripView | nu
     ...baseView(goal),
     statusKey: v2StatusKey(goal),
     tone: v2Tone(goal),
-    spinning: goal.runtime === 'executing' || goal.runtime === 'verifying' || goal.runtime === 'waiting_approval' || goal.runtime === 'waiting_input' || goal.runtime === 'pausing',
+    spinning: isWorkingSpin(goal),
     phase: goal.phase,
     activation: goal.activation,
     runtime: goal.runtime,
@@ -299,7 +348,7 @@ export function buildGoalControlStripView(goal: GoalState): GoalControlStripView
     ...baseView(goal),
     statusKey: STATUS_KEY[goal.status],
     tone: toneForStatus(goal.status),
-    spinning: isGoalSpinning(goal.status),
+    spinning: isWorkingSpin(goal),
     primaryAction,
     primaryLabelKey: primaryLabelFor(primaryAction, goalBudgetExtension(goal).exhausted),
     primaryOpensInspector: primaryAction === 'resume' && goalBudgetExtension(goal).exhausted,

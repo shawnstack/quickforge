@@ -5,7 +5,7 @@ import { extractQuickForgeTiming } from '@/lib/tool-execution-events'
 import {
   buildWorkflowRunView,
   workflowStatusLabelKey,
-  workflowSummaryKey,
+  workflowSummaryText,
   type WorkflowRunView,
 } from '@/lib/workflow-run-detail'
 import {
@@ -30,22 +30,6 @@ function workflowRenderStatus(view: ReturnType<typeof buildWorkflowRunView>): To
   if (view.status === 'error' || view.status === 'aborted') return 'error'
   if (view.status === 'running') return 'running'
   return 'done'
-}
-
-/** 折叠头下方的阶段刻度：一眼读出「跑到第几个阶段、有没有挂」。 */
-function WorkflowTicks({ view }: { view: WorkflowRunView }) {
-  return (
-    <span className="quickforge-workflow-ticks" aria-hidden="true">
-      {view.phases.map((phase, index) => {
-        const running = phase.agents.some((agent) => agent.status === 'running') || phase.tools.some((tool) => tool.status === 'running')
-        const failed = phase.agents.some((agent) => agent.status === 'error' || agent.status === 'aborted')
-          || phase.tools.some((tool) => tool.status === 'error' || tool.status === 'aborted')
-        const done = !running && !failed && (phase.agents.length > 0 || phase.tools.length > 0)
-        const status = failed ? 'error' : running ? 'running' : done ? 'done' : 'pending'
-        return <i className="quickforge-workflow-tick" data-status={status} key={`${phase.title}:${index}`} />
-      })}
-    </span>
-  )
 }
 
 const subscribeActiveWorkflowRun = (onChange: () => void) => activeWorkflowRunStore.subscribe(onChange)
@@ -108,10 +92,6 @@ export class WorkflowToolRenderer {
     }
 
     const status = workflowRenderStatus(view)
-    const summaryParams = {
-      agents: t(view.agentCount === 1 ? 'workflowAgentCountOne' : 'workflowAgentCountMany', { count: view.agentCount }),
-      tools: t(view.toolCount === 1 ? 'workflowToolCountOne' : 'workflowToolCountMany', { count: view.toolCount }),
-    }
     const payload = buildWorkflowRunPayload({ runId: view.runId, view, script, detailed })
 
     return {
@@ -123,7 +103,7 @@ export class WorkflowToolRenderer {
           script={script}
           detailed={detailed}
           status={status}
-          summaryText={t(workflowSummaryKey(view), summaryParams)}
+          summaryText={workflowSummaryText(view, t)}
           running={view.status === 'running'}
           marqueeText={view.status === 'running' ? (view.phases[view.phases.length - 1]?.title ?? '') : ''}
           timing={timing}
@@ -177,25 +157,7 @@ function WorkflowRunCard({ view, payloadRunId, script, detailed, status, summary
           {summaryText}
         </span>
         {marqueeText ? renderToolMarquee(marqueeText, t(workflowStatusLabelKey(view.status)), 'quickforge-workflow-marquee') : null}
-        <WorkflowTicks view={view} />
         {running ? null : renderStatus(status, timing)}
-        <span className="quickforge-workflow-affordance">
-          {t(opened ? 'workflowDetailOpened' : 'workflowDetailOpenRun')}
-          <svg
-            className="quickforge-workflow-affordance-icon"
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M7 17 17 7" />
-            <path d="M7 7h10v10" />
-          </svg>
-        </span>
       </button>
     </div>
   )

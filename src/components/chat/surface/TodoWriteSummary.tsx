@@ -67,6 +67,15 @@ export function TodoWriteSummary({ snapshot, idle }: TodoWriteSummaryProps) {
   // not a bare boolean) is what makes a new round come back for free: a new
   // snapshot has a new key, so it is never "retired" on arrival.
   const [retiredKey, setRetiredKey] = useState<string | null>(null)
+  // The snapshot key whose exit countdown is already running. Retirement is
+  // latched per key: once a finished list has been seen while idle, the exit
+  // runs to completion even if another round starts inside the exit window.
+  // Without the latch, `idle` flipping back to false cancelled the timer and
+  // re-armed the capsule at full opacity — with back-to-back rounds (goal
+  // continuation, queued messages, background task notifications) the agent can
+  // go idle for less than one exit transition, so a fully completed list could
+  // live above the composer forever.
+  const [retiringKey, setRetiringKey] = useState<string | null>(null)
 
   // Adjust state during render (React's documented "derive from props" path):
   // a new snapshot round re-expands the capsule and arms the "updated" marker.
@@ -98,9 +107,28 @@ export function TodoWriteSummary({ snapshot, idle }: TodoWriteSummaryProps) {
   // `idle` back to false) re-armed `shouldRetire` as false and the finished list
   // flashed back in for the duration of the round. A new `todo_write` produces a
   // new key, which is what brings the capsule back.
+  //
+  // `shouldRetire` alone is not enough to drive the exit: it is a *live* predicate,
+  // so the instant another round starts it goes false, the timer cleanup cancels
+  // the countdown and the capsule re-arms at full opacity. Back-to-back rounds
+  // (goal continuation, queued messages, background task notifications) keep the
+  // agent idle for far less than one exit transition, so a finished list could be
+  // re-armed forever without ever completing its exit — which reads as "the
+  // completed list never goes away". The latch below makes the first observation
+  // of "idle + all completed" for a snapshot irreversible: from then on the exit
+  // runs to completion regardless of `idle`. A newer snapshot has a different key,
+  // so it is not latched and shows normally.
   const shouldRetire = shouldRetireTodoSummary({ todos, idle })
+  if (shouldRetire && snapshotKey !== '' && retiringKey !== snapshotKey) {
+    // Adjust state during render (same documented path as `trackedKey`): the
+    // latch must be armed in the render that observed it, so the very first
+    // commit already carries `data-fading` and the exit transition starts from
+    // the fully opaque frame.
+    setRetiringKey(snapshotKey)
+  }
   const retired = snapshotKey !== '' && retiredKey === snapshotKey
-  const fading = shouldRetire && !retired
+  const latched = snapshotKey !== '' && retiringKey === snapshotKey
+  const fading = (shouldRetire || latched) && !retired
 
   useEffect(() => {
     if (!fading) return undefined

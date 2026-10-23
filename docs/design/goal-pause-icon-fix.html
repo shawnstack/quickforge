@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Goal 主操作图标 · 暂停变成单杠的原因与修法</title>
+<style>
+:root{
+  --bg:#fff; --fg:oklch(0.145 0 0); --muted:oklch(0.97 0 0); --mfg:oklch(0.556 0 0);
+  --bd:oklch(0.922 0 0); --destructive:oklch(0.577 0.245 27.325); --done:oklch(0.55 0.13 158);
+  --radius:0.625rem; --sidebar-bg:#f3f4f6;
+  --tone-active:#3478d4; --tone-warning:#c2740b; --tone-success:rgb(4 143 101);
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+  color-scheme:light;
+}
+html.dark{
+  --bg:oklch(0.145 0 0); --fg:oklch(0.985 0 0); --muted:oklch(0.269 0 0); --mfg:oklch(0.708 0 0);
+  --bd:oklch(0.275 0 0); --destructive:oklch(0.704 0.191 22.216); --done:oklch(0.75 0.15 160);
+  --tone-active:oklch(0.74 0.12 253); --tone-warning:oklch(0.8 0.13 74); --tone-success:oklch(0.78 0.14 162);
+  --sidebar-bg:oklch(0.205 0 0);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:26px 20px 80px;background:var(--sidebar-bg);color:var(--fg);
+  font-family:var(--sans);font-size:14px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1060px;margin:0 auto}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-.01em}
+.sub{margin:5px 0 0;max-width:80ch;color:var(--mfg);font-size:12.5px}
+.ui{height:28px;padding:0 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);
+  color:var(--mfg);font:inherit;font-size:11.5px;cursor:pointer}
+.ui:hover{background:var(--muted);color:var(--fg)}
+section{margin:32px 0 0}
+.sec-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+h2{margin:0;font-size:15px;font-weight:600}
+.sec-no{font:600 11px/1 var(--mono);color:var(--mfg);letter-spacing:.06em}
+.sec-sub{margin:0 0 14px;color:var(--mfg);font-size:12.5px;max-width:84ch}
+.card{border:1px solid color-mix(in oklab,var(--bd) 80%,transparent);border-radius:12px;background:var(--bg);padding:14px}
+.card+.card{margin-top:12px}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.card-t{font-size:12.5px;font-weight:600}
+.tag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:600;
+  border:1px solid color-mix(in oklab,var(--bd) 70%,transparent);color:var(--mfg)}
+.tag.risk{color:var(--destructive);border-color:color-mix(in oklab,var(--destructive) 34%,transparent);background:color-mix(in oklab,var(--destructive) 7%,transparent)}
+.tag.reco{color:var(--done);border-color:color-mix(in oklab,var(--done) 40%,transparent);background:color-mix(in oklab,var(--done) 8%,transparent)}
+.hint{font-size:11px;color:var(--mfg);margin:8px 0 0}
+.note{border-left:2px solid color-mix(in oklab,var(--tone-active) 45%,transparent);padding:2px 0 2px 10px;
+  font-size:11.5px;color:var(--mfg);margin:10px 0 0}
+.note b{color:var(--fg)}
+code{font-family:var(--mono);font-size:10.5px;background:color-mix(in oklab,var(--muted) 70%,transparent);padding:1px 4px;border-radius:4px}
+pre{margin:8px 0 0;padding:9px 11px;border-radius:8px;background:color-mix(in oklab,var(--muted) 55%,transparent);
+  font-family:var(--mono);font-size:10.5px;line-height:1.7;overflow-x:auto}
+pre .del{color:var(--destructive)}
+pre .add{color:var(--done)}
+
+/* 真实按钮复刻：24px 命中区、12px 图标、stroke 2.4 */
+.btnrow{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.bshow{display:flex;flex-direction:column;align-items:center;gap:6px}
+.bshow .lab{font:600 10px/1 var(--mono);color:var(--mfg);text-align:center}
+.gprimary{display:inline-flex;width:1.5rem;height:1.5rem;flex:0 0 auto;align-items:center;justify-content:center;
+  padding:0;border:0;border-radius:calc(var(--radius) - .125rem);background:var(--tone-active);color:#fff}
+.gprimary svg{width:.75rem;height:.75rem;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2.4}
+.ghost{background:color-mix(in oklab,var(--muted) 70%,transparent);color:var(--fg)}
+.ghost svg{stroke-width:2}
+
+/* 放大对照 */
+.big{display:inline-flex;width:3rem;height:3rem;align-items:center;justify-content:center;
+  border-radius:10px;background:var(--tone-active);color:#fff}
+.big svg{width:1.5rem;height:1.5rem;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid color-mix(in oklab,var(--bd) 60%,transparent);vertical-align:middle}
+th{color:var(--mfg);font-weight:600;font-size:10.5px}
+.tbl-wrap{overflow-x:auto}
+td .icwrap{display:inline-flex;width:1.5rem;height:1.5rem;align-items:center;justify-content:center;
+  border-radius:6px;background:var(--tone-active);color:#fff}
+td .icwrap svg{width:.75rem;height:.75rem;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div>
+      <h1>Goal 主操作图标 · 暂停为什么只剩单杠</h1>
+      <p class="sub">
+        结论先说：<strong>这不是设计取舍，是代码少画了一条杠。</strong>
+        <code>src/components/chat/surface/GoalControlStrip.tsx:64</code> 的 <code>pause</code> 只有一条 <code>&lt;path&gt;</code>，
+        而设计稿 <code>goal-strip-icon-review.html</code> 里一直是两条。下面是 12px 真实尺寸的对照，以及项目里现成可用的图标。
+      </p>
+    </div>
+    <button class="ui" id="themeBtn">深色 / 浅色</button>
+  </div>
+
+  <!-- 01 -->
+  <section>
+    <div class="sec-h"><span class="sec-no">01</span><h2>证据</h2><span class="tag risk">代码 / 设计稿不一致</span></div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">源码 vs 设计稿</span></div>
+      <pre><span class="del">// 现在 GoalControlStrip.tsx:64 —— 一条杠，宽度 0，看起来就是「I」</span>
+pause: &lt;path d="M9.5 6v12" strokeWidth={2.4} strokeLinecap="round" /&gt;,
+
+<span class="add">// 设计稿 goal-strip-icon-review.html 里的写法 —— 两条杠</span>
+pause: &lt;&gt;
+  &lt;path d="M9.5 6v12" strokeWidth={2.4} strokeLinecap="round" /&gt;
+  &lt;path d="M14.5 6v12" strokeWidth={2.4} strokeLinecap="round" /&gt;
+&lt;/&gt;,
+</pre>
+      <p class="note"><b>为什么测试没抓到：</b><code>goal-control-strip.test.ts</code> 只断言主操作按钮存在且 <code>textContent === ''</code>、有 <code>aria-label</code> —— 从不检查图标内部有几条 <code>path</code>。所以少一条杠一路绿灯。</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">12px 真实尺寸：现状 vs 双杠</span></div>
+      <div class="btnrow">
+        <div class="bshow">
+          <button class="gprimary" aria-label="pause"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/></svg></button>
+          <span class="lab">现状<br />1 条 path</span>
+        </div>
+        <div class="bshow">
+          <button class="gprimary" aria-label="pause"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg></button>
+          <span class="lab">修好<br />2 条 path</span>
+        </div>
+        <div class="bshow" style="margin-left:8px">
+          <span class="big"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/></svg></span>
+          <span class="lab">现状放大 2x</span>
+        </div>
+        <div class="bshow">
+          <span class="big"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg></span>
+          <span class="lab">修好放大 2x</span>
+        </div>
+      </div>
+      <p class="hint">单杠在实心蓝底上就是一枚竖条，用户第一反应是「这是编辑 / 光标」，不是「暂停」。两条杠距 5 格 = 12px 下 2.5px，加 1.2px 描边后净空隙 1.3px，够分辨。</p>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <section>
+    <div class="sec-h"><span class="sec-no">02</span><h2>现成图标能不能直接用</h2><span class="tag">已装 lucide-react 1.11.0</span></div>
+    <p class="sec-sub">项目已经装了 <code>lucide-react@1.11.0</code>（<code>main.tsx</code> 里 <code>LucideProvider strokeWidth={1.75}</code>），但有三个坑：lucide 的图标是 <code>stroke-width</code> 由 CSS / Provider 统一控制的、条带按钮强制 <code>stroke-width: 2.4</code>，以及 <code>Pause</code> 用的是 <code>rect</code> 而不是两条 <code>line</code>。</p>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">候选：在同一个 24px 蓝底按钮里看</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>图标</th><th>12px 渲染</th><th>来源</th><th>12px 下的问题</th><th>结论</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>现状（单杠）</td>
+              <td><span class="icwrap"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/></svg></span></td>
+              <td>自绘</td>
+              <td>只有一条 → 不是暂停</td>
+              <td><span class="tag risk">bug</span></td>
+            </tr>
+            <tr>
+              <td>自绘双杠</td>
+              <td><span class="icwrap"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg></span></td>
+              <td>自绘（= 设计稿）</td>
+              <td>无</td>
+              <td><span class="tag reco">推荐</span></td>
+            </tr>
+            <tr>
+              <td><code>Pause</code></td>
+              <td><span class="icwrap"><svg viewBox="0 0 24 24"><rect x="5" y="3" width="5" height="18" rx="1"/><rect x="14" y="3" width="5" height="18" rx="1"/></svg></span></td>
+              <td>lucide-react</td>
+              <td>是<b>两个描边矩形</b>：12px 下每个只有 2.5px 宽、含 1.2px 描边，空心部分剩 0.1px → 糊成两个实心块，还带上下横边，像「日」</td>
+              <td><span class="tag risk">不用</span></td>
+            </tr>
+            <tr>
+              <td><code>CirclePause</code> 的两条线</td>
+              <td><span class="icwrap"><svg viewBox="0 0 24 24"><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg></span></td>
+              <td>lucide-react（去圆）</td>
+              <td>线长只有 6 格（= 3px），比现状还短；且必须自己拆出 circle</td>
+              <td><span class="tag">不如自绘</span></td>
+            </tr>
+            <tr>
+              <td><code>SquarePause</code></td>
+              <td><span class="icwrap"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg></span></td>
+              <td>lucide-react</td>
+              <td>外框在 12px 就是一圈 1.2px 的方框，把两条杠框死</td>
+              <td><span class="tag risk">不用</span></td>
+            </tr>
+            <tr>
+              <td><code>Play</code>（对照 resume）</td>
+              <td><span class="icwrap"><svg viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></svg></span></td>
+              <td>lucide-react</td>
+              <td>圆角三角、<code>fill:none</code> 下是空心轮廓；现在自绘的 <code>M8 6.5 17 12l-9 5.5Z</code> 是尖角三角，两者风格不同</td>
+              <td><span class="tag">可选统一</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note"><b>核心原因：</b>条带的主操作按钮是 24px 命中区里塞 12px 图标、强制 <code>stroke-width: 2.4</code>。lucide 的图标是按 24px 显示设计、<code>stroke-width: 2</code> 的，纵向缩小一半后描边相对变粗，凡是「靠留白分隔两个小形状」的图标（<code>Pause</code> 的 rect、<code>SquarePause</code> 的框）都会糊。所以这个尺寸下<b>只有两条线（<code>line</code> / <code>path</code>）的组合安全</b>。</p>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section>
+    <div class="sec-h"><span class="sec-no">03</span><h2>顺带体检：主操作 4 个形态</h2><span class="tag">顺手确认</span></div>
+    <p class="sec-sub">暂停修好之后，同一条路径上的另外 3 个形态一起看，避免下一次又发现「哪个 icon 不对」。</p>
+
+    <div class="card">
+      <div class="btnrow">
+        <div class="bshow">
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg></button>
+          <span class="lab">pause<br />修好</span>
+        </div>
+        <div class="bshow">
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M8 6.5 17 12l-9 5.5Z"/></svg></button>
+          <span class="lab">resume<br />现状（尖角）</span>
+        </div>
+        <div class="bshow">
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></svg></button>
+          <span class="lab">resume<br />lucide Play</span>
+        </div>
+        <div class="bshow">
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="m6.5 10 5.5-6 5.5 6"/><path d="M5 20h14"/></svg></button>
+          <span class="lab">attention<br />现状（3 笔）</span>
+        </div>
+        <div class="bshow">
+          <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></button>
+          <span class="lab">attention<br />lucide ArrowUp</span>
+        </div>
+      </div>
+      <p class="hint">
+        <b>attention 现状是 3 笔</b>（竖杆 + 尖 + 底线），12px 下底线和尖几乎贴住，实际读作一个粗箭头 —— 这正是设计稿里给它加底线的原因（要和 <code>open</code> 的 chevron 区分），但它自己也被塞满了。
+        如果只改暂停，这里保持不动最稳；要一起动的话我另做一版。
+      </p>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section>
+    <div class="sec-h"><span class="sec-no">04</span><h2>建议改动</h2><span class="tag reco">1 行 + 1 条测试</span></div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">最小修复</span></div>
+      <pre><span class="del">- pause: &lt;path d="M9.5 6v12" strokeWidth={2.4} strokeLinecap="round" /&gt;,</span>
+<span class="add">+ pause: &lt;&gt;</span>
+<span class="add">+   &lt;path d="M9.5 6v12" strokeWidth={2.4} strokeLinecap="round" /&gt;</span>
+<span class="add">+   &lt;path d="M14.5 6v12" strokeWidth={2.4} strokeLinecap="round" /&gt;</span>
+<span class="add">+ &lt;/&gt;,</span>
+</pre>
+      <p class="note"><b>配套测试（现在是漏的）：</b> 在 <code>tests/frontend/goal-control-strip.test.ts</code> 加一条断言 —— 运行态主操作按钮的 <code>svg</code> 至少有 2 个子元素，防止再退回单杠。</p>
+      <p class="hint">不动 <code>resume</code> / <code>attention</code> / <code>more</code>；不改 <code>src/index.css</code>；不新增依赖。改完跑 <code>goal-control-strip.test.ts</code> + <code>git-tools-pinned-summary.test.ts</code> 即可。</p>
+    </div>
+  </section>
+
+  <p class="hint" style="margin-top:24px">
+    要我直接改这一行（并按上面加回归断言）就说一声；想连 resume 的尖角 → 圆角、或 attention 减到 2 笔，也可以一起定。
+  </p>
+</div>
+
+<script>
+document.getElementById('themeBtn').addEventListener('click', function () {
+  document.documentElement.classList.toggle('dark')
+})
+</script>
+</body>
+</html>

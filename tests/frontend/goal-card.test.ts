@@ -336,22 +336,34 @@ describe('goal card i18n and styling', () => {
     expect(i18nSource).toContain("goalScopeChangeNote:")
   })
 
-  it('styles the control strip as a minimal in-flow row reusing the goal tone tokens', () => {
+  it('styles the control strip as a single-row goal bar with its own attention palette', () => {
     const block = css.slice(css.indexOf('/* Goal control strip'), css.indexOf('/* Goal 报告工具卡'))
     const rootRule = block.match(/\.quickforge-goal-strip\s*\{[^}]*\}/)?.[0] ?? ''
-    // The strip hugs its content (capped at the composer width) instead of
-    // stretching across the whole composer shell.
-    expect(rootRule).toMatch(/width:\s*fit-content/)
-    expect(rootRule).toMatch(/max-width:\s*100%/)
-    // Auto side margins center the fit-content row under the composer.
+    // One row: a fixed 32px height and the full composer width (a single line has
+    // nothing to hug, and fit-content + centering made the right-hand buttons jump
+    // with the objective's length).
+    expect(rootRule).toMatch(/height:\s*2rem/)
+    expect(rootRule).toMatch(/width:\s*100%/)
     expect(rootRule).toMatch(/margin:\s*0\s+auto\s+0\.375rem/)
     expect(rootRule).toMatch(/flex:\s*none/)
     expect(rootRule).toContain('--quickforge-goal-tone')
     expect(rootRule).not.toMatch(/position:\s*(?:fixed|absolute)/)
     expect(block).not.toMatch(/linear-gradient|radial-gradient/)
     expect(block).toContain('.quickforge-goal-strip-action:focus-visible')
-    expect(block).toMatch(/@media \(max-width: 640px\)/)
+    expect(block).toMatch(/@media \(max-width: 560px\)/)
     expect(block).toMatch(/@media \(prefers-reduced-motion: reduce\)/)
-    expect(block).toContain('quickforge-goal-strip-icon--spinning')
+    // 方案 A: neutral constant identity glyph, attention color driven by the state
+    // tone, rotating arc instead of a spinning status icon.
+    expect(block).toContain('.quickforge-goal-strip-spinner')
+    expect(block).toContain('[data-tone="attention"]')
+    expect(block).toContain('[data-tone="idle"]')
+    expect(block).not.toContain('quickforge-goal-strip-icon--spinning')
+    // The two-line card is gone: no objective clamp, no expandable panel.
+    expect(block).not.toContain('-webkit-line-clamp')
+    expect(block).not.toContain('quickforge-goal-strip-panel')
+    expect(block).not.toContain('quickforge-goal-strip-chevron')
+    // One line means the objective truncates instead of wrapping.
+    expect(block).toMatch(/\.quickforge-goal-strip-objective\s*\{[^}]*text-overflow:\s*ellipsis/)
+    expect(block).toMatch(/\.quickforge-goal-strip-objective\s*\{[^}]*white-space:\s*nowrap/)
   })
 })

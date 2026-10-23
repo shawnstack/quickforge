@@ -1118,6 +1118,9 @@ export class ServerAgent {
    * `upsertMessage` via role+timestamp, exactly like `steer()`.
    */
   async continue(appendMessage?: AgentMessage): Promise<void> {
+    // Retry is a write entry like every other one: a non-owner tab must not
+    // optimistically append the "continue" message only to have it rejected.
+    if (!this.canWrite()) throw new Error('Another window is writing to this session')
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/continue`
     const optimistic: AgentMessage | undefined = appendMessage
     if (optimistic) {
@@ -1125,14 +1128,17 @@ export class ServerAgent {
       this.emitToListeners({ type: 'message_start', message: optimistic })
     }
     try {
+      // The continue route is guarded by assertSessionWriteAccess, so the lease
+      // owner header must be sent on *both* retry shapes. Without it the server
+      // sees an anonymous client and answers 409 SESSION_LEASE_HELD even though
+      // this tab owns the lease — the "retry always fails, this session is open
+      // for writing in another window" false alarm.
       const res = await fetch(url, {
         method: 'POST',
-        ...(optimistic
-          ? {
-              headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
-              body: JSON.stringify({ message: optimistic }),
-            }
-          : {}),
+        headers: optimistic
+          ? { ...this.writeHeaders(), 'content-type': 'application/json' }
+          : this.writeHeaders(),
+        ...(optimistic ? { body: JSON.stringify({ message: optimistic }) } : {}),
       })
       if (!res.ok) {
         const payload = await res.json().catch(() => null) as ServerErrorPayload | null

@@ -92,15 +92,19 @@ describe('buildGoalControlStripView', () => {
       statusKey: 'goalStatusVerifying',
       primaryAction: 'pause',
     })
+    // Planning is a step the engine is actively working, so the arc runs even
+    // though the legacy status used to keep the checklist glyph static.
     expect(buildGoalControlStripView(goal({ status: 'planning' }))).toMatchObject({
       statusKey: 'goalStatusPlanning',
       primaryAction: 'none',
-      spinning: false,
+      spinning: true,
     })
     expect(buildGoalControlStripView(goal({ status: 'pausing' }))).toMatchObject({
       statusKey: 'goalStatusPausing',
       primaryAction: 'pause',
-      spinning: true,
+      // Pausing is alive but no longer progressing: the arc stops, the amber dot
+      // and the word carry it (方案 A).
+      spinning: false,
     })
     expect(buildGoalControlStripView(goal({ status: 'paused' }))).toMatchObject({
       primaryAction: 'resume',
@@ -146,6 +150,71 @@ describe('buildGoalControlStripView', () => {
       usage: { iterations: 4, activeDurationMs: 720_000 },
     }))
     expect(view).toMatchObject({ criteriaPassed: 2, criteriaTotal: 3, durationMinutes: 12 })
+  })
+
+  it('derives the attention color from the state word, not from the card tone', () => {
+    // The card tone maps paused → info; the strip must not reuse that (it painted
+    // a paused goal with the planning checklist).
+    const paused = buildGoalControlStripView(goal({
+      status: 'paused',
+      phase: 'paused',
+      activation: 'disarmed',
+      runtime: 'idle',
+    }))
+    expect(paused).toMatchObject({ statusWordKey: 'goalStatePaused', stateTone: 'idle', tone: 'info', spinning: false })
+
+    // Waiting is the one state that needs the user: amber, never "active" blue.
+    // The single primary action must resolve that wait — it must not stay "pause"
+    // while the word says "needs you".
+    for (const runtime of ['waiting_approval', 'waiting_input'] as const) {
+      expect(buildGoalControlStripView(goal({
+        status: runtime === 'waiting_approval' ? 'awaiting_approval' : 'awaiting_input',
+        phase: 'active',
+        activation: 'armed',
+        runtime,
+      }))).toMatchObject({
+        statusWordKey: 'goalStateNeedsYou',
+        stateTone: 'attention',
+        primaryAction: 'attention',
+        primaryLabelKey: 'goalAttentionAction',
+        spinning: false,
+      })
+    }
+
+    const blocked = buildGoalControlStripView(goal({
+      status: 'blocked',
+      phase: 'blocked',
+      activation: 'disarmed',
+      runtime: 'idle',
+    }))
+    expect(blocked).toMatchObject({ statusWordKey: 'goalStateBlocked', stateTone: 'blocked', spinning: false })
+
+    expect(buildGoalControlStripView(goal({
+      status: 'running',
+      phase: 'active',
+      activation: 'armed',
+      runtime: 'executing',
+    }))).toMatchObject({ statusWordKey: 'goalStateRunning', stateTone: 'working', spinning: true })
+  })
+
+  it('spins only while a step is actually being worked on', () => {
+    // Pausing / waiting are alive but not progressing: the amber dot says so.
+    for (const runtime of ['pausing', 'waiting_approval', 'waiting_input', 'idle'] as const) {
+      expect(buildGoalControlStripView(goal({
+        status: runtime === 'waiting_approval' ? 'awaiting_approval' : runtime === 'waiting_input' ? 'awaiting_input' : 'running',
+        phase: 'active',
+        activation: 'armed',
+        runtime,
+      }))).toMatchObject({ spinning: false })
+    }
+    for (const runtime of ['planning', 'executing', 'verifying'] as const) {
+      expect(buildGoalControlStripView(goal({
+        status: 'running',
+        phase: 'active',
+        activation: 'armed',
+        runtime,
+      }))).toMatchObject({ spinning: true })
+    }
   })
 
   it('routes an exhausted budget to the inspector instead of a bare resume', () => {
@@ -269,10 +338,28 @@ describe('goal control strip rendering', () => {
     expect(strip()!.tagName).toBe('SECTION')
     expect(strip()!.dataset.status).toBe('running')
     expect(strip()!.dataset.state).toBe('running')
+    expect(strip()!.dataset.tone).toBe('working')
     expect(strip()!.getAttribute('aria-label')).toBe('goalTitle')
     expect(q('.quickforge-goal-strip-label')!.textContent).toBe('goalStateRunning')
     expect(q('.quickforge-goal-strip-primary')).not.toBeNull()
     expect(q('.quickforge-goal-strip-action--pause')).not.toBeNull()
+  })
+
+  it('keeps one neutral identity glyph instead of a per-status icon', () => {
+    // 方案 A: the glyph answers "what is this" only. It is the same target icon
+    // the pinned summary/inspector use, and it must not change with the state —
+    // the word beside it does that.
+    const glyphOf = () => container.querySelector('.quickforge-goal-strip-icon svg')!.innerHTML
+    render(goal({ status: 'running' }))
+    const running = glyphOf()
+    expect(container.querySelector('.quickforge-goal-strip-icon')!.className).toBe('quickforge-goal-strip-icon')
+    // Two rings + arrow, i.e. the product's GoalIcon.
+    expect(container.querySelectorAll('.quickforge-goal-strip-icon svg circle')).toHaveLength(2)
+
+    render(goal({ status: 'paused' }))
+    expect(glyphOf()).toBe(running)
+    // ...and the paused state no longer borrows the planning checklist.
+    expect(glyphOf()).not.toContain('<rect')
   })
 
   it('shows the objective and the acceptance progress for v2 goals', () => {
@@ -291,11 +378,28 @@ describe('goal control strip rendering', () => {
 
     const objective = q('.quickforge-goal-strip-objective')!
     expect(objective.textContent).toBe('Ship the goal UI')
-    expect(objective.title).toBe('Ship the goal UI')
-    expect(q('.quickforge-goal-strip-phase')!.textContent).toBe('goalPhaseDetailRound')
+    // The single row keeps the full objective plus the demoted phase line in the
+    // tooltip, so one line never hides information. `t` is mocked to echo keys.
+    expect(objective.title).toBe('Ship the goal UI\ngoalPhaseDetailRound · goalRecordedDurationMinutes')
+    expect(q('.quickforge-goal-strip-progress-count')!.textContent).toBe('1/2')
     expect(container.querySelectorAll('.quickforge-goal-strip-seg')).toHaveLength(2)
-    expect(q('.quickforge-goal-strip-criteria-text')!.textContent).toBe('goalCriteriaProgress')
     expect(strip()!.dataset.editing).toBe('false')
+  })
+
+  it('prints the phase line in the ⋯ menu instead of on the row', () => {
+    render(goal({
+      status: 'running',
+      phase: 'active',
+      activation: 'armed',
+      runtime: 'executing',
+      maxRounds: 12,
+      roundsStarted: 4,
+    }))
+    // One line: no phase text on the row itself.
+    expect(q('.quickforge-goal-strip-phase')).toBeNull()
+    click('.quickforge-goal-strip-action--more')
+    const meta = q('.quickforge-goal-strip-menu-meta')!
+    expect(meta.textContent).toContain('goalPhaseDetailRound')
   })
 
   it('edits the objective from the ⋯ menu (not a standing icon)', () => {
@@ -413,13 +517,38 @@ describe('goal control strip rendering', () => {
       usage: { iterations: 12, activeDurationMs: 60_000 },
     }))
     const primary = q<HTMLButtonElement>('.quickforge-goal-strip-primary')!
-    // The label says what happens instead of silently changing the meaning of
-    // the same resume icon.
-    expect(primary.textContent).toBe('goalExtendResume')
+    // The button is icon-only, so the promise lives in the accessible name: it
+    // says "add budget and continue" instead of silently meaning the same resume
+    // icon.
+    expect(primary.textContent).toBe('')
+    expect(primary.getAttribute('aria-label')).toBe('goalExtendResume')
     expect(primary.disabled).toBe(false)
     click('.quickforge-goal-strip-primary')
     expect(onAction).not.toHaveBeenCalled()
     expect(goalUi.openSummary).toEqual([{ sessionId: 'session-1', goalId: 'goal-1', view: 'progress' }])
+  })
+
+  it('renders the primary action as an icon-only button', () => {
+    render(goal({ status: 'running' }))
+    const primary = q<HTMLButtonElement>('.quickforge-goal-strip-primary')!
+    // No text node: the row is one 32px line, so a localized verb would either
+    // wrap or be truncated. The accessible name carries it instead.
+    expect(primary.textContent).toBe('')
+    expect(primary.querySelector('svg')).not.toBeNull()
+    expect(primary.getAttribute('aria-label')).toBe('goalPause')
+    expect(primary.title).toBe('goalPause')
+  })
+
+  it('draws pause as two bars so it cannot be read as an I-beam', () => {
+    // Regression: the glyph shipped with a single `M9.5 6v12` path. At 12px on
+    // the filled tone button one vertical bar reads as "edit/caret", not "pause",
+    // and no assertion covered the glyph's contents.
+    render(goal({ status: 'running' }))
+    const glyph = q('.quickforge-goal-strip-primary')!.querySelector('svg')!
+    const bars = [...glyph.querySelectorAll('path')].map((path) => path.getAttribute('d'))
+    expect(bars).toHaveLength(2)
+    expect(bars[0]).toBe('M9.5 6v12')
+    expect(bars[1]).toBe('M14.5 6v12')
   })
 
   it('runs the primary action through the shared wrapper and surfaces the failure', async () => {
@@ -447,7 +576,7 @@ describe('goal control strip rendering', () => {
     expect(strip()!.dataset.state).toBe('needs_you')
     expect(q('.quickforge-goal-strip-label')!.textContent).toBe('goalStateNeedsYou')
     const primary = q<HTMLButtonElement>('.quickforge-goal-strip-primary')!
-    expect(primary.textContent).toBe('goalAttentionAction')
+    expect(primary.getAttribute('aria-label')).toBe('goalAttentionAction')
     // Revealing the waiting card never dispatches a goal action.
     click('.quickforge-goal-strip-primary')
     expect(onAction).not.toHaveBeenCalled()
@@ -488,7 +617,7 @@ describe('goal control strip rendering', () => {
     expect(onAction).not.toHaveBeenCalled()
   })
 
-  it('expands the acceptance list in place and collapses it again', () => {
+  it('shows the acceptance progress on the row and never an inline list', () => {
     render(goal({
       status: 'running',
       criteria: [
@@ -497,33 +626,35 @@ describe('goal control strip rendering', () => {
       ],
     }))
 
+    // One row: the segments + count answer "how many are left" without opening
+    // anything, and the list itself is inspector-only now.
+    expect(q('.quickforge-goal-strip-progress-count')!.textContent).toBe('1/2')
+    expect(container.querySelectorAll('.quickforge-goal-strip-seg')).toHaveLength(2)
+    expect(container.querySelector('.quickforge-goal-strip-seg')!.getAttribute('data-status')).toBe('passed')
     expect(q('.quickforge-goal-strip-panel')).toBeNull()
-    click('.quickforge-goal-strip-action--expand')
-
-    expect(strip()!.dataset.expanded).toBe('true')
-    const panel = q('.quickforge-goal-strip-panel')!
-    expect(panel.id).toBe(q('.quickforge-goal-strip-action--expand')!.getAttribute('aria-controls'))
-    const criteria = container.querySelectorAll('.quickforge-goal-strip-criterion')
-    expect(criteria).toHaveLength(2)
-    expect(criteria[0].getAttribute('data-status')).toBe('passed')
-    // Opening the list in place never dispatches a goal action nor a panel request.
+    expect(q('.quickforge-goal-strip-action--expand')).toBeNull()
+    expect(q('.quickforge-goal-strip-criterion')).toBeNull()
+    // A plain render never dispatches a goal action nor requests the inspector.
     expect(onAction).not.toHaveBeenCalled()
     expect(goalUi.openSummary).toHaveLength(0)
-
-    click('.quickforge-goal-strip-action--expand')
-    expect(q('.quickforge-goal-strip-panel')).toBeNull()
   })
 
-  it('opens the summary from the ⋯ menu and from the expanded panel link', () => {
+  it('opens the inspector from the state word, the objective, and the ⋯ menu', () => {
     render(goal({ status: 'paused' }))
-    click('.quickforge-goal-strip-action--more')
-    click('.quickforge-goal-strip-menu-item.quickforge-goal-strip-action--open')
+
+    click('.quickforge-goal-strip-label')
     expect(goalUi.openSummary).toEqual([{ sessionId: 'session-1', goalId: 'goal-1', view: 'progress' }])
 
     goalUi.openSummary.length = 0
-    click('.quickforge-goal-strip-action--expand')
-    click('.quickforge-goal-strip-link')
+    click('.quickforge-goal-strip-objective')
     expect(goalUi.openSummary).toEqual([{ sessionId: 'session-1', goalId: 'goal-1', view: 'progress' }])
+
+    goalUi.openSummary.length = 0
+    click('.quickforge-goal-strip-action--more')
+    click('.quickforge-goal-strip-menu-item.quickforge-goal-strip-action--open')
+    expect(goalUi.openSummary).toEqual([{ sessionId: 'session-1', goalId: 'goal-1', view: 'progress' }])
+    // Opening a surface never dispatches a goal action.
+    expect(onAction).not.toHaveBeenCalled()
   })
 
   it('blocks resume while a draft is dirty and explains why', () => {

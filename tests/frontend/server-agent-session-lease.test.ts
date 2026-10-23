@@ -135,6 +135,36 @@ describe('ServerAgent session lease', () => {
     agent.dispose()
   })
 
+  it('sends the client id header when continuing (retry) without an appended message', async () => {
+    const agent = createAgent()
+    agent.enableSessionLease()
+    await vi.waitFor(() => expect(agent.canWrite()).toBe(true))
+
+    await agent.continue()
+
+    const continueCall = fetchMock.mock.calls.find(([url]) => url === '/api/agents/session-1/continue')
+    expect(continueCall).toBeTruthy()
+    expect(continueCall[1].method).toBe('POST')
+    // continue 路由（消息「重试」实际走的写入口）同样有 assertSessionWriteAccess 守卫。
+    // 裁剪重生成这种不带 body 的形态也必须带客户端头，否则本页明明持有租约却会被
+    // 服务端判成匿名客户端，直接 409 "This session is open for writing in another window"。
+    expect(continueCall[1].headers['x-quickforge-client-id']).toBe('client-a')
+    agent.dispose()
+  })
+
+  it('sends the client id header when continuing with an appended message', async () => {
+    const agent = createAgent()
+    agent.enableSessionLease()
+    await vi.waitFor(() => expect(agent.canWrite()).toBe(true))
+
+    await agent.continue({ role: 'user', content: 'continue' })
+
+    const continueCall = fetchMock.mock.calls.find(([url]) => url === '/api/agents/session-1/continue')
+    expect(continueCall[1].headers['x-quickforge-client-id']).toBe('client-a')
+    expect(continueCall[1].body).toBe(JSON.stringify({ message: { role: 'user', content: 'continue' } }))
+    agent.dispose()
+  })
+
   it('drops a prompt locally when another window holds the lease', async () => {
     const agent = createAgent()
     leaseMocks.acquireLease.mockResolvedValue({ ok: false, snapshot: OBSERVER })
@@ -163,6 +193,9 @@ describe('ServerAgent session lease', () => {
     await agent.updateModel({ id: 'm', provider: 'p' })
     await agent.updateThinkingLevel('high')
     await expect(agent.rollback(0)).rejects.toThrow()
+    // 消息「重试」走 continue：旁观者必须本地拦截，否则会先乐观追加「继续」
+    // 消息再被服务端 409 打回，界面闪一下。
+    await expect(agent.continue()).rejects.toThrow()
 
     expect(fetchMock).not.toHaveBeenCalled()
     agent.dispose()

@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import { formatDuration, renderCodeBlock } from '@/lib/tool-renderers/shared'
 import {
+  workflowCountParts,
   workflowPhaseSteps,
   workflowStatusLabelKey,
   workflowTimeline,
@@ -417,11 +418,9 @@ export function WorkflowRunDetailContent({ payload, onOpenAgentRun }: WorkflowRu
           </span>
           {run.durationMs > 0 ? <span className="quickforge-workflow-detail-duration">{formatDuration(run.durationMs)}</span> : null}
           <span className="quickforge-workflow-detail-scale">
-            {t(run.agentCount === 1 ? 'workflowAgentCountOne' : 'workflowAgentCountMany', { count: run.agentCount })}
-            {' · '}
-            {t(run.toolCount === 1 ? 'workflowToolCountOne' : 'workflowToolCountMany', { count: run.toolCount })}
-            {' · '}
-            {t('workflowDetailPhaseTotal', { count: run.phases.length })}
+            {workflowCountParts(run, t)
+              .concat(t('workflowDetailPhaseTotal', { count: run.phases.length }))
+              .join(' · ')}
           </span>
         </div>
         <div className="quickforge-workflow-detail-overview-row is-meta">

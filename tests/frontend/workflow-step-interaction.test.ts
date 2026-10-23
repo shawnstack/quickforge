@@ -88,8 +88,9 @@ describe('workflow card interaction', () => {
     expect(container.querySelector('.quickforge-workflow-tool-zone')).toBeNull()
     expect(container.querySelector('.quickforge-workflow-agent')).toBeNull()
     expect(container.querySelector('.quickforge-workflow-result-section')).toBeNull()
-    // 阶段刻度仍然渲染（折叠态唯一的进度指示）。
-    expect(container.querySelectorAll('.quickforge-workflow-tick')).toHaveLength(1)
+    // 摘要卡整行可点，不再有阶段刻度与「查看详情」入口。
+    expect(container.querySelectorAll('.quickforge-workflow-tick')).toHaveLength(0)
+    expect(container.querySelector('.quickforge-workflow-affordance')).toBeNull()
   })
 
   it('publishes the run to the store and dispatches the open event on click', () => {
@@ -122,12 +123,14 @@ describe('workflow card interaction', () => {
     renderWorkflow(details)
     const card = container.querySelector<HTMLButtonElement>('.quickforge-workflow-card')!
     expect(card.dataset.open).toBe('false')
-    expect(card.textContent).toContain('View details')
+    // 「查看详情 / 已打开」只进 aria-label（可访问名称），不再占视觉位。
+    expect(card.textContent).not.toContain('View details')
+    expect(card.getAttribute('aria-label')).toContain('View details')
 
     act(() => activeWorkflowRunStore.set('wf'))
     expect(card.dataset.open).toBe('true')
     expect(card.getAttribute('aria-expanded')).toBe('true')
-    expect(card.textContent).toContain('Opened')
+    expect(card.getAttribute('aria-label')).toContain('Opened')
 
     act(() => activeWorkflowRunStore.set(undefined))
     expect(card.dataset.open).toBe('false')

@@ -278,11 +278,27 @@ export function workflowStatusLabelKey(status: WorkflowRunStatus): AppTextKey {
   return 'workflowRunning'
 }
 
-export function workflowSummaryKey(view: WorkflowRunView): AppTextKey {
-  if (view.status === 'done') return 'workflowSummaryDone'
-  if (view.status === 'error') return 'workflowSummaryFailed'
-  if (view.status === 'aborted') return 'workflowSummaryAborted'
-  return 'workflowSummaryRunning'
+/** 调用方注入的翻译函数（与 i18n 的 `t` 同签名，便于纯逻辑单测）。 */
+export type WorkflowTranslate = (key: AppTextKey, params?: Record<string, string | number>) => string
+
+/**
+ * 摘要里的计数片段：只有真实存在的步骤才出现。
+ * 没有调用 `agent()` 的工作流不再显示「0 个智能体」，工具数同理。
+ */
+export function workflowCountParts(view: WorkflowRunView, translate: WorkflowTranslate): string[] {
+  const parts: string[] = []
+  if (view.agentCount > 0) {
+    parts.push(translate(view.agentCount === 1 ? 'workflowAgentCountOne' : 'workflowAgentCountMany', { count: view.agentCount }))
+  }
+  if (view.toolCount > 0) {
+    parts.push(translate(view.toolCount === 1 ? 'workflowToolCountOne' : 'workflowToolCountMany', { count: view.toolCount }))
+  }
+  return parts
+}
+
+/** 摘要卡与 Inspector 概览条共用的一行摘要：状态 + 计数片段，空计数整段省略。 */
+export function workflowSummaryText(view: WorkflowRunView, translate: WorkflowTranslate): string {
+  return [translate(workflowStatusLabelKey(view.status)), ...workflowCountParts(view, translate)].join(' · ')
 }
 
 /** Running/queued agent and tool labels in submission order. */

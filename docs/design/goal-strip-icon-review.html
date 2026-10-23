@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Goal 条带 · 图标与样式评审</title>
+<style>
+:root{
+  --bg: oklch(1 0 0);
+  --fg: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --muted: oklch(0.97 0 0);
+  --mfg: oklch(0.556 0 0);
+  --bd: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --primary: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --done: oklch(0.55 0.13 158);
+  --radius: 0.625rem;
+  --main-bg: #ffffff;
+  --sidebar-bg: #f3f4f6;
+  --tone-active: #3478d4;
+  --tone-warning: #d97706;
+  --tone-success: rgb(4 143 101);
+  --fast: 120ms; --base: 180ms; --exit: 140ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color-scheme: light;
+}
+html.dark{
+  --bg: oklch(0.145 0 0);
+  --fg: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --muted: oklch(0.269 0 0);
+  --mfg: oklch(0.708 0 0);
+  --bd: oklch(0.275 0 0);
+  --ring: oklch(0.556 0 0);
+  --primary: oklch(0.922 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --done: oklch(0.75 0.15 160);
+  --main-bg: oklch(0.145 0 0);
+  --sidebar-bg: oklch(0.205 0 0);
+  --tone-active: oklch(0.74 0.12 253);
+  --tone-warning: oklch(0.8 0.13 74);
+  --tone-success: oklch(0.78 0.14 162);
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;padding:26px 20px 80px;background:var(--sidebar-bg);color:var(--fg);
+  font-family:var(--sans);font-size:14px;line-height:1.65;-webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-0.01em}
+.sub{margin:5px 0 0;max-width:78ch;color:var(--mfg);font-size:12.5px}
+.btns{display:flex;gap:6px;flex-wrap:wrap}
+.ui{height:28px;padding:0 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);
+  color:var(--mfg);font:inherit;font-size:11.5px;cursor:pointer;transition:background var(--fast) var(--ease),color var(--fast) var(--ease)}
+.ui:hover{background:var(--muted);color:var(--fg)}
+
+section{margin:34px 0 0}
+.sec-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+h2{margin:0;font-size:15px;font-weight:600}
+.sec-no{font:600 11px/1 var(--mono);color:var(--mfg);letter-spacing:.06em}
+.sec-sub{margin:0 0 14px;color:var(--mfg);font-size:12.5px;max-width:82ch}
+
+.card{border:1px solid color-mix(in oklab,var(--bd) 80%,transparent);border-radius:12px;background:var(--bg);padding:14px}
+.card + .card{margin-top:12px}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.card-t{font-size:12.5px;font-weight:600}
+.tag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:600;
+  border:1px solid color-mix(in oklab,var(--bd) 70%,transparent);color:var(--mfg)}
+.tag.risk{color:var(--destructive);border-color:color-mix(in oklab,var(--destructive) 34%,transparent);background:color-mix(in oklab,var(--destructive) 7%,transparent)}
+.tag.reco{color:var(--done);border-color:color-mix(in oklab,var(--done) 40%,transparent);background:color-mix(in oklab,var(--done) 8%,transparent)}
+.tag.ok{color:var(--tone-active);border-color:color-mix(in oklab,var(--tone-active) 34%,transparent);background:color-mix(in oklab,var(--tone-active) 7%,transparent)}
+
+/* ---------- 复刻条带 ---------- */
+.stage{background:var(--main-bg);border:1px solid color-mix(in oklab,var(--bd) 55%,transparent);border-radius:10px;padding:12px 14px}
+.stage + .stage{margin-top:10px}
+.stage-t{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mfg);margin-bottom:9px}
+.stage-t b{color:var(--fg);font-weight:600;font-size:11.5px}
+.stage-t .path{font-family:var(--mono);font-size:10.5px;opacity:.8}
+
+.strip{--tone:var(--tone-active);position:relative;display:flex;width:fit-content;min-width:min(100%,20rem);max-width:100%;
+  flex-direction:column;gap:.375rem;margin:0 auto;padding:.5rem .5rem .5rem .625rem;
+  border:1px solid var(--bd);border-radius:calc(var(--radius) + 2px);
+  background:color-mix(in oklab,var(--bg) 96%,var(--muted));box-shadow:0 1px 2px rgb(15 23 42 / .04)}
+.strip[data-state="running"]{--tone:var(--tone-active)}
+.strip[data-state="needs_you"]{--tone:var(--tone-warning)}
+.strip[data-state="paused"]{--tone:var(--tone-active)}
+.strip[data-state="blocked"]{--tone:var(--tone-warning)}
+.strip[data-state="done"]{--tone:var(--tone-success)}
+.head-row{display:flex;min-width:0;align-items:center;gap:.4375rem}
+
+.gicon{display:inline-flex;width:1rem;height:1rem;flex:0 0 auto;color:var(--tone)}
+.gicon svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2}
+.gicon.spin svg{animation:spin 1.6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.gdot{width:.4375rem;height:.4375rem;flex:0 0 auto;border-radius:999px;background:var(--tone);
+  box-shadow:0 0 0 3px color-mix(in oklab,var(--tone) 15%,transparent)}
+.strip[data-state="running"] .gdot,.strip[data-state="needs_you"] .gdot{animation:breathe 2s var(--ease) infinite}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 3px color-mix(in oklab,var(--tone) 15%,transparent)}50%{box-shadow:0 0 0 5px color-mix(in oklab,var(--tone) 4%,transparent)}}
+
+.gword{color:var(--tone);font-size:.75rem;font-weight:650;letter-spacing:.01em;white-space:nowrap}
+.gphase{min-width:0;overflow:hidden;color:var(--mfg);font-size:.6875rem;text-overflow:ellipsis;white-space:nowrap}
+.gspacer{flex:1 1 auto}
+
+.gprimary{display:inline-flex;height:1.5rem;flex:0 0 auto;align-items:center;gap:.25rem;padding:0 .5rem;border:0;
+  border-radius:var(--radius);background:var(--tone);color:#fff;cursor:pointer;font:inherit;font-size:.6875rem;font-weight:550}
+.gprimary svg{width:.75rem;height:.75rem;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2}
+.gbtn{display:inline-flex;width:1.5rem;height:1.5rem;flex:0 0 auto;align-items:center;justify-content:center;padding:0;
+  border:0;border-radius:var(--radius);background:transparent;color:var(--mfg);cursor:pointer}
+.gbtn:hover{background:color-mix(in oklab,var(--muted) 60%,transparent);color:var(--fg)}
+.gbtn svg{width:.875rem;height:.875rem;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2}
+
+.gobj{color:var(--fg);font-size:.78125rem;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.gmeta{display:flex;align-items:center;gap:.375rem;color:var(--mfg);font-size:.6875rem;font-variant-numeric:tabular-nums}
+.gsegs{display:inline-flex;gap:2px;flex:0 0 auto}
+.gseg{width:.6875rem;height:.1875rem;border-radius:999px;background:color-mix(in oklab,var(--mfg) 26%,transparent)}
+.gseg[data-status="passed"]{background:var(--done)}
+.gsep{opacity:.45}
+.gchip{padding:0 .375rem;border-radius:999px;font-size:.625rem;font-weight:600;white-space:nowrap}
+
+/* ---------- 问题清单 ---------- */
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:10px}
+.issue{border:1px solid color-mix(in oklab,var(--bd) 78%,transparent);border-radius:11px;background:var(--bg);
+  padding:11px 12px;display:flex;flex-direction:column;gap:7px}
+.issue .ih{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600}
+.issue .ih .n{font:600 10px/1 var(--mono);color:var(--mfg)}
+.issue p{margin:0;font-size:11.5px;color:var(--mfg);line-height:1.6}
+.issue p b{color:var(--fg);font-weight:600}
+.issue code{font-family:var(--mono);font-size:10.5px;background:color-mix(in oklab,var(--muted) 70%,transparent);padding:1px 4px;border-radius:4px}
+.issue .fix{font-size:11px;color:var(--fg);border-top:1px dashed color-mix(in oklab,var(--bd) 70%,transparent);padding-top:6px}
+.issue .fix em{font-style:normal;color:var(--done);font-weight:600}
+.issue .mini{padding:7px 9px;border-radius:8px;background:color-mix(in oklab,var(--muted) 40%,transparent);display:flex;align-items:center}
+
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid color-mix(in oklab,var(--bd) 60%,transparent);vertical-align:middle}
+th{color:var(--mfg);font-weight:600;font-size:10.5px;letter-spacing:.02em}
+td code,th code{font-family:var(--mono);font-size:10.5px;background:color-mix(in oklab,var(--muted) 70%,transparent);padding:1px 4px;border-radius:4px}
+.tbl-wrap{overflow-x:auto}
+.tbl-wrap td svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2}
+
+.note{border-left:2px solid color-mix(in oklab,var(--tone-active) 45%,transparent);padding:2px 0 2px 10px;
+  font-size:11.5px;color:var(--mfg);margin:10px 0 0}
+.note b{color:var(--fg)}
+.hint{font-size:11px;color:var(--mfg);margin:8px 0 0}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--mfg);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:2}
+
+.cmp{display:grid;grid-template-columns:1fr;gap:0}
+.cmp-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid color-mix(in oklab,var(--bd) 45%,transparent)}
+.cmp-row:last-child{border-bottom:0}
+.cmp-lab{width:52px;flex:0 0 auto;font-size:10.5px;color:var(--mfg);font-weight:600}
+.cmp-row .strip{margin:0;flex:1 1 auto}
+.cmp-note{width:190px;flex:0 0 auto;font-size:10.5px;color:var(--mfg);line-height:1.5}
+@media (max-width:800px){.cmp-note{display:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div>
+      <h1>Goal 条带 · 图标与样式评审</h1>
+      <p class="sub">对照已落地的方案 A（<code>.quickforge-goal-strip</code>）逐项检查图标语义与视觉密度。每张问题卡里的条带都是按真实 CSS 复刻的<strong>当前渲染</strong>，可直接看出错在哪。</p>
+    </div>
+    <div class="btns"><button class="ui" id="themeBtn">深色 / 浅色</button></div>
+  </div>
+
+  <!-- ================= 01 ================= -->
+  <section>
+    <div class="sec-h"><span class="sec-no">01</span><h2>核心问题：图标在替状态词「代言」，而且代错了</h2></div>
+    <p class="sec-sub">现状把「图标」绑到了 <code>tone</code>（5 个色阶）而不是「状态」。而 tone 的映射里 <code>paused → info</code>、<code>waiting_* → active</code>，于是图标和文字直接矛盾。</p>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">今天实际渲染出来的样子</span><span class="tag risk">4 处语义错位</span></div>
+
+      <div class="stage">
+        <div class="stage-t"><b>执行中</b><span class="path">tone=active → 时钟</span></div>
+        <div class="strip" data-state="running">
+          <div class="head-row">
+            <span class="gicon spin"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+            <span class="gdot"></span><span class="gword">执行中</span><span class="gphase">第 3/20 轮</span>
+            <span class="gspacer"></span>
+            <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg>暂停</button>
+            <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+            <button class="gbtn"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="gobj">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率达到 80% 以上。</div>
+          <div class="gmeta"><span class="gsegs"><i class="gseg" data-status="passed"></i><i class="gseg" data-status="passed"></i><i class="gseg"></i></span><span>2/3 项验收标准</span><span class="gsep">·</span><span>第 3/20 轮</span></div>
+        </div>
+      </div>
+      <p class="hint">时钟 + 旋转 = 「时间在走」？用户读不出「它正在改代码」。而且 <code>goalStatusIcon</code> 里 <code>active</code> 就是一只表。</p>
+
+      <div class="stage">
+        <div class="stage-t"><b>已暂停</b><span class="path">tone=info → 清单</span><span class="tag risk">最严重</span></div>
+        <div class="strip" data-state="paused">
+          <div class="head-row">
+            <span class="gicon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg></span>
+            <span class="gdot"></span><span class="gword">已暂停</span><span class="gphase">暂停于第 3 轮结束</span>
+            <span class="gspacer"></span>
+            <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M8 6.5 17 12l-9 5.5Z"/></svg>继续</button>
+            <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+            <button class="gbtn"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="gobj">把 payments 模块重构成统一结算抽象，补齐回滚测试。</div>
+          <div class="gmeta"><span class="gsegs"><i class="gseg" data-status="passed"></i><i class="gseg" data-status="passed"></i><i class="gseg"></i></span><span>2/3 项验收标准</span><span class="gsep">·</span><span>第 3/20 轮</span></div>
+        </div>
+      </div>
+      <p class="hint">「已暂停」旁边画着一个<strong>待办清单</strong>——因为 <code>v2Tone</code> 把 paused 映射成 <code>info</code>，而 <code>info</code> 是规划态用的 checklist。图标和文字完全相反。</p>
+
+      <div class="stage">
+        <div class="stage-t"><b>需要你处理</b><span class="path">tone=active → 时钟（蓝色）</span><span class="tag risk">该抢眼却不抢眼</span></div>
+        <div class="strip" data-state="needs_you">
+          <div class="head-row">
+            <span class="gicon spin"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+            <span class="gdot"></span><span class="gword">需要你处理</span><span class="gphase">等待工具审批</span>
+            <span class="gspacer"></span>
+            <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>去处理</button>
+            <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+            <button class="gbtn"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="gobj">把 payments 模块重构成统一结算抽象，补齐回滚测试。</div>
+          <div class="gmeta"><span class="gsegs"><i class="gseg" data-status="passed"></i><i class="gseg" data-status="passed"></i><i class="gseg"></i></span><span>2/3 项验收标准</span><span class="gsep">·</span><span>第 3/20 轮</span></div>
+        </div>
+      </div>
+      <p class="hint">这是全界面唯一「必须由用户动作才能继续」的状态，却是<strong>蓝色时钟</strong>——和「执行中」长得一样、颜色也一样。用户扫一眼区分不出来。</p>
+
+      <div class="stage">
+        <div class="stage-t"><b>去处理 的箭头</b><span class="path">ACTION_ICON.attention vs ACTION_ICON.open</span></div>
+        <div class="legend" style="gap:26px">
+          <span style="color:var(--fg)"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg> attention（去处理）</span>
+          <span style="color:var(--fg)"><svg viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></svg> open（打开面板）</span>
+        </div>
+      </div>
+      <p class="hint">两个完全不同的动作，在 12px 下都是「一个朝上的尖」。<code>attention</code> 的箭头还正好顶到按钮顶边，视觉上比 <code>open</code> 更高更糊。</p>
+    </div>
+  </section>
+
+  <!-- ================= 02 ================= -->
+  <section>
+    <div class="sec-h"><span class="sec-no">02</span><h2>次要问题：三个 tone 信号挤在 7px 内</h2></div>
+    <p class="sec-sub">身份行里「彩色图标 + 彩色点 + 彩色词」连续三个同色元素，等于同一句话说三遍；而行内一共 7 个元素，24px 高度下太密。</p>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">现状行 vs. 建议行（同一状态，只改图标与颜色策略）</span></div>
+      <div class="cmp">
+        <div class="cmp-row">
+          <span class="cmp-lab">现状</span>
+          <div class="strip" data-state="paused">
+            <div class="head-row">
+              <span class="gicon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg></span>
+              <span class="gdot"></span><span class="gword">已暂停</span><span class="gphase">暂停于第 3 轮结束</span><span class="gspacer"></span>
+              <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M8 6.5 17 12l-9 5.5Z"/></svg>继续</button>
+              <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+              <button class="gbtn"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+            </div>
+            <div class="gobj">把 payments 模块重构成统一结算抽象，补齐回滚测试。</div>
+            <div class="gmeta"><span class="gsegs"><i class="gseg" data-status="passed"></i><i class="gseg" data-status="passed"></i><i class="gseg"></i></span><span>2/3 项验收标准</span></div>
+          </div>
+          <span class="cmp-note">清单图标 + 蓝点 + 蓝词；图标与文字语义冲突。</span>
+        </div>
+
+        <div class="cmp-row">
+          <span class="cmp-lab">方案 A</span>
+          <div class="strip" data-state="paused">
+            <div class="head-row">
+              <span class="gicon" style="color:var(--mfg)"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+              <span class="gdot"></span><span class="gword">已暂停</span><span class="gphase">暂停于第 3 轮结束</span><span class="gspacer"></span>
+              <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M8 6.5 17 12l-9 5.5Z"/></svg>继续</button>
+              <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+              <button class="gbtn"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+            </div>
+            <div class="gobj">把 payments 模块重构成统一结算抽象，补齐回滚测试。</div>
+            <div class="gmeta"><span class="gsegs"><i class="gseg" data-status="passed"></i><i class="gseg" data-status="passed"></i><i class="gseg"></i></span><span>2/3 项验收标准</span></div>
+          </div>
+          <span class="cmp-note"><b>图标恒定 = 靶心（GoalIcon 同源）</b>，灰色；状态只由「点 + 词 + 色」表达。</span>
+        </div>
+
+        <div class="cmp-row">
+          <span class="cmp-lab">方案 B</span>
+          <div class="strip" data-state="paused">
+            <div class="head-row">
+              <span class="gicon"><svg viewBox="0 0 24 24"><path d="M9.5 7v10"/><path d="M14.5 7v10"/></svg></span>
+              <span class="gword">已暂停</span><span class="gphase">暂停于第 3 轮结束</span><span class="gspacer"></span>
+              <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M8 6.5 17 12l-9 5.5Z"/></svg>继续</button>
+              <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+              <button class="gbtn"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+            </div>
+            <div class="gobj">把 payments 模块重构成统一结算抽象，补齐回滚测试。</div>
+            <div class="gmeta"><span class="gsegs"><i class="gseg" data-status="passed"></i><i class="gseg" data-status="passed"></i><i class="gseg"></i></span><span>2/3 项验收标准</span></div>
+          </div>
+          <span class="cmp-note"><b>图标改为 5 个正确的状态字形，去掉那个点</b>（避免双编码）。</span>
+        </div>
+
+        <div class="cmp-row">
+          <span class="cmp-lab">方案 C</span>
+          <div class="strip" data-state="paused">
+            <div class="head-row">
+              <span class="gdot" style="box-shadow:none;width:.375rem;height:.375rem"></span><span class="gword">已暂停</span><span class="gphase">暂停于第 3 轮结束</span><span class="gspacer"></span>
+              <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M8 6.5 17 12l-9 5.5Z"/></svg>继续</button>
+              <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+              <button class="gbtn"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+            </div>
+            <div class="gobj">把 payments 模块重构成统一结算抽象，补齐回滚测试。</div>
+            <div class="gmeta"><span class="gsegs"><i class="gseg" data-status="passed"></i><i class="gseg" data-status="passed"></i><i class="gseg"></i></span><span>2/3 项验收标准</span></div>
+          </div>
+          <span class="cmp-note"><b>最克制：只留小色点 + 词</b>，静态状态完全不画图标，仅 running 时给旋转弧。</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">6 个具体问题</span></div>
+      <div class="grid2">
+        <div class="issue">
+          <div class="ih"><span class="n">I1</span>图标绑 tone，不绑状态</div>
+          <p><code>dangerouslySetInnerHTML: goalStatusIcon[view.tone]</code>。5 个 tone ≠ 5 个状态：<code>paused→info</code> 借用了规划态的清单，<code>waiting_*→active</code> 和运行态共用时钟。</p>
+          <div class="fix">改：<em>图标跟 <code>data-state</code>（5 词）走</em>，或干脆固定为身份图标。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">I2</span>「已暂停」显示待办清单</div>
+          <p>规划态（planning / awaiting_confirmation）用的 checklist 被复用给 paused。用户看到「清单」会以为还有待办没做。</p>
+          <div class="fix">改：<em>paused 用双竖线（pause）字形</em>。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">I3</span>「需要你处理」是蓝色时钟</div>
+          <p>唯一需要用户动作的状态，配色却和执行态相同，既不抢眼也不可区分。设计稿里它是琥珀色。</p>
+          <div class="fix">改：<em>tone 按 state 推导，needs_you → warning</em>。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">I4</span>时钟还在旋转</div>
+          <p><code>.quickforge-goal-strip-icon--spinning</code> 转的是时钟指针环，读起来像「加载中」，与「正在执行第 3 轮」不符。</p>
+          <div class="fix">改：<em>旋转留给 running 的进度弧</em>，静态状态一律不转。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">I5</span>点与图标重复编码</div>
+          <p>彩色图标 + 彩色点 + 彩色词三连，7px 间距内三个同色信号。点的呼吸动画本身已经足以表达「在动」。</p>
+          <div class="fix">改：<em>图标中性灰，状态色只留「点 + 词」</em>。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">I6</span>「已耗尽」chip 是蓝色的</div>
+          <p><code>.quickforge-goal-strip-chip</code> 用 <code>tone 12%</code> 底 + tone 字。预算耗尽时 phase 仍是 active → 蓝色 chip，警示读不出来。</p>
+          <div class="fix">改：<em>chip 固定 warning 语义色</em>，不吃 tone。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 03 ================= -->
+  <section>
+    <div class="sec-h"><span class="sec-no">03</span><h2>推荐：方案 A（身份图标恒定 + 状态只走点/词/色）</h2><span class="tag reco">已落地</span></div>
+    <p class="sec-sub">理由：整个产品的 goal 身份图标已经是靶心（<code>GoalIcon</code>：置顶摘要、Inspector Tab、工具卡都用它），条带却自成一套 5 个 tone 字形 —— 这才是「icon 不对」的根因。让它回到靶心，状态交给状态词，语义只需一处维护。</p>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">5 个状态 × 推荐渲染</span><span class="tag ok">可直接对照落地</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>状态</th><th>预览</th><th>图标</th><th>点</th><th>词色</th><th>动效</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>执行中</td>
+              <td>
+                <div class="strip" data-state="running" style="min-width:0;padding:.375rem .5rem">
+                  <div class="head-row">
+                    <span class="gicon" style="color:var(--mfg)"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+                    <span class="gdot"></span><span class="gword">执行中</span><span class="gphase">第 3/20 轮</span>
+                  </div>
+                </div>
+              </td>
+              <td>靶心（静态）</td><td>蓝 + 呼吸 2s</td><td>蓝</td><td>点呼吸</td>
+            </tr>
+            <tr>
+              <td>需要你处理</td>
+              <td>
+                <div class="strip" data-state="needs_you" style="min-width:0;padding:.375rem .5rem">
+                  <div class="head-row">
+                    <span class="gicon" style="color:var(--mfg)"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+                    <span class="gdot"></span><span class="gword">需要你处理</span><span class="gphase">等待工具审批</span>
+                  </div>
+                </div>
+              </td>
+              <td>靶心（静态）</td><td>琥珀 + 呼吸 1.4s</td><td>琥珀</td><td>点更急</td>
+            </tr>
+            <tr>
+              <td>已暂停</td>
+              <td>
+                <div class="strip" data-state="paused" style="min-width:0;padding:.375rem .5rem">
+                  <div class="head-row">
+                    <span class="gicon" style="color:var(--mfg)"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+                    <span class="gdot"></span><span class="gword">已暂停</span><span class="gphase">暂停于第 3 轮结束</span>
+                  </div>
+                </div>
+              </td>
+              <td>靶心（静态）</td><td>灰，无呼吸</td><td>muted-foreground</td><td>无</td>
+            </tr>
+            <tr>
+              <td>已受阻</td>
+              <td>
+                <div class="strip" data-state="blocked" style="min-width:0;padding:.375rem .5rem">
+                  <div class="head-row">
+                    <span class="gicon" style="color:var(--mfg)"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+                    <span class="gdot"></span><span class="gword">已受阻</span><span class="gphase">迭代预算已耗尽</span>
+                  </div>
+                </div>
+              </td>
+              <td>靶心（静态）</td><td>琥珀实心</td><td>琥珀</td><td>无</td>
+            </tr>
+            <tr>
+              <td>已完成</td>
+              <td>
+                <div class="strip" data-state="done" style="min-width:0;padding:.375rem .5rem">
+                  <div class="head-row">
+                    <span class="gicon" style="color:var(--mfg)"><svg viewBox="0 0 24 24"><circle cx="10" cy="14" r="8"/><circle cx="10" cy="14" r="4"/><path d="M21 3 10 14"/><path d="M10 10v4h4"/></svg></span>
+                    <span class="gdot"></span><span class="gword">已完成</span><span class="gphase">3/3 项验收通过</span>
+                  </div>
+                </div>
+              </td>
+              <td>靶心（静态）</td><td>绿实心</td><td>绿</td><td>无</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note"><b>要点：</b>图标只回答「这是什么」（goal），文字只回答「现在怎样」（状态），颜色只回答「要不要管」（注意力）。三者各管一件事，不再互相代言。</p>
+      <p class="hint">「已完成」这一行只是把配色定下来——完成态目前仍不渲染条带（完成卡属设计稿方案 C）。</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">对照：方案 B（5 个正确状态字形，去掉点）</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>状态</th><th>字形</th><th>说明</th><th>代价</th></tr></thead>
+          <tbody>
+            <tr><td>执行中</td><td><svg viewBox="0 0 24 24" style="color:var(--tone-active)"><path d="M21 12a9 9 0 1 1-4.5-7.8"/></svg></td><td>开口弧（转起来就是进度环）</td><td rowspan="5">仍需维护一套 5 字形映射；与置顶摘要 / Inspector Tab 的靶心不同源，产品内出现两种 goal 图标</td></tr>
+            <tr><td>需要你处理</td><td><svg viewBox="0 0 24 24" style="color:var(--tone-warning)"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg></td><td>圈 + 感叹</td></tr>
+            <tr><td>已暂停</td><td><svg viewBox="0 0 24 24" style="color:var(--mfg)"><path d="M9.5 7v10"/><path d="M14.5 7v10"/></svg></td><td>双竖线</td></tr>
+            <tr><td>已受阻</td><td><svg viewBox="0 0 24 24" style="color:var(--tone-warning)"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></td><td>三角警示（保留）</td></tr>
+            <tr><td>已完成</td><td><svg viewBox="0 0 24 24" style="color:var(--tone-success)"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg></td><td>勾圈（保留）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="hint">若产品更看重「一眼看出状态」而非「图标统一」，选 B；代价是 goal 在条带与摘要/面板里是两种图标。</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">方案 C：静态不画图标（最克制）</span></div>
+      <div class="stage">
+        <div class="strip" data-state="running">
+          <div class="head-row">
+            <span class="gdot" style="width:.375rem;height:.375rem;box-shadow:none"></span><span class="gword">执行中</span><span class="gphase">第 3/20 轮</span>
+            <span class="gspacer"></span>
+            <button class="gprimary"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg>暂停</button>
+            <button class="gbtn"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+            <button class="gbtn"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="gobj">把 payments 模块重构成统一结算抽象，补齐回滚测试。</div>
+          <div class="gmeta"><span class="gsegs"><i class="gseg" data-status="passed"></i><i class="gseg"></i></span><span>1/2 项验收标准</span></div>
+        </div>
+      </div>
+      <p class="hint">最贴近 <code>DESIGN_LANGUAGE</code> 的「轻盈 / 克制」。但 goal 是会话级实体，完全去掉图标会削弱「这是同一个目标」的锚点——因此不推荐作为默认。</p>
+    </div>
+  </section>
+
+  <!-- ================= 04 ================= -->
+  <section>
+    <div class="sec-h"><span class="sec-no">04</span><h2>顺带修的样式微调</h2></div>
+    <p class="sec-sub">除图标外，还有 4 处尺寸/颜色问题，一并列出（都可独立开关）。</p>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>#</th><th>现在</th><th>建议</th><th>理由</th></tr></thead>
+          <tbody>
+            <tr><td>S1</td><td>「已耗尽」chip 吃 tone（预算耗尽时是蓝色）</td><td>固定 <code>--destructive</code> 或 warning 语义色</td><td>警示不能跟运行态同色</td></tr>
+            <tr><td>S2</td><td>身份行 7 个元素、gap <code>.4375rem</code></td><td>图标与词 gap 收到 <code>.375rem</code>；点与词之间 <code>.3125rem</code>；主操作前留 <code>.5rem</code></td><td>让「图标+点+词」读成一个整体，主操作独立成组</td></tr>
+            <tr><td>S3</td><td>点直径 7px，与 16px 图标并排显得碎</td><td>6px，呼吸环 3px→5px 不变</td><td>与 3px 的验收分段条在同一粗细档位</td></tr>
+            <tr><td>S4</td><td><code>min-width: min(100%, 20rem)</code>，短目标也撑到 320px</td><td>降到 <code>18rem</code></td><td>短目标时不再出现「大字在小框」的空旷感</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note"><b>不动：</b>三段结构、⋯ 菜单、就地展开、锚定确认 popover、<code>data-state</code> 的 5 词映射、所有动作语义与共享锁。</p>
+    </div>
+  </section>
+
+  <!-- ================= 05 ================= -->
+  <section>
+    <div class="sec-h"><span class="sec-no">05</span><h2>落地改动（方案 A · 已实施）</h2><span class="tag reco">2026-10-23 落地</span></div>
+    <div class="card">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>#</th><th>文件</th><th>实际改动</th><th>验证</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><code>surface/GoalControlStrip.tsx</code></td><td>身份图标换成 <code>&lt;GoalIcon /&gt;</code>（中性灰、恒定），删掉 <code>goalStatusIcon</code> + <code>dangerouslySetInnerHTML</code>；旋转从「图标转」改为独立的 <code>.quickforge-goal-strip-spinner</code> 圆环；<code>attention</code> 图标加下沿横线，与 <code>open</code> 的 chevron 可区分</td><td><code>goal-control-strip.test.ts</code>（身份图标恒定 + 不再含 <code>&lt;rect&gt;</code>）</td></tr>
+            <tr><td>2</td><td><code>panel-decoration/goal-control-strip.ts</code></td><td>新增 <code>stateTone</code>（<code>working/attention/idle/blocked/success/danger</code>）由状态词推导，<code>tone</code>（卡片色）保留但不驱动条带；<code>spinning</code> 改为 <code>isWorkingSpin</code>：仅 planning/executing/verifying 转，waiting/pausing 不转</td><td>新增 <code>stateTone</code> 矩阵与旋转条件断言</td></tr>
+            <tr><td>3</td><td><code>src/index.css</code></td><td><code>[data-tone]</code> 改为 6 个 stateTone 值；图标固定 <code>var(--muted-foreground)</code>；新增 spinner 样式；点收到 6px；chip 固定警示色 <code>#d97706</code>；<code>min-width</code> 20rem→18rem；reduced-motion 覆盖 spinner</td><td><code>goal-card.test.ts</code> CSS 契约（断言 <code>[data-tone="attention"|"idle"]</code> 与 spinner 存在、<code>icon--spinning</code> 已移除）</td></tr>
+            <tr><td>4</td><td><code>panel-decoration/icons.ts</code></td><td><code>goalStatusIcon</code> 保留给置顶摘要/工具卡，注释写明条带不再消费及原因</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="hint">改动集中在 4 个文件，未动服务端契约、<code>goal-ui.ts</code> 锁、展开/菜单/确认交互。</p>
+    </div>
+  </section>
+
+  <p class="hint" style="margin-top:26px">评审稿：所有条带都是按当前 <code>src/index.css</code> 的真实尺寸复刻，深浅色可切换。方案 A 已按 05 节落地（含旋转条件改为「仅在推进时」、点缩到 6px、「已耗尽」chip 固定警示色、min-width 18rem）。</p>
+</div>
+
+<script>
+document.getElementById('themeBtn').addEventListener('click', function(){
+  document.documentElement.classList.toggle('dark');
+});
+</script>
+</body>
+</html>

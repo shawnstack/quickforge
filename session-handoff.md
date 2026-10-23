@@ -1,3 +1,25 @@
+# 当前交接：todo-summary-hover-popover（done，2026-10-23）
+
+- Current Objective（当前目标）：用户要求「对话上面的任务 todo 样式优化一下，默认收拢一下，划过再弹窗，划走就收缩了，里面只显示任务，不显示任务其他的文案，先设计一下 html」。先出设计稿 `docs/design/todo-hover-popover.html`，用户回复「确认，开始实施」后落地。
+- 结论（一句话）：Composer 上方 TodoWrite 摘要从「默认展开、常驻整行列表」改为「默认收拢的进度胶囊 + 悬停/聚焦时从正上方弹出的任务浮层」；浮层只剩任务行（状态图标 + 文本），标题 / 统计句 / 「已更新」/ chevron / 逐行状态文案全部移除，状态词降级为视觉隐藏的读屏文本。收拢形态按设计稿选 A（环 + 计数），移动端保留点击弹出。
+- 改动文件：
+  1. `src/components/chat/surface/TodoWriteSummary.tsx`：DOM 收成 `section > trigger > [button.pill, popover]`。开合状态 `hovered` / `focused` / `pinned` + `HOVER_CLOSE_DELAY_MS=120` 离场宽限；`onPointerOver/Out` 忽略 `pointerType === 'touch'`；`pointerDownRef` 让鼠标点击产生的 focus 不算展开信号；`pinned` 只在 `(hover: none)` 下由 click 切换、Escape 清除；`trackedOpenKey` 在快照清空/回滚时于 render 阶段重置开合状态。退休逻辑（`retiringKey` / `retiredKey` / `data-fading` / 140ms 淡出）完全保留。
+  2. `src/styles/chat/todo-summary.css`：整文件重写。胶囊居中细 pill（环 15px + `completed/total`），浮层 `position: absolute; bottom: 100%; z-index: 30`，`padding-bottom: 0.375rem` 作为**命中区内**的桥接间距，卡片 `.quickforge-todo-summary-popover-card` 单独承担描边/背景/阴影；`data-open` 用 `visibility` + `pointer-events` 显隐（不用 `display:none`，保留过渡）；列表限高桌面 14rem / 移动端 10rem；任务行两列（图标 + 文本）；`.quickforge-todo-summary-status-label` 改 clip-path 视觉隐藏；`prefers-reduced-motion` 取消位移动画/缩放与旋转。
+  3. `src/styles/chat/goal-workflow.css`：仅更新一行注释（历史卡保持 7.5rem 基准，不再与胶囊列表共用）。
+  4. `src/lib/i18n.ts`：删除已无引用的 `todoWriteStats` / `todoWriteUpdated`（中英各两条）。
+  5. `tests/frontend/todo-write-summary.test.ts`：渲染用例重写为 26 例（默认收拢 / 只渲染任务行 / hover 开合 / touch 忽略 / 键盘聚焦 / Escape / 新快照不自动展开 / 清空重置 / 退休与 latch 全保留）。
+  6. `tests/frontend/todo-write-renderer.test.ts`：CSS 契约改为断言浮层绝对定位向上弹出、`section` 自身仍在正常流、无 `fixed`/`backdrop-filter`。
+  7. 文档：`docs/wiki/src/components/README.md`（两处 TodoWrite 摘要段落 + `panel-decoration` 条目）、`docs/wiki/src/styles/README.md`。
+  8. 设计稿：`docs/design/todo-hover-popover.html`（浅/深色、固定展开、减少动效四个开关）。
+- 关键实现约束：浮层必须是 trigger 的**后代**（指针从胶囊移进浮层不触发 `pointerout`，比 CSS hover + 伪元素桥接更稳）；开合必须是 React 状态而不是 CSS `:hover`，否则 `aria-expanded` 会与屏幕状态不一致；浮层绝对定位使 Dock 高度恒定，开合不再压缩上方消息区（旧方案会）。
+- 被避免的坑：① 鼠标点击胶囊会顺带 focus，若把 focus 也算展开信号，点一下浮层就永远开着 → `pointerDownRef` 在指针按下期间跳过 focus 展开；② 在 effect 里同步 `setState` 触发 `react-hooks/set-state-in-effect` → 改为 render 阶段按 `trackedOpenKey` 派生重置；③ 用 `hidden` 关浮层会打断 CSS 过渡 → 用 `visibility` + `pointer-events`；④ `position: absolute` 写进 section 会破坏正常流断言 → 只有浮层绝对定位。
+- Evidence（验证）：定向 `todo-write-summary` + `todo-write-renderer` = **37 passed**；`npm run test` → **424 文件 / 4908 passed / 2 skipped**，exit 0；`npm run lint` → 0 error（仅既有 `GitToolsPinnedSummary` exhaustive-deps warning）；`npm run build` → 成功；`npx tsc -b tsconfig.app.json` → 无输出。视觉核对用 Chrome headless 加载真实 `todo-summary.css` 截图（浅/深 × 收拢/展开），并用 `--dump-dom` 读 computed style 确认浮层 `position: absolute` / `bottom: 24px` / `z-index: 30` / 行底 8% primary / `line-through` / status-label `clip-path: inset(50%)`。
+- 已知工作区遗留（与本次无关）：`goal-*`、`workflow-*` 等前序未提交改动原样保留。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：未创建 Git commit，未手工修改 `dist/`、`package-dist/`、`package-offline/`。可选后续（见 `progress.md` Notes）：① 移动端浮层宽度固定 `min(20rem, 100vw - 1.5rem)`，极窄屏可再收一档；② 浮层 `z-index: 30` 依赖 composer dock 祖先链无 `overflow: hidden`；③ 置顶摘要（`GitToolsPinnedSummary`）与历史卡视觉本轮未动，若要统一收拢语义可另起一轮。
+
+---
+
 # 当前交接：css-architecture-split（done，2026-10-23）
 
 - Current Objective（当前目标）：用户要求「不需要打补丁，需要完整最佳的架构，必要必须重构，保持架构最佳，但不要影响现有交互形态和样式」。已完成单体 `src/index.css` 的完整拆分与验证。

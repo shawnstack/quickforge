@@ -54,7 +54,7 @@ src/styles/
 │   ├── runtime-notices.css      # 排队消息、SSE 重连、轮次错误
 │   ├── artifact-cards.css       # 产物文件卡与变更文件聚合卡
 │   ├── goal-workflow.css        # goal 条带/报告、todo 历史、workflow 摘要卡
-│   ├── todo-summary.css         # TodoWrite 置顶摘要胶囊
+│   ├── todo-summary.css         # Composer 上方 TodoWrite 收拢胶囊 + 悬停任务浮层
 │   ├── pinned-summary.css       # 桌面置顶摘要浮窗
 │   └── file-rollback.css        # 会话文件回滚弹窗
 └── workspace/

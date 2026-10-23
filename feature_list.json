@@ -1,6 +1,28 @@
 {
   "features": [
     {
+      "id": "todo-summary-hover-popover",
+      "name": "对话上方 Todo 摘要改为默认收拢 + 悬停弹出纯任务浮层",
+      "description": "用户要求「对话上面的任务 todo 样式优化一下，默认收拢一下，划过再弹窗，划走就收缩，里面只显示任务，不显示任务其他的文案，先设计一下 html」。先出 HTML 设计稿评审，用户确认后落地。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "1) src/components/chat/surface/TodoWriteSummary.tsx 重写收拢/展开模型：DOM 收成 section > trigger > [button.quickforge-todo-summary-toggle（环 + completed/total）, div.quickforge-todo-summary-popover]，默认收拢；hovered/focused/pinned 三个开合状态 + 120ms 离场宽限，onPointerOver/Out 忽略 touch，pointerDownRef 让鼠标点击产生的 focus 不展开浮层，pinned 只在 (hover: none) 下由 click 切换并被 Escape 清除；trackedOpenKey 在快照清空/回滚时于 render 阶段重置开合状态。退休逻辑（retiringKey/retiredKey/data-fading）保持不变。2) src/styles/chat/todo-summary.css 重写：胶囊为居中细 pill，浮层 position:absolute/bottom:100% 向上弹出、padding-bottom 作为命中区内的 6px 桥接间距，卡片独立承担描边+背景+阴影，data-open 用 visibility+pointer-events 显隐（保留过渡），列表限高桌面 14rem/移动端 10rem，任务行改为两列（图标 + 文本），status-label 改为 clip-path 视觉隐藏。3) 移除标题、todoWriteStats 统计句、todoWriteUpdated「已更新」标记、chevron 与逐行状态文案；src/lib/i18n.ts 删除无引用的 todoWriteStats/todoWriteUpdated（中英）。4) 测试：tests/frontend/todo-write-summary.test.ts 渲染用例重写为 26 例（默认收拢、只渲染任务行、hover 开合、touch 忽略、键盘聚焦、Escape、新快照不自动展开、清空重置）；tests/frontend/todo-write-renderer.test.ts CSS 契约改为断言浮层绝对定位向上弹出、section 仍在正常流、无 fixed/backdrop-filter。5) 文档：docs/wiki/src/components/README.md 两处摘要段落与 panel-decoration 条目、docs/wiki/src/styles/README.md；新增设计稿 docs/design/todo-hover-popover.html；src/styles/chat/goal-workflow.css 仅更新一行基准注释。",
+      "root_cause": "原摘要默认展开并常驻 Composer Dock：整行标题 + 统计句 + 逐行状态文案占据输入框上方空间，收起态还保留标题/双统计/chevron 的形变结构，信息噪音与布局抖动都来自「列表常驻 + 收起只是形变」。用户希望默认只留一个进度胶囊，任务列表按需（悬停）弹出，且浮层里只出现任务本身。",
+      "files": [
+        "src/components/chat/surface/TodoWriteSummary.tsx",
+        "src/styles/chat/todo-summary.css",
+        "src/styles/chat/goal-workflow.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/todo-write-summary.test.ts",
+        "tests/frontend/todo-write-renderer.test.ts",
+        "docs/design/todo-hover-popover.html",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/styles/README.md"
+      ],
+      "verification": "npx vitest run tests/frontend/todo-write-summary.test.ts tests/frontend/todo-write-renderer.test.ts → 37 passed；npm run test → 424 文件 / 4908 passed / 2 skipped，exit 0；npm run lint → 0 error（仅既有 GitToolsPinnedSummary exhaustive-deps warning）；npm run build → 成功；npx tsc -b tsconfig.app.json → 无输出。视觉核对：Chrome headless 加载真实 todo-summary.css 截图（浅/深色 × 收拢/展开），并用 --dump-dom 读取 computed style 验证浮层 position/bottom/z-index、行底色、删除线、状态词 clip-path。",
+      "boundaries": "未新增/升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit；未改动置顶摘要 GitToolsPinnedSummary 与 todo_write 历史卡视觉；临时验证页（docs/design/todo-summary-harness.html）与截图目录（docs/design/.shots/）已删除。Notes：移动端浮层宽度固定 min(20rem, 100vw - 1.5rem)，极窄屏未单独适配；浮层 z-index:30 依赖 composer dock 祖先链无 overflow:hidden。"
+    },
+    {
       "id": "css-architecture-split",
       "name": "全局样式从单体 src/index.css 拆分为有序领域模块",
       "description": "用户要求对当前 10,173 行的单体全局样式做完整架构重构（不是打补丁），在保持现有交互形态与视觉样式零变化的前提下，建立可维护的 CSS 模块边界、唯一入口和架构守卫。",

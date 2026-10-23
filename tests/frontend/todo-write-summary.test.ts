@@ -47,8 +47,7 @@ describe('extractLatestTodoWriteSnapshot', () => {
     ])
 
     expect(first?.key).toBe('quickforge:first')
-    // Same content, different key: the renderer needs this to show the
-    // "updated" marker for a newer round with unchanged todos.
+    // Same content, different key: the renderer needs this to tell rounds apart.
     expect(second?.key).toBe('quickforge:second')
     expect(second?.snapshot).toEqual(first?.snapshot)
   })
@@ -74,7 +73,7 @@ describe('shouldRetireTodoSummary', () => {
   })
 })
 
-describe('TodoWrite capsule rendering', () => {
+describe('TodoWrite pill and hover popover', () => {
   let container: HTMLDivElement
   let root: Root
 
@@ -91,21 +90,29 @@ describe('TodoWrite capsule rendering', () => {
   })
 
   function render(messages: TodoWriteMessage[], options: { idle?: boolean } = {}) {
-    // The component now receives the pre-resolved snapshot (the surface derives
-    // it once per agent snapshot and caches it by message-array identity); these
-    // cases feed it the same lookup the surface uses.
+    // The component receives the pre-resolved snapshot (the surface derives it
+    // once per agent snapshot and caches it by message-array identity).
     const snapshot = readLatestTodoWriteSnapshot(messages)
     act(() => {
       root.render(createElement(TodoWriteSummary, { snapshot, idle: options.idle ?? false }))
     })
   }
 
+  /** React reads `pointerType` off the native event, which jsdom does not set. */
+  function pointer(type: 'pointerover' | 'pointerout' | 'pointerdown' | 'pointerup', target: Element, pointerType = 'mouse') {
+    const event = new Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'pointerType', { value: pointerType })
+    Object.defineProperty(event, 'relatedTarget', { value: document.body })
+    act(() => { target.dispatchEvent(event) })
+  }
+
   const summary = () => container.querySelector<HTMLElement>('.quickforge-todo-summary')
-  const toggle = () => container.querySelector<HTMLButtonElement>('.quickforge-todo-summary-toggle')
+  const trigger = () => container.querySelector<HTMLElement>('.quickforge-todo-summary-trigger')
+  const pill = () => container.querySelector<HTMLButtonElement>('.quickforge-todo-summary-toggle')
   const ring = () => container.querySelector<HTMLElement>('.quickforge-todo-summary-ring')
-  const body = () => container.querySelector<HTMLElement>('.quickforge-todo-summary-body')
-  const compactStats = () => container.querySelector<HTMLElement>('.quickforge-todo-summary-stats-compact')
-  const updated = () => container.querySelector<HTMLElement>('.quickforge-todo-summary-updated')
+  const popover = () => container.querySelector<HTMLElement>('.quickforge-todo-summary-popover')
+  const card = () => container.querySelector<HTMLElement>('.quickforge-todo-summary-popover-card')
+  const count = () => container.querySelector<HTMLElement>('.quickforge-todo-summary-count')
   const items = () => Array.from(container.querySelectorAll<HTMLElement>('.quickforge-todo-summary-item'))
 
   it('renders nothing without a snapshot', () => {
@@ -115,70 +122,60 @@ describe('TodoWrite capsule rendering', () => {
     expect(summary()).toBeNull()
   })
 
-  it('wraps the toggle in a row and renders ring, dual stats, spacer and chevron in order', () => {
+  it('collapses to a progress pill: ring plus count, and nothing else', () => {
     render([quickForgeResult([todo('One', 'in_progress'), todo('Two', 'pending')])])
 
     expect(Array.from(summary()!.children).map((child) => child.className)).toEqual([
-      'quickforge-todo-summary-toggle-row',
-      'quickforge-todo-summary-body',
+      'quickforge-todo-summary-trigger',
     ])
-    expect(Array.from(toggle()!.children).map((child) => child.className)).toEqual([
+    expect(Array.from(trigger()!.children).map((child) => child.className)).toEqual([
+      'quickforge-todo-summary-toggle',
+      'quickforge-todo-summary-popover',
+    ])
+    // The pill carries the ring and the tally; the heading, the stats sentence,
+    // the "updated" marker and the chevron are gone for good.
+    expect(Array.from(pill()!.children).map((child) => child.className)).toEqual([
       'quickforge-todo-summary-ring',
-      'quickforge-todo-summary-heading',
-      'quickforge-todo-summary-stats',
-      'quickforge-todo-summary-stats-compact',
-      'quickforge-todo-summary-updated',
-      'quickforge-todo-summary-spacer',
-      'quickforge-todo-summary-chevron',
+      'quickforge-todo-summary-count',
     ])
+    expect(count()!.textContent).toBe('0/2')
     expect(ring()!.getAttribute('aria-hidden')).toBe('true')
-    expect(container.querySelector('.quickforge-todo-summary-spacer')!.getAttribute('aria-hidden')).toBe('true')
   })
 
-  it('shows the aria-hidden compact count and drives the progress arc from completion', () => {
-    render([quickForgeResult([todo('One', 'completed'), todo('Two', 'in_progress')])])
-
-    expect(compactStats()!.textContent).toBe('1/2')
-    expect(compactStats()!.getAttribute('aria-hidden')).toBe('true')
-    expect(ring()!.style.getPropertyValue('--quickforge-todo-ring-offset')).toBe('28.27')
-    expect(summary()!.dataset.complete).toBe('false')
-    expect(summary()!.dataset.running).toBe('true')
-  })
-
-  it('marks completion and zeroes the arc when every todo is completed', () => {
-    render([quickForgeResult([todo('One', 'completed')])])
-
-    expect(summary()!.dataset.complete).toBe('true')
-    expect(summary()!.dataset.running).toBe('false')
-    expect(ring()!.style.getPropertyValue('--quickforge-todo-ring-offset')).toBe('0.00')
-  })
-
-  it('starts expanded so the task list is visible without a click', () => {
+  it('starts collapsed: the pill is not expanded and the popover is closed', () => {
     render([quickForgeResult([todo('One', 'in_progress'), todo('Two', 'pending')])])
 
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
-    expect(body()!.hidden).toBe(false)
-    expect(summary()!.dataset.expanded).toBe('true')
+    expect(pill()!.getAttribute('aria-expanded')).toBe('false')
+    expect(pill()!.getAttribute('aria-controls')).toBe(popover()!.id)
+    expect(summary()!.dataset.expanded).toBe('false')
+    // Closed, not unmounted: the collapse is a CSS transition.
+    expect(popover()!.dataset.open).toBe('false')
+    expect(items()).toHaveLength(2)
   })
 
-  it('wraps the list in the collapsible body inner container', () => {
-    render([quickForgeResult([todo('One', 'in_progress')])])
+  it('shows tasks only in the popover — no heading, no stats, no status words on screen', () => {
+    render([quickForgeResult([todo('Done', 'completed'), todo('Running', 'in_progress'), todo('Queued', 'pending')])])
 
-    expect(Array.from(body()!.children).map((child) => child.className)).toEqual(['quickforge-todo-summary-body-inner'])
-    // The body is the list and nothing else: no per-status tally, no "working
-    // on" restatement — each row already carries its own status.
-    expect(Array.from(body()!.firstElementChild!.children).map((child) => child.className)).toEqual([
+    expect(Array.from(card()!.children).map((child) => child.className)).toEqual([
       'quickforge-todo-summary-list',
     ])
-    expect(items()).toHaveLength(1)
-  })
+    expect(container.querySelector('.quickforge-todo-summary-heading')).toBeNull()
+    expect(container.querySelector('.quickforge-todo-summary-stats')).toBeNull()
+    expect(container.querySelector('.quickforge-todo-summary-updated')).toBeNull()
+    expect(container.querySelector('.quickforge-todo-summary-status-label')!.className).toBe('quickforge-todo-summary-status-label')
 
-  it('renders no summary line above the list', () => {
-    render([quickForgeResult([todo('Done', 'completed'), todo('Running', 'in_progress')])])
-
-    expect(container.querySelector('.quickforge-todo-summary-chips')).toBeNull()
-    expect(container.querySelector('.quickforge-todo-summary-chip')).toBeNull()
-    expect(container.querySelector('.quickforge-todo-summary-current')).toBeNull()
+    // Every row is icon + (visually hidden) status + task text.
+    expect(items().map((item) => Array.from(item.children).map((child) => child.className))).toEqual([
+      ['quickforge-todo-summary-status-icon', 'quickforge-todo-summary-status-label', 'quickforge-todo-summary-content'],
+      ['quickforge-todo-summary-status-icon', 'quickforge-todo-summary-status-label', 'quickforge-todo-summary-content'],
+      ['quickforge-todo-summary-status-icon', 'quickforge-todo-summary-status-label', 'quickforge-todo-summary-content'],
+    ])
+    expect(items().map((item) => item.querySelector('.quickforge-todo-summary-content')!.textContent)).toEqual([
+      'Done', 'Running', 'Queued',
+    ])
+    // The status word stays available to screen readers only: the glyph is the
+    // single visual status signal.
+    expect(items()[1].querySelector('.quickforge-todo-summary-status-label')!.textContent).toBe('todoWriteStatusInProgress')
   })
 
   it('renders a shared status glyph per item so the three states differ by geometry', () => {
@@ -195,29 +192,78 @@ describe('TodoWrite capsule rendering', () => {
     expect(glyphs[1].querySelector('.quickforge-todo-spin-arc path')).not.toBeNull()
     expect(glyphs[2].querySelector('mask')).toBeNull()
     expect(glyphs[2].querySelectorAll('path')).toHaveLength(0)
-    // The status word stays available to screen readers even on mobile, where
-    // the visible label is hidden by CSS.
-    expect(items()[1].querySelector('.quickforge-todo-summary-status-label')!.textContent).toBe('todoWriteStatusInProgress')
   })
 
-  it('expands and collapses through the toggle', () => {
+  it('drives the progress arc and the completion state from the snapshot', () => {
+    render([quickForgeResult([todo('One', 'completed'), todo('Two', 'in_progress')])])
+
+    expect(count()!.textContent).toBe('1/2')
+    expect(ring()!.style.getPropertyValue('--quickforge-todo-ring-offset')).toBe('28.27')
+    expect(summary()!.dataset.complete).toBe('false')
+    expect(summary()!.dataset.running).toBe('true')
+
+    render([quickForgeResult([todo('One', 'completed')])])
+    expect(summary()!.dataset.complete).toBe('true')
+    expect(summary()!.dataset.running).toBe('false')
+    expect(ring()!.style.getPropertyValue('--quickforge-todo-ring-offset')).toBe('0.00')
+  })
+
+  it('opens the popover on hover and collapses it once the pointer leaves', () => {
+    vi.useFakeTimers()
+    try {
+      render([quickForgeResult([todo('One', 'in_progress')])])
+
+      pointer('pointerover', trigger()!)
+      expect(summary()!.dataset.expanded).toBe('true')
+      expect(popover()!.dataset.open).toBe('true')
+      expect(pill()!.getAttribute('aria-expanded')).toBe('true')
+
+      pointer('pointerout', trigger()!)
+      // A short grace before the collapse, so a pointer clipping the edge for a
+      // frame does not flicker the list.
+      expect(popover()!.dataset.open).toBe('true')
+      act(() => { vi.advanceTimersByTime(120) })
+      expect(popover()!.dataset.open).toBe('false')
+      expect(pill()!.getAttribute('aria-expanded')).toBe('false')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ignores the hover-latched state for touch pointers', () => {
     render([quickForgeResult([todo('One', 'in_progress')])])
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
 
-    act(() => toggle()!.click())
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
-    expect(body()!.hidden).toBe(true)
-    expect(summary()!.dataset.expanded).toBe('false')
+    // Touch taps also emit pointerover but never a matching pointerout, so they
+    // must go through the click latch instead of pinning the popover open.
+    pointer('pointerover', trigger()!, 'touch')
+    expect(popover()!.dataset.open).toBe('false')
+  })
 
-    act(() => toggle()!.click())
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
-    expect(body()!.hidden).toBe(false)
+  it('opens the popover on keyboard focus', () => {
+    render([quickForgeResult([todo('One', 'in_progress')])])
+
+    act(() => pill()!.focus())
+    expect(popover()!.dataset.open).toBe('true')
+    expect(pill()!.getAttribute('aria-expanded')).toBe('true')
+
+    act(() => pill()!.blur())
+    expect(popover()!.dataset.open).toBe('false')
+  })
+
+  it('collapses an open popover on Escape', () => {
+    render([quickForgeResult([todo('One', 'in_progress')])])
+    act(() => pill()!.focus())
+
+    act(() => {
+      pill()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(popover()!.dataset.open).toBe('false')
   })
 
   it('keeps the DOM nodes stable across snapshot updates so the arc animates', () => {
     render([quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' })])
     const firstRing = ring()
-    const firstToggle = toggle()
+    const firstPill = pill()
     expect(firstRing!.style.getPropertyValue('--quickforge-todo-ring-offset')).toBe('56.55')
 
     render([
@@ -227,49 +273,29 @@ describe('TodoWrite capsule rendering', () => {
 
     // Same nodes ⇒ the CSS transition sees the previous offset and animates.
     expect(ring()).toBe(firstRing)
-    expect(toggle()).toBe(firstToggle)
+    expect(pill()).toBe(firstPill)
     expect(firstRing!.style.getPropertyValue('--quickforge-todo-ring-offset')).toBe('0.00')
   })
 
-  it('re-expands on a new snapshot round even after the user collapsed', () => {
-    vi.useFakeTimers()
-    try {
-      render([quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' })])
-      act(() => toggle()!.click())
-      expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
-
-      render([
-        quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' }),
-        quickForgeResult([todo('One', 'completed'), todo('Two', 'pending')], { toolCallId: 'second' }),
-      ])
-      expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
-      expect(updated()!.hidden).toBe(false)
-
-      act(() => { vi.advanceTimersByTime(1800) })
-      expect(updated()!.hidden).toBe(true)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('marks a newer tool snapshot updated even when its todo content is unchanged', () => {
-    render([quickForgeResult([todo('Stable', 'in_progress')], { toolCallId: 'first' })])
-    expect(updated()!.hidden).toBe(true)
+  it('stays collapsed when a new snapshot round arrives', () => {
+    render([quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' })])
 
     render([
-      quickForgeResult([todo('Stable', 'in_progress')], { toolCallId: 'first' }),
-      quickForgeResult([todo('Stable', 'in_progress')], { toolCallId: 'second' }),
+      quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' }),
+      quickForgeResult([todo('One', 'completed'), todo('Two', 'pending')], { toolCallId: 'second' }),
     ])
-    expect(updated()!.hidden).toBe(false)
+    // The list is no longer resident in the composer, so a new round must not
+    // pop it open on its own.
+    expect(pill()!.getAttribute('aria-expanded')).toBe('false')
+    expect(popover()!.dataset.open).toBe('false')
   })
 
-  it('keeps the completed list visible until the turn ends, then fades it out and unmounts', () => {
+  it('keeps the completed pill visible until the turn ends, then fades it out and unmounts', () => {
     vi.useFakeTimers()
     try {
       render([quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' })])
       // A finished list is still shown: the user gets to read the confirmation.
       expect(summary()).not.toBeNull()
-      expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
       expect(summary()!.dataset.complete).toBe('true')
 
       render([quickForgeResult([todo('One', 'completed')], { toolCallId: 'first' })], { idle: true })
@@ -358,7 +384,7 @@ describe('TodoWrite capsule rendering', () => {
       ])
       expect(summary()).not.toBeNull()
       expect(summary()!.dataset.complete).toBe('false')
-      expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
+      expect(pill()!.getAttribute('aria-expanded')).toBe('false')
     } finally {
       vi.useRealTimers()
     }
@@ -395,8 +421,7 @@ describe('TodoWrite capsule rendering', () => {
 
   it('resets after an explicit empty snapshot', () => {
     render([quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' })])
-    act(() => toggle()!.click())
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('false')
+    expect(pill()!.getAttribute('aria-expanded')).toBe('false')
 
     render([
       quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' }),
@@ -405,17 +430,21 @@ describe('TodoWrite capsule rendering', () => {
     expect(summary()).toBeNull()
 
     render([quickForgeResult([todo('Fresh', 'pending')], { toolCallId: 'fresh' })])
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
+    expect(summary()).not.toBeNull()
+    expect(popover()!.dataset.open).toBe('false')
   })
 
   it('resets on rollback to no snapshot', () => {
     render([quickForgeResult([todo('One', 'in_progress')], { toolCallId: 'first' })])
-    act(() => toggle()!.click())
+    act(() => pill()!.focus())
+    expect(popover()!.dataset.open).toBe('true')
 
     render([])
     expect(summary()).toBeNull()
 
     render([quickForgeResult([todo('Fresh', 'pending')], { toolCallId: 'fresh' })])
-    expect(toggle()!.getAttribute('aria-expanded')).toBe('true')
+    // The open flags were dropped with the old snapshot: the new pill starts
+    // collapsed instead of inheriting the previous focus-latched state.
+    expect(popover()!.dataset.open).toBe('false')
   })
 })

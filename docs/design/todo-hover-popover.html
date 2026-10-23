@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>任务清单：默认收拢 + 悬停弹出</title>
+<style>
+  /* ── 令牌：取自 src/styles/foundation.css 的 :root / html.dark ───────────── */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --done: rgb(4 143 101);
+    --accent: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+    --row-tint: color-mix(in oklab, var(--primary) 8%, transparent);
+    --quickforge-dur-fast: 120ms;
+    --quickforge-dur-base: 180ms;
+    --quickforge-dur-slow: 280ms;
+    --quickforge-dur-exit: 140ms;
+    --quickforge-ease-out: cubic-bezier(0.2, 0, 0, 1);
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color-scheme: light;
+  }
+  html.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --popover: oklch(0.269 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(0.275 0 0);
+    --ring: oklch(0.556 0 0);
+    --done: rgb(110 231 183);
+    --row-tint: color-mix(in oklab, var(--primary) 8%, transparent);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 30px 24px 96px;
+    background: var(--background);
+    color: var(--foreground);
+    font: 14px/1.6 var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .lede { color: var(--muted-foreground); margin: 0 0 20px; max-width: 64ch; }
+  h2 {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--muted-foreground); margin: 38px 0 12px;
+  }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; }
+  svg { display: block; overflow: visible; }
+
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 24px; }
+  .bar button {
+    font: inherit; font-size: 12.5px; padding: 5px 12px; border-radius: 999px; cursor: pointer;
+    border: 0; background: var(--muted); color: var(--muted-foreground);
+  }
+  .bar button[aria-pressed="true"] { background: color-mix(in oklab, var(--primary) 88%, var(--foreground)); color: var(--background); }
+  .bar .hint { font-size: 12px; color: var(--muted-foreground); margin-left: 4px; }
+
+  /* ── 演示舞台：假消息 + 输入区，用于验证浮层向上弹出不会挤压布局 ───────── */
+  .stage {
+    position: relative;
+    border-radius: 12px;
+    padding: 16px 16px 14px;
+    background: linear-gradient(180deg, color-mix(in oklab, var(--muted) 34%, transparent), transparent 72%);
+    overflow: visible;
+  }
+  .msgs { display: grid; gap: 8px; padding-bottom: 10px; }
+  .msg { max-width: 78%; font-size: 13px; line-height: 1.55; color: var(--muted-foreground); }
+  .msg.user {
+    justify-self: end; background: color-mix(in oklab, var(--muted) 70%, transparent);
+    color: color-mix(in oklab, var(--foreground) 82%, transparent);
+    padding: 6px 11px; border-radius: 10px;
+  }
+  .composer {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border); border-radius: 14px;
+    background: var(--card);
+    padding: 9px 11px;
+    font-size: 13.5px;
+    color: var(--muted-foreground);
+    box-shadow: 0 10px 26px -18px rgb(15 23 42 / 0.48);
+  }
+  .composer .plus {
+    width: 22px; height: 22px; flex: 0 0 auto; border-radius: 999px;
+    display: grid; place-items: center; background: var(--muted); color: var(--muted-foreground);
+    font-size: 15px; line-height: 1;
+  }
+  .composer .send {
+    width: 26px; height: 26px; flex: 0 0 auto; border-radius: 999px; margin-left: auto;
+    display: grid; place-items: center;
+    background: color-mix(in oklab, var(--primary) 90%, var(--foreground)); color: var(--background);
+    font-size: 12px;
+  }
+
+  /* ── 收拢态：只有进度环 + 计数，居中细胶囊 ─────────────────────────────── */
+  .todo-anchor { display: flex; justify-content: center; padding: 3px 0 4px; }
+  /* 触发器只包住胶囊本身（不是整行），hover 热区才跟视觉一致 */
+  .todo-trigger { position: relative; display: inline-flex; }
+  .todo-pill {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    height: 1.5rem; padding: 0.1rem 0.5rem 0.1rem 0.42rem;
+    border: 0; border-radius: 999px; cursor: default;
+    background: color-mix(in oklab, var(--muted) 55%, transparent);
+    color: var(--muted-foreground);
+    font: inherit; font-size: 0.75rem; font-variant-numeric: tabular-nums;
+    transition:
+      background-color var(--quickforge-dur-base) var(--quickforge-ease-out),
+      color var(--quickforge-dur-exit) var(--quickforge-ease-out);
+  }
+  .todo-trigger:hover .todo-pill,
+  .todo-trigger:focus-within .todo-pill,
+  .todo-trigger.is-open .todo-pill {
+    background: color-mix(in oklab, var(--muted) 78%, transparent);
+    color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  }
+  .todo-pill:focus-visible { outline: 2px solid color-mix(in oklab, var(--ring, #737373) 65%, transparent); outline-offset: 2px; }
+  .todo-pill--running .todo-count { color: var(--accent); }
+
+  /* 进度环：与现有 .quickforge-todo-summary-ring 同构，折叠态 14px，hover 轻微放大 */
+  .todo-ring { display: grid; width: 0.9375rem; height: 0.9375rem; flex: 0 0 auto; transition: width 180ms var(--quickforge-ease-out), height 180ms var(--quickforge-ease-out); }
+  .todo-trigger:hover .todo-ring, .todo-trigger:focus-within .todo-ring { width: 1rem; height: 1rem; }
+  .todo-ring svg { grid-area: 1 / 1; width: 100%; height: 100%; fill: none; stroke-width: 2; }
+  .todo-ring .track { stroke: color-mix(in oklab, var(--muted-foreground) 34%, transparent); }
+  .todo-ring .bar {
+    stroke: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+    stroke-dasharray: 56.55; stroke-linecap: round;
+    transition: stroke-dashoffset 450ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .todo-ring .check { color: var(--done); opacity: 0; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; transition: opacity var(--quickforge-dur-base) var(--quickforge-ease-out); }
+  .todo-ring[data-complete="true"] .bar { opacity: 0; }
+  .todo-ring[data-complete="true"] .check { opacity: 1; }
+  .todo-ring .spinning { transform-box: view-box; transform-origin: 12px 12px; animation: todo-spin 900ms linear infinite; }
+  @keyframes todo-spin { to { transform: rotate(360deg); } }
+
+  /* ── 弹出层：向上弹出、只放任务行，head 与状态文案全部去掉 ───────────────
+     定位壳本身透明、不裁剪（padding-bottom 就是胶囊与卡片之间的桥接区），
+     卡片负责背景/描边/阴影，列表负责滚动。 */
+  .todo-popover {
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    z-index: 30;
+    width: min(24rem, calc(100vw - 3rem));
+    padding-bottom: 0.375rem;
+    /* 关：先等 ~100ms 宽限（防止从胶囊移到浮层时闪断），再淡出 */
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translate(-50%, 0.2rem) scale(0.985);
+    transform-origin: 50% 100%;
+    transition:
+      opacity var(--quickforge-dur-exit) var(--quickforge-ease-out) 100ms,
+      transform 160ms var(--quickforge-ease-out) 100ms,
+      visibility 0s linear 260ms;
+  }
+  .todo-popover-card {
+    padding: 0.375rem;
+    border-radius: 0.625rem;
+    border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+    background: var(--popover);
+    color: var(--popover-foreground);
+    box-shadow:
+      0 14px 30px -20px rgb(15 23 42 / 0.5),
+      0 3px 8px -5px rgb(15 23 42 / 0.22);
+  }
+  .todo-trigger:hover .todo-popover,
+  .todo-trigger:focus-within .todo-popover,
+  .todo-trigger.is-open .todo-popover {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translate(-50%, 0) scale(1);
+    transition:
+      opacity var(--quickforge-dur-base) var(--quickforge-ease-out),
+      transform var(--quickforge-dur-base) var(--quickforge-ease-out),
+      visibility 0s linear 0s;
+  }
+
+  /* 任务行：图标 + 任务文本。没有「已完成/进行中/待执行」文字。 */
+  .todo-list { display: grid; gap: 0.125rem; margin: 0; padding: 0; list-style: none; max-height: 14rem; overflow-y: auto; overscroll-behavior: contain; }
+  .todo-item {
+    display: grid;
+    grid-template-columns: 1rem minmax(0, 1fr);
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.375rem;
+    border-radius: 0.4rem;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    transition: background-color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+  }
+  .todo-item--in_progress { background: var(--row-tint); }
+  .todo-ic { display: inline-flex; width: 0.9rem; height: 0.9rem; color: var(--muted-foreground); }
+  .todo-item--in_progress .todo-ic { color: var(--accent); }
+  .todo-item--completed .todo-ic { color: var(--done); }
+  .todo-content { min-width: 0; overflow-wrap: anywhere; color: color-mix(in oklab, var(--foreground) 86%, transparent); }
+  .todo-item--in_progress .todo-content { color: var(--foreground); font-weight: 500; }
+  .todo-item--completed .todo-content { color: var(--muted-foreground); text-decoration: line-through; text-decoration-thickness: 1px; }
+
+  /* ── 收拢形态备选 ────────────────────────────────────────────────────── */
+  .variants { display: grid; gap: 18px; }
+  .variant { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 14px; align-items: center; }
+  .variant .demo {
+    display: flex; justify-content: center; padding: 12px 0;
+    border-radius: 10px; background: color-mix(in oklab, var(--muted) 32%, transparent);
+  }
+  .variant .meta { font-size: 13px; }
+  .variant .name { font-weight: 600; }
+  .variant .name .tag {
+    font-weight: 500; font-size: 11px; padding: 1px 7px; border-radius: 999px; margin-left: 6px;
+    background: color-mix(in oklab, var(--done) 16%, transparent); color: var(--done);
+  }
+  .variant .desc { color: var(--muted-foreground); margin-top: 2px; }
+  .pill--current { max-width: 15rem; }
+  .pill--current .todo-content { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; }
+
+  /* ── 契约说明 ────────────────────────────────────────────────────────── */
+  .contract { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+  .contract li { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; padding: 8px 0; border-top: 1px solid color-mix(in oklab, var(--border) 70%, transparent); }
+  .contract li:first-child { border-top: 0; }
+  .contract b { font-weight: 600; color: var(--muted-foreground); font-size: 12px; letter-spacing: 0.02em; }
+
+  .rm-note { font-size: 12px; color: var(--muted-foreground); margin-top: 10px; }
+
+  @media (max-width: 640px) {
+    body { padding: 22px 14px 72px; }
+    .variant { grid-template-columns: 1fr; }
+    .todo-popover { width: min(20rem, calc(100vw - 1.5rem)); max-height: 12rem; }
+  }
+
+  /* 降级：关闭动效时只保留状态切换 */
+  html[data-rm="true"] .todo-popover,
+  html[data-rm="true"] .todo-ring,
+  html[data-rm="true"] .todo-ring .bar,
+  html[data-rm="true"] .todo-pill { transition: none; }
+  html[data-rm="true"] .todo-ring .spinning { animation: none; }
+  html[data-rm="true"] .todo-ring .spinning-track { opacity: 0.22; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .todo-popover, .todo-ring, .todo-ring .bar, .todo-pill { transition: none; }
+    .todo-trigger:hover .todo-popover, .todo-trigger:focus-within .todo-popover, .todo-trigger.is-open .todo-popover { transform: translate(-50%, 0); }
+    .todo-ring .spinning { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>任务清单：默认收拢 + 悬停弹出</h1>
+  <p class="lede">
+    收拢态只剩一条居中的进度胶囊（环 + 计数），不再常驻展开任务列表。指针移到胶囊上，任务列表从胶囊正上方弹出；指针离开（或移出浮层）立即收拢。
+    浮层里只有任务本身：去掉标题、统计、状态文案与「已更新」提示，状态只由图标、颜色和字重表达。
+  </p>
+
+  <div class="bar">
+    <button id="light" aria-pressed="true">浅色</button>
+    <button id="dark" aria-pressed="false">深色</button>
+    <button id="pin" aria-pressed="false">固定展开（预览用）</button>
+    <button id="rm" aria-pressed="false">减少动效</button>
+    <span class="hint">把指针移到胶囊上 / Tab 聚焦胶囊</span>
+  </div>
+
+  <h2>真实位置与交互</h2>
+  <div class="stage">
+    <div class="msgs">
+      <div class="msg user">把这几个任务按顺序做完，顺便补测试。</div>
+      <div class="msg">已读取 <code>TodoWriteSummary.tsx</code> 与 <code>todo-summary.css</code>，正在按新的收拢/悬停结构改写。</div>
+    </div>
+
+    <!-- 收拢胶囊 + 向上弹出层 -->
+    <div class="todo-anchor">
+      <div class="todo-trigger" id="trigger1">
+      <button type="button" class="todo-pill todo-pill--running" aria-expanded="false" aria-describedby="pop1">
+        <span class="todo-ring" data-complete="false" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <circle class="track" cx="12" cy="12" r="9"></circle>
+            <circle class="bar" cx="12" cy="12" r="9" transform="rotate(-90 12 12)" style="stroke-dashoffset:28.28"></circle>
+          </svg>
+          <svg class="check" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="m8.4 12.4 2.3 2.3 4.9-5.6"></path>
+          </svg>
+        </span>
+        <span class="todo-count">2/5</span>
+      </button>
+
+      <div class="todo-popover" id="pop1">
+        <div class="todo-popover-card">
+        <ul class="todo-list">
+          <li class="todo-item todo-item--completed">
+            <span class="todo-ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <mask id="m1"><rect width="24" height="24" fill="#fff"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" stroke="#000" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></mask>
+                <circle cx="12" cy="12" r="9" fill="currentColor" mask="url(#m1)"/>
+              </svg>
+            </span>
+            <span class="todo-content">读取 todo 相关源码</span>
+          </li>
+          <li class="todo-item todo-item--completed">
+            <span class="todo-ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <mask id="m2"><rect width="24" height="24" fill="#fff"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" stroke="#000" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></mask>
+                <circle cx="12" cy="12" r="9" fill="currentColor" mask="url(#m2)"/>
+              </svg>
+            </span>
+            <span class="todo-content">改写 TodoWriteSummary 组件结构</span>
+          </li>
+          <li class="todo-item todo-item--in_progress">
+            <span class="todo-ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle class="spinning-track" cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" opacity="0.22"/>
+                <g class="spinning"><path d="M12 3a9 9 0 0 1 9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></g>
+              </svg>
+            </span>
+            <span class="todo-content">调整 todo-summary.css 的浮层定位与进入动效</span>
+          </li>
+          <li class="todo-item todo-item--pending">
+            <span class="todo-ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            </span>
+            <span class="todo-content">补充悬停展开的渲染测试</span>
+          </li>
+          <li class="todo-item todo-item--pending">
+            <span class="todo-ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            </span>
+            <span class="todo-content">跑 test / lint / build 验证</span>
+          </li>
+        </ul>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <span class="plus" aria-hidden="true">+</span>
+      <span>给 QuickForge 发送消息…</span>
+      <span class="send" aria-hidden="true">↑</span>
+    </div>
+  </div>
+
+  <h2>完成态</h2>
+  <div class="stage">
+    <div class="msgs">
+      <div class="msg user">这一轮全部做完了？</div>
+    </div>
+    <div class="todo-anchor">
+      <div class="todo-trigger" id="trigger2">
+      <button type="button" class="todo-pill" aria-expanded="false" aria-describedby="pop2">
+        <span class="todo-ring" data-complete="true" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <circle class="track" cx="12" cy="12" r="9"></circle>
+            <circle class="bar" cx="12" cy="12" r="9" transform="rotate(-90 12 12)" style="stroke-dashoffset:0"></circle>
+          </svg>
+          <svg class="check" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="m8.4 12.4 2.3 2.3 4.9-5.6"></path>
+          </svg>
+        </span>
+        <span class="todo-count">5/5</span>
+      </button>
+      <div class="todo-popover" id="pop2">
+        <div class="todo-popover-card">
+        <ul class="todo-list">
+          <li class="todo-item todo-item--completed">
+            <span class="todo-ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <mask id="m3"><rect width="24" height="24" fill="#fff"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" stroke="#000" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></mask>
+                <circle cx="12" cy="12" r="9" fill="currentColor" mask="url(#m3)"/>
+              </svg>
+            </span>
+            <span class="todo-content">读取 todo 相关源码</span>
+          </li>
+          <li class="todo-item todo-item--completed">
+            <span class="todo-ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <mask id="m4"><rect width="24" height="24" fill="#fff"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" stroke="#000" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></mask>
+                <circle cx="12" cy="12" r="9" fill="currentColor" mask="url(#m4)"/>
+              </svg>
+            </span>
+            <span class="todo-content">补齐悬停浮层的渲染测试</span>
+          </li>
+        </ul>
+        </div>
+      </div>
+      </div>
+    </div>
+    <div class="composer">
+      <span class="plus" aria-hidden="true">+</span>
+      <span>给 QuickForge 发送消息…</span>
+      <span class="send" aria-hidden="true">↑</span>
+    </div>
+  </div>
+
+  <h2>收拢形态备选</h2>
+  <div class="variants">
+    <div class="variant">
+      <div class="demo">
+        <span class="todo-pill todo-pill--running">
+          <span class="todo-ring" data-complete="false" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <circle class="track" cx="12" cy="12" r="9"></circle>
+              <circle class="bar" cx="12" cy="12" r="9" transform="rotate(-90 12 12)" style="stroke-dashoffset:28.28"></circle>
+            </svg>
+            <svg class="check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="m8.4 12.4 2.3 2.3 4.9-5.6"></path></svg>
+          </span>
+          <span class="todo-count">2/5</span>
+        </span>
+      </div>
+      <div class="meta">
+        <div class="name">A. 环 + 计数 <span class="tag">推荐</span></div>
+        <div class="desc">沿用现在收拢态的视觉，只去掉「默认展开」：信息量最小，不抢输入框注意力，进度一眼可读。</div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="demo">
+        <span class="todo-pill todo-pill--running pill--current">
+          <span class="todo-ring" data-complete="false" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <circle class="track" cx="12" cy="12" r="9"></circle>
+              <circle class="bar" cx="12" cy="12" r="9" transform="rotate(-90 12 12)" style="stroke-dashoffset:28.28"></circle>
+            </svg>
+            <svg class="check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="m8.4 12.4 2.3 2.3 4.9-5.6"></path></svg>
+          </span>
+          <span class="todo-content">调整 todo-summary.css 的浮层定位…</span>
+          <span class="todo-count" style="color:var(--muted-foreground)">2/5</span>
+        </span>
+      </div>
+      <div class="meta">
+        <div class="name">B. 环 + 当前任务 + 计数</div>
+        <div class="desc">收拢态就能看到正在做什么，代价是胶囊变宽、单行截断，会跟输入框抢一点注意力。</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>交互契约</h2>
+  <ul class="contract">
+    <li><b>默认形态</b><span>收拢。不常驻任务列表：旧的 <code>useState(true)</code> 改成 <code>false</code>，新快照到达也不再自动展开。</span></li>
+    <li><b>展开触发</b><span><code>:hover</code> / <code>:focus-within</code>（键盘 Tab 到胶囊即展开）+ 触摸端点击切换。不用<code>mouseenter</code> 也能工作，CSS 负责状态。</span></li>
+    <li><b>收拢触发</b><span>指针离开胶囊与浮层后 <code>100ms</code> 宽限再淡出（宽限期内指针移进浮层则不收），离开即收，不做「点击别处才关」。</span></li>
+    <li><b>桥接区</b><span>胶囊与浮层之间 6px 空隙由浮层的 <code>::after</code> 覆盖，指针穿过时 hover 不断链。</span></li>
+    <li><b>内容</b><span>只有任务行：状态图标 + 任务文本。去掉标题、<code>completed/total</code> 统计文案、每行「已完成/进行中/待执行」标签与「已更新」标记。</span></li>
+    <li><b>位置</b><span><code>position: absolute; bottom: calc(100% + .375rem)</code> 锚在胶囊正上方，向上弹出，不挤压落款输入区（不改变 dock 高度，避免输入框跳动）。</span></li>
+    <li><b>层级</b><span>浮层 <code>z-index: 30</code>；实现时确认 composer dock 及祖先没有 <code>overflow: hidden</code> 裁掉浮层（必要时提到 <code>TodoWriteSummary</code> 外层再定位）。</span></li>
+    <li><b>动效</b><span>进入 <code>--quickforge-dur-base</code>（180ms）：淡入 + 上移 3px + 0.985→1 缩放，origin 在底部；退出 <code>--quickforge-dur-exit</code>（140ms）。全部引用 motion token。</span></li>
+    <li><b>降级</b><span><code>prefers-reduced-motion</code> 下取消位移/缩放，仅保留显隐；触摸端无 hover，靠点击。</span></li>
+  </ul>
+  <p class="rm-note">待确认：收拢形态选 A 还是 B；移动端是否保留「点击胶囊弹出」（本稿已按保留设计）。</p>
+</div>
+
+<script>
+  const parse = (v) => (v === 'true' ? 'false' : 'true');
+  const light = document.getElementById('light');
+  const dark = document.getElementById('dark');
+  const pin = document.getElementById('pin');
+  const rm = document.getElementById('rm');
+
+  const setTheme = (mode) => {
+    document.documentElement.classList.toggle('dark', mode === 'dark');
+    light.setAttribute('aria-pressed', String(mode === 'light'));
+    dark.setAttribute('aria-pressed', String(mode === 'dark'));
+  };
+  light.addEventListener('click', () => setTheme('light'));
+  dark.addEventListener('click', () => setTheme('dark'));
+
+  const triggers = [...document.querySelectorAll('.todo-trigger')];
+
+  // 预览用：把两个示例同时固定展开
+  pin.addEventListener('click', () => {
+    const on = pin.getAttribute('aria-pressed') !== 'true';
+    pin.setAttribute('aria-pressed', String(on));
+    triggers.forEach((a) => a.classList.toggle('is-open', on));
+    document.querySelectorAll('.todo-pill').forEach((p) => p.setAttribute('aria-expanded', String(on)));
+  });
+
+  // 触摸端 / 点击也能切换（桌面 hover 由 CSS 承担）
+  document.querySelectorAll('.todo-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      const trigger = pill.closest('.todo-trigger');
+      const open = !trigger.classList.contains('is-open');
+      trigger.classList.toggle('is-open', open);
+      pill.setAttribute('aria-expanded', String(open));
+      if (open) pin.setAttribute('aria-pressed', 'false');
+    });
+  });
+
+  rm.addEventListener('click', () => {
+    rm.setAttribute('aria-pressed', parse(rm.getAttribute('aria-pressed')));
+    document.documentElement.dataset.rm = rm.getAttribute('aria-pressed') === 'true' ? 'true' : 'false';
+  });
+
+  // 便于截图/评审：?open=1 直接固定展开，?theme=dark 直接深色
+  const params = new URLSearchParams(location.search);
+  if (params.get('theme') === 'dark') setTheme('dark');
+  if (params.get('open') === '1') pin.click();
+</script>
+</body>
+</html>

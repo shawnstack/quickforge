@@ -128,13 +128,20 @@ describe('TodoWrite history renderer', () => {
     expect(i18n).toContain("todoWriteHistoryNeutral: '任务清单更新'")
   })
 
-  it('uses a normal-flow composer layout with bounded scrolling, focus, responsive, and reduced-motion handling', () => {
+  it('keeps the capsule in normal flow and hangs the task popover above it', () => {
     const block = css.slice(css.indexOf('/* TodoWrite task summary'), css.indexOf('/* Desktop pinned summary'))
     expect(css).toMatch(/\.quickforge-composer-shell\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;/)
     expect(block).toMatch(/\.quickforge-todo-summary\s*\{[\s\S]*?width:\s*100%;[\s\S]*?flex:\s*none;/)
+    expect(block).toMatch(/\.quickforge-todo-summary-popover\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?bottom:\s*100%;/)
+    // The popover is the only floating piece: the section itself must stay in
+    // flow so the composer dock height (and the editor under it) never jumps.
+    const sectionBlock = block.slice(block.indexOf('.quickforge-todo-summary {'), block.indexOf('.quickforge-todo-summary-trigger {'))
+    expect(sectionBlock).not.toMatch(/position:\s*(?:sticky|fixed|absolute)/)
+    // No fixed positioning and no backdrop blur anywhere in the capsule: it is
+    // a composer-adjacent affordance, not a modal.
+    expect(block).not.toMatch(/position:\s*fixed/)
+    expect(block).not.toMatch(/backdrop-filter/)
     expect(block).toMatch(/\.quickforge-todo-summary-list\s*\{[\s\S]*?max-height:[^;]+;[\s\S]*?overflow-y:\s*auto;[\s\S]*?overscroll-behavior:\s*contain;/)
-    expect(block).not.toMatch(/position:\s*(?:sticky|fixed|absolute)/)
-    expect(block).not.toMatch(/\btop\s*:|\bz-index\s*:|backdrop-filter/)
     expect(css).toContain('.quickforge-todo-summary-toggle:focus-visible')
     expect(css).toContain('@media (max-width: 640px)')
     expect(block).toMatch(/@media \(max-width: 640px\)[\s\S]*?\.quickforge-todo-summary-list\s*\{[\s\S]*?max-height:/)

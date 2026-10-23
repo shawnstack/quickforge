@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { t } from '@/lib/i18n'
 import { todoStatusLabel } from '@/lib/todo-status'
 import { TodoStatusIcon } from '@/lib/todo-status-icon'
@@ -10,37 +10,45 @@ import {
 } from '../panel-decoration/todo-write-summary'
 
 /**
- * TodoWrite capsule above the composer, previously injected by
- * `panel-decoration/todo-write-summary.ts`.
+ * TodoWrite capsule above the composer.
  *
- * The decoration maintained the subtree by hand: it created the ring/stats/
- * chevron once and then mutated `textContent`, `hidden`, `style` and
- * `dataset` in place so the CSS capsule morph and the progress arc could
- * animate between snapshots. React renders the same structure, and the
- * animation contract survives because the element types and keys are stable —
- * the DOM nodes are reused across renders exactly like the hand-written
- * "create once, mutate after" path did.
+ * Collapsed by default: the capsule is only a progress pill (arc + completed/
+ * total). Pointing at it — or focusing it with the keyboard — pops the task list
+ * up *above* the pill; leaving collapses it again. The popover carries nothing
+ * but the tasks: no heading, no stats line, no per-row status word, no "updated"
+ * marker. Status is told by the glyph, the colour and the weight, and the status
+ * word survives only as screen-reader text.
  *
- * Four behaviours are stateful and therefore explicit here:
- * - the capsule starts expanded, and a new snapshot round re-expands it (the
- *   list is the point of the capsule while a round is running);
- * - a new (non-first) snapshot briefly shows the "updated" marker;
+ * The DOM is intentionally flat (`section > trigger > [pill, popover]`) so the
+ * popover is a *descendant* of the pointer target: the pointer can travel from
+ * the pill into the card without leaving the subtree, which is what removes the
+ * classic "popover closes while I move towards it" flicker. The gap itself
+ * belongs to the popover box (`padding-bottom`), so it is part of the hit area.
+ *
+ * Open/closed is React state, not CSS `:hover`, so `aria-expanded` can never
+ * disagree with what is on screen:
+ * - `hovered` / `focused` open it for mouse and keyboard;
+ * - `pinned` is the click latch, the only way in on touch (no hover) and the
+ *   thing Escape clears;
  * - a cleanly finished round leaves the composer once the agent is idle
  *   (`retiredKey`), after one exit fade so the dock does not jump;
  * - an explicit empty snapshot / rollback resets everything.
  *
  * The snapshot itself arrives pre-resolved (`{snapshot, key} | null`): the
  * surface derives it once per agent snapshot and caches it by message-array
- * identity. Scanning the message list backwards here — which this component
- * used to do inside `useMemo` — made every composer re-render an O(messages)
- * walk, and the composer re-rendered on every keystroke before the input state
- * moved into `composer-store.ts`.
+ * identity. Scanning the message list backwards here — which this component used
+ * to do inside `useMemo` — made every composer re-render an O(messages) walk.
  */
 
 const RING_CIRCUMFERENCE = 2 * Math.PI * 9
-const UPDATED_MARKER_DURATION_MS = 1800
 /** Matches `--quickforge-dur-exit`: the leave transition, then unmount. */
 const RETIRE_DURATION_MS = 140
+/**
+ * Leave grace before the popover collapses. The popover is a descendant of the
+ * pointer target, so this is not needed for gap crossing — it only absorbs a
+ * pointer that clips the edge for a frame (and keeps a diagonal path calm).
+ */
+const HOVER_CLOSE_DELAY_MS = 120
 
 export type TodoWriteSummaryProps = {
   snapshot: { snapshot: TodoWriteSnapshot; key: string } | null
@@ -53,16 +61,31 @@ export type TodoWriteSummaryProps = {
   idle: boolean
 }
 
+/** `(hover: none)`: touch surfaces cannot hover, so they need the click latch. */
+function hoverUnavailable(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  return window.matchMedia('(hover: none)').matches
+}
+
 export function TodoWriteSummary({ snapshot, idle }: TodoWriteSummaryProps) {
   const latest = snapshot
   const todos = latest?.snapshot.todos ?? []
   const counts = todoWriteCounts(todos)
   const complete = counts.total > 0 && counts.completed === counts.total
   const snapshotKey = latest?.key ?? ''
+  const popoverId = `quickforge-todo-popover-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
 
-  const [trackedKey, setTrackedKey] = useState('')
-  const [expanded, setExpanded] = useState(true)
-  const [updatedKey, setUpdatedKey] = useState<string | null>(null)
+  // Collapsed is the resting state: a new snapshot does not re-expand anything,
+  // because the list no longer lives in the composer at all.
+  const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const [pinned, setPinned] = useState(false)
+  const closeTimerRef = useRef<number | null>(null)
+  // Set while a pointer press is in flight. A mouse click on the pill also
+  // focuses it; without this the popover would latch itself open on a plain
+  // click (`focused` stays true after the pointer leaves) instead of closing
+  // again. Only keyboard focus opens the popover.
+  const pointerDownRef = useRef(false)
   // The snapshot key whose capsule has already left. Keying the retirement (and
   // not a bare boolean) is what makes a new round come back for free: a new
   // snapshot has a new key, so it is never "retired" on arrival.
@@ -76,54 +99,76 @@ export function TodoWriteSummary({ snapshot, idle }: TodoWriteSummaryProps) {
   // go idle for less than one exit transition, so a fully completed list could
   // live above the composer forever.
   const [retiringKey, setRetiringKey] = useState<string | null>(null)
+  // The snapshot key the open flags currently belong to. A cleared snapshot (or a
+  // rollback) has to drop them, otherwise the next round would inherit a latched
+  // open popover from a list that no longer exists.
+  const [trackedOpenKey, setTrackedOpenKey] = useState('')
 
-  // Adjust state during render (React's documented "derive from props" path):
-  // a new snapshot round re-expands the capsule and arms the "updated" marker.
-  // Doing it here instead of in an effect avoids a second render pass with a
-  // stale snapshot visible.
-  if (trackedKey !== snapshotKey) {
-    setTrackedKey(snapshotKey)
-    // Every new snapshot (including an explicit clear) starts expanded.
-    setExpanded(true)
-    // The first snapshot of a session is not an "update".
-    setUpdatedKey(!snapshotKey || todos.length === 0 || trackedKey === '' ? null : snapshotKey)
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current === null) return
+    window.clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = null
   }
 
-  // The marker is a timed announcement: clear it after the display window. The
-  // effect only touches state from the timer callback, never synchronously.
-  useEffect(() => {
-    if (updatedKey === null) return undefined
-    const timer = setTimeout(() => setUpdatedKey(null), UPDATED_MARKER_DURATION_MS)
-    return () => clearTimeout(timer)
-  }, [updatedKey])
+  // A pending collapse must not survive unmount.
+  useEffect(() => clearCloseTimer, [])
+
+  // A cleared / reset snapshot drops every open flag: nothing is left to show, and
+  // the next round must not inherit a latched-open popover. Adjusted during render
+  // (React's "derive from props" path) rather than in an effect, so no cascading
+  // render pass is needed and the component never commits a stale open state.
+  if (snapshotKey === '' && trackedOpenKey !== '') {
+    setTrackedOpenKey('')
+    setPinned(false)
+    setHovered(false)
+    setFocused(false)
+  } else if (snapshotKey !== '' && trackedOpenKey !== snapshotKey) {
+    setTrackedOpenKey(snapshotKey)
+  }
+
+  const open = todos.length > 0 && (hovered || focused || pinned)
+
+  const scheduleCollapse = () => {
+    clearCloseTimer()
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null
+      setHovered(false)
+    }, HOVER_CLOSE_DELAY_MS)
+  }
+
+  const closePopover = () => {
+    clearCloseTimer()
+    setHovered(false)
+    setFocused(false)
+    setPinned(false)
+  }
+
+  // The pill's own click is the pointerless path: on touch (no hover) it latches
+  // the list open, and a second tap closes it. On a mouse the popover is already
+  // open from hover, so a click must not pin content the pointer is about to
+  // leave.
+  const handlePillClick = () => {
+    if (!hoverUnavailable()) return
+    clearCloseTimer()
+    setHovered(false)
+    setFocused(false)
+    setPinned((value) => !value)
+  }
 
   // Finished list + idle agent ⇒ leave the composer. `fading` is derived, not
   // stored: the exit attribute is on from the first commit, the CSS exit
   // transition runs against the previously rendered opacity, and the effect only
   // schedules the unmount once that transition is over.
   //
-  // `retired` is keyed by snapshot and sticky: once this snapshot's list has left,
-  // it stays gone. Without the stickiness the next user message (which flips
-  // `idle` back to false) re-armed `shouldRetire` as false and the finished list
-  // flashed back in for the duration of the round. A new `todo_write` produces a
-  // new key, which is what brings the capsule back.
-  //
-  // `shouldRetire` alone is not enough to drive the exit: it is a *live* predicate,
-  // so the instant another round starts it goes false, the timer cleanup cancels
-  // the countdown and the capsule re-arms at full opacity. Back-to-back rounds
-  // (goal continuation, queued messages, background task notifications) keep the
-  // agent idle for far less than one exit transition, so a finished list could be
-  // re-armed forever without ever completing its exit — which reads as "the
-  // completed list never goes away". The latch below makes the first observation
-  // of "idle + all completed" for a snapshot irreversible: from then on the exit
-  // runs to completion regardless of `idle`. A newer snapshot has a different key,
-  // so it is not latched and shows normally.
+  // `shouldRetire` alone is not enough to drive the exit: it is a *live*
+  // predicate, so the instant another round starts it goes false and the capsule
+  // re-arms at full opacity. The latch below makes the first observation of
+  // "idle + all completed" for a snapshot irreversible.
   const shouldRetire = shouldRetireTodoSummary({ todos, idle })
   if (shouldRetire && snapshotKey !== '' && retiringKey !== snapshotKey) {
-    // Adjust state during render (same documented path as `trackedKey`): the
-    // latch must be armed in the render that observed it, so the very first
-    // commit already carries `data-fading` and the exit transition starts from
-    // the fully opaque frame.
+    // Adjust state during render (React's documented "derive from props" path):
+    // the latch must be armed in the render that observed it, so the very first
+    // commit already carries `data-fading`.
     setRetiringKey(snapshotKey)
   }
   const retired = snapshotKey !== '' && retiredKey === snapshotKey
@@ -141,23 +186,69 @@ export function TodoWriteSummary({ snapshot, idle }: TodoWriteSummaryProps) {
 
   const progress = counts.total > 0 ? counts.completed / counts.total : 0
   const ringOffset = (RING_CIRCUMFERENCE * (1 - progress)).toFixed(2)
+  const count = `${counts.completed}/${counts.total}`
 
   return (
     <section
       className="quickforge-todo-summary"
       aria-label={t('todoWriteTitle')}
-      data-expanded={String(expanded)}
+      data-expanded={String(open)}
       data-complete={String(complete)}
       data-running={String(counts.inProgress > 0)}
       data-fading={String(fading)}
       inert={fading ? true : undefined}
     >
-      <div className="quickforge-todo-summary-toggle-row">
+      {/* The pointer/focus target. The popover lives inside it so the pointer can
+          travel from the pill into the card without leaving the subtree. */}
+      <div
+        className="quickforge-todo-summary-trigger"
+        onPointerOver={(event) => {
+          // Touch taps also emit pointerover but never a matching pointerout, so
+          // they go through the click latch instead.
+          if (event.pointerType === 'touch') return
+          clearCloseTimer()
+          setHovered(true)
+        }}
+        onPointerOut={(event) => {
+          if (event.pointerType === 'touch') return
+          const next = event.relatedTarget as Node | null
+          if (next && event.currentTarget.contains(next)) return
+          scheduleCollapse()
+        }}
+        onPointerDown={() => {
+          pointerDownRef.current = true
+        }}
+        onPointerUp={() => {
+          pointerDownRef.current = false
+        }}
+        onPointerCancel={() => {
+          pointerDownRef.current = false
+        }}
+        onFocus={() => {
+          // Clicking the pill focuses it too. Only keyboard focus opens the
+          // popover, otherwise a click would latch it open and the popover would
+          // stay after the pointer left (hover is the pointer's own signal).
+          if (pointerDownRef.current) return
+          clearCloseTimer()
+          setFocused(true)
+        }}
+        onBlur={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+          setFocused(false)
+        }}
+      >
         <button
           type="button"
           className="quickforge-todo-summary-toggle"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={open}
+          aria-controls={popoverId}
+          aria-label={`${t('todoWriteTitle')} ${count}`}
+          onClick={handlePillClick}
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape' || !open) return
+            event.stopPropagation()
+            closePopover()
+          }}
         >
           {/* Style carries only the arc offset so the CSS transition runs from
               the previous value instead of restarting on a rebuilt node. */}
@@ -175,41 +266,36 @@ export function TodoWriteSummary({ snapshot, idle }: TodoWriteSummaryProps) {
               <path d="m8.4 12.4 2.3 2.3 4.9-5.6" />
             </svg>
           </span>
-          <span className="quickforge-todo-summary-heading">{t('todoWriteTitle')}</span>
-          <span className="quickforge-todo-summary-stats">{t('todoWriteStats', counts)}</span>
-          <span className="quickforge-todo-summary-stats-compact" aria-hidden="true">{`${counts.completed}/${counts.total}`}</span>
-          {/* Always rendered, hidden via the `hidden` attribute: the marker is a
-              live region, and removing it would drop the announcement. */}
-          <span className="quickforge-todo-summary-updated" aria-live="polite" hidden={updatedKey === null}>
-            {t('todoWriteUpdated')}
-          </span>
-          <span className="quickforge-todo-summary-spacer" aria-hidden="true" />
-          <span className="quickforge-todo-summary-chevron">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="m9 18 6-6-6-6" />
-            </svg>
-          </span>
+          {/* The count is the whole collapsed state. The list itself is in the
+              popover, and the pill's accessible name already carries the tally. */}
+          <span className="quickforge-todo-summary-count" aria-hidden="true">{count}</span>
         </button>
-      </div>
-      <div className="quickforge-todo-summary-body" hidden={!expanded}>
-        <div className="quickforge-todo-summary-body-inner">
-          {/* The body is just the list. No per-status tally and no "working on"
-              restatement: each row already carries its own status (icon, colour,
-              weight), and the running row is the highlighted one. */}
-          <ul className="quickforge-todo-summary-list">
-            {todos.map((todo: TodoWriteItem, index) => (
-              <li
-                key={`${index}:${todo.content}`}
-                className={`quickforge-todo-summary-item quickforge-todo-summary-item--${todo.status}`}
-              >
-                <span className="quickforge-todo-summary-status-icon">
-                  <TodoStatusIcon status={todo.status} />
-                </span>
-                <span className="quickforge-todo-summary-content">{todo.content}</span>
-                <span className="quickforge-todo-summary-status-label">{todoStatusLabel(todo.status)}</span>
-              </li>
-            ))}
-          </ul>
+        {/* Always mounted and driven by `data-open`: the collapse is a CSS
+            transition (opacity + a small downward slide), and the closed state is
+            `visibility: hidden` + `pointer-events: none` — it holds nothing
+            focusable, so a closed popover cannot be tabbed into. */}
+        <div className="quickforge-todo-summary-popover" id={popoverId} data-open={String(open)}>
+          <div className="quickforge-todo-summary-popover-card">
+            {/* The popover is just the list. No heading, no tally, no "working
+                on" restatement: each row carries its own status through icon,
+                colour and weight. */}
+            <ul className="quickforge-todo-summary-list">
+              {todos.map((todo: TodoWriteItem, index) => (
+                <li
+                  key={`${index}:${todo.content}`}
+                  className={`quickforge-todo-summary-item quickforge-todo-summary-item--${todo.status}`}
+                >
+                  <span className="quickforge-todo-summary-status-icon">
+                    <TodoStatusIcon status={todo.status} />
+                  </span>
+                  {/* Visually hidden, kept for screen readers: the glyph is the
+                      only status signal on screen. */}
+                  <span className="quickforge-todo-summary-status-label">{todoStatusLabel(todo.status)}</span>
+                  <span className="quickforge-todo-summary-content">{todo.content}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </div>
     </section>

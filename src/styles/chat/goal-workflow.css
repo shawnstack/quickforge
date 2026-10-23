@@ -542,7 +542,8 @@ html.dark .quickforge-goal-report-criterion[data-status="passed"] .quickforge-go
   gap: 0.125rem;
 }
 
-/* 项数 >5 时限高滚动，与胶囊 .quickforge-todo-summary-list 同 7.5rem 基准 */
+/* 项数 >5 时限高滚动；历史卡保持紧凑的 7.5rem 基准（composer 上方的
+   .quickforge-todo-summary-list 已迁入悬停浮层，改用更大的 14rem 上限） */
 .quickforge-todo-history-list--scrollable {
   max-height: 7.5rem;
   overflow-y: auto;

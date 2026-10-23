@@ -1,6 +1,36 @@
 {
   "features": [
     {
+      "id": "conversation-trace-view",
+      "name": "对话轨迹视图：对话区内的 Turn→Step→Tool 运行时视图（三轨时间总览 + 三模式 + 检查器）",
+      "description": "用户要求「设计对话功能的轨迹功能，可以看到每个工具的详情和时间轴，在对话顶部的分支旁边可以查看」，确认方案后要求「直接在对话区域展开」，参考 DSH Trajectory 重做原型，并确认保留时间总览、三种投影模式都要、检查器默认隐藏，然后开始实施。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "1) src/lib/conversation-trace.ts：纯投影 buildConversationTrace(messages,{pendingToolCalls,now}) → Turn→Step→Tool；轮次切分与 process-folding 的 decorateProcessBlocks 同语义；耗时只取 details.quickforgeTiming，尾步无记录时 undefined 不写 0；状态 done/error/running/interrupted；≥2 个 toolCall 标 parallelGroupId；traceRows/traceBounds/layoutTraceSpans（sequence|duration|time）/traceTurnMarkers/traceRowMatches/formatTraceDuration（未知→—）/countTraceTools。2) src/components/chat/trace/ConversationTraceView.tsx：工具栏（三模式/展开全部/搜索）+ 时间总览三轨（Input/Model/Tools，DOM+内联百分比，不用 viewBox SVG）+ Ledger（Turn→Step→Tool，工具行缩进 26px 带 1px 连接线）+ 按类型给页签的 Inspector（默认隐藏、Esc 关闭）+ 空状态。3) conversation-trace.css（组件自 import，同 goal-inspector.css 做法）：复用分割线配方与 --quickforge-dur-* / shimmer，每条 keyframes 都有 prefers-reduced-motion 降级。4) useUIState.conversationViewScope（scopeId+view，App 派生，切会话自动回对话，不用 setState-in-effect）+ App 顶部「对话/轨迹」切换器（Git 分支 pill 之后）+ .quickforge-trace-layer 覆盖层（刻意不卸载 SessionViewPool/ChatPanelHost，保住草稿与滚动位置）。5) i18n 中英各 64 个 trace.* key。",
+      "root_cause": "原对话区只有工具卡片：工具摊平在正文之间，无法竖向比较耗时、无法按轮次看整体、看不到每次模型请求的 token 与 stopReason，也没有地方集中看错误输出。DSH 的 Trajectory 证明这层信息可作为纯客户端投影从既有消息折叠出来；QuickForge 的 quickforgeTiming 在服务端写入且持久化不裁剪，因此不需要新增 append-only 事件日志。",
+      "files": [
+        "src/lib/conversation-trace.ts",
+        "src/components/chat/trace/ConversationTraceView.tsx",
+        "src/components/chat/trace/conversation-trace.css",
+        "src/hooks/useUIState.ts",
+        "src/App.tsx",
+        "src/lib/i18n.ts",
+        "tests/frontend/conversation-trace.test.ts",
+        "tests/frontend/conversation-trace-view.test.ts",
+        "tests/frontend/conversation-trace-contract.test.ts",
+        "docs/architecture/conversation-trace.zh-CN.md",
+        "docs/design/conversation-trace-mockup.html",
+        "docs/wiki/README.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向：npx vitest run conversation-trace{,-view,-contract}.test.ts → 3 文件 56 passed（投影 29 / 渲染 10 / 源码契约 17）；npx tsc --noEmit -p tsconfig.app.json 通过；npm run lint → 0 error（仅既有 GitToolsPinnedSummary warning）；npm run test 全量 → 422 文件 4874 passed / 2 skipped；npm run build 在隔离工作区里预先存在的无关 workflow 渲染重构（workflowSummaryKey 已删但仍被 import，非本次改动）后成功 4.05s。",
+      "boundaries": "不改服务端存储与事件协议（未新增事件表）；不改 SessionViewPool / ChatPanelHost / ChatSurface 内部语义；未新增或升级依赖（时间轴用 DOM+百分比，不引虚拟列表）；未做跨会话轨迹、深链接、轨迹内虚拟滚动；未触碰 dist/、package-dist/、package-offline/；未创建 Git commit。Notes：① build 失败来自工作区里预先存在的未完成改动（src/lib/workflow-run-detail.ts 删了 workflowSummaryKey，src/lib/tool-renderers/workflow-tool-renderer.tsx 仍 import），与轨迹无关，已用 stash 隔离验证；② 未做真实浏览器视觉验收（时间总览拖选手感、深色模式对比度、窄屏覆盖式 Inspector 需目视）；③ 工具数级 >500 行时首屏渲染会变慢（无虚拟滚动，已知取舍）；④ 顶部「轨迹」入口在 md 以下隐藏，移动端尚未提供入口。"
+    },
+    {
       "id": "goal-mode-ux-fix-strip",
       "name": "Goal 模式方案 A 落地：条带改目标卡（三段结构 + ⋯ 菜单 + 就地展开 + 5 状态词）",
       "description": "用户在设计稿 docs/design/goal-mode-ux-proposals.html 中选定方案 A 并要求执行。把输入框上方的 goal 条带从「fit-content 单行 + 4 个同权重 icon-only 按钮（暂停/编辑/清除/详情）」改成三段式目标卡：① 身份行（tone 图标 + 5 个用户可见状态词之一 + 次要阶段说明 + 唯一实心主操作 + ⋯ 菜单 + 展开箭头）；② 目标行（两行 line-clamp 截断，编辑态换输入框）；③ 进度行（验收分段条 + passed/total + 轮次 + 累计用时 + 预算耗尽 chip）。展开在原点渲染验收清单与预算；编辑/清除/打开完整面板收进 ⋯ 菜单；清除确认改锚定 popover；13 个服务器状态收敛为 5 个用户可见状态词。",
@@ -2487,6 +2517,25 @@
       "status": "done",
       "dependencies": [],
       "summary": "删除 server/image-generation.mjs 与测试、tools/index.mjs 的 generateSessionImages 导入与 handler 注册、routes/tools.mjs directRouteDisabledTools 条目；session-assets.mjs 移除仅被图片生成使用的 writeSessionAsset 写入路径（read/delete 与路由保留），MAX_SESSION_IMAGE_BYTES 改为模块私有。前端删除 tool-renderers/generate-image-tool-renderer.tsx、lib/generated-image-assets.ts 与测试，移除 tool-renderers/index.ts 导出、local-tools.ts 注册、i18n 中英 5 组词条、index.css 两处选择器与注释、approval-card BUILTIN_TOOL_LABELS 条目、process-folding 顶层排除特判、shared.tsx 图标分支、tool-param-summary 摘要分支；同步更新 approval-card/process-folding/tool-param-summary/chat-surface-css-contract/definitions/session-assets 六个测试文件。历史会话中的 generate_image 结果回落默认工具卡兜底渲染，已生成图片文件仍在会话资产目录且资产路由可读，但前端不再有查看/下载入口。文档同步：user-guide zh/en 删除「图片生成」小节，docs/wiki server/tools、server、src/lib、src/components、src 各 README 与 docs/architecture/session-open-fast-path.zh-CN.md 更新表述。无依赖变更；未手工修改生成产物；未提交。"
+    },
+    {
+      "id": "workflow-summary-hide-zero-agents",
+      "name": "工作流摘要不再显示「0 个智能体」",
+      "description": "工作流卡片与 Inspector 概览条直接拼接“智能体数 · 工具数”，脚本不调 agent() 时会显示「0 个智能体」这种无信息量的碎片。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "workflow-run-detail.ts 新增 workflowCountParts / workflowSummaryText（计数为 0 的片段整段省略，两个都为 0 时只保留状态），替代 workflowSummaryKey；聊天摘要卡与 WorkflowRunDetailContent 概览条共用同一口径；i18n 冗余的 4 条 workflowSummary* 模板删除。",
+      "files": [
+        "src/lib/workflow-run-detail.ts",
+        "src/lib/tool-renderers/workflow-tool-renderer.tsx",
+        "src/components/workspace/WorkflowRunDetailContent.tsx",
+        "src/lib/i18n.ts",
+        "tests/frontend/workflow-renderer.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "docs/architecture/workflow-orchestration.zh-CN.md"
+      ],
+      "verification": "npm run test 422 文件 4874 passed / 2 skipped；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc -b 通过；npm run build 成功。",
+      "boundaries": "只改摘要与概览条的文案拼接，不改计数口径（agentCount/toolCount 仍为登记数）、不动服务端、不新增依赖；未手工修改生成产物；未创建 Git commit。"
     }
   ]
 }

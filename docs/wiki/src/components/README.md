@@ -16,6 +16,19 @@ v2 goal 的 composer 条带完全对标 DSH 交互：**单行**显示图标 + ph
 
 # `src/components/` — React 组件
 
+## 对话轨迹视图（`chat/trace/`）
+
+轨迹是**对话区的第二种视图**：对话区顶部「对话 / 轨迹」切换器把 `ChatSurface` 换成 `ConversationTraceView`，不弹窗、不占侧栏。实现分两层——`src/lib/conversation-trace.ts` 是纯投影（`agent.state.messages` → Turn→Step→Tool），`chat/trace/ConversationTraceView.tsx` 只负责画。
+
+- **挂载方式**：`App.tsx` 在 `ChatConversationSurface` 内渲染 `.quickforge-trace-layer`（绝对定位覆盖层）。刻意**不卸载** `SessionViewPool`/`ChatPanelHost`——输入框草稿、滚动锚点、消息窗口都在里面，卸载后切回要整树重建。视图选择存 `useUIState.conversationViewScope = { scopeId, view }`，App 按 `scopeId === currentRuntimeScopeId` 派生，切会话自动回对话视图（不用 `useEffect` + `setState` 重置，那个写法会被 `react-hooks/set-state-in-effect` 判 error）。
+- **数据不新增持久化**：轮次来自 `user` 消息、步骤来自 `assistant` 消息、工具耗时来自 `details.quickforgeTiming`（服务端 `tool-wiring.mjs` 写入，canonical JSON 不裁剪，回放可用）。状态判定：有 result → `done`/`error`；无 result 且在 `pendingToolCalls` → `running`；否则 `interrupted`。
+- **时间总览**三轨（Input/Model/Tools）× 三模式（等宽/耗时/时钟），DOM + 内联百分比定位，**不用**固定 `viewBox` 的 SVG（会把字号随面板宽度缩掉，契约同 `WorkflowRunDetailContent`）。只有「时钟」模式的横向位置等于真实时间，因此只有它允许拖选筛区间。
+- **诚实计时**：尾步没有后续记录时 `durationMs` 为 `undefined` 而不是 `0`，行与检查器显示「进行中 — 尚无结束时间」；`formatTraceDuration` 对未知值返回 `—`。视图内不调 `Date.now()`（`react-hooks/purity`），`now` 由组件顶层传入。
+- **检查器**默认隐藏，选中行才出现；按记录类型给页签（Tool: 概要/参数/结果/计时；Step: 概要/输出/用量/原始；User: 概要/原始）。`Esc` 关闭，窄屏（≤48rem）改为覆盖整块主体。
+- 样式在独立 `conversation-trace.css`（组件自 import，同 `goal-inspector.css` 做法），分割线用 `color-mix(in oklab, var(--border) 60%, transparent)`，动效全走 `--quickforge-dur-*` 且带 `prefers-reduced-motion` 降级。
+
+验证：`tests/frontend/conversation-trace.test.ts`（投影 29 例）、`conversation-trace-view.test.ts`（渲染 10 例）、`conversation-trace-contract.test.ts`（源码/CSS 契约 17 例）。设计与边界见 [对话轨迹](../../../architecture/conversation-trace.zh-CN.md)。
+
 ## Goal 内部运行消息呈现
 
 `goal-internal-message.ts` 仅认 `role=user` 且 `metadata.quickforgeGoalRun` 严格为 `execution` / `planning`，不按中文正文猜测。`message-actions.ts` 可逆/幂等标记专用 class 并移除内部动作；CSS 隐藏正文、操作与空白（display:none，不留可聚焦隐藏按钮），保留 user-message DOM 宿主作为分轮边界与原索引锚点。有直接子级迭代分隔线时只显示分隔线；已折叠为空的 assistant source 同样保留直接分隔线。真实用户同文本不隐藏，实质 assistant 不按字符串删改。

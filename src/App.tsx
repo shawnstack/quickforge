@@ -4,6 +4,7 @@ import type { BackgroundTaskStatus } from '@/lib/types'
 import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import { createTaskLauncherVisibility } from '@/components/chat/task-launcher-visibility'
 import {
+  Activity,
   Archive,
   ChevronDown,
   Ellipsis,
@@ -12,6 +13,7 @@ import {
   Info,
   LogOut,
   Menu,
+  MessageSquare,
   PanelRight,
   Pencil,
   Pin,
@@ -46,6 +48,7 @@ import { OPEN_GOAL_SUMMARY_EVENT, syncGoalUiState } from '@/lib/goal-ui'
 import { OPEN_WORKFLOW_RUN_EVENT, normalizeOpenWorkflowRunRequest, workflowRunStore, type WorkflowRunPayload } from '@/lib/workflow-run-payload'
 import type { GoalAction, GoalActionOptions } from '@/lib/goal'
 import { saveGoalObjective } from '@/lib/goal-edit'
+import { countTraceTools } from '@/lib/conversation-trace'
 import type {
   AgentAccessMode,
   ProjectInfo,
@@ -60,6 +63,7 @@ import { isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '@/c
 import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
 import { TurnRollbackDialog } from '@/components/chat/FileRollbackDialog'
 import { ChatConversationSurface } from '@/components/chat/ChatConversationSurface'
+import { ConversationTraceView, type TraceAgentLike } from '@/components/chat/trace/ConversationTraceView'
 import { SessionViewPool } from '@/components/chat/SessionViewPool'
 import { extractLatestTodoWriteSnapshot } from '@/components/chat/panel-decoration'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
@@ -510,6 +514,23 @@ function MainApp() {
   }, [agentManager.agent])
 
   const pinnedSummaryMessages = agentManager.agent?.state.messages ?? []
+
+  // 对话区视图：只有「打开视图的会话」仍是当前会话时才生效，切会话自动回对话。
+  const conversationView: 'chat' | 'trace' =
+    ui.conversationViewScope?.scopeId === agentManager.currentRuntimeScopeId
+      ? ui.conversationViewScope.view
+      : 'chat'
+  const setConversationViewScope = ui.setConversationViewScope
+  const setConversationView = useCallback((view: 'chat' | 'trace') => {
+    setConversationViewScope({ scopeId: agentManager.currentRuntimeScopeId, view })
+  }, [setConversationViewScope, agentManager.currentRuntimeScopeId])
+
+  // 顶部「轨迹」徽标只数工具调用，不跑完整投影（切视图时才 fold）。
+  const traceToolCount = useMemo(
+    () => countTraceTools(pinnedSummaryMessages),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
+    [pinnedSummaryMessages, pinnedSummaryRevision],
+  )
   const pinnedSummaryTodos = useMemo(() => (
     extractLatestTodoWriteSnapshot(pinnedSummaryMessages)?.todos ?? []
   // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
@@ -2061,6 +2082,29 @@ function MainApp() {
                   ) : null}
                 </div>
               ) : null}
+              {agentManager.currentSessionId ? (
+                <div className="quickforge-chat-view-switch hidden md:inline-flex" role="tablist" aria-label={t('trace.title')}>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={conversationView === 'chat'}
+                    onClick={() => setConversationView('chat')}
+                  >
+                    <MessageSquare className="size-[14px]" />
+                    <span>{t('trace.viewChat')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={conversationView === 'trace'}
+                    onClick={() => setConversationView('trace')}
+                  >
+                    <Activity className="size-[14px]" />
+                    <span>{t('trace.viewTrace')}</span>
+                    {traceToolCount > 0 ? <span className="quickforge-chat-view-switch-count">{traceToolCount}</span> : null}
+                  </button>
+                </div>
+              ) : null}
               <div className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
                 <Button
                   variant="ghost"
@@ -2147,6 +2191,20 @@ function MainApp() {
                   showNewChatEmptyState ? 'quickforge-empty-chat' : undefined,
                   renderedLoadingSessionId === visibleLoadingSessionId && 'quickforge-conversation-enter',
                 )}>
+                  {/*
+                    轨迹视图：铺在对话区之上的同级视图（不是浮层、不是侧栏）。
+                    刻意不卸载 SessionViewPool —— ChatSurface 的滚动位置、输入框草稿、
+                    消息窗口都在它里面，卸载后切回会整树重建；用不透明背景覆盖即可
+                    达到「对话区换成轨迹」的视觉效果，且切回零成本。
+                  */}
+                  {conversationView === 'trace' && agentManager.agent ? (
+                    <div className="quickforge-trace-layer">
+                      <ConversationTraceView
+                        agent={agentManager.agent as unknown as TraceAgentLike}
+                        onOpenChat={() => setConversationView('chat')}
+                      />
+                    </div>
+                  ) : null}
                   {showNewChatEmptyState ? (
                     <div className="quickforge-empty-chat-hero" aria-hidden="true">
                       <h1 className="quickforge-empty-chat-title">{newChatGreeting}</h1>

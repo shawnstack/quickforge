@@ -26,6 +26,15 @@ export function useUIState() {
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsInitialTab>('defaults')
   const [settingsCustomProvider, setSettingsCustomProvider] = useState<string>()
+  /**
+   * 对话区视图选择，绑定到打开它的会话作用域（runtimeScopeId）。
+   *
+   * 存成 { scopeId, view } 而不是裸字符串，是为了「切会话自动回到对话视图」：
+   * App 用 scopeId 是否等于当前 runtimeScopeId 派生实际视图，不需要在 effect 里
+   * setState 重置（那会被 react-hooks/set-state-in-effect 判 error，也与
+   * workspaceInspectorOpenScopeId 的既有做法一致）。
+   */
+  const [conversationViewScope, setConversationViewScope] = useState<{ scopeId: string; view: 'chat' | 'trace' } | null>(null)
 
   const toggleProjectsCollapsed = useCallback(() => setProjectsCollapsed(v => !v), [])
   const togglePinnedCollapsed = useCallback(() => setPinnedCollapsed(v => !v), [])
@@ -47,6 +56,7 @@ export function useUIState() {
     settingsDialogOpen, setSettingsDialogOpen,
     settingsInitialTab, setSettingsInitialTab,
     settingsCustomProvider, setSettingsCustomProvider,
+    conversationViewScope, setConversationViewScope,
     toggleProjectsCollapsed,
     togglePinnedCollapsed,
     toggleConversationsCollapsed,

@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>对话轨迹 · 配色方案（清新克制版）</title>
+<style>
+  /* 令牌数值与 src/index.css / conversation-trace.css 保持一致，仅作视觉评审用。 */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --workflow-done: oklch(0.55 0.13 158);
+    --border: oklch(0.922 0 0);
+    --main-bg: #ffffff;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --divider: color-mix(in oklab, var(--border) 60%, transparent);
+
+    /* ── 新增：轨迹色相 ─────────────────────────────────────────── */
+    --hue-input: oklch(0.6 0.1 250);
+    --hue-model: oklch(0.54 0.18 228);
+    --hue-tool: oklch(0.57 0.15 188);
+    --track: color-mix(in oklab, var(--muted) 55%, transparent);
+    --text-input: oklch(0.5 0.12 250);
+    --text-model: oklch(0.45 0.17 228);
+    --text-tool: oklch(0.47 0.13 188);
+  }
+
+  html.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --workflow-done: oklch(0.75 0.15 160);
+    --border: oklch(0.275 0 0);
+    --main-bg: #0b0b0b;
+    --hue-input: oklch(0.8 0.1 250);
+    --hue-model: oklch(0.82 0.16 230);
+    --hue-tool: oklch(0.83 0.14 188);
+    --track: color-mix(in oklab, var(--muted) 70%, transparent);
+    --text-input: oklch(0.84 0.11 250);
+    --text-model: oklch(0.85 0.16 230);
+    --text-tool: oklch(0.85 0.14 188);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: var(--font-sans); font-size: 14px; line-height: 1.55;
+    background: var(--main-bg); color: var(--foreground); -webkit-font-smoothing: antialiased;
+    transition: background 180ms cubic-bezier(0.2,0,0,1), color 180ms cubic-bezier(0.2,0,0,1);
+  }
+  .page { max-width: 1060px; margin: 0 auto; padding: 28px 24px 72px; }
+  h1 { margin: 0 0 4px; font-size: 19px; font-weight: 600; }
+  .sub { margin: 0 0 24px; font-size: 13px; color: var(--muted-foreground); }
+
+  h2 {
+    margin: 30px 0 10px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+    text-transform: uppercase; color: color-mix(in oklab, var(--hue-model) 34%, var(--muted-foreground));
+  }
+  .hint { margin: 0 0 14px; font-size: 12px; color: var(--muted-foreground); }
+
+  .toggle {
+    position: fixed; right: 18px; top: 18px; z-index: 10; height: 32px; padding: 0 14px;
+    border: 1px solid var(--divider); border-radius: 999px; background: var(--card);
+    color: var(--foreground); font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  .toggle:hover { background: var(--muted); }
+
+  /* ── 色板 ─────────────────────────────────────────────────── */
+  .swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .swatch { border: 1px solid var(--divider); border-radius: 10px; overflow: hidden; }
+  .swatch-chip { height: 56px; }
+  .swatch-body { padding: 9px 11px; font-size: 11.5px; }
+  .swatch-body b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+  .swatch-body code { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-foreground); }
+
+  /* ── 面板复刻 ─────────────────────────────────────────────── */
+  .panel {
+    border: 1px solid var(--divider); border-radius: 12px; overflow: hidden;
+    background: var(--main-bg);
+  }
+  .borderline { border-bottom: 1px solid var(--divider); }
+
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; }
+  .seg { display: inline-flex; gap: 1px; padding: 2px; border: 1px solid var(--divider); border-radius: 7px; }
+  .seg span {
+    height: 24px; padding: 0 8px; display: inline-flex; align-items: center;
+    border-radius: 5px; font-size: 11.5px; color: var(--muted-foreground);
+  }
+  .seg span.on {
+    background: color-mix(in oklab, var(--hue-model) 20%, transparent);
+    color: var(--text-model);
+    font-weight: 500;
+  }
+
+  .overview { padding: 8px 12px 6px; }
+  .ov-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; font-size: 11px; color: var(--muted-foreground); }
+  .grid { display: grid; grid-template-columns: 44px 1fr; gap: 0 8px; }
+  .lanes { display: flex; flex-direction: column; gap: 3px; }
+  .lanes span {
+    height: 16px; display: flex; align-items: center; font-size: 9.5px;
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  .lanes span:nth-child(1) { color: var(--text-input); opacity: .72; }
+  .lanes span:nth-child(2) { color: var(--text-model); opacity: .82; }
+  .lanes span:nth-child(3) { color: var(--text-tool); opacity: .82; }
+
+  .track { position: relative; display: flex; flex-direction: column; gap: 3px; }
+  .lane { position: relative; height: 16px; border-radius: 3px; background: var(--track); }
+  .bar { position: absolute; top: 3px; height: 10px; border-radius: 2.5px; }
+  .bar.input { top: 5px; height: 6px; background: color-mix(in oklab, var(--hue-input) 70%, transparent); }
+  .bar.model { background: color-mix(in oklab, var(--hue-model) 88%, transparent); }
+  .bar.tool { background: color-mix(in oklab, var(--hue-tool) 92%, transparent); }
+  .bar.err { background: color-mix(in oklab, var(--destructive) 72%, transparent); }
+  .bar.run {
+    background: linear-gradient(90deg,
+      color-mix(in oklab, var(--workflow-done) 30%, transparent),
+      var(--workflow-done),
+      color-mix(in oklab, var(--workflow-done) 30%, transparent));
+    background-size: 200% 100%; animation: shimmer 2s ease-in-out infinite;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .marker { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--divider); }
+  .highlight {
+    position: absolute; top: 0; bottom: 0;
+    background: color-mix(in oklab, var(--hue-model) 12%, transparent);
+    border-left: 1px solid color-mix(in oklab, var(--hue-model) 70%, transparent);
+    border-right: 1px solid color-mix(in oklab, var(--hue-model) 70%, transparent);
+  }
+
+  /* ── Ledger ───────────────────────────────────────────────── */
+  .ledger { padding: 6px 8px 12px; }
+  .turn { border: 1px solid var(--divider); border-radius: 9px; margin-bottom: 8px; overflow: hidden; }
+  .turn-head {
+    display: flex; align-items: center; gap: 7px; padding: 7px 10px; font-size: 11.5px;
+    color: var(--muted-foreground);
+    background: color-mix(in oklab, var(--muted) 42%, transparent);
+    box-shadow: inset 2px 0 0 color-mix(in oklab, var(--foreground) 22%, transparent);
+  }
+  .turn-head b { color: var(--foreground); font-size: 12px; }
+  .turn-head .stat { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+  .row {
+    display: flex; align-items: center; gap: 7px; padding: 5px 10px 5px 22px;
+    font-size: 12.5px;
+  }
+  .row.sel {
+    background: color-mix(in oklab, var(--muted) 92%, transparent);
+    box-shadow: inset 2px 0 0 color-mix(in oklab, var(--foreground) 30%, transparent);
+  }
+  .rule { width: 2px; height: 15px; border-radius: 2px; background: color-mix(in oklab, var(--hue-input) 78%, transparent); }
+  .row.step { padding-left: 18px; }
+  .row.step .rule { background: color-mix(in oklab, var(--hue-model) 92%, transparent); }
+  .row.tool { padding-left: 40px; }
+  .row.tool .rule { background: color-mix(in oklab, var(--hue-tool) 95%, transparent); }
+  .row.err .rule { background: color-mix(in oklab, var(--destructive) 70%, transparent); }
+  .row.run .rule { background: var(--workflow-done); animation: breathe 1.6s ease-in-out infinite; }
+  @keyframes breathe { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
+
+  .badge {
+    padding: 0 4px; border: 1px solid var(--divider); border-radius: 3px;
+    font-size: 8.75px; letter-spacing: .05em; line-height: 15px; text-transform: uppercase; font-weight: 500;
+  }
+  .badge.user {
+    border-color: color-mix(in oklab, var(--hue-input) 48%, var(--border));
+    background: color-mix(in oklab, var(--hue-input) 16%, transparent);
+    color: var(--text-input);
+  }
+  .badge.step {
+    border-color: color-mix(in oklab, var(--hue-model) 50%, var(--border));
+    background: color-mix(in oklab, var(--hue-model) 17%, transparent);
+    color: var(--text-model);
+  }
+  .badge.tool {
+    border-color: color-mix(in oklab, var(--hue-tool) 50%, var(--border));
+    background: color-mix(in oklab, var(--hue-tool) 17%, transparent);
+    color: var(--text-tool);
+  }
+  .row .name { color: var(--foreground); }
+  .row .icon { color: color-mix(in oklab, var(--hue-tool) 92%, var(--muted-foreground)); display: inline-flex; }
+  .row .icon svg { width: 13px; height: 13px; }
+  .row .args { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted-foreground); }
+  .row .dur { font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .row.err .dur { color: var(--destructive); }
+  .par {
+    font-size: 9px; line-height: 14px; padding: 0 3px; border-radius: 3px;
+    border: 1px solid color-mix(in oklab, var(--hue-tool) 46%, var(--border));
+    background: color-mix(in oklab, var(--hue-tool) 10%, transparent);
+    color: var(--text-tool);
+  }
+  /* 工具行缩进连接线 */
+  .tool-zone { position: relative; }
+  .tool-zone::before {
+    content: ''; position: absolute; left: 12px; top: 0; bottom: 5px; width: 1px;
+    background: color-mix(in oklab, var(--hue-tool) 55%, var(--border));
+  }
+
+  /* ── 顶部切换器 ───────────────────────────────────────────── */
+  .switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: color-mix(in oklab, var(--muted) 70%, transparent); }
+  .switch span { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 12px; border-radius: 999px; font-size: 13px; color: var(--muted-foreground); }
+  .switch span.on { background: var(--background); color: var(--foreground); box-shadow: 0 1px 2px hsl(0 0% 0% / .06); }
+  .switch span.trace.on {
+    color: var(--text-model);
+    box-shadow: 0 1px 2px hsl(0 0% 0% / .06), inset 0 0 0 1px color-mix(in oklab, var(--hue-model) 55%, transparent);
+  }
+  .switch .n {
+    min-width: 16px; padding: 0 4px; border-radius: 999px; text-align: center;
+    font-size: 10.5px; font-variant-numeric: tabular-nums;
+    border: 1px solid color-mix(in oklab, var(--hue-model) 45%, var(--border));
+    background: color-mix(in oklab, var(--hue-model) 14%, transparent);
+    color: var(--text-model);
+  }
+
+  /* ── 对比：改前 / 改后 ─────────────────────────────────────── */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .cmp { border: 1px solid var(--divider); border-radius: 10px; padding: 10px 12px; }
+  .cmp h3 { margin: 0 0 8px; font-size: 11px; font-weight: 600; color: var(--muted-foreground); letter-spacing: .04em; }
+  .cmp .line { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; font-size: 11.5px; }
+  .cmp .sw { width: 26px; height: 10px; border-radius: 2px; }
+  .old .sw.model { background: color-mix(in oklab, var(--foreground) 28%, transparent); }
+  .old .sw.tool { background: color-mix(in oklab, var(--foreground) 42%, transparent); }
+  .new .sw.model { background: color-mix(in oklab, var(--hue-model) 88%, transparent); }
+  .new .sw.tool { background: color-mix(in oklab, var(--hue-tool) 92%, transparent); }
+  .cmp .note { margin: 8px 0 0; font-size: 11px; color: var(--muted-foreground); }
+
+  .rules { display: grid; gap: 8px; }
+  .rule-item { display: flex; gap: 9px; font-size: 12.5px; line-height: 1.6; }
+  .rule-item .k {
+    flex: 0 0 auto; width: 58px; font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--text-tool); padding-top: 3px;
+  }
+  .rule-item .v { min-width: 0; color: var(--muted-foreground); }
+  .rule-item .v b { color: var(--foreground); font-weight: 500; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bar.run, .row.run .rule { animation: none; }
+  }
+  @media (width <= 720px) {
+    .swatches { grid-template-columns: 1fr; }
+    .compare { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<button class="toggle" id="toggle" type="button">切到深色</button>
+<div class="page">
+  <h1>对话轨迹 · 配色方案</h1>
+  <p class="sub">只改颜色，不改任何结构与交互。主色调收敛到<b>蓝 → 青绿</b>（色相 150–260），不碰靛紫；饱和度按面积分级——小面积给满色，大面积只微带。</p>
+
+  <h2>一、三个色相</h2>
+  <p class="hint">三个色相全部落在蓝绿区间：Input 250（淡蓝）→ Model 228（亮蓝）→ Tools 188（青绿）。饱和度提高得不均匀——小面积元素承担辨识，大面积底色只轻微带色，所以颜色看得见，面板也不会变花。</p>
+  <div class="swatches">
+    <div class="swatch">
+      <div class="swatch-chip" style="background: color-mix(in oklab, var(--hue-input) 45%, transparent)"></div>
+      <div class="swatch-body">
+        <b style="color: var(--text-input)">Input · 用户输入（淡蓝）</b>
+        <code>oklch(0.6 0.1 250)</code>
+        <div style="color: var(--muted-foreground); margin-top: 4px">淡蓝，三条里最弱。用户消息是基准，不该抢焦点。</div>
+      </div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-chip" style="background: color-mix(in oklab, var(--hue-model) 62%, transparent)"></div>
+      <div class="swatch-body">
+        <b style="color: var(--text-model)">Model · 模型请求（亮蓝）</b>
+        <code>oklch(0.54 0.18 228)</code>
+        <div style="color: var(--muted-foreground); margin-top: 4px">亮蓝，整个视图的主角。轮次头、选中态、页签都用它。</div>
+      </div>
+    </div>
+    <div class="swatch">
+      <div class="swatch-chip" style="background: color-mix(in oklab, var(--hue-tool) 68%, transparent)"></div>
+      <div class="swatch-body">
+        <b style="color: var(--text-tool)">Tools · 工具执行（青绿）</b>
+        <code>oklch(0.57 0.15 188)</code>
+        <div style="color: var(--muted-foreground); margin-top: 4px">青绿，比 running 的绿冷 30°，类别色与状态色能同时读出来。</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>二、实际面板</h2>
+  <p class="hint">下面是按生产 CSS 复刻的轨迹视图。色彩只在<b>轨道、条形、徽标、行左侧规则条</b>上；<b>轮次头、选中态、文字、边框、分割线、工具栏</b>全部保持中性灰。</p>
+
+  <div style="margin-bottom: 14px">
+    <div class="switch">
+      <span>对话</span>
+      <span class="trace on">轨迹 <em class="n" style="font-style: normal">9</em></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="toolbar borderline">
+      <div class="seg"><span>等宽</span><span class="on">耗时</span><span>时钟</span></div>
+      <span style="font-size: 11.5px; color: var(--muted-foreground)">收起全部</span>
+    </div>
+
+    <div class="overview borderline">
+      <div class="ov-head">
+        <span>时间总览</span><span style="font-variant-numeric: tabular-nums">14:32:05 – 14:34:51</span>
+        <span style="opacity: .8">按耗时分配宽度</span>
+      </div>
+      <div class="grid">
+        <div class="lanes"><span>Input</span><span>Model</span><span>Tools</span></div>
+        <div class="track">
+          <div class="lane"><div class="bar input" style="left: 0; width: 6%"></div><div class="bar input" style="left: 62%; width: 5%"></div></div>
+          <div class="lane"><div class="bar model" style="left: 4%; width: 22%"></div><div class="bar model" style="left: 30%; width: 26%"></div><div class="bar model" style="left: 64%; width: 18%"></div></div>
+          <div class="lane">
+            <div class="bar tool" style="left: 12%; width: 4%"></div>
+            <div class="bar tool" style="left: 17%; width: 5%"></div>
+            <div class="bar tool" style="left: 23%; width: 14%"></div>
+            <div class="bar err" style="left: 38%; width: 2%"></div>
+            <div class="bar run" style="left: 70%; width: 16%"></div>
+          </div>
+          <div class="marker" style="left: 0"></div>
+          <div class="marker" style="left: 57%"></div>
+          <div class="highlight" style="left: 60%; width: 22%"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ledger">
+      <div class="turn">
+        <div class="turn-head">
+          <span>▾</span><b>轮次 1</b><span>14:32:05</span>
+          <span class="stat">3 个步骤 · 4 个工具调用 · 24.2s</span>
+        </div>
+
+        <div class="row"><span class="rule"></span><span class="badge user">用户</span>对话要加一个轨迹功能：能看到每个工具的详情和时间轴</div>
+
+        <div class="row step"><span class="rule"></span><span class="badge step">模型</span><span class="name">gpt-5.2</span><span class="args">我先确认工具耗时字段的写入点和读取链路…</span><span class="dur">8.4k→612</span><span class="dur">2.2s</span></div>
+
+        <div class="tool-zone">
+          <div class="row tool"><span class="rule"></span><span class="badge tool">工具</span><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/></svg></span><span class="name">readFile</span><span class="args">src/App.tsx</span><span class="dur">120ms</span></div>
+          <div class="row tool"><span class="rule"></span><span class="badge tool">工具</span><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span><span class="name">searchFiles</span><span class="par">并行</span><span class="args">quickforgeTiming</span><span class="dur">340ms</span></div>
+          <div class="row tool"><span class="rule"></span><span class="badge tool">工具</span><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg></span><span class="name">runCommand</span><span class="args">npm run test</span><span class="dur">12.1s</span></div>
+          <div class="row tool err"><span class="rule"></span><span class="badge tool">工具</span><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span><span class="name">editFile</span><span class="args">oldText must match exactly once</span><span class="dur">82ms</span></div>
+          <div class="row tool run"><span class="rule"></span><span class="badge tool">工具</span><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg></span><span class="name">runCommand</span><span class="args">npm run build</span><span class="dur">+4.1s</span></div>
+        </div>
+      </div>
+
+      <div class="turn">
+        <div class="turn-head">
+          <span>▸</span><b>轮次 2</b><span>14:33:10</span><span class="stat">2 个步骤 · 1 个工具调用 · 1m 52s</span>
+        </div>
+      </div>
+
+      <div class="row sel"><span class="rule"></span><span class="badge step">模型</span><span class="name">gpt-5.2</span><span class="args">选中态：极淡靛蓝底，而不是整行变灰</span><span class="dur">1m 40s</span></div>
+    </div>
+  </div>
+
+  <h2>三、改前 / 改后对比</h2>
+  <div class="compare">
+    <div class="cmp old">
+      <h3>改前：只用前景色透明度</h3>
+      <div class="line"><span class="sw model"></span>Model 28% —— 中灰</div>
+      <div class="line"><span class="sw tool"></span>Tools 42% —— 深灰</div>
+      <p class="note">三条轨只有一种颜色，只能靠深浅猜哪条是哪条；失败和普通记录也挤在同一套灰里。</p>
+    </div>
+    <div class="cmp new">
+      <h3>改后：三条轨各有色相</h3>
+      <div class="line"><span class="sw model"></span>Model —— 亮蓝</div>
+      <div class="line"><span class="sw tool"></span>Tools —— 青绿</div>
+      <p class="note">色相负责「这是什么」，明度负责「有多重」，两个维度分开，扫一眼就能定位工具那条。</p>
+    </div>
+  </div>
+
+  <h2>四、克制的四条硬约束</h2>
+  <div class="rules">
+    <div class="rule-item"><span class="k">色相</span><span class="v">全部锁在 <b>150–260 的蓝绿区间</b>，不碰靛紫（270–300）与品红。这是这套视图的主色调。</span></div>
+    <div class="rule-item"><span class="k">彩度</span><span class="v"><b>chroma 0.10–0.18</b>（Input 最低，Model/Tools 更高）。超过 0.20 才开始像品牌色。</span></div>
+    <div class="rule-item"><span class="k">面积分级</span><span class="v"><b>小面积给满色</b>（条形 70–92%、2px 规则条 78–95%、图标 92%）；<b>大面积只微带</b>（轮次头 10%、选中行 16%、代码块 6%）。这条是「有色彩但不花」的真正机制。</span></div>
+    <div class="rule-item"><span class="k">着色面</span><span class="v">只染<b>数据载体</b>：轨道、条形、徽标、行左侧 2px 规则条。<b>轮次头与选中态保持中性灰</b>——分区和交互反馈不是数据，上色会和「记录类型」抢色相。</span></div>
+    <div class="rule-item"><span class="k">语义优先级</span><span class="v"><b>失败永远是 destructive、运行中永远是 --workflow-done</b>，两者都盖过色相系统。色相只表达「类别」，不表达「状态」。</span></div>
+    <div class="rule-item"><span class="k">深色模式</span><span class="v">同色相<b>提亮但保留彩度</b>（0.81 / 0.15 附近）。第一版把彩度压到 0.07，深色下几乎看不出颜色——那是「灰」不是「克制」。</span></div>
+  </div>
+</div>
+
+<script>
+  const btn = document.getElementById('toggle')
+  const apply = () => {
+    const dark = document.documentElement.classList.toggle('dark')
+    btn.textContent = dark ? '切到浅色' : '切到深色'
+  }
+  btn.addEventListener('click', apply)
+  if (window.matchMedia('(prefers-color-scheme: dark)').matches) apply()
+</script>
+</body>
+</html>

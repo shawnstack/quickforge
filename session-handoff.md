@@ -1,3 +1,56 @@
+# 当前交接：workflow-summary-hide-zero-agents（done，2026-10-23）
+
+- Current Objective（当前目标）：用户要求「工作流优化一下，如果没有智能体调用就不要显示智能体 0 了」→ 确认范围为「聊天区摘要卡 + 右侧详情概览条」→ **已实施完成，未提交、未创建 commit**。
+- 结论（一句话）：摘要文案改为「状态 + 非零计数片段」拼接，0 个智能体 / 0 个工具整段不再出现，两者都为 0 时只留状态；i18n 里 4 条「状态 · {agents} · {tools}」模板随之删除。
+- 改动文件：
+  1. `src/lib/workflow-run-detail.ts`：新增 `WorkflowTranslate`、`workflowCountParts(view, translate)`、`workflowSummaryText(view, translate)`，删除 `workflowSummaryKey`。
+  2. `src/lib/tool-renderers/workflow-tool-renderer.tsx`：摘要卡改用 `workflowSummaryText(view, t)`，删除 `summaryParams` 预拼接。
+  3. `src/components/workspace/WorkflowRunDetailContent.tsx`：概览条改用 `workflowCountParts(run, t).concat(阶段数).join(' · ')`。
+  4. `src/lib/i18n.ts`：中英各删 4 条 `workflowSummaryRunning/Done/Failed/Aborted`。
+  5. `tests/frontend/workflow-renderer.test.ts`：新增「omits zero agent and tool counts from the summary」三例，更新 i18n 键清单与摘要断言。
+  6. 文档：`docs/wiki/src/lib/README.md`、`docs/architecture/workflow-orchestration.zh-CN.md`。
+- 被避免的坑：清空模板占位符会残留孤立的 ` · `；改为片段数组 join 后零计数不会多出分隔符。
+- Evidence（验证）：`npm run test` 422 文件 4874 passed / 2 skipped；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功（3.88s）。
+- Blockers（阻塞）：无。计数口径未变（`agentCount` 仍是已登记的 agent record 数，因 `maxAgents` 预算被跳过的调用不计入）。
+- Next Session（下一步）：无遗留；未提交 Git，未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+# 当前交接：conversation-trace-view（done，2026-10-23）
+
+- Current Objective（当前目标）: 用户要求「设计对话功能的轨迹功能，可以看到每个工具的详情和时间轴，在对话顶部分支旁边可以查看」→ 确认「直接在对话区域展开」→ 参考 DSH Trajectory 重做原型 → 确认「保留时间总览 / 三种模式都要 / 检查器默认隐藏」→ **已实施完成，未提交、未创建 commit。**
+- 结论（一句话）: 轨迹是**对话区内部的第二种视图**（顶部「对话 / 轨迹」切换器），把 `agent.state.messages` 纯投影成 Turn→Step→Tool，配三轨×三模式时间总览与按类型给页签的检查器；不新增事件日志、不卸载对话、不使用 SVG viewBox。
+- 改动（7 个源文件 + 3 个测试 + 4 份文档）:
+  1. `src/lib/conversation-trace.ts`（新）：纯投影 `buildConversationTrace(messages, { pendingToolCalls, now })`；轮次切分复用 `process-folding` 的 `decorateProcessBlocks` 语义；耗时只取 `details.quickforgeTiming`，尾步无记录时 `undefined`（不写 0）；状态 `done`/`error`/`running`/`interrupted`；`parallelGroupId`；`traceRows`/`traceBounds`/`layoutTraceSpans`（sequence|duration|time）/`traceTurnMarkers`/`traceRowMatches`/`formatTraceDuration`（未知 → `—`）/`countTraceTools`。
+  2. `src/components/chat/trace/ConversationTraceView.tsx`（新）：工具栏（三模式 / 展开全部 / 搜索）+ 时间总览三轨（DOM + 内联百分比）+ Ledger（Turn→Step→Tool，工具行缩进 26px + 1px 连接线）+ Inspector（默认隐藏、按类型给页签、Esc 关闭）+ 空状态。视图内不调 `Date.now()`（`now` 由顶层传入，满足 `react-hooks/purity`）。
+  3. `src/components/chat/trace/conversation-trace.css`（新）：组件自 import（同 `goal-inspector.css` 做法）；复用 `color-mix(in oklab, var(--border) 60%, transparent)` 与 `--quickforge-dur-*` / `shimmer`；每条 `@keyframes` 都有 `prefers-reduced-motion` 降级。
+  4. `src/hooks/useUIState.ts`：新增 `conversationViewScope: { scopeId, view } | null`（scope 绑定，不是裸字符串）。
+  5. `src/App.tsx`：顶部「对话 / 轨迹」切换器（Git 分支 pill 之后、⋯ 之前，md 以上显示）+ `conversationView` 派生 + `.quickforge-trace-layer` 覆盖层（**刻意不卸载** `SessionViewPool`/`ChatPanelHost`）+ `traceToolCount` 徽标（`countTraceTools`，不建投影）。
+  6. `src/lib/i18n.ts`：中英各 64 个 `trace.*` key。
+  7. 测试：`tests/frontend/conversation-trace.test.ts`（29）、`conversation-trace-view.test.ts`（10）、`conversation-trace-contract.test.ts`（17）。
+- Evidence（验证）:
+  - 定向 `npx vitest run` 3 个轨迹文件 → **56 passed**。
+  - `npx tsc --noEmit -p tsconfig.app.json` 通过。
+  - `npm run lint` → **0 error**（仅既有 `GitToolsPinnedSummary` exhaustive-deps warning）。
+  - `npm run test` 全量 → **422 文件 / 4874 passed / 2 skipped**（exit 0）。
+  - `npm run build` → 成功（4.05s），但**必须先隔离工作区里预先存在的无关改动**：`src/lib/workflow-run-detail.ts` 删掉了 `workflowSummaryKey`，而 `src/lib/tool-renderers/workflow-tool-renderer.tsx` 仍在 import 它（另一个未完成的 workflow 渲染重构）。该失败在剥离本次改动后依旧存在，与本 feature 无关。
+- 文档:
+  - 新增 `docs/architecture/conversation-trace.zh-CN.md`（12 节：问题、目标/非目标、数据来源、结构、时间总览、Ledger、Inspector、挂载与不卸载、视觉约束、完整度边界、测试清单、相关文件）。
+  - `docs/wiki/README.md` 架构表格加「对话轨迹」行。
+  - `docs/wiki/src/components/README.md` 首节加「对话轨迹视图」。
+  - `docs/wiki/src/lib/README.md` 首节加「对话轨迹投影」。
+  - `docs/design/conversation-trace-mockup.html` 保留为设计阶段对照物。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）:
+  1. **真机视觉验收**：时间总览拖选手感、三模式切换的条形动画、深色模式对比度、窄屏（≤48rem）覆盖式 Inspector、`prefers-reduced-motion` 表现。
+  2. **移动端入口**：顶部切换器在 `md` 以下隐藏，`⋯` 菜单里还没有「轨迹」项。
+  3. **大工具数性能**：>500 行时首屏渲染变慢（无虚拟滚动，已知取舍）；如需优化，先做轮次级懒渲染而不是引入 `@tanstack/react-virtual`。
+  4. **与对话双向联动**：目前只有 Inspector 的「在对话中定位」单向跳回对话视图；原型的「点工具卡 → 轨迹定位到该行」还没接（需要给 `ToolMessage` 加 `data-tool-call-id`）。
+  5. **建议先修掉工作区里那处 workflow 渲染重构**（补 `workflowSummaryKey` 的移除收尾），否则 `npm run build` 始终失败。
+  6. 未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
 ## 当前交接：goal-mode-ux-fix-strip（done，2026-10-23）
 
 - Current Objective（当前目标）: 用户选定设计稿的**方案 A**（目标卡）并要求执行落地。**已实现，未提交、未创建 commit。**

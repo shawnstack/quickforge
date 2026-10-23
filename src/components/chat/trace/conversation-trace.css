@@ -1,0 +1,1156 @@
+/* ===========================================================================
+ * 对话轨迹视图（Conversation trace）
+ * ---------------------------------------------------------------------------
+ * 轨迹是「对话区内部的一个视图」：点顶部「轨迹」把 ChatSurface 换成这个面板，
+ * 不是浮层、不是侧栏。数据来自 @/lib/conversation-trace 的纯投影，不新增持久化。
+ *
+ * 时间总览沿用 WorkflowRunDetail 的 DOM + 百分比轨道契约（不用固定 viewBox 的
+ * SVG，那会把字号随面板宽度一起缩掉）。分割线与动效全部复用既有 token：
+ * 主结构分割线 = 1px + color-mix(in oklab, var(--border) 60%, transparent)，
+ * 时长/缓动 = --quickforge-dur-* / --quickforge-ease-out。
+ *
+ * 独立文件而不是塞进 index.css：与 goal-inspector.css 同款做法，组件自己 import。
+ * =========================================================================== */
+
+.quickforge-trace {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background: var(--quickforge-main-bg);
+  --qf-trace-label: clamp(2.75rem, 8%, 3.5rem);
+  --qf-trace-gap: 0.5rem;
+}
+
+/* ── 色相令牌 ───────────────────────────────────────────────────────────────
+ * 轨迹是全应用里唯一「本来就该有颜色」的数据：三条轨代表三种不同性质的记录
+ * （用户输入 / 模型请求 / 工具执行）。如果全用前景色透明度区分，只能靠深浅去
+ * 猜；所以给三条轨各分一个色相，并且只染「数据载体」——
+ * 轨道、条形、类型徽标、左侧规则条、选中行底色。
+ *
+ * 色相刻意全部落在「蓝 → 青绿」区间（150–260），不碰靛紫与品红：
+ *   Input 250（淡蓝）→ Model 228（亮蓝）→ Tools 188（青绿）
+ * 蓝绿是这套视图的主色调。Tools 停在 188 而不是更绿，是为了和 running 状态的
+ * --workflow-done（158 绿）拉开 30°，否则「工具」类别色会和「运行中」状态色糊在一起。
+ *
+ * 饱和度分布是刻意不均匀的，这是「有色彩但不花」的关键：
+ *   · 小面积元素（条形 / 徽标 / 2px 规则条 / 图标）→ 覆盖 78–95%，颜色要看得见
+ *   · 大面积底色（轨道底 / 代码块）→ 只 6–12%，保持纸感
+ *
+ * 完全不染色的部分：轮次头、行选中态、文字、边框、分割线、工具栏与检查器骨架。
+ * 轮次头 = 分区、选中 = 交互反馈，两者都不是「数据」，用灰阶表达即可；
+ * 一旦给它们上色，就会和「记录类型」抢同一个色相，视线更累。
+ * 深色模式同色相提亮，彩度保留（压灰会让深色下几乎没有颜色）。
+ * ------------------------------------------------------------------------- */
+:where(.quickforge-trace, .quickforge-chat-view-switch) {
+  /* Input：淡蓝，三条里最弱——用户消息是基准而不是焦点 */
+  --qf-trace-hue-input: oklch(0.6 0.1 250);
+  /* Model：亮蓝，模型请求是这层视图的主角 */
+  --qf-trace-hue-model: oklch(0.54 0.18 228);
+  /* Tools：青绿，比 running 的绿冷 30°，两种状态能同时读出来 */
+  --qf-trace-hue-tool: oklch(0.57 0.15 188);
+  --qf-trace-track: color-mix(in oklab, var(--muted) 55%, transparent);
+
+  /* 三条轨的「可读文字色」：直接压暗 + 保彩度。
+     用「色相 + foreground」混色会把彩度拉回灰——文字永远看不出颜色。
+     浅色模式亮度压到 0.45–0.50（对白底约 5.5–7:1，满足 WCAG AA）。 */
+  --qf-trace-text-input: oklch(0.5 0.12 250);
+  --qf-trace-text-model: oklch(0.45 0.17 228);
+  --qf-trace-text-tool: oklch(0.47 0.13 188);
+}
+
+.dark :where(.quickforge-trace, .quickforge-chat-view-switch) {
+  --qf-trace-hue-input: oklch(0.8 0.1 250);
+  --qf-trace-hue-model: oklch(0.82 0.16 230);
+  --qf-trace-hue-tool: oklch(0.83 0.14 188);
+  --qf-trace-track: color-mix(in oklab, var(--muted) 70%, transparent);
+  /* 深色模式：提亮 + 保留彩度（不再往灰里压），对深底约 9–11:1 */
+  --qf-trace-text-input: oklch(0.84 0.11 250);
+  --qf-trace-text-model: oklch(0.85 0.16 230);
+  --qf-trace-text-tool: oklch(0.85 0.14 188);
+}
+
+.quickforge-trace {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background: var(--quickforge-main-bg);
+  --qf-trace-label: clamp(2.75rem, 8%, 3.5rem);
+  --qf-trace-gap: 0.5rem;
+}
+
+/* ── 顶部工具栏 ───────────────────────────────────────────────────────────── */
+
+.quickforge-trace-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.375rem 0.75rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+
+.quickforge-trace-toolbar-spacer {
+  flex: 1 1 auto;
+  min-width: 0.5rem;
+}
+
+.quickforge-trace-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-radius: 0.4375rem;
+  flex: 0 0 auto;
+}
+
+.quickforge-trace-seg button {
+  height: 1.5rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 0.3125rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.71875);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-seg button:hover {
+  color: var(--foreground);
+}
+
+.quickforge-trace-seg button[aria-pressed='true'] {
+  background: color-mix(in oklab, var(--qf-trace-hue-model) 20%, transparent);
+  color: var(--qf-trace-text-model);
+  font-weight: 500;
+}
+
+.quickforge-trace-action {
+  display: inline-flex;
+  align-items: center;
+  height: 1.625rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.71875);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-action:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-trace-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.quickforge-trace-count {
+  flex: 0 0 auto;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-trace-search {
+  display: flex;
+  align-items: center;
+  gap: 0.3125rem;
+  flex: 0 1 11.25rem;
+  min-width: 5.625rem;
+  height: 1.625rem;
+  padding: 0 0.5625rem;
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-radius: 999px;
+  transition: border-color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-search:focus-within {
+  border-color: color-mix(in oklab, var(--qf-trace-hue-model) 55%, var(--border));
+}
+
+.quickforge-trace-search:focus-within svg {
+  color: color-mix(in oklab, var(--qf-trace-hue-model) 80%, var(--muted-foreground));
+}
+
+.quickforge-trace-search svg {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+.quickforge-trace-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+}
+
+.quickforge-trace-search input::placeholder {
+  color: var(--muted-foreground);
+}
+
+/* ── 时间总览 ─────────────────────────────────────────────────────────────── */
+
+.quickforge-trace-overview {
+  flex: 0 0 auto;
+  padding: 0.5rem 0.75rem 0.375rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  user-select: none;
+}
+
+.quickforge-trace-overview-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  margin-bottom: 0.375rem;
+}
+
+.quickforge-trace-overview-title,
+.quickforge-trace-overview-span {
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  color: var(--muted-foreground);
+}
+
+.quickforge-trace-overview-span {
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-trace-overview-hint {
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.65625);
+  color: var(--muted-foreground);
+  opacity: 0.8;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-trace-overview-reset {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  height: 1.25rem;
+  padding: 0 0.5rem;
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-overview-reset:hover {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-trace-overview-grid {
+  display: grid;
+  grid-template-columns: var(--qf-trace-label) 1fr;
+  gap: 0 var(--qf-trace-gap);
+  align-items: stretch;
+}
+
+.quickforge-trace-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.quickforge-trace-lanes span {
+  display: flex;
+  align-items: center;
+  height: 1rem;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.625);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.quickforge-trace-lanes span:nth-child(1) {
+  color: var(--qf-trace-text-input);
+  opacity: 0.72;
+}
+
+.quickforge-trace-lanes span:nth-child(2) {
+  color: var(--qf-trace-text-model);
+  opacity: 0.82;
+}
+
+.quickforge-trace-lanes span:nth-child(3) {
+  color: var(--qf-trace-text-tool);
+  opacity: 0.82;
+}
+
+.quickforge-trace-track {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  touch-action: none;
+}
+
+.quickforge-trace-lane {
+  position: relative;
+  height: 1rem;
+  border-radius: 0.1875rem;
+  background: var(--qf-trace-track);
+}
+
+.quickforge-trace-span {
+  position: absolute;
+  top: 0.1875rem;
+  height: 0.625rem;
+  min-width: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 0.15625rem;
+  background: color-mix(in oklab, var(--qf-trace-hue-input) 80%, transparent);
+  cursor: pointer;
+  transition:
+    left var(--quickforge-dur-base) var(--quickforge-ease-out),
+    width var(--quickforge-dur-base) var(--quickforge-ease-out),
+    opacity var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-span[data-lane='model'] {
+  background: color-mix(in oklab, var(--qf-trace-hue-model) 88%, transparent);
+}
+
+.quickforge-trace-span[data-lane='tools'] {
+  background: color-mix(in oklab, var(--qf-trace-hue-tool) 92%, transparent);
+}
+
+.quickforge-trace-span[data-lane='input'] {
+  top: 0.3125rem;
+  height: 0.375rem;
+  background: color-mix(in oklab, var(--qf-trace-hue-input) 70%, transparent);
+}
+
+.quickforge-trace-span[data-status='error'] {
+  background: color-mix(in oklab, var(--destructive) 72%, transparent);
+}
+
+.quickforge-trace-span[data-status='running'] {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--workflow-done) 30%, transparent),
+    var(--workflow-done),
+    color-mix(in oklab, var(--workflow-done) 30%, transparent)
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+.quickforge-trace-span[data-status='interrupted'] {
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--qf-trace-hue-input) 62%, transparent) 0 3px,
+    transparent 3px 6px
+  );
+}
+
+.quickforge-trace-span:hover {
+  opacity: 0.72;
+}
+
+.quickforge-trace-span[data-selected] {
+  box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--foreground) 38%, transparent);
+}
+
+.quickforge-trace-span-parallel {
+  position: absolute;
+  right: 1px;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--background) 82%, transparent);
+}
+
+.quickforge-trace-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in oklab, var(--border) 60%, transparent);
+  pointer-events: none;
+}
+
+.quickforge-trace-highlight {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in oklab, var(--qf-trace-hue-model) 12%, transparent);
+  border-left: 1px solid color-mix(in oklab, var(--qf-trace-hue-model) 70%, transparent);
+  border-right: 1px solid color-mix(in oklab, var(--qf-trace-hue-model) 70%, transparent);
+  pointer-events: none;
+}
+
+/* ── 主体两栏 ─────────────────────────────────────────────────────────────── */
+
+.quickforge-trace-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.quickforge-trace-ledger {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.375rem 0.5rem 3rem;
+}
+
+/* ── Turn / Step / Row ────────────────────────────────────────────────────── */
+
+.quickforge-trace-turn {
+  margin-bottom: 0.5rem;
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-radius: 0.5625rem;
+  overflow: hidden;
+}
+
+.quickforge-trace-turn-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  width: 100%;
+  padding: 0.4375rem 0.625rem;
+  border: 0;
+  /* 轮次头是「分区」，不是数据：保持中性灰底 + 左侧中性条。
+     色相只表达「这是什么记录」，层级与焦点一律交给灰阶，
+     两套语义不抢同一个色相。 */
+  background: color-mix(in oklab, var(--muted) 42%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--foreground) 22%, transparent);
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.71875);
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-turn-head:hover {
+  color: var(--foreground);
+}
+
+.quickforge-trace-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 0.75rem;
+  height: 0.75rem;
+  transition: transform var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-chevron svg {
+  width: 100%;
+  height: 100%;
+}
+
+.quickforge-trace-chevron[data-collapsed] {
+  transform: rotate(-90deg);
+}
+
+.quickforge-trace-turn-index {
+  flex: 0 0 auto;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.quickforge-trace-turn-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-trace-turn-stat {
+  margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+.quickforge-trace-turn-body {
+  padding: 0.25rem 0 0.3125rem;
+}
+
+.quickforge-trace-step {
+  position: relative;
+}
+
+.quickforge-trace-step-head {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.quickforge-trace-step-toggle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 1.125rem;
+  width: 1.125rem;
+  height: 1.375rem;
+  margin-left: 0.125rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-step-toggle:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-trace-step-toggle:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.quickforge-trace-step-head .quickforge-trace-row {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 0;
+}
+
+.quickforge-trace-step-head .quickforge-trace-row-rule {
+  margin-left: 0;
+}
+
+/* 工具行缩进 + 1px 弱连接线：对齐 DESIGN_LANGUAGE「阶段内子级用缩进 + 细连接线」
+   的例外条款，表达工具调用是上方 ASSISTANT 步骤的执行细节。 */
+.quickforge-trace-tool-rows {
+  position: relative;
+  padding-left: 1.625rem;
+}
+
+.quickforge-trace-tool-rows::before {
+  content: '';
+  position: absolute;
+  left: 0.75rem;
+  top: 0;
+  bottom: 0.3125rem;
+  width: 1px;
+  background: color-mix(in oklab, var(--qf-trace-hue-tool) 55%, var(--border));
+}
+
+.quickforge-trace-tool-rows .quickforge-trace-row {
+  padding-left: 0.5rem;
+}
+
+.quickforge-trace-tool-rows .quickforge-trace-row-rule {
+  margin-left: -0.5rem;
+}
+
+.quickforge-trace-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.3125rem 0.625rem 0.3125rem 1.375rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-row:hover {
+  background: color-mix(in oklab, var(--muted) 62%, transparent);
+}
+
+/* 选中是交互反馈，不是数据分类：中性灰底 + 中性描边。
+   行左那条 2px 规则条仍然按记录类型上色，所以选中后仍能看出这是什么记录。 */
+.quickforge-trace-row[data-selected] {
+  background: color-mix(in oklab, var(--muted) 92%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--foreground) 30%, transparent);
+}
+
+.quickforge-trace-row[data-dimmed] {
+  opacity: 0.34;
+}
+
+.quickforge-trace-row-rule {
+  flex: 0 0 2px;
+  width: 2px;
+  height: 0.9375rem;
+  margin-left: -0.5rem;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--qf-trace-hue-input) 78%, transparent);
+}
+
+.quickforge-trace-row[data-kind='step'] .quickforge-trace-row-rule {
+  background: color-mix(in oklab, var(--qf-trace-hue-model) 92%, transparent);
+}
+
+.quickforge-trace-row[data-kind='tool'] .quickforge-trace-row-rule {
+  background: color-mix(in oklab, var(--qf-trace-hue-tool) 95%, transparent);
+}
+
+.quickforge-trace-row[data-status='error'] .quickforge-trace-row-rule {
+  background: color-mix(in oklab, var(--destructive) 70%, transparent);
+}
+
+.quickforge-trace-row[data-status='running'] .quickforge-trace-row-rule {
+  background: var(--workflow-done);
+  animation: quickforge-trace-breathe 1.6s ease-in-out infinite;
+}
+
+.quickforge-trace-row[data-status='interrupted'] .quickforge-trace-row-rule {
+  background: repeating-linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--foreground) 30%, transparent) 0 3px,
+    transparent 3px 6px
+  );
+}
+
+@keyframes quickforge-trace-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.quickforge-trace-badge {
+  flex: 0 0 auto;
+  padding: 0 0.25rem;
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-radius: 0.1875rem;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.625);
+  letter-spacing: 0.05em;
+  line-height: 1.05rem;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+/* 徽标：淡色底 + 同色相文字。彩度够低，读起来仍是「标签」而不是「按钮」 */
+.quickforge-trace-badge[data-kind='user'] {
+  border-color: color-mix(in oklab, var(--qf-trace-hue-input) 48%, var(--border));
+  background: color-mix(in oklab, var(--qf-trace-hue-input) 16%, transparent);
+  color: var(--qf-trace-text-input);
+}
+
+.quickforge-trace-badge[data-kind='step'] {
+  border-color: color-mix(in oklab, var(--qf-trace-hue-model) 50%, var(--border));
+  background: color-mix(in oklab, var(--qf-trace-hue-model) 17%, transparent);
+  color: var(--qf-trace-text-model);
+}
+
+.quickforge-trace-badge[data-kind='tool'] {
+  border-color: color-mix(in oklab, var(--qf-trace-hue-tool) 50%, var(--border));
+  background: color-mix(in oklab, var(--qf-trace-hue-tool) 17%, transparent);
+  color: var(--qf-trace-text-tool);
+}
+
+.quickforge-trace-row .quickforge-tool-type-icon {
+  flex: 0 0 auto;
+  width: 0.8125rem;
+  height: 0.8125rem;
+  color: color-mix(in oklab, var(--qf-trace-hue-tool) 92%, var(--muted-foreground));
+}
+
+.quickforge-trace-row[data-status='error'] .quickforge-tool-type-icon {
+  color: var(--destructive);
+}
+
+.quickforge-trace-row-name {
+  flex: 0 0 auto;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.78125);
+  color: var(--foreground);
+}
+
+.quickforge-trace-row-args,
+.quickforge-trace-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-trace-row-args {
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  color: var(--muted-foreground);
+}
+
+.quickforge-trace-row-text {
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  color: var(--muted-foreground);
+}
+
+.quickforge-trace-row-meta,
+.quickforge-trace-row-duration {
+  flex: 0 0 auto;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-trace-row[data-status='error'] .quickforge-trace-row-duration {
+  color: var(--destructive);
+}
+
+.quickforge-trace-parallel {
+  flex: 0 0 auto;
+  padding: 0 0.1875rem;
+  border: 1px solid color-mix(in oklab, var(--qf-trace-hue-tool) 46%, var(--border));
+  background: color-mix(in oklab, var(--qf-trace-hue-tool) 10%, transparent);
+  border-radius: 0.1875rem;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.59375);
+  line-height: 0.875rem;
+  color: var(--qf-trace-text-tool);
+}
+
+/* ── 检查器（默认隐藏，选中行才滑出） ────────────────────────────────────── */
+
+.quickforge-trace-inspector {
+  flex: 0 0 20.75rem;
+  width: 20.75rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  background: var(--quickforge-main-bg);
+  animation: quickforge-trace-inspector-in var(--quickforge-dur-base) var(--quickforge-ease-out);
+}
+
+@keyframes quickforge-trace-inspector-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.quickforge-trace-inspector-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+
+.quickforge-trace-inspector-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  font-weight: 600;
+}
+
+.quickforge-trace-icon-button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-icon-button:hover {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-trace-icon-button svg {
+  width: 0.9375rem;
+  height: 0.9375rem;
+}
+
+.quickforge-trace-inspector-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  overflow-x: auto;
+}
+
+.quickforge-trace-inspector-tabs::-webkit-scrollbar {
+  height: 0;
+}
+
+.quickforge-trace-inspector-tabs button {
+  flex: 0 0 auto;
+  height: 1.5rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 0.3125rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.71875);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-inspector-tabs button:hover {
+  color: var(--foreground);
+}
+
+.quickforge-trace-inspector-tabs button[aria-selected='true'] {
+  background: color-mix(in oklab, var(--qf-trace-hue-model) 17%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in oklab, var(--qf-trace-hue-model) 70%, transparent);
+  color: var(--qf-trace-text-model);
+}
+
+.quickforge-trace-inspector-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.75rem;
+}
+
+.quickforge-trace-inspector-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3125rem 0.625rem;
+  margin: 0 0 0.75rem;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.71875);
+}
+
+.quickforge-trace-inspector-meta dt {
+  color: var(--muted-foreground);
+}
+
+.quickforge-trace-inspector-meta dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-trace-inspector-meta dd[data-tone='ok'] {
+  color: var(--workflow-done);
+}
+
+.quickforge-trace-inspector-meta dd[data-tone='bad'] {
+  color: var(--destructive);
+}
+
+.quickforge-trace-inspector-meta code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+
+.quickforge-trace-inspector-section {
+  margin-bottom: 0.75rem;
+}
+
+.quickforge-trace-inspector-section h4 {
+  margin: 0 0 0.25rem;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.625);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--qf-trace-hue-model) 62%, var(--muted-foreground));
+}
+
+.quickforge-trace-inspector-section pre {
+  margin: 0;
+  padding: 0.5rem;
+  max-height: 16rem;
+  overflow: auto;
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--qf-trace-hue-model) 6%, var(--muted));
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.quickforge-trace-inspector-section pre[data-tone='bad'] {
+  color: var(--destructive);
+}
+
+.quickforge-trace-inspector-actions {
+  display: flex;
+  gap: 0.625rem;
+  margin-top: 0.5rem;
+}
+
+.quickforge-trace-inspector-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  cursor: pointer;
+  transition: color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-inspector-actions button:hover {
+  color: var(--foreground);
+}
+
+/* ── 空状态 / tooltip ─────────────────────────────────────────────────────── */
+
+.quickforge-trace-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4375rem;
+  padding: 3rem 1.5rem;
+  text-align: center;
+}
+
+.quickforge-trace-empty-inline {
+  flex: 0 0 auto;
+  padding: 1.5rem 0.75rem;
+}
+
+.quickforge-trace-empty > svg {
+  width: 1.375rem;
+  height: 1.375rem;
+  color: color-mix(in oklab, var(--qf-trace-hue-model) 78%, var(--muted-foreground));
+  opacity: 0.62;
+}
+
+.quickforge-trace-empty-title {
+  margin: 0;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8125);
+  opacity: 0.82;
+}
+
+.quickforge-trace-empty-body {
+  margin: 0;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  line-height: 1.65;
+  color: var(--muted-foreground);
+}
+
+.quickforge-trace-tooltip {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  max-width: 15rem;
+  padding: 0.3125rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--popover, var(--background));
+  box-shadow: 0 4px 12px hsl(0 0% 0% / 0.1);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.quickforge-trace-tooltip strong {
+  font-weight: 600;
+}
+
+.quickforge-trace-tooltip span {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 轨迹视图层：盖在对话区之上，但保留下层 ChatSurface 的挂载状态（滚动位置、
+   输入草稿、消息窗口）。不透明背景是「换成轨迹」的视觉手段，不是浮层阴影。 */
+.quickforge-trace-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--quickforge-main-bg);
+  animation: quickforge-trace-layer-in var(--quickforge-dur-base) var(--quickforge-ease-out);
+}
+
+@keyframes quickforge-trace-layer-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── 对话 / 轨迹 视图切换器（对话区顶部） ────────────────────────────────── */
+
+.quickforge-chat-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
+}
+
+.quickforge-chat-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  height: 1.875rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8125);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-chat-view-switch button:hover {
+  color: var(--foreground);
+}
+
+.quickforge-chat-view-switch button[aria-selected='true'] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.06);
+}
+
+/* 轨迹页签选中时才带一点 model 色相：默认仍是中性，避免顶层栏变彩色 */
+.quickforge-chat-view-switch button[role='tab'][aria-selected='true']:last-of-type {
+  color: var(--qf-trace-text-model);
+  box-shadow:
+    0 1px 2px hsl(0 0% 0% / 0.06),
+    inset 0 0 0 1px color-mix(in oklab, var(--qf-trace-hue-model) 55%, transparent);
+}
+
+.quickforge-chat-view-switch svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.quickforge-chat-view-switch-count {
+  min-width: 1rem;
+  padding: 0 0.25rem;
+  border: 1px solid color-mix(in oklab, var(--qf-trace-hue-model) 45%, var(--border));
+  border-radius: 999px;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.65625);
+  font-variant-numeric: tabular-nums;
+  color: var(--qf-trace-text-model);
+  background: color-mix(in oklab, var(--qf-trace-hue-model) 14%, transparent);
+  text-align: center;
+}
+
+/* ── 窄屏降级 ─────────────────────────────────────────────────────────────── */
+
+@media (width <= 48rem) {
+  .quickforge-trace {
+    --qf-trace-label: 2.25rem;
+  }
+
+  .quickforge-trace-overview-hint,
+  .quickforge-trace-count,
+  .quickforge-trace-turn-stat,
+  .quickforge-trace-row-meta {
+    display: none;
+  }
+
+  .quickforge-trace-inspector {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    width: auto;
+    flex-basis: auto;
+    border-left: 0;
+  }
+}
+
+/* DESIGN_LANGUAGE 约束：所有 keyframes 必须有 prefers-reduced-motion 降级。 */
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-trace-span[data-status='running'],
+  .quickforge-trace-row[data-status='running'] .quickforge-trace-row-rule {
+    animation: none;
+  }
+
+  .quickforge-trace-inspector,
+  .quickforge-trace-layer {
+    animation: none;
+  }
+
+  .quickforge-trace-span {
+    transition: none;
+  }
+}

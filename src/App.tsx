@@ -2191,10 +2191,7 @@ function MainApp() {
                   */}
                   {conversationView === 'trace' && agentManager.agent ? (
                     <div className="quickforge-trace-layer">
-                      <ConversationTraceView
-                        agent={agentManager.agent as unknown as TraceAgentLike}
-                        onOpenChat={() => setConversationView('chat')}
-                      />
+                      <ConversationTraceView agent={agentManager.agent as unknown as TraceAgentLike} />
                     </div>
                   ) : null}
                   {showNewChatEmptyState ? (

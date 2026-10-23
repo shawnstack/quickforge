@@ -1436,7 +1436,6 @@ function toolInspector(rec, tab) {
     '<div class="ins-section"><div class="ins-label">参数摘要</div><pre>' + esc(t.args) + '</pre></div>' +
     '<div class="ins-actions">' +
       '<button type="button" data-ins-action="copy-id">' + svg('copy') + '复制调用 ID</button>' +
-      '<button type="button" data-ins-action="goto-chat">' + svg('chat') + '在对话中定位</button>' +
     '</div>'
   }
   if (tab === 'args') {
@@ -1648,14 +1647,6 @@ function init() {
     if (action === 'copy-args') text = rec.tool ? rec.tool.input : ''
     if (action === 'copy-result') text = rec.tool ? rec.tool.output : ''
     if (action === 'copy-step') text = rec.step ? rec.step.text : ''
-    if (action === 'goto-chat') {
-      setView('chat')
-      requestAnimationFrame(() => {
-        const card = document.querySelector('[data-jump="' + rec.id + '"]')
-        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      })
-      return
-    }
     if (text && navigator.clipboard) {
       navigator.clipboard.writeText(text).catch(() => {})
       btn.style.color = 'var(--workflow-done)'

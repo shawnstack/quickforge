@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -15,16 +14,17 @@ import type {
   Usage,
 } from '../../src/components/chat/surface/ChatTypes'
 import { getLocalWorkspaceTools } from '../../src/lib/local-tools'
+import { appCss } from '../helpers/app-css'
 
 /**
  * CSS ⇄ DOM 结构契约（T5 迁移后的结构回归）。
  *
- * `src/index.css` 里按「消息根的直接子级」书写的规则（每条消息的用量行隐藏、
+ * `src/styles/` 里按「消息根的直接子级」书写的规则（每条消息的用量行隐藏、
  * 用户气泡靠右）只有在 React 组件渲染出同样层级时才生效；旧 DOM 的层级选择器
  * 不会报错，只会静默失效。这里对同一份契约同时断言 CSS 与真实渲染结构。
  */
 
-const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const css = appCss
 
 function usage(): Usage {
   return {
@@ -313,7 +313,7 @@ describe('code highlight palette contract', () => {
 
 describe('svg/mermaid code block frame contract', () => {
   it('keeps the decorated SVG block frameless like the pre-removal card reset', () => {
-    // 旧 src/index.css L2375（pi `<code-block>` 内层卡片）：
+    // 旧样式表 L2375（pi `<code-block>` 内层卡片）：
     // `position: relative; border: 0 !important; background: transparent !important;
     //  box-shadow: none !important`。React 里该元素本身就是卡片，类名仍在输出
     // （CodeBlock.tsx `supportedPreview && 'quickforge-svg-code-block'`）。

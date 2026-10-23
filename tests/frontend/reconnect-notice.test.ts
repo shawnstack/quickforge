@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ReconnectNotice, unreachableStripOwns } from '../../src/components/chat/surface/ConnectionNotices'
 import type { SseConnectionStatus } from '../../src/lib/server-agent'
+import { appCss } from '../helpers/app-css'
 
 /**
  * The inline reconnect row used to be a find-or-create controller
@@ -60,7 +61,7 @@ const noticesSource = readFileSync('src/components/chat/surface/ConnectionNotice
 const barrelSource = readFileSync('src/components/chat/panel-decoration.ts', 'utf8')
 const agentSource = readFileSync('src/lib/global-agent-sse-client.ts', 'utf8')
 const i18nSource = readFileSync('src/lib/i18n.ts', 'utf8')
-const cssSource = readFileSync('src/index.css', 'utf8')
+const cssSource = appCss
 
 describe('reconnect notice rendering', () => {
   let container: HTMLDivElement

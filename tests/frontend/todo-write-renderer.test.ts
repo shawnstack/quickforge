@@ -1,12 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { buildTodoWriteHistoryViewModel } from '../../src/lib/todo-write-history'
+import { appCss } from '../helpers/app-css'
 
 const source = readFileSync(new URL('../../src/lib/local-tools.ts', import.meta.url), 'utf8')
 // T4：TodoWriteToolRenderer 已迁至 tool-renderers/todo-write-tool-renderer.tsx（React）。
 const todoWriteRenderer = readFileSync(new URL('../../src/lib/tool-renderers/todo-write-tool-renderer.tsx', import.meta.url), 'utf8')
 const host = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
-const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const css = appCss
 const i18n = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 
 const todo = (content: string, status: 'pending' | 'in_progress' | 'completed') => ({ content, status })

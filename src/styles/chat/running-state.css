@@ -1,0 +1,76 @@
+/* 标题按内容收缩，长标题才在剩余空间内省略；不要和跑马灯平分 flex-grow，
+   否则长标题与后续命令之间会空出一段。 */
+.quickforge-subagent-label {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.quickforge-tool-label,
+.quickforge-subagent-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-tool-label {
+  flex: 0 1 auto;
+}
+
+.quickforge-tool-summary:has(.quickforge-command-summary) .quickforge-tool-label,
+.quickforge-subagent-tool > .quickforge-tool-summary .quickforge-subagent-label {
+  flex: 0 0 auto;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.quickforge-tool-summary-detail {
+  display: inline;
+}
+
+/* Tool-running highlight sweep: the label text itself carries the moving
+   highlight, reusing the thinking-text shimmer paradigm above (gradient +
+   200% background-size + background-clip: text) so running text reads as
+   light passing through the glyphs instead of a grey band sliding over the
+   box. A long-running loop, exempt from the motion duration scale (see
+   --quickforge-dur-* tokens) by design.
+   The detail child flows with the label (see the rule below) so a long command
+   does not sit static while only the title animates. */
+.quickforge-tool-running-sweep {
+  /* 底色兜底：background 只覆盖 background-size 的区间，纯渐变在高光扫到
+     两端时会让整段文字暂时失焦不可见；先铺一层不透明底色，保证运行态
+     标签任何相位都清晰可读，渐变的边缘也正好落在同一底色上，无接缝。 */
+  background-color: var(--muted-foreground);
+  background-image: linear-gradient(
+    90deg,
+    var(--muted-foreground) 25%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 75%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* 运行态下参数摘要（` · npm run build`）一起流光：父级 `background-clip: text`
+   会把背景裁剪到包含后代在内的字形上，因此让 detail 与其已知内层文字透明、由父级
+   渐变透出，而不是单独着灰色——否则长命令永远静止，只有「运行命令」四个字在动，
+   观感像没生效。内层类必须逐个列出（run_command 带 description 时是
+   `.quickforge-command-summary`，write/edit/read_file 是 `.quickforge-tool-file-summary`
+   + 其内 `.quickforge-command-summary`），它们自带 text-muted-foreground utility；
+   不用 `*` 是为了不误伤 detail 里的非文字图标（currentColor 的 svg 会跟着透明）。
+   本仓未分层样式优先于 @layer utilities，故能压过 utility 类。 */
+/* 下划线走实色：透明文字会让 hover 下划线一起消失，而它是 write/edit/read_file
+   文件名唯一的可点暗示（见 shared.tsx 的 hover:underline）。与文字色并成同一条规则，
+   不另起独立的 command-summary 规则块——chat-surface-css-contract 用首个 selector
+  命中取声明块，多一条同名单类规则会抢走它的锚点。 */
+.quickforge-tool-running-sweep .quickforge-tool-summary-detail,
+.quickforge-tool-running-sweep .quickforge-command-summary,
+.quickforge-tool-running-sweep .quickforge-tool-file-summary {
+  color: transparent;
+  text-decoration-color: var(--muted-foreground);
+}
+

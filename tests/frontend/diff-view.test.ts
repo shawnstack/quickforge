@@ -6,12 +6,13 @@ import {
   parseDiffRows,
   type DiffLineRow,
 } from '../../src/lib/diff-view'
+import { appCss } from '../helpers/app-css'
 
 // T4：diff 渲染已迁至 tool-renderers/shared.tsx（React），
 // LocalWorkspaceToolRenderer 在 local-workspace-tool-renderer.tsx。
 const shared = readFileSync(new URL('../../src/lib/tool-renderers/shared.tsx', import.meta.url), 'utf8')
 const localRendererSource = readFileSync(new URL('../../src/lib/tool-renderers/local-workspace-tool-renderer.tsx', import.meta.url), 'utf8')
-const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const css = appCss
 const renderDiffSource = shared.slice(
   shared.indexOf('function renderInlineDiffStats'),
   shared.indexOf('async function terminateCommand'),

@@ -1,0 +1,220 @@
+/* Slash 选中态 chip（方案 A：输入框覆盖层 + 消息流装饰） */
+.quickforge-slash-overlay {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.quickforge-slash-ghost {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  overflow: hidden;
+  color: var(--foreground);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* IME composition 预编辑镜像：拼音串以弱下划线提示输入中状态 */
+.quickforge-slash-preedit {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  text-underline-offset: 0.18em;
+}
+
+/* 激活时 textarea 原文透明（由覆盖层镜像显示），光标保持可见 */
+.quickforge-slash-source-text {
+  color: transparent;
+  caret-color: var(--foreground);
+}
+
+/* 定宽 spacer：JS 按前缀文本宽度与 chip 实际宽度的差值设置，保证幽灵层任务文本
+   起始于原始前缀的真实宽度处；chip 宽于前缀时归 0（任务文本从 chip 尾部起排） */
+.quickforge-slash-spacer {
+  display: inline-block;
+  width: 0;
+}
+
+.quickforge-slash-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.14rem 0.5rem 0.14rem 0.4rem;
+  border-radius: 0.55rem;
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  vertical-align: baseline;
+  cursor: default;
+}
+
+/* 覆盖层整体 pointer-events:none，仅输入框内 chip 可点击：pointerdown 被控制器
+   拦截并把光标移到文本末尾，避免点击穿透到前缀区降级显示原文；消息流 chip 不受影响 */
+.quickforge-slash-overlay .quickforge-slash-chip {
+  pointer-events: auto;
+}
+
+.quickforge-slash-chip svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
+}
+
+.quickforge-slash-chip-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--muted-foreground);
+}
+
+.quickforge-slash-chip-skill {
+  background: rgb(37 99 235 / 0.10);
+  color: rgb(37 99 235);
+}
+
+.quickforge-slash-chip-agent {
+  background: rgb(16 185 129 / 0.12);
+  color: rgb(4 143 101);
+}
+
+html.dark .quickforge-slash-chip-skill {
+  background: rgb(96 145 250 / 0.16);
+  color: rgb(147 183 253);
+}
+
+html.dark .quickforge-slash-chip-agent {
+  background: rgb(16 185 129 / 0.17);
+  color: rgb(110 231 183);
+}
+
+/* 消息流内 chip 尺寸微调（对齐设计稿 .msg-user .slash-chip） */
+.quickforge-slash-chip-in-message {
+  margin-right: 0.3rem;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+/* @ current-project files and structured composer/message chips */
+.quickforge-file-reference-header,
+.quickforge-file-reference-status,
+.quickforge-file-reference-footer {
+  padding: 0.5rem 0.75rem;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  font-size: 0.72rem;
+}
+
+.quickforge-file-reference-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--popover);
+  font-weight: 600;
+}
+
+.quickforge-file-reference-status { min-height: 2.25rem; }
+.quickforge-file-reference-footer {
+  position: sticky;
+  bottom: 0;
+  border-top: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
+  background: var(--popover);
+}
+
+.quickforge-file-reference-item {
+  display: grid !important;
+  width: 100%;
+  grid-template-columns: 1.35rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.75rem !important;
+  border-radius: 0 !important;
+  text-align: left;
+}
+
+.quickforge-file-reference-item:hover,
+.quickforge-file-reference-item[aria-selected='true'] {
+  background: color-mix(in oklab, var(--muted) 62%, transparent) !important;
+  transform: none !important;
+}
+
+.quickforge-file-reference-icon { display: inline-flex; }
+.quickforge-file-reference-icon-file { color: rgb(37 99 235); }
+.quickforge-file-reference-icon-directory { color: var(--muted-foreground); }
+.quickforge-file-reference-icon svg { width: 1rem; height: 1rem; }
+.quickforge-file-reference-main { min-width: 0; display: grid; gap: 0.08rem; }
+.quickforge-file-reference-name,
+.quickforge-file-reference-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quickforge-file-reference-name { color: var(--foreground); font-size: 0.8rem; font-weight: 600; }
+.quickforge-file-reference-path { color: var(--muted-foreground); font-family: var(--font-mono); font-size: 0.7rem; }
+.quickforge-file-reference-item mark { border-radius: 0.18rem; background: color-mix(in oklab, rgb(245 158 11) 22%, transparent); color: inherit; }
+
+.quickforge-context-chips,
+.quickforge-message-context-references { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.quickforge-context-chips {
+  align-items: center;
+  padding: 0.75rem 1rem 0;
+}
+.quickforge-context-chips ~ textarea {
+  padding-top: 0.55rem !important;
+}
+.quickforge-message-context-references { margin-bottom: 0.45rem; }
+.quickforge-context-chip {
+  display: inline-flex;
+  max-width: min(100%, 22rem);
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.14rem 0.4rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: color-mix(in oklab, var(--muted) 48%, transparent);
+  color: var(--foreground);
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.quickforge-file-reference-chip { background: color-mix(in oklab, rgb(37 99 235) 8%, transparent); color: rgb(29 78 216); }
+.quickforge-capability-chip { background: color-mix(in oklab, rgb(139 92 246) 9%, transparent); color: rgb(109 40 217); }
+html.dark .quickforge-file-reference-chip { color: rgb(147 197 253); }
+html.dark .quickforge-capability-chip { color: rgb(196 181 253); }
+.quickforge-context-chip-icon { display: inline-flex; flex: none; }
+.quickforge-context-chip-icon svg { width: 0.82rem; height: 0.82rem; }
+.quickforge-context-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quickforge-context-chip-remove {
+  display: inline-flex;
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: currentColor;
+  opacity: 0.68;
+}
+.quickforge-context-chip-remove:hover,
+.quickforge-context-chip-remove:focus-visible { background: color-mix(in oklab, currentColor 12%, transparent); opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-file-reference-item,
+  .quickforge-context-chip-remove { transition: none !important; }
+}
+
+.quickforge-composer > div:first-child > .px-2.pb-2 {
+  padding: 0 0.75rem 0.75rem !important;
+}
+
+.quickforge-composer > div:first-child > .px-2.pb-2::before {
+  content: "";
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  bottom: 3.45rem;
+  height: 1px;
+  background: linear-gradient(to right, transparent, color-mix(in oklab, var(--border) 65%, transparent), transparent);
+  pointer-events: none;
+}
+
+.quickforge-composer button {
+  border-radius: 999px !important;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+

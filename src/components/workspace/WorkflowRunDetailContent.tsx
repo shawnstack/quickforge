@@ -1,7 +1,14 @@
-import { useMemo, useState } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '@/lib/i18n'
-import { formatDuration, renderCodeBlock } from '@/lib/tool-renderers/shared'
+import { disposeInputClampBoxes, syncInputClampBoxes, type InputClampLabels } from '@/lib/input-clamp'
+import {
+  ToolDetails,
+  formatDuration,
+  renderCodeBlock,
+  renderConsoleBlock,
+  renderToolChevron,
+  renderToolIcon,
+} from '@/lib/tool-renderers/shared'
 import {
   workflowCountParts,
   workflowPhaseSteps,
@@ -15,8 +22,6 @@ import {
   type WorkflowToolView,
 } from '@/lib/workflow-run-detail'
 import type { WorkflowRunPayload } from '@/lib/workflow-run-payload'
-
-type DetailView = 'timeline' | 'phase' | 'log'
 
 type WorkflowRunDetailContentProps = {
   payload?: WorkflowRunPayload
@@ -45,149 +50,6 @@ function phaseTone(phase: WorkflowPhaseView) {
   return 'pending'
 }
 
-// ---------------------------------------------------------------------------
-// 时间轴：把 seq + startedAt + durationMs 摊平成甘特图
-//
-// 用 DOM + 百分比定位渲染，而不是固定 viewBox 的 SVG：SVG 的 viewBox 缩放会把
-// 字号一起缩掉（640px 面板下 9px 字实际渲染约 5.8px，340px 时约 3px），改为
-// 「左侧固定宽度标签列 + 右侧百分比轨道」后，字号与行高恒定，只有轨道宽度随
-// 面板变化。
-// ---------------------------------------------------------------------------
-
-type TimelineRow =
-  | { kind: 'phase'; key: string; title: string; index: number; tone: string }
-  | { kind: 'entry'; key: string; entry: WorkflowTimelineEntry }
-
-const TIMELINE_TICK_COUNT = 5
-
-function buildTimelineRows(view: WorkflowRunView, timeline: WorkflowTimeline): TimelineRow[] {
-  const byId = new Map(timeline.entries.map((entry) => [entry.id, entry]))
-  const rows: TimelineRow[] = []
-  view.phases.forEach((phase, index) => {
-    rows.push({
-      kind: 'phase',
-      key: `phase:${phase.title}:${index}`,
-      title: phase.title,
-      index,
-      tone: phaseTone(phase),
-    })
-    const entries = [...phase.agents.map((agent) => byId.get(`agent:${agent.id}`)), ...phase.tools.map((tool) => byId.get(`tool:${tool.id}`))]
-      .filter((entry): entry is WorkflowTimelineEntry => Boolean(entry))
-      .sort((left, right) => left.seq - right.seq)
-    for (const entry of entries) {
-      rows.push({ kind: 'entry', key: entry.id, entry })
-    }
-  })
-  return rows
-}
-
-function TimelineView({ view }: { view: WorkflowRunView }) {
-  const timeline = useMemo(() => workflowTimeline(view), [view])
-  const rows = useMemo(() => buildTimelineRows(view, timeline), [timeline, view])
-
-  if (timeline.entries.length === 0) {
-    return <p className="quickforge-workflow-detail-empty">{t('workflowDetailNoPhases')}</p>
-  }
-
-  // 百分比：条形左偏移与宽度都以 totalMs 为分母；短调用保底 0.6%，避免消失。
-  const toPercent = (offsetMs: number) => Math.min(100, (Math.max(0, offsetMs) / timeline.totalMs) * 100)
-  const ticks = Array.from({ length: TIMELINE_TICK_COUNT }, (_, index) => {
-    const ratio = index / (TIMELINE_TICK_COUNT - 1)
-    return { ratio, label: formatDuration(timeline.totalMs * ratio), left: ratio * 100 }
-  })
-
-  return (
-    <div className="quickforge-workflow-detail-timeline">
-      <div className="quickforge-workflow-detail-axis" aria-hidden="true">
-        <span className="quickforge-workflow-detail-axis-spacer" />
-        <span className="quickforge-workflow-detail-axis-track">
-          <span className="quickforge-workflow-detail-axis-plot">
-            {ticks.map((tick) => (
-              <span
-                className="quickforge-workflow-detail-axis-tick"
-                key={`tick-${tick.ratio}`}
-                style={{ left: `${tick.left}%` }}
-                data-edge={tick.ratio === 0 ? 'start' : tick.ratio === 1 ? 'end' : undefined}
-              >
-                {tick.label}
-              </span>
-            ))}
-          </span>
-        </span>
-      </div>
-
-      <div className="quickforge-workflow-detail-rows">
-        {rows.map((row) => row.kind === 'phase' ? (
-          <div className="quickforge-workflow-detail-row is-phase" key={row.key} data-tone={row.tone}>
-            <span className="quickforge-workflow-detail-row-head">
-              <span className="quickforge-workflow-detail-phase-index">{String(row.index + 1).padStart(2, '0')}</span>
-              <span className="quickforge-workflow-detail-phase-name">{row.title}</span>
-            </span>
-            <span className="quickforge-workflow-detail-row-track" aria-hidden="true">
-              <span className="quickforge-workflow-detail-row-plot">
-                <span className="quickforge-workflow-detail-phase-rule" />
-              </span>
-            </span>
-          </div>
-        ) : (
-          <div
-            className="quickforge-workflow-detail-row"
-            key={row.key}
-            data-kind={row.entry.kind}
-            data-tone={stepTone(row.entry.status)}
-          >
-            <span className="quickforge-workflow-detail-row-head" title={row.entry.label}>
-              <i className="quickforge-workflow-detail-dot" data-tone={stepTone(row.entry.status)} aria-hidden="true" />
-              <span className={`quickforge-workflow-detail-row-label${row.entry.kind === 'tool' ? ' is-tool' : ''}`}>
-                {row.entry.label}
-              </span>
-            </span>
-            <span className="quickforge-workflow-detail-row-track">
-              <span className="quickforge-workflow-detail-row-plot">
-                {ticks.map((tick) => (
-                  <span
-                    className="quickforge-workflow-detail-grid"
-                    key={`grid-${row.key}-${tick.ratio}`}
-                    style={{ left: `${tick.left}%` }}
-                    aria-hidden="true"
-                  />
-                ))}
-                <span
-                  className={`quickforge-workflow-detail-bar${row.entry.parallel ? ' is-parallel' : ''}`}
-                  data-tone={stepTone(row.entry.status)}
-                  data-kind={row.entry.kind}
-                  style={{
-                    left: `${toPercent(row.entry.startOffsetMs)}%`,
-                    width: `${Math.max(0.6, toPercent(row.entry.startOffsetMs + row.entry.durationMs) - toPercent(row.entry.startOffsetMs))}%`,
-                  }}
-                />
-                {/* 耗时与「并行」是绘图区的绝对定位子元素，不是条形的子元素：
-                    挂在条形上会随条形位置溢出轨道右侧而被面板裁掉。 */}
-                {row.entry.durationMs > 0 ? (
-                  <span className="quickforge-workflow-detail-bar-value">{formatDuration(row.entry.durationMs)}</span>
-                ) : null}
-                {row.entry.parallel ? (
-                  <span className="quickforge-workflow-detail-parallel-tag">{t('workflowDetailParallelBadge')}</span>
-                ) : null}
-              </span>
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <div className="quickforge-workflow-detail-legend">
-        <span><i className="swatch" data-tone="agent" />{t('workflowDetailTimelineLegendAgent')}</span>
-        <span><i className="swatch" data-tone="tool" />{t('workflowDetailTimelineLegendTool')}</span>
-        <span><i className="swatch" data-tone="parallel" />{t('workflowDetailTimelineLegendParallel')}</span>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// 阶段视图
-// ---------------------------------------------------------------------------
-
 function toolStatusText(tool: WorkflowToolView) {
   if (tool.status === 'running') return t('workflowAgentRunning')
   if (tool.status === 'error' || tool.status === 'aborted') return t('workflowAgentFailed')
@@ -203,187 +65,349 @@ function agentStatusText(agent: WorkflowAgentView) {
   return ''
 }
 
-function ToolRow({ tool, detailed }: { tool: WorkflowToolView; detailed: boolean }) {
-  const [open, setOpen] = useState(false)
-  const name = tool.label || tool.name
-  const argsPreview = detailed && tool.args ? JSON.stringify(tool.args) : ''
-  const expandable = detailed || Boolean(tool.resultPreview) || Boolean(tool.error)
+// ---------------------------------------------------------------------------
+// 单页合并视图：时间轴 / 阶段 / 日志原本是三份投影（同一份运行数据的甘特图、
+// 阶段明细、日志流），切成三个分段 Tab 后必须点一下才能互相参照。现在合并成
+// 一页连续滚动：整页共享一根时间轴（刻度条吸顶），每个阶段 = 粘性阶段头 +
+// 该阶段的行（Agent 行带条形、工具行缩进）+ 该阶段自己的日志。
+//
+// 条形仍然用 DOM + 百分比定位（不用固定 viewBox 的 SVG：等比缩放会把字号一起
+// 缩掉），标签列宽度 clamp 自适应，字号走消息字号基准。
+// ---------------------------------------------------------------------------
+
+const TIMELINE_TICK_COUNT = 5
+
+type TimelineTick = { ratio: number; label: string; left: number }
+
+function timelineTicks(timeline: WorkflowTimeline): TimelineTick[] {
+  return Array.from({ length: TIMELINE_TICK_COUNT }, (_, index) => {
+    const ratio = index / (TIMELINE_TICK_COUNT - 1)
+    return { ratio, label: formatDuration(timeline.totalMs * ratio), left: ratio * 100 }
+  })
+}
+
+type EntryIndex = Map<string, WorkflowTimelineEntry>
+
+/** 刻度条：吸顶在滚动容器顶部，与行轨道同列，保证刻度与条形对齐。 */
+function TimelineAxis({ ticks }: { ticks: TimelineTick[] }) {
   return (
-    <li>
-      <details
-        open={open}
-        onToggle={(event) => setOpen(event.currentTarget.open)}
-      >
-        <summary
-          className="quickforge-workflow-detail-tool"
-          data-tone={stepTone(tool.status)}
-          title={tool.error ? `${name}: ${tool.error}` : name}
-        >
-          <span className="quickforge-workflow-detail-tool-name">{name}</span>
-          {tool.durationMs > 0 ? <span className="quickforge-workflow-detail-duration">{formatDuration(tool.durationMs)}</span> : null}
-          {expandable ? <ChevronRight className="quickforge-workflow-detail-chevron" aria-hidden="true" /> : null}
-        </summary>
-        {expandable ? (
-          <div className="quickforge-workflow-detail-tool-body">
-            {argsPreview ? (
-              <div>
-                <div className="quickforge-workflow-detail-field-label">{t('input')}</div>
-                {renderCodeBlock(argsPreview, 'json')}
-              </div>
-            ) : null}
-            {tool.resultPreview ? (
-              <div>
-                <div className="quickforge-workflow-detail-field-label">{t('output')}</div>
-                {renderCodeBlock(tool.resultPreview, 'text')}
-              </div>
-            ) : null}
-            {tool.error ? <div className="quickforge-workflow-detail-error-text">{tool.error}</div> : null}
-            {!argsPreview && !tool.resultPreview && !tool.error ? (
-              <div className="quickforge-workflow-detail-field-label">{toolStatusText(tool) || t('workflowDetailPending')}</div>
-            ) : null}
-          </div>
-        ) : null}
-      </details>
-    </li>
+    <div className="quickforge-workflow-detail-axis" aria-hidden="true">
+      <span className="quickforge-workflow-detail-axis-spacer" />
+      <span className="quickforge-workflow-detail-axis-track">
+        <span className="quickforge-workflow-detail-axis-plot">
+          {ticks.map((tick) => (
+            <span
+              className="quickforge-workflow-detail-axis-tick"
+              key={`tick-${tick.ratio}`}
+              style={{ left: `${tick.left}%` }}
+              data-edge={tick.ratio === 0 ? 'start' : tick.ratio === 1 ? 'end' : undefined}
+            >
+              {tick.label}
+            </span>
+          ))}
+        </span>
+      </span>
+    </div>
   )
 }
 
-function AgentCard({
+function StepTrack({ entry, ticks, totalMs }: { entry: WorkflowTimelineEntry; ticks: TimelineTick[]; totalMs: number }) {
+  // 百分比：条形左偏移与宽度都以 totalMs 为分母；短调用保底 0.6%，避免消失。
+  const toPercent = (offsetMs: number) => Math.min(100, (Math.max(0, offsetMs) / totalMs) * 100)
+  const left = toPercent(entry.startOffsetMs)
+  const width = Math.max(0.6, toPercent(entry.startOffsetMs + entry.durationMs) - left)
+  return (
+    <span className="quickforge-workflow-detail-row-track">
+      <span className="quickforge-workflow-detail-row-plot">
+        {ticks.map((tick) => (
+          <span
+            className="quickforge-workflow-detail-grid"
+            key={`grid-${tick.ratio}`}
+            style={{ left: `${tick.left}%` }}
+            aria-hidden="true"
+          />
+        ))}
+        <span
+          className={`quickforge-workflow-detail-bar${entry.parallel ? ' is-parallel' : ''}`}
+          data-tone={stepTone(entry.status)}
+          data-kind={entry.kind}
+          style={{ left: `${left}%`, width: `${width}%` }}
+        />
+        {/* 耗时与「并行」是绘图区的绝对定位子元素，不是条形的子元素：
+            挂在条形上会随条形位置溢出轨道右侧而被面板裁掉。 */}
+        {entry.durationMs > 0 ? (
+          <span className="quickforge-workflow-detail-bar-value">{formatDuration(entry.durationMs)}</span>
+        ) : null}
+        {entry.parallel ? (
+          <span className="quickforge-workflow-detail-parallel-tag">{t('workflowDetailParallelBadge')}</span>
+        ) : null}
+      </span>
+    </span>
+  )
+}
+
+type StepProps = {
+  entry?: WorkflowTimelineEntry
+  ticks: TimelineTick[]
+  totalMs: number
+  detailed: boolean
+}
+
+/**
+ * 行首的类型图标：直接复用工具卡的 `renderToolIcon`（与聊天里的工具行 / subagent 行
+ * 同一套图标），外层 span 只负责按状态着色。合并成单页后状态点与条形各表达一半
+ * 信息，图标补上「这是哪种工具」，比原来的纯圆点信息量高且不增加行高。
+ */
+function StepIcon({ toolName, tone }: { toolName: string; tone: string }) {
+  return <span className="quickforge-workflow-detail-row-icon" data-tone={tone}>{renderToolIcon(toolName)}</span>
+}
+
+/**
+ * Agent 展开体里的任务说明块：与 SubagentRunDetailContent 顶部的任务块**同一套**
+ * 结构（`.quickforge-subagent-task.quickforge-input-clamp` + `input-clamp` 控制器），
+ * 长 prompt 超过六行时定高收起并给「展开」pill，不把整段任务说明平铺在时间轴上。
+ */
+const inputClampLabels: InputClampLabels = { collapsed: () => t('expand'), expanded: () => t('collapse') }
+
+function AgentTaskBlock({ task, context, expectedOutput }: { task: string; context: string; expectedOutput: string }) {
+  const root = useRef<HTMLDivElement>(null)
+  // 只有这三段文本影响定高测量；依赖整个 agent 对象会在每帧实时快照上重测量导致抖动
+  //（与 SubagentRunDetailContent 同一处坑）。
+  useEffect(() => {
+    const element = root.current
+    if (!element) return
+    syncInputClampBoxes(element, inputClampLabels)
+    return () => disposeInputClampBoxes(element)
+  }, [task, context, expectedOutput])
+
+  return (
+    <div ref={root}>
+      <div className="quickforge-subagent-task quickforge-input-clamp" data-quickforge-input-clamp="true">
+        <div className="space-y-1">
+          {task ? <div><span className="font-medium">{t('subagentTask')}:</span> <span className="quickforge-subagent-task-value">{task}</span></div> : null}
+          {context ? <div><span className="font-medium">{t('subagentContext')}:</span> <span className="quickforge-subagent-task-value">{context}</span></div> : null}
+          {expectedOutput ? <div><span className="font-medium">{t('subagentExpectedOutput')}:</span> <span className="quickforge-subagent-task-value">{expectedOutput}</span></div> : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Agent 行：整行是 details 的 summary，展开后是该步的元信息、错误与结果。 */
+function AgentStep({
   agent,
+  entry,
+  ticks,
+  totalMs,
   detailed,
   workflowRunId,
   onOpenAgentRun,
-}: {
+}: StepProps & {
   agent: WorkflowAgentView
-  detailed: boolean
   workflowRunId: string
   onOpenAgentRun?: (workflowRunId: string, agent: WorkflowAgentView) => void
 }) {
+  const tone = stepTone(agent.status)
   const meta = [
     agent.profile,
     agent.toolCalls > 0 ? t('workflowAgentToolCalls', { count: agent.toolCalls }) : '',
     agent.schemaValidated ? t('workflowAgentSchema') : '',
   ].filter(Boolean).join(' · ')
   const status = agentStatusText(agent)
+  const openable = Boolean(onOpenAgentRun) && agent.status !== 'queued'
   return (
-    <div className="quickforge-workflow-detail-agent" data-tone={stepTone(agent.status)}>
-      <div className="quickforge-workflow-detail-agent-head">
-        <span className="quickforge-workflow-detail-dot" data-tone={stepTone(agent.status)} aria-hidden="true" />
-        <span
-          className={`quickforge-workflow-detail-agent-name${agent.status === 'running' ? ' quickforge-tool-running-sweep' : ''}`}
-          title={agent.error ? `${agent.label}: ${agent.error}` : agent.label}
-        >
-          {agent.label}
+    // 复用 ToolDetails：开合状态按 stateKey 记忆（展开过的 Agent 关掉面板再打开仍展开），
+    // 与工具卡同一套 LRU 记忆，不再每次渲染都回到折叠态。
+    <ToolDetails
+      className="quickforge-workflow-detail-step group/tool"
+      data-kind="agent"
+      data-tone={tone}
+      initiallyOpen={false}
+      stateKey={`workflow:${workflowRunId}:agent:${agent.id}`}
+    >
+      <summary className="quickforge-workflow-detail-row" title={agent.error ? `${agent.label}: ${agent.error}` : agent.label}>
+        <span className="quickforge-workflow-detail-row-head">
+          <StepIcon toolName="run_subagent" tone={tone} />
+          <span className={`quickforge-workflow-detail-row-label${agent.status === 'running' ? ' quickforge-tool-running-sweep' : ''}`}>
+            {agent.label}
+          </span>
+          {renderToolChevron()}
         </span>
-        {meta ? <span className="quickforge-workflow-detail-agent-meta">{meta}</span> : null}
-        {agent.durationMs > 0 ? <span className="quickforge-workflow-detail-duration">{formatDuration(agent.durationMs)}</span> : null}
-        {onOpenAgentRun && agent.status !== 'queued' ? (
-          <button
-            type="button"
-            className="quickforge-workflow-detail-agent-open"
-            onClick={() => onOpenAgentRun(workflowRunId, agent)}
-          >
-            {t('workflowDetailOpenAgentDetails')}
-          </button>
+        {entry ? <StepTrack entry={entry} ticks={ticks} totalMs={totalMs} /> : <span className="quickforge-workflow-detail-row-track" />}
+      </summary>
+      <div className="quickforge-workflow-detail-step-body">
+        {agent.promptPreview || agent.context || agent.expectedOutput ? (
+          <AgentTaskBlock task={agent.promptPreview} context={agent.context} expectedOutput={agent.expectedOutput} />
         ) : null}
-      </div>
-      {agent.error ? <div className="quickforge-workflow-detail-error-text">{agent.error}</div> : null}
-      {status && !agent.error ? <span className="quickforge-workflow-detail-sr">{status}</span> : null}
-      {detailed && agent.resultPreview ? (
-        <div className="quickforge-workflow-detail-agent-body">
-          <div className="quickforge-workflow-detail-field-label">{t('workflowToolResult')}</div>
-          {renderCodeBlock(agent.resultPreview, 'text')}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function PhaseView({
-  view,
-  detailed,
-  onOpenAgentRun,
-}: {
-  view: WorkflowRunView
-  detailed: boolean
-  onOpenAgentRun?: (workflowRunId: string, agent: WorkflowAgentView) => void
-}) {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  if (view.phases.length === 0) {
-    return <p className="quickforge-workflow-detail-empty">{t('workflowDetailNoPhases')}</p>
-  }
-  return (
-    <div className="quickforge-workflow-detail-phases">
-      {view.phases.map((phase, index) => {
-        const steps = workflowPhaseSteps(phase)
-        const stepCount = phase.agents.length + phase.tools.length
-        const tone = phaseTone(phase)
-        const isCollapsed = collapsed[phase.title] === true
-        const phaseDuration = phase.agents.reduce((sum, agent) => sum + agent.durationMs, 0)
-        return (
-          <section className="quickforge-workflow-detail-phase" data-tone={tone} key={`${phase.title}:${index}`}>
+        {meta ? <div className="quickforge-workflow-detail-step-meta">{meta}</div> : null}
+        {agent.error ? <div className="quickforge-workflow-detail-error-text">{agent.error}</div> : null}
+        {detailed && agent.resultPreview ? (
+          <div>
+            <div className="quickforge-workflow-detail-field-label">{t('workflowToolResult')}</div>
+            {renderCodeBlock(agent.resultPreview, 'text')}
+          </div>
+        ) : null}
+        {status && !agent.error ? <span className="quickforge-workflow-detail-sr">{status}</span> : null}
+        {openable ? (
+          <div className="quickforge-workflow-detail-step-actions">
             <button
               type="button"
-              className="quickforge-workflow-detail-phase-head"
-              aria-expanded={!isCollapsed}
-              onClick={() => setCollapsed((current) => ({ ...current, [phase.title]: !isCollapsed }))}
+              className="quickforge-workflow-detail-agent-open"
+              onClick={() => onOpenAgentRun?.(workflowRunId, agent)}
             >
-              <span className="quickforge-workflow-detail-phase-index">{String(index + 1).padStart(2, '0')}</span>
-              <span className="quickforge-workflow-detail-phase-name">{phase.title || t('workflowDetailPhaseCount', { index: index + 1 })}</span>
-              <span className="quickforge-workflow-detail-phase-count">{t('workflowDetailStepCount', { count: stepCount })}</span>
-              {phaseDuration > 0 ? <span className="quickforge-workflow-detail-duration">{formatDuration(phaseDuration)}</span> : null}
-              <ChevronRight className="quickforge-workflow-detail-chevron" aria-hidden="true" />
+              {t('workflowDetailOpenAgentDetails')}
             </button>
-            {isCollapsed ? null : (
-              <div className="quickforge-workflow-detail-phase-body">
-                {steps.map((step) => step.kind === 'agent' ? (
-                  <AgentCard
-                    key={step.agent.id}
-                    agent={step.agent}
-                    detailed={detailed}
-                    workflowRunId={view.runId}
-                    onOpenAgentRun={onOpenAgentRun}
-                  />
-                ) : (
-                  <ul className="quickforge-workflow-detail-tools" key={step.tools[0].id}>
-                    {step.tools.map((tool) => <ToolRow key={tool.id} tool={tool} detailed={detailed} />)}
-                  </ul>
-                ))}
-                {phase.logs.length > 0 ? (
-                  <ul className="quickforge-workflow-detail-phase-logs">
-                    {phase.logs.map((log, logIndex) => (
-                      <li key={`${log.at}:${logIndex}`} data-level={log.level}>{log.message}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            )}
-          </section>
-        )
-      })}
-    </div>
+          </div>
+        ) : null}
+        {!meta && !agent.error && !(detailed && agent.resultPreview) ? (
+          <div className="quickforge-workflow-detail-field-label">{status || t('workflowDetailPending')}</div>
+        ) : null}
+      </div>
+    </ToolDetails>
   )
 }
 
-// ---------------------------------------------------------------------------
-// 日志视图
-// ---------------------------------------------------------------------------
-
-function LogView({ view }: { view: WorkflowRunView }) {
-  const origin = view.runStartedAt ?? view.logs[0]?.at ?? 0
-  if (view.logs.length === 0) {
-    return <p className="quickforge-workflow-detail-empty">{t('workflowDetailNoLogs')}</p>
-  }
+/** 工具行：Agent 的子级，展开后是入参 / 输出 / 错误（run_command 输出走共享控制台块）。 */
+function ToolStep({
+  tool,
+  entry,
+  ticks,
+  totalMs,
+  detailed,
+  workflowRunId,
+}: StepProps & { tool: WorkflowToolView; workflowRunId: string }) {
+  const name = tool.label || tool.name
+  const tone = stepTone(tool.status)
+  const argsPreview = detailed && tool.args ? JSON.stringify(tool.args) : ''
   return (
-    <ul className="quickforge-workflow-detail-log-list">
-      {view.logs.map((log, index) => (
-        <li key={`${log.at}:${index}`} className="quickforge-workflow-detail-log" data-level={log.level}>
-          <time className="quickforge-workflow-detail-log-time">{formatDuration(Math.max(0, log.at - origin))}</time>
-          {log.phase ? <span className="quickforge-workflow-detail-log-phase">{log.phase}</span> : null}
-          <span className="quickforge-workflow-detail-log-text">{log.message}</span>
-        </li>
-      ))}
-    </ul>
+    <ToolDetails
+      className="quickforge-workflow-detail-step group/tool"
+      data-kind="tool"
+      data-tone={tone}
+      initiallyOpen={false}
+      stateKey={`workflow:${workflowRunId}:tool:${tool.id}`}
+    >
+      <summary className="quickforge-workflow-detail-row" title={tool.error ? `${name}: ${tool.error}` : name}>
+        <span className="quickforge-workflow-detail-row-head">
+          <StepIcon toolName={tool.name} tone={tone} />
+          <span className="quickforge-workflow-detail-row-label">{name}</span>
+          {renderToolChevron()}
+        </span>
+        {entry ? <StepTrack entry={entry} ticks={ticks} totalMs={totalMs} /> : <span className="quickforge-workflow-detail-row-track" />}
+      </summary>
+      <div className="quickforge-workflow-detail-step-body">
+        {argsPreview ? (
+          <div>
+            <div className="quickforge-workflow-detail-field-label">{t('input')}</div>
+            {renderCodeBlock(argsPreview, 'json')}
+          </div>
+        ) : null}
+        {tool.resultPreview ? (
+          <div>
+            <div className="quickforge-workflow-detail-field-label">{t('output')}</div>
+            {/* 命令输出复用聊天工具卡的同一块控制台渲染（等宽 + 复制按钮）。 */}
+            {tool.name === 'run_command'
+              ? renderConsoleBlock(tool.resultPreview, tool.status === 'error' ? 'error' : 'default')
+              : renderCodeBlock(tool.resultPreview, 'text')}
+          </div>
+        ) : null}
+        {tool.error ? <div className="quickforge-workflow-detail-error-text">{tool.error}</div> : null}
+        {!argsPreview && !tool.resultPreview && !tool.error ? (
+          <div className="quickforge-workflow-detail-field-label">{toolStatusText(tool) || t('workflowDetailPending')}</div>
+        ) : null}
+      </div>
+    </ToolDetails>
+  )
+}
+
+/** 阶段小节：粘性阶段头 + 该阶段的行 + 该阶段自己的日志（日志带 phase，永远有归属）。 */
+function PhaseSection({
+  phase,
+  ordinal,
+  ticks,
+  totalMs,
+  logOrigin,
+  detailed,
+  workflowRunId,
+  entryIndex,
+  onOpenAgentRun,
+}: StepProps & {
+  phase: WorkflowPhaseView
+  ordinal: number
+  logOrigin: number
+  workflowRunId: string
+  entryIndex: EntryIndex
+  onOpenAgentRun?: (workflowRunId: string, agent: WorkflowAgentView) => void
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+  const steps = workflowPhaseSteps(phase)
+  const entries = [
+    ...phase.agents.map((agent) => entryIndex.get(`agent:${agent.id}`)),
+    ...phase.tools.map((tool) => entryIndex.get(`tool:${tool.id}`)),
+  ].filter((entry): entry is WorkflowTimelineEntry => Boolean(entry))
+  const spanMs = entries.length > 0
+    ? Math.max(...entries.map((entry) => entry.startOffsetMs + entry.durationMs))
+      - Math.min(...entries.map((entry) => entry.startOffsetMs))
+    : 0
+  const stepCount = phase.agents.length + phase.tools.length
+  // 服务端理论上可能给出没有标题的阶段桶（日志/步骤的 phase 是空串）：
+  // 合并成单页后这里就是「不属于任何阶段」的那一段，用专门的标题而不是「阶段 N」。
+  const title = phase.title || t('workflowDetailRunLogs')
+  return (
+    <section className="quickforge-workflow-detail-phase" data-tone={phaseTone(phase)}>
+      <button
+        type="button"
+        className="quickforge-workflow-detail-phase-head"
+        aria-expanded={!collapsed}
+        onClick={() => setCollapsed((current) => !current)}
+      >
+        <span className="quickforge-workflow-detail-phase-index">{String(ordinal).padStart(2, '0')}</span>
+        <span className="quickforge-workflow-detail-phase-name" title={title}>{title}</span>
+        <span className="quickforge-workflow-detail-phase-count">{t('workflowDetailStepCount', { count: stepCount })}</span>
+        {spanMs > 0 ? <span className="quickforge-workflow-detail-duration">{formatDuration(spanMs)}</span> : null}
+        {renderToolChevron()}
+      </button>
+      {collapsed ? null : (
+        <div className="quickforge-workflow-detail-phase-body">
+          {steps.map((step) => step.kind === 'agent' ? (
+            <AgentStep
+              key={step.agent.id}
+              agent={step.agent}
+              entry={entryIndex.get(`agent:${step.agent.id}`)}
+              ticks={ticks}
+              totalMs={totalMs}
+              detailed={detailed}
+              workflowRunId={workflowRunId}
+              onOpenAgentRun={onOpenAgentRun}
+            />
+          ) : (
+            <div className="quickforge-workflow-detail-tools" key={`tools:${step.tools[0].id}`}>
+              {step.tools.map((tool) => (
+                <ToolStep
+                  key={tool.id}
+                  tool={tool}
+                  entry={entryIndex.get(`tool:${tool.id}`)}
+                  ticks={ticks}
+                  totalMs={totalMs}
+                  detailed={detailed}
+                  workflowRunId={workflowRunId}
+                />
+              ))}
+            </div>
+          ))}
+          {phase.logs.length > 0 ? (
+            <ul className="quickforge-workflow-detail-phase-logs">
+              {phase.logs.map((log, logIndex) => (
+                <li key={`${log.at}:${logIndex}`} data-level={log.level}>
+                  <time>{formatDuration(Math.max(0, log.at - logOrigin))}</time>
+                  <span>{log.message}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -392,21 +416,18 @@ function LogView({ view }: { view: WorkflowRunView }) {
 // ---------------------------------------------------------------------------
 
 export function WorkflowRunDetailContent({ payload, onOpenAgentRun }: WorkflowRunDetailContentProps) {
-  const [view, setView] = useState<DetailView>('timeline')
   const [sheet, setSheet] = useState<'script' | 'result' | undefined>(undefined)
+  const timeline = useMemo(() => (payload ? workflowTimeline(payload.view) : undefined), [payload])
 
-  if (!payload) {
+  if (!payload || !timeline) {
     return <div className="quickforge-workflow-detail-empty">{t('workflowDetailNoPhases')}</div>
   }
 
   const run = payload.view
   const tone = statusTone(run.status)
-  const timeline = workflowTimeline(run)
-  const views: Array<{ key: DetailView; label: string; count?: string }> = [
-    { key: 'timeline', label: t('workflowDetailViewTimeline'), count: timeline.peakConcurrency > 1 ? `×${timeline.peakConcurrency}` : undefined },
-    { key: 'phase', label: t('workflowDetailViewPhases'), count: String(run.phases.length) },
-    { key: 'log', label: t('workflowDetailViewLogs'), count: String(run.logs.length) },
-  ]
+  const ticks = timelineTicks(timeline)
+  const entryIndex: EntryIndex = new Map(timeline.entries.map((entry) => [entry.id, entry]))
+  const logOrigin = run.runStartedAt ?? run.logs[0]?.at ?? 0
 
   return (
     <div className="quickforge-workflow-detail" data-status={run.status}>
@@ -431,34 +452,43 @@ export function WorkflowRunDetailContent({ payload, onOpenAgentRun }: WorkflowRu
               {t('workflowDetailBudget')} <b>{run.maxAgents}</b> agent / <b>{run.maxTools}</b> tool
             </span>
           ) : null}
+          {/* 图例整页共享一套编码，随概览条常驻，不再挂在某一视图底部。 */}
+          <span className="quickforge-workflow-detail-legend">
+            <span><i className="swatch" data-tone="agent" />{t('workflowDetailTimelineLegendAgent')}</span>
+            <span><i className="swatch" data-tone="tool" />{t('workflowDetailTimelineLegendTool')}</span>
+            <span><i className="swatch" data-tone="parallel" />{t('workflowDetailTimelineLegendParallel')}</span>
+          </span>
         </div>
       </div>
 
-      <div className="quickforge-workflow-detail-seg" role="tablist" aria-label={t('workflowRunDetails')}>
-        {views.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            role="tab"
-            aria-selected={view === item.key}
-            onClick={() => setView(item.key)}
-          >
-            {item.label}
-            {item.count ? <span className="quickforge-workflow-detail-seg-count">{item.count}</span> : null}
-          </button>
-        ))}
-      </div>
-
-      <div className="quickforge-workflow-detail-pane">
+      <div className="quickforge-workflow-detail-scroll">
+        <TimelineAxis ticks={ticks} />
         {run.error ? (
           <div className="quickforge-workflow-detail-error" role="alert">
             <span className="quickforge-workflow-detail-error-label">{t('workflowError')}</span>
             <span>{run.error}</span>
           </div>
         ) : null}
-        {view === 'timeline' ? <TimelineView view={run} /> : null}
-        {view === 'phase' ? <PhaseView view={run} detailed={payload.detailed} onOpenAgentRun={onOpenAgentRun} /> : null}
-        {view === 'log' ? <LogView view={run} /> : null}
+        {run.phases.length === 0 ? (
+          <p className="quickforge-workflow-detail-empty">{t('workflowDetailNoPhases')}</p>
+        ) : (
+          <div className="quickforge-workflow-detail-phases">
+            {run.phases.map((phase, index) => (
+              <PhaseSection
+                key={`${phase.title}:${index}`}
+                phase={phase}
+                ordinal={index + 1}
+                ticks={ticks}
+                totalMs={timeline.totalMs}
+                logOrigin={logOrigin}
+                detailed={payload.detailed}
+                workflowRunId={run.runId}
+                entryIndex={entryIndex}
+                onOpenAgentRun={onOpenAgentRun}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="quickforge-workflow-detail-foot">

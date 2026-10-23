@@ -1,5 +1,5 @@
 /**
- * 长输入内容定高收起的交互控制（设计稿已随 design-mockups/ 整体删除，规格以本文件与 index.css 为准）。
+ * 长输入内容定高收起的交互控制（设计稿已随 design-mockups/ 整体删除，规格以本文件与 src/styles/chat/messages.css 为准）。
  *
  * 两个使用方共用一套结构：
  * - 聊天用户消息气泡（message-actions 装饰 .user-message-container）；
@@ -10,9 +10,9 @@
  *   实际 computed line-height 计算，随字号设置缩放）；安全区由流内占位节点提供，只在 overflowing
  *   内容中显示，展开态也不会让按钮覆盖末行，fits 内容不留额外空白；
  * - 内容不足「六行正文 + 原有 chrome」保持自然高度，渐隐遮罩、占位节点与按钮 display:none；
- * - 超出定高进入收起态：底部渐隐遮罩（渐隐到容器自身背景色，见 index.css
+ * - 超出定高进入收起态：底部渐隐遮罩（渐隐到容器自身背景色，见 src/styles/chat/messages.css
  *   --quickforge-input-clamp-bg）+ 框底居中「展开」pill 按钮，hover 才强化；
- * - 展开/收起为 max-height 过渡（.22s，与 index.css 的 .quickforge-input-clamp transition
+ * - 展开/收起为 max-height 过渡（.22s，与 src/styles/chat/messages.css 的 .quickforge-input-clamp transition
  *   保持同步），展开动画结束后置 none 以便内容继续
  *   变化；prefers-reduced-motion 直切终态；
  * - 状态用 data 属性表达（data-quickforge-clamped / expanded / fits），React 重渲染

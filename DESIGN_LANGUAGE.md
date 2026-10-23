@@ -144,7 +144,7 @@ Hover 反馈需要存在，让可点击性明显，但不能太重：
 
 ## 动效
 
-动效服务于「反馈明确但克制」：让状态变化可感知，而不是表演。具体 token 与 keyframes 以 `src/index.css` 为准。
+动效服务于「反馈明确但克制」：让状态变化可感知，而不是表演。具体 token 与 keyframes 以 `src/styles/` 为准。
 
 ### 统一刻度
 
@@ -262,6 +262,21 @@ Hover 反馈需要存在，让可点击性明显，但不能太重：
 - 列表项中等
 - 输入框可以更圆
 - 图标按钮或状态点用全圆
+
+---
+
+## CSS 架构
+
+全局样式入口是 `src/styles/index.css`：先 `@import "tailwindcss"`，再按固定顺序 `@import` 领域模块。**入口的 import 顺序就是级联契约**，模块之间不得互相 import。实现新样式时遵循：
+
+- **按功能面归属**：设置写 `settings/`，聊天写 `chat/`，Inspector 写 `workspace/`，跨 surface 的排版/token/高亮写 `foundation.css`、`markdown.css`、`highlight.css`。不要把规则继续堆进入口或相邻模块。
+- **一个 selector 一个归属**：确需跨模块覆盖时，在 `tests/frontend/css-architecture.test.ts` 的 `crossModuleSelectors` 登记并说明原因，不要依赖隐式加载顺序。
+- **token 保持 unlayered**：设计 token 与覆盖继续写在 `foundation.css` 的 unlayered `:root` / `.dark`，不要迁到 `@theme`，否则会被 `@layer theme` 降权。
+- **组件自持 CSS 仅限隔离 surface**：懒加载且 class 前缀独占的 surface（如对话轨迹、Goal Inspector）可以由组件自行 import CSS；必须避免覆盖全局 selector。
+- **不使用 CSS Modules**：大量 class 由 panel-decoration、`querySelector` 和测试按字符串消费，模块化会破坏 DOM 契约。
+- **测试统一读取 `appCss`**：全局样式契约从 `tests/helpers/app-css.ts` 读取（按入口 import 图递归内联），不要直接读某个模块文件拼全局契约。
+
+完整模块地图与新增样式流程见 [docs/wiki/src/styles/README.md](docs/wiki/src/styles/README.md)。
 
 ---
 

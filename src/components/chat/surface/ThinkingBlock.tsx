@@ -57,7 +57,7 @@ export function ThinkingBlock({ content, isStreaming = false }: ThinkingBlockPro
            * 流式态同时写 `data-quickforge-thinking-streaming`：过程组接管时装饰层会把
            * 这个 label 的 class 整体重写成 `quickforge-process-thinking-label`
            * （process-folding.ts），挂在这里的 shimmer class 会被抹掉；data 属性不受
-           * 影响，接管路径的流光由 index.css 按属性选择器复刻（同一套 keyframes）。
+           * 影响，接管路径的流光由 src/styles/chat/process-timeline.css 按属性选择器复刻（同一套 keyframes）。
            */
           data-quickforge-thinking-streaming={isStreaming ? 'true' : undefined}
           className={

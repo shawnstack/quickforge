@@ -1,3 +1,71 @@
+# 当前交接：css-architecture-split（done，2026-10-23）
+
+- Current Objective（当前目标）：用户要求「不需要打补丁，需要完整最佳的架构，必要必须重构，保持架构最佳，但不要影响现有交互形态和样式」。已完成单体 `src/index.css` 的完整拆分与验证。
+- 结论（一句话）：`src/index.css` 删除，改为 `src/styles/index.css` 唯一有序入口 + 38 个领域模块；入口 import 顺序就是级联契约，模块间禁止互相 import；构建产物规则级零差异。
+- 改动文件：
+  1. `src/styles/**`（新增 39 个 CSS 文件：入口 + 38 模块；foundation / settings / chat / workspace / 共享 markdown/highlight/info-tip）。
+  2. `src/main.tsx`：改引 `./styles/index.css`。
+  3. `tests/helpers/app-css.ts`（新增）：递归内联入口 import 图，导出 `appCss` / `styleFiles`；兼容 jsdom（`process.cwd()`）。
+  4. `tests/frontend/css-architecture.test.ts`（新增）：入口顺序、所有模块恰好可达一次、模块内禁止 @import、跨模块 selector 白名单、main.tsx 入口。
+  5. 33 个前端测试：CSS 读取从 `src/index.css` 改为 `appCss`/`globalCss`。
+  6. 17 个源码注释：旧 `src/index.css` 路径改为对应模块。
+  7. 文档：`DESIGN_LANGUAGE.md`、`docs/wiki/src/README.md`、`docs/wiki/src/styles/README.md`（新增）、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`、`docs/architecture/workflow-orchestration.zh-CN.md`。
+- 关键实现约束：入口顺序 = 原单体源顺序，不能重排；跨模块同 selector 覆盖只允许 `css-architecture.test.ts` 登记的 4 组（`:root` / `.dark` token 命名空间、subagent 摘要排版/交互态、tool-summary detail 布局/reduced-motion）；新增全局样式必须进对应领域模块，不能继续堆入口；不使用 CSS Modules（class 被装饰层/querySelector/测试按字符串消费）。
+- 被避免的坑：① 不能直接按功能重组 import 顺序——初次搬迁必须保持原顺序才能逐字节比对；② 30+ 测试直接读文件文本，先做 `appCss` helper 再拆，否则会炸一片；③ jsdom 下 `import.meta.url` 不是 file scheme，helper 用 `process.cwd()`；④ 原 `subagent.css` 混了 markdown 链接/用户消息/压缩卡，已按语义拆开；⑤ 误放在 math.css 的 subagent-title flex 已归位。
+- Evidence（验证）：`npm run test` → **424 文件 / 4908 passed / 2 skipped**，exit 0；`npm run lint` → 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` → 成功；构建 CSS PostCSS 规则级比对 → **3393 条规则 / 0 语义差异**，其余 CSS chunk 逐字节一致；`css-architecture.test.ts` → **5 passed**。
+- 已知工作区遗留（与本次无关）：ask-user remark、workflow 单页详情等前序未提交改动原样保留；`src/index.css` 的未提交内容已全部迁入 `src/styles/`。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：未创建 Git commit，未手工修改 `dist/`、`package-dist/`、`package-offline/`。可选后续：① 若要 CSS 按路由拆分 chunk，先收敛 4 组跨模块覆盖/引入 cascade layer，并补真实视觉回归；② `docs/design/*.html` 历史路径可在下次设计稿更新时迁移；③ 在真实浏览器做一轮浅/深色目视验收（本次以构建产物语义比对兜底）。
+
+---
+
+# 当前交接：ask-user-remark-on-confirm（done，2026-10-23）
+
+- Current Objective（当前目标）：用户要求「askuser 这个 tools 交互显示最后确认底部还希望可以加一个补充信息」，先出 HTML 设计稿评审；用户回复「按推荐执行」，即方案 C（第 N+1 条回执行）。
+- 结论（一句话）：补充信息是整次提交的限定语而不是某一题的答案，所以**不进** `answers[]`，而是作为回执列表末行单独展示（虚线引导线 + 笔形图标 + 内嵌自适应 textarea + 「可选」小字），并以独立 `remark` 参数一路透传到服务端，最终追加进工具结果末行并持久化到 `details.remark`。
+- 改动文件（13 源码/测试 + 2 wiki + 1 设计稿）：
+  1. `src/components/chat/panel-decoration/ask-user-card.ts`：`onSubmit(answers, remark?)`；卡片级 `let remark = ''`；review 分支末尾插入 `.quickforge-ask-review-row--remark`；textarea Enter 保持换行；提交透传 `trimmedRemark || undefined`。
+  2. `src/components/chat/ChatPanelHost.tsx`：`onAnswerAsk` 两处类型 + `onSubmit` 调用加第 4 参数 `remark`。
+  3. `src/App.tsx`：`handleAnswerAsk(askId, answers, skipped, remark?)` → `answerAsk` payload。
+  4. `src/lib/server-agent.ts`：`answerAsk` payload 带 `remark`。
+  5. `server/agent-approval-responses.mjs`：remark 归一化（trim + slice(0,4000)，空白丢弃，skip 不写）。
+  6. `server/agent-approval-orchestrator.mjs`：`finish()` 传 remark → `formatAskResult` + `details.remark`。
+  7. `server/ask-store.mjs`：`formatAskResult(..., remark)` 末尾追加 `补充信息：…`。
+  8. `server/routes/agent.mjs`：`/answer-ask` 透传 `body?.remark`。
+  9. `src/lib/tool-renderers/ask-user-tool-renderer.tsx`：`AskUserReviewRows.remark`、从 `details` 读取、历史回执渲染同款虚线行（skip 不显示）。
+  10. `src/index.css`：`.quickforge-ask-review-row--remark` + `.quickforge-ask-remark-{field,icon,input,optional}`；窄屏隐藏「可选」。
+  11. `src/lib/i18n.ts`：`askUserRemarkLabel` / `askUserRemarkPlaceholder` / `askUserRemarkOptional`（中英）。
+  12. 测试：`tests/frontend/ask-user-card.test.ts`（+2 例）、`tests/server/ask-user-tool.test.mjs`（+1 例）、`tests/server/agent-manager-domains.test.mjs`（+1 例）。
+  13. 文档：`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`；评审稿 `docs/design/ask-user-remark-mock.html`。
+- 关键实现约束：remark **不能**塞进 `ServerAgentAskAnswer`（会污染逐题答案结构，且服务端 `normalizedAnswers` 按 `questions.length` 对齐切片会丢掉它）；回执行 textarea 的 Enter 必须保持换行，否则多行备注会被当成「前进/提交」。
+- 被避免的坑：`tests/frontend/ask-user-card.test.ts` 的源码字符串断言必须精确到 `deps.onSubmit(answers.map((answer) => ({ ...answer })), trimmedRemark || undefined)`，否则改动参数顺序不会被测试发现。
+- Evidence（验证）：定向 4 文件 **70 passed**；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` 成功。全量 `npm run test` 当时 4895 passed / 2 failed——`scheduled-tasks.commands` 的 Windows `EPERM` 临时文件 rename（单跑 24 passed）、`workflow-renderer` 阶段用例（当轮工作区既存未提交的 `WorkflowRunDetailContent.tsx` 重写导致，已在 `workflow-detail-single-page` 那轮一并修好，现全量 422 文件 4897 passed / 2 skipped）。
+- 已知工作区遗留（与本次无关）：`goal-*`、`workflow-*`、`TodoWriteSummary.tsx` 等多处未提交改动来自前几轮会话；`docs/design/workflow-detail-single-page.html` 与 `WorkflowRunDetailContent.tsx` 的单页合并实现见上方 `workflow-detail-single-page` 交接。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：未创建 Git commit，未手工修改 `dist/`、`package-dist/`、`package-offline/`。可选后续（见 `progress.md` Notes）：① remark 加字数计数/上限提示；② 回执步 remark 与 step/answers 一起持久化，解决刷新归零；③ 补 `aria-label`；④ `formatAskResult` 的「补充信息：」按会话语言本地化。
+
+---
+
+# 当前交接：workflow-detail-single-page（done，2026-10-23）
+
+- Current Objective（当前目标）：用户反馈运行详情里「时间轴 / 阶段 / 日志」三个分段 tab 要点击切换、不顺手，要求「就一个页面不要点击切」。先出 HTML 设计稿评审，用户回复「执行」后落地。
+- 结论（一句话）：三视图本来就是同一份数据的三种投影（时间轴读 `startOffsetMs/durationMs`、阶段读 `phases[]`、日志读带 `phase` 的 `logs[]`），已合并成一页连续滚动：整页共享一根吸顶时间轴，每个阶段 = 粘性阶段头 + 该阶段的行（Agent 条形 + 状态点 / 工具 1px 连接线缩进行）+ 该阶段自己的日志。
+- 改动文件：
+  1. `src/components/workspace/WorkflowRunDetailContent.tsx`：删除 `DetailView` 状态 / `role="tablist"` 分段控件 / 三视图分发；改为 概览条（图例常驻）→ `-scroll` 唯一滚动容器 → 吸顶 `TimelineAxis` → `PhaseSection`（粘性阶段头 + `workflowPhaseSteps` 渲染的 `AgentStep`/`ToolStep` + `-phase-logs`）。`AgentStep`/`ToolStep` 都是 `<details class="-step">` 包整行 `<summary class="-row">`。
+  2. `src/index.css`：删除 `-seg / -pane / -rows / -timeline / -log-list / -log* / -tool* / -agent* / -phase-rule`；新增 `-scroll`；`-axis` 与 `-phase-head` 改 `position: sticky`（后者 `top: var(--wf-tl-axis-h)`、`background: var(--background)`、`z-index: 2`）；`--wf-tl-*` 上移到根节点（窄面板 `@media` 同步改覆盖 `.quickforge-workflow-detail`）；新增 `-step / -step-body / -step-meta / -step-actions`；`-phase-logs` 改 flex 行。
+  3. `src/lib/i18n.ts`：新增 `workflowDetailRunLogs`；删除 `workflowDetailViewTimeline/Phases/Logs`、`workflowDetailNoLogs`、`workflowDetailPhaseCount`。
+  4. `tests/frontend/workflow-renderer.test.ts`：三视图用例改「单页合并」+ 真实渲染断言（刻度条/`-scroll`/`-phase-logs` 同屏、日志落在各自阶段后、无 `-seg`）；CSS 契约改断 `-scroll` overflow、刻度/阶段头 sticky、图例 `margin-left:auto`、`-seg`/`-pane` 不存在。
+  5. `docs/wiki/src/components/README.md`：两处重复的「三个视图」段落替换成「单页合并视图」新契约（含吸顶 z-index、为什么工具行只缩进标签列、`--wf-tl-*` 为何上移）。
+  6. `docs/design/workflow-detail-single-page.html`：设计稿（上一轮产出，已按此实现）。
+- 关键实现约束：吸顶元素（刻度条 `z-index: 3` / 阶段头 `z-index: 2`）都必须有不透明底色，否则滚动中的行会透出来；工具行**只缩进标签列**、右轨道保持整页对齐（否则跨层级条形无法横向比较）；阶段体不再叠加左缩进（行自带左右 `0.875rem`）。
+- 被避免的坑：`--wf-tl-*` 变量原先声明在 `-timeline` 内部，合并后吸顶的刻度条/阶段头取不到，必须上移到根节点，窄面板 `@media` 的覆盖选择器也要一起改。
+- Evidence（验证）：`npx vitest run tests/frontend/workflow-renderer.test.ts` → **29 passed**；`tests/frontend` 全量 → **249 文件 2991 passed**；`npm run test` 全量 → **422 文件 4897 passed / 2 skipped**；`npm run lint` → 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功（5.55s）。
+- 已知工作区遗留（与本次无关）：`goal-*`、`ask-user-*`、`server/*` 等多处未提交改动来自前几轮会话。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：未创建 Git commit，未手工修改 `dist/`、`package-dist/`、`package-offline/`。可选后续：① `npm run dev` 目视验收浅/深色与 340px 窄面板下吸顶区域的观感、工具行连接线与条形是否对齐；② 长运行（几十阶段）里加「跳到出错步骤」的滚动辅助。
+
+---
+
 # 当前交接：trace-view-switch-neutral（done，2026-10-23）
 
 - Current Objective（当前目标）：用户反馈「切换到轨迹的时候 轨迹的 icon 不需要有特殊的颜色 就和普通的对话一样就行」。

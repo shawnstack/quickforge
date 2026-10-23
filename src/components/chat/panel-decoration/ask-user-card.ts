@@ -17,7 +17,11 @@ export type AskUserCardDeps = {
   panel: HTMLElement
   disabled?: boolean
   disabledReason?: string
-  onSubmit: (answers: ServerAgentAskAnswer[]) => Promise<void> | void
+  /**
+   * `remark` is the card-level free-form note typed on the review step. It is
+   * kept outside `answers` because it is not tied to any single question.
+   */
+  onSubmit: (answers: ServerAgentAskAnswer[], remark?: string) => Promise<void> | void
   onSkip: () => Promise<void> | void
 }
 
@@ -56,6 +60,10 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
   const questions = ask.questions
   const answers: ServerAgentAskAnswer[] = questions.map(() => ({}))
   let step = 0 // 0..questions.length-1 = question steps, questions.length = review step
+  // Card-level free-form note for the review step, submitted alongside the
+  // answers. It lives on the card (not on a question) because it qualifies the
+  // whole submission rather than answering anything.
+  let remark = ''
 
   const card = document.createElement('section')
   card.className = 'quickforge-ask-card'
@@ -133,8 +141,36 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
               <button type="button" class="quickforge-ask-review-edit" data-review-index="${index}">${escapeHtml(t('askUserEdit'))}</button>
             </div>
           `).join('')}
+          <div class="quickforge-ask-review-row quickforge-ask-review-row--remark">
+            <div class="quickforge-ask-review-content">
+              <label class="quickforge-ask-remark-field">
+                <svg class="quickforge-ask-remark-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                <textarea class="quickforge-ask-remark-input" rows="1" placeholder="${escapeHtml(t('askUserRemarkPlaceholder'))}"></textarea>
+                <span class="quickforge-ask-remark-optional">${escapeHtml(t('askUserRemarkOptional'))}</span>
+              </label>
+            </div>
+          </div>
         </div>
       `
+      // The remark row looks like one more receipt line, but it edits the
+      // card-level note instead of jumping back to a question.
+      const remarkInput = body.querySelector<HTMLTextAreaElement>('.quickforge-ask-remark-input')
+      if (remarkInput) {
+        remarkInput.value = remark
+        remarkInput.disabled = disabled
+        const grow = () => {
+          remarkInput.style.height = 'auto'
+          remarkInput.style.height = `${Math.min(remarkInput.scrollHeight, 112)}px`
+        }
+        remarkInput.addEventListener('input', () => {
+          remark = remarkInput.value
+          grow()
+        })
+        // A multi-line note is normal here, so Enter stays a newline (unlike
+        // the per-question supplement box, which advances on Enter) — there is
+        // deliberately no keydown handler.
+        if (remark) grow()
+      }
       // The review summary re-enters any question directly — same renderStep
       // path as the back button, no extra animation state.
       body.querySelectorAll<HTMLButtonElement>('.quickforge-ask-review-edit').forEach((editBtn) => {
@@ -283,6 +319,8 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
     skipBtn.disabled = submitting || disabled
     nextBtn.disabled = submitting || disabled
     backBtn.disabled = submitting
+    const remarkInput = body.querySelector<HTMLTextAreaElement>('.quickforge-ask-remark-input')
+    if (remarkInput) remarkInput.disabled = submitting || disabled
     if (submitting) submitBtn.textContent = t('askUserSubmitting')
     else submitBtn.textContent = t('askUserSubmit')
   }
@@ -293,7 +331,8 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
     message.hidden = true
     disarmSkip()
     setSubmitting(true)
-    void Promise.resolve(deps.onSubmit(answers.map((answer) => ({ ...answer }))))
+    const trimmedRemark = remark.trim()
+    void Promise.resolve(deps.onSubmit(answers.map((answer) => ({ ...answer })), trimmedRemark || undefined))
       .catch(() => {
         showMessage(t('askUserFailed'))
         setSubmitting(false)

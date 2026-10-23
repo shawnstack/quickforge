@@ -589,7 +589,7 @@ export function MessageEditor({
   }
 
   return (
-    // DOM contract with src/index.css: the panel decoration adds
+    // DOM contract with src/styles/chat/composer.css: the panel decoration adds
     // `quickforge-composer` to this `.qf-message-editor` node, and the composer
     // card styles are anchored on `.quickforge-composer > div:first-child`
     // (the card) plus `.quickforge-composer > div:first-child > .px-2.pb-2`

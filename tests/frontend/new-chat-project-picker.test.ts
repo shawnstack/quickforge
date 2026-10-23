@@ -6,8 +6,9 @@ import { describe, expect, it } from 'vitest'
 import { NewChatProjectPicker } from '../../src/components/chat/NewChatProjectPicker'
 import { t } from '../../src/lib/i18n'
 import type { ProjectInfo } from '../../src/lib/types'
+import { appCss } from '../helpers/app-css'
 
-const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const css = appCss
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 
 const project: ProjectInfo = {

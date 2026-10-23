@@ -1,0 +1,76 @@
+/* Legacy `panel-decoration/code-blocks.ts:320/539` tagged decorated SVG/Mermaid
+ * blocks with `quickforge-svg-code-block` and `src/index.css` (pre-removal
+ * L2375) dropped the inner card frame for them; `CodeBlock.tsx` still emits the
+ * class, so the frameless card is restored on the element that now *is* the
+ * card. The sibling rules the legacy file had at L2382/L2391/L2395 targeted the
+ * removed pi-web-ui title bar (`quickforge-svg-code-toolbar-floating`): preview
+ * mode renders no title bar at all, the ⋯ menu is pinned with
+ * `top-[0.75rem] right-[0.35rem]`, and the label `<span>` no longer exists —
+ * only the title-bar padding reset below has a counterpart. */
+.quickforge-svg-code-block {
+  position: relative;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.quickforge-svg-code-block > div:first-child {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.quickforge-svg-code-preview {
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem 0;
+  overflow-x: auto;
+}
+
+.quickforge-svg-code-preview img {
+  max-width: 100%;
+  height: auto;
+  cursor: zoom-in;
+  object-fit: contain;
+}
+
+.quickforge-mermaid-code-preview {
+  min-height: 5rem;
+  padding: 1rem 0.75rem;
+}
+
+.quickforge-mermaid-code-preview img {
+  max-height: min(42rem, 72vh);
+}
+
+.quickforge-mermaid-code-error {
+  margin: 0.25rem 0 0.65rem;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.quickforge-svg-code-lightbox {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: rgb(15 23 42 / 0.72);
+  cursor: zoom-out;
+}
+
+.quickforge-svg-code-lightbox img {
+  max-width: min(100%, calc(100vw - 4rem));
+  max-height: min(100%, calc(100vh - 4rem));
+  object-fit: contain;
+  cursor: default;
+}
+
+.quickforge-rollback-action {
+  position: relative;
+  display: inline-flex;
+  pointer-events: auto;
+}
+

@@ -128,4 +128,19 @@ describe('agent manager domain contracts before and after extraction', () => {
     expect(manager.answerAsk(id, askId, { skipped: true })).toEqual({ answered: true, askId, skipped: true })
     expect(finish).toHaveBeenCalledWith({ skipped: true })
   })
+
+  it('passes the review-step remark through and drops blank ones', () => {
+    const finish = vi.fn()
+    pendingAsks.set(askId, { sessionId: id, questions: [{ question: '?' }], finish })
+    manager.answerAsk(id, askId, { answers: [{ choices: ['A'] }], remark: `  ${'z'.repeat(4500)}  ` })
+    expect(finish).toHaveBeenCalledWith({
+      answers: [{ choices: ['A'] }],
+      remark: 'z'.repeat(4000),
+    })
+
+    finish.mockClear()
+    pendingAsks.set(askId, { sessionId: id, questions: [{ question: '?' }], finish })
+    manager.answerAsk(id, askId, { answers: [{ choices: ['A'] }], remark: '   ' })
+    expect(finish).toHaveBeenCalledWith({ answers: [{ choices: ['A'] }] })
+  })
 })

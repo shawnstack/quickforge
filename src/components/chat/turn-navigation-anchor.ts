@@ -8,7 +8,7 @@
  * 1. **`display: none` 的 user 行。** goal 续跑提示（`metadata.quickforgeGoalRun`）
  *    和后台命令完成通知（`details.quickforgeBackgroundCommand`）都是
  *    `role: 'user'`，但渲染层给它们加 `quickforge-goal-internal-user-message`
- *    并把整行隐藏（见 `src/index.css`）。`querySelectorAll` 不看可见性，序号
+ *    并把整行隐藏（见 `src/styles/chat/messages.css`）。`querySelectorAll` 不看可见性，序号
  *    计数照旧把它们算进去，于是选中的 "用户消息" 是一个零尺寸节点：它的
  *    `getBoundingClientRect().top` 恒为 0，既让 `top <= threshold` 永远成立
  *    （高亮随机跳格），也让点击跳转算出一个和视口无关的目标位置。

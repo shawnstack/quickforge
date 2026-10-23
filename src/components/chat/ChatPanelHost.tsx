@@ -176,7 +176,7 @@ type ChatPanelHostProps = {
   onForkFromMessage: (messageIndex: number) => void
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
-  onAnswerAsk?: (askId: string, answers: ServerAgentAskAnswer[], skipped: boolean) => Promise<void> | void
+  onAnswerAsk?: (askId: string, answers: ServerAgentAskAnswer[], skipped: boolean, remark?: string) => Promise<void> | void
   onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
@@ -246,7 +246,7 @@ type PropsRef = {
   onTogglePlanMode: () => void
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
-  onAnswerAsk?: (askId: string, answers: ServerAgentAskAnswer[], skipped: boolean) => Promise<void> | void
+  onAnswerAsk?: (askId: string, answers: ServerAgentAskAnswer[], skipped: boolean, remark?: string) => Promise<void> | void
   onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
@@ -1562,8 +1562,8 @@ export function ChatPanelHost({
             panel,
             disabled: askDisabled,
             disabledReason: props.approvalReadOnly ? props.approvalReadOnlyMessage : undefined,
-            onSubmit: async (answers) => {
-              await propsRef.current.onAnswerAsk?.(capturedAskId, answers, false)
+            onSubmit: async (answers, remark) => {
+              await propsRef.current.onAnswerAsk?.(capturedAskId, answers, false, remark)
               pendingAskRef.current = null
               removeAskUserCard(panel)
             },
@@ -2110,7 +2110,7 @@ export function ChatPanelHost({
 
   // 对话区被左右侧栏拖宽挤压变窄时（视口宽度不变，@media 视口查询不会触发），
   // 由 ResizeObserver 监听宿主内容宽度并挂/摘 quickforge-chat-compact class，
-  // 让 index.css 中的紧凑段把 Composer 控件收成 icon-only 形态。
+  // 让 src/styles/chat/compact.css 中的紧凑段把 Composer 控件收成 icon-only 形态。
   useEffect(() => {
     const host = hostRef.current
     if (!host || typeof ResizeObserver === 'undefined') return undefined

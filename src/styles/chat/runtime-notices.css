@@ -1,0 +1,698 @@
+/* Queued composer messages: shown while the agent is streaming so Enter can
+   queue follow-ups instead of dropping them. Sits in the composer shell right
+   before the suggestion menus. */
+.quickforge-msg-queue {
+  width: 100%;
+  flex: none;
+  padding: 0.125rem 0.75rem 0;
+  background: var(--background);
+}
+
+.quickforge-msg-queue-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  padding: 0.125rem 0.25rem 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.1rem;
+}
+
+.quickforge-msg-queue-head b {
+  font-weight: 500;
+}
+
+.quickforge-msg-queue-paused {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+  border: 1px dashed color-mix(in oklab, var(--border) 78%, transparent);
+  border-radius: 0.5rem;
+  background: var(--background);
+  padding: 0.3rem 0.6rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.2rem;
+}
+
+.quickforge-msg-queue-paused-icon {
+  display: inline-flex;
+  flex: none;
+  width: 0.8125rem;
+  height: 0.8125rem;
+}
+
+.quickforge-msg-queue-paused-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-msg-queue-resume {
+  flex: none;
+  margin-left: auto;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  padding: 0.05rem 0.4rem;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  line-height: 1.3rem;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.quickforge-msg-queue-resume:hover {
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+}
+
+.quickforge-msg-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  list-style: none;
+  max-height: 9.5rem;
+  overflow-y: auto;
+}
+
+.quickforge-msg-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.125rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5625rem;
+  background: var(--background);
+  padding: 0.25rem 0.3rem 0.25rem 0.55rem;
+}
+
+.quickforge-msg-queue-order {
+  display: inline-flex;
+  justify-content: center;
+  flex: none;
+  min-width: 1rem;
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in oklab, var(--muted-foreground) 90%, transparent);
+}
+
+.quickforge-msg-queue-order svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-msg-queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  color: var(--foreground);
+}
+
+.quickforge-msg-queue-edit-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid color-mix(in oklab, var(--ring) 70%, transparent);
+  border-radius: 0.375rem;
+  background: var(--background);
+  padding: 0.15rem 0.45rem;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  font-family: inherit;
+  color: var(--foreground);
+  outline: none;
+}
+
+.quickforge-msg-queue-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  flex: none;
+}
+
+.quickforge-msg-queue-icon-btn,
+.quickforge-msg-queue-jump-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.quickforge-msg-queue-icon-btn {
+  width: 1.625rem;
+  height: 1.625rem;
+}
+
+.quickforge-msg-queue-icon-btn svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-msg-queue-icon-btn:hover {
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-msg-queue-icon-btn--danger:hover {
+  background: color-mix(in oklab, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+}
+
+.quickforge-msg-queue-jump-btn {
+  gap: 0.2rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.2rem;
+}
+
+.quickforge-msg-queue-jump-btn svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-msg-queue-jump-btn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--muted) 62%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-msg-queue-jump-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-msg-queue-item,
+  .quickforge-msg-queue-jump-btn,
+  .quickforge-msg-queue-icon-btn,
+  .quickforge-msg-queue-resume {
+    transition: none;
+  }
+}
+
+/* Drag reorder affordances for the queued-messages panel */
+.quickforge-msg-queue-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 0.875rem;
+  height: 1.375rem;
+  margin-left: -0.3rem;
+  opacity: 0.45;
+  color: var(--muted-foreground);
+  cursor: grab;
+  /* Pointer capture lives on window listeners; keep native scroll gestures out
+     of the way so touch dragging works inside a scrollable composer dock. */
+  touch-action: none;
+  transition: opacity 140ms ease;
+}
+
+.quickforge-msg-queue-item:hover .quickforge-msg-queue-handle {
+  opacity: 1;
+}
+
+.quickforge-msg-queue-handle svg {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.quickforge-msg-queue-item--drag-placeholder {
+  opacity: 0.4;
+  border-style: dashed;
+}
+
+.quickforge-msg-queue-drag-ghost {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.125rem;
+  border: 1px solid color-mix(in oklab, var(--border) 55%, var(--foreground) 22%);
+  border-radius: 0.5625rem;
+  background: var(--background);
+  padding: 0.25rem 0.3rem 0.25rem 0.55rem;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  color: var(--foreground);
+  box-shadow: var(--shadow-quickforge);
+  pointer-events: none;
+}
+
+/* SSE reconnect notice: lightweight centered row appended to the end of the
+   message list while the global agent event stream retries (weak network).
+   Progress states use muted tokens; success reuses the todo-complete emerald
+   and failure the persist-degraded amber so no new visual vocabulary appears. */
+.quickforge-reconnect,
+.quickforge-model-retry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 0.25rem 0;
+  padding: 0.2rem 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  animation: quickforge-reconnect-enter 180ms ease-out both;
+}
+
+.quickforge-model-retry {
+  animation: quickforge-reconnect-enter 180ms ease-out both;
+}
+
+@keyframes quickforge-reconnect-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.quickforge-reconnect.quickforge-reconnect-leaving {
+  animation: quickforge-reconnect-leave 320ms ease-in both;
+}
+
+.quickforge-model-retry.quickforge-model-retry-leaving {
+  animation: quickforge-reconnect-leave 320ms ease-in both;
+}
+
+@keyframes quickforge-reconnect-leave {
+  to { opacity: 0; transform: translateY(-2px); }
+}
+
+.quickforge-reconnect-icon {
+  display: inline-flex;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+}
+
+.quickforge-reconnect-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.quickforge-reconnect[data-state='reconnecting'] .quickforge-reconnect-icon svg circle,
+.quickforge-model-retry .quickforge-reconnect-icon svg circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  /* r=7.5 → 周长约 47，留约三分之一缺口形成旋转 spinner */
+  stroke-dasharray: 40 21;
+  transform-origin: center;
+  animation: quickforge-reconnect-spin 0.9s linear infinite;
+}
+
+@keyframes quickforge-reconnect-spin {
+  to { transform: rotate(360deg); }
+}
+
+.quickforge-reconnect-count {
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+}
+
+.quickforge-reconnect-countdown {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+.quickforge-reconnect[data-state='reconnected'] {
+  color: #048f65;
+}
+
+html.dark .quickforge-reconnect[data-state='reconnected'] {
+  color: #6ee7b7;
+}
+
+.quickforge-reconnect[data-state='reconnected'] .quickforge-reconnect-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-reconnect[data-state='failed'] {
+  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+}
+
+.quickforge-reconnect[data-state='failed'] .quickforge-reconnect-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-reconnect-retry {
+  font: inherit;
+  font-size: 0.6875rem;
+  cursor: pointer;
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 1px 8px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.quickforge-reconnect-retry:hover {
+  background: var(--muted);
+  border-color: color-mix(in oklab, #d97706 40%, var(--border));
+}
+
+/* Turn terminal error: one-line lightweight row.
+   Rewrites the surface's red error block (bg-destructive/10) in place into the same
+   lightweight-row vocabulary as the stopped label / reconnect notice — red stays only
+   on the warning icon and the single line of text; escalation reuses the
+   persist-degraded amber; the retrying transition reuses the reconnect spinner. */
+.quickforge-error-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 1rem 0;
+  padding-left: 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  animation: quickforge-reconnect-enter 180ms ease-out both;
+}
+
+.quickforge-error-icon {
+  display: inline-flex;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+  color: var(--destructive);
+}
+
+.quickforge-error-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.quickforge-error-text {
+  color: color-mix(in oklab, var(--destructive) 80%, var(--foreground));
+}
+
+.quickforge-error-retry {
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 1px 9px;
+  transition: background 0.12s ease;
+}
+
+.quickforge-error-retry svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.quickforge-error-retry:hover:not(:disabled) {
+  background: var(--muted);
+}
+
+.quickforge-error-retry:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.quickforge-error-details-toggle {
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0 0.15rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  transition: color 0.12s ease;
+}
+
+.quickforge-error-details-toggle:hover {
+  color: var(--foreground);
+}
+
+.quickforge-error-details-toggle svg {
+  width: 0.7rem;
+  height: 0.7rem;
+  transition: transform 0.12s ease;
+}
+
+.quickforge-error-details-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+/* 重试中过渡：复用 reconnect 的 spinner 词汇，文字转 muted。 */
+.quickforge-error-line.quickforge-error-retrying .quickforge-error-icon {
+  color: var(--muted-foreground);
+}
+
+.quickforge-error-line.quickforge-error-retrying .quickforge-error-icon svg {
+  animation: quickforge-reconnect-spin 0.9s linear infinite;
+}
+
+.quickforge-error-line.quickforge-error-retrying .quickforge-error-text {
+  color: var(--muted-foreground);
+}
+
+/* 升级提示（重试后仍失败）：persist-degraded 琥珀。 */
+.quickforge-error-escalate {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.25rem 0 0 2.5rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+}
+
+.quickforge-error-switch-model {
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in oklab, #d97706 92%, var(--foreground));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in oklab, #d97706 45%, transparent);
+}
+
+.quickforge-error-switch-model:hover {
+  color: #d97706;
+}
+
+/* 详情就地展开：mono 原文（数据层 errorMessage），默认收起。 */
+.quickforge-error-details {
+  display: none;
+  margin: 0.25rem 0 0 2.5rem;
+  max-width: 34rem;
+  border: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--background) 65%, var(--muted));
+  padding: 0.4rem 0.6rem;
+}
+
+.quickforge-error-details.quickforge-error-details-open {
+  display: block;
+}
+
+.quickforge-error-details pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.55;
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-error-line {
+    animation: none;
+  }
+
+  .quickforge-error-line.quickforge-error-retrying .quickforge-error-icon svg {
+    animation: none;
+  }
+
+  .quickforge-error-details-toggle svg {
+    transition: none;
+  }
+}
+
+/* 不可达即时态（Tier1）：琥珀双行 + 立即重试按钮。标题/图标配方与 failed 态
+   一致（#d97706 88%），图标为静态三角（不旋转、无 spinner）。 */
+.quickforge-reconnect[data-state='unreachable'] {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quickforge-reconnect[data-state='unreachable'] .quickforge-reconnect-title {
+  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+  font-weight: 500;
+}
+
+.quickforge-reconnect[data-state='unreachable'] .quickforge-reconnect-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-reconnect-main {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.quickforge-reconnect-sub {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+
+/* 持续不可达 ≥30s 升级为 composer 上方常驻琥珀状态条（Tier2，位于滚动容器
+   外、任何滚动位置可见）。琥珀配方复用 persist-degraded：35% 边框 + 8% 背景。 */
+.quickforge-unreachable-strip {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  border-top: 1px solid color-mix(in oklab, #d97706 35%, var(--border));
+  background: color-mix(in oklab, #d97706 8%, var(--background));
+  font-variant-numeric: tabular-nums;
+  animation: quickforge-reconnect-enter 180ms ease-out both;
+}
+
+.quickforge-unreachable-strip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.quickforge-unreachable-strip .quickforge-reconnect-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.quickforge-unreachable-strip-title {
+  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+  font-weight: 500;
+}
+
+.quickforge-unreachable-strip-sub {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-unreachable-strip-spacer {
+  flex: 1;
+}
+
+.quickforge-unreachable-help-toggle {
+  font: inherit;
+  font-size: 0.6875rem;
+  cursor: pointer;
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 1px 8px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.quickforge-unreachable-help-toggle:hover {
+  background: var(--muted);
+  border-color: color-mix(in oklab, #d97706 40%, var(--border));
+}
+
+.quickforge-unreachable-strip-help {
+  display: none;
+}
+
+.quickforge-unreachable-strip-help[data-open='true'] {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 6px;
+  border-top: 1px dashed color-mix(in oklab, #d97706 25%, var(--border));
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-reconnect,
+  .quickforge-reconnect.quickforge-reconnect-leaving {
+    animation: none;
+  }
+
+  .quickforge-reconnect[data-state='reconnecting'] .quickforge-reconnect-icon svg circle,
+  .quickforge-model-retry .quickforge-reconnect-icon svg circle {
+    animation: none;
+  }
+
+  .quickforge-model-retry {
+    animation: none;
+  }
+
+  .quickforge-unreachable-strip {
+    animation: none;
+  }
+}
+

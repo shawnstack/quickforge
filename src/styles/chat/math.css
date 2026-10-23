@@ -1,0 +1,15 @@
+/* KaTeX 展示公式（KatexMath display 分支）：katex.min.css 的 .katex-display
+   不带溢出处理，宽公式会撑破消息列。这里沿用工具摘要的局部横滑模式：
+   公式块内横向滚动 + 隐藏滚动条，H5 可触摸滑动，不撑出主滚动容器。 */
+.quickforge-katex-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  scrollbar-width: none;
+}
+
+.quickforge-katex-scroll::-webkit-scrollbar {
+  display: none;
+}
+

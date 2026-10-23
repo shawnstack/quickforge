@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { appCss } from '../helpers/app-css'
 
 // T4：LocalWorkspaceToolRenderer 已迁至 tool-renderers/local-workspace-tool-renderer.tsx（React）；
 // 折叠箭头/图标等 SVG 类名随 renderToolChevron 落在 shared.tsx。
 const rendererSource = readFileSync(new URL('../../src/lib/tool-renderers/local-workspace-tool-renderer.tsx', import.meta.url), 'utf8')
 const sharedSource = readFileSync(new URL('../../src/lib/tool-renderers/shared.tsx', import.meta.url), 'utf8')
-const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const css = appCss
 const cssRules = css.replace(/\/\*[\s\S]*?\*\//g, '')
 const renderer = rendererSource.slice(
   rendererSource.indexOf('export class LocalWorkspaceToolRenderer'),

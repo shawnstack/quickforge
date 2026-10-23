@@ -1,0 +1,801 @@
+/* ---------------------------------------------------------------------------
+   run_workflow 运行详情（右侧 Workspace Inspector 的独立 Tab）
+   单页合并视图：整页共享一根时间轴（刻度条吸顶），每个阶段 = 粘性阶段头 +
+   该阶段的行（Agent 条形 / 工具缩进行）+ 该阶段日志。
+   命名前缀 .quickforge-workflow-detail-*。
+   --------------------------------------------------------------------------- */
+
+/* 根节点是 Inspector 内容区（row-flex）的子项，必须自己吃满宽高：
+   没有 flex:1 时宽度按内容收缩（时间轴轨道被压扁），没有 min-width:0 时
+   长标签会撑破容器；height 用 flex 分配而不是 100%，否则父级高度为 auto 时
+   100% 解析失败，.quickforge-workflow-detail-scroll 的 overflow-y:auto 不生效、
+   内容被父级 overflow:hidden 裁掉（表现为「显示不全、滚不到底」）。 */
+.quickforge-workflow-detail {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8125);
+  /* 时间轴相关变量提到根节点：刻度条、行轨道与阶段头（吸顶偏移）共用同一套
+     标签列宽 / 安全区，声明在已删除的 .quickforge-workflow-detail-timeline
+     内部时吸顶的刻度条与阶段头取不到。 */
+  --wf-tl-label: clamp(5.5rem, 30%, 9.5rem);
+  --wf-tl-gap: 0.625rem;
+  /* 轨道两侧的安全区：左边留给「并行」标签，右边留给耗时文字。两者都绝对
+     定位在轨道内，若不留白，条形贴到 100% 时文字会伸出轨道并被面板裁掉。 */
+  --wf-tl-pad-start: 2.25rem;
+  --wf-tl-pad-end: 2.75rem;
+  --wf-tl-axis-h: 1.75rem;
+}
+
+/* 概览条：状态 / 耗时 / 规模一行，预算与并发峰值第二行。 */
+.quickforge-workflow-detail-overview {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
+  padding: 0.75rem 0.875rem 0.625rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
+}
+
+.quickforge-workflow-detail-overview-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.quickforge-workflow-detail-overview-row.is-meta {
+  gap: 0.875rem;
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+}
+
+.quickforge-workflow-detail-overview-row.is-meta b {
+  font-weight: 500;
+  color: color-mix(in oklab, var(--foreground) 80%, transparent);
+}
+
+.quickforge-workflow-detail-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  height: 1.3125rem;
+  padding: 0 0.5rem 0 0.375rem;
+  border-radius: 999px;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8125);
+  font-weight: 500;
+}
+
+.quickforge-workflow-detail-pill i {
+  width: 0.3125rem;
+  height: 0.3125rem;
+  border-radius: 999px;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.quickforge-workflow-detail-pill[data-tone='done'] {
+  background: color-mix(in oklab, var(--workflow-done) 13%, transparent);
+  color: color-mix(in oklab, var(--workflow-done) 92%, var(--foreground));
+}
+
+.quickforge-workflow-detail-pill[data-tone='running'] {
+  background: color-mix(in oklab, var(--ring) 12%, transparent);
+  color: color-mix(in oklab, var(--ring) 60%, var(--foreground));
+}
+
+.quickforge-workflow-detail-pill[data-tone='running'] i {
+  animation: quickforge-workflow-tick-pulse 1.6s var(--quickforge-ease-out) infinite;
+}
+
+.quickforge-workflow-detail-pill[data-tone='error'] {
+  background: color-mix(in oklab, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+}
+
+.quickforge-workflow-detail-scale {
+  margin-left: auto;
+  color: var(--muted-foreground);
+}
+
+.quickforge-workflow-detail-duration {
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in oklab, var(--muted-foreground) 85%, transparent);
+}
+
+/* 图例：整页共享一套编码（Agent / 工具 / 并行），常驻概览条右侧，
+   不再挂在时间轴底部——合并后图例属于整页而不属于某一个视图。 */
+.quickforge-workflow-detail-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+  font-family: var(--font-sans);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  color: color-mix(in oklab, var(--muted-foreground) 90%, transparent);
+}
+
+.quickforge-workflow-detail-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+}
+
+.quickforge-workflow-detail-legend .swatch {
+  width: 0.75rem;
+  height: 0.375rem;
+  border-radius: 2px;
+}
+
+.quickforge-workflow-detail-legend .swatch[data-tone='agent'] {
+  background: color-mix(in oklab, var(--workflow-done) 34%, transparent);
+  border: 1px solid color-mix(in oklab, var(--workflow-done) 55%, transparent);
+}
+
+.quickforge-workflow-detail-legend .swatch[data-tone='tool'] {
+  background: color-mix(in oklab, var(--muted-foreground) 26%, transparent);
+}
+
+.quickforge-workflow-detail-legend .swatch[data-tone='parallel'] {
+  background: color-mix(in oklab, var(--ring) 16%, transparent);
+  border: 1px dashed color-mix(in oklab, var(--ring) 55%, transparent);
+}
+
+/* 单页合并后的唯一滚动容器。 */
+.quickforge-workflow-detail-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 1.25rem;
+}
+
+.quickforge-workflow-detail-empty {
+  margin: 0;
+  padding: 0.375rem 0.875rem;
+  color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+}
+
+.quickforge-workflow-detail-error {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  /* 滚动容器自身没有左右 padding（每行自带，方便 hover 背景贴边），
+     错误条这类整块元素必须自己留出对齐行标签的水平内距。 */
+  margin: 0.75rem 0.875rem;
+  padding: 0.4375rem 0.625rem;
+  border-left: 2px solid var(--destructive);
+  border-radius: 0 0.375rem 0.375rem 0;
+  background: color-mix(in oklab, var(--destructive) 6%, transparent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.quickforge-workflow-detail-error-label {
+  font-weight: 600;
+  color: var(--destructive);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+}
+
+/* ── 时间轴（DOM + 百分比，不用固定 viewBox 的 SVG）─────────────────────
+   早期实现用 viewBox="0 0 1000 H" + width:100%，SVG 等比缩放会把 9px/10.5px
+   字号一起缩掉：640px 面板下列标签实际约 5.8px、340px 时约 3px，文字与条形同时
+   「变小又错位」。改为左侧固定宽度标签列 + 右侧百分比轨道后，字号与行高恒定，
+   只有轨道宽度随面板变化。
+   变量（--wf-tl-*）声明在 .quickforge-workflow-detail 根节点上：合并成单页后
+   刻度条与阶段头都是吸顶元素，需要跟行轨道共用同一套标签列宽与安全区。 */
+
+/* 刻度条：吸顶在滚动容器顶部，与行轨道同列，保证刻度与条形对齐。 */
+.quickforge-workflow-detail-axis {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--wf-tl-gap);
+  height: var(--wf-tl-axis-h);
+  padding: 0 0.875rem;
+  /* 吸顶元素必须有实底，否则滚动中的行会从刻度下面透出来。 */
+  background: color-mix(in oklab, var(--background) 96%, var(--muted));
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+}
+
+.quickforge-workflow-detail-axis-spacer {
+  flex: 0 0 var(--wf-tl-label);
+  width: var(--wf-tl-label);
+}
+
+.quickforge-workflow-detail-axis-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+}
+
+.quickforge-workflow-detail-axis-tick {
+  position: absolute;
+  bottom: 0.25rem;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  white-space: nowrap;
+}
+
+.quickforge-workflow-detail-axis-tick[data-edge='start'] {
+  transform: none;
+}
+
+.quickforge-workflow-detail-axis-tick[data-edge='end'] {
+  transform: translateX(-100%);
+}
+
+/* 行：左标签列 + 右轨道列。整行是 <summary>，点一下展开该步入参/输出/结果。 */
+.quickforge-workflow-detail-row {
+  display: flex;
+  align-items: center;
+  gap: var(--wf-tl-gap);
+  min-height: 1.5rem;
+  min-width: 0;
+  padding: 0 0.875rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-workflow-detail-step {
+  display: block;
+}
+
+.quickforge-workflow-detail-step[data-kind='tool'] .quickforge-workflow-detail-row {
+  min-height: 1.375rem;
+}
+
+.quickforge-workflow-detail-step > summary {
+  list-style: none;
+}
+
+.quickforge-workflow-detail-step > summary::-webkit-details-marker {
+  display: none;
+}
+
+.quickforge-workflow-detail-step > summary:hover,
+.quickforge-workflow-detail-step[open] > summary {
+  background: color-mix(in oklab, var(--muted) 45%, transparent);
+}
+
+/* 共享 chevron（`.quickforge-tool-chevron`）自带的 hover 提亮规则只作用于
+   local/mcp/default 三种工具卡，这里补上工作流行，保持同一套反馈。 */
+.quickforge-workflow-detail-step > summary:hover .quickforge-tool-chevron,
+.quickforge-workflow-detail-step > summary:focus-visible .quickforge-tool-chevron {
+  opacity: 1;
+}
+
+.quickforge-workflow-detail-step > summary:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: -2px;
+}
+
+.quickforge-workflow-detail-row-head {
+  flex: 0 0 var(--wf-tl-label);
+  width: var(--wf-tl-label);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3125rem;
+}
+
+/* 工具行的缩进只作用在左标签列内部：右轨道必须整页对齐，否则不同层级的时间条
+   会横向错位，同一根时间轴就失去「可以横向比较」的意义。 */
+.quickforge-workflow-detail-step[data-kind='tool'] .quickforge-workflow-detail-row-head {
+  padding-left: 0.6875rem;
+}
+
+.quickforge-workflow-detail-row-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 1.125rem;
+  display: flex;
+  align-items: center;
+}
+
+/* 轨道内部再分一层「绘图区」：条形与刻度都相对它定位，安全区由它的
+   inset 决定。绝对定位的百分比基准是包含块的 padding box（含 padding），
+   直接给轨道加 padding 会让 left:0% 仍从 border 内侧算起、条形压到左侧标签上。 */
+.quickforge-workflow-detail-row-plot,
+.quickforge-workflow-detail-axis-plot {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  margin-left: var(--wf-tl-pad-start);
+  margin-right: var(--wf-tl-pad-end);
+  box-sizing: border-box;
+}
+
+/* 网格线只在实心轨道上，用极浅的 border 避免喧闹 */
+.quickforge-workflow-detail-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in oklab, var(--border) 55%, transparent);
+  pointer-events: none;
+}
+
+.quickforge-workflow-detail-phase-index {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.625);
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+}
+
+.quickforge-workflow-detail-row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  color: color-mix(in oklab, var(--foreground) 86%, transparent);
+}
+
+.quickforge-workflow-detail-step[data-kind='tool'] .quickforge-workflow-detail-row-label {
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  color: color-mix(in oklab, var(--muted-foreground) 90%, transparent);
+}
+
+/* 条形：高度即层级（Agent 0.625rem / 工具 0.375rem），并行段虚线描边做颜色之外
+   的第二编码（色盲可用）。宽度由行内 style 的百分比决定。 */
+.quickforge-workflow-detail-bar {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 0.5625rem;
+  min-width: 2px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--workflow-done) 34%, transparent);
+  border: 1px solid color-mix(in oklab, var(--workflow-done) 55%, transparent);
+  /* 项目没有全局 box-sizing:border-box，条形宽度是百分比 + 1px 边框，
+     不声明 border-box 会稳定超出轨道 2px，贴到 100% 时右侧被裁。 */
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.quickforge-workflow-detail-bar[data-kind='tool'] {
+  height: 0.375rem;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--muted-foreground) 26%, transparent);
+  border: 0;
+}
+
+.quickforge-workflow-detail-bar[data-tone='running'] {
+  background: color-mix(in oklab, var(--ring) 16%, transparent);
+  border-color: color-mix(in oklab, var(--ring) 48%, transparent);
+}
+
+.quickforge-workflow-detail-bar[data-tone='error'] {
+  background: color-mix(in oklab, var(--destructive) 22%, transparent);
+  border-color: color-mix(in oklab, var(--destructive) 62%, transparent);
+}
+
+.quickforge-workflow-detail-bar[data-tone='pending'] {
+  background: var(--border);
+  border: 0;
+}
+
+.quickforge-workflow-detail-bar.is-parallel {
+  border-style: dashed;
+}
+
+/* 耗时固定在轨道右端预留区内右对齐，「并行」固定在左端预留区内左对齐。
+   二者都不再挂在条形上——挂在条形上必然随条形位置溢出轨道并被裁切。 */
+.quickforge-workflow-detail-bar-value {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.625);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.quickforge-workflow-detail-parallel-tag {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.625);
+  color: color-mix(in oklab, var(--ring) 75%, var(--foreground));
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* 窄面板：标签列收窄，让轨道保留可读宽度。
+   变量挂在根节点上，这里必须覆盖同一个选择器（不能被 .quickforge-workflow-detail-timeline
+   这种已删除的类名承接）。 */
+@media (max-width: 30rem) {
+  .quickforge-workflow-detail {
+    --wf-tl-label: clamp(4.5rem, 34%, 6.5rem);
+    --wf-tl-gap: 0.375rem;
+    --wf-tl-pad-start: 1.75rem;
+    --wf-tl-pad-end: 2.25rem;
+  }
+
+  /* 窄面板里图例跟着概览条换行，不再强行 margin-left:auto 顶到右侧。 */
+  .quickforge-workflow-detail-legend {
+    margin-left: 0;
+  }
+}
+
+.quickforge-workflow-detail-legend {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.625rem;
+  padding-left: calc(var(--wf-tl-label) + var(--wf-tl-gap));
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  color: var(--muted-foreground);
+}
+
+.quickforge-workflow-detail-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+}
+
+.quickforge-workflow-detail-legend .swatch {
+  width: 0.75rem;
+  height: 0.375rem;
+  border-radius: 2px;
+}
+
+.quickforge-workflow-detail-legend .swatch[data-tone='agent'] {
+  background: color-mix(in oklab, var(--workflow-done) 34%, transparent);
+  border: 1px solid color-mix(in oklab, var(--workflow-done) 55%, transparent);
+}
+
+.quickforge-workflow-detail-legend .swatch[data-tone='tool'] {
+  background: color-mix(in oklab, var(--muted-foreground) 26%, transparent);
+}
+
+.quickforge-workflow-detail-legend .swatch[data-tone='parallel'] {
+  background: color-mix(in oklab, var(--ring) 16%, transparent);
+  border: 1px dashed color-mix(in oklab, var(--ring) 55%, transparent);
+}
+
+/* ── 阶段小节：粘性阶段头 + 该阶段的行 + 该阶段日志 ─────────────────── */
+
+.quickforge-workflow-detail-phases {
+  display: flex;
+  flex-direction: column;
+}
+
+.quickforge-workflow-detail-phase {
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+}
+
+.quickforge-workflow-detail-phase:last-child {
+  border-bottom: 0;
+}
+
+/* 阶段头吸顶在刻度条之下（top = 刻度条高度）。长列表里随时能看出「现在在
+   第几个阶段」，同时不遮住刻度。z-index 低于刻度条（3），保证刻度永远在上。 */
+.quickforge-workflow-detail-phase-head {
+  position: sticky;
+  top: var(--wf-tl-axis-h);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  width: 100%;
+  padding: 0.5rem 0.875rem;
+  border: 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+  /* 吸顶必须有实底，否则行内容会从阶段头下面透出来。 */
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-workflow-detail-phase-head:hover {
+  background: color-mix(in oklab, var(--muted) 45%, transparent);
+}
+
+.quickforge-workflow-detail-phase-head:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: -2px;
+}
+
+.quickforge-workflow-detail-phase-index {
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+}
+
+.quickforge-workflow-detail-phase-name {
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875);
+  font-weight: 500;
+  color: color-mix(in oklab, var(--foreground) 86%, transparent);
+}
+
+.quickforge-workflow-detail-phase-count {
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  color: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+}
+
+.quickforge-workflow-detail-phase-head .quickforge-workflow-detail-duration {
+  margin-left: auto;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+}
+
+/* 阶段头是 <button aria-expanded>（不是 <details>），共享 chevron 的
+   `group-open/tool:rotate-90` 取不到，这里按 aria-expanded 显式旋转。 */
+.quickforge-workflow-detail-phase-head[aria-expanded='true'] .quickforge-tool-chevron {
+  rotate: 90deg;
+}
+
+.quickforge-workflow-detail-phase-head .quickforge-tool-chevron {
+  transition: rotate 160ms var(--quickforge-ease-out), opacity var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-workflow-detail-phase-body {
+  display: flex;
+  flex-direction: column;
+  /* 行自带左右 0.875rem 内距；阶段体不再叠加左缩进，否则轨道会比其他阶段窄。
+     工具行的从属关系由标签列内的 1px 连接线 + 缩进表达，不移动整行。 */
+  padding: 0 0 0.5rem;
+}
+
+/* 行首类型图标：复用工具卡的 `renderToolIcon`（14px SVG，class `quickforge-tool-type-icon`），
+   外层按状态着色，与聊天里的工具行 / subagent 行同一套图标语言。
+   原来这里是一个 6px 状态圆点 —— 合并成单页后条形已经表达状态，圆点信息量偏低。 */
+.quickforge-workflow-detail-row-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+}
+
+.quickforge-workflow-detail-row-icon .quickforge-tool-type-icon {
+  color: inherit;
+}
+
+.quickforge-workflow-detail-row-icon[data-tone='done'] {
+  color: color-mix(in oklab, var(--workflow-done) 72%, var(--muted-foreground));
+}
+
+.quickforge-workflow-detail-row-icon[data-tone='running'] {
+  color: color-mix(in oklab, var(--ring) 70%, var(--foreground));
+  /* 运行中的行首图标保留原来状态圆点的呼吸感（时长/缓动仍走项目 token）。 */
+  animation: quickforge-workflow-tick-pulse 1.6s var(--quickforge-ease-out) infinite;
+}
+
+.quickforge-workflow-detail-row-icon[data-tone='error'] {
+  color: var(--destructive);
+}
+
+.quickforge-workflow-detail-row-icon[data-tone='pending'] {
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+}
+
+/* 行内展开体：入参 / 输出 / 错误 / 结果，缩进对齐标签列，不打断时间轨道。 */
+.quickforge-workflow-detail-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
+  padding: 0.375rem 0.875rem 0.4375rem calc(0.875rem + 0.75rem);
+}
+
+.quickforge-workflow-detail-step[data-kind='tool'] .quickforge-workflow-detail-step-body {
+  padding-left: calc(0.875rem + 1.375rem);
+}
+
+.quickforge-workflow-detail-step-meta {
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+
+.quickforge-workflow-detail-step-actions {
+  display: flex;
+}
+
+.quickforge-workflow-detail-agent-open {
+  flex: 0 0 auto;
+  height: 1.1875rem;
+  padding: 0 0.375rem;
+  border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+  border-radius: 0.3125rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-workflow-detail-agent-open:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.quickforge-workflow-detail-agent-open:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: 1px;
+}
+
+.quickforge-workflow-detail-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* 工具行组：Agent 的子级，1px 弱连接线表达从属关系（DESIGN_LANGUAGE 例外规范的同一配方）。
+   连接线画在标签列内（left / padding 都落在 --wf-tl-label 范围内），轨道不缩进。 */
+.quickforge-workflow-detail-tools {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.quickforge-workflow-detail-tools::before {
+  content: '';
+  position: absolute;
+  left: calc(0.875rem + 0.15625rem);
+  top: 2px;
+  bottom: 4px;
+  width: 1px;
+  background: color-mix(in oklab, var(--border) 80%, transparent);
+  pointer-events: none;
+}
+
+.quickforge-workflow-detail-field-label {
+  margin-bottom: 0.1875rem;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  font-weight: 500;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+}
+
+.quickforge-workflow-detail-error-text {
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  color: var(--destructive);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 阶段日志：日志自带 phase，所以就地挂在所属阶段下，不再单独一页平铺。
+   时间戳与消息同一行，长消息换行时与消息左边缘对齐（不是与时间戳对齐）。 */
+.quickforge-workflow-detail-phase-logs {
+  list-style: none;
+  margin: 0.25rem 0 0.375rem;
+  padding: 0 0.875rem 0 calc(0.875rem + 0.0625rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.quickforge-workflow-detail-phase-logs li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  line-height: 1.6;
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+}
+
+.quickforge-workflow-detail-phase-logs time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in oklab, var(--muted-foreground) 52%, transparent);
+}
+
+.quickforge-workflow-detail-phase-logs li > span {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.quickforge-workflow-detail-phase-logs li[data-level='error'] {
+  color: var(--destructive);
+}
+
+/* ── 底部固定区：脚本 / 结果 ─────────────────────────────────────────── */
+
+.quickforge-workflow-detail-foot {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+  background: color-mix(in oklab, var(--muted) 28%, transparent);
+}
+
+.quickforge-workflow-detail-foot-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  height: 1.5625rem;
+  padding: 0 0.5625rem;
+  border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-workflow-detail-foot-btn:hover {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.quickforge-workflow-detail-foot-btn:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: 1px;
+}
+
+.quickforge-workflow-detail-sheet {
+  flex: 0 0 auto;
+  max-height: 40%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0.5rem 0.875rem 0.75rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-workflow-detail-phase-head,
+  .quickforge-workflow-detail-row,
+  .quickforge-workflow-detail-agent-open,
+  .quickforge-workflow-detail-foot-btn {
+    transition: none;
+  }
+
+  /* 共享 chevron 的回转 / 状态图标呼吸一并降级。 */
+  .quickforge-workflow-detail-phase-head .quickforge-tool-chevron,
+  .quickforge-workflow-detail-step .quickforge-tool-chevron {
+    transition: none;
+  }
+
+  .quickforge-workflow-detail-pill[data-tone='running'] i {
+    animation: none;
+  }
+
+  .quickforge-workflow-detail-row-icon[data-tone='running'] {
+    animation: none;
+  }
+}
+
+

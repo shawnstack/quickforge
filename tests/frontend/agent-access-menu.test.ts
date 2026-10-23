@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { appCss } from '../helpers/app-css'
 
 /**
  * The agent-access trigger used to be injected by
@@ -10,7 +11,7 @@ import { describe, expect, it } from 'vitest'
  * button) while the dropdown menu keeps its border.
  */
 const controlsSource = readFileSync(new URL('../../src/components/chat/surface/ComposerAccessControls.tsx', import.meta.url), 'utf8')
-const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const cssSource = appCss
 
 describe('Agent access menu trigger border contract', () => {
   it('keeps the inline trigger borderless without changing its compact control classes', () => {

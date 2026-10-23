@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { appCss } from '../helpers/app-css'
 
 const source = readFileSync(new URL('../../src/components/chat/panel-decoration/assistant-artifact-card.ts', import.meta.url), 'utf8')
-const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const css = appCss
 const actions = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
 const host = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
 const app = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')

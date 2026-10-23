@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { appCss } from '../helpers/app-css'
 
 // i18n / tool display settings 由调用方注入（与 process-folding.test.ts 同形状）。
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
@@ -582,7 +582,7 @@ describe('process thinking hint (第四槽位尾行提示)', () => {
 })
 
 describe('thinking hint CSS motion contract (reduced-motion 降级)', () => {
-  const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+  const css = appCss
 
   it('uses the motion duration tokens: enter base, exit faster, ease-out', () => {
     expect(css).toContain('animation: quickforge-thinking-hint-in var(--quickforge-dur-base) var(--quickforge-ease-out);')

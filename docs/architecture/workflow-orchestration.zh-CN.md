@@ -354,7 +354,7 @@ Tool record：
 
 i18n 键（中英成对，位于 `src/lib/i18n.ts`）：`runWorkflow`、`workflowPreparing`、`workflowRunning`、`workflowCompleted`、`workflowFailed`、`workflowAborted`、`workflowAgentCountOne`、`workflowAgentCountMany`、`workflowToolCountOne`、`workflowToolCountMany`、`workflowToolParams`、`workflowToolResult`、`workflowCurrentPhase`、`workflowNoAgents`、`workflowStepCount`、`workflowError`、`workflowAgentQueued`、`workflowAgentRunning`、`workflowAgentDone`、`workflowAgentFailed`、`workflowAgentAborted`、`workflowAgentToolCalls`、`workflowAgentSchema`、`workflowResult`、`workflowScript`、`workflowBadge`、`toolApprovalRiskWorkflow`。审批卡按 `run_workflow` 映射 `runWorkflow` 标签；`source.type === 'workflow'` 用本地化徽标与风险说明，workflow 内子 Agent 的审批在 `subagent` 徽标后追加 `workflowBadge`。
 
-样式在 `src/index.css`：`quickforge-workflow-*` 系列 class 负责摘要、阶段（`.quickforge-workflow-phase-title` 小标题 + `.quickforge-workflow-phase-count` 步数 + 渐隐细线）、Agent 主行（任务名为正文，状态退到悬停/aria 文案）、工具行区（`.quickforge-workflow-tool-zone` 左缩进 0.375rem + `padding-left` 0.625rem + 1px `border 60%` 连接线；阶段开头无可归属 Agent 时加 `--root` 去掉缩进与连线）、工具行列（`0.75×` 字号与更弱的 muted）、日志、错误、结果、脚本与空态；工具行 chevron 在 `@media (hover: hover)` 下默认透明、hover/focus 才出现（触屏保留可见）；Agent 结果区与工作流结果区有最大高度并内部滚动（6rem / 16rem），错误日志使用 `--destructive`，运行态流光与 reduced-motion 回退复用 `.quickforge-tool-running-sweep`。渲染器 class 链是 CSS/DOM 装饰的契约，改名需同步样式与测试。
+样式在 `src/styles/chat/goal-workflow.css`（聊天摘要卡）与 `src/styles/workspace/workflow-detail.css`（运行详情）：`quickforge-workflow-*` 系列 class 负责摘要、阶段（`.quickforge-workflow-phase-title` 小标题 + `.quickforge-workflow-phase-count` 步数 + 渐隐细线）、Agent 主行（任务名为正文，状态退到悬停/aria 文案）、工具行区（`.quickforge-workflow-tool-zone` 左缩进 0.375rem + `padding-left` 0.625rem + 1px `border 60%` 连接线；阶段开头无可归属 Agent 时加 `--root` 去掉缩进与连线）、工具行列（`0.75×` 字号与更弱的 muted）、日志、错误、结果、脚本与空态；工具行 chevron 在 `@media (hover: hover)` 下默认透明、hover/focus 才出现（触屏保留可见）；Agent 结果区与工作流结果区有最大高度并内部滚动（6rem / 16rem），错误日志使用 `--destructive`，运行态流光与 reduced-motion 回退复用 `.quickforge-tool-running-sweep`。渲染器 class 链是 CSS/DOM 装饰的契约，改名需同步样式与测试。
 
 ## 8. 路由与工具暴露
 
@@ -406,4 +406,5 @@ npx vitest run tests/server/agent-workflow-runner.test.mjs tests/server/agent-ma
 - `src/lib/tool-renderers/workflow-tool-renderer.tsx`
 - `src/lib/local-tools.ts`
 - `src/lib/i18n.ts`
-- `src/index.css`
+- `src/styles/chat/goal-workflow.css`
+- `src/styles/workspace/workflow-detail.css`

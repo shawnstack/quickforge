@@ -1,0 +1,60 @@
+/*
+ * Global stylesheet entry.
+ *
+ * Import order is the cascade contract. These modules are slices of the former
+ * monolithic src/index.css, kept in their original source order. Do not reorder
+ * them without auditing cross-file overrides under equal specificity.
+ *
+ * Feature modules must not import each other; only this file declares order.
+ * Shared design tokens live in foundation.css and are intentionally unlayered.
+ */
+
+@import "tailwindcss";
+
+/* Foundation: tokens, base, startup, shared motion, app shell */
+@import "./foundation.css";
+@import "./startup.css";
+@import "./motion.css";
+@import "./layout.css";
+
+/* Settings surfaces */
+@import "./settings/shell.css";
+@import "./settings/appearance.css";
+@import "./settings/forms.css";
+@import "./settings/select.css";
+@import "./settings/controls.css";
+
+/* Shared UI and typography */
+@import "./chat/messages.css";
+@import "./chat/code-blocks.css";
+@import "./ui/info-tip.css";
+@import "./markdown.css";
+
+/* Chat surfaces */
+@import "./chat/markdown-content.css";
+@import "./chat/context-compaction.css";
+@import "./chat/observer-strips.css";
+@import "./chat/waiting-bubble.css";
+@import "./chat/process.css";
+@import "./chat/tool-summary.css";
+@import "./chat/math.css";
+@import "./chat/running-state.css";
+@import "./chat/process-timeline.css";
+@import "./chat/tool-output.css";
+@import "./chat/composer.css";
+@import "./chat/composer-overlays.css";
+@import "./chat/composer-controls.css";
+@import "./chat/empty-state.css";
+@import "./chat/compact.css";
+@import "./chat/interaction-cards.css";
+@import "./chat/runtime-notices.css";
+@import "./chat/artifact-cards.css";
+@import "./chat/goal-workflow.css";
+
+/* Workspace and remaining chat surfaces */
+@import "./workspace/workflow-detail.css";
+@import "./chat/todo-summary.css";
+@import "./chat/pinned-summary.css";
+@import "./workspace/inspector-tabs.css";
+@import "./chat/file-rollback.css";
+@import "./highlight.css";

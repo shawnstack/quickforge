@@ -10,6 +10,7 @@ import {
   unreachableHelpRows,
 } from '../../src/components/chat/surface/ConnectionNotices'
 import type { SseConnectionStatus } from '../../src/lib/server-agent'
+import { appCss } from '../helpers/app-css'
 
 /**
  * The Tier-2 unreachable strip used to be a controller
@@ -58,7 +59,7 @@ const hostSource = readFileSync('src/components/chat/ChatPanelHost.tsx', 'utf8')
 const surfaceSource = readFileSync('src/components/chat/surface/ChatSurface.tsx', 'utf8')
 const noticesSource = readFileSync('src/components/chat/surface/ConnectionNotices.tsx', 'utf8')
 const barrelSource = readFileSync('src/components/chat/panel-decoration.ts', 'utf8')
-const cssSource = readFileSync('src/index.css', 'utf8')
+const cssSource = appCss
 
 function reconnectingUnreachable(since: number, nextRetryInMs = 60000): SseConnectionStatus {
   return {

@@ -1,0 +1,76 @@
+/* ---- Shared motion primitives (tokens above) ---- */
+
+/* Modal dialogs fade their backdrop in and settle the panel from a slight
+   rise + scale, instead of appearing instantly. Enter-only: resolve paths
+   unmount immediately, which keeps exits snappy. */
+.quickforge-dialog-backdrop-in {
+  animation: quickforge-dialog-backdrop-in var(--quickforge-dur-base) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-dialog-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.quickforge-dialog-panel-in {
+  animation: quickforge-dialog-panel-in var(--quickforge-dur-base) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-dialog-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+}
+
+/* Sidebar labels / section headers fade in when they mount with the expanded
+   sidebar, so text settles in while the width transition runs instead of
+   popping in fully opaque. Opacity-only: no layout or clipping side effects
+   inside overflow-hidden rows. */
+.quickforge-sidebar-label-in {
+  animation: quickforge-sidebar-label-in var(--quickforge-dur-base) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-sidebar-label-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Dropdown menus grow from the trigger corner. The primitive animates only;
+   set the origin per menu with Tailwind `origin-top-left` / `origin-top-right`
+   matching its alignment. Close stays an instant unmount. */
+.quickforge-menu-in {
+  animation: quickforge-menu-in var(--quickforge-dur-base) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+}
+
+/* Newly mounted list rows (e.g. git changes) fade in without displacement —
+   rows sit inside overflow/hidden containers where translate would clip. */
+.quickforge-list-item-in {
+  animation: quickforge-list-item-in var(--quickforge-dur-base) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-list-item-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-dialog-backdrop-in,
+  .quickforge-dialog-panel-in,
+  .quickforge-sidebar-label-in,
+  .quickforge-menu-in,
+  .quickforge-list-item-in {
+    animation: none;
+  }
+}
+

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
+import { appCss } from '../helpers/app-css'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
 
@@ -117,7 +118,7 @@ describe('askUserReviewRowsFromDetails', () => {
 })
 
 describe('ask-user card wiring', () => {
-  const css = readFileSync('src/index.css', 'utf8')
+  const css = appCss
   const host = readFileSync('src/components/chat/ChatPanelHost.tsx', 'utf8')
   const serverAgent = readFileSync('src/lib/server-agent.ts', 'utf8')
   const sseClient = readFileSync('src/lib/global-agent-sse-client.ts', 'utf8')
@@ -286,5 +287,38 @@ describe('ask-user card wiring', () => {
     expect(i18n).toContain("askUserCustomPlaceholder: '输入补充说明或额外要求…'")
     expect(i18n).toContain("askUserEdit: 'Edit'")
     expect(i18n).toContain("askUserEdit: '修改'")
+  })
+
+  it('review step carries a card-level extra-note row', () => {
+    // The remark is one more receipt line (dashed rail) that edits a card-level
+    // note — not a question, so it never touches `answers`.
+    expect(card).toContain('quickforge-ask-review-row--remark')
+    expect(card).toContain('quickforge-ask-remark-field')
+    expect(card).toContain('quickforge-ask-remark-input')
+    expect(card).toContain('quickforge-ask-remark-optional')
+    expect(card).toContain("t('askUserRemarkPlaceholder')")
+    expect(card).toContain("t('askUserRemarkOptional')")
+    expect(card).toContain('let remark = \'\'')
+    expect(card).toContain('const trimmedRemark = remark.trim()')
+    expect(card).toContain('deps.onSubmit(answers.map((answer) => ({ ...answer })), trimmedRemark || undefined)')
+    // A multi-line note keeps Enter as a newline.
+    const remarkBlock = card.slice(card.indexOf("querySelector<HTMLTextAreaElement>('.quickforge-ask-remark-input')"), card.indexOf("querySelectorAll<HTMLButtonElement>('.quickforge-ask-review-edit')"))
+    expect(remarkBlock).not.toContain("e.key === 'Enter'")
+    // Styles + narrow-screen adaptation.
+    for (const selector of ['.quickforge-ask-remark-field', '.quickforge-ask-remark-input', '.quickforge-ask-remark-optional', '.quickforge-ask-review-row--remark']) {
+      expect(css).toContain(selector)
+    }
+    expect(css).toContain('.quickforge-ask-remark-optional { display: none; }')
+  })
+
+  it('the remark travels to the server and is persisted for history', () => {
+    expect(host).toContain('propsRef.current.onAnswerAsk?.(capturedAskId, answers, false, remark)')
+    expect(serverAgent).toContain('remark: payload.remark')
+    expect(askUserRenderer).toContain("remark: typeof record.remark === 'string'")
+    expect(askUserRenderer).toContain('const reviewRemark = review && reviewActive && !review.skipped ? review.remark : undefined')
+    expect(askUserRenderer).toContain("{t('askUserRemarkLabel')}")
+    for (const key of ['askUserRemarkLabel', 'askUserRemarkPlaceholder', 'askUserRemarkOptional']) {
+      expect(i18n.match(new RegExp(`${key}:`, 'g'))?.length).toBeGreaterThanOrEqual(2)
+    }
   })
 })

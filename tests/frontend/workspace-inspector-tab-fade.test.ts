@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { appCss } from '../helpers/app-css'
 
 const inspector = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
-const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const css = appCss
 
 describe('Workspace Inspector tab strip', () => {
   it('drops the divider and fades overflowing labels when more than one tab is open', () => {

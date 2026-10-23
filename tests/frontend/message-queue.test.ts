@@ -14,6 +14,7 @@ import {
   saveStoredMessageQueueState,
   type QueuedMessage,
 } from '@/lib/message-queue'
+import { appCss } from '../helpers/app-css'
 
 const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
 const agentManagerSource = readFileSync(new URL('../../src/hooks/useAgentManager.ts', import.meta.url), 'utf8')
@@ -22,7 +23,7 @@ const todoSource = readFileSync(new URL('../../src/components/chat/panel-decorat
 const barrelSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
 const capabilitiesSource = readFileSync(new URL('../../src/lib/chat-capabilities.ts', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
-const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const cssSource = appCss
 
 afterEach(() => {
   vi.unstubAllGlobals()

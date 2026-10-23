@@ -1,0 +1,459 @@
+/* ------------------------------------------------------------------ */
+/* Chat messages: only customize user's outgoing bubble; assistant/tool rendering keeps the shared surface defaults. */
+/* Chat scroll container: scroll-sync.ts drives all programmatic anchoring
+   (the sent-message top pinning relies on a compensated spacer + explicit
+   scrollTop writes). Native browser scroll anchoring would counter-shift
+   those writes, so it is disabled on the main scroller only. */
+.qf-chat-panel > .qf-scroll-container {
+  overflow-anchor: none;
+  /* overflow-x:hidden 兜底：`overflow-y-auto` 的另一轴按规范会被计算为
+     auto，任何撑宽消息列的内容都会让整个消息区底部出现水平滚动条。
+     横向溢出一律由内容元素自己的局部滚动容器处理，主滚动容器只管
+     纵向；H5 消息区底部的横向滑动条由此彻底消失。 */
+  overflow-x: hidden;
+}
+
+.qf-chat-panel > .qf-scroll-container > .max-w-3xl,
+.qf-chat-panel > .shrink-0 > .max-w-3xl {
+  max-width: min(var(--quickforge-chat-content-max-width), calc(100% - 2rem)) !important;
+  min-width: 0;
+}
+
+.qf-chat-panel .qf-assistant-message,
+.qf-chat-panel .qf-assistant-message > .flex {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.quickforge-chat-panel-host {
+  position: relative;
+}
+
+.quickforge-turn-navigation {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3rem;
+  pointer-events: none;
+}
+
+.quickforge-turn-navigation[hidden] {
+  display: none;
+}
+
+/* 轨迹视图盖在对话上时隐藏轮次导航条。
+   优先用 data 属性（由 ChatPanelHost 根据 hideTurnNavigation 写入）：
+   rail 是 .quickforge-chat-panel-host 的绝对定位子节点，z-index 20 高于
+   轨迹层的 10，只给轨迹层加背景盖不住它。这里用 !important 是因为
+   turn-navigation.ts 会在每次 update() 里写 rail.hidden，两个来源需要优先级。 */
+.quickforge-chat-panel-host[data-turn-navigation='hidden'] .quickforge-turn-navigation {
+  display: none !important;
+}
+
+/* tooltip 挂在 document.body 上（z-index 100），无法从 host 后代选择器命中，
+   所以用 :has() 从 body 侧反向匹配：只要页面里存在被隐藏的 host，就藏 tooltip。 */
+body:has(.quickforge-chat-panel-host[data-turn-navigation='hidden']) .quickforge-turn-navigation-tooltip {
+  display: none !important;
+}
+
+.quickforge-turn-navigation-track {
+  position: absolute;
+  top: 0.75rem;
+  bottom: 8.5rem;
+  left: 0;
+  display: flex;
+  width: 2.5rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  overflow: hidden;
+}
+
+.quickforge-turn-navigation-node {
+  position: relative;
+  width: 2.5rem;
+  height: 0.75rem;
+  flex: 0 0 0.75rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.quickforge-turn-navigation-node::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 1.05rem;
+  width: 0.5rem;
+  height: 2px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted-foreground) 32%, transparent);
+  transition: width 140ms ease, height 140ms ease, background-color 140ms ease;
+}
+
+.quickforge-turn-navigation-node:hover::before,
+.quickforge-turn-navigation-node:focus-visible::before {
+  width: 0.9rem;
+  background: color-mix(in oklab, var(--foreground) 60%, transparent);
+}
+
+.quickforge-turn-navigation-node.is-nearby-secondary::before {
+  width: 0.75rem;
+  background: color-mix(in oklab, var(--muted-foreground) 40%, transparent);
+}
+
+.quickforge-turn-navigation-node.is-nearby::before {
+  width: 1.05rem;
+  background: color-mix(in oklab, var(--muted-foreground) 48%, transparent);
+}
+
+.quickforge-turn-navigation-node.is-active::before {
+  width: 1.75rem;
+  height: 3px;
+  background: var(--foreground);
+}
+
+.quickforge-turn-navigation-node:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+  outline-offset: -2px;
+  border-radius: 0.35rem;
+}
+
+.quickforge-turn-navigation-tooltip {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  width: min(21rem, calc(100vw - 1.5rem));
+  gap: 0.5rem;
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: 0.875rem;
+  background: color-mix(in oklab, var(--popover) 98%, transparent);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-quickforge);
+  padding: 0.875rem;
+  pointer-events: auto;
+}
+
+.quickforge-turn-navigation-tooltip-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  font-size: 0.8125rem;
+  line-height: 1.35rem;
+}
+
+.quickforge-turn-navigation-tooltip-user {
+  color: var(--popover-foreground);
+  font-weight: 600;
+  -webkit-line-clamp: 2;
+}
+
+.quickforge-turn-navigation-tooltip-answer {
+  color: var(--muted-foreground);
+  -webkit-line-clamp: 3;
+}
+
+@media (max-width: 767px) {
+  .quickforge-turn-navigation {
+    display: none;
+  }
+}
+
+/* Hide the token/cost usage lines, e.g. "↑3.6k ↓246 R...".
+ * Keep message.usage data intact for context usage, metadata, and debugging.
+ *
+ * DOM 契约（React 聊天面板）：用量行是 assistant 消息根的直接子级并带
+ * `qf-usage-line` hook class —— `div.qf-assistant-message > div.qf-usage-line`
+ * （宿主传 onCostClick 时为 button）；装饰层加在同一个根节点上的
+ * `.quickforge-assistant-message` 不需要再写一份孪生选择器。
+ * subagent 过程列表（`.quickforge-subagent-trace[data-quickforge-subagent-process="true"]`
+ * 里的 `.qf-message-list`）复用同一套消息组件，用后代形式覆盖其包裹层级。
+ * 第三段锚定 composer 紧随的汇总行（React: 装饰层挂 `quickforge-composer` 的
+ * `.qf-message-editor` + 紧随的 `.qf-usage-bar` hook class，不再依赖
+ * Tailwind utility 链式选择器），只隐藏该行的 token/cost 文本
+ * （span，宿主传 onCostClick 时为 button），保留 `quickforge-context-usage[-label]`
+ * 与 `quickforge-git-branch-inline`
+ * （context-usage.ts 把 git 分支徽标插进该行的 `.ml-auto.items-center`）。
+ */
+.qf-assistant-message > .qf-usage-line,
+[data-quickforge-subagent-process="true"] .qf-assistant-message .qf-usage-line,
+.quickforge-composer + .qf-usage-bar
+  > .ml-auto.items-center
+  > :is(span, button):not(.quickforge-context-usage):not(.quickforge-context-usage-label):not(.quickforge-git-branch-inline) {
+  display: none !important;
+}
+
+.quickforge-user-message {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.quickforge-assistant-message {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* 用户气泡右对齐：React 根 `div.qf-user-message.flex.justify-start.mx-4` 自身就是
+ * 行容器（旧 DOM 的内层 `div.flex.justify-start` 已不存在），并被上面的规则改成
+ * 列方向；因此把气泡作为列方向的 flex item 靠右，宽度按内容收缩，最大宽度仍由
+ * 下方 `.qf-user-message .user-message-container` 的 max-width 约束（不放大）。
+ * 操作行（order 2）与过程分隔线（DOM 首位）顺序不变。 */
+.qf-user-message > .user-message-container {
+  order: 1;
+  align-self: flex-end;
+}
+
+.quickforge-assistant-message > .quickforge-message-actions {
+  order: 2;
+  align-self: flex-start;
+}
+
+.quickforge-user-message > .quickforge-message-actions {
+  order: 2;
+  align-self: flex-end;
+}
+
+.qf-user-message .user-message-container,
+.quickforge-user-message .user-message-container {
+  /* 气泡背景（渐隐遮罩/展开按钮复用同色）：浓度比原 10% 调浅，浅色主题见下方 3% 覆盖 */
+  --quickforge-input-clamp-bg: color-mix(in oklab, var(--primary) 6%, var(--card));
+  max-width: min(78%, 45rem) !important;
+  border: 1px solid color-mix(in oklab, var(--primary) 12%, var(--border)) !important;
+  border-radius: 1.125rem 1.125rem 0.375rem 1.125rem !important;
+  background: var(--quickforge-input-clamp-bg) !important;
+  color: var(--foreground) !important;
+  box-shadow:
+    0 10px 28px -24px color-mix(in oklab, var(--primary) 55%, black),
+    inset 0 1px 0 rgb(255 255 255 / 0.08) !important;
+}
+
+/* 浅色主题：纯白底上混灰极易显脏，浓度降到 3% */
+html:not(.dark) .qf-user-message .user-message-container,
+html:not(.dark) .quickforge-user-message .user-message-container {
+  --quickforge-input-clamp-bg: color-mix(in oklab, var(--primary) 3%, var(--card));
+}
+
+.quickforge-user-message .quickforge-message-actions {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+/* --- 长输入定高收起（聊天用户消息气泡 + subagent 任务块） ---
+   状态由 src/lib/input-clamp.ts 写 data 属性：clamped=收起中（定高裁切）、
+   expanded=已展开、fits=内容不足定高（遮罩与按钮不占位）。
+   过渡时长与 INPUT_CLAMP_TRANSITION_MS 保持一致（.22s）。 */
+.quickforge-input-clamp {
+  --quickforge-input-clamp-control-safe-area: 30px;
+  position: relative;
+  transition: max-height .22s cubic-bezier(.22, 1, .36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-input-clamp,
+  .quickforge-input-clamp-toggle svg { transition: none; }
+}
+.quickforge-input-clamp[data-quickforge-clamped='true'] {
+  max-height: var(--quickforge-input-clamp-h, 11.25rem);
+  overflow: hidden;
+}
+.quickforge-input-clamp[data-quickforge-clamped='false'] {
+  max-height: none;
+}
+.quickforge-input-clamp[data-quickforge-fits='true'] .quickforge-input-clamp-safe-area,
+.quickforge-input-clamp[data-quickforge-fits='true'] .quickforge-input-clamp-fade,
+.quickforge-input-clamp[data-quickforge-fits='true'] .quickforge-input-clamp-toggle,
+.quickforge-input-clamp[data-quickforge-clamped='false'] .quickforge-input-clamp-fade {
+  display: none;
+}
+
+.quickforge-input-clamp-safe-area {
+  display: none;
+  height: var(--quickforge-input-clamp-control-safe-area, 30px);
+  pointer-events: none;
+}
+.quickforge-input-clamp[data-quickforge-fits='false'] > .quickforge-input-clamp-safe-area {
+  display: block;
+}
+
+.quickforge-input-clamp-fade {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 1px;
+  height: calc(22px + var(--quickforge-input-clamp-control-safe-area, 30px));
+  background: linear-gradient(to bottom, transparent, var(--quickforge-input-clamp-bg, transparent) 76%);
+  pointer-events: none;
+  border-radius: 17px 17px 5px 17px;
+}
+
+.quickforge-input-clamp-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--muted-foreground);
+  background: var(--quickforge-input-clamp-bg, var(--card));
+  border: 1px solid color-mix(in oklab, var(--primary) 12%, var(--border));
+  border-radius: 999px;
+  padding: 3px 11px;
+  cursor: pointer;
+  box-shadow: 0 6px 16px -12px color-mix(in oklab, var(--primary) 55%, black);
+}
+.quickforge-input-clamp-toggle:hover {
+  color: var(--foreground);
+  border-color: color-mix(in oklab, var(--primary) 26%, var(--border));
+}
+.quickforge-input-clamp-toggle:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--primary) 45%, transparent);
+  outline-offset: 1px;
+}
+.quickforge-input-clamp-toggle svg {
+  transition: transform .18s ease;
+}
+.quickforge-input-clamp[data-quickforge-clamped='false'] .quickforge-input-clamp-toggle svg {
+  transform: rotate(180deg);
+}
+
+/* subagent 任务说明块复用用户消息气泡视觉（同边框/圆角/阴影/文字规格） */
+.quickforge-subagent-task.quickforge-input-clamp {
+  --quickforge-input-clamp-bg: color-mix(in oklab, var(--primary) 6%, var(--card));
+  border: 1px solid color-mix(in oklab, var(--primary) 12%, var(--border));
+  border-radius: 1.125rem 1.125rem 0.375rem 1.125rem;
+  background: var(--quickforge-input-clamp-bg);
+  color: var(--foreground);
+  box-shadow:
+    0 10px 28px -24px color-mix(in oklab, var(--primary) 55%, black),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+  padding: 12px 16px;
+  font-size: var(--quickforge-message-font-size, 14px);
+  line-height: var(--quickforge-message-line-height, 1.625);
+  overflow-wrap: anywhere;
+}
+.quickforge-subagent-task-value {
+  white-space: pre-wrap;
+}
+html:not(.dark) .quickforge-subagent-task.quickforge-input-clamp {
+  --quickforge-input-clamp-bg: color-mix(in oklab, var(--primary) 3%, var(--card));
+}
+
+.quickforge-message-time {
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent) !important;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 0 4px;
+  align-self: center;
+}
+
+/* 手动停止（stopReason=aborted）的 assistant 状态行：装饰层把 surface 渲染的
+   红色斜体 "Request aborted" span 改写为灰色「已停止」，并补齐与正文一致的
+   px-4 缩进与上间距（灰色、与正文同号、左缘对齐）。
+   字号沿用节点自带的 text-sm（应用根覆盖下与正文同号）。 */
+.quickforge-message-stopped-label {
+  display: block;
+  margin-top: 6px;
+  padding: 0 1rem;
+  color: var(--muted-foreground);
+}
+
+.quickforge-sidebar-session-time {
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent) !important;
+}
+
+.quickforge-sidebar-section-header .quickforge-sidebar-section-toggle,
+.quickforge-sidebar-section-header .quickforge-sidebar-section-icon {
+  color: inherit;
+}
+
+.quickforge-sidebar-section-header:hover .quickforge-sidebar-section-toggle,
+.quickforge-sidebar-section-header:focus-within .quickforge-sidebar-section-toggle,
+.quickforge-sidebar-section-header:hover .quickforge-sidebar-section-icon,
+.quickforge-sidebar-section-header:focus-within .quickforge-sidebar-section-icon {
+  color: color-mix(in oklab, var(--foreground) 80%, transparent) !important;
+}
+
+.quickforge-svg-code-menu {
+  position: relative;
+}
+
+.quickforge-svg-code-menu-trigger {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  list-style: none;
+  text-shadow: 0 1px 2px rgb(255 255 255 / 0.35), 0 -1px 2px rgb(0 0 0 / 0.25);
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.quickforge-svg-code-menu-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.quickforge-svg-code-menu[open] .quickforge-svg-code-menu-trigger,
+.quickforge-svg-code-menu-trigger:hover {
+  background: rgb(127 127 127 / 0.12);
+  color: var(--foreground);
+}
+
+.quickforge-svg-code-menu-content {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.2rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: 0.65rem;
+  background: color-mix(in oklab, var(--popover) 97%, transparent);
+  box-shadow: 0 18px 46px -28px rgb(15 23 42 / 0.42);
+  padding: 0.25rem;
+}
+
+.quickforge-svg-code-menu-item {
+  display: inline-flex;
+  width: 1.9rem;
+  height: 1.9rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--popover-foreground);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.quickforge-svg-code-menu-item:hover {
+  background: color-mix(in oklab, var(--accent) 72%, transparent);
+}
+
+.quickforge-svg-code-menu-item svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  pointer-events: none;
+}
+

@@ -252,7 +252,7 @@ describe('chat surface composer localization', () => {
 })
 
 /**
- * The composer visual contract lives in src/index.css and is anchored on the
+ * The composer visual contract lives in src/styles/ and is anchored on the
  * wrapper's structure:
  *   `.quickforge-composer > div:first-child`            → the card
  *   `.quickforge-composer > div:first-child > .px-2.pb-2` → the control row

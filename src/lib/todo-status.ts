@@ -24,7 +24,7 @@ export const TODO_STATUS_LABEL_KEY: Record<TodoStatus, AppTextKey> = {
 
 /**
  * Wrapper class per status for tailwind-styled surfaces — mirrors the
- * plain-CSS `.quickforge-todo-glyph--*` recipes in `src/index.css`, so a glyph
+ * plain-CSS `.quickforge-todo-glyph--*` recipes in `src/styles/chat/todo-summary.css`, so a glyph
  * gets the same colour in every surface without palette classes.
  */
 export const TODO_STATUS_GLYPH_CLASS: Record<TodoStatus, string> = {

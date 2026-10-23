@@ -173,7 +173,7 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
   //   plain tail-following resumes (the message is pushed up naturally).
   //
   // The spacer carries no message content, so `data-message-index` anchors
-  // and windowed rendering stay unaffected. `src/index.css` additionally
+  // and windowed rendering stay unaffected. `src/styles/chat/messages.css` additionally
   // disables the browser's native overflow-anchor on the scroll container so
   // it cannot counter-shift these scrollTop writes.
   let anchorSpacer: HTMLDivElement | undefined

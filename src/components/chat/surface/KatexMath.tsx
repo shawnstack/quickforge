@@ -5,7 +5,7 @@ import type { KatexOptions } from 'katex'
 import { ContentCache, memoizeContent } from '@/lib/render-cache'
 // KaTeX stylesheet import, same pattern as `@xterm/xterm/css/xterm.css` in
 // TerminalPane.tsx: the component owns its styling, so the `katex-*`
-// selectors ship again without re-porting src/index.css.
+// selectors ship again without re-porting the global stylesheet.
 import 'katex/dist/katex.min.css'
 
 type KatexMathProps = {

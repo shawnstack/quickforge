@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { appCss } from '../helpers/app-css'
 
 function readSource(relativePath: string): string {
   return readFileSync(new URL(relativePath, import.meta.url), 'utf8')
 }
 
 describe('motion design tokens and primitives', () => {
-  it('defines the shared motion duration/easing tokens in index.css', () => {
-    const css = readSource('../../src/index.css')
+  it('defines the shared motion duration/easing tokens in the global stylesheet', () => {
+    const css = appCss
     expect(css).toContain('--quickforge-dur-fast: 120ms;')
     expect(css).toContain('--quickforge-dur-base: 180ms;')
     expect(css).toContain('--quickforge-dur-slow: 280ms;')
@@ -15,7 +16,7 @@ describe('motion design tokens and primitives', () => {
   })
 
   it('defines dialog enter animations that consume the tokens', () => {
-    const css = readSource('../../src/index.css')
+    const css = appCss
     expect(css).toContain('.quickforge-dialog-backdrop-in {')
     expect(css).toContain('.quickforge-dialog-panel-in {')
     expect(css.match(/animation: quickforge-dialog-panel-in var\(--quickforge-dur-base\) var\(--quickforge-ease-out\) both;/g)).toHaveLength(1)
@@ -38,7 +39,7 @@ describe('motion design tokens and primitives', () => {
   })
 
   it('fades sidebar labels and section headers in on mount', () => {
-    const css = readSource('../../src/index.css')
+    const css = appCss
     expect(css).toContain('.quickforge-sidebar-label-in {')
 
     const sidebar = readSource('../../src/components/sidebar/ChatSidebar.tsx')
@@ -58,7 +59,7 @@ describe('motion design tokens and primitives', () => {
   })
 
   it('keeps the tool-running sweep as an exempt long-running loop', () => {
-    const css = readSource('../../src/index.css')
+    const css = appCss
     const sweep = css.slice(css.indexOf('/* Tool-running highlight sweep'))
     expect(sweep.slice(0, sweep.indexOf('.quickforge-tool-running-sweep {'))).toContain('exempt from the motion')
     // 复用思考 shimmer 的 keyframes 与节奏：文字内部渐变流动。
@@ -66,13 +67,13 @@ describe('motion design tokens and primitives', () => {
   })
 
   it('guards all new animation primitives under prefers-reduced-motion', () => {
-    const css = readSource('../../src/index.css')
+    const css = appCss
     const guardBlock = css.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.quickforge-dialog-backdrop-in,\s*\.quickforge-dialog-panel-in,\s*\.quickforge-sidebar-label-in,\s*\.quickforge-menu-in,\s*\.quickforge-list-item-in \{\s*animation: none;/)
     expect(guardBlock).not.toBeNull()
   })
 
   it('exempts the thinking shimmer keyframes under prefers-reduced-motion', () => {
-    const css = readSource('../../src/index.css')
+    const css = appCss
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.animate-shimmer \{\s*animation: none;\s*\}/)
   })
 
@@ -80,7 +81,7 @@ describe('motion design tokens and primitives', () => {
     // 方向契约：background-size 200% 时百分比定位会被 (容器宽 - 图宽) 的负值翻折，
     // 所以「左→右」必须写成 200% → -200%。写成递增（-200% → 200%）实际是从右往左，
     // 与旧的覆盖层扫光（translateX(-100%) → translateX(100%)）方向相反。
-    const css = readSource('../../src/index.css')
+    const css = appCss
     const keyframes = css.slice(css.indexOf('@keyframes shimmer'), css.indexOf('.animate-shimmer {'))
     const positions = [...keyframes.matchAll(/background-position:\s*(-?[\d.]+)%\s+0/g)].map((m) => Number(m[1]))
     expect(positions).toEqual([200, -200])
@@ -90,7 +91,7 @@ describe('motion design tokens and primitives', () => {
   it('keeps the adopted process-thinking label flowing via a data attribute', () => {
     // 接管会整体重写 label 的 class（process-folding.ts），挂在其上的流光类会被抹掉，
     // 因此接管理由的流光只能按 data 属性命中；ThinkingBlock 必须在流式态写这个属性。
-    const css = readSource('../../src/index.css')
+    const css = appCss
     expect(css).toContain(
       ".quickforge-process-thinking-label[data-quickforge-thinking-streaming='true'] {",
     )
@@ -113,12 +114,12 @@ describe('motion design tokens and primitives', () => {
 
 describe('motion design batch 2', () => {
   it('adds the exit duration token for enter/exit pairs', () => {
-    const css = readSource('../../src/index.css')
+    const css = appCss
     expect(css).toContain('--quickforge-dur-exit: 140ms;')
   })
 
   it('defines the menu-in primitive and wires both dropdown menus with trigger-corner origins', () => {
-    const css = readSource('../../src/index.css')
+    const css = appCss
     expect(css).toContain('.quickforge-menu-in {')
     const menuKeyframes = css.slice(
       css.indexOf('@keyframes quickforge-menu-in'),
@@ -158,7 +159,7 @@ describe('motion design batch 2', () => {
   })
 
   it('fades newly mounted git-change rows in via the list-item primitive', () => {
-    const css = readSource('../../src/index.css')
+    const css = appCss
     expect(css).toContain('.quickforge-list-item-in {')
     const changes = readSource('../../src/components/workspace/WorkspaceChangesList.tsx')
     expect(changes).toContain("'quickforge-list-item-in group min-w-0 overflow-hidden'")

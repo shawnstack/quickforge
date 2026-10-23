@@ -1,0 +1,481 @@
+.quickforge-task-launcher {
+  padding: 0.25rem 0 0.65rem;
+  color: var(--foreground);
+  pointer-events: auto;
+}
+.quickforge-task-tabs { display: flex; gap: 1rem; margin-bottom: 0.5rem; }
+.quickforge-task-tabs button { padding: 0.25rem 0; color: var(--muted-foreground); font-size: 0.8rem; border-bottom: 2px solid transparent; }
+.quickforge-task-tabs button[aria-selected="true"] { color: var(--foreground); border-color: var(--primary); }
+.quickforge-task-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; }
+.quickforge-task-card { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0.5rem; min-width: 0; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card); text-align: left; font-size: 0.8rem; }
+.quickforge-task-card:hover { background: var(--muted); }
+.quickforge-task-card:disabled { opacity: 0.5; cursor: wait; }
+.quickforge-task-card small { display: block; grid-column: 1 / -1; color: var(--muted-foreground); font-size: 0.72rem; }
+.quickforge-task-icon { flex-shrink: 0; width: 1.1rem; height: 1.1rem; color: var(--primary); }
+.quickforge-task-icon svg { width: 100%; height: 100%; }
+.quickforge-task-launcher button { cursor: pointer; }
+.quickforge-task-launcher button:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.quickforge-task-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--muted-foreground); }
+.quickforge-task-notice[hidden], .quickforge-task-notice button[hidden] { display: none; }
+.quickforge-task-notice button { padding: 0.25rem 0.5rem; border: 1px solid var(--border); border-radius: 0.5rem; color: var(--foreground); }
+.quickforge-chat-compact .quickforge-task-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.quickforge-empty-chat:has(.quickforge-task-launcher) { --quickforge-task-top: max(6rem, calc(50% - 8rem)); overflow-y: auto; }
+.quickforge-empty-chat:has(.quickforge-task-launcher) .quickforge-empty-chat-hero { top: calc(var(--quickforge-task-top) - 4.5rem); }
+.quickforge-chat-panel-empty-host:has(.quickforge-task-launcher) .quickforge-composer-dock { top: var(--quickforge-task-top); transform: translateX(-50%); }
+.quickforge-empty-chat:has(.quickforge-task-launcher) .quickforge-empty-project-picker { top: calc(var(--quickforge-task-top) + var(--quickforge-task-dock-height, 17rem) - 1.8rem); }
+@media (width < 640px) {
+  .quickforge-task-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.quickforge-empty-chat {
+  position: relative;
+  overflow: hidden;
+}
+
+.quickforge-empty-chat-hero {
+  position: absolute;
+  z-index: 2;
+  top: calc(50% - 7.25rem);
+  left: 50%;
+  width: min(var(--quickforge-chat-content-max-width), calc(100% - 2rem));
+  transform: translateX(-50%);
+  pointer-events: none;
+  text-align: center;
+}
+
+.quickforge-empty-chat-title {
+  margin: 0;
+  color: color-mix(in oklab, var(--foreground) 92%, transparent);
+  font-size: clamp(1.9rem, 3.2vw, 2.65rem);
+  font-weight: 400;
+  letter-spacing: -0.045em;
+  line-height: 1.08;
+}
+
+.quickforge-chat-panel-empty-host {
+  position: absolute;
+  inset: 0;
+  overflow: visible !important;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer-dock {
+  --quickforge-empty-composer-rest-height: calc(7.5rem + 2px);
+
+  position: absolute !important;
+  z-index: 5;
+  top: calc(50% - 1.75rem + var(--quickforge-empty-composer-rest-height));
+  left: 50%;
+  width: min(var(--quickforge-chat-content-max-width), calc(100% - 2rem));
+  padding: 0 !important;
+  transform: translate(-50%, -100%);
+  background: transparent !important;
+  pointer-events: none;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer-shell {
+  width: 100% !important;
+  max-width: none !important;
+  pointer-events: none;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer > div:first-child {
+  border-color: color-mix(in oklab, var(--border) 82%, transparent) !important;
+  border-radius: 1.5rem !important;
+  background: color-mix(in oklab, var(--card) 96%, white) !important;
+  box-shadow:
+    0 34px 90px -46px rgb(15 23 42 / 0.36),
+    0 18px 44px -32px rgb(15 23 42 / 0.28),
+    inset 0 1px 0 rgb(255 255 255 / 0.8) !important;
+  backdrop-filter: none;
+  pointer-events: auto;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer-shell :is(
+  .quickforge-command-suggestions,
+  .quickforge-plus-popover
+) {
+  pointer-events: auto;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer textarea {
+  min-height: 3.5rem !important;
+  padding: 1rem 1rem 0.5rem !important;
+  font-size: 0.95rem;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer textarea::placeholder {
+  color: color-mix(in oklab, var(--muted-foreground) 44%, transparent);
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer > div:first-child > .px-2.pb-2 {
+  padding: 0 0.75rem 0.75rem !important;
+}
+
+.quickforge-chat-panel-empty-host .quickforge-composer > div:first-child > .px-2.pb-2::before {
+  display: none;
+}
+
+.quickforge-empty-project-picker {
+  position: absolute;
+  z-index: 3;
+  top: calc(50% + 3.9rem);
+  left: 50%;
+  width: min(var(--quickforge-chat-content-max-width), calc(100% - 2rem));
+  padding-inline: 1rem;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.quickforge-empty-project-picker-open {
+  z-index: 3;
+}
+
+.quickforge-empty-project-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 4.1rem;
+  align-items: flex-end;
+  gap: 0.65rem;
+  padding: 0 1.25rem 1rem;
+  border: 0;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  cursor: default;
+  font-size: 0.82rem;
+  pointer-events: none;
+  text-align: left;
+}
+
+.quickforge-empty-project-branch {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 45%;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.13rem;
+  padding: 0.28rem 0.4rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  font: inherit;
+  line-height: 1;
+  text-align: left;
+}
+
+button.quickforge-empty-project-branch {
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+button.quickforge-empty-project-branch:hover,
+button.quickforge-empty-project-branch[aria-expanded="true"] {
+  background: color-mix(in oklab, var(--muted) 72%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-empty-project-branch svg {
+  flex-shrink: 0;
+}
+
+.quickforge-empty-project-branch-chevron {
+  opacity: 0.72;
+}
+
+.quickforge-empty-project-pill[aria-expanded="true"],
+.quickforge-empty-project-chip[aria-expanded="true"] {
+  color: var(--foreground);
+}
+
+.quickforge-empty-project-pill:focus-visible,
+.quickforge-empty-project-chip:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--primary) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.quickforge-empty-project-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 0.34rem 0.8rem;
+  margin-bottom: 0.06rem;
+  background: color-mix(in oklab, var(--card) 70%, transparent);
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.quickforge-empty-project-pill:hover {
+  background: color-mix(in oklab, var(--foreground) 14%, var(--card));
+  color: var(--foreground);
+}
+
+.quickforge-empty-project-pill svg {
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  flex-shrink: 0;
+  transition: color 150ms ease;
+}
+
+.quickforge-empty-project-pill:hover svg {
+  color: var(--foreground);
+}
+
+.quickforge-empty-project-trigger svg {
+  margin-bottom: 0.05rem;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+}
+
+.quickforge-empty-project-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: min(18rem, 100%);
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0.32rem 0.72rem 0.32rem 0.34rem;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  cursor: pointer;
+  font-size: inherit;
+  pointer-events: auto;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.quickforge-empty-project-chip:hover,
+.quickforge-empty-project-chip:focus-within {
+  background: color-mix(in oklab, var(--muted) 72%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-empty-project-chip-action {
+  position: relative;
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.quickforge-empty-project-chip-folder {
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  transition: opacity 150ms ease, color 150ms ease;
+}
+
+.quickforge-empty-project-chip:hover .quickforge-empty-project-chip-folder,
+.quickforge-empty-project-chip:focus-within .quickforge-empty-project-chip-folder {
+  opacity: 0;
+}
+
+.quickforge-empty-project-chip-clear {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--foreground) 88%, transparent);
+  color: var(--background);
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.quickforge-empty-project-chip:hover .quickforge-empty-project-chip-clear,
+.quickforge-empty-project-chip:focus-within .quickforge-empty-project-chip-clear {
+  opacity: 1;
+}
+
+.quickforge-empty-project-chip-clear svg {
+  margin: 0;
+  color: currentColor;
+}
+
+.quickforge-project-picker-popover {
+  border: 1px solid color-mix(in oklab, var(--border) 76%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--popover) 98%, transparent);
+  box-shadow:
+    0 26px 72px -42px rgb(15 23 42 / 0.52),
+    0 10px 24px -18px rgb(15 23 42 / 0.28);
+  color: var(--popover-foreground);
+}
+
+.quickforge-project-picker-popover {
+  z-index: 1000;
+  width: min(25rem, calc(100vw - 2rem));
+  padding: 0.55rem;
+  pointer-events: auto;
+}
+
+.quickforge-project-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.65rem 0.65rem;
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+}
+
+.quickforge-project-picker-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.82rem;
+}
+
+.quickforge-project-picker-search input::placeholder {
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+}
+
+.quickforge-project-picker-list {
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.quickforge-project-picker-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  border: 0;
+  border-radius: 0.7rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--foreground) 90%, transparent);
+  cursor: pointer;
+  padding: 0.58rem 0.65rem;
+  font-size: 0.82rem;
+  text-align: left;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.quickforge-project-picker-item:hover,
+.quickforge-project-picker-item:focus-visible,
+.quickforge-project-picker-item-emphasis {
+  background: color-mix(in oklab, var(--muted) 80%, var(--foreground) 16%);
+  color: var(--foreground);
+  outline: 0;
+}
+
+.quickforge-project-picker-item svg {
+  flex-shrink: 0;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+}
+
+.quickforge-project-picker-item:hover .quickforge-project-picker-item-leading,
+.quickforge-project-picker-item:focus-visible .quickforge-project-picker-item-leading {
+  color: color-mix(in oklab, var(--foreground) 78%, transparent);
+}
+
+.quickforge-project-picker-separator {
+  height: 1px;
+  margin: 0.45rem 0.25rem;
+  background: color-mix(in oklab, var(--border) 72%, transparent);
+}
+
+.quickforge-project-picker-empty {
+  padding: 0.8rem 0.65rem;
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 768px) {
+  .quickforge-empty-chat-hero {
+    top: calc(50% - 7rem);
+    width: min(100% - 1.5rem, var(--quickforge-chat-content-max-width));
+  }
+
+  .quickforge-chat-panel-empty-host .quickforge-composer-dock,
+  .quickforge-empty-project-picker {
+    width: min(100% - 1.5rem, var(--quickforge-chat-content-max-width));
+  }
+
+  .quickforge-empty-project-picker {
+    padding-inline: 1rem;
+  }
+
+  .quickforge-chat-panel-empty-host .quickforge-composer textarea {
+    min-height: 3.25rem !important;
+  }
+
+  .quickforge-composer .quickforge-agent-access-inline {
+    width: 2rem;
+    gap: 0;
+    padding-inline: 0 !important;
+  }
+
+  /* icon-only 形态下所有控件连续排列、行内/行间间距统一 0.5rem，发送按钮保持右缘 */
+  .quickforge-composer > div:first-child > .px-2.pb-2 {
+    justify-content: flex-start !important;
+    gap: 0.5rem;
+  }
+
+  .quickforge-composer .quickforge-send-button,
+  .quickforge-composer .quickforge-stop-button {
+    margin-left: auto;
+  }
+
+  .quickforge-composer .quickforge-agent-access-inline :is(.quickforge-agent-access-label, .quickforge-agent-access-chevron) {
+    display: none;
+  }
+
+  .quickforge-composer .quickforge-thinking-inline {
+    width: 2rem;
+    gap: 0;
+    padding-inline: 0 !important;
+  }
+
+  .quickforge-composer .quickforge-thinking-inline :is(.quickforge-thinking-label, .quickforge-thinking-chevron) {
+    display: none;
+  }
+
+  .quickforge-composer :is(.quickforge-context-usage, .quickforge-context-usage-label) {
+    margin-inline: 0.125rem;
+  }
+
+  .quickforge-composer .quickforge-model-trigger {
+    width: 2rem;
+    min-width: 2rem;
+    gap: 0;
+    padding-inline: 0 !important;
+  }
+
+  .quickforge-composer .quickforge-model-trigger > span.ml-1 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    margin: -1px !important;
+    padding: 0;
+    border: 0;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .quickforge-composer .quickforge-model-trigger::after {
+    display: none;
+  }
+
+  .quickforge-composer .quickforge-model-trigger::before {
+    display: block;
+  }
+
+  .quickforge-empty-chat-title {
+    font-size: clamp(1.7rem, 7vw, 2.25rem);
+  }
+
+  .quickforge-project-picker-popover {
+    width: min(22rem, calc(100vw - 1.5rem));
+  }
+}
+

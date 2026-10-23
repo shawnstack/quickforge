@@ -1,0 +1,77 @@
+/* Keep ordinary Tool and Subagent rows on the same typographic rhythm as
+   the Process timeline. Technical summaries retain a monospace voice without
+   changing the typography of labels, controls, Diff, or code output. */
+.quickforge-local-tool-shell {
+  position: relative;
+}
+
+.quickforge-local-tool-shell > .quickforge-tool-actions {
+  position: absolute;
+  z-index: 1;
+  top: 0.0625rem;
+  right: 0;
+}
+
+.quickforge-local-tool-shell:has(> .quickforge-tool-actions > button) > .quickforge-local-tool > .quickforge-tool-summary {
+  padding-right: 1.75rem;
+}
+
+/* 工具卡摘要行字号跟随「消息字号」基准（×0.875，默认 13px 下 ≈11.4px 与旧 0.875rem 一致，
+   零视觉回归），避免与对话正文分属两套字号体系而在设置分开调整时漂移。
+   设计稿：goal 计划工具卡字号对齐（S02）。
+   后一条选择器按同级 DOM 形态（ToolMessage 兜底卡 DefaultToolCardBody 的
+   `.space-y-2 > details.quickforge-default-tool`）收拢首行：它虽自带 `text-sm` 让首行逃逸到 1rem，
+   字号须与其余工具行一致。本规则不受 `.qf-chat-panel` 限制，面板外运行详情同步取同一基准
+   （语义保持一致）。 */
+.quickforge-local-tool > .quickforge-tool-summary,
+.quickforge-mcp-tool > .quickforge-tool-summary,
+.quickforge-subagent-tool > .quickforge-tool-summary,
+.quickforge-tool-message > .space-y-2 > .quickforge-default-tool > .quickforge-tool-summary {
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font-family: var(--font-sans);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.quickforge-tool-title,
+.quickforge-subagent-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* 普通工具标题保持按内容收缩；subagent 标题占满摘要行剩余宽度，
+   让内部绝对定位的跑马灯获得可测量的弹性空间。 */
+.quickforge-tool-title {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.quickforge-subagent-title {
+  flex: 1 1 auto;
+}
+
+.quickforge-local-tool,
+.quickforge-local-tool-shell,
+.quickforge-tool-summary {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.quickforge-tool-summary:has(.quickforge-command-summary),
+.quickforge-subagent-tool > .quickforge-tool-summary {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  scrollbar-width: none;
+}
+
+.quickforge-tool-summary:has(.quickforge-command-summary)::-webkit-scrollbar {
+  display: none;
+}
+

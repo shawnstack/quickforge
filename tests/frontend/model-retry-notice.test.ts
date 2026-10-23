@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ModelRetryNotice } from '../../src/components/chat/surface/ConnectionNotices'
+import { appCss } from '../helpers/app-css'
 
 /**
  * The model stream retry row used to be a find-or-create controller
@@ -34,7 +35,7 @@ const agentClientSource = readFileSync('src/lib/global-agent-sse-client.ts', 'ut
 const agentManagerSource = readFileSync('server/agent-manager.mjs', 'utf8')
 const aiHttpLoggerSource = readFileSync('server/ai-http-logger.mjs', 'utf8')
 const i18nSource = readFileSync('src/lib/i18n.ts', 'utf8')
-const cssSource = readFileSync('src/index.css', 'utf8')
+const cssSource = appCss
 
 describe('model retry notice rendering', () => {
   let container: HTMLDivElement

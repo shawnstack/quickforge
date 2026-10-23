@@ -23,7 +23,7 @@ export function normalizeAppearanceSettings(value: unknown): AppearanceSettings 
 /**
  * Apply an appearance setting to the DOM.
  * Theme switching works by toggling the `dark` class on <html>: the light/dark
- * semantic tokens are self-hosted by `src/index.css` (unlayered `:root` / `.dark`
+ * semantic tokens are self-hosted by `src/styles/foundation.css` (unlayered `:root` / `.dark`
  * blocks, copied verbatim from the theme defaults they replaced).
  * Tailwind's `dark:` variants are unaffected by this toggle — with no custom
  * variant registered they keep their default `prefers-color-scheme` media query,

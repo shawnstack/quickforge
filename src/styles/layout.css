@@ -1,0 +1,39 @@
+/* ------------------------------------------------------------------ */
+/* Window toolbar alignment */
+
+.quickforge-window-toolbar {
+  top: 0.625rem;
+}
+
+body.quickforge-desktop-app .quickforge-window-toolbar {
+  top: calc(var(--quickforge-desktop-titlebar-height, 0px) + 0.625rem);
+}
+
+/* ------------------------------------------------------------------ */
+/* Desktop titlebar-safe fullscreen panels */
+
+.quickforge-terminal-fullscreen,
+.quickforge-workspace-inspector-fullscreen {
+  position: fixed;
+  inset: 0;
+}
+
+body.quickforge-desktop-app .quickforge-terminal-fullscreen,
+body.quickforge-desktop-app .quickforge-workspace-inspector-fullscreen {
+  top: var(--quickforge-desktop-titlebar-height, 0px);
+}
+
+/* Settings tab content host: `> *` is the height contract for every tab
+   implementation rendered inside; min-height keeps the tab area filling
+   the host even when a tab page is short. */
+.quickforge-settings-tab-host > * {
+  display: block;
+  min-height: 100%;
+}
+
+/* Stateful tabs stay mounted while inactive; the height contract above would
+   otherwise override the hidden attribute's display:none. */
+.quickforge-settings-tab-host > [hidden] {
+  display: none;
+}
+

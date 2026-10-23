@@ -34,12 +34,14 @@ export type AskUserReviewRows = {
   answers: ({ choices?: string[]; custom?: string } | undefined)[]
   skipped: boolean
   skipReason?: string
+  /** Card-level free-form note typed on the review step, if any. */
+  remark?: string
 }
 
 /**
  * Structured ask_user answer data from the persisted toolResult.details
- * ({askId, questions, answers, skipped, skipReason?}); null when the shape is
- * missing or malformed (pending call, legacy message).
+ * ({askId, questions, answers, skipped, skipReason?, remark?}); null when the
+ * shape is missing or malformed (pending call, legacy message).
  */
 export function askUserReviewRowsFromDetails(details: unknown): AskUserReviewRows | null {
   if (!details || typeof details !== 'object' || Array.isArray(details)) return null
@@ -72,6 +74,7 @@ export function askUserReviewRowsFromDetails(details: unknown): AskUserReviewRow
     answers,
     skipped: record.skipped === true,
     skipReason: typeof record.skipReason === 'string' && record.skipReason ? record.skipReason : undefined,
+    remark: typeof record.remark === 'string' && record.remark.trim() ? record.remark.trim() : undefined,
   }
 }
 
@@ -106,6 +109,9 @@ export class AskUserToolRenderer {
       }))
       : []
     const reviewSkipNote = review && reviewActive && review.skipped ? askUserSkipReasonText(review.skipReason) : ''
+    // The review-step note is not a question answer, so it renders as its own
+    // trailing receipt row (dashed rail) instead of widening any answer above.
+    const reviewRemark = review && reviewActive && !review.skipped ? review.remark : undefined
     const summary = questions.length
       ? `${t('askUserSummaryCount', { count: String(questions.length) })}${questions[0] ? ` · ${questions[0]}` : ''}`
       : ''
@@ -138,6 +144,14 @@ export class AskUserToolRenderer {
                       </div>
                     </div>
                   ))}
+                  {reviewRemark ? (
+                    <div className="quickforge-ask-review-row quickforge-ask-review-row--remark">
+                      <div className="quickforge-ask-review-content">
+                        <span className="quickforge-ask-review-question">{t('askUserRemarkLabel')}</span>
+                        <span className="quickforge-ask-review-answer">{reviewRemark}</span>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {questions.length && !detailed && review === null ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('input')}</div><div className="quickforge-ask-tool-questions">{questions.map((question, index) => <div key={index}>{question}</div>)}</div></div> : null}

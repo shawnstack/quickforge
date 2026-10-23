@@ -1,3 +1,68 @@
+## css-architecture-split（done，2026-10-23）
+
+- Goal：用户要求「不需要打补丁，需要完整最佳的架构，必要必须重构，保持架构最佳，但不要影响现有交互形态和样式」。把 10,173 行的单体 `src/index.css` 做完整拆分，而不是继续在大文件里加规则。
+- 结论（一句话）：全局样式改为「唯一有序入口 + 按功能域拆分的模块」：`src/styles/index.css` 只保留 Tailwind + 按原源顺序排列的 38 个模块 import；入口顺序就是级联契约，模块间禁止互相 import；测试通过 `tests/helpers/app-css.ts` 递归内联入口图读取全局样式，并用 `css-architecture.test.ts` 固化入口/归属规则。
+- 拆分粒度：
+  - `foundation.css`（unlayered token / body / 滚动条 / 共享 keyframes）、`startup.css`、`motion.css`、`layout.css`、`markdown.css`、`highlight.css`、`ui/info-tip.css`。
+  - `settings/`：shell / appearance / forms / select / controls。
+  - `chat/`：24 个功能面模块（messages、composer×3、process×2、tool×3、runtime notices、artifact/goal/workflow/todo、pinned summary、file rollback 等）。
+  - `workspace/`：workflow-detail、inspector-tabs。
+  - 组件自持 CSS（conversation-trace.css / goal-inspector.css / goal-summary.css）保持原样，作为懒加载 surface 的隔离样式例外。
+- 拆分过程中顺手归位的错位规则：`.quickforge-subagent-title { flex }` 从 math.css 移回 tool-summary.css；原 subagent.css 拆为 markdown-content.css + context-compaction.css；settings select 只保留自定义下拉框；file-reference 的 20rem 高度覆盖收敛到 composer.css。没有改任何声明值。
+- 零回归验证：
+  1. 初次结构搬迁后，构建出的 `index-*.css` 与重构前逐字节一致（所有声明、顺序、Tailwind utilities 完全相同）。
+  2. 归位/合并后，用 PostCSS 对构建前后 CSS 做规则级比对（selector → declarations，按 at-rule 上下文聚合）：3393 条规则、0 语义差异；其余 CSS chunk（katex/editor/floatingMenu/WorkspaceInspector 等）逐字节一致。
+  3. `npm run test` → 424 文件 / 4908 passed / 2 skipped，exit 0；`npm run lint` → 0 error（仅既有 GitToolsPinnedSummary warning）；`npm run build` → 成功；`css-architecture.test.ts` → 5 passed。
+- 测试迁移：新增 `tests/helpers/app-css.ts`（递归解析入口 import，支持 jsdom 下用 `process.cwd()`）；33 个测试文件从直接 `readFileSync('src/index.css')` 改为 `appCss`/`globalCss`，CSS 契约断言内容不变。
+- 文档：`DESIGN_LANGUAGE.md` 新增「CSS 架构」；`docs/wiki/src/README.md` 重写样式架构段并修正路径；新增 `docs/wiki/src/styles/README.md`（模块地图、归属规则、验证流程）；`docs/architecture/workflow-orchestration.zh-CN.md` 路径改为 goal-workflow.css / workflow-detail.css；`docs/wiki/src/components|lib/README.md` 的旧路径同步。
+- 边界/未做：不新增或升级依赖；未手工修改生成产物；未创建 Git commit；没有做真实浏览器逐屏目视验收（但有构建产物语义比对兜底）；没有把聊天/设置 CSS 拆成按路由懒加载的独立 chunk——当前保留单 bundle 是为了保证未经审计的跨模块覆盖不依赖 chunk 加载顺序；设计稿 `docs/design/*.html` 与 `docs/archive/*` 中的历史路径未改。
+- Notes（后续可选）：① 若要进一步做 CSS 代码分割，需先把 4 组跨模块 selector 收敛或改成 cascade layer，并补真实视觉回归；② `docs/design/*.html` 可在下次设计稿更新时顺手迁移路径；③ 现有 4 组跨模块覆盖已登记在 `tests/frontend/css-architecture.test.ts`，新增覆盖必须先登记。
+
+---
+
+## ask-user-remark-on-confirm（done，2026-10-23）
+
+- Goal：用户要求「askuser 这个 tools 交互显示最后确认底部还希望可以加一个补充信息」，先出 HTML 设计稿评审，确认后落地。评审稿给了 A/B/C 三案，用户选择「按推荐执行」＝方案 C（第 N+1 条回执行）。
+- 方案 C 语义：补充信息不是某一题的答案，而是整次提交的限定语。因此它**不进** `answers[]`（不污染逐题结构），而是在回执列表末行单独成行——虚线引导线 + 笔形图标，与问答同层但一眼可辨「这条是自由输入」，且不计入「N 问」。
+- 改动（13 个源码/测试文件 + 2 处 wiki + 1 份设计稿）：
+  1. `src/components/chat/panel-decoration/ask-user-card.ts`：`AskUserCardDeps.onSubmit` 增加第二参数 `remark`；新增卡片级 `let remark = ''`；review 分支的 `body.innerHTML` 末尾插入 `.quickforge-ask-review-row--remark`（内嵌 `.quickforge-ask-remark-field` + 笔形 svg + `.quickforge-ask-remark-input` 自适应高度 textarea + `.quickforge-ask-remark-optional`「可选」）；**Enter 保持换行**（与逐题补充框的 Enter 前进语义相反，多行备注是正常输入）；提交时 `deps.onSubmit(answers.map(...), trimmedRemark || undefined)`。
+  2. `src/components/chat/ChatPanelHost.tsx`：`onAnswerAsk` 两处类型加 `remark?: string`；`onSubmit` 回调把 remark 作为第 4 参数透传。
+  3. `src/App.tsx`：`handleAnswerAsk` 加 `remark` 参数并计入 `answerAsk` payload。
+  4. `src/lib/server-agent.ts`：`answerAsk` payload 类型加 `remark?: string`，请求体带 `remark`。
+  5. `server/agent-approval-responses.mjs`：`answerAsk` 接收并归一化 remark（`trim` + `slice(0,4000)`，空白丢弃），skip 时不写入。
+  6. `server/agent-approval-orchestrator.mjs`：`finish()` 把 remark 传给 `formatAskResult` 并写入 `details.remark`。
+  7. `server/ask-store.mjs`：`formatAskResult(questions, answers, skipped, reason, remark)` 在「用户的回答」末尾追加一行 `补充信息：…`。
+  8. `server/routes/agent.mjs`：`/answer-ask` 透传 `body?.remark`。
+  9. `src/lib/tool-renderers/ask-user-tool-renderer.tsx`：`AskUserReviewRows` 加 `remark?`，`askUserReviewRowsFromDetails` 读 `details.remark`（trim 后非空才算），渲染时在回执行末尾追加同款虚线行（标签 `askUserRemarkLabel`，skip 时不显示）。
+  10. `src/index.css`：新增 `.quickforge-ask-review-row--remark`（虚线 + 42% primary 引导线）+ `.quickforge-ask-remark-{field,icon,input,optional}`，窄屏 `@media (max-width:40rem)` 隐藏「可选」小字。
+  11. `src/lib/i18n.ts`：新增 `askUserRemarkLabel` / `askUserRemarkPlaceholder` / `askUserRemarkOptional`，中英各一份。
+  12. 测试：`tests/frontend/ask-user-card.test.ts` 新增两条（回执行结构与样式契约、remark 全链路透传 + 历史持久化 + i18n 双语）；`tests/server/ask-user-tool.test.mjs` 新增 `formatAskResult` 末行用例（含空白/缺省不产生空行）；`tests/server/agent-manager-domains.test.mjs` 新增 `answerAsk` remark 归一化与丢弃用例。
+  13. 文档：`docs/wiki/src/components/README.md`（两处重复段落同步补口径）、`docs/wiki/src/lib/README.md`（answerAsk 第四个字段）；评审稿落位 `docs/design/ask-user-remark-mock.html`。
+- 验证 / Evidence：`npx vitest run ask-user-card / ask-user-tool / agent-manager-domains / agent-approval-orchestrator` → **70 passed**；`npm run lint` → 0 error（仅既有 `GitToolsPinnedSummary` exhaustive-deps warning）；`npm run build` → 成功（`tsc -b` + vite，6.25s）。`npm run test` 全量 **4895 passed / 2 failed**，两处失败与本次无关：① `scheduled-tasks.commands` 的 `EPERM ... scheduled-tasks.json.tmp -> scheduled-tasks.json`（Windows 临时文件 rename 抖动，单跑 24 passed）；② `workflow-renderer` 的「阶段下挂步骤」用例（来自工作区既存未提交的 `WorkflowRunDetailContent.tsx` 重写，`git status` 显示该文件本轮未触碰）。
+- 边界：未新增或升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit；`remark` 刻意不写进 `ServerAgentAskAnswer`。
+- Notes（未做，供下轮）：① remark 无字数计数与上限提示，只有服务端 4000 字截断，超长会静默丢尾；② 刷新/重连后回执步的 remark 不持久（与既有 wizard 进度归零同源问题 ⑥）；③ remark 行未加 `aria-label`，无障碍仍走 placeholder（与既有卡片同级问题 ⑧）；④ 回传给模型的文案仍是硬编码中文「补充信息：」（与既有 `formatAskResult` 的 ⑩ 同源）。
+
+---
+
+## workflow-detail-single-page（done，2026-10-23）
+
+- Goal：用户反馈运行详情里的「时间轴 / 阶段 / 日志」三个分段 tab 需要点击切换、用起来不顺手，要求「就一个页面不要点击切」。先出 HTML 设计稿评审（`docs/design/workflow-detail-single-page.html`），确认后落地。
+- 结论（一句话）：三视图本来就是同一份运行数据的三种投影（时间轴读 `startOffsetMs/durationMs`、阶段读 `phases[]`、日志读自带 `phase` 的 `logs[]`），合并成一页连续滚动后信息量不减、反而可以互相参照：整页共享一根时间轴（刻度条吸顶），每个阶段 = 粘性阶段头 + 该阶段的行 + 该阶段自己的日志。
+- 改动（4 个源码/测试文件 + 2 处 wiki + 1 份设计稿）：
+  1. `src/components/workspace/WorkflowRunDetailContent.tsx`：删除 `DetailView = 'timeline' | 'phase' | 'log'` 状态、`role="tablist"` 分段控件与三视图分发（原 `:437` / `:452`）。新结构：概览条（pill / 耗时 / 规模 / 并发峰值 / 比串行快 / 预算 + **图例常驻**）→ 唯一滚动容器 `.quickforge-workflow-detail-scroll` → 吸顶刻度条 `TimelineAxis` → 阶段小节 `PhaseSection`（粘性阶段头 + `workflowPhaseSteps` 交错渲染 + 该阶段日志）。`AgentStep` / `ToolStep` 都用 `<details class="-step">` 包整行 `<summary class="-row">`：Agent 展开是元信息 / 错误 / `payload.detailed` 门控的结果预览 /「运行详情 ↗」；工具行展开是 input/output/错误。空标题阶段桶（服务端只给空 phase 串）标题回退 `workflowDetailRunLogs`。
+  2. `src/index.css`：删除 `-seg / -seg-count / -pane / -rows / -timeline / -log-list / -log* / -tool* / -agent* / -phase-rule`；新增 `-scroll` 滚动容器；`-axis` 改 `position: sticky; top: 0`、高 `var(--wf-tl-axis-h)`、加实底（否则滚动中的行会从刻度下面透出来）；`-phase-head` 改 `position: sticky; top: var(--wf-tl-axis-h)` + `background: var(--background)`、`z-index: 2`（低于刻度条 3）；`--wf-tl-*` 变量**上移到根节点** `.quickforge-workflow-detail`（含窄面板 `@media` 覆盖同一个选择器——只留在被删的 `-timeline` 里吸顶元素取不到）；新增 `-step / -step-body / -step-meta / -step-actions`。
+  3. `src/lib/i18n.ts`：新增 `workflowDetailRunLogs`；删除随三视图下线的 `workflowDetailViewTimeline/Phases/Logs`、`workflowDetailNoLogs`、`workflowDetailPhaseCount`。
+  4. `tests/frontend/workflow-renderer.test.ts`：把「三视图存在」用例改成「单页合并」；新增真实渲染用例（`renderToStaticMarkup` 断言刻度条 / `-scroll` / `-phase-logs` 同屏、Scan 日志落在 Scan 阶段后、Fix 日志落在 Fix 阶段后、整页无 `-seg`）；CSS 契约改成断言 `-scroll` 的 `overflow-y: auto` + 刻度/阶段头 `sticky` + 图例 `margin-left: auto` + `-seg / -pane` 已删除。
+- 关键实现取舍：
+  - **工具行只缩进标签列，右轨道不缩进** —— 否则不同层级的时间条会横向错位，同一根时间轴就失去「可以横向比较」的意义。从属关系由标签列内的 1px 连接线（`-tools::before`）+ `padding-left` 表达，符合 `DESIGN_LANGUAGE.md` 的缩进 + 细连接线例外条款。
+  - **只有两个吸顶元素**：刻度条与阶段头，两者都必须有不透明底色；阶段体不再叠加左缩进（行自带左右 `0.875rem` 内距，方便 hover 背景贴边）。
+  - 「运行详情 ↗」从「hover 才 `opacity: 1`」改为展开体里常显 —— 合并后它不再独占一行，隐藏入口会让功能变得不可发现。
+- 验证 / Evidence：`npx vitest run tests/frontend/workflow-renderer.test.ts` → **29 passed**（含新增 3 处断言）；`tests/frontend` 全量 → **249 文件 2991 passed**；`npm run test` 全量 → **422 文件 4897 passed / 2 skipped**；`npm run lint` → 0 error（仅既有 `GitToolsPinnedSummary` exhaustive-deps warning）；`npx tsc -b` 通过；`npm run build` 成功（5.55s，仅既有 chunk 体积警告）。
+- 边界：只改 run_workflow 运行详情的视图结构与样式，未动编排/数据层（`workflow-run-detail.ts`、`workflow-run-payload.ts`、服务端）；未改 Inspector Tab 去重/持久化与 Tab 标题；未新增或升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`（build 正常刷新 dist）；未创建 Git commit。
+- Notes（未做，供下轮）：① 未做真实浏览器目视验收——浅/深色 + 340px 窄面板下吸顶区域是否显重、工具行连接线与条形在视觉上是否对齐，需 `npm run dev` 看一眼；② 未加「跳到出错步骤」之类的滚动辅助，长运行（几十个阶段）里找失败点仍需手滚。
+
+---
+
 ## trace-view-switch-neutral（done，2026-10-23）
 
 - Goal：用户反馈「切换到轨迹的时候 轨迹的 icon 不需要有特殊的颜色 就和普通的对话一样就行」。

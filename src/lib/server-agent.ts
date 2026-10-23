@@ -1201,13 +1201,16 @@ export class ServerAgent {
 
   /**
    * Answer or skip a pending ask_user call.
+   *
+   * `remark` is the review-step free-form note (not tied to any question); the
+   * server appends it to the tool result after the per-question answers.
    */
-  async answerAsk(askId: string, payload: { answers?: ServerAgentAskAnswer[]; skipped?: boolean } = {}): Promise<void> {
+  async answerAsk(askId: string, payload: { answers?: ServerAgentAskAnswer[]; skipped?: boolean; remark?: string } = {}): Promise<void> {
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/answer-ask`
     const res = await fetch(url, {
       method: 'POST',
       headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({ askId, answers: payload.answers, skipped: payload.skipped === true }),
+      body: JSON.stringify({ askId, answers: payload.answers, skipped: payload.skipped === true, remark: payload.remark }),
     })
     if (!res.ok) {
       const errorPayload = await res.json().catch(() => null) as { error?: string } | null

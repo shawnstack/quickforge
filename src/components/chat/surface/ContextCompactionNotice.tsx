@@ -19,7 +19,7 @@ import type { AgentMessage } from './ChatTypes'
  * - the copy feedback is a timeout-backed state flag instead of
  *   `replaceSvg` + inline style mutation.
  *
- * The class names are unchanged: `src/index.css` styles this subtree and the
+ * The class names are unchanged: `src/styles/chat/context-compaction.css` styles this subtree and the
  * layout must stay pixel-identical.
  */
 

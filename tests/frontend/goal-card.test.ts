@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import { buildGoalCardViewModel } from '../../src/components/chat/panel-decoration/goal-card'
 import { QUICKFORGE_CHAT_CAPABILITIES, SIDE_CHAT_UI_CAPABILITIES, applyChatPagePolicy } from '../../src/lib/chat-capabilities'
+import { appCss } from '../helpers/app-css'
 
 // goal-card only needs t() at render time; the view-model projection is pure.
 vi.mock('@/lib/i18n', () => ({
@@ -13,7 +14,7 @@ const decorationSource = readFileSync(new URL('../../src/components/chat/panel-d
 const surfaceSource = readFileSync(new URL('../../src/components/chat/surface/ChatSurface.tsx', import.meta.url), 'utf8')
 const commandsSource = readFileSync(new URL('../../src/components/chat/command-suggestions.ts', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
-const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const css = appCss
 const serverAgentSource = readFileSync(new URL('../../src/lib/server-agent.ts', import.meta.url), 'utf8')
 
 type GoalState = import('../../src/lib/goal').GoalState

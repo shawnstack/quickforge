@@ -8,6 +8,7 @@ import { GitToolsPinnedSummary } from '../../src/components/git/GitToolsPinnedSu
 import { applyAppLanguageFromSnapshot } from '../../src/lib/i18n'
 import type { GoalState } from '../../src/lib/goal'
 import type { SubagentRunPayload } from '../../src/lib/subagent-run-detail'
+import { appCss } from '../helpers/app-css'
 
 const summarySource = readFileSync(new URL('../../src/components/git/GitToolsPinnedSummary.tsx', import.meta.url), 'utf8')
 const goalSectionSource = readFileSync(new URL('../../src/components/git/GoalSummarySection.tsx', import.meta.url), 'utf8')
@@ -16,7 +17,7 @@ const goalInspectorSource = readFileSync(new URL('../../src/components/workspace
 const dragSource = readFileSync(new URL('../../src/lib/pinned-summary-drag.ts', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
-const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const cssSource = appCss
 
 function desktopWidgetBlock() {
   return summarySource.slice(

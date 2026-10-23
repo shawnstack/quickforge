@@ -1,0 +1,458 @@
+/* Restore plain readable text when motion is reduced: no static gradient
+   running state is left behind. 放在流光规则之后，同特异性下按顺序覆盖；父级不再
+   有 text-clip，detail 及其内层必须一起回到实色，否则透明文字直接消失。 */
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-tool-running-sweep {
+    background-color: transparent;
+    background-image: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: inherit;
+    animation: none;
+  }
+
+  .quickforge-tool-running-sweep .quickforge-tool-summary-detail,
+  .quickforge-tool-running-sweep .quickforge-command-summary,
+  .quickforge-tool-running-sweep .quickforge-tool-file-summary {
+    color: var(--muted-foreground);
+  }
+}
+
+/* subagent 摘要卡「当前工具」跑马灯：只占用标签与状态之间的剩余弹性空间；
+   min-width: 0 保证对话列变窄时先自行收缩退让，不遮挡状态标签与 spinner/耗时。
+   定高一行（0.75rem × line-height 1.5）是双视图纵向滚动切换的度量前提。 */
+.quickforge-subagent-marquee {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: none;
+  position: relative;
+  overflow: visible;
+  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  height: 1.125rem;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+
+/* 两个等价视图绝对铺满容器：text 切换时对视图做 translateY(±100%) 纵向滚动（旧文滚出、
+   新文滚入），非当前视图由控制器置 visibility:hidden。 */
+.quickforge-subagent-marquee .quickforge-marquee-view {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.quickforge-subagent-marquee .quickforge-marquee-static {
+  display: block;
+  width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre;
+}
+
+.quickforge-subagent-marquee .quickforge-marquee-moving {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  white-space: nowrap;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.quickforge-tool-summary-detail {
+  font-family: var(--font-mono);
+  font-weight: 400;
+}
+
+.quickforge-command-summary {
+  display: inline;
+  white-space: pre;
+  vertical-align: bottom;
+}
+
+.quickforge-tool-chevron {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: 0 0 auto;
+  opacity: 0.62;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    transform 160ms ease;
+}
+
+:is(.quickforge-local-tool, .quickforge-mcp-tool, .quickforge-default-tool) > .quickforge-tool-summary:hover .quickforge-tool-chevron,
+:is(.quickforge-local-tool, .quickforge-mcp-tool, .quickforge-default-tool) > .quickforge-tool-summary:focus-visible .quickforge-tool-chevron {
+  opacity: 1;
+}
+
+/* subagent 运行摘要按钮：聊天内是打开 Workspace Inspector 运行详情 Tab 的入口，
+ * 需要明确的 hover / focus-visible 反馈与可访问焦点环（轻背景、不跳动）。 */
+.quickforge-subagent-tool > .quickforge-tool-summary {
+  border-radius: 0.5rem;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.quickforge-subagent-tool > .quickforge-tool-summary:hover,
+.quickforge-subagent-tool > .quickforge-tool-summary:focus-visible {
+  background-color: color-mix(in oklab, var(--muted) 42%, transparent);
+  color: color-mix(in oklab, var(--foreground) 90%, transparent);
+}
+
+.quickforge-subagent-tool > .quickforge-tool-summary:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: 2px;
+}
+
+/* 「接管失败必须可见」（fail-visible，勿破坏）：思考 header 的可见性完全交给装饰层接管
+ * （decorateProcessThinkingBlocks 给过程组内的 header 补 .quickforge-process-thinking-header），
+ * 这里不设任何 display:none 兜底。
+ *
+ * 历史教训（R9/R11 的面板级隐藏、R11 的 `.qf-chat-panel .quickforge-process-body
+ * .qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header)` 过程组级隐藏）
+ * 都建立在「装饰层一定会接管」这一假设上，而接管曾因 chevron 识别不到（React header 的
+ * 子级就是 <svg> 本体，既非 HTMLElement 也 querySelector 不到自身）而静默 return，
+ * 于是被隐藏的原生头永远不会被接管 —— 整块思考永久消失（R10 起默认折叠只渲染 header）。
+ * 所以：宁可让未接管的原生头显示一行 React 原生「Thinking...」，也不要静默隐藏。
+ * 隐藏规则一旦回流，就会把「接管失败」重新变成「思考消失」这种无声故障。 */
+
+/* 未接管的自带 header 的兜底观感（面板外如 Subagent 运行详情，以及面板内装饰层未接管的
+ * 原生 header）：文字弱化、悬停回暖，chevron 仅在悬停/聚焦时浮现——写法对齐装饰层接管版，
+ * :not(.quickforge-process-thinking-header) 保证不影响已接管的 header。 */
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header) {
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  transition: color 160ms ease;
+}
+
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header):hover {
+  color: color-mix(in oklab, var(--foreground) 86%, transparent);
+}
+
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header) > svg {
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    visibility 0s linear 140ms,
+    opacity 140ms ease;
+}
+
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header):hover > svg,
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header):focus-visible > svg,
+.qf-thinking-block > .thinking-header:not(.quickforge-process-thinking-header):focus-within > svg {
+  visibility: visible;
+  opacity: 1;
+  transition-delay: 0s;
+}
+
+/* 接管后的思考行跟随「消息字号」基准（×0.875），与工具行（3439 起）同一表达式，
+ * 避免两套字号体系在设置分开调整时漂移；默认 R=M=13px 下 = 11.375px，与原 0.875rem
+ * 数值相同（零视觉回归）。装饰层已把 header className 重置为
+ * `thinking-header quickforge-process-thinking-header`，无 text-sm 等 utility 竞争，
+ * 且本规则 unlayered（优先于 @layer utilities），故不再需要 !important。 */
+.quickforge-process-body .qf-thinking-block > .quickforge-process-thinking-header {
+  display: flex;
+  width: 100%;
+  min-height: 1.625rem;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 0.375rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875);
+  font-weight: 400;
+  line-height: 1.5;
+  transition: color 160ms ease;
+}
+
+.quickforge-process-body .qf-thinking-block > .quickforge-process-thinking-header:hover {
+  color: color-mix(in oklab, var(--foreground) 86%, transparent);
+}
+
+.quickforge-process-thinking-icon,
+.quickforge-process-thinking-chevron {
+  display: inline-flex;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.quickforge-process-thinking-icon {
+  color: color-mix(in oklab, var(--muted-foreground) 58%, transparent);
+}
+
+.quickforge-process-thinking-icon svg,
+.quickforge-process-thinking-chevron svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.quickforge-process-thinking-label {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 思考过程流式态（被过程组接管）：与 `.quickforge-tool-running-sweep` 同一套
+   文字流光配方。这里不依赖 class —— 接管会把 label 的 class 整体重写为
+   `quickforge-process-thinking-label`（process-folding.ts），React 原本挂在
+   label 上的 `animate-shimmer` 等流光类会被抹掉，只有 data 属性能活过接管。
+   底色兜底同工具流光：渐变只覆盖 200% 幅面的一部分，端点相位会让整段文字
+   短暂不可见，两端颜色与底色一致所以无接缝。 */
+.quickforge-process-thinking-label[data-quickforge-thinking-streaming='true'] {
+  background-color: var(--muted-foreground);
+  background-image: linear-gradient(
+    90deg,
+    var(--muted-foreground) 25%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 75%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-process-thinking-label[data-quickforge-thinking-streaming='true'] {
+    background-color: transparent;
+    background-image: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: inherit;
+    animation: none;
+  }
+}
+
+.quickforge-process-thinking-chevron {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    visibility 0s linear 140ms,
+    opacity 140ms ease,
+    transform 160ms ease;
+}
+
+.quickforge-process-thinking-chevron-expanded {
+  transform: rotate(90deg);
+}
+
+.quickforge-process-thinking-header:hover .quickforge-process-thinking-chevron,
+.quickforge-process-thinking-header:focus-visible .quickforge-process-thinking-chevron,
+.quickforge-process-thinking-header:focus-within .quickforge-process-thinking-chevron {
+  visibility: visible;
+  opacity: 1;
+  transition-delay: 0s;
+}
+
+/* 思考行「尾行提示」（header 第四槽位，装饰层 process-folding.ts 接管时追加的
+ * quickforge-tool-marquee 元素）：该思考段仍在流式增长且思考块收起时显示最新一行
+ * 完整思考文字；思考过程一结束（不再是 content 末块 / 整轮结束）或展开时整体淡出
+ * （保留占位，只动 opacity/visibility，不触发布局）。进入用 --quickforge-dur-base、
+ * 退出用更快的 --quickforge-dur-exit，
+ * 缓动 --quickforge-ease-out；淡入淡出切换（hint-in）也走 base 时长。
+ * 溢出滚动复用 quickforge-tool-marquee：滚动/滚入时序由 ToolMarqueeController 承担，
+ * 与 tool-running sweep / shimmer 同属长循环豁免时长刻度，不进 duration token 体系。 */
+.quickforge-process-thinking-hint {
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  align-items: center;
+  overflow: hidden;
+  /* header 是 <button>，UA 把 text-align 定为 center 并向下继承：静态度省略文本、
+     行切换纵向滚入的 static 视图都会居中显示。思考文字必须从左边开始（与工具行
+     一致的阅读起点），滚动视图 .quickforge-marquee-moving 本就绝对定位在 left:0。 */
+  text-align: left;
+  white-space: nowrap;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  line-height: 1.5;
+  height: calc(var(--quickforge-message-font-size, 14px) * 1.125);
+  color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--quickforge-dur-exit) var(--quickforge-ease-out),
+    visibility 0s linear var(--quickforge-dur-exit);
+}
+
+.quickforge-process-thinking-hint-visible {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity var(--quickforge-dur-base) var(--quickforge-ease-out),
+    visibility 0s linear 0s;
+}
+
+/* 行切换的进入动画由装饰层移除/重加该类重触发（见 process-folding.ts）。 */
+.quickforge-process-thinking-hint-in {
+  animation: quickforge-thinking-hint-in var(--quickforge-dur-base) var(--quickforge-ease-out);
+}
+
+@keyframes quickforge-thinking-hint-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* 跑马灯双视图（QuickForgeToolMarquee 注入）：结构/度量与 subagent 跑马灯一致
+ * （.quickforge-subagent-marquee），按 hint 上下文取更小字号（消息字号 ×0.75）。 */
+.quickforge-process-thinking-hint .quickforge-marquee-view {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.quickforge-process-thinking-hint .quickforge-marquee-static {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-process-thinking-hint .quickforge-marquee-moving {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  white-space: nowrap;
+  will-change: transform;
+  pointer-events: none;
+}
+
+/* reduced-motion：淡入淡出瞬时（跑马灯由控制器自身降级为静态，见 tool-marquee.ts）。 */
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-process-thinking-hint,
+  .quickforge-process-thinking-hint-visible,
+  .quickforge-process-thinking-hint-in {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* 工具行压平（React 结构迁移后卡框类在 .qf-tool-message 根上，不再有内层卡 div）：
+ * 摘要行工具（local / MCP / subagent）的渲染器以 isCustom 输出，根本身无卡框——
+ * 等价于旧版 `> div:first-child` 重置后的扁平无边框行；无渲染器的兜底工具卡在
+ * 面板内保留卡片外观，仅在被过程折叠组收进 .quickforge-process-body 时压平。 */
+.quickforge-process-body .qf-tool-message {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: inherit;
+}
+
+/* 压平连带清除兜底卡内部的 pre 卡框（border / p-2 / bg-muted），否则压平后的
+ * 组里会浮出无外框的灰色代码块；渲染器自己的代码块在 details 展开区内，不受影响。 */
+.quickforge-process-body .qf-tool-message > .space-y-2 pre {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+/* 工具摘要行统一行高（R9）：不再按元素类型区分——details>summary、subagent 的
+ * button 与兜底卡的首行 div 都挂 .quickforge-tool-summary，
+ * 面板内（组内 + 组外）统一 1.625rem，与过程思考头行对齐；面板外（运行详情
+ * 等）维持内容自适应。 */
+.qf-chat-panel .quickforge-tool-summary {
+  box-sizing: border-box;
+  min-height: 1.625rem;
+}
+
+.quickforge-tool-summary .quickforge-tool-meta-hover {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    visibility 0s linear 140ms,
+    opacity 140ms ease;
+}
+
+.quickforge-tool-summary:hover .quickforge-tool-meta-hover,
+.quickforge-tool-summary:focus-visible .quickforge-tool-meta-hover,
+details:focus-within > .quickforge-tool-summary .quickforge-tool-meta-hover {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+.quickforge-tool-summary .quickforge-tool-meta-important {
+  visibility: visible;
+  opacity: 1;
+}
+
+.quickforge-process-body .qf-tool-message details > .mt-3.space-y-3 {
+  margin-top: 0.375rem !important;
+}
+
+.quickforge-process-body .qf-thinking-block > .qf-markdown-block {
+  margin-top: 0.375rem;
+  font-family: var(--font-sans);
+  max-height: min(60vh, 20rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.qf-chat-panel .qf-thinking-block > .qf-markdown-block.text-sm {
+  font-size: 0.875rem;
+}
+
+.qf-chat-panel .qf-thinking-block > .qf-markdown-block.text-sm :where(p, li) {
+  line-height: 1.6;
+}
+
+/* 收起态（退出）：grid 行 track 塌到 0fr，visibility 延迟到收起完成后再隐藏
+   （0fr 区内的按钮不可被 Tab 聚焦）；退出比展开快（DESIGN_LANGUAGE）。 */
+.quickforge-process-stage[data-expanded="false"] > .quickforge-process-stage-body {
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--quickforge-dur-exit) var(--quickforge-ease-out),
+    visibility 0s linear var(--quickforge-dur-exit);
+}
+
+.quickforge-process-group[data-expanded="false"] > .quickforge-process-body {
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--quickforge-dur-exit) var(--quickforge-ease-out),
+    visibility 0s linear var(--quickforge-dur-exit);
+}
+
+/* 收起态下 inner 随高度一起淡出，同样用更快的退出时长。 */
+.quickforge-process-stage[data-expanded="false"] > .quickforge-process-stage-body > .quickforge-process-body-inner,
+.quickforge-process-group[data-expanded="false"] > .quickforge-process-body > .quickforge-process-body-inner {
+  opacity: 0;
+  transition-duration: var(--quickforge-dur-exit);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-process-body,
+  .quickforge-process-stage-body,
+  .quickforge-process-body-inner {
+    transition: none;
+  }
+}
+
+.qf-assistant-message :is(.qf-thinking-block, .qf-tool-message, .qf-markdown-block)[data-quickforge-process-folded="true"]:not([data-quickforge-process-final-summary="true"]):not(.quickforge-process-body :is(.qf-thinking-block, .qf-tool-message, .qf-markdown-block)) {
+  display: none !important;
+}
+

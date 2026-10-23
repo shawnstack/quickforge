@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
+import { createElement } from 'react'
+import { appCss } from '../helpers/app-css'
 
 const toolDisplay = vi.hoisted(() => ({ mode: 'default' as 'default' | 'detailed' }))
 vi.mock('@/lib/tool-display-settings', () => ({
@@ -26,6 +28,7 @@ import {
 } from '../../src/lib/workflow-run-payload'
 import { WorkflowToolRenderer } from '../../src/lib/tool-renderers/workflow-tool-renderer'
 import { buildWorkflowSubagentRunPayload } from '../../src/lib/workflow-subagent-detail'
+import { WorkflowRunDetailContent } from '../../src/components/workspace/WorkflowRunDetailContent'
 
 const source = readFileSync(new URL('../../src/lib/tool-renderers/workflow-tool-renderer.tsx', import.meta.url), 'utf8')
 const viewSource = readFileSync(new URL('../../src/lib/workflow-run-detail.ts', import.meta.url), 'utf8')
@@ -37,7 +40,7 @@ const shared = readFileSync(new URL('../../src/lib/tool-renderers/shared.tsx', i
 const index = readFileSync(new URL('../../src/lib/tool-renderers/index.ts', import.meta.url), 'utf8')
 const titleRefresh = readFileSync(new URL('../../src/lib/title-git-status-refresh.ts', import.meta.url), 'utf8')
 const approvalCard = readFileSync(new URL('../../src/components/chat/panel-decoration/approval-card.ts', import.meta.url), 'utf8')
-const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const css = appCss
 const i18n = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 const app = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 
@@ -415,13 +418,17 @@ describe('workflow tool renderer', () => {
 })
 
 describe('workflow run detail content', () => {
-  it('exposes timeline, phases and logs views', () => {
-    expect(detailSource).toContain("'timeline' | 'phase' | 'log'")
+  it('merges timeline, phases and logs into one scrolling page', () => {
+    // 三视图分段 tab 已移除：不再有 'timeline' | 'phase' | 'log' 的视图状态与分发。
+    expect(detailSource).not.toContain("'timeline' | 'phase' | 'log'")
+    expect(detailSource).not.toContain('quickforge-workflow-detail-seg')
+    expect(detailSource).not.toContain('role="tablist"')
+    // 一页里同时保留时间轴、阶段与日志三份信息。
+    expect(detailSource).toContain('quickforge-workflow-detail-axis')
+    expect(detailSource).toContain('quickforge-workflow-detail-phases')
+    expect(detailSource).toContain('quickforge-workflow-detail-phase-logs')
     expect(detailSource).toContain('workflowTimeline')
     expect(detailSource).toContain('workflowPhaseSteps')
-    expect(detailSource).toContain('quickforge-workflow-detail-timeline')
-    expect(detailSource).toContain('quickforge-workflow-detail-phases')
-    expect(detailSource).toContain('quickforge-workflow-detail-log-list')
     // 阶段内的 Agent 卡保留 run_subagent 二级跳转。
     expect(detailSource).toContain('onOpenAgentRun')
   })
@@ -435,6 +442,47 @@ describe('workflow run detail content', () => {
     expect(detailSource).toContain('Math.max(0.6')
     expect(detailSource).toContain('is-parallel')
     expect(detailSource).not.toContain('viewBox={`0 0 1000')
+  })
+
+  it('puts every step of a phase under that phase, next to its own logs', () => {
+    const view = buildWorkflowRunView({ details: runningDetails }, true)!
+    const markup = renderToStaticMarkup(
+      createElement(WorkflowRunDetailContent, {
+        payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: true }),
+      }),
+    )
+    // 单页：刻度条 + 阶段小节 + 每阶段行 + 每阶段日志同屏渲染（没有互斥分支）。
+    expect(markup).toContain('quickforge-workflow-detail-axis')
+    expect(markup).toContain('quickforge-workflow-detail-scroll')
+    expect(markup).toContain('quickforge-workflow-detail-phase-logs')
+    // 两个阶段（Scan / Fix）都渲染出来，日志分别落在各自阶段内（不跨阶段串位）。
+    expect(markup.indexOf('Scan')).toBeLessThan(markup.indexOf('scanning files'))
+    expect(markup.indexOf('fix the bug')).toBeLessThan(markup.indexOf('first attempt failed'))
+    // 不再渲染三视图分段按钮。
+    expect(markup).not.toContain('quickforge-workflow-detail-seg')
+  })
+
+  it('reuses the shared tool-card building blocks instead of its own copies', () => {
+    // 基础显示复用：折叠容器 / 类型图标 / chevron / 代码块 / 控制台块都来自 shared.tsx，
+    // 不再自己写 <details>、lucide ChevronRight 或状态圆点。
+    expect(detailSource).toContain('ToolDetails')
+    expect(detailSource).toContain('renderToolIcon')
+    expect(detailSource).toContain('renderToolChevron')
+    expect(detailSource).toContain('renderCodeBlock')
+    expect(detailSource).toContain('renderConsoleBlock')
+    // Agent 任务块复用 subagent 详情顶部那一套（input-clamp 定高收起）。
+    expect(detailSource).toContain('quickforge-subagent-task quickforge-input-clamp')
+    expect(detailSource).toContain('syncInputClampBoxes')
+    expect(detailSource).not.toContain('ChevronRight')
+    expect(detailSource).not.toContain('quickforge-workflow-detail-dot')
+    // 开合记忆按 runId + 步骤 id 隔离，避免嵌套在同一个工具卡宿主里互相污染。
+    expect(detailSource).toContain('stateKey={`workflow:${workflowRunId}:agent:${agent.id}`}')
+    expect(detailSource).toContain('stateKey={`workflow:${workflowRunId}:tool:${tool.id}`}')
+    // 运行详情在聊天面板之外，共享 summary 行的字号规则取不到，行本身必须自带字号。
+    expect(css).toMatch(/\.quickforge-workflow-detail-row-label\s*\{[\s\S]*?font-size:/)
+    // 行首图标复用 `.quickforge-tool-type-icon`，只按状态改外层颜色。
+    expect(css).toMatch(/\.quickforge-workflow-detail-row-icon\s*\{[\s\S]*?display:\s*inline-flex;/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-row-icon \.quickforge-tool-type-icon\s*\{[\s\S]*?color:\s*inherit;/)
   })
 })
 
@@ -497,9 +545,7 @@ describe('workflow renderer wiring and contracts', () => {
       'toolApprovalRiskWorkflow',
       'workflowTabTitle',
       'workflowTabTitleNoPhases',
-      'workflowDetailViewTimeline',
-      'workflowDetailViewPhases',
-      'workflowDetailViewLogs',
+      'workflowDetailRunLogs',
       'workflowDetailPeakConcurrency',
       'workflowDetailSaved',
       'workflowDetailOpenRun',
@@ -533,7 +579,15 @@ describe('workflow renderer wiring and contracts', () => {
     // 根节点必须自己吃满宽高：缺 flex:1 时宽度按内容收缩（轨道被压扁），
     // 缺 min-height:0/overflow 时内容被 Inspector 的 overflow:hidden 裁掉。
     expect(css).toMatch(/\.quickforge-workflow-detail\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-width:\s*0;[\s\S]*?min-height:\s*0;/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-pane\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;/)
+    // 合并成单页后唯一滚动容器是 -scroll（原 -pane 已删除）。
+    expect(css).toMatch(/\.quickforge-workflow-detail-scroll\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;/)
+    // 刻度条与阶段头都是吸顶元素：刻度贴顶，阶段头贴刻度下方，且各自有实底
+    // （否则滚动中的行会从吸顶元素下面透出来）。
+    expect(css).toMatch(/\.quickforge-workflow-detail-axis\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?top:\s*0;/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-axis\s*\{[\s\S]*?height:\s*var\(--wf-tl-axis-h\);/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-phase-head\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?top:\s*var\(--wf-tl-axis-h\);[\s\S]*?background:\s*var\(--background\);/)
+    // 图例改成整页常驻（概览条右侧），不再挂在时间轴底部。
+    expect(css).toMatch(/\.quickforge-workflow-detail-legend\s*\{[\s\S]*?margin-left:\s*auto;/)
     // 标签列用 clamp 自适应，窄面板下不挤压轨道。
     expect(css).toMatch(/--wf-tl-label:\s*clamp\(/)
     expect(css).toMatch(/\.quickforge-workflow-detail-row\s*\{[\s\S]*?display:\s*flex;[\s\S]*?min-height:\s*1\.5rem;/)
@@ -558,8 +612,9 @@ describe('workflow renderer wiring and contracts', () => {
     expect(css).toMatch(/\.dark\s*\{[\s\S]*?--workflow-done:\s*oklch\(0\.75 0\.15 160\);/)
     // 动效 token 必须用已定义的名字（--quickforge-ease-out），不存在 --quickforge-ease。
     expect(css).not.toContain('var(--quickforge-ease,')
-    // 详情面板三视图与底部固定区。
-    expect(css).toMatch(/\.quickforge-workflow-detail-seg button\[aria-selected='true'\]/)
+    // 详情面板单页结构与底部固定区；分段 tab 必须彻底移除。
+    expect(css).not.toContain('.quickforge-workflow-detail-seg')
+    expect(css).not.toContain('.quickforge-workflow-detail-pane')
     expect(css).toMatch(/\.quickforge-workflow-detail-foot\s*\{[\s\S]*?border-top:/)
     // 旧的聊天内展开样式必须清理干净，避免两套布局漂移。
     expect(css).not.toContain('.quickforge-workflow-phase {')

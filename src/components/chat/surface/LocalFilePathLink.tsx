@@ -16,7 +16,7 @@ import { useLocalFilePathHandler } from './surface-context'
  * - a link exists in the very first paint, not only after a decorate pass;
  * - the opener comes from context, so read-only/shared views render plain text.
  *
- * The button markup and classes are unchanged: `src/index.css` styles this and
+ * The button markup and classes are unchanged: `src/styles/chat/markdown-content.css` styles this and
  * `tests/frontend/local-file-path-links.test.ts` pins the contract.
  */
 

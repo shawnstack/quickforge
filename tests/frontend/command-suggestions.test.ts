@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { createCommandSuggestions } from '../../src/components/chat/command-suggestions'
 import type { CommandTextareaElement, CustomCommandSummary, MessageEditorElement } from '../../src/components/chat/chat-utils'
 import type { SlashCatalog } from '../../src/lib/slash-catalog'
+import { appCss } from '../helpers/app-css'
 
 // Deterministic t stub — command-suggestions only needs t() for group labels / descriptions.
 vi.mock('@/lib/i18n', () => ({
@@ -337,7 +338,7 @@ const documentPointerdown = (target: FakeNode) => {
 describe('command suggestions slash menu', () => {
   it('reuses the existing Lucide category icons and keeps all Slash menu icon states neutral', () => {
     const iconSource = readFileSync('src/components/chat/slash-icons.ts', 'utf8')
-    const css = readFileSync('src/index.css', 'utf8')
+    const css = appCss
 
     expect(iconSource).toContain('command: SquareTerminal')
     expect(iconSource).toContain('skill: BookOpen')

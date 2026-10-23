@@ -1,0 +1,55 @@
+/* ------------------------------------------------------------------ */
+/* Settings list layout */
+
+.quickforge-settings-stack {
+  display: flex;
+  width: 100%;
+  max-width: 58rem;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.quickforge-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.quickforge-settings-group-title {
+  margin: 0 0 0 0.25rem;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.quickforge-settings-subtabs {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+
+.quickforge-settings-subtab {
+  position: relative;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: 0.5rem 0.75rem 0.625rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: color 160ms ease-out, border-color 160ms ease-out;
+}
+
+.quickforge-settings-subtab:hover {
+  color: var(--foreground);
+}
+
+.quickforge-settings-subtab-active {
+  border-bottom-color: var(--foreground);
+  color: var(--foreground);
+}
+

@@ -1,0 +1,162 @@
+/* 聊天正文排版：对齐已移除的 pi-web-ui `.markdown-content` 规则。
+ * 必须写在 unlayered 里，才能压过 Tailwind preflight 对 h1–h6/p 的
+ * `font-size:inherit; font-weight:inherit; margin:0` 折叠。
+ * 不照搬 MarkdownReader（那是工作区阅读器字号，不是对话气泡）。 */
+.qf-markdown-block :where(h1, h2, h3, h4, h5, h6) {
+  font-weight: var(--font-weight-semibold, 600);
+}
+.qf-markdown-block h1 {
+  margin-top: calc(var(--spacing, 0.25rem) * 5);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+  font-size: var(--text-2xl, 1.5rem);
+  line-height: var(--text-2xl--line-height, 2rem);
+}
+.qf-markdown-block h2 {
+  margin-top: calc(var(--spacing, 0.25rem) * 4);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+  font-size: var(--text-xl, 1.25rem);
+  line-height: var(--text-xl--line-height, 1.75rem);
+}
+.qf-markdown-block h3 {
+  margin-top: calc(var(--spacing, 0.25rem) * 3);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+  font-size: var(--text-lg, 1.125rem);
+  line-height: var(--text-lg--line-height, 1.75rem);
+}
+.qf-markdown-block h4 {
+  margin-top: calc(var(--spacing, 0.25rem) * 3);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+  font-size: var(--text-base, 1rem);
+  line-height: var(--text-base--line-height, 1.5rem);
+}
+.qf-markdown-block h5 {
+  margin-top: calc(var(--spacing, 0.25rem) * 2);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 1);
+  font-size: var(--text-sm, 0.875rem);
+  line-height: var(--text-sm--line-height, 1.25rem);
+}
+.qf-markdown-block h6 {
+  margin-top: calc(var(--spacing, 0.25rem) * 2);
+  margin-bottom: calc(var(--spacing, 0.25rem) * 1);
+  font-size: var(--text-xs, 0.75rem);
+  line-height: var(--text-xs--line-height, 1rem);
+}
+.qf-markdown-block p {
+  margin-top: calc(var(--spacing, 0.25rem) * 4);
+  max-width: 100%;
+  line-height: var(--quickforge-message-line-height, var(--leading-relaxed, 1.625));
+}
+.qf-markdown-block p:first-child {
+  margin-top: 0;
+}
+.qf-markdown-block a {
+  color: var(--primary);
+  text-decoration-line: underline;
+}
+/* 链接 hover 对齐旧 `.markdown-content a:hover` 的结构：外层 @media(hover:hover)
+ * 让触屏（hover:none）设备点击后不残留粘滞变色；内部先回退 var(--primary)，
+ * 支持 color-mix 的浏览器再经 @supports 渐进增强为 80% 透明度。 */
+@media (hover: hover) {
+  .qf-markdown-block a:hover {
+    color: var(--primary);
+  }
+  @supports (color: color-mix(in lab, red, red)) {
+    .qf-markdown-block a:hover {
+      color: color-mix(in oklab, var(--primary) 80%, transparent);
+    }
+  }
+}
+.qf-markdown-block strong {
+  font-weight: var(--font-weight-semibold, 600);
+}
+.qf-markdown-block em {
+  font-style: italic;
+}
+.qf-markdown-block :where(ul, ol) {
+  margin-block: calc(var(--spacing, 0.25rem) * 4);
+  padding-left: calc(var(--spacing, 0.25rem) * 6);
+}
+.qf-markdown-block ul { list-style-type: disc; }
+.qf-markdown-block ol { list-style-type: decimal; }
+.qf-markdown-block :where(ul, ol) > :not(:last-child) {
+  margin-bottom: calc(var(--spacing, 0.25rem) * 2);
+}
+.qf-markdown-block li {
+  line-height: var(--quickforge-message-line-height, var(--leading-relaxed, 1.625));
+}
+.qf-markdown-block li > :is(ul, ol) {
+  margin-top: calc(var(--spacing, 0.25rem) * 2);
+  margin-bottom: 0;
+}
+.qf-markdown-block li > p { margin-bottom: calc(var(--spacing, 0.25rem) * 2); }
+.qf-markdown-block li > p:last-child { margin-bottom: 0; }
+.qf-markdown-block blockquote {
+  margin-block: calc(var(--spacing, 0.25rem) * 4);
+  border-left: 4px solid var(--border);
+  padding-left: calc(var(--spacing, 0.25rem) * 4);
+  color: var(--muted-foreground);
+}
+/* 行内 code 的行高对齐旧 `.markdown-content code:not(.hljs)`
+ * 的 `line-height: var(--tw-leading, var(--text-sm--line-height))` 取值。 */
+.qf-markdown-block :not(pre) > code {
+  background-color: var(--muted);
+  padding-inline: calc(var(--spacing, 0.25rem) * 1.5);
+  padding-block: calc(var(--spacing, 0.25rem) * 0.5);
+  font-size: var(--text-sm, 0.875rem);
+  line-height: var(--text-sm--line-height);
+  color: var(--foreground);
+  border-radius: 0.25rem;
+}
+.qf-markdown-block hr {
+  margin-block: calc(var(--spacing, 0.25rem) * 8);
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* 表格样式沿用旧 .markdown-content 的规则（迁移前 Tailwind border 工具类展开）：
+ * th/td 右/下 1px 边框，末列清右框、末行清下框。 */
+.qf-markdown-block table {
+  margin: calc(var(--spacing, 0.25rem) * 0);
+  border-collapse: collapse;
+  width: 100%;
+}
+.qf-markdown-block th {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background-color: var(--muted);
+  padding: calc(var(--spacing, 0.25rem) * 2);
+  text-align: left;
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--foreground);
+}
+.qf-markdown-block th:last-child {
+  border-right-width: 0;
+}
+.qf-markdown-block td {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: calc(var(--spacing, 0.25rem) * 2);
+  color: var(--foreground);
+}
+.qf-markdown-block td:last-child {
+  border-right-width: 0;
+}
+.qf-markdown-block tr:last-child td {
+  border-bottom-width: 0;
+}
+
+.quickforge-assistant-message .qf-markdown-block,
+.quickforge-user-message .qf-markdown-block,
+.qf-assistant-message .qf-markdown-block,
+.qf-user-message .qf-markdown-block {
+  font-size: var(--quickforge-message-font-size, 14px);
+  overflow-wrap: anywhere;
+}
+
+.quickforge-assistant-message .qf-markdown-block :where(p, li),
+.quickforge-user-message .qf-markdown-block :where(p, li),
+.qf-assistant-message .qf-markdown-block :where(p, li),
+.qf-user-message .qf-markdown-block :where(p, li) {
+  line-height: var(--quickforge-message-line-height, 1.625);
+}
+

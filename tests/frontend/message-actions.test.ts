@@ -7,6 +7,7 @@ import { formatMessageTime } from '../../src/components/chat/chat-utils'
 import { decorateUserMessageInputClamp } from '@/lib/input-clamp'
 import { createTurnErrorTracker } from '../../src/components/chat/panel-decoration/turn-error-state'
 import { parseSlashInvocationPrefix, planSlashChipText } from '../../src/components/chat/slash-invocation-chip'
+import { appCss } from '../helpers/app-css'
 
 // Deterministic t stub — this suite only needs t() for the chip aria-label.
 vi.mock('@/lib/i18n', () => ({
@@ -477,7 +478,7 @@ describe('assistant message actions', () => {
   })
 
   it('does not apply content visibility to message hosts containing rollback popovers', () => {
-    const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+    const css = appCss
 
     expect(css).not.toMatch(
       /message-list\s+(?:user-message|assistant-message)[^{}]*\{[^{}]*content-visibility\s*:/s,
@@ -861,7 +862,7 @@ describe('turn error row', () => {
     expect(actionsSource).not.toContain('errorContinueAction')
     expect(actionsSource).toMatch(/decorateTurnErrorRow\(element, \{/)
 
-    const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+    const css = appCss
     for (const selector of [
       '.quickforge-error-line',
       '.quickforge-error-retry',
@@ -975,7 +976,7 @@ describe('assistant stopped label decoration', () => {
     expect(source).toContain('span.dataset.quickforgeStoppedLabel === label')
     expect(source).toMatch(/decorateAssistantStoppedText\(element, entry\.message\)/)
 
-    const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+    const css = appCss
     expect(css).toContain('.quickforge-message-stopped-label')
     expect(css).toMatch(/\.quickforge-message-stopped-label \{[\s\S]*?padding: 0 1rem;/)
     expect(css).toMatch(/\.quickforge-message-stopped-label \{[\s\S]*?color: var\(--muted-foreground\)/)
@@ -1150,7 +1151,7 @@ describe('user message slash invocation chip decoration', () => {
   })
 
   it('ships the shared slash chip styles for the overlay and the message flow', () => {
-    const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+    const css = appCss
 
     for (const selector of [
       '.quickforge-slash-overlay',

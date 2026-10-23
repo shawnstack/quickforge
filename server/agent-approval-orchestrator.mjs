@@ -144,12 +144,20 @@ export function createAskUserPromise(session, toolCallId, params) {
       if (onAbort && session.agent.signal) session.agent.signal.removeEventListener('abort', onAbort)
       pendingAsks.delete(askId)
       const answers = payload.skipped ? null : payload.answers
+      const remark = payload.skipped ? undefined : payload.remark
       // A skipped (or timed-out) question during a goal run pauses the goal
       // instead of letting it loop on assumptions.
       void notifyGoalAskOutcome(session, { skipped: !!payload.skipped, reason: payload.reason })
       resolve({
-        content: [{ type: 'text', text: formatAskResult(questions, answers, payload.skipped, payload.reason) }],
-        details: { askId, questions, answers, skipped: !!payload.skipped, ...(payload.reason ? { skipReason: payload.reason } : {}) },
+        content: [{ type: 'text', text: formatAskResult(questions, answers, payload.skipped, payload.reason, remark) }],
+        details: {
+          askId,
+          questions,
+          answers,
+          skipped: !!payload.skipped,
+          ...(remark ? { remark } : {}),
+          ...(payload.reason ? { skipReason: payload.reason } : {}),
+        },
       })
       emitSessionEvent(session, {
         type: 'ask_user_answered',

@@ -1,0 +1,445 @@
+/* TodoWrite task summary: an in-flow sibling immediately above the composer.
+   Collapsed it shrinks to a centered progress capsule; expanding morphs it
+   into the header row of the full list. All animation timing lives in CSS —
+   the controller only flips data-expanded / data-complete / data-running and
+   the body's hidden attribute (delayed by the discrete display transition so
+   the collapse finishes before display:none applies). */
+.quickforge-todo-summary {
+  width: 100%;
+  flex: none;
+  padding: 0.25rem 0.75rem 0.375rem;
+  background: var(--background);
+  transition: opacity var(--quickforge-dur-base) var(--quickforge-ease-out);
+}
+
+/* Entering: the capsule fades in instead of popping when a round starts. */
+@starting-style {
+  .quickforge-todo-summary {
+    opacity: 0;
+  }
+}
+
+.quickforge-todo-summary-toggle-row {
+  display: flex;
+  justify-content: center;
+}
+
+.quickforge-todo-summary-toggle {
+  display: flex;
+  flex: 0 1 auto;
+  min-height: 1.5rem;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+  padding: 0.1rem 0.5rem 0.1rem 0.42rem;
+  color: var(--muted-foreground);
+  text-align: left;
+  transition:
+    flex-grow var(--quickforge-dur-slow) var(--quickforge-ease-out),
+    min-height var(--quickforge-dur-slow) var(--quickforge-ease-out),
+    padding var(--quickforge-dur-slow) var(--quickforge-ease-out),
+    border-radius var(--quickforge-dur-slow) var(--quickforge-ease-out),
+    background-color var(--quickforge-dur-base) var(--quickforge-ease-out),
+    color var(--quickforge-dur-exit) var(--quickforge-ease-out);
+}
+
+.quickforge-todo-summary-toggle:hover {
+  background: color-mix(in oklab, var(--muted) 72%, transparent);
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+}
+
+.quickforge-todo-summary-toggle:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: 2px;
+}
+
+.quickforge-todo-summary[data-expanded="true"] .quickforge-todo-summary-toggle {
+  flex-grow: 1;
+  min-height: 2.25rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  padding: 0.35rem 0.45rem;
+}
+
+.quickforge-todo-summary[data-expanded="true"] .quickforge-todo-summary-toggle:hover {
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+}
+
+/* Progress ring: the same element sits in the capsule and the expanded header,
+   anchoring the morph between the two shapes. The two SVGs stack in one grid
+   cell so the summary stays entirely in normal flow. */
+.quickforge-todo-summary-ring {
+  display: grid;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: 0 0 auto;
+  transition:
+    width var(--quickforge-dur-slow) var(--quickforge-ease-out),
+    height var(--quickforge-dur-slow) var(--quickforge-ease-out);
+}
+
+.quickforge-todo-summary[data-expanded="true"] .quickforge-todo-summary-ring {
+  width: 1rem;
+  height: 1rem;
+}
+
+.quickforge-todo-summary-ring svg {
+  grid-area: 1 / 1;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke-width: 2;
+}
+
+.quickforge-todo-summary-ring-track {
+  stroke: color-mix(in oklab, var(--muted-foreground) 32%, transparent);
+}
+
+.quickforge-todo-summary-ring-bar {
+  stroke: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+  stroke-dasharray: 56.55;
+  stroke-dashoffset: var(--quickforge-todo-ring-offset, 56.55);
+  stroke-linecap: round;
+  transition:
+    stroke-dashoffset 450ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity var(--quickforge-dur-base) var(--quickforge-ease-out);
+}
+
+/* 完成态对勾复用 slash agent chip 的 emerald 语义色：整体单色克制，
+   绿色只用于 Todo 完成语义（行级完成图标与全部完成圆环对勾），不新增颜色体系 */
+.quickforge-todo-summary-ring-check {
+  color: rgb(4 143 101);
+  opacity: 0;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity var(--quickforge-dur-base) var(--quickforge-ease-out);
+}
+
+html.dark .quickforge-todo-summary-ring-check {
+  color: rgb(110 231 183);
+}
+
+.quickforge-todo-summary[data-complete="true"] .quickforge-todo-summary-ring-bar { opacity: 0; }
+
+.quickforge-todo-summary[data-complete="true"] .quickforge-todo-summary-ring-check { opacity: 1; }
+
+.quickforge-todo-summary[data-running="true"]:not([data-expanded="true"]) .quickforge-todo-summary-ring-bar {
+  animation: quickforge-todo-summary-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes quickforge-todo-summary-pulse {
+  50% { opacity: 0.6; }
+}
+
+/* Heading and full stats collapse into the capsule; the compact count and the
+   full stats crossfade inside the same slot. */
+.quickforge-todo-summary-heading,
+.quickforge-todo-summary-stats,
+.quickforge-todo-summary-stats-compact {
+  overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  transition:
+    max-width var(--quickforge-dur-slow) var(--quickforge-ease-out),
+    opacity var(--quickforge-dur-base) var(--quickforge-ease-out);
+}
+
+.quickforge-todo-summary-heading {
+  flex: 0 0 auto;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.quickforge-todo-summary-stats {
+  flex: 0 1 auto;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-todo-summary-stats-compact {
+  flex: 0 0 auto;
+  max-width: 5rem;
+  opacity: 1;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.quickforge-todo-summary[data-expanded="true"] .quickforge-todo-summary-heading { max-width: 8rem; opacity: 1; }
+.quickforge-todo-summary[data-expanded="true"] .quickforge-todo-summary-stats { max-width: 16rem; opacity: 1; }
+.quickforge-todo-summary[data-expanded="true"] .quickforge-todo-summary-stats-compact { max-width: 0; opacity: 0; }
+
+.quickforge-todo-summary-updated {
+  flex: 0 0 auto;
+  color: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+/* Collapsed the spacer has no width; expanding grows it so the chevron glides
+   to the right edge. */
+.quickforge-todo-summary-spacer {
+  flex: 0 1 0;
+  transition: flex-grow var(--quickforge-dur-slow) var(--quickforge-ease-out);
+}
+
+.quickforge-todo-summary[data-expanded="true"] .quickforge-todo-summary-spacer { flex-grow: 999; }
+
+.quickforge-todo-summary-chevron {
+  display: inline-flex;
+  width: 0.75rem;
+  height: 0.75rem;
+  flex: 0 0 auto;
+  transition:
+    transform var(--quickforge-dur-slow) var(--quickforge-ease-out),
+    width var(--quickforge-dur-slow) var(--quickforge-ease-out),
+    height var(--quickforge-dur-slow) var(--quickforge-ease-out);
+}
+
+.quickforge-todo-summary[data-expanded="true"] .quickforge-todo-summary-chevron {
+  width: 0.875rem;
+  height: 0.875rem;
+  transform: rotate(90deg);
+}
+
+.quickforge-todo-summary-chevron svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Status glyphs carry their own fill/stroke attributes (see
+   `src/lib/todo-status.tsx`), so this only sizes them. */
+.quickforge-todo-summary-status-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Body height animates via grid rows; [hidden] keeps display semantics while
+   the discrete display transition delays display:none until the collapse ends. */
+.quickforge-todo-summary-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--quickforge-dur-slow) var(--quickforge-ease-out),
+    display var(--quickforge-dur-slow) allow-discrete;
+}
+
+.quickforge-todo-summary-body[hidden] {
+  display: none;
+  grid-template-rows: 0fr;
+}
+
+@starting-style {
+  .quickforge-todo-summary-body { grid-template-rows: 0fr; }
+}
+
+.quickforge-todo-summary-body-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Shared three-state glyph colours. The pinned summary reuses the capsule's
+   recipes verbatim instead of tailwind palette classes, so the same todo never
+   renders in two different greens. */
+.quickforge-todo-glyph {
+  color: var(--muted-foreground);
+}
+
+.quickforge-todo-glyph--in_progress {
+  color: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+}
+
+.quickforge-todo-glyph--completed {
+  color: rgb(4 143 101);
+}
+
+html.dark .quickforge-todo-glyph--completed {
+  color: rgb(110 231 183);
+}
+
+/* The body is the list, nothing else: no per-status tally and no "working on"
+   line. Each row already carries its status (icon, colour, weight) and the
+   running row is the highlighted one, so any restatement above the list was
+   noise. */
+.quickforge-todo-summary-list {
+  display: grid;
+  max-height: 7.5rem;
+  gap: 0.125rem;
+  margin: 0.125rem 0.45rem 0.25rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.quickforge-todo-summary-item {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.4rem;
+  padding: 0.35rem 0.25rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  transition: background-color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+/* Only the in-progress row carries a surface: the other two states are told
+   apart by icon + text weight/colour alone (DESIGN_LANGUAGE: hover/active tint,
+   no per-row chrome). */
+.quickforge-todo-summary-item--in_progress {
+  background: color-mix(in oklab, var(--primary) 8%, transparent);
+}
+
+.quickforge-todo-summary-status-icon {
+  display: inline-flex;
+  width: 0.9rem;
+  height: 0.9rem;
+  color: var(--muted-foreground);
+}
+
+.quickforge-todo-summary-item--in_progress .quickforge-todo-summary-status-icon {
+  color: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+}
+
+/* In-progress: a quarter arc spins inside the (dimmed) track ring. Only the arc
+   moves, so the row's text never pulses with it. The `<svg>` stays static — the
+   rotation lives on the arc group, which is what keeps the whole glyph from
+   spinning as a blank circle at 14px.
+
+   Scoped to the two *live* surfaces (composer capsule + pinned summary). The
+   history card is deliberately excluded: it renders a past snapshot, and an
+   in-progress item there is history, not work in flight — a spinner would claim
+   it is still running. */
+.quickforge-todo-summary-status-icon .quickforge-todo-spin-arc,
+.quickforge-todo-glyph.quickforge-todo-glyph--in_progress .quickforge-todo-spin-arc {
+  /* `view-box` + a centre in viewBox units: without it the origin falls back to
+     the element's own bounding box and the arc wobbles instead of spinning on
+     the ring's centre. */
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+  animation: quickforge-todo-status-spin 900ms linear infinite;
+}
+
+@keyframes quickforge-todo-status-spin {
+  to { transform: rotate(360deg); }
+}
+
+.quickforge-todo-summary-status-icon .quickforge-todo-spin-track,
+.quickforge-todo-glyph.quickforge-todo-glyph--in_progress .quickforge-todo-spin-track {
+  opacity: 0.22;
+}
+
+/* 完成项图标与置顶摘要 Todo 的 emerald 完成语义保持一致：
+   复用下方 ring-check 的 slash agent chip emerald 配方，不新增颜色体系 */
+.quickforge-todo-summary-item--completed .quickforge-todo-summary-status-icon {
+  color: rgb(4 143 101);
+}
+
+html.dark .quickforge-todo-summary-item--completed .quickforge-todo-summary-status-icon {
+  color: rgb(110 231 183);
+}
+
+.quickforge-todo-summary-content {
+  min-width: 0;
+  color: color-mix(in oklab, var(--foreground) 86%, transparent);
+  overflow-wrap: anywhere;
+}
+
+/* In progress reads as the active row: full-strength text, slightly heavier,
+   so the three states differ by weight as well as by icon and colour. */
+.quickforge-todo-summary-item--in_progress .quickforge-todo-summary-content {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.quickforge-todo-summary-item--completed .quickforge-todo-summary-content {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.quickforge-todo-summary-status-label {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+.quickforge-todo-summary-item--in_progress .quickforge-todo-summary-status-label {
+  color: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+}
+
+/* Retiring: a finished round leaves the composer once the turn ends. The fade
+   runs first (exit token), then the section unmounts — see
+   `shouldRetireTodoSummary` and `RETIRE_DURATION_MS`. */
+.quickforge-todo-summary[data-fading="true"] {
+  opacity: 0;
+  transition: opacity var(--quickforge-dur-exit) var(--quickforge-ease-out);
+}
+
+@media (max-width: 640px) {
+  .quickforge-todo-summary {
+    padding: 0.2rem 0.5rem 0.3rem;
+  }
+
+  .quickforge-todo-summary-list {
+    max-height: 5.625rem;
+  }
+
+  .quickforge-todo-summary-toggle {
+    gap: 0.3rem;
+    padding: 0.1rem 0.4rem;
+  }
+
+  .quickforge-todo-summary[data-expanded="true"] .quickforge-todo-summary-toggle {
+    padding: 0.35rem 0.4rem;
+  }
+
+  .quickforge-todo-summary-status-label {
+    display: none;
+  }
+
+  .quickforge-todo-summary-item {
+    grid-template-columns: 1rem minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-todo-summary,
+  .quickforge-todo-summary-toggle,
+  .quickforge-todo-summary-ring,
+  .quickforge-todo-summary-ring-bar,
+  .quickforge-todo-summary-ring-check,
+  .quickforge-todo-summary-heading,
+  .quickforge-todo-summary-stats,
+  .quickforge-todo-summary-stats-compact,
+  .quickforge-todo-summary-spacer,
+  .quickforge-todo-summary-chevron,
+  .quickforge-todo-summary-item,
+  .quickforge-todo-summary-body {
+    transition: none;
+  }
+
+  .quickforge-todo-summary[data-running="true"]:not([data-expanded="true"]) .quickforge-todo-summary-ring-bar,
+  .quickforge-todo-summary-status-icon .quickforge-todo-spin-arc,
+  .quickforge-todo-glyph.quickforge-todo-glyph--in_progress .quickforge-todo-spin-arc {
+    animation: none;
+  }
+
+  /* Reduced motion: no spin, so the arc stays as a static quarter marker and the
+     track loses its dimming to read as a deliberate 3/4 ring. */
+  .quickforge-todo-summary-status-icon .quickforge-todo-spin-track,
+  .quickforge-todo-glyph.quickforge-todo-glyph--in_progress .quickforge-todo-spin-track {
+    opacity: 0.45;
+  }
+}

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { Api, Model } from '@earendil-works/pi-ai'
+import { appCss } from '../helpers/app-css'
 
 vi.mock('@earendil-works/pi-ai', () => ({
   modelsAreEqual: (left: Model<Api> | null, right: Model<Api> | null) => (
@@ -214,7 +215,7 @@ describe('custom model selector settings entry', () => {
   })
 
   it('keeps the mobile footer outside the scrollable model list and uses low-emphasis feedback', () => {
-    const css = readFileSync('src/index.css', 'utf8')
+    const css = appCss
 
     expect(css).toMatch(/\.quickforge-model-sheet-model-list\s*\{[^}]*flex:\s*1 1 auto[^}]*overflow-y:\s*auto/s)
     expect(css).toMatch(/\.quickforge-model-settings-footer\s*\{[^}]*flex:\s*0 0 auto[^}]*border-top:/s)
@@ -223,7 +224,7 @@ describe('custom model selector settings entry', () => {
   })
 
   it('uses the same SVG check icon and left check slot as the thinking-level menu', () => {
-    const css = readFileSync('src/index.css', 'utf8')
+    const css = appCss
 
     expect(customModelSelectorSource).toContain("import { agentAccessCheckIcon } from '@/components/chat/panel-decoration/icons'")
     expect(customModelSelectorSource).toContain("checkSlot.className = 'quickforge-model-menu-item-check-slot'")

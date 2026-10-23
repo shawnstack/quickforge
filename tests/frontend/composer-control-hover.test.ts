@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { appCss } from '../helpers/app-css'
 
-const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const css = appCss
 
 function ruleFor(selector: string) {
   for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {

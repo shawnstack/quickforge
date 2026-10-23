@@ -18,7 +18,7 @@ src/
 ├── lib/                 # 前端工具库 (87 个模块)，详见 [lib 文档](lib/README.md)
 ├── storage/             # 自研存储层（StorageBackend 契约 + 4 个 Store + AppStorage 单例，见 [storage/](storage/)）
 ├── App.tsx              # 主应用组件 (2340 行)
-├── index.css            # 全局样式 (8039 行)
+├── styles/              # 全局样式入口与领域模块，详见 [styles 文档](styles/README.md)
 └── main.tsx             # 入口文件，初始化补丁并注册生产环境 PWA Service Worker
 ```
 
@@ -28,12 +28,12 @@ src/
 |------|------|------|
 | [main.tsx](../../../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 83 |
 | [App.tsx](../../../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 2340 |
-| [index.css](../../../src/index.css) | 全局样式 (Tailwind + 自托管设计 token + 自定义) | 8039 |
+| [styles/index.css](../../../src/styles/index.css) | 全局样式入口（Tailwind + 有序 `@import`；领域模块在 `styles/` 下） | 39 个 CSS 文件 |
 
 ### main.tsx (69 行)
 
 - 从 `react-dom/client` 创建根节点
-- 应用全局 CSS（`index.css`）
+- 应用全局样式入口（`styles/index.css`）
 - 设置界面由 `components/settings/SettingsWorkspacePage.tsx` 以工作区式布局承载：左侧复用侧边栏背景与导航风格，右侧复用主对话区域背景；`hooks/useModelActions.ts` 负责打开设置页并选择初始 tab；`lib/settings-tabs.ts` 用 `settingsTabDefinitions` 声明导航顺序与分组并导出 `SettingsInitialTab` 类型，左侧按“基础 / AI 与扩展 / 自动化与数据”三组展示并提供设置搜索，各项内容由 `lib/react-settings-tabs.tsx` 的 `ReactSettingsTabContent` 渲染，包含模型、Agent、MCP、插件、定时任务和分享链接等管理页；「通用」页包含语言、工具展示（Tool 显示模式：简洁/详细、上下文用量显示）、上下文管理、超过 30 天未更新对话的自动归档和终端 Shell 配置；内层过程阶段（「已执行 N 个工具调用」）默认展开已固化为常量，不再是设置项；「网络与设备」合并局域网访问与网络代理，网络代理提供直连、跟随操作系统真实代理、手动 HTTP(S) 地址和 PAC 地址四种模式，自定义 PAC 地址仅 Desktop 支持，本地 API 始终直连；「数据管理」用页内子标签集中备份与恢复、已归档对话和分享链接，分享链接由 `components/share/ShareLinksSettingsPage.tsx` 统一管理当前实例全部对话分享，支持搜索、复制、打开、停用、按新有效期恢复和永久删除，自动归档默认关闭且归档记录不会删除；底部包含 `components/settings/tabs/AboutSettingsTab.tsx` 的“关于”页，用于展示 GitHub、检查 npm 更新、触发本机外部更新器和重启后端服务；更新/重启期间页面轮询 `/api/health`，服务重启后自动刷新
 - 调用 `applyClipboardPolyfill()` 应用剪贴板兼容处理
 - 生产环境注册 `/sw.js`，启用轻量 PWA 安装和前端静态资源缓存；Capacitor 原生环境不注册 Service Worker
@@ -73,19 +73,28 @@ src/
 - `handleScheduledTaskNotification()` — 处理定时任务通知事件
 - `subscribeToAgentEvents()` — 订阅全局 Agent 事件
 
-### index.css 样式架构
+### 样式架构（src/styles/）
 
-全局样式入口 `src/index.css`，先 `@import "tailwindcss"`，再以 unlayered 块自托管主题基础（设计 token、body 基线、全局细滚动条、动画；此前来自 UI 包的预构建 `app.css`，该包已卸载），最后叠加本地自定义。理解其层级关系是正确覆盖设计 token 的前提。
+全局样式入口是 `src/styles/index.css`：先 `@import "tailwindcss"`，再按固定的级联顺序 `@import` 领域模块。**入口的 import 顺序就是级联契约**，模块之间不得互相 import；单测通过 `tests/helpers/app-css.ts` 递归内联入口图读取全局样式。模块按功能面拆分（完整清单见 [styles 文档](styles/README.md)）：
 
-**覆盖设计 token 必须写在 unlayered `:root`，而非 `@theme`。** 这些 token 现在由 `src/index.css` 顶部以 *unlayered* `:root{}` / `.dark{}` 自托管（值沿用卸载前主题默认值的原值，含 `--text-sm`、`--font-sans`、`--font-mono` 等），而 Tailwind v4 会把本地 `@theme` 块编译进 `@layer theme`。按 CSS 层叠规则，unlayered 声明优先级高于任何 `@layer`，因此在 `@theme` 中覆盖这些 token 会**静默失效**。正确做法：把需要覆盖的 token 写在 token 块**之后**的 unlayered `:root{}`（`index.css` 中已有一段专门承载覆盖）里——同属 unlayered、源顺序后者胜，覆盖才能生效。此结论已通过 Chrome headless 读取 `getComputedStyle` 实测确认。
+- `foundation.css`：unlayered 设计 token（`:root` / `.dark`）、body 基线、全局细滚动条、共享 keyframes；token 覆盖继续写在 unlayered `:root`，不要迁到 `@theme`。
+- `layout.css` / `motion.css` / `startup.css`：应用外壳、共享动效原语、启动与加载过渡。
+- `settings/`：设置页外壳、外观、表单、下拉选择与其余控件。
+- `chat/`：消息、composer、过程时间线、工具卡、通知、goal/workflow、todo 等功能面。
+- `workspace/`：Inspector 运行详情与 Tab 条；`markdown.css` / `highlight.css` / `ui/info-tip.css` 为跨 surface 共享样式。
+- 独立且懒加载的 surface 允许组件自 import CSS（`chat/trace/conversation-trace.css`、`workspace/goal-inspector.css`、`git/goal-summary.css`），但必须使用独占 class 前缀，不得覆盖全局 selector。
+
+同一 selector 默认只属于一个模块；确需跨模块覆盖时，必须在 `tests/frontend/css-architecture.test.ts` 的 `crossModuleSelectors` 登记并说明原因，入口顺序保持稳定。设计 token、body 基线、滚动条、动画此前来自 UI 包的预构建 `app.css`（该包已卸载），现在由 `foundation.css` 以 unlayered 块自托管，后续模块按源顺序叠加——理解这一点是正确覆盖设计 token 的前提。
+
+**覆盖设计 token 必须写在 unlayered `:root`，而非 `@theme`。** 这些 token 现在由 `src/styles/foundation.css` 以 *unlayered* `:root{}` / `.dark{}` 自托管（值沿用卸载前主题默认值的原值，含 `--text-sm`、`--font-sans`、`--font-mono` 等），而 Tailwind v4 会把本地 `@theme` 块编译进 `@layer theme`。按 CSS 层叠规则，unlayered 声明优先级高于任何 `@layer`，因此在 `@theme` 中覆盖这些 token 会**静默失效**。正确做法：把需要覆盖的 token 写在 token 块**之后**的 unlayered `:root{}`（`foundation.css` 中已有一段专门承载覆盖）里——同属 unlayered、源顺序后者胜，覆盖才能生效。此结论已通过 Chrome headless 读取 `getComputedStyle` 实测确认。
 
 **字体栈集中定义**：`--font-sans` / `--font-mono` 在 unlayered `:root` 统一定义一次，全局通过 `var(--font-sans)` / `var(--font-mono)` 引用（终端、Monaco、代码块等），避免逐组件复制字体栈。系统字体优先（不打包自定义 UI 字体），并显式补 CJK 回退（`PingFang SC` / `Microsoft YaHei` / `Noto Sans CJK SC`）保证中文跨平台度量一致。
 
 **字号体系**：`html { font-size }` 是基准（默认 13px）；界面字号设置由 `lib/font-size-settings.ts` 的 `applyFontSizeSettings()` 写入 `root.style.fontSize` 驱动所有 rem 单位。`--text-sm` 刻意等于 `1rem`（随界面字号缩放），消息正文字号走独立的 `--quickforge-message-font-size` 变量。聊天区内与消息同屏的行统一取消息字号基准 `calc(var(--quickforge-message-font-size, 14px) * 0.875)`：过程摘要行、阶段/工具组摘要、接管后的思考行（`.quickforge-process-thinking-header`）以及工具摘要行（local / MCP / subagent 壳、兜底工具卡首行）——避免界面字号与消息字号两套基准在同一屏漂移（默认 R=M=13px 下 = 11.375px）。Monaco 与终端等固定像素字号场景通过 `getCodeFontMetrics()` / `getTerminalFontMetrics()` 从界面字号派生，并监听 `quickforge:font-size-settings-changed` 做运行时刷新。
 
-**本地 Tailwind utilities 源顺序坑**：`index.css` 中已用一段显式 `@media (width >= 48rem) { .md\:block { display: block } }` 修正侧边栏 `md:block` 被后续 `.hidden` 覆盖的问题。
+**本地 Tailwind utilities 源顺序坑**：`src/styles/foundation.css` 中已用一段显式 `@media (width >= 48rem) { .md\:block { display: block } }` 修正侧边栏 `md:block` 被后续 `.hidden` 覆盖的问题。
 
 **决策记录（R1/R2 相关，勿误判为回归）**
-- **`dark:` 变体走系统媒体查询**：`index.css` 没有 `@custom-variant dark`，`dark:` 变体沿用 Tailwind 默认的 `prefers-color-scheme` 媒体查询；移除 pi-web-ui 的 `app.css` 前后行为一致（已核实预编译产物中该指令本就被剥离）。因此「界面外观 = 暗色 + 系统 = 亮色」时，部分 `dark:` 工具类不随 `.dark` class 切换，属既有行为而非本次回归。若要改成 class 驱动，需显式加入 `@custom-variant dark (&:where(.dark, .dark *))` 并单独评估改动面（token 侧仍由 unlayered `.dark{}` 提供）。
+- **`dark:` 变体走系统媒体查询**：`src/styles/foundation.css` 没有 `@custom-variant dark`，`dark:` 变体沿用 Tailwind 默认的 `prefers-color-scheme` 媒体查询；移除 pi-web-ui 的 `app.css` 前后行为一致（已核实预编译产物中该指令本就被剥离）。因此「界面外观 = 暗色 + 系统 = 亮色」时，部分 `dark:` 工具类不随 `.dark` class 切换，属既有行为而非本次回归。若要改成 class 驱动，需显式加入 `@custom-variant dark (&:where(.dark, .dark *))` 并单独评估改动面（token 侧仍由 unlayered `.dark{}` 提供）。
 - **数学公式已恢复（KaTeX，2026-09-19 第十七轮）**：聊天 Markdown 重新按 KaTeX 渲染数学公式——`src/lib/chat-math.ts` 三段式（preprocessLatexDelimiters 在进 react-markdown 前把 \(...\)/\[...\] 换成占位 token + `rehypeQfMath` rehype 插件生成 `qf-math` 元素 + `src/components/chat/surface/KatexMath.tsx` 渲染，`katex/dist/katex.min.css` 在组件内引入），四定界符（行内 `$…$`、块级 `$$…$$`、行内反斜杠圆括号、块级反斜杠方括号）与旧 marked 扩展对齐：**行中与行首的 `$$…$$` 一样渲染为块级公式**（对齐旧 `blockMathDollar` 的 `start` 非空即起块、`level:'block'` 注册为 `startBlock`），保留「定界符内容不含 `$`、`.trim()`」两项旧约束；行中公式按旧块级标记拆段输出（`<p>前文 </p>` + `<div class="quickforge-katex-scroll my-4">` 公式 + `<p> 后文</p>`），不再嵌进段落；展示公式容器带 `quickforge-katex-scroll`（unlayered，overflow-x:auto + 隐藏滚动条 + touch 滑动），宽公式在公式块内横滑、不撑破消息列，`katex` 提升为直接 devDependency（^0.16.47，与 mermaid 传递依赖同一副本）；护栏 `tests/frontend/chat-math.test.ts`。代码块语法高亮曾随 highlight.js 依赖移除而缺失（迁移缺口），现已由自研 `src/lib/code-highlight.ts` 补齐（25 组语言：16 组既有 + 对齐轮新增 toml/ini/dockerfile/makefile/powershell/graphql/protobuf/nginx/apache；未知语言走保守通用回退；200KB 护栏；局限见该模块与 [lib 文档](lib/README.md)），无新增依赖。
-- **语义色分数透明度类 = 旧版 dead（勿误判为回归）**：HEAD `3e10f58` 的 `src/index.css` 没有语义色 `--color-*` 映射（旧版本由 pi-web-ui 预构建 CSS 提供），因此源码里自写的语义色透明度类（`text-foreground/90`、`hover:bg-muted/45`、`bg-border/70` …）在移除依赖前不会被 Tailwind 生成（dead，删除无视觉影响）；旧产物 `package-dist/dist/assets/index-B1G0LqYR.css` 的 `@layer utilities` 中真实存在的语义色工具类只有 **78 个**（109 处选择器）。工作区新增 `@theme inline` 全量映射后这些类会真实生效——第八轮用户反馈的「文字变淡」根因即在此。约定：新代码不得使用白名单之外的透明度档位（需要半透明时改用白名单已有档位，或旧产物已支持的 `*-[color-mix(in_oklab,var(--x)_NN%,transparent)]` 任意值写法），契约由 `tests/frontend/semantic-color-class-parity.test.ts` 固化；**白名单变更前必须重新核对旧/新产物**。同一判据下，`ui/Input` 的聚焦反馈由 dead 的 `focus-visible:border-primary` 改为白名单组合 `focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring`，属**有意补齐**（与移除依赖前实际渲染不同——旧组合是死类，该输入框此前不渲染聚焦边框）。
+- **语义色分数透明度类 = 旧版 dead（勿误判为回归）**：HEAD `3e10f58` 的旧单体 `src/index.css` 没有语义色 `--color-*` 映射（旧版本由 pi-web-ui 预构建 CSS 提供），因此源码里自写的语义色透明度类（`text-foreground/90`、`hover:bg-muted/45`、`bg-border/70` …）在移除依赖前不会被 Tailwind 生成（dead，删除无视觉影响）；旧产物 `package-dist/dist/assets/index-B1G0LqYR.css` 的 `@layer utilities` 中真实存在的语义色工具类只有 **78 个**（109 处选择器）。工作区新增 `@theme inline` 全量映射后这些类会真实生效——第八轮用户反馈的「文字变淡」根因即在此。约定：新代码不得使用白名单之外的透明度档位（需要半透明时改用白名单已有档位，或旧产物已支持的 `*-[color-mix(in_oklab,var(--x)_NN%,transparent)]` 任意值写法），契约由 `tests/frontend/semantic-color-class-parity.test.ts` 固化；**白名单变更前必须重新核对旧/新产物**。同一判据下，`ui/Input` 的聚焦反馈由 dead 的 `focus-visible:border-primary` 改为白名单组合 `focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring`，属**有意补齐**（与移除依赖前实际渲染不同——旧组合是死类，该输入框此前不渲染聚焦边框）。

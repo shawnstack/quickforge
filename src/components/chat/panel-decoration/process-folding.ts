@@ -523,7 +523,7 @@ function syncProcessThinkingHint(header: HTMLElement, thinkingBlock: HTMLElement
   }
   if (visibleChanged) hint.classList.toggle(PROCESS_THINKING_HINT_VISIBLE_CLASS, visible)
   if (lineSwitched) {
-    // 行切换：移除→读一次布局使样式失效→重加，重触发进入动画（keyframes 见 index.css）。
+    // 行切换：移除→读一次布局使样式失效→重加，重触发进入动画（keyframes 见 src/styles/chat/process-timeline.css）。
     hint.classList.remove(PROCESS_THINKING_HINT_IN_CLASS)
     void (hint as HTMLElement & { offsetWidth?: number }).offsetWidth
     hint.classList.add(PROCESS_THINKING_HINT_IN_CLASS)

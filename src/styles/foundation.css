@@ -1,0 +1,422 @@
+
+/*
+ * ---------------------------------------------------------------------------
+ * Self-hosted theme foundation
+ * ---------------------------------------------------------------------------
+ *
+ * The design tokens, the Tailwind semantic colour mappings, the body baseline,
+ * the global thin scrollbar and the thinking "shimmer" animation used to come
+ * from a prebuilt Tailwind bundle (87 KB) imported at the top of this file. It
+ * also shipped roughly 500 selectors that only the removed web-component UI
+ * ever used (highlight.js, `.user-message-container` orange gradients, …).
+ * Those stay intentionally unported — with one later exception: the KaTeX
+ * stylesheet is imported again (`katex/dist/katex.min.css`, inside
+ * src/components/chat/surface/KatexMath.tsx), so chat math renders once
+ * more and the `katex-*` selectors ship without re-porting this file.
+ * `.markdown-content` was chat-body
+ * typography (headings / paragraphs / lists / quotes), not unused
+ * web-component CSS; it is re-implemented below as unlayered
+ * `.qf-markdown-block` rules.
+ *
+ * QuickForge's chat surface is React now, so the unused selectors are gone and
+ * only the parts that are actually rendered are re-implemented here. Values are
+ * unchanged and nothing is re-designed: where a value is still the effective
+ * one it is kept verbatim; where QuickForge deliberately overrides it further
+ * down this file, that override keeps winning.
+ *
+ * Everything in this block is intentionally *unlayered*. Tailwind v4 compiles
+ * local `@theme` / `@layer base` rules into `@layer theme` / `@layer base`, and
+ * unlayered declarations beat any `@layer`, so `@theme` values can neither
+ * replace nor be replaced by these tokens. This mirrors how the old prebuilt
+ * bundle injected them (and why the token overrides further down live in a plain
+ * `:root`, see the comment there).
+ */
+
+/*
+ * Body baseline. `html { font-size }` is driven by the interface-font-size
+ * setting (src/lib/font-size-settings.ts) so rem-based tokens scale with it,
+ * while body text itself stays at 16px — the value the prebuilt stylesheet set.
+ * The antialiasing is part of the type rendering, not a redesign.
+ */
+body {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Global thin scrollbars; relied on by `.quickforge-inspector-tab-strip` and by
+   the `[&::-webkit-scrollbar]:hidden` opt-outs documented at the bottom of this
+   file. `var(--border)` is the same colour the package's `--color-border` held. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) rgba(0, 0, 0, 0);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0);
+}
+
+/* Tailwind preflight gives `<button>` the default arrow cursor; dialog buttons
+   (fixed inset-0 overlays) keep the pointer. */
+.fixed.inset-0 button[aria-label*='Close'],
+.fixed.inset-0 button[type='button'] {
+  cursor: pointer;
+}
+
+/* Thinking text shimmer, consumed by `.animate-shimmer` in ThinkingBlock, the
+   tool-running text sweep and the adopted process-thinking label.
+   方向契约（勿破坏）：高光自左向右扫过 —— background-position 必须从 +200%
+   走到 -200%。百分比定位的符号会被 (容器宽 - 图宽) 的负值翻折（background-size
+   200% 时容器比图窄），写成 -200% → 200% 实际是从右往左，与旧覆盖层扫光
+   （translateX(-100%) → translateX(100%)）的方向相反。 */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* DESIGN_LANGUAGE 约束：所有 keyframes 必须有 prefers-reduced-motion 降级。 */
+@media (prefers-reduced-motion: reduce) {
+  .animate-shimmer {
+    animation: none;
+  }
+}
+
+/* User message pill. The visible recipe (background, border, radius, shadow) is
+   owned by `.qf-user-message .user-message-container` below; only the package
+   declarations it does not reset are kept, so the element keeps its positioning
+   context and its theme transition. */
+.user-message-container {
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Light theme tokens (values from the previous theme defaults). */
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.4 0.18 240);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  /* 完成态语义色：与 destructive 同明度档位，供工作流阶段/Agent 状态使用。 */
+  --workflow-done: oklch(0.55 0.13 158);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.81 0.1 252);
+  --chart-2: oklch(53.553% 0.02798 259.829);
+  --chart-3: oklch(0.55 0.22 263);
+  --chart-4: oklch(0.49 0.22 264);
+  --chart-5: oklch(0.42 0.18 266);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+  /* Font stacks: kept for parity, the QuickForge stacks below win (same origin,
+     later source order). */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+    "Segoe UI Symbol", "Noto Color Emoji";
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  /* 0.625rem is the effective radius today: this unlayered value beats the
+     `@theme { --radius: 0.5rem }` design token below, which Tailwind compiles
+     into `@layer theme`. Keep it as-is to avoid a global radius change. */
+  --radius: 0.625rem;
+  --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+  --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
+  --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
+  --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 2px 4px -1px hsl(0 0% 0% / 0.1);
+  --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 4px 6px -1px hsl(0 0% 0% / 0.1);
+  --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 8px 10px -1px hsl(0 0% 0% / 0.1);
+  --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+}
+
+/* Dark theme tokens; `.dark` is toggled on <html> by applyAppearanceSettings. */
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.269 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.371 0 0);
+  --accent-foreground: oklch(0.75 0.18 85);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --workflow-done: oklch(0.75 0.15 160);
+  --border: oklch(0.275 0 0);
+  --input: oklch(0.325 0 0);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.81 0.1 252);
+  --chart-2: oklch(0.62 0.19 260);
+  --chart-3: oklch(0.55 0.22 263);
+  --chart-4: oklch(0.49 0.22 264);
+  --chart-5: oklch(0.42 0.18 266);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.275 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+}
+
+.quickforge-goal-iteration-divider {
+  /* Message actions use order: 2; the stage boundary belongs below them. */
+  order: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.quickforge-goal-iteration-divider::before,
+.quickforge-goal-iteration-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+.quickforge-goal-iteration-divider svg { width: 0.875rem; height: 0.875rem; flex-shrink: 0; }
+
+
+@theme {
+  --radius: 0.5rem;
+  /* Design-language light shadow token. Use via `shadow-quickforge` for inputs, hover/active feedback, and popovers. */
+  --shadow-quickforge: 0 10px 26px -18px rgb(15 23 42 / 0.48);
+}
+
+/*
+ * Tailwind semantic mappings, self-hosted (previously pulled in through the
+ * prebuilt bundle's app.css).
+ *
+ * Without these, utilities such as `bg-background`, `text-foreground`,
+ * `border-border`, `bg-card`, `text-muted-foreground`, `bg-primary` or
+ * `shadow-md` are unknown to Tailwind and get dropped from the build. `inline`
+ * keeps the upstream behaviour: the utility emits `var(--background)` directly
+ * instead of routing through a `--color-*` indirection.
+ *
+ * Entries are declared verbatim even when unused — Tailwind only emits the ones
+ * a generated utility actually references.
+ *
+ * Deliberately NOT mapped here (they were never effective for QuickForge):
+ * - `--radius-sm/-md/-lg/-xl`: the prebuilt bundle pruned its own radius
+ *   mappings, so `rounded-*` has always used Tailwind's default scale.
+ *   Mapping them onto `calc(var(--radius) ± n)` would silently resize every
+ *   rounded corner.
+ * - `--shadow-*`: same story — `shadow-*` always used Tailwind's defaults.
+ *   (`--shadow-*` values themselves are still self-hosted above as plain
+ *   `:root` tokens, which is what the package's unlayered `:root` did.)
+ * - `--font-family-*`: vestigial aliases, no QuickForge class consumes them.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/*
+ * Overrides for the self-hosted design tokens declared at the top of this file.
+ *
+ * IMPORTANT: those tokens are emitted as *unlayered* `:root{}` / `.dark{}`, while
+ * Tailwind compiles a local `@theme` block into `@layer theme`. Per the CSS
+ * cascade, unlayered declarations beat any `@layer`, so overrides written inside
+ * `@theme` are silently overridden by the token values. Overrides therefore live
+ * in this unlayered `:root`: it appears textually after the token block, so
+ * within the same (unlayered) origin the later declaration wins.
+ */
+:root {
+  /* `--text-sm` is the body baseline; it deliberately equals `--text-base` (1rem)
+     and scales with the root font-size (the interface-font-size setting). */
+  --text-sm: 1rem;
+  --text-sm--line-height: calc(20 / 14);
+  /* Font stacks are defined once here and referenced via var(--font-sans) /
+     var(--font-mono) everywhere, instead of being copy-pasted per component.
+     System fonts are preferred (QuickForge bundles no custom UI font, avoiding a
+     "primary" font like Inter that only exists on some machines). The explicit
+     CJK fallback keeps Chinese text metrics stable across Windows/macOS/Linux. */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    "PingFang SC", "Microsoft YaHei", monospace;
+
+  /* Motion tokens: the shared duration / easing scale for interface animations.
+     - fast (120ms): color and icon feedback (hover, press).
+     - base (180ms): overlays, dialog/menu enter, list item and label fades.
+     - slow (280ms): conversation enter and large-area morphs.
+     - exit (140ms): leave states — always faster than the matching enter.
+     Enter animations use --quickforge-ease-out; exits stay faster than enters.
+     Long-running loops (tool-running sweep, shimmer, breathe) are exempt from
+     the duration scale — they keep their own 1.2s–2s ease-in-out cycles. */
+  --quickforge-dur-fast: 120ms;
+  --quickforge-dur-base: 180ms;
+  --quickforge-dur-slow: 280ms;
+  --quickforge-dur-exit: 140ms;
+  --quickforge-ease-out: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/*
+ * For SettingsDialog's desktop sidebar, `md:block` must win over the `.hidden`
+ * toggle. Pin it in an unlayered media query so no utilities-layer rule emitted
+ * later in the bundle can override it.
+ */
+@media (width >= 48rem) {
+  .md\:block {
+    display: block;
+  }
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --quickforge-sidebar-bg: #f3f4f6;
+    --quickforge-sidebar-hover-bg: #e5e7eb;
+    --quickforge-sidebar-active-bg: #d9dee7;
+    --quickforge-main-bg: #ffffff;
+    --quickforge-chat-content-max-width: 56rem;
+    --quickforge-desktop-titlebar-bg: var(--quickforge-sidebar-bg);
+  }
+
+  html.dark {
+    color-scheme: dark;
+    --quickforge-sidebar-bg: color-mix(in oklab, var(--background) 94%, var(--muted));
+    --quickforge-sidebar-hover-bg: color-mix(in oklab, var(--muted) 74%, transparent);
+    --quickforge-sidebar-active-bg: color-mix(in oklab, var(--accent) 78%, var(--muted));
+    --quickforge-main-bg: var(--background);
+    --quickforge-chat-content-max-width: 56rem;
+    --quickforge-desktop-titlebar-bg: var(--quickforge-sidebar-bg);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    margin: 0;
+  }
+
+  html {
+    font-size: 13px;
+  }
+
+  body {
+    overflow: hidden;
+    font-family: var(--font-sans);
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+}
+
+html.quickforge-mobile-native :where(
+  .quickforge-assistant-message,
+  .quickforge-user-message,
+  .quickforge-markdown-reader,
+  .quickforge-context-compaction-text,
+  .quickforge-settings-row-description,
+  .quickforge-settings-readonly-value,
+  .qf-markdown-block,
+  .qf-thinking-block,
+  .qf-tool-message
+) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+html.quickforge-mobile-native :where(button, input, textarea, select, [role="button"], .select-none, .xterm) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+

@@ -10,6 +10,7 @@ import {
   type InputClampEnv,
   type InputClampPhase,
 } from '../../src/lib/input-clamp'
+import { appCss } from '../helpers/app-css'
 
 function createFakeEnv(options: { reduced?: boolean } = {}) {
   const timers: Array<() => void> = []
@@ -183,7 +184,7 @@ describe('InputClampController', () => {
 })
 
 describe('input clamp wiring sources', () => {
-  const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+  const css = appCss
   const localToolsSource = readFileSync(new URL('../../src/components/workspace/SubagentRunDetailContent.tsx', import.meta.url), 'utf8')
   const messageActionsSource = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
   const inputClampSource = readFileSync(new URL('../../src/lib/input-clamp.ts', import.meta.url), 'utf8')

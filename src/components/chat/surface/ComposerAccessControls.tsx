@@ -17,7 +17,7 @@ import type { AgentAccessMode } from '@/lib/types'
  * thinking selector and the "+" menu.
  *
  * Class names, `aria-pressed` / `aria-expanded` mirrors, the full-access
- * warning tone and the menu/trigger label copy are unchanged: `src/index.css`
+ * warning tone and the menu/trigger label copy are unchanged: `src/styles/chat/composer-controls.css`
  * styles them and the compact-layout rules key off these classes.
  */
 

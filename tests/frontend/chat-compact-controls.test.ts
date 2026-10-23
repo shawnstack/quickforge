@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { appCss } from '../helpers/app-css'
 
-const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const css = appCss
 const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
 
 // 剥掉注释，避免规则前的中文注释被朴素的选择器匹配正则吸入 selector 文本
@@ -43,7 +44,7 @@ describe('chat area compact controls (narrow chat host)', () => {
     })
   })
 
-  describe('index.css compact section', () => {
+  describe('global compact section', () => {
     it('reserves a centered 32px slot for the 14px context ring before the model trigger', () => {
       const slot = ruleFor(`${compactPrefix} .quickforge-context-usage-slot`)
       expect(slot.body).toMatch(/display:\s*inline-flex/)

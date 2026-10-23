@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { syncGoalIterationDivider } from '../../src/components/chat/panel-decoration/goal-iteration-divider'
 import { syncGoalInternalMessage } from '../../src/components/chat/panel-decoration/goal-internal-message'
+import { appCss } from '../helpers/app-css'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string, args?: { count: string }) => args ? `Iteration ${args.count}` : key }))
 class Element {
@@ -29,7 +29,7 @@ afterEach(() => vi.unstubAllGlobals())
 
 // Source-level CSS contract only; this fake DOM does not perform browser layout.
 it.each(['assistant', 'user'])('orders the stage divider after %s actions in column-flex CSS', (role) => {
-  const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+  const css = appCss
   const rule = (selector: string) => css.slice(css.indexOf(`${selector} {`)).split('}')[0]
   const root = rule(`.quickforge-${role}-message`)
   expect(root).toContain('display: flex !important;')

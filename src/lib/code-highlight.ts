@@ -96,7 +96,7 @@ export const MAX_HIGHLIGHT_LENGTH = 200 * 1024
  */
 const highlightCache = new ContentCache<CodeHighlightSegment[]>(400)
 
-/** token → CSS class on the `.qf-hl-<token>` palette in `src/index.css`. */
+/** token → CSS class on the `.qf-hl-<token>` palette in `src/styles/highlight.css`. */
 export const HIGHLIGHT_TOKEN_CLASSES: Record<CodeHighlightToken, string> = {
   comment: 'qf-hl-comment',
   code: 'qf-hl-code',

@@ -9,6 +9,7 @@ import {
   type SlashChipEnv,
   type SlashInvocation,
 } from '../../src/components/chat/slash-invocation-chip'
+import { appCss } from '../helpers/app-css'
 
 // Deterministic t stub — slash-invocation-chip only needs t() for the chip aria-label.
 vi.mock('@/lib/i18n', () => ({
@@ -380,7 +381,7 @@ describe('slash invocation prefix parsing (pure logic)', () => {
 describe('slash invocation chip controller', () => {
   it('reuses BookOpen/Bot and neutralizes only the shared Slash chip icon', () => {
     const source = readFileSync('src/components/chat/slash-invocation-chip.ts', 'utf8')
-    const css = readFileSync('src/index.css', 'utf8')
+    const css = appCss
 
     expect(source).toContain("import { slashIcons } from './slash-icons'")
     expect(source).toContain('icon.innerHTML = slashIcons[invocation.kind]')
@@ -590,7 +591,7 @@ describe('slash invocation chip controller', () => {
     expect(h.textarea.classList.contains('quickforge-slash-source-text')).toBe(true)
 
     // CSS 契约：只有覆盖层内的 chip 可接收点击（消息流 chip 保持纯展示）。
-    const css = readFileSync('src/index.css', 'utf8')
+    const css = appCss
     expect(css).toMatch(/\.quickforge-slash-overlay \.quickforge-slash-chip\s*\{[^}]*pointer-events:\s*auto/s)
   })
 

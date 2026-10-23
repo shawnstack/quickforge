@@ -1,0 +1,247 @@
+.quickforge-settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.quickforge-settings-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.quickforge-settings-section {
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--background) 96%, var(--muted));
+}
+
+.quickforge-settings-row {
+  display: flex;
+  min-height: 4.25rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  padding: 1rem 1.25rem;
+  transition: background-color 160ms ease-out;
+}
+
+.quickforge-settings-row:last-child {
+  border-bottom: 0;
+}
+
+.quickforge-settings-list-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem 0.875rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+}
+
+.quickforge-settings-list-header > div {
+  min-width: 0;
+}
+
+.quickforge-settings-list-header .quickforge-settings-row-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.quickforge-settings-row:hover {
+  background: color-mix(in oklab, var(--muted) 26%, transparent);
+}
+
+.quickforge-settings-row-align-start {
+  align-items: flex-start;
+}
+
+.quickforge-settings-row-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.quickforge-settings-row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: color-mix(in oklab, var(--foreground) 92%, transparent);
+  font-size: 0.9375rem;
+  font-weight: 520;
+  line-height: 1.4;
+}
+
+.quickforge-settings-row-description {
+  margin-top: 0.25rem;
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.quickforge-settings-row-control {
+  display: flex;
+  min-width: 11rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.625rem;
+}
+
+.quickforge-settings-row-control-wide {
+  min-width: min(28rem, 48%);
+}
+
+.quickforge-settings-row-control-compact {
+  width: 8.5rem;
+  min-width: 8.5rem;
+}
+
+.quickforge-lan-password-control .quickforge-settings-input,
+.quickforge-network-proxy-control .quickforge-settings-input {
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+
+.quickforge-lan-password-input-wrap {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+
+.quickforge-lan-password-input-wrap .quickforge-settings-input {
+  padding-right: 2.75rem;
+}
+
+.quickforge-lan-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.625rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  transform: translateY(-50%);
+  transition: background-color 160ms ease-out, color 160ms ease-out;
+}
+
+.quickforge-lan-password-toggle:hover {
+  background: color-mix(in oklab, var(--muted) 72%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-lan-password-toggle:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+  outline-offset: 1px;
+}
+
+.quickforge-lan-password-toggle svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.quickforge-lan-password-control .quickforge-settings-button,
+.quickforge-network-proxy-control .quickforge-settings-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.quickforge-terminal-shell-command-control .quickforge-settings-input {
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+
+.quickforge-terminal-shell-command-control .quickforge-settings-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.quickforge-settings-select,
+.quickforge-settings-input,
+.quickforge-settings-textarea {
+  width: 100%;
+  min-height: 2.5rem;
+  border: 1px solid transparent;
+  border-radius: 0.875rem;
+  background: color-mix(in oklab, var(--muted) 48%, transparent);
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  line-height: 1.25rem;
+  outline: none;
+  transition: border-color 160ms ease-out, background-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+
+.quickforge-settings-select {
+  padding: 0.5rem 2.25rem 0.5rem 0.875rem;
+}
+
+.quickforge-settings-input {
+  padding: 0.5rem 0.875rem;
+}
+
+.quickforge-settings-textarea {
+  min-height: 7rem;
+  resize: vertical;
+  padding: 0.75rem 0.875rem;
+}
+
+.quickforge-memory-content-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.875rem;
+}
+
+.quickforge-memory-editor-control {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.quickforge-memory-editor {
+  min-height: 24rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.quickforge-memory-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.625rem;
+}
+
+.quickforge-settings-select:hover,
+.quickforge-settings-input:hover,
+.quickforge-settings-textarea:hover {
+  background: color-mix(in oklab, var(--muted) 62%, transparent);
+}
+
+.quickforge-settings-select:focus,
+.quickforge-settings-input:focus,
+.quickforge-settings-textarea:focus {
+  border-color: color-mix(in oklab, var(--primary) 42%, var(--border));
+  background: var(--background);
+  box-shadow: var(--shadow-quickforge);
+}
+
+.quickforge-settings-select:disabled,
+.quickforge-settings-input:disabled,
+.quickforge-settings-textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+

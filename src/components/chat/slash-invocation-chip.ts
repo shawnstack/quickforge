@@ -5,7 +5,7 @@
  * - 纯逻辑：用户文本中 `/skill <name>` / `/agent <name>` 前缀的解析、匹配校验、
  *   消息流首文本节点的「剥前缀 + 还原」计划，以及光标对齐补偿的 spacer 宽度计算；
  * - 共享 chip 元素工厂：输入框覆盖层与消息流装饰共用同一 chip 类
- *   （quickforge-slash-chip + -skill/-agent 变体，样式见 index.css）；
+ *   （quickforge-slash-chip + -skill/-agent 变体，样式见 src/styles/chat/composer-overlays.css）；
  * - 控制器工厂：选中态状态机 + 输入行内联 chip 覆盖层渲染。
  *
  * 覆盖层方案（方案 A）：textarea 原文保持 `/agent explore 任务…` 不变（服务端零

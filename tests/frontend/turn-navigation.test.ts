@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildConversationTurns, shouldShowTurnNavigation, TURN_NAVIGATION_MIN_TURNS } from '../../src/components/chat/turn-navigation-data'
 import { createTurnNavigation } from '../../src/components/chat/turn-navigation'
+import { appCss } from '../helpers/app-css'
 
 function user(content: unknown, role = 'user') {
   return { role, content, timestamp: 0 }
@@ -13,7 +13,7 @@ function assistant(text: string) {
 
 describe('conversation turn navigation', () => {
   it('hides the rail and its tooltip while another session is loading', () => {
-    const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+    const css = appCss
 
     expect(css).toContain('.quickforge-conversation-loading ~ * .quickforge-turn-navigation')
     expect(css).toContain('body:has(.quickforge-conversation-loading) .quickforge-turn-navigation-tooltip')

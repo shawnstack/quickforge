@@ -55,7 +55,7 @@ export function normalizeAskQuestions(params) {
 }
 
 /** Render the tool-result text returned to the model. */
-export function formatAskResult(questions, answers, skipped, reason) {
+export function formatAskResult(questions, answers, skipped, reason, remark) {
   if (skipped) {
     const note = reason === 'timeout'
       ? '（等待超时）'
@@ -74,5 +74,7 @@ export function formatAskResult(questions, answers, skipped, reason) {
     const text = [choiceText, customText].filter(Boolean).join('　补充：')
     return `${index + 1}. ${q.question} → ${text || '用户未回答'}`
   })
+  const remarkText = typeof remark === 'string' && remark.trim() ? remark.trim() : ''
+  if (remarkText) lines.push(`补充信息：${remarkText}`)
   return `用户的回答：\n${lines.join('\n')}`
 }

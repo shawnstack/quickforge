@@ -6,7 +6,7 @@ import { AttachmentTile } from './AttachmentTile'
 /**
  * React replacement for the legacy `<user-message>` custom element.
  * Right-aligned user bubble (see `.qf-user-message > .user-message-container`
- * in `src/index.css`) with markdown content and attachment thumbnails.
+ * in `src/styles/chat/messages.css`) with markdown content and attachment thumbnails.
  */
 
 type UserMessageProps = {

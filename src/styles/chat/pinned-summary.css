@@ -1,0 +1,85 @@
+/* Desktop pinned summary shared floating widget and panel/capsule morph. */
+@keyframes quickforge-pinned-summary-open {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.quickforge-pinned-summary-widget {
+  width: var(--quickforge-pinned-summary-width, min(20.5rem, calc(100vw - 1rem)));
+  height: var(--quickforge-pinned-summary-height, 20rem);
+  transform-origin: top right;
+  animation: quickforge-pinned-summary-open 160ms ease-out;
+  transition:
+    width 220ms cubic-bezier(.22,.8,.24,1),
+    height 220ms cubic-bezier(.22,.8,.24,1),
+    opacity 160ms ease-out,
+    transform 160ms ease-out;
+}
+
+.quickforge-pinned-summary-widget[data-closing="true"] {
+  opacity: 0;
+  transform: scale(0.96);
+  pointer-events: none;
+}
+
+.quickforge-pinned-summary-widget[data-dragging="true"] {
+  animation: none;
+  transition: none;
+}
+
+.quickforge-pinned-summary-capsule,
+.quickforge-pinned-summary-panel {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: top right;
+  transition:
+    opacity 140ms ease,
+    transform 220ms cubic-bezier(.22,.8,.24,1);
+}
+
+.quickforge-pinned-summary-capsule {
+  width: max-content;
+  min-width: 11rem;
+  height: 2.75rem;
+  transform: scale(1);
+  opacity: 1;
+}
+
+.quickforge-pinned-summary-panel {
+  max-height: var(--quickforge-pinned-summary-panel-max-height, calc(100dvh - 1.5rem));
+  transform: scale(0.97);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.quickforge-pinned-summary-widget[data-mode="panel"] .quickforge-pinned-summary-capsule {
+  transform: scale(0.97);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.quickforge-pinned-summary-widget[data-mode="panel"] .quickforge-pinned-summary-panel {
+  transform: scale(1);
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: 55ms, 0ms;
+}
+
+.quickforge-pinned-summary-widget[data-mode="capsule"] .quickforge-pinned-summary-capsule {
+  transition-delay: 55ms, 0ms;
+}
+
+.quickforge-pinned-summary-widget[data-dragging="true"] .quickforge-pinned-summary-capsule,
+.quickforge-pinned-summary-widget[data-dragging="true"] .quickforge-pinned-summary-panel {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-pinned-summary-widget,
+  .quickforge-pinned-summary-capsule,
+  .quickforge-pinned-summary-panel {
+    animation: none;
+    transition: none;
+  }
+}
+

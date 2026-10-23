@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
+import { appCss } from '../helpers/app-css'
 
 
 // 显示模式按用例切换（渲染器经 tool-renderers/shared 的 toolDisplayDetailed 读取）；
@@ -219,14 +220,14 @@ describe('goal_report registered renderer', () => {
 })
 
 describe('goal_report tool card message font contract', () => {
-  const indexCss = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
-  const summaryBlock = indexCss.slice(
-    indexCss.indexOf('.quickforge-local-tool > .quickforge-tool-summary,'),
-    indexCss.indexOf('.quickforge-tool-title,'),
+  const globalCss = appCss
+  const summaryBlock = globalCss.slice(
+    globalCss.indexOf('.quickforge-local-tool > .quickforge-tool-summary,'),
+    globalCss.indexOf('.quickforge-tool-title,'),
   )
-  const bodyBlock = indexCss.slice(
-    indexCss.indexOf('.quickforge-goal-report-tool-body'),
-    indexCss.indexOf('.quickforge-goal-report-criteria'),
+  const bodyBlock = globalCss.slice(
+    globalCss.indexOf('.quickforge-goal-report-tool-body'),
+    globalCss.indexOf('.quickforge-goal-report-criteria'),
   )
 
   it('scales the tool summary line with the message font size (×0.875), not the interface rem base', () => {
@@ -249,12 +250,12 @@ describe('goal_report tool card message font contract', () => {
   })
 
   it('keeps section labels and scope chips on the message font scale (×0.8); chip stays mono', () => {
-    expect(indexCss).toMatch(
+    expect(globalCss).toMatch(
       /\.quickforge-goal-report-tool-body \.text-xs,[\s\S]*?\.quickforge-todo-history-tool > div \.text-xs \{[\s\S]*?font-size: calc\(var\(--quickforge-message-font-size, 14px\) \* 0\.8\);/,
     )
-    const chipBlock = indexCss.slice(
-      indexCss.indexOf('.quickforge-goal-report-scope-chip'),
-      indexCss.indexOf('.quickforge-goal-report-blocker'),
+    const chipBlock = globalCss.slice(
+      globalCss.indexOf('.quickforge-goal-report-scope-chip'),
+      globalCss.indexOf('.quickforge-goal-report-blocker'),
     )
     expect(chipBlock).toContain('font-family: var(--font-mono)')
     expect(chipBlock).toContain('font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8)')

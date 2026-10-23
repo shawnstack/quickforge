@@ -13,6 +13,7 @@ import {
   type ToolMarqueeSpan,
   type ToolMarqueeView,
 } from '../../src/lib/tool-marquee'
+import { appCss } from '../helpers/app-css'
 
 function createFakeSpan(scrollWidth: number): ToolMarqueeSpan {
   return {
@@ -399,7 +400,7 @@ describe('ToolMarqueeController', () => {
   })
 })
 
-const cssSource = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+const cssSource = appCss
 // T4：QuickForgeToolMarquee 已随渲染器公共构件迁至 tool-renderers/shared.tsx。
 const sharedRendererSource = readFileSync(new URL('../../src/lib/tool-renderers/shared.tsx', import.meta.url), 'utf8')
 

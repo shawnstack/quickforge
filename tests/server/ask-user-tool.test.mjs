@@ -91,6 +91,16 @@ describe('formatAskResult', () => {
     }
     expect(formatAskResult(questions, null, true, 'timeout')).toContain('等待超时')
   })
+
+  it('appends the review-step remark as its own trailing line', () => {
+    const text = formatAskResult(questions, [{ choices: ['A'] }, { choices: ['npm'] }], false, undefined, '先只动前端')
+    expect(text).toBe('用户的回答：\n1. 方向？ → A\n2. 哪些端？ → npm\n补充信息：先只动前端')
+    // Blank / whitespace-only remarks must not add an empty line.
+    expect(formatAskResult(questions, [{ choices: ['A'] }], false, undefined, '   '))
+      .toBe('用户的回答：\n1. 方向？ → A\n2. 哪些端？ → 用户未回答')
+    expect(formatAskResult(questions, [{ choices: ['A'] }], false, undefined, undefined))
+      .toBe('用户的回答：\n1. 方向？ → A\n2. 哪些端？ → 用户未回答')
+  })
 })
 
 describe('pendingAsks store', () => {

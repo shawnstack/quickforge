@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>run_workflow · 运行详情单页合并设计稿</title>
+<style>
+  /* ===== 设计 token（值抄自 src/index.css，仅做原型简化） ===== */
+  :root {
+    --bg: oklch(1 0 0);
+    --fg: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --muted: oklch(0.97 0 0);
+    --mfg: oklch(0.556 0 0);
+    --bd: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --done: oklch(0.55 0.13 158);
+    --font-base: 14px;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+    --fast: 120ms;
+    --base: 180ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --page-bg: oklch(0.985 0 0);
+    --page-fg: oklch(0.145 0 0);
+  }
+  html.dark {
+    --bg: oklch(0.145 0 0);
+    --fg: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --mfg: oklch(0.708 0 0);
+    --bd: oklch(0.275 0 0);
+    --ring: oklch(0.556 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --done: oklch(0.75 0.15 160);
+    --page-bg: oklch(0.115 0 0);
+    --page-fg: oklch(0.96 0 0);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  /* 折叠用 hidden 属性；author 的 display:flex 会盖掉 UA 的 [hidden]{display:none} */
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    padding: 28px 22px 64px;
+    background: var(--page-bg);
+    color: var(--page-fg);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  /* ===== 页头 ===== */
+  .page-head h1 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .page-head .sub { margin: 0; font-size: 12.5px; color: color-mix(in oklab, var(--page-fg) 55%, transparent); }
+  .btns { display: flex; flex-wrap: wrap; gap: 14px; margin: 16px 0 22px; }
+  .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: color-mix(in oklab, var(--page-fg) 6%, transparent); }
+  .seg button {
+    border: 0; background: transparent; color: color-mix(in oklab, var(--page-fg) 62%, transparent);
+    font: inherit; font-size: 12px; height: 24px; padding: 0 9px; border-radius: 6px; cursor: pointer;
+    transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .seg button:hover { color: var(--page-fg); }
+  .seg button[aria-pressed="true"] { background: color-mix(in oklab, var(--page-fg) 10%, transparent); color: var(--page-fg); font-weight: 500; }
+  .seg-label { font-size: 12px; color: color-mix(in oklab, var(--page-fg) 45%, transparent); margin-right: 8px; align-self: center; }
+
+  h2.sec { margin: 34px 0 12px; font-size: 13px; font-weight: 600; color: color-mix(in oklab, var(--page-fg) 72%, transparent); }
+  p.note { margin: 0 0 12px; font-size: 12.5px; color: color-mix(in oklab, var(--page-fg) 55%, transparent); }
+
+  /* ===== 前后对比线框 ===== */
+  .compare { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .wire {
+    width: 254px; border: 1px solid color-mix(in oklab, var(--page-fg) 14%, transparent);
+    border-radius: 10px; background: var(--bg); padding: 10px; font-size: 10.5px;
+    color: color-mix(in oklab, var(--fg) 70%, transparent);
+  }
+  .wire .cap { font-size: 11px; margin-bottom: 8px; color: color-mix(in oklab, var(--fg) 50%, transparent); }
+  .wire .l { display: flex; align-items: center; gap: 4px; margin-bottom: 5px; }
+  .wire .dot { width: 5px; height: 5px; border-radius: 999px; background: var(--done); }
+  .wire .tabs { display: flex; gap: 2px; margin: 6px 0 8px; }
+  .wire .tabs span { padding: 1px 6px; border-radius: 4px; background: color-mix(in oklab, var(--fg) 7%, transparent); }
+  .wire .tabs span.on { background: color-mix(in oklab, var(--fg) 16%, transparent); color: var(--fg); }
+  .wire .axisbar { border-bottom: 1px dashed color-mix(in oklab, var(--fg) 22%, transparent); margin: 2px 0 6px; }
+  .wire .rowl { display: flex; align-items: center; gap: 5px; height: 12px; }
+  .wire .lb { width: 44px; height: 4px; border-radius: 2px; background: color-mix(in oklab, var(--fg) 12%, transparent); }
+  .wire .tr { flex: 1; position: relative; height: 8px; }
+  .wire .ba { position: absolute; top: 2px; height: 5px; border-radius: 2px; background: color-mix(in oklab, var(--done) 40%, transparent); border: 1px solid color-mix(in oklab, var(--done) 55%, transparent); }
+  .wire .ph { font-size: 9.5px; font-weight: 600; margin: 7px 0 3px; color: color-mix(in oklab, var(--fg) 65%, transparent); }
+  .wire .logl { font-family: var(--mono); font-size: 8px; color: color-mix(in oklab, var(--fg) 40%, transparent); }
+  .wire .dim { opacity: .35; }
+  .wire .tag { font-size: 9px; padding: 0 3px; border-radius: 3px; background: color-mix(in oklab, var(--destructive) 12%, transparent); color: var(--destructive); }
+
+  /* =========================================================
+     面板本体：单页合并（时间轴 + 阶段 + 日志）
+     ========================================================= */
+  .panel {
+    --pad-x: 0.875rem;
+    --wf-tl-label: clamp(5.5rem, 30%, 9.5rem);
+    --wf-tl-gap: 0.625rem;
+    --wf-tl-pad-start: 2.25rem;
+    --wf-tl-pad-end: 2.75rem;
+    --axis-h: 1.75rem;
+
+    width: 640px;
+    max-width: 100%;
+    height: 600px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+    border: 1px solid color-mix(in oklab, var(--bd) 65%, transparent);
+    border-radius: 0.625rem;
+    color: var(--fg);
+    font-size: calc(var(--font-base) * 0.8125);
+    font-family: var(--sans);
+  }
+
+  /* ---- 概览（不滚动） ---- */
+  .overview {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4375rem;
+    padding: 0.75rem var(--pad-x) 0.625rem;
+    border-bottom: 1px solid color-mix(in oklab, var(--bd) 40%, transparent);
+  }
+  .ov-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .ov-row.is-meta {
+    gap: 0.75rem;
+    font-family: var(--mono);
+    font-size: calc(var(--font-base) * 0.75);
+    color: color-mix(in oklab, var(--mfg) 72%, transparent);
+  }
+  .ov-row.is-meta b { font-weight: 500; color: color-mix(in oklab, var(--fg) 80%, transparent); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 0.3125rem;
+    height: 1.3125rem; padding: 0 0.5rem 0 0.375rem; border-radius: 999px;
+    font-size: calc(var(--font-base) * 0.8125); font-weight: 500;
+  }
+  .pill i { width: 0.3125rem; height: 0.3125rem; border-radius: 999px; background: currentColor; flex: 0 0 auto; }
+  .pill[data-tone="done"] { background: color-mix(in oklab, var(--done) 13%, transparent); color: color-mix(in oklab, var(--done) 92%, var(--fg)); }
+  .pill[data-tone="running"] { background: color-mix(in oklab, var(--ring) 12%, transparent); color: color-mix(in oklab, var(--ring) 60%, var(--fg)); }
+  .pill[data-tone="error"] { background: color-mix(in oklab, var(--destructive) 10%, transparent); color: var(--destructive); }
+  .pill[data-tone="running"] i { animation: tick-pulse 1.6s var(--ease) infinite; }
+  .ov-scale { margin-left: auto; color: var(--mfg); }
+  .dur {
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.75);
+    font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 85%, transparent);
+  }
+  @keyframes tick-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
+
+  /* 图例：合并后整页共享一套编码，图例放概览条最右 */
+  .legend {
+    margin-left: auto; display: inline-flex; gap: 0.75rem; align-items: center;
+    font-family: var(--sans); font-size: calc(var(--font-base) * 0.6875);
+    color: color-mix(in oklab, var(--mfg) 90%, transparent);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 0.3125rem; }
+  .legend .sw { width: 0.75rem; height: 0.375rem; border-radius: 2px; }
+  .legend .sw[data-tone="agent"] { background: color-mix(in oklab, var(--done) 34%, transparent); border: 1px solid color-mix(in oklab, var(--done) 55%, transparent); }
+  .legend .sw[data-tone="tool"] { background: color-mix(in oklab, var(--mfg) 26%, transparent); }
+  .legend .sw[data-tone="parallel"] { background: color-mix(in oklab, var(--ring) 16%, transparent); border: 1px dashed color-mix(in oklab, var(--ring) 55%, transparent); }
+
+  /* ---- 唯一滚动容器 ---- */
+  .scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 1.25rem; }
+  .scroll::-webkit-scrollbar { width: 8px; }
+  .scroll::-webkit-scrollbar-thumb { background: color-mix(in oklab, var(--fg) 16%, transparent); border-radius: 999px; }
+
+  /* ---- 粘性时间刻度 ---- */
+  .axis {
+    position: sticky; top: 0; z-index: 3;
+    display: flex; align-items: flex-end; gap: var(--wf-tl-gap);
+    height: var(--axis-h); padding: 0 var(--pad-x);
+    background: color-mix(in oklab, var(--bg) 96%, var(--muted));
+    border-bottom: 1px solid color-mix(in oklab, var(--bd) 45%, transparent);
+    backdrop-filter: blur(6px);
+  }
+  .axis-spacer { flex: 0 0 var(--wf-tl-label); width: var(--wf-tl-label); }
+  .axis-track { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; display: flex; }
+  .axis-plot {
+    position: relative; flex: 1 1 auto; min-width: 0; height: 100%;
+    margin-left: var(--wf-tl-pad-start); margin-right: var(--wf-tl-pad-end);
+  }
+  .tick {
+    position: absolute; bottom: 0.25rem; transform: translateX(-50%);
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875);
+    font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 72%, transparent);
+    white-space: nowrap;
+  }
+  .tick[data-edge="start"] { transform: none; }
+  .tick[data-edge="end"] { transform: translateX(-100%); }
+
+  /* ---- 错误条 ---- */
+  .errbar {
+    display: flex; flex-direction: column; gap: 0.125rem;
+    margin: 0.75rem var(--pad-x) 0; padding: 0.4375rem 0.625rem;
+    border-left: 2px solid var(--destructive); border-radius: 0 0.375rem 0.375rem 0;
+    background: color-mix(in oklab, var(--destructive) 6%, transparent);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .errbar .lb { font-weight: 600; color: var(--destructive); font-size: calc(var(--font-base) * 0.75); }
+
+  /* ---- 阶段（粘性子标题） ---- */
+  .phase { display: flex; flex-direction: column; }
+  .phase-head {
+    position: sticky; top: var(--axis-h); z-index: 2;
+    display: flex; align-items: center; gap: 0.4375rem;
+    width: 100%; padding: 0.5rem var(--pad-x);
+    border: 0; border-bottom: 1px solid color-mix(in oklab, var(--bd) 45%, transparent);
+    background: var(--bg); color: inherit; font: inherit; text-align: left; cursor: pointer;
+    transition: background-color var(--fast) var(--ease);
+  }
+  .phase-head:hover { background: color-mix(in oklab, var(--muted) 50%, transparent); }
+  .phase-head:focus-visible { outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent); outline-offset: -2px; }
+  .phase-index { font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875); color: color-mix(in oklab, var(--mfg) 55%, transparent); }
+  .phase-name {
+    font-size: calc(var(--font-base) * 0.875); font-weight: 500;
+    color: color-mix(in oklab, var(--fg) 88%, transparent);
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .phase-count { font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875); color: color-mix(in oklab, var(--mfg) 62%, transparent); }
+  .phase-head .dur { margin-left: auto; }
+  .chev {
+    width: 0.6875rem; height: 0.6875rem; flex: 0 0 auto;
+    color: var(--mfg); opacity: 0.6;
+    transition: transform 160ms var(--ease);
+  }
+  .phase-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  .phase-body { display: flex; flex-direction: column; padding-bottom: 0.125rem; }
+
+  /* ---- 行：左标签列 + 右时间轨道 ---- */
+  .row-wrap { display: flex; flex-direction: column; }
+  .row {
+    display: flex; align-items: center; gap: var(--wf-tl-gap);
+    min-height: 1.5rem; padding: 0 var(--pad-x);
+    transition: background-color var(--fast) var(--ease);
+  }
+  .row-wrap[data-kind="tool"] .row { min-height: 1.375rem; }
+  .row-wrap:hover > .row { background: color-mix(in oklab, var(--muted) 42%, transparent); }
+  .row-wrap.is-open > .row { background: color-mix(in oklab, var(--muted) 42%, transparent); }
+
+  .row-head { flex: 0 0 var(--wf-tl-label); width: var(--wf-tl-label); min-width: 0; display: flex; align-items: center; gap: 0.3125rem; }
+  .row-wrap[data-kind="tool"] .row-head { position: relative; padding-left: 0.6875rem; }
+  /* 工具行从属连接线：与 Agent 行同一配方，仅 1px 弱线（DESIGN_LANGUAGE 例外条款） */
+  .row-wrap[data-kind="tool"] .row-head::before {
+    content: ''; position: absolute; left: 0.125rem; top: 0; bottom: 50%; width: 1px;
+    background: color-mix(in oklab, var(--bd) 80%, transparent);
+  }
+  .row-wrap[data-kind="tool"] .row-head::after {
+    content: ''; position: absolute; left: 0.125rem; top: 50%; width: 0.4375rem; height: 1px;
+    background: color-mix(in oklab, var(--bd) 80%, transparent);
+  }
+  .row-wrap[data-kind="tool"]:last-child .row-head::before { bottom: 50%; }
+
+  .dot { width: 0.375rem; height: 0.375rem; border-radius: 999px; flex: 0 0 auto; background: color-mix(in oklab, var(--mfg) 40%, transparent); }
+  .dot[data-tone="done"] { background: color-mix(in oklab, var(--done) 75%, transparent); }
+  .dot[data-tone="running"] { background: color-mix(in oklab, var(--ring) 70%, var(--fg)); animation: tick-pulse 1.6s var(--ease) infinite; }
+  .dot[data-tone="error"] { background: var(--destructive); }
+
+  .row-label {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: calc(var(--font-base) * 0.75); color: color-mix(in oklab, var(--fg) 86%, transparent);
+  }
+  .row-wrap[data-kind="tool"] .row-label { font-size: calc(var(--font-base) * 0.6875); color: color-mix(in oklab, var(--mfg) 90%, transparent); }
+  .row-meta { flex: 0 0 auto; font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875); color: color-mix(in oklab, var(--mfg) 62%, transparent); }
+  .row-tail { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 0.125rem; margin-left: auto; }
+  .row-tail .chev { opacity: 0; }
+  .row-wrap:hover .row-tail .chev, .row-wrap.is-open .row-tail .chev { opacity: 0.7; }
+  .row-wrap.is-open .row-tail .chev { transform: rotate(90deg); }
+
+  /* ---- 时间轨道 ---- */
+  .track { position: relative; flex: 1 1 auto; min-width: 0; height: 1.125rem; display: flex; align-items: center; }
+  .plot { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; margin-left: var(--wf-tl-pad-start); margin-right: var(--wf-tl-pad-end); }
+  .grid { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in oklab, var(--bd) 55%, transparent); pointer-events: none; }
+  .bar {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    height: 0.5625rem; min-width: 2px; border-radius: 3px;
+    background: color-mix(in oklab, var(--done) 34%, transparent);
+    border: 1px solid color-mix(in oklab, var(--done) 55%, transparent);
+    pointer-events: none;
+  }
+  .bar[data-kind="tool"] { height: 0.375rem; border-radius: 2px; background: color-mix(in oklab, var(--mfg) 26%, transparent); border: 0; }
+  .bar[data-tone="running"] { background: color-mix(in oklab, var(--ring) 16%, transparent); border-color: color-mix(in oklab, var(--ring) 48%, transparent); }
+  .bar[data-kind="tool"][data-tone="running"] { background: color-mix(in oklab, var(--ring) 30%, transparent); }
+  .bar[data-tone="error"] { background: color-mix(in oklab, var(--destructive) 22%, transparent); border-color: color-mix(in oklab, var(--destructive) 62%, transparent); }
+  .bar[data-tone="pending"] { background: var(--bd); border: 0; }
+  .bar.is-parallel { border-style: dashed; }
+  .bar-value {
+    position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.625);
+    font-variant-numeric: tabular-nums;
+    color: color-mix(in oklab, var(--mfg) 72%, transparent); white-space: nowrap; pointer-events: none;
+  }
+  .p-tag {
+    position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.625);
+    color: color-mix(in oklab, var(--ring) 75%, var(--fg)); white-space: nowrap; pointer-events: none;
+  }
+
+  /* ---- 行内展开体（工具入参/输出、Agent 错误） ---- */
+  .row-body {
+    display: flex; flex-direction: column; gap: 0.4375rem;
+    padding: 0.375rem var(--pad-x) 0.4375rem calc(var(--pad-x) + 0.75rem);
+  }
+  .field-lb { margin-bottom: 0.1875rem; font-size: calc(var(--font-base) * 0.6875); font-weight: 500; color: color-mix(in oklab, var(--mfg) 88%, transparent); }
+  .pre {
+    margin: 0; padding: 0.375rem 0.5rem; border-radius: 0.375rem;
+    background: color-mix(in oklab, var(--muted) 55%, transparent);
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875); line-height: 1.55;
+    color: color-mix(in oklab, var(--fg) 80%, transparent);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .note-err {
+    padding: 0 var(--pad-x) 0.25rem calc(var(--pad-x) + 0.9375rem);
+    font-size: calc(var(--font-base) * 0.75); color: var(--destructive);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+
+  /* ---- 阶段内日志：合并后的关键——日志不再独占一页，按阶段就地展开 ---- */
+  .phase-logs {
+    list-style: none; margin: 0.125rem 0 0.25rem; padding: 0 var(--pad-x) 0 calc(var(--pad-x) + 0.0625rem);
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .phase-logs li {
+    display: flex; align-items: baseline; gap: 0.5rem;
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875);
+    line-height: 1.6; color: color-mix(in oklab, var(--mfg) 86%, transparent);
+  }
+  .phase-logs time { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 52%, transparent); }
+  .phase-logs li[data-level="error"] { color: var(--destructive); }
+
+  /* ---- 运行级日志（不属于任何阶段） ---- */
+  .run-log-head {
+    position: sticky; top: var(--axis-h); z-index: 2;
+    display: flex; align-items: center; gap: 0.4375rem;
+    padding: 0.5rem var(--pad-x);
+    border-bottom: 1px solid color-mix(in oklab, var(--bd) 45%, transparent);
+    background: var(--bg);
+    font-size: calc(var(--font-base) * 0.75); color: color-mix(in oklab, var(--mfg) 85%, transparent);
+  }
+
+  /* ---- 底部固定区（脚本 / 结果，保持原交互） ---- */
+  .foot {
+    flex: 0 0 auto; display: flex; gap: 0.375rem;
+    padding: 0.5rem var(--pad-x);
+    border-top: 1px solid color-mix(in oklab, var(--bd) 45%, transparent);
+    background: color-mix(in oklab, var(--muted) 28%, var(--bg));
+  }
+  .foot-btn {
+    display: inline-flex; align-items: center; height: 1.5625rem; padding: 0 0.5625rem;
+    border: 1px solid color-mix(in oklab, var(--bd) 90%, transparent); border-radius: 0.375rem;
+    background: transparent; color: color-mix(in oklab, var(--mfg) 88%, transparent);
+    font: inherit; font-size: calc(var(--font-base) * 0.75); cursor: pointer;
+    transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .foot-btn:hover { background: var(--bg); color: var(--fg); }
+  .foot-btn[aria-pressed="true"] { background: color-mix(in oklab, var(--fg) 8%, transparent); color: var(--fg); }
+
+  /* ---- 窄面板 ---- */
+  .panel[data-w="340"] {
+    --wf-tl-label: clamp(4.5rem, 34%, 6.5rem);
+    --wf-tl-gap: 0.375rem;
+    --wf-tl-pad-start: 1.75rem;
+    --wf-tl-pad-end: 2.25rem;
+  }
+  .panel[data-w="340"] .ov-scale { margin-left: 0; }
+
+  /* ---- 设计要点 ---- */
+  .notes { margin-top: 26px; }
+  .notes ul { margin: 0; padding-left: 18px; font-size: 13px; color: color-mix(in oklab, var(--page-fg) 72%, transparent); }
+  .notes li { margin-bottom: 7px; }
+  .notes code {
+    font-family: var(--mono); font-size: 11.5px; padding: 1px 4px; border-radius: 4px;
+    background: color-mix(in oklab, var(--page-fg) 7%, transparent);
+  }
+  kbd {
+    font-family: var(--mono); font-size: 11px; padding: 1px 5px; border-radius: 4px;
+    border: 1px solid color-mix(in oklab, var(--page-fg) 18%, transparent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page-head">
+    <h1>run_workflow · 运行详情「单页合并」设计稿</h1>
+    <p class="sub">时间轴 / 阶段 / 日志 三个分段 tab → 一页连续滚动；刻度条吸顶，阶段小节吸顶，日志就地落在所属阶段下</p>
+
+    <div class="btns">
+      <div>
+        <span class="seg-label">主题</span>
+        <span class="seg" id="themeSeg">
+          <button data-v="light" aria-pressed="true">浅色</button>
+          <button data-v="dark" aria-pressed="false">深色</button>
+        </span>
+      </div>
+      <div>
+        <span class="seg-label">面板宽度</span>
+        <span class="seg" id="widthSeg">
+          <button data-v="340" aria-pressed="false">340</button>
+          <button data-v="480" aria-pressed="false">480</button>
+          <button data-v="640" aria-pressed="true">640</button>
+        </span>
+      </div>
+      <div>
+        <span class="seg-label">运行状态</span>
+        <span class="seg" id="stateSeg">
+          <button data-v="running" aria-pressed="true">运行中</button>
+          <button data-v="done" aria-pressed="false">完成</button>
+          <button data-v="error" aria-pressed="false">出错</button>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <h2 class="sec">改动前 / 改动后</h2>
+  <div class="compare">
+    <div class="wire">
+      <div class="cap">现在：三个 tab，一次只看一种视图</div>
+      <div class="l"><span class="dot"></span>运行中 <span style="margin-left:auto">3.2s</span></div>
+      <div class="tabs"><span class="on">时间轴</span><span>阶段 3</span><span>日志 5</span></div>
+      <div class="rowl"><span class="lb"></span><span class="tr"><span class="ba" style="left:0;width:34%"></span></span></div>
+      <div class="rowl"><span class="lb"></span><span class="tr"><span class="ba" style="left:20%;width:30%"></span></span></div>
+      <div class="rowl"><span class="lb"></span><span class="tr"><span class="ba" style="left:52%;width:26%"></span></span></div>
+      <div class="dim" style="margin-top:8px">看不到谁跑了多久，也看不到日志落在哪个阶段</div>
+    </div>
+
+    <div class="wire">
+      <div class="cap">改后：一页滚动，三份信息合流</div>
+      <div class="l"><span class="dot"></span>运行中 <span style="margin-left:auto">3.2s</span></div>
+      <div class="axisbar"></div>
+      <div class="ph">01 规划任务 <span style="font-weight:400">2 步 · 620ms</span></div>
+      <div class="rowl"><span class="lb"></span><span class="tr"><span class="ba" style="left:0;width:19%"></span></span></div>
+      <div class="rowl"><span class="lb"></span><span class="tr"><span class="ba" style="left:1%;width:4%;height:3px"></span></span></div>
+      <div class="logl">600ms 已生成 3 个阶段</div>
+      <div class="ph">02 并行调研 <span style="font-weight:400">3 步 · 1.43s</span></div>
+      <div class="rowl"><span class="lb"></span><span class="tr"><span class="ba" style="left:19%;width:45%"></span><span class="ba" style="left:19%;width:34%;top:6px"></span></span></div>
+      <div class="logl">620ms 启动 2 个并行 Agent</div>
+      <div class="ph">03 汇总输出 <span class="tag">出错</span></div>
+      <div class="dim" style="margin-top:6px">同一根时间轴、同一套状态点，日志贴在产生它的阶段下</div>
+    </div>
+  </div>
+
+  <h2 class="sec">原型（可直接滚动、展开、切宽度）</h2>
+  <p class="note">滚轮在面板内滚动：刻度条吸顶，阶段标题吸顶，点工具行展开入参/输出，点阶段标题折起整个阶段。</p>
+
+  <div class="panel" id="panel" data-w="640" data-state="running">
+    <div class="overview" id="overview"></div>
+    <div class="scroll" id="scroll"></div>
+    <div class="foot">
+      <button class="foot-btn" id="scriptBtn" aria-pressed="false">脚本</button>
+      <button class="foot-btn" id="resultBtn" aria-pressed="false">结果</button>
+    </div>
+  </div>
+
+  <section class="notes">
+    <h2 class="sec">要点</h2>
+    <ul>
+      <li><b>为什么能合并</b>：三个 tab 本来就是同一份数据的三种投影 —— 时间轴读 <code>startOffsetMs / durationMs</code>，阶段读 <code>phases[]</code>，日志读 <code>logs[]</code>（每条自带 <code>phase</code>）。合并后一份数据只渲染一遍，不再切三套 DOM。</li>
+      <li><b>结构</b>：阶段小节 = 阶段头（编号/名称/步数/耗时）+ 该阶段的行（Agent 行带条形，工具行缩进带 1px 从属线）+ 该阶段的日志。整页共享一根时间轴，条形因此可以跨阶段横向比较。</li>
+      <li><b>只有两个吸顶元素</b>：刻度条（<code>--axis-h</code>）与阶段标题（<code>top: var(--axis-h)</code>）。长列表里随时知道"我在第几个阶段、现在滚到第几秒"。</li>
+      <li><b>去掉了三段控件</b>：<code>role="tablist"</code> 的分段按钮、<code>aria-selected</code>、选中态背景一起删除；面板顶部省掉一整行，垂直空间还给内容。</li>
+      <li><b>日志不再整页平铺</b>：运行级日志（不属于任何阶段）才单独落在末尾的「运行日志」小节 —— 出现频率低，所以不做折叠。</li>
+      <li><b>保留的渐进展开</b>：工具行入参/输出、阶段折叠仍然是"点一下展开"，这是层级渐进而非视图切换，符合 <code>DESIGN_LANGUAGE.md</code>「层级渐进」「整行可点时不另摆入口提示」。</li>
+      <li><b>可复用现有 CSS</b>：<code>-row / -plot / -bar / -axis / -phase / -agent / -dot / -pill</code> 都能沿用；实际改动主要是删 <code>-seg</code> 与 <code>-pane</code> 的三视图分发，把 <code>TimelineView</code> 与 <code>PhaseView</code> 合成一个按阶段分组的渲染函数。</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+/* =====================================================================
+   演示数据（结构对齐 src/lib/workflow-run-detail.ts 的 View 类型）
+   items 顺序 = 真实渲染顺序；start/dur 单位 ms，相对运行开始。
+   ===================================================================== */
+const RUNS = {
+  running: {
+    status: 'running',
+    pill: '运行中',
+    tone: 'running',
+    durationMs: 3200,
+    maxAgents: 8,
+    maxTools: 12,
+    peak: 2,
+    saved: 420,
+    error: '',
+    phases: [
+      {
+        title: '规划任务',
+        items: [
+          { kind: 'agent', label: 'planner', meta: 'fast · 2 tools', start: 0, dur: 620, status: 'done' },
+          { kind: 'tool', label: 'read_file', start: 40, dur: 130, status: 'done', expandable: true,
+            args: '{ "path": "docs/wiki/README.md" }', output: '已读取 214 行 · workflow 组件索引' },
+          { kind: 'tool', label: 'grep_files', start: 190, dur: 350, status: 'done', expandable: true,
+            args: '{ "query": "workflowDetailView", "glob": ["*.tsx"] }', output: '2 个匹配文件' },
+        ],
+        logs: [
+          { t: 0, text: '开始拆解任务：3 个目标' },
+          { t: 600, text: '已生成 3 个阶段' },
+        ],
+      },
+      {
+        title: '并行调研',
+        items: [
+          { kind: 'agent', label: 'researcher-a', meta: 'deep · 3 tools', start: 620, dur: 1430, status: 'running', parallel: true, parallelStart: true },
+          { kind: 'agent', label: 'researcher-b', meta: 'fast · 1 tool', start: 620, dur: 1100, status: 'done', parallel: true },
+          { kind: 'tool', label: 'web_search', start: 1100, dur: 260, status: 'done', expandable: true,
+            args: '{ "query": "workflow inspector tab 合并" }', output: '8 条结果' },
+        ],
+        logs: [
+          { t: 620, text: '启动 2 个并行 Agent（峰值并发 ×2）' },
+          { t: 1760, text: 'researcher-b 已完成 · 1.10s' },
+        ],
+      },
+      {
+        title: '汇总输出',
+        items: [
+          { kind: 'agent', label: 'writer', meta: 'fast · 1 tool', start: 2100, dur: 950, status: 'running' },
+          { kind: 'tool', label: 'write_file', start: 3060, dur: 140, status: 'running' },
+        ],
+        logs: [
+          { t: 2110, text: '合并两份调研结果' },
+          { t: 3060, text: '写入 docs/research.md' },
+        ],
+      },
+    ],
+    logs: [{ t: 0, text: 'workflow 启动 · concurrency 2 · maxRuntime 120s' }],
+  },
+
+  done: {
+    status: 'done',
+    pill: '已完成',
+    tone: 'done',
+    durationMs: 3080,
+    maxAgents: 8,
+    maxTools: 12,
+    peak: 2,
+    saved: 480,
+    error: '',
+    phases: [
+      {
+        title: '规划任务',
+        items: [
+          { kind: 'agent', label: 'planner', meta: 'fast · 2 tools · schema', start: 0, dur: 640, status: 'done' },
+          { kind: 'tool', label: 'read_file', start: 40, dur: 140, status: 'done', expandable: true,
+            args: '{ "path": "docs/wiki/README.md" }', output: '已读取 214 行 · workflow 组件索引' },
+          { kind: 'tool', label: 'grep_files', start: 200, dur: 340, status: 'done', expandable: true,
+            args: '{ "query": "workflowDetailView", "glob": ["*.tsx"] }', output: '2 个匹配文件' },
+        ],
+        logs: [
+          { t: 0, text: '开始拆解任务：3 个目标' },
+          { t: 620, text: '已生成 3 个阶段' },
+        ],
+      },
+      {
+        title: '并行调研',
+        items: [
+          { kind: 'agent', label: 'researcher-a', meta: 'deep · 3 tools', start: 640, dur: 1420, status: 'done', parallel: true, parallelStart: true },
+          { kind: 'agent', label: 'researcher-b', meta: 'fast · 1 tool', start: 640, dur: 1080, status: 'done', parallel: true },
+          { kind: 'tool', label: 'web_search', start: 1120, dur: 280, status: 'done', expandable: true,
+            args: '{ "query": "workflow inspector tab 合并" }', output: '8 条结果' },
+        ],
+        logs: [
+          { t: 640, text: '启动 2 个并行 Agent（峰值并发 ×2）' },
+          { t: 1740, text: 'researcher-b 已完成 · 1.08s' },
+          { t: 2080, text: 'researcher-a 已完成 · 1.42s' },
+        ],
+      },
+      {
+        title: '汇总输出',
+        items: [
+          { kind: 'agent', label: 'writer', meta: 'fast · 1 tool · schema', start: 2080, dur: 860, status: 'done' },
+          { kind: 'tool', label: 'write_file', start: 2960, dur: 120, status: 'done', expandable: true,
+            args: '{ "path": "docs/research.md" }', output: '已写入 96 行' },
+        ],
+        logs: [
+          { t: 2100, text: '合并两份调研结果' },
+          { t: 3020, text: '结果通过 schema 校验' },
+        ],
+      },
+    ],
+    logs: [{ t: 0, text: 'workflow 启动 · concurrency 2 · maxRuntime 120s' }],
+  },
+
+  error: {
+    status: 'error',
+    pill: '失败',
+    tone: 'error',
+    durationMs: 2460,
+    maxAgents: 8,
+    maxTools: 12,
+    peak: 2,
+    saved: 380,
+    error: '阶段「并行调研」执行失败：researcher-a 请求超时（60s）',
+    phases: [
+      {
+        title: '规划任务',
+        items: [
+          { kind: 'agent', label: 'planner', meta: 'fast · 2 tools', start: 0, dur: 620, status: 'done' },
+          { kind: 'tool', label: 'read_file', start: 40, dur: 130, status: 'done', expandable: true,
+            args: '{ "path": "docs/wiki/README.md" }', output: '已读取 214 行' },
+        ],
+        logs: [{ t: 0, text: '开始拆解任务：3 个目标' }],
+      },
+      {
+        title: '并行调研',
+        items: [
+          { kind: 'agent', label: 'researcher-a', start: 620, dur: 1840, status: 'error', parallel: true, parallelStart: true,
+            error: 'timeout: agent 超过 60s 未返回' },
+          { kind: 'agent', label: 'researcher-b', start: 620, dur: 1080, status: 'done', parallel: true },
+        ],
+        logs: [
+          { t: 620, text: '启动 2 个并行 Agent（峰值并发 ×2）' },
+          { t: 1700, text: 'researcher-b 已完成 · 1.08s' },
+          { t: 2460, text: 'researcher-a 超时，workflow 终止', level: 'error' },
+        ],
+      },
+    ],
+    logs: [{ t: 0, text: 'workflow 启动 · concurrency 2 · maxRuntime 120s' }],
+  },
+};
+
+/* ---------------- 工具函数 ---------------- */
+const TICKS = 5;
+
+function fmt(ms) {
+  if (ms < 1000) return Math.max(1, Math.round(ms)) + 'ms';
+  const s = ms / 1000;
+  const text = s < 10 ? s.toFixed(2) : s.toFixed(1);
+  return text.replace(/0+$/, '').replace(/\.$/, '') + 's';
+}
+const pct = (value, total) => Math.min(100, Math.max(0, (value / total) * 100));
+const chevron = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+
+/* ---------------- 渲染 ---------------- */
+let uid = 0;
+
+function renderRow(item, total) {
+  const id = 'row-' + (++uid);
+  const left = pct(item.start, total);
+  const width = Math.max(0.6, pct(item.start + item.dur, total) - left);
+  const body = item.kind === 'tool' && item.expandable
+    ? '<div class="row-body" hidden>'
+      + (item.args ? '<div><div class="field-lb">输入</div><pre class="pre">' + item.args + '</pre></div>' : '')
+      + (item.output ? '<div><div class="field-lb">输出</div><pre class="pre">' + item.output + '</pre></div>' : '')
+      + '</div>'
+    : '';
+
+  const head = item.kind === 'agent'
+    ? '<span class="dot" data-tone="' + item.status + '"></span>'
+      + '<span class="row-label" title="' + item.label + '">' + item.label + '</span>'
+      + (item.meta ? '<span class="row-meta">' + item.meta + '</span>' : '')
+    : '<span class="row-label" title="' + item.label + '">' + item.label + '</span>';
+
+  const tail = item.expandable ? '<span class="row-tail">' + chevron + '</span>' : '';
+
+  return '<div class="row-wrap" data-kind="' + item.kind + '" data-id="' + id + '"'
+    + (item.expandable ? ' data-expandable="true"' : '') + '>'
+    + '<div class="row">'
+    +   '<span class="row-head">' + head + tail + '</span>'
+    +   '<span class="track"><span class="plot">'
+    +     Array.from({ length: TICKS }, (_, i) => '<span class="grid" style="left:' + (i / (TICKS - 1)) * 100 + '%"></span>').join('')
+    +     '<span class="bar' + (item.parallel ? ' is-parallel' : '') + '" data-kind="' + item.kind + '" data-tone="' + item.status + '" style="left:' + left + '%;width:' + width + '%"></span>'
+    +     '<span class="bar-value">' + fmt(item.dur) + '</span>'
+    +     (item.parallelStart ? '<span class="p-tag">并行</span>' : '')
+    +   '</span></span>'
+    + '</div>'
+    + (item.error ? '<div class="note-err">' + item.error + '</div>' : '')
+    + body
+    + '</div>';
+}
+
+function renderPhase(phase, index, total) {
+  const starts = phase.items.map((item) => item.start);
+  const ends = phase.items.map((item) => item.start + item.dur);
+  const span = Math.max.apply(null, ends) - Math.min.apply(null, starts);
+  const stepCount = phase.items.filter((item) => item.kind === 'agent').length + ' agent · '
+    + phase.items.filter((item) => item.kind === 'tool').length + ' tool';
+
+  return '<section class="phase">'
+    + '<button type="button" class="phase-head" aria-expanded="true">'
+    +   '<span class="phase-index">' + String(index + 1).padStart(2, '0') + '</span>'
+    +   '<span class="phase-name">' + phase.title + '</span>'
+    +   '<span class="phase-count">' + stepCount + '</span>'
+    +   '<span class="dur">' + fmt(span) + '</span>'
+    +   chevron
+    + '</button>'
+    + '<div class="phase-body">'
+    +   phase.items.map((item) => renderRow(item, total)).join('')
+    +   (phase.logs && phase.logs.length
+        ? '<ul class="phase-logs">' + phase.logs.map((log) =>
+            '<li' + (log.level === 'error' ? ' data-level="error"' : '') + '><time>' + fmt(log.t) + '</time><span>' + log.text + '</span></li>'
+          ).join('') + '</ul>'
+        : '')
+    + '</div></section>';
+}
+
+function renderOverview(run) {
+  const agents = run.phases.reduce((sum, phase) => sum + phase.items.filter((item) => item.kind === 'agent').length, 0);
+  const tools = run.phases.reduce((sum, phase) => sum + phase.items.filter((item) => item.kind === 'tool').length, 0);
+
+  return ''
+    + '<div class="ov-row">'
+    +   '<span class="pill" data-tone="' + run.tone + '"><i></i>' + run.pill + '</span>'
+    +   '<span class="dur">' + fmt(run.durationMs) + '</span>'
+    +   '<span class="ov-scale">' + agents + ' agent · ' + tools + ' tool · ' + run.phases.length + ' 阶段</span>'
+    + '</div>'
+    + '<div class="ov-row is-meta">'
+    +   (run.peak > 1 ? '<span>峰值并发 ×' + run.peak + '</span>' : '')
+    +   (run.saved > 0 ? '<span>节省 ' + fmt(run.saved) + '</span>' : '')
+    +   '<span>预算 <b>' + run.maxAgents + '</b> agent / <b>' + run.maxTools + '</b> tool</span>'
+    +   '<span class="legend">'
+    +     '<span><i class="sw" data-tone="agent"></i>Agent</span>'
+    +     '<span><i class="sw" data-tone="tool"></i>工具</span>'
+    +     '<span><i class="sw" data-tone="parallel"></i>并行</span>'
+    +   '</span>'
+    + '</div>';
+}
+
+function render() {
+  const state = document.getElementById('panel').dataset.state;
+  const run = RUNS[state];
+  uid = 0;
+
+  document.getElementById('overview').innerHTML = renderOverview(run);
+
+  const ticks = Array.from({ length: TICKS }, (_, i) => {
+    const ratio = i / (TICKS - 1);
+    const edge = ratio === 0 ? ' start' : ratio === 1 ? ' end' : '';
+    return '<span class="tick" data-edge="' + (ratio === 0 ? 'start' : ratio === 1 ? 'end' : 'mid') + '" style="left:' + ratio * 100 + '%">' + fmt(run.durationMs * ratio) + '</span>';
+  }).join('');
+
+  document.getElementById('scroll').innerHTML = ''
+    + '<div class="axis"><span class="axis-spacer"></span><span class="axis-track"><span class="axis-plot">' + ticks + '</span></span></div>'
+    + (run.error ? '<div class="errbar" role="alert"><span class="lb">错误</span><span>' + run.error + '</span></div>' : '')
+    + run.phases.map((phase, index) => renderPhase(phase, index, run.durationMs)).join('')
+    + (run.logs && run.logs.length
+        ? '<div class="run-log-head">运行日志</div>'
+          + '<ul class="phase-logs">' + run.logs.map((log) =>
+              '<li><time>' + fmt(log.t) + '</time><span>' + log.text + '</span></li>').join('') + '</ul>'
+        : '');
+}
+
+/* ---------------- 交互 ---------------- */
+document.getElementById('scroll').addEventListener('click', (event) => {
+  const head = event.target.closest('.phase-head');
+  if (head) {
+    const open = head.getAttribute('aria-expanded') === 'true';
+    head.setAttribute('aria-expanded', open ? 'false' : 'true');
+    head.parentElement.querySelector('.phase-body').hidden = open;
+    return;
+  }
+  const wrap = event.target.closest('.row-wrap[data-expandable="true"]');
+  if (wrap) {
+    const body = wrap.querySelector('.row-body');
+    if (!body) return;
+    const open = wrap.classList.toggle('is-open');
+    body.hidden = !open;
+  }
+});
+
+document.querySelectorAll('.seg').forEach((seg) => {
+  seg.addEventListener('click', (event) => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    seg.querySelectorAll('button').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+    const value = button.dataset.v;
+    const panel = document.getElementById('panel');
+    if (seg.id === 'themeSeg') {
+      document.documentElement.classList.toggle('dark', value === 'dark');
+      return;
+    }
+    if (seg.id === 'widthSeg') {
+      panel.dataset.w = value;
+      panel.style.width = value + 'px';
+      return;
+    }
+    panel.dataset.state = value;
+    render();
+  });
+});
+
+document.querySelectorAll('.foot-btn').forEach((button) => {
+  button.addEventListener('click', () => {
+    const pressed = button.getAttribute('aria-pressed') === 'true';
+    document.querySelectorAll('.foot-btn').forEach((item) => item.setAttribute('aria-pressed', 'false'));
+    button.setAttribute('aria-pressed', String(!pressed));
+  });
+});
+
+render();
+</script>
+</body>
+</html>

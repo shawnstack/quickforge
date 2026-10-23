@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { appCss } from '../helpers/app-css'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
 
@@ -275,7 +276,7 @@ describe('scroll-to-bottom button', () => {
 
 describe('scroll-to-bottom button wiring', () => {
   it('ships the centered floating styles with empty-host and dark handling', () => {
-    const css = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf8')
+    const css = appCss
 
     expect(css).toContain('.quickforge-scroll-bottom-button')
     expect(css).toContain('.quickforge-chat-panel-empty-host .quickforge-scroll-bottom-button')

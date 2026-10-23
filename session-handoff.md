@@ -1,3 +1,20 @@
+## 当前交接：workflow-result-no-truncation（done，2026-10-22）
+
+- Current Objective（当前目标）: 用户质疑「workflow 为什么结果会截断」，要求「里面是多少就返回多少」。确认范围为 **①②③ 全去掉**（正文 / 工作流结果预览 / agent·tool 步骤预览），超长结果**信任 auto-compact 兜底**。**已完成**，未提交、未创建 commit。
+- 结论（一句话）: `run_workflow` 的返回值与 Inspector 预览不再有任何字符截断；`truncateText` 只留给错误文本与失败摘要。
+- 根因: `runner.mjs` 切的是 `JSON.stringify` 之后的文本，可能落在字符串/括号中间，模型既不知道被截断（`<workflow_result>` 无提示）也无法 `JSON.parse`，等于静默交付半截数据。
+- 改动:
+  1. `server/agent-workflow-runner.mjs`：删 `AGENT_RESULT_PREVIEW_LIMIT` / `TOOL_ARGS_PREVIEW_LIMIT` / `TOOL_RESULT_PREVIEW_LIMIT` / `WORKFLOW_RESULT_PREVIEW_LIMIT` / `CONTENT_RESULT_LIMIT`；`completeWorkflow` 写完整 `resultJson`；`buildDetails.resultPreview` 全量、无 `resultTruncated`；`agentRecordPayload` 的 prompt/context/expectedOutput/result 全量、无 `promptTruncated`；`toolRecordPayload` 始终发结构化 `args`、无 `argsPreview`；`normalizeToolRequest` 删只为截断服务的 `argsJson`。
+  2. `src/lib/workflow-run-detail.ts`：删 `WorkflowToolView.argsPreview` 与 `WorkflowRunView.resultsTruncated`。
+  3. `src/lib/tool-renderers/workflow-tool-renderer.tsx`：摘要与详细 input 只走 `tool.args`；结果区去掉「· 已截断」。
+  4. `src/lib/i18n.ts`：删 `workflowResultTruncated` 中英各一条。
+- 测试与 Evidence（验证）: `tests/server/agent-workflow-runner.test.mjs` 新增 2 例（120,000 字符结果原样返回且可 `JSON.parse`；6,000 字符 prompt/结果、9,000 字符 description 全量保留且无 truncated 标记）；`tests/frontend/workflow-renderer.test.ts` i18n 键清单去掉 `workflowResultTruncated`。定向 53 passed；全量 `npm run test` 通过；`npm run lint` 0 error；`npm run build` 成功。
+- 文档: `docs/architecture/workflow-orchestration.zh-CN.md`（上限表、details 字段表、7.2、7.3）、`docs/wiki/server/README.md`、`docs/wiki/server/tools/README.md`、`docs/wiki/src/lib/README.md`。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: ① 单条 toolResult 最大 1 MB（≈250k tokens），auto-compact 80% 阈值触发前若已超 provider 上限会直接报错——按用户决定本轮不做前置保护，真机遇到需前移阈值或加软预算；② 运行中帧的 `resultPreview` 也全量随 200ms 节流推送，超长结果下流式帧明显变重，未做「运行中推摘要、终态推全量」分层；③ `docs/design/workflow-tool-redesign.html:856` 仍写「结果 · 已截断」，属历史设计稿未改；④ 未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
 ## 当前交接：live-present-auto-preview（done，2026-10-22）
 
 - Current Objective（当前目标）: 用户反馈「切换 session 时左边侧边栏总是自动打开」，要求先调研。调研确认现象实际是**右侧 workspace 面板/预览被自动打开**；用户要求「方案最佳、不考虑历史包袱、保证产品体验、不要打补丁」，并按推荐方案 **live 事件驱动** 落地。**已完成**，未提交、未创建 commit。

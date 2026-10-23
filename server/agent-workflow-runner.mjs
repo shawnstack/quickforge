@@ -46,12 +46,12 @@ const MAX_ARGS_JSON_LENGTH = 20_000
 // only size control is structural: a running frame carries the trace of the
 // agents that are still running (bounded by `concurrency`), while terminal
 // frames carry every agent's full trace once.
+// Results are never truncated: whatever the script returns is what the model and
+// the Inspector receive. The only size control left is the 1 MB JSON ceiling the
+// worker enforces before a result leaves the sandbox, plus context compaction
+// (`server/auto-compaction.mjs`) which keeps a single oversized toolResult from
+// living in the window forever.
 const PROGRESS_THROTTLE_MS = 200
-const AGENT_RESULT_PREVIEW_LIMIT = 2000
-const TOOL_ARGS_PREVIEW_LIMIT = 4000
-const TOOL_RESULT_PREVIEW_LIMIT = 2000
-const WORKFLOW_RESULT_PREVIEW_LIMIT = 20_000
-const CONTENT_RESULT_LIMIT = 50_000
 const ERROR_TEXT_LIMIT = 2000
 const MAX_LOG_ENTRIES = 200
 
@@ -189,16 +189,9 @@ function subagentRunDetails(details) {
 function normalizeToolRequest(message, runId) {
   const options = isPlainObject(message?.options) ? message.options : {}
   const args = isPlainObject(message?.args) ? message.args : {}
-  let argsJson
-  try {
-    argsJson = JSON.stringify(args)
-  } catch {
-    argsJson = ''
-  }
   return {
     name: String(message?.name || '').trim(),
     args,
-    argsJson,
     label: typeof options.label === 'string' && options.label.trim() ? options.label.trim() : '',
     phase: typeof options.phase === 'string' && options.phase.trim() ? options.phase.trim() : '',
     workflowLabel: runId,
@@ -331,21 +324,20 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
       ...(record.subagentRun
         ? includeTrace ? { subagentRun: record.subagentRun } : { subagentRunDeferred: true }
         : {}),
-      promptPreview: truncateText(record.promptPreview, AGENT_RESULT_PREVIEW_LIMIT),
-      ...((record.promptPreview?.length ?? 0) > AGENT_RESULT_PREVIEW_LIMIT ? { promptTruncated: true } : {}),
+      // The Inspector shows the same text the script received; nothing is
+      // windowed here, so there is no `promptTruncated` / `resultTruncated`.
+      promptPreview: record.promptPreview,
       // run_subagent 的详情直接来自参数；workflow Agent 也把 context/expectedOutput
       // 带进 details，让 Inspector 的任务说明与直接调用保持同一份内容。
-      ...(record.context ? { context: truncateText(record.context, AGENT_RESULT_PREVIEW_LIMIT) } : {}),
-      ...(record.expectedOutput ? { expectedOutput: truncateText(record.expectedOutput, AGENT_RESULT_PREVIEW_LIMIT) } : {}),
-      resultPreview: truncateText(resultText, AGENT_RESULT_PREVIEW_LIMIT),
-      ...(resultText.length > AGENT_RESULT_PREVIEW_LIMIT ? { resultTruncated: true } : {}),
+      ...(record.context ? { context: record.context } : {}),
+      ...(record.expectedOutput ? { expectedOutput: record.expectedOutput } : {}),
+      resultPreview: resultText,
       ...(record.error ? { error: truncateText(record.error, ERROR_TEXT_LIMIT) } : {}),
     }
   }
 
   function toolRecordPayload(record) {
     const resultText = record.resultText || ''
-    const argsJson = record.argsJson || ''
     return {
       id: record.id,
       seq: record.seq,
@@ -355,11 +347,10 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
       status: record.status,
       startedAt: record.startedAt,
       durationMs: record.durationMs,
-      ...(argsJson.length <= TOOL_ARGS_PREVIEW_LIMIT
-        ? { args: record.args }
-        : { argsPreview: truncateText(argsJson, TOOL_ARGS_PREVIEW_LIMIT) }),
-      resultPreview: truncateText(resultText, TOOL_RESULT_PREVIEW_LIMIT),
-      ...(resultText.length > TOOL_RESULT_PREVIEW_LIMIT ? { resultTruncated: true } : {}),
+      // Arguments are always sent as structured data; there is no size-based
+      // switch to an `argsPreview` string anymore.
+      args: record.args,
+      resultPreview: resultText,
       ...(record.error ? { error: truncateText(record.error, ERROR_TEXT_LIMIT) } : {}),
     }
   }
@@ -388,8 +379,7 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
       agents: state.agents.map((agent) => agentRecordPayload(agent, !streaming || agent.status === 'running' || agent.status === 'queued')),
       tools: state.tools.map(toolRecordPayload),
       logs: state.logs.slice(),
-      ...(state.resultJson ? { resultPreview: truncateText(state.resultJson, WORKFLOW_RESULT_PREVIEW_LIMIT) } : {}),
-      ...(state.resultJson.length > WORKFLOW_RESULT_PREVIEW_LIMIT ? { resultTruncated: true } : {}),
+      ...(state.resultJson ? { resultPreview: state.resultJson } : {}),
       ...(state.error ? { error: state.error } : {}),
       ...(state.timedOut ? { timedOut: true } : {}),
       ...(state.aborted ? { aborted: true } : {}),
@@ -530,7 +520,7 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
         : null,
       '',
       '<workflow_result>',
-      truncateText(state.resultJson, CONTENT_RESULT_LIMIT),
+      state.resultJson,
       '</workflow_result>',
     ].filter((line) => line !== null)
     resolveWorkflow({ content: lines.join('\n'), details: buildDetails('done') })
@@ -690,9 +680,9 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
       startedAt: null,
       durationMs: 0,
       toolCalls: 0,
-      promptPreview: truncateText(request.prompt, AGENT_RESULT_PREVIEW_LIMIT),
-      context: truncateText(request.context, AGENT_RESULT_PREVIEW_LIMIT),
-      expectedOutput: truncateText(request.expectedOutput, AGENT_RESULT_PREVIEW_LIMIT),
+      promptPreview: request.prompt,
+      context: request.context,
+      expectedOutput: request.expectedOutput,
       resultText: '',
       error: '',
       schemaValidated: false,
@@ -723,7 +713,6 @@ export async function runWorkflow(parentSession, toolCallId, params, parentSigna
       name: request.name,
       label: request.label || request.name,
       args: request.args,
-      argsJson: request.argsJson,
       phase: request.phase || currentPhase,
       status: 'queued',
       startedAt: null,

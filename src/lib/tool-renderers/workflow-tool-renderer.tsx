@@ -57,8 +57,7 @@ function workflowToolDisplayName(tool: WorkflowToolView) {
 }
 
 function workflowToolSummary(tool: WorkflowToolView) {
-  const summary = tool.args ? summarizeParams(tool.name, tool.args) : ''
-  return summary || tool.argsPreview || ''
+  return tool.args ? summarizeParams(tool.name, tool.args) : ''
 }
 
 function workflowStepStatus(status: WorkflowToolView['status']): ToolStatusKey {
@@ -128,9 +127,7 @@ function WorkflowToolCallRow({ tool, detailed, workflowRunId }: { tool: Workflow
   const summary = workflowToolSummary(tool)
   const status = workflowStepStatus(tool.status)
   const name = workflowToolDisplayName(tool)
-  const input = detailed
-    ? (tool.args ? stringifyValue(tool.args) : tool.argsPreview)
-    : ''
+  const input = detailed && tool.args ? stringifyValue(tool.args) : ''
   return (
     <li className={`quickforge-workflow-tool-call quickforge-workflow-tool-call--${tool.status}`}>
       <div className="quickforge-local-tool-shell">
@@ -310,7 +307,6 @@ export class WorkflowToolRenderer {
                 <details className="quickforge-workflow-result-section">
                   <summary className="cursor-pointer list-none text-muted-foreground select-none">
                     {t('workflowResult')}
-                    {view.resultsTruncated ? ` · ${t('workflowResultTruncated')}` : ''}
                   </summary>
                   <pre className="quickforge-workflow-result" title={view.resultPreview}>{view.resultPreview}</pre>
                 </details>

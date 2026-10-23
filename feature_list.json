@@ -1,6 +1,32 @@
 {
   "features": [
     {
+      "id": "workflow-result-no-truncation",
+      "name": "移除 run_workflow 结果截断（正文/结果预览/步骤预览全部原样返回）",
+      "description": "用户质疑 workflow 为什么结果会截断，要求里面是多少就返回多少。原实现三层截断：正文 50000 字符、工作流结果预览 20000 字符、Agent/Tool 步骤预览 2000/4000 字符，切的是 JSON.stringify 之后的文本，可能落在字符串或括号中间，模型既不知道被截断也无法 JSON.parse。用户确认范围为三层全去掉，超长结果信任 auto-compact 兜底。",
+      "status": "done",
+      "dependencies": [],
+      "summary": "1) server/agent-workflow-runner.mjs 删除 AGENT_RESULT_PREVIEW_LIMIT / TOOL_ARGS_PREVIEW_LIMIT / TOOL_RESULT_PREVIEW_LIMIT / WORKFLOW_RESULT_PREVIEW_LIMIT / CONTENT_RESULT_LIMIT；completeWorkflow 直接写完整 state.resultJson；buildDetails.resultPreview 全量且不再产出 resultTruncated；agentRecordPayload 的 promptPreview / context / expectedOutput / resultPreview 全量且不再产出 promptTruncated / resultTruncated；toolRecordPayload 始终发结构化 args、去掉 argsPreview 分支与 resultTruncated；normalizeToolRequest 与 tool record 删除只为截断服务的 argsJson 字段。ERROR_TEXT_LIMIT 与失败摘要 300 字符保留（错误摘要不是结果）。2) src/lib/workflow-run-detail.ts 删 WorkflowToolView.argsPreview 与 WorkflowRunView.resultsTruncated。3) workflow-tool-renderer.tsx 摘要与详细 input 只走 tool.args，结果区去掉已截断后缀。4) i18n.ts 删 workflowResultTruncated 中英各一条。",
+      "root_cause": "截断切的是 JSON.stringify(value, null, 2) 之后的文本而非结构化字段：5 万字符处可能落在字符串或括号中间，模型收到的 workflow_result 既没有截断标记也无法 JSON.parse，等于静默交付半截数据；同时 Inspector 的 resultPreview 与脚本实际拿到的文本不是同一份内容。",
+      "files": [
+        "server/agent-workflow-runner.mjs",
+        "src/lib/workflow-run-detail.ts",
+        "src/lib/tool-renderers/workflow-tool-renderer.tsx",
+        "src/lib/i18n.ts",
+        "tests/server/agent-workflow-runner.test.mjs",
+        "tests/frontend/workflow-renderer.test.ts",
+        "docs/architecture/workflow-orchestration.zh-CN.md",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/tools/README.md",
+        "docs/wiki/src/lib/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/server/agent-workflow-runner.test.mjs tests/frontend/workflow-renderer.test.ts 53 passed（新增 2 例：120000 字符结果原样返回且可 JSON.parse、长 prompt/结果/工具参数全量保留且无 truncated 标记）；npm run test 全量通过；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npm run build 成功（4.36s）。",
+      "boundaries": "保留 worker.mjs 的 1 MB JSON 上限（内存保护，抛错而非截断）、MAX_SCRIPT_LENGTH / MAX_ARGS_JSON_LENGTH、MAX_LOG_ENTRIES、ERROR_TEXT_LIMIT；工具层 server/utils/workspace.mjs 的 50000 上限未动（工具输出契约）；不做 auto-compact 阈值前移或软预算；未做运行中推摘要/终态推全量分层；未新增依赖；未改生成产物；未创建 Git commit。"
+    },
+    {
       "id": "live-present-auto-preview",
       "name": "右侧工作区面板自动预览改为 live 事件驱动（修复切换会话自动打开）",
       "description": "用户反馈「左边侧边栏/右侧面板在切换 session 时总是自动打开」。定位结论：侧栏（ChatSidebar）本身没有任何随 session 变化的打开路径（state 只有 useState(true) + 手动 toggle，无持久化、无 effect），真正自动打开的是右侧 Workspace Inspector。根因是自动预览用「消息状态差分」判断新产物：附着时刻把 agent.state.messages 里全部 toolResult 的 toolCallId 记成历史快照（App.tsx），再用 isNewlyPresentedArtifact 判定产物 id 不在快照里就弹面板。而会话打开快路径（20227ad）之后 messages 只是尾部 200 条窗口（server/routes/session-view.mjs:19,140），首帧后 ChatPanelHost 调 hydrateFullHistory 补齐全量并整表替换（server-agent.ts:2138-2163），全量表里更早的 present_files 的 toolCallId 不在快照中，于是被误判为「刚刚新产生」→ 自动开面板。凡消息数 > 200 且历史含 present_files 的会话，切入即弹。",

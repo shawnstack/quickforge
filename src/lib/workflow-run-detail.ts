@@ -45,7 +45,6 @@ export type WorkflowToolView = {
   status: WorkflowAgentStatus
   durationMs: number
   args?: Record<string, unknown>
-  argsPreview: string
   resultPreview: string
   error: string
 }
@@ -91,7 +90,6 @@ export type WorkflowRunView = {
   failedToolCount: number
   timedOut: boolean
   aborted: boolean
-  resultsTruncated: boolean
 }
 
 export type WorkflowResultLike = {
@@ -155,7 +153,6 @@ function normalizeTool(value: unknown, index: number): WorkflowToolView | null {
     status: normalizedStatus,
     durationMs: Math.max(0, number(value.durationMs)),
     ...(isRecord(value.args) ? { args: value.args } : {}),
-    argsPreview: text(value.argsPreview),
     resultPreview: text(value.resultPreview),
     error: text(value.error),
   }
@@ -252,7 +249,6 @@ export function buildWorkflowRunView(result: WorkflowResultLike | undefined, isS
     failedToolCount: tools.filter((tool) => tool.status === 'error' || tool.status === 'aborted').length,
     timedOut,
     aborted,
-    resultsTruncated: details.resultTruncated === true,
   }
 }
 

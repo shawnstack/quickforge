@@ -335,7 +335,6 @@ describe('workflow renderer wiring and contracts', () => {
       'workflowAgentToolCalls',
       'workflowAgentSchema',
       'workflowResult',
-      'workflowResultTruncated',
       'workflowScript',
       'workflowBadge',
       'toolApprovalRiskWorkflow',

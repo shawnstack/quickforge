@@ -665,6 +665,42 @@ describe('run_workflow worker orchestration', () => {
     expect(result.details.logs.length).toBe(60)
     expect(result.details.logs.reduce((sum, log) => sum + log.message.length, 0)).toBeGreaterThan(50_000)
   })
+
+  it('returns an oversized script result verbatim instead of truncating it', async () => {
+    const result = await runWorkflowScript('return { payload: "z".repeat(120000) }', {})
+    const payload = 'z'.repeat(120_000)
+
+    // Nothing is windowed on the way out: the model receives the full JSON and
+    // the Inspector preview is the same string.
+    expect(result.content).toContain(`"payload": "${payload}"`)
+    expect(result.details.resultPreview).toContain(payload)
+    expect(result.details.resultTruncated).toBeUndefined()
+    expect(await readResultJson(result)).toEqual({ payload })
+  })
+
+  it('retains long agent results, prompts and tool arguments without a preview budget', async () => {
+    const longResult = 'r'.repeat(6000)
+    const runAgent = vi.fn(async () => ({ content: longResult }))
+    const runTool = vi.fn(async () => ({ content: longResult }))
+    const result = await runWorkflowScript([
+      'const a = await agent("p".repeat(6000))',
+      'const t = await tool("run_command", { command: "node -e \\"console.log(1)\\"", description: "d".repeat(9000) })',
+      'return [a, t]',
+    ].join('\n'), { runAgent, runTool })
+    const longPrompt = 'p'.repeat(6000)
+    const longArgs = { command: 'node -e "console.log(1)"', description: 'd'.repeat(9000) }
+
+    const [agentRecord] = result.details.agents
+    expect(agentRecord.promptPreview).toBe(longPrompt)
+    expect(agentRecord.promptTruncated).toBeUndefined()
+    expect(agentRecord.resultPreview).toBe(longResult)
+    expect(agentRecord.resultTruncated).toBeUndefined()
+    const [toolRecord] = result.details.tools
+    expect(toolRecord.args).toEqual(longArgs)
+    expect(toolRecord.argsPreview).toBeUndefined()
+    expect(toolRecord.resultPreview).toBe(longResult)
+    expect(toolRecord.resultTruncated).toBeUndefined()
+  })
 })
 
 describe('parseStructuredAgentResult', () => {

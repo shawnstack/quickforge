@@ -1,3 +1,21 @@
+## workflow-result-no-truncation（done，2026-10-22）
+
+- Goal：用户质疑「workflow 结果为什么会被截断」，确认「里面是多少就返回多少」，选择 **①②③ 全去掉**（正文 50,000 / 工作流结果预览 20,000 / agent·tool 步骤预览 2,000·4,000），超长结果**信任 auto-compact 兜底**。
+- 结论（一句话）：`run_workflow` 的返回值与 Inspector 预览不再有任何字符截断——脚本 `return` 什么，模型与前端就收到什么；`truncateText` 只保留给错误文本与失败摘要。
+- 根因（为什么原设计有害）：`runner.mjs` 切的是 `JSON.stringify(value, null, 2)` 之后的**文本**，5 万字符处可能落在字符串/括号中间，模型既不知道被截断（`<workflow_result>` 内无提示）也无法 `JSON.parse`，等于静默交付半截数据。
+- 改动：
+  1. `server/agent-workflow-runner.mjs`：删除 `AGENT_RESULT_PREVIEW_LIMIT` / `TOOL_ARGS_PREVIEW_LIMIT` / `TOOL_RESULT_PREVIEW_LIMIT` / `WORKFLOW_RESULT_PREVIEW_LIMIT` / `CONTENT_RESULT_LIMIT` 五个常量；`completeWorkflow` 直接写完整 `state.resultJson`；`buildDetails` 的 `resultPreview` 全量、不再产出 `resultTruncated`；`agentRecordPayload` 的 `promptPreview` / `context` / `expectedOutput` / `resultPreview` 全量、不再产出 `promptTruncated` / `resultTruncated`；`toolRecordPayload` 始终发结构化 `args`、去掉 `argsPreview` 分支与 `resultTruncated`；`normalizeToolRequest` 与 tool record 删除只为截断服务的 `argsJson` 字段。`ERROR_TEXT_LIMIT`（错误文本 2,000）与失败摘要的 300 字符保留——那是错误摘要，不是结果。
+  2. `src/lib/workflow-run-detail.ts`：`WorkflowToolView` 删 `argsPreview`，`WorkflowRunView` 删 `resultsTruncated`，`normalizeTool` 不再读 `argsPreview`。
+  3. `src/lib/tool-renderers/workflow-tool-renderer.tsx`：`workflowToolSummary` 只走 `summarizeParams(tool.args)`；详细模式的 input 只走 `stringifyValue(tool.args)`；结果区摘要去掉「· 已截断」后缀。
+  4. `src/lib/i18n.ts`：删除 `workflowResultTruncated` 中英各一条。
+- 测试（语义迁移 + 新增回归）：`tests/server/agent-workflow-runner.test.mjs` 新增 2 例——「120,000 字符结果原样返回」（`content` 含完整 JSON、`resultPreview` 全量、无 `resultTruncated`、可 `JSON.parse`）、「长 prompt/结果/工具参数不设预览预算」（6,000 字符 prompt 与结果、9,000 字符 description 全量保留，无 `promptTruncated` / `argsPreview` / `resultTruncated`）；`tests/frontend/workflow-renderer.test.ts` 的 i18n 键清单去掉 `workflowResultTruncated`。既有 35 例全部通过。
+- 验证：定向 `npx vitest run tests/server/agent-workflow-runner.test.mjs tests/frontend/workflow-renderer.test.ts` → 53 passed；`npm run test` 全量通过；`npm run lint` 0 error；`npm run build` 成功。
+- 文档：`docs/architecture/workflow-orchestration.zh-CN.md` 的上限表（正文/三个预览改为「不截断」并说明 1 MB JSON 仍是硬约束）、details 字段表（删 `resultTruncated` / `argsPreview` / `promptTruncated`）、7.2 汇总字段与 7.3 i18n 键清单同步；`docs/wiki/server/README.md`、`docs/wiki/server/tools/README.md`、`docs/wiki/src/lib/README.md` 的截断描述改为「结果一律不截断 + 上下文压缩兜底」。
+- 边界：**保留** `worker.mjs` 的 1 MB JSON 上限（worker 内存保护，抛错而非截断）、`MAX_SCRIPT_LENGTH` / `MAX_ARGS_JSON_LENGTH`（20,000，启动前校验）、`MAX_LOG_ENTRIES`（200 条）、`ERROR_TEXT_LIMIT`；工具层自己的 `server/utils/workspace.mjs` 50,000 上限未动（那是工具输出契约，不是 workflow 结果）；未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+- Notes（未做，供下轮）：① 单条 toolResult 最大可达 1 MB（≈250k tokens），在 auto-compact 80% 阈值触发前若已超 provider 上限会直接报错——本轮按用户决定不做前置保护，若真机遇到需要把 `DEFAULT_AUTO_COMPACT_SETTINGS.thresholdPercent` 前移或给 `run_workflow` 加软预算；② 运行中帧体积随结果增长变大（`resultPreview` 全量随 200ms 节流推送），超长结果下流式帧会明显变重，未做「运行中只推摘要、终态推全量」的分层；③ `docs/design/workflow-tool-redesign.html:856` 仍写着「结果 · 已截断」，属历史设计稿，未改。
+
+---
+
 ## live-present-auto-preview（done，2026-10-22）
 
 - Goal：用户反馈「切换 session 时左侧边栏/右侧面板总是自动打开，不希望每次都自动打开」。先做只读调研定位现象归属，用户确认为**右侧 workspace 面板/预览被自动打开**，并要求「方案最佳、不考虑历史包袱、保证产品体验、不要打补丁」。

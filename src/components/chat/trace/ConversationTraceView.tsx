@@ -47,6 +47,8 @@ export type TraceAgentLike = {
 
 export type ConversationTraceViewProps = {
   agent: TraceAgentLike | null
+  /** Switch back to the chat view (used by the inspector's "locate in chat" action). */
+  onOpenChat?: () => void
   className?: string
 }
 
@@ -95,7 +97,7 @@ type Selection = { start: number; end: number }
 /** Stable identity for "no session yet" (an inline [] would re-run the projection every render). */
 const EMPTY_MESSAGES: AgentMessage[] = []
 
-export function ConversationTraceView({ agent, className }: ConversationTraceViewProps) {
+export function ConversationTraceView({ agent, onOpenChat, className }: ConversationTraceViewProps) {
   const revision = useAgentRevision(agent)
   // A fresh Set per revision: the agent mutates `state.pendingToolCalls` in place,
   // so identity has to come from the revision counter for downstream memos.
@@ -390,7 +392,11 @@ export function ConversationTraceView({ agent, className }: ConversationTraceVie
             </div>
 
             {selected ? (
-              <TraceInspector row={selected} onClose={() => setSelectedId(null)} />
+              <TraceInspector
+                row={selected}
+                onClose={() => setSelectedId(null)}
+                onOpenChat={onOpenChat ? () => onOpenChat() : undefined}
+              />
             ) : null}
           </div>
         </>
@@ -708,7 +714,15 @@ function statusLabel(status: TraceTool['status']): string {
   return t('trace.statusDone')
 }
 
-function TraceInspector({ row, onClose }: { row: TraceRow; onClose: () => void }) {
+function TraceInspector({
+  row,
+  onClose,
+  onOpenChat,
+}: {
+  row: TraceRow
+  onClose: () => void
+  onOpenChat?: () => void
+}) {
   const [tab, setTab] = useState<InspectorTab>('summary')
   const tabs = TABS[row.kind]
   const activeTab = tabs.includes(tab) ? tab : 'summary'
@@ -758,7 +772,7 @@ function TraceInspector({ row, onClose }: { row: TraceRow; onClose: () => void }
 
       <div className="quickforge-trace-inspector-body">
         {row.kind === 'tool' ? (
-          <ToolInspectorBody tool={row.tool} tab={activeTab} />
+          <ToolInspectorBody tool={row.tool} tab={activeTab} onOpenChat={onOpenChat} />
         ) : row.kind === 'step' ? (
           <StepInspectorBody step={row.step} tab={activeTab} />
         ) : (
@@ -778,7 +792,15 @@ function MetaRow({ label, children, tone }: { label: string; children: ReactNode
   )
 }
 
-function ToolInspectorBody({ tool, tab }: { tool: TraceTool; tab: InspectorTab }) {
+function ToolInspectorBody({
+  tool,
+  tab,
+  onOpenChat,
+}: {
+  tool: TraceTool
+  tab: InspectorTab
+  onOpenChat?: () => void
+}) {
   if (tab === 'args') {
     return (
       <section className="quickforge-trace-inspector-section">
@@ -851,6 +873,11 @@ function ToolInspectorBody({ tool, tab }: { tool: TraceTool; tab: InspectorTab }
         <h4>{t('trace.argsSummaryLabel')}</h4>
         <pre>{tool.argsSummary || t('trace.noArgs')}</pre>
       </section>
+      {onOpenChat ? (
+        <div className="quickforge-trace-inspector-actions">
+          <button type="button" onClick={onOpenChat}>{t('trace.actionGotoChat')}</button>
+        </div>
+      ) : null}
     </>
   )
 }

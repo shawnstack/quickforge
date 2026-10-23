@@ -937,6 +937,30 @@
   color: var(--destructive);
 }
 
+.quickforge-trace-inspector-actions {
+  display: flex;
+  gap: 0.625rem;
+  margin-top: 0.5rem;
+}
+
+.quickforge-trace-inspector-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
+  cursor: pointer;
+  transition: color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-trace-inspector-actions button:hover {
+  color: var(--foreground);
+}
+
 /* ── 空状态 / tooltip ─────────────────────────────────────────────────────── */
 
 .quickforge-trace-empty {

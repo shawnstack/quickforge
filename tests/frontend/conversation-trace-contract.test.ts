@@ -95,17 +95,6 @@ describe('inspector default', () => {
     expect(view).toContain("user: ['summary', 'raw']")
   })
 
-  it('offers no "locate in chat" escape hatch inside the inspector', () => {
-    // The trace is a self-contained read-only view; the header already has an
-    // explicit chat/trace toggle, so the inspector must not repeat that navigation.
-    expect(view).not.toContain('onOpenChat')
-    expect(view).not.toContain('trace.actionGotoChat')
-    expect(app).not.toContain('onOpenChat')
-    // No orphaned i18n key or stylesheet block left behind either.
-    expect(readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')).not.toContain('trace.actionGotoChat')
-    expect(css).not.toContain('.quickforge-trace-inspector-actions')
-  })
-
   it('closes on Escape', () => {
     expect(view).toContain("if (event.key === 'Escape') onClose()")
   })

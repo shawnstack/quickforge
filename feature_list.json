@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "trace-view-switch-neutral",
+      "name": "轨迹页签选中态改回与「对话」完全一致的中性样式",
+      "description": "用户反馈「切换到轨迹的时候 轨迹的 icon 不需要有特殊的颜色 就和普通的对话一样就行」。实现里轨迹页签被 `:last-of-type` 选中态规则单独染成 model 蓝并加 1px 彩色内描边，删除该覆盖即可。",
+      "status": "done",
+      "dependencies": [
+        "conversation-trace-view"
+      ],
+      "summary": "1) src/components/chat/trace/conversation-trace.css：删除 `.quickforge-chat-view-switch button[role='tab'][aria-selected='true']:last-of-type` 整条规则（`color: var(--qf-trace-text-model)` + `inset 0 0 0 1px var(--qf-trace-hue-model)`），轨迹页签回落到通用 `[aria-selected='true']`（`--background` 药丸 + `--foreground` 文字图标）；`:where(.quickforge-trace, .quickforge-chat-view-switch)` 的 `--qf-trace-*` 令牌作用域保留，因为 `.quickforge-trace` 主体仍在用。2) tests/frontend/conversation-trace-contract.test.ts 新增「keeps the chat / trace view switch neutral」：切换器自身规则块内不得出现 `--qf-trace-hue-*` / `--qf-trace-text-*`（正则用 `^\\.` 行首锚定，避免先命中 `:where()` 令牌块），选中态必须 `color: var(--foreground)` 且无 `inset 0 0 0 1px` 彩色内描边。",
+      "root_cause": "conversation-trace-view 落地时在切换器上加了一条「轨迹页签选中时才带一点 model 色相」的覆盖规则（注释写明意图是区分视图），但轨迹只是同一段对话的第二种视图，选中态的特殊着色让顶部栏在切到轨迹时出现彩色，不符合与普通对话一致的设计语言。",
+      "files": [
+        "src/components/chat/trace/conversation-trace.css",
+        "tests/frontend/conversation-trace-contract.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/conversation-trace-contract.test.ts → 27 passed（含新增 1 例）；npm run lint → 0 error（仅既有 GitToolsPinnedSummary exhaustive-deps warning）；npm run build → 成功（tsc -b + vite 5.53s，仅既有 KaTeX 与 node:fs externalized 警告）。",
+      "boundaries": "只删切换器一条 CSS 覆盖 + 加一条契约用例；未改 App.tsx / ConversationTraceView.tsx 结构，未改轨迹主体（时间总览、Ledger、Inspector）任何色相，未改 `--qf-trace-*` 令牌值与作用域选择器；未新增或升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit。Notes：浅色/深色真机对比度未目视验收；作用域令牌未来可考虑收窄为 `.quickforge-trace`（需同步 `scopes the hues` 契约用例）。"
+    },    {
       "id": "retry-continue-lease-header",
       "name": "修复消息「重试」必报 SESSION_LEASE_HELD 的误报（continue 漏发租约头）",
       "description": "用户反馈「只有一条消息时点重试会报错 This session is open for writing in another window」，随后更正为「多轮点重试也报错」——重试在所有场景都失败，而本页明明是唯一打开的窗口。已修：continue 写入口补齐租约身份头并加本地 canWrite 门禁。",

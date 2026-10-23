@@ -1,3 +1,20 @@
+# 当前交接：trace-view-switch-neutral（done，2026-10-23）
+
+- Current Objective（当前目标）：用户反馈「切换到轨迹的时候 轨迹的 icon 不需要有特殊的颜色 就和普通的对话一样就行」。
+- 结论（一句话）：图标本身没色，是 `conversation-trace.css` 里一条只作用于轨迹页签的选中态覆盖（`:last-of-type`）把文字与图标染成 model 蓝并加了 1px 彩色内描边；删掉后两个页签完全同款。
+- 改动文件：
+  1. `src/components/chat/trace/conversation-trace.css`：删除 `.quickforge-chat-view-switch button[role='tab'][aria-selected='true']:last-of-type` 整条规则，轨迹页签回落到通用 `[aria-selected='true']`（`--background` 药丸 + `--foreground`）。
+  2. `tests/frontend/conversation-trace-contract.test.ts`：新增「keeps the chat / trace view switch neutral」，断言切换器规则块不含 `--qf-trace-hue-*` / `--qf-trace-text-*`（行首锚定，避开 `:where()` 令牌作用域），选中态 `--foreground` 且无 `inset 0 0 0 1px`。
+  3. `progress.md` / `session-handoff.md` / `feature_list.json`（新增 `trace-view-switch-neutral`，done）。
+- 关键实现约束：令牌作用域选择器 `:where(.quickforge-trace, .quickforge-chat-view-switch)` 必须保留——`.quickforge-trace` 主体仍用这批 `--qf-trace-*` 令牌，收窄作用域会扩大改动面并撞 `scopes the hues` 契约用例。
+- 被避免的坑：写契约用例时不能直接匹配 `.quickforge-chat-view-switch...{`，会先命中 `:where(.quickforge-trace, .quickforge-chat-view-switch) {` 令牌块并误报；用 `^\.` 行首锚定。
+- Evidence（验证）：`npx vitest run tests/frontend/conversation-trace-contract.test.ts` → **27 passed**；`npm run lint` → 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` → 成功（`tsc -b` + vite 5.53s）。
+- 已知工作区遗留（与本次无关）：`goal-*`、`workflow-*`、`index.css`、`TodoWriteSummary.tsx` 等多处未提交改动来自前几轮会话。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：未创建 Git commit，未手工修改 `dist/`、`package-dist/`、`package-offline/`。可选后续（`progress.md` Notes）：① `npm run dev` 各看一浅色/深色下轨迹选中态对比度；② 若确认切换器不需要任何轨迹色，可把令牌作用域从 `:where(.quickforge-trace, .quickforge-chat-view-switch)` 收窄为 `.quickforge-trace`（同步契约用例）。
+
+---
+
 # 当前交接：goal-strip-pause-icon-two-bars（done，2026-10-23）
 
 - Current Objective（当前目标）：用户反馈「执行中的 icon 显示有点问题，我看到只有单杠不是双杠」，问有没有现成的 icon 可用。

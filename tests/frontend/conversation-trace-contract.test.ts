@@ -228,6 +228,19 @@ describe('trace color language', () => {
     expect(css).toMatch(/\.quickforge-trace-tool-rows::before \{[\s\S]*?background: color-mix\(in oklab, var\(--border\) 60%, transparent\)/)
   })
 
+  it('keeps the chat / trace view switch neutral', () => {
+    // The switch lives in the top bar next to the branch pill. "Trace" is a view of
+    // this conversation, not a data carrier, so selecting it must look exactly like
+    // selecting "Chat": white pill + --foreground. No model hue, no coloured ring.
+    const switchRules = [...css.matchAll(/^\.quickforge-chat-view-switch[^{]*\{[\s\S]*?\n\}/gm)].map((match) => match[0])
+    expect(switchRules.length).toBeGreaterThan(0)
+    for (const rule of switchRules) expect(rule).not.toMatch(/--qf-trace-(hue|text)-/)
+
+    const selected = css.match(/\.quickforge-chat-view-switch button\[aria-selected='true'\] \{[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(selected).toMatch(/color: var\(--foreground\)/)
+    expect(selected).not.toMatch(/inset 0 0 0 1px/)
+  })
+
   it('leaves the turn header and the selected row fully neutral', () => {
     // Turn headers are structure and selection is interaction feedback — neither is
     // data, so both must stay on the grey ramp. Only the row's own 2px rule carries

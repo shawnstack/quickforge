@@ -1,3 +1,17 @@
+## trace-view-switch-neutral（done，2026-10-23）
+
+- Goal：用户反馈「切换到轨迹的时候 轨迹的 icon 不需要有特殊的颜色 就和普通的对话一样就行」。
+- 结论（一句话）：不是图标本身带色，而是 `conversation-trace.css` 里有一条只作用于「轨迹」页签的选中态覆盖规则——`:last-of-type` 把文字与图标染成 model 蓝并加 1px 内描边；删掉这条规则后两个页签完全同款。
+- 改动（2 文件）：
+  1. `src/components/chat/trace/conversation-trace.css`：删除 `.quickforge-chat-view-switch button[role='tab'][aria-selected='true']:last-of-type` 整条规则（`color: var(--qf-trace-text-model)` + `inset 0 0 0 1px` model 色描边）；轨迹页签回落到通用 `[aria-selected='true']`（`--background` 药丸 + `--foreground` 文字）。切换器内的 `--qf-trace-*` 令牌与容器作用域选择器保留（令牌仍被 `.quickforge-trace` 主体使用，删作用域会扩大改动面）。
+  2. `tests/frontend/conversation-trace-contract.test.ts`：新增契约用例「keeps the chat / trace view switch neutral」，断言切换器自身规则块内不出现 `--qf-trace-hue-*` / `--qf-trace-text-*`（排除 `:where()` 令牌作用域）、选中态用 `--foreground` 且无 `inset 0 0 0 1px` 彩色内描边。
+- 文档：未更新 `docs/wiki` 与 `docs/architecture`——两处只描述「对话区顶部切换器把 ChatSurface 换成 ConversationTraceView」，从未记录轨迹页签的 model 色选中态，本次是把实现回退到文档既有口径，无文档口径变化。
+- 验证 / Evidence：`npx vitest run tests/frontend/conversation-trace-contract.test.ts` → **27 passed**（含新增 1 例；首版正则误命中 `:where()` 令牌块，改为行首锚定后通过）；`npm run lint` → 0 error（仅既有 `GitToolsPinnedSummary` exhaustive-deps warning）；`npm run build` → 成功（`tsc -b` + vite 5.53s，仅既有 KaTeX/`node:fs` externalized 警告）。
+- 边界：只删一条 CSS 规则 + 一条测试，不动 `ConversationTraceView.tsx` / `App.tsx` 的切换器结构、不动轨迹主体（时间总览、Ledger、Inspector）的任何色相、不动 `--qf-trace-*` 令牌值、不新增或升级依赖、未手工修改 `dist/`、`package-dist/`、`package-offline/`（build 正常刷新 dist）、未创建 Git commit。
+- Notes（未做，供下轮）：① 浅色/深色真机对比度未目视验收（`--foreground` 对白药丸应无障碍，但深色下药丸是 `--background` 深底 + 近白字，建议 `npm run dev` 各看一眼）；② `.quickforge-chat-view-switch` 里的 `--qf-trace-*` 令牌现在只为「不解耦作用域」而留，若后续确认切换器不再需要任何轨迹色，可把 `:where(.quickforge-trace, .quickforge-chat-view-switch)` 收窄成 `.quickforge-trace`（需同步 `scopes the hues` 契约用例）。
+
+---
+
 ## goal-strip-pause-icon-two-bars（done，2026-10-23）
 
 - Goal：用户反馈「执行中的 icon 显示有点问题，我看到只有单杠不是双杠」，问有没有现成 icon 可用。

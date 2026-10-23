@@ -1088,14 +1088,6 @@
   box-shadow: 0 1px 2px hsl(0 0% 0% / 0.06);
 }
 
-/* 轨迹页签选中时才带一点 model 色相：默认仍是中性，避免顶层栏变彩色 */
-.quickforge-chat-view-switch button[role='tab'][aria-selected='true']:last-of-type {
-  color: var(--qf-trace-text-model);
-  box-shadow:
-    0 1px 2px hsl(0 0% 0% / 0.06),
-    inset 0 0 0 1px color-mix(in oklab, var(--qf-trace-hue-model) 55%, transparent);
-}
-
 .quickforge-chat-view-switch svg {
   width: 0.875rem;
   height: 0.875rem;

@@ -517,20 +517,6 @@ export function formatTraceTokens(tokens: number | undefined): string {
   return String(tokens)
 }
 
-/** Cheap tool-call count for the header badge (no projection allocation). */
-export function countTraceTools(messages: AgentMessage[]): number {
-  let count = 0
-  for (const message of messages) {
-    if (message.role !== 'assistant') continue
-    const content = (message as { content?: unknown }).content
-    if (!Array.isArray(content)) continue
-    for (const part of content) {
-      if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'toolCall') count += 1
-    }
-  }
-  return count
-}
-
 /** Rows the ledger renders, in order. Used by the search + selection filters. */
 export type TraceRow =
   | { kind: 'user'; id: string; turnIndex: number; at: number; endAt: number; text: string; messageIndex?: number }

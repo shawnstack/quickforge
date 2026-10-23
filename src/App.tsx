@@ -48,7 +48,6 @@ import { OPEN_GOAL_SUMMARY_EVENT, syncGoalUiState } from '@/lib/goal-ui'
 import { OPEN_WORKFLOW_RUN_EVENT, normalizeOpenWorkflowRunRequest, workflowRunStore, type WorkflowRunPayload } from '@/lib/workflow-run-payload'
 import type { GoalAction, GoalActionOptions } from '@/lib/goal'
 import { saveGoalObjective } from '@/lib/goal-edit'
-import { countTraceTools } from '@/lib/conversation-trace'
 import type {
   AgentAccessMode,
   ProjectInfo,
@@ -525,12 +524,6 @@ function MainApp() {
     setConversationViewScope({ scopeId: agentManager.currentRuntimeScopeId, view })
   }, [setConversationViewScope, agentManager.currentRuntimeScopeId])
 
-  // 顶部「轨迹」徽标只数工具调用，不跑完整投影（切视图时才 fold）。
-  const traceToolCount = useMemo(
-    () => countTraceTools(pinnedSummaryMessages),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
-    [pinnedSummaryMessages, pinnedSummaryRevision],
-  )
   const pinnedSummaryTodos = useMemo(() => (
     extractLatestTodoWriteSnapshot(pinnedSummaryMessages)?.todos ?? []
   // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
@@ -2101,7 +2094,6 @@ function MainApp() {
                   >
                     <Activity className="size-[14px]" />
                     <span>{t('trace.viewTrace')}</span>
-                    {traceToolCount > 0 ? <span className="quickforge-chat-view-switch-count">{traceToolCount}</span> : null}
                   </button>
                 </div>
               ) : null}

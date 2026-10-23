@@ -45,9 +45,16 @@ describe('trace view mounting', () => {
     expect(app).not.toMatch(/useEffect\(\(\) => \{\s*setConversationViewScope/)
   })
 
-  it('shows a tool count badge driven by a cheap count, not the full projection', () => {
-    expect(app).toContain('countTraceTools(pinnedSummaryMessages)')
-    expect(app).toContain('quickforge-chat-view-switch-count')
+  it('renders the view switcher as a plain two-way toggle, without a count badge', () => {
+    // The switcher only answers "which view am I in" — a tool count belongs in the
+    // trace itself, not in the header (it made the toggle look like a filter chip).
+    expect(app).toContain("t('trace.viewChat')")
+    expect(app).toContain("t('trace.viewTrace')")
+    expect(app).not.toContain('quickforge-chat-view-switch-count')
+    expect(app).not.toContain('countTraceTools')
+    // No counting helper left behind either (it had exactly this one caller).
+    expect(projection).not.toContain('countTraceTools')
+    expect(css).not.toContain('.quickforge-chat-view-switch-count')
   })
 })
 

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildConversationTrace,
-  countTraceTools,
   formatTraceDuration,
   formatTraceTokens,
   layoutTraceSpans,
@@ -274,20 +273,6 @@ describe('buildConversationTrace — honest timing', () => {
     expect(model.toolCount).toBe(0)
     expect(model.startAt).toBeUndefined()
     expect(traceBounds(model)).toBeNull()
-  })
-})
-
-describe('countTraceTools', () => {
-  it('counts toolCall parts without building the projection', () => {
-    expect(countTraceTools([
-      user('a', 1000),
-      assistant(1100, { toolCalls: [{ id: 'c1', name: 'x' }, { id: 'c2', name: 'y' }] }),
-      toolResult('c1', 'x', 1200),
-    ])).toBe(2)
-  })
-
-  it('is 0 when the session never called a tool', () => {
-    expect(countTraceTools([user('a', 1000), assistant(1100, { text: 'hi' })])).toBe(0)
   })
 })
 

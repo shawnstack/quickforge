@@ -1101,17 +1101,6 @@
   height: 0.875rem;
 }
 
-.quickforge-chat-view-switch-count {
-  min-width: 1rem;
-  padding: 0 0.25rem;
-  border: 1px solid color-mix(in oklab, var(--qf-trace-hue-model) 45%, var(--border));
-  border-radius: 999px;
-  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.65625);
-  font-variant-numeric: tabular-nums;
-  color: var(--qf-trace-text-model);
-  text-align: center;
-}
-
 /* ── 窄屏降级 ─────────────────────────────────────────────────────────────── */
 
 @media (width <= 48rem) {

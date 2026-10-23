@@ -25,7 +25,7 @@
 - **并行组**：同一条 assistant 消息内 ≥2 个 `toolCall` 时，全部标 `parallelGroupId = 'assistant-<index>'`；单个调用不标。
 - **布局三模式**：`layoutTraceSpans(model, mode)` 返回 `{ id, lane, left, width }` 百分比。`sequence` 按时间顺序等宽串行；`duration` 每轨内按实际耗时分配；`time` 按真实时钟。短记录保底 0.9% 宽度。`traceTurnMarkers` 只在 `time` 模式下有意义。
 - **格式化不编数字**：`formatTraceDuration(undefined)` / `formatTraceTokens(undefined)` 返回 `—`；`formatTraceClock(undefined)` 同样。
-- 辅助：`traceRows()`（Ledger 行）、`traceRowMatches()`（搜索）、`countTraceTools()`（顶部徽标用的廉价计数，不建投影）、`traceBounds()`。
+- 辅助：`traceRows()`（Ledger 行）、`traceRowMatches()`（搜索）、`traceBounds()`。
 
 消费方：`src/components/chat/trace/ConversationTraceView.tsx`。设计与边界见 [对话轨迹](../../architecture/conversation-trace.zh-CN.md)。
 

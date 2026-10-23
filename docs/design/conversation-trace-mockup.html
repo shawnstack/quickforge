@@ -544,7 +544,6 @@
         <button class="seg-btn" id="tabTrace" type="button" role="tab" aria-selected="false">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
           <span>轨迹</span>
-          <span class="n" id="traceCount">0</span>
         </button>
       </div>
 
@@ -1202,7 +1201,6 @@ function renderLedger(model) {
         '<div class="t1">这个会话还没有可展示的运行记录</div>' +
         '<div class="t2">Agent 开始调用工具后，这里会按轮次显示每次模型请求、<br>工具调用、耗时与 token 用量。</div>' +
       '</div>'
-    document.getElementById('traceCount').textContent = '0'
     return
   }
 
@@ -1292,7 +1290,6 @@ function renderLedger(model) {
     (hasAny ? turnsHtml + betweenHtml : '<div class="trace-empty">' + svg('search') + '<div class="t1">没有匹配的记录</div><div class="t2">' +
       (state.selection ? '当前时间区间内没有活动，清除筛选可看全部。' : '换个关键词试试。') + '</div></div>')
 
-  document.getElementById('traceCount').textContent = String(total)
   document.getElementById('searchCount').textContent = q ? countMatches(model, q) + ' 处匹配' : ''
 }
 

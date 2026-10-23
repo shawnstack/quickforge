@@ -35,12 +35,13 @@
  * --workflow-done（158 绿）拉开 30°，否则「工具」类别色会和「运行中」状态色糊在一起。
  *
  * 饱和度分布是刻意不均匀的，这是「有色彩但不花」的关键：
- *   · 小面积元素（条形 / 徽标 / 2px 规则条 / 图标）→ 覆盖 78–95%，颜色要看得见
- *   · 大面积底色（轨道底 / 代码块）→ 只 6–12%，保持纸感
+ *   · 细线元素（条形 / 行左 2px 规则条 / 图标 / 文字）→ 覆盖 70–95%，颜色要看得见
+ *   · 任何**背景**（轨道底 / 徽标底 / 选中底 / 页签底 / 代码块底）→ 一律中性灰
  *
- * 完全不染色的部分：轮次头、行选中态、文字、边框、分割线、工具栏与检查器骨架。
- * 轮次头 = 分区、选中 = 交互反馈，两者都不是「数据」，用灰阶表达即可；
- * 一旦给它们上色，就会和「记录类型」抢同一个色相，视线更累。
+ * 规则很简单：颜色只画在「线」和「字」上，不画在「面」上。
+ * 面上色会让面板变成彩色图表；线是数据载体，本来就该有色。
+ * 轮次头、行选中态、拖选区间、工具栏、检查器骨架同理保持灰阶——
+ * 分区与交互反馈不是数据，上色会和「记录类型」抢同一个色相。
  * 深色模式同色相提亮，彩度保留（压灰会让深色下几乎没有颜色）。
  * ------------------------------------------------------------------------- */
 :where(.quickforge-trace, .quickforge-chat-view-switch) {
@@ -130,7 +131,7 @@
 }
 
 .quickforge-trace-seg button[aria-pressed='true'] {
-  background: color-mix(in oklab, var(--qf-trace-hue-model) 20%, transparent);
+  background: color-mix(in oklab, var(--foreground) 8%, transparent);
   color: var(--qf-trace-text-model);
   font-weight: 500;
 }
@@ -414,7 +415,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  background: color-mix(in oklab, var(--qf-trace-hue-model) 12%, transparent);
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
   border-left: 1px solid color-mix(in oklab, var(--qf-trace-hue-model) 70%, transparent);
   border-right: 1px solid color-mix(in oklab, var(--qf-trace-hue-model) 70%, transparent);
   pointer-events: none;
@@ -575,7 +576,7 @@
   top: 0;
   bottom: 0.3125rem;
   width: 1px;
-  background: color-mix(in oklab, var(--qf-trace-hue-tool) 55%, var(--border));
+  background: color-mix(in oklab, var(--border) 60%, transparent);
 }
 
 .quickforge-trace-tool-rows .quickforge-trace-row {
@@ -675,22 +676,21 @@
   color: var(--muted-foreground);
 }
 
-/* 徽标：淡色底 + 同色相文字。彩度够低，读起来仍是「标签」而不是「按钮」 */
+/* 徽标：灰底 + 同色相边框与文字。
+   底色保持中性（背景不上色），类型靠「边框色 + 文字色」读出来——
+   这样徽标仍然可辨，但整排徽标不会在行里连成一条彩带。 */
 .quickforge-trace-badge[data-kind='user'] {
   border-color: color-mix(in oklab, var(--qf-trace-hue-input) 48%, var(--border));
-  background: color-mix(in oklab, var(--qf-trace-hue-input) 16%, transparent);
   color: var(--qf-trace-text-input);
 }
 
 .quickforge-trace-badge[data-kind='step'] {
   border-color: color-mix(in oklab, var(--qf-trace-hue-model) 50%, var(--border));
-  background: color-mix(in oklab, var(--qf-trace-hue-model) 17%, transparent);
   color: var(--qf-trace-text-model);
 }
 
 .quickforge-trace-badge[data-kind='tool'] {
   border-color: color-mix(in oklab, var(--qf-trace-hue-tool) 50%, var(--border));
-  background: color-mix(in oklab, var(--qf-trace-hue-tool) 17%, transparent);
   color: var(--qf-trace-text-tool);
 }
 
@@ -747,7 +747,6 @@
   flex: 0 0 auto;
   padding: 0 0.1875rem;
   border: 1px solid color-mix(in oklab, var(--qf-trace-hue-tool) 46%, var(--border));
-  background: color-mix(in oklab, var(--qf-trace-hue-tool) 10%, transparent);
   border-radius: 0.1875rem;
   font-size: calc(var(--quickforge-message-font-size, 14px) * 0.59375);
   line-height: 0.875rem;
@@ -861,7 +860,7 @@
 }
 
 .quickforge-trace-inspector-tabs button[aria-selected='true'] {
-  background: color-mix(in oklab, var(--qf-trace-hue-model) 17%, transparent);
+  background: color-mix(in oklab, var(--foreground) 8%, transparent);
   box-shadow: inset 0 -2px 0 color-mix(in oklab, var(--qf-trace-hue-model) 70%, transparent);
   color: var(--qf-trace-text-model);
 }
@@ -926,7 +925,7 @@
   overflow: auto;
   border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
   border-radius: 0.375rem;
-  background: color-mix(in oklab, var(--qf-trace-hue-model) 6%, var(--muted));
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
   font-family: var(--font-mono);
   font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
   line-height: 1.55;
@@ -1110,7 +1109,6 @@
   font-size: calc(var(--quickforge-message-font-size, 14px) * 0.65625);
   font-variant-numeric: tabular-nums;
   color: var(--qf-trace-text-model);
-  background: color-mix(in oklab, var(--qf-trace-hue-model) 14%, transparent);
   text-align: center;
 }
 

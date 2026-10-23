@@ -94,7 +94,7 @@
     border-radius: 5px; font-size: 11.5px; color: var(--muted-foreground);
   }
   .seg span.on {
-    background: color-mix(in oklab, var(--hue-model) 20%, transparent);
+    background: color-mix(in oklab, var(--foreground) 8%, transparent);
     color: var(--text-model);
     font-weight: 500;
   }
@@ -129,7 +129,7 @@
   .marker { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--divider); }
   .highlight {
     position: absolute; top: 0; bottom: 0;
-    background: color-mix(in oklab, var(--hue-model) 12%, transparent);
+    background: color-mix(in oklab, var(--foreground) 7%, transparent);
     border-left: 1px solid color-mix(in oklab, var(--hue-model) 70%, transparent);
     border-right: 1px solid color-mix(in oklab, var(--hue-model) 70%, transparent);
   }
@@ -169,17 +169,14 @@
   }
   .badge.user {
     border-color: color-mix(in oklab, var(--hue-input) 48%, var(--border));
-    background: color-mix(in oklab, var(--hue-input) 16%, transparent);
     color: var(--text-input);
   }
   .badge.step {
     border-color: color-mix(in oklab, var(--hue-model) 50%, var(--border));
-    background: color-mix(in oklab, var(--hue-model) 17%, transparent);
     color: var(--text-model);
   }
   .badge.tool {
     border-color: color-mix(in oklab, var(--hue-tool) 50%, var(--border));
-    background: color-mix(in oklab, var(--hue-tool) 17%, transparent);
     color: var(--text-tool);
   }
   .row .name { color: var(--foreground); }
@@ -192,14 +189,13 @@
   .par {
     font-size: 9px; line-height: 14px; padding: 0 3px; border-radius: 3px;
     border: 1px solid color-mix(in oklab, var(--hue-tool) 46%, var(--border));
-    background: color-mix(in oklab, var(--hue-tool) 10%, transparent);
     color: var(--text-tool);
   }
   /* 工具行缩进连接线 */
   .tool-zone { position: relative; }
   .tool-zone::before {
     content: ''; position: absolute; left: 12px; top: 0; bottom: 5px; width: 1px;
-    background: color-mix(in oklab, var(--hue-tool) 55%, var(--border));
+    background: color-mix(in oklab, var(--border) 60%, transparent);
   }
 
   /* ── 顶部切换器 ───────────────────────────────────────────── */
@@ -214,7 +210,6 @@
     min-width: 16px; padding: 0 4px; border-radius: 999px; text-align: center;
     font-size: 10.5px; font-variant-numeric: tabular-nums;
     border: 1px solid color-mix(in oklab, var(--hue-model) 45%, var(--border));
-    background: color-mix(in oklab, var(--hue-model) 14%, transparent);
     color: var(--text-model);
   }
 
@@ -284,7 +279,7 @@
   </div>
 
   <h2>二、实际面板</h2>
-  <p class="hint">下面是按生产 CSS 复刻的轨迹视图。色彩只在<b>轨道、条形、徽标、行左侧规则条</b>上；<b>轮次头、选中态、文字、边框、分割线、工具栏</b>全部保持中性灰。</p>
+  <p class="hint">下面是按生产 CSS 复刻的轨迹视图。规则一句话：<b>颜色只画在「线」和「字」上，不画在「面」上</b>——条形、2px 规则条、徽标边框与文字、图标有色；任何背景（轨道底、徽标底、选中底、页签底、代码块底）都是中性灰。</p>
 
   <div style="margin-bottom: 14px">
     <div class="switch">
@@ -374,7 +369,8 @@
     <div class="rule-item"><span class="k">色相</span><span class="v">全部锁在 <b>150–260 的蓝绿区间</b>，不碰靛紫（270–300）与品红。这是这套视图的主色调。</span></div>
     <div class="rule-item"><span class="k">彩度</span><span class="v"><b>chroma 0.10–0.18</b>（Input 最低，Model/Tools 更高）。超过 0.20 才开始像品牌色。</span></div>
     <div class="rule-item"><span class="k">面积分级</span><span class="v"><b>小面积给满色</b>（条形 70–92%、2px 规则条 78–95%、图标 92%）；<b>大面积只微带</b>（轮次头 10%、选中行 16%、代码块 6%）。这条是「有色彩但不花」的真正机制。</span></div>
-    <div class="rule-item"><span class="k">着色面</span><span class="v">只染<b>数据载体</b>：轨道、条形、徽标、行左侧 2px 规则条。<b>轮次头与选中态保持中性灰</b>——分区和交互反馈不是数据，上色会和「记录类型」抢色相。</span></div>
+    <div class="rule-item"><span class="k">线上色</span><span class="v"><b>颜色只画在「线」和「字」上</b>：时间轴条形、行左 2px 规则条、徽标边框与文字、图标。<b>任何背景都保持中性灰</b>——面上色会让面板变成彩色图表，而线本来就是数据载体。</span></div>
+    <div class="rule-item"><span class="k">灰色面</span><span class="v">轨道底、徽标底、选中底、页签底、代码块底、轮次头、工具行连接线<b>全部回到灰阶</b>，与对话区的背景强度一致，符合「背景保持干净」的设计语言。</span></div>
     <div class="rule-item"><span class="k">语义优先级</span><span class="v"><b>失败永远是 destructive、运行中永远是 --workflow-done</b>，两者都盖过色相系统。色相只表达「类别」，不表达「状态」。</span></div>
     <div class="rule-item"><span class="k">深色模式</span><span class="v">同色相<b>提亮但保留彩度</b>（0.81 / 0.15 附近）。第一版把彩度压到 0.07，深色下几乎看不出颜色——那是「灰」不是「克制」。</span></div>
   </div>

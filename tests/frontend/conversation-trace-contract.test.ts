@@ -172,15 +172,36 @@ describe('trace color language', () => {
     expect(Math.abs(toolHue - 158)).toBeGreaterThanOrEqual(25)
   })
 
-  it('carries hue mostly on small areas, not on large fills', () => {
-    // The "colorful but not loud" contract: bars / rules / badges are saturated,
-    // while the remaining large surfaces (lane track, code block) stay near-neutral.
-    expect(css).toMatch(/--qf-trace-track:/)
-    const codeBg = css.match(/\.quickforge-trace-inspector-section pre \{[\s\S]*?hue-model\) (\d+)%, var\(--muted\)\)/)
-    expect(Number(codeBg?.[1])).toBeLessThanOrEqual(10)
-    // Small carriers are strongly covered.
-    const rule = css.match(/\.quickforge-trace-row\[data-kind='tool'\] \.quickforge-trace-row-rule \{\s*background: color-mix\(in oklab, var\(--qf-trace-hue-tool\) (\d+)%/)
-    expect(Number(rule?.[1])).toBeGreaterThanOrEqual(85)
+  it('paints hue on lines and text, never on surfaces', () => {
+    // The rule after the last round of feedback: colour belongs on 1px/2px lines,
+    // glyphs and text — every *background* that is a surface stays on the grey ramp.
+    // Only the timeline bars and the 2px row rules may carry a hue as background.
+    const hueBackgrounds = [...css.matchAll(/^\s*background:[^;]*--qf-trace-hue[^;]*;/gm)].map((match) => match[0].trim())
+    expect(hueBackgrounds.length).toBeGreaterThan(0)
+
+    for (const declaration of hueBackgrounds) {
+      // Must be inside a bar or a 2px rule selector.
+      const index = css.indexOf(declaration)
+      const before = css.slice(Math.max(0, index - 700), index)
+      const selector = before.slice(before.lastIndexOf('}') + 1)
+      expect(selector).toMatch(/quickforge-trace-span(?!-parallel)|quickforge-trace-row-rule/)
+    }
+
+    // Surfaces that used to be tinted are neutral again.
+    const segSelected = css.match(/\.quickforge-trace-seg button\[aria-pressed='true'\] \{[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(segSelected).not.toMatch(/background: color-mix\(in oklab, var\(--qf-trace-hue/)
+    const badge = css.match(/\.quickforge-trace-badge\[data-kind='tool'\] \{[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(badge).not.toMatch(/background:/)
+    const pre = css.match(/\.quickforge-trace-inspector-section pre \{[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(pre).not.toMatch(/background: color-mix\(in oklab, var\(--qf-trace-hue/)
+    const tabSelected = css.match(/\.quickforge-trace-inspector-tabs button\[aria-selected='true'\] \{[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(tabSelected).not.toMatch(/background: color-mix\(in oklab, var\(--qf-trace-hue/)
+    const parallel = css.match(/\.quickforge-trace-parallel \{[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(parallel).not.toMatch(/background:/)
+    const highlight = css.match(/\.quickforge-trace-highlight \{[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(highlight).not.toMatch(/background: color-mix\(in oklab, var\(--qf-trace-hue/)
+    // Structural connector line stays on the shared divider recipe.
+    expect(css).toMatch(/\.quickforge-trace-tool-rows::before \{[\s\S]*?background: color-mix\(in oklab, var\(--border\) 60%, transparent\)/)
   })
 
   it('leaves the turn header and the selected row fully neutral', () => {

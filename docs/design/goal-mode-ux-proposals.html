@@ -402,7 +402,7 @@ kbd{font-family:var(--mono);font-size:10.5px;border:1px solid var(--bd);border-b
   <div class="head">
     <div>
       <h1>Goal 模式 · UX 与流程优化设计方案</h1>
-      <p class="sub">基于当前实现（<code>GoalControlStrip</code> 单行条带 + <code>GoalInspectorContent</code> 右侧面板）做的三套改造方案。所有演示可直接切换状态与深浅色，用于评审。</p>
+      <p class="sub">基于当前实现（<code>GoalControlStrip</code> 单行条带 + <code>GoalInspectorContent</code> 右侧面板）做的三套改造方案。所有演示可直接切换状态与深浅色，用于评审。<br /><b>更新：方案 A 已落地</b>（2026-10-23，见 06 节改动表的实际落地范围）；方案 B / C 仍为提案。</p>
     </div>
     <div class="btns">
       <button class="ui" id="themeBtn">深色 / 浅色</button>
@@ -525,7 +525,7 @@ kbd{font-family:var(--mono);font-size:10.5px;border:1px solid var(--bd);border-b
 
   <!-- ================= 02 方案 A ================= -->
   <section id="a">
-    <div class="sec-h"><span class="sec-no">02</span><h2>方案 A · 目标卡（推荐）</h2><span class="tag reco">推荐落地</span></div>
+    <div class="sec-h"><span class="sec-no">02</span><h2>方案 A · 目标卡</h2><span class="tag reco">已落地</span></div>
     <p class="sec-sub">把单行条带升级成「两行折叠 / 就地展开」的目标卡：一行身份 + 一行目标 + 一行进度，主操作唯一，其余进菜单。展开即看验收清单、预算、最近报告——不用跳面板。</p>
 
     <div class="card">
@@ -1071,41 +1071,42 @@ kbd{font-family:var(--mono);font-size:10.5px;border:1px solid var(--bd);border-b
     </div>
 
     <div class="card">
-      <div class="card-h"><span class="card-t">落地改动表（按方案 A 计）</span></div>
+      <div class="card-h"><span class="card-t">落地改动表（方案 A · 已实施）</span><span class="tag reco">2026-10-23 落地</span></div>
       <div class="tbl-wrap">
         <table>
-          <thead><tr><th>#</th><th>文件</th><th>改动</th><th>验证</th></tr></thead>
+          <thead><tr><th>#</th><th>文件</th><th>实际改动</th><th>验证</th></tr></thead>
           <tbody>
-            <tr><td>1</td><td><code>src/components/chat/panel-decoration/goal-control-strip.ts</code></td><td>view 投影新增 <code>statusWord</code> / <code>phaseLabel</code> / <code>criteriaPassed</code> / <code>criteriaTotal</code> / <code>primaryActionKind</code>（含 <code>extend_budget</code>）</td><td><code>goal-control-strip.test.ts</code></td></tr>
-            <tr><td>2</td><td><code>src/components/chat/surface/GoalControlStrip.tsx</code></td><td>两行结构 + 就地展开 + 「⋯」菜单（菜单项：编辑目标 / 清除目标 / 打开完整面板）；确认改 popover</td><td><code>goal-control-strip.test.ts</code>、新增展开态用例</td></tr>
-            <tr><td>3</td><td><code>src/index.css</code></td><td>新增 <code>.quickforge-goal-card*</code> 一组（约 120 行），保留旧 <code>.quickforge-goal-strip*</code> 一版做灰度</td><td><code>chat-surface-css-contract.test.ts</code></td></tr>
-            <tr><td>4</td><td><code>src/components/workspace/GoalInspectorContent.tsx</code> + <code>goal-inspector.css</code></td><td>删除 <code>&lt;details&gt;</code> 双层嵌套，证据改为行内 <code>chip</code> + hover 摘要；footer 主行动点与条带统一文案</td><td><code>goal-inspector-*.test.ts</code></td></tr>
-            <tr><td>5</td><td><code>src/lib/i18n.ts</code></td><td>新增 5 个主状态词 + 阶段标签 + 「追加预算并继续」等键；旧键保留一个版本</td><td>文案快照 / 手工核对</td></tr>
-            <tr><td>6</td><td><code>docs/wiki/src/components/README.md</code></td><td>同步条带/面板的新结构与状态映射表</td><td>—</td></tr>
+            <tr><td>1</td><td><code>panel-decoration/goal-control-strip.ts</code></td><td>view 投影新增 <code>statusWordKey</code>（5 个状态词）/ <code>phaseDetail</code> / <code>criteriaPassed</code>·<code>criteriaTotal</code> / <code>durationMinutes</code> / <code>primaryAction</code> 扩展为 <code>pause|resume|attention|none</code> / <code>primaryLabelKey</code> / <code>primaryOpensInspector</code>；新增 <code>stateWordFor</code>、<code>phaseDetailFor</code>、<code>criteriaTally</code></td><td><code>goal-control-strip.test.ts</code>（6 例投影）</td></tr>
+            <tr><td>2</td><td><code>surface/GoalControlStrip.tsx</code></td><td>三层结构（身份行/目标行/进度行）+ 就地展开面板 + 「⋯」菜单（编辑 / 打开完整面板 / 清除）+ 锚定确认 popover + <code>attention</code> 滚动定位到审批/提问卡</td><td><code>goal-control-strip.test.ts</code>（19 例渲染）</td></tr>
+            <tr><td>3</td><td><code>src/index.css</code></td><td>保留 <code>.quickforge-goal-strip*</code> 类名前缀（<code>message-queue</code> 与 CSS 契约测试依赖），改写为卡片形态约 400 行；补上一直缺失的 <code>@keyframes quickforge-goal-spin</code></td><td><code>goal-card.test.ts</code>、<code>message-queue.test.ts</code>、<code>chat-surface-css-contract.test.ts</code></td></tr>
+            <tr><td>4</td><td><code>panel-decoration/goal-card.ts</code></td><td><code>blockerText</code> 提升为导出 <code>buildGoalBlockerText</code>，条带复用同一套 blocker 本地化，不复制 <code>BLOCKER_KEY</code></td><td><code>goal-card.test.ts</code></td></tr>
+            <tr><td>5</td><td><code>src/lib/i18n.ts</code></td><td>新增 5 个状态词 + 9 个阶段说明 + 「去处理」/「更多操作」/「打开完整面板」/「展开·收起验收标准」/可选标记/证据计数/分钟后缀，中英各一份</td><td><code>goal-card.test.ts</code>（双语键集）、<code>decorator-copy-i18n.test.ts</code></td></tr>
+            <tr><td>6</td><td><code>docs/wiki/src/components/README.md</code></td><td>目录行与 Goal 生产 UI 段同步新结构（两处重复段落一并更新）</td><td>—</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="note"><b>不动的东西：</b>服务端 goal 契约、<code>src/lib/goal.ts</code> 的类型、<code>goal-ui.ts</code> 的 pending/dirty/error 锁、<code>goal-edit.ts</code> 的 pause→revise 编排。<b>本方案是纯前端呈现层改造</b>，除 C1 的可选开关外不改流程语义。</p>
+      <p class="note"><b>本轮未做（保持提案状态）：</b>#4 里「删除面板内 <code>&lt;details&gt;</code> 双层嵌套、证据改行内 chip」——属于 Inspector 的独立改造，不在方案 A 的最小范围内；<b>完成卡（C3）与计划门禁（C1）</b>也未实施，完成态仍不渲染条带。</p>
+      <p class="note"><b>不动的东西：</b>服务端 goal 契约、<code>src/lib/goal.ts</code> 的类型、<code>goal-ui.ts</code> 的 pending/dirty/error 锁、<code>goal-edit.ts</code> 的 pause→revise 编排。<b>本次是纯前端呈现层改造</b>，未改任何流程语义。</p>
     </div>
 
     <div class="card">
-      <div class="card-h"><span class="card-t">推荐落地顺序</span><span class="tag reco">建议</span></div>
+      <div class="card-h"><span class="card-t">落地顺序</span><span class="tag reco">Step 1–4 已完成</span></div>
       <div class="tbl-wrap">
         <table>
-          <thead><tr><th>阶段</th><th>做</th><th>为什么先做</th></tr></thead>
+          <thead><tr><th>阶段</th><th>做</th><th>状态</th></tr></thead>
           <tbody>
-            <tr><td>Step 1</td><td>P1 动作收敛（4 图标 → 1 主操作 + 「⋯」）</td><td>纯收益、零风险，直接消除数据/文件误伤</td></tr>
-            <tr><td>Step 2</td><td>P2 + P3 两行结构与验收分段条</td><td>让 goal 的价值（还差几条）第一次可见</td></tr>
-            <tr><td>Step 3</td><td>P5 + P7 就地展开 + 锚定确认 popover</td><td>去掉 4 次跳转，顺带修掉行内换行抖动的老问题</td></tr>
-            <tr><td>Step 4</td><td>P4 + P6 状态词收敛与「追加预算并继续」</td><td>依赖 1–3 的新结构，一起改最省返工</td></tr>
-            <tr><td>Step 5</td><td>P8 完成卡 + C1 可选门禁</td><td>流程层收益最大但需要产品确认，放最后</td></tr>
+            <tr><td>Step 1</td><td>P1 动作收敛（4 图标 → 1 主操作 + 「⋯」）</td><td>✓ 完成</td></tr>
+            <tr><td>Step 2</td><td>P2 + P3 三段结构与验收分段条</td><td>✓ 完成</td></tr>
+            <tr><td>Step 3</td><td>P5 + P7 就地展开 + 锚定确认 popover</td><td>✓ 完成</td></tr>
+            <tr><td>Step 4</td><td>P4 + P6 状态词收敛与「追加预算并继续」</td><td>✓ 完成</td></tr>
+            <tr><td>Step 5</td><td>P8 完成卡 + C1 可选门禁</td><td>待产品确认，未做</td></tr>
           </tbody>
         </table>
       </div>
     </div>
   </section>
 
-  <p class="hint" style="margin-top:26px">本设计稿为静态原型：状态切换、展开/收起、深浅色均为真实交互，可直接用于评审；不含生产代码。</p>
+  <p class="hint" style="margin-top:26px">本设计稿为静态原型：状态切换、展开/收起、深浅色均为真实交互，可直接用于评审；方案 A 已按此稿落地（Step 1–4），方案 C 的完成卡与计划门禁仍未实施。</p>
 </div>
 
 <script>

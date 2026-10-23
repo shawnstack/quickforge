@@ -1,3 +1,21 @@
+## 当前交接：goal-mode-ux-fix-strip（done，2026-10-23）
+
+- Current Objective（当前目标）: 用户选定设计稿的**方案 A**（目标卡）并要求执行落地。**已实现，未提交、未创建 commit。**
+- 结论（一句话）: 输入框上方的 goal 条带从「单行 + 4 个同权重 icon」改成三段式目标卡（身份行 / 目标行 / 进度行），配「⋯」菜单 + 就地展开 + 锚定确认 popover，并把 13 个服务器状态收敛成 5 个用户可见状态词。
+- 改动（5 个源文件 + 1 个测试 + 文档）:
+  1. `src/components/chat/panel-decoration/goal-control-strip.ts`：view 投影新增 `statusWordKey`（`goalStateRunning/NeedsYou/Paused/Blocked/Done`）、`phaseDetail`、`criteriaPassed/criteriaTotal`、`durationMinutes`、`primaryLabelKey`、`primaryOpensInspector`；`primaryAction` 扩为 `pause|resume|attention|none`；新增纯函数 `stateWordFor` / `phaseDetailFor` / `criteriaTally` / `isWaitingOnUser`；精确 13 值的 `statusKey` 保留给 title/aria。
+  2. `src/components/chat/surface/GoalControlStrip.tsx`：唯一实心 `quickforge-goal-strip-primary`；「⋯」菜单（编辑 / 打开完整面板 / 清除）；展开 `quickforge-goal-strip-panel`（验收清单 + 预算条 + 打开面板链接）；清除确认改 `quickforge-goal-strip-confirm-pop` 锚定 popover；`attention` → `revealWaitingCard()` 滚动 `.qf-scroll-container` 内最后一张 `.quickforge-approval-card`/`.quickforge-ask-card` 并加 1.4s `data-goal-attention` 描边；`data-state` 导出 5 词状态供 CSS 驱动 tone/呼吸点。
+  3. `src/index.css`：`.quickforge-goal-strip*` 改写为卡片形态（约 400 行；**类名前缀刻意保留**，`message-queue.ts` 的 `isQueueAnchorFollower` 与 `goal-card.test.ts` 的 CSS 契约都依赖它）；补上仓库里一直只被引用未定义的 `@keyframes quickforge-goal-spin`；新动效全部带 `prefers-reduced-motion` 降级。
+  4. `src/components/chat/panel-decoration/goal-card.ts`：`blockerText` → 导出 `buildGoalBlockerText`，条带复用同一套 blocker 本地化。
+  5. `src/lib/i18n.ts`：中英各新增 22 个 key。
+  6. `tests/frontend/goal-control-strip.test.ts`：19 → 25 例，写清意图而非放宽断言。
+- Evidence（验证）: 定向 15 个 goal 相关文件 **311 passed**；CSS/i18n 契约 6 文件 **94 passed**；`npx tsc --noEmit -p tsconfig.app.json` 通过；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` warning）；`npm run test` 全量 **419 文件 / 4817 passed / 2 skipped**；`npm run build` 成功。
+- 文档: `docs/wiki/src/components/README.md` 两处重复段（目录行 + Goal 生产 UI 段）改写；`docs/design/goal-mode-ux-proposals.html` 标注「方案 A 已落地」，06 节换成实际实施表、落地顺序打勾。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）: ① **真机视觉验收**——展开面板/「⋯」菜单/确认 popover 的定位、窄屏（≤640px 隐藏 `phaseDetail`）表现、深色模式对比度；② 完成态仍 `return null`，需要设计稿 C3 完成卡才算闭环；③ tone 仍是硬编码 hex（`#3478d4`/`#d97706`/`rgb(4 143 101)`）散在 4 处，未 token 化；④ `phaseDetailFor` 与 `goal-card.ts` 的 `v2StatusKey` 语义有重叠，可抽公共映射；⑤ 未提交 Git；未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
 ## 当前交接：goal-mode-ux-redesign（done，2026-10-23）
 
 - Current Objective（当前目标）: 用户要求「分析 goal 模式的 UI 设计，给几个可优化方案（用户体验与流程），出 HTML 设计稿」。**设计稿已产出，未改任何生产代码、未创建 commit。**

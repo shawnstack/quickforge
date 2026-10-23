@@ -84,6 +84,7 @@ describe('buildGoalControlStripView', () => {
   it('maps only pause/resume onto icons and hides terminal goals', () => {
     expect(buildGoalControlStripView(goal({ status: 'running' }))).toMatchObject({
       statusKey: 'goalStatusRunning',
+      statusWordKey: 'goalStateRunning',
       primaryAction: 'pause',
       spinning: true,
     })
@@ -101,13 +102,67 @@ describe('buildGoalControlStripView', () => {
       primaryAction: 'pause',
       spinning: true,
     })
-    expect(buildGoalControlStripView(goal({ status: 'paused' }))).toMatchObject({ primaryAction: 'resume' })
-    for (const status of ['blocked', 'needs_review', 'awaiting_confirmation', 'awaiting_input', 'awaiting_approval'] as const) {
+    expect(buildGoalControlStripView(goal({ status: 'paused' }))).toMatchObject({
+      primaryAction: 'resume',
+      statusWordKey: 'goalStatePaused',
+    })
+    // Waiting states are one state word ("needs you") with a reveal action.
+    for (const status of ['awaiting_input', 'awaiting_approval'] as const) {
+      expect(buildGoalControlStripView(goal({ status }))).toMatchObject({
+        primaryAction: 'attention',
+        primaryLabelKey: 'goalAttentionAction',
+        statusWordKey: 'goalStateNeedsYou',
+      })
+    }
+    for (const status of ['awaiting_confirmation'] as const) {
       expect(buildGoalControlStripView(goal({ status }))).toMatchObject({ primaryAction: 'none' })
     }
+    expect(buildGoalControlStripView(goal({ status: 'blocked' }))).toMatchObject({
+      primaryAction: 'none',
+      statusWordKey: 'goalStateBlocked',
+    })
     for (const status of ['completed', 'failed', 'cancelled'] as const) {
       expect(buildGoalControlStripView(goal({ status }))).toBeNull()
     }
+  })
+
+  it('collapses 13 statuses into 5 state words', () => {
+    const words = new Set<string>()
+    for (const status of ['planning', 'awaiting_confirmation', 'running', 'verifying', 'awaiting_input', 'awaiting_approval', 'pausing', 'paused', 'blocked', 'needs_review'] as const) {
+      const view = buildGoalControlStripView(goal({ status }))
+      if (view) words.add(view.statusWordKey)
+    }
+    expect([...words].sort()).toEqual(['goalStateBlocked', 'goalStateNeedsYou', 'goalStatePaused', 'goalStateRunning'])
+  })
+
+  it('projects acceptance progress and the recorded duration', () => {
+    const view = buildGoalControlStripView(goal({
+      status: 'running',
+      criteria: [
+        { id: 'a', description: 'a', required: true, status: 'passed', evidenceIds: [] },
+        { id: 'b', description: 'b', required: true, status: 'pending', evidenceIds: [] },
+        { id: 'c', description: 'c', required: false, status: 'passed', evidenceIds: ['e1'] },
+      ],
+      usage: { iterations: 4, activeDurationMs: 720_000 },
+    }))
+    expect(view).toMatchObject({ criteriaPassed: 2, criteriaTotal: 3, durationMinutes: 12 })
+  })
+
+  it('routes an exhausted budget to the inspector instead of a bare resume', () => {
+    const exhausted = buildGoalControlStripView(goal({
+      status: 'paused',
+      phase: 'paused',
+      activation: 'disarmed',
+      runtime: 'idle',
+      budget: { maxIterations: 12, maxActiveDurationMs: null },
+      usage: { iterations: 12, activeDurationMs: 60_000 },
+    }))
+    expect(exhausted).toMatchObject({
+      primaryAction: 'resume',
+      primaryLabelKey: 'goalExtendResume',
+      primaryOpensInspector: true,
+      budgetExhausted: true,
+    })
   })
 
   it('projects Goal v2 phase, activation, runtime, round text and inline editable', () => {
@@ -121,7 +176,9 @@ describe('buildGoalControlStripView', () => {
     }))
     expect(active).toMatchObject({
       statusKey: 'goalPhaseActive',
+      statusWordKey: 'goalStateRunning',
       roundText: '3/20',
+      phaseDetail: 'goalPhaseDetailRound',
       objective: 'Ship the goal UI',
       primaryAction: 'pause',
       phase: 'active',
@@ -135,21 +192,31 @@ describe('buildGoalControlStripView', () => {
       activation: 'disarmed',
       runtime: 'idle',
     }))
-    expect(interrupted).toMatchObject({ statusKey: 'goalPhaseInterrupted', primaryAction: 'resume', inlineEditable: true })
+    expect(interrupted).toMatchObject({
+      statusKey: 'goalPhaseInterrupted',
+      statusWordKey: 'goalStatePaused',
+      phaseDetail: 'goalPhaseDetailInterrupted',
+      primaryAction: 'resume',
+      inlineEditable: true,
+    })
 
     expect(buildGoalControlStripView(goal({
       status: 'planning',
       phase: 'active',
       activation: 'armed',
       runtime: 'planning',
-    }))).toMatchObject({ statusKey: 'goalPhasePlanning' })
+    }))).toMatchObject({ statusKey: 'goalPhasePlanning', phaseDetail: 'goalPhaseDetailPlanning' })
 
     expect(buildGoalControlStripView(goal({
       status: 'blocked',
       phase: 'blocked',
       activation: 'disarmed',
       runtime: 'idle',
-    }))).toMatchObject({ statusKey: 'goalPhaseBlocked', primaryAction: 'resume' })
+    }))).toMatchObject({
+      statusKey: 'goalPhaseBlocked',
+      statusWordKey: 'goalStateBlocked',
+      primaryAction: 'resume',
+    })
 
     expect(buildGoalControlStripView(goal({ status: 'completed', phase: 'complete' }))).toBeNull()
   })
@@ -191,41 +258,57 @@ describe('goal control strip rendering', () => {
 
   const strip = () => container.querySelector<HTMLElement>('.quickforge-goal-strip')
   const q = <T extends HTMLElement>(selector: string) => container.querySelector<T>(selector)
+  const click = (selector: string) => {
+    act(() => { q<HTMLButtonElement>(selector)!.click() })
+  }
 
-  it('renders a single row with status, objective and the primary action', () => {
+  it('renders the card with state word, objective and the single primary action', () => {
     render(goal({ status: 'running' }))
 
     expect(strip()).not.toBeNull()
     expect(strip()!.tagName).toBe('SECTION')
     expect(strip()!.dataset.status).toBe('running')
+    expect(strip()!.dataset.state).toBe('running')
     expect(strip()!.getAttribute('aria-label')).toBe('goalTitle')
+    expect(q('.quickforge-goal-strip-label')!.textContent).toBe('goalStateRunning')
+    expect(q('.quickforge-goal-strip-primary')).not.toBeNull()
     expect(q('.quickforge-goal-strip-action--pause')).not.toBeNull()
   })
 
-  it('shows the objective inline for v2 goals', () => {
-    render(goal({ status: 'running', phase: 'active', activation: 'armed', runtime: 'executing', maxRounds: 12, roundsStarted: 4 }))
+  it('shows the objective and the acceptance progress for v2 goals', () => {
+    render(goal({
+      status: 'running',
+      phase: 'active',
+      activation: 'armed',
+      runtime: 'executing',
+      maxRounds: 12,
+      roundsStarted: 4,
+      criteria: [
+        { id: 'a', description: 'a', required: true, status: 'passed', evidenceIds: [] },
+        { id: 'b', description: 'b', required: true, status: 'pending', evidenceIds: [] },
+      ],
+    }))
 
     const objective = q('.quickforge-goal-strip-objective')!
     expect(objective.textContent).toBe('Ship the goal UI')
     expect(objective.title).toBe('Ship the goal UI')
-    expect(q('.quickforge-goal-strip-label')!.textContent).toContain('4/12')
+    expect(q('.quickforge-goal-strip-phase')!.textContent).toBe('goalPhaseDetailRound')
+    expect(container.querySelectorAll('.quickforge-goal-strip-seg')).toHaveLength(2)
+    expect(q('.quickforge-goal-strip-criteria-text')!.textContent).toBe('goalCriteriaProgress')
     expect(strip()!.dataset.editing).toBe('false')
   })
 
-  it('shows the edit button for v2 goals but not legacy', () => {
+  it('edits the objective from the ⋯ menu (not a standing icon)', () => {
     render(goal({ status: 'running', phase: 'active', activation: 'armed', runtime: 'executing' }))
+
+    // The edit action is not part of the always-visible row any more.
+    expect(q('.quickforge-goal-strip-action--edit')).toBeNull()
+    click('.quickforge-goal-strip-action--more')
+
+    expect(q('.quickforge-goal-strip-menu')).not.toBeNull()
     expect(q<HTMLButtonElement>('.quickforge-goal-strip-action--edit')!.disabled).toBe(false)
 
-    render(goal({ status: 'paused' }))
-    // Legacy goals must pause first, so the edit action is disabled.
-    expect(q<HTMLButtonElement>('.quickforge-goal-strip-action--edit')!.disabled).toBe(true)
-  })
-
-  it('enters edit mode on edit click, swapping the objective for a focused input', () => {
-    render(goal({ status: 'running', phase: 'active', activation: 'armed', runtime: 'executing' }))
-
-    act(() => { q<HTMLButtonElement>('.quickforge-goal-strip-action--edit')!.click() })
-
+    click('.quickforge-goal-strip-action--edit')
     expect(strip()!.dataset.editing).toBe('true')
     const input = q<HTMLInputElement>('.quickforge-goal-strip-edit-input')!
     expect(input.value).toBe('Ship the goal UI')
@@ -235,9 +318,16 @@ describe('goal control strip rendering', () => {
     expect(q('.quickforge-goal-strip-action--edit-cancel')).not.toBeNull()
   })
 
+  it('disables editing for legacy goals that must pause first', () => {
+    render(goal({ status: 'paused' }))
+    click('.quickforge-goal-strip-action--more')
+    expect(q<HTMLButtonElement>('.quickforge-goal-strip-action--edit')!.disabled).toBe(true)
+  })
+
   it('saves the edited objective through the shared revise action', async () => {
     render(goal({ status: 'running', phase: 'active', activation: 'armed', runtime: 'executing' }))
-    act(() => { q<HTMLButtonElement>('.quickforge-goal-strip-action--edit')!.click() })
+    click('.quickforge-goal-strip-action--more')
+    click('.quickforge-goal-strip-action--edit')
 
     const input = q<HTMLInputElement>('.quickforge-goal-strip-edit-input')!
     act(() => {
@@ -258,9 +348,9 @@ describe('goal control strip rendering', () => {
 
   it('cancel editing exits without dispatching an action', () => {
     render(goal({ status: 'running', phase: 'active', activation: 'armed', runtime: 'executing' }))
-    act(() => { q<HTMLButtonElement>('.quickforge-goal-strip-action--edit')!.click() })
-
-    act(() => { q<HTMLButtonElement>('.quickforge-goal-strip-action--edit-cancel')!.click() })
+    click('.quickforge-goal-strip-action--more')
+    click('.quickforge-goal-strip-action--edit')
+    click('.quickforge-goal-strip-action--edit-cancel')
 
     expect(strip()!.dataset.editing).toBe('false')
     expect(q('.quickforge-goal-strip-objective')).not.toBeNull()
@@ -269,7 +359,8 @@ describe('goal control strip rendering', () => {
 
   it('Escape in the edit input exits edit mode', () => {
     render(goal({ status: 'running', phase: 'active', activation: 'armed', runtime: 'executing' }))
-    act(() => { q<HTMLButtonElement>('.quickforge-goal-strip-action--edit')!.click() })
+    click('.quickforge-goal-strip-action--more')
+    click('.quickforge-goal-strip-action--edit')
 
     const input = q<HTMLInputElement>('.quickforge-goal-strip-edit-input')!
     act(() => {
@@ -300,10 +391,35 @@ describe('goal control strip rendering', () => {
     render(goal({ status: 'pausing' }))
     expect(q<HTMLButtonElement>('.quickforge-goal-strip-action--pause')!.disabled).toBe(true)
 
-    for (const status of ['paused', 'blocked', 'planning', 'awaiting_input'] as const) {
+    for (const status of ['paused', 'blocked', 'planning'] as const) {
       render(goal({ status }))
       expect(q('.quickforge-goal-strip-action--pause')).toBeNull()
     }
+  })
+
+  it('dispatches resume inline', async () => {
+    render(goal({ status: 'paused' }))
+    await act(async () => {
+      q<HTMLButtonElement>('.quickforge-goal-strip-action--resume')!.click()
+      await Promise.resolve()
+    })
+    expect(onAction).toHaveBeenCalledWith('resume')
+  })
+
+  it('routes an exhausted budget to the inspector with a label that says so', () => {
+    render(goal({
+      status: 'paused',
+      budget: { maxIterations: 12, maxActiveDurationMs: null },
+      usage: { iterations: 12, activeDurationMs: 60_000 },
+    }))
+    const primary = q<HTMLButtonElement>('.quickforge-goal-strip-primary')!
+    // The label says what happens instead of silently changing the meaning of
+    // the same resume icon.
+    expect(primary.textContent).toBe('goalExtendResume')
+    expect(primary.disabled).toBe(false)
+    click('.quickforge-goal-strip-primary')
+    expect(onAction).not.toHaveBeenCalled()
+    expect(goalUi.openSummary).toEqual([{ sessionId: 'session-1', goalId: 'goal-1', view: 'progress' }])
   })
 
   it('runs the primary action through the shared wrapper and surfaces the failure', async () => {
@@ -325,21 +441,34 @@ describe('goal control strip rendering', () => {
     expect(q('.quickforge-goal-strip-error')!.textContent).toBe('goalActionFailed')
   })
 
-  it('asks for confirmation before dispatching cancel', async () => {
+  it('offers one reveal action while the engine waits on the user', () => {
+    render(goal({ status: 'awaiting_approval' }))
+
+    expect(strip()!.dataset.state).toBe('needs_you')
+    expect(q('.quickforge-goal-strip-label')!.textContent).toBe('goalStateNeedsYou')
+    const primary = q<HTMLButtonElement>('.quickforge-goal-strip-primary')!
+    expect(primary.textContent).toBe('goalAttentionAction')
+    // Revealing the waiting card never dispatches a goal action.
+    click('.quickforge-goal-strip-primary')
+    expect(onAction).not.toHaveBeenCalled()
+  })
+
+  it('asks for confirmation in an anchored popover before dispatching cancel', async () => {
     render(goal({ status: 'running' }))
-    const buttons = () => container.querySelectorAll('.quickforge-goal-strip button').length
-    const before = buttons()
+    click('.quickforge-goal-strip-action--more')
 
-    act(() => { q<HTMLButtonElement>('.quickforge-goal-strip-action:not([class*="--"])')!.click() })
+    click('.quickforge-goal-strip-menu-item--danger')
 
-    // The confirmation group (note + confirm + keep) adds nodes and nothing is
-    // dispatched yet.
-    expect(buttons()).toBeGreaterThan(before)
+    // The confirmation is an anchored popover, not a second row: the menu closes,
+    // the popover carries the note and both decisions.
+    expect(q('.quickforge-goal-strip-menu')).toBeNull()
+    expect(q('.quickforge-goal-strip-confirm-pop')).not.toBeNull()
     expect(q('.quickforge-goal-strip-cancel-note')).not.toBeNull()
+    expect(container.querySelectorAll('.quickforge-goal-strip-confirm')).toHaveLength(2)
     expect(onAction).not.toHaveBeenCalled()
 
     await act(async () => {
-      q<HTMLButtonElement>('.quickforge-goal-strip-confirm')!.click()
+      q<HTMLButtonElement>('.quickforge-goal-strip-confirm--danger')!.click()
       await Promise.resolve()
     })
     expect(onAction).toHaveBeenCalledWith('cancel')
@@ -347,7 +476,8 @@ describe('goal control strip rendering', () => {
 
   it('dismisses the confirmation with Escape without dispatching', () => {
     render(goal({ status: 'running' }))
-    act(() => { q<HTMLButtonElement>('.quickforge-goal-strip-action:not([class*="--"])')!.click() })
+    click('.quickforge-goal-strip-action--more')
+    click('.quickforge-goal-strip-menu-item--danger')
     expect(q('.quickforge-goal-strip-cancel-note')).not.toBeNull()
 
     act(() => {
@@ -358,10 +488,41 @@ describe('goal control strip rendering', () => {
     expect(onAction).not.toHaveBeenCalled()
   })
 
-  it('opens the summary from the open button', () => {
-    render(goal({ status: 'paused' }))
-    act(() => { q<HTMLButtonElement>('.quickforge-goal-strip-action--open')!.click() })
+  it('expands the acceptance list in place and collapses it again', () => {
+    render(goal({
+      status: 'running',
+      criteria: [
+        { id: 'a', description: 'SettlementService extracted', required: true, status: 'passed', evidenceIds: ['e1'] },
+        { id: 'b', description: 'Coverage >= 80%', required: false, status: 'pending', evidenceIds: [] },
+      ],
+    }))
 
+    expect(q('.quickforge-goal-strip-panel')).toBeNull()
+    click('.quickforge-goal-strip-action--expand')
+
+    expect(strip()!.dataset.expanded).toBe('true')
+    const panel = q('.quickforge-goal-strip-panel')!
+    expect(panel.id).toBe(q('.quickforge-goal-strip-action--expand')!.getAttribute('aria-controls'))
+    const criteria = container.querySelectorAll('.quickforge-goal-strip-criterion')
+    expect(criteria).toHaveLength(2)
+    expect(criteria[0].getAttribute('data-status')).toBe('passed')
+    // Opening the list in place never dispatches a goal action nor a panel request.
+    expect(onAction).not.toHaveBeenCalled()
+    expect(goalUi.openSummary).toHaveLength(0)
+
+    click('.quickforge-goal-strip-action--expand')
+    expect(q('.quickforge-goal-strip-panel')).toBeNull()
+  })
+
+  it('opens the summary from the ⋯ menu and from the expanded panel link', () => {
+    render(goal({ status: 'paused' }))
+    click('.quickforge-goal-strip-action--more')
+    click('.quickforge-goal-strip-menu-item.quickforge-goal-strip-action--open')
+    expect(goalUi.openSummary).toEqual([{ sessionId: 'session-1', goalId: 'goal-1', view: 'progress' }])
+
+    goalUi.openSummary.length = 0
+    click('.quickforge-goal-strip-action--expand')
+    click('.quickforge-goal-strip-link')
     expect(goalUi.openSummary).toEqual([{ sessionId: 'session-1', goalId: 'goal-1', view: 'progress' }])
   })
 
@@ -374,14 +535,16 @@ describe('goal control strip rendering', () => {
     expect(resume.title).toBe('goalUnsavedChanges')
   })
 
-  it('drops the transient edit/confirm modes when the goal changes', () => {
+  it('drops the transient edit/confirm/menu modes when the goal changes', () => {
     render(goal({ status: 'running', phase: 'active', activation: 'armed', runtime: 'executing' }))
-    act(() => { q<HTMLButtonElement>('.quickforge-goal-strip-action--edit')!.click() })
+    click('.quickforge-goal-strip-action--more')
+    click('.quickforge-goal-strip-action--edit')
     expect(strip()!.dataset.editing).toBe('true')
 
     render(goal({ id: 'goal-2', status: 'running', phase: 'active', activation: 'armed', runtime: 'executing' }))
 
-    // A different goal must not inherit the previous draft/confirmation.
+    // A different goal must not inherit the previous draft/menu/confirmation.
     expect(strip()!.dataset.editing).toBe('false')
+    expect(q('.quickforge-goal-strip-menu')).toBeNull()
   })
 })

@@ -10,17 +10,30 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('Make minimal, focused changes')
   })
 
+  it('omits the removed scope/style/visual/context-gathering instructions', () => {
+    const prompt = composeSystemPrompt()
+
+    expect(prompt).not.toContain('Do not refactor unrelated code')
+    expect(prompt).not.toContain('Match existing style')
+    expect(prompt).not.toContain('whether an SVG diagram can improve understanding')
+    expect(prompt).not.toContain('gather sufficient context')
+  })
+
   it('keeps the todo_write rule outside the project-task-only section', () => {
     const prompt = composeSystemPrompt()
-    const todoRule = '- When todo_write is available, use it for non-trivial multi-step work and keep a short current plan; skip it for simple tasks.'
-    const todoRuleIndex = prompt.indexOf(todoRule)
+    const todoRuleIndex = prompt.split('\n').findIndex((line) => line.startsWith('- When todo_write is available,'))
+    const todoRule = prompt.split('\n')[todoRuleIndex]
+    const todoRulePosition = prompt.indexOf(todoRule)
     const projectTasksIndex = prompt.indexOf('For project tasks:')
 
     expect(todoRuleIndex).toBeGreaterThanOrEqual(0)
-    expect(projectTasksIndex).toBeGreaterThan(todoRuleIndex)
+    expect(projectTasksIndex).toBeGreaterThan(todoRulePosition)
     expect(prompt.slice(projectTasksIndex)).not.toContain(todoRule)
     expect(prompt.match(/When todo_write is available/g)).toHaveLength(1)
     expect(prompt).not.toContain('For multi-step work, use a brief plan.')
+    expect(todoRule).toContain('Before finishing, re-check the todos against what was actually done')
+    expect(todoRule).toContain('send a final updated snapshot')
+    expect(todoRule).toContain('no stale pending or in_progress items remain')
   })
 
   it('exempts explicitly authorized /goal execution from repeated confirmation without bypassing planning or safety gates', () => {

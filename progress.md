@@ -1,3 +1,25 @@
+## goal-mode-ux-fix-strip（done，2026-10-23）
+
+- Goal：用户选定设计稿的**方案 A**（目标卡）并要求执行落地。
+- 做法（一句话）：把输入框上方的 goal 条带从「单行 + 4 个同权重 icon」改成三段式目标卡（身份行 / 目标行 / 进度行），配「⋯」菜单 + 就地展开 + 锚定确认 popover，并把 13 个服务器状态收敛成 5 个用户可见状态词。
+- 改动：
+  1. `src/components/chat/panel-decoration/goal-control-strip.ts`：view 投影新增 `statusWordKey`（5 词：`goalStateRunning/NeedsYou/Paused/Blocked/Done`）、`phaseDetail`、`criteriaPassed/criteriaTotal`、`durationMinutes`、`primaryLabelKey`、`primaryOpensInspector`；`primaryAction` 从 `'pause'|'resume'|'none'` 扩为 `+ 'attention'`；新增纯函数 `stateWordFor` / `phaseDetailFor` / `criteriaTally` / `isWaitingOnUser`；`statusKey`（精确 13 值）保留供 title/aria。
+  2. `src/components/chat/surface/GoalControlStrip.tsx`：三段结构；唯一实心 `quickforge-goal-strip-primary`；「⋯」菜单承载编辑/打开完整面板/清除；展开 `quickforge-goal-strip-panel`（验收清单 + 预算条 + 打开面板链接）；清除确认改 `quickforge-goal-strip-confirm-pop` 锚定 popover；`attention` 主操作 → `revealWaitingCard()` 滚动 `.qf-scroll-container` 内最后一张 `.quickforge-approval-card`/`.quickforge-ask-card` 并加 1.4s `data-goal-attention` 描边；`data-state` 导出 5 词状态供 CSS 驱动 tone/呼吸点。
+  3. `src/index.css`：`.quickforge-goal-strip*` 改写为卡片形态（约 400 行，类名前缀刻意保留——`message-queue.ts` 的 `isQueueAnchorFollower` 与 `goal-card.test.ts` 的 CSS 契约都依赖它）；补上仓库里一直**只被引用未定义**的 `@keyframes quickforge-goal-spin`；所有新动效带 `prefers-reduced-motion` 降级。
+  4. `src/components/chat/panel-decoration/goal-card.ts`：`blockerText` → 导出 `buildGoalBlockerText`，条带复用它做 blocker 本地化，不复制 `BLOCKER_KEY`。
+  5. `src/lib/i18n.ts`：中英各新增 22 个 key（5 状态词 + 9 阶段说明 + 去处理/更多操作/打开完整面板/展开·收起验收标准/可选标记/证据计数/分钟后缀）。
+  6. `tests/frontend/goal-control-strip.test.ts`：从 19 例扩到 25 例，写清方案 A 的意图而不是放宽断言——新增「13 状态 → 5 词」收敛断言、验收计数/时长投影、预算耗尽走 `primaryOpensInspector` + 文案换 `goalExtendResume`、`attention` 不派发动作、菜单编辑（编辑 icon 不再常驻）、锚定确认（菜单关闭 + popover 出现 + 两个确认按钮）、就地展开/收起（含 `aria-controls` 对齐、不触发 `openSummary`）。
+- 验证：
+  - 定向：`npx vitest run` 15 个 goal 相关文件 → **311 passed**；CSS/i18n 契约 6 文件 → **94 passed**。
+  - `npx tsc --noEmit -p tsconfig.app.json` 通过（先修了两个自造错误：`goal-card.ts` 残留旧函数名、`primaryLabelFor` 多了未用参数）。
+  - `npm run lint` → **0 error**（仅既有 `GitToolsPinnedSummary` 的 exhaustive-deps warning）。
+  - `npm run test` 全量 / `npm run build`：见下方补充。
+- 文档：`docs/wiki/src/components/README.md` 两处重复段（目录行 + Goal 生产 UI 段）改写；`docs/design/goal-mode-ux-proposals.html` 标为「方案 A 已落地」，06 节改动表换成实际实施内容、落地顺序打勾。
+- 边界：服务端 goal 契约、`src/lib/goal.ts` 类型、`goal-ui.ts` 锁、`goal-edit.ts` 的 pause→revise **全部未动**；未做完成卡（C3）与计划门禁（C1）；未改 `GoalInspectorContent` 的 `<details>` 双层嵌套（属独立改造）；未新增/升级依赖；未碰生成产物；未创建 Git commit。
+- Notes（未做，供下轮）：① 完成态仍 `return null`，需要 C3 完成卡才算闭环；② `goal-control-strip.ts` 的 `phaseDetailFor` 与 `goal-card.ts` 的 `v2StatusKey` 有一定语义重叠，若继续演进可抽公共映射；③ tone 仍是硬编码 hex（`#3478d4`/`#d97706`/`rgb(4 143 101)`）散在 4 处，未 token 化；④ 未做真实浏览器视觉验收（展开/菜单/popover 的定位与窄屏表现需目视）。
+
+---
+
 ## goal-mode-ux-redesign（done，2026-10-23）
 
 - Goal：用户要求「分析 goal 模式的 UI 设计，给几个可优化方案（用户体验与流程），出 HTML 设计稿」。

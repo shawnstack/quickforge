@@ -7894,22 +7894,28 @@ html.dark .quickforge-assistant-artifact-card-rollback:hover:not(:disabled) {
   .quickforge-assistant-artifact-card-details { transition: none; }
 }
 
-/* Goal control strip: the compact production goal affordance above the composer.
-   One in-flow row — status icon + short label + server-recorded duration (minutes
-   past the first minute) + at most two icon buttons (pause/resume + open summary).
-   It reuses the goal card tone tokens, keeps the composer-shell first-child anchor
-   so the TodoWrite summary never shifts, and never fabricates progress. */
+/* Goal control strip — 方案 A「目标卡」。输入框上方不再是一条平铺的单行 + 4 个
+   同权重图标，而是三层结构的小卡片：
+   ① 身份行（tone 图标 + 5 个状态词之一 + 次要阶段说明 + 唯一实心主操作 + ⋯ + 展开）
+   ② 目标行（两行截断；编辑态换成输入框）
+   ③ 进度行（验收分段条 + 3/5 + 轮次 + 累计用时）
+   点开展开在原地显示验收清单与预算，编辑/清除/打开面板收进「⋯」菜单，
+   清除确认走锚定 popover，不再用 flex-wrap 把整条撑成两行。
+   宽度仍随内容自适应（不低于 20rem、封顶 composer 宽度），保持既有「不占满
+   composer shell」的约定；tone 变量与 goal card 共用。 */
 .quickforge-goal-strip {
   --quickforge-goal-tone: #3478d4;
+  position: relative;
   display: flex;
   width: fit-content;
+  min-width: min(100%, 20rem);
   max-width: 100%;
   flex: none;
-  align-items: center;
-  gap: 0.4375rem;
-  /* Centered under the composer: auto side margins center the fit-content row. */
+  flex-direction: column;
+  gap: 0.375rem;
+  /* Centered under the composer: auto side margins center the fit-content card. */
   margin: 0 auto 0.375rem;
-  padding: 0.25rem 0.5rem 0.25rem 0.625rem;
+  padding: 0.5rem 0.5rem 0.5rem 0.625rem;
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) + 0.125rem);
   background: color-mix(in oklab, var(--background) 96%, var(--muted));
@@ -7921,6 +7927,14 @@ html.dark .quickforge-assistant-artifact-card-rollback:hover:not(:disabled) {
 .quickforge-goal-strip[data-tone="warning"] { --quickforge-goal-tone: #d97706; }
 .quickforge-goal-strip[data-tone="success"] { --quickforge-goal-tone: rgb(4 143 101); }
 .quickforge-goal-strip[data-tone="danger"] { --quickforge-goal-tone: var(--destructive); }
+
+/* 身份行：图标 / 脉冲点 / 状态词 / 阶段说明 / spacer / 主操作 / ⋯ / 展开 */
+.quickforge-goal-strip-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4375rem;
+}
 
 .quickforge-goal-strip-icon {
   display: inline-flex;
@@ -7944,64 +7958,86 @@ html.dark .quickforge-assistant-artifact-card-rollback:hover:not(:disabled) {
   animation: quickforge-goal-spin 1.6s linear infinite;
 }
 
+/* 7px 呼吸点：运行/等待时提醒「它在动」，静止态不发光。 */
+.quickforge-goal-strip-dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--quickforge-goal-tone);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--quickforge-goal-tone) 15%, transparent);
+}
+
+.quickforge-goal-strip[data-state="running"] .quickforge-goal-strip-dot {
+  animation: quickforge-goal-breathe 2s var(--quickforge-ease-out) infinite;
+}
+
+.quickforge-goal-strip[data-state="needs_you"] .quickforge-goal-strip-dot {
+  animation: quickforge-goal-breathe 1.4s var(--quickforge-ease-out) infinite;
+}
+
+/* 旋转图标：这条 keyframes 之前一直缺失（`quickforge-goal-spin` 只被引用未定义），
+   目标卡把旋转放到身份行的图标上，正好补上。 */
+@keyframes quickforge-goal-spin { to { transform: rotate(360deg); } }
+
+@keyframes quickforge-goal-breathe {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in oklab, var(--quickforge-goal-tone) 15%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--quickforge-goal-tone) 4%, transparent); }
+}
+
+/* 状态词：5 个用户可见状态（13 个服务器状态已收敛），是整张卡唯一的强调色文字。 */
 .quickforge-goal-strip-label {
   color: var(--quickforge-goal-tone);
   font-size: 0.75rem;
   font-weight: 650;
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
-/* DSH-style single-line strip: the truncated objective sits inline after the
-   phase label and shrinks with ellipsis. Edit mode replaces it with an input. */
-.quickforge-goal-strip-objective {
+/* 次要阶段说明：同一语义档位降一级（常规字重 + muted）。 */
+.quickforge-goal-strip-phase {
   min-width: 0;
-  max-width: 22rem;
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 0.75rem;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.quickforge-goal-strip[data-editing='true'] .quickforge-goal-strip-objective {
-  display: none;
-}
-
-.quickforge-goal-strip-edit-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 26rem;
-  padding: 0.125rem 0.375rem;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 0.125rem);
-  background: var(--background);
-  color: var(--foreground);
-  font-size: 0.75rem;
-  line-height: 1.35;
-  outline: none;
-}
-
-.quickforge-goal-strip-edit-input:focus-visible {
-  border-color: var(--quickforge-goal-tone);
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--quickforge-goal-tone) 20%, transparent);
-}
-
-.quickforge-goal-strip-error {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--destructive);
-  cursor: pointer;
   font-size: 0.6875rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .quickforge-goal-strip-spacer { flex: 1 1 auto; }
-.quickforge-goal-strip:has(.quickforge-goal-strip-cancel-note) { flex-wrap: wrap; }
-.quickforge-goal-strip-cancel-note { flex-basis: 100%; font-size: 12px; color: var(--muted-foreground); }
-.quickforge-goal-strip .quickforge-goal-strip-confirm { width: auto; padding: 0 6px; font-size: 12px; }
 
+/* 唯一实心主操作：暂停 / 继续 / 去处理 / 追加预算并继续。 */
+.quickforge-goal-strip-primary {
+  display: inline-flex;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--quickforge-goal-tone);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.6875rem;
+  font-weight: 550;
+  transition: background var(--quickforge-dur-fast) var(--quickforge-ease-out), opacity var(--quickforge-dur-fast) var(--quickforge-ease-out), transform var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-goal-strip-primary:hover:not(:disabled) { filter: brightness(1.06); }
+.quickforge-goal-strip-primary:active:not(:disabled) { transform: scale(0.97); }
+
+.quickforge-goal-strip-primary svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+/* 图标按钮：⋯ 与展开。24px 命中区，hover 才有淡底，不跳动。 */
 .quickforge-goal-strip-action {
   display: inline-flex;
   width: 1.5rem;
@@ -8045,14 +8081,337 @@ html.dark .quickforge-assistant-artifact-card-rollback:hover:not(:disabled) {
   opacity: 0.5;
 }
 
+/* 展开箭头：只转 transform，符合动效规范。 */
+.quickforge-goal-strip-chevron { transition: transform var(--quickforge-dur-base) var(--quickforge-ease-out); }
+.quickforge-goal-strip-action--expand[data-open="true"] .quickforge-goal-strip-chevron { transform: rotate(180deg); }
+
+/* 目标行：两行截断，取代原来的单行 ellipsis。 */
+.quickforge-goal-strip-objective {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.78125rem;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.quickforge-goal-strip-edit-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 0.125rem);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.78125rem;
+  line-height: 1.4;
+  outline: none;
+}
+
+.quickforge-goal-strip-edit-input:focus-visible {
+  border-color: var(--quickforge-goal-tone);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--quickforge-goal-tone) 20%, transparent);
+}
+
+.quickforge-goal-strip-error {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--destructive);
+  cursor: pointer;
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 进度行：验收分段条 + 计数 + 轮次 + 用时。数字用 tabular 避免刷新抖动。 */
+.quickforge-goal-strip-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-goal-strip-segs { display: inline-flex; flex: 0 0 auto; gap: 2px; }
+
+.quickforge-goal-strip-seg {
+  width: 0.6875rem;
+  height: 0.1875rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted-foreground) 26%, transparent);
+}
+
+.quickforge-goal-strip-seg[data-status="passed"] { background: var(--workflow-done); }
+.quickforge-goal-strip-seg[data-status="failed"] { background: color-mix(in oklab, var(--destructive) 55%, transparent); }
+
+.quickforge-goal-strip-sep { opacity: 0.45; }
+
+.quickforge-goal-strip-chip {
+  padding: 0 0.375rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--quickforge-goal-tone) 12%, var(--background));
+  color: var(--quickforge-goal-tone);
+  font-size: 0.625rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 就地展开面板：一次点击就能看到验收清单与预算，不需要跳右侧面板。 */
+.quickforge-goal-strip-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  animation: quickforge-goal-panel-in var(--quickforge-dur-base) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-goal-panel-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: none; }
+}
+
+.quickforge-goal-strip-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quickforge-goal-strip-criterion {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.quickforge-goal-strip-criterion-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: 0 0 auto;
+  margin-top: 0.25rem;
+  border: 1.5px solid color-mix(in oklab, var(--muted-foreground) 40%, transparent);
+  border-radius: 999px;
+}
+
+.quickforge-goal-strip-criterion[data-status="passed"] .quickforge-goal-strip-criterion-dot {
+  border-color: var(--workflow-done);
+  background: var(--workflow-done);
+}
+
+.quickforge-goal-strip-criterion[data-status="failed"] .quickforge-goal-strip-criterion-dot {
+  border-color: var(--destructive);
+  background: color-mix(in oklab, var(--destructive) 20%, transparent);
+}
+
+.quickforge-goal-strip-criterion-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.quickforge-goal-strip-criterion-text em {
+  color: var(--muted-foreground);
+  font-style: normal;
+}
+
+.quickforge-goal-strip-criterion-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 0.25rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.quickforge-goal-strip-criterion-evidence { opacity: 0.7; }
+
+.quickforge-goal-strip-empty {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+.quickforge-goal-strip-budget {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-goal-strip-budget-bar {
+  width: 4.5rem;
+  height: 0.25rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 90%, transparent);
+}
+
+.quickforge-goal-strip-budget-bar > b {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--quickforge-goal-tone);
+}
+
+.quickforge-goal-strip-budget-value em {
+  color: var(--muted-foreground);
+  font-style: normal;
+  opacity: 0.8;
+}
+
+.quickforge-goal-strip-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 0.6875rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.quickforge-goal-strip-link:hover { color: var(--foreground); }
+
+/* 「⋯」菜单：锚定在卡片上缘向上生长（下方是输入框，不能压住）。 */
+.quickforge-goal-strip-menu {
+  position: absolute;
+  right: 0.375rem;
+  bottom: calc(100% + 0.25rem);
+  z-index: 20;
+  display: flex;
+  min-width: 10.5rem;
+  flex-direction: column;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  box-shadow: var(--shadow-quickforge);
+  animation: quickforge-goal-pop-in var(--quickforge-dur-fast) var(--quickforge-ease-out) both;
+}
+
+@keyframes quickforge-goal-pop-in {
+  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.quickforge-goal-strip-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3125rem 0.5rem;
+  border: 0;
+  border-radius: calc(var(--radius) - 0.125rem);
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 0.75rem;
+  text-align: left;
+  transition: background var(--quickforge-dur-fast) var(--quickforge-ease-out), color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-goal-strip-menu-item:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
+}
+
+.quickforge-goal-strip-menu-item:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: -1px;
+}
+
+.quickforge-goal-strip-menu-item svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+/* 危险动作默认不红，只在 hover 时变红（DESIGN_LANGUAGE 危险色约定）。 */
+.quickforge-goal-strip-menu-item--danger:hover:not(:disabled) { color: var(--destructive); }
+
+.quickforge-goal-strip-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* 清除确认：锚定 popover，不再用 flex-wrap 把整条撑成两行。 */
+.quickforge-goal-strip-confirm-pop {
+  position: absolute;
+  right: 0.375rem;
+  bottom: calc(100% + 0.25rem);
+  z-index: 21;
+  display: flex;
+  max-width: 17rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem 0.6875rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  box-shadow: var(--shadow-quickforge);
+  animation: quickforge-goal-pop-in var(--quickforge-dur-fast) var(--quickforge-ease-out) both;
+}
+
+.quickforge-goal-strip-cancel-note {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.quickforge-goal-strip-confirm-actions { display: flex; justify-content: flex-end; gap: 0.375rem; }
+
+.quickforge-goal-strip-confirm {
+  width: auto;
+  height: 1.5rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+.quickforge-goal-strip-confirm--danger {
+  border-color: color-mix(in oklab, var(--destructive) 45%, var(--border));
+  color: var(--destructive);
+}
+
+/* 窄屏：状态词小一号，阶段说明让位给主操作。 */
 @media (max-width: 640px) {
-  .quickforge-goal-strip { padding: 0.25rem 0.4375rem 0.25rem 0.5rem; }
+  .quickforge-goal-strip { padding: 0.4375rem 0.4375rem 0.4375rem 0.5rem; }
   .quickforge-goal-strip-label { font-size: 0.6875rem; }
+  .quickforge-goal-strip-phase { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .quickforge-goal-strip-icon--spinning svg { animation: none; }
-  .quickforge-goal-strip-action { transition: none; }
+  .quickforge-goal-strip-dot { animation: none !important; }
+  .quickforge-goal-strip-action,
+  .quickforge-goal-strip-primary,
+  .quickforge-goal-strip-chevron { transition: none; }
+  .quickforge-goal-strip-panel,
+  .quickforge-goal-strip-menu,
+  .quickforge-goal-strip-confirm-pop { animation: none; }
+}
+
+/* 「去处理」的高亮：条带滚动到对话里的审批/提问卡时，短暂描边把它指出来。 */
+.quickforge-approval-card[data-goal-attention="true"],
+.quickforge-ask-card[data-goal-attention="true"] {
+  outline: 2px solid color-mix(in oklab, var(--ring) 55%, transparent);
+  outline-offset: 2px;
 }
 
 /* Goal 报告工具卡：与其他工具卡一致的裸 summary 行形态——无卡片框、无 tone 染色、

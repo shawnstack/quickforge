@@ -1,0 +1,1737 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QuickForge · 对话轨迹（对话区内展开）交互原型</title>
+<style>
+  /* ==================================================================
+   * 令牌全部对齐 src/index.css：颜色、字号、动效刻度与分割线配方。
+   * 轨迹视图是对话区内部的一个视图（view），不是浮层、不是侧栏。
+   * ================================================================== */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --workflow-done: oklch(0.55 0.13 158);
+    --border: oklch(0.922 0 0);
+    --sidebar-bg: #f3f4f6;
+
+    --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+      sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+      "PingFang SC", "Microsoft YaHei", monospace;
+
+    /* 主结构分割线统一配方 */
+    --divider: color-mix(in oklab, var(--border) 60%, transparent);
+
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --dur-slow: 280ms;
+    --dur-exit: 140ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; font-family: var(--font-sans); font-size: 14px; line-height: 1.5;
+    color: var(--foreground); background: var(--sidebar-bg);
+    -webkit-font-smoothing: antialiased; overflow: hidden;
+  }
+  * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background-color: var(--border); border-radius: 4px; }
+  button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+  svg.ico { width: 16px; height: 16px; flex: 0 0 auto; }
+
+  /* ============================ 外壳 ============================ */
+  .app { display: flex; height: 100%; }
+  .sidebar {
+    width: 244px; flex: 0 0 244px; display: flex; flex-direction: column; gap: 2px;
+    padding: 10px 8px 56px; overflow: hidden;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; padding: 6px 8px 12px; }
+  .brand-mark {
+    width: 22px; height: 22px; border-radius: 7px; background: var(--primary);
+    display: grid; place-items: center; color: var(--primary-foreground); font-size: 11px; font-weight: 700;
+  }
+  .brand-name { font-size: 13px; font-weight: 600; }
+  .side-section { padding: 10px 8px 4px; font-size: 11px; color: var(--muted-foreground); }
+  .side-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px;
+    font-size: 13px; opacity: .82; text-align: left; width: 100%;
+  }
+  .side-item:hover { background: color-mix(in oklab, var(--border) 55%, transparent); opacity: 1; }
+  .side-item.active { background: #d9dee7; opacity: 1; font-weight: 500; }
+  .side-item.sub { padding-left: 26px; font-size: 12.5px; color: var(--muted-foreground); }
+  .side-item .dotline { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .45; }
+
+  .main {
+    flex: 1; min-width: 0; display: flex; flex-direction: column;
+    background: var(--background);
+    border-left: 1px solid var(--divider);
+    border-top: 1px solid var(--divider);
+    border-top-left-radius: 16px;
+    overflow: hidden;
+  }
+
+  /* ============================ 顶部栏 ============================ */
+  .masthead {
+    height: 56px; flex: 0 0 56px; display: flex; align-items: center; gap: 8px;
+    padding: 0 12px; border-bottom: 1px solid var(--divider);
+  }
+  .title-block { min-width: 0; flex: 1 1 auto; }
+  .title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px;
+    border-radius: 999px; max-width: 200px; font-size: 13.5px; white-space: nowrap;
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .pill:hover { background: var(--muted); }
+  .pill .ico { color: var(--muted-foreground); }
+  .pill .label { overflow: hidden; text-overflow: ellipsis; }
+
+  .icon-btn {
+    width: 36px; height: 36px; border-radius: 999px; display: grid; place-items: center;
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .icon-btn:hover { background: var(--muted); }
+  .icon-btn .ico { width: 18px; height: 18px; }
+  .icon-btn.sm { width: 28px; height: 28px; }
+  .icon-btn.sm .ico { width: 15px; height: 15px; }
+
+  /* 视图切换：对话 / 轨迹（对齐 DSH 的 view 环页签） */
+  .segmented {
+    display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+    border-radius: 999px; background: color-mix(in oklab, var(--muted) 70%, transparent);
+    flex: 0 0 auto;
+  }
+  .seg-btn {
+    display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 12px;
+    border-radius: 999px; font-size: 13px; color: var(--muted-foreground);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .seg-btn:hover { color: var(--foreground); }
+  .seg-btn .ico { width: 14px; height: 14px; }
+  .seg-btn.on {
+    background: var(--background); color: var(--foreground);
+    box-shadow: 0 1px 2px hsl(0 0% 0% / .06);
+  }
+  .seg-btn .n {
+    font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--muted-foreground);
+    padding: 0 4px; border-radius: 999px; border: 1px solid var(--divider); min-width: 16px; text-align: center;
+  }
+  .live-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--workflow-done); animation: breathe 1.6s ease-in-out infinite; }
+
+  /* ============================ 视图容器 ============================ */
+  .viewport { flex: 1; min-height: 0; display: flex; }
+  .view { display: none; flex: 1; min-width: 0; flex-direction: column; min-height: 0; }
+  .view.on { display: flex; animation: viewIn var(--dur-base) var(--ease); }
+  @keyframes viewIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .view.on { animation: none; } }
+
+  /* ============================ 对话视图 ============================ */
+  .chat-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+  .chat-inner { max-width: 56rem; margin: 0 auto; padding: 26px 24px 120px; }
+  .msg-user { display: flex; justify-content: flex-end; margin: 0 0 20px; }
+  .user-bubble {
+    max-width: 78%; padding: 10px 14px; border-radius: 14px; background: var(--muted);
+    border: 1px solid var(--divider); font-size: 13.5px; line-height: 1.6;
+  }
+  .assistant { margin: 0 0 24px; }
+  .prose { margin: 0 0 11px; font-size: 13.5px; line-height: 1.68; }
+  .prose code { font-family: var(--font-mono); font-size: .92em; background: var(--muted); padding: 1px 5px; border-radius: 5px; }
+  .toolstack { display: flex; flex-direction: column; gap: 6px; margin: 9px 0 13px; }
+  .tool-card {
+    border: 1px solid var(--border); background: color-mix(in oklab, var(--card) 60%, var(--background));
+    border-radius: 8px; padding: 9px 10px;
+  }
+  .tool-summary { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font-size: 13px; color: var(--muted-foreground); min-width: 0; }
+  .tool-summary .ico { width: 15px; height: 15px; }
+  .ico.bad { color: var(--destructive); }
+  .tool-summary .name { flex: 0 0 auto; color: var(--foreground); }
+  .tool-summary .args {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--font-mono); font-size: 12px; opacity: .85;
+  }
+  .tool-summary .dur { flex: 0 0 auto; font-size: 11.5px; font-variant-numeric: tabular-nums; opacity: .8; }
+  .jump-hint {
+    display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted-foreground);
+    opacity: 0; transition: opacity var(--dur-fast) var(--ease); margin-left: auto;
+  }
+  .tool-card:hover .jump-hint { opacity: 1; }
+  .jump-hint .ico { width: 11px; height: 11px; }
+
+  /* ============================ 轨迹视图 ============================ */
+  .trace-toolbar {
+    height: 44px; flex: 0 0 44px; display: flex; align-items: center; gap: 8px;
+    padding: 0 12px; border-bottom: 1px solid var(--divider); min-width: 0;
+  }
+  .seg-mini {
+    display: inline-flex; align-items: center; gap: 1px; padding: 2px;
+    border-radius: 7px; border: 1px solid var(--divider); flex: 0 0 auto;
+  }
+  .seg-mini button {
+    height: 24px; padding: 0 8px; border-radius: 5px; font-size: 11.5px; color: var(--muted-foreground);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); white-space: nowrap;
+  }
+  .seg-mini button:hover { color: var(--foreground); }
+  .seg-mini button.on { background: var(--muted); color: var(--foreground); }
+
+  .tool-btn {
+    display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+    border-radius: 6px; font-size: 11.5px; color: var(--muted-foreground);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); white-space: nowrap;
+  }
+  .tool-btn:hover { background: var(--muted); color: var(--foreground); }
+  .tool-btn .ico { width: 13px; height: 13px; }
+
+  .tb-spacer { flex: 1 1 auto; min-width: 8px; }
+
+  .search-wrap {
+    display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px;
+    border-radius: 999px; border: 1px solid var(--divider); flex: 0 1 190px; min-width: 90px;
+    transition: border-color var(--dur-fast) var(--ease);
+  }
+  .search-wrap:focus-within { border-color: color-mix(in oklab, var(--foreground) 20%, var(--border)); }
+  .search-wrap .ico { width: 13px; height: 13px; color: var(--muted-foreground); }
+  .search-wrap input {
+    border: none; outline: none; background: none; width: 100%; min-width: 0;
+    font-family: var(--font-sans); font-size: 12px; color: var(--foreground);
+  }
+  .search-wrap input::placeholder { color: var(--muted-foreground); }
+  .search-count { font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+
+  /* ---------------------------- 时间总览 ---------------------------- */
+  .timeline {
+    flex: 0 0 auto; border-bottom: 1px solid var(--divider);
+    padding: 8px 12px 4px; user-select: none;
+  }
+  .tl-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .tl-title { font-size: 11px; color: var(--muted-foreground); letter-spacing: .02em; }
+  .tl-span { font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .tl-reset {
+    margin-left: auto; display: none; align-items: center; gap: 4px; font-size: 11px;
+    color: var(--muted-foreground); padding: 1px 7px; border-radius: 999px; border: 1px solid var(--divider);
+  }
+  .tl-reset.show { display: inline-flex; }
+  .tl-hint { font-size: 10.5px; color: var(--muted-foreground); opacity: .8; margin-left: 6px; }
+  .tl-reset:hover { color: var(--foreground); background: var(--muted); }
+
+  .tl-grid { position: relative; display: grid; grid-template-columns: 46px 1fr; gap: 0 8px; }
+  .tl-lanes { display: flex; flex-direction: column; gap: 3px; padding-bottom: 16px; }
+  .lane-label {
+    height: 16px; display: flex; align-items: center; font-size: 10px; color: var(--muted-foreground);
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  .tl-track { position: relative; padding-bottom: 16px; }
+  .tl-lane {
+    position: relative; height: 16px; margin-bottom: 3px; border-radius: 3px;
+    background: color-mix(in oklab, var(--muted) 55%, transparent);
+  }
+  .tl-lane:last-child { margin-bottom: 0; }
+
+  .tl-bar {
+    position: absolute; top: 3px; height: 10px; border-radius: 2.5px; min-width: 3px;
+    background: color-mix(in oklab, var(--foreground) 20%, transparent);
+    transition: left var(--dur-base) var(--ease), width var(--dur-base) var(--ease), opacity var(--dur-fast) var(--ease);
+    cursor: pointer;
+  }
+  .tl-bar.model { background: color-mix(in oklab, var(--foreground) 26%, transparent); }
+  .tl-bar.tool { background: color-mix(in oklab, var(--foreground) 40%, transparent); }
+  .tl-bar.tool.error { background: color-mix(in oklab, var(--destructive) 72%, transparent); }
+  .tl-bar.tool.running {
+    background: linear-gradient(90deg,
+      color-mix(in oklab, var(--workflow-done) 30%, transparent),
+      var(--workflow-done),
+      color-mix(in oklab, var(--workflow-done) 30%, transparent));
+    background-size: 200% 100%; animation: shimmer 2s ease-in-out infinite;
+  }
+  .tl-bar.compact {
+    background: repeating-linear-gradient(135deg,
+      color-mix(in oklab, var(--foreground) 22%, transparent) 0 3px,
+      transparent 3px 6px);
+  }
+  .tl-bar.input { background: color-mix(in oklab, var(--foreground) 16%, transparent); top: 5px; height: 6px; }
+  .tl-bar:hover { opacity: .72; }
+  .tl-bar.dimmed { opacity: .18; }
+
+  .tl-turn-line {
+    position: absolute; top: 0; bottom: 16px; width: 1px; background: var(--divider);
+    pointer-events: none;
+  }
+  .tl-turn-tag {
+    position: absolute; bottom: 0; font-size: 9.5px; color: var(--muted-foreground);
+    transform: translateX(-50%); white-space: nowrap; font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+
+  .tl-selection {
+    position: absolute; top: 0; bottom: 16px; background: color-mix(in oklab, var(--foreground) 7%, transparent);
+    border-left: 1px solid color-mix(in oklab, var(--foreground) 22%, transparent);
+    border-right: 1px solid color-mix(in oklab, var(--foreground) 22%, transparent);
+    pointer-events: none; display: none; z-index: 2;
+  }
+  .tl-selection.show { display: block; }
+  .tl-cursor {
+    position: absolute; top: 0; bottom: 16px; width: 1px;
+    background: color-mix(in oklab, var(--foreground) 30%, transparent);
+    pointer-events: none; display: none; z-index: 3;
+  }
+  .tl-cursor.show { display: block; }
+
+  .tl-tip {
+    position: fixed; z-index: 50; padding: 5px 8px; border-radius: 6px;
+    background: var(--popover, var(--background)); border: 1px solid var(--border);
+    box-shadow: 0 4px 12px hsl(0 0% 0% / .10); font-size: 11px; line-height: 1.5;
+    pointer-events: none; display: none; max-width: 240px;
+  }
+  .tl-tip.show { display: block; }
+  .tl-tip b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tl-tip .muted { color: var(--muted-foreground); }
+
+  /* ---------------------------- 主体两栏 ---------------------------- */
+  .trace-body { flex: 1; min-height: 0; display: flex; }
+
+  .ledger { flex: 1; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 6px 8px 80px; }
+
+  .load-earlier {
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    margin: 2px auto 8px; padding: 5px 12px; border-radius: 999px; font-size: 11.5px;
+    color: var(--muted-foreground); border: 1px solid var(--divider);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .load-earlier:hover { background: var(--muted); color: var(--foreground); }
+  .load-earlier .ico { width: 12px; height: 12px; }
+
+  .turn {
+    border: 1px solid var(--divider); border-radius: 9px; margin-bottom: 8px; overflow: hidden;
+  }
+  .turn-head {
+    display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+    padding: 7px 10px; background: color-mix(in oklab, var(--muted) 42%, transparent);
+    font-size: 11.5px; color: var(--muted-foreground);
+    transition: color var(--dur-fast) var(--ease);
+  }
+  .turn-head:hover { color: var(--foreground); }
+  .turn-head .chev { transition: transform var(--dur-fast) var(--ease); width: 12px; height: 12px; }
+  .turn-head.collapsed .chev { transform: rotate(-90deg); }
+  .turn-head .idx { font-weight: 600; color: var(--foreground); font-size: 12px; }
+  .turn-head .t { font-variant-numeric: tabular-nums; }
+  .turn-head .stat { margin-left: auto; font-variant-numeric: tabular-nums; opacity: .9; }
+  .turn-body { padding: 4px 0 5px; }
+  .turn-body.hidden { display: none; }
+
+  /* Step 组：ASSISTANT 行 = 组头，工具行缩进 + 1px 弱连接线（对齐 DESIGN_LANGUAGE
+     「对话折叠的阶段内子级用缩进 + 细连接线」的例外条款） */
+  .step-group { position: relative; margin: 0 0 1px; }
+  .step-row-wrap { display: flex; align-items: center; min-width: 0; }
+  .step-chev {
+    width: 18px; flex: 0 0 18px; height: 22px; display: grid; place-items: center;
+    margin-left: 2px; border-radius: 4px; color: var(--muted-foreground);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .step-chev:hover { background: var(--muted); color: var(--foreground); }
+  .step-chev .chev { width: 11px; height: 11px; transition: transform var(--dur-fast) var(--ease); }
+  .step-chev.collapsed .chev { transform: rotate(-90deg); }
+  .step-row-wrap .row { flex: 1 1 auto; min-width: 0; padding-left: 0; }
+  .step-row-wrap .row .bar-dot { margin-left: 0; }
+
+  .tool-rows { position: relative; padding-left: 26px; }
+  .tool-rows.hidden { display: none; }
+  .tool-rows::before {
+    content: ''; position: absolute; left: 12px; top: 0; bottom: 5px; width: 1px;
+    background: var(--divider);
+  }
+  .tool-rows .row { padding-left: 8px; }
+  .tool-rows .row .bar-dot { margin-left: -8px; }
+
+  .row {
+    display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+    padding: 5px 10px 5px 22px; border-radius: 6px; min-width: 0;
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .row:hover { background: color-mix(in oklab, var(--muted) 62%, transparent); }
+  .row.selected { background: var(--muted); }
+  .row.dimmed { opacity: .34; }
+  .row .bar-dot {
+    width: 2px; height: 15px; border-radius: 2px; flex: 0 0 2px;
+    background: color-mix(in oklab, var(--foreground) 18%, transparent); margin-left: -8px;
+  }
+  .row[data-status="error"] .bar-dot { background: color-mix(in oklab, var(--destructive) 70%, transparent); }
+  .row[data-status="running"] .bar-dot { background: var(--workflow-done); animation: breathe 1.6s ease-in-out infinite; }
+  .badge {
+    font-size: 9.5px; letter-spacing: .05em; padding: 0 4px; border-radius: 3px;
+    border: 1px solid var(--divider); color: var(--muted-foreground); flex: 0 0 auto;
+    line-height: 15px; text-transform: uppercase; font-weight: 500;
+  }
+  .badge.user { color: color-mix(in oklab, var(--foreground) 70%, transparent); }
+  .badge.tool { color: color-mix(in oklab, var(--foreground) 78%, transparent); }
+  .badge.compact { color: color-mix(in oklab, var(--foreground) 55%, transparent); }
+  .row[data-status="error"] .badge { color: var(--destructive); border-color: color-mix(in oklab, var(--destructive) 34%, transparent); }
+  .row .ico { width: 13px; height: 13px; color: var(--muted-foreground); flex: 0 0 auto; }
+  .row[data-status="error"] .ico { color: var(--destructive); }
+  .row .name { font-size: 12.5px; flex: 0 0 auto; }
+  .row .args {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted-foreground);
+  }
+  .row .text {
+    flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 12px; color: var(--muted-foreground);
+  }
+  .row .par {
+    font-size: 9px; padding: 0 3px; border-radius: 3px; border: 1px solid var(--divider);
+    color: var(--muted-foreground); line-height: 14px; flex: 0 0 auto;
+  }
+  .row .dur { flex: 0 0 auto; font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .row[data-status="error"] .dur { color: var(--destructive); }
+  .row .tok { flex: 0 0 auto; font-size: 10.5px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; opacity: .8; }
+
+  .run-shimmer {
+    background: linear-gradient(90deg,
+      color-mix(in oklab, var(--foreground) 55%, transparent) 0%,
+      var(--foreground) 42%,
+      color-mix(in oklab, var(--foreground) 55%, transparent) 62%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    animation: shimmer 2s ease-in-out infinite;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  @keyframes breathe { 0%, 100% { opacity: .35; transform: scale(.86); } 50% { opacity: 1; transform: scale(1); } }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .run-shimmer { animation: none; -webkit-text-fill-color: currentColor; color: var(--foreground); background: none; }
+    .live-dot, .row[data-status="running"] .bar-dot, .tl-bar.tool.running { animation: none; }
+    .spin { animation: none; }
+    .tl-bar { transition: none; }
+  }
+
+  /* ---------------------------- Inspector ---------------------------- */
+  .inspector {
+    width: 332px; flex: 0 0 332px; min-width: 0; border-left: 1px solid var(--divider);
+    display: flex; flex-direction: column; min-height: 0; background: var(--background);
+  }
+  .inspector.hidden { display: none; }
+  .ins-head {
+    height: 44px; flex: 0 0 44px; display: flex; align-items: center; gap: 6px;
+    padding: 0 8px 0 12px; border-bottom: 1px solid var(--divider);
+  }
+  .ins-head .ico { width: 14px; height: 14px; color: var(--muted-foreground); }
+  .ins-head .title { font-size: 12.5px; font-weight: 600; font-family: var(--font-mono); }
+  .ins-head .spacer { flex: 1; }
+  .ins-tabs {
+    display: flex; align-items: center; gap: 2px; padding: 6px 8px;
+    border-bottom: 1px solid var(--divider); overflow-x: auto; flex: 0 0 auto;
+  }
+  .ins-tabs::-webkit-scrollbar { height: 0; }
+  .ins-tab {
+    height: 24px; padding: 0 8px; border-radius: 5px; font-size: 11.5px;
+    color: var(--muted-foreground); white-space: nowrap;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .ins-tab:hover { color: var(--foreground); }
+  .ins-tab.on { background: var(--muted); color: var(--foreground); }
+  .ins-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
+
+  .ins-meta { display: grid; grid-template-columns: auto 1fr; gap: 5px 10px; font-size: 11.5px; margin-bottom: 12px; }
+  .ins-meta dt { color: var(--muted-foreground); }
+  .ins-meta dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .ins-meta dd.ok { color: var(--workflow-done); }
+  .ins-meta dd.bad { color: var(--destructive); }
+  .ins-section { margin-bottom: 12px; }
+  .ins-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted-foreground); margin-bottom: 4px;
+  }
+  .ins-body pre {
+    margin: 0; padding: 8px; border-radius: 6px; background: var(--muted);
+    border: 1px solid var(--divider); font-family: var(--font-mono); font-size: 11px;
+    line-height: 1.55; overflow: auto; max-height: 260px; white-space: pre-wrap; word-break: break-word;
+  }
+  .ins-body pre.bad { color: var(--destructive); }
+  .ins-body p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.65; }
+  .ins-actions { display: flex; gap: 10px; margin-top: 10px; }
+  .ins-actions button {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
+    color: var(--muted-foreground); transition: color var(--dur-fast) var(--ease);
+  }
+  .ins-actions button:hover { color: var(--foreground); }
+  .ins-actions .ico { width: 12px; height: 12px; }
+  .ins-empty {
+    height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; padding: 30px 20px; text-align: center;
+  }
+  .ins-empty .ico { width: 18px; height: 18px; color: var(--muted-foreground); opacity: .5; }
+  .ins-empty .t1 { font-size: 12.5px; opacity: .8; }
+  .ins-empty .t2 { font-size: 11.5px; color: var(--muted-foreground); line-height: 1.6; }
+
+  /* 轨迹空状态 */
+  .trace-empty {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 7px; padding: 50px 24px; text-align: center;
+  }
+  .trace-empty .ico { width: 22px; height: 22px; color: var(--muted-foreground); opacity: .5; }
+  .trace-empty .t1 { font-size: 13px; opacity: .82; }
+  .trace-empty .t2 { font-size: 12px; color: var(--muted-foreground); line-height: 1.65; }
+
+  /* ============================ 演示控制条 ============================ */
+  .demo-bar {
+    position: fixed; left: 10px; bottom: 10px; width: 236px; display: flex;
+    flex-direction: column; gap: 6px; padding: 8px; border-radius: 10px;
+    background: color-mix(in oklab, var(--background) 94%, var(--sidebar-bg));
+    border: 1px solid var(--divider);
+  }
+  .demo-bar .cap { font-size: 10.5px; color: var(--muted-foreground); padding: 0 2px; line-height: 1.55; }
+  .demo-row { display: flex; gap: 4px; flex-wrap: wrap; }
+  .demo-btn {
+    font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--divider);
+    color: var(--muted-foreground); background: var(--background);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .demo-btn:hover { background: var(--muted); color: var(--foreground); }
+  .demo-btn.on { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">QF</div>
+      <div class="brand-name">速构 QuickForge</div>
+    </div>
+    <div class="side-section">项目</div>
+    <div class="side-item active"><span class="dotline"></span>quickforge</div>
+    <div class="side-item sub">对话轨迹功能设计</div>
+    <div class="side-item sub">会话打开快路径</div>
+    <div class="side-item sub">Workspace Inspector 收起</div>
+    <div class="side-item"><span class="dotline"></span>blog-engine</div>
+    <div class="side-section">任务</div>
+    <div class="side-item"><span class="dotline"></span>定时任务</div>
+  </nav>
+
+  <main class="main">
+    <header class="masthead">
+      <div class="title-block"><div class="title">对话轨迹功能设计</div></div>
+      <button class="pill" type="button" title="quickforge">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2z"/></svg>
+        <span class="label">quickforge</span>
+      </button>
+      <button class="pill" type="button" title="Git 分支">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+        <span class="label">main</span>
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+
+      <!-- 视图切换：轨迹和对话是同一个区域的两种视图 -->
+      <div class="segmented" role="tablist" aria-label="对话视图">
+        <button class="seg-btn on" id="tabChat" type="button" role="tab" aria-selected="true">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>对话</span>
+        </button>
+        <button class="seg-btn" id="tabTrace" type="button" role="tab" aria-selected="false">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          <span>轨迹</span>
+          <span class="n" id="traceCount">0</span>
+        </button>
+      </div>
+
+      <button class="icon-btn" type="button" aria-label="更多操作">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </button>
+    </header>
+
+    <div class="viewport">
+      <!-- ============ 对话视图 ============ -->
+      <section class="view on" id="chatView" role="tabpanel">
+        <div class="chat-scroll" id="chatScroll"><div class="chat-inner" id="chatInner"></div></div>
+      </section>
+
+      <!-- ============ 轨迹视图（占据整个对话区） ============ -->
+      <section class="view" id="traceView" role="tabpanel">
+        <div class="trace-toolbar">
+          <div class="seg-mini" id="modeSeg" role="group" aria-label="时间轴模式">
+            <button type="button" data-mode="sequence" title="所有操作等宽排列，便于看清顺序">等宽</button>
+            <button type="button" data-mode="duration" class="on" title="按实际耗时分配宽度，看清谁最慢">耗时</button>
+            <button type="button" data-mode="time" title="按真实时钟位置排列，看清并行与空档">时钟</button>
+          </div>
+          <button class="tool-btn" id="expandAllBtn" type="button">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/></svg>
+            收起全部
+          </button>
+          <span class="tb-spacer"></span>
+          <span class="search-count" id="searchCount"></span>
+          <span class="search-wrap">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="traceSearch" type="search" placeholder="搜索工具、参数、输出…" aria-label="搜索轨迹" />
+          </span>
+        </div>
+
+        <!-- 时间总览：Input / Model / Tools 三轨 -->
+        <div class="timeline" id="timeline">
+          <div class="tl-head">
+            <span class="tl-title">时间总览</span>
+            <span class="tl-span" id="tlSpan"></span>
+            <span class="tl-hint" id="tlHint"></span>
+            <button class="tl-reset" id="tlReset" type="button">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              清除筛选
+            </button>
+          </div>
+          <div class="tl-grid" id="tlGrid">
+            <div class="tl-lanes">
+              <div class="lane-label">Input</div>
+              <div class="lane-label">Model</div>
+              <div class="lane-label">Tools</div>
+            </div>
+            <div class="tl-track" id="tlTrack">
+              <div class="tl-lane" id="laneInput"></div>
+              <div class="tl-lane" id="laneModel"></div>
+              <div class="tl-lane" id="laneTools"></div>
+              <div class="tl-selection" id="tlSelection"></div>
+              <div class="tl-cursor" id="tlCursor"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ledger + Inspector -->
+        <div class="trace-body">
+          <div class="ledger" id="ledger"></div>
+          <aside class="inspector hidden" id="inspector">
+            <div class="ins-head">
+              <span id="insIcon"></span>
+              <span class="title" id="insTitle">—</span>
+              <span class="spacer"></span>
+              <button class="icon-btn sm" id="insClose" type="button" aria-label="关闭检查器">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="ins-tabs" id="insTabs"></div>
+            <div class="ins-body" id="insBody"></div>
+          </aside>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="tl-tip" id="tlTip"></div>
+
+<div class="demo-bar">
+  <div class="cap">演示：切「轨迹」看内联视图 · 时间轴拖选可筛区间 · 右键清除 · 点行看检查器</div>
+  <div class="demo-row" id="demoRow">
+    <button class="demo-btn on" data-mode="running" type="button">进行中</button>
+    <button class="demo-btn" data-mode="done" type="button">已完成</button>
+    <button class="demo-btn" data-mode="empty" type="button">无工具</button>
+  </div>
+</div>
+
+<script>
+/* ==================================================================
+ * 数据：Turn → Step → Tool
+ *   Turn = 一条 user 消息到下一个 user 之前
+ *   Step = 一条 assistant 消息（= 一次模型请求）
+ *   Tool = 该 step 里发起的工具调用
+ * 全部时间字段都是真实 timestamp / durationMs，进行中不虚构结束时间。
+ * ================================================================== */
+const NOW0 = Date.now()
+const T0 = NOW0 - 158000   // 会话起点
+const RUNNING_START = NOW0 - 4100  // 运行中工具的真实开始时刻
+
+const BASE = [
+  {
+    index: 1,
+    startAt: T0,
+    user: '对话要加一个轨迹功能：能看到每个工具的详情和时间轴，入口放在顶部分支旁边。',
+    steps: [
+      {
+        id: 's1', at: T0 + 1400, durationMs: 2150, model: 'gpt-5.2', inTok: 8420, outTok: 612,
+        text: '我先确认工具耗时字段的写入点和读取链路，再决定轨迹的数据结构。',
+        thinking: '需要确认 quickforgeTiming 是否在 tool_execution_start 阶段就带 startedAt。',
+        tools: [
+          { id: 'c1', name: 'read_file', at: T0 + 1500, durationMs: 120, status: 'ok', args: 'src/App.tsx',
+            input: '{\n  "path": "src/App.tsx",\n  "offset": 1985,\n  "limit": 120\n}',
+            output: '1985: onOpenUpdate={() => { ... }\n2000: <header ref={conversationHeaderRef} ...>\n2032: {!mobileShell && ... titleGitStatus' },
+          { id: 'c2', name: 'grep_files', at: T0 + 1700, durationMs: 340, status: 'ok', args: 'quickforgeTiming',
+            input: '{\n  "query": "quickforgeTiming",\n  "path": "src",\n  "regex": false\n}',
+            output: 'src/lib/tool-execution-events.ts:23\nsrc/lib/tool-execution-events.ts:68\nsrc/lib/tool-execution-events.ts:140\n… 共 12 个文件' }
+        ]
+      },
+      {
+        id: 's2', at: T0 + 4300, durationMs: 16400, model: 'gpt-5.2', inTok: 9320, outTok: 1180,
+        text: '耗时字段确认可用，接着跑一次全量测试确认基线。',
+        tools: [
+          { id: 'c3', name: 'run_command', at: T0 + 4400, durationMs: 12100, status: 'ok', args: 'npm run test',
+            input: '{\n  "command": "npm run test",\n  "description": "运行前端测试"\n}',
+            output: 'Test Files  419 passed (419)\n     Tests  4809 passed | 2 skipped (4811)\n  Duration  38.42s\n\n[exit 0]' }
+        ]
+      },
+      {
+        id: 's3', at: T0 + 21400, durationMs: 3200, model: 'gpt-5.2', inTok: 10420, outTok: 340,
+        text: '基线通过。尝试写入轨迹投影模块。',
+        tools: [
+          { id: 'c4', name: 'edit_file', at: T0 + 21500, durationMs: 82, status: 'error', args: 'src/lib/conversation-trace.ts',
+            input: '{\n  "path": "src/lib/conversation-trace.ts",\n  "oldText": "export function buildTrace(",\n  "newText": "export function buildConversationTrace("\n}',
+            output: 'Error: oldText must match exactly once (found 0 matches)\n    at edit_file (src/lib/tools/edit-file.ts:64:11)\n\n→ 目标文件尚不存在，改为 write_file。' }
+        ]
+      }
+    ],
+    outro: '结论：`quickforgeTiming` 在服务端 `tool-wiring.mjs` 就写进 `details`，历史回放不丢，轨迹可以直接复用它，不需要新增事件日志。'
+  },
+  {
+    index: 2,
+    startAt: T0 + 31000,
+    user: '并行调用的工具在时间轴上要能看出重叠，另外要能看到每一步的 token 用量。',
+    steps: [
+      {
+        id: 's4', at: T0 + 32400, durationMs: 5800, model: 'gpt-5.2', inTok: 12600, outTok: 720,
+        text: '我先并行读三处，把渲染链路和类型定义一次拿全。',
+        tools: [
+          { id: 'c5', name: 'read_file', at: T0 + 32600, durationMs: 90, status: 'ok', args: 'MessageList.tsx', parallel: 'p1',
+            input: '{\n  "path": "src/components/chat/surface/MessageList.tsx",\n  "offset": 60\n}',
+            output: '80: export function collectToolResultsById(messages): Map<string, ToolResultMessage>\n93: export function MessageList({ messages, messageIndexOffset, tools, pendingToolCalls })' },
+          { id: 'c6', name: 'read_file', at: T0 + 32650, durationMs: 76, status: 'ok', args: 'ToolMessage.tsx', parallel: 'p1',
+            input: '{\n  "path": "src/components/chat/surface/ToolMessage.tsx",\n  "offset": 127\n}',
+            output: '127: export const ToolMessage = memo(function ToolMessage({ toolCall, tool, result, pending, aborted, isStreaming })' },
+          { id: 'c7', name: 'grep_files', at: T0 + 32750, durationMs: 210, status: 'ok', args: 'data-tool-call-id', parallel: 'p1',
+            input: '{\n  "query": "data-tool-call-id",\n  "path": "src"\n}',
+            output: 'src/components/chat/panel-decoration/approval-card.ts:336\n→ 仅 1 处，可复用该属性作为联动锚点' }
+        ]
+      },
+      {
+        id: 's5', at: T0 + 38600, durationMs: 92000, model: 'gpt-5.2', inTok: 14100, outTok: 2400,
+        text: '链路已经清楚，让 subagent 把服务端 timing 的写入点全部列一遍，我同时补类型定义。',
+        tools: [
+          { id: 'c8', name: 'run_subagent', at: T0 + 38800, durationMs: 90000, status: 'ok', args: 'explore · 定位 tool-wiring 写入点',
+            input: '{\n  "subagent": "explore",\n  "task": "列出 quickforgeTiming 的所有写入点与读取点"\n}',
+            output: 'A1 服务端 tool-wiring.mjs:40-50 mergeQuickForgeTiming（唯一合并点）\nA2 agent-session-events.mjs:196-219 start 帧即带 startedAt\nA3 持久化不裁剪 details（canonical-json.mjs）\n→ 回放可用，无需新增事件表' }
+        ]
+      }
+    ],
+    outro: '并行组已用同色系条形 + 「并行」标记表达，重叠区间能直接看出来；每个 Step 行带 token 用量，`Usage` 页签有完整分解。'
+  },
+  {
+    index: 3,
+    startAt: T0 + 142000,
+    user: '那就按这个方案落地，记得同步架构文档。',
+    steps: [
+      {
+        id: 's6', at: T0 + 143200, durationMs: 4200, model: 'gpt-5.2', inTok: 16200, outTok: 980,
+        text: '先写设计文档，再跑一次构建确认没有引入编译问题。',
+        tools: [
+          { id: 'c9', name: 'write_file', at: T0 + 143400, durationMs: 64, status: 'ok', args: 'docs/architecture/conversation-trace.zh-CN.md',
+            input: '{\n  "path": "docs/architecture/conversation-trace.zh-CN.md",\n  "content": "# 对话轨迹设计\\n…"\n}',
+            output: 'Wrote 1 file (4.2 KB)' },
+          { id: 'c10', name: 'run_command', at: RUNNING_START, durationMs: null, status: 'running', args: 'npm run build',
+            input: '{\n  "command": "npm run build",\n  "description": "构建前端"\n}',
+            output: 'vite v8.0.2 building for production...\ntransforming…' }
+        ]
+      }
+    ],
+    outro: ''
+  }
+]
+
+const EMPTY = [{ index: 1, startAt: T0, user: '这个项目的构建命令是什么？', steps: [
+  { id: 's0', at: T0 + 900, durationMs: 1600, model: 'gpt-5.2', inTok: 1240, outTok: 96,
+    text: '构建命令是 `npm run build`（Vite 生产构建）；完整发布前还需要 `npm run test` 和 `npm run lint`。', tools: [] }
+], outro: '' }]
+
+/* ============================ 状态 ============================ */
+const state = {
+  view: 'trace',
+  demo: 'running',
+  mode: 'duration',
+  query: '',
+  selected: null,
+  tab: 'summary',
+  selection: null,
+  collapsedTurns: new Set(),
+  collapsedSteps: new Set(),
+  allExpanded: true
+}
+
+/* ============================ 工具 ============================ */
+const ICONS = {
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  step: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M13 8h4"/><path d="M13 12h4"/><path d="M13 16h4"/>',
+  read_file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/><path d="m10 12-2 2 2 2"/><path d="m14 16 2-2-2-2"/>',
+  write_file: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  edit_file: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  grep_files: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+  run_command: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
+  run_subagent: '<rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 4v4"/><circle cx="9" cy="14" r="1"/><circle cx="15" cy="14" r="1"/>',
+  compact: '<path d="M4 14h16"/><path d="M4 10h16"/><path d="m9 18 3 3 3-3"/><path d="m9 6 3-3 3 3"/>',
+  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  chevronLeft: '<path d="m15 18-6-6 6-6"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+  arrowUp: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  panel: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  loader: '<path d="M21 12a9 9 0 1 1-6.2-8.6"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
+  expand: '<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
+  collapse: '<path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/>'
+}
+function svg(name, cls) {
+  return '<svg class="ico ' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[name] || ICONS.activity) + '</svg>'
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
+function fmtDur(ms) {
+  if (ms == null) return '—'
+  if (ms < 1000) return Math.round(ms) + 'ms'
+  if (ms < 60000) return (ms / 1000).toFixed(1) + 's'
+  const m = Math.floor(ms / 60000), s = Math.round((ms % 60000) / 1000)
+  return m + 'm ' + String(s).padStart(2, '0') + 's'
+}
+function fmtSpan(ms) {
+  if (ms < 1000) return Math.round(ms) + 'ms'
+  if (ms < 60000) return (ms / 1000).toFixed(1) + ' 秒'
+  const m = Math.floor(ms / 60000), s = Math.round((ms % 60000) / 1000)
+  return m + ' 分 ' + String(s).padStart(2, '0') + ' 秒'
+}
+function fmtClock(ts) {
+  const d = new Date(ts), p = (n) => String(n).padStart(2, '0')
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds())
+}
+function fmtTok(n) {
+  if (n == null) return '—'
+  return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)
+}
+function now() { return Date.now() }
+
+/* ============================ 模型 ============================ */
+function buildModel() {
+  if (state.demo === 'empty') {
+    return { turns: EMPTY.map(cloneTurn), runningId: null, hasTools: false }
+  }
+  let runningId = null
+  const turns = BASE.map((t) => {
+    const turn = cloneTurn(t)
+    for (const step of turn.steps) {
+      for (const tool of step.tools) {
+        if (tool.status === 'running') {
+          if (state.demo === 'done') { tool.status = 'ok'; tool.durationMs = 12400 }
+          else { runningId = tool.id; tool.at = RUNNING_START }
+        }
+      }
+    }
+    const endCandidates = []
+    if (turn.steps.length) endCandidates.push(turn.steps[turn.steps.length - 1].at + (turn.steps[turn.steps.length - 1].durationMs || 0))
+    for (const step of turn.steps) for (const tool of step.tools) {
+      endCandidates.push(tool.at + (tool.durationMs || (tool.status === 'running' ? now() - tool.at : 0)))
+    }
+    turn.endAt = Math.max(...endCandidates, turn.startAt + 1000)
+    return turn
+  })
+  const hasTools = turns.some((t) => t.steps.some((s) => s.tools.length))
+  // Between turns：上下文压缩（真实存在的能力，放在独立区段）
+  const between = state.demo === 'done' || state.demo === 'running'
+    ? [{ kind: 'compact', id: 'cp1', at: T0 + 129000, durationMs: 2600, label: '上下文压缩', note: '12 条消息 → 摘要，保留 8 条' }]
+    : []
+  return { turns, between, runningId, hasTools }
+}
+function cloneTurn(t) {
+  return {
+    index: t.index, startAt: t.startAt, user: t.user, outro: t.outro || '',
+    steps: t.steps.map((s) => ({ ...s, tools: s.tools.map((c) => ({ ...c })) }))
+  }
+}
+function toolElapsed(tool) {
+  if (tool.status === 'running') return Math.max(0, now() - tool.at)
+  return tool.durationMs || 0
+}
+
+/* ============================ 扁平记录 ============================ */
+function flatRecords(model) {
+  const list = []
+  for (const turn of model.turns) {
+    list.push({ kind: 'user', id: 'u' + turn.index, turnIndex: turn.index, at: turn.startAt, endAt: turn.startAt, text: turn.user })
+    for (const step of turn.steps) {
+      list.push({
+        kind: 'step', id: step.id, turnIndex: turn.index, at: step.at,
+        endAt: step.at + (step.durationMs || 0), step, text: step.text
+      })
+      for (const tool of step.tools) {
+        list.push({
+          kind: 'tool', id: tool.id, turnIndex: turn.index, at: tool.at,
+          endAt: tool.at + toolElapsed(tool), tool, stepId: step.id
+        })
+      }
+    }
+  }
+  for (const b of model.between || []) {
+    list.push({ kind: 'compact', id: b.id, turnIndex: null, at: b.at, endAt: b.at + b.durationMs, compact: b, text: b.note })
+  }
+  return list.sort((a, b) => a.at - b.at)
+}
+
+/* 时间轴布局：三种模式 */
+function computeBounds(model) {
+  const all = flatRecords(model)
+  if (!all.length) return null
+  const starts = all.map((r) => r.at)
+  const ends = all.map((r) => r.endAt || r.at)
+  const min = Math.min(...starts)
+  const max = Math.max(...ends)
+  return { min, max, span: Math.max(max - min, 1), records: all }
+}
+function layoutBars(model, bounds) {
+  /* 返回 id -> {leftPct, widthPct} */
+  const out = {}
+  if (!bounds) return out
+
+  if (state.mode === 'time') {
+    for (const r of bounds.records) {
+      const left = ((r.at - bounds.min) / bounds.span) * 100
+      const w = Math.max(((r.endAt - r.at) / bounds.span) * 100, 0.9)
+      out[r.id] = { left: clamp(left, 0, 99.1), width: Math.min(w, 100 - left) }
+    }
+    return out
+  }
+
+  if (state.mode === 'duration') {
+    /* 每轨独立：按该轨内记录的实际耗时分配宽度 */
+    const laneOf = (r) => (r.kind === 'user' ? 'input' : r.kind === 'tool' ? 'tools' : 'model')
+    const lanes = { input: [], model: [], tools: [] }
+    for (const r of bounds.records) lanes[laneOf(r)].push(r)
+    for (const key of Object.keys(lanes)) {
+      const items = lanes[key]
+      const totalDur = items.reduce((sum, r) => sum + Math.max(r.endAt - r.at, 1), 0) || 1
+      let cursor = 0
+      for (const r of items) {
+        const w = (Math.max(r.endAt - r.at, 1) / totalDur) * 100
+        out[r.id] = { left: cursor, width: Math.max(w, 0.9) }
+        cursor += w
+      }
+    }
+    return out
+  }
+
+  /* sequence：所有记录按时间排序后等宽串行 */
+  const items = bounds.records
+  const n = items.length || 1
+  items.forEach((r, i) => {
+    const w = 100 / n
+    out[r.id] = { left: i * w, width: Math.max(w, 0.9) }
+  })
+  return out
+}
+function clamp(v, a, b) { return Math.min(Math.max(v, a), b) }
+
+/* ============================ 对话视图 ============================ */
+function renderChat(model) {
+  const html = model.turns.map((turn) => {
+    const stepBlocks = turn.steps.map((step) => {
+      const cards = step.tools.map((tool) => {
+        const running = tool.status === 'running'
+        const dur = toolElapsed(tool)
+        return '<div class="tool-card" data-jump="' + tool.id + '">' +
+            '<button class="tool-summary" type="button" data-open-tool="' + tool.id + '">' +
+              (running
+                ? '<svg class="ico spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>'
+                : svg(tool.name, tool.status === 'error' ? 'bad' : '')) +
+              '<span class="name ' + (running ? 'run-shimmer' : '') + '">' + esc(tool.name) + '</span>' +
+              '<span class="args">' + esc(tool.args) + '</span>' +
+              '<span class="dur">' + (running ? '+' + fmtDur(dur) : fmtDur(dur)) + '</span>' +
+              '<span class="jump-hint">' + svg('panel') + '在轨迹中查看</span>' +
+            '</button>' +
+          '</div>'
+      }).join('')
+      return '<p class="prose">' + inlineCode(step.text) + '</p>' +
+        (cards ? '<div class="toolstack">' + cards + '</div>' : '')
+    }).join('')
+    return '<div class="msg-user"><div class="user-bubble">' + esc(turn.user) + '</div></div>' +
+      '<div class="assistant">' + stepBlocks +
+      (turn.outro ? '<p class="prose">' + inlineCode(turn.outro) + '</p>' : '') + '</div>'
+  }).join('')
+  document.getElementById('chatInner').innerHTML = html
+}
+function inlineCode(s) {
+  return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>')
+}
+
+/* ============================ 轨迹：时间总览 ============================ */
+function renderTimeline(model) {
+  document.getElementById('timeline').style.display = model.hasTools ? '' : 'none'
+  const bounds = computeBounds(model)
+  const lanes = { input: document.getElementById('laneInput'), model: document.getElementById('laneModel'), tools: document.getElementById('laneTools') }
+  const track = document.getElementById('tlTrack')
+  track.querySelectorAll('.tl-turn-line,.tl-turn-tag').forEach((n) => n.remove())
+
+  if (!bounds || !bounds.records.length) {
+    Object.values(lanes).forEach((l) => { l.innerHTML = '' })
+    document.getElementById('tlSpan').textContent = ''
+    return
+  }
+
+  /* Turn 分隔线（三种模式下都按比例落位） */
+
+  if (state.mode === 'time') {
+    for (const turn of model.turns) {
+      const left = ((turn.startAt - bounds.min) / bounds.span) * 100
+      const line = document.createElement('div')
+      line.className = 'tl-turn-line'
+      line.style.left = clamp(left, 0, 100) + '%'
+      track.appendChild(line)
+      const tag = document.createElement('div')
+      tag.className = 'tl-turn-tag'
+      tag.style.left = clamp(left, 3, 97) + '%'
+      tag.textContent = 'T' + turn.index
+      track.appendChild(tag)
+    }
+  } else {
+    /* 等宽/耗时模式：Turn 标签按该轮内记录占位比例落在轨道顶部 */
+    const all = bounds.records
+    const n = all.length
+    model.turns.forEach((turn) => {
+      const idx = all.findIndex((r) => r.turnIndex === turn.index)
+      if (idx < 0) return
+      const pct = state.mode === 'sequence' ? (idx / n) * 100 : null
+      if (pct == null) return
+      const tag = document.createElement('div')
+      tag.className = 'tl-turn-tag'
+      tag.style.left = clamp(pct, 3, 97) + '%'
+      tag.textContent = 'T' + turn.index
+      track.appendChild(tag)
+    })
+  }
+
+  const layout = layoutBars(model, bounds)
+  lanes.input.innerHTML = ''
+  lanes.model.innerHTML = ''
+  lanes.tools.innerHTML = ''
+
+  const sel = state.selection
+  for (const r of bounds.records) {
+    const pos = layout[r.id]
+    if (!pos) continue
+    const bar = document.createElement('div')
+    bar.className = 'tl-bar ' + (r.kind === 'user' ? 'input' : r.kind === 'tool' ? 'tool' : r.kind === 'compact' ? 'compact' : 'model')
+    if (r.kind === 'tool') {
+      if (r.tool.status === 'error') bar.classList.add('error')
+      if (r.tool.status === 'running') bar.classList.add('running')
+    }
+    if (sel && (r.endAt < sel.start || r.at > sel.end)) bar.classList.add('dimmed')
+    if (state.selected === r.id) bar.style.opacity = '1'
+    bar.style.left = pos.left + '%'
+    bar.style.width = pos.width + '%'
+    bar.dataset.id = r.id
+    bar.dataset.kind = r.kind
+
+    const lane = r.kind === 'user' ? lanes.input : r.kind === 'tool' ? lanes.tools : lanes.model
+    lane.appendChild(bar)
+  }
+
+  document.getElementById('tlSpan').textContent = fmtClock(bounds.min) + ' – ' + fmtClock(bounds.max) + ' · ' + fmtSpan(bounds.span)
+  document.getElementById('tlHint').textContent = state.mode === 'time'
+    ? '拖选可筛区间 · 右键清除'
+    : (state.mode === 'duration' ? '按耗时分配宽度' : '等宽串行，便于看顺序')
+}
+
+/* 时间轴交互：hover tooltip + 拖选 + 右键清除 */
+function initTimeline() {
+  const track = document.getElementById('tlTrack')
+  const selection = document.getElementById('tlSelection')
+  const cursorEl = document.getElementById('tlCursor')
+  const tip = document.getElementById('tlTip')
+  let dragging = false
+  let dragStartX = 0
+
+  function pctFromEvent(e) {
+    const rect = track.getBoundingClientRect()
+    return clamp(((e.clientX - rect.left) / rect.width) * 100, 0, 100)
+  }
+  function timeFromPct(pct, bounds) {
+    return bounds.min + (pct / 100) * bounds.span
+  }
+
+  track.addEventListener('mousemove', (e) => {
+    const model = buildModel()
+    const bounds = computeBounds(model)
+    if (!bounds) return
+    const pct = pctFromEvent(e)
+    cursorEl.classList.add('show')
+    cursorEl.style.left = pct + '%'
+    if (dragging) {
+      const a = Math.min(dragStartX, pct), b = Math.max(dragStartX, pct)
+      selection.classList.add('show')
+      selection.style.left = a + '%'
+      selection.style.width = (b - a) + '%'
+    }
+
+    const bar = e.target.closest('.tl-bar')
+    if (bar) {
+      const rec = bounds.records.find((r) => r.id === bar.dataset.id)
+      if (rec) {
+        const dur = rec.endAt - rec.at
+        const running = rec.kind === 'tool' && rec.tool.status === 'running'
+        tip.innerHTML =
+          '<b>' + esc(recTitle(rec)) + '</b>' +
+          (running ? ' <span class="muted">运行中</span>' : '') +
+          '<br><span class="muted">' + fmtClock(rec.at) + ' → ' + (running ? '…' : fmtClock(rec.endAt)) + '</span>' +
+          ' · <b>' + fmtDur(dur) + '</b>' +
+          (rec.kind === 'step' ? '<br><span class="muted">' + fmtTok(rec.step.inTok) + ' in / ' + fmtTok(rec.step.outTok) + ' out</span>' : '') +
+          (rec.kind === 'tool' && rec.tool.status === 'error' ? '<br><span class="muted">失败</span>' : '')
+        tip.style.left = Math.min(e.clientX + 12, window.innerWidth - 260) + 'px'
+        tip.style.top = (e.clientY + 16) + 'px'
+        tip.classList.add('show')
+      }
+    } else {
+      tip.classList.remove('show')
+    }
+  })
+
+  track.addEventListener('mouseleave', () => {
+    tip.classList.remove('show')
+    cursorEl.classList.remove('show')
+    if (!dragging) return
+    dragging = false
+  })
+
+  track.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return
+    if (state.mode !== 'time') return   // 只有「时钟」模式的横向位置才等于真实时间
+    dragging = true
+    dragStartX = pctFromEvent(e)
+    selection.classList.add('show')
+    selection.style.left = dragStartX + '%'
+    selection.style.width = '0%'
+    e.preventDefault()
+  })
+
+  window.addEventListener('mouseup', (e) => {
+    if (!dragging) return
+    dragging = false
+    const pct = pctFromEvent(e)
+    const a = Math.min(dragStartX, pct), b = Math.max(dragStartX, pct)
+    const model = buildModel()
+    const bounds = computeBounds(model)
+    if (!bounds) return
+    if (b - a < 1.5) {
+      /* 视为点击：清除选择 */
+      state.selection = null
+      selection.classList.remove('show')
+    } else {
+      state.selection = { start: timeFromPct(a, bounds), end: timeFromPct(b, bounds) }
+      selection.classList.add('show')
+      selection.style.left = a + '%'
+      selection.style.width = (b - a) + '%'
+    }
+    renderTimeline(model)
+    renderLedger(model)
+    updateResetButton()
+  })
+
+  track.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    clearSelection()
+  })
+
+  track.addEventListener('click', (e) => {
+    const bar = e.target.closest('.tl-bar')
+    if (!bar) return
+    const model = buildModel()
+    selectRecord(bar.dataset.id, model, { scrollLedger: true })
+  })
+}
+
+function updateResetButton() {
+  const btn = document.getElementById('tlReset')
+  btn.classList.toggle('show', !!state.selection)
+  if (state.selection) {
+    btn.innerHTML = svg('x') + ' 清除 ' + fmtClock(state.selection.start) + '–' + fmtClock(state.selection.end)
+  }
+}
+function clearSelection() {
+  state.selection = null
+  document.getElementById('tlSelection').classList.remove('show')
+  const model = buildModel()
+  renderTimeline(model)
+  renderLedger(model)
+  updateResetButton()
+}
+
+/* ============================ 轨迹：Ledger ============================ */
+function recTitle(rec) {
+  if (rec.kind === 'user') return 'USER'
+  if (rec.kind === 'step') return 'ASSISTANT · ' + rec.step.model
+  if (rec.kind === 'tool') return rec.tool.name
+  if (rec.kind === 'compact') return 'COMPACTED'
+  return rec.kind
+}
+
+function matchRecord(rec, q) {
+  if (!q) return true
+  const t = q.toLowerCase()
+  if (rec.kind === 'user') return rec.text.toLowerCase().includes(t)
+  if (rec.kind === 'step') return (rec.step.text + ' ' + rec.step.model).toLowerCase().includes(t)
+  if (rec.kind === 'tool') return (rec.tool.name + ' ' + rec.tool.args + ' ' + rec.tool.output).toLowerCase().includes(t)
+  if (rec.kind === 'compact') return 'compact 压缩'.includes(t)
+  return false
+}
+function inSelection(rec) {
+  if (!state.selection) return true
+  return !(rec.endAt < state.selection.start || rec.at > state.selection.end)
+}
+
+function renderLedger(model) {
+  const ledger = document.getElementById('ledger')
+  const q = state.query.trim()
+
+  if (!model.hasTools) {
+    ledger.innerHTML =
+      '<div class="trace-empty">' + svg('activity') +
+        '<div class="t1">这个会话还没有可展示的运行记录</div>' +
+        '<div class="t2">Agent 开始调用工具后，这里会按轮次显示每次模型请求、<br>工具调用、耗时与 token 用量。</div>' +
+      '</div>'
+    document.getElementById('traceCount').textContent = '0'
+    return
+  }
+
+  let total = 0
+  const turnsHtml = model.turns.map((turn) => {
+    const recs = []
+    if (inSelection({ at: turn.startAt, endAt: turn.endAt })) {
+      // 判断该轮是否有任何记录落在选择区间
+      const micro = flatRecords({ turns: [turn], between: [] })
+      if (!micro.some(inSelection)) return ''
+    }
+    recs.push({ kind: 'user', id: 'u' + turn.index, at: turn.startAt, endAt: turn.startAt, text: turn.user, turnIndex: turn.index })
+    for (const step of turn.steps) {
+      recs.push({ kind: 'step', id: step.id, at: step.at, endAt: step.at + (step.durationMs || 0), step, turnIndex: turn.index })
+      for (const tool of step.tools) {
+        recs.push({ kind: 'tool', id: tool.id, at: tool.at, endAt: tool.at + toolElapsed(tool), tool, stepId: step.id, turnIndex: turn.index })
+      }
+    }
+    const shown = recs.filter((r) => inSelection(r))
+    if (!shown.length) return ''
+    total += shown.filter((r) => r.kind === 'tool').length
+
+    const dimmedIds = new Set()
+    if (q) for (const r of shown) if (!matchRecord(r, q)) dimmedIds.add(r.id)
+
+    const collapsed = state.collapsedTurns.has(turn.index)
+    const toolCount = recs.filter((r) => r.kind === 'tool').length
+    const stepCount = recs.filter((r) => r.kind === 'step').length
+
+    let body = ''
+    body += rowHtml(shown.find((r) => r.kind === 'user'), dimmedIds)
+    for (const step of turn.steps) {
+      const stepRec = shown.find((r) => r.kind === 'step' && r.id === step.id)
+      const toolRecs = shown.filter((r) => r.kind === 'tool' && r.stepId === step.id)
+      if (!stepRec && !toolRecs.length) continue
+      const stepCollapsed = state.collapsedSteps.has(step.id)
+      const stepTools = step.tools
+      const stepDim = dimmedIds.has(step.id) && stepTools.every((c) => dimmedIds.has(c.id))
+      body +=
+        '<div class="step-group">' +
+          // ASSISTANT 行即 step 组头：点整行选中，点左侧 chevron 折叠工具行
+          '<div class="step-row-wrap">' +
+            '<button class="step-chev ' + (stepCollapsed ? 'collapsed' : '') + '" type="button" data-step="' + step.id + '" aria-label="折叠本步骤工具调用" aria-expanded="' + String(!stepCollapsed) + '">' +
+              svg('chevronDown', 'chev') +
+            '</button>' +
+            rowHtml(stepRec || { kind: 'step', id: step.id, at: step.at, endAt: step.at + (step.durationMs || 0), step, turnIndex: turn.index }, dimmedIds, stepDim) +
+          '</div>' +
+          (toolRecs.length
+            ? '<div class="tool-rows ' + (stepCollapsed ? 'hidden' : '') + '">' +
+                toolRecs.map((r) => rowHtml(r, dimmedIds)).join('') +
+              '</div>'
+            : '') +
+        '</div>'
+    }
+
+    return '<div class="turn">' +
+      '<button class="turn-head ' + (collapsed ? 'collapsed' : '') + '" type="button" data-turn="' + turn.index + '">' +
+        svg('chevronDown', 'chev') +
+        '<span class="idx">Turn ' + turn.index + '</span>' +
+        '<span class="t">' + fmtClock(turn.startAt) + '</span>' +
+        '<span class="stat">' + stepCount + ' 个步骤 · ' + toolCount + ' 个工具调用 · ' + fmtDur(turn.endAt - turn.startAt) + '</span>' +
+      '</button>' +
+      '<div class="turn-body ' + (collapsed ? 'hidden' : '') + '">' + body + '</div>' +
+    '</div>'
+  }).join('')
+
+  /* Between turns（压缩）区段 */
+  let betweenHtml = ''
+  const betweenRecs = (model.between || []).filter((b) => inSelection({ at: b.at, endAt: b.at + b.durationMs }))
+  if (betweenRecs.length && !state.collapsedTurns.has('between')) {
+    betweenHtml =
+      '<div class="turn">' +
+        '<button class="turn-head" type="button" data-turn="between">' +
+          svg('chevronDown', 'chev') +
+          '<span class="idx">Between turns</span>' +
+          '<span class="t">' + betweenRecs.length + ' 次上下文压缩</span>' +
+        '</button>' +
+        '<div class="turn-body">' +
+          betweenRecs.map((b) => rowHtml({ kind: 'compact', id: b.id, at: b.at, endAt: b.at + b.durationMs, compact: b, text: b.note }, new Set())).join('') +
+        '</div>' +
+      '</div>'
+  }
+
+  const hasAny = turnsHtml.replace(/\s/g, '').length > 0 || betweenHtml.length > 0
+  ledger.innerHTML =
+    '<button class="load-earlier" type="button" id="loadEarlier">' + svg('arrowUp') + '加载更早的历史（按轮次分页）</button>' +
+    (hasAny ? turnsHtml + betweenHtml : '<div class="trace-empty">' + svg('search') + '<div class="t1">没有匹配的记录</div><div class="t2">' +
+      (state.selection ? '当前时间区间内没有活动，清除筛选可看全部。' : '换个关键词试试。') + '</div></div>')
+
+  document.getElementById('traceCount').textContent = String(total)
+  document.getElementById('searchCount').textContent = q ? countMatches(model, q) + ' 处匹配' : ''
+}
+
+function countMatches(model, q) {
+  let n = 0
+  for (const turn of model.turns) {
+    if (matchRecord({ kind: 'user', text: turn.user }, q)) n++
+    for (const step of turn.steps) {
+      if (matchRecord({ kind: 'step', step }, q)) n++
+      for (const tool of step.tools) if (matchRecord({ kind: 'tool', tool }, q)) n++
+    }
+  }
+  return n
+}
+
+function rowHtml(rec, dimmedIds, stepDim) {
+  if (!rec) return ''
+  const dim = (stepDim || dimmedIds.has(rec.id)) ? ' dimmed' : ''
+  const selected = state.selected === rec.id ? ' selected' : ''
+  if (rec.kind === 'user') {
+    return '<button class="row' + dim + selected + '" type="button" data-rec="' + rec.id + '">' +
+      '<span class="bar-dot"></span>' +
+      '<span class="badge user">USER</span>' +
+      svg('user') +
+      '<span class="text">' + esc(rec.text) + '</span>' +
+      '<span class="dur">' + fmtClock(rec.at) + '</span>' +
+    '</button>'
+  }
+  if (rec.kind === 'compact') {
+    return '<button class="row' + dim + selected + '" type="button" data-rec="' + rec.id + '">' +
+      '<span class="bar-dot"></span>' +
+      '<span class="badge compact">COMPACT</span>' +
+      svg('compact') +
+      '<span class="name">' + esc(rec.compact.label) + '</span>' +
+      '<span class="args">' + esc(rec.compact.note) + '</span>' +
+      '<span class="dur">' + fmtDur(rec.compact.durationMs) + '</span>' +
+    '</button>'
+  }
+  if (rec.kind === 'step') {
+    const st = rec.step
+    return '<button class="row step-row' + dim + selected + '" type="button" data-rec="' + rec.id + '" data-status="ok">' +
+      '<span class="bar-dot"></span>' +
+      '<span class="badge">ASSISTANT</span>' +
+      '<span class="name">' + esc(st.model) + '</span>' +
+      '<span class="text">' + esc(st.text) + '</span>' +
+      '<span class="tok">' + fmtTok(st.inTok) + '→' + fmtTok(st.outTok) + '</span>' +
+      '<span class="dur">' + fmtDur(st.durationMs) + '</span>' +
+    '</button>'
+  }
+  const tool = rec.tool
+  const running = tool.status === 'running'
+  const dur = toolElapsed(tool)
+  return '<button class="row tool-row' + dim + selected + '" type="button" data-rec="' + rec.id + '" data-status="' + tool.status + '">' +
+    '<span class="bar-dot"></span>' +
+    '<span class="badge tool">TOOL</span>' +
+    (running
+      ? '<svg class="ico spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>'
+      : svg(tool.name)) +
+    '<span class="name ' + (running ? 'run-shimmer' : '') + '">' + esc(tool.name) + '</span>' +
+    (tool.parallel ? '<span class="par">并行</span>' : '') +
+    '<span class="args">' + esc(tool.args) + '</span>' +
+    '<span class="dur">' + (running ? '+' + fmtDur(dur) : fmtDur(dur)) + '</span>' +
+  '</button>'
+}
+
+/* ============================ Inspector ============================ */
+const TABSET = {
+  user: ['summary', 'raw'],
+  step: ['summary', 'output', 'usage', 'raw'],
+  tool: ['summary', 'args', 'result', 'timing'],
+  compact: ['summary']
+}
+const TAB_LABEL = {
+  summary: 'Summary', output: 'Output', usage: 'Usage', raw: 'Raw',
+  args: 'Args', result: 'Result', timing: 'Timing'
+}
+
+function findRecord(model, id) {
+  return flatRecords(model).find((r) => r.id === id) || null
+}
+
+function selectRecord(id, model, opts) {
+  const rec = findRecord(model, id)
+  if (!rec) return
+  if (rec.turnIndex != null) state.collapsedTurns.delete(rec.turnIndex)
+  state.selected = id
+  state.tab = 'summary'
+  if (rec.kind === 'tool' && rec.stepId) state.collapsedSteps.delete(rec.stepId)
+  renderInspector(rec)
+  renderLedger(model)
+  renderTimeline(model)
+  document.getElementById('inspector').classList.remove('hidden')
+  if (opts && opts.scrollLedger) {
+    const row = document.querySelector('[data-rec="' + id + '"]')
+    if (row) {
+      const body = row.closest('.tool-rows.hidden, .turn-body.hidden')
+      if (body && body.classList.contains('hidden')) body.classList.remove('hidden')
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }
+}
+
+function renderInspector(rec) {
+  if (!rec) {
+    document.getElementById('inspector').classList.add('hidden')
+    return
+  }
+  const iconName = rec.kind === 'tool' ? rec.tool.name : rec.kind === 'user' ? 'user' : rec.kind === 'compact' ? 'compact' : 'step'
+  document.getElementById('insIcon').innerHTML = svg(iconName)
+  document.getElementById('insTitle').textContent = recTitle(rec)
+
+  const tabs = TABSET[rec.kind] || ['summary']
+  document.getElementById('insTabs').innerHTML = tabs.map((t) =>
+    '<button class="ins-tab ' + (state.tab === t ? 'on' : '') + '" type="button" data-tab="' + t + '">' + TAB_LABEL[t] + '</button>'
+  ).join('')
+
+  const body = document.getElementById('insBody')
+  if (rec.kind === 'tool') body.innerHTML = toolInspector(rec, state.tab)
+  else if (rec.kind === 'step') body.innerHTML = stepInspector(rec, state.tab)
+  else if (rec.kind === 'user') body.innerHTML = userInspector(rec, state.tab)
+  else body.innerHTML = compactInspector(rec)
+}
+
+function metaRow(dt, dd, cls) {
+  return '<dt>' + esc(dt) + '</dt><dd' + (cls ? ' class="' + cls + '"' : '') + '>' + dd + '</dd>'
+}
+function toolInspector(rec, tab) {
+  const t = rec.tool
+  const running = t.status === 'running'
+  const dur = toolElapsed(t)
+  const statusText = t.status === 'error' ? '失败' : running ? '运行中' : '成功'
+  const statusCls = t.status === 'error' ? 'bad' : running ? '' : 'ok'
+
+  if (tab === 'summary') {
+    return '<dl class="ins-meta">' +
+      metaRow('状态', statusText, statusCls) +
+      metaRow('耗时', fmtDur(dur)) +
+      metaRow('开始', fmtClock(t.at)) +
+      metaRow('结束', running ? '— （进行中，不虚构）' : fmtClock(t.at + t.durationMs)) +
+      metaRow('所在步骤', esc(rec.stepId || '—')) +
+      (t.parallel ? metaRow('并行组', esc(t.parallel)) : '') +
+      metaRow('调用 ID', '<code>' + esc(rec.id) + '</code>') +
+    '</dl>' +
+    '<div class="ins-section"><div class="ins-label">参数摘要</div><pre>' + esc(t.args) + '</pre></div>' +
+    '<div class="ins-actions">' +
+      '<button type="button" data-ins-action="copy-id">' + svg('copy') + '复制调用 ID</button>' +
+      '<button type="button" data-ins-action="goto-chat">' + svg('chat') + '在对话中定位</button>' +
+    '</div>'
+  }
+  if (tab === 'args') {
+    return '<div class="ins-section"><div class="ins-label">输入 JSON</div><pre>' + esc(t.input) + '</pre></div>' +
+      '<div class="ins-actions"><button type="button" data-ins-action="copy-args">' + svg('copy') + '复制参数</button></div>'
+  }
+  if (tab === 'result') {
+    return '<div class="ins-section"><div class="ins-label">' + (t.status === 'error' ? '错误输出' : '输出') + '</div>' +
+      '<pre' + (t.status === 'error' ? ' class="bad"' : '') + '>' + esc(t.output) + '</pre></div>' +
+      '<div class="ins-actions"><button type="button" data-ins-action="copy-result">' + svg('copy') + '复制输出</button></div>'
+  }
+  /* timing */
+  return '<dl class="ins-meta">' +
+    metaRow('startedAt', t.at + ' <span style="color:var(--muted-foreground)">(' + fmtClock(t.at) + ')</span>') +
+    metaRow('finishedAt', running ? '—' : (t.at + t.durationMs) + ' <span style="color:var(--muted-foreground)">(' + fmtClock(t.at + t.durationMs) + ')</span>') +
+    metaRow('durationMs', running ? '—' : String(t.durationMs)) +
+    metaRow('数据来源', '<code>details.quickforgeTiming</code>') +
+    metaRow('持久化', '是（session_messages 不裁剪 details）') +
+  '</dl>' +
+  '<div class="ins-section"><div class="ins-label">原始 details</div><pre>' +
+    esc(JSON.stringify({ quickforgeTiming: { startedAt: t.at, finishedAt: running ? undefined : t.at + t.durationMs, durationMs: running ? undefined : t.durationMs } }, null, 2)) +
+  '</pre></div>'
+}
+function stepInspector(rec, tab) {
+  const s = rec.step
+  if (tab === 'summary') {
+    return '<dl class="ins-meta">' +
+      metaRow('模型', esc(s.model)) +
+      metaRow('耗时', fmtDur(s.durationMs)) +
+      metaRow('开始', fmtClock(s.at)) +
+      metaRow('结束', fmtClock(s.at + s.durationMs)) +
+      metaRow('工具数', String(s.tools.length)) +
+      metaRow('请求 ID', '<code>' + esc(s.id) + '</code>') +
+    '</dl>'
+  }
+  if (tab === 'output') {
+    return '<div class="ins-section"><div class="ins-label">正文</div><p>' + inlineCode(s.text) + '</p></div>' +
+      (s.thinking ? '<div class="ins-section"><div class="ins-label">思考</div><pre>' + esc(s.thinking) + '</pre></div>' : '') +
+      '<div class="ins-actions"><button type="button" data-ins-action="copy-step">' + svg('copy') + '复制正文</button></div>'
+  }
+  if (tab === 'usage') {
+    return '<dl class="ins-meta">' +
+      metaRow('input tokens', fmtTok(s.inTok)) +
+      metaRow('output tokens', fmtTok(s.outTok)) +
+      metaRow('合计', fmtTok(s.inTok + s.outTok)) +
+      metaRow('cache read', '—') +
+      metaRow('成本', '$0.0' + (Math.random() * 6 + 2).toFixed(2)) +
+    '</dl>' +
+    '<div class="ins-section"><div class="ins-label">说明</div><p style="font-size:11.5px;color:var(--muted-foreground)">' +
+      'Usage 取自该 assistant 消息的 <code>usage</code> 字段；进行中的请求不计入，避免出现「半次请求」的用量。</p></div>'
+  }
+  return '<div class="ins-section"><div class="ins-label">原始 message</div><pre>' +
+    esc(JSON.stringify({ role: 'assistant', model: s.model, timestamp: s.at, content: s.text, usage: { input: s.inTok, output: s.outTok } }, null, 2)) +
+  '</pre></div>'
+}
+function userInspector(rec, tab) {
+  if (tab === 'summary') {
+    return '<dl class="ins-meta">' + metaRow('时间', fmtClock(rec.at)) + metaRow('类型', 'USER') +
+      metaRow('所在轮次', 'Turn ' + renderTurnBadge(rec.turnIndex)) + '</dl>' +
+      '<div class="ins-section"><div class="ins-label">内容</div><p>' + inlineCode(rec.text) + '</p></div>'
+  }
+  return '<div class="ins-section"><div class="ins-label">原始 message</div><pre>' +
+    esc(JSON.stringify({ role: 'user', timestamp: rec.at, content: rec.text }, null, 2)) + '</pre></div>'
+}
+function renderTurnBadge(i) { return String(i) }
+function compactInspector(rec) {
+  return '<dl class="ins-meta">' +
+    metaRow('类型', '上下文压缩') +
+    metaRow('耗时', fmtDur(rec.compact.durationMs)) +
+    metaRow('时刻', fmtClock(rec.at)) +
+    metaRow('位置', 'Between turns') +
+  '</dl>' +
+  '<div class="ins-section"><div class="ins-label">摘要</div><p>' + esc(rec.compact.note) + '</p></div>' +
+  '<div class="ins-section"><div class="ins-label">说明</div><p style="font-size:11.5px;color:var(--muted-foreground)">' +
+    '压缩本身也是一次模型请求，计入请求编号与累计 usage；被压缩的原始消息不删除，只是不再进入后续上下文。</p></div>'
+}
+
+/* ============================ 交互绑定 ============================ */
+function setView(view) {
+  state.view = view
+  document.getElementById('tabChat').classList.toggle('on', view === 'chat')
+  document.getElementById('tabTrace').classList.toggle('on', view === 'trace')
+  document.getElementById('tabChat').setAttribute('aria-selected', String(view === 'chat'))
+  document.getElementById('tabTrace').setAttribute('aria-selected', String(view === 'trace'))
+  document.getElementById('chatView').classList.toggle('on', view === 'chat')
+  document.getElementById('traceView').classList.toggle('on', view === 'trace')
+  if (view === 'trace') {
+    requestAnimationFrame(() => {
+      const model = buildModel()
+      renderTimeline(model)
+    })
+  }
+}
+
+function renderAll() {
+  const model = buildModel()
+  renderChat(model)
+  renderLedger(model)
+  renderTimeline(model)
+  if (state.selected) {
+    const rec = findRecord(model, state.selected)
+    if (rec) renderInspector(rec)
+  }
+  updateResetButton()
+}
+
+function init() {
+  /* 视图切换 */
+  document.getElementById('tabChat').addEventListener('click', () => setView('chat'))
+  document.getElementById('tabTrace').addEventListener('click', () => setView('trace'))
+
+  /* 模式 */
+  document.getElementById('modeSeg').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-mode]')
+    if (!btn) return
+    state.mode = btn.dataset.mode
+    document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b === btn))
+    renderTimeline(buildModel())
+  })
+
+  /* 展开/收起全部 */
+  document.getElementById('expandAllBtn').addEventListener('click', (e) => {
+    state.allExpanded = !state.allExpanded
+    state.collapsedTurns.clear()
+    state.collapsedSteps.clear()
+    if (!state.allExpanded) {
+      for (const t of buildModel().turns) {
+        state.collapsedTurns.add(t.index)
+        for (const s of t.steps) state.collapsedSteps.add(s.id)
+      }
+    }
+    e.currentTarget.innerHTML = state.allExpanded
+      ? svg('collapse') + '收起全部'
+      : svg('expand') + '展开全部'
+    renderLedger(buildModel())
+  })
+
+  /* 搜索 */
+  document.getElementById('traceSearch').addEventListener('input', (e) => {
+    state.query = e.target.value
+    renderLedger(buildModel())
+  })
+
+  /* 清除区间筛选 */
+  document.getElementById('tlReset').addEventListener('click', clearSelection)
+
+  /* Ledger 事件委托 */
+  const ledger = document.getElementById('ledger')
+  ledger.addEventListener('click', (e) => {
+    const turnBtn = e.target.closest('[data-turn]')
+    if (turnBtn) {
+      const key = turnBtn.dataset.turn
+      const idx = key === 'between' ? 'between' : Number(key)
+      if (state.collapsedTurns.has(idx)) state.collapsedTurns.delete(idx)
+      else state.collapsedTurns.add(idx)
+      renderLedger(buildModel())
+      return
+    }
+    const stepBtn = e.target.closest('[data-step]')
+    if (stepBtn) {
+      const id = stepBtn.dataset.step
+      if (state.collapsedSteps.has(id)) state.collapsedSteps.delete(id)
+      else state.collapsedSteps.add(id)
+      renderLedger(buildModel())
+      return
+    }
+    const row = e.target.closest('[data-rec]')
+    if (row) {
+      const model = buildModel()
+      const rec = findRecord(model, row.dataset.rec)
+      if (rec && rec.kind === 'step') {
+        // 选中 ASSISTANT 行时顺带展开其工具行（避免"选中了却看不到子项"）
+        state.collapsedSteps.delete(rec.step.id)
+        renderLedger(model)
+      }
+      selectRecord(row.dataset.rec, model)
+      return
+    }
+    if (e.target.closest('#loadEarlier')) {
+      const btn = e.target.closest('#loadEarlier')
+      btn.textContent = '已加载全部本地记录'
+      btn.disabled = true
+      return
+    }
+  })
+
+  /* Inspector */
+  document.getElementById('insTabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tab]')
+    if (!btn) return
+    state.tab = btn.dataset.tab
+    const rec = findRecord(buildModel(), state.selected)
+    if (rec) renderInspector(rec)
+  })
+  document.getElementById('insClose').addEventListener('click', () => {
+    state.selected = null
+    document.getElementById('inspector').classList.add('hidden')
+    renderLedger(buildModel())
+    renderTimeline(buildModel())
+  })
+  document.getElementById('insBody').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-ins-action]')
+    if (!btn) return
+    const rec = findRecord(buildModel(), state.selected)
+    if (!rec) return
+    const action = btn.dataset.insAction
+    let text = ''
+    if (action === 'copy-id') text = rec.id
+    if (action === 'copy-args') text = rec.tool ? rec.tool.input : ''
+    if (action === 'copy-result') text = rec.tool ? rec.tool.output : ''
+    if (action === 'copy-step') text = rec.step ? rec.step.text : ''
+    if (action === 'goto-chat') {
+      setView('chat')
+      requestAnimationFrame(() => {
+        const card = document.querySelector('[data-jump="' + rec.id + '"]')
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+      return
+    }
+    if (text && navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(() => {})
+      btn.style.color = 'var(--workflow-done)'
+      setTimeout(() => { btn.style.color = '' }, 900)
+    }
+  })
+
+  /* 对话区：点「在轨迹中查看」 */
+  document.getElementById('chatInner').addEventListener('click', (e) => {
+    const card = e.target.closest('[data-jump]')
+    if (!card) return
+    const id = card.dataset.jump
+    setView('trace')
+    requestAnimationFrame(() => {
+      const model = buildModel()
+      selectRecord(id, model, { scrollLedger: true })
+    })
+  })
+
+  /* 演示状态 */
+  document.getElementById('demoRow').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-mode]')
+    if (!btn) return
+    state.demo = btn.dataset.mode
+    state.selected = null
+    state.selection = null
+    state.collapsedTurns.clear()
+    state.collapsedSteps.clear()
+    document.querySelectorAll('#demoRow .demo-btn').forEach((b) => b.classList.toggle('on', b === btn))
+    document.getElementById('inspector').classList.add('hidden')
+    renderAll()
+  })
+
+  initTimeline()
+  renderAll()
+  setView('trace')
+}
+
+/* 运行中：只更新时长文本与运行中条形，不重建列表（不打断 hover / 选中） */
+function tickLive() {
+  if (state.demo !== 'running') return
+  const model = buildModel()
+  const recs = flatRecords(model)
+  const runningTool = recs.find((r) => r.kind === 'tool' && r.tool.status === 'running')
+  if (!runningTool) return
+  const dur = toolElapsed(runningTool.tool)
+  const row = document.querySelector('[data-rec="' + runningTool.id + '"] .dur')
+  if (row) row.textContent = '+' + fmtDur(dur)
+  const chatDur = document.querySelector('[data-jump="' + runningTool.id + '"] .dur')
+  if (chatDur) chatDur.textContent = '+' + fmtDur(dur)
+  const bar = document.querySelector('.tl-bar[data-id="' + runningTool.id + '"]')
+  if (bar && state.mode === 'time') {
+    const bounds = computeBounds(model)
+    if (bounds) {
+      const w = Math.max(((runningTool.endAt - runningTool.at) / bounds.span) * 100, 0.9)
+      bar.style.width = w + '%'
+    }
+  }
+  if (state.selected === runningTool.id) {
+    const rec = findRecord(model, runningTool.id)
+    if (rec) renderInspector(rec)
+  }
+}
+
+let booted = false
+function boot() {
+  if (booted) return
+  booted = true
+  init()
+}
+document.addEventListener('DOMContentLoaded', boot)
+if (document.readyState !== 'loading') boot()
+setInterval(tickLive, 160)
+</script>
+</body>
+</html>

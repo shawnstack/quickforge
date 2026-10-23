@@ -1,6 +1,32 @@
 {
   "features": [
     {
+      "id": "goal-mode-ux-fix-strip",
+      "name": "Goal 模式方案 A 落地：条带改目标卡（三段结构 + ⋯ 菜单 + 就地展开 + 5 状态词）",
+      "description": "用户在设计稿 docs/design/goal-mode-ux-proposals.html 中选定方案 A 并要求执行。把输入框上方的 goal 条带从「fit-content 单行 + 4 个同权重 icon-only 按钮（暂停/编辑/清除/详情）」改成三段式目标卡：① 身份行（tone 图标 + 5 个用户可见状态词之一 + 次要阶段说明 + 唯一实心主操作 + ⋯ 菜单 + 展开箭头）；② 目标行（两行 line-clamp 截断，编辑态换输入框）；③ 进度行（验收分段条 + passed/total + 轮次 + 累计用时 + 预算耗尽 chip）。展开在原点渲染验收清单与预算；编辑/清除/打开完整面板收进 ⋯ 菜单；清除确认改锚定 popover；13 个服务器状态收敛为 5 个用户可见状态词。",
+      "status": "done",
+      "dependencies": [
+        "goal-mode-ux-redesign"
+      ],
+      "summary": "1) goal-control-strip.ts：view 投影新增 statusWordKey（goalStateRunning/NeedsYou/Paused/Blocked/Done）、phaseDetail、criteriaPassed/criteriaTotal、durationMinutes、primaryLabelKey、primaryOpensInspector；primaryAction 扩为 pause|resume|attention|none；新增纯函数 stateWordFor / phaseDetailFor / criteriaTally / isWaitingOnUser；精确 13 值的 statusKey 保留给 title/aria。2) GoalControlStrip.tsx：唯一实心 .quickforge-goal-strip-primary；⋯ 菜单承载编辑/打开完整面板/清除；展开 .quickforge-goal-strip-panel（验收清单 + 预算条 + 打开面板链接）；清除确认改 .quickforge-goal-strip-confirm-pop 锚定 popover；attention 主操作 → revealWaitingCard() 滚动 .qf-scroll-container 内最后一张 .quickforge-approval-card/.quickforge-ask-card 并加 1.4s data-goal-attention 描边；data-state 导出 5 词状态供 CSS 驱动 tone 与呼吸点。3) index.css：.quickforge-goal-strip* 改写为卡片形态约 400 行（类名前缀刻意保留，message-queue 的 isQueueAnchorFollower 与 goal-card.test.ts 的 CSS 契约都依赖它）；补上仓库里一直只被引用未定义的 @keyframes quickforge-goal-spin；新动效全部带 prefers-reduced-motion 降级。4) goal-card.ts：blockerText → 导出 buildGoalBlockerText，条带复用同一套 blocker 本地化。5) i18n.ts：中英各新增 22 个 key。6) tests/frontend/goal-control-strip.test.ts：19 → 25 例，新增状态词收敛、验收计数/时长投影、预算耗尽路由、attention 不派发、菜单编辑、锚定确认、就地展开等断言。",
+      "root_cause": "旧条带把「会话级目标」当成「输入框附属物」：单行 fit-content 里塞 4 个同权重 24px icon-only 按钮，危险动作（清除目标，不回滚已改动文件）与详情按钮只差一个字形且相邻；只有 roundText 没有验收进度，goal 模式唯一的价值主张（还差几条）不可见；13 个服务器状态原样映射成 13 个中文词；所有明细都在右侧 Inspector，证据还是 details 嵌 details，形成 3 层跳转并丢失对话上下文；预算耗尽时 primaryAction==='resume' 被静默路由到 openSummary，同图标不同行为；取消确认用 :has() + flex-wrap 在行内塞文案和两个按钮，整条高度突变。",
+      "files": [
+        "src/components/chat/panel-decoration/goal-control-strip.ts",
+        "src/components/chat/surface/GoalControlStrip.tsx",
+        "src/components/chat/panel-decoration/goal-card.ts",
+        "src/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/goal-control-strip.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/design/goal-mode-ux-proposals.html",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run 15 个 goal 相关文件 → 311 passed；CSS/i18n 契约 6 文件 → 94 passed；npx tsc --noEmit -p tsconfig.app.json 通过；npm run lint → 0 error（仅既有 GitToolsPinnedSummary exhaustive-deps warning）；npm run test 全量 → 419 文件 4817 passed / 2 skipped；npm run build 成功。",
+      "boundaries": "服务端 goal 契约、src/lib/goal.ts 类型、goal-ui.ts 的 pending/dirty/error 锁、goal-edit.ts 的 pause→revise 编排全部未动；未做完成卡（设计稿 C3）与计划门禁（C1）；未改 GoalInspectorContent 的 details 双层嵌套（属独立改造）；未新增/升级依赖；未手工修改 dist/、package-dist/、package-offline/；未创建 Git commit。Notes：① 完成态仍 return null，需要 C3 完成卡才算闭环；② phaseDetailFor 与 goal-card.ts 的 v2StatusKey 语义有重叠，可抽公共映射；③ tone 仍是硬编码 hex（#3478d4/#d97706/rgb(4 143 101)）散在 4 处，未 token 化；④ 未做真实浏览器视觉验收（展开面板/菜单/确认 popover 定位与窄屏表现需目视）。"
+    },
+    {
       "id": "goal-mode-ux-redesign",
       "name": "Goal 模式 UX / 流程优化 HTML 设计稿（三方案 + 现状诊断）",
       "description": "用户要求「分析 goal 模式的 UI 设计，给几个可优化方案（用户体验与流程），出 HTML 设计稿」。基于现有实现调研：输入框上方单行 GoalControlStrip（fit-content、24px icon-only 暂停/编辑/清除/详情 4 按钮）与右侧 GoalInspectorContent（进度/编辑分段 + details 双层证据）。诊断出 8 个问题（动作过载且危险动作紧邻、无验收进度感、信息层级扁平、resume 图标在预算耗尽时静默变「打开面板」、看细节需 3 层跳转、13 个状态词、取消确认把单行撑成两行、complete 后条带 return null 无收尾）。产出三套方案：A 目标卡（折叠/就地展开，推荐）、B 顶部停靠 Dock（吸顶 + 抽屉）、C 计划门禁 + 完成卡（流程层）。",

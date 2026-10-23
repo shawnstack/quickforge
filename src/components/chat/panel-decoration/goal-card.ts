@@ -122,7 +122,12 @@ function localizedGoalBlockerHint(hint: string | null | undefined): string {
   return hint === GOAL_BUDGET_HINT_TEXT ? t('goalBlockerBudgetHint') : (hint ?? '')
 }
 
-function blockerText(goal: GoalState): string {
+/**
+ * Localized blocker sentence for any goal surface. Exported so the composer
+ * strip can show the same blocker the inspector/card show instead of keeping a
+ * second copy of `BLOCKER_KEY`.
+ */
+export function buildGoalBlockerText(goal: GoalState): string {
   const code = goal.blockerInfo?.code
   if (code && BLOCKER_KEY[code]) return t(BLOCKER_KEY[code] as AppTextKey)
   const blocker = goal.blocker ?? ''
@@ -218,7 +223,7 @@ export function buildGoalCardViewModel(goal: GoalState): GoalCardViewModel {
       : isGoalSpinning(goal.status),
     objective: goal.objective,
     summary: goal.summary,
-    blocker: blockerText(goal),
+    blocker: buildGoalBlockerText(goal),
     blockerHint: localizedGoalBlockerHint(goal.blockerHint),
     editable: v2 ? goal.phase !== 'complete' : goalIsEditable(goal.status),
     pausable: v2 ? goal.phase === 'active' && goal.activation !== 'disarmed' : goalCanPause(goal.status),

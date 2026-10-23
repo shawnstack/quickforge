@@ -1,7 +1,7 @@
 import { useInspectorGitState, useInspectorGit, useInspectorReviewSelection, useInspectorGitDemand, isNoWorkingTreeChangesError, type ReviewFilter } from './useInspectorGit'
 import { useInspectorTabsState, useInspectorTabsEffects, useInspectorTabsActions, viewFromPanelKind } from './useInspectorTabs'
 import { useInspectorLayoutState, useInspectorViewport, useInspectorVisibility, useInspectorWidth, useInspectorLayoutActions, WORKSPACE_INSPECTOR_MIN_WIDTH, getInspectorMaxWidth, NAV_PANEL_MIN_WIDTH, NAV_PANEL_MAX_WIDTH } from './useInspectorLayout'
-import { Bot, Check, ChevronDown, ChevronRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, MessageCircle, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareTerminal, X } from 'lucide-react'
+import { Bot, Check, ChevronDown, ChevronRight, Code2, Copy, CornerDownLeft, Eye, Folder, GitBranch, GitCommitHorizontal, Globe, Maximize, MessageCircle, Minimize, MoreHorizontal, PanelRight, Plus, RefreshCw, Search, SquareTerminal, Workflow, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import {
   DndContext,
@@ -39,9 +39,13 @@ import { WorkspaceDocumentContent } from './WorkspaceDocumentContent'
 import { artifactFileName, artifactPreviewMode, documentFormatFromPath, isBrowserPreviewablePath, isDocumentPreviewablePath, presentArtifacts } from './artifact-preview-utils'
 import { TerminalDock } from '@/components/terminal/TerminalDock'
 import { SubagentRunDetailContent } from './SubagentRunDetailContent'
+import { WorkflowRunDetailContent } from './WorkflowRunDetailContent'
 import { SideChatTabContent, type SideChatComposerDraftMemory } from './SideChatTabContent'
 import type { SideChatAgent } from './side-chat-agent'
-import { subagentRunStore } from '@/lib/subagent-run-detail'
+import { subagentRunStore, shouldPublishSubagentRunPayload } from '@/lib/subagent-run-detail'
+import { buildWorkflowSubagentRunPayload } from '@/lib/workflow-subagent-detail'
+import { workflowRunStore, activeWorkflowRunStore } from '@/lib/workflow-run-payload'
+import { workflowStatusLabelKey } from '@/lib/workflow-run-detail'
 import { resolveServerCacheKey } from '@/lib/session-message-cache'
 import {
   isWorkspaceDirectoryCacheFresh,
@@ -164,12 +168,16 @@ function browserTabLabel(previewUrl: string) {
 }
 
 function panelTabMeta(tab: WorkspacePanelTab) {
-  if (tab.kind === 'reader' || tab.kind === 'document' || tab.kind === 'subagent' || tab.kind === 'goal') return undefined
+  if (tab.kind === 'reader' || tab.kind === 'document' || tab.kind === 'subagent' || tab.kind === 'workflow' || tab.kind === 'goal') return undefined
   return PANEL_TAB_BY_KIND[tab.kind]
 }
 
 function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) {
   if (tab.kind === 'goal') return t('goalTitle')
+  if (tab.kind === 'workflow') {
+    const phases = tab.workflowRun?.view.phases.length ?? 0
+    return phases > 0 ? t('workflowTabTitle', { count: phases }) : t('workflowTabTitleNoPhases')
+  }
   if (tab.kind === 'subagent') {
     const label = tab.subagentRun?.label || t('subagentRunDetails')
     return tab.subagentRun?.task ? `${label} · ${tab.subagentRun.task}` : label
@@ -190,6 +198,11 @@ function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) 
 }
 
 function panelTabTitle(tab: WorkspacePanelTab, fallbackLabel: string) {
+  if (tab.kind === 'workflow') {
+    const run = tab.workflowRun?.view
+    if (!run) return fallbackLabel
+    return `${t(workflowStatusLabelKey(run.status))} · ${run.phases.length}`
+  }
   if (tab.kind === 'subagent') return tab.subagentRun?.statusLabel || fallbackLabel
   if (tab.kind === 'browser') return tab.url || fallbackLabel
   if (tab.kind === 'document') return tab.document?.path || fallbackLabel
@@ -653,7 +666,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     [canUseTerminal, sideChatEnabled],
   )
   const tabState = useInspectorTabsState({ project, sessionId, canUseTerminal })
-  const { panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, draggingPanelTabId, menuOpen, setMenuOpen, tabListOpen, setTabListOpen, readerNavigationVisible, setReaderNavigationVisible, openPanelTabRef, openSubagentRunTabRef } = tabState
+  const { panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, draggingPanelTabId, menuOpen, setMenuOpen, tabListOpen, setTabListOpen, readerNavigationVisible, setReaderNavigationVisible, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef } = tabState
 
   const [reviewFilterOpen, setReviewFilterOpen] = useState(false)
 
@@ -717,6 +730,13 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     () => panelTabs.find((tab) => tab.id === activePanelTabId),
     [activePanelTabId, panelTabs],
   )
+
+  // 把「当前激活的工作流详情 Tab」广播回聊天区，让摘要卡显示「已打开」。
+  useEffect(() => {
+    const runId = open && activePanelTab?.kind === 'workflow' ? activePanelTab.workflowRun?.runId : undefined
+    activeWorkflowRunStore.set(runId)
+    return () => activeWorkflowRunStore.set(undefined)
+  }, [activePanelTab, open])
   const activeReaderTabId = activePanelTab?.activeReaderTabId
   const activeReaderTabs = useMemo(() => activePanelTab?.readerTabs || [], [activePanelTab?.readerTabs])
   const activeReaderTab = useMemo(
@@ -824,11 +844,15 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
       // 优先取 store 中最新快照（SSE 实时路径可能已比请求 payload 更新），无则用请求 payload。
       const latest = subagentRunStore.get(request.payload.runId) ?? request.payload
       openSubagentRunTabRef.current?.(latest)
+    } else if (request.kind === 'workflow') {
+      // 与 subagent 同构：store 快照是实时权威，请求载荷只作首帧兜底。
+      const latest = workflowRunStore.get(request.payload.runId) ?? request.payload
+      openWorkflowRunTabRef.current?.(latest)
     } else if (request.kind !== 'side-chat' || sideChatEnabled) {
       openPanelTabRef.current?.(request.kind, viewFromPanelKind(request.kind))
     }
     onRequestHandled?.(request.id)
-  }, [goalBinding, onRequestHandled, open, openPanelTabRef, openSubagentRunTabRef, projectId, request, runtimeScopeId, setActivePanelTabId, setPanelTabs, setReaderNavigationVisible, sideChatEnabled])
+  }, [goalBinding, onRequestHandled, open, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef, projectId, request, runtimeScopeId, setActivePanelTabId, setPanelTabs, setReaderNavigationVisible, sideChatEnabled])
   // 持久化工作区宽度：拖拽或自动展开后都写入，刷新后保持上次宽度
   useInspectorWidth({ ...layoutState, open, onFullscreenChange, leftSidebarWidth, conversationMinWidth, activePanelTab: activePanelTab, activeReaderTabId: activeReaderTabId })
 
@@ -1181,7 +1205,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     }
   }, [panelTabs, projectId, loadReaderFileFromCacheOrServer])
 
-  const { createPanelTab, createReaderPanelTab, openPanelTab, activatePanelTab, handlePanelTabDragStart, finishPanelTabDrag, handlePanelTabDragEnd, closePanelTab, closeOtherPanelTabs, closeAllPanelTabs } = useInspectorTabsActions({ ...tabState, onClearSideChat, onOpenChange, updatePanelTab })
+  const { createPanelTab, createReaderPanelTab, openPanelTab, openSubagentRunTab, activatePanelTab, handlePanelTabDragStart, finishPanelTabDrag, handlePanelTabDragEnd, closePanelTab, closeOtherPanelTabs, closeAllPanelTabs } = useInspectorTabsActions({ ...tabState, onClearSideChat, onOpenChange, updatePanelTab })
 
   // 命令日志 tab：与 openFileTab 结构对齐，但内容来自受限的 command-log 端点，
   // 不走工作区文件缓存（logs 在工作区外，缓存/校准对它没有意义）。
@@ -1412,7 +1436,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                             role="menuitem"
                             title={title}
                           >
-                            {filePath ? <FileIcon path={filePath} className="size-4 shrink-0" /> : tab.kind === 'subagent' ? <Bot className="size-4 shrink-0" /> : Icon ? <Icon className="size-4 shrink-0" /> : <Code2 className="size-4 shrink-0" />}
+                            {filePath ? <FileIcon path={filePath} className="size-4 shrink-0" /> : tab.kind === 'subagent' ? <Bot className="size-4 shrink-0" /> : tab.kind === 'workflow' ? <Workflow className="size-4 shrink-0" /> : Icon ? <Icon className="size-4 shrink-0" /> : <Code2 className="size-4 shrink-0" />}
                             <span className="min-w-0 flex-1 truncate">{label}</span>
                           </button>
                           <button
@@ -1495,6 +1519,8 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
                             <FileIcon path={filePath} className={cn('size-4 shrink-0 transition-opacity', active ? 'opacity-100' : 'opacity-55 group-hover:opacity-85')} />
                           ) : tab.kind === 'subagent' ? (
                             <Bot className={cn('size-4 shrink-0', active ? '' : '')} />
+                          ) : tab.kind === 'workflow' ? (
+                            <Workflow className={cn('size-4 shrink-0', active ? '' : '')} />
                           ) : Icon ? (
                             <Icon className={cn('size-4 shrink-0', active ? '' : '')} />
                           ) : (
@@ -1618,7 +1644,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
         </div>
 
         <div className={cn('flex min-h-0 flex-1 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
-          {!project?.id && activePanelTab?.kind !== 'goal' && activePanelTab?.kind !== 'subagent' && activePanelTab?.kind !== 'side-chat' ? (
+          {!project?.id && activePanelTab?.kind !== 'goal' && activePanelTab?.kind !== 'subagent' && activePanelTab?.kind !== 'workflow' && activePanelTab?.kind !== 'side-chat' ? (
             <div className="p-4 text-sm">{t('workspaceSelectProject')}</div>
           ) : !activePanelTab ? (
             <div className="flex min-h-0 flex-1 items-center justify-center px-5">
@@ -1654,6 +1680,19 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
             ) : <div className="p-4 text-sm text-muted-foreground">{t('goalUnavailable')}</div>
           ) : activePanelTab.kind === 'subagent' ? (
             <SubagentRunDetailContent payload={activePanelTab.subagentRun} />
+          ) : activePanelTab.kind === 'workflow' ? (
+            <WorkflowRunDetailContent
+              payload={activePanelTab.workflowRun}
+              onOpenAgentRun={(workflowRunId, agent) => {
+                // 与聊天里的 Agent 行共用同一套载荷推导；store 中若已有更完整
+                // 的 trace（由 SSE 实时发布）则优先复用，避免打开后闪空。
+                const runId = `${workflowRunId || 'workflow'}:agent:${agent.id}`
+                const existing = subagentRunStore.get(runId)
+                const payload = existing ?? buildWorkflowSubagentRunPayload(workflowRunId, agent, t, { previous: existing })
+                if (shouldPublishSubagentRunPayload(payload, existing)) subagentRunStore.publish(payload)
+                openSubagentRunTab(payload)
+              }}
+            />
           ) : activePanelTab.kind === 'side-chat' ? (
             <SideChatTabContent
               agent={sideChatAgent}

@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>run_workflow 执行模型</title>
+<style>
+  :root {
+    --bg: oklch(1 0 0);
+    --fg: oklch(0.145 0 0);
+    --muted: oklch(0.97 0 0);
+    --mfg: oklch(0.556 0 0);
+    --bd: oklch(0.922 0 0);
+    --accent: oklch(0.47 0.15 250);
+    --done: oklch(0.55 0.13 158);
+    --warn: oklch(0.62 0.16 60);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: oklch(0.145 0 0);
+      --fg: oklch(0.985 0 0);
+      --muted: oklch(0.205 0 0);
+      --mfg: oklch(0.708 0 0);
+      --bd: oklch(0.275 0 0);
+      --accent: oklch(0.78 0.15 85);
+      --done: oklch(0.75 0.15 160);
+      --warn: oklch(0.8 0.14 75);
+      color-scheme: dark;
+    }
+  }
+  body {
+    margin: 0; padding: 28px 24px 40px;
+    background: var(--bg); color: var(--fg);
+    font-family: var(--sans); font-size: 14px; line-height: 1.6;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+  p.sub { margin: 0 0 22px; color: var(--mfg); font-size: 12.5px; }
+  svg { width: 100%; height: auto; display: block; }
+  .foot { margin-top: 20px; padding-top: 14px; border-top: 1px solid color-mix(in oklab, var(--bd) 60%, transparent); font-size: 11.5px; color: var(--mfg); }
+  .foot code { font-family: var(--mono); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>run_workflow 执行模型</h1>
+  <p class="sub">脚本跑在沙箱里，但什么也干不了；所有真实工作由主进程的队列调度，并按 seq 记录成轨迹。</p>
+
+  <svg viewBox="0 0 960 640" role="img" aria-label="run_workflow 执行模型：worker 沙箱 + 主进程队列 + 三种编排模式">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="currentColor" />
+      </marker>
+      <style>
+        .t  { font-family: var(--sans); font-size: 12px; fill: var(--fg); }
+        .ts { font-family: var(--sans); font-size: 10.5px; fill: var(--mfg); }
+        .tm { font-family: var(--mono); font-size: 10.5px; fill: var(--fg); }
+        .tms{ font-family: var(--mono); font-size: 9.5px;  fill: var(--mfg); }
+        .h  { font-family: var(--sans); font-size: 12.5px; font-weight: 600; fill: var(--fg); }
+        .box{ fill: none; stroke: var(--bd); stroke-width: 1; }
+        .fill{ fill: var(--muted); stroke: var(--bd); stroke-width: 1; }
+        .acc{ fill: var(--accent); }
+        .dne{ fill: var(--done); }
+        .wrn{ fill: var(--warn); }
+        .line{ stroke: var(--bd); stroke-width: 1; }
+        .dash{ stroke: var(--bd); stroke-width: 1; stroke-dasharray: 3 3; }
+        .arw{ stroke: var(--mfg); stroke-width: 1.2; fill: none; color: var(--mfg); }
+      </style>
+    </defs>
+
+    <!-- ══════════ 架构 ══════════ -->
+    <text x="24" y="24" class="h">① 两层结构</text>
+
+    <!-- 主进程 -->
+    <rect x="24" y="40" width="380" height="196" rx="10" class="fill" />
+    <text x="40" y="62" class="h">主进程 · agent-workflow-runner.mjs</text>
+    <text x="40" y="80" class="ts">真正干活的地方</text>
+
+    <rect x="40" y="92" width="348" height="34" rx="6" class="box" />
+    <text x="52" y="106" class="t">步骤队列 + 信号量</text>
+    <text x="52" y="119" class="tms">drainQueue(): activeSteps &lt; effectiveConcurrency</text>
+
+    <rect x="40" y="132" width="348" height="34" rx="6" class="box" />
+    <text x="52" y="146" class="t">执行真实工作</text>
+    <text x="52" y="159" class="tms">agent() → runWorkflowSubagent ／ tool() → 会话工具集</text>
+
+    <rect x="40" y="172" width="348" height="34" rx="6" class="box" />
+    <text x="52" y="186" class="t">采集轨迹</text>
+    <text x="52" y="199" class="tms">seq 单调递增 · phases · logs（200 条）· 200ms 节流 → SSE</text>
+
+    <text x="40" y="224" class="ts">审批：默认权限下一次审批 = 一张卡，所以并发被强制为 1</text>
+
+    <!-- worker -->
+    <rect x="556" y="40" width="380" height="196" rx="10" class="fill" />
+    <text x="572" y="62" class="h">Worker 线程 · node:vm</text>
+    <text x="572" y="80" class="ts">只装脚本，没有 Node API</text>
+
+    <rect x="572" y="92" width="348" height="34" rx="6" class="box" />
+    <text x="584" y="106" class="t">(async () =&gt; { 你的脚本 })()</text>
+    <text x="584" y="119" class="tms">同步段 10s 超时 · 堆 256MB · 禁 eval / WASM / console</text>
+
+    <rect x="572" y="132" width="348" height="34" rx="6" class="box" />
+    <text x="584" y="146" class="t">只有 7 个全局</text>
+    <text x="584" y="159" class="tms">agent tool parallel pipeline phase log args</text>
+
+    <rect x="572" y="172" width="348" height="34" rx="6" class="box" />
+    <text x="584" y="186" class="t">没有 fs / net / timers / process</text>
+    <text x="584" y="199" class="tms">不是安全沙箱，信任边界是审批与 full-access</text>
+
+    <text x="572" y="224" class="ts">脚本只能「发请求 + 等结果」，算力全在对面</text>
+
+    <!-- 桥 -->
+    <line x1="404" y1="140" x2="556" y2="140" class="arw" marker-end="url(#ar)" marker-start="url(#ar)" />
+    <text x="480" y="132" class="tms" text-anchor="middle">__hostCall</text>
+    <text x="480" y="156" class="tms" text-anchor="middle">request / response</text>
+
+    <!-- ══════════ 三种编排 ══════════ -->
+    <text x="24" y="284" class="h">② 三种编排（都是脚本里手写的）</text>
+
+    <!-- A 串行 -->
+    <g>
+      <text x="24" y="312" class="t">A · 串行 — await 一行一行</text>
+      <rect x="24" y="322" width="288" height="150" rx="8" class="box" />
+      <text x="36" y="340" class="tms">await agent('a')</text>
+      <text x="36" y="354" class="tms">await agent('b')</text>
+      <text x="36" y="368" class="tms">await agent('c')</text>
+      <line x1="36" y1="390" x2="300" y2="390" class="dash" />
+      <rect x="36" y="398" width="70" height="12" rx="3" class="acc" opacity="0.5" />
+      <rect x="112" y="398" width="70" height="12" rx="3" class="acc" opacity="0.5" />
+      <rect x="188" y="398" width="70" height="12" rx="3" class="acc" opacity="0.5" />
+      <text x="36" y="428" class="tms">前一个结束才开始下一个</text>
+      <text x="36" y="444" class="tms">适合：后一步依赖前一步结果</text>
+      <text x="36" y="460" class="tms">总耗时 = 各步之和</text>
+    </g>
+
+    <!-- B 并行 -->
+    <g>
+      <text x="336" y="312" class="t">B · 并行 — parallel([...])</text>
+      <rect x="336" y="322" width="288" height="150" rx="8" class="box" />
+      <text x="348" y="340" class="tms">await parallel([</text>
+      <text x="360" y="354" class="tms">() =&gt; agent('a'),</text>
+      <text x="360" y="368" class="tms">() =&gt; agent('b'),</text>
+      <text x="360" y="382" class="tms">() =&gt; agent('c') ])</text>
+      <line x1="348" y1="398" x2="612" y2="398" class="dash" />
+      <rect x="348" y="404" width="180" height="8" rx="3" class="acc" opacity="0.5" />
+      <rect x="348" y="416" width="180" height="8" rx="3" class="acc" opacity="0.5" />
+      <rect x="348" y="428" width="180" height="8" rx="3" class="acc" opacity="0.5" />
+      <text x="348" y="452" class="tms">全部同时提交，Promise.all 等齐</text>
+      <text x="348" y="466" class="tms">适合：互不依赖的 fan-out</text>
+    </g>
+
+    <!-- C pipeline -->
+    <g>
+      <text x="648" y="312" class="t">C · 流水线 — pipeline(items, ...stages)</text>
+      <rect x="648" y="322" width="288" height="150" rx="8" class="box" />
+      <text x="660" y="340" class="tms">pipeline(items,</text>
+      <text x="672" y="354" class="tms">(x) =&gt; agent(x + ' 调研'),</text>
+      <text x="672" y="368" class="tms">(x) =&gt; agent(x + ' 实现'))</text>
+      <line x1="660" y1="392" x2="924" y2="392" class="dash" />
+      <rect x="660" y="398" width="86" height="8" rx="3" class="acc" opacity="0.5" />
+      <rect x="750" y="398" width="86" height="8" rx="3" class="wrn" opacity="0.55" />
+      <rect x="700" y="410" width="86" height="8" rx="3" class="acc" opacity="0.5" />
+      <rect x="790" y="410" width="86" height="8" rx="3" class="wrn" opacity="0.55" />
+      <rect x="740" y="422" width="86" height="8" rx="3" class="acc" opacity="0.5" />
+      <rect x="830" y="422" width="86" height="8" rx="3" class="wrn" opacity="0.55" />
+      <text x="660" y="446" class="tms">item 之间无 barrier，各自走完全部 stage</text>
+      <text x="660" y="460" class="tms">适合：一批同构任务各走一条流水线</text>
+    </g>
+
+    <!-- 提示条 -->
+    <rect x="24" y="492" width="912" height="46" rx="8" fill="none" stroke="var(--warn)" stroke-width="1" stroke-dasharray="4 3" />
+    <text x="40" y="512" class="t">⚠ 默认权限模式下 effectiveConcurrency 恒为 1</text>
+    <text x="40" y="529" class="tms">parallel 只是「同时提交」，实际仍排队执行；只有 full-access 才拿到 options.concurrency（默认 4，上限 8）</text>
+
+    <!-- 轨迹 -->
+    <text x="24" y="574" class="h">③ 轨迹怎么来的</text>
+    <text x="24" y="594" class="tms">seq 全局单调递增，agent 与 tool 共用同一个计数器，入队即分配 —— 前端按 seq 排序即可还原真实的交错顺序。</text>
+    <text x="24" y="610" class="tms">phases 由 phase() 与 options.phase 登记；logs 环形保留 200 条；运行中 200ms 节流推 SSE，终态推全量。</text>
+  </svg>
+
+  <div class="foot">
+    事实源：<code>server/agent-workflow-runner.mjs</code> · <code>server/agent-workflow-worker.mjs</code> ·
+    <code>server/agent-workflow-tools.mjs</code> · <code>server/tools/definitions.mjs:45-71</code>
+  </div>
+</div>
+</body>
+</html>

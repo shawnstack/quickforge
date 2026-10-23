@@ -1,0 +1,1383 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>run_workflow 工具卡 · 视觉改版提案</title>
+<style>
+  /* ══════════════════════════════════════════════════════════════════
+     令牌：全部取自 src/index.css 的 :root / .dark（oklch）
+     ══════════════════════════════════════════════════════════════════ */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --accent-fg: oklch(0.47 0.15 250);
+    --done: oklch(0.55 0.13 158);
+    --msg: 14px;
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --dur-exit: 140ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC",
+      "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas,
+      "Liberation Mono", monospace;
+    color-scheme: light;
+  }
+  html.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(0.275 0 0);
+    --ring: oklch(0.556 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --accent-fg: oklch(0.78 0.15 85);
+    --done: oklch(0.75 0.15 160);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 34px 24px 96px;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: var(--msg);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+  }
+  .page { max-width: 1120px; margin: 0 auto; }
+
+  /* ── 页面外壳 ───────────────────────────────────────────────────── */
+  .page-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .page-title { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  .page-sub {
+    margin: 6px 0 0; max-width: 62ch;
+    color: var(--muted-foreground); font-size: calc(var(--msg) * 0.875);
+  }
+  .theme-btn {
+    flex: 0 0 auto; height: 30px; padding: 0 12px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--muted-foreground);
+    font: inherit; font-size: 12px; cursor: pointer;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .theme-btn:hover { background: var(--muted); color: var(--foreground); }
+
+  .rule {
+    height: 1px; margin: 22px 0 26px; border: 0;
+    background: color-mix(in oklab, var(--border) 60%, transparent);
+  }
+
+  h2.sec {
+    margin: 40px 0 4px; font-size: 13px; font-weight: 600;
+    letter-spacing: 0.04em; color: color-mix(in oklab, var(--foreground) 62%, transparent);
+  }
+  p.sec-sub { margin: 0 0 16px; color: var(--muted-foreground); font-size: 12px; }
+
+  .stage {
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    border-radius: 12px;
+    padding: 14px 16px 20px;
+    background: var(--background);
+  }
+  .stage + .stage { margin-top: 14px; }
+  .stage-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .stage-tag {
+    flex: 0 0 auto; padding: 1px 7px; border-radius: 999px;
+    background: var(--muted); color: var(--muted-foreground);
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em;
+  }
+  .stage-tag[data-tone="new"] {
+    background: color-mix(in oklab, var(--done) 14%, transparent); color: var(--done);
+  }
+  .stage-tag[data-tone="now"] {
+    background: color-mix(in oklab, var(--destructive) 10%, transparent); color: var(--destructive);
+  }
+  .stage-title { font-size: 12.5px; font-weight: 600; }
+  .stage-note { margin-left: auto; font-size: 11px; color: var(--muted-foreground); }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); gap: 14px; align-items: start; }
+
+  /* ══════════════════════════════════════════════════════════════════
+     新版 run_workflow 卡（提案）
+     命名前缀 .wf-，实现时映射到 .quickforge-workflow-*
+     ══════════════════════════════════════════════════════════════════ */
+  .wf {
+    --wf-lg: calc(var(--msg) * 0.875);   /* 12.25 折叠头 / 阶段名 */
+    --wf-md: calc(var(--msg) * 0.8125);  /* 11.375 agent / 工具名 */
+    --wf-sm: calc(var(--msg) * 0.75);    /* 10.5  参数 / 计数 */
+    --wf-xs: calc(var(--msg) * 0.6875);  /* 9.6   序号 */
+    display: block;
+    width: 100%;
+    font-size: var(--wf-md);
+  }
+  .wf > summary { list-style: none; }
+  .wf > summary::-webkit-details-marker { display: none; }
+
+  /* ── 折叠头：总览条 ─────────────────────────────────────────────── */
+  .wf-summary {
+    display: flex; align-items: center; gap: 7px;
+    min-height: 26px; padding: 2px 5px; margin: 0 -5px;
+    border-radius: 8px; cursor: pointer; user-select: none;
+    color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .wf-summary:hover { background: color-mix(in oklab, var(--muted) 48%, transparent); }
+  .wf-summary:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+    outline-offset: 2px;
+  }
+  .wf-ico { width: 14px; height: 14px; flex: 0 0 auto; color: color-mix(in oklab, var(--muted-foreground) 78%, transparent); }
+  .wf-title {
+    flex: 0 0 auto;
+    font-size: var(--wf-lg); font-weight: 500;
+    color: color-mix(in oklab, var(--foreground) 88%, transparent);
+    white-space: nowrap;
+  }
+  .wf-meta {
+    flex: 0 1 auto; min-width: 0;
+    font-size: var(--wf-md);
+    color: color-mix(in oklab, var(--muted-foreground) 74%, transparent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .wf-meta::before {
+    content: ""; display: inline-block; vertical-align: middle;
+    width: 1px; height: 9px; margin: 0 7px 1px 0;
+    background: color-mix(in oklab, var(--border) 100%, transparent);
+  }
+  .wf-fail {
+    flex: 0 0 auto; font-size: var(--wf-md);
+    color: var(--destructive);
+  }
+
+  /* 阶段刻度：折叠状态下唯一能读出「进度」的元素 */
+  .wf-ticks { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; flex: 0 0 auto; }
+  .wf-tick {
+    width: 10px; height: 3px; border-radius: 1px;
+    background: color-mix(in oklab, var(--border) 100%, transparent);
+    transition: background var(--dur-base) var(--ease);
+  }
+  .wf-tick[data-s="done"] { background: color-mix(in oklab, var(--done) 58%, transparent); }
+  .wf-tick[data-s="running"] { background: var(--accent-fg); animation: wf-pulse 1.6s var(--ease) infinite; }
+  .wf-tick[data-s="error"] { background: var(--destructive); }
+
+  .wf-time {
+    flex: 0 0 auto;
+    font-family: var(--font-mono); font-size: var(--wf-sm);
+    font-variant-numeric: tabular-nums;
+    color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  }
+  .wf-chev {
+    width: 13px; height: 13px; flex: 0 0 auto; opacity: 0.55;
+    transition: opacity var(--dur-fast) var(--ease), transform 160ms var(--ease);
+  }
+  .wf-summary:hover .wf-chev { opacity: 0.95; }
+  .wf[open] .wf-chev { transform: rotate(90deg); }
+
+  /* 运行中标题流光（自左向右 200% → -200%） */
+  .wf-sweep {
+    background-image: linear-gradient(90deg,
+      color-mix(in oklab, var(--foreground) 72%, transparent) 0%,
+      color-mix(in oklab, var(--foreground) 72%, transparent) 38%,
+      var(--accent-fg) 50%,
+      color-mix(in oklab, var(--foreground) 72%, transparent) 62%,
+      color-mix(in oklab, var(--foreground) 72%, transparent) 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+    animation: wf-sweep 2.4s linear infinite;
+  }
+
+  /* ── 展开体 ─────────────────────────────────────────────────────── */
+  .wf-body { padding: 8px 0 2px 2px; }
+
+  .wf-phases { list-style: none; margin: 0; padding: 0; }
+  .wf-phase { position: relative; padding-left: 19px; padding-bottom: 12px; }
+  .wf-phase:last-child { padding-bottom: 2px; }
+
+  /* 贯穿轨道：一条连续的 1px 线，替代逐 zone 画线 */
+  .wf-phase::before {
+    content: ""; position: absolute; left: 3.5px; top: 15px; bottom: -1px;
+    width: 1px;
+    background: color-mix(in oklab, var(--border) 95%, transparent);
+  }
+  .wf-phase:last-child::before { display: none; }
+
+  .wf-node {
+    position: absolute; left: 0; top: 4px;
+    width: 8px; height: 8px; border-radius: 999px;
+    border: 1.5px solid color-mix(in oklab, var(--muted-foreground) 42%, transparent);
+    background: var(--background);
+    transition: background var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease);
+  }
+  .wf-phase[data-s="done"] .wf-node { border-color: var(--done); background: var(--done); }
+  .wf-phase[data-s="running"] .wf-node { border-color: var(--accent-fg); background: var(--accent-fg); }
+  .wf-phase[data-s="error"] .wf-node { border-color: var(--destructive); background: var(--destructive); }
+  .wf-phase[data-s="pending"] .wf-node { border-style: dashed; }
+  .wf-phase[data-s="running"] .wf-node::after {
+    content: ""; position: absolute; inset: -3px; border-radius: 999px;
+    border: 1px solid var(--accent-fg);
+    animation: wf-ring 1.9s var(--ease) infinite;
+  }
+
+  .wf-phase-head { display: flex; align-items: center; gap: 7px; min-height: 18px; }
+  .wf-idx {
+    flex: 0 0 auto;
+    font-family: var(--font-mono); font-size: var(--wf-xs);
+    letter-spacing: 0.03em;
+    color: color-mix(in oklab, var(--muted-foreground) 52%, transparent);
+  }
+  .wf-name {
+    min-width: 0; font-size: var(--wf-lg); font-weight: 500;
+    color: color-mix(in oklab, var(--foreground) 80%, transparent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .wf-phase[data-s="pending"] .wf-name { color: color-mix(in oklab, var(--muted-foreground) 62%, transparent); }
+  .wf-phase[data-s="error"] .wf-name { color: color-mix(in oklab, var(--destructive) 88%, var(--foreground)); }
+  .wf-count {
+    flex: 0 0 auto;
+    font-family: var(--font-mono); font-size: var(--wf-xs);
+    color: color-mix(in oklab, var(--muted-foreground) 58%, transparent);
+  }
+  .wf-phase-head .wf-time { margin-left: auto; }
+
+  /* Agent 行 */
+  .wf-steps { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; }
+  .wf-step {
+    display: flex; align-items: center; gap: 7px;
+    min-height: 21px; padding: 1px 5px 1px 1px; margin: 0 -5px 0 -1px;
+    border-radius: 6px;
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .wf-step:hover { background: color-mix(in oklab, var(--muted) 42%, transparent); }
+  .wf-dot {
+    width: 5px; height: 5px; flex: 0 0 auto; border-radius: 999px;
+    background: color-mix(in oklab, var(--muted-foreground) 38%, transparent);
+  }
+  .wf-step[data-s="done"] .wf-dot { background: color-mix(in oklab, var(--done) 72%, transparent); }
+  .wf-step[data-s="running"] .wf-dot { background: var(--accent-fg); }
+  .wf-step[data-s="error"] .wf-dot { background: var(--destructive); }
+  .wf-step-name {
+    min-width: 0; font-size: var(--wf-lg);
+    color: color-mix(in oklab, var(--foreground) 86%, transparent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .wf-step-meta {
+    flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--wf-xs);
+    color: color-mix(in oklab, var(--muted-foreground) 58%, transparent);
+  }
+  .wf-step .wf-time { margin-left: auto; }
+  .wf-step-open {
+    flex: 0 0 auto; font-size: var(--wf-xs);
+    color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+    opacity: 0; transition: opacity var(--dur-fast) var(--ease);
+  }
+  .wf-step:hover .wf-step-open { opacity: 1; }
+
+  /* 工具行：Agent 的子级 */
+  .wf-tools {
+    list-style: none; margin: 1px 0 3px; padding: 0 0 0 13px;
+    position: relative; display: flex; flex-direction: column;
+  }
+  .wf-tools::before {
+    content: ""; position: absolute; left: 3.5px; top: 1px; bottom: 5px;
+    width: 1px;
+    background: color-mix(in oklab, var(--border) 80%, transparent);
+  }
+  .wf-tool-row > details > summary { list-style: none; }
+  .wf-tool-row > details > summary::-webkit-details-marker { display: none; }
+  .wf-tool {
+    display: flex; align-items: center; gap: 6px;
+    min-height: 20px; padding: 0 5px; margin-right: -5px;
+    border-radius: 6px; cursor: pointer; user-select: none;
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .wf-tool:hover { background: color-mix(in oklab, var(--muted) 42%, transparent); }
+  .wf-tool-ico {
+    width: 11px; height: 11px; flex: 0 0 auto;
+    color: color-mix(in oklab, var(--muted-foreground) 52%, transparent);
+    transition: color var(--dur-fast) var(--ease);
+  }
+  .wf-tool:hover .wf-tool-ico { color: color-mix(in oklab, var(--muted-foreground) 82%, transparent); }
+  .wf-tool-name {
+    flex: 0 0 auto; font-size: var(--wf-md);
+    color: color-mix(in oklab, var(--muted-foreground) 90%, transparent);
+    white-space: nowrap;
+  }
+  .wf-tool[data-s="error"] .wf-tool-name { color: color-mix(in oklab, var(--destructive) 92%, transparent); }
+  .wf-tool-arg {
+    min-width: 0; font-family: var(--font-mono); font-size: var(--wf-sm);
+    color: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .wf-tool .wf-time { margin-left: auto; font-size: var(--wf-xs); }
+  .wf-tool .wf-chev { width: 11px; height: 11px; opacity: 0; }
+  .wf-tool:hover .wf-chev { opacity: 0.7; }
+  .wf-tool-row > details[open] .wf-chev { opacity: 0.7; transform: rotate(90deg); }
+
+  .wf-tool-body { padding: 6px 0 8px 17px; display: flex; flex-direction: column; gap: 8px; }
+  .wf-field-label {
+    font-size: var(--wf-sm); font-weight: 500;
+    color: color-mix(in oklab, var(--muted-foreground) 85%, transparent);
+    margin-bottom: 3px;
+  }
+  .wf-code {
+    margin: 0; padding: 7px 9px; max-height: 13rem; overflow: auto;
+    font-family: var(--font-mono); font-size: var(--wf-sm); line-height: 1.55;
+    color: color-mix(in oklab, var(--foreground) 84%, transparent);
+    background: color-mix(in oklab, var(--muted) 40%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+    border-radius: 6px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .wf-code .ok { color: var(--done); }
+  .wf-code .dim { color: var(--muted-foreground); }
+
+  /* 错误 / 日志 / 结果 */
+  .wf-error {
+    display: flex; flex-direction: column; gap: 2px;
+    margin: 2px 0 4px; padding: 7px 10px;
+    border-left: 2px solid var(--destructive);
+    border-radius: 0 6px 6px 0;
+    background: color-mix(in oklab, var(--destructive) 6%, transparent);
+    font-size: var(--wf-md); white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .wf-error-label { font-weight: 600; color: var(--destructive); font-size: var(--wf-sm); }
+
+  .wf-logs { list-style: none; margin: 3px 0 0; padding: 0 0 0 19px; }
+  .wf-log {
+    font-size: var(--wf-sm);
+    color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .wf-log[data-l="error"] { color: var(--destructive); }
+
+  .wf-section { margin-top: 9px; padding-left: 19px; }
+  .wf-section > details > summary {
+    list-style: none; cursor: pointer; user-select: none;
+    font-size: var(--wf-md); font-weight: 500;
+    color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    transition: color var(--dur-fast) var(--ease);
+  }
+  .wf-section > details > summary::-webkit-details-marker { display: none; }
+  .wf-section > details > summary:hover { color: color-mix(in oklab, var(--foreground) 84%, transparent); }
+  .wf-section > details > summary::before {
+    content: "›"; display: inline-block; width: 12px;
+    font-size: 11px; color: var(--muted-foreground);
+    transition: transform 160ms var(--ease);
+  }
+  .wf-section > details[open] > summary::before { transform: rotate(90deg); }
+  .wf-section .wf-code { margin-top: 6px; }
+
+  /* 空 / 准备态 */
+  .wf-empty {
+    padding: 6px 0 6px 19px; font-size: var(--wf-md);
+    color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+  }
+  .wf-preparing {
+    display: flex; align-items: center; gap: 8px;
+    padding: 3px 5px; margin: 0 -5px;
+    font-size: var(--wf-lg);
+    color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+  }
+  .wf-spinner {
+    width: 12px; height: 12px; flex: 0 0 auto; border-radius: 999px;
+    border: 1.5px solid color-mix(in oklab, var(--muted-foreground) 30%, transparent);
+    border-top-color: var(--accent-fg);
+    animation: wf-spin 0.9s linear infinite;
+  }
+  .wf-preparing .wf-dots::after {
+    content: ""; animation: wf-dots 1.4s steps(4, end) infinite;
+  }
+
+  @keyframes wf-sweep { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  @keyframes wf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes wf-ring {
+    0% { transform: scale(1); opacity: 0.55; }
+    70% { transform: scale(1.85); opacity: 0; }
+    100% { transform: scale(1.85); opacity: 0; }
+  }
+  @keyframes wf-spin { to { transform: rotate(360deg); } }
+  @keyframes wf-dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wf-sweep { animation: none; color: color-mix(in oklab, var(--foreground) 86%, transparent); background: none; }
+    .wf-tick[data-s="running"], .wf-phase[data-s="running"] .wf-node::after,
+    .wf-spinner, .wf-preparing .wf-dots::after { animation: none; }
+    .wf-spinner { border-top-color: color-mix(in oklab, var(--muted-foreground) 60%, transparent); }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     现状复刻（.old-），用于对照
+     ══════════════════════════════════════════════════════════════════ */
+  .old { font-size: 11.375px; }
+  .old-head {
+    display: flex; align-items: center; gap: 8px;
+    min-height: 22.75px; padding: 1px 4px;
+    color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    font-size: 12.25px;
+  }
+  .old-head .old-label { color: color-mix(in oklab, var(--muted-foreground) 88%, transparent); }
+  .old-marquee {
+    flex: 1 1 auto; min-width: 0;
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .old-phase { margin-top: 10px; }
+  .old-phase-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 9.625px; font-weight: 600; letter-spacing: 0.04em;
+    color: color-mix(in oklab, var(--foreground) 62%, transparent);
+  }
+  .old-phase-title::after {
+    content: ""; flex: 1 1 auto; height: 1px;
+    background: linear-gradient(90deg,
+      color-mix(in oklab, var(--border) 55%, transparent),
+      transparent);
+  }
+  .old-phase-count {
+    font-family: var(--font-mono); font-size: 8.75px; font-weight: 500;
+    color: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+  }
+  .old-agent {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12.25px; font-weight: 500;
+    color: color-mix(in oklab, var(--foreground) 84%, transparent);
+    margin-top: 4px;
+  }
+  .old-zone {
+    margin: 1px 0 3px 6px; padding-left: 10px;
+    border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  }
+  .old-tool {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 10.5px; min-height: 17px;
+    color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+  }
+  .old-tool .old-arg {
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+  }
+  .old-status { margin-left: auto; font-size: 10px; opacity: 0.7; }
+  .old-ico { width: 14px; height: 14px; flex: 0 0 auto; color: color-mix(in oklab, var(--muted-foreground) 70%, transparent); }
+  .old-ico-sm { width: 11px; height: 11px; flex: 0 0 auto; color: color-mix(in oklab, var(--muted-foreground) 55%, transparent); }
+
+  /* ── 诊断 / 说明块 ─────────────────────────────────────────────── */
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+  .note {
+    border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+    border-radius: 10px; padding: 12px 13px 13px;
+  }
+  .note-k {
+    display: inline-block; margin-bottom: 6px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em;
+    color: var(--destructive);
+  }
+  .note-k[data-tone="fix"] { color: var(--done); }
+  .note-t { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; }
+  .note-b { margin: 0; font-size: 12px; color: var(--muted-foreground); }
+
+  table.spec {
+    width: 100%; border-collapse: collapse;
+    font-size: 12px; margin-top: 8px;
+  }
+  table.spec th, table.spec td {
+    text-align: left; padding: 7px 10px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    vertical-align: top;
+  }
+  table.spec th {
+    font-weight: 600; font-size: 11px; letter-spacing: 0.02em;
+    color: color-mix(in oklab, var(--foreground) 62%, transparent);
+    border-bottom-color: var(--border);
+  }
+  table.spec td code {
+    font-family: var(--font-mono); font-size: 11px;
+    background: color-mix(in oklab, var(--muted) 60%, transparent);
+    padding: 1px 4px; border-radius: 4px;
+  }
+  table.spec td:first-child { width: 34%; }
+  .swatch {
+    display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+    margin-right: 5px; vertical-align: middle;
+  }
+
+  .foot {
+    margin-top: 44px; padding-top: 16px;
+    border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    font-size: 11.5px; color: var(--muted-foreground);
+  }
+  .foot code { font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">run_workflow 工具卡 · 视觉改版提案</h1>
+      <p class="page-sub">
+        现状问题诊断 + 一个主推方向（可交互）+ 两个备选方向。全部尺寸与颜色取自
+        <code>src/index.css</code> 现有令牌，不引入新色值。
+      </p>
+    </div>
+    <button class="theme-btn" id="themeBtn" type="button">切换深色</button>
+  </div>
+
+  <hr class="rule" />
+
+  <!-- ═══════════ 1. 诊断 ═══════════ -->
+  <h2 class="sec">01 · 现状诊断</h2>
+  <p class="sec-sub">不展开卡片时，用户 90% 的时间只看到折叠头；而折叠头目前几乎不承载信息。</p>
+
+  <div class="notes">
+    <div class="note">
+      <span class="note-k">问题 1</span>
+      <p class="note-t">折叠头信息密度过低</p>
+      <p class="note-b">只有「工作流已完成 · 4 个智能体 · 12 个工具」一行灰字 + 跑马灯。阶段进度、失败数、总耗时全部不可见，耗时还要 hover 才出现。</p>
+    </div>
+    <div class="note">
+      <span class="note-k">问题 2</span>
+      <p class="note-t">层级只能靠「缩进 + 变淡 + 缩小」三件事叠加</p>
+      <p class="note-b">Agent 行与工具行是同一个构件（图标 + 文字 + 状态），只能靠字号 0.75× 和颜色 78% 区分，读起来像一堆碎行。</p>
+    </div>
+    <div class="note">
+      <span class="note-k">问题 3</span>
+      <p class="note-t">轨道是断的</p>
+      <p class="note-b">每个工具区各自画一条 <code>border-left</code>，Agent 行没有线；阶段之间靠一条渐隐细线分隔。三条不同强度的线混在一起，反而没有「流程」感。</p>
+    </div>
+    <div class="note">
+      <span class="note-k">问题 4</span>
+      <p class="note-t">状态语义几乎不显色</p>
+      <p class="note-b">运行中 / 完成 / 失败在展开体里都是灰的，只有失败有红色。工作流最核心的「跑到哪了、有没有挂」需要靠读文字判断。</p>
+    </div>
+  </div>
+
+  <!-- 折叠头对比 -->
+  <div class="stage" style="margin-top:14px;">
+    <div class="stage-head">
+      <span class="stage-tag" data-tone="now">现状</span>
+      <span class="stage-title">折叠头</span>
+      <span class="stage-note">1 个信息点（标题） + 跑马灯</span>
+    </div>
+    <div class="old">
+      <div class="old-head">
+        <svg class="old-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+        <span class="old-label">工作流已完成 · 4 个智能体 · 12 个工具</span>
+        <span class="old-marquee">阶段：验证</span>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:.6"><path d="m9 18 6-6-6-6"/></svg>
+        <span class="old-status">完成 · 8.4s</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="stage-head">
+      <span class="stage-tag" data-tone="new">提案</span>
+      <span class="stage-title">折叠头</span>
+      <span class="stage-note">5 个信息点：状态 / 规模 / 阶段进度 / 失败数 / 总耗时</span>
+    </div>
+    <div class="wf">
+      <div class="wf-summary">
+        <svg class="wf-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+        <span class="wf-title">工作流已完成</span>
+        <span class="wf-meta">4 个智能体 · 12 个工具</span>
+        <span class="wf-ticks">
+          <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+          <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+          <i class="wf-tick" data-s="done"></i>
+        </span>
+        <span class="wf-time">8.4s</span>
+        <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ 2. 主推方案 ═══════════ -->
+  <h2 class="sec">02 · 主推方案：连续轨道 + 状态语义</h2>
+  <p class="sec-sub">
+    一条贯穿全部阶段的 1px 轨道；阶段是实心节点，Agent 是轨道上的小圆点，工具调用是挂在 Agent 下方的短刻度。
+    层级靠「轨道 + 节点 + 状态色」表达，不再靠逐级缩小字号。
+  </p>
+
+  <!-- 已完成 -->
+  <div class="stage">
+    <div class="stage-head">
+      <span class="stage-tag" data-tone="new">已完成</span>
+      <span class="stage-title">5 阶段全部成功</span>
+      <span class="stage-note">点击折叠头 / 工具行可交互</span>
+    </div>
+    <details class="wf" open>
+      <summary class="wf-summary">
+        <svg class="wf-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+        <span class="wf-title">工作流已完成</span>
+        <span class="wf-meta">4 个智能体 · 12 个工具</span>
+        <span class="wf-ticks">
+          <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+          <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+          <i class="wf-tick" data-s="done"></i>
+        </span>
+        <span class="wf-time">8.4s</span>
+        <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </summary>
+      <div class="wf-body">
+        <ol class="wf-phases">
+
+          <li class="wf-phase" data-s="done">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">01</span>
+              <span class="wf-name">侦察</span>
+              <span class="wf-count">3 步</span>
+              <span class="wf-time">1.2s</span>
+            </div>
+            <ul class="wf-steps">
+              <li class="wf-step" data-s="done">
+                <span class="wf-dot"></span>
+                <span class="wf-step-name">定位 workflow 渲染链路</span>
+                <span class="wf-step-meta">3 次工具</span>
+                <span class="wf-time">0.9s</span>
+              </li>
+            </ul>
+            <ul class="wf-tools">
+              <li class="wf-tool-row">
+                <details>
+                  <summary class="wf-tool" data-s="done">
+                    <svg class="wf-tool-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <span class="wf-tool-name">搜索文件</span>
+                    <span class="wf-tool-arg">"quickforge-workflow-"</span>
+                    <span class="wf-time">0.3s</span>
+                    <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </summary>
+                  <div class="wf-tool-body">
+                    <div>
+                      <div class="wf-field-label">输入</div>
+                      <pre class="wf-code">{ "query": "quickforge-workflow-", "path": "src" }</pre>
+                    </div>
+                    <div>
+                      <div class="wf-field-label">输出</div>
+                      <pre class="wf-code">src/index.css:8220-8487
+src/lib/tool-renderers/workflow-tool-renderer.tsx</pre>
+                    </div>
+                  </div>
+                </details>
+              </li>
+              <li class="wf-tool-row">
+                <details>
+                  <summary class="wf-tool" data-s="done">
+                    <svg class="wf-tool-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+                    <span class="wf-tool-name">读取文件</span>
+                    <span class="wf-tool-arg">workflow-tool-renderer.tsx</span>
+                    <span class="wf-time">0.2s</span>
+                    <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </summary>
+                  <div class="wf-tool-body">
+                    <div>
+                      <div class="wf-field-label">输入</div>
+                      <pre class="wf-code">{ "path": "src/lib/tool-renderers/workflow-tool-renderer.tsx" }</pre>
+                    </div>
+                  </div>
+                </details>
+              </li>
+            </ul>
+          </li>
+
+          <li class="wf-phase" data-s="done">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">02</span>
+              <span class="wf-name">设计</span>
+              <span class="wf-count">2 步</span>
+              <span class="wf-time">1.1s</span>
+            </div>
+            <ul class="wf-steps">
+              <li class="wf-step" data-s="done">
+                <span class="wf-dot"></span>
+                <span class="wf-step-name">对比三套层级方案</span>
+                <span class="wf-step-meta">2 次工具</span>
+                <span class="wf-time">1.1s</span>
+              </li>
+            </ul>
+            <ul class="wf-tools">
+              <li class="wf-tool-row">
+                <details>
+                  <summary class="wf-tool" data-s="done">
+                    <svg class="wf-tool-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+                    <span class="wf-tool-name">读取文件</span>
+                    <span class="wf-tool-arg">DESIGN_LANGUAGE.md</span>
+                    <span class="wf-time">0.1s</span>
+                    <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </summary>
+                  <div class="wf-tool-body">
+                    <div>
+                      <div class="wf-field-label">输出</div>
+                      <pre class="wf-code">分割线 1px · border 60%
+圆角：列表项中等、图标按钮全圆
+动效：fast 120ms / base 180ms / exit 140ms</pre>
+                    </div>
+                  </div>
+                </details>
+              </li>
+            </ul>
+          </li>
+
+          <li class="wf-phase" data-s="done">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">03</span>
+              <span class="wf-name">实现</span>
+              <span class="wf-count">4 步</span>
+              <span class="wf-time">4.6s</span>
+            </div>
+            <ul class="wf-steps">
+              <li class="wf-step" data-s="done">
+                <span class="wf-dot"></span>
+                <span class="wf-step-name">重写折叠头与轨道结构</span>
+                <span class="wf-step-meta">3 次工具</span>
+                <span class="wf-time">4.6s</span>
+              </li>
+            </ul>
+            <ul class="wf-tools">
+              <li class="wf-tool-row">
+                <details>
+                  <summary class="wf-tool" data-s="done">
+                    <svg class="wf-tool-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>
+                    <span class="wf-tool-name">编辑文件</span>
+                    <span class="wf-tool-arg">workflow-tool-renderer.tsx</span>
+                    <span class="wf-time">3.1s</span>
+                    <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </summary>
+                  <div class="wf-tool-body">
+                    <div>
+                      <div class="wf-field-label">输出</div>
+                      <pre class="wf-code">+ 折叠头加入阶段刻度与常显耗时
++ 阶段区块改用贯穿轨道
+- 移除 phase-title 的渐隐细线</pre>
+                    </div>
+                  </div>
+                </details>
+              </li>
+              <li class="wf-tool-row">
+                <details>
+                  <summary class="wf-tool" data-s="done">
+                    <svg class="wf-tool-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+                    <span class="wf-tool-name">执行命令</span>
+                    <span class="wf-tool-arg">npm run lint</span>
+                    <span class="wf-time">1.2s</span>
+                    <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </summary>
+                  <div class="wf-tool-body">
+                    <div>
+                      <div class="wf-field-label">输出</div>
+                      <pre class="wf-code"><span class="dim">$</span> npm run lint
+<span class="ok">✓</span> eslint 通过 · 0 problems</pre>
+                    </div>
+                  </div>
+                </details>
+              </li>
+            </ul>
+          </li>
+
+          <li class="wf-phase" data-s="done">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">04</span>
+              <span class="wf-name">验证</span>
+              <span class="wf-count">2 步</span>
+              <span class="wf-time">1.3s</span>
+            </div>
+            <ul class="wf-steps">
+              <li class="wf-step" data-s="done">
+                <span class="wf-dot"></span>
+                <span class="wf-step-name">回归测试与构建</span>
+                <span class="wf-step-meta">2 次工具</span>
+                <span class="wf-time">1.3s</span>
+              </li>
+            </ul>
+            <ul class="wf-tools">
+              <li class="wf-tool-row">
+                <details>
+                  <summary class="wf-tool" data-s="done">
+                    <svg class="wf-tool-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+                    <span class="wf-tool-name">执行命令</span>
+                    <span class="wf-tool-arg">npm run test</span>
+                    <span class="wf-time">1.1s</span>
+                    <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </summary>
+                  <div class="wf-tool-body">
+                    <div>
+                      <div class="wf-field-label">输出</div>
+                      <pre class="wf-code"><span class="ok">✓</span> tests/frontend/workflow-renderer.test.ts (12)
+<span class="ok">✓</span> tests/frontend/workflow-step-interaction.test.ts (6)
+Test Files  2 passed</pre>
+                    </div>
+                  </div>
+                </details>
+              </li>
+            </ul>
+          </li>
+
+          <li class="wf-phase" data-s="done">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">05</span>
+              <span class="wf-name">收尾</span>
+              <span class="wf-count">1 步</span>
+              <span class="wf-time">0.2s</span>
+            </div>
+            <ul class="wf-steps">
+              <li class="wf-step" data-s="done">
+                <span class="wf-dot"></span>
+                <span class="wf-step-name">同步文档</span>
+                <span class="wf-step-meta">1 次工具</span>
+                <span class="wf-time">0.2s</span>
+              </li>
+            </ul>
+          </li>
+        </ol>
+
+        <div class="wf-section">
+          <details>
+            <summary>结果 · 已截断</summary>
+            <pre class="wf-code">改版完成：折叠头信息密度从 1 → 5，展开体改为连续轨道，状态语义着色。共改动 3 个文件。</pre>
+          </details>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- 运行中 -->
+  <div class="stage">
+    <div class="stage-head">
+      <span class="stage-tag" data-tone="new">运行中</span>
+      <span class="stage-title">5 阶段，跑到第 3 个</span>
+      <span class="stage-note">刻度脉冲 + 节点光环 + 标题流光</span>
+    </div>
+    <details class="wf" open>
+      <summary class="wf-summary">
+        <svg class="wf-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+        <span class="wf-title wf-sweep">工作流运行中</span>
+        <span class="wf-meta">3 个智能体 · 7 个工具</span>
+        <span class="wf-ticks">
+          <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+          <i class="wf-tick" data-s="running"></i><i class="wf-tick" data-s="pending"></i>
+          <i class="wf-tick" data-s="pending"></i>
+        </span>
+        <span class="wf-time">6.2s</span>
+        <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </summary>
+      <div class="wf-body">
+        <ol class="wf-phases">
+          <li class="wf-phase" data-s="done">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">01</span>
+              <span class="wf-name">侦察</span>
+              <span class="wf-count">2 步</span>
+              <span class="wf-time">1.8s</span>
+            </div>
+            <ul class="wf-steps">
+              <li class="wf-step" data-s="done">
+                <span class="wf-dot"></span>
+                <span class="wf-step-name">定位渲染入口</span>
+                <span class="wf-step-meta">2 次工具</span>
+                <span class="wf-time">1.8s</span>
+              </li>
+            </ul>
+          </li>
+
+          <li class="wf-phase" data-s="done">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">02</span>
+              <span class="wf-name">设计</span>
+              <span class="wf-count">1 步</span>
+              <span class="wf-time">1.4s</span>
+            </div>
+            <ul class="wf-steps">
+              <li class="wf-step" data-s="done">
+                <span class="wf-dot"></span>
+                <span class="wf-step-name">确定层级方案</span>
+                <span class="wf-step-meta">1 次工具</span>
+                <span class="wf-time">1.4s</span>
+              </li>
+            </ul>
+          </li>
+
+          <li class="wf-phase" data-s="running">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">03</span>
+              <span class="wf-name">实现</span>
+              <span class="wf-count">3 步</span>
+            </div>
+            <ul class="wf-steps">
+              <li class="wf-step" data-s="done">
+                <span class="wf-dot"></span>
+                <span class="wf-step-name">改写折叠头</span>
+                <span class="wf-step-meta">2 次工具</span>
+                <span class="wf-time">2.1s</span>
+              </li>
+              <li class="wf-step" data-s="running">
+                <span class="wf-dot"></span>
+                <span class="wf-step-name wf-sweep">重写轨道结构</span>
+                <span class="wf-time">1.9s</span>
+              </li>
+            </ul>
+            <ul class="wf-tools">
+              <li class="wf-tool-row">
+                <details>
+                  <summary class="wf-tool" data-s="done">
+                    <svg class="wf-tool-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>
+                    <span class="wf-tool-name">编辑文件</span>
+                    <span class="wf-tool-arg">workflow-tool-renderer.tsx</span>
+                    <span class="wf-time">1.6s</span>
+                    <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </summary>
+                  <div class="wf-tool-body">
+                    <div>
+                      <div class="wf-field-label">输出</div>
+                      <pre class="wf-code">+ 折叠头加入阶段刻度
++ 阶段区块改用贯穿轨道</pre>
+                    </div>
+                  </div>
+                </details>
+              </li>
+              <li class="wf-tool-row">
+                <details>
+                  <summary class="wf-tool" data-s="running">
+                    <svg class="wf-tool-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+                    <span class="wf-tool-name wf-sweep">执行命令</span>
+                    <span class="wf-tool-arg">npm run test</span>
+                    <span class="wf-time">0.3s</span>
+                    <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </summary>
+                  <div class="wf-tool-body">
+                    <div>
+                      <div class="wf-field-label">输出</div>
+                      <pre class="wf-code"><span class="dim">$</span> npm run test
+<span class="dim">RUN  v3.2.4</span>
+<span class="dim">…</span></pre>
+                    </div>
+                  </div>
+                </details>
+              </li>
+            </ul>
+          </li>
+
+          <li class="wf-phase" data-s="pending">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">04</span>
+              <span class="wf-name">验证</span>
+              <span class="wf-count">1 步</span>
+            </div>
+            <div class="wf-empty">等待中</div>
+          </li>
+
+          <li class="wf-phase" data-s="pending">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">05</span>
+              <span class="wf-name">收尾</span>
+              <span class="wf-count">1 步</span>
+            </div>
+            <div class="wf-empty">等待中</div>
+          </li>
+        </ol>
+      </div>
+    </details>
+  </div>
+
+  <!-- 失败 -->
+  <div class="stage">
+    <div class="stage-head">
+      <span class="stage-tag" data-tone="new">失败</span>
+      <span class="stage-title">第 2 阶段失败，后续未执行</span>
+      <span class="stage-note">刻度红 + 节点红 + 折叠头失败计数</span>
+    </div>
+    <details class="wf" open>
+      <summary class="wf-summary">
+        <svg class="wf-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+        <span class="wf-title">工作流已停止</span>
+        <span class="wf-meta">2 个智能体 · 4 个工具</span>
+        <span class="wf-fail">失败 1</span>
+        <span class="wf-ticks">
+          <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="error"></i>
+          <i class="wf-tick" data-s="pending"></i>
+        </span>
+        <span class="wf-time">3.7s</span>
+        <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </summary>
+      <div class="wf-body">
+        <div class="wf-error">
+          <span class="wf-error-label">错误</span>
+          <span>工具 run_command 以退出码 1 结束：npm run test 失败</span>
+        </div>
+        <ol class="wf-phases">
+          <li class="wf-phase" data-s="done">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">01</span>
+              <span class="wf-name">侦察</span>
+              <span class="wf-count">2 步</span>
+              <span class="wf-time">1.5s</span>
+            </div>
+            <ul class="wf-steps">
+              <li class="wf-step" data-s="done">
+                <span class="wf-dot"></span>
+                <span class="wf-step-name">定位渲染入口</span>
+                <span class="wf-step-meta">2 次工具</span>
+                <span class="wf-time">1.5s</span>
+              </li>
+            </ul>
+          </li>
+
+          <li class="wf-phase" data-s="error">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">02</span>
+              <span class="wf-name">验证</span>
+              <span class="wf-count">2 步</span>
+              <span class="wf-time">2.2s</span>
+            </div>
+            <ul class="wf-steps">
+              <li class="wf-step" data-s="error">
+                <span class="wf-dot"></span>
+                <span class="wf-step-name">回归测试</span>
+                <span class="wf-step-meta">2 次工具</span>
+                <span class="wf-time">2.2s</span>
+              </li>
+            </ul>
+            <ul class="wf-tools">
+              <li class="wf-tool-row">
+                <details open>
+                  <summary class="wf-tool" data-s="error">
+                    <svg class="wf-tool-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+                    <span class="wf-tool-name">执行命令</span>
+                    <span class="wf-tool-arg">npm run test</span>
+                    <span class="wf-time">2.2s</span>
+                    <svg class="wf-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </summary>
+                  <div class="wf-tool-body">
+                    <div>
+                      <div class="wf-field-label">输出</div>
+                      <pre class="wf-code"><span class="dim">$</span> npm run test
+FAIL  tests/frontend/workflow-renderer.test.ts
+  × 默认收起时展示折叠头
+    AssertionError: expected 1 个信息点 to equal 5</pre>
+                    </div>
+                  </div>
+                </details>
+              </li>
+            </ul>
+          </li>
+
+          <li class="wf-phase" data-s="pending">
+            <span class="wf-node"></span>
+            <div class="wf-phase-head">
+              <span class="wf-idx">03</span>
+              <span class="wf-name">收尾</span>
+              <span class="wf-count">1 步</span>
+            </div>
+            <div class="wf-empty">未执行</div>
+          </li>
+        </ol>
+      </div>
+    </details>
+  </div>
+
+  <!-- 准备中 -->
+  <div class="stage">
+    <div class="stage-head">
+      <span class="stage-tag" data-tone="new">准备中</span>
+      <span class="stage-title">无 details 的 pending 帧</span>
+      <span class="stage-note">替换原来的纯文字行</span>
+    </div>
+    <div class="wf">
+      <div class="wf-preparing">
+        <svg class="wf-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+        <span>正在准备工作流<span class="wf-dots"></span></span>
+        <span class="wf-spinner" style="margin-left:auto"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ 3. 备选方向 ═══════════ -->
+  <h2 class="sec">03 · 备选方向</h2>
+  <p class="sec-sub">如果主推方案的结构改动过大，可以退一步选这两个。</p>
+
+  <div class="grid2">
+
+    <!-- 方向 B -->
+    <div class="stage">
+      <div class="stage-head">
+        <span class="stage-tag">方向 B</span>
+        <span class="stage-title">阶段胶囊条</span>
+      </div>
+      <div class="wf">
+        <div class="wf-summary" style="cursor:default">
+          <svg class="wf-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+          <span class="wf-title">工作流已完成</span>
+          <span class="wf-time" style="margin-left:auto">8.4s</span>
+        </div>
+        <!-- 横向分段条 -->
+        <div style="display:flex;gap:3px;margin:8px 0 12px;">
+          <div style="flex:3;height:4px;border-radius:2px;background:color-mix(in oklab,var(--done) 58%,transparent)" title="侦察 · 3 步"></div>
+          <div style="flex:2;height:4px;border-radius:2px;background:color-mix(in oklab,var(--done) 58%,transparent)" title="设计 · 2 步"></div>
+          <div style="flex:4;height:4px;border-radius:2px;background:color-mix(in oklab,var(--done) 58%,transparent)" title="实现 · 4 步"></div>
+          <div style="flex:2;height:4px;border-radius:2px;background:color-mix(in oklab,var(--done) 58%,transparent)" title="验证 · 2 步"></div>
+          <div style="flex:1;height:4px;border-radius:2px;background:color-mix(in oklab,var(--done) 58%,transparent)" title="收尾 · 1 步"></div>
+        </div>
+        <div style="display:flex;gap:10px;font-size:11px;color:var(--muted-foreground);flex-wrap:wrap">
+          <span><span class="swatch" style="background:var(--done)"></span>侦察 1.2s</span>
+          <span><span class="swatch" style="background:var(--done)"></span>设计 1.1s</span>
+          <span><span class="swatch" style="background:var(--done)"></span>实现 4.6s</span>
+          <span><span class="swatch" style="background:var(--done)"></span>验证 1.3s</span>
+          <span><span class="swatch" style="background:var(--done)"></span>收尾 0.2s</span>
+        </div>
+        <p class="note-b" style="margin-top:12px;padding-top:10px;border-top:1px solid color-mix(in oklab,var(--border) 60%,transparent)">
+          条形长度 = 步数占比，颜色 = 阶段状态。优点：一眼看出「哪个阶段最重」；缺点：段宽不可点击、阶段名要另开一行，<strong>阶段多时会碎</strong>。
+        </p>
+      </div>
+    </div>
+
+    <!-- 方向 C -->
+    <div class="stage">
+      <div class="stage-head">
+        <span class="stage-tag">方向 C</span>
+        <span class="stage-title">扁平时序流</span>
+      </div>
+      <div class="wf">
+        <div class="wf-summary" style="cursor:default">
+          <svg class="wf-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+          <span class="wf-title">工作流已完成</span>
+          <span class="wf-meta">4 个智能体 · 12 个工具</span>
+          <span class="wf-time">8.4s</span>
+        </div>
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:1px">
+          <div style="display:flex;align-items:center;gap:8px;min-height:22px;padding:0 5px;border-radius:6px">
+            <span style="width:2px;height:14px;border-radius:1px;background:color-mix(in oklab,var(--done) 60%,transparent)"></span>
+            <span style="font-size:11.4px;color:color-mix(in oklab,var(--foreground) 86%,transparent)">定位 workflow 渲染链路</span>
+            <span style="margin-left:auto;font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground)">0.9s</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;min-height:20px;padding:0 5px 0 14px">
+            <span style="font-size:11.4px;color:var(--muted-foreground)">搜索文件</span>
+            <span style="font-family:var(--font-mono);font-size:10.5px;color:color-mix(in oklab,var(--muted-foreground) 62%,transparent)">"quickforge-workflow-"</span>
+            <span style="margin-left:auto;font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground)">0.3s</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;min-height:20px;padding:0 5px 0 14px">
+            <span style="font-size:11.4px;color:var(--muted-foreground)">读取文件</span>
+            <span style="font-family:var(--font-mono);font-size:10.5px;color:color-mix(in oklab,var(--muted-foreground) 62%,transparent)">workflow-tool-renderer.tsx</span>
+            <span style="margin-left:auto;font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground)">0.2s</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;min-height:22px;padding:0 5px;border-radius:6px">
+            <span style="width:2px;height:14px;border-radius:1px;background:color-mix(in oklab,var(--done) 60%,transparent)"></span>
+            <span style="font-size:11.4px;color:color-mix(in oklab,var(--foreground) 86%,transparent)">对比三套层级方案</span>
+            <span style="margin-left:auto;font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground)">1.1s</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;min-height:22px;padding:0 5px;border-radius:6px">
+            <span style="width:2px;height:14px;border-radius:1px;background:color-mix(in oklab,var(--done) 60%,transparent)"></span>
+            <span style="font-size:11.4px;color:color-mix(in oklab,var(--foreground) 86%,transparent)">重写折叠头与轨道结构</span>
+            <span style="margin-left:auto;font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground)">4.6s</span>
+          </div>
+        </div>
+        <p class="note-b" style="margin-top:12px;padding-top:10px;border-top:1px solid color-mix(in oklab,var(--border) 60%,transparent)">
+          去掉阶段分组，只保留左侧阶段色条。优点：<strong>时序最准、纵向最省空间</strong>，适合 8+ 阶段的长工作流；缺点：丢失「阶段」这个心智模型，无法折叠某一段。
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ 4. 规范 ═══════════ -->
+  <h2 class="sec">04 · 规范与实现映射</h2>
+  <p class="sec-sub">全部数值可在 <code>src/index.css</code> 现有令牌内表达，无需新增色值。</p>
+
+  <div class="stage">
+    <div class="stage-head">
+      <span class="stage-tag">尺寸</span>
+      <span class="stage-title">字号 / 间距 / 轨道</span>
+    </div>
+    <table class="spec">
+      <thead>
+        <tr><th>项</th><th>值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>折叠头标题</td>
+          <td><code>msg × 0.875</code> = 12.25px</td>
+          <td>与现有 <code>.quickforge-tool-summary</code> 同基准，weight 500</td>
+        </tr>
+        <tr>
+          <td>阶段名</td>
+          <td><code>msg × 0.875</code></td>
+          <td>与折叠头同级；用颜色（80% fg）而非字号区分主次</td>
+        </tr>
+        <tr>
+          <td>Agent 行</td>
+          <td><code>msg × 0.875</code></td>
+          <td>现状是 0.75×（10.5px）—— 太小，改回与普通工具卡一致</td>
+        </tr>
+        <tr>
+          <td>工具行</td>
+          <td><code>msg × 0.8125</code> = 11.375px</td>
+          <td>比 Agent 行只小一档，不再「跳两级」</td>
+        </tr>
+        <tr>
+          <td>序号 / 计数 / 耗时</td>
+          <td><code>msg × 0.6875</code> · mono</td>
+          <td>tab-nums，右对齐，不随内容跳动</td>
+        </tr>
+        <tr>
+          <td>轨道线</td>
+          <td><code>1px</code> · <code>border</code> 95%</td>
+          <td>连续贯穿，最后一个阶段不画（无悬空线）</td>
+        </tr>
+        <tr>
+          <td>阶段节点</td>
+          <td><code>8px</code> 圆 · 1.5px 描边</td>
+          <td>done 实心绿 / running 实心强调色 + 光环 / error 实心红 / pending 虚线</td>
+        </tr>
+        <tr>
+          <td>Agent 点</td>
+          <td><code>5px</code> 圆</td>
+          <td>无描边，直接填充</td>
+        </tr>
+        <tr>
+          <td>阶段刻度</td>
+          <td><code>10 × 3px</code> · gap 2px · radius 1px</td>
+          <td>折叠态唯一进度指示；≤ 8 阶段时可用，更多改为「3/8」文字</td>
+        </tr>
+        <tr>
+          <td>缩进</td>
+          <td>阶段 0 / Agent 19px / 工具 32px</td>
+          <td>三级，比现状少一级（现状 zone 再嵌 list）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="stage">
+    <div class="stage-head">
+      <span class="stage-tag">颜色</span>
+      <span class="stage-title">状态语义（仅新增 done 一处派生）</span>
+    </div>
+    <table class="spec">
+      <thead><tr><th>状态</th><th>色值</th><th>出现位置</th></tr></thead>
+      <tbody>
+        <tr><td>done</td><td><span class="swatch" style="background:var(--done)"></span><code>--done</code> · oklch(0.55 0.13 158)</td><td>刻度、阶段节点、Agent 点</td></tr>
+        <tr><td>running</td><td><span class="swatch" style="background:var(--accent-fg)"></span><code>--accent-fg</code> · 蓝 / 深色琥珀</td><td>刻度脉冲、节点光环、流光文字</td></tr>
+        <tr><td>error</td><td><span class="swatch" style="background:var(--destructive)"></span><code>--destructive</code></td><td>刻度、节点、Agent 点、工具名、错误块</td></tr>
+        <tr><td>pending</td><td><span class="swatch" style="background:var(--border)"></span><code>--border</code></td><td>刻度、节点（虚线）</td></tr>
+      </tbody>
+    </table>
+    <p class="note-b" style="margin-top:10px">
+      说明：现状注释里已声明「完成 = emerald」，但 CSS 里没有落地。本方案补上 <code>--done</code>，
+      浅色 <code>oklch(0.55 0.13 158)</code> / 深色 <code>oklch(0.75 0.15 160)</code>，与 <code>--destructive</code> 同明度档位。
+    </p>
+  </div>
+
+  <div class="stage">
+    <div class="stage-head">
+      <span class="stage-tag">映射</span>
+      <span class="stage-title">改动清单（对照现有 class）</span>
+    </div>
+    <table class="spec">
+      <thead><tr><th>现有</th><th>改法</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>.quickforge-workflow-title</code></td>
+          <td>拆分：标题 / meta / ticks / 耗时 四个 flex 子项；<code>margin-left:auto</code> 交给 ticks</td>
+        </tr>
+        <tr>
+          <td><code>.quickforge-workflow-marquee</code></td>
+          <td>保留（运行中仍需要滚动文本），但移出折叠头主行，改为第二行或运行时替代 meta 位</td>
+        </tr>
+        <tr>
+          <td><code>.quickforge-workflow-phase-title::after</code></td>
+          <td><strong>删除</strong>。渐隐细线由阶段节点 + 贯穿轨道替代</td>
+        </tr>
+        <tr>
+          <td><code>.quickforge-workflow-tool-zone</code></td>
+          <td>改为 <code>.wf-tools</code>：不再逐 zone 画 <code>border-left</code>，统一由阶段轨道 + 工具子轨道两层线</td>
+        </tr>
+        <tr>
+          <td><code>.quickforge-workflow-tool-list .quickforge-tool-summary</code> 的 0.75× 字号</td>
+          <td>提到 0.8125×；颜色从 78% 提到 90%（层级改由缩进与轨道承担）</td>
+        </tr>
+        <tr>
+          <td><code>.quickforge-workflow-agent</code></td>
+          <td>加 5px 状态点 + 右侧耗时；meta 从「3 次工具调用」改为紧凑 <code>3 次工具</code></td>
+        </tr>
+        <tr>
+          <td><code>.quickforge-workflow-log-list</code></td>
+          <td>左 padding 对齐到阶段内容（19px），去掉 2px 粗边线，改为与工具同级</td>
+        </tr>
+        <tr>
+          <td><code>.quickforge-workflow-preparing</code></td>
+          <td>加 spinner + 省略号动画，状态图标靠右</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="stage">
+    <div class="stage-head">
+      <span class="stage-tag">风险</span>
+      <span class="stage-title">实现前需要确认的三件事</span>
+    </div>
+    <table class="spec">
+      <thead><tr><th>项</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>测试断言</td>
+          <td><code>tests/frontend/workflow-renderer.test.ts</code> 有 3 处对 CSS 源码做正则断言（359/367/378 行），改 CSS 必然失败，需同步更新</td>
+        </tr>
+        <tr>
+          <td>阶段刻度上限</td>
+          <td>阶段数 &gt; 8 时 5px 刻度会溢出折叠头；建议 &gt; 8 时退化为 <code>3/8</code> 文本</td>
+        </tr>
+        <tr>
+          <td>跑马灯位置</td>
+          <td>折叠头主行已经承载 5 个信息点，跑马灯若仍塞在主行会挤掉耗时；建议运行时用它<strong>替换</strong> meta 位</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot">
+    设计稿 · <code>docs/design/workflow-tool-redesign.html</code> ·
+    对照既有稿 <code>docs/design/workflow-tool-hierarchy.html</code> ·
+    令牌来源 <code>src/index.css</code> · 文案来源 <code>src/lib/i18n.ts</code>
+  </div>
+
+</div>
+
+<script>
+  const btn = document.getElementById('themeBtn');
+  btn.addEventListener('click', () => {
+    const dark = document.documentElement.classList.toggle('dark');
+    btn.textContent = dark ? '切换浅色' : '切换深色';
+  });
+  if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.classList.add('dark');
+    btn.textContent = '切换浅色';
+  }
+</script>
+</body>
+</html>

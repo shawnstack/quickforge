@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>任务清单「进行中」图标方案</title>
+<style>
+  /* ── 令牌：取自 src/index.css 的 :root / html.dark ───────────────────────── */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --primary: oklch(0.205 0 0);
+    --done: rgb(4 143 101);
+    --accent: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+    --row-tint: color-mix(in oklab, var(--primary) 8%, transparent);
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color-scheme: light;
+  }
+  html.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(0.275 0 0);
+    --primary: oklch(0.922 0 0);
+    --done: rgb(110 231 183);
+    --accent: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 28px 72px;
+    background: var(--background);
+    color: var(--foreground);
+    font: 14px/1.6 var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .lede { color: var(--muted-foreground); margin: 0 0 22px; max-width: 62ch; }
+  h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--muted-foreground); margin: 40px 0 12px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; }
+
+  .theme-bar { display: flex; gap: 8px; margin-bottom: 26px; }
+  .theme-bar button {
+    font: inherit; font-size: 12.5px; padding: 5px 12px; border-radius: 999px;
+    border: 0; background: var(--muted); color: var(--muted-foreground); cursor: pointer;
+  }
+  .theme-bar button[aria-pressed="true"] { background: color-mix(in oklab, var(--primary) 88%, var(--foreground)); color: var(--background); }
+
+  /* 真实尺寸的任务行（对齐 .quickforge-todo-summary-item） */
+  .rows { display: grid; gap: 2px; max-width: 460px; }
+  .row {
+    display: grid;
+    grid-template-columns: 1rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 0.4rem;
+    padding: 0.35rem 0.25rem;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    margin: 0 0.45rem;
+  }
+  .row[data-status="in_progress"] { background: var(--row-tint); }
+  .row .icon { display: inline-flex; width: 0.9rem; height: 0.9rem; color: var(--muted-foreground); }
+  .row[data-status="in_progress"] .icon { color: var(--accent); }
+  .row[data-status="completed"] .icon { color: var(--done); }
+  .row .text { min-width: 0; overflow-wrap: anywhere; color: color-mix(in oklab, var(--foreground) 86%, transparent); }
+  .row[data-status="in_progress"] .text { color: var(--foreground); font-weight: 500; }
+  .row[data-status="completed"] .text { color: var(--muted-foreground); text-decoration: line-through; text-decoration-thickness: 1px; }
+  .row .label { font-size: 0.6875rem; color: var(--muted-foreground); white-space: nowrap; }
+  .row[data-status="in_progress"] .label { color: var(--accent); }
+
+  .card {
+    border-top: 1px solid var(--border);
+    padding: 18px 0 22px;
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 4px 18px;
+    align-items: start;
+  }
+  .card:first-of-type { border-top: 0; }
+  .num {
+    grid-row: span 3;
+    font: 600 12px/1 var(--font-sans);
+    color: var(--muted-foreground);
+    padding-top: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .name { font-size: 14.5px; font-weight: 600; }
+  .tag {
+    font-size: 11px; padding: 1px 7px; border-radius: 999px;
+    background: var(--muted); color: var(--muted-foreground);
+  }
+  .tag.rec { background: color-mix(in oklab, var(--done) 16%, transparent); color: var(--done); }
+  .desc { color: var(--muted-foreground); font-size: 13px; margin: 2px 0 0; }
+  .body { display: flex; gap: 26px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+
+  .zoom { display: flex; gap: 18px; align-items: center; }
+  .zoom .big { width: 44px; height: 44px; color: var(--accent); display: inline-flex; }
+  .zoom .big svg { width: 100%; height: 100%; }
+  .zoom .cap { font-size: 11px; color: var(--muted-foreground); }
+
+  svg { display: block; overflow: visible; }
+
+  /* ── 方案 1：细弧旋转 ─────────────────────────────────────────────── */
+  .spin-arc { animation: spin 900ms linear infinite; transform-origin: 50% 50%; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 方案 2：双弧对转 ─────────────────────────────────────────────── */
+  .spin-arc-ccw { animation: spin 1100ms linear infinite reverse; transform-origin: 50% 50%; }
+
+  /* ── 方案 3：呼吸环（不旋转） ─────────────────────────────────────── */
+  .breathe { animation: breathe 1.8s var(--ease) infinite; transform-origin: 50% 50%; }
+  @keyframes breathe {
+    0%, 100% { opacity: 0.45; transform: scale(0.92); }
+    50% { opacity: 1; transform: scale(1); }
+  }
+
+  /* ── 方案 4：点脉冲 ───────────────────────────────────────────────── */
+  .ripple { animation: ripple 1.9s var(--ease) infinite; transform-origin: 50% 50%; }
+  @keyframes ripple {
+    0% { opacity: 0.55; transform: scale(0.45); }
+    70%, 100% { opacity: 0; transform: scale(1.15); }
+  }
+  .core-pulse { animation: corePulse 1.9s var(--ease) infinite; transform-origin: 50% 50%; }
+  @keyframes corePulse {
+    0%, 100% { opacity: 0.85; }
+    50% { opacity: 1; }
+  }
+
+  /* ── 方案 5：半填充 + 高光扫动 ────────────────────────────────────── */
+  .sweep { animation: sweep 2s linear infinite; transform-origin: 50% 50%; }
+  @keyframes sweep { to { transform: rotate(360deg); } }
+
+  /* ── 方案 6：不定环双向摆动 ───────────────────────────────────────── */
+  .swing { animation: swing 1.5s var(--ease) infinite; transform-origin: 50% 50%; }
+  @keyframes swing {
+    0% { transform: rotate(-100deg); }
+    50% { transform: rotate(100deg); }
+    100% { transform: rotate(-100deg); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spin-arc, .spin-arc-ccw, .breathe, .ripple, .core-pulse, .sweep, .swing { animation: none; }
+    .breathe { opacity: 0.85; }
+  }
+
+  .notes { margin: 12px 0 0; padding-left: 18px; color: var(--muted-foreground); font-size: 13px; }
+  .notes li { margin: 2px 0; }
+  .trio { display: grid; gap: 10px; margin-top: 8px; }
+  .trio .rows { max-width: 420px; }
+  .caption { font-size: 11.5px; color: var(--muted-foreground); margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>任务清单「进行中」图标 · 方案选择</h1>
+  <p class="lede">
+    当前实现是「半填充圆 + 整体 2.4s 呼吸」。问题在于：半填充圆静止不动，读起来像「进度 50%」而不是「正在跑」；
+    整体呼吸又让整行文字跟着一起明暗变化，在 14px 尺寸下显得糊。下面 6 个方案都按真实尺寸（图标 0.9rem ≈ 14.4px）
+    排在任务行里展示，下方附 3 倍放大图便于看形状。
+  </p>
+
+  <div class="theme-bar">
+    <button type="button" id="light" aria-pressed="true">浅色</button>
+    <button type="button" id="dark" aria-pressed="false">深色</button>
+    <button type="button" id="rm" aria-pressed="false">减少动态效果</button>
+  </div>
+
+  <h2>0 · 现状（作为对照）</h2>
+  <div class="card">
+    <div class="num">现状</div>
+    <div class="head"><span class="name">半填充圆 + 整行呼吸</span><span class="tag">当前实现</span></div>
+    <p class="desc">右半边填充看起来像固定 50% 进度；呼吸作用在整个 svg 上，和文字抢注意力。</p>
+    <div class="body">
+      <div class="rows">
+        <div class="row" data-status="completed"><span class="icon" data-slot="ic"></span><span class="text">读取 todo 相关源码</span><span class="label">已完成</span></div>
+        <div class="row" data-status="in_progress"><span class="icon" data-slot="ic"></span><span class="text">编写摘要组件</span><span class="label">进行中</span></div>
+        <div class="row" data-status="pending"><span class="icon" data-slot="ic"></span><span class="text">补充测试用例</span><span class="label">待执行</span></div>
+      </div>
+      <div class="zoom"><span class="big" data-slot="ic"></span><span class="cap">3× 放大</span></div>
+    </div>
+  </div>
+
+  <h2>候选方案</h2>
+  <div id="cards"></div>
+
+  <h2>三种状态并排（方案 3 例外，其余方案共用同一套完成/待执行图标）</h2>
+  <div class="trio">
+    <div class="rows" id="trio"></div>
+    <p class="caption">完成后是实心镂空勾 + emerald，待执行是空心圆 + muted，只有中间那一行换方案。</p>
+  </div>
+</div>
+
+<script>
+  const ICONS = {
+    pending: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
+    completed: (id) => `<svg viewBox="0 0 24 24" aria-hidden="true"><mask id="${id}"><rect width="24" height="24" fill="#fff"/><path d="m8.5 12.2 2.3 2.3 4.7-5" fill="none" stroke="#000" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></mask><circle cx="12" cy="12" r="9" fill="currentColor" mask="url(#${id})"/></svg>`,
+  };
+
+  let maskSeq = 0;
+  const completed = () => ICONS.completed('m' + (maskSeq++));
+
+  const OPTIONS = [
+    {
+      n: 1,
+      name: '细弧旋转',
+      tag: '推荐',
+      rec: true,
+      desc: '只画圆周的 1/4 作为弧线，900ms 匀速旋转。运动只发生在图标内部，不带动文字；在 14px 下仍能认出「在转」。',
+      icon: `<svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" opacity="0.22"/>
+        <g class="spin-arc"><path d="M12 3a9 9 0 0 1 9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></g>
+      </svg>`,
+      notes: ['最接近「加载中」的通用语义，不会误读为进度百分比', '静态降级（减少动态效果）下显示为 3/4 实线环，仍是「进行中」而非「待执行」'],
+    },
+    {
+      n: 2,
+      name: '双弧对转',
+      tag: '更轻',
+      desc: '两段各 1/8 弧对角放置，一顺一逆旋转。空隙更大、更透气，但视觉密度略高于方案 1。',
+      icon: `<svg viewBox="0 0 24 24" aria-hidden="true">
+        <g class="spin-arc"><path d="M12 3a9 9 0 0 1 9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></g>
+        <g class="spin-arc-ccw"><path d="M12 21a9 9 0 0 1-9-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.5"/></g>
+      </svg>`,
+      notes: ['两段反向更容易察觉「在动」，但小尺寸下两个弧段都可能糊在一起', '静态降级后仍保留两段弧，与待执行的空心圆区分明显'],
+    },
+    {
+      n: 3,
+      name: '呼吸环',
+      tag: '零旋转',
+      desc: '空心圆整体做 opacity 0.45→1 + scale 0.92→1 的呼吸，1.8s。完全不做旋转，列表里最安静。',
+      icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><g class="breathe"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></g></svg>`,
+      notes: ['与文字不联动（只动图标本身），比现状安静', '风险：静下来时和「待执行」的空心圆几乎一样，只靠颜色区分'],
+    },
+    {
+      n: 4,
+      name: '点脉冲',
+      tag: '极简',
+      desc: '中心实心小点 + 同色环向外扩散淡出，1.9s。形态与「完成/待执行」的圆形语言一致但结构不同。',
+      icon: `<svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="ripple" cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <circle class="core-pulse" cx="12" cy="12" r="3.2" fill="currentColor"/>
+      </svg>`,
+      notes: ['实心点比空心环更醒目，作为「当前这一项」的落点很自然', '波纹扩散是循环动画，长时间盯着会略显跳'],
+    },
+    {
+      n: 5,
+      name: '半填充 + 高光扫动',
+      tag: '保留几何',
+      desc: '维持现在的半填充圆，沿圆周叠一条高光弧扫过（2s）。形状不变，只补上「在动」的信号。',
+      icon: `<svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor"/>
+        <g class="sweep"><path d="M12 3a9 9 0 0 1 4.5 1.2" fill="none" stroke="var(--background)" stroke-width="2.6" stroke-linecap="round"/></g>
+      </svg>`,
+      notes: ['改动最小，回归风险最低', '高光用背景色描边实现，在带 8% 主色底的进行中行上会有轻微色差'],
+    },
+    {
+      n: 6,
+      name: '不定环双向摆动',
+      tag: '最像「运行中」',
+      desc: '底环 + 40% 弧段做 -100°→100° 往复摆动，1.5s。类似 Material 的 indeterminate 进度条。',
+      icon: `<svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" opacity="0.22"/>
+        <g class="swing"><path d="M12 3a9 9 0 0 1 6.4 2.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></g>
+      </svg>`,
+      notes: ['最接近「正在处理」的系统语言，语义最不容易错', '往复摆动比匀速旋转更抓眼，多项同时进行时会有多个图标在摆'],
+    },
+  ];
+
+  function cardTpl(o) {
+    return `
+      <div class="card">
+        <div class="num">${o.n}</div>
+        <div class="head">
+          <span class="name">${o.name}</span>
+          <span class="tag${o.rec ? ' rec' : ''}">${o.tag}</span>
+        </div>
+        <p class="desc">${o.desc}</p>
+        <div class="body">
+          <div class="rows">
+            <div class="row" data-status="completed"><span class="icon">${completed()}</span><span class="text">读取 todo 相关源码</span><span class="label">已完成</span></div>
+            <div class="row" data-status="in_progress"><span class="icon">${o.icon}</span><span class="text">编写摘要组件</span><span class="label">进行中</span></div>
+            <div class="row" data-status="pending"><span class="icon">${ICONS.pending}</span><span class="text">补充测试用例</span><span class="label">待执行</span></div>
+          </div>
+          <div class="zoom"><span class="big">${o.icon}</span><span class="cap">3× 放大</span></div>
+        </div>
+        <ul class="notes">${o.notes.map((t) => `<li>${t}</li>`).join('')}</ul>
+      </div>`;
+  }
+
+  document.getElementById('cards').innerHTML = OPTIONS.map(cardTpl).join('');
+
+  document.getElementById('trio').innerHTML = `
+    <div class="row" data-status="completed"><span class="icon">${completed()}</span><span class="text">已完成的项</span><span class="label">已完成</span></div>
+    <div class="row" data-status="in_progress"><span class="icon">${OPTIONS[0].icon}</span><span class="text">进行中的项（方案 1）</span><span class="label">进行中</span></div>
+    <div class="row" data-status="pending"><span class="icon">${ICONS.pending}</span><span class="text">待执行的项</span><span class="label">待执行</span></div>`;
+
+  // 现状卡片里的图标
+  const currentIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><g class="breathe"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor"/></g></svg>`;
+  document.querySelectorAll('[data-status="in_progress"] .icon[data-slot="ic"]').forEach((el) => { el.innerHTML = currentIcon; });
+  document.querySelectorAll('[data-slot="ic"]').forEach((el) => {
+    if (el.tagName === 'SPAN' && el.classList.contains('big')) el.innerHTML = currentIcon;
+  });
+  document.querySelectorAll('.row[data-status="completed"] .icon[data-slot="ic"]').forEach((el) => { el.innerHTML = completed(); });
+  document.querySelectorAll('.row[data-status="pending"] .icon[data-slot="ic"]').forEach((el) => { el.innerHTML = ICONS.pending; });
+
+  // 主题 / 动效开关
+  const light = document.getElementById('light');
+  const dark = document.getElementById('dark');
+  const rm = document.getElementById('rm');
+  const setTheme = (mode) => {
+    document.documentElement.classList.toggle('dark', mode === 'dark');
+    light.setAttribute('aria-pressed', String(mode === 'light'));
+    dark.setAttribute('aria-pressed', String(mode === 'dark'));
+  };
+  light.addEventListener('click', () => setTheme('light'));
+  dark.addEventListener('click', () => setTheme('dark'));
+  rm.addEventListener('click', () => {
+    const on = rm.getAttribute('aria-pressed') !== 'true';
+    rm.setAttribute('aria-pressed', String(on));
+    document.documentElement.style.setProperty('--rm', on ? '1' : '0');
+    document.querySelectorAll('style#rm-override').forEach((n) => n.remove());
+    if (on) {
+      const style = document.createElement('style');
+      style.id = 'rm-override';
+      style.textContent = '.spin-arc,.spin-arc-ccw,.breathe,.ripple,.core-pulse,.sweep,.swing{animation:none!important} .breathe{opacity:.85}';
+      document.head.appendChild(style);
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 import type { DocumentFormat } from './artifact-preview-utils'
 import type { GitFileDiffResponse, WorkspaceFileResponse } from './workspace-types'
 import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
+import type { WorkflowRunPayload } from '@/lib/workflow-run-payload'
 
 export type ReaderMode = 'file' | 'diff' | 'browser'
 
@@ -29,7 +30,7 @@ export type ReaderTab = {
 }
 
 export type WorkspacePanelPrimaryTabKind = 'files' | 'review' | 'terminal' | 'browser' | 'side-chat'
-export type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader' | 'document' | 'subagent' | 'goal'
+export type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader' | 'document' | 'subagent' | 'workflow' | 'goal'
 
 export type WorkspacePanelTab = {
   id: string
@@ -45,6 +46,7 @@ export type WorkspacePanelTab = {
   }
   goal?: { sessionId: string; goalId: string; view: 'progress' | 'edit' }
   subagentRun?: SubagentRunPayload
+  workflowRun?: WorkflowRunPayload
   // 仅运行时使用、不持久化的刷新序号：同一 Browser tab 被重复预览时递增，触发 iframe 重新加载。
   reloadNonce?: number
 }
@@ -181,7 +183,7 @@ export function serializePanelTabs(
   readerNavigationVisible = true,
 ): PersistedWorkspaceInspectorTabs {
   const persistedTabs = tabs.flatMap((tab): PersistedWorkspacePanelTab[] => {
-    if (tab.kind === 'subagent' || tab.kind === 'side-chat' || tab.kind === 'goal') return []
+    if (tab.kind === 'subagent' || tab.kind === 'workflow' || tab.kind === 'side-chat' || tab.kind === 'goal') return []
     if (tab.kind === 'reader') {
       const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
       if (!reader || reader.mode !== 'file') return []
@@ -270,6 +272,39 @@ export function upsertSubagentRunTab(
   }
   return {
     tabs: [...tabs, { id: newTabId, kind: 'subagent', subagentRun: payload }],
+    tabId: newTabId,
+    created: true,
+  }
+}
+
+function findWorkflowRunTab(tabs: readonly WorkspacePanelTab[], runId: string) {
+  return tabs.find((tab) => tab.kind === 'workflow' && tab.workflowRun?.runId === runId)
+}
+
+export function updateWorkflowRunTab(
+  tabs: WorkspacePanelTab[],
+  payload: WorkflowRunPayload,
+): WorkspacePanelTab[] {
+  const existing = findWorkflowRunTab(tabs, payload.runId)
+  if (!existing || existing.workflowRun?.fingerprint === payload.fingerprint) return tabs
+  return tabs.map((tab) => tab.id === existing.id ? { ...tab, workflowRun: payload } : tab)
+}
+
+export function upsertWorkflowRunTab(
+  tabs: readonly WorkspacePanelTab[],
+  payload: WorkflowRunPayload,
+  newTabId: string,
+): { tabs: WorkspacePanelTab[]; tabId: string; created: boolean } {
+  const existing = findWorkflowRunTab(tabs, payload.runId)
+  if (existing) {
+    return {
+      tabs: tabs.map((tab) => tab.id === existing.id ? { ...tab, workflowRun: payload } : tab),
+      tabId: existing.id,
+      created: false,
+    }
+  }
+  return {
+    tabs: [...tabs, { id: newTabId, kind: 'workflow', workflowRun: payload }],
     tabId: newTabId,
     created: true,
   }

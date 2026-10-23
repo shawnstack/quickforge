@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>run_workflow 时间轴 · 修复前后对比</title>
+<style>
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --workflow-done: oklch(0.55 0.13 158);
+    --msg: 14px;
+    --dur-fast: 120ms;
+    --ease-out: cubic-bezier(0.2, 0, 0, 1);
+    --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+  html.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(0.275 0 0);
+    --ring: oklch(0.556 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --workflow-done: oklch(0.75 0.15 160);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 22px 60px;
+    background: var(--background); color: var(--foreground);
+    font-family: var(--font-sans); font-size: var(--msg); line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .sub { margin: 5px 0 0; max-width: 72ch; color: var(--muted-foreground); font-size: 12.5px; }
+  .btn {
+    height: 29px; padding: 0 11px; border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--muted-foreground);
+    font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .btn:hover { background: var(--muted); color: var(--foreground); }
+
+  h2.sec {
+    margin: 30px 0 3px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.04em;
+    color: color-mix(in oklab, var(--foreground) 62%, transparent);
+  }
+  p.secsub { margin: 0 0 12px; color: var(--muted-foreground); font-size: 12px; }
+
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); gap: 14px; align-items: start; }
+
+  .panel {
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    border-radius: 12px; padding: 0; overflow: hidden; background: var(--background);
+  }
+  .panel-head {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 9px 12px; border-bottom: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+    background: color-mix(in oklab, var(--muted) 30%, transparent);
+  }
+  .tag {
+    flex: 0 0 auto; padding: 1px 6px; border-radius: 999px;
+    font-size: 9.6px; font-weight: 600;
+  }
+  .tag.bad { background: color-mix(in oklab, var(--destructive) 11%, transparent); color: var(--destructive); }
+  .tag.good { background: color-mix(in oklab, var(--workflow-done) 14%, transparent); color: var(--workflow-done); }
+  .panel-title { font-size: 12px; font-weight: 600; }
+  .panel-note { margin-left: auto; font-size: 10.5px; color: var(--muted-foreground); font-family: var(--font-mono); }
+  .panel-body { padding: 12px; }
+  .panel-foot {
+    padding: 8px 12px; border-top: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+    font-size: 11px; color: var(--muted-foreground);
+  }
+  .panel-foot b { color: var(--destructive); font-weight: 600; }
+  .panel-foot b.ok { color: var(--workflow-done); }
+
+  /* ══════════ 旧实现：固定 viewBox 的 SVG ══════════ */
+  .old svg { display: block; width: 100%; height: auto; }
+  .old .axis { font-family: var(--font-mono); font-size: 9px; fill: color-mix(in oklab, var(--muted-foreground) 72%, transparent); }
+  .old .label { font-size: 10.5px; fill: color-mix(in oklab, var(--foreground) 86%, transparent); }
+  .old .label-tool { font-size: 10px; fill: color-mix(in oklab, var(--muted-foreground) 88%, transparent); }
+  .old .phase { font-size: 11px; font-weight: 600; fill: color-mix(in oklab, var(--foreground) 78%, transparent); }
+  .old .grid { stroke: color-mix(in oklab, var(--border) 70%, transparent); stroke-width: 1; }
+  .old .rule { stroke: color-mix(in oklab, var(--border) 90%, transparent); stroke-width: 1; }
+  .old .bar { fill: color-mix(in oklab, var(--workflow-done) 34%, transparent); stroke: color-mix(in oklab, var(--workflow-done) 55%, transparent); }
+  .old .bar-tool { fill: color-mix(in oklab, var(--muted-foreground) 26%, transparent); stroke: none; }
+  .old .val { font-family: var(--font-mono); font-size: 9px; fill: color-mix(in oklab, var(--muted-foreground) 72%, transparent); }
+
+  /* ══════════ 新实现：DOM + 百分比 ══════════ */
+  .new { --wf-tl-label: 9.5rem; --wf-tl-gap: 0.625rem; }
+  .new .axis {
+    display: flex; align-items: flex-end; gap: var(--wf-tl-gap);
+    height: 1.125rem; margin-bottom: 0.25rem;
+  }
+  .new .axis-spacer { flex: 0 0 var(--wf-tl-label); width: var(--wf-tl-label); }
+  .new .axis-track { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; }
+  .new .tick {
+    position: absolute; bottom: 0; transform: translateX(-50%);
+    font-family: var(--font-mono); font-size: calc(var(--msg) * 0.6875);
+    font-variant-numeric: tabular-nums;
+    color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+    white-space: nowrap;
+  }
+  .new .tick[data-edge="start"] { transform: none; }
+  .new .tick[data-edge="end"] { transform: translateX(-100%); }
+
+  .new .rows { display: flex; flex-direction: column; }
+  .new .row { display: flex; align-items: center; gap: var(--wf-tl-gap); min-height: 1.5rem; min-width: 0; }
+  .new .row[data-kind="tool"] { min-height: 1.375rem; }
+  .new .row.is-phase { min-height: 1.75rem; margin-top: 0.25rem; }
+  .new .row:first-child.is-phase { margin-top: 0; }
+  .new .row-head { flex: 0 0 var(--wf-tl-label); width: var(--wf-tl-label); min-width: 0; display: flex; align-items: center; gap: 0.3125rem; }
+  .new .row-track { position: relative; flex: 1 1 auto; min-width: 0; height: 1.125rem; display: flex; align-items: center; }
+  .new .grid { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in oklab, var(--border) 55%, transparent); }
+  .new .rule { width: 100%; height: 1px; background: color-mix(in oklab, var(--border) 90%, transparent); }
+  .new .idx { flex: 0 0 auto; font-family: var(--font-mono); font-size: calc(var(--msg) * 0.625); color: color-mix(in oklab, var(--muted-foreground) 55%, transparent); }
+  .new .phase-name {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: calc(var(--msg) * 0.75); font-weight: 600;
+    color: color-mix(in oklab, var(--foreground) 78%, transparent);
+  }
+  .new .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(var(--msg) * 0.75); color: color-mix(in oklab, var(--foreground) 86%, transparent); }
+  .new .label.is-tool { font-size: calc(var(--msg) * 0.6875); color: color-mix(in oklab, var(--muted-foreground) 88%, transparent); }
+  .new .bar {
+    position: relative; display: flex; align-items: center; gap: 0.25rem;
+    height: 0.5625rem; min-width: 2px; border-radius: 3px;
+    background: color-mix(in oklab, var(--workflow-done) 34%, transparent);
+    border: 1px solid color-mix(in oklab, var(--workflow-done) 55%, transparent);
+  }
+  .new .bar[data-kind="tool"] { height: 0.375rem; border-radius: 2px; background: color-mix(in oklab, var(--muted-foreground) 26%, transparent); border: 0; }
+  .new .bar-value {
+    position: absolute; left: calc(100% + 0.3125rem);
+    font-family: var(--font-mono); font-size: calc(var(--msg) * 0.625);
+    font-variant-numeric: tabular-nums;
+    color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+    white-space: nowrap;
+  }
+  .new .legend {
+    display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.625rem;
+    padding-left: calc(var(--wf-tl-label) + var(--wf-tl-gap));
+    font-size: calc(var(--msg) * 0.6875); color: var(--muted-foreground);
+  }
+  .new .legend span { display: inline-flex; align-items: center; gap: 0.3125rem; }
+  .new .sw { width: 0.75rem; height: 0.375rem; border-radius: 2px; }
+  .new .sw.agent { background: color-mix(in oklab, var(--workflow-done) 34%, transparent); border: 1px solid color-mix(in oklab, var(--workflow-done) 55%, transparent); }
+  .new .sw.tool { background: color-mix(in oklab, var(--muted-foreground) 26%, transparent); }
+
+  /* 窄面板演示 */
+  .narrow { max-width: 360px; }
+  .narrow .panel-note { margin-left: 0; }
+
+  table.spec { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 6px; }
+  table.spec th, table.spec td { text-align: left; padding: 6px 9px; vertical-align: top; border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent); }
+  table.spec th { font-size: 10.5px; font-weight: 600; color: color-mix(in oklab, var(--foreground) 62%, transparent); border-bottom-color: var(--border); }
+  table.spec td code { font-family: var(--font-mono); font-size: 10px; background: color-mix(in oklab, var(--muted) 60%, transparent); padding: 1px 3px; border-radius: 3px; }
+  table.spec td:first-child { width: 26%; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1>run_workflow 时间轴 · 修复前后</h1>
+      <p class="sub">
+        根因：旧版用 <code>viewBox="0 0 1000 H"</code> + <code>width:100%</code>，SVG 会<b>等比缩放</b>整张图——
+        包括 9px / 10.5px 的字号。面板 640px 时缩到 0.64 倍（字实际约 5.8px），340px 时只剩 3px。
+      </p>
+    </div>
+    <button class="btn" id="themeBtn" type="button">切换深色</button>
+  </div>
+
+  <h2 class="sec">01 · 同一份数据，640px 面板</h2>
+  <p class="secsub">上：旧实现（SVG 缩放）；下：新实现（DOM + 百分比，字号恒定）。</p>
+
+  <div class="pair">
+    <div class="panel old">
+      <div class="panel-head">
+        <span class="tag bad">旧</span>
+        <span class="panel-title">固定 viewBox 的 SVG</span>
+        <span class="panel-note">缩放 0.64×</span>
+      </div>
+      <div class="panel-body">
+        <svg viewBox="0 0 1000 300" role="img" aria-label="旧实现示例">
+          <line class="grid" x1="196" y1="20" x2="196" y2="290" />
+          <line class="grid" x1="397" y1="20" x2="397" y2="290" />
+          <line class="grid" x1="598" y1="20" x2="598" y2="290" />
+          <line class="grid" x1="799" y1="20" x2="799" y2="290" />
+          <text class="axis" x="196" y="14" text-anchor="middle">0</text>
+          <text class="axis" x="397" y="14" text-anchor="middle">1.5s</text>
+          <text class="axis" x="598" y="14" text-anchor="middle">3.0s</text>
+          <text class="axis" x="799" y="14" text-anchor="middle">4.5s</text>
+
+          <line class="rule" x1="0" y1="44" x2="1000" y2="44" />
+          <text class="phase" x="0" y="38">01 侦察</text>
+
+          <circle cx="4" cy="60" r="2.5" fill="var(--muted-foreground)" opacity="0.5" />
+          <text class="label" x="14" y="64">定位渲染链路</text>
+          <rect class="bar" x="196" y="55" width="120" height="10" rx="3" />
+          <text class="val" x="322" y="64">0.9s</text>
+
+          <rect x="2" y="76" width="5" height="5" rx="1" fill="var(--muted-foreground)" opacity="0.4" />
+          <text class="label-tool" x="14" y="82">grep_files</text>
+          <rect class="bar-tool" x="210" y="76" width="30" height="6" rx="2" />
+
+          <rect x="2" y="94" width="5" height="5" rx="1" fill="var(--muted-foreground)" opacity="0.4" />
+          <text class="label-tool" x="14" y="100">read_file</text>
+          <rect class="bar-tool" x="250" y="94" width="20" height="6" rx="2" />
+
+          <line class="rule" x1="0" y1="124" x2="1000" y2="124" />
+          <text class="phase" x="0" y="118">02 设计</text>
+
+          <circle cx="4" cy="140" r="2.5" fill="var(--muted-foreground)" opacity="0.5" />
+          <text class="label" x="14" y="144">确定入口化方案</text>
+          <rect class="bar" x="330" y="135" width="90" height="10" rx="3" />
+          <text class="val" x="426" y="144">0.7s</text>
+
+          <line class="rule" x1="0" y1="170" x2="1000" y2="170" />
+          <text class="phase" x="0" y="164">03 实现</text>
+
+          <circle cx="4" cy="186" r="2.5" fill="var(--muted-foreground)" opacity="0.5" />
+          <text class="label" x="14" y="190">改写折叠头</text>
+          <rect class="bar" x="440" y="181" width="110" height="10" rx="3" />
+          <text class="val" x="556" y="190">0.8s</text>
+
+          <circle cx="4" cy="206" r="2.5" fill="var(--ring)" />
+          <text class="label" x="14" y="210">新增详情组件</text>
+          <rect class="bar" x="440" y="201" width="200" height="10" rx="3" />
+          <text class="val" x="646" y="210">1.5s</text>
+
+          <line class="rule" x1="0" y1="236" x2="1000" y2="236" />
+          <text class="phase" x="0" y="230">04 验证</text>
+
+          <circle cx="4" cy="252" r="2.5" fill="var(--muted-foreground)" opacity="0.5" />
+          <text class="label" x="14" y="256">回归测试</text>
+          <rect class="bar" x="680" y="247" width="60" height="10" rx="3" />
+          <text class="val" x="746" y="256">0.45s</text>
+        </svg>
+      </div>
+      <div class="panel-foot">
+        字号：轴 <b>9px × 0.64 ≈ 5.8px</b>，行标签 <b>10.5px × 0.64 ≈ 6.7px</b> —— 低于可读下限
+      </div>
+    </div>
+
+    <div class="panel new">
+      <div class="panel-head">
+        <span class="tag good">新</span>
+        <span class="panel-title">DOM + 百分比定位</span>
+        <span class="panel-note">字号恒定</span>
+      </div>
+      <div class="panel-body">
+        <div class="axis" aria-hidden="true">
+          <span class="axis-spacer"></span>
+          <span class="axis-track">
+            <span class="tick" style="left:0%" data-edge="start">0</span>
+            <span class="tick" style="left:25%">1.1s</span>
+            <span class="tick" style="left:50%">2.3s</span>
+            <span class="tick" style="left:75%">3.4s</span>
+            <span class="tick" style="left:100%" data-edge="end">4.5s</span>
+          </span>
+        </div>
+        <div class="rows">
+          <div class="row is-phase">
+            <span class="row-head"><span class="idx">01</span><span class="phase-name">侦察</span></span>
+            <span class="row-track"><span class="rule"></span></span>
+          </div>
+          <div class="row" data-kind="agent">
+            <span class="row-head">
+              <i style="width:6px;height:6px;border-radius:999px;background:color-mix(in oklab,var(--workflow-done) 75%,transparent);flex:0 0 auto"></i>
+              <span class="label">定位渲染链路</span>
+            </span>
+            <span class="row-track">
+              <span class="grid" style="left:25%"></span><span class="grid" style="left:50%"></span><span class="grid" style="left:75%"></span>
+              <span class="bar" style="left:0%;width:20%"><span class="bar-value">0.9s</span></span>
+            </span>
+          </div>
+          <div class="row" data-kind="tool">
+            <span class="row-head">
+              <i style="width:5px;height:5px;border-radius:1px;background:color-mix(in oklab,var(--muted-foreground) 42%,transparent);flex:0 0 auto"></i>
+              <span class="label is-tool">grep_files</span>
+            </span>
+            <span class="row-track">
+              <span class="grid" style="left:25%"></span><span class="grid" style="left:50%"></span><span class="grid" style="left:75%"></span>
+              <span class="bar" data-kind="tool" style="left:2%;width:6%"></span>
+            </span>
+          </div>
+          <div class="row" data-kind="tool">
+            <span class="row-head">
+              <i style="width:5px;height:5px;border-radius:1px;background:color-mix(in oklab,var(--muted-foreground) 42%,transparent);flex:0 0 auto"></i>
+              <span class="label is-tool">read_file</span>
+            </span>
+            <span class="row-track">
+              <span class="grid" style="left:25%"></span><span class="grid" style="left:50%"></span><span class="grid" style="left:75%"></span>
+              <span class="bar" data-kind="tool" style="left:10%;width:4%"></span>
+            </span>
+          </div>
+
+          <div class="row is-phase">
+            <span class="row-head"><span class="idx">02</span><span class="phase-name">设计</span></span>
+            <span class="row-track"><span class="rule"></span></span>
+          </div>
+          <div class="row" data-kind="agent">
+            <span class="row-head">
+              <i style="width:6px;height:6px;border-radius:999px;background:color-mix(in oklab,var(--workflow-done) 75%,transparent);flex:0 0 auto"></i>
+              <span class="label">确定入口化方案</span>
+            </span>
+            <span class="row-track">
+              <span class="grid" style="left:25%"></span><span class="grid" style="left:50%"></span><span class="grid" style="left:75%"></span>
+              <span class="bar" style="left:28%;width:15%"><span class="bar-value">0.7s</span></span>
+            </span>
+          </div>
+
+          <div class="row is-phase">
+            <span class="row-head"><span class="idx">03</span><span class="phase-name">实现</span></span>
+            <span class="row-track"><span class="rule"></span></span>
+          </div>
+          <div class="row" data-kind="agent">
+            <span class="row-head">
+              <i style="width:6px;height:6px;border-radius:999px;background:color-mix(in oklab,var(--workflow-done) 75%,transparent);flex:0 0 auto"></i>
+              <span class="label">改写折叠头</span>
+            </span>
+            <span class="row-track">
+              <span class="grid" style="left:25%"></span><span class="grid" style="left:50%"></span><span class="grid" style="left:75%"></span>
+              <span class="bar" style="left:47%;width:18%"><span class="bar-value">0.8s</span></span>
+            </span>
+          </div>
+          <div class="row" data-kind="agent">
+            <span class="row-head">
+              <i style="width:6px;height:6px;border-radius:999px;background:color-mix(in oklab,var(--ring) 70%,var(--foreground));flex:0 0 auto"></i>
+              <span class="label">新增详情组件</span>
+            </span>
+            <span class="row-track">
+              <span class="grid" style="left:25%"></span><span class="grid" style="left:50%"></span><span class="grid" style="left:75%"></span>
+              <span class="bar" style="left:47%;width:33%;border-style:dashed"><span class="bar-value">1.5s</span></span>
+            </span>
+          </div>
+
+          <div class="row is-phase">
+            <span class="row-head"><span class="idx">04</span><span class="phase-name">验证</span></span>
+            <span class="row-track"><span class="rule"></span></span>
+          </div>
+          <div class="row" data-kind="agent">
+            <span class="row-head">
+              <i style="width:6px;height:6px;border-radius:999px;background:color-mix(in oklab,var(--workflow-done) 75%,transparent);flex:0 0 auto"></i>
+              <span class="label">回归测试</span>
+            </span>
+            <span class="row-track">
+              <span class="grid" style="left:25%"></span><span class="grid" style="left:50%"></span><span class="grid" style="left:75%"></span>
+              <span class="bar" style="left:81%;width:10%"><span class="bar-value">0.45s</span></span>
+            </span>
+          </div>
+        </div>
+        <div class="legend">
+          <span><i class="sw agent"></i>智能体</span>
+          <span><i class="sw tool"></i>工具调用</span>
+        </div>
+      </div>
+      <div class="panel-foot">
+        字号：轴 <b class="ok">9.6px</b>，行标签 <b class="ok">10.5px</b>，工具 <b class="ok">9.6px</b> —— 不随面板宽度变化
+      </div>
+    </div>
+  </div>
+
+  <h2 class="sec">02 · 窄面板（340px 最小值）</h2>
+  <p class="secsub">旧版会继续等比压缩到 0.34×，文字彻底不可读；新版标签列收窄到 104px，把宽度让给轨道。</p>
+
+  <div class="pair">
+    <div class="panel old narrow">
+      <div class="panel-head"><span class="tag bad">旧</span><span class="panel-title">340px 面板</span></div>
+      <div class="panel-body">
+        <svg viewBox="0 0 1000 190" role="img" aria-label="旧实现窄面板">
+          <line class="grid" x1="196" y1="18" x2="196" y2="182" />
+          <line class="grid" x1="598" y1="18" x2="598" y2="182" />
+          <text class="axis" x="196" y="12" text-anchor="middle">0</text>
+          <text class="axis" x="598" y="12" text-anchor="middle">3.0s</text>
+          <text class="axis" x="980" y="12" text-anchor="middle">6.0s</text>
+
+          <line class="rule" x1="0" y1="38" x2="1000" y2="38" />
+          <text class="phase" x="0" y="32">01 侦察</text>
+
+          <circle cx="4" cy="54" r="2.5" fill="var(--muted-foreground)" opacity="0.5" />
+          <text class="label" x="14" y="58">定位渲染链路</text>
+          <rect class="bar" x="196" y="49" width="120" height="10" rx="3" />
+
+          <circle cx="4" cy="74" r="2.5" fill="var(--muted-foreground)" opacity="0.5" />
+          <text class="label" x="14" y="78">确定方案</text>
+          <rect class="bar" x="340" y="69" width="90" height="10" rx="3" />
+
+          <line class="rule" x1="0" y1="100" x2="1000" y2="100" />
+          <text class="phase" x="0" y="94">02 实现</text>
+
+          <circle cx="4" cy="116" r="2.5" fill="var(--muted-foreground)" opacity="0.5" />
+          <text class="label" x="14" y="120">改写折叠头</text>
+          <rect class="bar" x="450" y="111" width="110" height="10" rx="3" />
+
+          <circle cx="4" cy="136" r="2.5" fill="var(--ring)" />
+          <text class="label" x="14" y="140">新增详情组件</text>
+          <rect class="bar" x="450" y="131" width="200" height="10" rx="3" />
+
+          <line class="rule" x1="0" y1="162" x2="1000" y2="162" />
+          <text class="phase" x="0" y="156">03 验证</text>
+        </svg>
+      </div>
+      <div class="panel-foot">缩放 <b>0.34×</b>：轴字约 <b>3px</b>、行标签约 <b>3.6px</b>，完全不可读</div>
+    </div>
+
+    <div class="panel new narrow" style="--wf-tl-label:6.5rem;--wf-tl-gap:0.375rem">
+      <div class="panel-head"><span class="tag good">新</span><span class="panel-title">340px 面板</span></div>
+      <div class="panel-body">
+        <div class="axis" aria-hidden="true">
+          <span class="axis-spacer"></span>
+          <span class="axis-track">
+            <span class="tick" style="left:0%" data-edge="start">0</span>
+            <span class="tick" style="left:50%">3.0s</span>
+            <span class="tick" style="left:100%" data-edge="end">6.0s</span>
+          </span>
+        </div>
+        <div class="rows">
+          <div class="row is-phase">
+            <span class="row-head"><span class="idx">01</span><span class="phase-name">侦察</span></span>
+            <span class="row-track"><span class="rule"></span></span>
+          </div>
+          <div class="row" data-kind="agent">
+            <span class="row-head">
+              <i style="width:6px;height:6px;border-radius:999px;background:color-mix(in oklab,var(--workflow-done) 75%,transparent);flex:0 0 auto"></i>
+              <span class="label">定位渲染链路</span>
+            </span>
+            <span class="row-track">
+              <span class="grid" style="left:50%"></span>
+              <span class="bar" style="left:0%;width:22%"><span class="bar-value">1.3s</span></span>
+            </span>
+          </div>
+          <div class="row" data-kind="agent">
+            <span class="row-head">
+              <i style="width:6px;height:6px;border-radius:999px;background:color-mix(in oklab,var(--workflow-done) 75%,transparent);flex:0 0 auto"></i>
+              <span class="label">确定方案</span>
+            </span>
+            <span class="row-track">
+              <span class="grid" style="left:50%"></span>
+              <span class="bar" style="left:25%;width:18%"><span class="bar-value">1.1s</span></span>
+            </span>
+          </div>
+          <div class="row is-phase">
+            <span class="row-head"><span class="idx">02</span><span class="phase-name">实现</span></span>
+            <span class="row-track"><span class="rule"></span></span>
+          </div>
+          <div class="row" data-kind="agent">
+            <span class="row-head">
+              <i style="width:6px;height:6px;border-radius:999px;background:color-mix(in oklab,var(--workflow-done) 75%,transparent);flex:0 0 auto"></i>
+              <span class="label">改写折叠头</span>
+            </span>
+            <span class="row-track">
+              <span class="grid" style="left:50%"></span>
+              <span class="bar" style="left:47%;width:20%"><span class="bar-value">1.2s</span></span>
+            </span>
+          </div>
+          <div class="row" data-kind="agent">
+            <span class="row-head">
+              <i style="width:6px;height:6px;border-radius:999px;background:color-mix(in oklab,var(--ring) 70%,var(--foreground));flex:0 0 auto"></i>
+              <span class="label">新增详情组件</span>
+            </span>
+            <span class="row-track">
+              <span class="grid" style="left:50%"></span>
+              <span class="bar" style="left:47%;width:34%;border-style:dashed"><span class="bar-value">2.0s</span></span>
+            </span>
+          </div>
+          <div class="row is-phase">
+            <span class="row-head"><span class="idx">03</span><span class="phase-name">验证</span></span>
+            <span class="row-track"><span class="rule"></span></span>
+          </div>
+        </div>
+      </div>
+      <div class="panel-foot">字号不变 <b class="ok">9.6 / 10.5px</b>；标签列 104px，轨道仍留 ~200px</div>
+    </div>
+  </div>
+
+  <h2 class="sec">03 · 容器约束（「显示不全」的第二个原因）</h2>
+  <p class="secsub">
+    时间轴本身修好后还有一个问题：详情根节点没有 <code>flex: 1</code>，作为 Inspector 内容区（row-flex）的子项会按内容收缩，
+    轨道被压成一条窄缝；同时 <code>height: 100%</code> 在父级高度为 auto 时解析失败，<code>pane</code> 的
+    <code>overflow-y: auto</code> 不生效，内容被父级 <code>overflow: hidden</code> 直接裁掉。
+  </p>
+
+  <div class="pair">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="tag bad">改前</span>
+        <span class="panel-title">只写 height: 100%</span>
+      </div>
+      <div class="panel-body">
+        <div style="display:flex;height:150px;border:1px dashed var(--border);border-radius:6px;overflow:hidden;padding:6px;gap:6px">
+          <div style="flex:0 1 auto;width:42%;border:1px solid var(--destructive);border-radius:4px;background:color-mix(in oklab,var(--destructive) 6%,transparent);padding:5px;overflow:hidden">
+            <div style="font-size:10px;color:var(--muted-foreground)">按内容收缩</div>
+            <div style="margin-top:5px;height:5px;width:70%;border-radius:2px;background:color-mix(in oklab,var(--workflow-done) 40%,transparent)"></div>
+            <div style="margin-top:4px;height:5px;width:45%;border-radius:2px;background:color-mix(in oklab,var(--workflow-done) 40%,transparent)"></div>
+            <div style="margin-top:8px;font-size:9px;color:var(--destructive)">后面 6 行被裁掉 ↓</div>
+          </div>
+          <div style="flex:1;border:1px dashed var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9.5px;color:var(--muted-foreground)">剩余空间（空着）</div>
+        </div>
+      </div>
+      <div class="panel-foot">宽度按内容走，剩余空间浪费；高度不设上限，<b>溢出部分不可见也滚不到</b></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <span class="tag good">改后</span>
+        <span class="panel-title">flex: 1 1 auto + min-*: 0</span>
+      </div>
+      <div class="panel-body">
+        <div style="display:flex;height:150px;border:1px dashed var(--border);border-radius:6px;overflow:hidden;padding:6px;gap:6px">
+          <div style="flex:1 1 auto;min-width:0;min-height:0;border:1px solid var(--workflow-done);border-radius:4px;display:flex;flex-direction:column;overflow:hidden">
+            <div style="flex:0 0 auto;padding:4px 5px;border-bottom:1px solid var(--border);font-size:9.5px;color:var(--muted-foreground)">概览（固定）</div>
+            <div style="flex:1 1 auto;min-height:0;overflow-y:auto;padding:5px;display:flex;flex-direction:column;gap:3px">
+              <div style="height:5px;width:92%;border-radius:2px;background:color-mix(in oklab,var(--workflow-done) 40%,transparent)"></div>
+              <div style="height:5px;width:70%;border-radius:2px;background:color-mix(in oklab,var(--workflow-done) 40%,transparent)"></div>
+              <div style="height:5px;width:55%;border-radius:2px;background:color-mix(in oklab,var(--workflow-done) 40%,transparent)"></div>
+              <div style="height:5px;width:78%;border-radius:2px;background:color-mix(in oklab,var(--workflow-done) 40%,transparent)"></div>
+              <div style="height:5px;width:64%;border-radius:2px;background:color-mix(in oklab,var(--workflow-done) 40%,transparent)"></div>
+              <div style="height:5px;width:88%;border-radius:2px;background:color-mix(in oklab,var(--workflow-done) 40%,transparent)"></div>
+              <div style="height:5px;width:50%;border-radius:2px;background:color-mix(in oklab,var(--workflow-done) 40%,transparent)"></div>
+              <div style="height:5px;width:72%;border-radius:2px;background:color-mix(in oklab,var(--workflow-done) 40%,transparent)"></div>
+              <div style="height:5px;width:60%;border-radius:2px;background:color-mix(in oklab,var(--workflow-done) 40%,transparent)"></div>
+            </div>
+            <div style="flex:0 0 auto;padding:4px 5px;border-top:1px solid var(--border);font-size:9.5px;color:var(--muted-foreground)">脚本 / 结果（固定）</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel-foot">吃满宽度；中间区 <b class="ok">overflow-y: auto</b> 可滚到底，头尾固定不动</div>
+    </div>
+  </div>
+
+  <h2 class="sec">04 · 一并修掉的 3 个 token 缺陷</h2>
+  <div class="panel" style="padding:0;margin-top:6px">
+    <table class="spec">
+      <thead><tr><th>缺陷</th><th>原因</th><th>修法</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>文字/条形太小</td>
+          <td>SVG <code>viewBox="0 0 1000 H"</code> + <code>width:100%</code> 会等比缩放整张图，字号跟着缩</td>
+          <td>改成 DOM + 百分比定位；标签列固定 <code>9.5rem</code>（窄屏 <code>6.5rem</code>），轨道 <code>flex:1</code></td>
+        </tr>
+        <tr>
+          <td>深色模式发脏</td>
+          <td><code>--quickforge-workflow-done</code> <b>从未定义</b>，每次都在用 fallback 的浅色绿</td>
+          <td>在 <code>:root</code> / <code>.dark</code> 各定义 <code>--workflow-done</code></td>
+        </tr>
+        <tr>
+          <td>缓动不生效</td>
+          <td>写了 <code>var(--quickforge-ease, …)</code>，但项目里叫 <code>--quickforge-ease-out</code>，每次都在用 fallback</td>
+          <td>14 处统一改为 <code>var(--quickforge-ease-out)</code>，并去掉多余的时间 fallback</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="sec">05 · 复查方式</h2>
+  <p class="secsub">把右侧面板拖到 340px（最小宽）和 640px，看轴刻度与行标签是否保持同一字号——新实现下两者应完全一致。</p>
+</div>
+
+<script>
+  const btn = document.getElementById('themeBtn')
+  const sync = () => { btn.textContent = document.documentElement.classList.contains('dark') ? '切换浅色' : '切换深色' }
+  btn.addEventListener('click', () => { document.documentElement.classList.toggle('dark'); sync() })
+  if (window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.classList.add('dark')
+  sync()
+</script>
+</body>
+</html>

@@ -1,47 +1,29 @@
-/* eslint-disable react-refresh/only-export-components -- the class renderer and its private row components are intentionally colocated; they carry no HMR state contract. */
-import { useEffect } from 'react'
-import { t, type AppTextKey } from '@/lib/i18n'
-import { summarizeParams } from '@/lib/tool-param-summary'
-import { shouldPublishSubagentRunPayload, subagentRunStore } from '@/lib/subagent-run-detail'
-import { buildWorkflowSubagentRunPayload } from '@/lib/workflow-subagent-detail'
-import { extractQuickForgeTiming, type QuickForgeToolTiming } from '@/lib/tool-execution-events'
+/* eslint-disable react-refresh/only-export-components -- the class renderer and its private helpers are intentionally colocated; they carry no HMR state contract. */
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
+import { t } from '@/lib/i18n'
+import { extractQuickForgeTiming } from '@/lib/tool-execution-events'
 import {
   buildWorkflowRunView,
-  workflowActiveStepLabels,
-  workflowCurrentPhase,
-  workflowPhaseSteps,
   workflowStatusLabelKey,
   workflowSummaryKey,
-  type WorkflowAgentView,
-  type WorkflowToolView,
+  type WorkflowRunView,
 } from '@/lib/workflow-run-detail'
-import { renderSubagentRunSummary } from './subagent-tool-renderer'
 import {
-  ToolDetails,
-  renderCodeBlock,
-  renderConsoleBlock,
+  OPEN_WORKFLOW_RUN_EVENT,
+  activeWorkflowRunStore,
+  buildWorkflowRunPayload,
+  shouldPublishWorkflowRunPayload,
+  workflowRunStore,
+} from '@/lib/workflow-run-payload'
+import {
   renderStatus,
-  renderToolChevron,
   renderToolIcon,
   renderToolMarquee,
   resultText,
-  stringifyValue,
   toolDisplayDetailed,
   type ToolResultLike,
   type ToolStatusKey,
 } from './shared'
-
-const WORKFLOW_TOOL_LABEL_KEYS: Partial<Record<string, AppTextKey>> = {
-  manage_global_memory: 'manageGlobalMemory',
-  read_file: 'readFile',
-  grep_files: 'searchFiles',
-  write_file: 'writeFile',
-  edit_file: 'editFile',
-  run_command: 'runCommand',
-  present_files: 'presentFiles',
-  activate_skill: 'activateSkill',
-  read_skill_resource: 'readSkillResource',
-}
 
 function workflowRenderStatus(view: ReturnType<typeof buildWorkflowRunView>): ToolStatusKey {
   if (!view) return 'called'
@@ -50,133 +32,43 @@ function workflowRenderStatus(view: ReturnType<typeof buildWorkflowRunView>): To
   return 'done'
 }
 
-function workflowToolDisplayName(tool: WorkflowToolView) {
-  if (tool.label && tool.label !== tool.name) return tool.label
-  const key = WORKFLOW_TOOL_LABEL_KEYS[tool.name]
-  return key ? t(key) : tool.name
-}
-
-function workflowToolSummary(tool: WorkflowToolView) {
-  return tool.args ? summarizeParams(tool.name, tool.args) : ''
-}
-
-function workflowStepStatus(status: WorkflowToolView['status']): ToolStatusKey {
-  if (status === 'error' || status === 'aborted') return 'error'
-  if (status === 'running' || status === 'queued') return 'running'
-  if (status === 'done') return 'done'
-  return 'called'
-}
-
-function workflowStepTiming(durationMs: number, status: ToolStatusKey): QuickForgeToolTiming | undefined {
-  if (durationMs > 0) return { durationMs }
-  if (status === 'running') return { startedAt: Date.now() }
-  return undefined
-}
-
-/** 内层行的开合记忆独立于外层 run_workflow 卡（同一 `.qf-tool-message` 宿主）。 */
-function workflowToolStateKey(workflowRunId: string, toolId: string) {
-  return workflowRunId ? `workflow:${workflowRunId}:tool:${toolId}` : ''
-}
-
-function WorkflowAgentRow({ agent, workflowRunId }: { agent: WorkflowAgentView; workflowRunId: string }) {
-  const runId = `${workflowRunId || 'workflow'}:agent:${agent.id}`
-  // 与服务端实时发布共用同一套载荷推导；store 已有更完整 trace 时回填，避免
-  // 运行中被预算裁掉一帧后卡片跑马灯/状态闪空。
-  const payload = buildWorkflowSubagentRunPayload(workflowRunId, agent, t, {
-    previous: subagentRunStore.get(runId),
-  })
-  // 与 run_subagent 渲染回填同契约：历史首帧或“store 仍是 running、渲染帧已终态”
-  // （SSE 断连漏掉结束帧）时修正 store，已打开的 Inspector Tab 随之转为终态；
-  // 已有终态不被覆盖，保持 SSE 路径权威。
-  useEffect(() => {
-    const existing = subagentRunStore.get(payload.runId)
-    if (shouldPublishSubagentRunPayload(payload, existing)) subagentRunStore.publish(payload)
-  }, [payload])
-  const meta = [
-    agent.profile,
-    agent.toolCalls > 0 ? t('workflowAgentToolCalls', { count: agent.toolCalls }) : '',
-    agent.schemaValidated ? t('workflowAgentSchema') : '',
-  ].filter(Boolean).join(' · ')
+/** 折叠头下方的阶段刻度：一眼读出「跑到第几个阶段、有没有挂」。 */
+function WorkflowTicks({ view }: { view: WorkflowRunView }) {
   return (
-    <li className={`quickforge-workflow-agent quickforge-workflow-agent--${agent.status}`}>
-      {/* 与 run_subagent 摘要卡共用同一渲染函数：状态/耗时/跑马灯/打开事件不再各写一份。 */}
-      {renderSubagentRunSummary(payload, {
-        // 层级改造：Agent 行是阶段内的主行，主文案换成任务名，状态交给
-        // 行状态点（见 .quickforge-workflow-agent--*）与悬停/aria 文案。
-        label: agent.label,
-        // 运行中的任务名沿用工具标题的流光范式，让「谁在干活」一眼可见。
-        labelClassName: agent.status === 'running'
-          ? 'quickforge-subagent-label quickforge-tool-running-sweep'
-          : 'quickforge-subagent-label',
-        ...(meta ? { meta } : {}),
-        // 悬停文案额外带上 Agent 错误；run_subagent 没有记录级 error，保持其默认文案。
-        ...(agent.error
-          ? { title: `${payload.statusLabel}: ${agent.error}` }
-          : { title: payload.statusLabel }),
-        onOpen: (payloadForOpen) => {
-          // 历史恢复/首帧或终态修正时把载荷写回 store，后续点击/订阅复用。
-          const existing = subagentRunStore.get(payloadForOpen.runId)
-          if (shouldPublishSubagentRunPayload(payloadForOpen, existing)) subagentRunStore.publish(payloadForOpen)
-        },
+    <span className="quickforge-workflow-ticks" aria-hidden="true">
+      {view.phases.map((phase, index) => {
+        const running = phase.agents.some((agent) => agent.status === 'running') || phase.tools.some((tool) => tool.status === 'running')
+        const failed = phase.agents.some((agent) => agent.status === 'error' || agent.status === 'aborted')
+          || phase.tools.some((tool) => tool.status === 'error' || tool.status === 'aborted')
+        const done = !running && !failed && (phase.agents.length > 0 || phase.tools.length > 0)
+        const status = failed ? 'error' : running ? 'running' : done ? 'done' : 'pending'
+        return <i className="quickforge-workflow-tick" data-status={status} key={`${phase.title}:${index}`} />
       })}
-    </li>
+    </span>
   )
 }
 
-function WorkflowToolCallRow({ tool, detailed, workflowRunId }: { tool: WorkflowToolView; detailed: boolean; workflowRunId: string }) {
-  const summary = workflowToolSummary(tool)
-  const status = workflowStepStatus(tool.status)
-  const name = workflowToolDisplayName(tool)
-  const input = detailed && tool.args ? stringifyValue(tool.args) : ''
-  return (
-    <li className={`quickforge-workflow-tool-call quickforge-workflow-tool-call--${tool.status}`}>
-      <div className="quickforge-local-tool-shell">
-        <ToolDetails
-          className="group/tool quickforge-local-tool"
-          initiallyOpen={false}
-          stateKey={workflowToolStateKey(workflowRunId, tool.id)}
-          aria-busy={status === 'running' ? 'true' : undefined}
-        >
-          <summary
-            className="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none"
-            title={tool.error ? `${summary || name}: ${tool.error}` : (summary || name)}
-          >
-            {renderToolIcon(tool.name)}
-            <span className="quickforge-tool-title min-w-0">
-              <span className={status === 'running' ? 'quickforge-tool-label quickforge-tool-running-sweep' : 'quickforge-tool-label'}>
-                {name}
-                {summary ? <span className="quickforge-tool-summary-detail text-muted-foreground"> · <span className="quickforge-command-summary">{summary}</span></span> : null}
-              </span>
-              {renderToolChevron()}
-              {status === 'running' ? null : renderStatus(status, workflowStepTiming(tool.durationMs, status))}
-            </span>
-          </summary>
-          <div className="mt-3 min-w-0 max-w-full space-y-3">
-            {input ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('input')}</div>{renderCodeBlock(input, 'json')}</div> : null}
-            {tool.resultPreview ? (
-              <div>
-                <div className="mb-1 text-xs font-medium text-muted-foreground">{t('output')}</div>
-                {tool.name === 'run_command'
-                  ? renderConsoleBlock(tool.resultPreview, tool.status === 'error' ? 'error' : 'default')
-                  : renderCodeBlock(tool.resultPreview, 'text')}
-              </div>
-            ) : null}
-            {tool.error ? <div className="quickforge-workflow-tool-call-error">{tool.error}</div> : null}
-          </div>
-        </ToolDetails>
-      </div>
-    </li>
+const subscribeActiveWorkflowRun = (onChange: () => void) => activeWorkflowRunStore.subscribe(onChange)
+
+/**
+ * 订阅「当前激活的工作流详情 Tab」，让卡片显示「已打开」。
+ * 订阅的是极小广播器，而不是把 Inspector tab 状态提升为全局 store；
+ * 用 useSyncExternalStore 直接读外部快照，避免 effect 里 setState 造成级联渲染。
+ */
+function useWorkflowRunOpened(runId: string) {
+  const getSnapshot = useCallback(
+    () => Boolean(runId) && activeWorkflowRunStore.get() === runId,
+    [runId],
   )
+  return useSyncExternalStore(subscribeActiveWorkflowRun, getSnapshot, getSnapshot)
 }
 
 /**
- * run_workflow 摘要卡：折叠头一行状态 + Agent/工具计数，运行中把当前阶段或
- * 正在执行的步骤放进跑马灯；展开体按 phase 分组，按提交顺序交错展示 Agent 与
- * 工具调用。工具行与外部普通工具卡同构（图标 + 名称 · 参数 + chevron +
- * 状态/耗时，点击展开 input/output）；Agent 行与外部 run_subagent 同构
- *（整行点击打开运行详情，运行中显示当前工具跑马灯）。
- * 数据契约见 src/lib/workflow-run-detail.ts，服务端 details 见
- * server/agent-workflow-runner.mjs。
+ * run_workflow 摘要卡：聊天区只保留一行状态，点击在右侧 Workspace Inspector 打开
+ * 该次运行的详情 Tab（时间轴 / 阶段 / 日志）。
+ *
+ * 数据契约见 src/lib/workflow-run-detail.ts 与 src/lib/workflow-run-payload.ts；
+ * 服务端 details 见 server/agent-workflow-runner.mjs。
  */
 export class WorkflowToolRenderer {
   render(
@@ -186,9 +78,8 @@ export class WorkflowToolRenderer {
   ) {
     const view = buildWorkflowRunView(result, isStreaming)
     const timing = extractQuickForgeTiming(result?.details)
-    const detailed = toolDisplayDetailed()
     const script = typeof params?.script === 'string' ? params.script : ''
-    const details = detailed ? stringifyValue(result?.details) : ''
+    const detailed = toolDisplayDetailed()
 
     if (!view) {
       // A final result without workflow details (approval rejection, argument
@@ -216,117 +107,96 @@ export class WorkflowToolRenderer {
       }
     }
 
-    const currentPhase = workflowCurrentPhase(view)
-    const activeSteps = workflowActiveStepLabels(view)
-    const marqueeText = activeSteps.length > 0
-      ? activeSteps.join(' · ')
-      : view.status === 'running' && currentPhase
-        ? t('workflowCurrentPhase', { phase: currentPhase })
-        : ''
     const status = workflowRenderStatus(view)
     const summaryParams = {
       agents: t(view.agentCount === 1 ? 'workflowAgentCountOne' : 'workflowAgentCountMany', { count: view.agentCount }),
       tools: t(view.toolCount === 1 ? 'workflowToolCountOne' : 'workflowToolCountMany', { count: view.toolCount }),
     }
+    const payload = buildWorkflowRunPayload({ runId: view.runId, view, script, detailed })
 
     return {
       isCustom: true,
       content: (
-        <div className="quickforge-local-tool-shell quickforge-workflow-tool-shell">
-          <ToolDetails
-            className="group/tool quickforge-local-tool quickforge-workflow-tool"
-            initiallyOpen={false}
-            aria-busy={view.status === 'running' ? 'true' : undefined}
-          >
-            <summary className="quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none">
-              {renderToolIcon('run_workflow')}
-              <span className="quickforge-tool-title quickforge-workflow-title min-w-0">
-                <span className={view.status === 'running' ? 'quickforge-tool-label quickforge-tool-running-sweep' : 'quickforge-tool-label'}>
-                  {t(workflowSummaryKey(view), summaryParams)}
-                </span>
-                {marqueeText ? renderToolMarquee(marqueeText, t(workflowStatusLabelKey(view.status)), 'quickforge-workflow-marquee') : null}
-                {renderToolChevron()}
-                {view.status === 'running' ? null : renderStatus(status, timing)}
-              </span>
-            </summary>
-            <div className="mt-3 space-y-3 text-xs">
-              {view.error ? (
-                <div className="quickforge-workflow-error" role="alert">
-                  <span className="quickforge-workflow-error-label">{t('workflowError')}</span>
-                  <span>{view.error}</span>
-                </div>
-              ) : null}
-              {view.phases.length === 0 ? (
-                <div className="quickforge-workflow-empty">{t('workflowNoAgents')}</div>
-              ) : view.phases.map((phase, phaseIndex) => {
-                const steps = workflowPhaseSteps(phase)
-                const stepCount = phase.agents.length + phase.tools.length
-                return (
-                  <section className="quickforge-workflow-phase" key={`${phase.title}:${phaseIndex}`}>
-                    {phase.title ? (
-                      <div className="quickforge-workflow-phase-title">
-                        <span className="quickforge-workflow-phase-name">{phase.title}</span>
-                        <span className="quickforge-workflow-phase-count">{t('workflowStepCount', { count: stepCount })}</span>
-                      </div>
-                    ) : null}
-                    {steps.length > 0 ? (
-                      <ul className="quickforge-workflow-agent-list">
-                        {steps.map((step, stepIndex) => (
-                          step.kind === 'agent'
-                            ? <WorkflowAgentRow agent={step.agent} workflowRunId={view.runId} key={step.agent.id} />
-                            : (
-                              // 只有紧跟 Agent 的工具区才缩进 + 连线；阶段开头的
-                              // 独立工具调用没有可归属的父步骤，保持与 Agent 同级。
-                              <li
-                                className={`quickforge-workflow-tool-zone${stepIndex > 0 && steps[stepIndex - 1].kind === 'agent' ? '' : ' quickforge-workflow-tool-zone--root'}`}
-                                key={step.tools[0].id}
-                              >
-                                <ul className="quickforge-workflow-tool-list">
-                                  {step.tools.map((tool) => (
-                                    <WorkflowToolCallRow tool={tool} detailed={detailed} workflowRunId={view.runId} key={tool.id} />
-                                  ))}
-                                </ul>
-                              </li>
-                            )
-                        ))}
-                      </ul>
-                    ) : null}
-                    {phase.logs.length > 0 ? (
-                      <ul className="quickforge-workflow-log-list">
-                        {phase.logs.map((log, logIndex) => (
-                          <li className={`quickforge-workflow-log quickforge-workflow-log--${log.level}`} key={`${log.at}:${logIndex}`}>
-                            {log.message}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </section>
-                )
-              })}
-              {view.resultPreview ? (
-                <details className="quickforge-workflow-result-section">
-                  <summary className="cursor-pointer list-none text-muted-foreground select-none">
-                    {t('workflowResult')}
-                  </summary>
-                  <pre className="quickforge-workflow-result" title={view.resultPreview}>{view.resultPreview}</pre>
-                </details>
-              ) : null}
-              {detailed && script ? (
-                <details className="quickforge-workflow-script">
-                  <summary className="cursor-pointer list-none text-muted-foreground select-none">{t('workflowScript')}</summary>
-                  <div className="mt-2">{renderCodeBlock(script, 'javascript')}</div>
-                </details>
-              ) : null}
-              {details ? (
-                <div>
-                  <div className="mb-1 font-medium text-muted-foreground">{t('details')}</div>
-                  {renderCodeBlock(details, 'json')}
-                </div>
-              ) : null}
-            </div>
-          </ToolDetails>
-        </div>
+        <WorkflowRunCard
+          view={view}
+          payloadRunId={payload.runId}
+          script={script}
+          detailed={detailed}
+          status={status}
+          summaryText={t(workflowSummaryKey(view), summaryParams)}
+          running={view.status === 'running'}
+          marqueeText={view.status === 'running' ? (view.phases[view.phases.length - 1]?.title ?? '') : ''}
+          timing={timing}
+        />
       ),
     }
   }
+}
+
+type WorkflowRunCardProps = {
+  view: WorkflowRunView
+  payloadRunId: string
+  script: string
+  detailed: boolean
+  status: ToolStatusKey
+  summaryText: string
+  running: boolean
+  marqueeText: string
+  timing: ReturnType<typeof extractQuickForgeTiming>
+}
+
+function WorkflowRunCard({ view, payloadRunId, script, detailed, status, summaryText, running, marqueeText, timing }: WorkflowRunCardProps) {
+  const opened = useWorkflowRunOpened(payloadRunId)
+
+  // 聊天重渲染时回填 store：历史会话首帧、或 SSE 断连漏帧都能打开完整详情。
+  useEffect(() => {
+    const payload = buildWorkflowRunPayload({ runId: payloadRunId, view, script, detailed })
+    const existing = workflowRunStore.get(payload.runId)
+    if (shouldPublishWorkflowRunPayload(payload, existing)) workflowRunStore.publish(payload)
+  }, [detailed, payloadRunId, script, view])
+
+  const openRun = () => {
+    const payload = buildWorkflowRunPayload({ runId: payloadRunId, view, script, detailed })
+    const existing = workflowRunStore.get(payload.runId)
+    if (shouldPublishWorkflowRunPayload(payload, existing)) workflowRunStore.publish(payload)
+    window.dispatchEvent(new CustomEvent(OPEN_WORKFLOW_RUN_EVENT, { detail: { runId: payload.runId, payload } }))
+  }
+
+  return (
+    <div className="quickforge-local-tool-shell quickforge-workflow-tool-shell">
+      <button
+        type="button"
+        className="quickforge-workflow-card"
+        data-open={opened ? 'true' : 'false'}
+        aria-expanded={opened}
+        aria-label={`${summaryText} · ${t(opened ? 'workflowDetailOpened' : 'workflowDetailOpenRun')}`}
+        onClick={openRun}
+      >
+        {renderToolIcon('run_workflow')}
+        <span className={running ? 'quickforge-workflow-title quickforge-tool-running-sweep' : 'quickforge-workflow-title'}>
+          {summaryText}
+        </span>
+        {marqueeText ? renderToolMarquee(marqueeText, t(workflowStatusLabelKey(view.status)), 'quickforge-workflow-marquee') : null}
+        <WorkflowTicks view={view} />
+        {running ? null : renderStatus(status, timing)}
+        <span className="quickforge-workflow-affordance">
+          {t(opened ? 'workflowDetailOpened' : 'workflowDetailOpenRun')}
+          <svg
+            className="quickforge-workflow-affordance-icon"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M7 17 17 7" />
+            <path d="M7 7h10v10" />
+          </svg>
+        </span>
+      </button>
+    </div>
+  )
 }

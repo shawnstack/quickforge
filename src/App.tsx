@@ -43,6 +43,7 @@ import {
   type SubagentRunPayload,
 } from '@/lib/subagent-run-detail'
 import { OPEN_GOAL_SUMMARY_EVENT, syncGoalUiState } from '@/lib/goal-ui'
+import { OPEN_WORKFLOW_RUN_EVENT, normalizeOpenWorkflowRunRequest, workflowRunStore, type WorkflowRunPayload } from '@/lib/workflow-run-payload'
 import type { GoalAction, GoalActionOptions } from '@/lib/goal'
 import { saveGoalObjective } from '@/lib/goal-edit'
 import type {
@@ -453,7 +454,14 @@ function MainApp() {
   }, [workspaceInspectorScope])
   // 面板开合改为页面生命周期内的用户选择，默认收起，切换 session 不再自动展开；
   // tab 列表仍按 (projectId, sessionId) 持久化恢复。
-  const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)
+  //
+  // 这里记的不是布尔值，而是「在哪个 runtimeScope 里打开的」：`workspaceInspectorOpen`
+  // 由它和当前 scope 派生。`WorkspaceInspector` 的 key 是 `projectId:runtimeScopeId`，
+  // 切 session 只会让子组件重挂载、不会重置 App 级开合状态，所以用布尔量时用户手动
+  // 展开过的面板会跨会话残留（表现为「切过去自己弹出来」）。改成按 scope 记之后，
+  // scope 一变派生值就是 false，不需要额外 effect 去同步。
+  const [workspaceInspectorOpenScopeId, setWorkspaceInspectorOpenScopeId] = useState<string | null>(null)
+  const workspaceInspectorOpen = workspaceInspectorOpenScopeId === workspaceInspectorRuntimeScopeId
   const [desktopInspectorViewport, setDesktopInspectorViewport] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(320)
   const handleSidebarWidthChange = useCallback((width: number) => setSidebarWidth(width), [])
@@ -592,9 +600,9 @@ function MainApp() {
     if (!workspaceInspectorRuntimeScopeMatches(scope, workspaceInspectorScopeRef.current)) return false
     workspaceInspectorRequestIdRef.current += 1
     setWorkspaceInspectorRequest({ ...request, scope, id: workspaceInspectorRequestIdRef.current })
-    setWorkspaceInspectorOpen(true)
+    setWorkspaceInspectorOpenScopeId(scope.runtimeScopeId)
     return true
-  }, [setWorkspaceInspectorOpen, setWorkspaceInspectorRequest, workspaceInspectorScope])
+  }, [setWorkspaceInspectorOpenScopeId, setWorkspaceInspectorRequest, workspaceInspectorScope])
 
   const handleWorkspaceInspectorRequest = useCallback((id: number) => {
     setWorkspaceInspectorRequest((current) => {
@@ -912,6 +920,11 @@ function MainApp() {
     requestWorkspaceInspector({ projectId: agentManager.currentToolProject?.id, kind: 'subagent', payload })
   }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
 
+  const openWorkflowRun = useCallback((payload: WorkflowRunPayload) => {
+    setArtifactPreviewOpen(false)
+    requestWorkspaceInspector({ projectId: agentManager.currentToolProject?.id, kind: 'workflow', payload })
+  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
+
   // 点击 subagent 摘要时，在 Workspace Inspector 中打开或激活该次运行的独立 Tab。
   useEffect(() => {
     const handler = (event: Event) => {
@@ -922,6 +935,19 @@ function MainApp() {
     window.addEventListener(OPEN_SUBAGENT_RUN_EVENT, handler as EventListener)
     return () => window.removeEventListener(OPEN_SUBAGENT_RUN_EVENT, handler as EventListener)
   }, [openSubagentRun])
+
+  // 点击工作流摘要卡时，在 Workspace Inspector 中打开或激活该次运行详情 Tab。
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const request = normalizeOpenWorkflowRunRequest((event as CustomEvent).detail)
+      if (!request) return
+      const payload = request.payload ?? workflowRunStore.get(request.runId)
+      if (!payload) return
+      openWorkflowRun(payload)
+    }
+    window.addEventListener(OPEN_WORKFLOW_RUN_EVENT, handler as EventListener)
+    return () => window.removeEventListener(OPEN_WORKFLOW_RUN_EVENT, handler as EventListener)
+  }, [openWorkflowRun])
 
   useEffect(() => {
     const unsubscribe = subscribeToAgentEvents((event) => {
@@ -1024,8 +1050,9 @@ function MainApp() {
   })
 
   const handleWorkspaceInspectorOpenChange = useCallback((open: boolean) => {
-    setWorkspaceInspectorOpen(open)
-  }, [setWorkspaceInspectorOpen])
+    // 打开时把当前会话记为「打开者」，关闭时清空；关闭不会影响别的会话。
+    setWorkspaceInspectorOpenScopeId(open ? workspaceInspectorRuntimeScopeId : null)
+  }, [setWorkspaceInspectorOpenScopeId, workspaceInspectorRuntimeScopeId])
 
   const [taskLauncherIntent] = useState(() => createTaskLauncherVisibility<typeof agentManager.agent>())
   const [taskLauncherAgent, setTaskLauncherAgent] = useState<typeof agentManager.agent>(null)
@@ -1750,12 +1777,12 @@ function MainApp() {
         onClick={() => {
           setArtifactPreviewOpen(false)
           if (workspaceInspectorOpen) {
-            setWorkspaceInspectorOpen(false)
+            setWorkspaceInspectorOpenScopeId(null)
           } else {
             if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {
               setGitToolsExpanded(false)
             }
-            setWorkspaceInspectorOpen(true)
+            setWorkspaceInspectorOpenScopeId(workspaceInspectorRuntimeScopeId)
           }
         }}
         data-pinned-summary-inspector-toggle="true"

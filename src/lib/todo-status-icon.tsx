@@ -38,8 +38,15 @@ export function TodoStatusIcon({ status, className }: { status: TodoStatus; clas
   if (status === 'in_progress') {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className={className}>
-        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
-        <path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" />
+        {/* Dimmed full track plus a quarter arc that the CSS spins. The arc is a
+            separate group so only it rotates — spinning the whole glyph would
+            read as a blank circle at 14px. With reduced motion the arc stays put
+            and the track lightens, leaving a 3/4 ring (still clearly "running",
+            never confusable with the hollow pending circle). */}
+        <circle className="quickforge-todo-spin-track" cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
+        <g className="quickforge-todo-spin-arc">
+          <path d="M12 3a9 9 0 0 1 9 9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </g>
       </svg>
     )
   }

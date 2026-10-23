@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>run_workflow · 右侧详情面板设计</title>
+<style>
+  :root {
+    --bg: oklch(1 0 0);
+    --fg: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --muted: oklch(0.97 0 0);
+    --mfg: oklch(0.556 0 0);
+    --bd: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --accent: oklch(0.47 0.15 250);
+    --done: oklch(0.55 0.13 158);
+    --main-bg: #ffffff;
+    --sidebar-bg: #f3f4f6;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --fast: 120ms; --base: 180ms; --exit: 140ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    color-scheme: light;
+  }
+  html.dark {
+    --bg: oklch(0.145 0 0);
+    --fg: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --mfg: oklch(0.708 0 0);
+    --bd: oklch(0.275 0 0);
+    --ring: oklch(0.556 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --accent: oklch(0.78 0.15 85);
+    --done: oklch(0.75 0.15 160);
+    --main-bg: oklch(0.145 0 0);
+    --sidebar-bg: oklch(0.205 0 0);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 30px 22px 60px;
+    background: var(--sidebar-bg); color: var(--fg);
+    font-family: var(--sans); font-size: 14px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .sub { margin: 5px 0 0; max-width: 70ch; color: var(--mfg); font-size: 12.5px; }
+  .btns { display: flex; gap: 8px; flex: 0 0 auto; }
+  .ui {
+    height: 29px; padding: 0 11px; border: 1px solid var(--bd); border-radius: 8px;
+    background: var(--bg); color: var(--mfg); font: inherit; font-size: 12px; cursor: pointer;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .ui:hover { background: var(--muted); color: var(--fg); }
+  .ui[aria-pressed="true"] { background: var(--muted); color: var(--fg); }
+
+  h2.sec {
+    margin: 34px 0 3px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.04em;
+    color: color-mix(in oklab, var(--fg) 62%, transparent);
+  }
+  p.secsub { margin: 0 0 14px; color: var(--mfg); font-size: 12px; }
+
+  /* ══════════ 应用框架 ══════════ */
+  .frame {
+    display: flex; height: 700px;
+    border: 1px solid color-mix(in oklab, var(--bd) 80%, transparent);
+    border-radius: 14px; overflow: hidden; background: var(--sidebar-bg);
+    box-shadow: 0 10px 26px -18px rgb(15 23 42 / 0.2);
+  }
+  .chat { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: var(--main-bg); }
+  .chat-h {
+    height: 54px; flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 0 14px;
+    border-bottom: 1px solid color-mix(in oklab, var(--bd) 60%, transparent);
+    font-size: 13px; font-weight: 500;
+  }
+  .chat-h span.s { font-size: 11px; font-weight: 400; color: var(--mfg); }
+  .chat-b { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 13px; }
+  .u-msg {
+    align-self: flex-end; max-width: 72%; padding: 8px 12px; border-radius: 12px;
+    background: color-mix(in oklab, var(--muted) 80%, transparent); font-size: 12.5px;
+  }
+  .a-msg { font-size: 12.5px; color: color-mix(in oklab, var(--fg) 88%, transparent); }
+  .a-msg p { margin: 0 0 7px; }
+
+  /* 聊天区卡片：一行入口 */
+  .entry {
+    display: flex; align-items: center; gap: 7px;
+    min-height: 28px; padding: 3px 7px; margin: 0 -7px;
+    border-radius: 8px; cursor: pointer; user-select: none;
+    background: color-mix(in oklab, var(--muted) 38%, transparent);
+    color: color-mix(in oklab, var(--mfg) 88%, transparent);
+    transition: background var(--fast) var(--ease);
+  }
+  .entry:hover { background: color-mix(in oklab, var(--muted) 62%, transparent); }
+  .entry:focus-visible { outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent); outline-offset: 2px; }
+  .e-ico { width: 14px; height: 14px; flex: 0 0 auto; color: color-mix(in oklab, var(--mfg) 78%, transparent); }
+  .e-title { flex: 0 0 auto; font-size: 12.25px; font-weight: 500; color: color-mix(in oklab, var(--fg) 88%, transparent); white-space: nowrap; }
+  .e-meta { flex: 0 1 auto; min-width: 0; font-size: 11.4px; color: color-mix(in oklab, var(--mfg) 74%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .e-meta::before {
+    content: ""; display: inline-block; vertical-align: middle;
+    width: 1px; height: 9px; margin: 0 7px 1px 0; background: var(--bd);
+  }
+  .e-ticks { display: inline-flex; gap: 2px; margin-left: auto; flex: 0 0 auto; }
+  .e-tick { width: 10px; height: 3px; border-radius: 1px; background: var(--bd); }
+  .e-tick[data-s="done"] { background: color-mix(in oklab, var(--done) 58%, transparent); }
+  .e-time { flex: 0 0 auto; font-family: var(--mono); font-size: 10.5px; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 70%, transparent); }
+  .e-open {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px;
+    font-size: 9.6px; color: color-mix(in oklab, var(--accent) 88%, transparent); white-space: nowrap;
+  }
+  .e-open svg { width: 9px; height: 9px; }
+
+  /* ══════════ Inspector ══════════ */
+  .insp {
+    width: 560px; flex: 0 0 auto; display: flex; flex-direction: column;
+    background: var(--bg); overflow: hidden;
+    border-left: 1px solid color-mix(in oklab, var(--bd) 30%, var(--sidebar-bg));
+  }
+  .insp[data-open="false"] { width: 0; border-left-width: 0; }
+
+  .insp-h {
+    height: 54px; flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+    padding: 0 8px 0 11px;
+    border-bottom: 1px solid color-mix(in oklab, var(--bd) 34%, transparent);
+  }
+  .tab {
+    display: flex; align-items: center; gap: 6px; min-width: 0;
+    height: 31px; padding: 0 5px 0 8px; border-radius: 11px;
+    background: color-mix(in oklab, var(--muted) 86%, transparent);
+    font-size: 12.5px; font-weight: 500; white-space: nowrap;
+  }
+  .tab svg.i { width: 13px; height: 13px; flex: 0 0 auto; opacity: 0.72; }
+  .tab-l {
+    min-width: 0; overflow: hidden; white-space: nowrap;
+    -webkit-mask-image: linear-gradient(90deg, #000 84%, transparent);
+    mask-image: linear-gradient(90deg, #000 84%, transparent);
+  }
+  .tab-x {
+    width: 17px; height: 17px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+    border: 0; border-radius: 5px; background: transparent; color: var(--mfg); cursor: pointer;
+    opacity: 0; transition: opacity var(--fast) var(--ease);
+  }
+  .tab:hover .tab-x { opacity: 1; }
+  .tab-x:hover { background: color-mix(in oklab, var(--fg) 10%, transparent); color: var(--fg); }
+  .tab-x svg { width: 10px; height: 10px; }
+  .insp-acts { margin-left: auto; display: flex; gap: 1px; flex: 0 0 auto; }
+  .ia {
+    width: 27px; height: 27px; display: inline-flex; align-items: center; justify-content: center;
+    border: 0; border-radius: 8px; background: transparent; color: var(--mfg); cursor: pointer;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .ia:hover { background: var(--muted); color: var(--fg); }
+  .ia svg { width: 14px; height: 14px; }
+
+  /* 概览条 */
+  .ov {
+    flex: 0 0 auto; padding: 12px 14px 11px;
+    display: flex; flex-direction: column; gap: 9px;
+    border-bottom: 1px solid color-mix(in oklab, var(--bd) 40%, transparent);
+  }
+  .ov-r1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 21px; padding: 0 8px 0 6px; border-radius: 999px;
+    font-size: 11.4px; font-weight: 500;
+  }
+  .pill[data-s="done"] { background: color-mix(in oklab, var(--done) 13%, transparent); color: color-mix(in oklab, var(--done) 92%, var(--fg)); }
+  .pill[data-s="running"] { background: color-mix(in oklab, var(--accent) 12%, transparent); color: color-mix(in oklab, var(--accent) 92%, var(--fg)); }
+  .pill[data-s="error"] { background: color-mix(in oklab, var(--destructive) 10%, transparent); color: var(--destructive); }
+  .pill i { width: 5px; height: 5px; border-radius: 999px; background: currentColor; flex: 0 0 auto; }
+  .pill[data-s="running"] i { animation: pulse 1.6s var(--ease) infinite; }
+  .dur { font-family: var(--mono); font-size: 11.4px; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 85%, transparent); }
+  .ov-scale { margin-left: auto; font-size: 11.4px; color: var(--mfg); }
+  .ov-r2 {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 10.5px; color: color-mix(in oklab, var(--mfg) 72%, transparent);
+  }
+  .ov-r2 b { font-weight: 500; color: color-mix(in oklab, var(--fg) 80%, transparent); }
+
+  /* 视图切换 */
+  .seg {
+    flex: 0 0 auto; display: flex; gap: 2px; padding: 7px 14px;
+    border-bottom: 1px solid color-mix(in oklab, var(--bd) 40%, transparent);
+  }
+  .seg button {
+    height: 25px; padding: 0 10px; border: 0; border-radius: 7px;
+    background: transparent; color: var(--mfg);
+    font: inherit; font-size: 11.4px; cursor: pointer;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .seg button:hover { color: var(--fg); }
+  .seg button[aria-selected="true"] {
+    background: color-mix(in oklab, var(--fg) 8%, transparent);
+    color: color-mix(in oklab, var(--fg) 94%, transparent); font-weight: 500;
+  }
+  .seg button:focus-visible { outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent); outline-offset: 1px; }
+  .seg .n { font-family: var(--mono); font-size: 9.6px; opacity: 0.6; margin-left: 3px; }
+
+  .pane { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 14px 20px; }
+  .view { display: none; }
+  .view[data-active="true"] { display: block; animation: fade var(--base) var(--ease); }
+
+  /* ══════════ 时间轴（Gantt） ══════════ */
+  .gantt { width: 100%; display: block; }
+  .gantt text { font-family: var(--sans); }
+  .gantt .tm { font-family: var(--mono); }
+  .legend-r { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 10.5px; color: var(--mfg); }
+  .legend-r span { display: inline-flex; align-items: center; gap: 5px; }
+  .sw { width: 12px; height: 6px; border-radius: 2px; }
+  .sw.ag { background: color-mix(in oklab, var(--done) 34%, transparent); border: 1px solid color-mix(in oklab, var(--done) 55%, transparent); }
+  .sw.tl { background: color-mix(in oklab, var(--mfg) 26%, transparent); }
+  .sw.rn { background: var(--accent); }
+
+  /* ══════════ 阶段视图 ══════════ */
+  .ph { border-bottom: 1px solid color-mix(in oklab, var(--bd) 45%, transparent); }
+  .ph:last-child { border-bottom: 0; }
+  .ph-h {
+    display: flex; align-items: center; gap: 7px; width: 100%;
+    padding: 8px 4px; border: 0; background: transparent; color: inherit;
+    font: inherit; cursor: pointer; text-align: left;
+    transition: background var(--fast) var(--ease);
+  }
+  .ph-h:hover { background: color-mix(in oklab, var(--muted) 45%, transparent); }
+  .ph-h:focus-visible { outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent); outline-offset: -2px; }
+  .ph-i { font-family: var(--mono); font-size: 9.6px; color: color-mix(in oklab, var(--mfg) 55%, transparent); }
+  .ph-n { font-size: 12.25px; font-weight: 500; color: color-mix(in oklab, var(--fg) 86%, transparent); }
+  .ph-c { font-family: var(--mono); font-size: 9.6px; color: color-mix(in oklab, var(--mfg) 62%, transparent); }
+  .ph-t { margin-left: auto; font-family: var(--mono); font-size: 9.6px; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 68%, transparent); }
+  .ph-chev { width: 11px; height: 11px; flex: 0 0 auto; color: var(--mfg); opacity: 0.6; transition: transform 160ms var(--ease); }
+  .ph-h[aria-expanded="true"] .ph-chev { transform: rotate(90deg); }
+  .ph-b { display: none; padding: 0 0 9px 12px; }
+  .ph-b[data-open="true"] { display: block; }
+
+  .ag {
+    border: 1px solid color-mix(in oklab, var(--bd) 62%, transparent);
+    border-radius: 9px; padding: 7px 9px 8px;
+  }
+  .ag + .ag { margin-top: 6px; }
+  .ag-h { display: flex; align-items: center; gap: 6px; }
+  .ag-d { width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto; background: color-mix(in oklab, var(--done) 75%, transparent); }
+  .ag[data-s="running"] .ag-d { background: var(--accent); }
+  .ag[data-s="error"] .ag-d { background: var(--destructive); }
+  .ag-n {
+    min-width: 0; font-size: 12px; color: color-mix(in oklab, var(--fg) 88%, transparent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ag-m { flex: 0 0 auto; font-family: var(--mono); font-size: 9.6px; color: color-mix(in oklab, var(--mfg) 62%, transparent); }
+  .ag-t { margin-left: auto; font-family: var(--mono); font-size: 9.6px; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 68%, transparent); }
+  .ag-o {
+    flex: 0 0 auto; height: 19px; padding: 0 6px;
+    display: inline-flex; align-items: center; gap: 3px;
+    border: 1px solid color-mix(in oklab, var(--bd) 90%, transparent); border-radius: 5px;
+    background: transparent; color: color-mix(in oklab, var(--mfg) 82%, transparent);
+    font: inherit; font-size: 9.6px; cursor: pointer;
+    opacity: 0; transition: opacity var(--fast) var(--ease), background var(--fast) var(--ease);
+  }
+  .ag:hover .ag-o, .ag-o:focus-visible { opacity: 1; }
+  .ag-o:hover { background: var(--muted); color: var(--fg); }
+  .ag-o svg { width: 8px; height: 8px; }
+
+  .tl { list-style: none; margin: 6px 0 0; padding: 0 0 0 11px; position: relative; }
+  .tl::before { content: ""; position: absolute; left: 2.5px; top: 2px; bottom: 4px; width: 1px; background: color-mix(in oklab, var(--bd) 80%, transparent); }
+  .tl > li > details > summary { list-style: none; }
+  .tl > li > details > summary::-webkit-details-marker { display: none; }
+  .tr {
+    display: flex; align-items: center; gap: 6px;
+    min-height: 20px; padding: 0 5px; margin-right: -5px; border-radius: 5px;
+    cursor: pointer; user-select: none;
+    transition: background var(--fast) var(--ease);
+  }
+  .tr:hover { background: color-mix(in oklab, var(--muted) 48%, transparent); }
+  .tr-ico { width: 10px; height: 10px; flex: 0 0 auto; color: color-mix(in oklab, var(--mfg) 55%, transparent); }
+  .tr:hover .tr-ico { color: color-mix(in oklab, var(--mfg) 85%, transparent); }
+  .tr-n { flex: 0 0 auto; font-size: 10.5px; color: color-mix(in oklab, var(--mfg) 92%, transparent); white-space: nowrap; }
+  .tr[data-s="error"] .tr-n { color: var(--destructive); }
+  .tr-a { min-width: 0; font-family: var(--mono); font-size: 9.6px; color: color-mix(in oklab, var(--mfg) 62%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tr-t { margin-left: auto; font-family: var(--mono); font-size: 9.6px; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 66%, transparent); }
+  .tr-c { width: 9px; height: 9px; flex: 0 0 auto; color: var(--mfg); opacity: 0; transition: opacity var(--fast) var(--ease), transform 160ms var(--ease); }
+  .tr:hover .tr-c { opacity: 0.7; }
+  .tl details[open] .tr-c { opacity: 0.7; transform: rotate(90deg); }
+  .tr-b { padding: 6px 0 7px 14px; display: flex; flex-direction: column; gap: 7px; }
+  .fl { font-size: 9.6px; font-weight: 500; color: color-mix(in oklab, var(--mfg) 88%, transparent); margin-bottom: 3px; }
+  .code {
+    margin: 0; padding: 7px 9px; max-height: 12rem; overflow: auto;
+    font-family: var(--mono); font-size: 10px; line-height: 1.55;
+    color: color-mix(in oklab, var(--fg) 84%, transparent);
+    background: color-mix(in oklab, var(--muted) 45%, transparent);
+    border: 1px solid color-mix(in oklab, var(--bd) 85%, transparent); border-radius: 6px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .code .ok { color: var(--done); }
+  .code .dim { color: var(--mfg); }
+
+  /* ══════════ 日志视图 ══════════ */
+  .log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+  .log {
+    display: flex; gap: 8px; align-items: baseline;
+    font-family: var(--mono); font-size: 10.5px; line-height: 1.55;
+    color: color-mix(in oklab, var(--mfg) 88%, transparent);
+  }
+  .log time { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 55%, transparent); }
+  .log .ph-tag {
+    flex: 0 0 auto; padding: 0 4px; border-radius: 3px;
+    background: color-mix(in oklab, var(--muted) 80%, transparent);
+    font-size: 9px; color: color-mix(in oklab, var(--mfg) 78%, transparent);
+  }
+  .log[data-l="error"] { color: var(--destructive); }
+  .log[data-l="error"] .ph-tag { background: color-mix(in oklab, var(--destructive) 12%, transparent); color: var(--destructive); }
+
+  /* 底部固定区 */
+  .foot-bar {
+    flex: 0 0 auto; display: flex; gap: 6px; padding: 8px 14px;
+    border-top: 1px solid color-mix(in oklab, var(--bd) 45%, transparent);
+    background: color-mix(in oklab, var(--muted) 28%, transparent);
+  }
+  .fb {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 25px; padding: 0 9px; border: 1px solid color-mix(in oklab, var(--bd) 90%, transparent);
+    border-radius: 6px; background: transparent; color: color-mix(in oklab, var(--mfg) 88%, transparent);
+    font: inherit; font-size: 11px; cursor: pointer;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .fb:hover { background: var(--bg); color: var(--fg); }
+  .fb svg { width: 11px; height: 11px; }
+  .fb .n { font-family: var(--mono); font-size: 9.6px; opacity: 0.65; }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  @keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+
+  /* ══════════ 说明 ══════════ */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 11px; }
+  .note { border: 1px solid color-mix(in oklab, var(--bd) 75%, transparent); border-radius: 10px; padding: 11px 12px; background: var(--bg); }
+  .note k { display: inline-block; margin-bottom: 6px; padding: 1px 6px; border-radius: 999px; background: var(--muted); color: var(--mfg); font-size: 9.6px; font-weight: 600; }
+  .note k[data-tone="new"] { background: color-mix(in oklab, var(--done) 14%, transparent); color: var(--done); }
+  .note t { display: block; margin: 0 0 3px; font-size: 12px; font-weight: 600; }
+  .note p { margin: 0; font-size: 11.4px; color: var(--mfg); }
+  .note p + p { margin-top: 6px; }
+
+  table.sp { width: 100%; border-collapse: collapse; font-size: 11.4px; margin-top: 6px; }
+  table.sp th, table.sp td { text-align: left; padding: 6px 9px; vertical-align: top; border-bottom: 1px solid color-mix(in oklab, var(--bd) 60%, transparent); }
+  table.sp th { font-size: 10.5px; font-weight: 600; color: color-mix(in oklab, var(--fg) 62%, transparent); border-bottom-color: var(--bd); }
+  table.sp td code { font-family: var(--mono); font-size: 10px; background: color-mix(in oklab, var(--muted) 60%, transparent); padding: 1px 3px; border-radius: 3px; }
+  table.sp td:first-child { width: 26%; }
+
+  .tail { margin-top: 30px; padding-top: 14px; border-top: 1px solid color-mix(in oklab, var(--bd) 60%, transparent); font-size: 11px; color: var(--mfg); }
+  .tail code { font-family: var(--mono); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div>
+      <h1>run_workflow · 右侧详情面板</h1>
+      <p class="sub">
+        工作流本质是一段脚本 + 一条按 <code style="font-family:var(--mono)">seq</code> 排序的执行轨迹。
+        面板要回答三个问题：<b>跑到哪了</b>、<b>是串行还是并行</b>、<b>哪一步挂了</b>。
+        下面三个视图各答一个。
+      </p>
+    </div>
+    <div class="btns">
+      <button class="ui" id="themeBtn" type="button">切换深色</button>
+    </div>
+  </div>
+
+  <h2 class="sec">01 · 完整界面</h2>
+  <p class="secsub">点左侧卡片开合面板；面板内切换「时间轴 / 阶段 / 日志」三个视图。</p>
+
+  <div class="frame">
+    <!-- ═════ 左：对话 ═════ -->
+    <div class="chat">
+      <div class="chat-h">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--mfg)"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        重构 workflow 工具卡 <span class="s">· 主会话</span>
+      </div>
+      <div class="chat-b">
+        <div class="u-msg">workflow 工具卡的样式我不满意，你设计一下</div>
+        <div class="a-msg"><p>我把调研、设计、实现、验证拆成 5 个阶段跑一遍，过程会同步到右侧面板。</p></div>
+
+        <div class="entry" id="entry" role="button" tabindex="0" aria-expanded="true"
+             aria-label="工作流已完成 · 4 个智能体 · 12 个工具 · 查看详情">
+          <svg class="e-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+          <span class="e-title">工作流已完成</span>
+          <span class="e-meta">4 个智能体 · 12 个工具</span>
+          <span class="e-ticks">
+            <i class="e-tick" data-s="done"></i><i class="e-tick" data-s="done"></i>
+            <i class="e-tick" data-s="done"></i><i class="e-tick" data-s="done"></i>
+            <i class="e-tick" data-s="done"></i>
+          </span>
+          <span class="e-time">8.4s</span>
+          <span class="e-open">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+            <span id="entryHint">已打开</span>
+          </span>
+        </div>
+
+        <div class="a-msg" style="color:var(--mfg)">
+          <p>三个阶段并行跑了两个 Agent（改写折叠头 / 新增详情组件），所以总耗时比串行少约 2.6 秒。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═════ 右：Inspector ═════ -->
+    <div class="insp" id="insp" data-open="true">
+      <div class="insp-h">
+        <div class="tab">
+          <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+          <span class="tab-l">工作流 · 5 阶段</span>
+          <button class="tab-x" type="button" aria-label="关闭标签页">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="insp-acts">
+          <button class="ia" type="button" aria-label="最大化">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+          </button>
+          <button class="ia" type="button" aria-label="收起面板" id="inspClose">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 概览 -->
+      <div class="ov">
+        <div class="ov-r1">
+          <span class="pill" data-s="done"><i></i>已完成</span>
+          <span class="dur">8.4s</span>
+          <span class="ov-scale">9 智能体 · 7 工具 · 5 阶段</span>
+        </div>
+        <div class="ov-r2">
+          <span>并发 <b>2</b>（峰值）</span>
+          <span>预算 <b>24</b> agent / <b>64</b> tool</span>
+          <span>串行节省 <b>−2.6s</b></span>
+        </div>
+      </div>
+
+      <!-- 视图切换 -->
+      <div class="seg" role="tablist" aria-label="详情视图">
+        <button role="tab" data-view="gantt" aria-selected="true">时间轴<span class="n">并行度</span></button>
+        <button role="tab" data-view="phase" aria-selected="false">阶段<span class="n">5</span></button>
+        <button role="tab" data-view="log" aria-selected="false">日志<span class="n">11</span></button>
+      </div>
+
+      <div class="pane">
+
+        <!-- ══════ 视图 1：时间轴 ══════ -->
+        <div class="view" data-view="gantt" data-active="true">
+          <svg class="gantt" viewBox="0 0 860 500" role="img"
+               aria-label="执行时间轴：9 个 Agent 与 7 个工具调用的起止时间与并行关系">
+
+            <!-- 网格 -->
+            <g stroke="var(--bd)" stroke-width="1" opacity="0.55">
+              <line x1="210" y1="46" x2="210" y2="472" />
+              <line x1="357.6" y1="46" x2="357.6" y2="472" />
+              <line x1="505.2" y1="46" x2="505.2" y2="472" />
+              <line x1="652.9" y1="46" x2="652.9" y2="472" />
+              <line x1="800.4" y1="46" x2="800.4" y2="472" />
+            </g>
+            <g font-family="var(--mono)" font-size="9.5" fill="var(--mfg)" text-anchor="middle">
+              <text x="210" y="38">0</text>
+              <text x="357.6" y="38">2s</text>
+              <text x="505.2" y="38">4s</text>
+              <text x="652.9" y="38">6s</text>
+              <text x="800.4" y="38">8s</text>
+            </g>
+
+            <!-- ── 阶段 1 ── -->
+            <g>
+              <line x1="0" y1="56" x2="860" y2="56" stroke="var(--bd)" stroke-width="1" opacity="0.7" />
+              <text x="0" y="68" font-size="11" font-weight="600" fill="var(--fg)" opacity="0.78">01 侦察</text>
+              <text x="62" y="68" font-family="var(--mono)" font-size="9" fill="var(--mfg)">5 步 · 1.8s</text>
+
+              <circle cx="8" cy="81" r="2.5" fill="var(--mfg)" opacity="0.5" />
+              <text x="20" y="85" font-size="10.5" fill="var(--fg)" opacity="0.88">定位渲染链路</text>
+              <rect x="210" y="77" width="88.6" height="10" rx="3"
+                    fill="color-mix(in oklab, var(--done) 34%, transparent)"
+                    stroke="color-mix(in oklab, var(--done) 55%, transparent)" />
+              <text x="304" y="85" font-family="var(--mono)" font-size="9" fill="var(--mfg)">1.2s</text>
+
+              <rect x="8" y="96" width="5" height="5" rx="1" fill="var(--mfg)" opacity="0.4" />
+              <text x="20" y="105" font-size="10" fill="var(--mfg)">grep_files</text>
+              <rect x="224.8" y="97" width="22.1" height="6" rx="2" fill="color-mix(in oklab, var(--mfg) 26%, transparent)" />
+
+              <rect x="8" y="116" width="5" height="5" rx="1" fill="var(--mfg)" opacity="0.4" />
+              <text x="20" y="125" font-size="10" fill="var(--mfg)">read_file</text>
+              <rect x="261.7" y="117" width="14.8" height="6" rx="2" fill="color-mix(in oklab, var(--mfg) 26%, transparent)" />
+
+              <rect x="8" y="136" width="5" height="5" rx="1" fill="var(--mfg)" opacity="0.4" />
+              <text x="20" y="145" font-size="10" fill="var(--mfg)">read_file</text>
+              <rect x="283.8" y="137" width="11.1" height="6" rx="2" fill="color-mix(in oklab, var(--mfg) 26%, transparent)" />
+
+              <circle cx="8" cy="161" r="2.5" fill="var(--mfg)" opacity="0.5" />
+              <text x="20" y="165" font-size="10.5" fill="var(--fg)" opacity="0.88">对比方案</text>
+              <rect x="306" y="157" width="36.9" height="10" rx="3"
+                    fill="color-mix(in oklab, var(--done) 34%, transparent)"
+                    stroke="color-mix(in oklab, var(--done) 55%, transparent)" />
+              <text x="349" y="165" font-family="var(--mono)" font-size="9" fill="var(--mfg)">0.5s</text>
+            </g>
+
+            <!-- ── 阶段 2 ── -->
+            <g>
+              <line x1="0" y1="176" x2="860" y2="176" stroke="var(--bd)" stroke-width="1" opacity="0.7" />
+              <text x="0" y="188" font-size="11" font-weight="600" fill="var(--fg)" opacity="0.78">02 设计</text>
+              <text x="62" y="188" font-family="var(--mono)" font-size="9" fill="var(--mfg)">2 步 · 1.4s</text>
+
+              <circle cx="8" cy="201" r="2.5" fill="var(--mfg)" opacity="0.5" />
+              <text x="20" y="205" font-size="10.5" fill="var(--fg)" opacity="0.88">确定方案</text>
+              <rect x="342.9" y="197" width="59" height="10" rx="3"
+                    fill="color-mix(in oklab, var(--done) 34%, transparent)"
+                    stroke="color-mix(in oklab, var(--done) 55%, transparent)" />
+              <text x="408" y="205" font-family="var(--mono)" font-size="9" fill="var(--mfg)">0.8s</text>
+
+              <rect x="8" y="216" width="5" height="5" rx="1" fill="var(--mfg)" opacity="0.4" />
+              <text x="20" y="225" font-size="10" fill="var(--mfg)">read_file</text>
+              <rect x="357.6" y="217" width="14.8" height="6" rx="2" fill="color-mix(in oklab, var(--mfg) 26%, transparent)" />
+            </g>
+
+            <!-- ── 阶段 3 ── -->
+            <g>
+              <line x1="0" y1="236" x2="860" y2="236" stroke="var(--bd)" stroke-width="1" opacity="0.7" />
+              <text x="0" y="248" font-size="11" font-weight="600" fill="var(--fg)" opacity="0.78">03 实现</text>
+              <text x="62" y="248" font-family="var(--mono)" font-size="9" fill="var(--mfg)">7 步 · 4.6s</text>
+
+              <circle cx="8" cy="261" r="2.5" fill="var(--mfg)" opacity="0.5" />
+              <text x="20" y="265" font-size="10.5" fill="var(--fg)" opacity="0.88">改写折叠头</text>
+              <rect x="446.2" y="257" width="81.2" height="10" rx="3"
+                    fill="color-mix(in oklab, var(--done) 34%, transparent)"
+                    stroke="color-mix(in oklab, var(--done) 55%, transparent)" />
+              <text x="533" y="265" font-family="var(--mono)" font-size="9" fill="var(--mfg)">1.1s</text>
+
+              <circle cx="8" cy="281" r="2.5" fill="var(--accent)" />
+              <text x="20" y="285" font-size="10.5" fill="var(--fg)" opacity="0.88">新增详情组件</text>
+              <rect x="446.2" y="277" width="147.6" height="10" rx="3"
+                    fill="color-mix(in oklab, var(--accent) 16%, transparent)"
+                    stroke="color-mix(in oklab, var(--accent) 48%, transparent)" stroke-dasharray="3 2" />
+              <text x="600" y="285" font-family="var(--mono)" font-size="9" fill="var(--accent)">2.0s · 并行</text>
+
+              <rect x="8" y="296" width="5" height="5" rx="1" fill="var(--mfg)" opacity="0.4" />
+              <text x="20" y="305" font-size="10" fill="var(--mfg)">edit_file</text>
+              <rect x="461" y="297" width="36.9" height="6" rx="2" fill="color-mix(in oklab, var(--mfg) 26%, transparent)" />
+
+              <rect x="8" y="316" width="5" height="5" rx="1" fill="var(--mfg)" opacity="0.4" />
+              <text x="20" y="325" font-size="10" fill="var(--mfg)">edit_file</text>
+              <rect x="505.2" y="317" width="14.8" height="6" rx="2" fill="color-mix(in oklab, var(--mfg) 26%, transparent)" />
+
+              <circle cx="8" cy="341" r="2.5" fill="var(--mfg)" opacity="0.5" />
+              <text x="20" y="345" font-size="10.5" fill="var(--fg)" opacity="0.88">接入 Tab</text>
+              <rect x="527.4" y="337" width="125.5" height="10" rx="3"
+                    fill="color-mix(in oklab, var(--done) 34%, transparent)"
+                    stroke="color-mix(in oklab, var(--done) 55%, transparent)" />
+              <text x="659" y="345" font-family="var(--mono)" font-size="9" fill="var(--mfg)">1.7s</text>
+
+              <rect x="8" y="356" width="5" height="5" rx="1" fill="var(--mfg)" opacity="0.4" />
+              <text x="20" y="365" font-size="10" fill="var(--mfg)">run_command</text>
+              <rect x="593.8" y="357" width="59" height="6" rx="2" fill="color-mix(in oklab, var(--mfg) 26%, transparent)" />
+              <text x="659" y="365" font-family="var(--mono)" font-size="9" fill="var(--mfg)">0.8s</text>
+
+              <circle cx="8" cy="381" r="2.5" fill="var(--mfg)" opacity="0.5" />
+              <text x="20" y="385" font-size="10.5" fill="var(--fg)" opacity="0.88">修复测试</text>
+              <rect x="652.9" y="377" width="132.9" height="10" rx="3"
+                    fill="color-mix(in oklab, var(--done) 34%, transparent)"
+                    stroke="color-mix(in oklab, var(--done) 55%, transparent)" />
+              <text x="792" y="385" font-family="var(--mono)" font-size="9" fill="var(--mfg)">1.8s</text>
+            </g>
+
+            <!-- ── 阶段 4 ── -->
+            <g>
+              <line x1="0" y1="396" x2="860" y2="396" stroke="var(--bd)" stroke-width="1" opacity="0.7" />
+              <text x="0" y="408" font-size="11" font-weight="600" fill="var(--fg)" opacity="0.78">04 验证</text>
+              <text x="62" y="408" font-family="var(--mono)" font-size="9" fill="var(--mfg)">1 步 · 0.4s</text>
+
+              <circle cx="8" cy="421" r="2.5" fill="var(--mfg)" opacity="0.5" />
+              <text x="20" y="425" font-size="10.5" fill="var(--fg)" opacity="0.88">回归测试</text>
+              <rect x="785.7" y="417" width="29.5" height="10" rx="3"
+                    fill="color-mix(in oklab, var(--done) 34%, transparent)"
+                    stroke="color-mix(in oklab, var(--done) 55%, transparent)" />
+              <text x="821" y="425" font-family="var(--mono)" font-size="9" fill="var(--mfg)">0.4s</text>
+            </g>
+
+            <!-- ── 阶段 5 ── -->
+            <g>
+              <line x1="0" y1="436" x2="860" y2="436" stroke="var(--bd)" stroke-width="1" opacity="0.7" />
+              <text x="0" y="448" font-size="11" font-weight="600" fill="var(--fg)" opacity="0.78">05 收尾</text>
+              <text x="62" y="448" font-family="var(--mono)" font-size="9" fill="var(--mfg)">1 步 · 0.2s</text>
+
+              <circle cx="8" cy="461" r="2.5" fill="var(--mfg)" opacity="0.5" />
+              <text x="20" y="465" font-size="10.5" fill="var(--fg)" opacity="0.88">同步文档</text>
+              <rect x="815.2" y="457" width="14.8" height="10" rx="3"
+                    fill="color-mix(in oklab, var(--done) 34%, transparent)"
+                    stroke="color-mix(in oklab, var(--done) 55%, transparent)" />
+            </g>
+
+            <!-- 并行标注 -->
+            <g>
+              <line x1="446.2" y1="272" x2="446.2" y2="277" stroke="var(--accent)" stroke-width="1" opacity="0.5" />
+              <line x1="446.2" y1="272" x2="446.2" y2="261" stroke="var(--accent)" stroke-width="1" opacity="0.5" />
+            </g>
+          </svg>
+
+          <div class="legend-r">
+            <span><i class="sw ag"></i>Agent</span>
+            <span><i class="sw tl"></i>工具调用</span>
+            <span><i class="sw rn"></i>并行段</span>
+            <span style="margin-left:auto">横轴 = 时间，条形左端 = 开始，长度 = 耗时</span>
+          </div>
+        </div>
+
+        <!-- ══════ 视图 2：阶段 ══════ -->
+        <div class="view" data-view="phase">
+          <div class="ph">
+            <button class="ph-h" type="button" aria-expanded="true">
+              <span class="ph-i">01</span><span class="ph-n">侦察</span><span class="ph-c">5 步</span>
+              <span class="ph-t">1.8s</span>
+              <svg class="ph-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+            <div class="ph-b" data-open="true">
+              <div class="ag" data-s="done">
+                <div class="ag-h">
+                  <span class="ag-d"></span>
+                  <span class="ag-n">定位渲染链路</span>
+                  <span class="ag-m">explore · 3 工具</span>
+                  <span class="ag-t">1.2s</span>
+                  <button class="ag-o" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    详情
+                  </button>
+                </div>
+                <ul class="tl">
+                  <li>
+                    <details>
+                      <summary class="tr" data-s="done">
+                        <svg class="tr-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                        <span class="tr-n">grep_files</span>
+                        <span class="tr-a">"quickforge-workflow-"</span>
+                        <span class="tr-t">0.3s</span>
+                        <svg class="tr-c" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                      </summary>
+                      <div class="tr-b">
+                        <div>
+                          <div class="fl">输出</div>
+                          <pre class="code">src/index.css:8220-8487
+src/lib/tool-renderers/workflow-tool-renderer.tsx</pre>
+                        </div>
+                      </div>
+                    </details>
+                  </li>
+                  <li>
+                    <details>
+                      <summary class="tr" data-s="done">
+                        <svg class="tr-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+                        <span class="tr-n">read_file</span>
+                        <span class="tr-a">workflow-tool-renderer.tsx</span>
+                        <span class="tr-t">0.2s</span>
+                        <svg class="tr-c" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                      </summary>
+                      <div class="tr-b">
+                        <div>
+                          <div class="fl">输出</div>
+                          <pre class="code">337 行 · 导出 WorkflowToolRenderer</pre>
+                        </div>
+                      </div>
+                    </details>
+                  </li>
+                  <li>
+                    <details>
+                      <summary class="tr" data-s="done">
+                        <svg class="tr-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+                        <span class="tr-n">read_file</span>
+                        <span class="tr-a">workflow-run-detail.ts</span>
+                        <span class="tr-t">0.15s</span>
+                        <svg class="tr-c" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                      </summary>
+                      <div class="tr-b">
+                        <div>
+                          <div class="fl">输出</div>
+                          <pre class="code">321 行 · buildWorkflowRunView 归一化 phases/agents/tools/logs</pre>
+                        </div>
+                      </div>
+                    </details>
+                  </li>
+                </ul>
+              </div>
+
+              <div class="ag" data-s="done">
+                <div class="ag-h">
+                  <span class="ag-d"></span>
+                  <span class="ag-n">对比方案</span>
+                  <span class="ag-m">general · 0 工具</span>
+                  <span class="ag-t">0.5s</span>
+                  <button class="ag-o" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    详情
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ph">
+            <button class="ph-h" type="button" aria-expanded="true">
+              <span class="ph-i">02</span><span class="ph-n">设计</span><span class="ph-c">2 步</span>
+              <span class="ph-t">1.4s</span>
+              <svg class="ph-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+            <div class="ph-b" data-open="true">
+              <div class="ag" data-s="done">
+                <div class="ag-h">
+                  <span class="ag-d"></span>
+                  <span class="ag-n">确定入口化 + 右侧详情方案</span>
+                  <span class="ag-m">general · 1 工具</span>
+                  <span class="ag-t">0.8s</span>
+                  <button class="ag-o" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    详情
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ph">
+            <button class="ph-h" type="button" aria-expanded="true">
+              <span class="ph-i">03</span><span class="ph-n">实现</span><span class="ph-c">7 步</span>
+              <span class="ph-t">4.6s</span>
+              <svg class="ph-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+            <div class="ph-b" data-open="true">
+              <div class="ag" data-s="done">
+                <div class="ag-h">
+                  <span class="ag-d"></span>
+                  <span class="ag-n">改写折叠头</span>
+                  <span class="ag-m">general · 2 工具</span>
+                  <span class="ag-t">1.1s</span>
+                  <button class="ag-o" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    详情
+                  </button>
+                </div>
+              </div>
+              <div class="ag" data-s="running">
+                <div class="ag-h">
+                  <span class="ag-d"></span>
+                  <span class="ag-n">新增详情组件</span>
+                  <span class="ag-m">general · 0 工具</span>
+                  <span class="ag-t">2.0s</span>
+                  <button class="ag-o" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    详情
+                  </button>
+                </div>
+                <div style="margin:5px 0 0 12px;font-size:10px;color:var(--accent)">与「改写折叠头」并行执行</div>
+              </div>
+              <div class="ag" data-s="done">
+                <div class="ag-h">
+                  <span class="ag-d"></span>
+                  <span class="ag-n">接入 Tab</span>
+                  <span class="ag-m">general · 1 工具</span>
+                  <span class="ag-t">1.7s</span>
+                  <button class="ag-o" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    详情
+                  </button>
+                </div>
+              </div>
+              <div class="ag" data-s="done">
+                <div class="ag-h">
+                  <span class="ag-d"></span>
+                  <span class="ag-n">修复测试</span>
+                  <span class="ag-m">general · 0 工具</span>
+                  <span class="ag-t">1.8s</span>
+                  <button class="ag-o" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    详情
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ph">
+            <button class="ph-h" type="button" aria-expanded="false">
+              <span class="ph-i">04</span><span class="ph-n">验证</span><span class="ph-c">1 步</span>
+              <span class="ph-t">0.4s</span>
+              <svg class="ph-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+            <div class="ph-b"></div>
+          </div>
+
+          <div class="ph">
+            <button class="ph-h" type="button" aria-expanded="false">
+              <span class="ph-i">05</span><span class="ph-n">收尾</span><span class="ph-c">1 步</span>
+              <span class="ph-t">0.2s</span>
+              <svg class="ph-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+            <div class="ph-b"></div>
+          </div>
+        </div>
+
+        <!-- ══════ 视图 3：日志 ══════ -->
+        <div class="view" data-view="log">
+          <ul class="log-list">
+            <li class="log"><time>0.00s</time><span class="ph-tag">侦察</span>phase "侦察" 开始</li>
+            <li class="log"><time>0.02s</time><span class="ph-tag">侦察</span>agent "定位渲染链路" 启动 · profile=explore</li>
+            <li class="log"><time>0.21s</time><span class="ph-tag">侦察</span>tool grep_files · "quickforge-workflow-"</li>
+            <li class="log"><time>1.20s</time><span class="ph-tag">侦察</span>agent "定位渲染链路" 完成 · 3 次工具</li>
+            <li class="log"><time>1.30s</time><span class="ph-tag">侦察</span>agent "对比方案" 启动</li>
+            <li class="log"><time>1.80s</time><span class="ph-tag">设计</span>phase "设计" 开始</li>
+            <li class="log"><time>3.20s</time><span class="ph-tag">实现</span>phase "实现" 开始 · 并发 2</li>
+            <li class="log"><time>3.20s</time><span class="ph-tag">实现</span>并行提交 2 个 agent（改写折叠头 / 新增详情组件）</li>
+            <li class="log"><time>4.30s</time><span class="ph-tag">实现</span>agent "改写折叠头" 完成 · 2 次工具</li>
+            <li class="log"><time>5.20s</time><span class="ph-tag">实现</span>tool run_command · npm run test</li>
+            <li class="log"><time>7.80s</time><span class="ph-tag">验证</span>phase "验证" 开始</li>
+            <li class="log"><time>8.40s</time><span class="ph-tag">收尾</span>工作流完成 · 结果 1.2 KB</li>
+          </ul>
+        </div>
+
+      </div>
+
+      <!-- 底部固定区 -->
+      <div class="foot-bar">
+        <button class="fb" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          脚本 <span class="n">42 行</span>
+        </button>
+        <button class="fb" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+          结果 <span class="n">1.2 KB</span>
+        </button>
+        <button class="fb" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+          复制轨迹
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════ 设计说明 ═════ -->
+  <h2 class="sec">02 · 为什么是这三个视图</h2>
+  <p class="secsub">不是把聊天里的卡片放大，而是各答一个只有右侧面板才答得了的问题。</p>
+
+  <div class="grid">
+    <div class="note">
+      <k data-tone="new">时间轴</k>
+      <t>回答「串行还是并行」</t>
+      <p>数据里已经有 <code>seq</code> + <code>startedAt</code> + <code>durationMs</code>，画出来就是真实甘特图。</p>
+      <p>并行段在聊天卡片里永远看不见（那里只能一行一行列），只有拉平成时间轴才显形。</p>
+    </div>
+    <div class="note">
+      <k>阶段</k>
+      <t>回答「跑到哪了」</t>
+      <p>脚本用 <code>phase()</code> 声明的意图结构，是人和模型共享的心智模型。</p>
+      <p>Agent 卡 + 工具行沿用现有渲染逻辑，只换容器，迁移成本最低。</p>
+    </div>
+    <div class="note">
+      <k>日志</k>
+      <t>回答「为什么卡住」</t>
+      <p>服务端环形保留 200 条，带 phase 与 error 级别。默认全显，不折叠。</p>
+      <p>带相对时间戳（0.00s / 3.20s），比绝对时间更易读。</p>
+    </div>
+  </div>
+
+  <h2 class="sec">03 · 布局与交互规格</h2>
+  <div class="note" style="padding:0">
+    <table class="sp">
+      <thead><tr><th>项</th><th>规格</th><th>依据</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>面板宽度</td>
+          <td>默认 560px（打开 workflow Tab 时自动从 380 拉宽）</td>
+          <td>现有 <code>AUTO_EXPAND_WIDTH = 640</code> 阈值，560 是甘特图可读下限</td>
+        </tr>
+        <tr>
+          <td>Tab 标题</td>
+          <td>「工作流 · 5 阶段」，按 <code>runId</code> 去重</td>
+          <td>同 <code>upsertSubagentRunTab</code>，重复点击只聚焦</td>
+        </tr>
+        <tr>
+          <td>视图切换</td>
+          <td>分段按钮，记住上次选择（localStorage）</td>
+          <td>无对应现有模式，新增一个轻量 <code>useState</code> + 持久化</td>
+        </tr>
+        <tr>
+          <td>时间轴左侧标签</td>
+          <td>固定 200px 文字列，超出省略</td>
+          <td>与右侧时间轴分离，避免条形挤压</td>
+        </tr>
+        <tr>
+          <td>条形高度</td>
+          <td>Agent 10px / 工具 6px</td>
+          <td>高度即层级，不再靠字号逐级缩小</td>
+        </tr>
+        <tr>
+          <td>最小可见宽度</td>
+          <td>3px（极短工具调用）</td>
+          <td>避免 0.05s 的调用消失</td>
+        </tr>
+        <tr>
+          <td>并行标记</td>
+          <td>虚线描边 + 「并行」文字</td>
+          <td>颜色之外的第二编码，色盲可用</td>
+        </tr>
+        <tr>
+          <td>底部固定区</td>
+          <td>脚本 / 结果 / 复制轨迹</td>
+          <td>结果与脚本体量大，不占主滚动区</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="sec">04 · 落地改动面</h2>
+  <div class="note" style="padding:0">
+    <table class="sp">
+      <thead><tr><th>文件</th><th>改什么</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>workflow-run-detail.ts</code></td>
+          <td>新增纯函数 <code>workflowTimeline(view)</code>：按 <code>seq</code> 排序，算出每条 step 的 <code>startOffsetMs</code>（相对 <code>startedAt</code>）与并行判定。<b>可单测，先做这个。</b></td>
+        </tr>
+        <tr>
+          <td><code>WorkspacePanelTabKind</code></td>
+          <td>加 <code>'workflow'</code> 分支 + <code>WorkflowRunPayload</code>；同步 <code>panelTabMeta/Label/Title</code>、内容分发、<code>PANEL_TAB_ITEMS</code>、持久化白名单（5 处）</td>
+        </tr>
+        <tr>
+          <td>新增 <code>WorkflowRunDetailContent.tsx</code></td>
+          <td>三视图容器；<code>WorkflowTimelineView</code> 可拆独立文件（SVG 计算量大）</td>
+        </tr>
+        <tr>
+          <td><code>workflow-tool-renderer.tsx</code></td>
+          <td>改为单行 <code>&lt;button&gt;</code>，点击 dispatch <code>quickforge:open-workflow-run</code>；删掉内联展开体</td>
+        </tr>
+        <tr>
+          <td><code>src/index.css</code></td>
+          <td>新增 <code>.quickforge-workflow-detail-*</code> 一组；<b>删除</b> <code>.quickforge-workflow-phase*</code> / <code>-tool-zone</code> / <code>-result-section</code> 等内联样式（约 260 行）</td>
+        </tr>
+        <tr>
+          <td>测试</td>
+          <td><code>workflow-renderer.test.ts</code> 的「默认收起 / tool zone 嵌套 / CSS 正则」三类断言需整组重写；新增 <code>workflowTimeline</code> 纯函数测试</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tail">
+    设计稿 <code>docs/design/workflow-run-panel.html</code> ·
+    数据契约 <code>src/lib/workflow-run-detail.ts</code> ·
+    执行模型 <code>docs/design/workflow-execution-model.html</code> ·
+    面板宽度 <code>src/components/workspace/useInspectorLayout.ts</code>
+  </div>
+</div>
+
+<script>
+  const themeBtn = document.getElementById('themeBtn');
+  const syncTheme = () => { themeBtn.textContent = document.documentElement.classList.contains('dark') ? '切换浅色' : '切换深色'; };
+  themeBtn.addEventListener('click', () => { document.documentElement.classList.toggle('dark'); syncTheme(); });
+  if (window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.classList.add('dark');
+  syncTheme();
+
+  /* 卡片 ↔ 面板 */
+  const entry = document.getElementById('entry');
+  const insp = document.getElementById('insp');
+  const hint = document.getElementById('entryHint');
+  const syncEntry = () => {
+    const open = insp.dataset.open === 'true';
+    entry.setAttribute('aria-expanded', String(open));
+    hint.textContent = open ? '已打开' : '查看详情';
+  };
+  const toggle = () => { insp.dataset.open = insp.dataset.open === 'true' ? 'false' : 'true'; syncEntry(); };
+  entry.addEventListener('click', toggle);
+  entry.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  document.getElementById('inspClose').addEventListener('click', () => { insp.dataset.open = 'false'; syncEntry(); });
+  syncEntry();
+
+  /* 视图切换 */
+  const segBtns = Array.from(document.querySelectorAll('.seg button'));
+  const views = Array.from(document.querySelectorAll('.view'));
+  segBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.view;
+      segBtns.forEach((b) => b.setAttribute('aria-selected', String(b === btn)));
+      views.forEach((v) => {
+        if (v.dataset.view === target) v.setAttribute('data-active', 'true');
+        else v.removeAttribute('data-active');
+      });
+    });
+  });
+
+  /* 阶段折叠 */
+  document.querySelectorAll('.ph-h').forEach((head) => {
+    head.addEventListener('click', () => {
+      const open = head.getAttribute('aria-expanded') === 'true';
+      head.setAttribute('aria-expanded', String(!open));
+      const body = head.nextElementSibling;
+      if (!open) body.setAttribute('data-open', 'true');
+      else body.removeAttribute('data-open');
+    });
+  });
+</script>
+</body>
+</html>

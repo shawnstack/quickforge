@@ -24,6 +24,6 @@ export function shouldHandleWorkspaceInspectorRequest(
 ): request is WorkspaceInspectorOpenRequest {
   if (!request || request.id === handledRequestId) return false
   if (request.scope && !workspaceInspectorRuntimeScopeMatches(request.scope, currentScope)) return false
-  if (request.kind === 'subagent') return !request.projectId || request.projectId === currentScope.projectId
+  if (request.kind === 'subagent' || request.kind === 'workflow') return !request.projectId || request.projectId === currentScope.projectId
   return request.projectId === currentScope.projectId
 }

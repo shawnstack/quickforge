@@ -144,7 +144,7 @@ export function useInspectorWidth({ visible, mobileOverlay, width, setWidth, ful
 
   useEffect(() => {
     if (!visible || fullscreen) return
-    const viewingContent = activePanelTab?.kind === 'browser' || activePanelTab?.kind === 'document' || activePanelTab?.kind === 'terminal' || activePanelTab?.kind === 'subagent' || Boolean(activeReaderTabId)
+    const viewingContent = activePanelTab?.kind === 'browser' || activePanelTab?.kind === 'document' || activePanelTab?.kind === 'terminal' || activePanelTab?.kind === 'subagent' || activePanelTab?.kind === 'workflow' || Boolean(activeReaderTabId)
     if (!viewingContent) return
     expandInspectorToMax()
   }, [activePanelTab?.kind, activeReaderTabId, visible, fullscreen, expandInspectorToMax])

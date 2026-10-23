@@ -123,11 +123,11 @@ describe('GitToolsPinnedSummary source contract', () => {
       panelRightClick.indexOf('} else {'),
     )
     const openBranch = panelRightClick.slice(panelRightClick.indexOf('} else {'))
-    expect(closeBranch).toContain('setWorkspaceInspectorOpen(false)')
+    expect(closeBranch).toContain('setWorkspaceInspectorOpenScopeId(null)')
     expect(closeBranch).not.toContain('setGitToolsExpanded(false)')
     expect(openBranch).toContain('if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {')
     expect(openBranch).toContain('setGitToolsExpanded(false)')
-    expect(openBranch.indexOf('setGitToolsExpanded(false)')).toBeLessThan(openBranch.indexOf('setWorkspaceInspectorOpen(true)'))
+    expect(openBranch.indexOf('setGitToolsExpanded(false)')).toBeLessThan(openBranch.indexOf('setWorkspaceInspectorOpenScopeId(workspaceInspectorRuntimeScopeId)'))
   })
 
   it('closes mobile and overlay summaries before Inspector actions but preserves the desktop suspended panel; Commit/Push always closes', () => {

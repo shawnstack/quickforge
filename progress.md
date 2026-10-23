@@ -1,3 +1,106 @@
+## goal-mode-ux-redesign（done，2026-10-23）
+
+- Goal：用户要求「分析 goal 模式的 UI 设计，给几个可优化方案（用户体验与流程），出 HTML 设计稿」。
+- 做法（一句话）：先只读调研现状实现（`GoalControlStrip` + `GoalInspectorContent` + `goal-control-strip.ts`/`goal-card.ts` view 投影 + `index.css` 的 tone/条带样式 + `DESIGN_LANGUAGE.md`），把 8 个问题落到具体代码依据，再产出**一个自包含 HTML 设计稿**覆盖三套方案。
+- 现状要点（用于判断方案取舍）：
+  1. 条带是 `fit-content` 单行，`gap: 0.4375rem`，内含 icon + 状态词 + 截断 objective（`max-width: 22rem`）+ 4 个 24px icon-only 按钮（暂停/编辑/清除/详情），危险动作与详情按钮相邻只差字形。
+  2. 只有 `roundText`（`roundsStarted/maxRounds`），验收通过数完全不可见；`goal.criteria` 数据已在前端，纯投影即可补。
+  3. 预算耗尽时 `primaryAction === 'resume'` 会被路由到 `openSummary('progress')`——同图标不同行为。
+  4. 13 个 `GoalStatus` 各映射一个中文词（v2 还有 `goalPhaseInterrupted` 等），主状态语义不收敛。
+  5. 明细在右侧面板，证据是 `details` 嵌 `details`；取消确认用 `:has()` + `flex-wrap` 在行内塞文案+两按钮，条带高度会跳。
+  6. `buildGoalControlStripViewV2` 对 `phase === 'complete'` 直接 `return null`，完成后无收尾。
+  7. tone 色硬编码 `#3478d4` / `#d97706` / `rgb(4 143 101)`，散在 `index.css:7919-7923`、`goal-inspector.css:16-20`、`goal-card.ts` 的 tone 映射。
+- 产出：新增 `docs/design/goal-mode-ux-proposals.html`（1182 行 / 67.8 KB，UTF-8 纯 LF）。
+  - 01 现状诊断：按生产 CSS 复刻的条带 demo + 8 张问题卡（P1–P8，每条给「改」结论）。
+  - 02 方案 A · 目标卡（推荐）：A1 折叠态（状态→目标→进度三级）／A2 就地展开（验收清单 + 预算 + 操作行，零跳转）／A3 状态收敛表（13 → 5 主状态词 + 1 阶段标签）。
+  - 03 方案 B · 顶部停靠 Dock：36px 吸顶 + 验收进度环 + 展开抽屉；「需你处理」= 滚动高亮对话卡。
+  - 04 方案 C · 计划门禁 + 完成卡：C1 计划就绪卡（配可选 `goal.requirePlanConfirmation`，默认关）／C2 24px 极简胶囊／C3 完成卡替代 `return null`。
+  - 05 交互路径对比：内联 SVG 把「现状 4 次跳转」与「方案 A 1 次」并排画出来；另附状态机表（服务器字段 → 条带表现 → 允许动作 → 不该出现的东西）。
+  - 06 规格与落地：视觉规格表（对齐 `DESIGN_LANGUAGE` 与既有 token）、tone 收敛表、按方案 A 的 6 项文件级改动表、5 步落地顺序（先动作收敛、再两行结构、再就地展开、再状态收敛、最后流程层）。
+  - 交互：深浅色切换、5 个状态切换（联动状态词/主操作/图标）、卡片展开收起；全部动画带 `prefers-reduced-motion` 降级。
+- 验证：文档类改动，**未跑** `npm run test` / `lint` / `build`（不触碰 `src/`、`server/`、测试、打包产物）。静态校验：标签配平（div 221/221、svg 33/33、section 6/6）、内联脚本 `node --check` 通过、LF 换行。
+- 文档：`feature_list.json` 新增 `goal-mode-ux-redesign`（done）；`progress.md` 本条；`session-handoff.md` 置顶交接。`docs/wiki` 未改（本轮无代码/架构变更，设计稿是提案而非既有实现说明）。
+- 边界：未改任何生产代码（`GoalControlStrip.tsx`、`GoalInspectorContent.tsx`、`index.css`、`goal-control-strip.ts`、`goal-card.ts`、`i18n.ts` 全未动）；未改服务端 goal 契约；未新增/升级依赖；未碰生成产物；未创建 Git commit。
+- Notes（未做，供下轮）：① 需用户选方案，方案 A 的落地改动表才进入实施；② 方案 C 的 `requirePlanConfirmation` 是产品决策；③ 顺手可收敛的 token 问题：goal tone 应在 `:root`/`.dark` 只声明一次（现 4 处重复 + 硬编码 hex），但会被 `goal-control-strip.test.ts`/`goal-card.test.ts` 的锚点感知；④ 聊天正文宽度两套值（token 56rem vs `max-w-3xl` 48rem）未统一。
+
+---
+
+
+- Goal：用户最初说「左侧边栏切 session 总自动打开」，调研后自己纠正为**右侧面板**：「右侧的不要自动预览，重新切换 session 默认不打开」；两轮确认后定为 **D + A**——保留「当前会话新产出自动预览」机制，只要求切换 session 时不弹、且上一会话手动打开的面板必须强制收起。
+- 结论（一句话）：`workspaceInspectorOpen` 原本是 App 级布尔量，而 `WorkspaceInspector` 的 key 是 `${projectId}:${runtimeScopeId}`，切 session 只让子组件重挂载、不重置父级开合，于是「手动展开」会跟着用户跨会话残留；改成记录「在哪个 runtimeScopeId 打开」的 `workspaceInspectorOpenScopeId` 后，open 由它与当前 scope 派生，scope 一变即 false。
+- 根因（为什么原来的注释不成立）：`src/App.tsx:455` 的旧注释写「切换 session 不再自动展开」，但那只覆盖了「新会话默认 false」，没有覆盖「上一个会话留下的 true」。真实的两条触发路径是 ① 残留的 open 状态 + `WorkspaceInspector` remount 后按 `projectId:sessionId` 从 localStorage 恢复上次 tab（`workspace-inspector-tabs.ts:87`），看起来就是「切过去自己弹出来」；② 运行中会话的 live 产物回调 `openLivePresentedArtifacts`（`App.tsx:799`，门禁只有 `sessionId === currentSessionId` 与「活跃视图」）在切进去的瞬间把面板打开。本次按用户选择只修 ①，② 保留。
+- 改动：
+  1. `src/App.tsx`：`const [workspaceInspectorOpen, setWorkspaceInspectorOpen] = useState(false)` → `const [workspaceInspectorOpenScopeId, setWorkspaceInspectorOpenScopeId] = useState<string | null>(null)` + `const workspaceInspectorOpen = workspaceInspectorOpenScopeId === workspaceInspectorRuntimeScopeId`；三处写入点全部绑定 scope：`requestWorkspaceInspector` 写 `scope.runtimeScopeId`、`handleWorkspaceInspectorOpenChange` 写 `open ? workspaceInspectorRuntimeScopeId : null`、右上角 PanelRight 手动 toggle 写 `null` / `workspaceInspectorRuntimeScopeId`。
+  2. 不引入 effect：第一版写的是 `useEffect(() => { setWorkspaceInspectorOpen(false); setWorkspaceInspectorRequest(undefined) }, [runtimeScopeId])`，被 `react-hooks/set-state-in-effect` 判为 error（同步 setState 触发级联渲染）。派生状态本身就能表达「scope 变了就收起」，删掉 effect 后 lint 干净，语义也更准确。
+  3. `tests/frontend/git-tools-pinned-summary.test.ts`：该例原来断言 PanelRight 关闭分支含 `setWorkspaceInspectorOpen(false)`、打开分支在 `setWorkspaceInspectorOpen(true)` 之前调 `setGitToolsExpanded(false)`；语义未变，只把两个断言换成新的 scope 绑定写法（顺序断言保留）。
+  4. 新增 `tests/frontend/workspace-inspector-session-switch-close.test.ts`：3 条源码契约——open 由 scope 派生、打开路径必须绑定 `runtimeScopeId` 且不得出现 `setWorkspaceInspectorOpen(true)` 裸布尔写法、不得用 effect 同步重置。
+- 测试（Evidence）：定向 `npx vitest run workspace-inspector-session-switch-close / auto-preview-fresh-present / workspace-inspector-request / workspace-inspector-tabs / inspector-tabs-hooks / git-tools-pinned-summary` → 6 文件 **76 passed**；`npm run test` 全量 **419 文件 / 4809 passed / 2 skipped**（exit 0）；`npm run lint` **0 error**（仅既有 `GitToolsPinnedSummary` exhaustive-deps warning）；`npx tsc -b` 通过；`npm run build` 成功（4.24s）。
+- 文档：`docs/wiki/src/components/README.md` 的 PanelRight 段补写开合语义（按 `runtimeScopeId` 派生、切 session 自动收起、无需 effect），并把该段里残留的 `setWorkspaceInspectorOpen(true)` 措辞改为「绑定当前 runtimeScopeId 之前」。
+- 边界：**保留**自动预览机制（`onLivePresentArtifacts` / `extractToolExecutionArtifacts` / `isSessionViewActive` 未动）；不改 `WorkspaceInspector` 的 tab 持久化与恢复；不改 `useInspectorLayout` / `useInspectorTabs`；未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+- Notes（未做，供下轮）：① 按用户选择 D，运行中会话的 live `present_files` 在切进去的瞬间仍可能打开面板（门禁 `sessionId === currentSessionId` 是在切完之后才成立的），若真机仍觉得打扰，需要再加「切 session 后的 N 秒内不自动预览」或「只对用户主动发起的回合生效」；② `src/index.css` 里 4 个 CSS 契约测试（goal-iteration-divider / reconnect-notice / model-retry-notice / scroll-to-bottom-button）失败是**本会话开始前就存在**的未提交 CSS 改动导致，已用 `git stash` 单独验证复现为绿、再 `stash pop` 还原，与本次改动无关；③ 未做真实浏览器视觉验收。
+
+---
+
+## workflow-timeline-clip-fix（done，2026-10-23）
+
+- Goal：用户反馈「时间轴还有问题，右侧进度条好像被遮挡」。
+- 结论（一句话）：右侧 4 处独立裁切叠加——条形 `content-box` 溢出 2px、耗时挂在条形上随位置伸出轨道、「并行」标签往左盖住行名、首尾刻度被轨道边界切。统一改为「绘图区 + 两侧安全区」布局。
+- 根因（每处独立）：
+  1. 项目**没有全局 `box-sizing: border-box`**，条形 `width: X%` 再加 `1px` 边框 → 总宽超出轨道 2px，贴 100% 时右端被切。
+  2. `.bar-value` 是**条形的子元素**，`left: calc(100% + 5px)` 相对条形算，条形靠右必然溢出；注释写了「太靠右时翻到内侧」但从未实现。
+  3. `.parallel-tag` 同理挂在条形上、`right: calc(100% + 5px)` 往左伸进标签列，盖住行名。
+  4. 刻度的 `translateX(-50%/-100%)` 需要半个字宽余量，轨道边界处没有，首尾文字被切。
+- 改动：
+  1. `src/index.css`：时间轴根节点新增两个安全区变量 `--wf-tl-pad-start: 2.25rem` / `--wf-tl-pad-end: 2.75rem`（窄屏 `1.75rem` / `2.25rem`）；新增 **`.quickforge-workflow-detail-row-plot` 与 `.quickforge-workflow-detail-axis-plot`** 两层——用 `margin-left/right` 承担安全区，而不是给轨道加 `padding`；条形 `position: absolute` + `box-sizing: border-box`（去掉原来多余的 `display:flex/gap`）；`.bar-value` 改 `right: 0`、`.parallel-tag` 改 `left: 0`，都改为相对绘图区定位。
+  2. `WorkflowRunDetailContent.tsx`：轴与每一行（含阶段头）都插入 plot 层；**耗时与「并行」从条形的子元素上移到绘图区的直属子元素**——挂在条形上必然随位置溢出。
+  3. `docs/design/workflow-timeline-clip-fix.html`：对比稿，含 640px 极端情况、4 处成因表、以及「为什么不能用 padding 当安全区」的坑说明。
+- 关键设计约束（写进 CSS 注释）：**绝对定位的百分比基准是包含块的 padding box（含 padding）**，所以给轨道加 `padding` 会让 `left: 0%` 仍从 border 内侧算起，条形会压到左侧安全区的标签上。必须用独立 plot 层 + `margin` 收缩真正的定位基准。
+- 测试：`tests/frontend/workflow-renderer.test.ts` 新增回归——条形 `box-sizing: border-box`、两个 pad 变量存在、`row-plot/axis-plot` 用 `margin-*` 走这两个变量、`.bar-value { right: 0 }`、`.parallel-tag { left: 0 }`。
+- 验证：定向 workflow 两文件 **34 passed**；`tsc --noEmit` 通过；全量 test / lint / build 见下方。
+- 边界：不改 `workflowTimeline` 数据层；不改阶段/日志视图；未新增/升级依赖；未手工修改生成产物；未创建 Git commit。
+- Notes（未做）：① 阶段数 > 8 时折叠头刻度仍未做「3/8」文本降级；② 未做真实浏览器视觉验收（仅构建 + 测试）。
+
+---
+
+## workflow-timeline-layout-fix（done，2026-10-23）
+
+- Goal：用户反馈样式问题（时间轴文字/条形太小、显示不全）。
+- 结论（一句话）：两层原因——① SVG 固定 `viewBox` + `width:100%` 会等比缩放整张图（含字号）；② 详情根节点缺 `flex:1`，宽度按内容收缩且 `height:100%` 解析失败，导致 `pane` 的 `overflow-y:auto` 失效、内容被父级 `overflow:hidden` 裁掉。
+- 改动：
+  1. `src/components/workspace/WorkflowRunDetailContent.tsx`：`TimelineView` 从 SVG 重写为 DOM——轴（`.quickforge-workflow-detail-axis`）+ 行列表（`.quickforge-workflow-detail-rows`），每行 = 标签列 + 百分比轨道列；条形用内联 `left`/`width` 百分比，短调用保底 `0.6%`；删除 `TIMELINE_LABEL_WIDTH` / `TIMELINE_ROW_*` / `TIMELINE_HEADER_HEIGHT` 等像素常量与纵坐标计算。
+  2. `src/index.css`：**详情根节点**改为 `flex: 1 1 auto` + `min-width: 0` + `min-height: 0` + `max-height: 100%`（原只有 `height: 100%`，这是「显示不全」的直接原因）；时间轴新增 `--wf-tl-label: clamp(5.5rem, 30%, 9.5rem)`（窄屏 `clamp(4.5rem, 34%, 6.5rem)`）；条形从 `fill/stroke` 改 `background/border`，`.is-parallel` 改 `border-style: dashed`；字号全部走 `calc(var(--quickforge-message-font-size) * …)`。
+  3. **修掉两个 token 缺陷**：① `--quickforge-workflow-done` 从未定义，9 处使用都在吃 fallback 浅色绿（深色模式发脏）→ 在 `:root` 定义 `--workflow-done: oklch(0.55 0.13 158)`、`.dark` 定义 `oklch(0.75 0.15 160)`，9 处引用改名；② 14 处写的是 `var(--quickforge-ease, …)`，正确名为 `--quickforge-ease-out`，缓动从未生效 → 全部改名。
+  4. `docs/design/workflow-timeline-fix.html`：修复前后对比稿（640px / 340px 两档、深色模式、容器约束示意图）。
+- 测试：`tests/frontend/workflow-renderer.test.ts` 断言改写为 DOM 契约 + 新增容器约束回归（根节点 `flex`/`min-*`、`pane` 滚动、`--wf-tl-label` clamp、`--workflow-done` 双主题定义、不含 `var(--quickforge-ease,`、不含 `viewBox={\`0 0 1000`）。
+- 验证：定向 workflow 两文件 **34 passed**；`npm run test` 全量 **419 文件 / 4809 passed / 2 skipped**；`npm run lint` 0 error；`npm run build` 成功；`tsc --noEmit` 通过。
+- 事故与修复：改写 CSS 时用 Python 写文件，Windows 默认把 `index.css` 从 LF 转成 CRLF，导致 9 个依赖 `\n` 正则的源码契约测试全部失败。已字节级恢复为纯 LF。**教训：本项目 `src/index.css` 必须保持 LF；用脚本写该文件需显式 `newline=''` 或写后统一换行。**
+- 边界：不改 `workflowTimeline` 算法与返回值；不改阶段/日志视图逻辑；不改 `App.tsx` 面板开合逻辑（`workspaceInspectorOpenScopeId` 是更早会话的未提交改动）；未新增/升级依赖；未手工修改生成产物；未创建 Git commit。
+- Notes（未做，供下轮）：① 条形过窄时右侧耗时文字可能与其他行重叠，可改 hover 显示或固定列；② 阶段数 > 8 时折叠头刻度仍未做「3/8」文本降级；③ 未做真实浏览器视觉验收。
+
+---
+
+## workflow-inspector-panel（done，2026-10-23）
+
+- Goal：用户不满 workflow 工具卡的样式，先要 HTML 设计稿，随后要求「点击在右边打开」。设计稿 `docs/design/workflow-run-panel.html` 给出「聊天卡退化为一行入口 + 右侧 Inspector 独立 Tab」方案，用户确认执行。
+- 结论（一句话）：聊天区只剩一行入口，明细进右侧 Inspector 的三视图面板——**时间轴**答「串行还是并行」、**阶段**答「跑到哪了」、**日志**答「为什么卡住」。
+- 根因（为什么不是「把卡片做漂亮点」）：① 信息密度错配——内联展开与右侧详情是同一份数据的两套布局，长跑必然漂移（原实现已有 `.quickforge-workflow-tool > div` 的 ×0.8 字号补偿这类补丁），且 5 阶段 + 12 工具会挤成 1400px 长条；② 表达能力缺失——`seq` + `startedAt` + `durationMs` 数据里本来就有，但平铺列表永远画不出并行关系，而并行正是 `parallel()` / `pipeline()` 的核心语义。
+- 改动：
+  1. `src/lib/workflow-run-detail.ts`：`WorkflowToolView` 增 `startedAt`；`WorkflowRunView` 增 `runStartedAt` / `maxAgents` / `maxTools` / `concurrency` / `maxRuntimeMs`；新增 `workflowTimeline(view)` —— 摊平成甘特条目（`startOffsetMs` / `durationMs` / `parallel` / `parallelGroupStart`），并查集聚合并行组、扫描线算 `peakConcurrency`、`savedMs` = 各步耗时之和 − 实际跨度；缺 `startedAt` 按 `seq` 顺延、`totalMs` 恒 ≥ 1。
+  2. 新增 `src/lib/workflow-run-payload.ts`：`WorkflowRunPayload`（view + script + detailed + fingerprint）、`WorkflowRunStore`（runId 去重 / 50 条 FIFO / 订阅）、`shouldPublishWorkflowRunPayload`（拒绝终态回退）、`normalizeOpenWorkflowRunRequest`、`OPEN_WORKFLOW_RUN_EVENT`、`activeWorkflowRunStore`（让卡片显示「已打开」的极小广播器）。
+  3. 新增 `src/components/workspace/WorkflowRunDetailContent.tsx`：时间轴（SVG 甘特，左固定标签列、条形高度即层级 Agent 10px / 工具 6px、最小宽 3px、并行段虚线 + 「并行」文字作第二编码、概览条给并发峰值与「比串行快 X」）、阶段（`workflowPhaseSteps` 交错 + Agent 卡「运行详情 ↗」跳 subagent Tab + 工具行展开 input/output）、日志（相对时间戳 + 阶段标签）；底部固定区脚本/结果抽屉。
+  4. `src/lib/tool-renderers/workflow-tool-renderer.tsx` 重写为单行入口 `<button class="quickforge-workflow-card">`：摘要 + running sweep + 跑马灯（当前阶段）+ 阶段刻度 + 常显耗时 + hover 才出现的「查看详情/已打开」；点击回填 store 后派发事件；内联展开体与 `renderSubagentRunSummary` 依赖全部移除。
+  5. tab 体系加 `workflow` kind：`workspace-types.ts` 请求分支、`workspace-inspector-request.ts` scope 校验、`workspace-inspector-tabs.ts`（类型/字段/`upsertWorkflowRunTab`/`updateWorkflowRunTab`/持久化排除）、`useInspectorTabs.ts`（`openWorkflowRunTab` + 订阅 store）、`WorkspaceInspector.tsx`（label/title/Workflow 图标/内容分发/request 处理/`activeWorkflowRunStore` 广播）、`useInspectorLayout.ts`（自动拉宽）。
+  6. `src/App.tsx` 监听 `OPEN_WORKFLOW_RUN_EVENT` → `requestWorkspaceInspector({ kind: 'workflow' })`。
+  7. `src/lib/i18n.ts` 新增 24 组中英文案（Tab 标题、三视图名、并发/节省/预算、入口提示）。
+  8. `src/index.css`：删除聊天内展开样式约 268 行，新增 `.quickforge-workflow-card` / `-ticks` / `-affordance` 与 `.quickforge-workflow-detail-*` 全套（约 900 行），全部走既有语义 token。
+- 测试（语义迁移 + 新增）：`tests/frontend/workflow-renderer.test.ts` 26 例（新增 `workflowTimeline` 5 例 + payload store 3 例 + 详情面板契约 2 例；原「默认收起 / tool zone 嵌套 / CSS 正则」三类断言整组改写为「单行入口 + 刻度 + 已删除旧样式」）；`tests/frontend/workflow-step-interaction.test.ts` 重写为 8 例（单行入口无内联展开、点击回填 store 并派发事件、`activeWorkflowRunStore` 联动、终态不回退、queued 载荷、不使用 `OPEN_SUBAGENT_RUN_EVENT`）。
+- 验证：定向 `npx vitest run` 3 文件 → **40 passed**；`npx tsc --noEmit -p tsconfig.app.json` 通过；`npm run test` 全量 **4806 passed / 2 skipped**（exit 0）；`npm run lint` **0 error**；`npm run build` 成功（4.21s，仅既有 chunk 体积 warning）。
+- 文档：`docs/wiki/src/lib/README.md`（`workflow-run-detail.ts` 行数/字段/`workflowTimeline`、新增 `workflow-run-payload.ts` 条目、渲染器与样式契约段整体重写）、`docs/wiki/src/components/README.md`（两处同步新增 `WorkflowRunDetailContent.tsx` 小节）。
+- 边界：不改服务端契约（`details` 已带 `startedAt` 与预算字段，无新 SSE 字段）；不改 worker/runner 编排与限制；不改 subagent Tab 既有行为；workflow Tab 不持久化（运行快照刷新后无法重建）；未改 approval-card / process-folding 对本工具的处理；未新增/升级依赖；未手工修改 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit。
+- Notes（未做，供下轮）：① 时间轴在 340px 最小宽度下标签列会被压缩，可考虑改两行省略或收起为图标；② 阶段数 > 8 时折叠头刻度会溢出，未做「3/8」文本降级；③ 未做真实浏览器视觉验收（甘特图的实际观感、窄面板下的换行、深色模式对比度）；④ 并行段检测依赖 `startedAt`，若服务端某路径不写该字段则会退化为串行（当前 `agentRecordPayload` / `toolRecordPayload` 都写）。
+
+---
+
 ## workflow-result-no-truncation（done，2026-10-22）
 
 - Goal：用户质疑「workflow 结果为什么会被截断」，确认「里面是多少就返回多少」，选择 **①②③ 全去掉**（正文 50,000 / 工作流结果预览 20,000 / agent·tool 步骤预览 2,000·4,000），超长结果**信任 auto-compact 兜底**。
@@ -81,13 +184,13 @@
 - Goal：用户要求 ① 回合结束（`agent_end`）且 todolist 全部完成时清除、不再显示；② todo 默认展开；③ 完成/运行/待执行三态都要清晰表达。先出设计（含三个决策点：退休时机、退休后是否留入口、置顶摘要是否同步），用户选「单次回合结束即移除」「彻底不显示」「置顶摘要仅统一图标」，实现方式选 A（前端由 `agent_end` 推导，不加服务端字段）。
 - 结论（一句话）：退休判定是纯函数 `shouldRetireTodoSummary({ todos, idle })`，`idle = !snapshot.isStreaming` 用状态而不是一次性 `agent_end`，摘要默认展开、全完成且 idle 时淡出卸载，三态图标/文案收敛到 `src/lib/todo-status*` 单一来源。
 - 改动：
-  1. 新增 `src/lib/todo-status.ts`（`TodoStatus` 类型、`TODO_STATUS_LABEL_KEY`、`TODO_STATUS_GLYPH_CLASS`、`todoStatusLabel()`）与 `src/lib/todo-status-icon.tsx`（`TodoStatusIcon`：pending 空心圆 / in_progress 半填充圆 / completed 实心圆 + mask 镂空勾，`useId` 生成 mask id）。拆成两个文件是因为「组件 + 常量同文件」触发 `react-refresh/only-export-components`。
+  1. 新增 `src/lib/todo-status.ts`（`TodoStatus` 类型、`TODO_STATUS_LABEL_KEY`、`TODO_STATUS_GLYPH_CLASS`、`todoStatusLabel()`）与 `src/lib/todo-status-icon.tsx`（`TodoStatusIcon`：pending 空心圆 / in_progress 暗底环 + 1/4 旋转弧 / completed 实心圆 + mask 镂空勾，`useId` 生成 mask id）。拆成两个文件是因为「组件 + 常量同文件」触发 `react-refresh/only-export-components`。
   2. `panel-decoration/todo-write-summary.ts`：新增 `shouldRetireTodoSummary({ todos, idle })`；`TodoWriteStatus` 改为 `TodoStatus` 别名，`TODO_WRITE_STATUS_LABEL_KEY` 改为共享映射的再导出别名。
   3. `surface/TodoWriteSummary.tsx`：`expanded` 默认 `true`，snapshot key 变化时重置为 `true`（用户手动收起只在本轮生效）；新增 `retiredKey`（按 snapshot key 记账，新快照天然恢复）、`fading` 由 `shouldRetireTodoSummary` 派生（不在 effect 里 setState，避开 `react-hooks/set-state-in-effect`）；展开体最终只保留「当前进行中任务行 + 列表」（三态 chips 按用户反馈「待执行 0 / 进行中 0 / 已完成 8 不要显示，保持简洁」已删除）；行级图标改用共享 `TodoStatusIcon`。
   4. `surface/ChatSurface.tsx`：传 `idle={!snapshot.isStreaming}` 给 `<TodoWriteSummary>`，不新增 `turnEnded` state。原因：`turnEnded` 只能由实时 `agent_end` 置位，刷新页面 / 切会话 / 恢复历史会话时该事件永不到来，会让「全完成」的清单永久常驻（用户实际遇到的现象）。
   5. `GitToolsPinnedSummary.tsx`：`TodoStatusIcon`/`todoStatusLabel` 改走共享实现 + `TODO_STATUS_GLYPH_CLASS`，删除 lucide `CheckCircle2`/`Clock3`/`Circle` 在任务分组里的用法（`CheckCircle2` 在 subagent 段仍用）。`slice(0,3)` 与展开行为未动。
   6. `tool-renderers/todo-write-tool-renderer.tsx`：删除自带的 `todoHistoryStatusIcon`（模块级 `mask` 自增计数器）与 `todoHistoryStatusLabel`，改用共享图标与 `t(TODO_STATUS_LABEL_KEY[todo.status])`。
-  7. `src/index.css`：TodoWrite 段的硬编码时长全部改 `--quickforge-dur-*` / `--quickforge-ease-out`；删除 `nth-child` 阶梯淡入与 `translateY` 位移（改整体 opacity 淡入，符合 DESIGN_LANGUAGE「列表只做 opacity 淡入、不做逐项瀑布」）；新增 `--in_progress` 行底与呼吸 `@keyframes`、`[data-fading]` 退出、胶囊 `@starting-style` 进入、`.quickforge-todo-glyph--*`（置顶摘要用）；reduced-motion 关闭呼吸。
+  7. `src/index.css`：TodoWrite 段的硬编码时长全部改 `--quickforge-dur-*` / `--quickforge-ease-out`；删除 `nth-child` 阶梯淡入与 `translateY` 位移（改整体 opacity 淡入，符合 DESIGN_LANGUAGE「列表只做 opacity 淡入、不做逐项瀑布」）；新增 `--in_progress` 行底、`[data-fading]` 退出、胶囊 `@starting-style` 进入、`.quickforge-todo-glyph--*`（置顶摘要用）；进行中图标最终改为「22% 暗底环 + 1/4 主色弧 900ms 旋转」（`.quickforge-todo-spin-arc` / `-spin-track`，只有弧动、文字不动），reduced-motion 关闭旋转并把底环提到 45% 透明度读作 3/4 环。
   8. `src/lib/i18n.ts`：本轮最终没有新增任何 key——chips 与「正在：」行都按用户反馈删除，对应的 `todoWriteChip*` / `todoWriteCurrentTask` 也同步移除，保持中英键集一致。
   9. 测试：`tests/frontend/todo-write-summary.test.ts` 重写（新增 `shouldRetireTodoSummary`、默认展开、共享 glyph、「回合结束后淡出并卸载」「有剩项时保留」「退役后可恢复」、以及「body 内不再有 chips/当前任务行」的负向断言；旧的「全完成自动收起」契约改为「全完成仍展开、回合结束后移除」）；`todo-write-renderer.test.ts` 的状态断言改为「渲染器消费共享映射」。
   10. 文档：`docs/wiki/src/components/README.md`（注意该文件 L14-302 与 L340-628 是逐字重复的两套段落，两处 TodoWrite 条目都改了）、`docs/wiki/src/lib/README.md`（新增 `todo-status.ts / todo-status-icon.tsx` 小节 + 历史卡一行）、`CHANGELOG.md`（新增 `[Unreleased] / Changed`）。

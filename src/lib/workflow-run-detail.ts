@@ -43,6 +43,8 @@ export type WorkflowToolView = {
   label: string
   phase: string
   status: WorkflowAgentStatus
+  /** 工具开始时间（ms epoch）；旧帧可能缺失，时间轴按 seq 顺序兜底。 */
+  startedAt?: number
   durationMs: number
   args?: Record<string, unknown>
   resultPreview: string
@@ -76,6 +78,13 @@ export type WorkflowRunView = {
   runId: string
   status: WorkflowRunStatus
   durationMs: number
+  /** 运行开始时间（ms epoch）；时间轴用它换算相对偏移。 */
+  runStartedAt?: number
+  /** 服务端生效的预算与并发，用于概览条展示。 */
+  maxAgents: number
+  maxTools: number
+  concurrency: number
+  maxRuntimeMs: number
   resultPreview: string
   error: string
   phases: WorkflowPhaseView[]
@@ -151,6 +160,9 @@ function normalizeTool(value: unknown, index: number): WorkflowToolView | null {
     label: text(value.label, text(value.name, `Tool ${index + 1}`)),
     phase: text(value.phase),
     status: normalizedStatus,
+    ...(typeof value.startedAt === 'number' && Number.isFinite(value.startedAt)
+      ? { startedAt: value.startedAt }
+      : {}),
     durationMs: Math.max(0, number(value.durationMs)),
     ...(isRecord(value.args) ? { args: value.args } : {}),
     resultPreview: text(value.resultPreview),
@@ -235,6 +247,13 @@ export function buildWorkflowRunView(result: WorkflowResultLike | undefined, isS
     runId: text(details.runId),
     status,
     durationMs: Math.max(0, number(details.durationMs)),
+    ...(typeof details.startedAt === 'number' && Number.isFinite(details.startedAt)
+      ? { runStartedAt: details.startedAt }
+      : {}),
+    maxAgents: Math.max(0, number(details.maxAgents)),
+    maxTools: Math.max(0, number(details.maxTools)),
+    concurrency: Math.max(0, number(details.concurrency)),
+    maxRuntimeMs: Math.max(0, number(details.maxRuntimeMs)),
     resultPreview: text(details.resultPreview),
     error: text(details.error),
     phases,
@@ -318,3 +337,175 @@ export function workflowPhaseSteps(phase: WorkflowPhaseView): WorkflowPhaseStep[
   flushTools()
   return steps
 }
+
+/** 时间轴上的一个步骤：Agent 或工具调用，带相对运行开始的起止时间。 */
+export type WorkflowTimelineEntry = {
+  id: string
+  kind: 'agent' | 'tool'
+  seq: number
+  label: string
+  phase: string
+  status: WorkflowAgentStatus
+  /** 相对运行开始的偏移（ms）。缺失 startedAt 的旧帧按 seq 顺序顺延兜底。 */
+  startOffsetMs: number
+  durationMs: number
+  /** 与另一个步骤在时间上重叠 —— 只有并行编排才会出现。 */
+  parallel: boolean
+  /** 并行组内 seq 最小的那一条，渲染时用它画「并行」标注。 */
+  parallelGroupStart: boolean
+}
+
+export type WorkflowTimeline = {
+  entries: WorkflowTimelineEntry[]
+  /** 时间轴总跨度（ms），恒 >= 1，可直接做分母。 */
+  totalMs: number
+  /** 观测到的并发峰值；1 表示纯串行。 */
+  peakConcurrency: number
+  /** 相对串行执行节省的时间（ms），纯串行时为 0。 */
+  savedMs: number
+}
+
+type TimelineSource = {
+  id: string
+  kind: 'agent' | 'tool'
+  seq: number
+  label: string
+  phase: string
+  status: WorkflowAgentStatus
+  startedAt?: number
+  durationMs: number
+}
+
+/**
+ * 把 view 摊平成甘特图时间轴。
+ *
+ * 服务端为每个 step 记录 `startedAt`，前端据此还原真实并发关系：串行时后一步的
+ * 起点等于前一步的终点；并行（parallel/pipeline）时起点相同或交叠。旧的/裁剪过的
+ * 帧可能缺 `startedAt`，此时按 `seq` 顺序顺延，保持单调但不伪造并行。
+ *
+ * 纯函数、无 React 依赖，可直接单测。
+ */
+export function workflowTimeline(view: WorkflowRunView): WorkflowTimeline {
+  const sources: TimelineSource[] = [
+    ...view.agents.map((agent) => ({
+      id: `agent:${agent.id}`,
+      kind: 'agent' as const,
+      seq: agent.seq,
+      label: agent.label,
+      phase: agent.phase,
+      status: agent.status,
+      ...(agent.startedAt !== undefined ? { startedAt: agent.startedAt } : {}),
+      durationMs: agent.durationMs,
+    })),
+    ...view.tools.map((tool) => ({
+      id: `tool:${tool.id}`,
+      kind: 'tool' as const,
+      seq: tool.seq,
+      label: tool.label,
+      phase: tool.phase,
+      status: tool.status,
+      ...(tool.startedAt !== undefined ? { startedAt: tool.startedAt } : {}),
+      durationMs: tool.durationMs,
+    })),
+  ].sort((left, right) => left.seq - right.seq)
+
+  const knownStarts = sources
+    .map((source) => source.startedAt)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  const base = knownStarts.length > 0
+    ? Math.min(...knownStarts)
+    : (view.runStartedAt ?? 0)
+
+  // 缺失 startedAt 的步骤按 seq 顺序顺延到「已有最大终点」，保持串行语义。
+  let cursor = 0
+  const positioned = sources.map((source) => {
+    const start = typeof source.startedAt === 'number' && Number.isFinite(source.startedAt)
+      ? Math.max(0, source.startedAt - base)
+      : cursor
+    const durationMs = Math.max(0, source.durationMs)
+    cursor = Math.max(cursor, start + durationMs)
+    return { ...source, startOffsetMs: start, durationMs }
+  })
+
+  // 重叠判定 + 并查集聚合：同一并行组只标注一次。
+  const overlaps = (a: typeof positioned[number], b: typeof positioned[number]) => (
+    a.durationMs > 0 && b.durationMs > 0
+    && a.startOffsetMs < b.startOffsetMs + b.durationMs
+    && b.startOffsetMs < a.startOffsetMs + a.durationMs
+  )
+  const parent = positioned.map((_, index) => index)
+  const find = (index: number): number => {
+    let root = index
+    while (parent[root] !== root) root = parent[root]
+    let cursorIndex = index
+    while (parent[cursorIndex] !== cursorIndex) {
+      const next = parent[cursorIndex]
+      parent[cursorIndex] = root
+      cursorIndex = next
+    }
+    return root
+  }
+  for (let left = 0; left < positioned.length; left += 1) {
+    for (let right = left + 1; right < positioned.length; right += 1) {
+      if (!overlaps(positioned[left], positioned[right])) continue
+      const leftRoot = find(left)
+      const rightRoot = find(right)
+      if (leftRoot !== rightRoot) parent[rightRoot] = leftRoot
+    }
+  }
+
+  const groupStartSeqs = new Map<number, number>()
+  const groupSizes = new Map<number, number>()
+  for (let index = 0; index < positioned.length; index += 1) {
+    const root = find(index)
+    const current = groupStartSeqs.get(root)
+    if (current === undefined || positioned[index].seq < current) {
+      groupStartSeqs.set(root, positioned[index].seq)
+    }
+    groupSizes.set(root, (groupSizes.get(root) ?? 0) + 1)
+  }
+
+  const entries: WorkflowTimelineEntry[] = positioned.map((step, index) => {
+    const root = find(index)
+    const grouped = (groupSizes.get(root) ?? 0) > 1
+    return {
+      id: step.id,
+      kind: step.kind,
+      seq: step.seq,
+      label: step.label,
+      phase: step.phase,
+      status: step.status,
+      startOffsetMs: step.startOffsetMs,
+      durationMs: step.durationMs,
+      parallel: grouped,
+      parallelGroupStart: grouped && groupStartSeqs.get(root) === step.seq,
+    }
+  })
+
+  const spanEnd = entries.reduce((max, entry) => Math.max(max, entry.startOffsetMs + entry.durationMs), 0)
+  const totalMs = Math.max(1, spanEnd, view.durationMs)
+
+  // 并发峰值：+1 / -1 扫描线，同一时刻先结束后开始（边界不算并发）。
+  const events = entries.flatMap((entry) => {
+    if (entry.durationMs <= 0) return []
+    return [
+      { at: entry.startOffsetMs, delta: 1 },
+      { at: entry.startOffsetMs + entry.durationMs, delta: -1 },
+    ]
+  }).sort((left, right) => left.at - right.at || left.delta - right.delta)
+  let active = 0
+  let peakConcurrency = 0
+  for (const event of events) {
+    active += event.delta
+    if (active > peakConcurrency) peakConcurrency = active
+  }
+
+  const serialMs = entries.reduce((sum, entry) => sum + entry.durationMs, 0)
+  return {
+    entries,
+    totalMs,
+    peakConcurrency,
+    savedMs: Math.max(0, serialMs - spanEnd),
+  }
+}
+

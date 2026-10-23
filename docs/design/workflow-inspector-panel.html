@@ -1,0 +1,1217 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>run_workflow · 点击打开右侧面板 设计稿</title>
+<style>
+  /* ══════════════════════════════════════════════════════════════════
+     令牌：取自 src/index.css :root / .dark（oklch），未引入新色值
+     ══════════════════════════════════════════════════════════════════ */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --accent-fg: oklch(0.47 0.15 250);
+    --done: oklch(0.55 0.13 158);
+    --main-bg: #ffffff;
+    --sidebar-bg: #f3f4f6;
+    --msg: 14px;
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --dur-exit: 140ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC",
+      "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas,
+      "Liberation Mono", monospace;
+    color-scheme: light;
+  }
+  html.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(0.275 0 0);
+    --ring: oklch(0.556 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --accent-fg: oklch(0.78 0.15 85);
+    --done: oklch(0.75 0.15 160);
+    --main-bg: oklch(0.145 0 0);
+    --sidebar-bg: oklch(0.205 0 0);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 34px 24px 96px;
+    background: var(--sidebar-bg);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: var(--msg);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+  }
+  .page { max-width: 1180px; margin: 0 auto; }
+
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .page-title { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  .page-sub { margin: 6px 0 0; max-width: 66ch; color: var(--muted-foreground); font-size: calc(var(--msg) * 0.875); }
+  .btn-row { display: flex; gap: 8px; flex: 0 0 auto; }
+  .ui-btn {
+    height: 30px; padding: 0 12px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--background); color: var(--muted-foreground);
+    font: inherit; font-size: 12px; cursor: pointer;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .ui-btn:hover { background: var(--muted); color: var(--foreground); }
+  .ui-btn[aria-pressed="true"] { background: var(--muted); color: var(--foreground); }
+
+  .rule { height: 1px; margin: 22px 0 26px; border: 0; background: color-mix(in oklab, var(--border) 60%, transparent); }
+
+  h2.sec {
+    margin: 40px 0 4px; font-size: 13px; font-weight: 600;
+    letter-spacing: 0.04em; color: color-mix(in oklab, var(--foreground) 62%, transparent);
+  }
+  p.sec-sub { margin: 0 0 16px; color: var(--muted-foreground); font-size: 12px; }
+
+  /* ══════════════════════════════════════════════════════════════════
+     应用框架模拟：左对话区 + 右 Inspector
+     ══════════════════════════════════════════════════════════════════ */
+  .app-frame {
+    display: flex; height: 660px;
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    border-radius: 14px; overflow: hidden;
+    background: var(--sidebar-bg);
+    box-shadow: 0 10px 26px -18px rgb(15 23 42 / 0.18);
+  }
+
+  /* ── 左：对话区 ─────────────────────────────────────────────────── */
+  .chat-col {
+    flex: 1 1 auto; min-width: 0;
+    display: flex; flex-direction: column;
+    background: var(--main-bg);
+  }
+  .chat-head {
+    height: 56px; flex: 0 0 auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 14px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  }
+  .chat-head-title { font-size: 13px; font-weight: 500; }
+  .chat-head-sub { font-size: 11px; color: var(--muted-foreground); }
+  .chat-body {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    padding: 18px 22px 24px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .msg-user {
+    align-self: flex-end; max-width: 74%;
+    padding: 8px 12px; border-radius: 12px;
+    background: color-mix(in oklab, var(--muted) 80%, transparent);
+    font-size: calc(var(--msg) * 0.875);
+  }
+  .msg-ai { font-size: calc(var(--msg) * 0.875); color: color-mix(in oklab, var(--foreground) 88%, transparent); }
+  .msg-ai p { margin: 0 0 8px; }
+
+  /* ── run_workflow 卡（改为纯入口，不内联展开）───────────────────── */
+  .wf-card {
+    display: flex; align-items: center; gap: 7px;
+    min-height: 28px; padding: 3px 7px; margin: 0 -7px;
+    border-radius: 8px; cursor: pointer; user-select: none;
+    color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .wf-card:hover { background: color-mix(in oklab, var(--muted) 55%, transparent); }
+  .wf-card:focus-visible { outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent); outline-offset: 2px; }
+  .wf-card[data-open="true"] {
+    background: color-mix(in oklab, var(--muted) 38%, transparent);
+  }
+  .wf-ico { width: 14px; height: 14px; flex: 0 0 auto; color: color-mix(in oklab, var(--muted-foreground) 78%, transparent); }
+  .wf-title {
+    flex: 0 0 auto; font-size: calc(var(--msg) * 0.875); font-weight: 500;
+    color: color-mix(in oklab, var(--foreground) 88%, transparent);
+    white-space: nowrap;
+  }
+  .wf-meta {
+    flex: 0 1 auto; min-width: 0;
+    font-size: calc(var(--msg) * 0.8125);
+    color: color-mix(in oklab, var(--muted-foreground) 74%, transparent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .wf-meta::before {
+    content: ""; display: inline-block; vertical-align: middle;
+    width: 1px; height: 9px; margin: 0 7px 1px 0;
+    background: var(--border);
+  }
+  .wf-ticks { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; flex: 0 0 auto; }
+  .wf-tick { width: 10px; height: 3px; border-radius: 1px; background: var(--border); }
+  .wf-tick[data-s="done"] { background: color-mix(in oklab, var(--done) 58%, transparent); }
+  .wf-tick[data-s="running"] { background: var(--accent-fg); animation: wf-pulse 1.6s var(--ease) infinite; }
+  .wf-tick[data-s="error"] { background: var(--destructive); }
+  .wf-time {
+    flex: 0 0 auto; font-family: var(--font-mono); font-size: calc(var(--msg) * 0.75);
+    font-variant-numeric: tabular-nums;
+    color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  }
+  /* 打开态提示：替换 chevron */
+  .wf-affordance {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px;
+    font-size: calc(var(--msg) * 0.6875);
+    color: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+    white-space: nowrap;
+    opacity: 0; transition: opacity var(--dur-fast) var(--ease);
+  }
+  .wf-card:hover .wf-affordance,
+  .wf-card:focus-visible .wf-affordance,
+  .wf-card[data-open="true"] .wf-affordance { opacity: 1; }
+  .wf-card[data-open="true"] .wf-affordance {
+    color: color-mix(in oklab, var(--accent-fg) 88%, transparent);
+  }
+  .wf-affordance svg { width: 10px; height: 10px; }
+
+  /* 流光 */
+  .wf-sweep {
+    background-image: linear-gradient(90deg,
+      color-mix(in oklab, var(--foreground) 72%, transparent) 0%,
+      color-mix(in oklab, var(--foreground) 72%, transparent) 38%,
+      var(--accent-fg) 50%,
+      color-mix(in oklab, var(--foreground) 72%, transparent) 62%,
+      color-mix(in oklab, var(--foreground) 72%, transparent) 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+    animation: wf-sweep 2.4s linear infinite;
+  }
+
+  /* ── 右：Inspector ──────────────────────────────────────────────── */
+  .insp-col {
+    width: 448px; flex: 0 0 auto;
+    display: flex; flex-direction: column;
+    background: var(--background);
+    border-left: 1px solid color-mix(in oklab, var(--border) 30%, var(--sidebar-bg));
+    overflow: hidden;
+    transition: width var(--dur-base) var(--ease), opacity var(--dur-exit) var(--ease);
+  }
+  .insp-col[data-open="false"] { width: 0; opacity: 0; border-left-width: 0; }
+
+  .insp-head {
+    height: 56px; flex: 0 0 auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 10px 0 12px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 34%, transparent);
+  }
+  .insp-tab {
+    display: flex; align-items: center; gap: 6px;
+    height: 32px; padding: 0 6px 0 8px; border-radius: 12px;
+    background: color-mix(in oklab, var(--muted) 86%, transparent);
+    font-size: 13px; font-weight: 500;
+    white-space: nowrap; min-width: 0;
+  }
+  .insp-tab svg { width: 13px; height: 13px; flex: 0 0 auto; opacity: 0.72; }
+  .insp-tab-label {
+    min-width: 0; overflow: hidden; white-space: nowrap;
+    -webkit-mask-image: linear-gradient(90deg, #000 82%, transparent);
+    mask-image: linear-gradient(90deg, #000 82%, transparent);
+  }
+  .insp-tab-close {
+    width: 18px; height: 18px; flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 6px; border: 0; background: transparent;
+    color: var(--muted-foreground); cursor: pointer;
+    opacity: 0; transition: opacity var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+  .insp-tab:hover .insp-tab-close { opacity: 1; }
+  .insp-tab-close:hover { background: color-mix(in oklab, var(--foreground) 10%, transparent); color: var(--foreground); }
+  .insp-tab-close svg { width: 11px; height: 11px; }
+  .insp-actions { margin-left: auto; display: flex; gap: 2px; flex: 0 0 auto; }
+  .insp-action {
+    width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+    border: 0; border-radius: 9px; background: transparent;
+    color: var(--muted-foreground); cursor: pointer;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .insp-action:hover { background: var(--muted); color: var(--foreground); }
+  .insp-action svg { width: 14px; height: 14px; }
+
+  .insp-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px 16px 22px; }
+
+  /* ══════════════════════════════════════════════════════════════════
+     右侧「工作流运行详情」内容
+     ══════════════════════════════════════════════════════════════════ */
+  .d { --sm: calc(var(--msg) * 0.75); --xs: calc(var(--msg) * 0.6875); display: flex; flex-direction: column; gap: 14px; }
+
+  /* 1. 概览 */
+  .d-overview { display: flex; flex-direction: column; gap: 8px; }
+  .d-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .d-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 22px; padding: 0 8px 0 6px; border-radius: 999px;
+    font-size: calc(var(--msg) * 0.8125); font-weight: 500;
+  }
+  .d-pill[data-s="running"] {
+    background: color-mix(in oklab, var(--accent-fg) 12%, transparent);
+    color: color-mix(in oklab, var(--accent-fg) 92%, var(--foreground));
+  }
+  .d-pill[data-s="done"] {
+    background: color-mix(in oklab, var(--done) 13%, transparent);
+    color: color-mix(in oklab, var(--done) 92%, var(--foreground));
+  }
+  .d-pill[data-s="error"] {
+    background: color-mix(in oklab, var(--destructive) 10%, transparent);
+    color: var(--destructive);
+  }
+  .d-pill-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; flex: 0 0 auto; }
+  .d-pill[data-s="running"] .d-pill-dot { animation: wf-pulse 1.6s var(--ease) infinite; }
+  .d-time {
+    font-family: var(--font-mono); font-size: var(--sm); font-variant-numeric: tabular-nums;
+    color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  }
+  .d-scale { margin-left: auto; font-size: var(--sm); color: var(--muted-foreground); }
+
+  .d-budget {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    font-size: var(--xs); font-family: var(--font-mono);
+    color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  }
+  .d-budget b { font-weight: 500; color: color-mix(in oklab, var(--foreground) 78%, transparent); }
+
+  /* 2. 全宽分段进度 */
+  .d-bar { display: flex; gap: 3px; }
+  .d-bar-seg { height: 4px; border-radius: 2px; background: var(--border); flex: 1 1 0; }
+  .d-bar-seg[data-s="done"] { background: color-mix(in oklab, var(--done) 58%, transparent); }
+  .d-bar-seg[data-s="running"] { background: var(--accent-fg); }
+  .d-bar-seg[data-s="error"] { background: var(--destructive); }
+
+  /* 3. 阶段导航 chips */
+  .d-chips {
+    display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .d-chips::-webkit-scrollbar { display: none; }
+  .d-chip {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+    height: 26px; padding: 0 9px; border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+    background: transparent; color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    font: inherit; font-size: calc(var(--msg) * 0.75); cursor: pointer;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+  }
+  .d-chip:hover { background: color-mix(in oklab, var(--muted) 50%, transparent); color: var(--foreground); }
+  .d-chip[aria-selected="true"] {
+    background: color-mix(in oklab, var(--foreground) 8%, transparent);
+    border-color: color-mix(in oklab, var(--foreground) 16%, transparent);
+    color: color-mix(in oklab, var(--foreground) 92%, transparent);
+    font-weight: 500;
+  }
+  .d-chip:focus-visible { outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent); outline-offset: 1px; }
+  .chip-dot { width: 5px; height: 5px; border-radius: 999px; flex: 0 0 auto; background: color-mix(in oklab, var(--muted-foreground) 42%, transparent); }
+  .d-chip[data-s="done"] .chip-dot { background: color-mix(in oklab, var(--done) 72%, transparent); }
+  .d-chip[data-s="running"] .chip-dot { background: var(--accent-fg); animation: wf-pulse 1.6s var(--ease) infinite; }
+  .d-chip[data-s="error"] .chip-dot { background: var(--destructive); }
+  .d-chip[data-s="pending"] .chip-dot { border: 1px solid color-mix(in oklab, var(--muted-foreground) 45%, transparent); background: transparent; }
+  .chip-n { font-family: var(--font-mono); font-size: var(--xs); opacity: 0.6; }
+
+  /* 4. 阶段面板 */
+  .d-panes { min-height: 0; }
+  .d-pane { display: none; flex-direction: column; gap: 8px; }
+  .d-pane[data-active="true"] { display: flex; animation: d-in var(--dur-base) var(--ease); }
+  .pane-head {
+    display: flex; align-items: center; gap: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
+  }
+  .pane-idx { font-family: var(--font-mono); font-size: var(--xs); color: color-mix(in oklab, var(--muted-foreground) 55%, transparent); }
+  .pane-name { font-size: calc(var(--msg) * 0.8125); font-weight: 600; color: color-mix(in oklab, var(--foreground) 86%, transparent); }
+  .pane-count { font-family: var(--font-mono); font-size: var(--xs); color: var(--muted-foreground); }
+  .pane-head .d-time { margin-left: auto; font-size: var(--xs); }
+
+  /* Agent 卡 */
+  .ag {
+    border: 1px solid color-mix(in oklab, var(--border) 62%, transparent);
+    border-radius: 9px;
+    padding: 7px 9px 8px;
+  }
+  .ag + .ag { margin-top: 6px; }
+  .ag-head { display: flex; align-items: center; gap: 6px; }
+  .ag-dot { width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto; background: color-mix(in oklab, var(--muted-foreground) 40%, transparent); }
+  .ag[data-s="done"] .ag-dot { background: color-mix(in oklab, var(--done) 75%, transparent); }
+  .ag[data-s="running"] .ag-dot { background: var(--accent-fg); }
+  .ag[data-s="error"] .ag-dot { background: var(--destructive); }
+  .ag-name {
+    min-width: 0; font-size: calc(var(--msg) * 0.8125);
+    color: color-mix(in oklab, var(--foreground) 88%, transparent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ag-meta { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--xs); color: color-mix(in oklab, var(--muted-foreground) 62%, transparent); }
+  .ag-head .d-time { margin-left: auto; font-size: var(--xs); }
+  .ag-open {
+    flex: 0 0 auto; height: 20px; padding: 0 6px;
+    display: inline-flex; align-items: center; gap: 3px;
+    border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+    border-radius: 6px; background: transparent;
+    color: color-mix(in oklab, var(--muted-foreground) 80%, transparent);
+    font: inherit; font-size: var(--xs); cursor: pointer;
+    opacity: 0; transition: opacity var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  }
+  .ag:hover .ag-open, .ag-open:focus-visible { opacity: 1; }
+  .ag-open:hover { background: var(--muted); color: var(--foreground); }
+  .ag-open svg { width: 9px; height: 9px; }
+
+  /* 工具行 */
+  .ag-tools { list-style: none; margin: 6px 0 0; padding: 0 0 0 11px; position: relative; }
+  .ag-tools::before {
+    content: ""; position: absolute; left: 2.5px; top: 2px; bottom: 4px;
+    width: 1px; background: color-mix(in oklab, var(--border) 80%, transparent);
+  }
+  .ag-tools > li > details > summary { list-style: none; }
+  .ag-tools > li > details > summary::-webkit-details-marker { display: none; }
+  .t-row {
+    display: flex; align-items: center; gap: 6px;
+    min-height: 21px; padding: 0 5px; margin-right: -5px;
+    border-radius: 6px; cursor: pointer; user-select: none;
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .t-row:hover { background: color-mix(in oklab, var(--muted) 48%, transparent); }
+  .t-ico { width: 11px; height: 11px; flex: 0 0 auto; color: color-mix(in oklab, var(--muted-foreground) 55%, transparent); }
+  .t-row:hover .t-ico { color: color-mix(in oklab, var(--muted-foreground) 85%, transparent); }
+  .t-name { flex: 0 0 auto; font-size: var(--sm); color: color-mix(in oklab, var(--muted-foreground) 92%, transparent); white-space: nowrap; }
+  .t-row[data-s="error"] .t-name { color: color-mix(in oklab, var(--destructive) 92%, transparent); }
+  .t-arg {
+    min-width: 0; font-family: var(--font-mono); font-size: var(--xs);
+    color: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .t-row .d-time { margin-left: auto; font-size: var(--xs); }
+  .t-chev { width: 10px; height: 10px; flex: 0 0 auto; color: var(--muted-foreground); opacity: 0; transition: opacity var(--dur-fast) var(--ease), transform 160ms var(--ease); }
+  .t-row:hover .t-chev { opacity: 0.7; }
+  .ag-tools details[open] .t-chev { opacity: 0.7; transform: rotate(90deg); }
+  .t-body { padding: 6px 0 7px 15px; display: flex; flex-direction: column; gap: 7px; }
+  .f-label { font-size: var(--xs); font-weight: 500; color: color-mix(in oklab, var(--muted-foreground) 88%, transparent); margin-bottom: 3px; }
+  .code {
+    margin: 0; padding: 7px 9px; max-height: 12rem; overflow: auto;
+    font-family: var(--font-mono); font-size: var(--xs); line-height: 1.55;
+    color: color-mix(in oklab, var(--foreground) 84%, transparent);
+    background: color-mix(in oklab, var(--muted) 45%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+    border-radius: 6px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .code .ok { color: var(--done); }
+  .code .dim { color: var(--muted-foreground); }
+
+  /* 5. 日志 / 错误 / 结果 */
+  .d-block-title {
+    display: flex; align-items: center; gap: 7px;
+    font-size: var(--xs); font-weight: 600; letter-spacing: 0.04em;
+    color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+    margin-bottom: 5px;
+  }
+  .d-block-title::after {
+    content: ""; flex: 1 1 auto; height: 1px;
+    background: color-mix(in oklab, var(--border) 60%, transparent);
+  }
+  .d-logs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .d-log {
+    font-family: var(--font-mono); font-size: var(--xs); line-height: 1.5;
+    color: color-mix(in oklab, var(--muted-foreground) 85%, transparent);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    padding-left: 10px; position: relative;
+  }
+  .d-log::before {
+    content: ""; position: absolute; left: 0; top: 0.52em;
+    width: 3px; height: 3px; border-radius: 999px;
+    background: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+  }
+  .d-log[data-l="error"] { color: var(--destructive); }
+  .d-log[data-l="error"]::before { background: var(--destructive); }
+
+  .d-error {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 7px 10px; border-left: 2px solid var(--destructive);
+    border-radius: 0 6px 6px 0;
+    background: color-mix(in oklab, var(--destructive) 6%, transparent);
+    font-size: var(--sm); white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .d-error-label { font-weight: 600; color: var(--destructive); font-size: var(--xs); }
+
+  .d-collapse > summary {
+    list-style: none; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 6px;
+    font-size: var(--sm); font-weight: 500;
+    color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    transition: color var(--dur-fast) var(--ease);
+  }
+  .d-collapse > summary::-webkit-details-marker { display: none; }
+  .d-collapse > summary:hover { color: color-mix(in oklab, var(--foreground) 86%, transparent); }
+  .d-collapse > summary::before {
+    content: "›"; display: inline-block; width: 10px; font-size: 12px;
+    color: var(--muted-foreground);
+    transition: transform 160ms var(--ease);
+  }
+  .d-collapse[open] > summary::before { transform: rotate(90deg); }
+  .d-collapse .code { margin-top: 6px; }
+  .d-collapse-count {
+    margin-left: auto; font-family: var(--font-mono); font-size: var(--xs);
+    color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+  }
+
+  /* 标注 */
+  .anno {
+    display: none;
+    flex: 0 0 auto;
+    width: 15px; height: 15px; border-radius: 999px;
+    align-items: center; justify-content: center;
+    background: var(--accent-fg); color: var(--background);
+    font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+    line-height: 1;
+  }
+  body.show-anno .anno { display: inline-flex; }
+
+  @keyframes wf-sweep { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  @keyframes wf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.38; } }
+  @keyframes d-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wf-sweep { animation: none; color: color-mix(in oklab, var(--foreground) 86%, transparent); background: none; }
+    .wf-tick[data-s="running"], .d-pill[data-s="running"] .d-pill-dot,
+    .d-chip[data-s="running"] .chip-dot { animation: none; }
+    .d-pane[data-active="true"] { animation: none; }
+    .insp-col, .wf-card { transition: none; }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     交互三态 & 说明块
+     ══════════════════════════════════════════════════════════════════ */
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .card {
+    border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+    border-radius: 10px; padding: 12px 13px 13px;
+    background: var(--background);
+  }
+  .card-k {
+    display: inline-block; margin-bottom: 8px; padding: 1px 6px; border-radius: 999px;
+    background: var(--muted); color: var(--muted-foreground);
+    font-size: 10px; font-weight: 600; letter-spacing: 0.02em;
+  }
+  .card-k[data-tone="new"] { background: color-mix(in oklab, var(--done) 14%, transparent); color: var(--done); }
+  .card-t { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; }
+  .card-b { margin: 0; font-size: 12px; color: var(--muted-foreground); }
+  .card-demo {
+    margin-top: 10px; padding: 8px 9px; border-radius: 8px;
+    background: var(--main-bg);
+    border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  }
+
+  table.spec { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  table.spec th, table.spec td {
+    text-align: left; padding: 7px 10px; vertical-align: top;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  }
+  table.spec th {
+    font-weight: 600; font-size: 11px; letter-spacing: 0.02em;
+    color: color-mix(in oklab, var(--foreground) 62%, transparent);
+    border-bottom-color: var(--border);
+  }
+  table.spec td code {
+    font-family: var(--font-mono); font-size: 11px;
+    background: color-mix(in oklab, var(--muted) 60%, transparent);
+    padding: 1px 4px; border-radius: 4px;
+  }
+  table.spec td:first-child { width: 30%; }
+
+  .legend { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 7px; }
+  .legend li { display: flex; gap: 8px; font-size: 12px; color: var(--muted-foreground); }
+  .legend .anno { display: inline-flex; }
+
+  .foot {
+    margin-top: 44px; padding-top: 16px;
+    border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    font-size: 11.5px; color: var(--muted-foreground);
+  }
+  .foot code { font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">run_workflow · 点击打开右侧面板</h1>
+      <p class="page-sub">
+        聊天里的工作流卡退化为「摘要 + 入口」，所有阶段 / Agent / 工具 / 日志 / 结果移入右侧
+        Workspace Inspector 的独立 Tab。点击左侧卡片即可开合，右侧内容可交互切换阶段。
+      </p>
+    </div>
+    <div class="btn-row">
+      <button class="ui-btn" id="annoBtn" type="button" aria-pressed="false">显示标注</button>
+      <button class="ui-btn" id="themeBtn" type="button">切换深色</button>
+    </div>
+  </div>
+
+  <hr class="rule" />
+
+  <!-- ═══════════ 1. 完整界面模拟 ═══════════ -->
+  <h2 class="sec">01 · 完整界面</h2>
+  <p class="sec-sub">点左侧工作流卡 → 右侧滑出面板；点右侧阶段胶囊 → 切换该阶段明细。下面整块可交互。</p>
+
+  <div class="app-frame">
+    <!-- 左：对话 -->
+    <div class="chat-col">
+      <div class="chat-head">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted-foreground)"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="chat-head-title">重构 workflow 工具卡</span>
+        <span class="chat-head-sub">· 主会话</span>
+      </div>
+      <div class="chat-body">
+        <div class="msg-user">workflow 工具卡的样式我不满意，你设计一下</div>
+
+        <div class="msg-ai">
+          <p>我先跑一个工作流，把调研、设计、实现、验证拆成 5 个阶段，边跑边把结果汇总到右侧面板。</p>
+        </div>
+
+        <!-- run_workflow 卡：纯入口 -->
+        <div class="wf-card" id="wfCard" data-open="true" role="button" tabindex="0"
+             aria-expanded="true" aria-label="工作流运行中 · 4 个智能体 · 12 个工具 · 打开右侧详情">
+          <svg class="wf-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+          <span class="wf-title wf-sweep">工作流运行中</span>
+          <span class="wf-meta">4 个智能体 · 12 个工具</span>
+          <span class="wf-ticks">
+            <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+            <i class="wf-tick" data-s="running"></i><i class="wf-tick" data-s="pending"></i>
+            <i class="wf-tick" data-s="pending"></i>
+          </span>
+          <span class="wf-time">6.2s</span>
+          <span class="wf-affordance">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+            <span id="wfAfford">已打开</span>
+          </span>
+        </div>
+
+        <div class="msg-ai" style="color:var(--muted-foreground)">
+          <p>正在实现阶段：改写折叠头结构、把明细搬进 Inspector。进度会同步到右侧。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：Inspector -->
+    <div class="insp-col" id="inspCol" data-open="true">
+      <div class="insp-head">
+        <div class="insp-tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+          <span class="insp-tab-label">工作流 · 5 阶段</span>
+          <button class="insp-tab-close" type="button" aria-label="关闭标签页">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="insp-actions">
+          <button class="insp-action" type="button" aria-label="最大化">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+          </button>
+          <button class="insp-action" type="button" aria-label="收起面板" id="inspClose">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="insp-body">
+        <div class="d">
+
+          <!-- ① 概览 -->
+          <div class="d-overview">
+            <div class="d-head">
+              <span class="anno">1</span>
+              <span class="d-pill" data-s="running"><span class="d-pill-dot"></span>运行中</span>
+              <span class="d-time">6.2s</span>
+              <span class="d-scale">4 智能体 · 12 工具</span>
+            </div>
+            <div class="d-budget">
+              <span>并发 <b>4</b></span>
+              <span>预算 <b>12</b> 工具 / <b>8</b> 智能体</span>
+              <span>上限 <b>10m</b></span>
+            </div>
+          </div>
+
+          <!-- ② 分段进度 -->
+          <div class="d-bar" aria-hidden="true">
+            <i class="d-bar-seg" data-s="done"></i>
+            <i class="d-bar-seg" data-s="done"></i>
+            <i class="d-bar-seg" data-s="running"></i>
+            <i class="d-bar-seg"></i>
+            <i class="d-bar-seg"></i>
+          </div>
+
+          <!-- ③ 阶段胶囊 -->
+          <div class="d-chips" role="tablist" aria-label="阶段">
+            <button class="d-chip" role="tab" data-s="done" data-phase="0" aria-selected="false">
+              <span class="chip-dot"></span><span class="chip-n">01</span>侦察
+            </button>
+            <button class="d-chip" role="tab" data-s="done" data-phase="1" aria-selected="false">
+              <span class="chip-dot"></span><span class="chip-n">02</span>设计
+            </button>
+            <button class="d-chip" role="tab" data-s="running" data-phase="2" aria-selected="true">
+              <span class="chip-dot"></span><span class="chip-n">03</span>实现
+            </button>
+            <button class="d-chip" role="tab" data-s="pending" data-phase="3" aria-selected="false">
+              <span class="chip-dot"></span><span class="chip-n">04</span>验证
+            </button>
+            <button class="d-chip" role="tab" data-s="pending" data-phase="4" aria-selected="false">
+              <span class="chip-dot"></span><span class="chip-n">05</span>收尾
+            </button>
+          </div>
+
+          <!-- ④ 阶段明细 -->
+          <div class="d-panes">
+
+            <!-- 阶段 1 -->
+            <div class="d-pane" data-pane="0">
+              <div class="pane-head">
+                <span class="pane-idx">01</span>
+                <span class="pane-name">侦察</span>
+                <span class="pane-count">2 步</span>
+                <span class="d-time">1.8s</span>
+              </div>
+              <div class="ag" data-s="done">
+                <div class="ag-head">
+                  <span class="ag-dot"></span>
+                  <span class="ag-name">定位 workflow 渲染链路</span>
+                  <span class="ag-meta">2 次工具</span>
+                  <span class="d-time">1.8s</span>
+                  <button class="ag-open" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    运行详情
+                  </button>
+                </div>
+                <ul class="ag-tools">
+                  <li>
+                    <details>
+                      <summary class="t-row" data-s="done">
+                        <svg class="t-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                        <span class="t-name">搜索文件</span>
+                        <span class="t-arg">"quickforge-workflow-"</span>
+                        <span class="d-time">0.9s</span>
+                        <svg class="t-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                      </summary>
+                      <div class="t-body">
+                        <div>
+                          <div class="f-label">输出</div>
+                          <pre class="code">src/index.css:8220-8487
+src/lib/tool-renderers/workflow-tool-renderer.tsx</pre>
+                        </div>
+                      </div>
+                    </details>
+                  </li>
+                  <li>
+                    <details>
+                      <summary class="t-row" data-s="done">
+                        <svg class="t-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+                        <span class="t-name">读取文件</span>
+                        <span class="t-arg">workflow-tool-renderer.tsx</span>
+                        <span class="d-time">0.9s</span>
+                        <svg class="t-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                      </summary>
+                      <div class="t-body">
+                        <div>
+                          <div class="f-label">输出</div>
+                          <pre class="code">337 行 · 导出 WorkflowToolRenderer</pre>
+                        </div>
+                      </div>
+                    </details>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- 阶段 2 -->
+            <div class="d-pane" data-pane="1">
+              <div class="pane-head">
+                <span class="pane-idx">02</span>
+                <span class="pane-name">设计</span>
+                <span class="pane-count">1 步</span>
+                <span class="d-time">1.4s</span>
+              </div>
+              <div class="ag" data-s="done">
+                <div class="ag-head">
+                  <span class="ag-dot"></span>
+                  <span class="ag-name">确定入口化 + 右侧详情方案</span>
+                  <span class="ag-meta">1 次工具</span>
+                  <span class="d-time">1.4s</span>
+                  <button class="ag-open" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    运行详情
+                  </button>
+                </div>
+                <ul class="ag-tools">
+                  <li>
+                    <details>
+                      <summary class="t-row" data-s="done">
+                        <svg class="t-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+                        <span class="t-name">读取文件</span>
+                        <span class="t-arg">DESIGN_LANGUAGE.md</span>
+                        <span class="d-time">0.2s</span>
+                        <svg class="t-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                      </summary>
+                      <div class="t-body">
+                        <div>
+                          <div class="f-label">输出</div>
+                          <pre class="code">分割线 1px · border 60%
+圆角：列表项中等、图标按钮全圆
+动效：fast 120 / base 180 / exit 140</pre>
+                        </div>
+                      </div>
+                    </details>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- 阶段 3（运行中） -->
+            <div class="d-pane" data-pane="2" data-active="true">
+              <div class="pane-head">
+                <span class="pane-idx">03</span>
+                <span class="pane-name">实现</span>
+                <span class="pane-count">3 步</span>
+              </div>
+              <div class="ag" data-s="done">
+                <div class="ag-head">
+                  <span class="ag-dot"></span>
+                  <span class="ag-name">改写折叠头结构</span>
+                  <span class="ag-meta">2 次工具</span>
+                  <span class="d-time">2.1s</span>
+                  <button class="ag-open" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    运行详情
+                  </button>
+                </div>
+                <ul class="ag-tools">
+                  <li>
+                    <details>
+                      <summary class="t-row" data-s="done">
+                        <svg class="t-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>
+                        <span class="t-name">编辑文件</span>
+                        <span class="t-arg">workflow-tool-renderer.tsx</span>
+                        <span class="d-time">1.6s</span>
+                        <svg class="t-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                      </summary>
+                      <div class="t-body">
+                        <div>
+                          <div class="f-label">输出</div>
+                          <pre class="code">+ 折叠头加入阶段刻度
++ 整行改为 button，点击 requestWorkspaceInspector
+- 移除内联展开体</pre>
+                        </div>
+                      </div>
+                    </details>
+                  </li>
+                </ul>
+              </div>
+
+              <div class="ag" data-s="running">
+                <div class="ag-head">
+                  <span class="ag-dot"></span>
+                  <span class="ag-name wf-sweep">新增 WorkflowRunDetailContent</span>
+                  <span class="d-time">1.9s</span>
+                  <button class="ag-open" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+                    运行详情
+                  </button>
+                </div>
+                <ul class="ag-tools">
+                  <li>
+                    <details open>
+                      <summary class="t-row" data-s="running">
+                        <svg class="t-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+                        <span class="t-name wf-sweep">执行命令</span>
+                        <span class="t-arg">npm run test -- workflow</span>
+                        <span class="d-time">0.3s</span>
+                        <svg class="t-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                      </summary>
+                      <div class="t-body">
+                        <div>
+                          <div class="f-label">输出</div>
+                          <pre class="code"><span class="dim">$</span> npm run test -- workflow
+<span class="dim">RUN  v3.2.4  D:/quickforge</span>
+<span class="dim">…</span></pre>
+                        </div>
+                      </div>
+                    </details>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- 阶段 4 -->
+            <div class="d-pane" data-pane="3">
+              <div class="pane-head">
+                <span class="pane-idx">04</span>
+                <span class="pane-name">验证</span>
+                <span class="pane-count">1 步</span>
+              </div>
+              <p class="card-b" style="margin:6px 0 0;padding-left:2px">尚未开始。上一阶段完成后自动进入。</p>
+            </div>
+
+            <!-- 阶段 5 -->
+            <div class="d-pane" data-pane="4">
+              <div class="pane-head">
+                <span class="pane-idx">05</span>
+                <span class="pane-name">收尾</span>
+                <span class="pane-count">1 步</span>
+              </div>
+              <p class="card-b" style="margin:6px 0 0;padding-left:2px">尚未开始。</p>
+            </div>
+          </div>
+
+          <!-- ⑤ 日志 -->
+          <div>
+            <div class="d-block-title"><span class="anno">2</span>日志</div>
+            <ul class="d-logs">
+              <li class="d-log">phase "实现" 开始 · 并发 4</li>
+              <li class="d-log">agent "改写折叠头结构" 完成 · 2 次工具</li>
+              <li class="d-log">agent "新增 WorkflowRunDetailContent" 启动</li>
+              <li class="d-log">tool run_command 执行中 · npm run test</li>
+            </ul>
+          </div>
+
+          <!-- ⑥ 结果 / 脚本 -->
+          <details class="d-collapse">
+            <summary>
+              <span class="anno">3</span>
+              结果
+              <span class="d-collapse-count">已截断</span>
+            </summary>
+            <pre class="code">工作流尚未结束，结果将在全部阶段完成后写入。</pre>
+          </details>
+
+          <details class="d-collapse">
+            <summary>
+              <span class="anno">4</span>
+              脚本
+              <span class="d-collapse-count">42 行</span>
+            </summary>
+            <pre class="code"><span class="dim">// workflow script</span>
+phase('侦察')
+const found = await agent('定位渲染链路', { tools: ['grep_files', 'read_file'] })
+phase('设计')
+await agent('确定方案', { context: found })
+<span class="dim">…</span></pre>
+          </details>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <ul class="legend">
+    <li><span class="anno">1</span>概览：状态 / 总耗时 / 规模 / 预算，四件事一行读完，无需 hover。</li>
+    <li><span class="anno">2</span>日志：默认全显（不折叠），因为它是「为什么卡住」的第一线索。</li>
+    <li><span class="anno">3</span>结果：完成后才有内容，运行中显示占位文案，避免区块突然出现。</li>
+    <li><span class="anno">4</span>脚本：仅在 detailed 模式下展开，与现状一致。</li>
+  </ul>
+
+  <!-- ═══════════ 2. 交互三态 ═══════════ -->
+  <h2 class="sec">02 · 卡片交互三态</h2>
+  <p class="sec-sub">卡片不再是可展开的 <code>&lt;details&gt;</code>，而是一个 <code>&lt;button&gt;</code>：点击 = 打开/聚焦右侧 Tab。</p>
+
+  <div class="grid3">
+    <div class="card">
+      <span class="card-k">默认</span>
+      <p class="card-t">安静的一行</p>
+      <p class="card-b">状态 + 规模 + 阶段刻度 + 耗时。右上角入口提示默认隐藏，不抢视线。</p>
+      <div class="card-demo">
+        <div class="wf-card" data-open="false" style="cursor:default">
+          <svg class="wf-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+          <span class="wf-title">工作流已完成</span>
+          <span class="wf-meta">4 个智能体 · 12 个工具</span>
+          <span class="wf-ticks">
+            <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+            <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+            <i class="wf-tick" data-s="done"></i>
+          </span>
+          <span class="wf-time">8.4s</span>
+          <span class="wf-affordance">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+            <span>查看详情</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="card-k">悬停</span>
+      <p class="card-t">给出可点击信号</p>
+      <p class="card-b">整行浅背景 + 入口提示淡入（120ms）。不改变任何文字颜色，避免整卡「亮起来」。</p>
+      <div class="card-demo">
+        <div class="wf-card" data-open="false" style="cursor:default;background:color-mix(in oklab,var(--muted) 55%,transparent)">
+          <svg class="wf-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+          <span class="wf-title">工作流已完成</span>
+          <span class="wf-meta">4 个智能体 · 12 个工具</span>
+          <span class="wf-ticks">
+            <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+            <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+            <i class="wf-tick" data-s="done"></i>
+          </span>
+          <span class="wf-time">8.4s</span>
+          <span class="wf-affordance" style="opacity:1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+            <span>查看详情</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="card-k" data-tone="new">已打开</span>
+      <p class="card-t">与右侧 Tab 联动</p>
+      <p class="card-b">卡片常驻浅背景 + 入口提示变为强调色「已打开」。再点一次 = 聚焦已存在的 Tab（不新建）。</p>
+      <div class="card-demo">
+        <div class="wf-card" data-open="true" style="cursor:default">
+          <svg class="wf-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+          <span class="wf-title">工作流已完成</span>
+          <span class="wf-meta">4 个智能体 · 12 个工具</span>
+          <span class="wf-ticks">
+            <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+            <i class="wf-tick" data-s="done"></i><i class="wf-tick" data-s="done"></i>
+            <i class="wf-tick" data-s="done"></i>
+          </span>
+          <span class="wf-time">8.4s</span>
+          <span class="wf-affordance" style="opacity:1;color:color-mix(in oklab,var(--accent-fg) 88%,transparent)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+            <span>已打开</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ 3. 面板结构 ═══════════ -->
+  <h2 class="sec">03 · 右侧面板结构</h2>
+  <p class="sec-sub">六块，纵向一条滚动流；阶段切换是「局部替换」，不重排整页。</p>
+
+  <div class="card" style="margin-top:0">
+    <table class="spec">
+      <thead><tr><th>区块</th><th>内容</th><th>与现有实现的关系</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>① 概览</td>
+          <td>状态 pill · 总耗时 · 规模 · 并发/预算/上限</td>
+          <td>数据来自 <code>WorkflowRunView</code> 的派生字段（<code>agentCount</code> / <code>toolCount</code> / <code>durationMs</code> / <code>maxAgents</code>…），无需改服务端</td>
+        </tr>
+        <tr>
+          <td>② 分段进度</td>
+          <td>每个阶段一段，宽度等分，颜色 = 阶段状态</td>
+          <td>由 <code>view.phases</code> 推导，纯展示</td>
+        </tr>
+        <tr>
+          <td>③ 阶段胶囊</td>
+          <td><code>role="tablist"</code>，可横向滚动；点选切换 ④</td>
+          <td>新增本地 state <code>activePhaseIndex</code>，默认 = 运行中阶段 / 首个失败阶段 / 0</td>
+        </tr>
+        <tr>
+          <td>④ 阶段明细</td>
+          <td>Agent 卡（名称 + 状态点 + 工具数 + 耗时 + 「运行详情」按钮）→ 工具行（可展开 input/output）</td>
+          <td>复用现有 <code>WorkflowAgentRow</code> / <code>WorkflowToolCallRow</code> 的数据与 <code>workflowPhaseSteps</code> 交错逻辑，只换容器样式</td>
+        </tr>
+        <tr>
+          <td>⑤ 日志</td>
+          <td>等宽小字，error 级变红；默认展开</td>
+          <td>直接用 <code>phase.logs</code>，但改为跨阶段合并（附阶段前缀）</td>
+        </tr>
+        <tr>
+          <td>⑥ 结果 / 脚本</td>
+          <td>两个折叠区，脚本仅 detailed 模式出现</td>
+          <td>沿用现有 <code>resultPreview</code> / <code>params.script</code>，与聊天内逻辑一致</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ═══════════ 4. 复用现有链路 ═══════════ -->
+  <h2 class="sec">04 · 复用 run_subagent 的既有链路</h2>
+  <p class="sec-sub">
+    右侧打开这件事项目里已经跑通一次（Agent 行 → Inspector 运行详情 Tab），工作流只是把它从「Agent 粒度」提到「整个 run」粒度，不需要新机制。
+  </p>
+
+  <div class="card" style="margin-top:0">
+    <table class="spec">
+      <thead><tr><th>环节</th><th>run_subagent 现状</th><th>run_workflow 新增</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>触发</td>
+          <td><code>&lt;button&gt;</code> → <code>onOpen</code> + dispatch <code>quickforge:open-subagent-run</code></td>
+          <td>同样 dispatch <code>quickforge:open-workflow-run</code>（新常量，同一个 window 事件范式）</td>
+        </tr>
+        <tr>
+          <td>请求</td>
+          <td><code>requestWorkspaceInspector({ kind:'subagent', payload })</code></td>
+          <td><code>requestWorkspaceInspector({ kind:'workflow', payload })</code>，在 <code>workspace-types.ts</code> 的联合里加一个分支</td>
+        </tr>
+        <tr>
+          <td>Tab 去重</td>
+          <td><code>upsertSubagentRunTab</code> 按 <code>runId</code> 就地替换</td>
+          <td><code>upsertWorkflowRunTab</code> 同样按 <code>runId</code> 去重 —— 重复点击只聚焦，不开新 Tab</td>
+        </tr>
+        <tr>
+          <td>实时刷新</td>
+          <td>订阅 <code>subagentRunStore</code></td>
+          <td>订阅新的 <code>workflowRunStore</code>（或复用 <code>WorkflowAgentRunEventPublisher</code> 的入口，额外发布 run 级快照）</td>
+        </tr>
+        <tr>
+          <td>内容组件</td>
+          <td><code>SubagentRunDetailContent</code>（<code>.quickforge-subagent-*</code>）</td>
+          <td><code>WorkflowRunDetailContent</code>（<code>.quickforge-workflow-detail-*</code>），结构同构</td>
+        </tr>
+        <tr>
+          <td>Agent 二级跳转</td>
+          <td>—</td>
+          <td>面板内 Agent 卡保留「运行详情 ↗」，再开一个 subagent Tab（已有能力，零成本）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ═══════════ 5. 决策点 ═══════════ -->
+  <h2 class="sec">05 · 需要你拍板的三个点</h2>
+
+  <div class="grid3">
+    <div class="card">
+      <span class="card-k">决策 1</span>
+      <p class="card-t">聊天内是否彻底取消展开？</p>
+      <p class="card-b">
+        <b>推荐：取消。</b>内联展开与右侧详情是同一份数据的两套布局，长期必然漂移（现在 CSS 里已经有两套字号补偿）。
+        取消后聊天区只剩一行，滚动成本最低。
+      </p>
+      <p class="card-b" style="margin-top:8px;color:var(--muted-foreground)">
+        若担心「用户没发现右侧」，可在首次使用时给一次 1.5s 的入口提示，而不是保留内联展开。
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="card-k">决策 2</span>
+      <p class="card-t">阶段切换用胶囊还是纵向全展开？</p>
+      <p class="card-b">
+        <b>推荐：胶囊。</b>面板最小宽 340px，纵向全展开时 5 个阶段 + 12 个工具约 1400px 高，需要滚很久；
+        胶囊把「定位到某阶段」变成一次点击。
+      </p>
+      <p class="card-b" style="margin-top:8px;color:var(--muted-foreground)">
+        代价：失去「一眼看到全貌」。已用 ② 分段进度条补偿。
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="card-k">决策 3</span>
+      <p class="card-t">运行中是否自动跟随当前阶段？</p>
+      <p class="card-b">
+        <b>推荐：仅首次自动跟随。</b>打开面板时定位到运行中阶段；之后用户手动选了别的阶段就不再抢焦点，
+        只把胶囊上的状态点更新。
+      </p>
+      <p class="card-b" style="margin-top:8px;color:var(--muted-foreground)">
+        需要记一个 <code>userPickedPhase</code> 布尔，逻辑很小。
+      </p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <span class="card-k" data-tone="new">实现风险</span>
+    <table class="spec">
+      <thead><tr><th>项</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Tab 类型要改 5 处</td>
+          <td><code>WorkspacePanelTabKind</code> 联合、<code>panelTabMeta/Label/Title</code>、内容分发、<code>PANEL_TAB_ITEMS</code>、持久化白名单 —— 与现有 subagent 完全同构，照抄即可</td>
+        </tr>
+        <tr>
+          <td>测试断言</td>
+          <td><code>tests/frontend/workflow-renderer.test.ts</code> 有「默认收起」「tool zone 嵌套」「CSS 源码正则」三类断言，取消内联展开后需整组重写</td>
+        </tr>
+        <tr>
+          <td>打开态联动</td>
+          <td>卡片「已打开」需要知道当前 activePanelTab 是不是自己 —— 走 <code>workspaceInspectorOpen</code> + <code>activePanelTabId</code>，需在 ToolMessage 层注入或用一个轻量 store 广播</td>
+        </tr>
+        <tr>
+          <td>窄视口</td>
+          <td>&lt; 1024px 时面板变全屏浮层，卡片点击后整页被盖住；需保证关闭浮层后卡片仍是「已打开」状态，避免误以为丢了</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot">
+    设计稿 · <code>docs/design/workflow-inspector-panel.html</code> ·
+    令牌来源 <code>src/index.css</code> · 面板宽度 <code>src/components/workspace/useInspectorLayout.ts</code> ·
+    链路参照 <code>src/lib/subagent-run-detail.ts</code> / <code>src/App.tsx</code>
+  </div>
+
+</div>
+
+<script>
+  /* 主题 */
+  const themeBtn = document.getElementById('themeBtn');
+  const setThemeLabel = () => {
+    themeBtn.textContent = document.documentElement.classList.contains('dark') ? '切换浅色' : '切换深色';
+  };
+  themeBtn.addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark');
+    setThemeLabel();
+  });
+  if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.classList.add('dark');
+  }
+  setThemeLabel();
+
+  /* 标注 */
+  const annoBtn = document.getElementById('annoBtn');
+  annoBtn.addEventListener('click', () => {
+    const on = document.body.classList.toggle('show-anno');
+    annoBtn.setAttribute('aria-pressed', String(on));
+    annoBtn.textContent = on ? '隐藏标注' : '显示标注';
+  });
+
+  /* 卡片 ↔ 面板联动 */
+  const card = document.getElementById('wfCard');
+  const insp = document.getElementById('inspCol');
+  const aff = document.getElementById('wfAfford');
+  const syncCard = () => {
+    const open = insp.dataset.open === 'true';
+    card.dataset.open = String(open);
+    card.setAttribute('aria-expanded', String(open));
+    aff.textContent = open ? '已打开' : '查看详情';
+  };
+  const togglePanel = () => {
+    insp.dataset.open = insp.dataset.open === 'true' ? 'false' : 'true';
+    syncCard();
+  };
+  card.addEventListener('click', togglePanel);
+  card.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePanel(); }
+  });
+  document.getElementById('inspClose').addEventListener('click', () => {
+    insp.dataset.open = 'false';
+    syncCard();
+  });
+  syncCard();
+
+  /* 阶段切换 */
+  const chips = Array.from(document.querySelectorAll('.d-chip'));
+  const panes = Array.from(document.querySelectorAll('.d-pane'));
+  chips.forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const idx = chip.dataset.phase;
+      chips.forEach((c) => c.setAttribute('aria-selected', String(c === chip)));
+      panes.forEach((p) => {
+        if (p.dataset.pane === idx) p.setAttribute('data-active', 'true');
+        else p.removeAttribute('data-active');
+      });
+    });
+  });
+</script>
+</body>
+</html>

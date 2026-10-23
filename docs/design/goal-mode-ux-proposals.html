@@ -1,0 +1,1180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Goal 模式 · UX / 流程优化设计方案</title>
+<style>
+:root{
+  --bg: oklch(1 0 0);
+  --fg: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --muted: oklch(0.97 0 0);
+  --mfg: oklch(0.556 0 0);
+  --bd: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-fg: oklch(0.985 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --done: oklch(0.55 0.13 158);
+  --radius: 0.625rem;
+  --main-bg: #ffffff;
+  --sidebar-bg: #f3f4f6;
+  /* 建议新增的 goal tone token（现状是 index.css 里的硬编码 hex） */
+  --goal-active: #3478d4;
+  --goal-warning: #b4670a;
+  --goal-success: rgb(4 143 101);
+  --goal-danger: var(--destructive);
+  --fast: 120ms; --base: 180ms; --exit: 140ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color-scheme: light;
+}
+html.dark{
+  --bg: oklch(0.145 0 0);
+  --fg: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --muted: oklch(0.269 0 0);
+  --mfg: oklch(0.708 0 0);
+  --bd: oklch(0.275 0 0);
+  --input: oklch(0.325 0 0);
+  --ring: oklch(0.556 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-fg: oklch(0.205 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --done: oklch(0.75 0.15 160);
+  --main-bg: oklch(0.145 0 0);
+  --sidebar-bg: oklch(0.205 0 0);
+  --goal-active: oklch(0.74 0.12 253);
+  --goal-warning: oklch(0.8 0.13 74);
+  --goal-success: oklch(0.78 0.14 162);
+  --goal-danger: var(--destructive);
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:26px 20px 80px;
+  background:var(--sidebar-bg); color:var(--fg);
+  font-family:var(--sans); font-size:14px; line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1090px;margin:0 auto}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-0.01em}
+.sub{margin:5px 0 0;max-width:78ch;color:var(--mfg);font-size:12.5px}
+.btns{display:flex;gap:6px;flex:0 0 auto;flex-wrap:wrap}
+.ui{
+  height:28px;padding:0 10px;border:1px solid var(--bd);border-radius:8px;
+  background:var(--bg);color:var(--mfg);font:inherit;font-size:11.5px;cursor:pointer;
+  transition:background var(--fast) var(--ease),color var(--fast) var(--ease),border-color var(--fast) var(--ease);
+}
+.ui:hover{background:var(--muted);color:var(--fg)}
+.ui[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+
+nav.tabs{
+  position:sticky;top:0;z-index:20;display:flex;gap:4px;flex-wrap:wrap;
+  margin:16px 0 0;padding:8px 0 8px;background:var(--sidebar-bg);
+  border-bottom:1px solid color-mix(in oklab,var(--bd) 60%,transparent);
+}
+nav.tabs a{
+  padding:5px 10px;border-radius:8px;color:var(--mfg);font-size:12px;text-decoration:none;
+  transition:background var(--fast) var(--ease),color var(--fast) var(--ease);
+}
+nav.tabs a:hover{background:var(--muted);color:var(--fg)}
+
+section{margin:34px 0 0;scroll-margin-top:64px}
+.sec-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+h2{margin:0;font-size:15px;font-weight:600}
+.sec-no{font:600 11px/1 var(--mono);color:var(--mfg);letter-spacing:.06em}
+.sec-sub{margin:0 0 14px;color:var(--mfg);font-size:12.5px;max-width:80ch}
+
+.card{
+  border:1px solid color-mix(in oklab,var(--bd) 80%,transparent);
+  border-radius:12px;background:var(--bg);padding:14px;
+}
+.card + .card{margin-top:12px}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.card-t{font-size:12.5px;font-weight:600}
+.tag{
+  display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:999px;
+  font-size:10.5px;font-weight:600;letter-spacing:.02em;
+  border:1px solid color-mix(in oklab,var(--bd) 70%,transparent);color:var(--mfg);
+}
+.tag.reco{color:var(--done);border-color:color-mix(in oklab,var(--done) 40%,transparent);background:color-mix(in oklab,var(--done) 8%,transparent)}
+.tag.risk{color:var(--destructive);border-color:color-mix(in oklab,var(--destructive) 34%,transparent);background:color-mix(in oklab,var(--destructive) 7%,transparent)}
+
+/* ---------- 应用外壳（演示用） ---------- */
+.app{
+  display:flex;height:430px;border:1px solid color-mix(in oklab,var(--bd) 85%,transparent);
+  border-radius:13px;overflow:hidden;background:var(--main-bg);
+  box-shadow:0 18px 40px -34px rgb(15 23 42 / .55);
+}
+.app.tall{height:560px}
+.app .side{
+  width:166px;flex:0 0 auto;background:var(--sidebar-bg);padding:9px 8px;
+  border-right:1px solid color-mix(in oklab,var(--bd) 55%,transparent);
+  display:flex;flex-direction:column;gap:1px;font-size:11.5px;overflow:hidden;
+}
+.app .side .s-brand{font-size:11.5px;font-weight:600;color:var(--fg);padding:2px 6px 8px}
+.app .side .s-grp{font-size:10px;color:var(--mfg);padding:8px 6px 3px;font-weight:500}
+.app .side .s-row{
+  padding:4px 6px;border-radius:6px;color:var(--mfg);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;
+}
+.app .side .s-row.on{background:color-mix(in oklab,var(--muted) 92%,transparent);color:var(--fg)}
+.app .main{flex:1 1 auto;display:flex;flex-direction:column;min-width:0}
+.app .chat{flex:1 1 auto;overflow:auto;padding:14px 18px 6px;display:flex;flex-direction:column;gap:11px}
+.app .composer-wrap{flex:0 0 auto;padding:7px 16px 15px}
+.app .insp{
+  width:266px;flex:0 0 auto;border-left:1px solid color-mix(in oklab,var(--bd) 55%,transparent);
+  background:var(--main-bg);display:flex;flex-direction:column;min-height:0;
+}
+.app .insp .i-tab{
+  display:flex;gap:2px;padding:7px 9px;border-bottom:1px solid color-mix(in oklab,var(--bd) 55%,transparent);
+  font-size:11px;
+}
+.app .insp .i-tab span{padding:3px 8px;border-radius:6px;color:var(--mfg)}
+.app .insp .i-tab span.on{background:var(--muted);color:var(--fg)}
+
+.msg{display:flex;gap:8px;font-size:12.5px;line-height:1.6;color:var(--fg)}
+.msg .av{
+  width:19px;height:19px;flex:0 0 auto;border-radius:6px;margin-top:1px;
+  background:color-mix(in oklab,var(--muted) 90%,transparent);
+  display:grid;place-items:center;font-size:9px;color:var(--mfg);font-weight:600;
+}
+.msg.user .av{background:color-mix(in oklab,var(--primary) 12%,transparent);color:var(--fg)}
+.msg p{margin:0}
+.msg .tool{
+  display:flex;align-items:center;gap:6px;color:var(--mfg);font-size:11.5px;
+  padding:1px 0;
+}
+.msg .tool code{font-family:var(--mono);font-size:11px;color:var(--mfg)}
+.msg .tool .ok{color:var(--done)}
+
+/* ---------- 通用 goal 原子 ---------- */
+.gbtn{
+  display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;
+  border:1px solid transparent;border-radius:8px;background:transparent;
+  color:var(--mfg);font:inherit;font-size:11.5px;font-weight:500;cursor:pointer;
+  transition:background var(--fast) var(--ease),color var(--fast) var(--ease),transform var(--fast) var(--ease);
+}
+.gbtn:hover{background:color-mix(in oklab,var(--muted) 72%,transparent);color:var(--fg)}
+.gbtn:active{transform:scale(.97)}
+.gbtn.ico{width:24px;padding:0;justify-content:center}
+.gbtn.solid{
+  background:var(--tone,var(--goal-active));color:#fff;
+  box-shadow:0 8px 18px -12px var(--tone,var(--goal-active));
+}
+.gbtn.solid:hover{background:var(--tone,var(--goal-active));color:#fff;filter:brightness(1.06)}
+.gbtn.ghost-bd{border-color:color-mix(in oklab,var(--bd) 80%,transparent)}
+.gbtn.danger:hover{color:var(--destructive)}
+.gbtn[disabled]{opacity:.45;cursor:not-allowed}
+.gbtn svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.gicon{width:16px;height:16px;flex:0 0 auto;color:var(--tone,var(--goal-active));display:inline-flex}
+.gicon svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+/* tone 由 data-state 驱动：.app 统一导出 --tone，子孙一律继承，组件不再自声明 */
+.app{--tone:var(--state-tone,var(--goal-active))}
+.app[data-state="active"]{--state-tone:var(--goal-active)}
+.app[data-state="waiting"]{--state-tone:var(--goal-warning)}
+.app[data-state="paused"]{--state-tone:var(--goal-warning)}
+.app[data-state="blocked"]{--state-tone:var(--goal-danger)}
+.app[data-state="done"]{--state-tone:var(--goal-success)}
+
+/* ---------- 现状：生产条带复刻 ---------- */
+.now-strip{
+  display:flex;width:fit-content;max-width:100%;align-items:center;gap:7px;
+  margin:0 auto 6px;padding:4px 8px 4px 10px;
+  border:1px solid var(--bd);border-radius:calc(var(--radius) + 2px);
+  background:color-mix(in oklab,var(--bg) 96%,var(--muted));
+  box-shadow:0 1px 2px rgb(15 23 42 / .04);
+  font-size:12px;
+}
+.now-strip .lab{color:var(--tone,var(--goal-active));font-size:12px;font-weight:650;white-space:nowrap}
+.now-strip .obj{color:var(--mfg);font-size:12px;max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.now-strip .sp{flex:1 1 auto;min-width:6px}
+.now-strip .act{
+  width:24px;height:24px;display:inline-grid;place-items:center;border:0;border-radius:var(--radius);
+  background:transparent;color:var(--mfg);cursor:pointer;font-size:13px;
+}
+.now-strip .act:hover{background:color-mix(in oklab,var(--muted) 60%,transparent);color:var(--fg)}
+.now-strip .act svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.now-strip .clear{color:var(--mfg)}
+.now-strip .clear:hover{color:var(--destructive)}
+
+/* ---------- 方案 A：目标卡 ---------- */
+.goalA{
+  display:flex;flex-direction:column;gap:7px;
+  padding:8px 8px 8px 10px;margin:0 0 7px;
+  border:1px solid color-mix(in oklab,var(--bd) 84%,var(--tone) 16%);
+  border-radius:calc(var(--radius) + 2px);
+  background:color-mix(in oklab,var(--bg) 96%,var(--muted));
+  box-shadow:0 1px 2px rgb(15 23 42 / .04);
+  transition:border-color var(--base) var(--ease),background var(--base) var(--ease);
+}
+.goalA[data-state="paused"]{background:color-mix(in oklab,var(--bg) 99%,var(--muted))}
+.goalA .row{display:flex;align-items:center;gap:8px;min-width:0}
+.goalA .dot{
+  width:7px;height:7px;flex:0 0 auto;border-radius:999px;background:var(--tone);
+  box-shadow:0 0 0 3px color-mix(in oklab,var(--tone) 15%,transparent);
+}
+.goalA[data-state="active"] .dot,.goalA[data-state="waiting"] .dot{animation:g-pulse 2s var(--ease) infinite}
+@keyframes g-pulse{0%,100%{box-shadow:0 0 0 3px color-mix(in oklab,var(--tone) 15%,transparent)}50%{box-shadow:0 0 0 5px color-mix(in oklab,var(--tone) 4%,transparent)}}
+.goalA .word{font-size:12px;font-weight:650;color:var(--tone);letter-spacing:.01em;white-space:nowrap}
+.goalA .phase{font-size:11px;color:var(--mfg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.goalA .objective{
+  font-size:12.5px;line-height:1.5;color:var(--fg);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.goalA .meta{display:flex;align-items:center;gap:9px;font-size:10.5px;color:var(--mfg);min-width:0}
+.goalA .segs{display:flex;gap:2px;flex:0 0 auto}
+.goalA .segs i{width:11px;height:3px;border-radius:999px;background:color-mix(in oklab,var(--mfg) 26%,transparent)}
+.goalA .segs i.on{background:var(--done)}
+.goalA .segs i.miss{background:color-mix(in oklab,var(--destructive) 55%,transparent)}
+.goalA .chev{transition:transform var(--base) var(--ease)}
+.goalA[data-open="true"] .chev{transform:rotate(180deg)}
+.goalA .panel{
+  display:none;flex-direction:column;gap:8px;margin-top:1px;padding-top:9px;
+  border-top:1px solid color-mix(in oklab,var(--bd) 60%,transparent);
+  animation:g-in var(--base) var(--ease);
+}
+.goalA[data-open="true"] .panel{display:flex}
+@keyframes g-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+.goalA .crit{display:flex;gap:7px;align-items:flex-start;font-size:11.5px;line-height:1.5}
+.goalA .crit .ci{width:13px;height:13px;flex:0 0 auto;margin-top:1px;border-radius:999px;border:1.5px solid color-mix(in oklab,var(--mfg) 40%,transparent)}
+.goalA .crit.pass .ci{background:var(--done);border-color:var(--done);position:relative}
+.goalA .crit.pass .ci::after{content:"";position:absolute;left:3.4px;top:1.2px;width:4px;height:7px;border:solid #fff;border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+.goalA .crit.fail .ci{border-color:var(--destructive);background:color-mix(in oklab,var(--destructive) 12%,transparent)}
+.goalA .crit .ct{color:var(--fg);flex:1 1 auto;min-width:0}
+.goalA .crit.dim .ct{color:var(--mfg)}
+.goalA .crit .ev{color:var(--mfg);font-size:10px;white-space:nowrap}
+.goalA .divider{height:1px;background:color-mix(in oklab,var(--bd) 45%,transparent)}
+.goalA .budget{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--mfg)}
+.goalA .bar{width:74px;height:4px;border-radius:999px;background:color-mix(in oklab,var(--muted) 90%,transparent);overflow:hidden}
+.goalA .bar > b{display:block;height:100%;border-radius:999px;background:var(--tone)}
+.goalA .acts{display:flex;gap:6px;align-items:center}
+
+/* ---------- 方案 B：顶部停靠 ---------- */
+.dock-wrap{padding:0 0 4px;position:sticky;top:0;z-index:3;background:var(--main-bg)}
+.dock{
+  display:flex;align-items:center;gap:9px;height:36px;padding:0 6px 0 11px;
+  border-bottom:1px solid color-mix(in oklab,var(--bd) 62%,transparent);
+  background:color-mix(in oklab,var(--bg) 97%,var(--muted));
+  transition:background var(--base) var(--ease);
+}
+.dock:hover{background:color-mix(in oklab,var(--bg) 92%,var(--muted))}
+.dock .obj{font-size:12px;color:var(--fg);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dock .sep{width:1px;height:14px;background:color-mix(in oklab,var(--bd) 70%,transparent);flex:0 0 auto}
+.dock .ring{width:17px;height:17px;flex:0 0 auto;transform:rotate(-90deg)}
+.dock .ring circle{fill:none;stroke-width:2.4}
+.dock .ring .t{stroke:color-mix(in oklab,var(--mfg) 28%,transparent)}
+.dock .ring .p{stroke:var(--tone);stroke-linecap:round;transition:stroke-dashoffset var(--base) var(--ease)}
+.dock .cnt{font-size:10.5px;color:var(--mfg);font-variant-numeric:tabular-nums;white-space:nowrap}
+.dock-pop{
+  border:1px solid color-mix(in oklab,var(--bd) 80%,transparent);border-top:0;
+  border-radius:0 0 10px 10px;background:var(--bg);
+  box-shadow:0 16px 30px -24px rgb(15 23 42 / .5);
+  padding:10px 12px;display:none;flex-direction:column;gap:7px;
+}
+.dock-wrap[data-open="true"] .dock-pop{display:flex;animation:g-in var(--base) var(--ease)}
+
+/* ---------- 方案 C：计划门禁卡 / 迷你胶囊 / 完成卡 ---------- */
+.plan-card{
+  border:1px solid color-mix(in oklab,var(--bd) 84%,var(--goal-active) 16%);
+  border-radius:11px;background:var(--bg);padding:11px 12px;
+  display:flex;flex-direction:column;gap:8px;
+  box-shadow:0 2px 10px -8px rgb(15 23 42 / .35);
+}
+.plan-card .ph{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--fg)}
+.plan-card .ph .tagw{color:var(--goal-active);border-color:color-mix(in oklab,var(--goal-active) 34%,transparent);background:color-mix(in oklab,var(--goal-active) 8%,transparent)}
+.plan-card .pobj{font-size:12.5px;line-height:1.5}
+/* 通用（跨方案复用的验收行 / 目标正文 / 操作行） */
+.pobj{font-size:12.5px;line-height:1.5;color:var(--fg)}
+.pf{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.crit{display:flex;gap:7px;align-items:flex-start;font-size:11.5px;line-height:1.5}
+.crit .ci{width:13px;height:13px;flex:0 0 auto;margin-top:1.5px;border-radius:999px;border:1.5px solid color-mix(in oklab,var(--mfg) 40%,transparent)}
+.crit.pass .ci{background:var(--done);border-color:var(--done);position:relative}
+.crit.pass .ci::after{content:"";position:absolute;left:3.4px;top:1.2px;width:4px;height:7px;border:solid #fff;border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+.crit.fail .ci{border-color:var(--destructive);background:color-mix(in oklab,var(--destructive) 12%,transparent)}
+.crit .ct{color:var(--fg);flex:1 1 auto;min-width:0}
+.crit.dim .ct{color:var(--mfg)}
+.plan-card .plist{display:flex;flex-direction:column;gap:4px;font-size:11.5px}
+.plan-card .plist .row{display:flex;gap:6px;align-items:flex-start;color:var(--mfg)}
+.plan-card .plist .row b{font-weight:600;color:var(--fg)}
+.plan-card .pf{display:flex;gap:6px;align-items:center;padding-top:2px}
+.plan-card .scope{font-size:10.5px;color:var(--mfg);font-family:var(--mono)}
+
+.mini-pill{
+  display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px 0 7px;
+  border-radius:999px;border:1px solid color-mix(in oklab,var(--bd) 75%,transparent);
+  background:color-mix(in oklab,var(--muted) 45%,transparent);font-size:11px;color:var(--mfg);
+  width:fit-content;
+}
+.mini-pill .dot{width:6px;height:6px;border-radius:999px;background:var(--tone,var(--goal-active))}
+.mini-pill b{color:var(--fg);font-weight:600}
+
+.done-card{
+  border:1px solid color-mix(in oklab,var(--goal-success) 26%,var(--bd));
+  border-radius:11px;background:color-mix(in oklab,var(--goal-success) 4%,var(--bg));
+  padding:11px 12px;display:flex;flex-direction:column;gap:8px;
+}
+.done-card .dh{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--goal-success)}
+.done-card .stats{display:flex;gap:14px;font-size:10.5px;color:var(--mfg);font-variant-numeric:tabular-nums}
+.done-card .stats b{color:var(--fg);font-weight:600}
+
+/* 右侧面板（方案 A 详情） */
+.insp-body{padding:11px 12px;display:flex;flex-direction:column;gap:10px;overflow:auto;font-size:11.5px}
+.insp-seg{display:inline-flex;gap:2px;padding:2px;background:var(--muted);border-radius:9px;align-self:flex-start}
+.insp-seg span{padding:3px 11px;border-radius:7px;font-size:11px;font-weight:550;color:var(--mfg)}
+.insp-seg span.on{background:var(--bg);color:var(--fg);box-shadow:0 1px 2px rgb(15 23 42 / .04)}
+.insp-status{display:flex;align-items:center;gap:6px;color:var(--mfg);font-size:11px}
+.insp-status .dot{width:7px;height:7px;border-radius:999px;background:var(--tone,var(--goal-active))}
+.insp-status b{color:var(--tone,var(--goal-active));font-weight:600}
+.insp h3{margin:0;font-size:12.5px;font-weight:600;line-height:1.5}
+.insp .stitle{font-size:10.5px;color:var(--mfg);font-weight:600;letter-spacing:.02em;margin-top:2px}
+.insp .crit{display:flex;gap:6px;font-size:11px;line-height:1.5}
+.insp .crit .ci{width:12px;height:12px;flex:0 0 auto;margin-top:2px;border-radius:999px;border:1.5px solid color-mix(in oklab,var(--mfg) 40%,transparent)}
+.insp .crit.pass .ci{background:var(--done);border-color:var(--done);position:relative}
+.insp .crit.pass .ci::after{content:"";position:absolute;left:3px;top:.8px;width:3.6px;height:6.4px;border:solid #fff;border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+.insp .foot{margin-top:auto;border-top:1px solid color-mix(in oklab,var(--bd) 60%,transparent);padding:8px 12px;display:flex;gap:6px}
+
+/* 输入框 */
+.composer{
+  border:1px solid color-mix(in oklab,var(--bd) 78%,transparent);
+  border-radius:22px;background:color-mix(in oklab,var(--card) 86%,transparent);
+  box-shadow:0 18px 46px -34px rgb(15 23 42 / .45);
+  padding:9px 10px 8px 14px;display:flex;align-items:flex-end;gap:8px;
+}
+.composer .ph{flex:1 1 auto;color:var(--mfg);font-size:12.5px;padding:3px 0 4px}
+.composer .send{
+  width:26px;height:26px;flex:0 0 auto;border-radius:8px;background:var(--primary);color:var(--primary-fg);
+  display:grid;place-items:center;
+}
+.composer .send svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* 问题清单 */
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+.issue{
+  border:1px solid color-mix(in oklab,var(--bd) 78%,transparent);border-radius:11px;
+  background:var(--bg);padding:11px 12px;display:flex;flex-direction:column;gap:5px;
+}
+.issue .ih{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600}
+.issue .ih .n{font:600 10px/1 var(--mono);color:var(--mfg)}
+.issue p{margin:0;font-size:11.5px;color:var(--mfg);line-height:1.6}
+.issue p b{color:var(--fg);font-weight:600}
+.issue .fix{font-size:11px;color:var(--fg);border-top:1px dashed color-mix(in oklab,var(--bd) 70%,transparent);padding-top:6px;margin-top:2px}
+.issue .fix em{font-style:normal;color:var(--done);font-weight:600}
+
+/* 方案说明列表 */
+.pros{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+@media (max-width:720px){.pros{grid-template-columns:1fr}}
+.pros > div{border:1px solid color-mix(in oklab,var(--bd) 70%,transparent);border-radius:10px;padding:9px 11px}
+.pros h4{margin:0 0 5px;font-size:11.5px;font-weight:600}
+.pros ul{margin:0;padding-left:15px;font-size:11.5px;color:var(--mfg);line-height:1.7}
+.pros ul li::marker{color:color-mix(in oklab,var(--mfg) 60%,transparent)}
+
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid color-mix(in oklab,var(--bd) 60%,transparent);vertical-align:top}
+th{color:var(--mfg);font-weight:600;font-size:10.5px;letter-spacing:.02em}
+td code,th code{font-family:var(--mono);font-size:10.5px;background:color-mix(in oklab,var(--muted) 70%,transparent);padding:1px 4px;border-radius:4px}
+.tbl-wrap{overflow-x:auto}
+
+.note{
+  border-left:2px solid color-mix(in oklab,var(--goal-active) 45%,transparent);
+  padding:2px 0 2px 10px;font-size:11.5px;color:var(--mfg);margin:10px 0 0;
+}
+.note b{color:var(--fg)}
+.hint{font-size:11px;color:var(--mfg);margin:8px 0 0}
+kbd{font-family:var(--mono);font-size:10.5px;border:1px solid var(--bd);border-bottom-width:2px;border-radius:4px;padding:0 4px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:860px){
+  .app .side{display:none}
+  .app .insp{display:none}
+  .app{height:auto;min-height:320px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div>
+      <h1>Goal 模式 · UX 与流程优化设计方案</h1>
+      <p class="sub">基于当前实现（<code>GoalControlStrip</code> 单行条带 + <code>GoalInspectorContent</code> 右侧面板）做的三套改造方案。所有演示可直接切换状态与深浅色，用于评审。</p>
+    </div>
+    <div class="btns">
+      <button class="ui" id="themeBtn">深色 / 浅色</button>
+      <button class="ui" data-state-btn="active" aria-pressed="true">执行中</button>
+      <button class="ui" data-state-btn="waiting" aria-pressed="false">需处理</button>
+      <button class="ui" data-state-btn="paused" aria-pressed="false">已暂停</button>
+      <button class="ui" data-state-btn="blocked" aria-pressed="false">受阻</button>
+      <button class="ui" data-state-btn="done" aria-pressed="false">已完成</button>
+    </div>
+  </div>
+
+  <nav class="tabs">
+    <a href="#now">01 现状诊断</a>
+    <a href="#a">02 方案 A · 目标卡</a>
+    <a href="#b">03 方案 B · 顶部停靠</a>
+    <a href="#c">04 方案 C · 计划门禁</a>
+    <a href="#flow">05 流程与时序</a>
+    <a href="#spec">06 规格与落地</a>
+  </nav>
+
+  <!-- ================= 01 现状 ================= -->
+  <section id="now">
+    <div class="sec-h"><span class="sec-no">01</span><h2>现状诊断</h2></div>
+    <p class="sec-sub">下面是把生产实现按真实尺寸复刻一遍（<code>.quickforge-goal-strip</code>：fit-content、单行、24px 图标按钮）。问题在多状态、长目标、窄屏下最明显。</p>
+
+    <div class="card">
+      <div class="card-h">
+        <span class="card-t">当前生产实现复刻 · 执行中</span>
+        <span class="tag">现状</span>
+      </div>
+      <div class="app" data-state="active">
+        <aside class="side">
+          <div class="s-brand">QuickForge</div>
+          <div class="s-grp">今天的会话</div>
+          <div class="s-row on">payments 重构</div>
+          <div class="s-row">登录页空态打磨</div>
+          <div class="s-row">发布 runbook 校对</div>
+        </aside>
+        <div class="main">
+          <div class="chat">
+            <div class="msg user"><span class="av">你</span><p>把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率不低于 80%。</p></div>
+            <div class="msg"><span class="av">AI</span><p>已按这个目标开始工作：先只读规划，计划保存后自动执行。</p></div>
+            <div class="msg"><span class="av">AI</span>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <div class="tool"><span class="ok">✓</span> 读取 <code>src/payments/*</code></div>
+                <div class="tool"><span class="ok">✓</span> 运行 <code>npm run test -- payments</code> <span style="opacity:.7">18 passed</span></div>
+                <div class="tool"><span style="opacity:.6">◌</span> 正在写 <code>SettlementService.ts</code></div>
+              </div>
+            </div>
+          </div>
+          <div class="composer-wrap">
+            <div class="now-strip">
+              <span class="gicon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".9" fill="currentColor" stroke="none"/></svg></span>
+              <span class="lab">执行中 · 3/20</span>
+              <span class="obj">把 payments 模块重构成统一结算抽象，补齐回滚测试…</span>
+              <span class="sp"></span>
+              <button class="act" title="暂停"><svg viewBox="0 0 24 24"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg></button>
+              <button class="act" title="编辑目标"><svg viewBox="0 0 24 24"><path d="M21.17 6.83a2.12 2.12 0 0 0-3-3L4 18v3h3z"/><path d="m14 6 4 4"/></svg></button>
+              <button class="act clear" title="清除目标">×</button>
+              <button class="act" title="查看说明"><svg viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></svg></button>
+            </div>
+            <div class="composer">
+              <span class="ph">给目标补充要求，或输入 / 唤起命令…</span>
+              <span class="send"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <span class="card-t">8 个具体问题</span>
+        <span class="tag risk">误触 / 认知负荷 / 流程黑盒</span>
+      </div>
+      <div class="grid2">
+        <div class="issue">
+          <div class="ih"><span class="n">P1</span>动作过载，且危险动作紧挨安全动作</div>
+          <p>一行里 <b>4 个 16px icon-only 按钮</b>（暂停 / 编辑 / 清除 / 详情）同权重相邻；「清除目标」和「查看详情」只差一个字形，而取消目标 <b>不会回滚已改动的文件</b>。</p>
+          <div class="fix">改：<em>保留 1 个主操作 + 1 个「⋯」菜单</em>，危险动作进菜单并二次确认。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">P2</span>没有进度感，只有轮次数字</div>
+          <p>条带只有 <code>3/20</code>，验收标准通过数完全不可见。用户无法回答「离完成还有多远」「还差哪几条」——而这正是 goal 模式唯一的价值主张。</p>
+          <div class="fix">改：<em>加验收分段条 3/6 + 就地展开清单</em>。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">P3</span>信息层级扁平</div>
+          <p>状态词、objective、轮次、错误全部 11–12px，只靠颜色区分。扫视时眼睛没有落点，长目标被 <code>ellipsis</code> 截成半句。</p>
+          <div class="fix">改：<em>状态 → 目标 → 进度 三级字号/字重</em>，目标允许 2 行。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">P4</span>同一个图标两种结果</div>
+          <p>预算耗尽时，暂停/继续按钮被路由成「打开详情」（<code>goalBudgetExtension().exhausted</code> 分支）。同位置、同图标、不同行为，用户不可预测。</p>
+          <div class="fix">改：<em>预算耗尽用独立文案「追加预算并继续」</em>，不换语义。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">P5</span>看任何细节都要跳面板</div>
+          <p>验收标准 / 证据 / 追加预算全部在右侧 <code>GoalInspectorContent</code>：条带 → 面板 → <code>&lt;details&gt;</code> → 按钮，3 层且丢失对话上下文。</p>
+          <div class="fix">改：<em>条带就地展开前 5 条验收</em>，面板保留为完整视图。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">P6</span>13 个状态词，用户只需要 5 个</div>
+          <p><code>planning / awaiting_confirmation / verifying / pausing / needs_review…</code> 被分别映射成 13 个中文词。用户真正关心的只有：在跑 / 要我做点什么 / 停了 / 卡了 / 完了。</p>
+          <div class="fix">改：<em>5 个主状态词 + 1 个次要阶段标签</em>。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">P7</span>取消确认把单行撑成两行</div>
+          <p>用 <code>:has()</code> + <code>flex-wrap</code> 在行内塞入说明文字和两个按钮，整条高度突变、居中的 fit-content 宽度重排，视觉跳一下。</p>
+          <div class="fix">改：<em>危险操作用锚定 popover</em>，不改变条带布局。</div>
+        </div>
+        <div class="issue">
+          <div class="ih"><span class="n">P8</span>流程是黑盒，收尾是空白</div>
+          <p>「规划轮只读 → 计划保存后自动执行」只有一行小字；用户没预期它会自己跑起来。<code>complete</code> 之后条带 <code>return null</code> 直接消失，没有结果汇总，也没有「基于这个结果开新目标」的出口。</p>
+          <div class="fix">改：<em>计划门禁卡（可选）+ 完成卡</em>。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 02 方案 A ================= -->
+  <section id="a">
+    <div class="sec-h"><span class="sec-no">02</span><h2>方案 A · 目标卡（推荐）</h2><span class="tag reco">推荐落地</span></div>
+    <p class="sec-sub">把单行条带升级成「两行折叠 / 就地展开」的目标卡：一行身份 + 一行目标 + 一行进度，主操作唯一，其余进菜单。展开即看验收清单、预算、最近报告——不用跳面板。</p>
+
+    <div class="card">
+      <div class="card-h">
+        <span class="card-t">A1 · 折叠态（执行中）</span>
+        <span class="tag">默认高度 ≈ 76px</span>
+      </div>
+      <div class="app" data-state="active">
+        <aside class="side">
+          <div class="s-brand">QuickForge</div>
+          <div class="s-grp">今天的会话</div>
+          <div class="s-row on">payments 重构</div>
+          <div class="s-row">登录页空态打磨</div>
+        </aside>
+        <div class="main">
+          <div class="chat">
+            <div class="msg user"><span class="av">你</span><p>把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率不低于 80%。</p></div>
+            <div class="msg"><span class="av">AI</span><p>已拆成 5 条验收标准，正在第 3 轮。</p>
+              <div style="display:flex;flex-direction:column;gap:2px;margin-top:3px">
+                <div class="tool"><span class="ok">✓</span> 运行 <code>npm run test -- payments</code> <span style="opacity:.7">18 passed</span></div>
+                <div class="tool"><span style="opacity:.6">◌</span> 正在写 <code>SettlementService.ts</code></div>
+              </div>
+            </div>
+          </div>
+          <div class="composer-wrap">
+            <div class="goalA" data-open="false">
+              <div class="row">
+                <span class="gicon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".9" fill="currentColor" stroke="none"/></svg></span>
+                <span class="dot"></span>
+                <span class="word" data-bind="word">执行中</span>
+                <span class="phase" data-bind="phase">正在运行 · 第 3 轮</span>
+                <span style="flex:1 1 auto"></span>
+                <button class="gbtn solid" data-bind="primaryBtn">
+                  <svg viewBox="0 0 24 24" data-bind="primaryIcon"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg>
+                  <span data-bind="primary">暂停</span>
+                </button>
+                <button class="gbtn ico ghost-bd" title="更多操作" data-menu><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+                <button class="gbtn ico chev" title="展开验收" data-toggle><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+              </div>
+              <div class="objective">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率达到 80% 以上。</div>
+              <div class="meta">
+                <span class="segs"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>
+                <span data-bind="critText">3/5 项验收通过</span>
+                <span style="opacity:.5">·</span>
+                <span>第 3/20 轮</span>
+                <span style="opacity:.5">·</span>
+                <span>12 分钟</span>
+              </div>
+            </div>
+            <div class="composer">
+              <span class="ph">给目标补充要求…</span>
+              <span class="send"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <aside class="insp">
+          <div class="i-tab"><span class="on">目标</span><span>文件</span><span>Git</span></div>
+          <div class="insp-body">
+            <div class="insp-seg"><span class="on">进度</span><span>编辑</span></div>
+            <div class="insp-status"><span class="dot"></span><b>执行中</b><span>· 第 3 轮 · 12 分钟</span></div>
+            <h3>把 payments 模块重构成统一结算抽象…</h3>
+            <div class="stitle">验收标准</div>
+            <div class="crit pass"><span class="ci"></span><span>SettlementService 抽出并接入 3 个调用点</span></div>
+            <div class="crit pass"><span class="ci"></span><span>18 个既有支付用例全绿</span></div>
+            <div class="crit pass"><span class="ci"></span><span>回滚路径有集成测试</span></div>
+            <div class="crit"><span class="ci"></span><span>覆盖率 ≥ 80%</span></div>
+          </div>
+          <div class="foot"><button class="gbtn solid">暂停</button><button class="gbtn ghost-bd">编辑目标</button></div>
+        </aside>
+      </div>
+      <p class="hint">箭头或整行头部（除按钮外）点击即展开；<kbd>Enter</kbd> 在同一行完成，焦点不丢。</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <span class="card-t">A2 · 就地展开（同一位置长高，不跳面板）</span>
+        <span class="tag">一次点击 = 全部上下文</span>
+      </div>
+      <div class="app tall" data-state="active">
+        <aside class="side">
+          <div class="s-brand">QuickForge</div>
+          <div class="s-grp">今天的会话</div>
+          <div class="s-row on">payments 重构</div>
+        </aside>
+        <div class="main">
+          <div class="chat">
+            <div class="msg"><span class="av">AI</span><p>第 3 轮开始：先补回滚路径的集成测试，再跑覆盖率。</p></div>
+          </div>
+          <div class="composer-wrap">
+            <div class="goalA" data-open="true">
+              <div class="row">
+                <span class="gicon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".9" fill="currentColor" stroke="none"/></svg></span>
+                <span class="dot"></span>
+                <span class="word" data-bind="word">执行中</span>
+                <span class="phase" data-bind="phase">正在运行 · 第 3 轮</span>
+                <span style="flex:1 1 auto"></span>
+                <button class="gbtn solid" data-bind="primaryBtn">
+                  <svg viewBox="0 0 24 24" data-bind="primaryIcon"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg>
+                  <span data-bind="primary">暂停</span>
+                </button>
+                <button class="gbtn ico ghost-bd" title="更多操作"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+                <button class="gbtn ico chev" title="收起" data-toggle><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+              </div>
+              <div class="objective">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率达到 80% 以上。</div>
+              <div class="meta">
+                <span class="segs"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>
+                <span data-bind="critText">3/5 项验收通过</span>
+                <span style="opacity:.5">·</span><span>第 3/20 轮</span>
+                <span style="opacity:.5">·</span><span>12 分钟</span>
+              </div>
+              <div class="panel">
+                <div class="crit pass"><span class="ci"></span><span class="ct">SettlementService 抽出并接入 3 个调用点</span><span class="ev">2 证据</span></div>
+                <div class="crit pass"><span class="ci"></span><span class="ct">18 个既有支付用例全绿</span><span class="ev">npm test</span></div>
+                <div class="crit pass"><span class="ci"></span><span class="ct">回滚路径有集成测试</span><span class="ev">2 证据</span></div>
+                <div class="crit"><span class="ci"></span><span class="ct">覆盖率 ≥ 80%</span><span class="ev">待验证</span></div>
+                <div class="crit dim"><span class="ci"></span><span class="ct">更新 docs/architecture/payments.zh-CN.md <span style="opacity:.65">· 可选</span></span></div>
+                <div class="divider"></div>
+                <div class="budget">
+                  <span>预算</span>
+                  <span class="bar"><b style="width:15%"></b></span>
+                  <span>3/20 轮</span>
+                  <span style="opacity:.5">·</span>
+                  <span>12/120 分钟</span>
+                </div>
+                <div class="acts">
+                  <button class="gbtn ghost-bd" style="font-size:11px">打开完整面板</button>
+                  <button class="gbtn ghost-bd" style="font-size:11px">编辑目标</button>
+                  <span style="flex:1 1 auto"></span>
+                  <button class="gbtn danger" style="font-size:11px">清除目标</button>
+                </div>
+              </div>
+            </div>
+            <div class="composer">
+              <span class="ph">给目标补充要求…</span>
+              <span class="send"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <span class="card-t">A3 · 状态收敛：5 个主状态 × 1 个阶段标签</span>
+        <span class="tag">点顶部状态按钮切换</span>
+      </div>
+      <div class="app" data-state="paused">
+        <div class="main">
+          <div class="chat">
+            <div class="msg"><span class="av">AI</span><p>已在第 3 轮结束时暂停。已完成 3 条验收，改动未回滚。</p></div>
+          </div>
+          <div class="composer-wrap">
+            <div class="goalA" data-open="false">
+              <div class="row">
+                <span class="gicon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".9" fill="currentColor" stroke="none"/></svg></span>
+                <span class="dot"></span>
+                <span class="word" data-bind="word">已暂停</span>
+                <span class="phase" data-bind="phase">暂停于第 3 轮结束</span>
+                <span style="flex:1 1 auto"></span>
+                <button class="gbtn solid" data-bind="primaryBtn">
+                  <svg viewBox="0 0 24 24" data-bind="primaryIcon"><path d="M8 6.5 17 12l-9 5.5Z"/></svg>
+                  <span data-bind="primary">继续</span>
+                </button>
+                <button class="gbtn ico ghost-bd" title="更多操作"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+                <button class="gbtn ico chev" data-toggle><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+              </div>
+              <div class="objective">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率达到 80% 以上。</div>
+              <div class="meta">
+                <span class="segs"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>
+                <span data-bind="critText">3/5 项验收通过</span>
+                <span style="opacity:.5">·</span><span>第 3/20 轮</span>
+                <span style="opacity:.5">·</span><span>12 分钟</span>
+              </div>
+            </div>
+            <div class="composer">
+              <span class="ph">补充要求（会在继续后生效）…</span>
+              <span class="send"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="tbl-wrap" style="margin-top:12px">
+        <table>
+          <thead><tr><th>主状态词（12px / 650）</th><th>覆盖的服务器状态</th><th>阶段标签（11px / 常规，次要）</th><th>主操作（唯一实心按钮）</th></tr></thead>
+          <tbody>
+            <tr><td>执行中</td><td><code>phase=active</code> + <code>runtime=executing</code></td><td>正在运行 · 第 N 轮</td><td>暂停</td></tr>
+            <tr><td>执行中</td><td><code>runtime=planning</code> / <code>verifying</code></td><td>正在规划 / 正在验证</td><td>暂停</td></tr>
+            <tr><td>需你处理</td><td><code>runtime=waiting_approval</code> / <code>waiting_input</code></td><td>等待工具审批 / 等待你回答</td><td>去处理（滚动定位到卡片）</td></tr>
+            <tr><td>已暂停</td><td><code>phase=paused</code>、<code>active+disarmed</code>(已中断)</td><td>暂停于第 N 轮结束</td><td>继续</td></tr>
+            <tr><td>已受阻</td><td><code>phase=blocked</code>、预算耗尽、连续失败</td><td>阻塞原因（一句话）</td><td>追加预算并继续 / 查看原因</td></tr>
+            <tr><td>已完成</td><td><code>phase=complete</code></td><td>5/5 项验收通过</td><td>保留 24h 的完成卡（见方案 C）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note"><b>为什么能减到 5 个：</b>「规划中 / 验证中 / 暂停中」是过程态，用户此刻不需要做决定，降级为次要标签即可；「等待审批 / 等待回答」本质都是「要你点一下」，合并为「需你处理」并把按钮变成<b>滚动定位</b>而不是打开新面板。</p>
+    </div>
+
+    <div class="pros">
+      <div>
+        <h4>收益</h4>
+        <ul>
+          <li>危险动作从 4 个并列降到 0 个显性（全进「⋯」），误触面消失</li>
+          <li>「还剩几条验收」成为第一眼信息，goal 的价值被看见</li>
+          <li>零跳转：看验收 / 看预算 / 追加预算全部就地完成</li>
+          <li>改动集中在 <code>GoalControlStrip.tsx</code> + 一段 <code>index.css</code>，不动服务端契约</li>
+        </ul>
+      </div>
+      <div>
+        <h4>代价 / 风险</h4>
+        <ul>
+          <li>条带从 32px 长到 ~76px，占 composer 上方空间（可用默认折叠缓解）</li>
+          <li><code>goal-control-strip.test.ts</code> 的商品契约需同步（child order / aria）</li>
+          <li>需要服务端暴露 criteria 汇总（<code>goal.criteria</code> 已有，纯前端可算）</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 03 方案 B ================= -->
+  <section id="b">
+    <div class="sec-h"><span class="sec-no">03</span><h2>方案 B · 顶部停靠（Sticky Dock）</h2><span class="tag">长会话友好</span></div>
+    <p class="sec-sub">目标不跟着输入框，而是钉在对话区顶部、随滚动吸顶。composer 保持干净，长目标会话里目标永远可见。点击展开成下方抽屉（不跳右侧面板）。</p>
+
+    <div class="card">
+      <div class="card-h">
+        <span class="card-t">B1 · 吸顶 Dock + 展开抽屉</span>
+        <span class="tag">单行 36px</span>
+      </div>
+      <div class="app tall" data-state="active">
+        <aside class="side">
+          <div class="s-brand">QuickForge</div>
+          <div class="s-grp">今天的会话</div>
+          <div class="s-row on">payments 重构</div>
+          <div class="s-row">登录页空态打磨</div>
+        </aside>
+        <div class="main">
+          <div class="dock-wrap" data-open="true">
+            <div class="dock">
+              <span class="gicon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".9" fill="currentColor" stroke="none"/></svg></span>
+              <span class="word" style="font-size:12px;font-weight:650;color:var(--tone)" data-bind="word">执行中</span>
+              <span class="sep"></span>
+              <span class="obj">把 payments 模块重构成统一结算抽象，补齐回滚测试…</span>
+              <span style="flex:1 1 auto"></span>
+              <svg class="ring" viewBox="0 0 20 20" aria-hidden="true"><circle class="t" cx="10" cy="10" r="7.5"/><circle class="p" cx="10" cy="10" r="7.5" stroke-dasharray="47.1" stroke-dashoffset="18.8"/></svg>
+              <span class="cnt">3/5</span>
+              <span class="sep"></span>
+              <span class="cnt">3/20 轮</span>
+              <button class="gbtn solid" style="height:24px;font-size:11.5px" data-bind="primaryBtn"><svg viewBox="0 0 24 24" data-bind="primaryIcon"><path d="M9.5 6v12"/><path d="M14.5 6v12"/></svg><span data-bind="primary">暂停</span></button>
+              <button class="gbtn ico chev" data-toggle title="展开" style="transform:rotate(180deg)"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+            </div>
+            <div class="dock-pop">
+              <div class="crit pass"><span class="ci"></span><span class="ct">SettlementService 抽出并接入 3 个调用点</span></div>
+              <div class="crit pass"><span class="ci"></span><span class="ct">18 个既有支付用例全绿</span></div>
+              <div class="crit pass"><span class="ci"></span><span class="ct">回滚路径有集成测试</span></div>
+              <div class="crit"><span class="ci"></span><span class="ct">覆盖率 ≥ 80%</span></div>
+              <div class="crit dim"><span class="ci"></span><span class="ct">更新 payments 架构文档 · 可选</span></div>
+              <div style="display:flex;gap:6px;padding-top:2px">
+                <button class="gbtn ghost-bd" style="font-size:11px">完整面板</button>
+                <button class="gbtn ghost-bd" style="font-size:11px">编辑目标</button>
+                <span style="flex:1"></span>
+                <button class="gbtn danger" style="font-size:11px">清除目标</button>
+              </div>
+            </div>
+          </div>
+          <div class="chat">
+            <div class="msg user" style="opacity:.9"><span class="av">你</span><p>上面那些失败用例先别管，专注回滚测试。</p></div>
+            <div class="msg"><span class="av">AI</span><p>明白，已经把它记进目标范围，不会扩散到其他模块。</p></div>
+            <div class="msg"><span class="av">AI</span>
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <div class="tool"><span class="ok">✓</span> 写入 <code>payments/rollback.spec.ts</code></div>
+                <div class="tool"><span style="opacity:.6">◌</span> 运行 <code>npm run test -- rollback</code></div>
+              </div>
+            </div>
+          </div>
+          <div class="composer-wrap">
+            <div class="composer">
+              <span class="ph">继续聊，或给目标补充要求…</span>
+              <span class="send"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="hint">滚到 200 条消息时，Dock 仍是页面唯一可见的目标入口；composer 上方不再有任何 goal 元素。</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">B2 · 极窄态 / 侧栏折叠时</span><span class="tag">响应式</span></div>
+      <div class="app" style="height:220px" data-state="waiting">
+        <div class="main">
+          <div class="dock-wrap" data-open="false">
+            <div class="dock">
+              <span class="gicon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".9" fill="currentColor" stroke="none"/></svg></span>
+              <span class="word" style="font-size:12px;font-weight:650;color:var(--tone)" data-bind="word">需你处理</span>
+              <span class="obj" style="color:var(--mfg)" data-bind="phase">等待工具审批：允许运行 npm publish?</span>
+              <span style="flex:1 1 auto"></span>
+              <button class="gbtn solid" style="height:24px;font-size:11.5px" data-bind="primaryBtn"><svg viewBox="0 0 24 24" data-bind="primaryIcon"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span data-bind="primary">去处理</span></button>
+            </div>
+          </div>
+          <div class="chat"><div class="msg"><span class="av">AI</span><p>有一条工具审批在等，批准后我继续第 4 轮。</p></div></div>
+        </div>
+      </div>
+      <p class="note"><b>关键行为：</b>「去处理」不是打开面板，而是 <b>滚动 + 高亮</b> 到对话里的审批卡。用户永远不需要在「面板」和「对话」之间搬运上下文。</p>
+    </div>
+
+    <div class="pros">
+      <div>
+        <h4>收益</h4>
+        <ul>
+          <li>composer 彻底干净，输入区不被 goal 挤占</li>
+          <li>长会话中目标始终在视野内，符合「目标 = 会话级属性」的心智</li>
+          <li>进度环 + 计数，单元信息密度比方案 A 更高</li>
+        </ul>
+      </div>
+      <div>
+        <h4>代价 / 风险</h4>
+        <ul>
+          <li>与现有会话 header（标题 / 分支）争顶部空间，需要合并或二选一</li>
+          <li>抽屉展开会遮挡消息，需要 <code>position:sticky</code> 与滚动容器的配合</li>
+          <li>不再是 composer 的「输入附属物」，与 Todo 胶囊的视觉语汇需要重新对齐</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 04 方案 C ================= -->
+  <section id="c">
+    <div class="sec-h"><span class="sec-no">04</span><h2>方案 C · 计划门禁 + 完成卡</h2><span class="tag">流程层改造</span></div>
+    <p class="sec-sub">不改条带的密度，改「人机契约」的三个时刻：<b>开始前确认</b>、<b>执行期极简</b>、<b>完成后收尾</b>。本方案可与 A 或 B 叠加。</p>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">C1 · 计划就绪卡（把「自动执行」变成显式选择）</span><span class="tag">流程</span></div>
+      <div class="app" style="height:300px">
+        <div class="main">
+          <div class="chat">
+            <div class="msg"><span class="av">AI</span><p>我已经把目标拆成可验收的 4 条，范围收在 payments 内。确认后开始执行。</p></div>
+            <div class="plan-card">
+              <div class="ph">
+                <span class="gicon" style="width:14px;height:14px;color:var(--goal-active)" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/></svg></span>
+                计划已就绪
+                <span class="tag tagw">需要你确认</span>
+                <span style="flex:1"></span>
+                <span style="font-size:10.5px;color:var(--mfg);font-weight:400">只读规划 · 已用 1 轮</span>
+              </div>
+              <div class="pobj">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率 ≥ 80%。</div>
+              <div class="plist">
+                <div class="row"><span style="color:var(--done)">✓</span><span><b>1</b> SettlementService 抽出并接入 3 个调用点 · 必须</span></div>
+                <div class="row"><span style="color:var(--done)">✓</span><span><b>2</b> 18 个既有支付用例全绿 · 必须</span></div>
+                <div class="row"><span style="color:var(--done)">✓</span><span><b>3</b> 回滚路径有集成测试 · 必须</span></div>
+                <div class="row"><span style="color:var(--mfg)">○</span><span><b>4</b> 覆盖率 ≥ 80% · 必须</span></div>
+              </div>
+              <div class="scope">范围：src/payments/** · 不触碰 billing 公共 API</div>
+              <div class="pf">
+                <button class="gbtn solid" style="--tone:var(--goal-active);height:26px;padding:0 11px;font-size:11.5px">开始执行</button>
+                <button class="gbtn ghost-bd" style="height:26px;padding:0 11px;font-size:11.5px">调整目标</button>
+                <button class="gbtn danger" style="height:26px;padding:0 11px;font-size:11.5px">取消</button>
+                <span style="flex:1"></span>
+                <span style="font-size:10.5px;color:var(--mfg)"><kbd>⌘</kbd><kbd>↵</kbd> 直接开始</span>
+              </div>
+            </div>
+          </div>
+          <div class="composer-wrap">
+            <div class="composer"><span class="ph">也可以直接说：别管第 4 条，先做前三条…</span><span class="send"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span></div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>兼容现有语义：</b>默认仍是「计划保存后自动执行」，只在设置里加一个开关 <code>goal.requirePlanConfirmation</code>（默认关 = 行为不变）。给需要严格把控的用户一条路径，而不是改所有人的流程。</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">C2 · 执行期极简胶囊（与 C1 配套）</span><span class="tag">单行 24px</span></div>
+      <div class="app" style="height:250px" data-state="active">
+        <div class="main">
+          <div class="chat"><div class="msg"><span class="av">AI</span><p>开始执行，第 1 轮。</p></div></div>
+          <div class="composer-wrap">
+            <div class="mini-pill" style="margin-bottom:7px">
+              <span class="dot"></span><b data-bind="word">执行中</b><span>第 3/20 轮</span><span style="opacity:.45">·</span><span>3/5 验收</span>
+              <span style="opacity:.45">·</span><span style="color:var(--tone);cursor:pointer" data-bind="primary">暂停</span>
+            </div>
+            <div class="composer"><span class="ph">给目标补充要求…</span><span class="send"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span></div>
+          </div>
+        </div>
+      </div>
+      <p class="hint">胶囊只回答三个问题：在跑吗 / 到哪了 / 我能停吗。其余全部交给右侧面板与「⋯」。</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">C3 · 完成卡（替代「条带消失」）</span><span class="tag">收尾</span></div>
+      <div class="app" style="height:330px" data-state="done">
+        <div class="main">
+          <div class="chat">
+            <div class="msg"><span class="av">AI</span><p>4 条验收全部通过，测试与覆盖率证据已附在下面。</p></div>
+            <div class="done-card">
+              <div class="dh">
+                <span class="gicon" style="width:14px;height:14px;color:var(--goal-success)" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.6 2.6L16 9.6"/></svg></span>
+                目标已完成
+                <span style="flex:1"></span>
+                <button class="gbtn ghost-bd" style="height:22px;font-size:11px">查看详情</button>
+              </div>
+              <div class="pobj">把 payments 模块重构成统一结算抽象，补齐回滚测试，覆盖率 ≥ 80%。</div>
+              <div class="stats">
+                <span><b>4/4</b> 验收通过</span>
+                <span><b>7</b> 轮</span>
+                <span><b>26</b> 分钟</span>
+                <span><b>9</b> 条证据</span>
+                <span><b>12</b> 个文件改动</span>
+              </div>
+              <div class="pf" style="padding-top:0">
+                <button class="gbtn ghost-bd" style="height:24px;font-size:11px">查看改动文件</button>
+                <button class="gbtn ghost-bd" style="height:24px;font-size:11px">把结果作为新目标基础</button>
+                <span style="flex:1"></span>
+                <button class="gbtn" style="height:24px;font-size:11px;color:var(--mfg)">收起</button>
+              </div>
+            </div>
+          </div>
+          <div class="composer-wrap"><div class="composer"><span class="ph">继续聊…</span><span class="send"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span></div></div>
+        </div>
+      </div>
+      <p class="note"><b>为什么重要：</b>现在 <code>buildGoalControlStripViewV2</code> 对 <code>phase==='complete'</code> 直接 <code>return null</code>，用户看到的是一块「凭空消失」的 UI。完成卡把目标生命周期收成一个闭环，并提供「以结果开新目标」这条最自然的下一步。</p>
+    </div>
+  </section>
+
+  <!-- ================= 05 流程 ================= -->
+  <section id="flow">
+    <div class="sec-h"><span class="sec-no">05</span><h2>交互路径对比</h2></div>
+    <p class="sec-sub">同一个高频任务——「我想知道还差哪几条验收」与「预算用完了想追加」——现状与方案 A 的点击深度差异。</p>
+
+    <div class="card">
+      <div class="tbl-wrap">
+        <svg viewBox="0 0 980 300" width="100%" style="min-width:820px" role="img" aria-label="现状与方案 A 的交互路径对比">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <!-- 现状 -->
+          <text x="8" y="24" fill="currentColor" font-size="11" font-weight="600">现状 · 4 次跳转，丢失对话上下文</text>
+          <g font-size="10.5" fill="currentColor">
+            <rect x="8" y="40" width="120" height="34" rx="7" fill="none" stroke="currentColor" stroke-opacity=".35"/>
+            <text x="68" y="61" text-anchor="middle">条带上点 ⌃</text>
+            <rect x="168" y="40" width="130" height="34" rx="7" fill="none" stroke="currentColor" stroke-opacity=".35"/>
+            <text x="233" y="61" text-anchor="middle">右侧面板打开</text>
+            <rect x="338" y="40" width="150" height="34" rx="7" fill="none" stroke="currentColor" stroke-opacity=".35"/>
+            <text x="413" y="61" text-anchor="middle">滚到「验收标准」</text>
+            <rect x="528" y="40" width="130" height="34" rx="7" fill="none" stroke="currentColor" stroke-opacity=".35"/>
+            <text x="593" y="61" text-anchor="middle">展开 &lt;details&gt;</text>
+            <rect x="698" y="40" width="150" height="34" rx="7" fill="none" stroke="currentColor" stroke-opacity=".65"/>
+            <text x="773" y="61" text-anchor="middle">找到「追加预算」</text>
+            <line x1="130" y1="57" x2="164" y2="57" stroke="currentColor" stroke-opacity=".4" marker-end="url(#ar)"/>
+            <line x1="300" y1="57" x2="334" y2="57" stroke="currentColor" stroke-opacity=".4" marker-end="url(#ar)"/>
+            <line x1="490" y1="57" x2="524" y2="57" stroke="currentColor" stroke-opacity=".4" marker-end="url(#ar)"/>
+            <line x1="660" y1="57" x2="694" y2="57" stroke="currentColor" stroke-opacity=".4" marker-end="url(#ar)"/>
+          </g>
+          <text x="8" y="98" fill="currentColor" font-size="10" opacity=".6">预算耗尽时，同一个 resume 图标还会静默变成「打开面板」——行为不可预测（P4）。</text>
+
+          <!-- 分隔 -->
+          <line x1="8" y1="120" x2="972" y2="120" stroke="currentColor" stroke-opacity=".14"/>
+
+          <!-- 方案 A -->
+          <text x="8" y="150" fill="currentColor" font-size="11" font-weight="600">方案 A · 1 次点击，就地展开，位置不变</text>
+          <g font-size="10.5" fill="currentColor">
+            <rect x="8" y="166" width="150" height="34" rx="7" fill="none" stroke="currentColor" stroke-opacity=".55"/>
+            <text x="83" y="187" text-anchor="middle">点条带任意处展开</text>
+            <rect x="198" y="166" width="170" height="34" rx="7" fill="none" stroke="currentColor" stroke-opacity=".55"/>
+            <text x="283" y="187" text-anchor="middle">验收清单 + 预算就在原位</text>
+            <rect x="408" y="166" width="150" height="34" rx="7" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-opacity=".55"/>
+            <text x="483" y="187" text-anchor="middle">「追加预算并继续」</text>
+            <line x1="160" y1="183" x2="194" y2="183" stroke="currentColor" stroke-opacity=".5" marker-end="url(#ar)"/>
+            <line x1="370" y1="183" x2="404" y2="183" stroke="currentColor" stroke-opacity=".5" marker-end="url(#ar)"/>
+          </g>
+          <text x="8" y="226" fill="currentColor" font-size="10" opacity=".6">「需你处理」状态不再打开面板，而是滚动 + 高亮对话里的审批/提问卡。</text>
+
+          <!-- 图例 -->
+          <g font-size="10" fill="currentColor" opacity=".62">
+            <rect x="8" y="252" width="11" height="11" rx="3" fill="none" stroke="currentColor"/>
+            <text x="25" y="261">一次跳转 / 面板切换</text>
+            <rect x="188" y="252" width="11" height="11" rx="3" fill="currentColor" fill-opacity=".06" stroke="currentColor"/>
+            <text x="205" y="261">主行动点（唯一实心按钮）</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">状态机 · 谁在驱动 UI</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>时刻</th><th>服务器权威字段</th><th>条带表现</th><th>用户可做的动作</th><th>不该出现的东西</th></tr></thead>
+          <tbody>
+            <tr><td>刚创建</td><td><code>phase=active</code>, <code>runtime=planning</code></td><td>执行中 · 正在规划</td><td>暂停、编辑、清除</td><td>假的百分比进度</td></tr>
+            <tr><td>计划就绪</td><td><code>runtime</code> 回到 executing</td><td>执行中 · 正在运行</td><td>同左</td><td>「等待确认」误导（默认不门禁）</td></tr>
+            <tr><td>等审批</td><td><code>runtime=waiting_approval</code></td><td>需你处理 · 等待工具审批</td><td>去处理（滚动定位）</td><td>把审批放进面板里</td></tr>
+            <tr><td>暂停中</td><td><code>runtime=pausing</code></td><td>执行中 · 正在暂停</td><td>无（按钮禁用 + title 说明原因）</td><td>无反馈的禁用按钮</td></tr>
+            <tr><td>已暂停</td><td><code>phase=paused</code></td><td>已暂停 · 暂停于第 N 轮</td><td>继续（主）、编辑、清除</td><td>「恢复」这种一词多义</td></tr>
+            <tr><td>中断</td><td><code>active + disarmed</code></td><td>已暂停 · 已中断（服务重启）</td><td>继续</td><td>把它显示成「受阻」</td></tr>
+            <tr><td>受阻</td><td><code>phase=blocked</code> / 预算耗尽</td><td>已受阻 · 一句话原因</td><td>追加预算并继续 / 查看原因</td><td>同一个 resume 图标换行为</td></tr>
+            <tr><td>完成</td><td><code>phase=complete</code></td><td>完成卡（不是消失）</td><td>查看详情 / 以结果开新目标</td><td>条带 return null</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 06 规格 ================= -->
+  <section id="spec">
+    <div class="sec-h"><span class="sec-no">06</span><h2>规格与落地</h2></div>
+    <p class="sec-sub">数值对齐 <code>DESIGN_LANGUAGE.md</code> 与现有 token；不新增语义色透明度档位（<code>semantic-color-class-parity.test.ts</code> 的 78 档白名单会红）。</p>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">视觉规格</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>元素</th><th>规格</th><th>来源 / 复用</th></tr></thead>
+          <tbody>
+            <tr><td>目标卡容器</td><td>圆角 <code>calc(var(--radius) + 2px)</code>、内边距 <code>8px 8px 8px 10px</code>、边框 <code>color-mix(border 84%, tone 16%)</code>、阴影 <code>0 1px 2px rgb(15 23 42 / .04)</code></td><td>与 <code>.quickforge-approval-card</code> / <code>.quickforge-goal-strip</code> 同配方</td></tr>
+            <tr><td>状态词</td><td><code>12px / 650</code>，色 = tone</td><td>沿用条带 <code>.quickforge-goal-strip-label</code> 现状</td></tr>
+            <tr><td>阶段标签</td><td><code>11px / 常规</code>，色 <code>--muted-foreground</code></td><td>新增</td></tr>
+            <tr><td>目标正文</td><td><code>12.5px / 1.5</code>，<code>-webkit-line-clamp: 2</code></td><td>替换现 <code>0.75rem</code> + 单行 ellipsis</td></tr>
+            <tr><td>验收分段条</td><td>11×3px、圆角 999px、间距 2px；通过 <code>--workflow-done</code>，未通过 <code>muted-foreground 26%</code></td><td>新增，语义色复用 <code>--workflow-done</code></td></tr>
+            <tr><td>主按钮</td><td>高 24px、内边距 0 8px、圆角 8px、实心 tone + 白字</td><td>与 <code>.quickforge-send-button</code> 的实心语义对齐</td></tr>
+            <tr><td>图标按钮</td><td>24×24、圆角 8px、hover <code>muted 72%</code></td><td>现 <code>.quickforge-goal-strip-action</code></td></tr>
+            <tr><td>展开动画</td><td><code>opacity 0→1</code> + <code>translateY(-2px)</code>，180ms <code>--quickforge-ease-out</code></td><td>符合动效规范「只动画 opacity/transform」</td></tr>
+            <tr><td>脉冲点</td><td>7px 圆点 + <code>box-shadow</code> 呼吸 2s</td><td>必须带 <code>prefers-reduced-motion</code> 降级</td></tr>
+            <tr><td>危险确认</td><td>锚定 popover（从「⋯」右缘生长，<code>scale(.96)</code> + 上浮 4px）</td><td>替换 <code>:has()</code> + <code>flex-wrap</code> 行内确认</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">token 收敛（建议顺手做）</span><span class="tag risk">现状硬编码</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>现在</th><th>建议</th><th>影响文件</th></tr></thead>
+          <tbody>
+            <tr><td><code>#3478d4</code> / <code>#d97706</code> / <code>rgb(4 143 101)</code> 散落 4 处</td><td><code>--goal-tone-active / -warning / -success / -danger</code>（dark 各自覆盖）</td><td><code>src/index.css</code>、<code>goal-inspector.css</code>、<code>goal-card.ts</code>（tone 名称不变）</td></tr>
+            <tr><td>tone 在 4 处重复声明</td><td>只在 <code>:root</code> / <code>.dark</code> 声明一次，组件消费</td><td>同上</td></tr>
+            <tr><td>13 个状态词直接透出</td><td>5 个主状态词 + 阶段标签（映射留在 <code>goal-control-strip.ts</code> / <code>goal-card.ts</code> 的 view 投影里）</td><td><code>goal-control-strip.ts</code>、<code>goal-card.ts</code>、<code>lib/i18n.ts</code></td></tr>
+            <tr><td>轮次文案 <code>3/20</code> 与验收计数分居两处</td><td>统一由 view 投影输出 <code>criteriaPassed/Total</code>，组件不自己算</td><td><code>goal-control-strip.ts</code></td></tr>
+            <tr><td>聊天宽度两套值（token 56rem vs <code>max-w-3xl</code>）</td><td>设计稿按 <code>max-w-3xl</code>（48rem）对齐即可，本次不改</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">落地改动表（按方案 A 计）</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>#</th><th>文件</th><th>改动</th><th>验证</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><code>src/components/chat/panel-decoration/goal-control-strip.ts</code></td><td>view 投影新增 <code>statusWord</code> / <code>phaseLabel</code> / <code>criteriaPassed</code> / <code>criteriaTotal</code> / <code>primaryActionKind</code>（含 <code>extend_budget</code>）</td><td><code>goal-control-strip.test.ts</code></td></tr>
+            <tr><td>2</td><td><code>src/components/chat/surface/GoalControlStrip.tsx</code></td><td>两行结构 + 就地展开 + 「⋯」菜单（菜单项：编辑目标 / 清除目标 / 打开完整面板）；确认改 popover</td><td><code>goal-control-strip.test.ts</code>、新增展开态用例</td></tr>
+            <tr><td>3</td><td><code>src/index.css</code></td><td>新增 <code>.quickforge-goal-card*</code> 一组（约 120 行），保留旧 <code>.quickforge-goal-strip*</code> 一版做灰度</td><td><code>chat-surface-css-contract.test.ts</code></td></tr>
+            <tr><td>4</td><td><code>src/components/workspace/GoalInspectorContent.tsx</code> + <code>goal-inspector.css</code></td><td>删除 <code>&lt;details&gt;</code> 双层嵌套，证据改为行内 <code>chip</code> + hover 摘要；footer 主行动点与条带统一文案</td><td><code>goal-inspector-*.test.ts</code></td></tr>
+            <tr><td>5</td><td><code>src/lib/i18n.ts</code></td><td>新增 5 个主状态词 + 阶段标签 + 「追加预算并继续」等键；旧键保留一个版本</td><td>文案快照 / 手工核对</td></tr>
+            <tr><td>6</td><td><code>docs/wiki/src/components/README.md</code></td><td>同步条带/面板的新结构与状态映射表</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note"><b>不动的东西：</b>服务端 goal 契约、<code>src/lib/goal.ts</code> 的类型、<code>goal-ui.ts</code> 的 pending/dirty/error 锁、<code>goal-edit.ts</code> 的 pause→revise 编排。<b>本方案是纯前端呈现层改造</b>，除 C1 的可选开关外不改流程语义。</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="card-t">推荐落地顺序</span><span class="tag reco">建议</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>阶段</th><th>做</th><th>为什么先做</th></tr></thead>
+          <tbody>
+            <tr><td>Step 1</td><td>P1 动作收敛（4 图标 → 1 主操作 + 「⋯」）</td><td>纯收益、零风险，直接消除数据/文件误伤</td></tr>
+            <tr><td>Step 2</td><td>P2 + P3 两行结构与验收分段条</td><td>让 goal 的价值（还差几条）第一次可见</td></tr>
+            <tr><td>Step 3</td><td>P5 + P7 就地展开 + 锚定确认 popover</td><td>去掉 4 次跳转，顺带修掉行内换行抖动的老问题</td></tr>
+            <tr><td>Step 4</td><td>P4 + P6 状态词收敛与「追加预算并继续」</td><td>依赖 1–3 的新结构，一起改最省返工</td></tr>
+            <tr><td>Step 5</td><td>P8 完成卡 + C1 可选门禁</td><td>流程层收益最大但需要产品确认，放最后</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <p class="hint" style="margin-top:26px">本设计稿为静态原型：状态切换、展开/收起、深浅色均为真实交互，可直接用于评审；不含生产代码。</p>
+</div>
+
+<script>
+(function(){
+  var root = document.documentElement;
+
+  document.getElementById('themeBtn').addEventListener('click', function(){
+    root.classList.toggle('dark');
+  });
+
+  var LABEL = {
+    active:  {word:'执行中',   primary:'暂停', phase:'正在运行 · 第 3 轮'},
+    waiting: {word:'需你处理', primary:'去处理', phase:'等待工具审批'},
+    paused:  {word:'已暂停',   primary:'继续', phase:'暂停于第 3 轮结束'},
+    blocked: {word:'已受阻',   primary:'追加预算并继续', phase:'迭代预算已耗尽'},
+    done:    {word:'已完成',   primary:'查看详情', phase:'5/5 项验收通过'}
+  };
+  var ICON = {
+    pause:  '<path d="M9.5 6v12"/><path d="M14.5 6v12"/>',
+    play:   '<path d="M8 6.5 17 12l-9 5.5Z"/>',
+    go:     '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
+    check:  '<path d="M20 6 9 17l-5-5"/>'
+  };
+  var ICON_FOR = {active:'pause', waiting:'go', paused:'play', blocked:'go', done:'check'};
+
+  function apply(state){
+    var meta = LABEL[state] || LABEL.active;
+    document.querySelectorAll('.app').forEach(function(app){
+      app.dataset.state = state;
+      app.querySelectorAll('[data-bind="word"]').forEach(function(el){ el.textContent = meta.word; });
+      app.querySelectorAll('[data-bind="primary"]').forEach(function(el){ el.textContent = meta.primary; });
+      app.querySelectorAll('[data-bind="phase"]').forEach(function(el){ el.textContent = meta.phase; });
+      app.querySelectorAll('[data-bind="primaryIcon"]').forEach(function(el){
+        el.innerHTML = ICON[ICON_FOR[state]] || ICON.pause;
+      });
+      var crit = app.querySelector('[data-bind="critText"]');
+      if (crit) crit.textContent = state === 'done' ? '5/5 项验收通过' : '3/5 项验收通过';
+    });
+    document.querySelectorAll('[data-state-btn]').forEach(function(btn){
+      btn.setAttribute('aria-pressed', String(btn.dataset.stateBtn === state));
+    });
+  }
+
+  document.querySelectorAll('[data-state-btn]').forEach(function(btn){
+    btn.addEventListener('click', function(){ apply(btn.dataset.stateBtn); });
+  });
+
+  document.querySelectorAll('.goalA, .dock-wrap').forEach(function(box){
+    var toggle = box.querySelector('[data-toggle]');
+    var head = box.querySelector('.row') || box.querySelector('.dock');
+    function flip(){
+      box.dataset.open = box.dataset.open === 'true' ? 'false' : 'true';
+    }
+    if (toggle) toggle.addEventListener('click', function(e){ e.stopPropagation(); flip(); });
+    if (head) head.addEventListener('click', function(e){
+      if (e.target.closest('button:not([data-toggle])')) return;
+      flip();
+    });
+  });
+
+  // 演示用：让「⋯」按钮给出可见反馈（真实实现为菜单）
+  document.querySelectorAll('[data-menu]').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      btn.classList.add('solid');
+      setTimeout(function(){ btn.classList.remove('solid'); }, 260);
+    });
+  });
+})();
+</script>
+</body>
+</html>

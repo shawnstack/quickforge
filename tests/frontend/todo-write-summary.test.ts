@@ -188,7 +188,11 @@ describe('TodoWrite capsule rendering', () => {
     expect(glyphs).toHaveLength(3)
     // completed uses a mask to knock the check out of the filled circle.
     expect(glyphs[0].querySelector('mask')).not.toBeNull()
-    expect(glyphs[1].querySelector('path')).not.toBeNull()
+    // in_progress is a dimmed track plus a spinning quarter arc: the arc lives in
+    // its own group so only it rotates (a spinning whole glyph reads as a blank
+    // circle at this size).
+    expect(glyphs[1].querySelector('.quickforge-todo-spin-track')).not.toBeNull()
+    expect(glyphs[1].querySelector('.quickforge-todo-spin-arc path')).not.toBeNull()
     expect(glyphs[2].querySelector('mask')).toBeNull()
     expect(glyphs[2].querySelectorAll('path')).toHaveLength(0)
     // The status word stays available to screen readers even on mobile, where

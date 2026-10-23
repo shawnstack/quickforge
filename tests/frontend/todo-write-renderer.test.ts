@@ -141,6 +141,22 @@ describe('TodoWrite history renderer', () => {
     expect(block).not.toMatch(/linear-gradient|radial-gradient/)
   })
 
+  it('spins only the in-progress arc, and never on the history card', () => {
+    // The arc lives in its own group so the glyph's track stays put; without the
+    // dedicated transform origin the arc wobbles around its own bounding box
+    // instead of spinning on the ring's centre.
+    expect(css).toMatch(/\.quickforge-todo-summary-status-icon \.quickforge-todo-spin-arc[\s\S]*?transform-box:\s*view-box;[\s\S]*?transform-origin:\s*12px 12px;[\s\S]*?animation:/)
+    expect(css).toMatch(/@keyframes quickforge-todo-status-spin\s*\{[\s\S]*?rotate\(360deg\)/)
+    // Live surfaces only: a history snapshot's in-progress row is history, not
+    // work in flight, so it must not animate.
+    expect(css).not.toMatch(/\.quickforge-todo-history-status-icon [^{]*\.quickforge-todo-spin-arc/)
+    // Reduced motion stops the spin and lightens the track so the shape still
+    // reads as "running" (3/4 ring) rather than as the hollow pending circle.
+    const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'))
+    expect(reduced).toMatch(/\.quickforge-todo-spin-arc[\s\S]*?animation:\s*none;/)
+    expect(reduced).toMatch(/\.quickforge-todo-spin-track[\s\S]*?opacity:\s*0\.45;/)
+  })
+
   it('colors completed checks with the shared emerald tone in both themes', () => {
     const block = css.slice(css.indexOf('/* TodoWrite task summary'))
     expect(block).toMatch(/\.quickforge-todo-summary-ring-check\s*\{[\s\S]*?color:\s*rgb\(4 143 101\)/)

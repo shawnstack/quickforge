@@ -3,8 +3,9 @@ import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import type { DocumentFormat } from './artifact-preview-utils'
 import type { WorkspacePanelView } from './workspace-types'
 import { subagentRunStore, type SubagentRunPayload } from '@/lib/subagent-run-detail'
+import { workflowRunStore, type WorkflowRunPayload } from '@/lib/workflow-run-payload'
 import { findBrowserTabToReuse } from './workspace-tab-file-path'
-import { nextPanelTabIndexFromTabs, readPersistedPanelTabs, reorderPanelTabs, updateSubagentRunTab, upsertSubagentRunTab, writePersistedPanelTabs } from './workspace-inspector-tabs'
+import { nextPanelTabIndexFromTabs, readPersistedPanelTabs, reorderPanelTabs, updateSubagentRunTab, updateWorkflowRunTab, upsertSubagentRunTab, upsertWorkflowRunTab, writePersistedPanelTabs } from './workspace-inspector-tabs'
 import type { PersistedWorkspaceInspectorTabs, ReaderTab, WorkspacePanelPrimaryTabKind, WorkspacePanelTab, WorkspacePanelTabKind } from './workspace-inspector-tabs'
 
 export function viewFromPanelKind(kind: WorkspacePanelPrimaryTabKind): WorkspacePanelView {
@@ -40,7 +41,8 @@ export function useInspectorTabsState({ project, sessionId, canUseTerminal }: { 
   const openPanelTabRef = useRef<((kind: WorkspacePanelPrimaryTabKind, nextView?: WorkspacePanelView, options?: { url?: string; readerTab?: ReaderTab }) => WorkspacePanelTab) | undefined>(undefined)
 
   const openSubagentRunTabRef = useRef<((payload: SubagentRunPayload) => void) | undefined>(undefined)
-  return { initialPanelTabStateRef, panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, draggingPanelTabId, setDraggingPanelTabId, menuOpen, setMenuOpen, tabListOpen, setTabListOpen, readerNavigationVisible, setReaderNavigationVisible, nextPanelTabIndexRef, openPanelTabRef, openSubagentRunTabRef }
+  const openWorkflowRunTabRef = useRef<((payload: WorkflowRunPayload) => void) | undefined>(undefined)
+  return { initialPanelTabStateRef, panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, draggingPanelTabId, setDraggingPanelTabId, menuOpen, setMenuOpen, tabListOpen, setTabListOpen, readerNavigationVisible, setReaderNavigationVisible, nextPanelTabIndexRef, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef }
 }
 
 /* eslint-enable react-hooks/refs */
@@ -58,6 +60,13 @@ export function useInspectorTabsEffects({ panelTabs, setPanelTabs, activePanelTa
   }, [setPanelTabs])
 
   useEffect(() => {
+    // 工作流详情 Tab 的实时更新：与 subagent 同构，按 runId 就地替换 payload。
+    return workflowRunStore.subscribe((payload) => {
+      setPanelTabs((current) => updateWorkflowRunTab(current, payload))
+    })
+  }, [setPanelTabs])
+
+  useEffect(() => {
     if (!projectId) return
     writePersistedPanelTabs(projectId, sessionId, panelTabs, activePanelTabId, readerNavigationVisible)
   }, [activePanelTabId, panelTabs, projectId, readerNavigationVisible, sessionId])
@@ -68,7 +77,7 @@ export function useInspectorTabsEffects({ panelTabs, setPanelTabs, activePanelTa
   }, [activePanelTabId, panelTabs, setActivePanelTabId])
 }
 
-export function useInspectorTabsActions({ panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, setDraggingPanelTabId, setMenuOpen, setTabListOpen, nextPanelTabIndexRef, openPanelTabRef, openSubagentRunTabRef, onClearSideChat, onOpenChange, updatePanelTab }: TabState & { onClearSideChat: () => void; onOpenChange: (open: boolean) => void; updatePanelTab: (id: string, updater: (tab: WorkspacePanelTab) => WorkspacePanelTab) => void }) {
+export function useInspectorTabsActions({ panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, setDraggingPanelTabId, setMenuOpen, setTabListOpen, nextPanelTabIndexRef, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef, onClearSideChat, onOpenChange, updatePanelTab }: TabState & { onClearSideChat: () => void; onOpenChange: (open: boolean) => void; updatePanelTab: (id: string, updater: (tab: WorkspacePanelTab) => WorkspacePanelTab) => void }) {
   function createPanelTab(kind: WorkspacePanelTabKind, options?: { url?: string; readerTab?: ReaderTab; document?: { path: string; format: DocumentFormat }; reviewView?: 'review' | 'changes' }): WorkspacePanelTab {
     const id = `${kind}-${nextPanelTabIndexRef.current++}`
     if (kind === 'browser') return { id, kind, url: options?.url || '' }
@@ -116,6 +125,17 @@ export function useInspectorTabsActions({ panelTabs, setPanelTabs, activePanelTa
   }
 
   openSubagentRunTabRef.current = openSubagentRunTab
+
+  function openWorkflowRunTab(payload: WorkflowRunPayload) {
+    const nextId = `workflow-${nextPanelTabIndexRef.current}`
+    const result = upsertWorkflowRunTab(panelTabs, payload, nextId)
+    if (result.created) nextPanelTabIndexRef.current += 1
+    setPanelTabs(result.tabs)
+    setActivePanelTabId(result.tabId)
+    setMenuOpen(false)
+  }
+
+  openWorkflowRunTabRef.current = openWorkflowRunTab
 
   function activatePanelTab(tab: WorkspacePanelTab) {
     setActivePanelTabId(tab.id)
@@ -177,5 +197,5 @@ export function useInspectorTabsActions({ panelTabs, setPanelTabs, activePanelTa
     setTabListOpen(false)
     onOpenChange(false)
   }
-  return { createPanelTab, createReaderPanelTab, openPanelTab, openSubagentRunTab, activatePanelTab, handlePanelTabDragStart, finishPanelTabDrag, handlePanelTabDragEnd, clearSideChat, closePanelTab, closeOtherPanelTabs, closeAllPanelTabs }
+  return { createPanelTab, createReaderPanelTab, openPanelTab, openSubagentRunTab, openWorkflowRunTab, activatePanelTab, handlePanelTabDragStart, finishPanelTabDrag, handlePanelTabDragEnd, clearSideChat, closePanelTab, closeOtherPanelTabs, closeAllPanelTabs }
 }

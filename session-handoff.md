@@ -1,3 +1,17 @@
+# 当前交接：workflow-detail-chat-cards（done，2026-10-24）
+
+- Current Objective（当前目标）：用户反馈「Workflow 详情里面的 tools 调用和 sub agent 调用，应该样式和最外层的保持一致要复用普通对话里面的信息」。
+- 结论（一句话）：详情步骤行整卡复用普通对话组件——工具行 = 聊天区同一颗 `ToolMessage`（args/resultPreview/quickforgeTiming 合成 toolCall/result），Agent 行 = `renderSubagentRunSummary`（run_subagent 摘要卡）；工作流只保留右侧时间轴轨道列（`--wf-tl-track` 固定宽 grid 列），自研行 UI（label 行 / Input-Output JSON 展开体 / agent-link 直达按钮）与 `onOpenAgentRun` 接线全部删除。
+- 改动文件：`WorkflowRunDetailContent.tsx`（ToolStep/AgentStep 重写 + jumpToFailure 点嵌套卡 summary）、`WorkspaceInspector.tsx`（删接线）、`subagent-tool-renderer.tsx`（options 新增 `disabled`，queued Agent 复用）、`workflow-detail.css`（卡片+轨道 grid 几何、`--wf-tl-track`/`--wf-tl-track-plot`/`--wf-tl-plot-left/-right` 变量、删 10+ 自研行规则）、`i18n.ts`（删 5 孤儿键）、`tests/frontend/workflow-renderer.test.ts`（整卡复用契约 + 双基准回归）、wiki 三份 + 架构文档 7.3。
+- 关键保真点：Agent 点击链路与原 `onOpenAgentRun` 等价（卡片自身 resolve store 最新快照 → `OPEN_SUBAGENT_RUN_EVENT`；`WorkflowAgentRunEventPublisher` 持续发布 `${workflowRunId}:agent:${agent.id}`）；queued 仍禁用（`disabled` 选项，canOpen 对 canonical runId 恒 true 表达不了）；运行中任务名流光保留；「定位失败步骤」改点嵌套卡 `details.querySelector('summary')` 并闪烁整条步骤行。
+- 被避免的坑：① clamp 百分比双基准在 grid 列（行内容盒 W−1.75rem）与 absolute left（包含块 W）之间复发——380px 实测错位 7.7px，绝对定位层必须用 `--wf-tl-track-plot: clamp(8rem,(100%-1.75rem)*0.34,12.5rem)`（窄媒体 0.30），回归已写进测试；② harness 的 `<link>` 必须 http 引用（file:// 样式表在 http 页被拦，第一轮测的是无样式 DOM）；③ 聊天卡展开体透明，需 `details[open] > div` 补实底遮共享网格线。
+- Evidence（验证）：定向 workflow-renderer **37 passed**；相邻 4 文件 **60 passed**；`tests/frontend` 全量 **251 文件 / 3009 passed**；`npm run test` 全量 **424 文件 / 4915 passed / 2 skipped**；`npm run lint` 0 error（仅既有 warning）；`npx tsc -b` 通过；`npm run build` 成功。真实渲染：生产 CSS harness + Playwright 640/380px 六层对齐 ≤0.01px、条形不出界、卡片不侵入轨道、无溢出；卡片文案确认复用（「读取文件 · workflow-run-detail.ts」「运行命令 · 跑一遍测试」「扫描 src 目录 · explore」）。
+- 已知工作区遗留（与本次无关）：`goal-*`、`ask-user-*`、上帝组件拆分等前序未提交改动原样保留。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：① 真机目视验收——运行中详情（跑马灯/游标推进）、失败定位闪烁整行、MCP 工具卡、深色对比度、窄面板观感；② `workflowAgentDone/ToolCalls/Schema` 与 `workflowDetailTimelineHint` 为更早孤儿键（progress.md Notes，可另开一轮清理）；③ 未创建 Git commit，未触碰生成产物。
+
+---
+
 # 当前交接：frontend-god-components-split（done，2026-10-24）
 
 - Current Objective（当前目标）：用户评审「前端是否存在上帝组件」后设定 goal「架构最优 最佳实现 你拆分一下模块，不影响功能和产品体验就可以直接执行」。三个 Tier-1 上帝组件已完成模块拆分，行为/样式逐字节保真。

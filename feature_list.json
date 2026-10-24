@@ -1,6 +1,31 @@
 {
   "features": [
     {
+      "id": "workflow-detail-chat-cards",
+      "name": "Workflow 详情步骤行复用普通对话卡片（工具卡 / subagent 摘要卡）",
+      "description": "用户反馈「Workflow 详情里面的 tools 调用和 sub agent 调用，应该样式和最外层的保持一致要复用普通对话里面的信息」——详情面板自写的步骤行（图标+label+自研展开体）与聊天区工具卡/subagent 卡是两套并行 UI，信息与样式漂移。",
+      "status": "done",
+      "dependencies": [
+        "workflow-inspector-panel",
+        "workflow-detail-single-page",
+        "workflow-detail-visual-optimize"
+      ],
+      "summary": "步骤行从「自研 label 行 + Input/Output JSON 展开体」整卡替换为普通对话同一份组件：1) 工具行渲染聊天区同一颗 ToolMessage（渲染器注册表 → local-workspace / MCP 卡，未注册回落通用卡）——workflowToolCall 把 args 原样合成 toolCall、workflowToolResult 把 resultPreview||error 合成 toolResult（error/aborted 置 isError、startedAt/durationMs 写进 details.quickforgeTiming 驱动同款耗时徽标，queued 不合成 result 呈 called 态）；参数摘要（文件名/命令/模式串）、展开体（input/output 控制台与代码块/diff/details）、状态图标、开合记忆全部走聊天卡自己的逻辑。2) Agent 行渲染 renderSubagentRunSummary（聊天 run_subagent 摘要卡）：载荷经 buildWorkflowSubagentRunPayload + subagentRunStore 快照回填构建并按 shouldPublishSubagentRunPayload 发布（与 SubagentToolRenderer 同口径），options 传 label/meta/运行中流光/disabled（queued，为共享卡新增强制禁用选项）；点击走卡片自身链路（store 最新快照优先 → OPEN_SUBAGENT_RUN_EVENT），WorkflowRunDetailContent 的 onOpenAgentRun prop 与 WorkspaceInspector 接线删除。3) 时间轴几何改为「卡片列 minmax(0,1fr) + 轨道列 --wf-tl-track 固定宽」的 grid：轨道钉在摘要行高度内（grid-column:2; grid-row:1; height:1.375rem），卡片展开后条形不随之下移；工具行缩进移到卡片列（[data-kind='tool'] > :first-child padding-left）；聊天卡展开体由 details[open] > div 补实底遮共享网格线；jumpToFailure 改点嵌套卡的 summary、is-flash 闪烁整条步骤行；删除 -row/-row-head/-row-label/-row-icon/-step-body/-agent-link/-sr/-field-label/-error-text/-step-meta 等自研行样式与 label 列变量。4) 关键坑（复发并修复）：clamp 百分比在 grid-template-columns/flex-basis 按行内容盒（W-1.75rem）、在 absolute left 按包含块（W）解析——绝对定位层（网格层/游标层/跨度条/并行标注）必须用复刻内容盒基准的 --wf-tl-track-plot=clamp(8rem,(100%-1.75rem)*0.34,12.5rem)（窄媒体 0.30），与旧 --wf-tl-label-plot 同一教训；380px 面板下未修复时错位 7.7px，修复后 640/380px 五层对齐误差 ≤0.01px（生产 CSS harness + Playwright 实测，含条形不出界/卡片不侵入轨道/无横向溢出）。5) i18n 删除孤儿键 workflowAgentQueued/Running/Failed/Aborted 与 workflowDetailPending（中英各 5 条）。",
+      "root_cause": "详情面板此前按「构件级复用」（ToolDetails/renderToolIcon/renderCodeBlock 等共享构件 + 自研 summary 行与展开体）实现，与聊天卡仍是两套 DOM：label 用脚本 label/工具名而非本地化工具名+参数摘要，展开体是 JSON.stringify(args) + 纯文本输出而非逐工具渲染（无文件图标/命令摘要/控制台块/diff），Agent 行是自研直达按钮而非 subagent 摘要卡（无跑马灯/状态推导）。服务端 details 本就带结构化 args、resultPreview、startedAt/durationMs 与全量 subagentRun，直接合成聊天卡的 toolCall/result 形状即可整卡复用。",
+      "files": [
+        "src/components/workspace/WorkflowRunDetailContent.tsx",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "src/lib/tool-renderers/subagent-tool-renderer.tsx",
+        "src/styles/workspace/workflow-detail.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/workflow-renderer.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/styles/README.md",
+        "docs/architecture/workflow-orchestration.zh-CN.md"
+      ]
+    },
+    {
       "id": "frontend-god-components-split",
       "name": "前端上帝组件模块拆分（ChatSidebar / App.tsx / ChatPanelHostProps）",
       "description": "用户先要求评审前端是否存在上帝组件，评审结论为 App.tsx（2431 行单组件）、ChatSidebar.tsx（2216 行、69 props、4 处重复行渲染）、ChatPanelHostProps（平铺巨型接口）三个 Tier-1 问题；随后用户设定 goal「架构最优 最佳实现 你拆分一下模块，不影响功能和产品体验就可以直接执行」。",

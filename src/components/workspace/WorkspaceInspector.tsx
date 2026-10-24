@@ -42,8 +42,7 @@ import { SubagentRunDetailContent } from './SubagentRunDetailContent'
 import { WorkflowRunDetailContent } from './WorkflowRunDetailContent'
 import { SideChatTabContent, type SideChatComposerDraftMemory } from './SideChatTabContent'
 import type { SideChatAgent } from './side-chat-agent'
-import { subagentRunStore, shouldPublishSubagentRunPayload } from '@/lib/subagent-run-detail'
-import { buildWorkflowSubagentRunPayload } from '@/lib/workflow-subagent-detail'
+import { subagentRunStore } from '@/lib/subagent-run-detail'
 import { workflowRunStore, activeWorkflowRunStore } from '@/lib/workflow-run-payload'
 import { workflowStatusLabelKey } from '@/lib/workflow-run-detail'
 import { resolveServerCacheKey } from '@/lib/session-message-cache'
@@ -1205,7 +1204,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     }
   }, [panelTabs, projectId, loadReaderFileFromCacheOrServer])
 
-  const { createPanelTab, createReaderPanelTab, openPanelTab, openSubagentRunTab, activatePanelTab, handlePanelTabDragStart, finishPanelTabDrag, handlePanelTabDragEnd, closePanelTab, closeOtherPanelTabs, closeAllPanelTabs } = useInspectorTabsActions({ ...tabState, onClearSideChat, onOpenChange, updatePanelTab })
+  const { createPanelTab, createReaderPanelTab, openPanelTab, activatePanelTab, handlePanelTabDragStart, finishPanelTabDrag, handlePanelTabDragEnd, closePanelTab, closeOtherPanelTabs, closeAllPanelTabs } = useInspectorTabsActions({ ...tabState, onClearSideChat, onOpenChange, updatePanelTab })
 
   // 命令日志 tab：与 openFileTab 结构对齐，但内容来自受限的 command-log 端点，
   // 不走工作区文件缓存（logs 在工作区外，缓存/校准对它没有意义）。
@@ -1681,18 +1680,9 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
           ) : activePanelTab.kind === 'subagent' ? (
             <SubagentRunDetailContent payload={activePanelTab.subagentRun} />
           ) : activePanelTab.kind === 'workflow' ? (
-            <WorkflowRunDetailContent
-              payload={activePanelTab.workflowRun}
-              onOpenAgentRun={(workflowRunId, agent) => {
-                // 与聊天里的 Agent 行共用同一套载荷推导；store 中若已有更完整
-                // 的 trace（由 SSE 实时发布）则优先复用，避免打开后闪空。
-                const runId = `${workflowRunId || 'workflow'}:agent:${agent.id}`
-                const existing = subagentRunStore.get(runId)
-                const payload = existing ?? buildWorkflowSubagentRunPayload(workflowRunId, agent, t, { previous: existing })
-                if (shouldPublishSubagentRunPayload(payload, existing)) subagentRunStore.publish(payload)
-                openSubagentRunTab(payload)
-              }}
-            />
+            // Agent 行复用聊天 run_subagent 摘要卡，点击由卡片自身经
+            // OPEN_SUBAGENT_RUN_EVENT 打开运行详情（store 实时快照优先），无需再接线。
+            <WorkflowRunDetailContent payload={activePanelTab.workflowRun} />
           ) : activePanelTab.kind === 'side-chat' ? (
             <SideChatTabContent
               agent={sideChatAgent}

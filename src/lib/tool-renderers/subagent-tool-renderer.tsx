@@ -39,6 +39,12 @@ export type SubagentRunSummaryOptions = {
   labelClassName?: string
   /** 覆盖悬停与 aria 文案；缺省按可打开性生成。 */
   title?: string
+  /**
+   * 强制禁用按钮（仍保持卡片的完整视觉）。workflow 详情的 queued Agent 行
+   * 复用本卡片时用它保留「尚无运行详情可跳」的禁用语义——此时 canonical
+   * runId 恒存在、canOpen 恒为 true，不能靠默认判定表达。
+   */
+  disabled?: boolean
   /** 打开前回调；workflow 行用它把历史回填载荷发布到 store。 */
   onOpen?: (payload: SubagentRunPayload) => void
 }
@@ -48,6 +54,7 @@ export function renderSubagentRunSummary(
   options: SubagentRunSummaryOptions = {},
 ) {
   const canOpen = canOpenSubagentRunPayload(payload)
+  const disabled = options.disabled === true || !canOpen
   const label = options.label ?? payload.statusLabel
   const title = options.title ?? (canOpen ? t('viewSubagentRunDetails') : payload.statusLabel)
   const currentTools = currentSubagentToolSummariesWithMemory(payload, subagentToolSummaryMemory)
@@ -58,8 +65,8 @@ export function renderSubagentRunSummary(
         className="quickforge-tool-summary flex w-full cursor-pointer list-none items-center gap-2 text-left text-sm text-muted-foreground select-none disabled:cursor-not-allowed disabled:opacity-70"
         title={title}
         aria-label={`${label} · ${title}`}
-        aria-disabled={!canOpen ? 'true' : 'false'}
-        disabled={!canOpen}
+        aria-disabled={disabled ? 'true' : 'false'}
+        disabled={disabled}
         onClick={() => {
           if (!canOpen) return
           // canonical 运行可取 SSE store 的最新同 ID 快照；历史 fallback 必须使用当前消息载荷。

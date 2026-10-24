@@ -1,7 +1,9 @@
 /* ---------------------------------------------------------------------------
    run_workflow 运行详情（右侧 Workspace Inspector 的独立 Tab）
    单页合并视图：整页共享一根时间轴（刻度条吸顶），每个阶段 = 粘性阶段头 +
-   该阶段的行（Agent 条形 / 工具缩进行）+ 该阶段日志。
+   该阶段的步骤行 + 该阶段日志。步骤行复用普通对话的卡片（工具行 = ToolMessage
+   渲染的工具卡、Agent 行 = run_subagent 摘要卡），时间轴轨道作为右侧固定列
+   补充「何时运行 / 跑了多久 / 并行关系」。
    命名前缀 .quickforge-workflow-detail-*。
    --------------------------------------------------------------------------- */
 
@@ -19,20 +21,27 @@
   max-height: 100%;
   font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8125);
   /* 时间轴相关变量提到根节点：刻度条、行轨道与阶段头（吸顶偏移）共用同一套
-     标签列宽 / 安全区，声明在已删除的 .quickforge-workflow-detail-timeline
-     内部时吸顶的刻度条与阶段头取不到。 */
-  --wf-tl-label: clamp(5.5rem, 30%, 9.5rem);
-  /* 绝对定位层（网格层 / 游标层 / 阶段跨度条 / 并行标注）用的标签列宽：
-     clamp 的百分比在 flex-basis 里按行内容宽（W - 左右 padding 1.75rem）解析，
-     而 absolute left 里按包含块 padding-box（W）解析——百分比参与时（面板
-     ~300–500px 宽）两种基准会错开数像素。这里显式复刻行内容宽基准。 */
-  --wf-tl-label-plot: clamp(5.5rem, (100% - 1.75rem) * 0.3, 9.5rem);
+     轨道列宽 / 安全区，声明在单个步骤内时吸顶的刻度条与阶段头取不到。 */
+  /* 轨道列宽（右侧）：卡片占弹性列，轨道列固定宽，所有行的绘图区因此同列，
+     跨行条形可横向比较。 */
+  --wf-tl-track: clamp(8rem, 34%, 12.5rem);
+  /* 绝对定位层（网格层 / 游标层 / 阶段跨度条 / 并行标注）用的轨道列宽：
+     clamp 的百分比在 grid-template-columns / flex-basis 里按行内容宽
+     （W - 左右 padding 1.75rem）解析，而 absolute left 里按包含块（W）解析——
+     百分比参与时（~340–480px 宽）两种基准会错开数像素。这里显式复刻行内容宽
+     基准（与旧 --wf-tl-label-plot 同一教训）。 */
+  --wf-tl-track-plot: clamp(8rem, (100% - 1.75rem) * 0.34, 12.5rem);
   --wf-tl-gap: 0.625rem;
   /* 轨道两侧的安全区：左边留给「并行」标签，右边留给耗时文字。两者都绝对
      定位在轨道内，若不留白，条形贴到 100% 时文字会伸出轨道并被面板裁掉。 */
   --wf-tl-pad-start: 2.25rem;
   --wf-tl-pad-end: 2.75rem;
   --wf-tl-axis-h: 1.75rem;
+  /* 绘图区（plot）的左右缘：绝对定位层（网格层 / 游标层 / 阶段跨度条 / 并行
+     标注）与行内 plot 同列。百分比在这些层里按包含块解析，统一用变量避免
+     四处手抄同一串 calc 漂移。 */
+  --wf-tl-plot-left: calc(100% - 0.875rem - var(--wf-tl-track-plot) + var(--wf-tl-pad-start));
+  --wf-tl-plot-right: 0.875rem;
 }
 
 /* 概览条：状态 / 耗时 / 规模一行，预算与并发峰值第二行。 */
@@ -230,7 +239,8 @@
    变量（--wf-tl-*）声明在 .quickforge-workflow-detail 根节点上：合并成单页后
    刻度条与阶段头都是吸顶元素，需要跟行轨道共用同一套标签列宽与安全区。 */
 
-/* 刻度条：吸顶在滚动容器顶部，与行轨道同列，保证刻度与条形对齐。 */
+/* 刻度条：吸顶在滚动容器顶部，与行轨道同列，保证刻度与条形对齐。
+   左侧占位与步骤行的卡片列同构（弹性），轨道列同宽。 */
 .quickforge-workflow-detail-axis {
   position: sticky;
   top: 0;
@@ -246,14 +256,14 @@
 }
 
 .quickforge-workflow-detail-axis-spacer {
-  flex: 0 0 var(--wf-tl-label);
-  width: var(--wf-tl-label);
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .quickforge-workflow-detail-axis-track {
   position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 0 0 var(--wf-tl-track);
+  width: var(--wf-tl-track);
   height: 100%;
   display: flex;
 }
@@ -298,79 +308,52 @@
   white-space: nowrap;
 }
 
-/* 行：左标签列 + 右轨道列。整行是 <summary>，点一下展开该步入参/输出/结果。 */
-.quickforge-workflow-detail-row {
-  display: flex;
-  align-items: center;
-  gap: var(--wf-tl-gap);
-  min-height: 1.5rem;
-  min-width: 0;
-  padding: 0 0.875rem;
-  cursor: pointer;
-  user-select: none;
-  transition: background-color var(--quickforge-dur-fast) var(--quickforge-ease-out);
-}
-
+/* ── 步骤行：普通对话的卡片 + 右侧时间轴轨道 ──────────────────────────
+   卡片列（弹性）渲染 ToolMessage / run_subagent 摘要卡——与聊天区同一份
+   DOM、字号与交互；轨道列（固定宽 var(--wf-tl-track)）只放条形与耗时。
+   轨道钉在摘要行高度内：卡片展开后增高的是卡片列，轨道不随之下移，
+   条形始终对齐卡片首行。 */
 .quickforge-workflow-detail-step {
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--wf-tl-track);
+  column-gap: var(--wf-tl-gap);
+  align-items: start;
+  padding: 0 0.875rem;
 }
 
-.quickforge-workflow-detail-step[data-kind='tool'] .quickforge-workflow-detail-row {
-  min-height: 1.375rem;
-}
-
-.quickforge-workflow-detail-step > summary {
-  list-style: none;
-}
-
-.quickforge-workflow-detail-step > summary::-webkit-details-marker {
-  display: none;
-}
-
-.quickforge-workflow-detail-step > summary:hover,
-.quickforge-workflow-detail-step[open] > summary {
-  background: color-mix(in oklab, var(--muted) 45%, transparent);
-}
-
-/* 共享 chevron（`.quickforge-tool-chevron`）自带的 hover 提亮规则只作用于
-   local/mcp/default 三种工具卡，这里补上工作流行，保持同一套反馈。 */
-.quickforge-workflow-detail-step > summary:hover .quickforge-tool-chevron,
-.quickforge-workflow-detail-step > summary:focus-visible .quickforge-tool-chevron {
-  opacity: 1;
-}
-
-.quickforge-workflow-detail-step > summary:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
-  outline-offset: -2px;
-}
-
-.quickforge-workflow-detail-row-head {
-  flex: 0 0 var(--wf-tl-label);
-  width: var(--wf-tl-label);
+/* 卡片列（第一个子元素 = 聊天卡容器）。 */
+.quickforge-workflow-detail-step > :first-child {
   min-width: 0;
+}
+
+/* 轨道列：只在摘要行高度内，不随展开体长高。高度略大于聊天卡摘要行，
+   条形在其内垂直居中即贴近卡首行文本。 */
+.quickforge-workflow-detail-step > .quickforge-workflow-detail-row-track {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  height: 1.375rem;
   display: flex;
   align-items: center;
-  gap: 0.3125rem;
 }
 
-/* 工具行的缩进只作用在左标签列内部：右轨道必须整页对齐，否则不同层级的时间条
-   会横向错位，同一根时间轴就失去「可以横向比较」的意义。 */
-.quickforge-workflow-detail-step[data-kind='tool'] .quickforge-workflow-detail-row-head {
+/* 工具卡从属于前面的 Agent 步骤：缩进只作用在卡片列（padding），右轨道
+   必须整页对齐，否则不同层级的时间条会横向错位，同一根时间轴就失去
+   「可以横向比较」的意义。 */
+.quickforge-workflow-detail-step[data-kind='tool'] > :first-child {
   padding-left: 0.6875rem;
 }
 
-.quickforge-workflow-detail-row-track {
+/* 聊天卡的展开体是透明容器：给它实底遮住共享网格竖线（与阶段日志块同一
+   处理），卡内代码 / 控制台 / diff 块自身的边框与背景保持不变。 */
+.quickforge-workflow-detail-step details[open] > div {
   position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 1.125rem;
-  display: flex;
-  align-items: center;
+  background: var(--background);
 }
 
 /* 轨道内部再分一层「绘图区」：条形与刻度都相对它定位，安全区由它的
    inset 决定。绝对定位的百分比基准是包含块的 padding box（含 padding），
-   直接给轨道加 padding 会让 left:0% 仍从 border 内侧算起、条形压到左侧标签上。 */
+   直接给轨道加 padding 会让 left:0% 仍从 border 内侧算起、条形压到左侧卡片上。 */
 .quickforge-workflow-detail-row-plot,
 .quickforge-workflow-detail-axis-plot {
   position: relative;
@@ -382,22 +365,8 @@
   box-sizing: border-box;
 }
 
-/* 行内不再画网格（早期每行 5 条刻度线，N 行就是 5N 条竖纹）：
+/* 行内不画网格（早期每行 5 条刻度线，N 行就是 5N 条竖纹）：
    竖向网格由阶段区的共享网格层承担，见 .quickforge-workflow-detail-grid-layer。 */
-
-.quickforge-workflow-detail-row-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
-  color: color-mix(in oklab, var(--foreground) 86%, transparent);
-}
-
-.quickforge-workflow-detail-step[data-kind='tool'] .quickforge-workflow-detail-row-label {
-  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
-  color: color-mix(in oklab, var(--muted-foreground) 90%, transparent);
-}
 
 /* 条形：高度即层级（Agent 0.625rem / 工具 0.375rem），并行段虚线描边做颜色之外
    的第二编码（色盲可用）。宽度由行内 style 的百分比决定。 */
@@ -470,7 +439,7 @@
   position: absolute;
   z-index: 1;
   pointer-events: none;
-  left: calc(0.875rem + var(--wf-tl-label-plot) + var(--wf-tl-gap) + var(--wf-tl-pad-start) - 0.625rem);
+  left: calc(var(--wf-tl-plot-left) - 0.625rem);
   top: 0.3rem;
   bottom: 0.3rem;
   width: 2px;
@@ -481,7 +450,7 @@
 /* 「并行×N」标注挂在并行组容器上（组首一次），几何对齐到行绘图区左缘。 */
 .quickforge-workflow-detail-parallel-tag {
   position: absolute;
-  left: calc(0.875rem + var(--wf-tl-label-plot) + var(--wf-tl-gap) + var(--wf-tl-pad-start));
+  left: var(--wf-tl-plot-left);
   top: 0.6875rem;
   transform: translateY(-50%);
   font-family: var(--font-mono);
@@ -491,13 +460,12 @@
   pointer-events: none;
 }
 
-/* 窄面板：标签列收窄，让轨道保留可读宽度。
-   变量挂在根节点上，这里必须覆盖同一个选择器（不能被 .quickforge-workflow-detail-timeline
-   这种已删除的类名承接）。 */
+/* 窄面板：轨道列收窄，把宽度让给卡片摘要。
+   变量挂在根节点上，这里必须覆盖同一个选择器。 */
 @media (max-width: 30rem) {
   .quickforge-workflow-detail {
-    --wf-tl-label: clamp(4.5rem, 34%, 6.5rem);
-    --wf-tl-label-plot: clamp(4.5rem, (100% - 1.75rem) * 0.34, 6.5rem);
+    --wf-tl-track: clamp(6rem, 30%, 8.5rem);
+    --wf-tl-track-plot: clamp(6rem, (100% - 1.75rem) * 0.3, 8.5rem);
     --wf-tl-gap: 0.375rem;
     --wf-tl-pad-start: 1.75rem;
     --wf-tl-pad-end: 2.25rem;
@@ -520,15 +488,15 @@
 }
 
 /* 共享竖向网格（内部主刻度三条）与运行游标：左右 inset 与行绘图区完全一致
-   （pad-x + 标签列 + gap + 安全区），百分比即绘图区百分比。
+   （右侧内距 + 轨道列 + 安全区），百分比即绘图区百分比。
    网格层垫底；游标层在条形之上、实底文本块（展开体 / 日志块，z-index:2）之下。 */
 .quickforge-workflow-detail-grid-layer,
 .quickforge-workflow-detail-now-layer {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: calc(0.875rem + var(--wf-tl-label-plot) + var(--wf-tl-gap) + var(--wf-tl-pad-start));
-  right: calc(0.875rem + var(--wf-tl-pad-end));
+  left: var(--wf-tl-plot-left);
+  right: calc(var(--wf-tl-plot-right) + var(--wf-tl-pad-end));
   pointer-events: none;
 }
 
@@ -595,14 +563,14 @@
   outline-offset: -2px;
 }
 
-/* 文字块宽度钳在标签列内：跨度条与耗时都是绝对定位（对齐行轨道几何），
+/* 文字块宽度钳在卡片列内：跨度条与耗时都是绝对定位（对齐行轨道几何），
    文字不设上限就会钻到条形底下。 */
 .quickforge-workflow-detail-phase-text {
   display: flex;
   align-items: center;
   gap: 0.4375rem;
   min-width: 0;
-  max-width: calc(var(--wf-tl-label) + var(--wf-tl-gap));
+  max-width: calc(100% - var(--wf-tl-track) - 2.25rem);
 }
 
 .quickforge-workflow-detail-phase-index {
@@ -636,8 +604,8 @@
   top: 50%;
   transform: translateY(-50%);
   height: 0.25rem;
-  left: calc(0.875rem + var(--wf-tl-label-plot) + var(--wf-tl-gap) + var(--wf-tl-pad-start));
-  right: calc(0.875rem + var(--wf-tl-pad-end));
+  left: var(--wf-tl-plot-left);
+  right: calc(var(--wf-tl-plot-right) + var(--wf-tl-pad-end));
 }
 
 .quickforge-workflow-detail-phase-bar {
@@ -673,7 +641,7 @@
    chevron 钉在最右，二者互不侵占。 */
 .quickforge-workflow-detail-phase-head .quickforge-workflow-detail-duration {
   position: absolute;
-  right: calc(0.875rem + var(--wf-tl-pad-end));
+  right: calc(var(--wf-tl-plot-right) + var(--wf-tl-pad-end));
   top: 50%;
   transform: translateY(-50%);
   font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
@@ -700,109 +668,12 @@
   display: flex;
   flex-direction: column;
   /* 行自带左右 0.875rem 内距；阶段体不再叠加左缩进，否则轨道会比其他阶段窄。
-     工具行的从属关系由标签列内的 1px 连接线 + 缩进表达，不移动整行。 */
+     工具行的从属关系由卡片列内的 1px 连接线 + 缩进表达，不移动整行。 */
   padding: 0 0 0.5rem;
 }
 
-/* 行首类型图标：复用工具卡的 `renderToolIcon`（14px SVG，class `quickforge-tool-type-icon`），
-   外层按状态着色，与聊天里的工具行 / subagent 行同一套图标语言。
-   原来这里是一个 6px 状态圆点 —— 合并成单页后条形已经表达状态，圆点信息量偏低。 */
-.quickforge-workflow-detail-row-icon {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
-}
-
-.quickforge-workflow-detail-row-icon .quickforge-tool-type-icon {
-  color: inherit;
-}
-
-.quickforge-workflow-detail-row-icon[data-tone='done'] {
-  color: color-mix(in oklab, var(--workflow-done) 72%, var(--muted-foreground));
-}
-
-.quickforge-workflow-detail-row-icon[data-tone='running'] {
-  color: color-mix(in oklab, var(--ring) 70%, var(--foreground));
-  /* 运行中的行首图标保留原来状态圆点的呼吸感（时长/缓动仍走项目 token）。 */
-  animation: quickforge-workflow-tick-pulse 1.6s var(--quickforge-ease-out) infinite;
-}
-
-.quickforge-workflow-detail-row-icon[data-tone='error'] {
-  color: var(--destructive);
-}
-
-.quickforge-workflow-detail-row-icon[data-tone='pending'] {
-  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
-}
-
-/* 行内展开体：左缘 2px rail 连到所属行 + 实底背景。
-   实底同时遮住共享网格层（z-index:2 盖过 z-index:-1 的竖线），文字不被穿线。 */
-.quickforge-workflow-detail-step-body {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4375rem;
-  margin: 0 0.875rem;
-  padding: 0.375rem 0.5rem 0.4375rem 0.625rem;
-  border-left: 2px solid color-mix(in oklab, var(--border) 80%, transparent);
-  border-radius: 0 0.375rem 0.25rem 0;
-  background: var(--background);
-}
-
-.quickforge-workflow-detail-step[data-kind='tool'] .quickforge-workflow-detail-step-body {
-  margin-left: calc(0.875rem + 0.6875rem);
-}
-
-.quickforge-workflow-detail-step-meta {
-  font-family: var(--font-mono);
-  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
-  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
-}
-
-/* Agent 行整行是直达「运行详情」的按钮（无行内展开体、无行首图标）：
-   button 需要 reset 回与 summary 行一致的表现。 */
-button.quickforge-workflow-detail-row.quickforge-workflow-detail-agent-link {
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
-.quickforge-workflow-detail-agent-link:not(:disabled) {
-  cursor: pointer;
-}
-
-.quickforge-workflow-detail-agent-link:not(:disabled):hover,
-.quickforge-workflow-detail-agent-link:not(:disabled):focus-visible {
-  background: color-mix(in oklab, var(--muted) 45%, transparent);
-}
-
-.quickforge-workflow-detail-agent-link:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
-  outline-offset: -2px;
-}
-
-.quickforge-workflow-detail-agent-link:disabled {
-  cursor: default;
-}
-
-.quickforge-workflow-detail-sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 /* 工具行组：Agent 的子级，1px 弱连接线表达从属关系（DESIGN_LANGUAGE 例外规范的同一配方）。
-   连接线画在标签列内（left / padding 都落在 --wf-tl-label 范围内），轨道不缩进。 */
+   连接线画在步骤行左内距 + 工具缩进之间，轨道列不缩进。 */
 .quickforge-workflow-detail-tools {
   position: relative;
   display: flex;
@@ -819,20 +690,6 @@ button.quickforge-workflow-detail-row.quickforge-workflow-detail-agent-link {
   width: 1px;
   background: color-mix(in oklab, var(--border) 80%, transparent);
   pointer-events: none;
-}
-
-.quickforge-workflow-detail-field-label {
-  margin-bottom: 0.1875rem;
-  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
-  font-weight: 500;
-  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
-}
-
-.quickforge-workflow-detail-error-text {
-  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
-  color: var(--destructive);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 /* 阶段日志：收进描边 console 块（实底遮网格线，与步骤行区隔开），
@@ -906,8 +763,8 @@ button.quickforge-workflow-detail-row.quickforge-workflow-detail-agent-link {
   outline-offset: 1px;
 }
 
-/* 「定位失败步骤」命中后的描边闪烁（工具行落在 summary 上，Agent 直达行落在
-   button 上）；reduce-motion 下禁用动画，只保留滚动定位。 */
+/* 「定位失败步骤」命中后的描边闪烁：整条步骤行（卡片 + 轨道）一起描边；
+   reduce-motion 下禁用动画，只保留滚动定位。 */
 @keyframes quickforge-workflow-step-flash {
   0%, 100% {
     outline: 2px solid transparent;
@@ -920,8 +777,7 @@ button.quickforge-workflow-detail-row.quickforge-workflow-detail-agent-link {
   }
 }
 
-.quickforge-workflow-detail-step.is-flash > summary,
-.quickforge-workflow-detail-step.is-flash > .quickforge-workflow-detail-agent-link {
+.quickforge-workflow-detail-step.is-flash {
   animation: quickforge-workflow-step-flash 1.6s var(--quickforge-ease-out) 1;
 }
 
@@ -983,15 +839,13 @@ button.quickforge-workflow-detail-row.quickforge-workflow-detail-agent-link {
 
 @media (prefers-reduced-motion: reduce) {
   .quickforge-workflow-detail-phase-head,
-  .quickforge-workflow-detail-row,
   .quickforge-workflow-detail-foot-btn,
   .quickforge-workflow-detail-error-jump {
     transition: none;
   }
 
-  /* 共享 chevron 的回转 / 状态图标呼吸一并降级。 */
-  .quickforge-workflow-detail-phase-head .quickforge-tool-chevron,
-  .quickforge-workflow-detail-step .quickforge-tool-chevron {
+  /* 共享 chevron 的回转一并降级。 */
+  .quickforge-workflow-detail-phase-head .quickforge-tool-chevron {
     transition: none;
   }
 
@@ -999,13 +853,8 @@ button.quickforge-workflow-detail-row.quickforge-workflow-detail-agent-link {
     animation: none;
   }
 
-  .quickforge-workflow-detail-row-icon[data-tone='running'] {
-    animation: none;
-  }
-
   /* 定位失败步骤降级为纯滚动定位（JS 侧同样改用 behavior:'auto'）。 */
-  .quickforge-workflow-detail-step.is-flash > summary,
-  .quickforge-workflow-detail-step.is-flash > .quickforge-workflow-detail-agent-link {
+  .quickforge-workflow-detail-step.is-flash {
     animation: none;
   }
 }

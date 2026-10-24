@@ -1,12 +1,14 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { t } from '@/lib/i18n'
+import { ToolMessage } from '@/components/chat/surface/ToolMessage'
+import type { ToolCall, ToolResultMessage } from '@/components/chat/surface/ChatTypes'
+import { renderSubagentRunSummary } from '@/lib/tool-renderers/subagent-tool-renderer'
+import { shouldPublishSubagentRunPayload, subagentRunStore } from '@/lib/subagent-run-detail'
+import { buildWorkflowSubagentRunPayload } from '@/lib/workflow-subagent-detail'
 import {
-  ToolDetails,
   formatDuration,
   renderCodeBlock,
-  renderConsoleBlock,
   renderToolChevron,
-  renderToolIcon,
 } from '@/lib/tool-renderers/shared'
 import {
   workflowCountParts,
@@ -25,8 +27,6 @@ import type { WorkflowRunPayload } from '@/lib/workflow-run-payload'
 
 type WorkflowRunDetailContentProps = {
   payload?: WorkflowRunPayload
-  /** 打开某个 Agent 的独立运行详情（复用 run_subagent 的 Inspector Tab）。 */
-  onOpenAgentRun?: (workflowRunId: string, agent: WorkflowAgentView) => void
 }
 
 function statusTone(status: WorkflowRunView['status']) {
@@ -50,29 +50,19 @@ function phaseTone(phase: WorkflowPhaseView) {
   return 'pending'
 }
 
-function toolStatusText(tool: WorkflowToolView) {
-  if (tool.status === 'running') return t('workflowAgentRunning')
-  if (tool.status === 'error' || tool.status === 'aborted') return t('workflowAgentFailed')
-  if (tool.status === 'queued') return t('workflowAgentQueued')
-  return ''
-}
-
-function agentStatusText(agent: WorkflowAgentView) {
-  if (agent.status === 'running') return t('workflowAgentRunning')
-  if (agent.status === 'error') return t('workflowAgentFailed')
-  if (agent.status === 'aborted') return t('workflowAgentAborted')
-  if (agent.status === 'queued') return t('workflowAgentQueued')
-  return ''
-}
-
 // ---------------------------------------------------------------------------
 // 单页合并视图：时间轴 / 阶段 / 日志原本是三份投影（同一份运行数据的甘特图、
 // 阶段明细、日志流），切成三个分段 Tab 后必须点一下才能互相参照。现在合并成
 // 一页连续滚动：整页共享一根时间轴（刻度条吸顶），每个阶段 = 粘性阶段头 +
 // 该阶段的行（Agent 行带条形、工具行缩进）+ 该阶段自己的日志。
 //
+// 步骤行复用普通对话的卡片：工具行直接渲染 ToolMessage（各工具渲染器），Agent
+// 行渲染 run_subagent 摘要卡（renderSubagentRunSummary）——与聊天区同一份信息、
+// 样式与交互（展开体、跑马灯、状态/耗时、点击打开运行详情）。工作流自己只补充
+// 右侧的时间轴轨道（何时运行、跑了多久、并行关系），不再各写一套步骤 UI。
+//
 // 条形仍然用 DOM + 百分比定位（不用固定 viewBox 的 SVG：等比缩放会把字号一起
-// 缩掉），标签列宽度 clamp 自适应，字号走消息字号基准。
+// 缩掉），轨道列宽度 clamp 自适应，字号走消息字号基准。
 // ---------------------------------------------------------------------------
 
 const TIMELINE_TICK_COUNT = 5
@@ -144,111 +134,80 @@ function StepTrack({ entry, totalMs }: { entry: WorkflowTimelineEntry; totalMs: 
 type StepProps = {
   entry?: WorkflowTimelineEntry
   totalMs: number
-  detailed: boolean
 }
 
 /**
- * 行首的类型图标：直接复用工具卡的 `renderToolIcon`（与聊天里的工具行 / subagent 行
- * 同一套图标），外层 span 只负责按状态着色。合并成单页后状态点与条形各表达一半
- * 信息，图标补上「这是哪种工具」，比原来的纯圆点信息量高且不增加行高。
+ * 步骤行 = 普通对话的卡片 + 右侧时间轴轨道：卡片列（flex 弹性）承载与聊天区
+ * 完全同一份信息与样式，轨道列（固定宽）只补充「何时运行、跑了多久」这条
+ * 工作流自己的维度。卡片展开体是聊天卡自己的展开体，不再另写一份。
  */
-function StepIcon({ toolName, tone }: { toolName: string; tone: string }) {
-  return <span className="quickforge-workflow-detail-row-icon" data-tone={tone}>{renderToolIcon(toolName)}</span>
+
+/** 把 workflow 工具记录合成为聊天 ToolMessage 需要的 toolCall / result 形状。 */
+function workflowToolCall(tool: WorkflowToolView): ToolCall {
+  return { type: 'toolCall', id: tool.id, name: tool.name, arguments: tool.args ?? {} }
+}
+
+function workflowToolResult(tool: WorkflowToolView): ToolResultMessage | undefined {
+  if (tool.status === 'queued') return undefined
+  const text = tool.resultPreview || tool.error
+  return {
+    role: 'toolResult',
+    toolCallId: tool.id,
+    toolName: tool.name,
+    isError: tool.status === 'error' || tool.status === 'aborted',
+    content: text ? [{ type: 'text', text }] : [],
+    // 聊天卡的耗时徽标（quickforge-elapsed-time）从 timing 推导；workflow 记录的
+    // startedAt/durationMs 与 run_subagent 的 quickforgeTiming 同源语义（ms epoch）。
+    details: tool.startedAt !== undefined || tool.durationMs > 0
+      ? {
+          quickforgeTiming: {
+            ...(tool.startedAt !== undefined ? { startedAt: tool.startedAt } : {}),
+            ...(tool.durationMs > 0 ? { durationMs: tool.durationMs } : {}),
+          },
+        }
+      : undefined,
+    // 合成结果只用于展示（渲染器从不读时间戳），保持 0 维持 render 纯度。
+    timestamp: 0,
+  }
+}
+
+/** 工具行：直接渲染普通对话的工具卡（ToolMessage → 各工具渲染器），与聊天区同一份摘要、展开体与状态。 */
+function ToolStep({ tool, entry, totalMs }: StepProps & { tool: WorkflowToolView }) {
+  return (
+    <div className="quickforge-workflow-detail-step" data-kind="tool" data-tone={stepTone(tool.status)}>
+      <ToolMessage toolCall={workflowToolCall(tool)} result={workflowToolResult(tool)} isStreaming={tool.status === 'running'} />
+      {entry ? <StepTrack entry={entry} totalMs={totalMs} /> : <span className="quickforge-workflow-detail-row-track" />}
+    </div>
+  )
 }
 
 /**
- * Agent 行：整行即入口——点击直接打开该步的运行详情（与 run_subagent 同一个
- * Inspector Tab），不再有行内展开体：任务说明、trace、错误与结果都在运行详情里，
- * 行内再展开一份 prompt 属于重复展示。行首也不放类型图标（曾经的绿色机器人
- * 图标被用户否决），状态由条形 tone + 悬停 title 表达。
- * queued 或没有跳转句柄时渲染为禁用按钮。
+ * Agent 行：渲染普通对话的 run_subagent 摘要卡（renderSubagentRunSummary）。
+ * 点击走卡片自己的链路（store 最新快照优先 → OPEN_SUBAGENT_RUN_EVENT），与
+ * 聊天里点 Agent 卡打开运行详情完全一致；queued 尚无运行详情，保持禁用。
  */
 function AgentStep({
   agent,
   entry,
   totalMs,
   workflowRunId,
-  onOpenAgentRun,
-}: {
-  agent: WorkflowAgentView
-  entry?: WorkflowTimelineEntry
-  totalMs: number
-  workflowRunId: string
-  onOpenAgentRun?: (workflowRunId: string, agent: WorkflowAgentView) => void
-}) {
-  const tone = stepTone(agent.status)
-  const status = agentStatusText(agent)
-  const openable = Boolean(onOpenAgentRun) && agent.status !== 'queued'
+}: StepProps & { agent: WorkflowAgentView; workflowRunId: string }) {
+  // 与 SubagentToolRenderer.render 同一套发布口径：store 已有更完整的实时快照
+  // （SSE 由 WorkflowAgentRunEventPublisher 持续发布）时优先回填，避免详情闪空。
+  const existing = subagentRunStore.get(`${workflowRunId || 'workflow'}:agent:${agent.id}`)
+  const payload = buildWorkflowSubagentRunPayload(workflowRunId, agent, t, { previous: existing })
+  if (shouldPublishSubagentRunPayload(payload, existing)) subagentRunStore.publish(payload)
   return (
-    <div className="quickforge-workflow-detail-step" data-kind="agent" data-tone={tone}>
-      <button
-        type="button"
-        className="quickforge-workflow-detail-row quickforge-workflow-detail-agent-link"
-        disabled={!openable}
-        onClick={() => onOpenAgentRun?.(workflowRunId, agent)}
-        title={agent.error ? `${agent.label}: ${agent.error}` : agent.label}
-      >
-        <span className="quickforge-workflow-detail-row-head">
-          <span className={`quickforge-workflow-detail-row-label${agent.status === 'running' ? ' quickforge-tool-running-sweep' : ''}`}>
-            {agent.label}
-          </span>
-        </span>
-        {entry ? <StepTrack entry={entry} totalMs={totalMs} /> : <span className="quickforge-workflow-detail-row-track" />}
-        {status ? <span className="quickforge-workflow-detail-sr">{status}</span> : null}
-      </button>
+    <div className="quickforge-workflow-detail-step" data-kind="agent" data-tone={stepTone(agent.status)}>
+      {renderSubagentRunSummary(payload, {
+        label: agent.label,
+        meta: agent.profile && agent.profile !== agent.label ? agent.profile : undefined,
+        labelClassName: agent.status === 'running' ? 'quickforge-subagent-label quickforge-tool-running-sweep' : undefined,
+        title: agent.error ? `${agent.label}: ${agent.error}` : undefined,
+        disabled: agent.status === 'queued',
+      })}
+      {entry ? <StepTrack entry={entry} totalMs={totalMs} /> : <span className="quickforge-workflow-detail-row-track" />}
     </div>
-  )
-}
-
-/** 工具行：Agent 的子级，展开后是入参 / 输出 / 错误（run_command 输出走共享控制台块）。 */
-function ToolStep({
-  tool,
-  entry,
-  totalMs,
-  detailed,
-  workflowRunId,
-}: StepProps & { tool: WorkflowToolView; workflowRunId: string }) {
-  const name = tool.label || tool.name
-  const tone = stepTone(tool.status)
-  const argsPreview = detailed && tool.args ? JSON.stringify(tool.args) : ''
-  return (
-    <ToolDetails
-      className="quickforge-workflow-detail-step group/tool"
-      data-kind="tool"
-      data-tone={tone}
-      initiallyOpen={false}
-      stateKey={`workflow:${workflowRunId}:tool:${tool.id}`}
-    >
-      <summary className="quickforge-workflow-detail-row" title={tool.error ? `${name}: ${tool.error}` : name}>
-        <span className="quickforge-workflow-detail-row-head">
-          <StepIcon toolName={tool.name} tone={tone} />
-          <span className="quickforge-workflow-detail-row-label">{name}</span>
-          {renderToolChevron()}
-        </span>
-        {entry ? <StepTrack entry={entry} totalMs={totalMs} /> : <span className="quickforge-workflow-detail-row-track" />}
-      </summary>
-      <div className="quickforge-workflow-detail-step-body">
-        {argsPreview ? (
-          <div>
-            <div className="quickforge-workflow-detail-field-label">{t('input')}</div>
-            {renderCodeBlock(argsPreview, 'json')}
-          </div>
-        ) : null}
-        {tool.resultPreview ? (
-          <div>
-            <div className="quickforge-workflow-detail-field-label">{t('output')}</div>
-            {/* 命令输出复用聊天工具卡的同一块控制台渲染（等宽 + 复制按钮）。 */}
-            {tool.name === 'run_command'
-              ? renderConsoleBlock(tool.resultPreview, tool.status === 'error' ? 'error' : 'default')
-              : renderCodeBlock(tool.resultPreview, 'text')}
-          </div>
-        ) : null}
-        {tool.error ? <div className="quickforge-workflow-detail-error-text">{tool.error}</div> : null}
-        {!argsPreview && !tool.resultPreview && !tool.error ? (
-          <div className="quickforge-workflow-detail-field-label">{toolStatusText(tool) || t('workflowDetailPending')}</div>
-        ) : null}
-      </div>
-    </ToolDetails>
   )
 }
 
@@ -272,10 +231,8 @@ function PhaseSection({
   timeline,
   nowMs,
   logOrigin,
-  detailed,
   workflowRunId,
   entryIndex,
-  onOpenAgentRun,
 }: {
   phase: WorkflowPhaseView
   ordinal: number
@@ -283,10 +240,8 @@ function PhaseSection({
   /** 运行中的当前时刻（相对开始）；终态为 undefined，跨度条不再钳制。 */
   nowMs?: number
   logOrigin: number
-  detailed: boolean
   workflowRunId: string
   entryIndex: EntryIndex
-  onOpenAgentRun?: (workflowRunId: string, agent: WorkflowAgentView) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
@@ -314,7 +269,6 @@ function PhaseSection({
             entry={entryIndex.get(`agent:${step.agent.id}`)}
             totalMs={timeline.totalMs}
             workflowRunId={workflowRunId}
-            onOpenAgentRun={onOpenAgentRun}
           />
         ),
       }
@@ -329,8 +283,6 @@ function PhaseSection({
                 tool={tool}
                 entry={entryIndex.get(`tool:${tool.id}`)}
                 totalMs={timeline.totalMs}
-                detailed={detailed}
-                workflowRunId={workflowRunId}
               />
             ))}
           </div>
@@ -425,7 +377,7 @@ function PhaseSection({
 // 外壳
 // ---------------------------------------------------------------------------
 
-export function WorkflowRunDetailContent({ payload, onOpenAgentRun }: WorkflowRunDetailContentProps) {
+export function WorkflowRunDetailContent({ payload }: WorkflowRunDetailContentProps) {
   const [sheet, setSheet] = useState<'script' | 'result' | undefined>(undefined)
   const scrollRef = useRef<HTMLDivElement>(null)
   const timeline = useMemo(() => (payload ? workflowTimeline(payload.view) : undefined), [payload])
@@ -445,8 +397,9 @@ export function WorkflowRunDetailContent({ payload, onOpenAgentRun }: WorkflowRu
     ? Math.min(timeline.totalMs, Math.max(...timeline.entries.map((entry) => entry.startOffsetMs + entry.durationMs)))
     : undefined
 
-  // 「定位失败步骤」：展开所属阶段与该行（ToolDetails 是受控 details，走原生
-  // summary 点击让 onToggle 回写状态，不能直接改 open 属性），滚动居中后闪烁描边。
+  // 「定位失败步骤」：展开所属阶段与该步的聊天工具卡（卡内的 details 是受控的，
+  // 走原生 summary 点击让 onToggle 回写状态，不能直接改 open 属性；Agent 行是
+  // 摘要按钮，没有展开体），滚动居中后对整个步骤行闪烁描边。
   const jumpToFailure = () => {
     const step = scrollRef.current?.querySelector<HTMLElement>('.quickforge-workflow-detail-step[data-tone="error"]')
     if (!step) return
@@ -455,8 +408,8 @@ export function WorkflowRunDetailContent({ payload, onOpenAgentRun }: WorkflowRu
       (phase.querySelector('.quickforge-workflow-detail-phase-head') as HTMLElement | null)?.click()
     }
     window.setTimeout(() => {
-      const summary = step.querySelector('summary')
-      if (summary && !(step as HTMLDetailsElement).open) summary.click()
+      const details = step.querySelector('details')
+      if (details && !details.open) (details.querySelector('summary') as HTMLElement | null)?.click()
       const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
       step.scrollIntoView({ block: 'center', behavior: reducedMotion ? 'auto' : 'smooth' })
       step.classList.remove('is-flash')
@@ -548,10 +501,8 @@ export function WorkflowRunDetailContent({ payload, onOpenAgentRun }: WorkflowRu
                 timeline={timeline}
                 nowMs={nowMs}
                 logOrigin={logOrigin}
-                detailed={payload.detailed}
                 workflowRunId={run.runId}
                 entryIndex={entryIndex}
-                onOpenAgentRun={onOpenAgentRun}
               />
             ))}
           </div>

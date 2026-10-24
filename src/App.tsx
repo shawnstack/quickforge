@@ -4,22 +4,7 @@ import type { BackgroundTaskStatus } from '@/lib/types'
 import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import { createTaskLauncherVisibility } from '@/components/chat/task-launcher-visibility'
 import {
-  Activity,
-  Archive,
-  ChevronDown,
-  Ellipsis,
-  Folder,
-  GitBranch,
-  Info,
-  LogOut,
-  Menu,
-  MessageSquare,
   PanelRight,
-  Pencil,
-  Pin,
-  PinOff,
-  RefreshCw,
-  Share2,
   SquareTerminal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -27,7 +12,9 @@ import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { ProjectOpenMenu } from '@/components/project/ProjectOpenMenu'
 import { SkillsDialog } from '@/components/skills-dialog'
 import { MigrationProgressView } from '@/components/migration-progress-view'
-import { StartupSplashIcon } from '@/components/startup-splash-icon'
+import { DesktopTitlebarMenu } from '@/components/app/DesktopTitlebarMenu'
+import { ConversationHeader } from '@/components/app/ConversationHeader'
+import { StartupSplash, ConversationLoadingScreen } from '@/components/app/StartupScreens'
 import {
   buildConnectionModel,
   DEFAULT_CONNECTION,
@@ -53,8 +40,6 @@ import type {
   ProjectInfo,
   QuickForgeSessionMetadata,
   RestoredDraft,
-  SidebarSessionSortMode,
-  SidebarSessionViewMode,
   SkillsScope,
 } from '@/lib/types'
 import { sessionTitle } from '@/lib/types'
@@ -90,25 +75,11 @@ import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ServerAgent } from '@/lib/server-agent'
 import { logger } from '@/lib/logger'
-import {
-  loadSidebarSectionOrder,
-  reorderSidebarSections,
-  saveSidebarSectionOrder,
-  type SidebarSectionId,
-  type SidebarSectionOrder,
-} from '@/lib/sidebar-section-order'
-import {
-  loadSidebarSessionSortMode,
-  loadSidebarSessionViewMode,
-  saveSidebarSessionSortMode,
-  saveSidebarSessionViewMode,
-} from '@/lib/sidebar-session-sort-mode'
 import { getDeletedProjectRecoveryDecision } from '@/lib/deleted-project-recovery'
 import { isCurrentProjectRequest } from '@/lib/project-request-guard'
 import { openSessionFromSettings } from '@/lib/open-session-from-settings'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
-import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import { GitCommitPushDialog } from '@/components/git/GitCommitPushDialog'
 import { GitToolsPinnedSummary } from '@/components/git/GitToolsPinnedSummary'
 import { GitGraphDialog } from '@/components/git/GitGraphDialog'
@@ -122,7 +93,7 @@ import {
 import type { WorkspaceInspectorOpenRequestInput, WorkspaceInspectorRuntimeScope } from '@/components/workspace/workspace-types'
 import { SideChatAgent } from '@/components/workspace/side-chat-agent'
 import { subscribeToAgentEvents } from '@/lib/server-agent'
-import { turnRollbackKey, type AiTurnArtifact } from '@/lib/tool-artifacts'
+import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 import { artifactPreviewMode, documentFormatFromPath, findBestPreviewableArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
 import { isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
@@ -132,6 +103,12 @@ import {
   shouldSuspendPinnedSummary,
 } from '@/lib/pinned-summary-drag'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
+import { useSidebarOrdering } from '@/hooks/useSidebarOrdering'
+import { useProjectExternalOpen } from '@/hooks/useProjectExternalOpen'
+import { useDesktopTitlebarMenu } from '@/hooks/useDesktopTitlebarMenu'
+import { useAgentApprovalActions } from '@/hooks/useAgentApprovalActions'
+import { useTurnFileRollback } from '@/hooks/useTurnFileRollback'
+import { useMobileSidebar } from '@/hooks/useMobileSidebar'
 
 // --- Code-split secondary views (only loaded when first opened) ---
 // These are conditionally-mounted routes/panels; lazy loading keeps heavy
@@ -152,46 +129,12 @@ const SettingsWorkspacePage = lazy(() =>
   import('@/components/settings/SettingsWorkspacePage').then((m) => ({ default: m.SettingsWorkspacePage })),
 )
 
-const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
-
 function LazyPanelFallback() {
   return <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">{t('loading')}</div>
 }
 
 function LazyOverlayFallback() {
   return null
-}
-
-function StartupSplash({ exiting = false }: { exiting?: boolean }) {
-  const label = t('loadingChatWorkspace')
-
-  return (
-    <div className={cn('quickforge-startup-splash', exiting && 'quickforge-startup-splash-exit')} role="status" aria-label={label}>
-      <StartupSplashIcon />
-      <span className="sr-only">{label}</span>
-    </div>
-  )
-}
-
-function ConversationLoadingScreen({ exiting = false }: { exiting?: boolean }) {
-  const label = t('loadingConversation')
-
-  return (
-    <div className={cn('quickforge-conversation-loading', exiting && 'quickforge-conversation-loading-exit')} role="status" aria-live="polite" aria-label={label}>
-      <div className="quickforge-conversation-loading-status" aria-hidden="true">
-        <span>{label}</span>
-        <span className="quickforge-conversation-loading-dots">
-          <span>•</span>
-          <span>•</span>
-          <span>•</span>
-        </span>
-      </div>
-      <div className="quickforge-conversation-loading-track" aria-hidden="true">
-        <div className="quickforge-conversation-loading-runner" />
-      </div>
-      <span className="quickforge-conversation-loading-helper" aria-hidden="true">{t('loadingConversationPreparing')}</span>
-    </div>
-  )
 }
 
 type ScheduledTaskNotificationEvent = {
@@ -273,7 +216,6 @@ function MainApp() {
   // --- UI state shared with other hooks ---
   const [needsModelSetup, setNeedsModelSetup] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
-  const [desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen] = useState(false)
   const terminalState = useAppTerminalState()
   const { pendingTerminalCommand, setPendingTerminalCommand, terminalDockOpen, setTerminalDockOpen } = terminalState
   const [workspaceInspectorFullscreen, setWorkspaceInspectorFullscreen] = useState(false)
@@ -292,13 +234,15 @@ function MainApp() {
     sessionId?: string
     artifacts: AiTurnArtifact[]
   }>({ artifacts: [] })
-  const [sidebarSectionOrder, setSidebarSectionOrder] = useState<SidebarSectionOrder>(loadSidebarSectionOrder)
-  const [sidebarSessionViewMode, setSidebarSessionViewMode] = useState<SidebarSessionViewMode>(
-    loadSidebarSessionViewMode,
-  )
-  const [sidebarSessionSortMode, setSidebarSessionSortMode] = useState<SidebarSessionSortMode>(
-    loadSidebarSessionSortMode,
-  )
+  // 侧栏区块顺序 + 视图/排序模式（带持久化，桌面/移动两处 ChatSidebar 共享）
+  const {
+    sidebarSectionOrder,
+    handleSidebarSectionReorder,
+    sidebarSessionViewMode,
+    setSidebarSessionViewMode,
+    sidebarSessionSortMode,
+    setSidebarSessionSortMode,
+  } = useSidebarOrdering()
   // 用户在新对话空状态主动清除项目预选后，本次空状态内不再默认预选上次激活的项目。
   const [emptyStateProjectDismissed, setEmptyStateProjectDismissed] = useState(false)
   const wasNewChatEmptyStateRef = useRef(false)
@@ -328,31 +272,6 @@ function MainApp() {
     })
   }, [addTaskCompletionToast])
   const closeWorkspacePage = useCallback(() => undefined, [])
-  const closeDesktopTitlebarMenu = useCallback(() => setDesktopTitlebarMenuOpen(false), [])
-  const openDesktopUpdatePage = useCallback(() => {
-    setDesktopTitlebarMenuOpen(false)
-    window.open(QUICKFORGE_RELEASES_URL, '_blank', 'noopener,noreferrer')
-  }, [])
-  const exitDesktopApp = useCallback(() => {
-    setDesktopTitlebarMenuOpen(false)
-    window.open('quickforge://exit', '_blank', 'noopener,noreferrer')
-  }, [])
-
-  const handleSidebarSectionReorder = useCallback((activeId: SidebarSectionId, overId: SidebarSectionId) => {
-    setSidebarSectionOrder((current) => reorderSidebarSections(current, activeId, overId))
-  }, [])
-
-  useEffect(() => {
-    saveSidebarSectionOrder(sidebarSectionOrder)
-  }, [sidebarSectionOrder])
-
-  useEffect(() => {
-    saveSidebarSessionViewMode(sidebarSessionViewMode)
-  }, [sidebarSessionViewMode])
-
-  useEffect(() => {
-    saveSidebarSessionSortMode(sidebarSessionSortMode)
-  }, [sidebarSessionSortMode])
 
   // --- Session list + cross-tab sync ---
   const crossTabRef = useRef<ReturnType<typeof useCrossTabSync> | null>(null)
@@ -763,56 +682,18 @@ function MainApp() {
     }
   }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
 
-  // 每轮产物卡「撤销本轮」：点击只打开独立预检弹窗（按该轮全部 turnId 轮级回滚）。
-  // completed/partial 均算该轮已撤销；轮已结束不会再有新产物，无需据此重新武装
-  // （重试例外：同轮追加新 turnId 后轮键变化，旧键残留无害）。
-  const [rolledBackTurns, setRolledBackTurns] = useState<ReadonlySet<string>>(() => new Set())
-  const [fileRollbackTarget, setFileRollbackTarget] = useState<
-    { agent: ServerAgent; sessionId: string; projectId: string; turnIds: string[] }
-    | null
-  >(null)
-  const fileRollbackTargetRef = useRef(fileRollbackTarget)
-  const currentRollbackContextRef = useRef({
+  // 每轮产物卡「撤销本轮」：目标收集 + 会话切换静默关闭 + 轮键记账（见 useTurnFileRollback）。
+  const {
+    rolledBackTurns,
+    fileRollbackTarget,
+    closeFileRollback,
+    rollbackTurnFromArtifactCard,
+    completeFileRollback,
+  } = useTurnFileRollback({
     agent: agentManager.agent,
     sessionId: agentManager.currentSessionId,
     projectId: agentManager.currentToolProject?.id,
   })
-  const closeFileRollback = useCallback(() => {
-    fileRollbackTargetRef.current = null
-    setFileRollbackTarget(null)
-  }, [])
-  useLayoutEffect(() => {
-    const context = {
-      agent: agentManager.agent,
-      sessionId: agentManager.currentSessionId,
-      projectId: agentManager.currentToolProject?.id,
-    }
-    currentRollbackContextRef.current = context
-    const target = fileRollbackTargetRef.current
-    if (target && (target.agent !== context.agent || target.sessionId !== context.sessionId || target.projectId !== context.projectId)) {
-      closeFileRollback()
-    }
-  }, [agentManager.agent, agentManager.currentSessionId, agentManager.currentToolProject?.id, closeFileRollback])
-
-  const rollbackTurnFromArtifactCard = useCallback((turnIds: string[]) => {
-    const { agent, sessionId, projectId } = currentRollbackContextRef.current
-    // 空集合不入口；已有弹窗打开时不重复开。
-    if (!agent || !sessionId || !projectId || agent.sessionId !== sessionId || fileRollbackTargetRef.current || turnIds.length === 0) return
-    const serverAgent = agent as ServerAgent
-    if (typeof serverAgent.getTurnRollbackPreview !== 'function' || typeof serverAgent.rollbackTurn !== 'function') return
-    const target = { agent: serverAgent, sessionId, projectId, turnIds }
-    fileRollbackTargetRef.current = target
-    setFileRollbackTarget(target)
-  }, [])
-  const completeFileRollback = useCallback(() => {
-    const target = fileRollbackTargetRef.current
-    const context = currentRollbackContextRef.current
-    if (target && target.agent === context.agent && target.sessionId === context.sessionId && target.projectId === context.projectId) {
-      // completed/partial 均算该轮已撤销（弹窗侧 onCompleted 两种终态都会回调）；
-      // 轮键按弹窗打开时的 turnIds 计算——重试追加新 turnId 后轮键变化，旧键残留无害。
-      setRolledBackTurns((previous) => new Set(previous).add(turnRollbackKey(target.turnIds)))
-    }
-  }, [])
 
   // 自动预览的唯一入口：`ChatPanelHost` 在 `tool_execution_end` 时上报「本次工具
   // 执行刚刚产出的文件」，且只由当前活跃视图上报。这是事件而不是状态差分，因此
@@ -1153,50 +1034,14 @@ function MainApp() {
     notifySettingsChanged: crossTab.notifySettingsChanged,
   })
 
-  const handleApproveToolCall = useCallback(async (toolCallId: string) => {
-    const currentAgent = agentRef.current
-    if (!currentAgent) throw new Error(t('toolApprovalFailed'))
-    try {
-      await currentAgent.approveToolCall(toolCallId)
-    } catch (err) {
-      logger.error('Failed to approve tool call:', err)
-      throw err instanceof Error ? err : new Error(t('toolApprovalFailed'))
-    }
-  }, [agentRef])
-
-  const handleRejectToolCall = useCallback(async (toolCallId: string) => {
-    const currentAgent = agentRef.current
-    if (!currentAgent) throw new Error(t('toolApprovalFailed'))
-    try {
-      await currentAgent.rejectToolCall(toolCallId)
-    } catch (err) {
-      logger.error('Failed to reject tool call:', err)
-      throw err instanceof Error ? err : new Error(t('toolApprovalFailed'))
-    }
-  }, [agentRef])
-
-  const handleAnswerAsk = useCallback(async (askId: string, answers: Array<{ choices?: string[]; custom?: string }>, skipped: boolean, remark?: string) => {
-    const currentAgent = agentRef.current as (typeof agentRef.current & { answerAsk?: (askId: string, payload: { answers?: Array<{ choices?: string[]; custom?: string }>; skipped?: boolean; remark?: string }) => Promise<void> })
-    if (!currentAgent?.answerAsk) throw new Error(t('askUserFailed'))
-    try {
-      await currentAgent.answerAsk(askId, { answers, skipped, remark })
-    } catch (err) {
-      logger.error('Failed to answer ask:', err)
-      throw err instanceof Error ? err : new Error(t('askUserFailed'))
-    }
-  }, [agentRef])
-
-  const handleApproveAutoCompact = useCallback(async (approvalId: string) => {
-    const currentAgent = agentRef.current as (typeof agentRef.current & { approveAutoCompact?: (approvalId: string) => Promise<void> })
-    if (!currentAgent?.approveAutoCompact) throw new Error(t('toolApprovalFailed'))
-    await currentAgent.approveAutoCompact(approvalId)
-  }, [agentRef])
-
-  const handleRejectAutoCompact = useCallback(async (approvalId: string) => {
-    const currentAgent = agentRef.current as (typeof agentRef.current & { rejectAutoCompact?: (approvalId: string) => Promise<void> })
-    if (!currentAgent?.rejectAutoCompact) throw new Error(t('toolApprovalFailed'))
-    await currentAgent.rejectAutoCompact(approvalId)
-  }, [agentRef])
+  // 工具审批 / ask_user 应答 / auto-compact 审批统一出口（见 useAgentApprovalActions）。
+  const {
+    handleApproveToolCall,
+    handleRejectToolCall,
+    handleAnswerAsk,
+    handleApproveAutoCompact,
+    handleRejectAutoCompact,
+  } = useAgentApprovalActions(agentRef)
 
   const {
     loadSession,
@@ -1283,10 +1128,9 @@ function MainApp() {
     return () => window.removeEventListener('quickforge:open-session-from-settings', handler)
   }, [handleOpenSessionFromSettings])
 
-  const openDesktopAbout = useCallback(() => {
-    setDesktopTitlebarMenuOpen(false)
-    openAboutSettings()
-  }, [openAboutSettings])
+  // 桌面标题栏菜单（关于 / 检查更新 / 退出），开合状态与动作见 useDesktopTitlebarMenu。
+  const { desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen, openDesktopAbout, openDesktopUpdatePage, exitDesktopApp } =
+    useDesktopTitlebarMenu({ openAboutSettings })
 
   // --- Derived data ---
   const visibleSessions = useMemo(() => allLoadedSessions, [allLoadedSessions])
@@ -1303,16 +1147,6 @@ function MainApp() {
       ?? session.taskStatus
       ?? 'idle'
   }, [agentManager.taskStatuses, visibleRuntimeStatuses])
-
-  useEffect(() => {
-    if (!desktopTitlebarMenuOpen) return
-    window.addEventListener('click', closeDesktopTitlebarMenu)
-    window.addEventListener('blur', closeDesktopTitlebarMenu)
-    return () => {
-      window.removeEventListener('click', closeDesktopTitlebarMenu)
-      window.removeEventListener('blur', closeDesktopTitlebarMenu)
-    }
-  }, [closeDesktopTitlebarMenu, desktopTitlebarMenuOpen])
 
   useEffect(() => {
     if (!ui.conversationMenuOpen) return
@@ -1472,128 +1306,42 @@ function MainApp() {
     setSkillsDialog({ scope: 'project', project })
   }, [setSkillsDialog])
 
-  const openProjectInExplorer = useCallback(async (project: ProjectInfo) => {
-    const response = await fetch(`/api/project/${encodeURIComponent(project.id)}/open-in-explorer`, {
-      method: 'POST',
-    })
-    if (response.ok) return
-    const payload = await response.json().catch(() => null)
-    throw new Error(payload?.error || t('openInExplorerFailed'))
-  }, [])
-
-  const openProjectInVSCode = useCallback(async (project: ProjectInfo) => {
-    const response = await fetch(`/api/project/${encodeURIComponent(project.id)}/open-in-vscode`, {
-      method: 'POST',
-    })
-    if (response.ok) return
-    const payload = await response.json().catch(() => null)
-    throw new Error(payload?.error || t('openInVSCodeFailed'))
-  }, [])
-
-  const openProjectInIDEA = useCallback(async (project: ProjectInfo) => {
-    const response = await fetch(`/api/project/${encodeURIComponent(project.id)}/open-in-idea`, {
-      method: 'POST',
-    })
-    if (response.ok) return
-    const payload = await response.json().catch(() => null)
-    throw new Error(payload?.error || t('openInIDEAFailed'))
-  }, [])
-
-  // --- Desktop sidebar handlers (stable; do not auto-close the sidebar) ---
-  // Kept separate from the mobile `*FromSidebar` handlers so the memoized desktop
-  // <ChatSidebar> does not re-render on unrelated App state changes.
-  const openProjectInExplorerWithFeedback = useCallback((project: ProjectInfo) => {
-    void openProjectInExplorer(project).catch((error) => {
-      logger.error('Failed to open project in explorer:', error)
-      void showAlert(error instanceof Error ? error.message : t('openInExplorerFailed'))
-    })
-  }, [openProjectInExplorer])
-
-  const openProjectInVSCodeWithFeedback = useCallback((project: ProjectInfo) => {
-    void openProjectInVSCode(project).catch((error) => {
-      logger.error('Failed to open project in VS Code:', error)
-      void showAlert(error instanceof Error ? error.message : t('openInVSCodeFailed'))
-    })
-  }, [openProjectInVSCode])
-
-  const openProjectInIDEAWithFeedback = useCallback((project: ProjectInfo) => {
-    void openProjectInIDEA(project).catch((error) => {
-      logger.error('Failed to open project in IntelliJ IDEA:', error)
-      void showAlert(error instanceof Error ? error.message : t('openInIDEAFailed'))
-    })
-  }, [openProjectInIDEA])
+  // 「在资源管理器 / VS Code / IDEA 中打开项目」（见 useProjectExternalOpen）。
+  const {
+    openProjectInExplorer,
+    openProjectInExplorerWithFeedback,
+    openProjectInVSCodeWithFeedback,
+    openProjectInIDEAWithFeedback,
+  } = useProjectExternalOpen()
 
   const toggleSidebar = useCallback(() => setSidebarOpen((value) => !value), [setSidebarOpen])
 
-  const closeMobileSidebar = useCallback(() => {
-    ui.setMobileSidebarOpen(false)
-  }, [ui])
-
-  // The mobile sidebar drawer is role=dialog + aria-modal, so Escape must
-  // close it, keyboard focus must move into it while open, and it must be
-  // restored to the opener when it closes.
-  const mobileSidebarDrawerRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!ui.mobileSidebarOpen) return
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    mobileSidebarDrawerRef.current?.focus()
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        closeMobileSidebar()
-      }
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('keydown', handleKey)
-      if (previouslyFocused && previouslyFocused.isConnected) previouslyFocused.focus()
-    }
-  }, [ui.mobileSidebarOpen, closeMobileSidebar])
-
-  const loadSessionFromSidebar = useCallback((sessionId: string) => {
-    closeMobileSidebar()
-    loadSessionWithTransition(sessionId)
-  }, [closeMobileSidebar, loadSessionWithTransition])
-
-  const startNewDefaultSessionFromSidebar = useCallback(() => {
-    closeMobileSidebar()
-    startNewDefaultSession()
-  }, [closeMobileSidebar, startNewDefaultSession])
-
-  const startNewExplicitGlobalSessionFromSidebar = useCallback(() => {
-    closeMobileSidebar()
-    startNewExplicitGlobalSession()
-  }, [closeMobileSidebar, startNewExplicitGlobalSession])
-
-  const startNewProjectChatFromSidebar = useCallback((project: ProjectInfo) => {
-    closeMobileSidebar()
-    void startNewProjectChatWithInspectorReset(project)
-  }, [closeMobileSidebar, startNewProjectChatWithInspectorReset])
-
-  const openGlobalSkillsFromSidebar = useCallback(() => {
-    closeMobileSidebar()
-    openGlobalSkills()
-  }, [closeMobileSidebar, openGlobalSkills])
-
-  const openMcpFromSidebar = useCallback(() => {
-    closeMobileSidebar()
-    openMcp()
-  }, [closeMobileSidebar, openMcp])
-
-  const openAgentsFromSidebar = useCallback(() => {
-    closeMobileSidebar()
-    openAgents()
-  }, [closeMobileSidebar, openAgents])
-
-  const openScheduledTasksFromSidebar = useCallback(() => {
-    closeMobileSidebar()
-    openScheduledTasks()
-  }, [closeMobileSidebar, openScheduledTasks])
-
-  const openProjectSkillsFromSidebar = useCallback((project: ProjectInfo) => {
-    closeMobileSidebar()
-    openProjectSkills(project)
-  }, [closeMobileSidebar, openProjectSkills])
+  // 移动端侧栏抽屉（Escape/焦点管理 + 先收抽屉再转发桌面动作的 `*FromSidebar` 包装，
+  // 见 useMobileSidebar）。
+  const {
+    closeMobileSidebar,
+    mobileSidebarDrawerRef,
+    loadSessionFromSidebar,
+    startNewDefaultSessionFromSidebar,
+    startNewExplicitGlobalSessionFromSidebar,
+    startNewProjectChatFromSidebar,
+    openGlobalSkillsFromSidebar,
+    openMcpFromSidebar,
+    openAgentsFromSidebar,
+    openScheduledTasksFromSidebar,
+    openProjectSkillsFromSidebar,
+  } = useMobileSidebar({
+    ui,
+    loadSessionWithTransition,
+    startNewDefaultSession,
+    startNewExplicitGlobalSession,
+    startNewProjectChatWithInspectorReset,
+    openGlobalSkills,
+    openMcp,
+    openAgents,
+    openScheduledTasks,
+    openProjectSkills,
+  })
 
   const handleSkillsSaved = useCallback((payload: { scope: SkillsScope; project?: ProjectInfo; projects?: ProjectInfo[] }) => {
     if (payload.scope === 'project' && payload.project && payload.projects) {
@@ -1642,56 +1390,13 @@ function MainApp() {
 
   return (
     <>
-    <div className="quickforge-desktop-titlebar fixed left-0 right-0 top-0 z-40 hidden h-8 items-center px-2">
-      <button
-        type="button"
-        className="quickforge-desktop-titlebar-trigger inline-flex h-8 translate-y-1 items-center gap-2.5 rounded-none px-3 text-[13px] font-medium leading-none transition-colors hover:bg-accent hover:text-accent-foreground"
-        onClick={(event) => {
-          event.stopPropagation()
-          setDesktopTitlebarMenuOpen((open) => !open)
-        }}
-        aria-haspopup="menu"
-        aria-expanded={desktopTitlebarMenuOpen}
-      >
-        <svg className="h-[18px] w-[18px] shrink-0" viewBox="0 0 64 64" aria-hidden="true">
-          <defs>
-            <linearGradient id="titlebarIconStroke" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stopColor="#9ca3af" />
-              <stop offset="1" stopColor="#4b5563" />
-            </linearGradient>
-            <linearGradient id="titlebarIconBolt" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stopColor="#374151" />
-              <stop offset="1" stopColor="#0f172a" />
-            </linearGradient>
-          </defs>
-          <polygon points="32,6 52.78,18 52.78,42 32,54 11.22,42 11.22,18" fill="none" stroke="url(#titlebarIconStroke)" strokeWidth="4.5" strokeLinejoin="round" />
-          <path d="M37.2 13 L22 34 L30.6 34 L26.8 50 L42.8 26 L33.8 26 Z" fill="url(#titlebarIconBolt)" />
-          <path d="M37.2 13 L22 34 L30.6 34 L33.8 26 Z" fill="#e5e7eb" opacity="0.4" />
-        </svg>
-        <span>QuickForge</span>
-      </button>
-      {desktopTitlebarMenuOpen && (
-        <div
-          className="quickforge-desktop-titlebar-menu absolute left-2 top-8 min-w-40 overflow-hidden rounded-md border border-border bg-popover py-1 text-[13px] text-popover-foreground shadow-lg"
-          role="menu"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <button type="button" className="flex h-8 w-full items-center gap-2.5 px-3 text-left hover:bg-accent hover:text-accent-foreground" role="menuitem" onClick={openDesktopAbout}>
-            <Info className="size-4" />
-            <span>{t('about')}</span>
-          </button>
-          <button type="button" className="flex h-8 w-full items-center gap-2.5 px-3 text-left hover:bg-accent hover:text-accent-foreground" role="menuitem" onClick={openDesktopUpdatePage}>
-            <RefreshCw className="size-4" />
-            <span>{t('desktopUpdate')}</span>
-          </button>
-          <div className="my-1 border-t border-border" />
-          <button type="button" className="flex h-8 w-full items-center gap-2.5 px-3 text-left text-destructive hover:bg-destructive/10" role="menuitem" onClick={exitDesktopApp}>
-            <LogOut className="size-4" />
-            <span>{t('desktopExit')}</span>
-          </button>
-        </div>
-      )}
-    </div>
+    <DesktopTitlebarMenu
+      menuOpen={desktopTitlebarMenuOpen}
+      onToggleMenu={() => setDesktopTitlebarMenuOpen((open) => !open)}
+      onOpenAbout={openDesktopAbout}
+      onOpenUpdate={openDesktopUpdatePage}
+      onExit={exitDesktopApp}
+    />
     {!ui.settingsDialogOpen && (
     <div
       className={cn(
@@ -2011,157 +1716,40 @@ function MainApp() {
       <main className={cn(
         'flex min-w-0 flex-1 flex-col bg-[var(--quickforge-main-bg)] md:overflow-hidden md:rounded-tl-2xl md:border-l md:border-t border-[color-mix(in_oklab,var(--border)_60%,transparent)]',
       )}>
-        <header ref={conversationHeaderRef} className="flex h-14 shrink-0 items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_60%,transparent)] px-3 pr-20">
-          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => ui.setMobileSidebarOpen(true)} aria-label={t('toggleSidebar')}>
-            <Menu className="size-[18px]" />
-          </Button>
-
-          <div className="min-w-0 flex-1">
-            <div className="flex max-w-full min-w-0 items-center gap-2">
-              <div className="min-w-0">
-                <div className="min-w-0 truncate text-sm font-semibold">{sessionTitle(agentManager.currentTitle)}</div>
-                {agentManager.currentToolProject?.name || (titleGitStatus?.isGitRepository && titleGitStatus.branch) ? (
-                  <div className="mt-0.5 flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-xs leading-none text-muted-foreground sm:hidden">
-                    {agentManager.currentToolProject?.name ? (
-                      <div className="flex min-w-0 flex-1 basis-0 items-center gap-1" title={agentManager.currentToolProject.name}>
-                        <Folder className="size-3 shrink-0" />
-                        <span className="min-w-0 truncate">{agentManager.currentToolProject.name}</span>
-                      </div>
-                    ) : null}
-                    {titleGitStatus?.isGitRepository && titleGitStatus.branch ? (
-                      <div className="flex min-w-0 flex-1 basis-0 items-center gap-1" title={titleGitStatus.branch}>
-                        <GitBranch className="size-3 shrink-0" />
-                        <span className="min-w-0 truncate">{titleGitStatus.branch}</span>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-              {!mobileShell && agentManager.currentToolProject?.name ? (
-                <div className="hidden h-9 max-w-[220px] shrink-0 items-center gap-2 rounded-full px-3 text-sm md:inline-flex" title={agentManager.currentToolProject.name}>
-                  <Folder className="size-4 text-muted-foreground" />
-                  <span className="min-w-0 truncate">{agentManager.currentToolProject.name}</span>
-                </div>
-              ) : null}
-              {!mobileShell && agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository && titleGitStatus.branch ? (
-                <div className="relative hidden shrink-0 md:block" onClick={(event) => event.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="inline-flex h-9 max-w-[220px] items-center gap-2 rounded-full px-3 text-sm transition-colors hover:bg-muted"
-                    onClick={() => setBranchMenuOpen((value) => !value)}
-                    aria-label={t('gitBranchMenu')}
-                    aria-expanded={branchMenuOpen}
-                  >
-                    <GitBranch className="size-4 text-muted-foreground" />
-                    <span className="min-w-0 truncate">{titleGitStatus.branch}</span>
-                    <ChevronDown className="size-4 text-muted-foreground" />
-                  </button>
-                  {branchMenuOpen ? (
-                    <GitBranchMenu
-                      projectId={agentManager.currentToolProject.id}
-                      currentBranch={titleGitStatus.branch}
-                      dirtyCount={titleGitStatus.counts?.total ?? 0}
-                      onCheckout={handleCheckoutTitleBranch}
-                      onCreated={handleBranchCreated}
-                      onOpenGraph={() => {
-                        setBranchMenuOpen(false)
-                        setGitGraphOpen(true)
-                      }}
-                      onOpenChanges={() => {
-                        setBranchMenuOpen(false)
-                        openWorkspaceGitChanges()
-                      }}
-                    />
-                  ) : null}
-                </div>
-              ) : null}
-              {agentManager.currentSessionId ? (
-                <div className="quickforge-chat-view-switch hidden md:inline-flex" role="tablist" aria-label={t('trace.title')}>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={conversationView === 'chat'}
-                    onClick={() => setConversationView('chat')}
-                  >
-                    <MessageSquare className="size-[14px]" />
-                    <span>{t('trace.viewChat')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={conversationView === 'trace'}
-                    onClick={() => setConversationView('trace')}
-                  >
-                    <Activity className="size-[14px]" />
-                    <span>{t('trace.viewTrace')}</span>
-                  </button>
-                </div>
-              ) : null}
-              <div className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(ui.conversationMenuOpen && '')}
-                  onClick={() => ui.setConversationMenuOpen((value) => !value)}
-                  disabled={!agentManager.currentSessionId || needsModelSetup}
-                  aria-label={t('moreOptions')}
-                  aria-haspopup="menu"
-                  aria-expanded={ui.conversationMenuOpen}
-                >
-                  <Ellipsis className="size-[18px]" />
-                </Button>
-                {ui.conversationMenuOpen ? (
-                  <div
-                    className={cn(
-                      'fixed inset-x-2 top-14 z-40 max-h-[calc(100dvh-4rem)] overflow-y-auto overscroll-contain rounded-lg border border-border bg-popover p-1 shadow-quickforge md:absolute md:inset-x-auto md:left-0 md:top-full md:z-30 md:mt-1 md:min-w-44 md:max-h-none md:overflow-visible',
-                      mobileShell && 'md:fixed md:inset-x-2 md:left-auto md:top-14 md:z-40 md:mt-0 md:max-h-[calc(100dvh-4rem)] md:min-w-0 md:overflow-y-auto lg:inset-x-2 lg:left-auto lg:top-14',
-                    )}
-                    role="menu"
-                    aria-label={t('moreOptions')}
-                  >
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm transition-colors hover:bg-muted"
-                      onClick={handleToggleCurrentSessionPinned}
-                    >
-                      {currentSessionPinned ? <PinOff className="size-[18px]" /> : <Pin className="size-[18px]" />}
-                      <span>{currentSessionPinned ? t('unpinSession') : t('pinSession')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm transition-colors hover:bg-muted"
-                      onClick={handleRenameCurrentSession}
-                    >
-                      <Pencil className="size-[18px]" />
-                      <span>{t('renameSession')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm transition-colors hover:bg-muted"
-                      onClick={handleShareCurrentSession}
-                    >
-                      <Share2 className="size-[18px]" />
-                      <span>{t('shareSession')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="flex h-10 w-full items-center gap-2 whitespace-nowrap rounded-md px-2 text-left text-sm transition-colors hover:bg-muted"
-                      onClick={handleArchiveCurrentSession}
-                    >
-                      <Archive className="size-[18px]" />
-                      <span>{t('archiveSession')}</span>
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-
-        </header>
+        <ConversationHeader
+          headerRef={conversationHeaderRef}
+          onOpenMobileSidebar={() => ui.setMobileSidebarOpen(true)}
+          title={agentManager.currentTitle}
+          projectName={agentManager.currentToolProject?.name}
+          projectId={agentManager.currentToolProject?.id}
+          gitRepository={Boolean(titleGitStatus?.isGitRepository)}
+          gitBranch={titleGitStatus?.isGitRepository ? titleGitStatus.branch : undefined}
+          gitDirtyCount={titleGitStatus?.counts?.total ?? 0}
+          branchMenuOpen={branchMenuOpen}
+          onBranchMenuToggle={() => setBranchMenuOpen((value) => !value)}
+          onCheckout={handleCheckoutTitleBranch}
+          onBranchCreated={handleBranchCreated}
+          onOpenGraph={() => {
+            setBranchMenuOpen(false)
+            setGitGraphOpen(true)
+          }}
+          onOpenChanges={() => {
+            setBranchMenuOpen(false)
+            openWorkspaceGitChanges()
+          }}
+          showViewSwitch={Boolean(agentManager.currentSessionId)}
+          conversationView={conversationView}
+          onSetConversationView={setConversationView}
+          conversationMenuOpen={ui.conversationMenuOpen}
+          onConversationMenuToggle={() => ui.setConversationMenuOpen((value) => !value)}
+          conversationMenuDisabled={!agentManager.currentSessionId || needsModelSetup}
+          currentSessionPinned={currentSessionPinned}
+          onTogglePinned={handleToggleCurrentSessionPinned}
+          onRename={handleRenameCurrentSession}
+          onShare={handleShareCurrentSession}
+          onArchive={handleArchiveCurrentSession}
+          mobileShell={mobileShell}
+        />
 
         <section className="relative flex min-h-0 flex-1 flex-col">
           {visibleLoadingSessionId ? (

@@ -149,11 +149,15 @@ export type SideChatComposerDraftMemory = {
   set: (text: string) => void
 }
 
-type ChatPanelHostProps = {
+// --- ChatPanelHostProps 按职责分组的子接口 ---
+// 运行时 props 仍是同一层平铺结构（App / 分享页 / 侧聊传参不变）；分组只用于
+// 让接口可读、可导航：会话身份 / 消息操作 / 审批应答 / 产物跳转 / 视图状态。
+
+/** 会话与工作区身份：渲染哪个 agent、key 如何稳定、工具域挂在哪个项目上。 */
+type ChatPanelHostSessionProps = {
   mode?: 'main' | 'side-chat'
   agent: AgentLike | null
   sideChatInputMemory?: SideChatComposerDraftMemory
-  onModelSelect?: (anchor?: HTMLElement) => void
   revision: number
   agentAccessMode: AgentAccessMode
   /**
@@ -169,16 +173,31 @@ type ChatPanelHostProps = {
   project?: ProjectInfo
   projectId?: string
   chatScope?: ChatScope
-  onAccessModeChange: (mode: AgentAccessMode) => void
+  capabilities?: ChatCapabilities
+}
+
+/** 消息级操作：回滚 / 重试 / 复制 / fork（发给当前 agent 的会话内动作）。 */
+type ChatPanelHostMessageActionProps = {
   onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
   onRetryFromMessage: (messageIndex: number) => void
   onCopyAnswer: (text: string) => Promise<void> | void
   onForkFromMessage: (messageIndex: number) => void
+  disableFork?: boolean
+  rollbackConfirmTitle?: string
+  rollbackConfirmDescription?: string
+}
+
+/** 工具审批与 ask_user / auto-compact 应答（写入型，readOnly 面板由调用方不传）。 */
+type ChatPanelHostApprovalProps = {
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
   onAnswerAsk?: (askId: string, answers: ServerAgentAskAnswer[], skipped: boolean, remark?: string) => Promise<void> | void
   onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
   onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
+}
+
+/** 产物 / 文件 / 外部跳转：把对话里的产出引导到 Workspace Inspector 或系统应用。 */
+type ChatPanelHostArtifactProps = {
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
   onOpenFilePreview?: (relativePath: string) => void
@@ -197,12 +216,17 @@ type ChatPanelHostProps = {
    * SSE 重连 / 回滚改写过的消息列表影响。
    */
   onLivePresentArtifacts?: (sessionId: string, artifacts: AiTurnArtifact[]) => void
+}
+
+/** 视图状态与能力开关：模型入口、草稿恢复、只读形态、任务启动器与轮次导航。 */
+type ChatPanelHostViewProps = {
+  onModelSelect?: (anchor?: HTMLElement) => void
+  onAccessModeChange: (mode: AgentAccessMode) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
   onInitialRenderReady?: (sessionId: string) => void
   onInitialRenderError?: (sessionId: string, error: unknown) => void
   restoredDraft?: RestoredDraft
   onRestoredDraftConsumed?: (id: number) => void
-  disableFork?: boolean
   readOnly?: boolean
   approvalReadOnly?: boolean
   approvalReadOnlyMessage?: string
@@ -227,10 +251,13 @@ type ChatPanelHostProps = {
    * z-index than the trace layer, so it would otherwise float above it.
    */
   hideTurnNavigation?: boolean
-  rollbackConfirmTitle?: string
-  rollbackConfirmDescription?: string
-  capabilities?: ChatCapabilities
 }
+
+type ChatPanelHostProps = ChatPanelHostSessionProps &
+  ChatPanelHostMessageActionProps &
+  ChatPanelHostApprovalProps &
+  ChatPanelHostArtifactProps &
+  ChatPanelHostViewProps
 
 /**
  * Stable ref container for props that should NOT trigger panel recreation.

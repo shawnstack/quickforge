@@ -58,7 +58,7 @@ src/styles/
 │   ├── pinned-summary.css       # 桌面置顶摘要浮窗
 │   └── file-rollback.css        # 会话文件回滚弹窗
 └── workspace/
-    ├── workflow-detail.css      # run_workflow 运行详情单页
+    ├── workflow-detail.css      # run_workflow 运行详情单页（吸顶轴 / 阶段跨度条 / 共享网格层与运行游标 / 并行组 bracket / 日志 console 块 / 错误定位闪烁；绝对定位层的标签列宽走 --wf-tl-label-plot，见 components 文档同名小节的基准说明）
     └── inspector-tabs.css       # Workspace Inspector 顶部 Tab 条
 ```
 

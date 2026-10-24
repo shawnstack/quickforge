@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>run_workflow · 运行详情优化设计稿</title>
+<style>
+  /* ===== 设计 token（值与 workflow-detail-single-page.html 同源，仅做原型简化） ===== */
+  :root {
+    --bg: oklch(1 0 0);
+    --fg: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --muted: oklch(0.97 0 0);
+    --mfg: oklch(0.556 0 0);
+    --bd: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --done: oklch(0.55 0.13 158);
+    --font-base: 14px;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+    --fast: 120ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --page-bg: oklch(0.985 0 0);
+    --page-fg: oklch(0.145 0 0);
+  }
+  html.dark {
+    --bg: oklch(0.145 0 0);
+    --fg: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --mfg: oklch(0.708 0 0);
+    --bd: oklch(0.275 0 0);
+    --ring: oklch(0.556 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --done: oklch(0.75 0.15 160);
+    --page-bg: oklch(0.115 0 0);
+    --page-fg: oklch(0.96 0 0);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    padding: 28px 22px 72px;
+    background: var(--page-bg);
+    color: var(--page-fg);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  /* ===== 页头 ===== */
+  .page-head h1 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .page-head .sub { margin: 0; font-size: 12.5px; color: color-mix(in oklab, var(--page-fg) 55%, transparent); }
+  .btns { display: flex; flex-wrap: wrap; gap: 14px; margin: 16px 0 8px; }
+  .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: color-mix(in oklab, var(--page-fg) 6%, transparent); }
+  .seg button {
+    border: 0; background: transparent; color: color-mix(in oklab, var(--page-fg) 62%, transparent);
+    font: inherit; font-size: 12px; height: 24px; padding: 0 9px; border-radius: 6px; cursor: pointer;
+    transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .seg button:hover { color: var(--page-fg); }
+  .seg button[aria-pressed="true"] { background: color-mix(in oklab, var(--page-fg) 10%, transparent); color: var(--page-fg); font-weight: 500; }
+  .seg-label { font-size: 12px; color: color-mix(in oklab, var(--page-fg) 45%, transparent); margin-right: 8px; align-self: center; }
+
+  h2.sec { margin: 38px 0 10px; font-size: 13px; font-weight: 600; color: color-mix(in oklab, var(--page-fg) 72%, transparent); }
+  p.note { margin: 0 0 14px; font-size: 12.5px; color: color-mix(in oklab, var(--page-fg) 55%, transparent); max-width: 780px; }
+
+  /* ===== 现状 + 问题清单 ===== */
+  .duo { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  .duo > .panel-slot { flex: 0 0 auto; }
+  .problems { flex: 1 1 300px; min-width: 280px; max-width: 460px; }
+  .problems ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  .problems li {
+    display: flex; gap: 9px; font-size: 12.5px; line-height: 1.55;
+    color: color-mix(in oklab, var(--page-fg) 78%, transparent);
+  }
+  .problems li b { color: var(--page-fg); font-weight: 600; }
+  .pnum {
+    flex: 0 0 auto; width: 20px; height: 20px; margin-top: 1px; border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: color-mix(in oklab, var(--destructive) 10%, transparent);
+    color: var(--destructive); font-size: 10.5px; font-weight: 600; font-family: var(--mono);
+  }
+
+  /* ===== 决策表 ===== */
+  table.dec { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.dec th, table.dec td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid color-mix(in oklab, var(--page-fg) 10%, transparent); }
+  table.dec th { font-size: 11.5px; font-weight: 600; color: color-mix(in oklab, var(--page-fg) 50%, transparent); }
+  table.dec td:first-child { white-space: nowrap; font-family: var(--mono); font-size: 11px; color: var(--destructive); }
+  table.dec td.was { color: color-mix(in oklab, var(--page-fg) 55%, transparent); width: 27%; }
+  table.dec td.now b { color: var(--page-fg); }
+
+  /* =========================================================
+     面板本体（原型与现状复刻共用骨架，.panel--old 切换旧形态）
+     几何变量与生产 workflow-detail.css 对齐
+     ========================================================= */
+  .panel {
+    --padx: 0.875rem;
+    --label: clamp(5.5rem, 30%, 9.5rem);
+    --gap: 0.625rem;
+    --ps: 2.25rem;   /* 轨道左安全区：并行标注 */
+    --pe: 2.75rem;   /* 轨道右安全区：耗时数字 */
+    --axh: 1.75rem;
+
+    width: 640px;
+    max-width: 100%;
+    height: 620px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+    border: 1px solid color-mix(in oklab, var(--bd) 65%, transparent);
+    border-radius: 0.625rem;
+    color: var(--fg);
+    font-size: calc(var(--font-base) * 0.8125);
+    font-family: var(--sans);
+    box-shadow: 0 1px 2px color-mix(in oklab, black 4%, transparent);
+  }
+  .panel.narrow {
+    width: 380px;
+    --label: clamp(4.5rem, 34%, 6.5rem);
+    --gap: 0.375rem;
+    --ps: 1.75rem;
+    --pe: 2.25rem;
+  }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ── 概览条 ── */
+  .overview {
+    flex: 0 0 auto;
+    display: flex; flex-direction: column; gap: 0.375rem;
+    padding: 0.75rem var(--padx) 0.5625rem;
+    border-bottom: 1px solid color-mix(in oklab, var(--bd) 40%, transparent);
+  }
+  .ov1 { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; min-width: 0; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 0.3125rem;
+    height: 1.3125rem; padding: 0 0.5rem 0 0.375rem; border-radius: 999px;
+    font-size: calc(var(--font-base) * 0.8125); font-weight: 500;
+  }
+  .pill i { width: 0.3125rem; height: 0.3125rem; border-radius: 999px; background: currentColor; flex: 0 0 auto; }
+  .pill[data-tone="done"] { background: color-mix(in oklab, var(--done) 13%, transparent); color: color-mix(in oklab, var(--done) 92%, var(--fg)); }
+  .pill[data-tone="running"] { background: color-mix(in oklab, var(--ring) 12%, transparent); color: color-mix(in oklab, var(--ring) 60%, var(--fg)); }
+  .pill[data-tone="running"] i { animation: pill-pulse 1.6s var(--ease) infinite; }
+  .pill[data-tone="error"] { background: color-mix(in oklab, var(--destructive) 10%, transparent); color: var(--destructive); }
+  @keyframes pill-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .dur { font-family: var(--mono); font-size: calc(var(--font-base) * 0.75); font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 85%, transparent); }
+  .counts { color: var(--mfg); font-size: calc(var(--font-base) * 0.75); }
+  .ov2 {
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875);
+    color: color-mix(in oklab, var(--mfg) 72%, transparent);
+  }
+  .legend {
+    display: inline-flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+    margin-left: auto;
+    font-size: calc(var(--font-base) * 0.6875);
+    color: color-mix(in oklab, var(--mfg) 90%, transparent);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 0.3125rem; white-space: nowrap; }
+  .sw { width: 0.75rem; height: 0.375rem; border-radius: 2px; }
+  .sw-a { background: color-mix(in oklab, var(--done) 34%, transparent); border: 1px solid color-mix(in oklab, var(--done) 55%, transparent); }
+  .sw-t { background: color-mix(in oklab, var(--mfg) 26%, transparent); }
+  .sw-p { background: color-mix(in oklab, var(--ring) 16%, transparent); border: 1px dashed color-mix(in oklab, var(--ring) 55%, transparent); }
+  .panel.narrow .legend { margin-left: 0; }
+
+  /* ── 滚动区 / 刻度轴 ── */
+  .scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 1rem; }
+  .axis {
+    position: sticky; top: 0; z-index: 3;
+    display: flex; align-items: flex-end; gap: var(--gap);
+    height: var(--axh); padding: 0 var(--padx);
+    background: color-mix(in oklab, var(--bg) 96%, var(--muted));
+    border-bottom: 1px solid color-mix(in oklab, var(--bd) 45%, transparent);
+  }
+  .axis .sp { flex: 0 0 var(--label); width: var(--label); }
+  .axis .plot { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; margin-left: var(--ps); margin-right: var(--pe); }
+  .tick {
+    position: absolute; bottom: 0.25rem; transform: translateX(-50%);
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+    color: color-mix(in oklab, var(--mfg) 72%, transparent);
+  }
+  .tick[data-edge="start"] { transform: none; }
+  .tick[data-edge="end"] { transform: translateX(-100%); }
+
+  /* 运行游标 chip（挂在轴的绘图区，与竖线同一百分比） */
+  .now-chip {
+    position: absolute; bottom: 0.125rem; transform: translateX(-50%);
+    height: 0.9375rem; padding: 0 0.3125rem; border-radius: 999px;
+    background: color-mix(in oklab, var(--ring) 14%, transparent);
+    border: 1px solid color-mix(in oklab, var(--ring) 45%, transparent);
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.625);
+    font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1;
+    display: inline-flex; align-items: center;
+    color: color-mix(in oklab, var(--ring) 70%, var(--fg));
+  }
+
+  /* ── 错误横幅 ── */
+  .err {
+    display: flex; align-items: baseline; gap: 0.5rem;
+    margin: 0.75rem var(--padx) 0;
+    padding: 0.4375rem 0.625rem;
+    border-left: 2px solid var(--destructive);
+    border-radius: 0 0.375rem 0.375rem 0;
+    background: color-mix(in oklab, var(--destructive) 6%, transparent);
+  }
+  .err-label { font-weight: 600; color: var(--destructive); font-size: calc(var(--font-base) * 0.75); flex: 0 0 auto; }
+  .err-msg { min-width: 0; font-size: calc(var(--font-base) * 0.75); color: color-mix(in oklab, var(--fg) 82%, transparent); overflow-wrap: anywhere; }
+  .err-jump {
+    margin-left: auto; flex: 0 0 auto; align-self: center;
+    height: 1.25rem; padding: 0 0.4375rem; border-radius: 0.3125rem;
+    border: 1px solid color-mix(in oklab, var(--destructive) 45%, transparent);
+    background: transparent; color: var(--destructive);
+    font: inherit; font-size: calc(var(--font-base) * 0.6875); cursor: pointer;
+    transition: background-color var(--fast) var(--ease);
+  }
+  .err-jump:hover { background: color-mix(in oklab, var(--destructive) 10%, transparent); }
+
+  /* ── 阶段区 + 共享网格层 ──
+     zone 建立层叠上下文：网格层 z:-1 垫在所有内容之下，只在没有实底的地方露出；
+     行内不再重复画网格（现状是每行 5 条）。 */
+  .zone { position: relative; z-index: 0; }
+  .glayer {
+    position: absolute; top: 0; bottom: 0; z-index: -1; pointer-events: none;
+    left: calc(var(--padx) + var(--label) + var(--gap) + var(--ps));
+    right: calc(var(--padx) + var(--pe));
+  }
+  .gline { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in oklab, var(--bd) 55%, transparent); }
+  .now-line { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in oklab, var(--ring) 62%, transparent); }
+  /* 游标层与网格层同一几何（左右安全区内缩），内部百分比即绘图区百分比 */
+  .now-layer {
+    position: absolute; top: 0; bottom: 0; z-index: 1; pointer-events: none;
+    left: calc(var(--padx) + var(--label) + var(--gap) + var(--ps));
+    right: calc(var(--padx) + var(--pe));
+  }
+
+  .phase { border-bottom: 1px solid color-mix(in oklab, var(--bd) 45%, transparent); }
+  .phase:last-child { border-bottom: 0; }
+  .phase.collapsed .pbody { display: none; }
+
+  /* 阶段头：吸顶在刻度条之下；跨度条 + 耗时与行轨道同一几何 */
+  .phead {
+    position: sticky; top: var(--axh); z-index: 2;
+    display: flex; align-items: center; gap: 0.4375rem;
+    width: 100%; padding: 0.5rem var(--padx);
+    border: 0; border-bottom: 1px solid color-mix(in oklab, var(--bd) 45%, transparent);
+    background: var(--bg); color: inherit; font: inherit; text-align: left; cursor: pointer;
+    transition: background-color var(--fast) var(--ease);
+  }
+  .phead:hover { background: color-mix(in oklab, var(--muted) 45%, transparent); }
+  .phead:focus-visible, .row:focus-visible, .foot-btn:focus-visible, .logs-more:focus-visible, .openbtn:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent); outline-offset: -2px;
+  }
+  .ptext { display: flex; align-items: center; gap: 0.4375rem; min-width: 0; max-width: calc(var(--label) + var(--gap)); }
+  .pindex { flex: 0 0 auto; font-family: var(--mono); font-size: calc(var(--font-base) * 0.625); color: color-mix(in oklab, var(--mfg) 55%, transparent); }
+  .pname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(var(--font-base) * 0.875); font-weight: 500; color: color-mix(in oklab, var(--fg) 86%, transparent); }
+  .pcount { flex: 0 0 auto; font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875); color: color-mix(in oklab, var(--mfg) 62%, transparent); }
+  /* 跨度条：绝对定位，左右 inset 与行绘图区完全一致，阶段之间的串/并行一眼可读 */
+  .ptrack {
+    position: absolute; top: 50%; transform: translateY(-50%); height: 0.25rem;
+    left: calc(var(--padx) + var(--label) + var(--gap) + var(--ps));
+    right: calc(var(--padx) + var(--pe));
+  }
+  .pbar { position: absolute; top: 0; height: 100%; min-width: 2px; border-radius: 2px; box-sizing: border-box; }
+  .pbar[data-tone="done"] { background: color-mix(in oklab, var(--done) 30%, transparent); border: 1px solid color-mix(in oklab, var(--done) 50%, transparent); }
+  .pbar[data-tone="running"] { background: color-mix(in oklab, var(--ring) 14%, transparent); border: 1px solid color-mix(in oklab, var(--ring) 45%, transparent); }
+  .pbar[data-tone="error"] { background: color-mix(in oklab, var(--destructive) 20%, transparent); border: 1px solid color-mix(in oklab, var(--destructive) 55%, transparent); }
+  .pbar[data-tone="pending"] { background: var(--bd); border: 0; }
+  /* 阶段耗时对齐到行的耗时数字列（右安全区内右对齐），不再挤在 flex 文字流里 */
+  .pdur {
+    position: absolute; right: calc(var(--padx) + 1.125rem); top: 50%; transform: translateY(-50%);
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875);
+    font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 70%, transparent);
+  }
+  .phead .chev { position: absolute; right: var(--padx); top: 50%; transform: translateY(-50%); transition: rotate 160ms var(--ease); }
+  .phead[aria-expanded="true"] .chev { rotate: 90deg; }
+
+  /* 现状复刻：无跨度条，耗时走 flex 流 */
+  .panel--old .ptrack, .panel--old .pbar, .panel--old .now-chip, .panel--old .now-layer, .panel--old .glayer { display: none; }
+  .panel--old .pdur { position: static; transform: none; margin-left: auto; }
+  .panel--old .phead .chev { position: static; transform: none; }
+  .panel--old .ptext { max-width: none; }
+
+  .pbody { display: flex; flex-direction: column; padding: 0 0 0.5rem; }
+
+  /* ── 行（Agent / 工具）── */
+  .step { display: block; }
+  .step > summary { list-style: none; }
+  .step > summary::-webkit-details-marker { display: none; }
+  .row {
+    display: flex; align-items: center; gap: var(--gap);
+    min-height: 1.5rem; min-width: 0; padding: 0 var(--padx);
+    cursor: pointer; user-select: none;
+    transition: background-color var(--fast) var(--ease);
+  }
+  .step[data-kind="tool"] .row { min-height: 1.375rem; }
+  .step > summary:hover, .step[open] > summary { background: color-mix(in oklab, var(--muted) 45%, transparent); }
+  .head { flex: 0 0 var(--label); width: var(--label); min-width: 0; display: flex; align-items: center; gap: 0.3125rem; }
+  .step[data-kind="tool"] .head { padding-left: 0.6875rem; }
+  .ic { display: inline-flex; flex: 0 0 auto; align-items: center; color: color-mix(in oklab, var(--mfg) 88%, transparent); }
+  .ic[data-tone="done"] { color: color-mix(in oklab, var(--done) 72%, var(--mfg)); }
+  .ic[data-tone="running"] { color: color-mix(in oklab, var(--ring) 70%, var(--fg)); animation: pill-pulse 1.6s var(--ease) infinite; }
+  .ic[data-tone="error"] { color: var(--destructive); }
+  .ic[data-tone="pending"] { color: color-mix(in oklab, var(--mfg) 55%, transparent); }
+  .lb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(var(--font-base) * 0.75); color: color-mix(in oklab, var(--fg) 86%, transparent); }
+  .step[data-kind="tool"] .lb { font-size: calc(var(--font-base) * 0.6875); color: color-mix(in oklab, var(--mfg) 90%, transparent); }
+  .lb.sweep {
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--fg) 10%, transparent) 45%, transparent 65%);
+    background-size: 220% 100%;
+    animation: lb-sweep 1.8s linear infinite;
+  }
+  @keyframes lb-sweep { from { background-position: 160% 0; } to { background-position: -60% 0; } }
+  .row .chev { flex: 0 0 auto; opacity: 0.32; transition: rotate 160ms var(--ease), opacity var(--fast) var(--ease); }
+  .row:hover .chev, .row:focus-visible .chev { opacity: 1; }
+  .step[open] > .row .chev { rotate: 90deg; opacity: 1; }
+
+  .track { position: relative; flex: 1 1 auto; min-width: 0; height: 1.125rem; display: flex; align-items: center; }
+  .plot { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; margin-left: var(--ps); margin-right: var(--pe); }
+  .bar {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    height: 0.5625rem; min-width: 2px; border-radius: 3px; box-sizing: border-box; pointer-events: none;
+    background: color-mix(in oklab, var(--done) 34%, transparent);
+    border: 1px solid color-mix(in oklab, var(--done) 55%, transparent);
+  }
+  .bar[data-kind="tool"] { height: 0.375rem; border-radius: 2px; background: color-mix(in oklab, var(--mfg) 26%, transparent); border: 0; }
+  .bar[data-tone="running"] { background: color-mix(in oklab, var(--ring) 16%, transparent); border-color: color-mix(in oklab, var(--ring) 48%, transparent); }
+  .bar[data-tone="error"] { background: color-mix(in oklab, var(--destructive) 22%, transparent); border-color: color-mix(in oklab, var(--destructive) 62%, transparent); }
+  .bar[data-tone="pending"] { background: var(--bd); border: 0; }
+  .bar.is-par { border-style: dashed; }
+  .bv {
+    position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.625);
+    font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none;
+    color: color-mix(in oklab, var(--mfg) 72%, transparent);
+  }
+  .ptag {
+    position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.625);
+    white-space: nowrap; pointer-events: none;
+    color: color-mix(in oklab, var(--ring) 75%, var(--fg));
+  }
+  /* 现状复刻：每行内重复的 5 条网格线 */
+  .g { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in oklab, var(--bd) 55%, transparent); pointer-events: none; }
+
+  /* ── 并行组：组左缘 bracket + 组首一次「并行×N」── */
+  .pgroup { position: relative; display: flex; flex-direction: column; }
+  .pgroup::before {
+    content: ''; position: absolute; z-index: 1; pointer-events: none;
+    left: calc(var(--padx) + var(--label) + var(--gap) + var(--ps) - 0.625rem);
+    top: 0.3rem; bottom: 0.3rem; width: 2px; border-radius: 2px;
+    background: color-mix(in oklab, var(--ring) 38%, transparent);
+  }
+  .panel--old .pgroup::before { display: none; }
+
+  /* ── 展开体 ──
+     新形态：左 rail + 实底（遮住共享网格线，视觉上明确挂在所属行下） */
+  .body {
+    display: none;
+    flex-direction: column; gap: 0.4375rem;
+    padding: 0.375rem var(--padx) 0.4375rem calc(var(--padx) + 0.75rem);
+  }
+  .step[open] > .body { display: flex; }
+  .panel:not(.panel--old) .body {
+    position: relative; z-index: 2; background: var(--bg);
+    margin: 0 var(--padx) 0 var(--padx);
+    padding: 0.375rem 0.5rem 0.4375rem 0.625rem;
+    border-left: 2px solid color-mix(in oklab, var(--bd) 80%, transparent);
+    border-radius: 0 0.375rem 0.25rem 0;
+  }
+  .step[data-kind="tool"] .body { margin-left: calc(var(--padx) + 0.6875rem); }
+  .task {
+    background: color-mix(in oklab, var(--muted) 40%, transparent);
+    border-radius: 0.375rem; padding: 0.375rem 0.5rem;
+    font-size: calc(var(--font-base) * 0.75); line-height: 1.55;
+  }
+  .task b { font-weight: 500; }
+  .task .tv { color: color-mix(in oklab, var(--fg) 82%, transparent); }
+  .meta { font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875); color: color-mix(in oklab, var(--mfg) 70%, transparent); }
+  .flabel { font-size: calc(var(--font-base) * 0.6875); font-weight: 500; color: color-mix(in oklab, var(--mfg) 88%, transparent); }
+  .code {
+    margin: 0; padding: 0.375rem 0.5rem; border-radius: 0.375rem;
+    background: color-mix(in oklab, var(--fg) 4.5%, transparent);
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875); line-height: 1.55;
+    white-space: pre; overflow: auto; color: color-mix(in oklab, var(--fg) 86%, transparent);
+  }
+  .code[data-tone="error"] { color: color-mix(in oklab, var(--destructive) 92%, var(--fg)); }
+  .errtext { font-size: calc(var(--font-base) * 0.75); color: var(--destructive); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .step-actions { display: flex; }
+  .openbtn {
+    height: 1.1875rem; padding: 0 0.375rem; border-radius: 0.3125rem;
+    border: 1px solid color-mix(in oklab, var(--bd) 90%, transparent);
+    background: transparent; color: color-mix(in oklab, var(--mfg) 82%, transparent);
+    font: inherit; font-size: calc(var(--font-base) * 0.6875); cursor: pointer;
+    transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .openbtn:hover { background: var(--muted); color: var(--fg); }
+
+  /* ── 阶段日志 ──
+     新形态：console 块（实底遮网格线）+ 超长折叠（>6 行） */
+  .logs {
+    position: relative; z-index: 2; background: var(--bg);
+    margin: 0.25rem var(--padx) 0.375rem; padding: 0.375rem 0.5rem;
+    border-radius: 0.375rem; outline: 1px solid color-mix(in oklab, var(--bd) 45%, transparent);
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875); line-height: 1.6;
+    list-style: none; display: flex; flex-direction: column; gap: 1px;
+    color: color-mix(in oklab, var(--mfg) 86%, transparent);
+  }
+  .panel--old .logs {
+    background: none; outline: none; border-radius: 0;
+    margin: 0.25rem var(--padx) 0.375rem; padding: 0 0 0 0.0625rem;
+  }
+  .logs li { display: flex; align-items: baseline; gap: 0.5rem; }
+  .logs time { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 52%, transparent); }
+  .logs li > span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .logs li[data-level="error"] { color: var(--destructive); }
+  .logs.foldable li:nth-child(n+7) { display: none; }
+  .logs.foldable.open li:nth-child(n+7) { display: flex; }
+  .logs-more {
+    align-self: flex-start; margin-top: 2px; padding: 0; border: 0; background: none;
+    font: inherit; font-family: var(--sans); font-size: calc(var(--font-base) * 0.6875);
+    color: color-mix(in oklab, var(--ring) 80%, var(--fg)); cursor: pointer;
+  }
+  .logs-more:hover { text-decoration: underline; }
+
+  /* 定位失败步骤：滚动到位后的闪烁描边 */
+  @keyframes row-flash {
+    0%, 100% { outline: 2px solid transparent; outline-offset: -2px; }
+    20%, 60% { outline: 2px solid color-mix(in oklab, var(--destructive) 65%, transparent); outline-offset: -2px; }
+  }
+  .step.flash > summary { animation: row-flash 1.6s var(--ease) 1; }
+
+  /* ── 底部：脚本 / 结果 ── */
+  .foot {
+    flex: 0 0 auto; display: flex; gap: 0.375rem;
+    padding: 0.5rem var(--padx);
+    border-top: 1px solid color-mix(in oklab, var(--bd) 45%, transparent);
+    background: color-mix(in oklab, var(--muted) 28%, transparent);
+  }
+  .foot-btn {
+    display: inline-flex; align-items: center; gap: 0.3125rem;
+    height: 1.5625rem; padding: 0 0.5625rem; border-radius: 0.375rem;
+    border: 1px solid color-mix(in oklab, var(--bd) 90%, transparent);
+    background: transparent; color: color-mix(in oklab, var(--mfg) 88%, transparent);
+    font: inherit; font-size: calc(var(--font-base) * 0.75); cursor: pointer;
+    transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .foot-btn:hover { background: var(--bg); color: var(--fg); }
+  .foot-btn[aria-pressed="true"] { background: var(--bg); color: var(--fg); }
+  .sheet {
+    flex: 0 0 auto; max-height: 40%; overflow: auto; overscroll-behavior: contain;
+    padding: 0.5rem var(--padx) 0.75rem;
+    border-top: 1px solid color-mix(in oklab, var(--bd) 45%, transparent);
+  }
+  .sheet-meta {
+    margin-bottom: 0.375rem;
+    font-family: var(--mono); font-size: calc(var(--font-base) * 0.6875);
+    color: color-mix(in oklab, var(--mfg) 75%, transparent);
+  }
+
+  .panel-empty { margin: 0; padding: 0.375rem var(--padx); color: color-mix(in oklab, var(--mfg) 78%, transparent); }
+
+  /* ===== 落地表 ===== */
+  table.impl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.impl th, table.impl td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid color-mix(in oklab, var(--page-fg) 10%, transparent); }
+  table.impl th { font-size: 11.5px; font-weight: 600; color: color-mix(in oklab, var(--page-fg) 50%, transparent); }
+  table.impl td.mono { font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+  code.f { font-family: var(--mono); font-size: 11px; background: color-mix(in oklab, var(--page-fg) 6%, transparent); padding: 1px 5px; border-radius: 4px; }
+
+  /* ===== 动效降级 ===== */
+  html.reduce *, html.reduce *::before, html.reduce *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001s !important; transition-duration: 0.001s !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page-head">
+    <h1>run_workflow · 运行详情优化设计稿</h1>
+    <p class="sub">对象：右侧 Inspector 的 Workflow 运行详情（单页合并视图）· 前置：<code>workflow-detail-single-page</code> 已落地 · 本稿只做视觉与交互优化，不改单页结构与数据契约</p>
+    <div class="btns">
+      <span class="seg-label">主题</span>
+      <div class="seg" id="seg-theme">
+        <button data-v="light" aria-pressed="true">浅色</button>
+        <button data-v="dark" aria-pressed="false">深色</button>
+      </div>
+      <span class="seg-label">运行状态（原型）</span>
+      <div class="seg" id="seg-status">
+        <button data-v="running" aria-pressed="true">运行中</button>
+        <button data-v="done" aria-pressed="false">已完成</button>
+        <button data-v="error" aria-pressed="false">失败</button>
+      </div>
+      <span class="seg-label">面板宽度</span>
+      <div class="seg" id="seg-width">
+        <button data-v="wide" aria-pressed="true">640</button>
+        <button data-v="narrow" aria-pressed="false">380</button>
+      </div>
+      <span class="seg-label">动效</span>
+      <div class="seg" id="seg-motion">
+        <button data-v="on" aria-pressed="true">正常</button>
+        <button data-v="off" aria-pressed="false">减少</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══════════════ 01 现状与问题 ═══════════════ -->
+  <h2 class="sec">01 · 现状复刻与问题诊断</h2>
+  <p class="note">左侧按当前生产实现 1:1 复刻（静态、运行中形态）。单页合并的结构是对的，问题集中在「读数效率」：概览条混入配置回显、网格噪声、运行中没有「现在」的参照、阶段在时间轴上没有跨度、失败定位靠肉眼扫。</p>
+  <div class="duo">
+    <div class="panel-slot"><div class="panel panel--old" id="panel-old"></div></div>
+    <div class="problems">
+      <ol>
+        <li><span class="pnum">P1</span><div><b>概览条第二行信息过密，且混入配置回显。</b>「并发峰值 · 节省 · 预算 24 agent / 64 tool」一行挤四件事；预算是脚本的配置不是运行事实，却和派生统计同权重常驻。</div></li>
+        <li><span class="pnum">P2</span><div><b>网格线逐行重复。</b>每行画 5 条刻度线，N 行就是 5N 条竖纹；刻度条已经吸顶常驻，行内网格是冗余噪声。</div></li>
+        <li><span class="pnum">P3</span><div><b>运行中看不到「现在跑到哪」。</b>时间轴是纯历史记录，没有当前时刻游标；只能靠状态 pill 的呼吸点猜进度。</div></li>
+        <li><span class="pnum">P4</span><div><b>阶段在时间轴上没有跨度。</b>阶段头只有文字 + 时长，看不出阶段之间是串行还是交叠——而这恰是 parallel / pipeline 的核心语义。</div></li>
+        <li><span class="pnum">P5</span><div><b>并行组边界弱。</b>只有虚线描边 + 组首一个「并行」，组有几条、从哪到哪，都要靠对齐条形自己数。</div></li>
+        <li><span class="pnum">P6</span><div><b>失败定位靠滚动扫视。</b>错误横幅只报文字，与失败步骤行之间没有联动；几十个阶段的长跑里找红行很费眼。</div></li>
+        <li><span class="pnum">P7</span><div><b>日志没有容器感。</b>与步骤行同底色混排，扫读时容易被当成步骤；长日志无限拉长阶段。</div></li>
+        <li><span class="pnum">P8</span><div><b>展开体打断时间轴阅读。</b>插在行之间的展开内容没有视觉锚点，属于哪一行只能靠缩进猜；网格线还会穿过文字。</div></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 02 决策表 ═══════════════ -->
+  <h2 class="sec">02 · 优化决策</h2>
+  <p class="note">每条对应一个 P 编号；全部是渲染层改动，时间轴几何（标签列 / 安全区 / 百分比条形）与单页合并结构保持不变。</p>
+  <table class="dec">
+    <thead><tr><th>#</th><th>现状</th><th>优化后</th></tr></thead>
+    <tbody>
+      <tr><td>P1</td><td class="was">第二行塞派生统计 + 预算 + 图例</td><td class="now"><b>概览条减负：</b>第一行 状态 + 耗时 + 规模 + 图例；第二行只留派生统计（并发峰值 / 节省，无则整行隐藏）。预算迁入「脚本」sheet 头部——它属于脚本配置，和脚本放一起。</td></tr>
+      <tr><td>P2</td><td class="was">每行 5 条网格线</td><td class="now"><b>共享网格层：</b>阶段区垫一层 z-index:-1 的竖线（25/50/75），只在没有实底的地方露出；行内不再画。展开体 / 日志块有实底自动遮线。</td></tr>
+      <tr><td>P3</td><td class="was">运行中无当前时刻参照</td><td class="now"><b>运行游标（playhead）：</b>轴绘图区挂耗时 chip，阶段区挂同百分比竖线，贯穿所有行。终态自动消失。</td></tr>
+      <tr><td>P4</td><td class="was">阶段头无时间表达</td><td class="now"><b>阶段跨度条：</b>阶段头轨道画该阶段 min-start → max-end 的细条（与行绘图区同一几何），阶段串/并行结构一眼可读；阶段耗时右移到耗时数字列，与行耗时对齐。</td></tr>
+      <tr><td>P5</td><td class="was">虚线 + 组首「并行」</td><td class="now"><b>并行组 bracket：</b>组左缘一条 2px 竖轨 + 组首一次「并行×N」；虚线描边保留（双编码不删）。</td></tr>
+      <tr><td>P6</td><td class="was">错误横幅只有文字</td><td class="now"><b>定位失败步骤：</b>横幅右侧按钮滚动到失败行并闪烁描边 1.6s（reduce-motion 降级为纯滚动）。</td></tr>
+      <tr><td>P7</td><td class="was">日志与步骤同底色混排</td><td class="now"><b>console 块 + 折叠：</b>日志收进描边容器（实底遮网格线）；超过 6 行折叠为「展开全部 N 条」。</td></tr>
+      <tr><td>P8</td><td class="was">展开体无归属锚点</td><td class="now"><b>左 rail + 实底：</b>展开体左缘 2px 竖线连到行首图标下方，背景实底遮住网格线，视觉上明确「挂在所属行」。</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ═══════════════ 03 原型 ═══════════════ -->
+  <h2 class="sec">03 · 优化原型（可交互）</h2>
+  <p class="note">试试：切「运行中」看轴上的<b>现在 4m10s</b> 游标与推进中的条形；切「失败」用横幅里的「定位失败步骤」跳到红行；点阶段头折叠、点任意行展开；切 380 宽度看窄面板退让；深色 / 减少动效随时切。底部「脚本」sheet 头部是预算的新家。</p>
+  <div class="panel" id="panel-new"></div>
+
+  <!-- ═══════════════ 04 落地 ═══════════════ -->
+  <h2 class="sec">04 · 规格与落地清单</h2>
+  <table class="impl">
+    <thead><tr><th>改动</th><th>文件</th><th>要点</th></tr></thead>
+    <tbody>
+      <tr><td>概览条重排 + 预算迁入脚本 sheet 头</td><td class="mono"><code class="f">WorkflowRunDetailContent.tsx</code></td><td>第二行只在 peak&gt;1 或 saved&gt;0 时渲染；budget 拼进 sheet 头 <code class="f">sheet-meta</code>；图例并入第一行右缘</td></tr>
+      <tr><td>共享网格层 + 运行游标</td><td class="mono"><code class="f">workflow-detail.css</code></td><td><code class="f">.quickforge-workflow-detail-grid</code> 行内实例删除，改为阶段区一层 <code class="f">-grid-layer</code>；游标竖线 z-index 高于条形、低于实底块；elapsed = 运行中帧 max(start+dur)，无需服务端新字段</td></tr>
+      <tr><td>阶段跨度条</td><td class="mono"><code class="f">workflow-run-detail.ts</code> + 详情组件</td><td>导出 <code class="f">workflowPhaseSpan(phase, timeline)</code>（min start / max end）；阶段头 <code class="f">ptrack</code> 绝对定位、inset 与行绘图区一致；耗时移入右安全区列</td></tr>
+      <tr><td>并行组 bracket + ×N</td><td class="mono"><code class="f">WorkflowRunDetailContent.tsx</code></td><td>渲染时把同组连续行包进 <code class="f">.-parallel-group</code>；「并行×N」用现有 parallelGroupStart + 组大小；虚线描边保留</td></tr>
+      <tr><td>错误横幅定位按钮</td><td class="mono">详情组件 + css</td><td>scrollIntoView + 1.6s 描边闪烁；<code class="f">prefers-reduced-motion</code> 只滚动不闪；i18n 新增 key</td></tr>
+      <tr><td>日志 console 块 + 折叠</td><td class="mono">详情组件 + css + i18n</td><td>&gt;6 行折叠，展开按钮文案「展开全部 N 条 / 收起」；error 级保持红色</td></tr>
+      <tr><td>展开体左 rail + 实底</td><td class="mono"><code class="f">workflow-detail.css</code></td><td><code class="f">-step-body</code> 加 <code class="f">border-left</code> + 实底背景；工具行缩进同步</td></tr>
+      <tr><td>顺手清理</td><td class="mono"><code class="f">workflow-detail.css</code></td><td>现有 legend 规则重复声明两份（概览条版与旧时间轴版并存），合并为一份</td></tr>
+      <tr><td>测试与文档</td><td class="mono"><code class="f">workflow-renderer.test.ts</code> 等</td><td>契约改为：无行内 grid、有 grid-layer / 跨度条 / 并行组包装 / 日志折叠 / 定位按钮；wiki 组件与样式文档同步</td></tr>
+    </tbody>
+  </table>
+  <p class="note" style="margin-top:14px"><b>非目标：</b>不改「单页合并」的既定结构（吸顶轴 + 粘性阶段头 + 行内展开）；不动聊天区摘要卡；不新增依赖；不改服务端 details 字段（elapsed 由现有 startedAt + 流式 durationMs 推导）。</p>
+
+</div>
+
+<script>
+'use strict';
+/* ------------------------------------------------------------------
+   数据：一次真实的 parallel 工作流（total 4m40s）
+   start/dur 单位 ms；百分比 = /TOTAL
+   ------------------------------------------------------------------ */
+var TOTAL = 280000;
+var pct = function (ms) { return ms / TOTAL * 100; };
+var fmt = function (ms) {
+  var s = Math.round(ms / 1000);
+  if (s < 60) return s + 's';
+  var m = Math.floor(s / 60), r = s % 60;
+  return r ? m + 'm' + String(r).padStart(2, '0') + 's' : m + 'm';
+};
+
+var ICON = {
+  agent: '<svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><rect x="2.2" y="5" width="9.6" height="6.6" rx="2"/><path d="M7 5V2.8"/><circle cx="7" cy="2.1" r="0.8"/><circle cx="5.1" cy="8.3" r="0.65" fill="currentColor" stroke="none"/><circle cx="8.9" cy="8.3" r="0.65" fill="currentColor" stroke="none"/></svg>',
+  terminal: '<svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="11" height="9" rx="1.6"/><path d="M4.2 5.6 6 7.2l-1.8 1.6M7.4 9h2.6"/></svg>',
+  doc: '<svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.4 1.8h4.4L11 4.9v7.3H3.4z"/><path d="M7.6 1.9v3.2h3.3M5.3 7.6h3.6M5.3 9.6h3.6"/></svg>',
+  grep: '<svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><circle cx="6" cy="6" r="3.6"/><path d="M8.7 8.7 12 12"/></svg>'
+};
+var CHEV = '<svg class="chev" viewBox="0 0 8 8" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 1.2 5.5 4l-3 2.8"/></svg>';
+
+/* 步骤默认 done；verify 按 mode 覆盖 */
+function buildData(mode) {
+  var verify = { running: { status: 'running', dur: 7000 }, done: { status: 'done', dur: 37000 }, error: { status: 'error', dur: 25000 } }[mode];
+  return {
+    mode: mode,
+    status: mode === 'done' ? 'done' : mode,
+    elapsed: 250000, /* 运行游标位置：4m10s */
+    runDur: mode === 'running' ? 250000 : mode === 'done' ? 280000 : 268000,
+    phases: [
+      {
+        title: '调研与定位', span: [0, 110000],
+        steps: [
+          { kind: 'agent', id: 'a1', label: '调研代码库结构', icon: 'agent', start: 0, dur: 68000, status: 'done', toolCalls: 14, task: '梳理 run_workflow 的前端渲染链路：视图投影、Inspector Tab、时间轴数据结构，输出迁移风险清单。', meta: 'explorer · 14 次工具调用 · schema 校验通过', result: '{ "risks": 3, "entry": "workflow-run-detail.ts" }' },
+          { kind: 'tool', id: 't1', label: 'grep "run_workflow"', icon: 'grep', start: 68000, dur: 18000, status: 'done', args: '{ "pattern": "run_workflow", "path": "src" }', result: '12 处命中：workflow-tool-renderer.tsx / WorkflowRunDetailContent.tsx / …' },
+          { kind: 'tool', id: 't2', label: 'read_file runner.mjs', icon: 'doc', start: 86000, dur: 24000, status: 'done', args: '{ "path": "server/agent-workflow-runner.mjs" }', result: '(468 行，已读入上下文)' }
+        ],
+        logs: [
+          { at: 2000, msg: 'phase 调研与定位 开始' },
+          { at: 68000, msg: 'agent 调研代码库结构 完成（14 次工具调用）' },
+          { at: 86000, msg: 'grep "run_workflow" 命中 12 处' },
+          { at: 110000, msg: 'phase 调研与定位 结束' }
+        ]
+      },
+      {
+        title: '并行实现', span: [110000, 225000],
+        steps: [
+          { kind: 'agent', id: 'a2', label: '实现前端面板', icon: 'agent', start: 110000, dur: 80000, status: 'done', toolCalls: 22, task: '按风险清单更新 WorkflowRunDetailContent 与样式模块，保持单页合并结构。', meta: 'coder · 22 次工具调用 · schema 校验通过', result: '{ "files": ["WorkflowRunDetailContent.tsx", "workflow-detail.css"] }' },
+          { kind: 'agent', id: 'a3', label: '实现服务端接口', icon: 'agent', start: 110000, dur: 95000, status: 'done', toolCalls: 18, task: '补 elapsed 推导与阶段跨度聚合，不动 details 字段契约。', meta: 'coder · 18 次工具调用 · schema 校验通过', result: '{ "endpoints": 0, "pure": true }' },
+          { kind: 'agent', id: 'a4', label: '补充集成测试', icon: 'agent', start: 145000, dur: 80000, status: 'done', toolCalls: 11, task: '把三视图契约用例改写为单页契约，覆盖并行组与折叠日志。', meta: 'coder · 11 次工具调用 · schema 校验通过', result: '{ "cases": 29, "passed": 29 }' }
+        ],
+        parallel: ['a2', 'a3', 'a4'],
+        logs: [
+          { at: 110000, msg: 'phase 并行实现 开始（3 个智能体并行）' },
+          { at: 122000, msg: 'agent 实现服务端接口 输出首批文件' },
+          { at: 160000, msg: 'agent 实现前端面板 接入新详情组件' },
+          { at: 190000, msg: 'agent 实现前端面板 完成（22 次工具调用）' },
+          { at: 205000, msg: 'agent 实现服务端接口 完成（18 次工具调用）' },
+          { at: 210000, msg: 'agent 补充集成测试 进度 8/11' },
+          { at: 225000, msg: 'agent 补充集成测试 完成（11 次工具调用）' },
+          { at: 225000, msg: 'phase 并行实现 结束' }
+        ]
+      },
+      {
+        title: '验证与汇总', span: [225000, 280000],
+        steps: [
+          { kind: 'tool', id: 't3', label: 'run_command npm run build', icon: 'terminal', start: 225000, dur: 18000, status: 'done', args: '{ "command": "npm run build" }', result: 'vite v8 · 构建成功（5.4s）' },
+          { kind: 'agent', id: 'a5', label: '汇总与自查', icon: 'agent', start: 243000, dur: verify.dur, status: verify.status, toolCalls: 4, task: '汇总三个智能体的产物，按 SummarySchema 输出结构化结果。', meta: 'reviewer · 4 次工具调用 · schema 校验' + (mode === 'error' ? '未通过' : '通过'), result: mode === 'error' ? '' : '{ "files": 14, "tests": "29 passed" }', error: mode === 'error' ? 'schema 校验未通过：summary 缺少 required 字段 "files"' : '' }
+        ],
+        logs: mode === 'running' ? [
+          { at: 225000, msg: 'phase 验证与汇总 开始' },
+          { at: 243000, msg: 'run_command npm run build 完成（exit 0）' },
+          { at: 250000, msg: 'agent 汇总与自查 运行中…' }
+        ] : mode === 'done' ? [
+          { at: 225000, msg: 'phase 验证与汇总 开始' },
+          { at: 243000, msg: 'run_command npm run build 完成（exit 0）' },
+          { at: 280000, msg: 'workflow 完成（4 智能体 · 3 工具）' }
+        ] : [
+          { at: 225000, msg: 'phase 验证与汇总 开始' },
+          { at: 243000, msg: 'run_command npm run build 完成（exit 0）' },
+          { at: 268000, msg: 'agent 汇总与自查 失败：schema 校验未通过', level: 'error' }
+        ]
+      }
+    ]
+  };
+}
+
+/* ------------------------------------------------------------------
+   渲染：一个渲染器出两种形态（legacy = 现状复刻）
+   ------------------------------------------------------------------ */
+function toneOf(status) {
+  if (status === 'done') return 'done';
+  if (status === 'error' || status === 'aborted') return 'error';
+  if (status === 'running') return 'running';
+  return 'pending';
+}
+function phaseTone(phase) {
+  var st = phase.steps.map(function (s) { return s.status; });
+  if (st.indexOf('running') >= 0) return 'running';
+  if (st.indexOf('error') >= 0 || st.indexOf('aborted') >= 0) return 'error';
+  if (phase.steps.length > 0) return 'done';
+  return 'pending';
+}
+
+function rowHtml(step, opts) {
+  var tone = toneOf(step.status);
+  var left = Math.min(100, pct(step.start));
+  var width = Math.max(0.6, pct(step.start + step.dur) - left);
+  var running = step.status === 'running';
+  var grids = opts.legacy ? [0, 25, 50, 75, 100].map(function (p) {
+    return '<span class="g" style="left:' + p + '%"></span>';
+  }).join('') : '';
+  var tag = '';
+  if (step.pTag) tag = '<span class="ptag">' + step.pTag + '</span>';
+  var body = '';
+  if (step.kind === 'agent') {
+    body =
+      (step.task ? '<div class="task"><b>任务：</b><span class="tv">' + step.task + '</span></div>' : '') +
+      (step.meta ? '<div class="meta">' + step.meta + '</div>' : '') +
+      (step.error ? '<div class="errtext">' + step.error + '</div>' : '') +
+      (step.result ? '<div><div class="flabel">结果</div><pre class="code">' + step.result + '</pre></div>' : '') +
+      (step.status !== 'queued' ? '<div class="step-actions"><button type="button" class="openbtn">打开运行详情 ↗</button></div>' : '');
+  } else {
+    body =
+      (step.args ? '<div><div class="flabel">输入</div><pre class="code">' + step.args + '</pre></div>' : '') +
+      (step.result ? '<div><div class="flabel">输出</div><pre class="code">' + step.result + '</pre></div>' : '') +
+      (step.error ? '<div class="errtext">' + step.error + '</div>' : '');
+  }
+  return (
+    '<details class="step" data-kind="' + step.kind + '" data-tone="' + tone + '" data-id="' + step.id + '">' +
+      '<summary class="row" title="' + step.label + (step.error ? '：' + step.error : '') + '">' +
+        '<span class="head">' +
+          '<span class="ic" data-tone="' + tone + '">' + ICON[step.icon] + '</span>' +
+          '<span class="lb' + (running ? ' sweep' : '') + '">' + step.label + '</span>' +
+          CHEV +
+        '</span>' +
+        '<span class="track"><span class="plot">' + grids +
+          '<span class="bar' + (step.parallel ? ' is-par' : '') + '" data-kind="' + step.kind + '" data-tone="' + tone + '" style="left:' + left.toFixed(2) + '%;width:' + width.toFixed(2) + '%"></span>' +
+          (step.dur > 0 ? '<span class="bv">' + fmt(step.dur) + '</span>' : '') +
+          tag +
+        '</span></span>' +
+      '</summary>' +
+      '<div class="body">' + body + '</div>' +
+    '</details>'
+  );
+}
+
+function logsHtml(logs, origin, legacy) {
+  if (!logs.length) return '';
+  var foldable = !legacy && logs.length > 6;
+  var lis = logs.map(function (log) {
+    return '<li' + (log.level === 'error' ? ' data-level="error"' : '') + '><time>' + fmt(Math.max(0, log.at - origin)) + '</time><span>' + log.msg + '</span></li>';
+  }).join('');
+  var more = foldable ? '<button type="button" class="logs-more">展开全部 ' + logs.length + ' 条</button>' : '';
+  return '<ul class="logs' + (foldable ? ' foldable' : '') + '">' + lis + more + '</ul>';
+}
+
+function renderPanel(root, opts) {
+  var data = opts.data;
+  var legacy = !!opts.legacy;
+  var origin = 0;
+  var tone = toneOf(data.status === 'running' ? 'running' : data.status);
+
+  /* 概览条 */
+  var pillText = data.status === 'running' ? '运行中' : data.status === 'done' ? '已完成' : '失败';
+  var overview;
+  if (legacy) {
+    overview =
+      '<div class="overview">' +
+        '<div class="ov1">' +
+          '<span class="pill" data-tone="' + tone + '"><i></i>' + pillText + '</span>' +
+          '<span class="dur">' + fmt(data.runDur) + '</span>' +
+          '<span class="counts" style="margin-left:auto">4 个智能体 · 3 次工具 · 3 个阶段</span>' +
+        '</div>' +
+        '<div class="ov2" style="display:flex;gap:0.875rem;flex-wrap:wrap;align-items:center">' +
+          '<span>并发峰值 3</span><span>节省 2m20s</span><span>预算 <b style="font-weight:500">24</b> agent / <b style="font-weight:500">64</b> tool</span>' +
+          '<span class="legend"><span><i class="sw sw-a"></i>智能体</span><span><i class="sw sw-t"></i>工具</span><span><i class="sw sw-p"></i>并行</span></span>' +
+        '</div>' +
+      '</div>';
+  } else {
+    overview =
+      '<div class="overview">' +
+        '<div class="ov1">' +
+          '<span class="pill" data-tone="' + tone + '"><i></i>' + pillText + '</span>' +
+          '<span class="dur">' + (data.status === 'running' ? fmt(data.elapsed) : fmt(data.runDur)) + '</span>' +
+          '<span class="counts">4 智能体 · 3 工具 · 3 阶段</span>' +
+          '<span class="legend"><span><i class="sw sw-a"></i>智能体</span><span><i class="sw sw-t"></i>工具</span><span><i class="sw sw-p"></i>并行</span></span>' +
+        '</div>' +
+        '<div class="ov2">并发峰值 ×3 · 相对串行节省 2m20s</div>' +
+      '</div>';
+  }
+
+  /* 刻度轴 */
+  var ticks = [0, 0.25, 0.5, 0.75, 1].map(function (r, i) {
+    var edge = i === 0 ? ' data-edge="start"' : i === 4 ? ' data-edge="end"' : '';
+    return '<span class="tick" style="left:' + (r * 100) + '%"' + edge + '>' + fmt(TOTAL * r) + '</span>';
+  }).join('');
+  var nowChip = (!legacy && data.status === 'running')
+    ? '<span class="now-chip" style="left:' + pct(data.elapsed).toFixed(2) + '%" title="当前进度 ' + fmt(data.elapsed) + ' / ' + fmt(TOTAL) + '">现在 ' + fmt(data.elapsed) + '</span>'
+    : '';
+  var axis = '<div class="axis"><span class="sp"></span><div class="plot">' + ticks + nowChip + '</div></div>';
+
+  /* 错误横幅 */
+  var errBanner = '';
+  if (data.status === 'error') {
+    errBanner =
+      '<div class="err" role="alert">' +
+        '<span class="err-label">失败</span>' +
+        '<span class="err-msg">Agent 汇总与自查 · schema 校验未通过：summary 缺少 required 字段 "files"</span>' +
+        (legacy ? '' : '<button type="button" class="err-jump">定位失败步骤</button>') +
+      '</div>';
+  }
+
+  /* 阶段区 */
+  var phasesHtml = data.phases.map(function (phase, index) {
+    function rowHtml$(s) { return rowHtml(s, opts); }
+    var steps = phase.steps.map(function (s) {
+      var copy = Object.assign({}, s);
+      if (phase.parallel && phase.parallel.indexOf(s.id) >= 0) {
+        copy.parallel = true;
+        if (phase.parallel[0] === s.id) copy.pTag = legacy ? '并行' : '并行×' + phase.parallel.length;
+      }
+      return copy;
+    });
+    /* 并行组：按出现顺序切出 pre / group / post，组内包一层 bracket 容器 */
+    var rows;
+    if (!legacy && phase.parallel && phase.parallel.length) {
+      var groupIds = phase.parallel;
+      var first = steps.findIndex(function (s) { return groupIds.indexOf(s.id) >= 0; });
+      var last = -1;
+      steps.forEach(function (s, i) { if (groupIds.indexOf(s.id) >= 0) last = i; });
+      rows = steps.slice(0, Math.max(first, 0)).map(rowHtml$).join('')
+        + '<div class="pgroup">' + steps.slice(first, last + 1).map(rowHtml$).join('') + '</div>'
+        + steps.slice(last + 1).map(rowHtml$).join('');
+    } else {
+      rows = steps.map(rowHtml$).join('');
+    }
+
+    /* 阶段跨度：右端按运行状态钳制（运行中不超过当前时刻，失败不超过失败时刻） */
+    var spanEnd = Math.min(phase.span[1], data.runDur);
+    if (data.status === 'running') spanEnd = Math.min(spanEnd, data.elapsed);
+    var spanLeft = pct(phase.span[0]).toFixed(2);
+    var spanWidth = Math.max(0.6, pct(spanEnd) - pct(phase.span[0])).toFixed(2);
+    var spanBar = legacy ? '' : '<span class="ptrack"><span class="pbar" data-tone="' + phaseTone(phase) + '" style="left:' + spanLeft + '%;width:' + spanWidth + '%"></span></span>';
+    var phaseDur = fmt(spanEnd - phase.span[0]);
+
+    return (
+      '<section class="phase" data-tone="' + phaseTone(phase) + '">' +
+        '<button type="button" class="phead" aria-expanded="true">' +
+          '<span class="ptext">' +
+            '<span class="pindex">' + String(index + 1).padStart(2, '0') + '</span>' +
+            '<span class="pname" title="' + phase.title + '">' + phase.title + '</span>' +
+            '<span class="pcount">' + phase.steps.length + ' 步</span>' +
+          '</span>' +
+          spanBar +
+          '<span class="pdur">' + phaseDur + '</span>' +
+          CHEV +
+        '</button>' +
+        '<div class="pbody">' + rows + logsHtml(phase.logs, origin, legacy) + '</div>' +
+      '</section>'
+    );
+  }).join('');
+
+  var zoneInner = '<div class="zone">' +
+    (legacy ? '' : '<div class="glayer" aria-hidden="true">' +
+      '<span class="gline" style="left:25%"></span><span class="gline" style="left:50%"></span><span class="gline" style="left:75%"></span>' +
+    '</div>') +
+    (legacy || data.status !== 'running' ? '' : '<div class="now-layer" aria-hidden="true"><span class="now-line" style="left:' + pct(data.elapsed).toFixed(2) + '%"></span></div>') +
+    phasesHtml +
+    '<p class="panel-empty" style="display:none"></p>' +
+  '</div>';
+
+  /* 底部 */
+  var hasResult = data.status === 'done';
+  var foot =
+    '<div class="foot">' +
+      '<button type="button" class="foot-btn" data-sheet="script" aria-pressed="false">脚本</button>' +
+      (hasResult ? '<button type="button" class="foot-btn" data-sheet="result" aria-pressed="false">结果</button>' : '') +
+    '</div>';
+
+  root.innerHTML = overview + '<div class="scroll">' + axis + errBanner + zoneInner + '</div>' + foot;
+
+  /* 交互：阶段折叠 */
+  root.querySelectorAll('.phead').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var expanded = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      btn.closest('.phase').classList.toggle('collapsed', expanded);
+    });
+  });
+
+  /* 交互：日志折叠 */
+  root.querySelectorAll('.logs-more').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var list = btn.closest('.logs');
+      var open = list.classList.toggle('open');
+      btn.textContent = open ? '收起' : '展开全部 ' + list.querySelectorAll('li').length + ' 条';
+    });
+  });
+
+  /* 交互：sheet */
+  var sheet = null;
+  root.querySelectorAll('.foot-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var kind = btn.getAttribute('data-sheet');
+      var existing = root.querySelector('.sheet');
+      var wasSame = existing && existing.getAttribute('data-kind') === kind;
+      if (existing) { existing.remove(); }
+      root.querySelectorAll('.foot-btn').forEach(function (b) { b.setAttribute('aria-pressed', 'false'); });
+      if (wasSame) return;
+      btn.setAttribute('aria-pressed', 'true');
+      sheet = document.createElement('div');
+      sheet.className = 'sheet';
+      sheet.setAttribute('data-kind', kind);
+      if (kind === 'script') {
+        sheet.innerHTML =
+          '<div class="sheet-meta">预算 24 agent · 64 tool · 并发上限 4 · 时限 1h</div>' +
+          '<pre class="code">const report = await agent(\'调研代码库结构\', { profile: \'explorer\' })\n' +
+          'const [ui, api, test] = await parallel(\n' +
+          '  () =&gt; agent(\'实现前端面板\', { profile: \'coder\' }),\n' +
+          '  () =&gt; agent(\'实现服务端接口\', { profile: \'coder\' }),\n' +
+          '  () =&gt; agent(\'补充集成测试\', { profile: \'coder\' }),\n' +
+          ')\n' +
+          'await tool(\'run_command\', { command: \'npm run build\' })\n' +
+          'const summary = await agent(\'汇总与自查\', { schema: SummarySchema })\n' +
+          'return { report, ui, api, test, summary }</pre>';
+      } else {
+        sheet.innerHTML = '<pre class="code">{\n  "report": { "risks": 3 },\n  "summary": { "files": 14, "tests": "29 passed" }\n}</pre>';
+      }
+      root.insertBefore(sheet, null);
+      root.querySelector('.scroll').scrollTop = root.querySelector('.scroll').scrollTop; /* no-op，保持滚动位置 */
+    });
+  });
+
+  /* 交互：定位失败步骤 */
+  var jump = root.querySelector('.err-jump');
+  if (jump) {
+    jump.addEventListener('click', function () {
+      var target = root.querySelector('.step[data-tone="error"]');
+      if (!target) return;
+      target.open = true;
+      target.scrollIntoView({ block: 'center', behavior: 'auto' });
+      target.classList.remove('flash');
+      void target.offsetWidth;
+      target.classList.add('flash');
+      setTimeout(function () { target.classList.remove('flash'); }, 1700);
+    });
+  }
+}
+
+/* ------------------------------------------------------------------
+   页面装配
+   ------------------------------------------------------------------ */
+renderPanel(document.getElementById('panel-old'), { data: buildData('running'), legacy: true });
+renderPanel(document.getElementById('panel-new'), { data: buildData('running'), legacy: false });
+
+function bindSeg(id, onChange) {
+  var seg = document.getElementById(id);
+  seg.addEventListener('click', function (event) {
+    var btn = event.target.closest('button');
+    if (!btn || btn.getAttribute('aria-pressed') === 'true') return;
+    seg.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', 'false'); });
+    btn.setAttribute('aria-pressed', 'true');
+    onChange(btn.getAttribute('data-v'));
+  });
+}
+
+bindSeg('seg-theme', function (v) {
+  document.documentElement.classList.toggle('dark', v === 'dark');
+});
+var currentStatus = 'running';
+bindSeg('seg-status', function (v) {
+  currentStatus = v;
+  renderPanel(document.getElementById('panel-new'), { data: buildData(v), legacy: false });
+});
+bindSeg('seg-width', function (v) {
+  document.getElementById('panel-new').classList.toggle('narrow', v === 'narrow');
+  document.getElementById('panel-old').classList.toggle('narrow', v === 'narrow');
+});
+bindSeg('seg-motion', function (v) {
+  document.documentElement.classList.toggle('reduce', v === 'off');
+});
+</script>
+</body>
+</html>

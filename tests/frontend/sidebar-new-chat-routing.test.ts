@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 const sidebarSource = readFileSync(new URL('../../src/components/sidebar/ChatSidebar.tsx', import.meta.url), 'utf8')
+const headerNavSource = readFileSync(new URL('../../src/components/sidebar/chat-sidebar/SidebarHeaderNav.tsx', import.meta.url), 'utf8')
+const mobileSidebarSource = readFileSync(new URL('../../src/hooks/useMobileSidebar.ts', import.meta.url), 'utf8')
 const agentManagerSource = readFileSync(new URL('../../src/hooks/useAgentManager.ts', import.meta.url), 'utf8')
 
 function callbackSource(name: string) {
@@ -12,12 +14,20 @@ function callbackSource(name: string) {
   return source ?? ''
 }
 
+function mobileCallbackSource(name: string) {
+  const source = mobileSidebarSource.match(new RegExp(`const ${name} = useCallback\\(\\(\\) => \\{([\\s\\S]*?)
+  \\}, \\[`))?.[1]
+  expect(source, `${name} callback`).toBeDefined()
+  return source ?? ''
+}
+
 describe('sidebar new chat routing', () => {
   it('keeps the top new-chat entry on the active-project-aware default handler', () => {
     const defaultHandler = callbackSource('startNewDefaultSession')
-    const topEntry = sidebarSource.slice(
-      sidebarSource.indexOf("aria-label={t('startNewChat')}") - 240,
-      sidebarSource.indexOf("aria-label={t('startNewChat')}") + 120,
+    const startNewChatIndex = headerNavSource.indexOf("aria-label={t('startNewChat')}")
+    const topEntry = headerNavSource.slice(
+      startNewChatIndex - 240,
+      startNewChatIndex + 120,
     )
 
     expect(defaultHandler).toContain('setEmptyStateProjectDismissed(false)')
@@ -40,7 +50,7 @@ describe('sidebar new chat routing', () => {
     expect(appSource).toContain('onStartNewGlobalChat={startNewExplicitGlobalSession}')
     expect(appSource).toContain('onStartNewGlobalChat={startNewExplicitGlobalSessionFromSidebar}')
 
-    const mobileHandler = callbackSource('startNewExplicitGlobalSessionFromSidebar')
+    const mobileHandler = mobileCallbackSource('startNewExplicitGlobalSessionFromSidebar')
     expect(mobileHandler.indexOf('closeMobileSidebar()')).toBeLessThan(mobileHandler.indexOf('startNewExplicitGlobalSession()'))
   })
 

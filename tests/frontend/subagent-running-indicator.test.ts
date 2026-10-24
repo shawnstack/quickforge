@@ -444,7 +444,9 @@ describe('subagent running Composer indicator', () => {
     expect(menuAfter).toBe(menu)
     const itemAfter = menuAfter.querySelectorAll('.quickforge-subagent-running-item')[0]!
     expect(itemAfter).toBe(item1)
-    expect(item1.querySelector('.quickforge-subagent-running-task')!.textContent).toBe('Updated task')
+    // 菜单项只是详情入口：不再平铺任务全文（读屏上下文仍在 aria-label 里）。
+    expect(item1.querySelector('.quickforge-subagent-running-task')).toBeNull()
+    expect(item1.getAttribute('aria-label')).toContain('Updated task')
   })
 
   it('removes disappeared runs and appends new runs in pending order', async () => {

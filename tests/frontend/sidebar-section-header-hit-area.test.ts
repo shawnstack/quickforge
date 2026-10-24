@@ -1,7 +1,8 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { sidebarModule } from './helpers/sidebar-module'
 
-const sidebarSource = readFileSync(new URL('../../src/components/sidebar/ChatSidebar.tsx', import.meta.url), 'utf8')
+const sidebarSource = sidebarModule.chatSidebar
+const classesSource = sidebarModule.classes
 
 /**
  * The three collapsible section headers (pinned / projects / conversations) all
@@ -97,8 +98,8 @@ describe('ChatSidebar section header hit area', () => {
 
     expect(newChatButton).toContain('className={sectionActionButtonClass}')
     expect(newChatButton).not.toContain("className={cn(iconButtonClass, 'quickforge-sidebar-section-icon')}")
-    expect(sidebarSource).toContain(
-      "const sectionActionButtonClass = `quickforge-sidebar-section-icon ${iconButtonClass} pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`",
+    expect(classesSource).toContain(
+      "export const sectionActionButtonClass = `quickforge-sidebar-section-icon ${iconButtonClass} pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`",
     )
   })
 

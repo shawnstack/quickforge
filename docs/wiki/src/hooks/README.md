@@ -1,6 +1,6 @@
 # `src/hooks/` — 自定义 React Hooks
 
-包含 18 个自定义 React Hook，用于封装应用状态管理和业务逻辑。
+包含 24 个自定义 React Hook，用于封装应用状态管理和业务逻辑。
 
 ---
 
@@ -24,6 +24,12 @@
 | [useUIState.ts](../../../../src/hooks/useUIState.ts) | 57 | 应用 UI 状态管理 |
 | [useUpdateCheck.ts](../../../../src/hooks/useUpdateCheck.ts) | 121 | 应用更新检查（启动后台静默检查；经 `update-check-poll.ts` 轮询非阻塞快照接口，失败静默） |
 | [useVisibleRuntimeStatuses.ts](../../../../src/hooks/useVisibleRuntimeStatuses.ts) | 127 | 可见会话的后台任务状态轮询；刷新 effect 只依赖会话 id 集合内容（`visibleSessionKey`），列表数组身份变化不再重复请求 `/api/agents` |
+| [useSidebarOrdering.ts](../../../../src/hooks/useSidebarOrdering.ts) | 52 | 侧栏「区块顺序 + 视图/排序模式」的 App 级状态（localStorage 持久化），桌面/移动两处 `ChatSidebar` 共享 |
+| [useProjectExternalOpen.ts](../../../../src/hooks/useProjectExternalOpen.ts) | 67 | 「在资源管理器 / VS Code / IDEA 中打开项目」：裸请求 + 带 alert 反馈的两层封装 |
+| [useDesktopTitlebarMenu.ts](../../../../src/hooks/useDesktopTitlebarMenu.ts) | 41 | 桌面标题栏菜单（关于 / 检查更新 / 退出）开合状态与动作，点击外部/失焦自动收起 |
+| [useAgentApprovalActions.ts](../../../../src/hooks/useAgentApprovalActions.ts) | 74 | 工具审批 / ask_user 应答 / auto-compact 审批统一出口（走当前 agent，失败统一抛错） |
+| [useTurnFileRollback.ts](../../../../src/hooks/useTurnFileRollback.ts) | 67 | 每轮产物卡「撤销本轮」：目标收集、会话切换静默关闭、轮键记账（rolledBackTurns） |
+| [useMobileSidebar.ts](../../../../src/hooks/useMobileSidebar.ts) | 104 | 移动端侧栏抽屉（Escape/焦点管理）+ 先收抽屉再转发桌面动作的 `*FromSidebar` 包装 |
 
 ---
 

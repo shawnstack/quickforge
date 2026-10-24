@@ -230,6 +230,8 @@ function renderMenuItems(options: {
       item.setAttribute('role', 'menuitem')
       item.dataset.runId = payload.runId
 
+      // 菜单项只是「详情入口」：一行 label + 已运行时长，不再平铺任务全文
+      //（完整任务在点击后的运行详情里看；aria-label 仍携带任务供读屏）。
       const top = document.createElement('span')
       top.className = 'quickforge-subagent-running-item-top'
       const label = document.createElement('span')
@@ -237,16 +239,12 @@ function renderMenuItems(options: {
       const elapsed = document.createElement('span')
       elapsed.className = 'quickforge-subagent-running-elapsed'
       top.append(label, elapsed)
-      const task = document.createElement('span')
-      task.className = 'quickforge-subagent-running-task'
-      item.append(top, task)
+      item.append(top)
     }
 
     const labelText = payload.label || payload.name
     const label = item.querySelector<HTMLElement>('.quickforge-subagent-running-item-label')
     if (label && label.textContent !== labelText) label.textContent = labelText
-    const task = item.querySelector<HTMLElement>('.quickforge-subagent-running-task')
-    if (task && task.textContent !== payload.task) task.textContent = payload.task
     const elapsed = item.querySelector<HTMLElement>('.quickforge-subagent-running-elapsed')
     if (elapsed) {
       if (typeof payload.timing?.startedAt === 'number') elapsed.dataset.startedAt = String(payload.timing.startedAt)

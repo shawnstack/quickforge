@@ -155,10 +155,10 @@ describe('assistant artifact card contract', () => {
     expect(app).toContain('<TurnRollbackDialog client={fileRollbackTarget.agent} turnIds={fileRollbackTarget.turnIds}')
     expect(app).toContain('fileRollbackTarget.sessionId === agentManager.currentSessionId')
     expect(app).toContain('fileRollbackTarget.projectId === agentManager.currentToolProject?.id')
-    expect(app).toContain('setRolledBackTurns')
+    expect(readFileSync(new URL('../../src/hooks/useTurnFileRollback.ts', import.meta.url), 'utf8')).toContain('setRolledBackTurns')
     expect(app).toContain('rollbackTurnFromArtifactCard')
     // 轮键 = 弹窗打开时 turnIds 的 join('|')：卡片判定与 App 记录共用 turnRollbackKey。
-    expect(app).toContain('new Set(previous).add(turnRollbackKey(target.turnIds))')
+    expect(readFileSync(new URL('../../src/hooks/useTurnFileRollback.ts', import.meta.url), 'utf8')).toContain('new Set(previous).add(turnRollbackKey(target.turnIds))')
 
     expect(serverAgent).toContain('/rollback-turn/preview?turnIds=')
     expect(serverAgent).toContain('async rollbackTurn(turnIds: string[], revision: string, signal?: AbortSignal): Promise<ServerTurnRollbackResult>')
@@ -196,8 +196,8 @@ describe('assistant artifact card contract', () => {
     expect(app).not.toContain('rolledBackFilesSessionId')
     expect(app).not.toContain("mode: 'session'")
     expect(app).not.toContain('<FileRollbackDialog')
-    expect(app).toContain('rollbackTurnFromArtifactCard = useCallback((turnIds: string[]) => {')
-    expect(app).toContain('turnIds.length === 0) return')
+    expect(readFileSync(new URL('../../src/hooks/useTurnFileRollback.ts', import.meta.url), 'utf8')).toContain('rollbackTurnFromArtifactCard = useCallback((turnIds: string[]) => {')
+    expect(readFileSync(new URL('../../src/hooks/useTurnFileRollback.ts', import.meta.url), 'utf8')).toContain('turnIds.length === 0) return')
     // 文案 key：中英成对保留轮级三件；assistantArtifactRollbackAll 及旧
     // assistantArtifactRollback 系（确认弹层标题等）已删。
     expect(i18n).not.toContain('assistantArtifactRollbackAll')

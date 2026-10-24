@@ -369,6 +369,8 @@ export type WorkflowTimelineEntry = {
   parallel: boolean
   /** 并行组内 seq 最小的那一条，渲染时用它画「并行」标注。 */
   parallelGroupStart: boolean
+  /** 所属并行组的成员数（含自身）；非并行恒为 1。供组标注「并行×N」。 */
+  parallelGroupSize: number
 }
 
 export type WorkflowTimeline = {
@@ -495,6 +497,7 @@ export function workflowTimeline(view: WorkflowRunView): WorkflowTimeline {
       durationMs: step.durationMs,
       parallel: grouped,
       parallelGroupStart: grouped && groupStartSeqs.get(root) === step.seq,
+      parallelGroupSize: grouped ? (groupSizes.get(root) ?? 0) : 1,
     }
   })
 
@@ -523,5 +526,24 @@ export function workflowTimeline(view: WorkflowRunView): WorkflowTimeline {
     peakConcurrency,
     savedMs: Math.max(0, serialMs - spanEnd),
   }
+}
+
+/** 阶段在时间轴上的跨度（相对运行开始）。没有可定位步骤的阶段返回 null。 */
+export type WorkflowPhaseSpan = {
+  startOffsetMs: number
+  endOffsetMs: number
+}
+
+/**
+ * 阶段跨度：该阶段全部条目的最早起点 → 最晚终点。
+ * 阶段头用它画跨度条（与行绘图区同一几何），阶段之间的串/并行结构一眼可读；
+ * 运行中的钳制（不超过当前时刻）由调用方做——这里只报告事实跨度。
+ */
+export function workflowPhaseSpan(phase: WorkflowPhaseView, timeline: WorkflowTimeline): WorkflowPhaseSpan | null {
+  const entries = timeline.entries.filter((entry) => entry.phase === phase.title)
+  if (entries.length === 0) return null
+  const startOffsetMs = Math.min(...entries.map((entry) => entry.startOffsetMs))
+  const endOffsetMs = Math.max(...entries.map((entry) => entry.startOffsetMs + entry.durationMs))
+  return { startOffsetMs, endOffsetMs }
 }
 

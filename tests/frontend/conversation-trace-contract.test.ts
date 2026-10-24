@@ -49,8 +49,9 @@ describe('trace view mounting', () => {
   it('renders the view switcher as a plain two-way toggle, without a count badge', () => {
     // The switcher only answers "which view am I in" — a tool count belongs in the
     // trace itself, not in the header (it made the toggle look like a filter chip).
-    expect(app).toContain("t('trace.viewChat')")
-    expect(app).toContain("t('trace.viewTrace')")
+    const header = readFileSync(new URL('../../src/components/app/ConversationHeader.tsx', import.meta.url), 'utf8')
+    expect(header).toContain("t('trace.viewChat')")
+    expect(header).toContain("t('trace.viewTrace')")
     expect(app).not.toContain('quickforge-chat-view-switch-count')
     expect(app).not.toContain('countTraceTools')
     // No counting helper left behind either (it had exactly this one caller).

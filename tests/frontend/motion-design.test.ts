@@ -42,11 +42,11 @@ describe('motion design tokens and primitives', () => {
     const css = appCss
     expect(css).toContain('.quickforge-sidebar-label-in {')
 
-    const sidebar = readSource('../../src/components/sidebar/ChatSidebar.tsx')
+    const classes = readSource('../../src/components/sidebar/chat-sidebar/sidebar-classes.ts')
     // Shared title class covers nav labels, session titles, project names, and footer rows.
-    expect(sidebar).toContain("const sidebarSessionTitleClass = 'quickforge-sidebar-label-in truncate text-sm font-[350] leading-5'")
+    expect(classes).toContain("export const sidebarSessionTitleClass = 'quickforge-sidebar-label-in truncate text-sm font-[350] leading-5'")
     // Section headers (Pinned / Projects / Tasks) ride the same fade.
-    expect(sidebar).toContain('`quickforge-sidebar-label-in quickforge-sidebar-section-header')
+    expect(classes).toContain('`quickforge-sidebar-label-in quickforge-sidebar-section-header')
   })
 
   it('gives the shared Button a token-driven press micro-interaction', () => {
@@ -167,8 +167,12 @@ describe('motion design batch 2', () => {
 
   it('retunes all five sidebar session delete exits from 360ms to the exit token', () => {
     const sidebar = readSource('../../src/components/sidebar/ChatSidebar.tsx')
-    expect(sidebar).toContain('const deleteSessionFadeMs = 140')
-    expect(sidebar).not.toContain('duration-[360ms]')
-    expect(sidebar.match(/duration-\(--quickforge-dur-exit\) ease-\(--quickforge-ease-out\)/g)).toHaveLength(10)
+    const sessionRow = readSource('../../src/components/sidebar/chat-sidebar/SidebarSessionRow.tsx')
+    const sidebarModuleSource = `${sidebar}\n${sessionRow}`
+    expect(sidebarModuleSource).toContain('const deleteSessionFadeMs = 140')
+    expect(sidebarModuleSource).not.toContain('duration-[360ms]')
+    // 四个会话分区共用 SidebarSessionRow（wrapper + 行容器各 1 处），项目行留在装配层（同样 2 处）
+    expect(sidebar.match(/duration-\(--quickforge-dur-exit\) ease-\(--quickforge-ease-out\)/g)).toHaveLength(2)
+    expect(sessionRow.match(/duration-\(--quickforge-dur-exit\) ease-\(--quickforge-ease-out\)/g)).toHaveLength(2)
   })
 })

@@ -1,3 +1,67 @@
+# 当前交接：frontend-god-components-split（done，2026-10-24）
+
+- Current Objective（当前目标）：用户评审「前端是否存在上帝组件」后设定 goal「架构最优 最佳实现 你拆分一下模块，不影响功能和产品体验就可以直接执行」。三个 Tier-1 上帝组件已完成模块拆分，行为/样式逐字节保真。
+- 结论（一句话）：ChatSidebar 2216→1165 行装配层 + `src/components/sidebar/chat-sidebar/` 14 模块（四分区重复行统一为 `SidebarSessionRow` 变体组件）；App.tsx 2431→2019 行（`useSidebarOrdering` / `useProjectExternalOpen` / `useDesktopTitlebarMenu` / `useAgentApprovalActions` / `useTurnFileRollback` / `useMobileSidebar` 六个状态域 hook + `src/components/app/` 下 ConversationHeader / DesktopTitlebarMenu / StartupScreens 三个区域组件）；ChatPanelHostProps 拆为五个分组子接口（类型级，运行时平铺结构不变）。被契约测试钉死的接线（两处 ChatSidebar 实例、GitToolsPinnedSummary 工具条、ChatPanelHost/WorkspaceInspector 传参）刻意留在 MainApp。
+- 改动文件：`src/components/sidebar/ChatSidebar.tsx`（重写为装配层）+ `chat-sidebar/` 14 新文件；`src/App.tsx` + 6 个 `src/hooks/use*.ts` 新文件 + 3 个 `src/components/app/*.tsx` 新文件；`src/components/chat/ChatPanelHost.tsx`（仅类型分组）；测试新增 `tests/frontend/helpers/sidebar-module.ts`，重写/更新 `session-row-hit-area` / `sidebar-session-action-alignment` / `sidebar-section-order` / `sidebar-section-header-hit-area` / `sidebar-new-chat-routing` / `motion-design` / `conversation-trace-contract` / `git-tools-pinned-summary` / `assistant-artifact-card`；wiki 三份（src/hooks、src/components、src/README）。
+- 关键保真点：`SidebarSessionRow` 的 variant 判别逐变体复刻原 DOM——pinned 保留 `div[role=button]`+键盘激活、timeline 时间槽**不**叠加运行/未读态（历史行为）、project 保留 `pl-8` 缩进；`useProjectExternalOpen` 端点为 `/open-in-vscode`、`/open-in-idea`；契约测试断言语义不放宽（motion-design 退场 token 计数改「项目行 2 + 行组件 2」双向锁定）。
+- Evidence（验证）：侧栏定向 9 文件 **81/81**；`tests/frontend` 全量 **251 文件 / 3009 passed**；`npm run test` 全量 **424 文件 / 4915 passed / 2 skipped**（与拆分前同基数）；`npm run lint` 0 error（仅既有 GitToolsPinnedSummary warning）；`npx tsc -b` 通过；`npm run build` 成功。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：① 真机目视验收——侧栏四个分区的行 hover 操作组 / 删除确认淡出 / 拖拽排序 / 宽度拖拽、移动端抽屉 Escape 关闭、桌面标题栏菜单、会话头分支菜单与轨迹切换、轮次撤销弹窗；② 可选后续（progress.md Notes）：WorkspaceInspector / ScheduledTasksPage 拆分、`usePinnedSummaryData` 抽取、会话行两处历史不一致的统一；③ 未创建 Git commit，未触碰生成产物。
+
+---
+
+# 当前交接：subagent-indicator-task-line-removal（done，2026-10-24）
+
+- Current Objective（当前目标）：用户反馈「不要显示任务 只保留详情入口」。定位为 Composer 左下角「运行中 subagent」指示器菜单——每项第二行平铺完整任务全文（`.quickforge-subagent-running-task`），而菜单项本身就是点击进运行详情的入口。
+- 结论（一句话）：菜单项删掉任务全文行，只保留 label + 已运行时长的纯详情入口；任务文本保留在 aria-label（`subagentRunningIndicatorItemAria`）供读屏；点击行为不变（打开运行详情 Tab）。后台命令菜单项（同 class 显示命令文本）属另一功能，未动。
+- 改动文件：`src/components/chat/panel-decoration/subagent-running-indicator.ts`（renderMenuItems 删 task span 创建与更新）、`tests/frontend/subagent-running-indicator.test.ts`（元素身份用例改为断言 task 行不存在 + aria 仍含任务）、`docs/wiki/src/components/README.md`（两处目录行）。`.quickforge-subagent-running-task` CSS 保留（后台命令项仍在用）。
+- Evidence（验证）：定向 subagent-running-indicator **13 passed**；全量 `npm run test` **424 文件 / 4915 passed / 2 skipped**；`npm run lint` 0 error；`npx tsc -b` 通过。
+- 注意（若用户其实指别处）：运行详情页（SubagentRunDetailContent）顶部的「任务：」块本轮**未动**——它是 run_subagent 直达运行的标配套头（含上下文/期望输出）；若用户指的是那里，需另开一轮移除或按 workflow 嵌套运行做门控。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：真机确认菜单项只剩一行；未创建 Git commit，未触碰生成产物。
+
+---
+
+# 当前交接：workflow-detail-agent-direct-link（done，2026-10-24）
+
+- Current Objective（当前目标）：用户验收 `workflow-detail-visual-optimize` 后反馈「不要绿色 icon 不要显示个发送消息 直接点击可以到 运行详情就好了」——指 Agent 行首的绿色机器人图标 + 展开后的任务/prompt 文本块 + 需要两步才能进运行详情。
+- 结论（一句话）：Agent 行从「ToolDetails 展开 + 展开体里『运行详情 ↗』按钮」改为 `quickforge-workflow-detail-agent-link` **整行直达按钮**：点击即开该步运行详情（run_subagent 同款 Tab），删除行内展开体（AgentTaskBlock/input-clamp）、行首图标、`-agent-open`/`-step-actions` 样式与 `workflowDetailOpenAgentDetails` 键；queued/无句柄渲染禁用按钮；运行中标题流光保留；「定位失败步骤」闪烁选择器同时覆盖 summary（工具行）与直达按钮。
+- 改动文件：`WorkflowRunDetailContent.tsx`（AgentStep 重写 + 删 AgentTaskBlock/imports）、`workflow-detail.css`（按钮 reset/hover/focus/disabled + 删 agent-open/step-actions + flash 双选择器 + reduced-motion 同步）、`i18n.ts`（中英删 `workflowDetailOpenAgentDetails`）、`workflow-renderer.test.ts`（新增 direct-link 用例、stateKey 只剩工具行、subagent-task 断言反转、flash 正则改双选择器）、wiki（components 两处重复段 ①⑤ bullet 重写 + 「运行详情 ↗」bullet 改直达 + 删重复 bullet、lib 一处、architecture 7.3 进入详情条目与 i18n 清单）。
+- Evidence（验证）：定向 workflow-renderer（37）+ workflow-step-interaction（8）= **45 passed**；`npm run test` 全量 **424 文件 / 4915 passed / 2 skipped**；`npm run lint` 0 error（仅既有 warning）；`npx tsc -b` 通过；`npm run build` 成功。
+- 被避免的坑：① `ToolDetails` 开合记忆（stateKey）只剩工具行——Agent 行删除后测试里 `stateKey={...agent...}` 断言必须同步反转，否则改对了还被当回归；② flash 动画原先只挂 `> summary`，Agent 行没有 summary，闪烁会静默失效——选择器扩成 `summary, .agent-link` 双列表。
+- 已知工作区遗留（与本次无关）：`goal-*`、`ask-user-*` 等前序未提交改动原样保留。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：① 真机目视验收 Agent 行直达（含 queued 禁用态与错误态 title 提示）；② 若用户同样不想要工具行的绿色图标，可再做一轮（本轮仅按反馈改 Agent 行，工具行图标/展开保留）；③ 未创建 Git commit，未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+# 当前交接：workflow-detail-visual-optimize（done，2026-10-23）
+
+- Current Objective（当前目标）：用户要求「优化一下 workflow 的详情展示，先设计 html 给我看」→ 设计稿 `docs/design/workflow-detail-optimize.html` 评审后用户回复「按设计稿执行」，本轮完成全部实施与验证。
+- 结论（一句话）：单页合并视图之上加八处读数效率层——①共享竖向网格（删逐行 5 条刻度线）②运行游标（轴 chip「现在 Xs」+ 同百分比竖线，elapsed=max(start+dur)）③阶段跨度条（`workflowPhaseSpan`，运行中钳制到 elapsed）④并行组 bracket + 组首一次「并行×N」（`parallelGroupSize`）⑤错误横幅「定位失败步骤」（展开阶段→summary.click 展开行→滚动居中→is-flash 1.6s）⑥日志 console 块 + >6 行折叠 ⑦展开体左 rail + 实底（z:2 遮线）⑧概览减负（图例并入第一行、派生统计行条件渲染、预算迁「脚本」sheet 头 `-sheet-meta`）；不改单页结构、时间轴几何、服务端 details 契约。
+- 改动文件：`src/lib/workflow-run-detail.ts`（parallelGroupSize + workflowPhaseSpan）、`src/components/workspace/WorkflowRunDetailContent.tsx`（StepTrack/PhaseSection/外壳重写）、`src/styles/workspace/workflow-detail.css`（读数效率层全部规则 + 删行内 grid + 合并重复 legend/phase-index）、`src/lib/i18n.ts`（+7/−2 键中英）、`tests/frontend/workflow-renderer.test.ts`（+6 例 + CSS 契约整段 + i18n 清单）、wiki 三份 + 架构文档 7.3（i18n/样式段）。
+- 关键坑（实施时已写入代码注释与 wiki）：① **clamp 百分比双基准**——`--wf-tl-label` 在 flex-basis 按行内容宽（W−1.75rem）、在 absolute left 按包含块（W）解析，300–500px 面板区间错位 6.8px；绝对定位层（网格/游标/跨度条/并行标注）必须用 `--wf-tl-label-plot: clamp(5.5rem,(100% - 1.75rem)*0.3,9.5rem)`（窄媒体 0.34）。② `ToolDetails` 是受控 details，展开走原生 `summary.click()` 让 onToggle 回写，直接改 open 属性会被盖回。③ 网格层 z:-1 会被一切实底遮住——展开体/日志块显式实底 + `position:relative; z-index:2`。
+- Evidence（验证）：定向 workflow-renderer 36 + step-interaction 8 + css-architecture 5 = **49 passed**；全量 `npm run test` **424 文件 / 4914 passed / 2 skipped**（exit 0，label-plot 修复后复跑）；`npm run lint` 0 error；`npx tsc -b` 通过；`npm run build` 成功。真实渲染：生产 CSS harness + Playwright，640/460/380/320px 与 375px 视口（窄媒体）六层左缘对齐 <1.5px、游标重合、阶段耗时与行耗时右缘一致、无溢出。
+- 已知工作区遗留（与本次无关）：`goal-*`、`ask-user-*` 等前序未提交改动原样保留；架构文档 7.3 仍有一段描述已删除的聊天卡内联展开体（前轮漂移，见 progress.md Notes）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：① 真机目视验收——运行中游标推进、失败定位闪烁、日志折叠、380px 窄面板观感、深色对比度；② 可选：now-chip 与刻度标签重叠的进一步避让（当前运行态优先，设计稿已注明）；③ 未创建 Git commit，未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
+# 当前交接：workflow-detail-visual-optimize（design，2026-10-23）
+
+- Current Objective（当前目标）：用户要求「优化一下 workflow 的详情展示，你优化一下，先设计 html 给我看」。设计稿已产出 `docs/design/workflow-detail-optimize.html`，**等用户确认后再实施**（feature_list.json 中 `workflow-detail-visual-optimize` 为 pending）。
+- 结论（一句话）：在单页合并视图（`workflow-detail-single-page`）之上做八处读数效率优化——概览条减负（预算迁入脚本 sheet 头）、共享网格层（删逐行网格）、运行游标 playhead、阶段跨度条、并行组 bracket + ×N、错误横幅「定位失败步骤」、日志 console 块 + >6 行折叠、展开体左 rail + 实底；外加清理 workflow-detail.css 里重复声明两份的 legend 规则。
+- 设计稿结构：01 现状 1:1 复刻（静态）+ P1–P8 问题清单 → 02 决策表（每条 P 对应一个改动与理由）→ 03 可交互原型（浅/深 × 运行中/已完成/失败 × 640/380 宽 × 减少动效，JS 渲染器一套数据出新旧两种形态）→ 04 落地清单（文件级）+ 非目标。
+- 关键几何约束（实施时必须保持）：跨度条 `ptrack`、网格层 `glayer`、游标层 `now-layer` 的左右 inset 都等于 `padx + label + gap + ps` / `padx + pe`，与行绘图区完全同列（原型实测对齐误差 <1.5px）；网格层 `z-index:-1` 垫底、实底块（展开体/日志/阶段头/行 hover 背景）自动遮线；游标层 `z-index:1` 在条形之上、实底文本块（`z-index:2`）之下；阶段跨度右端按运行状态钳制（运行中 ≤ elapsed，失败 ≤ runDur）。
+- 实施落点（设计稿 04 表）：`WorkflowRunDetailContent.tsx`（概览/sheet 头/跨度条/并行组包装/定位按钮/日志折叠）、`workflow-detail.css`（grid-layer/pgroup/ptrack/logs/rail + 删行内 grid + 合并重复 legend）、`workflow-run-detail.ts`（导出 `workflowPhaseSpan`）、`i18n.ts`（现在/定位失败步骤/展开全部 N 条/收起/并行×N）、`tests/frontend/workflow-renderer.test.ts` 契约重写、wiki 文档同步。elapsed 无需服务端新字段：运行中帧 `max(startedAt + durationMs)` 即可。
+- Evidence（验证）：文档类改动未跑 test/lint/build（不触碰 src/、server/、测试、产物）。内联脚本 `node --check` 通过、纯 LF。本地静态服务 + Playwright 实测：对齐/游标重合/并行组（3 行 + 并行×3 + 2px bracket）/日志折叠 8→6/行内网格 0/失败定位（跳转+展开+flash）/阶段折叠/sheet 开合/状态切换/380px 无溢出且对齐保持/深色 token/现状面板 40 条行内网格与预算行均在——全部通过（中途修复一处：`.panel.narrow` 漏了 `width:380px` 导致宽度开关不生效，已补）。
+- 已知工作区遗留（与本次无关）：`goal-*`、`workflow-*` 等前序未提交改动原样保留。
+- Blockers（阻塞）：无，等用户确认设计。
+- Next Session（下一步）：① 用户确认后按 04 落地表实施（先做纯 CSS 三件：共享网格层、日志块、展开体 rail；再做组件层的跨度条/并行组/定位按钮/概览重排；最后 elapsed 游标与测试契约重写）；② 若用户对某条 P 有异议，按反馈改稿再确认；③ 未创建 Git commit，未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+
+---
+
 # 当前交接：todo-summary-hover-popover（done，2026-10-23）
 
 - Current Objective（当前目标）：用户要求「对话上面的任务 todo 样式优化一下，默认收拢一下，划过再弹窗，划走就收缩了，里面只显示任务，不显示任务其他的文案，先设计一下 html」。先出设计稿 `docs/design/todo-hover-popover.html`，用户回复「确认，开始实施」后落地。

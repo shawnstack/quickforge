@@ -391,7 +391,7 @@ describe('GitToolsPinnedSummary source contract', () => {
 
   it('anchors only the first desktop position below the conversation header and preserves toolbar-root then widget fallback order', () => {
     expect(appSource).toContain('const conversationHeaderRef = useRef<HTMLElement | null>(null)')
-    expect(appSource).toContain('<header ref={conversationHeaderRef}')
+    expect(readFileSync(new URL('../../src/components/app/ConversationHeader.tsx', import.meta.url), 'utf8')).toContain('<header ref={headerRef}')
     expect(appSource).toContain('initialAnchorRef={conversationHeaderRef}')
     expect(summarySource).toContain('initialAnchorRef: RefObject<HTMLElement | null>')
 

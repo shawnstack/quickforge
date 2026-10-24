@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { sidebarModule } from './helpers/sidebar-module'
 import {
   SIDEBAR_SECTION_ORDER_STORAGE_KEY,
   loadSidebarSectionOrder,
@@ -125,8 +126,8 @@ describe('ChatSidebar section reorder wiring', () => {
   })
 
   it('uses one middle scroll container while sections and child lists grow naturally', () => {
-    const sortableSectionStart = sidebarSource.indexOf('function SortableSidebarSection')
-    const sortableSectionSource = sidebarSource.slice(sortableSectionStart, sidebarSource.indexOf('export const ChatSidebar', sortableSectionStart))
+    const sortableSectionStart = sidebarModule.sortableItems.indexOf('export function SortableSidebarSection')
+    const sortableSectionSource = sidebarModule.sortableItems.slice(sortableSectionStart)
 
     expect(sortableSectionSource).not.toContain('collapsed: boolean')
     expect(sortableSectionSource).toContain("'flex flex-col'")
@@ -135,7 +136,7 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(sidebarSource).toContain('ref={projectsDragBoundaryRef}')
     expect(sidebarSource).not.toContain('max-h-[10.5rem]')
     expect(sidebarSource).not.toContain('className="h-full overflow-y-auto pb-2"')
-    expect(sidebarSource).toContain('className="mt-auto shrink-0 border-t')
+    expect(sidebarModule.footer).toContain('className="mt-auto shrink-0 border-t')
   })
 
   it('supports pointer and keyboard sorting in the outer section context', () => {
@@ -147,14 +148,14 @@ describe('ChatSidebar section reorder wiring', () => {
   })
 
   it('uses namespaced ids and binds the sortable activator only to each title toggle', () => {
-    expect(sidebarSource).toContain("const sidebarSectionDndIdPrefix = 'sidebar-section:'")
-    expect(sidebarSource).toContain('id: sidebarSectionDndId(id)')
+    expect(sidebarModule.utils).toContain("const sidebarSectionDndIdPrefix = 'sidebar-section:'")
+    expect(sidebarModule.sortableItems).toContain('id: sidebarSectionDndId(id)')
     expect(sidebarSource).toContain('items={sectionOrder.map(sidebarSectionDndId)}')
     expect(sidebarSource).not.toContain('GripVertical')
     expect(sidebarSource).not.toContain('sectionDragHandleClass')
 
-    const sectionToggleClass = sidebarSource.match(/const sectionToggleClass = '([^']+)'/)?.[1]
-    const draggableSectionTitleClass = sidebarSource.match(/const draggableSectionTitleClass = `([^`]+)`/)?.[1]
+    const sectionToggleClass = sidebarModule.classes.match(/export const sectionToggleClass = '([^']+)'/)?.[1]
+    const draggableSectionTitleClass = sidebarModule.classes.match(/export const draggableSectionTitleClass = `([^`]+)`/)?.[1]
     const pinnedHeaderSource = sidebarSource.match(/(<button type="button" className=\{sectionToggleClass\}[\s\S]*?<\/button>)/)?.[1]
 
     expect(sectionToggleClass).not.toContain('cursor-grab')
@@ -193,10 +194,11 @@ describe('ChatSidebar section reorder wiring', () => {
   })
 
   it('resets local display counts when shared props change across desktop/mobile instances', () => {
-    const viewModeResetEffect = sidebarSource.match(/useEffect\(\(\) => \{\s*const previousSessionViewMode[\s\S]*?\}, \[sessionViewMode\]\)/)?.[0] ?? ''
-    const projectsResetEffect = sidebarSource.match(/useEffect\(\(\) => \{\s*const resetForSharedCollapse = projectsCollapsed[\s\S]*?\}, \[projectsCollapsed\]\)/)?.[0] ?? ''
-    const tasksResetEffect = sidebarSource.match(/useEffect\(\(\) => \{\s*const resetForSharedCollapse = conversationsCollapsed[\s\S]*?\}, \[conversationsCollapsed\]\)/)?.[0] ?? ''
-    const projectExpansionResetEffect = sidebarSource.match(/useEffect\(\(\) => \{\s*const previousExpandedProjectIds[\s\S]*?\}, \[expandedProjectIds\]\)/)?.[0] ?? ''
+    const displaySource = sidebarModule.useSidebarSessionDisplay
+    const viewModeResetEffect = displaySource.match(/useEffect\(\(\) => \{\s*const previousSessionViewMode[\s\S]*?\}, \[sessionViewMode\]\)/)?.[0] ?? ''
+    const projectsResetEffect = displaySource.match(/useEffect\(\(\) => \{\s*const resetForSharedCollapse = projectsCollapsed[\s\S]*?\}, \[projectsCollapsed\]\)/)?.[0] ?? ''
+    const tasksResetEffect = displaySource.match(/useEffect\(\(\) => \{\s*const resetForSharedCollapse = conversationsCollapsed[\s\S]*?\}, \[conversationsCollapsed\]\)/)?.[0] ?? ''
+    const projectExpansionResetEffect = displaySource.match(/useEffect\(\(\) => \{\s*const previousExpandedProjectIds[\s\S]*?\}, \[expandedProjectIds\]\)/)?.[0] ?? ''
 
     expect(viewModeResetEffect).toContain('previousSessionViewModeRef.current = sessionViewMode')
     expect(viewModeResetEffect).toContain('if (previousSessionViewMode === sessionViewMode) return')
@@ -217,13 +219,12 @@ describe('ChatSidebar section reorder wiring', () => {
   })
 
   it('keeps show-more aligned with regular session rows, muted, and removes the visible collapse control', () => {
-    const controlsSource = sidebarSource.slice(
-      sidebarSource.indexOf('const sidebarSessionRowBaseClass'),
-      sidebarSource.indexOf('function SessionTitleMarquee'),
-    )
+    const controlsSource = sidebarModule.sessionDisplayControls
 
-    expect(controlsSource).toContain("const sidebarSessionRowBaseClass = 'group relative flex items-center gap-2 overflow-hidden rounded-lg py-1.5 text-left")
-    expect(controlsSource).toContain("const sidebarSessionTitleClass = 'quickforge-sidebar-label-in truncate text-sm font-[350] leading-5'")
+    expect(sidebarModule.classes).toContain("export const sidebarSessionRowBaseClass = 'group relative flex items-center gap-2 overflow-hidden rounded-lg py-1.5 text-left")
+    expect(sidebarModule.classes).toContain("export const sidebarSessionTitleClass = 'quickforge-sidebar-label-in truncate text-sm font-[350] leading-5'")
+    expect(controlsSource).toContain('sidebarSessionRowBaseClass')
+    expect(controlsSource).toContain('sidebarSessionTitleClass')
     expect(controlsSource).toContain("'w-full px-2 text-muted-foreground/50")
     expect(controlsSource).not.toContain("hover:text-muted-foreground/80")
     expect(controlsSource).not.toContain('text-xs')
@@ -231,14 +232,17 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(controlsSource).not.toContain('sidebarCollapseList')
     expect(i18nSource).not.toContain('sidebarCollapseList')
     expect(i18nSource).not.toContain("sidebarShowMore: 'Show less'")
-    expect(sidebarSource).toContain('const rowClass = `${sidebarSessionRowBaseClass}')
-    expect(sidebarSource).toContain('const sessionTitleClass = sidebarSessionTitleClass')
+    // 行级类名由 classes 模块的工厂生成，装配层与行组件共用同一基类
+    expect(sidebarModule.classes).toContain('export function sidebarRowClass(sidebarOpen: boolean)')
+    expect(sidebarModule.classes).toContain('`${sidebarSessionRowBaseClass} ${sidebarOpen')
+    expect(sidebarModule.headerNav).toContain('sidebarSessionTitleClass')
   })
 
   it('invalidates pending show-more requests before direct collapse and view-reset actions', () => {
-    const collapseTimelineSource = sidebarSource.match(/const collapseTimelineSessions[\s\S]*?\}, \[\]\)/)?.[0] ?? ''
-    const collapseProjectSource = sidebarSource.match(/const collapseProjectSessions[\s\S]*?\}, \[\]\)/)?.[0] ?? ''
-    const toggleAllSource = sidebarSource.match(/const toggleAllProjectsExpanded[\s\S]*?\}, \[expandedProjectIds, onToggleAllProjectsExpanded, projects\.length\]\)/)?.[0] ?? ''
+    const displaySource = sidebarModule.useSidebarSessionDisplay
+    const collapseTimelineSource = displaySource.match(/const collapseTimelineSessions[\s\S]*?\}, \[\]\)/)?.[0] ?? ''
+    const collapseProjectSource = displaySource.match(/const collapseProjectSessions[\s\S]*?\}, \[\]\)/)?.[0] ?? ''
+    const toggleAllSource = displaySource.match(/const toggleAllProjectsExpanded[\s\S]*?\}, \[expandedProjectIds, onToggleAllProjectsExpanded, projectCount\]\)/)?.[0] ?? ''
     const selectViewSource = sidebarSource.match(/const selectViewMode[\s\S]*?closeViewSortMenu\(\)\s*\}/)?.[0] ?? ''
 
     expect(collapseTimelineSource).toContain("invalidateSidebarSessionShowMore(showMoreStateRef.current, 'timeline')")
@@ -266,7 +270,7 @@ describe('ChatSidebar section reorder wiring', () => {
   })
 
   it('closes the Tasks content panel without a transition while preserving its expand animation', () => {
-    const collapsePanelClass = sidebarSource.match(/const collapsePanelClass = '([^']+)'/)?.[1]
+    const collapsePanelClass = sidebarModule.classes.match(/export const collapsePanelClass = '([^']+)'/)?.[1]
     const tasksPanelClassLine = sidebarSource
       .split('\n')
       .find((line) => line.includes('conversationsVisuallyCollapsed ? collapsePanelClosedClass : collapsePanelOpenClass'))
@@ -283,12 +287,13 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(sidebarSource).toContain('const activeSectionId = sidebarSectionIdFromDndId(event.active.id)')
     expect(sidebarSource).toContain('if (activeSectionId) setDraggingSectionId(activeSectionId)')
     expect(sidebarSource).toContain('setDraggingSectionId(undefined)')
-    expect(sidebarSource).toContain('transform ? { ...transform, x: 0 } : null')
+    expect(sidebarModule.sortableItems).toContain('transform ? { ...transform, x: 0 } : null')
   })
 
   it('does not restore a desktop collapsed width on viewport resize and clears stale inline width', () => {
-    const resizeEffect = sidebarSource.match(/useEffect\(\(\) => \{\s*if \(isMobile \|\| !sidebarOpen\)[\s\S]*?\}, \[finishResizing, isMobile, sidebarWidth, sidebarOpen\]\)/)?.[0] ?? ''
-    const finishResizeSource = sidebarSource.match(/const finishResizing = useCallback\(\(finalWidth\?: number\) => \{[\s\S]*?\n\s{2}\}, \[restoreResizeBodyStyle\]\)/)?.[0] ?? ''
+    const resizeSource = sidebarModule.useSidebarResize
+    const resizeEffect = resizeSource.match(/useEffect\(\(\) => \{\s*if \(isMobile \|\| !sidebarOpen\)[\s\S]*?\}, \[finishResizing, isMobile, sidebarWidth, sidebarOpen\]\)/)?.[0] ?? ''
+    const finishResizeSource = resizeSource.match(/const finishResizing = useCallback\(\(finalWidth\?: number\) => \{[\s\S]*?\n\s{2}\}, \[restoreResizeBodyStyle\]\)/)?.[0] ?? ''
 
     expect(resizeEffect).toContain('if (isMobile || !sidebarOpen) return')
     expect(resizeEffect).toContain('window.addEventListener(\'resize\', syncWidthToViewport)')
@@ -320,8 +325,9 @@ describe('ChatSidebar section reorder wiring', () => {
   })
 
   it('shares one App state and localStorage persistence across desktop and mobile sidebars', () => {
-    expect(appSource).toContain('useState<SidebarSectionOrder>(loadSidebarSectionOrder)')
-    expect(appSource).toContain('saveSidebarSectionOrder(sidebarSectionOrder)')
+    const orderingSource = readFileSync(new URL('../../src/hooks/useSidebarOrdering.ts', import.meta.url), 'utf8')
+    expect(orderingSource).toContain('useState<SidebarSectionOrder>(loadSidebarSectionOrder)')
+    expect(orderingSource).toContain('saveSidebarSectionOrder(sidebarSectionOrder)')
     expect(appSource.match(/sectionOrder=\{sidebarSectionOrder\}/g)).toHaveLength(2)
     expect(appSource.match(/onReorderSections=\{handleSidebarSectionReorder\}/g)).toHaveLength(2)
   })

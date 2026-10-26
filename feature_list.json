@@ -1,6 +1,55 @@
 {
   "features": [
     {
+      "id": "workflow-detail-script-expanded",
+      "name": "工作流详情脚本 sheet 默认展开",
+      "description": "用户要求 workflow 详情里的脚本默认展开，而不是先点底部「脚本」。",
+      "status": "done",
+      "dependencies": [
+        "workflow-detail-no-timeline"
+      ],
+      "summary": "1) WorkflowRunDetailContent：sheet 状态改为按 payload.script 初始化为 'script'（带脚本时默认展开），toggleSheet 负责脚本/结果互切与收起；脚本/结果按钮补 aria-expanded + aria-controls，sheet 补 id + role=region + aria-label。2) CSS：底部按钮增加 aria-expanded=true 的轻量 active 背景；sheet 仍保持 max-height 40% 可滚动。3) 测试：workflow-renderer 新增带 script 时默认渲染 script sheet、无 script 不渲染 foot/sheet；workflow-step-interaction 新增默认展开 + 点击「脚本」收起。",
+      "root_cause": "sheet 状态原初始化为 undefined，即使 payload 携带 script 也要先点底部按钮；脚本是运行详情的主要阅读内容，默认收起多一次点击。",
+      "files": [
+        "src/components/workspace/WorkflowRunDetailContent.tsx",
+        "src/styles/workspace/workflow-detail.css",
+        "tests/frontend/workflow-renderer.test.ts",
+        "tests/frontend/workflow-step-interaction.test.ts",
+        "docs/design/workflow-detail-redesign.html",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/styles/README.md",
+        "docs/architecture/workflow-orchestration.zh-CN.md"
+      ],
+      "verification": "定向 vitest 2 文件 51/51；npm run test 全量 426 文件 / 4938 passed / 2 skipped；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc -b 通过；npm run build 成功（5.76s）。",
+      "boundaries": "结果 sheet 仍默认收起，用户手动切换；不改脚本内容 / 预算 / 服务端契约；无新依赖；未创建 Git commit；未手工修改生成产物。"
+    },
+    {
+      "id": "workflow-detail-no-timeline",
+      "name": "工作流详情移除右侧时间轴，Agent 行只做运行详情入口",
+      "description": "用户反馈「不要后面的时间轴」「subagent 还是跳转到对应原来的一样」「只保留点击打开对应子 Agent 运行详情，不要显示 subagent 详细运行过程」。详情改为无时间轴的步骤流：阶段头 + 轻量 Agent 入口 + 工具卡行 + 折叠日志；耗时只保留概览总时长与日志时间戳，不再绘制刻度/条形/游标/网格/并行 bracket。",
+      "status": "done",
+      "dependencies": [
+        "workflow-detail-chat-cards"
+      ],
+      "summary": "1) WorkflowRunDetailContent：删除 TimelineAxis / StepTrack / 时间轴百分比 / now / grid layer / 阶段跨度条 / 并行 bracket 与图例；概览改为状态点 + 耗时 + 规模 + 派生统计，失败步骤在概览显示「N 个失败步骤 · 定位」（run.error 仍走原错误横幅）；阶段头改为状态点 + 编号 + 标题 + 步数 + 待运行提示，吸顶 top:0；步骤流中工具行继续复用 ToolMessage，Agent 行改为轻量入口（图标 + 任务名 + profile + 状态 + 外链提示），点击仍经 buildWorkflowSubagentRunPayload + subagentRunStore 快照 + OPEN_SUBAGENT_RUN_EVENT 打开原来的子 Agent 运行详情，queued 禁用，不渲染 run_subagent 摘要卡 / 当前工具跑马灯；工具行只在有前置 Agent 的组缩进内容列，连接线固定在 Agent 图标中心（阶段开头的 tool-only 组平铺、不画线）；并行只保留组首「并行 ×N」文字标记；日志改为折叠 disclosure（有 error 默认展开，时间 / 消息两列，错误只染消息）；底部脚本 / 结果改为低强调文字按钮，无脚本 / 结果时整条隐藏。2) CSS：删除全部 --wf-tl-* 与 bar / track / axis / legend / now / grid / phase-track / parallel-group 规则；新增 Agent 行、日志 disclosure、失败入口、foot 样式；Agent 行与工具摘要行统一 1.375rem 最小高度，工具连接线 x = padding + 7px；不再有耗时列。3) i18n 补 workflowDetailFailedStepsOne / Many、workflowDetailLocate、workflowDetailPending。4) 测试：workflow-renderer 重写详情断言（无时间轴、日志默认策略、失败入口、Agent 轻量行）；workflow-step-interaction 新增 Agent 行点击派发事件、queued 禁用、无跑马灯断言。",
+      "root_cause": "右侧时间轴把卡片列压缩到约 53px 绘图区，5 个刻度与 now chip 在窄面板叠字；轨道与摘要行基线不一致、工具连接线不在图标轴；Agent 行复用完整 run_subagent 摘要卡会在 workflow 详情里持续显示当前工具跑马灯 / 内部过程，与「只保留点击打开详情」的产品口径冲突。",
+      "files": [
+        "src/components/workspace/WorkflowRunDetailContent.tsx",
+        "src/styles/workspace/workflow-detail.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/workflow-renderer.test.ts",
+        "tests/frontend/workflow-step-interaction.test.ts",
+        "docs/design/workflow-detail-redesign.html",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/styles/README.md",
+        "docs/architecture/workflow-orchestration.zh-CN.md"
+      ],
+      "verification": "定向 vitest 2 文件 48/48 通过；npm run test 全量 426 文件 / 4935 passed / 2 skipped；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npm run build 成功；独立 Vite harness 在 Chromium 实测 420px 面板：无横向溢出、Agent 图标中心与工具连接线同 x=283、工具卡内容起点 291、阶段头 sticky top 0、概览失败入口 / 日志默认策略 / 底部按钮正常。",
+      "boundaries": "不新增依赖；不改服务端 details 契约；不改 Inspector Tab / OPEN_WORKFLOW_RUN_EVENT / OPEN_SUBAGENT_RUN_EVENT 公共链路；未提交 Git；dist 等生成产物未手工修改。"
+    },
+    {
       "id": "thinking-slider-first-frame-fix",
       "name": "修复打开模型选择时思考等级恒显示「关」（滑杆首帧定位失败）",
       "description": "用户反馈「打开模型选择就显示思考等级是关了」。分析确认与默认值无关：滑杆在 append 到弹层之前渲染，offsetHeight 为 0，旧 positionStack() 拿不到行高直接 return，translateY 从未写入，五档常驻文字整列停在第一行 thinkingOff（「关」），而圆圈用百分比定位却在正确档位。同时发现弹层打开期间切模型滑杆不刷新、非法档位（含上游 minimal）会把几何算成 NaN 两个相邻缺陷。",

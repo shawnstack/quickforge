@@ -1,0 +1,989 @@
+<div class="wfd" id="wfd-root" data-theme="light" data-panel-width="420" data-time="off">
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <symbol id="wf-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V5"/><circle cx="12" cy="3.5" r="1.5"/><path d="M8.5 13h.01M15.5 13h.01"/><path d="M9 17h6"/></symbol>
+    <symbol id="wf-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></symbol>
+    <symbol id="wf-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="wf-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+    <symbol id="wf-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+    <symbol id="wf-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></symbol>
+    <symbol id="wf-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="wf-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></symbol>
+    <symbol id="wf-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="wf-braces" viewBox="0 0 24 24"><path d="M8 3H7a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-1"/></symbol>
+    <symbol id="wf-out" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6M9 14l3 3 3-3"/></symbol>
+    <symbol id="wf-spinner" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></symbol>
+    <symbol id="wf-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></symbol>
+  </svg>
+
+  <header class="wfd-head">
+    <div class="wfd-kicker"><i></i> run_workflow · Inspector 运行详情 · v2</div>
+    <h1>工作流详情：去掉时间轴，回到步骤主线</h1>
+    <p class="wfd-sub">按反馈移除右侧刻度轴、时间条、并行括线和图例。Agent 行只保留摘要与点击跳转，不在 workflow 详情里展示 subagent 的当前工具跑马灯或内部执行过程。详情变成一条可读的步骤流：阶段头负责分段与状态，行尾只保留可选的耗时数字。</p>
+    <div class="wfd-controls">
+      <div class="wfd-control">
+        <span class="wfd-control-label">面板宽度</span>
+        <div class="wfd-seg" role="group" aria-label="面板宽度">
+          <button type="button" data-width="360" aria-pressed="false">360</button>
+          <button type="button" data-width="420" aria-pressed="true">420</button>
+          <button type="button" data-width="520" aria-pressed="false">520</button>
+        </div>
+      </div>
+      <div class="wfd-control">
+        <span class="wfd-control-label">主题</span>
+        <div class="wfd-seg" role="group" aria-label="主题">
+          <button type="button" data-theme-set="light" aria-pressed="true">浅色</button>
+          <button type="button" data-theme-set="dark" aria-pressed="false">深色</button>
+        </div>
+      </div>
+      <div class="wfd-control">
+        <span class="wfd-control-label">耗时数字</span>
+        <div class="wfd-seg" role="group" aria-label="耗时数字">
+          <button type="button" data-time-set="on" aria-pressed="false">显示</button>
+          <button type="button" data-time-set="off" aria-pressed="true">隐藏</button>
+        </div>
+      </div>
+      <span class="wfd-sample"><i></i>无时间轴 · 纯步骤流</span>
+      <span class="wfd-tip">悬停说明 → 高亮区域</span>
+    </div>
+  </header>
+
+  <div class="wfd-stage">
+    <div class="wfd-stage-main">
+      <div class="wfd-stage-label">
+        <span class="wfd-badge is-new">建议稿</span>
+        <span>阶段头 + 步骤流 + 日志</span>
+        <span class="wfd-stage-hint">Agent 行 → 运行详情</span>
+      </div>
+
+      <div class="wfd-panel new is-time-hidden">
+        <div class="new-overview" data-anno="overview">
+          <div class="new-line">
+            <span class="new-status" data-tone="running"><i></i>运行中</span>
+            <span class="new-elapsed">9.0s</span>
+            <span class="new-stats">5 智能体 · 5 工具 · 3 阶段</span>
+          </div>
+          <div class="new-meta">
+            <span>并发 4</span>
+            <span>比串行快 6.2s</span>
+            <button type="button" class="new-failure"><i></i>1 个失败步骤<span>定位</span></button>
+          </div>
+        </div>
+
+        <div class="new-scroll">
+          <section class="new-phase">
+            <button type="button" class="new-phase-head" data-anno="phase" aria-expanded="true">
+              <span class="new-phase-main">
+                <i class="new-phase-dot" data-tone="done"></i>
+                <span class="new-phase-index">01</span>
+                <span class="new-phase-title">并行扫描</span>
+                <span class="new-phase-count">4 步</span>
+              </span>
+              <span class="new-phase-time">6.0s</span>
+              <span class="new-phase-tail"><svg class="wf-ico" aria-hidden="true"><use href="#wf-chev"/></svg></span>
+            </button>
+            <div class="new-phase-body">
+              <div class="new-step" data-anno="row">
+                <div class="new-main">
+                  <div class="new-row is-agent" data-subagent="scan-src" data-agent-name="扫描 src 目录" role="button" tabindex="0" aria-label="打开「扫描 src 目录」的子 Agent 运行详情" title="打开子 Agent 运行详情">
+                    <svg class="wf-ico" aria-hidden="true"><use href="#wf-bot"/></svg>
+                    <span class="new-label">扫描 src 目录</span>
+                    <span class="new-row-meta">· explore</span>
+                    <span class="new-parallel-tag">并行 ×4</span>
+                    <span class="new-row-link"><svg class="wf-ico" aria-hidden="true"><use href="#wf-external"/></svg></span>
+                  </div>
+                </div>
+                <span class="new-step-time">6.0s</span>
+                <span class="new-step-tail"></span>
+              </div>
+
+              <div class="new-tools" data-anno="tools">
+                <div class="new-step" data-kind="tool">
+                  <div class="new-main">
+                    <div class="new-row is-expandable" data-expandable="true" role="button" tabindex="0" aria-expanded="false">
+                      <svg class="wf-ico" aria-hidden="true"><use href="#wf-file"/></svg>
+                      <span class="new-label">读取文件</span>
+                      <span class="new-row-meta">· workflow-run-detail.ts</span>
+                      <span class="new-row-chev"><svg class="wf-ico" aria-hidden="true"><use href="#wf-chev"/></svg></span>
+                    </div>
+                    <div class="new-step-detail">
+                      <div class="new-console">
+                        <div><span class="cmd">const payload = buildWorkflowRunPayload(</span></div>
+                        <div><span class="cmd">  sessionId, message, details</span></div>
+                        <div><span class="cmd">)</span></div>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="new-step-time">0.4s</span>
+                  <span class="new-step-tail"></span>
+                </div>
+                <div class="new-step" data-kind="tool">
+                  <div class="new-main">
+                    <div class="new-row">
+                      <svg class="wf-ico" aria-hidden="true"><use href="#wf-search"/></svg>
+                      <span class="new-label">搜索</span>
+                      <span class="new-row-meta">· "workflowDetail" · src</span>
+                    </div>
+                  </div>
+                  <span class="new-step-time">0.6s</span>
+                  <span class="new-step-tail"></span>
+                </div>
+              </div>
+
+              <div class="new-step">
+                <div class="new-main">
+                  <div class="new-row is-agent" data-subagent="scan-tests" data-agent-name="扫描测试" role="button" tabindex="0" aria-label="打开「扫描测试」的子 Agent 运行详情" title="打开子 Agent 运行详情">
+                    <svg class="wf-ico" aria-hidden="true"><use href="#wf-bot"/></svg>
+                    <span class="new-label">扫描测试</span>
+                    <span class="new-row-meta">· explore</span>
+                    <span class="new-row-link"><svg class="wf-ico" aria-hidden="true"><use href="#wf-external"/></svg></span>
+                  </div>
+                </div>
+                <span class="new-step-time">5.0s</span>
+                <span class="new-step-tail"></span>
+              </div>
+
+              <div class="new-logs">
+                <button type="button" class="new-logs-head" aria-expanded="false">
+                  <span class="new-logs-label"><svg class="wf-ico" aria-hidden="true"><use href="#wf-list"/></svg>运行日志<span class="new-logs-count">3</span></span>
+                  <span class="new-logs-time"></span>
+                  <span class="new-logs-tail"><svg class="wf-ico" aria-hidden="true"><use href="#wf-chev"/></svg></span>
+                </button>
+                <div class="new-logs-body">
+                  <div class="new-log-list">
+                    <div class="new-log"><time>0.8s</time><span>2 个 Agent 开始并行扫描</span></div>
+                    <div class="new-log"><time>1.2s</time><span>读取 workflow-run-detail.ts</span></div>
+                    <div class="new-log"><time>6.0s</time><span>扫描阶段完成</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="new-phase">
+            <button type="button" class="new-phase-head" aria-expanded="true">
+              <span class="new-phase-main">
+                <i class="new-phase-dot" data-tone="running"></i>
+                <span class="new-phase-index">02</span>
+                <span class="new-phase-title">修复</span>
+                <span class="new-phase-count">4 步</span>
+              </span>
+              <span class="new-phase-time">3.0s</span>
+              <span class="new-phase-tail"><svg class="wf-ico" aria-hidden="true"><use href="#wf-chev"/></svg></span>
+            </button>
+            <div class="new-phase-body">
+              <div class="new-step">
+                <div class="new-main">
+                  <div class="new-row is-agent" data-subagent="fix-bug" data-agent-name="修复 bug" role="button" tabindex="0" aria-label="打开「修复 bug」的子 Agent 运行详情" title="打开子 Agent 运行详情">
+                    <svg class="wf-ico" aria-hidden="true"><use href="#wf-bot"/></svg>
+                    <span class="new-label">修复 bug</span>
+                    <span class="new-row-meta">· general</span>
+                    <span class="new-row-state"><svg class="wf-ico run wf-spin" aria-hidden="true"><use href="#wf-spinner"/></svg></span>
+                    <span class="new-row-link"><svg class="wf-ico" aria-hidden="true"><use href="#wf-external"/></svg></span>
+                  </div>
+                </div>
+                <span class="new-step-time">2.0s</span>
+                <span class="new-step-tail"></span>
+              </div>
+
+              <div class="new-tools">
+                <div class="new-step" data-kind="tool" data-anno="failure" data-failure="true">
+                  <div class="new-main">
+                    <div class="new-row is-expandable is-open" data-expandable="true" role="button" tabindex="0" aria-expanded="true">
+                      <svg class="wf-ico err" aria-hidden="true"><use href="#wf-terminal"/></svg>
+                      <span class="new-label">运行命令</span>
+                      <span class="new-row-meta">· npm run test:workflow</span>
+                      <span class="new-row-state"><svg class="wf-ico err" aria-hidden="true"><use href="#wf-x"/></svg></span>
+                      <span class="new-row-chev"><svg class="wf-ico" aria-hidden="true"><use href="#wf-chev"/></svg></span>
+                    </div>
+                    <div class="new-step-detail">
+                      <div class="new-console">
+                        <div><span class="cmd">$ npm run test:workflow</span></div>
+                        <div>FAIL tests/frontend/workflow-step-interaction.test.ts</div>
+                        <div class="fail">3 tests failed · 12.4s</div>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="new-step-time">1.2s</span>
+                  <span class="new-step-tail"></span>
+                </div>
+                <div class="new-step" data-kind="tool">
+                  <div class="new-main">
+                    <div class="new-row">
+                      <svg class="wf-ico run" aria-hidden="true"><use href="#wf-edit"/></svg>
+                      <span class="new-label">写入文件</span>
+                      <span class="new-row-meta">· WorkflowRunDetailContent.tsx</span>
+                      <span class="new-row-state"><svg class="wf-ico run wf-spin" aria-hidden="true"><use href="#wf-spinner"/></svg></span>
+                    </div>
+                  </div>
+                  <span class="new-step-time">0.3s</span>
+                  <span class="new-step-tail"></span>
+                </div>
+              </div>
+
+              <div class="new-step">
+                <div class="new-main">
+                  <div class="new-row" data-status="queued">
+                    <svg class="wf-ico" aria-hidden="true"><use href="#wf-dot"/></svg>
+                    <span class="new-label">复核 diff</span>
+                    <span class="new-row-meta">· review</span>
+                    <span class="new-row-state"><svg class="wf-ico" aria-hidden="true"><use href="#wf-dot"/></svg></span>
+                  </div>
+                </div>
+                <span class="new-step-time is-empty">—</span>
+                <span class="new-step-tail"></span>
+              </div>
+
+              <div class="new-logs is-open" data-anno="logs">
+                <button type="button" class="new-logs-head" aria-expanded="true">
+                  <span class="new-logs-label"><svg class="wf-ico" aria-hidden="true"><use href="#wf-list"/></svg>运行日志<span class="new-logs-count">3</span><i class="new-logs-flag"></i></span>
+                  <span class="new-logs-time"></span>
+                  <span class="new-logs-tail"><svg class="wf-ico" aria-hidden="true"><use href="#wf-chev"/></svg></span>
+                </button>
+                <div class="new-logs-body">
+                  <div class="new-log-list">
+                    <div class="new-log"><time>6.2s</time><span>首次修复尝试失败，回退到选择器匹配</span></div>
+                    <div class="new-log" data-level="error"><time>8.1s</time><span>npm run test:workflow 失败：3 个用例超时</span></div>
+                    <div class="new-log"><time>8.8s</time><span>正在写入调整后的选择器</span></div>
+                    <button type="button" class="new-logs-more">展开全部 5 条</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="new-phase is-collapsed">
+            <button type="button" class="new-phase-head" aria-expanded="false">
+              <span class="new-phase-main">
+                <i class="new-phase-dot" data-tone="pending"></i>
+                <span class="new-phase-index">03</span>
+                <span class="new-phase-title">验证</span>
+                <span class="new-phase-count">2 步</span>
+                <span class="new-phase-note">待运行</span>
+              </span>
+              <span class="new-phase-time"></span>
+              <span class="new-phase-tail"><svg class="wf-ico" aria-hidden="true"><use href="#wf-chev"/></svg></span>
+            </button>
+            <div class="new-phase-body">
+              <div class="new-step">
+                <div class="new-main">
+                  <div class="new-row" data-status="queued">
+                    <svg class="wf-ico" aria-hidden="true"><use href="#wf-bot"/></svg>
+                    <span class="new-label">复查修改</span>
+                    <span class="new-row-meta">· review</span>
+                    <span class="new-row-state"><svg class="wf-ico" aria-hidden="true"><use href="#wf-dot"/></svg></span>
+                  </div>
+                </div>
+                <span class="new-step-time is-empty">—</span>
+                <span class="new-step-tail"></span>
+              </div>
+              <div class="new-step" data-kind="tool">
+                <div class="new-main">
+                  <div class="new-row" data-status="queued">
+                    <svg class="wf-ico" aria-hidden="true"><use href="#wf-terminal"/></svg>
+                    <span class="new-label">运行全量测试</span>
+                    <span class="new-row-meta">· npm run test</span>
+                    <span class="new-row-state"><svg class="wf-ico" aria-hidden="true"><use href="#wf-dot"/></svg></span>
+                  </div>
+                </div>
+                <span class="new-step-time is-empty">—</span>
+                <span class="new-step-tail"></span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="new-foot" data-anno="foot">
+          <button type="button" class="new-foot-btn"><svg class="wf-ico" aria-hidden="true"><use href="#wf-braces"/></svg>脚本</button>
+          <button type="button" class="new-foot-btn"><svg class="wf-ico" aria-hidden="true"><use href="#wf-out"/></svg>结果</button>
+        </div>
+        <div class="new-toast" role="status" hidden>
+          <svg class="wf-ico" aria-hidden="true"><use href="#wf-bot"/></svg>
+          <div><b id="new-toast-title">已打开运行详情</b><span>原型模拟 · 实际打开原 Inspector Tab</span></div>
+        </div>
+      </div>
+
+      <p class="wfd-stage-note">耗时数字默认隐藏；点上方「显示」可以看到阶段耗时与行尾耗时的对齐方式。脚本 sheet 在 payload 带脚本时默认展开，点底部「脚本」可收起。</p>
+    </div>
+
+    <aside class="wfd-side">
+      <div class="wfd-side-top">
+        <span class="wfd-badge">已移除</span>
+        <div class="wfd-chips">
+          <span>− 刻度轴</span>
+          <span>− 时间条</span>
+          <span>− 并行括线</span>
+          <span>− 图例</span>
+          <span>− 子 Agent 过程</span>
+        </div>
+      </div>
+
+      <div class="wfd-side-block">
+        <h3>为什么删</h3>
+        <ul class="wfd-why">
+          <li>420px 面板里绘图区只剩约 53px，条形无法横向比较。</li>
+          <li>22px 轨道与 18px 文字行盒不同心，条形天然低约 2px。</li>
+          <li>刻度、并行标签、图例抢同一条右缘，最后只能叠字。</li>
+        </ul>
+      </div>
+
+      <div class="wfd-side-block">
+        <h3>改动要点</h3>
+        <ol class="wfd-notes">
+          <li class="wfd-note" data-target="overview" tabindex="0"><span class="wfd-num">01</span><span><b>概览两条线</b>：状态、总耗时、规模；并发与失败定位在第二行。图例不再存在。</span></li>
+          <li class="wfd-note" data-target="phase" tabindex="0"><span class="wfd-num">02</span><span><b>阶段头负责分段</b>：状态点 + 编号 + 标题 + 步数；吸顶保留上下文，字段可折叠。</span></li>
+          <li class="wfd-note" data-target="row" tabindex="0"><span class="wfd-num">03</span><span><b>步骤行拿回全宽</b>：时间轴整列移除；耗时数字是可选列，默认隐藏。并行只保留首行文字标记。</span></li>
+          <li class="wfd-note" data-target="tools" tabindex="0"><span class="wfd-num">04</span><span><b>层级只动内容列</b>：工具行缩进 18px，连接线落在 Agent 图标中心 21px；耗时列不缩进。</span></li>
+          <li class="wfd-note" data-target="row" tabindex="0"><span class="wfd-num">05</span><span><b>Agent 行只做入口</b>：保留点击打开对应子 Agent 运行详情；不在 workflow 详情里显示 subagent 的当前工具跑马灯、内部工具或思考过程。queued 保持禁用；workflow 自己的 <code>tool()</code> 行仍保留。</span></li>
+          <li class="wfd-note" data-target="failure" tabindex="0"><span class="wfd-num">06</span><span><b>失败可定位</b>：概览给「1 个失败步骤 · 定位」；点击滚动并闪烁失败行，替代红色条形。</span></li>
+          <li class="wfd-note" data-target="logs" tabindex="0"><span class="wfd-num">07</span><span><b>日志降为折叠行</b>：时间 / 消息两列，错误只染消息；不再套描边控制台。</span></li>
+          <li class="wfd-note" data-target="foot" tabindex="0"><span class="wfd-num">08</span><span><b>底部操作弱化</b>：脚本 / 结果改成低强调文字按钮，去掉整条灰色工具条。</span></li>
+        </ol>
+      </div>
+
+      <div class="wfd-keep"><b>保留</b> 阶段耗时 · 步骤耗时 · 并发 4 · 比串行快 6.2s · Agent 点击跳转。数字不是时间轴，只是一列可开关的对齐元数据。</div>
+    </aside>
+  </div>
+
+  <div class="wfd-principles">
+    <article class="wfd-principle"><span>A</span><h3>内容优先</h3><p>隐藏耗时后，420px 下内容列从约 247px 提升到约 372px；显示耗时也有约 324px。文件名和标签先被保住。</p></article>
+    <article class="wfd-principle"><span>B</span><h3>数字有列</h3><p>打开耗时后，阶段耗时与步骤耗时共用同一右缘；等宽数字、右对齐，没有轴、没有条形。</p></article>
+    <article class="wfd-principle"><span>C</span><h3>层级只动内容</h3><p>工具行只缩进内容列；连接线落在真实图标轴上；耗时列和尾部箭头保持整页对齐。</p></article>
+    <article class="wfd-principle"><span>D</span><h3>失败可定位</h3><p>概览给失败计数与定位入口；点击滚动并闪烁失败行，用状态与文字替代红色条形。</p></article>
+  </div>
+
+  <details class="wfd-map">
+    <summary>实现落点（4 个文件）</summary>
+    <div class="wfd-map-grid">
+      <div><code>WorkflowRunDetailContent.tsx</code><span>移除 TimelineAxis / StepTrack / now layer / grid layer / 并行括号；阶段头、步骤、日志改为「内容 | 耗时 | 尾部」三列网格。AgentStep 保留 store 快照 + OPEN_SUBAGENT_RUN_EVENT 点击链路，但改为轻量 Agent 行（图标 + 任务名 + profile + 状态），不渲染当前工具跑马灯或 subagent trace。</span></div>
+      <div><code>workflow-detail.css</code><span>删除 <code>--wf-tl-*</code>、bar / track、now chip 规则；新增 22px 行高、工具连接线、失败闪烁。不再套用完整 subagent 摘要卡的跑马灯样式；Agent 行需要自己的运行态 spinner。</span></div>
+      <div><code>src/lib/i18n.ts</code><span>补「待运行」「耗时」文案；复用 <code>workflowDetailLocateFailure</code> 作为定位入口。</span></div>
+      <div><code>tests/frontend/workflow-renderer.test.ts</code><span>删除 axis / ticks / now chip / bar 的 markup 断言；补三列结构、耗时列开关、Agent 行无跑马灯但点击仍派发 OPEN_SUBAGENT_RUN_EVENT 的断言。</span></div>
+    </div>
+  </details>
+</div>
+
+<style>
+  .wfd {
+    --bg: oklch(1 0 0);
+    --fg: oklch(0.145 0 0);
+    --muted: oklch(0.97 0 0);
+    --mfg: oklch(0.556 0 0);
+    --bd: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --done: oklch(0.55 0.13 158);
+    --page-bg: oklch(0.972 0 0);
+    --card-shadow: 0 1px 2px -1px rgb(0 0 0 / 0.08), 0 14px 38px -30px rgb(0 0 0 / 0.35);
+    --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --fast: 120ms;
+    --base: 180ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    padding: 26px;
+    background: var(--page-bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.5;
+    border-radius: 14px;
+    isolation: isolate;
+  }
+  .wfd[data-theme="dark"] {
+    --bg: oklch(0.145 0 0);
+    --fg: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --mfg: oklch(0.708 0 0);
+    --bd: oklch(0.275 0 0);
+    --ring: oklch(0.556 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --done: oklch(0.75 0.15 160);
+    --page-bg: oklch(0.115 0 0);
+    --card-shadow: 0 1px 2px -1px rgb(0 0 0 / 0.5), 0 14px 38px -30px rgb(0 0 0 / 0.9);
+    color-scheme: dark;
+  }
+  .wfd, .wfd *, .wfd *::before, .wfd *::after { box-sizing: border-box; }
+  .wfd [hidden] { display: none !important; }
+  .wfd button { font-family: inherit; }
+  .wfd code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: color-mix(in oklab, var(--fg) 6%, transparent);
+    font-family: var(--mono);
+    font-size: 0.92em;
+  }
+  .wfd button:focus-visible, .wfd [tabindex]:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+    outline-offset: 2px;
+  }
+
+  .wfd-head { max-width: 1080px; margin: 0 auto 22px; }
+  .wfd-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    color: color-mix(in oklab, var(--fg) 55%, transparent);
+  }
+  .wfd-kicker i { width: 5px; height: 5px; border-radius: 50%; background: var(--ring); }
+  .wfd-head h1 { margin: 6px 0 5px; font-size: 19px; font-weight: 600; letter-spacing: -0.015em; }
+  .wfd-sub { margin: 0; max-width: 820px; font-size: 12.5px; line-height: 1.65; color: color-mix(in oklab, var(--fg) 58%, transparent); }
+  .wfd-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; margin-top: 15px; }
+  .wfd-control { display: inline-flex; align-items: center; gap: 8px; }
+  .wfd-control-label { font-size: 11px; color: color-mix(in oklab, var(--fg) 46%, transparent); }
+  .wfd-seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--fg) 6%, transparent);
+  }
+  .wfd-seg button {
+    height: 23px;
+    padding: 0 9px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: color-mix(in oklab, var(--fg) 58%, transparent);
+    font-size: 11px;
+    cursor: pointer;
+    transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .wfd-seg button:hover { color: var(--fg); }
+  .wfd-seg button[aria-pressed="true"] { background: color-mix(in oklab, var(--fg) 9%, transparent); color: var(--fg); font-weight: 500; }
+  .wfd-sample, .wfd-tip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10.5px;
+    color: color-mix(in oklab, var(--fg) 46%, transparent);
+  }
+  .wfd-sample i { width: 5px; height: 5px; border-radius: 50%; background: var(--ring); }
+  .wfd-tip { margin-left: auto; }
+  .wfd-tip::before { content: ""; width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.6; }
+
+  .wfd-stage {
+    --panel-w: 420px;
+    max-width: 1080px;
+    margin: 0 auto;
+    display: flex;
+    align-items: flex-start;
+    gap: 30px;
+    flex-wrap: wrap;
+  }
+  .wfd-stage-main { flex: 0 0 auto; width: var(--panel-w); min-width: 0; transition: width var(--base) var(--ease); }
+  .wfd-stage-label { display: flex; align-items: center; gap: 8px; min-height: 26px; margin-bottom: 8px; font-size: 11px; color: color-mix(in oklab, var(--fg) 48%, transparent); }
+  .wfd-badge {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    height: 19px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--fg) 7%, transparent);
+    color: color-mix(in oklab, var(--fg) 68%, transparent);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+  }
+  .wfd-badge.is-new { border: 1px solid color-mix(in oklab, var(--ring) 42%, transparent); background: color-mix(in oklab, var(--fg) 5%, transparent); color: color-mix(in oklab, var(--fg) 78%, transparent); }
+  .wfd-stage-hint { margin-left: auto; font-size: 10px; color: color-mix(in oklab, var(--fg) 38%, transparent); }
+  .wfd-stage-note { margin: 9px 0 0; font-size: 10.5px; line-height: 1.6; color: color-mix(in oklab, var(--fg) 44%, transparent); }
+
+  .wfd-panel {
+    width: 100%;
+    height: 600px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+    border: 1px solid color-mix(in oklab, var(--bd) 90%, transparent);
+    border-radius: 10px;
+    box-shadow: var(--card-shadow);
+  }
+  .wfd-panel.new { position: relative; }
+
+  .wf-ico {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .wf-ico.err { color: var(--destructive); }
+  .wf-ico.run { color: var(--ring); }
+  .wf-spin { animation: wf-spin 0.9s linear infinite; }
+  @keyframes wf-spin { to { rotate: 360deg; } }
+  @keyframes wf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  @keyframes wf-flash {
+    0%, 100% { outline-color: transparent; }
+    18%, 58% { outline-color: color-mix(in oklab, var(--destructive) 62%, transparent); }
+  }
+
+  .new {
+    --pad: 14px;
+    --time: 2.6rem;
+    --tail: 0.9rem;
+    --gap: 6px;
+    --row-h: 22px;
+    --indent: 18px;
+  }
+  .wfd[data-panel-width="360"] .new { --time: 2.35rem; --tail: 0.8rem; --gap: 5px; --indent: 14px; }
+  .wfd[data-panel-width="360"] .new-row-chev { display: none; }
+
+  .new-overview {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px 9px;
+    border-bottom: 1px solid color-mix(in oklab, var(--bd) 40%, transparent);
+  }
+  .new-line { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .new-status { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: color-mix(in oklab, var(--ring) 70%, var(--fg)); }
+  .new-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: wf-pulse 1.6s var(--ease) infinite; }
+  .new-elapsed { flex: 0 0 auto; font: 11px var(--mono); font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 85%, transparent); }
+  .new-stats { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--mfg); }
+  .new-meta { display: flex; align-items: center; gap: 10px; min-height: 15px; font: 9.5px var(--mono); font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--mfg) 65%, transparent); }
+  .new-failure {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--destructive);
+    font-family: var(--sans);
+    font-size: 9.5px;
+    line-height: 1.4;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .new-failure i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .new-failure span { text-decoration: underline; text-underline-offset: 2px; }
+  .new-failure:hover span { text-decoration-thickness: 1.5px; }
+
+  .new-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--bd) 90%, transparent) transparent;
+  }
+  .new-phases { display: flex; flex-direction: column; }
+  .new-phase { position: relative; }
+  .new-phase + .new-phase { border-top: 1px solid color-mix(in oklab, var(--bd) 32%, transparent); }
+  .new-phase.is-collapsed .new-phase-body { display: none; }
+
+  .new-phase-head,
+  .new-step,
+  .new-logs-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--time) var(--tail);
+    column-gap: var(--gap);
+    align-items: center;
+    padding: 0 var(--pad);
+  }
+  .new.is-time-hidden .new-phase-head,
+  .new.is-time-hidden .new-step,
+  .new.is-time-hidden .new-logs-head { grid-template-columns: minmax(0, 1fr) var(--tail); }
+  .new.is-time-hidden .new-phase-time,
+  .new.is-time-hidden .new-step-time,
+  .new.is-time-hidden .new-logs-time { display: none; }
+
+  .new-phase-head {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    width: 100%;
+    height: 32px;
+    border: 0;
+    border-bottom: 1px solid color-mix(in oklab, var(--bd) 40%, transparent);
+    background: var(--bg);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--fast) var(--ease);
+  }
+  .new-phase-head:hover { background: color-mix(in oklab, var(--muted) 32%, transparent); }
+  .new-phase-main { grid-column: 1; display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .new-phase-dot { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: color-mix(in oklab, var(--bd) 90%, transparent); }
+  .new-phase-dot[data-tone="done"] { background: color-mix(in oklab, var(--done) 70%, transparent); }
+  .new-phase-dot[data-tone="running"] { background: var(--ring); animation: wf-pulse 1.6s var(--ease) infinite; }
+  .new-phase-index { flex: 0 0 auto; font: 9.5px var(--mono); color: color-mix(in oklab, var(--mfg) 52%, transparent); }
+  .new-phase-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 500; color: color-mix(in oklab, var(--fg) 88%, transparent); }
+  .new-phase-count { flex: 0 0 auto; font: 9.5px var(--mono); color: color-mix(in oklab, var(--mfg) 60%, transparent); }
+  .new-phase-note { flex: 0 0 auto; margin-left: 2px; font: 9px var(--mono); color: color-mix(in oklab, var(--mfg) 68%, transparent); }
+  .new-phase-time, .new-step-time {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    font: 10px var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: color-mix(in oklab, var(--mfg) 80%, transparent);
+    white-space: nowrap;
+  }
+  .new-phase-time { height: 100%; }
+  .new-step-time { height: var(--row-h); }
+  .new-step-time.is-empty { color: color-mix(in oklab, var(--mfg) 42%, transparent); }
+  .new-phase-tail, .new-logs-tail { display: flex; justify-content: center; color: color-mix(in oklab, var(--mfg) 62%, transparent); }
+  .new-phase-tail .wf-ico, .new-logs-tail .wf-ico { width: 13px; height: 13px; rotate: 90deg; transition: rotate 160ms var(--ease); }
+  .new-phase-head[aria-expanded="false"] .new-phase-tail .wf-ico,
+  .new-logs-head[aria-expanded="false"] .new-logs-tail .wf-ico { rotate: 0deg; }
+  .new-step-tail { min-width: 0; }
+
+  .new-phase-body { display: flex; flex-direction: column; padding-bottom: 3px; }
+  .new-step { align-items: start; scroll-margin-top: 42px; }
+  .new-main { grid-column: 1; min-width: 0; }
+  .new-step[data-kind="tool"] .new-main { padding-left: var(--indent); }
+  .new-step.is-flash { outline: 2px solid transparent; outline-offset: -2px; border-radius: 6px; animation: wf-flash 1.6s var(--ease) 1; }
+
+  .new-row {
+    position: relative;
+    height: var(--row-h);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    border-radius: 6px;
+    transition: background-color var(--fast) var(--ease);
+  }
+  .new-row:hover { background: color-mix(in oklab, var(--muted) 38%, transparent); }
+  .new-row.is-expandable { cursor: pointer; }
+  .new-row.is-agent { cursor: pointer; }
+  .new-row[data-status="queued"] { cursor: default; }
+  .new-row[data-status="queued"]:hover { background: transparent; }
+  .new-row-link {
+    flex: 0 0 12px;
+    width: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.32;
+    color: color-mix(in oklab, var(--mfg) 58%, transparent);
+    transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .new-row:hover .new-row-link,
+  .new-row:focus-visible .new-row-link { opacity: 1; color: color-mix(in oklab, var(--ring) 80%, var(--fg)); }
+  .new-row-link .wf-ico { width: 11px; height: 11px; }
+  .new-row > .wf-ico { color: color-mix(in oklab, var(--mfg) 78%, transparent); }
+  .new-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: color-mix(in oklab, var(--mfg) 90%, transparent); }
+  .new-row[data-status="queued"] .new-label { color: color-mix(in oklab, var(--mfg) 70%, transparent); }
+  .new-row-meta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 9.5px var(--mono); color: color-mix(in oklab, var(--mfg) 65%, transparent); }
+  .new-row-state { flex: 0 0 auto; display: inline-flex; align-items: center; }
+  .new-row-state .wf-ico { width: 12px; height: 12px; }
+  .new-parallel-tag {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    height: 15px;
+    padding: 0 5px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--ring) 30%, transparent);
+    background: color-mix(in oklab, var(--ring) 9%, transparent);
+    color: color-mix(in oklab, var(--ring) 72%, var(--fg));
+    font: 8.5px var(--mono);
+    white-space: nowrap;
+  }
+  .new-row-chev { flex: 0 0 auto; display: flex; color: color-mix(in oklab, var(--mfg) 55%, transparent); }
+  .new-row-chev .wf-ico { width: 12px; height: 12px; rotate: 0deg; transition: rotate var(--fast) var(--ease); }
+  .new-row.is-open .new-row-chev .wf-ico { rotate: 90deg; }
+  .new-step-detail { display: none; padding: 4px 0 6px 20px; }
+  .new-row.is-open + .new-step-detail { display: block; }
+  .new-console {
+    overflow: auto;
+    padding: 7px 8px;
+    border: 1px solid color-mix(in oklab, var(--bd) 45%, transparent);
+    border-radius: 6px;
+    background: color-mix(in oklab, var(--muted) 32%, transparent);
+    font: 9.5px/1.6 var(--mono);
+    color: color-mix(in oklab, var(--mfg) 88%, transparent);
+    overflow-wrap: anywhere;
+  }
+  .new-console .cmd { color: color-mix(in oklab, var(--fg) 88%, transparent); }
+  .new-console .fail { color: var(--destructive); }
+
+  .new-tools { position: relative; display: flex; flex-direction: column; }
+  .new-step[data-kind="tool"]::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--pad) + 7px);
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: color-mix(in oklab, var(--bd) 75%, transparent);
+    pointer-events: none;
+  }
+  .new-tools > .new-step[data-kind="tool"]:first-child::before { top: -11px; }
+  .new-tools > .new-step[data-kind="tool"]:last-child::before { bottom: calc(100% - 11px); }
+  .new-step[data-kind="tool"] .new-row::before {
+    content: "";
+    position: absolute;
+    left: calc(-1 * (var(--indent) - 7px));
+    top: 50%;
+    width: calc(var(--indent) - 7px);
+    height: 1px;
+    background: color-mix(in oklab, var(--bd) 75%, transparent);
+    pointer-events: none;
+  }
+
+  .new-logs-head {
+    width: 100%;
+    height: 22px;
+    border: 0;
+    background: none;
+    color: color-mix(in oklab, var(--mfg) 76%, transparent);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: color var(--fast) var(--ease);
+  }
+  .new-logs-head:hover { color: color-mix(in oklab, var(--fg) 82%, transparent); }
+  .new-logs-label { grid-column: 1; display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 9.5px; letter-spacing: 0.02em; }
+  .new-logs-label .wf-ico { width: 11px; height: 11px; }
+  .new-logs-count { font: 8.5px var(--mono); color: color-mix(in oklab, var(--mfg) 55%, transparent); }
+  .new-logs-flag { width: 4px; height: 4px; margin-left: 1px; border-radius: 50%; background: var(--destructive); }
+  .new-logs-body { display: none; padding: 0 var(--pad) 6px; margin-right: calc(var(--tail) + var(--gap)); }
+  .new-logs.is-open .new-logs-body { display: block; }
+  .new-log-list { display: flex; flex-direction: column; gap: 1px; font: 9.5px/1.6 var(--mono); color: color-mix(in oklab, var(--mfg) 86%, transparent); }
+  .new-log { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); column-gap: 5px; }
+  .new-log time { font-variant-numeric: tabular-nums; white-space: nowrap; color: color-mix(in oklab, var(--mfg) 52%, transparent); }
+  .new-log span { min-width: 0; overflow-wrap: anywhere; }
+  .new-log[data-level="error"] span { color: var(--destructive); }
+  .new-logs-more { align-self: flex-start; margin-top: 2px; padding: 0; border: 0; background: none; color: color-mix(in oklab, var(--ring) 80%, var(--fg)); font-family: var(--sans); font-size: 9.5px; cursor: pointer; }
+  .new-logs-more:hover { text-decoration: underline; }
+
+  .new-foot { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; padding: 8px 14px; border-top: 1px solid color-mix(in oklab, var(--bd) 40%, transparent); background: transparent; }
+  .new-foot-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: color-mix(in oklab, var(--mfg) 85%, transparent);
+    font-size: 11px;
+    cursor: pointer;
+    transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+  .new-foot-btn:hover { background: color-mix(in oklab, var(--muted) 45%, transparent); color: var(--fg); }
+  .new-foot-btn .wf-ico { width: 12px; height: 12px; }
+
+  .new-toast {
+    position: absolute;
+    z-index: 20;
+    left: 50%;
+    bottom: 56px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    max-width: calc(100% - 28px);
+    padding: 8px 11px;
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--fg) 92%, transparent);
+    color: var(--bg);
+    box-shadow: 0 10px 28px -18px rgb(0 0 0 / 0.5);
+    font-size: 10.5px;
+    line-height: 1.45;
+    animation: wf-toast-in 180ms var(--ease);
+  }
+  .new-toast .wf-ico { width: 13px; height: 13px; margin-top: 1px; }
+  .new-toast b { display: block; font-size: 10.5px; font-weight: 500; }
+  .new-toast span { display: block; margin-top: 1px; font-size: 9.5px; color: color-mix(in oklab, var(--bg) 78%, transparent); }
+  @keyframes wf-toast-in {
+    from { opacity: 0; transform: translate(-50%, 4px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+  }
+
+  .wfd-side { flex: 1 1 360px; min-width: 300px; max-width: 460px; padding-top: 2px; }
+  .wfd-side-top { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .wfd-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .wfd-chips span { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 999px; border: 1px solid color-mix(in oklab, var(--fg) 8%, transparent); background: color-mix(in oklab, var(--fg) 2.5%, transparent); font-size: 10px; color: color-mix(in oklab, var(--fg) 44%, transparent); }
+  .wfd-side-block + .wfd-side-block { margin-top: 18px; }
+  .wfd-side-block h3 { margin: 0 0 7px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em; color: color-mix(in oklab, var(--fg) 72%, transparent); }
+  .wfd-why { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; line-height: 1.6; color: color-mix(in oklab, var(--fg) 54%, transparent); }
+  .wfd-why li { display: flex; gap: 7px; }
+  .wfd-why li::before { content: "—"; flex: 0 0 auto; color: color-mix(in oklab, var(--fg) 28%, transparent); }
+
+  .wfd-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+  .wfd-note { display: flex; align-items: baseline; gap: 8px; padding: 5px 7px; margin-left: -7px; border-radius: 6px; font-size: 11.5px; line-height: 1.6; color: color-mix(in oklab, var(--fg) 58%, transparent); transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease); }
+  .wfd-note:hover, .wfd-note:focus-visible { background: color-mix(in oklab, var(--fg) 5%, transparent); color: color-mix(in oklab, var(--fg) 76%, transparent); }
+  .wfd-note b { color: color-mix(in oklab, var(--fg) 82%, transparent); font-weight: 500; }
+  .wfd-num { flex: 0 0 auto; min-width: 17px; font: 9px var(--mono); letter-spacing: 0.02em; color: color-mix(in oklab, var(--fg) 38%, transparent); }
+
+  .wfd-keep { margin-top: 18px; padding: 9px 10px; border-radius: 7px; border: 1px solid color-mix(in oklab, var(--fg) 8%, transparent); background: color-mix(in oklab, var(--fg) 2.5%, transparent); font-size: 10.5px; line-height: 1.6; color: color-mix(in oklab, var(--fg) 55%, transparent); }
+  .wfd-keep b { color: color-mix(in oklab, var(--fg) 72%, transparent); font-weight: 500; }
+
+  .wfd-panel .is-anno { outline: 1.5px solid color-mix(in oklab, var(--ring) 68%, transparent); outline-offset: 2px; border-radius: 5px; }
+
+  .wfd-principles { max-width: 1080px; margin: 30px auto 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .wfd-principle { padding: 12px 13px 11px; border: 1px solid color-mix(in oklab, var(--fg) 8%, transparent); border-radius: 8px; background: color-mix(in oklab, var(--fg) 2.5%, transparent); }
+  .wfd-principle > span { font: 9px var(--mono); letter-spacing: 0.06em; color: color-mix(in oklab, var(--fg) 38%, transparent); }
+  .wfd-principle h3 { margin: 4px 0 3px; font-size: 12px; font-weight: 600; }
+  .wfd-principle p { margin: 0; font-size: 11px; line-height: 1.6; color: color-mix(in oklab, var(--fg) 52%, transparent); }
+
+  .wfd-map { max-width: 1080px; margin: 18px auto 0; border: 1px solid color-mix(in oklab, var(--fg) 8%, transparent); border-radius: 8px; background: color-mix(in oklab, var(--fg) 2%, transparent); }
+  .wfd-map summary { padding: 9px 12px; font-size: 11.5px; color: color-mix(in oklab, var(--fg) 62%, transparent); cursor: pointer; }
+  .wfd-map[open] summary { border-bottom: 1px solid color-mix(in oklab, var(--fg) 7%, transparent); }
+  .wfd-map-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; padding: 10px 12px 12px; }
+  .wfd-map-grid > div { display: flex; flex-direction: column; gap: 3px; padding: 4px 8px 6px 0; }
+  .wfd-map-grid code { align-self: flex-start; font-size: 10px; }
+  .wfd-map-grid span { font-size: 11px; line-height: 1.6; color: color-mix(in oklab, var(--fg) 52%, transparent); }
+
+  @media (max-width: 980px) {
+    .wfd-principles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .wfd-map-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .wfd { padding: 18px; }
+    .wfd-tip { margin-left: 0; }
+    .wfd-principles { grid-template-columns: 1fr; }
+    .wfd-stage { gap: 22px; }
+    .wfd-side { max-width: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wfd *, .wfd *::before, .wfd *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+</style>
+
+<script>
+  (function () {
+    const root = document.getElementById('wfd-root');
+    if (!root) return;
+    const stage = root.querySelector('.wfd-stage');
+    const panel = root.querySelector('.wfd-panel.new');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    root.querySelectorAll('[data-width]').forEach((button) => {
+      button.addEventListener('click', () => {
+        root.querySelectorAll('[data-width]').forEach((item) => {
+          item.setAttribute('aria-pressed', String(item === button));
+        });
+        const width = button.getAttribute('data-width');
+        stage.style.setProperty('--panel-w', width + 'px');
+        root.setAttribute('data-panel-width', width);
+      });
+    });
+
+    root.querySelectorAll('[data-theme-set]').forEach((button) => {
+      button.addEventListener('click', () => {
+        root.querySelectorAll('[data-theme-set]').forEach((item) => {
+          item.setAttribute('aria-pressed', String(item === button));
+        });
+        root.setAttribute('data-theme', button.getAttribute('data-theme-set'));
+      });
+    });
+
+    root.querySelectorAll('[data-time-set]').forEach((button) => {
+      button.addEventListener('click', () => {
+        root.querySelectorAll('[data-time-set]').forEach((item) => {
+          item.setAttribute('aria-pressed', String(item === button));
+        });
+        const on = button.getAttribute('data-time-set') === 'on';
+        root.setAttribute('data-time', on ? 'on' : 'off');
+        panel.classList.toggle('is-time-hidden', !on);
+      });
+    });
+
+    function bindHighlight() {
+      root.querySelectorAll('.wfd-note').forEach((item) => {
+        const key = item.getAttribute('data-target');
+        if (!key) return;
+        const targets = Array.from(panel.querySelectorAll('[data-anno="' + key + '"]'));
+        const on = () => targets.forEach((target) => target.classList.add('is-anno'));
+        const off = () => targets.forEach((target) => target.classList.remove('is-anno'));
+        item.addEventListener('mouseenter', on);
+        item.addEventListener('mouseleave', off);
+        item.addEventListener('focusin', on);
+        item.addEventListener('focusout', off);
+      });
+    }
+    bindHighlight();
+
+    root.querySelectorAll('.new-phase-head').forEach((head) => {
+      head.addEventListener('click', () => {
+        const expanded = head.getAttribute('aria-expanded') !== 'false';
+        head.setAttribute('aria-expanded', String(!expanded));
+        const phase = head.closest('.new-phase');
+        if (phase) phase.classList.toggle('is-collapsed', expanded);
+      });
+    });
+
+    root.querySelectorAll('.new-logs-head').forEach((head) => {
+      head.addEventListener('click', () => {
+        const expanded = head.getAttribute('aria-expanded') === 'true';
+        head.setAttribute('aria-expanded', String(!expanded));
+        const logs = head.closest('.new-logs');
+        if (logs) logs.classList.toggle('is-open', !expanded);
+      });
+    });
+
+    function toggleRow(row) {
+      const expanded = row.getAttribute('aria-expanded') === 'true';
+      row.setAttribute('aria-expanded', String(!expanded));
+      row.classList.toggle('is-open', !expanded);
+    }
+    root.querySelectorAll('.new-row[data-expandable="true"]').forEach((row) => {
+      row.addEventListener('click', () => toggleRow(row));
+      row.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          toggleRow(row);
+        }
+      });
+    });
+
+    const toast = root.querySelector('.new-toast');
+    const toastTitle = root.querySelector('#new-toast-title');
+    let toastTimer;
+    function showSubagentJump(name) {
+      if (!toast || !toastTitle) return;
+      toastTitle.textContent = '已打开「' + name + '」的运行详情';
+      toast.hidden = false;
+      if (toastTimer) window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => { toast.hidden = true; }, 6000);
+    }
+    root.querySelectorAll('.new-row[data-subagent]').forEach((row) => {
+      const open = () => showSubagentJump(row.getAttribute('data-agent-name') || 'Agent');
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          open();
+        }
+      });
+    });
+
+    const failButton = root.querySelector('.new-failure');
+    if (failButton) {
+      failButton.addEventListener('click', () => {
+        const target = panel.querySelector('.new-step[data-failure="true"]');
+        if (!target) return;
+        const phase = target.closest('.new-phase');
+        const head = phase && phase.querySelector('.new-phase-head');
+        if (phase && phase.classList.contains('is-collapsed') && head) head.click();
+        window.setTimeout(() => {
+          target.scrollIntoView({ block: 'center', behavior: reducedMotion ? 'auto' : 'smooth' });
+          target.classList.remove('is-flash');
+          void target.offsetWidth;
+          target.classList.add('is-flash');
+          window.setTimeout(() => target.classList.remove('is-flash'), 1600);
+        }, 0);
+      });
+    }
+  })();
+</script>

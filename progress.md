@@ -1,3 +1,47 @@
+## workflow-detail-script-expanded（done，2026-10-26）
+
+- Goal：workflow 详情里的脚本 sheet 默认展开，不再要求先点底部「脚本」。
+- 结论（一句话）：`sheet` 初始值改为按 `payload.script` 推导（有脚本即 `'script'`），底部脚本/结果按钮改为 `aria-expanded` + `aria-controls` 的可切换控件，脚本 sheet 默认可见；结果 sheet 仍默认收起。
+- 改动文件：
+  1. `src/components/workspace/WorkflowRunDetailContent.tsx`：`useState` 初始化 `sheet`（payload 带 script 时为 `'script'`）；新增 `toggleSheet` 统一脚本/结果互切与收起；脚本/结果按钮补 `aria-expanded` / `aria-controls`；sheet 补 `id` / `role="region"` / `aria-label`。
+  2. `src/styles/workspace/workflow-detail.css`：底部按钮增加 `[aria-expanded='true']` 的轻量 active 背景；sheet 保持 `max-height: 40%` 可滚动。
+  3. `tests/frontend/workflow-renderer.test.ts`：新增带 script 时默认渲染 script sheet、无 script 不渲染 foot/sheet 的 markup 断言。
+  4. `tests/frontend/workflow-step-interaction.test.ts`：新增默认展开 + 点击「脚本」收起的 jsdom 断言。
+  5. 文档：`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`、`docs/wiki/src/styles/README.md`、`docs/architecture/workflow-orchestration.zh-CN.md`、`docs/design/workflow-detail-redesign.html`。
+- 验证 / Evidence：定向 vitest 2 文件 **51/51 passed**；`npm run test` 全量 **426 文件 / 4938 passed / 2 skipped**；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功（5.76s）。
+- Notes：只改脚本默认展开与按钮展开态；结果默认保持收起，点击「结果」会从脚本切到结果。未改脚本内容、预算行、服务端 details 契约；无依赖变更；未创建 Git commit；未手工修改生成产物。实现中曾尝试用 `useEffect` 补“脚本晚到自动展开”，被 `react-hooks/set-state-in-effect` 拦下后移除——详情 Tab 打开时 payload 已带脚本，初始化值足够。
+
+## workflow-detail-no-timeline（done，2026-10-26）
+
+- Goal：按用户反馈移除工作流详情右侧时间轴；Agent 行只保留「点击打开对应子 Agent 运行详情」，不展示 subagent 的当前工具跑马灯/内部过程。
+- 结论（一句话）：详情改为「概览 + 吸顶阶段头 + 轻量 Agent 入口 + ToolMessage 工具行 + 折叠日志」；刻度/条形/游标/网格/并行 bracket/图例全部移除，耗时只保留概览总时长与日志时间戳；工具行连接线落在 Agent 图标中心；并行只保留组首文字标记；失败步骤在概览给「N 个失败步骤 · 定位」。
+- 改动文件：
+  1. `src/components/workspace/WorkflowRunDetailContent.tsx`：删除 `TimelineAxis` / `StepTrack` / 时间轴百分比 / now/grid layer / 阶段跨度条 / 并行 bracket 与图例；Agent 行改为轻量按钮（图标 + 任务名 + profile + 状态 + 外链箭头），仍走 `buildWorkflowSubagentRunPayload` + `subagentRunStore` 快照 + `OPEN_SUBAGENT_RUN_EVENT`，queued 禁用，不再调用 `renderSubagentRunSummary`；工具行继续 `ToolMessage`，内容列缩进 + 连接线；日志改折叠 disclosure（有 error 默认展开，错误只染消息）；概览失败入口 + 底部文字按钮。
+  2. `src/styles/workspace/workflow-detail.css`：删除全部 `--wf-tl-*` 与 bar/track/axis/legend/now/grid/phase-track/parallel-group 规则；新增 Agent 行、日志 disclosure、失败入口、低强调 foot 样式；摘要行统一 `min-height: 1.375rem`；连接线 x = `padding + 7px`。
+  3. `src/lib/i18n.ts`：补 `workflowDetailFailedStepsOne/Many`、`workflowDetailLocate`、`workflowDetailPending`。
+  4. `tests/frontend/workflow-renderer.test.ts`：重写详情断言（无时间轴、日志默认策略、失败入口、Agent 轻量行、单次并行标签、pending 阶段）。
+  5. `tests/frontend/workflow-step-interaction.test.ts`：新增 workflow 详情 Agent 行点击派发 `OPEN_SUBAGENT_RUN_EVENT`、queued 禁用、无 `quickforge-subagent-tool` / marquee 的 jsdom 断言。
+- 验证 / Evidence：定向 vitest 2 文件 **48/48 passed**；`npm run test` 全量 **426 文件 / 4935 passed / 2 skipped**；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` 成功（5.89s）。独立 Vite harness 用真实组件 + 全量 CSS 在 Chromium 420px 面板实测：无横向溢出，Agent 图标中心与工具连接线同 x=283，工具卡内容起点 291，阶段头 `sticky top: 0`，概览失败入口 / 日志默认策略 / 底部脚本结果按钮正常。
+- Notes：未在用户正在使用的 5176 实例里点开 workflow 详情（QuickForge 单实例 guard 拦截了第二个浏览器窗口），改用独立 Vite harness 做真实 Chromium 布局测量；未做真机目视截图（in-app Browser 不可见）。未改服务端 details 契约与 Inspector Tab / `OPEN_WORKFLOW_RUN_EVENT` / `OPEN_SUBAGENT_RUN_EVENT` 公共链路；无依赖变更；未创建 Git commit；未手工修改生成产物。设计稿：`docs/design/workflow-detail-redesign.html`。
+
+## composer-model-trigger-thinking-label（done，2026-10-26）
+
+- Goal：用户要求「对话框显示模型那里显示模型 + 思考等级，思考等级更浅色一点，其他的不变，只是改显示；目前对话框里面只显示了模型」。
+- 结论（一句话）：模型触发按钮文案从「模型 ID」扩成「模型 ID · 思考等级」，等级用比模型名更浅一档的颜色；纯展示改动，不改任何交互、持久化与服务端契约。
+- 改动文件：
+  1. `src/components/chat/surface/MessageEditor.tsx`：`MessageEditorProps` 新增可选 `thinkingLevel?: ThinkingLevel`；按钮内 `<span className="ml-1">` 追加 `<span className="quickforge-model-trigger-thinking"> · {label}</span>`；推导逻辑 `currentModel?.reasoning === true && thinkingLevel ? thinkingLevelLabel(toThinkingLevel(thinkingLevel)) : null`。
+  2. `src/components/chat/surface/ChatSurface.tsx`：`<MessageEditor>` 新增 `thinkingLevel={snapshot.thinkingLevel}`（`AgentSurfaceSnapshot` 已含该字段，且等级变化本就会产生新 snapshot，无需额外 revision）。
+  3. `src/lib/thinking-levels.ts`：新增 `toThinkingLevel()`（`minimal`→`low`、非法→`off`），把档位收敛规则提到词表模块——它是跨模块契约，不能只存在于滑杆里。
+  4. `src/lib/thinking-slider.ts`：`toSliderLevel()` 改为委托 `toThinkingLevel()`，消除两份映射表不一致的风险；展示组件不再依赖含 400 行粒子代码的滑杆模块。
+  5. `src/styles/chat/composer-controls.css`：新增 `.quickforge-model-trigger-thinking`（`color-mix(in oklab, var(--muted-foreground) 72%, transparent)`）与 hover/展开态重着色（`var(--foreground) 62%`）。
+  6. 测试：`composer-model-trigger.test.ts` +11 例（后缀渲染、无等级不渲染、非推理模型不渲染、5+2 档位映射、中点分隔）；`composer-control-hover.test.ts` +2 例（后缀更浅且不抢 `!important`、hover/展开态重着色），并给该文件的 `ruleFor` 补上注释剥离（否则规则前的中文注释会被朴素选择器正则吸入）。
+- 关键实现约束：**等级必须是 `.ml-1` 那个 span 的子节点**，不能是兄弟节点。紧凑态（`compact.css`）与移动端（`empty-state.css`）只把 `.quickforge-model-trigger > span.ml-1` sr-only 化，2rem 图标形态下兄弟节点会继续显示并撑破按钮。
+- 被避免的坑：① 展示文案不能直接 `thinkingLevelLabel(thinkingLevel)`——上游 `ThinkingLevel` 含滑杆没有的 `minimal`，映射表无此键会落成「关」，显示错等级。② 「更浅」不能用 Tailwind 语义色透明度凭感觉造（DESIGN_LANGUAGE 有明确禁令，`border-border/75` 曾导致实际更深），复用本文件已验证的 `color-mix(... --muted-foreground N%, transparent)`。③ 非推理模型不显示等级文案：切到这类模型时等级被强制 `off`，显示「关」会与「不支持思考」混淆。
+- Evidence（验证）：`npx tsc -b --force` 通过；定向 8 文件 **83 passed**（composer-model-trigger 16、composer-control-hover 6、chat-compact-controls 10、css-architecture 5、thinking-slider 16、model-selector-thinking-sync 6、chat-surface-editor / render / composer-store-isolation 等）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）。真实渲染探针本轮未拿到结果（CDP 脚本里 `createRoot` 取自 vite deps 预打包路径失败），改为以 CSS 契约测试 + jsdom 渲染断言兜底；视觉观感（浅色档位是否足够可辨、深色模式对比度）**尚未目视验收**。
+- Boundaries：纯展示改动，未改滑杆交互、`active-thinking-level` 持久化、服务端 `thinkingLevel` 契约；未新增依赖；未触碰 `dist/`、`package-dist/`、`package-offline/`。
+- Notes（范围外遗留，供下轮）：① 共享会话页与 Side Chat 复用同一按钮，等级文案会一并出现（Side Chat 按钮为 disabled，等级仍显示）——若产品认为 disabled 态不该显示等级，需再加门控；② 按钮无 `max-width`，模型名较长时新增后缀会挤压右侧控件组，真机需确认；③ `docs/wiki/src/components/README.md:181` 与 `docs/architecture/session-open-fast-path.zh-CN.md:558` 记录的「模型按钮为纯文字、思考等级已拆为独立控件」口径已与本次相反，需同步（本轮因该文件被另一会话的 workflow 改动占用，未一并修改）。
+- 已知工作区遗留（与本次无关）：另一会话未提交的 workflow 详情无时间轴重设计（`WorkflowRunDetailContent.tsx`、`workflow-detail.css`、`i18n.ts`、`workflow-renderer` / `workflow-step-interaction` 测试、`docs/design/workflow-detail-redesign.html` 及三份进度文档内的对应段落）原样保留，本次提交未包含。
+
 ## thinking-slider-first-frame-fix（done，2026-10-26）
 
 - Goal：用户反馈「打开模型选择就显示思考等级是关了」，要求分析并优化。

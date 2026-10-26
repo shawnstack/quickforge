@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import { act, createElement } from 'react'
 import type { ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -8,9 +8,12 @@ import { WorkflowAgentRunEventPublisher } from '../../src/lib/workflow-agent-run
 import {
   OPEN_WORKFLOW_RUN_EVENT,
   activeWorkflowRunStore,
+  buildWorkflowRunPayload,
   workflowRunStore,
 } from '../../src/lib/workflow-run-payload'
+import { buildWorkflowRunView } from '../../src/lib/workflow-run-detail'
 import { WorkflowToolRenderer } from '../../src/lib/tool-renderers/workflow-tool-renderer'
+import { WorkflowRunDetailContent } from '../../src/components/workspace/WorkflowRunDetailContent'
 
 /**
  * 工作流卡的交互契约：聊天区只有一行入口（button，不是 <details>），点击派发
@@ -233,6 +236,93 @@ describe('workflow agent details from the panel', () => {
     act(() => container.querySelector<HTMLButtonElement>('.quickforge-workflow-card')!.click())
     expect(opened).toHaveLength(0)
     window.removeEventListener(OPEN_SUBAGENT_RUN_EVENT, listener)
+  })
+})
+
+describe('workflow detail agent entry', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.append(container)
+    root = createRoot(container)
+    subagentRunStore.clear()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    subagentRunStore.clear()
+    delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT
+  })
+
+  function renderDetail(agentStatus: 'done' | 'queued', script = '') {
+    const detail = {
+      ...details,
+      agents: [{
+        ...details.agents[0],
+        status: agentStatus,
+        subagentRun: agentStatus === 'queued' ? undefined : details.agents[0].subagentRun,
+      }],
+    }
+    const view = buildWorkflowRunView({ details: detail }, false)
+    if (!view) throw new Error('expected workflow view')
+    const payload = buildWorkflowRunPayload({ runId: view.runId, view, script, detailed: true })
+    act(() => {
+      root.render(createElement(WorkflowRunDetailContent, { payload }))
+    })
+    return view
+  }
+
+  it('opens the corresponding subagent run without rendering its process inline', () => {
+    renderDetail('done')
+    const agent = container.querySelector<HTMLButtonElement>('.quickforge-workflow-detail-agent')
+    expect(agent).toBeTruthy()
+    expect(agent?.disabled).toBe(false)
+    // 只做入口：没有 chat 摘要卡、当前工具跑马灯或内部 trace。
+    expect(container.querySelector('.quickforge-subagent-tool')).toBeNull()
+    expect(container.querySelector('.quickforge-subagent-marquee')).toBeNull()
+
+    const opened: CustomEvent[] = []
+    const listener = (event: Event) => opened.push(event as CustomEvent)
+    window.addEventListener(OPEN_SUBAGENT_RUN_EVENT, listener)
+    act(() => agent!.click())
+
+    expect(opened).toHaveLength(1)
+    const detail = opened[0].detail as { runId: string; payload?: { runId: string } }
+    expect(detail.runId).toBe('wf:agent:agent-1')
+    expect(detail.payload?.runId).toBe('wf:agent:agent-1')
+    expect(subagentRunStore.get('wf:agent:agent-1')?.runId).toBe('wf:agent:agent-1')
+    window.removeEventListener(OPEN_SUBAGENT_RUN_EVENT, listener)
+  })
+
+  it('keeps queued agents disabled and does not open the run', () => {
+    renderDetail('queued')
+    const agent = container.querySelector<HTMLButtonElement>('.quickforge-workflow-detail-agent')
+    expect(agent).toBeTruthy()
+    expect(agent?.disabled).toBe(true)
+
+    const opened: Event[] = []
+    const listener = (event: Event) => opened.push(event)
+    window.addEventListener(OPEN_SUBAGENT_RUN_EVENT, listener)
+    act(() => agent!.click())
+    expect(opened).toHaveLength(0)
+    window.removeEventListener(OPEN_SUBAGENT_RUN_EVENT, listener)
+  })
+
+  it('opens the script sheet by default and closes it from the footer', () => {
+    renderDetail('done', 'return 1')
+    const toggle = container.querySelector<HTMLButtonElement>('[aria-controls="quickforge-workflow-detail-script-sheet"]')
+    expect(toggle).toBeTruthy()
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(container.querySelector('#quickforge-workflow-detail-script-sheet')).toBeTruthy()
+    expect(container.textContent).toContain('return 1')
+
+    act(() => toggle!.click())
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false')
+    expect(container.querySelector('#quickforge-workflow-detail-script-sheet')).toBeNull()
   })
 })
 

@@ -58,7 +58,7 @@ src/styles/
 │   ├── pinned-summary.css       # 桌面置顶摘要浮窗
 │   └── file-rollback.css        # 会话文件回滚弹窗
 └── workspace/
-    ├── workflow-detail.css      # run_workflow 运行详情单页（吸顶轴 / 阶段跨度条 / 共享网格层与运行游标 / 并行组 bracket / 日志 console 块 / 错误定位闪烁；步骤行 = 复用聊天卡 + 右侧轨道列 grid，绝对定位层轨道列宽走 --wf-tl-track-plot，见 components 文档同名小节的基准说明）
+    ├── workflow-detail.css      # run_workflow 运行详情无时间轴单页：概览 + 吸顶阶段头 + 轻量 Agent 行 / ToolMessage 工具行 + 折叠日志；已删除 --wf-tl-* 与 bar/track/axis/legend/now/grid/phase-track/parallel-group；工具连接线落在 Agent 图标中心，失败入口 / foot 低强调；脚本 sheet 默认展开、底部按钮带 active 态
     └── inspector-tabs.css       # Workspace Inspector 顶部 Tab 条
 ```
 

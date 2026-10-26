@@ -1,3 +1,47 @@
+# 当前交接：composer-model-trigger-thinking-label（done，2026-10-26）
+
+- Current Objective（当前目标）：用户要求「对话框显示模型那里显示模型 + 思考等级，思考等级更浅色一点，其他的不变，只是改显示」。
+- 结论（一句话）：模型触发按钮文案从「模型 ID」扩成「模型 ID · 思考等级」，等级比模型名浅一档；纯展示改动，交互 / 持久化 / 服务端契约全不动。
+- 改动文件：
+  - `src/components/chat/surface/MessageEditor.tsx`（新增可选 `thinkingLevel` prop + `.quickforge-model-trigger-thinking` 后缀渲染 + 非推理模型门控）。
+  - `src/components/chat/surface/ChatSurface.tsx`（`thinkingLevel={snapshot.thinkingLevel}`）。
+  - `src/lib/thinking-levels.ts`（新增 `toThinkingLevel()`：`minimal`→`low`、非法→`off`）、`src/lib/thinking-slider.ts`（`toSliderLevel()` 委托给它，去掉重复映射）。
+  - `src/styles/chat/composer-controls.css`（`.quickforge-model-trigger-thinking` 72% muted-foreground，hover/展开态转 62% foreground）。
+  - 测试：`composer-model-trigger.test.ts` +11、`composer-control-hover.test.ts` +2（含该文件 `ruleFor` 补注释剥离）。
+- 关键实现约束：等级必须是 `.ml-1` span 的**子节点**——紧凑态与移动端只把 `.quickforge-model-trigger > span.ml-1` sr-only 化，兄弟节点会在 2rem 图标形态下继续显示并撑破按钮。
+- Evidence（验证）：`npx tsc -b --force` 通过；定向 6 文件 59 passed（model-trigger 16 / hover 6 / compact 10 / css-architecture 5 / thinking-slider 16 / selector-sync 6）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` 成功（7.62s）。
+- Blockers（阻塞）：**未做目视验收**。CDP 探针脚本本身没跑通（`createRoot` 从 vite 预打包 deps 路径取不到），所以只有 jsdom 渲染断言 + CSS 契约测试兜底。浅色档位的实际观感、深色模式对比度、长模型名加后缀是否挤压右侧控件组，都需要人工确认。
+- Next Session（下一步）：① 目视看 `72%` 这个值是否合适（偏浅可调到 78%，偏深调到 66%）；② 共享会话页与 Side Chat 复用同一按钮，Side Chat 为 disabled 但等级仍显示——若要隐藏需再加门控；③ `docs/wiki/src/components/README.md:181` 与 `docs/architecture/session-open-fast-path.zh-CN.md:558` 的「模型按钮为纯文字」口径已与本次相反，需同步。未创建 Git commit，未触碰生成产物。
+
+---
+
+# 当前交接：workflow-detail-script-expanded（done，2026-10-26）
+
+- Current Objective（当前目标）：workflow 详情里的脚本 sheet 默认展开。
+- 结论（一句话）：`sheet` 初始值按 `payload.script` 推导，有脚本即默认 `'script'`；底部脚本/结果按钮带 `aria-expanded` + `aria-controls`，脚本 sheet 默认可见、可手动收起；结果 sheet 仍默认收起。
+- 改动文件：`src/components/workspace/WorkflowRunDetailContent.tsx`（初始化 + toggleSheet + aria/sheet id）、`src/styles/workspace/workflow-detail.css`（active foot button）、`tests/frontend/workflow-renderer.test.ts`、`tests/frontend/workflow-step-interaction.test.ts`、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`、`docs/wiki/src/styles/README.md`、`docs/architecture/workflow-orchestration.zh-CN.md`、`docs/design/workflow-detail-redesign.html`。
+- Evidence（验证）：定向 vitest 2 文件 51/51；`npm run test` 全量 426 文件 / 4938 passed / 2 skipped；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功（5.76s）。
+- Blockers（阻塞）：无技术阻塞。未在用户正在使用的 5176 实例内目视截图（单实例 guard / in-app Browser 不可见）；脚本默认展开由 static markup + jsdom 测试覆盖。
+- Next Session（下一步）：如需让“脚本晚到”也自动展开，不能再用 effect setState（`react-hooks/set-state-in-effect` 已拦），可在打开 Tab 的 payload 构建层保证 script 先到位，或改成派生的 controlling state；当前详情 Tab 打开时 payload 已带脚本，默认展开已生效。未创建 Git commit，未触碰生成产物。
+
+---
+
+# 当前交接：workflow-detail-no-timeline（done，2026-10-26）
+
+- Current Objective（当前目标）：按用户反馈移除工作流详情右侧时间轴；Agent 行只保留点击打开对应子 Agent 运行详情，不显示 subagent 详细运行过程。
+- 结论（一句话）：详情已改成「概览 + 吸顶阶段头 + 轻量 Agent 入口 + ToolMessage 工具行 + 折叠日志」，时间轴全部移除；Agent 行仍经原 store / `OPEN_SUBAGENT_RUN_EVENT` 打开子 Agent 详情，但不再渲染当前工具跑马灯。
+- 改动文件：
+  - `src/components/workspace/WorkflowRunDetailContent.tsx`（无时间轴、Agent 轻量入口、日志 disclosure、概览失败入口、foot 条件渲染）。
+  - `src/styles/workspace/workflow-detail.css`（删除 `--wf-tl-*` 与全部 bar/track/axis/legend/now/grid/parallel-group；新增 Agent 行 / 日志 / 失败入口 / foot；连接线 x = padding + 7px）。
+  - `src/lib/i18n.ts`（`workflowDetailFailedStepsOne/Many`、`workflowDetailLocate`、`workflowDetailPending`）。
+  - `tests/frontend/workflow-renderer.test.ts`、`tests/frontend/workflow-step-interaction.test.ts`（详情结构 / 样式 / Agent 点击 / queued 禁用 / 无跑马灯）。
+  - 文档：`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`、`docs/wiki/src/styles/README.md`、`docs/architecture/workflow-orchestration.zh-CN.md`、`docs/design/workflow-detail-redesign.html`。
+- Evidence（验证）：定向 vitest 2 文件 48/48；`npm run test` 全量 426 文件 / 4935 passed / 2 skipped；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` 成功。独立 Vite harness 真实组件 + 全量 CSS：420px 面板无横向溢出，Agent 图标中心与工具连接线同 x=283，工具卡内容起点 291，阶段头 sticky top 0，失败入口 / 日志默认策略 / 底部按钮正常。
+- Blockers（阻塞）：无技术阻塞。**未做用户正在使用的 5176 实例里的真机 UI 点击验收**——QuickForge 单实例 guard 拦截了第二个窗口；已用独立 Vite harness 做 Chromium 布局测量，但 in-app Browser 不可见导致无法截图。若需要目视确认，请打开已有 QuickForge 窗口，进入任一含 `run_workflow` 的会话，点工作流卡打开详情。
+- Next Session（下一步）：① 在已有 QuickForge 实例里目视确认 420/520px 下的阶段头吸顶、Agent 行外链提示、失败定位、日志折叠、底部脚本/结果；② 若产品确认「workflow 级 `tool()` 行」也要隐藏，只需从 `workflowPhaseSteps` 的 tools 分支删掉 `ToolStep` 渲染（Agent 行跳转链路不动）；③ 未创建 Git commit，未触碰生成产物。
+
+---
+
 # 当前交接：thinking-slider-first-frame-fix（done，2026-10-26）
 
 - Current Objective（当前目标）：用户反馈「打开模型选择就显示思考等级是关了」，要求分析并优化。

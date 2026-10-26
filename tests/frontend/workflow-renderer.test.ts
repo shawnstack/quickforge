@@ -447,30 +447,38 @@ describe('workflow tool renderer', () => {
 })
 
 describe('workflow run detail content', () => {
-  it('merges timeline, phases and logs into one scrolling page', () => {
+  it('merges phases, steps and logs into one scrolling page', () => {
     // 三视图分段 tab 已移除：不再有 'timeline' | 'phase' | 'log' 的视图状态与分发。
     expect(detailSource).not.toContain("'timeline' | 'phase' | 'log'")
     expect(detailSource).not.toContain('quickforge-workflow-detail-seg')
     expect(detailSource).not.toContain('role="tablist"')
-    // 一页里同时保留时间轴、阶段与日志三份信息。
-    expect(detailSource).toContain('quickforge-workflow-detail-axis')
+    // 一页里同时保留阶段、步骤与日志；时间轴与时间条已整体移除。
+    expect(detailSource).not.toContain('quickforge-workflow-detail-axis')
+    expect(detailSource).not.toContain('quickforge-workflow-detail-bar')
     expect(detailSource).toContain('quickforge-workflow-detail-phases')
     expect(detailSource).toContain('quickforge-workflow-detail-phase-logs')
     expect(detailSource).toContain('workflowTimeline')
     expect(detailSource).toContain('workflowPhaseSteps')
-    // 阶段内的 Agent 行复用 run_subagent 摘要卡（点击经卡片自身打开运行详情）。
-    expect(detailSource).toContain('renderSubagentRunSummary')
+    // Agent 行是轻量入口，不再复用带当前工具跑马灯的完整摘要卡。
+    expect(detailSource).toContain('quickforge-workflow-detail-agent')
+    expect(detailSource).not.toContain('renderSubagentRunSummary')
   })
 
-  it('renders the timeline as a percentage-positioned bar chart driven by workflowTimeline', () => {
+  it('drives concurrency stats from workflowTimeline without rendering a bar chart', () => {
     const view = buildWorkflowRunView({ details: runningDetails }, true)!
     const timeline = workflowTimeline(view)
     expect(timeline.entries.length).toBe(view.agents.length + view.tools.length)
-    // 条形用百分比定位（不再用固定 viewBox 的 SVG，避免字号被等比缩小）。
-    expect(detailSource).toContain('toPercent')
-    expect(detailSource).toContain('Math.max(0.6')
-    expect(detailSource).toContain('is-parallel')
-    expect(detailSource).not.toContain('viewBox={`0 0 1000')
+    // 时间轴只用于并发/节省统计；不再生成百分比条形。
+    expect(detailSource).not.toContain('TimelineAxis')
+    expect(detailSource).not.toContain('StepTrack')
+    expect(detailSource).not.toContain('toPercent')
+    expect(detailSource).not.toContain('Math.max(0.6')
+    expect(detailSource).not.toContain('workflowPhaseSpan')
+    expect(detailSource).not.toContain('quickforge-workflow-detail-grid-layer')
+    expect(detailSource).not.toContain('quickforge-workflow-detail-now-chip')
+    expect(detailSource).not.toContain('quickforge-workflow-detail-phase-track')
+    expect(css).not.toContain('--wf-tl-')
+    expect(css).not.toContain('quickforge-workflow-detail-bar')
   })
 
   it('puts every step of a phase under that phase, next to its own logs', () => {
@@ -480,82 +488,119 @@ describe('workflow run detail content', () => {
         payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: true }),
       }),
     )
-    // 单页：刻度条 + 阶段小节 + 每阶段行 + 每阶段日志同屏渲染（没有互斥分支）。
-    expect(markup).toContain('quickforge-workflow-detail-axis')
+    // 单页：阶段小节 + 每阶段行 + 每阶段日志同屏渲染（没有互斥分支）。
     expect(markup).toContain('quickforge-workflow-detail-scroll')
     expect(markup).toContain('quickforge-workflow-detail-phase-logs')
-    // 两个阶段（Scan / Fix）都渲染出来，日志分别落在各自阶段内（不跨阶段串位）。
-    expect(markup.indexOf('Scan')).toBeLessThan(markup.indexOf('scanning files'))
+    expect(markup).not.toContain('quickforge-workflow-detail-axis')
+    // 两个阶段（Scan / Fix）都渲染出来；Fix 有错误日志所以默认展开，Scan 的 info 日志默认收起。
+    expect(markup.indexOf('Scan')).toBeLessThan(markup.indexOf('Fix'))
+    expect(markup).not.toContain('scanning files')
+    expect(markup).toContain('first attempt failed')
     expect(markup.indexOf('fix the bug')).toBeLessThan(markup.indexOf('first attempt failed'))
     // 不再渲染三视图分段按钮。
     expect(markup).not.toContain('quickforge-workflow-detail-seg')
   })
 
-  it('renders the shared grid, the running playhead and per-phase span bars', () => {
+  it('renders phase status dots and pending notes without a time axis', () => {
     const view = buildWorkflowRunView({ details: runningDetails }, true)!
     const markup = renderToStaticMarkup(
       createElement(WorkflowRunDetailContent, {
         payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: true }),
       }),
     )
-    // 共享网格层：整段一层竖线（内部主刻度），行内不再逐行画 5 条。
-    expect(markup).toContain('quickforge-workflow-detail-grid-layer')
-    expect(markup).toContain('quickforge-workflow-detail-grid-line')
-    expect(detailSource).not.toMatch(/quickforge-workflow-detail-grid(?!-)/)
-    // 运行中：轴上「现在」chip + 贯穿各行的游标竖线；终态自动消失。
-    expect(markup).toContain('quickforge-workflow-detail-now-chip')
-    expect(markup).toContain('quickforge-workflow-detail-now-line')
-    expect(markup).toContain('Now ')
-    const done = renderToStaticMarkup(
+    expect(markup).toContain('quickforge-workflow-detail-phase-dot" data-tone="done"')
+    expect(markup).toContain('quickforge-workflow-detail-phase-dot" data-tone="running"')
+    expect(markup).not.toContain('quickforge-workflow-detail-axis')
+    expect(markup).not.toContain('quickforge-workflow-detail-now-chip')
+    expect(markup).not.toContain('quickforge-workflow-detail-phase-track')
+    expect(detailSource).toContain('workflowDetailPending')
+    // 全 queued 阶段显示 Pending，而不是伪造 done 或 0ms 时长。
+    const pending = buildWorkflowRunView({
+      details: {
+        workflow: true,
+        runId: 'pending-1',
+        status: 'running',
+        phases: [{ title: 'Wait' }],
+        agents: [{ id: 'a1', seq: 1, label: 'Wait', profile: 'general', phase: 'Wait', status: 'queued' }],
+        tools: [],
+        logs: [],
+      },
+    }, true)!
+    const pendingMarkup = renderToStaticMarkup(
       createElement(WorkflowRunDetailContent, {
-        payload: buildWorkflowRunPayload({
-          runId: 'done-run',
-          view: buildWorkflowRunView({ details: serialDetails }, false)!,
-          detailed: false,
-        }),
+        payload: buildWorkflowRunPayload({ runId: pending.runId, view: pending, detailed: false }),
       }),
     )
-    expect(done).not.toContain('quickforge-workflow-detail-now-chip')
-    expect(done).not.toContain('quickforge-workflow-detail-now-line')
-    // 每个阶段头都带跨度条（阶段在时间轴上的 min-start → max-end）。
-    expect(markup).toContain('quickforge-workflow-detail-phase-track')
-    expect(markup).toContain('quickforge-workflow-detail-phase-bar')
-    expect(detailSource).toContain('workflowPhaseSpan')
+    expect(pendingMarkup).toContain('quickforge-workflow-detail-phase-note')
+    expect(pendingMarkup).toContain('Pending')
   })
 
-  it('wraps parallel runs in one bracket group with a single ×N tag', () => {
+  it('renders a single parallel ×N tag on the group start without brackets', () => {
     const view = buildWorkflowRunView({ details: parallelDetails }, false)!
     const markup = renderToStaticMarkup(
       createElement(WorkflowRunDetailContent, {
         payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: false }),
       }),
     )
-    expect(markup).toContain('quickforge-workflow-detail-parallel-group')
-    // 组标注只出现一次（组首）；逐行的「并行」标注已从行轨道移除。
+    expect(markup).toContain('quickforge-workflow-detail-parallel-tag')
+    // 组标注只出现一次（组首）；没有绘图区 bracket / 虚线条形。
     expect(markup.match(/parallel ×2/g)).toHaveLength(1)
+    expect(markup).not.toContain('quickforge-workflow-detail-parallel-group')
+    expect(markup).not.toContain('is-parallel')
     expect(detailSource).not.toContain("t('workflowDetailParallelBadge')")
-    // 虚线描边双编码保留在每条条形上。
-    expect(markup).toContain('is-parallel')
   })
 
-  it('folds long phase logs behind a toggle row', () => {
+  it('leaves a tool-only group at the start of a phase flat', () => {
+    const view = buildWorkflowRunView({
+      details: {
+        workflow: true,
+        runId: 'tool-only',
+        status: 'done',
+        phases: [{ title: 'Setup' }],
+        tools: [{ id: 't1', seq: 1, name: 'read_file', label: 'read a', phase: 'Setup', status: 'done', startedAt: 1, durationMs: 1, args: { path: 'a.ts' }, resultPreview: 'a' }],
+        agents: [],
+        logs: [],
+      },
+    }, false)!
+    const markup = renderToStaticMarkup(
+      createElement(WorkflowRunDetailContent, {
+        payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: false }),
+      }),
+    )
+    expect(markup).toContain('quickforge-workflow-detail-tools')
+    // 没有前置 Agent：组不带 data-owned，因此不缩进、不画连接线。
+    expect(markup).not.toContain('quickforge-workflow-detail-tools" data-owned="true"')
+    expect(css).toContain(".quickforge-workflow-detail-tools[data-owned='true']")
+  })
+
+  it('collapses info logs by default and opens error logs', () => {
+    const view = buildWorkflowRunView({ details: runningDetails }, true)!
+    const markup = renderToStaticMarkup(
+      createElement(WorkflowRunDetailContent, {
+        payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: true }),
+      }),
+    )
+    // Scan 阶段只有 info 日志 → 默认收起；Fix 有 error → 默认展开。
+    expect(markup).not.toContain('scanning files')
+    expect(markup).toContain('first attempt failed')
+    expect(detailSource).toContain("logs.some((log) => log.level === 'error')")
+    expect(detailSource).not.toContain('LOG_FOLD_LIMIT')
+    // 长 info 日志也默认收起，不渲染具体行。
     const logs = Array.from({ length: 9 }, (_, index) => ({
       at: index + 1,
       phase: 'Only',
       message: `line ${index}`,
       level: 'info',
     }))
-    const view = buildWorkflowRunView({ details: { ...serialDetails, status: 'done', logs } }, false)!
-    const markup = renderToStaticMarkup(
+    const long = buildWorkflowRunView({ details: { ...serialDetails, status: 'done', logs } }, false)!
+    const longMarkup = renderToStaticMarkup(
       createElement(WorkflowRunDetailContent, {
-        payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: false }),
+        payload: buildWorkflowRunPayload({ runId: long.runId, view: long, detailed: false }),
       }),
     )
-    // 初始只渲染前 6 条 + 展开按钮，第 7 条不在初始 markup。
-    expect(markup).toContain('line 5')
-    expect(markup).not.toContain('line 6')
-    expect(markup).toContain('Show all 9')
-    expect(detailSource).toContain('LOG_FOLD_LIMIT')
+    expect(longMarkup).toContain('Run log')
+    expect(longMarkup).not.toContain('line 0')
+    expect(longMarkup).not.toContain('Show all 9')
   })
 
   it('renders the locate-failure jump and moves the budget into the script sheet', () => {
@@ -579,16 +624,62 @@ describe('workflow run detail content', () => {
     expect(detailSource).toContain('timeline.peakConcurrency > 1 || timeline.savedMs > 0')
   })
 
-  it('reuses the chat tool cards and the subagent summary card instead of its own step UI', () => {
-    // 步骤行直接渲染普通对话的卡片：工具行 = ToolMessage（各工具渲染器），
-    // Agent 行 = run_subagent 摘要卡。不再自写步骤 summary / 展开体 /
-    // 入参 JSON / 控制台块，信息与样式与聊天区同一来源。
+  it('shows the overview failure entry when steps failed without a run error', () => {
+    const view = buildWorkflowRunView({
+      details: {
+        ...runningDetails,
+        status: 'running',
+        agents: runningDetails.agents.map((agent) => (
+          agent.id === 'agent-2' ? { ...agent, status: 'error', error: 'boom' } : agent
+        )),
+      },
+    }, true)!
+    expect(view.error).toBe('')
+    expect(view.failedAgentCount).toBe(1)
+    const markup = renderToStaticMarkup(
+      createElement(WorkflowRunDetailContent, {
+        payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: true }),
+      }),
+    )
+    expect(markup).toContain('quickforge-workflow-detail-failure')
+    expect(markup).toContain('1 failed step')
+    expect(markup).toContain('Locate')
+    expect(detailSource).toContain('showFailureJump')
+  })
+
+  it('opens the script sheet by default when the payload carries a script', () => {
+    const view = buildWorkflowRunView({ details: runningDetails }, true)!
+    const markup = renderToStaticMarkup(
+      createElement(WorkflowRunDetailContent, {
+        payload: buildWorkflowRunPayload({ runId: view.runId, view, script: 'return 1', detailed: true }),
+      }),
+    )
+    expect(markup).toContain('id="quickforge-workflow-detail-script-sheet"')
+    expect(markup).toContain('aria-controls="quickforge-workflow-detail-script-sheet"')
+    expect(markup).toContain('language-javascript')
+    expect(markup).toContain('aria-expanded="true"')
+    // 无 script 时没有 sheet，也不渲染底部脚本按钮。
+    const noScript = renderToStaticMarkup(
+      createElement(WorkflowRunDetailContent, {
+        payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: true }),
+      }),
+    )
+    expect(noScript).not.toContain('quickforge-workflow-detail-sheet')
+    expect(noScript).not.toContain('quickforge-workflow-detail-foot-btn')
+  })
+
+  it('reuses the chat tool cards but keeps the agent entry lightweight', () => {
+    // 工具行直接渲染普通对话的 ToolMessage；Agent 行只保留摘要 + 跳转，
+    // 不再复用带当前工具跑马灯的 run_subagent 摘要卡。
     expect(detailSource).toContain('ToolMessage')
     expect(detailSource).toContain('workflowToolCall')
     expect(detailSource).toContain('workflowToolResult')
-    expect(detailSource).toContain('renderSubagentRunSummary')
     expect(detailSource).toContain('buildWorkflowSubagentRunPayload')
     expect(detailSource).toContain('shouldPublishSubagentRunPayload')
+    expect(detailSource).toContain('OPEN_SUBAGENT_RUN_EVENT')
+    expect(detailSource).toContain('resolveSubagentRunPayloadForOpen')
+    expect(detailSource).not.toContain('renderSubagentRunSummary')
+    expect(detailSource).not.toContain('quickforge-subagent-marquee')
     expect(detailSource).not.toContain('renderConsoleBlock')
     expect(detailSource).not.toContain('argsPreview')
     expect(detailSource).not.toContain('quickforge-workflow-detail-step-body')
@@ -596,8 +687,6 @@ describe('workflow run detail content', () => {
     // 工具卡的耗时徽标由合成的 quickforgeTiming（startedAt/durationMs）驱动，
     // 与聊天侧同一推导路径。
     expect(detailSource).toContain('quickforgeTiming')
-    // 真实 markup：工具行走 local-workspace 渲染器（icon + 摘要 + 折叠箭头），
-    // Agent 行是 subagent 摘要卡按钮。
     const view = buildWorkflowRunView({ details: runningDetails }, true)!
     const markup = renderToStaticMarkup(
       createElement(WorkflowRunDetailContent, {
@@ -606,33 +695,38 @@ describe('workflow run detail content', () => {
     )
     expect(markup).toContain('quickforge-local-tool-shell')
     expect(markup).toContain('src/a.ts')
-    expect(markup).toContain('quickforge-subagent-tool')
+    expect(markup).toContain('quickforge-workflow-detail-agent')
     expect(markup).toContain('Scan src')
-    // 轨道列仍由工作流自己渲染（条形 + 耗时）。
-    expect(markup).toContain('quickforge-workflow-detail-row-track')
-    expect(markup).toContain('quickforge-workflow-detail-bar')
-    // 步骤行是「卡片列 + 轨道列」的 grid，卡片占弹性列、轨道固定宽。
-    expect(css).toMatch(/\.quickforge-workflow-detail-step\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) var\(--wf-tl-track\);/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-step > \.quickforge-workflow-detail-row-track\s*\{[\s\S]*?grid-column:\s*2;/)
-    // 聊天卡展开体补实底遮住共享网格竖线（卡内块自身的边框背景不变）。
-    expect(css).toMatch(/\.quickforge-workflow-detail-step details\[open\] > div\s*\{[\s\S]*?background:\s*var\(--background\);/)
+    // Agent 行没有 chat 摘要卡，也没有当前工具跑马灯。
+    expect(markup).not.toContain('quickforge-subagent-tool')
+    expect(markup).not.toContain('quickforge-subagent-marquee')
+    // 工具行保留 workflow 自己的内容列缩进；Agent 行没有时间轨道。
+    expect(detailSource).toContain('quickforge-workflow-detail-tool-line')
+    expect(css).toMatch(/\.quickforge-workflow-detail-tools\[data-owned='true'\] > \.quickforge-workflow-detail-step\[data-kind='tool'\]\s*\{[\s\S]*?padding-left:\s*calc\(var\(--qf-detail-pad\) \+ 1\.125rem\);/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-agent\s*\{[\s\S]*?min-height:\s*1\.375rem;/)
   })
 
-  it('makes each agent row the chat subagent card with its own open path', () => {
+  it('makes each agent row a lightweight entry that opens the subagent detail', () => {
     const view = buildWorkflowRunView({ details: runningDetails }, true)!
     const markup = renderToStaticMarkup(
       createElement(WorkflowRunDetailContent, {
         payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: true }),
       }),
     )
-    // Agent 行是 run_subagent 摘要卡按钮：点击由卡片自身解析 store 最新快照并
-    // 派发 OPEN_SUBAGENT_RUN_EVENT，详情组件不再自己接线 onOpenAgentRun。
-    expect(markup).toContain('quickforge-subagent-tool')
+    // 点击仍解析 store 最新快照并派发 OPEN_SUBAGENT_RUN_EVENT，打开原来的
+    // 子 Agent 运行详情；详情组件不再自己接线 onOpenAgentRun。
+    expect(markup).toContain('quickforge-workflow-detail-agent')
+    expect(markup).toContain('quickforge-workflow-detail-agent-link')
+    expect(markup).toContain('Scan src')
+    expect(markup).not.toContain('quickforge-subagent-tool')
+    expect(detailSource).toContain('renderToolIcon(\'run_subagent\')')
+    expect(detailSource).toContain('OPEN_SUBAGENT_RUN_EVENT')
+    expect(detailSource).toContain('resolveSubagentRunPayloadForOpen')
+    expect(detailSource).toContain('subagentRunStore.get')
     expect(detailSource).not.toContain('onOpenAgentRun')
-    expect(detailSource).not.toContain('quickforge-workflow-detail-agent-link')
-    // 运行中的任务名保留流光；queued Agent 保持禁用（尚无运行详情可跳）。
-    expect(detailSource).toContain('quickforge-tool-running-sweep')
-    expect(detailSource).toContain('disabled: agent.status === \'queued\'')
+    // 运行中的任务名不再走 chat 摘要卡的流光；queued Agent 仍禁用。
+    expect(detailSource).not.toContain('quickforge-tool-running-sweep')
+    expect(detailSource).toContain("agent.status === 'queued'")
     expect(markup).toContain('disabled')
     // 载荷与发布口径和聊天里的 Agent 卡一致（store 优先回填）。
     expect(detailSource).toContain('subagentRunStore.get(`${workflowRunId || \'workflow\'}:agent:${agent.id}`)')
@@ -705,6 +799,10 @@ describe('workflow renderer wiring and contracts', () => {
       'workflowDetailNow',
       'workflowDetailNowTitle',
       'workflowDetailLocateFailure',
+      'workflowDetailFailedStepsOne',
+      'workflowDetailFailedStepsMany',
+      'workflowDetailLocate',
+      'workflowDetailPending',
       'workflowDetailLogsExpand',
       'workflowDetailLogsCollapse',
     ]
@@ -720,57 +818,58 @@ describe('workflow renderer wiring and contracts', () => {
     applyAppLanguageFromSnapshot('en')
   })
 
-  it('styles the entry card and the detail panel with the shared tokens', () => {
+  it('styles the no-timeline detail with list, agent entry and disclosure logs', () => {
     // 摘要卡是一整行 button，hover/focus 用浅背景而不是改文字色。
     expect(css).toMatch(/\.quickforge-workflow-card\s*\{[\s\S]*?min-height:\s*1\.625rem;[\s\S]*?border:\s*0;/)
     expect(css).toMatch(/\.quickforge-workflow-card:hover,\s*\.quickforge-workflow-card:focus-visible\s*\{\s*background-color:\s*color-mix\(in oklab, var\(--muted\) 55%, transparent\);/)
     // 阶段刻度与「查看详情」入口已移除：整行是 button，运行中靠标题流光表达。
     expect(css).not.toContain('.quickforge-workflow-tick')
     expect(css).not.toContain('.quickforge-workflow-affordance')
-    // 标题吃掉剩余空间，把状态/耗时推到右侧（刻度移除后的对齐方式）。
+    // 标题吃掉剩余空间，把状态/耗时推到右侧。
     expect(css).toMatch(/\.quickforge-workflow-title\s*\{[\s\S]*?margin-right:\s*auto;/)
-    // 运行中摘要复用 tool 流光与跑马灯，reduced-motion 由 .quickforge-tool-running-sweep 统一降级。
+    // 入口卡运行中的跑马灯保持单行可滚动（详情里的 Agent 行不再用它）。
     expect(css).toMatch(/\.quickforge-workflow-marquee\s*\{[\s\S]*?overflow:\s*hidden;/)
-    // 时间轴用 DOM 百分比布局（SVG 固定 viewBox 会把字号一起缩放，导致文字过小）。
-    // 根节点必须自己吃满宽高：缺 flex:1 时宽度按内容收缩（轨道被压扁），
-    // 缺 min-height:0/overflow 时内容被 Inspector 的 overflow:hidden 裁掉。
+    // 根节点与滚动容器必须自己吃满宽高。
     expect(css).toMatch(/\.quickforge-workflow-detail\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-width:\s*0;[\s\S]*?min-height:\s*0;/)
-    // 合并成单页后唯一滚动容器是 -scroll（原 -pane 已删除）。
     expect(css).toMatch(/\.quickforge-workflow-detail-scroll\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;/)
-    // 刻度条与阶段头都是吸顶元素：刻度贴顶，阶段头贴刻度下方，且各自有实底
-    // （否则滚动中的行会从吸顶元素下面透出来）。
-    expect(css).toMatch(/\.quickforge-workflow-detail-axis\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?top:\s*0;/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-axis\s*\{[\s\S]*?height:\s*var\(--wf-tl-axis-h\);/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-phase-head\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?top:\s*var\(--wf-tl-axis-h\);[\s\S]*?background:\s*var\(--background\);/)
-    // 图例改成整页常驻（概览条右侧），不再挂在时间轴底部。
-    expect(css).toMatch(/\.quickforge-workflow-detail-legend\s*\{[\s\S]*?margin-left:\s*auto;/)
-    // 轨道列宽用 clamp 自适应，窄面板下不挤压卡片摘要。
-    expect(css).toMatch(/--wf-tl-track:\s*clamp\(/)
-    // 步骤行是「卡片列 + 轨道列」grid（卡片占弹性列；详细契约见专属用例）。
-    expect(css).toMatch(/\.quickforge-workflow-detail-step\s*\{[\s\S]*?display:\s*grid;/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-bar\s*\{[\s\S]*?background:\s*color-mix\(in oklab, var\(--workflow-done\) 34%, transparent\);/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-bar\[data-kind='tool'\]\s*\{[\s\S]*?height:\s*0\.375rem;/)
-    // 并行段用虚线边框做颜色之外的第二编码。
-    expect(css).toMatch(/\.quickforge-workflow-detail-bar\.is-parallel\s*\{\s*border-style:\s*dashed;/)
-    // 右侧不再被裁：条形 border-box（无全局 box-sizing，百分比宽度 + 边框会溢出 2px）；
-    // 耗时与「并行」标签固定在绘图区两端的安全区外，不挂在条形上随位置溢出。
-    expect(css).toMatch(/\.quickforge-workflow-detail-bar\s*\{[\s\S]*?box-sizing:\s*border-box;/)
-    expect(css).toMatch(/--wf-tl-pad-start:\s*[\d.]+rem;/)
-    expect(css).toMatch(/--wf-tl-pad-end:\s*[\d.]+rem;/)
-    // 安全区由 plot 的 margin 承担（不能用 padding：绝对定位百分比基准是 padding box，
-    // 加 padding 会让 left:0% 仍从 border 内侧算起，条形压到左侧标签上）。
-    expect(css).toMatch(/\.quickforge-workflow-detail-row-plot,\s*\.quickforge-workflow-detail-axis-plot\s*\{[\s\S]*?margin-left:\s*var\(--wf-tl-pad-start\);[\s\S]*?margin-right:\s*var\(--wf-tl-pad-end\);/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-bar-value\s*\{[\s\S]*?right:\s*0;/)
-    // done 语义色必须在主题变量里定义，否则深色模式会退回浅色的绿。
+    // 阶段头直接吸顶，不再有刻度条偏移。
+    expect(css).toMatch(/\.quickforge-workflow-detail-phase-head\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?top:\s*0;[\s\S]*?background:\s*var\(--background\);/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-phase-dot\s*\{[\s\S]*?border-radius:\s*999px;/)
+    // Agent 行 = 22px 轻量入口，外链箭头默认弱化、hover 增强。
+    expect(css).toMatch(/\.quickforge-workflow-detail-agent\s*\{[\s\S]*?min-height:\s*1\.375rem;[\s\S]*?cursor:\s*pointer;/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-agent-link\s*\{[\s\S]*?opacity:\s*0\.35;/)
+    // 只有前置 Agent 的工具组才缩进内容列；连接线固定在 Agent 图标中心轴。
+    expect(css).toMatch(/\.quickforge-workflow-detail-tools\[data-owned='true'\] > \.quickforge-workflow-detail-step\[data-kind='tool'\]\s*\{[\s\S]*?padding-left:\s*calc\(var\(--qf-detail-pad\) \+ 1\.125rem\);/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-tools\[data-owned='true'\] > \.quickforge-workflow-detail-step\[data-kind='tool'\]::before\s*\{[\s\S]*?left:\s*calc\(var\(--qf-detail-pad\) \+ 7px\);/)
+    expect(css).toMatch(/\.quickforge-workflow-detail\s+\.quickforge-tool-summary\s*\{[\s\S]*?min-height:\s*1\.375rem;/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-parallel-tag\s*\{[\s\S]*?border-radius:\s*999px;/)
+    // 概览失败入口与底部低强调操作。
+    expect(css).toMatch(/\.quickforge-workflow-detail-failure\s*\{[\s\S]*?color:\s*var\(--destructive\);/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-foot\s*\{[\s\S]*?border-top:/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-foot\s*\{[\s\S]*?background:\s*transparent;/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-foot-btn\[aria-expanded='true'\]\s*\{/)
+    // 日志 = 折叠行 + 时间/消息两列，不再有描边控制台。
+    expect(css).toMatch(/\.quickforge-workflow-detail-logs-head\s*\{[\s\S]*?cursor:\s*pointer;/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-logs-body\s*\{[\s\S]*?font-family:\s*var\(--font-mono\);/)
+    expect(css).not.toMatch(/\.quickforge-workflow-detail-phase-logs\s*\{[^}]*outline:/)
+    // 时间轴的所有几何/样式已清理。
+    expect(css).not.toContain('--wf-tl-')
+    expect(css).not.toContain('quickforge-workflow-detail-axis')
+    expect(css).not.toContain('quickforge-workflow-detail-bar')
+    expect(css).not.toContain('quickforge-workflow-detail-legend')
+    expect(css).not.toContain('quickforge-workflow-detail-now')
+    expect(css).not.toContain('quickforge-workflow-detail-phase-track')
+    expect(css).not.toContain('quickforge-workflow-detail-parallel-group')
+    expect(css).not.toContain('quickforge-workflow-detail-grid')
+    expect(css).not.toContain('quickforge-workflow-detail-row-plot')
+    expect(css).not.toContain('quickforge-workflow-detail-step-body')
+    // done 语义色必须在主题变量里定义；动效 token 必须用已定义的名字。
     expect(css).toMatch(/:root\s*\{[\s\S]*?--workflow-done:\s*oklch\(0\.55 0\.13 158\);/)
     expect(css).toMatch(/\.dark\s*\{[\s\S]*?--workflow-done:\s*oklch\(0\.75 0\.15 160\);/)
-    // 动效 token 必须用已定义的名字（--quickforge-ease-out），不存在 --quickforge-ease。
     expect(css).not.toContain('var(--quickforge-ease,')
-    // 详情面板单页结构与底部固定区；分段 tab 必须彻底移除。
+    // 旧的三视图 / 聊天内展开样式必须清理干净。
     expect(css).not.toContain('.quickforge-workflow-detail-seg')
     expect(css).not.toContain('.quickforge-workflow-detail-pane')
-    expect(css).toMatch(/\.quickforge-workflow-detail-foot\s*\{[\s\S]*?border-top:/)
-    // 旧的聊天内展开样式必须清理干净，避免两套布局漂移。
     expect(css).not.toContain('.quickforge-workflow-phase {')
     expect(css).not.toContain('.quickforge-workflow-tool-zone')
     expect(css).not.toContain('.quickforge-workflow-result-section')
@@ -783,40 +882,22 @@ describe('workflow renderer wiring and contracts', () => {
     expect(css).toMatch(/\.quickforge-workflow-marquee \.quickforge-marquee-moving\s*\{[\s\S]*?display:\s*none;/)
   })
 
-  it('shares the timeline grid and styles spans, brackets, playhead and quiet blocks', () => {
-    // 逐行网格规则已删除（早期每行 5 条刻度线，N 行就是 5N 条竖纹）。
-    expect(css).not.toMatch(/\.quickforge-workflow-detail-grid\s*\{/)
-    // 共享网格层垫底（z-index:-1，只在没有实底的地方露出）；
-    // 阶段区容器建立层叠上下文，网格层与游标层与行绘图区同一组 inset
-    // （绘图区左缘统一走 --wf-tl-plot-left 变量，四处不得手抄漂移）。
-    expect(css).toMatch(/\.quickforge-workflow-detail-phases\s*\{[\s\S]*?position:\s*relative;[\s\S]*?z-index:\s*0;/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-grid-layer\s*\{[\s\S]*?z-index:\s*-1;/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-now-layer\s*\{[\s\S]*?z-index:\s*1;/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-grid-layer,\s*\.quickforge-workflow-detail-now-layer\s*\{[\s\S]*?left:\s*var\(--wf-tl-plot-left\);[\s\S]*?right:\s*calc\(var\(--wf-tl-plot-right\) \+ var\(--wf-tl-pad-end\)\);/)
-    // 双基准回归：clamp 百分比在 grid/flex 里按行内容盒（W-1.75rem）、在 absolute
-    // left 里按包含块（W）解析——绝对层必须用复刻内容盒基准的 --wf-tl-track-plot，
-    // 否则 340–480px 面板下网格/跨度条与行条形错开数像素（旧 label-plot 同款教训）。
-    expect(css).toMatch(/--wf-tl-track:\s*clamp\(8rem, 34%, 12\.5rem\);/)
-    expect(css).toMatch(/--wf-tl-track-plot:\s*clamp\(8rem, \(100% - 1\.75rem\) \* 0\.34, 12\.5rem\);/)
-    expect(css).toMatch(/--wf-tl-plot-left:\s*calc\(100% - 0\.875rem - var\(--wf-tl-track-plot\) \+ var\(--wf-tl-pad-start\)\);/)
-    expect(css).toMatch(/@media \(max-width: 30rem\)\s*\{[\s\S]*?--wf-tl-track-plot:\s*clamp\(6rem, \(100% - 1\.75rem\) \* 0\.3, 8\.5rem\);/)
-    // 游标 chip 挂在轴绘图区（与竖线同一百分比）。
-    expect(css).toMatch(/\.quickforge-workflow-detail-now-chip\s*\{[\s\S]*?position:\s*absolute;/)
-    // 阶段跨度条与行绘图区同一几何；阶段耗时右对齐到行耗时列（绝对定位）。
-    expect(css).toMatch(/\.quickforge-workflow-detail-phase-track\s*\{[\s\S]*?left:\s*var\(--wf-tl-plot-left\);[\s\S]*?right:\s*calc\(var\(--wf-tl-plot-right\) \+ var\(--wf-tl-pad-end\)\);/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-phase-head \.quickforge-workflow-detail-duration\s*\{[\s\S]*?position:\s*absolute;/)
-    // 并行组左缘 bracket；「并行×N」标注对齐行绘图区左缘。
-    expect(css).toMatch(/\.quickforge-workflow-detail-parallel-group::before\s*\{[\s\S]*?width:\s*2px;/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-parallel-tag\s*\{[\s\S]*?left:\s*var\(--wf-tl-plot-left\);/)
-    // 聊天卡展开体的实底与日志 console 块：盖过网格线与游标。
-    expect(css).toMatch(/\.quickforge-workflow-detail-step details\[open\] > div\s*\{[\s\S]*?background:\s*var\(--background\);/)
-    expect(css).toMatch(/\.quickforge-workflow-detail-phase-logs\s*\{[\s\S]*?z-index:\s*2;[\s\S]*?outline:/)
-    // 定位失败步骤的描边闪烁落在整条步骤行（卡片 + 轨道一起描边）
-    // + reduce-motion 降级（只剩滚动定位）。
+  it('keeps the tool connector and log disclosure aligned without timeline layers', () => {
+    // 工具连接线固定在 Agent 图标中心，只对前置 Agent 的组缩进内容列，不再移动轨道。
+    expect(css).toMatch(/\.quickforge-workflow-detail-tools\[data-owned='true'\] > \.quickforge-workflow-detail-step\[data-kind='tool'\]::before\s*\{[\s\S]*?left:\s*calc\(var\(--qf-detail-pad\) \+ 7px\);[\s\S]*?width:\s*1px;/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-tools\[data-owned='true'\] > \.quickforge-workflow-detail-step\[data-kind='tool'\]:first-child::before\s*\{\s*top:\s*-0\.6875rem;/)
+    expect(css).toMatch(/\.quickforge-workflow-detail-tools\[data-owned='true'\] > \.quickforge-workflow-detail-step\[data-kind='tool'\]:last-child::before\s*\{\s*bottom:\s*calc\(100% - 0\.6875rem\);/)
+    // 阶段开头的 tool-only 组没有可归属 Agent，不缩进、不画线。
+    expect(css).not.toMatch(/(?:^|\n)\.quickforge-workflow-detail-step\[data-kind='tool'\]\s*\{/)
+    // 日志默认折叠，展开箭头按 aria-expanded 旋转；没有 outline 控制台。
+    expect(css).toMatch(/\.quickforge-workflow-detail-logs-head\[aria-expanded='true'\] \.quickforge-tool-chevron\s*\{\s*rotate:\s*90deg;/)
+    expect(css).not.toMatch(/\.quickforge-workflow-detail-phase-logs\s*\{[^}]*outline:/)
+    expect(css).not.toContain('quickforge-workflow-detail-parallel-group')
+    expect(css).not.toContain('--wf-tl-')
+    // 定位失败步骤的描边闪烁 + reduce-motion 降级。
     expect(css).toMatch(/\.quickforge-workflow-detail-step\.is-flash\s*\{[\s\S]*?animation:\s*quickforge-workflow-step-flash/)
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.quickforge-workflow-detail-step\.is-flash\s*\{[\s\S]*?animation:\s*none;/)
-    // 历史上重复声明的规则收敛为一份。
-    expect(css.match(/\.quickforge-workflow-detail-legend \.swatch\[data-tone='parallel'\] \{/g)).toHaveLength(1)
+    // 阶段索引只定义一次。
     expect(css.match(/\.quickforge-workflow-detail-phase-index \{/g)).toHaveLength(1)
   })
 

@@ -5,7 +5,7 @@ import { appCss } from '../helpers/app-css'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
 
-import { buildAskAnswerText, buildAskDisplaySignature, isAskAnswered, splitAskAnswer } from '../../src/components/chat/panel-decoration/ask-user-card'
+import { buildAskDisplaySignature, isAskAnswered, splitAskAnswer } from '../../src/components/chat/panel-decoration/ask-user-card'
 
 describe('isAskAnswered', () => {
   it('requires choices or non-empty custom text', () => {
@@ -15,16 +15,6 @@ describe('isAskAnswered', () => {
     expect(isAskAnswered({ custom: '   ' })).toBe(false)
     expect(isAskAnswered({ choices: ['a'] })).toBe(true)
     expect(isAskAnswered({ custom: '我的想法' })).toBe(true)
-  })
-})
-
-describe('buildAskAnswerText', () => {
-  it('joins choices with middle dots and appends the custom supplement', () => {
-    expect(buildAskAnswerText({ choices: ['npm', 'Desktop'] })).toBe('npm · Desktop')
-    expect(buildAskAnswerText({ choices: ['npm'], custom: '桌面先不发' })).toBe('npm　补充：桌面先不发')
-    expect(buildAskAnswerText({ custom: '自定义' })).toBe('自定义')
-    expect(buildAskAnswerText(undefined)).toBe('')
-    expect(buildAskAnswerText({})).toBe('')
   })
 })
 

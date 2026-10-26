@@ -34,13 +34,6 @@ export function isAskAnswered(answer: ServerAgentAskAnswer | undefined): boolean
   return typeof answer.custom === 'string' && answer.custom.trim().length > 0
 }
 
-/** One-line answer text per question, used by the review step and tests. */
-export function buildAskAnswerText(answer: ServerAgentAskAnswer | undefined): string {
-  const choiceText = Array.isArray(answer?.choices) && answer.choices.length ? answer.choices.join(' · ') : ''
-  const customText = typeof answer?.custom === 'string' && answer.custom.trim() ? answer.custom.trim() : ''
-  return [choiceText, customText].filter(Boolean).join('　补充：')
-}
-
 /** Structured answer segments for the receipt: choices and free-form note stay separate. */
 export type AskAnswerSegments = {
   choices: string[]

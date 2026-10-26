@@ -62,14 +62,13 @@ describe('sidebar session action alignment', () => {
     expect(countOccurrences(rowSource, 'className={overlayArchiveButtonClass}')).toBe(1)
   })
 
-  it('running/unread status replaces time inside the fixed w-11 slot so hover geometry stays stable', () => {
+  it('running/unread status replaces time inside the fixed w-11 slot in every variant so hover geometry stays stable', () => {
     // 旧模式必须移除：状态指示器单独占位、running/未读时省略时间槽，
     // 都会让时间槽宽度漂移、破坏 Archive 胶囊对齐
     expect(rowSource).not.toContain('sessionStatusIndicator')
     expect(rowSource).not.toContain('completedSessionIds.has(session.id) ? null : (')
-    // 时间线行直接展示时间文本，其余三个变体共用 sessionTimeSlotContent，时间槽恒定渲染（宽度恒 w-11）
-    expect(rowSource).toContain("variant === 'timeline'")
-    expect(rowSource).toContain('sessionTimeSlotContent(session, timeText, sessionTaskStatus, completedSessionIds)')
+    // 四个变体（含 timeline）共用 sessionTimeSlotContent，时间槽恒定渲染（宽度恒 w-11）
+    expect(rowSource).toContain('const timeSlotContent = sessionTimeSlotContent(session, timeText, sessionTaskStatus, completedSessionIds)')
     const slotFn = rowSource.match(/function sessionTimeSlotContent\(([\s\S]*?)\n\}/)?.[1] ?? ''
     expect(slotFn).toContain('Loader2')
     expect(slotFn).toContain('animate-spin')

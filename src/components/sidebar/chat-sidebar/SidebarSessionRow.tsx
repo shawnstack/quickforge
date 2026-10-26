@@ -20,9 +20,9 @@ import {
 } from './sidebar-classes'
 import { SessionTitleMarquee } from './SessionTitleMarquee'
 
-/** 四种会话行的差异全部集中在这个变体判别上，各变体 DOM 与拆分前逐一保持一致：
+/** 四种会话行的差异全部集中在这个变体判别上：
  *  - pinned：div[role=button]（键盘 Enter/Space）+ unpin 图标 + pinnedAt 时间；
- *  - timeline：时间槽直接展示时间文本，不叠加运行/未读状态（历史行为，本轮不改）；
+ *  - timeline：与 project/global 一致，运行/未读状态替换时间文本；
  *  - project：行加 gap-1 与 pl-8 缩进；
  *  - global：基准形态。 */
 export type SidebarSessionRowVariant = 'pinned' | 'timeline' | 'project' | 'global'
@@ -36,7 +36,7 @@ type SidebarSessionRowProps = {
   actionsSuppressed: boolean
   confirmingDelete: boolean
   sidebarOpen: boolean
-  /** 已格式化的时间文本；timeline 直接展示，其余变体经状态槽叠加运行/未读态。 */
+  /** 已格式化的时间文本；运行/未读时由状态指示器替换。 */
   timeText: string
   sessionTaskStatus: (session: QuickForgeSessionMetadata) => BackgroundTaskStatus
   completedSessionIds: Set<string>
@@ -84,9 +84,7 @@ export function SidebarSessionRow({
   onHoverTipHide,
   onRowMouseLeave,
 }: SidebarSessionRowProps) {
-  const timeSlotContent = variant === 'timeline'
-    ? timeText
-    : sessionTimeSlotContent(session, timeText, sessionTaskStatus, completedSessionIds)
+  const timeSlotContent = sessionTimeSlotContent(session, timeText, sessionTaskStatus, completedSessionIds)
   const titleMarquee = (
     <SessionTitleMarquee
       className={cn(sidebarSessionTitleClass, selected && activeSessionTitleClass)}

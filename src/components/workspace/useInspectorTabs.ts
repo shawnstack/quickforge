@@ -94,7 +94,8 @@ export function useInspectorTabsActions({ panelTabs, setPanelTabs, activePanelTa
   }
 
   function openPanelTab(kind: WorkspacePanelPrimaryTabKind, nextView: WorkspacePanelView = viewFromPanelKind(kind), options?: { url?: string; readerTab?: ReaderTab }) {
-    const existing = kind === 'review' || kind === 'side-chat'
+    // 后台任务面板全局只有一个，重复打开应复用同一个 tab。
+    const existing = kind === 'review' || kind === 'side-chat' || kind === 'background-tasks'
       ? panelTabs.find((tab) => tab.kind === kind)
       : kind === 'browser' && options?.url
         ? findBrowserTabToReuse(panelTabs, options.url)

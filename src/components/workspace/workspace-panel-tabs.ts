@@ -1,4 +1,4 @@
-import { Folder, GitBranch, Globe, MessageCircle, SquareTerminal } from 'lucide-react'
+import { Activity, Folder, GitBranch, Globe, MessageCircle, SquareTerminal } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import { workflowStatusLabelKey } from '@/lib/workflow-run-detail'
 import { artifactFileName } from './artifact-preview-utils'
@@ -15,6 +15,7 @@ export const PANEL_TAB_ITEMS: WorkspacePanelTabMeta[] = [
   { kind: 'files', label: t('rightPanelFiles'), description: t('rightPanelFilesDesc'), icon: Folder },
   { kind: 'review', label: t('rightPanelReview'), description: t('rightPanelReviewDesc'), icon: GitBranch },
   { kind: 'terminal', label: t('rightPanelTerminal'), description: t('rightPanelTerminalDesc'), icon: SquareTerminal },
+  { kind: 'background-tasks', label: t('backgroundTaskPanelTitle'), description: t('backgroundTaskPanelDesc'), icon: Activity },
   { kind: 'browser', label: t('rightPanelBrowser'), description: t('rightPanelBrowserDesc'), icon: Globe },
   { kind: 'side-chat', label: t('sideChatTitle'), description: t('sideChatDescription'), icon: MessageCircle },
 ]

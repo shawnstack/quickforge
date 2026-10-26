@@ -1,0 +1,1242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QuickForge · 后台任务侧边栏设计稿</title>
+<style>
+  /* ══════════════════════════════════════════════════════════════════
+     设计令牌（取自 src/styles/foundation.css 与 DESIGN_LANGUAGE.md）
+     ══════════════════════════════════════════════════════════════════ */
+  :root {
+    --background: #ffffff;
+    --foreground: #0a0a0a;
+    --card: #ffffff;
+    --popover: #ffffff;
+    --muted: #f5f5f5;
+    --muted-foreground: #737373;
+    --border: #e5e5e5;
+    --sidebar-bg: #f3f4f6;
+    --sidebar-hover-bg: #e5e7eb;
+    --sidebar-active-bg: #d9dee7;
+    --destructive: #e7000b;
+    --success: #008853;
+    --warning: #e1a200;
+    --info: #004b9c;
+    --radius-md: 4.875px;
+    --radius-lg: 6.5px;
+    --radius-xl: 9.75px;
+    --radius-2xl: 13px;
+    --radius-full: 9999px;
+    --shadow-quickforge: 0 10px 26px -18px rgb(15 23 42 / 0.48);
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --dur-slow: 280ms;
+    --dur-exit: 140ms;
+    --ease-out: cubic-bezier(0.2, 0, 0, 1);
+    --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    /* 分割线配方 */
+    --rule: color-mix(in oklab, var(--border) 60%, transparent);
+    --rule-weak: color-mix(in oklab, var(--border) 34%, transparent);
+    /* 终端（唯一需要深色底的区域） */
+    --term-bg: #0d1117;
+    --term-fg: #cdd3dc;
+    --term-dim: #6f7885;
+    --term-err: #ff8f93;
+    --term-ok: #4fbd93;
+    --term-line: rgb(255 255 255 / 0.07);
+    --insp-w: 380px;
+    --head-h: 45.5px;
+    --tabstrip-h: 26px;
+    color-scheme: light;
+  }
+  .dark {
+    --background: #0a0a0a;
+    --foreground: #fafafa;
+    --card: #171717;
+    --popover: #262626;
+    --muted: #262626;
+    --muted-foreground: #a1a1a1;
+    --border: #282828;
+    --sidebar-bg: #171717;
+    --sidebar-hover-bg: #262626;
+    --sidebar-active-bg: #404040;
+    --destructive: #ff6467;
+    --success: #3dca8d;
+    --warning: #e1a200;
+    --info: #e1a200;
+    --term-bg: #050505;
+    --term-fg: #e4e6ea;
+    --term-dim: #7a808a;
+    --term-err: #ff6467;
+    --term-ok: #3dca8d;
+    --term-line: rgb(255 255 255 / 0.06);
+    color-scheme: dark;
+  }
+  /* ══════════════════════════════════════════════════════════════════
+     基础
+     ══════════════════════════════════════════════════════════════════ */
+  html { font-size: 13px; }
+  *, *::before, *::after { box-sizing: border-box; }
+  * { transition:
+      background-color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out); }
+  html, body { height: 100%; }
+  body { margin: 0; overflow: hidden; font-family: var(--font-sans); font-size: 13px; line-height: 1.5; color: var(--foreground); background: var(--background); -webkit-font-smoothing: antialiased; }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { -webkit-tap-highlight-color: transparent; }
+  svg { display: block; flex: 0 0 auto; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  :focus-visible { outline: 2px solid color-mix(in oklab, var(--info) 62%, transparent); outline-offset: 1px; }
+  /* ══════════════════════════════════════════════════════════════════
+     App 壳：三栏
+     ══════════════════════════════════════════════════════════════════ */
+  .app { display: flex; width: 100%; height: 100vh; overflow: hidden; background: var(--background); }
+  /* ── 左：会话侧栏（静态装饰） ───────────────────────────────────── */
+  .sb { width: 304px; flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0; background: var(--sidebar-bg); border-right: 1px solid var(--rule); }
+  .sb-head { height: var(--head-h); flex: 0 0 auto; display: flex; align-items: center; gap: 7px; padding: 0 8px 0 11px; border-bottom: 1px solid var(--rule-weak); }
+  .brand-mark { width: 19px; height: 19px; display: grid; place-items: center; border-radius: var(--radius-md); background: var(--foreground); color: var(--background); }
+  .brand-mark svg { width: 11px; height: 11px; }
+  .brand-name { font-size: 12.5px; font-weight: 600; letter-spacing: -0.01em; }
+  .sb-head-tools { margin-left: auto; display: flex; align-items: center; gap: 1px; }
+  .icon-btn { position: relative; width: 26px; height: 26px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--muted-foreground); cursor: pointer; }
+  .icon-btn svg { width: 18px; height: 18px; }
+  .icon-btn:hover { background: var(--muted); color: var(--foreground); }
+  .icon-btn:active { background: color-mix(in oklab, var(--foreground) 8%, transparent); }
+  .icon-btn[aria-pressed="true"] { background: color-mix(in oklab, var(--sidebar-active-bg) 62%, transparent); color: var(--foreground); }
+  .icon-btn.sm { width: 24px; height: 24px; }
+  .icon-btn.sm svg { width: 15px; height: 15px; }
+  .sb-actions { padding: 8px 8px 2px; }
+  .sb-new { display: flex; align-items: center; gap: 6px; width: 100%; height: 28px; padding: 0 8px; border: 1px solid var(--rule); border-radius: var(--radius-md); background: var(--background); color: var(--foreground); font-size: 12px; cursor: pointer; }
+  .sb-new:hover { background: var(--sidebar-hover-bg); }
+  .sb-new svg { width: 13px; height: 13px; opacity: 0.7; }
+  .sb-label { padding: 12px 15px 4px; font-size: 10.5px; letter-spacing: 0.05em; color: var(--muted-foreground); }
+  .sb-list { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; min-height: 0; overflow-y: auto; }
+  .sb-item { display: flex; align-items: center; gap: 7px; width: 100%; height: 29px; padding: 0 8px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--muted-foreground); font-size: 12px; text-align: left; cursor: pointer; }
+  .sb-item svg { width: 13px; height: 13px; opacity: 0.72; }
+  .sb-item:hover { background: var(--sidebar-hover-bg); color: var(--foreground); }
+  .sb-item.is-active { background: var(--sidebar-active-bg); color: var(--foreground); font-weight: 500; }
+  .sb-item.is-active svg { opacity: 1; }
+  .sb-item-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .sb-item-time { margin-left: auto; flex: 0 0 auto; font-size: 10px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .sb-foot { margin-top: auto; padding: 6px 8px 8px; border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 1px; }
+  /* ── 中：会话区 ─────────────────────────────────────────────────── */
+  .chat { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: var(--background); }
+  .chat-head { height: var(--head-h); flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--rule); }
+  .chat-title-wrap { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
+  .chat-title { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat-sub { flex: 0 0 auto; font-size: 11px; color: var(--muted-foreground); }
+  .chat-sub::before { content: ""; display: inline-block; width: 1px; height: 9px; margin: 0 7px 1px 0; background: var(--rule); vertical-align: middle; }
+  .chat-tools { margin-left: auto; display: flex; align-items: center; gap: 1px; }
+  .chat-badge { position: absolute; top: -2px; right: -3px; min-width: 13px; height: 13px; padding: 0 3px; border-radius: var(--radius-full); background: var(--info); color: var(--background); font-size: 9px; font-weight: 600; line-height: 13px; text-align: center; font-variant-numeric: tabular-nums; }
+  .chat-badge[hidden] { display: none; }
+  .chat-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 13px; }
+  .msg-user { align-self: flex-end; max-width: 76%; padding: 7px 11px; border-radius: var(--radius-xl); background: var(--muted); font-size: 12.5px; }
+  .msg-ai { max-width: 66ch; font-size: 12.5px; line-height: 1.65; color: var(--foreground); }
+  .msg-ai p { margin: 0; }
+  .msg-ai p + p { margin-top: 6px; }
+  .msg-ai .dim { color: var(--muted-foreground); }
+  /* run_command 工具卡：只是入口 */
+  .tool-card { display: flex; flex-direction: column; gap: 6px; max-width: 620px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--radius-lg); background: color-mix(in oklab, var(--muted) 45%, transparent); cursor: pointer; text-align: left; }
+  .tool-card:hover { background: color-mix(in oklab, var(--muted) 72%, transparent); }
+  .tool-top { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; }
+  .tool-top > svg { width: 13px; height: 13px; color: var(--muted-foreground); }
+  .tool-name { flex: 0 0 auto; font-weight: 500; }
+  .tool-desc { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted-foreground); font-size: 11.5px; }
+  .tool-cmd { padding: 4px 7px; border: 1px solid var(--rule-weak); border-radius: var(--radius-md); background: color-mix(in oklab, var(--background) 72%, transparent); font-family: var(--font-mono); font-size: 11.5px; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tool-foot { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted-foreground); }
+  .pill { display: inline-flex; align-items: center; gap: 4px; height: 17px; padding: 0 6px; border-radius: var(--radius-full); border: 1px solid color-mix(in oklab, var(--info) 22%, transparent); background: color-mix(in oklab, var(--info) 10%, transparent); color: var(--info); font-size: 10.5px; font-weight: 500; white-space: nowrap; }
+  .pill .pill-dot { width: 5px; height: 5px; border-radius: var(--radius-full); background: currentColor; animation: dot-pulse-soft 1.8s var(--ease-out) infinite; }
+  .link { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; border: 0; padding: 0; background: transparent; color: var(--muted-foreground); font-size: 11px; cursor: pointer; }
+  .link svg { width: 12px; height: 12px; }
+  .link:hover { color: var(--foreground); text-decoration: underline; text-underline-offset: 2px; }
+  .composer-wrap { flex: 0 0 auto; padding: 0 20px 16px; }
+  .composer { display: flex; flex-direction: column; gap: 6px; padding: 8px 9px 6px; border: 1px solid var(--rule); border-radius: var(--radius-2xl); background: var(--card); box-shadow: var(--shadow-quickforge); }
+  .composer-ph { font-size: 12.5px; color: var(--muted-foreground); padding: 1px 2px 4px; }
+  .composer-bar { display: flex; align-items: center; gap: 2px; }
+  .composer-bar .icon-btn { width: 24px; height: 24px; }
+  .composer-bar .icon-btn svg { width: 15px; height: 15px; }
+  #chatHint { margin-left: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #chatHint::before { display: none; }
+  .composer-send { margin-left: auto; width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: var(--radius-full); background: var(--foreground); color: var(--background); cursor: pointer; }
+  .composer-send svg { width: 13px; height: 13px; }
+  .composer-send:hover { opacity: 0.86; }
+  /* ── 分隔条（拖拽视觉） ────────────────────────────────────────── */
+  .splitter { flex: 0 0 5px; width: 5px; cursor: col-resize; background: transparent; }
+  body[data-insp="closed"] .splitter { display: none; }
+  /* ── 右：Inspector ─────────────────────────────────────────────── */
+  .insp { width: var(--insp-w); flex: 0 0 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--background); border-left: 1px solid var(--rule); transition:
+      width var(--dur-base) var(--ease-out),
+      transform var(--dur-base) var(--ease-out),
+      opacity var(--dur-exit) var(--ease-out); }
+  .insp[data-open="false"] { width: 0; opacity: 0; border-left-width: 0; }
+  /* Tab 条 26px */
+  .tabstrip { height: var(--tabstrip-h); flex: 0 0 auto; display: flex; align-items: center; gap: 2px; padding: 0 6px; border-bottom: 1px solid var(--rule); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .tabstrip::-webkit-scrollbar { display: none; }
+  .tab { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--muted-foreground); font-size: 11px; white-space: nowrap; cursor: pointer; }
+  .tab svg { width: 13px; height: 13px; opacity: 0.78; }
+  .tab:hover { background: var(--sidebar-hover-bg); color: var(--foreground); }
+  .tab.is-active { background: color-mix(in oklab, var(--sidebar-active-bg) 76%, transparent); color: var(--foreground); font-weight: 500; }
+  .tab.is-active svg { opacity: 1; }
+  .tab-badge { min-width: 12px; height: 12px; padding: 0 3px; border-radius: var(--radius-full); background: color-mix(in oklab, var(--info) 16%, transparent); color: var(--info); font-size: 9px; font-weight: 600; line-height: 12px; text-align: center; }
+  /* 面板 */
+  .panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .panel-head { position: relative; height: var(--head-h); flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--rule-weak); }
+  .panel-title { font-size: 12.5px; font-weight: 600; letter-spacing: -0.005em; }
+  .count-badge { display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 5px; border-radius: var(--radius-full); background: color-mix(in oklab, var(--info) 13%, transparent); color: var(--info); font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .count-badge[data-empty="true"] { background: color-mix(in oklab, var(--muted) 80%, transparent); color: var(--muted-foreground); }
+  .panel-tools { margin-left: auto; display: flex; align-items: center; gap: 1px; }
+  .panel-filters { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 7px; }
+  .seg { display: inline-flex; align-items: center; gap: 2px; align-self: flex-start; padding: 2px; border: 1px solid var(--rule); border-radius: var(--radius-lg); background: color-mix(in oklab, var(--muted) 45%, transparent); }
+  .seg-btn { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--muted-foreground); font-size: 11px; cursor: pointer; }
+  .seg-btn:hover { color: var(--foreground); }
+  .seg-btn[aria-pressed="true"] { background: var(--background); color: var(--foreground); font-weight: 600; box-shadow: 0 1px 2px rgb(15 23 42 / 0.06); }
+  .seg-n { font-size: 10px; font-weight: 500; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .seg-btn[aria-pressed="true"] .seg-n { color: color-mix(in oklab, var(--foreground) 72%, transparent); }
+  .search { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 7px; border: 1px solid var(--rule); border-radius: var(--radius-md); color: var(--muted-foreground); background: transparent; }
+  .search svg { width: 13px; height: 13px; opacity: 0.75; }
+  .search:focus-within { border-color: color-mix(in oklab, var(--border) 100%, transparent); background: color-mix(in oklab, var(--muted) 40%, transparent); }
+  .search input { flex: 1 1 auto; min-width: 0; border: 0; outline: none; background: transparent; font-size: 11.5px; color: var(--foreground); }
+  .search input::placeholder { color: var(--muted-foreground); }
+  .search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+  /* 任务列表 */
+  .task-list { flex: 0 0 38%; min-height: 96px; overflow-y: auto; padding: 2px 6px 6px; display: flex; flex-direction: column; gap: 1px; border-bottom: 1px solid var(--rule); }
+  .task-row { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; min-height: 56px; padding: 4px 8px; border: 0; border-radius: var(--radius-md); background: transparent; text-align: left; cursor: pointer; }
+  .task-row:hover { background: color-mix(in oklab, var(--muted) 62%, transparent); }
+  .task-row.is-active { background: color-mix(in oklab, var(--sidebar-active-bg) 68%, transparent); }
+  .task-status { position: relative; width: 14px; height: 14px; display: grid; place-items: center; }
+  .task-status svg { width: 13px; height: 13px; }
+  .task-status .dot { position: relative; width: 7px; height: 7px; border-radius: var(--radius-full); background: var(--muted-foreground); }
+  .task-status[data-s="running"] .dot { background: var(--info); }
+  .task-status[data-s="running"] .dot::after { content: ""; position: absolute; inset: -3px; border-radius: var(--radius-full); border: 1px solid color-mix(in oklab, var(--info) 55%, transparent); animation: dot-pulse 1.9s var(--ease-out) infinite; }
+  .task-status[data-s="completed"] { color: var(--success); }
+  .task-status[data-s="failed"] { color: var(--destructive); }
+  .task-status[data-s="timed_out"] { color: var(--warning); }
+  .task-status[data-s="stopped"] .dot { background: transparent; box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--muted-foreground) 62%, transparent); }
+  .task-main { min-width: 0; display: block; }
+  .task-desc { display: block; font-size: 12px; font-weight: 500; color: var(--foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .task-cmd { display: block; margin-top: 1px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .task-tail { position: relative; display: flex; align-items: center; justify-content: flex-end; min-width: 84px; height: 20px; }
+  .task-meta { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--muted-foreground); white-space: nowrap; font-variant-numeric: tabular-nums; transition: opacity var(--dur-fast) var(--ease-out); }
+  .task-row:hover .task-meta,
+  .task-row:focus-within .task-meta { opacity: 0; }
+  .task-meta .sep { color: color-mix(in oklab, var(--muted-foreground) 55%, transparent); }
+  .exit { font-variant-numeric: tabular-nums; }
+  .exit.is-ok { color: var(--success); }
+  .exit.is-bad { color: var(--destructive); }
+  .exit.is-warn { color: var(--warning); }
+  .task-actions { position: absolute; inset: 0 0 0 auto; display: flex; align-items: center; gap: 1px; opacity: 0; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out); }
+  .task-row:hover .task-actions,
+  .task-row:focus-within .task-actions { opacity: 1; pointer-events: auto; }
+  .row-btn { width: 20px; height: 20px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--muted-foreground); cursor: pointer; }
+  .row-btn svg { width: 13px; height: 13px; }
+  .row-btn:hover { background: color-mix(in oklab, var(--foreground) 9%, transparent); color: var(--foreground); }
+  .row-btn[data-act="stop"]:hover { color: var(--destructive); }
+  .list-empty { padding: 22px 8px; text-align: center; font-size: 11.5px; color: var(--muted-foreground); }
+  /* 详情 */
+  .detail { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .detail-head { position: relative; flex: 0 0 auto; display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px 7px; }
+  .detail-cmd { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 4px; }
+  .detail-cmd-txt { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; color: var(--foreground); overflow-wrap: anywhere; }
+  .detail-cmd .row-btn { margin-top: -1px; flex: 0 0 auto; }
+  .btn-destructive { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border: 1px solid color-mix(in oklab, var(--destructive) 32%, transparent); border-radius: var(--radius-md); background: color-mix(in oklab, var(--destructive) 8%, transparent); color: var(--destructive); font-size: 11px; white-space: nowrap; cursor: pointer; flex: 0 0 auto; }
+  .btn-destructive svg { width: 13px; height: 13px; }
+  .btn-destructive:hover { background: color-mix(in oklab, var(--destructive) 15%, transparent); }
+  .detail-state { flex: 0 0 auto; height: 20px; padding: 0 6px; border-radius: var(--radius-md); background: color-mix(in oklab, var(--muted) 80%, transparent); color: var(--muted-foreground); font-size: 10.5px; line-height: 20px; }
+  .meta-grid { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; padding: 0 12px 8px; font-size: 10.5px; color: var(--muted-foreground); }
+  .meta-i { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .meta-i.is-wide { flex: 1 1 100%; }
+  .meta-v { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: color-mix(in oklab, var(--foreground) 82%, transparent); }
+  /* 终端 */
+  .term { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin: 0 10px 10px; border: 1px solid var(--rule); border-radius: var(--radius-lg); background: var(--term-bg); }
+  .term-bar { position: relative; flex: 0 0 auto; height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-bottom: 1px solid var(--term-line); border-radius: var(--radius-lg) var(--radius-lg) 0 0; color: var(--term-dim); font-size: 10.5px; }
+  .term-bar-label { letter-spacing: 0.02em; }
+  .follow { position: relative; display: inline-flex; align-items: center; gap: 4px; height: 16px; margin-left: auto; padding: 0 6px; border: 1px solid color-mix(in oklab, var(--term-fg) 16%, transparent); border-radius: var(--radius-full); background: transparent; color: var(--term-dim); font-size: 10px; cursor: pointer; }
+  .follow:hover { color: var(--term-fg); }
+  .follow-dot { width: 5px; height: 5px; border-radius: var(--radius-full); background: color-mix(in oklab, var(--term-dim) 90%, transparent); }
+  .follow[aria-pressed="true"] { color: color-mix(in oklab, var(--term-fg) 92%, transparent); border-color: color-mix(in oklab, var(--term-ok) 42%, transparent); }
+  .follow[aria-pressed="true"] .follow-dot { background: var(--term-ok); box-shadow: 0 0 0 2px color-mix(in oklab, var(--term-ok) 22%, transparent); }
+  .term-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 6px 8px 8px; font-family: var(--font-mono); font-size: 12px; line-height: 1.55; scrollbar-width: thin; }
+  .term-body::-webkit-scrollbar { width: 8px; height: 8px; }
+  .term-body::-webkit-scrollbar-thumb { background: color-mix(in oklab, var(--term-fg) 16%, transparent); border-radius: var(--radius-full); }
+  .tl { display: flex; gap: 8px; }
+  .tl-n { flex: 0 0 auto; width: 16px; text-align: right; color: color-mix(in oklab, var(--term-dim) 65%, transparent); user-select: none; }
+  .tl-t { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--term-fg); }
+  .tl-t.is-err { color: var(--term-err); }
+  .tl-t.is-dim { color: var(--term-dim); }
+  .tl-t.is-ok { color: var(--term-ok); }
+  .term-foot { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-top: 1px solid var(--term-line); border-radius: 0 0 var(--radius-lg) var(--radius-lg); font-size: 10px; color: var(--term-dim); }
+  .term-foot .mono { color: color-mix(in oklab, var(--term-fg) 78%, transparent); }
+  .term-foot a { margin-left: auto; color: color-mix(in oklab, var(--term-fg) 88%, transparent); text-decoration: none; border-bottom: 1px dashed color-mix(in oklab, var(--term-fg) 34%, transparent); white-space: nowrap; cursor: pointer; }
+  .term-foot a:hover { border-bottom-style: solid; }
+  .empty { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 20px; color: var(--muted-foreground); font-size: 11.5px; }
+  .empty svg { width: 22px; height: 22px; opacity: 0.55; }
+  /* ══════════════════════════════════════════════════════════════════
+     设计标注
+     ══════════════════════════════════════════════════════════════════ */
+  .anno {
+    position: absolute;
+    display: none;
+    width: 15px;
+    height: 15px;
+    place-items: center;
+    border-radius: var(--radius-full);
+    background: var(--info);
+    color: var(--background);
+    font-family: var(--font-sans);
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1;
+    box-shadow: 0 0 0 2px var(--background);
+    z-index: 30;
+    pointer-events: none;
+  }
+  body.anno-on .anno { display: grid; }
+  .notes {
+    position: fixed;
+    right: calc(var(--insp-w) + 20px);
+    bottom: 14px;
+    z-index: 55;
+    width: 286px;
+    max-height: min(60vh, 470px);
+    overflow: auto;
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-xl);
+    background: var(--popover);
+    box-shadow: var(--shadow-quickforge);
+    opacity: 0;
+    transform: translateY(6px);
+    pointer-events: none;
+    transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+  }
+  body.anno-on .notes { opacity: 1; transform: none; pointer-events: auto; }
+  body[data-insp="closed"] .notes { right: 14px; }
+  .notes-head { display: flex; align-items: center; gap: 6px; padding-bottom: 7px; border-bottom: 1px solid var(--rule-weak); font-size: 11.5px; font-weight: 600; }
+  .notes-head span { font-weight: 400; color: var(--muted-foreground); font-size: 10.5px; }
+  .note { display: flex; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--rule-weak); }
+  .note:last-child { border-bottom: 0; padding-bottom: 2px; }
+  .note-n { flex: 0 0 auto; width: 15px; height: 15px; margin-top: 1px; display: grid; place-items: center; border-radius: var(--radius-full); background: color-mix(in oklab, var(--info) 14%, transparent); color: var(--info); font-size: 9.5px; font-weight: 600; }
+  .note-t { font-size: 11.5px; font-weight: 500; }
+  .note-b { margin-top: 1px; font-size: 11px; line-height: 1.55; color: var(--muted-foreground); }
+  /* ══════════════════════════════════════════════════════════════════
+     演示控制条（非产品 UI）
+     ══════════════════════════════════════════════════════════════════ */
+  .dock { position: fixed; left: 14px; bottom: 14px; z-index: 70; width: 228px; border: 1px solid var(--rule); border-radius: var(--radius-xl); background: var(--popover); box-shadow: var(--shadow-quickforge); overflow: hidden; }
+  .dock-head { display: flex; align-items: center; gap: 6px; padding: 7px 8px 7px 10px; border-bottom: 1px solid var(--rule-weak); }
+  .dock-title { font-size: 11.5px; font-weight: 600; }
+  .dock-tag { height: 14px; padding: 0 5px; border: 1px solid var(--rule); border-radius: var(--radius-full); color: var(--muted-foreground); font-size: 9px; line-height: 12px; white-space: nowrap; }
+  .dock-min { margin-left: auto; width: 20px; height: 20px; display: grid; place-items: center; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--muted-foreground); cursor: pointer; }
+  .dock-min svg { width: 14px; height: 14px; }
+  .dock-min:hover { background: var(--muted); color: var(--foreground); }
+  .dock-body { display: flex; flex-direction: column; gap: 7px; padding: 8px 10px 10px; }
+  .dock[data-collapsed="true"] { width: auto; }
+  .dock[data-collapsed="true"] .dock-body { display: none; }
+  .dock[data-collapsed="true"] .dock-head { border-bottom: 0; }
+  .dock[data-collapsed="true"] .dock-tag { display: none; }
+  .dock-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--muted-foreground); }
+  .dock .seg { background: color-mix(in oklab, var(--muted) 70%, transparent); }
+  .dock .seg-btn { height: 18px; padding: 0 7px; font-size: 10.5px; }
+  .switch { position: relative; flex: 0 0 auto; width: 26px; height: 15px; padding: 0; border: 1px solid var(--rule); border-radius: var(--radius-full); background: color-mix(in oklab, var(--muted) 90%, transparent); cursor: pointer; }
+  .switch::after { content: ""; position: absolute; top: 1px; left: 1px; width: 11px; height: 11px; border-radius: var(--radius-full); background: var(--background); box-shadow: 0 1px 2px rgb(0 0 0 / 0.22); transition: transform var(--dur-fast) var(--ease-out); }
+  .switch[aria-checked="true"] { border-color: transparent; background: color-mix(in oklab, var(--info) 72%, transparent); }
+  .switch[aria-checked="true"]::after { transform: translateX(11px); }
+  /* 移动端遮罩（仅 <900px 生效，由 body[data-insp] 控制） */
+  .scrim { display: none; position: fixed; inset: 0; z-index: 44; background: rgb(0 0 0 / 0.3); opacity: 0; pointer-events: none; transition: opacity var(--dur-base) var(--ease-out); }
+  /* Toast */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    z-index: 90;
+    padding: 5px 12px;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-full);
+    background: var(--popover);
+    box-shadow: var(--shadow-quickforge);
+    color: var(--foreground);
+    font-size: 11.5px;
+    opacity: 0;
+    transform: translate(-50%, 8px);
+    pointer-events: none;
+    transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+  }
+  .toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+  /* ══════════════════════════════════════════════════════════════════
+     动画
+     ══════════════════════════════════════════════════════════════════ */
+  @keyframes dot-pulse {
+    0% { transform: scale(0.72); opacity: 0.9; }
+    70% { transform: scale(1.55); opacity: 0; }
+    100% { transform: scale(1.55); opacity: 0; }
+  }
+  @keyframes dot-pulse-soft {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 1ms !important; }
+    .task-status .dot::after, .pill .pill-dot { animation: none !important; }
+  }
+  /* ══════════════════════════════════════════════════════════════════
+     响应式
+     ══════════════════════════════════════════════════════════════════ */
+  @media (max-width: 1100px) {
+    :root { --insp-w: 340px; }
+    .sb { width: 248px; }
+  }
+  @media (max-width: 900px) {
+    .insp { position: fixed; top: 0; right: 0; bottom: 0; z-index: 45; width: var(--insp-w); border-left: 1px solid var(--rule); box-shadow: var(--shadow-quickforge); transform: translateX(0); }
+    .insp[data-open="false"] { width: var(--insp-w); opacity: 1; border-left-width: 1px; transform: translateX(101%); }
+    .splitter { display: none; }
+    .scrim { display: block; }
+    body[data-insp="open"] .scrim { opacity: 1; pointer-events: auto; }
+    .notes { right: 14px; bottom: 156px; max-height: min(50vh, 360px); }
+  }
+  @media (max-width: 820px) {
+    .sb { display: none; }
+    .chat-body { padding: 14px 14px 18px; }
+    .composer-wrap { padding: 0 14px 14px; }
+  }
+</style>
+</head>
+<body data-insp="open">
+<div class="app" id="app">
+  <!-- ═══════════════ A. 左侧会话栏（静态装饰） ═══════════════ -->
+  <aside class="sb" aria-label="会话侧栏">
+    <div class="sb-head">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13l0-8Z" /></svg>
+      </span>
+      <span class="brand-name">QuickForge</span>
+      <div class="sb-head-tools">
+        <button class="icon-btn sm" type="button" title="搜索会话" aria-label="搜索会话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m16.7 16.7 4.3 4.3" /></svg>
+        </button>
+        <button class="icon-btn sm" type="button" title="新建会话" aria-label="新建会话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+      </div>
+    </div>
+    <div class="sb-actions">
+      <button class="sb-new" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+        新建会话
+      </button>
+    </div>
+    <div class="sb-label">今天</div>
+    <div class="sb-list">
+      <button class="sb-item is-active" type="button" aria-current="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" /></svg>
+        <span class="sb-item-text">后台任务侧边栏设计</span>
+        <span class="sb-item-time">14:02</span>
+      </button>
+      <button class="sb-item" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" /></svg>
+        <span class="sb-item-text">修复 Inspector 宽度记忆</span>
+        <span class="sb-item-time">11:48</span>
+      </button>
+      <button class="sb-item" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" /></svg>
+        <span class="sb-item-text">工作流时间线裁剪问题</span>
+        <span class="sb-item-time">10:15</span>
+      </button>
+    </div>
+    <div class="sb-label">昨天</div>
+    <div class="sb-list">
+      <button class="sb-item" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" /></svg>
+        <span class="sb-item-text">Subagent 运行详情重排</span>
+      </button>
+      <button class="sb-item" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" /></svg>
+        <span class="sb-item-text">Skills 设置页信息层级</span>
+      </button>
+    </div>
+    <div class="sb-foot">
+      <button class="sb-item" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.7 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.7a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.7a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.3 9v.09A1.7 1.7 0 0 0 20.86 10H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z" /></svg>
+        <span class="sb-item-text">设置</span>
+      </button>
+      <button class="sb-item" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M9.1 9a3 3 0 1 1 4.2 2.8c-.8.4-1.3 1.1-1.3 2" /><path d="M12 17h.01" /></svg>
+        <span class="sb-item-text">帮助与快捷键</span>
+      </button>
+    </div>
+  </aside>
+  <!-- ═══════════════ B. 中间会话区 ═══════════════ -->
+  <main class="chat">
+    <header class="chat-head">
+      <div class="chat-title-wrap">
+        <span class="chat-title">后台任务侧边栏设计</span>
+        <span class="chat-sub">main</span>
+      </div>
+      <div class="chat-tools">
+        <button class="icon-btn sm" type="button" title="分享会话" aria-label="分享会话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" /><path d="M12 3v12" /><path d="m8 7 4-4 4 4" /></svg>
+        </button>
+        <button class="icon-btn sm" type="button" id="bgToggle" title="后台任务" aria-label="后台任务" aria-pressed="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="m7.5 9.5 2.5 2.5-2.5 2.5" /><path d="M12.5 14.5H17" /></svg>
+          <span class="chat-badge" id="chatBadge">2</span>
+          <span class="anno" style="top:-4px;left:-7px">5</span>
+        </button>
+        <button class="icon-btn sm" type="button" title="更多" aria-label="更多">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
+        </button>
+      </div>
+    </header>
+    <div class="chat-body">
+      <div class="msg-user">帮我把 dev server 和静态预览都跑起来，然后看下健康检查接口通不通。</div>
+      <div class="msg-ai">
+        <p>已把三条命令放到后台，会话不会被阻塞。构建先跑完了，测试挂了一条用例。</p>
+      </div>
+      <!-- run_command 工具卡：仅入口 -->
+      <button class="tool-card" type="button" id="toolCard" aria-label="后台运行 npm run dev，打开后台任务面板">
+        <span class="tool-top">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="m7.5 9.5 2.5 2.5-2.5 2.5" /><path d="M12.5 14.5H17" /></svg>
+          <span class="tool-name">run_command</span>
+          <span class="tool-desc">启动 Vite 开发服务器（后台）</span>
+        </span>
+        <span class="tool-cmd">npm run dev -- --host 0.0.0.0</span>
+        <span class="tool-foot">
+          <span class="pill"><span class="pill-dot"></span>后台运行中</span>
+          <span class="mono" id="cardTimer">01:42</span>
+          <span class="link">查看完整日志
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7" /><path d="M9 7h8v8" /></svg>
+          </span>
+        </span>
+      </button>
+      <div class="msg-ai">
+        <p class="dim">工具卡只保留入口和最新一行状态；完整输出在右侧「后台任务」面板里，滚动不会丢。</p>
+      </div>
+    </div>
+    <div class="composer-wrap">
+      <div class="composer">
+        <div class="composer-ph">继续描述你的需求…</div>
+        <div class="composer-bar">
+          <button class="icon-btn sm" type="button" title="附件" aria-label="附件">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05 12.3 20.2a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8" /></svg>
+          </button>
+          <button class="icon-btn sm" type="button" title="提及" aria-label="提及">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></svg>
+          </button>
+          <span class="chat-sub" id="chatHint">main · 后台任务 2 个运行中</span>
+          <button class="composer-send" type="button" title="发送" aria-label="发送">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5" /><path d="m6 11 6-6 6 6" /></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+  <!-- ═══════════════ 分隔条（拖拽视觉） ═══════════════ -->
+  <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" aria-label="调整右侧栏宽度"></div>
+  <!-- ═══════════════ C. 右侧 Inspector ═══════════════ -->
+  <aside class="insp" id="insp" data-open="true" aria-label="右侧面板">
+    <!-- Tab 条 -->
+    <div class="tabstrip" role="tablist" aria-label="面板标签">
+      <button class="tab" role="tab" type="button" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>目标
+      </button>
+      <button class="tab" role="tab" type="button" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="2.5" /><path d="M12 4v4" /><circle cx="9" cy="14" r="1" /><circle cx="15" cy="14" r="1" /></svg>子代理
+      </button>
+      <button class="tab" role="tab" type="button" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="12" r="2.5" /><path d="M8.5 6H12a3 3 0 0 1 3 3v.5" /><path d="M8.5 18H12a3 3 0 0 0 3-3v-.5" /></svg>工作流
+      </button>
+      <button class="tab" role="tab" type="button" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5A5.5 5.5 0 0 0 2.5 9c0 4 3.5 7 5 10.5 1.2-2.2 1.6-4 4.5-4s3.3 1.8 4.5 4c1.5-3.5 5-6.5 5-10.5A5.5 5.5 0 0 0 12 6.5Z" /></svg>阅读器
+      </button>
+      <button class="tab is-active" role="tab" type="button" aria-selected="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="m7.5 9.5 2.5 2.5-2.5 2.5" /><path d="M12.5 14.5H17" /></svg>后台任务
+        <span class="tab-badge" id="tabBadge">2</span>
+      </button>
+      <button class="tab" role="tab" type="button" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="m5 7 4 5-4 5" /><path d="M12 17h7" /></svg>终端
+      </button>
+    </div>
+    <div class="panel">
+      <!-- 面板头 -->
+      <div class="panel-head" data-anno-host>
+        <span class="panel-title">后台任务</span>
+        <span class="count-badge" id="headBadge">2 个运行中</span>
+        <div class="panel-tools">
+          <button class="icon-btn sm" type="button" id="stopAll" title="全部停止" aria-label="全部停止">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5" /><rect x="9" y="9" width="6" height="6" rx="1" /></svg>
+          </button>
+          <button class="icon-btn sm" type="button" id="clearDone" title="清空已完成" aria-label="清空已完成">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16" /><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7" /><path d="M6.5 7l.8 11a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9L17.5 7" /></svg>
+          </button>
+          <button class="icon-btn sm" type="button" id="collapsePanel" title="折叠面板" aria-label="折叠面板">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="m7 20 5-5 5 5" /><path d="m7 4 5 5 5-5" /></svg>
+          </button>
+        </div>
+      </div>
+      <!-- 筛选 -->
+      <div class="panel-filters">
+        <div class="seg" role="group" aria-label="按状态筛选">
+          <button class="seg-btn" type="button" data-filter="all" aria-pressed="true">全部 <span class="seg-n" data-count="all">5</span></button>
+          <button class="seg-btn" type="button" data-filter="running" aria-pressed="false">运行中 <span class="seg-n" data-count="running">2</span></button>
+          <button class="seg-btn" type="button" data-filter="done" aria-pressed="false">已完成 <span class="seg-n" data-count="done">3</span></button>
+        </div>
+        <label class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m16.7 16.7 4.3 4.3" /></svg>
+          <input id="searchInput" type="search" placeholder="过滤命令…" autocomplete="off" aria-label="过滤命令" />
+        </label>
+      </div>
+      <!-- 任务列表 -->
+      <div class="task-list" id="taskList" role="list" aria-label="后台任务列表"></div>
+      <!-- 任务详情 -->
+      <div class="detail" id="detail" data-anno-host></div>
+    </div>
+  </aside>
+</div>
+<div class="scrim" id="scrim"></div>
+<!-- ═══════════════ 设计标注说明 ═══════════════ -->
+<aside class="notes" id="notes" aria-label="设计标注说明">
+  <div class="notes-head">设计标注 <span>· 后台任务侧边栏</span></div>
+  <div class="note">
+    <span class="note-n">1</span>
+    <div>
+      <div class="note-t">状态圆点用呼吸脉冲</div>
+      <div class="note-b">running 的圆点外圈每 1.9s 扩散一次，表示"仍在运行"；不整行高亮，避免抢占对话区注意力。</div>
+    </div>
+  </div>
+  <div class="note">
+    <span class="note-n">2</span>
+    <div>
+      <div class="note-t">行内操作只在 hover 出现</div>
+      <div class="note-b">停止 / 查看 / 复制默认隐藏，hover 时替换右侧元信息。列表静态态只留"状态 + 描述 + 命令 + 元信息"四件事。</div>
+    </div>
+  </div>
+  <div class="note">
+    <span class="note-n">3</span>
+    <div>
+      <div class="note-t">「跟随输出」只对运行中任务有意义</div>
+      <div class="note-b">激活态用 success 色小圆点，不整条按钮变色；任务结束后自动关闭，避免用户以为还在实时刷新。</div>
+    </div>
+  </div>
+  <div class="note">
+    <span class="note-n">4</span>
+    <div>
+      <div class="note-t">退出码只染数字，不染整行</div>
+      <div class="note-b">退出码 0 用 success 色、非 0 用 destructive 色，行背景保持中性。失败靠图标 + 文字表达，不靠大色块。</div>
+    </div>
+  </div>
+  <div class="note">
+    <span class="note-n">5</span>
+    <div>
+      <div class="note-t">折叠后保留运行中数量徽标</div>
+      <div class="note-b">侧栏收起时 header 上的「后台任务」按钮仍带数量徽标，是唯一的常驻提醒；徽标为 0 时自动隐藏。</div>
+    </div>
+  </div>
+</aside>
+<!-- ═══════════════ D. 演示控制条 ═══════════════ -->
+<div class="dock" id="dock" data-collapsed="false">
+  <div class="dock-head">
+    <span class="dock-title">演示控制</span>
+    <span class="dock-tag">非产品 UI</span>
+    <button class="dock-min" type="button" id="dockMin" aria-label="收起演示控制条">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6" /></svg>
+    </button>
+  </div>
+  <div class="dock-body">
+    <div class="dock-row">
+      <span>主题</span>
+      <div class="seg" role="group" aria-label="主题">
+        <button class="seg-btn" type="button" id="themeLight" aria-pressed="true">亮色</button>
+        <button class="seg-btn" type="button" id="themeDark" aria-pressed="false">暗色</button>
+      </div>
+    </div>
+    <div class="dock-row">
+      <span>显示设计标注</span>
+      <button class="switch" type="button" id="annoSwitch" role="switch" aria-checked="false" aria-label="显示设计标注"></button>
+    </div>
+    <div class="dock-row">
+      <span>右侧栏</span>
+      <div class="seg" role="group" aria-label="右侧栏">
+        <button class="seg-btn" type="button" id="inspOpenBtn" aria-pressed="true">展开</button>
+        <button class="seg-btn" type="button" id="inspCloseBtn" aria-pressed="false">收起</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   数据
+   ════════════════════════════════════════════════════════════════════ */
+const TASKS = [
+  {
+    id: 'bg-7f3a91',
+    desc: 'Vite 开发服务器',
+    cmd: 'npm run dev -- --host 0.0.0.0',
+    status: 'running',
+    elapsed: 102,
+    exit: null,
+    started: '14:02:11',
+    log: '~/.quickforge/logs/bg-7f3a91.log',
+    out: [
+      ['dim', '$ npm run dev -- --host 0.0.0.0'],
+      ['', ''],
+      ['dim', '> quickforge@1.4.2 dev'],
+      ['dim', '> vite --host 0.0.0.0'],
+      ['', ''],
+      ['', '  VITE v6.3.5  ready in 412 ms'],
+      ['', ''],
+      ['', '  ➜  Local:   http://localhost:5173/'],
+      ['', '  ➜  Network: http://192.168.1.24:5173/'],
+      ['', '  ➜  press h + enter to show help'],
+      ['', ''],
+      ['ok', '[14:02:14] hmr update /src/components/ChatPanel.tsx'],
+      ['ok', '[14:02:16] hmr update /src/styles/foundation.css'],
+      ['ok', '[14:02:19] hmr update /src/App.tsx'],
+      ['dim', '[14:02:26] page reload src/components/workspace/InspectorPanel.tsx']
+    ]
+  },
+  {
+    id: 'bg-2c8e04',
+    desc: '本地静态预览',
+    cmd: 'python -m http.server 8000',
+    status: 'running',
+    elapsed: 37,
+    exit: null,
+    started: '14:03:16',
+    log: '~/.quickforge/logs/bg-2c8e04.log',
+    out: [
+      ['dim', '$ python -m http.server 8000'],
+      ['', 'Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) …'],
+      ['', '127.0.0.1 - - [14:03:19] "GET /index.html HTTP/1.1" 200 -'],
+      ['', '127.0.0.1 - - [14:03:19] "GET /assets/app.css HTTP/1.1" 200 -'],
+      ['', '127.0.0.1 - - [14:03:19] "GET /assets/app.js HTTP/1.1" 200 -']
+    ]
+  },
+  {
+    id: 'bg-9a1d55',
+    desc: '生产构建',
+    cmd: 'npm run build',
+    status: 'completed',
+    elapsed: 134,
+    exit: 0,
+    started: '14:00:32',
+    log: '~/.quickforge/logs/bg-9a1d55.log',
+    out: [
+      ['dim', '$ npm run build'],
+      ['', '> quickforge@1.4.2 build'],
+      ['', '> tsc -b && vite build'],
+      ['', ''],
+      ['', 'vite v6.3.5 building for production...'],
+      ['', '✓ 1842 modules transformed.'],
+      ['', 'dist/index.html                     1.24 kB │ gzip:  0.62 kB'],
+      ['', 'dist/assets/app-Bq3x9Kd1.css       84.31 kB │ gzip: 13.02 kB'],
+      ['', 'dist/assets/app-Dt7mQp2e.js      1247.86 kB │ gzip: 342.71 kB'],
+      ['ok', '✓ built in 2m 14s'],
+      ['dim', '进程已退出，退出码 0']
+    ]
+  },
+  {
+    id: 'bg-4e77b2',
+    desc: '单元测试',
+    cmd: 'npm run test -- --runInBand',
+    status: 'failed',
+    elapsed: 42,
+    exit: 1,
+    started: '14:00:58',
+    log: '~/.quickforge/logs/bg-4e77b2.log',
+    out: [
+      ['dim', '$ npm run test -- --runInBand'],
+      ['', '> quickforge@1.4.2 test'],
+      ['', '> vitest run --runInBand'],
+      ['', ''],
+      ['ok', ' ✓ tests/frontend/chat-sidebar.test.ts (12 tests) 214ms'],
+      ['ok', ' ✓ tests/frontend/inspector-layout.test.ts (8 tests) 96ms'],
+      ['err', ' ❯ tests/frontend/background-tasks.test.ts (9 tests | 1 failed) 182ms'],
+      ['err', '   × 停止后计时器应停止 › 应在 1s 内冻结 elapsed'],
+      ['err', '     AssertionError: expected 43 to be 42'],
+      ['err', '      at tests/frontend/background-tasks.test.ts:88:24'],
+      ['err', ''],
+      ['err', ' Test Files  1 failed | 2 passed (3)'],
+      ['err', '      Tests  1 failed | 28 passed (29)'],
+      ['dim', '进程已退出，退出码 1']
+    ]
+  },
+  {
+    id: 'bg-1b60cc',
+    desc: '健康检查探活',
+    cmd: 'curl -N http://localhost:3000/health',
+    status: 'timed_out',
+    elapsed: 300,
+    exit: null,
+    started: '13:55:02',
+    log: '~/.quickforge/logs/bg-1b60cc.log',
+    out: [
+      ['dim', '$ curl -N http://localhost:3000/health'],
+      ['dim', '*   Trying 127.0.0.1:3000...'],
+      ['err', 'curl: (7) Failed to connect to localhost port 3000: Connection refused'],
+      ['dim', '等待重试，最长 5m0s…'],
+      ['err', '超时：300s 内未收到响应，已终止进程'],
+      ['dim', '进程已终止，状态 timed_out']
+    ]
+  }
+];
+const STATE_LABEL = {
+  running: '运行中',
+  completed: '已完成',
+  failed: '失败',
+  timed_out: '超时',
+  stopped: '已停止'
+};
+/* ════════════════════════════════════════════════════════════════════
+   工具
+   ════════════════════════════════════════════════════════════════════ */
+const $ = (sel, root = document) => root.querySelector(sel);
+const pad = (n) => String(n).padStart(2, '0');
+function fmtClock(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${pad(m)}:${pad(s)}`;
+}
+function fmtDur(sec) {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s ? `${m}m${s}s` : `${m}m`;
+}
+function isDone(t) {
+  return t.status !== 'running';
+}
+let toastTimer = 0;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('is-on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('is-on'), 1500);
+}
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => toast('已复制命令'), () => toast('复制失败'));
+  } else {
+    toast('已复制命令');
+  }
+}
+/* ════════════════════════════════════════════════════════════════════
+   图标（内联 SVG，24x24 / stroke 1.85）
+   ════════════════════════════════════════════════════════════════════ */
+const ICONS = {
+  check: '<circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  x: '<circle cx="12" cy="12" r="8.5"/><path d="m9.5 9.5 5 5"/><path d="m14.5 9.5-5 5"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  stop: '<circle cx="12" cy="12" r="8.5"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/>',
+  terminal: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7.5 9.5 2.5 2.5-2.5 2.5"/><path d="M12.5 14.5H17"/>'
+};
+function icon(name, size = 13) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ''}</svg>`;
+}
+function statusIcon(status) {
+  if (status === 'running') return '<span class="dot"></span>';
+  if (status === 'completed') return icon('check');
+  if (status === 'failed') return icon('x');
+  if (status === 'timed_out') return icon('clock');
+  return '<span class="dot"></span>';
+}
+/* ════════════════════════════════════════════════════════════════════
+   视图状态
+   ════════════════════════════════════════════════════════════════════ */
+const view = {
+  filter: 'all',
+  query: '',
+  selectedId: 'bg-7f3a91',
+  follow: true
+};
+const runningCount = () => TASKS.filter((t) => t.status === 'running').length;
+function matches(t) {
+  if (view.filter === 'running' && t.status !== 'running') return false;
+  if (view.filter === 'done' && t.status === 'running') return false;
+  if (view.query) {
+    const q = view.query.toLowerCase();
+    if (!t.cmd.toLowerCase().includes(q) && !t.desc.toLowerCase().includes(q)) return false;
+  }
+  return true;
+}
+function exitHtml(t) {
+  if (t.status === 'running') return `<span class="mono">${fmtClock(t.elapsed)}</span>`;
+  if (t.exit === 0) return `<span class="exit is-ok mono">退出码 0</span><span class="sep">·</span><span class="mono">${fmtDur(t.elapsed)}</span>`;
+  if (t.exit !== null && t.exit !== undefined) return `<span class="exit is-bad mono">退出码 ${t.exit}</span><span class="sep">·</span><span class="mono">${fmtDur(t.elapsed)}</span>`;
+  if (t.status === 'timed_out') return `<span class="exit is-warn mono">超时</span><span class="sep">·</span><span class="mono">${fmtDur(t.elapsed)}</span>`;
+  return `<span class="mono">${STATE_LABEL[t.status]} · ${fmtDur(t.elapsed)}</span>`;
+}
+/* ════════════════════════════════════════════════════════════════════
+   渲染：列表
+   ════════════════════════════════════════════════════════════════════ */
+function renderList() {
+  const list = $('#taskList');
+  const rows = TASKS.filter(matches);
+  if (!rows.length) {
+    list.innerHTML = '<div class="list-empty">没有匹配的后台任务</div>';
+    return;
+  }
+  let firstRunningMarked = false;
+  let secondRowMarked = false;
+  list.innerHTML = rows.map((t, i) => {
+    const active = t.id === view.selectedId ? ' is-active' : '';
+    const running = t.status === 'running';
+    let anno = '';
+    if (running && !firstRunningMarked) {
+      firstRunningMarked = true;
+      anno += '<span class="anno" style="top:-4px;left:-4px">1</span>';
+    }
+    if (i === 1 && !secondRowMarked) {
+      secondRowMarked = true;
+      anno += '<span class="anno" style="top:-4px;left:-4px">2</span>';
+    }
+    const meta = running
+      ? `<span class="task-meta"><span class="mono" data-timer="${t.id}">${fmtClock(t.elapsed)}</span></span>`
+      : `<span class="task-meta">${exitHtml(t)}</span>`;
+    return `
+      <div class="task-row${active}" role="listitem" tabindex="0" data-id="${t.id}"
+           aria-current="${active ? 'true' : 'false'}"
+           aria-label="${t.desc} · ${STATE_LABEL[t.status]} · ${t.cmd}">
+        <span class="task-status" data-s="${t.status}">${statusIcon(t.status)}</span>
+        <span class="task-main">
+          <span class="task-desc">${t.desc}</span>
+          <span class="task-cmd">${t.cmd}</span>
+        </span>
+        <span class="task-tail">
+          ${meta}
+          <span class="task-actions">
+            ${running ? `<button class="row-btn" type="button" data-act="stop" title="停止" aria-label="停止 ${t.desc}">${icon('stop')}</button>` : ''}
+            <button class="row-btn" type="button" data-act="view" title="查看" aria-label="查看 ${t.desc}">${icon('eye')}</button>
+            <button class="row-btn" type="button" data-act="copy" title="复制命令" aria-label="复制命令">${icon('copy')}</button>
+          </span>
+        </span>
+        ${anno}
+      </div>`;
+  }).join('');
+}
+/* ════════════════════════════════════════════════════════════════════
+   渲染：详情
+   ════════════════════════════════════════════════════════════════════ */
+function renderDetail() {
+  const host = $('#detail');
+  const t = TASKS.find((x) => x.id === view.selectedId);
+  if (!t) {
+    host.innerHTML = `
+      <div class="empty">
+        ${icon('terminal', 22)}
+        <span>选择一个任务查看输出</span>
+      </div>`;
+    return;
+  }
+  const running = t.status === 'running';
+  const exitTxt = t.exit === null || t.exit === undefined ? '—' : String(t.exit);
+  host.innerHTML = `
+    <div class="detail-head">
+      <div class="detail-cmd">
+        <span class="detail-cmd-txt">${t.cmd}</span>
+        <button class="row-btn" type="button" data-act="copy" title="复制命令" aria-label="复制命令">${icon('copy')}</button>
+      </div>
+      <span class="detail-state">${STATE_LABEL[t.status]}</span>
+      ${running ? `<button class="btn-destructive" type="button" data-act="stop">${icon('stop')}停止</button>` : ''}
+    </div>
+    <div class="meta-grid">
+      <span class="meta-i"><span>ID</span><span class="meta-v mono">${t.id}</span></span>
+      <span class="meta-i"><span>开始</span><span class="meta-v mono">${t.started}</span></span>
+      <span class="meta-i"><span>耗时</span><span class="meta-v mono" data-elapsed="${t.id}">${fmtDur(t.elapsed)}</span></span>
+      <span class="meta-i" style="position:relative"><span>退出码</span><span class="meta-v mono">${exitTxt}</span><span class="anno" style="top:-4px;right:-6px">4</span></span>
+      <span class="meta-i is-wide"><span>日志</span><span class="meta-v mono" title="${t.log}">${t.log}</span></span>
+    </div>
+    <div class="term">
+      <div class="term-bar">
+        <span class="term-bar-label">输出 · stdout / stderr</span>
+        ${running ? `<button class="follow" type="button" id="followBtn" aria-pressed="${view.follow}" title="跟随输出">
+          <span class="follow-dot"></span>跟随输出
+        </button>` : ''}
+        <span class="anno" style="top:-6px;right:-6px">3</span>
+      </div>
+      <div class="term-body" id="termBody">${renderOut(t)}</div>
+      <div class="term-foot">
+        <span>仅显示最后 200 行 · 完整日志已写入 <span class="mono">${t.log.split('/').pop()}</span></span>
+        <a role="button" tabindex="0" id="openLog">打开完整日志</a>
+      </div>
+    </div>`;
+}
+function renderOut(t) {
+  return t.out.map((line, i) => {
+    const cls = line[0] === 'err' ? ' is-err' : line[0] === 'ok' ? ' is-ok' : line[0] === 'dim' ? ' is-dim' : '';
+    return `<div class="tl"><span class="tl-n">${i + 1}</span><span class="tl-t${cls}">${escapeHtml(line[1]) || ' '}</span></div>`;
+  }).join('');
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function scrollTermToEnd() {
+  const body = $('#termBody');
+  if (body && view.follow) body.scrollTop = body.scrollHeight;
+}
+/* ════════════════════════════════════════════════════════════════════
+   渲染：计数
+   ════════════════════════════════════════════════════════════════════ */
+function renderCounts() {
+  const total = TASKS.length;
+  const running = runningCount();
+  const done = total - running;
+  document.querySelector('[data-count="all"]').textContent = total;
+  document.querySelector('[data-count="running"]').textContent = running;
+  document.querySelector('[data-count="done"]').textContent = done;
+  const headBadge = $('#headBadge');
+  headBadge.textContent = `${running} 个运行中`;
+  headBadge.dataset.empty = running === 0 ? 'true' : 'false';
+  const tabBadge = $('#tabBadge');
+  tabBadge.textContent = running;
+  tabBadge.style.display = running ? '' : 'none';
+  const chatBadge = $('#chatBadge');
+  chatBadge.textContent = running;
+  chatBadge.hidden = running === 0;
+  const hint = $('#chatHint');
+  if (hint) hint.textContent = running ? `main · 后台任务 ${running} 个运行中` : 'main · 无运行中任务';
+}
+/* ════════════════════════════════════════════════════════════════════
+   渲染入口
+   ════════════════════════════════════════════════════════════════════ */
+function render() {
+  renderList();
+  renderDetail();
+  renderCounts();
+  requestAnimationFrame(scrollTermToEnd);
+}
+/* ════════════════════════════════════════════════════════════════════
+   交互：列表选择 / 行内操作
+   ════════════════════════════════════════════════════════════════════ */
+$('#taskList').addEventListener('click', (e) => {
+  const row = e.target.closest('.task-row');
+  if (!row) return;
+  const id = row.dataset.id;
+  const actionEl = e.target.closest('[data-act]');
+  if (actionEl) {
+    const act = actionEl.dataset.act;
+    const task = TASKS.find((t) => t.id === id);
+    if (!task) return;
+    if (act === 'stop') stopTask(task);
+    if (act === 'view') {
+      view.selectedId = id;
+      render();
+    }
+    if (act === 'copy') copyText(task.cmd);
+    return;
+  }
+  view.selectedId = id;
+  render();
+});
+$('#taskList').addEventListener('keydown', (e) => {
+  const actionEl = e.target.closest('[data-act]');
+  if (actionEl) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      actionEl.click();
+    }
+    return;
+  }
+  const row = e.target.closest('.task-row');
+  if (!row) return;
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    view.selectedId = row.dataset.id;
+    render();
+    const next = document.querySelector(`.task-row[data-id="${row.dataset.id}"]`);
+    if (next) next.focus();
+  }
+});
+/* ════════════════════════════════════════════════════════════════════
+   交互：详情区操作
+   ════════════════════════════════════════════════════════════════════ */
+$('#detail').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-act]');
+  const t = TASKS.find((x) => x.id === view.selectedId);
+  if (btn && t) {
+    const act = btn.dataset.act;
+    if (act === 'copy') copyText(t.cmd);
+    if (act === 'stop') stopTask(t);
+    return;
+  }
+  if (e.target.closest('#followBtn')) {
+    view.follow = !view.follow;
+    const fb = $('#followBtn');
+    fb.setAttribute('aria-pressed', String(view.follow));
+    if (view.follow) scrollTermToEnd();
+    return;
+  }
+  if (e.target.closest('#openLog')) {
+    const cur = TASKS.find((x) => x.id === view.selectedId);
+    toast(`打开 ${cur ? cur.log : '日志文件'}`);
+  }
+});
+/* ════════════════════════════════════════════════════════════════════
+   交互：停止
+   ════════════════════════════════════════════════════════════════════ */
+function stopTask(task) {
+  if (task.status !== 'running') return;
+  task.status = 'stopped';
+  task.exit = null;
+  task.out = task.out.concat([['dim', '[已手动停止] 进程已终止，状态 stopped']]);
+  view.follow = false;
+  toast(`已停止「${task.desc}」`);
+  render();
+}
+$('#stopAll').addEventListener('click', () => {
+  const running = TASKS.filter((t) => t.status === 'running');
+  if (!running.length) {
+    toast('没有正在运行的任务');
+    return;
+  }
+  running.forEach((t) => {
+    t.status = 'stopped';
+    t.exit = null;
+    t.out = t.out.concat([['dim', '[已手动停止] 进程已终止，状态 stopped']]);
+  });
+  toast(`已停止 ${running.length} 个任务`);
+  render();
+});
+$('#clearDone').addEventListener('click', () => {
+  const before = TASKS.length;
+  for (let i = TASKS.length - 1; i >= 0; i -= 1) {
+    if (TASKS[i].status !== 'running') TASKS.splice(i, 1);
+  }
+  if (TASKS.length === before) {
+    toast('没有已完成的任务');
+    return;
+  }
+  if (!TASKS.some((t) => t.id === view.selectedId)) {
+    view.selectedId = TASKS.length ? TASKS[0].id : null;
+  }
+  toast('已清空已完成任务');
+  render();
+});
+$('#collapsePanel').addEventListener('click', () => {
+  setPanelOpen(false);
+});
+/* ════════════════════════════════════════════════════════════════════
+   交互：筛选 / 搜索
+   ════════════════════════════════════════════════════════════════════ */
+document.querySelectorAll('.seg-btn[data-filter]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    view.filter = btn.dataset.filter;
+    document.querySelectorAll('.seg-btn[data-filter]').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b === btn));
+    });
+    renderList();
+  });
+});
+$('#searchInput').addEventListener('input', (e) => {
+  view.query = e.target.value.trim();
+  renderList();
+});
+/* ════════════════════════════════════════════════════════════════════
+   交互：右侧栏开合
+   ════════════════════════════════════════════════════════════════════ */
+const insp = $('#insp');
+function setPanelOpen(open) {
+  insp.dataset.open = String(open);
+  document.body.dataset.insp = open ? 'open' : 'closed';
+  $('#bgToggle').setAttribute('aria-pressed', String(open));
+  $('#inspOpenBtn').setAttribute('aria-pressed', String(open));
+  $('#inspCloseBtn').setAttribute('aria-pressed', String(!open));
+}
+$('#bgToggle').addEventListener('click', () => setPanelOpen(insp.dataset.open !== 'true'));
+$('#inspOpenBtn').addEventListener('click', () => setPanelOpen(true));
+$('#inspCloseBtn').addEventListener('click', () => setPanelOpen(false));
+$('#scrim').addEventListener('click', () => setPanelOpen(false));
+$('#toolCard').addEventListener('click', () => {
+  setPanelOpen(true);
+  view.filter = 'running';
+  document.querySelectorAll('.seg-btn[data-filter]').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.filter === 'running'));
+  });
+  view.selectedId = 'bg-7f3a91';
+  render();
+});
+/* 拖拽调整宽度（仅视觉可拖，范围 340–1200） */
+(() => {
+  let dragging = false;
+  const splitter = $('#splitter');
+  const clamp = (w) => Math.min(1200, Math.max(340, w));
+  splitter.addEventListener('pointerdown', (e) => {
+    if (window.innerWidth <= 900) return;
+    dragging = true;
+    splitter.setPointerCapture(e.pointerId);
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+  });
+  splitter.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const w = clamp(window.innerWidth - e.clientX);
+    insp.style.setProperty('--insp-w', `${w}px`);
+  });
+  const end = () => {
+    dragging = false;
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+  };
+  splitter.addEventListener('pointerup', end);
+  splitter.addEventListener('pointercancel', end);
+})();
+/* ════════════════════════════════════════════════════════════════════
+   交互：主题
+   ════════════════════════════════════════════════════════════════════ */
+function setTheme(dark) {
+  document.documentElement.classList.toggle('dark', dark);
+  $('#themeLight').setAttribute('aria-pressed', String(!dark));
+  $('#themeDark').setAttribute('aria-pressed', String(dark));
+}
+$('#themeLight').addEventListener('click', () => setTheme(false));
+$('#themeDark').addEventListener('click', () => setTheme(true));
+/* ════════════════════════════════════════════════════════════════════
+   交互：标注
+   ════════════════════════════════════════════════════════════════════ */
+$('#annoSwitch').addEventListener('click', () => {
+  const on = document.body.classList.toggle('anno-on');
+  $('#annoSwitch').setAttribute('aria-checked', String(on));
+});
+/* ════════════════════════════════════════════════════════════════════
+   交互：演示控制条收起
+   ════════════════════════════════════════════════════════════════════ */
+$('#dockMin').addEventListener('click', () => {
+  const dock = $('#dock');
+  const collapsed = dock.dataset.collapsed !== 'true';
+  dock.dataset.collapsed = String(collapsed);
+  $('#dockMin').setAttribute('aria-label', collapsed ? '展开演示控制条' : '收起演示控制条');
+  $('#dockMin').style.transform = collapsed ? 'rotate(180deg)' : '';
+});
+/* ════════════════════════════════════════════════════════════════════
+   计时器：运行中任务真实走秒
+   ════════════════════════════════════════════════════════════════════ */
+const timer = setInterval(() => {
+  TASKS.forEach((t) => {
+    if (t.status !== 'running') return;
+    t.elapsed += 1;
+    document.querySelectorAll(`[data-timer="${t.id}"]`).forEach((el) => {
+      el.textContent = fmtClock(t.elapsed);
+    });
+    const el = document.querySelector(`[data-elapsed="${t.id}"]`);
+    if (el) el.textContent = fmtDur(t.elapsed);
+  });
+  const primary = TASKS.find((t) => t.id === 'bg-7f3a91');
+  const cardTimer = $('#cardTimer');
+  if (primary && cardTimer) {
+    cardTimer.textContent = fmtClock(primary.elapsed);
+    cardTimer.style.opacity = primary.status === 'running' ? '1' : '0.5';
+  }
+}, 1000);
+window.addEventListener('beforeunload', () => clearInterval(timer));
+/* ════════════════════════════════════════════════════════════════════
+   初始化
+   ════════════════════════════════════════════════════════════════════ */
+setPanelOpen(true);
+render();
+</script>
+</body>
+</html>

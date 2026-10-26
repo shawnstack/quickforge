@@ -1,7 +1,7 @@
 import type { SubagentRunPayload } from '@/lib/subagent-run-detail'
 import type { WorkflowRunPayload } from '@/lib/workflow-run-payload'
 
-export type WorkspacePanelView = 'review' | 'files' | 'browser' | 'changes' | 'terminal' | 'document'
+export type WorkspacePanelView = 'review' | 'files' | 'browser' | 'changes' | 'terminal' | 'document' | 'background-tasks'
 
 export type WorkspaceInspectorRuntimeScope = Readonly<{
   projectId: string
@@ -15,7 +15,7 @@ type WorkspaceInspectorRequestScope = {
 export type WorkspaceInspectorOpenRequest =
   | ({ id: number; projectId: string; kind: 'goal'; sessionId: string; goalId: string; view: 'progress' | 'edit' } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'review'; view: 'review' | 'changes'; /** 指定文件时在 Review 面板内直达该文件的 diff tab */ path?: string } & WorkspaceInspectorRequestScope)
-  | ({ id: number; projectId: string; kind: 'files' | 'terminal' | 'side-chat' } & WorkspaceInspectorRequestScope)
+  | ({ id: number; projectId: string; kind: 'files' | 'terminal' | 'side-chat' | 'background-tasks' } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'reader'; path: string } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'command-log'; sessionId: string; path: string; label?: string } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'document'; path: string; format: 'pdf' | 'docx' | 'excel' } & WorkspaceInspectorRequestScope)

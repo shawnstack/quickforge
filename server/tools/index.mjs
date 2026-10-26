@@ -1082,17 +1082,20 @@ export async function toolRunCommand(params, context, runtime = {}) {
       flushUpdate()
       settled = true
       cleanup()
-      const durationMs = Date.now() - startedAt
+      // One timestamp for both durationMs and finishedAt so they never disagree.
+      const finishedAt = Date.now()
+      const durationMs = finishedAt - startedAt
+      const pid = child.pid ?? null
       let result
       if (error) {
-        const details = commonDetails({ error: error.message, aborted, timedOut, durationMs, running: false, background: false })
+        const details = commonDetails({ error: error.message, aborted, timedOut, durationMs, startedAt, finishedAt, pid, running: false, background: false })
         result = {
           isError: true,
           content: truncateText(formatCommandOutput(command, details.stdout, `Error running command: ${error.message}\n${details.stderr}`.trim(), details)),
           details,
         }
       } else {
-        const details = commonDetails({ code, signal, timedOut, aborted, durationMs, running: false, background: false })
+        const details = commonDetails({ code, signal, timedOut, aborted, durationMs, startedAt, finishedAt, pid, running: false, background: false })
         result = { content: truncateText(formatCommandOutput(command, details.stdout, details.stderr, details)), details }
       }
       closeCommandLog(result, (closed) => {

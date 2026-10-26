@@ -29,6 +29,7 @@ import {
   type SubagentRunPayload,
 } from '@/lib/subagent-run-detail'
 import { OPEN_GOAL_SUMMARY_EVENT } from '@/lib/goal-ui'
+import { buildBackgroundTasks } from '@/lib/background-tasks-model'
 import { OPEN_WORKFLOW_RUN_EVENT, normalizeOpenWorkflowRunRequest, workflowRunStore, type WorkflowRunPayload } from '@/lib/workflow-run-payload'
 import type { GoalAction, GoalActionOptions } from '@/lib/goal'
 import { saveGoalObjective } from '@/lib/goal-edit'
@@ -408,6 +409,7 @@ function MainApp() {
   const pinnedSummarySuspended = workspaceInspectorOpen && canSuspendPinnedSummaryOnInspectorOpen
 
   const {
+    messages: pinnedSummaryMessages,
     todos: pinnedSummaryTodos,
     subagentRuns: pinnedSummarySubagentRuns,
     backgroundCommands: pinnedSummaryBackgroundCommands,
@@ -419,6 +421,21 @@ function MainApp() {
     agent: agentManager.agent,
     currentSessionId: agentManager.currentSessionId,
   })
+
+  // 后台任务统一视图：运行中来自 backgroundCommands 快照，已完成/失败/超时/已停止
+  // 派生自 toolResult 消息（settleBackgroundCommandToolResult 回灌的终态 details）。
+  const backgroundTasks = useMemo(
+    () => buildBackgroundTasks({
+      running: pinnedSummaryBackgroundCommands,
+      messages: pinnedSummaryMessages as unknown as readonly { role?: string; toolCallId?: string; details?: unknown }[],
+      sessionId: agentManager.currentSessionId,
+    }),
+    [agentManager.currentSessionId, pinnedSummaryBackgroundCommands, pinnedSummaryMessages],
+  )
+  const runningBackgroundTaskCount = useMemo(
+    () => backgroundTasks.filter((task) => task.status === 'running').length,
+    [backgroundTasks],
+  )
 
   // 对话区视图：只有「打开视图的会话」仍是当前会话时才生效，切会话自动回对话。
   const conversationView: 'chat' | 'trace' =
@@ -1697,6 +1714,11 @@ function MainApp() {
           onRename={handleRenameCurrentSession}
           onShare={handleShareCurrentSession}
           onArchive={handleArchiveCurrentSession}
+          backgroundTaskCount={runningBackgroundTaskCount}
+          onOpenBackgroundTasks={() => {
+            requestWorkspaceInspector({ projectId: workspaceInspectorProjectId, kind: 'background-tasks' })
+            handleWorkspaceInspectorOpenChange(true)
+          }}
           mobileShell={mobileShell}
         />
 
@@ -1887,6 +1909,24 @@ function MainApp() {
               sideChatInputMemory={sideChatInputMemory}
               sideChatRevision={sideChatRevision}
               sideChatEnabled={Boolean(agentManager.currentSessionId) && !needsModelSetup}
+              backgroundTasks={backgroundTasks}
+              onStopBackgroundTask={(task) => {
+                const stopSessionId = task.sessionId || agentManager.agent?.sessionId
+                if (!stopSessionId || !task.toolCallId) return
+                void fetch(`/api/agents/${encodeURIComponent(stopSessionId)}/abort-tool`, {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ toolCallId: task.toolCallId }),
+                })
+              }}
+              onOpenBackgroundTaskLog={(task) => {
+                if (!task.outputFile) return
+                const logSessionId = task.sessionId || agentManager.currentSessionId
+                if (!logSessionId) return
+                window.dispatchEvent(new CustomEvent('quickforge:view-command-log', {
+                  detail: { sessionId: logSessionId, path: task.outputFile, label: task.description || task.command },
+                }))
+              }}
               onClearSideChat={clearSideChat}
               onFullscreenChange={setWorkspaceInspectorFullscreen}
             conversationMinWidth={440}

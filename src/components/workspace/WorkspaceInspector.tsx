@@ -14,6 +14,8 @@ import { TerminalDock } from '@/components/terminal/TerminalDock'
 import { SubagentRunDetailContent } from './SubagentRunDetailContent'
 import { WorkflowRunDetailContent } from './WorkflowRunDetailContent'
 import { SideChatTabContent, type SideChatComposerDraftMemory } from './SideChatTabContent'
+import { BackgroundTasksTabContent } from './BackgroundTasksTabContent'
+import type { BackgroundTaskView } from '@/lib/background-tasks-model'
 import type { SideChatAgent } from './side-chat-agent'
 import { subagentRunStore } from '@/lib/subagent-run-detail'
 import { workflowRunStore, activeWorkflowRunStore } from '@/lib/workflow-run-payload'
@@ -57,13 +59,16 @@ type WorkspaceInspectorProps = {
   sideChatInputMemory: SideChatComposerDraftMemory
   sideChatRevision: number
   sideChatEnabled: boolean
+  backgroundTasks?: BackgroundTaskView[]
+  onStopBackgroundTask?: (task: BackgroundTaskView) => void
+  onOpenBackgroundTaskLog?: (task: BackgroundTaskView) => void
   onClearSideChat: () => void
   onFullscreenChange?: (fullscreen: boolean) => void
   conversationMinWidth?: number
   leftSidebarWidth?: number
 }
 
-export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeScopeId, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, sideChatAgent, sideChatInputMemory, sideChatRevision, sideChatEnabled, onClearSideChat, onFullscreenChange, conversationMinWidth = 440, leftSidebarWidth = 0 }: WorkspaceInspectorProps) {
+export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeScopeId, open, onOpenChange, onOpenCommitPush, onOpenProjectInExplorer, onOpenProjectInVSCode, onOpenProjectInIDEA, onPreviewArtifact, request, onRequestHandled, artifacts = [], pendingTerminalCommand, onPendingTerminalCommandHandled, globalTerminalOpen = false, onShowGlobalTerminal, sideChatAgent, sideChatInputMemory, sideChatRevision, sideChatEnabled, backgroundTasks = [], onStopBackgroundTask, onOpenBackgroundTaskLog, onClearSideChat, onFullscreenChange, conversationMinWidth = 440, leftSidebarWidth = 0 }: WorkspaceInspectorProps) {
   const gitState = useInspectorGitState()
   const { changes, setChanges, gitBranch, setGitBranch, isGitRepository, setIsGitRepository, gitLoadStatus, setGitLoadStatus, gitError, setGitError, reviewFilter, setReviewFilter, expandedDiffPath, expandedDiff, expandedDiffLoading, expandedDiffError, expandedDiffNoChanges, pendingGitAction, gitControllerRef } = gitState
 
@@ -372,7 +377,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
         />
 
         <div className={cn('flex min-h-0 flex-1 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
-          {!project?.id && activePanelTab?.kind !== 'goal' && activePanelTab?.kind !== 'subagent' && activePanelTab?.kind !== 'workflow' && activePanelTab?.kind !== 'side-chat' ? (
+          {!project?.id && activePanelTab?.kind !== 'goal' && activePanelTab?.kind !== 'subagent' && activePanelTab?.kind !== 'workflow' && activePanelTab?.kind !== 'side-chat' && activePanelTab?.kind !== 'background-tasks' ? (
             <div className="p-4 text-sm">{t('workspaceSelectProject')}</div>
           ) : !activePanelTab ? (
             <WorkspacePanelLanding items={availablePanelTabItems} onOpenPanelTab={(kind) => openPanelTab(kind, viewFromPanelKind(kind))} />
@@ -407,6 +412,13 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
               path={activePanelTab.document.path}
               format={activePanelTab.document.format}
               reloadNonce={activePanelTab.reloadNonce}
+            />
+          ) : activePanelTab.kind === 'background-tasks' ? (
+            <BackgroundTasksTabContent
+              tasks={backgroundTasks}
+              sessionId={sessionId}
+              onStopTask={onStopBackgroundTask}
+              onOpenLog={onOpenBackgroundTaskLog}
             />
           ) : activePanelTab.kind === 'terminal' ? (
             <TerminalDock

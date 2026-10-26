@@ -132,6 +132,10 @@ body {
   --destructive-foreground: oklch(1 0 0);
   /* 完成态语义色：与 destructive 同明度档位，供工作流阶段/Agent 状态使用。 */
   --workflow-done: oklch(0.55 0.13 158);
+  /* 通用语义色：供状态提示/徽标使用，纯 token（不进 @theme inline 映射）。 */
+  --success: oklch(0.55 0.13 158);
+  --warning: oklch(0.7 0.15 70);
+  --info: oklch(0.4 0.18 240);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -193,6 +197,9 @@ body {
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.985 0 0);
   --workflow-done: oklch(0.75 0.15 160);
+  --success: oklch(0.75 0.15 160);
+  --warning: oklch(0.78 0.14 75);
+  --info: oklch(0.75 0.14 240);
   --border: oklch(0.275 0 0);
   --input: oklch(0.325 0 0);
   --ring: oklch(0.556 0 0);

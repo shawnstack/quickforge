@@ -111,4 +111,54 @@ describe('run_command background execution', () => {
     })
     expect(notification.details).toMatchObject({ taskId: result.details.taskId, status: 'aborted' })
   })
+
+  it('reports real timing and pid in the exit details and the final result details', async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'quickforge-bg-timing-'))
+    tempDirs.push(cwd)
+    const script = "setTimeout(() => process.exit(0), 50)"
+    let notification = null
+
+    const result = await toolRunCommand({
+      command: `node -e ${JSON.stringify(script)}`,
+      description: 'background timing probe',
+      run_in_background: true,
+      timeoutMs: 5000,
+    }, {
+      workspaceRoot: cwd,
+      sessionId: 'session-background-timing',
+    }, {
+      toolCallId: 'tool-background-timing',
+      onBackgroundExit: (value) => {
+        notification = value
+      },
+    })
+
+    expect(result.details.running).toBe(true)
+    expect(result.details.taskId).toMatch(/^task_/)
+
+    const exited = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timing probe did not exit')), 5000)
+      const poll = () => {
+        if (notification?.phase !== 'exit') {
+          setTimeout(poll, 25)
+          return
+        }
+        clearTimeout(timer)
+        resolve(notification)
+      }
+      poll()
+    })
+
+    expect(exited.details).toMatchObject({ status: 'completed', code: 0, signal: null })
+    expect(typeof exited.details.startedAt).toBe('number')
+    expect(typeof exited.details.finishedAt).toBe('number')
+    expect(exited.details.finishedAt).toBeGreaterThanOrEqual(exited.details.startedAt)
+    expect(typeof exited.details.pid).toBe('number')
+
+    expect(exited.result.details.startedAt).toBe(exited.details.startedAt)
+    expect(typeof exited.result.details.finishedAt).toBe('number')
+    expect(typeof exited.result.details.pid).toBe('number')
+    expect(exited.result.details.finishedAt - exited.result.details.startedAt)
+      .toBe(exited.result.details.durationMs)
+  })
 })

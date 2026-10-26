@@ -1,0 +1,483 @@
+/*
+ * 后台任务右侧面板（background tasks inspector）。
+ *
+ * 结构：面板根 → 面板头 → 工具栏（筛选分段 + 搜索）→ 列表 → 详情。
+ * 颜色只取自语义 token，弱化一律 color-mix；动效只用 motion 时长/缓动 token。
+ * 本文件不 @import，模块顺序由 src/styles/index.css 统一声明。
+ */
+
+/* ---------------------------------------------------------------- 面板根 */
+
+.quickforge-background-tasks {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  font-size: 0.9375rem;
+}
+
+/* ---------------------------------------------------------------- 面板头 */
+
+.quickforge-background-tasks-header {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 2.5rem;
+  padding: 0 0.5rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+
+.quickforge-background-tasks-title {
+  font-size: 0.8125rem;
+  font-weight: 550;
+  color: var(--foreground);
+}
+
+.quickforge-background-tasks-count {
+  margin-left: 0.35rem;
+  padding: 0 0.4rem;
+  min-width: 1.15rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.quickforge-background-tasks-header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.125rem;
+}
+
+.quickforge-background-tasks-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-background-tasks-icon-button:hover {
+  background: color-mix(in oklab, var(--muted) 72%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-background-tasks-icon-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------- 工具栏 */
+
+.quickforge-background-tasks-toolbar {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  gap: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+
+.quickforge-background-tasks-filters {
+  display: inline-flex;
+  gap: 0.125rem;
+  padding: 0.125rem;
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--muted) 65%, transparent);
+}
+
+.quickforge-background-tasks-filter {
+  padding: 0.1rem 0.5rem;
+  border: 0;
+  border-radius: 0.4375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-background-tasks-filter.is-active {
+  background: var(--background);
+  color: var(--foreground);
+  font-weight: 550;
+  box-shadow: var(--shadow-quickforge);
+}
+
+.quickforge-background-tasks-search {
+  width: 100%;
+  height: 1.5rem;
+  padding: 0 0.45rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.75rem;
+}
+
+.quickforge-background-tasks-search::placeholder {
+  color: var(--muted-foreground);
+}
+
+.quickforge-background-tasks-search:focus-visible {
+  outline: none;
+  border-color: color-mix(in oklab, var(--ring, var(--border)) 100%, transparent);
+}
+
+/* ------------------------------------------------------------------ 列表 */
+
+.quickforge-background-tasks-list {
+  flex: 1 1 38%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 34%, transparent);
+}
+
+.quickforge-background-tasks-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: background-color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-background-tasks-item:hover {
+  background: color-mix(in oklab, var(--muted) 60%, transparent);
+}
+
+.quickforge-background-tasks-item.is-active {
+  background: var(--sidebar-active-bg);
+  color: var(--foreground);
+}
+
+/* 状态圆点 */
+
+.quickforge-background-tasks-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+}
+
+.quickforge-background-tasks-dot.is-running {
+  background: var(--info, #004b9c);
+  animation: quickforge-background-tasks-pulse 1.8s ease-in-out infinite;
+}
+
+.quickforge-background-tasks-dot.is-completed {
+  background: var(--success);
+}
+
+.quickforge-background-tasks-dot.is-failed {
+  background: var(--destructive);
+}
+
+.quickforge-background-tasks-dot.is-timed-out {
+  background: var(--warning);
+}
+
+.quickforge-background-tasks-dot.is-aborted {
+  background: transparent;
+  border: 1px solid color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+
+/* 行内三列内容 */
+
+.quickforge-background-tasks-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.quickforge-background-tasks-item-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quickforge-background-tasks-item-command {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quickforge-background-tasks-item-meta {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 行内操作区：默认隐藏，hover / 键盘焦点 / 选中项才出现 */
+
+.quickforge-background-tasks-item-actions {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 0.125rem;
+  padding: 0 0.1rem;
+  border-radius: 0.4rem;
+  background: var(--card);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-background-tasks-item:hover .quickforge-background-tasks-item-actions,
+.quickforge-background-tasks-item:focus-within .quickforge-background-tasks-item-actions,
+.quickforge-background-tasks-item.is-active .quickforge-background-tasks-item-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ------------------------------------------------------------------ 详情 */
+
+.quickforge-background-tasks-detail {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 62%;
+  min-height: 0;
+}
+
+.quickforge-background-tasks-detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 34%, transparent);
+}
+
+.quickforge-background-tasks-detail-command {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.75rem;
+  color: var(--foreground);
+  word-break: break-all;
+  user-select: text;
+}
+
+.quickforge-background-tasks-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.15rem 0.5rem;
+  padding: 0.4rem 0.5rem;
+  margin: 0;
+  font-size: 0.6875rem;
+}
+
+.quickforge-background-tasks-meta dt {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.quickforge-background-tasks-meta dd {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+/* 输出区：外框 → 标题条 → 滚动区 → 底部提示 */
+
+.quickforge-background-tasks-output {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin: 0 0.4rem 0.4rem;
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--background) 88%, var(--foreground));
+}
+
+.quickforge-background-tasks-output-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 34%, transparent);
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+}
+
+.quickforge-background-tasks-follow {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+
+.quickforge-background-tasks-follow.is-on {
+  color: var(--success);
+  border-color: color-mix(in oklab, var(--success) 45%, transparent);
+}
+
+.quickforge-background-tasks-follow-dot {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.quickforge-background-tasks-output-scroll {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  overflow: auto;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--foreground);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.quickforge-background-tasks-output-stderr {
+  color: var(--destructive);
+}
+
+.quickforge-background-tasks-output-empty {
+  color: var(--muted-foreground);
+}
+
+.quickforge-background-tasks-output-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  border-top: 1px solid color-mix(in oklab, var(--border) 34%, transparent);
+}
+
+/* ------------------------------------------------------------ 文字与按钮 */
+
+.quickforge-background-tasks-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.quickforge-background-tasks-link:hover {
+  color: var(--foreground);
+}
+
+.quickforge-background-tasks-stop {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid color-mix(in oklab, var(--destructive) 40%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--destructive);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition:
+    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    color var(--quickforge-dur-fast) var(--quickforge-ease-out),
+    border-color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-background-tasks-stop:hover {
+  background: color-mix(in oklab, var(--destructive) 12%, transparent);
+}
+
+.quickforge-background-tasks-stop:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------- 空状态 */
+
+.quickforge-background-tasks-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 0.35rem;
+  padding: 1rem;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+
+.quickforge-background-tasks-empty-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.quickforge-background-tasks-empty-desc {
+  max-width: 16rem;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------ 动效 */
+
+/* 运行中状态的呼吸脉冲：长循环，节奏独立于 motion 时长刻度。 */
+@keyframes quickforge-background-tasks-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-background-tasks-dot.is-running {
+    animation: none;
+  }
+
+  .quickforge-background-tasks-item,
+  .quickforge-background-tasks-item-actions,
+  .quickforge-background-tasks-icon-button,
+  .quickforge-background-tasks-filter,
+  .quickforge-background-tasks-stop {
+    transition: none;
+  }
+}

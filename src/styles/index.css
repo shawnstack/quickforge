@@ -58,5 +58,6 @@
 @import "./chat/todo-summary.css";
 @import "./chat/pinned-summary.css";
 @import "./workspace/inspector-tabs.css";
+@import "./workspace/background-tasks.css";
 @import "./chat/file-rollback.css";
 @import "./highlight.css";
